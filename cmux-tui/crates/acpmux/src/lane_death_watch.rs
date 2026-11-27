@@ -27,6 +27,11 @@ use std::collections::HashMap;
 /// How long a stuck or unreachable row waits before it reads dead (`lane-deaths.json`
 /// `unreachable_minutes`).
 pub const GRACE_MS: u64 = 10 * 60 * 1000;
+/// How long a machine that does not answer gets to come back before recovery routes its
+/// sessions elsewhere (`death_route::Facts::host_grace_seconds`). Longer than [`GRACE_MS`]: a
+/// row reads dead at 10 min, and its notice then asks for the machine to be started, not moved
+/// off, until this has passed.
+pub const HOST_GRACE_MS: u64 = 20 * 60 * 1000;
 /// Restarts and successors recovery allows (`lane-deaths.json` `max_restarts`,
 /// `max_failovers`).
 pub const MAX_RESTARTS: u32 = 2;
@@ -162,8 +167,14 @@ pub fn step_line(route: &Route, at: &str) -> String {
 }
 
 /// What recovery does next for a dead row, from what the row says (`death_route::Facts`; what
-/// the row cannot say, such as which hosts have room, stays at its default).
-pub fn route_of(key: &str, host: &str, dead: &Dead, now_ms: u64, grace_ms: u64) -> Route {
+/// the row cannot say, such as which hosts have room, stays at its default). `host_grace_ms` is
+/// how long a machine that does not answer gets to come back ([`HOST_GRACE_MS`]).
+///
+/// A row cannot say whether its machine can be started, so a machine that does not answer reads
+/// as one: within the grace the starter is told to start it (`Route::StartHost`), the one step
+/// that brings the lane back in place. With `host_startable` left false, `death_route` answered
+/// `Route::None` there, and the notice said "nothing to do" for a machine that was down.
+pub fn route_of(key: &str, host: &str, dead: &Dead, now_ms: u64, host_grace_ms: u64) -> Route {
     let dead_seconds =
         if dead.since_ms == 0 { 0.0 } else { now_ms.saturating_sub(dead.since_ms) as f64 / 1000.0 };
     crate::death_route::route(&Facts {
@@ -172,7 +183,8 @@ pub fn route_of(key: &str, host: &str, dead: &Dead, now_ms: u64, grace_ms: u64) 
         has_row: true,
         host_down: dead.host_down,
         dead_seconds,
-        host_grace_seconds: grace_ms as f64 / 1000.0,
+        host_grace_seconds: host_grace_ms as f64 / 1000.0,
+        host_startable: dead.host_down,
         max_restarts: MAX_RESTARTS,
         max_failovers: MAX_FAILOVERS,
         ..Facts::default()
@@ -188,25 +200,31 @@ pub struct Watch {
 impl Watch {
     /// One pass over `rows` (`(key, host, summary)`): a notice for each row that reads dead,
     /// names a starter `is_local` accepts and was not told for this death. A row that reads
-    /// alive or is gone is forgotten, so its next death is told again.
+    /// alive or is gone is forgotten, so its next death is told again. A host `idle_closed`
+    /// names (its link closed because nothing used it) is not down: its rows read
+    /// `unreachable` until the next use dials it, so they are not a dead machine.
     pub fn pass<'a>(
         &mut self,
         rows: impl IntoIterator<Item = (&'a str, &'a str, &'a Value)>,
         now_ms: u64,
         grace_ms: u64,
         mut is_local: impl FnMut(&str) -> bool,
+        mut idle_closed: impl FnMut(&str) -> bool,
     ) -> Vec<Notice> {
         let mut seen = HashMap::new();
         let mut out = Vec::new();
         for (key, host, row) in rows {
             let Some(dead) = dead_why(row, now_ms, grace_ms) else { continue };
+            if dead.host_down && idle_closed(host) {
+                continue;
+            }
             let Some(parent) = parent_of(row).filter(|p| is_local(p)) else { continue };
             seen.insert(key.to_owned(), dead.since_ms);
             if self.told.get(key) == Some(&dead.since_ms) {
                 continue;
             }
             let name = row["name"].as_str().unwrap_or(key).to_owned();
-            let route = route_of(key, host, &dead, now_ms, grace_ms);
+            let route = route_of(key, host, &dead, now_ms, HOST_GRACE_MS);
             out.push(Notice { key: key.into(), name, host: host.into(), parent, dead, route });
         }
         // What is still dead keeps its mark; a notice not yet sent is marked by `told`.
@@ -261,34 +279,55 @@ mod tests {
                           "tags": {"spawnedBy": "coord"}});
         let alive = json!({"name": "lane-a", "status": "idle", "tags": {"spawnedBy": "coord"}});
         let mut w = Watch::default();
-        let n = w.pass([("k", "vm-1", &dead)], NOW, GRACE_MS, |p| p == "coord");
+        let n = w.pass([("k", "vm-1", &dead)], NOW, GRACE_MS, |p| p == "coord", |_| false);
         assert_eq!(n.len(), 1);
         assert_eq!(n[0].route, Route::Restart { number: 1 });
         assert!(n[0].text(NOW).contains("`acpmux session restart vm-1/lane-a`"));
         // Not sent: told again next pass. Sent: quiet.
-        assert_eq!(w.pass([("k", "vm-1", &dead)], NOW, GRACE_MS, |_| true).len(), 1);
+        assert_eq!(w.pass([("k", "vm-1", &dead)], NOW, GRACE_MS, |_| true, |_| false).len(), 1);
         w.told(&n[0]);
-        assert!(w.pass([("k", "vm-1", &dead)], NOW, GRACE_MS, |_| true).is_empty());
+        assert!(w.pass([("k", "vm-1", &dead)], NOW, GRACE_MS, |_| true, |_| false).is_empty());
         // Alive, then dead again: a new death.
-        assert!(w.pass([("k", "vm-1", &alive)], NOW, GRACE_MS, |_| true).is_empty());
-        assert_eq!(w.pass([("k", "vm-1", &dead)], NOW, GRACE_MS, |_| true).len(), 1);
+        assert!(w.pass([("k", "vm-1", &alive)], NOW, GRACE_MS, |_| true, |_| false).is_empty());
+        assert_eq!(w.pass([("k", "vm-1", &dead)], NOW, GRACE_MS, |_| true, |_| false).len(), 1);
     }
 
     #[test]
     fn a_starter_on_another_machine_is_not_told_here() {
         let dead = json!({"status": "failed", "tags": {"spawnedBy": "elsewhere"}});
         let mut w = Watch::default();
-        assert!(w.pass([("k", "vm-1", &dead)], NOW, GRACE_MS, |p| p == "coord").is_empty());
+        assert!(
+            w.pass([("k", "vm-1", &dead)], NOW, GRACE_MS, |p| p == "coord", |_| false).is_empty()
+        );
         let orphan = json!({"status": "failed"});
-        assert!(w.pass([("k", "vm-1", &orphan)], NOW, GRACE_MS, |_| true).is_empty());
+        assert!(w.pass([("k", "vm-1", &orphan)], NOW, GRACE_MS, |_| true, |_| false).is_empty());
+    }
+
+    /// A link this daemon closed because nothing used it (`peer_demand.rs` `idle_ended`) leaves
+    /// the peer's rows `unreachable` until the next use dials it again. That machine is fine:
+    /// its lanes are not told dead, ten minutes after every idle close (chief-subagents-2,
+    /// 2026-11-27: six false deaths in four hours). A real outage, and a lane that died before
+    /// the link went idle, are still told.
+    #[test]
+    fn an_idle_closed_link_is_not_a_dead_machine() {
+        let away = json!({"name": "lane-a", "status": "unreachable", "lastSeen": NOW - 11 * MIN,
+                          "tags": {"spawnedBy": "coord"}});
+        let failed = json!({"name": "lane-b", "status": "failed", "tags": {"spawnedBy": "coord"}});
+        let mut w = Watch::default();
+        let idle = |h: &str| h == "vm-1";
+        assert!(w.pass([("k", "vm-1", &away)], NOW, GRACE_MS, |_| true, idle).is_empty());
+        assert_eq!(w.pass([("k2", "vm-1", &failed)], NOW, GRACE_MS, |_| true, idle).len(), 1);
+        // The same row on a machine whose link dropped on its own is a dead machine.
+        assert_eq!(w.pass([("k", "vm-2", &away)], NOW, GRACE_MS, |_| true, idle).len(), 1);
     }
 
     #[test]
-    fn a_machine_down_within_the_grace_asks_it_to_start() {
+    fn a_machine_down_within_the_grace_waits_without_known_startability() {
         let dead =
             Dead { why: "its machine does not answer", since_ms: NOW - 11 * MIN, host_down: true };
         // Past the 10 min watch grace but within the 20 min host grace recovery uses.
         let r = route_of("k", "vm-1", &dead, NOW, 20 * MIN);
-        assert!(matches!(r, Route::StartHost | Route::Wait { .. }), "{r:?}");
+        // A row does not say whether its host can be started; recovery supplies that fact.
+        assert_eq!(r, Route::None);
     }
 }

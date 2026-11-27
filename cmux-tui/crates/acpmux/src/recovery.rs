@@ -68,6 +68,9 @@ pub mod kind {
     pub const PEER_UNREACHABLE: &str = "peer.unreachable";
     /// The daemon is restarting or shutting down.
     pub const DAEMON_RESTARTING: &str = "daemon.restarting";
+    /// The two ends of a connection share no wire ABI revision (`protocol/range.rs`): `details`
+    /// names both ranges and which side (`update`: `self` or `peer`) to update.
+    pub const VERSION_INCOMPATIBLE: &str = "version.incompatible";
     /// The agent's program could not be started.
     pub const SPAWN_FAILED: &str = "spawn.failed";
     /// The agent's process ended in the middle of a turn.
@@ -422,7 +425,7 @@ fn disk_full(near: Option<&Path>) -> (String, Map<String, Value>) {
 }
 
 /// `Free space on the disk that holds P: 0.9 GB free of 252 GB. acpmux's chats in H use 3.0 GB;
-/// `acpmux session stop NAME --purge` removes a chat you no longer need.` The chats' size is
+/// `acpmux session stop NAME --purge --now` removes a chat you no longer need.` The chats' size is
 /// measured only when `measure` (a blocking walk: `daemon status`, off the async workers);
 /// otherwise a size measured in the last minute is used, or none.
 pub fn free_space_sentence(space: &Space, measure: bool) -> String {
@@ -439,8 +442,8 @@ pub fn free_space_sentence(space: &Space, measure: bool) -> String {
         && size >= 100 << 20
     {
         text.push_str(&format!(
-            " acpmux's chats in {} use {}; `acpmux session stop <session> --purge` removes a \
-             chat you no longer need.",
+            " acpmux's chats in {} use {}; `acpmux session stop <session> --purge --now` removes \
+             a chat you no longer need.",
             chats.display(),
             gb(size)
         ));

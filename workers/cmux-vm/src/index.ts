@@ -15,6 +15,7 @@ import type { TenantLimitsObject } from "./limits/durable-object.ts";
 import type { PausedReplicaObject } from "./replica/durable-object.ts";
 import { durableObjectReplicaLayer } from "./replica/store.ts";
 import { durableObjectLimitsLayer } from "./limits/service.ts";
+import { durableObjectCreateAdmission, parseCreateAdmission, PROVIDER_CREATE_QUEUE_NAME } from "./limits/create-admission.ts";
 import { parseEnvironment, parseTenantList, parseVmQuotas, tenantPolicyLayer, withCiTeamQuotas } from "./policy.ts";
 import { parseHttpsProxyOrigins } from "./network-origin.ts";
 import { entitlementsFromPolicyLayer } from "./proofs/tenant-may-create.ts";
@@ -87,6 +88,10 @@ export interface Env {
   readonly CMUX_VM_CI_TRUST?: string;
   /** Team keys: a JSON array of { id, team, sha256[], scopes, labels, maxVms, maxUsdPerHour }; hashes only. See src/auth/team-keys.ts. */
   readonly CMUX_VM_TEAM_KEYS?: string;
+  /** Provider creates in flight per environment; the rest queue (src/limits/create-admission.ts). Default 3 (measured); "none" turns the queue off. */
+  readonly PROVIDER_CREATE_CONCURRENCY?: string;
+  /** The longest a create waits in that queue before a retryable 503, in ms (0..120000). Default 25000 (the platform's 270 s create budget less 245 s of create work). */
+  readonly PROVIDER_CREATE_QUEUE_WAIT_MS?: string;
   /** Staging only: the database fault switch, off unless set (src/db/fault.ts). Every other environment ignores it. */
   readonly CMUX_VM_DB_FAULT?: string;
 }
@@ -119,7 +124,7 @@ const liveServices = (env: Env) => {
     entitlementsFromPolicyLayer.pipe(Layer.provide(policy)),
     durableObjectLimitsLayer(env.TENANT_LIMITS),
     durableObjectReplicaLayer(env.PAUSED_REPLICAS),
-    upstreamLayer({ baseUrl: env.UPSTREAM_API_URL, apiKey: env.UPSTREAM_API_KEY, environment: parseEnvironment(env.ENVIRONMENT) }),
+    upstreamLayer({ baseUrl: env.UPSTREAM_API_URL, apiKey: env.UPSTREAM_API_KEY, environment: parseEnvironment(env.ENVIRONMENT), ...createAdmissionOf(env) }),
     // The shared positive membership cache (mesh M4) lives in Postgres, so the webhook revokes it for every isolate.
     Layer.provideMerge(
       stackLayers({
@@ -137,6 +142,14 @@ const liveServices = (env: Env) => {
       serverKey: Redacted.make(env.STACK_SECRET_SERVER_KEY),
     }),
   );
+};
+
+/** The environment's one provider create queue (limits/create-admission.ts), unless PROVIDER_CREATE_CONCURRENCY is "none". */
+const createAdmissionOf = (env: Env) => {
+  const settings = parseCreateAdmission(env.PROVIDER_CREATE_CONCURRENCY, env.PROVIDER_CREATE_QUEUE_WAIT_MS);
+  if (settings === null) return {};
+  const namespace = env.TENANT_LIMITS;
+  return { createAdmission: durableObjectCreateAdmission(() => namespace.get(namespace.idFromName(PROVIDER_CREATE_QUEUE_NAME)), settings) };
 };
 
 /** The provider snapshot and terminal clients (slice S3a). */

@@ -29,6 +29,7 @@ import os
 import pwd
 import re
 import shutil
+import signal
 import socket
 import subprocess
 import sys
@@ -55,6 +56,7 @@ def load(name: str, path: Path):
 # call with its JSON answer, the scene in an `ext shot --json` answer.
 reload_nightly = load("ext_reload_nightly", ROOT / "scripts/measure/ext-reload-nightly.py")
 cli_json, scene_of, control_socket = reload_nightly.cli_json, reload_nightly.scene_of, reload_nightly.control_socket
+capture_marker = load("ext_rows_capture", ROOT / "scripts/measure/ext-rows-capture.py").capture_marker
 
 
 @dataclass
@@ -303,8 +305,8 @@ def row_composer(ctx: Ctx) -> dict:
             "composer_list_ok": listed.get("ok"), "mentions_ok": mentions.get("ok")}
 
 
-def row_chat_widget(ctx: Ctx) -> dict:
-    """Chat-widget routing (#43030, the daemon op only; the transcript does not draw it yet): a tool call whose
+def row_chat_widget_routes(ctx: Ctx) -> dict:
+    """Chat-widget routing (#43030): a tool call whose
     name matches a `cmux.chat.widget/1` app routes to it (`apps.chat_widgets.route`); another does not."""
     install = install_customize(ctx, {
         "name": "Rows chat widget", "description": "A card for rowsprobe tools.", "runtime": {"main": "main.js"},
@@ -324,6 +326,19 @@ def row_chat_widget(ctx: Ctx) -> dict:
                        and widget(other) is None,
                        "app_route_answers": (widget(by_app) or {}).get("app") == CUSTOMIZE_APP},
             "install": install, "route_tool": tool, "route_other": other, "route_app": by_app}
+
+
+def row_chat_widget(ctx: Ctx) -> dict:
+    """Require both routing and a completed tool's widget drawn in the NIGHTLY copy."""
+    routing = row_chat_widget_routes(ctx)
+    fixture = load("ext_rows_chat_widget", ROOT / "scripts/measure/ext-rows-chat-widget.py")
+    drawing = fixture.row_chat_widget_drawn(ctx, sys.modules[__name__])
+    return {"checks": {**{f"route_{key}": value for key, value in routing["checks"].items()},
+                       **drawing["checks"], "drawing_checks_present": bool(drawing["checks"])},
+            "routing": routing, "drawing": drawing}
+
+
+row_chat_widget.needs_app = True
 
 
 def row_newtab(ctx: Ctx) -> dict:
@@ -388,8 +403,11 @@ row_sidebar_list.needs_app = True
 def row_web_pane(ctx: Ctx) -> dict:
     """Web panes (#41546 Rust, #43033 Mac host): a `cmux.pane/1` with `web` lists its page (`apps-list`
     `web_pages`) and `app.open` opens it as a page tab (`snapshot.get` topology holds `app:local/customize`)."""
-    html = (f"<!doctype html><html><head><title>{ctx.token} web pane</title></head>"
-            f"<body><h1>{ctx.token} web pane</h1></body></html>\n")
+    # Only page content contains this marker: a tab title or install log cannot
+    # satisfy the drawing check when the page itself is blank or fails to load.
+    marker = f"WEB PANE {ctx.token}"
+    html = ("<!doctype html><html><head><title>Rows web pane</title></head>"
+            f"<body><h1>{marker}</h1></body></html>\n")
     install = install_customize(ctx, {
         "name": "Rows web pane", "description": "A web pane.", "runtime": {"web": {"root": "web"}},
         "implements": {"cmux.pane/1": {"web": "web/index.html", "title": "Rows web pane", "symbol": "globe"}},
@@ -400,14 +418,14 @@ def row_web_pane(ctx: Ctx) -> dict:
     tab = f"app:{CUSTOMIZE_APP}"
     snapshot = wait_for(lambda: (s := ctx.rpc("snapshot.get", {}, timeout=15)) and tab in json.dumps(s) and s,
                         wait=15)
+    drawn = capture_marker(ctx, "web-pane", marker) if snapshot else {"drawn": False}
     return {"checks": {"installed": install["installed"],
                        "web_page_listed": any(p.get("interface") == "cmux.pane/1" for p in pages
                                               if isinstance(p, dict)),
                        "open_answered": isinstance(opened, dict) and "error" not in opened,
-                       "page_tab_open": bool(snapshot)},
+                       "page_tab_open": bool(snapshot), "page_content_drawn": drawn["drawn"]},
             "install": install, "web_pages": pages, "open": opened,
-            "page_tab": find_tab(snapshot, tab) if snapshot else None,
-            "note": "the page's own load is not observable from outside the app in a release build"}
+            "page_tab": find_tab(snapshot, tab) if snapshot else None, "drawing": drawn}
 
 
 row_web_pane.needs_app = True
@@ -463,17 +481,61 @@ def row_ext_new(ctx: Ctx) -> dict:
 SIDE = Path(__file__).resolve().parents[2] / "scripts/cmux-next/side-instance.sh"
 
 
+def daemon_pids(daemon_socket: str) -> list[int]:
+    """The pids holding the daemon's socket open (`lsof`), the daemon's own."""
+    try:
+        out = subprocess.run(["lsof", "-t", "--", daemon_socket], capture_output=True, text=True, timeout=20).stdout
+    except (OSError, subprocess.TimeoutExpired):
+        return []
+    return sorted({int(p) for p in out.split() if p.strip().isdigit()} - {os.getpid()})
+
+
 def side_relaunch(ctx: Ctx, between=None) -> dict:
     """Stops the side copy (the app, its daemon and helpers), runs `between()` while nothing of it runs, launches
-    it again and attaches ctx to the new control and daemon sockets."""
+    it again and attaches ctx to the new control and daemon sockets. The daemon reads its state once, so a
+    daemon that outlives the stop keeps what it read: a9a8865c's `side-instance.sh stop` exited 1 and the
+    relaunched copy listed the old empty widget layout. A stop that fails is run again, a daemon of this copy
+    still on its socket after that is ended (TERM, then KILL), and the answer says whether the daemon after the
+    launch is a new process."""
     name, side_root = ctx.pid_file.parent.name, ctx.pid_file.parent.parent
     env = os.environ | {"CMUX_SIDE_ROOT": str(side_root)}
-    stop = subprocess.run([str(SIDE), "stop", name], capture_output=True, text=True, env=env, timeout=120)
+    before = daemon_pids(ctx.daemon) if ctx.daemon else []
+    stops = []
+    for _ in range(2):
+        stop = subprocess.run([str(SIDE), "stop", name], capture_output=True, text=True, env=env, timeout=120)
+        stops.append({"exit": stop.returncode, "out": (stop.stdout + stop.stderr)[-400:]})
+        if stop.returncode == 0:
+            break
+    survivors = [pid for pid in before if pid_alive(pid)]
+    for sig, wait in ((signal.SIGTERM, 10), (signal.SIGKILL, 5)):
+        for pid in survivors:
+            try:
+                os.kill(pid, sig)
+            except OSError:
+                pass
+        deadline = time.time() + wait
+        while time.time() < deadline and any(pid_alive(pid) for pid in survivors):
+            time.sleep(0.2)
+        survivors = [pid for pid in survivors if pid_alive(pid)]
+        if not survivors:
+            break
     done = between() if between else None
     launch = subprocess.run([str(SIDE), "launch", name], capture_output=True, text=True, env=env, timeout=180)
     ctx.control, ctx.daemon = attach_copy(ctx.app, ctx.cli, ctx.pid_file, ctx.control)
-    return {"stop": stop.returncode, "between": done, "launch": launch.returncode,
-            "launch_err": launch.stderr[-400:]}
+    after = daemon_pids(ctx.daemon) if ctx.daemon else []
+    return {"stop": stops[-1]["exit"], "stops": stops, "daemon_before": before, "daemon_after": after,
+            "daemon_survived": survivors, "daemon_restarted": bool(after) and not set(after) & set(before),
+            "between": done, "launch": launch.returncode, "launch_err": launch.stderr[-400:]}
+
+
+def pid_alive(pid: int) -> bool:
+    try:
+        os.kill(pid, 0)
+    except ProcessLookupError:
+        return False
+    except PermissionError:
+        return True
+    return True
 
 
 def support_roots() -> list[Path]:
@@ -697,6 +759,8 @@ def row_newtab_widget(ctx: Ctx) -> dict:
     relaunch = side_relaunch(ctx, seed) if dirs else {"skipped": "no daemon session folder (open_state_dirs, "
                                                                   "socket_session_dirs, apps_state_dirs)"}
     placed = store_op(ctx, "apps.widgets.list", {"place": "newtab"})
+    on_disk = {str(d): (d / "apps-widgets-layout.json").read_text()[:400]
+               if (d / "apps-widgets-layout.json").is_file() else None for d in dirs}
     opened = ctx.rpc("action.run", {"action": "workspace.newAtBottom", "focus": True}, timeout=30)
     drawn = logs_with(ctx, f"{word} newtab {NEWTAB_TILE}", wait=30)
     return {"checks": {"scaffolded": made.get("exit") == 0, "built": True, "installed": install["installed"],
@@ -707,6 +771,7 @@ def row_newtab_widget(ctx: Ctx) -> dict:
                        "newtab_draws_it": bool(drawn)},
             "new": {k: made.get(k) for k in ("exit", "json")}, "shot_exit": shot.get("exit"), "main": main_rel,
             "export": export, "install": install, "dirs": [str(d) for d in dirs], "relaunch": relaunch,
+            "layout_on_disk": on_disk,
             "placed": placed, "open": opened, "log_lines": drawn, "any_render": logs_with(ctx, word, wait=2)}
 
 
@@ -1305,7 +1370,7 @@ ROWS = {
     "activation": (row_activation, "#43018"),
     "opener": (row_opener, "#43007"),
     "composer": (row_composer, "#43032 #49239"),
-    "chat_widget": (row_chat_widget, "#43030"),
+    "chat_widget": (row_chat_widget, "#43030 #43040"),
     "background_events": (row_background_events, "#43018 #49223"),
     "status": (row_status, "#47317"),
     "menus": (row_menus, "#43006"),
