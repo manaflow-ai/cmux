@@ -416,6 +416,79 @@ fn a_prompt_mark_split_across_host_frames_resets_modes_and_viewers_get_each_byte
     assert_eq!(surface.try_with_terminal(|terminal| terminal.mouse_tracking()).ok(), Some(false));
 }
 
+/// The early forward (goal terminal-throughput, G3): a smart host's plain
+/// Output goes to byte viewers run by run before the mirror parses it, and a
+/// colors-paired Output after the parse, as before. Over a shell session
+/// with prompt marks split across host frames and colors frames between
+/// them, a viewer gets exactly the bytes the old parse-then-broadcast path
+/// sent, and a terminal fed them ends on the mirror's screen and modes.
+#[cfg(unix)]
+#[test]
+fn an_early_forwarded_session_gives_viewers_the_old_bytes_and_the_mirrors_screen() {
+    let (_mux, surface, mut host) =
+        hosted_surface_with("hosted-early-forward", false, |attachment| {
+            attachment.smart_renderer = true;
+        });
+    let attach = surface.attach_stream().unwrap();
+    let colors =
+        TerminalColorOverrides { foreground: Some(Rgb { r: 1, g: 2, b: 3 }), ..Default::default() };
+    // (payload, colors follow): marks cut inside `ESC ] 1 3 3 ;` and right
+    // after it, a colors frame between a held tail and its completion.
+    let chunks: [(&[u8], bool); 7] = [
+        (b"\x1b[?1049h\x1b[?1000h\x1b[?25lkilled\r\n\x1b]13", false),
+        (b"3;A\x07$ \x1b]133;B\x07ls\r\n\x1b]133;", false),
+        (b"C\x07\x1b[?2004h\x1b[?1004hcaf\xc3\xa9 \x1b]10;#010203\x1b\\", true),
+        (b"ran\r\n\x1b]", false),
+        (b"133;D;0\x07\x1b]133;A\x07", true),
+        (b"$ \x1b]133;C\x07\x1b[?1000hagain\r\n\x1b]133;D;1\x07\x1b]133;A", false),
+        (b"\x07$ done", false),
+    ];
+    let mut reference = Terminal::new(80, 24, 1000, Callbacks::default()).unwrap();
+    let mut marks = crate::prompt_mode_reset::ShellMarks::default();
+    let mut expected = Vec::new();
+    let mut sequence = 0;
+    for (payload, colors_follow) in chunks {
+        expected.extend_from_slice(&crate::prompt_mode_reset::write_output(
+            &mut reference,
+            payload,
+            &mut marks,
+        ));
+        sequence += 1;
+        let mut frame = live_output(sequence, payload);
+        if colors_follow {
+            frame.flags = FLAG_COLORS_FOLLOW;
+        }
+        crate::terminal_host_protocol::write_frame(&mut host, &frame).unwrap();
+        if colors_follow {
+            sequence += 1;
+            let mut colors_frame = Frame::new(
+                MessageKind::Colors,
+                crate::terminal_host_runtime::encode_terminal_color_overrides(&colors),
+            );
+            colors_frame.sequence = sequence;
+            crate::terminal_host_protocol::write_frame(&mut host, &colors_frame).unwrap();
+        }
+    }
+    let received = attach_output_within(&attach, Duration::from_millis(800));
+    assert_eq!(received, expected, "viewers got other bytes than the parse-then-broadcast path");
+    let mut viewer = Terminal::new(80, 24, 1000, Callbacks::default()).unwrap();
+    viewer.vt_write(&received);
+    let state = |term: &mut Terminal| {
+        (
+            term.viewport_text().unwrap(),
+            term.mouse_tracking(),
+            term.mode(25, false),
+            term.mode(2004, false),
+            term.mode(1004, false),
+        )
+    };
+    let mirror = surface.try_with_terminal(|terminal| state(terminal)).unwrap();
+    assert_eq!(state(&mut viewer), mirror, "the viewer's screen differs from the mirror's");
+    assert_eq!(state(&mut reference), mirror, "the mirror differs from the reference parse");
+    assert!(mirror.0.contains("$ done"), "{}", mirror.0);
+    assert!(!mirror.1 && mirror.2 && !mirror.3, "the marks' resets did not apply: {mirror:?}");
+}
+
 /// A live Output frame of the fake host with `sequence` and `payload`.
 #[cfg(unix)]
 fn live_output(sequence: u64, payload: &[u8]) -> Frame {

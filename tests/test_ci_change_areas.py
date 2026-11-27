@@ -271,9 +271,11 @@ def test_routed_lane_names_the_packages_the_job_would_run() -> None:
     ) == ("CmuxUpdater",)
     # A dependency pulls in its dependents, and nothing else.
     auth_core = module.swift_package_test_selection(["Packages/Shared/CMUXAuthCore/Package.swift"])
-    assert "CMUXAuthCore" in auth_core
-    # CmuxAuthRuntime depends on CMUXAuthCore, so it is a dependent; CmuxUpdater is not.
-    assert "CmuxAuthRuntime" in auth_core
+    # CmuxHomeRender depends on CMUXAuthCore, so it is a dependent; CmuxUpdater is not. CMUXAuthCore and
+    # CmuxAuthRuntime run on Linux (scripts/ci/swift-linux-packages.txt), not in this lane.
+    assert "CmuxHomeRender" in auth_core
+    assert "CMUXAuthCore" not in auth_core
+    assert "CmuxAuthRuntime" not in auth_core
     assert "CmuxUpdater" not in auth_core
     assert module.swift_package_test_selection(["Sources/AppDelegate.swift"]) == ()
 
@@ -327,13 +329,16 @@ def test_package_lane_reads_the_job_package_list_from_the_workflow() -> None:
     lane = (ROOT / "scripts/ci/package-test-lane.sh").read_text(encoding="utf-8")
     body = lane.split("PACKAGES=(", 1)[1].split("\n  )", 1)[0]
     assert set(packages) == set(body.split()), set(packages) ^ set(body.split())
-    assert "CMUXAuthCore" in packages
+    assert "CmuxUpdater" in packages
     path = "Packages/macOS/CmuxUpdater/Tests/CmuxUpdaterTests/Probe.swift"
     assert module.classify_files([path]).swift_packages is True
     assert "CmuxUpdater" in module.swift_package_test_selection([path])
-    # These macOS packages had test targets but were missing from the list once.
-    for name in ("CmuxPhonePush",):
-        assert name in packages, name
+    # These run on Linux (scripts/ci/swift-linux-packages.txt), their Apple-only suites in
+    # auth-refresh-tests.yml: never in the macOS lane as well.
+    linux = (ROOT / "scripts/ci/swift-linux-packages.txt").read_text(encoding="utf-8")
+    for name in ("CmuxAuthRuntime", "CmuxPhonePush"):
+        assert name not in packages, name
+        assert f"/{name}  " in linux, name
     for name in packages:
         assert any((ROOT / "Packages").glob(f"*/{name}/Package.swift")), name
 
@@ -634,6 +639,16 @@ def test_settings_schema_only_diff_runs_the_web_checks() -> None:
     path = "schemas/settings/settings-schema.json"
     assert module.classify_files([path]).web is True
     assert web_subareas.classify_paths([path], ROOT).react_apps is True
+
+
+def test_relay_params_rule_runs_the_page_params_contract() -> None:
+    # cmux#46563: the page sent a key the relay's params rule refused. The webviews contract test
+    # reads the rule and its Rust mirror, so a PR changing only those still runs react-apps-check.
+    for path in sorted(module.RELAY_PARAMS_RULE):
+        assert (ROOT / path).is_file(), path
+        assert module.classify_files([path]).web is True, path
+        assert web_subareas.classify_paths([path], ROOT).react_apps is True, path
+        assert path in web_subareas.REACT_EXACT, path
 
 
 def test_every_web_bundle_input_outside_webviews_runs_the_web_checks() -> None:
@@ -1005,7 +1020,7 @@ def test_ios_package_tests_skip_macos_compile_but_keep_package_lane() -> None:
     # Tests are never compiled into the desktop app target, so the macOS area
     # is neutralized here. No package in the macOS package lane depends on
     # CmuxMobileShellModel since the legacy iOS packages were deleted; its own
-    # suite runs in test-ios.yml's mobile-core-package job instead.
+    # suite runs in test-ios.yml's mobile-core-linux job instead.
     actual = module.classify_files([
         "Packages/iOS/CmuxMobileShellModel/Tests/CmuxMobileShellModelTests/MacSurfaceRendererTests.swift"
     ])
@@ -3282,7 +3297,7 @@ def test_ci_status_waits_for_platform_workflows() -> None:
     assert 'web_result not in {"success", "skipped"}' in block
 
 
-WEBVIEWS_BUN_JOBS = ("react-apps-check-shard", "react-doctor", "diff-sidecar-check")
+WEBVIEWS_BUN_JOBS = ("react-apps-check-shard", "diff-sidecar-check")
 
 
 def _setup_bun_versions(text: str) -> list[str]:
@@ -3320,32 +3335,24 @@ def test_react_apps_check_keeps_a_stable_aggregate_gate() -> None:
     block = workflow_job_block("react-apps-check", WEB_WORKFLOW)
     # #24927 moved a pull request's base comparison into react-apps-base-check;
     # the gate waits on it too and requires it only on pull requests.
-    assert "needs: [web-subarea-scope, react-apps-check-shard, react-apps-base-check, react-doctor]" in block
+    assert "needs: [web-subarea-scope, react-apps-check-shard, react-apps-base-check]" in block
     assert 'required_jobs = ["react-apps-check-shard"]' in block
     assert 'required_jobs.append("react-apps-base-check")' in block
-    # React Doctor reports on a push only; the ratchet (cmux-next-react-doctor.yml) gates a pull request.
-    assert 'else:\n              required_jobs.append("react-doctor")' in block
+    # web / react-doctor is gone (a push-only report that could not fail); cmux-next-react-doctor.yml is the scan.
+    assert "react-doctor" not in block
     # always(): a cancelled shard reports a red gate, never a skipped (passing) one. A post-merge batch probe
     # (inputs.only set) runs no aggregate: its probed shards answer for themselves.
     assert "if: ${{ always() && inputs.web == 'true' && needs.web-subarea-scope.outputs.react_apps == 'true' && inputs.only == '' }}" in block
 
 
-def test_react_doctor_runs_as_an_independent_required_lane() -> None:
-    block = workflow_job_block("react-doctor", WEB_WORKFLOW)
-    assert "needs: [web-subarea-scope, runners]" in block
-    # Not on a pull request: React Doctor (changed React projects) scans and gates it there.
-    assert "if: ${{ github.event_name != 'pull_request' && inputs.web == 'true'" in block
+def test_react_doctor_scan_lives_in_its_own_workflow() -> None:
+    # web / react-doctor ran `--fail-on none` on pushes only and caught nothing (CI catch-value audit,
+    # 2026-11-26); it and the runner map only it read are removed. The pull request scan stays.
+    workflow = WEB_WORKFLOW.read_text(encoding="utf-8")
+    assert "\n  react-doctor:\n" not in workflow
+    assert "\n  runners:\n" not in workflow
     ratchet = (WEB_WORKFLOW.parent / "cmux-next-react-doctor.yml").read_text(encoding="utf-8")
     assert "  pull_request:\n" in ratchet and "react_doctor_gate.py --changed-from" in ratchet
-    assert "react-apps-check-shard" not in block
-    assert "bun run react-doctor:ci" in block
-    assert "hashFiles('webviews/bun.lock')" in block
-    # 16 vCPU from the capability map: on 4 vCPU it hit its 10 min timeout.
-    # A fork head takes CI_FORK_LINUX_RUNNER, since fork code never reaches
-    # the owned label the map names for manaflow-ai.
-    runs_on = next(line.strip() for line in block.splitlines() if line.strip().startswith("runs-on:"))
-    assert runs_on.endswith("|| fromJSON(needs.runners.outputs.map).linux_16 }}"), runs_on
-    assert "head.repo.full_name != github.repository && (vars.CI_FORK_LINUX_RUNNER || 'ubuntu-24.04')" in runs_on, runs_on
 
 
 def test_every_setup_bun_step_declares_a_version() -> None:

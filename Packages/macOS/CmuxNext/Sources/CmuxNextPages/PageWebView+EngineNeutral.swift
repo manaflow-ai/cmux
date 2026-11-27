@@ -18,6 +18,13 @@ extension PageWebView {
         evaluateInPage(script)
     }
 
+    /// Runs the fixed `body` with `text` as its string parameter `name`, in whichever engine shows
+    /// the page, after the scripts sent before it. No result. For a push at a steady rate: WebKit
+    /// keeps every distinct script text it ran, so a push of new data never builds a new script (RFD 0062).
+    public func evaluate(_ body: String, argument name: String, text: String) {
+        scriptTarget.bridge.evaluate(body, argument: name, text: text)
+    }
+
     /// A picture of the page as it draws now, at the view's size in points; nil when there is none.
     ///
     /// In Chromium it is a fast-mode JPEG: the browser encodes the capture on its UI thread, which

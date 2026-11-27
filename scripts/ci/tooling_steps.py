@@ -236,6 +236,60 @@ def read_text(repo: Repo, rel: str) -> str:
     return "" if b"\0" in data[:8192] else data.decode("utf-8", errors="replace")
 
 
+# A character of a path word: a spelled-out file name with one of these on either side is part of a longer word.
+PATH_CHAR = re.compile(r"[A-Za-z0-9_.@+\-/]")
+QUOTES = "\"'`"
+# Code whose prose (comments, docstrings) spells file names: a bare file name there names a file only as a string
+# literal. Data a tool reads by its own folder: a bare file name there is a file beside it or below it (Cargo.toml's
+# `readme = "README.md"`, build.zig.zon's paths, Package.swift's `exclude:`), or a top-level one. Anything else
+# (shell, a workflow's run text, a file of no known kind) may run `cat README.md` in any folder: a bare name counts.
+QUOTED_NAME_CODE = (".py", ".js", ".mjs", ".cjs", ".ts", ".tsx", ".rs", ".go", ".rb")
+FOLDER_DATA = (".json", ".toml", ".txt", ".md", ".zon", "Package.swift", ".plist", ".lock", ".csv")
+
+
+def names_path(text: str, input_path: str, name: str) -> str:
+    """Why TEXT (INPUT_PATH's) may refer to the changed file NAME, or "" when it provably does not.
+
+    Each place NAME's file name is spelled is judged by the path word it ends: inside a longer word (`glib.rs`,
+    `README.md.tmpl`, a folder `lib.rs/`) it names another file. A path word (`crates/x/src/lib.rs`,
+    `${dir}/src/lib.rs`, `**/lib.rs`, `/runner/work/repo/src/lib.rs`) ends in whatever path a variable, glob or
+    folder joins onto it, so it counts when NAME ends with it (past any leading `/`, `./` or `../`) or it is NAME
+    relative to INPUT_PATH's folder; `docs/README.md` does not name the top-level README.md, nor `Native/x/src/lib.rs`
+    another crate's. A bare file name (`README.md`) counts per INPUT_PATH's kind: QUOTED_NAME_CODE only as a string
+    literal, FOLDER_DATA only for a NAME in its folder or below it or at the top level, anything else always."""
+    base = name.rsplit("/", 1)[-1]
+    folder = os.path.dirname(input_path)
+    start = text.find(base)
+    while start != -1:
+        end = start + len(base)
+        word_start = start
+        while word_start > 0 and PATH_CHAR.match(text[word_start - 1]):
+            word_start -= 1
+        word, after = text[word_start:end], text[end:end + 1]
+        if after and PATH_CHAR.match(after):
+            pass  # a longer file name, or a folder of that name: another file
+        elif word == base:
+            before = text[word_start - 1:word_start]
+            if input_path.endswith(QUOTED_NAME_CODE):
+                if before and before in QUOTES and after in QUOTES:
+                    return f"names {base}"
+            elif input_path.endswith(FOLDER_DATA):
+                if not folder or "/" not in name or name.startswith(folder + "/"):
+                    return f"names {base}"
+            else:
+                return f"names {base}"
+        else:
+            parts = word.split("/")
+            while parts and parts[0] in ("", ".", ".."):
+                parts.pop(0)
+            tail = "/".join(parts)
+            if not tail or "/.." in "/" + tail or name == tail or name.endswith("/" + tail) \
+                    or os.path.normpath(os.path.join(folder, word)) == name:
+                return f"names {word}"
+        start = text.find(base, start + 1)
+    return ""
+
+
 def load_declared(root: Path, workflow: str, job: str) -> dict[str, list[str]]:
     """{step id: input globs} for WORKFLOW's JOB from DECLARED. A missing, unreadable or malformed file declares
     nothing: every step it would have narrowed runs, as before (fails open)."""
@@ -276,6 +330,28 @@ def declared_hit(declared: list[str], changed: set[str]) -> tuple[str, str] | No
             if regex.match(name):
                 return name, pattern
     return None
+
+
+def gate_under_test(repo: Repo, walker: Walker, tests: list[str], changed: set[str]) -> str:
+    """Why a step runs when one of its own tests spells out a changed script by its whole repository path, or ''.
+
+    A test that runs its script as a subprocess (`ROOT / "scripts/ci/package-test-lane.sh"`, `"$ROOT/scripts/..."`)
+    gives the walker no import to follow, so the script is found only by the later "names" or "reads directory"
+    reasons, and --pr-scope (narrow) defers those to the post-merge batch: the pull request that edits a gate script
+    did not run the gate's own test, and its red first showed on the base (cmux#57119's class; a sweep of
+    cmux-next-guards.yml under --pr-scope found 97 changed-script/step pairs deferred, 49 after this, among them tt-package-lane-prebuild for
+    scripts/ci/package-test-lane.sh and tt-origin-net for generate-third-party-notices.sh). This reason is not
+    BROAD_REASON's, so a pull request keeps the step. Only code that is not itself a test counts, and only the step's
+    own tests (not every file of its closure), so a registry test that lists other tests stays deferred."""
+    scripts = sorted(name for name in changed if is_code(repo, walker, name) and not is_test(name))
+    if not scripts:
+        return ""
+    for test in tests:
+        text = read_text(repo, test)
+        for name in scripts:
+            if name in text:
+                return f"its test {test} runs {name} by its path"
+    return ""
 
 
 def judge_step(repo: Repo, walker: Walker, step: dict, env: dict[str, str], workdir: str,
@@ -325,6 +401,9 @@ def judge_step(repo: Repo, walker: Walker, step: dict, env: dict[str, str], work
     hit = sorted(changed & inputs)
     if hit:
         return True, f"reads {hit[0]}" + (f" and {len(hit) - 1} more" if len(hit) > 1 else "")
+    gate = gate_under_test(repo, walker, tests, changed)
+    if gate:
+        return True, gate
     if traced and declared:
         return False, (f"none of its traced inputs changed (its declared globs {', '.join(declared[:3])}"
                        f"{' ...' if len(declared) > 3 else ''} and {len(inputs)} resolved files; {DECLARED}, traced)")
@@ -347,12 +426,14 @@ def judge_step(repo: Repo, walker: Walker, step: dict, env: dict[str, str], work
             if WHOLE_TREE_LIST.search(read_text(repo, path)):
                 return True, f"{path} lists every tracked file"
     # A path the walker does not follow: a changed file any input of the closure spells out by path or file name,
-    # a data file (scripts/ci/check-paths.txt naming a script) as much as code.
+    # a data file (scripts/ci/check-paths.txt naming a script) as much as code. A path that ends in another file's
+    # path, or a bare name in code prose, does not count (names_path).
     for path in sorted(inputs):
         text = read_text(repo, path)
         for name in sorted(changed):
-            if name in text or name.rsplit("/", 1)[-1] in text:
-                return True, f"{path} names {name.rsplit('/', 1)[-1]}"
+            why = names_path(text, path, name)
+            if why:
+                return True, f"{path} {why}"
     if unresolved:
         return False, (f"none of its declared inputs ({', '.join(declared[:3])}{' ...' if len(declared) > 3 else ''}; "
                        f"{DECLARED}) nor its {len(inputs)} resolved inputs changed; declared because {unresolved}")
@@ -740,7 +821,10 @@ def run_one(step: RunStep, environ: dict[str, str], scratch: Path) -> RunResult:
         except subprocess.TimeoutExpired:
             import signal  # noqa: PLC0415
 
-            os.killpg(proc.pid, signal.SIGKILL)
+            try:
+                os.killpg(proc.pid, signal.SIGKILL)
+            except (ProcessLookupError, PermissionError):
+                pass  # the group already exited, or (macOS) its leader is a zombie: EPERM, nothing left to kill
             proc.wait()
             code = 124
             with log.open("ab") as tail:

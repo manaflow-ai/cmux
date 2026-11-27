@@ -10,7 +10,7 @@ use serde_json::{Value, json};
 
 const SCHEMA: &str = include_str!("../../../../schemas/settings/settings-schema.json");
 const MOBILE: &str = "mobile.allowIPhoneConnections";
-const DOWNLOAD: &str = "updates.downloadAutomatically";
+const AUTOMATIC: &str = "updates.automatic";
 
 fn schema(defaults: &BTreeMap<String, Value>) -> &'static Schema {
     let parsed = Schema::parse(SCHEMA).expect("the settings schema parses");
@@ -30,7 +30,7 @@ fn state(schema: &'static Schema, file: &str) -> State {
 
 fn dev_defaults() -> BTreeMap<String, Value> {
     build_defaults_from(Some(
-        r#"{"mobile.allowIPhoneConnections":true,"updates.downloadAutomatically":true}"#,
+        r#"{"mobile.allowIPhoneConnections":true,"updates.automatic":"download"}"#,
     ))
 }
 
@@ -39,7 +39,7 @@ fn dev_build_own_settings_defaults_parse_the_apps_variable() {
     assert_eq!(BUILD_DEFAULTS_ENV, "CMUX_NEXT_SETTINGS_BUILD_DEFAULTS");
     let defaults = dev_defaults();
     assert_eq!(defaults.get(MOBILE), Some(&json!(true)));
-    assert_eq!(defaults.get(DOWNLOAD), Some(&json!(true)));
+    assert_eq!(defaults.get(AUTOMATIC), Some(&json!("download")));
     assert!(build_defaults_from(None).is_empty());
     assert!(build_defaults_from(Some("not json")).is_empty());
     assert!(build_defaults_from(Some("[true]")).is_empty());
@@ -56,8 +56,14 @@ fn dev_build_own_settings_defaults_are_what_get_reports() {
     assert!(!row.customized);
     assert_eq!(get.value, Some(json!(true)), "the effective settings carry the build default");
     assert_eq!(get.file_value, None, "the build default is not the person's");
-    let download = fresh.get(&Target::Key(DOWNLOAD.into()));
-    assert_eq!(download.row.as_ref().and_then(|row| row.value.clone()), Some(json!(true)));
+    let automatic = fresh.get(&Target::Key(AUTOMATIC.into()));
+    assert_eq!(automatic.row.as_ref().and_then(|row| row.value.clone()), Some(json!("download")));
+
+    // An old toggle the row replaced still answers for it over the build default: a person who turned
+    // automatic downloads off on NIGHTLY keeps Notify Only (retired-keys.json).
+    let old_off = state(schema, r#"{"updates": {"downloadAutomatically": false}}"#);
+    let automatic = old_off.get(&Target::Key(AUTOMATIC.into()));
+    assert_eq!(automatic.value, Some(json!("notify")), "the old pick lost to the build default");
 
     // A value someone wrote wins, and an explicit off differs from the default (Reset is offered).
     let off = state(schema, r#"{"mobile": {"allowIPhoneConnections": false}}"#);
@@ -68,15 +74,18 @@ fn dev_build_own_settings_defaults_are_what_get_reports() {
 
 #[test]
 fn dev_build_own_settings_defaults_leave_other_builds_and_bad_values_alone() {
-    // NIGHTLY and stable pass nothing: the schema's default.
+    // NIGHTLY and stable pass nothing: the schema's default (phone access is on by default since
+    // #48532, so the test reads the schema's value rather than naming one).
     let shared = state(schema(&BTreeMap::new()), "{}");
     let row = shared.get(&Target::Key(MOBILE.into())).row.expect("the row");
-    assert_eq!(row.value, Some(json!(false)));
+    let schema_default = row.default.clone();
+    assert!(schema_default.is_some(), "the row has a default");
+    assert_eq!(row.value, schema_default);
     // A value the row refuses and a key no row has are ignored.
     let odd =
         build_defaults_from(Some(r#"{"mobile.allowIPhoneConnections":"yes","no.such.key":1}"#));
     let state = state(schema(&odd), "{}");
     let row = state.get(&Target::Key(MOBILE.into())).row.expect("the row");
-    assert_eq!(row.value, Some(json!(false)));
-    assert_eq!(row.default, Some(json!(false)));
+    assert_eq!(row.value, schema_default);
+    assert_eq!(row.default, schema_default);
 }

@@ -45,7 +45,7 @@ env:
 jobs:
   decide:
     if: github.repository == 'manaflow-ai/cmux' && vars.IOS_INTERNAL_HOLD != '1' && (github.event_name != 'workflow_dispatch' || inputs.yolo == '')
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && (vars.CI_FORK_LINUX_RUNNER || 'ubuntu-24.04') || 'cmux-linux' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || 'cmux-linux' }}
     # The plan waits up to 45 min and the dispatch up to 20 min for a spent or failing GitHub API (2026-11-25: a
     # skip on the spent installation limit lost every head from 19:04Z to 21:47Z), plus checkout and git reads.
     timeout-minutes: 75
@@ -54,7 +54,7 @@ jobs:
       actions: write
       contents: read
     steps:
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           persist-credentials: false
           ref: refs/heads/feat-cmux-next
@@ -114,7 +114,7 @@ jobs:
   # iPhone YOLO: feat-cmux-next plus the named PRs, built by the INTERNAL builder like a nightly.
   yolo:
     if: github.repository == 'manaflow-ai/cmux' && github.event_name == 'workflow_dispatch' && inputs.yolo != ''
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && (vars.CI_FORK_LINUX_RUNNER || 'ubuntu-24.04') || 'cmux-linux' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || 'cmux-linux' }}
     timeout-minutes: 20
     permissions:
       # contents: write pushes the ios-yolo/ stack branch; actions: write dispatches the builder;
@@ -123,7 +123,7 @@ jobs:
       contents: write
       pull-requests: write
     steps:
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           persist-credentials: false
           ref: refs/heads/feat-cmux-next
