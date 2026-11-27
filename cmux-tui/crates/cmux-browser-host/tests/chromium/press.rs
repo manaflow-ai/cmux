@@ -7,12 +7,19 @@
 use super::files::{chrome, eval_in};
 use super::*;
 
-/// `/rerender`: a button replaced every 40 ms; each click counts in `#out`.
+/// `/rerender`: a button replaced every 40 ms, and never twice in a row of
+/// animation frames; each click counts in `#out`. On a starved runner a
+/// frame takes longer than 40 ms, and a plain 40 ms timer then replaced the
+/// button between every two frames, so no click's "stable" check (the same
+/// element's box over two frames) could ever pass (runs 43106151997 and
+/// 45252519852): the re-render is counted in frames as well as in time.
 pub fn rerender_page() -> String {
     "<!doctype html><title>Rerender</title><div id=host></div><p id=out>idle</p><script>\
      let n = 0; const render = () => { document.getElementById('host').innerHTML = \
      '<button class=rerender onclick=\"document.getElementById(\\'out\\').textContent = \\'clicked \\' + ++n\">Again</button>'; }; \
-     render(); setInterval(render, 40);</script>"
+     let last = performance.now(), frames = 0; \
+     const tick = (now) => { frames++; if (now - last >= 40 && frames >= 3) { render(); last = now; frames = 0; } requestAnimationFrame(tick); }; \
+     render(); requestAnimationFrame(tick);</script>"
         .to_owned()
 }
 

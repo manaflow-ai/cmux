@@ -1,4 +1,5 @@
 public import Foundation
+import os
 
 extension DeepLink {
     /// The scheme the Chief and its documents write, whatever the build.
@@ -132,6 +133,29 @@ extension DeepLink {
             self.id = id
             self.arguments = arguments
         }
+
+        /// Logs that the clicked link `url` ran this action (its id, its argument keys, done or refused;
+        /// category app.links, which the onboarding walk's turn-on row reads) and returns `done`.
+        public func ran(from url: URL, done: Bool) -> Bool {
+            let keys = arguments.keys.sorted().joined(separator: ",")
+            Logger(subsystem: "com.cmuxterm.app.next", category: "app.links")
+                .notice("app link \(url.host ?? "", privacy: .public)\(url.path, privacy: .public) ran \(id.rawValue, privacy: .public) \(keys, privacy: .public): \(done ? "done" : "refused", privacy: .public)")
+            return done
+        }
+    }
+
+    /// A line of the app.links log for a link `CmuxAppLinks.open` took past its action (an action logs its
+    /// own, ``LinkAction/ran(from:done:)``): "app link host/path what: done|refused" (hq's link_log matches
+    /// "app link"; goal agent-shortcut-found: run 45968907489's press logged nothing).
+    public static func linkLine(_ url: URL, _ what: String, done: Bool) -> String {
+        "app link \(url.host ?? "")\(url.path) \(what): \(done ? "done" : "refused")"
+    }
+
+    /// Logs ``linkLine(_:_:done:)`` in category app.links and returns `done`.
+    @discardableResult
+    public static func noteLink(_ url: URL, _ what: String, _ done: Bool) -> Bool {
+        Logger(subsystem: "com.cmuxterm.app.next", category: "app.links").notice("\(linkLine(url, what, done: done), privacy: .public)")
+        return done
     }
 
     /// The action a settings link runs: `cmux://settings/background` (Chief's first-launch welcome
