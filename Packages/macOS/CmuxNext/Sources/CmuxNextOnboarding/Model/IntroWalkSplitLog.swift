@@ -86,7 +86,7 @@ public final class IntroWalkSplitLog: IntroWalkSplitSource {
 }
 
 /// One walk's record (`cmux_window_rules::walk_split::Outcome`).
-public struct IntroWalkOutcome: Codable, Equatable, Sendable {
+public nonisolated struct IntroWalkOutcome: Codable, Equatable, Sendable {
     public var version: Int
     public var bundle: String
     public var ending: IntroWalkEnding
