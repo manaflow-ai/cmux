@@ -15,13 +15,11 @@ lane = "linux-guard"
 
 [[test]]
 path = "tests/test_dev_release_product_key.py"
-lane = "manual"
-reason = "No workflow step runs it (lane derived by --write). Run it yourself: python3 tests/test_dev_release_product_key.py"
+lane = "linux-guard"
 
 [[test]]
 path = "tests/test_dev_release_product_reuse.py"
-lane = "manual"
-reason = "No workflow step runs it (lane derived by --write). Run it yourself: python3 tests/test_dev_release_product_reuse.py"
+lane = "linux-guard"
 
 [[test]]
 path = "tests/test_dev_tag_canonical.py"
