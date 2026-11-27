@@ -1,5 +1,6 @@
 public import CmuxNextDaemon
 public import CmuxNextSettings
+public import Foundation
 
 /// What the chat header shows from the chat's tab, read with `pane.tabState` and pushed as the
 /// `headerState` event when it changes (the page's header/headerState.ts): the pin the "..." menu's
@@ -29,13 +30,23 @@ public struct AgentPaneHeaderState: Equatable, Sendable {
     /// Which top-right icons show (Debug Settings `agentChat.headerIcons.contextual`), read like
     /// `sessionInfo`; the page's header/headerRelevance.ts applies it.
     public var headerIcons: AgentPaneHeaderIcons
+    /// Where the chat runs and its move's progress, as the app's Rust reducer views it (`place: {mode, at, cloudName?, move?}`), JSON
+    /// bytes the page reads; nil when the app has none. Re-sent on every step of a move.
+    public var placeData: Data?
+    /// The app's running (or last) Evacuate or Bring Back All, and how many chats Bring Back All would bring back
+    /// (`evacuate: {direction, chats, startedMs, elapsedMs, canBringBack}`), JSON bytes the page reads; nil when none.
+    public var evacuateData: Data?
+    /// How the top-right icons are laid out (Debug Settings `agentChat.topRight.consolidate`), read like
+    /// `sessionInfo`; the page's header/TopRightLayouts.tsx applies it.
+    public var topRightLayout: AgentPaneTopRightLayout
     /// Rises with every change the App sees: a `pane.tabState` reply that reaches the page after a
     /// newer push (two channels) is older, and the page keeps the newer state.
     public var version = 0
 
     public init(pinned: Bool = false, sideTabs: Bool = false, lit: [String] = [], floatingChat: Bool = false,
                 sessionInfo: Bool? = nil, headerControls: AgentPaneHeaderControls? = nil,
-                headerMotion: AgentPaneHeaderMotion? = nil, headerIcons: AgentPaneHeaderIcons? = nil) {
+                headerMotion: AgentPaneHeaderMotion? = nil, headerIcons: AgentPaneHeaderIcons? = nil,
+                topRightLayout: AgentPaneTopRightLayout? = nil) {
         self.pinned = pinned
         self.sideTabs = sideTabs
         self.lit = lit
@@ -44,6 +55,7 @@ public struct AgentPaneHeaderState: Equatable, Sendable {
         self.headerControls = headerControls ?? AgentPaneTunables.headerControls.value
         self.headerMotion = headerMotion ?? AgentPaneTunables.headerMotion.value
         self.headerIcons = headerIcons ?? AgentPaneTunables.headerIcons.value
+        self.topRightLayout = topRightLayout ?? AgentPaneTunables.topRightLayout.value
     }
 
     /// Whether the header shows the same thing, whatever the versions.
@@ -52,7 +64,8 @@ public struct AgentPaneHeaderState: Equatable, Sendable {
             && pullRequest == other.pullRequest && workspace == other.workspace && sessionInfo == other.sessionInfo
             && headerControls == other.headerControls
             && headerMotion == other.headerMotion
-            && headerIcons == other.headerIcons
+            && headerIcons == other.headerIcons && placeData == other.placeData && evacuateData == other.evacuateData
+            && topRightLayout == other.topRightLayout
     }
 
     var reply: [String: Any] { json.foundationObject as? [String: Any] ?? [:] }
@@ -62,8 +75,13 @@ public struct AgentPaneHeaderState: Equatable, Sendable {
         ["pinned": .bool(pinned), "sideTabs": .bool(sideTabs), "lit": .array(lit.map(CmuxNextSettings.JSONValue.string)), "floatingChat": .bool(floatingChat),
          "inspector": .bool(sessionInfo), "headerControls": .string(headerControls.rawValue),
          "headerMotion": .string(headerMotion.rawValue), "headerIcons": .string(headerIcons.rawValue),
+         "topRightLayout": .string(topRightLayout.rawValue),
          "version": CmuxNextSettings.JSONValue(version),
-         "pullRequest": pullRequest?.json ?? .null, "workspace": workspace?.json ?? .null]
+         "pullRequest": pullRequest?.json ?? .null, "workspace": workspace?.json ?? .null,
+         // main-actor-ok: one chat's place, a fixed-shape object (`{mode, at, cloudName?, move?}`) of a few hundred bytes.
+         "place": placeData.flatMap { try? JSONDecoder().decode(CmuxNextSettings.JSONValue.self, from: $0) } ?? .null,
+         // main-actor-ok: one fixed-shape object (`{direction, chats, startedMs, elapsedMs, canBringBack}`).
+         "evacuate": evacuateData.flatMap { try? JSONDecoder().decode(CmuxNextSettings.JSONValue.self, from: $0) } ?? .null]
     }
 }
 

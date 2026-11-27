@@ -132,7 +132,7 @@ struct ImportCardDeckTests {
         let deck = Self.deck([Self.classicAllHere], jobs: ledger)
         let settings = deck.cards().first
         #expect(settings?.state == .done && settings?.primary?.action == .start && settings?.primary?.title == "Import Again")
-        #expect(settings?.status == ImportSuggestionStrings.importedSessions(0))
+        #expect(settings?.status == ImportSuggestionStrings.done)
         job.importedClassic(2, now: Self.now)
         ledger.put(job)
         let again = try #require(Self.deck([Self.classicAllHere], jobs: ledger).cards().first)

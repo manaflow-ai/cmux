@@ -179,6 +179,38 @@ pub fn host_label() -> String {
     if crate::session_name::validate(&first).is_ok() { first } else { "host".into() }
 }
 
+/// This machine's name on the mesh hub: what its heartbeat lists and the host other machines
+/// address (`cmux chat --on NAME`). A machine joined by a pasted line or by Door A
+/// (`cmux device add HOST --yes --hub --name NAME`, which runs that line over ssh) uses the name it
+/// joined with, so two fresh VMs whose host names are both `ubuntu` are two hosts. A sign-in
+/// join does too: an untagged build signs in as its host name, so nothing changes for it, and a
+/// tagged build (`<host>-<tag>`, `enroll_name`) is a host of its own, so two builds signed in on
+/// one Mac are two hosts. It used to keep the host name, and then both heartbeat `mac` while
+/// `cmux chat --on` named the one it meant by its join name, which the hub never heard
+/// (`mesh.unknown_recipient`, own-machine-parity run 45761196106). No join, or a revoked or
+/// copied one, keeps the host name.
+pub fn mesh_host() -> String {
+    mesh_host_of(crate::machine_record::load().ok().flatten().as_ref(), machine_name())
+}
+
+/// [`mesh_host`] for the join record `record`, with `machine` the host name's.
+pub(crate) fn mesh_host_of(
+    record: Option<&crate::machine_record::MachineCredential>,
+    machine: String,
+) -> String {
+    record
+        .filter(|record| !record.revoked && !record.cloned)
+        .map(|record| record.name.trim().to_ascii_lowercase())
+        .filter(|name| name != "host" && crate::session_name::validate(name).is_ok())
+        .unwrap_or(machine)
+}
+
+/// Whether `host` names this machine: its [`mesh_host`] or its [`machine_name`] (never the
+/// "host" stand-in for an unusable one).
+pub fn is_this_machine(host: &str) -> bool {
+    [machine_name(), mesh_host()].iter().any(|own| own != "host" && host.eq_ignore_ascii_case(own))
+}
+
 /// 32 random bytes as 64 lowercase hex digits.
 pub fn random_secret() -> Result<String, RpcError> {
     let mut bytes = [0u8; 32];

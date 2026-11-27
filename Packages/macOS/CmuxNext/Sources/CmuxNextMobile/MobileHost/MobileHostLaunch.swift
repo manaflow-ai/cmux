@@ -52,6 +52,9 @@ public struct MobileHostLaunch: Sendable, Equatable {
     /// The surface source streams phone tabs' simulators too; off (no SimulatorKit), hostd streams
     /// Cloud desktops only and says no `surface-stream-v1` (`CMUX_MOBILE_SURFACE_SIMULATORS=0`).
     public var simulatorSurfaces = true
+    /// The surface source streams this Mac's own displays (`d~<CGDirectDisplayID>`, view only):
+    /// hostd serves those tabs and says `mac-display-v1` (`CMUX_MOBILE_MAC_DISPLAY=1`).
+    public var macDisplays = false
     /// A tagged dev build's cloud data space: hostd sends it as `X-Cmux-Build-Space` on every mobile service
     /// request and its signaling socket (`CMUX_MOBILE_BUILD_SPACE`). Nil (nightly, stable): no variable, no header.
     public var buildSpace: CMUXBuildSpace?
@@ -126,6 +129,7 @@ public struct MobileHostLaunch: Sendable, Equatable {
         if browserHosts { environment["CMUX_MOBILE_BROWSER_HOSTS"] = "1" }
         if surfaceHosts { environment["CMUX_MOBILE_SURFACE_HOSTS"] = "1" }
         if surfaceHosts, !simulatorSurfaces { environment["CMUX_MOBILE_SURFACE_SIMULATORS"] = "0" }
+        if surfaceHosts, macDisplays { environment["CMUX_MOBILE_MAC_DISPLAY"] = "1" }
         return environment
     }
 
@@ -174,12 +178,6 @@ public struct MobileHostLaunch: Sendable, Equatable {
     /// The control line that ends a removed phone's live links.
     public static func dropPhoneLine(_ phoneDeviceID: String) -> Data {
         line(["type": "drop_phone", "phone_device_id": phoneDeviceID])
-    }
-
-    /// The person's per-chat Remote Control choice. Persistence and enforcement stay in
-    /// `cmux-mobile-host`; this line is only an intent sent to the running host.
-    public static func sessionExposureLine(sessionID: String, allowed: Bool) -> Data {
-        anyLine(["type": "session_exposure", "session_id": sessionID, "allowed": allowed])
     }
 
     /// The answer to `need_browser` `request`: the browser host listens on

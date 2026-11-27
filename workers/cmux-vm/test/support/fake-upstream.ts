@@ -16,6 +16,8 @@ export interface FakeVm {
   metadata: Record<string, string>;
   snapshotId: string | null;
   maxRunTotalSeconds?: number | null;
+  /** The provider's updatedAt; start and pause move it, as the provider's own does. */
+  updatedAt?: string;
 }
 
 export interface FakeSnapshot {
@@ -26,6 +28,8 @@ export interface FakeSnapshot {
   readonly ttlSeconds?: number | null;
   readonly slug?: string;
   readonly displayName?: string;
+  /** The size of the VM the snapshot was taken from: a VM created from it boots at this size (the default size without it). */
+  readonly resources?: { readonly cpu: number; readonly memory: number; readonly storage: number };
 }
 
 /** One upstream call as the fake saw it. `json` is the parsed JSON body, if any. */
@@ -87,8 +91,11 @@ const vmBody = (vm: FakeVm) => ({
   displayName: vm.displayName,
   metadata: { ...vm.metadata, cmuxTenant: "leak-check" },
   createdAt: "2026-10-01T00:00:00Z",
-  updatedAt: "2026-10-02T00:00:00Z",
+  updatedAt: vm.updatedAt ?? "2026-10-02T00:00:00Z",
 });
+
+let clock = 0;
+const touch = (vm: FakeVm) => { clock += 1; vm.updatedAt = new Date(Date.UTC(2026, 9, 2) + clock * 1000).toISOString(); };
 
 /** The provider's public base images and their sizes (upstream/sdk/vms/types.d.ts). */
 const BASE_IMAGES: Readonly<Record<string, { cpu: number; memory: number; storage: number }>> = {
@@ -200,7 +207,7 @@ export function makeFakeUpstream(apiKey: string) {
           id: `vm-${crypto.randomUUID()}`,
           slug: typeof slug === "string" ? slug : null,
           state: "starting",
-          resources: { ...(base ?? DEFAULT_RESOURCES) },
+          resources: { ...(base ?? (typeof snapshotId === "string" ? snapshots.get(snapshotId)?.resources : undefined) ?? DEFAULT_RESOURCES) },
           // Like the provider: its Vm schema has idleTimeoutSeconds minimum 0, so a create with -1 ("never pause")
           // reads back as null (production, 2026-11-04).
           idleTimeoutSeconds: typeof read("idleTimeoutSeconds") === "number" && Number(read("idleTimeoutSeconds")) >= 0 ? Number(read("idleTimeoutSeconds")) : null,
@@ -298,11 +305,13 @@ export function makeFakeUpstream(apiKey: string) {
         if (vm === undefined) return notFound();
         if (vm.maxRunTotalSeconds === 0) return conflict("lifetime budget exhausted");
         vm.state = "running";
+        touch(vm);
         return Response.json(vmBody(vm));
       case "pause":
         if (vm === undefined) return notFound();
         if (vm.state !== "running") return conflict("the VM is not running");
         vm.state = "paused";
+        touch(vm);
         return Response.json(vmBody(vm));
       case "update": {
         if (vm === undefined) return notFound();

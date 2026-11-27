@@ -21,6 +21,9 @@
  * revoke run in `finally` and on SIGINT/SIGTERM, so every path after the mint revokes.
  * Exit 0 when the evidence says pass, 1 otherwise, 2 for a refused invocation.
  *
+ * `--scenario own-machine-parity` runs a different scenario (own-machine-parity.ts: a second Mac joined by sign-in, a chat
+ * in a picked folder, a dev server's port, a file, 3 runs, a JSON report); it reads no secret and joins nothing.
+ *
  * Share (--share-cmux-rd): while joined, proves a joined headless Linux machine is shared with no
  * step on it (Leo, 2026-11-16: "if you've connected to a headlessly running mini why... would it
  * need anything?"). Nothing runs on the host after the join but its daemon (step 4, as the join
@@ -421,6 +424,10 @@ export function redact(text: string, secrets: ReadonlyArray<string>): string {
   for (const s of secrets) if (s.length >= 4) out = out.split(s).join("[secret]")
   return out.replace(TOKENISH, (m) => `${m.slice(0, 4)}[redacted]`).replace(JWT, "[jwt].")
 }
+
+/** GNU tar's warning for a socket it does not archive: `tar: ./PATH: socket ignored`. */
+export const isSocketSkip = (line: string) => /^tar: .+: socket ignored$/.test(line.trim())
+class HomeScanError extends Error {}
 
 const b64u = (bytes: ArrayBuffer) => Buffer.from(bytes).toString("base64url")
 
@@ -1299,13 +1306,23 @@ export async function runE2E(
     // One process with a fixed argv archives the whole home (names, link targets and contents), so no
     // file name ever reaches an argv. Incomplete is a failure: tar must read everything and exit 0.
     const archive = await deps.run(asUserTool(["tar", "-C", opts.home, "--one-file-system", "--format=gnu", "-cf", "-", "."]), { env: childEnv, timeoutMs: 30_000, binary: true })
-    // tar skips what it cannot archive (a socket, say) with only a warning and exit 0: any word on stderr
-    // means the archive is not the whole home.
-    if (archive.code !== 0 || archive.stderr.trim() !== "") throw new Error("tar failed or skipped an entry")
+    // tar skips what it cannot archive with only a warning and exit 0. A socket is the one entry it may skip:
+    // a socket holds no bytes (the share host's, left by its unit when the user's processes are killed), and
+    // its name, which tar prints, is scanned below like every other name. Any other word on stderr means the
+    // archive is not the whole home, and the failure names it.
+    const credentialEntry = `./${credentialFile.slice(opts.home.length + 1)}`
+    const warnings = archive.stderr.split("\n").filter((l) => l.trim())
+    // Never the credential file's own path: a socket there means the credential is not where it must be.
+    const skipped = warnings.filter((l) => !isSocketSkip(l) || l.trim() === `tar: ${credentialEntry}: socket ignored`)
+    if (archive.code !== 0 || skipped.length > 0) throw new HomeScanError(`tar ${archive.code !== 0 ? `exit ${archive.code}` : "skipped an entry"}${skipped.length ? `: ${cleanLine(skipped[0])}` : ""}`)
     let cmj = 0
     let cmm = 0
     let held = 0
-    const credentialEntry = `./${credentialFile.slice(opts.home.length + 1)}`
+    for (const line of warnings) {
+      cmj += count(line, "cmj_")
+      cmm += count(line, "cmm_")
+      for (const v of secrets) if (v.length >= 8 && !v.startsWith("cmm_") && line.includes(v)) held += 1
+    }
     for (const entry of tarEntries(archive.stdout)) {
       const meta = `${entry.name}\n${entry.link}`
       cmj += count(meta, "cmj_") + count(entry.body, "cmj_")
@@ -1318,10 +1335,10 @@ export async function runE2E(
     evidence.secretScan.home.cmj = cmj
     evidence.secretScan.home.cmm = cmm
     if (held > 0) problems.push("the home holds a value of this run's sign-in or tokens")
-  } catch {
+  } catch (e) {
     evidence.secretScan.home.cmj = null
     evidence.secretScan.home.cmm = null
-    problems.push("could not scan the whole disposable home")
+    problems.push(`could not scan the whole disposable home${e instanceof HomeScanError ? ` (${e.message})` : ""}`)
   }
   // The viewer's home: nothing of this run's sign-in (the access token reached the viewer on stdin only).
   if (opts.share && viewerStarted && evidence.share) {
@@ -1346,9 +1363,12 @@ export async function runE2E(
   }
   const logText = [...transcript, ...childText].join("\n")
   evidence.secretScan.log = { cmj: count(logText, "cmj_"), cmm: count(logText, "cmm_") }
-  expect(evidence.secretScan.home.cmj === 0, "the home holds a join token")
-  if (credentialPath) expect(evidence.secretScan.home.credentialFileCmm === 1, "the credential file does not hold exactly one credential")
-  expect(evidence.secretScan.home.cmm === 0, "the home holds a credential outside the credential file")
+  // An unscanned home is already a problem above; its counts are unknown, not found.
+  if (evidence.secretScan.home.cmj !== null) {
+    expect(evidence.secretScan.home.cmj === 0, "the home holds a join token")
+    if (credentialPath) expect(evidence.secretScan.home.credentialFileCmm === 1, "the credential file does not hold exactly one credential")
+    expect(evidence.secretScan.home.cmm === 0, "the home holds a credential outside the credential file")
+  }
   expect(evidence.secretScan.log.cmj === 0 && evidence.secretScan.log.cmm === 0, "output holds a token or credential")
   if (secrets.some((s) => s.length >= 4 && logText.includes(s))) problems.push("output holds a secret value")
 
@@ -1503,6 +1523,31 @@ export function realDeps(): Deps {
       }),
     timeout: (ms) => AbortSignal.timeout(ms)
   }
+}
+
+if (import.meta.main && process.argv.includes("--scenario")) {
+  // Scenarios other than the join: no stack secret is read or needed (the Macs are signed in by the person).
+  const argv = process.argv.slice(2)
+  const scenario = argv[argv.indexOf("--scenario") + 1]
+  if (scenario !== "own-machine-parity") {
+    console.error(`machine-join-e2e: refused: unknown scenario ${scenario}`)
+    process.exit(2)
+  }
+  const m = await import("./own-machine-parity")
+  const o = m.parseOptions(argv, process.env)
+  if (typeof o === "string") {
+    console.error(`machine-join-e2e: refused: ${o}`)
+    process.exit(2)
+  }
+  const real = realDeps()
+  const deps: import("./own-machine-parity").Deps = {
+    exec: (argv, timeoutMs) => real.run(argv, { env: { PATH: process.env.PATH ?? CHILD_PATH, HOME: process.env.HOME ?? "/" }, timeoutMs }),
+    now: real.now,
+    sleep: (ms) => real.sleep(ms),
+    write: real.write,
+    writeFile: real.writeFile
+  }
+  process.exit(m.exitCode(await m.runScenario(o, deps)))
 }
 
 if (import.meta.main) {

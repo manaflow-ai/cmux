@@ -1,12 +1,10 @@
 //! Part of `Hub`; see `hub/mod.rs`. What a running turn does right now, one
 //! line, for a parent session that reports its sub-sessions' progress
-//! (`get_session`'s `doing`) and for any client's summary (`turn.activity`,
-//! `turn.planStep`).
+//! (`get_session`'s `doing`) and for any client's summary (`turn.activity`).
 //!
-//! The turn's latest tool call titles it ("Run cargo test -p acpmux"); its
-//! plan's entry in progress is the step around it. Both live on the running
-//! turn only (`TurnInfo`) and end with it, so a finished turn never reads as
-//! still doing its last tool. Each is kept masked before its cut
+//! The turn's latest tool call titles it ("Run cargo test -p acpmux"). It
+//! lives on the running turn only (`TurnInfo`) and ends with it, so a finished
+//! turn never reads as still doing its last tool. It is kept masked before its cut
 //! (`secret_scan`): a tool call's title is often a command with its
 //! arguments, and every view of the summary shows it (the app's sidebar row,
 //! `acpmux ls --fields turn.activity`, the sub-session tools), so a secret in
@@ -21,7 +19,7 @@
 
 use super::*;
 
-/// Longest activity or plan step kept, in characters.
+/// Longest activity kept, in characters.
 const ACTIVITY_CHARS: usize = 160;
 /// Most tool-call ids a turn keeps in flight; calls past it are counted (`open_past_cap`).
 const MAX_OPEN_TOOLS: usize = 256;
@@ -31,8 +29,6 @@ const MAX_OPEN_TOOLS: usize = 256;
 pub struct TurnActivity {
     /// Its latest tool call's title, masked. None until it calls one.
     pub activity: Option<String>,
-    /// Its plan's entry in progress, masked.
-    pub plan_step: Option<String>,
     /// The ids of its tool calls in flight.
     pub open_tools: std::collections::BTreeSet<String>,
     /// How many tool calls started past [`MAX_OPEN_TOOLS`] are in flight, by count, not id: the
@@ -94,10 +90,8 @@ impl TurnActivity {
         ) {
             self.note_tool(update);
         }
-        match activity_of(update) {
-            Some(Activity::Tool(title)) => self.activity = Some(title),
-            Some(Activity::PlanStep(step)) => self.plan_step = step,
-            None => {}
+        if let Some(title) = activity_of(update) {
+            self.activity = Some(title);
         }
     }
 
@@ -107,47 +101,17 @@ impl TurnActivity {
     }
 }
 
-/// What one `session/update` says the turn does now.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub(super) enum Activity {
-    /// A tool call started or was retitled: its title.
-    Tool(String),
-    /// The plan changed: its entry in progress, or None when none is.
-    PlanStep(Option<String>),
-}
-
-/// The activity in `update` (a `session/update`'s `update`), if any, each
-/// line masked and then cut to [`ACTIVITY_CHARS`] (`session::masked_preview`).
+/// The activity in a tool call `update` (a `session/update`'s `update`): its
+/// title, masked and then cut to [`ACTIVITY_CHARS`] (`session::masked_preview`).
 /// A tool call without a title says nothing new; an update to an existing
 /// call counts only when it retitles it.
-pub(super) fn activity_of(update: &Value) -> Option<Activity> {
-    let line = |v: &Value| {
-        v.as_str()
-            .map(|t| super::session::masked_preview(t, ACTIVITY_CHARS))
-            .filter(|t| !t.is_empty())
-    };
+pub(super) fn activity_of(update: &Value) -> Option<String> {
     match update.get("sessionUpdate").and_then(Value::as_str)? {
-        "tool_call" | "tool_call_update" => line(&update["title"]).map(Activity::Tool),
-        "plan" => {
-            let entries = update.get("entries").and_then(Value::as_array)?;
-            let step = entries
-                .iter()
-                .find(|e| e["status"] == "in_progress")
-                .and_then(|e| line(&e["content"]));
-            Some(Activity::PlanStep(step))
-        }
+        "tool_call" | "tool_call_update" => update["title"]
+            .as_str()
+            .map(|t| super::session::masked_preview(t, ACTIVITY_CHARS))
+            .filter(|t| !t.is_empty()),
         _ => None,
-    }
-}
-
-/// The one "currently doing" line of a turn: the plan step and the tool in
-/// it, either alone, or None when the turn has said neither yet.
-pub(crate) fn doing_line(plan_step: Option<&str>, activity: Option<&str>) -> Option<String> {
-    match (plan_step, activity) {
-        (Some(step), Some(tool)) if step != tool => Some(format!("{step} · {tool}")),
-        (Some(step), _) => Some(step.to_owned()),
-        (None, Some(tool)) => Some(tool.to_owned()),
-        (None, None) => None,
     }
 }
 
@@ -170,7 +134,7 @@ impl Hub {
     /// runs: an update after the turn ended does not outlive it.
     pub(super) fn note_activity(&self, session: &Session, update: &Value) {
         let kind = update.get("sessionUpdate").and_then(Value::as_str);
-        if !matches!(kind, Some("tool_call" | "tool_call_update" | "plan")) {
+        if !matches!(kind, Some("tool_call" | "tool_call_update")) {
             return;
         }
         let mut turn = session.turn.lock().unwrap_or_else(|e| e.into_inner());
@@ -187,7 +151,7 @@ mod tests {
     #[test]
     fn a_tool_call_names_the_activity() {
         let u = json!({"sessionUpdate": "tool_call", "toolCallId": "t1", "title": "Run  cargo test\n-p acpmux", "status": "pending"});
-        assert_eq!(activity_of(&u), Some(Activity::Tool("Run cargo test -p acpmux".into())));
+        assert_eq!(activity_of(&u), Some("Run cargo test -p acpmux".into()));
     }
 
     #[test]
@@ -196,19 +160,6 @@ mod tests {
             json!({"sessionUpdate": "tool_call_update", "toolCallId": "t1", "status": "completed"});
         assert_eq!(activity_of(&u), None);
         assert_eq!(activity_of(&json!({"sessionUpdate": "agent_message_chunk"})), None);
-    }
-
-    #[test]
-    fn a_plan_names_its_step_in_progress() {
-        let u = json!({"sessionUpdate": "plan", "entries": [
-            {"content": "Read the brief", "status": "completed", "priority": "high"},
-            {"content": "Fix send_message", "status": "in_progress", "priority": "high"},
-            {"content": "Open the PR", "status": "pending", "priority": "high"},
-        ]});
-        assert_eq!(activity_of(&u), Some(Activity::PlanStep(Some("Fix send_message".into()))));
-        let done =
-            json!({"sessionUpdate": "plan", "entries": [{"content": "x", "status": "completed"}]});
-        assert_eq!(activity_of(&done), Some(Activity::PlanStep(None)));
     }
 
     #[test]
@@ -311,17 +262,14 @@ mod tests {
     }
 
     #[test]
-    fn a_secret_in_a_tool_title_or_plan_step_is_masked() {
+    fn a_secret_in_a_tool_title_is_masked() {
         // A fake key, assembled so no file holds one.
         let key = format!("AKIA{}", "Q7ZJ4XK2MD5P3WRT");
         let mut doing = TurnActivity::default();
         doing.note(&json!({"sessionUpdate": "tool_call", "toolCallId": "t1",
                            "title": format!("curl -H 'x-key: {key}' https://example.com")}));
-        doing.note(&json!({"sessionUpdate": "plan", "entries": [
-            {"content": format!("log in with {key}"), "status": "in_progress"}]}));
-        let (activity, step) = (doing.activity.unwrap(), doing.plan_step.unwrap());
+        let activity = doing.activity.unwrap();
         assert!(activity.starts_with("curl -H") && !activity.contains(&key), "{activity}");
-        assert!(step.starts_with("log in with") && !step.contains(&key), "{step}");
         // Masked before the cut: a key straddling it leaves no head.
         let pad = "x ".repeat((ACTIVITY_CHARS - 10) / 2);
         let u = json!({"sessionUpdate": "tool_call", "title": format!("{pad}{key}")});
@@ -332,19 +280,7 @@ mod tests {
     #[test]
     fn a_long_title_is_cut() {
         let u = json!({"sessionUpdate": "tool_call", "title": "x".repeat(500)});
-        let Some(Activity::Tool(t)) = activity_of(&u) else { panic!() };
+        let Some(t) = activity_of(&u) else { panic!() };
         assert_eq!(t.chars().count(), ACTIVITY_CHARS + 1);
-    }
-
-    #[test]
-    fn the_doing_line_joins_step_and_tool() {
-        assert_eq!(
-            doing_line(Some("Fix it"), Some("Edit a.rs")).as_deref(),
-            Some("Fix it · Edit a.rs")
-        );
-        assert_eq!(doing_line(Some("Fix it"), None).as_deref(), Some("Fix it"));
-        assert_eq!(doing_line(None, Some("Edit a.rs")).as_deref(), Some("Edit a.rs"));
-        assert_eq!(doing_line(Some("same"), Some("same")).as_deref(), Some("same"));
-        assert_eq!(doing_line(None, None), None);
     }
 }

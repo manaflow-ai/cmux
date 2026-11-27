@@ -134,6 +134,16 @@ export function AgentMark(props: MarkProps) {
   return <BrandMark {...props} />;
 }
 
+/// A chat's own icon (acpmux `SessionSummary.icon`, shared/harnessIcons.ts `parseSessionIcon`) when
+/// it set one, else its harness's mark: the one renderer harness icons use, so a session's emoji,
+/// SF Symbol, agent mark or image draws exactly as a profile's would (Leo, 2026-11-22: "SET CUSTOM
+/// ICONS FOR YOURSELVES IN THE TABS").
+export function SessionMark({ icon, ...props }: MarkProps & { icon?: HarnessIconSpec }) {
+  if (icon?.kind === "brand") return <BrandMark {...props} agent={icon.brand} />;
+  if (icon && icon.kind !== "glyph") return <HarnessIcon {...props} spec={icon} />;
+  return <AgentMark {...props} />;
+}
+
 /// An emoji, an image, an SF Symbol or a monogram at `size` px. A symbol is the host's template
 /// image as a mask in the text color (shared/harnessIcons.ts); its monogram shows until the image
 /// arrives, and for good when the host draws none.

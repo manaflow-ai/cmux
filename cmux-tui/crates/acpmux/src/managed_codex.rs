@@ -1,15 +1,18 @@
 //! Opt-in managed Codex runtime. The binary is downloaded only on explicit
 //! request and is never preferred over a Codex already found on PATH.
 use anyhow::{Result, bail};
-use sha2::{Digest, Sha256};
 use std::path::{Path, PathBuf};
 
 const CURRENT: &str = "current";
 const VERSION: &str = "0.156.1";
-const ARM64_URL: &str = "https://github.com/openai/codex/releases/download/rust-v0.156.1/codex-aarch64-apple-darwin.tar.gz";
-const ARM64_SHA256: &str = "2bd64af14dedd47795f2f6bfd5d125cf79199acc2c7ba222144e08127111a5ca";
-const X64_URL: &str = "https://github.com/openai/codex/releases/download/rust-v0.156.1/codex-x86_64-apple-darwin.tar.gz";
-const X64_SHA256: &str = "55e34586dee53720dd94451022632fffc9e3b55b24715acdd9453fd3566a54df";
+/// Codex spawns this from beside its own executable for every tool call. GitHub's release
+/// tarballs hold only `codex`, so a runtime built from one fails each tool call with "failed to
+/// spawn code-mode host" (2026-11-25, every Cloud Codex chat); npm's platform package holds both.
+const HOST: &str = "codex-code-mode-host";
+const ARM64_URL: &str = "https://registry.npmjs.org/@openai/codex/-/codex-0.156.1-darwin-arm64.tgz";
+const ARM64_SHA256: &str = "89823dd350364d5e0cb8a74c1ea585ec2b7307931d9dc0ac4195b8bc8f9e2dfa";
+const X64_URL: &str = "https://registry.npmjs.org/@openai/codex/-/codex-0.156.1-darwin-x64.tgz";
+const X64_SHA256: &str = "9fee26e73f5a24b6b057046f0dbe619f94bb024b934e277f54f4934d081454d0";
 
 fn base() -> PathBuf {
     crate::config::home().join("codex-runtime")
@@ -28,33 +31,37 @@ pub fn ready_path() -> PathBuf {
     root().join("ready.json")
 }
 
-const LINUX_ARM64_URL: &str = "https://github.com/openai/codex/releases/download/rust-v0.156.1/codex-aarch64-unknown-linux-musl.tar.gz";
-const LINUX_ARM64_SHA256: &str = "558e12aaa6dacb335ec47240bf9721db8a54746806d64f01185a403f44f79b72";
-const LINUX_X64_URL: &str = "https://github.com/openai/codex/releases/download/rust-v0.156.1/codex-x86_64-unknown-linux-musl.tar.gz";
-const LINUX_X64_SHA256: &str = "aff46539a83aff86e3c62c592bce2c50d95391f9df289afaf03a50c01d14533d";
+const LINUX_ARM64_URL: &str =
+    "https://registry.npmjs.org/@openai/codex/-/codex-0.156.1-linux-arm64.tgz";
+const LINUX_ARM64_SHA256: &str = "3ca3c3a85e184594d0b665ea9028bc38c4ae89691e86edbeefd2c6f58979fcb4";
+const LINUX_X64_URL: &str =
+    "https://registry.npmjs.org/@openai/codex/-/codex-0.156.1-linux-x64.tgz";
+const LINUX_X64_SHA256: &str = "ded9840babeb511e79738ae708044ae489fbce50db7002b943b3195cf5ae6a25";
 
-fn target() -> (&'static str, &'static str) {
+/// The archive, its sha256 and the directory inside it that holds `codex` and `HOST`.
+fn target() -> (&'static str, &'static str, &'static str) {
     if cfg!(all(target_os = "macos", target_arch = "aarch64")) {
-        (ARM64_URL, ARM64_SHA256)
+        (ARM64_URL, ARM64_SHA256, "package/vendor/aarch64-apple-darwin/bin")
     } else if cfg!(all(target_os = "macos", target_arch = "x86_64")) {
-        (X64_URL, X64_SHA256)
+        (X64_URL, X64_SHA256, "package/vendor/x86_64-apple-darwin/bin")
     } else if cfg!(all(target_os = "linux", target_arch = "aarch64")) {
-        (LINUX_ARM64_URL, LINUX_ARM64_SHA256)
+        (LINUX_ARM64_URL, LINUX_ARM64_SHA256, "package/vendor/aarch64-unknown-linux-musl/bin")
     } else if cfg!(all(target_os = "linux", target_arch = "x86_64")) {
-        (LINUX_X64_URL, LINUX_X64_SHA256)
+        (LINUX_X64_URL, LINUX_X64_SHA256, "package/vendor/x86_64-unknown-linux-musl/bin")
     } else {
-        ("", "")
+        ("", "", "")
     }
 }
 
-/// True only when the binary exists and the readiness marker, written last by
-/// `install`, records this build's pinned version and archive hash.
+/// True only when the binary and its code-mode host exist and the readiness marker, written last
+/// by `install`, records this build's pinned version and archive hash.
 fn is_ready() -> bool {
     is_ready_at(&managed_path(), &ready_path(), target().1)
 }
 
 fn is_ready_at(binary: &Path, marker: &Path, expected_sha256: &str) -> bool {
-    if expected_sha256.is_empty() || !binary.is_file() {
+    let host = binary.with_file_name(HOST);
+    if expected_sha256.is_empty() || !binary.is_file() || !host.is_file() {
         return false;
     }
     std::fs::read(marker)
@@ -71,18 +78,43 @@ pub fn status() -> serde_json::Value {
 }
 
 pub async fn install() -> Result<serde_json::Value> {
-    let (url, expected) = target();
+    let (url, expected, bin_dir) = target();
     if url.is_empty() {
         bail!("managed Codex needs macOS or Linux on arm64 or x86_64")
     }
-    // The workspace builds reqwest with `rustls-no-provider`; a standalone CLI run has no
-    // process-level provider until one is installed (as `catalog/fetch.rs`).
-    let _ = rustls::crypto::ring::default_provider().install_default();
-    let bytes = reqwest::get(url).await?.error_for_status()?.bytes().await?;
-    let got = format!("{:x}", Sha256::digest(&bytes));
-    if got != expected {
-        bail!("Codex archive SHA-256 mismatch: expected {expected}, got {got}")
+    // One stream first, as before. On a Freestyle VM's IPv4 path one stream from GitHub held about
+    // 0.14 MB/s, so a 100 MB release asset took about 12 minutes (RFD 0067): a stream still under
+    // 2 MB/s after 3 s has the rest read in 16 ranges (what it read is kept), about a minute. The same sha256 is checked before anything is kept.
+    // `ACPMUX_FETCH_RANGES=N` overrides: N ranges at once, 1 for one stream only.
+    let fetched = tempfile::tempdir()?;
+    let archive_path = fetched.path().join("codex.tar.gz");
+    let forced = std::env::var("ACPMUX_FETCH_RANGES").ok().and_then(|v| v.trim().parse().ok());
+    let opts = crate::range_fetch::Options {
+        ranges: forced.unwrap_or(crate::range_fetch::DEFAULT_RANGES),
+        adaptive: forced.is_none().then_some(crate::range_fetch::Adaptive::FALLBACK),
+        sha256: Some(expected.to_owned()),
+        ..Default::default()
+    };
+    // The machine's git cache proxy first when it runs (same bytes: the sha256 above still
+    // checks them), then GitHub itself. `CMUX_TRANSPORT_REWRITE=0` skips the proxy.
+    let client = crate::range_fetch::client()?;
+    let order = cmux_transport_rewrite::fetch_order(url);
+    let last = order.len() - 1;
+    for (i, from) in order.iter().enumerate() {
+        match crate::range_fetch::fetch_to_file(&client, from, &archive_path, &opts).await {
+            Ok(report) => {
+                if i < last {
+                    tracing::info!(%from, bytes = report.bytes, "Codex archive through the machine cache");
+                }
+                break;
+            }
+            Err(e) if i < last => {
+                tracing::warn!(%from, "machine cache failed, reading GitHub directly: {e:#}");
+            }
+            Err(e) => return Err(anyhow::anyhow!("Codex archive: {e:#}")),
+        }
     }
+    let bytes = std::fs::read(&archive_path)?;
     let base = base();
     crate::home_fs::create_dirs(&base)?;
     let staging = base.join(format!(".staging-{}", std::process::id()));
@@ -95,25 +127,7 @@ pub async fn install() -> Result<serde_json::Value> {
     let file = std::fs::File::open(&archive)?;
     tar::Archive::new(flate2::read::GzDecoder::new(file)).unpack(&staging)?;
     crate::home_fs::remove_file(&archive)?;
-    let extracted = std::fs::read_dir(&staging)?
-        .filter_map(|entry| entry.ok().map(|e| e.path()))
-        .find(|path| {
-            path.is_file()
-                && path
-                    .file_name()
-                    .and_then(|n| n.to_str())
-                    .is_some_and(|n| n == "codex" || n.starts_with("codex-"))
-        })
-        .ok_or_else(|| anyhow::anyhow!("Codex archive did not contain a target codex binary"))?;
-    crate::home_fs::rename(&extracted, staging.join("codex"))?;
-    #[cfg(unix)]
-    {
-        use std::os::unix::fs::PermissionsExt;
-        crate::home_fs::set_permissions(
-            staging.join("codex"),
-            std::fs::Permissions::from_mode(0o755),
-        )?;
-    }
+    take_binaries(&staging, bin_dir)?;
     // The marker is written last, inside the staged directory: the swap below makes the binary
     // and its marker current together, and the runtime already in place stays until then.
     let ready = serde_json::json!({"version": VERSION, "sha256": expected, "path": managed_path(), "url": url});
@@ -126,6 +140,31 @@ pub async fn install() -> Result<serde_json::Value> {
     crate::home_fs::rename(&staging, &install)?;
     activate(&base, &install)?;
     Ok(ready)
+}
+
+/// Moves `codex` and its code-mode host from `bin_dir` in the unpacked archive to the top of
+/// `staging`, executable, and drops the rest. An archive without either is refused: a runtime
+/// without the host starts but fails every tool call.
+fn take_binaries(staging: &Path, bin_dir: &str) -> Result<()> {
+    let from = staging.join(bin_dir);
+    if let Some(name) = ["codex", HOST].into_iter().find(|name| !from.join(name).is_file()) {
+        bail!("Codex archive has no {bin_dir}/{name}")
+    }
+    for name in ["codex", HOST] {
+        crate::home_fs::rename(from.join(name), staging.join(name))?;
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            crate::home_fs::set_permissions(
+                staging.join(name),
+                std::fs::Permissions::from_mode(0o755),
+            )?;
+        }
+    }
+    if let Some(top) = Path::new(bin_dir).components().next() {
+        crate::home_fs::remove_dir_all(staging.join(top))?;
+    }
+    Ok(())
 }
 
 /// macOS and Linux install a managed runtime (`target`); the swap needs a Unix symlink:
@@ -142,7 +181,10 @@ fn activate(_base: &Path, _install: &Path) -> Result<()> {
 fn activate(base: &Path, install: &Path) -> Result<()> {
     let name =
         install.file_name().ok_or_else(|| anyhow::anyhow!("install directory has no name"))?;
-    if !install.join("codex").is_file() || !install.join("ready.json").is_file() {
+    if !install.join("codex").is_file()
+        || !install.join(HOST).is_file()
+        || !install.join("ready.json").is_file()
+    {
         bail!("{} is not a finished Codex install", install.display())
     }
     let link = base.join(CURRENT);
@@ -198,118 +240,5 @@ pub fn configured_path() -> Option<PathBuf> {
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn binary_without_a_matching_ready_marker_is_not_ready() {
-        let dir = tempfile::tempdir().unwrap();
-        let binary = dir.path().join("codex");
-        let marker = dir.path().join("ready.json");
-        std::fs::write(&binary, b"partial").unwrap();
-        assert!(!is_ready_at(&binary, &marker, "abc"), "no marker");
-        std::fs::write(&marker, b"not json").unwrap();
-        assert!(!is_ready_at(&binary, &marker, "abc"), "corrupt marker");
-        std::fs::write(&marker, br#"{"version":"0.0.1","sha256":"abc"}"#).unwrap();
-        assert!(!is_ready_at(&binary, &marker, "abc"), "other version");
-        std::fs::write(&marker, format!(r#"{{"version":"{VERSION}","sha256":"zzz"}}"#)).unwrap();
-        assert!(!is_ready_at(&binary, &marker, "abc"), "other hash");
-        std::fs::write(&marker, format!(r#"{{"version":"{VERSION}","sha256":"abc"}}"#)).unwrap();
-        assert!(is_ready_at(&binary, &marker, "abc"));
-        std::fs::remove_file(&binary).unwrap();
-        assert!(!is_ready_at(&binary, &marker, "abc"), "marker without binary");
-        assert!(!is_ready_at(&binary, &marker, ""), "unsupported platform");
-    }
-
-    #[cfg(unix)]
-    fn install(dir: &Path, body: &str) {
-        std::fs::create_dir_all(dir).unwrap();
-        std::fs::write(dir.join("codex"), body).unwrap();
-        std::fs::write(dir.join("ready.json"), "{}").unwrap();
-    }
-
-    #[cfg(unix)]
-    fn current(base: &Path) -> String {
-        std::fs::read_to_string(base.join(CURRENT).join("codex")).unwrap()
-    }
-
-    #[cfg(unix)]
-    #[test]
-    fn activation_swaps_the_current_link_and_prunes_the_old_install() {
-        let base = tempfile::tempdir().unwrap();
-        let (old, new) = (
-            base.path().join(format!("{VERSION}-1-1")),
-            base.path().join(format!("{VERSION}-2-2")),
-        );
-        install(&old, "old");
-        activate(base.path(), &old).unwrap();
-        assert_eq!(current(base.path()), "old");
-        install(&new, "new");
-        age(&old);
-        activate(base.path(), &new).unwrap();
-        assert_eq!(current(base.path()), "new");
-        assert!(!old.exists(), "the superseded install is removed");
-        assert!(!base.path().join(format!(".current-{}", std::process::id())).exists());
-    }
-
-    #[cfg(unix)]
-    #[test]
-    fn an_unfinished_install_changes_nothing() {
-        let base = tempfile::tempdir().unwrap();
-        let old = base.path().join(format!("{VERSION}-1-1"));
-        install(&old, "old");
-        activate(base.path(), &old).unwrap();
-        // No ready marker: not a finished install, so the link is never touched.
-        let half = base.path().join(format!("{VERSION}-2-2"));
-        std::fs::create_dir_all(&half).unwrap();
-        std::fs::write(half.join("codex"), "half").unwrap();
-        assert!(activate(base.path(), &half).is_err());
-        assert_eq!(current(base.path()), "old");
-        assert!(old.exists());
-    }
-
-    #[cfg(unix)]
-    fn age(dir: &Path) {
-        let old = std::time::SystemTime::now() - PRUNE_GRACE * 2;
-        std::fs::File::open(dir).unwrap().set_modified(old).unwrap();
-    }
-
-    #[cfg(unix)]
-    #[test]
-    fn prune_never_removes_what_current_names_even_when_another_installer_swapped() {
-        let base = tempfile::tempdir().unwrap();
-        let (a, b) = (
-            base.path().join(format!("{VERSION}-1-1")),
-            base.path().join(format!("{VERSION}-2-2")),
-        );
-        install(&a, "a");
-        install(&b, "b");
-        // Installer A activated, then B swapped before A pruned: A's prune must keep B's runtime.
-        activate(base.path(), &a).unwrap();
-        activate(base.path(), &b).unwrap();
-        age(&a);
-        age(&b);
-        prune(base.path());
-        assert_eq!(current(base.path()), "b");
-        assert!(b.exists());
-        // And one that is not named, and is old, goes.
-        assert!(!a.exists());
-    }
-
-    #[cfg(unix)]
-    #[test]
-    fn prune_leaves_a_recent_install_another_installer_has_not_linked_yet() {
-        let base = tempfile::tempdir().unwrap();
-        let (live, pending) = (
-            base.path().join(format!("{VERSION}-1-1")),
-            base.path().join(format!("{VERSION}-2-2")),
-        );
-        install(&live, "live");
-        install(&pending, "pending");
-        activate(base.path(), &live).unwrap();
-        prune(base.path());
-        assert!(pending.exists(), "a fresh directory may be mid-install elsewhere");
-        activate(base.path(), &pending).unwrap();
-        assert_eq!(current(base.path()), "pending");
-    }
-}
+#[path = "managed_codex_tests.rs"]
+mod tests;

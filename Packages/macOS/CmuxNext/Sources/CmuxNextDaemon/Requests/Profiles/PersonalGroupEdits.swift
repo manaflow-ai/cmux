@@ -1,25 +1,5 @@
 import Foundation
 
-public struct DeletePersonalGroupRequest: DaemonRequest {
-    public typealias Response = EmptyResponse
-    public static let command = "delete-personal-group"
-    public static let requiredCapability: String? = DaemonCapability.profiles.rawValue
-    public var group: WorkspaceGroupID
-    public init(group: WorkspaceGroupID) { self.group = group }
-}
-
-public struct MovePersonalGroupRequest: DaemonRequest {
-    public typealias Response = PersonalGroupResult
-    public static let command = "move-personal-group"
-    public static let requiredCapability: String? = DaemonCapability.profiles.rawValue
-    public var group: WorkspaceGroupID
-    public var index: Int
-    public init(group: WorkspaceGroupID, index: Int) {
-        self.group = group
-        self.index = index
-    }
-}
-
 /// Sets a qualified workspace's personal order (insertion index), group,
 /// browser profile or theme; JSON null clears.
 public struct SetPersonalWorkspaceRequest: DaemonRequest {

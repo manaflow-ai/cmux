@@ -28,6 +28,8 @@
 # The fallback search does not depend on the candidate and runs reads, so it runs beside them from the
 # moment the tip's tree reads unpublished (in its own process group, ended when the step leaves early):
 # run 44893172356 of 89a0aaea (2026-11-21) spent 4.6 min in this step, every phase one after another.
+# A fallback whose client lacks a daemon capability the tip's app lists is dropped
+# (scripts/ci/nightly_fallback_covers.py, from git, about 3 s; run 44975559258, 2026-11-22).
 # Each phase logs its seconds ("phase NAME: Ns").
 set -euo pipefail
 [[ "$(git rev-parse HEAD)" == "$TIP_SHA" ]] || { echo "error: the checkout is not the tip $TIP_SHA" >&2; exit 1; }
@@ -84,10 +86,10 @@ case "$publisher" in
 esac
 if [[ -n "$why" ]]; then
   echo "tree_pending=false" >> "$GITHUB_OUTPUT"
-  echo "::warning title=cmux-tui tree::tree $key of the tip is not published and nothing will publish it in time ($why); the resolver builds the newest commit whose tree is published"
+  echo "::warning title=cmux-tui tree::tree $key of the tip is not published and nothing will publish it in time ($why); the resolver builds the tip with the newest published tree whose daemon-capabilities.json matches (older-tree-for-tip.sh), else the newest commit whose tree is published"
   {
     echo "### Nightly build commit"
-    echo "- the tip \`$TIP_SHA\`: its cmux-tui tree \`$key\` is not published and nothing will publish it in time ($why); building the newest published tree instead"
+    echo "- the tip \`$TIP_SHA\`: its cmux-tui tree \`$key\` is not published and nothing will publish it in time ($why); the resolver picks an older published tree"
   } >> "$GITHUB_STEP_SUMMARY"
   exit 0
 fi
@@ -105,6 +107,29 @@ if (( fallback_rc == 0 )); then
   if [[ "$fallback_commit" =~ ^[0-9a-f]{40}$ && "$fallback_key" =~ ^[0-9a-f]{40}$ && "$fallback_key" != "$key" ]]; then
     fallback="$fallback_commit $fallback_key"
     fallback_note="tree \`$fallback_key\` of \`${fallback_source:-?}\`, published by \`$fallback_commit\`"
+  fi
+fi
+# A fallback client older than a daemon capability the tip's app lists fails "Bundle the cmux-tui
+# client" at check-daemon-capabilities.sh after the whole build: run 44975559258 (2026-11-22) bundled
+# client 602f51e1, 24 commits behind, without language-packs-v1. Read it from git now, not 20 min in:
+# a client that lacks one is dropped, so the bundle step waits for the tip's own tree. Could not tell
+# (exit 2: the commit's objects are not here and one fetch did not bring them) keeps the fallback.
+if [[ -n "$fallback" && "${fallback_source:-}" =~ ^[0-9a-f]{40}$ ]]; then
+  began=$SECONDS
+  fallback_depth=()
+  [[ "$(git rev-parse --is-shallow-repository)" == true ]] && fallback_depth=(--depth=1)
+  git cat-file -e "$fallback_source^{commit}" 2>/dev/null \
+    || bash scripts/ci/timeout.sh 90 git fetch -q --no-tags ${fallback_depth[@]+"${fallback_depth[@]}"} origin "$fallback_source" 2>/dev/null || true
+  covers_rc=0
+  covers="$(python3 scripts/ci/nightly_fallback_covers.py --app-commit "$TIP_SHA" --client-commit "$fallback_source" 2>/dev/null)" || covers_rc=$?
+  missing="$(sed -n 's/^missing=//p' <<<"$covers" | head -1)"
+  phase "fallback capabilities (exit $covers_rc)" "$began"
+  if (( covers_rc == 1 )); then
+    echo "::warning title=cmux-tui tree::fallback tree $fallback_key of $fallback_source lacks ${missing}, which the tip's app needs; the bundle step waits for the tip's tree instead"
+    fallback=""
+    fallback_note="none: tree \`$fallback_key\` of \`$fallback_source\` lacks \`${missing}\`, which the tip's app needs; the bundle step waits for the tip's tree"
+  elif (( covers_rc != 0 )); then
+    echo "::notice title=cmux-tui tree::could not tell whether fallback client $fallback_source serves every capability the tip's app needs (exit $covers_rc); keeping it"
   fi
 fi
 # Why no fallback: the search's last word (it was discarded, so run 45097887921's miss read as nothing).

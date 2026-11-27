@@ -10,20 +10,39 @@
 //! commit's tree and the bytes from the host's own git object store, so a checkout costs one tree
 //! listing and writes no files.
 
+pub mod away;
+pub mod cdc;
+pub mod chat_ns;
 pub mod git;
 #[cfg(unix)]
 pub mod git_swap;
+#[cfg(unix)]
+pub mod hold;
 pub mod layer;
 pub mod link;
+pub mod listing_patch;
+pub mod lower;
 pub mod manifest;
-#[cfg(target_os = "linux")]
+#[cfg(unix)]
+pub mod nfs;
+#[cfg(unix)]
 pub mod overlay;
 pub mod peers;
 #[cfg(unix)]
 pub mod reap;
 #[cfg(unix)]
+pub mod repo_archive;
+pub mod revision;
+pub mod s3;
+#[cfg(unix)]
+pub mod share;
+#[cfg(any(target_os = "linux", test))]
+pub mod sparse;
+#[cfg(unix)]
 pub mod state;
-#[cfg(target_os = "linux")]
+pub mod store_fetch;
+pub mod upload;
+#[cfg(unix)]
 pub mod upper;
 pub mod way_back;
 pub mod wire;
@@ -49,11 +68,10 @@ impl FetchError {
     #[must_use]
     pub fn errno(self) -> i32 {
         match self {
-            // ESTALE, EIO, EACCES, EHOSTDOWN (Linux numbers; the mount is Linux only).
-            Self::Changed => 116,
-            Self::Failed => 5,
-            Self::Refused => 13,
-            Self::Away => 112,
+            Self::Changed => libc::ESTALE,
+            Self::Failed => libc::EIO,
+            Self::Refused => libc::EACCES,
+            Self::Away => libc::EHOSTDOWN,
         }
     }
 }

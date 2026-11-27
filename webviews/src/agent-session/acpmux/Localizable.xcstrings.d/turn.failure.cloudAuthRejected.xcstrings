@@ -1,0 +1,138 @@
+{
+  "sourceLanguage" : "en",
+  "strings" : {
+    "turn.failure.cloudAuthRejected" : {
+      "comment" : "Agent pane: Cloud provider rejected credentials; status is optional. Never include raw output or host.",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "The provider rejected {harness}’s credentials on this Cloud machine{status}. Set them up again to continue."
+          }
+        },
+        "ar" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "رفض المزوّد بيانات اعتماد {harness} على جهاز Cloud هذا{status}. أعد إعدادها للمتابعة."
+          }
+        },
+        "bs" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Provajder je odbio vjerodajnice za {harness} na ovom Cloud računaru{status}. Ponovo ih postavite."
+          }
+        },
+        "da" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Udbyderen afviste legitimationsoplysningerne for {harness} på denne Cloud-maskine{status}. Konfigurer dem igen."
+          }
+        },
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Der Anbieter hat die Anmeldedaten für {harness} auf diesem Cloud-Computer abgelehnt{status}. Richte sie erneut ein."
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "El proveedor rechazó las credenciales de {harness} en esta máquina de Cloud{status}. Configúralas de nuevo."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Le fournisseur a refusé les identifiants de {harness} sur cette machine Cloud{status}. Configurez-les à nouveau."
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Il provider ha rifiutato le credenziali di {harness} su questa macchina Cloud{status}. Configurale di nuovo."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "この Cloud マシンでプロバイダーが {harness} の認証情報を拒否しました{status}。再設定してください。"
+          }
+        },
+        "km" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "អ្នកផ្តល់សេវាបានបដិសេធព័ត៌មានសម្គាល់របស់ {harness} នៅលើម៉ាស៊ីន Cloud នេះ{status}។ សូមរៀបចំវាម្តងទៀត។"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "이 Cloud 머신에서 제공업체가 {harness} 자격 증명을 거부했습니다{status}. 다시 설정하세요."
+          }
+        },
+        "nb" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Leverandøren avviste legitimasjonen for {harness} på denne Cloud-maskinen{status}. Konfigurer den på nytt."
+          }
+        },
+        "pl" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Dostawca odrzucił dane logowania {harness} na tej maszynie Cloud{status}. Skonfiguruj je ponownie."
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "O provedor rejeitou as credenciais de {harness} nesta máquina Cloud{status}. Configure-as novamente."
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Провайдер отклонил учётные данные {harness} на этой машине Cloud{status}. Настройте их заново."
+          }
+        },
+        "th" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "ผู้ให้บริการปฏิเสธข้อมูลรับรองของ {harness} บนเครื่อง Cloud นี้{status} ตั้งค่าใหม่อีกครั้ง"
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Sağlayıcı bu Cloud makinesinde {harness} kimlik bilgilerini reddetti{status}. Yeniden kurun."
+          }
+        },
+        "uk" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Провайдер відхилив облікові дані {harness} на цій хмарній машині{status}. Налаштуйте їх знову."
+          }
+        },
+        "vi" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Nhà cung cấp đã từ chối thông tin xác thực của {harness} trên máy Cloud này{status}. Hãy thiết lập lại."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "提供商在这台 Cloud 机器上拒绝了 {harness} 的凭据{status}。请重新设置。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "提供者在這台 Cloud 機器上拒絕了 {harness} 的憑證{status}。請重新設定。"
+          }
+        }
+      }
+    }
+  },
+  "version" : "1.0"
+}

@@ -95,6 +95,10 @@ final class CEFRuntime {
             self?.tabsByBrowser.values.filter { !$0.isClosed && $0.isContentHidden && CEFPageRendererGC.isCmuxPage($0.state.url) } ?? []
         },
         notify: { await CEFHiddenPageTrim.notice($0) })
+    /// The focused agent chat's own renderer (`CEFOwnChatRenderer`).
+    private(set) lazy var ownChatRenderer = CEFOwnChatRenderer(name: { [weak self] browser in
+        self?.shim?.pageOwnRenderer?(browser)
+    })
     /// Shown pages on their way to their first document: the next spare waits for them (`CEFArrivingPages`).
     let arriving = CEFArrivingPages()
     /// How the next tabs inserted into a window open, by window id, from the
@@ -152,6 +156,9 @@ final class CEFRuntime {
     /// asked for in one turn and awaited in a later one), with the answer when it came first. Dropped when the
     /// browser closes or quit begins (the caller then gets `closed`).
     var unawaitedDevTools: [CEFDevToolsKey: Result<String, any Error>?] = [:]
+    /// The DevTools sends whose shim call held the main thread past ``CEFRuntime/slowDevToolsSend`` (newest last, at
+    /// most ``CEFRuntime/slowDevToolsSendLimit``).
+    var slowDevToolsSends: [CEFDevToolsSlowSend] = []
     let siteReplies = CEFReplyWaiters<Int32, CEFSiteReply>()
     /// `cmux_shim_tab_evaluate` calls waiting for their answer (fork API 29, `CEFRuntime+Evaluate`).
     let evaluations = CEFReplyWaiters<Int32, CEFEvaluationResult>()
@@ -414,15 +421,18 @@ final class CEFRuntime {
             task = newLoadTask(candidate, priority: .userInitiated)
             loadTask = task
         }
+        CEFStartSteps.shared.point("start_called")
         let keychain = keychainTask ?? beginKeychainStep(environment: environment)
         let prep = beginLaunchPrep()
         // A utility-priority preload may still be running; the await below
         // raises its priority to this task's.
         let loaded = await task.value
+        CEFStartSteps.shared.point("map_done")
         if let outcome = await keychain.value {
             keychainOutcome = outcome
             logger.notice("keychain item: \(String(describing: outcome), privacy: .public)")
         }
+        CEFStartSteps.shared.point("keychain_done")
         let read = await prep.value
         CEFStartSteps.shared.point("launch_prep_read")
         if await Self.waitForInitializeGate(initializeAfter) { CEFStartSteps.shared.point("first_frame_waited") }
@@ -583,7 +593,10 @@ final class CEFRuntime {
         CEFFrameworkPrefetch.noteMapped(clock.now - mapStarted)
         CEFFrameworkPrefetch.warm(layout)
         // Lists the framework's locale directories here, off the main thread.
-        let locale = CEFLocale.current(frameworkDirectory: layout.frameworkDirectory)
+        // Downloaded Chromium paks (CMUX-570) are listed with them, and Chromium reads that folder first.
+        let downloaded = Bundle.main.bundleIdentifier.map { ChromiumLocalePaks.directory(bundleID: $0) }
+        let locale = CEFLocale.current(frameworkDirectory: layout.frameworkDirectory, downloadedDirectory: downloaded)
+        if let downloaded { downloaded.path.withCString { shim.setLocalesDir($0) } }
         return .success(CEFLoadedLibrary(shim: shim, shimABI: shimABI ?? "", layout: layout, locale: locale, loadDuration: clock.now - started))
     }
 

@@ -80,3 +80,20 @@ slower link against the fast one.
 A real Mac as the origin (a lane VM cannot reach one), a real WAN, a folder with `.git`, the product path
 through the two daemons (`cmux link project serve`), and write-back. RFD 0007 has the 107 GiB run from a
 real Mac.
+
+## Resume: the listing from the store, not the uplink (RFD 0007, open question 3)
+
+`resume-revision-2026-11-23.jsonl`, from `cargo run --release --example resume_bench ENTRIES`. One synthetic
+folder; a resume that sends the encoded manifest (before) against a resume that names a stored revision and
+fetches its pieces (after), both ending in the same checked-equal manifest.
+
+| Entries | Manifest | Before: Mac sends it at 6 Mbit/s | After: fetch 3,046 pieces from the store |
+| --- | --- | --- | --- |
+| 5.1 M | 73 MB | 99.0 s | 3.6 s |
+| 1.2 M | 17 MB | 23.1 s | 0.9 s |
+
+What was measured: a loopback socket paced to 6 Mbit/s stands in for Leo's uplink (told: 71 MB in 85-130 s is
+4.4-6.7 Mbit/s); the store is a loopback HTTP server that waits 30 ms per GET (a guess at the round trip to a data
+center), fetched by the same `revision::assemble` the machine runs, 32 pieces at once. The real store's
+bandwidth and tail latency were not measured here. Splitting and hashing cost the Mac 1.6 s for 5.1 M entries,
+and only pieces the store lacks are uploaded, in the background after the chat starts.

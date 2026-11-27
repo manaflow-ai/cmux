@@ -30,6 +30,7 @@ import { EmojiPicker, loadEmoji } from "./EmojiPicker";
 import { HomeIcon, type HomeIconName } from "./icons";
 import { SendLaterPicker, type SendLaterStyle } from "./SendLater";
 import { useWebSwapHold } from "../shared/useWebSwapHold";
+import { isAbort, withAttachmentRetries } from "../shared/attachmentRetry";
 import type { HomeAttachment, HomeParticipant } from "./types";
 
 export interface ComposerProps {
@@ -37,6 +38,9 @@ export interface ComposerProps {
   label: string;
   strings: Strings;
   disabled?: boolean;
+  /** The link is down (offline, reconnecting): typing, formatting, emoji and mentions go on, undimmed;
+   * only Send and attaching wait for it, and the draft stays put (Leo, 2026-11-24 11:57Z). */
+  held?: boolean;
   /** Resolves true when the owner took the message; the text and the sent files clear only then. */
   onSend(text: string, attachments?: readonly HomeAttachment[]): Promise<boolean>;
   /** Files upload to this conversation through this service (absent: no attach). */
@@ -88,6 +92,7 @@ export function Composer({
   label,
   strings,
   disabled,
+  held = false,
   onSend,
   people = [],
   onEditLast,
@@ -123,28 +128,14 @@ export function Composer({
   // update's reload waits for them to be sent or removed (pages/shared/webSwap.ts).
   useWebSwapHold(uploading ? "home.uploading" : files.length ? "home.attachments" : null);
   const empty = !value.trim() && ready.length === 0;
+  /** Send and attaching need the link; the rest of the composer does not. */
+  const cantSend = Boolean(disabled || held);
   const patchFile = (id: string, patch: Partial<PendingAttachment>) =>
     setFiles((current) => current.map((item) => (item.id === id ? { ...item, ...patch } : item)));
   const filesNow = useRef(files);
   filesNow.current = files;
-  const upload = (id: string, file: File) => {
-    if (!attachments) return;
-    const controller = new AbortController();
-    uploads.current.set(id, controller);
-    attachments.service
-      .upload(attachments.conversation, file, (progress) => patchFile(id, { progress }), controller.signal)
-      .then(
-        (part) => patchFile(id, { part }),
-        (error: unknown) => {
-          if (!controller.signal.aborted) patchFile(id, { error: uploadError(error, t) });
-        },
-      )
-      .finally(() => {
-        if (uploads.current.get(id) === controller) uploads.current.delete(id);
-      });
-  };
   const addFiles = (list: Iterable<File>) => {
-    if (!attachments || disabled) return;
+    if (!attachments || cantSend) return;
     const added: PendingAttachment[] = [];
     for (const file of list) {
       const id = `f${nextFile.current++}`;
@@ -192,6 +183,35 @@ export function Composer({
     };
     filesNow.current = place(filesNow.current);
     setFiles(place);
+  };
+  /// Uploads `file` for tray item `id`. A failed upload is tried again on its own a few times
+  /// (pages/shared/attachmentRetry.ts; the daemon keeps a hash it already has, so a try again
+  /// sends only what is missing); one that still fails shows Retry on its tray item, never nothing.
+  const upload = (id: string, file: File) => {
+    if (!attachments) return;
+    const { service, conversation } = attachments;
+    const controller = new AbortController();
+    uploads.current.set(id, controller);
+    withAttachmentRetries(
+      () => service.upload(conversation, file, (progress) => patchFile(id, { progress }), controller.signal),
+      { retries: (error) => !isAbort(error) && retryableUpload(error), signal: controller.signal },
+    )
+      .then(
+        (part) => patchFile(id, { part }),
+        (error: unknown) => {
+          if (!controller.signal.aborted)
+            patchFile(id, { error: uploadError(error, t), retryable: retryableUpload(error) });
+        },
+      )
+      .finally(() => {
+        if (uploads.current.get(id) === controller) uploads.current.delete(id);
+      });
+  };
+  const retryFile = (id: string) => {
+    const item = files.find((candidate) => candidate.id === id);
+    if (!item?.retryable) return;
+    patchFile(id, { error: undefined, retryable: undefined, progress: { sent: 0, total: item.file.size } });
+    upload(id, item.file);
   };
   const removeFile = (id: string) => {
     const index = filesNow.current.findIndex((item) => item.id === id);
@@ -265,7 +285,7 @@ export function Composer({
   };
   /** Sends now, or with `at` queues it for then (Send Later). */
   const submit = (markdown: string, at?: number) => {
-    if (disabled || uploading || (!markdown.trim() && ready.length === 0)) return;
+    if (cantSend || uploading || (!markdown.trim() && ready.length === 0)) return;
     // A picked time never sends now, even when Send Later went away meanwhile.
     if (at !== undefined && !sendLater) return;
     const sending = ready;
@@ -355,7 +375,7 @@ export function Composer({
             id: "attach",
             label: t("composer.menu.attachFiles"),
             separatorBefore: true,
-            disabled,
+            disabled: cantSend,
             onSelect: () => picker.current?.click(),
           },
         ]
@@ -399,7 +419,7 @@ export function Composer({
       }}
     >
       {dropping && <div className="hc-drop-hint">{t("attach.drop")}</div>}
-      <AttachmentTray items={files} strings={strings} onRemove={removeFile} />
+      <AttachmentTray items={files} strings={strings} onRemove={removeFile} onRetry={retryFile} />
       {showFormats && (
         <Toolbar label={t("format.toolbar")} className="hc-format">
           {FORMAT_GROUPS.map((group, index) => (
@@ -485,7 +505,7 @@ export function Composer({
             label={t("attach.add")}
             tooltip={false}
             className="hc-tool"
-            disabled={disabled}
+            disabled={cantSend}
             onPress={() => picker.current?.click()}
           >
             <HomeIcon name="attach" />
@@ -541,7 +561,7 @@ export function Composer({
               <ToolbarButton
                 label={t("sendLater.open")}
                 className="hc-tool"
-                disabled={empty || disabled || uploading}
+                disabled={empty || cantSend || uploading}
                 keepsFocus
                 onPress={() => setPop({ kind: "later", anchor: glyph('[data-bar="later"]') })}
               >
@@ -553,8 +573,8 @@ export function Composer({
             <ToolbarButton
               label={t("composer.send")}
               tooltip={false}
-              className={`hc-send${empty || disabled || uploading ? "" : " ready"}${sendLater?.style === "split" ? " hc-send-split" : ""}`}
-              disabled={empty || disabled || uploading}
+              className={`hc-send${empty || cantSend || uploading ? "" : " ready"}${sendLater?.style === "split" ? " hc-send-split" : ""}`}
+              disabled={empty || cantSend || uploading}
               onPress={() => submit(editor.current?.value() ?? value)}
             >
               <HomeIcon name="send" />
@@ -562,8 +582,8 @@ export function Composer({
             {sendLater?.style === "split" && (
               <ToolbarButton
                 label={t("sendLater.open")}
-                className={`hc-send hc-send-later${empty || disabled || uploading ? "" : " ready"}`}
-                disabled={empty || disabled || uploading}
+                className={`hc-send hc-send-later${empty || cantSend || uploading ? "" : " ready"}`}
+                disabled={empty || cantSend || uploading}
                 keepsFocus
                 onPress={() => setPop({ kind: "later", anchor: glyph('[data-bar="later"]') })}
               >
@@ -648,8 +668,16 @@ export function Composer({
   );
 }
 
+function uploadCode(error: unknown): string {
+  return typeof error === "object" && error && "code" in error ? String((error as { code: unknown }).code) : "";
+}
+
 function uploadError(error: unknown, t: (key: string) => string): string {
-  const code = typeof error === "object" && error && "code" in error ? String((error as { code: unknown }).code) : "";
-  if (code === "cmux.page.unavailable") return t("attach.unavailable");
+  if (uploadCode(error) === "cmux.page.unavailable") return t("attach.unavailable");
   return t("attach.failed");
+}
+
+/** Whether trying again can work: a page that cannot send files here never will. */
+function retryableUpload(error: unknown): boolean {
+  return uploadCode(error) !== "cmux.page.unavailable";
 }

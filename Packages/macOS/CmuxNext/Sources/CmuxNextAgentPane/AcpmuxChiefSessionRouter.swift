@@ -114,10 +114,9 @@ public nonisolated struct AcpmuxChiefSessionRouter: AgentPaneHostProviding {
         await local.restartAcpmux(owner: owner)
     }
 
-    /// Restart agent service goes to the host the pane's handshake goes to: this Mac's own daemon
-    /// for a local chat; the Chief home's host starts no daemon, so it stops none.
-    public func restartStuckAcpmux(sessionId: String?) async -> Bool {
-        await host(for: sessionId).restartStuckAcpmux(sessionId: sessionId)
+    /// This Mac's acpmux answers: the Chief home's daemon is its host's to start.
+    public func acpmuxAnswers() -> AsyncStream<Void>? {
+        local.acpmuxAnswers()
     }
 
     /// An outdated daemon's restart is for this Mac's own daemon and a local chat only: a Chief-owned

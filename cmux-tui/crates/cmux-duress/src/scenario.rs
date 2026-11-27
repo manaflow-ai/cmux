@@ -43,6 +43,11 @@ pub struct Scenario {
     /// Why there is no headless run, or which half of the case only the sim covers.
     #[serde(default)]
     pub headless_reason: Option<String>,
+    /// The bug this scenario reproduces is still open: its checks are expected to fail until the
+    /// fix lands. Names the open bug or fix lane. `scenario run` reports such a failure but does
+    /// not fail on it, and says so when the scenario starts passing (drop this field then).
+    #[serde(default)]
+    pub known_failing: Option<String>,
     /// `terminal` (PTY bytes into the phone's ghostty-vt) or `projection` (a Mac terminal, the
     /// hybrid/lean frames, the phone's terminal).
     #[serde(default)]
@@ -58,9 +63,38 @@ pub struct Scenario {
     /// A link written out as a `cmux-fault` profile; replaces the spec's `link`.
     #[serde(default)]
     pub link: Option<LinkProfile>,
-    /// The full-screen TUI the Mac runs (`projection` only).
+    /// The full-screen TUI the Mac runs. On `terminal` its redraws go as PTY bytes, the way a
+    /// phone without Agent CLI Screen Changes gets them (the default); on `projection` as
+    /// hybrid/lean frames.
     #[serde(default)]
     pub tui: Option<Tui>,
+    /// `terminal` with `[tui]` only: `output` at most once per this many ms (`attach-output-coalesce-v1`: the
+    /// first bytes after idle at once, the rest at the interval's end); `None` is one event per
+    /// redraw, what a phone that declares nothing gets.
+    #[serde(default)]
+    pub coalesce_ms: Option<u64>,
+    /// `terminal` with `[tui]` only: a fixed cost per `output` event on the phone, in ms, on top
+    /// of what the run times (a main-thread hop, the app's own decode and paint, which this model
+    /// cannot see). A phone slower than the events backs up the Mac's socket.
+    #[serde(default)]
+    pub phone_event_ms: Option<f64>,
+    /// `terminal` with `[tui]` only: when the Mac's writer frees, the PTY reads already pending go
+    /// out as one `output` event (no timer). Not with `coalesce_ms`.
+    #[serde(default)]
+    pub merge_ready: bool,
+    /// `terminal` with `[tui]` only, the phone side of the fix: the phone parses each event as it
+    /// arrives (off its main thread) and paints at most once per display frame, everything parsed
+    /// by then, paying `phone_event_ms` once per paint instead of once per event.
+    #[serde(default)]
+    pub phone_batch: bool,
+    /// `terminal` with `[tui]` only, the projection's paint coalescing (ask-0e9bbe35bb): the
+    /// phone decodes and parses each event on its main thread in turn, as today, and paints
+    /// once per display frame at most (after the hop that took the first unpainted event, and a
+    /// frame after the last paint), everything parsed by then, paying the paint and
+    /// `phone_event_ms` once per paint. The paint holds the main thread: the next event waits
+    /// for it. Not with `phone_batch`.
+    #[serde(default)]
+    pub phone_coalesce: bool,
     #[serde(default, rename = "event")]
     pub events: Vec<Event>,
     #[serde(default, rename = "check")]
@@ -275,7 +309,23 @@ impl Scenario {
         Ok(scenario)
     }
 
-    fn validate(&self) -> Result<(), String> {
+    /// `relay-30`: the relayed hop's link as `turn-path-reset.toml` writes it (cmux#50916, as
+    /// relayed: 24.5 ms p50 / 27.7 ms p95 echo), without its resets. Any other name is `None`: a
+    /// builtin `cmux-fault` profile the spec's `link=` names (`lan`, `lte`, `none`).
+    pub fn named_link(name: &str) -> Result<Option<LinkProfile>, String> {
+        if name != "relay-30" {
+            return Ok(None);
+        }
+        toml::from_str(
+            "name = \"relay-30\"\nversion = 1\ndown_kbit = 12000\nup_kbit = 12000\nrtt_ms = 21\n\
+         jitter_ms = 4\nsource = \"cmux#50916 relay-30, as relayed (turn-path-reset.toml)\"\n",
+        )
+        .map(Some)
+        .map_err(|error| format!("relay-30: {error}"))
+    }
+
+    /// The checks `load` runs; a caller that changes a loaded scenario runs them again.
+    pub fn validate(&self) -> Result<(), String> {
         let name_ok = !self.name.is_empty()
             && self.name.chars().all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == '-');
         if !name_ok {
@@ -287,6 +337,9 @@ impl Scenario {
         }
         if self.sim.ui.is_empty() && self.sim.only.is_empty() {
             return Err("sim: name at least one UI suite (ui) or kit test (only)".to_owned());
+        }
+        if self.known_failing.as_deref().is_some_and(|why| why.trim().is_empty()) {
+            return Err("known_failing: name the open bug or the lane fixing it".to_owned());
         }
         if !self.headless {
             if self.headless_reason.as_deref().is_none_or(str::is_empty) {
@@ -310,15 +363,29 @@ impl Scenario {
         }
         match (self.path, &self.tui) {
             (PathKind::Projection, None) => return Err("path = \"projection\" needs [tui]".into()),
-            (PathKind::Terminal, Some(_)) => {
-                return Err("[tui] runs on path = \"projection\"".into());
+            (PathKind::Terminal, None)
+                if self.coalesce_ms.is_some()
+                    || self.phone_event_ms.is_some()
+                    || self.merge_ready
+                    || self.phone_batch
+                    || self.phone_coalesce =>
+            {
+                return Err(
+                    "coalesce_ms, phone_event_ms, merge_ready, phone_batch and phone_coalesce need [tui]".into()
+                );
             }
             _ => {}
         }
+        if self.phone_batch && self.phone_coalesce {
+            return Err("phone_batch and phone_coalesce are two phones: one at a time".into());
+        }
+        if self.merge_ready && self.coalesce_ms.is_some_and(|ms| ms > 0) {
+            return Err("merge_ready and coalesce_ms are two senders: one at a time".into());
+        }
         for event in &self.events {
             let terminal_only = !matches!(event, Event::Scroll { .. } | Event::Echo { .. });
-            if self.path == PathKind::Projection && terminal_only {
-                return Err(format!("{event:?}: not on path = \"projection\" (scroll, echo only)"));
+            if self.tui.is_some() && terminal_only {
+                return Err(format!("{event:?}: not with [tui] (scroll, echo only)"));
             }
             match event {
                 Event::Pause { ms: 0, .. } => return Err("pause: ms must be above 0".into()),
@@ -415,6 +482,72 @@ pub fn default_dir(repo: Option<&Path>) -> PathBuf {
         }
     }
     Path::new(env!("CARGO_MANIFEST_DIR")).join("scenarios")
+}
+
+/// Sets `key` in `table` the way `table[key] = item` does (a comment above the key stays), without
+/// the panicking index.
+fn set(table: &mut toml_edit::Table, key: &str, item: toml_edit::Item) {
+    *table.entry(key).or_insert(toml_edit::Item::None) = item;
+}
+
+/// `scenario new`: a new scenario file's text, from `base` (another scenario file's text) with
+/// its name, summary and sources replaced and the pause events' lengths set, its comments kept.
+/// The result is checked the way `scenario run` reads it.
+pub fn new_text(
+    base: &str,
+    name: &str,
+    summary: &str,
+    source: &str,
+    pause_ms: Option<u64>,
+) -> Result<String, String> {
+    let mut doc: toml_edit::DocumentMut =
+        base.parse().map_err(|error: toml_edit::TomlError| error.to_string())?;
+    let base_name = doc.get("name").and_then(|item| item.as_str()).unwrap_or_default().to_owned();
+    set(&mut doc, "name", toml_edit::value(name));
+    set(&mut doc, "summary", toml_edit::value(summary));
+    let mut sources = toml_edit::Array::new();
+    sources.push(source);
+    sources.push(format!("made with `cmux-duress scenario new {name} --like {base_name}`"));
+    set(&mut doc, "sources", toml_edit::value(sources));
+    if let Some(ms) = pause_ms {
+        if ms == 0 {
+            return Err("--pause-ms must be above 0".into());
+        }
+        let length = i64::try_from(ms).map_err(|_| format!("--pause-ms {ms} is too long"))?;
+        let events = doc.get_mut("event").and_then(|item| item.as_array_of_tables_mut());
+        let mut found = false;
+        for event in events.into_iter().flat_map(|events| events.iter_mut()) {
+            if event.get("kind").and_then(|kind| kind.as_str()) == Some("pause") {
+                set(event, "ms", toml_edit::value(length));
+                found = true;
+            }
+        }
+        if !found {
+            return Err(format!("--pause-ms: {base_name} has no pause event to set"));
+        }
+    }
+    let text = doc.to_string();
+    Scenario::parse(&text)?;
+    Ok(text)
+}
+
+impl Scenario {
+    /// `scenario run --pause-ms`: every pause lasts `ms` (the backlog held through it lands at
+    /// the resume, as when the app comes back after that long).
+    pub fn set_pause_ms(&mut self, ms: u64) -> Result<(), String> {
+        let mut found = false;
+        for event in &mut self.events {
+            if let Event::Pause { ms: length, .. } = event {
+                *length = ms;
+                found = true;
+            }
+        }
+        if found {
+            Ok(())
+        } else {
+            Err(format!("--pause-ms: scenario {} has no pause event", self.name))
+        }
+    }
 }
 
 /// Every `*.toml` in `dir`, by name.
@@ -680,6 +813,7 @@ pub fn report_json(
         "spec": scenario.spec,
         "headless": scenario.headless,
         "headless_reason": scenario.headless_reason,
+        "known_failing": scenario.known_failing,
         "checks": checks,
         "metrics": Value::Object(out_metrics),
         "sim": {
@@ -732,174 +866,5 @@ pub fn report_text(scenario: &Scenario, metrics: &Metrics, judged: &[Judged]) ->
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    const MINIMAL: &str = r#"
-name = "tiny"
-summary = "a pause"
-spec = "idle,stream_kbps=64,stream_seconds=4"
-headless = true
-
-[[event]]
-kind = "pause"
-at_ms = 1000
-ms = 1000
-
-[[check]]
-metric = "resume_catch_up_ms"
-max = 100
-
-[sim]
-ui = ["TerminalScrollBench"]
-"#;
-
-    #[test]
-    fn parses_a_minimal_scenario() {
-        let scenario = Scenario::parse(MINIMAL).unwrap();
-        assert_eq!(scenario.name, "tiny");
-        assert_eq!((scenario.cols, scenario.rows, scenario.frame_bytes), (44, 40, 65536));
-        assert_eq!(scenario.events, vec![Event::Pause { at_ms: 1000, ms: 1000 }]);
-        assert_eq!(scenario.checks[0].stat, Stat::Max);
-        assert_eq!(scenario.checks[0].max, Some(100.0));
-        assert_eq!(
-            scenario.sim_args(),
-            "test ui=TerminalScrollBench duress=idle,stream_kbps=64,stream_seconds=4"
-        );
-    }
-
-    #[test]
-    fn rejects_what_would_run_wrong() {
-        let bad = |from: &str, to: &str| Scenario::parse(&MINIMAL.replace(from, to)).unwrap_err();
-        assert!(bad("ms = 1000\n", "ms = 1000\nspeed = 2\n").contains("speed"));
-        assert!(bad("kind = \"pause\"", "kind = \"warp\"").contains("warp"));
-        assert!(bad("spec = \"idle,", "spec = \"idel,").contains("idle, duress, heavy"));
-        assert!(bad("max = 100", "").contains("max or min"));
-        assert!(bad("headless = true", "headless = false").contains("headless_reason"));
-        assert!(bad("name = \"tiny\"", "name = \"Tiny\"").contains("lowercase"));
-        assert!(bad("ui = [\"TerminalScrollBench\"]", "ui = []").contains("kit test (only)"));
-        // A path reset on a link with no address change and no stall_ms of its own.
-        let reset = MINIMAL.replace(
-            "kind = \"pause\"\nat_ms = 1000\nms = 1000",
-            "kind = \"path_reset\"\nevery_ms = [1000, 2000]",
-        );
-        assert!(Scenario::parse(&reset).unwrap_err().contains("stall_ms"));
-        let handoff = reset.replace("stream_seconds=4", "stream_seconds=4,link=5g-lte-handoff");
-        assert!(Scenario::parse(&handoff).is_ok());
-    }
-
-    #[test]
-    fn sim_only_scenarios_carry_a_reason_and_nothing_to_run() {
-        let text = r#"
-name = "list-only"
-summary = "Swift list"
-spec = "duress"
-headless = false
-headless_reason = "the list is SwiftUI"
-[sim]
-ui = ["WorkspaceListBench"]
-duress = "heavy"
-"#;
-        let scenario = Scenario::parse(text).unwrap();
-        assert_eq!(scenario.sim_args(), "test ui=WorkspaceListBench duress=heavy");
-        let with_check = format!("{text}\n[[check]]\nmetric = \"x\"\nmax = 1\n");
-        assert!(Scenario::parse(&with_check).unwrap_err().contains("no events or checks"));
-    }
-
-    #[test]
-    fn pause_holds_deliveries_to_the_resume() {
-        let mut times = vec![500.0, 1000.0, 1500.0, 1999.0, 2000.0, 2500.0];
-        let mark = apply_pause(&mut times, 1000, 1000);
-        assert_eq!(times, vec![500.0, 2000.0, 2000.0, 2000.0, 2000.0, 2500.0]);
-        assert_eq!((mark.from_ms, mark.target_ms), (2000.0, 2000.0));
-    }
-
-    #[test]
-    fn resets_are_seeded_and_inside_their_ranges() {
-        let draw =
-            |seed| reset_times([60_000, 100_000], [1000, 3000], 0, 400_000.0, &mut Rng::new(seed));
-        let resets = draw(7);
-        assert_eq!(resets, draw(7));
-        assert!((4..=6).contains(&resets.len()), "{resets:?}");
-        let mut last = 0.0;
-        for (at, stall) in &resets {
-            assert!((60_000.0..=100_000.0).contains(&(at - last)), "{resets:?}");
-            assert!((1000.0..=3000.0).contains(stall));
-            last = *at;
-        }
-        let mut times = vec![0.0, 10_000.0, 10_500.0, 12_100.0, 12_200.0];
-        let mark = apply_reset(&mut times, 10_000.0, 2000.0, 100.0);
-        assert_eq!(times, vec![0.0, 12_100.0, 12_100.0, 12_100.0, 12_200.0]);
-        assert_eq!((mark.from_ms, mark.burst_ms), (10_000.0, 12_100.0));
-    }
-
-    #[test]
-    fn ticks_and_scroll_steps() {
-        assert_eq!(ticks(250, 0, None, 1000.0), vec![250.0, 500.0, 750.0]);
-        assert_eq!(ticks(250, 100, Some(700), 1000.0), vec![100.0, 350.0, 600.0]);
-        assert_eq!(scroll_steps(6, -3, 2), vec![-3, -3, 3, 3, -3, -3]);
-    }
-
-    #[test]
-    fn judge_reads_the_named_stat() {
-        let mut metrics = Metrics::default();
-        for value in [1.0, 2.0, 3.0, 4.0, 100.0] {
-            metrics.push("frame_ms", "ms", value);
-        }
-        metrics.count("mismatch", 0.0);
-        let check = |metric: &str, stat, max, min| Check { metric: metric.into(), stat, max, min };
-        let judged = judge(
-            &[
-                check("frame_ms", Stat::P50, Some(3.0), None),
-                check("frame_ms", Stat::Max, Some(50.0), None),
-                check("frame_ms", Stat::N, None, Some(5.0)),
-                check("mismatch", Stat::Max, Some(0.0), None),
-                check("absent", Stat::Max, Some(1.0), None),
-            ],
-            &metrics,
-        );
-        let passes: Vec<bool> = judged.iter().map(|j| j.pass).collect();
-        assert_eq!(passes, vec![true, false, true, true, false]);
-        assert_eq!(judged[1].value, Some(100.0));
-        assert_eq!(judged[4].value, None);
-    }
-
-    #[test]
-    fn report_is_one_json_line_with_sources() {
-        let scenario = Scenario::parse(MINIMAL).unwrap();
-        let mut metrics = Metrics::default();
-        metrics.push("resume_catch_up_ms", "ms", 40.0);
-        let judged = judge(&scenario.checks, &metrics);
-        let value = report_json(&scenario, 1, Some("abc"), &metrics, &judged, 12.5);
-        let line = value.to_string();
-        assert!(!line.contains('\n'));
-        assert_eq!(value["verdict"], "pass");
-        assert_eq!(value["commit"], "abc");
-        assert_eq!(value["metrics"]["resume_catch_up_ms"]["source"], "headless");
-        assert_eq!(value["metrics"]["resume_catch_up_ms"]["p95"], 40.0);
-        assert_eq!(value["sim"]["source"], "sim");
-        assert_eq!(value["sim"]["step"], Value::Null);
-    }
-
-    #[test]
-    fn every_bundled_scenario_parses() {
-        let dir = Path::new(env!("CARGO_MANIFEST_DIR")).join("scenarios");
-        let scenarios = load_dir(&dir).unwrap();
-        let names: Vec<&str> = scenarios.iter().map(|s| s.name.as_str()).collect();
-        for name in [
-            "resume-after-1s",
-            "turn-path-reset",
-            "tui-scroll-lag",
-            "keyboard-open-close",
-            "blank-favicons-previews",
-            "theme-wallpaper-mismatch",
-        ] {
-            assert!(names.contains(&name), "{name} missing from {names:?}");
-        }
-        assert!(find(&dir, "nope").unwrap_err().contains("resume-after-1s"));
-        assert!(list_table(&scenarios).contains("sim-only"));
-        // A kit-test sim half runs without duress=, which the sim script allows only beside ui=.
-        let resume = find(&dir, "resume-after-1s").unwrap();
-        assert_eq!(resume.sim_args(), "test only=CmuxMobileLiveTests/ReconnectChainTimingTests");
-    }
-}
+#[path = "scenario_tests.rs"]
+mod tests;

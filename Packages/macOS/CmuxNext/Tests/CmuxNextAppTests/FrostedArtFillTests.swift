@@ -2,7 +2,6 @@ import AppKit
 @testable import CmuxNextDesign
 import CmuxNextTestSupport
 import Foundation
-import Metal
 import QuartzCore
 import Testing
 
@@ -13,7 +12,7 @@ import Testing
 ///
 /// Frosted is the one backdrop that blurs the art itself (``WindowBackdrop/artBlurRadius``). Layer
 /// frames cannot show where the render server puts the blurred picture, so these tests render the
-/// backdrop's real layer tree with `CARenderer` at 2x and read the pixels back, per quadrant.
+/// backdrop's real art layer at 2x and read the pixels back, per quadrant.
 @MainActor @Suite(.serialized) struct FrostedArtFillTests {
     /// Points of the rendered backdrop; the render is at 2x, like a Retina window.
     static let size = CGSize(width: 400, height: 300)
@@ -30,38 +29,21 @@ import Testing
         var everyQuadrantCovered: Bool { quadrants.allSatisfy { $0 > 0.95 } }
     }
 
-    /// Renders `layer` (sized in points) into a 2x Metal texture with the render server's own
-    /// renderer, filters included, and measures where it drew.
+    /// Renders `layer` (sized in points) into a 2x bitmap and measures where it drew. A
+    /// `CARenderer` into a Metal texture drew nothing at all on a fleet Mac (every quadrant 0%,
+    /// the unfiltered baseline included), so this draws with `CALayer.render(in:)`, which honours
+    /// contents and their gravity. It ignores `filters`: these tests measure the art layer, which
+    /// carries none.
     static func render(_ layer: CALayer) throws -> Coverage {
-        let device = try #require(MTLCreateSystemDefaultDevice(), "this Mac has no Metal device")
-        let queue = try #require(device.makeCommandQueue())
         let width = Int(size.width * scale), height = Int(size.height * scale)
-        let descriptor = MTLTextureDescriptor.texture2DDescriptor(pixelFormat: .bgra8Unorm, width: width, height: height,
-                                                                  mipmapped: false)
-        descriptor.usage = [.renderTarget, .shaderRead]
-        descriptor.storageMode = .managed
-        let texture = try #require(device.makeTexture(descriptor: descriptor))
-        let root = CALayer()
-        root.frame = CGRect(x: 0, y: 0, width: width, height: height)
-        root.sublayerTransform = CATransform3DMakeScale(scale, scale, 1)
-        root.addSublayer(layer)
-        let renderer = CARenderer(mtlTexture: texture, options: [kCARendererMetalCommandQueue as String: queue])
-        renderer.layer = root
-        renderer.bounds = root.frame
-        renderer.beginFrame(atTime: CACurrentMediaTime(), timeStamp: nil)
-        renderer.addUpdate(renderer.bounds)
-        renderer.render()
-        renderer.endFrame()
-        let commands = try #require(queue.makeCommandBuffer())
-        let blit = try #require(commands.makeBlitCommandEncoder())
-        blit.synchronize(resource: texture)
-        blit.endEncoding()
-        commands.commit()
-        commands.waitUntilCompleted()
-        layer.removeFromSuperlayer()
-        var pixels = [UInt8](repeating: 0, count: width * height * 4)
-        texture.getBytes(&pixels, bytesPerRow: width * 4, from: MTLRegionMake2D(0, 0, width, height), mipmapLevel: 0)
-        // Texture rows run top to bottom: row 0 is the top of the layer.
+        let context = try #require(CGContext(data: nil, width: width, height: height, bitsPerComponent: 8,
+                                             bytesPerRow: width * 4, space: CGColorSpaceCreateDeviceRGB(),
+                                             bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue))
+        context.scaleBy(x: scale, y: scale)
+        layer.render(in: context)
+        let data = try #require(context.data)
+        let pixels = data.bindMemory(to: UInt8.self, capacity: width * height * 4)
+        // Bitmap rows run top to bottom: row 0 is the top of the layer.
         var covered = [Int](repeating: 0, count: 4)
         for y in 0 ..< height {
             for x in 0 ..< width where pixels[(y * width + x) * 4 + 3] > 127 {
@@ -141,29 +123,5 @@ import Testing
         let coverage = try Self.render(art)
         print("FrostedArtFillTests 64x48 unblurred art: \(coverage)")
         #expect(coverage.everyQuadrantCovered, "the unblurred picture covers only \(coverage)")
-    }
-
-    /// Which filter chain on an aspect-filled picture layer leaves it in a corner, measured on plain
-    /// layers (printed for the PR; only the no-filter baseline is asserted).
-    @Test func filterChainsOnAPictureLayer() throws {
-        let image = try Self.picture(width: 64, height: 48)
-        let chains: [(String, [CIFilter])] = [
-            ("none", []),
-            ("blur", [CIFilter(name: "CIGaussianBlur", parameters: [kCIInputRadiusKey: 20])].compactMap { $0 }),
-            ("clamp+blur", [CIFilter(name: "CIAffineClamp"),
-                            CIFilter(name: "CIGaussianBlur", parameters: [kCIInputRadiusKey: 20])].compactMap { $0 }),
-        ]
-        for (name, filters) in chains {
-            let layer = CALayer()
-            layer.frame = CGRect(origin: .zero, size: Self.size)
-            layer.contents = image
-            layer.contentsGravity = .resizeAspectFill
-            layer.masksToBounds = true
-            layer.contentsScale = Self.scale
-            layer.filters = filters.isEmpty ? nil : filters
-            let coverage = try Self.render(layer)
-            print("FrostedArtFillTests filter chain \(name): \(coverage)")
-            if filters.isEmpty { #expect(coverage.everyQuadrantCovered) }
-        }
     }
 }

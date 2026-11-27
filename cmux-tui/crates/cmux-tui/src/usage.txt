@@ -62,5 +62,8 @@ START OPTIONS
   --terminal-reap-grace-seconds <seconds>
                      End a terminal with no tab after this long unless it is
                      kept (default: never; 0 ends it at once; at most 604800).
+  --freeing-idle-seconds <seconds>
+                     Turn the idle freeing timer on: park a terminal idle at its
+                     prompt with no client for this long (workspaces.freeing.*).
   -h, --help         Show this help.
   -V, --version      Print the cmux version.

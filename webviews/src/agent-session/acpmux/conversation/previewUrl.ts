@@ -63,20 +63,41 @@ function parse(text: string): string | undefined {
 /// and output (where a dev server prints its address). Other tools' input and output (a file
 /// read, a web fetch) are left out.
 export function turnPreviewUrl(user: AcpmuxRow, turn: readonly AcpmuxRow[]): string | undefined {
-  return latestLocalUrl([user.text, ...turnTexts(turn)]);
+  return turnServedUrl(turn) ?? textUrl(user, user.text);
 }
 
 /// The page the agent's side of a turn gave, never the person's prompt: an address the person
 /// typed is not yet served (New project opens only what the agent serves, App.tsx).
 export function turnServedUrl(turn: readonly AcpmuxRow[]): string | undefined {
-  return latestLocalUrl(turnTexts(turn));
+  // The latest page is the last text's latest page that has one: each text is read once, so a live
+  // turn's every new call reads only that call's text, not the turn's again (the header's Preview
+  // reads the live turn on every record that adds a row or a call).
+  for (let index = turn.length - 1; index >= 0; index -= 1) {
+    const row = turn[index]!;
+    const items = row.items ?? [];
+    for (let at = items.length - 1; at >= 0; at -= 1) {
+      const tool = items[at]!.tool;
+      const url =
+        tool?.kind === "execute" ? (textUrl(tool, tool.output) ?? textUrl(tool, tool.command, true)) : undefined;
+      if (url) return url;
+    }
+    const url = row.kind === "assistant" ? textUrl(row, row.text) : undefined;
+    if (url) return url;
+  }
+  return undefined;
 }
 
-function turnTexts(turn: readonly AcpmuxRow[]): (string | undefined)[] {
-  return turn.flatMap((row) => [
-    row.kind === "assistant" ? row.text : undefined,
-    ...(row.items ?? []).flatMap((item) =>
-      item.tool?.kind === "execute" ? [item.tool.command, item.tool.output] : [],
-    ),
-  ]);
+/// `latestLocalUrl([text])`, kept with the object the text is from while that text is the same (a
+/// call's command and output, a row's text): two texts per object at most, `second` the other one.
+function textUrl(owner: object, text: string | undefined, second = false): string | undefined {
+  if (!text) return undefined;
+  const cache = second ? SECOND_URLS : TEXT_URLS;
+  const known = cache.get(owner);
+  if (known?.text === text) return known.url;
+  const url = latestLocalUrl([text]);
+  cache.set(owner, { text, url });
+  return url;
 }
+
+const TEXT_URLS = new WeakMap<object, { text: string; url: string | undefined }>();
+const SECOND_URLS = new WeakMap<object, { text: string; url: string | undefined }>();

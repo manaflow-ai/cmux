@@ -1,0 +1,138 @@
+{
+  "sourceLanguage" : "en",
+  "strings" : {
+    "settings.tailnet.join.hostname.help" : {
+      "comment" : "Settings > Devices > Tailscale (schemas/settings/source/tailnet-join.json).",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Optional device name template. Use {vm} for the Cloud machine name."
+          }
+        },
+        "ar" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Optional device name template. Use {vm} for the Cloud machine name."
+          }
+        },
+        "bs" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Optional device name template. Use {vm} for the Cloud machine name."
+          }
+        },
+        "da" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Optional device name template. Use {vm} for the Cloud machine name."
+          }
+        },
+        "de" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Optional device name template. Use {vm} for the Cloud machine name."
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Optional device name template. Use {vm} for the Cloud machine name."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Optional device name template. Use {vm} for the Cloud machine name."
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Optional device name template. Use {vm} for the Cloud machine name."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Optional device name template. Use {vm} for the Cloud machine name."
+          }
+        },
+        "km" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Optional device name template. Use {vm} for the Cloud machine name."
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Optional device name template. Use {vm} for the Cloud machine name."
+          }
+        },
+        "nb" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Optional device name template. Use {vm} for the Cloud machine name."
+          }
+        },
+        "pl" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Optional device name template. Use {vm} for the Cloud machine name."
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Optional device name template. Use {vm} for the Cloud machine name."
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Optional device name template. Use {vm} for the Cloud machine name."
+          }
+        },
+        "th" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Optional device name template. Use {vm} for the Cloud machine name."
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Optional device name template. Use {vm} for the Cloud machine name."
+          }
+        },
+        "uk" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Optional device name template. Use {vm} for the Cloud machine name."
+          }
+        },
+        "vi" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Optional device name template. Use {vm} for the Cloud machine name."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Optional device name template. Use {vm} for the Cloud machine name."
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Optional device name template. Use {vm} for the Cloud machine name."
+          }
+        }
+      }
+    }
+  },
+  "version" : "1.0"
+}

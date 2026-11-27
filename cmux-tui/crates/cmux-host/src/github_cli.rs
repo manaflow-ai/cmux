@@ -1,7 +1,8 @@
 //! `cmux github …` on a cmux Cloud machine: git and `gh` with short-lived,
 //! repo-scoped GitHub tokens and no login on the machine. On a machine joined to a cmux hub
 //! (`acpmux machine join`) with no Cloud agent, each ask goes to that hub instead
-//! (`github_cli_joined.rs`), with the same answers.
+//! (`github_cli_joined.rs`), and on a machine the person added from their Mac, to that Mac
+//! through the agent session's acpmux daemon (`github_cli_lane.rs`), with the same answers.
 //!
 //! - `credential get|store|erase`: a git credential helper. `get` asks the
 //!   machine's Cloud agent (its socket, `cloud/github.rs`) for a token for
@@ -90,7 +91,7 @@ impl std::fmt::Display for Refused {
         } else {
             write!(f, "{}: {}", self.code, self.message)?;
         }
-        match next_step(&self.code) {
+        match next_step(&self.code, self.configure_url.as_deref()) {
             Some(next) => write!(f, ". Next: {next}"),
             None => Ok(()),
         }
@@ -136,6 +137,29 @@ impl Refused {
                      suspended on GitHub)."
                 ),
                 Some(format!("To renew it, {CONNECT_GITHUB}; {again}.")),
+            ),
+            "github.permissions_pending" => (
+                format!(
+                    "{lead}: the cmux GitHub App asks for updated permissions this account has \
+                     not accepted yet."
+                ),
+                Some(format!("{}.", permissions_pending_step(self.configure_url.as_deref()))),
+            ),
+            "github.no_owner" => (
+                format!(
+                    "{lead}: no Mac that lends GitHub to this machine is connected (cmux on the \
+                     Mac that added it is closed, asleep or signed out)."
+                ),
+                Some(format!(
+                    "Open cmux on that Mac (or add this machine from it with Add Machine, GitHub \
+                     on); {again}."
+                )),
+            ),
+            "github.denied" => (
+                format!("{lead}: the Mac that added this machine does not lend it GitHub."),
+                Some(format!(
+                    "Turn GitHub on for this machine in cmux on that Mac (Add Machine); {again}."
+                )),
             ),
             "auth.required" | "auth.forbidden" | "auth.refused" | "vm.unbound" => (
                 format!("{lead}: this machine's cmux Cloud sign-in needs renewing."),
@@ -240,9 +264,12 @@ impl Refused {
 
 /// The one next step for a refusal the person can fix, or `None` (an outage, a bad answer:
 /// retrying is all there is). Leo, 2026-11-10: when the user is not connected, the error says
-/// exactly how to connect, and it is retryable once connected.
-pub fn next_step(code: &str) -> Option<String> {
+/// exactly how to connect, and it is retryable once connected. `configure_url`: the refusal's
+/// GitHub installation page, when it names one.
+pub fn next_step(code: &str, configure_url: Option<&str>) -> Option<String> {
     match code {
+        // The cmux GitHub App asks for more than the installation accepted (contents: write).
+        "github.permissions_pending" => Some(permissions_pending_step(configure_url)),
         "integration.not_found" | "github.not_connected" => Some(format!(
             "GitHub is not connected for this cmux team: {CONNECT_GITHUB}. Then run the same \
              command again; nothing needs setting up on this machine"
@@ -259,8 +286,20 @@ pub fn next_step(code: &str) -> Option<String> {
     }
 }
 
+/// The step for `github.permissions_pending`: accept the App's updated permissions on the
+/// installation's GitHub page (the refusal's `configure_url`), then run the command again.
+fn permissions_pending_step(configure_url: Option<&str>) -> String {
+    let page =
+        configure_url.unwrap_or("the cmux GitHub App installation's settings page on GitHub");
+    format!(
+        "GitHub needs you to accept cmux's updated permissions for this account: open {page} \
+         and accept, then run the same command again"
+    )
+}
+
 /// Whether the same ask can succeed later with nothing changed on this machine: after the
-/// person connects (or reconnects) GitHub, or after a wait.
+/// person connects (or reconnects) GitHub, accepts the App's updated permissions, or after a
+/// wait.
 pub fn retryable(code: &str) -> bool {
     matches!(
         code,
@@ -271,6 +310,8 @@ pub fn retryable(code: &str) -> bool {
             | "busy"
             | "rate_limited"
             | "vm.agent_unreachable"
+            | "github.no_owner"
+            | "github.permissions_pending"
     )
 }
 
@@ -314,7 +355,9 @@ pub fn ask_retrying(socket: &Path, ask: &TokenAsk) -> Result<Minted, Refused> {
 
 /// One ask for this machine: its Cloud agent over `socket`, else, when no agent socket answers
 /// and the machine is joined to a hub (`joined`), that hub's machine token route
-/// (`github_cli_joined.rs`). Neither: the agent's `vm.agent_unreachable`.
+/// (`github_cli_joined.rs`), else, in an acpmux agent session on a machine a Mac lends GitHub
+/// to, that Mac through the session's daemon (`github_cli_lane.rs`). None: the agent's
+/// `vm.agent_unreachable`.
 pub fn ask_here(
     socket: &Path,
     ask: &TokenAsk,
@@ -325,7 +368,8 @@ pub fn ask_here(
         Ok(stream) => minted_from_reply(&reply_on(stream, &ask.to_line(), ASK_TIMEOUT)?),
         Err(e) => match joined() {
             Some(machine) => ask_hub(&machine, ask, post),
-            None => Err(unreachable(socket, &e)),
+            None => crate::github_cli_lane::ask_lane(ask)
+                .unwrap_or_else(|| Err(unreachable(socket, &e))),
         },
     }
 }
@@ -1015,10 +1059,23 @@ pub fn gh_hosts_path(
     home.map(|h| h.join(".config/gh/hosts.yml"))
 }
 
+/// The working folder's `origin` as configured. Not `git remote get-url`: that applies
+/// `url.*.insteadOf`, and a Cloud machine's git cache rewrites every github.com fetch URL to
+/// its loopback proxy (`cmux_git_cache::gitconfig`), so the repo read as none there and
+/// `acpmux github-mcp` had no default repo (journey runs 45750510949, 45778908629).
 pub fn origin_url() -> Option<String> {
-    let out =
-        std::process::Command::new("git").args(["remote", "get-url", "origin"]).output().ok()?;
-    out.status.success().then(|| String::from_utf8_lossy(&out.stdout).trim().to_owned())
+    origin_url_in(None)
+}
+
+/// [`origin_url`] for `dir` (the process's working folder when none).
+pub fn origin_url_in(dir: Option<&Path>) -> Option<String> {
+    let mut git = std::process::Command::new("git");
+    if let Some(dir) = dir {
+        git.arg("-C").arg(dir);
+    }
+    let out = git.args(["config", "--get", "remote.origin.url"]).output().ok()?;
+    let url = String::from_utf8_lossy(&out.stdout).trim().to_owned();
+    (out.status.success() && !url.is_empty()).then_some(url)
 }
 
 /// The helper value `setup` writes: this binary by absolute path (the name
@@ -1297,6 +1354,31 @@ mod tests {
 
     fn minted() -> Minted {
         Minted { token: SECRET.to_owned() }
+    }
+
+    /// A Cloud machine's git cache rewrites github.com fetches to its proxy; the repo still reads.
+    #[test]
+    fn origin_reads_through_a_git_cache_rewrite() {
+        let tmp = tempfile::tempdir().unwrap();
+        let git = |args: &[&str]| {
+            let ok = std::process::Command::new("git")
+                .arg("-C")
+                .arg(tmp.path())
+                .args(args)
+                .env("GIT_CONFIG_GLOBAL", "/dev/null")
+                .env("GIT_CONFIG_NOSYSTEM", "1")
+                .status()
+                .unwrap()
+                .success();
+            assert!(ok, "git {args:?}");
+        };
+        git(&["init", "-q"]);
+        assert_eq!(origin_url_in(Some(tmp.path())), None);
+        git(&["remote", "add", "origin", "https://github.com/acme/app.git"]);
+        git(&["config", "url.http://127.0.0.1:47380/github.com/.insteadOf", "https://github.com/"]);
+        let url = origin_url_in(Some(tmp.path()));
+        assert_eq!(url.as_deref(), Some("https://github.com/acme/app.git"));
+        assert_eq!(url.as_deref().and_then(repo_from).as_deref(), Some("acme/app"));
     }
 
     #[test]
@@ -1645,6 +1727,33 @@ mod tests {
             lines(&refused("integration.unavailable", "")),
             "cmux could not get a GitHub token for acme/web (integration.unavailable)."
         );
+    }
+
+    #[test]
+    fn a_pending_permission_update_names_its_page_and_is_retryable() {
+        let page = "https://github.com/organizations/acme/settings/installations/99";
+        let pending = Refused {
+            configure_url: Some(page.to_owned()),
+            ..refused(
+                "github.permissions_pending",
+                "GitHub needs you to accept cmux's updated permissions for acme.",
+            )
+        };
+        let step = next_step(&pending.code, pending.configure_url.as_deref()).unwrap();
+        assert_eq!(
+            step,
+            format!(
+                "GitHub needs you to accept cmux's updated permissions for this account: open \
+                 {page} and accept, then run the same command again"
+            )
+        );
+        assert!(pending.to_string().ends_with(&format!(". Next: {step}")), "{pending}");
+        let (what, fix) = pending.explain("acme/web");
+        assert!(what.contains("updated permissions"), "{what}");
+        assert_eq!(fix, Some(format!("{step}.")));
+        let bare = next_step("github.permissions_pending", None).unwrap();
+        assert!(bare.contains("installation's settings page on GitHub"), "{bare}");
+        assert!(retryable("github.permissions_pending"));
     }
 
     #[test]

@@ -1,0 +1,137 @@
+{
+  "sourceLanguage" : "en",
+  "strings" : {
+    "settings.editor.fontSize.help" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Empty uses the terminal font size. Cmd-= and Cmd-- change it in one editor."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "空欄にするとターミナルのフォントサイズを使います。Cmd-= と Cmd-- で1つのエディタだけ変更できます。"
+          }
+        },
+        "ar" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "عند تركه فارغًا يُستخدم حجم خط الطرفية. يغيّره ‎Cmd-=‎ و‎Cmd--‎ في محرر واحد."
+          }
+        },
+        "bs" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Prazno koristi veličinu fonta terminala. Cmd-= i Cmd-- je mijenjaju u jednom uređivaču."
+          }
+        },
+        "da" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Tom bruger terminalens skriftstørrelse. Cmd-= og Cmd-- ændrer den i én editor."
+          }
+        },
+        "de" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Leer verwendet die Schriftgröße des Terminals. Cmd-= und Cmd-- ändern sie in einem Editor."
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Vacío usa el tamaño de fuente del terminal. Cmd-= y Cmd-- lo cambian en un editor."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Vide utilise la taille de police du terminal. Cmd-= et Cmd-- la changent dans un éditeur."
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Vuoto usa la dimensione del terminale. Cmd-= e Cmd-- la cambiano in un editor."
+          }
+        },
+        "km" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "ទទេ ប្រើទំហំពុម្ពអក្សររបស់ទែមីណាល់។ Cmd-= និង Cmd-- ប្ដូរវានៅក្នុងកម្មវិធីកែមួយ។"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "비워 두면 터미널 글꼴 크기를 사용합니다. Cmd-= 및 Cmd--로 편집기 하나에서만 바꿉니다."
+          }
+        },
+        "nb" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Tomt bruker terminalens skriftstørrelse. Cmd-= og Cmd-- endrer den i én editor."
+          }
+        },
+        "pl" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Puste używa rozmiaru czcionki terminala. Cmd-= i Cmd-- zmieniają go w jednym edytorze."
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Vazio usa o tamanho da fonte do terminal. Cmd-= e Cmd-- o alteram em um editor."
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Пустое значение — размер шрифта терминала. Cmd-= и Cmd-- меняют его в одном редакторе."
+          }
+        },
+        "th" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "เว้นว่างไว้จะใช้ขนาดแบบอักษรของเทอร์มินัล Cmd-= และ Cmd-- เปลี่ยนขนาดในตัวแก้ไขเดียว"
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Boş bırakılırsa terminalin yazı boyutu kullanılır. Cmd-= ve Cmd-- tek bir düzenleyicide değiştirir."
+          }
+        },
+        "uk" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Порожнє значення — розмір шрифту термінала. Cmd-= і Cmd-- змінюють його в одному редакторі."
+          }
+        },
+        "vi" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Để trống sẽ dùng cỡ chữ của terminal. Cmd-= và Cmd-- đổi cỡ chữ trong một trình soạn thảo."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "留空则使用终端字号。Cmd-= 和 Cmd-- 只更改一个编辑器。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "留空則使用終端機字級。Cmd-= 和 Cmd-- 只變更一個編輯器。"
+          }
+        }
+      }
+    }
+  },
+  "version" : "1.0"
+}

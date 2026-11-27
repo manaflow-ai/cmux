@@ -25,7 +25,7 @@ xattr -w com.apple.quarantine "0081;$(printf '%x' "$(date +%s)");Safari;" "$dmg"
 
 step "DMG ticket" xcrun stapler validate "$dmg"
 step "DMG Gatekeeper (open)" spctl -a -vv -t open --context context:primary-signature "$dmg"
-hdiutil attach "$dmg" -nobrowse -readonly -mountpoint "$mnt" >/dev/null || { echo "FAIL attach"; exit 1; }
+hdiutil attach "$dmg" -nobrowse -readonly -noautofsck -mountpoint "$mnt" >/dev/null || { echo "FAIL attach"; exit 1; }
 app_in="$(find "$mnt" -maxdepth 1 -name '*.app' -type d -print -quit)"
 [ -n "$app_in" ] || { echo "FAIL no app in the DMG"; exit 1; }
 echo "== app's own ticket (expected absent with one notary round):"

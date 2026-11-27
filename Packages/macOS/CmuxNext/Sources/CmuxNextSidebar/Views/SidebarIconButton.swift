@@ -142,7 +142,7 @@ final class SidebarIconButton: ClickableButton {
     var menuProvider: (() -> NSMenu?)?
 
     override func menu(for event: NSEvent) -> NSMenu? {
-        menuProvider?() ?? super.menu(for: event)
+        NSMenu.withoutSystemItems(menuProvider?() ?? super.menu(for: event))
     }
 
     /// Told `true` while a right-click menu this button opened is open, `false` once it closes

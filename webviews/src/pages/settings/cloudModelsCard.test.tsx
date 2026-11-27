@@ -52,7 +52,12 @@ test("with nothing connected, every row is Not set up for Cloud with its way in"
   const rendered = await render(mockModels.empty);
   expect(statuses(rendered)).toEqual({ claude: "missing", chatgpt: "missing", apiKey: "missing" });
   expect(row(rendered, "claude").textContent).toContain("Not set up for Cloud");
-  expect(row(rendered, "claude").querySelector('[data-cloud-action="setUpClaude"]')).not.toBeNull();
+  expect(row(rendered, "claude").querySelector('[data-cloud-action="connectClaudeToken"]')?.textContent).toBe(
+    "Connect Claude",
+  );
+  expect(row(rendered, "claude").querySelector('[data-cloud-action="setUpClaude"]')?.textContent).toBe(
+    "Paste a token instead",
+  );
   expect(row(rendered, "chatgpt").querySelector('[data-cloud-action="connectChatGPT"]')?.textContent).toBe(
     "Sign in with ChatGPT",
   );
@@ -138,18 +143,27 @@ test("readiness follows the Cloud start's rule: off or signed out does not count
   expect(cloudReadiness(mockModels.macLogins, "apiKey")).toMatchObject({ state: "missing" });
 });
 
-test("Set Up on Claude opens Models' Claude steps, which add the pasted token once", async () => {
+test("Connect Claude runs the one click in its row, with its progress line and Cancel", async () => {
+  const rendered = await render(mockModels.macOnly);
+  await click(row(rendered, "claude").querySelector('[data-cloud-action="connectClaudeToken"]')!);
+  expect(rendered.provider.modelRuns).toEqual([{ action: "connectClaudeToken" }]);
+  expect(sheet()).toBeNull();
+  expect(row(rendered, "claude").querySelector('[data-claude-token="starting"]')?.textContent).toContain(
+    "Opening the Claude sign-in page…",
+  );
+  expect(row(rendered, "claude").querySelector('[data-cloud-action="connectClaudeToken"]')).toBeNull();
+  await click(row(rendered, "claude").querySelector('[data-models-action="cancelClaudeToken"]')!);
+  expect(rendered.provider.modelRuns.at(-1)).toEqual({ action: "cancelClaudeToken" });
+});
+
+test("Paste a token instead opens Models' sheet with the paste field out, which adds the token once", async () => {
   const rendered = await render(mockModels.macOnly);
   await click(row(rendered, "claude").querySelector('[data-cloud-action="setUpClaude"]')!);
-  const form = sheet()!.querySelector<HTMLFormElement>("[data-models-claude-form]")!;
-  await click(form.querySelector('[data-models-action="claudeSetupToken"]')!);
-  expect(rendered.provider.modelRuns).toEqual([{ action: "claudeSetupToken" }]);
+  const form = sheet()!.querySelector<HTMLElement>("[data-models-claude-form]")!;
+  expect(form.querySelector<HTMLDetailsElement>("[data-models-claude-paste]")!.open).toBe(true);
   await changeValue(form.querySelector<HTMLInputElement>('input[type="password"]')!, "sk-ant-oat01-secret0123456789");
   await click(form.querySelector('[data-models-action="addClaudeToken"]')!);
-  expect(rendered.provider.modelRuns.at(-1)).toEqual({
-    action: "addClaudeToken",
-    token: "sk-ant-oat01-secret0123456789",
-  });
+  expect(rendered.provider.modelRuns).toEqual([{ action: "addClaudeToken", token: "sk-ant-oat01-secret0123456789" }]);
   expect(sheet()).toBeNull();
   expect(statuses(rendered).claude).toBe("ready");
   expect(document.body.innerHTML).not.toContain("sk-ant-oat01-secret");

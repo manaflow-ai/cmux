@@ -18,18 +18,20 @@ import {
   renderVega,
 } from "../../../pages/markdown/diagrams";
 import { useT } from "../i18n";
-import { useNearViewport } from "../useNearViewport";
+import { useViewportReach } from "../useNearViewport";
 import { postNative } from "../native";
 import { copyText } from "./clipboard";
 import { chartSpec } from "./chartSpec";
 import { CodeBlock } from "./CodeBlock";
 import { Check, SaveTray } from "./icons";
+import { useUnsettledHeight } from "./unsettledHeights";
 const libraries = new DiagramLibraries((name) => new URL(`__lib/${name}.js`, document.baseURI).href);
 
 export function DiagramBlock({ lang, code, actions }: { lang: string; code: string; actions?: ReactNode }) {
   const t = useT();
   const [frame, setFrame] = useState<HTMLDivElement | null>(null);
-  const near = useNearViewport(frame);
+  const reach = useViewportReach(frame);
+  const near = reach === "near";
   const chart = useRef<HTMLDivElement>(null);
   const [showCode, setShowCode] = useState(false);
   // Why the chart did not draw: the source's reason, or null when a renderer did not load.
@@ -41,6 +43,11 @@ export function DiagramBlock({ lang, code, actions }: { lang: string; code: stri
   const label = language === "chart" ? "chart" : mode;
   const spec = useMemo(() => (language === "chart" ? (chartSpec(code) ?? code) : code), [language, code]);
   const reserve = useMemo(() => (mode === "mermaid" ? undefined : chartBox(spec)), [mode, spec]);
+  // Until it is drawn (or refused) a chart with no reserved box (a Mermaid diagram, a chart whose
+  // size its spec does not give) is not at its height: an opening chat waits for it
+  // (unsettledHeights.ts), while it is near enough to draw. One a screen or more away (or in a hidden
+  // pane) draws only once the reader comes near it, so nothing waits on it.
+  useUnsettledHeight(!reserve && reach !== "far" && !drawn && !failure && !showCode);
 
   useEffect(() => {
     const target = chart.current;

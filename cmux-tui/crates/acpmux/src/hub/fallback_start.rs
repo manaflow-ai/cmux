@@ -102,15 +102,18 @@ impl Hub {
     fn failed_over_from(&self, id: &str, current: &str) -> Option<String> {
         let mut from = None;
         let skip = |dir: &[u8], kind: &[u8]| dir != b"mux" || kind != b"failover";
-        let _ = self.store.scan_back(id, 0, u64::MAX, &skip, &mut |rec| {
-            if rec.kind != "failover" {
-                return true;
-            }
-            let back = rec.msg.get("back").and_then(Value::as_bool).unwrap_or(false);
-            if !back && rec.msg.get("to").and_then(Value::as_str) == Some(current) {
-                from = rec.msg.get("from").and_then(Value::as_str).map(str::to_owned);
-            }
-            false
+        // The whole log with no failover: off the runtime's workers (`qos::off_worker`).
+        let _ = crate::qos::off_worker(|| {
+            self.store.scan_back(id, 0, u64::MAX, &skip, &mut |rec| {
+                if rec.kind != "failover" {
+                    return true;
+                }
+                let back = rec.msg.get("back").and_then(Value::as_bool).unwrap_or(false);
+                if !back && rec.msg.get("to").and_then(Value::as_str) == Some(current) {
+                    from = rec.msg.get("from").and_then(Value::as_str).map(str::to_owned);
+                }
+                false
+            })
         });
         from
     }

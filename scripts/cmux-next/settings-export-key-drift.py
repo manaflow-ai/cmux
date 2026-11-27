@@ -60,10 +60,12 @@ def mdm_markdown_keys(data: bytes) -> set[str]:
     return set(MD_ROW.findall(data.decode("utf-8")))
 
 
+REFERENCE = "web/data/next-docs/settings-reference.generated.json"
+
 # Every export that lists settings by key, and how to read its keys.
 EXPORTS = {
     "schemas/settings/settings-schema.json": schema_keys,
-    "web/data/next-docs/settings-reference.generated.json": reference_keys,
+    REFERENCE: reference_keys,
     "docs/mdm/com.manaflow.cmux.json": mdm_json_keys,
     "docs/mdm/com.manaflow.cmux.plist": mdm_plist_keys,
     "docs/mdm/managed-preferences.md": mdm_markdown_keys,
@@ -101,10 +103,16 @@ def drift(base: dict[str, set[str]], head: dict[str, set[str]], base_rows: dict[
     sources = set(head_rows)
     unchanged = {key for key, row in head_rows.items() if base_rows.get(key) == row}
     found = []
+    # The docs reference lists only rows the Settings page shows (export-next-docs.ts drops page_hidden ones), so a
+    # hidden row is never missing from it, even when an older tree's reference still listed it (cmux#51125: a branch
+    # tip that hid the folded update toggles kept a stale reference, and the regenerated one read as dropping them).
+    hidden = {key for key, row in head_rows.items() if "page_hidden" in json.loads(row)}
     for path in sorted(head):
         if path not in base:
             continue
         dropped = (base[path] & unchanged) - head[path]
+        if path == REFERENCE:
+            dropped -= hidden
         extra = settings(head[path] - base[path]) - (sources - retired)
         if dropped:
             found.append("%s: drops %s, which the sources still declare" % (path, ", ".join(sorted(dropped))))
@@ -118,7 +126,7 @@ def git_show(repo: str, rev: str, path: str) -> bytes | None:
 
 
 def git_show_many(repo: str, rev: str, paths: list[str]) -> dict[str, bytes | None]:
-    """{path: its blob at REV, or None} in one `cat-file --batch`: a `git show` a file cost about 0.5 s on big-red's
+    """{path: its blob at REV, or None} in one `cat-file --batch`: a `git show` a file cost about 0.5 s on a Linux workstation's
     cmux mirror (2026-11-21: this check's 120 of them took 106 s of a merge push's pre-push gate). The request goes
     through a file, never a pipe (git_batch.py: a big piped stdin can hang)."""
     if not paths:

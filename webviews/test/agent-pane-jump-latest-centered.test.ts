@@ -1,9 +1,9 @@
 // cmux-web-test-timeout: 600
-// Jump to latest stands at the composer card's end edge (jumpPlace.experiment.ts `end`, the default;
-// Leo, 2026-11-21, of the disc on the tucked hat's "^ 3" pill: "didn't we say we wanted to move these
-// to the side or smth?"), a fixed gap from the card's end at every width and state, in every frame
-// Session Info slides. Before that it stood on the composer's center line (Leo, 2026-11-07: "And also the jump to bottom
-// button is still not centered with the composer yet"). The button took the stage's middle (left:
+// Jump to latest stands on the composer's center line (Leo, 2026-11-07: "And also the jump to bottom
+// button is still not centered with the composer yet"), and again after #48658 moved it to the card's
+// end edge (Leo, 2026-11-22: "why'd the jump to bottom move to the right ... the composer hat hidden
+// bit was the one to move to the right. or left."; jumpPlace.experiment.ts `center` ships, the hat's
+// pill moves aside, hatPillPlace.experiment.ts). The button took the stage's middle (left:
 // 50%) while the composer sits in the column between --cv-inset and --cv-inset-end: once Session Info
 // pushes the column left (a wide pane), or the computer use preview takes the column's end, the
 // button stood up to 164px right of the composer's center. Here, in the real pane, the button's
@@ -35,7 +35,7 @@ await requireBrowserLane("agent-pane-jump-latest-centered.test.ts", async () => 
     }
   }
   if (browsers.size === 0) {
-    describe.skip("jump to latest at the composer's end", () => test("browsers", () => {}));
+    describe.skip("jump to latest centered on the composer", () => test("browsers", () => {}));
     return;
   }
 
@@ -55,27 +55,17 @@ await requireBrowserLane("agent-pane-jump-latest-centered.test.ts", async () => 
   type SessionInfo = "closed" | "open" | "push";
   type State = { info: SessionInfo; scrollbar?: boolean; computerUse?: boolean };
 
-  /// The button's and the composer card's end edges, as drawn.
+  /// The button's and the composer card's horizontal centers, as drawn.
   const centers = (page: Page) =>
     page.evaluate(
       ({ JUMP_LATEST }) => {
-        const center = (selector: string) =>
-          document.querySelector(selector)?.getBoundingClientRect().right ?? Number.NaN;
-        const box = document
-          .querySelector(".acpmux-main > .acpmux-dock > .acpmux-composer > .acpmux-composer-box")
-          ?.getBoundingClientRect();
-        const main = document.querySelector(".acpmux-main")!;
-        // The column's end: where the card ends when it fits (--cv-inset-end, from the pane's right).
-        const columnEnd =
-          main.getBoundingClientRect().right -
-          (Number.parseFloat(getComputedStyle(document.querySelector(".acpmux-composer")!).paddingRight) || 0);
-        const button = document.querySelector(JUMP_LATEST)?.getBoundingClientRect();
+        const center = (selector: string) => {
+          const box = document.querySelector(selector)?.getBoundingClientRect();
+          return box ? (box.left + box.right) / 2 : Number.NaN;
+        };
         return {
-          button: center(JUMP_LATEST),
-          buttonLeft: button?.left ?? Number.NaN,
+          button: center(".acpmux-jump-latest"),
           composer: center(".acpmux-main > .acpmux-dock > .acpmux-composer > .acpmux-composer-box"),
-          composerMiddle: box ? box.left + box.width / 2 : Number.NaN,
-          overflows: box ? box.right > columnEnd + 0.5 : false,
           shown: document.querySelector(JUMP_LATEST)?.hasAttribute("data-shown") ?? false,
         };
       },
@@ -147,10 +137,9 @@ await requireBrowserLane("agent-pane-jump-latest-centered.test.ts", async () => 
   ];
 
   for (const name of browsers.keys())
-    test(`${name}: Jump to latest keeps one gap from the composer's end at every width and state`, async () => {
+    test(`${name}: Jump to latest's center is the composer's at every width and state`, async () => {
       browser = browsers.get(name)!;
       const off: string[] = [];
-      let gap: number | undefined;
       for (const width of widths)
         for (const state of states) {
           const page = await open(width, state);
@@ -158,21 +147,8 @@ await requireBrowserLane("agent-pane-jump-latest-centered.test.ts", async () => 
             const seen = await centers(page);
             const label = `${width}px ${JSON.stringify(state)}`;
             expect(seen.shown, label).toBe(true);
-            if (seen.overflows) {
-              // A pane too narrow for the card beside the computer use preview: the card runs past its
-              // column's end (a min width of its own), and the stack keeps to the column. It still
-              // stands inside the card's end half, clear of the middle the hat's pill takes.
-              if (!(seen.button <= seen.composer && seen.buttonLeft > seen.composerMiddle))
-                off.push(
-                  `${label}: card overflows; button ${seen.buttonLeft}-${seen.button}, ` +
-                    `card middle ${seen.composerMiddle}, end ${seen.composer}`,
-                );
-              continue;
-            }
-            // Inside the card's end edge, by the same gap everywhere.
-            gap ??= seen.composer - seen.button;
-            if (!(gap >= 0 && Math.abs(seen.composer - seen.button - gap) <= 0.5))
-              off.push(`${label}: button end ${seen.button}, composer end ${seen.composer}, gap ${gap}`);
+            if (!(Math.abs(seen.button - seen.composer) <= 0.5))
+              off.push(`${label}: button ${seen.button}, composer ${seen.composer}`);
           } finally {
             await page.close();
           }
@@ -189,23 +165,23 @@ await requireBrowserLane("agent-pane-jump-latest-centered.test.ts", async () => 
         // Push always makes it slide the column, the motion this case reads.
         await sessionInfoPushAlways(page);
         await page.emulateMedia({ reducedMotion: "no-preference" });
-        await page.evaluate(
-          ({ JUMP_LATEST }) => {
-            const holder = window as unknown as { __centered?: number[][] };
-            const frames: number[][] = [];
-            holder.__centered = frames;
-            const center = (selector: string) => document.querySelector(selector)!.getBoundingClientRect().right;
-            window.cmuxAfterPaint(() => {
-              if (holder.__centered !== frames) return false;
-              frames.push([
-                center(JUMP_LATEST),
-                center(".acpmux-main > .acpmux-dock > .acpmux-composer > .acpmux-composer-box"),
-              ]);
-              return true;
-            });
-          },
-          { JUMP_LATEST },
-        );
+        await page.evaluate(() => {
+          const holder = window as unknown as { __centered?: number[][] };
+          const frames: number[][] = [];
+          holder.__centered = frames;
+          const center = (selector: string) => {
+            const box = document.querySelector(selector)!.getBoundingClientRect();
+            return (box.left + box.right) / 2;
+          };
+          window.cmuxAfterPaint(() => {
+            if (holder.__centered !== frames) return false;
+            frames.push([
+              center(".acpmux-jump-latest"),
+              center(".acpmux-main > .acpmux-dock > .acpmux-composer > .acpmux-composer-box"),
+            ]);
+            return true;
+          });
+        });
         await sessionInfo(page, true);
         await settle(page);
         await sessionInfo(page, false);
@@ -216,12 +192,10 @@ await requireBrowserLane("agent-pane-jump-latest-centered.test.ts", async () => 
           holder.__centered = undefined;
           return frames;
         });
-        // The composer moved (the panel pushed it), and the button kept its gap from the card's end in
-        // every frame.
+        // The composer moved (the panel pushed it), and the button stood on its center in every frame.
         const composers = frames.map(([, composer]) => composer!);
         expect(Math.max(...composers) - Math.min(...composers)).toBeGreaterThan(50);
-        const gap = frames[0]![1]! - frames[0]![0]!;
-        const worst = Math.max(...frames.map(([button, composer]) => Math.abs(composer! - button! - gap)));
+        const worst = Math.max(...frames.map(([button, composer]) => Math.abs(button! - composer!)));
         expect(worst).toBeLessThanOrEqual(0.5);
       } finally {
         await page.close();

@@ -6,6 +6,7 @@ import type { TeamState } from "./team.ts"
 import { appendAudit } from "./team-audit.ts"
 import { usesSeat } from "./team-roles.ts"
 import { memberAuthorityWrites } from "./team-authority.ts"
+import { withNewTeamPolicy } from "./team-policy.ts"
 
 /**
  * Shared (Stack) teams in TeamDO (cx-3bi.43). TeamDO asks Stack for the current team and
@@ -36,7 +37,7 @@ export const reduceStackMirror = (state: TeamState, params: unknown, ctx: Reduce
   if (JSON.stringify(state.team) === JSON.stringify(team)) return { ok: true as const, state, value: { team: v.team, deleted: false }, changed: false }
   return {
     ok: true as const,
-    state: { ...state, team },
+    state: { ...withNewTeamPolicy(state), team },
     value: { team: v.team, deleted: false },
     outbox: [{ kind: "team.upsert", entity: team.id, payload: { id: team.id, kind: team.kind, display_name: team.display_name } }]
   }
