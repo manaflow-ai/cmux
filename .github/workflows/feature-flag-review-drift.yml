@@ -20,7 +20,7 @@ jobs:
     permissions:
       contents: read
       issues: write
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.CI_OVERFLOW_LINUX || 'cmux-linux' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'cmux-gcp-secret-jit-x64' }}
     timeout-minutes: 25
     env:
       # A scheduled job's GitHub API waits stop here and fail loud (scripts/ci/gh_budget_wait.sh).
@@ -48,12 +48,46 @@ jobs:
           persist-credentials: false
       - name: Report feature flag review dates
         run: python3 scripts/report-feature-flag-review-lead-time.py --json > feature-flag-review-report.json
+      # Its report outlives an exhausted GITHUB_TOKEN: spare App tokens, then the reset (runs 45548650589 and
+      # 45551813915 failed, and their report died on "API rate limit exceeded for installation"). Optional: a
+      # ref without these files reports with the job token alone.
+      - name: Check out the failure report tools
+        continue-on-error: true
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+          ref: ${{ github.sha }}
+          fetch-depth: 1
+          path: .incident-report
+          sparse-checkout: |
+            /.github/actions/spare-issue-tokens/
+            /scripts/ci/gh-spare
+            /scripts/ci/incident_report.cjs
+          sparse-checkout-cone-mode: false
+      - name: Mint spare issue tokens
+        id: spare
+        continue-on-error: true
+        uses: ./.incident-report/.github/actions/spare-issue-tokens
+        with:
+          bot-app-id: ${{ vars.CMUX_BOT_APP_ID }}
+          bot-key: ${{ secrets.CMUX_BOT_APP_KEY }}
+          route-app-id: ${{ vars.GLAEDA_ROUTE_APP_ID }}
+          route-key: ${{ secrets.GLAEDA_ROUTE_APP_KEY }}
       - name: Open or update the review date issue
         uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9.0.0
         env:
+          CMUX_BOT_TOKEN: ${{ steps.spare.outputs.cmux-bot }}
+          ROUTE_TOKEN: ${{ steps.spare.outputs.glaeda-route }}
           HEAD_SHA: ${{ github.sha }}
         with:
           script: |
+            // Every request outlives an exhausted GITHUB_TOKEN on the spare App tokens (scripts/ci/incident_report.cjs).
+            try {
+              require(`${process.env.GITHUB_WORKSPACE}/.incident-report/scripts/ci/incident_report.cjs`).arm(github, { core, getOctokit,
+                spares: [{ name: 'cmux-bot', token: process.env.CMUX_BOT_TOKEN }, { name: 'glaeda-route', token: process.env.ROUTE_TOKEN }] });
+            } catch (error) {
+              core.warning(`incident_report.cjs is not here (${error.message}); reporting with the job token alone`);
+            }
             if (process.env.GH_BUDGET_WAIT_JS) require(process.env.GH_BUDGET_WAIT_JS).install({ github, core });
             const fs = require('fs');
             const { owner, repo } = context.repo;
