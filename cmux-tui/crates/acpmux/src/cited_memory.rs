@@ -12,9 +12,9 @@
 //! not there, and is not offered; the offer record carries every citation's verdict. A cited name
 //! that more than one file has, or a folder too big to index in time, is `unknown`, never stale.
 //!
-//! On this VM, the handbook memory (`~/.cache/agent-memory/hq`, 267 docs) cites 2,649 lines;
-//! checked against cmux, cmuxterm-hq and leo-workspace, 34 point past the end of their file and
-//! up to 316 at a file none of the three has (`scripts/measure/cited-memory-staleness.py`).
+//! Measured on one memory store of 267 docs citing 2,649 lines: checked against the repos it
+//! is about, 34 pointed past the end of their file and up to 316 at a file none of them has
+//! (`scripts/measure/cited-memory-staleness.py`).
 //!
 //! Next: the same check where a memory is used (the folder's learned section at a session's
 //! start), and decay of facts no turn has used.
