@@ -54,6 +54,9 @@ EXEMPT = {
     ("remote-daemon.yml", "remote-daemon-macos-tests"): "Go only; no Xcode",
     ("nightly-next-launch-smoke.yml", "smoke"):
         "launches the published nightly-next DMG; builds nothing, no Xcode",
+    ("cmux-next-crash-notice.yml", "notice"): "downloads the published NEXT NIGHTLY and crashes it; builds nothing, no Xcode",
+    ("cloud-mvp-nightly-readback.yml", "readback"):
+        "downloads the published NEXT NIGHTLY and drives it; builds nothing, no Xcode",
     ("ci.yml", "claude-wrapper"): "shell wrapper tests only; no Xcode",
     ("cmux-tui.yml", "lint"): "Rust only; no Xcode",
     ("cmux-tui.yml", "test"): "Rust only; no Xcode",

@@ -45,6 +45,12 @@ EXEMPT = {
     "ci-owned-pool-rescue.yml:rescue": "hosted_light_rescue.py reads the workflow token only above POOL_RESERVE",
     "ci-queue-janitor-watchdog.yml:watch": "one runs listing a tick to restart a stalled janitor",
     "cloud-journey-prod.yml:journey": "one gate read an hour and one issue write on a red journey",
+    "ci-main-full-suite.yml:dispatch": "the cmux-bot App first; github.token only on a failed mint, and its "
+    "calls (one branch read, at most one dispatch a tick) are the dispatch path the floor keeps calls for",
+    "ci-main-full-suite.yml:report": "runs on the three-hourly tick only (8 a day) and once per completed "
+    "full-suite run; its reads go out as the cmux-bot App (gh_app_token.sh --reads-only)",
+    "cmux-next-perf-cron-dispatch.yml:dispatch": "the cmux-bot App first; github.token only on a failed mint "
+    "or as spare reads (one runs listing and at most one dispatch a tick)",
     "cmux-next-post-merge-dispatch.yml:tick": "a dispatch path (two reads a tick); cmux#55829 moves it to the "
                                               "cmux bot App's own budget",
     "ios-appstore-upload.yml:decide": "one compare read an hour",
