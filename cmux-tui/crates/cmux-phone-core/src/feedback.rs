@@ -53,21 +53,22 @@ fn format_integers(format: &str, values: &[i64]) -> String {
     let mut out = String::new();
     let mut next = 0;
     let mut rest = format;
-    while let Some(start) = rest.find('%') {
-        out.push_str(&rest[..start]);
-        let spec = &rest[start + 1..];
+    while let Some((before, spec)) = rest.split_once('%') {
+        out.push_str(before);
         if let Some(after) = spec.strip_prefix('%') {
             out.push('%');
             rest = after;
             continue;
         }
         let digits = spec.bytes().take_while(u8::is_ascii_digit).count();
-        let (position, body) = match spec[digits..].strip_prefix('$') {
-            Some(body) if digits > 0 => (spec[..digits].parse::<usize>().ok(), body),
+        let (number, after_digits) = spec.split_at_checked(digits).unwrap_or(("", spec));
+        let (position, body) = match after_digits.strip_prefix('$') {
+            Some(body) if !number.is_empty() => (number.parse::<usize>().ok(), body),
             _ => (None, spec),
         };
-        let length = ["lld", "ld", "d"].into_iter().find(|conversion| body.starts_with(conversion));
-        let Some(length) = length else {
+        let after =
+            ["lld", "ld", "d"].into_iter().find_map(|conversion| body.strip_prefix(conversion));
+        let Some(after) = after else {
             out.push('%');
             rest = spec;
             continue;
@@ -80,7 +81,7 @@ fn format_integers(format: &str, values: &[i64]) -> String {
             |position| position.saturating_sub(1),
         );
         out.push_str(&values.get(index).copied().unwrap_or(0).to_string());
-        rest = &body[length.len()..];
+        rest = after;
     }
     out.push_str(rest);
     out
