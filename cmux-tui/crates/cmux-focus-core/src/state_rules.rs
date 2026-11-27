@@ -179,11 +179,11 @@ pub fn removing_carrying(
     let tabs = topology.panes.iter().find(|p| p.id == pane).map(|p| p.tabs.clone());
     for tab in tabs.unwrap_or_default() {
         let Some(moved) = carried.get(&tab.id) else { continue };
-        let Some(index) = panes.iter().position(|p| p.id == moved.pane) else { continue };
-        if panes[index].tab(&moved.tab.id).is_some() {
+        let Some(target) = panes.iter_mut().find(|p| p.id == moved.pane) else { continue };
+        if target.tab(&moved.tab.id).is_some() {
             continue;
         }
-        panes[index].tabs.push(moved.tab.clone());
+        target.tabs.push(moved.tab.clone());
     }
     let carrying = Topology::new(topology.workspace.clone(), panes, topology.screens.clone());
     removing(&carrying, pane)
