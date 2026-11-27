@@ -872,6 +872,52 @@ describe("auto-roll scripts", () => {
       expect(onlyOlder.reason).toMatch(/not on HEAD; none of the 3 newest commits after the pin has a published build/);
     }), 60_000);
 
+  // Push roll 45961450781 (2026-11-27 07:52Z) kept cmux-tui f7b548a5, 516 commits back: publishing lagged from 06:26Z,
+  // the newest published build was 185 commits deep and only the 40 newest commits were asked.
+  test("a push roll finds the newest published build past the 40 newest commits", () =>
+    withDir(async (dir) => {
+      const full = path.join(dir, "full");
+      await git(dir, "init", "-q", "-b", "feat-cmux-next", full);
+      const commitOf = async (msg: string, file?: string) => {
+        if (file) {
+          mkdirSync(path.dirname(path.join(full, file)), { recursive: true });
+          writeFileSync(path.join(full, file), msg);
+          await git(full, "add", file);
+        }
+        await git(full, "commit", "-q", "--allow-empty", "-m", msg);
+        return (await git(full, "rev-parse", "HEAD")).stdout.trim();
+      };
+      const pinned = await commitOf("pinned");
+      const deepOld = await commitOf("deep old build");
+      const deepNew = await commitOf("deep new build");
+      for (let i = 0; i < 60; i++) await commitOf(`unbuilt ${i}`);
+      const before = await commitOf("before");
+      await commitOf("image change", "images/cmux-vm/x.txt");
+      const tip = (await git(full, "rev-parse", "HEAD")).stdout.trim();
+      await git(full, "checkout", "-q", "-b", "main-only", pinned);
+      const mainBuild = await commitOf("main build");
+      await git(full, "checkout", "-q", "feat-cmux-next");
+      const lock = path.join(dir, "lock.json");
+      writeFileSync(lock, JSON.stringify({ programs: [{ name: "cmux-tui", version: pinned }] }));
+      const fakeBin = path.join(dir, "bin");
+      mkdirSync(fakeBin);
+      const realBun = (await runChildOk("bash", ["-c", "command -v bun"], { env: process.env })).stdout.trim();
+      writeFileSync(
+        path.join(fakeBin, "bun"),
+        `#!/usr/bin/env bash\ncase "\${1:-}" in *pin-cmux-tui.ts)\n  if [ "\${2:-}" = --commit ]; then case " \${PUBLISHED:-} " in *" $3 "*) printf '{"commit":"%s","unchanged":false}' "$3"; exit 0;; esac; echo "$3/manifest.json: 404" >&2; exit 1; fi\n  printf '{"commit":"%s","unchanged":false}' "$LATEST"; exit 0;;\nesac\nexec ${realBun} "$@"\n`,
+      );
+      await runChildOk("chmod", ["+x", path.join(fakeBin, "bun")]);
+      const script = path.join(repoRoot, "images/cmux-vm/auto-roll.ts");
+      const out = await runChildOk(path.join(fakeBin, "bun"), [script, "plan", "--event", "push", "--commit", tip, "--before", before, "--tip", "HEAD", "--lock", lock, "--repo", full], {
+        env: { ...process.env, PATH: `${fakeBin}:${process.env.PATH}`, LATEST: mainBuild, PUBLISHED: [deepOld, deepNew].join(" ") },
+      });
+      const plan = JSON.parse(out.stdout) as { roll: boolean; reason: string; pin: string; cmuxTui: string };
+      expect(plan.roll).toBe(true);
+      expect(plan.pin).toBe(deepNew);
+      expect(plan.cmuxTui).toBe(deepNew);
+      expect(plan.reason).toMatch(/newest build published on HEAD/);
+    }), 60_000);
+
   // Roll 44191283358's re-run (attempt 2) promoted cmux-tui 6c776483 at 2026-11-18 04:53Z over roll 44224051230's
   // newer ecd5f536 (04:30Z): plan() refused an older build only against the pin at plan time.
   test("behind refuses a pin older than the tip's, allows the same or a newer one, and fails closed when shallow", () =>
@@ -1025,11 +1071,13 @@ describe("auto-roll bake secrets", () => {
   };
   const load = (name: string) => YAML.parse(readFileSync(new URL(`../../.github/workflows/${name}`, import.meta.url), "utf8")) as Workflow;
   const NAMES = ["FREESTYLE_API_KEY", "CMUX_UITEST_STACK_EMAIL", "CMUX_UITEST_STACK_PASSWORD"];
+  // The private R2 copy of a kept image (#53777): optional, and the roll uploads its own copy, so it passes none.
+  const R2 = ["CF_R2_ACCESS_KEY_ID", "CF_R2_SECRET_ACCESS_KEY", "CF_R2_ACCOUNT_ID"];
 
-  test("the bake declares exactly the three secrets, all optional, and the roll passes exactly those", () => {
+  test("the bake declares the three secrets and the R2 ones, all optional, and the roll passes exactly the three", () => {
     const call = load("cloud-vm-image-bake.yml").on.workflow_call;
-    expect(Object.keys(call.secrets).sort()).toEqual([...NAMES].sort());
-    for (const name of NAMES) expect(call.secrets[name]).toEqual({ required: false });
+    expect(Object.keys(call.secrets).sort()).toEqual([...NAMES, ...R2].sort());
+    for (const name of [...NAMES, ...R2]) expect(call.secrets[name]).toEqual({ required: false });
     const bake = load("cloud-vm-image-roll.yml").jobs["bake"]!;
     expect(bake.secrets).toEqual(Object.fromEntries(NAMES.map((n) => [n, `\${{ secrets.${n} }}`])));
   });
