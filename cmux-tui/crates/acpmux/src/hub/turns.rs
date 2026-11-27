@@ -1641,6 +1641,10 @@ impl Hub {
                     (Ok(child2), None) => {
                         // The turn ends on the fallback's agent: `finish_turn` reads its life.
                         child = child2.clone();
+                        // A fallback is still the same person's turn. Keep the static
+                        // background harness lifted for the retry too; otherwise a capacity or
+                        // auth failover silently regresses the original turn's tool priority.
+                        let lifted_fallback = person && child2.person_turn(true).await;
                         // A fallback that could not resume (another store)
                         // starts fresh: it gets the restored transcript first.
                         let mut blocks = blocks;
@@ -1727,6 +1731,9 @@ impl Hub {
                                     .await
                                 }
                             };
+                        }
+                        if lifted_fallback {
+                            child2.person_turn(false).await;
                         }
                     }
                     // It could not start after all: the chat goes back to the profile it was
