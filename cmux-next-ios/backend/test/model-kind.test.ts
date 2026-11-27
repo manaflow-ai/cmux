@@ -12,7 +12,7 @@ const hubOf = (owner: string) => {
 
 describe("device model kind", () => {
   it("accepts forward-compatible names and ignores malformed strings", () => {
-    for (const kind of ["macbook", "mac-mini", "mac-studio", "iphone", "ipad", "future-model", "a".repeat(32)]) expect(modelKind(kind)).toBe(kind)
+    for (const kind of ["macbook", "mac-mini", "mac-studio", "iphone", "ipad", "future-model", "future-v2", "a".repeat(32)]) expect(modelKind(kind)).toBe(kind)
     for (const kind of [undefined, null, 4, "", "MacBook", "mac mini", "mac--mini", "-mac", "mac-", "a".repeat(33)]) expect(modelKind(kind)).toBeUndefined()
   })
 

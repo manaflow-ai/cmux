@@ -3,7 +3,7 @@ export type DeviceKind = "mac" | "phone"
 
 /** Forward-compatible glyph names, shared with the device hub; malformed strings never erase a known kind. */
 export const modelKind = (value: unknown): string | undefined =>
-  typeof value === "string" && value.length <= 32 && /^[a-z]+(?:-[a-z]+)*$/.test(value) ? value : undefined
+  typeof value === "string" && value.length <= 32 && /^[a-z][a-z0-9]*(?:-[a-z0-9]+)*$/.test(value) ? value : undefined
 
 export interface Device {
   deviceId: string
