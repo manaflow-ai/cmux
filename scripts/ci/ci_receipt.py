@@ -692,6 +692,39 @@ def produce_rust_workspaces(work: Path, head: str, base: str) -> int:
     return 0
 
 
+def sweep_dead_holders(prefix: str, grace_seconds: float = 600.0) -> int:
+    """Remove temp folders PREFIX* whose owner process is gone (a run killed by SIGKILL or a timeout never reached its
+    cleanup; a lane VM's acpmux session TMPDIR keeps them, ~1 GB each). No .owner-pid: judged by age. Same sweep as
+    scripts/web_lint_prepush.py's sweep_orphan_holders."""
+    import shutil
+    removed = 0
+    root = Path(tempfile.gettempdir())
+    try:
+        entries = [p for p in root.iterdir() if p.name.startswith(prefix) and p.is_dir() and not p.is_symlink()]
+    except OSError:
+        return 0
+    for holder in entries:
+        try:
+            owner = int((holder / ".owner-pid").read_text().strip())
+            try:
+                os.kill(owner, 0)
+                dead = False
+            except ProcessLookupError:
+                dead = True
+            except OSError:
+                dead = False
+        except (OSError, ValueError):
+            try:
+                dead = time.time() - holder.stat().st_mtime > grace_seconds
+            except OSError:
+                continue
+        if dead:
+            subprocess.run(["git", "worktree", "prune"], capture_output=True, check=False)
+            shutil.rmtree(holder, ignore_errors=True)
+            removed += 1
+    return removed
+
+
 def produce(args: argparse.Namespace) -> int:
     repo = Path(git(Path.cwd(), "rev-parse", "--show-toplevel").stdout.strip())
     # The receipt names a commit's tree, and the merge is made from that commit: a tracked edit not in it would be
@@ -702,7 +735,9 @@ def produce(args: argparse.Namespace) -> int:
         return 2
     head = tested_head(repo)
     started = time.monotonic()
+    sweep_dead_holders("ci-receipt-")
     with tempfile.TemporaryDirectory(prefix="ci-receipt-") as scratch:
+        (Path(scratch) / ".owner-pid").write_text(str(os.getpid()))
         work = Path(scratch) / "merge"
         try:
             base = merge_worktree(repo, args.remote, head, work)
