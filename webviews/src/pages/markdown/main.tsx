@@ -33,6 +33,7 @@ import { LinkResolver, type ResolvedLink } from "./links";
 import { htmlPreview } from "./htmlPreview";
 import { MarkdownPage } from "./MarkdownPage";
 import { LinkOverlays } from "./overlays";
+import { Outline } from "./outline";
 import { MarkdownStore } from "./store";
 import type { ReadingSettingsActions } from "./ReadingSettings";
 import { MARKDOWN_READING, bindMarkdownLook, markdownCodeTheme } from "./settings";
@@ -180,7 +181,7 @@ function editorHost(
       return highlighter.tokens(code, language, refresh);
     },
     renderDiagram(language, source, target) {
-      renderDiagram(libraries, language, source, target, strings.t(L.diagramFailed));
+      renderDiagram(libraries, language, source, target, strings.t(L.diagramFailed), strings.t(L.diagramUnavailable));
     },
     label: (key) => strings.t(LABELS[key]),
     // A Run button's click sends its block to a new terminal in the file's repository.
@@ -286,6 +287,12 @@ export function mountMarkdownPage(root: HTMLElement, client: PageClient | null =
     afterShow: (run) => requestAnimationFrame(() => run()),
   });
   const host = editorHost(store, client, strings, resolver, (href) => void router.follow(href));
+  // The outline rail: a heading there scrolls through the router's `#heading` path, as an anchor link.
+  const outline = new Outline({
+    element: (pos) => editor?.headingElement(pos) ?? null,
+    scroller,
+    go: (slug) => void router.follow(`#${slug}`),
+  });
   const find = bindMarkdownFind(store, scroller);
   // A callback ref: React calls it with the element on mount and null on unmount.
   // Another document (a link, back, a reload from disk) brings its own comments in its config.
@@ -311,6 +318,7 @@ export function mountMarkdownPage(root: HTMLElement, client: PageClient | null =
       readOnly: store.getState().readOnly,
       onUserEdit: () => store.edited(),
       onRunnable: (runnable) => store.setRunnable(runnable),
+      onOutline: (headings) => outline.setHeadings(headings),
     });
     editor = next;
     void next.create().then(() => {
@@ -322,6 +330,8 @@ export function mountMarkdownPage(root: HTMLElement, client: PageClient | null =
   if (client) {
     // Cmd-S is the app key dispatcher's `save` page command; the page never reads the chord.
     void subscribePageStreams(client, {
+      // The owner link back up reads the file again when the page lost it (MarkdownPage's quiet wait).
+      onConnection: (connected) => store.linkChanged(connected),
       // Cmd-[ and Cmd-] are `back` and `forward` (the page's link history), Cmd-R `reload` (the
       // file again from disk), `open` a path typed in the omnibar (`text`), Cmd-K is `link`,
       // Cmd-= / Cmd-- / Cmd-0 the text size; `goToTop` is the `markdownGoToTop` action (a user's
@@ -400,6 +410,8 @@ export function mountMarkdownPage(root: HTMLElement, client: PageClient | null =
         reading={readingActions(store, zoom)}
         onRunAll={client ? () => runAll(store, client, editor) : undefined}
         find={find}
+        outline={outline}
+        onPrint={printDocument}
       />
     </UiProvider>,
   );
@@ -457,6 +469,15 @@ function bindMarkdownFind(store: MarkdownStore, scroller: () => HTMLElement | nu
   find.subscribe(follow);
   store.subscribe(follow);
   return find;
+}
+
+/**
+ * Print or Save as PDF (the toolbar's Print): the system print panel
+ * over the rendered document; `@media print` in styles.css leaves out the toolbar, the outline
+ * rail and every overlay. The host answers a page's window.print() (PageOpenPanel's print hook).
+ */
+function printDocument(): void {
+  window.print();
 }
 
 /** `text` as JSON, null when it is not. */

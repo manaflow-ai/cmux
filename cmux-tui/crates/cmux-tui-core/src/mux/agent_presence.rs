@@ -14,32 +14,7 @@ use crate::agent_hooks::semantic_key;
 
 const MAX_PRESENCE_TOOL_BYTES: usize = 128;
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum AgentActivity {
-    /// Between tool calls, or a tool presence cannot classify.
-    Thinking,
-    Editing,
-    Reading,
-    Running,
-    Browsing,
-    ComputerUse,
-    /// Blocked on the user: an approval, a question or a plan review.
-    Waiting,
-}
-
-impl AgentActivity {
-    pub fn as_str(self) -> &'static str {
-        match self {
-            AgentActivity::Thinking => "thinking",
-            AgentActivity::Editing => "editing",
-            AgentActivity::Reading => "reading",
-            AgentActivity::Running => "running",
-            AgentActivity::Browsing => "browsing",
-            AgentActivity::ComputerUse => "computer_use",
-            AgentActivity::Waiting => "waiting",
-        }
-    }
-}
+pub use cmux_presence::AgentActivity;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct AgentPresence {
@@ -53,6 +28,29 @@ pub struct AgentPresence {
     pub path: Option<Arc<str>>,
     pub line: Option<u64>,
     pub updated_at_ms: u64,
+}
+
+impl AgentPresence {
+    /// Local record for the sidebar's agent. The caller supplies its workspace, display name,
+    /// fallback surface id and owner epoch (the hook's timestamp is not an ordering key).
+    pub fn record(
+        &self,
+        workspace: &str,
+        name: &str,
+        surface: &str,
+        epoch: u64,
+    ) -> cmux_presence::Presence {
+        use cmux_presence::{FileTarget, Kind, Presence, PresenceId};
+
+        let id = self.session.as_deref().unwrap_or(surface);
+        let mut record = Presence::new(PresenceId(id.into()), Kind::Agent, name, epoch);
+        record.color = Some(id.into());
+        record.doing = self.activity.into();
+        record.location.workspace = Some(workspace.into());
+        record.location.file =
+            self.path.as_deref().map(|path| FileTarget { path: path.into(), line: self.line });
+        record
+    }
 }
 
 /// One terminal's presence and the journal sequence of the newest hook
@@ -231,6 +229,18 @@ impl Mux {
     /// presence table and broadcast the change. Hook events for a terminal
     /// with no live placement are dropped: presence has nothing to point at.
     pub(super) fn apply_agent_presence(&self, ingress: &crate::JournalIngress, sequence: u64) {
+        self.apply_agent_presence_at(ingress, Some(sequence));
+    }
+
+    /// Apply a hook report that got no journal row (`agent_hooks_at_rest.rs`).
+    /// It has no sequence of its own: it comes after every row of its
+    /// terminal, because a report is appended while one of those is still on
+    /// its way to the journal. The watermark stays where the last row put it.
+    pub(super) fn apply_live_agent_presence(&self, ingress: &crate::JournalIngress) {
+        self.apply_agent_presence_at(ingress, None);
+    }
+
+    fn apply_agent_presence_at(&self, ingress: &crate::JournalIngress, sequence: Option<u64>) {
         if ingress.producer_id != crate::agent_hooks::AGENT_HOOK_PRODUCER_ID
             || ingress.payload.get("native_event").and_then(Value::as_str)
                 == Some(crate::journal_reducers::LEGACY_SCREEN_DETECT_NATIVE_EVENT)
@@ -245,16 +255,18 @@ impl Mux {
         else {
             return;
         };
-        let Some(surface) = self.resource_surface_for_terminal(&terminal_id) else { return };
+        let Some(surface) = self.agent_view_surface_for_terminal(&terminal_id) else { return };
         // Emit while holding the table so two events of one terminal reach
         // subscribers in the order they changed it. `emit` takes only the
         // subscriber lock and never this one.
         let mut table = self.agent_presence.lock().unwrap();
         let slot = table.entry(terminal_id.clone()).or_default();
-        if slot.sequence >= sequence && slot.sequence != 0 {
-            return;
+        if let Some(sequence) = sequence {
+            if slot.sequence >= sequence && slot.sequence != 0 {
+                return;
+            }
+            slot.sequence = sequence;
         }
-        slot.sequence = sequence;
         let presence = match next_presence(slot.presence.as_ref(), ingress, &terminal_id, now_ms())
         {
             PresenceStep::Unchanged => return,
@@ -271,6 +283,29 @@ impl Mux {
             }
         };
         self.emit(MuxEvent::AgentPresenceChanged { surface, presence });
+    }
+
+    /// Every terminal's presence as `AgentPresenceChanged` events, a cleared one as `None`
+    /// (`agent-presence-replay-v1`). A client that reconnects to this daemon keeps the presence it
+    /// showed and takes these on its new subscription, so an agent that is still acting never
+    /// blinks off, and one that stopped while the link was down is cleared (hq#19373). A slot
+    /// stays until its terminal closes, and a closed terminal's tab leaves in the snapshot.
+    pub(crate) fn agent_presence_replay(&self) -> Vec<MuxEvent> {
+        let slots: Vec<(TerminalPublicId, Option<Arc<AgentPresence>>)> = self
+            .agent_presence
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .iter()
+            .map(|(terminal, slot)| (terminal.clone(), slot.presence.clone().map(Arc::new)))
+            .collect();
+        // The surface lookup takes the state lock: never while holding the table.
+        slots
+            .into_iter()
+            .filter_map(|(terminal, presence)| {
+                let surface = self.agent_view_surface_for_terminal(&terminal)?;
+                Some(MuxEvent::AgentPresenceChanged { surface, presence })
+            })
+            .collect()
     }
 
     /// Clear a terminal's presence when its agent record goes idle or done

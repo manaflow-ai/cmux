@@ -7,6 +7,7 @@ import { JSDOM } from "jsdom";
 import { act, useSyncExternalStore } from "react";
 import type { Root } from "react-dom/client";
 import { effortLevel } from "./support/effortDropdown";
+import { teardownDom } from "./support/domTeardown";
 
 const scope = globalThis as Record<string, unknown>;
 const keys = [
@@ -65,12 +66,8 @@ afterEach(() => {
   dom.window.localStorage.clear();
 });
 
-afterAll(() => {
-  dom.window.close();
-  for (const [key, had, value] of saved) {
-    if (had) scope[key] = value;
-    else delete scope[key];
-  }
+afterAll(async () => {
+  await teardownDom(saved, { window: dom.window, scope });
 });
 
 type Snapshot = import("../src/agent-session/acpmux/model").AcpmuxSnapshot;
@@ -380,7 +377,8 @@ async function mountNewTab({
   };
   const pickInline = async () => {
     await clickChip();
-    expect(Boolean(doc.querySelector(".acpmux-cols-rail"))).toBe(!startedChat || rail);
+    // Every composer opens the one shared picker, rail and all, forkable or not (cmux#55750).
+    expect(Boolean(doc.querySelector(".acpmux-cols-rail"))).toBe(true);
     await pickLevel("Sonnet 5.5", "High");
   };
   return {
@@ -439,13 +437,28 @@ test("a session that reports no options takes none of the held picks", async () 
   expect(wire).toEqual(["new claude", "model claude-opus-5-5", "prompt hello"]);
 });
 
-test("a held effort the opened session does not offer is not sent, and no other level stands in", async () => {
+test("a held effort the opened session's own model does not offer is not sent, and no other level stands in", async () => {
+  const { wire, pickCombo, send } = await mountNewTab({
+    model: "claude-opus-5-5",
+    opened: [effortOption("effort", ["low", "medium"]), fastOption()],
+  });
+  await pickCombo("opus high fast", "Opus 5.5");
+  await send("hello");
+  expect(wire).toEqual(["new claude", "fast-mode=on", "prompt hello"]);
+});
+
+// The levels the opened session lists are its start model's. After the switch sets the picked model
+// they no longer apply, so the effort the composer offered for that model goes after it, as picked
+// (Leo 2026-11-17: picks "don't randomly change to other things").
+test("after a model switch a held effort goes even when the start model's levels did not list it", async () => {
   const { wire, pickCombo, send } = await mountNewTab({
     opened: [effortOption("effort", ["low", "medium"]), fastOption()],
   });
   await pickCombo("opus high fast", "Opus 5.5");
   await send("hello");
-  expect(wire).toEqual(["new claude", "model claude-opus-5-5", "fast-mode=on", "prompt hello"]);
+  expect(wire.slice(0, 2)).toEqual(["new claude", "model claude-opus-5-5"]);
+  expect(wire.slice(2, 4).sort()).toEqual(["effort=high", "fast-mode=on"]);
+  expect(wire[4]).toBe("prompt hello");
 });
 
 // Codex review of #24509: a combo for another harness sent only its model into the switch, so the
@@ -456,7 +469,7 @@ test("a New Tab combo for another harness carries its effort and Fast into that 
   });
   await pickCombo("astra high fast", "Astra");
   await send("hello");
-  expect(wire).toEqual(["new codex", "model gpt-6-astra", "reasoning_effort=high", "fast_mode=true", "prompt hello"]);
+  expect(wire).toEqual(["new codex", "model gpt-6.2-astra", "reasoning_effort=high", "fast_mode=true", "prompt hello"]);
 });
 
 // Codex review of #24509 at 348093f4: a tiered Fast option (standard, fast, ultrafast) lists no
@@ -467,7 +480,7 @@ test("a combo's Fast reaches a tiered Fast option as its fast tier, never ultraf
   });
   await pickCombo("astra high fast", "Astra");
   await send("hello");
-  expect(wire).toEqual(["new codex", "model gpt-6-astra", "reasoning_effort=high", "fast_mode=fast", "prompt hello"]);
+  expect(wire).toEqual(["new codex", "model gpt-6.2-astra", "reasoning_effort=high", "fast_mode=fast", "prompt hello"]);
 });
 
 test("a generic Fast on or off takes the option's own spelling, and on never becomes a higher tier", async () => {
@@ -498,7 +511,7 @@ test("a combo's Fast held on catalog tiers reaches a session that names them sta
   });
   await pickCombo("astra high fast", "Astra");
   await send("hello");
-  expect(wire).toEqual(["new codex", "model gpt-6-astra", "reasoning_effort=high", "fast_mode=fast", "prompt hello"]);
+  expect(wire).toEqual(["new codex", "model gpt-6.2-astra", "reasoning_effort=high", "fast_mode=fast", "prompt hello"]);
 });
 
 // Same review: the composer's after-open fallback sent the option's second value (ultrafast) where
@@ -509,7 +522,7 @@ test("a session whose Fast tiers are standard and ultrafast gets no Fast at all 
   });
   await pickCombo("astra high fast", "Astra");
   await send("hello");
-  expect(wire).toEqual(["new codex", "model gpt-6-astra", "reasoning_effort=high", "prompt hello"]);
+  expect(wire).toEqual(["new codex", "model gpt-6.2-astra", "reasoning_effort=high", "prompt hello"]);
 });
 
 // Same review: a combo back to the harness of the chat still on screen (a turn streaming) had the
@@ -573,7 +586,7 @@ test("a New Tab replaces held Sonnet High with Medium after switching to Codex a
   expect(host.querySelector(".acpmux-model-detail")?.textContent).toBe("High");
 
   await pickCombo("astra", "Astra");
-  expect(held()?.model).toBe("gpt-6-astra");
+  expect(held()?.model).toBe("gpt-6.2-astra");
   await clickChip();
   const claude = dom.window.document.querySelector<HTMLElement>('.acpmux-cols-tab[role="tab"][aria-label^="Claude"]');
   expect(claude).not.toBeNull();
@@ -609,6 +622,25 @@ test("a New Tab click on Sonnet's row, then on its High level, starts the first 
   await send("hello");
   expect(wire).toEqual(["new claude", "model claude-sonnet-5-5", "reasoning_effort=high", "prompt hello"]);
 });
+
+// David Beyer 2026-11-20: the model menu closes after a switch, on New Tab as in a chat.
+for (const startedChat of [false, true])
+  test(`a click on a model's row lands it and closes the model menu (${startedChat ? "started chat" : "New Tab"})`, async () => {
+    const { clickChip } = await mountNewTab({
+      model: "claude-fable-5-1",
+      opened: [effortOption("reasoning_effort")],
+      ...(startedChat ? { live: true, startedChat: true, rail: true } : {}),
+    });
+    await clickChip();
+    const menu = () => dom.window.document.querySelector<HTMLElement>(".acpmux-cols");
+    const row = [...menu()!.querySelectorAll<HTMLElement>('[role="listbox"] [role="option"]')].find(
+      (candidate) => candidate.querySelector(".acpmux-cols-name")?.textContent === "Sonnet 5.5",
+    );
+    expect(row).not.toBeUndefined();
+    await act(async () => row!.click());
+    expect(menu()).toBeNull();
+    expect(host.querySelector(".acpmux-model-name")?.textContent).toBe("Sonnet 5.5");
+  });
 
 // In a live chat the same two clicks send the level before acpmux confirms the model: the row's
 // click shows Sonnet as running at once, so the level goes to the session (QuickModelColumns

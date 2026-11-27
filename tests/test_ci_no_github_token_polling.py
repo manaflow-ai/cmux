@@ -14,7 +14,10 @@ why it may stay. Shrink it; do not grow it without a reason the review accepts.
 
 from __future__ import annotations
 
+import os
+import subprocess
 import sys
+import tempfile
 import unittest
 from pathlib import Path
 
@@ -28,20 +31,48 @@ from github_token_polling import (  # noqa: E402
 WORKFLOWS = ROOT / ".github" / "workflows"
 
 ALLOWED: dict[str, str] = {
+    'ci-macos.yml: Select package tests':
+        'the scan reads every loop of a script the step runs; fleet-test-products.py loops on the fleet controller, not GitHub, and sleeps only through its 429',
+    'cmux-next.yml: Compile-check CmuxNext on the build fleet':
+        'the scan reads every loop of a script the step runs; fleet_compile_result.py long-polls the fleet controller (30 s gap, at most 120 s), not GitHub',
+    'cmux-next-base-linux.yml: List the paths changed since the last green run':
+        'retry only: one runs read, retried at 0/5/20 s only after a failed read',
+    "cmux-next-media.yml: Plan the What's New clips":
+        'retry only: published() is one HEAD per clip, retried 3 times 2/4 s apart only after a failure',
+    'cmux-next-post-merge.yml: Plan the suites':
+        'retry only: post_merge_batch.py gh_api sleeps only through a rate-limit refusal, rotates tokens, and stops at API_WAIT_BUDGET',
+    'cmux-next-post-merge.yml: Judge the run':
+        'retry only: post_merge_batch.py gh_api sleeps only through a rate-limit refusal, rotates tokens, and stops at API_WAIT_BUDGET',
+    'cmux-next-post-merge.yml: Start the next batch when merges have piled up':
+        'retry only: post_merge_batch.py gh_api sleeps only through a rate-limit refusal, rotates tokens, and stops at API_WAIT_BUDGET',
+    'cmux-next-post-merge.yml: Swap out the piece, or open the revert pull request':
+        'retry only: post_merge_batch.py gh_api sleeps only through a rate-limit refusal, rotates tokens, and stops at API_WAIT_BUDGET',
+    'cmux-tui-artifacts.yml: Point the feat-cmux-next channel at this tree':
+        'retry only: cmux-tui-point-channel.sh compare_status tries 3 times 10 s apart after a failed read, then falls back to git',
+    'cmux-tui-artifacts.yml: Point the channel at this tree once it is daemon-tested':
+        'retry only: cmux-tui-point-channel.sh compare_status tries 3 times 10 s apart after a failed read, then falls back to git',
+    'cmux-tui-artifacts.yml: Point the Windows channel at this tree':
+        'retry only: cmux-tui-point-channel.sh compare_status tries 3 times 10 s apart after a failed read, then falls back to git',
+    'ios-internal-nightly-trigger.yml: Dispatch the build':
+        'retry only: ios_internal_builder.py _gh_api tries 4 times, 10/20/40 s apart, only after a failed call',
+    'cmux-next-pair-e2e-vm.yml: The cmux-tui client for this tree':
+        'pushes to pair-e2e/** and dispatch only: pin-cmux-tui.sh probe waits for an active trusted publisher, two run reads every 10 s for at most 90 s, then re-checks once after 20 s',
     "ci-macos.yml: Wait for routed Linux preflight":
         "release-admission only (release_build and full_suite): one jobs read every 5 s, up to 210; "
         "should become a `needs:` on linux-preflight",
+    "cmux-next-ios-kit.yml: Wait for the fleet-built CmuxMobileLinkFFI.xcframework":
+        "bounded fallback reuse: one artifact/jobs read every 30 s, at most 9 passes while the fleet job is in progress; "
+        "queued/failed jobs fall back immediately; a candidate for handing the artifact through a workflow_run or needs edge",
+    "ci-shed-superseded-runs.yml: Cancel queued runs nobody will read":
+        "every 10 minutes (#47662): reads the queued list once, then one cancel per picked run, spaced by "
+        "--spacing so the writes stay under the secondary limit; it stops at a primary rate limit. Not a poll",
     "cmux-tui-release.yml: Dispatch registry publishers": "a release, by hand: finds the publisher runs it dispatched",
     "cmux-next.yml: Dispatch with GITHUB_TOKEN, waiting through a rate limit":
         "the DEV handoff's fallback dispatch (#25458), only when the App token cannot: at most three "
         "tries, each sleeping only after a rate-limit refusal (the /rate_limit read costs nothing)",
-    "coderouter-release.yml: Publish immutable GitHub release":
-        "a release: up to five reads of the assets' visibility, then one publish",
     "ios-testflight.yml: Decide whether a TestFlight upload is needed":
         "orders uploads: waits only while an earlier TestFlight run is active, listing runs and jobs "
         "each pass; a candidate for a concurrency group",
-    "merge-group-fail-fast.yml: Locate and watch the merge-group CI run":
-        "per merge group: finds and watches its CI run (lawrencecchen's #16224 cuts it)",
     'cmux-next-base-autofix.yml: Wait for the GhosttyKit release':
         'per feat-cmux-next push touching its paths, only while the ghostty gitlink has no published GhosttyKit release: one release read every 120 s, at most 45 passes, one run at a time; a candidate for workflow_run on build-ghosttykit.yml',
     "cmux-next.yml: Decide the fleet build's REF capture":
@@ -54,11 +85,13 @@ ALLOWED: dict[str, str] = {
     'cmux-next.yml: Probe the same-tree cmux-tui':
         'a same-repository PR whose merge has its own unpublished cmux-tui tree waits for an active trusted publisher (pin-cmux-tui.sh await_outside_publisher): two run reads every 10 s, at most 10 passes; forks look once; pushes and DEV dispatches look once, then re-check once after 20 s',
     'cmux-tui-artifacts.yml: Re-check the owner after leaving the marker':
-        'only when this run deferred to a same-key owner whose hand-off job has started: one owner-run read every 15 s, at most 12 passes',
+        'only when this run deferred to a same-key owner whose hand-off job has started and the CDN does not show the tree: one owner-run read every 45 s, at most 4 passes (was every 15 s, 12 passes)',
     'cmux-next-generated-catch-up.yml: Select PRs that conflict with feat-cmux-next':
         "per feat-cmux-next push, only while a PR's mergeable is UNKNOWN: re-lists open PRs every 20 s, at most 5 more times",
-    'published-in.yml: Comment the release on its PRs':
-        'per stable release: one comment per PR, 7.5 s apart for the secondary limit on content writes; stops at the first rate-limit refusal',
+    "app-ffi-release.yml: Watch the build and rescue it":
+        "per feat-cmux-next app-ffi-release run (app_ffi_rescue.py, #45076, #45176, hq#3690): one jobs page every "
+        "120 s, at most 50 reads, ending once the build has a runner; a candidate for the owned-pool rescue's one "
+        "sweeper",
     'nightly.yml: Comment the build on its PRs':
         'per published nightly-next build: one comment per PR, 7.5 s apart; stops at the first rate-limit refusal',
     'auto-resume-nightly-notarization.yml: Prepare publication notes':
@@ -75,8 +108,6 @@ ALLOWED: dict[str, str] = {
         'retry only: one runs list, retried after a rate limit/429/5xx/timeout, at most 4 tries, 10/20/40 s apart',
     'nightly-tag-permission-probe.yml: Expect github.token to reject the workflow-changing ref':
         'by hand: each ref call retried after 408/425/429/5xx or a network error, at most 4 tries; the expected 403 is not retried',
-    'risk-tier.yml: Grade the pull request':
-        'retry only: a loop over the two sign-off labels; gh_run retries a failed gh call at most 3 times, 2 and 4 s apart',
     'auto-resume-nightly-notarization.yml: Poll saved Apple submissions without reserving a Mac':
         "polls Apple's notary service (poll-notary-submission.py), not GitHub; the scan counts urlopen as an API call",
     "cmux-next-perf-budgets.yml: Read the state and pick this tick's work":
@@ -103,6 +134,9 @@ ALLOWED: dict[str, str] = {
         'hourly: paces artifact deletes 0.4 s apart (at most 150 a minute) and stops at 50 calls left',
     'ci-cloud-overflow-probe.yml: Probe and switch':
         'every 10 min: watches its probe job, one jobs read every 15 s for at most CI_CLOUD_PROBE_MINUTES + 5 (7 to 25 min); a candidate for an App token',
+    'cmux-next-hot-verify.yml: Dispatch the look':
+        'retry only (#45104): a look dispatch that failed for a reason other than a rate limit is tried again, at '
+        'most 3 tries, 30 s doubling; a rate limit moves to the cmux-bot spare pool (gh_budget_wait.sh) at once',
     'ci-macos.yml: Try parallel GitHub artifact transport':
         'retry only: an artifact download is retried after a failure, at most 4 tries, 1-8 s apart',
     'ci-owned-pool-rescue.yml: Watch runs on persistent pools':
@@ -113,14 +147,18 @@ ALLOWED: dict[str, str] = {
         'only when CMUX_NEXT_BATCH_ENABLED=1: one debounce sleep between two run listings, then a dispatch; the flagged loop (GraphQL paging with one 10 s retry) is in the batch subcommand this step does not run',
     "gallery-advisory.yml: Update the PR's gallery section":
         'pr_status.py: a request is retried only after a rate limit or 5xx (at most 5 waits); the settle re-read after a write runs at most 4 rounds',
-    "pr-checks.yml: Update the PR's review line":
-        'pr_status.py: a request is retried only after a rate limit or 5xx (at most 5 waits); the settle re-read after a write runs at most 4 rounds',
     'pr-status.yml: Write the line':
         'pr_status.py: a request is retried only after a rate limit or 5xx (at most 5 waits); the settle re-read after a write runs at most 4 rounds',
     'nightly-next-train.yml: Run the train':
         "a train run: waits for its candidate builds, one run read per pending build every 60 s, within the train's cap (NIGHTLY_NEXT_TRAIN_CAP_MINUTES, default 120)",
     "tui-publish-npm.yml: Require successful verified artifact run": "a release, by hand: at most 24 reads",
     "tui-publish-pypi.yml: Require successful verified artifact run": "a release, by hand: at most 24 reads",
+    'cas-replay.yml: Replay the newest web bundle publishes (W1)':
+        'retry only: web_ota_replay.py gh() sleeps only through a 429 or rate-limit 403 (retry-after or the reset), 8 tries, and raises on any other status',
+    'cmux-next.yml: Jobs red on the base right now':
+        'retry only: base_red_skip.py get_json tries again only after a timeout, a dropped connection or a 429/5xx, 3 tries inside a 90 s deadline',
+    'pr-pipeline.yml: Tooling tests red on the base right now?':
+        'retry only: base_red_skip.py get_json tries again only after a timeout, a dropped connection or a 429/5xx, 3 tries inside a 90 s deadline',
 }
 
 
@@ -137,7 +175,90 @@ class GithubTokenPollingTests(unittest.TestCase):
         self.assertFalse(stale, f"no longer polling, remove from ALLOWED: {stale}")
 
 
+class IosFleetWaitTests(unittest.TestCase):
+    def _script(self) -> str:
+        text = (WORKFLOWS / "cmux-next-ios-kit.yml").read_text()
+        marker = "      - name: Wait for the fleet-built CmuxMobileLinkFFI.xcframework"
+        start = text.index(marker)
+        run = text.index("        run: |", start) + len("        run: |\n")
+        end = text.index("\n      - name: Build CmuxMobileLinkFFI.xcframework", run)
+        return "\n".join(line[10:] for line in text[run:end].splitlines()) + "\n"
+
+    def _run(self, mode: str) -> tuple[str, list[str], list[str], str]:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            log = root / "gh.log"
+            sleep_log = root / "sleep.log"
+            fakebin = root / "bin"
+            fakebin.mkdir()
+            (fakebin / "gh").write_text(
+                "#!/bin/bash\n"
+                f"echo \"$*\" >> {log}\n"
+                "case \"$*\" in\n"
+                f"  *'artifacts?name='*) [[ {mode!r} == ready ]] && echo 42 || true ;;\n"
+                "  *'/artifacts/42/zip'*) : ;;\n"
+                f"  *'/jobs?per_page=100'*) [[ {mode!r} == active ]] && echo in_progress || echo \"$MODE\" ;;\n"
+                "esac\n"
+            )
+            (fakebin / "gh").chmod(0o755)
+            (fakebin / "unzip").write_text(
+                "#!/bin/bash\n"
+                'dest="${@: -1}"\n'
+                'mkdir -p "$dest"\n'
+                'touch "$dest/Info.plist"\n'
+            )
+            (fakebin / "unzip").chmod(0o755)
+            script = (
+                f"sleep() {{ echo \"$1\" >> {sleep_log}; SECONDS=$((SECONDS+$1)); }}\n"
+                + self._script()
+            )
+            env = dict(os.environ)
+            env.update({
+                "PATH": f"{fakebin}:{env['PATH']}", "RUN": "repos/o/r/actions/runs/1",
+                "ATTEMPT": "1", "JOB": "CmuxMobileLinkFFI.xcframework (build fleet)",
+                "ARTIFACT": "cmux-next-ios-link-ffi-xcframework", "RUNNER_TEMP": str(root),
+                "RUNNER_OS": "Linux", "GITHUB_REPOSITORY": "o/r", "GITHUB_OUTPUT": str(root / "out"),
+                "MODE": "failed" if mode == "failed" else mode,
+            })
+            result = subprocess.run(["bash", "-c", script], cwd=root, env=env, text=True, capture_output=True, timeout=10)
+            self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+            calls = log.read_text().splitlines() if log.exists() else []
+            sleeps = sleep_log.read_text().splitlines() if sleep_log.exists() else []
+            output = (root / "out").read_text() if (root / "out").exists() else ""
+            return result.stdout, calls, sleeps, output
+
+    def test_queued_and_failed_exit_without_polling(self) -> None:
+        for mode in ("queued", "failed"):
+            with self.subTest(mode=mode):
+                stdout, calls, sleeps, output = self._run(mode)
+                self.assertEqual(len(calls), 2)
+                self.assertEqual(sleeps, [])
+                self.assertIn("building it here", stdout)
+
+    def test_ready_artifact_is_used_without_wait(self) -> None:
+        stdout, calls, sleeps, output = self._run("ready")
+        self.assertEqual(len(calls), 2)
+        self.assertEqual(sleeps, [])
+        self.assertIn("hit=true", output)
+
+    def test_active_job_stops_at_240_seconds(self) -> None:
+        stdout, calls, sleeps, output = self._run("active")
+        self.assertEqual(len(calls), 18)
+        self.assertEqual(sleeps, ["30"] * 8)
+        self.assertIn("within 240 s", stdout)
+
+
 class ShellTests(unittest.TestCase):
+    def test_redirections_and_literals_in_quoted_command_substitutions(self) -> None:
+        poll = "while :; do gh api rate_limit; sleep 1; done"
+        for command in ("cat <<<WORD", "echo '<<EOF'", 'echo "<<EOF"', "echo ok # <<EOF"):
+            with self.subTest(command=command):
+                self.assertTrue(shell_polls(f'value="$(\n{command}\ntrue\n)"\n{poll}'))
+        # The quotes, close parenthesis and apparent shell commands in this body are literal.
+        body = f'cat <<-\'EOF\'\n\t)" {poll}\n\tEOF'
+        self.assertIsNone(shell_polls(f'value="$({body}\n)"'))
+        self.assertTrue(shell_polls(f'value="$({body}\n)"\n{poll}'))
+
     def test_loops_that_sleep_and_call(self) -> None:
         self.assertTrue(shell_polls('until gh run view "$id" --json status | grep -q completed; do\n  sleep 30\ndone\n'))
         self.assertTrue(shell_polls("x=1; while true; do gh api rate_limit; sleep 5; done"))
@@ -191,6 +312,11 @@ class PythonTests(unittest.TestCase):
         multiline = ("import time\ndef state(\n    a,\n    b,\n):\n    return urllib.request.urlopen(a)\n"
                      "while True:\n    state(1, 2)\n    time.sleep(5)\n")
         self.assertTrue(python_polls(multiline))
+        # The deadline transport is an HTTP call too, buffered or streamed (scripts/ci/deadline_http.py).
+        for call in ("deadline_http.request(u, 30)",
+                     "with deadline_http.stream(u, 30) as answer:\n        answer.read()"):
+            with self.subTest(call=call):
+                self.assertTrue(python_polls(f"import time\nwhile True:\n    {call}\n    time.sleep(5)\n"))
 
     def test_a_nested_helper_does_not_hide_the_global_one(self) -> None:
         py = ("import time\ndef state():\n    return gh_json('api', 'x')\ndef unused():\n    def state():\n"

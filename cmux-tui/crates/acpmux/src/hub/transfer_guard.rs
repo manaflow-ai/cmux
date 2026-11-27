@@ -42,6 +42,12 @@ pub(super) struct GuardedImport<'a> {
 pub(super) struct Guard {
     pub(super) control: Control,
     pub(super) roots: Vec<PathBuf>,
+    /// A hub move between two daemons of the same person (`hub/transfer_pull.rs`: op `move` is
+    /// granted only through `sameUser`): the chat lands as the origin it had on the source, so
+    /// the person's own chat stays theirs and its local prompts are owner prompts. Never read
+    /// from a request's `guard` (`parse` refuses the key), only set by the pull and kept in the
+    /// receive's guard file.
+    pub(super) owner: bool,
 }
 
 impl Guard {
@@ -86,15 +92,19 @@ impl Guard {
                 roots.push(root);
             }
         }
-        Ok(Guard { control, roots })
+        Ok(Guard { control, roots, owner: false })
     }
 
     pub(super) fn to_value(&self) -> Value {
-        json!({"control": self.control.as_str(), "roots": self.roots})
+        let mut v = json!({"control": self.control.as_str(), "roots": self.roots});
+        if self.owner {
+            v["owner"] = json!(true);
+        }
+        v
     }
 
     pub(super) fn store(&self, dir: &Path) -> std::io::Result<()> {
-        std::fs::write(dir.join(GUARD_FILE), serde_json::to_vec(&self.to_value())?)
+        crate::home_fs::write(dir.join(GUARD_FILE), serde_json::to_vec(&self.to_value())?)
     }
 
     /// The guard a receive stored, or None for an unguarded receive.
@@ -119,7 +129,8 @@ impl Guard {
         if roots.is_empty() {
             return Err(guard_error("guard", "the stored guard has no roots"));
         }
-        Ok(Some(Guard { control, roots }))
+        let owner = control == Control::Peer && v["owner"] == true;
+        Ok(Some(Guard { control, roots, owner }))
     }
 
     /// The canonical form of `path` when it is a folder under one of the roots.
@@ -171,10 +182,23 @@ pub(super) fn bundle_path_kind(path: &str) -> Option<bool> {
     let jsonl = |f: &str| f.len() > ".jsonl".len() && f.ends_with(".jsonl");
     match parts.as_slice() {
         ["session.json"] | ["manifest.json"] => Some(false),
+        // Each surface's draft and queue labels: text the composer shows, re-checked on restore.
+        [f] if *f == super::composers::BUNDLE_FILE => Some(false),
+        // A chat's images, each named by the SHA-256 of its bytes; a restore keeps one only when
+        // its bytes have that hash, so a bundle cannot replace another chat's image.
+        [d, id] if *d == super::prompt_images::BUNDLE_DIR && super::prompt_images::valid_id(id) => {
+            Some(false)
+        }
         ["events", f] if f.len() > ".ndjson".len() && f.ends_with(".ndjson") => Some(false),
         ["harness", "journal.ndjson"] | ["harness", "session.jsonl"] => Some(false),
         ["native", "claude-project", ".claude", "projects", dir, f]
             if !dir.is_empty() && jsonl(f) =>
+        {
+            Some(true)
+        }
+        // A Claude subagent's transcript, beside the session's: `<dir>/<sid>/subagents/<f>`.
+        ["native", "claude-subagent", ".claude", "projects", dir, sid, "subagents", f]
+            if !dir.is_empty() && !sid.is_empty() && jsonl(f) =>
         {
             Some(true)
         }
@@ -223,6 +247,28 @@ pub(super) fn guarded_record(rec: &mut EventRecord, control: Control) {
 }
 
 impl Hub {
+    /// Refuses a moved chat that lands remote when its agent cannot start here under the remote
+    /// start rule (a `webAskingModes` entry for its harness): it would land and refuse every
+    /// prompt sent to it.
+    async fn remote_startable(&self, harness: &str) -> Result<(), RpcError> {
+        let startable = {
+            let cfg = self.config.read().await;
+            match cfg.harnesses.get(harness) {
+                Some(profile) => crate::web_modes::remote_start_for_config(&cfg, harness, profile),
+                None => Err(format!("agent {harness:?} is not configured here")),
+            }
+        };
+        let Err(why) = startable else { return Ok(()) };
+        let e = guard_error(
+            "harness",
+            format!(
+                "agent {harness:?} cannot start here for a moved chat ({why}): this machine \
+                 needs a `webAskingModes` entry for it"
+            ),
+        );
+        Err(e.with_data(json!({"reason": "remote.mode_not_asking", "harness": harness})))
+    }
+
     /// What a guarded receive takes, from its manifest: a configured agent that is not a
     /// terminal one (and for `web`, of a family the Web drives), and only bundle files.
     pub(super) async fn guarded_receive_check(
@@ -244,6 +290,17 @@ impl Hub {
                 "family",
                 format!("a {family} chat is never driven from a remote connection"),
             ));
+        }
+        // A guarded chat lands as a remote one (`guard_session`), and its agent starts only
+        // under the remote start rule (`spawn.rs`, `resolve::admit_remote_profile`). A chat
+        // that rule refuses here would land and refuse every prompt sent to it (the ring run
+        // of 2026-11-24: sends right after the move answered "no reviewed asking mode", each
+        // a lost message). Refused here instead, before the source freezes it, so the chat
+        // stays where its prompts run. A same-person hub move (`owner`) keeps the source's
+        // origin instead; one that was remote there is checked at finish, where its session
+        // file says so.
+        if !guard.owner {
+            self.remote_startable(harness).await?;
         }
         let (mut native, mut native_bytes) = (0usize, 0u64);
         for f in manifest["files"].as_array().into_iter().flatten() {
@@ -361,7 +418,16 @@ impl Hub {
             }
         }
         meta.additional_directories = super::additional_dirs::without_cwd(dirs, &meta.cwd);
-        meta.remote_origin = true;
+        // The person's own move keeps the chat's origin: one they started is still theirs here,
+        // so its local prompts are owner prompts (the super-highway goal: a chat moves between
+        // the same person's machines and keeps working). Any other guarded move lands remote.
+        if guard.owner {
+            if meta.remote_origin {
+                self.remote_startable(&meta.harness).await?;
+            }
+        } else {
+            meta.remote_origin = true;
+        }
         if let Some(sid) = meta.agent_session_id.as_deref()
             && !plain_agent_session(sid)
         {
@@ -391,7 +457,7 @@ impl Hub {
         }
         let written = serde_json::to_vec_pretty(&meta)
             .map_err(anyhow::Error::from)
-            .and_then(|bytes| Ok(std::fs::write(&path, bytes)?));
+            .and_then(|bytes| Ok(crate::home_fs::write(&path, bytes)?));
         written.map_err(|e| RpcError::internal(format!("transfer: {e}")))?;
         Ok((meta, taken))
     }
@@ -443,9 +509,35 @@ mod durable_harness_tests {
     #[test]
     fn durable_harness_journal_is_a_bundle_file() {
         assert_eq!(bundle_path_kind("harness/journal.ndjson"), Some(false));
+        assert_eq!(bundle_path_kind("composers.json"), Some(false));
+        let image = "ab".repeat(32);
+        assert_eq!(bundle_path_kind(&format!("attachments/{image}")), Some(false));
+        assert_eq!(bundle_path_kind("attachments/not-a-hash"), None);
+        assert_eq!(bundle_path_kind(&format!("attachments/{}", "AB".repeat(32))), None);
+        assert_eq!(bundle_path_kind(&format!("attachments/x/{image}")), None);
         assert_eq!(bundle_path_kind("harness/session.jsonl"), Some(false));
         assert_eq!(bundle_path_kind("harness/owner.sqlite"), None);
         assert_eq!(bundle_path_kind("harness/../journal.ndjson"), None);
+    }
+
+    /// The optional bundle files a client leaves out for an older target
+    /// (`capabilities::OPTIONAL_BUNDLE_FILES`) are the hub's own names, each one a guarded
+    /// receive here takes as a bundle file, never an agent store file; an unknown one is still
+    /// refused (the guard is unchanged), and no required file is optional.
+    #[test]
+    fn optional_bundle_files_are_the_guards_bundle_files() {
+        use crate::capabilities::{TRANSFER_COMPOSERS, TRANSFER_IMAGES, optional_bundle_file};
+        let image = format!("{}/{}", super::super::prompt_images::BUNDLE_DIR, "ab".repeat(32));
+        let composers = super::super::composers::BUNDLE_FILE;
+        assert_eq!(optional_bundle_file(composers), Some(TRANSFER_COMPOSERS));
+        assert_eq!(optional_bundle_file(&image), Some(TRANSFER_IMAGES));
+        assert_eq!(bundle_path_kind(composers), Some(false));
+        assert_eq!(bundle_path_kind(&image), Some(false));
+        for required in ["session.json", "manifest.json", "events/000001.ndjson"] {
+            assert_eq!(optional_bundle_file(required), None, "{required}");
+        }
+        assert_eq!(bundle_path_kind("future.json"), None);
+        assert_eq!(optional_bundle_file("future.json"), None);
     }
 }
 
@@ -486,7 +578,7 @@ mod retired_root_tests {
             "status": "idle", "createdAt": 1, "updatedAt": 1,
         });
         std::fs::write(bundle.join("session.json"), meta.to_string()).unwrap();
-        let guard = Guard { control: Control::Peer, roots: vec![work] };
+        let guard = Guard { control: Control::Peer, roots: vec![work], owner: false };
         let (meta, taken) =
             hub.guard_session(&bundle, &guard, None, &json!({}), None).await.unwrap();
         assert!(!taken);

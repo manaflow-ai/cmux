@@ -19,7 +19,7 @@ import Testing
         #expect(machine.handle(.dialSucceeded(generation: 1, path: .turnTLS)) == [])
         #expect(machine.phase == .connected(.wireGuard, .turnTLS, rttMillis: nil))
         _ = machine.handle(.linkUpdated(generation: 1, path: .turnTLS, rttMillis: 27))
-        #expect(machine.phase.statusLine(macName: "Studio") == "Connected")
+        #expect(machine.phase.statusLine(macName: "Studio") == nil)
     }
 
     @Test func offlineMacIsNotDialed() {
@@ -32,6 +32,31 @@ import Testing
         #expect(machine.handle(.target(mac)) == [.dial(generation: 2, macID: "m1", transport: .webRTC)])
     }
 
+    /// Leo: "it just says like, you know, cosmic gray is offline or something. But like
+    /// clearly it wasn't". A surface opening on a Mac presence calls offline dials anyway.
+    @Test func openingASurfaceDialsAMacPresenceCallsOffline() {
+        var machine = LinkMachine(transport: .webRTC)
+        var offline = mac
+        offline.isOnline = false
+        #expect(machine.handle(.target(offline)) == [])
+        #expect(machine.phase == .macOffline)
+        #expect(machine.handle(.open) == [.dial(generation: 2, macID: "m1", transport: .webRTC)])
+        #expect(machine.phase == .connecting(.webRTC, attempt: 1))
+        // A repeated presence "offline" does not cancel the dial the surface asked for.
+        #expect(machine.handle(.target(offline)) == [])
+        #expect(machine.phase == .connecting(.webRTC, attempt: 1))
+        // The dial really failed while presence says offline: offline, no retry loop.
+        #expect(machine.handle(.dialFailed(generation: 2, reason: "offline")) == [])
+        #expect(machine.phase == .macOffline)
+    }
+
+    @Test func openingASurfaceOnALiveLinkDoesNothing() {
+        var machine = LinkMachine(transport: .webRTC)
+        _ = machine.handle(.target(mac))
+        #expect(machine.handle(.open) == [])
+        #expect(machine.phase == .connecting(.webRTC, attempt: 1))
+    }
+
     @Test func failuresBackOffAndRetry() {
         var machine = LinkMachine(transport: .webRTC)
         _ = machine.handle(.target(mac))
@@ -40,7 +65,7 @@ import Testing
         #expect(machine.phase == .connecting(.webRTC, attempt: 2))
         #expect(machine.handle(.dialFailed(generation: 2, reason: "ICE timed out")) == [.scheduleRetry(generation: 3, after: .seconds(1))])
         #expect(machine.phase == .waiting(.webRTC, attempt: 2, reason: "ICE timed out", retryIn: .seconds(1)))
-        #expect(machine.phase.statusLine(macName: "Studio") == "Reconnecting…")
+        #expect(machine.phase.statusLine(macName: "Studio") == nil)
         #expect(machine.handle(.retryDue(generation: 3)) == [.dial(generation: 4, macID: "m1", transport: .webRTC)])
         #expect(machine.handle(.dialFailed(generation: 4, reason: "x")) == [.scheduleRetry(generation: 5, after: .seconds(2))])
         // A stale timer is ignored.
@@ -69,7 +94,7 @@ import Testing
         #expect(machine.handle(.relayOnly(true)) == [.close, .dial(generation: 2, macID: "m1", transport: .webRTC)])
         #expect(machine.relayOnly)
         #expect(machine.handle(.dialSucceeded(generation: 2, path: .turn)) == [])
-        #expect(machine.phase.statusLine(macName: "Studio") == "Connected")
+        #expect(machine.phase.statusLine(macName: "Studio") == nil)
     }
 
     /// Settings → Developer "Block UDP": a change redials, like relay only.
@@ -81,7 +106,7 @@ import Testing
         #expect(machine.handle(.blockUDP(true)) == [.close, .dial(generation: 2, macID: "m1", transport: .wireGuard)])
         #expect(machine.blockUDP)
         #expect(machine.handle(.dialSucceeded(generation: 2, path: .turnTLS)) == [])
-        #expect(machine.phase.statusLine(macName: "Studio") == "Connected")
+        #expect(machine.phase.statusLine(macName: "Studio") == nil)
         // WebRTC ignores it: a change there does not redial.
         var webRTC = LinkMachine(transport: .webRTC)
         _ = webRTC.handle(.target(mac))
@@ -95,8 +120,8 @@ import Testing
         _ = machine.handle(.target(mac))
         _ = machine.handle(.dialSucceeded(generation: 1, path: .turn))
         #expect(machine.handle(.foreground) == [.probe(generation: 1)])
-        // A dead link redials at once.
-        #expect(machine.handle(.probeFailed(generation: 1, reason: "closed")) == [.close, .dial(generation: 2, macID: "m1", transport: .wireGuard)])
+        // A silent link redials at once, and is kept beside the redial.
+        #expect(machine.handle(.probeFailed(generation: 1, reason: "closed")) == [.keepStandby, .dial(generation: 2, macID: "m1", transport: .wireGuard)])
         _ = machine.handle(.dialFailed(generation: 2, reason: "x"))
         _ = machine.handle(.dialFailed(generation: 3, reason: "x"))
         // Foreground while waiting dials now instead of waiting out the timer.
@@ -130,10 +155,80 @@ import Testing
         _ = machine.handle(.target(mac))
         _ = machine.handle(.dialSucceeded(generation: 1, path: .direct))
         #expect(machine.handle(.macSignaled) == [.quickProbe(generation: 1)])
-        #expect(machine.handle(.probeFailed(generation: 1, reason: "timeout")) == [.close, .dial(generation: 2, macID: "m1", transport: .webRTC)])
+        #expect(machine.handle(.probeFailed(generation: 1, reason: "timeout")) == [.keepStandby, .dial(generation: 2, macID: "m1", transport: .webRTC)])
         // A dial in flight when the host's socket connects again is restarted
         // (its offer may have gone to the old socket): D2b.
         #expect(machine.handle(.macSignaled) == [.dial(generation: 3, macID: "m1", transport: .webRTC)])
+    }
+
+    /// The network came back while a retry dial was in flight on the dead
+    /// path (iOS reliability matrix, network_back_during_inflight_dial): the
+    /// dial starts again on the new path at once, instead of waiting out its
+    /// 25 s timeout and then a backoff step. A waiting machine dials now; a
+    /// live link is left to roam.
+    @Test func networkChangeRestartsADialInFlightAndEndsTheBackoff() {
+        var machine = LinkMachine(transport: .wireGuard)
+        _ = machine.handle(.target(mac))
+        _ = machine.handle(.dialSucceeded(generation: 1, path: .direct))
+        #expect(machine.handle(.networkChanged) == [], "a live link roams in place")
+        #expect(machine.handle(.linkDropped(generation: 1, reason: "network lost")) == [.close, .dial(generation: 2, macID: "m1", transport: .wireGuard)])
+        // The redial is on the dead path; the network comes back.
+        #expect(machine.handle(.networkChanged) == [.dial(generation: 3, macID: "m1", transport: .wireGuard)])
+        #expect(machine.phase == .connecting(.wireGuard, attempt: 1))
+        // The old dial's late failure is ignored.
+        #expect(machine.handle(.dialFailed(generation: 2, reason: "timeout")) == [])
+        _ = machine.handle(.dialFailed(generation: 3, reason: "x"))
+        _ = machine.handle(.dialFailed(generation: 4, reason: "x"))
+        guard case .waiting(_, let attempt, _, _) = machine.phase else { Issue.record("expected waiting"); return }
+        #expect(machine.handle(.networkChanged) == [.dial(generation: 6, macID: "m1", transport: .wireGuard)])
+        #expect(machine.phase == .connecting(.wireGuard, attempt: attempt + 1))
+    }
+
+    /// An unanswered probe keeps the link beside the redial (make before
+    /// break): a blackout that ends first resumes on the old link, with no
+    /// channel closed or re-attached; a redial that lands first closes it.
+    @Test func probeFailureKeepsTheLinkBesideTheRedial() {
+        var machine = LinkMachine(transport: .wireGuard)
+        _ = machine.handle(.target(mac))
+        _ = machine.handle(.dialSucceeded(generation: 1, path: .direct))
+        #expect(machine.handle(.probeFailed(generation: 1, reason: "timeout")) == [.keepStandby, .dial(generation: 2, macID: "m1", transport: .wireGuard)])
+        #expect(machine.standby == 1)
+        #expect(machine.phase == .connecting(.wireGuard, attempt: 1))
+        // The redial on the dark path fails; the silent retry goes out.
+        #expect(machine.handle(.dialFailed(generation: 2, reason: "timeout")) == [.dial(generation: 3, macID: "m1", transport: .wireGuard)])
+        // The old link answers first: it is the link again, the redial is dropped.
+        #expect(machine.handle(.standbyAlive(generation: 1, path: .direct, rttMillis: 40)) == [.promoteStandby(generation: 4)])
+        #expect(machine.phase == .connected(.wireGuard, .direct, rttMillis: 40))
+        #expect(machine.standby == nil)
+        #expect(machine.handle(.dialSucceeded(generation: 3, path: .direct)) == [], "the dropped redial's late success is ignored")
+        #expect(machine.handle(.standbyAlive(generation: 1, path: .direct, rttMillis: 40)) == [])
+        // Silent again; this time the redial lands first and the old link closes.
+        #expect(machine.handle(.probeFailed(generation: 4, reason: "timeout")) == [.keepStandby, .dial(generation: 5, macID: "m1", transport: .wireGuard)])
+        #expect(machine.handle(.dialSucceeded(generation: 5, path: .turn)) == [.closeStandby])
+        #expect(machine.standby == nil)
+        #expect(machine.handle(.standbyAlive(generation: 4, path: .direct, rttMillis: 40)) == [])
+        // A standby that closes or stays silent is dropped; the redial goes on.
+        _ = machine.handle(.probeFailed(generation: 5, reason: "timeout"))
+        #expect(machine.handle(.standbyLost(generation: 5)) == [.closeStandby])
+        #expect(machine.phase == .connecting(.wireGuard, attempt: 1))
+        // A link that closed itself is not kept; neither is one in the background.
+        _ = machine.handle(.dialSucceeded(generation: 6, path: .direct))
+        #expect(machine.handle(.linkDropped(generation: 6, reason: "closed")) == [.close, .dial(generation: 7, macID: "m1", transport: .wireGuard)])
+        _ = machine.handle(.dialSucceeded(generation: 7, path: .direct))
+        _ = machine.handle(.background)
+        #expect(machine.handle(.probeFailed(generation: 7, reason: "timeout")) == [.close, .dial(generation: 8, macID: "m1", transport: .wireGuard)])
+        #expect(machine.standby == nil)
+    }
+
+    /// A retarget or a reset while a standby is kept drops it with the link.
+    @Test func aRetargetDropsTheStandby() {
+        var machine = LinkMachine(transport: .wireGuard)
+        _ = machine.handle(.target(mac))
+        _ = machine.handle(.dialSucceeded(generation: 1, path: .direct))
+        _ = machine.handle(.probeFailed(generation: 1, reason: "timeout"))
+        #expect(machine.handle(.target(nil)) == [.close])
+        #expect(machine.standby == nil)
+        #expect(machine.handle(.standbyAlive(generation: 1, path: .direct, rttMillis: 1)) == [])
     }
 
     /// The link really died while presence says the Mac is offline: no dial
@@ -176,6 +271,54 @@ import Testing
         // The abandoned dial's late failure changes nothing.
         #expect(machine.handle(.dialFailed(generation: 2, reason: "answer timeout")) == [])
         guard case .connecting = machine.phase else { Issue.record("expected connecting"); return }
+    }
+
+    /// A revoked session (the service refused a token minted fresh for the
+    /// dial) stops every redial: no retry, foreground, signal or network
+    /// event dials again, and the status says "Signed out", never
+    /// "Reconnecting…". Sign-out ends the controller; nothing else leaves it.
+    @Test func aRevokedSessionStopsRedialingAndSaysSignedOut() {
+        var machine = LinkMachine(transport: .webRTC)
+        _ = machine.handle(.target(mac))
+        // The dial that was refused is still connecting: it is closed.
+        #expect(machine.handle(.signedOut(generation: 1)) == [.close])
+        #expect(machine.phase == .signedOut)
+        #expect(machine.phase.statusLine(macName: "Studio") == "Signed out")
+        for event: LinkMachine.Event in [.retryDue(generation: 2), .foreground, .resume, .macSignaled,
+                                         .networkChanged, .target(mac), .transport(.wireGuard),
+                                         .dialFailed(generation: 2, reason: "x")] {
+            #expect(machine.handle(event) == [], "\(event) dialed a signed-out session")
+        }
+        #expect(machine.phase == .signedOut)
+        // An idle link closed (`applyLinks` untargets it) and opened again:
+        // still signed out, and nothing dials.
+        #expect(machine.handle(.target(nil)) == [])
+        #expect(machine.phase == .signedOut)
+        #expect(machine.handle(.target(mac)) == [])
+        #expect(machine.handle(.retryDue(generation: machine.generation)) == [])
+        #expect(machine.phase == .signedOut)
+        #expect(machine.target == mac)
+        // A late result for an older dial changes nothing.
+        var other = LinkMachine(transport: .webRTC)
+        _ = other.handle(.target(mac))
+        _ = other.handle(.transport(.wireGuard))
+        #expect(other.handle(.signedOut(generation: 1)) == [])
+        guard case .connecting = other.phase else { Issue.record("a stale revoke ended a live dial"); return }
+    }
+
+    @Test func onlyARefusedFreshTokenIsARevokedSession() {
+        let refused = LiveAPI.Failure(status: 401, code: "unauthorized", message: "refresh token revoked")
+        #expect(LinkController.sessionRevoked(refused, afterRefresh: true))
+        // The first 401 may be an expired token: it refreshes and redials.
+        #expect(!LinkController.sessionRevoked(refused, afterRefresh: false))
+        #expect(!LinkController.sessionRevoked(LiveAPI.Failure(status: 503, code: "x", message: ""), afterRefresh: true))
+        #expect(!LinkController.sessionRevoked(LinkError(code: "timeout", message: ""), afterRefresh: true))
+        // The dial's own refusal: the Rust link's signaling upgrade got a 401.
+        let upgrade = LinkError(code: LinkError.unauthorized, message: "signaling connect failed: 401 Unauthorized")
+        #expect(LinkController.sessionRevoked(upgrade, afterRefresh: true))
+        #expect(!LinkController.sessionRevoked(upgrade, afterRefresh: false))
+        #expect(LinkController.authRefused(upgrade))
+        #expect(!LinkController.authRefused(LinkError(code: "signaling", message: "HTTP error: 502 Bad Gateway")))
     }
 
     /// termfix-r13 D4 (T-LIFE-13: offline label ≤ 5 s): terminals say the Mac
@@ -231,6 +374,52 @@ struct MockDialer: MacLinkDialer {
     }
 }
 
+/// A dialer whose roams wait until the test releases them, counting how many run at once.
+final class RoamGate: MacLinkDialer, @unchecked Sendable {
+    private let lock = NSLock()
+    private var running = 0
+    private var waiters: [(index: Int, continuation: CheckedContinuation<Void, Never>)] = []
+    private var released = 0
+    private(set) var startedCount = 0
+    private(set) var maxConcurrentCount = 0
+    var started: Int { lock.withLock { startedCount } }
+    var maxConcurrent: Int { lock.withLock { maxConcurrentCount } }
+
+    func dial(_ endpoint: LinkEndpoint, transport: CmuxMobileTransport.TransportKind, accessToken: String) async throws -> any MacLink {
+        MockMacLink(transport: transport)
+    }
+
+    func networkChanged(baseURL: URL, teamID: String, deviceID: String, accessToken: String) async -> [(String, Double)] {
+        let index: Int = lock.withLock {
+            startedCount += 1
+            running += 1
+            maxConcurrentCount = max(maxConcurrentCount, running)
+            return startedCount
+        }
+        await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
+            let go = lock.withLock { () -> Bool in
+                if released >= index { return true }
+                waiters.append((index, continuation))
+                return false
+            }
+            if go { continuation.resume() }
+        }
+        lock.withLock { running -= 1 }
+        return [("roam_direct", 1)]
+    }
+
+    func release() {
+        // Lets the next roam (by start order) finish.
+        let woken: [CheckedContinuation<Void, Never>] = lock.withLock {
+            released += 1
+            let go = waiters.filter { $0.index <= released }.map(\.continuation)
+            waiters.removeAll { $0.index <= released }
+            return go
+        }
+        for continuation in woken { continuation.resume() }
+    }
+}
+
 @MainActor
 @Suite struct LinkControllerTests {
     @Test func connectsThroughDialerAndHandsOutLink() async throws {
@@ -277,6 +466,36 @@ struct MockDialer: MacLinkDialer {
         #expect(controller.phase.isConnected)
     }
 
+    /// Changes that come while a roam runs never start a second one beside it: one roam at a time,
+    /// then one more onto the latest network, however many changes came (a153's phone ran four
+    /// within 0.7 s, each moving the path to none and back).
+    @Test func changesDuringARoamWaitForItAndRoamOnceMore() async throws {
+        let gate = RoamGate()
+        let controller = LinkController(transport: .wireGuard, dialer: gate, accessToken: { _ in "t" })
+        controller.endpoint = { LinkEndpoint(baseURL: URL(string: "https://x")!, teamID: "t", deviceID: "d", macDeviceID: $0) }
+        controller.send(.target(LinkMachine.Target(macID: "m", name: "Mac", isOnline: true)))
+        for _ in 0..<200 where !controller.phase.isConnected { await Task.yield() }
+        let url = URL(string: "https://x")!
+        controller.networkChanged(baseURL: url, teamID: "t", deviceID: "d")
+        let deadline = ContinuousClock.now + .seconds(5)
+        while gate.started == 0, ContinuousClock.now < deadline { try await Task.sleep(for: .milliseconds(10)) }
+        #expect(gate.started == 1)
+        // A burst while the first roam runs.
+        for _ in 0..<20 {
+            controller.networkChanged(baseURL: url, teamID: "t", deviceID: "d")
+            try await Task.sleep(for: .milliseconds(5))
+        }
+        try await Task.sleep(for: .milliseconds(300))
+        #expect(gate.started == 1)
+        gate.release()
+        while gate.started < 2, ContinuousClock.now < deadline { try await Task.sleep(for: .milliseconds(10)) }
+        gate.release()
+        try await Task.sleep(for: .milliseconds(400))
+        #expect(gate.started == 2)
+        #expect(gate.maxConcurrent == 1)
+        #expect(controller.phase.isConnected)
+    }
+
     @Test func dialFailureWaitsWithReadableReason() async throws {
         let controller = LinkController(transport: .webRTC, dialer: MockDialer(fail: true), accessToken: { _ in "t" })
         controller.endpoint = { LinkEndpoint(baseURL: URL(string: "https://x")!, teamID: "t", deviceID: "d", macDeviceID: $0) }
@@ -286,7 +505,7 @@ struct MockDialer: MacLinkDialer {
             Issue.record("expected waiting, got \(controller.phase)")
             return
         }
-        #expect(reason == "the Mac didn't answer in time")
+        #expect(reason == LinkError.timeoutReason)
     }
 }
 
@@ -567,7 +786,7 @@ private struct LinkOf: MacLinkDialer {
         let link = setupDaemon(log)
         let prepared = await WorkspaceSync.prepare(try await link.openChannel(service: "daemon", args: [:]), deviceID: "d", deviceName: "iPhone")
         _ = await prepared.replies.value
-        #expect(log.count == 5)
+        #expect(log.count == 7, "six setup requests and the sidebar layout (#51114)")
         let sync = WorkspaceSync(deviceID: "d", deviceName: "iPhone")
         var trees: [DaemonTree] = []
         sync.onTree = { trees.append($0) }
@@ -575,7 +794,7 @@ private struct LinkOf: MacLinkDialer {
         #expect(trees.count == 1)
         #expect(sync.tree?.workspaces.map(\.id) == ["k1"])
         #expect(sync.daemon != nil)
-        #expect(log.count == 5)
+        #expect(log.count == 7, "binding sent another request")
     }
 
     /// `prepare` runs once per dial, before the link is handed over, and its

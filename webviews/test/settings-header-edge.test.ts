@@ -84,12 +84,21 @@ await requireBrowserLane("settings-header-edge.test.ts", async () => {
         if (box.width === 0 || box.height === 0) continue;
         const glass = title.closest<HTMLElement>(".group.ui-glass");
         let expected = page;
+        // Flush left in the refined look too (Lucas 2026-11-12: "Density and Motion" and "Window
+        // Background" in line with "Appearance"), after a day on the rows' text edge.
         if (glass) {
           // On a glass card the header shares the rows' text edge: the card edge plus a row's
           // left padding.
           const row = glass.querySelector<HTMLElement>(".row");
           const inset = row ? parseFloat(getComputedStyle(row).paddingLeft) : 0;
           expected = glass.getBoundingClientRect().left + inset;
+        } else {
+          // A card that draws its own box (General's Text Size card, 5743a03a8cf: a border and a
+          // padding round the picker) holds its header inside that box, on its content edge.
+          const card = title.closest<HTMLElement>(".group");
+          const style = card ? getComputedStyle(card) : null;
+          if (card && style && parseFloat(style.borderLeftWidth) > 0)
+            expected = card.getBoundingClientRect().left + card.clientLeft + parseFloat(style.paddingLeft);
         }
         const text = title.textContent?.trim().slice(0, 40) ?? "";
         out.push({ header: text, left: Math.round(box.left), expected: Math.round(expected) });

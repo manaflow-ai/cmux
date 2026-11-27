@@ -3,6 +3,7 @@ import { JSDOM, VirtualConsole } from "jsdom";
 import type { AcpmuxRow } from "../src/agent-session/acpmux/model";
 import { turnView } from "../src/agent-session/acpmux/conversation/turns";
 import { installJsdomScroller, scrollerEnd } from "./support/jsdomScroller";
+import { teardownDom } from "./support/domTeardown";
 
 const dom = new JSDOM("<!doctype html><div id=root></div>", {
   url: "http://localhost/",
@@ -65,16 +66,16 @@ const { act } = await import("react");
 const { createRoot } = await import("react-dom/client");
 const { VirtualTranscript } = await import("../src/agent-session/acpmux/App");
 
-afterAll(() => {
-  dom.window.close();
-  for (const [key, had, value] of saved) {
-    if (had) scope[key] = value;
-    else delete scope[key];
-  }
+afterAll(async () => {
+  await teardownDom(saved, { window: dom.window, scope });
 });
 
 const row = (id: string, kind: string, text?: string): AcpmuxRow => ({ id, kind, text, version: 1, at: 1 });
-const turns = Array.from({ length: 30 }, (_, index) => [
+// 24 turns: a cold open lays a chat this long out whole on its first frame (VirtualTranscript.tsx
+// `coldOpenRoughAbove`; a longer one opens its history at rough heights, laid out whole a frame later).
+// Each reply-only turn draws its Worked for line (turns.ts `holdsHeader`, #51896), so 30 turns crossed that
+// line, and these tests read the chat's end and place the reader on its first frame.
+const turns = Array.from({ length: 24 }, (_, index) => [
   row(`t${index}-user`, "user", `Question ${index}`),
   row(`t${index}-answer`, "assistant", `Answer ${index}.\n\nWith a second paragraph so the turn has height.`),
   { ...row(`t${index}-end`, "turnSummary"), status: "completed", durationMs: 1_000 },

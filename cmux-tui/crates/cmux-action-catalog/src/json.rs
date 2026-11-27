@@ -3,7 +3,7 @@
 //! the app maps them one to one.
 
 use crate::model::*;
-use crate::{bindings, palette, strings, tables};
+use crate::{bindings, palette, request, strings, tables};
 use serde_json::{Map, Value, json};
 
 fn text(value: &Text, locale: usize) -> Value {
@@ -69,6 +69,34 @@ fn argument(value: &Argument, locale: usize) -> Value {
         "isSuppliedByTarget": value.is_supplied_by_target,
         "isAskedInPalette": value.asked_in_palette,
     })
+}
+
+/// An `op:` suggestion source's list request.
+fn list_source(value: &ListSource) -> Value {
+    json!({
+        "lane": value.lane.wire(),
+        "operation": value.operation,
+        "items": value.items,
+        "value": value.value,
+        "title": value.title,
+    })
+}
+
+/// A catalog request: its lane, operation and params, each with one of `argument`, `target` or
+/// `constant`. Kept whole by [`compact`] (a `false` constant is a value, not a default).
+fn catalog_request(value: &Request) -> Value {
+    let params: Vec<Value> = value
+        .params
+        .iter()
+        .map(|param| match &param.source {
+            ParamSource::Argument(name) => json!({ "name": param.name, "argument": name }),
+            ParamSource::Target(kind) => json!({ "name": param.name, "target": kind }),
+            ParamSource::Constant(constant) => {
+                json!({ "name": param.name, "constant": request::constant(constant) })
+            }
+        })
+        .collect();
+    json!({ "lane": value.lane.wire(), "operation": value.operation, "params": params })
 }
 
 fn placement(value: &Placement, locale: usize) -> Value {
@@ -139,6 +167,8 @@ pub fn action(value: &Action, locale: usize) -> Value {
         "requires": value.requires,
         "arguments": value.arguments.iter().map(|a| argument(a, locale)).collect::<Vec<_>>(),
         "targets": value.targets,
+        "paletteTarget": value.palette_target,
+        "paletteTargetSource": value.palette_target_source,
         "cliName": value.cli_name,
         "mainMenu": value.main_menu,
         "isDebugOnly": value.is_debug_only,
@@ -202,13 +232,29 @@ fn compact(value: Value) -> Value {
     }
 }
 
-/// One action as the app decodes it: no `computed`, no default members.
-fn app_action(value: &Action, locale: usize) -> Value {
+/// One action as the app decodes it: no `computed`, no default members; with its catalog
+/// `request` and each `op:` suggestion source's `list`, added after [`compact`] (a `false`
+/// constant is a value, not a default). The app keeps both beside its descriptors, so they are
+/// not in the full form the Swift dump compares (`catalog_value`).
+pub fn app_action(value: &Action, locale: usize) -> Value {
     let mut row = action(value, locale);
     if let Some(map) = row.as_object_mut() {
         map.remove("computed");
     }
-    compact(row)
+    let mut row = compact(row);
+    if let Some(map) = row.as_object_mut() {
+        if let Some(request) = &value.request {
+            map.insert("request".to_owned(), catalog_request(request));
+        }
+        let arguments = map.get_mut("arguments").and_then(Value::as_array_mut);
+        for (argument, declared) in arguments.into_iter().flatten().zip(value.arguments) {
+            let list = declared.suggestions.and_then(|s| request::list_source(s.source));
+            if let (Some(list), Some(suggestions)) = (list, argument.get_mut("suggestions")) {
+                suggestions["list"] = list_source(list);
+            }
+        }
+    }
+    row
 }
 
 fn catalog_with(locale: usize, row: impl Fn(&Action) -> Value) -> Value {
@@ -244,13 +290,47 @@ fn catalog_with(locale: usize, row: impl Fn(&Action) -> Value) -> Value {
         .iter()
         .map(|(dup, canonical)| ((*dup).to_owned(), json!(canonical)))
         .collect();
+    // The Customize… element map (crate::customize_elements): what the right-click row and the
+    // Inspector name for each big part of the window.
+    let customize_elements: Vec<Value> = crate::customize_elements::ELEMENTS
+        .iter()
+        .map(|e| {
+            json!({
+                "id": e.id,
+                "title": text(&e.title, locale),
+                "surface": e.surface,
+                "menus": e.menus,
+                "settings": e.settings,
+                "tokens": e.tokens,
+            })
+        })
+        .collect();
     json!({
         "version": 1,
         "locale": strings::LOCALES.get(locale).copied().unwrap_or("en"),
+        "customize_elements": customize_elements,
         "actions": crate::actions().map(row).collect::<Vec<_>>(),
         "legacy_aliases": legacy,
         "categories": categories,
         "menu_folders": folders,
+        // The right-click menus built from the placements (crate::context_menus), and the choices
+        // rows that end with one more action (Move to Group > New Group).
+        "context_menu_trees": crate::context_menus::trees_json(),
+        // Each action's default key routing tier other than navigation (crate::key_tiers).
+        "key_tiers": crate::actions()
+            .filter(|a| crate::key_tiers::default_tier(a) != "navigation")
+            .map(|a| (a.id.to_owned(), json!(crate::key_tiers::default_tier(a))))
+            .collect::<Map<String, Value>>(),
+        // The menus built by hand in their views (crate::hand_built_menus), in the export's order:
+        // the export lists them as `context_menus_not_exported`.
+        "hand_built_menus": crate::hand_built_menus::MENUS
+            .iter()
+            .map(|m| json!({ "name": m.name, "source": m.source }))
+            .collect::<Vec<_>>(),
+        "context_menu_choice_trailers": crate::context_menus::CHOICE_TRAILERS
+            .iter()
+            .map(|(id, trailer)| ((*id).to_owned(), json!(trailer)))
+            .collect::<Map<String, Value>>(),
         "key_binding_defaults": {
             "tab_cycle_aliases": binding_list(bindings::TAB_CYCLE_ALIASES),
             "workspaces_as_tabs": binding_list(bindings::WORKSPACES_AS_TABS),

@@ -33,15 +33,21 @@ enum AgentPaneHarnessCard {
                              socket: String) async -> Outcome {
         do {
             switch request {
-            case .harnessUpdate(let id):
-                // Each updater may run 15 minutes (acpmux `probe.rs`); an auto-update may hold the turn.
-                let result = try await AcpmuxStatusClient.call(socketPath: socket, method: "_acpmux/harness/update", params: ["ids": [id]],
-                                                               deadline: .seconds(35 * 60), detailed: true)
-                let row = (result["results"] as? [[String: Any]])?.first { $0["id"] as? String == id }
-                var value: [String: Any] = ["ok": row?["ok"] as? Bool ?? false]
-                if let version = row?["version"] as? String { value["version"] = version }
-                if let error = row?["error"] as? String { value["error"] = error }
-                return Outcome(reply: AgentPaneReply.success(value))
+            case .harnessUpdate(let ids, let each):
+                // Each updater may run 15 minutes (acpmux `probe.rs`), one after another; an
+                // auto-update may hold the turn.
+                let result = try await AcpmuxStatusClient.call(socketPath: socket, method: "_acpmux/harness/update", params: ["ids": ids],
+                                                               deadline: .seconds(20 * 60 * ids.count + 15 * 60), detailed: true)
+                let rows = result["results"] as? [[String: Any]] ?? []
+                let answer = { (id: String) -> [String: Any] in
+                    let row = rows.first { $0["id"] as? String == id }
+                    var value: [String: Any] = ["ok": row?["ok"] as? Bool ?? false]
+                    if let version = row?["version"] as? String { value["version"] = version }
+                    if let error = row?["error"] as? String { value["error"] = error }
+                    return value
+                }
+                if each { return Outcome(reply: AgentPaneReply.success(["results": ids.map { ["id": $0].merging(answer($0)) { $1 } }])) }
+                return Outcome(reply: AgentPaneReply.success(answer(ids.first ?? "")))
             case .harnessRestart:
                 // Only a chat this pane started or shows: the page can adopt any id (`chat.persistSession`).
                 guard let session = sessionId, transport.sessions.contains(session) else {
@@ -71,18 +77,20 @@ enum AgentPaneHarnessCard {
 
     /// The agent service is still older than the app (it lacks the method) after the app's own restart.
     static var oldServiceMessage: String {
+        // retry-prompt-ok: updating the agent service replaces binaries and restarts it
         String(localized: "agentPane.harness.oldService",
-               defaultValue: "cmux couldn't update its agent service. Quit and reopen cmux, then try again.", bundle: .module)
+               defaultValue: "cmux couldn't update its agent service. Quit and reopen cmux, then try again.", bundle: .localizedModule)
     }
 
     /// The update or restart outlived its deadline; it may still finish.
     static var slowMessage: String {
         String(localized: "agentPane.harness.slow",
-               defaultValue: "This is taking longer than expected. It may still finish; check Settings > Agents.", bundle: .module)
+               defaultValue: "This is taking longer than expected. It may still finish; check Settings > Agents.", bundle: .localizedModule)
     }
 
     /// The update or restart could not reach this Mac's agent service.
     static var unavailableMessage: String {
-        String(localized: "agentPane.harness.unavailable", defaultValue: "The agent service is not running. Try again in a moment.", bundle: .module)
+        // retry-prompt-ok: updating or restarting the agent service replaces binaries and restarts it
+        String(localized: "agentPane.harness.unavailable", defaultValue: "The agent service is not running. Try again in a moment.", bundle: .localizedModule)
     }
 }

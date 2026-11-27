@@ -4,7 +4,9 @@
 // "those intermediate messages should be counted differently than other tool calls like it's a
 // special never-fold type"). Each variant is one finished turn with replies before, between and after
 // its work; the arms of turnFoldReplies.experiment.ts differ only in how the work between the replies
-// folds: one line per stretch (shipped), one line per run, or none (all of it under Worked for).
+// folds: one line per stretch, one line per run, or none (all of it under Worked for). The default
+// `answer` arm keeps only the final answer beside the closed fold and folds every earlier reply
+// (Lawrence, 2026-11-19), so under it the notes below read for the opened fold only.
 // Another agent's message that came in mid-turn stays in sight with the work beside it, and a step
 // that also wrote a file keeps its commands on the line (Leo, 2026-11-07: "some of the tool calls,
 // like, literally just get swallowed").
@@ -215,7 +217,7 @@ export default agentPaneEntry({
   variants: {
     "leos-turn": variant(
       leosTurn(),
-      "Leo's turn, closed: Worked for, then each reply in place with the work before and after it on its own closed line.",
+      "Leo's turn, closed: Worked for, then each reply in place; every call stays under Worked for, as chatgpt.com draws it.",
     ),
     "leos-turn-codex": variant(leosTurn(), "The same turn in a Codex chat: the same replies stay in sight.", "codex"),
     "leos-turn-open": variant(
@@ -226,7 +228,7 @@ export default agentPaneEntry({
     ),
     "between-two-groups": variant(
       betweenTwoGroups(),
-      "A reply between two tool groups, closed: the reply, with one line of work above it and one below.",
+      "A reply between two tool groups, closed: the reply and the answer, no tool line beside them.",
     ),
     "around-notices": variant(
       aroundNotices(),
@@ -234,11 +236,11 @@ export default agentPaneEntry({
     ),
     "agent-message-mid-turn": variant(
       agentMessageMidTurn(),
-      "Another agent's message came in while a command ran: it and the command stay between the two replies, one line.",
+      "Another agent's message came in while a command ran: closed, it folds with the command under Worked for.",
     ),
     "agent-message-after-edit": variant(
       mixedStep(),
-      "A step that ran commands and wrote a file, then another agent's message: the commands and the message stay on the line, the file on the edits card.",
+      "A step that ran commands and wrote a file, then another agent's message: closed, both fold under Worked for, the file on the edits card.",
     ),
   },
 });

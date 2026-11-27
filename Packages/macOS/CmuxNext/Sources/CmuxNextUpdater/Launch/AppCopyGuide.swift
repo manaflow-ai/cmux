@@ -34,10 +34,10 @@ import Security
     /// Starts listening for second copies and checks where this copy runs. Only a guarded launch (a release build,
     /// not DEV or a second-instance opt-out) takes part, and only the person's own (`activates` false for an agent
     /// launch, which never asks anything).
-    public func start(activates: Bool) {
+    public func start(activates: Bool, afterFrame: (@escaping @MainActor () -> Void) -> Void = { $0() }) {
         guard activates, SingleInstanceGuard.current.isGuarded, let bundleIdentifier = Bundle.main.bundleIdentifier else { return }
         register(bundleIdentifier: bundleIdentifier)
-        offerMoveIfPassing()
+        afterFrame { [weak self] in self?.offerMoveIfPassing() }
     }
 
     // MARK: Second copies
@@ -84,7 +84,7 @@ import Security
         let buttons: [CmuxDialogButton] = offersSwitch
             ? [.cancel(UpdaterStrings.secondCopyKeep), CmuxDialogButton(id: "switch", title: UpdaterStrings.secondCopySwitch, role: .default)]
             : [.ok()]
-        return CmuxDialogSpec(title: UpdaterStrings.secondCopyTitle, lines: lines, buttons: buttons, identifier: "cmux.second-copy")
+        return CmuxDialogSpec(usesTransientMaterial: true, title: UpdaterStrings.secondCopyTitle, lines: lines, buttons: buttons, identifier: "cmux.second-copy")
     }
 
     // MARK: Moving to Applications
@@ -116,7 +116,7 @@ import Security
                 }
             case .failure(let error):
                 Self.logger.error("launch: the move to Applications failed: \(String(describing: error), privacy: .public)")
-                _ = await center.present(CmuxDialogSpec(title: UpdaterStrings.moveFailedTitle, lines: [error.localizedDescription],
+                _ = await center.present(CmuxDialogSpec(usesTransientMaterial: true, title: UpdaterStrings.moveFailedTitle, lines: [PlainErrorText.text(error)],
                                                         buttons: [.ok()], identifier: "cmux.move-to-applications.failed"), in: .app)
             }
         }
@@ -138,7 +138,7 @@ import Security
             button = UpdaterStrings.moveOpenInstalledButton
         }
         if case .readOnlyVolume = place { lines.append(UpdaterStrings.moveEjects) }
-        return CmuxDialogSpec(title: UpdaterStrings.moveTitle, lines: lines,
+        return CmuxDialogSpec(usesTransientMaterial: true, title: UpdaterStrings.moveTitle, lines: lines,
                               buttons: [.cancel(UpdaterStrings.moveNotNow), CmuxDialogButton(id: "move", title: button, role: .default)],
                               identifier: "cmux.move-to-applications")
     }

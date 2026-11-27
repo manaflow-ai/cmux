@@ -79,8 +79,7 @@ const GUESSED = "\u0000repo:";
 /// A folder the pickers offer: its path (`id`), name and, when known, its repository.
 export type RepoFolder = { id: string; label: string; repo?: ProjectRepo };
 
-/// One repository's folders, in the order given (newest first). `lead` is what its row picks: the
-/// current folder when it is one of them, else the main checkout, else the newest.
+/// One repository's folders, in the order given (newest first). `lead` is what its row picks.
 export type RepoGroup<T extends RepoFolder> = {
   key: string;
   name: string;
@@ -122,7 +121,11 @@ const repoKey = (repo: ProjectRepo) => (repo.github ? "\u0000github:" + repo.git
 /// of that name when there is one), else a guessed one whose name is its own as the main checkout
 /// (`~/Projects/cmux`), else it is a row of its own. A lane's scratch folder in no repository, and
 /// the home folder, are left out unless current. The members carry their repository as resolved.
-export function groupByRepo<T extends RepoFolder>(folders: readonly T[], current?: string): RepoGroup<T>[] {
+export function groupByRepo<T extends RepoFolder>(
+  folders: readonly T[],
+  current?: string,
+  leadPreference: "current" | "main" = "current",
+): RepoGroup<T>[] {
   const known = folders.flatMap((folder) => (folder.repo ? [folder.repo] : []));
   // Each name's repository, or null when two repositories share it: a guess can't tell which.
   const byName = new Map<string, ProjectRepo | null>();
@@ -187,10 +190,14 @@ export function groupByRepo<T extends RepoFolder>(folders: readonly T[], current
   }
   return [...groups].map(([key, members]) => {
     const repo = members.map((member) => member.repo).find(Boolean);
+    const selected = members.find((member) => member.id === current);
+    const selectedRoot = selected?.repo?.root;
     const lead =
-      members.find((member) => member.id === current) ??
-      members.find((member) => member.repo && isMainCheckout(member)) ??
+      (leadPreference === "current" ? selected : undefined) ??
+      (selectedRoot ? members.find((member) => member.id === selectedRoot && isMainCheckout(member)) : undefined) ??
+      members.find(isMainCheckout) ??
       members.find((member) => !member.repo) ??
+      selected ??
       members[0]!;
     return {
       key,
@@ -259,9 +266,14 @@ export function chooserRows<T extends { cwd: string; label: string; repo?: Proje
 /// The projects in the order they were last used: those a chat used, newest chat first, then the
 /// rest in the order given.
 export function byRecentUse<T extends { cwd: string }>(projects: readonly T[], recent: readonly string[]): T[] {
-  const rank = new Map(recent.map((cwd, index) => [trim(cwd), index]));
-  const order = (project: T) => rank.get(trim(project.cwd)) ?? recent.length;
-  return [...projects].sort((a, b) => order(a) - order(b));
+  const rank = new Map<string, number>();
+  recent.forEach((cwd, index) => rank.set(trim(cwd), index));
+  // Each project's rank read once, not in every comparison: thousands of folders at Leo's scale,
+  // sorted again whenever another folder's chat becomes the newest (bench/session-scale-typing.bench.ts).
+  return projects
+    .map((project, index) => ({ project, index, order: rank.get(trim(project.cwd)) ?? recent.length }))
+    .sort((a, b) => a.order - b.order || a.index - b.index)
+    .map((ranked) => ranked.project);
 }
 
 /// What a worktree row is called: its branch, else its folder's name. A folder inside a checkout

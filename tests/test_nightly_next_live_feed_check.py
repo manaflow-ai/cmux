@@ -9,6 +9,7 @@ reads its feed back and fails right then when the default Nightly app is offered
 from __future__ import annotations
 
 import importlib.util
+import json
 from pathlib import Path
 import re
 import sys
@@ -24,13 +25,15 @@ live = importlib.util.module_from_spec(spec)
 sys.modules["nightly_next_live_feed_check"] = live
 spec.loader.exec_module(live)
 
-RING_SPEC = importlib.util.spec_from_file_location("nightly_next_ring", ROOT / "scripts/ci/nightly_next_ring.py")
-ring = importlib.util.module_from_spec(RING_SPEC)
-RING_SPEC.loader.exec_module(ring)
+# Imported by name, never loaded by path: one module object per file (tests/test_script_module_loads.py).
+if str(ROOT / "scripts/ci") not in sys.path:
+    sys.path.insert(0, str(ROOT / "scripts/ci"))
+import nightly_next_ring as ring  # noqa: E402
 
-UPDATE_RING = ROOT / "Packages/macOS/CmuxUpdater/Sources/CmuxUpdater/UpdateRing.swift"
-FEED_RESOLVER = ROOT / "Packages/macOS/CmuxUpdater/Sources/CmuxUpdater/UpdateFeedResolver.swift"
-SETTINGS = ROOT / "Packages/macOS/CmuxNext/Sources/CmuxNextSettings/Schema/SettingsSchema+Updates.generated.swift"
+UPDATE_RING = ROOT / "Packages/macOS/CmuxUpdater/Sources/CmuxUpdaterCore/UpdateRing.swift"
+FEED_RESOLVER = ROOT / "Packages/macOS/CmuxUpdater/Sources/CmuxUpdaterCore/UpdateFeedResolver.swift"
+# The settings source the app's UpdatesSettings.channelDefault is generated from (gen-settings-sources.py).
+SETTINGS = ROOT / "schemas/settings/source/updates.json"
 
 
 def swift_ring_channels() -> tuple[list[str], dict[str, str], str]:
@@ -44,7 +47,8 @@ def swift_ring_channels() -> tuple[list[str], dict[str, str], str]:
     for case, value in re.findall(r"case \.(\w+): ([^\n]+)", switch):
         value = value.strip()
         tags[case] = nightly if value.endswith("nightlyNextSparkleChannel") else value.strip('"')
-    default = re.search(r"channelDefault: UpdatesChannelSetting = \.(\w+)", SETTINGS.read_text()).group(1)
+    default = next(row["default"] for entry in json.loads(SETTINGS.read_text())["lists"] for row in entry["rows"]
+                   if row["key"] == "updates.channel")
     return cases, tags, default
 
 

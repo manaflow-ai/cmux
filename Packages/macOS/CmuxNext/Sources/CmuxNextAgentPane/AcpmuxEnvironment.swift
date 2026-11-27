@@ -27,9 +27,6 @@ public nonisolated struct AcpmuxEnvironment: Sendable, Equatable {
     public var daemonArguments: [String]
     /// Variables the daemon and the status client must agree on.
     public var childEnvironment: [String: String]
-    /// Non-secret Computer Use launch configuration for this daemon. The v2
-    /// endpoint directory is allowed; legacy socket tokens are withheld.
-    public var computerUse: [String: String] = [:]
     /// Whether the daemon this app spawns gets ``offerToolsKey`` `1` rather than `0`: its local sessions then get
     /// the cmux-sessions MCP server (`offer_session`), whatever the harness. On while suggested tasks
     /// are on (``AgentPaneSuggestedTasks``); ``AcpmuxHost`` reads it at each daemon start, so a running
@@ -52,9 +49,8 @@ public nonisolated struct AcpmuxEnvironment: Sendable, Equatable {
     /// This build's own home while attached (``logPath``); nil otherwise.
     public var ownHome: URL?
 
-    /// The Computer Use variables (AgentActivitySocketSource.Configuration).
-    /// The spawn environment drops all three when inherited and takes only
-    /// the first two from `computerUse`: the host token never leaves the app.
+    /// The retired cmux-cua socket variables: the spawn environment drops them when inherited, so
+    /// no old credential reaches acpmux (Computer Use's endpoint comes from the cmux-tui daemon).
     public static let computerUseKeys = ["CMUX_NEXT_CUA_SOCKET", "CMUX_NEXT_CUA_SOCKET_AUTH_TOKEN"]
     public static let computerUseHostKey = "CMUX_NEXT_CUA_SOCKET_HOST_AUTH_TOKEN"
     /// acpmux `agent_tools::OFFER_TOOLS_ENV`: `1` gives sessions `offer_session`.
@@ -74,6 +70,10 @@ public nonisolated struct AcpmuxEnvironment: Sendable, Equatable {
     /// router and Chief host the app starts.
     public static let agentLaunchKeys = ["ACPMUX_AGENT_LAUNCH", "CMUX_AGENTS_DISABLED"]
 
+    /// Passed to every acpmux daemon the app starts when the app's launch set them: `CMUX_TRACE_FILE`, the
+    /// daemon's Chrome trace of each user action (perf_trace.rs, cmux#55505).
+    public static let traceKeys = ["CMUX_TRACE_FILE"]
+
     /// Whether `environment` turns agent launches off (`ACPMUX_AGENT_LAUNCH=deny`
     /// or `CMUX_AGENTS_DISABLED=1`, the same test as acpmux's launch_policy.rs).
     public static func agentLaunchDisabled(_ environment: [String: String] = ProcessInfo.processInfo.environment) -> Bool {
@@ -84,7 +84,7 @@ public nonisolated struct AcpmuxEnvironment: Sendable, Equatable {
 
     /// Where this app writes why it could not reach the daemon: its own home's `daemon.log`, so an
     /// attached daemon's log (another app's home) gets no line from this app.
-    public var logPath: String { (ownHome ?? home).appendingPathComponent("daemon.log").path }
+    public var logPath: String { (ownHome ?? home).appending(path: "daemon.log", directoryHint: .notDirectory).path }
 
     /// Whether `ACPMUX_HOME` (`custom`) names another build's home while this build has a home of
     /// its own (`ownHome` is not `root`): the shared root (NIGHTLY's `~/.acpmux`), another
@@ -157,7 +157,7 @@ public nonisolated struct AcpmuxEnvironment: Sendable, Equatable {
     }
 
     static func defaultSocketPath(home: URL, uid: UInt32) -> String {
-        let preferred = home.appendingPathComponent("acpmux.sock").path
+        let preferred = home.appending(path: "acpmux.sock", directoryHint: .notDirectory).path
         if preferred.utf8.count < 96 { return preferred }
         return shortAlias(home.path, uid: uid)
     }
@@ -173,8 +173,22 @@ public nonisolated struct AcpmuxEnvironment: Sendable, Equatable {
 }
 
 extension AcpmuxEnvironment {
+    /// Whether this is attached to the daemon of `home` (a Chief home's acpmux at quit).
+    public func isAttached(to home: URL) -> Bool {
+        func canonical(_ url: URL) -> String { url.standardizedFileURL.resolvingSymlinksInPath().path }
+        return isAttached && canonical(self.home) == canonical(home)
+    }
+
     /// `_acpmux/tag`: sets and removes tags of one session (a chat's mute, cx-sg1qz).
     public nonisolated func tag(session: String, set: [String: String], remove: [String]) async throws {
         try await AcpmuxStatusClient.tag(socketPath: socketPath, sessionId: session, set: set, remove: remove)
+    }
+
+    /// `_acpmux/rename {sessionId, newName}`: the session's name, the one `cmux agent ls` and
+    /// `HOST/NAME` read (Rename Agent Session…; the CLI's `cmux agent session rename`).
+    public nonisolated func rename(session: String, newName: String) async throws {
+        _ = try await AcpmuxStatusClient.call(socketPath: socketPath, method: "_acpmux/rename",
+                                              params: ["sessionId": session, "newName": newName],
+                                              deadline: AcpmuxEnvironment.answerDeadline)
     }
 }

@@ -38,23 +38,38 @@ use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 use base64::Engine as _;
 use futures_util::{SinkExt as _, StreamExt as _};
 use serde_json::{Value, json};
-use tokio::sync::{Mutex, mpsc};
+use tokio::sync::{Mutex, mpsc, watch};
 use tokio_tungstenite::tungstenite::Message;
 use tokio_tungstenite::tungstenite::client::IntoClientRequest as _;
 use tokio_tungstenite::tungstenite::http::HeaderValue;
 use tokio_tungstenite::tungstenite::protocol::WebSocketConfig;
 
 use super::cloud_client_session::secure_origin;
+use super::inference_gateway_mac::{ClaudeBorrow, Login, MacLogins, login_for, oauth_beta};
 
 const PROTOCOL: &str = "cmux.inference-gateway/1";
 const CONNECT_PATH: &str = "/v1/cloud/inference-gateway/connect";
+/// The person's own gateway: it serves every machine they created, in any team (a shared chat spends its owner's login).
+const PERSONAL_CONNECT_PATH: &str = "/v1/cloud/inference-gateway/personal/connect";
 /// The exact text the backend's runtime answers without waking the object.
 const PING: &str = r#"{"v":1,"t":"ping"}"#;
 const PING_EVERY: Duration = Duration::from_secs(20);
 /// Nothing heard for this long (the API answers every ping with a pong): the path is dead, so redial.
 const SILENT_FOR: Duration = Duration::from_secs(70);
-/// Calls this gateway takes at once (the API's own cap per team); one more is answered busy.
-const MAX_CALLS: usize = 32;
+/// Calls this gateway takes at once (equal to the API's cap per team); one more waits for a slot ([`Slots`]).
+const MAX_CALLS: usize = 256;
+/// How long a call past the cap waits for a slot, by priority, before it is answered a 529 (the same bounds as
+/// cmux-platform's GatewayQueue.ts): a slot frees within a call's latency, so a short wait beats a failed turn.
+const INTERACTIVE_WAIT: Duration = Duration::from_secs(30);
+const BACKGROUND_WAIT: Duration = Duration::from_secs(10);
+/// A busy answer's Retry-After is full jitter: uniform in 1..=this many seconds (GatewayQueue.ts: min(30, 2 x 5)).
+const BUSY_RETRY_AFTER_MAX_S: u64 = 10;
+/// Of [`MAX_CALLS`], the calls only an interactive one may take (`x-subrouter-priority: interactive`:
+/// the person's chats and coordinators, acpmux `subrouter_priority.rs`): background calls (lanes,
+/// helpers, subagents) reach the limit first, so Leo can still talk to his chats under load.
+const INTERACTIVE_RESERVE: usize = MAX_CALLS / 4;
+/// The request header naming a call's priority; sent upstream too, so the subrouter reserves the same.
+const PRIORITY_HEADER: &str = "x-subrouter-priority";
 /// All calls' request bodies held at once, from the first body frame until the provider call ends.
 const MAX_HELD_BYTES: usize = 64 * 1024 * 1024;
 // timeout: a WebSocket upgrade that never completes fails the connect.
@@ -65,6 +80,12 @@ const MAX_BODY_BYTES: usize = 16 * 1024 * 1024;
 const MAX_MESSAGE: usize = 2 * 1024 * 1024;
 /// Answer frames queued for the socket at most (each at most about 256 KiB once base64'd).
 const OUT_FRAMES: usize = 32;
+/// Asked to stop (systemd's SIGTERM, Ctrl-C): the calls in flight get this long to finish, then the socket closes
+/// and the gateway exits 0. The API holds a new call up to 15 s for a gateway that is reconnecting (GATEWAY_WAIT_MS
+/// in InferenceGateway.ts), so a restart well inside that loses none of the calls that come after the close.
+const DRAIN_FOR: Duration = Duration::from_secs(10);
+/// After DRAIN_FOR, the most the close itself may take (a socket that takes no more frames) before the exit.
+const CLOSE_FOR: Duration = Duration::from_secs(3);
 /// A provider call may take minutes before its first byte (a long reasoning turn).
 const UPSTREAM_HEADERS_TIMEOUT: Duration = Duration::from_secs(600);
 /// A provider answer that sends nothing for this long is given up, and its call's slot freed.
@@ -74,15 +95,19 @@ const CODEX_TOKEN_URL: &str = "https://auth.openai.com/oauth/token";
 const CODEX_CLIENT_ID: &str = "app_EMoamEEZ73f0CkXaXp7hrann";
 /// An access token this close to its expiry is refreshed before a call.
 const REFRESH_SKEW_S: u64 = 300;
-/// Request headers a call carries upstream; the backend already dropped the guest's.
+/// Request headers a call carries upstream; the backend already dropped the guest's. Each harness's own session
+/// header (Codex's `session_id`, Claude Code's `x-claude-code-session-id`) lets the proxy keep one chat on one
+/// account, so its prompt cache keeps hitting.
 const PASS_HEADERS: &[&str] = &[
     "accept",
     "content-type",
     "openai-beta",
     "session_id",
+    "x-claude-code-session-id",
     "user-agent",
     "anthropic-version",
     "anthropic-beta",
+    PRIORITY_HEADER,
 ];
 /// Answer headers sent back; the backend keeps an allowlist of its own.
 const ANSWER_HEADERS: &[&str] = &[
@@ -104,12 +129,16 @@ cmux inference gateway: hold your subscription login in one place and serve
 your Cloud machines' model calls from it. Machines never get the token.
 
 Usage:
-  cmux inference gateway [--api URL] [--team TEAM]
-                         (--upstream URL [--upstream-key-file PATH] | --codex-auth PATH)
+  cmux inference gateway [--api URL] [--team TEAM] [--personal]
+                         (--upstream URL [--upstream-key-file PATH] | --codex-auth PATH
+                          | --mac-logins) [--supervised] [--enable-once FILE]
                          [--token-file PATH | --token-command CMD]
 
   --api URL              the cmux API origin (or CMUX_CLOUD_API_URL)
   --team TEAM            the team whose machines it serves (default: the token's)
+  --personal             serve your own machines in every team instead (your own
+                         gateway; turn it on with `cmux inference gateway mode
+                         gateway --personal`). A shared chat spends its owner's login.
   --upstream URL         your own subscription proxy (CLIProxyAPI or your own
                          router) that holds your login: calls go to URL + the
                          call's path. Running it is your choice and yours to keep.
@@ -117,13 +146,25 @@ Usage:
   --codex-auth PATH      or opt in to the gateway holding a Codex login itself
                          and refreshing it. Make one with: CODEX_HOME=DIR codex login
 
-One of --upstream or --codex-auth is required: cmux picks no proxy for you.
+  --mac-logins           or answer from the logins already on this Mac: Claude
+                         Code's sign-in (borrowed, never refreshed here) for
+                         Messages calls, and ~/.codex/auth.json for Responses
+                         calls. The cmux app runs this for you while signed in.
+  --supervised           (the app's child) state lines on stdout; exits when its
+                         stdin closes
+  --enable-once FILE     turn your own gateway mode on unless FILE says it already
+                         did (with --personal)
+
+One of --upstream, --codex-auth or --mac-logins is required: cmux picks no proxy for you.
   --token-file PATH      a cmux access token, read again on every connect
   --token-command CMD    a command that prints one, run again on every connect
                          (default: cmux auth token; or CMUX_CLOUD_ACCESS_TOKEN)
 
-The team's machines use the gateway once the team is in gateway mode:
-  PUT /v1/cloud/inference-gateway {\"mode\": \"gateway\"}
+The team's machines use the gateway once the team is in gateway mode
+(`cmux inference gateway mode gateway`). State and routing, with --json:
+{admin}  cmux inference route --machine vm_... [--agent claude|codex] [--json]
+
+Setup on a Freestyle VM, a Mac mini or an SR2 box: docs/inference-gateway.md in cmux-tui.
 ";
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -131,36 +172,64 @@ pub(super) enum TokenSource {
     File(PathBuf),
     Command(String),
     Env,
+    /// The caller's held token on stdin (`--token-stdin`): a bare token or `cmux auth token --json`'s object. The app's
+    /// Cloud start gate hands over the install token it already holds, so the read mints none (hq#19758: the nested
+    /// `auth token` mint could take the gate's whole 10 s bound).
+    Stdin,
     App,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(super) enum Upstream {
-    Codex { auth: PathBuf },
-    Proxy { base: String, key_file: Option<PathBuf> },
+    Codex {
+        auth: PathBuf,
+    },
+    /// The logins already on this Mac (inference_gateway_mac.rs).
+    MacLogins(MacLogins),
+    Proxy {
+        base: String,
+        key_file: Option<PathBuf>,
+    },
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(super) struct Options {
     pub api: String,
     pub team: Option<String>,
+    /// Serve the person's own gateway (`user:<id>`) rather than the team's.
+    pub personal: bool,
     pub token: TokenSource,
     pub upstream: Upstream,
+    /// The cmux app's child: state lines on stdout, and it ends when its stdin closes.
+    pub supervised: bool,
+    /// Turn the person's own gateway mode on once; the file records that it did.
+    pub enable_once: Option<PathBuf>,
+}
+
+fn help() -> String {
+    HELP.replace("{admin}", super::inference_gateway_admin::ADMIN_HELP)
 }
 
 /// `Some(exit code)` when `args` is `inference gateway …`.
 pub(super) fn run_if_requested(args: &[String]) -> Option<i32> {
-    let (_global, command_args) = super::parse_globals(args).ok()?;
+    let (global, command_args) = super::parse_globals(args).ok()?;
     let rest = split(&command_args)?;
     if rest.iter().any(|a| a == "--help" || a == "-h") {
-        print!("{HELP}");
+        print!("{}", help());
         return Some(0);
+    }
+    // `status` and `mode`: the gateway's state, as one JSON object with --json (inference_gateway_admin.rs).
+    if rest.first().is_some_and(|w| w == "status" || w == "mode") {
+        return Some(super::inference_gateway_admin::run_words(
+            rest,
+            global.output == super::OutputMode::Json,
+        ));
     }
     let env = |k: &str| std::env::var(k).ok().filter(|v| !v.trim().is_empty());
     match parse(rest, &env) {
         Ok(options) => Some(run(options)),
         Err(error) => {
-            eprintln!("cmux inference gateway: {error}\n\n{HELP}");
+            eprintln!("cmux inference gateway: {error}\n\n{}", help());
             Some(2)
         }
     }
@@ -180,10 +249,14 @@ pub(super) fn parse(
 ) -> Result<Options, String> {
     let mut api = None;
     let mut team = None;
+    let mut personal = false;
     let mut codex_auth = None;
     let mut upstream = None;
     let mut key_file = None;
     let mut token = None;
+    let mut mac_logins = false;
+    let mut supervised = false;
+    let mut enable_once = None;
     let mut args = rest.iter();
     while let Some(arg) = args.next() {
         let (flag, inline) = match arg.split_once('=') {
@@ -200,7 +273,11 @@ pub(super) fn parse(
         match flag {
             "--api" => api = Some(value()?),
             "--team" => team = Some(value()?),
+            "--personal" if inline.is_none() => personal = true,
             "--codex-auth" => codex_auth = Some(PathBuf::from(value()?)),
+            "--mac-logins" if inline.is_none() => mac_logins = true,
+            "--supervised" if inline.is_none() => supervised = true,
+            "--enable-once" => enable_once = Some(PathBuf::from(value()?)),
             "--upstream" => upstream = Some(value()?),
             "--upstream-key-file" => key_file = Some(PathBuf::from(value()?)),
             "--token-file" => set_token(&mut token, TokenSource::File(PathBuf::from(value()?)))?,
@@ -212,7 +289,16 @@ pub(super) fn parse(
         .or_else(|| env("CMUX_CLOUD_API_URL"))
         .ok_or("--api (or CMUX_CLOUD_API_URL) names the cmux API")?;
     let api = secure_origin(&api)?;
+    if enable_once.is_some() && !personal {
+        return Err("--enable-once turns your own gateway on; it goes with --personal".into());
+    }
     let upstream = match (codex_auth, upstream) {
+        (auth, proxy)
+            if mac_logins && (auth.is_some() || proxy.is_some() || key_file.is_some()) =>
+        {
+            return Err("--mac-logins answers from this Mac's own logins; it takes no --upstream or --codex-auth".into());
+        }
+        (None, None) if mac_logins => Upstream::MacLogins(MacLogins::from_env(env)?),
         (Some(_), Some(_)) => {
             return Err("--codex-auth and --upstream are two different gateways; pick one".into());
         }
@@ -257,15 +343,19 @@ pub(super) fn parse(
         }
         (None, None) => {
             return Err(
-                "name your subscription proxy with --upstream URL (or opt in to --codex-auth PATH); cmux picks none for you"
+                "name your subscription proxy with --upstream URL (or opt in to --codex-auth PATH or --mac-logins); cmux picks none for you"
                     .into(),
             );
         }
     };
     let token = token.unwrap_or_else(|| {
-        if env("CMUX_CLOUD_ACCESS_TOKEN").is_some() { TokenSource::Env } else { TokenSource::App }
+        if super::api_tokens::env_credential(env).is_some() {
+            TokenSource::Env
+        } else {
+            TokenSource::App
+        }
     });
-    Ok(Options { api, team, token, upstream })
+    Ok(Options { api, team, personal, token, upstream, supervised, enable_once })
 }
 
 #[derive(Debug, PartialEq)]
@@ -339,7 +429,49 @@ fn run(options: Options) -> i32 {
             return 1;
         }
     };
-    runtime.block_on(serve(options))
+    let code = runtime.block_on(async move {
+        // main.rs's handler takes SIGTERM, SIGINT and SIGHUP for the whole process, so the gateway must look for
+        // them itself; one that did not waited out systemd's 90 s stop timeout and lost its calls to the SIGKILL.
+        let (asked, stop) = watch::channel(false);
+        // The watcher's owner: closed once the gateway's code is known, so the watcher ends with the gateway.
+        let signals = cmux_scope::Scope::new("inference gateway");
+        signals.spawn_until_cancelled("inference gateway stop signal", async move {
+            // An error is a process with no handler to hear one (a test): nothing can ask it to stop.
+            if crate::wait_for_shutdown_signal_async().await.is_ok() {
+                let _ = asked.send(true);
+            }
+            std::future::pending::<()>().await;
+        });
+        let supervised = options.supervised;
+        let mut bound = stop.clone();
+        let serving = async move {
+            tokio::select! {
+                code = serve(options, stop) => code,
+                () = async {
+                    stopping(&mut bound).await;
+                    tokio::time::sleep(DRAIN_FOR + CLOSE_FOR).await;
+                } => {
+                    log("stopped: the calls in flight did not end in time");
+                    0
+                }
+            }
+        };
+        let code = if supervised {
+            // The app's child: the app's quit (or crash) closes its stdin, which ends the gateway.
+            tokio::select! {
+                code = serving => code,
+                () = super::inference_gateway_mac::stdin_closed() => 0,
+            }
+        } else {
+            serving.await
+        };
+        // The watcher only waits for a signal, so its cancellation ends it at once.
+        let _ = signals.close(Duration::from_secs(1)).await;
+        code
+    });
+    // A stdin read still blocked (the gateway ended first) must not hold the exit: the app restarts it.
+    runtime.shutdown_background();
+    code
 }
 
 /// The backend's token for one connect, from the configured source.
@@ -347,8 +479,29 @@ pub(super) async fn backend_token(
     source: &TokenSource,
     team: Option<&str>,
 ) -> Result<String, String> {
+    backend_credential(source, team).await.map(|(token, _)| token)
+}
+
+/// The backend's token and, when its answer names one, the cmux API that issued it (`cmux auth token --json`'s
+/// `api_origin`): a verb run by the app with no `--api` (the start gate's `inference gateway status`, hq#15762) asks
+/// the API the app is signed in to.
+pub(super) async fn backend_credential(
+    source: &TokenSource,
+    team: Option<&str>,
+) -> Result<(String, Option<String>), String> {
     let raw = match source {
-        TokenSource::Env => std::env::var("CMUX_CLOUD_ACCESS_TOKEN").unwrap_or_default(),
+        TokenSource::Env => super::api_tokens::env_credential(|key: &str| std::env::var(key).ok())
+            .unwrap_or_default(),
+        TokenSource::Stdin => {
+            use tokio::io::AsyncReadExt;
+            let mut raw = String::new();
+            tokio::io::stdin()
+                .take(64 * 1024)
+                .read_to_string(&mut raw)
+                .await
+                .map_err(|e| format!("cannot read the token on stdin: {e}"))?;
+            raw
+        }
         TokenSource::File(path) => tokio::fs::read_to_string(path)
             .await
             .map_err(|e| format!("cannot read the token file: {e}"))?,
@@ -356,28 +509,37 @@ pub(super) async fn backend_token(
         TokenSource::App => {
             let exe = std::env::current_exe().map_err(|e| e.to_string())?;
             // An install token acts only for the team it was minted for: mint it for the gateway's team.
-            let mut args = vec!["auth", "token"];
+            let mut args = vec!["auth", "token", "--json"];
             if let Some(team) = team {
                 args.extend(["--team", team]);
             }
             command_output(&exe.to_string_lossy(), &args).await?
         }
     };
-    let token = raw.trim();
-    // `cmux auth token --json` and friends: take its access_token.
-    let token = match serde_json::from_str::<Value>(token) {
-        Ok(Value::Object(o)) => {
-            o.get("access_token").and_then(Value::as_str).unwrap_or_default().to_owned()
-        }
-        _ => token.to_owned(),
-    };
+    let (token, issued_by) = credential_answer(&raw);
     if token.is_empty() || token.contains(char::is_whitespace) {
         return Err(
             "no cmux access token (sign in to cmux, or pass --token-file or --token-command)"
                 .into(),
         );
     }
-    Ok(token)
+    Ok((token, issued_by))
+}
+
+/// A token source's answer: a bare token, or `cmux auth token --json`'s object (its `access_token`, and its
+/// `api_origin` when it names one).
+pub(super) fn credential_answer(raw: &str) -> (String, Option<String>) {
+    let raw = raw.trim();
+    match serde_json::from_str::<Value>(raw) {
+        Ok(Value::Object(o)) => {
+            let text = |key: &str| o.get(key).and_then(Value::as_str).map(str::trim);
+            (
+                text("access_token").unwrap_or_default().to_owned(),
+                text("api_origin").filter(|v| !v.is_empty()).map(str::to_owned),
+            )
+        }
+        _ => (raw.to_owned(), None),
+    }
 }
 
 /// The model paths a machine may call, the same list as the cmux-platform Worker's `GATEWAY_CALL_PATH`.
@@ -406,6 +568,15 @@ fn proxy_url(base: &str, path: &str) -> Option<String> {
 }
 
 async fn command_output(program: &str, args: &[&str]) -> Result<String, String> {
+    command_output_within(program, args, Duration::from_secs(40)).await
+}
+
+/// A command's stdout, or why not, ended at `limit` (killed then).
+pub(super) async fn command_output_within(
+    program: &str,
+    args: &[&str],
+    limit: Duration,
+) -> Result<String, String> {
     let (program, args) =
         (program.to_owned(), args.iter().map(|a| (*a).to_owned()).collect::<Vec<_>>());
     // A token is far smaller than a pipe's buffer, so the child never blocks on its output while we wait.
@@ -417,7 +588,7 @@ async fn command_output(program: &str, args: &[&str]) -> Result<String, String> 
             .stderr(cmux_process::Stdio::null())
             .spawn()
             .map_err(|e| format!("cannot run the token command: {e}"))?;
-        if child.wait_timeout(Duration::from_secs(40)).map_err(|e| e.to_string())?.is_none() {
+        if child.wait_timeout(limit).map_err(|e| e.to_string())?.is_none() {
             let _ = child.kill();
             let _ = child.wait();
             return Err("the token command timed out".to_owned());
@@ -441,10 +612,19 @@ enum Ended {
     Refused(u16),
     /// The socket closed or broke: dial again.
     Closed(String),
+    /// Asked to stop (SIGTERM): the calls in flight ended or ran out of time, and the socket is closed.
+    Shutdown,
 }
 
-async fn serve(options: Options) -> i32 {
-    let http = match reqwest::Client::builder()
+/// Resolves once the gateway is asked to stop; never when nothing can ask it.
+async fn stopping(stop: &mut watch::Receiver<bool>) {
+    if stop.wait_for(|asked| *asked).await.is_err() {
+        std::future::pending::<()>().await;
+    }
+}
+
+async fn serve(options: Options, mut stop: watch::Receiver<bool>) -> i32 {
+    let http = match cmux_egress::client_builder("cmux_tui::cli::inference_gateway")
         .redirect(reqwest::redirect::Policy::none())
         .connect_timeout(Duration::from_secs(15))
         .user_agent(concat!("cmux-inference-gateway/", env!("CARGO_PKG_VERSION")))
@@ -457,40 +637,96 @@ async fn serve(options: Options) -> i32 {
         }
     };
     let upstream = Arc::new(Provider::new(options.upstream.clone(), http));
-    if let Err(error) = upstream.check().await {
-        log(&error);
-        return 2;
+    // One count for the process: a call aborted with its old socket gives its slot back when its task drops.
+    let slots = Arc::new(Slots::default());
+    let has_login = match upstream.check().await {
+        Ok(found) => found,
+        Err(error) => {
+            log(&error);
+            if options.supervised {
+                super::inference_gateway_mac::event("stopped", Some("ended"));
+            }
+            return 2;
+        }
+    };
+    let state = |kind: &str, reason: &str| {
+        if options.supervised {
+            super::inference_gateway_mac::event(kind, Some(reason));
+        }
+    };
+    // A Mac with no agent signed in serves (a login added later is read at its call) but does not turn
+    // the person's gateway mode on: their machines keep the route they had. The next start asks again.
+    let mut enabled = options.enable_once.is_none() || !has_login;
+    if options.enable_once.is_some() && !has_login {
+        log("no agent is signed in on this Mac; your own gateway mode stays as it was");
     }
     let mut backoff = Duration::from_secs(1);
     let mut refusals = 0u32;
     loop {
         let started = Instant::now();
-        let ended = match backend_token(&options.token, options.team.as_deref()).await {
-            Ok(token) => session(&options, &token, upstream.clone()).await,
+        if !enabled && let Some(marker) = &options.enable_once {
+            // Before the connect, so the backend routes this person's machines here once it is up.
+            match super::inference_gateway_mac::enable_once(&options.api, &options.token, marker)
+                .await
+            {
+                Ok(turned_on) => {
+                    enabled = true;
+                    if turned_on {
+                        log("turned your own gateway on");
+                    }
+                }
+                Err(error) => log(&error),
+            }
+        }
+        let token = tokio::select! {
+            token = backend_token(&options.token, options.team.as_deref()) => token,
+            () = stopping(&mut stop) => Err(String::new()),
+        };
+        let ended = match token {
+            _ if *stop.borrow() => Ended::Shutdown,
+            Ok(token) => {
+                session(&options, &token, upstream.clone(), slots.clone(), stop.clone()).await
+            }
             Err(error) => Ended::Closed(error),
         };
         match ended {
+            Ended::Shutdown => {
+                log("stopped: asked to stop");
+                state("stopped", "ended");
+                return 0;
+            }
             Ended::Stop(reason) => {
                 log(&format!("stopped: {reason}"));
+                state("stopped", if reason.contains("took over") { "replaced" } else { "ended" });
                 return 3;
             }
             Ended::Refused(status) => {
                 refusals += 1;
                 log(&format!("the cmux API refused the gateway (HTTP {status})"));
                 if status == 403 || refusals >= 5 {
+                    state("stopped", "refused");
                     return 2;
                 }
+                state("offline", "refused");
             }
             Ended::Closed(reason) => {
                 refusals = 0;
                 log(&format!("disconnected ({reason}); dialing again"));
+                state("offline", "disconnected");
             }
         }
         // A socket that lived a while (the backend's 10-minute re-check) dials again at once.
         if started.elapsed() > Duration::from_secs(60) {
             backoff = Duration::from_millis(200);
         }
-        tokio::time::sleep(backoff).await;
+        tokio::select! {
+            () = tokio::time::sleep(backoff) => {}
+            () = stopping(&mut stop) => {
+                log("stopped: asked to stop");
+                state("stopped", "ended");
+                return 0;
+            }
+        }
         backoff = (backoff * 2).clamp(Duration::from_secs(1), Duration::from_secs(30));
     }
 }
@@ -503,8 +739,15 @@ struct Pending {
     body: Vec<u8>,
 }
 
-async fn session(options: &Options, token: &str, upstream: Arc<Provider>) -> Ended {
-    let url = format!("{}{CONNECT_PATH}", options.api.replacen("http", "ws", 1));
+async fn session(
+    options: &Options,
+    token: &str,
+    upstream: Arc<Provider>,
+    slots: Arc<Slots>,
+    mut stop: watch::Receiver<bool>,
+) -> Ended {
+    let path = if options.personal { PERSONAL_CONNECT_PATH } else { CONNECT_PATH };
+    let url = format!("{}{path}", options.api.replacen("http", "ws", 1));
     let mut request = match url.into_client_request() {
         Ok(r) => r,
         Err(e) => return Ended::Stop(format!("bad API URL: {e}")),
@@ -517,13 +760,25 @@ async fn session(options: &Options, token: &str, upstream: Arc<Provider>) -> End
     if let Some(team) = options.team.as_deref().and_then(|t| HeaderValue::from_str(t).ok()) {
         request.headers_mut().insert("x-cmux-team", team);
     }
+    if let Err(error) = cmux_build_space::insert(request.headers_mut()) {
+        return Ended::Stop(error.to_string());
+    }
     // No Sec-WebSocket-Protocol: the backend (InferenceGateway.ts) negotiates none, and tungstenite refuses a
     // handshake whose offered protocol the server does not echo. The version is checked on its `hello` frame below.
     let config = WebSocketConfig::default()
         .max_message_size(Some(MAX_MESSAGE))
         .max_frame_size(Some(MAX_MESSAGE));
-    let connect = tokio_tungstenite::connect_async_with_config(request, Some(config), false);
-    let stream = match tokio::time::timeout(HANDSHAKE_TIMEOUT, connect).await {
+    let connect = cmux_egress::ws::connect_async_with_config(
+        request,
+        Some(config),
+        false,
+        "cmux_tui::cli::inference_gateway",
+    );
+    let connect = tokio::select! {
+        connect = tokio::time::timeout(HANDSHAKE_TIMEOUT, connect) => connect,
+        () = stopping(&mut stop) => return Ended::Shutdown,
+    };
+    let stream = match connect {
         Err(_) => return Ended::Closed("handshake timed out".into()),
         Ok(Err(tokio_tungstenite::tungstenite::Error::Http(response))) => {
             return Ended::Refused(response.status().as_u16());
@@ -555,6 +810,10 @@ async fn session(options: &Options, token: &str, upstream: Arc<Provider>) -> End
     let (done_tx, mut done_rx) = mpsc::unbounded_channel::<String>();
     let mut heard = tokio::time::Instant::now();
     let mut watch = tokio::time::interval(Duration::from_secs(10));
+    // Asked to stop: no new call starts, and the socket closes once the running ones end (or DRAIN_FOR runs out).
+    let mut draining = false;
+    let drain = tokio::time::sleep(DRAIN_FOR);
+    tokio::pin!(drain);
     let ended = loop {
         let message = tokio::select! {
             m = source.next() => m,
@@ -562,8 +821,30 @@ async fn session(options: &Options, token: &str, upstream: Arc<Provider>) -> End
                 if let Some((_, bytes)) = running.remove(&id) {
                     held -= bytes;
                 }
+                if draining && running.is_empty() {
+                    break Ended::Shutdown;
+                }
                 continue
             }
+            () = stopping(&mut stop), if !draining => {
+                draining = true;
+                log(&format!(
+                    "stopping: {} calls in flight get up to {} s to finish",
+                    running.len(),
+                    DRAIN_FOR.as_secs()
+                ));
+                // A call still arriving would outlive the drain: the caller retries it, on the next gateway.
+                for (id, call) in pending.drain() {
+                    held -= call.body.len();
+                    send(&tx, &restarting(&id)).await;
+                }
+                if running.is_empty() {
+                    break Ended::Shutdown;
+                }
+                drain.as_mut().reset(tokio::time::Instant::now() + DRAIN_FOR);
+                continue
+            }
+            () = &mut drain, if draining => break Ended::Shutdown,
             _ = watch.tick() => {
                 if heard.elapsed() > SILENT_FOR {
                     break Ended::Closed(format!("nothing heard for {} s", SILENT_FOR.as_secs()));
@@ -579,9 +860,11 @@ async fn session(options: &Options, token: &str, upstream: Arc<Provider>) -> End
             Some(Ok(Message::Close(frame))) => {
                 let reason = frame.map(|f| f.reason.to_string()).unwrap_or_default();
                 break match reason.as_str() {
-                    "replaced" => {
-                        Ended::Stop("another gateway took over this team's socket".into())
-                    }
+                    "replaced" => Ended::Stop(if options.personal {
+                        "another gateway of yours took over (it serves your machines now)".into()
+                    } else {
+                        "another gateway took over this team's socket".into()
+                    }),
                     "unnamed" => {
                         Ended::Stop("the team no longer names this machine as its gateway".into())
                     }
@@ -600,19 +883,21 @@ async fn session(options: &Options, token: &str, upstream: Arc<Provider>) -> End
                         "the cmux API speaks another gateway protocol than this CLI's {PROTOCOL}; run the cmux CLI that ships with your cmux app"
                     ));
                 }
-                log(&format!("connected to {}; serving the team's machines", options.api));
+                log(&format!(
+                    "connected to {}; serving {}",
+                    options.api,
+                    if options.personal { "your own machines" } else { "the team's machines" }
+                ));
+                if options.supervised {
+                    super::inference_gateway_mac::event("online", None);
+                }
             }
             Some("request") if !id.is_empty() => {
-                if pending.len() + running.len() >= MAX_CALLS {
-                    let busy = error_frame(
-                        &id,
-                        "inference.gateway_busy",
-                        "the gateway is at its call limit; retry",
-                    );
-                    send(&tx, &busy).await;
+                if draining {
+                    send(&tx, &restarting(&id)).await;
                     continue;
                 }
-                let headers = frame
+                let headers: Vec<(String, String)> = frame
                     .get("headers")
                     .and_then(Value::as_object)
                     .map(|h| {
@@ -623,6 +908,8 @@ async fn session(options: &Options, token: &str, upstream: Arc<Provider>) -> End
                             .collect()
                     })
                     .unwrap_or_default();
+                // No slot yet: the body's bytes are bounded by MAX_HELD_BYTES, and the call takes its slot (or
+                // waits for one) once its body is whole (`body_end`).
                 pending.insert(
                     id,
                     Pending {
@@ -675,9 +962,10 @@ async fn session(options: &Options, token: &str, upstream: Arc<Provider>) -> End
                 let Some(call) = pending.remove(&id) else { continue };
                 let bytes = call.body.len();
                 let (tx, done, upstream) = (tx.clone(), done_tx.clone(), upstream.clone());
+                let slots = slots.clone();
                 let key = id.clone();
                 let task = tokio::spawn(async move {
-                    answer(&upstream, &key, call, &tx).await;
+                    admitted(&slots, &upstream, &key, call, &tx).await;
                     let _ = done.send(key);
                 });
                 running.insert(id, (task.abort_handle(), bytes));
@@ -702,9 +990,149 @@ async fn session(options: &Options, token: &str, upstream: Arc<Provider>) -> End
     ended
 }
 
+/// Whether a call with `headers` (lowercase names) is taken while `in_flight` calls run: an interactive
+/// one up to [`MAX_CALLS`], any other up to [`MAX_CALLS`] less [`INTERACTIVE_RESERVE`].
+#[cfg(test)]
+fn admits(in_flight: usize, headers: &[(String, String)]) -> bool {
+    in_flight < cap(interactive(headers))
+}
+
+fn interactive(headers: &[(String, String)]) -> bool {
+    headers
+        .iter()
+        .any(|(k, v)| k == PRIORITY_HEADER && v.trim().eq_ignore_ascii_case("interactive"))
+}
+
+fn cap(interactive: bool) -> usize {
+    if interactive { MAX_CALLS } else { MAX_CALLS - INTERACTIVE_RESERVE }
+}
+
+/// The calls this process runs against the provider at once. A call holds a [`Slot`] for as long as its task lives,
+/// so every way a call ends (its answer, an error, a `cancel`'s abort, the socket's end) gives the slot back.
+#[derive(Default)]
+struct Slots {
+    taken: std::sync::Mutex<usize>,
+    freed: tokio::sync::Notify,
+}
+
+/// One call's place in [`Slots`]: dropping it frees the place and wakes the calls waiting for one.
+struct Slot(Arc<Slots>);
+
+impl Drop for Slot {
+    fn drop(&mut self) {
+        *self.0.taken.lock().unwrap_or_else(std::sync::PoisonError::into_inner) -= 1;
+        self.0.freed.notify_waiters();
+    }
+}
+
+impl Slots {
+    fn in_flight(&self) -> usize {
+        *self.taken.lock().unwrap_or_else(std::sync::PoisonError::into_inner)
+    }
+
+    /// A slot now, if the call's share has one.
+    fn try_take(self: &Arc<Self>, interactive: bool) -> Option<Slot> {
+        let mut taken = self.taken.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+        if *taken >= cap(interactive) {
+            return None;
+        }
+        *taken += 1;
+        Some(Slot(self.clone()))
+    }
+
+    /// A slot within `wait`, or none. An interactive call also takes the reserve, so when the calls are past the
+    /// background share a freed slot goes to the interactive calls waiting.
+    async fn take(self: &Arc<Self>, interactive: bool, wait: Duration) -> Option<Slot> {
+        let deadline = tokio::time::Instant::now() + wait;
+        loop {
+            // Registered before the check, so a slot freed between the check and the wait still wakes this call.
+            let freed = self.freed.notified();
+            tokio::pin!(freed);
+            freed.as_mut().enable();
+            if let Some(slot) = self.try_take(interactive) {
+                return Some(slot);
+            }
+            if tokio::time::timeout_at(deadline, freed).await.is_err() {
+                return None;
+            }
+        }
+    }
+}
+
+/// A whole call: its slot (waited for by priority), then its answer. Past the wait it is answered a 529
+/// `overloaded_error` with a jittered Retry-After, which Claude Code and Codex wait out, never the turn-ending 502.
+async fn admitted(
+    slots: &Arc<Slots>,
+    upstream: &Provider,
+    id: &str,
+    call: Pending,
+    tx: &mpsc::Sender<String>,
+) {
+    let interactive = interactive(&call.headers);
+    let started = Instant::now();
+    let Some(slot) =
+        slots.take(interactive, if interactive { INTERACTIVE_WAIT } else { BACKGROUND_WAIT }).await
+    else {
+        log(&format!(
+            "{} {} {} -> 529 busy, waited {} ms ({} in flight)",
+            call.headers
+                .iter()
+                .find(|(k, _)| k == "x-cmux-machine")
+                .map_or_else(|| "-".into(), |(_, v)| printable(v)),
+            printable(&call.method),
+            log_path(&call.path),
+            started.elapsed().as_millis(),
+            slots.in_flight(),
+        ));
+        for frame in busy_frames(id, jitter_s(BUSY_RETRY_AFTER_MAX_S)) {
+            send(tx, &frame).await;
+        }
+        return;
+    };
+    answer(upstream, id, call, tx).await;
+    drop(slot);
+}
+
+/// Seconds, uniform in 1..=`max`: full jitter, so the calls a busy gateway turned away do not all come back at once.
+fn jitter_s(max: u64) -> u64 {
+    use std::hash::{BuildHasher as _, Hasher as _};
+    // RandomState is seeded at random per instance: enough for a jitter, with no new dependency.
+    let mut hasher = std::collections::hash_map::RandomState::new().build_hasher();
+    hasher.write_u128(SystemTime::now().duration_since(UNIX_EPOCH).unwrap_or_default().as_nanos());
+    1 + hasher.finish() % max.max(1)
+}
+
+/// A busy gateway's answer, as frames: a 529 head with Retry-After, the Anthropic-shaped `overloaded_error`
+/// body (the same as cmux-platform's GatewayQueue.ts answers past its bound), and the end.
+fn busy_frames(id: &str, retry_after_s: u64) -> [Value; 3] {
+    let body = json!({
+        "type": "error",
+        "error": {
+            "type": "overloaded_error",
+            "code": "inference.gateway_busy",
+            "message": "the inference gateway is at its call limit; retry",
+        },
+    });
+    let data = base64::engine::general_purpose::STANDARD.encode(body.to_string());
+    [
+        json!({"v": 1, "t": "head", "id": id, "status": 529, "headers": {
+            "content-type": "application/json",
+            "retry-after": retry_after_s.to_string(),
+        }}),
+        json!({"v": 1, "t": "data", "id": id, "data": data}),
+        json!({"v": 1, "t": "end", "id": id}),
+    ]
+}
+
 /// Queues a frame for the socket, waiting while the queue is full; a closed socket drops it.
 async fn send(tx: &mpsc::Sender<String>, frame: &Value) {
     let _ = tx.send(frame.to_string()).await;
+}
+
+/// A call the stopping gateway does not take. The machine gets it as a 502 and retries; by then the API holds it for
+/// the next gateway.
+fn restarting(id: &str) -> Value {
+    error_frame(id, "inference.gateway_restarting", "the inference gateway is restarting; retry")
 }
 
 fn error_frame(id: &str, code: &str, message: &str) -> Value {
@@ -732,6 +1160,9 @@ async fn answer(upstream: &Provider, id: &str, call: Pending, tx: &mpsc::Sender<
             return send(tx, &error_frame(id, code, &message)).await;
         }
     };
+    // The provider's head: a pool that holds its head until the first content (sr2) makes this the time to first token.
+    let head_ms = started.elapsed().as_millis();
+    let mut first_ms = None;
     let status = response.status().as_u16();
     let mut headers = serde_json::Map::new();
     for name in ANSWER_HEADERS {
@@ -761,6 +1192,9 @@ async fn answer(upstream: &Provider, id: &str, call: Pending, tx: &mpsc::Sender<
         };
         match chunk {
             Ok(bytes) => {
+                if first_ms.is_none() && !bytes.is_empty() {
+                    first_ms = Some(started.elapsed().as_millis());
+                }
                 for part in bytes.chunks(CHUNK_BYTES) {
                     let data = base64::engine::general_purpose::STANDARD.encode(part);
                     send(tx, &json!({"v": 1, "t": "data", "id": id, "data": data})).await;
@@ -784,12 +1218,35 @@ async fn answer(upstream: &Provider, id: &str, call: Pending, tx: &mpsc::Sender<
             }
         }
     }
-    log(&format!(
-        "{machine} {} {path} -> {status} ({} ms)",
-        printable(&call.method),
-        started.elapsed().as_millis()
+    log(&call_line(
+        &machine,
+        &call.method,
+        &path,
+        status,
+        started.elapsed().as_millis(),
+        head_ms,
+        first_ms,
     ));
     send(tx, &json!({"v": 1, "t": "end", "id": id})).await;
+}
+
+/// An answered call's log line: the whole call, then when the provider's head and first body bytes came, so a slow
+/// call shows whether the wait was before the first token (the provider, its route, the connection) or in the stream.
+/// The `-> STATUS (TOTAL ms` start is the shape the Cloud probes read (cmuxterm-hq cloud_chat_app_probe.py).
+fn call_line(
+    machine: &str,
+    method: &str,
+    path: &str,
+    status: u16,
+    total_ms: u128,
+    head_ms: u128,
+    first_ms: Option<u128>,
+) -> String {
+    let first = first_ms.map_or_else(|| "none".to_owned(), |ms| format!("{ms} ms"));
+    format!(
+        "{machine} {} {path} -> {status} ({total_ms} ms, head {head_ms} ms, first data {first})",
+        printable(method)
+    )
 }
 
 /// The login this gateway holds, and how a call reaches the provider with it.
@@ -798,6 +1255,8 @@ struct Provider {
     http: reqwest::Client,
     /// The Codex login, loaded on first use and kept current across refreshes.
     codex: Mutex<Option<CodexLogin>>,
+    /// `--mac-logins`: Claude Code's sign-in, borrowed.
+    claude: Option<ClaudeBorrow>,
 }
 
 #[derive(Clone)]
@@ -813,24 +1272,43 @@ type CallError = (&'static str, String);
 
 impl Provider {
     fn new(upstream: Upstream, http: reqwest::Client) -> Self {
-        Self { upstream, http, codex: Mutex::new(None) }
+        let claude = match &upstream {
+            Upstream::MacLogins(logins) => Some(ClaudeBorrow::new(logins.clone())),
+            _ => None,
+        };
+        Self { upstream, http, codex: Mutex::new(None), claude }
     }
 
     /// Fails at start when the login cannot be read, so a mistake shows before any machine calls.
-    async fn check(&self) -> Result<(), String> {
+    /// Whether a login was found: false only for `--mac-logins` with neither agent signed in.
+    async fn check(&self) -> Result<bool, String> {
         match &self.upstream {
+            // Never fails the start: a login signed in later is read at its first call.
+            Upstream::MacLogins(logins) => {
+                let claude = match &self.claude {
+                    Some(borrow) => borrow.present().await,
+                    None => false,
+                };
+                let codex = read_codex_login(&logins.codex_auth).await.is_ok();
+                log(&format!(
+                    "answering from this Mac's logins (Claude Code: {}, Codex: {})",
+                    if claude { "signed in" } else { "not found" },
+                    if codex { "signed in" } else { "not found" },
+                ));
+                Ok(claude || codex)
+            }
             Upstream::Codex { auth } => {
                 let login = read_codex_login(auth).await?;
                 log(&format!("holding the Codex login in {}", auth.display()));
                 *self.codex.lock().await = Some(login);
-                Ok(())
+                Ok(true)
             }
             Upstream::Proxy { base, key_file } => {
                 if let Some(path) = key_file {
                     read_key(path).await?;
                 }
                 log(&format!("sending calls to the subscription proxy at {base}"));
-                Ok(())
+                Ok(true)
             }
         }
     }
@@ -850,29 +1328,63 @@ impl Provider {
                 ))?;
                 self.send(&url, call, key.as_deref(), &[]).await
             }
-            Upstream::Codex { auth } => {
-                let url = codex_url(&call.path).ok_or((
-                    "inference.unsupported_path",
-                    format!("a Codex login does not serve {}", call.path),
-                ))?;
-                let login = self.codex_login(auth, false).await?;
-                let account = [
-                    ("chatgpt-account-id", login.account.as_str()),
-                    ("originator", "codex_cli_rs"),
-                ];
-                let response = self.send(&url, call, Some(&login.access), &account).await?;
-                if response.status() != reqwest::StatusCode::UNAUTHORIZED {
-                    return Ok(response);
-                }
-                // The token was revoked or rotated under us: refresh once and send again.
-                let login = self.codex_login(auth, true).await?;
-                let account = [
-                    ("chatgpt-account-id", login.account.as_str()),
-                    ("originator", "codex_cli_rs"),
-                ];
-                self.send(&url, call, Some(&login.access), &account).await
-            }
+            Upstream::MacLogins(logins) => match login_for(&logins.claude_base, &call.path) {
+                Some(Login::Claude(url)) => self.claude_call(&url, call).await,
+                Some(Login::Codex) => self.codex_call(&logins.codex_auth, call).await,
+                None => Err((
+                    "inference.not_found",
+                    format!("the inference gateway serves no {}", log_path(&call.path)),
+                )),
+            },
+            Upstream::Codex { auth } => self.codex_call(auth, call).await,
         }
+    }
+
+    /// A Messages call with Claude Code's borrowed sign-in: read again once on a 401 (Claude Code
+    /// may have renewed it meanwhile), and a 401 on the only token there is the gateway's login error.
+    async fn claude_call(&self, url: &str, call: &Pending) -> Result<reqwest::Response, CallError> {
+        let Some(borrow) = &self.claude else {
+            return Err(("inference.gateway_config", "no Claude login is configured".into()));
+        };
+        let beta = oauth_beta(&call.headers);
+        let extra = [("anthropic-beta", beta.as_str())];
+        let token = borrow.token(None).await?;
+        let response = self.send(url, call, Some(&token), &extra).await?;
+        if response.status() != reqwest::StatusCode::UNAUTHORIZED {
+            return Ok(response);
+        }
+        let token = borrow.token(Some(&token)).await?;
+        let response = self.send(url, call, Some(&token), &extra).await?;
+        if response.status() == reqwest::StatusCode::UNAUTHORIZED {
+            return Err((
+                "inference.gateway_login",
+                "the agent's sign-in on your Mac was refused; sign in to the agent on your Mac again".into(),
+            ));
+        }
+        Ok(response)
+    }
+
+    async fn codex_call(
+        &self,
+        auth: &Path,
+        call: &Pending,
+    ) -> Result<reqwest::Response, CallError> {
+        let url = codex_url(&call.path).ok_or((
+            "inference.unsupported_path",
+            format!("a Codex login does not serve {}", call.path),
+        ))?;
+        let login = self.codex_login(auth, false).await?;
+        let account =
+            [("chatgpt-account-id", login.account.as_str()), ("originator", "codex_cli_rs")];
+        let response = self.send(&url, call, Some(&login.access), &account).await?;
+        if response.status() != reqwest::StatusCode::UNAUTHORIZED {
+            return Ok(response);
+        }
+        // The token was revoked or rotated under us: refresh once and send again.
+        let login = self.codex_login(auth, true).await?;
+        let account =
+            [("chatgpt-account-id", login.account.as_str()), ("originator", "codex_cli_rs")];
+        self.send(&url, call, Some(&login.access), &account).await
     }
 
     async fn send(
@@ -886,7 +1398,10 @@ impl Provider {
             .map_err(|_| ("inference.bad_request", "bad method".to_owned()))?;
         let mut request = self.http.request(method, url);
         for (name, value) in &call.headers {
-            if PASS_HEADERS.contains(&name.as_str()) {
+            // A header the login sets itself (the OAuth beta) replaces the caller's.
+            if PASS_HEADERS.contains(&name.as_str())
+                && !extra.iter().any(|(n, _)| *n == name.as_str())
+            {
                 request = request.header(name, value);
             }
         }
@@ -1129,237 +1644,5 @@ fn rfc3339(secs: u64) -> String {
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    fn args(list: &[&str]) -> Vec<String> {
-        list.iter().map(|s| (*s).to_owned()).collect()
-    }
-    fn no_env(_: &str) -> Option<String> {
-        None
-    }
-    fn jwt(exp: u64) -> String {
-        let payload =
-            base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(format!("{{\"exp\":{exp}}}"));
-        format!("e30.{payload}.sig")
-    }
-
-    #[test]
-    fn splits_only_inference_gateway() {
-        assert_eq!(
-            split(&args(&["inference", "gateway", "--api", "x"])),
-            Some(&args(&["--api", "x"])[..])
-        );
-        assert_eq!(split(&args(&["inference"])), None);
-        assert_eq!(split(&args(&["cloud", "gateway"])), None);
-    }
-
-    #[test]
-    fn parses_a_codex_gateway_and_a_proxy_gateway() {
-        let env = |k: &str| (k == "HOME").then(|| "/home/p".to_owned());
-        // No proxy is picked for the person: one of the two is required, even with a ~/.codex login on the host.
-        assert!(parse(&args(&["--api", "https://api.cmux.dev"]), &env).is_err());
-        let o = parse(
-            &args(&[
-                "--api",
-                "https://api.cmux.dev",
-                "--team",
-                "team_1",
-                "--codex-auth",
-                "/g/auth.json",
-            ]),
-            &env,
-        )
-        .unwrap();
-        assert_eq!(o.api, "https://api.cmux.dev");
-        assert_eq!(o.team.as_deref(), Some("team_1"));
-        assert_eq!(o.upstream, Upstream::Codex { auth: PathBuf::from("/g/auth.json") });
-        assert_eq!(o.token, TokenSource::App);
-        let o = parse(
-            &args(&[
-                "--api=https://api.cmux.dev",
-                "--upstream",
-                "http://127.0.0.1:8317/",
-                "--token-file",
-                "/t",
-            ]),
-            &no_env,
-        )
-        .unwrap();
-        assert_eq!(
-            o.upstream,
-            Upstream::Proxy { base: "http://127.0.0.1:8317".into(), key_file: None }
-        );
-        assert_eq!(o.token, TokenSource::File(PathBuf::from("/t")));
-    }
-
-    #[test]
-    fn refuses_plain_http_to_the_api_and_two_upstreams() {
-        assert!(parse(&args(&["--api", "http://api.cmux.dev"]), &no_env).is_err());
-        assert!(
-            parse(
-                &args(&["--api", "https://a.dev", "--codex-auth", "/a", "--upstream", "http://b"]),
-                &no_env
-            )
-            .is_err()
-        );
-        assert!(
-            parse(
-                &args(&["--api", "https://a.dev", "--token-file", "/a", "--token-command", "x"]),
-                &no_env
-            )
-            .is_err()
-        );
-        assert!(parse(&args(&["--codex-auth", "/a"]), &no_env).is_err());
-        // A credential in the URL would be logged with it.
-        assert!(
-            parse(
-                &args(&["--api", "https://a.dev", "--upstream", "https://u:secret@b.dev"]),
-                &no_env
-            )
-            .is_err()
-        );
-        assert!(
-            parse(&args(&["--api", "https://a.dev", "--upstream", "https://u@b.dev"]), &no_env)
-                .is_err()
-        );
-        assert!(
-            parse(
-                &args(&[
-                    "--api",
-                    "https://a.dev",
-                    "--upstream-key-file",
-                    "/k",
-                    "--codex-auth",
-                    "/a"
-                ]),
-                &no_env
-            )
-            .is_err()
-        );
-    }
-
-    #[test]
-    fn plain_http_stays_on_this_computer_or_a_private_network() {
-        let parse_up = |up: &str, key: bool| {
-            let mut a = vec!["--api", "https://a.dev", "--upstream", up];
-            if key {
-                a.extend(["--upstream-key-file", "/k"]);
-            }
-            parse(&args(&a), &no_env).map(|_| ())
-        };
-        assert!(parse_up("http://127.0.0.1:8317", true).is_ok());
-        assert!(parse_up("http://localhost:8317/v1", true).is_ok());
-        assert!(parse_up("http://100.89.225.106:31415/v1", false).is_ok());
-        assert!(parse_up("http://192.168.1.4:8317", false).is_ok());
-        assert!(parse_up("http://sr.tail1234.ts.net:31415", false).is_ok());
-        assert!(parse_up("http://100.89.225.106:31415/v1", true).is_err());
-        assert!(parse_up("http://proxy.example.com", false).is_err());
-        assert!(parse_up("http://8.8.8.8", false).is_err());
-        assert!(parse_up("https://proxy.example.com/v1", true).is_ok());
-    }
-
-    #[test]
-    fn logs_show_no_query_and_no_control_characters() {
-        assert_eq!(log_path("/v1/responses?api_key=secret"), "/v1/responses");
-        assert_eq!(log_path("/v1/models\nfake line"), "/v1/modelsfakeline");
-        assert_eq!(printable("vm_abc\r\n x"), "vm_abcx");
-    }
-
-    #[test]
-    fn joins_a_proxy_base_with_or_without_v1() {
-        assert_eq!(proxy_url("http://h:1", "/v1/responses").unwrap(), "http://h:1/v1/responses");
-        assert_eq!(proxy_url("http://h:1/v1", "/v1/responses").unwrap(), "http://h:1/v1/responses");
-        assert_eq!(
-            proxy_url("http://h:1/api", "/v1/models?x=1").unwrap(),
-            "http://h:1/api/v1/models?x=1"
-        );
-    }
-
-    #[test]
-    fn a_proxy_serves_only_the_workers_model_paths() {
-        for path in [
-            "/v1/responses",
-            "/v1/responses?x=1",
-            "/v1/responses/compact",
-            "/v1/models",
-            "/v1/messages",
-            "/v1/messages/count_tokens",
-            "/v1/chat/completions",
-        ] {
-            assert!(proxy_url("https://h", path).is_some(), "{path}");
-        }
-        for path in [
-            "@evil.example/x",
-            "/admin",
-            "",
-            "/v1/responses/../admin",
-            "/v1/responsesx",
-            "/v1/models/x",
-            "/v1/responses#x",
-            "//evil.example/v1/responses",
-        ] {
-            assert!(proxy_url("https://h", path).is_none(), "{path}");
-        }
-    }
-
-    #[test]
-    fn refuses_an_upstream_with_a_fragment() {
-        let parse_up = |up: &str| {
-            parse(&args(&["--api", "https://a.dev", "--upstream", up]), &no_env).map(|_| ())
-        };
-        assert!(parse_up("https://h#f").is_err());
-        assert!(parse_up("https://h/v1#").is_err());
-        assert!(parse_up("https://h/v1").is_ok());
-    }
-
-    #[test]
-    fn maps_codex_paths_to_the_chatgpt_backend() {
-        assert_eq!(
-            codex_url("/v1/responses").as_deref(),
-            Some("https://chatgpt.com/backend-api/codex/responses")
-        );
-        assert_eq!(
-            codex_url("/v1/models?client_version=0.99").as_deref(),
-            Some("https://chatgpt.com/backend-api/codex/models?client_version=0.99")
-        );
-        assert_eq!(codex_url("/v1/messages"), None);
-    }
-
-    #[test]
-    fn reads_a_codex_login_and_applies_a_refresh_keeping_other_fields() {
-        let text = json!({
-            "OPENAI_API_KEY": null,
-            "tokens": {"access_token": jwt(1000), "refresh_token": "r1", "id_token": "i1", "account_id": "acct"},
-            "last_refresh": "old",
-        })
-        .to_string();
-        let v = parse_codex_login(&text).unwrap();
-        assert_eq!((v.refresh.as_str(), v.account.as_str(), v.expires), ("r1", "acct", 1000));
-        let (updated, login) = apply_refresh(
-            &text,
-            &json!({"access_token": jwt(5000), "refresh_token": "r2"}),
-            1_762_490_000,
-        )
-        .unwrap();
-        assert_eq!((login.refresh.as_str(), login.expires), ("r2", 5000));
-        let file: Value = serde_json::from_str(&updated).unwrap();
-        assert_eq!(file["tokens"]["id_token"], "i1");
-        assert_eq!(file["tokens"]["account_id"], "acct");
-        assert_eq!(file["last_refresh"], "2025-11-07T04:33:20Z");
-        assert!(file.get("OPENAI_API_KEY").is_some());
-        assert!(apply_refresh(&text, &json!({}), 0).is_err());
-    }
-
-    #[test]
-    fn a_login_without_chatgpt_tokens_is_refused() {
-        assert!(parse_codex_login(r#"{"OPENAI_API_KEY":"sk-x"}"#).is_err());
-        assert!(parse_codex_login("nope").is_err());
-    }
-
-    #[test]
-    fn formats_utc_times() {
-        assert_eq!(rfc3339(0), "1970-01-01T00:00:00Z");
-        assert_eq!(rfc3339(951_782_400), "2000-02-29T00:00:00Z");
-    }
-}
+#[path = "inference_gateway_tests.rs"]
+mod tests;

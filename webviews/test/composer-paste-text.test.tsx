@@ -25,12 +25,10 @@ import {
   resentAttachments,
   shownPrompt,
 } from "../src/agent-session/acpmux/pastedText";
+import { backspacedAttachment } from "../src/agent-session/acpmux/composer/attachmentIntakeModel";
 import { keptChips } from "../src/agent-session/acpmux/composer/keptAttachments";
-import {
-  DEFAULT_COMPOSER,
-  setComposerSettings,
-  type AttachmentView,
-} from "../src/agent-session/acpmux/composerSettings";
+import { setComposerSettings, type AttachmentView } from "../src/agent-session/acpmux/composerSettings";
+import { teardownDom } from "./support/domTeardown";
 
 const scope = globalThis as Record<string, unknown>;
 const keys = [
@@ -92,15 +90,11 @@ afterEach(() => {
   // Every test opens chat "chat-a": its saved draft (composerDraft.ts, the page's localStorage
   // remount cache) would come back in the next test's prompt.
   dom.window.localStorage.clear();
-  setComposerSettings({ attachmentView: DEFAULT_COMPOSER.attachmentView });
+  setComposerSettings({ attachmentView: "inline" });
 });
 
-afterAll(() => {
-  dom.window.close();
-  for (const [key, had, value] of saved) {
-    if (had) scope[key] = value;
-    else delete scope[key];
-  }
+afterAll(async () => {
+  await teardownDom(saved, { window: dom.window, scope });
 });
 
 function Chips() {
@@ -533,11 +527,12 @@ test.each(["inline", "strip"] as const)(
   },
 );
 
-// Review of #37516 (P1 at 8b9b479d): an oversized paste made in a code block has no place in the
-// text, so its chip waits in the strip. Keep as .txt puts the file where the chip was, the strip,
-// never at a caret outside the block: an undo there would take the file out with no chip to bring
-// back, and the paste would be gone from the draft.
-test("Keep as .txt on a chip with no place keeps its file through an undo", async () => {
+// Review of #37516 (P1 at 8b9b479d), with one placement rule (Leo, 2026-11-09: "we have inline
+// stuff, so why is this not inline?"): an oversized paste made in a code block cannot go at its
+// caret, so its chip goes at the start of the prompt's first line that can hold it, never into the
+// strip. Keep as .txt puts the file where the chip was, never at a caret elsewhere, and an undo
+// brings the paste back rather than losing it from the draft.
+test("Keep as .txt on a chip pasted in a code block keeps its file through an undo", async () => {
   const composer = await openComposer();
   await showAttachments("inline");
   await act(async () => composer.current!.restore("```\nlet x = 1\n```\n\nhello world", []));
@@ -548,15 +543,18 @@ test("Keep as .txt on a chip with no place keeps its file through an undo", asyn
   });
   await paste(LOG);
   const pasted = chips(composer).find((chip) => chip.kind === "pasted")!;
-  expect(placed()).not.toContain(pasted.id);
+  expect(placed()).toEqual([pasted.id]);
+  expect(field().querySelector("pre [data-inline-attachment]")).toBeNull();
+  expect(host.querySelector(".acpmux-attachments .acpmux-attachment")).toBeNull();
   // The caret leaves the block before the click.
   await act(async () => markdownField().selectAll());
-  const keep = await inOpenedChip("strip", "Keep as .txt");
+  const keep = await inOpenedChip("inline", "Keep as .txt");
   await act(async () => keep.click());
   await until(() => chips(composer).some((chip) => chip.name === "Pasted text.txt"), "the .txt file");
   const file = chips(composer).find((chip) => chip.name === "Pasted text.txt")!;
   await settle();
-  expect(placed()).not.toContain(file.id);
+  expect(placed()).toEqual([file.id]);
+  expect(markdownField().value()).toContain("hello world");
   await act(async () => markdownField().undo());
   await settle();
   expect(chips(composer).some((chip) => chip.name === "Pasted text.txt" || chip.text === LOG)).toBe(true);
@@ -744,29 +742,36 @@ const backspace = (repeat = false) =>
     );
   });
 
-// Austin 2026-10-21: a pasted image could only go by its ×. Backspace at the prompt's start now
-// takes back the last chip, as Claude's composer does; Backspace inside the text still edits it.
-// That is the strip view's: there the chips are in the strip, and the text keeps their places hidden.
-test("Backspace at the prompt's start removes the last chip, one per press; anywhere else it takes none", async () => {
+// Austin 2026-10-21 asked Backspace at the prompt's start to take back the last chip. Lucas,
+// 2026-11-25: in the strip view (the default) a chip goes only by its ×, so Backspace there edits the
+// text and takes no chip, pressed or held; the take-back stays the inline view's (backspacedAttachment).
+test("strip view: Backspace at the prompt's start takes no chip; in the text it edits the text", async () => {
   const composer = await openComposer();
   await showAttachments("strip");
   await paste("", [new File(["a"], "a.txt", { type: "text/plain" })]);
   await paste("", [new File(["b"], "b.txt", { type: "text/plain" })]);
   expect(chips(composer).map((chip) => chip.name)).toEqual(["a.txt", "b.txt"]);
   await typeDraft("hi");
-  // The caret is after "hi": the key is the editor's, and no chip goes.
-  await backspace();
-  expect(chips(composer).map((chip) => chip.name)).toEqual(["a.txt", "b.txt"]);
   await act(async () => markdownField().setCaret(0));
   await backspace();
-  expect(chips(composer).map((chip) => chip.name)).toEqual(["a.txt"]);
-  // Holding Backspace down to clear the prompt stops at its start: a repeat takes no chip.
   await backspace(true);
-  expect(chips(composer).map((chip) => chip.name)).toEqual(["a.txt"]);
-  await backspace();
-  expect(chips(composer)).toEqual([]);
-  expect(placed()).toEqual([]);
+  expect(chips(composer).map((chip) => chip.name)).toEqual(["a.txt", "b.txt"]);
   expect(words()).toBe("hi");
+});
+
+// The take-back stays the inline view's (its callers skip it in the strip view): Backspace at the
+// prompt's start takes back the last chip outside the text, one per press; a held key's repeat, a
+// modifier or a caret past the start takes none.
+test("backspacedAttachment takes back the last chip on a plain Backspace at the start only", () => {
+  const one = pastedTextAttachment(LOG);
+  const two = pastedTextAttachment(DICTATION);
+  const key = { key: "Backspace", repeat: false, shiftKey: false, altKey: false, metaKey: false, ctrlKey: false };
+  expect(backspacedAttachment(key, true, [one, two])).toBe(two);
+  expect(backspacedAttachment(key, false, [one, two])).toBeUndefined();
+  expect(backspacedAttachment({ ...key, repeat: true }, true, [one, two])).toBeUndefined();
+  expect(backspacedAttachment({ ...key, altKey: true }, true, [one, two])).toBeUndefined();
+  expect(backspacedAttachment({ ...key, key: "Delete" }, true, [one, two])).toBeUndefined();
+  expect(backspacedAttachment(key, true, [])).toBeUndefined();
 });
 
 test.each(["inline", "strip"] as const)(

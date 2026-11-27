@@ -64,8 +64,12 @@ import Testing
         #expect(CmuxMobilePreferences.terminalFontSize(defaults) == settings.terminalFontSize)
         #expect(CmuxMobilePreferences.wrapCode(defaults) == settings.wrapCode)
         #expect(CmuxMobilePreferences.keyClicks(defaults) == settings.keyClicks)
+        #expect(CmuxMobilePreferences.terminalJumpToBottom(defaults) == settings.terminalJumpToBottom)
+        #expect(settings.terminalJumpToBottom)
         #expect(CmuxMobilePreferences.predictiveEcho(defaults) == settings.predictiveEcho)
         #expect(CmuxMobilePreferences.predictiveEcho(defaults))
+        #expect(CmuxMobilePreferences.predictiveEchoFullScreen(defaults) == settings.predictiveEchoFullScreen)
+        #expect(!CmuxMobilePreferences.predictiveEchoFullScreen(defaults))
         #expect(CmuxMobilePreferences.dismissKeyboardAfterSend(defaults) == settings.dismissKeyboardAfterSend)
         #expect(!CmuxMobilePreferences.steersFollowUps(defaults))
         // Queueing on (the default), Send and Return still steer, as the Mac's Return does; only
@@ -76,13 +80,17 @@ import Testing
         settings.terminalFontSize = 17
         settings.wrapCode = true
         settings.keyClicks = false
+        settings.terminalJumpToBottom = false
         settings.predictiveEcho = false
+        settings.predictiveEchoFullScreen = true
         settings.dismissKeyboardAfterSend = false
         settings.followUp = .steer
         #expect(CmuxMobilePreferences.terminalFontSize(defaults) == 17)
         #expect(CmuxMobilePreferences.wrapCode(defaults))
         #expect(!CmuxMobilePreferences.keyClicks(defaults))
+        #expect(!CmuxMobilePreferences.terminalJumpToBottom(defaults))
         #expect(!CmuxMobilePreferences.predictiveEcho(defaults))
+        #expect(CmuxMobilePreferences.predictiveEchoFullScreen(defaults))
         #expect(!CmuxMobilePreferences.dismissKeyboardAfterSend(defaults))
         #expect(CmuxMobilePreferences.steersFollowUps(defaults))
         // Queueing off, Queue steers too, as the Mac's ⌘Return does.
@@ -91,11 +99,23 @@ import Testing
         settings.terminalFontSize = 99
         #expect(CmuxMobilePreferences.terminalFontSize(defaults) == CmuxMobilePreferences.terminalFontSizes.upperBound)
 
-        // Ultra mode on cellular: off by default, stored under the key the WireGuard dial reads.
-        #expect(!settings.ultraOnCellular)
-        #expect(CmuxMobilePreferences.Key.ultraOnCellular == "cmuxMobile.settings.ultraOnCellular")
-        settings.ultraOnCellular = true
-        #expect(defaults.bool(forKey: CmuxMobilePreferences.Key.ultraOnCellular))
+        // Ultra mode: Auto by default, stored under the key the WireGuard dial reads.
+        #expect(settings.ultra == .auto)
+        #expect(CmuxMobilePreferences.Key.ultra == "cmuxMobile.settings.ultra")
+        #expect(defaults.string(forKey: CmuxMobilePreferences.Key.ultra) == "auto")
+        settings.ultra = .always
+        #expect(defaults.string(forKey: CmuxMobilePreferences.Key.ultra) == "always")
+    }
+
+    @Test func theEarlierUltraOnCellularSwitchReadsAsAlways() throws {
+        let suite = "cmuxMobile.prefs.test.\(UUID().uuidString)"
+        let defaults = try #require(UserDefaults(suiteName: suite))
+        defer { defaults.removePersistentDomain(forName: suite) }
+        defaults.set(true, forKey: "cmuxMobile.settings.ultraOnCellular")
+        let settings = SettingsStore(defaults: defaults)
+        #expect(settings.ultra == .always)
+        #expect(defaults.string(forKey: CmuxMobilePreferences.Key.ultra) == "always")
+        #expect(defaults.object(forKey: "cmuxMobile.settings.ultraOnCellular") == nil)
     }
 
     @Test func liveSessionsHideCheckpoints() {

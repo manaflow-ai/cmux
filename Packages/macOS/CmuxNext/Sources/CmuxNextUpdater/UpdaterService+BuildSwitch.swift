@@ -1,6 +1,8 @@
 import CmuxNextCompat
+import CmuxNextWakeups
 import CmuxUpdater
 public import Foundation
+import os
 
 /// Switch to any build a Channels track lists, older or newer (Leo 2026-10-23: "and of course be
 /// able to hot swap your dev build for any other dev build..."). A kept build swaps at once; any
@@ -19,34 +21,71 @@ extension UpdaterService {
     public func switchToBuild(_ build: String) async -> String? {
         guard switchesBuilds else { return UpdaterStrings.channelsSwitchUnavailable }
         guard build != identity.build else { return UpdaterStrings.channelsSwitchAlreadyHere }
+        guard !switchRunning else { return RollbackRefusal.busy.message }
+        switchRunning = true
+        defer { switchRunning = false }
         // A pulled build is never switched to, kept or not: the Channels card offers it no Switch, and
         // `updates.switch_build` (the CLI) asks for it by number.
         let folder = changelogNotes.map { Self.channelFolder(notesBase: $0.notesBase) }
         if await Self.pulled(in: folder).contains(where: { $0.build == build }) { return UpdaterStrings.channelsSwitchPulled }
         // A directory listing and a read of each kept bundle's Info.plist: file I/O on the files lane.
         let store = keptVersions
-        let kept = (try? await work.run(.userVisible, mayBlock: .files) { store.list().contains { $0.build == build } }) ?? false
+        let kept = (try? await work.run(.userVisible, mayBlock: .files) { store.list(teams: false).contains { $0.build == build } }) ?? false
         if !kept {
-            guard let source = await switchDownload(for: build) else { return UpdaterStrings.channelsSwitchGone }
-            // The EdDSA check Sparkle makes of every update: the feed item's signature, else the one
-            // published beside the DMG. A build published before that file has neither and is refused.
-            var published = source.signature
-            if published == nil { published = await ArchiveSignature.published(for: source.url) }
-            guard let signature = published else {
-                log.append("switch: \(build) has no published signature")
-                return UpdaterStrings.channelsSwitchUnsigned
+            buildSwitchProgress = BuildSwitchProgress(build: build, stage: .download)
+            revert = RevertProgress(step: .downloading, target: build)
+            if let failure = await downloadForSwitch(build) {
+                buildSwitchProgress = nil
+                revert = RevertProgress(step: .failed, target: build, failure: failure)
+                return failure
             }
-            log.append("switch: downloading \(build) from \(source.url.absoluteString)")
-            if let failure = await BuildSwitchDownload(store: keptVersions, bundleIdentifier: identity.bundleIdentifier,
-                                                       teamID: UpdateDropBack.signingTeam(of: Bundle.main.bundleURL),
-                                                       publicEDKey: Bundle.main.object(forInfoDictionaryKey: "SUPublicEDKey") as? String)
-                .keep(build: build, from: source.url, signature: signature) {
-                log.append("switch: \(build) not kept: \(failure)")
-                return UpdaterStrings.channelsSwitchFailed(failure)
-            }
+            // Its first launch is the relaunch below: the check macOS makes of a new bundle runs now,
+            // under Verifying, rather than with the windows already gone (KeptWarmup).
+            await KeptWarmup.warm(store: store, build: build, log: log, runningBuild: identity.build)
         }
         log.append("switch: \(identity.build) -> \(build)")
-        return await UpdateDropBack(self).failure(to: build, stateDirectories: pulledWatch.stateDirectories())
+        return await UpdateDropBack(self).failure(to: build, stateDirectories: pulledWatch.stateDirectories(), claimed: true)
+    }
+
+    /// Downloads, checks and keeps `build` for ``switchToBuild(_:)``, moving
+    /// ``buildSwitchProgress`` along; nil once kept, else what the person reads.
+    private func downloadForSwitch(_ build: String) async -> String? {
+        guard let source = await switchDownload(for: build) else { return UpdaterStrings.channelsSwitchGone }
+        // The EdDSA check Sparkle makes of every update: the feed item's signature, else the one
+        // published beside the DMG. A build published before that file has neither and is refused.
+        var published = source.signature
+        if published == nil { published = await ArchiveSignature.published(for: source.url) }
+        guard let signature = published else {
+            log.append("switch: \(build) has no published signature")
+            return UpdaterStrings.channelsSwitchUnsigned
+        }
+        log.append("switch: downloading \(build) from \(source.url.absoluteString)")
+        let started = ContinuousClock.now
+        // The download reports from its own queue; each step lands on the main actor and never moves
+        // the cards back a stage (a late download step after the checks began is dropped): the
+        // Channels card's button and the sidebar's notice card.
+        let delivery = MainDelivery()
+        let progress: @Sendable (BuildSwitchProgress) -> Void = { [self] step in
+            delivery.run { [self] in
+                guard let current = buildSwitchProgress, current.build == step.build,
+                      current.stage.order <= step.stage.order else { return }
+                buildSwitchProgress = step
+                revert = step.stage == .download ? RevertProgress(step: .downloading, target: build, fraction: step.fraction)
+                    : RevertProgress(step: .verifying, target: build)
+            }
+        }
+        // The running app's team is its own code's: no file read.
+        if let failure = await BuildSwitchDownload(store: keptVersions, bundleIdentifier: identity.bundleIdentifier,
+                                                   teamID: UpdateDropBack.runningTeam,
+                                                   publicEDKey: Bundle.main.object(forInfoDictionaryKey: "SUPublicEDKey") as? String,
+                                                   progress: progress)
+            .keep(build: build, from: source.url, signature: signature) {
+            // The reason names the step and its error: the log keeps it, the person reads plain words.
+            log.append("switch: \(build) not kept: \(failure)")
+            return UpdaterStrings.channelsSwitchFailed
+        }
+        log.append("switch: \(build) downloaded and checked in \(started.duration(to: .now))")
+        return nil
     }
 
     /// Where `build` downloads from: its item in this app's feed (with the item's signature), else
@@ -94,6 +133,8 @@ nonisolated struct BuildSwitchDownload: Sendable {
     var mounter: any DiskImageMounting = HdiutilDiskImageMounter()
     var inspector: any AppSignatureInspecting = SecurityAppSignatureInspector()
     var temporaryDirectory: URL = FileManager.default.temporaryDirectory
+    /// Each step of ``keep(build:from:signature:)``: the downloaded fraction, then the checks.
+    var progress: @Sendable (BuildSwitchProgress) -> Void = { _ in }
 
     /// Nil once `build` is kept, else why not. Off the main actor: the download, the mount, the
     /// signature check and the copy of the app all take seconds.
@@ -106,10 +147,17 @@ nonisolated struct BuildSwitchDownload: Sendable {
         let image = work.appending(path: "\(build).dmg")
         do {
             try files.createDirectory(at: work, withIntermediateDirectories: true)
-            try await downloader.download(from: url, to: image) { _ in }
+            // One step per whole percent: the card redraws a hundred times, not once per packet.
+            let reported = OSAllocatedUnfairLock(initialState: -1)
+            try await downloader.download(from: url, to: image) { [progress] fraction in
+                let percent = fraction.map { Int(($0 * 100).rounded(.down)) } ?? -1
+                guard reported.withLock({ last in defer { last = percent }; return last != percent }) else { return }
+                progress(BuildSwitchProgress(build: build, stage: .download, fraction: fraction))
+            }
         } catch {
             return "download failed: \(error)"
         }
+        progress(BuildSwitchProgress(build: build, stage: .verify))
         // Before the mount: hdiutil never opens an image this app's key did not sign.
         if let failure = signature.failure(checking: image, publicKey: publicEDKey) { return failure }
         let volume: URL
@@ -132,8 +180,10 @@ nonisolated struct BuildSwitchDownload: Sendable {
             return "the app's signature does not check: \(error)"
         }
         // Kept without a prune: an older build than every kept one would be pruned at once. The
-        // swap that follows prunes when it keeps the running build.
-        do { try store.keep(bundle: app, build: build, limit: nil) } catch { return "could not keep it: \(error)" }
+        // swap that follows prunes when it keeps the running build. The full check just ran on the
+        // read-only disk image: the copy is sealed with its team, so going back to it skips that check.
+        let record = KeptRecord(build: build, teamID: teamID)
+        do { try store.keep(bundle: app, build: build, limit: nil, record: record, check: .checkedSource) } catch { return "could not keep it: \(error)" }
         return nil
     }
 }
@@ -141,20 +191,20 @@ nonisolated struct BuildSwitchDownload: Sendable {
 nonisolated extension UpdaterStrings {
     static var channelsSwitch: String { text("updater.channels.switch", "Switch") }
     static var channelsSwitchUnavailable: String {
-        text("updater.channels.switchUnavailable", "This build cannot switch builds (it follows no update feed).")
+        text("updater.channels.switchUnavailable", "This build doesn't get updates, so it can't switch builds.")
     }
     static var channelsSwitchAlreadyHere: String { text("updater.channels.switchAlreadyHere", "This Mac already runs that build.") }
     static var channelsSwitchPulled: String {
         text("updater.channels.switchPulled", "That build was pulled from the feed. Pick another one.")
     }
     static var channelsSwitchUnsigned: String {
-        text("updater.channels.switchUnsigned",
-             "That build was published before downloads carried a signature to check, so it can only be installed if this Mac kept it.")
+        text("updater.channels.switchUnsigned", "That build is too old to download. It installs only if this Mac kept a copy.")
     }
     static var channelsSwitchGone: String {
         text("updater.channels.switchGone", "That build is no longer offered for download.")
     }
-    static func channelsSwitchFailed(_ why: String) -> String {
-        format("updater.channels.switchFailed", "Could not switch: %@", why)
+    static var channelsSwitchFailed: String {
+        // retry-prompt-ok: switching builds downloads and replaces binaries
+        text("updater.channels.switchFailedPlain", "Couldn't switch: that build didn't download or didn't pass its checks. Try again.")
     }
 }

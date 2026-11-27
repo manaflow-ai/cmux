@@ -34,11 +34,30 @@ import Testing
         records.append(OSLogRecord(date: launch + 20, level: .error, subsystem: "com.cmuxterm.app", category: "acp", message: "it failed"))
         records.append(OSLogRecord(date: launch + 21, level: .fault, subsystem: "com.apple.WebKit", category: "Loading", message: "it broke"))
         let log = FakeLog(records: records)
-        let source = OSLogErrorSource(processID: 7, launchDate: launch, reader: log)
+        let source = OSLogErrorSource(processID: 7, launchDate: launch, reader: log, now: { launch + 30 })
 
         let harvest = try await source.collect(after: nil)
 
         #expect(harvest.events.map(\.message) == ["it failed", "it broke"])
         #expect(log.delivered == 2, "the log store decoded \(log.delivered) entries for 2 errors and faults")
+    }
+
+    /// Review of #40582: with no read at rest, one window can hold more entries than one read keeps
+    /// (an app at rest for a night while one error repeats). The read kept the OLDEST 5000 and left
+    /// the newer ones to the next demand, so Copy Logs showed old errors first and each demand
+    /// decoded the rest of the window again. It keeps the newest and does not come back.
+    @Test func aReadOfMoreEntriesThanItKeepsGivesTheNewestAndDoesNotComeBack() async throws {
+        let launch = Date(timeIntervalSince1970: 1_000)
+        let records = (0..<5_003).map { OSLogRecord(date: launch + 1 + Double($0) / 100, level: .error, subsystem: "com.cmuxterm.app",
+                                                    category: "acp", message: "error \($0)") }
+        let log = FakeLog(records: records)
+        let source = OSLogErrorSource(processID: 7, launchDate: launch, reader: log, now: { launch + 120 })
+
+        let first = try await source.collect(after: nil)
+        let second = try await source.collect(after: first.cursor)
+
+        #expect(first.events.count == 5_000)
+        #expect(first.events.last?.message == "error 5002", "the read kept the oldest entries: its last one is \(first.events.last?.message ?? "none")")
+        #expect(second.events.isEmpty, "the next demand read \(second.events.count) older entries again")
     }
 }

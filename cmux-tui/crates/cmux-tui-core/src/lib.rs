@@ -16,6 +16,7 @@ pub mod agent_start_launch;
 mod agent_status;
 pub mod agent_view;
 mod apps;
+pub mod packed_catalogs;
 pub mod route_table;
 /// Daemon primitives; the cmux-tui-util crate, re-exported at the old paths.
 pub use cmux_tui_util::backoff;
@@ -23,15 +24,21 @@ mod browser;
 pub mod browser_host;
 mod browser_host_history;
 mod browser_provider;
+/// The Linux and Windows Computer Use worker the daemon supervises.
+pub mod computer_use_host;
 /// Where the daemon finds the first-party app packages (cx-0uo1, cx-e0cs).
 pub mod first_party_dir;
+#[cfg(all(test, unix))]
+mod fork_tests;
 mod lock_rank;
 pub mod remote_host;
 /// The cloud conversations proxy; its own crate, re-exported at the old path.
 pub use cmux_tui_cloud_conversations as cloud_conversations;
 pub mod chief_brains;
 mod chief_registry;
+mod command_context;
 mod conversation_drafts;
+mod conversation_inbox_once;
 mod conversation_live;
 mod conversation_search;
 mod conversation_store;
@@ -41,8 +48,10 @@ use cmux_tui_util::debug_spans;
 pub mod blob_fetch;
 mod browser_profile_ops;
 mod browser_site_engines;
+pub mod device_setup;
 pub mod diagnostics;
 mod event_bus;
+pub mod feed_client;
 #[cfg(unix)]
 pub mod fs_ops;
 mod git_ops;
@@ -50,6 +59,15 @@ mod git_ops;
 pub mod git_seed;
 mod history_ops;
 pub mod history_search;
+/// `language_packs.ensure`: the app's languages, downloaded on first use.
+pub(crate) mod language_packs;
+#[cfg(unix)]
+pub mod projection;
+#[cfg(unix)]
+pub mod projection_ns;
+/// Tools few people use (`bin/cmux-mobile-host`), downloaded on first use.
+#[cfg(unix)]
+pub mod tool_packs;
 /// The image paste spool; the cmux-tui-image-paste crate, re-exported at the old path.
 #[cfg(unix)]
 use cmux_tui_image_paste::image_paste;
@@ -63,18 +81,19 @@ pub mod launch_credential;
 use cmux_tui_util::machine_name;
 mod model;
 mod mux;
-pub mod net_keepalive;
 /// Remote access state; the cmux-tui-remote-access crate, re-exported at the old paths.
 use cmux_tui_remote_access::pairing;
 mod output_store;
 /// `RecoverPoison` and `JsonFields` (panic-free lane).
 mod panic_free;
+mod paste_pacing;
 mod program_status;
 mod prompt_mode_reset;
 pub mod provider_management;
 mod pty_input_room;
 #[cfg(unix)]
 mod pty_write;
+mod pty_write_marks;
 /// A mutex-guarded value whose readers load a published projection without the lock (R-DAEMON-STATE).
 use cmux_tui_util::published;
 mod terminal_title;
@@ -92,6 +111,7 @@ mod resource_router;
 mod resource_screen;
 mod resource_selector;
 mod resource_tab;
+pub mod safe_mode_flag;
 mod scripts;
 mod serial_lanes;
 mod session_shutdown;
@@ -99,6 +119,7 @@ mod shell_history;
 mod shell_integration;
 #[cfg(unix)]
 mod shell_runs;
+mod shell_state;
 pub mod startup_timings;
 use cmux_tui_util::short_id;
 mod sidebar_resource;
@@ -124,6 +145,8 @@ mod terminal_loss_log;
 mod terminal_metadata;
 mod terminal_tail;
 pub use cmux_tui_util::terminal_respawn_text;
+#[cfg(test)]
+mod walk_counters;
 mod workspace_registry;
 /// A synthetic registry of a long-lived owner's shape (startup measurements).
 pub use workspace_registry::synth as synth_registry;
@@ -139,8 +162,8 @@ use cmux_tui_platform::process_identity;
 pub use cmux_tui_platform::process_resources;
 pub mod server;
 pub mod session_state_import;
-pub mod terminal_host;
-pub mod terminal_host_protocol;
+// The terminal host's wire is its own crate (cmux-remote and acpmux build without this one).
+pub use cmux_terminal_host_protocol::{net_keepalive, terminal_host, terminal_host_protocol};
 pub mod terminal_host_runtime;
 #[cfg(any(target_vendor = "apple", target_os = "linux"))]
 pub mod test_owner;
@@ -176,13 +199,15 @@ pub use model::{
     ColumnDock, DockEdge, DockMode, DockRole, Node, Pane, Screen, State, ViewportColumn, Workspace,
 };
 pub(crate) use mux::BatchCloseTarget;
+#[cfg(any(unix, windows))]
+pub use mux::process_census;
 pub use mux::{
     AgentActivity, AgentPresence, AgentRecord, AgentSource, AgentState, AppliedLayout, AppliedPane,
     CellPixelUpdate, CellPixelUpdateFailure, ColumnDockError, ColumnDockOutcome, ConfigReloadError,
-    DiagnosticReporter, Direction, GraphicsStatus, LayoutLeafSpec, LayoutRatioError, LayoutSpec,
-    LayoutUndoError, LayoutUndoResult, MachineUsage, Mux, MuxEvent,
-    NOTIFICATION_DESKTOP_CAPABILITY, NOTIFICATION_REPLY_CAPABILITY, NotificationEvent,
-    NotificationLevel, NotificationSource, ProviderWorkspaceAuthority,
+    DiagnosticReporter, Direction, FloatPaneError, FloatPaneOutcome, GraphicsStatus,
+    LayoutLeafSpec, LayoutRatioError, LayoutSpec, LayoutUndoError, LayoutUndoResult, MachineUsage,
+    Mux, MuxEvent, NOTIFICATION_DESKTOP_CAPABILITY, NOTIFICATION_REPLY_CAPABILITY,
+    NotificationEvent, NotificationLevel, NotificationSource, ProviderWorkspaceAuthority,
     ProviderWorkspaceAuthorityStatus, ProviderWorkspaceAuthorityUpdateError, ResourceNotification,
     RowHeightsOutcome, RowsError, RunPlacement, ScreenDestination, ScreenGroupOutcome,
     ScreenMoveOutcome, ScreenSpec, SidebarPluginOptions, SidebarPluginStatus, SurfaceNotification,
@@ -196,6 +221,7 @@ pub use mux::{
     MAX_TERMINAL_REAP_GRACE, TerminalReaper, start_idle_terminal_reaper, start_terminal_reaper,
     validate_terminal_reap_grace,
 };
+pub use mux::{JournalFollowerSnapshot, JournalFollowersSnapshot};
 pub use pairing::{PairingChallenge, PairingDecision, PairingError};
 pub use program_status::ShownProgramStatus;
 pub use remote_relay_state::{
@@ -217,6 +243,7 @@ pub use surface::{
     TerminalPointerSnapshot,
 };
 pub use surface::{apply_terminal_color_overrides, default_child_term};
+pub use terminal_title::{TabTitle, TitleActivity};
 pub use workspace_registry::{
     Actor, EndedTerminalState, FrontendProjection, JournalAppendCommit, JournalAuthority,
     JournalCheckpoint, JournalClass, JournalContentRef, JournalEventSchema,
@@ -224,14 +251,17 @@ pub use workspace_registry::{
     JournalHookRegex, JournalHookRetry, JournalIngress, JournalProducer, JournalProducerManifest,
     JournalReplayPolicy, JournalSegment, JournalSensitivity, JournalSubject,
     PersistentSessionStateReset, PersistentSessionStateResetPreview,
-    PersistentSessionStateResetter, ProjectionCommit, RegistryCommit, RegistryCompactError,
-    RegistryCompaction, RegistryEvent, RegistryQuarantined, RegistrySnapshot, RegistryWorkspace,
-    SessionJournalPage, SessionJournalRecord, TabAttentionRecord,
+    PersistentSessionStateResetter, PresentationSnapshot, ProjectionCommit, RegistryCommit,
+    RegistryCompactError, RegistryCompaction, RegistryEvent, RegistryQuarantined, RegistrySnapshot,
+    RegistryWorkspace, SessionJournalPage, SessionJournalRecord, TabAttentionRecord,
     UnsupportedWorkspaceRegistrySchema, WorkspaceMutation, WorkspaceRegistry, compact_registry,
 };
 
 pub use cmux_remote_protocol::{REMOTE_CLIENT_MESSAGE_MAX_BYTES, REMOTE_SESSION_MESSAGE_MAX_BYTES};
 pub use ghostty_vt::{CursorShape, Rgb};
+pub use workspace_registry::premigrate::{
+    PremigrateControl, PremigrateOutcome, RosterPremigration, premigrate_registry,
+};
 
 pub type SurfaceId = u64;
 pub type PaneId = u64;

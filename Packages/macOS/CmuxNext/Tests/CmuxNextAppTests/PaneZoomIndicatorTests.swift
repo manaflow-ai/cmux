@@ -58,14 +58,59 @@ import Testing
         func closeWindow() { window.closeAfterTest() }
     }
 
+    /// A pane with its tab bar's controls (every workspace pane): the indicator sits in the tab bar's trailing slot
+    /// at a tab bar button's size (user 2026-11-09: "the maximize pane indicator is showing up in wrong place"; the
+    /// "3 dots" it sat left of went with #53356), and nothing of it is left over the content's corner.
+    @Test func theIndicatorSitsInTheTabBarsTrailingSlot() throws {
+        let harness = Harness()
+        defer { harness.closeWindow() }
+        let toolbar = PaneToolbar(registry: { nil })
+        harness.pane.toolbar = toolbar
+        toolbar.update(target: "tab0", kind: .terminal, zoomed: false, paneKinds: [.terminal])
+        harness.settle()
+        harness.model.zoomsSelected = true
+        toolbar.update(target: "tab0", kind: .terminal, zoomed: true, paneKinds: [.terminal])
+        harness.settle()
+        let pane = harness.pane
+        let indicator = try #require(harness.indicator, "a zoomed pane shows the Exit Zoom indicator")
+        let frame = indicator.convert(indicator.bounds, to: pane)
+        let bar = toolbar.view.convert(toolbar.view.bounds, to: pane)
+        let side = TitlebarBandButton.side
+        #expect(abs(bar.maxX - PaneToolbarView.trailingGap - frame.maxX) < 0.5, "in the trailing slot: \(frame) in \(bar)")
+        #expect(abs(frame.height - side) < 0.5 && abs(frame.width - side) < 0.5, "at a tab bar button's size: \(frame)")
+        #expect(frame.maxY <= pane.contentHost.frame.minY + 0.5, "in the tab bar, not over the content: \(frame)")
+        for cell in pane.stripView.cells.values {
+            #expect(!frame.intersects(pane.stripView.convert(cell.frame, to: pane)), "clear of every tab")
+        }
+        #expect(pane.zoomIndicator?.isHidden ?? true, "no second indicator over the content's corner")
+        let center = pane.convert(CGPoint(x: frame.midX, y: frame.midY), to: nil)
+        let root = try #require(harness.window.contentView)
+        let hit = try #require(root.hitTest(root.superview.map { $0.convert(center, from: nil) } ?? center))
+        #expect(hit === indicator || hit.isDescendant(of: indicator), "the indicator takes the click, not \(hit)")
+        #expect(indicator.accessibilityPerformPress())
+        #expect(harness.zooms == [TabID("tab0")], "\(harness.intents)")
+    }
+
     @Test func noIndicatorWhileThePaneIsNotZoomed() {
         let harness = Harness()
         defer { harness.closeWindow() }
         #expect(harness.indicator == nil)
     }
 
-    /// Zoomed: the indicator shows at the content's top-right, under the tab bar, clear of it and of
-    /// its toolbar, and small enough to cover only the corner.
+    /// A pane that never zoomed makes no indicator (its glass and button): a launch builds every
+    /// shown pane in one main-thread turn before the first frame, and none of them is zoomed then.
+    /// The first zoom makes it, in the layout that shows it.
+    @Test func theIndicatorIsMadeAtThePanesFirstZoom() {
+        let harness = Harness()
+        defer { harness.closeWindow() }
+        #expect(harness.pane.zoomIndicator == nil, "an unzoomed pane made its zoom indicator")
+        harness.setZoomed(true)
+        #expect(harness.pane.zoomIndicator?.superview === harness.pane)
+        #expect(harness.indicator != nil)
+    }
+
+    /// Zoomed in a pane with no tab bar controls: the indicator shows at the content's top-right, under
+    /// the tab bar, clear of it, and small enough to cover only the corner.
     @Test func theIndicatorSitsAtThePanesTopRightUnderTheTabBar() throws {
         let harness = Harness()
         defer { harness.closeWindow() }

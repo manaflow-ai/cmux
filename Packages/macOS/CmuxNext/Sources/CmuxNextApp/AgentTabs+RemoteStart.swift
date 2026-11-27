@@ -1,4 +1,5 @@
 import CmuxNextAgentPane
+import CmuxNextCloud
 import CmuxNextTabs
 import CmuxNextDaemon
 import Foundation
@@ -95,14 +96,20 @@ extension AgentTabStore {
         // A default model pick is omitted by the page. After a harness switch it must remain
         // that harness's default, rather than restoring the previous harness's seeded model.
         let model = chosenModel ?? (harness == seed?.harness ? seed?.model : nil)
-        do { result = .success(try await client.start(cwd: fallback, harness: harness, homeConfirmed: home, personKey: personKey, ownerLink: ownerLink, model: model)) } catch { result = .failure(error) }
+        // The owner's model credential its Cloud start chose, else Cloud first use's pick for the harness (read now; never sent to a machine that is not theirs).
+        let credential = ownerLink == nil ? nil : try await cloudCredentials?.launchCredential(chat: key, machine: machine, harness: harness, model: model)
+        do { result = .success(try await client.start(cwd: fallback, harness: harness, homeConfirmed: home, personKey: personKey, ownerLink: ownerLink, model: model, permissionMode: startPermissionMode(),
+                                                      startMode: ownerLink != nil && harness == seed?.harness ? seed?.mode : nil, // the Cloud send's mode pick, own machine only
+                                                      credentials: credential?.env)) } catch { result = .failure(error) }
+        let phases = await client.startPhases
         await client.close()
         switch result {
         case .success(let session):
             // The daemon bound the session on its tab (it is the record's writer); this is the view mirror.
             if self.record(for: scopedKey) != nil { sessions[scopedKey] = session }
+            if let credential { cloudCredentials?.started(chat: key, machine: machine, on: credential, push: CloudAgentCredentialRefresher.machinePush(surface: surface, ownerLink: ownerLink, reconnect: reconnect, endpoint: endpoint)) }
             onRemoteChatStarted?(record.host, session, fallback, harness)
-            return .init(surface: surface, session: session)
+            return .init(surface: surface, session: session, phases: phases)
         case .failure(let error as AgentSessionAttachError):
             // A start whose answer was lost already bound the tab: show that chat.
             if error.code == "agent_session.bound", let session = self.record(for: scopedKey)?.record.session {
@@ -111,8 +118,8 @@ extension AgentTabStore {
             }
             // A link that came up as a teammate's while the start connected is refused as one.
             let code = AgentSessionAttachError.classified(error.code, teammate: await teammate?() ?? false)
-            throw AgentRemoteStartRefusal(code: code, machine: machineName ?? machine, folder: fallback, detail: error.message,
-                                          keyedRestartSafe: error.keyedRestartSafe)
+            throw AgentRemoteStartRefusal.refused(error, code: code, machine: machineName ?? machine, folder: fallback, harness: harness,
+                                                  name: \String.chiefHarnessName) // an agent not signed in there, by name (hq#11225)
         case .failure(let error):
             throw error
         }
@@ -122,20 +129,15 @@ extension AgentTabStore {
 /// The start of a new chat on another machine, as the remote pane host calls it.
 nonisolated enum AgentTabRemoteStart {
     static let registryPrefix = MachineRegistry.registryHostPrefix
-    /// acpmux has 60 s to create the session on its machine (spec), plus the carrier.
+    /// Each request of the start's client but the start (`AgentSessionAttachClient.startTimeout`).
     static let timeout: Duration = .seconds(75)
-
-    /// The project list of a chat on another machine: its workspaces' folders, then the folders the
-    /// machine lists itself, each once, in that order.
-    static func folders(listed: [String], machine: [String]) -> [String] {
-        var seen = Set<String>()
-        return (listed + machine).filter { seen.insert($0).inserted }
-    }
 
     struct Started: Sendable, Equatable {
         let surface: UInt64
         let session: String
+        /// The machine's own phases of the start (`timings_ms`), when its daemon sent them.
+        var phases: [String: Int]?
     }
 }
 
-extension AgentRemoteStartRefusal { static let folderNeededCode = "app.folder_needed" } // folderNeeded(machine:)'s code (defaults guard key)
+extension AgentRemoteStartRefusal { static let folderNeededCode = "app.folder_needed" } // folderNeeded(machine:)'s code (defaults snapshot key)

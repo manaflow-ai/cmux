@@ -16,14 +16,19 @@ import path from "node:path";
 import { chromium, type Browser } from "playwright";
 import { galleryFrame, warmGalleryFrame } from "./support/galleryFrame";
 import { requireBrowserLane } from "./support/requireBrowserLane";
-import { measureComposerAlignment, type Center, type ComposerAlignment } from "./support/composerAlignment";
+import {
+  ALIGNMENT_SELECTORS,
+  measureComposerAlignment,
+  type Center,
+  type ComposerAlignment,
+} from "./support/composerAlignment";
 import { gridLength } from "../src/agent-session/acpmux/transcriptGrid";
 
 await requireBrowserLane("composer-alignment-centers.test.ts", async () => {
   /** Half a pixel: the subpixel rounding a centered 28 px control and its 16 px glyph can show. */
   const TOLERANCE = 0.5;
-  /** The placeholder starts one lead gap (--acpmux-composer-lead-gap, 8 px) after the + button's box. */
-  const TEXT_GAP = 8;
+  /** The placeholder starts one lead gap (--acpmux-composer-lead-gap, 4 px since Leo 2026-11-22: "SHRINK THE INSIDE BIT") after the + button's box. */
+  const TEXT_GAP = 4;
   /** The one-line box's height, read from the grid's token (schemas/layout-grid/layout-grid.json,
    *  `composer-box` = 2 x `composer-block-inset` + `composer-control`): 10 + 28 + 10 = 48 since #29887
    *  (Leo 2026-11-01: "there's not enough of a space at the bottom"); it was 8 + 28 + 8 = 44.
@@ -67,7 +72,7 @@ await requireBrowserLane("composer-alignment-centers.test.ts", async () => {
     await page.locator(".acpmux-composer-foot .acpmux-model .acpmux-picker-button").first().waitFor();
     await page.evaluate(() => document.fonts.ready);
     await page.evaluate(() => new Promise((done) => requestAnimationFrame(() => requestAnimationFrame(done))));
-    const result = await page.evaluate(measureComposerAlignment);
+    const result = await page.evaluate(measureComposerAlignment, ALIGNMENT_SELECTORS);
     await page.close();
     return result;
   };
@@ -111,14 +116,15 @@ await requireBrowserLane("composer-alignment-centers.test.ts", async () => {
       if (off(leading, trailing))
         out.push(`+ glyph sits ${f(leading)} px from the box's left, the mic glyph ${f(trailing)} px from its right`);
     }
-    // The quiet row's columns: the mode's shield under the + glyph, the context ring's glyph under the mic's.
+    // The quiet row's columns: the mode's shield under the + glyph; the context ring starts the
+    // right-aligned group, left of the model button (composerLocation.css, the ring-left rule).
     if (m.foot && m.modeGlyph && plusGlyph && m.box && off(m.modeGlyph.cx - m.box.left, plusGlyph.cx - m.box.left))
       out.push(
         `quiet row: mode shield center ${f(m.modeGlyph.cx - m.box.left)} px from the box's left, + glyph ${f(plusGlyph.cx - m.box.left)} px`,
       );
-    if (m.foot && m.ringGlyph && micGlyph && m.box && off(m.box.right - m.ringGlyph.cx, m.box.right - micGlyph.cx))
+    if (m.foot && m.ringGlyph && m.model && m.ringGlyph.right > m.model.left + 0.5)
       out.push(
-        `quiet row: context ring glyph center ${f(m.box.right - m.ringGlyph.cx)} px from the box's right, mic glyph ${f(m.box.right - micGlyph.cx)} px`,
+        `quiet row: context ring glyph ends at ${f(m.ringGlyph.right)}, after the model button's left ${f(m.model.left)}`,
       );
     if (plus && placeholder && off(placeholder.left - plus.right, TEXT_GAP))
       out.push(`placeholder starts ${f(placeholder.left - plus.right)} px after the + button, not ${TEXT_GAP} px`);

@@ -32,6 +32,8 @@ use std::sync::Arc;
 
 pub use portable_pty::{Child, ChildKiller, ExitStatus, MasterPty, PtySize};
 
+#[cfg(any(windows, test))]
+mod console_ctrl_c;
 #[cfg(all(test, unix))]
 mod env_tests;
 #[cfg(target_vendor = "apple")]
@@ -115,19 +117,33 @@ fn is_capacity_exhaustion(error: &io::Error) -> bool {
     matches!(error.kind(), io::ErrorKind::WouldBlock | io::ErrorKind::OutOfMemory)
 }
 
-/// Environment keys no cmux terminal child may see, whatever the daemon
-/// inherited or a caller passed. Every path that starts a terminal child
-/// applies these: pass them to [`PtyCommand::env_remove`] after the command's
-/// own values, or drop them from a spelled-out environment map.
+/// The terminal identity every cmux terminal child gets, whatever the daemon
+/// inherited or a caller passed: `echo $TERM_PROGRAM` says `cmux`, and
+/// `TERM_PROGRAM_VERSION` is cmux's version (the workspace version every
+/// bundled CLI carries). Every path that starts a terminal child sets these
+/// after the command's own values ([`PtyCommand::env`] or the spelled-out
+/// environment map), so they win over a daemon that started with Ghostty's
+/// identity (a Cloud daemon) and over an older app's launch env.
 ///
-/// `TERM_PROGRAM_VERSION`: cmux keeps `TERM_PROGRAM=ghostty` so a child
-/// detects a Ghostty-class terminal, but cmux forwards a full-screen TUI's
-/// mouse reports instead of providing Ghostty's native selection, so a child
-/// that reads a Ghostty version turns its own copy-on-select drag fallback
-/// off (cmux#22585: Codex and Claude lose drag-to-copy). The daemon's own
-/// environment carries it (`cmux-host::daemon_spec`), which is why every
-/// child path has to drop it rather than merely not set it.
-pub const UNSET_IN_TERMINAL_CHILDREN: &[&str] = &["TERM_PROGRAM_VERSION"];
+/// `TERM` stays `xterm-256color` (or the opted-in `xterm-ghostty`), and
+/// `COLORTERM=truecolor` and `GHOSTTY_RESOURCES_DIR` stay as they were, so
+/// programs that query the terminal (XTVERSION still answers `ghostty`, the
+/// kitty keyboard protocol, synchronized output) or read those keep working.
+/// Claude Code and Codex key Ghostty features on `TERM_PROGRAM=ghostty`, and a
+/// Ghostty version turns off their copy-on-select fallback (cmux#22585), so
+/// their wrappers start them with `TERM_PROGRAM=ghostty` and no version
+/// (`cmux-tui` `agent_terminal_identity`).
+pub const TERMINAL_IDENTITY: [(&str, &str); 2] =
+    [("TERM_PROGRAM", "cmux"), ("TERM_PROGRAM_VERSION", env!("CARGO_PKG_VERSION"))];
+
+impl PtyCommand {
+    /// Sets [`TERMINAL_IDENTITY`] on this command, over any earlier value.
+    pub fn terminal_identity(&mut self) {
+        for (key, value) in TERMINAL_IDENTITY {
+            self.env(key, value);
+        }
+    }
+}
 
 /// The subset of process configuration needed by both cmux PTY runtimes.
 #[derive(Debug, Clone)]
@@ -306,6 +322,12 @@ mod platform {
         for key in command.removed_environment {
             builder.env_remove(key);
         }
+        // The child inherits the spawning process's ignore-Ctrl+C attribute,
+        // which a CREATE_NEW_PROCESS_GROUP start sets; clear it so Ctrl+C in
+        // the terminal reaches the child (console_ctrl_c.rs).
+        super::console_ctrl_c::set_for_the_next_child().map_err(|error| {
+            anyhow::anyhow!("failed to let the terminal's child process Ctrl+C: {error}")
+        })?;
         let child = slave.0.spawn_command(builder)?;
         Ok(Box::new(super::windows_jobs::JobChild::new(child)))
     }
@@ -431,6 +453,40 @@ mod tests {
             assert!(error.to_string().contains("PTY capacity exhausted"));
             assert!(error.source().is_some());
         }
+    }
+
+    /// Restoring a session opens many PTYs at the same moment (170 kept agent
+    /// terminals after an app update). macOS refuses a PTY master open for a
+    /// moment under such a burst (`posix_openpt` fails with -6, a
+    /// kernel-internal code; 44 of 64 opens on macOS 26.5.2, 24 of 60 on
+    /// 27.0.1), far below `kern.tty.ptmx_max`. Every open must succeed.
+    #[test]
+    fn ptys_opened_at_the_same_moment_all_open() {
+        const OPENS: usize = 64;
+        let start = std::sync::Barrier::new(OPENS);
+        let size = PtySize { rows: 24, cols: 80, pixel_width: 0, pixel_height: 0 };
+        let failures = std::thread::scope(|scope| {
+            let workers = (0..OPENS)
+                .map(|_| {
+                    scope.spawn(|| {
+                        start.wait();
+                        open(size).map_err(|error| format!("{error:#}"))
+                    })
+                })
+                .collect::<Vec<_>>();
+            // Every pair stays open until the last open ended.
+            let opened = workers
+                .into_iter()
+                .map(|worker| worker.join().expect("an open panicked"))
+                .collect::<Vec<_>>();
+            opened.iter().filter_map(|pair| pair.as_ref().err().cloned()).collect::<Vec<_>>()
+        });
+        assert!(
+            failures.is_empty(),
+            "{} of {OPENS} PTYs opened at the same moment did not open: {}",
+            failures.len(),
+            failures[0]
+        );
     }
 
     #[test]
@@ -575,5 +631,109 @@ mod tests {
             "seccomp filter installation failed: {}",
             io::Error::last_os_error()
         );
+    }
+}
+
+#[cfg(all(test, windows))]
+mod windows_tests {
+    use std::io::{Read, Write};
+    use std::sync::mpsc::{self, RecvTimeoutError};
+    use std::time::{Duration, Instant};
+
+    use super::*;
+
+    const NAME: &str = "windows_tests::a_pty_child_processes_ctrl_c_from_a_spawner_that_ignores_it";
+    const PROBE: &str = "CMUX_PTY_CTRL_C_PROBE";
+    const SLEEPER: &str = "CMUX_PTY_CTRL_C_SLEEPER";
+    /// The exit code of a process the default Ctrl+C handler ended.
+    const STATUS_CONTROL_C_EXIT: u32 = 0xC000_013A;
+
+    /// A 0x03 written to the terminal ends its child even when the spawning
+    /// process ignores Ctrl+C. The probe runs in a re-executed copy of this
+    /// test binary started the way the terminal owner starts
+    /// (`DETACHED_PROCESS | CREATE_NEW_PROCESS_GROUP`, local_owner.rs), which
+    /// sets its ignore-Ctrl+C attribute. Its PTY child is a third copy that
+    /// prints a line and sleeps with the default Ctrl+C handler; before the
+    /// fix it inherited the attribute and slept on.
+    #[test]
+    fn a_pty_child_processes_ctrl_c_from_a_spawner_that_ignores_it()
+    -> Result<(), Box<dyn std::error::Error>> {
+        if std::env::var_os(SLEEPER).is_some() {
+            println!("sleeper-ready");
+            std::thread::sleep(Duration::from_secs(60));
+            return Ok(());
+        }
+        if std::env::var_os(PROBE).is_some() {
+            println!("probe: {}", interrupt_a_pty_child()?);
+            return Ok(());
+        }
+        const DETACHED_PROCESS: u32 = 0x0000_0008;
+        const CREATE_NEW_PROCESS_GROUP: u32 = 0x0000_0200;
+        let output = cmux_process::Command::new(std::env::current_exe()?)
+            .args(["--exact", NAME, "--nocapture", "--test-threads=1"])
+            .env(PROBE, "1")
+            .creation_flags(DETACHED_PROCESS | CREATE_NEW_PROCESS_GROUP)
+            .output()?;
+        let stdout = String::from_utf8_lossy(&output.stdout);
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        let line = stdout
+            .lines()
+            .find_map(|line| line.split("probe: ").nth(1))
+            .ok_or_else(|| format!("the probe reported nothing: {stdout}{stderr}"))?;
+        assert_eq!(line.trim(), format!("exited {STATUS_CONTROL_C_EXIT:#x}"), "{stdout}{stderr}");
+        Ok(())
+    }
+
+    /// Spawn the sleeper on a PTY, write 0x03 once it is ready, and say how
+    /// it ended.
+    fn interrupt_a_pty_child() -> Result<String, Box<dyn std::error::Error>> {
+        let pair = open(PtySize { rows: 24, cols: 120, pixel_width: 0, pixel_height: 0 })?;
+        let mut command = PtyCommand::new(std::env::current_exe()?.to_string_lossy());
+        command.args(["--exact", NAME, "--nocapture", "--test-threads=1"]);
+        command.env(SLEEPER, "1");
+        let mut spawned = pair.spawn(command)?;
+        let mut reader = spawned.master.try_clone_reader()?;
+        let mut writer = spawned.master.take_writer()?;
+        let (sender, chunks) = mpsc::channel();
+        std::thread::Builder::new().name("ctrl-c-reader".into()).spawn(move || {
+            let mut buffer = [0u8; 4096];
+            while let Ok(count) = reader.read(&mut buffer) {
+                if count == 0 || sender.send(buffer[..count].to_vec()).is_err() {
+                    break;
+                }
+            }
+        })?;
+        let deadline = Instant::now() + Duration::from_secs(30);
+        let mut output = Vec::new();
+        let (mut answered, mut interrupted) = (false, false);
+        while Instant::now() < deadline {
+            if let Some(status) = spawned.child.try_wait()? {
+                return Ok(format!("exited {:#x}", status.exit_code()));
+            }
+            match chunks.recv_timeout(Duration::from_millis(100)) {
+                Ok(chunk) => output.extend_from_slice(&chunk),
+                Err(RecvTimeoutError::Timeout) => {}
+                Err(RecvTimeoutError::Disconnected) => {
+                    let status = spawned.child.wait()?;
+                    return Ok(format!("output closed, then exited {:#x}", status.exit_code()));
+                }
+            }
+            let text = String::from_utf8_lossy(&output);
+            // portable-pty's PSEUDOCONSOLE_INHERIT_CURSOR asks the terminal
+            // for the cursor position first; answer as a terminal would.
+            if !answered && text.contains("\x1b[6n") {
+                writer.write_all(b"\x1b[1;1R")?;
+                writer.flush()?;
+                answered = true;
+            }
+            if !interrupted && text.contains("sleeper-ready") {
+                writer.write_all(b"\x03")?;
+                writer.flush()?;
+                interrupted = true;
+            }
+        }
+        spawned.child.kill()?;
+        let text = String::from_utf8_lossy(&output).escape_debug().to_string();
+        Ok(format!("still running after 30 s (0x03 written: {interrupted}): {text}"))
     }
 }

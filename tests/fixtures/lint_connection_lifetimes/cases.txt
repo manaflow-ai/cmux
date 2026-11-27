@@ -1,0 +1,327 @@
+# Fixtures for tests/test_lint_connection_lifetimes.py (scripts/lint-connection-lifetimes.py).
+# Kept out of the test's .py source so the test-determinism gate does not read these snippets as test code.
+# A block: `=== NAME LANG EXPECT` then its source, to the next `===`. LANG is rs, ts or swift; EXPECT is
+# RULE:LINE,... (the hits the lint must report) or `-` for none.
+
+=== scope_cfg_test_comments_strings rs R1:7
+#[cfg(test)]
+mod tests {
+    async fn t() { let s = tokio::net::TcpStream::connect(a).await; }
+}
+// TcpStream::connect(addr) in a comment
+const S: &str = "TcpStream::connect(addr)";
+fn after() { let s = std::net::TcpStream::connect(a); }
+
+=== r1_tcp rs R1:2
+async fn f() {
+    let s = TcpStream::connect(addr).await?;
+}
+
+=== r1_unix rs R1:2
+fn f() {
+    let s = UnixStream::connect(&path)?;
+    s.write_all(b)?;
+}
+
+=== r1_connect_async rs R1:2
+async fn f() {
+    let (ws, _) = tokio_tungstenite::connect_async(req).await?;
+}
+
+=== r1_reqwest_new rs R1:2
+fn f() {
+    let c = reqwest::Client::new();
+}
+
+=== r1_reqwest_builder_imported rs R1:3
+use reqwest::Client;
+fn f() {
+    let c = Client::builder().build()?;
+}
+
+=== r1_ok_wrapped rs -
+async fn f() {
+    let s = tokio::time::timeout(CONNECT, TcpStream::connect(addr)).await??;
+}
+
+=== r1_ok_multiline rs -
+async fn f() {
+    let s = timeout(
+        CONNECT,
+        UnixStream::connect(&p),
+    ).await;
+}
+
+=== r1_ok_read_timeout rs -
+fn f() {
+    let s = UnixStream::connect(&p)?;
+    s.set_read_timeout(Some(T))?;
+}
+
+=== r1_ok_client_timeout rs -
+fn f() {
+    let c = reqwest::Client::builder()
+        .connect_timeout(T)
+        .build()?;
+}
+
+=== r1_ok_not_reqwest rs -
+fn f() {
+    let c = Client::new();
+}
+
+=== r1_ok_marked_above rs -
+fn f() {
+    // lifetime-ok: a local socket the daemon owns; reads are bounded by the caller
+    let s = UnixStream::connect(&p)?;
+}
+
+=== r1_ok_marked_inline rs -
+fn f() {
+    let s = UnixStream::connect(&p)?; // lifetime-ok: probe only
+}
+
+=== r2_spawn rs R2:2
+fn f() {
+    let child = Command::new("x").arg("y").spawn()?;
+    Ok(child)
+}
+
+=== r2_waited_no_group rs R2:2
+fn f() {
+    let mut c = Command::new("x");
+    let mut child = c.spawn()?;
+    child.wait()?;
+}
+
+=== r2_ok_kill_on_drop rs -
+async fn f() {
+    let child = tokio::process::Command::new("x")
+        .kill_on_drop(true)
+        .spawn()?;
+}
+
+=== r2_ok_group_waited rs -
+fn f() {
+    let mut c = Command::new("x");
+    c.process_group(0);
+    let mut child = c.spawn()?;
+    let status = child.wait()?;
+}
+
+=== r2_ok_output rs -
+fn f() {
+    let out = Command::new("git").arg("x").output()?;
+}
+
+=== r2_ok_scope_ends_at_fn rs -
+fn build() -> Command {
+    Command::new("x")
+}
+fn other() {
+    let child = make().spawn();
+}
+
+=== r3_statement rs R3:2
+fn f() {
+    tokio::spawn(async move {
+        work().await;
+    });
+}
+
+=== r3_let_underscore rs R3:2
+fn f() {
+    let _ = tokio::spawn(work());
+}
+
+=== r3_imported_spawn_local rs R3:3
+use tokio::task::spawn_local;
+fn f() {
+    spawn_local(async { work().await });
+}
+
+=== r3_ok_aborted rs -
+fn f() {
+    let h = tokio::spawn(work());
+    h.abort();
+}
+
+=== r3_ok_returned rs -
+fn f() -> JoinHandle<()> {
+    tokio::spawn(work())
+}
+
+=== r3_ok_pushed rs -
+fn f() {
+    handles.push(tokio::spawn(work()));
+}
+
+=== r3_ok_token rs -
+fn f(token: CancellationToken) {
+    tokio::spawn(async move {
+        tokio::select! { _ = token.cancelled() => {}, _ = work() => {} }
+    });
+}
+
+=== r3_ok_not_tokio rs -
+fn f() {
+    spawn(async { work().await });
+}
+
+=== r4_interval_unkept ts R4:2
+export function start() {
+  setInterval(tick, 1000);
+}
+
+=== r4_timeout_unkept ts R4:2
+export function start() {
+  window.setTimeout(() => refresh(), 5000);
+}
+
+=== r4_interval_never_cleared ts R4:2
+export function start() {
+  const id = setInterval(tick, 1000);
+}
+
+=== r4_ok_cleared ts -
+useEffect(() => {
+  const id = setInterval(tick, 1000);
+  return () => clearInterval(id);
+}, []);
+
+=== r4_ok_ref_cleared ts -
+timer.current = window.setTimeout(save, 2000);
+export const stop = () => window.clearTimeout(timer.current);
+
+=== r4_ok_zero_delay ts -
+export function later() {
+  setTimeout(() => focus(), 0);
+}
+
+=== r4_ok_no_delay ts -
+export function later() {
+  setTimeout(() => focus());
+}
+
+=== r4_ok_sleep_helper ts -
+export async function sleep(ms: number) {
+  await new Promise((r) => setTimeout(r, ms));
+}
+
+=== r4_socket_unhandled ts R4:2
+export function open(url: string) {
+  const ws = new WebSocket(url);
+  ws.onmessage = (e) => handle(e);
+}
+
+=== r4_ok_socket_handled ts -
+export function open(url: string) {
+  const ws = new WebSocket(url);
+  ws.addEventListener('close', reconnect);
+  return () => ws.close();
+}
+
+=== r4_ok_event_source ts -
+const es = new EventSource(url);
+es.onerror = () => es.close();
+
+=== r5_rust_unbounded rs R5:2
+async fn wait_ready() {
+    loop {
+        if ready().await { break; }
+        tokio::time::sleep(Duration::from_millis(100)).await;
+    }
+}
+
+=== r5_ts_unbounded ts R5:2
+export async function waitReady() {
+  while (true) {
+    if (await ready()) return;
+    await sleep(100);
+  }
+}
+
+=== r5_ok_rust_deadline rs -
+async fn wait_ready() {
+    let deadline = Instant::now() + WAIT;
+    loop {
+        if ready().await { break; }
+        if Instant::now() > deadline { return; }
+        sleep(Duration::from_millis(100)).await;
+    }
+}
+
+=== r5_ok_periodic rs -
+async fn ticker() {
+    loop {
+        sleep(PERIOD).await;
+        refresh().await;
+    }
+}
+
+=== r5_ok_ts_signal ts -
+export async function waitReady(signal: AbortSignal) {
+  while (true) {
+    if (signal.aborted || (await ready())) return;
+    await sleep(100);
+  }
+}
+
+=== r6_socket_and_process swift R6:2,R6:3
+func open() {
+    let task = session.webSocketTask(with: request)
+    let p = Process()
+    try p.run()
+}
+
+=== r6_ok_pinged_terminated swift -
+func open() {
+    let task = session.webSocketTask(with: request)
+    task.sendPing { _ in }
+    let p = Process()
+    onCancel { p.terminate() }
+}
+
+=== r6_ok_wakeup_allow swift -
+func open() {
+    // wakeup-allow: the server pings us every 20 s
+    let task = session.webSocketTask(with: r)
+}
+
+=== r6_ok_async_process swift -
+let x = AsyncProcess()
+
+=== baseline_two_opens rs R1:2,R1:3
+fn f() {
+    let s = UnixStream::connect(&p)?;
+    let t = TcpStream::connect(a)?;
+}
+
+=== baseline_one_fixed_one_new rs R1:2,R1:3
+fn f() {
+    let s = UnixStream::connect(&p)?;
+    let c = reqwest::Client::new();
+}
+
+=== baseline_one rs R1:2
+fn f() {
+    let s = UnixStream::connect(&p)?;
+}
+
+=== baseline_one_moved rs R1:4
+// moved
+
+fn f() {
+        let s = UnixStream::connect(&p)?;
+}
+
+=== baseline_twice rs R1:2,R1:5
+fn f() {
+    let s = UnixStream::connect(&p)?;
+}
+fn g() {
+    let s = UnixStream::connect(&p)?;
+}
+
+=== baseline_fixed rs -
+fn f() {}

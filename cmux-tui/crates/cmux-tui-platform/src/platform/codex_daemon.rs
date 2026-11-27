@@ -58,7 +58,7 @@ fn process_arguments(pid: u32) -> Option<Vec<String>> {
 
 #[cfg(target_os = "linux")]
 fn parent_process_id(pid: u32) -> Option<u32> {
-    let stat = std::fs::read_to_string(format!("/proc/{pid}/stat")).ok()?;
+    let stat = crate::process_resources::stat_line(format!("/proc/{pid}/stat")).ok()?;
     // Fields after the parenthesized command name are state(3) ppid(4).
     let fields = stat.get(stat.rfind(')')? + 1..)?;
     fields.split_whitespace().nth(1)?.parse().ok()
@@ -146,31 +146,5 @@ fn parent_process_id(_pid: u32) -> Option<u32> {
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-    #[test]
-    fn codex_app_server_daemon_is_recognized_only_by_its_daemon_argv() {
-        let argv = |args: &[&str]| args.iter().map(|arg| (*arg).to_owned()).collect::<Vec<_>>();
-        assert!(is_codex_app_server_daemon(&argv(&[
-            "/home/me/.codex/packages/app-server-daemon/releases/0.162.1/bin/codex",
-            "app-server",
-            "--listen",
-            "unix://",
-            "--analytics-default-enabled",
-            "--managed-daemon",
-        ])));
-        // An older managed binary without the startup flag.
-        assert!(is_codex_app_server_daemon(&argv(&[
-            "/home/me/.codex/packages/app-server-daemon/releases/0.161.0/bin/codex",
-            "app-server",
-            "--listen",
-            "unix://",
-        ])));
-        // The embedded TUI, an editor's own app-server, and a prompt that
-        // merely mentions the words.
-        assert!(!is_codex_app_server_daemon(&argv(&["codex", "--enable", "hooks", "-c", "x=1"])));
-        assert!(!is_codex_app_server_daemon(&argv(&["/opt/codex", "app-server"])));
-        assert!(!is_codex_app_server_daemon(&argv(&["app-server", "--managed-daemon"])));
-        assert!(!is_codex_app_server_daemon(&argv(&["codex", "explain app-server"])));
-    }
-}
+#[path = "codex_daemon_tests.rs"]
+mod tests;

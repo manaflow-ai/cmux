@@ -19,6 +19,7 @@ import argparse, json, os, plistlib, signal, socket, subprocess, sys, tempfile, 
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from tag_teardown import TagTeardown  # noqa: E402
+from safe_log import safe_print  # noqa: E402  (a line before a kill never skips the kill)
 
 parser = argparse.ArgumentParser()
 parser.add_argument("--app", required=True)
@@ -132,11 +133,25 @@ try:
     streamed = wait(streaming, 90)
     step("Connect streams the VNC host: frames show in the pane", streamed, {"connect": report["connect"], "tabs": tabs()})
     if streamed:
-        time.sleep(2)  # let the animated demo advance a few frames before the capture
+        # Capture once the animated demo has advanced: a fresh window snapshot differs from the first.
+        probe = os.path.join(opts.out, "vnc-advance-probe.png")
+
+        def window_bytes():
+            rpc("debug.window_snapshot", {"kind": "main", "path": probe})
+            try:
+                with open(probe, "rb") as f:
+                    return f.read()
+            except OSError:
+                return None
+
+        first_frame = window_bytes()
+        advanced = first_frame is not None and wait(lambda: (lambda b: b is not None and b != first_frame)(window_bytes()), 10)
+        if not advanced:
+            safe_print("note: the VNC demo frame did not visibly advance within 10 s; capturing anyway", flush=True)
     rpc("debug.window_snapshot", {"kind": "main", "path": os.path.join(opts.out, "vnc-desktop.png")})
 finally:
     report["final_state"] = tabs()
-    print("quit", rpc("action.run", {"id": "quitEndSessions"}), flush=True)
+    safe_print("quit", rpc("action.run", {"id": "quitEndSessions"}), flush=True)
     try:
         app.wait(30)
     except subprocess.TimeoutExpired:

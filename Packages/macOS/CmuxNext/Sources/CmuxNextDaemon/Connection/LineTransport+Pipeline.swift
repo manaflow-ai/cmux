@@ -48,30 +48,53 @@ extension LineTransport {
     /// their replies: requests that do not depend on each other's answers
     /// cost one daemon round trip together instead of one each. The daemon
     /// starts commands serially per connection, so they run in this order.
-    /// One deadline covers the group; each result is that request's reply
+    /// One deadline (silence on the connection, ``TransportProgress``) covers the group; each result is that request's reply
     /// or error, in request order.
     func pipeline(_ lines: [PipelinedLine], timeout: Duration?) async -> [Result<Response, any Error>] {
         var slots: [ReplySlot] = []
         var ids: [UInt64] = []
+        // The lines as sent, for the slow request log's ids (``SlowRequestLog/idKeys``); empty without a log.
+        var sentLines: [Data?] = []
+        let sent = slowLog == nil ? 0 : uptime()
         for line in lines {
             let slot = ReplySlot()
             slots.append(slot)
+            var kept: Data?
             // A failed submit resolved the slot already.
-            if case .success(let id) = submit(.reply(cmd: line.cmd, slot), line.body) { ids.append(id) }
+            if case .success(let id) = submit(.reply(cmd: line.cmd, slot), { id in
+                let encoded = try line.body(id)
+                if slowLog != nil, encoded.count <= SlowRequestLog.maxKeptLineBytes { kept = encoded }
+                return encoded
+            }) { ids.append(id) }
+            if slowLog != nil { sentLines.append(kept) }
         }
         let timer = DemandTimer(owner: "LineTransport.deadline")
         defer { timer.cancel() }
         if let timeout, !ids.isEmpty {
-            timer.schedule(after: timeout) { [weak self, ids] in
+            progress.arm(timer, quiet: timeout) { [weak self, ids] in
                 for id in ids { self?.expire(id: id, after: timeout) }
             }
         }
         var results: [Result<Response, any Error>] = []
-        for slot in slots {
+        for (index, slot) in slots.enumerated() {
+            let result: Result<Response, any Error>
             do {
-                results.append(.success(try await slot.value()))
+                result = .success(try await slot.value())
             } catch {
-                results.append(.failure(error))
+                result = .failure(error)
+            }
+            results.append(result)
+            guard let slowLog, let line = lines.dropFirst(index).first else { continue }
+            // Every line was written at `sent`; this one's reply (or failure) is here now.
+            let waited = uptime() &- sent
+            switch result {
+            case .success(let response) where waited > SlowRequestLog.slowNanoseconds:
+                slowLog.noteRequest(name: line.cmd, line: sentLines.dropFirst(index).first ?? nil, nanoseconds: waited,
+                                    replyBytes: response.line.count, timeout: timeout, failure: nil)
+            case .success: break
+            case .failure(let error):
+                slowLog.noteRequest(name: line.cmd, line: sentLines.dropFirst(index).first ?? nil, nanoseconds: waited,
+                                    replyBytes: nil, timeout: timeout, failure: error)
             }
         }
         return results

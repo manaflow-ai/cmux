@@ -32,7 +32,7 @@ pub(crate) fn is_loopback(host: &str) -> bool {
         || (host.len() > 10
             && host
                 .as_bytes()
-                .get(host.len() - 10..)
+                .get(host.len().saturating_sub(10)..)
                 .is_some_and(|end| end.eq_ignore_ascii_case(b".localhost")))
         || host.starts_with("127.")
         || matches!(host, "::1" | "0.0.0.0" | "0" | "::" | "0:0:0:0:0:0:0:1" | "::ffff:127.0.0.1")

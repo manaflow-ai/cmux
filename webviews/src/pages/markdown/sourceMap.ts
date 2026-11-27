@@ -87,6 +87,81 @@ function rawKindOf(source: string): RawKind {
 }
 
 /**
+ * A list item indented this far. The parser's list handling grows with about the cube of the
+ * nesting (bench/markdown-viewer-stress.bench.ts: 100 levels 81 ms, 300 levels 1.1 s, 1,000 levels
+ * 45 s, and then a stack overflow drawing it), so a list this deep shows as its source instead.
+ */
+const DEEP_LIST_LINE = /^[ \t]{128,}(?:[-*+]|\d{1,9}[.)])(?:[ \t]|$)/m;
+
+/**
+ * The run of `text` around its first too-deep list item: between the top-level block starts (a line
+ * at column 0 after a blank line, or the text's ends) before and after it. A later too-deep item
+ * past that end is the next run (parseSourceMap finds it in the rest). Null when no item is that
+ * deep.
+ */
+function deepListRegion(text: string): { start: number; end: number } | null {
+  const first = DEEP_LIST_LINE.exec(text);
+  if (!first) return null;
+  const TOP = /\n[ \t]*\r?\n(?=[^ \t\r\n])/g;
+  let start = 0;
+  let end = text.length;
+  for (let match = TOP.exec(text); match; match = TOP.exec(text)) {
+    const at = match.index + match[0].length;
+    if (at <= first.index) start = at;
+    else {
+      end = at;
+      break;
+    }
+  }
+  return { start, end };
+}
+
+/** `blocks` of a slice of a text, at their offsets in the text (the slice starts at `by`). */
+function shiftBlocks(blocks: readonly SourceBlock[], by: number): SourceBlock[] {
+  return by === 0 ? [...blocks] : blocks.map((block) => ({ ...block, start: block.start + by, end: block.end + by }));
+}
+
+/**
+ * A reference or footnote definition line anywhere in a text. Such a text is parsed whole: a
+ * definition resolves links in blocks before it, which `reparseTail` would keep.
+ */
+export const DEFINITION_LINE = /^ {0,3}\[[^\]\n]+\]:/m;
+
+/**
+ * The blocks of `text` from the first one a change can reach, parsed again. `previous` holds the
+ * blocks of an earlier text whose first `same` characters `text` shares (a file appended to, or the
+ * next slice of a long file). Every block that ends before `same` is final except the last of
+ * them: a block's lines are decided by the lines before them, and that last block is parsed again
+ * because the change may continue it (a setext underline under a paragraph, an indented paragraph
+ * that joins a list item, an unclosed fence). Returns how many of `previous` stay and the blocks
+ * after them, at their offsets in `text`. The caller parses a text with definitions
+ * (DEFINITION_LINE) whole instead.
+ */
+export function reparseTail(
+  previous: readonly SourceBlock[],
+  text: string,
+  same: number,
+  remark: RemarkLike,
+  build: BuildNodes,
+  raw: (kind: RawKind, value: string) => ProseNode,
+): { kept: number; tail: SourceBlock[] } {
+  // Blocks are in order, so those ending before `same` are a prefix: binary search its length.
+  let lo = 0;
+  let hi = previous.length;
+  while (lo < hi) {
+    const mid = (lo + hi) >> 1;
+    if (previous[mid]!.end < same) lo = mid + 1;
+    else hi = mid;
+  }
+  const kept = Math.max(0, lo - 1);
+  // Front matter is only ever the first block, so with nothing kept the whole text parses again.
+  if (kept === 0) return { kept: 0, tail: [...parseSourceMap(text, remark, build, raw).blocks] };
+  const from = previous[kept - 1]!.end;
+  const tail = parseSourceMap(text.slice(from), remark, build, raw, { frontMatter: false });
+  return { kept, tail: shiftBlocks(tail.blocks, from) };
+}
+
+/**
  * Splits `text` into blocks: front matter, then remark's top-level nodes, with any uncovered
  * non-whitespace text as raw blocks. HTML blocks and definitions are raw blocks too (Milkdown has
  * no block node for either: it wraps HTML in a paragraph and inlines reference links).
@@ -96,9 +171,24 @@ export function parseSourceMap(
   remark: RemarkLike,
   build: BuildNodes,
   raw: (kind: RawKind, value: string) => ProseNode,
+  { frontMatter = true }: { frontMatter?: boolean } = {},
 ): SourceMap {
+  const deep = deepListRegion(text);
+  if (deep) {
+    // Before the deep list, the list itself as source, then the rest (which may hold another).
+    const before = parseSourceMap(text.slice(0, deep.start), remark, build, raw, { frontMatter });
+    const source = text.slice(deep.start, deep.end).trimEnd();
+    const after = parseSourceMap(text.slice(deep.end), remark, build, raw, { frontMatter: false });
+    const blocks: SourceBlock[] = [...before.blocks];
+    if (source.trim()) {
+      const start = deep.start + (source.length - source.trimStart().length);
+      blocks.push({ start, end: deep.start + source.length, nodes: [raw("source", source.trim())] });
+    }
+    blocks.push(...shiftBlocks(after.blocks, deep.end));
+    return { text, blocks };
+  }
   const blocks: SourceBlock[] = [];
-  const fmLength = frontMatterLength(text);
+  const fmLength = frontMatter ? frontMatterLength(text) : 0;
   if (fmLength > 0) {
     const source = text.slice(0, fmLength).replace(/\r?\n$/, "");
     blocks.push({ start: 0, end: source.length, nodes: [raw("frontmatter", splitFrontMatter(source).body)] });
@@ -232,10 +322,13 @@ function sameMarks(a: ProseNode, b: ProseNode): boolean {
   return a.marks.every((mark, index) => mark.eq(b.marks[index]));
 }
 
+/** The largest LCS table alignNodes builds (4 MB of cells, a few ms). */
+const LCS_MAX_CELLS = 1 << 20;
+
 /**
  * Matches baseline nodes to current nodes in order (longest common subsequence by `sameBlock`,
- * after the common prefix and suffix). Returns, for each current node, the baseline index it
- * matches, or -1.
+ * after the common prefix and suffix; by node identity when that table would pass LCS_MAX_CELLS).
+ * Returns, for each current node, the baseline index it matches, or -1.
  */
 export function alignNodes(baseline: readonly ProseNode[], current: readonly ProseNode[]): number[] {
   const match = Array.from({ length: current.length }, () => -1);
@@ -256,6 +349,36 @@ export function alignNodes(baseline: readonly ProseNode[], current: readonly Pro
   const b = baseline.slice(prefix, baseline.length - suffix);
   const c = current.slice(prefix, current.length - suffix);
   if (b.length === 0 || c.length === 0) return match;
+  // Edits at both ends of a long file make the middle the whole file, and its table blocks x blocks:
+  // 10 GB for 50,000 blocks. Past LCS_MAX_CELLS the middle matches by node identity instead, in one
+  // pass: the editor keeps the node object of every block the user did not touch. The longest
+  // increasing run of those matches (n log n) keeps every block but the moved ones.
+  if (b.length * c.length > LCS_MAX_CELLS) {
+    const baseAt = new Map<ProseNode, number>();
+    b.forEach((node, i) => baseAt.set(node, i));
+    const pairs: { i: number; j: number }[] = [];
+    c.forEach((node, j) => {
+      const i = baseAt.get(node);
+      if (i !== undefined) pairs.push({ i, j });
+    });
+    // Patience: tails[k] is the pair ending the best run of length k + 1; back links rebuild it.
+    const tails: number[] = [];
+    const back = new Int32Array(pairs.length).fill(-1);
+    pairs.forEach(({ i }, p) => {
+      let lo = 0;
+      let hi = tails.length;
+      while (lo < hi) {
+        const mid = (lo + hi) >> 1;
+        if (pairs[tails[mid]].i < i) lo = mid + 1;
+        else hi = mid;
+      }
+      if (lo > 0) back[p] = tails[lo - 1];
+      tails[lo] = p;
+    });
+    for (let p = tails.length ? tails[tails.length - 1] : -1; p >= 0; p = back[p])
+      match[prefix + pairs[p].j] = prefix + pairs[p].i;
+    return match;
+  }
   // LCS table over the middle. Middles are small (the edits since the last save).
   const rows = b.length + 1;
   const cols = c.length + 1;
@@ -313,10 +436,17 @@ export function serializeWithSourceMap(
     firstNode.push(offset);
     offset += block.nodes.length;
   }
+  // Where each baseline node is in the current document: one pass, not an `indexOf` per block
+  // (that was quadratic in the blocks: seconds per save of a 1 MB file).
+  const currentAt = new Int32Array(baseline.length).fill(-1);
+  match.forEach((base, at) => {
+    if (base >= 0) currentAt[base] = at;
+  });
   const intactAt = new Map<number, number>();
   map.blocks.forEach((block, index) => {
     const first = firstNode[index];
-    const at = match.indexOf(first);
+    if (block.nodes.length === 0) return;
+    const at = currentAt[first];
     if (at < 0) return;
     for (let k = 1; k < block.nodes.length; k++) if (match[at + k] !== first + k) return;
     intactAt.set(at, index);

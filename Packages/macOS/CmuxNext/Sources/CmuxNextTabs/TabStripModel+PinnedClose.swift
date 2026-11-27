@@ -1,7 +1,7 @@
 /// What the user's Cmd-W does to a tab.
 public enum TabKeyboardClose: Hashable, Sendable {
     /// Close the tab, pinned or not, as Chrome's Cmd-W does (cmux-ad i8). The close then selects
-    /// by the one close rule (``FocusAfterClose/tab(selected:old:surviving:shown:)``).
+    /// by the one close-selection rule (``TabStripModel/closeSuccessor``).
     case close
     /// Keep a tab that cannot close (Home's tab) and select this tab instead.
     case select(TabID)

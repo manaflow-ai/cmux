@@ -11,7 +11,7 @@ import Testing
 /// Leo, 2026-11-06, on NIGHTLY: "The bottom import is unthemed." The neutral gray glass and the
 /// browser's plain gray text buttons ignored the app theme, where the browser's other prompts (the
 /// prompt bar, notices, the cookie consent panel) draw the theme's glass tint. The banner takes the
-/// theme's glass and the app's standard dialog buttons: Import in the theme's accent, Not Now in its gray.
+/// theme's glass and the app's standard dialog buttons: Import in the theme's accent, Not now in its gray.
 ///
 /// Leo, 2026-11-07: "This thing, um, this looks kind of ugly, to be honest. Like this isn't styled
 /// well." Its lines and answers are a React page on the design scale (webviews/src/pages/cookie-import;
@@ -34,8 +34,8 @@ import Testing
         func send(_ kind: String, _ params: [String: Any]) { onMessage?(kind, params) }
     }
 
-    static let offer = BrowserCookieImportOffer(icons: [], title: "Import cookies from Google Chrome",
-                                                importTitle: "Import…", notNowTitle: "Not Now", neverTitle: "Don't Show Again")
+    static let offer = BrowserCookieImportOffer(icons: [], title: "Import sign-ins from Google Chrome",
+                                                importTitle: "Import…", notNowTitle: "Not now", neverTitle: "Never for Chrome")
 
     static func card(_ page: FakePage = FakePage(), offer: BrowserCookieImportOffer = offer) -> BrowserCookieImportCard {
         let card = BrowserCookieImportCard(offer: offer) { page }
@@ -49,11 +49,11 @@ import Testing
         let card = Self.card(page)
         let state = try #require(page.pushed.last)
         #expect(page.pushed.count == 1)
-        #expect(state["title"] as? String == "Import cookies from Google Chrome")
+        #expect(state["title"] as? String == "Import sign-ins from Google Chrome")
         #expect(state["detail"] == nil && state["keepInSyncTitle"] == nil, "one line: no detail, no Keep in sync")
         #expect(state["importTitle"] as? String == "Import…")
-        #expect(state["notNowTitle"] as? String == "Not Now")
-        #expect(state["neverTitle"] as? String == "Don't Show Again")
+        #expect(state["notNowTitle"] as? String == "Not now")
+        #expect(state["neverTitle"] as? String == "Never for Chrome")
         #expect(state["icon"] == nil, "an offer with no icon sends none")
         #expect(card.content != nil)
     }
@@ -112,13 +112,22 @@ import Testing
         #expect(card.content == nil)
     }
 
-    @Test func theCardIsTheToastSurfacesGlass() throws {
-        let glass = try #require(Self.card().glass)
-        let toast = Glass.makeSurface(.toast, cornerRadius: SurfaceRole.toast.cornerRadius, interactive: false)
-        #expect(glass.tone == SurfaceRole.toast.tone, "the window toasts' tone")
-        #expect(glass.cornerRadius == SurfaceRole.toast.cornerRadius)
+    /// Leo, 2026-11-24: "oh yeah the import from chrome popup/toast is there too...with yet another kind of
+    /// \"glass\"". The card drew the floating panels' clear Liquid Glass (gallery 1, no rim) while every
+    /// window toast draws the veil-tinted one with the rim (gallery 3, Debug Settings > Toasts); this test
+    /// compared it with `Glass.makeSurface(.toast)`, which is neither, so it never saw the two differ.
+    @Test func theCardIsTheWindowToastsGlass() throws {
+        let transparency = ReduceTransparency(system: { false }, changes: NotificationCenter())
+        let center = CmuxToastCenter(host: CmuxToastOverlayHost(reduceTransparency: transparency))
+        let card = BrowserCookieImportCard(offer: Self.offer, toastCenter: center, reduceTransparency: transparency) { FakePage() }
+        let glass = try #require(card.glass)
+        let toast = try #require(CmuxToastView(toast: CmuxToast(id: "saved", message: "Saved"), reduceTransparency: transparency,
+                                               tuning: center.tuning, style: center.style).surface)
+        #expect(glass.tone == toast.tone, "the window toasts' tone")
+        #expect(glass.glassVariant == toast.glassVariant, "the window toasts' glass (Debug Settings > Toasts)")
         #expect(glass.material == toast.material, "the window toasts' material on this Mac")
-        #expect(!glass.prefersBlurToLiquidGlass, "Liquid Glass where this Mac draws it, as the toasts on the same overlay host")
+        #expect((glass.rimView != nil) == (toast.rimView != nil), "the window toasts' rim")
+        #expect(glass.cornerRadius == SurfaceRole.toast.cornerRadius)
         #expect(glass.samplesBehindWindow, "the blur (macOS 14 and 15) samples the page behind the overlay window")
     }
 
@@ -129,15 +138,5 @@ import Testing
         #expect(!layer.masksToBounds)
         #expect(layer.shadowOpacity > 0)
         #expect(layer.shadowPath != nil)
-    }
-
-    @Test func aSurfaceThatPrefersTheBlurTakesItOverLiquidGlassButKeepsReduceTransparency() {
-        let clear = ReduceTransparency(system: { false }, changes: NotificationCenter())
-        let surface = OverlaySurfaceView(interactive: true, reduceTransparency: clear, tone: .neutralGlass(.dialog))
-        surface.prefersBlurToLiquidGlass = true
-        #expect(surface.material != .liquidGlass)
-        let opaque = OverlaySurfaceView(interactive: true, reduceTransparency: .alwaysOpaque, tone: .neutralGlass(.dialog))
-        opaque.prefersBlurToLiquidGlass = true
-        #expect(opaque.material == .opaque)
     }
 }

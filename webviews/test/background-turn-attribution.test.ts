@@ -4,7 +4,7 @@
 // how ive gradually pushed for more andd more of that a la deeplinks and communicating in acpmux)
 // and display the actual code in the raw or something"). acpmux names the task's call (`cause.origin`);
 // the page finds that call, or the shell's own background update when the call is a helper's.
-import { expect, test } from "bun:test";
+import { afterAll, beforeAll, expect, test } from "bun:test";
 import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { BackgroundTurnLine } from "../src/agent-session/acpmux/conversation/BackgroundTurnLine";
@@ -13,6 +13,15 @@ import { turnView } from "../src/agent-session/acpmux/conversation/turns";
 import type { AcpmuxRow } from "../src/agent-session/acpmux/model";
 import { SubagentNavContext } from "../src/agent-session/acpmux/subagents/subagentGroupModel";
 import { connect, fakeDaemon, record, type Step } from "./support/agentPairDaemon";
+
+// These pin the line look (backgroundTurnLook.experiment.ts `line`): the default draws a background
+// turn's calls inline, with no line (backgroundTurnInline.test.ts).
+beforeAll(() => {
+  globalThis.cmuxExperiments = { ...globalThis.cmuxExperiments, "background-turn-look": "line" };
+});
+afterAll(() => {
+  globalThis.cmuxExperiments = undefined;
+});
 
 const update = (update: Record<string, unknown>) => ({ method: "session/update", params: { update } });
 const say = (text: string): Step => [
@@ -54,7 +63,7 @@ const html = (row: AcpmuxRow) =>
     ),
   );
 
-test("a background turn's line shows the raw command of the task that started it", async () => {
+test("a background turn names the task that started it and retains the command for disclosure", async () => {
   const command = "cargo test -p acpmux --lib -- background_cause";
   const daemon = fakeDaemon(
     record([
@@ -76,12 +85,11 @@ test("a background turn's line shows the raw command of the task that started it
   const { client, rows } = await connect(daemon);
   try {
     const line = lineOf(rows());
-    expect(line.background?.source).toEqual({ command });
+    expect(line.background?.source).toEqual({ command, description: "Run the suite" });
     const drawn = html(line);
     expect(drawn).toContain("Background command failed (exit code 101)");
-    // The command as typed, in the code face, not its description.
-    expect(drawn).toContain(`<code class="cv-background-turn__command">${command}</code>`);
-    expect(drawn).not.toContain("Run the suite");
+    expect(drawn).toContain('<span class="cv-bgtask__title">Run the suite</span>');
+    expect(drawn).not.toContain(command);
   } finally {
     client.close();
   }
@@ -136,7 +144,8 @@ test("a helper's shell names that helper on the line, which opens it", async () 
     const drawn = html(line);
     expect(drawn).toContain("Explore flaky test");
     expect(drawn).toContain('data-deeplink="#subagent:agent-explore-1"');
-    expect(drawn).toContain(`<code class="cv-background-turn__command">bun test test/flaky.test.ts</code>`);
+    expect(drawn).toContain('<span class="cv-bgtask__title">');
+    expect(drawn).not.toContain("bun test test/flaky.test.ts");
   } finally {
     client.close();
   }

@@ -38,8 +38,11 @@ use std::path::{Path, PathBuf};
 
 use sha2::{Digest, Sha256};
 
-/// `sun_path` is 104 bytes on macOS; the link socket adds 27 after the folder.
-pub(super) const MAX_SOCKET_DIR: usize = 104 - 1 - 27;
+/// The Cloud link socket's `/cmux-link-<12 hex>.sock` after the folder.
+const LINK_SOCKET_NAME_BYTES: usize = 27;
+/// The longest folder whose link socket still fits every platform's `sun_path`.
+pub(super) const MAX_SOCKET_DIR: usize =
+    cmux_unix_socket::PORTABLE_MAX_PATH_BYTES - LINK_SOCKET_NAME_BYTES;
 
 /// The per-user id of the macOS temp dir: 30 characters on every Mac measured
 /// (macOS 26, 27); a range, so a different length the system may use never

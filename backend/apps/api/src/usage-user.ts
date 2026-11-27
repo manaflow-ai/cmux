@@ -50,6 +50,8 @@ export interface ReserveTeamCap {
   readonly set: UsagePriceSet
   /** The admin's cap (UsageMeterDO state, usage.cap.set), or null for the set's default. */
   readonly admin_cap_usd: number | null
+  /** The raise lock's limit in pools (billing-catalog.ts teamCapUnpaidMaxPools); absent = the default. */
+  readonly unpaid_max_pools?: number
 }
 
 /** How long a billable mark outlives its period end and its last sync (the sync runs every 15 minutes). */
@@ -83,9 +85,9 @@ export const reserveUser = (storage: DurableObjectStorage, month: string, user: 
     // their reserved maximum, so concurrent calls cannot all pass just under the cap. A call whose maximum would take
     // the period's billed spend past the cap is refused.
     if (teamCap) {
-      const cap = teamCapState(sql, now, BILLABLE_GRACE_MS, machineTime, teamCap.set, teamCap.admin_cap_usd, maxMicros)
+      const cap = teamCapState(sql, now, BILLABLE_GRACE_MS, machineTime, teamCap.set, teamCap.admin_cap_usd, maxMicros, teamCap.unpaid_max_pools)
       if (cap.cap_micros !== null && cap.spent_micros > cap.cap_micros) {
-        const before = teamCapState(sql, now, BILLABLE_GRACE_MS, machineTime, teamCap.set, teamCap.admin_cap_usd)
+        const before = teamCapState(sql, now, BILLABLE_GRACE_MS, machineTime, teamCap.set, teamCap.admin_cap_usd, 0, teamCap.unpaid_max_pools)
         return { ok: false as const, team_cap: true as const, spent_usd: before.spent_usd, cap_usd: cap.cap_usd!, period_end: cap.period_end }
       }
     }

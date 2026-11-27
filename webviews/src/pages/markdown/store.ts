@@ -4,6 +4,7 @@
 // skipped. A disk change reloads the page when there are no local edits and raises the conflict
 // banner when there are.
 import { isPageError, type PageClient } from "../shared/pageClient";
+import { markUnsavedEdits } from "../shared/pageHealth";
 import type { SourceMap } from "./sourceMap";
 import type { DiffViewerAppearance } from "../../appearance";
 import { markdownBehavior } from "./settings";
@@ -63,6 +64,10 @@ export interface MarkdownState {
   navigationFailed: string | null;
   /** Why the file did not open, as the host says it (its machine is offline); null: the generic message. */
   failure: string | null;
+  /** The failed read may clear by reading again (a lost link, a machine offline: a retryable refusal); the
+   *  page reads again on its own and says nothing until it lasts. False: the file cannot open (not found,
+   *  too large, not allowed), said at once. */
+  transient: boolean;
   /** The file's machine stopped answering (the host's reason); the page keeps what it last read. */
   unavailable: string | null;
 }
@@ -132,6 +137,7 @@ export class MarkdownStore {
     navigating: null,
     navigationFailed: null,
     failure: null,
+    transient: false,
     unavailable: null,
   };
   private history: { entries: HistoryEntry[]; index: number } = { entries: [], index: -1 };
@@ -194,14 +200,24 @@ export class MarkdownStore {
 
   private set(patch: Partial<MarkdownState>): void {
     this.state = { ...this.state, ...patch };
+    // Text not on disk holds the page against app health's repair reloads (pageHealth.ts).
+    if ("status" in patch) markUnsavedEdits(this.state.status !== "saved");
     for (const listener of this.listeners) listener();
+  }
+
+  /** The host reports the owner link: back up while the page is disconnected, it reads again (a
+   * launch or a daemon restart drops the link for a few seconds; the page never said so). */
+  linkChanged(connected: boolean): void {
+    if (connected && this.state.phase === "disconnected") void this.start();
   }
 
   /** Loads the config and starts watching the file. */
   async start(): Promise<void> {
     const client = this.client;
     if (!client) return this.set({ phase: "disconnected" });
-    this.set({ phase: "loading" });
+    // Reading again after a failure keeps the failed state until the answer, so the page's automatic
+    // asks never flash the loading frame.
+    if (this.state.phase !== "failed" && this.state.phase !== "disconnected") this.set({ phase: "loading" });
     let config: MarkdownConfig;
     try {
       const value = await client.call<unknown>(MARKDOWN_CONFIG_OP, {});
@@ -220,6 +236,7 @@ export class MarkdownStore {
       return this.set({
         phase: isPageError(error) && error.code === "cmux.protocol.closed" ? "disconnected" : "failed",
         failure: isPageError(error) && error.code === MARKDOWN_UNAVAILABLE ? error.message : null,
+        transient: isPageError(error) && (error.retryable || error.code.startsWith("cmux.protocol.")),
       });
     }
     await this.loadConfig(client, config);

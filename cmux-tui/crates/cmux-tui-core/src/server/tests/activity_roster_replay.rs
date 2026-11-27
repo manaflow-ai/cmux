@@ -87,3 +87,24 @@ fn an_activity_subscriber_from_mid_replay_ends_at_the_final_live_count() {
     drop(mux);
     let _ = std::fs::remove_dir_all(&root);
 }
+
+/// Activity subscribers are not capped by count (the old cap was 16): each is one map entry
+/// on the one shared worker thread. Open ones past 16 subscribe, and closed ones leave.
+#[test]
+fn activity_subscribers_past_the_old_cap_of_16_subscribe() {
+    let mux = test_mux();
+    let mut writers = Vec::new();
+    for _ in 0..64 {
+        let (writer, outbound) = captured_writer();
+        let client = mux.control_clients.register(ClientTransport::Unix, writer.clone());
+        let subscribed = handle_command(&mux, client, Command::SubscribeActivity, &writer);
+        assert!(subscribed.is_ok(), "subscriber refused: {:?}", subscribed.err());
+        writers.push((writer, outbound));
+    }
+    for (writer, _) in &writers {
+        writer.close();
+    }
+    let (writer, _outbound) = captured_writer();
+    let client = mux.control_clients.register(ClientTransport::Unix, writer.clone());
+    assert!(handle_command(&mux, client, Command::SubscribeActivity, &writer).is_ok());
+}

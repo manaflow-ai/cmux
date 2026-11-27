@@ -3,6 +3,8 @@ import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { JSDOM } from "jsdom";
 import { AddProjectPanel } from "./AddProjectPanel";
+import { settleReact } from "../../../test/support/domTeardown";
+import { actTurn, until } from "../../../test/support/until";
 
 let dom: JSDOM | undefined;
 let root: Root | undefined;
@@ -49,6 +51,7 @@ function installDom(): HTMLElement {
 afterEach(async () => {
   if (root) await act(async () => root!.unmount());
   root = undefined;
+  await settleReact();
   dom?.window.close();
   dom = undefined;
   for (const [key, value] of saved) {
@@ -123,4 +126,43 @@ test("closes Add Project when the native chooser is cancelled", async () => {
   await choose("This Mac");
   await choose("Local folder");
   expect(closed).toBe(1);
+});
+
+test("reads a folder list that failed again on its own, with no Retry button", async () => {
+  const container = installDom();
+  let lists = 0;
+  await act(async () => {
+    root = createRoot(container);
+    root.render(
+      <AddProjectPanel
+        host={{
+          list: async (path) => {
+            lists += 1;
+            if (lists === 1) throw new Error("The folder could not be read.");
+            return { path: "/Users/you", parent: null, home: "/Users/you", directories: [`/Users/you/${path}-ok`] };
+          },
+        }}
+        onPick={() => {}}
+        onClose={() => {}}
+      />,
+    );
+  });
+  const choose = async (label: string) => {
+    const item = [...container.querySelectorAll("li")].find((candidate) => candidate.textContent?.includes(label));
+    expect(item).toBeTruthy();
+    await act(async () => item!.dispatchEvent(new MouseEvent("click", { bubbles: true, button: 0 })));
+  };
+  await choose("This Mac");
+  await choose("Local folder");
+  await act(async () => Promise.resolve());
+  expect(lists).toBe(1);
+  // The failure is not the person's decision: no Retry, no error words, no alert.
+  expect([...container.querySelectorAll("button")].some((button) => button.textContent === "Retry")).toBe(false);
+  expect(container.textContent).not.toContain("The folder could not be read.");
+  expect(container.querySelector('.acpmux-add-project-status[role="alert"]')).toBeNull();
+  // The first ask comes within 1 s (autoRetry.ts AUTO_RETRY_FIRST_MS, jittered down).
+  await until(() => lists === 2, actTurn);
+  await act(async () => Promise.resolve());
+  expect(lists).toBe(2);
+  expect(container.textContent).toContain("~-ok");
 });

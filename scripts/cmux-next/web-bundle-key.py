@@ -32,14 +32,23 @@ import sys
 # catalogs and the settings schema); schemas/settings is imported by the settings page and read
 # by gen-strings.mjs; the xcstrings catalogs feed gen-strings.mjs; the What's New highlights feed
 # gen-feature-tips.mjs (the agent pane's feature tips, build output gen-strings.mjs makes);
-# marked.min.js is inlined into the webviews app's agent-session.html.
+# marked.min.js is inlined into the webviews app's agent-session.html; the design, type and motion
+# scales feed gen-design-scale.mjs (its Tailwind theme and token list, build output gen-strings.mjs
+# makes: motion-scale.json is imported by no source, so a change to it left this key unchanged, and a
+# sparse checkout given these inputs had no file for it, 2026-11-22); the acpmux protocol IR is what
+# webviews' postinstall and gen-strings.mjs generate the pane's protocol types from (#50853).
 INPUTS = [
     "webviews",
+    "cmux-tui/crates/acpmux/spec/acpmux-protocol.json",
     "schemas/settings",
+    "schemas/design-scale/design-scale.json",
+    "schemas/type-scale/type-scale.json",
+    "schemas/motion-scale/motion-scale.json",
     ":(glob)release-notes/next/highlights/*.md",
     "Resources/markdown-viewer/marked.min.js",
     "scripts/build-webviews-app.sh",
     "scripts/check-webviews-bun-version.sh",
+    "scripts/webviews_bun_version.py",
     "scripts/cmux-next/build-agent-pane-web.sh",
     "scripts/cmux-next/build-agent-activity-web.sh",
     "scripts/cmux-next/build-pages-web.sh",
@@ -52,7 +61,9 @@ INPUTS = [
 # narrows it to the catalogs gen-strings.mjs names (gen_strings_catalogs below).
 CATALOG_GLOB = ":(glob)Packages/macOS/CmuxNext/Sources/**/*.xcstrings"
 GEN_STRINGS = "webviews/scripts/pages/gen-strings.mjs"
-GEN_STRINGS_FILE = re.compile(r"""\bfile:\s*["'`]([^"'`]+\.xcstrings)["'`]""")
+# A catalog is a file or a one-file-per-key directory (`<Table>.xcstrings.d`, scripts/cmux-next/string_catalogs.py);
+# a directory is a pathspec of every file in it.
+GEN_STRINGS_FILE = re.compile(r"""\bfile:\s*["'`]([^"'`]+\.xcstrings(?:\.d)?)["'`]""")
 GEN_STRINGS_CONST = re.compile(r"""^const (\w+) = ["']([^"'$]+)["'];""", re.M)
 
 # What the builders write (build-web-bundles.sh).
@@ -183,6 +194,11 @@ def gen_strings_catalogs(root):
             text = f.read()
     except OSError:
         return None
+    return gen_strings_catalogs_in(text)
+
+
+def gen_strings_catalogs_in(text):
+    """gen_strings_catalogs over gen-strings.mjs's TEXT (hot-apply.py reads it from a commit, not a checkout)."""
     consts = dict(GEN_STRINGS_CONST.findall(text))
     found = set()
     for m in GEN_STRINGS_FILE.finditer(text):
@@ -245,14 +261,26 @@ def file_digest(path):
 
 
 def declared_bun_version(root):
-    with open(os.path.join(root, "webviews/package.json"), encoding="utf-8") as f:
-        package_manager = (json.load(f).get("devEngines") or {}).get("packageManager") or {}
-    return package_manager.get("version", "1.4.4") if package_manager.get("name") == "bun" else "1.4.4"
+    # scripts/webviews_bun_version.py is the one reader of the pin (the pre-commit hook and
+    # check-webviews-bun-version.sh use it too); it sits one folder up, here and in the
+    # installed hook copy. No pin it accepts stops the key: a guessed version would key
+    # bundles to a toolchain nobody declared.
+    import importlib.util
+
+    reader_path = os.path.join(os.path.dirname(os.path.dirname(os.path.realpath(__file__))), "webviews_bun_version.py")
+    spec = importlib.util.spec_from_file_location("webviews_bun_version", reader_path)
+    reader = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(reader)
+    try:
+        return reader.bun_version(os.path.join(root, "webviews/package.json"))
+    except ValueError as error:
+        sys.exit(f"web-bundle-key: {error}")
 
 
 def toolchain_identity(root):
     # Keep these defaults in one place: workflows export the same values before computing keys.
-    bun = normalize_toolchain_version(os.environ.get("CMUX_WEB_BUN_VERSION", declared_bun_version(root)))
+    # CMUX_WEB_BUN_VERSION, when set, is used without reading the pin.
+    bun = normalize_toolchain_version(os.environ.get("CMUX_WEB_BUN_VERSION") or declared_bun_version(root))
     node = normalize_toolchain_version(os.environ.get("CMUX_WEB_NODE_VERSION", "24.22.1"))
     return f"bun={bun}\nnode={node}\n"
 

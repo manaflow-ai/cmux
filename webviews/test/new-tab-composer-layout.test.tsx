@@ -1,5 +1,5 @@
 // New Tab preserves the shared composer controls. The model always sits in the footer;
-// Claude may place location in that row while Codex keeps its tray above the box.
+// Its appearance stays Claude regardless of the saved chat composer look.
 import { afterAll, beforeAll, expect, test } from "bun:test";
 import { JSDOM } from "jsdom";
 import { act } from "react";
@@ -8,6 +8,9 @@ import { manySessions, noChat } from "../src/gallery/fixtures/acpmux";
 import type { AcpmuxSnapshot } from "../src/agent-session/acpmux/model";
 import type { MarkdownFieldElement } from "../src/agent-session/acpmux/MarkdownField";
 import { proseMirrorGlobals } from "../src/agent-session/acpmux/promptFieldTesting";
+import { teardownDom } from "./support/domTeardown";
+import { SUGGESTIONS_GAP, suggestionsAnchor } from "../src/agent-session/acpmux/newtab/suggestionsAnchor";
+import { resolveUiOverlayPosition, UI_ANCHOR_GAP } from "../src/ui/anchor";
 
 const scope = globalThis as Record<string, unknown>;
 const keys = [
@@ -64,16 +67,17 @@ beforeAll(() => {
 
 afterAll(async () => {
   await act(async () => root?.unmount());
-  for (const [key, had, value] of saved) {
-    if (had) scope[key] = value;
-    else delete scope[key];
-  }
+  await teardownDom(saved, { scope });
 });
 
 const noop = () => {};
 
 function Chips() {
-  return <span className="acpmux-chips">Claude Opus 5.5</span>;
+  return (
+    <span className="acpmux-chips">
+      <span className="acpmux-model-name">Claude Opus 5.5</span>
+    </span>
+  );
 }
 
 async function mount(
@@ -82,6 +86,7 @@ async function mount(
     snapshot?: AcpmuxSnapshot;
     onCommands?(harness: string, cwd?: string): void;
     template?: "cards";
+    accessory?: React.ReactNode;
   } = {},
 ) {
   const { createRoot } = await import("react-dom/client");
@@ -99,6 +104,7 @@ async function mount(
         startCwd="/Users/you/src/app"
         projects={[{ cwd: "/Users/you/src/app", label: "app" }]}
         chips={Chips}
+        accessory={options.accessory}
         onCommands={options.onCommands}
         onAsk={noop}
         onOpen={noop}
@@ -133,7 +139,7 @@ test("Codex slash commands are available before the first message and selecting 
   expect(requests).toEqual(["codex"]);
 });
 
-test("the New Tab card keeps Send in the box and model in the footer", async () => {
+test("the New Tab card holds the field, then one bar: +, the mode and model, the mic and Send", async () => {
   await mount();
   const composer = host.querySelector<HTMLElement>(".nt-composer")!;
   const card = composer.querySelector<HTMLElement>(".nt-box")!;
@@ -142,37 +148,78 @@ test("the New Tab card keeps Send in the box and model in the footer", async () 
   ];
   // The field is the composer's Markdown field (`acpmux-md-field nt-field`): it is named by its New Tab class.
   const name = (part: HTMLElement) => (part.classList.contains("nt-field") ? "nt-field" : part.className.split(" ")[0]);
-  expect(parts.map(name)).toEqual(["acpmux-composer-strip", "nt-field", "acpmux-send", "acpmux-chips"]);
+  // In reading and tab order (Lucas 2026-11-25, the lab's Unified Card): the field, then the bar's chips, then Send.
+  expect(parts.map(name)).toEqual(["acpmux-composer-strip", "nt-field", "acpmux-chips", "acpmux-send"]);
   // The project is the location strip's (hq#1957 composer location strip), as in the agent
   // composer: never in the card or its bar.
   const row = composer.querySelector<HTMLElement>(".acpmux-composer-strip .acpmux-composer-context")!;
   expect(row.textContent).toContain("app");
-  expect(card.querySelector(".acpmux-composer-context, .acpmux-location-button, .acpmux-chips")).toBeNull();
-  expect(composer.querySelector(".acpmux-composer-foot .acpmux-chips")).not.toBeNull();
+  expect(card.querySelector(".acpmux-composer-context, .acpmux-location-button")).toBeNull();
+  // The bar is the card's own row: + and the quiet row's chips sit inside the card, beside the mic and Send.
+  const bar = card.querySelector<HTMLElement>(".nt-input[data-split]")!;
+  expect(bar.querySelector(".nt-split-plus")).not.toBeNull();
+  expect(bar.querySelector(".nt-foot .acpmux-composer-foot .acpmux-chips")).not.toBeNull();
+  expect(bar.querySelector(".nt-send")).not.toBeNull();
 });
 
-// Leo 2026-10-29 (#27956, which takes back #24519's one row): "project and cloudness at the top".
-// The Claude split keeps the mode and model in the quiet row under the box and heads the box with
-// the folder/computer, as Codex does.
-test("Claude New Tab location heads the box and the model keeps the quiet row under it", async () => {
-  const { setComposerLook } = await import("../src/agent-session/acpmux/composerLook");
-  act(() => setComposerLook("claude", { remember: false }));
-  await mount({ template: "cards" });
-  const composer = host.querySelector<HTMLElement>(".nt-composer")!;
-  const row = composer.querySelector<HTMLElement>(".nt-foot .acpmux-composer-foot")!;
-  expect(row.querySelector(".acpmux-chips")).not.toBeNull();
-  expect(row.querySelector(".acpmux-composer-context")).toBeNull();
-  expect(composer.querySelector(".nt-above .acpmux-composer-context")?.textContent).toContain("app");
-  expect(composer.querySelectorAll(".acpmux-composer-context")).toHaveLength(1);
+test("New Tab keeps Claude and its controls with a Codex gallery preview", async () => {
+  const { setPreviewComposerLook, useComposerLook } = await import("../src/agent-session/acpmux/composerLook");
+  function ControlLook() {
+    return <span data-control-look={useComposerLook()} />;
+  }
+  act(() => setPreviewComposerLook("codex"));
+  for (const template of [undefined, "cards"] as const) {
+    await mount({ template, accessory: <ControlLook /> });
+    const composer = host.querySelector<HTMLElement>(".nt-composer")!;
+    expect(composer.dataset.composerLook ?? "claude").toBe("claude");
+    expect(composer.querySelector("[data-control-look=claude]")).not.toBeNull();
+    expect(composer.querySelector(".nt-foot .acpmux-composer-foot .acpmux-chips")).not.toBeNull();
+    expect(composer.querySelector(".nt-above .acpmux-composer-context")?.textContent).toContain("app");
+    expect(composer.querySelectorAll(".acpmux-composer-context")).toHaveLength(1);
+  }
+  act(() => setPreviewComposerLook());
+});
 
-  // Codex's look splits as Claude's too: the mode and model in the quiet row under the box (Leo
-  // 2026-11-01: "we already have a good version"); only its tray over the box differs.
-  act(() => setComposerLook("codex", { remember: false }));
-  expect(composer.querySelector(".nt-above .acpmux-composer-context")).not.toBeNull();
-  expect(composer.querySelector(".nt-foot .acpmux-composer-foot .acpmux-chips")).not.toBeNull();
-  expect(composer.querySelector(".nt-box .nt-pickers .acpmux-chips")).toBeNull();
-  expect(composer.querySelector(".nt-box .acpmux-composer-context")).toBeNull();
-  act(() => setComposerLook("claude", { remember: false }));
+test("suggestions open 8 px under the card at every zoom, and follow it as it grows", async () => {
+  await mount();
+  const field = host.querySelector<MarkdownFieldElement>(".nt-field")!;
+  await act(async () => {
+    field.acpmuxMarkdownField!.focus();
+    field.acpmuxMarkdownField!.type("ff");
+  });
+  expect(document.querySelector(".nt-popover .nt-row")).not.toBeNull();
+  const composer = host.querySelector<HTMLElement>(".nt-composer")!;
+  const box = host.querySelector<HTMLElement>(".nt-box")!;
+  const anchor = suggestionsAnchor(composer, box);
+  // jsdom has no layout. Supply viewport rects with the composer's zoom varied.
+  for (const zoom of [0.8, 0.92, 1, 1.25, 1.6]) {
+    composer.style.setProperty("--cmux-composer-zoom", String(zoom));
+    let growth = 0;
+    const boxBottom = () => (160 + growth) * zoom;
+    composer.getBoundingClientRect = () => new window.DOMRect(40, 80 * zoom, 600 * zoom, (140 + growth) * zoom);
+    box.getBoundingClientRect = () => new window.DOMRect(40, 100 * zoom, 600 * zoom, (60 + growth) * zoom);
+    const rect = anchor.getBoundingClientRect();
+    const popup = resolveUiOverlayPosition(rect, { width: 600, height: 100 }, { width: 1200, height: 1000 });
+    expect(popup.top).toBeCloseTo(boxBottom() + SUGGESTIONS_GAP * zoom);
+    expect(rect.width).toBe(composer.getBoundingClientRect().width);
+    const above = resolveUiOverlayPosition(
+      rect,
+      { width: 600, height: 40 },
+      { width: 1200, height: 1000 },
+      { side: "above" },
+    );
+    expect(above.top).toBe(composer.getBoundingClientRect().top - UI_ANCHOR_GAP - 40);
+    for (const height of [4, 9, 18, 9, 0]) {
+      growth = height;
+      const moved = resolveUiOverlayPosition(
+        anchor.getBoundingClientRect(),
+        { width: 600, height: 100 },
+        { width: 1200, height: 1000 },
+      );
+      expect(moved.top - popup.top).toBeCloseTo(growth * zoom);
+    }
+  }
+  composer.style.removeProperty("--cmux-composer-zoom");
 });
 
 // Review (#20148): the composer's Computer menu listed a remote chat's machine, so the row could
@@ -219,16 +266,14 @@ test("a deferred chat's later command publication reaches New Tab and a supersed
 });
 
 test("deferred command reads request the newest publication", async () => {
-  const { AcpmuxDirectClient } = await import("../src/agent-session/acpmux/direct");
+  const { directClientStub } = await import("./support/directClientStub");
   const calls: Record<string, unknown>[] = [];
-  const client = Object.create(AcpmuxDirectClient.prototype) as {
-    sessionCommands(sessionId: string): Promise<unknown>;
-    typed(method: string, params: Record<string, unknown>): Promise<unknown>;
-  };
-  client.typed = async (_method, params) => {
-    calls.push(params);
-    return { events: [] };
-  };
+  const client = directClientStub<{ sessionCommands(sessionId: string): Promise<unknown> }>({
+    typed: async (_method: string, params: Record<string, unknown>) => {
+      calls.push(params);
+      return { events: [] };
+    },
+  });
   await client.sessionCommands("deferred-session");
   expect(calls[0]).toMatchObject({ sessionId: "deferred-session", beforeSeq: Number.MAX_SAFE_INTEGER, limit: 1 });
 });

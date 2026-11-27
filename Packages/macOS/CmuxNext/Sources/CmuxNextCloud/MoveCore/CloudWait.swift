@@ -1,6 +1,8 @@
 import CmuxNextCompat
 public import CmuxNextDaemon
+import CryptoKit
 import Foundation
+import OSLog
 public import CmuxNextWakeups
 
 /// Bounded waits on main-actor state for the Cloud flows: the observation glue. What counts as done, the
@@ -113,6 +115,22 @@ public struct CloudWait {
         return connected() ? nil : failure() ?? deadline
     }
 
+    /// Waits for the app's first machine list (an app just launched loads it after sign-in) the way
+    /// cmux-cloud-start-core's `list_wait` paces it, the same wait as `cmux cloud start-chat`'s: `read` reads
+    /// the list, and the wait pauses until it is `loaded` or Rust's pace is up, then asks again. A list still
+    /// unread when Rust ends the wait is the caller's to refuse. Only the host loop; the rule is Rust's.
+    public static func firstList(loaded: @escaping @MainActor @Sendable () -> Bool, signedIn: @MainActor () -> Bool,
+                                 read: @MainActor () async -> Void) async {
+        if !loaded() { await read() }
+        let clock = ContinuousClock(), began = clock.now
+        // wakeup-allow: each pass waits Rust's pace (an observation that ends once the list loads); Rust ends it within LIST_LOAD_WAIT
+        while !Task.isCancelled, case .pause(let ms, let readAfter) = CloudStartCore().listWait(
+            elapsedMs: Int(began.duration(to: clock.now) / .milliseconds(1)), loaded: loaded(), signedIn: signedIn()) {
+            _ = await holds(within: .milliseconds(ms), until: loaded)
+            if readAfter, !loaded() { await read() }
+        }
+    }
+
     private static func observe(_ condition: @escaping @MainActor @Sendable () -> Bool) async -> Bool {
         for await ready in ObservationStream({ condition() }) where ready { return true }
         return false
@@ -131,6 +149,96 @@ extension CloudWait {
             // task-owner: one record read; the wait observes what it applies and ends at its own deadline
             Task { @MainActor in await read() }
         }) { status() != .starting }
+    }
+
+    /// Waits while `status` reads `pausing` (an idle pause or a Pause Machine landing), up to `limit`, as
+    /// ``outwaitResume(of:within:read:)`` waits out a resume: a start that found its machine not running resumes it
+    /// once it is paused, never refuses it as pausing (cmux#47638). Returns at once for any other status.
+    public static func outwaitPause(of status: @escaping @MainActor @Sendable () -> CloudMachine.Status, within limit: Duration,
+                                    read: @escaping @MainActor @Sendable () async -> Void) async {
+        guard status() == .pausing else { return }
+        _ = await holds(within: limit, redialing: startRedial, redial: {
+            // task-owner: one record read; the wait observes what it applies and ends at its own deadline
+            Task { @MainActor in await read() }
+        }) { status() != .pausing }
+    }
+
+    /// The settle wait's line in the app log, which the probe reads (`cloud machine settle:`).
+    nonisolated static let settleLogger = Logger(subsystem: "com.cmuxterm.app.next", category: "cloud")
+
+    /// What ``settle(of:within:log:read:)`` ended on, as Rust's `cloud_move_settle` answers it.
+    public enum Settled: Equatable, Sendable {
+        /// The machine runs (or is paused, and the caller's attach resumes it).
+        case proceed
+        /// Rust refused: a delete, the deadline, or `CMUX_CLOUD_SETTLE=0` on a pause or resume in flight.
+        case refused(String)
+    }
+
+    /// Waits out one machine's transient states for a caller that needs it running (a chat's start, a send, an exec,
+    /// a fork), as cmux-cloud-start-core's `settle` decides each look: a pause in flight is waited out and a resume in
+    /// flight too, up to `limit`, never answered as "This machine is pausing" (ask-259986a6c4, Leo 2026-11-25: "whoa
+    /// what happened here"). A paused machine proceeds: the caller's attach resumes it. Logs one
+    /// `cloud machine settle:` line when it waited. Only the host loop; the rule is Rust's.
+    /// `waking` is told Rust's `waking` before each wait and false once the loop ends after one: the start card's
+    /// "Waking machine" line.
+    public static func settle(of status: @escaping @MainActor @Sendable () -> CloudMachine.Status, within limit: Duration,
+                              log: ((String) -> Void)? = nil, waking: (@MainActor (Bool) -> Void)? = nil,
+                              read: @escaping @MainActor @Sendable () async -> Void) async -> Settled {
+        struct Look: Encodable { var status: CloudMachine.Status, waitedMs: UInt64, resumes: UInt32, limitMs: UInt64 }
+        struct Act: Decodable { var act: String, reason: String?, waking: Bool? }
+        let clock = ContinuousClock(), began = clock.now
+        let limitMs = UInt64(max(0, limit.components.seconds)) * 1000 + UInt64(limit.components.attoseconds / 1_000_000_000_000_000)
+        var waited: [String] = []
+        defer {
+            if !waited.isEmpty {
+                waking?(false)
+                let ms = began.duration(to: clock.now).components
+                let line = "cloud machine settle: waited \(waited.joined(separator: ",")) \(ms.seconds * 1000 + ms.attoseconds / 1_000_000_000_000_000) ms, now \(status().rawValue)"
+                if let log { log(line) } else { settleLogger.notice("\(line, privacy: .public)") }
+            }
+        }
+        // wakeup-allow: each pass is one bounded wait on the record (outwaitPause / outwaitResume); Rust ends it at `limit`
+        while !Task.isCancelled {
+            let elapsed = began.duration(to: clock.now)
+            let look = Look(status: status(), waitedMs: UInt64(max(0, elapsed.components.seconds)) * 1000
+                                + UInt64(max(0, elapsed.components.attoseconds) / 1_000_000_000_000_000),
+                            resumes: 0, limitMs: limitMs)
+            // No answer from Rust: the old rule (a pause or resume in flight is the caller's to refuse).
+            guard let act = CloudMoveCore().call("settle", look, as: Act.self) else { return .proceed }
+            let left = max(.zero, limit - elapsed)
+            if act.waking == true { waking?(true) }
+            switch act.act {
+            case "waitPausing":
+                waited.append("pausing")
+                await outwaitPause(of: status, within: left, read: read)
+            case "waitStarting":
+                waited.append("starting")
+                await outwaitResume(of: status, within: left, read: read)
+            case "refuse": return .refused(act.reason ?? "deadline")
+            default: return .proceed // proceed, or resume: the caller's attach resumes a paused machine
+            }
+        }
+        return .proceed
+    }
+
+    /// A start whose machine's exec route refused it as not running (`vm_not_running`, cmux#47638) though its link may be up:
+    /// a click's link connect starts a paused machine and answers before its record runs, and an idle pause can land as the
+    /// link comes up. The record is read again (`read(true)`, whatever the link says), a pause in flight is waited out, a
+    /// paused machine resumes (`resume`: Resume Machine, as an attach does), and a resume in flight is waited out, each up
+    /// to `limit`. The caller then connects the machine's link as before.
+    public static func startStopped(status: @escaping @MainActor @Sendable () -> CloudMachine.Status, within limit: Duration,
+                                    read: @escaping @MainActor @Sendable (_ force: Bool) async -> Void,
+                                    resume: @MainActor () async throws -> Void) async throws {
+        await read(true)
+        await outwaitPause(of: status, within: limit) { await read(false) }
+        if status() == .paused {
+            do { try await resume() } catch where !(error is CancellationError) {
+                // A resume from elsewhere (the link's own connect, another Mac) went first: the record runs or starts now.
+                await read(true)
+                guard status() == .starting || status() == .running else { throw error }
+            }
+        }
+        await outwaitResume(of: status, within: limit) { await read(false) }
     }
 
     /// Whether `wait` answered true within `limit`; true too when it ran past `limit`, since what it waits on
@@ -164,14 +272,16 @@ extension CloudWait {
     /// does not come back throws as it is.
     /// Whether a start's failure is its link dropping under it, which a relink and one more try can help (``retriedOnce``'s
     /// `closed`): the connection closed (an EOF right after a resume), or the link socket was gone or refused while its
-    /// carrier rebound it (`connect …/cmux-link-….sock failed: No such file or directory`, start matrix run 42125025387).
+    /// carrier rebound it (`connect …/cmux-link-….sock failed: No such file or directory`, start matrix run 42125025387),
+    /// or a fresh connection's first request got no reply (Rust `wait::link_dropped` decides from the timed-out request).
     public nonisolated static func linkDropped(_ error: any Error) -> Bool {
-        struct Failure: Encodable { var kind: String, code: Int32? }
+        struct Failure: Encodable { var kind: String, code: Int32?, what: String? }
         struct Reply: Decodable { var dropped: Bool }
         let failure = switch error {
-        case DaemonError.connectionClosed: Failure(kind: "connectionClosed", code: nil)
-        case DaemonError.connectFailed(_, let code): Failure(kind: "connectFailed", code: code)
-        default: Failure(kind: "other", code: nil)
+        case DaemonError.connectionClosed: Failure(kind: "connectionClosed", code: nil, what: nil)
+        case DaemonError.connectFailed(_, let code): Failure(kind: "connectFailed", code: code, what: nil)
+        case DaemonError.timedOut(let what): Failure(kind: "timedOut", code: nil, what: what)
+        default: Failure(kind: "other", code: nil, what: nil)
         }
         return CloudMoveCore().call("link_dropped", failure, as: Reply.self)?.dropped ?? false
     }
@@ -232,21 +342,85 @@ public struct CloudOutdatedMachine {
         CloudMoveCore().updatesBeforeCopyingAgain(ok: ok, errorCode: errorCode, side: side)
     }
 
+    /// How long a chat start waits for its own update of its machine before it goes on without it
+    /// (``updateBeforeUsingCapability(holds:relink:within:update:)``, `CloudMachineRoute.prepare`). A machine whose host
+    /// updater follows its channel never takes a build older than the one it applied (a DEV build of a branch usually is),
+    /// and the start's card then said nothing for 8 minutes while the CLI waited 25 for an outcome that never came
+    /// (2026-11-16). A minute and a half is about as long as a start can show "machine" before it reads as stalled; an
+    /// update that does apply answers well within it, and it covers the start's own run's bound (``startUpdateRun``).
+    public static let startUpdateWait: Duration = .seconds(90)
+
+    /// The bound of a chat start's own `cmux link machine update` run (`CloudMoveCLI.machineUpdate(within:)`), under
+    /// ``startUpdateWait``: past it the run ends as `machine_update_abandoned`, so the app's one update queue's turn ends
+    /// with it and no later start or update of any machine waits behind it.
+    public static let startUpdateRun: Duration = .seconds(75)
+
+    /// `operation`'s value when it returns within `limit` on `clock`; nil when it did not (it is cancelled then), or the
+    /// caller was cancelled.
+    public static func bounded<T: Sendable, C: Clock & Sendable>(_ limit: Duration, clock: C, _ operation: @escaping @Sendable () async -> T) async -> T?
+        where C.Duration == Duration {
+        try? await withDeadline(limit, label: "cloud machine start update", clock: clock, operation)
+    }
+
     /// Updates a machine before using a capability that its current daemon does not advertise.
     /// The update restarts the daemon, so this waits, up to `relink`, for `holds` itself (read from the
     /// new handshake), not just for the link to change: a new link may come up before its handshake
     /// carries the capability, and opening then was refused although the update had worked (capture at
-    /// a799d97a, 2026-11-02). If the update cannot run or the capability does not arrive in time, this
-    /// returns and the caller's existing capability refusal remains the final result.
+    /// a799d97a, 2026-11-02). If the update cannot run, changed nothing (`update` false: a refusal), did not
+    /// end within `limit`, or the capability does not arrive in time, this returns and the caller's existing
+    /// capability refusal remains the final result.
     @MainActor
     public static func updateBeforeUsingCapability(
         holds: @escaping @MainActor @Sendable () -> Bool,
         relink: Duration = CloudWait.relinkWait,
+        within limit: Duration = startUpdateWait,
         update: @escaping @MainActor @Sendable () async -> Bool
     ) async {
+        await updateBeforeUsingCapability(holds: holds, relink: relink, within: limit, clock: ContinuousClock(), update: update)
+    }
+
+    /// ``updateBeforeUsingCapability(holds:relink:within:update:)`` with its bounds on `clock` (a test's `ManualClock`).
+    @MainActor
+    public static func updateBeforeUsingCapability<C: Clock & Sendable>(
+        holds: @escaping @MainActor @Sendable () -> Bool,
+        relink: Duration = CloudWait.relinkWait,
+        within limit: Duration = startUpdateWait,
+        clock: C,
+        update: @escaping @MainActor @Sendable () async -> Bool
+    ) async where C.Duration == Duration {
         guard !holds() else { return }
-        guard await update() else { return }
-        _ = await CloudWait.holds(within: relink, until: holds)
+        guard await bounded(limit, clock: clock, { await update() }) == true else { return }
+        _ = await CloudWait.holds(within: relink, clock: clock, until: holds)
+    }
+
+    /// ``updateBeforeUsingCapability(holds:relink:within:update:)``, then `missing` thrown while `lacks` still holds: a
+    /// start that needs a capability its machine's software lacks, and that the machine could not be updated to (the
+    /// update was refused or did not end within `limit`), ends at once saying so instead of a chat its provider refuses.
+    @MainActor
+    public static func requireCapability(
+        holds: @escaping @MainActor @Sendable () -> Bool,
+        lacks: @MainActor () -> Bool,
+        relink: Duration = CloudWait.relinkWait,
+        within limit: Duration = startUpdateWait,
+        update: @escaping @MainActor @Sendable () async -> Bool,
+        missing: @autoclosure () -> any Error
+    ) async throws {
+        try await requireCapability(holds: holds, lacks: lacks, relink: relink, within: limit, clock: ContinuousClock(), update: update, missing: missing())
+    }
+
+    /// ``requireCapability(holds:lacks:relink:within:update:missing:)`` with its bounds on `clock` (a test's `ManualClock`).
+    @MainActor
+    public static func requireCapability<C: Clock & Sendable>(
+        holds: @escaping @MainActor @Sendable () -> Bool,
+        lacks: @MainActor () -> Bool,
+        relink: Duration = CloudWait.relinkWait,
+        within limit: Duration = startUpdateWait,
+        clock: C,
+        update: @escaping @MainActor @Sendable () async -> Bool,
+        missing: @autoclosure () -> any Error
+    ) async throws where C.Duration == Duration {
+        await updateBeforeUsingCapability(holds: holds, relink: relink, within: limit, clock: clock, update: update)
+        if lacks() { throw missing() }
     }
 
     /// Runs `copy` on the machine's link socket (`socket`, nil when not connected: `notConnected` is thrown); when
@@ -330,5 +504,55 @@ public struct CloudMachineWorkspace {
         try beforeCreate()
         guard let id = await create() else { throw notConnected() }
         return (id, true)
+    }
+
+    /// A Cloud chat start's own workspace (`CloudStartChat`, `cmux link start-chat`): the chat is its one tab, made with
+    /// it, and no terminal is ever made for it. It is never the machine's first workspace (``first(in:notConnected:listedElsewhere:beforeCreate:create:)``):
+    /// that one holds the starter shell (the image's, or the terminal a plain workspace create opens), which showed as a
+    /// second tab beside the chat. Its key is the start's (``chatKey(tabKey:)``): `create` makes it with the chat as its
+    /// first tab; a retry that finds it listed only `open`s the chat in it again (keyed, so the same tab), and makes nothing.
+    public static func chat<Tab>(tabKey: String, in store: DaemonStore, within limit: Duration = .milliseconds(CloudMoveCore.deadlines.workspaceTreeMs),
+                                 notConnected: @autoclosure () -> any Error, open: (WorkspaceHandle) async throws -> Tab,
+                                 create: (WorkspaceKey) async throws -> Tab) async throws -> (key: WorkspaceKey, tab: Tab, created: Bool) {
+        guard await live(store, within: limit) else { throw notConnected() }
+        let key = chatKey(tabKey: tabKey)
+        if let listed = store.workspaces.first(where: { $0.key == key }) { return (key, try await open(listed.handle), false) }
+        return (key, try await create(key), true)
+    }
+
+    /// The composer start's chat open (`CloudStartChat`: ``chat(tabKey:in:within:notConnected:open:create:)`` and its
+    /// mirrored tab), tried once more when the machine's link was down or dropped under it, once the link is live again
+    /// (up to `relink`). A new machine's link reconnects after its software update and when remote approvals come on,
+    /// which can land on the open: the start read no connection and answered "didn't connect. Retry once it's online."
+    /// half a second after the machine connected, then deleted the machine (DEV 0b53cf17, 2026-11-15). The open is keyed,
+    /// so the second try gets the same workspace and tab. A request that failed on a closed connection counts as a drop
+    /// too (``CloudWait/linkDropped(_:)``): the daemon's restart can end the request before the store hears of it. A
+    /// failure with the link up, or a link that stays down, throws as it is.
+    public static func chatRelinked<T>(in store: DaemonStore, held: () -> Bool, relink: Duration = CloudWait.relinkWait,
+                                       _ open: () async throws -> T) async throws -> T {
+        let before = store.connectionEpoch
+        return try await CloudWait.retriedOnce(open, closed: { store.connectionEpoch != before || !held() || CloudWait.linkDropped($0) },
+                                               relink: { await live(store, within: relink) })
+    }
+
+    /// ``chat(tabKey:in:within:notConnected:open:create:)`` once its workspace mirrors (`anchor`: its first pane, by
+    /// workspace id), with the chat's tab in it: a CLI or agent start's chat (`cloud start-session`), its workspace's only
+    /// tab. `open` and `create` answer the chat's surface. Throws `notConnected` when the tab never shows.
+    public static func chatTab(tabKey: String, in store: DaemonStore, notConnected: @autoclosure () -> any Error,
+                               anchor: (String) async -> (id: String, key: WorkspaceKey, pane: PaneModel)?,
+                               open: (WorkspaceHandle) async throws -> SurfaceID?, create: (WorkspaceKey) async throws -> SurfaceID?)
+        async throws -> (anchor: (id: String, key: WorkspaceKey, pane: PaneModel), tab: (key: String, surface: SurfaceID)) {
+        let made = try await chat(tabKey: tabKey, in: store, notConnected: notConnected(), open: open, create: create)
+        guard let surface = made.tab, let found = await anchor(made.key.rawValue),
+              let tab = found.pane.tabs.first(where: { $0.surface == surface }) else { throw notConnected() }
+        return (found, (tab.id, surface))
+    }
+
+    /// The workspace key of the chat start `tabKey`: a UUID (version 5 layout) of its SHA-256, the same for every retry.
+    public nonisolated static func chatKey(tabKey: String) -> WorkspaceKey {
+        var bytes = Array(SHA256.hash(data: Data("cmux-cloud-chat-workspace\u{0}\(tabKey)".utf8)).prefix(16))
+        bytes[6] = (bytes[6] & 0x0f) | 0x50
+        bytes[8] = (bytes[8] & 0x3f) | 0x80
+        return WorkspaceKey(rawValue: (NSUUID(uuidBytes: bytes) as UUID).uuidString.lowercased())
     }
 }

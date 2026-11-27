@@ -38,7 +38,7 @@ fn a_mixed_segment_listed_as_output_only_keeps_its_other_records() {
     // The backfill was killed after its first kind row for this segment.
     source.execute("INSERT INTO journal_segment_kinds VALUES('mixed', ?1)", [OUTPUT_KIND]).unwrap();
 
-    let kept = kept_segment_records(&source, "mixed", 1, 2, 2).unwrap();
+    let kept = kept_segment_records(&source, "mixed", 1, 2, 2, CleanupMode::Output).unwrap();
     let kept: Vec<(u64, &str)> = kept.iter().map(|record| (record.0, record.1.as_str())).collect();
     assert_eq!(kept, vec![(2, "terminal.title")], "the title record is not output");
 }

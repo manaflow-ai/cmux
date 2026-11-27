@@ -4,12 +4,14 @@ import { afterAll, beforeAll, expect, test } from "bun:test";
 import { JSDOM } from "jsdom";
 import { AcpmuxDirectClient } from "../src/agent-session/acpmux/direct";
 import { PERMISSION_GROUP_OPS } from "../src/agent-session/acpmux/permissions/protocol";
+import { settleReact } from "./support/domTeardown";
 
 const dom = new JSDOM("<!doctype html>", { url: "http://localhost/" });
 const scope = globalThis as Record<string, unknown>;
 const saved = ["window", "document"].map((key) => [key, key in scope, scope[key]] as const);
 beforeAll(() => Object.assign(scope, { window: dom.window, document: dom.window.document }));
-afterAll(() => {
+afterAll(async () => {
+  await settleReact();
   for (const [key, had, value] of saved)
     if (had) scope[key] = value;
     else delete scope[key];

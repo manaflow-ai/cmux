@@ -41,12 +41,155 @@ fn codex_error(update: &Value) -> Option<(bool, Value)> {
     Some((will_retry, err.clone()))
 }
 
+/// Discovery tools that only load deferred schemas (the pane's `hiddenTools.ts` PLUMBING_TOOLS): the
+/// pane keeps one message in one row across such a call, so it does not end a reply segment.
+const PLUMBING_TOOLS: &[&str] = &["ToolSearch", "tool_search", "load_tools"];
+
+/// Whether `update` is where the pane cuts a reply's row (direct.ts `endAssistantSegment`), so
+/// the next reply text is another segment: a thought, a new tool call the person sees and a
+/// compaction note. Not a call the pane folds into the message (plumbing), nor a
+/// background task's note or a subagent's update, beside which the message goes on in its row
+/// (Leo, 2026-11-03: "this chat's text stream got cut in the middle by a tool call which is
+/// weird"). The pane cuts in a few rarer places too (a permission card, an offer); a row after one
+/// is named by its first chunk read.
+fn cuts_reply(kind: &str, update: &Value) -> bool {
+    match kind {
+        "agent_thought_chunk" => update.get("content").is_some_and(has_text),
+        "compaction" => true,
+        "tool_call" => {
+            let tool = update
+                .pointer("/_meta/claude/tool")
+                .or_else(|| update.pointer("/_meta/claudeCode/toolName"))
+                .and_then(Value::as_str);
+            !tool.is_some_and(|t| PLUMBING_TOOLS.contains(&t))
+        }
+        _ => false,
+    }
+}
+
+/// Whether ACP content holds any text, in each form the pane reads (direct.ts `textFromContent`).
+fn has_text(content: &Value) -> bool {
+    match content {
+        Value::String(text) => !text.is_empty(),
+        Value::Array(items) => items.iter().any(has_text),
+        Value::Object(_) => match content.get("type").and_then(Value::as_str) {
+            Some("text") => {
+                content.get("text").and_then(Value::as_str).is_some_and(|t| !t.is_empty())
+            }
+            Some("content") => content.get("content").is_some_and(has_text),
+            _ => false,
+        },
+        _ => false,
+    }
+}
+
+/// The characters of `text` that are not whitespace: what a reply said (`unstored_turn_worked`).
+fn visible_chars(text: &str) -> usize {
+    text.chars().filter(|c| !c.is_whitespace()).count()
+}
+
+/// This daemon run's mark in every reply segment id (`reply_segment`): segment numbers start
+/// again after a restart, and an id minted before it must never name a reply minted after.
+fn segment_boot() -> &'static str {
+    static BOOT: std::sync::OnceLock<String> = std::sync::OnceLock::new();
+    BOOT.get_or_init(|| {
+        let ms = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map_or(0, |d| d.as_millis());
+        format!("{ms:x}")
+    })
+}
+
+/// Stamps `segment` on a reply chunk's record, as `_meta.acpmux.segment` beside the agent's own
+/// `_meta` (a client reads it with the record's `msg.params`).
+pub(super) fn stamp_reply_segment(value: &mut Value, segment: &str) {
+    if let Some(params) = value.get_mut("params") {
+        super::merge_mux_meta(params, json!({ "segment": segment }));
+    }
+}
+
+impl StreamState {
+    /// The reply segment of an `agent_message_chunk` of message `id` in turn `turn` (None: no
+    /// turn, the agent's own text between turns), starting a new one when the message or the turn
+    /// changed or the last one was cut. Numbered within the turn, a turn's ids are unique by its
+    /// id. Text with no turn is numbered on its own count, which no turn resets: numbered from 1
+    /// again after every turn, a later reply took an earlier one's id (`-.<boot>.1` named "The
+    /// reviewer returned FIX" and, an hour later, "The review is FIX"), so a page of the log that
+    /// held only the later one named its row by that id, and the page before it, once read, gave
+    /// the id to the earlier reply: the chat drew the old reply over the new rows (cmux#48659).
+    pub(super) fn reply_segment_for(
+        &mut self,
+        turn: Option<&str>,
+        id: Option<&str>,
+        boot: &str,
+    ) -> String {
+        let key = turn.unwrap_or("-");
+        // One message is one segment, whatever turn it is read in: a prompt that ends a background
+        // turn mid-message, or a turn that starts under it, names the same reply, and a new segment
+        // drew its rest as a second bubble cut mid-sentence (Leo, 2026-11-22: "ok, well. this
+        // happened again. you need to help decide what goes on in this case and perfect it.").
+        // Chunks with no messageId still start again at a turn change: a turn the agent started on
+        // its own has no prompt to end the last one's.
+        if let Some(open) = &self.reply_segment
+            && id == self.segment_message.as_deref()
+            && (id.is_some() || self.segment_turn.as_deref() == Some(key))
+        {
+            return open.clone();
+        }
+        // Numbered within the turn: a new turn starts again at 1.
+        if self.segment_turn.as_deref() != Some(key) {
+            self.segment_turn = Some(key.to_owned());
+            self.reply_segments = 0;
+        }
+        let number = if turn.is_some() {
+            self.reply_segments += 1;
+            self.reply_segments
+        } else {
+            self.loose_segments += 1;
+            self.loose_segments
+        };
+        let segment = format!("{key}.{boot}.{number}");
+        self.reply_segment = Some(segment.clone());
+        self.segment_message = id.map(str::to_owned);
+        segment
+    }
+}
+
 impl Hub {
     /// Called for a live agent `session/update` before it is recorded.
     /// Appends `message_superseded` ahead of the redelivered message.
-    pub(super) fn before_agent_update(&self, session: &Session, params: Option<&Value>) {
-        let Some(update) = params.and_then(|p| p.get("update")) else { return };
+    ///
+    /// Returns the reply segment of an `agent_message_chunk`: one id for every chunk of one
+    /// message (the same `messageId`; with none, the run of chunks with none) in one turn, until
+    /// what the pane cuts a reply's row at (`cuts_reply`) ends it. A steer does not: the rest of a
+    /// reply streaming when it lands stays in its row above it (direct.ts `holdAssistantSegment`;
+    /// Leo, 2026-10-31: "why was i able to cut my prompt in between your messages"). The id is the
+    /// turn's id, this daemon run's mark and the segment's number in the turn. Stamped on each
+    /// chunk's record (`stamp_reply_segment`), it names the reply's row in a client whichever of its
+    /// chunks a page of the log starts at, so a reply a page cut is never drawn again under another
+    /// id when the page before it comes in, and a reconnect's page draws it under the id it had
+    /// (Leo, 2026-11-11: "they just appear and disappear, and then they constantly load and
+    /// reload"). Where the pane's cut depends on what its page holds (a first plan or todo call,
+    /// a new subagent group, a permission card), the row after it is named by its first chunk read.
+    pub(super) fn before_agent_update(
+        &self,
+        session: &Arc<Session>,
+        params: Option<&Value>,
+    ) -> Option<String> {
+        let update = params.and_then(|p| p.get("update"))?;
         let kind = update.get("sessionUpdate").and_then(Value::as_str).unwrap_or("");
+        // The first token or tool result: the person no longer waits on a silent turn
+        // (`cpu_pressure.rs`).
+        let answered = match kind {
+            "agent_message_chunk" | "agent_thought_chunk" => true,
+            "tool_call_update" => {
+                matches!(update.get("status").and_then(Value::as_str), Some("completed" | "failed"))
+            }
+            _ => false,
+        };
+        if answered {
+            session.awaiting_reply.store(false, Ordering::SeqCst);
+        }
         if kind == "compaction" {
             let fenced = session.compaction_metadata_fenced.load(Ordering::SeqCst);
             match update.get("state").and_then(Value::as_str) {
@@ -59,11 +202,19 @@ impl Hub {
         }
         let mut superseded = None;
         let mut retrying = None;
+        let mut segment = None;
+        // Read before the stream lock: the turn's lock is never taken under it.
+        let turn_id =
+            (kind == "agent_message_chunk").then(|| session.turn().map(|t| t.turn_id)).flatten();
         {
             let mut st = session.stream.lock().unwrap();
+            if matches!(kind, "agent_thought_chunk" | "tool_call") {
+                st.agent_worked = true;
+            }
             match kind {
                 "agent_message_chunk" => {
                     let id = update.get("messageId").and_then(Value::as_str);
+                    segment = Some(st.reply_segment_for(turn_id.as_deref(), id, segment_boot()));
                     if let Some((old, notice)) = st.retry_from.take()
                         && let Some(new) = id
                         && new != old
@@ -105,20 +256,25 @@ impl Hub {
                         }
                     }
                 }
-                k if NEUTRAL_UPDATES.contains(&k) => {}
                 _ => {
-                    // A tool call, plan or user chunk ends the message: a
-                    // later retry does not abandon it.
-                    st.open_message = None;
-                    st.retry_from = None;
-                    st.trailing_text.clear();
-                    st.trailing_seqs.clear();
-                    st.trailing_overflow = false;
+                    if cuts_reply(kind, update) {
+                        st.reply_segment = None;
+                    }
+                    if !NEUTRAL_UPDATES.contains(&kind) {
+                        // A tool call or user chunk ends the message: a
+                        // later retry does not abandon it.
+                        st.open_message = None;
+                        st.retry_from = None;
+                        st.trailing_text.clear();
+                        st.trailing_seqs.clear();
+                        st.trailing_overflow = false;
+                    }
                 }
             }
         }
         // The model request failed and Codex tries again (`turn_retry.rs`).
         if let Some(retry) = retrying {
+            self.end_capacity_retries(session, &retry);
             self.turn_retrying(session, retry);
         }
         if let Some((old, new, notice)) = superseded {
@@ -130,6 +286,7 @@ impl Hub {
                 json!({"oldMessageId": old, "newMessageId": new, "reason": "harness_retry", "source": "codex", "notice": notice, "turnId": turn_id}),
             );
         }
+        segment
     }
 
     /// Called after a live agent `session/update` is recorded.
@@ -142,6 +299,7 @@ impl Hub {
             return;
         };
         let mut st = session.stream.lock().unwrap();
+        st.reply_chars = st.reply_chars.saturating_add(visible_chars(text));
         if st.trailing_overflow {
             return;
         }
@@ -153,6 +311,19 @@ impl Hub {
         }
         st.trailing_text.push_str(text);
         st.trailing_seqs.push(rec.seq);
+    }
+
+    /// Whether a turn that failed with `error` did work (`SessionMeta::claude_unstored_work`):
+    /// its agent thought, planned or called a tool, or streamed reply text other than `error`
+    /// itself (a harness that streamed its error as a message, `turn_error_fields`).
+    pub(super) fn unstored_turn_worked(&self, session: &Session, error: &str) -> bool {
+        let st = session.stream.lock().unwrap_or_else(|e| e.into_inner());
+        let echoed = !st.trailing_overflow
+            && !st.trailing_seqs.is_empty()
+            && !error.trim().is_empty()
+            && st.trailing_text.trim() == error.trim();
+        let echo = if echoed { visible_chars(&st.trailing_text) } else { 0 };
+        st.agent_worked || st.reply_chars > echo
     }
 
     /// Forget per-turn stream state when a turn starts.
@@ -190,5 +361,44 @@ impl Hub {
             out.insert("errorChunkSeqs".into(), json!(st.trailing_seqs));
         }
         out
+    }
+}
+
+#[cfg(test)]
+mod reply_segment_tests {
+    use super::StreamState;
+
+    /// Text between turns never takes an id an earlier run of such text had, however many turns
+    /// come between them (cmux#48659: `-.<boot>.1` named two replies an hour apart).
+    #[test]
+    fn replies_with_no_turn_never_reuse_a_segment() {
+        let mut st = StreamState::default();
+        let first = st.reply_segment_for(None, Some("msg_a"), "b");
+        assert_eq!(first, "-.b.1");
+        assert_eq!(
+            st.reply_segment_for(None, Some("msg_a"), "b"),
+            first,
+            "one message, one segment"
+        );
+        assert_eq!(st.reply_segment_for(Some("t1"), Some("msg_b"), "b"), "t1.b.1");
+        assert_eq!(st.reply_segment_for(Some("t1"), Some("msg_c"), "b"), "t1.b.2");
+        let later = st.reply_segment_for(None, Some("msg_d"), "b");
+        assert_eq!(later, "-.b.2");
+        assert_ne!(later, first);
+        assert_eq!(
+            st.reply_segment_for(Some("t2"), Some("msg_e"), "b"),
+            "t2.b.1",
+            "a turn counts from 1"
+        );
+        assert_eq!(st.reply_segment_for(None, Some("msg_f"), "b"), "-.b.3");
+    }
+
+    /// A cut (`reply_segment` cleared) starts a new segment of the same message.
+    #[test]
+    fn a_cut_starts_a_new_segment_of_the_same_message() {
+        let mut st = StreamState::default();
+        assert_eq!(st.reply_segment_for(None, Some("msg_a"), "b"), "-.b.1");
+        st.reply_segment = None;
+        assert_eq!(st.reply_segment_for(None, Some("msg_a"), "b"), "-.b.2");
     }
 }

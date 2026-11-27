@@ -17,7 +17,7 @@ import { WorkflowAgentRow, WorkflowTasks } from "../src/agent-session/acpmux/ses
 import type { AcpmuxRow } from "../src/agent-session/acpmux/model";
 import { finishedTrayItems, trayItems, withSubagentLines } from "../src/agent-session/acpmux/subagents/runningTray";
 import { SUBAGENTS } from "../src/agent-session/acpmux/subagents/subagentFold";
-import { SUBAGENT_DONE, WORKFLOW_CARD } from "../src/agent-session/acpmux/subagents/subagentRows";
+import { SUBAGENT_DONE, SUBAGENT_STARTED, WORKFLOW_CARD } from "../src/agent-session/acpmux/subagents/subagentRows";
 import { WorkflowCard } from "../src/agent-session/acpmux/summary/WorkflowCard";
 import { WorkflowSideTab } from "../src/agent-session/acpmux/summary/WorkflowSideTab";
 import { turnViewFrom } from "../src/agent-session/acpmux/conversation/turns";
@@ -53,7 +53,7 @@ test("a running workflow shows its counts, tokens, model, description, closed ph
   // One group: the section's head counts it, so no group head.
   expect(html).not.toContain("acpmux-workflow-tasks__group");
   expect(shown).toContain("demo-name-tournament");
-  expect(shown).toContain("1 running · 2 queued · 3 done · 185k tokens · Opus 5.5");
+  expect(shown).toContain("1 · 2 queued · 3 done · 185k tokens · Opus 5.5");
   expect(shown).toContain("Demo: 3 agents brainstorm names");
   // Each phase is one row with its count, closed; Brainstorm has nothing left running to open.
   expect(shown).toContain("Brainstorm 3/3");
@@ -325,12 +325,15 @@ test("a running workflow keeps its elapsed clock live before agent records arriv
   expect(pageClocks(dom.window.document).running).toBe(0);
 });
 
-test("with running and finished workflows, each group says how many it holds", () => {
+// The running ones lead with no heading (Leo, 2026-11-23: ""running" doesn't need text"); the
+// finished ones keep theirs.
+test("with running and finished workflows, only the finished group says how many it holds", () => {
   const [finished] = summaries("finished");
   const html = renderToStaticMarkup(
     <WorkflowTasks workflows={[...summaries("running"), { ...finished!, id: "earlier" }]} />,
   );
-  expect(text(html)).toContain("1 running demo-name-tournament");
+  expect(text(html)).not.toContain("running");
+  expect(text(html).startsWith("demo-name-tournament")).toBe(true);
   expect(text(html)).toContain("1 finished demo-name-tournament");
 });
 
@@ -410,7 +413,7 @@ test("the transcript card shows workflow progress, latest agent text, model, tim
   const [node] = workflowFixture("running", NOW).filter((each) => each.kind === "workflow");
   const html = renderToStaticMarkup(<WorkflowCard node={{ ...node!, endedAt: node!.startedAt + 13_000 }} />);
   // Agents still queued and Judge not reached: what is done and running, not a total.
-  expect(text(html)).toContain("demo-name-tournament Running 3 done · 1 running 13s 185.1K tokens");
+  expect(text(html)).toContain("demo-name-tournament 3 done · 1 13s 185.1K tokens");
   expect(text(html)).toContain("Critique Opus 5.5");
   expect(text(html)).toContain("The latest shortlist favors names that read clearly at a glance.");
   expect(text(html)).toContain("Opus 5.5");
@@ -437,11 +440,14 @@ test("with Labs, a workflow a group started is a card in the group's place and l
     { id: "a", version: 1, at: NOW - 10_000, kind: "assistant", text: "done" },
   ];
   const labs = withSubagentLines(rows, new Map(), true);
-  expect(labs.map((row) => row.kind)).toEqual(["user", WORKFLOW_CARD, SUBAGENT_DONE, "assistant"]);
-  expect(labs[1]!.subagents?.map((node) => node.id)).toEqual([nodes[0]!.id]);
+  // The group keeps its compact start line (#42247), naming only the plain subagent: the workflow
+  // is its own card.
+  expect(labs.map((row) => row.kind)).toEqual(["user", SUBAGENT_STARTED, WORKFLOW_CARD, SUBAGENT_DONE, "assistant"]);
+  expect(labs[1]!.subagents?.map((node) => node.id)).toEqual([plain.id]);
+  expect(labs[2]!.subagents?.map((node) => node.id)).toEqual([nodes[0]!.id]);
   // A pause alone (the state kept, only the flag) draws the card again: its row's version moves.
   const cache = new Map();
-  const first = withSubagentLines(rows, cache, true)[1]!;
+  const first = withSubagentLines(rows, cache, true)[2]!;
   const paused = rows.map((row) =>
     row.kind === SUBAGENTS
       ? {
@@ -450,11 +456,12 @@ test("with Labs, a workflow a group started is a card in the group's place and l
         }
       : row,
   );
-  expect(withSubagentLines(paused, cache, true)[1]!.version).not.toBe(first.version);
-  expect(labs[2]!.subagents?.[0]!.id).toBe(plain.id);
+  expect(withSubagentLines(paused, cache, true)[2]!.version).not.toBe(first.version);
+  expect(labs[3]!.subagents?.[0]!.id).toBe(plain.id);
   // Without Labs, the workflow is a done line like any subagent.
   expect(withSubagentLines(rows, new Map()).map((row) => row.kind)).toEqual([
     "user",
+    SUBAGENT_STARTED,
     SUBAGENT_DONE,
     SUBAGENT_DONE,
     "assistant",
@@ -551,7 +558,7 @@ test("failed workflow agents show their error instead of stale output in every r
       );
       const message = document.window.document.querySelector(".acpmux-workflow-agent__doing");
       expect(message?.textContent).toBe(agent.error);
-      expect(message?.getAttribute("title")).toBe(agent.error);
+      expect(message?.getAttribute("title")).toBeNull();
       expect(document.window.document.querySelector("button")?.getAttribute("aria-label")).toContain(agent.error);
       expect(document.window.document.body.textContent).not.toContain("Earlier reply");
       document.window.close();

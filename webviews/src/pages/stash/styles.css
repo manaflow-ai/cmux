@@ -47,7 +47,7 @@
   background: transparent;
   color: var(--page-text-2);
   padding: 4px 8px;
-  border-radius: 6px;
+  border-radius: var(--ds-radius-control);
   cursor: default;
 }
 
@@ -74,7 +74,7 @@
   font: inherit;
   font-size: var(--text-title);
   padding: 4px 8px;
-  border-radius: 8px;
+  border-radius: var(--ds-radius-lg);
   border: 1px solid var(--page-separator);
   background: transparent;
   color: inherit;
@@ -82,8 +82,8 @@
   user-select: text;
 }
 
-.stash-search:focus,
-.stash-import-text:focus {
+.stash-search:focus-visible,
+.stash-import-text:focus-visible {
   border-color: var(--page-text-3);
 }
 
@@ -120,13 +120,28 @@
 .stash-list {
   flex: 1;
   overflow-y: auto;
-  /* Rows pad their hover pill by 8 px: their text starts on the page edge. */
-  padding: 4px calc(var(--page-edge) - 8px) 16px;
+  /* Rows pad their hover pill by 8 px: their text starts on the page edge. The top and bottom space
+     is the virtualizer's (StashPage.tsx `paddingStart`, `paddingEnd`). */
+  padding: 0 calc(var(--page-edge) - 8px);
 }
 
+/* Windowed: only the headers and rows near the viewport are mounted, each placed at its offset. */
+.stash-list-space {
+  position: relative;
+  width: 100%;
+}
+
+.stash-list-space > * {
+  position: absolute;
+  top: 0;
+  inset-inline-start: 0;
+  width: 100%;
+  box-sizing: border-box;
+}
+
+/* Its own block, so the header's margins count in its measured height. */
 .stash-group {
-  content-visibility: auto;
-  contain-intrinsic-size: auto 120px;
+  display: flow-root;
 }
 
 .stash-group-header {
@@ -170,7 +185,7 @@
   align-items: center;
   gap: 4px;
   height: 28px;
-  border-radius: 6px;
+  border-radius: var(--ds-radius-md);
 }
 
 /* A row lights under the pointer and while its menu is open (the row the menu acts on). */
@@ -189,7 +204,7 @@
   height: 100%;
   padding: 0 8px;
   border: 0;
-  border-radius: 6px;
+  border-radius: var(--ds-radius-md);
   background: transparent;
   color: inherit;
   font: inherit;

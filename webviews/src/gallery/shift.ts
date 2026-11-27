@@ -11,6 +11,9 @@
 // What does not count, so a correct page scores 0:
 //   - a box that has not yet held still for `REST_FRAMES` frames: an entrance animation, a row
 //     still mounting. Once it rested, any later move counts (the composer gap that jumps on load).
+//     A box a keyframe animation is moving (its own or an ancestor's, `animating`) has not rested
+//     either: on a loaded runner an entrance can hold its first frame for a few frames before it
+//     plays (the file search palette's ui-enter rise read as a 2.5 px shift, #40937);
 //     A step starts on a settled page, so its first frame's boxes have rested (`restedAtStart`);
 //   - the step's target, its ancestors and descendants (the tool row that expands), and while that
 //     row opens at the very bottom (`BOTTOM_FOLD`), everything inside it: it rises as one;
@@ -23,47 +26,37 @@
 //   - a box's first move after a resize (`firstMoveFree`): the new width lays it out once; a second
 //     move is the bounce a sidebar toggle must not have;
 //   - moves under half a CSS px (layout rounding), and boxes outside the viewport.
-// The pure scoring is here (unit tested); `startBoxTracker` samples the live page.
+// The pure scoring is here (unit tested); `startBoxTracker` samples the live page. The tracker also
+// judges the same frames for the follow (followJudge.ts): a move other than the one translation the
+// transcript rows share.
+import { judgeFollowFrames, type FollowJudgement } from "./followJudge";
 
-export type Box = { x: number; y: number; width: number; height: number };
+import {
+  MEDIA_SELECTOR,
+  bottomFoldOf,
+  sampleBoxes,
+  targetList,
+  type Box,
+  type BoxFrame,
+  type StepTargets,
+} from "../layout/boxSample";
+import { openDeclarations } from "../layout/motionContract";
+import { judgeMotion, type JudgeFrame, type MotionVerdict } from "../layout/motionJudge";
 
-/**
- * One tracked box in one frame. `after` is true when it follows the step's target in document order;
- * `before` when it precedes a target whose row is opening at the bottom of its transcript (`BOTTOM_FOLD`).
- */
-export type BoxSample = { box: Box; label: string; targeted?: boolean; after?: boolean; before?: boolean };
-export type BoxFrame = Map<number, BoxSample>;
+export {
+  BOTTOM_FOLD,
+  PIN_LIVE,
+  TRACK_SELECTOR,
+  TURN_END_FOLDING,
+  bottomFoldOf,
+  insetCrop,
+  sampleBoxes,
+  shownBox,
+} from "../layout/boxSample";
+export type { Box, BoxFrame, BoxSample, StepTargets } from "../layout/boxSample";
 
 export type BoxMove = { label: string; frame: number; dx: number; dy: number };
-export type BoxShift = { score: number; moves: BoxMove[] };
-
-/** The transcript row that is opening or closing at the very bottom, so the text above it rises or
- *  falls (App.tsx `beginBottomStackFold`, `data-bottom-stack-fold`, set for every bottom stack), and
- *  the running tray placed after the latest message (`.acpmux-transcript-after-latest`, the
- *  subagent tray's after-latest placement): it is always the transcript's end, so opening it while
- *  the view follows the end pushes the text above up by what opened, by design (SubagentTray.gallery
- *  `expand-after-latest`); away from the end it opens below the view and nothing above it moves. */
-export const BOTTOM_FOLD = "[data-bottom-stack-fold], .acpmux-transcript-after-latest";
-
-/** The running tray over the composer (`.acpmux-running-tray` in the dock). What it opens moves no
- *  row, save over the running turn's live line: while that line is the transcript's last row, the
- *  tray lies over at most half the line's rest gap and the rows rise with it for the rest, so the
- *  line stays in sight (VirtualTranscript `trayBase`; Leo, 2026-11-04: "why does it not display
- *  Thinking or anything here???"). Only then is it a fold at the bottom; with any other last row a
- *  row that rises is still a shift. */
-const RUNNING_TRAY = ".acpmux-running-tray";
-const LIVE_LINE_ROW = "acpmux-row--below";
-
-/** The fold at the very bottom that `target` opens or closes, if it is one (`BOTTOM_FOLD`, or the
- *  running tray over the live line). */
-export function bottomFoldOf(target: Element): Element | null {
-  const fold = target.closest(BOTTOM_FOLD);
-  if (fold) return fold;
-  const tray = target.closest(RUNNING_TRAY);
-  if (!tray) return null;
-  const rows = target.ownerDocument.querySelectorAll(".acpmux-row");
-  return rows[rows.length - 1]?.classList.contains(LIVE_LINE_ROW) ? tray : null;
-}
+export type BoxShift = { score: number; moves: BoxMove[]; follow?: FollowJudgement; motion?: MotionVerdict };
 
 /** Frames a box must hold still before its moves count. */
 export const REST_FRAMES = 2;
@@ -71,28 +64,6 @@ export const REST_FRAMES = 2;
 export const MOVE_SLACK = 0.5;
 /** Moves listed in a report; the score still counts every one. */
 const MAX_MOVES = 24;
-
-/**
- * The rows a person reads: transcript rows, the composer and its bar, menus and their items, list,
- * tree and grid rows, and anything an entry marks `data-gallery-track`. Kept to a bounded set so a
- * per-frame sample stays cheap.
- */
-export const TRACK_SELECTOR = [
-  "[data-row-id]",
-  "[data-gallery-track]",
-  ".acpmux-composer-box",
-  ".acpmux-composer-bar",
-  "[role='menu']",
-  "[role='listbox']",
-  "[role='menuitem']",
-  "[role='menuitemradio']",
-  "[role='menuitemcheckbox']",
-  "[role='option']",
-  "[role='row']",
-  "[role='treeitem']",
-  "[role='tab']",
-].join(",");
-
 const area = (box: Box) => Math.max(0, box.width) * Math.max(0, box.height);
 
 function clip(box: Box, viewport: { width: number; height: number }): Box {
@@ -146,6 +117,10 @@ export function scoreBoxFrames(
       const dy = now.box.y - was.box.y;
       const moved = Math.abs(dx) > MOVE_SLACK || Math.abs(dy) > MOVE_SLACK;
       const rested = (still.get(id) ?? 0) >= REST_FRAMES;
+      if (now.animating || was.animating) {
+        still.set(id, 0);
+        continue;
+      }
       if (!moved) {
         still.set(id, (still.get(id) ?? 0) + 1);
         continue;
@@ -173,6 +148,77 @@ export function scoreBoxFrames(
   return { score: Math.round(score * 1e5) / 1e5, moves };
 }
 
+/** How far the transcript's rows drifted over a run in which nothing new may move them. */
+export type HeldDrift = {
+  /** The largest distance, CSS px, of any row from where it was when first seen (0 when all held). */
+  worst: number;
+  /** The row that drifted furthest, and in which frame. */
+  label?: string;
+  frame?: number;
+  /** Frames in which some row was off its first place by more than `MOVE_SLACK`. */
+  driftFrames: number;
+};
+
+/**
+ * The held-bottom detector (Leo, 2026-11-18, his chat sat at the bottom while clocks ticked and the
+ * transcript bounced 30–70 px every second or so: "did we fix this scroll bounce at the bottom
+ * yet?"). For a run in which nothing new arrives (a wait on a chat whose rows do not change: a
+ * ticking status line, a running command's clock, the same snapshot sent again), every transcript row
+ * must stay exactly where it was first seen, every frame. Unlike the box score and the follow judge,
+ * nothing is exempt as a follow: a shared translation of every row that goes away and comes back over
+ * a few hundred ms is a bounce, though the follow judge's reversal window (`REVERSE_FRAMES`) is too
+ * short to see it. Rows a keyframe animation moves are skipped (an entrance); a row that leaves the
+ * view and comes back is judged against where it first was.
+ */
+export function heldRowDrift(frames: readonly BoxFrame[]): HeldDrift {
+  const first = new Map<number, number>();
+  let worst = 0;
+  let label: string | undefined;
+  let frame: number | undefined;
+  let driftFrames = 0;
+  frames.forEach((current, index) => {
+    let drifted = false;
+    for (const [id, sample] of current) {
+      if (!sample.row || sample.animating) continue;
+      const y = sample.box.y;
+      const at = first.get(id);
+      if (at === undefined) {
+        first.set(id, y);
+        continue;
+      }
+      const off = Math.abs(y - at);
+      if (off <= MOVE_SLACK) continue;
+      drifted = true;
+      if (off > worst) {
+        worst = off;
+        label = sample.label;
+        frame = index;
+      }
+    }
+    if (drifted) driftFrames++;
+  });
+  return { worst: Math.round(worst * 10) / 10, driftFrames, ...(label ? { label, frame } : {}) };
+}
+
+/** Samples the page's boxes after every painted frame until `stop`, which judges them as a held run
+ *  (`heldRowDrift`): for a play step that waits on a chat nothing new reaches. */
+export function startHeldTracker(doc: Document): { stop(): HeldDrift } {
+  const frames: BoxFrame[] = [];
+  const view = doc.defaultView!;
+  const sample = () => {
+    if (frames.length < MAX_FRAMES) frames.push(sampleBoxes(doc, null));
+  };
+  sample();
+  const stopSampling = afterEachPaint(windowPaintClock(view), sample);
+  return {
+    stop() {
+      stopSampling();
+      sample();
+      return heldRowDrift(frames);
+    },
+  };
+}
+
 /** A source of a browser layout-shift entry (`LayoutShift.sources`): the node and its rects. */
 export type LayoutShiftSource = {
   node?: Node | null;
@@ -196,12 +242,6 @@ export function isExpansionShift(sources: readonly LayoutShiftSource[], target: 
   if (!targets.length || !sources.length) return false;
   return sources.every((source) => targets.some((each) => expandedBy(source, each)));
 }
-
-/** A step's target, or the elements it and the play clicked (`clicked` in playRunner.ts). */
-export type StepTargets = Element | readonly Element[] | null | undefined;
-
-const targetList = (target: StepTargets): readonly Element[] =>
-  !target ? [] : "nodeType" in target ? [target as Element] : (target as readonly Element[]);
 
 function expandedBy({ node, previousRect: was, currentRect: now }: LayoutShiftSource, target: Element): boolean {
   const folding = bottomFoldOf(target);
@@ -232,78 +272,231 @@ function expandedBy({ node, previousRect: was, currentRect: now }: LayoutShiftSo
 
 // ---- Sampling the live page ----
 
-const ids = new WeakMap<Element, number>();
-let nextId = 1;
-const idOf = (element: Element) => {
-  let id = ids.get(element);
-  if (id === undefined) ids.set(element, (id = nextId++));
-  return id;
-};
-
-function labelOf(element: Element): string {
-  const row = element.getAttribute("data-row-id");
-  const role = element.getAttribute("role");
-  const className = typeof element.className === "string" ? element.className.split(" ")[0] : "";
-  return `${element.tagName.toLowerCase()}${className ? `.${className}` : ""}${row ? `[row ${row}]` : role ? `[${role}]` : ""}`;
-}
-
-/** The tracked boxes now, with each one's relation to `target` (the step's targets: any of them). */
-export function sampleBoxes(doc: Document, target: StepTargets, extra: Element[] = []): BoxFrame {
-  const frame: BoxFrame = new Map();
-  const view = doc.defaultView;
-  const width = view?.innerWidth ?? 0;
-  const height = view?.innerHeight ?? 0;
-  // The row opening at the very bottom moves as one: what it holds (a batch's message rows) rises
-  // with its toggle and the text above, so it is the target's as much as the toggle's line is.
-  const targets = targetList(target).map((each) => ({ each, folding: bottomFoldOf(each) }));
-  for (const element of new Set([...doc.querySelectorAll(TRACK_SELECTOR), ...extra])) {
-    const rect = element.getBoundingClientRect();
-    if (rect.width <= 0 || rect.height <= 0) continue;
-    if (rect.bottom <= 0 || rect.right <= 0 || rect.top >= height || rect.left >= width) continue;
-    const targeted = targets.some(
-      ({ each, folding }) =>
-        element === each || element.contains(each) || each.contains(element) || !!folding?.contains(element),
-    );
-    let after = false;
-    let before = false;
-    if (!targeted)
-      for (const { each, folding } of targets) {
-        const position = each.compareDocumentPosition(element);
-        after ||= (position & 4) !== 0; // 4: DOCUMENT_POSITION_FOLLOWING (no global Node in tests)
-        before ||= !!folding && (position & 2) !== 0; // 2: DOCUMENT_POSITION_PRECEDING
-      }
-    frame.set(idOf(element), {
-      box: { x: rect.x, y: rect.y, width: rect.width, height: rect.height },
-      label: labelOf(element),
-      targeted,
-      after,
-      before,
-    });
-  }
-  return frame;
-}
-
 /** Most frames one tracker keeps (about 33 s at 60 Hz); a longer run scores its first frames. */
 const MAX_FRAMES = 2000;
 
-/** Samples every frame until `stop`, which scores what it saw. */
+/** What `afterEachPaint` schedules with: a window, or a stand-in in a unit test. */
+export interface PaintClock {
+  requestAnimationFrame(callback: (time: number) => void): number;
+  cancelAnimationFrame(handle: number): void;
+  /** Posts `then` as a task: a message posted from a frame callback runs after that frame renders. */
+  afterThisFrame(then: () => void): void;
+  /** Adds a capturing listener for the input events that come before a pending read. */
+  onInput?(listener: () => void): () => void;
+  /** Watches the page between a frame's render and the read after it: `changed` when its DOM
+   *  changes, `rendered` once per `arm` (called in a frame callback), after the page's own observers
+   *  placed what that frame paints. */
+  watchChanges?(changed: () => void, rendered: () => void): { arm(): void; stop(): void };
+}
+
+/** Reads dropped in a row because the page changed before them; the next one reads regardless, so a
+ *  page that changes after every paint is still sampled (every so many frames). */
+export const MAX_CHANGED_DROPS = 8;
+
+/** Input that can change the page between a frame and the read after it (paintedFrames.ts). */
+const INPUT_EVENTS = [
+  "keydown",
+  "beforeinput",
+  "input",
+  "pointerdown",
+  "pointerup",
+  "mousedown",
+  "mouseup",
+  "click",
+  "wheel",
+];
+
+export function windowPaintClock(view: Window): PaintClock {
+  return {
+    requestAnimationFrame: (callback) => view.requestAnimationFrame(callback),
+    cancelAnimationFrame: (handle) => view.cancelAnimationFrame(handle),
+    afterThisFrame(then) {
+      const channel = new (view as Window & typeof globalThis).MessageChannel();
+      channel.port1.onmessage = () => {
+        channel.port1.close();
+        then();
+      };
+      channel.port2.postMessage(null);
+    },
+    onInput(listener) {
+      for (const kind of INPUT_EVENTS) view.addEventListener(kind, listener, { capture: true, passive: true });
+      return () => {
+        for (const kind of INPUT_EVENTS) view.removeEventListener(kind, listener, { capture: true });
+      };
+    },
+    watchChanges(changed, rendered) {
+      const doc = view.document;
+      const page = view as Window & typeof globalThis;
+      if (typeof page.MutationObserver !== "function" || typeof page.ResizeObserver !== "function")
+        return { arm() {}, stop() {} };
+      const mutations = new page.MutationObserver(changed);
+      mutations.observe(doc, { subtree: true, childList: true, attributes: true, characterData: true });
+      // Observed afresh in each frame callback, the root reports in that frame's observer step, after
+      // the observers the page made before this one (the transcript placing its rows): what they
+      // changed is what the frame paints. A change delivered after it came after the render.
+      const probe = doc.documentElement;
+      const renders = new page.ResizeObserver(() => {
+        mutations.takeRecords();
+        rendered();
+      });
+      return {
+        arm() {
+          renders.unobserve(probe);
+          renders.observe(probe);
+        },
+        stop() {
+          mutations.disconnect();
+          renders.disconnect();
+        },
+      };
+    },
+  };
+}
+
+/**
+ * Calls `read` once after each painted frame until the returned stop. A frame callback runs before
+ * the frame's style, layout, ResizeObserver callbacks and paint, so a read there can see a layout
+ * no frame paints (the transcript's lift before its dock observer ran, #46151): the read waits for
+ * a task posted from the frame callback instead. An input event before that task runs the read
+ * first, on the state the frame painted. Any other task can run before it too (a busy page's queued
+ * message: a streamed reply's render), and the layout it leaves is painted only after the next frame's
+ * observers place the rows under it, so a read after it saw a reply a line taller over a live line
+ * that never painted there, and then that line jumping (agent-chat-stream-no-shift `text`, 22.8 px
+ * on a loaded runner). Such a read is dropped, as one the next frame overtook is (`watchChanges`; at
+ * most MAX_CHANGED_DROPS in a row).
+ */
+export function afterEachPaint(clock: PaintClock, read: () => void): () => void {
+  let stopped = false;
+  let handle = 0;
+  // The frame whose read has not run yet; a read runs at most once, and only while it is pending.
+  let pending = 0;
+  let frames = 0;
+  // The page changed after the last frame rendered (`watchChanges`), and reads dropped for it in a row.
+  let changed = false;
+  let drops = 0;
+  const watch = clock.watchChanges?.(
+    () => {
+      changed = true;
+    },
+    () => {
+      changed = false;
+    },
+  );
+  const runFor = (frameNumber: number) => {
+    if (stopped || frameNumber === 0 || pending !== frameNumber) return;
+    pending = 0;
+    if (changed && drops < MAX_CHANGED_DROPS) {
+      drops += 1;
+      return;
+    }
+    drops = 0;
+    read();
+  };
+  const offInput = clock.onInput?.(() => runFor(pending)) ?? (() => {});
+  const frame = () => {
+    if (stopped) return;
+    watch?.arm();
+    // A read whose task did not come before the next frame would see this frame's unpainted layout:
+    // it is dropped (the next read sees both frames' moves).
+    const frameNumber = ++frames;
+    pending = frameNumber;
+    clock.afterThisFrame(() => runFor(frameNumber));
+    handle = clock.requestAnimationFrame(frame);
+  };
+  handle = clock.requestAnimationFrame(frame);
+  return () => {
+    stopped = true;
+    pending = 0;
+    clock.cancelAnimationFrame(handle);
+    offInput();
+    watch?.stop();
+  };
+}
+
+/**
+ * Samples after every painted frame until `stop`, which scores what it saw. It judges the same frames for
+ * the follow (followJudge.ts) and against the layout-motion contract (`motion`: every move no declaration
+ * covers, layout/motionJudge.ts): the moves the step declares (`declared`, the play's own act) and those the
+ * page declares while it runs (`declareMove`). Chat media is sampled for that judgement only, so the
+ * box-shift score keeps its rows.
+ */
 export function startBoxTracker(
   doc: Document,
-  options: { target?: StepTargets; extra?: () => Element[]; firstMoveFree?: boolean; restedAtStart?: boolean } = {},
+  options: {
+    target?: StepTargets;
+    extra?: () => Element[];
+    firstMoveFree?: boolean;
+    restedAtStart?: boolean;
+    declared?: () => JudgeFrame["declared"];
+  } = {},
 ): { stop(): BoxShift } {
   const frames: BoxFrame[] = [];
+  const judged: JudgeFrame[] = [];
   const view = doc.defaultView!;
-  let handle = 0;
-  const sample = () => {
-    if (frames.length < MAX_FRAMES) frames.push(sampleBoxes(doc, options.target ?? null, options.extra?.() ?? []));
-    handle = view.requestAnimationFrame(sample);
+  const targetsNow = () => [
+    ...targetList(options.target ?? null),
+    // A move the page declares on targets (an expand it runs itself) relates boxes to those targets too.
+    ...openDeclarations().flatMap((declaration) => declaration.targets ?? []),
+  ];
+  const score = () => {
+    frames.push(sampleBoxes(doc, targetsNow(), options.extra?.() ?? []));
   };
-  sample();
+  const judge = () => {
+    const open = openDeclarations();
+    const media = [...doc.querySelectorAll(MEDIA_SELECTOR)];
+    const samples = sampleBoxes(doc, targetsNow(), [...(options.extra?.() ?? []), ...media]);
+    const declared = [
+      ...(options.declared?.() ?? []),
+      ...open.map(({ key, event, scope, once, strict, by }) => ({ key: -key, event, scope, once, strict, by })),
+    ];
+    judged.push({ samples, declared });
+    // A play that sets `cmuxMotionTrace` on its window logs each judged frame (undeclared-run.sh TRACE=1).
+    if ((view as unknown as { cmuxMotionTrace?: boolean }).cmuxMotionTrace) {
+      const all = [...samples].filter(([, sample]) => sample.surface === "transcript-row");
+      const rows = all.length > 8 ? [...all.slice(0, 4), ...all.slice(-4)] : all;
+      const flags = (sample: (typeof rows)[number][1]) =>
+        `${sample.targeted ? "T" : ""}${sample.folding ? "F" : ""}${sample.animating ? "A" : ""}`;
+      console.log(
+        `motion-trace judge f${judged.length - 1} t${view.performance.now().toFixed(0)} [${declared
+          .map((each) => `${each.event}/${each.scope}${each.strict ? "!" : ""}`)
+          .join(
+            ",",
+          )}] ${rows.map(([id, sample]) => `${id}:${sample.box.y.toFixed(1)}/${sample.box.height.toFixed(1)}${flags(sample)}`).join(" ")}`,
+      );
+    }
+  };
+  // The viewport the last frame drew at. A resize that lands between that frame and its read (the
+  // message waits behind other tasks) shows the new width's rewrapped rows before the page's
+  // ResizeObserver placed them, a state no frame paints: the judge skips that read and takes the next frame's.
+  let drewAt = "";
+  const viewportNow = () => `${view.innerWidth}x${view.innerHeight}`;
+  const clock = windowPaintClock(view);
+  const stopSampling = afterEachPaint(
+    {
+      ...clock,
+      requestAnimationFrame: (callback) =>
+        clock.requestAnimationFrame((time) => {
+          drewAt = viewportNow();
+          callback(time);
+        }),
+    },
+    () => {
+      if (frames.length < MAX_FRAMES) score();
+      if (judged.length < MAX_FRAMES && viewportNow() === drewAt) judge();
+    },
+  );
+  // The page as it is when the step starts, at rest.
+  score();
+  judge();
   return {
     stop() {
-      view.cancelAnimationFrame(handle);
-      frames.push(sampleBoxes(doc, options.target ?? null, options.extra?.() ?? []));
-      return scoreBoxFrames(frames, { width: view.innerWidth, height: view.innerHeight }, options);
+      stopSampling();
+      score();
+      judge();
+      const shift = scoreBoxFrames(frames, { width: view.innerWidth, height: view.innerHeight }, options);
+      // A step starts on a page that has been still: its first frame's boxes have rested already.
+      if (options.restedAtStart && judged.length) judged.unshift(...Array.from({ length: 2 }, () => judged[0]!));
+      return { ...shift, follow: judgeFollowFrames(frames, options), motion: judgeMotion(judged) };
     },
   };
 }

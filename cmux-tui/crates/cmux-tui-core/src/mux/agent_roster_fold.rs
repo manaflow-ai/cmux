@@ -1,5 +1,6 @@
 //! Agent hook records and the agent roster: applying hook records, folding the roster, reconciling roster projections, and report echoes.
 
+use super::agent_notification_delivery::{AgentEvent, Delivery};
 use super::*;
 
 // The roster's one owner thread: every fold and snapshot save runs there.
@@ -12,11 +13,24 @@ mod agent_roster_rebuild;
 #[cfg(test)]
 pub(super) use agent_roster_rebuild::rebuild_faults;
 
+/// How far the roster's cursor may run ahead of its saved snapshot before a
+/// pass that a hook asked for saves it again (journal sequences; one replay
+/// page). The snapshot holds every agent terminal's entry, fences and
+/// evidence (96 KB at 170 agent terminals, 452 KB at 800), and a hook's pass
+/// rewrote all of it for each hook. The journal is the truth: a start replays
+/// it from the saved cursor (at most this stretch of it, besides what a crash
+/// cut short), so saving less often loses nothing.
+const ROSTER_SAVE_EVERY_SEQUENCES: u64 = 512;
+
 /// The roster owner's fold state ([`AgentRosterWorker`]): its own journal
 /// reader. Only the owner's passes take it, so it orders folds and snapshot
 /// saves.
 #[derive(Default)]
 pub(super) struct AgentRosterFold {
+    /// The cursor of the snapshot the owner's passes saved last. `None`
+    /// before the first pass, which takes the cursor it starts from (the
+    /// start's restore saved it).
+    saved_cursor: Option<u64>,
     /// A read-only connection to the registry file, opened at the first
     /// fold. In WAL mode it reads committed records with no daemon lock: not
     /// the workspace registry lock, not the writer's connection lock, so a
@@ -34,6 +48,9 @@ pub(super) struct AgentRosterFold {
     /// the roster, by name (test seam: only the roster's owner may do them).
     #[cfg(test)]
     io_threads: Vec<Option<String>>,
+    /// Snapshot saves of the owner's passes (test seam).
+    #[cfg(test)]
+    snapshot_saves: usize,
 }
 
 impl AgentRosterFold {
@@ -79,6 +96,12 @@ impl AgentRosterFold {
 }
 
 impl Mux {
+    /// Snapshot saves the roster owner's passes made so far.
+    #[cfg(test)]
+    pub(crate) fn agent_roster_snapshot_saves_for_test(&self) -> usize {
+        self.agent_roster_worker.fold.lock().unwrap_or_else(PoisonError::into_inner).snapshot_saves
+    }
+
     /// The next roster fold signals `entered` after it reads one page of
     /// the journal tail and waits for `release` before it goes on.
     #[cfg(test)]
@@ -256,35 +279,28 @@ impl Mux {
         ) else {
             return Ok(());
         };
-        // Attention-worthy transitions become durable notifications before
-        // the agent report commits. The notification key is derived from the
-        // journal sequence, so a retry after a crash between the two commits
-        // replays the notification instead of posting it twice, and the fence
-        // (stored by the report) still advances exactly once. A turn that ends
-        // while its child agents run is not done: its finish waits for them
-        // (`agent_hook_children.rs`).
+        // Attention-worthy transitions become durable notifications in the
+        // commit of the agent report (alone when the hook reports nothing or
+        // the report refuses). The notification key is derived from the
+        // journal sequence, so a retry replays the notification instead of
+        // posting it twice, and the fence (stored by the report) still
+        // advances exactly once. A turn that ends while its child agents run
+        // is not done: its finish waits for them (`agent_hook_children.rs`).
         let gate =
             self.gate_agent_finish(&terminal_id, &ingress.kind, sequence, notification.as_ref());
         if let agent_hook_children::FinishGate::Release(held) = &gate {
             self.release_held_agent_session_finish(&terminal_id, held, sequence)?;
         }
         let held = matches!(gate, agent_hook_children::FinishGate::Hold);
-        if let Some((title, body, level)) = notification.filter(|_| !held) {
-            self.create_durable_notification(
-                &Actor::Daemon,
-                &format!("agent-hook-notification-{sequence}"),
-                title,
-                None,
-                body,
-                level,
-                Some(surface),
-                NotificationSource::Agent,
-            )
-            .with_context(|| format!("agent hook notification for sequence {sequence}"))?;
-        }
+        let delivery = self.agent_notification_delivery(AgentEvent::from_hook(&ingress.kind));
+        let notice = notification.filter(|_| !held && delivery != Delivery::Off);
+        let desktop = delivery == Delivery::Banner;
         // A notification that leaves the roster state as it is reports
         // nothing and leaves the fence where the last report stored it.
-        let Some(state) = state else { return Ok(()) };
+        let Some(state) = state else {
+            let staged = self.stage_agent_hook_notification(notice, surface, sequence, desktop)?;
+            return self.commit_agent_hook_notification(staged, sequence);
+        };
         let next_fence = HookFence::next(
             previous_fence.as_ref(),
             agent_session_id.clone(),
@@ -301,6 +317,10 @@ impl Mux {
         };
         let (harness, ended) = (agent_provider_identity(ingress), state == AgentState::Done);
         self.note_relaunch_agent(&terminal_id, harness, explicit_session_id, ended, job);
+        // Staged after the relaunch record's save (a commit when the record
+        // changes): a daemon that stops between the stage and the report's
+        // commit loses the notification, so no other commit is in that span.
+        let staged = self.stage_agent_hook_notification(notice, surface, sequence, desktop)?;
         let hook_state = crate::workspace_registry::AgentHookProjectionState {
             agent_session_id,
             applied_sequence: sequence,
@@ -317,6 +337,7 @@ impl Mux {
             Some(sequence),
             AgentReportOrigin::RosterFold,
             agent_provider_identity(ingress),
+            staged,
         )?;
         fences.insert(terminal_id.clone(), next_fence);
         // Projection ordering is complete. Do not carry the fence guard into
@@ -363,6 +384,15 @@ impl Mux {
             && ingress.payload.get("format").and_then(Value::as_str)
                 != Some(crate::journal_reducers::AGENT_PLUGIN_FORMAT)
         {
+            return;
+        }
+        // The coalesced activity row changes no roster entry (it has no
+        // terminal). A fold request for it would put the roster's cursor
+        // behind what is wanted until the owner's next pass, and until then
+        // every completed tool call is a journal row
+        // (`tool_completion_may_resume_agent`): a row per tool report, each 5
+        // minutes. The owner folds past it with the next agent row.
+        if agent_hooks_at_rest::is_agent_activity_row(ingress) {
             return;
         }
         self.request_roster_work(Some(commit.sequence), None);
@@ -582,9 +612,17 @@ impl Mux {
                 _ => pass.retire,
             };
             // The snapshot and its cursor are read together. A pass that
-            // changed neither saves nothing and serializes nothing.
-            let saved = (host.cursor != start || retired)
-                .then(|| (host.cursor, host.roster.snapshot().to_string()));
+            // changed neither saves nothing and serializes nothing. A pass a
+            // hook asked for saves only once the cursor ran
+            // ROSTER_SAVE_EVERY_SEQUENCES past the last save; a retirement
+            // is no journal record, so it saves at once, as does a pass a
+            // caller waits for.
+            let saved_at = *fold.saved_cursor.get_or_insert(start);
+            let unsaved = retired || host.cursor != saved_at;
+            let due = retired
+                || pass.flush
+                || host.cursor.saturating_sub(saved_at) >= ROSTER_SAVE_EVERY_SEQUENCES;
+            let saved = (unsaved && due).then(|| (host.cursor, host.roster.snapshot().to_string()));
             (left, saved)
         };
         // A stale roster's rebuild folds only the journal, where a close is
@@ -594,15 +632,22 @@ impl Mux {
         if let Some((cursor, snapshot)) = saved {
             #[cfg(test)]
             fold.note_io_for_test();
+            #[cfg(test)]
+            {
+                fold.snapshot_saves += 1;
+            }
             // The connection alone, never the workspace registry lock, so
             // state commits do not wait behind the snapshot write (issue 23038).
-            if let Err(error) = self.registry_connection.put_journal_reducer_state(
+            match self.registry_connection.put_journal_reducer_state(
                 AGENT_ROSTER_REDUCER_ID,
                 self.agent_roster_save_version(),
                 cursor,
                 &snapshot,
             ) {
-                eprintln!("cmux-tui: persisting the agent roster snapshot failed: {error}");
+                Ok(()) => fold.saved_cursor = Some(cursor),
+                Err(error) => {
+                    eprintln!("cmux-tui: persisting the agent roster snapshot failed: {error}");
+                }
             }
         }
         let reconciled = reconcile.then(|| {
@@ -895,6 +940,7 @@ impl Mux {
             None,
             AgentReportOrigin::RosterFold,
             agent_adapter,
+            &mut None,
         ) {
             eprintln!(
                 "cmux-tui: agent projection update for {terminal_id} ({kind}) failed: {error}"
@@ -947,6 +993,7 @@ impl Mux {
             Some(hook_state),
             None,
             AgentReportOrigin::RosterFold,
+            None,
             None,
         ) {
             eprintln!("cmux-tui: ending the hook session of {terminal_id} failed: {error}");

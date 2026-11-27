@@ -538,6 +538,7 @@ fn zellij_stacked_layout(panes: &[PaneId], next_split_id: &mut impl FnMut() -> S
         b: Box::new(
             Node::stack(panes[1..].to_vec()).expect("stacked layout requires at least one pane"),
         ),
+        divider_hidden: false,
     }
 }
 
@@ -566,6 +567,7 @@ fn equal_nodes(
         ratio,
         a: Box::new(first),
         b: Box::new(equal_nodes(nodes, dir, next_split_id)),
+        divider_hidden: false,
     }
 }
 
@@ -847,7 +849,7 @@ fn exact_split_for_pane_edge_viewport_walk(
     edge: SplitEdge,
     best: &mut Option<ExactViewportSplitResize>,
 ) {
-    let Node::Split { id, dir, ratio, a, b } = node else {
+    let Node::Split { id, dir, ratio, a, b, .. } = node else {
         return;
     };
     let (a_rect, b_rect, split_area) =
@@ -939,7 +941,7 @@ fn exact_split_for_pane_edge_walk(
     edge: SplitEdge,
     best: &mut Option<ExactSplitResize>,
 ) {
-    let Node::Split { id, dir, ratio, a, b } = node else { return };
+    let Node::Split { id, dir, ratio, a, b, .. } = node else { return };
     let too_small = match dir {
         SplitDir::Right => area.width < 2,
         SplitDir::Down => area.height < 2,
@@ -1103,28 +1105,5 @@ fn split_virtual_sides(area: VirtualRect, dir: SplitDir, ratio: f32) -> (Virtual
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn zero_extent_terminal_splits_preserve_empty_rect() {
-        for dir in [SplitDir::Right, SplitDir::Down] {
-            let area = Rect { x: u16::MAX, y: u16::MAX, width: 0, height: 0 };
-            let (first, second) = split_sides(area, dir, 0.5);
-
-            assert_eq!(first, area);
-            assert_eq!(second, area);
-        }
-    }
-
-    #[test]
-    fn zero_extent_virtual_splits_preserve_empty_rect() {
-        for dir in [SplitDir::Right, SplitDir::Down] {
-            let area = VirtualRect { x: u64::MAX, y: u16::MAX, width: 0, height: 0 };
-            let (first, second) = split_virtual_sides(area, dir, 0.5);
-
-            assert_eq!(first, area);
-            assert_eq!(second, area);
-        }
-    }
-}
+#[path = "layout_tests.rs"]
+mod tests;

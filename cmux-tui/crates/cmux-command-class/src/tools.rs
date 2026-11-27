@@ -27,7 +27,7 @@ pub(crate) fn scan<'a>(
     let mut positionals = Vec::new();
     let mut j = 0;
     while let Some(&word) = args.get(j) {
-        j += 1;
+        j = j.saturating_add(1);
         if word == "--" {
             positionals.extend_from_slice(args.get(j..).unwrap_or_default());
             break;
@@ -39,7 +39,7 @@ pub(crate) fn scan<'a>(
                 Some((name, value)) => visit(Opt::Long(name), Some(value)),
                 None if long_valued.contains(&long) => {
                     visit(Opt::Long(long), args.get(j).copied());
-                    j += 1;
+                    j = j.saturating_add(1);
                 }
                 None => visit(Opt::Long(long), None),
             }
@@ -47,10 +47,11 @@ pub(crate) fn scan<'a>(
             let cluster = word.get(1..).unwrap_or_default();
             for (at, c) in cluster.char_indices() {
                 if short_valued.contains(c) {
-                    let rest = cluster.get(at + c.len_utf8()..).unwrap_or_default();
+                    let rest = cluster.get(at.saturating_add(c.len_utf8())..).unwrap_or_default();
                     let value = if rest.is_empty() {
-                        j += 1;
-                        args.get(j - 1).copied()
+                        let next = args.get(j).copied();
+                        j = j.saturating_add(1);
+                        next
                     } else {
                         Some(rest)
                     };
@@ -140,7 +141,7 @@ fn output_flag(name: &str, tail: &[&str]) -> Classification {
     let mut writes = false;
     for (at, word) in tail.iter().enumerate() {
         let target = match *word {
-            "-o" | "--output" => tail.get(at + 1).copied(),
+            "-o" | "--output" => tail.get(at.saturating_add(1)).copied(),
             _ => word.strip_prefix("--output="),
         };
         writes |= target.is_some_and(|path| path != "-" && !is_sink(path));
@@ -259,15 +260,15 @@ fn git(tail: &[&str]) -> Classification {
     let mut j = 0;
     while let Some(&word) = tail.get(j) {
         match word {
-            "-c" => match tail.get(j + 1) {
-                Some(setting) if is_inert_git_setting(setting) => j += 2,
+            "-c" => match tail.get(j.saturating_add(1)) {
+                Some(setting) if is_inert_git_setting(setting) => j = j.saturating_add(2),
                 _ => return Classification::new(Machine, "git -c"),
             },
-            "-C" | "--git-dir" | "--work-tree" | "--namespace" => j += 2,
+            "-C" | "--git-dir" | "--work-tree" | "--namespace" => j = j.saturating_add(2),
             _ if word.starts_with("--config-env") || word.starts_with("--exec-path=") => {
                 return Classification::new(Machine, "git --config-env");
             }
-            _ if word.starts_with('-') => j += 1,
+            _ if word.starts_with('-') => j = j.saturating_add(1),
             _ => break,
         }
     }
@@ -275,7 +276,7 @@ fn git(tail: &[&str]) -> Classification {
         return Classification::new(GitLocal, "git");
     };
     Classification::new(
-        git_subcommand(sub, tail.get(j + 1..).unwrap_or_default()),
+        git_subcommand(sub, tail.get(j.saturating_add(1)..).unwrap_or_default()),
         format!("git {sub}"),
     )
 }

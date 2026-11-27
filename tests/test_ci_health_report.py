@@ -27,11 +27,11 @@ WORKFLOW = ROOT / ".github/workflows/ci-health-report.yml"
 DOC = ROOT / "docs/ci/health-report.md"
 FIXTURES = ROOT / "tests/fixtures/ci-health-report"
 
-SPEC = importlib.util.spec_from_file_location("ci_health_report", SCRIPT)
-report = importlib.util.module_from_spec(SPEC)
-assert SPEC.loader is not None
-sys.modules["ci_health_report"] = report
-SPEC.loader.exec_module(report)
+# Imported by name, never loaded by path: one module object per file, so a test that patches it
+# patches what every other test reads (tests/test_script_module_loads.py).
+if str(ROOT / "scripts/ci") not in sys.path:
+    sys.path.insert(0, str(ROOT / "scripts/ci"))
+import ci_health_report as report  # noqa: E402
 
 NOW = dt.datetime(2026, 9, 22, 18, 0, tzinfo=dt.timezone.utc)
 REPO = "manaflow-ai/cmux"
@@ -64,6 +64,8 @@ def metrics_from(fixture: dict[str, Any], window: Any, partial: tuple[str, ...] 
 
 CURRENT_WINDOW, PREVIOUS_WINDOW = report.windows(NOW, 6)
 
+
+ONE_LINUX_LABEL = "${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || 'cmux-linux' }}"
 
 class JobRowTests(unittest.TestCase):
     def setUp(self) -> None:
@@ -634,10 +636,9 @@ class WorkflowStructureTests(unittest.TestCase):
         self.assertIn('- cron: "37 2,8,14,20 * * *"', self.text)
         self.assertIn("workflow_dispatch:", self.text)
 
-    def test_the_runner_comes_from_a_repository_variable(self):
-        self.assertIn(
-            "runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || fromJSON(vars.RUNNER_POOLS).linux_4 }}", self.text
-        )
+    def test_the_runner_is_the_one_linux_label(self):
+        # scripts/ci/one_linux_label.py: no size picked in the workflow; a fork pull request takes its own variable.
+        self.assertIn("runs-on: " + ONE_LINUX_LABEL, self.text)
 
     def test_it_can_read_runs_and_write_issue_comments_but_not_cancel(self):
         self.assertIn("\npermissions: {}\n", self.text)

@@ -47,7 +47,7 @@
 //! `longest_frame_gap_ms` is the longest wait between two frames at the
 //! viewer: a path that dropped shows up there as a stall.
 //!
-//! `CMUX_WG_ULTRA` (`dup`, `fec:8:2`, `rs:4:4`, see `cmux_wg::UltraMode`) turns on
+//! `CMUX_WG_ULTRA` (`auto`, `dup`, `fec:8:2`, `rs:4:4`, see `cmux_wg::UltraChoice`) turns on
 //! ultra mode on both ends, and `CMUX_WG_ULTRA_HOST` gives the host its own
 //! (`off`: the viewer alone asked for it); the note says what it sent and
 //! rebuilt.
@@ -56,8 +56,7 @@
 //! in-process link with that round trip and that loss in each direction;
 //! kernel TCP runs on plain loopback only. `--bulk-bytes 0` skips the bulk
 //! transfer after the stream. `scripts/remote-stream-bench.sh`
-//! runs the matrix, `scripts/remote-stream-ultra-bench.sh` the ultra-mode one,
-//! `scripts/remote-stream-rd-link-bench.sh` `wg-tcp` against `rd-link`.
+//! runs the matrix, `scripts/remote-stream-rd-link-bench.sh` `wg-tcp` against `rd-link`.
 //! Prints one JSON object.
 //!
 //! ```text
@@ -520,6 +519,23 @@ fn impair_direction(
     });
 }
 
+/// `SO_RCVBUF` of [`cmux_wg::RECEIVE_BUFFER`], without the UDP GRO a tunnel
+/// socket turns on: the link forwards datagrams one by one, as they came.
+fn grow_receive_buffer_only(socket: &UdpSocket) {
+    use std::os::fd::AsRawFd;
+    let size = libc::c_int::try_from(cmux_wg::RECEIVE_BUFFER).unwrap_or(libc::c_int::MAX);
+    // SAFETY: a valid fd and an int option value that lives for the call.
+    unsafe {
+        libc::setsockopt(
+            socket.as_raw_fd(),
+            libc::SOL_SOCKET,
+            libc::SO_RCVBUF,
+            (&raw const size).cast(),
+            size_of::<libc::c_int>() as libc::socklen_t,
+        );
+    }
+}
+
 /// A lossy, delayed UDP link between a WireGuard client and `server`. The
 /// client dials the returned address; half the round trip is added each way.
 /// The tasks end with the process.
@@ -536,6 +552,12 @@ async fn impair_cuttable(
 ) -> io::Result<SocketAddr> {
     let front = Arc::new(UdpSocket::bind("127.0.0.1:0").await?);
     let back = Arc::new(UdpSocket::bind("127.0.0.1:0").await?);
+    // The link holds what a real path's queue would, as much as the tunnel's
+    // own sockets ask for: the default 208 KiB drops a 64-datagram GSO burst
+    // in a run, which a NIC ring or router queue does not.
+    for socket in [&front, &back] {
+        grow_receive_buffer_only(socket);
+    }
     let address = front.local_addr()?;
     let delay = Duration::from_micros(rtt_ms * 500);
     let client = Arc::new(Mutex::new(None));
@@ -567,10 +589,10 @@ async fn start_wg(args: &Args) -> io::Result<(WgNet, WgNet, SocketAddr, SocketAd
     let host = match std::env::var("CMUX_WG_ULTRA_HOST")
         .ok()
         .filter(|v| !v.trim().is_empty())
-        .and_then(|v| cmux_wg::UltraMode::parse(&v))
+        .and_then(|v| cmux_wg::UltraChoice::parse(&v))
     {
-        Some(mode) => {
-            WgNet::start_with_ultra(pair.server, SocketPath::new(server_socket, None), mode)
+        Some(choice) => {
+            WgNet::start_with_choice(pair.server, SocketPath::new(server_socket, None), choice)
                 .map_err(err)?
         }
         None => WgNet::start(pair.server, server_socket).await.map_err(err)?,
@@ -705,6 +727,14 @@ struct CutSocket {
     cut: Arc<AtomicBool>,
 }
 
+impl CutSocket {
+    /// Once cut, what arrived is gone.
+    fn discard(&self, batch: &mut cmux_wg::ReceiveBatch) {
+        let mut scratch = [0u8; 1 << 16];
+        while batch.pop_into(&mut scratch).is_some() || !batch.is_empty() {}
+    }
+}
+
 impl cmux_wg::DatagramSocket for CutSocket {
     fn poll_recv_from(
         &mut self,
@@ -732,6 +762,40 @@ impl cmux_wg::DatagramSocket for CutSocket {
             return Ok(datagram.len());
         }
         cmux_wg::DatagramSocket::try_send_to(&mut self.socket, datagram, target)
+    }
+
+    fn try_send_batch(&mut self, batch: &cmux_wg::SendBatch, from: usize) -> io::Result<usize> {
+        if self.cut.load(Ordering::Relaxed) {
+            return Ok(batch.len().saturating_sub(from).max(1));
+        }
+        cmux_wg::DatagramSocket::try_send_batch(&mut self.socket, batch, from)
+    }
+
+    fn poll_recv_batch(
+        &mut self,
+        cx: &mut std::task::Context<'_>,
+        batch: &mut cmux_wg::ReceiveBatch,
+    ) -> std::task::Poll<io::Result<()>> {
+        loop {
+            std::task::ready!(cmux_wg::DatagramSocket::poll_recv_batch(
+                &mut self.socket,
+                cx,
+                batch
+            ))?;
+            if !self.cut.load(Ordering::Relaxed) {
+                return std::task::Poll::Ready(Ok(()));
+            }
+            self.discard(batch);
+        }
+    }
+
+    fn try_recv_batch(&mut self, batch: &mut cmux_wg::ReceiveBatch) -> io::Result<()> {
+        cmux_wg::DatagramSocket::try_recv_batch(&mut self.socket, batch)?;
+        if self.cut.load(Ordering::Relaxed) {
+            self.discard(batch);
+            return Err(io::ErrorKind::WouldBlock.into());
+        }
+        Ok(())
     }
 
     fn local_addr(&self) -> io::Result<SocketAddr> {
@@ -959,18 +1023,20 @@ async fn run_wg_dgram(args: &Args, clock: Arc<Clock>, record: Shared) -> io::Res
 fn ultra_note(viewer: &WgNet, host: &WgNet) -> String {
     let (viewer, host) = (viewer.ultra_stats(), host.ultra_stats());
     format!(
-        "ultra {:?}: host parity {} copies {} overhead {} B of {} B rebuilt {}, viewer parity {} copies {} overhead {} B of {} B rebuilt {}",
-        cmux_wg::UltraMode::from_env(),
+        "ultra {}: host parity {} copies {} overhead {} B of {} B rebuilt {} auto-on {}, viewer parity {} copies {} overhead {} B of {} B rebuilt {} auto-on {}",
+        std::env::var("CMUX_WG_ULTRA").unwrap_or_default(),
         host.parity_sent,
         host.copies_sent,
         host.overhead_bytes,
         host.data_bytes,
         host.recovered,
+        host.auto_on,
         viewer.parity_sent,
         viewer.copies_sent,
         viewer.overhead_bytes,
         viewer.data_bytes,
         viewer.recovered,
+        viewer.auto_on,
     )
 }
 

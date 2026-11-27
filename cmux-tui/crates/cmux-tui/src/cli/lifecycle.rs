@@ -48,6 +48,11 @@ pub(super) enum ServerAction {
         /// How long to wait for an owner that still restores its session
         /// (`--restore-wait-seconds`, default `local_owner::RESTORE_DEADLINE`).
         restore_wait: Duration,
+        /// `--if-idle`: stop only while no other client is connected and no
+        /// terminal is live (`daemon-stop-if-idle-v1`); else exit 1 and say
+        /// what uses the daemon. An owner without the capability keeps
+        /// running and the stop exits 4.
+        if_idle: bool,
     },
     /// The daemon swap (HQ#7149 R4): stop the owner as an update hands it off
     /// (its terminal hosts live on), wait for it to exit, then ensure an owner
@@ -64,6 +69,15 @@ pub(super) enum ServerAction {
     /// state root (`CMUX_TUI_STATE_DIR` or the platform default).
     CompactRegistry {
         state_dir: Option<std::path::PathBuf>,
+    },
+    /// Private app contract: before an update hands the running owner off,
+    /// the new build folds what its first start would (the agent roster at a
+    /// new reducer version) into a side file beside the registry, read-only
+    /// and beside the owner, which keeps serving. The new owner adopts it.
+    /// Needs an explicit `--session`; `--state-dir` as for compact-registry.
+    PremigrateRegistry {
+        state_dir: Option<std::path::PathBuf>,
+        max_duration: Option<Duration>,
     },
 }
 
@@ -94,6 +108,9 @@ pub(super) fn run(mut global: GlobalArgs, plan: ServerPlan) -> i32 {
     let expected_session = global.session.clone();
     if let ServerAction::CompactRegistry { state_dir } = plan.action {
         return run_compact_registry(expected_session, state_dir, global.output);
+    }
+    if let ServerAction::PremigrateRegistry { state_dir, max_duration } = plan.action {
+        return run_premigrate_registry(expected_session, state_dir, max_duration, global.output);
     }
     let (socket, socket_is_derived) = match super::wire::resolve_socket_with_origin(&global) {
         Ok(resolved) => resolved,
@@ -159,7 +176,7 @@ pub(super) fn run(mut global: GlobalArgs, plan: ServerPlan) -> i32 {
     let restart = matches!(plan.action, ServerAction::Restart { .. });
     let action = match plan.action {
         ServerAction::Restart { force, restore_wait } => {
-            ServerAction::Stop { force, end_terminals: false, restore_wait }
+            ServerAction::Stop { force, end_terminals: false, restore_wait, if_idle: false }
         }
         action => action,
     };
@@ -177,13 +194,13 @@ pub(super) fn run(mut global: GlobalArgs, plan: ServerPlan) -> i32 {
             global.output,
         )
     };
-    if let ServerAction::Stop { force, end_terminals, restore_wait } = action {
+    if let ServerAction::Stop { force, end_terminals, restore_wait, if_idle } = action {
         let stop = StopWait {
             socket: &socket,
             socket_is_derived,
             session: expected_session.as_deref(),
             limit: restore_wait,
-            retry_flags: (force, end_terminals),
+            retry_flags: (force, end_terminals, if_idle),
             restart,
             output: global.output,
         };
@@ -312,9 +329,11 @@ pub(super) fn run(mut global: GlobalArgs, plan: ServerPlan) -> i32 {
     match action {
         ServerAction::Ensure { .. }
         | ServerAction::CompactRegistry { .. }
+        | ServerAction::PremigrateRegistry { .. }
         | ServerAction::Restart { .. } => {
             unreachable!(
-                "ensure, compact-registry and restart return before the lifecycle exchange"
+                "ensure, compact-registry, premigrate-registry and restart return before the \
+                 lifecycle exchange"
             )
         }
         // A wedged owner answers identify, but serves no workspace change: the
@@ -394,7 +413,7 @@ pub(super) fn run(mut global: GlobalArgs, plan: ServerPlan) -> i32 {
                         );
                     }
                 };
-            if result["reloaded"].as_bool() != Some(true) {
+            if result.get("reloaded").and_then(Value::as_bool) != Some(true) {
                 return local_error(
                     "server.invalid_response",
                     crate::localization::catalog().local_server.invalid_response,
@@ -406,13 +425,31 @@ pub(super) fn run(mut global: GlobalArgs, plan: ServerPlan) -> i32 {
                 json!({
                     "reloaded":true,
                     "session":actual_session,
-                    "warnings":result["warnings"].as_array().cloned().unwrap_or_default(),
+                    "warnings":result.get("warnings").and_then(Value::as_array).cloned().unwrap_or_default(),
                     "message":crate::localization::catalog().local_server.reloaded,
                 }),
                 global.output,
             )
         }
-        ServerAction::Stop { force, end_terminals, .. } => {
+        ServerAction::Stop { force, end_terminals, if_idle, .. } => {
+            // An owner without `if_idle` ignores the field and stops however
+            // busy it is: it keeps running instead (the Rex docs' exit 4).
+            if if_idle
+                && !identity.get("capabilities").and_then(Value::as_array).is_some_and(|values| {
+                    values.iter().any(|value| value == "daemon-stop-if-idle-v1")
+                })
+            {
+                return local_error(
+                    "server.if_idle_unsupported",
+                    &super::fix_command::refused_with_fix(
+                        crate::localization::catalog().local_server.if_idle_unsupported,
+                        &super::fix_command::this_cli(),
+                        std::path::Path::new(&socket_output),
+                    ),
+                    global.output,
+                    4,
+                );
+            }
             if end_terminals
                 && !identity["capabilities"]
                     .as_array()
@@ -433,7 +470,7 @@ pub(super) fn run(mut global: GlobalArgs, plan: ServerPlan) -> i32 {
             let deadline =
                 if end_terminals { Instant::now() + Duration::from_secs(120) } else { deadline };
             if force
-                && !identity["capabilities"].as_array().is_some_and(|values| {
+                && !identity.get("capabilities").and_then(Value::as_array).is_some_and(|values| {
                     values.iter().any(|value| value == "daemon-handoff-force-v1")
                 })
             {
@@ -450,21 +487,43 @@ pub(super) fn run(mut global: GlobalArgs, plan: ServerPlan) -> i32 {
             }
             // Read while the old owner still runs: the new one repeats it.
             let launch = restart.then(|| CarriedLaunch::of_owner(pid));
-            let result = match exchange(
-                &mut connection,
-                json!({
-                    "id":2,
-                    "cmd":"shutdown-daemon",
-                    "pid":pid,
-                    "generation":generation,
-                    "force":force,
-                    "end_terminals":end_terminals,
-                    // An attached TUI reconnects after a restart and exits
-                    // after a stop (the daemon repeats it on its notice).
-                    "restart":restart,
-                }),
-                deadline,
-            ) {
+            let mut request = json!({
+                "id":2,
+                "cmd":"shutdown-daemon",
+                "pid":pid,
+                "generation":generation,
+                "force":force,
+                "end_terminals":end_terminals,
+                // An attached TUI reconnects after a restart and exits
+                // after a stop (the daemon repeats it on its notice).
+                "restart":restart,
+            });
+            if if_idle {
+                request.set("if_idle", json!(true));
+            }
+            let reply = match exchange_reply(&mut connection, request, deadline) {
+                // A busy daemon refused the stop and keeps serving: say
+                // what uses it (exit 1, as the Rex docs' `--if-idle`).
+                Ok(reply)
+                    if reply.get("ok") != Some(&Value::Bool(true))
+                        && reply.get("error_code").and_then(Value::as_str)
+                            == Some("daemon_busy") =>
+                {
+                    return local_error_with_details(
+                        "server.in_use",
+                        reply
+                            .get("error")
+                            .and_then(Value::as_str)
+                            .unwrap_or("the daemon is in use"),
+                        reply.get("error_details").cloned().unwrap_or(Value::Null),
+                        global.output,
+                        1,
+                    );
+                }
+                Ok(reply) => reply_result(reply),
+                Err(error) => Err(error),
+            };
+            let result = match reply {
                 Ok(result) => result,
                 Err(ExchangeError::Rejected(_)) => {
                     return local_error(
@@ -590,8 +649,9 @@ struct StopWait<'a> {
     socket_is_derived: bool,
     session: Option<&'a str>,
     limit: Duration,
-    /// `--force` and `--end-terminals`, repeated in the retry command.
-    retry_flags: (bool, bool),
+    /// `--force`, `--end-terminals` and `--if-idle`, repeated in the retry
+    /// command.
+    retry_flags: (bool, bool, bool),
     /// A `server restart`'s stop: the retry command restarts, never only stops.
     restart: bool,
     output: OutputMode,
@@ -729,12 +789,15 @@ impl StopWait<'_> {
         } else {
             super::fix_command::stop_daemon(&cli, self.socket)
         };
-        let (force, end_terminals) = self.retry_flags;
+        let (force, end_terminals, if_idle) = self.retry_flags;
         if force {
             retry.push_str(" --force");
         }
         if end_terminals {
             retry.push_str(" --end-terminals");
+        }
+        if if_idle {
+            retry.push_str(" --if-idle");
         }
         retry.push_str(&format!(" --restore-wait-seconds {}", longer.as_secs().min(3600)));
         let message = crate::localization::catalog().local_server.stop_gave_up(
@@ -1072,6 +1135,17 @@ fn exchange(
     request: Value,
     deadline: Instant,
 ) -> Result<Value, ExchangeError> {
+    exchange_reply(connection, request, deadline).and_then(reply_result)
+}
+
+/// The whole reply to `request` (`ok`, `data`, `error`, `error_code`,
+/// `error_details`), a refusal included: for a caller that tells refusals
+/// apart by their `error_code`.
+fn exchange_reply(
+    connection: &mut BufReader<Box<dyn transport::Stream>>,
+    request: Value,
+    deadline: Instant,
+) -> Result<Value, ExchangeError> {
     require_time_remaining(connection, deadline)?;
     writeln!(connection.get_mut(), "{request}")
         .and_then(|()| connection.get_mut().flush())
@@ -1080,16 +1154,24 @@ fn exchange(
         let Some(response) = read_response(connection, deadline)? else {
             return Err(ExchangeError::Closed);
         };
-        if response.get("event").is_some() || response["id"] != request["id"] {
+        if response.get("event").is_some()
+            || response.get("id").unwrap_or(&Value::Null)
+                != request.get("id").unwrap_or(&Value::Null)
+        {
             continue;
         }
-        if response["ok"] == true {
-            return Ok(response.get("data").cloned().unwrap_or(Value::Null));
-        }
-        let error =
-            response.get("error").and_then(Value::as_str).unwrap_or("request rejected").to_string();
-        return Err(ExchangeError::Rejected(error));
+        return Ok(response);
     }
+}
+
+/// A reply's `data`, or its refusal as [`ExchangeError::Rejected`].
+fn reply_result(response: Value) -> Result<Value, ExchangeError> {
+    if response.get("ok") == Some(&Value::Bool(true)) {
+        return Ok(response.get("data").cloned().unwrap_or(Value::Null));
+    }
+    let error =
+        response.get("error").and_then(Value::as_str).unwrap_or("request rejected").to_string();
+    Err(ExchangeError::Rejected(error))
 }
 
 fn read_response(
@@ -1290,6 +1372,73 @@ fn run_compact_registry(
     }
 }
 
+/// `server premigrate-registry --session <name> [--state-dir <path>]
+/// [--max-seconds <n>]`: read-only beside the running owner, so it needs no
+/// socket and takes no session lock. A run stopped by `--max-seconds` or a
+/// signal saves its progress, and the next run resumes it; both exit 0.
+fn run_premigrate_registry(
+    expected_session: Option<String>,
+    state_dir: Option<std::path::PathBuf>,
+    max_duration: Option<Duration>,
+    output: OutputMode,
+) -> i32 {
+    let messages = &crate::localization::catalog().local_server;
+    let Some(session) = expected_session else {
+        return local_error("usage.invalid", messages.registry_premigrate_needs_session, output, 2);
+    };
+    let Some(root) = state_dir.or_else(cmux_tui_core::platform::workspace_state_dir) else {
+        return print_success(json!({"status": "nothing_to_do", "session": session}), output);
+    };
+    let stopped = crate::shutdown_requested;
+    let control = cmux_tui_core::PremigrateControl::new(max_duration, &stopped);
+    match cmux_tui_core::premigrate_registry(&root, &session, &control) {
+        Ok(cmux_tui_core::PremigrateOutcome::NoRegistry(path)) => {
+            eprintln!("cmux-tui: premigrate: no saved registry, nothing to do");
+            print_success(
+                json!({"status": "nothing_to_do", "session": session,
+                       "path": path.to_string_lossy()}),
+                output,
+            )
+        }
+        Ok(cmux_tui_core::PremigrateOutcome::AlreadyRunning(path)) => {
+            eprintln!("cmux-tui: premigrate: already running for this registry");
+            print_success(
+                json!({"status": "already_running", "session": session,
+                       "path": path.to_string_lossy()}),
+                output,
+            )
+        }
+        Ok(cmux_tui_core::PremigrateOutcome::Done(roster)) => print_success(
+            json!({
+                "status": if roster.complete { "done" } else { "partial" },
+                "session": session,
+                "path": roster.registry.to_string_lossy(),
+                "agent_roster": {
+                    "version": roster.version,
+                    "up_to_date": roster.up_to_date,
+                    "from_cursor": roster.from_cursor,
+                    "cursor": roster.cursor,
+                    "head": roster.head,
+                    "complete": roster.complete,
+                    "records_folded": roster.records_folded,
+                    "elapsed_ms": roster.elapsed_ms,
+                    "stop_reason": roster.stop_reason,
+                    "side_file": roster.side_file.to_string_lossy(),
+                },
+                "output_cleanup": {"outcome": "deferred"},
+            }),
+            output,
+        ),
+        Err(error) => local_error_with_details(
+            "server.premigrate_failed",
+            messages.registry_premigrate_failed,
+            json!({"session": session, "reason": format!("{error:#}")}),
+            output,
+            1,
+        ),
+    }
+}
+
 fn local_error(code: &str, message: &str, output: OutputMode, exit_code: i32) -> i32 {
     local_error_with_details(code, message, json!({}), output, exit_code)
 }
@@ -1313,264 +1462,5 @@ fn print_success(value: Value, output: OutputMode) -> i32 {
 }
 
 #[cfg(test)]
-mod tests {
-    use std::io::{self, Cursor, Read, Write};
-    use std::net::Shutdown;
-    use std::sync::{Arc, Mutex};
-
-    use super::*;
-
-    #[test]
-    fn rejects_invalid_session_names_before_socket_resolution() {
-        assert!(!valid_session_name(""));
-        assert!(!valid_session_name("bad name"));
-        assert!(!valid_session_name("bad\nname"));
-        assert!(!valid_session_name(&"x".repeat(65)));
-    }
-
-    #[test]
-    fn accepts_session_names_for_explicit_and_default_socket_routes() {
-        assert!(valid_session_name("main"));
-        assert!(valid_session_name("agent-1"));
-    }
-
-    struct UnreadableStream;
-
-    impl Read for UnreadableStream {
-        fn read(&mut self, _: &mut [u8]) -> io::Result<usize> {
-            panic!("an expired lifecycle deadline must fail before reading")
-        }
-    }
-
-    impl Write for UnreadableStream {
-        fn write(&mut self, bytes: &[u8]) -> io::Result<usize> {
-            Ok(bytes.len())
-        }
-
-        fn flush(&mut self) -> io::Result<()> {
-            Ok(())
-        }
-    }
-
-    impl transport::Stream for UnreadableStream {
-        fn try_clone_box(&self) -> io::Result<Box<dyn transport::Stream>> {
-            Ok(Box::new(Self))
-        }
-
-        fn set_read_timeout(&self, _: Option<Duration>) -> io::Result<()> {
-            Ok(())
-        }
-
-        fn set_write_timeout(&self, _: Option<Duration>) -> io::Result<()> {
-            Ok(())
-        }
-
-        fn shutdown(&self, _: Shutdown) -> io::Result<()> {
-            Ok(())
-        }
-    }
-
-    struct TimeoutRecordingStream {
-        read_timeout: Arc<Mutex<Option<Duration>>>,
-        write_timeout: Arc<Mutex<Option<Duration>>>,
-    }
-
-    impl Read for TimeoutRecordingStream {
-        fn read(&mut self, _: &mut [u8]) -> io::Result<usize> {
-            Ok(0)
-        }
-    }
-
-    impl Write for TimeoutRecordingStream {
-        fn write(&mut self, bytes: &[u8]) -> io::Result<usize> {
-            Ok(bytes.len())
-        }
-
-        fn flush(&mut self) -> io::Result<()> {
-            Ok(())
-        }
-    }
-
-    impl transport::Stream for TimeoutRecordingStream {
-        fn try_clone_box(&self) -> io::Result<Box<dyn transport::Stream>> {
-            Ok(Box::new(Self {
-                read_timeout: self.read_timeout.clone(),
-                write_timeout: self.write_timeout.clone(),
-            }))
-        }
-
-        fn set_read_timeout(&self, timeout: Option<Duration>) -> io::Result<()> {
-            *self.read_timeout.lock().unwrap() = timeout;
-            Ok(())
-        }
-
-        fn set_write_timeout(&self, timeout: Option<Duration>) -> io::Result<()> {
-            *self.write_timeout.lock().unwrap() = timeout;
-            Ok(())
-        }
-
-        fn shutdown(&self, _: Shutdown) -> io::Result<()> {
-            Ok(())
-        }
-    }
-
-    struct TransportCloseStream;
-
-    impl Read for TransportCloseStream {
-        fn read(&mut self, _: &mut [u8]) -> io::Result<usize> {
-            Err(io::Error::other("transport closed after shutdown acknowledgement"))
-        }
-    }
-
-    impl Write for TransportCloseStream {
-        fn write(&mut self, bytes: &[u8]) -> io::Result<usize> {
-            Ok(bytes.len())
-        }
-
-        fn flush(&mut self) -> io::Result<()> {
-            Ok(())
-        }
-    }
-
-    impl transport::Stream for TransportCloseStream {
-        fn try_clone_box(&self) -> io::Result<Box<dyn transport::Stream>> {
-            Ok(Box::new(Self))
-        }
-
-        fn set_read_timeout(&self, _: Option<Duration>) -> io::Result<()> {
-            Ok(())
-        }
-
-        fn set_write_timeout(&self, _: Option<Duration>) -> io::Result<()> {
-            Ok(())
-        }
-
-        fn shutdown(&self, _: Shutdown) -> io::Result<()> {
-            Ok(())
-        }
-    }
-
-    struct RejectedStream {
-        response: Cursor<Vec<u8>>,
-    }
-
-    impl Read for RejectedStream {
-        fn read(&mut self, bytes: &mut [u8]) -> io::Result<usize> {
-            self.response.read(bytes)
-        }
-    }
-
-    impl Write for RejectedStream {
-        fn write(&mut self, bytes: &[u8]) -> io::Result<usize> {
-            Ok(bytes.len())
-        }
-
-        fn flush(&mut self) -> io::Result<()> {
-            Ok(())
-        }
-    }
-
-    impl transport::Stream for RejectedStream {
-        fn try_clone_box(&self) -> io::Result<Box<dyn transport::Stream>> {
-            Ok(Box::new(Self { response: self.response.clone() }))
-        }
-
-        fn set_read_timeout(&self, _: Option<Duration>) -> io::Result<()> {
-            Ok(())
-        }
-
-        fn set_write_timeout(&self, _: Option<Duration>) -> io::Result<()> {
-            Ok(())
-        }
-
-        fn shutdown(&self, _: Shutdown) -> io::Result<()> {
-            Ok(())
-        }
-    }
-
-    #[test]
-    fn expired_deadline_fails_before_reading_another_frame() {
-        let stream: Box<dyn transport::Stream> = Box::new(UnreadableStream);
-        let mut connection = BufReader::new(stream);
-        let expired = Instant::now() - Duration::from_millis(1);
-
-        assert_eq!(read_response(&mut connection, expired), Err(ExchangeError::Timeout));
-    }
-
-    #[test]
-    fn lifecycle_deadline_bounds_reads_and_writes() {
-        let read_timeout = Arc::new(Mutex::new(None));
-        let write_timeout = Arc::new(Mutex::new(None));
-        let stream: Box<dyn transport::Stream> = Box::new(TimeoutRecordingStream {
-            read_timeout: read_timeout.clone(),
-            write_timeout: write_timeout.clone(),
-        });
-        let mut connection = BufReader::new(stream);
-        let requested = Duration::from_secs(1);
-
-        require_time_remaining(&mut connection, Instant::now() + requested).unwrap();
-
-        let read_timeout = read_timeout.lock().unwrap().unwrap();
-        let write_timeout = write_timeout.lock().unwrap().unwrap();
-        assert!(!read_timeout.is_zero());
-        assert!(read_timeout <= requested);
-        assert!(!write_timeout.is_zero());
-        assert!(write_timeout <= requested);
-    }
-
-    #[test]
-    fn stop_accepts_transport_close_after_shutdown_acknowledgement() {
-        let stream: Box<dyn transport::Stream> = Box::new(TransportCloseStream);
-        let mut connection = BufReader::new(stream);
-
-        assert!(wait_for_close(&mut connection, Instant::now() + Duration::from_secs(1)).is_ok());
-    }
-
-    #[test]
-    fn exchange_preserves_daemon_rejection_details() {
-        let rejection = json!({
-            "id": 2,
-            "ok": false,
-            "error": "trusted local connection required",
-        });
-        let stream: Box<dyn transport::Stream> = Box::new(RejectedStream {
-            response: Cursor::new(format!("{rejection}\n").into_bytes()),
-        });
-        let mut connection = BufReader::new(stream);
-        let error = exchange(
-            &mut connection,
-            json!({"id":2,"cmd":"server-stats"}),
-            Instant::now() + Duration::from_secs(1),
-        )
-        .expect_err("rejected response");
-        assert_eq!(error, ExchangeError::Rejected("trusted local connection required".into()));
-    }
-
-    #[test]
-    fn lifecycle_io_errors_preserve_timeout_classification() {
-        assert_eq!(
-            exchange_io_error(io::Error::from(io::ErrorKind::TimedOut)),
-            ExchangeError::Timeout
-        );
-        assert_eq!(
-            exchange_io_error(io::Error::from(io::ErrorKind::WouldBlock)),
-            ExchangeError::Timeout
-        );
-        assert_eq!(
-            exchange_io_error(io::Error::from(io::ErrorKind::BrokenPipe)),
-            ExchangeError::Closed
-        );
-        assert_eq!(
-            exchange_io_error(io::Error::from(io::ErrorKind::ConnectionReset)),
-            ExchangeError::Closed
-        );
-        assert_eq!(
-            exchange_io_error(io::Error::from(io::ErrorKind::NotConnected)),
-            ExchangeError::Closed
-        );
-        assert_eq!(
-            exchange_io_error(io::Error::from(io::ErrorKind::Other)),
-            ExchangeError::Transport
-        );
-    }
-}
+#[path = "lifecycle_tests.rs"]
+mod tests;

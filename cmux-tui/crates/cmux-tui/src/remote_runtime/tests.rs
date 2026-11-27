@@ -9,7 +9,13 @@ mod first_connect_recovery;
 #[cfg(unix)]
 mod initial_route_budget;
 #[cfg(unix)]
+mod last_good_route;
+#[cfg(unix)]
+mod ssh_auth_budget;
+#[cfg(unix)]
 mod ssh_forced_command;
+#[cfg(unix)]
+mod warm_standby;
 
 /// Binds a stream socket at `path` that never listens, as a crashed
 /// client leaves it. A connect to it is refused even while the returned
@@ -34,7 +40,7 @@ fn bind_stale_client_socket(path: &Path) -> std::os::fd::OwnedFd {
     let mut address: libc::sockaddr_un = unsafe { std::mem::zeroed() };
     address.sun_family = libc::sa_family_t::try_from(libc::AF_UNIX).unwrap();
     let bytes = path.as_os_str().as_bytes();
-    assert!(bytes.len() < address.sun_path.len(), "socket path too long");
+    assert!(cmux_unix_socket::fits(path), "socket path too long");
     for (slot, byte) in address.sun_path.iter_mut().zip(bytes) {
         *slot = libc::c_char::from_ne_bytes([*byte]);
     }
@@ -147,17 +153,19 @@ enum FakeInitialRouteEvent {
 struct FakeInitialRouteAttempt {
     fail_ssh_bootstrap: bool,
     fail_provider_index: Option<usize>,
-    events: Vec<FakeInitialRouteEvent>,
+    events: std::sync::Mutex<Vec<FakeInitialRouteEvent>>,
 }
 
 #[async_trait]
 impl InitialRouteAttempt<String> for FakeInitialRouteAttempt {
     async fn bootstrap_ssh(
-        &mut self,
+        &self,
         endpoint: &Url,
         upgrade: bool,
     ) -> Result<(), InitialRouteAttemptError> {
         self.events
+            .lock()
+            .unwrap()
             .push(FakeInitialRouteEvent::Bootstrap { endpoint: endpoint.to_string(), upgrade });
         if self.fail_ssh_bootstrap {
             Err(InitialRouteAttemptError::Route {
@@ -170,12 +178,12 @@ impl InitialRouteAttempt<String> for FakeInitialRouteAttempt {
     }
 
     async fn connect(
-        &mut self,
+        &self,
         index: usize,
         request: ConnectRequest,
     ) -> Result<String, InitialRouteAttemptError> {
         let endpoint = request.endpoint.to_string();
-        self.events.push(FakeInitialRouteEvent::Provider(request));
+        self.events.lock().unwrap().push(FakeInitialRouteEvent::Provider(request));
         if self.fail_provider_index == Some(index) {
             Err(InitialRouteAttemptError::Route {
                 error: anyhow!("fake provider is unreachable"),
@@ -1594,7 +1602,8 @@ fn client_startup_timeout_returns_while_the_socket_path_lock_is_held() {
         let _ = done_tx.send(result.map(|runtime| runtime.shutdown()));
     });
 
-    let completed_while_locked = done_rx.recv_timeout(Duration::from_millis(500)).is_ok();
+    let early = done_rx.recv_timeout(Duration::from_millis(500));
+    let completed_while_locked = early.is_ok();
     assert_eq!(unsafe { libc::flock(lock.as_raw_fd(), libc::LOCK_UN) }, 0);
     if !completed_while_locked {
         done_rx
@@ -1609,6 +1618,10 @@ fn client_startup_timeout_returns_while_the_socket_path_lock_is_held() {
         completed_while_locked,
         "client startup timeout joined a worker blocked on the socket path lock"
     );
+    // #48950: a first connect that times out says what to do, a longer --connect-timeout-seconds.
+    let error = early.unwrap().expect_err("a locked socket path cannot connect");
+    assert!(error.to_string().contains("did not become ready within"), "{error:#}");
+    assert!(error.to_string().contains("--connect-timeout-seconds"), "{error:#}");
 }
 
 #[cfg(unix)]
@@ -1733,6 +1746,10 @@ fn daemon_finalizes_lifecycle_when_ready_receiver_disappears() {
         }
     };
     assert!(error.to_string().contains("did not become ready"), "{error:#}");
+    // The daemon's own startup wait is fixed (DAEMON_STARTUP_TIMEOUT): no flag lengthens it, so its
+    // error names none; the client's first connect names --connect-timeout-seconds
+    // (client_startup_timeout_returns_while_the_socket_path_lock_is_held).
+    assert!(!error.to_string().contains("--connect-timeout-seconds"), "{error:#}");
     pause.resume();
 
     let runtime_path = state_dir.join("runtime.json");
@@ -2081,10 +2098,10 @@ async fn carrier_initial_fallback_skips_network_route_before_any_dial() {
         resolved_test_route("wss://network.example/v1/link", SupportedClientAuthModes::DeviceOnly),
         resolved_test_route("ssh://carrier.example", SupportedClientAuthModes::DeviceOrCarrier),
     ];
-    let mut attempt = FakeInitialRouteAttempt {
+    let attempt = FakeInitialRouteAttempt {
         fail_ssh_bootstrap: false,
         fail_provider_index: None,
-        events: Vec::new(),
+        events: Default::default(),
     };
 
     let selected = select_initial_route(
@@ -2093,14 +2110,14 @@ async fn carrier_initial_fallback_skips_network_route_before_any_dial() {
         LanePolicy::Single,
         AuthKind::Carrier,
         false,
-        &mut attempt,
+        &attempt,
     )
     .await
     .unwrap();
 
     assert_eq!(selected, "ssh://carrier.example");
     assert_eq!(
-        attempt.events,
+        *attempt.events.lock().unwrap(),
         [
             FakeInitialRouteEvent::Bootstrap {
                 endpoint: "ssh://carrier.example".into(),
@@ -2156,10 +2173,10 @@ async fn carrier_route_selection_fails_without_dialing_when_every_route_is_devic
         "wss://network.example/v1/link",
         SupportedClientAuthModes::DeviceOnly,
     )];
-    let mut attempt = FakeInitialRouteAttempt {
+    let attempt = FakeInitialRouteAttempt {
         fail_ssh_bootstrap: false,
         fail_provider_index: None,
-        events: Vec::new(),
+        events: Default::default(),
     };
 
     let error = select_initial_route(
@@ -2168,14 +2185,14 @@ async fn carrier_route_selection_fails_without_dialing_when_every_route_is_devic
         LanePolicy::Single,
         AuthKind::Carrier,
         false,
-        &mut attempt,
+        &attempt,
     )
     .await
     .unwrap_err()
     .to_string();
 
     assert!(error.contains("carrier"), "{error}");
-    assert!(attempt.events.is_empty(), "an incompatible route was dialed");
+    assert!(attempt.events.lock().unwrap().is_empty(), "an incompatible route was dialed");
 }
 
 fn reconnect_test_options(routes: Vec<ResolvedRouteCandidate>) -> ClientRuntimeOptions {
@@ -2426,10 +2443,10 @@ async fn failed_ssh_bootstrap_falls_back_to_next_initial_provider() {
             SupportedClientAuthModes::DeviceOnly,
         ),
     ];
-    let mut attempt = FakeInitialRouteAttempt {
+    let attempt = FakeInitialRouteAttempt {
         fail_ssh_bootstrap: true,
         fail_provider_index: None,
-        events: Vec::new(),
+        events: Default::default(),
     };
 
     let selected = select_initial_route(
@@ -2438,14 +2455,14 @@ async fn failed_ssh_bootstrap_falls_back_to_next_initial_provider() {
         LanePolicy::Single,
         AuthKind::Enrolled,
         false,
-        &mut attempt,
+        &attempt,
     )
     .await
     .unwrap();
 
     assert_eq!(selected, "iroh://next");
     assert_eq!(
-        attempt.events,
+        *attempt.events.lock().unwrap(),
         [
             FakeInitialRouteEvent::Bootstrap {
                 endpoint: "ssh://unreachable.example".into(),
@@ -2629,6 +2646,109 @@ async fn invitation_approval_outlives_the_route_attempt_timeout() {
     server.shutdown().await.unwrap();
 }
 
+/// Rebake run 43419757535 (size lg): a network change while the first connect waited on the
+/// approval abandoned the attempt, and the redial's invitation was refused because the abandoned
+/// attempt's request was still pending ("invitation already has a pending enrollment").
+#[cfg(unix)]
+#[tokio::test]
+async fn a_network_change_during_the_invitation_wait_still_enrolls() {
+    let directory = tempfile::tempdir().unwrap();
+    let daemon_auth = AuthDatabase::load_or_create(
+        directory.path().join("daemon"),
+        "network-change-invitation",
+        true,
+    )
+    .unwrap();
+    let unix_path = directory.path().join("daemon.sock");
+    let route = unix_test_route(&unix_path);
+    let invitation = daemon_auth
+        .create_invitation(Duration::from_secs(60), vec![route.to_string()])
+        .await
+        .unwrap();
+    let daemon_key: [u8; 32] = base64::engine::general_purpose::URL_SAFE_NO_PAD
+        .decode(&invitation.daemon_public_key)
+        .unwrap()
+        .try_into()
+        .unwrap();
+    let (daemon, _clients) = RemoteDaemon::new(daemon_auth.clone(), SessionLimits::default());
+    let server = serve_unix(daemon, &unix_path, MAX_CARRIER_FRAME_BYTES).await.unwrap();
+
+    let mut providers = cmux_remote::provider::ProviderRegistry::default();
+    providers.register(Arc::new(UnixProvider::new(MAX_CARRIER_FRAME_BYTES))).unwrap();
+    let providers = Arc::new(providers);
+    let route = ResolvedRouteCandidate::resolve(route, BTreeMap::new(), &providers).unwrap();
+    let ssh = SshProviderConfig::default();
+    let options = ClientRuntimeOptions {
+        routes: vec![route],
+        providers,
+        identity: StaticIdentity::generate().unwrap(),
+        expected_daemon: Some(daemon_key),
+        auth: ClientAuthMode::Invitation {
+            id: invitation.id.clone(),
+            secret: zeroize::Zeroizing::new(invitation.secret_bytes().unwrap()),
+        },
+        device_name: "network-change-client".into(),
+        session: SessionId([25; 16]),
+        lane_policy: LanePolicy::Single,
+        reconnect: ReconnectPolicy {
+            initial_delay: Duration::from_millis(1),
+            maximum_delay: Duration::from_millis(1),
+            attempt_timeout: Duration::from_millis(20),
+            full_jitter: false,
+            heartbeat_interval: None,
+            heartbeat_timeout: Duration::from_secs(1),
+            maximum_attempts: Some(2),
+            maximum_duration: None,
+            attempts_per_recovery: 3,
+            // Real-clock fixture: redial as fast as its delays allow.
+            redial_budget: cmux_remote::connection::RedialBudget {
+                capacity: 1_000,
+                refill_interval: Duration::from_millis(1),
+            },
+        },
+        startup_timeout: Duration::from_secs(5),
+        state_dir: directory.path().join("client"),
+        local_socket: None,
+        ssh,
+        ssh_bootstrap: SshBootstrapOptions {
+            auto_install: false,
+            upgrade: false,
+            attempt_timeout: Duration::from_secs(1),
+            forced_command: false,
+        },
+    };
+    let (_shutdown_tx, shutdown_rx) = watch::channel(false);
+    let network = cmux_remote::network_watch::NetworkWatch::manual();
+    let changes = network.subscribe();
+    let connection = tokio::spawn(async move {
+        connect_first_available_watching(&options, shutdown_rx, changes).await
+    });
+
+    // The first attempt waits on the approval; then the network changes (a freshly resized
+    // Cloud machine settling its addresses), which abandons it, and the dial presents the
+    // invitation again at once.
+    daemon_auth.wait_for_pending(Duration::from_secs(1)).await.unwrap();
+    network.signal();
+    // The redial reaches the daemon well within this; on a daemon that refuses it the connect
+    // has ended by then with "invitation already has a pending enrollment".
+    tokio::time::sleep(Duration::from_millis(500)).await;
+    if connection.is_finished() {
+        let result = connection.await.unwrap();
+        panic!("the redial after a network change ended the enrollment: {:?}", result.err());
+    }
+    let pending = daemon_auth.pending_enrollments().await;
+    assert_eq!(pending.len(), 1, "one request per device and invitation");
+    daemon_auth.approve(&pending[0].invitation_id).await.unwrap();
+
+    let (connection, _) = tokio::time::timeout(Duration::from_secs(2), connection)
+        .await
+        .expect("the approval after a network change timed out")
+        .unwrap()
+        .expect("the approval enrolls the redialed link");
+    connection.close().await.unwrap();
+    server.shutdown().await.unwrap();
+}
+
 #[cfg(unix)]
 #[tokio::test]
 async fn initial_client_connection_respects_one_attempt_policy() {
@@ -2672,10 +2792,10 @@ async fn initial_route_failures_redact_ssh_and_relay_endpoint_secrets() {
                      capability-marker?ticket=query-marker#fragment-marker",
         ),
     ];
-    let mut attempt = FakeInitialRouteAttempt {
+    let attempt = FakeInitialRouteAttempt {
         fail_ssh_bootstrap: true,
         fail_provider_index: Some(1),
-        events: Vec::new(),
+        events: Default::default(),
     };
 
     let error = select_initial_route(
@@ -2684,7 +2804,7 @@ async fn initial_route_failures_redact_ssh_and_relay_endpoint_secrets() {
         LanePolicy::Single,
         AuthKind::Enrolled,
         false,
-        &mut attempt,
+        &attempt,
     )
     .await
     .unwrap_err()
@@ -2711,10 +2831,10 @@ async fn upgrade_bootstrap_failure_is_fatal_without_provider_fallback() {
         test_route("ssh://upgrade-user@upgrade.example"),
         test_route("wss://fallback.example/v1/link"),
     ];
-    let mut attempt = FakeInitialRouteAttempt {
+    let attempt = FakeInitialRouteAttempt {
         fail_ssh_bootstrap: true,
         fail_provider_index: None,
-        events: Vec::new(),
+        events: Default::default(),
     };
 
     let error = select_initial_route(
@@ -2723,7 +2843,7 @@ async fn upgrade_bootstrap_failure_is_fatal_without_provider_fallback() {
         LanePolicy::Single,
         AuthKind::Enrolled,
         true,
-        &mut attempt,
+        &attempt,
     )
     .await
     .unwrap_err();
@@ -2732,7 +2852,7 @@ async fn upgrade_bootstrap_failure_is_fatal_without_provider_fallback() {
     assert!(!error.to_string().contains("upgrade-user"));
     assert!(error.to_string().contains("ssh://upgrade.example"));
     assert_eq!(
-        attempt.events,
+        *attempt.events.lock().unwrap(),
         [FakeInitialRouteEvent::Bootstrap {
             endpoint: "ssh://upgrade-user@upgrade.example".into(),
             upgrade: true,
@@ -2746,10 +2866,10 @@ async fn upgrade_provider_failure_is_fatal_without_route_fallback() {
         test_route("ssh://upgrade-user@upgrade.example"),
         test_route("wss://fallback.example/v1/link"),
     ];
-    let mut attempt = FakeInitialRouteAttempt {
+    let attempt = FakeInitialRouteAttempt {
         fail_ssh_bootstrap: false,
         fail_provider_index: Some(0),
-        events: Vec::new(),
+        events: Default::default(),
     };
 
     let error = select_initial_route(
@@ -2758,7 +2878,7 @@ async fn upgrade_provider_failure_is_fatal_without_route_fallback() {
         LanePolicy::Single,
         AuthKind::Enrolled,
         true,
-        &mut attempt,
+        &attempt,
     )
     .await
     .unwrap_err();
@@ -2767,7 +2887,7 @@ async fn upgrade_provider_failure_is_fatal_without_route_fallback() {
     assert!(!error.to_string().contains("upgrade-user"));
     assert!(error.to_string().contains("ssh://upgrade.example"));
     assert_eq!(
-        attempt.events,
+        *attempt.events.lock().unwrap(),
         [
             FakeInitialRouteEvent::Bootstrap {
                 endpoint: "ssh://upgrade-user@upgrade.example".into(),
@@ -3679,4 +3799,12 @@ fn a_stale_socket_directory_record_is_replaced_under_an_owner_only_lock() {
     let error = private_socket_directory(&base, "cmux-t", &record, validate).unwrap_err();
     assert!(format!("{error:#}").contains("accessible by another user"), "{error:#}");
     assert_eq!(fs::read(&record).unwrap(), stale.as_os_str().as_bytes());
+}
+
+#[test]
+fn a_connect_timeout_reports_the_seconds_asked_for() {
+    // What is left of `--connect-timeout-seconds 3` once the CLI loaded its identity.
+    assert_eq!(whole_seconds_up(Duration::from_millis(2_930)), 3);
+    assert_eq!(whole_seconds_up(Duration::from_secs(3)), 3);
+    assert_eq!(whole_seconds_up(Duration::from_millis(100)), 1);
 }

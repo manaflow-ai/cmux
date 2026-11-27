@@ -53,7 +53,7 @@ Measured on a 5,000-chat fixture with 2,000 changes (80% activity), on an Apple 
 [#28055](https://github.com/manaflow-ai/cmux/pull/28055) fixed it the way the layer rules want:
 - acpmux sorts, filters and pages each window;
 - one change is a diff of one row;
-- `ProjectsImport` relays acpmux's grouped projects.
+- acpmux groups the projects per harness (since A14 the daemon reads them; the Swift `ProjectsImport` relay is gone).
 
 ChatsFeed's private mirror (palette chats page, Open Chat, cookie import, New Tab cards) remains.
 Removing it is P-RUST step 2 and is item 1 of the plan below.
@@ -73,7 +73,7 @@ Legend for cost and risk: S, M or L. "Mirror of" names the Rust owner of the sam
 |---|---|---|---|---|---|---|
 | `AcpmuxChatsStore` + `ChatsFeed` | AgentPane/AcpmuxChatsStore.swift, AgentLanes/ChatsFeed.swift | chat index (5,000), private to the feed | `AppServices.chatsFeed` | acpmux `ChatIndex` (cmux-chat-index) | callback list | Windows done (#28055); delete the remaining mirror: readers ask acpmux for a window or one chat (P-RUST step 2, S–M) |
 | `SidebarChatHistoryFeed` | AgentLanes/SidebarChatHistoryFeed.swift | two acpmux windows (Earlier, Pinned) | `.shared` | same | ObservationStream over workspaces, lanes, pins | **Done (#28055)**; inject instead of `.shared` |
-| `ProjectsImport` | App/Projects/ProjectsImport.swift | sent fingerprints | AppServices | relays acpmux to cmux daemon `project.observe` | feed observer | Groups in acpmux now (#28055); move the relay itself into the daemon (M) |
+| `ProjectsImport` | (deleted) | none | none | the daemon reads acpmux `_acpmux/chat_projects` itself (`mux/project_chats.rs`) | none | **Done (A14)** |
 | `AgentTurnStateStore` | Bridge/AgentTurnStates.swift:224 | turn state, last message, title per session | `.shared` | acpmux `indicator`, `Lane.title` | per-session cells + `stateRevision` | Merge with `AgentLaneStore`; delete the Swift title rules (M) |
 | `AgentLaneStore` (+cells) | AgentActivity/AgentLaneStore.swift | `[session: lane]` | `.shared`, `.chief` | acpmux `Lane` | whole map + cells; `syncCells` O(cells) per event | Keep as the one session mirror. Parse `_acpmux/watch` in Rust the way chats are now (M) |
 | `AgentTurnStateFeed` | AgentLanes/AgentTurnStateFeed.swift | the watch socket | `static var shared` + 4 static hooks | acpmux `_acpmux/watch` | writes 2 stores | Inject; one store (S) |
@@ -230,7 +230,7 @@ layer-ownership.md and the shape of `_acpmux/chats_window` (#28055):
 | 7 | Optimistic tree overlay | `cmux_layout_reducer` over a mirror handle | L | Removes the reducer copy and the drift checker |
 | 8 | Omnibox index and scoring | the daemon's cmux-history answers the omnibox window | M | 3.7k lines of Swift ranking over 20k URLs |
 | 9 | Settings | daemon `settings.*` client | L | Two writers of one file |
-| 10 | `ProjectsImport`, `AgentSessionParents`, priority marks | into acpmux / the daemon | M | The app relays between two Rust processes |
+| 10 | `AgentSessionParents`, priority marks (`ProjectsImport` done, A14) | into acpmux / the daemon | M | The app relays between two Rust processes |
 | 11 | `DaemonLanePolicy`, close-focus rules | daemon / cmux-focus-core | S–M | Security rules in one place |
 
 **Keep in Swift:**

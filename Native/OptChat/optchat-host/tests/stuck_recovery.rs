@@ -64,6 +64,34 @@ fn a_request_too_large_for_the_model_keeps_its_input_as_the_line() {
     );
 }
 
+/// Claude Code's own refusal names no status. Read as transient, 110 such nodes took 8 tries each
+/// and 8 more every `STUCK_RETRY` for a week: about 55 compactor sessions a minute on Leo's
+/// laptop (2026-11-15). The node is built in one call, as for the API's 400.
+#[test]
+fn claude_codes_own_prompt_too_long_builds_the_stand_in_in_one_call() {
+    for message in [
+        "compactor session: Prompt is too long",
+        "compactor session: Prompt is too long · the request is ~1300979 tokens (limit 1000000) \
+         but this conversation is only ~729676 tokens — the rest is system prompt, tool \
+         definitions, and attachment content.",
+    ] {
+        let main = Fails {
+            message: Box::leak(message.to_owned().into_boxed_str()),
+            calls: AtomicUsize::new(0),
+        };
+        let built = build_node(&main, None, &request()).expect("the stand-in, not an error");
+        assert!(built.stand_in, "{built:?}");
+        assert!(built.text.contains("PR 26546"), "{built:?}");
+        assert_eq!(main.calls.load(Ordering::SeqCst), 1, "{message}");
+    }
+    // A transient failure still is one: it is retried, never written over the line.
+    let transient = Fails {
+        message: "starting a compactor session: session/new: no answer within 200 s",
+        calls: AtomicUsize::new(0),
+    };
+    assert!(build_node(&transient, None, &request()).is_err());
+}
+
 #[test]
 fn an_oversized_request_on_both_models_still_builds_the_stand_in() {
     let main = Fails {
@@ -143,4 +171,72 @@ fn a_transient_failure_past_its_tries_recovers_when_the_route_answers_again() {
     );
     assert!(status.recovered, "{status:?}");
     assert_eq!(status.unbuilt, 0, "{status:?}");
+}
+
+/// A stuck node waits for its next try (`STUCK_RETRY`) without holding one of the `JOBS`
+/// model-call slots. It held one: once `JOBS` merges were stuck (acpmux kept their session
+/// names taken, so every try failed at once), no new message was ever summarized, and the
+/// Chief's view showed thousands of "(not summarized yet)" lines (default Chief, Nov 2026).
+#[test]
+fn stuck_merges_never_starve_new_messages_of_model_slots() {
+    let dir = tempfile::tempdir().unwrap();
+    let model: Arc<dyn CompactModel> = Arc::new(Fake(|r: &CompactRequest, _: &[Followup]| {
+        if r.node.l > 0 {
+            // The error a merge's session start gave for days.
+            return Err(ModelError::setup(format!(
+                "starting a compactor session: session/new: session name \"optchat-compact-test-{}\" is taken",
+                r.node.name()
+            )));
+        }
+        Ok(Reply::text(summary(r.node, 120)))
+    }));
+    let clock = Arc::new(ManualClock::new());
+    // A budget the messages pass many times over: every pair of leaves wants its merge.
+    let chat = OptChat::open_with(dir.path(), config(2_000).0, model, clock.clone()).unwrap();
+    let jobs = optchat_core::JOBS as u64;
+    let mut next = 0;
+    // Enough messages for more stuck merges than there are slots.
+    while (chat.status().stuck.len() as u64) < jobs + 4 && next < 8 * jobs {
+        chat.append(Kind::User, &long(next)).unwrap();
+        next += 1;
+        wait_settled(&chat);
+    }
+    assert!(
+        chat.status().stuck.len() as u64 >= jobs,
+        "the precondition: at least JOBS stuck merges, got {}",
+        chat.status().stuck.len()
+    );
+    // New messages after that: each is summarized, though no clock tick ends a stuck wait.
+    for _ in 0..3 {
+        chat.append(Kind::User, &long(next)).unwrap();
+        next += 1;
+    }
+    let deadline = std::time::Instant::now() + Duration::from_secs(30);
+    while !leaves_built(&chat, next) && std::time::Instant::now() < deadline {
+        std::thread::sleep(Duration::from_millis(20));
+    }
+    assert!(
+        leaves_built(&chat, next),
+        "new messages stayed unsummarized behind stuck merges: {:?}",
+        chat.status()
+    );
+}
+
+/// Every message's own node is built (its line is no placeholder).
+fn leaves_built(chat: &OptChat, t: u64) -> bool {
+    let view = chat.render_compact_view().text;
+    (t.saturating_sub(3)..t).all(|i| !view.contains(&format!("{i}+1|(not summarized yet")))
+        && chat.status().unbuilt == 0
+}
+
+/// Waits until nothing runs but stuck nodes waiting for their next try.
+fn wait_settled(chat: &OptChat) {
+    let deadline = std::time::Instant::now() + Duration::from_secs(30);
+    loop {
+        let s = chat.status();
+        if s.busy.iter().all(|n| s.stuck.contains(n)) || std::time::Instant::now() > deadline {
+            return;
+        }
+        std::thread::sleep(Duration::from_millis(5));
+    }
 }

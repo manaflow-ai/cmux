@@ -7,7 +7,7 @@
 
 use std::collections::BTreeMap;
 
-use cmux_cloud_config::{agent_key, auth, config, identity};
+use cmux_cloud_config::{agent_key, auth, config, identity, install_key_slots};
 use serde::Deserialize;
 use serde_json::{Map, Value, json};
 
@@ -26,6 +26,15 @@ fn read<'a, T: Deserialize<'a>>(request: &'a [u8]) -> Result<T, i32> {
 
 pub(crate) fn respond(operation: &[u8], request: &[u8]) -> Result<Vec<u8>, i32> {
     let answer = match operation {
+        b"cloud_auth_capture_next" => {
+            let request: cmux_cloud_config::capture_auth::Request = read(request)?;
+            json!(cmux_cloud_config::capture_auth::next(&request))
+        }
+        // The shared session store's next state and effects (Team-signed production builds).
+        b"cloud_auth_shared_session_next" => {
+            let request: cmux_cloud_config::shared_session_store::Request = read(request)?;
+            json!(cmux_cloud_config::shared_session_store::next(&request))
+        }
         // The build's Cloud from the runtime selection, with its token store's names.
         b"cloud_config_from_selection" => {
             let inputs: config::Inputs = read(request)?;
@@ -51,6 +60,87 @@ pub(crate) fn respond(operation: &[u8], request: &[u8]) -> Result<Vec<u8>, i32> 
             }
             let request: Request = read(request)?;
             json!({ "url": config::sign_in_url(&request.auth_web_origin, &request.callback_scheme, request.state.as_deref()) })
+        }
+        // What the sign-in screens say they sign in to: the configuration's backend, named.
+        b"cloud_config_backend_label" => {
+            #[derive(Deserialize)]
+            struct Request {
+                backend: config::Backend,
+            }
+            let request: Request = read(request)?;
+            json!(config::backend_label(&request.backend))
+        }
+        // Sign-in with no callback (`cli_sign_in`): each request the app sends, and what each answer means.
+        b"cloud_auth_cli_sign_in_start" => {
+            let project: cmux_cloud_config::cli_sign_in::Project = read(request)?;
+            json!({
+                "call": cmux_cloud_config::cli_sign_in::start_request(&project),
+                "pollIntervalMs": cmux_cloud_config::cli_sign_in::POLL_INTERVAL_MS,
+            })
+        }
+        b"cloud_auth_cli_sign_in_read_start" => {
+            #[derive(Deserialize)]
+            #[serde(rename_all = "camelCase")]
+            struct Request {
+                status: u16,
+                body: String,
+                auth_web_origin: String,
+            }
+            let request: Request = read(request)?;
+            json!(cmux_cloud_config::cli_sign_in::read_start(
+                request.status,
+                &request.body,
+                &request.auth_web_origin
+            ))
+        }
+        b"cloud_auth_cli_sign_in_poll" => {
+            #[derive(Deserialize)]
+            #[serde(rename_all = "camelCase")]
+            struct Request {
+                project: cmux_cloud_config::cli_sign_in::Project,
+                polling_code: String,
+            }
+            let request: Request = read(request)?;
+            json!({ "call": cmux_cloud_config::cli_sign_in::poll_request(&request.project, &request.polling_code) })
+        }
+        b"cloud_auth_cli_sign_in_read_poll" => {
+            #[derive(Deserialize)]
+            struct Request {
+                status: u16,
+                body: String,
+            }
+            let request: Request = read(request)?;
+            json!(cmux_cloud_config::cli_sign_in::read_poll(request.status, &request.body))
+        }
+        b"cloud_auth_cli_sign_in_token" => {
+            #[derive(Deserialize)]
+            #[serde(rename_all = "camelCase")]
+            struct Request {
+                project: cmux_cloud_config::cli_sign_in::Project,
+                refresh_token: String,
+            }
+            let request: Request = read(request)?;
+            json!({ "call": cmux_cloud_config::cli_sign_in::token_request(&request.project, &request.refresh_token) })
+        }
+        b"cloud_auth_cli_sign_in_read_token" => {
+            #[derive(Deserialize)]
+            #[serde(rename_all = "camelCase")]
+            struct Request {
+                status: u16,
+                body: String,
+                refresh_token: String,
+            }
+            let request: Request = read(request)?;
+            json!(cmux_cloud_config::cli_sign_in::read_token(
+                request.status,
+                &request.body,
+                &request.refresh_token
+            ))
+        }
+        // The install token's owner: use the held token, renew it beside, wait on the mint, or name the stall.
+        b"cloud_auth_install_token_lease" => {
+            let facts: cmux_cloud_config::signin::LeaseFacts = read(request)?;
+            json!(cmux_cloud_config::signin::lease(&facts))
         }
         // How a launch signs in, and which files its account pick reads.
         b"cloud_auth_launch_sign_in" => {
@@ -90,6 +180,19 @@ pub(crate) fn respond(operation: &[u8], request: &[u8]) -> Result<Vec<u8>, i32> 
             }
             let request: Request = read(request)?;
             json!({ "opensDefaultBrowser": auth::opens_default_browser(request.window, request.default_browser.as_deref()) })
+        }
+        // Where a sign-in opens: cmux's in-app tab (when the app can open one), the popup or the default browser.
+        b"cloud_auth_sign_in_place" => {
+            #[derive(Deserialize)]
+            #[serde(rename_all = "camelCase")]
+            struct Request {
+                window: auth::SignInWindow,
+                default_browser: Option<String>,
+                #[serde(default)]
+                in_app: bool,
+            }
+            let request: Request = read(request)?;
+            json!({ "place": auth::sign_in_place(request.window, request.default_browser.as_deref(), request.in_app) })
         }
         b"cloud_auth_creation_scope" => {
             #[derive(Deserialize)]
@@ -134,6 +237,27 @@ pub(crate) fn respond(operation: &[u8], request: &[u8]) -> Result<Vec<u8>, i32> 
                 Err(refusal) => json!({ "refusal": refusal }),
             }
         }
+        // The backend ids of an account and its active team (`identity::worker_user_id`,
+        // `personal_team_id`, `team_header`): `{workerUser, personalTeam, teamHeader}`, each null
+        // when its input (`stackUser`, `team`) is absent. The app hashes no id itself.
+        b"cloud_identity_team_ids" => {
+            #[derive(Deserialize)]
+            #[serde(rename_all = "camelCase")]
+            struct Request {
+                project: String,
+                #[serde(default)]
+                stack_user: Option<String>,
+                #[serde(default)]
+                team: Option<String>,
+            }
+            let request: Request = read(request)?;
+            let user = request.stack_user.as_deref();
+            json!({
+                "workerUser": user.map(|user| identity::worker_user_id(&request.project, user)),
+                "personalTeam": user.map(|user| identity::personal_team_id(&request.project, user)),
+                "teamHeader": request.team.as_deref().map(|team| identity::team_header(&request.project, team)),
+            })
+        }
         // `{user, expiresAt, team}`, each null when absent: `team` is the backend team an
         // install token names, the one `cmux auth token` mints for with no asked or active team.
         b"cloud_identity_token" => {
@@ -159,6 +283,54 @@ pub(crate) fn respond(operation: &[u8], request: &[u8]) -> Result<Vec<u8>, i32> 
                 "transient": request.refusal_code.as_deref().map(identity::is_transient),
             })
         }
+        // The device hub identity's items (`device_identity_slots`): `{accounts, current}` from
+        // the accounts the Keychain listed, and `replacement`, the generation a new identity goes
+        // in from the statuses of the deletes a renewal made (none made: generation 1).
+        b"cloud_identity_device_slots" => {
+            use cmux_cloud_config::device_identity_slots as slots;
+            #[derive(Deserialize)]
+            struct Request {
+                #[serde(default)]
+                accounts: Vec<String>,
+                #[serde(default)]
+                deletes: Vec<slots::Delete>,
+            }
+            let request: Request = read(request)?;
+            let mut answer = json!(slots::slots(&request.accounts));
+            answer["replacement"] = json!(slots::replacement(&request.deletes));
+            answer
+        }
+        // The hub's records as physical devices (`device_list`): `{thisDevice, others}` from this
+        // device and every record, so a Mac's other builds and stale records list once, or not at all.
+        b"cloud_identity_device_list" => {
+            use cmux_cloud_config::device_list;
+            #[derive(Deserialize)]
+            struct Request {
+                this: device_list::This,
+                #[serde(default)]
+                devices: Vec<device_list::Device>,
+            }
+            let request: Request = read(request)?;
+            json!(device_list::listing(&request.this, &request.devices))
+        }
+        // What Your Devices says while it lists nothing (`device_list::discovery`): "none" only after
+        // a device-list read succeeded, else finding or the reason it failed.
+        b"cloud_identity_device_discovery" => {
+            let request: cmux_cloud_config::device_list::DiscoveryInput = read(request)?;
+            json!(cmux_cloud_config::device_list::discovery(&request))
+        }
+        // Screen Sharing's machine picker (`screen_picker`): `[{id, name, symbol, state, opens, fix}]`
+        // from the machines the hub lists, so the menu says why a machine cannot be viewed.
+        b"cloud_identity_screen_picker" => {
+            use cmux_cloud_config::screen_picker;
+            #[derive(Deserialize)]
+            struct Request {
+                #[serde(default)]
+                machines: Vec<screen_picker::Machine>,
+            }
+            let request: Request = read(request)?;
+            json!(screen_picker::rows(&request.machines))
+        }
         b"cloud_identity_install_key" => {
             #[derive(Deserialize)]
             struct Request {
@@ -166,6 +338,24 @@ pub(crate) fn respond(operation: &[u8], request: &[u8]) -> Result<Vec<u8>, i32> 
             }
             let request: Request = read(request)?;
             json!({ "account": identity::install_key_account(&request.user) })
+        }
+        // The items of one install key (`install_key_slots`): `{slots, current, next}` from the
+        // accounts the Keychain listed, and `replacement`, where a rotation puts the fresh key
+        // from the statuses of the deletes it made (null: none stayed, make no key now).
+        b"cloud_identity_install_key_slots" => {
+            #[derive(Deserialize)]
+            struct Request {
+                account: String,
+                #[serde(default)]
+                accounts: Vec<String>,
+                #[serde(default)]
+                deletes: Vec<install_key_slots::Delete>,
+            }
+            let request: Request = read(request)?;
+            let mut answer = json!(install_key_slots::slots(&request.account, &request.accounts));
+            answer["replacement"] =
+                json!(install_key_slots::replacement(&request.account, &request.deletes));
+            answer
         }
         b"cloud_identity_share_origin" => {
             #[derive(Default, Deserialize)]
@@ -245,6 +435,25 @@ pub(crate) fn respond(operation: &[u8], request: &[u8]) -> Result<Vec<u8>, i32> 
                 .filter(|id| request.managed.as_ref().is_none_or(|managed| managed == *id))
                 .collect();
             json!({ "active": active, "refusal": refusal, "allowed": allowed })
+        }
+        // The account's teams as every team list shows them: whose each is, its plan, the active one.
+        b"cloud_auth_team_rows" => {
+            #[derive(Deserialize)]
+            struct Request {
+                #[serde(default)]
+                teams: Vec<auth::TeamFacts>,
+                active: Option<String>,
+                /// The signed-in account's email: its sign-in service default team shows as Personal.
+                #[serde(default, rename = "ownEmail")]
+                own_email: Option<String>,
+            }
+            let request: Request = read(request)?;
+            let rows = auth::team_rows(
+                &request.teams,
+                request.active.as_deref(),
+                request.own_email.as_deref(),
+            );
+            json!({ "rows": rows })
         }
         b"cloud_vm_agent_key_request" => {
             #[derive(Deserialize)]

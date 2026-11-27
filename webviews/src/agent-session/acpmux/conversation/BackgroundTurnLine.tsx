@@ -14,16 +14,29 @@
 // After its words the line cites its task (Leo, 2026-11-05: "cite the helper/add atribution (like how
 // ive gradually pushed for more andd more of that a la deeplinks and communicating in acpmux) and
 // display the actual code in the raw"): the helper that ran it, a link that opens that helper's
-// transcript as the background task row's owner does (BackgroundTaskNote.tsx), then its command as
-// typed, in the code face, cut at the line's end.
-import { useContext, type KeyboardEvent, type MouseEvent } from "react";
+// transcript as the background task row's owner does (BackgroundTaskNote.tsx), then the task's label.
+import { useContext, useId, type KeyboardEvent, type MouseEvent } from "react";
 import { useT } from "../i18n";
-import type { AcpmuxBackgroundSource, AcpmuxRow } from "../model";
+import { commandSummary } from "./commandActions";
+import { currentCommandRules } from "../session-info/commandLabelSettings";
+import type { AcpmuxBackgroundSource, AcpmuxBackgroundTurn, AcpmuxRow } from "../model";
 import { SubagentNavContext } from "../subagents/subagentGroupModel";
+import { experimentArm } from "../../../experiments/experiment";
 import { backgroundRunLabel } from "./backgroundRuns";
+import { backgroundTurnLook, backgroundTurnsInline } from "./backgroundTurnLook.experiment";
 import { backgroundTurnLabel, foldsBackground } from "./backgroundTurns";
 import { Clock, Spinner } from "./icons";
 import { RowShimmer } from "./ShimmerText";
+import { ShellBlock } from "./ShellBlock";
+import {
+  backgroundTurnOpensTask,
+  backgroundTurnTaskCard,
+  useBackgroundTurnTask,
+  type BackgroundTurnTask,
+} from "./backgroundTurnTask";
+import { useTranscriptDisclosure } from "./transcriptDisclosureModel";
+import { useAnchoredCollapse } from "./useAnchoredCollapse";
+import { spanDuration } from "./turns";
 import { TranscriptActivityRow } from "./TranscriptActivityRow";
 import { SubagentReportLine } from "../subagents/SubagentReportLine";
 import { isSubagentReport, useReportRowLook } from "../subagents/subagentReportLineModel";
@@ -46,7 +59,7 @@ export function BackgroundTurnLine({
       <TranscriptActivityRow
         icon={<Clock />}
         before={label}
-        className="cv-background-turn"
+        className={`cv-background-turn${run.failed > 0 ? " cv-background-turn--failed" : ""}`}
         ariaLabel={label}
         expanded={expanded}
         attributes={{
@@ -65,13 +78,25 @@ export function BackgroundTurnLine({
     return <SubagentReportLine row={row} look={reportLook} expanded={expanded} onToggle={onToggle} />;
   const label = backgroundTurnLabel(t, turn);
   const source = turn.source;
-  const cited = [label, source?.ownerTitle, source?.command].filter(Boolean).join(" · ");
+  const title = source?.description || (source?.command && commandSummary(t, source.command, currentCommandRules()));
+  const cited = [label, source?.ownerTitle, title || source?.command].filter(Boolean).join(" · ");
   // Until a row of its own draws, there is nothing to open: a plain line, no chevron, no button.
   // A failure that said something heads its rows, which already show (headsBackground).
-  const opens = turn.hasRows === true && foldsBackground(row);
+  // Inline its rows already draw where they ran (backgroundTurnLook.experiment.ts): the line names its task, opens nothing.
+  // A turn a finished task started says so in its words ("Background task finished"): its mark is the
+  // clock though the agent is still answering (the shimmering words say that), never a spinner on a
+  // finished task (Leo, 2026-11-21: "this spinner is incredibly ugly").
+  const taskEnded = turn.cause !== undefined && turn.cause.status !== "running";
+  const opens =
+    turn.hasRows === true && foldsBackground(row) && !backgroundTurnsInline(experimentArm(backgroundTurnLook));
+  // A line with no rows to fold still names a task that ran and ended: it opens to that task, as a
+  // command row opens to its command (backgroundTurnTask.ts; Leo, 2026-11-21, "background tasks not
+  // expandable ... why shouldn't they get the same treatment?").
+  if (!opens && backgroundTurnOpensTask(turn, label))
+    return <BackgroundTurnTaskLine turn={turn} label={label} cited={cited} title={title} />;
   return (
     <TranscriptActivityRow
-      icon={turn.running ? <Spinner /> : <Clock />}
+      icon={turn.running && !taskEnded ? <Spinner look="track" /> : <Clock />}
       before={<span className="cv-background-turn__label">{label}</span>}
       after={turn.running ? <RowShimmer>{label}</RowShimmer> : undefined}
       className={`cv-background-turn${turn.running ? " is-live" : ""}`}
@@ -85,14 +110,14 @@ export function BackgroundTurnLine({
       }}
       onClick={opens ? onToggle : undefined}
     >
-      {source && <BackgroundSource source={source} />}
+      {source && <BackgroundSource source={source} title={title} />}
     </TranscriptActivityRow>
   );
 }
 
 /// The helper and raw command a background turn's line cites. The helper opens its transcript; the
 /// line stays one button, so the helper is a link inside it, never a second button.
-function BackgroundSource({ source }: { source: AcpmuxBackgroundSource }) {
+function BackgroundSource({ source, title }: { source: AcpmuxBackgroundSource; title?: string }) {
   const openSubagent = useContext(SubagentNavContext);
   const owner = source.ownerTitle?.trim();
   const ownerId = source.ownerId;
@@ -122,7 +147,96 @@ function BackgroundSource({ source }: { source: AcpmuxBackgroundSource }) {
         ) : (
           <span className="cv-background-turn__owner">{owner}</span>
         ))}
-      {source.command && <code className="cv-background-turn__command">{source.command}</code>}
+      {title ? (
+        <span className="cv-bgtask__title">{title}</span>
+      ) : (
+        source.command && <code className="cv-background-turn__command">{source.command}</code>
+      )}
     </span>
+  );
+}
+
+/// A finished background turn's line that opens to its task: the command, how it ended and the last
+/// lines it printed, in the command card a command row opens to (ShellBlock.tsx). Its open state is
+/// the transcript's fold set, so it survives virtualization as every other row's does.
+function BackgroundTurnTaskLine({
+  turn,
+  label,
+  cited,
+  title,
+}: {
+  turn: AcpmuxBackgroundTurn;
+  label: string;
+  cited: string;
+  title?: string;
+}) {
+  const [open, setOpen] = useTranscriptDisclosure(`bgturn:${turn.id}`);
+  const fold = useAnchoredCollapse({ open, onOpenChange: setOpen });
+  const { task, request } = useBackgroundTurnTask(turn, label, open);
+  const source = turn.source;
+  return (
+    <div className="cv-tools cv-background-turn__task">
+      <TranscriptActivityRow
+        icon={<Clock />}
+        before={<span className="cv-background-turn__label">{label}</span>}
+        className="cv-background-turn"
+        ariaLabel={cited}
+        expanded={open}
+        chevron
+        headerRef={fold.headerRef}
+        attributes={{
+          "aria-expanded": String(open),
+          "data-find-skip": "",
+          "data-background-turn": turn.quiet ? "quiet" : "failed",
+          // It opens to its task, never to rows: those draw where they ran.
+          "data-opens": "task",
+        }}
+        onClick={() => {
+          void request();
+          fold.toggle();
+        }}
+      >
+        {source && <BackgroundSource source={source} title={title} />}
+      </TranscriptActivityRow>
+      {fold.present && (
+        <div {...fold.bodyProps}>
+          <BackgroundTurnTaskBody task={task} />
+        </div>
+      )}
+    </div>
+  );
+}
+
+/// The opened task: its command card, the end of its output and how it ended.
+function BackgroundTurnTaskBody({ task }: { task: BackgroundTurnTask }) {
+  const t = useT();
+  const id = useId();
+  const card = backgroundTurnTaskCard(task);
+  const took = task.tookMs !== undefined ? spanDuration(t, task.tookMs) : undefined;
+  const ended =
+    card.ended === "completed"
+      ? t("bgTask.state.completed")
+      : card.ended === "failed"
+        ? t("bgTask.state.failed")
+        : card.ended === "stopped"
+          ? t("bgTask.state.stopped")
+          : undefined;
+  const footer =
+    task.description || ended ? (
+      <div className="cv-bgtask__foot">
+        {ended && <span className="cv-bgtask__state">{ended}</span>}
+        {task.description && <span className="cv-bgtask__detail">{task.description}</span>}
+      </div>
+    ) : undefined;
+  return (
+    <ShellBlock
+      id={id}
+      command={card.command}
+      output={card.output}
+      cut={card.cut}
+      exitCode={card.exitCode}
+      took={took}
+      footer={footer}
+    />
   );
 }

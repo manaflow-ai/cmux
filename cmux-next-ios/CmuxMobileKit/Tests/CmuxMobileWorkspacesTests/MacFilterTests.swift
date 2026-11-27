@@ -177,7 +177,7 @@ import Testing
 
     @Test func liveListStates() {
         func ctx(_ phases: [String: MacDataMachine.Phase]) -> WorkspaceInbox.Context { .init(phases: phases) }
-        // Linked to "a", dialing, last-known rows cached: shown dimmed (stale)
+        // Linked to "a", dialing, last-known rows cached: shown at full strength (stale)
         // with no agent state, and marked updating.
         let cached = inbox(context: ctx(["a": .cached(.connecting)]))
         #expect(cached.isUpdating)
@@ -204,6 +204,42 @@ import Testing
         #expect(!inbox(.mac("a"), context: ctx(["a": .live])).isUpdating)
         #expect(WorkspaceInbox.ListState(.empty) == .live)
         #expect(WorkspaceInbox.ListState(.cached(.idle)) == .cached(updating: false))
+    }
+
+    /// A Mac that answered "no workspaces" shows "No workspaces" through every redial, not the
+    /// placeholder rows (a153, 2026-11-25: "Loading workspaces…" forever while the link redialed).
+    @Test func aMacThatAnsweredEmptyStaysEmptyWhileItReconnects() {
+        var machine = MacDataMachine()
+        machine.handle(.connecting)
+        func page(_ scope: MacScope) -> WorkspaceInbox {
+            // "b" answered empty long ago; "a" is the Mac under test.
+            inbox(scope, context: .init(phases: ["a": machine.phase, "b": .empty]), workspaces: [])
+        }
+        // Before the first answer: loading, and the page draws its placeholder rows.
+        #expect(page(.all).isLoading)
+        #expect(WorkspacesLaunchState.content(refreshFailed: false)
+            .showsPlaceholderRows(hasMacs: true, listLoading: page(.all).isLoading, hasMacLines: !page(.all).folds.isEmpty))
+        machine.handle(.received(count: 0))
+        #expect(!page(.all).isLoading && page(.all).isEmpty)
+        // Each redial: the link drops, then dials again. The empty answer stands.
+        for _ in 0..<5 {
+            machine.handle(.disconnected(at: now))
+            machine.handle(.connecting)
+            #expect(machine.phase == .cached(.connecting))
+            for scope in [MacScope.all, .mac("a")] {
+                let redialing = page(scope)
+                #expect(!redialing.isLoading)
+                #expect(redialing.isEmpty)
+                #expect(!WorkspacesLaunchState.content(refreshFailed: false)
+                    .showsPlaceholderRows(hasMacs: true, listLoading: redialing.isLoading, hasMacLines: !redialing.folds.isEmpty))
+            }
+            machine.handle(.received(count: 0))
+        }
+        // A launch that restores an empty saved list is empty at once too.
+        var restored = MacDataMachine()
+        restored.handle(.restored(count: 0, savedAt: now))
+        restored.handle(.connecting)
+        #expect(!inbox(context: .init(phases: ["a": restored.phase, "b": .empty]), workspaces: []).isLoading)
     }
 
     @Test func pendingRowsShowAsCreatingAtTheTop() {
@@ -248,8 +284,9 @@ import Testing
     }
 }
 
-/// Opening: a needs-you workspace on its waiting tab, else the last tab
-/// used here, else the Mac's active tab, else the first.
+/// Opening: a needs-you workspace on its waiting tab, else the layout's
+/// tab left on screen in this launch, else the top-left pane's active tab, else the Mac's
+/// active tab, else the first.
 @MainActor @Suite struct OpeningTabTests {
     @Test func mockOpensTheWaitingTabAndTheMacsActiveTab() throws {
         let store = AppStore.mock(tabMemory: .inMemory())
@@ -260,7 +297,7 @@ import Testing
         #expect(ghostty.agentTab(for: status)?.id == "t-gh-codex")
         let ios = try #require(store.workspace(id: "ws-ios"))
         #expect(store.openingTab(for: ios)?.id == "t-ios-build")
-        store.noteOpened(tabID: "t-ios-claude", in: "ws-ios")
+        store.requestOpen(tabID: "t-ios-claude", in: "ws-ios")
         #expect(store.openingTab(for: ios)?.id == "t-ios-claude")
     }
 

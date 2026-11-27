@@ -12,6 +12,14 @@ import {
 } from "react";
 import { AnchoredCard } from "../../../ui/Tooltip";
 import { HOVER_INTENT, HoverGroup, useHoverIntent } from "../../../ui/hoverIntent";
+import {
+  movedFrom,
+  onWheel,
+  pointerPlace,
+  slidUnderStillPointer,
+  trackPointerRest,
+  type PointerPlace,
+} from "../../../ui/scrollHover";
 import { type SessionHoverStore, useSessionHoverInfo } from "./sessionHover";
 import { SESSION_HOVER_DELAY, SessionHoverContext, hoverCardSide } from "./sessionHoverCardModel";
 import { SessionHoverContent } from "./SessionHoverCard";
@@ -21,6 +29,7 @@ const group = new HoverGroup(HOVER_INTENT.cardGrace);
 
 export type SessionHoverTrigger = {
   onPointerEnter?(event: PointerEvent<HTMLElement>): void;
+  onPointerMove?(event: PointerEvent<HTMLElement>): void;
   onPointerLeave?(): void;
   onPointerDown?(): void;
   onFocus?(event: FocusEvent<HTMLElement>): void;
@@ -55,7 +64,27 @@ export function useSessionHover(
   // Escape in the card hands focus back to the reference: that focus must not show the card again.
   const returning = useRef(false);
   const cardId = useId();
+  /// The pointer is on the reference, from pointer enter to leave.
+  const onReference = useRef(false);
+  /// The reference came under a still pointer (a scroll), or a scroll put its card away with the
+  /// pointer on it: the card waits for the pointer to move from this place (ui/scrollHover.ts).
+  const parked = useRef<PointerPlace | null>(null);
+  const shown = useRef(false);
+  // A wheel or touchpad scroll puts the card (or its wait) away at once; one inside the card keeps it.
   useEffect(() => {
+    trackPointerRest();
+    return onWheel((target) => {
+      if (!shown.current && !onReference.current) return;
+      const cardElement = inside.current?.closest(".acpmux-session-hover-card");
+      if (target instanceof Node && cardElement?.contains(target)) return;
+      if (onReference.current && !parked.current) parked.current = pointerPlace() ?? { x: NaN, y: NaN };
+      clearTimeout(leave.current);
+      leave.current = undefined;
+      dismiss();
+    });
+  }, [dismiss]);
+  useEffect(() => {
+    shown.current = intent.shown !== null;
     if (intent.shown) setPlaced({ anchor: intent.shown, side: hoverCardSide(intent.shown) });
     else setSwapped(null);
   }, [intent.shown]);
@@ -103,9 +132,26 @@ export function useSessionHover(
   const trigger: SessionHoverTrigger = {
     onPointerEnter: (event) => {
       stay();
+      onReference.current = true;
+      // Content that scrolled under a still pointer is no hover.
+      if (slidUnderStillPointer(event)) {
+        parked.current = { x: event.clientX, y: event.clientY };
+        return;
+      }
+      parked.current = null;
       if (hover.store.get(sessionId)) point(event.currentTarget);
     },
-    onPointerLeave: go,
+    onPointerMove: (event) => {
+      const still = parked.current;
+      if (!still || !movedFrom(still, event)) return;
+      parked.current = null;
+      if (hover.store.get(sessionId)) point(event.currentTarget);
+    },
+    onPointerLeave: () => {
+      onReference.current = false;
+      parked.current = null;
+      go();
+    },
     onPointerDown: now,
     onFocus: (event) => {
       stay();

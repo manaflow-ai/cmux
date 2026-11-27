@@ -1,24 +1,19 @@
-//! One X display per cmux workspace for computer use (cx-ncc.5). On a Linux
-//! cloud machine every agent's `cmux-cua mcp` would otherwise drive the one
-//! shared default display, so agents of two workspaces would click into each
-//! other's windows. The machine image runs this daemon with
-//! [`MODE_ENV`]`=`[`PER_WORKSPACE`]; then:
+//! One X display per cmux workspace (cx-ncc.5), on a Linux cloud machine whose
+//! image runs this daemon with [`MODE_ENV`]`=`[`PER_WORKSPACE`]:
 //!
 //! - A session's workspace is the typed `_meta.acpmux.workspaceId` of its
 //!   `session/new`, else its session env's `CMUX_WORKSPACE_ID` (a request
 //!   naming two different ones is refused, `workspace.mismatch`); a fork
 //!   keeps its parent's unless it names another either way. It is recorded
-//!   in the session meta, so a restart or respawn keeps it. The env never
-//!   sets [`DISPLAY_ENV`] (not an allowed session env key).
-//! - Each workspace gets a display number from [`BASE`] up, allocated once
-//!   and kept in `<ACPMUX_HOME>/agent-displays/displays.json` (0600 in a 0700
-//!   folder, written under a file lock), so it is stable across sessions
-//!   and restarts.
-//! - The session's `cmux-cua` server gets [`DISPLAY_ENV`]`=:N`; the proxy's
-//!   daemon runs each call on that display. Nothing else sees it.
-//! - Fail closed: a session without a workspace id, or one whose display
-//!   cannot be allocated, gets no computer use server at all, so it can
-//!   never drive the shared display.
+//!   in the session meta, so a restart or respawn keeps it.
+//! - Each workspace can get a display number from [`BASE`] up
+//!   ([`display_for`]), allocated once and kept in
+//!   `<ACPMUX_HOME>/agent-displays/displays.json` (0600 in a 0700 folder,
+//!   written under a file lock), so it is stable across sessions and restarts.
+//! - cmux Computer Use runs one worker per machine on the machine's desktop,
+//!   so in this mode no session gets the Computer Use server
+//!   (`agent_tools.rs` `scoped`): it could otherwise drive another
+//!   workspace's windows.
 //!
 //! The workspace reaches `agent_tools.rs` as [`WORKSPACE_KEY`] in the spawn
 //! profile's env (set by [`mark`]); `agent/command.rs` removes it before the
@@ -28,23 +23,19 @@
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 
-use anyhow::{Context, Result, bail};
+use anyhow::{Context, Result};
 use serde_json::{Value, json};
 
 /// This daemon's env that turns per-workspace displays on.
 pub const MODE_ENV: &str = "CMUX_AGENT_DISPLAYS";
 /// The [`MODE_ENV`] value that turns them on.
 pub const PER_WORKSPACE: &str = "per-workspace";
-/// The `cmux-cua mcp` env naming the display its calls run on (`:N`).
-pub const DISPLAY_ENV: &str = "CMUX_CUA_DISPLAY";
 /// The private spawn-profile env key carrying the session's workspace to
 /// `agent_tools.rs`; never in an agent's env.
 pub const WORKSPACE_KEY: &str = "ACPMUX_AGENT_WORKSPACE";
 /// The first display number a workspace gets (well above `:0` and the
 /// low numbers a desktop or Xvfb run by hand takes).
 pub const BASE: u32 = 100;
-/// Most workspaces one machine allocates.
-pub const MAX_DISPLAYS: usize = 1024;
 
 /// Whether this daemon runs with per-workspace displays.
 pub fn per_workspace() -> bool {
@@ -78,7 +69,15 @@ pub fn display_for(dir: &Path, workspace: &str) -> Result<u32> {
     let lock_path = dir.join("lock");
     let lock = open_private(&lock_path)
         .with_context(|| format!("open the display lock {}", lock_path.display()))?;
-    lock.lock().with_context(|| format!("lock {}", lock_path.display()))?;
+    display_for_locked(lock, dir, workspace)
+}
+
+/// [`display_for`] under the display lock opened as `lock`, which this takes and lets go. The
+/// drop unlocks before it closes, so a child another daemon thread forks meanwhile keeps no lock.
+fn display_for_locked(lock: std::fs::File, dir: &Path, workspace: String) -> Result<u32> {
+    let lock_path = dir.join("lock");
+    let _held = cmux_file_lock::FileLock::take(lock, cmux_file_lock::Kind::Exclusive)
+        .with_context(|| format!("lock {}", lock_path.display()))?;
     let file = dir.join("displays.json");
     let mut displays: BTreeMap<String, u32> = match std::fs::read(&file) {
         Ok(bytes) => {
@@ -93,23 +92,21 @@ pub fn display_for(dir: &Path, workspace: &str) -> Result<u32> {
     if let Some(n) = displays.get(&workspace) {
         return Ok(*n);
     }
-    if displays.len() >= MAX_DISPLAYS {
-        bail!("{MAX_DISPLAYS} workspaces already have a display");
-    }
     let taken: std::collections::BTreeSet<u32> = displays.values().copied().collect();
     let n = (BASE..).find(|n| !taken.contains(n)).unwrap_or(BASE);
     displays.insert(workspace, n);
     let doc = json!({"version": 1, "displays": displays});
     crate::agent_tools::write_private(&file, doc.to_string().as_bytes())?;
-    // The lock goes with `lock` when it drops.
+    // The lock goes with `_held` when it drops.
     Ok(n)
 }
 
 #[cfg(unix)]
 fn private_dir(dir: &Path) -> Result<()> {
-    use std::os::unix::fs::{DirBuilderExt, PermissionsExt};
-    std::fs::DirBuilder::new().recursive(true).mode(0o700).create(dir)?;
-    std::fs::set_permissions(dir, std::fs::Permissions::from_mode(0o700))?;
+    // Through the folder this daemon holds (`home_fs`): a home replaced after the check never
+    // gets it.
+    crate::home_fs::create_dir_all(dir, 0o700)?;
+    crate::home_fs::set_mode(dir, 0o700)?;
     Ok(())
 }
 #[cfg(windows)]
@@ -121,8 +118,7 @@ fn private_dir(dir: &Path) -> Result<()> {
 
 #[cfg(unix)]
 fn open_private(path: &Path) -> std::io::Result<std::fs::File> {
-    use std::os::unix::fs::OpenOptionsExt;
-    std::fs::OpenOptions::new()
+    crate::home_fs::OpenOptions::new()
         .read(true)
         .write(true)
         .create(true)
@@ -132,5 +128,42 @@ fn open_private(path: &Path) -> std::io::Result<std::fs::File> {
 }
 #[cfg(windows)]
 fn open_private(path: &Path) -> std::io::Result<std::fs::File> {
-    std::fs::OpenOptions::new().read(true).write(true).create(true).truncate(false).open(path)
+    crate::home_fs::OpenOptions::new()
+        .read(true)
+        .write(true)
+        .create(true)
+        .truncate(false)
+        .open(path)
+}
+
+#[cfg(all(test, unix))]
+mod lock_tests {
+    use super::*;
+
+    /// A display allocation lets go of the display lock, also while a child the daemon forked
+    /// meanwhile has the descriptor: else the next session start waits until that child execs.
+    #[test]
+    fn an_allocation_leaves_the_display_lock_free_while_a_forked_child_keeps_its_descriptor() {
+        let home = tempfile::tempdir().unwrap();
+        let dir = home.path().join("agent-displays");
+        private_dir(&dir).unwrap();
+        let lock = open_private(&dir.join("lock")).unwrap();
+        let keeper = crate::fork_tests::Keeper::fork();
+        let n = display_for_locked(lock, &dir, "w1".to_owned()).unwrap();
+        let free = crate::fork_tests::free(&dir.join("lock"));
+        drop(keeper);
+        assert_eq!(n, BASE);
+        assert!(free, "an allocation left the display lock held");
+    }
+
+    /// Every workspace gets its own display, past the old cap of 1024.
+    #[test]
+    fn every_workspace_gets_a_display_past_the_old_cap() {
+        let home = tempfile::tempdir().unwrap();
+        let dir = home.path().join("agent-displays");
+        for i in 0..1030u32 {
+            assert_eq!(display_for(&dir, &format!("w{i}")).unwrap(), BASE + i);
+        }
+        assert_eq!(display_for(&dir, "w1029").unwrap(), BASE + 1029);
+    }
 }

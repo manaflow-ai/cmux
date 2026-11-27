@@ -67,7 +67,8 @@ struct AgentPaneDictationSourceSettingTests {
     }
 
     @Test func sitsAfterShowDictationOnTheSettingsPage() {
-        let keys = SettingsPageLayout.specs.first { $0.id == "agents" }?.groups.flatMap(\.keys) ?? []
+        // The Message Box card sits on Settings > Chat (settings overhaul, 2026-11-07).
+        let keys = SettingsPageLayout.specs.first { $0.id == "chat" }?.groups.flatMap(\.keys) ?? []
         let show = keys.firstIndex(of: "agentPane.showDictation")
         #expect(show != nil && keys.firstIndex(of: "agentPane.dictationSource") == show.map { $0 + 1 })
         #expect(show != nil && keys.firstIndex(of: "agentPane.dictationShortcut") == show.map { $0 + 2 })

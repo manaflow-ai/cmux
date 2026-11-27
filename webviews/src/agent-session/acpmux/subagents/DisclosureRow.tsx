@@ -21,6 +21,7 @@ import { useTranscriptDisclosure } from "../conversation/transcriptDisclosureMod
 import { useT } from "../i18n";
 import { useAnchoredCollapse } from "../conversation/useAnchoredCollapse";
 import { AgentTag } from "../conversation/AgentTag";
+import "../conversation/cardFit.css";
 import "./DisclosureRow.css";
 import { openSessionAttributes } from "../conversation/menuParts";
 
@@ -34,6 +35,8 @@ export type DisclosureRowProps = {
   label: ReactNode;
   meta?: ReactNode;
   status?: ReactNode;
+  /// Use the visible status as the details control instead of a chevron.
+  chevron?: boolean;
   /// The chip's accessible name when it opens a chat ("Open chat").
   openLabel?: string;
   /// The chip's tooltip, when it says more than `openLabel`.
@@ -76,6 +79,7 @@ export function DisclosureRow({
   label,
   meta,
   status,
+  chevron = true,
   openLabel,
   openTitle,
   onOpen,
@@ -105,7 +109,12 @@ export function DisclosureRow({
   );
   // Search opens directly: anchoring here would fight Find's scroll to the selected match.
   useFindReveal(findItems, () => setOpen(true));
-  const collapse = useAnchoredCollapse({ open: held ? open : stored, onOpenChange: setOpen, animates, fadeIn });
+  const collapse = useAnchoredCollapse({
+    open: held ? open : stored,
+    onOpenChange: setOpen,
+    animates,
+    fadeIn,
+  });
   const bodyId = useId();
   const t = useT();
   const content = (
@@ -128,19 +137,22 @@ export function DisclosureRow({
         <span className="cv-disclosure__label">{label}</span>
       )}
       {meta && <span className="cv-disclosure__meta">{meta}</span>}
-      {status && <span className="cv-disclosure__status">{status}</span>}
+      {status && (chevron || !onOpen) && <span className="cv-disclosure__status">{statusText(status)}</span>}
     </>
   );
-  const chevron = <ChevronRight size={14} className={`cv-rotor${collapse.open ? " is-open" : ""}`} />;
+  // A row with actions measures its own width (conversation/cardFit.css): they wrap under the line
+  // when it is narrow and shrink to icons when it is narrower, never over the label.
+  const fit = actions !== undefined && actions !== null && actions !== false;
+  const arrow = chevron && <ChevronRight size={14} className={`cv-rotor${collapse.open ? " is-open" : ""}`} />;
   return (
     <div
-      className={className ? `cv-disclosure ${className}` : "cv-disclosure"}
+      className={`cv-disclosure${fit ? " cv-fit" : ""}${className ? ` ${className}` : ""}`}
       data-open={collapse.open || undefined}
       {...attributes}
     >
       {/* The line summarizes indexed content in the panel; it adds no Find occurrences. */}
       <TranscriptActivityRowShell
-        className={`cv-disclosure__line${lineClassName ? ` ${lineClassName}` : ""}`}
+        className={`cv-disclosure__line${fit ? " cv-fit-row" : ""}${lineClassName ? ` ${lineClassName}` : ""}`}
         attributes={{ "data-find-skip": "", [HEADER_TOGGLE_ATTRIBUTE]: "" }}
         headerRef={onOpen ? collapse.headerRef : undefined}
         onClick={headerToggleClick(collapse.toggle)}
@@ -152,13 +164,17 @@ export function DisclosureRow({
             <span className="cv-disclosure__open">{content}</span>
             <button
               type="button"
-              className="cv-disclosure__toggle is-chevron"
+              className={`cv-disclosure__toggle ${chevron ? "is-chevron" : "is-status"}`}
               aria-expanded={collapse.open}
               aria-controls={collapse.present ? bodyId : undefined}
-              aria-label={toggleLabel ?? t("message.details")}
+              aria-label={toggleLabel ?? (chevron ? t("message.details") : undefined)}
               onClick={collapse.toggle}
             >
-              {chevron}
+              {chevron ? (
+                arrow
+              ) : (
+                <span className="cv-disclosure__status">{statusText(status ?? t("message.details"))}</span>
+              )}
             </button>
           </>
         ) : (
@@ -172,10 +188,10 @@ export function DisclosureRow({
             onClick={collapse.toggle}
           >
             {content}
-            {chevron}
+            {arrow}
           </button>
         )}
-        {actions}
+        {fit && <span className="cv-disclosure__actions cv-fit-actions">{actions}</span>}
       </TranscriptActivityRowShell>
       {below !== undefined && below !== null && below !== "" && (
         // The toggle's label reads these words for a screen reader; this is the pointer's target.
@@ -196,4 +212,10 @@ export function DisclosureRow({
       )}
     </div>
   );
+}
+
+/// A plain-text status in its own box: the status is inline-flex (for a leading glyph), and a flex
+/// container's bare text clips mid-letter instead of ending in an ellipsis on a narrow pane.
+function statusText(status: ReactNode): ReactNode {
+  return typeof status === "string" ? <span className="cv-disclosure__status-text">{status}</span> : status;
 }

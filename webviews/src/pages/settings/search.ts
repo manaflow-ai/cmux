@@ -3,8 +3,9 @@
 // changed" (P4) uses the same listing: the rows whose value differs from the default.
 import { shownCategories, type Category, type CategoryGroup } from "./categories";
 import { valueText } from "./format";
+import type { DevicesJoinState } from "./ops";
 import type { SchemaRow } from "./schema";
-import { locale, text } from "./strings";
+import { locale, text, english, t } from "./strings";
 
 export function queryTerms(query: string): string[] {
   return query.toLowerCase().split(/\s+/).filter(Boolean);
@@ -84,10 +85,7 @@ export type SearchGroup = { category: Category; groups: CategoryGroup[]; rows: S
 
 export type ListFilter = {
   query: string;
-  /** Only rows a user changed (`customized`). */
-  changedOnly?: boolean;
   valueOf(key: string): unknown;
-  isChanged?(key: string): boolean;
   /** The host is a DEV build: DEV-only categories are searched too. */
   devBuild?: boolean;
   /** Settings scope and owner revision used to invalidate the searchable text cache. */
@@ -95,26 +93,21 @@ export type ListFilter = {
   revision?: number;
 };
 
-/** Matching rows of every category, in navigation order; an empty query with changedOnly lists
- * every changed row. */
+/** Matching rows of every category, in navigation order; an empty query matches none. */
 // Rows the page never lists: appearance.themeEdits is the theme pickers' "(custom)" themes and
 // appearance.favoriteThemes their stars.
 const UNLISTED = new Set(["appearance.themeEdits", "appearance.favoriteThemes"]);
 
 export function filterRows({
   query,
-  changedOnly = false,
   valueOf,
-  isChanged,
   devBuild = false,
   scope = "user",
   revision = 0,
 }: ListFilter): SearchGroup[] {
   const terms = queryTerms(query);
   const keep = (row: SchemaRow) =>
-    !UNLISTED.has(row.key) &&
-    (terms.length === 0 ? changedOnly : rowMatches(row, valueOf(row.key), terms, { scope, revision })) &&
-    (!changedOnly || (isChanged?.(row.key) ?? false));
+    !UNLISTED.has(row.key) && terms.length > 0 && rowMatches(row, valueOf(row.key), terms, { scope, revision });
   return shownCategories(devBuild)
     .map((category) => {
       const groups = category.groups
@@ -125,6 +118,80 @@ export function filterRows({
     .filter((result) => result.rows.length > 0);
 }
 
+/**
+ * A place on a page-only card that search finds beside the schema rows: Settings > Devices' join
+ * consent switches (Screen sharing, Control, Your other Macs), which the host draws from its lists
+ * (`devices_join`) while this Mac is joined to a team. Their text is the host's, already localized,
+ * and `keywords` carry the page's language and English. Its key is the route's focus
+ * (`#/settings/devices?focus=devices.join.control`, Swift `SettingsPageAnchor`).
+ */
+export type PagePlace = { key: string; category: string; title: string; help: string; keywords: string[] };
+
+const JOIN_CONSENT = "devices.join.";
+
+/** The focus key of a join consent switch (`devices.join.control`). */
+export const joinConsentKey = (surface: string) => `${JOIN_CONSENT}${surface}`;
+
+/** The category a page place's key opens on; null for a key that names none. */
+export function placeCategory(key: string): string | null {
+  return key.startsWith(JOIN_CONSENT) ? "devices" : null;
+}
+
+/** The join consent switches as search places; none while this Mac shows no join group. */
+export function joinConsentPlaces(join: DevicesJoinState | null | undefined): PagePlace[] {
+  return (join?.switches ?? []).map((item) => ({
+    key: joinConsentKey(item.surface),
+    category: "devices",
+    title: item.title,
+    help: item.help,
+    keywords: item.keywords ?? [],
+  }));
+}
+
+/** The places every term of `query` matches (title, help, keywords), in the host's order. */
+export function filterPlaces(query: string, places: readonly PagePlace[]): PagePlace[] {
+  const terms = queryTerms(query);
+  if (terms.length === 0) return [];
+  return places.filter((place) => {
+    const haystack = [place.title, place.help, ...place.keywords].join("\n").toLowerCase();
+    return terms.every((term) => haystack.includes(term));
+  });
+}
+
+/** The place whose title or one of whose keywords is the whole query ("control", "remote control"):
+ * Return opens it before any row that only contains the words. */
+export function exactPlace(query: string, places: readonly PagePlace[]): PagePlace | null {
+  const typed = queryTerms(query).join(" ");
+  if (!typed) return null;
+  return (
+    places.find((place) => [place.title, ...place.keywords].some((word) => queryTerms(word).join(" ") === typed)) ??
+    null
+  );
+}
+
 export function searchRows(query: string, valueOf: (key: string) => unknown): SearchGroup[] {
   return filterRows({ query, valueOf });
+}
+
+/**
+ * Words that find a page by more than its title: its cards draw host data, not schema rows, so no
+ * row would lead there. A catalog key whose value lists them, comma-separated (Leo 2026-11-22: "i
+ * also couldnt find settings devices control"; the join prompt sends people to Settings > Devices
+ * for its Screen sharing and Control switches).
+ */
+const PAGE_WORDS: Readonly<Record<string, string>> = {
+  devices: "settingsPage.search.devicesWords",
+};
+
+/** Categories whose title or page words hold every term, in navigation order; an empty query matches none. */
+export function filterPages({ query, devBuild = false }: Pick<ListFilter, "query" | "devBuild">): Category[] {
+  const terms = queryTerms(query);
+  if (terms.length === 0) return [];
+  return shownCategories(devBuild).filter((category) => {
+    const words = PAGE_WORDS[category.id];
+    const haystack = [text(category.title), category.title.text, words ? t(words) : "", words ? english(words) : ""]
+      .join("\n")
+      .toLowerCase();
+    return terms.every((term) => haystack.includes(term));
+  });
 }

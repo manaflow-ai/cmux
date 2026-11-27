@@ -12,8 +12,10 @@ import Testing
 @Suite struct SmoothChatTests {
     final class Silent: AgentSessionSource {
         let summary = AgentSessionSummary(id: "s", name: "S", harness: "codex", agentName: "Codex", cwd: "~", workspaceTitle: "w", macName: "m")
+        var earlierHistoryRequests = 0
         func events() -> AsyncStream<AgentSessionEvent> { AsyncStream { _ in } }
         func send(_ intent: AgentClientIntent) {}
+        func loadEarlierHistory() { earlierHistoryRequests += 1 }
     }
 
     static let at = Date(timeIntervalSince1970: 1_700_000_000)
@@ -74,12 +76,28 @@ import Testing
         for index in 0..<50 { store.receive(.update(.agentMessageChunk(text: "w\(index) ", messageId: "m0"))) }
         await Task.yield()
         #expect(store.turns[0].lastAnswerMarkdown?.hasSuffix("w49 ") == false, "chunks wait for the frame")
-        while frames.count == 0 { await Task.yield() }
+        await yieldUntil { !(frames.count == 0) }
         frames.fire()
         for _ in 0..<5 { await Task.yield() }
         #expect(store.chunkFlushes == 1)
         #expect(store.turns[0].lastAnswerMarkdown?.hasSuffix("w48 w49 ") == true)
         #expect(changes.count == 1, "one store change for 50 chunks, got \(changes.count)")
+    }
+
+    @Test func equalReplayBatchDoesNotBumpRevision() {
+        let store = AgentChatStore(source: Silent())
+        let history = Self.turn(0)
+        store.apply(.batch(history))
+        let revision = store.revision
+        let turns = store.turns
+        store.apply(.batch(history))
+        print("SILENT_DELTA transcript_equal before=1 after=\(store.revision == revision ? 0 : 1)")
+        #expect(store.revision == revision)
+        #expect(store.turns == turns)
+
+        store.apply(.batch(Self.turn(1)))
+        #expect(store.revision > revision)
+        #expect(store.turns.count == turns.count + 1)
     }
 
     @Test func otherEventsKeepTheirOrderAfterWaitingChunks() async {
@@ -115,7 +133,7 @@ import Testing
         let changes = Changes()
         changes.watch {
             _ = (store.hasTurns, store.isRunning, store.pendingPermission, store.pendingQuestion, store.firstPrompt,
-                 store.hasAgentEdits, store.runningPlanEntries)
+                 store.hasAgentEdits)
         }
         store.apply(.update(.agentMessageChunk(text: "more", messageId: "m0")))
         await Task.yield()
@@ -145,7 +163,7 @@ import Testing
         let store = AgentChatStore(source: Silent())
         store.apply(.batch((0..<5).flatMap { Self.turn($0, edit: $0 == 4) }))
         let builder = ChatTranscriptBuilder(diffs: ChatDiffCache())
-        let ids = builder.build(turns: store.turns, pendingPermission: nil, askOpen: false, permissionBarHidden: false).flatMap { $0.rows.map(\.id) }
+        let ids = builder.build(turns: store.turns, pendingPermission: nil, askOpen: false, permissionBarHidden: false).flatMap { $0.rows.unfolded.map(\.id) }
         #expect(Set(ids).count == ids.count)
         #expect(ids.first == "session-start")
         #expect(ids.contains("u-t0") && ids.contains("a-t4") && ids.contains("e-c4"))
@@ -199,7 +217,7 @@ import Testing
             _ = builder.build(turns: store.turns, pendingPermission: nil, askOpen: false, permissionBarHidden: false)
         }
         #expect(cache.computations == 2)
-        let rows = builder.build(turns: store.turns, pendingPermission: nil, askOpen: false, permissionBarHidden: false).last?.rows ?? []
+        let rows = builder.build(turns: store.turns, pendingPermission: nil, askOpen: false, permissionBarHidden: false).last?.rows.unfolded ?? []
         let card = rows.first { $0.id == "f-t2" }
         let snippet = rows.first { $0.id == "e-c2" }
         guard case .editedFiles(let changes)? = card?.kind, case .edit(_, let files)? = snippet?.kind else {
@@ -343,6 +361,86 @@ import UIKit
         let id = try #require(items.first { !$0.exact && list.canLayOut($0.id) }?.id, "rows: \(items.prefix(16).map(\.id))")
         list.layOutNow(id)
         #expect(list.layout.items.first { $0.id == id }?.exact == true)
+    }
+}
+
+/// An older page landing above the rows shown, while its turns wait for their native rows'
+/// layout (held, #41982), takes the chat's `session-start` row with it: that row is the first
+/// turn's, so it was shown, changed and left out of the new snapshot together. Reconfiguring it
+/// trapped (`NSDiffableDataSourceSnapshot` refuses an id it does not hold); the list now
+/// reconfigures only rows in both snapshots. Found by `chat_scroll_fill_ui`.
+@MainActor
+@Suite struct HeldOlderPageTests {
+    @Test func reachingSessionStartRequestsAnOlderPage() {
+        let source = SmoothChatTests.Silent()
+        let store = AgentChatStore(source: source)
+        store.nextFrame = nil
+        store.apply(.earlierHistory(true))
+        store.apply(.batch((0..<4).flatMap { SmoothChatTests.turn($0) }))
+        let list = ChatTranscriptList(store: store, surface: AgentChatSurface())
+        list.readsAhead = false
+        list.collectionView.frame = CGRect(x: 0, y: 0, width: 390, height: 800)
+        list.boundsMayHaveChanged()
+        list.collectionView.layoutIfNeeded()
+
+        let before = source.earlierHistoryRequests
+        // `session-start` is the first stable row in the transcript snapshot.
+        list.collectionView(list.collectionView, willDisplay: UICollectionViewCell(),
+                            forItemAt: IndexPath(item: 0, section: 0))
+
+        #expect(source.earlierHistoryRequests == before + 1)
+        #expect(store.isLoadingEarlier)
+    }
+
+    @Test func anOlderPageKeepsTheReaderAnchoredBelowTheHeader() {
+        let store = AgentChatStore(source: SmoothChatTests.Silent())
+        store.nextFrame = nil
+        store.apply(.earlierHistory(true))
+        store.apply(.batch((10..<40).flatMap { SmoothChatTests.turn($0) }))
+        let surface = AgentChatSurface()
+        // This scenario is the reader, not the newest-turn follower. Make that state explicit
+        // so `reload()` takes its anchor before prepending the older page.
+        surface.following = false
+        let list = ChatTranscriptList(store: store, surface: surface)
+        list.collectionView.frame = CGRect(x: 0, y: 0, width: 390, height: 800)
+        list.boundsMayHaveChanged()
+        list.collectionView.layoutIfNeeded()
+
+        let scroll = list.collectionView
+        scroll.contentOffset.y = max(-scroll.adjustedContentInset.top,
+                                     scroll.contentSize.height - scroll.bounds.height - 240)
+        scroll.layoutIfNeeded()
+        let visibleTop = scroll.contentOffset.y + scroll.adjustedContentInset.top
+        guard let anchor = list.layout.firstRow(below: visibleTop),
+              let anchorBefore = list.layout.top(of: anchor.id) else {
+            Issue.record("the reader did not have an anchor below the transcript header")
+            return
+        }
+
+        store.apply(.earlierPage((0..<10).flatMap { SmoothChatTests.turn($0) }, hasEarlier: false))
+        list.reload()
+        scroll.layoutIfNeeded()
+
+        #expect(abs((list.layout.top(of: anchor.id) ?? .greatestFiniteMagnitude) - anchorBefore) < 1,
+                "loading older history moved the row under the reader")
+    }
+
+    @Test func anOlderPageHeldForLayoutTakesSessionStartWithoutATrap() {
+        let store = AgentChatStore(source: SmoothChatTests.Silent())
+        store.nextFrame = nil
+        store.apply(.earlierHistory(true))
+        store.apply(.batch((30..<40).flatMap { SmoothChatTests.turn($0) }))
+        let list = ChatTranscriptList(store: store, surface: AgentChatSurface())
+        list.collectionView.frame = CGRect(x: 0, y: 0, width: 390, height: 800)
+        list.boundsMayHaveChanged()
+        list.collectionView.layoutIfNeeded()
+        #expect(list.layout.items.first?.id == "session-start")
+        // The page's rows have no off-main layout yet: its turns are held, `session-start` with them.
+        store.apply(.earlierPage((0..<30).flatMap { SmoothChatTests.turn($0) }, hasEarlier: true))
+        list.reload()
+        list.collectionView.layoutIfNeeded()
+        #expect(store.turns.first?.id == "t0")
+        #expect(!list.layout.items.isEmpty)
     }
 }
 

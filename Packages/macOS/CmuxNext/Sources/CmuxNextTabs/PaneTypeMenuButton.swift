@@ -9,23 +9,33 @@ import QuartzCore
 /// Its look follows ``TabTrailingButtons``: in every style but `plates` it draws its chevron as the +'s stroke (one
 /// weight, one ink) and shows hover as the + does (Lawrence 2026-11-07: the square grey block behind it).
 final class PaneTypeMenuButton: NSView {
-    /// The `plates` look (before 2026-11-07): an SF Symbol on a rounded plate.
-    private let glyph = TitlebarBandButton(symbol: "chevron.down")
+    /// The `plates` look (before 2026-11-07): an SF Symbol on a rounded plate, made the first time that style lays out
+    /// (every pane's strip has a chooser, and the other styles draw the chevron as a layer).
+    private var glyph: TitlebarBandButton?
     private let fillLayer = CALayer()
     private let chevronLayer = CAShapeLayer()
-    private lazy var pointer = PointerHover(self) { [weak self] _ in self?.updateColors() }
+    private lazy var pointer = PointerHover(self) { [weak self] hovering in
+        self?.updateColors()
+        self?.onHoverChange?(hovering)
+    }
+    /// The pointer came onto (true) or left (false) the ⌄.
+    var onHoverChange: ((Bool) -> Void)?
+    /// The + beside it is under the pointer (the split look's shared hover).
+    var siblingHovered = false {
+        didSet { if oldValue != siblingHovered { updateColors() } }
+    }
     var onPress: (() -> Void)?
     /// VoiceOver moved its focus onto (true) or off (false) the chooser.
     var onAccessibilityFocus: ((Bool) -> Void)?
     var isHighlighted = false {
         didSet {
-            glyph.isHighlighted = isHighlighted
-            glyph.hover.state.pressed = isHighlighted
+            glyph?.isHighlighted = isHighlighted
+            glyph?.hover.state.pressed = isHighlighted
             updateColors()
         }
     }
     /// The trailing controls' shared look.
-    var style: TabTrailingButtons = TabTunables.trailingButtons.value {
+    var style: TabTrailingButtons = TabTunables.effectiveTrailingButtons {
         didSet {
             guard style != oldValue else { return }
             needsLayout = true
@@ -38,8 +48,6 @@ final class PaneTypeMenuButton: NSView {
     override init(frame: NSRect) {
         super.init(frame: frame)
         wantsLayer = true
-        // The add buttons' size class: the chevron spans about the +'s width beside it.
-        glyph.symbolPointSize = { Metrics.addMenuChevronPointSize }
         layer?.masksToBounds = false
         fillLayer.cornerCurve = .circular
         fillLayer.actions = ["bounds": NSNull(), "position": NSNull(), "cornerRadius": NSNull()]
@@ -49,8 +57,6 @@ final class PaneTypeMenuButton: NSView {
         chevronLayer.actions = ["bounds": NSNull(), "position": NSNull(), "path": NSNull(), "strokeColor": NSNull(), "lineWidth": NSNull()]
         layer?.addSublayer(fillLayer)
         layer?.addSublayer(chevronLayer)
-        addSubview(glyph)
-        glyph.setAccessibilityElement(false)
         setAccessibilityElement(true)
         setAccessibilityRole(.popUpButton)
         setAccessibilityLabel(Strings.axNewTab)
@@ -67,8 +73,17 @@ final class PaneTypeMenuButton: NSView {
     override func layout() {
         super.layout()
         let plates = style == .plates
-        glyph.isHidden = !plates
-        glyph.frame = bounds
+        if plates, glyph == nil {
+            let made = TitlebarBandButton(symbol: "chevron.down")
+            // The add buttons' size class: the chevron spans about the +'s width beside it.
+            made.symbolPointSize = { Metrics.addMenuChevronPointSize }
+            made.setAccessibilityElement(false)
+            (made.isHighlighted, made.hover.state.pressed) = (isHighlighted, isHighlighted)
+            addSubview(made)
+            glyph = made
+        }
+        glyph?.isHidden = !plates
+        glyph?.frame = bounds
         CATransaction.begin()
         CATransaction.setDisableActions(true)
         chevronLayer.isHidden = plates
@@ -76,12 +91,23 @@ final class PaneTypeMenuButton: NSView {
         let scale = window?.backingScaleFactor ?? 2
         chevronLayer.contentsScale = scale
         chevronLayer.frame = bounds
-        // Circles: one diameter for the +, the ⌄ and the ⋮ (the +'s square side), centered on the glyph.
+        // Circles: one diameter for the +, the ⌄ and the ⋮ (the +'s square side), centered on the glyph. Split: the
+        // whole segment, with the group's trailing corners rounded (the + rounds the leading ones).
         let side = min(bounds.width, bounds.height)
-        fillLayer.frame = CGRect(x: (bounds.width - side) / 2, y: (bounds.height - side) / 2, width: side, height: side)
-        fillLayer.cornerRadius = side / 2
-        let center = CGPoint(x: (bounds.midX * scale).rounded() / scale, y: (bounds.midY * scale).rounded() / scale)
-        let half = NewTabButtonView.chevronHalfWidth, rise = NewTabButtonView.chevronRise
+        if style == .split {
+            fillLayer.frame = bounds
+            fillLayer.cornerRadius = PlusButtonLook.splitCornerRadius // the +'s corner: one control, a tab's roundness
+            fillLayer.cornerCurve = Metrics.tabCornerCurve
+            fillLayer.maskedCorners = [.layerMaxXMinYCorner, .layerMaxXMaxYCorner]
+        } else {
+            fillLayer.frame = CGRect(x: (bounds.width - side) / 2, y: (bounds.height - side) / 2, width: side, height: side)
+            fillLayer.cornerRadius = side / 2 // radius-allow: the opt-in circle hover look (ChromeHoverStyle.circle)
+            fillLayer.maskedCorners = PlusButtonLook.allCorners
+        }
+        // The split look's ⌄ leans half a step toward its + (NewTabButtonView leans the + back).
+        let lean = style == .split ? Metrics.space1 / 2 : 0
+        let center = CGPoint(x: ((bounds.midX - lean) * scale).rounded() / scale, y: (bounds.midY * scale).rounded() / scale)
+        let half = PlusButtonLook.chevronHalfWidth, rise = PlusButtonLook.chevronRise
         let path = CGMutablePath()
         path.move(to: CGPoint(x: center.x - half, y: center.y - rise / 2))
         path.addLine(to: CGPoint(x: center.x, y: center.y + rise / 2))
@@ -106,11 +132,15 @@ final class PaneTypeMenuButton: NSView {
         CATransaction.begin()
         CATransaction.setDisableActions(true)
         performWithTheme {
-            chevronLayer.strokeColor = NewTabButtonView.glyphInk(hovering: hovering, pressed: pressed).cgColor
-            chevronLayer.lineWidth = NewTabButtonView.glyphLineWidth(pressed: pressed)
-            fillLayer.backgroundColor = style == .circles
-                ? ChromeHover.fillColor(.init(hovering: hovering, pressed: pressed))?.cgColor
-                : nil
+            chevronLayer.strokeColor = PlusButtonLook.glyphInk(hovering: hovering, pressed: pressed).cgColor
+            chevronLayer.lineWidth = Metrics.addGlyphLineWidth
+            switch style {
+            case .circles: fillLayer.backgroundColor = ChromeHover.fillColor(.init(hovering: hovering, pressed: pressed))?.cgColor
+            case .split:
+                fillLayer.backgroundColor = PlusButtonLook.fill(.init(hovering: hovering, pressed: pressed, siblingHovered: siblingHovered),
+                                                                hoverStyle: .plate, segment: .leading)?.cgColor
+            case .plates, .glyphs, .merged: fillLayer.backgroundColor = nil
+            }
         }
         CATransaction.commit()
     }

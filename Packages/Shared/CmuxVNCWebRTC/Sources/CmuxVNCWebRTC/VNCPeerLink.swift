@@ -12,6 +12,8 @@ final class VNCPeerLink: NSObject, @unchecked Sendable, RTCPeerConnectionDelegat
         case candidate(SignalMessage)
         case open
         case message(Data)
+        /// One message on the `focus` channel (follow mode's focus signals, FocusSignals.swift).
+        case focus(Data)
         case closed
         /// The ICE pair in use: each side's candidate type (host, srflx, prflx, relay).
         case path(local: String, remote: String)
@@ -45,7 +47,12 @@ final class VNCPeerLink: NSObject, @unchecked Sendable, RTCPeerConnectionDelegat
     private var videoTransceiver: RTCRtpTransceiver?
     /// The host's screen sender (its encoding parameters carry the quality).
     private var videoSender: RTCRtpSender?
-    /// Secondary channels by label (the unordered `pointer` channel).
+    /// The ordered, reliable channel the viewer opens for follow mode's focus signals (host → viewer).
+    static let focusLabel = "focus"
+    /// The viewer's channels that are never the primary one, whatever order they open in.
+    static let extraLabels: Set<String> = ["pointer", focusLabel]
+
+    /// Secondary channels by label (the unordered `pointer` channel, `focus`).
     private var extras: [String: RTCDataChannel] = [:]
     private var candidateErrorSink: (@Sendable (ICECandidateError) -> Void)?
     private var stallSink: (@Sendable (Bool) -> Void)?
@@ -105,7 +112,9 @@ final class VNCPeerLink: NSObject, @unchecked Sendable, RTCPeerConnectionDelegat
 
     /// Viewer: opens the data channel (`rfb` bytes, or `input` for a screen
     /// stream that also receives the host's video) and returns the offer SDP.
-    func offer(label: String = "rfb", receiveVideo: Bool = false, unorderedLabel: String? = nil) async throws -> String {
+    /// `focusLabel` also opens an ordered, reliable channel for the host's focus signals.
+    func offer(label: String = "rfb", receiveVideo: Bool = false, unorderedLabel: String? = nil,
+               focusLabel: String? = nil) async throws -> String {
         let configuration = RTCDataChannelConfiguration()
         configuration.isOrdered = true
         guard let created = connection.dataChannel(forLabel: label, configuration: configuration) else {
@@ -120,6 +129,14 @@ final class VNCPeerLink: NSObject, @unchecked Sendable, RTCPeerConnectionDelegat
             if let extra = connection.dataChannel(forLabel: unorderedLabel, configuration: unordered) {
                 extra.delegate = self
                 lock.withLock { extras[unorderedLabel] = extra }
+            }
+        }
+        if let focusLabel {
+            let ordered = RTCDataChannelConfiguration()
+            ordered.isOrdered = true
+            if let extra = connection.dataChannel(forLabel: focusLabel, configuration: ordered) {
+                extra.delegate = self
+                lock.withLock { extras[focusLabel] = extra }
             }
         }
         if receiveVideo {
@@ -289,11 +306,42 @@ final class VNCPeerLink: NSObject, @unchecked Sendable, RTCPeerConnectionDelegat
         finish()
     }
 
+    /// One text message on the ordered channel, waiting first while its
+    /// buffer is full (a long run of messages, such as a pasted image's
+    /// chunks, never overflows it).
+    func sendTextPaced(_ text: String) async throws {
+        guard let channel = lock.withLock({ channel }), channel.readyState == .open else { throw VNCWebRTCError.closed }
+        while channel.bufferedAmount > Self.highWater {
+            await withCheckedContinuation { continuation in
+                let resumeNow = lock.withLock { () -> Bool in
+                    if ended || channel.bufferedAmount <= Self.highWater { return true }
+                    drained.append(continuation)
+                    return false
+                }
+                if resumeNow { continuation.resume() }
+            }
+            if lock.withLock({ ended }) { throw VNCWebRTCError.closed }
+        }
+        guard channel.sendData(RTCDataBuffer(data: Data(text.utf8), isBinary: false)) else { throw VNCWebRTCError.closed }
+    }
+
     /// Text messages on the data channel (screen stream control and input).
     func sendText(_ text: String, on label: String? = nil) -> Bool {
         let target = lock.withLock { label.flatMap { extras[$0] } ?? channel }
         guard let channel = target, channel.readyState == .open else { return false }
         return channel.sendData(RTCDataBuffer(data: Data(text.utf8), isBinary: false))
+    }
+
+    /// A text message on the `label` channel only, never the primary one
+    /// (an older viewer that did not open it gets nothing); false when it is not open.
+    func sendText(_ text: String, onlyOn label: String) -> Bool {
+        guard let channel = lock.withLock({ extras[label] }), channel.readyState == .open else { return false }
+        return channel.sendData(RTCDataBuffer(data: Data(text.utf8), isBinary: false))
+    }
+
+    /// Whether the other side opened the `label` channel and it is open.
+    func hasOpenChannel(_ label: String) -> Bool {
+        lock.withLock { extras[label] }?.readyState == .open
     }
 
     /// libwebrtc must not be closed from inside its own callbacks (signaling thread).
@@ -324,7 +372,7 @@ final class VNCPeerLink: NSObject, @unchecked Sendable, RTCPeerConnectionDelegat
     }
 
     func dataChannel(_ dataChannel: RTCDataChannel, didReceiveMessageWith buffer: RTCDataBuffer) {
-        sink.yield(.message(buffer.data))
+        sink.yield(dataChannel.label == Self.focusLabel ? .focus(buffer.data) : .message(buffer.data))
     }
 
     func dataChannel(_ dataChannel: RTCDataChannel, didChangeBufferedAmount amount: UInt64) {
@@ -382,9 +430,9 @@ final class VNCPeerLink: NSObject, @unchecked Sendable, RTCPeerConnectionDelegat
     }
 
     func peerConnection(_ peerConnection: RTCPeerConnection, didOpen dataChannel: RTCDataChannel) {
-        // Host side: the viewer's channels; the ordered one (not `pointer`) is primary.
+        // Host side: the viewer's channels; the ordered one (not `pointer` or `focus`) is primary.
         let isPrimary = lock.withLock { () -> Bool in
-            guard dataChannel.label == "pointer" || channel != nil else { return true }
+            guard Self.extraLabels.contains(dataChannel.label) || channel != nil else { return true }
             extras[dataChannel.label] = dataChannel
             return false
         }
@@ -473,9 +521,9 @@ extension VNCPeerLink {
                         if let codec = values["codecId"] as? String { stats.codec = codecs[codec] }
                         stats.decoder = values["decoderImplementation"] as? String
                     }
-                    if entry.type == "candidate-pair", (values["nominated"] as? NSNumber)?.boolValue == true,
-                       let rtt = values["currentRoundTripTime"] as? NSNumber {
-                        stats.rttMs = rtt.doubleValue * 1000
+                    if entry.type == "candidate-pair", (values["nominated"] as? NSNumber)?.boolValue == true {
+                        if let rtt = values["currentRoundTripTime"] as? NSNumber { stats.rttMs = rtt.doubleValue * 1000 }
+                        stats.transportBytesReceived = max(stats.transportBytesReceived, (values["bytesReceived"] as? NSNumber)?.doubleValue ?? 0)
                     }
                 }
                 continuation.resume(returning: stats)

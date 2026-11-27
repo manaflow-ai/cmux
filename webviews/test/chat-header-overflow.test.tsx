@@ -3,6 +3,7 @@ import { afterAll, beforeAll, expect, test } from "bun:test";
 import { JSDOM } from "jsdom";
 import { act } from "react";
 import type { Root } from "react-dom/client";
+import { teardownDom } from "./support/domTeardown";
 
 const scope = globalThis as Record<string, unknown>;
 // Base UI's menus read these window globals.
@@ -62,12 +63,9 @@ beforeAll(() => {
   };
 });
 
-afterAll(() => {
+afterAll(async () => {
   act(() => root?.unmount());
-  for (const [key, had, value] of saved) {
-    if (had) scope[key] = value;
-    else delete scope[key];
-  }
+  await teardownDom(saved, { scope });
 });
 
 const labels = () =>
@@ -169,6 +167,52 @@ test("a narrow pane folds the trailing header buttons into the chat menu and a w
   expect(shown()).toEqual(["terminal", "browser", "splitDown"]);
   await act(async () => void openPicker("Chat actions"));
   expect(labels()).not.toContain("Split Down");
+  act(() => root?.unmount());
+  root = undefined;
+  configureQuickActions({});
+});
+
+// Goal chat-attach-p95: the fold read the header in its layout effect, which forced a layout of the
+// whole page in the middle of a chat's first commit (about 19 ms of an attach). The read now waits
+// for the observer's first report, which the browser sends after its own layout and before the
+// paint, and the fold commits right there, so a header that does not fit is never drawn unfolded.
+test("mounting reads no layout; the observer's first report folds before control returns", async () => {
+  const { createRoot } = await import("react-dom/client");
+  const { ChatHeaderTools } = await import("../src/agent-session/acpmux/header/ChatHeaderTools");
+  const { configureQuickActions } = await import("../src/agent-session/acpmux/header/quickActions");
+  configureQuickActions({ quickActions: ["terminal", "browser", "splitDown"] });
+  paneWidth = 120 + 4 * 26 - 1;
+  const proto = doc.defaultView!.HTMLElement.prototype;
+  const rect = proto.getBoundingClientRect;
+  let reads = 0;
+  proto.getBoundingClientRect = function (this: HTMLElement) {
+    reads++;
+    return rect.call(this);
+  };
+  root = createRoot(doc.getElementById("root")!);
+  act(() =>
+    root!.render(
+      <header className="acpmux-header">
+        <div className="acpmux-handoff-header-tools">
+          <ChatHeaderTools
+            onTerminal={() => {}}
+            onSplitDown={() => {}}
+            onBrowser={() => {}}
+            summary={null}
+            menu={() => []}
+          />
+        </div>
+      </header>,
+    ),
+  );
+  expect(reads).toBe(0);
+  expect(observers.size).toBeGreaterThan(0);
+  // One report, outside act: the fold is in the DOM as soon as the callback returns.
+  scope.IS_REACT_ACT_ENVIRONMENT = false;
+  [...observers][0].fire();
+  scope.IS_REACT_ACT_ENVIRONMENT = true;
+  expect(shown()).toEqual(["terminal", "browser"]);
+  proto.getBoundingClientRect = rect;
   act(() => root?.unmount());
   root = undefined;
   configureQuickActions({});

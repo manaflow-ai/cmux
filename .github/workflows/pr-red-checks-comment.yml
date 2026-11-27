@@ -1,9 +1,11 @@
 name: PR red checks comment
 
 # The `checks` line of the status comment on a pull request into feat-cmux-next lists its red
-# web and size checks (scripts/ci/pr_red_checks_comment.py, scripts/ci/pr_status.py). The checks
+# web and size checks (scripts/ci/pr_red_checks_comment.py, scripts/ci/pr_status.py), and its `ran`
+# line says which workflows the diff started and why (scripts/ci/pr_ran_line.py). The checks
 # stay advisory (chief 2026-10-12); this makes a red one impossible to miss. Each workflow that runs tracked checks calls this after them; every
-# call recomputes from all check runs of the head commit, and the per-PR group orders the calls.
+# call recomputes from all check runs of the head commit, and the per-PR group orders the calls. ci.yml's call is the
+# head's writer (input `writer`): the others start a runner only when their own checks are red or on a rerun.
 # The script comes from the base commit, never the pull request's code.
 on:
   workflow_call:
@@ -13,52 +15,27 @@ on:
         # names no red has nothing for this call to change, and the script reads no check runs.
         type: boolean
         default: false
+      writer:
+        # The one call per head that always runs (ci.yml's, which starts on every pull request that changes more
+        # than prose). Every other call starts no runner while its own checks are green on a first attempt: a
+        # green call can only clear a red line, and the writer's call clears any red its head no longer has
+        # (the script recomputes from every check run of the head when the line names a red). A red call, and
+        # any call on a rerun (the red it fixes was written after the event), still runs.
+        # 2026-11-25 13Z..23Z: about 7,800 calls, 10.7k runner-min, 0 real catches (cmuxterm-hq
+        # docs/findings/2026-11-25-ci-value.md).
+        type: boolean
+        default: false
 
 permissions: {}
 
 env:
-  # Temporary REST budget attribution: one gh-call line per GitHub API call (scripts/ci/api_call_log/env.sh).
-  BASH_ENV: ${GITHUB_WORKSPACE:-/nonexistent}/scripts/ci/api_call_log/env.sh
+  # Temporary REST budget attribution: one gh-call line per GitHub API call (scripts/ci/api_call_log/env.sh, fetched at a fixed commit when the checkout has no copy).
+  BASH_ENV: '$({ w="${GITHUB_WORKSPACE:-/nonexistent}/scripts/ci/api_call_log/env.sh"; t="${RUNNER_TEMP:-/nonexistent}/api-call-log-src"; if [ -f "$w" ]; then echo "$w"; elif [ -n "${RUNNER_TEMP:-}" ]; then if [ ! -f "$t/env.sh" ] && [ ! -e "$t.tried" ] && { [ "${RUNNER_OS:-}" = Linux ] || [ "${RUNNER_OS:-}" = macOS ]; } && [ "$(date -u +%Y%m%d%H)" -lt 2026112300 ]; then : > "$t.tried"; mkdir -p "$t.part" && for x in env.sh gh sitecustomize.py isolated.py; do curl -fsSL --max-time 5 -o "$t.part/$x" "https://raw.githubusercontent.com/manaflow-ai/cmux/27647ffd3ae838c63be28ca3e5883dcd68c34518/scripts/ci/api_call_log/$x" || break; done; [ -s "$t.part/isolated.py" ] && mv "$t.part" "$t"; fi; if [ -f "$t/env.sh" ]; then echo "$t/env.sh"; else echo unset BASH_ENV > "$t.off.sh" && echo "$t.off.sh"; fi; fi; } 2>/dev/null)'
 
 jobs:
-  portable-placement:
-    name: portable light placement
-    if: ${{ vars.CI_PORTABLE_LIGHT_JOBS_OFF != '1' && github.event_name == 'pull_request' && github.event.pull_request.base.ref == 'feat-cmux-next' }}
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-2vcpu-ubuntu-2404' || github.run_attempt == 1 && 'ubuntu-24.04' || fromJSON(vars.RUNNER_POOLS).linux_2 }}
-    timeout-minutes: 4
-    permissions:
-      contents: read
-    outputs:
-      linux_runner: ${{ steps.place.outputs.linux_runner }}
-      linux_jobs: ${{ steps.place.outputs.linux_jobs }}
-      mini_runner: ${{ steps.place.outputs.mini_runner }}
-      mini_jobs: ${{ steps.place.outputs.mini_jobs }}
-      placed_attempt: ${{ github.run_attempt }}
-    steps:
-      - name: Check out the trusted placement script
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
-        with:
-          ref: ${{ github.event.pull_request.base.sha || github.sha }}
-          sparse-checkout: scripts/ci
-          persist-credentials: false
-      - name: Place the portable report job
-        id: place
-        continue-on-error: true
-        env:
-          CI_RUNNER_STATE: ${{ vars.CI_RUNNER_STATE }}
-          GITHUB_REPOSITORY: ${{ github.repository }}
-          JOBS: comment
-          FLEET_LINUX: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || vars.LINUX_RUNNER }}
-          REQUIRE_LIVE_CAPACITY: '1'
-          SIDE_LABEL: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || vars.CI_LIGHT_LANE_RUNNER || vars.CI_SIDE_LANE_RUNNER }}
-        run: python3 scripts/ci/portable_job_placement.py
-
   comment:
-    needs: portable-placement
-    if: ${{ always() && !cancelled() && github.event_name == 'pull_request' && github.event.pull_request.base.ref == 'feat-cmux-next' }}
-    # Fresh runner-state capacity admits fleet Linux or an idle owned mini first.
-    # Forks keep the ephemeral route; missing placement keeps the existing hosted/paid fallback.
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || needs.portable-placement.outputs.placed_attempt == format('{0}', github.run_attempt) && contains(needs.portable-placement.outputs.linux_jobs, ' comment ') && needs.portable-placement.outputs.linux_runner || needs.portable-placement.outputs.placed_attempt == format('{0}', github.run_attempt) && contains(needs.portable-placement.outputs.mini_jobs, ' comment ') && needs.portable-placement.outputs.mini_runner || github.run_attempt == 1 && 'ubuntu-24.04' || contains(fromJSON('["blacksmith-4vcpu-ubuntu-2404","blacksmith-8vcpu-ubuntu-2404","blacksmith-16vcpu-ubuntu-2404"]'), vars.LINUX_RUNNER) && vars.LINUX_RUNNER || vars.CI_CLOUD_OVERFLOW_SAVED && fromJSON(vars.RUNNER_POOLS).linux_16 || fromJSON(vars.RUNNER_POOLS).linux_8 }}
+    if: ${{ always() && !cancelled() && github.event_name == 'pull_request' && github.event.pull_request.base.ref == 'feat-cmux-next' && (inputs.writer || !inputs.own_checks_green || github.run_attempt != '1') }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || 'cmux-linux' }}
     timeout-minutes: 5
     continue-on-error: true
     concurrency:
@@ -72,13 +49,26 @@ jobs:
       pull-requests: write
     steps:
       - name: Checkout the comment script from the base commit
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           ref: ${{ github.event.pull_request.base.sha }}
           persist-credentials: false
+          # Into its own folder, never the workspace: on a reused pool VM the workspace holds the last job's full
+          # checkout, and a sparse checkout over it refused to drop that job's edited files.
+          path: .red-checks-src
           sparse-checkout: |
             scripts/ci/pr_red_checks_comment.py
             scripts/ci/pr_status.py
+            scripts/ci/pr_ran_line.py
+            scripts/ci/ci_process_tree.py
+            scripts/ci/workflow_paths_cover_inputs.py
+            scripts/ci/gh_expressions.py
+            .github/workflows/
+            .gitmodules
+          # .gitmodules is listed because checkout's post-checkout `git submodule foreach` reads it: left out of the
+          # sparse set it was fetched lazily from the promisor remote after auth was removed, stalled 60 s and failed
+          # the job with no comment written (run 45648850755). That stall was most of this job's ~1.2 minutes per call
+          # over ~18,000 calls a day.
           sparse-checkout-cone-mode: false
 
       - name: Update the red checks line
@@ -89,4 +79,8 @@ jobs:
           # Each red check is compared with this commit's run of it: new reds block, base reds do not.
           BASE_SHA: ${{ github.event.pull_request.base.sha }}
           OWN_CHECKS_GREEN: ${{ inputs.own_checks_green }}
+          # The `ran` line judges each workflow's branch filter against this base.
+          BASE_REF: ${{ github.event.pull_request.base.ref }}
+        # The script's git reads (the head over ls-remote, the merge ref for the `ran` line) use this folder's origin.
+        working-directory: .red-checks-src
         run: python3 scripts/ci/pr_red_checks_comment.py

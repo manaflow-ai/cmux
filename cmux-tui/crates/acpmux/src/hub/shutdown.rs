@@ -12,6 +12,12 @@ pub(crate) struct ShutdownPlan {
     keep: std::collections::HashSet<String>,
 }
 
+/// How long the hub's own tasks, and its peers', get to end once cancelled at shutdown
+/// (`Hub::close_owned_tasks`).
+/// The daemon's hard stop budget. A peer that ignores cancellation is aborted at this boundary;
+/// it must never serialize the next daemon's start behind remote links.
+pub(crate) const OWNED_TASKS_CLOSE: std::time::Duration = std::time::Duration::from_secs(1);
+
 impl Hub {
     /// The coming shutdown ends hosted agents too (the app's Quit
     /// Everything), except those of the sessions in `keep` (the app's Home
@@ -53,15 +59,92 @@ impl Hub {
         (!plan.started).then(f)
     }
 
+    /// Whether the shutdown that began ends hosted agents (Quit Everything, `endAgents`): its
+    /// plan is fixed once [`Self::begin_shutdown`] ran. The daemon gives such a shutdown the
+    /// time its agents' ends take (`daemon::shutdown_budget`).
+    pub(crate) fn ends_agents_at_shutdown(&self) -> bool {
+        self.shutdown_plan.lock().unwrap_or_else(std::sync::PoisonError::into_inner).end_agents
+    }
+
     pub(crate) fn shutting_down(&self) -> bool {
         // A poisoned plan still says whether the shutdown began.
         self.shutdown_plan.lock().unwrap_or_else(std::sync::PoisonError::into_inner).started
+    }
+
+    /// The hub's own tasks end, after its agents (`daemon.rs`). Stop every peer first so a
+    /// reconnect cannot reopen while its scope is being joined, then cancel and join all peer
+    /// scopes and the hub scope in parallel under one absolute deadline. A task still running
+    /// then is aborted and named at warn.
+    #[allow(dead_code, reason = "the standalone hub shutdown bench uses the default budget")]
+    pub(crate) async fn close_owned_tasks(&self) -> Vec<cmux_scope::CloseReport> {
+        self.close_owned_tasks_until(tokio::time::Instant::now() + OWNED_TASKS_CLOSE).await
+    }
+
+    /// [`Self::close_owned_tasks`] with the daemon's already-running absolute shutdown deadline.
+    /// This prevents a late task close from extending the one-second handoff budget.
+    pub(crate) async fn close_owned_tasks_until(
+        &self,
+        deadline: tokio::time::Instant,
+    ) -> Vec<cmux_scope::CloseReport> {
+        let peers: Vec<_> = self.peers.load().values().cloned().collect();
+        // Cancellation alone is insufficient for a peer's ssh child: `stop` also kills the
+        // tunnel, which prevents the retry loop from opening another link during handoff.
+        for peer in &peers {
+            peer.stop();
+        }
+        let left = deadline.saturating_duration_since(tokio::time::Instant::now());
+        let (reports, hub_report) = tokio::join!(
+            futures::future::join_all(peers.iter().map(|peer| peer.close_tasks(left))),
+            self.scope.close(left),
+        );
+        let mut reports = reports;
+        reports.push(hub_report);
+        for report in &reports {
+            if report.joined() {
+                tracing::debug!("{report}");
+            } else {
+                tracing::warn!("{report}");
+            }
+        }
+        reports
+    }
+
+    /// SIGKILL to the process group of every agent this daemon runs as its own child, for the
+    /// stop's hard exit (`daemon/stop_watchdog.rs`): the process ends right after, and nothing
+    /// else would end them. An agent under a host stays, for the next daemon to adopt. Waits for
+    /// no lock, since the stop that holds one is the stop that did not end: a session whose lock
+    /// is held is skipped, and a child the shutdown already took to end (`end_sessions`) is not
+    /// seen here. Returns how many it signalled.
+    pub(crate) fn kill_children_at_exit(&self) -> usize {
+        let Ok(sessions) = self.sessions.try_lock() else { return 0 };
+        let mut killed = 0;
+        for session in sessions.values() {
+            let Ok(slot) = session.child.try_lock() else { continue };
+            let direct = slot.as_ref().filter(|child| child.host_record().is_none());
+            // Never group 0 or 1: those name this daemon's own group and every process.
+            let group = direct.and_then(|child| child.pid).filter(|group| *group > 1);
+            let Some(group) = group.and_then(|group| i32::try_from(group).ok()) else { continue };
+            // SAFETY: killpg takes a process group id and a signal; the group is this daemon's
+            // own child's, which it has not reaped (its `ChildAgent` is still in its slot).
+            #[cfg(unix)]
+            unsafe {
+                libc::killpg(group, libc::SIGKILL);
+            }
+            // Off Unix an agent's job ends with the daemon that holds it (`job.rs`).
+            killed += usize::from(cfg!(unix) && group > 1);
+        }
+        killed
     }
 
     /// Fences new turns and automatic continuations before transports begin draining.
     pub(crate) fn begin_shutdown(&self) {
         self.start_shutdown();
         self.wake_start_retries();
+        // Stop reconnecting at the fence, not after the session drain: otherwise a peer
+        // could reopen ssh throughout the entire shutdown grace.
+        for peer in self.peers.load().values() {
+            peer.stop();
+        }
     }
 
     /// Marks the shutdown begun, under the lock an unstarted turn's end is decided and written
@@ -92,9 +175,87 @@ impl Hub {
         // Pooled sessions are hidden, never user sessions: they end with the
         // daemon, alongside the sessions below.
         let ((), kept) =
-            tokio::join!(self.stop_pool(), self.shutdown_sessions(preserve_auto_resume));
+            tokio::join!(self.stop_pool(), self.shutdown_sessions(preserve_auto_resume, true));
+        // Its tasks' ends are the next daemon's to send (`bg_notify_resume`).
+        self.bg_unwatch_all();
         self.seal();
         kept
+    }
+
+    /// The session part of a daemon handoff. Persistence is a separate, unconditional step:
+    /// timing out this work must never skip closing the store, cost ledger or audit writer.
+    pub(crate) async fn shutdown_for_handoff(&self, preserve_auto_resume: bool) -> usize {
+        let ((), kept) =
+            tokio::join!(self.stop_pool(), self.shutdown_sessions(preserve_auto_resume, false),);
+        kept
+    }
+
+    /// Keep the normal store fence and drains, off the runtime and in parallel. Returns only
+    /// once all three have finished writing: a writer past `deadline` is warned about and then
+    /// waited for, since the daemon holds its home lock and stays alive until this returns
+    /// (`daemon.rs`), and an exit under a writer loses what it had yet to write (Codex review
+    /// of #42296).
+    pub(crate) async fn persist_for_handoff(self: Arc<Self>, deadline: tokio::time::Instant) {
+        // Cancelling session cleanup may have dropped its metadata task handle. The blocking
+        // index read still owns the sessions it will publish; include them before the fence.
+        self.wait_store().await;
+        let (metadata_done, metadata_saved) = tokio::sync::oneshot::channel::<()>();
+        let store = {
+            let hub = self.clone();
+            tokio::task::spawn_blocking(move || {
+                for session in hub.sessions() {
+                    // A cancelled async log loader can leave its blocking restore running.
+                    // It may append recovered events and save metadata: join that chat's
+                    // restore before draining it. Shutdown prevents new restores under this
+                    // lock, so earlier chats cannot start writing again before the seal.
+                    let _restored = session.log_load.lock().unwrap_or_else(|e| e.into_inner());
+                    let _ = hub.store_deferred(&session);
+                    // Every mutation already queued its snapshot. Wait for those writes;
+                    // rewriting every unchanged chat adds one durable commit per chat.
+                    if let Err(error) = hub.meta_barrier(&session) {
+                        tracing::error!(session = %session.id, "save meta at shutdown: {error}");
+                    }
+                }
+                // Saving a changed title/repository also updates its ledger entry. Close
+                // that writer after these updates, while the store seals independently.
+                let _ = metadata_done.send(());
+                hub.store.seal();
+                if let Err(error) = hub.store.flush() {
+                    tracing::warn!("store flush failed: {error}");
+                }
+                hub.outbox.compact();
+                flush_disk_writer();
+                hub.peer_snapshots.flush_now();
+            })
+        };
+        let ledger = {
+            let hub = self.clone();
+            async move {
+                let _ = metadata_saved.await;
+                tokio::task::spawn_blocking(move || {
+                    let left = deadline.saturating_duration_since(tokio::time::Instant::now());
+                    if !hub.ledger.close(left) {
+                        tracing::warn!(
+                            "cost ledger did not drain before the shutdown deadline; waiting for it"
+                        );
+                        hub.ledger.wait_closed();
+                    }
+                })
+                .await
+            }
+        };
+        // Every audit line was written at its event (`audit_log.rs`): this only joins the
+        // thread's last sync, or a purge it is running, which holds the home lock until it ends.
+        let audit = tokio::task::spawn_blocking(move || {
+            let left = deadline.saturating_duration_since(tokio::time::Instant::now());
+            if !self.audit.close(left) {
+                tracing::warn!(
+                    "approvals audit sync not done by the shutdown deadline; waiting for it"
+                );
+                self.audit.wait_closed();
+            }
+        });
+        let _ = tokio::join!(store, ledger, audit);
     }
 
     /// Nothing this daemon does from here on reaches the log: the next daemon may read it before
@@ -109,10 +270,7 @@ impl Hub {
         self.ledger.close(LEDGER_DRAIN);
     }
 
-    async fn shutdown_sessions(&self, preserve_auto_resume: bool) -> usize {
-        const LOCK: std::time::Duration = std::time::Duration::from_millis(200);
-        // The longest a detach under way takes to end its agent (`Session::detaching`).
-        const DETACH: std::time::Duration = crate::agent::KILL_GRACE.saturating_add(LOCK);
+    async fn shutdown_sessions(&self, preserve_auto_resume: bool, flush: bool) -> usize {
         // How long the turn ends under way get to land (`settle_ends`), within the grace.
         let now = tokio::time::Instant::now();
         let ends_by = now.checked_add(SHUTDOWN_GRACE).unwrap_or(now);
@@ -123,14 +281,43 @@ impl Hub {
         // snapshot below and outlive this daemon.
         let (end_agents, keep) = self.start_shutdown();
         // The notice loop owns the trailing cache flush; join its bounded exit before the
-        // shutdown budget can tear down the Tokio runtime.
-        self.wait_peer_notice_loop().await;
+        // shutdown budget can tear down the Tokio runtime. Beside the agents' ends, never ahead
+        // of them: its drain may take its whole bound (`OWNED_TASKS_CLOSE`), longer than the
+        // daemon's restart cutoff, and Quit Everything's ends must not wait behind a peer cache
+        // write (Codex review of #42296).
+        let ((), kept) = tokio::join!(
+            self.wait_peer_notice_loop(),
+            self.end_sessions(preserve_auto_resume, end_agents, &keep, ends_by),
+        );
+        if flush {
+            self.flush();
+        }
+        kept
+    }
+
+    /// The agents' part of [`Self::shutdown_sessions`], after the shutdown fence.
+    async fn end_sessions(
+        &self,
+        preserve_auto_resume: bool,
+        end_agents: bool,
+        keep: &std::collections::HashSet<String>,
+        ends_by: tokio::time::Instant,
+    ) -> usize {
+        const LOCK: std::time::Duration = std::time::Duration::from_millis(200);
+        // The longest a detach under way takes to end its agent (`Session::detaching`).
+        const DETACH: std::time::Duration = crate::agent::KILL_GRACE.saturating_add(LOCK);
         // A pass that already started finishes first (bounded by its kills).
         drop(self.idle_pass.lock().await);
         // A start that waits to be tried again ends its wait (`start_retry.rs`).
         self.wake_start_retries();
         // The log retention worker sees the shutdown begun and ends (`retention.rs`).
         self.retention_wake.notify_one();
+        // So does the cold archive's preview worker (`cold_archive.rs`).
+        self.cold_wake.notify_one();
+        // So does the cold segments' worker (`cold_segments.rs`).
+        self.cold_sealed_wake.notify_one();
+        // So does the worker that packs chats' logs as they grow (`pack_as_it_grows.rs`).
+        self.pack_grown_wake.notify_one();
         let sessions = self.sessions();
         // A scheduled provider retry must not survive an explicit daemon shutdown: settle it
         // before teardown so restart restoration cannot replay it. A turn this shutdown cuts
@@ -144,8 +331,12 @@ impl Hub {
         // retry its journal held that the startup had not restored yet.
         if !preserve_auto_resume {
             let budget = tokio::time::Instant::now() + RETRY_STOP_BUDGET;
-            let (marked, unmarked): (Vec<_>, Vec<_>) =
-                sessions.iter().partition(|s| self.has_auto_resume_mark(s));
+            // A cold-archived chat holds no retry (`cold_archive.rs` archives none with a mark),
+            // and a read of its log would bring it back.
+            let (marked, unmarked): (Vec<_>, Vec<_>) = sessions
+                .iter()
+                .filter(|s| s.meta.lock().unwrap_or_else(|e| e.into_inner()).cold.is_none())
+                .partition(|s| self.has_auto_resume_mark(s));
             let total = marked.len() + unmarked.len();
             for (done, s) in marked.into_iter().chain(unmarked).enumerate() {
                 if tokio::time::Instant::now() >= budget {
@@ -225,7 +416,7 @@ impl Hub {
                 settled.extend(turn.map(|t| t.turn_id));
             }
             if s.status() != SessionStatus::Closed {
-                self.set_status(s, SessionStatus::Idle);
+                self.set_status(s, NotWaiting::Idle);
             }
         }
         let detach = futures::future::join_all(hosted.iter().map(|c| c.detach(SHUTDOWN_GRACE)));
@@ -239,11 +430,10 @@ impl Hub {
         if tokio::time::timeout(SHUTDOWN_GRACE + LOCK * 2, fallback).await.is_err() {
             tracing::warn!("agent hosts did not end within {SHUTDOWN_GRACE:?}");
         }
-        self.settle_ends(&sessions, end_agents, &keep, ends_by).await;
+        self.settle_ends(&sessions, end_agents, keep, ends_by).await;
         for s in &sessions {
             let _ = self.store_deferred(s);
         }
-        self.flush();
         hosted.len() + unreached
     }
 
@@ -304,11 +494,14 @@ impl Hub {
         self.append(s, "mux", "turn_result", result);
     }
 
-    /// Save every session's meta and sync the event log to disk.
+    /// Save changed metadata and sync the event log to disk.
     pub fn flush(&self) {
         // Each chat's last change is on disk before this returns, also while another save of it
         // runs: the seal that follows refuses every later write.
         for s in self.sessions() {
+            if !s.meta_writer.needs_flush(&s, &*self.store) {
+                continue;
+            }
             if let Err(e) = self.write_meta(&s) {
                 tracing::error!(session = %s.id, "save meta at shutdown failed: {e}");
             }
@@ -316,22 +509,36 @@ impl Hub {
         if let Err(e) = self.store.flush() {
             tracing::warn!("store flush failed: {e}");
         }
+        // The outbox's journal folded into its snapshot (`hub/outbox.rs`): the next daemon to
+        // start, an older one too, reads every delivery from `outbox.json` alone.
+        self.outbox.compact();
+        flush_disk_writer();
         // What peers' sessions streamed in the last seconds (`peer_snapshot.rs`): the shutdown's
         // is its last step, after the teardown, and a shutdown past its budget calls it too.
         self.peer_snapshots.flush_now();
-        // The approvals audit trail's writer: what was answered before now is on disk.
+        // The approvals audit trail: every answer is written already; its last lines are synced.
         self.audit.close(AUDIT_DRAIN);
     }
 }
 
-/// How long the shutdown waits for the audit writer (`audit_log.rs`) to finish.
+/// How long the shutdown waits for the disk writer (`disk_writer.rs`) to write what waits.
+const DISK_WRITER_DRAIN: std::time::Duration = std::time::Duration::from_secs(2);
+
+/// Writes what the disk writer holds (caches, views, the outbox's saves no caller waited on),
+/// within [`DISK_WRITER_DRAIN`]: a disk that stopped never holds the shutdown.
+fn flush_disk_writer() {
+    if !crate::disk_writer::flush(DISK_WRITER_DRAIN) {
+        tracing::warn!("disk writer: writes still waiting at shutdown after {DISK_WRITER_DRAIN:?}");
+    }
+}
+
+/// How long the shutdown waits for the audit sync thread (`audit_log.rs`) to finish.
 const AUDIT_DRAIN: std::time::Duration = std::time::Duration::from_secs(2);
 
 /// How long the shutdown waits for the cost ledger's writer to drain.
 const LEDGER_DRAIN: std::time::Duration = std::time::Duration::from_secs(2);
 
-/// The refusal of a spawn once the shutdown has begun (`recovery.rs` types it).
-pub const SHUTTING_DOWN: &str = "acpmux is shutting down; no agent starts now";
+pub use crate::recovery::SHUTTING_DOWN;
 
 /// The refusal of a spawn once the shutdown has begun.
 pub(crate) fn shutting_down_error() -> RpcError {
@@ -353,3 +560,12 @@ const RETRY_STOP_BUDGET: std::time::Duration = std::time::Duration::from_secs(1)
 
 /// How long agents get between SIGTERM and SIGKILL when the daemon stops.
 pub const SHUTDOWN_GRACE: std::time::Duration = std::time::Duration::from_secs(2);
+
+/// The longest [`Hub::shutdown_for_handoff`] takes to end every agent when the shutdown ends
+/// them (Quit Everything): the retry stops, then the direct agents' and the hosts' ends, each
+/// within `SHUTDOWN_GRACE` and its child-lock waits, and a margin. The daemon's restart cutoff
+/// is far shorter; an end it cut would leave the agent running (Codex review of #42296).
+pub(crate) const AGENT_END_BUDGET: std::time::Duration = RETRY_STOP_BUDGET
+    .saturating_add(SHUTDOWN_GRACE.saturating_mul(2))
+    // timeout: margin of the outer cutoff when a shutdown ends its agents, no event to wait for; when passed the daemon warns, exits, and a cut agent can keep running
+    .saturating_add(std::time::Duration::from_secs(2));

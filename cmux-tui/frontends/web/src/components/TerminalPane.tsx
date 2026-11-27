@@ -3,16 +3,21 @@ import type { ClientInfo, CmuxClient, Id, LivePane, Tab } from "cmux/raw";
 import { t } from "../i18n";
 import type { PaneLayoutView } from "../lib/layout";
 import { layoutToViewModel, visibleStackPanes } from "../lib/layout";
-import type { ScreenView } from "../lib/tree";
+import { shownTitle, type ScreenView } from "../lib/tree";
 import { contextMenuReducer, type ContextMenuPoint } from "../lib/contextMenu";
 import { clientSizingMenuItems, paneClientSummary } from "../lib/clientSizing";
 import { renameCanCommit, renameReducer } from "../lib/rename";
 import { splitDividerTarget, splitRatioFromPointer, splitRatioToCommit } from "../lib/splitDrag";
 import { useContextTrigger } from "../hooks/useContextTrigger";
 import { ByteTerminal } from "./ByteTerminal";
+import { GhosttyTerminal } from "./GhosttyTerminal";
 import { ContextMenu } from "./ContextMenu";
 import { InlineRename } from "./InlineRename";
 import { RenderTerminal } from "./RenderTerminal";
+import { terminalRendererChoice } from "../lib/terminalRenderer";
+
+/** Read once per page load: `?terminal=ghostty` opts into ghostty-web. */
+const TERMINAL_RENDERER = terminalRendererChoice(typeof window === "undefined" ? "" : window.location.search);
 
 interface TerminalPaneProps {
   client: CmuxClient | null;
@@ -227,7 +232,15 @@ function PaneLeaf({
       <div className="pane-body">
         <span className="pane-side" aria-hidden="true" />
         <div className="pane-content">
-          {surface !== null && client !== null && (client.protocol ?? 0) >= 7 ? (
+          {surface !== null && TERMINAL_RENDERER === "ghostty" ? (
+            <GhosttyTerminal
+              client={client}
+              surface={surface}
+              error={terminalError}
+              focusOnMount={focusTerminalOnMount}
+              onError={reportError}
+            />
+          ) : surface !== null && client !== null && (client.protocol ?? 0) >= 7 ? (
             <RenderTerminal
               client={client}
               surface={surface}
@@ -371,7 +384,8 @@ function LayoutStackNode({ node, screen, paneById, basis, onSelectPane, ...actio
   const renderHeader = (pane: Id) => {
     const livePane = paneById.get(pane) ?? null;
     const activeTab = livePane?.tabs[Number(livePane.active_tab)] ?? null;
-    const label = livePane?.name || activeTab?.name || activeTab?.title || t("pane", { number: String(pane) });
+    const label =
+      livePane?.name || activeTab?.name || (activeTab && shownTitle(activeTab)) || t("pane", { number: String(pane) });
     return <StackPaneHeader key={pane} label={label} pane={pane} onSelect={selectHeader} />;
   };
   return (

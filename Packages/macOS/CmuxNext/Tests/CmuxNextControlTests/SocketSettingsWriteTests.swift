@@ -10,14 +10,15 @@ import Testing
 /// (plans/cmux-next/settings-surfaces.md). These iterate `SettingsSchema.all`,
 /// so a new descriptor is covered with no edit: it sets, reads back and
 /// resets over the socket with schema validation, a value of the wrong type
-/// is refused, and a managed key is refused on every write method.
+/// is refused, and a managed key is refused on every write method. Concurrent
+/// writers are the daemon's to serialize now (cmux-config `lock_config`), not the app's.
 @MainActor @Suite(.serialized) struct SocketSettingsWriteTests {
     func make(managed: ManagedPreferences = ManagedPreferences()) throws -> (ControlRouter, SettingsController, URL) {
         let directory = FileManager.default.temporaryDirectory.appending(path: "cnc-settings-surfaces-\(UUID().uuidString)")
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
         let url = directory.appending(path: "cmux.json")
         try Data("{}".utf8).write(to: url)
-        let settings = SettingsController(registry: ActionRegistry(catalog: []), design: DesignSettings(), fileURL: url,
+        let settings = SettingsController(writer: TestSettingsWriter(), registry: ActionRegistry(catalog: []), design: DesignSettings(), fileURL: url,
                                           managedReader: FixedManagedPreferenceReader(managed), managedWatchFiles: [])
         // The full package suite runs other main-actor tests in parallel. Give
         // this file-backed round trip enough room to cross the actor boundary
@@ -121,13 +122,13 @@ import Testing
     }
 
     /// SECURITY: a write to a parent object that holds a user-only key (`cloud` with the person's
-    /// Claude login consent) is the person's to confirm too, never a raw write past the leaf's policy.
+    /// Cloud delegation) is the person's to confirm too, never a raw write past the leaf's policy.
     @Test func aParentObjectWriteCannotSetAUserOnlyKeyUnderIt() async throws {
         let (router, settings, directory) = try make()
         defer { try? FileManager.default.removeItem(at: directory) }
         var asked: [String] = []
         settings.userOnlyConfirmation = { key, _ in asked.append(key); return false }
-        let value: JSONValue = ["useMyClaudeLoginOnMyCloudMachines": true]
+        let value: JSONValue = ["agentsStartWithoutAsking": true]
         guard case .failure(let refused) = await call(router, "settings.set", ["path": "cloud", "value": value]) else {
             Issue.record("a parent write set a user-only key")
             return
@@ -138,7 +139,7 @@ import Testing
             return
         }
         #expect(asked.count == 1)
-        #expect(try await settings.file.value(at: ["cloud", "useMyClaudeLoginOnMyCloudMachines"]) == nil)
+        #expect(try await settings.file.value(at: ["cloud", "agentsStartWithoutAsking"]) == nil)
     }
 
     /// cmux-browser mutes a workspace through settings.set as `script` (a separate process is
@@ -173,7 +174,7 @@ import Testing
         defer { try? FileManager.default.removeItem(at: directory) }
         let url = directory.appending(path: "cmux.json")
         try Data(#"{"history":{"terminalCommands":false}}"#.utf8).write(to: url)
-        let settings = SettingsController(registry: ActionRegistry(catalog: []), design: DesignSettings(), fileURL: url,
+        let settings = SettingsController(writer: TestSettingsWriter(), registry: ActionRegistry(catalog: []), design: DesignSettings(), fileURL: url,
                                           managedReader: FixedManagedPreferenceReader(ManagedPreferences()), managedWatchFiles: [])
         await settings.reload()
         let router = ControlRouter(identity: testIdentity(), executor: RecordingExecutor(), settings: settings.file, settingsWriter: settings,
@@ -244,6 +245,8 @@ extension SettingDescriptor {
     /// A value `accepts` takes: the default when there is one, else one that fits the kind.
     var sampleValue: JSONValue {
         if let defaultValue, accepts(defaultValue) { return defaultValue }
+        // An app id by the manifest's pattern (`tabs.newTabApp`), not free text.
+        if path == NewTabAppSetting.configPath { return .string("local/showcase-newtab") }
         switch kind {
         case .choice(let choices): return .string(choices.first?.value ?? "")
         case .choiceOrNumber(let choices, let number): return choices.first.map { .string($0.value) } ?? .number(number.range.lowerBound)
@@ -259,6 +262,7 @@ extension SettingDescriptor {
         case .theme: return .string("Dracula")
         case .fontFamily: return .string("Menlo")
         case .text: return .string("TextEdit")
+        case .json(let shape): return shape["type"]?.stringValue == "object" ? .object([:]) : .array([])
         }
     }
 
@@ -269,6 +273,7 @@ extension SettingDescriptor {
         if path == CustomDensitiesSetting.configPath { return [.array([.object(["id": "my-tight", "name": "My Tight"])])] }
         if path == CommandLabelsSetting().configPath { return [.array(["cmux-fleet"])] }
         if path == ChatSettings.rootsPath { return [.array(["/opt/cmux-test-chats"]), .array([])] }
+        if path == NewTabAppSetting.configPath { return [.string("local/showcase-newtab"), .string("local/web-pane")] }
         switch kind {
         case .choice(let choices): return choices.map { .string($0.value) }
         case .choiceOrNumber(let choices, let number):
@@ -293,6 +298,10 @@ extension SettingDescriptor {
         case .theme: return [.string("Dracula"), .string("Nord")]
         case .fontFamily: return [.string("Menlo"), .string("Monaco")]
         case .text: return [.string("TextEdit"), .string("Xcode")]
+        case .json(let shape):
+            // A sidebar row layout, and one per kind or agent (`agent` is both a kind and an id).
+            let layout: JSONValue = .array([.array([.string("name"), .string("branch")])])
+            return shape["type"]?.stringValue == "object" ? [.object([:]), .object(["agent": layout])] : [.array([]), layout]
         }
     }
 }

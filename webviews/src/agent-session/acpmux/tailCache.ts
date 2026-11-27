@@ -11,7 +11,7 @@
 // failure: the chat opens cold, as it did before.
 import { peerCopyTail, type PeerCopy } from "./peerCopy";
 import { postNative } from "./native";
-import type { EventRecord } from "./direct";
+import type { EventRecord } from "./eventRecord";
 import type { QueuedPrompt } from "./model";
 
 /// A chat as the page last read it. What it says about the chat's *past* is drawn on the next
@@ -59,6 +59,37 @@ const keptTails = new Map<string, KeptTail>();
 const readAheadTails = new Map<string, KeptTail>();
 /// One host read per chat at a time, so a prefetch and the read that awaits it are one round trip.
 const reading = new Map<string, Promise<KeptTail | undefined>>();
+/// How far this page has shown each chat: the newest record of the last tail a client of the page
+/// kept of it (what it had on screen then), and the chat's generation (its `createdAt`). A copy older than this is never
+/// drawn again (`olderThanShown`): one source wins, so a reconnect cannot put a saved copy back over
+/// the live chat the reader already saw (Leo, 2026-11-12: the chat flipped between "49 stopped" and
+/// an old "32 stopped" on every reconnect). Bounded as the tails are, so a chat whose tails both
+/// copies let go of opens on whatever copy is left (an offline machine's Mac copy) rather than blank.
+const shownThrough = new Map<string, { through: number; generation: unknown }>();
+const SHOWN_CHATS = KEPT_TAILS;
+
+/// The newest record a tail draws: its newest event, or how far its Mac's copy covers.
+function tailThrough(tail: KeptTail): number {
+  return Math.max(tail.events.at(-1)?.seq ?? 0, tail.peerCopy?.lastSeq ?? 0);
+}
+
+/// A client's own tail is what it had on screen, so it sets the mark even below an older one: a
+/// journal that went backwards (a hard-stopped machine) is read again as acpmux holds it now.
+function noteShown(sessionId: string, tail: KeptTail): void {
+  shownThrough.delete(sessionId);
+  shownThrough.set(sessionId, { through: tailThrough(tail), generation: tail.summary?.createdAt });
+  // ends: each pass deletes the oldest key, so the map shrinks to SHOWN_CHATS
+  while (shownThrough.size > SHOWN_CHATS) shownThrough.delete(shownThrough.keys().next().value!);
+}
+
+/// True when `tail` is older than what this page already showed of the chat, so drawing it would
+/// take the reader back (direct.ts `drawKeptTail` refuses it and the open waits for acpmux, whose
+/// attach is the newest there is). A tail of another generation of the chat is not compared.
+export function olderThanShown(sessionId: string, tail: KeptTail): boolean {
+  const held = shownThrough.get(sessionId);
+  if (!held || held.generation !== tail.summary?.createdAt) return false;
+  return tailThrough(tail) < held.through;
+}
 
 /// The tail this page holds for `sessionId`, if it read the chat already or took it from the host.
 export function keptTail(sessionId: string): KeptTail | undefined {
@@ -71,6 +102,7 @@ export function rememberReadAhead(sessionId: string, tail: KeptTail): void {
   if (keptTails.has(sessionId)) return;
   readAheadTails.delete(sessionId);
   readAheadTails.set(sessionId, tail);
+  // ends: each pass deletes the oldest key, so the map shrinks to READ_AHEAD_TAILS
   while (readAheadTails.size > READ_AHEAD_TAILS) readAheadTails.delete(readAheadTails.keys().next().value!);
 }
 
@@ -96,8 +128,8 @@ export function shareReadAhead(sessionId: string): boolean {
 /// Keeps `tail` for this chat's next open, here and in the app host.
 ///
 /// `forThisPage` is false when the client that read the chat is going away (its `close`, the
-/// page's `pagehide`): the host's copy is the one that outlives the page, so the map is left alone
-/// and nothing is kept behind a client that no longer exists.
+/// page's `pagehide`): the host's copy is the one that outlives the page, so the map gains no new
+/// chat behind a client that no longer exists (it refreshes one it holds already, below).
 ///
 /// With a host this costs the next client in that page one in-process read instead of a map hit,
 /// and what it reads back is at most what the map held: `writeHostTail`'s byte bound may have cut
@@ -109,20 +141,30 @@ export function shareReadAhead(sessionId: string): boolean {
 /// client would draw a chat it never attached to as though it had. Session ids are not reused, so
 /// the rows would be that chat's; they would simply be rows this client never read and cannot stand
 /// behind, which is the same thing `forgetTail` exists to prevent after a failed attach.
-export function rememberTail(sessionId: string, tail: KeptTail, forThisPage = true): void {
-  if (forThisPage) {
+///
+/// A client going away still replaces a tail this page already holds of the chat: that tail is
+/// older than this one, and the client the pane makes next on a lost connection draws the map's
+/// tail while it connects (direct.ts `drawTailWhileConnecting`). Left behind, it drew the chat as
+/// it was when it was last left, then the attach drew it as it is, once per dropped connection.
+export function rememberTail(sessionId: string, tail: KeptTail, forThisPage = true, toHost = true): void {
+  noteShown(sessionId, tail);
+  if (!forThisPage && readAheadTails.has(sessionId)) readAheadTails.set(sessionId, tail);
+  if (forThisPage || keptTails.has(sessionId)) {
     readAheadTails.delete(sessionId);
     keptTails.delete(sessionId);
     keptTails.set(sessionId, tail);
+    // ends: each pass deletes the oldest key, so the map shrinks to KEPT_TAILS
     while (keptTails.size > KEPT_TAILS) keptTails.delete(keptTails.keys().next().value!);
   }
-  writeHostTail(sessionId, tail);
+  // `toHost` false: the caller hands it over in a request of its own (`TailHandOver`).
+  if (toHost) writeHostTail(sessionId, tail);
 }
 
 /// A chat whose transcript this page no longer stands behind (acpmux purged it, or an attach of it
 /// failed): its next open reads acpmux again, in this tab and in the next one.
 export function forgetTail(sessionId: string): void {
   keptTails.delete(sessionId);
+  shownThrough.delete(sessionId);
   readAheadTails.delete(sessionId);
   reading.delete(sessionId);
   void callHost("chat.tail", { sessionId }).catch(() => undefined);
@@ -147,6 +189,21 @@ export function readHostTail(sessionId: string): Promise<KeptTail | undefined> {
   ]);
 }
 
+/// Presentation-only restoration observes the same read without holding up an attach. A disk
+/// answer past its 250 ms transport budget can still draw while ready is pending; leaving the
+/// restored page stops observation without starting another read.
+export function observeHostTail(sessionId: string, draw: (tail: KeptTail) => void): () => void {
+  let stopped = false;
+  void startHostRead(sessionId)
+    .then((tail) => {
+      if (!stopped && tail) draw(tail);
+    })
+    .catch(() => undefined);
+  return () => {
+    stopped = true;
+  };
+}
+
 /// Keeps the tail the app host handed this page with an adopt event (AgentPaneView+SessionAdopt.swift):
 /// the tail `chat.tail.get` would answer, read the same way, without its round trip, so the adopted
 /// page draws the chat in the event's own turn. A page that read the chat itself keeps its own, newer
@@ -157,6 +214,7 @@ export function keepHandedTail(sessionId: string, value: unknown): boolean {
   if (!tail) return false;
   readAheadTails.delete(sessionId);
   keptTails.set(sessionId, tail);
+  // ends: each pass deletes the oldest key, so the map shrinks to KEPT_TAILS
   while (keptTails.size > KEPT_TAILS) keptTails.delete(keptTails.keys().next().value!);
   return true;
 }
@@ -176,6 +234,7 @@ function startHostRead(sessionId: string): Promise<KeptTail | undefined> {
       // no longer stands behind, and an answer already in flight must not put it back.
       if (tail && !keptTails.has(sessionId) && reading.get(sessionId) === read) {
         keptTails.set(sessionId, tail);
+        // ends: each pass deletes the oldest key, so the map shrinks to KEPT_TAILS
         while (keptTails.size > KEPT_TAILS) keptTails.delete(keptTails.keys().next().value!);
       }
       return tail;
@@ -209,32 +268,54 @@ function callHost<T>(method: string, params: Record<string, unknown>): Promise<T
 /// `ifNewer` (a hover's hand-over, ``shareReadAhead``): the host keeps it only over an older tail,
 /// and a tail cut to nothing forgets nothing.
 function writeHostTail(sessionId: string, tail: KeptTail, ifNewer = false): void {
+  const bounded = hostTailOf(tail);
+  // Not one record of this chat fits the host's bound (a single huge paste, or a queue that fills
+  // it on its own): the host forgets what it had rather than keeping an older tail under a chat
+  // this page has since read on.
+  if (!bounded) {
+    if (!ifNewer) void callHost("chat.tail", { sessionId }).catch(() => undefined);
+    return;
+  }
+  void callHost("chat.tail", { sessionId, ...(ifNewer ? { ifNewer: true } : {}), tail: bounded }).catch(
+    () => undefined,
+  );
+}
+
+/// A chat's tail handed to the host inside the request that opens a pane on it (`chat.subagentPane`
+/// `handOver`), as `chat.tail` hands it: one request, so the host holds the tail before it decides
+/// how the pane opens (#36650).
+export type TailHandOver = { sessionId: string; tail: KeptTail };
+
+/// `tail` as the host keeps it, under `writeHostTail`'s bounds; undefined when not one record fits.
+export function hostTailOf(tail: KeptTail): KeptTail | undefined {
   // The rest of the tail is counted first, because it is not bounded by a record count the way
   // `events` is: `queue` carries the whole text of every queued prompt, and a reader who queued a
   // pasted log would otherwise hand over megabytes that neither side counts.
   const rest = { ...tail, events: [] as EventRecord[] };
   // Each message's streamed chunks as one record (`packStreamed`): the host bounds a tail at
   // ``KEPT_EVENTS`` records, which `keptEvents` counts this way.
-  const packed = packStreamed(tail.events);
-  const events = newestWithin(packed, Math.max(0, HOST_TAIL_BYTES - bytesOf(rest)));
-  // Not one record of this chat fits the host's bound (a single huge paste, or a queue that fills
-  // it on its own): the host forgets what it had rather than keeping an older tail under a chat
-  // this page has since read on.
-  if (events.length === 0) {
-    if (!ifNewer) void callHost("chat.tail", { sessionId }).catch(() => undefined);
-    return;
+  // Full command catalogs repeat on each harness restart. Only the newest is current; keeping
+  // several large copies can leave the byte-bounded tail with no reply at all.
+  let commandsKept = false;
+  const eventsToPack: EventRecord[] = [];
+  for (let index = tail.events.length - 1; index >= 0; index -= 1) {
+    const event = tail.events[index]!;
+    if (event.kind === "available_commands_update") {
+      if (commandsKept) continue;
+      commandsKept = true;
+    }
+    eventsToPack.push(event);
   }
-  void callHost("chat.tail", {
-    sessionId,
-    ...(ifNewer ? { ifNewer: true } : {}),
-    tail: {
-      ...tail,
-      events,
-      // Only a whole transcript is exhausted: a tail the byte bound cut has older events to read,
-      // and a tail that claimed otherwise would hide them (test/reopened-chat-history.test.ts).
-      historyExhausted: tail.historyExhausted && events.length === packed.length,
-    },
-  }).catch(() => undefined);
+  const packed = packStreamed(eventsToPack.reverse());
+  const events = newestWithin(packed, Math.max(0, HOST_TAIL_BYTES - bytesOf(rest)));
+  if (events.length === 0) return undefined;
+  return {
+    ...tail,
+    events,
+    // Only a whole transcript is exhausted: a tail the byte bound cut has older events to read,
+    // and a tail that claimed otherwise would hide them (test/reopened-chat-history.test.ts).
+    historyExhausted: tail.historyExhausted && events.length === packed.length,
+  };
 }
 
 /// What `value` costs the host, measured the one way both bounds are measured: its JSON's length.
@@ -431,4 +512,5 @@ export function resetKeptTailsForTests(): void {
   keptTails.clear();
   readAheadTails.clear();
   reading.clear();
+  shownThrough.clear();
 }

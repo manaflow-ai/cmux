@@ -10,9 +10,21 @@
         "ty": "uint32",
         "required": true
       },
+      "/activity/echo_at_ms": {
+        "ty": "uint64",
+        "nullable": true
+      },
+      "/activity/echo_input_at_ms": {
+        "ty": "uint64",
+        "nullable": true
+      },
       "/activity/last_agent_action_at_ms": {
         "ty": "uint64",
         "required": true,
+        "nullable": true
+      },
+      "/activity/last_person_attach_at_ms": {
+        "ty": "uint64",
         "nullable": true
       },
       "/activity/last_user_input_at_ms": {
@@ -85,7 +97,77 @@
         "ty": "uint64",
         "required": true
       },
+      "/terminal_id": {
+        "ty": "string"
+      },
       "/updated_at_ms": {
+        "ty": "uint64",
+        "required": true
+      }
+    },
+    "event:agent-cli-frame": {
+      "/base": {
+        "ty": "uint64",
+        "required": true,
+        "nullable": true
+      },
+      "/cols": {
+        "ty": "uint16",
+        "required": true
+      },
+      "/cursor_visible": {
+        "ty": "boolean",
+        "required": true
+      },
+      "/cursor_x": {
+        "ty": "uint16",
+        "required": true
+      },
+      "/cursor_y": {
+        "ty": "uint16",
+        "required": true
+      },
+      "/data": {
+        "ty": "string",
+        "required": true
+      },
+      "/event": {
+        "ty": "literal",
+        "required": true,
+        "values": [
+          "\"agent-cli-frame\""
+        ]
+      },
+      "/frame": {
+        "ty": "uint64",
+        "required": true
+      },
+      "/rows": {
+        "ty": "uint16",
+        "required": true
+      },
+      "/stream": {
+        "ty": "string",
+        "required": true
+      },
+      "/surface": {
+        "ty": "uint64",
+        "required": true
+      }
+    },
+    "event:agent-cli-lean": {
+      "/event": {
+        "ty": "literal",
+        "required": true,
+        "values": [
+          "\"agent-cli-lean\""
+        ]
+      },
+      "/f": {
+        "ty": "string",
+        "required": true
+      },
+      "/surface": {
         "ty": "uint64",
         "required": true
       }
@@ -187,6 +269,44 @@
         "ty": "uint64",
         "required": true,
         "nullable": true
+      }
+    },
+    "event:agent-session-share-changed": {
+      "/event": {
+        "ty": "literal",
+        "required": true,
+        "values": [
+          "\"agent-session-share-changed\""
+        ]
+      },
+      "/session": {
+        "ty": "string",
+        "required": true
+      }
+    },
+    "event:apps-cloud-machine": {
+      "/event": {
+        "ty": "literal",
+        "required": true,
+        "values": [
+          "\"apps-cloud-machine\""
+        ]
+      },
+      "/kind": {
+        "ty": "enum",
+        "required": true,
+        "values": [
+          "live",
+          "lost",
+          "record"
+        ]
+      },
+      "/machine": {
+        "ty": "string",
+        "required": true
+      },
+      "/record": {
+        "ty": "json"
       }
     },
     "event:bell": {
@@ -901,6 +1021,29 @@
         "ty": "json"
       }
     },
+    "event:conversation-scheduled-changed": {
+      "/conversation": {
+        "ty": "string",
+        "required": true
+      },
+      "/event": {
+        "ty": "literal",
+        "required": true,
+        "values": [
+          "\"conversation-scheduled-changed\""
+        ]
+      },
+      "/participant": {
+        "ty": "string",
+        "required": true
+      },
+      "/removed": {
+        "ty": "json"
+      },
+      "/scheduled": {
+        "ty": "json"
+      }
+    },
     "event:conversation-typing": {
       "/conversation": {
         "ty": "string",
@@ -977,6 +1120,35 @@
         "ty": "string"
       }
     },
+    "event:device-setup-step": {
+      "/detail": {
+        "ty": "string",
+        "required": true
+      },
+      "/device": {
+        "ty": "string",
+        "required": true
+      },
+      "/event": {
+        "ty": "literal",
+        "required": true,
+        "values": [
+          "\"device-setup-step\""
+        ]
+      },
+      "/fix": {
+        "ty": "string",
+        "required": true
+      },
+      "/state": {
+        "ty": "string",
+        "required": true
+      },
+      "/step": {
+        "ty": "string",
+        "required": true
+      }
+    },
     "event:empty": {
       "/event": {
         "ty": "literal",
@@ -984,6 +1156,39 @@
         "values": [
           "\"empty\""
         ]
+      }
+    },
+    "event:feed-reports-changed": {
+      "/event": {
+        "ty": "literal",
+        "required": true,
+        "values": [
+          "\"feed-reports-changed\""
+        ]
+      },
+      "/revision": {
+        "ty": "uint64",
+        "required": true
+      }
+    },
+    "event:feed-view-changed": {
+      "/changed": {
+        "ty": "array",
+        "required": true
+      },
+      "/changed/*": {
+        "ty": "string"
+      },
+      "/event": {
+        "ty": "literal",
+        "required": true,
+        "values": [
+          "\"feed-view-changed\""
+        ]
+      },
+      "/revision": {
+        "ty": "uint64",
+        "required": true
       }
     },
     "event:frame": {
@@ -1616,6 +1821,13 @@
         "ty": "string",
         "required": true
       },
+      "/entity/tabs/*/title_activity": {
+        "ty": "string",
+        "nullable": true
+      },
+      "/entity/tabs/*/title_text": {
+        "ty": "string"
+      },
       "/event": {
         "ty": "literal",
         "required": true,
@@ -1812,6 +2024,13 @@
       "/entity/tabs/*/title": {
         "ty": "string",
         "required": true
+      },
+      "/entity/tabs/*/title_activity": {
+        "ty": "string",
+        "nullable": true
+      },
+      "/entity/tabs/*/title_text": {
+        "ty": "string"
       },
       "/event": {
         "ty": "literal",
@@ -2498,6 +2717,9 @@
           "\"resized\""
         ]
       },
+      "/history_rows_omitted": {
+        "ty": "uint64"
+      },
       "/kitty_graphics_state": {
         "ty": "object"
       },
@@ -2819,6 +3041,13 @@
         "ty": "string",
         "required": true
       },
+      "/entity/panes/*/tabs/*/title_activity": {
+        "ty": "string",
+        "nullable": true
+      },
+      "/entity/panes/*/tabs/*/title_text": {
+        "ty": "string"
+      },
       "/entity/short_id": {
         "ty": "string"
       },
@@ -3102,6 +3331,13 @@
       "/entity/panes/*/tabs/*/title": {
         "ty": "string",
         "required": true
+      },
+      "/entity/panes/*/tabs/*/title_activity": {
+        "ty": "string",
+        "nullable": true
+      },
+      "/entity/panes/*/tabs/*/title_text": {
+        "ty": "string"
       },
       "/entity/short_id": {
         "ty": "string"
@@ -3387,6 +3623,13 @@
         "ty": "string",
         "required": true
       },
+      "/entity/panes/*/tabs/*/title_activity": {
+        "ty": "string",
+        "nullable": true
+      },
+      "/entity/panes/*/tabs/*/title_text": {
+        "ty": "string"
+      },
       "/entity/short_id": {
         "ty": "string"
       },
@@ -3413,6 +3656,20 @@
       "/workspace": {
         "ty": "uint64",
         "required": true
+      }
+    },
+    "event:screen-device-changed": {
+      "/event": {
+        "ty": "literal",
+        "required": true,
+        "values": [
+          "\"screen-device-changed\""
+        ]
+      },
+      "/screen_device_id": {
+        "ty": "string",
+        "required": true,
+        "nullable": true
       }
     },
     "event:screen-renamed": {
@@ -3670,6 +3927,13 @@
       "/entity/panes/*/tabs/*/title": {
         "ty": "string",
         "required": true
+      },
+      "/entity/panes/*/tabs/*/title_activity": {
+        "ty": "string",
+        "nullable": true
+      },
+      "/entity/panes/*/tabs/*/title_text": {
+        "ty": "string"
       },
       "/entity/short_id": {
         "ty": "string"
@@ -4223,6 +4487,13 @@
         "ty": "string",
         "required": true
       },
+      "/entity/title_activity": {
+        "ty": "string",
+        "nullable": true
+      },
+      "/entity/title_text": {
+        "ty": "string"
+      },
       "/event": {
         "ty": "literal",
         "required": true,
@@ -4245,6 +4516,10 @@
       "/surface": {
         "ty": "uint64",
         "required": true
+      },
+      "/transaction": {
+        "ty": "string",
+        "nullable": true
       },
       "/workspace": {
         "ty": "uint64",
@@ -4391,6 +4666,13 @@
       "/entity/title": {
         "ty": "string",
         "required": true
+      },
+      "/entity/title_activity": {
+        "ty": "string",
+        "nullable": true
+      },
+      "/entity/title_text": {
+        "ty": "string"
       },
       "/event": {
         "ty": "literal",
@@ -4565,6 +4847,13 @@
         "ty": "string",
         "required": true
       },
+      "/entity/title_activity": {
+        "ty": "string",
+        "nullable": true
+      },
+      "/entity/title_text": {
+        "ty": "string"
+      },
       "/event": {
         "ty": "literal",
         "required": true,
@@ -4734,6 +5023,13 @@
         "ty": "string",
         "required": true
       },
+      "/entity/title_activity": {
+        "ty": "string",
+        "nullable": true
+      },
+      "/entity/title_text": {
+        "ty": "string"
+      },
       "/event": {
         "ty": "literal",
         "required": true,
@@ -4885,6 +5181,10 @@
       }
     },
     "event:title-changed": {
+      "/activity": {
+        "ty": "string",
+        "nullable": true
+      },
       "/event": {
         "ty": "literal",
         "required": true,
@@ -4895,6 +5195,9 @@
       "/surface": {
         "ty": "uint64",
         "required": true
+      },
+      "/text": {
+        "ty": "string"
       },
       "/title": {
         "ty": "string"
@@ -5011,6 +5314,9 @@
         ]
       },
       "/history_rows_omitted": {
+        "ty": "uint64"
+      },
+      "/history_rows_skipped": {
         "ty": "uint64"
       },
       "/kitty_graphics_state": {
@@ -5376,6 +5682,13 @@
         "ty": "string",
         "required": true
       },
+      "/entity/screens/*/panes/*/tabs/*/title_activity": {
+        "ty": "string",
+        "nullable": true
+      },
+      "/entity/screens/*/panes/*/tabs/*/title_text": {
+        "ty": "string"
+      },
       "/entity/screens/*/short_id": {
         "ty": "string"
       },
@@ -5708,6 +6021,13 @@
       "/entity/screens/*/panes/*/tabs/*/title": {
         "ty": "string",
         "required": true
+      },
+      "/entity/screens/*/panes/*/tabs/*/title_activity": {
+        "ty": "string",
+        "nullable": true
+      },
+      "/entity/screens/*/panes/*/tabs/*/title_text": {
+        "ty": "string"
       },
       "/entity/screens/*/short_id": {
         "ty": "string"
@@ -6042,6 +6362,13 @@
         "ty": "string",
         "required": true
       },
+      "/entity/screens/*/panes/*/tabs/*/title_activity": {
+        "ty": "string",
+        "nullable": true
+      },
+      "/entity/screens/*/panes/*/tabs/*/title_text": {
+        "ty": "string"
+      },
       "/entity/screens/*/short_id": {
         "ty": "string"
       },
@@ -6374,6 +6701,13 @@
       "/entity/screens/*/panes/*/tabs/*/title": {
         "ty": "string",
         "required": true
+      },
+      "/entity/screens/*/panes/*/tabs/*/title_activity": {
+        "ty": "string",
+        "nullable": true
+      },
+      "/entity/screens/*/panes/*/tabs/*/title_text": {
+        "ty": "string"
       },
       "/entity/screens/*/short_id": {
         "ty": "string"
@@ -6708,6 +7042,13 @@
         "ty": "string",
         "required": true
       },
+      "/entity/screens/*/panes/*/tabs/*/title_activity": {
+        "ty": "string",
+        "nullable": true
+      },
+      "/entity/screens/*/panes/*/tabs/*/title_text": {
+        "ty": "string"
+      },
       "/entity/screens/*/short_id": {
         "ty": "string"
       },
@@ -7019,6 +7360,13 @@
         "ty": "string",
         "required": true
       },
+      "/entity/screens/*/panes/*/tabs/*/title_activity": {
+        "ty": "string",
+        "nullable": true
+      },
+      "/entity/screens/*/panes/*/tabs/*/title_text": {
+        "ty": "string"
+      },
       "/entity/screens/*/short_id": {
         "ty": "string"
       },
@@ -7190,6 +7538,14 @@
         "ty": "string",
         "nullable": true
       },
+      "/hybrid_frame": {
+        "ty": "uint64",
+        "nullable": true
+      },
+      "/hybrid_stream": {
+        "ty": "string",
+        "nullable": true
+      },
       "/mode": {
         "ty": "enum",
         "nullable": true,
@@ -7198,8 +7554,28 @@
           "render"
         ]
       },
+      "/output_coalesce_ms": {
+        "ty": "uint32",
+        "nullable": true
+      },
       "/replay_history_rows": {
         "ty": "uint32",
+        "nullable": true
+      },
+      "/replay_history_start": {
+        "ty": "uint64",
+        "nullable": true
+      },
+      "/resume_generation": {
+        "ty": "string",
+        "nullable": true
+      },
+      "/resume_max_bytes": {
+        "ty": "uint64",
+        "nullable": true
+      },
+      "/resume_offset": {
+        "ty": "uint64",
         "nullable": true
       },
       "/rows": {
@@ -7474,6 +7850,12 @@
       },
       "/y_px": {
         "ty": "float64",
+        "required": true
+      }
+    },
+    "request:cancel-creating-input": {
+      "/terminal_id": {
+        "ty": "string",
         "required": true
       }
     },
@@ -8242,6 +8624,32 @@
       }
     },
     "request:cloud-session-status": {},
+    "request:computer-use-approvals": {
+      "/action": {
+        "ty": "string",
+        "required": true
+      },
+      "/answer": {
+        "ty": "string",
+        "nullable": true
+      },
+      "/app_id": {
+        "ty": "string",
+        "nullable": true
+      },
+      "/id": {
+        "ty": "uint64",
+        "nullable": true
+      }
+    },
+    "request:computer-use-config": {
+      "/config": {
+        "ty": "json",
+        "required": true,
+        "nullable": true
+      }
+    },
+    "request:computer-use-endpoint": {},
     "request:conversation-agent-token": {
       "/participant": {
         "ty": "string",
@@ -8519,6 +8927,10 @@
         "ty": "json",
         "required": true,
         "nullable": true
+      },
+      "/op_id": {
+        "ty": "string",
+        "nullable": true
       }
     },
     "request:conversation-link-resolve": {
@@ -8628,6 +9040,19 @@
       },
       "/turns/*": {
         "ty": "string"
+      }
+    },
+    "request:conversation-scheduled-list": {
+      "/conversation": {
+        "ty": "string",
+        "nullable": true
+      }
+    },
+    "request:conversation-scheduled-op": {
+      "/op": {
+        "ty": "json",
+        "required": true,
+        "nullable": true
       }
     },
     "request:conversation-search": {
@@ -9091,6 +9516,9 @@
         "ty": "string",
         "nullable": true
       },
+      "/create_workspace": {
+        "ty": "boolean"
+      },
       "/cwd": {
         "ty": "string",
         "nullable": true
@@ -9150,6 +9578,10 @@
       "/workspace": {
         "ty": "uint64",
         "nullable": true
+      },
+      "/workspace_name": {
+        "ty": "string",
+        "nullable": true
       }
     },
     "request:create-workspace": {
@@ -9160,6 +9592,59 @@
       "/expected_revision": {
         "ty": "uint64",
         "nullable": true
+      },
+      "/first_tab": {
+        "ty": "tagged_union|object",
+        "nullable": true,
+        "values": [
+          "browser"
+        ]
+      },
+      "/first_tab/activate": {
+        "ty": "boolean"
+      },
+      "/first_tab/cols": {
+        "ty": "uint16",
+        "nullable": true
+      },
+      "/first_tab/engine": {
+        "ty": "string",
+        "required": true
+      },
+      "/first_tab/favicon_url": {
+        "ty": "string",
+        "nullable": true
+      },
+      "/first_tab/idempotency_key": {
+        "ty": "string",
+        "nullable": true
+      },
+      "/first_tab/kind": {
+        "ty": "literal",
+        "required": true,
+        "values": [
+          "\"browser\""
+        ]
+      },
+      "/first_tab/owner": {
+        "ty": "string",
+        "nullable": true
+      },
+      "/first_tab/profile_id": {
+        "ty": "string",
+        "nullable": true
+      },
+      "/first_tab/rows": {
+        "ty": "uint16",
+        "nullable": true
+      },
+      "/first_tab/title": {
+        "ty": "string",
+        "nullable": true
+      },
+      "/first_tab/url": {
+        "ty": "string",
+        "required": true
       },
       "/key": {
         "ty": "string",
@@ -9172,6 +9657,14 @@
       "/name": {
         "ty": "string",
         "nullable": true
+      },
+      "/name_source": {
+        "ty": "enum",
+        "nullable": true,
+        "values": [
+          "auto",
+          "user"
+        ]
       },
       "/origin": {
         "ty": "string",
@@ -9309,6 +9802,22 @@
         "nullable": true
       }
     },
+    "request:device-setup": {
+      "/allow_agents": {
+        "ty": "boolean"
+      },
+      "/device": {
+        "ty": "string",
+        "required": true
+      },
+      "/dry_run": {
+        "ty": "boolean"
+      },
+      "/verb": {
+        "ty": "string",
+        "required": true
+      }
+    },
     "request:export-layout": {
       "/screen": {
         "ty": "uint64",
@@ -9359,6 +9868,37 @@
         "ty": "string"
       }
     },
+    "request:float-pane": {
+      "/h": {
+        "ty": "float64",
+        "nullable": true
+      },
+      "/mode": {
+        "ty": "string",
+        "nullable": true
+      },
+      "/pane": {
+        "ty": "uint64",
+        "required": true
+      },
+      "/transaction": {
+        "ty": "uint64",
+        "nullable": true
+      },
+      "/w": {
+        "ty": "float64",
+        "nullable": true
+      },
+      "/x": {
+        "ty": "float64",
+        "nullable": true
+      },
+      "/y": {
+        "ty": "float64",
+        "nullable": true
+      }
+    },
+    "request:flush-launch-snapshot": {},
     "request:focus-direction": {
       "/dir": {
         "ty": "enum",
@@ -9447,12 +9987,35 @@
       }
     },
     "request:home-inbox": {
+      "/ids": {
+        "ty": "array",
+        "nullable": true
+      },
+      "/ids/*": {
+        "ty": "string"
+      },
+      "/limit": {
+        "ty": "uint64",
+        "nullable": true
+      },
+      "/offset": {
+        "ty": "uint64",
+        "nullable": true
+      },
       "/owners": {
         "ty": "array",
         "nullable": true
       },
       "/owners/*": {
         "ty": "string"
+      },
+      "/scope": {
+        "ty": "string",
+        "nullable": true
+      },
+      "/since": {
+        "ty": "uint64",
+        "nullable": true
       }
     },
     "request:identify": {
@@ -9663,6 +10226,9 @@
       "/limit": {
         "ty": "uint64",
         "nullable": true
+      },
+      "/stats": {
+        "ty": "boolean"
       }
     },
     "request:list-personal": {},
@@ -9681,7 +10247,56 @@
     },
     "request:list-terminals": {},
     "request:list-workspace-groups": {},
-    "request:list-workspaces": {},
+    "request:list-workspaces": {
+      "/after": {
+        "ty": "uint64",
+        "nullable": true
+      },
+      "/known": {
+        "ty": "object",
+        "nullable": true
+      },
+      "/known/generation": {
+        "ty": "string",
+        "nullable": true
+      },
+      "/known/pane_revision": {
+        "ty": "uint64",
+        "nullable": true
+      },
+      "/known/registry_id": {
+        "ty": "string",
+        "nullable": true
+      },
+      "/known/terminal_revision": {
+        "ty": "uint64",
+        "nullable": true
+      },
+      "/known/tree_revision": {
+        "ty": "string",
+        "nullable": true
+      },
+      "/known/workspace_revision": {
+        "ty": "uint64",
+        "nullable": true
+      },
+      "/limit": {
+        "ty": "uint64",
+        "nullable": true
+      },
+      "/since": {
+        "ty": "object",
+        "nullable": true
+      },
+      "/since/epoch": {
+        "ty": "string",
+        "required": true
+      },
+      "/since/seq": {
+        "ty": "uint64",
+        "required": true
+      }
+    },
     "request:machine-listening-tcp": {},
     "request:machine-usage": {},
     "request:mark-workspaces-provider-managed": {
@@ -10275,6 +10890,30 @@
         "ty": "uint64",
         "nullable": true
       },
+      "/place": {
+        "ty": "object",
+        "nullable": true
+      },
+      "/place/after": {
+        "ty": "uint64",
+        "nullable": true
+      },
+      "/place/after_creation": {
+        "ty": "string",
+        "nullable": true
+      },
+      "/place/before": {
+        "ty": "uint64",
+        "nullable": true
+      },
+      "/place/joins": {
+        "ty": "boolean",
+        "nullable": true
+      },
+      "/place/start": {
+        "ty": "boolean",
+        "nullable": true
+      },
       "/route": {
         "ty": "string",
         "nullable": true
@@ -10285,6 +10924,10 @@
       },
       "/split": {
         "ty": "object",
+        "nullable": true
+      },
+      "/split/around": {
+        "ty": "uint64",
         "nullable": true
       },
       "/split/direction": {
@@ -10340,6 +10983,30 @@
         "ty": "uint64",
         "nullable": true
       },
+      "/place": {
+        "ty": "object",
+        "nullable": true
+      },
+      "/place/after": {
+        "ty": "uint64",
+        "nullable": true
+      },
+      "/place/after_creation": {
+        "ty": "string",
+        "nullable": true
+      },
+      "/place/before": {
+        "ty": "uint64",
+        "nullable": true
+      },
+      "/place/joins": {
+        "ty": "boolean",
+        "nullable": true
+      },
+      "/place/start": {
+        "ty": "boolean",
+        "nullable": true
+      },
       "/profile_id": {
         "ty": "string",
         "nullable": true
@@ -10350,6 +11017,10 @@
       },
       "/split": {
         "ty": "object",
+        "nullable": true
+      },
+      "/split/around": {
+        "ty": "uint64",
         "nullable": true
       },
       "/split/direction": {
@@ -10368,9 +11039,17 @@
         "ty": "string",
         "nullable": true
       },
+      "/transaction": {
+        "ty": "string",
+        "nullable": true
+      },
       "/url": {
         "ty": "string",
         "required": true
+      },
+      "/workspace": {
+        "ty": "uint64",
+        "nullable": true
       }
     },
     "request:new-pane": {
@@ -10659,6 +11338,30 @@
         "ty": "uint64",
         "nullable": true
       },
+      "/place": {
+        "ty": "object",
+        "nullable": true
+      },
+      "/place/after": {
+        "ty": "uint64",
+        "nullable": true
+      },
+      "/place/after_creation": {
+        "ty": "string",
+        "nullable": true
+      },
+      "/place/before": {
+        "ty": "uint64",
+        "nullable": true
+      },
+      "/place/joins": {
+        "ty": "boolean",
+        "nullable": true
+      },
+      "/place/start": {
+        "ty": "boolean",
+        "nullable": true
+      },
       "/rows": {
         "ty": "uint16",
         "nullable": true
@@ -10671,6 +11374,10 @@
         "ty": "string"
       },
       "/terminal_id": {
+        "ty": "string",
+        "nullable": true
+      },
+      "/transaction": {
         "ty": "string",
         "nullable": true
       }
@@ -10830,6 +11537,7 @@
       }
     },
     "request:ping": {},
+    "request:process-census": {},
     "request:process-info": {
       "/surface": {
         "ty": "uint64",
@@ -10913,6 +11621,32 @@
       "/transport": {
         "ty": "json",
         "required": true,
+        "nullable": true
+      }
+    },
+    "request:quick-terminal": {
+      "/h": {
+        "ty": "float64",
+        "nullable": true
+      },
+      "/mode": {
+        "ty": "string",
+        "nullable": true
+      },
+      "/screen": {
+        "ty": "uint64",
+        "required": true
+      },
+      "/w": {
+        "ty": "float64",
+        "nullable": true
+      },
+      "/x": {
+        "ty": "float64",
+        "nullable": true
+      },
+      "/y": {
+        "ty": "float64",
         "nullable": true
       }
     },
@@ -11011,6 +11745,7 @@
         "required": true
       }
     },
+    "request:release-workspace-names": {},
     "request:reload-config": {},
     "request:remote-host-app": {},
     "request:remote-host-call": {
@@ -11024,6 +11759,18 @@
       }
     },
     "request:remote-host-config": {
+      "/app_permissions": {
+        "ty": "object",
+        "nullable": true
+      },
+      "/app_permissions/accessibility": {
+        "ty": "boolean",
+        "nullable": true
+      },
+      "/app_permissions/screen_recording": {
+        "ty": "boolean",
+        "nullable": true
+      },
       "/computer_use": {
         "ty": "boolean",
         "nullable": true
@@ -11415,6 +12162,10 @@
         "ty": "uint64",
         "nullable": true
       },
+      "/key": {
+        "ty": "string",
+        "nullable": true
+      },
       "/paste": {
         "ty": "boolean"
       },
@@ -11479,6 +12230,10 @@
     "request:set-client-info": {
       "/api_revision": {
         "ty": "uint32",
+        "nullable": true
+      },
+      "/api_version": {
+        "ty": "string",
         "nullable": true
       },
       "/capabilities": {
@@ -11623,6 +12378,20 @@
       "/selection_fg": {
         "ty": "string",
         "nullable": true
+      }
+    },
+    "request:set-divider-visible": {
+      "/split": {
+        "ty": "uint64",
+        "required": true
+      },
+      "/transaction": {
+        "ty": "uint64",
+        "nullable": true
+      },
+      "/visible": {
+        "ty": "boolean",
+        "required": true
       }
     },
     "request:set-frontend-browser-history": {
@@ -12007,6 +12776,10 @@
         "ty": "string",
         "nullable": true
       },
+      "/keep_awake": {
+        "ty": "boolean",
+        "nullable": true
+      },
       "/key": {
         "ty": "string",
         "nullable": true
@@ -12084,6 +12857,9 @@
         "ty": "string",
         "required": true
       },
+      "/if_idle": {
+        "ty": "boolean"
+      },
       "/keep_layout": {
         "ty": "boolean"
       },
@@ -12140,6 +12916,10 @@
       }
     },
     "request:split": {
+      "/around": {
+        "ty": "uint64",
+        "nullable": true
+      },
       "/before": {
         "ty": "boolean"
       },
@@ -12267,9 +13047,57 @@
         "ty": "string"
       }
     },
+    "request:terminal-command-context": {
+      "/intent": {
+        "ty": "enum",
+        "values": [
+          "context",
+          "fix"
+        ]
+      },
+      "/surface": {
+        "ty": "uint64",
+        "required": true
+      }
+    },
     "request:terminal-events": {
       "/after_revision": {
         "ty": "uint64"
+      }
+    },
+    "request:terminal-find": {
+      "/before": {
+        "ty": "uint64",
+        "nullable": true
+      },
+      "/case_sensitive": {
+        "ty": "boolean"
+      },
+      "/epoch": {
+        "ty": "uint64",
+        "nullable": true
+      },
+      "/max_matches": {
+        "ty": "uint64",
+        "nullable": true
+      },
+      "/page_rows": {
+        "ty": "uint64",
+        "nullable": true
+      },
+      "/query": {
+        "ty": "string",
+        "required": true
+      },
+      "/regex": {
+        "ty": "boolean"
+      },
+      "/surface": {
+        "ty": "uint64",
+        "required": true
+      },
+      "/whole_word": {
+        "ty": "boolean"
       }
     },
     "request:terminal-history": {
@@ -12875,6 +13703,12 @@
     "response:browser-reload": {},
     "response:browser-wheel": {},
     "response:browser-wheel-guarded": {},
+    "response:cancel-creating-input": {
+      "/data/cancelled": {
+        "ty": "boolean",
+        "required": true
+      }
+    },
     "response:chief-inspect": {
       "/data/body": {
         "ty": "json",
@@ -13110,6 +13944,9 @@
       },
       "/data/closed_ids/*": {
         "ty": "string"
+      },
+      "/data/first_tab": {
+        "ty": "json"
       },
       "/data/generation": {
         "ty": "string",
@@ -13404,6 +14241,24 @@
       }
     },
     "response:cloud-session-status": {
+      "/data": {
+        "ty": "json",
+        "required": true
+      }
+    },
+    "response:computer-use-approvals": {
+      "/data": {
+        "ty": "json",
+        "required": true
+      }
+    },
+    "response:computer-use-config": {
+      "/data": {
+        "ty": "json",
+        "required": true
+      }
+    },
+    "response:computer-use-endpoint": {
       "/data": {
         "ty": "json",
         "required": true
@@ -15376,6 +16231,33 @@
         "ty": "json"
       }
     },
+    "response:conversation-scheduled-list": {
+      "/data/scheduled": {
+        "ty": "array",
+        "required": true
+      },
+      "/data/scheduled/*": {
+        "ty": "json"
+      }
+    },
+    "response:conversation-scheduled-op": {
+      "/data/change": {
+        "ty": "json"
+      },
+      "/data/removed": {
+        "ty": "json"
+      },
+      "/data/replayed": {
+        "ty": "boolean"
+      },
+      "/data/rev": {
+        "ty": "uint64"
+      },
+      "/data/scheduled": {
+        "ty": "json",
+        "nullable": true
+      }
+    },
     "response:conversation-search": {
       "/data/hits": {
         "ty": "array",
@@ -16514,6 +17396,9 @@
       "/data/closed_ids/*": {
         "ty": "string"
       },
+      "/data/first_tab": {
+        "ty": "json"
+      },
       "/data/generation": {
         "ty": "string",
         "required": true
@@ -16620,6 +17505,12 @@
       }
     },
     "response:detach-client": {},
+    "response:device-setup": {
+      "/data": {
+        "ty": "json",
+        "required": true
+      }
+    },
     "response:export-layout": {
       "/data/layout": {
         "ty": "tagged_union|object",
@@ -16725,6 +17616,18 @@
     "response:feed-local-read": {
       "/data": {
         "ty": "json",
+        "required": true
+      }
+    },
+    "response:float-pane": {
+      "/data": {
+        "ty": "json",
+        "required": true
+      }
+    },
+    "response:flush-launch-snapshot": {
+      "/data/flushed": {
+        "ty": "boolean",
         "required": true
       }
     },
@@ -17103,9 +18006,27 @@
         "ty": "string",
         "required": true
       },
+      "/data/full": {
+        "ty": "boolean"
+      },
       "/data/me": {
         "ty": "string",
         "required": true
+      },
+      "/data/offset": {
+        "ty": "uint64"
+      },
+      "/data/order": {
+        "ty": "string"
+      },
+      "/data/removed": {
+        "ty": "array"
+      },
+      "/data/removed/*": {
+        "ty": "string"
+      },
+      "/data/revision": {
+        "ty": "uint64"
       },
       "/data/rows": {
         "ty": "array",
@@ -17132,6 +18053,9 @@
       "/data/rows/*/id": {
         "ty": "string",
         "required": true
+      },
+      "/data/rows/*/index": {
+        "ty": "uint64"
       },
       "/data/rows/*/kind": {
         "ty": "enum",
@@ -17175,11 +18099,21 @@
       "/data/rows/*/unread": {
         "ty": "uint64",
         "required": true
+      },
+      "/data/total": {
+        "ty": "uint64"
+      },
+      "/data/window": {
+        "ty": "boolean"
       }
     },
     "response:identify": {
       "/data/api_revision": {
         "ty": "uint32",
+        "nullable": true
+      },
+      "/data/api_version": {
+        "ty": "string",
         "nullable": true
       },
       "/data/app": {
@@ -17247,6 +18181,9 @@
       "/data/machine_capabilities/*": {
         "ty": "string"
       },
+      "/data/machine_device": {
+        "ty": "string"
+      },
       "/data/machine_id": {
         "ty": "string"
       },
@@ -17264,8 +18201,15 @@
         "ty": "string",
         "required": true
       },
+      "/data/machine_symbol": {
+        "ty": "string"
+      },
       "/data/min_api_revision": {
         "ty": "uint32",
+        "nullable": true
+      },
+      "/data/min_api_version": {
+        "ty": "string",
         "nullable": true
       },
       "/data/pid": {
@@ -17279,6 +18223,10 @@
       "/data/registry_id": {
         "ty": "string",
         "required": true
+      },
+      "/data/screen_device_id": {
+        "ty": "string",
+        "nullable": true
       },
       "/data/session": {
         "ty": "string",
@@ -17426,6 +18374,9 @@
       "/data/agents/*/surface": {
         "ty": "uint64",
         "required": true
+      },
+      "/data/agents/*/terminal_id": {
+        "ty": "string"
       },
       "/data/agents/*/updated_at_ms": {
         "ty": "uint64",
@@ -17843,8 +18794,330 @@
       }
     },
     "response:list-workspaces": {
+      "/data/changed": {
+        "ty": "array"
+      },
+      "/data/changed/*": {
+        "ty": "object"
+      },
+      "/data/changed/*/active": {
+        "ty": "boolean",
+        "required": true
+      },
+      "/data/changed/*/id": {
+        "ty": "uint64",
+        "required": true
+      },
+      "/data/changed/*/key": {
+        "ty": "string"
+      },
+      "/data/changed/*/name": {
+        "ty": "string",
+        "required": true
+      },
+      "/data/changed/*/name_revision": {
+        "ty": "string"
+      },
+      "/data/changed/*/name_source": {
+        "ty": "enum",
+        "values": [
+          "auto",
+          "user"
+        ]
+      },
+      "/data/changed/*/screens": {
+        "ty": "array",
+        "required": true
+      },
+      "/data/changed/*/screens/*": {
+        "ty": "object"
+      },
+      "/data/changed/*/screens/*/active": {
+        "ty": "boolean",
+        "required": true
+      },
+      "/data/changed/*/screens/*/active_pane": {
+        "ty": "uint64",
+        "required": true
+      },
+      "/data/changed/*/screens/*/id": {
+        "ty": "uint64",
+        "required": true
+      },
+      "/data/changed/*/screens/*/layout": {
+        "ty": "tagged_union|object",
+        "values": [
+          "leaf",
+          "split",
+          "stack"
+        ]
+      },
+      "/data/changed/*/screens/*/layout/a": {
+        "ty": "ref:Layout",
+        "required": true
+      },
+      "/data/changed/*/screens/*/layout/b": {
+        "ty": "ref:Layout",
+        "required": true
+      },
+      "/data/changed/*/screens/*/layout/dir": {
+        "ty": "enum",
+        "required": true,
+        "values": [
+          "down",
+          "right"
+        ]
+      },
+      "/data/changed/*/screens/*/layout/expanded": {
+        "ty": "uint64",
+        "required": true
+      },
+      "/data/changed/*/screens/*/layout/pane": {
+        "ty": "uint64",
+        "required": true
+      },
+      "/data/changed/*/screens/*/layout/panes": {
+        "ty": "array",
+        "required": true
+      },
+      "/data/changed/*/screens/*/layout/panes/*": {
+        "ty": "uint64"
+      },
+      "/data/changed/*/screens/*/layout/ratio": {
+        "ty": "float32",
+        "required": true
+      },
+      "/data/changed/*/screens/*/layout/split": {
+        "ty": "uint64"
+      },
+      "/data/changed/*/screens/*/layout/split_id": {
+        "ty": "string"
+      },
+      "/data/changed/*/screens/*/layout/type": {
+        "ty": "literal",
+        "required": true,
+        "values": [
+          "\"leaf\"",
+          "\"split\"",
+          "\"stack\""
+        ]
+      },
+      "/data/changed/*/screens/*/name": {
+        "ty": "string",
+        "required": true,
+        "nullable": true
+      },
+      "/data/changed/*/screens/*/panes": {
+        "ty": "array",
+        "required": true
+      },
+      "/data/changed/*/screens/*/panes/*": {
+        "ty": "untagged_union|object"
+      },
+      "/data/changed/*/screens/*/panes/*/active_tab": {
+        "ty": "uint64",
+        "required": true
+      },
+      "/data/changed/*/screens/*/panes/*/dead": {
+        "ty": "literal",
+        "required": true,
+        "values": [
+          "true"
+        ]
+      },
+      "/data/changed/*/screens/*/panes/*/focused_at": {
+        "ty": "uint64"
+      },
+      "/data/changed/*/screens/*/panes/*/id": {
+        "ty": "uint64",
+        "required": true
+      },
+      "/data/changed/*/screens/*/panes/*/name": {
+        "ty": "string",
+        "required": true,
+        "nullable": true
+      },
+      "/data/changed/*/screens/*/panes/*/short_id": {
+        "ty": "string"
+      },
+      "/data/changed/*/screens/*/panes/*/tabs": {
+        "ty": "array",
+        "required": true
+      },
+      "/data/changed/*/screens/*/panes/*/tabs/*": {
+        "ty": "object"
+      },
+      "/data/changed/*/screens/*/panes/*/tabs/*/browser_error": {
+        "ty": "string",
+        "nullable": true
+      },
+      "/data/changed/*/screens/*/panes/*/tabs/*/browser_frames_stalled": {
+        "ty": "boolean",
+        "nullable": true
+      },
+      "/data/changed/*/screens/*/panes/*/tabs/*/browser_source": {
+        "ty": "enum",
+        "required": true,
+        "nullable": true,
+        "values": [
+          "external",
+          "launched"
+        ]
+      },
+      "/data/changed/*/screens/*/panes/*/tabs/*/browser_status": {
+        "ty": "enum",
+        "nullable": true,
+        "values": [
+          "failed",
+          "live",
+          "starting"
+        ]
+      },
+      "/data/changed/*/screens/*/panes/*/tabs/*/dead": {
+        "ty": "boolean",
+        "required": true
+      },
+      "/data/changed/*/screens/*/panes/*/tabs/*/kind": {
+        "ty": "enum",
+        "required": true,
+        "values": [
+          "browser",
+          "conversation",
+          "pty"
+        ]
+      },
+      "/data/changed/*/screens/*/panes/*/tabs/*/name": {
+        "ty": "string",
+        "required": true,
+        "nullable": true
+      },
+      "/data/changed/*/screens/*/panes/*/tabs/*/notification": {
+        "ty": "object",
+        "nullable": true
+      },
+      "/data/changed/*/screens/*/panes/*/tabs/*/notification/level": {
+        "ty": "enum",
+        "required": true,
+        "values": [
+          "error",
+          "info",
+          "warning"
+        ]
+      },
+      "/data/changed/*/screens/*/panes/*/tabs/*/notification/notification": {
+        "ty": "uint64",
+        "required": true
+      },
+      "/data/changed/*/screens/*/panes/*/tabs/*/notification/source": {
+        "ty": "enum",
+        "values": [
+          "agent",
+          "cli",
+          "daemon",
+          "terminal"
+        ]
+      },
+      "/data/changed/*/screens/*/panes/*/tabs/*/notification/unread": {
+        "ty": "boolean",
+        "required": true
+      },
+      "/data/changed/*/screens/*/panes/*/tabs/*/program_status": {
+        "ty": "object",
+        "nullable": true
+      },
+      "/data/changed/*/screens/*/panes/*/tabs/*/program_status/progress": {
+        "ty": "uint16",
+        "required": true,
+        "nullable": true
+      },
+      "/data/changed/*/screens/*/panes/*/tabs/*/program_status/state": {
+        "ty": "enum",
+        "required": true,
+        "values": [
+          "blocked",
+          "done",
+          "error",
+          "working"
+        ]
+      },
+      "/data/changed/*/screens/*/panes/*/tabs/*/short_id": {
+        "ty": "string"
+      },
+      "/data/changed/*/screens/*/panes/*/tabs/*/size": {
+        "ty": "object",
+        "required": true,
+        "nullable": true
+      },
+      "/data/changed/*/screens/*/panes/*/tabs/*/size/cols": {
+        "ty": "uint16",
+        "required": true
+      },
+      "/data/changed/*/screens/*/panes/*/tabs/*/size/rows": {
+        "ty": "uint16",
+        "required": true
+      },
+      "/data/changed/*/screens/*/panes/*/tabs/*/supports_clear_history_key_fallback": {
+        "ty": "boolean"
+      },
+      "/data/changed/*/screens/*/panes/*/tabs/*/surface": {
+        "ty": "uint64",
+        "required": true
+      },
+      "/data/changed/*/screens/*/panes/*/tabs/*/terminal_host_fallback": {
+        "ty": "string",
+        "nullable": true
+      },
+      "/data/changed/*/screens/*/panes/*/tabs/*/terminal_id": {
+        "ty": "string",
+        "nullable": true
+      },
+      "/data/changed/*/screens/*/panes/*/tabs/*/terminal_incarnation": {
+        "ty": "string",
+        "nullable": true
+      },
+      "/data/changed/*/screens/*/panes/*/tabs/*/terminal_resource_id": {
+        "ty": "string",
+        "nullable": true
+      },
+      "/data/changed/*/screens/*/panes/*/tabs/*/title": {
+        "ty": "string",
+        "required": true
+      },
+      "/data/changed/*/screens/*/panes/*/tabs/*/title_activity": {
+        "ty": "string",
+        "nullable": true
+      },
+      "/data/changed/*/screens/*/panes/*/tabs/*/title_text": {
+        "ty": "string"
+      },
+      "/data/changed/*/screens/*/short_id": {
+        "ty": "string"
+      },
+      "/data/changed/*/screens/*/zoomed_pane": {
+        "ty": "uint64",
+        "required": true,
+        "nullable": true
+      },
+      "/data/changed/*/short_id": {
+        "ty": "string"
+      },
+      "/data/delta": {
+        "ty": "boolean"
+      },
+      "/data/epoch": {
+        "ty": "string"
+      },
       "/data/generation": {
         "ty": "string"
+      },
+      "/data/next": {
+        "ty": "uint64"
+      },
+      "/data/order": {
+        "ty": "array"
+      },
+      "/data/order/*": {
+        "ty": "uint64"
       },
       "/data/pane_revision": {
         "ty": "uint64"
@@ -17852,8 +19125,26 @@
       "/data/registry_id": {
         "ty": "string"
       },
+      "/data/removed": {
+        "ty": "array"
+      },
+      "/data/removed/*": {
+        "ty": "uint64"
+      },
+      "/data/seq": {
+        "ty": "uint64"
+      },
       "/data/terminal_revision": {
         "ty": "uint64"
+      },
+      "/data/total": {
+        "ty": "uint64"
+      },
+      "/data/tree_revision": {
+        "ty": "string"
+      },
+      "/data/unchanged": {
+        "ty": "boolean"
       },
       "/data/workspace_revision": {
         "ty": "uint64"
@@ -18147,6 +19438,13 @@
       "/data/workspaces/*/screens/*/panes/*/tabs/*/title": {
         "ty": "string",
         "required": true
+      },
+      "/data/workspaces/*/screens/*/panes/*/tabs/*/title_activity": {
+        "ty": "string",
+        "nullable": true
+      },
+      "/data/workspaces/*/screens/*/panes/*/tabs/*/title_text": {
+        "ty": "string"
       },
       "/data/workspaces/*/screens/*/short_id": {
         "ty": "string"
@@ -18645,6 +19943,9 @@
       "/data/closed_ids/*": {
         "ty": "string"
       },
+      "/data/first_tab": {
+        "ty": "json"
+      },
       "/data/generation": {
         "ty": "string",
         "required": true
@@ -18711,6 +20012,9 @@
         "nullable": true
       },
       "/data/terminal_resource_id": {
+        "ty": "string"
+      },
+      "/data/transaction": {
         "ty": "string"
       },
       "/data/workspace_id": {
@@ -18920,6 +20224,9 @@
       "/data/terminal_resource_id": {
         "ty": "string"
       },
+      "/data/transaction": {
+        "ty": "string"
+      },
       "/data/workspace_id": {
         "ty": "string"
       }
@@ -18951,6 +20258,9 @@
       "/data/terminal_resource_id": {
         "ty": "string"
       },
+      "/data/transaction": {
+        "ty": "string"
+      },
       "/data/workspace_id": {
         "ty": "string"
       }
@@ -18980,6 +20290,9 @@
         "nullable": true
       },
       "/data/terminal_resource_id": {
+        "ty": "string"
+      },
+      "/data/transaction": {
         "ty": "string"
       },
       "/data/workspace_id": {
@@ -19059,6 +20372,12 @@
         "required": true
       }
     },
+    "response:process-census": {
+      "/data": {
+        "ty": "json",
+        "required": true
+      }
+    },
     "response:process-info": {
       "/data/command": {
         "ty": "string",
@@ -19121,6 +20440,12 @@
       }
     },
     "response:put-session": {
+      "/data": {
+        "ty": "json",
+        "required": true
+      }
+    },
+    "response:quick-terminal": {
       "/data": {
         "ty": "json",
         "required": true
@@ -19405,6 +20730,16 @@
       }
     },
     "response:release-surface-size": {},
+    "response:release-workspace-names": {
+      "/data/released": {
+        "ty": "uint64",
+        "required": true
+      },
+      "/data/still_pinned": {
+        "ty": "uint64",
+        "required": true
+      }
+    },
     "response:reload-config": {
       "/data/path": {
         "ty": "string",
@@ -19505,6 +20840,9 @@
       },
       "/data/closed_ids/*": {
         "ty": "string"
+      },
+      "/data/first_tab": {
+        "ty": "json"
       },
       "/data/generation": {
         "ty": "string",
@@ -19895,6 +21233,77 @@
     },
     "response:send-key": {},
     "response:server-stats": {
+      "/data/commands": {
+        "ty": "object"
+      },
+      "/data/commands/connections": {
+        "ty": "array",
+        "required": true
+      },
+      "/data/commands/connections/*": {
+        "ty": "object"
+      },
+      "/data/commands/connections/*/accepted": {
+        "ty": "uint64",
+        "required": true
+      },
+      "/data/commands/connections/*/kind": {
+        "ty": "string",
+        "required": true
+      },
+      "/data/commands/connections/*/refused": {
+        "ty": "uint64",
+        "required": true
+      },
+      "/data/commands/hist_bounds_ns": {
+        "ty": "array",
+        "required": true
+      },
+      "/data/commands/hist_bounds_ns/*": {
+        "ty": "uint64"
+      },
+      "/data/commands/name_limit": {
+        "ty": "uint64",
+        "required": true
+      },
+      "/data/commands/names": {
+        "ty": "uint64",
+        "required": true
+      },
+      "/data/commands/rows": {
+        "ty": "array",
+        "required": true
+      },
+      "/data/commands/rows/*": {
+        "ty": "object"
+      },
+      "/data/commands/rows/*/count": {
+        "ty": "uint64",
+        "required": true
+      },
+      "/data/commands/rows/*/hist": {
+        "ty": "array",
+        "required": true
+      },
+      "/data/commands/rows/*/hist/*": {
+        "ty": "uint64"
+      },
+      "/data/commands/rows/*/kind": {
+        "ty": "string",
+        "required": true
+      },
+      "/data/commands/rows/*/max_ns": {
+        "ty": "uint64",
+        "required": true
+      },
+      "/data/commands/rows/*/name": {
+        "ty": "string",
+        "required": true
+      },
+      "/data/commands/rows/*/total_ns": {
+        "ty": "uint64",
+        "required": true
+      },
       "/data/connections": {
         "ty": "object",
         "required": true
@@ -19921,6 +21330,30 @@
       },
       "/data/disk": {
         "ty": "object"
+      },
+      "/data/disk/checkpoints": {
+        "ty": "object",
+        "nullable": true
+      },
+      "/data/disk/checkpoints/budget_bytes": {
+        "ty": "uint64",
+        "required": true
+      },
+      "/data/disk/checkpoints/bytes": {
+        "ty": "uint64",
+        "required": true
+      },
+      "/data/disk/checkpoints/checkpoints": {
+        "ty": "uint64",
+        "required": true
+      },
+      "/data/disk/checkpoints/largest_bytes": {
+        "ty": "uint64",
+        "required": true
+      },
+      "/data/disk/checkpoints/over_budget": {
+        "ty": "boolean",
+        "required": true
       },
       "/data/disk/error": {
         "ty": "string",
@@ -20119,6 +21552,78 @@
       },
       "/data/hook_queue/undeliverable_events": {
         "ty": "uint64",
+        "required": true
+      },
+      "/data/journal_followers": {
+        "ty": "object"
+      },
+      "/data/journal_followers/followers": {
+        "ty": "array",
+        "required": true
+      },
+      "/data/journal_followers/followers/*": {
+        "ty": "object"
+      },
+      "/data/journal_followers/followers/*/client": {
+        "ty": "uint64",
+        "required": true
+      },
+      "/data/journal_followers/followers/*/connected_ms": {
+        "ty": "uint64",
+        "required": true
+      },
+      "/data/journal_followers/followers/*/keeps_hook_rows": {
+        "ty": "boolean",
+        "required": true
+      },
+      "/data/journal_followers/followers/*/keeps_report_rows": {
+        "ty": "boolean",
+        "required": true
+      },
+      "/data/journal_followers/followers/*/kinds": {
+        "ty": "array",
+        "required": true
+      },
+      "/data/journal_followers/followers/*/kinds/*": {
+        "ty": "string"
+      },
+      "/data/journal_followers/followers/*/left_ms": {
+        "ty": "uint64",
+        "required": true,
+        "nullable": true
+      },
+      "/data/journal_followers/followers/*/max_sensitivity": {
+        "ty": "string",
+        "required": true,
+        "nullable": true
+      },
+      "/data/journal_followers/followers/*/remote": {
+        "ty": "boolean",
+        "required": true
+      },
+      "/data/journal_followers/followers/*/stream_id": {
+        "ty": "string",
+        "required": true
+      },
+      "/data/journal_followers/grace_ms": {
+        "ty": "uint64",
+        "required": true
+      },
+      "/data/journal_followers/hook_rows_kept": {
+        "ty": "boolean",
+        "required": true
+      },
+      "/data/journal_followers/journal_hook_keeps_rows": {
+        "ty": "boolean",
+        "required": true,
+        "nullable": true
+      },
+      "/data/journal_followers/keep_all_ms": {
+        "ty": "uint64",
+        "required": true
+      },
+      "/data/journal_followers/report_rows_kept": {
+        "ty": "boolean",
         "required": true
       },
       "/data/journal_writer": {
@@ -21170,7 +22675,14 @@
         "required": true
       }
     },
-    "response:set-client-info": {},
+    "response:set-client-info": {
+      "/data/api_revision": {
+        "ty": "uint32"
+      },
+      "/data/api_version": {
+        "ty": "string"
+      }
+    },
     "response:set-client-sizing": {},
     "response:set-column-dock": {
       "/data": {
@@ -21179,6 +22691,7 @@
       }
     },
     "response:set-default-colors": {},
+    "response:set-divider-visible": {},
     "response:set-frontend-browser-history": {
       "/data": {
         "ty": "json",
@@ -21607,9 +23120,21 @@
         "ty": "uint32",
         "required": true
       },
+      "/data/activity/echo_at_ms": {
+        "ty": "uint64",
+        "nullable": true
+      },
+      "/data/activity/echo_input_at_ms": {
+        "ty": "uint64",
+        "nullable": true
+      },
       "/data/activity/last_agent_action_at_ms": {
         "ty": "uint64",
         "required": true,
+        "nullable": true
+      },
+      "/data/activity/last_person_attach_at_ms": {
+        "ty": "uint64",
         "nullable": true
       },
       "/data/activity/last_user_input_at_ms": {
@@ -21635,6 +23160,40 @@
     },
     "response:terminal-clipboard-subscribe": {
       "/data/clipboard_read_ready": {
+        "ty": "boolean",
+        "required": true
+      }
+    },
+    "response:terminal-command-context": {
+      "/data/context": {
+        "ty": "object",
+        "required": true,
+        "nullable": true
+      },
+      "/data/context/command": {
+        "ty": "string",
+        "required": true,
+        "nullable": true
+      },
+      "/data/context/cwd": {
+        "ty": "string",
+        "required": true,
+        "nullable": true
+      },
+      "/data/context/exit_code": {
+        "ty": "int32",
+        "required": true,
+        "nullable": true
+      },
+      "/data/context/output": {
+        "ty": "string",
+        "required": true
+      },
+      "/data/context/text": {
+        "ty": "string",
+        "required": true
+      },
+      "/data/context/truncated": {
         "ty": "boolean",
         "required": true
       }
@@ -21685,6 +23244,12 @@
       },
       "/data/terminal_revision": {
         "ty": "uint64",
+        "required": true
+      }
+    },
+    "response:terminal-find": {
+      "/data": {
+        "ty": "json",
         "required": true
       }
     },

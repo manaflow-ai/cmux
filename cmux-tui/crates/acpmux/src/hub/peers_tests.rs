@@ -20,6 +20,7 @@ async fn a_reload_lends_only_to_the_machine_and_the_add_it_read() {
         peer_token: None,
         vm_boundary: true,
         github_broker: true,
+        group: None,
     };
     let file = |pc: PeerConfig| std::collections::BTreeMap::from([("m".to_owned(), pc)]);
     let peer = || hub.peers.lock().unwrap().get("m").cloned().unwrap();
@@ -166,7 +167,7 @@ fn compact_remote_change_keeps_the_cached_tool_inventory() {
         "toolsMutable": true,
     });
     let compact = json!({"sessionId": "mux-1", "status": "running"});
-    let retained = Hub::retain_summary_tools(compact, Some(&previous));
+    let retained = Hub::retain_summary_tools(compact, Some(&PeerRow::new(&previous)));
     assert_eq!(retained["tools"], previous["tools"]);
     assert_eq!(retained["toolsMutable"], true);
 }
@@ -212,12 +213,17 @@ fn streamed_remote_rows_release_the_lock_and_keep_the_captured_versions() {
     let peer = crate::peer::Peer::new("builder", "ws://127.0.0.1:9", None, None, tx);
     hub.peers.lock().unwrap().insert("builder".into(), peer.clone());
     let rows = (0..3).map(|i| json!({"sessionId": format!("r{i}"), "status": "closed", "updatedAt": i, "tools": [{"id": "kept"}]})).collect();
-    hub.apply_peer_notice("builder", peer.generation, crate::peer::PeerNotice::Sessions(rows));
+    hub.apply_peer_notice(
+        "builder",
+        peer.generation,
+        crate::peer::PeerNotice::sessions_from_values(rows),
+    );
     let expected = hub.all_session_summaries();
     let mut actual = Vec::new();
     hub.visit_session_summaries(true, |row| {
         // A writer can remove rows during serialization without changing this snapshot.
-        let mut rows = hub.remote_sessions.try_lock().expect("visitor must not hold row lock");
+        let mut rows =
+            hub.remote_sessions.try_write().expect("visitor must not hold the rows writer lock");
         let captured: Vec<_> = rows.iter().map(|(id, row)| (id.clone(), row.clone())).collect();
         for (id, captured) in captured {
             let writes = rows.writes;
@@ -231,7 +237,7 @@ fn streamed_remote_rows_release_the_lock_and_keep_the_captured_versions() {
     super::super::session_pages::sort_session_summaries(&mut actual);
     assert_eq!(actual, expected);
     assert_eq!(actual.len(), 3);
-    assert!(hub.remote_sessions.lock().unwrap().is_empty());
+    assert!(hub.remote_sessions.read().is_empty());
 }
 
 /// A wait reads the row the full list puts first for each id: a peer's newer chat
@@ -255,7 +261,11 @@ fn summaries_of_some_ids_are_the_rows_the_full_list_puts_first() {
         let (tx, _rx) = tokio::sync::mpsc::channel(8);
         let p = crate::peer::Peer::new(peer, "ws://127.0.0.1:9", None, None, tx);
         hub.peers.lock().unwrap().insert(peer.to_owned(), p.clone());
-        hub.apply_peer_notice(peer, p.generation, crate::peer::PeerNotice::Sessions(rows));
+        hub.apply_peer_notice(
+            peer,
+            p.generation,
+            crate::peer::PeerNotice::sessions_from_values(rows),
+        );
     }
     let ids: Vec<String> = ["x", "y", "solo", "none", "x"].map(str::to_owned).to_vec();
     let all = hub.all_session_summaries();
@@ -291,7 +301,7 @@ fn a_purge_between_session_projection_and_swap_stays_gone() {
     hub.apply_peer_notice(
         "builder",
         peer.generation,
-        crate::peer::PeerNotice::Sessions(vec![row("idle")]),
+        crate::peer::PeerNotice::sessions_from_values(vec![row("idle")]),
     );
 
     let hook = PeerNoticeProjectionHook::new();
@@ -303,7 +313,7 @@ fn a_purge_between_session_projection_and_swap_stays_gone() {
             hub.apply_peer_notice(
                 "builder",
                 generation,
-                crate::peer::PeerNotice::Sessions(vec![row("running")]),
+                crate::peer::PeerNotice::sessions_from_values(vec![row("running")]),
             );
         })
     };
@@ -328,7 +338,7 @@ fn a_peer_purge_fences_rows_from_an_inflight_full_list_retry() {
     hub.apply_peer_notice(
         "builder",
         peer.generation,
-        crate::peer::PeerNotice::Sessions(vec![row.clone()]),
+        crate::peer::PeerNotice::sessions_from_values(vec![row.clone()]),
     );
 
     let hook = PeerNoticeProjectionHook::new();
@@ -340,7 +350,7 @@ fn a_peer_purge_fences_rows_from_an_inflight_full_list_retry() {
             hub.apply_peer_notice(
                 "builder",
                 generation,
-                crate::peer::PeerNotice::Sessions(vec![row]),
+                crate::peer::PeerNotice::sessions_from_values(vec![row]),
             );
         })
     };
@@ -363,7 +373,7 @@ async fn an_old_grace_timer_cannot_mark_replacement_rows_unreachable() {
     hub.apply_peer_notice(
         "builder",
         old.generation,
-        crate::peer::PeerNotice::Sessions(vec![json!({
+        crate::peer::PeerNotice::sessions_from_values(vec![json!({
             "sessionId": "x", "name": "lane-x", "status": "idle", "createdAt": 1,
             "updatedAt": 2
         })]),
@@ -377,8 +387,9 @@ async fn an_old_grace_timer_cannot_mark_replacement_rows_unreachable() {
         peer_token: None,
         vm_boundary: false,
         github_broker: false,
+        group: None,
     };
-    let (_generation, _settled) = hub.spawn_peer("builder", &pc, false);
+    let (_generation, _settled) = hub.spawn_peer("builder", &pc, false, false);
 
     hub.mark_peer_unreachable_at_fence(&old, "builder", old.generation, fence);
     let rows = hub.remote_sessions();
@@ -409,7 +420,7 @@ async fn a_removed_peer_cannot_be_reinserted_by_a_paused_notice() {
     hub.apply_peer_notice(
         "builder",
         peer.generation,
-        crate::peer::PeerNotice::Sessions(vec![row("idle")]),
+        crate::peer::PeerNotice::sessions_from_values(vec![row("idle")]),
     );
     let hook = PeerNoticeProjectionHook::new();
     *hub.peer_notice_projection_hook.lock().unwrap() = Some(hook.clone());
@@ -421,7 +432,7 @@ async fn a_removed_peer_cannot_be_reinserted_by_a_paused_notice() {
             hub.apply_peer_notice(
                 "builder",
                 generation,
-                crate::peer::PeerNotice::Sessions(vec![listed]),
+                crate::peer::PeerNotice::sessions_from_values(vec![listed]),
             );
         })
     };
@@ -436,7 +447,7 @@ async fn a_removed_peer_cannot_be_reinserted_by_a_paused_notice() {
     hub.apply_peer_notice(
         "builder",
         peer.generation,
-        crate::peer::PeerNotice::Sessions(vec![row("idle")]),
+        crate::peer::PeerNotice::sessions_from_values(vec![row("idle")]),
     );
     let hook = PeerNoticeProjectionHook::new();
     *hub.peer_notice_projection_hook.lock().unwrap() = Some(hook.clone());
@@ -472,7 +483,7 @@ async fn a_removed_peer_cannot_be_reinserted_by_a_paused_notice() {
     hub.apply_peer_notice(
         "builder",
         peer.generation,
-        crate::peer::PeerNotice::Sessions(vec![row("idle")]),
+        crate::peer::PeerNotice::sessions_from_values(vec![row("idle")]),
     );
     let hook = PeerNoticeProjectionHook::new();
     *hub.peer_notice_projection_hook.lock().unwrap() = Some(hook.clone());
@@ -515,7 +526,7 @@ fn a_forget_remote_and_full_list_notice_complete_without_lock_order_deadlock() {
     hub.apply_peer_notice(
         "builder",
         peer.generation,
-        crate::peer::PeerNotice::Sessions(vec![row.clone()]),
+        crate::peer::PeerNotice::sessions_from_values(vec![row.clone()]),
     );
     let hook = PeerNoticeProjectionHook::new();
     *hub.peer_notice_projection_hook.lock().unwrap() = Some(hook.clone());
@@ -526,7 +537,7 @@ fn a_forget_remote_and_full_list_notice_complete_without_lock_order_deadlock() {
             hub.apply_peer_notice(
                 "builder",
                 generation,
-                crate::peer::PeerNotice::Sessions(vec![row]),
+                crate::peer::PeerNotice::sessions_from_values(vec![row]),
             );
         })
     };
@@ -553,7 +564,11 @@ fn a_chat_attached_again_without_history_tells_only_its_clients_they_lagged() {
     let peer = crate::peer::Peer::new("vm", "ws://127.0.0.1:9", None, None, tx);
     hub.peers.lock().unwrap().insert("vm".into(), peer.clone());
     let rows = ["r1", "r2"].map(|id| json!({"sessionId": id, "status": "idle", "updatedAt": 1}));
-    hub.apply_peer_notice("vm", peer.generation, crate::peer::PeerNotice::Sessions(rows.into()));
+    hub.apply_peer_notice(
+        "vm",
+        peer.generation,
+        crate::peer::PeerNotice::sessions_from_values(rows.into()),
+    );
     let mut events = hub.subscribe();
     hub.apply_peer_notice(
         "vm",
@@ -603,7 +618,7 @@ fn a_peers_reattach_leaves_every_local_closed_row_cached() {
         let peer = crate::peer::Peer::new("vm", "ws://127.0.0.1:9", None, None, tx);
         hub.peers.lock().unwrap().insert("vm".into(), peer.clone());
         let rows = [json!({"sessionId": "r1", "status": "idle", "updatedAt": 1})];
-        let sessions = crate::peer::PeerNotice::Sessions(rows.into());
+        let sessions = crate::peer::PeerNotice::sessions_from_values(rows.into());
         hub.apply_peer_notice("vm", peer.generation, sessions);
         hub.visit_session_summaries(false, |_| {});
         use std::sync::atomic::Ordering::SeqCst;
@@ -626,4 +641,94 @@ fn a_peers_reattach_leaves_every_local_closed_row_cached() {
         assert_eq!(builds() - built, 0, "closed rows rebuilt at {closed}");
         peer.stop();
     }
+}
+
+/// A peer that comes and goes (2026-11-20: a host with ~100 sessions and peers down or
+/// reconnecting grew about 55 MB a minute, `tests/god_daemon/growth.rs`): each list and each
+/// outage announces every row of the peer into the hub's event ring (8,192 events), which keeps
+/// them for every connection that has not read them yet. Each event held a parsed copy of its
+/// row, several times the row's text (on the growth lab, 104 MB of trees under the peer notice
+/// loop). Now it shares the row's packed text with the table (`RemoteRef::summary`). Measured as
+/// the bytes this thread still holds after a full ring of a peer's row changes, with a reader
+/// that keeps the ring's events against the same run with none (an event no one reads is not
+/// kept), so the table, the caches and the rest cancel out.
+#[cfg(target_os = "linux")]
+#[test]
+fn a_full_ring_of_a_peers_row_changes_holds_no_copy_of_the_rows() {
+    use crate::hub::peer_snapshot::{thread_peak_bytes, thread_peak_take};
+    const ROWS: usize = 100;
+    const RING: usize = 8192;
+    // Rows as a real peer lists them: 75 keys, a long title, a plan (`god_fixture::peer_row`).
+    let list = || (0..ROWS).map(|i| crate::god_fixture::peer_row("far", i, 75)).collect();
+    let row_text = crate::god_fixture::peer_row("far", 0, 75).to_string().len();
+    // The bytes this thread holds after the run, over where it started.
+    let held_after = |keep: bool| {
+        let ((), _) = thread_peak_bytes(|| {
+            let runtime =
+                tokio::runtime::Builder::new_current_thread().enable_all().build().unwrap();
+            runtime.block_on(async {
+                let mut cfg = crate::config::Config::default();
+                cfg.store.mode = crate::config::StoreMode::Memory;
+                let store =
+                    crate::store::open(&cfg.store, std::path::Path::new("/nonexistent")).unwrap();
+                let hub = Hub::new(cfg, store);
+                let (tx, _rx) = tokio::sync::mpsc::channel(8);
+                let peer = crate::peer::Peer::new("far", "ws://127.0.0.1:9", None, None, tx);
+                hub.peers.lock().unwrap().insert("far".to_owned(), peer.clone());
+                let notice = || crate::peer::PeerNotice::sessions_from_values(list());
+                hub.apply_peer_notice("far", peer.generation, notice());
+                // A connection that reads nothing: the ring keeps every event for it.
+                let reader = keep.then(|| hub.subscribe());
+                // Each cycle: back (every row listed live again), then the outage's grace ends
+                // (every row marked stale): two announcements of each row. Past the ring's slots.
+                for _ in 0..RING / (2 * ROWS) + 2 {
+                    hub.apply_peer_notice("far", peer.generation, notice());
+                    hub.mark_peer_unreachable("far", peer.generation);
+                    tokio::task::yield_now().await;
+                }
+                for _ in 0..64 {
+                    tokio::task::yield_now().await;
+                }
+                // Twice: the first answer is the most held since the start, the second what is
+                // held now.
+                let _ = thread_peak_take();
+                HELD.set(thread_peak_take().unwrap_or(0));
+                drop(reader);
+                drop(hub);
+            });
+            drop(runtime);
+        });
+        HELD.get()
+    };
+    thread_local! { static HELD: std::cell::Cell<usize> = const { std::cell::Cell::new(0) }; }
+    let without = held_after(false);
+    let with = held_after(true);
+    let per_event = with.saturating_sub(without) / RING;
+    println!(
+        "ring of {RING} row events: {with} bytes held with a reader, {without} without; \
+         {per_event} per event, a row's text {row_text}"
+    );
+    assert!(
+        per_event < row_text / 2,
+        "each held event costs {per_event} bytes, a row's text is {row_text}: the ring holds copies"
+    );
+}
+
+/// Every peer row says which picker group lists it: `own` by default, `agent` for a machine held at
+/// the VM boundary, and the person's own `group` in config.json wins over both.
+#[tokio::test]
+async fn every_peer_row_carries_its_group() {
+    let mut cfg = crate::config::Config::default();
+    cfg.store.mode = crate::config::StoreMode::Memory;
+    let store = crate::store::open(&cfg.store, std::path::Path::new("/nonexistent")).unwrap();
+    let hub = Hub::new(cfg, store);
+    hub.add_peer_lending("m", "ws://127.0.0.1:9/m", None, None, Some(false), false).await.unwrap();
+    let group =
+        |hub: &Hub| hub.peers().into_iter().find(|p| p["name"] == "m").unwrap()["group"].clone();
+    assert_eq!(group(&hub), "own");
+    hub.peer_by_name("m").unwrap().set_vm_boundary(true);
+    assert_eq!(group(&hub), "agent");
+    hub.peer_by_name("m").unwrap().set_group_override(Some("own".into()));
+    assert_eq!(group(&hub), "own", "the person's placing wins");
+    hub.peer_by_name("m").unwrap().stop();
 }

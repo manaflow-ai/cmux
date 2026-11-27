@@ -101,13 +101,13 @@ struct AgentCursorSnapshotBuilder {
     }
 
     /// Where the shown workspace mirrors `target`, if it does.
-    private static func mirror(of target: String, inWorkspace shown: String?, content: WorkspaceContentController?,
-                               _ services: AppServices) -> AgentCursorVisibilitySnapshot.TabLocation? {
+    static func mirror(of target: String, inWorkspace shown: String?, content: WorkspaceContentController?,
+                       _ services: AppServices) -> AgentCursorVisibilitySnapshot.TabLocation? {
         guard let shown else { return nil }
         let workspace = content.map(\.workspace) ?? services.workspace(id: shown)
         guard let workspace, workspace.id == shown else { return nil }
         for screen in workspace.screens {
-            if let pane = screen.panes.first(where: { services.tabMirrors.mirrors(target, in: $0.id) }) {
+            if let pane = screen.panes.first(where: { services.tabMirrors.mirrors(target, in: $0.id) && services.mirrorSource(target, for: $0) != nil }) {
                 return .init(workspace: shown, pane: pane.id)
             }
         }

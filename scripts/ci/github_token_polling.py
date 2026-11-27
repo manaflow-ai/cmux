@@ -46,17 +46,41 @@ from __future__ import annotations
 
 import ast
 import re
+import sys
 from pathlib import Path
 from typing import Iterable, Iterator
 
 import yaml
 
-OWN_TOKEN = re.compile(r"\$\{\{[^}]*\b(github\.token|secrets\.GITHUB_TOKEN)\b[^}]*\}\}")
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+import gh_expressions  # noqa: E402  (finds each ${{ }}: a regex cuts at a }} in a string)
+
+_OWN_TOKEN_REFERENCE = re.compile(r"\b(github\.token|secrets\.GITHUB_TOKEN)\b", re.IGNORECASE)
+
+
+class _OwnToken:
+    """`github.token` or `secrets.GITHUB_TOKEN` (any case, as GitHub reads contexts) inside some `${{ }}` of a value.
+    gh_expressions finds each expression: `[^}]*` stopped at a `}` in a string literal
+    (`${{ format('{0}}}', github.token) }}`), so the token after it was missed. A `${{` that never ends counts as
+    the token, so a step is judged rather than passed."""
+
+    def search(self, text: str) -> bool:
+        try:
+            found = gh_expressions.contents(text)
+        except gh_expressions.Unterminated:
+            return True
+        return any(_OWN_TOKEN_REFERENCE.search(expression) for expression in found)
+
+
+OWN_TOKEN = _OwnToken()
 SHELL_API = re.compile(r"^(gh)$")
 GH_VERBS = {"api", "run", "pr", "issue", "release", "workflow", "label", "search", "cache"}
 API_TEXT = re.compile(r"api\.github\.com")
 API_URL_VALUE = re.compile(r"github\.api_url|api\.github\.com|\$\{?GITHUB_API_URL\b")
-SCRIPT_PATH = re.compile(r"^(?:\./)?((?:scripts|\.github)/[\w./-]+\.(?:sh|bash|py|js|mjs|cjs|ts))$")
+# Workflows sometimes check out the main-branch copy of a helper under a
+# tooling directory before running it. Keep following that helper for token
+# accounting while resolving it against the repository root.
+SCRIPT_PATH = re.compile(r"^(?:\./)?(?:\.tick-tooling/)?((?:scripts|\.github)/[\w./-]+\.(?:sh|bash|py|js|mjs|cjs|ts))$")
 INTERPRETERS = {"bash", "sh", "python", "python3", "node", "bun", "ruby", "source", "."}
 SEPARATORS = {";", "&&", "||", "|", "(", "$(", "{", "then", "else", "elif", "do", "!", "`", "&", "if", "while",
               "until", "time"}
@@ -88,8 +112,14 @@ def calls_with_own_token(step: dict, job: dict, workflow: dict, script: str = ""
 def shell_words(text: str) -> list[tuple[str, int]]:
     """The shell's words and operators with their offsets: quoted text joins its word but is not a
     keyword, comments and heredoc bodies are dropped, and `$(` opens a nested command."""
+    return _shell_words(text, 0, substitution=False)[0]
+
+
+def _shell_words(text: str, i: int, *, substitution: bool) -> tuple[list[tuple[str, int]], int]:
+    """Read from i until the matching substitution close or end of input, keeping absolute offsets."""
     words: list[tuple[str, int]] = []
-    i, n = 0, len(text)
+    n = len(text)
+    depth = 0
     current, start, quoted = "", -1, False
     pending_heredocs: list[tuple[str, bool, int]] = []
 
@@ -142,26 +172,31 @@ def shell_words(text: str) -> list[tuple[str, int]]:
             current, quoted, i = current + text[i + 1:end], True, end + 1
             continue
         if c == '"':
-            j, depth = i + 1, 0
-            while j < n and (text[j] != '"' or depth):
+            j = literal = i + 1
+            pieces = []
+            while j < n and text[j] != '"':
                 if text[j] == "\\":
                     j += 2
-                    continue
-                if text.startswith("$(", j):
-                    depth += 1
-                elif text[j] == ")" and depth:
-                    depth -= 1
-                j += 1
-            inner = text[i + 1:j]
-            # A command substitution inside the quotes is code: read it as its own words.
-            for match in re.finditer(r"\$\(", inner):
-                sub_start = i + 1 + match.start()
-                words.extend(nested_substitution(text, sub_start))
+                elif text.startswith("$(", j):
+                    pieces.append(text[literal:j])
+                    nested, close = _shell_words(text, j + 2, substitution=True)
+                    words.extend(nested)
+                    words.append((";", close))
+                    j = literal = close + 1
+                else:
+                    j += 1
+            pieces.append(text[literal:j])
             if start < 0:
                 start = i
-            current, quoted, i = current + re.sub(r"\$\([^)]*\)?", "", inner), True, j + 1
+            current, quoted, i = current + "".join(pieces), True, j + 1
             continue
-        if text.startswith("<<", i) and not text.startswith("<<<", i):
+        if text.startswith("<<<", i):
+            # Consume the entire here-string operator so its last two characters cannot open a heredoc.
+            flush()
+            words.append(("<<<", i))
+            i += 3
+            continue
+        if text.startswith("<<", i):
             flush()
             m = re.match(r"<<(-?)\s*(['\"]?)([A-Za-z_][\w]*)\2", text[i:])
             if m:
@@ -172,6 +207,13 @@ def shell_words(text: str) -> list[tuple[str, int]]:
         for op in ("$(", "&&", "||", ";;", ";", "|", "(", ")", "`", "&", "{", "}"):
             if text.startswith(op, i) and (op not in "{}" or start < 0 and (i + 1 >= n or text[i + 1] in " \t\n;")):
                 flush()
+                if substitution:
+                    if op == ")" and depth == 0:
+                        return words, i
+                    if op in ("$(", "("):
+                        depth += 1
+                    elif op == ")":
+                        depth -= 1
                 words.append((op, i))
                 i += len(op)
                 break
@@ -181,23 +223,7 @@ def shell_words(text: str) -> list[tuple[str, int]]:
             current += c
             i += 1
     flush()
-    return words
-
-
-def nested_substitution(text: str, at: int) -> list[tuple[str, int]]:
-    """The words of the `$(...)` that starts at `at`, offsets kept."""
-    depth, j = 0, at
-    while j < len(text):
-        if text.startswith("$(", j):
-            depth += 1
-            j += 2
-            continue
-        if text[j] == ")":
-            depth -= 1
-            if depth == 0:
-                break
-        j += 1
-    return [(word, at + 2 + offset) for word, offset in shell_words(text[at + 2:j])] + [(";", j)]
+    return words, n
 
 
 def command_positions(words: list[tuple[str, int]]) -> list[bool]:
@@ -472,9 +498,19 @@ def dotted(node: ast.AST) -> str:
     return ""
 
 
+def python_http_call(name: str) -> bool:
+    """Whether a dotted callable name makes an HTTP call: urlopen, or deadline_http.request or .stream (a
+    download read as it comes), the transport scripts/ci calls instead of urlopen
+    (tests/test_ci_no_bare_urlopen.py)."""
+    if name.endswith("urlopen"):
+        return True
+    return any(name == f"deadline_http.{call}" or name.endswith(f".deadline_http.{call}")
+               for call in ("request", "stream"))
+
+
 def python_call_is_api(call: ast.Call) -> bool:
     name = dotted(call.func)
-    if name.endswith("urlopen") or name.split(".")[-1] in ("gh_json", "gh_api", "gh_run", "gh_items"):
+    if python_http_call(name) or name.split(".")[-1] in ("gh_json", "gh_api", "gh_run", "gh_items"):
         return True
     for arg in call.args:
         if isinstance(arg, ast.List) and len(arg.elts) >= 2 and isinstance(arg.elts[0], ast.Constant) \
@@ -538,7 +574,7 @@ def python_polls(text: str) -> str | None:
             bodies += methods.get(last, [])
         for target in aliases.get(last, ()):
             short = target.split(".")[-1]
-            api = api or target.endswith("urlopen") or short in ("gh_json", "gh_api", "gh_run", "gh_items")
+            api = api or python_http_call(target) or short in ("gh_json", "gh_api", "gh_run", "gh_items")
             if short in functions:
                 bodies.append(functions[short])
             bodies += methods.get(short, [])

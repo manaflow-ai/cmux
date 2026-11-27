@@ -9,6 +9,14 @@
 //! changing the account, and the harness refreshes its own tokens. Token
 //! files with no account field count by presence (a logout removes them). Values are
 //! hashed in memory and never stored or logged.
+//!
+//! Where the harness sends its requests counts too: a pooled Claude started before
+//! `~/.claude/settings.json` pointed it at another endpoint, or before the person chose their own
+//! sign-in over the team's model plane (`codex_cloud_auth::CHOICE_DIR`), keeps the route it
+//! started with (`hub/spawn.rs` decides team mode once, at spawn). Served later, it answered from
+//! the old route: the cloud journey's stub chat got no reply, or a real model's (9 of 9 runs from
+//! 2026-11-26 00:20Z). So the endpoint env, Claude's settings keys that move the endpoint or the
+//! credential, and the own-or-team choice are in the fingerprint.
 
 use std::collections::BTreeMap;
 use std::hash::{Hash, Hasher};
@@ -24,6 +32,7 @@ mod tests;
 const AUTH_ENV: &[&str] = &[
     "ANTHROPIC_API_KEY",
     "ANTHROPIC_AUTH_TOKEN",
+    "ANTHROPIC_BASE_URL",
     "CLAUDE_CODE_OAUTH_TOKEN",
     "CLAUDE_CONFIG_DIR",
     "OPENAI_API_KEY",
@@ -31,19 +40,78 @@ const AUTH_ENV: &[&str] = &[
     "CODEX_HOME",
     "XDG_DATA_HOME",
     "OPENCODE_CONFIG",
+    "GEMINI_API_KEY",
+    "GEMINI_CLI_HOME",
+    "GOOGLE_API_KEY",
+    "XAI_API_KEY",
+    "GROK_HOME",
 ];
+
+/// Env keys that say where a harness sends its requests, and the own-or-team pins
+/// (`claude_cloud_auth.rs`, `provider_cloud_auth.rs`). A route, not a login, so not in
+/// [`AUTH_ENV`] (whose keys each name an owner family, `agent/foreign_login.rs`).
+const ROUTE_ENV: &[&str] = &[
+    "ANTHROPIC_BASE_URL",
+    "CLAUDE_CODE_USE_BEDROCK",
+    "CLAUDE_CODE_USE_VERTEX",
+    "CLAUDE_CODE_USE_FOUNDRY",
+    "OPENAI_BASE_URL",
+    "GOOGLE_GEMINI_BASE_URL",
+    "GROK_MODELS_BASE_URL",
+    "GROK_XAI_API_BASE_URL",
+    "CMUX_CLAUDE_AUTH",
+    "CMUX_CODEX_AUTH",
+    "CMUX_GEMINI_AUTH",
+    "CMUX_GROK_AUTH",
+    "CMUX_ANTIGRAVITY_AUTH",
+];
+
+/// The `~/.claude/settings.json` keys that move Claude's endpoint or credential: these `env`
+/// entries and the credential helpers (`claude_cloud_auth.rs` reads the same to keep own mode).
+const CLAUDE_SETTINGS_ENV: &[&str] = &[
+    "ANTHROPIC_BASE_URL",
+    "ANTHROPIC_API_KEY",
+    "ANTHROPIC_AUTH_TOKEN",
+    "CLAUDE_CODE_OAUTH_TOKEN",
+    "CLAUDE_CODE_USE_BEDROCK",
+    "CLAUDE_CODE_USE_VERTEX",
+    "CLAUDE_CODE_USE_FOUNDRY",
+];
+const CLAUDE_SETTINGS_HELPERS: &[&str] = &["apiKeyHelper", "awsCredentialExport", "awsAuthRefresh"];
 
 /// Where one family keeps its login, and how to read the account from it.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum Reader {
     /// `~/.claude.json`: OAuth account/organization and a saved `primaryApiKey`.
     ClaudeAccount,
+    /// Claude Code's `settings.json`: the login and endpoint its `env` sets (`ANTHROPIC_API_KEY` from
+    /// `agent_login`'s api_key, an `ANTHROPIC_BASE_URL` gateway) and its `apiKeyHelper`. Claude reads
+    /// them at start, so a spare started before they changed talks to the old endpoint or login (a
+    /// Cloud machine pointed at a model gateway got a 401 from the spare warmed a moment before).
+    /// Reads the keys in [`CLAUDE_SETTINGS_ENV`] and [`CLAUDE_SETTINGS_HELPERS`]. Not an account: it
+    /// changes the key, never the account fingerprint.
+    ClaudeSettings,
     /// Codex `auth.json`: `auth_mode`, `tokens.account_id`, `OPENAI_API_KEY`.
     CodexAuth,
     /// OpenCode `auth.json`: each provider's type, account and key.
     OpencodeAuth,
+    /// Gemini CLI `google_accounts.json`: the signed-in Google account (`active`).
+    GeminiAccounts,
+    /// grok's `auth.json`: the account fields it carries (never its tokens), so a token refresh keeps
+    /// the session and another account does not.
+    GrokAuth,
     /// No account field (token files): present or not.
     Stat,
+    /// The agent's file in `codex_cloud_auth::CHOICE_DIR`: `own` or `team`. A route, not an account.
+    Choice,
+}
+
+impl Reader {
+    /// Whether the file names the account the session runs under (the fingerprint's account
+    /// part), rather than counting by presence or naming a route.
+    fn names_account(self) -> bool {
+        !matches!(self, Reader::Stat | Reader::ClaudeSettings | Reader::Choice)
+    }
 }
 
 fn files(
@@ -55,6 +123,20 @@ fn files(
         .filter(|value| !value.is_empty())
         .map(PathBuf::from)
         .unwrap_or_else(|| home.to_path_buf());
+    let mut files = login_files(family, env, &home);
+    if !files.is_empty() {
+        // The image's own-or-team choice (`agent_login.rs` `choose_own`, `cr use`).
+        files.push((home.join(crate::codex_cloud_auth::CHOICE_DIR).join(family), Reader::Choice));
+    }
+    files
+}
+
+fn login_files(
+    family: &str,
+    env: &dyn Fn(&str) -> Option<String>,
+    home: &Path,
+) -> Vec<(PathBuf, Reader)> {
+    let home = home.to_path_buf();
     match family {
         "claude" => {
             let dir = env("CLAUDE_CONFIG_DIR").filter(|value| !value.is_empty()).map(PathBuf::from);
@@ -62,8 +144,12 @@ fn files(
                 Some(d) => d.join(".claude.json"),
                 None => home.join(".claude.json"),
             };
-            let creds = dir.unwrap_or_else(|| home.join(".claude")).join(".credentials.json");
-            vec![(account, Reader::ClaudeAccount), (creds, Reader::Stat)]
+            let dir = dir.unwrap_or_else(|| home.join(".claude"));
+            vec![
+                (account, Reader::ClaudeAccount),
+                (dir.join(".credentials.json"), Reader::Stat),
+                (dir.join("settings.json"), Reader::ClaudeSettings),
+            ]
         }
         "codex" => {
             let dir = env("CODEX_HOME")
@@ -79,6 +165,26 @@ fn files(
                 .filter(|path| path.is_absolute())
                 .unwrap_or_else(|| home.join(".local/share"));
             vec![(data.join("opencode/auth.json"), Reader::OpencodeAuth)]
+        }
+        "gemini" => {
+            // Gemini CLI reads `GEMINI_CLI_HOME` as its home: the login is under its `.gemini`.
+            let dir = env("GEMINI_CLI_HOME")
+                .filter(|value| !value.is_empty())
+                .map(PathBuf::from)
+                .unwrap_or_else(|| home.clone())
+                .join(".gemini");
+            vec![
+                (dir.join("google_accounts.json"), Reader::GeminiAccounts),
+                (dir.join("oauth_creds.json"), Reader::Stat),
+            ]
+        }
+        "grok" => {
+            // xAI's grok CLI: `GROK_HOME` is its `~/.grok`; `grok login` writes `auth.json`.
+            let dir = env("GROK_HOME")
+                .filter(|value| !value.is_empty())
+                .map(PathBuf::from)
+                .unwrap_or_else(|| home.join(".grok"));
+            vec![(dir.join("auth.json"), Reader::GrokAuth)]
         }
         _ => vec![],
     }
@@ -124,14 +230,14 @@ impl AuthCache {
         let mut account = std::collections::hash_map::DefaultHasher::new();
         let mut named = false;
         family.hash(&mut h);
-        for k in AUTH_ENV {
+        for k in AUTH_ENV.iter().chain(ROUTE_ENV) {
             (k, env(k)).hash(&mut h);
         }
         for (path, reader) in files(family, env, home) {
             path.hash(&mut h);
             let part = self.file_part(&path, reader);
             part.hash(&mut h);
-            if reader != Reader::Stat && part != 0 {
+            if reader.names_account() && part != 0 {
                 named = true;
                 part.hash(&mut account);
             }
@@ -172,6 +278,10 @@ impl AuthCache {
 
 fn account_part(reader: Reader, bytes: &[u8]) -> u64 {
     let mut h = std::collections::hash_map::DefaultHasher::new();
+    if reader == Reader::Choice {
+        String::from_utf8_lossy(bytes).trim().hash(&mut h);
+        return h.finish() | 1;
+    }
     let Ok(v) = serde_json::from_slice::<serde_json::Value>(bytes) else {
         // Unreadable JSON: the bytes themselves, so any change counts.
         bytes.hash(&mut h);
@@ -199,8 +309,47 @@ fn account_part(reader: Reader, bytes: &[u8]) -> u64 {
                 }
             }
         }
-        // Never parsed (`file_part` counts presence only).
-        Reader::Stat => {}
+        Reader::GeminiAccounts => s(&v, "/active").hash(&mut h),
+        Reader::ClaudeSettings => {
+            for k in CLAUDE_SETTINGS_ENV {
+                s(&v, &format!("/env/{k}")).hash(&mut h);
+            }
+            for k in CLAUDE_SETTINGS_HELPERS {
+                s(&v, &format!("/{k}")).hash(&mut h);
+            }
+        }
+        Reader::GrokAuth => {
+            // Its schema is grok's own: every account-shaped field it has, at the top or one level down.
+            const IDS: [&str; 8] = [
+                "user_id",
+                "userId",
+                "account_id",
+                "accountId",
+                "email",
+                "sub",
+                "team_id",
+                "teamId",
+            ];
+            let mut ids = Vec::new();
+            let mut scan = |o: &serde_json::Map<String, serde_json::Value>, at: &str| {
+                for id in IDS {
+                    if let Some(x) = o.get(id) {
+                        ids.push((at.to_owned(), id, x.to_string()));
+                    }
+                }
+            };
+            if let Some(top) = v.as_object() {
+                scan(top, "");
+                for (k, x) in top {
+                    if let Some(inner) = x.as_object() {
+                        scan(inner, k);
+                    }
+                }
+            }
+            ids.hash(&mut h);
+        }
+        // Never parsed (`file_part` counts presence only); a choice is read above.
+        Reader::Stat | Reader::Choice => {}
     }
     h.finish() | 1
 }

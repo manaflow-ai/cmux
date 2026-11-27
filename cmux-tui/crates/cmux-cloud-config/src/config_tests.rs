@@ -99,6 +99,18 @@ fn only_known_untouched_defaults_keep_their_old_locations() {
     let legacy = production.namespaced_legacy_store.expect("legacy store");
     assert_eq!(legacy.keychain_service, "com.cmuxterm.app.nightly.cmux-next.auth.backend-0");
     assert_eq!(legacy.credentials_subpath.last().map(String::as_str), Some("backend-0"));
+    // Scoped stores are NEXT's own, under `cmux-next`; the unscoped one above is shared with
+    // classic cmux of the same bundle id and stays in classic's folder.
+    assert_eq!(
+        legacy.credentials_subpath,
+        [
+            "Library",
+            "Application Support",
+            "cmux-next",
+            "com.cmuxterm.app.nightly.cmux-next",
+            "backend-0"
+        ]
+    );
 
     let signed_dev = configure(
         selection(
@@ -120,6 +132,7 @@ fn only_known_untouched_defaults_keep_their_old_locations() {
         Some("development-project-fixture")
     );
     assert_eq!(signed_dev.namespaced_legacy_store, None);
+    assert_eq!(signed_dev.storage.credentials_subpath[2], "cmux-next");
     let switched =
         configure(selection("dev", NEXT_DEV_BUNDLE_ID, "backend-1", false, Some("x")), &[], false);
     assert_eq!(switched.storage.keychain_service, "com.cmuxterm.app.debug.next.auth.backend-1");
@@ -170,24 +183,70 @@ fn the_callback_scheme_follows_the_build() {
     );
 }
 
+/// No build takes a running NIGHTLY's session: signed NEXT DEV (`com.cmuxterm.app.debug.next`) is a DEV build
+/// with a build space of its own and signs in on its own (its file store, seeded by
+/// `scripts/cmux-next/dev-signin-token.py`), on staging and on production alike.
 #[test]
-fn only_signed_dev_on_production_adopts_nightlys_session() {
-    assert!(
-        configure(selection("prod", NEXT_DEV_BUNDLE_ID, "n", true, None), &[], false)
-            .adopts_nightly_session
+fn no_build_adopts_nightlys_session() {
+    for (name, bundle_id, debug) in [
+        ("prod", NEXT_DEV_BUNDLE_ID, false),
+        ("dev", NEXT_DEV_BUNDLE_ID, false),
+        ("prod", NEXT_DEV_BUNDLE_ID, true),
+        ("prod", NIGHTLY_BUNDLE_ID, false),
+    ] {
+        let made = serde_json::to_value(configure(
+            selection(name, bundle_id, "n", true, None),
+            &[],
+            debug,
+        ))
+        .expect("a configuration serializes");
+        assert_ne!(
+            made.get("adoptsNightlySession"),
+            Some(&serde_json::Value::Bool(true)),
+            "{bundle_id} on {name} (debug {debug}) adopts NIGHTLY's session"
+        );
+    }
+}
+
+#[test]
+fn team_signed_production_channels_share_one_session_item() {
+    for bundle_id in [RELEASE_BUNDLE_ID, NIGHTLY_BUNDLE_ID, RC_BUNDLE_ID] {
+        let shared = configure(selection("prod", bundle_id, "n", true, None), &[], false)
+            .shared_session
+            .unwrap_or_else(|| panic!("{bundle_id} shares"));
+        // One item for every channel: named by the Stack project, never by the bundle.
+        assert_eq!(shared.keychain_service, "com.cmuxterm.app.shared.auth.staging-project");
+        assert_eq!(shared.access_group, "7WLXT3NR37.com.cmuxterm.app.shared");
+    }
+}
+
+#[test]
+fn no_other_build_shares_the_session_item() {
+    // A development backend: its accounts are not production's.
+    assert_eq!(
+        configure(selection("dev", NIGHTLY_BUNDLE_ID, "n", true, None), &[], false).shared_session,
+        None
     );
-    assert!(
-        !configure(selection("dev", NEXT_DEV_BUNDLE_ID, "n", true, None), &[], false)
-            .adopts_nightly_session
+    // A Debug build, signed ad hoc.
+    assert_eq!(
+        configure(selection("prod", RELEASE_BUNDLE_ID, "n", true, None), &[], true).shared_session,
+        None
     );
-    assert!(
-        !configure(selection("prod", NEXT_DEV_BUNDLE_ID, "n", true, None), &[], true)
-            .adopts_nightly_session
-    );
-    assert!(
-        !configure(selection("prod", NIGHTLY_BUNDLE_ID, "n", true, None), &[], false)
-            .adopts_nightly_session
-    );
+    // Signed NEXT DEV, NEXT Stable and tagged builds embed no profile: no access group.
+    for bundle_id in [
+        NEXT_DEV_BUNDLE_ID,
+        "com.cmuxterm.app.nightly.cmux-next-stable",
+        "com.cmuxterm.app.debug.feature",
+        UNAVAILABLE_BUNDLE_ID,
+    ] {
+        assert_eq!(
+            configure(selection("prod", bundle_id, "n", true, None), &[], false).shared_session,
+            None,
+            "{bundle_id}"
+        );
+    }
+    // No Stack project: no item to name.
+    assert_eq!(shared_session(NIGHTLY_BUNDLE_ID, false, true, ""), None);
 }
 
 #[test]
@@ -206,4 +265,67 @@ fn the_sign_in_url_nests_the_callback_with_its_state() {
 fn the_vm_api_follows_the_backend() {
     assert_eq!(vm_api_base_url(&Backend::Production), PRODUCTION_VM_API);
     assert_eq!(vm_api_base_url(&Backend::Development("https://x".to_owned())), STAGING_VM_API);
+}
+
+#[test]
+fn the_sign_in_screen_names_the_backend() {
+    let label = |backend: Backend| {
+        let label = backend_label(&backend);
+        (label.kind, label.title, label.detail)
+    };
+    let owned = |kind: &str, title: &str, detail: Option<&str>| {
+        (kind.to_owned(), title.to_owned(), detail.map(str::to_owned))
+    };
+    assert_eq!(label(Backend::Production), owned("production", "cmux.com", None));
+    assert_eq!(
+        label(Backend::Development("https://dev-abc.cmux.dev".to_owned())),
+        owned("development", "Development backend", Some("dev-abc.cmux.dev"))
+    );
+    assert_eq!(
+        label(Backend::Development("https://Backend.Example.dev:3850/api".to_owned())),
+        owned("development", "Development backend", Some("backend.example.dev"))
+    );
+    // A selected local backend is `Development` at a loopback origin: local on the screen.
+    assert_eq!(
+        label(Backend::Development("http://localhost:3777".to_owned())),
+        owned("local", "Local backend", Some("localhost:3777"))
+    );
+    assert_eq!(
+        label(Backend::LocalOnly("http://127.0.0.1".to_owned())),
+        owned("local", "Local backend", Some("127.0.0.1"))
+    );
+    assert_eq!(
+        label(Backend::LocalOnly("http://[::1]:9000".to_owned())),
+        owned("local", "Local backend", Some("[::1]:9000"))
+    );
+    // The placeholder's `/dev/null` file URL has no host to name.
+    assert_eq!(
+        label(Backend::LocalOnly("file:///dev/null".to_owned())),
+        owned("local", "Local backend", None)
+    );
+}
+
+#[test]
+fn a_configuration_names_its_backend() {
+    let production = configure(selection("prod", NIGHTLY_BUNDLE_ID, "p", true, None), &[], false);
+    assert_eq!(backend_label(&production.backend).title, PRODUCTION_BACKEND_TITLE);
+    let staging = configure(selection("staging", NEXT_DEV_BUNDLE_ID, "s", false, None), &[], false);
+    let label = backend_label(&staging.backend);
+    assert_eq!(
+        (label.kind.as_str(), label.detail.as_deref()),
+        ("development", Some("backend.standin.invalid"))
+    );
+}
+
+/// The app pinned before cmux#43648 decodes `adoptsNightlySession` as a required `Bool`, so the key stays (false)
+/// until no pinned app reads it (docs/ci/app-ffi-release.md, step A).
+#[test]
+fn the_configuration_still_carries_adopts_nightly_session_for_the_pinned_app() {
+    let made = serde_json::to_value(configure(
+        selection("prod", NEXT_DEV_BUNDLE_ID, "n", true, None),
+        &[],
+        false,
+    ))
+    .expect("a configuration serializes");
+    assert_eq!(made.get("adoptsNightlySession"), Some(&serde_json::Value::Bool(false)));
 }

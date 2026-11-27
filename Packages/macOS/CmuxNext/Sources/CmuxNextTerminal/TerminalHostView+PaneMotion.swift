@@ -20,7 +20,15 @@ extension TerminalHostView: PaneResizeGestureFollowing {
     /// Out of its window no drag's end may reach it (its layout root can go first): a surface it shows later follows none.
     public override func viewDidMoveToWindow() {
         super.viewDidMoveToWindow()
-        if window == nil { followsResizeGesture = false }
+        // In a window the host knows the pane it is in: a pane whose ground a view above paints gets none here, and a
+        // host that gave its ground to an owner that is not above it now paints its own again. A host over a floating
+        // pane's solid card paints for that card (`hasSolidGroundUnder`).
+        guard window != nil else {
+            followsResizeGesture = false
+            return
+        }
+        let owner = paneGroundOwner
+        if owner?.ownsContentGround == true || owner?.hasSolidGroundUnder == true || ownedGround != nil { paintGround() }
     }
 }
 

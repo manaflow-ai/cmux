@@ -11,6 +11,7 @@ import { JSDOM } from "jsdom";
 import { act } from "react";
 import type { Root } from "react-dom/client";
 import type { PromptContentPart } from "../src/agent-session/acpmux/model";
+import { teardownDom } from "./support/domTeardown";
 
 const scope = globalThis as Record<string, unknown>;
 const keys = [
@@ -18,6 +19,8 @@ const keys = [
   "document",
   "navigator",
   "HTMLElement",
+  // A Markdown code block's renderer defines a custom element when it loads.
+  "customElements",
   "IS_REACT_ACT_ENVIRONMENT",
   "Node",
   "Element",
@@ -45,6 +48,7 @@ beforeAll(() => {
     document: window.document,
     navigator: window.navigator,
     HTMLElement: window.HTMLElement,
+    customElements: window.customElements,
     IS_REACT_ACT_ENVIRONMENT: true,
     Node: window.Node,
     Element: window.Element,
@@ -62,12 +66,8 @@ afterEach(() => {
   host.replaceChildren();
 });
 
-afterAll(() => {
-  dom.window.close();
-  for (const [key, had, value] of saved) {
-    if (had) scope[key] = value;
-    else delete scope[key];
-  }
+afterAll(async () => {
+  await teardownDom(saved, { window: dom.window, scope });
 });
 
 /// The report Leo pasted, as UIInspectorController.swift pageReport writes it.

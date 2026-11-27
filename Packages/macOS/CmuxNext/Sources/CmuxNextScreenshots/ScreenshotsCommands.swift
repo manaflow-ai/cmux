@@ -1,4 +1,5 @@
 public import AppKit
+import CCmuxScreenshots
 public import CmuxNextFileGrid
 public import CmuxNextFiles
 
@@ -70,8 +71,11 @@ public final class ScreenshotsCommands {
     /// - Throws: ``FileBrowserError`` (invalid or taken name, failure).
     @discardableResult
     public func rename(_ item: FileGridItem, to name: String, undo: UndoManager?) async throws -> URL {
-        let trimmed = name.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard trimmed != item.name else { return item.url }
+        let current = item.name
+        let typed = ScreenshotsFFI.bytes(current) { current, currentCount in
+            ScreenshotsFFI.bytes(name) { ScreenshotsFFI.take(cmux_screenshots_rename_target(current, currentCount, $0, $1)) }
+        }
+        guard let trimmed = typed else { return item.url }
         let target = try await files.rename(item.url, to: trimmed)
         registerUndo(on: undo) { files in try await files.move([(from: target, to: item.url)]) }
         return target
@@ -134,9 +138,12 @@ public final class ScreenshotsCommands {
         }
     }
 
+    /// A failed rename in plain words (``ScreenshotsStrings/reason(_:)``), never the system's error text.
     private func show(_ error: any Error, in window: NSWindow?) {
         // dialog-keys-exempt: CmuxNextScreenshots reaches no CmuxDialogCenter (it depends on CmuxNextFileGrid and CmuxNextFiles only); move to a dialog seam with the Finder pane
-        let alert = NSAlert(error: error)
+        let alert = NSAlert()
+        alert.messageText = ScreenshotsStrings.renameFailed
+        alert.informativeText = ScreenshotsStrings.reason(error)
         if let window { alert.beginSheetModal(for: window) } else { alert.runModal() }
     }
 

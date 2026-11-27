@@ -4,7 +4,6 @@
 from __future__ import annotations
 
 import importlib.util
-import hashlib
 import io
 import json
 import sys
@@ -410,6 +409,41 @@ fn internal() { let surface_id: u64 = 4; }
                 ("boundary.surface", 4),
                 ("boundary.surface", 5),
             ])
+
+    def test_cli_allows_terminal_identity_env_names_from_the_rust_table_only(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            tui = Path(directory)
+            write(
+                tui / CHECKER.TERMINAL_IDENTITY_ENV_SOURCE,
+                """\
+pub const EXCLUDED_KEYS: [&str; 3] = [
+    "PWD",
+    "CMUX_SURFACE_ID",
+    "CMUX_TAB_ID",
+];
+""",
+            )
+            write(
+                tui / "crates/cmux-tui/src/cli/last_chat.rs",
+                """\
+const KEYS: [&str; 2] = ["CMUX_TUI_TERMINAL_ID", "CMUX_SURFACE_ID"];
+const MADE_UP: &str = "CMUX_SURFACE_NAME";
+const HELP: &str = "cmux list-surfaces";
+""",
+            )
+
+            diagnostics, _ = CHECKER.scan_public_boundaries(tui)
+
+            self.assertEqual(
+                CHECKER.terminal_identity_env_names(tui),
+                frozenset({"CMUX_SURFACE_ID", "CMUX_TAB_ID"}),
+            )
+            self.assertEqual([item.line for item in diagnostics], [2, 3])
+            self.assertEqual({item.code for item in diagnostics}, {"boundary.surface"})
+            self.assertIn("EXCLUDED_KEYS", diagnostics[0].message)
+
+    def test_live_terminal_identity_env_table_names_cmux_surface_id(self) -> None:
+        self.assertIn("CMUX_SURFACE_ID", CHECKER.terminal_identity_env_names(CHECKER.TUI))
 
     def test_cli_allows_relay_transport_slot_but_rejects_resource_slot(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
@@ -1219,94 +1253,6 @@ class ContractRegistryTests(unittest.TestCase):
 
             self.assertTrue(any("forbidden public identity field" in item for item in messages), messages)
             self.assertTrue(any("RendererGrantResult.fields.token must be sensitive" in item for item in messages), messages)
-
-    def test_sdk_descriptor_operation_class_drift_is_rejected(self) -> None:
-        with tempfile.TemporaryDirectory() as directory:
-            tui = Path(directory)
-            matching_contract(tui, ["workspace.list"])
-            write(
-                tui / "bindings/python/.cmux-resource-api.json",
-                json.dumps(
-                    {
-                        "protocol": "cmux.protocol/2",
-                        "catalog_sha256": hashlib.sha256(
-                            json.dumps(
-                                json.loads(
-                                    (tui / "spec/resource-operations-v2.json").read_text(
-                                        encoding="utf-8"
-                                    )
-                                ),
-                                sort_keys=True,
-                                separators=(",", ":"),
-                                ensure_ascii=False,
-                            ).encode("utf-8")
-                        ).hexdigest(),
-                        "operations": {
-                            "workspace.list": {"class": "mutation"},
-                        },
-                    },
-                    indent=2,
-                )
-                + "\n",
-            )
-
-            diagnostics = CHECKER.check_contracts(tui)
-
-            self.assertTrue(
-                any(
-                    item.code == "boundary.operation-class"
-                    and "SDK descriptor" in item.message
-                    for item in diagnostics
-                ),
-                diagnostics,
-            )
-
-    def test_sdk_descriptor_catalog_hash_drift_is_rejected(self) -> None:
-        with tempfile.TemporaryDirectory() as directory:
-            tui = Path(directory)
-            matching_contract(tui, ["workspace.list"])
-            write(
-                tui / "bindings/python/.cmux-resource-api.json",
-                json.dumps(
-                    {
-                        "protocol": "cmux.protocol/2",
-                        "catalog_sha256": "0" * 64,
-                        "operations": {
-                            "workspace.list": {"class": "read"},
-                        },
-                    },
-                    indent=2,
-                )
-                + "\n",
-            )
-
-            diagnostics = CHECKER.check_contracts(tui)
-
-            self.assertTrue(
-                any(
-                    item.code == "boundary.sdk-descriptor"
-                    and "catalog_sha256" in item.message
-                    for item in diagnostics
-                ),
-                diagnostics,
-            )
-
-    def test_existing_high_level_sdk_requires_catalog_descriptor(self) -> None:
-        with tempfile.TemporaryDirectory() as directory:
-            tui = Path(directory)
-            matching_contract(tui, ["workspace.list"])
-            write(tui / "bindings/python/cmux/__init__.py", "")
-
-            diagnostics = CHECKER.check_contracts(tui)
-
-            self.assertTrue(
-                any(
-                    item.code == "boundary.sdk-descriptor"
-                    and "python high-level SDK is missing" in item.message
-                    for item in diagnostics
-                ),
-                diagnostics,
-            )
 
 
 if __name__ == "__main__":

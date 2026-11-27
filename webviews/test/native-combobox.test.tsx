@@ -10,6 +10,7 @@ import { Select } from "../src/ui/Select";
 import { comboboxDescription, selectDescription } from "../src/ui/popupDescriptors";
 import type { PopupHost } from "../src/ui/popupHost";
 import type { NativePopupEvent, NativePopupModel } from "../src/ui/nativePopup";
+import { settleReact } from "./support/domTeardown";
 
 const menuModel = {
   side: "bottom" as const,
@@ -50,9 +51,10 @@ function installDom(): HTMLElement {
   return dom.window.document.getElementById("root")!;
 }
 
-afterEach(() => {
+afterEach(async () => {
   if (root) act(() => root!.unmount());
   root = undefined;
+  await settleReact();
   dom?.window.close();
   dom = undefined;
   for (const [key, value] of saved) {

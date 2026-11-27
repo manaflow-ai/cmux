@@ -25,7 +25,13 @@
 //! freshly booted Cloud machine) starts them again once startup is done
 //! (`restore_spares`). A spare whose agent died is removed at the pool's next
 //! RSS tick (`spare_replace_dead`) and started again by the spare worker, in its
-//! harness's newest shape. Only a session that could have taken a pooled agent
+//! harness's newest shape. A spare that idled out (or a config reload drained) starts
+//! again when the person is back: the first request on the person's own connection (the app's
+//! pane, or a connection that proved the person key; never a script's, an agent's or a remote
+//! one) that finds a remembered harness without a spare wants it (`spare_on_person_request`),
+//! so a daemon relaunched while the person was away has one ready for their next new chat. The
+//! idle exit keeps its meaning: an unused spare still ends after `pool.spareIdleMinutes`, and
+//! nothing starts it again until the person shows up. Only a session that could have taken a pooled agent
 //! (no env, route, disallowed tools or extra folders of its own) is remembered,
 //! with its model request. Off with `pool.spare: false` or
 //! `ACPMUX_SPARE_HARNESS=0` in the daemon's environment.
@@ -35,6 +41,9 @@ use super::*;
 /// A remembered harness older than this starts no spare at daemon start.
 const RECENT: Duration = Duration::from_secs(7 * 24 * 3600);
 const FILE: &str = "pool-spares.json";
+/// A spare a person request wanted and the pool refused (off, over the RSS cap, no spec) is
+/// tried again by a person request no sooner than this, so the app's requests never redo it.
+const PRESENCE_RETRY: Duration = Duration::from_secs(60);
 
 /// One remembered harness in `pool-spares.json`.
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
@@ -76,10 +85,63 @@ pub(super) fn remember(list: &mut Vec<Remembered>, entry: Remembered) {
     list.push(entry);
 }
 
+/// `list` after a reserve in `folder` (`Hub::spare_home_shapes`): each of `given` remembered in
+/// `folder` as used at `now_ms`, and each remembered shape in another home chat's folder under
+/// `home` moved to `folder`, keeping its use time (so it ages out as it did).
+pub(super) fn home_shapes(
+    list: &mut Vec<Remembered>,
+    home: &Path,
+    folder: &Path,
+    given: Vec<super::reserved::HomeShape>,
+    now_ms: u64,
+) {
+    for r in list.iter_mut() {
+        if r.cwd != folder && super::reserved::is_home_chat_folder(home, &r.cwd) {
+            r.cwd = folder.to_path_buf();
+        }
+    }
+    for s in given {
+        remember(
+            list,
+            Remembered {
+                harness: s.harness,
+                preset: s.preset,
+                cwd: folder.to_path_buf(),
+                model: s.model,
+                used_at_ms: now_ms,
+            },
+        );
+    }
+}
+
 /// The remembered shapes still recent at `now_ms`.
 pub(super) fn recent(list: &[Remembered], now_ms: u64) -> Vec<Remembered> {
     let window = u64::try_from(RECENT.as_millis()).unwrap_or(u64::MAX);
     list.iter().filter(|r| now_ms.saturating_sub(r.used_at_ms) <= window).cloned().collect()
+}
+
+/// The recent remembered shapes at `now_ms` whose harness has no spare (`has_spare`): warming
+/// and ready spares both count, so a spare is never wanted twice.
+pub(super) fn missing(
+    list: &[Remembered],
+    now_ms: u64,
+    has_spare: impl Fn(&str) -> bool,
+) -> Vec<Remembered> {
+    recent(list, now_ms).into_iter().filter(|r| !has_spare(&r.harness)).collect()
+}
+
+/// The person's recent shapes in this machine's `pool-spares.json` (`acpmux spare-shapes`):
+/// newest first, at most 4, folders left out. One reader with the Mac app's (cmux-cloud-start-core
+/// `spare_shapes`, which builds the Cloud machine's `warm-home --shape` command from them).
+pub fn person_spare_shapes() -> Vec<Value> {
+    cmux_cloud_start_core::spare_shapes::read(
+        &crate::config::home(),
+        now_ms(),
+        std::env::var(cmux_cloud_start_core::spare_shapes::SWITCH).ok().as_deref(),
+    )
+    .into_iter()
+    .filter_map(|s| serde_json::to_value(s).ok())
+    .collect()
 }
 
 fn read_file(path: &Path) -> Vec<Remembered> {
@@ -95,9 +157,9 @@ fn write_file(path: &Path, spares: Vec<Remembered>) -> std::io::Result<()> {
     let bytes = serde_json::to_vec(&SpareFile { spares }).map_err(std::io::Error::other)?;
     let n = SEQ.fetch_add(1, Ordering::Relaxed);
     let tmp = path.with_extension(format!("json.{}.{n}.tmp", std::process::id()));
-    std::fs::write(&tmp, bytes)?;
-    std::fs::rename(&tmp, path).inspect_err(|_| {
-        let _ = std::fs::remove_file(&tmp);
+    crate::home_fs::write(&tmp, bytes)?;
+    crate::home_fs::rename(&tmp, path).inspect_err(|_| {
+        let _ = crate::home_fs::remove_file(&tmp);
     })
 }
 
@@ -140,6 +202,19 @@ impl Hub {
             if !hub.spare_enabled().await {
                 return;
             }
+            let mut entry = entry;
+            // A home chat took its reserved folder: its harness's spare waits in the next one,
+            // which the next home chat takes (`reserved.rs`, personal spares).
+            if crate::config::spare_personal_enabled()
+                && let Some(home) = dirs::home_dir()
+                && super::reserved::is_home_chat_folder(&home, &entry.cwd)
+                && let Ok(Some(next)) = tokio::task::spawn_blocking(move || {
+                    super::reserved::ensure_folder_serial(&home)
+                })
+                .await
+            {
+                entry.cwd = next;
+            }
             let harness = entry.harness.clone();
             let h = hub.clone();
             let Ok(list) =
@@ -157,10 +232,60 @@ impl Hub {
     /// Want the spare for this shape (its start runs in the background).
     async fn spare_want(self: &Arc<Self>, r: Remembered) {
         let Remembered { harness, preset, cwd, model, .. } = r;
-        match self.pool_spec_in(Some(harness.clone()), preset, cwd, Some(model)).await {
+        match self
+            .pool_spec_in(Some(harness.clone()), preset, cwd, Some(model), &PrewarmShape::default())
+            .await
+        {
             Ok(spec) => self.pool_want(Role::Spare, spec).await,
             Err(e) => tracing::debug!(%harness, "no spare: {}", e.message),
         }
+    }
+
+    /// Personal spares in the reserved home `folder` (`reserved.rs`): `given` (the person's
+    /// harnesses and models, from the app) are remembered there, and every recent remembered
+    /// shape still in an earlier home chat's folder under `home` moves there; then each wants
+    /// its spare, but the one of the reserved entry's own key (`reserved`), which is warm
+    /// already. Returns the keys wanted.
+    pub(super) async fn spare_home_shapes(
+        self: &Arc<Self>,
+        home: &Path,
+        folder: &Path,
+        reserved: &PoolKey,
+        given: Vec<super::reserved::HomeShape>,
+    ) -> Vec<PoolKey> {
+        if !self.spare_enabled().await {
+            return Vec::new();
+        }
+        let h = self.clone();
+        let (home, at) = (home.to_path_buf(), folder.to_path_buf());
+        let list = tokio::task::spawn_blocking(move || {
+            h.spares_with(|l| home_shapes(l, &home, &at, given, now_ms()))
+        })
+        .await
+        .unwrap_or_default();
+        let mut wanted = Vec::new();
+        for r in recent(&list, now_ms()).into_iter().filter(|r| r.cwd == folder) {
+            let Remembered { harness, preset, cwd, model, .. } = r;
+            match self
+                .pool_spec_in(
+                    Some(harness.clone()),
+                    preset,
+                    cwd,
+                    Some(model),
+                    &PrewarmShape::default(),
+                )
+                .await
+            {
+                Ok(spec) if &spec.key == reserved => {}
+                Ok(spec) => {
+                    tracing::info!(%harness, "a personal spare starts in the reserved home folder");
+                    wanted.push(spec.key.clone());
+                    self.pool_want(Role::Spare, spec).await;
+                }
+                Err(e) => tracing::debug!(%harness, "no personal spare: {}", e.message),
+            }
+        }
+        wanted
     }
 
     /// Daemon start, once startup is done: a spare for each harness used in the last week, in the
@@ -177,13 +302,64 @@ impl Hub {
         let h = self.clone();
         let list =
             tokio::task::spawn_blocking(move || h.spares_with(|_| {})).await.unwrap_or_default();
-        for r in recent(&list, now_ms()) {
+        self.want_missing_spares(recent(&list, now_ms()), "a harness this machine used").await;
+    }
+
+    /// Want a spare for each shape of `shapes` whose folder exists and whose harness has none
+    /// (a session or another caller may have come first). Returns whether every one of them has
+    /// a spare now (warming or ready); false when the pool refused one.
+    async fn want_missing_spares(self: &Arc<Self>, shapes: Vec<Remembered>, why: &str) -> bool {
+        let mut all = true;
+        for r in shapes {
             if !r.cwd.is_dir() || lock(&self.pool.pool).has_spare(&r.harness) {
                 continue;
             }
-            tracing::info!(harness = %r.harness, "a spare starts for a harness this machine used");
+            let harness = r.harness.clone();
+            tracing::info!(%harness, "a spare starts: {why}");
             self.spare_want(r).await;
+            all &= lock(&self.pool.pool).has_spare(&harness);
         }
+        all
+    }
+
+    /// A request on the person's own connection (`server/requests.rs` `handle_request`: the
+    /// app's pane or a proven person, never a script, an agent or a remote client): the person
+    /// is here, so a remembered harness whose spare idled out or was drained gets it again now,
+    /// before their next new chat asks for it. Cheap when nothing is missing (two locks, no
+    /// await), since every request of the app comes here; one check runs at a time, and one the
+    /// pool refused waits [`PRESENCE_RETRY`]. Before startup is done `restore_spares` does this.
+    pub(crate) fn spare_on_person_request(self: &Arc<Self>) {
+        if !*self.startup_ready.borrow()
+            || self.pool.stopping.load(Ordering::SeqCst)
+            || self.stopping.load(Ordering::SeqCst)
+        {
+            return;
+        }
+        // Read at startup (`restore_spares`) or at a session's use; unread means spares are off
+        // or no harness was used, and nothing is missing.
+        let Some(list) = lock(&self.pool.spares).clone() else { return };
+        let wanted = {
+            let pool = lock(&self.pool.pool);
+            missing(&list, now_ms(), |h| pool.has_spare(h))
+        };
+        if wanted.is_empty() {
+            return;
+        }
+        if lock(&self.pool.spare_presence_retry_at).is_some_and(|at| std::time::Instant::now() < at)
+        {
+            return;
+        }
+        if self.pool.spare_presence_busy.swap(true, Ordering::SeqCst) {
+            return;
+        }
+        let hub = self.clone();
+        self.scope.spawn_named("spare-presence", async move {
+            let all = hub.spare_enabled().await
+                && hub.want_missing_spares(wanted, "the person is back").await;
+            *lock(&hub.pool.spare_presence_retry_at) =
+                (!all).then(|| std::time::Instant::now() + PRESENCE_RETRY);
+            hub.pool.spare_presence_busy.store(false, Ordering::SeqCst);
+        });
     }
 
     /// Ready entries whose agent died are removed (their hosts ended); each spare among them
@@ -259,50 +435,5 @@ impl Hub {
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    fn r(harness: &str, cwd: &str, at: u64) -> Remembered {
-        Remembered {
-            harness: harness.into(),
-            preset: None,
-            cwd: cwd.into(),
-            model: None,
-            used_at_ms: at,
-        }
-    }
-
-    #[test]
-    fn each_harness_is_remembered_once_with_its_newest_folder() {
-        let mut list = vec![r("claude", "/a", 1), r("codex", "/a", 2)];
-        remember(&mut list, r("claude", "/b", 3));
-        assert_eq!(list, vec![r("codex", "/a", 2), r("claude", "/b", 3)]);
-    }
-
-    #[test]
-    fn an_older_shape_arriving_late_never_replaces_a_newer_one() {
-        let mut list = vec![r("claude", "/b", 5)];
-        remember(&mut list, r("claude", "/a", 4));
-        assert_eq!(list, vec![r("claude", "/b", 5)]);
-    }
-
-    #[test]
-    fn only_a_harness_used_in_the_last_week_starts_a_spare() {
-        let week = u64::try_from(RECENT.as_millis()).unwrap();
-        let list = vec![r("claude", "/a", 10), r("codex", "/a", week + 20)];
-        assert_eq!(recent(&list, week + 30), vec![r("codex", "/a", week + 20)]);
-    }
-
-    #[test]
-    fn the_file_round_trips_and_a_bad_file_reads_as_none() {
-        let dir = std::env::temp_dir().join(format!("acpmux-spares-{}", uuid::Uuid::now_v7()));
-        std::fs::create_dir_all(&dir).unwrap();
-        let path = dir.join(FILE);
-        assert!(read_file(&path).is_empty());
-        write_file(&path, vec![r("claude", "/a", 1)]).unwrap();
-        assert_eq!(read_file(&path), vec![r("claude", "/a", 1)]);
-        std::fs::write(&path, b"{not json").unwrap();
-        assert!(read_file(&path).is_empty());
-        let _ = std::fs::remove_dir_all(&dir);
-    }
-}
+#[path = "spare_tests.rs"]
+mod tests;

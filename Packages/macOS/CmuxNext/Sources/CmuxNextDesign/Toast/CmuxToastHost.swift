@@ -18,7 +18,7 @@ public nonisolated struct CmuxToastShown: Equatable, Sendable {
     }
 }
 
-/// Draws a window's toasts (the app's web toast stack, `CmuxToastWebHost`; a recording host in tests).
+/// Draws a window's toasts (the app's native toast views, ``CmuxToastOverlayHost``; a recording host in tests).
 ///
 /// The center owns which toasts show, their order, timers and state; the host only draws them, at the
 /// bottom center of the window, newest at the bottom, and reports the person's clicks and pointer back

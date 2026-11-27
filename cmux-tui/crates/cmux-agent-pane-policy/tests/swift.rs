@@ -1,11 +1,12 @@
-//! policy.json against the macOS host's own tables (CmuxNextAgentPane
-//! `AcpmuxPaneMethods.requests` and `knownParams`), which enforce the pane's
-//! frames today. The Swift side of the parity tests is gone, so these say
-//! when one side gains a method or a param the other lacks: #20644 sent
-//! params only one table knew, and the host refused them (cx-ibngi).
+//! policy.json against the macOS host's hand-written rules that are not
+//! generated from it (the act-as-me covers, the click rule and its window).
+//! The tables `requests`, `knownParams`, the scope tables and `gestureRules`
+//! are generated from policy.json at every build
+//! (scripts/cmux-next/gen-agent-pane-policy-swift.py), so they cannot differ:
+//! #20644 sent params only one table knew, and the host refused them (cx-ibngi).
 
 use cmux_agent_pane_policy::policy;
-use std::collections::{BTreeMap, BTreeSet};
+use std::collections::BTreeSet;
 use std::path::{Path, PathBuf};
 
 fn sources() -> PathBuf {
@@ -34,41 +35,6 @@ fn strings(text: &str) -> Vec<String> {
 }
 
 #[test]
-fn the_requests_are_the_macos_hosts() {
-    let swift: BTreeSet<String> = strings(&block(
-        &read("AcpmuxPaneMethods.swift"),
-        "public static let requests: Set<String> = [",
-        "\n    ]",
-    ))
-    .into_iter()
-    .collect();
-    assert_eq!(policy().requests, swift, "policy.json requests vs AcpmuxPaneMethods.requests");
-}
-
-#[test]
-fn the_known_params_are_the_macos_hosts() {
-    let table = block(
-        &read("AcpmuxPaneMethods+Params.swift"),
-        "static let knownParams: [String: (params: Set<String>, acpmux: Set<String>)] = [",
-        "\n    ]",
-    );
-    // One entry per line: `"method": (["param", ...], ["acpmux key", ...]),`.
-    let mut swift = BTreeMap::new();
-    for line in table.lines().map(str::trim).filter(|line| line.starts_with('"')) {
-        let (method, rest) = line[1..].split_once('"').unwrap_or_else(|| panic!("entry: {line}"));
-        let (params, acpmux) = rest.split_once("], [").unwrap_or_else(|| panic!("entry: {line}"));
-        let set = |text: &str| strings(text).into_iter().collect::<BTreeSet<_>>();
-        swift.insert(method.to_owned(), (set(params), set(acpmux)));
-    }
-    let rust: BTreeMap<_, _> = policy()
-        .known_params
-        .iter()
-        .map(|(method, known)| (method.clone(), (known.params.clone(), known.acpmux.clone())))
-        .collect();
-    assert_eq!(rust, swift, "policy.json known_params vs AcpmuxPaneMethods.knownParams");
-}
-
-#[test]
 fn the_act_as_me_covers_are_the_macos_hosts() {
     let swift: BTreeSet<String> = strings(&block(
         &read("AgentPaneActAsMe.swift"),
@@ -81,5 +47,53 @@ fn the_act_as_me_covers_are_the_macos_hosts() {
         policy().act_as_me_covers,
         swift,
         "policy.json act_as_me_covers vs AgentPaneActAsMe.covers"
+    );
+}
+
+#[test]
+fn the_act_as_me_managed_covers_are_the_macos_hosts() {
+    let swift: BTreeSet<String> = strings(&block(
+        &read("AgentPaneActAsMe.swift"),
+        "public nonisolated static let managedCovers: Set<String> = [",
+        "\n    ]",
+    ))
+    .into_iter()
+    .collect();
+    assert_eq!(
+        policy().act_as_me_managed_covers,
+        swift,
+        "policy.json act_as_me_managed_covers vs AgentPaneActAsMe.managedCovers"
+    );
+}
+
+/// The click rule: the methods the Swift host answers only on a fresh click
+/// (`answerAllowed`'s `answers`) are policy.json `click_only`, which the
+/// frame check refuses without a click (tests/click_only.rs).
+#[test]
+fn the_click_only_methods_are_the_macos_hosts() {
+    let swift: BTreeSet<String> = strings(&block(
+        &read("AcpmuxPaneMethods.swift"),
+        "static func answerAllowed(_ method: String?, _ gestures: AgentPaneUserGestures) -> Bool {",
+        "\n    }",
+    ))
+    .into_iter()
+    .collect();
+    assert!(!swift.is_empty(), "AcpmuxPaneMethods.answerAllowed names no method");
+    assert_eq!(policy().click_only, swift, "policy.json click_only vs answerAllowed");
+}
+
+/// How old a click may be when it answers: policy.json `click_window_ms` is
+/// the Swift host's `AgentPaneUserGestures.answerWindow` (seconds).
+#[test]
+fn the_click_window_is_the_macos_hosts() {
+    let text = read("AgentPaneUserGestures.swift");
+    let declaration = "public static let answerWindow: TimeInterval = ";
+    let at = text.find(declaration).unwrap_or_else(|| panic!("{declaration} not found"));
+    let value = text[at + declaration.len()..].lines().next().unwrap_or("").trim();
+    let seconds: f64 = value.parse().unwrap_or_else(|e| panic!("answerWindow {value}: {e}"));
+    assert_eq!(
+        policy().click_window_ms as f64,
+        seconds * 1000.0,
+        "policy.json click_window_ms vs AgentPaneUserGestures.answerWindow"
     );
 }

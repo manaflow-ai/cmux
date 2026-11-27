@@ -14,6 +14,7 @@ import * as toolFailure from "./toolFailure";
 import * as thoughts from "./thoughts";
 import { thoughtLayout } from "./thoughtRowModel";
 import { resetTranscriptDisclosure } from "./transcriptDisclosureModel";
+import { settleReact } from "../../../../test/support/domTeardown";
 
 let dom: JSDOM | undefined;
 let root: Root | undefined;
@@ -54,6 +55,7 @@ afterEach(async () => {
   if (root) await act(async () => root!.unmount());
   resetTranscriptDisclosure();
   root = undefined;
+  await settleReact();
   dom?.window.close();
   dom = undefined;
   for (const [key, value] of saved) {
@@ -104,7 +106,8 @@ test("opening a command group shows all 13 calls and the intervening thought wit
   expect(container.querySelectorAll(".cv-command")).toHaveLength(0);
   await act(async () => group.click());
   expect(container.querySelectorAll(".cv-command")).toHaveLength(13);
-  expect(container.querySelectorAll(".cv-command[aria-expanded=true]")).toHaveLength(1);
+  // Closing the group closed the call the reader opened in it (Lucas, 2026-11-11).
+  expect(container.querySelectorAll(".cv-command[aria-expanded=true]")).toHaveLength(0);
 });
 
 for (const [kind, toolKind] of GROUP_KINDS.slice(1))
@@ -120,8 +123,9 @@ for (const [kind, toolKind] of GROUP_KINDS.slice(1))
     for (const item of items) expect(container.textContent).toContain(item.text);
   });
 
+// Reads draw as flat rows (readPath.ts), so their case streams the rows, not a group.
 for (const [kind, toolKind] of GROUP_KINDS)
-  test(`streaming a ${kind} group renders only its changed item`, async () => {
+  test(`streaming ${kind === "reads" ? "flat read rows" : `a ${kind} group`} renders only its changed item`, async () => {
     // rowFailed runs once inside each real CommandRow/ToolRow render, never in the group summary.
     const rendered: string[] = [];
     const rowFailed = toolFailure.rowFailed;
@@ -164,7 +168,11 @@ for (const [kind, toolKind] of GROUP_KINDS)
         expect(ids()).toEqual(allIds);
         expect(container.textContent).toContain(`chunk-${chunk}`);
       }
-      row = { ...row, version: row.version + 1, items: appendThought(row.items!, "Inspect the next sample.", 1_000) };
+      row = {
+        ...row,
+        version: row.version + 1,
+        items: appendThought(row.items!, "Inspect the next sample.", 1_000),
+      };
       rendered.length = 0;
       await act(async () => root!.render(<ToolRows row={row} sessionId={`stream-${kind}`} />));
       expect(rendered).toEqual([]);
@@ -174,14 +182,22 @@ for (const [kind, toolKind] of GROUP_KINDS)
     }
   });
 
-for (const [kind, toolKind] of GROUP_KINDS)
+// Reads stay flat rows since the 2026-11-14 change, so they form no group to stream into.
+for (const [kind, toolKind] of GROUP_KINDS.filter(([kind]) => kind !== "reads"))
   test(`a nested subagent's ${kind} stream keeps its completed item snapshots and skips their renders`, async () => {
     const fold = new SubagentFold();
     const nestedId = `nested-${kind}`;
     let seq = 0;
     const feed = (update: Record<string, unknown>, acpmux: Record<string, unknown>) => {
       seq += 1;
-      fold.reduce({ seq, at: seq * 1_000, msg: { params: { update, _meta: { acpmux } } } }, update);
+      fold.reduce(
+        {
+          seq,
+          at: seq * 1_000,
+          msg: { params: { update, _meta: { acpmux } } },
+        },
+        update,
+      );
     };
     feed({ sessionUpdate: "subagent_spawned" }, { subagents: [{ id: "parent", parent: null, name: "Sample parent" }] });
     feed(
@@ -194,7 +210,10 @@ for (const [kind, toolKind] of GROUP_KINDS)
         feed(
           {
             sessionUpdate: "agent_thought_chunk",
-            content: { type: "text", text: "Inspect every sample before choosing the next check." },
+            content: {
+              type: "text",
+              text: "Inspect every sample before choosing the next check.",
+            },
           },
           { subagent: nestedId },
         );
@@ -217,7 +236,9 @@ for (const [kind, toolKind] of GROUP_KINDS)
         title: "Stream sample",
         kind: toolKind,
         status: "in_progress",
-        rawInput: { command: toolKind === "execute" ? "echo nested" : undefined },
+        rawInput: {
+          command: toolKind === "execute" ? "echo nested" : undefined,
+        },
         content: { type: "text", text: "nested-0" },
       },
       { subagent: nestedId },
@@ -319,7 +340,10 @@ test("a failed step of an opened command group opens to its command, Exit code 1
     },
   });
   const items: AcpmuxActivity[] = [
-    shell("bg-done", "Find the retry references", { background: { state: "completed", endedAt: 2 }, output: "a\n" }),
+    shell("bg-done", "Find the retry references", {
+      background: { state: "completed", endedAt: 2 },
+      output: "a\n",
+    }),
     shell("failed", "Count the retry fixture cases", {
       status: "failed",
       output: "Exit code 1\nls: fixtures/retry-cases.json: No such file or directory",
@@ -379,34 +403,60 @@ test("one mixed run exposes individual steps and drills into an MCP call's field
   expect(steps.textContent).not.toContain("Waiting…");
 });
 
+// A running turn draws by liveTurnWork.experiment.ts: the `line` arm draws no finished run
+// of the stretch still running (one live line, as chatgpt.com draws a running turn); the `runs` arm
+// keeps each finished run's calls in sight until the turn ends. Each arm is pinned for its case.
+async function underLiveTurnArm<T>(arm: "line" | "runs", body: () => Promise<T>): Promise<T> {
+  const before = globalThis.cmuxExperiments;
+  globalThis.cmuxExperiments = { ...before, "live-turn-work": arm };
+  try {
+    return await body();
+  } finally {
+    if (before === undefined) delete globalThis.cmuxExperiments;
+    else globalThis.cmuxExperiments = before;
+  }
+}
+
+for (const agentFamily of ["claude", "codex"])
+  test(`${agentFamily} live turn under the one-line arm draws its finished mixed calls as no row`, async () => {
+    const { mixedToolTurnFixture } = await import("./mixedToolRunFixture");
+    const { turnView } = await import("./turns");
+    const projected = await underLiveTurnArm("line", async () =>
+      turnView(mixedToolTurnFixture(true), new Set(["worked-mixed-prompt"]), {
+        agentFamily,
+        working: true,
+      }),
+    );
+    // The prompt stays; the finished run leaves no row, its work is the turn's one live line.
+    expect(projected.some((row) => row.kind === "user")).toBe(true);
+    expect(projected.some((row) => row.kind === "activity")).toBe(false);
+    expect(projected.some((row) => row.doing?.includes("Capture the repaired screen"))).toBe(false);
+  });
+
 for (const agentFamily of ["claude", "codex"])
   for (const working of [false, true])
     test(`${agentFamily} ${
-      working ? "live turn keeps mixed calls in sight" : "finished turn projects mixed calls into one folded run"
+      working
+        ? "live turn under the runs arm folds mixed calls into one run"
+        : "finished turn projects mixed calls into one folded run"
     }`, async () => {
       const { mixedToolTurnFixture } = await import("./mixedToolRunFixture");
       const { turnView } = await import("./turns");
-      const projected = turnView(mixedToolTurnFixture(working), new Set(["worked-mixed-prompt"]), {
-        agentFamily,
-        working,
-      });
+      const project = async () =>
+        turnView(mixedToolTurnFixture(working), new Set(["worked-mixed-prompt"]), { agentFamily, working });
+      // The live case covers the `runs` arm; the finished turn draws the same under either arm.
+      const projected = working ? await underLiveTurnArm("runs", project) : await project();
       const work = projected.find((row) => row.kind === "activity")!;
       expect(work).toBeDefined();
-      if (working) {
-        // While the turn runs nothing folds: the run's finished calls are in sight with no click,
-        // and only the turn's end folds them (Leo, 2026-11-08: "you only do the overarching fold
-        // at the very end").
-        expect(work.foldRun).toBe(false);
-        const live = await render(<ToolRows row={work} sessionId={`${agentFamily}-${working}`} />);
-        expect(live.textContent).toContain("Find the retry handler");
-        expect(projected.some((row) => row.doing?.includes("Capture the repaired screen"))).toBe(false);
-        return;
-      }
+      // A live turn folds its finished runs as the ended turn does, as the Codex app (Lucas, 2026-11-11:
+      // "we should not auto expand commands etc when the turn is live").
       expect(work.foldRun).toBe(true);
       const container = await render(<ToolRows row={work} sessionId={`${agentFamily}-${working}`} />);
       const header = container.querySelector<HTMLButtonElement>("button.cv-tool")!;
       expect(header.getAttribute("aria-expanded")).toBe("false");
       await act(async () => header.click());
+      // A finished call stays in its run while the live line reads Thinking (#37635), so a live
+      // turn of finished calls lists every step, as the ended turn does.
       expect(container.querySelectorAll("[data-mixed-tool-steps] > .cv-step")).toHaveLength(5);
       expect(projected.some((row) => row.doing?.includes("Capture the repaired screen"))).toBe(false);
     });
@@ -424,7 +474,13 @@ test("an opened mixed run keeps a command's returned image and printed screensho
       {
         kind: "tool",
         text: "Read notes.md",
-        tool: { id: "read-notes", title: "Read notes.md", kind: "read", status: "completed", output: "notes" },
+        tool: {
+          id: "read-notes",
+          title: "Read notes.md",
+          kind: "read",
+          status: "completed",
+          output: "notes",
+        },
       },
       {
         kind: "tool",
@@ -444,9 +500,14 @@ test("an opened mixed run keeps a command's returned image and printed screensho
   const container = await render(<ToolRows row={row} sessionId="mixed-capture" />);
   await act(async () => container.querySelector<HTMLButtonElement>("button.cv-tool")!.click());
   const steps = container.querySelector("[data-mixed-tool-steps]")!;
-  // As base draws a run's command (ToolRow): its images show under its row, opened or not.
+  // Closed, a command's images are one small image at its row's edge; opened, the strip under it
+  // (Lucas, 2026-11-11), as the Codex app's rows draw them.
+  expect(steps.querySelector(".cv-tool-images")).toBeNull();
+  expect(steps.querySelector(".cv-tool-visual")).not.toBeNull();
+  await act(async () => steps.querySelector<HTMLButtonElement>('button[data-tool-id="capture-shell"]')!.click());
   const strip = steps.querySelector(".cv-tool-images");
   expect(strip).not.toBeNull();
+  expect(steps.querySelector(".cv-tool-visual")).toBeNull();
   expect(strip!.querySelector(`img[src="${shot}"]`)).not.toBeNull();
 });
 
@@ -456,14 +517,41 @@ test("a finished turn whose only work is hidden discovery folds nothing under Wo
   const at = Date.UTC(2026, 10, 4, 0, 0);
   const discovery = mixedToolRunFixture()[2]!;
   const turn: AcpmuxRow[] = [
-    { id: "discovery-prompt", version: 1, kind: "user", at, text: "Which tools can you use?" },
-    { id: "discovery-activity", version: 1, kind: "activity", at: at + 1000, items: [discovery], toolCount: 0 },
-    { id: "discovery-answer", version: 1, kind: "assistant", at: at + 2000, text: "The repo tools." },
-    { id: "discovery-summary", version: 1, kind: "turnSummary", at: at + 3000, status: "completed", toolCount: 0 },
+    {
+      id: "discovery-prompt",
+      version: 1,
+      kind: "user",
+      at,
+      text: "Which tools can you use?",
+    },
+    {
+      id: "discovery-activity",
+      version: 1,
+      kind: "activity",
+      at: at + 1000,
+      items: [discovery],
+      toolCount: 0,
+    },
+    {
+      id: "discovery-answer",
+      version: 1,
+      kind: "assistant",
+      at: at + 2000,
+      text: "The repo tools.",
+    },
+    {
+      id: "discovery-summary",
+      version: 1,
+      kind: "turnSummary",
+      at: at + 3000,
+      status: "completed",
+      toolCount: 0,
+    },
   ];
   for (const agentFamily of ["codex", "claude"]) {
     const projected = turnView(turn, new Set(), { agentFamily });
-    expect(projected.some((row) => row.kind === WORKED)).toBe(false);
+    // The reply-only turn keeps its closed line (a heading holds its place), over no row.
+    expect(projected.filter((row) => row.kind === WORKED).every((row) => row.foldOpen === false)).toBe(true);
     expect(projected.some((row) => row.kind === "activity")).toBe(false);
     expect(projected.some((row) => row.text === "The repo tools.")).toBe(true);
   }
@@ -540,7 +628,13 @@ test("Find into a click-opened run still drawing draws every step, its match pas
     expect(steps()).toBe(first);
     expect(container.querySelector('[data-tool-id="execute-find-80"]')).toBeNull();
     await act(async () =>
-      reveal({ rowId: "find-run", card: false, needle: "", repaint: () => {}, toolId: "execute-find-80" }),
+      reveal({
+        rowId: "find-run",
+        card: false,
+        needle: "",
+        repaint: () => {},
+        toolId: "execute-find-80",
+      }),
     );
     expect(steps()).toBe(100);
     expect(container.querySelector('[data-tool-id="execute-find-80"]')).not.toBeNull();

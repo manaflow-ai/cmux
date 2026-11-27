@@ -79,7 +79,10 @@ TOKENS = {
                       rf"|'(?:\\.|[^'\\\n])'|{COMMENT}"),  # a char literal, never a lifetime
     ".swift": re.compile(rf"{STRING_COMMON}|{COMMENT}"),
 }
-TOKENS_JS = re.compile(rf"{STRING_COMMON}|'(?:\\.|[^'\\\n])*'|`(?:\\.|[^`\\])*`|{COMMENT}")
+# A regex literal follows punctuation that cannot end an operand; read as text, `/^https:\/\//` held a `//` and blanked
+# the rest of its line as a comment, hiding the host after it.
+REGEX_JS = r"(?<=[(,=:\[!&|?{};])[ \t]*/(?![/*])(?:\\.|\[(?:\\.|[^\]\\\n])*\]|[^/\\\[\n])+/[a-z]*"
+TOKENS_JS = re.compile(rf"{STRING_COMMON}|'(?:\\.|[^'\\\n])*'|`(?:\\.|[^`\\])*`|{REGEX_JS}|{COMMENT}")
 CFG_TEST = re.compile(r"#\[cfg\(test\)\]\s*(?:#\[[^\]]*\]\s*)*(?:pub(?:\([^)]*\))?\s+)?mod\s+\w+\s*\{")
 
 
@@ -360,8 +363,8 @@ class Matcher(unittest.TestCase):
 
     def test_test_and_mock_files_are_out_of_scope(self):
         paths = {"include": ["Packages/macOS/CmuxNext/", "webviews/src/"]}
-        self.assertTrue(in_scope("Packages/macOS/CmuxNext/Sources/CmuxNextCloud/API/CloudAPIClient.swift", paths))
-        for rel in ("Packages/macOS/CmuxNext/Tests/CmuxNextAppTests/CloudAPIClientRunTests.swift",
+        self.assertTrue(in_scope("Packages/macOS/CmuxNext/Sources/CmuxNextCloud/CloudCLICall.swift", paths))
+        for rel in ("Packages/macOS/CmuxNext/Tests/CmuxNextAppTests/CloudDaemonRunTests.swift",
                     "webviews/src/agent-session/acpmux/run-board/runApi.test.ts",
                     "webviews/src/agent-session/acpmux/mockFixture.ts",
                     "webviews/src/pages/x/Foo.gallery.ts",

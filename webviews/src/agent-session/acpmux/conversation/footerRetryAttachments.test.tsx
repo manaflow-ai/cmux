@@ -1,8 +1,6 @@
 // l10n-allow-file: test fixture replies, not shipped UI.
-// An attachment-only prompt (images or files, no text) in the transcript: its turn's footer offers
-// the chat's one Retry, as a text prompt's does (footerRetry.test.tsx), and that Retry sends its
-// attachments again by the prompt's row (`retryRowId`, an empty `prompt`), the path its own Retry
-// used. One whose attachments cannot all go again offers no Retry anywhere.
+// Attachment-only prompts retain row identity for safe resend; failed recovery restores their
+// attachments, while unsafe attachments have no fallback.
 import { expect, test } from "bun:test";
 import { renderToStaticMarkup } from "react-dom/server";
 import type { AcpmuxRow } from "../model";
@@ -53,9 +51,9 @@ function retries(source: AcpmuxRow[]): { shown: string[]; rows: AcpmuxRow[] } {
   return { shown, rows };
 }
 
-test("an attachment-only last prompt gets its turn footer's Retry, which resends its attachments", () => {
+test("an attachment-only completed prompt retains the resend target without inline Retry", () => {
   const { shown, rows } = retries([imageOnly, A("a1", 20, "It shows a chart."), S("s1", 30)]);
-  expect(shown).toEqual(["footer:s1"]);
+  expect(shown).toEqual([]);
   const footer = rows.find((row) => row.kind === "turnSummary")!;
   expect(offersRetry(footer)).toBe(true);
   expect(footer.retryRowId).toBe("p1");
@@ -70,9 +68,10 @@ test("an attachment-only last prompt whose attachments cannot be resent offers n
   expect(footer.prompt).toBeUndefined();
 });
 
-test("a failed attachment-only turn leaves its footer's prompt as before; the prompt keeps Retry", () => {
+test("a failed attachment-only turn keeps its attachment-aware footer recovery", () => {
   const { shown, rows } = retries([imageOnly, A("a1", 20, "Partial."), S("s1", 30, "failed")]);
   const footer = rows.find((row) => row.kind === "turnSummary")!;
-  expect(footer.prompt).toBeUndefined();
-  expect(shown).toEqual(["prompt:p1"]);
+  expect(footer.prompt).toBe("");
+  expect(footer.retryRowId).toBe("p1");
+  expect(shown).toEqual(["footer:s1"]);
 });

@@ -1,10 +1,13 @@
-import { useEffect, useRef, useState, type RefObject } from "react";
+import { memo, useEffect, useId, useLayoutEffect, useRef, useState, type CSSProperties, type RefObject } from "react";
+import { flushSync } from "react-dom";
+import { focusRoute } from "../../../ui/focusRoute";
 import { Popover, type UiAnchor } from "../../../ui/Popover";
-import { useScrollEdges } from "../../../ui/scrollEdges";
+import { VirtualList } from "../../../ui/VirtualList";
 import { postNative } from "../native";
 import { NativeError } from "../nativeError";
 import { useT, type Translate } from "../i18n";
 import { type AttachedCloudRepo } from "./cloudRepositoryPickerModel";
+import { LastKnown } from "../../../lastKnown";
 
 export type CloudRepo = {
   fullName: string;
@@ -36,6 +39,24 @@ async function syncRepoCatalog(_session: string): Promise<string | undefined> {
     // Older hosts do not expose the local catalog. The machine's persisted catalog remains usable.
     return undefined;
   }
+}
+
+type KnownRepos = { repos: CloudRepo[]; connectUrl?: string };
+
+/// The last list each chat's search answered (by chat and query), per request function (the host's
+/// `postNative`; a gallery's or test's own stub keeps its own lists): the picker opened again draws
+/// it at once, with no "Searching" line, and lists again behind it.
+let lastReposByRequest = new WeakMap<object, LastKnown<KnownRepos>>();
+
+function knownRepos(request: object): LastKnown<KnownRepos> {
+  let known = lastReposByRequest.get(request);
+  if (!known) lastReposByRequest.set(request, (known = new LastKnown<KnownRepos>(16)));
+  return known;
+}
+
+/// Drops every last-known list (tests).
+export function resetLastKnownReposForTests(): void {
+  lastReposByRequest = new WeakMap();
 }
 
 function reposOf(value: unknown): CloudRepo[] {
@@ -71,6 +92,103 @@ function errorCode(error: unknown): string | undefined {
   return typeof code === "string" ? code : undefined;
 }
 
+/// A row's height before it is measured: the 28 px option and the 4 px gap under it
+/// (sessionInfo.css). A long name wraps to a second line, as it did when every row was drawn, and
+/// the list measures each drawn row (VirtualList `measureRows`).
+const ROW_HEIGHT = 32;
+const rowHeight = () => ROW_HEIGHT;
+
+/// One repository: its name and a quiet source (or "Attaching") label. Memoized on plain values
+/// and the list's stable row style and measure ref, so a scroll, a focus move or a keystroke in the search field
+/// does not draw the rows already in view again.
+const CloudRepositoryOption = memo(function CloudRepositoryOption({
+  fullName,
+  detail,
+  disabled,
+  index,
+  setSize,
+  style,
+  measure,
+  onAttach,
+  onFocusIndex,
+  onTabFrom,
+  onWidth,
+}: {
+  fullName: string;
+  detail: string;
+  disabled: boolean;
+  index: number;
+  setSize: number;
+  style: CSSProperties;
+  measure?: (element: Element | null) => void;
+  onAttach: (fullName: string) => void;
+  onFocusIndex: (index: number | undefined) => void;
+  /// Tab or Shift+Tab from this row to the next one, which may not be drawn yet.
+  onTabFrom: (index: number, setSize: number, back: boolean) => boolean;
+  /// The row's natural width (its name and label unclipped), measured when it mounts or its text changes.
+  onWidth: (width: number) => void;
+}) {
+  const option = useRef<HTMLButtonElement>(null);
+  useLayoutEffect(() => {
+    const button = option.current;
+    if (button) onWidth(naturalWidth(button));
+  }, [fullName, detail, onWidth]);
+  return (
+    <div
+      ref={measure}
+      data-index={index}
+      // oxlint-disable-next-line jsx-a11y/prefer-tag-over-role -- a row of the windowed list.
+      role="listitem"
+      className="acpmux-cloud-repository-row"
+      style={style}
+      aria-posinset={index + 1}
+      aria-setsize={setSize}
+    >
+      <button
+        ref={option}
+        type="button"
+        className="acpmux-cloud-repository-option"
+        data-action="repository-option"
+        disabled={disabled}
+        onClick={() => onAttach(fullName)}
+        onFocus={() => onFocusIndex(index)}
+        onBlur={() => onFocusIndex(undefined)}
+        onKeyDown={(event) => {
+          if (event.key !== "Tab" || event.altKey || event.ctrlKey || event.metaKey) return;
+          if (onTabFrom(index, setSize, event.shiftKey)) event.preventDefault();
+        }}
+      >
+        <span className="acpmux-cloud-repository-name">{fullName}</span>
+        <span className="acpmux-cloud-repository-source">{detail}</span>
+      </button>
+    </div>
+  );
+});
+
+/// An option's width with its name on one line: its name's and label's text as wide as their fonts
+/// draw it, the gap between them and the option's padding (the width the option asked for when every
+/// row was drawn). The text is measured, not the laid-out spans: a long name is wrapped there.
+let textMeasure: CanvasRenderingContext2D | null | undefined;
+function textWidth(element: Element | null): number {
+  if (!element?.textContent) return 0;
+  textMeasure ??= document.createElement("canvas").getContext("2d");
+  if (!textMeasure) return element.scrollWidth;
+  textMeasure.font = getComputedStyle(element).font;
+  return textMeasure.measureText(element.textContent).width;
+}
+
+function naturalWidth(button: HTMLElement): number {
+  const style = getComputedStyle(button);
+  const name = button.firstElementChild;
+  const label = button.lastElementChild;
+  return Math.ceil(
+    textWidth(name) +
+      (label && label !== name && label.textContent ? textWidth(label) + (parseFloat(style.columnGap) || 0) : 0) +
+      (parseFloat(style.paddingLeft) || 0) +
+      (parseFloat(style.paddingRight) || 0),
+  );
+}
+
 export function CloudRepositoryPicker({
   session,
   anchor,
@@ -92,7 +210,29 @@ export function CloudRepositoryPicker({
   const t = useT();
   const [query, setQuery] = useState("");
   const [repos, setRepos] = useState<CloudRepo[]>([]);
-  const listEdges = useScrollEdges();
+  /// The row holding focus stays mounted when it scrolls out of view (VirtualList's active row).
+  const [focusedIndex, setFocusedIndex] = useState<number>();
+  const listId = useId();
+  /// The list's width: the widest row drawn since the popover opened (the popover's CSS clamps it
+  /// between its least and greatest width). Only the drawn rows are measured, never every name, and
+  /// it only grows while the popover stays open, so a scroll never makes the popover narrower.
+  const [rowWidth, setRowWidth] = useState(0);
+  const [widthOpen, setWidthOpen] = useState(open);
+  if (widthOpen !== open) {
+    setWidthOpen(open);
+    setRowWidth(0);
+  }
+  const onRowWidth = (width: number) => setRowWidth((widest) => Math.max(widest, width));
+  /// Tab walks every repository as it did when all were drawn: the next row is made the list's
+  /// active row (drawn and scrolled to) before it takes focus, so a held Tab does not run past the
+  /// drawn rows. From the first or last row the browser moves focus out of the list.
+  const tabFrom = (index: number, setSize: number, back: boolean) => {
+    const next = index + (back ? -1 : 1);
+    if (next < 0 || next >= setSize) return false;
+    flushSync(() => setFocusedIndex(next));
+    const row = document.getElementById(listId)?.querySelector<HTMLElement>(`[aria-posinset="${next + 1}"] button`);
+    return focusRoute(row, "person", "Tab to the next repository");
+  };
   const [connectUrl, setConnectUrl] = useState<string>();
   const [loading, setLoading] = useState(false);
   const [attaching, setAttaching] = useState<string>();
@@ -104,9 +244,19 @@ export function CloudRepositoryPicker({
   useEffect(() => {
     if (!open) return;
     const id = ++generation.current;
+    const key = `${session}\u0000${query.trim()}`;
+    const lastRepos = knownRepos(request);
+    const known = lastRepos.get(key);
+    if (known) {
+      setRepos(known.repos);
+      setConnectUrl(known.connectUrl);
+      setError(undefined);
+      // An earlier query's read may still be out: the known list shows, not its "Searching" line.
+      setLoading(false);
+    }
     const timer = window.setTimeout(
       () => {
-        setLoading(true);
+        if (!known) setLoading(true);
         setError(undefined);
         void (request === postNative ? syncRepoCatalog(session) : Promise.resolve(undefined))
           .then((syncedInstallUrl) =>
@@ -117,11 +267,15 @@ export function CloudRepositoryPicker({
           )
           .then(({ reply, syncedInstallUrl }) => {
             if (id !== generation.current) return;
-            setRepos(reposOf(reply));
-            setConnectUrl(githubInstallUrl(reply?.connect?.install_url) ?? githubInstallUrl(syncedInstallUrl));
+            const repos = reposOf(reply);
+            const connectUrl = githubInstallUrl(reply?.connect?.install_url) ?? githubInstallUrl(syncedInstallUrl);
+            lastRepos.set(key, { repos, ...(connectUrl ? { connectUrl } : {}) });
+            setRepos(repos);
+            setConnectUrl(connectUrl);
           })
           .catch(() => {
-            if (id === generation.current) setError(t("cloudRepository.loadFailed"));
+            // A last-known list stays; the read is tried again on the next open.
+            if (id === generation.current && !known) setError(t("cloudRepository.loadFailed"));
           })
           .finally(() => {
             if (id === generation.current) setLoading(false);
@@ -132,12 +286,12 @@ export function CloudRepositoryPicker({
     return () => window.clearTimeout(timer);
   }, [open, query, request, session, t]);
 
-  const attach = (repo: CloudRepo) => {
+  const attach = (fullName: string) => {
     if (attaching) return;
-    setAttaching(repo.fullName);
+    setAttaching(fullName);
     setError(undefined);
     void (request === postNative ? syncRepoCatalog(session) : Promise.resolve(undefined))
-      .then(() => request<AddReply>("cloud.repo.add", { repo: repo.fullName }))
+      .then(() => request<AddReply>("cloud.repo.add", { repo: fullName }))
       .then((reply) => {
         if (reply?.state === "done" && !(reply as { code?: unknown }).code && reply.repo) {
           onAttached({ repo: reply.repo, folder: reply.folder, head: reply.head });
@@ -165,9 +319,15 @@ export function CloudRepositoryPicker({
       anchor={point ?? (anchor.current as UiAnchor)}
       label={t("cloudRepository.add")}
       className="acpmux-cloud-repository-popover"
+      // "results": opens on "Searching" and the repositories (the answer to the typed query, read
+      // after a pause) arrive with no input to the popup (ui/popupSettle.ts).
+      popupSettle="results"
       initialFocus={search}
     >
-      <div className="acpmux-cloud-repository-picker">
+      <div
+        className="acpmux-cloud-repository-picker"
+        style={rowWidth > 0 ? ({ "--acpmux-cloud-repository-width": `${rowWidth}px` } as CSSProperties) : undefined}
+      >
         <input
           ref={search}
           className="acpmux-cloud-repository-search"
@@ -181,31 +341,43 @@ export function CloudRepositoryPicker({
               const first = repos[0];
               if (first) {
                 event.preventDefault();
-                attach(first);
+                attach(first.fullName);
               }
             }
           }}
         />
         {loading && <div className="acpmux-cloud-repository-progress">{t("cloudRepository.searching")}</div>}
         {!loading && repos.length > 0 && (
-          <ul ref={listEdges} className="acpmux-cloud-repository-list ui-scroll-edge-fade">
-            {repos.map((repo) => (
-              <li key={repo.fullName}>
-                <button
-                  type="button"
-                  className="acpmux-cloud-repository-option"
-                  data-action="repository-option"
+          <VirtualList
+            // oxlint-disable-next-line jsx-a11y/prefer-tag-over-role -- the windowed list renders its rows as divs.
+            role="list"
+            id={listId}
+            className="acpmux-cloud-repository-list"
+            fade
+            count={repos.length}
+            estimateSize={rowHeight}
+            measureRows
+            activeIndex={focusedIndex}
+            renderRow={(index, style, measure) => {
+              const repo = repos[index]!;
+              return (
+                <CloudRepositoryOption
+                  key={repo.fullName}
+                  fullName={repo.fullName}
+                  detail={attaching === repo.fullName ? t("cloudRepository.attaching") : sourceLabel(repo.source, t)}
                   disabled={Boolean(attaching)}
-                  onClick={() => attach(repo)}
-                >
-                  <span className="acpmux-cloud-repository-name">{repo.fullName}</span>
-                  <span className="acpmux-cloud-repository-source">
-                    {attaching === repo.fullName ? t("cloudRepository.attaching") : sourceLabel(repo.source, t)}
-                  </span>
-                </button>
-              </li>
-            ))}
-          </ul>
+                  index={index}
+                  setSize={repos.length}
+                  style={style}
+                  measure={measure}
+                  onAttach={attach}
+                  onFocusIndex={setFocusedIndex}
+                  onTabFrom={tabFrom}
+                  onWidth={onRowWidth}
+                />
+              );
+            }}
+          />
         )}
         {!loading && repos.length === 0 && !error && (
           <div className="acpmux-cloud-repository-empty">{t("cloudRepository.empty")}</div>
@@ -216,9 +388,16 @@ export function CloudRepositoryPicker({
           </div>
         )}
         {connectUrl && (
-          <a className="acpmux-cloud-repository-connect" href={connectUrl} target="_blank" rel="noreferrer">
+          // The folder menu's own Connect GitHub (`github.connect`): the install comes back to cmux, which finishes
+          // it and lists the repositories, instead of a web link that ends on the console (#46018).
+          <button
+            type="button"
+            className="acpmux-cloud-repository-connect"
+            data-action="connect-github"
+            onClick={() => void request("github.connect", {}).catch(() => undefined)}
+          >
             {t("cloudRepository.connect")}
-          </a>
+          </button>
         )}
       </div>
     </Popover>

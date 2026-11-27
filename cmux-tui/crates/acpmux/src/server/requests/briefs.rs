@@ -39,11 +39,13 @@ pub(super) async fn steer(
             &params,
             &mut forwarded,
         );
-        let result = peer.request(method::MUX_STEER, forwarded).await.map_err(|e| {
-            RpcError::internal(format!(
-                "steer to {host} failed: {e}; recovery: reconnect the peer and retry"
-            ))
-        })?;
+        let result = crate::server::peer_targeted::request(&peer, method::MUX_STEER, forwarded)
+            .await
+            .map_err(|e| {
+                RpcError::internal(format!(
+                    "steer to {host} failed: {e}; recovery: reconnect the peer and retry"
+                ))
+            })?;
         if let Some(remote) = result.get("brief").cloned() {
             hub.briefs.put(remote);
         }
@@ -61,7 +63,7 @@ pub(super) async fn steer(
     if let Some(via) = params.pointer("/_meta/acpmux/via").cloned() {
         p.set_path(&["_meta", "acpmux", "via"], via);
     }
-    Box::pin(super::handle_request(hub, conn, method::SESSION_PROMPT, p)).await?;
+    Box::pin(super::handle_request(hub, conn, method::SESSION_PROMPT, p, None)).await?;
     let row = hub
         .briefs
         .update(id, |r| {
@@ -230,11 +232,13 @@ pub(super) async fn report(
             &params,
             &mut forwarded,
         );
-        let result = peer.request(method::MUX_REPORT, forwarded).await.map_err(|e| {
-            RpcError::internal(format!(
-                "report to {host} failed: {e}; recovery: reconnect the peer and retry"
-            ))
-        })?;
+        let result = crate::server::peer_targeted::request(&peer, method::MUX_REPORT, forwarded)
+            .await
+            .map_err(|e| {
+                RpcError::internal(format!(
+                    "report to {host} failed: {e}; recovery: reconnect the peer and retry"
+                ))
+            })?;
         if let Some(remote) = result.get("brief").cloned() {
             hub.briefs.put(remote);
         }

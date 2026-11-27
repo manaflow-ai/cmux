@@ -13,7 +13,9 @@ import CmuxNextWakeups
 /// observers that exist only between `start` and `stop`) and the
 /// `NSView.layout()` calls and window layout passes in it (`LayoutPassGuard`'s
 /// counters), for the app gesture bench (scripts/cmux-next/app-perf.py).
-/// `raw: true` adds the per-frame arrays to the reply.
+/// `raw: true` adds the per-frame arrays to the reply, and `first_frame_s`: the first frame's display time
+/// (`CACurrentMediaTime` seconds, the `CLOCK_UPTIME_RAW` timebase of a key event's time), so a client can place each
+/// interval on the key events' clock (main-thread-large-session: refreshes missed between a key and its echo).
 ///
 /// It also says why each missed refresh was late (``FrameMissSplit``): `missed_split` counts `main_late`, `commit_late`
 /// and `presented_late`, and `missed_frames` lists the first misses with their stamps. A third observer, just before
@@ -28,6 +30,8 @@ public final class DebugFrameProbe {
     }
     private let expiry = DemandTimer(owner: "debug.frames.expiry")
     private var last: CFTimeInterval = 0
+    /// The first frame's display time since `start` (0 before it).
+    private var first: CFTimeInterval = 0
     private var intervals: [Double] = []
     private var expected: Double = 0
     static let capacity = 100_000
@@ -84,6 +88,7 @@ public final class DebugFrameProbe {
         busy.removeAll(keepingCapacity: true)
         layouts.reset()
         last = 0
+        first = 0
         awake = 0
         awakeSince = CACurrentMediaTime()
         split = FrameMissSplit()
@@ -135,6 +140,7 @@ public final class DebugFrameProbe {
             awake += now - awakeSince
             awakeSince = now
         }
+        if last == 0 { first = tick.timestamp }
         let records = last > 0 && intervals.count < Self.capacity
         if records {
             intervals.append((tick.timestamp - last) * 1_000)
@@ -181,6 +187,7 @@ public final class DebugFrameProbe {
         if raw {
             stats["intervals_ms"] = intervals.map { ($0 * 100).rounded() / 100 }
             stats["main_ms"] = busy.map { ($0 * 100).rounded() / 100 }
+            stats["first_frame_s"] = first
         }
         return stats
     }

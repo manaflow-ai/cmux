@@ -29,7 +29,7 @@ enum GlobalSearchHandlers {
     /// needle. A workspace no window showed mounts later, so Find waits for it.
     private static func show(_ located: LocatedTab, find needle: String?, _ registry: ActionRegistry, _ ctx: AppActionContext) {
         guard ActionRunScope.viewChangeAllowed(), let controller = ctx.window(showing: located.workspace.id) else { return }
-        controller.state.selection.select(located.tab.id, in: located.pane.id)
+        controller.state.selection.jump(to: located.tab.id, in: located.pane.id, byPerson: ActionRunScope.isPersonsAction())
         ctx.services.windows.bringToFront(controller)
         guard let needle, !needle.isEmpty else { return }
         let find = {

@@ -15,6 +15,8 @@
   --border-strong: var(--app-border-strong, var(--ds-color-focus));
   --input-bg: var(--ds-color-hover);
   --accent-soft: var(--ds-color-selection);
+  /* Status colors (a Connected dot, a done mark): the shared design tokens, light and dark. */
+  --success: var(--ds-color-success);
   --danger: var(--ds-color-danger);
   --warning: var(--ds-color-attention);
   --motion-hover: var(--cmux-motion-quick);
@@ -72,13 +74,13 @@ select {
 mark {
   background: var(--accent-soft);
   color: inherit;
-  border-radius: 2px;
+  border-radius: var(--page-size-2);
 }
 
 .settings {
   position: relative;
   display: grid;
-  grid-template-columns: 220px minmax(0, 1fr);
+  grid-template-columns: var(--page-size-220) minmax(0, 1fr);
   height: 100%;
   overflow: hidden;
 }
@@ -105,12 +107,12 @@ mark {
 .content {
   overflow-y: auto;
   overscroll-behavior: contain;
-  --content-fade-top: 18px;
-  --content-fade-bottom: 28px;
+  --content-fade-top: var(--page-size-18);
+  --content-fade-bottom: var(--page-size-28);
   /* A row or card scrolled into view at an edge (a deep link, a capture's scroll) lands clear of
      the fade, not half-faded under it. */
-  scroll-padding-top: calc(var(--content-fade-top) + 6px);
-  scroll-padding-bottom: calc(var(--content-fade-bottom) + 6px);
+  scroll-padding-top: calc(var(--content-fade-top) + var(--page-size-6));
+  scroll-padding-bottom: calc(var(--content-fade-bottom) + var(--page-size-6));
   mask-image:
     linear-gradient(
       to bottom,
@@ -175,11 +177,9 @@ mark {
 }
 
 .section-link {
+  --settings-nav-padding: var(--ds-space-1) var(--ds-space-2);
   display: flex;
-  align-items: center;
-  gap: var(--ds-space-2);
   width: 100%;
-  padding: var(--ds-space-1) var(--ds-space-2);
   border: 0;
   border-radius: var(--ds-radius-md);
   background: transparent;
@@ -192,15 +192,21 @@ mark {
   -webkit-user-drag: none;
 }
 
-/* Only the pointer fades in. The current-section mark snaps: a route the host opens while the
-   tab is hidden (Customize Appearance… on a kept page) must not replay a fade from the old
-   section when the tab shows again. */
-.section-link:hover {
-  background: var(--input-bg);
-  transition: background var(--motion-hover);
+.section-link-content {
+  display: flex;
+  flex: 1;
+  min-width: 0;
+  align-items: center;
+  gap: var(--ds-space-2);
+  padding: var(--settings-nav-padding);
+  border-radius: inherit;
 }
 
-.section-link[aria-current] {
+.section-link:is(:hover, :active) > .section-link-content {
+  background: var(--input-bg);
+}
+
+.section-link[aria-current] > .section-link-content {
   background: var(--accent-soft);
 }
 
@@ -211,6 +217,9 @@ mark {
 
 .section-name {
   flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .badge {
@@ -253,8 +262,8 @@ mark {
 
 .harness-update-cards {
   display: grid;
-  gap: 8px;
-  margin: 0 0 12px;
+  gap: var(--ds-space-2);
+  margin: 0 0 var(--ds-space-3);
 }
 
 .harness-update-cards:empty {
@@ -264,11 +273,11 @@ mark {
 .harness-update-card {
   display: flex;
   align-items: flex-start;
-  gap: 12px;
+  gap: var(--ds-space-3);
   justify-content: space-between;
-  padding: 8px 12px;
+  padding: var(--ds-space-2) var(--ds-space-3);
   border: 1px solid var(--border-strong);
-  border-radius: 10px;
+  border-radius: var(--page-size-10);
   background: var(--input-bg);
 }
 
@@ -282,25 +291,32 @@ mark {
 }
 
 .harness-update-card-copy p {
-  margin: 3px 0 0;
+  margin: var(--page-size-3) 0 0;
 }
 
 .harness-update-card-copy code {
   display: block;
-  margin-top: 5px;
+  margin-top: var(--page-size-5);
   overflow-wrap: anywhere;
+}
+
+/* Update Automatically: the shared switch before its words (HarnessesCard). */
+.harness-auto {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--ds-space-2);
 }
 
 /* A provider's accounts under its harness row (ProviderAccounts). */
 .harness-accounts {
-  gap: 8px;
+  gap: var(--ds-space-2);
 }
 
 .harness-account {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 12px;
+  gap: var(--ds-space-3);
 }
 
 .harness-account-copy {
@@ -318,9 +334,9 @@ mark {
   --agent-text: var(--text);
   --agent-muted: var(--muted-text);
   --agent-accent: var(--cmux-accent, var(--text));
-  width: 300px;
+  width: var(--page-size-300);
   max-width: 100%;
-  margin-top: 4px;
+  margin-top: var(--ds-space-1);
 }
 
 .harness-account-usage > .acpmux-plan-usage {
@@ -330,13 +346,13 @@ mark {
 .harness-account-name {
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: var(--ds-space-2);
   font-weight: 600;
 }
 
 .harness-update-card > .button {
   flex: 0 0 auto;
-  margin-top: 1px;
+  margin-top: var(--page-size-1);
 }
 
 .rows {
@@ -364,7 +380,23 @@ mark {
 
 /* A device row's Full access switch, under the device's own line (Settings > Devices). */
 .row-main.device-full-access {
-  padding-top: 8px;
+  padding-top: var(--ds-space-2);
+}
+
+/* A Remote machine's AutoCloud capabilities (Mac, Xcode, Simulator, GPU), under its policy line. */
+.autocloud-caps {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--ds-space-1);
+  padding-top: var(--ds-space-1);
+}
+
+.autocloud-cap {
+  padding: 0 var(--ds-space-2);
+  border: 1px solid var(--border);
+  border-radius: var(--ds-radius-sm);
+  color: var(--muted-text);
+  font-size: var(--text-caption);
 }
 
 .row-label {
@@ -379,7 +411,7 @@ mark {
 .row-help,
 .row-key {
   overflow: hidden;
-  font-size: 12px;
+  font-size: var(--text-detail);
   color: var(--muted-text);
   white-space: nowrap;
   text-overflow: ellipsis;
@@ -387,7 +419,7 @@ mark {
 
 .row-key {
   font-family: ui-monospace, "SF Mono", Menlo, monospace;
-  font-size: 11px;
+  font-size: var(--text-caption);
   color: var(--soft-text);
 }
 
@@ -395,16 +427,16 @@ mark {
 .row-error {
   display: flex;
   align-items: center;
-  gap: 4px;
-  margin-top: 2px;
-  font-size: 12px;
+  gap: var(--ds-space-1);
+  margin-top: var(--page-size-2);
+  font-size: var(--text-detail);
   color: var(--muted-text);
 }
 
 .row-error,
 .field-error {
   color: var(--danger);
-  font-size: 12px;
+  font-size: var(--text-detail);
 }
 
 .row-control {
@@ -417,16 +449,6 @@ mark {
   max-width: 60%;
 }
 
-/* A row with a Reset slot (setting rows, the Theme rows, the spacer rows) holds one control and the
-   slot, on one line: the cap leaves the compact Reset slot and its gap beyond the control's
-   60 %. A wrapped slot left the control in the slot's column, to the right of the other rows'
-   controls and a line higher (live QA 7a: the three-choice New Tab Position, 330 px, in a 570 px
-   card). Editors with several parts (number, color, text, lists) wrap inside their own box. */
-.row-control:has(> .reset-slot) {
-  flex-wrap: nowrap;
-  max-width: calc(60% + var(--ds-control-compact) + var(--ds-space-2));
-}
-
 /* The row menu's host around the control (SettingRow): the control's own flex items stay in place. */
 .row-control-menu {
   display: contents;
@@ -436,20 +458,100 @@ mark {
 .banner {
   display: flex;
   align-items: center;
-  gap: 8px;
-  padding: 6px 0 8px;
+  gap: var(--ds-space-2);
+  padding: var(--page-size-6) 0 var(--ds-space-2);
   color: var(--warning);
-  font-size: 12px;
+  font-size: var(--text-detail);
 }
 
 .banner {
-  margin-bottom: 14px;
-  padding: 8px 0;
+  margin-bottom: var(--page-size-14);
+  padding: var(--ds-space-2) 0;
   border-bottom: 1px solid var(--border);
+}
+
+/* Try on (TryOnBar.tsx): what is applied for a while, its time left and Keep / Revert Now. A quiet
+   row on the page's hairline, as the banner, with a meter under it that runs down to the revert;
+   the card and pill looks are the gallery's alternatives. */
+.try-on {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: var(--ds-space-2);
+  margin-bottom: var(--ds-space-3);
+  padding: var(--ds-space-2) 0;
+  box-shadow: inset 0 -1px 0 var(--border);
+}
+
+.try-on-text {
+  display: flex;
+  flex: 1;
+  align-items: baseline;
+  gap: var(--ds-space-2);
+  min-width: 0;
+}
+
+.try-on-title {
+  overflow: hidden;
+  font-weight: 600;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.try-on-left {
+  flex: none;
+  color: var(--muted-text);
+  font-variant-numeric: tabular-nums;
+}
+
+.try-on-meter {
+  position: absolute;
+  right: 0;
+  bottom: 0;
+  left: 0;
+  border-bottom: 1px solid var(--border-strong);
+  transform: scaleX(var(--try-on-left, 1));
+  transform-origin: left;
+  transition: transform var(--cmux-motion-quick) linear;
+}
+
+.try-on[data-look="card"] {
+  padding: var(--ds-space-3);
+  border: 1px solid var(--border);
+  border-radius: var(--ds-radius-lg);
+  background: var(--input-bg);
+  box-shadow: none;
+}
+
+.try-on[data-look="card"] .try-on-meter {
+  display: none;
+}
+
+.try-on[data-look="pill"] {
+  width: fit-content;
+  max-width: 100%;
+  margin-inline: auto;
+  padding: var(--ds-space-1) var(--ds-space-1) var(--ds-space-1) var(--ds-space-3);
+  overflow: hidden;
+  border: 1px solid var(--border);
+  border-radius: var(--ds-radius-xl);
+  box-shadow: none;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .try-on-meter {
+    transition: none;
+  }
 }
 
 .notice-text {
   flex: 1;
+}
+
+/* A row note (#44894): where the value comes from, or why it does not draw. Not a problem, so the
+   muted text color instead of the warning color. */
+.notice.row-note {
+  color: var(--muted-text);
 }
 
 .empty {
@@ -469,7 +571,7 @@ mark {
   outline: none;
 }
 
-.field:not(.ui-input):focus {
+.field:not(.ui-input):focus-visible {
   border-color: var(--border-strong);
   box-shadow: 0 0 0 2px var(--accent-soft);
 }
@@ -485,7 +587,7 @@ mark {
 
 .text,
 .hex {
-  width: 220px;
+  width: var(--page-size-220);
 }
 
 .hex {
@@ -533,12 +635,22 @@ mark {
   gap: var(--ds-space-2);
 }
 
+/* The address field sits left of its menu. Top-aligned, so a refusal that opens under the field
+   (the field grows taller) never moves the menu beside it. */
+.choice-or-url {
+  display: inline-flex;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  justify-content: flex-end;
+  gap: var(--ds-space-2);
+}
+
 .unit {
   color: var(--muted-text);
 }
 
 .slider {
-  width: 160px;
+  width: var(--page-size-160);
   accent-color: var(--accent, var(--text));
 }
 
@@ -550,15 +662,15 @@ mark {
 
 .select .ui-select-native {
   position: absolute;
-  inline-size: 1px;
-  block-size: 1px;
+  inline-size: var(--page-size-1);
+  block-size: var(--page-size-1);
   opacity: 0;
   pointer-events: none;
 }
 
 .select .ui-select-button {
   appearance: none;
-  padding-right: 24px;
+  padding-right: var(--ds-space-5);
 }
 
 .row-control .select .ui-select-button {
@@ -577,22 +689,14 @@ mark {
 
 .inherit-badge {
   position: absolute;
-  top: calc(100% + 1px);
+  top: calc(100% + var(--page-size-1));
   right: 0;
   color: var(--muted-text);
   font-size: var(--text-caption);
-  line-height: 12px;
+  line-height: var(--text-detail);
   white-space: nowrap;
   pointer-events: none;
   letter-spacing: var(--text-caption--letter-spacing);
-}
-
-.field.number[data-inherited] {
-  color: var(--muted-text);
-}
-
-.number-editor[data-inherited] .slider {
-  opacity: 0.65;
 }
 
 .color-editor[data-inherited] .swatch {
@@ -614,7 +718,7 @@ mark {
 
 .select .ui-select-chevron {
   position: absolute;
-  right: 6px;
+  right: var(--page-size-6);
   color: var(--muted-text);
   pointer-events: none;
 }
@@ -624,18 +728,21 @@ mark {
   gap: 0;
   padding: var(--ds-space-1);
   border: 1px solid var(--border);
-  border-radius: var(--ds-radius-lg);
+  /* Concentric: the segment's corner plus the track's padding. */
+  border-radius: calc(var(--ds-radius-control) + var(--ds-space-1));
   margin: 0;
   min-width: 0;
 }
 
+/* A segment's label stays on one line (a row with longer labels is a menu, Editor fitsSegments). */
 .segment {
   position: relative;
   display: inline-flex;
   align-items: center;
+  white-space: nowrap;
   min-height: var(--ds-control-compact);
   padding: 0 var(--ds-space-3);
-  border-radius: var(--ds-radius-sm);
+  border-radius: var(--ds-radius-control);
   background: transparent;
   cursor: default;
 }
@@ -651,12 +758,12 @@ mark {
   background: var(--input-bg);
 }
 
+/* The checked segment fills; its weight stays, so picking one never widens it and moves the rest. */
 .segment[data-checked] {
   background: var(--accent-soft);
-  font-weight: 500;
 }
 
-.segment:focus-within {
+.segment:is(:focus-visible, :has(:focus-visible)) {
   outline: 2px solid var(--border-strong);
   outline-offset: -1px;
 }
@@ -672,7 +779,7 @@ mark {
 .link-button:not(.ui-btn),
 .icon-button:not(.ui-btn) {
   border: 1px solid var(--border-strong);
-  border-radius: var(--ds-radius-md);
+  border-radius: var(--ds-radius-control);
   background: transparent;
   min-height: var(--ds-control-row);
   padding: var(--ds-space-1) var(--ds-space-3);
@@ -720,28 +827,28 @@ mark {
   display: inline-flex;
   align-items: center;
   gap: var(--ds-space-2);
-  max-width: 260px;
+  max-width: var(--page-size-260);
 }
 
 /* A pop-up over the rows (cx-jh7kq): opening it pushes no row down. */
 .domain-panel {
   display: flex;
   flex-direction: column;
-  gap: 4px;
+  gap: var(--ds-space-1);
   /* Fixed, so filtering never resizes it, and no wider than a font row plus its Recent tag and
      check need (design/menus.md menu-fit: at most 112 px spare past the fullest row). */
-  width: 240px;
+  width: var(--page-size-240);
 }
 
 /* Fit font names and the search field, while keeping long installed family names in the viewport. */
 .font-picker-panel {
   width: max-content;
-  min-width: min(220px, calc(100vw - 16px));
-  max-width: calc(100vw - 16px);
+  min-width: min(var(--page-size-220), calc(100vw - var(--ds-space-4)));
+  max-width: calc(100vw - var(--ds-space-4));
 }
 
 .domain-list {
-  max-height: 260px;
+  max-height: var(--page-size-260);
   margin: 0;
   padding: 0;
   overflow-y: auto;
@@ -750,8 +857,8 @@ mark {
 
 /* A font row draws in its own face (FontPicker); the highlight is the theme list's. */
 .domain-option {
-  padding: 3px 6px;
-  border-radius: 5px;
+  padding: var(--page-size-3) var(--page-size-6);
+  border-radius: var(--page-size-5);
 }
 
 .domain-option[data-highlighted] {
@@ -762,7 +869,7 @@ mark {
 .font-option-row {
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: var(--ds-space-2);
 }
 
 .font-option-name {
@@ -787,7 +894,7 @@ mark {
   display: inline-flex;
   flex-direction: column;
   align-items: flex-end;
-  gap: 4px;
+  gap: var(--ds-space-1);
 }
 
 .tokens {
@@ -795,23 +902,23 @@ mark {
   flex-wrap: wrap;
   justify-content: flex-end;
   align-items: center;
-  gap: 4px;
-  max-width: 360px;
+  gap: var(--ds-space-1);
+  max-width: var(--page-size-360);
 }
 
 .token {
   display: inline-flex;
   align-items: center;
-  gap: 2px;
-  padding: 1px 2px 1px 8px;
+  gap: var(--page-size-2);
+  padding: var(--page-size-1) var(--page-size-2) var(--page-size-1) var(--ds-space-2);
   border: 1px solid var(--border-strong);
-  border-radius: 4px;
-  font-size: 12px;
+  border-radius: var(--ds-space-1);
+  font-size: var(--text-detail);
 }
 
 .token-remove {
   display: inline-flex;
-  padding: 1px;
+  padding: var(--page-size-1);
   border: 0;
   border-radius: 50%;
   background: transparent;
@@ -823,7 +930,7 @@ mark {
 }
 
 .token-input {
-  width: 140px;
+  width: var(--page-size-140);
 }
 
 .time-range {
@@ -834,13 +941,13 @@ mark {
 }
 
 .time {
-  width: 96px;
+  width: var(--page-size-96);
 }
 
 .visually-hidden {
   position: absolute;
-  width: 1px;
-  height: 1px;
+  width: var(--page-size-1);
+  height: var(--page-size-1);
   overflow: hidden;
   clip-path: inset(50%);
   white-space: nowrap;
@@ -862,8 +969,7 @@ mark {
     flex-wrap: wrap;
   }
 
-  .row-control,
-  .row-control:has(> .reset-slot) {
+  .row-control {
     max-width: 100%;
   }
 }
@@ -891,12 +997,50 @@ mark {
   align-items: center;
 }
 
+/* Settings > Keys (design/settings-keys.md): a request is a row with its name, purpose and asker
+   over one line of field, Store and Decline (the Accounts paste form's field, at row width); a
+   key's state uses the Devices status dot. Names and commands are in the mono face. */
+.keys-name,
+.keys-code {
+  font-family: var(--font-mono, ui-monospace, monospace);
+  font-size: var(--text-detail);
+}
+
+.keys-request {
+  display: flex;
+  flex-direction: column;
+  gap: var(--ds-space-2);
+}
+
+.keys-purpose {
+  overflow-wrap: anywhere;
+  color: var(--text);
+}
+
+.keys-answer {
+  display: flex;
+  align-items: center;
+  gap: var(--ds-space-2);
+}
+
+.keys-answer > .keys-field {
+  flex: 1 1 auto;
+  min-width: 0;
+  max-width: var(--page-size-320);
+}
+
+.keys-control {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--ds-space-3);
+}
+
 .host-footer,
 .host-actions {
   display: flex;
   align-items: center;
-  gap: 12px;
-  margin-top: 8px;
+  gap: var(--ds-space-3);
+  margin-top: var(--ds-space-2);
 }
 
 .clear-browsing-data-error {
@@ -926,8 +1070,8 @@ mark {
   flex: none;
   align-items: center;
   justify-content: center;
-  width: 20px;
-  height: 20px;
+  width: var(--page-size-20);
+  height: var(--page-size-20);
   border-radius: 50%;
   background: var(--accent-soft);
   color: var(--muted-text);
@@ -941,30 +1085,30 @@ mark {
 }
 
 .host-avatar-image {
-  width: 16px;
-  height: 16px;
+  width: var(--ds-space-4);
+  height: var(--ds-space-4);
   object-fit: contain;
 }
 
 .host-form {
   display: flex;
   flex-direction: column;
-  gap: 8px;
-  padding: 10px 0 4px 32px;
+  gap: var(--ds-space-2);
+  padding: var(--page-size-10) 0 var(--ds-space-1) var(--ds-space-6);
 }
 
 .host-field {
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: var(--ds-space-2);
 }
 
 .host-field > .row-help {
-  width: 80px;
+  width: var(--page-size-80);
 }
 
 .host-field > .field {
-  width: 240px;
+  width: var(--page-size-240);
 }
 
 /* Settings > Cloud Environments' editor: the setup script and the variables take the form's width
@@ -973,13 +1117,13 @@ mark {
   display: flex;
   flex-direction: column;
   align-items: flex-start;
-  gap: 8px;
+  gap: var(--ds-space-2);
 }
 
 .environment-script {
   box-sizing: border-box;
   width: 100%;
-  max-width: 520px;
+  max-width: var(--page-size-520);
   resize: vertical;
 }
 
@@ -987,11 +1131,11 @@ mark {
   display: flex;
   flex-wrap: wrap;
   align-items: center;
-  gap: 8px;
+  gap: var(--ds-space-2);
 }
 
 .environment-variable > .field {
-  width: 160px;
+  width: var(--page-size-160);
 }
 
 /* Wrap complete controls rather than shrinking their labels in narrow profile editors. */
@@ -1022,12 +1166,12 @@ mark {
 
 .host-swatches {
   display: inline-flex;
-  gap: 6px;
+  gap: var(--page-size-6);
 }
 
 .host-swatch {
-  width: 14px;
-  height: 14px;
+  width: var(--page-size-14);
+  height: var(--page-size-14);
   padding: 0;
   border: 0;
   border-radius: 50%;
@@ -1048,25 +1192,32 @@ mark {
 .accounts-linked {
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: var(--ds-space-2);
   flex-wrap: wrap;
 }
 
 .accounts-header {
   justify-content: flex-end;
-  margin-bottom: 8px;
+  margin-bottom: var(--ds-space-2);
 }
 
 /* Part of its row (indented under the title), not a second outlined card inside the row's card. */
 .accounts-form {
   display: flex;
   flex-direction: column;
-  gap: 8px;
-  padding: 4px 0 0;
+  gap: var(--ds-space-2);
+  padding: var(--ds-space-1) 0 0;
+}
+
+/* New Command's form is a fieldset (one named group), without the fieldset's own frame. */
+.agent-command-form {
+  min-inline-size: 0;
+  margin: 0;
+  border: 0;
 }
 
 .accounts-row {
-  --accounts-mark-width: 20px;
+  --accounts-mark-width: var(--page-size-20);
 }
 
 .accounts-mark {
@@ -1078,8 +1229,8 @@ mark {
 .accounts-status {
   display: inline-flex;
   align-items: center;
-  gap: 6px;
-  font-size: 12px;
+  gap: var(--page-size-6);
+  font-size: var(--text-detail);
   color: var(--muted-text);
 }
 
@@ -1091,7 +1242,7 @@ mark {
 }
 
 .accounts-status[data-status="success"] .accounts-dot {
-  border-color: var(--success, var(--text));
+  border-color: var(--success);
 }
 
 .accounts-status[data-status="attention"] .accounts-dot {
@@ -1105,9 +1256,9 @@ mark {
 .accounts-body {
   display: flex;
   flex-direction: column;
-  gap: 6px;
+  gap: var(--page-size-6);
   /* Under the title: the mark plus the row's gap; refined.css sets it from --row-main-gap. */
-  padding: 6px 0 0 40px;
+  padding: var(--page-size-6) 0 0 var(--ds-space-40);
 }
 
 .accounts-body:empty {
@@ -1115,7 +1266,7 @@ mark {
 }
 
 .accounts-form > .field {
-  max-width: 320px;
+  max-width: var(--page-size-320);
 }
 
 /* Teams: a team row has no provider mark, so its details start under the title. */
@@ -1132,13 +1283,13 @@ mark {
 .accounts-team-title {
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: var(--ds-space-2);
 }
 
 .accounts-badge {
-  padding: 0 4px;
+  padding: 0 var(--ds-space-1);
   border: 1px solid var(--border);
-  border-radius: 4px;
+  border-radius: var(--ds-space-1);
   font-size: var(--text-caption);
   font-weight: 400;
   line-height: var(--text-caption--line-height);
@@ -1148,7 +1299,7 @@ mark {
 .accounts-facts {
   display: flex;
   flex-wrap: wrap;
-  gap: 4px 24px;
+  gap: var(--ds-space-1) var(--ds-space-5);
   margin: 0;
 }
 
@@ -1156,7 +1307,7 @@ mark {
   display: flex;
   /* The label is smaller than its value: share a baseline, not a top edge. */
   align-items: baseline;
-  gap: 8px;
+  gap: var(--ds-space-2);
 }
 
 .accounts-fact > dd {
@@ -1166,11 +1317,384 @@ mark {
 .accounts-team-list {
   display: flex;
   flex-direction: column;
-  gap: 4px;
+  gap: var(--ds-space-1);
 }
 
 .accounts-team-role {
   margin-left: auto;
+}
+
+/* Settings > Integrations (IntegrationsHubCard): one card of sections. A row with no control on its
+   right (an approval, Link Stripe) lets its text run the card's width; its buttons sit one step under
+   the text, not on it. Notes and the pause card keep a step from the Refresh line above them. */
+.hub-actions {
+  padding-top: var(--ds-space-2);
+}
+
+.hub-note {
+  margin-top: var(--ds-space-2);
+}
+
+.hub-lead {
+  margin-bottom: var(--ds-space-2);
+}
+
+.hub-below {
+  margin-top: var(--ds-space-2);
+  margin-bottom: 0;
+}
+
+/* The tabs under the header: Connections, Approvals, Rules, Audit. The list keeps a step from the
+   header's last line, and each panel's first group starts one step under the tabs. */
+.hub-tabs {
+  margin-top: var(--ds-space-3);
+}
+
+.hub-tab-list {
+  margin-bottom: var(--ds-space-3);
+}
+
+.hub-form {
+  gap: var(--ds-space-2);
+  align-items: flex-start;
+}
+
+.accounts-buttons > .hub-field {
+  width: var(--page-size-160);
+}
+
+/* Settings > Developer (DeveloperTokensCard): scope chips beside a token's name, the create and allow
+   forms as labeled fields, and code lines (the shown-once token, export, curl, the workflow) that
+   wrap inside the card with Copy beside them. */
+.tokens-title {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--ds-space-2);
+}
+
+.tokens-chips {
+  display: inline-flex;
+  gap: var(--grid-half-step);
+}
+
+.tokens-chip {
+  display: inline-flex;
+  align-items: center;
+  height: var(--ds-control-compact);
+  padding: 0 var(--ds-space-2);
+  border: 1px solid var(--border);
+  border-radius: var(--ds-radius-control);
+  background: var(--ds-color-surface);
+  color: var(--muted-text);
+  font-size: var(--text-detail);
+  letter-spacing: var(--text-detail--letter-spacing);
+  font-weight: 400;
+  white-space: nowrap;
+}
+
+.tokens-lead {
+  margin-bottom: var(--ds-space-2);
+}
+
+.tokens-form {
+  display: flex;
+  flex-direction: column;
+  gap: var(--ds-space-3);
+}
+
+.tokens-field {
+  display: flex;
+  flex-direction: column;
+  gap: var(--ds-space-1);
+  min-width: 0;
+  max-width: var(--page-size-320);
+}
+
+.tokens-row-fields {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--ds-space-3);
+}
+
+.tokens-row-fields > .tokens-field {
+  flex: 1 1 var(--page-size-160);
+}
+
+.tokens-fieldset {
+  display: flex;
+  flex-direction: column;
+  gap: var(--ds-space-2);
+  margin: 0;
+  padding: 0;
+  border: 0;
+}
+
+.tokens-fieldset > legend {
+  margin-bottom: var(--ds-space-1);
+  padding: 0;
+}
+
+.tokens-check {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--ds-space-2);
+}
+
+.tokens-check > span {
+  display: flex;
+  flex-direction: column;
+}
+
+.tokens-check-title {
+  color: var(--text);
+}
+
+.tokens-warning {
+  color: var(--ds-color-attention, var(--text));
+}
+
+.tokens-subhead {
+  margin-top: var(--ds-space-2);
+}
+
+.tokens-code-row {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--ds-space-2);
+  margin-top: var(--ds-space-1);
+}
+
+.tokens-code {
+  flex: 1 1 auto;
+  min-width: 0;
+  margin: 0;
+  padding: var(--ds-space-2);
+  border: 1px solid var(--border);
+  border-radius: var(--ds-radius-md);
+  background: var(--input-bg);
+  color: var(--text);
+  font: var(--text-detail) / 1.5 ui-monospace, "SF Mono", Menlo, monospace;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.tokens-secret {
+  font-weight: 600;
+}
+
+/* The shown-once token keeps a step from the list under it. */
+.tokens-created {
+  margin-bottom: var(--ds-space-3);
+}
+
+/* Settings > Automations: the form reads as labeled fields in rows, a condition is one line
+   (path, operator, value, remove), and the preview wraps its rendered prompt. */
+.autocloud-form {
+  display: flex;
+  flex-direction: column;
+  gap: var(--ds-space-2);
+}
+
+.autocloud-heading {
+  margin-top: var(--ds-space-2);
+}
+
+.autocloud-field {
+  display: flex;
+  flex-direction: column;
+  gap: var(--ds-space-1);
+  min-width: 0;
+}
+
+.autocloud-form > .autocloud-field {
+  max-width: var(--page-size-320);
+}
+
+.autocloud-form > .autocloud-field:has(textarea) {
+  max-width: none;
+}
+
+.hub-form > .autocloud-field {
+  flex: 1 1 var(--page-size-160);
+}
+
+.autocloud-condition {
+  flex-wrap: nowrap;
+}
+
+.autocloud-condition > .field:first-child {
+  flex: 2 1 0;
+}
+
+.autocloud-condition > select {
+  flex: none;
+}
+
+.autocloud-condition > .field:not(:first-child) {
+  flex: 1 1 0;
+}
+
+.autocloud-textarea {
+  box-sizing: border-box;
+  width: 100%;
+  min-height: calc(var(--ds-control-row) * 5);
+  padding: var(--ds-space-1) var(--ds-space-2);
+  border: 1px solid var(--border);
+  border-radius: var(--ds-radius-md);
+  background: var(--input-bg);
+  color: var(--text);
+  font: inherit;
+  font-family: var(--font-mono, ui-monospace, monospace);
+  resize: vertical;
+  outline: none;
+}
+
+.autocloud-textarea:focus-visible {
+  border-color: var(--border-strong);
+  box-shadow: 0 0 0 2px var(--accent-soft);
+}
+
+.autocloud-check {
+  display: flex;
+  align-items: center;
+  gap: var(--ds-space-1);
+}
+
+.autocloud-preview {
+  display: flex;
+  flex-direction: column;
+  gap: var(--ds-space-1);
+  padding: var(--ds-space-2);
+  border: 1px solid var(--border);
+  border-radius: var(--ds-radius-md);
+}
+
+.autocloud-prompt {
+  margin: 0;
+  max-height: calc(var(--ds-control-row) * 8);
+  overflow: auto;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  font-size: var(--text-detail);
+}
+
+.autocloud-number {
+  max-width: var(--page-size-160);
+}
+
+/* Settings > Connections (ConnectionsPanel.tsx): the catalog as a grid of tiles in rank order, each with
+   its mark, title and status pill on one line, one line about it, and its button at the bottom. */
+.connections-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(var(--page-size-240), 1fr));
+  gap: var(--ds-space-2);
+}
+
+/* Each tile is the pane's connect card (acpmux/ConnectCard.tsx, claudeConnect.css): its pane colours
+   from this page's, as the plan usage card's are (.harness-account-usage). */
+.connections-tile {
+  --agent-text: var(--text);
+  --agent-muted: var(--muted-text);
+  --agent-border: var(--border);
+  --agent-accent: var(--cmux-accent, var(--text));
+  --agent-danger: var(--danger);
+  display: flex;
+  min-width: 0;
+}
+
+.connections-tile > .acpmux-connect-card {
+  flex: 1;
+  padding: var(--ds-space-3);
+  border-color: var(--border);
+  background: var(--input-bg);
+}
+
+.connections-tile .acpmux-connect-card__actions {
+  margin-top: auto;
+}
+
+.connections-tile .acpmux-connect-card__details .row-help {
+  white-space: normal;
+}
+
+.connections-monogram {
+  display: inline-grid;
+  flex-shrink: 0;
+  place-items: center;
+  width: var(--ds-space-5);
+  height: var(--ds-space-5);
+  border-radius: var(--ds-radius-control);
+  background: color-mix(in srgb, var(--muted-text) 18%, transparent);
+  font-weight: 600;
+  font-size: var(--text-detail);
+}
+
+.connections-confirm {
+  display: flex;
+  flex-basis: 100%;
+  flex-direction: column;
+  gap: var(--ds-space-2);
+}
+
+.connections-tile[data-connections-state="unavailable"] {
+  opacity: 0.7;
+}
+
+.connections-key {
+  display: flex;
+  flex: 1;
+  gap: var(--ds-space-2);
+  min-width: 0;
+}
+
+.connections-key > .keys-field {
+  flex: 1;
+  min-width: 0;
+}
+
+.connections-owner {
+  display: flex;
+  align-items: center;
+  gap: var(--ds-space-2);
+}
+
+/* Settings > Connections, on top (AllConnections.tsx): every connection as one compact row, its
+   title and kind, its status pill and its one action. */
+.all-connections-list {
+  display: flex;
+  flex-direction: column;
+  margin: var(--ds-space-2) 0 0;
+  padding: 0;
+  border: 1px solid var(--border);
+  border-radius: var(--ds-radius-lg);
+  list-style: none;
+}
+
+.all-connections-row {
+  display: flex;
+  align-items: center;
+  gap: var(--ds-space-2);
+  min-width: 0;
+  padding: var(--ds-space-1) var(--ds-space-3);
+}
+
+.all-connections-row + .all-connections-row {
+  border-top: 1px solid var(--border);
+}
+
+.all-connections-text {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  min-width: 0;
+}
+
+.all-connections-title,
+.all-connections-detail {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 /* Settings > Devices: tones reuse the Accounts status dot; the history is a compact table. */
@@ -1183,7 +1707,7 @@ mark {
 }
 
 .devices-status[data-tone="success"] .accounts-dot {
-  border-color: var(--success, var(--text));
+  border-color: var(--success);
 }
 
 .devices-status[data-tone="attention"] .accounts-dot {
@@ -1201,13 +1725,13 @@ mark {
 .devices-title {
   display: flex;
   align-items: center;
-  gap: 6px;
+  gap: var(--page-size-6);
 }
 
 .devices-badge {
-  padding: 0 6px;
+  padding: 0 var(--page-size-6);
   border: 1px solid var(--border);
-  border-radius: 4px;
+  border-radius: var(--ds-space-1);
   font-size: var(--text-caption);
   line-height: var(--text-caption--line-height);
   letter-spacing: var(--text-caption--letter-spacing);
@@ -1217,7 +1741,11 @@ mark {
 .devices-field-inline {
   display: inline-flex;
   align-items: center;
-  gap: 6px;
+  gap: var(--page-size-6);
+}
+
+.devices-screen-action {
+  flex: 0 0 auto;
 }
 
 .devices-relays-header {
@@ -1226,18 +1754,18 @@ mark {
 }
 
 .devices-form {
-  margin-top: 6px;
+  margin-top: var(--page-size-6);
 }
 
 .devices-field {
   display: flex;
   flex-direction: column;
-  gap: 3px;
+  gap: var(--page-size-3);
 }
 
 .devices-field > .field,
 .devices-field > .select {
-  max-width: 360px;
+  max-width: var(--page-size-360);
 }
 
 .devices-urls {
@@ -1245,7 +1773,7 @@ mark {
 }
 
 .devices-priority {
-  width: 80px;
+  width: var(--page-size-80);
 }
 
 .devices-history-scroll {
@@ -1263,7 +1791,7 @@ mark {
 
 .devices-history th,
 .devices-history td {
-  padding: 5px 6px;
+  padding: var(--page-size-5) var(--page-size-6);
   text-align: left;
   vertical-align: top;
   box-shadow: inset 0 -1px 0 var(--border);
@@ -1343,7 +1871,7 @@ mark {
 }
 
 .devices-copy {
-  padding: 0 6px;
+  padding: 0 var(--page-size-6);
   font-size: var(--text-detail);
   letter-spacing: var(--text-detail--letter-spacing);
 }
@@ -1354,14 +1882,14 @@ mark {
   max-width: 100%;
   white-space: normal;
   text-align: center;
-  padding: 0 7px;
+  padding: 0 var(--page-size-7);
   border: 1px solid var(--border);
   border-radius: 999px;
   color: var(--muted-text);
 }
 
 .devices-pill[data-tone="success"] {
-  color: var(--success, var(--text));
+  color: var(--success);
 }
 
 .devices-pill[data-tone="attention"] {
@@ -1374,19 +1902,59 @@ mark {
 
 /* All Workspaces | This Workspace (cx-t2x.5). */
 .backdrop-scope {
-  margin-bottom: 8px;
+  margin-bottom: var(--ds-space-2);
 }
 
 /* Wallpaper grid (R82 commit 4). */
 .backdrop-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(112px, 1fr));
-  gap: 8px;
-  margin-top: 8px;
+  grid-template-columns: repeat(auto-fill, minmax(var(--page-size-112), 1fr));
+  gap: var(--ds-space-2);
+  margin-top: var(--ds-space-2);
+}
+
+/* The Background card's placement preview: the picture in a window-shaped frame, dragged into place. */
+.placement-preview {
+  display: grid;
+  gap: var(--ds-space-2);
+  margin-top: var(--ds-space-3);
+  max-width: var(--page-size-420);
+}
+
+.placement-frame {
+  position: relative;
+  aspect-ratio: 16 / 10;
+  overflow: hidden;
+  border: 1px solid var(--border);
+  border-radius: var(--page-size-6);
+  background: var(--input-bg);
+  cursor: grab;
+  touch-action: none;
+  user-select: none;
+}
+
+.placement-frame[data-dragging] {
+  cursor: grabbing;
+}
+
+.placement-frame[aria-disabled="true"] {
+  cursor: default;
+}
+
+.placement-image {
+  position: absolute;
+  max-width: none;
+  pointer-events: none;
+}
+
+.placement-controls {
+  display: flex;
+  align-items: center;
+  gap: var(--ds-space-2);
 }
 
 .backdrop-group-title {
-  margin: 12px 0 0;
+  margin: var(--ds-space-3) 0 0;
   font-weight: 600;
 }
 
@@ -1394,7 +1962,7 @@ mark {
   position: relative;
   display: flex;
   flex-direction: column;
-  gap: 2px;
+  gap: var(--page-size-2);
   min-width: 0;
   padding: 0;
   border: 0;
@@ -1406,19 +1974,19 @@ mark {
 
 .backdrop-thumb {
   width: 100%;
-  height: 68px;
+  height: var(--page-size-68);
   border: 2px solid transparent;
-  border-radius: 6px;
+  border-radius: var(--page-size-6);
   object-fit: cover;
 }
 
 /* A moving wallpaper (cx-14vdf): a play mark over its first frame. */
 .backdrop-badge {
   position: absolute;
-  top: 6px;
-  left: 8px;
-  padding: 0 4px;
-  border-radius: 4px;
+  top: var(--page-size-6);
+  left: var(--ds-space-2);
+  padding: 0 var(--ds-space-1);
+  border-radius: var(--ds-space-1);
   background: var(--input-bg);
   color: var(--text);
   font-size: var(--text-caption);
@@ -1457,10 +2025,10 @@ mark {
 /* On a chip like the moving wallpaper's badge, so it reads over any picture. */
 .backdrop-download {
   position: absolute;
-  right: 6px;
-  bottom: 6px;
-  padding: 2px;
-  border-radius: 4px;
+  right: var(--page-size-6);
+  bottom: var(--page-size-6);
+  padding: var(--page-size-2);
+  border-radius: var(--ds-space-1);
   background: var(--input-bg);
   color: var(--text);
 }
@@ -1480,9 +2048,9 @@ mark {
    button in each tile's corner, shown on hover or focus. */
 .backdrop-own-bar {
   display: flex;
-  gap: 8px;
+  gap: var(--ds-space-2);
   align-items: center;
-  margin-top: 4px;
+  margin-top: var(--ds-space-1);
 }
 
 .backdrop-own {
@@ -1508,12 +2076,12 @@ mark {
 
 /* Browse More Art (cx-t2x.8). */
 .art-browser {
-  margin: 12px 0;
+  margin: var(--ds-space-3) 0;
 }
 
 .art-browser-search {
   display: flex;
-  gap: 8px;
+  gap: var(--ds-space-2);
   align-items: center;
 }
 
@@ -1531,9 +2099,102 @@ mark {
 
 .backdrop-title {
   overflow: hidden;
-  font-size: 12px;
+  font-size: var(--text-detail);
   white-space: nowrap;
   text-overflow: ellipsis;
+}
+
+/* Switch Automatically (wallpaper schedule): the modes, then the chosen mode's editor. It sits
+   under the first tile row, so an editor opening never moves the grid above it. */
+.wallpaper-switch {
+  display: flex;
+  flex-direction: column;
+  gap: var(--ds-space-2);
+  margin: var(--ds-space-3) 0;
+}
+
+.wallpaper-line {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--ds-space-2);
+  align-items: center;
+}
+
+.wallpaper-help {
+  margin: 0;
+}
+
+.wallpaper-editor {
+  display: flex;
+  flex-direction: column;
+  gap: var(--ds-space-2);
+  padding: var(--ds-space-3);
+  border: 1px solid var(--border);
+  border-radius: var(--ds-radius-card);
+}
+
+.wallpaper-slots {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(112px, 1fr));
+  gap: var(--ds-space-2);
+}
+
+.wallpaper-slot[aria-expanded="true"] .backdrop-thumb {
+  border-color: var(--text);
+}
+
+.wallpaper-slot-label {
+  font-size: var(--text-caption);
+  letter-spacing: var(--text-caption--letter-spacing);
+}
+
+/* A slot's pictures: the card's tiles, three rows tall, scrolling inside the editor. */
+.wallpaper-slot-picker {
+  max-height: calc(3 * (68px + var(--ds-space-5)));
+  margin-top: 0;
+  overflow-y: auto;
+}
+
+.wallpaper-schedule {
+  display: flex;
+  flex-direction: column;
+  gap: var(--ds-space-2);
+}
+
+/* When | time or offset | picture | remove, on one line; the picture slot keeps a tile's width. */
+.wallpaper-when {
+  display: grid;
+  grid-template-columns: auto auto minmax(112px, 160px) auto;
+  gap: var(--ds-space-2);
+  align-items: center;
+  justify-content: start;
+}
+
+.wallpaper-time,
+.wallpaper-location {
+  width: auto;
+}
+
+/* The timeline design: the day as a strip, each picture from where it starts. */
+.wallpaper-strip {
+  position: relative;
+  height: var(--ds-control-row);
+  overflow: hidden;
+  border: 1px solid var(--border);
+  border-radius: var(--ds-radius-control);
+}
+
+.wallpaper-strip-span {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  border-left: 1px solid var(--border);
+}
+
+.wallpaper-strip-span .backdrop-thumb {
+  height: 100%;
+  border: 0;
+  border-radius: 0;
 }
 
 /* Key and value lists (browser.siteEngines). */
@@ -1541,17 +2202,17 @@ mark {
   display: inline-flex;
   flex-direction: column;
   align-items: flex-end;
-  gap: 4px;
+  gap: var(--ds-space-1);
 }
 
 .string-map-item {
   display: inline-flex;
   align-items: center;
-  gap: 4px;
+  gap: var(--ds-space-1);
 }
 
 .string-map-key {
-  max-width: 220px;
+  max-width: var(--page-size-220);
   overflow: hidden;
   font-size: var(--text-detail);
   white-space: nowrap;
@@ -1564,25 +2225,25 @@ mark {
   display: inline-flex;
   flex-direction: column;
   align-items: flex-end;
-  gap: 4px;
+  gap: var(--ds-space-1);
 }
 
 /* Why a chat root is refused: its own line under the path, wrapping rather than clipped. */
 .folder-reason {
-  max-width: 320px;
+  max-width: var(--page-size-320);
   text-align: right;
 }
 
 .folder-item {
   display: inline-flex;
   align-items: center;
-  gap: 4px;
+  gap: var(--ds-space-1);
 }
 
 .folder-path {
-  max-width: 260px;
+  max-width: var(--page-size-260);
   overflow: hidden;
-  font-size: 12px;
+  font-size: var(--text-detail);
   white-space: nowrap;
   text-overflow: ellipsis;
 }
@@ -1594,7 +2255,7 @@ mark {
 .section-actions {
   display: flex;
   flex-wrap: wrap;
-  gap: 8px;
+  gap: var(--ds-space-2);
 }
 
 /* Settings > Appearance's floating Undo, Redo and Reset: pinned to the bottom right of the content
@@ -1603,42 +2264,36 @@ mark {
    content's bottom fade, not 16px above the padding, where it covered the last row's control. */
 .appearance-bar {
   position: sticky;
-  bottom: calc(var(--content-fade-bottom, 28px) + 4px - var(--content-pad-end, 0px));
+  bottom: calc(var(--content-fade-bottom, var(--page-size-28)) + var(--ds-space-1) - var(--content-pad-end, 0px));
   z-index: var(--layer-sticky);
   display: flex;
   align-items: center;
-  gap: 4px;
+  gap: var(--ds-space-1);
   width: fit-content;
-  margin: 16px 0 0 auto;
-  padding: 4px;
+  margin: var(--ds-space-4) 0 0 auto;
+  padding: var(--ds-space-1);
   border: 1px solid var(--border);
-  border-radius: 10px;
+  border-radius: var(--page-size-10);
   background: var(--surface-popup);
   box-shadow: var(--ui-popup-drop);
 }
 
+.content:has(.appearance-bar) {
+  /* While the bar floats over the page, a row scrolled into view at the bottom (a Tab stop, a
+     click's scroll) lands above the bar, not under it: the bar's height (a button and its 4px frame)
+     joins the fade's clearance. */
+  scroll-padding-bottom: calc(var(--content-fade-bottom) + var(--ds-space-1) + var(--ds-control-row) + var(--page-size-10) + var(--page-size-6));
+}
+
 .appearance-bar-button {
-  width: 28px;
-  height: 26px;
+  width: var(--page-size-28);
+  height: var(--page-size-26);
 }
 
 .appearance-bar-reset {
   display: inline-flex;
   align-items: center;
-  gap: 6px;
-}
-
-.appearance-bar-confirm {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  padding-left: 6px;
-}
-
-.appearance-bar-question {
-  font-size: var(--text-detail);
-  white-space: nowrap;
-  letter-spacing: var(--text-detail--letter-spacing);
+  gap: var(--page-size-6);
 }
 
 /* Agents > Chiefs (ChiefsCard.tsx): one row per Chief, a button that opens its editor. */
@@ -1646,7 +2301,7 @@ mark {
   flex-direction: row;
   align-items: center;
   justify-content: flex-start;
-  gap: 10px;
+  gap: var(--page-size-10);
   width: 100%;
   border: 0;
   background: transparent;
@@ -1670,9 +2325,9 @@ mark {
   display: grid;
   flex: none;
   place-items: center;
-  width: 28px;
-  height: 28px;
-  border-radius: 7px;
+  width: var(--page-size-28);
+  height: var(--page-size-28);
+  border-radius: var(--page-size-7);
   overflow: hidden;
   background: var(--input-bg);
 }
@@ -1701,13 +2356,13 @@ mark {
 }
 .chiefs-card.editing .ce-body {
   overflow: visible;
-  padding-left: 36px;
+  padding-left: var(--page-size-36);
 }
 
 /* Settings > Appearance > Density (DensityCard): tiles that draw each density at its own sizes.
    The --density-* sizes come from the density's tokens (density.ts), set inline per preview. */
 .density-help {
-  margin: 0 0 10px;
+  margin: 0 0 var(--page-size-10);
   color: var(--muted-text);
   font-size: var(--text-caption);
   letter-spacing: var(--text-caption--letter-spacing);
@@ -1715,18 +2370,18 @@ mark {
 
 .density-tiles {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
-  gap: 10px;
+  grid-template-columns: repeat(auto-fill, minmax(var(--page-size-150), 1fr));
+  gap: var(--page-size-10);
 }
 
 .density-tile {
   display: flex;
   flex-direction: column;
-  gap: 6px;
+  gap: var(--page-size-6);
   min-width: 0;
-  padding: 6px;
+  padding: var(--page-size-6);
   border: 1px solid var(--border);
-  border-radius: 8px;
+  border-radius: var(--ds-space-2);
   background: transparent;
   color: inherit;
   font: inherit;
@@ -1740,7 +2395,7 @@ mark {
 .density-name {
   display: flex;
   justify-content: space-between;
-  gap: 6px;
+  gap: var(--page-size-6);
   font-weight: 600;
 }
 
@@ -1755,7 +2410,7 @@ mark {
   flex: 1;
   overflow: hidden;
   border: 1px solid var(--border);
-  border-radius: 6px;
+  border-radius: var(--page-size-6);
   background: var(--input-bg);
   color: var(--text);
 }
@@ -1763,7 +2418,7 @@ mark {
 .density-strip {
   display: flex;
   align-items: center;
-  gap: 4px;
+  gap: var(--ds-space-1);
   height: var(--density-strip);
   padding: 0 var(--density-inset);
   border-bottom: 1px solid var(--border);
@@ -1772,7 +2427,7 @@ mark {
 .density-tab {
   display: flex;
   align-items: center;
-  gap: 6px;
+  gap: var(--page-size-6);
   height: var(--density-tab);
   padding: 0 var(--density-inset);
   border-radius: var(--density-radius);
@@ -1786,7 +2441,7 @@ mark {
 }
 
 .density-list {
-  padding: 4px var(--density-inset);
+  padding: var(--ds-space-1) var(--density-inset);
 }
 
 .density-item {
@@ -1815,11 +2470,11 @@ mark {
   width: var(--density-icon);
   height: var(--density-icon);
   border: 1.5px solid var(--border-strong);
-  border-radius: 3px;
+  border-radius: var(--page-size-3);
 }
 
 .density-caption {
-  padding: 2px var(--density-inset) 6px;
+  padding: var(--page-size-2) var(--density-inset) var(--page-size-6);
   color: var(--muted-text);
   font-size: var(--density-caption);
 }
@@ -1833,8 +2488,8 @@ mark {
   display: flex;
   flex-wrap: wrap;
   align-items: center;
-  gap: 8px;
-  margin-top: 10px;
+  gap: var(--ds-space-2);
+  margin-top: var(--page-size-10);
 }
 
 .density-notice {
@@ -1845,31 +2500,31 @@ mark {
 
 .density-import {
   display: flex;
-  gap: 8px;
-  margin-top: 10px;
+  gap: var(--ds-space-2);
+  margin-top: var(--page-size-10);
 }
 
 .density-import textarea {
   flex: 1;
-  min-height: 72px;
+  min-height: var(--page-size-72);
   font-family: ui-monospace, monospace;
 }
 
 .density-editor {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) minmax(200px, 300px);
-  gap: 16px;
-  margin-top: 14px;
-  padding-top: 14px;
+  grid-template-columns: minmax(0, 1fr) minmax(var(--page-size-200), var(--page-size-300));
+  gap: var(--ds-space-4);
+  margin-top: var(--page-size-14);
+  padding-top: var(--page-size-14);
   border-top: 1px solid var(--border);
 }
 
 .density-field {
   display: grid;
-  grid-template-columns: 110px minmax(0, 1fr) 44px;
+  grid-template-columns: var(--page-size-110) minmax(0, 1fr) var(--page-size-44);
   align-items: center;
-  gap: 10px;
-  margin-bottom: 8px;
+  gap: var(--page-size-10);
+  margin-bottom: var(--ds-space-2);
 }
 
 .density-field > span {
@@ -1887,7 +2542,7 @@ mark {
    hover and keyboard focus. */
 .menus-editor {
   display: grid;
-  grid-template-columns: minmax(150px, 190px) minmax(0, 1fr);
+  grid-template-columns: minmax(var(--page-size-150), var(--page-size-190)) minmax(0, 1fr);
   gap: var(--ds-space-4);
   align-items: start;
 }
@@ -1906,7 +2561,7 @@ mark {
 }
 
 .menus-area-title {
-  margin: 0 0 3px 8px;
+  margin: 0 0 var(--page-size-3) var(--ds-space-2);
   font-size: var(--text-caption);
   font-weight: 600;
   color: var(--muted-text);
@@ -1917,10 +2572,10 @@ mark {
   align-items: center;
   gap: var(--ds-space-2);
   width: 100%;
-  min-height: 24px;
+  min-height: var(--ds-space-5);
   padding: 0 var(--ds-space-2);
   border: 0;
-  border-radius: 6px;
+  border-radius: var(--page-size-6);
   background: transparent;
   color: var(--text);
   font: inherit;
@@ -1944,8 +2599,8 @@ mark {
 
 .menus-edited {
   margin-inline-start: auto;
-  width: 6px;
-  height: 6px;
+  width: var(--page-size-6);
+  height: var(--page-size-6);
   border-radius: 50%;
   background: var(--accent);
 }
@@ -1956,8 +2611,12 @@ mark {
 
 .menus-detail-header {
   display: flex;
+  /* The title and four buttons are wider than the detail column beside the menu list: the buttons
+     wrap under the title instead of running past the column (Reset to Default was cut at the
+     window's edge). */
+  flex-wrap: wrap;
   align-items: center;
-  gap: 8px;
+  gap: var(--ds-space-2);
 }
 
 .menus-detail-title {
@@ -1971,23 +2630,17 @@ mark {
 }
 
 .menus-help {
-  margin: 4px 0 10px;
+  margin: var(--ds-space-1) 0 var(--page-size-10);
 }
 
-/* The menu itself: a rounded panel of 24 px rows, as macOS draws a context menu. */
+/* Preview the same glass, rim and grid as the menu the person is arranging. */
 .menu-preview {
   list-style: none;
   margin: 0;
 }
 
 .menu-preview {
-  padding: var(--ds-space-1);
-  border: 1px solid var(--border-strong);
-  border-radius: 9px;
-  /* A context menu's own surface (WebTheme's --surface-popup) and drop, so it reads as the menu. */
-  background: var(--surface-popup);
-  box-shadow: var(--ui-popup-drop);
-  max-width: 420px;
+  max-width: var(--page-size-420);
   position: relative;
 }
 
@@ -1995,9 +2648,9 @@ mark {
   display: flex;
   align-items: center;
   gap: var(--ds-space-2);
-  min-height: 24px;
+  min-height: var(--ui-row-height);
   padding: 0 var(--ds-space-1);
-  border-radius: 5px;
+  border-radius: var(--ui-row-radius);
   position: relative;
 }
 
@@ -2054,16 +2707,30 @@ mark {
 
 .menu-row-icon {
   flex: none;
-  width: 16px;
-  height: 16px;
+  width: var(--ds-space-4);
+  height: var(--ds-space-4);
 }
 
+/* A row's title takes the row's whole width at rest: its buttons show only on hover, so they lie
+   over the title's end instead of holding a slot (Leo, 2026-11-24: "if the buttons show on hover,
+   then we should show the whole line before ellipsis-ing. and when the area is hovered over,
+   there's that whatever some amount of good fading that makes it all feel like one motion";
+   "you're early ellipsis-ing because of a button that doesnt even always show"). The title is a
+   .ui-reveal-text (ui/motion/motion.css): its end fades, not an ellipsis, and fades under the
+   buttons while they show. The row is the host (data-reveal-overlap: a chevron or badge may follow
+   a short title, and gives way under the buttons). */
 .menu-row-title {
   flex: 1;
   min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+}
+
+.menu-row-body {
+  position: relative;
+}
+
+/* A drag shows no buttons, so the title's end shows whole. */
+.menu-preview[data-reordering] .menu-row-body .ui-reveal-text {
+  --ui-reveal-cover: 0px;
 }
 
 button.menu-disclosure {
@@ -2080,6 +2747,11 @@ button.menu-disclosure {
 }
 
 .menu-row-actions {
+  position: absolute;
+  inset-inline-end: 0;
+  top: 50%;
+  transform: translateY(-50%);
+  z-index: var(--layer-raised);
   display: inline-flex;
   opacity: 0;
   transition: var(--cmux-hover-reveal-out-transition);
@@ -2097,10 +2769,17 @@ button.menu-disclosure {
   transition: none;
 }
 
+/* Renaming a submenu puts its field where the title was; the buttons then take their place beside it
+   (only in that state). */
+.menu-row-body:has(.menu-rename) .menu-row-actions {
+  position: static;
+  transform: none;
+}
+
 .menu-separator .menu-separator-line {
   flex: 1;
   height: 0;
-  margin: 0 6px;
+  margin: 0 var(--page-size-6);
   border-top: 1px solid var(--border-strong);
 }
 
@@ -2119,7 +2798,7 @@ button.menu-disclosure {
 .menu-row-badge {
   flex: none;
   padding: 0 var(--ds-space-1);
-  border-radius: 4px;
+  border-radius: var(--ds-space-1);
   background: var(--input-bg);
   color: var(--muted-text);
   font-size: var(--text-caption);
@@ -2133,9 +2812,9 @@ button.menu-disclosure {
 
 .menu-twisty {
   flex: none;
-  width: 12px;
-  height: 12px;
-  margin-inline-start: -2px;
+  width: var(--ds-space-3);
+  height: var(--ds-space-3);
+  margin-inline-start: var(--page-size-negative-2);
   color: var(--muted-text);
 }
 
@@ -2146,19 +2825,20 @@ button.menu-disclosure {
 .menu-rename {
   flex: 1;
   min-width: 0;
-  height: 20px;
+  height: var(--page-size-20);
 }
 
 .menus-move-picker {
   display: flex;
   flex-direction: column;
-  margin-top: 8px;
-  max-width: 420px;
-  padding: var(--ds-space-1);
-  border: 1px solid var(--border-strong);
-  border-radius: 9px;
-  background: var(--surface-popup);
-  box-shadow: var(--ui-popup-drop);
+  margin-top: var(--ds-space-2);
+  max-width: var(--page-size-420);
+}
+
+.menus-move-picker .menus-list-item {
+  min-height: var(--ui-row-height);
+  padding-inline: var(--ui-row-padding-inline);
+  border-radius: var(--ui-row-radius);
 }
 
 @media (max-width: 640px) {
@@ -2174,7 +2854,7 @@ button.menu-disclosure {
 }
 
 .menus-failure {
-  margin: 0 0 10px;
+  margin: 0 0 var(--page-size-10);
   color: var(--danger);
   font-size: var(--text-detail);
 }
@@ -2194,16 +2874,16 @@ button.menu-disclosure {
 }
 
 .app-update-progress-row {
-  padding: 0 8px 8px;
+  padding: 0 var(--ds-space-2) var(--ds-space-2);
 }
 
 .app-update-progress {
   display: block;
   width: 100%;
-  block-size: 4px;
+  block-size: var(--ds-space-1);
   overflow: hidden;
   border: 0;
-  border-radius: 2px;
+  border-radius: var(--page-size-2);
   appearance: none;
   background: var(--input-bg);
 }
@@ -2213,12 +2893,12 @@ button.menu-disclosure {
 }
 
 .app-update-progress::-webkit-progress-value {
-  border-radius: 2px;
+  border-radius: var(--page-size-2);
   background: var(--text);
 }
 
 .app-update-progress::-moz-progress-bar {
-  border-radius: 2px;
+  border-radius: var(--page-size-2);
   background: var(--text);
 }
 
@@ -2227,24 +2907,133 @@ button.menu-disclosure {
   background: var(--accent-soft);
 }
 
+/* Settings > Computer Use (ComputerUseCard): the built-in line, the mode list, the app lists. */
+.computer-use-builtin {
+  margin: 0 0 var(--ds-space-3);
+  color: var(--muted-text);
+}
+
+.computer-use-modes {
+  display: grid;
+  gap: var(--ds-space-1);
+  margin: var(--ds-space-2) 0 0;
+  padding: 0;
+  border: 0;
+  min-width: 0;
+}
+
+.computer-use-mode {
+  position: relative;
+  display: flex;
+  gap: var(--ds-space-3);
+  align-items: flex-start;
+  padding: var(--ds-space-2) var(--ds-space-3);
+  border-radius: var(--ds-radius-sm);
+}
+
+.computer-use-mode:hover {
+  background: var(--input-bg);
+}
+
+.computer-use-mode[data-checked] {
+  background: var(--accent-soft);
+}
+
+.computer-use-mode:focus-within {
+  outline: 2px solid var(--border-strong);
+  outline-offset: -2px;
+}
+
+.computer-use-mode input {
+  margin: var(--ds-space-1) 0 0;
+}
+
+.computer-use-mode-text {
+  display: grid;
+  gap: var(--ds-space-1);
+  min-width: 0;
+}
+
+.computer-use-mode-title {
+  font-weight: var(--weight-emphasis);
+}
+
+.computer-use-list {
+  display: grid;
+  gap: 0;
+  margin: var(--ds-space-2) 0 0;
+  padding: 0;
+  list-style: none;
+  max-height: 240px;
+  overflow-y: auto;
+}
+
+.computer-use-list-row {
+  display: flex;
+  gap: var(--ds-space-3);
+  align-items: center;
+  justify-content: space-between;
+  min-height: var(--ds-control-row);
+  padding: 0 var(--ds-space-2);
+  border-bottom: 1px solid var(--border);
+}
+
+.computer-use-list-row:last-child {
+  border-bottom: 0;
+}
+
+.computer-use-app {
+  display: flex;
+  gap: var(--ds-space-2);
+  align-items: baseline;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.computer-use-app-id {
+  color: var(--muted-text);
+  font-family: var(--font-mono, ui-monospace, monospace);
+}
+
+.computer-use-approval-controls {
+  display: inline-flex;
+  gap: var(--ds-space-2);
+  align-items: center;
+}
+
+.computer-use-add {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--ds-space-2);
+  align-items: center;
+  margin-top: var(--ds-space-2);
+}
+
+.computer-use-add .field[type="text"] {
+  flex: 1;
+  min-width: 160px;
+}
+
 /* Settings > Agents > Worktree Setup (WorktreeSetupCard.tsx, design/worktree-setup.md): each script
    is its name, what it is for, a code box, and what the repository says under it. Switching the
    project changes only the values, never the fields, so nothing moves. */
 .worktree-setup-form {
   display: flex;
   flex-direction: column;
-  gap: 12px;
-  padding: 8px 0 0;
+  gap: var(--ds-space-3);
+  padding: var(--ds-space-2) 0 0;
 }
 
 .worktree-setup-field {
   display: flex;
   flex-direction: column;
-  gap: 4px;
+  gap: var(--ds-space-1);
 }
 
 .worktree-setup-field > textarea.field {
-  min-height: 32px;
+  min-height: var(--ds-space-6);
   resize: vertical;
 }
 
@@ -2252,8 +3041,8 @@ button.menu-disclosure {
   display: flex;
   flex-wrap: wrap;
   align-items: center;
-  gap: 8px;
-  min-height: 24px;
+  gap: var(--ds-space-2);
+  min-height: var(--ds-space-5);
 }
 
 .worktree-setup-footer {
@@ -2265,53 +3054,1375 @@ button.menu-disclosure {
   min-width: 0;
 }
 
-/* Settings > Personalization (PersonalizationCard): a jump bar pinned to the top of the content over
- * the parts, each a titled run of its home category's card or rows, with More in … on its right. */
-.personalization-jump {
-  position: sticky;
-  top: 0;
-  z-index: var(--layer-sticky);
+/* Settings > Models (ModelsCard.tsx): three groups, each title with its help and an optional + on the
+   trailing edge; connection rows with a grip, the provider's mark, a switch and an overflow menu. */
+.models {
   display: flex;
-  flex-wrap: wrap;
-  gap: 4px;
-  width: fit-content;
-  margin: 0 0 var(--ds-space-5);
-  padding: 4px;
-  border: 1px solid var(--border);
-  border-radius: var(--ds-radius-lg);
-  background: var(--surface-popup);
-  box-shadow: var(--ui-popup-drop);
-}
-
-.personalization-jump-link[aria-current] {
-  background: var(--accent-soft);
-}
-
-.personalization-part {
-  scroll-margin-top: calc(var(--grid-row) * 2);
-  margin-bottom: var(--ds-space-6);
-}
-
-.personalization-part-header {
-  display: flex;
-  align-items: baseline;
-  justify-content: space-between;
+  flex-direction: column;
   gap: 16px;
-  margin: 0 0 var(--ds-space-3);
 }
 
-.personalization-part-title {
+.models-lead {
   margin: 0;
-  font-size: var(--text-body);
-  font-weight: var(--weight-emphasis);
+}
+
+.models-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 8px;
+}
+
+.models-header .group-title,
+.models-header .row-help {
+  margin: 0;
+}
+
+.models-add,
+.models-more {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 26px;
+  padding-inline: 4px;
+}
+
+.models-connection[data-dragging] {
+  opacity: 0.5;
+}
+
+.models-connection .row-control {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.models-grip {
+  display: inline-flex;
+  flex: none;
+  color: var(--soft-text);
+  cursor: grab;
+}
+
+.models-grip:not([draggable="true"]) {
+  visibility: hidden;
+}
+
+.models-chatgpt {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin-bottom: 8px;
+}
+
+.models-sheet {
+  width: min(440px, calc(100vw - 32px));
+  max-height: calc(100vh - 32px);
+  overflow: auto;
+  padding: 16px;
   color: var(--text);
 }
 
-.personalization-more {
+.models-sheet-body {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.models-sheet-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.models-sheet-header h2 {
+  margin: 0;
+  font-size: var(--text-content);
+  font-weight: var(--weight-emphasis);
+}
+
+.models-sheet-group .group-title {
+  margin: 0 0 4px;
+}
+
+.models-sheet-choices {
+  display: flex;
+  flex-direction: column;
+  padding: 4px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+}
+
+.models-sheet-choice {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 12px;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  text-align: start;
+}
+
+.models-sheet-choice:hover,
+.models-sheet-choice:focus-visible {
+  background: var(--input-bg);
+}
+
+.models-sheet-choice-text {
+  display: flex;
+  flex-direction: column;
+}
+
+.models-sheet-choice-text small {
+  color: var(--muted-text);
+  font-size: var(--text-detail);
+}
+
+/* Appearance > Customization Library (CustomizeLibraryCard): one row per entry, top first.
+   The mark is the entry's swatches (its thumbnail is its colors and keys, never a capture); its
+   order buttons show on hover and focus like the menu rows'; an entry that is off reads dimmed. */
+.library-mark {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  justify-content: center;
+  width: var(--ds-control-row);
+  height: var(--ds-control-row);
+  overflow: hidden;
+  border: 1px solid var(--ds-color-separator);
+  border-radius: var(--ds-radius-md);
+  color: var(--ds-color-muted);
+}
+
+.library-mark[data-wide] {
+  width: 100%;
+  height: var(--ds-space-48);
+}
+
+/* The swatch's color is the entry's own, set inline as other swatches are. */
+.library-swatch {
+  flex: 1;
+  align-self: stretch;
+}
+
+.library-controls {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--ds-space-2);
+}
+
+.library-order {
+  display: inline-flex;
+  opacity: 0;
+  transition: var(--cmux-hover-reveal-out-transition);
+}
+
+[data-library-entry]:hover .library-order,
+[data-library-entry]:has(:focus-visible) .library-order,
+[data-library-entry]:has([data-popup-open]) .library-order {
+  opacity: 1;
+  transition: var(--cmux-hover-reveal-in-transition);
+}
+
+[data-library-entry]:has(:focus-visible) .library-order {
+  transition: none;
+}
+
+[data-library-entry]:not([data-on]) :is(.library-mark, .row-title, .library-detail) {
+  opacity: 0.55;
+}
+
+.library-detail {
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.library-beaten {
+  color: var(--ds-color-attention);
+}
+
+/* A PR entry's lines (`cmux customize use pr:N`): what it cannot carry wraps as one muted sentence
+   each, and the last refresh's note keeps the attention color while the entry is off (it says why
+   it turned off) and reads muted while it is on. */
+.library-needs-build,
+.library-note {
+  overflow-wrap: anywhere;
+}
+
+[data-library-code]:not([data-on]) .library-note {
+  color: var(--ds-color-attention);
+}
+
+.library-position {
+  flex: none;
+  min-width: var(--ds-space-4);
+  text-align: end;
+  font-variant-numeric: tabular-nums;
+}
+
+.library-line .row-label {
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.library-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+  gap: var(--ds-space-3);
+  padding: var(--ds-space-3);
+}
+
+.library-tile {
+  display: flex;
+  flex-direction: column;
+  gap: var(--ds-space-1);
+  min-width: 0;
+  padding: var(--ds-space-2);
+  border: 1px solid var(--ds-color-separator);
+  border-radius: var(--ds-radius-lg);
+}
+
+.library-tile-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--ds-space-2);
+}
+
+.library-tile .library-order {
+  align-self: flex-end;
+}
+
+/* Settings > Appearance > Looks (LooksGalleryCard): a grid of look tiles, each its golden sample in
+   a fixed 16:10 frame (the frame holds its size before the image arrives, so tiles never move), its
+   name and tagline, then Install or its switch and Uninstall. The Stacked list under it is the
+   installed looks top first, one Settings row each. */
+.looks-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+  gap: var(--ds-space-3);
+  padding: var(--ds-space-3);
+}
+
+.looks-hero {
+  display: flex;
+  flex-direction: column;
+  gap: var(--ds-space-3);
+  padding: var(--ds-space-3);
+}
+
+.looks-rail {
+  display: grid;
+  grid-auto-columns: minmax(180px, 1fr);
+  grid-auto-flow: column;
+  gap: var(--ds-space-3);
+  overflow-x: auto;
+}
+
+.looks-list {
+  display: flex;
+  flex-direction: column;
+}
+
+.looks-tile {
+  display: flex;
+  flex-direction: column;
+  gap: var(--ds-space-2);
+  min-width: 0;
+  padding: var(--ds-space-2);
+  border: 1px solid var(--ds-color-separator);
+  border-radius: var(--ds-radius-lg);
+}
+
+.looks-tile[data-size="row"] {
+  flex-direction: row;
+  align-items: center;
+  padding: var(--ds-space-2) var(--ds-space-3);
+  border: 0;
+  border-radius: 0;
+}
+
+.looks-tile[data-size="row"] + .looks-tile[data-size="row"] {
+  border-top: 1px solid var(--ds-color-separator);
+}
+
+.looks-preview {
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
+  aspect-ratio: 16 / 10;
+  overflow: hidden;
+  border: 1px solid var(--ds-color-separator);
+  border-radius: var(--ds-radius-md);
+}
+
+.looks-tile[data-size="row"] .looks-preview {
+  flex: none;
+  width: 96px;
+}
+
+.looks-preview img {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.looks-preview-missing {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--ds-space-1);
+}
+
+.looks-tile-body {
+  display: flex;
+  flex: 1;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: var(--ds-space-2);
+  min-width: 0;
+}
+
+.looks-tile[data-size="row"] .looks-tile-body {
+  align-items: center;
+}
+
+/* In a tile the text takes the whole width and the controls sit under it, Install or the switch
+   leading and Uninstall trailing, so a long name never squeezes beside them. */
+.looks-tile:not([data-size="row"]) .looks-tile-body {
+  flex-direction: column;
+  align-items: stretch;
+}
+
+.looks-tile:not([data-size="row"]) .looks-controls {
+  justify-content: space-between;
+}
+
+.looks-tile-text {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+
+.looks-tagline {
+  display: -webkit-box;
+  overflow: hidden;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+}
+
+.looks-controls {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  gap: var(--ds-space-2);
+}
+
+.looks-switch {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--ds-space-1);
+}
+
+.looks-sheet {
+  margin: var(--ds-space-3);
+}
+
+.looks-changes {
+  margin: 0;
+  padding-inline-start: var(--ds-space-4);
+  color: var(--ds-color-muted);
+}
+
+.looks-replaces,
+.looks-unreviewed {
+  color: var(--ds-color-attention);
+}
+
+.looks-stacked {
+  margin-top: var(--ds-space-3);
+}
+
+.looks-position {
+  flex: none;
+  min-width: var(--ds-space-4);
+  text-align: end;
+  font-variant-numeric: tabular-nums;
+}
+
+.looks-source {
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+[data-looks-layer]:not([data-on]) :is(.row-title, .looks-source) {
+  opacity: 0.55;
+}
+
+/* A search no setting matches (AskCmuxRow.tsx): the words become a wish for the Customize chat.
+   One row under "No settings match.", a hover fill on its own box like a result row, the words
+   quoted under the action; Return in the search does the same. */
+.ask-cmux {
+  display: flex;
+  align-items: center;
+  gap: var(--ds-space-2);
+  width: 100%;
+  margin-top: var(--ds-space-2);
+  padding: var(--ds-space-2);
+  border: 0;
+  border-radius: var(--ds-radius-md);
+  background: transparent;
+  color: var(--text);
+  font: inherit;
+  text-align: start;
+}
+
+.ask-cmux:hover {
+  background: var(--input-bg);
+}
+
+.ask-cmux:focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 2px var(--accent-soft);
+}
+
+.ask-cmux-text {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  min-width: 0;
+}
+
+.ask-cmux-title {
+  font-weight: 600;
+}
+
+.ask-cmux-words {
+  overflow: hidden;
+  color: var(--muted-text);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.ask-cmux > svg:last-child {
+  color: var(--soft-text);
+}
+
+.ask-cmux[data-look="button"] {
+  width: fit-content;
+  border: 1px solid var(--border);
+}
+
+.ask-cmux[data-look="button"] .ask-cmux-words,
+.ask-cmux[data-look="link"] .ask-cmux-words,
+.ask-cmux[data-look="link"] > svg {
+  display: none;
+}
+
+.ask-cmux[data-look="link"] {
+  width: fit-content;
+  padding: 0;
+  color: var(--cmux-accent);
+}
+
+.ask-cmux[data-look="link"]:hover {
+  background: transparent;
+  text-decoration: underline;
+}
+
+/* Personalization > Customization Problems and its one-line notice (CustomizeDoctorCard.tsx;
+   design/customize-doctor.md). Quiet: a small dot (the Accounts status dot's border shape) in the
+   attention color for a finding that changes what the person sees now, muted for the rest, never a
+   red slab; no transition or animation of its own (the banner is ui/Notice's, through the motion
+   gate). The chip's button is ui/Button, whose hover and press change only its fill. */
+.doctor-dot {
+  flex: none;
+  align-self: flex-start;
+  width: 0;
+  height: 0;
+  /* Centers the 6px dot on the first line of body text. */
+  --doctor-dot-offset: calc((var(--text-body--line-height) - 6px) / 2);
+  margin-top: var(--doctor-dot-offset);
+  border: 3px solid var(--muted-text);
+  border-radius: 50%;
+  opacity: 0.6;
+}
+
+.doctor-dot[data-level="warning"] {
+  border-color: var(--warning);
+  opacity: 1;
+}
+
+.doctor-head {
+  display: flex;
+  align-items: baseline;
+  gap: var(--ds-space-2);
+  min-width: 0;
+}
+
+.doctor-head .group-title {
+  flex: none;
+}
+
+.doctor-controls {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--ds-space-1);
+}
+
+.doctor-finding[data-dismissed] :is(.doctor-dot, .row-title, .doctor-detail, .doctor-place) {
+  opacity: 0.55;
+}
+
+.doctor-finding > .accounts-form,
+[data-doctor-help] > .accounts-form {
+  padding-inline-start: calc(6px + var(--ds-space-3));
+}
+
+/* inline: the count and the line in the card's header. */
+.doctor-inline {
+  display: flex;
+  align-items: baseline;
+  gap: var(--ds-space-2);
+  min-width: 0;
+  margin: 0 0 var(--ds-space-2);
+}
+
+.doctor-count {
+  flex: none;
+  padding: 0 var(--ds-space-1);
+  border-radius: var(--ds-radius-sm);
+  background: var(--input-bg);
+  color: var(--muted-text);
+  font-size: var(--text-detail);
+  line-height: var(--text-detail--line-height);
+  font-variant-numeric: tabular-nums;
+}
+
+.doctor-line {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* banner: ui/Notice's warning across the top of the column. */
+.doctor-banner {
+  margin: 0 0 var(--ds-space-4);
+}
+
+/* A font row's pictures (components/FontPreview.tsx): a tile per face choice, drawn in that face at the
+   surface's size and line height, under the row; the density tiles' look. */
+.font-tiles {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(var(--page-size-150), 1fr));
+  gap: var(--page-size-10);
+  padding: var(--page-size-6) 0;
+}
+
+.font-tile {
+  display: flex;
+  flex-direction: column;
+  gap: var(--page-size-6);
+  min-width: 0;
+  padding: var(--page-size-6);
+  border: 1px solid var(--border);
+  border-radius: var(--ds-space-2);
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+}
+
+.font-tile[data-on] {
+  border-color: var(--text);
+}
+
+.font-tile-picture {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  min-width: 0;
+  overflow: hidden;
+  padding: var(--page-size-6) var(--page-size-10);
+  border: 1px solid var(--border);
+  border-radius: var(--page-size-6);
+  background: var(--input-bg);
+  color: var(--text);
+}
+
+.font-tile-glyphs,
+.font-tile-line {
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.font-tile-glyphs {
+  font-size: 1.6em;
+}
+
+.font-tile-name {
+  display: flex;
+  justify-content: space-between;
+  gap: var(--page-size-6);
+  font-size: var(--text-caption);
+  letter-spacing: var(--text-caption--letter-spacing);
+}
+
+.font-tile-name small {
   color: var(--muted-text);
 }
 
-.personalization-more-links {
-  display: flex;
-  gap: 4px;
+.font-sample {
+  overflow: hidden;
+  margin: var(--page-size-6) 0;
+  padding: var(--page-size-6) var(--page-size-10);
+  border: 1px solid var(--border);
+  border-radius: var(--page-size-6);
+  background: var(--input-bg);
+  color: var(--text);
+  white-space: nowrap;
 }
+
+/* Settings > General's Text Size card (TextSizeCard): the picker on a card of its own, ahead of every row. */
+.text-size-card {
+  display: flex;
+  flex-direction: column;
+  gap: var(--ds-space-2);
+  padding: var(--ds-space-3);
+  border: 1px solid var(--border);
+  border-radius: calc(var(--ds-radius-control) + var(--ds-space-3));
+}
+
+.text-size-card__head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--ds-space-2);
+}
+
+.text-size-card__head .group-title {
+  margin: 0;
+}
+
+.text-size-card__detail {
+  margin: 0;
+  color: var(--muted-text);
+}
+/* A json row (Row Layout, a JSON value): its editor is a body under the title, as wide as the row,
+   not a control beside it. Its right edge is the card's control edge. */
+.row[data-kind="json"] > .row-main {
+  flex-direction: column;
+  align-items: stretch;
+  gap: var(--ds-space-2);
+}
+
+/* In the column the title keeps its own height: as a flex: 1 item it took the space the editor's
+   wrap left over when the column measured it, a blank band between the title and the editor. */
+.row[data-kind="json"] > .row-main > .row-label {
+  flex: none;
+}
+
+/* Under its title, from the card's leading edge: the refined look's end-aligned control
+   (refined.css, margin-left: auto) would push the whole editor to the right half of the card. */
+:root .settings .row[data-kind="json"] > .row-main .row-control {
+  margin-left: 0;
+  justify-content: flex-start;
+}
+
+.row[data-kind="json"] .row-control {
+  justify-content: flex-start;
+  max-width: 100%;
+}
+
+.json-editor {
+  display: flex;
+  flex-direction: column;
+  gap: var(--ds-space-1);
+  width: 100%;
+}
+
+.json-field {
+  width: 100%;
+  min-height: calc(var(--ds-control-row) * 2);
+  padding: var(--ds-space-1) var(--ds-space-2);
+  font: var(--text-detail) / 1.4 ui-monospace, "SF Mono", Menlo, monospace;
+  resize: vertical;
+}
+
+/* Settings > Sidebar > Workspace Rows > Row Layout (RowLayoutEditor.tsx): tabs for the three layout
+   keys, each a stack of token lines. A line is a number column, its chips, and its own + menu. */
+.row-layout {
+  display: flex;
+  flex-direction: column;
+  gap: var(--ds-space-3);
+  width: 100%;
+  min-width: 0;
+}
+
+.row-layout .ui-tabs {
+  display: flex;
+  flex-direction: column;
+  gap: var(--ds-space-3);
+}
+
+/* A tab whose key holds an override carries the page's edited dot (Settings > Menus' marker). */
+.row-layout-tabs .ui-tabs-trigger[data-customized]::after {
+  content: "";
+  width: var(--page-size-5);
+  height: var(--page-size-5);
+  margin-inline-start: var(--ds-space-1);
+  border-radius: 50%;
+  background: var(--cmux-accent, var(--ds-color-accent));
+}
+
+.row-layout-panel {
+  display: flex;
+  flex-direction: column;
+  gap: var(--ds-space-3);
+}
+
+.row-layout-editor {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  gap: var(--ds-space-1);
+}
+
+/* The row as the layout draws it (RowPreview): a sidebar row on the surface, sample values in its
+   lines, the name in body text and the items muted, joined by a dot. */
+.row-layout-preview-row,
+.row-layout-marks,
+.row-layout-line {
+  display: grid;
+  grid-template-columns: 52px minmax(0, 1fr) var(--ds-control-compact);
+  align-items: center;
+  gap: var(--ds-space-2);
+  min-height: var(--ds-control-row);
+  padding: var(--grid-half-step) var(--ds-space-1);
+  border-radius: var(--ds-radius-md);
+}
+
+.row-layout-marks {
+  margin-bottom: var(--ds-space-1);
+}
+
+.row-layout-preview-row {
+  align-items: start;
+  margin-bottom: var(--ds-space-1);
+}
+
+.row-layout-preview-row > .row-layout-line-label {
+  padding-top: var(--ds-space-2);
+}
+
+.row-layout-preview {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  gap: var(--grid-half-step);
+  min-width: 0;
+  padding: var(--ds-space-2) var(--ds-space-3);
+  overflow: hidden;
+  border: 1px solid var(--border);
+  border-radius: var(--ds-radius-md);
+  background: var(--ds-color-surface);
+}
+
+.row-layout-preview-line {
+  display: flex;
+  align-items: center;
+  gap: var(--ds-space-1);
+  min-width: 0;
+  overflow: hidden;
+  font-size: var(--text-caption);
+  color: var(--muted-text);
+  white-space: nowrap;
+}
+
+.row-layout-preview-line[data-preview-line="0"] {
+  font-size: var(--text-detail);
+  letter-spacing: var(--text-detail--letter-spacing);
+}
+
+.row-layout-preview-name {
+  overflow: hidden;
+  font-weight: var(--font-weight-emphasis);
+  color: var(--text);
+  text-overflow: ellipsis;
+}
+
+.row-layout-preview-line > * + .row-layout-preview-item::before {
+  content: "·";
+  margin-inline-end: var(--ds-space-1);
+}
+
+.row-layout-preview-icon {
+  flex: none;
+  width: var(--ds-space-3);
+  height: var(--ds-space-3);
+  border-radius: var(--ds-radius-control);
+  background: var(--cmux-accent, var(--ds-color-accent));
+}
+
+.row-layout-preview-working {
+  flex: none;
+  width: var(--page-size-6);
+  height: var(--page-size-6);
+  margin-inline-start: auto;
+  border-radius: 50%;
+  background: var(--cmux-accent, var(--ds-color-accent));
+}
+
+.row-layout-preview-progress {
+  position: absolute;
+  inset-inline-start: 0;
+  bottom: 0;
+  width: 60%;
+  height: var(--page-size-2);
+  background: var(--cmux-accent, var(--ds-color-accent));
+}
+
+.row-layout-line {
+  background: var(--input-bg);
+}
+
+.row-layout-line[data-drop] {
+  box-shadow: inset 0 0 0 1px var(--ds-color-focus);
+}
+
+.row-layout-line[data-problem] {
+  box-shadow: inset 0 0 0 1px var(--danger);
+}
+
+.row-layout-new-line {
+  background: transparent;
+}
+
+.row-layout-line-label {
+  overflow: hidden;
+  font-size: var(--text-caption);
+  font-weight: var(--font-weight-emphasis);
+  color: var(--muted-text);
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.row-layout-chips {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--ds-space-1);
+  min-width: 0;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.row-layout-add-item {
+  display: inline-flex;
+}
+
+/* A chip: the host list's token, on the control surface so it reads on the line's fill. */
+.row-layout-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--grid-half-step);
+  height: var(--ds-control-compact);
+  padding: 0 var(--grid-half-step) 0 var(--ds-space-2);
+  border: 1px solid var(--border);
+  border-radius: var(--ds-radius-control);
+  background: var(--ds-color-surface);
+  font-size: var(--text-detail);
+  letter-spacing: var(--text-detail--letter-spacing);
+  white-space: nowrap;
+}
+
+/* The chip's text is its grab handle and keyboard stop; the ring draws on the whole chip. */
+.row-layout-chip-grab {
+  display: inline-flex;
+  align-items: center;
+  height: 100%;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  letter-spacing: inherit;
+  cursor: grab;
+  touch-action: none;
+  user-select: none;
+  -webkit-user-select: none;
+}
+
+.row-layout-chip-grab:focus-visible {
+  outline: none;
+}
+
+.row-layout-chip:has(.row-layout-chip-grab:focus-visible) {
+  outline: var(--cmux-focus-ring-width, 1.5px) solid var(--ds-color-focus);
+  outline-offset: 1px;
+}
+
+/* The name: pinned to the head of line one, no grab, no x. */
+.row-layout-chip[data-pinned] {
+  padding-right: var(--ds-space-2);
+  background: transparent;
+  font-weight: 600;
+  cursor: default;
+}
+
+.row-layout-pin {
+  width: var(--ds-icon-12);
+  height: var(--ds-icon-12);
+  margin-right: var(--grid-half-step);
+  color: var(--soft-text);
+}
+
+.row-layout-chip[data-problem] {
+  border-color: var(--danger);
+  color: var(--danger);
+}
+
+.row-layout-chip:has(.row-layout-chip-grab:disabled) {
+  opacity: 0.6;
+}
+
+.row-layout-chip-grab:disabled {
+  cursor: default;
+}
+
+/* While a chip is dragged it follows the pointer over the rest (a transform, no layout). */
+.row-layout-chip[data-dragging] {
+  position: relative;
+  z-index: var(--layer-raised);
+  background: var(--surface-popup);
+  box-shadow: var(--elevation-2);
+}
+
+.row-layout-chip[data-dragging] .row-layout-chip-grab {
+  cursor: grabbing;
+}
+
+.row-layout-editor[data-reordering] .row-layout-chip-remove {
+  visibility: hidden;
+}
+
+/* Where the dragged chip lands. */
+.row-layout-caret {
+  position: absolute;
+  width: var(--page-size-2);
+  border-radius: var(--page-size-1);
+  background: var(--ds-color-focus);
+  pointer-events: none;
+}
+
+.row-layout-chip-remove {
+  width: var(--ds-icon-16);
+  height: var(--ds-icon-16);
+}
+
+.row-layout-chip-remove .icon {
+  width: var(--ds-icon-12);
+  height: var(--ds-icon-12);
+}
+
+/* The + beside a line's chips: a square the chips' height, its glyph centered. */
+.row-layout-add.button:not(.ui-btn) {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: var(--ds-control-compact);
+  height: var(--ds-control-compact);
+  min-height: 0;
+  padding: 0;
+  border-color: var(--border);
+}
+
+.row-layout-add .icon {
+  width: var(--ds-icon-12);
+  height: var(--ds-icon-12);
+}
+
+.row-layout-add-line {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--ds-space-1);
+  justify-self: start;
+  height: var(--ds-control-compact);
+}
+
+.row-layout-remove-line {
+  justify-self: end;
+}
+
+/* A slot toggle: a chip with a check box, so it reads as on or off, not as an item on a line. */
+.ui-button.row-layout-slot {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--ds-space-1);
+  height: var(--ds-control-compact);
+  padding: 0 var(--ds-space-2) 0 var(--ds-space-1);
+  border: 1px dashed var(--border-strong);
+  border-radius: var(--ds-radius-control);
+  background: transparent;
+  color: var(--muted-text);
+  font-size: var(--text-detail);
+}
+
+.ui-button.row-layout-slot[aria-pressed="true"] {
+  border-style: solid;
+  border-color: var(--border);
+  background: var(--accent-soft);
+  color: var(--text);
+}
+
+.row-layout-slot-check {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: var(--ds-icon-14);
+  height: var(--ds-icon-14);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--ds-radius-sm);
+}
+
+.row-layout-slot[aria-pressed="true"] .row-layout-slot-check {
+  border-color: transparent;
+  background: var(--cmux-accent, var(--ds-color-accent));
+  color: var(--ds-color-on-accent);
+}
+
+.row-layout-slot-check .icon {
+  width: var(--ds-icon-12);
+  height: var(--ds-icon-12);
+}
+
+.row-layout-entry {
+  display: flex;
+  flex-direction: column;
+  gap: var(--ds-space-1);
+}
+
+.row-layout-entry + .row-layout-entry {
+  padding-top: var(--ds-space-2);
+  border-top: 1px solid var(--border);
+}
+
+.row-layout-entry-head {
+  display: flex;
+  align-items: center;
+  gap: var(--ds-space-2);
+  min-height: var(--ds-control-row);
+}
+
+.row-layout-entry-title {
+  margin: 0 auto 0 0;
+  font-size: var(--text-body);
+  font-weight: var(--font-weight-emphasis);
+}
+
+.row-layout-entry-head:has(.row-layout-entry-note) .row-layout-entry-title {
+  margin-right: 0;
+}
+
+.row-layout-entry-note {
+  margin-right: auto;
+  font-size: var(--text-detail);
+  color: var(--muted-text);
+}
+
+.row-layout-agent {
+  font-family: ui-monospace, "SF Mono", Menlo, monospace;
+  font-size: var(--text-detail);
+}
+
+.row-layout-empty {
+  margin: 0;
+  font-size: var(--text-detail);
+  color: var(--muted-text);
+}
+
+.row-layout-footer,
+.row-layout-add-agent {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--ds-space-2);
+}
+
+.row-layout-add-agent {
+  padding-top: var(--ds-space-2);
+  border-top: 1px solid var(--border);
+}
+
+.row-layout-agent-field {
+  width: 200px;
+}
+
+.row-layout-problems {
+  display: flex;
+  flex-direction: column;
+  gap: var(--grid-half-step);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+/* Updates > App Update's Go Back to Previous Build (PreviousBuildRow). `line`: an inline link-weight
+   button after the sentence; `panel`: the build in a box of its own. */
+.previous-build-line .previous-build-link {
+  min-height: 0;
+  padding: 0 var(--ds-space-1);
+  vertical-align: baseline;
+  color: var(--accent-text);
+  background: transparent;
+}
+
+.previous-build-panel .previous-build-box {
+  padding: var(--ds-space-2);
+  border: 1px solid var(--border);
+  border-radius: var(--ds-radius-md);
+  background: var(--input-bg);
+}
+
+.previous-build-version {
+  font-variant-numeric: tabular-nums;
+}
+
+/* Settings > General's Customize cmux card (CustomizeProgressCard): progress, then the steps left, each
+ * with a check and an Open link to where it is done. */
+.customize-progress {
+  display: flex;
+  flex-direction: column;
+  gap: var(--ds-space-2);
+  padding: var(--ds-space-3);
+  border: 1px solid var(--border);
+  border-radius: calc(var(--ds-radius-control) + var(--ds-space-3));
+}
+
+.customize-progress__head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--ds-space-2);
+}
+
+.customize-progress__summary {
+  display: flex;
+  align-items: baseline;
+  gap: var(--ds-space-2);
+  min-width: 0;
+}
+
+.customize-progress__head .group-title {
+  margin: 0;
+}
+
+.customize-progress__count,
+.customize-progress__detail {
+  margin: 0;
+  color: var(--muted-text);
+}
+
+.customize-progress__bar {
+  display: block;
+  width: 100%;
+  height: var(--ds-space-1);
+  overflow: hidden;
+  border: 0;
+  border-radius: var(--grid-half-step);
+  appearance: none;
+  background: var(--input-bg);
+}
+
+.customize-progress__bar::-webkit-progress-bar {
+  background: transparent;
+}
+
+.customize-progress__bar::-webkit-progress-value {
+  border-radius: var(--grid-half-step);
+  background: var(--accent);
+  transition: width var(--cmux-motion-standard) var(--cmux-ease-out);
+}
+
+.customize-progress__steps {
+  display: flex;
+  flex-direction: column;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.customize-progress__step {
+  display: flex;
+  align-items: center;
+  gap: var(--ds-space-2);
+  padding: var(--ds-space-1) 0;
+}
+
+.customize-progress__check {
+  position: relative;
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  justify-content: center;
+  width: 20px;
+  height: 20px;
+  padding: 0;
+  border: 1px solid var(--border);
+  border-radius: 50%;
+  background: transparent;
+  color: var(--ds-color-on-accent);
+}
+
+.customize-progress__step[data-done] .customize-progress__check {
+  border-color: var(--ds-color-accent);
+  background: var(--accent);
+}
+
+.customize-progress__check input {
+  position: absolute;
+  inset: 0;
+  margin: 0;
+  opacity: 0;
+}
+
+.customize-progress__check input:disabled {
+  cursor: default;
+}
+
+.customize-progress__check:has(input:focus-visible) {
+  outline: 2px solid var(--ds-color-accent);
+  outline-offset: 1px;
+}
+
+.customize-progress__check .icon {
+  width: 12px;
+  height: 12px;
+}
+
+.customize-progress__words {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  min-width: 0;
+}
+
+.customize-progress__step[data-done] .customize-progress__step-title {
+  color: var(--muted-text);
+}
+
+.customize-progress__more {
+  align-self: flex-start;
+}
+
+.customize-progress--newTab,
+.customize-progress--ring {
+  flex-direction: row;
+  align-items: center;
+}
+
+.customize-progress--newTab .customize-progress__summary,
+.customize-progress--ring .customize-progress__summary {
+  flex: 1;
+}
+
+.customize-progress--ring .customize-progress__summary {
+  flex-direction: column;
+  gap: 0;
+}
+
+.customize-progress__ring circle {
+  fill: none;
+  stroke-width: 3;
+}
+
+.customize-progress__ring-track {
+  stroke: var(--border);
+}
+
+.customize-progress__ring-fill {
+  stroke: var(--ds-color-accent);
+  stroke-linecap: round;
+}
+
+/* Add a Connection > Claude Code's Paste a token instead: a collapsed disclosure in the help line's
+   type under Connect Claude, the paste form inside it once opened. */
+.models-claude-paste > summary {
+  width: fit-content;
+}
+.models-claude-paste[open] > summary {
+  margin-bottom: 8px;
+}
+
+/* Settings > General's Replay the Intro card (ReplayIntroCard), right under Text Size: a line and a button that
+   reopens the Make cmux Yours step. */
+.replay-intro-card {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--ds-space-3);
+  padding: var(--ds-space-3);
+  border: 1px solid var(--border);
+  border-radius: calc(var(--ds-radius-control) + var(--ds-space-3));
+}
+
+.replay-intro-card__text {
+  display: flex;
+  flex-direction: column;
+  gap: var(--ds-space-1);
+  min-width: 0;
+}
+
+.replay-intro-card__text .group-title {
+  margin: 0;
+}
+
+.replay-intro-card__detail {
+  margin: 0;
+  color: var(--muted-text);
+}
+
+.replay-intro-card__run {
+  flex: none;
+}
+
+/* A card's slot: no box of its own, so a deep link can find any card without changing the layout. */
+.card-slot {
+  display: contents;
+}
+
+/* The row, card or connection a deep link landed on (settingsLinks.ts): ringed while
+ * LinkLanding.tsx holds the attribute (LINK_HIGHLIGHT_MS). */
+[data-link-target] {
+  outline: var(--cmux-focus-ring-width, 1.5px) solid var(--ds-color-focus);
+  outline-offset: 2px;
+}
+
+/* A link that named nothing on the page says what it asked for. */
+.link-missing {
+  display: block;
+  margin: 0 0 12px;
+}
+
+/* RFD 0123 Slack awake card (gallery-first): the right-hand spent / allowance value. */
+[data-card="slack-awake"] .row-value {
+  margin-left: auto;
+  color: var(--text-secondary, inherit);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+

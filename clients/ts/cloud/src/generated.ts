@@ -13,6 +13,18 @@ export type AddressId = string
 
 export type AgentId = string
 
+export type AppKvApp = string
+
+export type AppKvKey = string
+
+export type AppKvRow = {
+  readonly app: string
+  readonly key: string
+  readonly value: unknown
+  readonly revision: number | "Infinity" | "-Infinity" | "NaN"
+  readonly updated_ms: number | "Infinity" | "-Infinity" | "NaN"
+}
+
 export type Automation = {
   readonly id: AutomationId
   readonly owner: TeamId
@@ -54,6 +66,17 @@ export type AutomationAuditEntry = {
 
 /** An automation definition, owned by its team's SchedulerDO. */
 export type AutomationId = string
+
+/** An environment variable name: capital letters, digits and _, starting with a letter (at most 64). */
+export type AutomationSecretName = string
+
+export type AutomationSecretState = {
+  readonly name: AutomationSecretName
+  readonly hint: string | null
+  readonly generation: number
+  readonly updated_at: number
+  readonly updated_by: UserId
+}
 
 export type AutomationSettings = {
   readonly agent_run_default_seconds: number | null
@@ -121,6 +144,103 @@ export type ChiefId = string
 /** 1 to 128 printable ASCII characters (idempotency key, client_msg_id). */
 export type ClientToken = string
 
+export type CloudAllotmentAdvice = {
+  readonly position: "down" | "hold" | "up"
+  readonly seats: number
+  readonly to_seats: number
+  readonly window_hours: number
+  readonly floor: number
+  readonly burst: number
+  readonly peak: number
+  readonly lendable: number
+  readonly ceiling_hours7: number
+  readonly used_minutes: number
+  readonly seat_minutes: number
+  readonly reason: {
+    readonly kind: "ceiling"
+    readonly hours: number
+    readonly hours7: number
+    readonly peak: number
+    readonly add: number
+  } | {
+    readonly kind: "spare"
+    readonly release: number
+    readonly members: ReadonlyArray<CloudAllotmentAdviceMember>
+  } | {
+    readonly kind: "fits"
+  }
+  readonly summary: string
+  readonly members: ReadonlyArray<CloudAllotmentAdviceMember>
+}
+
+export type CloudAllotmentAdviceMember = {
+  readonly member: string
+  readonly minutes: number
+  readonly seat_percent: number
+  readonly active_hours: number
+  readonly floor: number
+  readonly burst: number
+}
+
+export type CloudAllotmentMember = {
+  readonly member: string
+  readonly tier: "standard" | "plus" | "max"
+  readonly month_micros: number
+  readonly usd14_micros: number
+  readonly active_days14: number
+  readonly share_micros: number
+  readonly rank: number
+  readonly over_share14: number
+  readonly plan_limit_ms14: number
+  readonly spare_micros: number
+}
+
+export type CloudAllotmentReason = {
+  readonly kind: "unused"
+  readonly members: ReadonlyArray<string>
+} | {
+  readonly kind: "over"
+  readonly member: string
+  readonly count: number
+} | {
+  readonly kind: "runaway"
+  readonly member: string
+  readonly rate_micros_h: number
+} | {
+  readonly kind: "tier"
+  readonly member: string
+  readonly to: "standard" | "plus" | "max"
+  readonly costs_micros: number
+}
+
+export type CloudAllotmentSetting = {
+  readonly commit_micros: number
+  readonly mode: "ask" | "auto"
+  readonly auto_max_micros: number | null
+  readonly tiers: Readonly<Record<string, "standard" | "plus" | "max">>
+  readonly snoozed_until: number | null
+  readonly changed_at: number
+  readonly changed_by: string
+}
+
+export type CloudAllotmentView = {
+  readonly allotment: CloudAllotmentSetting | null
+  readonly decision: {
+    readonly allot_micros: number
+    readonly forecast_micros: number
+    readonly position: "down" | "hold" | "up"
+    readonly to_commit_micros: number
+    readonly reasons: ReadonlyArray<CloudAllotmentReason>
+    readonly members: ReadonlyArray<CloudAllotmentMember>
+    readonly order: ReadonlyArray<string>
+    readonly apply: boolean
+  }
+  readonly advice: CloudAllotmentAdvice
+  readonly hard_cap_micros: number | null
+  readonly as_of: number
+  readonly names: Readonly<Record<string, string>>
+}
+
 export type CloudConnectInfo = {
   readonly machine: MachineId
   readonly host: HostId
@@ -150,6 +270,8 @@ export type CloudConnectInfo = {
 }
 
 export type CloudConnectServices = ReadonlyArray<"daemon" | "ssh">
+
+export type CloudDeleteReason = "failed_create" | "never_used" | "unused" | "requested"
 
 export type CloudEnvironment = {
   readonly id: EnvironmentId
@@ -213,6 +335,13 @@ export type CloudGroupItem = {
   readonly added_at: number
 }
 
+export type CloudGroupMember = {
+  readonly user: UserId
+  readonly role: "owner" | "edit" | "view"
+  readonly display_name: string | null
+  readonly active: boolean
+}
+
 export type CloudMachine = {
   readonly id: MachineId
   readonly team: TeamId
@@ -238,9 +367,27 @@ export type CloudMachine = {
   } | null
   readonly pause_reason?: "idle" | "no_report" | "provider_stopped" | "provider_paused" | null
   readonly hourly_rate_usd?: number | "Infinity" | "-Infinity" | "NaN" | null
+  readonly paused_hourly_rate_usd?: number | "Infinity" | "-Infinity" | "NaN" | null
   readonly running_since?: number | null
   readonly desktop?: boolean
+  readonly evict_at?: number | null
+  readonly delete_reason?: CloudDeleteReason | null
+  readonly keep?: boolean
+  readonly notice?: CloudRetentionNotice | null
+  readonly paused_by?: "spend_cap"
+  readonly spend_cap_pause_at?: number
+  readonly origin?: CloudMachineOrigin
+  readonly expires_at?: number
   readonly revision: Revision
+}
+
+export type CloudMachineOrigin = {
+  readonly kind?: "workflow" | "lane" | "agent" | "person"
+  readonly label: string
+  readonly url?: string
+  readonly run?: string
+  readonly workflow?: string
+  readonly lane?: string
 }
 
 /** A machine size. The plan decides which sizes are allowed (cloud.size.locked). */
@@ -269,7 +416,93 @@ export type CloudPlan = {
     readonly vm_hours_used_by_you?: number | "Infinity" | "-Infinity" | "NaN" | null
     readonly period_end: number
   }
+  readonly retention?: CloudRetention | null
+  readonly spend_cap?: {
+    readonly state: "under" | "near" | "at_cap" | null
+    readonly spent_usd: number | "Infinity" | "-Infinity" | "NaN" | null
+    readonly cap_usd: number | "Infinity" | "-Infinity" | "NaN" | null
+    readonly period_end: number | null
+    readonly checked_at: number | null
+    readonly pause_at: number | null
+    readonly paused_at: number | null
+  }
 }
+
+export type CloudRetention = {
+  readonly mode: "off" | "warn" | "on"
+  readonly settings: CloudRetentionSettings | null
+  readonly team: CloudRetentionOverrides
+  readonly email_heads_up: boolean
+}
+
+export type CloudRetentionNotice = {
+  readonly kind: "heads_up" | "last_note"
+  readonly at: number
+  readonly delete_at: number
+}
+
+export type CloudRetentionOverrides = {
+  readonly failed_create_hours?: number
+  readonly never_used_hours?: number
+  readonly idle_pause_minutes?: number
+  readonly worked_in_days?: number
+  readonly heads_up_days?: number
+  readonly last_note_days?: number
+  readonly archive_days?: number
+}
+
+export type CloudRetentionSettings = {
+  readonly tier: string
+  readonly failed_create_hours: number
+  readonly never_used_hours: number
+  readonly idle_pause_minutes: number
+  readonly worked_in_days: number | null
+  readonly heads_up_days: number
+  readonly last_note_days: number
+  readonly archive_days: number
+}
+
+export type CloudSessionActivity = "working" | "needs_attention" | "idle"
+
+/** The chat's acpmux session id, or the workspace's id on its VM. */
+export type CloudSessionId = string
+
+export type CloudSessionKind = "workspace" | "chat"
+
+export type CloudSessionMachineState = "running" | "asleep" | "waking" | "unresponsive" | "gone"
+
+export type CloudSessionScope = "mine" | "team" | "following"
+
+export type CloudSessionView = {
+  readonly key: string
+  readonly team: TeamId
+  readonly vm: CloudSessionVm
+  readonly session: CloudSessionId
+  readonly kind: CloudSessionKind
+  readonly workspace?: CloudSessionId
+  readonly title: string
+  readonly harness?: string
+  readonly owner: UserId
+  readonly owner_name: string | null
+  readonly assignee: UserId
+  readonly assignee_name: string | null
+  readonly machine_state: CloudSessionMachineState
+  readonly activity: CloudSessionActivity
+  readonly last_activity_at: number
+  readonly created_at: number
+  readonly archived: boolean
+  readonly followers: ReadonlyArray<UserId>
+  readonly follower_count: number
+  readonly following: boolean
+  readonly assigned_to_you: boolean
+  readonly viewers: ReadonlyArray<UserId>
+  readonly can_reassign: boolean
+  readonly can_archive: boolean
+  readonly link: string
+}
+
+/** The Cloud machine the session runs on. */
+export type CloudSessionVm = string
 
 export type CloudSnapshot = {
   readonly id: SnapshotId
@@ -278,7 +511,58 @@ export type CloudSnapshot = {
   readonly size_mb: number
   readonly status: "creating" | "ready" | "deleting" | "failed"
   readonly created_at: number
+  readonly archive_of?: {
+    readonly machine: MachineId
+    readonly name: string | null
+    readonly until: number
+  } | null
   readonly revision: Revision
+}
+
+export type CloudSurgePreview = {
+  readonly count: number
+  readonly ttl_seconds: number
+  readonly provider: string | null
+  readonly available: boolean
+  readonly reason: string
+  readonly estimated_cost_usd: number | "Infinity" | "-Infinity" | "NaN" | null
+}
+
+export type CloudSurgeReceipt = {
+  readonly count: number
+  readonly ttl_seconds: number
+  readonly slots: ReadonlyArray<CloudSurgeSlot>
+}
+
+export type CloudSurgeSlot = {
+  readonly index: number
+  readonly status: "created" | "queued" | "refused"
+  readonly machine_id: MachineId | null
+  readonly provider: string | null
+  readonly reason: string
+  readonly retryable: boolean
+}
+
+export type CloudUsageCurrent = {
+  readonly period: string
+  readonly as_of: number
+  readonly metered_since: number | null
+  readonly vcpu_seconds: number | "Infinity" | "-Infinity" | "NaN"
+  readonly memory_gib_seconds: number | "Infinity" | "-Infinity" | "NaN"
+  readonly stored_gib_seconds: number | "Infinity" | "-Infinity" | "NaN"
+  readonly usd: {
+    readonly vcpu: number | "Infinity" | "-Infinity" | "NaN"
+    readonly memory: number | "Infinity" | "-Infinity" | "NaN"
+    readonly stored: number | "Infinity" | "-Infinity" | "NaN"
+    readonly total: number | "Infinity" | "-Infinity" | "NaN"
+  }
+  readonly gaps: ReadonlyArray<string>
+  readonly payment_method: {
+    readonly attached: boolean
+    readonly brand?: string | null
+    readonly last4?: string | null
+  }
+  readonly stripe_mode: "test" | "live"
 }
 
 export type CloudVmNetwork = {
@@ -356,6 +640,7 @@ export type Connection = {
   readonly sharing: "private" | "team"
   readonly resources?: {
     readonly repos: ReadonlyArray<string> | null
+    readonly linked_by_github_id?: number
   }
   readonly created_at: number
   readonly updated_at: number
@@ -1191,6 +1476,20 @@ export type TargetPolicy = {
   readonly fallback: "cloud_vm" | "wait" | "fail"
 }
 
+export type TeamAgentKeyAgent = "claude" | "codex"
+
+export type TeamAgentKeyKind = "api_key" | "oauth"
+
+export type TeamAgentKeyState = {
+  readonly agent: TeamAgentKeyAgent
+  readonly set: boolean
+  readonly kind: TeamAgentKeyKind | null
+  readonly generation: number
+  readonly updated_at: number | null
+  readonly updated_by: UserId | null
+  readonly hint: string | null
+}
+
 export type TeamAiLimitMember = {
   readonly user: UserId
   readonly display_name: string
@@ -1258,6 +1557,16 @@ export type TeamMember = {
   readonly user: UserId
   readonly role: TeamRole
   readonly display_name: string
+}
+
+export type TeamModelsPolicyState = {
+  readonly team: TeamId
+  readonly can_edit: boolean
+  readonly own_connections: boolean
+  readonly choose_runout: boolean
+  readonly revision: number
+  readonly updated_at: number | null
+  readonly updated_by: UserId | null
 }
 
 export type TeamPolicy = {
@@ -1544,6 +1853,39 @@ export type WgPublicKey = string
 
 /** Params and result of every cloud op, keyed by op name. */
 export interface CloudOps {
+  /** Delete one key of an app's synced storage (storage:synced). Deleting a missing key succeeds. */
+  readonly "appkv.delete": {
+    readonly params: {
+      readonly app: AppKvApp
+      readonly key: AppKvKey
+    }
+    readonly result: {
+      readonly app: string
+      readonly key: string
+      readonly existed: boolean
+    }
+  }
+  /** Page every row of your synced app storage in revision order (a stream snapshot carries only the newest 1000). */
+  readonly "appkv.list": {
+    readonly params: {
+      readonly after_revision?: number
+      readonly limit?: number
+    }
+    readonly result: {
+      readonly rows: ReadonlyArray<AppKvRow>
+      readonly next_after_revision: number | "Infinity" | "-Infinity" | "NaN" | null
+      readonly revision: string
+    }
+  }
+  /** Set one key of an app's synced storage (storage:synced) to a JSON value (at most 64 KiB; 4 MiB per app). The last write wins. */
+  readonly "appkv.set": {
+    readonly params: {
+      readonly app: AppKvApp
+      readonly key: AppKvKey
+      readonly value: unknown
+    }
+    readonly result: AppKvRow
+  }
   /** The team's automation audit log, oldest first: who created, changed, ran, paused, deleted or moved which automation. Admins and owners read every entry; other members the entries of automations they may view. Never a body or a secret. */
   readonly "automation.audit.list": {
     readonly params: {
@@ -1653,6 +1995,37 @@ export interface CloudOps {
       readonly runs: ReadonlyArray<Run>
       readonly revision: string
     }
+  }
+  /** The names of an automation's secrets (who may edit it). Never returns a value. */
+  readonly "automation.secret.list": {
+    readonly params: {
+      readonly automation: AutomationId
+    }
+    readonly result: {
+      readonly automation: AutomationId
+      readonly secrets: ReadonlyArray<AutomationSecretState>
+    }
+  }
+  /** Remove one secret of an automation (its creator, editors and team admins). */
+  readonly "automation.secret.remove": {
+    readonly params: {
+      readonly automation: AutomationId
+      readonly name: AutomationSecretName
+    }
+    readonly result: {
+      readonly automation: AutomationId
+      readonly name: AutomationSecretName
+      readonly removed: boolean
+    }
+  }
+  /** Add or replace one secret of an automation (its creator, editors and team admins, in a person's session). Its machine steps get it as the environment variable NAME. The value is never returned. */
+  readonly "automation.secret.set": {
+    readonly params: {
+      readonly automation: AutomationId
+      readonly name: AutomationSecretName
+      readonly value: string
+    }
+    readonly result: AutomationSecretState
   }
   /** Read the team's automation settings (default limit of agent runs). */
   readonly "automation.settings.get": {
@@ -1837,10 +2210,15 @@ export interface CloudOps {
     }
     readonly result: HomeChief
   }
-  /** Start a plan checkout: an https URL the client opens in the browser. No card data enters cmux. Agent principals are refused; the client asks a person first. */
+  /** This team's Cloud allotment and the scheduler's proposal from metered use: scale the pooled monthly commit down, hold it or scale it up, with each member's use this month and over 14 days, and the reasons (unused seats, starts past the allotment, a runaway). A read. */
+  readonly "cloud.allotment.get": {
+    readonly params: Readonly<Record<string, never>>
+    readonly result: CloudAllotmentView
+  }
+  /** Start a checkout: an https URL the client opens in the browser. With a plan it changes the plan; without one it attaches a payment method. No card data enters cmux. cloud.billing.off: payments are not open for this deployment. Agent principals are refused; the client asks a person first. */
   readonly "cloud.billing.checkout": {
     readonly params: {
-      readonly plan: string
+      readonly plan?: string
     }
     readonly result: {
       readonly url: string
@@ -1897,6 +2275,15 @@ export interface CloudOps {
       readonly environment: CloudEnvironment
     }
   }
+  /** Archive a paused machine's disk, then delete the machine. The archive is a snapshot (archive_of names the machine) kept for the plan's archive days; cloud.snapshot.restore makes a new machine from it. The machine's creator or a team admin only. Agent principals are refused; the client asks a person first. */
+  readonly "cloud.machine.archive_delete": {
+    readonly params: {
+      readonly machine: MachineId
+    }
+    readonly result: {
+      readonly machine: CloudMachine
+    }
+  }
   /** How `cmux link` reaches a machine (contract 1.7). Give exactly one of machine and host. Peer data comes in every bound state; a paused machine is state paused, not an error. cloud.machine.not_bound while it provisions. A read never mints a credential: the dial token comes from cloud.machine.link_token. vm_kind is the caller's kind on this machine (owner for its creator on any team, never an agent token; every other member is team). */
   readonly "cloud.machine.connect_info": {
     readonly params: {
@@ -1905,13 +2292,15 @@ export interface CloudOps {
     }
     readonly result: CloudConnectInfo
   }
-  /** Create a machine (status provisioning; a cloud.machine.upsert follows when it is bound). The plan is checked before any provider call: cloud.plan.required, cloud.quota.exceeded {limit, used}, cloud.size.locked. A same-key retry never makes a second machine. After mutation.indeterminate, retry with the same idempotency key. From an install: approval.pending {request, expires_at} (retryable) until the person answers the feed request with their own session; then the same key answers the op's result (replayed: true), approval.denied or approval.expired (ask again with a new key); approval.too_many_pending (retryable) past 5 pending requests per install or 20 per team. Agent principals are refused; the client asks a person first. */
+  /** Create a machine (status provisioning; a cloud.machine.upsert follows when it is bound). The plan is checked before any provider call: cloud.plan.required, cloud.quota.exceeded {limit, used, resource, free_up} (at the machines cap, free_up names the oldest machine a person can delete to make room: {machine, name, reason: test|failed_create|never_used|requested}, or null), cloud.size.locked. A same-key retry never makes a second machine; cloud.machine.not_found {machine} when the machine it made or claimed is gone before it answers (deleted in between): retry with a new key. origin {kind?, label, url?, run?, workflow?, lane?} says who started it and ttl_seconds (300 to 604800) when the platform deletes it (expires_at on the machine). After mutation.indeterminate, retry with the same idempotency key. From an install: approval.pending {request, expires_at} (retryable) until the person answers the feed request with their own session; then the same key answers the op's result (replayed: true), approval.denied or approval.expired (ask again with a new key); approval.too_many_pending (retryable) past 5 pending requests per install or 20 per team. Agent principals are refused; the client asks a person first. */
   readonly "cloud.machine.create": {
     readonly params: {
       readonly name?: string
       readonly size: CloudMachineSize
       readonly image?: string
       readonly from_snapshot?: SnapshotId
+      readonly origin?: CloudMachineOrigin
+      readonly ttl_seconds?: number
     }
     readonly result: {
       readonly machine: CloudMachine
@@ -1938,6 +2327,16 @@ export interface CloudOps {
     readonly params: {
       readonly machine: MachineId
       readonly idle_seconds: number
+    }
+    readonly result: {
+      readonly machine: CloudMachine
+    }
+  }
+  /** Keep a machine: it is never deleted automatically, whatever the plan's retention. keep: false lets the plan's retention apply again. The machine's creator or a team admin only. */
+  readonly "cloud.machine.keep": {
+    readonly params: {
+      readonly machine: MachineId
+      readonly keep: boolean
     }
     readonly result: {
       readonly machine: CloudMachine
@@ -2039,6 +2438,16 @@ export interface CloudOps {
     readonly params: Readonly<Record<string, never>>
     readonly result: CloudPlan
   }
+  /** Set this team's cleanup numbers (a team admin; each within the plan's limit, a worked-in window never past the plan's) and whether you get the email heads-up before one of your machines is deleted. cloud.plan.get answers the settings in force as `retention`. */
+  readonly "cloud.retention.set": {
+    readonly params: {
+      readonly settings?: CloudRetentionOverrides | null
+      readonly email_heads_up?: boolean
+    }
+    readonly result: {
+      readonly changed: boolean
+    }
+  }
   /** Open the rescue shell: a wire stream id the client opens as a WebSocket (contract 2.6). Works when the VM daemon is down and for classic machines. */
   readonly "cloud.shell.open": {
     readonly params: {
@@ -2088,6 +2497,27 @@ export interface CloudOps {
       readonly machine: CloudMachine
     }
   }
+  /** Request an expiring burst through the team's Cloud provider. Each slot reports whether its create was accepted. Agent principals are refused; the client asks a person first. */
+  readonly "cloud.surge.create": {
+    readonly params: {
+      readonly count: number
+      readonly ttl_seconds: number
+    }
+    readonly result: CloudSurgeReceipt
+  }
+  /** Estimate a bounded Cloud capacity burst at the current running list rate and report whether the team can request it. */
+  readonly "cloud.surge.preview": {
+    readonly params: {
+      readonly count: number
+      readonly ttl_seconds: number
+    }
+    readonly result: CloudSurgePreview
+  }
+  /** The team's Cloud usage so far this month (awake vCPU and memory, disk held while paused), its price from the billing owner, and whether a payment method is on file. */
+  readonly "cloud.usage.current": {
+    readonly params: Readonly<Record<string, never>>
+    readonly result: CloudUsageCurrent
+  }
   /** Send a durable APNs attention notification for a Cloud chat question, permission request, or completed turn. The HTTP request has no idempotency key; event_id is the stable replay key: a duplicate event_id and payload replays the original result, while reusing event_id with a different payload is an idempotency conflict. VM installs only (kind vm, grant vm-self, its own bound machine). */
   readonly "cloud.vm.attention.emit": {
     readonly params: {
@@ -2115,6 +2545,46 @@ export interface CloudOps {
     }
     readonly result: {
       readonly delivered: boolean
+    }
+  }
+  /** Ask for more capacity for the work this machine runs: grows it live within the creator's plan, or says what it takes (over the plan, a kind not offered); past one machine, makes a fan-out of K machines and answers its handle (each machine's id). Never waits for a machine to be ready. No idempotency key: a report or event is a fresh fact and nothing replays. VM installs only (kind vm, grant vm-self, its own bound machine). */
+  readonly "cloud.vm.machine.request": {
+    readonly params: {
+      readonly machine: MachineId
+      readonly vcpu: number
+      readonly mem_gib?: number
+      readonly fanout?: number
+      readonly kind?: "linux" | "mac" | "gpu"
+      readonly for: string
+      readonly until?: string
+    }
+    readonly result: {
+      readonly outcome: "fits" | "grow" | "over_plan" | "fanout" | "unavailable" | "refused"
+      readonly message: string
+      readonly machine: string
+      readonly size?: {
+        readonly name?: string
+        readonly vcpu: number | "Infinity" | "-Infinity" | "NaN"
+        readonly mem_gib: number | "Infinity" | "-Infinity" | "NaN"
+      }
+      readonly code?: string
+      readonly fanout?: {
+        readonly handle: string
+        readonly width: number | "Infinity" | "-Infinity" | "NaN"
+        readonly each: {
+          readonly name?: string
+          readonly vcpu: number | "Infinity" | "-Infinity" | "NaN"
+          readonly mem_gib: number | "Infinity" | "-Infinity" | "NaN"
+        }
+        readonly slots: ReadonlyArray<{
+          readonly index: number | "Infinity" | "-Infinity" | "NaN"
+          readonly status: "created" | "refused" | "unconfirmed"
+          readonly machine?: string
+          readonly code?: string
+          readonly message?: string
+        }>
+      }
+      readonly upgrade_plan?: string
     }
   }
   /** Read the bound VM's current receiving identities and daemon/SSH permissions, joined to original live install grants, team policy and Native service rules. The lease is at most 120 seconds and never outlives an included grant; admit_until, when present, lets the receiver keep this policy through a failed renewal for at most one hour after checked_at. This hidden VM-only read does not activate a listener or mint a dial credential. VM installs only (kind vm, grant vm-self, its own bound machine). */
@@ -2738,6 +3208,39 @@ export interface CloudOps {
       readonly next_cursor: string | null
     }
   }
+  /** A cloud group's members and their roles (any member of the group reads it). */
+  readonly "group.members.list": {
+    readonly params: {
+      readonly group: GroupId
+    }
+    readonly result: {
+      readonly group: GroupId
+      readonly members: ReadonlyArray<CloudGroupMember>
+    }
+  }
+  /** Remove someone from a cloud group (its owners; any member may remove themselves). The last owner cannot leave. Their access ends with this op. */
+  readonly "group.members.remove": {
+    readonly params: {
+      readonly group: GroupId
+      readonly user: UserId
+    }
+    readonly result: {
+      readonly group: GroupId
+      readonly members: ReadonlyArray<CloudGroupMember>
+    }
+  }
+  /** Add a team member to a cloud group, or change their role (owner, edit or view). The group's owners only; only members of the team who can use its resources (not guests) can be added. The last owner cannot be demoted. */
+  readonly "group.members.set": {
+    readonly params: {
+      readonly group: GroupId
+      readonly user: UserId
+      readonly role: "owner" | "edit" | "view"
+    }
+    readonly result: {
+      readonly group: GroupId
+      readonly members: ReadonlyArray<CloudGroupMember>
+    }
+  }
   /** Rename a cloud group (its owner only). */
   readonly "group.rename": {
     readonly params: {
@@ -2969,6 +3472,21 @@ export interface CloudOps {
     readonly params: Readonly<Record<string, never>>
     readonly result: Install
   }
+  /** Approve, allow once, a Cloud request your own session confirmed, by its request id: refused unless it holds exactly that op and params, pending, posted by that team's Cloud. Answers the approved run's reply when it ends within the wait. */
+  readonly "integration.approval.approve": {
+    readonly params: {
+      readonly request: string
+      readonly op: string
+      readonly params: unknown
+      readonly team: TeamId
+    }
+    readonly result: {
+      readonly request: string
+      readonly answered: "here" | "elsewhere"
+      readonly state?: string
+      readonly reply?: unknown
+    }
+  }
   /** Read a provider op that waits for your approval (G8): the op, target, summary, full parameters and the digest the feed request shows. Parameters are deleted when the request ends. Only your own session reads it. */
   readonly "integration.approval.get": {
     readonly params: {
@@ -2994,19 +3512,46 @@ export interface CloudOps {
       readonly code?: string
       readonly installation_id?: string
       readonly setup_action?: string
+      readonly actions_oidc?: string
     }
-    readonly result: Connection
+    readonly result: {
+      readonly id: ConnectionId
+      readonly owner: TeamId
+      readonly created_by: UserId
+      readonly provider: IntegrationProvider
+      readonly account: {
+        readonly key: string
+        readonly name: string
+        readonly url?: string
+      } | null
+      readonly scopes_requested: ReadonlyArray<string>
+      readonly scopes_granted: ReadonlyArray<string>
+      readonly status: ConnectionStatus
+      readonly status_detail?: string
+      readonly sharing: "private" | "team"
+      readonly resources?: {
+        readonly repos: ReadonlyArray<string> | null
+        readonly linked_by_github_id?: number
+      }
+      readonly created_at: number
+      readonly updated_at: number
+      readonly return_to?: string
+      readonly configure_url?: string
+    }
   }
-  /** Start connecting a provider account: returns a pending connection and the provider URL a human opens to approve it. */
+  /** Start connecting a provider account: returns a pending connection and the provider URL a human opens to approve it, or connected when a connection already covers the GitHub repository asked for. */
   readonly "integration.connect": {
     readonly params: {
       readonly provider: IntegrationProvider
       readonly scopes?: ReadonlyArray<string>
       readonly sharing?: "private" | "team"
+      readonly repo?: string
+      readonly return_to?: string
     }
     readonly result: {
       readonly connection: Connection
-      readonly authorize_url: string
+      readonly authorize_url?: string
+      readonly connected?: true
     }
   }
   /** List the team's connections the caller may use (no secrets) and which providers this deployment can connect. */
@@ -3701,6 +4246,36 @@ export interface CloudOps {
       readonly accepted_at: number
     }
   }
+  /** Remove the team's shared key for an agent (owners and admins). Members' Cloud machines go back to their own keys. */
+  readonly "team.agent_key.remove": {
+    readonly params: {
+      readonly agent: TeamAgentKeyAgent
+    }
+    readonly result: {
+      readonly agent: TeamAgentKeyAgent
+      readonly removed: boolean
+    }
+  }
+  /** Add or replace the team's shared key for an agent (owners and admins, in a person's session). Cloud machines of the team use it instead of members' own keys. The key is never returned. */
+  readonly "team.agent_key.set": {
+    readonly params: {
+      readonly agent: TeamAgentKeyAgent
+      readonly kind: TeamAgentKeyKind
+      readonly secret: string
+    }
+    readonly result: TeamAgentKeyState
+  }
+  /** Whether the team has a shared key for each agent (members). Never returns a key. */
+  readonly "team.agent_key.status": {
+    readonly params: {
+      readonly team?: TeamId
+    }
+    readonly result: {
+      readonly team: TeamId
+      readonly can_manage: boolean
+      readonly agents: ReadonlyArray<TeamAgentKeyState>
+    }
+  }
   /** Monthly AI spending limits: the team default, your own limit and spend this month, and when they reset. Team admins and billing members also get every member's limit and spend, and the team's usage this period against its included amount. */
   readonly "team.ai_limit.get": {
     readonly params: {
@@ -3749,6 +4324,95 @@ export interface CloudOps {
       readonly entries: ReadonlyArray<TeamAuditEntry>
       readonly next_cursor: number | null
       readonly revision: string
+    }
+  }
+  /** Archive (or restore) a Cloud workspace or chat on the team's list (its assignee, its owner, or a team owner or admin). Archived sessions show only under Archived. */
+  readonly "team.cloud.session.archive": {
+    readonly params: {
+      readonly vm: CloudSessionVm
+      readonly session: CloudSessionId
+      readonly archived: boolean
+    }
+    readonly result: CloudSessionView
+  }
+  /** Follow (or stop following) a teammate's Cloud workspace or chat: it shows under Following in your sidebar. A session assigned to you cannot be followed. */
+  readonly "team.cloud.session.follow": {
+    readonly params: {
+      readonly vm: CloudSessionVm
+      readonly session: CloudSessionId
+      readonly follow: boolean
+    }
+    readonly result: CloudSessionView
+  }
+  /** One Cloud workspace or chat of the team, for a member opening its link. A person outside the team is refused auth.forbidden (or team.not_member); a closed or removed one is selector.not_found. */
+  readonly "team.cloud.session.get": {
+    readonly params: {
+      readonly vm: CloudSessionVm
+      readonly session: CloudSessionId
+    }
+    readonly result: {
+      readonly session: CloudSessionView
+    }
+  }
+  /** The team's Cloud workspaces and chats, most recently active first: yours (mine), everyone's (team, optionally by one member) or the ones you follow (following); archived only with archived=true. */
+  readonly "team.cloud.session.list": {
+    readonly params: {
+      readonly scope?: CloudSessionScope
+      readonly by?: UserId
+      readonly archived?: boolean
+      readonly cursor?: string
+      readonly limit?: number
+    }
+    readonly result: {
+      readonly team: TeamId
+      readonly sessions: ReadonlyArray<CloudSessionView>
+      readonly next_cursor: string | null
+    }
+  }
+  /** Publish one of your Cloud workspaces or chats to your team (title, machine state, activity). The first publish makes you its owner and assignee; later ones by its owner or assignee update it. A publish never changes the assignee, followers or archived. */
+  readonly "team.cloud.session.publish": {
+    readonly params: {
+      readonly vm: CloudSessionVm
+      readonly session: CloudSessionId
+      readonly kind: CloudSessionKind
+      readonly title: string
+      readonly workspace?: CloudSessionId
+      readonly harness?: string
+      readonly machine_state: CloudSessionMachineState
+      readonly activity: CloudSessionActivity
+      readonly last_activity_at: number
+    }
+    readonly result: CloudSessionView
+  }
+  /** Reassign a Cloud workspace or chat to another member of the team (its assignee, its owner, or a team owner or admin). Followers keep following; the previous assignee follows it; turns still spend the owner's plan. */
+  readonly "team.cloud.session.reassign": {
+    readonly params: {
+      readonly vm: CloudSessionVm
+      readonly session: CloudSessionId
+      readonly to: UserId
+    }
+    readonly result: CloudSessionView
+  }
+  /** Take a closed Cloud workspace or chat off the team's list (its owner or assignee, or a team owner or admin). Its followers stop following it. */
+  readonly "team.cloud.session.remove": {
+    readonly params: {
+      readonly vm: CloudSessionVm
+      readonly session: CloudSessionId
+    }
+    readonly result: {
+      readonly removed: boolean
+    }
+  }
+  /** Say you have a Cloud workspace or chat open (or closed it). Teammates see you among its viewers for 90 s after the last call; the app repeats it every 60 s while it shows. */
+  readonly "team.cloud.session.viewing": {
+    readonly params: {
+      readonly vm: CloudSessionVm
+      readonly session: CloudSessionId
+      readonly viewing: boolean
+    }
+    readonly result: {
+      readonly viewing: boolean
+      readonly viewers: ReadonlyArray<UserId>
     }
   }
   /** Per managed device: the last status report and whether it is compliant (applied the current policy version, no MDM conflicts). Owners and admins; readable by a customer dashboard through an admin's session or install token. */
@@ -3896,6 +4560,21 @@ export interface CloudOps {
       readonly user: UserId
       readonly removed: boolean
     }
+  }
+  /** The team's members policy for model connections (members): whether members' own connections serve their Cloud threads, and whether they choose what happens when one runs out. */
+  readonly "team.models_policy.get": {
+    readonly params: {
+      readonly team?: TeamId
+    }
+    readonly result: TeamModelsPolicyState
+  }
+  /** Change the team's members policy for model connections (owners and admins, in a person's session). A field left out keeps its value. */
+  readonly "team.models_policy.set": {
+    readonly params: {
+      readonly own_connections?: boolean
+      readonly choose_runout?: boolean
+    }
+    readonly result: TeamModelsPolicyState
   }
   /** Read the team policy (current or a retained past version). Every member may read it; clients apply its device-scoped keys. */
   readonly "team.policy.get": {
@@ -4068,6 +4747,9 @@ export type CloudOpName = keyof CloudOps
 
 /** Routing metadata: mutations go to /v1/ops (keyed unless idempotency is none), reads to /v1/read. */
 export const cloudOpMeta = {
+  "appkv.delete": { class: "mutation", idempotency: "required", owner: "cloud:UserDO", risk: "mutate-own" },
+  "appkv.list": { class: "read", idempotency: "forbidden", owner: "cloud:UserDO", risk: "read" },
+  "appkv.set": { class: "mutation", idempotency: "required", owner: "cloud:UserDO", risk: "mutate-own" },
   "automation.audit.list": { class: "read", idempotency: "forbidden", owner: "cloud:SchedulerDO", risk: "read" },
   "automation.create": { class: "mutation", idempotency: "required", owner: "cloud:SchedulerDO", risk: "mutate-shared" },
   "automation.delete": { class: "mutation", idempotency: "required", owner: "cloud:SchedulerDO", risk: "destructive" },
@@ -4077,6 +4759,9 @@ export const cloudOpMeta = {
   "automation.list": { class: "read", idempotency: "forbidden", owner: "cloud:SchedulerDO", risk: "read" },
   "automation.run": { class: "mutation", idempotency: "required", owner: "cloud:SchedulerDO", risk: "execute" },
   "automation.runs.list": { class: "read", idempotency: "forbidden", owner: "cloud:SchedulerDO", risk: "read" },
+  "automation.secret.list": { class: "read", idempotency: "forbidden", owner: "cloud:SchedulerDO", risk: "read" },
+  "automation.secret.remove": { class: "mutation", idempotency: "required", owner: "cloud:SchedulerDO", risk: "destructive" },
+  "automation.secret.set": { class: "mutation", idempotency: "required", owner: "cloud:SchedulerDO", risk: "mutate-shared" },
   "automation.settings.get": { class: "read", idempotency: "forbidden", owner: "cloud:SchedulerDO", risk: "read" },
   "automation.settings.set": { class: "mutation", idempotency: "required", owner: "cloud:SchedulerDO", risk: "mutate-shared" },
   "automation.teleport.abort": { class: "mutation", idempotency: "required", owner: "cloud:SchedulerDO", risk: "mutate-shared" },
@@ -4094,17 +4779,20 @@ export const cloudOpMeta = {
   "chief.delete": { class: "mutation", idempotency: "required", owner: "cloud:UserDO", risk: "destructive" },
   "chief.list": { class: "read", idempotency: "forbidden", owner: "cloud:UserDO", risk: "read" },
   "chief.update": { class: "mutation", idempotency: "required", owner: "cloud:UserDO", risk: "mutate-own" },
+  "cloud.allotment.get": { class: "read", idempotency: "forbidden", owner: "cloud:CloudDO", risk: "read" },
   "cloud.billing.checkout": { class: "mutation", idempotency: "required", owner: "cloud:CloudDO", risk: "money" },
   "cloud.environment.boot": { class: "mutation", idempotency: "required", owner: "cloud:CloudDO", risk: "money" },
   "cloud.environment.build": { class: "mutation", idempotency: "required", owner: "cloud:CloudDO", risk: "money" },
   "cloud.environment.delete": { class: "mutation", idempotency: "required", owner: "cloud:CloudDO", risk: "destructive" },
   "cloud.environment.list": { class: "read", idempotency: "forbidden", owner: "cloud:CloudDO", risk: "read" },
   "cloud.environment.set": { class: "mutation", idempotency: "required", owner: "cloud:CloudDO", risk: "mutate-shared" },
+  "cloud.machine.archive_delete": { class: "mutation", idempotency: "required", owner: "cloud:CloudDO", risk: "destructive" },
   "cloud.machine.connect_info": { class: "read", idempotency: "forbidden", owner: "cloud:CloudDO", risk: "read" },
   "cloud.machine.create": { class: "mutation", idempotency: "required", owner: "cloud:CloudDO", risk: "money" },
   "cloud.machine.delete": { class: "mutation", idempotency: "required", owner: "cloud:CloudDO", risk: "destructive" },
   "cloud.machine.get": { class: "read", idempotency: "forbidden", owner: "cloud:CloudDO", risk: "read" },
   "cloud.machine.idle_policy.set": { class: "mutation", idempotency: "required", owner: "cloud:CloudDO", risk: "mutate-shared" },
+  "cloud.machine.keep": { class: "mutation", idempotency: "required", owner: "cloud:CloudDO", risk: "mutate-shared" },
   "cloud.machine.link_token": { class: "mutation", idempotency: "none", owner: "cloud:CloudDO", risk: "execute" },
   "cloud.machine.list": { class: "read", idempotency: "forbidden", owner: "cloud:CloudDO", risk: "read" },
   "cloud.machine.pause": { class: "mutation", idempotency: "required", owner: "cloud:CloudDO", risk: "mutate-shared" },
@@ -4115,13 +4803,18 @@ export const cloudOpMeta = {
   "cloud.migration.start": { class: "mutation", idempotency: "required", owner: "cloud:CloudDO", risk: "mutate-own" },
   "cloud.migration.status": { class: "read", idempotency: "forbidden", owner: "cloud:CloudDO", risk: "read" },
   "cloud.plan.get": { class: "read", idempotency: "forbidden", owner: "cloud:CloudDO", risk: "read" },
+  "cloud.retention.set": { class: "mutation", idempotency: "required", owner: "cloud:CloudDO", risk: "mutate-shared" },
   "cloud.shell.open": { class: "mutation", idempotency: "required", owner: "cloud:CloudDO", risk: "execute" },
   "cloud.snapshot.create": { class: "mutation", idempotency: "required", owner: "cloud:CloudDO", risk: "money" },
   "cloud.snapshot.delete": { class: "mutation", idempotency: "required", owner: "cloud:CloudDO", risk: "destructive" },
   "cloud.snapshot.list": { class: "read", idempotency: "forbidden", owner: "cloud:CloudDO", risk: "read" },
   "cloud.snapshot.restore": { class: "mutation", idempotency: "required", owner: "cloud:CloudDO", risk: "money" },
+  "cloud.surge.create": { class: "mutation", idempotency: "required", owner: "cloud:CloudDO", risk: "money" },
+  "cloud.surge.preview": { class: "read", idempotency: "forbidden", owner: "cloud:CloudDO", risk: "read" },
+  "cloud.usage.current": { class: "read", idempotency: "forbidden", owner: "cloud:CloudDO", risk: "read" },
   "cloud.vm.attention.emit": { class: "mutation", idempotency: "none", owner: "cloud:CloudDO", risk: "execute" },
   "cloud.vm.event.emit": { class: "mutation", idempotency: "none", owner: "cloud:CloudDO", risk: "execute" },
+  "cloud.vm.machine.request": { class: "mutation", idempotency: "none", owner: "cloud:CloudDO", risk: "execute" },
   "cloud.vm.network_policy": { class: "read", idempotency: "forbidden", owner: "cloud:CloudDO", risk: "read" },
   "cloud.vm.receiver.lifecycle": { class: "mutation", idempotency: "none", owner: "cloud:CloudDO", risk: "execute" },
   "cloud.vm.self.get": { class: "read", idempotency: "forbidden", owner: "cloud:CloudDO", risk: "read" },
@@ -4166,6 +4859,9 @@ export const cloudOpMeta = {
   "group.create": { class: "mutation", idempotency: "required", owner: "cloud:TeamDO", risk: "mutate-own" },
   "group.get": { class: "read", idempotency: "forbidden", owner: "cloud:TeamDO", risk: "read" },
   "group.list": { class: "read", idempotency: "forbidden", owner: "cloud:TeamDO", risk: "read" },
+  "group.members.list": { class: "read", idempotency: "forbidden", owner: "cloud:TeamDO", risk: "read" },
+  "group.members.remove": { class: "mutation", idempotency: "required", owner: "cloud:TeamDO", risk: "mutate-shared" },
+  "group.members.set": { class: "mutation", idempotency: "required", owner: "cloud:TeamDO", risk: "mutate-shared" },
   "group.rename": { class: "mutation", idempotency: "required", owner: "cloud:TeamDO", risk: "mutate-own" },
   "home.requests.list": { class: "read", idempotency: "forbidden", owner: "cloud:ConversationDO", risk: "read" },
   "home.search": { class: "read", idempotency: "forbidden", owner: "cloud:planetscale", risk: "read" },
@@ -4187,6 +4883,7 @@ export const cloudOpMeta = {
   "install.rename": { class: "mutation", idempotency: "required", owner: "cloud:UserDO", risk: "mutate-own" },
   "install.revoke": { class: "mutation", idempotency: "required", owner: "cloud:UserDO", risk: "destructive" },
   "install.sign_out": { class: "mutation", idempotency: "required", owner: "cloud:UserDO", risk: "mutate-own" },
+  "integration.approval.approve": { class: "mutation", idempotency: "required", owner: "cloud:FeedDO", risk: "mutate-own" },
   "integration.approval.get": { class: "read", idempotency: "forbidden", owner: "cloud:ConnectionDO", risk: "read" },
   "integration.complete": { class: "mutation", idempotency: "required", owner: "cloud:ConnectionDO", risk: "mutate-shared" },
   "integration.connect": { class: "mutation", idempotency: "required", owner: "cloud:ConnectionDO", risk: "mutate-shared" },
@@ -4255,10 +4952,21 @@ export const cloudOpMeta = {
   "team_vm.ssh_cert.revoke": { class: "mutation", idempotency: "required", owner: "cloud:TeamDO", risk: "mutate-shared" },
   "team_vm.status": { class: "read", idempotency: "forbidden", owner: "cloud:TeamVmDO", risk: "read" },
   "team_vm.taint.accept": { class: "mutation", idempotency: "required", owner: "cloud:TeamDO", risk: "destructive" },
+  "team.agent_key.remove": { class: "mutation", idempotency: "required", owner: "cloud:TeamDO", risk: "destructive" },
+  "team.agent_key.set": { class: "mutation", idempotency: "required", owner: "cloud:TeamDO", risk: "mutate-shared" },
+  "team.agent_key.status": { class: "read", idempotency: "forbidden", owner: "cloud:TeamDO", risk: "read" },
   "team.ai_limit.get": { class: "read", idempotency: "forbidden", owner: "cloud:TeamDO", risk: "read" },
   "team.ai_limit.member.set": { class: "mutation", idempotency: "required", owner: "cloud:TeamDO", risk: "money" },
   "team.ai_limit.set": { class: "mutation", idempotency: "required", owner: "cloud:TeamDO", risk: "money" },
   "team.audit.list": { class: "read", idempotency: "forbidden", owner: "cloud:TeamDO", risk: "read" },
+  "team.cloud.session.archive": { class: "mutation", idempotency: "required", owner: "cloud:TeamDO", risk: "mutate-shared" },
+  "team.cloud.session.follow": { class: "mutation", idempotency: "required", owner: "cloud:TeamDO", risk: "mutate-own" },
+  "team.cloud.session.get": { class: "read", idempotency: "forbidden", owner: "cloud:TeamDO", risk: "read" },
+  "team.cloud.session.list": { class: "read", idempotency: "forbidden", owner: "cloud:TeamDO", risk: "read" },
+  "team.cloud.session.publish": { class: "mutation", idempotency: "required", owner: "cloud:TeamDO", risk: "mutate-own" },
+  "team.cloud.session.reassign": { class: "mutation", idempotency: "required", owner: "cloud:TeamDO", risk: "mutate-shared" },
+  "team.cloud.session.remove": { class: "mutation", idempotency: "required", owner: "cloud:TeamDO", risk: "mutate-shared" },
+  "team.cloud.session.viewing": { class: "mutation", idempotency: "required", owner: "cloud:TeamDO", risk: "mutate-own" },
   "team.device.compliance": { class: "read", idempotency: "forbidden", owner: "cloud:TeamDO", risk: "read" },
   "team.device.enroll": { class: "mutation", idempotency: "required", owner: "cloud:TeamDO", risk: "mutate-own" },
   "team.device.policy": { class: "read", idempotency: "forbidden", owner: "cloud:TeamDO", risk: "read" },
@@ -4272,6 +4980,8 @@ export const cloudOpMeta = {
   "team.integration.release_lock": { class: "mutation", idempotency: "required", owner: "cloud:TeamDO", risk: "mutate-shared" },
   "team.members.list": { class: "read", idempotency: "forbidden", owner: "cloud:TeamDO", risk: "read" },
   "team.members.remove": { class: "mutation", idempotency: "required", owner: "cloud:TeamDO", risk: "destructive" },
+  "team.models_policy.get": { class: "read", idempotency: "forbidden", owner: "cloud:TeamDO", risk: "read" },
+  "team.models_policy.set": { class: "mutation", idempotency: "required", owner: "cloud:TeamDO", risk: "mutate-shared" },
   "team.policy.get": { class: "read", idempotency: "forbidden", owner: "cloud:TeamDO", risk: "read" },
   "team.policy.history": { class: "read", idempotency: "forbidden", owner: "cloud:TeamDO", risk: "read" },
   "team.policy.rollback": { class: "mutation", idempotency: "required", owner: "cloud:TeamDO", risk: "mutate-shared" },

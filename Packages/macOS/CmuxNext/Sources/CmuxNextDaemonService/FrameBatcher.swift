@@ -39,6 +39,19 @@ public final class FrameBatcher: FrameBatchScheduler, ControlFrameSource {
         mainFrameBudget = nil
     }
 
+    /// A batcher of frame work on the app's one main-thread scheduler (the daemon store drain): all of it every
+    /// frame, unbudgeted, each batch a recorded ``MainWorkClass/frame`` task of `owner`
+    /// (``FrameBatchQueue/init(owner:frameOn:)``).
+    ///
+    /// - Parameters:
+    ///   - owner: Names the batcher in the wakeup ledger, debug.wakeups, the watchdog's records and `debug.main_budget`.
+    ///   - work: The app's ``MainWorkScheduler`` (built at its composition root).
+    public init(owner: String, frameOn work: MainWorkScheduler) {
+        queue = FrameBatchQueue(owner: owner, frameOn: work)
+        mainTaskBoard = nil
+        mainFrameBudget = nil
+    }
+
     /// A batcher of budgeted work on the app's one main-thread scheduler.
     ///
     /// - Parameters:

@@ -10,6 +10,7 @@ import Darwin
 import os
 import CmuxNextCompat
 import struct CmuxNextControl.LaunchMarkSink
+import struct CmuxNextControl.LaunchTimesRecorder
 
 /// `debug.timings`: main-thread spans of the paths the stall bench measures
 /// (scripts/cmux-next/bench-stalls.py): launch phases, each palette and icon
@@ -36,23 +37,12 @@ enum DebugTimings {
     private static var omnibarClicks: [(engine: String, input: Double, keyToFrame: Double)] = []
     private static let capacity = 256
 
-    private static func milliseconds(_ duration: Duration) -> Double {
-        let (seconds, attoseconds) = duration.components
-        return Double(seconds) * 1_000 + Double(attoseconds) / 1e15
-    }
-
-    private nonisolated static let processStart: Date = {
-        var info = kinfo_proc()
-        var size = MemoryLayout<kinfo_proc>.stride
-        var mib: [Int32] = [CTL_KERN, KERN_PROC, KERN_PROC_PID, getpid()]
-        guard sysctl(&mib, 4, &info, &size, nil, 0) == 0 else { return Date() }
-        let start = info.kp_proc.p_un.__p_starttime
-        return Date(timeIntervalSince1970: Double(start.tv_sec) + Double(start.tv_usec) / 1_000_000)
-    }()
+    /// The launch marks so far, by name (`LaunchTimesRecorder.write(marks:)`).
+    nonisolated static func launchMarkTimes() -> [String: Double] { launchMarks.withLock { Dictionary($0.map { ($0.name, $0.ms) }, uniquingKeysWith: { first, _ in first }) } }
 
     /// Milliseconds since the process started, on the launch marks' clock.
     nonisolated static func millisecondsSinceProcessStart(at date: Date = Date()) -> Double {
-        date.timeIntervalSince(processStart) * 1_000
+        date.timeIntervalSince(LaunchTimesRecorder.processStart) * 1_000
     }
 
     /// Records a launch mark (milliseconds since process start) once per
@@ -76,7 +66,7 @@ enum DebugTimings {
         DaemonLaunchTimings.shared.install { markLaunch($0, at: $1) }
         AgentPaneLaunchTimings.shared.install { markLaunch($0, at: $1) }
         TerminalTimings.onSurfaceCreated = { duration in
-            let ms = milliseconds(duration)
+            let ms = BenchSpans.ms(duration)
             if surfaces.count < capacity { surfaces.append(ms) }
             markLaunch("first_terminal_surface_created")
         }
@@ -99,15 +89,15 @@ enum DebugTimings {
     }
 
     static func chatsFeedApplied(lines: Int, _ duration: Duration) {
-        if chatsFeedApplies.count < capacity { chatsFeedApplies.append((lines, milliseconds(duration))) }
+        if chatsFeedApplies.count < capacity { chatsFeedApplies.append((lines, BenchSpans.ms(duration))) }
     }
 
     static func turnStatesApplied(lines: Int, _ duration: Duration) {
-        if turnStateApplies.count < capacity { turnStateApplies.append((lines, milliseconds(duration))) }
+        if turnStateApplies.count < capacity { turnStateApplies.append((lines, BenchSpans.ms(duration))) }
     }
 
     static func controlPublished(tabs: @autoclosure () -> Int, _ duration: Duration) {
-        if controlPublishes.count < capacity { controlPublishes.append((tabs(), milliseconds(duration))) }
+        if controlPublishes.count < capacity { controlPublishes.append((tabs(), BenchSpans.ms(duration))) }
     }
 
     static func omnibarClicked(engine: String, input: Double, keyToFrame: Double) {
@@ -138,16 +128,16 @@ enum DebugTimings {
             "launch_ms_since_process_start": .object(launch),
             // The launch marks' zero on the wall clock (ms since 1970), so a page's own marks
             // (`Date.now()`) line up with them (bench_relaunch_reconnect.py).
-            "process_start_epoch_ms": .number((processStart.timeIntervalSince1970 * 1_000).rounded()),
+            "process_start_epoch_ms": .number((LaunchTimesRecorder.processStart.timeIntervalSince1970 * 1_000).rounded()),
             "palette_opens": .array(paletteOpens.map { open in
-                ["ms": round(milliseconds(open.total)), "input_ms": round(milliseconds(open.input)),
-                 "key_to_frame_ms": round(milliseconds(open.keyToFrame)), "model_ms": round(milliseconds(open.model)),
-                 "panel_ms": round(milliseconds(open.panel)), "present_ms": round(milliseconds(open.present)),
-                 "commit_ms": round(milliseconds(open.commit)), "created_panel": .bool(open.createdPanel)]
+                ["ms": round(BenchSpans.ms(open.total)), "input_ms": round(BenchSpans.ms(open.input)),
+                 "key_to_frame_ms": round(BenchSpans.ms(open.keyToFrame)), "model_ms": round(BenchSpans.ms(open.model)),
+                 "panel_ms": round(BenchSpans.ms(open.panel)), "present_ms": round(BenchSpans.ms(open.present)),
+                 "commit_ms": round(BenchSpans.ms(open.commit)), "created_panel": .bool(open.createdPanel)]
             }),
             "icon_picker_opens": .array(iconPickerOpens.map { open in
-                ["ms": round(milliseconds(open.total)), "catalog_ms": round(milliseconds(open.catalog)),
-                 "page_ms": round(milliseconds(open.page)), "present_ms": round(milliseconds(open.present)),
+                ["ms": round(BenchSpans.ms(open.total)), "catalog_ms": round(BenchSpans.ms(open.catalog)),
+                 "page_ms": round(BenchSpans.ms(open.page)), "present_ms": round(BenchSpans.ms(open.present)),
                  "created_page": .bool(open.createdPage)]
             }),
             "omnibar_clicks": .array(omnibarClicks.map {
@@ -157,7 +147,7 @@ enum DebugTimings {
             "chats_feed_applies": .array(chatsFeedApplies.map { ["lines": .number(Double($0.lines)), "ms": .number(($0.ms * 1000).rounded() / 1000)] }),
             "turn_state_applies": .array(turnStateApplies.map { ["lines": .number(Double($0.lines)), "ms": .number(($0.ms * 1000).rounded() / 1000)] }),
             "control_publishes": .array(controlPublishes.map { ["tabs": .number(Double($0.tabs)), "ms": .number(($0.ms * 1000).rounded() / 1000)] }),
-            "ghostty_runtime_ms": .object(Dictionary(TerminalTimings.runtimePhases.map { ($0.name, round(milliseconds($0.duration))) },
+            "ghostty_runtime_ms": .object(Dictionary(TerminalTimings.runtimePhases.map { ($0.name, round(BenchSpans.ms($0.duration))) },
                                                      uniquingKeysWith: { first, _ in first })),
         ]
     }

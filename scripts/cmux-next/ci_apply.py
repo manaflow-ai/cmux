@@ -107,9 +107,11 @@ def app_linked_rust(paths: list[str], repo: Path = ROOT) -> list[str]:
     inputs = [p for p in route.SWIFT_JOB_INPUTS if p.startswith("cmux-tui/")]
     try:
         inputs += list(route.app_ffi_inputs(Path(repo))) + list(route.scheme_phase_rust_inputs(Path(repo)))
+        excluded = route.app_ffi_excluded(Path(repo))  # the FFI crates' tests/, benches/, examples/: not linked
     except Exception:  # noqa: BLE001 - a router that cannot read the tree: treat every Rust path as linked
         return [p for p in paths if p.startswith("cmux-tui/")]
-    return [p for p in paths if any(p == i or p.startswith(i.rstrip("/") + "/") for i in inputs)]
+    return [p for p in paths if any(p == i or p.startswith(i.rstrip("/") + "/") for i in inputs)
+            and not any(p.startswith(d + "/") for d in excluded)]
 
 
 def full_inputs(paths: list[str]) -> list[str]:
@@ -134,6 +136,10 @@ def plan_from(result: dict, labels: set[str] = frozenset(), event: str = "pull_r
         reasons.setdefault(why, []).extend(paths)
     if "ios-only" in files:
         reasons["iOS (not covered by this lane)"] = files["ios-only"]
+    if "strings" in files:
+        # A person tries a catalog edit in a copy with no build (live_apply.py), but the shipped app's
+        # translations are compiled tables, so CI builds it.
+        reasons["string catalogs (compiled into the app)"] = files["strings"]
     if "rebuild" in files and not result["reasons"]:
         reasons["rebuild"] = files["rebuild"]
     linked = app_linked_rust(files.get("daemon", []), repo)

@@ -1,0 +1,429 @@
+{
+ "name": "Skill policy tests",
+ "steps": [
+  {
+   "number": 1,
+   "name": "Set up job",
+   "status": "completed",
+   "conclusion": "success",
+   "started_at": "2026-11-11T07:46:55Z",
+   "completed_at": "2026-11-11T07:46:55Z"
+  },
+  {
+   "number": 2,
+   "name": "Set up runner",
+   "status": "completed",
+   "conclusion": "success",
+   "started_at": "2026-11-11T07:46:55Z",
+   "completed_at": "2026-11-11T07:46:55Z"
+  },
+  {
+   "number": 3,
+   "name": "Checkout",
+   "status": "completed",
+   "conclusion": "success",
+   "started_at": "2026-11-11T07:46:55Z",
+   "completed_at": "2026-11-11T07:47:04Z"
+  },
+  {
+   "number": 4,
+   "name": "Every compile, build or test job names its warm sources or why it starts cold (.github/warm-sources.json)",
+   "status": "completed",
+   "conclusion": "success",
+   "started_at": "2026-11-11T07:47:04Z",
+   "completed_at": "2026-11-11T07:47:05Z"
+  },
+  {
+   "number": 5,
+   "name": "Runner label policy (no GitHub-hosted runners)",
+   "status": "completed",
+   "conclusion": "success",
+   "started_at": "2026-11-11T07:47:05Z",
+   "completed_at": "2026-11-11T07:47:25Z"
+  },
+  {
+   "number": 6,
+   "name": "Skills tests run each suite once and every job has a timeout",
+   "status": "completed",
+   "conclusion": "success",
+   "started_at": "2026-11-11T07:47:25Z",
+   "completed_at": "2026-11-11T07:47:25Z"
+  },
+  {
+   "number": 7,
+   "name": "No password is piped into sudo -S (root steps go through sudo_ssh or fleet-sudo)",
+   "status": "completed",
+   "conclusion": "success",
+   "started_at": "2026-11-11T07:47:25Z",
+   "completed_at": "2026-11-11T07:47:26Z"
+  },
+  {
+   "number": 8,
+   "name": "No test writes the host's git hooks or global git config",
+   "status": "completed",
+   "conclusion": "success",
+   "started_at": "2026-11-11T07:47:26Z",
+   "completed_at": "2026-11-11T07:47:26Z"
+  },
+  {
+   "number": 9,
+   "name": "Every tests/test_*.py runs in a workflow (a short allowlist only shrinks)",
+   "status": "completed",
+   "conclusion": "success",
+   "started_at": "2026-11-11T07:47:26Z",
+   "completed_at": "2026-11-11T07:47:27Z"
+  },
+  {
+   "number": 10,
+   "name": "The deleted-or-weakened-tests guard judges tests by what they do and what runs them",
+   "status": "completed",
+   "conclusion": "success",
+   "started_at": "2026-11-11T07:47:27Z",
+   "completed_at": "2026-11-11T07:47:28Z"
+  },
+  {
+   "number": 11,
+   "name": "The guard's shell invocation detector names what bash runs (vendored from cmux)",
+   "status": "completed",
+   "conclusion": "success",
+   "started_at": "2026-11-11T07:47:28Z",
+   "completed_at": "2026-11-11T07:47:29Z"
+  },
+  {
+   "number": 12,
+   "name": "Validate coordinator receipts, effect replay and burst coalescing",
+   "status": "completed",
+   "conclusion": "success",
+   "started_at": "2026-11-11T07:47:29Z",
+   "completed_at": "2026-11-11T07:47:29Z"
+  },
+  {
+   "number": 13,
+   "name": "nightly-next workflows initialize ghostty-next before the bundle notice check (cx-x7hwx)",
+   "status": "completed",
+   "conclusion": "success",
+   "started_at": "2026-11-11T07:47:29Z",
+   "completed_at": "2026-11-11T07:47:29Z"
+  },
+  {
+   "number": 14,
+   "name": "linux-pool-overflow runs a Swift check with no controller (cmuxterm-hq#8647)",
+   "status": "completed",
+   "conclusion": "success",
+   "started_at": "2026-11-11T07:47:29Z",
+   "completed_at": "2026-11-11T07:47:29Z"
+  },
+  {
+   "number": 15,
+   "name": "Compile and fallback workflows key concurrency by PR/SHA and never cancel in progress",
+   "status": "completed",
+   "conclusion": "success",
+   "started_at": "2026-11-11T07:47:29Z",
+   "completed_at": "2026-11-11T07:47:30Z"
+  },
+  {
+   "number": 16,
+   "name": "A push to main never cancels a running main run; the shard aggregate tells superseded from failed",
+   "status": "completed",
+   "conclusion": "success",
+   "started_at": "2026-11-11T07:47:30Z",
+   "completed_at": "2026-11-11T07:47:31Z"
+  },
+  {
+   "number": 17,
+   "name": "Nightly, promote and publish workflows never share a group that drops a queued delivery run",
+   "status": "completed",
+   "conclusion": "success",
+   "started_at": "2026-11-11T07:47:31Z",
+   "completed_at": "2026-11-11T07:47:31Z"
+  },
+  {
+   "number": 18,
+   "name": "upload-artifact keeps 3 days or less and large kinds go to R2 (artifact storage quota)",
+   "status": "completed",
+   "conclusion": "success",
+   "started_at": "2026-11-11T07:47:31Z",
+   "completed_at": "2026-11-11T07:47:31Z"
+  },
+  {
+   "number": 19,
+   "name": "Bash scripts keep here-documents out of short macOS pipes (heredoc_write hang)",
+   "status": "completed",
+   "conclusion": "success",
+   "started_at": "2026-11-11T07:47:31Z",
+   "completed_at": "2026-11-11T07:47:32Z"
+  },
+  {
+   "number": 20,
+   "name": "The gh guard hands calls to glaeda's broker and never loses one",
+   "status": "completed",
+   "conclusion": "success",
+   "started_at": "2026-11-11T07:47:32Z",
+   "completed_at": "2026-11-11T07:53:05Z"
+  },
+  {
+   "number": 21,
+   "name": "An agent's acpmux new on a busy idle_only host goes through lane-place",
+   "status": "completed",
+   "conclusion": "success",
+   "started_at": "2026-11-11T07:53:05Z",
+   "completed_at": "2026-11-11T07:53:06Z"
+  },
+  {
+   "number": 22,
+   "name": "The gh poll guard still refuses a fast watch and lets writes through",
+   "status": "completed",
+   "conclusion": "success",
+   "started_at": "2026-11-11T07:53:06Z",
+   "completed_at": "2026-11-11T07:53:09Z"
+  },
+  {
+   "number": 23,
+   "name": "Validate tsadmin account listing stays entry-scoped",
+   "status": "completed",
+   "conclusion": "success",
+   "started_at": "2026-11-11T07:53:09Z",
+   "completed_at": "2026-11-11T07:53:09Z"
+  },
+  {
+   "number": 24,
+   "name": "Validate fleet devices never carry an expiring node key",
+   "status": "completed",
+   "conclusion": "success",
+   "started_at": "2026-11-11T07:53:09Z",
+   "completed_at": "2026-11-11T07:53:09Z"
+  },
+  {
+   "number": 25,
+   "name": "Tailscale SSH never asks Leo's login for a browser check on fleet hosts",
+   "status": "completed",
+   "conclusion": "success",
+   "started_at": "2026-11-11T07:53:09Z",
+   "completed_at": "2026-11-11T07:53:09Z"
+  },
+  {
+   "number": 26,
+   "name": "The fleet Tailscale rollout changes only what it plans, against a fake API",
+   "status": "completed",
+   "conclusion": "success",
+   "started_at": "2026-11-11T07:53:09Z",
+   "completed_at": "2026-11-11T07:53:14Z"
+  },
+  {
+   "number": 27,
+   "name": "Validate the Testbox skill's documented shell blocks",
+   "status": "completed",
+   "conclusion": "success",
+   "started_at": "2026-11-11T07:53:14Z",
+   "completed_at": "2026-11-11T07:53:14Z"
+  },
+  {
+   "number": 28,
+   "name": "Validate the shared Testbox warmup wrapper (registration and gate)",
+   "status": "completed",
+   "conclusion": "success",
+   "started_at": "2026-11-11T07:53:14Z",
+   "completed_at": "2026-11-11T07:53:15Z"
+  },
+  {
+   "number": 29,
+   "name": "Testbox release ends a box through the release marker",
+   "status": "completed",
+   "conclusion": "success",
+   "started_at": "2026-11-11T07:53:15Z",
+   "completed_at": "2026-11-11T07:53:15Z"
+  },
+  {
+   "number": 30,
+   "name": "Fast checks preserve snapshots and wait for exact runs",
+   "status": "completed",
+   "conclusion": "success",
+   "started_at": "2026-11-11T07:53:15Z",
+   "completed_at": "2026-11-11T07:53:17Z"
+  },
+  {
+   "number": 31,
+   "name": "Fast checks Actions did not start run on the Linux pool, then an owned Mac",
+   "status": "completed",
+   "conclusion": "success",
+   "started_at": "2026-11-11T07:53:17Z",
+   "completed_at": "2026-11-11T07:53:36Z"
+  },
+  {
+   "number": 32,
+   "name": "A cmux-ci test box gets a read-only GitHub credential (Actions and the fleet fallback)",
+   "status": "completed",
+   "conclusion": "success",
+   "started_at": "2026-11-11T07:53:36Z",
+   "completed_at": "2026-11-11T07:53:36Z"
+  },
+  {
+   "number": 33,
+   "name": "Testbox run uses umask 022",
+   "status": "completed",
+   "conclusion": "success",
+   "started_at": "2026-11-11T07:53:36Z",
+   "completed_at": "2026-11-11T07:53:37Z"
+  },
+  {
+   "number": 34,
+   "name": "Testbox run dates synced source changes so Cargo rebuilds them",
+   "status": "completed",
+   "conclusion": "success",
+   "started_at": "2026-11-11T07:53:37Z",
+   "completed_at": "2026-11-11T07:53:39Z"
+  },
+  {
+   "number": 35,
+   "name": "Worktree scripts refresh shared primaries concurrently (cx-95l)",
+   "status": "completed",
+   "conclusion": "success",
+   "started_at": "2026-11-11T07:53:39Z",
+   "completed_at": "2026-11-11T07:53:50Z"
+  },
+  {
+   "number": 36,
+   "name": "Shared blobless clone starts no auto repack and compacts offline",
+   "status": "completed",
+   "conclusion": "success",
+   "started_at": "2026-11-11T07:53:50Z",
+   "completed_at": "2026-11-11T07:53:51Z"
+  },
+  {
+   "number": 37,
+   "name": "Shared clone maintenance LaunchAgent runs the compaction daily",
+   "status": "completed",
+   "conclusion": "failure",
+   "started_at": "2026-11-11T07:53:51Z",
+   "completed_at": "2026-11-11T07:53:51Z"
+  },
+  {
+   "number": 38,
+   "name": "Dev build links open in a background cmux tab, not the default browser",
+   "status": "completed",
+   "conclusion": "skipped",
+   "started_at": "2026-11-11T07:53:51Z",
+   "completed_at": "2026-11-11T07:53:51Z"
+  },
+  {
+   "number": 39,
+   "name": "Agents cannot launch a dev build over the user's focus",
+   "status": "completed",
+   "conclusion": "skipped",
+   "started_at": "2026-11-11T07:53:51Z",
+   "completed_at": "2026-11-11T07:53:51Z"
+  },
+  {
+   "number": 40,
+   "name": "Validate nx-remote path scope classifier",
+   "status": "completed",
+   "conclusion": "skipped",
+   "started_at": "2026-11-11T07:53:51Z",
+   "completed_at": "2026-11-11T07:53:51Z"
+  },
+  {
+   "number": 41,
+   "name": "Sync paths never copy credentials or scratch files",
+   "status": "completed",
+   "conclusion": "skipped",
+   "started_at": "2026-11-11T07:53:51Z",
+   "completed_at": "2026-11-11T07:53:51Z"
+  },
+  {
+   "number": 42,
+   "name": "cbx-mac never maps the off-limits AWS hosts",
+   "status": "completed",
+   "conclusion": "skipped",
+   "started_at": "2026-11-11T07:53:51Z",
+   "completed_at": "2026-11-11T07:53:51Z"
+  },
+  {
+   "number": 43,
+   "name": "Local dev pulls and keeps development Vercel env only",
+   "status": "completed",
+   "conclusion": "skipped",
+   "started_at": "2026-11-11T07:53:51Z",
+   "completed_at": "2026-11-11T07:53:51Z"
+  },
+  {
+   "number": 44,
+   "name": "cmux.com production only moves forward (vercel guard, prod-env-apply)",
+   "status": "completed",
+   "conclusion": "skipped",
+   "started_at": "2026-11-11T07:53:51Z",
+   "completed_at": "2026-11-11T07:53:51Z"
+  },
+  {
+   "number": 45,
+   "name": "Validate the cmux-cua build skill source wiring",
+   "status": "completed",
+   "conclusion": "skipped",
+   "started_at": "2026-11-11T07:53:51Z",
+   "completed_at": "2026-11-11T07:53:51Z"
+  },
+  {
+   "number": 46,
+   "name": "The nightly skill dispatches nightly-next-tick.yml for the NEXT nightly and nightly.yml for main's",
+   "status": "completed",
+   "conclusion": "skipped",
+   "started_at": "2026-11-11T07:53:51Z",
+   "completed_at": "2026-11-11T07:53:51Z"
+  },
+  {
+   "number": 47,
+   "name": "Validate the Cloud Chief units",
+   "status": "completed",
+   "conclusion": "skipped",
+   "started_at": "2026-11-11T07:53:51Z",
+   "completed_at": "2026-11-11T07:53:51Z"
+  },
+  {
+   "number": 48,
+   "name": "Validate the previews tool",
+   "status": "completed",
+   "conclusion": "skipped",
+   "started_at": "2026-11-11T07:53:51Z",
+   "completed_at": "2026-11-11T07:53:51Z"
+  },
+  {
+   "number": 49,
+   "name": "new-cmux-worktree.sh derives submodules from the base commit",
+   "status": "completed",
+   "conclusion": "skipped",
+   "started_at": "2026-11-11T07:53:51Z",
+   "completed_at": "2026-11-11T07:53:51Z"
+  },
+  {
+   "number": 50,
+   "name": "Validate private platform worktree and backend wiring",
+   "status": "completed",
+   "conclusion": "skipped",
+   "started_at": "2026-11-11T07:53:51Z",
+   "completed_at": "2026-11-11T07:53:51Z"
+  },
+  {
+   "number": 99,
+   "name": "Post Checkout",
+   "status": "completed",
+   "conclusion": "success",
+   "started_at": "2026-11-11T07:53:51Z",
+   "completed_at": "2026-11-11T07:53:51Z"
+  },
+  {
+   "number": 100,
+   "name": "Complete runner",
+   "status": "completed",
+   "conclusion": "success",
+   "started_at": "2026-11-11T07:53:51Z",
+   "completed_at": "2026-11-11T07:53:51Z"
+  },
+  {
+   "number": 101,
+   "name": "Complete job",
+   "status": "completed",
+   "conclusion": "success",
+   "started_at": "2026-11-11T07:53:51Z",
+   "completed_at": "2026-11-11T07:53:51Z"
+  }
+ ]
+}

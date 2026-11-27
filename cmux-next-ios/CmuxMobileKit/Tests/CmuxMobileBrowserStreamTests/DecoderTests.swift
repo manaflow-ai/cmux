@@ -130,4 +130,90 @@ import VideoToolbox
         #expect(shown == [0, 2])
         #expect(collected.lock.withLock { collected.keyframeRequests } == 1)
     }
+
+    /// TestFlight crash AN2IpAo8i1J9psM-5eqCAks: the stream clock reads 0 after
+    /// the connection goes away mid-decode, earlier than the frame's arrival.
+    /// The latency is unknown then, not an overflow trap.
+    @Test func latencyIsNilWhenTheClockIsBehindTheArrival() {
+        #expect(BrowserVideoDecoder.latencyMicros(age: 12_000, received: 5_000_000, done: 0) == nil)
+        #expect(BrowserVideoDecoder.latencyMicros(age: .max, received: 0, done: 10) == nil)
+        #expect(BrowserVideoDecoder.latencyMicros(age: nil, received: 0, done: 10) == nil)
+        #expect(BrowserVideoDecoder.latencyMicros(age: 12_000, received: 1_000, done: 4_000) == 15_000)
+    }
+
+    /// The same crash end to end: a decoder whose clock went to 0 shows the
+    /// frame instead of trapping.
+    @Test(.timeLimit(.minutes(1))) func aFrameDecodedAfterTheClockIsGoneStillShows() async throws {
+        let units = try Self.encode(frames: 1, width: 320, height: 240)
+        try #require(units.count == 1)
+        let decoder = BrowserVideoDecoder()
+        decoder.now = { 0 }
+        let collected = Collected()
+        decoder.shown = { shown in collected.lock.withLock { collected.shown.append(shown) } }
+        decoder.submit(frame: 0, accessUnit: units[0], keyframe: true, receivedMicros: 9_000_000, ageMicros: 40_000)
+        for _ in 0..<200 where collected.lock.withLock({ collected.shown.count }) < 1 {
+            try await Task.sleep(for: .milliseconds(10))
+        }
+        let shown = collected.lock.withLock { collected.shown }
+        #expect(shown.map(\.frame) == [0])
+        #expect(shown.first?.latencyMicros == nil)
+    }
+
+    /// The identity of the decoder's last picture (what a grid card's snapshot copies).
+    static func lastPictureID(_ decoder: BrowserVideoDecoder) async -> ObjectIdentifier? {
+        await withCheckedContinuation { done in
+            decoder.lastPicture { pixels in done.resume(returning: pixels.map { ObjectIdentifier($0) }) }
+        }
+    }
+
+    /// Safari's still tab frame: a tab zooming to the grid, resting there and
+    /// growing back holds the picture it showed (a FotMob video stopped moving
+    /// inside the moving card). Before the fix the decoder had no freeze: every
+    /// decoded picture was drawn and became the card's snapshot. Frozen, pictures
+    /// still decode and are still reported (the stall watchdog hears them, marked
+    /// held), the shown picture stays, and thawing draws the newest at once.
+    @Test(.timeLimit(.minutes(1))) func aFrozenDecoderHoldsItsPictureUntilThawed() async throws {
+        let units = try Self.encode(frames: 3, width: 320, height: 240)
+        try #require(units.count == 3)
+        let decoder = BrowserVideoDecoder()
+        let collected = Collected()
+        decoder.shown = { shown in collected.lock.withLock { collected.shown.append(shown) } }
+        decoder.submit(frame: 0, accessUnit: units[0], keyframe: true, receivedMicros: 0, ageMicros: nil)
+        for _ in 0..<200 where collected.lock.withLock({ collected.shown.count }) < 1 {
+            try await Task.sleep(for: .milliseconds(10))
+        }
+        let first = try #require(await Self.lastPictureID(decoder))
+        decoder.setFrozen(true)
+        decoder.submit(frame: 1, accessUnit: units[1], keyframe: false, receivedMicros: 0, ageMicros: nil)
+        decoder.submit(frame: 2, accessUnit: units[2], keyframe: false, receivedMicros: 0, ageMicros: nil)
+        for _ in 0..<200 where collected.lock.withLock({ collected.shown.count }) < 3 {
+            try await Task.sleep(for: .milliseconds(10))
+        }
+        let shown = collected.lock.withLock { collected.shown }
+        #expect(shown.map(\.frame) == [0, 1, 2], "frozen pictures still decode and are reported")
+        #expect(shown.map(\.held) == [false, true, true])
+        #expect(await Self.lastPictureID(decoder) == first, "the held picture is the one shown at the freeze")
+        let drew = await withCheckedContinuation { done in decoder.setFrozen(false) { done.resume(returning: $0) } }
+        #expect(drew, "thawing draws the picture decoded meanwhile")
+        let thawed = try #require(await Self.lastPictureID(decoder))
+        #expect(thawed != first)
+    }
+
+    /// Thawing with nothing held draws nothing new.
+    @Test(.timeLimit(.minutes(1))) func thawingWithNothingHeldKeepsThePicture() async throws {
+        let units = try Self.encode(frames: 1, width: 320, height: 240)
+        try #require(units.count == 1)
+        let decoder = BrowserVideoDecoder()
+        let collected = Collected()
+        decoder.shown = { shown in collected.lock.withLock { collected.shown.append(shown) } }
+        decoder.submit(frame: 0, accessUnit: units[0], keyframe: true, receivedMicros: 0, ageMicros: nil)
+        for _ in 0..<200 where collected.lock.withLock({ collected.shown.count }) < 1 {
+            try await Task.sleep(for: .milliseconds(10))
+        }
+        let first = try #require(await Self.lastPictureID(decoder))
+        decoder.setFrozen(true)
+        let drew = await withCheckedContinuation { done in decoder.setFrozen(false) { done.resume(returning: $0) } }
+        #expect(!drew)
+        #expect(await Self.lastPictureID(decoder) == first)
+    }
 }

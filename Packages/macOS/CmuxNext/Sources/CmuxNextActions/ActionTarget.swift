@@ -84,6 +84,9 @@ public nonisolated enum ActionMenuContext: String, CaseIterable, Sendable, Hasha
     case workspaceRow
     case workspaceGroup
     case sidebarBackground
+    /// The sidebar's new workspace (+) button: a click opens a workspace; its
+    /// menu holds the other ways to make one (Leo 2026-11-22, a short decided list).
+    case sidebarNew
     case terminalSelection
     case browserPage
     /// A link in a page (both engines; `BrowserHitMenu` in the App).
@@ -139,6 +142,9 @@ public nonisolated enum ActionMenuContext: String, CaseIterable, Sendable, Hasha
     /// A tab bar's empty area: the strip's or the vertical tab list's (Edge's and Chrome's
     /// vertical-tab menus: New Tab, the vertical tabs rows, Task Manager).
     case tabStrip
+    /// A split's divider (its grab band, a hidden divider's too): Insert New, Hide or Show Divider. The menu passes
+    /// the split as the rows' `split` argument.
+    case divider
 
     /// The object a right-click in this context targets, if any.
     public var targetKind: ActionTargetKind? {
@@ -153,7 +159,7 @@ public nonisolated enum ActionMenuContext: String, CaseIterable, Sendable, Hasha
         case .pane, .newTab, .tabStrip: .pane
         case .workspaceRow: .workspace
         case .workspaceGroup: .workspaceGroup
-        case .sidebarBackground, .sidebarFooter, .nowPlayingCard: nil
+        case .sidebarBackground, .sidebarNew, .sidebarFooter, .nowPlayingCard: nil
         // The explorer's actions act on its selection, not a target.
         case .fileExplorerRow: nil
         case .cloudMachine, .sshMachine, .machineSection, .joinedMachine: .machine
@@ -161,8 +167,8 @@ public nonisolated enum ActionMenuContext: String, CaseIterable, Sendable, Hasha
         case .browserProfile: .browserProfile
         case .bookmark: .bookmark
         case .bookmarksBar, .bookmarkManager, .screenBar, .notification: nil
-        // The workspace whose background it is.
-        case .windowBackground: .workspace
+        // The workspace whose background it is; a divider's workspace (its split goes as an argument).
+        case .windowBackground, .divider: .workspace
         case .sidebarItem: .sidebarItem
         case .sidebarSection: .sidebarSection
         // The chat's tab (the App passes it).

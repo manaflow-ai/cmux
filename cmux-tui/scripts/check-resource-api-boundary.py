@@ -11,7 +11,6 @@ manifests.  Raw and internal directories must say so in their path.
 from __future__ import annotations
 
 import argparse
-import hashlib
 import json
 import re
 import sys
@@ -118,6 +117,31 @@ SCAN_RULES = (
         private_identity_exceptions=frozenset({"web-slot"}),
     ),
 )
+
+
+# A terminal inherits identity variables from the macOS CLI (`CMUX_SURFACE_ID`).
+# Their names are fixed process-environment keys that the CLI reads, not
+# resource vocabulary, so the `surface` rule skips exactly the names in this
+# Rust table. Reading the table, not a copy here, keeps the exemption in step
+# with the variables terminals actually carry; any other spelling still fails.
+TERMINAL_IDENTITY_ENV_SOURCE = "crates/cmux-daemon-launch-core/src/terminal_env.rs"
+TERMINAL_IDENTITY_ENV_TABLE_RE = re.compile(
+    r"pub\s+const\s+EXCLUDED_KEYS\s*:\s*\[\s*&str\s*;\s*\d+\s*\]\s*=\s*\[(?P<body>[^\]]*)\]"
+)
+
+
+def terminal_identity_env_names(tui: Path) -> frozenset[str]:
+    """The `CMUX_*` names in terminal_env.rs `EXCLUDED_KEYS`, or none if it is absent."""
+    try:
+        text = (tui / TERMINAL_IDENTITY_ENV_SOURCE).read_text(encoding="utf-8")
+    except OSError:
+        return frozenset()
+    match = TERMINAL_IDENTITY_ENV_TABLE_RE.search(text)
+    if match is None:
+        return frozenset()
+    return frozenset(
+        name for name in re.findall(r'"([^"]+)"', match.group("body")) if name.startswith("CMUX_")
+    )
 
 
 # These handwritten v10 modules remain reachable only through `cmux::raw`.
@@ -1141,6 +1165,7 @@ def _validate_catalog_type(
                 # Settings values are data the settings schema describes, not
                 # the catalog (plans/cmux-next/settings-react.md section 2).
                 "operations.settings.set.params.fields.value",
+                "types.SettingsEdit.fields.value",
                 "operations.settings.schema.result",
                 "operations.settings.list.result.items",
                 "operations.settings.get.result",
@@ -1197,10 +1222,21 @@ def _validate_catalog_type(
                 # passed through unchanged (its turn summaries grow fields).
                 "operations.chief.engine.get.result",
                 "operations.chief.engine.set.result.arguments[0]",
+                # The Chief's automations, owned by optchat-chief and passed
+                # through unchanged (automations.rs, issue 25573).
+                "operations.chief.automation.list.result",
+                "operations.chief.automation.update.result.arguments[0]",
                 # Import from Conductor's dry run, owned by the
                 # cmux-conductor-import crate (plan::Plan) and passed
                 # through unchanged; the app that confirms it reads it.
                 "types.ConductorImportPlanResult.fields.plan.value",
+                # A browser import read: each reader's result is the
+                # cmux-browser-import crate's (bookmarks, history, tabs,
+                # extensions, an engine), in the app's Codable shapes, and
+                # Safari's engine comes from the Mac's NSPreferredWebServices
+                # dictionary, passed as macOS keeps it.
+                "types.BrowserImportReadResult.fields.ok.value",
+                "operations.browser_import.read.params.fields.services.value",
                 # The move from classic cmux: the source, decision, plan and
                 # preview are the cmux-classic-import crate's (source::Source,
                 # plan::Decision, plan::Plan, plan::Preview), passed through
@@ -1601,7 +1637,7 @@ def _operation_catalog(
                 diagnostics, path, text, f"{operation}.params must be an object", operation
             )
             return
-        allowed = {"selectors", "fields", "extra", "constraints", "one_of"}
+        allowed = {"selectors", "fields", "extra", "unknown_params", "constraints", "one_of"}
         if set(value) - allowed or not {"selectors", "fields", "extra"} <= set(value):
             _catalog_diagnostic(
                 diagnostics, path, text, f"{operation}.params has a schema hole", operation
@@ -1609,6 +1645,14 @@ def _operation_catalog(
         if value.get("extra") is not False:
             _catalog_diagnostic(
                 diagnostics, path, text, f"{operation}.params.extra must be false", operation
+            )
+        if "unknown_params" in value and value["unknown_params"] != "refuse":
+            _catalog_diagnostic(
+                diagnostics,
+                path,
+                text,
+                f"{operation}.params.unknown_params must be \"refuse\" when present",
+                operation,
             )
         selector_map = value.get("selectors")
         if not isinstance(selector_map, dict):
@@ -2423,7 +2467,7 @@ def _operation_catalog(
             or client_fields.get("transport", {}).get("type")
             != {"kind": "ref", "name": "ClientTransport"}
             or types.get("ClientTransport")
-            != {"kind": "enum", "values": ["unix", "websocket"]}
+            != {"kind": "enum", "values": ["unix", "websocket", "remote"]}
             or client_fields.get("connected_seconds", {}).get("type")
             != {"kind": "primitive", "name": "decimal"}
             or client_fields.get("attached_terminal_ids", {}).get("type", {}).get("items")
@@ -3074,80 +3118,6 @@ def _schema_operation_classes(
     return offsets, classes
 
 
-def _sdk_descriptor_classes(
-    tui: Path,
-    diagnostics: list[Diagnostic],
-    expected_catalog_sha256: str,
-) -> list[tuple[Path, dict[str, str]]]:
-    descriptors: list[tuple[Path, dict[str, str]]] = []
-    bindings = tui / "bindings"
-    if not bindings.exists():
-        return descriptors
-    package_names = ("cpp", "go", "java", "python", "rust", "typescript", "zig")
-    paths: list[Path] = []
-    for package_name in package_names:
-        package = bindings / package_name
-        if not package.exists():
-            continue
-        path = package / ".cmux-resource-api.json"
-        if not path.is_file():
-            diagnostics.append(
-                Diagnostic(
-                    path,
-                    1,
-                    1,
-                    "boundary.sdk-descriptor",
-                    f"{package_name} high-level SDK is missing .cmux-resource-api.json",
-                )
-            )
-            continue
-        paths.append(path)
-    for path in paths:
-        document = _json_object(path, diagnostics)
-        if document is None:
-            continue
-        if document.get("protocol") != "cmux.protocol/2":
-            diagnostics.append(
-                Diagnostic(path, 1, 1, "boundary.sdk-descriptor", "protocol must be cmux.protocol/2")
-            )
-        if document.get("catalog_sha256") != expected_catalog_sha256:
-            diagnostics.append(
-                Diagnostic(
-                    path,
-                    1,
-                    1,
-                    "boundary.sdk-descriptor",
-                    "catalog_sha256 must match canonical resource-operations-v2.json",
-                )
-            )
-        value = document.get("operations")
-        classes: dict[str, str] = {}
-        if isinstance(value, dict):
-            for name, descriptor in value.items():
-                if isinstance(descriptor, dict) and isinstance(descriptor.get("class"), str):
-                    classes[name] = descriptor["class"]
-        elif isinstance(value, list):
-            for descriptor in value:
-                if (
-                    isinstance(descriptor, dict)
-                    and isinstance(descriptor.get("name"), str)
-                    and isinstance(descriptor.get("class"), str)
-                ):
-                    classes[descriptor["name"]] = descriptor["class"]
-        else:
-            diagnostics.append(
-                Diagnostic(
-                    path,
-                    1,
-                    1,
-                    "boundary.sdk-descriptor",
-                    "operations must carry operation names and classes",
-                )
-            )
-        descriptors.append((path, classes))
-    return descriptors
-
-
 def _compare_operations(
     diagnostics: list[Diagnostic],
     canonical_path: Path,
@@ -3371,36 +3341,6 @@ def check_contracts(tui: Path) -> list[Diagnostic]:
             runtime_local_classes,
             "the Rust LocalOperation registry",
         )
-        catalog_document = json.loads(canonical_text)
-        catalog_sha256 = hashlib.sha256(
-            json.dumps(
-                catalog_document,
-                sort_keys=True,
-                separators=(",", ":"),
-                ensure_ascii=False,
-            ).encode("utf-8")
-        ).hexdigest()
-        for descriptor_path, descriptor_classes in _sdk_descriptor_classes(
-            tui, diagnostics, catalog_sha256
-        ):
-            _compare_operation_classes(
-                diagnostics,
-                catalog,
-                catalog_classes,
-                descriptor_path,
-                descriptor_classes,
-                "the SDK descriptor",
-            )
-            if set(descriptor_classes) != set(catalog_classes):
-                diagnostics.append(
-                    Diagnostic(
-                        descriptor_path,
-                        1,
-                        1,
-                        "boundary.sdk-descriptor",
-                        "SDK descriptor operation set differs from the typed catalog",
-                    )
-                )
     return sorted(set(diagnostics))
 
 
@@ -3534,6 +3474,7 @@ def _scan_region(
     start: int,
     end: int,
     private_identity_exceptions: frozenset[str] = frozenset(),
+    terminal_env_names: frozenset[str] = frozenset(),
 ) -> list[Diagnostic]:
     diagnostics: list[Diagnostic] = []
     region = text[start:end]
@@ -3553,14 +3494,24 @@ def _scan_region(
             # browser; only the dash-prefixed compatibility flag is exempt.
             if match.group(0) == "surface" and region[max(0, match.start() - 2):match.start()] == "--":
                 continue
+            # A terminal identity variable's name (`CMUX_SURFACE_ID`) is a
+            # process-environment key the terminal carries, not vocabulary.
+            if match.group(0) in terminal_env_names:
+                continue
             offset = start + match.start()
+            message = f"legacy public resource word in {match.group(0)!r}; use terminal or browser"
+            if re.fullmatch(r"CMUX_[A-Z0-9_]+", match.group(0)):
+                message += (
+                    "; an environment variable name passes only when it is a terminal identity "
+                    f"variable listed in {TERMINAL_IDENTITY_ENV_SOURCE} EXCLUDED_KEYS"
+                )
             diagnostics.append(
                 _diagnostic_at(
                     path,
                     text,
                     offset,
                     "boundary.surface",
-                    f"legacy public resource word in {match.group(0)!r}; use terminal or browser",
+                    message,
                 )
             )
             occupied.add(("surface", offset))
@@ -3629,6 +3580,7 @@ def _scan_region(
 def scan_public_boundaries(tui: Path) -> tuple[list[Diagnostic], int]:
     diagnostics: list[Diagnostic] = []
     generated = _generated_manifest_paths(tui, diagnostics)
+    terminal_env_names = terminal_identity_env_names(tui)
     scanned: set[Path] = set()
     for rule in SCAN_RULES:
         for path in _files_for_rule(tui, rule):
@@ -3654,6 +3606,7 @@ def scan_public_boundaries(tui: Path) -> tuple[list[Diagnostic], int]:
                         start,
                         end,
                         rule.private_identity_exceptions,
+                        terminal_env_names,
                     )
                 )
     return sorted(set(diagnostics)), len(scanned)

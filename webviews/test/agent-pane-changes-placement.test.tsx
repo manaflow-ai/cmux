@@ -9,6 +9,8 @@ import { isNoRepository } from "../src/agent-session/acpmux/changes/gitWrite";
 import { useGitWrite, type GitWrite } from "../src/agent-session/acpmux/changes/useGitWrite";
 import type { ChangesSource } from "../src/agent-session/acpmux/changes/model";
 import { NativeError } from "../src/agent-session/acpmux/nativeError";
+import { settleReact } from "./support/domTeardown";
+import { actTurn, until } from "./support/until";
 
 const notARepository = () =>
   new NativeError({
@@ -51,6 +53,7 @@ function installDom(): HTMLElement {
 afterEach(async () => {
   if (root) await act(async () => root!.unmount());
   root = undefined;
+  await settleReact();
   dom?.window.close();
   dom = undefined;
   for (const [key, value] of saved) {
@@ -88,6 +91,22 @@ test("a status read that fails for another reason still says so", async () => {
   const git = await readGit(() => Promise.reject(new NativeError({ code: "native.timed_out", origin: "native" })));
   expect(git.statusFailed).toBe(true);
   expect(git.available).toBe(true);
+});
+
+test("a status read that failed is read again on its own, with no Refresh click", async () => {
+  let reads = 0;
+  const git = await readGit(() => {
+    reads += 1;
+    return reads === 1
+      ? Promise.reject(new NativeError({ code: "native.timed_out", origin: "native" }))
+      : Promise.resolve({ detached: false, head: "abc123", branch: "main", ahead: 0, behind: 0 });
+  });
+  expect(git.statusFailed).toBe(true);
+  expect(git.statusStillTrying).toBe(false);
+  // The first ask comes within 1 s (autoRetry.ts AUTO_RETRY_FIRST_MS, jittered down).
+  await until(() => reads >= 2, actTurn);
+  await act(async () => await Promise.resolve());
+  expect(reads).toBe(2);
 });
 
 test("a repository made while the view is open brings Commit and Push back on the next check", async () => {

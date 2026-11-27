@@ -1,6 +1,7 @@
 @testable import CmuxNextApp
 @testable import CmuxNextDesign
 @testable import CmuxNextSettings
+import CmuxNextActions
 import Foundation
 import Testing
 
@@ -85,5 +86,35 @@ import Testing
                 #expect(AppTheme.derive(from: input).failures.isEmpty, "\(hue) on \(input.background)")
             }
         }
+    }
+
+    /// With an App Theme set, pages draw its `--cmux-app-*` tokens, and with Art Color their accent is
+    /// the art's hue. Another picture (a pick, a shuffle step) must bring another hue to pages too,
+    /// not only to the native chrome (Leo, 2026-11-04: "we have to make sure it actually propagates").
+    @Test func pagesTakeTheNewArtsHueWhenThePictureChanges() async throws {
+        let works = BackdropArt.allCases.filter { $0.accentHue != nil }
+        let first = try #require(works.first)
+        let second = try #require(works.first { $0.accentHue != first.accentHue })
+        let directory = FileManager.default.temporaryDirectory.appending(path: "cnc-art-accent-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let url = directory.appending(path: "cmux.json")
+        try Data(#"{"appearance":{"theme":"Nord","appTheme":"Nord","accent":"art"}}"#.utf8).write(to: url)
+        let settings = SettingsController(registry: ActionRegistry(catalog: []), design: DesignSettings(), fileURL: url,
+                                          managedReader: FixedManagedPreferenceReader(ManagedPreferences()), managedWatchFiles: [])
+        await settings.reload()
+        let app = ThemeScope.app
+        let previousSelection = app.backdropSelection
+        defer { app.setBackdropSelection(previousSelection) }
+        app.setBackdropSelection(.art(first))
+        let services = AppServices(environment: AppEnvironment.current([:]))
+        services.themes.followChromeTheme(settings)
+        let accent = { services.themeStore.appTheme?.cssVariables["--cmux-app-accent"] }
+        let before = try #require(accent())
+
+        app.setBackdropSelection(.art(second))
+        for _ in 0..<200 where accent() == before { await Task.yield() }
+        #expect(accent() != before)
+        withExtendedLifetime(services) {}
     }
 }

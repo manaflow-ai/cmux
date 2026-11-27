@@ -1,0 +1,10 @@
+{"prompt":"add a lint script to package.json"}
+{"turn_end":"completed","expect_offer":false}
+{"prompt":"now run it and fix what it finds"}
+{"turn_end":"completed","expect_offer":false}
+{"prompt":"no problem if it takes a while, also add it to CI"}
+{"turn_end":"completed","expect_offer":false}
+{"prompt":"great, add a README section about it"}
+{"turn_end":"completed","expect_offer":false}
+{"prompt":"thanks! commit it"}
+{"turn_end":"completed","expect_offer":false}

@@ -19,7 +19,9 @@
 //!   leaves the queue with a `dequeued` record naming the turn (`joinedTurnId`), and its
 //!   `session/prompt` answers with that turn's answer (`joined_reply`). When that turn fails,
 //!   the joined messages go back to the head of the queue, held, once (`requeue_joined`):
-//!   none is lost to a turn the agent may never have read. A turn that never reached its agent
+//!   none is lost to a turn the agent may never have read. A turn the account's rate limit
+//!   refused before its model read it puts them back every time, the one that led it too
+//!   (`requeue_unread`, `rate_hold.rs`). A turn that never reached its agent
 //!   (its agent could not start, or it was refused) holds nothing: they go back unheld and each
 //!   gets its own try. A reply in place to any of them finds it in that turn's provenance
 //!   (`withdraw.rs` `app_reply_fits`).
@@ -34,6 +36,9 @@
 //! keeps failing is not sent the same messages over and over. coord-deputy held 121 after one
 //! "agent process closed" (2026-10-21): a chat whose agent died completes no turn, so they waited
 //! until someone pressed resume.
+//!
+//! - Agents that come close together go in together, busy or not: one that would start a turn
+//!   in an idle chat waits a moment for the ones right behind it (`agent_gather.rs`).
 //!
 //! Delivery inside a turn stays the steer's (`steer_end.rs`): an agent that steers reads a
 //! message at its next tool boundary. What waits here is what could not steer: an agent that
@@ -54,6 +59,15 @@ use std::sync::atomic::Ordering;
 // `acpmux session inbox NAME --digest`: the agent messages waiting go in as one digest.
 #[path = "inbox_digest.rs"]
 pub(super) mod inbox_digest;
+
+// Which queued prompts go in with a turn, by send mode: one state machine (`queue_fold.rs`).
+#[path = "queue_fold.rs"]
+pub(super) mod queue_fold;
+
+// An idle chat's agent message waits for the ones right behind it (`agent_gather.rs`).
+#[path = "agent_gather.rs"]
+mod agent_gather;
+pub(super) use agent_gather::{AGENT_GATHER_MS, end_gather, gather_until, gathers, open_gather};
 
 /// Text one turn of agent messages takes at most (the first message always goes in whole).
 pub(super) const DIGEST_MAX_BYTES: usize = 128 * 1024;
@@ -146,6 +160,25 @@ pub fn declared_sender(params: &Value) -> Result<Option<String>, RpcError> {
     }
 }
 
+/// `declared` as `HOST/NAME` for a prompt a peer daemon forwarded: `host` is the machine that
+/// daemon stamped on its own proven caller (`messageSender.host`, `peer_forward.rs`
+/// `name_sender`), which no client of it can set. A name that already starts with that host keeps
+/// it once; any other `HOST/` a sender wrote into its label stays part of the name, under the
+/// stamped host. No host (a peer from before it sent one) leaves the name as it was.
+pub fn on_peer_host(declared: String, host: Option<&str>) -> String {
+    let Some(host) = host
+        .map(str::trim)
+        .filter(|h| !h.is_empty() && !h.contains('/') && !h.chars().any(char::is_control))
+    else {
+        return declared;
+    };
+    if declared.strip_prefix(host).is_some_and(|rest| rest.starts_with('/')) {
+        return declared;
+    }
+    let named = format!("{host}/{declared}");
+    named.chars().take(MAX_FROM_AGENT_CHARS).collect::<String>().trim().to_owned()
+}
+
 /// The blocks of one turn of agent messages, `parts` oldest first: a line saying what follows,
 /// then each message under a line naming its sender, its blocks as sent.
 pub(super) fn digest_blocks(parts: &[Part]) -> Vec<Value> {
@@ -232,23 +265,23 @@ impl Hub {
             {
                 return;
             }
-            queue
+            let ids: Vec<String> = queue
                 .iter_mut()
                 .filter(|q| q.held && q.goes_in_by_itself())
                 .map(|q| {
                     q.held = false;
                     q.prompt_id.clone()
                 })
-                .collect()
+                .collect();
+            // Logged under the lock that let them go (`queue.rs` `QUEUE_KINDS`).
+            if !ids.is_empty() {
+                let msg = json!({"queued": session.queued(), "promptIds": ids});
+                self.append(session, "mux", "queue_resumed", msg);
+            }
+            ids
         };
         if !ids.is_empty() {
             session.queue_moved.notify_waiters();
-            self.append(
-                session,
-                "mux",
-                "queue_resumed",
-                json!({"queued": session.queued(), "promptIds": ids}),
-            );
         }
     }
 
@@ -341,14 +374,33 @@ impl Hub {
             return Vec::new();
         }
         // A review box runs each agent message as its own prompt behind the review (`inbox.rs`).
-        if head.agent.is_none()
-            || crate::prompt_provenance::is_trigger(head.provenance.as_ref())
-            || super::forum::slash_command(&head.blocks).is_some()
-            || crate::prompt_uploads::any(&head.blocks)
-            || super::inbox::review_box(session)
-        {
+        // The person's prompt joins none, but the one a held chat held: the person's prompts
+        // queued behind it join it (`person_hold.rs`).
+        // Who this turn's batch is for (`queue_fold.rs` `lead`). The hold is read only for the
+        // person's prompt: reading it ends it.
+        let from_agent = head.agent.is_some();
+        let alone_of = |blocks: &[Value], provenance: Option<&Value>| {
+            if crate::prompt_provenance::is_trigger(provenance) {
+                Some(queue_fold::Alone::Trigger)
+            } else if super::forum::slash_command(blocks).is_some() {
+                Some(queue_fold::Alone::SlashCommand)
+            } else if crate::prompt_uploads::any(blocks) {
+                Some(queue_fold::Alone::Uploads)
+            } else {
+                None
+            }
+        };
+        let lead = queue_fold::lead(queue_fold::Head {
+            from_agent,
+            notice: super::inbox::is_notice(head.provenance.as_ref()),
+            person_fold: !from_agent && super::person_hold::folds(session, turn_id),
+            cold_batch: session.cold_batch_turn.load(Ordering::SeqCst),
+            alone: alone_of(&head.blocks, head.provenance.as_ref()),
+            review_box: super::inbox::review_box(session),
+        });
+        let Ok(lead) = lead else {
             return Vec::new();
-        }
+        };
         let mut bytes = blocks_bytes(&head.blocks);
         let taken: Vec<QueuedPrompt> = {
             let mut queue = session.queue.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
@@ -359,28 +411,41 @@ impl Hub {
             let mut i = 0;
             while i < queue.len() {
                 let q = &queue[i];
-                // Held, or waiting for the owner (`queue_approve.rs`): never sent with this turn.
-                if q.aside() {
-                    i += 1;
-                    continue;
-                }
-                let joins = q.run.agent.is_some()
-                    && !crate::prompt_provenance::is_trigger(q.run.provenance.as_ref())
-                    && super::forum::slash_command(&q.run.blocks).is_none()
-                    && !crate::prompt_uploads::any(&q.run.blocks)
-                    && !unclaimed.iter().any(|(id, _)| *id == q.prompt_id)
-                    && !q.steer
-                    && !q.sent_now
-                    && q.run.control == head.control
-                    && q.run.trust_gate == head.trust_gate
-                    && q.run.cloud_mobile == head.cloud_mobile
-                    && !super::subsession_guard::is_family_prompt(q.run.provenance.as_ref())
-                    && !inbox_digest::is_digest(q.run.provenance.as_ref())
-                    // A goal's continuation runs alone, checked against its goal (`goal_tools.rs`).
-                    && !super::goal_tools::is_continuation(q.run.provenance.as_ref());
                 let size = blocks_bytes(&q.run.blocks);
-                if !joins || bytes + size > DIGEST_MAX_BYTES {
-                    break;
+                let provenance = q.run.provenance.as_ref();
+                let next = queue_fold::Next {
+                    mode: queue_fold::Mode::of(queue_fold::Flags {
+                        held: q.held,
+                        awaiting_owner: q.awaiting_owner,
+                        unclaimed: unclaimed.iter().any(|(id, _)| *id == q.prompt_id),
+                        steer: q.steer,
+                        sent_now: q.sent_now,
+                        steer_on_start: q.steer_on_start,
+                    }),
+                    from_agent: q.run.agent.is_some(),
+                    alone: alone_of(&q.run.blocks, provenance).or_else(|| {
+                        if super::subsession_guard::is_family_prompt(provenance) {
+                            Some(queue_fold::Alone::Family)
+                        } else if inbox_digest::is_digest(provenance) {
+                            Some(queue_fold::Alone::Digest)
+                        } else if super::goal_tools::is_continuation(provenance) {
+                            Some(queue_fold::Alone::Continuation)
+                        } else {
+                            None
+                        }
+                    }),
+                    same_rules: q.run.control == head.control
+                        && q.run.trust_gate == head.trust_gate
+                        && q.run.cloud_mobile == head.cloud_mobile,
+                    fits: bytes + size <= DIGEST_MAX_BYTES,
+                };
+                match queue_fold::step(lead, next) {
+                    queue_fold::Step::Skip => {
+                        i += 1;
+                        continue;
+                    }
+                    queue_fold::Step::End(_) => break,
+                    queue_fold::Step::Join => {}
                 }
                 bytes += size;
                 let q = queue.remove(i);
@@ -433,10 +498,69 @@ impl Hub {
         digest: &DigestTurn,
         hold: bool,
     ) {
+        self.requeue(session, digest, hold, false);
+    }
+
+    /// After a turn the account's rate limit refused before its model read a word
+    /// (`rate_hold.rs` `unread_by_limit`): its agent messages go back as [`Hub::requeue_joined`]
+    /// puts them, held, however often a turn put them back before (the limit, not they, failed
+    /// it), and so does the one that led it, at the head under a new turn id, run by a task of
+    /// its own (`start_restored`); its sender has had the turn's error. The reset's turn takes
+    /// them all in once (`rate_hold_due`).
+    pub(super) fn requeue_unread(self: &Arc<Self>, session: &Arc<Session>, digest: &DigestTurn) {
+        let lead = digest.lead.lock().unwrap_or_else(|e| e.into_inner()).take();
+        let lead = lead.filter(|_| session.meta().status != SessionStatus::Closed);
+        if let Some(lead) = &lead {
+            let q = QueuedPrompt {
+                prompt_id: lead.prompt_id.clone(),
+                turn_id: uuid::Uuid::now_v7().to_string(),
+                client: lead.client.clone(),
+                preview: short_text(super::inbox::relay_body(&prompt_text(&lead.run.blocks)), 200),
+                queued_at: now_ms(),
+                withdraw: Arc::new(Notify::new()),
+                run: lead.run.clone(),
+                restored: false,
+                resume: false,
+                steer: false,
+                steer_on_start: false,
+                held: false,
+                awaiting_owner: false,
+                revision: 0,
+                declined: Default::default(),
+                sent_now: false,
+                joined: Arc::new(StdMutex::new(None)),
+                requeued: false,
+                retries: 0,
+            };
+            digest.taken.lock().unwrap_or_else(|e| e.into_inner()).insert(0, q);
+        }
+        self.requeue(session, digest, true, true);
+        let Some(lead) = lead else { return };
+        // Its task claims it as a restored prompt's does (`queue_slot`).
+        {
+            let mut queue = session.queue.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+            let Some(q) = queue.iter_mut().find(|q| q.prompt_id == lead.prompt_id) else { return };
+            q.resume = true;
+            let mut restored = session.restored.lock().unwrap_or_else(|e| e.into_inner());
+            restored.push((q.prompt_id.clone(), q.turn_id.clone()));
+        }
+        if !self.hold_in_protected_folder(session) {
+            self.start_restored(session);
+        }
+    }
+
+    /// [`Hub::requeue_joined`]; `again`: also the messages a failed turn put back before.
+    fn requeue(
+        self: &Arc<Self>,
+        session: &Arc<Session>,
+        digest: &DigestTurn,
+        hold: bool,
+        again: bool,
+    ) {
         let mut taken =
             std::mem::take(&mut *digest.taken.lock().unwrap_or_else(|e| e.into_inner()));
         // Once: a message that fails every turn it is in must not hold the queue again and again.
-        taken.retain(|q| !q.requeued);
+        taken.retain(|q| again || !q.requeued);
         if taken.is_empty() || session.meta().status == SessionStatus::Closed {
             // None go back: what an inbox digest charged for them goes (`queue_admission.rs`).
             let queue = session.queue.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
@@ -534,6 +658,7 @@ impl Hub {
 pub(super) fn forget_joined(joined: Option<&DigestTurn>) {
     if let Some(joined) = joined {
         joined.taken.lock().unwrap_or_else(|e| e.into_inner()).clear();
+        joined.lead.lock().unwrap_or_else(|e| e.into_inner()).take();
     }
 }
 
@@ -542,9 +667,34 @@ pub(super) struct DigestTurn {
     taken: StdMutex<Vec<QueuedPrompt>>,
     /// What it charges `Session::digest_bytes` for the messages it took (`queue_admission.rs`).
     charged: std::sync::atomic::AtomicU64,
+    /// The agent message that started the turn ([`DigestTurn::lead`]).
+    lead: StdMutex<Option<Lead>>,
+}
+
+/// The agent message a turn started with: what puts it back in the queue when the account's
+/// limit refuses that turn unread ([`Hub::requeue_unread`]).
+struct Lead {
+    prompt_id: String,
+    client: String,
+    run: Arc<PromptRun>,
 }
 
 impl DigestTurn {
+    /// Notes `prompt_id`, the prompt the turn started with, when it is another agent's message
+    /// that can go back to the queue as it came: not an inbox digest (its messages are in
+    /// `taken`) nor a trigger's.
+    pub(super) fn lead(&self, prompt_id: &str, client: &str, run: &Arc<PromptRun>) {
+        if run.agent.is_none()
+            || inbox_digest::is_digest(run.provenance.as_ref())
+            || crate::prompt_provenance::is_trigger(run.provenance.as_ref())
+        {
+            return;
+        }
+        let lead =
+            Lead { prompt_id: prompt_id.to_owned(), client: client.to_owned(), run: run.clone() };
+        *self.lead.lock().unwrap_or_else(|e| e.into_inner()) = Some(lead);
+    }
+
     /// Charges the session's queue for `taken`, which leave it for this digest. `_queue` is the
     /// queue's guard: the charge is made in the critical section that takes them out.
     pub(super) fn charge(
@@ -574,6 +724,7 @@ impl Default for DigestTurn {
             answer: tokio::sync::watch::channel(None).0,
             taken: StdMutex::new(Vec::new()),
             charged: std::sync::atomic::AtomicU64::new(0),
+            lead: StdMutex::new(None),
         }
     }
 }
@@ -652,6 +803,25 @@ mod tests {
         assert!(named(json!("x".repeat(65))).is_err());
         assert!(named(json!(7)).is_err());
         assert_eq!(declared_sender(&json!({})).unwrap(), None);
+    }
+
+    /// A peer-forwarded prompt names `HOST/SESSION` from the forwarding daemon's stamp; an old
+    /// peer that stamps no host keeps the bare name, and a label that writes another host stays
+    /// under the stamped one.
+    #[test]
+    fn a_peer_forwarded_sender_names_its_machine() {
+        assert_eq!(on_peer_host("lane-a".into(), Some("host-a")), "host-a/lane-a");
+        assert_eq!(on_peer_host("host-a/lane-a".into(), Some("host-a")), "host-a/lane-a");
+        assert_eq!(on_peer_host("lane-a".into(), None), "lane-a");
+        assert_eq!(on_peer_host("lane-a".into(), Some(" ")), "lane-a");
+        assert_eq!(on_peer_host("lane-a".into(), Some("a/b")), "lane-a", "no host smuggles a '/'");
+        assert_eq!(
+            on_peer_host("host-b/coord".into(), Some("host-a")),
+            "host-a/host-b/coord",
+            "a label can't claim another machine"
+        );
+        let long = on_peer_host("x".repeat(MAX_FROM_AGENT_CHARS), Some("host-a"));
+        assert_eq!(long.chars().count(), MAX_FROM_AGENT_CHARS);
     }
 
     #[test]
@@ -740,6 +910,7 @@ mod tests {
             restored: false,
             resume: false,
             steer: false,
+            steer_on_start: false,
             held: false,
             awaiting_owner: false,
             revision: 0,
@@ -775,6 +946,7 @@ mod tests {
             restored: false,
             resume: false,
             steer: false,
+            steer_on_start: false,
             held: false,
             sent_now: false,
             joined: Arc::new(StdMutex::new(None)),

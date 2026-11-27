@@ -7,7 +7,10 @@
 //   rest       nothing arrives;
 //   echo       acpmux repeats other chats' summaries unchanged (`_acpmux/session_changed`), RATE a
 //              second, as a busy daemon does when it re-sends the list;
-//   presence   acpmux repeats the same empty presence for the open chat, RATE a second.
+//   presence   acpmux repeats the same empty presence for the open chat, RATE a second;
+//   changes    other chats really change (a newer `updatedAt`), RATE a second, as running agents do: the
+//              pane draws none of them, so they must cost about as little (Lawrence, 2026-11-18: a short
+//              chat's scroll dropped frames in an app with many running chats and much history).
 // A pane at rest costs about nothing; a repeat that changes nothing must cost about as little.
 // RESTS=n sits through n rest windows first, so work that grows with the time the pane is open shows.
 // MEMORY=1 then says what the settled page holds: its JS heap after a collection, and a heap snapshot's
@@ -18,10 +21,12 @@
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { chromium, type CDPSession } from "playwright";
+import { chromium } from "./browsers";
+import type { CDPSession } from "playwright";
 import { PAPERCUT_CHAT, papercutEvents } from "../test/support/papercutChat";
 import { perfRow } from "./perfRow";
 import { addStabilityProbe, cpuSession, measureIdle, settledAt } from "./stability";
+import { newestPage } from "./daemonPage";
 
 const TURNS = Number(process.argv[2] ?? 300);
 const OTHERS = Number(process.argv[3] ?? 200);
@@ -29,6 +34,10 @@ const PHASE_MS = Number(process.argv[4] ?? 5000);
 const RATE = Number(process.argv[5] ?? 20);
 const RESTS = Number(process.env.RESTS ?? 1);
 const MEMORY = process.env.MEMORY === "1";
+// PROFILE=1 builds the pane unminified and prints each phase's heaviest functions by self time and by inclusive time
+// (CDP Profiler), so a phase's cost names its code. The sampler runs on the renderer thread and inflates ms/s
+// (rest 2.8 -> ~50), so read a cut's before/after from a run without PROFILE.
+const PROFILE = process.env.PROFILE === "1";
 for (const value of [TURNS, OTHERS, PHASE_MS, RATE, RESTS])
   if (!Number.isInteger(value) || value < 0) {
     console.error("usage: bun bench/agent-pane-idle.bench.ts [turns=300] [others=200] [phaseMs=5000] [rate=20]");
@@ -54,8 +63,12 @@ const answer = (method: string, params: Record<string, unknown> = {}): unknown =
       return { sessions };
     case "_acpmux/attach": {
       if (params.sessionId !== A) return { session: others[0], lastSeq: 0, events: [], hasMore: false };
-      const limit = Number(params.limit ?? 400);
-      return { session: chat.session, lastSeq, events: chat.events.slice(-limit), hasMore: chat.events.length > limit };
+      // As the daemon does: the newest `limit` events within `maxBytes` (daemonPage.ts).
+      const { page, hasMore } = newestPage(chat.events, {
+        limit: Number(params.limit ?? 400),
+        maxBytes: params.maxBytes,
+      });
+      return { session: chat.session, lastSeq, events: page, hasMore };
     }
     case "_acpmux/events":
       return { events: [], hasMore: false, lastSeq };
@@ -108,7 +121,7 @@ try {
   const { build } = await import("vite");
   await build({
     configFile: path.join(webviews, "vite.config.acpmux-pane.mjs"),
-    build: { outDir: out, emptyOutDir: true },
+    build: { outDir: out, emptyOutDir: true, ...(PROFILE ? { minify: false } : {}) },
     logLevel: "error",
   });
   const statics = Bun.serve({
@@ -121,11 +134,8 @@ try {
     },
   });
   releases.push(() => statics.stop(true));
-  const url = `http://127.0.0.1:${statics.port}/#endpoint=${encodeURIComponent(`ws://127.0.0.1:${daemon.port}/`)}&token=t&session=${A}`;
+  const url = `http://127.0.0.1:${statics.port}/#endpoint=${encodeURIComponent(`ws://127.0.0.1:${daemon.port}/`)}&token=t&scheme=cmux&session=${A}`;
   const browser = await chromium.launch({
-    ...(process.env.CMUX_CHROME_HEADLESS_SHELL
-      ? { executablePath: process.env.CMUX_CHROME_HEADLESS_SHELL }
-      : { channel: "chrome" }),
     headless: true,
   });
   releases.push(() => browser.close());
@@ -162,16 +172,32 @@ try {
       name: "presence",
       start: repeat(() => notify("_acpmux/presence", { sessionId: A, viewers: [] })),
     },
+    {
+      name: "changes",
+      start: repeat((tick) => {
+        const session = others[tick % Math.max(1, OTHERS)];
+        notify("_acpmux/session_changed", {
+          kind: "updated",
+          session: { ...session, updatedAt: (Number(session?.updatedAt) || 0) + 1000 * (tick + 1) },
+        });
+      }),
+    },
   ];
   console.log(
     `agent-pane-idle: ${TURNS} turns, ${OTHERS} other chats, ${PHASE_MS / 1000} s a phase, repeats ${RATE}/s`,
   );
   console.log("phase | renderer ms/s | wakeups/s | sources");
   for (const phase of phases) {
-    if (phase.start && OTHERS === 0 && phase.name === "echo") continue;
+    if (phase.start && OTHERS === 0 && phase.name !== "presence") continue;
+    if (PROFILE && cdp) {
+      await cdp.send("Profiler.enable");
+      await cdp.send("Profiler.setSamplingInterval", { interval: 200 });
+      await cdp.send("Profiler.start");
+    }
     const stop = phase.start?.();
     const [quiet] = await measureIdle([{ page, cdp }], PHASE_MS);
     stop?.();
+    if (PROFILE && cdp) printProfile(phase.name, (await cdp.send("Profiler.stop")).profile);
     const seconds = PHASE_MS / 1000;
     const msPerSecond = (quiet!.cpuMs ?? 0) / seconds;
     console.log(
@@ -192,6 +218,50 @@ try {
   await context.close();
 } finally {
   await release();
+}
+
+/// A phase's heaviest functions by self time, and the share of its samples each holds.
+type CpuProfile = {
+  nodes: { id: number; children?: number[]; callFrame: { functionName: string; url: string; lineNumber: number } }[];
+  samples?: number[];
+};
+function printProfile(name: string, profile: CpuProfile) {
+  const counts = new Map<number, number>();
+  for (const id of profile.samples ?? []) counts.set(id, (counts.get(id) ?? 0) + 1);
+  const total = profile.samples?.length ?? 0;
+  const self = new Map<string, number>();
+  for (const node of profile.nodes) {
+    const frame = node.callFrame;
+    if (frame.functionName === "(idle)" || frame.functionName === "(program)") continue;
+    const file = frame.url.split("/").pop() ?? "";
+    const key = `${frame.functionName || "(anonymous)"} ${file}:${frame.lineNumber + 1}`;
+    self.set(key, (self.get(key) ?? 0) + (counts.get(node.id) ?? 0));
+  }
+  const busy = [...self.values()].reduce((sum, value) => sum + value, 0);
+  console.log(`  profile ${name}: ${busy} of ${total} samples busy`);
+  for (const [key, value] of [...self].sort((a, b) => b[1] - a[1]).slice(0, 15)) {
+    if (value > 0) console.log(`    ${((100 * value) / Math.max(1, busy)).toFixed(1)}% ${key}`);
+  }
+  // Inclusive: each node's samples and its subtree's, counted once per function on a stack (recursion).
+  const byId = new Map(profile.nodes.map((node) => [node.id, node]));
+  const keyOf = (node: CpuProfile["nodes"][number]) =>
+    `${node.callFrame.functionName || "(anonymous)"} ${node.callFrame.url.split("/").pop() ?? ""}:${node.callFrame.lineNumber + 1}`;
+  const inclusive = new Map<string, number>();
+  const walk = (id: number, onStack: Set<string>) => {
+    const node = byId.get(id)!;
+    const key = keyOf(node);
+    const fresh = !onStack.has(key) && node.callFrame.functionName !== "(root)";
+    if (fresh) onStack.add(key);
+    const own = counts.get(id) ?? 0;
+    const idle = node.callFrame.functionName === "(idle)" || node.callFrame.functionName === "(program)";
+    if (own && !idle) for (const held of onStack) inclusive.set(held, (inclusive.get(held) ?? 0) + own);
+    for (const child of node.children ?? []) walk(child, onStack);
+    if (fresh) onStack.delete(key);
+  };
+  walk(profile.nodes[0]!.id, new Set());
+  console.log(`  inclusive ${name}:`);
+  for (const [key, value] of [...inclusive].sort((a, b) => b[1] - a[1]).slice(0, 30))
+    if (key.includes(".js:")) console.log(`    ${((100 * value) / Math.max(1, busy)).toFixed(1)}% ${key}`);
 }
 
 /// The settled page's JS heap after a collection, and a heap snapshot's self size summed by node kind and by

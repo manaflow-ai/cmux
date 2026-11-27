@@ -4,6 +4,8 @@ import { afterAll, expect, test } from "bun:test";
 import { JSDOM, VirtualConsole } from "jsdom";
 import type { AcpmuxRow } from "../src/agent-session/acpmux/model";
 import { turnView } from "../src/agent-session/acpmux/conversation/turns";
+import { teardownDom } from "./support/domTeardown";
+import { railFrame } from "./support/railFrame";
 // These tests drive the compact (Codex) rail; the default arm draws no minimap (layout.experiment.ts).
 (globalThis as { cmuxExperiments?: Record<string, string> }).cmuxExperiments = { "thread-minimap-layout": "compact" };
 
@@ -12,6 +14,7 @@ const dom = new JSDOM("<!doctype html><div id=root></div>", {
   pretendToBeVisual: true,
   virtualConsole: new VirtualConsole(),
 });
+
 const scope = globalThis as Record<string, unknown>;
 const replacements: Record<string, unknown> = {
   window: dom.window,
@@ -67,15 +70,17 @@ dom.window.HTMLElement.prototype.scrollTo = function (this: HTMLElement, options
 } as typeof HTMLElement.prototype.scrollTo;
 
 const { act } = await import("react");
+// The minimap places its band in the frame after a scroll event, as a browser runs it.
+const scrolledFrame = (target: EventTarget) =>
+  act(async () => {
+    target.dispatchEvent(new dom.window.Event("scroll"));
+    await new Promise((resolve) => dom.window.requestAnimationFrame(() => resolve(null)));
+  });
 const { createRoot } = await import("react-dom/client");
 const { VirtualTranscript } = await import("../src/agent-session/acpmux/App");
 
-afterAll(() => {
-  dom.window.close();
-  for (const [key, had, value] of saved) {
-    if (had) scope[key] = value;
-    else delete scope[key];
-  }
+afterAll(async () => {
+  await teardownDom(saved, { window: dom.window, scope });
 });
 
 const row = (id: string, kind: string, text?: string): AcpmuxRow => ({ id, kind, text, version: 1, at: 1 });
@@ -96,6 +101,7 @@ test("the minimap marks every prompt on screen as current, at the resting length
         <VirtualTranscript rows={turnView(turns, new Set())} onToggleActivity={() => {}} expanded={new Set()} />,
       ),
     );
+    await railFrame();
     const ticks = () => [...dom.window.document.querySelectorAll<HTMLElement>(".acpmux-minimap__tick")];
     expect(ticks()).toHaveLength(TURNS);
     /// The current ticks, checked to be one run, every tick at the 6 px rest.
@@ -114,7 +120,7 @@ test("the minimap marks every prompt on screen as current, at the resting length
     // Scrolled to the top, the first is, with the ones below it in the viewport.
     const scroller = dom.window.document.querySelector<HTMLElement>(".acpmux-scroll")!;
     scroller.scrollTop = 0;
-    await act(async () => void scroller.dispatchEvent(new dom.window.Event("scroll")));
+    await scrolledFrame(scroller);
     expect(check()[0]).toBe(0);
   } finally {
     await act(async () => root.unmount());

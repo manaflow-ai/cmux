@@ -5,6 +5,7 @@ import { describe, expect, test } from "bun:test";
 import { JSDOM } from "jsdom";
 import {
   clickFold,
+  FOLD_DRAW_WAIT_MS,
   FOLD_HOLD_MIN_MS,
   foldHoldTarget,
   foldHolding,
@@ -12,8 +13,11 @@ import {
   foldToggleAt,
   holdFold,
   keepFold,
+  lineSelector,
+  notePlacement,
   opensBody,
   pushUpCut,
+  toggleState,
   trimmedFoldRoom,
   verticalWheel,
 } from "./foldAnchor";
@@ -329,5 +333,176 @@ describe("pushUpCut", () => {
   test("a row that never reaches the line, or no slide at all, is not cut", () => {
     expect(pushUpCut(-200, 120)).toEqual([]);
     expect(pushUpCut(0, 0)).toEqual([]);
+  });
+});
+
+// Under load the click's change reaches the transcript later than a hold timed from the click (Leo,
+// 2026-11-10, a recording at load ~260: "when things get slow this tool call expansion situatoin gets
+// insanely f***ed"). No placement pass ran between the click and the one that placed what opened, and
+// that one found the hold over: it neither put the line back nor stopped following the latest row, and
+// the view jumped to the bottom with the clicked line gone from it. The hold now waits for its change
+// to be drawn and placed (`notePlacement`), then runs its span.
+describe("a hold under a slow render", () => {
+  /// A transcript with a group's line and a command's line, each line's top read from `tops`.
+  function transcript() {
+    const { document } = new JSDOM(
+      `<div class="acpmux-scroll"><article class="acpmux-row" data-row-id="run" aria-posinset="1">
+        <button class="cv-tool is-toggle" data-tool-group="g1" aria-expanded="true">Ran 3 commands</button>
+        <button class="cv-tool is-toggle" data-tool-id="c2" aria-expanded="false">Find recent commits</button>
+      </article></div>`,
+    ).window;
+    const tops = new Map<string, number>([
+      ["g1", 100],
+      ["c2", 300],
+    ]);
+    const place = (node: HTMLElement) => {
+      const id = node.getAttribute("data-tool-id") ?? node.getAttribute("data-tool-group")!;
+      node.getBoundingClientRect = () => ({ top: tops.get(id) ?? 0 }) as DOMRect;
+    };
+    for (const node of document.querySelectorAll<HTMLElement>("button")) place(node);
+    const scroller = document.querySelector<HTMLElement>(".acpmux-scroll")!;
+    const line = () => document.querySelector<HTMLElement>('[data-tool-id="c2"]')!;
+    return { document, scroller, tops, place, line };
+  }
+
+  test("no pass between the click and a render 1.2 s later: the hold is still on, then runs its span", () => {
+    const { scroller, tops, line } = transcript();
+    const clicked = line();
+    const anchor = clickFold(clicked, undefined, 1_000, clicked);
+    // A pass before the row's handler ran (a microtask after the transcript's listener): not drawn yet.
+    notePlacement(anchor, false, 1_003);
+    expect(anchor.pending).toBe(true);
+    // The busy page draws and measures it 1.2 s later; the next pass is the first since the click.
+    clicked.setAttribute("aria-expanded", "true");
+    tops.set("c2", 340);
+    expect(foldHolding(anchor, 2_200)).toBe(true);
+    notePlacement(anchor, false, 2_200);
+    expect(keepFold(anchor, scroller, 2_200)).toBe(true);
+    expect(scroller.scrollTop).toBe(40);
+    expect(foldHolding(anchor, 2_200 + FOLD_HOLD_MIN_MS - 1)).toBe(true);
+    expect(foldHolding(anchor, 2_200 + FOLD_HOLD_MIN_MS + 1_000)).toBe(false);
+  });
+
+  test("the bug: timed from the click, the same pass found the hold over", () => {
+    const { scroller, line } = transcript();
+    const anchor = { toggle: line(), top: 300, until: 1_000 + FOLD_HOLD_MIN_MS };
+    expect(keepFold(anchor, scroller, 2_200)).toBe(false);
+  });
+
+  test("drawn but not measured yet: the hold waits for the pass that places it", () => {
+    const { scroller, line } = transcript();
+    const clicked = line();
+    const anchor = clickFold(clicked, undefined, 1_000, clicked);
+    clicked.setAttribute("aria-expanded", "true");
+    notePlacement(anchor, true, 1_500);
+    expect(keepFold(anchor, scroller, 1_500)).toBe(true);
+    expect(anchor.pending).toBe(true);
+    notePlacement(anchor, false, 2_000);
+    expect(anchor.pending).toBe(false);
+    expect(anchor.until).toBe(2_000 + anchor.span!);
+  });
+
+  test("at normal speed the hold is as long as before: the change is placed in the click's own pass", () => {
+    const { scroller, line } = transcript();
+    const clicked = line();
+    const anchor = clickFold(clicked, undefined, 1_000, clicked);
+    clicked.setAttribute("aria-expanded", "true");
+    notePlacement(anchor, false, 1_016);
+    expect(keepFold(anchor, scroller, 1_016)).toBe(true);
+    expect(anchor.until).toBe(1_016 + anchor.span!);
+  });
+
+  test("a change that never comes lets go after the wait", () => {
+    const { scroller, line } = transcript();
+    const anchor = clickFold(line(), undefined, 1_000, line());
+    notePlacement(anchor, false, 1_010);
+    expect(keepFold(anchor, scroller, 1_000 + FOLD_DRAW_WAIT_MS - 1)).toBe(true);
+    expect(keepFold(anchor, scroller, 1_000 + FOLD_DRAW_WAIT_MS + 1)).toBe(false);
+  });
+
+  test("a control that says nothing of its state counts as drawn at the first placed pass", () => {
+    const { document } = new JSDOM('<div class="acpmux-scroll"><button class="cv-diagram__toggle">Code</button></div>')
+      .window;
+    const toggle = document.querySelector<HTMLElement>("button")!;
+    toggle.getBoundingClientRect = () => ({ top: 0 }) as DOMRect;
+    const anchor = clickFold(toggle, undefined, 1_000, toggle);
+    expect(anchor.control).toBeUndefined();
+    notePlacement(anchor, false, 1_010);
+    expect(foldHolding(anchor, 1_010 + anchor.span! + 1)).toBe(false);
+  });
+
+  test("a line and control a streamed update drew anew are found again", () => {
+    const { document, scroller, tops, place, line } = transcript();
+    const clicked = line();
+    const anchor = clickFold(clicked, undefined, 1_000, clicked);
+    // A new call regroups the row: React draws the line anew, open, 60 px lower.
+    const again = clicked.cloneNode(true) as HTMLElement;
+    again.setAttribute("aria-expanded", "true");
+    place(again);
+    clicked.replaceWith(again);
+    tops.set("c2", 360);
+    notePlacement(anchor, false, 2_500);
+    expect(anchor.pending).toBe(false);
+    expect(keepFold(anchor, scroller, 2_500)).toBe(true);
+    expect(scroller.scrollTop).toBe(60);
+    expect(anchor.toggle).toBe(again);
+    expect(document.contains(anchor.toggle)).toBe(true);
+  });
+
+  test("press, click, then the row's own ask after its change is drawn: the hold keeps the state from before", () => {
+    const { line } = transcript();
+    const clicked = line();
+    const pressed = holdFold(clicked, 1_000, clicked);
+    const click = clickFold(clicked, pressed, 1_050, clicked);
+    clicked.setAttribute("aria-expanded", "true");
+    const asked = clickFold(clicked, click, 1_051, clicked);
+    expect(asked.from).toBe("false");
+    notePlacement(asked, false, 1_060);
+    expect(asked.pending).toBe(false);
+  });
+
+  test("a line that is gone for good lets go", () => {
+    const { scroller, line } = transcript();
+    const clicked = line();
+    const anchor = clickFold(clicked, undefined, 1_000, clicked);
+    clicked.remove();
+    expect(keepFold(anchor, scroller, 1_100)).toBe(false);
+  });
+
+  // Every kind of collapsible in the chat says its state, so each one's hold waits for its render.
+  for (const [kind, html] of [
+    ["a tool or command line", '<button class="cv-tool is-toggle" aria-expanded="false">ls</button>'],
+    ["a group's line (Ran 3 commands)", '<button data-tool-group="g" aria-expanded="false">Ran 3</button>'],
+    ["a run's line", '<button data-tool-run="r" aria-expanded="false">Worked</button>'],
+    ["a subagent group", '<button class="cv-subagents" aria-expanded="false">2 agents</button>'],
+    ["a folded thought", '<div role="button" class="cv-thought" aria-expanded="false">Thought</div>'],
+    ["an agent message's header", '<div data-header-toggle=""><button aria-expanded="false">Asked</button></div>'],
+    ["a summary", "<details><summary>Context</summary>body</details>"],
+    ["Raw", '<button aria-pressed="false" data-fold-toggle="">Raw</button>'],
+  ] as const) {
+    test(`${kind} says its state`, () => {
+      const { document } = new JSDOM(html).window;
+      const control = document.body.querySelector<HTMLElement>("summary, [data-header-toggle], button, [role]")!;
+      expect(toggleState(control)).toBe("false");
+    });
+  }
+
+  test("id-keyed lines and rows can be found again; other controls cannot", () => {
+    const { document } = new JSDOM(
+      '<article class="acpmux-row" data-row-id="r&quot;1"></article><button data-tool-id="t1"></button><button></button>',
+    ).window;
+    const [row, call, plain] = [...document.body.children] as HTMLElement[];
+    expect(document.querySelector(lineSelector(row!)!)).toBe(row);
+    expect(document.querySelector(lineSelector(call!)!)).toBe(call);
+    expect(lineSelector(plain!)).toBeUndefined();
+  });
+
+  test("a group's line a regroup draws as a run's line is found again by its key", () => {
+    const { document } = new JSDOM('<div><button data-tool-group="k1"></button></div>').window;
+    const group = document.querySelector<HTMLElement>("button")!;
+    const find = lineSelector(group)!;
+    // A fourth call turns the group into a run: React draws the same key as `data-tool-run`.
+    document.querySelector("div")!.innerHTML = '<button data-tool-run="k1"></button>';
+    expect(document.querySelector(find)).toBe(document.querySelector("[data-tool-run]"));
   });
 });

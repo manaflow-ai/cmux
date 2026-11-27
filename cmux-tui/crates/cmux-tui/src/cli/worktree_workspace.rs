@@ -403,15 +403,18 @@ pub(in crate::cli) fn close<B: Daemon + ?Sized>(
 ///   key): the plain close, which cannot spare a kept or attached terminal;
 /// - any other failure: `false`, and the terminal is left to the reaper.
 ///
+/// (Newer daemons ignore most unknown params, but `terminal.close` keeps refusing them:
+/// its catalog params say `"unknown_params": "refuse"`, so this check stays exact.)
+///
 /// Each close has its own step key, so a retry replays its answer.
 fn end_unplaced<B: Daemon + ?Sized>(backend: &B, command_key: &str, terminal: &str) -> bool {
     let close = |step: &str, guarded: bool| {
-        let mut end =
-            plan(&words(&["terminal", terminal, "close"]), Some(step_key(command_key, step)))
-                .ok()?;
-        if guarded {
-            end.params.as_object_mut()?.insert("if_unplaced".into(), Value::Bool(true));
-        }
+        let args: &[&str] = if guarded {
+            &["terminal", terminal, "close", "--if-unplaced"]
+        } else {
+            &["terminal", terminal, "close"]
+        };
+        let end = plan(&words(args), Some(step_key(command_key, step))).ok()?;
         Some(backend.request(None, end))
     };
     match close(&format!("end-{terminal}"), true) {

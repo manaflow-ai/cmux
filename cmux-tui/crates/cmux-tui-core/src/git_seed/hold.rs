@@ -1,4 +1,4 @@
-//! `git-seed-hold-v1`: the machine holds a folder's sync barrier for a copy this Mac streams
+//! `git-seed-hold-v2`: the machine holds a folder's sync barrier for a copy this Mac streams
 //! in itself (`cmux link sync push`: a folder with no GitHub remote, which no seed can clone),
 //! so the chat may open at the copy's head while every tool waits for the whole folder
 //! (cmuxterm-hq goals/cloud-no-network-wait.md, step 6).
@@ -85,20 +85,61 @@ pub(super) struct JobParams {
     pub job: String,
     #[serde(default)]
     pub ok: Option<bool>,
+    /// With `ok: false`: why the copy ended short when its source went away
+    /// (`source_missing`). A hold past its head then keeps what landed and reads ready
+    /// with that note ([`Barrier::complete_partial`]); one short of its head fails as before.
+    /// An older machine ignores it and fails the folder.
+    #[serde(default)]
+    pub partial: Option<String>,
 }
+
+/// The reasons a copy may end a hold partial with: a fixed set, since the note is read back
+/// by tools and people.
+pub(super) const PARTIAL_REASONS: [&str; 1] = ["source_missing"];
+
+/// Whether the hold still runs: a copy's write ([`super::GitSeedService::under_hold`]) reads it
+/// for as long as it writes, and the owner thread sets it false before the barrier goes. So a
+/// write lands while the hold runs, or not at all.
+pub(super) type Alive = std::sync::Arc<std::sync::RwLock<bool>>;
 
 /// What the hold's owner thread is asked.
 pub(super) enum Op {
     /// Any op on the job: the lease starts again.
     Renew,
     Head(mpsc::Sender<bool>),
-    End(bool, mpsc::Sender<Result<(), Failed>>),
+    /// `ok`, the partial reason ([`JobParams::partial`]), the reply.
+    End(bool, Option<String>, mpsc::Sender<Result<(), Failed>>),
+    /// One lease of a hold that waits for ticks instead of the clock ([`Lease::Ticks`], tests):
+    /// a tick with no other op since the one before ends the hold as the clock's lease would.
+    #[cfg(test)]
+    LeaseTick,
 }
 
-/// Whether `folder` may take a hold: absent, or an empty folder (the copy goes to a new folder of
-/// its own; a hold never stands over files it did not write).
+/// How a hold's lease runs out.
+#[derive(Clone, Copy, Debug)]
+pub(super) enum Lease {
+    /// No op for this long ends the hold.
+    Wall(Duration),
+    /// Two [`Op::LeaseTick`]s with no other op between end it (tests: a lease with no clock, so
+    /// a loaded machine never ends a hold the test keeps).
+    #[cfg(test)]
+    Ticks,
+}
+
+/// Whether `folder` may take a hold: absent, an empty folder (the copy goes to a new folder of
+/// its own; a hold never stands over files it did not write), or one whose last sync failed
+/// (a copy that ended short or went quiet): no tool runs in such a folder until a sync
+/// completes it, so the copy's retry holds it again and repairs it, where a plain copy would
+/// leave it failed.
 pub(super) fn fresh(folder: &Path) -> Result<(), SeedRefusal> {
-    if std::fs::read_dir(folder).is_ok_and(|mut entries| entries.next().is_some()) {
+    use cmux_git::sync_barrier::{Probe, probe};
+    // A partial folder (its source went away mid-copy) resumes the same way: the copy sends
+    // what the folder lacks, and the hold's end takes the note away.
+    let failed = || {
+        matches!(probe(folder), Ok(Probe::Incomplete))
+            || cmux_git::sync_barrier::partial(folder).is_some()
+    };
+    if std::fs::read_dir(folder).is_ok_and(|mut entries| entries.next().is_some()) && !failed() {
         return Err(SeedRefusal {
             code: "seed.folder_not_empty",
             message: "the folder exists and is not empty".into(),
@@ -113,15 +154,16 @@ pub(super) fn spawn(
     job: std::sync::Arc<Job>,
     folder: PathBuf,
     head: HeadFirst,
-    lease: Duration,
+    lease: Lease,
     barrier: Barrier,
+    alive: Alive,
     done: impl FnOnce() + Send + 'static,
 ) -> Result<mpsc::Sender<Op>, SeedRefusal> {
     let (send, ops) = mpsc::channel();
     std::thread::Builder::new()
         .name("cmux-git-seed-hold".into())
         .spawn(move || {
-            own(&job, &folder, &head, lease, barrier, &ops);
+            own(&job, &folder, &head, lease, barrier, &alive, &ops);
             done();
         })
         .map_err(|error| SeedRefusal::bad_request(format!("cannot start the hold: {error}")))?;
@@ -134,12 +176,35 @@ fn own(
     job: &Job,
     folder: &Path,
     head: &HeadFirst,
-    lease: Duration,
+    lease: Lease,
     mut barrier: Barrier,
+    alive: &Alive,
     ops: &mpsc::Receiver<Op>,
 ) {
+    // Waits out a write in flight; none lands after.
+    let stop_writes = || *alive.write().unwrap_or_else(std::sync::PoisonError::into_inner) = false;
+    // Ticks only: whether an op came since the last tick.
+    #[cfg(test)]
+    let mut renewed = true;
     loop {
-        match ops.recv_timeout(lease) {
+        let next = match lease {
+            Lease::Wall(lease) => ops.recv_timeout(lease),
+            #[cfg(test)]
+            Lease::Ticks => match ops.recv() {
+                Ok(Op::LeaseTick) if !std::mem::take(&mut renewed) => {
+                    Err(mpsc::RecvTimeoutError::Timeout)
+                }
+                Ok(Op::LeaseTick) => continue,
+                Ok(op) => {
+                    renewed = true;
+                    Ok(op)
+                }
+                Err(mpsc::RecvError) => Err(mpsc::RecvTimeoutError::Disconnected),
+            },
+        };
+        match next {
+            #[cfg(test)]
+            Ok(Op::LeaseTick) => {}
             Ok(Op::Renew) => {}
             Ok(Op::Head(reply)) => {
                 let folders = head.folders();
@@ -157,8 +222,24 @@ fn own(
                 }
                 let _ = reply.send(marked);
             }
-            Ok(Op::End(ok, reply)) => {
-                let result = if ok {
+            Ok(Op::End(ok, partial, reply)) => {
+                stop_writes();
+                let partial = partial.filter(|_| !ok && job.status_head_ready());
+                let result = if let Some(reason) = partial {
+                    // The chat opened at the head and plays on with what landed; the job
+                    // reads why it is not whole, and the next copy resumes the folder.
+                    match barrier.complete_partial(&reason) {
+                        Ok(()) => Err(Failed {
+                            code: "seed.partial",
+                            error: format!(
+                                "the copy ended short ({reason}); the folder keeps what landed \
+                                 and copying it again resumes it"
+                            ),
+                            install_url: None,
+                        }),
+                        Err(error) => Err(failed(format!("cannot keep the partial copy: {error}"))),
+                    }
+                } else if ok {
                     barrier
                         .complete()
                         .map_err(|error| failed(format!("cannot finish the sync: {error}")))
@@ -173,18 +254,30 @@ fn own(
                 return;
             }
             Err(mpsc::RecvTimeoutError::Timeout | mpsc::RecvTimeoutError::Disconnected) => {
+                stop_writes();
                 // Released first: a retry that reads the job failed may begin the folder again.
                 drop(barrier);
                 job.finish(Err(Failed {
                     code: "seed.hold_expired",
                     error: format!(
                         "the copy sent nothing for {} s; its folder is left incomplete",
-                        lease.as_secs()
+                        lease.secs()
                     ),
                     install_url: None,
                 }));
                 return;
             }
+        }
+    }
+}
+
+impl Lease {
+    /// Whole seconds of a clock lease, for the expiry message.
+    fn secs(self) -> u64 {
+        match self {
+            Self::Wall(lease) => lease.as_secs(),
+            #[cfg(test)]
+            Self::Ticks => 0,
         }
     }
 }

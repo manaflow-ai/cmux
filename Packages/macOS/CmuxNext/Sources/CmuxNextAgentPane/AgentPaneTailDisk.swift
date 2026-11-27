@@ -14,22 +14,28 @@ public import Foundation
 /// coalesce (a save a newer one replaced before it ran is skipped), and reads queue behind the
 /// saves made before them, so a read sees the newest tail handed over.
 ///
-/// Bounded as the memory tier is: at most ``AgentPaneTailCache/chats`` files (the least recently
-/// written go first) of at most ``AgentPaneTailCache/bytes`` each, so about 20 MiB in the worst
-/// case. A file over the bound, or one that does not decode as a tail, is removed and read as none.
+/// Bounded by bytes, not by a count of chats: the newest files whose sizes add up to at most
+/// ``totalBytes`` (20 MiB, the old worst case of twenty full files), and at most ``files`` of them,
+/// each at most ``AgentPaneTailCache/bytes``; the least recently written go first. Twenty files
+/// kept the twenty chats written last, and a big chat that streams writes every few seconds, so a
+/// quiet small chat fell out and opened cold after a restart while the big one drew at once (Leo,
+/// 2026-11-13: "why cant small ones be faster too?"). By bytes, a small chat costs what it holds.
+/// A file over the bound, or one that does not decode as a tail, is removed and read as none.
 /// File names are a hash of the session id, so no id names a path. ``clear()`` (sign-out) removes
 /// the whole folder. The app has one per folder, from ``AgentPaneStateFiles/tails(in:)``, so the
 /// quit awaits its queued saves with the other state files' (#36492 review F3).
 public nonisolated final class AgentPaneTailDisk: Sendable {
     public let directory: URL
     private let queue: DispatchQueue
-    /// The newest save's number per file name: a queued save with an older one does nothing.
-    private let newest = Mutex<[String: UInt64]>([:])
-    private let counter = Mutex<UInt64>(0)
-    /// Saves queued and not yet run (or skipped), for ``isSaving``.
-    private let pending = Mutex<Int>(0)
+    /// Keeps the newest save per file for one coalescing window, then writes on ``queue``.
+    private let writer: CoalescingFileWriter
     private let limitFiles: Int
     private let limitBytes: Int
+    private let limitTotal: Int
+    /// Most files one folder keeps, so a trim's listing stays small whatever the chats weigh.
+    public static let files = 500
+    /// Most bytes one folder's files add up to: twenty full files, the bound when it was by count.
+    public static let totalBytes = 20 * AgentPaneTailCache.bytes
     /// Whether a file read back is one this keeps (a tail, by default); one that is not is removed.
     private let accepts: @Sendable (JSONValue) -> Bool
     /// Told each time a ``read(_:)`` is queued, before it runs (a test holds the queue there).
@@ -40,16 +46,20 @@ public nonisolated final class AgentPaneTailDisk: Sendable {
     ///     drawn copies (``AgentPaneChatSnapshots``) keep theirs in a disk of their own.
     ///   - qos: The queue's class: utility for tails, user-initiated for a copy the next document
     ///     waits on before its first frame.
-    public init(directory: URL, files: Int = AgentPaneTailCache.chats, bytes: Int = AgentPaneTailCache.bytes,
+    public init(directory: URL, files: Int = AgentPaneTailDisk.files, bytes: Int = AgentPaneTailCache.bytes,
+                totalBytes: Int = AgentPaneTailDisk.totalBytes,
                 qos: DispatchQoS = .utility,
                 accepts: (@Sendable (JSONValue) -> Bool)? = nil,
                 readQueued: @escaping @Sendable () -> Void = {}) {
         self.directory = directory
         limitFiles = files
         limitBytes = bytes
+        limitTotal = totalBytes
         self.accepts = accepts ?? { AgentPaneTailCache.holds($0) }
         self.readQueued = readQueued
-        queue = DispatchQueue(label: "com.cmuxterm.app.next.agent-pane.tail-disk", qos: qos)
+        let queue = DispatchQueue(label: "com.cmuxterm.app.next.agent-pane.tail-disk", qos: qos)
+        self.queue = queue
+        writer = CoalescingFileWriter(queue: queue, window: qos == .utility ? CoalescingFileWriter.defaultWindow : 0.02)
     }
 
     /// The file chat `sessionId`'s tail is kept in.
@@ -61,28 +71,18 @@ public nonisolated final class AgentPaneTailDisk: Sendable {
     /// Saves `tail` for `sessionId` off the main thread; nil removes its file.
     public func write(_ tail: JSONValue?, for sessionId: String) {
         let file = url(for: sessionId)
-        let name = file.lastPathComponent
-        let number = counter.withLock { $0 += 1; return $0 }
-        newest.withLock { $0[name] = number }
-        pending.withLock { $0 += 1 }
-        queue.async { [self] in
-            defer { pending.withLock { $0 -= 1 } }
-            guard newest.withLock({ $0[name] == number }) else { return }
-            newest.withLock { if $0[name] == number { $0[name] = nil } }
-            guard let tail else {
-                try? FileManager.checked.removeItem(at: file)
-                return
-            }
+        guard let tail else {
+            writer.save(to: file) { nil }
+            return
+        }
+        let limitBytes = limitBytes, directory = directory
+        writer.save(to: file, then: { [self] in trim() }) {
             var text = ""
             tail.appendCompactText(to: &text)
             let data = Data(text.utf8)
-            guard data.count <= limitBytes else {
-                try? FileManager.checked.removeItem(at: file)
-                return
-            }
+            guard data.count <= limitBytes else { return nil }
             try? FileManager.checked.createDirectory(at: directory, withIntermediateDirectories: true)
-            try? data.blockingWrite(to: file, options: .atomic)
-            trim()
+            return data
         }
     }
 
@@ -92,6 +92,7 @@ public nonisolated final class AgentPaneTailDisk: Sendable {
         let file = url(for: sessionId)
         let limit = limitBytes
         let accepts = accepts
+        writer.flushNow()
         return await withCheckedContinuation { (done: CheckedContinuation<JSONValue?, Never>) in
             queue.async {
                 done.resume(returning: Self.load(file, limit: limit, accepts: accepts))
@@ -102,16 +103,16 @@ public nonisolated final class AgentPaneTailDisk: Sendable {
 
     /// Removes every kept tail, after the saves queued before this call.
     public func clear() {
-        newest.withLock { $0.removeAll() }
+        writer.discardPending()
         queue.async { [directory] in try? FileManager.checked.removeItem(at: directory) }
     }
 
     /// Whether a save is queued and has not run yet (the quit deadline's record names the folder).
-    public var isSaving: Bool { pending.withLock { $0 > 0 } }
+    public var isSaving: Bool { writer.isBusy }
 
     /// Returns, holding no thread, once the work queued before this call has run.
     public func settled() async {
-        await withCheckedContinuation { (done: CheckedContinuation<Void, Never>) in queue.async { done.resume() } }
+        await writer.settled()
     }
 
     /// Runs `work` on the queue after the work queued before it (a test holds the queue with it).
@@ -131,14 +132,25 @@ public nonisolated final class AgentPaneTailDisk: Sendable {
         return tail
     }
 
-    /// Keeps the newest ``limitFiles`` files, by modification date. On the queue only.
+    /// Keeps the newest files, by modification date, while there are at most ``limitFiles`` of them
+    /// and their sizes add up to at most ``limitTotal``; the newest is always kept. On the queue only.
     private func trim() {
-        let keys: [URLResourceKey] = [.contentModificationDateKey]
-        guard let files = try? FileManager.checked.contentsOfDirectory(at: directory, includingPropertiesForKeys: keys),
-              files.count > limitFiles else { return }
-        let dated = files.map { ($0, (try? $0.blockingResourceValues(forKeys: Set(keys)))?.contentModificationDate ?? .distantPast) }
-        for (file, _) in dated.sorted(by: { $0.1 > $1.1 }).dropFirst(limitFiles) {
-            try? FileManager.checked.removeItem(at: file)
+        let keys: Set<URLResourceKey> = [.contentModificationDateKey, .fileSizeKey]
+        guard let files = try? FileManager.checked.contentsOfDirectory(at: directory, includingPropertiesForKeys: Array(keys))
+        else { return }
+        let dated = files.map { file in
+            let values = try? file.blockingResourceValues(forKeys: keys)
+            return (file, values?.contentModificationDate ?? .distantPast, values?.fileSize ?? 0)
+        }
+        var kept = 0
+        var total = 0
+        for (file, _, size) in dated.sorted(by: { $0.1 > $1.1 }) {
+            if kept == 0 || (kept < limitFiles && total + size <= limitTotal) {
+                kept += 1
+                total += size
+            } else {
+                try? FileManager.checked.removeItem(at: file)
+            }
         }
     }
 }

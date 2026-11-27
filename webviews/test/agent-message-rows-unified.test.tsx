@@ -23,6 +23,7 @@ import { SubagentDoneLine } from "../src/agent-session/acpmux/subagents/Subagent
 import { DoneReportLookContext } from "../src/agent-session/acpmux/subagents/subagentDoneLineModel";
 import { SubagentNavContext } from "../src/agent-session/acpmux/subagents/subagentGroupModel";
 import type { AcpmuxActivity, AcpmuxRow } from "../src/agent-session/acpmux/model";
+import { settleReact } from "./support/domTeardown";
 
 let dom: JSDOM | undefined;
 let root: Root | undefined;
@@ -60,6 +61,7 @@ function installDom(): HTMLElement {
 afterEach(async () => {
   if (root) await act(async () => root!.unmount());
   root = undefined;
+  await settleReact();
   dom?.window.close();
   dom = undefined;
   for (const [key, value] of saved) {
@@ -129,20 +131,19 @@ test("a verified relayed message: the bare name, its family's mark, and the whol
   expect(text).not.toContain("[end of message");
 });
 
-test("an unverified sender gets the marker only: no 'self-declared' words anywhere in the row", async () => {
+test("an unverified sender gets no mark and no 'self-declared' words anywhere in the row", async () => {
   const name = `gcp-codex-swarm-05/cloud-start-matrix ${SUFFIX}`;
   const message = received("Matrix run 14 is green.", { verification: "declared" }, name);
   const container = await render(<IncomingMessageLine id="m-declared" message={message} onOpen={() => undefined} />);
   await openAll(container);
-  const marker = container.querySelector(".cv-unverified");
-  expect(marker?.getAttribute("title")).toBe("Sender not verified");
+  // The question bubble is gone (Leo, 2026-11-25: "get rid of this tiny icon").
+  expect(container.querySelector(".cv-unverified")).toBeNull();
   expect(container.innerHTML).not.toContain("self-declared");
   expect(container.innerHTML).not.toContain("unauthenticated");
   expect(container.textContent).toContain("gcp-codex-swarm-05/cloud-start-matrix");
   expect(container.textContent).not.toContain("Received message from");
-  // Review of #37653: the marker is the one sign; the chip carries no "Unverified" word beside it.
+  // Review of #37653: the chip carries no "Unverified" word either.
   expect(container.textContent).not.toMatch(/unverified/i);
-  expect(container.querySelectorAll(".cv-unverified").length).toBe(1);
 });
 
 test("an older acpmux's sender with only the suffix (no record) is marked unverified, the name bare", async () => {
@@ -162,7 +163,7 @@ test("an older record whose broker label names a suffixed sender keeps its marke
   const container = await render(
     <IncomingMessageLine id="m-old-label" message={prompt.message} onOpen={() => undefined} />,
   );
-  expect(container.querySelector(".cv-unverified")).not.toBeNull();
+  expect(container.querySelector(".cv-unverified")).toBeNull();
   expect(container.textContent).toContain("gcp-codex-swarm-05/cloud-start-matrix");
   expect(container.innerHTML).not.toContain("self-declared");
 });
@@ -218,7 +219,7 @@ test("a notice thread rendered: the marker, and the whole message under its line
   })!;
   const container = await render(<InboxNoticeCard rowId="r-old" notice={notice} onOpen={() => undefined} />);
   expect(container.querySelector(".cv-agentmsg")).not.toBeNull();
-  expect(container.querySelector(".cv-unverified")).not.toBeNull();
+  expect(container.querySelector(".cv-unverified")).toBeNull();
   // Shut, the card under the line holds the message whole (Leo, 2026-11-09); the line says it once.
   const newest = container.querySelector(".cv-inbox__newest")?.textContent ?? "";
   expect(newest).toContain("Matrix run 14 is green.");
@@ -328,7 +329,7 @@ test("a group's hover lists its messages newest first, short names, two lines ea
   expect(text).toContain("second line 6");
   expect(text).not.toContain("lane-1");
   expect(text).toContain("+2 more");
-  expect(container.querySelectorAll(".cv-unverified").length).toBe(1);
+  expect(container.querySelectorAll(".cv-unverified").length).toBe(0);
 });
 
 test("an inbox notice's hover lists every message of every thread, newest first, and counts the rest", async () => {
@@ -449,7 +450,7 @@ test("a lane batch's hover lists its messages newest first by their time, not th
 
 // Review of #37653: acpmux may say a thread's newest sender is unverified only on the thread (its
 // sender record, or an older acpmux's suffix on its `from`), not on each message. That message's
-// row and the group's hover still show "Sender not verified".
+// row and the group's hover still mark its sender's name as a claim.
 test("a thread's unverified sender marks its newest message's row and hover", async () => {
   const { flattenInboxRows } = await import("../src/agent-session/acpmux/conversation/laneNoticeBatches");
   const { GroupHoverLookContext, MessageGroupHover, hoverMessages, inboxHover } =
@@ -494,8 +495,7 @@ test("a thread's unverified sender marks its newest message's row and hover", as
   );
   const items = [...container.querySelectorAll(".cv-group-hover__item")];
   expect(items[0]?.textContent).toContain("second");
-  expect(items[0]?.querySelector(".cv-unverified")?.getAttribute("title")).toBe("Sender not verified");
-  expect(items[1]?.querySelector(".cv-unverified")).toBeNull();
+  expect(container.querySelector(".cv-unverified")).toBeNull();
   // The notice card's own hover reads the same.
   expect(inboxHover(notice.threads).messages.map((m) => [m.text, m.unverified === true])).toEqual([
     ["second", true],

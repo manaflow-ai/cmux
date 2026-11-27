@@ -32,6 +32,12 @@ pub(super) enum OperationOwner {
     ConductorImport,
     /// `palette.rank` (resource_router/palette_rank.rs): stateless.
     PaletteRank,
+    /// `chat.*` (resource_router/chats.rs): acpmux's chats as the daemon keeps them.
+    Chat,
+    /// `theme.scheme.*` and `theme.slots.resolve` (resource_router/theme_scheme.rs): stateless.
+    ThemeScheme,
+    /// `browser_import.read` (resource_router/browser_import.rs): stateless.
+    BrowserImport,
 }
 
 pub(super) const fn operation_owner(operation: ResourceOperation) -> OperationOwner {
@@ -146,16 +152,24 @@ pub(super) const fn operation_owner(operation: ResourceOperation) -> OperationOw
         | ResourceOperation::GitCommit
         | ResourceOperation::GitDiff
         | ResourceOperation::GitFilesList
+        | ResourceOperation::GitFingerprint
         | ResourceOperation::GitFilesSearch
         | ResourceOperation::GitPush
         | ResourceOperation::GitWorktreeCreate
         | ResourceOperation::GitWorktreeApply
         | ResourceOperation::GitWorktreeRemove
         | ResourceOperation::GitWorktreeSetup
+        | ResourceOperation::GitWorktreeSetupRun
+        | ResourceOperation::ProjectActionsList
         | ResourceOperation::GitStatus
         | ResourceOperation::DiffCommentsList
         | ResourceOperation::DiffCommentsSave
-        | ResourceOperation::DiffCommentsDelete => OperationOwner::Git,
+        | ResourceOperation::DiffCommentsDelete
+        | ResourceOperation::DiffCommentsSend
+        | ResourceOperation::DiffCommentsThread
+        | ResourceOperation::GitReviewStart
+        | ResourceOperation::GitReviewComment
+        | ResourceOperation::GitReviewPost => OperationOwner::Git,
         ResourceOperation::HistoryEntriesList
         | ResourceOperation::HistoryEntriesRemove
         | ResourceOperation::HistorySiteRemove
@@ -185,6 +199,14 @@ pub(super) const fn operation_owner(operation: ResourceOperation) -> OperationOw
             OperationOwner::ConductorImport
         }
         ResourceOperation::PaletteRank => OperationOwner::PaletteRank,
+        ResourceOperation::ChatList
+        | ResourceOperation::ChatMarkRead
+        | ResourceOperation::ChatPin => OperationOwner::Chat,
+        ResourceOperation::ThemeSchemeConvert
+        | ResourceOperation::ThemeSchemeExport
+        | ResourceOperation::ThemeSchemeFromImage
+        | ResourceOperation::ThemeSlotsResolve => OperationOwner::ThemeScheme,
+        ResourceOperation::BrowserImportRead => OperationOwner::BrowserImport,
         ResourceOperation::WorkspaceUpdate
         | ResourceOperation::WorkspaceAgentFolderSet
         | ResourceOperation::WorkspaceAgentStartGet
@@ -326,6 +348,8 @@ pub(super) const fn operation_owner(operation: ResourceOperation) -> OperationOw
         | ResourceOperation::ChiefEngineGet
         | ResourceOperation::ChiefEngineSet
         | ResourceOperation::ChiefStop
+        | ResourceOperation::ChiefAutomationList
+        | ResourceOperation::ChiefAutomationUpdate
         | ResourceOperation::ChiefContinue
         | ResourceOperation::ChiefRetry
         | ResourceOperation::ChiefProfileList
@@ -378,10 +402,29 @@ pub(super) const fn operation_owner(operation: ResourceOperation) -> OperationOw
         | ResourceOperation::CloudOwnerHandoffBeginTurn
         | ResourceOperation::CloudOwnerHarnessLoginCopy
         | ResourceOperation::CloudOwnerGithubApp
+        | ResourceOperation::CloudOwnerGithubRepos
+        | ResourceOperation::CloudOwnerGithubConnect
+        | ResourceOperation::CloudOwnerOp
+        | ResourceOperation::CloudOwnerGithubComplete
+        | ResourceOperation::CloudOwnerGithubList
+        | ResourceOperation::CloudOwnerGithubCloneToken
+        | ResourceOperation::CloudOwnerSlack
+        | ResourceOperation::CloudOwnerSlackAwake
+        | ResourceOperation::CloudOwnerTurnCheckpoint
+        | ResourceOperation::CloudOwnerTurnRewind
+        | ResourceOperation::CloudOwnerTurns
         | ResourceOperation::CloudPreviewsRefresh
         | ResourceOperation::CloudPreviewsCreateLink
         | ResourceOperation::CloudPreviewsRevokeLink
         | ResourceOperation::CloudMachineIo
+        | ResourceOperation::CloudMachineChatAccess
+        | ResourceOperation::CloudMachineShareChat
+        | ResourceOperation::CloudMachineChiefStart
+        | ResourceOperation::CloudMachineChiefResize
+        | ResourceOperation::CloudMachineSetupDesktop
+        | ResourceOperation::CloudMachineFork
+        // The app's language packs (server/language_packs_op.rs): a download on a worker thread.
+        | ResourceOperation::LanguagePacksEnsure
         | ResourceOperation::OriginConfirmationIssue => OperationOwner::Connection,
         ResourceOperation::SettingsSchema
         | ResourceOperation::SettingsList
@@ -390,6 +433,11 @@ pub(super) const fn operation_owner(operation: ResourceOperation) -> OperationOw
         | ResourceOperation::SettingsSet
         | ResourceOperation::SettingsReset
         | ResourceOperation::SettingsResetAll
+        | ResourceOperation::SettingsEdit
+        | ResourceOperation::SettingsHistory
+        | ResourceOperation::SettingsUndo
+        | ResourceOperation::SettingsRestore
+        | ResourceOperation::SettingsResetGroup
         | ResourceOperation::KeybindingsGet
         | ResourceOperation::KeybindingsSet
         | ResourceOperation::KeybindingsRemove

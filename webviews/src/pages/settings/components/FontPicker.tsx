@@ -1,5 +1,6 @@
-// A font family choice (terminal, chat code, editor, Markdown code): a button in the picked face and
-// a popover to search the installed fixed-pitch families, each drawn in its own face. Recent fonts
+// A font family choice (terminal, chat code, editor, Markdown code, the App Font): a button in the
+// picked face and a popover to search the installed families (fixed-pitch ones, or every one for the
+// App Font), each drawn in its own face. Recent fonts
 // lead the list (fontPickerModel). It previews like the theme picker: the row the arrow keys
 // highlight shows live in the app at once, a row the pointer rests on after DWELL_MS; Return or a
 // click picks, Escape reverts. The popover floats over the rows, so opening it pushes no row down.
@@ -22,6 +23,7 @@ export function FontPicker({
   defaultLabel,
   onPick,
   onPreview,
+  face = fontFace,
 }: {
   /** The picked family; null shows `defaultLabel`. */
   value: string | null;
@@ -37,6 +39,9 @@ export function FontPicker({
   onPick(name: string | null): void | Promise<unknown>;
   /** The highlighted family while the list is open; null when it closes or rests on the default. */
   onPreview(name: string | null, owner?: object): void;
+  /** The CSS stack a family's row and the button draw in; a fixed-pitch fallback unless given
+   * (the App Font passes uiFontFace, a system one). */
+  face?: (name: string) => string;
 }) {
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState("");
@@ -119,14 +124,14 @@ export function FontPicker({
         aria-haspopup="dialog"
         aria-expanded={open}
         disabled={disabled}
-        style={value ? { fontFamily: fontFace(value) } : undefined}
+        style={value ? { fontFamily: face(value) } : undefined}
         onClick={() => {
           if (open) close();
           else if (performance.now() - closedAt.current > 400) setOpen(true);
         }}
       >
         {value ?? defaultLabel}
-        <Icon name="chevron" />
+        <Icon name="chevron.popup" className="popup-caret" />
       </Button>
       <Popover
         open={open && !disabled}
@@ -142,6 +147,7 @@ export function FontPicker({
           onSubmit={pick}
           onCancel={close}
           onHighlight={highlight}
+          isItemCurrent={(name) => (name === DEFAULT_FONT_ROW ? value === null : name === value)}
           label={title}
           placeholder={t("settingsPage.filter")}
           inputClassName="field font-search"
@@ -155,7 +161,7 @@ export function FontPicker({
               </span>
             ) : (
               <span className="font-option-row" data-font-option={name}>
-                <span className="font-option-name" style={{ fontFamily: fontFace(name) }}>
+                <span className="font-option-name" style={{ fontFamily: face(name) }}>
                   {name}
                 </span>
                 {recentRows.has(name) && <span className="font-option-tag">{t("settingsPage.font.recent")}</span>}

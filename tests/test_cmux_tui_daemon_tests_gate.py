@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""The cmux_next_ daemon tests run on Blacksmith Linux, at the size .github/runners.json linux_sizes measured.
+"""The cmux_next_ daemon tests run on the shared Linux runner.
 
 Leo, 2026-10-26: "I THOUGHT THESE COULD JUST GO ON LINUX".
 
@@ -11,8 +11,7 @@ required it too; now the tree-commit marker follows the publish (Leo,
 owned Macs (the promote pool the Release compile also needs, then the side
 lane) and queued there for 20+ minutes while nightly-next waited. None of
 the cmux_next_ tests is gated to macOS, and cmux-tui.yml's Linux job runs the
-whole workspace, so the gate takes Blacksmith (8 vCPU since 2026-11-01: 5.5 min mean on 32) on every event and
-attempt, and its pass writes the marker.
+whole workspace, so the gate takes Linux and its pass writes the marker.
 
 Leo, 2026-10-27: "ok do NOT label stuff as os=linux...". The job name, its
 steps and the marker name no runner OS. Markers written before that carry an
@@ -38,12 +37,11 @@ import yaml
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "tests"))
-from blacksmith_linux_sizes import size_label  # noqa: E402
+import workflow_jobs  # noqa: E402
 
 from test_ci_tui_routes_avoid_nightly_label import (  # noqa: E402
     DAEMON_LABEL,
     LIGHT_LABEL,
-    PIN_LABEL,
     PROMOTE_LABEL,
     SIDE_LABEL,
     contexts,
@@ -52,7 +50,6 @@ from test_ci_tui_routes_avoid_nightly_label import (  # noqa: E402
 
 WORKFLOW = ROOT / ".github" / "workflows" / "cmux-tui-artifacts.yml"
 SHADOW_WORKFLOW = ROOT / ".github" / "workflows" / "cmux-next-daemon-macos-shadow.yml"
-GATE_LABEL = size_label("cmux-tui-artifacts.yml", "cmux-next-daemon-tests")
 JOB_NAME = "cmux_next_ daemon tests"
 SHADOW = "cmux-next-daemon-macos-shadow"
 MAC_ONLY_TESTS = ("no_keychain", "router_no_keychain", "remote_sandbox", "remote_sandbox_canary", "idle_wakeups")
@@ -66,6 +63,13 @@ def shadow_workflow() -> dict:
     return yaml.load(SHADOW_WORKFLOW.read_text(encoding="utf-8"), Loader=yaml.BaseLoader)
 
 
+def sole_runs_on(job: dict) -> str:
+    """The one runs-on a job without a matrix writes, as written (workflow_jobs.runs_on_cells)."""
+    cells = workflow_jobs.runs_on_cells(job)
+    assert cells is not None and len(cells) == 1, cells
+    return cells[0]
+
+
 def step(job: dict, name: str) -> dict:
     return next(s for s in job["steps"] if s.get("name") == name)
 
@@ -75,17 +79,11 @@ def flat(text: str) -> str:
 
 
 class DaemonTestsGateTests(unittest.TestCase):
-    def test_the_gate_runs_on_its_blacksmith_size_whatever_the_pool_variables_say(self) -> None:
-        runs_on = jobs()["cmux-next-daemon-tests"]["runs-on"]
-        for overrides in ({}, {"CI_NEXT_DAEMON_POOL": DAEMON_LABEL}, {"CI_PIN_DAEMON_POOL": PIN_LABEL},
-                          {"CI_PR_POOL_OWNED": ""}, {"CI_NEXT_PROMOTE_POOL": ""}):
-            for context in contexts(**overrides):
-                context["inputs.macos_runner"] = "blacksmith-6vcpu-macos-26"
-                label = route(runs_on, context)
-                if context["github.repository_owner"] != "manaflow-ai":
-                    self.assertEqual(label, "ubuntu-24.04", context)
-                else:
-                    self.assertEqual(label, GATE_LABEL, (overrides, context))
+    def test_the_gate_runs_on_the_shared_linux_label_on_every_attempt(self) -> None:
+        runs_on = sole_runs_on(jobs()["cmux-next-daemon-tests"])
+        for context in contexts():
+            expected = "cmux-linux" if context["github.repository_owner"] == "manaflow-ai" else "ubuntu-24.04"
+            self.assertEqual(route(runs_on, context), expected, context)
 
     def test_the_job_keeps_its_id_and_setup(self) -> None:
         daemon = jobs()["cmux-next-daemon-tests"]
@@ -100,7 +98,9 @@ class DaemonTestsGateTests(unittest.TestCase):
         cache = step(daemon, "Cache cargo build")["with"]
         self.assertIn("'cmux-tui-linux'", cache["shared-key"])
         self.assertEqual(cache["cache-all-crates"], "true")
-        self.assertIn("cmux_next_", step(daemon, "cargo test cmux_next_")["run"])
+        self.assertIn("scripts/ci/cmux-next-daemon-tests.sh", step(daemon, "cargo test cmux_next_")["run"])
+        script = (ROOT / "scripts/ci/cmux-next-daemon-tests.sh").read_text(encoding="utf-8")
+        self.assertIn("--locked cmux_next_", script)
         self.assertNotIn("continue-on-error", daemon)
 
     def test_a_pass_writes_the_marker_without_naming_an_os(self) -> None:
@@ -123,8 +123,8 @@ class DaemonTestsGateTests(unittest.TestCase):
         self.assertNotIn(SHADOW, WORKFLOW.read_text(encoding="utf-8").split("\njobs:\n", 1)[1].replace(
             "cmux-next-daemon-macos-shadow.yml", ""))
         doc = shadow_workflow()
-        self.assertEqual(set(doc["on"]), {"push", "workflow_dispatch"})
-        self.assertEqual(doc["on"]["push"]["branches"], ["feat-cmux-next"])
+        # workflow_dispatch only since 2026-11-21 (ci-time-map: nothing waits for it).
+        self.assertEqual(set(doc["on"]), {"workflow_dispatch"})
         self.assertEqual(doc["permissions"], {})
         self.assertEqual(doc["concurrency"]["cancel-in-progress"], "false")
         shadow = doc["jobs"][SHADOW]
@@ -132,10 +132,11 @@ class DaemonTestsGateTests(unittest.TestCase):
         self.assertFalse(shadow["name"].startswith("cmux_next_ daemon tests"))
         run = flat(step(shadow, "cargo test the macOS-only daemon tests")["run"])
         for test in MAC_ONLY_TESTS:
-            self.assertIn(f"--test {test}", run)
+            # cmux-tui's integration tests are one binary since #56928: idle_wakeups is a module of `--test it`.
+            self.assertTrue(f"--test {test}" in run or f"--test it -- {test}::" in run, test)
 
     def test_the_shadow_never_takes_an_owned_pool(self) -> None:
-        runs_on = shadow_workflow()["jobs"][SHADOW]["runs-on"]
+        runs_on = sole_runs_on(shadow_workflow()["jobs"][SHADOW])
         self.assertNotIn("vars.MACOS_RUNNER", runs_on)
         self.assertIn("fromJSON(vars.RUNNER_POOLS).macos_15", runs_on)
         self.assertNotIn("inputs.", runs_on)
@@ -186,6 +187,102 @@ class DaemonTestsGateTests(unittest.TestCase):
                            RUN_ID="1", GITHUB_RUN_ATTEMPT="1", GITHUB_OUTPUT=str(output))
                 subprocess.run(["bash", "-c", marked["run"]], env=env, check=True, capture_output=True)
                 self.assertEqual("marked=true" in output.read_text(encoding="utf-8"), want, codes)
+    def test_every_feat_run_points_at_a_tested_tree_the_channel_skipped(self) -> None:
+        # Leo, 2026-11-23: "we own/should own the in-between". The point no longer waits on one run's own tree.
+        point = jobs()["point-feat-channel"]
+        keep = step(point, "Point the channel at any tested tree it skipped (channel keeper)")
+        self.assertEqual(flat(keep["if"]), "${{ !cancelled() }}")
+        self.assertIn("cmux_tui_channel_keeper.py drive --point-only", keep["run"])
+        for name in ("AWS_ACCESS_KEY_ID", "AWS_SECRET_ACCESS_KEY", "R2_ENDPOINT", "GH_TOKEN"):
+            self.assertIn(name, keep["env"])
+        checkout = next(s for s in point["steps"] if str(s.get("uses", "")).startswith("actions/checkout@"))
+        self.assertGreaterEqual(int(checkout["with"]["fetch-depth"]), 300)
+
+
+    def test_the_job_frees_its_own_build_need_before_the_caches_land(self) -> None:
+        # Six cold runs on 2026-11-26 lost their pool runner "No space left on device" in cargo test: the
+        # pool's start hook cleans only under one job's need (17 GiB) and this build writes a ~20 GiB target.
+        daemon = jobs()["cmux-next-daemon-tests"]
+        names = [s.get("name") for s in daemon["steps"]]
+        free = step(daemon, "Free this job's build need on a pool runner")
+        self.assertLess(names.index(free["name"]), names.index("Cache cargo build"))
+        self.assertLess(names.index(free["name"]), names.index("Make room for the cargo build (disk floor)"))
+        self.assertEqual(free["continue-on-error"], "true")
+        self.assertIn("steps.marked.outputs.marked != 'true'", free["if"])
+        with tempfile.TemporaryDirectory() as tmp:
+            seen = Path(tmp) / "seen"
+            hook = Path(tmp) / "cmux-disk-floor.sh"
+            hook.write_text(f'#!/usr/bin/env bash\necho "$1 $CMUX_DISK_JOB_BYTES" > {seen}\nexit 3\n', encoding="utf-8")
+            hook.chmod(0o755)
+            run = free["run"].replace("/opt/cmux-disk-floor.sh", str(hook))
+            env = dict(os.environ, GITHUB_WORKSPACE=tmp)
+            subprocess.run(["bash", "-e", "-c", run], env=env, check=True, capture_output=True)
+            phase, need = seen.read_text(encoding="utf-8").split()
+            self.assertEqual(phase, "started")
+            self.assertGreater(int(need), 17 << 30)
+            # Off the pool (no hook) the step does nothing and passes.
+            subprocess.run(["bash", "-e", "-c", free["run"].replace("/opt/cmux-disk-floor.sh", str(Path(tmp) / "absent"))],
+                           env=env, check=True, capture_output=True)
+
+
+
+TARGET_SCRIPT = ROOT / "scripts" / "ci" / "cmux-tui-test-target.sh"
+# A fake df: the target's disk shows FREE_KIB_WITH_TARGET while cmux-tui/target exists, FREE_KIB_WITHOUT after.
+FAKE_DF = """#!/usr/bin/env bash
+path="${@: -1}"
+if [[ -d "$FAKE_REPO/cmux-tui/target" ]]; then kib="$FREE_KIB_WITH_TARGET"; else kib="$FREE_KIB_WITHOUT"; fi
+[[ "$path" == "$FAKE_REPO"* ]] || kib="$FREE_KIB_TMP"
+echo "Filesystem 1024-blocks Used Available Capacity Mounted"
+echo "fake 999999999 1 $kib 1% /"
+"""
+GIB = 1024 * 1024
+
+
+class DaemonTestsDiskFloorTests(unittest.TestCase):
+    """Run 45737327859 (2026-11-26): a reused pool workspace ran out of disk 14 min into the build."""
+
+    def floor(self, with_target: int, without: int, tmp: int) -> tuple[subprocess.CompletedProcess, bool]:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            repo = Path(tmpdir) / "repo"
+            (repo / "scripts" / "ci").mkdir(parents=True)
+            (repo / "scripts" / "ci" / "cmux-tui-test-target.sh").write_text(TARGET_SCRIPT.read_text(encoding="utf-8"))
+            (repo / "cmux-tui" / "target" / "debug" / "incremental").mkdir(parents=True)
+            (repo / "cmux-tui" / "rust-toolchain.toml").write_text("[toolchain]\n")
+            bin_dir = Path(tmpdir) / "bin"
+            bin_dir.mkdir()
+            (bin_dir / "df").write_text(FAKE_DF)
+            (bin_dir / "df").chmod(0o755)
+            env = dict(os.environ, PATH=f"{bin_dir}:{os.environ['PATH']}", FAKE_REPO=str(repo),
+                       FREE_KIB_WITH_TARGET=str(with_target * GIB), FREE_KIB_WITHOUT=str(without * GIB),
+                       FREE_KIB_TMP=str(tmp * GIB), TMPDIR=str(Path(tmpdir) / "elsewhere"),
+                       GITHUB_ACTIONS="true", GITHUB_REPOSITORY="manaflow-ai/cmux")
+            env.pop("CARGO_TARGET_DIR", None)
+            result = subprocess.run(["bash", str(repo / "scripts" / "ci" / "cmux-tui-test-target.sh"), "floor"],
+                                    env=env, capture_output=True, text=True, timeout=60)
+            return result, (repo / "cmux-tui" / "target").is_dir()
+
+    def test_enough_disk_keeps_the_warm_target(self) -> None:
+        result, kept = self.floor(with_target=80, without=80, tmp=80)
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertTrue(kept)
+
+    def test_a_full_disk_drops_the_leftover_target_and_builds(self) -> None:
+        result, kept = self.floor(with_target=3, without=60, tmp=80)
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertFalse(kept, result.stdout)
+
+    def test_a_disk_still_full_after_cleaning_fails_fast(self) -> None:
+        result, _ = self.floor(with_target=3, without=5, tmp=80)
+        self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
+        self.assertIn("under the floor", result.stderr)
+
+    def test_the_job_runs_the_floor_before_any_cache_restore(self) -> None:
+        names = [s.get("name") for s in jobs()["cmux-next-daemon-tests"]["steps"]]
+        floor = names.index("Make room for the cargo build (disk floor)")
+        self.assertLess(floor, names.index("Cache cargo build"))
+        self.assertLess(floor, names.index("Restore the cargo build from the CI cache bucket"))
+        self.assertIn("cmux-tui-test-target.sh floor", step(jobs()["cmux-next-daemon-tests"], names[floor])["run"])
+
 
 if __name__ == "__main__":
     unittest.main()

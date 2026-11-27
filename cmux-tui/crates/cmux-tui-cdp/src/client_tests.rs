@@ -850,3 +850,19 @@ fn saturated_event_sink_preserves_critical_event_and_response() {
         "critical event was lost: {retained_event:?}"
     );
 }
+
+#[test]
+fn a_frame_is_canonical_padded_base64_across_chunks() {
+    assert_eq!(canonical_base64_decoded_len(""), Some(0));
+    assert_eq!(canonical_base64_decoded_len("AQ=="), Some(1));
+    assert_eq!(canonical_base64_decoded_len("AQI="), Some(2));
+    // Unpadded, non-zero bits under the padding, a byte outside the alphabet.
+    for bad in ["AQ", "AR==", "AQI", "AQJ=", "A@==", "AQ===", "-_8="] {
+        assert_eq!(canonical_base64_decoded_len(bad), None, "{bad}");
+    }
+    // Longer than one chunk: padding is valid only at the very end.
+    let body = "AAAA".repeat(300);
+    assert_eq!(canonical_base64_decoded_len(&format!("{body}AQ==")), Some(901));
+    let early_padding = format!("{}AQ==AAAA", "AAAA".repeat(255));
+    assert_eq!(canonical_base64_decoded_len(&early_padding), None);
+}

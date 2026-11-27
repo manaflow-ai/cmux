@@ -27,12 +27,28 @@ const CLIENT_SESSION_PATH = /^\/v1\/cloud\/machines\/(vm_[a-z0-9]{20})\/client-s
 const GUEST_PATH = /^\/v1\/cloud\/machines\/(vm_[a-z0-9]{20})\/(exec|fs\/(?:dir|read|stat|write|mkdir|remove))$/
 /** The carrier ticket (cmux-platform CarrierRoute.ts): the machine's Register ticket and a device's Connect ticket for its relay slot. */
 const CARRIER_PATH = /^\/v1\/cloud\/machines\/(vm_[a-z0-9]{20})\/carrier$/
-/** The team's inference gateway (cmux-platform InferenceGatewayRoute.ts): its mode and machine, and the gateway's own socket. */
-const INFERENCE_GATEWAY_PATH = /^\/v1\/cloud\/inference-gateway(?:\/connect)?$/
+/** The team's (or, under /personal, the person's own) inference gateway (cmux-platform InferenceGatewayRoute.ts): its mode and machine, and the gateway's own socket. */
+const INFERENCE_GATEWAY_PATH = /^\/v1\/cloud\/inference-gateway(?:\/personal)?(?:\/connect)?$/
+/** A machine's SSH endpoint for file push and SCP (cmux-platform SshEndpointRoute.ts, POST). */
+const SSH_ENDPOINT_PATH = /^\/v1\/cloud\/machines\/(vm_[a-z0-9]{20})\/ssh-endpoint$/
+/** A machine's client access grant (cmux-platform ClientSessionRoute.ts, POST; the older name of client-session). */
+const ACCESS_PATH = /^\/v1\/cloud\/machines\/(vm_[a-z0-9]{20})\/access$/
+/** A machine's remote desktop (cmux-platform DesktopRoute.ts, GET and POST). */
+const DESKTOP_PATH = /^\/v1\/cloud\/machines\/(vm_[a-z0-9]{20})\/desktop$/
+/** A machine's live state socket (cmux-platform MachineStateRoute.ts, GET WebSocket upgrade). */
+const STATE_PATH = /^\/v1\/cloud\/machines\/(vm_[a-z0-9]{20})\/state$/
+/** A machine's shares with teammates: list, create, and revoke one (cmux-platform CarrierShareRoute.ts). */
+const SHARES_PATH = /^\/v1\/cloud\/machines\/(vm_[a-z0-9]{20})\/shares(?:\/[^/]+)?$/
+/** Cloud apps (cmux-platform CloudApps.ts, RFD 0003): the app records, versions, promote, rollback, grants and process-env that a machine's `cmux app publish` asks for through its agent (cmux-host apps.call), plain segments only. */
+const APPS_PATH = /^\/v1\/cloud\/apps(?:\/[A-Za-z0-9_-]+)*$/
+/** A send's trace (cmux-platform StartTraceRoute.ts START_TRACES_PATH): the team's list, one trace, its Chrome trace JSON and the client and VM spans posted to it. */
+const START_TRACES_PATH = /^\/v1\/cloud\/start-traces(?:\/[A-Za-z0-9_-]{8,80}(?:\/spans|\/chrome)?)?$/
+/** The end-to-end encrypted vault (cmux-platform SealedVaultRoute.ts): a person's devices, sealed items and deliveries, and a machine's own deliveries. */
+const VAULT_PATH = /^\/v1\/cloud\/vault(\/.*)?$/
 /** The machine routes only cmux-platform serves (cmux-api has no handler for them). */
-const PLATFORM_ONLY_PATHS: ReadonlyArray<RegExp> = [/^\/v1\/cloud\/bind$/, /^\/v1\/cloud\/keyset$/, ACPMUX_PATH, CLIENT_SESSION_PATH, GUEST_PATH, TRAJECTORY_PATH, CARRIER_PATH, INFERENCE_GATEWAY_PATH]
+const PLATFORM_ONLY_PATHS: ReadonlyArray<RegExp> = [/^\/v1\/cloud\/bind$/, /^\/v1\/cloud\/keyset$/, ACPMUX_PATH, CLIENT_SESSION_PATH, GUEST_PATH, TRAJECTORY_PATH, CARRIER_PATH, INFERENCE_GATEWAY_PATH, SSH_ENDPOINT_PATH, ACCESS_PATH, DESKTOP_PATH, STATE_PATH, SHARES_PATH, APPS_PATH, START_TRACES_PATH, VAULT_PATH]
 
-/** NEXT Cloud's machine routes outside the op path (bind, keyset, keyed acpmux start, client session, guest exec and files, trajectories, the carrier ticket, the team's inference gateway), the platform's Native network target read (cmux-platform NativeNetwork.ts), the platform's remote off switch for the Mac's login copy (cmux-platform LoginCopySwitch.ts) and its client config (the app's origins and the backend's create capabilities, cmux-platform Http.ts), which have no op and no route here. Unbound, the client config answers 404 here as before and the app keeps its built-in table. */
+/** NEXT Cloud's machine routes outside the op path (bind, keyset, keyed acpmux start, client session and access, guest exec and files, trajectories, the carrier ticket, the team's inference gateway, the SSH endpoint, desktop, the state socket and shares), the platform's Native network target read (cmux-platform NativeNetwork.ts), the platform's remote off switch for the Mac's login copy (cmux-platform LoginCopySwitch.ts) and its client config (the app's origins and the backend's create capabilities, cmux-platform Http.ts), which have no op and no route here. Unbound, the client config answers 404 here as before and the app keeps its built-in table. */
 const CLOUD_PATHS: ReadonlyArray<RegExp> = [...PLATFORM_ONLY_PATHS, /^\/v1\/host\/network\/target$/, /^\/v1\/cloud\/harness-login-copy$/, /^\/v1\/client-config$/]
 
 /** Whether a path is a NEXT Cloud machine route only cmux-platform serves. */

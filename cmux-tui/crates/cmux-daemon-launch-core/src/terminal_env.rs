@@ -56,6 +56,8 @@ pub const ALLOWED_KEYS: [&str; 9] = [
 pub const ALLOWED_PREFIXES: [&str; 3] = ["LC_", "XDG_", "CMUX_"];
 /// Process identity the daemon itself needs, from the app process only.
 pub const DAEMON_IDENTITY_KEYS: [&str; 5] = ["HOME", "USER", "LOGNAME", "TMPDIR", "SSH_AUTH_SOCK"];
+/// The app's settings file, from the app process only, for the app's own daemon.
+pub const DAEMON_SETTINGS_KEYS: [&str; 1] = ["CMUX_NEXT_CONFIG_FILE"];
 /// Name parts that mark a credential.
 const CREDENTIAL_PARTS: [&str; 9] = [
     "PASSWORD",
@@ -136,6 +138,11 @@ pub fn daemon(login: Option<&Env>, base: &Env, overrides: &Env) -> Env {
             env.insert(key.into(), value.clone());
         }
     }
+    for key in DAEMON_SETTINGS_KEYS {
+        if let Some(value) = base.get(key).filter(|value| !value.is_empty()) {
+            env.insert(key.into(), value.clone());
+        }
+    }
     env.extend(overrides.iter().map(|(k, v)| (k.clone(), v.clone())));
     env
 }
@@ -168,10 +175,11 @@ pub fn term(prefers_ghostty_term: bool, home: &str, fs: &Fs) -> &'static str {
     }
 }
 
-/// The terminal identity Ghostty exports to its shells: `TERM` ([`term`]),
-/// `COLORTERM=truecolor`, `TERM_PROGRAM=ghostty` (no `TERM_PROGRAM_VERSION`:
-/// advertising a version makes Codex drop its copy-on-select fallback), and
-/// `GHOSTTY_RESOURCES_DIR`.
+/// The terminal identity the app hands its terminals: `TERM` ([`term`]),
+/// `COLORTERM=truecolor`, `TERM_PROGRAM=cmux`, and `GHOSTTY_RESOURCES_DIR`.
+/// No `TERM_PROGRAM_VERSION`: the daemon sets cmux's own on every terminal
+/// child (`cmux_pty::TERMINAL_IDENTITY`), and a Ghostty version here would
+/// turn off Codex's and Claude's copy-on-select fallback (cmux#22585).
 pub fn ghostty(
     resources_directory: Option<&str>,
     prefers_ghostty_term: bool,
@@ -181,7 +189,7 @@ pub fn ghostty(
     let mut env = Env::new();
     env.insert("TERM".into(), term(prefers_ghostty_term, home, fs).into());
     env.insert("COLORTERM".into(), "truecolor".into());
-    env.insert("TERM_PROGRAM".into(), "ghostty".into());
+    env.insert("TERM_PROGRAM".into(), "cmux".into());
     if let Some(dir) = resources_directory.filter(|d| !d.is_empty()) {
         env.insert("GHOSTTY_RESOURCES_DIR".into(), dir.into());
     }

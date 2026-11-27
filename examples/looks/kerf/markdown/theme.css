@@ -1,0 +1,11 @@
+/* Kerf's Markdown viewer: flat and outlined like the editor. Code on a faint fill with 4 px
+   corners, headings over a hairline, quotes on a one-pixel rule, nothing raised.
+   Only --cmux-md-* custom properties on :root; every color is mixed from the page's own, so
+   this one file reads over the light and the dark theme file alike. */
+:root {
+  --cmux-md-code-background: color-mix(in srgb, var(--page-text) 5%, transparent);
+  --cmux-md-code-radius: 4px;
+  --cmux-md-heading-weight: 600;
+  --cmux-md-heading-rule: 1px solid var(--cmux-md-border-color);
+  --cmux-md-quote-border: 1px solid var(--cmux-md-border-color);
+}

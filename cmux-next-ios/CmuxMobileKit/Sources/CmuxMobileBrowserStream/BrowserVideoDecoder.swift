@@ -20,6 +20,8 @@ public final class BrowserVideoDecoder: @unchecked Sendable {
         public var bytes: Int
         public var width: Int32
         public var height: Int32
+        /// Decoded while the decoder was frozen: held, not drawn (`setFrozen`).
+        public var held = false
     }
 
     public let layer: AVSampleBufferDisplayLayer
@@ -32,6 +34,10 @@ public final class BrowserVideoDecoder: @unchecked Sendable {
     /// Frames skipped while waiting for a keyframe (diagnostics).
     private var skipped = 0
     private var lastPixels: CVPixelBuffer?
+    /// The layer holds its picture (`setFrozen`).
+    private var frozen = false
+    /// The newest picture decoded while frozen, drawn when the decoder thaws.
+    private var heldPixels: CVPixelBuffer?
     /// Asks the host for a keyframe.
     public var requestKeyframe: @Sendable () -> Void = {}
     /// The stream clock (to measure decode time and latency).
@@ -58,6 +64,36 @@ public final class BrowserVideoDecoder: @unchecked Sendable {
     /// The last decoded picture (grid cards).
     public func lastPicture(_ done: @escaping @Sendable (CVPixelBuffer?) -> Void) {
         queue.async { [self] in done(lastPixels) }
+    }
+
+    /// Freezes the shown picture (Safari's still tab frame while a tab zooms to,
+    /// rests on and grows back from the tab grid): pictures still decode, so
+    /// references stay whole and `shown` still hears them (the stall watchdog),
+    /// but the layer and `lastPicture` keep the picture shown at the freeze.
+    /// Thawing draws the newest picture decoded meanwhile at once.
+    /// `thawed` hears (on the decode queue) whether thawing drew a held picture.
+    public func setFrozen(_ frozen: Bool, thawed: @escaping @Sendable (_ drewHeld: Bool) -> Void = { _ in }) {
+        queue.async { [self] in
+            guard self.frozen != frozen else { return }
+            self.frozen = frozen
+            guard !frozen else { return }
+            guard let held = heldPixels else {
+                // The layer may have lost its picture meanwhile (flushed in the background).
+                if let lastPixels { enqueue(lastPixels) }
+                return thawed(false)
+            }
+            heldPixels = nil
+            lastPixels = held
+            enqueue(held)
+            thawed(true)
+        }
+    }
+
+    /// Draws the last picture again (the app came back while the decoder holds a
+    /// frame: iOS may have flushed the layer in the background, and a frozen
+    /// decoder draws nothing new until it thaws).
+    public func redrawLastPicture() {
+        queue.async { [self] in if let lastPixels { enqueue(lastPixels) } }
     }
 
     /// Drops the decoder (link gone, or the page stalled); the next keyframe
@@ -127,13 +163,31 @@ public final class BrowserVideoDecoder: @unchecked Sendable {
         }
         needKeyframe = false
         skipped = 0
-        lastPixels = pixels
-        enqueue(pixels)
+        if frozen {
+            heldPixels = pixels
+        } else {
+            lastPixels = pixels
+            enqueue(pixels)
+        }
         let done = now()
-        let decodeMicros = UInt32(clamping: done &- started)
-        let latency = age.map { $0 + Int64(clamping: done &- received) }
-        shown(Shown(frame: frame, latencyMicros: latency, decodeMicros: decodeMicros, bytes: accessUnit.count,
-                    width: Int32(CVPixelBufferGetWidth(pixels)), height: Int32(CVPixelBufferGetHeight(pixels))))
+        let decodeMicros = UInt32(clamping: done >= started ? done - started : 0)
+        let latency = Self.latencyMicros(age: age, received: received, done: done)
+        var picture = Shown(frame: frame, latencyMicros: latency, decodeMicros: decodeMicros, bytes: accessUnit.count,
+                            width: Int32(CVPixelBufferGetWidth(pixels)), height: Int32(CVPixelBufferGetHeight(pixels)))
+        picture.held = frozen
+        shown(picture)
+    }
+
+    /// Capture-to-shown latency: the frame's age when it arrived plus the time
+    /// since. Nil when it cannot be known. The stream clock reads 0 once the
+    /// connection is gone (`now` holds it weakly), which is earlier than
+    /// `received`: the unsigned difference then wrapped, clamped to
+    /// `Int64.max`, and adding the age trapped on overflow (TestFlight crash
+    /// AN2IpAo8i1J9psM-5eqCAks, INTERNAL 20261110000821).
+    static func latencyMicros(age: Int64?, received: UInt64, done: UInt64) -> Int64? {
+        guard let age, done >= received else { return nil }
+        let (sum, overflow) = age.addingReportingOverflow(Int64(clamping: done - received))
+        return overflow ? nil : sum
     }
 
     private func makeSession(sps: Data, pps: Data) -> Bool {

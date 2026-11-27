@@ -2,11 +2,12 @@
 //! acpmux, the Cloud receiver and `cmux host` itself, plus cmux-tui-hook)
 //! on the newest feat-cmux-next build by itself, with no image bake in the
 //! way (plans/cmux-next/vm-image.md 4.5). The image is a cache: a machine
-//! from a stale image only boots one update later.
+//! from a stale image takes the channel's build before it first reports ready
+//! ([`first_ready`]), within a bound; past it, one update later.
 //!
 //! The `updater` role ([`role`]) checks the signed channel ([`channel`]) 30 s
 //! after `cmux host run` starts (a boot, or the restart of an update), on
-//! every resume, and every minute. When the channel names another
+//! every resume, and every 15 s. When the channel names another
 //! build than the current profile links, it:
 //!
 //! 1. waits until no acpmux session runs a turn or waits on a permission,
@@ -38,11 +39,23 @@
 //! work user's `~/.cmux/bin/cmux-tui` is not the store link (the Mac app's
 //! in-place `cmux link machine update` replaced it).
 //! `cmux host update status|check|guard` are the operator verbs ([`role::verb`]).
+//! `cmux host update adopt` is the one update from outside for a machine this
+//! does not run on (an image from before it, or a replaced work link): a Mac's
+//! carrier dial runs it over the exec route when the machine never registers
+//! on the relay ([`role::adopt`], cmuxterm-hq#7086).
 
 pub mod carrier;
 pub mod channel;
+pub mod credential_wake;
+#[cfg(target_os = "linux")]
+pub mod first_ready;
 #[cfg(unix)]
 pub mod gate;
+pub mod look;
+#[cfg(target_os = "linux")]
+mod resolve;
+#[cfg(all(test, target_os = "linux"))]
+mod resolve_tests;
 #[cfg(target_os = "linux")]
 pub mod role;
 pub mod store;
@@ -56,7 +69,7 @@ use std::path::Path;
 use serde::{Deserialize, Serialize};
 
 use crate::config::Paths;
-use channel::{Binary, CMUX_TUI, CMUX_TUI_HOOK, Payload};
+use channel::{Binary, CMUX_TUI, CMUX_TUI_HOOK, Payload, lower_hex};
 
 /// While this file exists the machine does not update itself.
 pub const OFF_FILE: &str = "/etc/cmux/no-self-update";
@@ -91,6 +104,13 @@ pub struct State {
     pub last: Option<String>,
     #[serde(default)]
     pub last_at: u64,
+    /// The last check and update run as codes, for the Cloud status report
+    /// ([`look`]).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub look: Option<look::Look>,
+    /// The pre-ready check survives the exec into the channel build. Absent on older images.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub first_ready: Option<look::FirstReady>,
 }
 
 /// An update whose new build has not proved itself yet.
@@ -193,6 +213,63 @@ pub fn decide(
     })))
 }
 
+/// A build a client hands the machine itself (`cmux host update install`, the cmux NEXT
+/// app's own pinned build): its cmux-tui SHA-256 and size, the commit that built it and
+/// that commit's time (the order the channel keeps too).
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Pinned {
+    pub sha256: String,
+    pub size: u64,
+    pub commit: String,
+    pub committed_at: u64,
+}
+
+/// What `cmux host update install` does with `pinned`, the profile's cmux-tui being
+/// `old_tui`: nothing when the profile already links it, nothing when it is older than
+/// the last build applied here (an app never moves a machine back), nothing for a
+/// build rolled back here; otherwise an update. Reads no file.
+pub fn pinned_decision(old_tui: &str, state: &State, pinned: &Pinned) -> Option<Decision> {
+    if old_tui == pinned.sha256 {
+        return Some(Decision::Current);
+    }
+    if pinned.committed_at < state.applied_committed_at {
+        return Some(Decision::Older);
+    }
+    if state.rolled_back.contains(&pinned.sha256) {
+        return Some(Decision::RolledBack);
+    }
+    None
+}
+
+/// [`decide`] for a pinned build instead of the channel's: only cmux-tui changes, the
+/// profile keeps its cmux-tui-hook (the app pins no hook build).
+pub fn decide_pinned(paths: &Paths, state: &State, pinned: &Pinned) -> Result<Decision, String> {
+    if !lower_hex(&pinned.sha256, 64) || !lower_hex(&pinned.commit, 40) {
+        return Err("the pinned build names no sha256 or commit".to_owned());
+    }
+    let from = store::current_generation(paths).map_err(|e| e.to_string())?;
+    let old_tui = store::linked_package(paths, from, CMUX_TUI)
+        .map_err(|e| format!("current profile: {e}"))?;
+    let old_hook = store::linked_package(paths, from, CMUX_TUI_HOOK)
+        .map_err(|e| format!("current profile: {e}"))?;
+    if let Some(decision) = pinned_decision(&old_tui, state, pinned) {
+        return Ok(decision);
+    }
+    let to = store::generations(paths).last().copied().unwrap_or(from).max(from) + 1;
+    let binary =
+        |sha256: &str, size: u64| Binary { url: String::new(), sha256: sha256.to_owned(), size };
+    Ok(Decision::Update(Box::new(Plan {
+        commit: pinned.commit.clone(),
+        committed_at: pinned.committed_at,
+        cmux_tui: binary(&pinned.sha256, pinned.size),
+        cmux_tui_hook: binary(&old_hook, 0),
+        old_cmux_tui: old_tui,
+        old_cmux_tui_hook: old_hook,
+        from,
+        to,
+    })))
+}
+
 /// Why the machine does not update itself now, if it does not.
 pub fn off_reason(paths: &Paths) -> Option<String> {
     if paths.at(OFF_FILE).exists() {
@@ -203,6 +280,81 @@ pub fn off_reason(paths: &Paths) -> Option<String> {
         Ok(target) if target == Path::new(CURRENT_CMUX_TUI) => None,
         Ok(target) => Some(format!("{WORK_CMUX_TUI_LINK} points at {}", target.display())),
         Err(_) => Some(format!("{WORK_CMUX_TUI_LINK} is not the store link")),
+    }
+}
+
+/// Where [`relink_work_link`] keeps the file the Mac app's in-place update left at
+/// [`WORK_CMUX_TUI_LINK`], beside it.
+pub const WORK_CMUX_TUI_KEPT: &str = "/home/cmux/.cmux/bin/cmux-tui.pre-adopt";
+
+/// What [`relink_work_link`] changed.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Relinked {
+    /// The work link already pointed at [`CURRENT_CMUX_TUI`].
+    Unchanged,
+    /// A link elsewhere, or none, now points at [`CURRENT_CMUX_TUI`].
+    Linked,
+    /// A regular file there was kept at [`WORK_CMUX_TUI_KEPT`], and the link made.
+    KeptFile,
+}
+
+/// Points [`WORK_CMUX_TUI_LINK`] at [`CURRENT_CMUX_TUI`] again, so the work user's
+/// session daemon follows `/opt/cmux/current` and [`off_reason`] no longer finds the
+/// link replaced (`cmux host update adopt`). A regular file there (the Mac app's
+/// in-place `cmux link machine update`) is kept at [`WORK_CMUX_TUI_KEPT`]; a link
+/// elsewhere is replaced. The new link is made beside it and renamed over it, owned
+/// like its folder. When making it fails, a file it kept goes back first, so an error
+/// leaves the work link as it was.
+#[cfg(unix)]
+pub fn relink_work_link(paths: &Paths) -> io::Result<Relinked> {
+    use std::os::unix::fs::MetadataExt as _;
+    let link = paths.at(WORK_CMUX_TUI_LINK);
+    let kept = match fs::symlink_metadata(&link) {
+        Ok(meta) if meta.file_type().is_symlink() => {
+            if fs::read_link(&link)? == Path::new(CURRENT_CMUX_TUI) {
+                return Ok(Relinked::Unchanged);
+            }
+            false
+        }
+        Ok(meta) if meta.is_file() => {
+            fs::rename(&link, paths.at(WORK_CMUX_TUI_KEPT))?;
+            true
+        }
+        Ok(_) => {
+            return Err(io::Error::other(format!("{WORK_CMUX_TUI_LINK} is not a file or a link")));
+        }
+        Err(e) if e.kind() == io::ErrorKind::NotFound => false,
+        Err(e) => return Err(e),
+    };
+    let made = (|| {
+        let dir = link.parent().ok_or_else(|| io::Error::other("the work link has no folder"))?;
+        fs::create_dir_all(dir)?;
+        let owner = fs::metadata(dir)?;
+        let part = dir.join(".cmux-tui.adopt-part");
+        let _ = fs::remove_file(&part);
+        std::os::unix::fs::symlink(CURRENT_CMUX_TUI, &part)?;
+        // Only root may give it away; a test's own folder already has its owner.
+        let _ = std::os::unix::fs::lchown(&part, Some(owner.uid()), Some(owner.gid()));
+        fs::rename(&part, &link)
+    })();
+    match made {
+        Ok(()) if kept => Ok(Relinked::KeptFile),
+        Ok(()) => Ok(Relinked::Linked),
+        Err(e) => {
+            if kept {
+                let _ = fs::rename(paths.at(WORK_CMUX_TUI_KEPT), &link);
+            }
+            Err(e)
+        }
+    }
+}
+
+/// Undoes [`relink_work_link`] when the flip after it failed: the file this run kept
+/// goes back (only that one: a `.pre-adopt` file from an earlier adopt stays).
+#[cfg(unix)]
+pub fn restore_work_link(paths: &Paths, relinked: Relinked) {
+    if relinked == Relinked::KeptFile {
+        let _ = fs::rename(paths.at(WORK_CMUX_TUI_KEPT), paths.at(WORK_CMUX_TUI_LINK));
     }
 }
 

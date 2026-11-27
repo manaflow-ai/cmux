@@ -289,7 +289,9 @@ public struct DaemonTree: Sendable {
             workspace.isHome = isHome
             workspace.hasCustomTitle = (ws["title"] as? String).map { !$0.isEmpty && $0 != ws["name"] as? String } ?? false
             workspace.isPinned = legacyPinned.contains(key)
-            workspace.layout = layoutScreens.isEmpty ? nil : WorkspaceLayout(screens: layoutScreens)
+            // An empty layout is still a successful Mac list. Keeping the empty value lets a
+            // relaunch distinguish "the Mac has no panes" from "the Mac has never answered".
+            workspace.layout = WorkspaceLayout(screens: layoutScreens)
             workspace.screens = screens
             if isHome { home.append(workspace) } else { result.append(workspace) }
         }
@@ -619,6 +621,9 @@ public enum DaemonEvent: Equatable, Sendable {
     /// A notification was posted (`notification`): the tree's markers and the
     /// notification ledger changed. It carries the agent's memory-only texts.
     case notification(NotificationPost)
+    /// A terminal drew output (`surface-output`, one per surface per burst):
+    /// what tells a grid card its screen changed. Never queued.
+    case surfaceOutput(surface: Int)
     case other
 
     public static func parse(_ line: Data) -> DaemonEvent {
@@ -637,6 +642,9 @@ public enum DaemonEvent: Equatable, Sendable {
             return .titleChanged(surface: surface, title: object["title"] as? String ?? "")
         case "notification":
             return .notification(NotificationPost(json: object))
+        case "surface-output":
+            guard let surface = object["surface"] as? Int else { return .other }
+            return .surfaceOutput(surface: surface)
         case "workspace-added", "workspace-closed", "workspace-renamed", "workspace-moved", "workspace-changed",
              "screen-added", "screen-closed", "screen-renamed", "screen-changed",
              "pane-added", "pane-closed", "tab-added", "tab-closed", "tab-renamed", "tab-changed":

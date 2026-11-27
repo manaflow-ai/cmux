@@ -6,7 +6,7 @@ use crate::model::*;
 use crate::text::{t, tf};
 
 #[rustfmt::skip]
-pub const CASES_GENERAL_APPEARANCE: &[EnumCase] = &[EnumCase { value: "general", title: t("SettingsActions", "argument.value.section.general", "General") }, EnumCase { value: "appearance", title: t("SettingsActions", "argument.value.section.appearance", "Appearance") }, EnumCase { value: "terminal", title: t("SettingsActions", "argument.value.section.terminal", "Terminal") }, EnumCase { value: "browser", title: t("SettingsActions", "argument.value.section.browser", "Browser") }, EnumCase { value: "home", title: t("SettingsActions", "argument.value.section.home", "Home") }, EnumCase { value: "keyboard", title: t("SettingsActions", "argument.value.section.keyboard", "Keyboard") }, EnumCase { value: "notifications", title: t("SettingsActions", "argument.value.section.notifications", "Notifications") }, EnumCase { value: "accounts", title: t("SettingsActions", "argument.value.section.accounts", "Accounts") }, EnumCase { value: "rooms", title: t("SettingsActions", "argument.value.section.rooms", "Spaces & Profiles") }, EnumCase { value: "machines", title: t("SettingsActions", "argument.value.section.machines", "Machines") }, EnumCase { value: "advanced", title: t("SettingsActions", "argument.value.section.advanced", "Advanced") }, EnumCase { value: "development", title: t("SettingsActions", "argument.value.section.development", "Development") }];
+pub const CASES_GENERAL_APPEARANCE: &[EnumCase] = &[EnumCase { value: "general", title: t("SettingsActions", "argument.value.section.general", "General") }, EnumCase { value: "appearance", title: t("SettingsActions", "argument.value.section.appearance", "Appearance") }, EnumCase { value: "terminal", title: t("SettingsActions", "argument.value.section.terminal", "Terminal") }, EnumCase { value: "browser", title: t("SettingsActions", "argument.value.section.browser", "Browser") }, EnumCase { value: "home", title: t("SettingsActions", "argument.value.section.home", "Chief") }, EnumCase { value: "keyboard", title: t("SettingsActions", "argument.value.section.keyboard", "Keyboard") }, EnumCase { value: "notifications", title: t("SettingsActions", "argument.value.section.notifications", "Notifications") }, EnumCase { value: "accounts", title: t("SettingsActions", "argument.value.section.accounts", "Accounts") }, EnumCase { value: "rooms", title: t("SettingsActions", "argument.value.section.rooms", "Spaces & Profiles") }, EnumCase { value: "machines", title: t("SettingsActions", "argument.value.section.machines", "Machines") }, EnumCase { value: "advanced", title: t("SettingsActions", "argument.value.section.advanced", "Advanced") }, EnumCase { value: "development", title: t("SettingsActions", "argument.value.section.development", "Development") }];
 #[rustfmt::skip]
 pub const CASES_AUTO_TODO: &[EnumCase] = &[EnumCase { value: "auto", title: t("Localizable", "argument.value.auto", "Automatic") }, EnumCase { value: "todo", title: t("Localizable", "argument.value.todo", "To Do") }, EnumCase { value: "working", title: t("Localizable", "argument.value.working", "Working") }, EnumCase { value: "needs-attention", title: t("Localizable", "argument.value.needsAttention", "Needs Attention") }, EnumCase { value: "review", title: t("Localizable", "argument.value.review", "In Review") }, EnumCase { value: "done", title: t("Localizable", "argument.value.done", "Done") }];
 #[rustfmt::skip]
@@ -20,7 +20,7 @@ pub const CASES_TAB_EDITOR: &[EnumCase] = &[EnumCase { value: "tab", title: t("L
 #[rustfmt::skip]
 pub const CASES_WEBKIT_CEF: &[EnumCase] = &[EnumCase { value: "webkit", title: t("Localizable", "argument.value.webkit", "WebKit") }, EnumCase { value: "cef", title: t("Localizable", "argument.value.cef", "Chromium") }];
 #[rustfmt::skip]
-pub const CASES_MESSAGES_CHANNELS: &[EnumCase] = &[EnumCase { value: "messages", title: t("HomeActions", "argument.home.view.messages", "Home") }, EnumCase { value: "channels", title: t("HomeActions", "argument.home.view.channels", "Channels") }];
+pub const CASES_MESSAGES_CHANNELS: &[EnumCase] = &[EnumCase { value: "messages", title: t("HomeActions", "argument.home.view.messages", "Chief") }, EnumCase { value: "channels", title: t("HomeActions", "argument.home.view.channels", "Channels") }];
 #[rustfmt::skip]
 pub const CASES_AUTO_MENTIONS: &[EnumCase] = &[EnumCase { value: "auto", title: t("HomeActions", "argument.home.replies.auto", "Automatically") }, EnumCase { value: "mentions", title: t("HomeActions", "argument.home.replies.mentions", "Only When @Mentioned") }, EnumCase { value: "all", title: t("HomeActions", "argument.home.replies.all", "To Every Message") }];
 #[rustfmt::skip]
@@ -29,6 +29,8 @@ pub const CASES_RIGHT_DOWN: &[EnumCase] = &[EnumCase { value: "right", title: t(
 pub const CASES_HOUR_TODAY: &[EnumCase] = &[EnumCase { value: "hour", title: t("HistoryActions", "argument.history.range.hour", "Last Hour") }, EnumCase { value: "today", title: t("HistoryActions", "argument.history.range.today", "Today") }, EnumCase { value: "week", title: t("HistoryActions", "argument.history.range.week", "Last 7 Days") }, EnumCase { value: "month", title: t("HistoryActions", "argument.history.range.month", "Last 4 Weeks") }, EnumCase { value: "all", title: t("HistoryActions", "argument.history.range.all", "All Time") }];
 #[rustfmt::skip]
 pub const CASES_SYSTEM_LIGHT: &[EnumCase] = &[EnumCase { value: "system", title: t("Localizable", "argument.value.system", "System") }, EnumCase { value: "light", title: t("Localizable", "argument.value.light", "Light") }, EnumCase { value: "dark", title: t("Localizable", "argument.value.dark", "Dark") }];
+#[rustfmt::skip]
+pub const CASES_PROXY_SCHEME: &[EnumCase] = &[EnumCase { value: "socks5", title: Text::raw("SOCKS5") }, EnumCase { value: "http", title: Text::raw("HTTP") }, EnumCase { value: "https", title: Text::raw("HTTPS") }];
 #[rustfmt::skip]
 pub const CASES_16_9_16_10: &[EnumCase] = &[EnumCase { value: "16:9", title: Text::raw("16:9") }, EnumCase { value: "16:10", title: Text::raw("16:10") }, EnumCase { value: "4:3", title: Text::raw("4:3") }, EnumCase { value: "21:9", title: Text::raw("21:9") }, EnumCase { value: "1280", title: tf("Localizable", "argument.value.fitWidth", "%lld px", "1,280") }, EnumCase { value: "1440", title: tf("Localizable", "argument.value.fitWidth", "%lld px", "1,440") }, EnumCase { value: "1920", title: tf("Localizable", "argument.value.fitWidth", "%lld px", "1,920") }, EnumCase { value: "off", title: t("Localizable", "argument.value.fitOff", "Turn Off") }];
 #[rustfmt::skip]
@@ -78,6 +80,8 @@ pub const CASES_WINDOW_WORKSPACE: &[EnumCase] = &[EnumCase { value: "window", ti
 #[rustfmt::skip]
 pub const CASES_THEME_BACKGROUND: &[EnumCase] = &[EnumCase { value: "theme", title: t("LayoutActions", "argument.value.appearanceProperty.theme", "Theme") }, EnumCase { value: "background", title: t("LayoutActions", "argument.value.appearanceProperty.background", "Background") }, EnumCase { value: "tint", title: t("LayoutActions", "argument.value.appearanceProperty.tint", "Tint") }, EnumCase { value: "opacity", title: t("LayoutActions", "argument.value.appearanceProperty.opacity", "Opacity") }];
 #[rustfmt::skip]
+pub const CASES_TERMINAL_BROWSER: &[EnumCase] = &[EnumCase { value: "terminal", title: t("LayoutActions", "argument.value.dividerInsertKind.terminal", "Terminal") }, EnumCase { value: "browser", title: t("LayoutActions", "argument.value.dividerInsertKind.browser", "Browser") }, EnumCase { value: "agentChat", title: t("LayoutActions", "argument.value.dividerInsertKind.agentChat", "Agent Chat") }, EnumCase { value: "newTabPage", title: t("LayoutActions", "argument.value.dividerInsertKind.newTabPage", "New Tab Page") }];
+#[rustfmt::skip]
 pub const CASES_ALL: &[EnumCase] = &[EnumCase { value: "all", title: t("WorkspaceActions", "argument.value.autoArchive.restoreAll", "Restore All") }];
 #[rustfmt::skip]
 pub const CASES_DEFAULT_NEVER: &[EnumCase] = &[EnumCase { value: "default", title: t("WorkspaceActions", "argument.value.autoArchive.default", "Use the Default") }, EnumCase { value: "never", title: t("WorkspaceActions", "argument.value.autoArchive.never", "Never") }, EnumCase { value: "24", title: t("WorkspaceActions", "argument.value.autoArchive.day", "After 1 Idle Day") }, EnumCase { value: "72", title: t("WorkspaceActions", "argument.value.autoArchive.threeDays", "After 3 Idle Days") }, EnumCase { value: "168", title: t("WorkspaceActions", "argument.value.autoArchive.week", "After 1 Idle Week") }, EnumCase { value: "720", title: t("WorkspaceActions", "argument.value.autoArchive.month", "After 30 Idle Days") }];
@@ -88,7 +92,7 @@ pub const CASES_DOCKED_OVERLAY: &[EnumCase] = &[EnumCase { value: "docked", titl
 #[rustfmt::skip]
 pub const CASES_ALL_PAGE: &[EnumCase] = &[EnumCase { value: "all", title: t("HistoryActions", "argument.history.kind.all", "Everything") }, EnumCase { value: "page", title: t("HistoryActions", "argument.history.kind.page", "Pages") }, EnumCase { value: "location", title: t("HistoryActions", "argument.history.kind.location", "Locations") }, EnumCase { value: "closed", title: t("HistoryActions", "argument.history.kind.closed", "Closed Items") }, EnumCase { value: "agent", title: t("HistoryActions", "argument.history.kind.agent", "Agent Sessions") }, EnumCase { value: "command", title: t("HistoryActions", "argument.history.kind.command", "Commands") }];
 #[rustfmt::skip]
-pub const CASES_HOME_SETTINGS: &[EnumCase] = &[EnumCase { value: "home", title: t("SidebarSectionActions", "argument.sidebar.builtin.home", "Home") }, EnumCase { value: "settings", title: t("SidebarSectionActions", "argument.sidebar.builtin.settings", "Settings") }, EnumCase { value: "account", title: t("SidebarSectionActions", "argument.sidebar.builtin.account", "Account") }, EnumCase { value: "notifications", title: t("SidebarSectionActions", "argument.sidebar.builtin.notifications", "Notifications") }, EnumCase { value: "history", title: t("SidebarSectionActions", "argument.sidebar.builtin.history", "History") }, EnumCase { value: "bookmarks", title: t("SidebarSectionActions", "argument.sidebar.builtin.bookmarks", "Bookmarks") }, EnumCase { value: "app_store", title: t("SidebarSectionActions", "argument.sidebar.builtin.appStore", "App Store") }, EnumCase { value: "new_terminal", title: t("SidebarSectionActions", "argument.sidebar.builtin.newTerminal", "New Terminal Tab") }, EnumCase { value: "new_browser", title: t("SidebarSectionActions", "argument.sidebar.builtin.newBrowser", "New Browser Tab") }, EnumCase { value: "new_agent_chat", title: t("SidebarSectionActions", "argument.sidebar.builtin.newAgentChat", "New Agent Chat") }, EnumCase { value: "search_chats", title: t("SidebarSectionActions", "argument.sidebar.builtin.searchChats", "Search Chats") }, EnumCase { value: "chief", title: t("SidebarSectionActions", "argument.sidebar.builtin.chief", "Chief") }, EnumCase { value: "automations", title: t("SidebarSectionActions", "argument.sidebar.builtin.automations", "Automations") }, EnumCase { value: "customize", title: t("SidebarSectionActions", "argument.sidebar.builtin.customize", "Customize Appearance") }];
+pub const CASES_HOME_SETTINGS: &[EnumCase] = &[EnumCase { value: "home", title: t("SidebarSectionActions", "argument.sidebar.builtin.home", "Chief") }, EnumCase { value: "settings", title: t("SidebarSectionActions", "argument.sidebar.builtin.settings", "Settings") }, EnumCase { value: "account", title: t("SidebarSectionActions", "argument.sidebar.builtin.account", "Account") }, EnumCase { value: "notifications", title: t("SidebarSectionActions", "argument.sidebar.builtin.notifications", "Notifications") }, EnumCase { value: "history", title: t("SidebarSectionActions", "argument.sidebar.builtin.history", "History") }, EnumCase { value: "bookmarks", title: t("SidebarSectionActions", "argument.sidebar.builtin.bookmarks", "Bookmarks") }, EnumCase { value: "app_store", title: t("SidebarSectionActions", "argument.sidebar.builtin.appStore", "App Store") }, EnumCase { value: "new_terminal", title: t("SidebarSectionActions", "argument.sidebar.builtin.newTerminal", "New Terminal Tab") }, EnumCase { value: "new_browser", title: t("SidebarSectionActions", "argument.sidebar.builtin.newBrowser", "New Browser Tab") }, EnumCase { value: "new_agent_chat", title: t("SidebarSectionActions", "argument.sidebar.builtin.newAgentChat", "New Agent Chat") }, EnumCase { value: "search_chats", title: t("SidebarSectionActions", "argument.sidebar.builtin.searchChats", "Search Chats") }, EnumCase { value: "chief", title: t("SidebarSectionActions", "argument.sidebar.builtin.chief", "Chief Activity") }, EnumCase { value: "automations", title: t("SidebarSectionActions", "argument.sidebar.builtin.automations", "Automations") }, EnumCase { value: "customize", title: t("SidebarSectionActions", "argument.sidebar.builtin.customize", "Customize Appearance") }];
 #[rustfmt::skip]
 pub const CASES_TOP_MIDDLE: &[EnumCase] = &[EnumCase { value: "top", title: t("SidebarSectionActions", "argument.sidebar.region.top", "Top") }, EnumCase { value: "middle", title: t("SidebarSectionActions", "argument.sidebar.region.middle", "Scrolling") }, EnumCase { value: "bottom", title: t("SidebarSectionActions", "argument.sidebar.region.bottom", "Bottom") }];
 #[rustfmt::skip]
@@ -107,7 +111,18 @@ pub const OUT: Argument = Argument { name: "out", title: t("Localizable", "argum
 #[rustfmt::skip]
 pub const KEEP_SESSIONS: Argument = Argument { name: "keepSessions", title: t("Localizable", "argument.keepSessions", "Keep Sessions Running"), kind: ArgKind::Bool, required: true, suggestions: None, is_target_name: false, is_target_description: false, is_supplied_by_target: false, asked_in_palette: false };
 #[rustfmt::skip]
-pub const END_SESSIONS: Argument = Argument { name: "endSessions", title: t("Localizable", "argument.endSessionsKeepLayout", "End Sessions, Keep Layout"), kind: ArgKind::Bool, required: true, suggestions: None, is_target_name: false, is_target_description: false, is_supplied_by_target: false, asked_in_palette: false };
+pub const IF_NEWER: Argument = Argument { name: "ifNewer", title: t("ActionCatalog", "argument.ifNewer", "Only When a Newer Build Is Installed"), kind: ArgKind::Bool, required: true, suggestions: None, is_target_name: false, is_target_description: false, is_supplied_by_target: false, asked_in_palette: false };
+pub const END_SESSIONS: Argument = Argument {
+    name: "endSessions",
+    title: t("Localizable", "argument.endSessionsKeepLayout", "End Sessions, Keep Layout"),
+    kind: ArgKind::Bool,
+    required: true,
+    suggestions: None,
+    is_target_name: false,
+    is_target_description: false,
+    is_supplied_by_target: false,
+    asked_in_palette: false,
+};
 #[rustfmt::skip]
 pub const END_EVERYTHING: Argument = Argument { name: "endEverything", title: t("Localizable", "argument.endEverything", "End Everything"), kind: ArgKind::Bool, required: true, suggestions: None, is_target_name: false, is_target_description: false, is_supplied_by_target: false, asked_in_palette: false };
 #[rustfmt::skip]
@@ -284,8 +299,23 @@ pub const SAVED: Argument = Argument { name: "saved", title: t("ScreenActions", 
 pub const ON: Argument = Argument { name: "on", title: t("Localizable", "argument.on", "On"), kind: ArgKind::Bool, required: true, suggestions: None, is_target_name: false, is_target_description: false, is_supplied_by_target: false, asked_in_palette: false };
 #[rustfmt::skip]
 pub const APP: Argument = Argument { name: "app", title: t("Localizable", "argument.app", "App"), kind: ArgKind::String, required: true, suggestions: None, is_target_name: false, is_target_description: false, is_supplied_by_target: false, asked_in_palette: false };
+/// Open In ▸'s right-click choices: the most used editors of cmux-window-rules `EDITORS` (ids from that table);
+/// More… opens the palette's full list of installed ones.
+#[rustfmt::skip]
+pub const CASES_COMMON_EDITORS: &[EnumCase] = &[EnumCase { value: "vscode", title: Text::raw("Visual Studio Code") }, EnumCase { value: "cursor", title: Text::raw("Cursor") }, EnumCase { value: "zed", title: Text::raw("Zed") }, EnumCase { value: "xcode", title: Text::raw("Xcode") }];
+/// Open In ▸'s `app`: an installed code editor, listed by the App (cmux-window-rules `editors`), the default first.
+#[rustfmt::skip]
+pub const EDITOR: Argument = Argument { suggestions: Some(Suggestions { source: "editors", pinned: CASES_COMMON_EDITORS, other_title: None, allows_multiple: false }), ..APP };
 #[rustfmt::skip]
 pub const RANGE: Argument = Argument { name: "range", title: t("HistoryActions", "argument.history.range", "Time Range"), kind: ArgKind::Enumeration(CASES_HOUR_TODAY), required: true, suggestions: None, is_target_name: false, is_target_description: false, is_supplied_by_target: false, asked_in_palette: false };
+#[rustfmt::skip]
+pub const SITE_HOST: Argument = Argument { name: "host", title: t("HistoryActions", "argument.history.siteHost", "Site"), kind: ArgKind::String, required: true, suggestions: None, is_target_name: false, is_target_description: false, is_supplied_by_target: false, asked_in_palette: false };
+#[rustfmt::skip]
+pub const CLOSED_ITEM: Argument = Argument { name: "closed", title: t("HistoryActions", "argument.history.closed", "Closed Item"), kind: ArgKind::String, required: true, suggestions: Some(Suggestions { source: "op:closed.list", pinned: &[], other_title: None, allows_multiple: false }), is_target_name: false, is_target_description: false, is_supplied_by_target: false, asked_in_palette: false };
+#[rustfmt::skip]
+pub const PROXY_SCHEME: Argument = Argument { name: "scheme", title: t("BrowserProfileActions", "argument.browserProfile.proxyScheme", "Proxy Type"), kind: ArgKind::Enumeration(CASES_PROXY_SCHEME), required: true, suggestions: None, is_target_name: false, is_target_description: false, is_supplied_by_target: false, asked_in_palette: false };
+#[rustfmt::skip]
+pub const PROXY_HOST: Argument = Argument { name: "host", title: t("BrowserProfileActions", "argument.browserProfile.proxyHost", "Proxy Host"), kind: ArgKind::String, required: true, suggestions: None, is_target_name: false, is_target_description: false, is_supplied_by_target: false, asked_in_palette: false };
 #[rustfmt::skip]
 pub const BROWSER_PROFILE: Argument = Argument { name: "browserProfile", title: t("BrowserProfileActions", "argument.browserProfile", "Browser Profile"), kind: ArgKind::Target("browser-profile"), required: true, suggestions: None, is_target_name: false, is_target_description: false, is_supplied_by_target: false, asked_in_palette: false };
 #[rustfmt::skip]
@@ -294,6 +324,15 @@ pub const URL_2: Argument = Argument { name: "url", title: t("Localizable", "arg
 pub const THEME_2: Argument = Argument { name: "theme", title: t("Localizable", "argument.theme", "Theme"), kind: ArgKind::Enumeration(CASES_SYSTEM_LIGHT), required: true, suggestions: None, is_target_name: false, is_target_description: false, is_supplied_by_target: false, asked_in_palette: false };
 #[rustfmt::skip]
 pub const DEVICE: Argument = Argument { name: "device", title: t("Localizable", "argument.device", "Device"), kind: ArgKind::String, required: true, suggestions: None, is_target_name: false, is_target_description: false, is_supplied_by_target: false, asked_in_palette: false };
+/// `macScreen.open`'s `scope`: what an agent's or the CLI's open asks the device for (View Only or Full Control).
+#[rustfmt::skip]
+pub const CASES_SCREEN_VIEW_FULL: &[EnumCase] = &[EnumCase { value: "view", title: t("ActionCatalog", "argument.value.macScreen.scope.view", "View Only") }, EnumCase { value: "full", title: t("ActionCatalog", "argument.value.macScreen.scope.full", "Full Control") }];
+#[rustfmt::skip]
+pub const SCREEN_SCOPE: Argument = Argument { name: "scope", title: t("ActionCatalog", "argument.macScreen.scope", "Access"), kind: ArgKind::Enumeration(CASES_SCREEN_VIEW_FULL), required: true, suggestions: None, is_target_name: false, is_target_description: false, is_supplied_by_target: false, asked_in_palette: false };
+/// `macScreen.open --autoconnect`: the opened tab connects to view without its Connect click, from the CLI too
+/// (default off: a non-person open waits at Connect).
+#[rustfmt::skip]
+pub const AUTOCONNECT: Argument = Argument { name: "autoconnect", title: t("Localizable", "argument.autoconnect", "Connect Automatically"), kind: ArgKind::Bool, required: true, suggestions: None, is_target_name: false, is_target_description: false, is_supplied_by_target: false, asked_in_palette: false };
 #[rustfmt::skip]
 pub const ORIENTATION: Argument = Argument { name: "orientation", title: t("Localizable", "argument.orientation", "Orientation"), kind: ArgKind::String, required: true, suggestions: None, is_target_name: false, is_target_description: false, is_supplied_by_target: false, asked_in_palette: false };
 #[rustfmt::skip]
@@ -348,8 +387,10 @@ pub const HARNESS_2: Argument = Argument { name: "harness", title: t("ActionCata
 pub const MODEL: Argument = Argument { name: "model", title: t("ActionCatalog", "argument.agent.model", "Model"), kind: ArgKind::String, required: true, suggestions: None, is_target_name: false, is_target_description: false, is_supplied_by_target: false, asked_in_palette: false };
 #[rustfmt::skip]
 pub const HOST: Argument = Argument { name: "host", title: t("Localizable", "argument.agent.host", "Session Host"), kind: ArgKind::Target("machine"), required: true, suggestions: None, is_target_name: false, is_target_description: false, is_supplied_by_target: false, asked_in_palette: false };
+/// An acpmux session of this machine, by id; the palette lists them from acpmux `session/list`
+/// (newest first, by title), as `agent open` and `agent open-tab` take them.
 #[rustfmt::skip]
-pub const SESSION: Argument = Argument { name: "session", title: t("Localizable", "argument.agent.session", "Session"), kind: ArgKind::String, required: true, suggestions: None, is_target_name: false, is_target_description: false, is_supplied_by_target: false, asked_in_palette: false };
+pub const SESSION: Argument = Argument { name: "session", title: t("Localizable", "argument.agent.session", "Session"), kind: ArgKind::String, required: true, suggestions: Some(Suggestions { source: "op:session/list", pinned: &[], other_title: None, allows_multiple: false }), is_target_name: false, is_target_description: false, is_supplied_by_target: false, asked_in_palette: false };
 #[rustfmt::skip]
 pub const NAME_4: Argument = Argument { name: "name", title: t("Localizable", "argument.agent.workspaceName", "Workspace Name"), kind: ArgKind::String, required: true, suggestions: None, is_target_name: false, is_target_description: false, is_supplied_by_target: false, asked_in_palette: false };
 #[rustfmt::skip]
@@ -364,10 +405,6 @@ pub const GROUP_4: Argument = Argument { name: "group", title: t("Localizable", 
 pub const PLACEMENT: Argument = Argument { name: "placement", title: t("Localizable", "argument.agent.placement", "Placement"), kind: ArgKind::String, required: true, suggestions: None, is_target_name: false, is_target_description: false, is_supplied_by_target: false, asked_in_palette: false };
 #[rustfmt::skip]
 pub const TARGET: Argument = Argument { name: "target", title: t("RemoteActions", "argument.chiefMoveTarget", "Target"), kind: ArgKind::String, required: true, suggestions: Some(Suggestions { source: "chiefMoveTargets", pinned: &[], other_title: None, allows_multiple: false }), is_target_name: false, is_target_description: false, is_supplied_by_target: false, asked_in_palette: false };
-#[rustfmt::skip]
-pub const CHIEF_3: Argument = Argument { name: "chief", title: t("Localizable", "argument.chiefImportChief", "Cloud Chief"), kind: ArgKind::String, required: true, suggestions: None, is_target_name: false, is_target_description: false, is_supplied_by_target: false, asked_in_palette: false };
-#[rustfmt::skip]
-pub const SOURCE: Argument = Argument { name: "source", title: t("Localizable", "argument.chiefImportSource", "Source"), kind: ArgKind::String, required: true, suggestions: None, is_target_name: false, is_target_description: false, is_supplied_by_target: false, asked_in_palette: false };
 #[rustfmt::skip]
 pub const ENTRY: Argument = Argument { name: "entry", title: t("ActionCatalog", "argument.gallery.entry", "Entry"), kind: ArgKind::String, required: true, suggestions: None, is_target_name: false, is_target_description: false, is_supplied_by_target: false, asked_in_palette: false };
 #[rustfmt::skip]
@@ -503,8 +540,6 @@ pub const NAME_6: Argument = Argument { name: "name", title: t("CloudSessionActi
 #[rustfmt::skip]
 pub const CWD_3: Argument = Argument { name: "cwd", title: t("CloudSessionActions", "argument.cloudStartSession.cwd", "Folder on the Machine"), kind: ArgKind::String, required: true, suggestions: None, is_target_name: false, is_target_description: false, is_supplied_by_target: false, asked_in_palette: false };
 #[rustfmt::skip]
-pub const LOGIN: Argument = Argument { name: "login", title: t("CloudSessionActions", "argument.cloudStartSession.login", "Harness Login"), kind: ArgKind::String, required: true, suggestions: None, is_target_name: false, is_target_description: false, is_supplied_by_target: false, asked_in_palette: false };
-#[rustfmt::skip]
 pub const FROM_FOLDER: Argument = Argument { name: "fromFolder", title: t("CloudSessionActions", "argument.cloudStartSession.fromFolder", "Folder on This Mac to Copy"), kind: ArgKind::String, required: false, suggestions: None, is_target_name: false, is_target_description: false, is_supplied_by_target: false, asked_in_palette: false };
 #[rustfmt::skip]
 pub const KEYMAP: Argument = Argument { name: "keymap", title: t("Localizable", "argument.keymap", "Keymap"), kind: ArgKind::Enumeration(CASES_CMUX_ITERM2), required: true, suggestions: None, is_target_name: false, is_target_description: false, is_supplied_by_target: false, asked_in_palette: false };
@@ -542,6 +577,10 @@ pub const SCOPE_2: Argument = Argument { name: "scope", title: t("LayoutActions"
 pub const PROPERTY: Argument = Argument { name: "property", title: t("LayoutActions", "argument.appearanceProperty", "Property"), kind: ArgKind::Enumeration(CASES_THEME_BACKGROUND), required: true, suggestions: None, is_target_name: false, is_target_description: false, is_supplied_by_target: false, asked_in_palette: false };
 #[rustfmt::skip]
 pub const VALUE: Argument = Argument { name: "value", title: t("LayoutActions", "argument.appearanceValue", "Value"), kind: ArgKind::String, required: true, suggestions: None, is_target_name: false, is_target_description: false, is_supplied_by_target: false, asked_in_palette: false };
+#[rustfmt::skip]
+pub const KIND_2: Argument = Argument { name: "kind", title: t("LayoutActions", "argument.dividerInsertKind", "Kind"), kind: ArgKind::Enumeration(CASES_TERMINAL_BROWSER), required: true, suggestions: None, is_target_name: false, is_target_description: false, is_supplied_by_target: false, asked_in_palette: false };
+#[rustfmt::skip]
+pub const SPLIT_2: Argument = Argument { name: "split", title: t("LayoutActions", "argument.dividerSplit", "Divider"), kind: ArgKind::String, required: true, suggestions: None, is_target_name: false, is_target_description: false, is_supplied_by_target: false, asked_in_palette: false };
 #[rustfmt::skip]
 pub const ITEM_2: Argument = Argument { name: "item", title: t("WorkspaceActions", "argument.autoArchive.item", "Archived Workspace"), kind: ArgKind::String, required: true, suggestions: Some(Suggestions { source: "archivedWorkspaces", pinned: CASES_ALL, other_title: None, allows_multiple: false }), is_target_name: false, is_target_description: false, is_supplied_by_target: false, asked_in_palette: false };
 #[rustfmt::skip]
@@ -615,6 +654,8 @@ pub const DEPLOY: Argument = Argument { name: "deploy", title: t("AppStoreAction
 #[rustfmt::skip]
 pub const COMMAND_4: Argument = Argument { name: "command", title: t("AppStoreActions", "argument.app.command", "Command"), kind: ArgKind::String, required: true, suggestions: None, is_target_name: false, is_target_description: false, is_supplied_by_target: false, asked_in_palette: false };
 #[rustfmt::skip]
+pub const MENU_ITEM: Argument = Argument { name: "item", title: t("AppStoreActions", "argument.app.menuItem", "Menu Item"), kind: ArgKind::String, required: true, suggestions: None, is_target_name: false, is_target_description: false, is_supplied_by_target: false, asked_in_palette: false };
+#[rustfmt::skip]
 pub const DEVICE_2: Argument = Argument { name: "device", title: t("PhoneActions", "argument.phone.device", "Phone"), kind: ArgKind::String, required: true, suggestions: None, is_target_name: false, is_target_description: false, is_supplied_by_target: false, asked_in_palette: false };
 #[rustfmt::skip]
 pub const PATH_5: Argument = Argument { name: "path", title: t("PhoneActions", "argument.phone.path", "File"), kind: ArgKind::String, required: true, suggestions: None, is_target_name: false, is_target_description: false, is_supplied_by_target: false, asked_in_palette: false };
@@ -684,3 +725,64 @@ pub const WORKTREE_NAME: Argument = Argument { name: "name", title: t("ActionCat
 pub const WORKTREE_BASE: Argument = Argument { name: "base", title: t("ActionCatalog", "argument.git.worktree.base", "Base Revision"), kind: ArgKind::String, required: true, suggestions: None, is_target_name: false, is_target_description: false, is_supplied_by_target: false, asked_in_palette: false };
 #[rustfmt::skip]
 pub const WORKTREE_DISCARD: Argument = Argument { name: "discard", title: t("ActionCatalog", "argument.git.worktree.discard", "Discard Unsaved Work"), kind: ArgKind::Bool, required: true, suggestions: None, is_target_name: false, is_target_description: false, is_supplied_by_target: false, asked_in_palette: false };
+#[rustfmt::skip]
+pub const FEED_ITEM: Argument = Argument { name: "item", title: t("ActionCatalog", "argument.feed.item", "Feed Item"), kind: ArgKind::String, required: true, suggestions: None, is_target_name: false, is_target_description: false, is_supplied_by_target: false, asked_in_palette: false };
+#[rustfmt::skip]
+pub const FEED_GITHUB_ACTION: Argument = Argument { name: "action", title: t("ActionCatalog", "argument.feed.githubAction", "GitHub Action"), kind: ArgKind::String, required: true, suggestions: None, is_target_name: false, is_target_description: false, is_supplied_by_target: false, asked_in_palette: false };
+#[rustfmt::skip]
+pub const FEED_COMMENT: Argument = Argument { name: "comment", title: t("ActionCatalog", "argument.feed.comment", "Comment"), kind: ArgKind::String, required: true, suggestions: None, is_target_name: false, is_target_description: false, is_supplied_by_target: false, asked_in_palette: false };
+// cloud.computerControl (Chief computer take-over) and cloud.chiefComputer (a Chief of this Mac uses its own
+// Cloud computer).
+#[rustfmt::skip]
+pub const CASES_COMPUTER_CONTROL: &[EnumCase] = &[EnumCase { value: "status", title: t("CloudSessionActions", "argument.value.cloud.computerControl.status", "Status") }, EnumCase { value: "take_over", title: t("CloudSessionActions", "argument.value.cloud.computerControl.takeOver", "Take Over") }, EnumCase { value: "hand_back", title: t("CloudSessionActions", "argument.value.cloud.computerControl.handBack", "Give Back to Chief") }, EnumCase { value: "request_human", title: t("CloudSessionActions", "argument.value.cloud.computerControl.requestHuman", "Ask the Person to Take Over") }];
+#[rustfmt::skip]
+pub const COMPUTER_CONTROL_MACHINE: Argument = Argument { name: "machine", title: t("CloudSessionActions", "argument.cloud.computerControl.machine", "Machine"), kind: ArgKind::String, required: true, suggestions: None, is_target_name: false, is_target_description: false, is_supplied_by_target: false, asked_in_palette: false };
+#[rustfmt::skip]
+pub const COMPUTER_CONTROL_ACTION: Argument = Argument { name: "action", title: t("CloudSessionActions", "argument.cloud.computerControl.action", "Control"), kind: ArgKind::Enumeration(CASES_COMPUTER_CONTROL), required: true, suggestions: None, is_target_name: false, is_target_description: false, is_supplied_by_target: false, asked_in_palette: false };
+#[rustfmt::skip]
+pub const COMPUTER_CONTROL_REASON: Argument = Argument { name: "reason", title: t("CloudSessionActions", "argument.cloud.computerControl.reason", "Reason"), kind: ArgKind::String, required: false, suggestions: None, is_target_name: false, is_target_description: false, is_supplied_by_target: false, asked_in_palette: false };
+#[rustfmt::skip]
+pub const CHIEF_COMPUTER_CHIEF: Argument = Argument { name: "chief", title: t("CloudSessionActions", "argument.cloud.chiefComputer.chief", "Chief"), kind: ArgKind::String, required: true, suggestions: None, is_target_name: false, is_target_description: false, is_supplied_by_target: false, asked_in_palette: false };
+#[rustfmt::skip]
+pub const CHIEF_COMPUTER_OP: Argument = Argument { name: "op", title: t("CloudSessionActions", "argument.cloud.chiefComputer.op", "Action"), kind: ArgKind::String, required: true, suggestions: None, is_target_name: false, is_target_description: false, is_supplied_by_target: false, asked_in_palette: false };
+#[rustfmt::skip]
+pub const CHIEF_COMPUTER_ARGS: Argument = Argument { name: "args", title: t("CloudSessionActions", "argument.cloud.chiefComputer.args", "Arguments"), kind: ArgKind::String, required: false, suggestions: None, is_target_name: false, is_target_description: false, is_supplied_by_target: false, asked_in_palette: false };
+#[rustfmt::skip]
+pub const DEBUG_SIDEBAR_TOGGLE_ICON: Argument = Argument { name: "icon", title: t("ActionCatalog", "argument.debug.sidebarToggleIcon", "Icon"), kind: ArgKind::String, required: true, suggestions: Some(Suggestions { source: "debugSidebarToggleIcons", pinned: &[], other_title: None, allows_multiple: false }), is_target_name: false, is_target_description: false, is_supplied_by_target: false, asked_in_palette: false };
+#[rustfmt::skip]
+pub const DEBUG_STATUS_ICON_SET: Argument = Argument { name: "set", title: t("ActionCatalog", "argument.debug.statusIconSet", "Icon Set"), kind: ArgKind::String, required: true, suggestions: Some(Suggestions { source: "debugStatusIconSets", pinned: &[], other_title: None, allows_multiple: false }), is_target_name: false, is_target_description: false, is_supplied_by_target: false, asked_in_palette: false };
+#[rustfmt::skip]
+pub const APP_TRY_TARGET: Argument = Argument { name: "target", title: t("ActionCatalog", "argument.app.try.target", "PR, Branch or Commit"), kind: ArgKind::String, required: true, suggestions: None, is_target_name: false, is_target_description: false, is_supplied_by_target: false, asked_in_palette: false };
+#[rustfmt::skip]
+pub const CASES_UPDATE_SNOOZE: &[EnumCase] = &[EnumCase { value: "update-hide-version", title: t("ActionCatalog", "argument.value.updates.snooze.hideVersion", "Hide Until a Newer Version") }, EnumCase { value: "update-remind-day", title: t("ActionCatalog", "argument.value.updates.snooze.remindDay", "Remind Me in 1 Day") }, EnumCase { value: "update-remind-3-days", title: t("ActionCatalog", "argument.value.updates.snooze.remindThreeDays", "Remind Me in 3 Days") }, EnumCase { value: "update-remind-week", title: t("ActionCatalog", "argument.value.updates.snooze.remindWeek", "Remind Me in 1 Week") }];
+#[rustfmt::skip]
+pub const UPDATE_SNOOZE: Argument = Argument { name: "option", title: t("ActionCatalog", "argument.updates.snooze", "Snooze"), kind: ArgKind::Enumeration(CASES_UPDATE_SNOOZE), required: true, suggestions: None, is_target_name: false, is_target_description: false, is_supplied_by_target: false, asked_in_palette: false };
+#[rustfmt::skip]
+pub const CASES_REMOTE_QUALITY: &[EnumCase] = &[EnumCase { value: "auto", title: t("ActionCatalog", "argument.value.remote.quality.auto", "Auto") }, EnumCase { value: "sharpText", title: t("ActionCatalog", "argument.value.remote.quality.sharpText", "Sharp Text") }, EnumCase { value: "smoothMotion", title: t("ActionCatalog", "argument.value.remote.quality.smoothMotion", "Smooth Motion") }, EnumCase { value: "lowBandwidth", title: t("ActionCatalog", "argument.value.remote.quality.lowBandwidth", "Low Bandwidth") }];
+#[rustfmt::skip]
+pub const REMOTE_QUALITY: Argument = Argument { name: "quality", title: t("ActionCatalog", "argument.remote.quality", "Quality"), kind: ArgKind::Enumeration(CASES_REMOTE_QUALITY), required: true, suggestions: None, is_target_name: false, is_target_description: false, is_supplied_by_target: false, asked_in_palette: false };
+/// A page of the tab's back/forward list, by its offset from the current page (`-2` two back,
+/// `1` one forward), as `goToEntry(offset:)` takes it; the App lists the tab's entries.
+#[rustfmt::skip]
+pub const BACK_FORWARD_ENTRY: Argument = Argument { name: "entry", title: t("ActionCatalog", "argument.browser.backForwardEntry", "Page"), kind: ArgKind::String, required: true, suggestions: Some(Suggestions { source: "browserBackForwardEntries", pinned: &[], other_title: None, allows_multiple: false }), is_target_name: false, is_target_description: false, is_supplied_by_target: false, asked_in_palette: false };
+/// One download of the browser's downloads list, by id; the App lists them, newest first.
+#[rustfmt::skip]
+pub const DOWNLOAD: Argument = Argument { name: "download", title: t("BrowserToolbarActions", "argument.browser.download", "Download"), kind: ArgKind::String, required: true, suggestions: Some(Suggestions { source: "browserDownloads", pinned: &[], other_title: None, allows_multiple: false }), is_target_name: false, is_target_description: false, is_supplied_by_target: false, asked_in_palette: false };
+/// A browser toolbar button to pin or unpin (`browser.toolbarButtons`, a BrowserToolbarButton raw
+/// value); the App lists the pinnable buttons, the pinned ones marked.
+#[rustfmt::skip]
+pub const BROWSER_TOOLBAR_BUTTON: Argument = Argument { name: "button", title: t("ActionCatalog", "argument.toolbar.button", "Button"), kind: ArgKind::String, required: true, suggestions: Some(Suggestions { source: "browserToolbarButtons", pinned: &[], other_title: None, allows_multiple: false }), is_target_name: false, is_target_description: false, is_supplied_by_target: false, asked_in_palette: false };
+/// A tab bar button to pin or unpin (`tabs.toolbarButtons`, a catalog action id); the App lists the
+/// pinnable actions, the pinned ones marked.
+#[rustfmt::skip]
+pub const TAB_BAR_BUTTON: Argument = Argument { name: "button", title: t("ActionCatalog", "argument.toolbar.button", "Button"), kind: ArgKind::String, required: true, suggestions: Some(Suggestions { source: "tabBarButtons", pinned: &[], other_title: None, allows_multiple: false }), is_target_name: false, is_target_description: false, is_supplied_by_target: false, asked_in_palette: false };
+#[rustfmt::skip]
+pub const CASES_LOW_MEDIUM: &[EnumCase] = &[EnumCase { value: "low", title: t("HomeActions", "argument.home.chief.effort.low", "Low") }, EnumCase { value: "medium", title: t("HomeActions", "argument.home.chief.effort.medium", "Medium") }, EnumCase { value: "high", title: t("HomeActions", "argument.home.chief.effort.high", "High") }, EnumCase { value: "xhigh", title: t("HomeActions", "argument.home.chief.effort.xhigh", "Extra High") }, EnumCase { value: "max", title: t("HomeActions", "argument.home.chief.effort.max", "Max") }, EnumCase { value: "default", title: t("HomeActions", "argument.home.chief.effort.default", "Default") }];
+#[rustfmt::skip]
+pub const LOCAL_CHIEF: Argument = Argument { name: "chief", title: t("HomeActions", "argument.home.chief.id", "Chief"), kind: ArgKind::String, required: true, suggestions: Some(Suggestions { source: "localChiefs", pinned: &[], other_title: None, allows_multiple: false }), is_target_name: false, is_target_description: false, is_supplied_by_target: false, asked_in_palette: false };
+#[rustfmt::skip]
+pub const CHIEF_MODEL: Argument = Argument { name: "model", title: t("HomeActions", "argument.home.chief.model", "Model"), kind: ArgKind::String, required: true, suggestions: None, is_target_name: false, is_target_description: false, is_supplied_by_target: false, asked_in_palette: false };
+#[rustfmt::skip]
+pub const CHIEF_EFFORT: Argument = Argument { name: "effort", title: t("HomeActions", "argument.home.chief.effort", "Effort"), kind: ArgKind::Enumeration(CASES_LOW_MEDIUM), required: true, suggestions: None, is_target_name: false, is_target_description: false, is_supplied_by_target: false, asked_in_palette: false };
+#[rustfmt::skip]
+pub const ADOPT_AGENT: Argument = Argument { name: "agent", title: t("HomeActions", "argument.home.chief.agent", "Agent"), kind: ArgKind::String, required: true, suggestions: Some(Suggestions { source: "adoptableAgents", pinned: &[], other_title: None, allows_multiple: false }), is_target_name: false, is_target_description: false, is_supplied_by_target: false, asked_in_palette: false };

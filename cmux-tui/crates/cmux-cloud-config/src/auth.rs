@@ -20,6 +20,15 @@ pub const LAUNCH_KEY_NAMES: [&str; 8] = [
     "CMUX_UITEST_STACK_PASSWORD",
 ];
 
+/// cmux NEXT's folder under `~/.config` (`cmux_config::location::NEXT_DIR`): `cmux-next` on macOS,
+/// where `cmux` is cmux Classic's, `cmux` elsewhere.
+const NEXT_DIR: &str = if cfg!(target_os = "macos") { "cmux-next" } else { "cmux" };
+
+/// The machine owner's declared dev account, one email: `<home>/.config/<NEXT_DIR>/dev-account`.
+pub fn dev_account_path(home: &str) -> String {
+    format!("{home}/.config/{NEXT_DIR}/dev-account")
+}
+
 /// The auth launch keys of `environment`.
 pub fn launch_keys(environment: &BTreeMap<String, String>) -> BTreeMap<String, String> {
     environment
@@ -61,7 +70,7 @@ pub struct Credentials {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "kind", rename_all = "camelCase")]
 pub enum Refusal {
-    /// No `~/.config/cmux/dev-account` and no `CMUX_DEV_AUTH_ACCOUNT`.
+    /// No [`dev_account_path`] file and no `CMUX_DEV_AUTH_ACCOUNT`.
     NoDeclaredAccount,
     /// The account found is not the machine owner's declared one.
     AccountMismatch { found: String, declared: String },
@@ -82,7 +91,7 @@ pub fn credential_paths(environment: &BTreeMap<String, String>, home: &str) -> V
     match environment.get("CMUX_AUTH_CREDENTIALS_FILE").filter(|path| !path.is_empty()) {
         Some(explicit) => vec![explicit.clone()],
         None => vec![
-            format!("{home}/.config/cmux/dev-account"),
+            dev_account_path(home),
             format!("{home}/.secrets/cmuxterm-dev.env"),
             format!("{home}/.secrets/cmux.env"),
         ],
@@ -108,7 +117,7 @@ pub struct Reads {
 /// (`CMUX_AUTH_CREDENTIALS_FILE`) is taken as given, unless `CMUX_DEV_AUTH_ACCOUNT` names another
 /// account. The ambient files (`~/.secrets/cmuxterm-dev.env`, `~/.secrets/cmux.env`) and exports
 /// sign in only the machine's declared owner account (`CMUX_DEV_AUTH_ACCOUNT`, else
-/// `~/.config/cmux/dev-account`): a machine's secrets file can name another person.
+/// [`dev_account_path`]): a machine's secrets file can name another person.
 /// `CMUX_DEV_AUTH_PROFILE` picks `personal` (dogfood keys) or `agent` (uitest keys).
 pub fn decide(reads: &Reads) -> Decision {
     let environment = &reads.environment;
@@ -141,7 +150,7 @@ pub fn decide(reads: &Reads) -> Decision {
     let declared = expected.cloned().or_else(|| {
         reads
             .files
-            .get(&format!("{home}/.config/cmux/dev-account"))
+            .get(&dev_account_path(home))
             .map(|text| text.trim().to_owned())
             .filter(|email| !email.is_empty())
     });
@@ -252,6 +261,98 @@ pub fn allowed_team_id(
     }
 }
 
+/// The name cmux's backend gives a person's own Cloud team (`team-vm-api-personal-stack.ts`
+/// creates it as "Personal"). The sign-in service lists it beside shared teams with no other mark a
+/// signed-in client can read (its provenance is server-only metadata), so this name is what tells
+/// the person's own team apart on screen. It only labels a row; nothing is allowed or refused by it.
+pub const PERSONAL_TEAM_NAME: &str = "Personal";
+
+/// What the app read about one of the account's teams.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct TeamFacts {
+    pub id: String,
+    pub name: String,
+    /// The team's plan id (`client_read_only_metadata.cmuxPlan`, web billing's mirror), when set.
+    #[serde(default)]
+    pub plan: Option<String>,
+}
+
+/// Whose a team is.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum TeamKind {
+    /// The person's own team.
+    Personal,
+    /// A team shared with other people.
+    Team,
+}
+
+/// One team as every team list shows it (the account menu, Switch Active Team, the menu bar).
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct TeamRow {
+    pub id: String,
+    /// The team's name; its id when the name is blank.
+    pub title: String,
+    pub kind: TeamKind,
+    /// The team cmux works in now: the one row a list checks.
+    pub active: bool,
+    /// The plan id, lowercased, when the team has one; the app names it.
+    pub plan: Option<String>,
+}
+
+/// Whether `name` is the default team the sign-in service made for the signed-in account by
+/// itself: "<own email>'s Team", its sign-up naming. The client can read no creator or default
+/// flag for a team (its provenance is server-only metadata), so only the account's own email
+/// counts: a team someone named after any other email keeps its name (Leo 2026-11-10: "apparently
+/// sometimes stakcauth just adds a team of jsut u when it's ur personal account?").
+fn is_own_default_team(name: &str, own_email: Option<&str>) -> bool {
+    let Some(email) = own_email.map(str::trim).filter(|email| email.contains('@')) else {
+        return false;
+    };
+    let lower = name.to_lowercase();
+    let email = email.to_lowercase();
+    ["'s team", "\u{2019}s team"]
+        .iter()
+        .any(|suffix| lower.strip_suffix(suffix) == Some(email.as_str()))
+}
+
+/// The account's teams as rows, in the order given, with `active` checked: at most one row is,
+/// and none when `active` names no listed team. The sign-in service's default team for this
+/// account (`own_email`'s) shows as Personal, unless the account already has a team named
+/// Personal: then each keeps its name.
+pub fn team_rows(
+    teams: &[TeamFacts],
+    active: Option<&str>,
+    own_email: Option<&str>,
+) -> Vec<TeamRow> {
+    let has_personal = teams.iter().any(|team| team.name.trim() == PERSONAL_TEAM_NAME);
+    teams
+        .iter()
+        .map(|team| {
+            let name = team.name.trim();
+            let name = if !has_personal && is_own_default_team(name, own_email) {
+                PERSONAL_TEAM_NAME
+            } else {
+                name
+            };
+            let plan = team
+                .plan
+                .as_deref()
+                .map(|plan| plan.trim().to_lowercase())
+                .filter(|plan| !plan.is_empty() && plan.len() <= 64);
+            TeamRow {
+                id: team.id.clone(),
+                title: if name.is_empty() { team.id.clone() } else { name.to_owned() },
+                kind: if name == PERSONAL_TEAM_NAME { TeamKind::Personal } else { TeamKind::Team },
+                active: active == Some(team.id.as_str()),
+                plan,
+            }
+        })
+        .collect()
+}
+
 /// The build facts [`launch_sign_in`] reads.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -334,7 +435,9 @@ pub struct LaunchLogin {
 pub fn launch_login(sign_in: &LaunchSignIn, decision: Option<&Decision>) -> LaunchLogin {
     let credentials = decision.and_then(|d| d.credentials.clone());
     let refusal_log = decision.and_then(|d| d.refusal.as_ref()).map(|refusal| match refusal {
-        Refusal::NoDeclaredAccount => "dev auto sign-in off: no declared account (~/.config/cmux/dev-account or CMUX_DEV_AUTH_ACCOUNT)".to_owned(),
+        Refusal::NoDeclaredAccount => format!(
+            "dev auto sign-in off: no declared account (~/.config/{NEXT_DIR}/dev-account or CMUX_DEV_AUTH_ACCOUNT)"
+        ),
         Refusal::AccountMismatch { found, declared } => {
             format!("dev auto sign-in off: {} is not the declared {}", mask(found), mask(declared))
         }
@@ -352,8 +455,11 @@ pub fn launch_login(sign_in: &LaunchSignIn, decision: Option<&Decision>) -> Laun
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub enum SignInWindow {
-    /// The popup when the default browser is Safari, else the default browser.
+    /// cmux's own in-app browser tab when the app can open one (Leo, 2026-11-25: sign-in done in
+    /// our in-app browser sheet, on by default); else the popup with Safari, else the default browser.
     Automatic,
+    /// Always cmux's in-app browser tab (the popup rule when the app cannot open one).
+    InApp,
     /// Always the popup (a browser that ends it at once still falls back).
     Popup,
     /// Always the default browser.
@@ -371,7 +477,37 @@ pub fn opens_default_browser(window: SignInWindow, default_browser: Option<&str>
     match window {
         SignInWindow::Popup => false,
         SignInWindow::DefaultBrowser => true,
-        SignInWindow::Automatic => default_browser.is_some_and(|b| !POPUP_BROWSERS.contains(&b)),
+        SignInWindow::Automatic | SignInWindow::InApp => {
+            default_browser.is_some_and(|b| !POPUP_BROWSERS.contains(&b))
+        }
+    }
+}
+
+/// Where one sign-in opens, decided by [`sign_in_place`].
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum SignInPlace {
+    /// A cmux browser tab: the hosted page's passkey button and emailed code work there, and its
+    /// `<scheme>://auth-callback` comes back in-process (the attempt's state nonce still checked).
+    InApp,
+    /// The `ASWebAuthenticationSession` popup.
+    Popup,
+    /// The person's default browser.
+    DefaultBrowser,
+}
+
+/// Where a sign-in opens. `in_app`: the app can open the page in its own browser now (an opener
+/// is installed and a window can take the tab); without it, `Automatic` and `InApp` keep the
+/// popup-or-default-browser rule of [`opens_default_browser`].
+pub fn sign_in_place(
+    window: SignInWindow,
+    default_browser: Option<&str>,
+    in_app: bool,
+) -> SignInPlace {
+    match window {
+        SignInWindow::Automatic | SignInWindow::InApp if in_app => SignInPlace::InApp,
+        _ if opens_default_browser(window, default_browser) => SignInPlace::DefaultBrowser,
+        _ => SignInPlace::Popup,
     }
 }
 

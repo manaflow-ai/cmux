@@ -181,6 +181,44 @@ import PackageDescription
 // b3a5ebfdf (release/cmux-538a3e2e-resize-p0-22) merges 8379ecc8a into
 // 7a372c740: both changes above in one pin (RESIZE P0 22).
 //
+// Since b3a5ebfdf..a0975fd8c (release/cmux-gi-pin-sync-2, GI PIN SYNC): five
+// upstream Ghostty main commits picked onto b3a5ebfdf with `cherry-pick -x`:
+// 96d379822 and 15a443234 (RenderState.endUpdate looks up a row's styles
+// once per segment and walks the pending style runs as a shrinking slice:
+// less work per scrolled row), 321a32a42 (a resize that grows rows and
+// shrinks columns keeps the scrollback it pulled down), 5ce2325ec (a shrink
+// with no scrollback no longer leaves the cursor pin garbage, so a Kitty
+// image at the cursor draws) and 1b8b3f55b (pins are remapped when the
+// column backfill stops early: no viewport on a freed page). No C API change.
+//
+// Since a0975fd8c..c370b103a (release/cmux-gi-land-1 merges a0975fd8c and
+// a0e665d4f, release/cmux-gi-present-cb-1; ghostty-integration step 3):
+// ghostty_surface_set_present_callback reports each frame that becomes the
+// layer's contents (pixel size, content or resize, sequence, host time); it
+// replaces cmux's setContents: swizzle on IOSurfaceLayer.
+//
+// Since c370b103a..b37a94dfe (release/cmux-gi-land-1-cell-guard, the two
+// commits of fork PR #91: red c59eb2db0, fix b37a94dfe): a frame drawn before
+// the surface's first cell build runs no cell pass and has a 0 x 0 grid
+// (Contents.framePlan), so a new surface shows its plain background, never
+// cells of another buffer. No C API change.
+//
+// Since b37a94dfe..2bd5d2503 (release/cmux-vt-1.0.1): a merge of upstream
+// libghostty-vt tag vt-1.0.1 (108cacb17, 209 upstream commits since
+// c7f68a7f4), per plans/cmux-next/ghostty-next.md section 1. The embedded
+// C API (ghostty.h) only gains GHOSTTY_ACTION_SET_WINDOW_THEME; the
+// libghostty-vt C API takes upstream's 1.0 ABI (cmux-tui's ghostty-vt
+// binding moves with it in the same pin change).
+//
+// Since b37a94dfe..a84a1c7e4 (release/cmux-gi-land-1-cell-guard, fork PR
+// #93): two config keys, background-cells-opacity (an alpha for every
+// explicit cell background) and background-cells-neutral-fade (a near-grey
+// explicit background fades to clear by its Oklab lightness distance from the
+// theme background). Both unset = the old rule. No C API change.
+//
+// Since 2bd5d2503 and a84a1c7e4..5c01c7171 (release/cmux-vt-1.0.1-cell-bg): a
+// --no-ff merge of the two lines above, both changes in one pin.
+//
 // A pin change is one reviewed commit that changes the URL and the checksum
 // together (the zip's sha256, also in the release's SHA256SUMS). Never pin
 // a7c40619a or 3e9dfca98 (apple-v6 without the lib prefix on the macOS
@@ -204,8 +242,8 @@ let package = Package(
         ),
         .binaryTarget(
             name: "GhosttyNextKit",
-            url: "https://github.com/manaflow-ai/ghostty-next/releases/download/xcframework-b3a5ebfdfe700635696ea8f71e9dfc72e496ab82-apple-v6/GhosttyNextKit.xcframework.zip",
-            checksum: "007a462b6e99a96a21cbfe4d37756164494b5337f9482d3c25fe14da7cec9b8a"
+            url: "https://github.com/manaflow-ai/ghostty-next/releases/download/xcframework-5c01c7171dc2c00d486f231adda7fb5bf6e55c97-apple-v6/GhosttyNextKit.xcframework.zip",
+            checksum: "ead90aeb4d72cc0ac19226ff8ebaf6b0c70862b274d063d4f263ab10f99c686c"
         ),
     ]
 )

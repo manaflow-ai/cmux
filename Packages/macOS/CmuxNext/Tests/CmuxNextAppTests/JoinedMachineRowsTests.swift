@@ -1,6 +1,7 @@
 import AppKit
 import CmuxNextActions
 import CmuxNextDaemonService
+import CmuxNextPalette
 @testable import CmuxNextApp
 import CmuxNextRemote
 @testable import CmuxNextServer
@@ -342,7 +343,7 @@ import CmuxNextWakeups
         #expect(!(await store.perform(.rotate, "m_1")))
         #expect(fake.rotated == ["m_1"])
         #expect(store.failed["m_1"] == .rotate)
-        // The row's caption says so: the page reads `failed` (webviews/src/pages/machines, joinedCaption).
+        // The row's caption reads `failed`.
     }
 
     @Test func joinedRowsFollowTheConnectedOnesAndCarryWhoMadeTheirLine() {
@@ -360,7 +361,7 @@ import CmuxNextWakeups
     static func registry(_ store: JoinedMachineStore, labs: @escaping @MainActor () -> Bool = { true },
                          ran: @escaping @MainActor (JoinedMachineAction, JoinedMachine, String) -> Void = { _, _, _ in }) -> ActionRegistry {
         let registry = ActionRegistry.standard()
-        MachineSectionHostView.bindJoinedActions(into: registry, store: { store }, labsOn: labs, perform: ran)
+        MachineRowActions.bindJoinedActions(into: registry, store: { store }, labsOn: labs, perform: ran)
         return registry
     }
 
@@ -377,13 +378,13 @@ import CmuxNextWakeups
         let store = fake.store()
         await store.refresh()
         let registry = Self.registry(store)
-        let menu = MachineSectionHostView.joinedMenu(store.machines[0], rowID: "joined:m_1", registry: registry)
+        let menu = MachineRowActions.joinedMenu(store.machines[0], rowID: "joined:m_1", registry: registry)
         #expect(Self.rows(menu).map { $0.title } == ["Check", "Rotate Credential", "Revoke…"])
         #expect(Self.rows(menu).map { $0.enabled } == [true, true, true])
-        let gone = MachineSectionHostView.joinedMenu(store.machines[1], rowID: "joined:m_2", registry: registry)
+        let gone = MachineRowActions.joinedMenu(store.machines[1], rowID: "joined:m_2", registry: registry)
         #expect(Self.rows(gone).map { $0.title } == ["Check"], "a revoked machine offers only Check")
         let offRegistry = Self.registry(store, labs: { false })
-        let off = MachineSectionHostView.joinedMenu(store.machines[0], rowID: "joined:m_1", registry: offRegistry)
+        let off = MachineRowActions.joinedMenu(store.machines[0], rowID: "joined:m_1", registry: offRegistry)
         #expect(Self.rows(off).map { $0.enabled } == [false, false, false], "nothing runs while labs.machineJoin is off")
     }
 
@@ -393,7 +394,7 @@ import CmuxNextWakeups
         await store.refresh()
         var ran: [(JoinedMachineAction, String, String)] = []
         let registry = Self.registry(store, ran: { ran.append(($0, $1.id, $2)) })
-        let menu = MachineSectionHostView.joinedMenu(store.machines[0], rowID: "ssh-1", registry: registry)
+        let menu = MachineRowActions.joinedMenu(store.machines[0], rowID: "ssh-1", registry: registry)
         let rotate = try #require(menu.items.first { $0.title == "Rotate Credential" })
         // A test process has no running NSApplication to dispatch the item: send its action to its
         // target as AppKit does.
@@ -401,6 +402,40 @@ import CmuxNextWakeups
         #expect(ran.map { $0.0 } == [.rotate])
         #expect(ran.map { $0.1 } == ["m_1"])
         #expect(ran.map { $0.2 } == ["ssh-1"], "the row it opened on goes with it (where Check records)")
+    }
+
+    /// No target kind of its own: what the joined machines' sources pass the other actions to.
+    final class NoTargets: PaletteTargetSource {
+        func targets(of kind: ActionTargetKind) -> [PaletteTargetOption] { [] }
+    }
+
+    /// Check, Rotate Credential and Revoke… from the palette (`paletteTargetSource` `joined`): the
+    /// argument page lists the joined machines each can run on, a revoked one only for Check, and a
+    /// run on the picked machine does what the row's menu item does, on that machine's own row.
+    @Test func checkRotateAndRevokeRunFromThePaletteOnAPickedJoinedMachine() async {
+        let fake = Fake()
+        fake.rows = [Fake.machine("m_1", "lane-vm-3"), Fake.machine("m_2", "old-box", state: .revoked)]
+        let store = fake.store()
+        await store.refresh()
+        let ids = JoinedMachineAction.allCases.map(MachineRowActions.actionID)
+        var ran: [(JoinedMachineAction, String, String)] = []
+        let registry = Self.registry(store, ran: { ran.append(($0, $1.id, $2)) })
+        for id in ids {
+            let descriptor = registry.descriptor(for: id)
+            #expect(descriptor?.isPaletteVisible == true, "\(id)")
+            #expect(descriptor?.paletteTarget == .machine && descriptor?.paletteTargetSource == "joined", "\(id)")
+        }
+        let source = store.paletteTargets(registry.descriptors, next: NoTargets())
+        #expect(source.targets(of: .machine, for: "machine.joined.check").map(\.id) == ["m_1", "m_2"])
+        #expect(source.targets(of: .machine, for: "machine.joined.rotate").map(\.id) == ["m_1"], "a revoked machine is not offered")
+        #expect(source.targets(of: .machine, for: "machine.joined.revoke").map(\.title) == ["lane-vm-3"])
+        #expect(source.targets(of: .machine, for: "workspace.newOnMachine").isEmpty, "a connected machine's action is not theirs")
+        for id in ids {
+            #expect(registry.perform(id, invocation: ActionInvocation(target: ActionTargetRef(kind: .machine, id: "m_1"))))
+        }
+        #expect(ran.map { $0.0 } == [.check, .rotate, .revoke])
+        #expect(ran.map { $0.1 } == ["m_1", "m_1", "m_1"])
+        #expect(ran.map { $0.2 } == Array(repeating: JoinedMachine.healthID("m_1"), count: 3), "Check records on the machine's own row")
     }
 
     @Test func revokeAsksWithTheHeartbeatBound() {
@@ -429,19 +464,15 @@ import CmuxNextWakeups
         #expect(runs.run?.events.first == .start(joined: true))
     }
 
-    @Test func theJoinedCardOffersShowInMachines() async {
+    @Test func theJoinedCardOffersOnlyDone() async {
         let fake = MachineJoinLineFlowTests.Fake()
         fake.rows = [MachineJoinLineFlowTests.Fake.joined("jt_1")]
         let devices = AddDeviceFlowTests.Fake()
-        var shown = 0
-        var services = MachineJoinLineFlowTests.services(devices, fake)
-        services.showMachines = { shown += 1 }
-        let model = fake.deviceModel(services)
+        let model = fake.deviceModel(MachineJoinLineFlowTests.services(devices, fake))
         await model.begin(way: .joinLine)
         await model.joinLine?.mint()
-        #expect(model.buttons.map(\.action) == [.showMachines, .done])
-        #expect(model.perform(.showMachines), "Show in Machines closes the card")
-        #expect(shown == 1)
+        #expect(model.buttons.map(\.action) == [.done])
+        #expect(model.perform(.done), "Done closes the card")
         #expect(model.joinLine?.isWatching == false)
     }
 
@@ -479,7 +510,7 @@ import CmuxNextWakeups
         #expect(store.busy.contains("m_1"))
         // The menu target holds the registry weakly, as the app's long-lived one is: keep it here.
         let registry = Self.registry(store)
-        let busyMenu = MachineSectionHostView.joinedMenu(rows[0], rowID: "joined:m_1", registry: registry)
+        let busyMenu = MachineRowActions.joinedMenu(rows[0], rowID: "joined:m_1", registry: registry)
         #expect(Self.rows(busyMenu).map { $0.enabled } == [true, false, false], "Rotate and Revoke wait; Check can still run")
         #expect(!(await store.perform(.rotate, "m_1")), "a second change while the first is in flight is refused")
         gate.release()

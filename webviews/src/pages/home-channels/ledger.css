@@ -34,18 +34,6 @@
 .lg-spacer {
   flex: 1;
 }
-.lg-kbd {
-  padding: 0 var(--ds-space-1);
-  border: 1px solid var(--lg-line);
-  border-radius: 4px;
-  font: inherit;
-  font-size: var(--text-caption);
-  line-height: var(--text-caption--line-height);
-  color: var(--page-text-3);
-  font-variant-numeric: tabular-nums;
-  letter-spacing: var(--text-caption--letter-spacing);
-}
-
 /* ---------- List ---------- */
 /* Transparent: the window's material shows through, as the native sidebar. */
 .lg-list {
@@ -79,7 +67,8 @@
   border: 1px solid var(--lg-line);
   border-radius: var(--ds-radius-control);
   background: var(--lg-fill);
-  color: var(--page-text-3);
+  /* A control's label is text: the secondary ink (4.5:1), not the tertiary hint (3:1). */
+  color: var(--page-text-2);
   font: inherit;
   font-size: var(--text-detail);
   text-align: start;
@@ -88,11 +77,6 @@
 }
 .lg-search span {
   flex: 1;
-}
-.lg-search kbd {
-  font: inherit;
-  font-size: var(--text-caption);
-  letter-spacing: var(--text-caption--letter-spacing);
 }
 .lg-search:hover {
   color: var(--page-text-2);
@@ -152,9 +136,33 @@
   font-weight: var(--weight-emphasis);
   letter-spacing: var(--text-detail--letter-spacing);
 }
-.lg-list-group.after-pinned {
-  margin-top: var(--ds-space-1);
-  padding-top: var(--ds-space-2);
+/* Windowed (ConversationList.tsx): only the label, line and rows near the viewport are mounted,
+   each placed at its offset in a box as tall as the whole list. */
+.lg-list-space {
+  position: relative;
+  width: 100%;
+}
+.lg-list-section-host,
+.lg-list-divider,
+.lg-list-space .lg-list-group > li {
+  position: absolute;
+  top: 0;
+  inset-inline-start: 0;
+  width: 100%;
+  box-sizing: border-box;
+}
+/* Its own block, so the label's margins count in its measured height. */
+.lg-list-section-host {
+  display: flow-root;
+}
+/* The hairline between my pins and the rest, with the space the rest's list had above it. */
+.lg-list-divider {
+  padding-top: var(--ds-space-1);
+}
+.lg-list-divider::after {
+  content: "";
+  display: block;
+  height: var(--ds-space-2);
   border-top: 1px solid var(--lg-line);
 }
 /* A row's context-menu host takes no box of its own. */
@@ -274,7 +282,7 @@
   min-width: 16px;
   height: 16px;
   padding: 0 var(--ds-space-1);
-  border-radius: 8px;
+  border-radius: var(--ds-radius-lg);
   background: var(--page-text);
   color: var(--lg-solid);
   font-size: var(--text-caption);
@@ -396,7 +404,7 @@
   color: var(--page-text-3);
   letter-spacing: var(--text-detail--letter-spacing);
 }
-.lg-header-context > * + *::before {
+.lg-header-context > :where(:not(:first-child))::before {
   content: "·";
   margin: 0 var(--ds-space-1);
   color: var(--page-text-3);
@@ -552,7 +560,7 @@
 .hc-msg.lg-msg .hc-tag {
   padding: 0 var(--ds-space-1);
   border: 1px solid var(--lg-line);
-  border-radius: 4px;
+  border-radius: var(--ds-radius-sm);
   background: none;
   font-size: var(--text-caption);
   line-height: var(--text-caption--line-height);
@@ -763,7 +771,7 @@
   background: var(--lg-fill);
   box-shadow: none;
 }
-.lg-page .hc-composer:focus-within {
+.lg-page .hc-composer:is(:focus-visible, :has(:focus-visible)) {
   border-color: var(--page-text-3);
 }
 .lg-page .hc-composer-bar .hc-tool {
@@ -868,7 +876,7 @@
   color: var(--page-text-3);
   letter-spacing: var(--text-detail--letter-spacing);
 }
-.lg-sheet-meta > * + *::before {
+.lg-sheet-meta > :where(:not(:first-child))::before {
   content: "·";
   margin: 0 var(--ds-space-1);
 }
@@ -987,10 +995,13 @@
   /* One rim: the hairline in --ui-popup-shadow (ui/popupSurface.css), no border over it. */
   border: 0;
   border-radius: 12px;
-  background: var(--surface-popup);
-  box-shadow: var(--ui-popup-shadow);
+  /* Its fill, frost and rim are the dialog glass (.ui-dialog.ui-glass, ui/popupSurface.css). */
+  --glass-elevation: var(--elevation-2);
   overflow: hidden;
   z-index: var(--layer-overlay);
+}
+.lg-palette.ui-glass {
+  border-radius: var(--ds-radius-xl);
 }
 .lg-palette-root {
   display: flex;
@@ -1072,8 +1083,13 @@
   letter-spacing: var(--text-detail--letter-spacing);
 }
 .lg-palette-none {
-  margin: var(--ds-space-4) var(--ds-space-2);
+  /* The Combobox's live Empty, inside the root: it keeps its old place at the bottom, above the
+     hint, and takes no room while it is empty (it stays mounted so the announcement lands). */
+  margin: auto var(--ds-space-2) var(--ds-space-4);
   color: var(--page-text-3);
+}
+.lg-palette-none:empty {
+  margin: 0;
 }
 .lg-palette-hint {
   flex: none;
@@ -1113,7 +1129,7 @@
   display: inline;
   padding: 0;
   border: 0;
-  border-radius: 4px;
+  border-radius: var(--ds-radius-control);
   background: none;
   color: inherit;
   font: inherit;
@@ -1129,7 +1145,7 @@
   margin: 0 var(--ds-space-2) var(--ds-space-1) 0;
   padding: 0 var(--ds-space-1);
   border: 1px solid var(--page-text-3);
-  border-radius: 4px;
+  border-radius: var(--ds-radius-sm);
   background: var(--lg-fill);
   color: var(--page-text);
   font: inherit;
@@ -1146,7 +1162,7 @@
   padding: 0 var(--grid-half-step);
   margin: 0 calc(-1 * var(--grid-half-step));
   border: 0;
-  border-radius: 4px;
+  border-radius: var(--ds-radius-control);
   background: none;
   color: inherit;
   font: inherit;
@@ -1718,6 +1734,7 @@
 /* The lightbox: the page dims and blurs behind one image (board principle 9). */
 .hc-lightbox-backdrop {
   background: color-mix(in srgb, var(--lg-solid) 72%, transparent);
+  /* one-material-allow: the lightbox's modal scrim (the dialog above it is the glass), not a glass surface */
   backdrop-filter: var(--surface-blur);
 }
 .hc-lightbox.ui-dialog {
@@ -1833,6 +1850,10 @@
 .hc-tray-item.failed .hc-att-meta {
   color: var(--lg-warn);
 }
+/* A failed upload's Retry, after its note: the item's text gives it the room. */
+.hc-tray-retry {
+  flex: none;
+}
 .hc-tray-thumb {
   display: grid;
   place-items: center;
@@ -1840,7 +1861,7 @@
   width: 32px;
   height: 32px;
   overflow: hidden;
-  border-radius: 4px;
+  border-radius: var(--ds-radius-sm);
   background: var(--lg-fill-strong);
   color: var(--page-text-2);
 }
@@ -1872,7 +1893,7 @@
   height: var(--ds-control-icon);
   padding: 0;
   border: 0;
-  border-radius: 4px;
+  border-radius: var(--ds-radius-sm);
   background: transparent;
   color: var(--page-text-3);
   opacity: 0;
@@ -2092,7 +2113,7 @@
   width: 56px;
   height: 56px;
   margin-top: var(--ds-space-5);
-  border-radius: 12px;
+  border-radius: var(--ds-radius-xl);
   overflow: hidden;
 }
 .lg-chief-picture img {
@@ -2206,7 +2227,7 @@
 }
 .lg-presentation button {
   border: 0;
-  border-radius: 4px;
+  border-radius: var(--ds-radius-control);
   padding: var(--ds-space-1);
   background: transparent;
   color: var(--page-text-3);
@@ -2219,4 +2240,82 @@
 .lg-run-transcript {
   margin: var(--ds-space-2) 0;
   min-height: var(--ds-control-compact);
+}
+/* The composer hat's background tasks (ChiefTaskHat.tsx): quiet rows over the composer, the goal
+   strip's surface, one row per task. A row that expires leaves with no transform, so the composer
+   below moves once, with the rows above it. */
+.lg-task-hat {
+  display: grid;
+  gap: 0;
+  /* A 24-task spawn never pushes the composer out of view: about four rows show, the rest
+     scroll inside the hat. */
+  flex: none;
+  max-height: calc(var(--ds-control-row) * 4.5 + var(--ds-space-2));
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  margin: 0 var(--lg-pad) var(--ds-space-1);
+  padding: var(--ds-space-1) 0;
+  list-style: none;
+  border: 1px solid color-mix(in srgb, var(--page-text-3) 24%, transparent);
+  border-radius: var(--ds-radius-popup);
+  background: color-mix(in srgb, var(--page-text-3) 8%, transparent);
+}
+.lg-task-hat.chips {
+  display: flex;
+  flex-wrap: nowrap;
+  overflow: hidden;
+  gap: var(--ds-space-1);
+  padding: var(--ds-space-1);
+  border: none;
+  background: none;
+}
+.lg-task-hat.summary {
+  display: flex;
+  align-items: center;
+  gap: var(--ds-space-2);
+  padding: var(--ds-space-1) var(--ds-space-3);
+  width: fit-content;
+}
+.lg-task-hat__row {
+  display: flex;
+  align-items: center;
+  gap: var(--ds-space-2);
+  min-height: var(--ds-control-row);
+  padding: 0 var(--ds-space-3);
+  font-size: var(--text-detail);
+}
+.lg-task-hat.chips .lg-task-hat__row {
+  flex: none;
+  min-height: 24px;
+  padding: 0 var(--ds-space-2);
+  border-radius: var(--ds-radius-popup);
+  background: color-mix(in srgb, var(--page-text-3) 10%, transparent);
+}
+.lg-task-hat__title {
+  overflow: hidden;
+  flex: 0 1 auto;
+  min-width: 0;
+  color: var(--page-text);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.lg-task-hat__result {
+  overflow: hidden;
+  flex: 1 1 0;
+  min-width: 0;
+  color: var(--page-text-2);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.lg-task-hat__meta {
+  flex: none;
+  margin-inline-start: auto;
+  color: var(--page-text-3);
+  font-size: var(--text-caption);
+  font-variant-numeric: tabular-nums;
+  letter-spacing: var(--text-caption--letter-spacing);
+}
+.lg-task-hat__row[data-state="done"] .lg-task-hat__title,
+.lg-task-hat__row[data-state="stopped"] .lg-task-hat__title {
+  color: var(--page-text-2);
 }

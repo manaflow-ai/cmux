@@ -10,6 +10,7 @@ import type { ChatFind } from "../src/agent-session/acpmux/conversation/chatFind
 import type { ScrollAnchor } from "../src/agent-session/acpmux/App";
 import { turnView } from "../src/agent-session/acpmux/conversation/turns";
 import { installJsdomScroller, scrollerEnd } from "./support/jsdomScroller";
+import { teardownDom } from "./support/domTeardown";
 
 const dom = new JSDOM("<!doctype html><div id=root></div>", {
   url: "http://localhost/",
@@ -59,12 +60,8 @@ const { createRoot } = await import("react-dom/client");
 const { VirtualTranscript } = await import("../src/agent-session/acpmux/App");
 const { SCROLL_ANCHOR_SETTLE_MS } = await import("../src/agent-session/acpmux/virtualTranscriptModel");
 
-afterAll(() => {
-  dom.window.close();
-  for (const [key, had, value] of saved) {
-    if (had) scope[key] = value;
-    else delete scope[key];
-  }
+afterAll(async () => {
+  await teardownDom(saved, { window: dom.window, scope });
 });
 
 const row = (id: string, kind: string, text?: string): AcpmuxRow => ({ id, kind, text, version: 1, at: 1 });
@@ -73,7 +70,12 @@ const turn = (index: number) => [
   row(`t${index}-answer`, "assistant", `Answer ${index}.\n\nWith a second paragraph so the turn has height.`),
   { ...row(`t${index}-end`, "turnSummary"), status: "completed", durationMs: 1_000 },
 ];
-const turns = Array.from({ length: 30 }, (_, index) => turn(index)).flat();
+// 22 turns: a cold open lays a chat this long out whole on its first frame (VirtualTranscript.tsx
+// `coldOpenRoughAbove`; a longer one opens its history at rough heights, laid out whole a frame later).
+// Each reply-only turn draws its Worked for line (turns.ts `holdsHeader`, #51896), so 30 turns crossed that
+// line, and these tests read the chat's end and place the reader on its first frame.
+const TURNS = 22;
+const turns = Array.from({ length: TURNS }, (_, index) => turn(index)).flat();
 const noop = () => {};
 
 test("a Find jump stays on its match when the transcript measures again before the scroll event", async () => {
@@ -107,7 +109,7 @@ test("a Find jump stays on its match when the transcript measures again before t
 
     // Before that scroll event, the transcript measures again (here a new turn arrives; in the
     // browser, the fold Find opened). The view stays on the match, not back at the latest message.
-    await act(async () => render(turnView([...turns, ...turn(30)], new Set()), find));
+    await act(async () => render(turnView([...turns, ...turn(TURNS)], new Set()), find));
     expect(scroller().scrollTop).toBe(atMatch);
   } finally {
     await act(async () => root.unmount());
@@ -118,11 +120,11 @@ test("Find keeps an already visible match parked when a reply streams below it",
   const rows = turnView(turns, new Set());
   const root = createRoot(dom.window.document.getElementById("root")!);
   const scroller = () => dom.window.document.querySelector<HTMLElement>(".acpmux-scroll")!;
-  const target = rows.findIndex((shown) => shown.id === "t29-user");
+  const target = rows.findIndex((shown) => shown.id === `t${TURNS - 1}-user`);
   const find: ChatFind = {
     open: true,
-    query: "Question 29",
-    matches: [{ rowIndex: target, rowId: "t29-user", occurrence: 0 }],
+    query: `Question ${TURNS - 1}`,
+    matches: [{ rowIndex: target, rowId: `t${TURNS - 1}-user`, occurrence: 0 }],
     active: 0,
     show: noop,
     hide: noop,
@@ -141,9 +143,9 @@ test("Find keeps an already visible match parked when a reply streams below it",
 
     // A native Find command can select a match already visible at the latest message. That is
     // still the reader choosing this place: a later stream must not acquire bottom follow again.
-    await act(async () => render(turnView([...turns, ...turn(30)], new Set()), find));
+    await act(async () => render(turnView([...turns, ...turn(TURNS)], new Set()), find));
     expect(scroller().scrollTop).toBe(atMatch);
-    await act(async () => render(turnView([...turns, ...turn(30)], new Set())));
+    await act(async () => render(turnView([...turns, ...turn(TURNS)], new Set())));
     expect(scroller().scrollTop).toBe(atMatch);
   } finally {
     await act(async () => root.unmount());
@@ -240,14 +242,14 @@ test("held input does not apply a browser clamp twice when rows above shrink", a
 
 test("an already visible Find match survives an immediate hide, stream and wake", async () => {
   const rows = turnView(turns, new Set());
-  const more = turnView([...turns, ...turn(30)], new Set());
+  const more = turnView([...turns, ...turn(TURNS)], new Set());
   let root = createRoot(dom.window.document.getElementById("root")!);
   const scroller = () => dom.window.document.querySelector<HTMLElement>(".acpmux-scroll")!;
-  const target = rows.findIndex((shown) => shown.id === "t29-user");
+  const target = rows.findIndex((shown) => shown.id === `t${TURNS - 1}-user`);
   const find: ChatFind = {
     open: true,
-    query: "Question 29",
-    matches: [{ rowIndex: target, rowId: "t29-user", occurrence: 0 }],
+    query: `Question ${TURNS - 1}`,
+    matches: [{ rowIndex: target, rowId: `t${TURNS - 1}-user`, occurrence: 0 }],
     active: 0,
     show: noop,
     hide: noop,
@@ -332,7 +334,7 @@ test("quiet expiry places a final streamed chunk without another token", async (
     const before = node.scrollTop;
     await act(async () => {
       node.dispatchEvent(new dom.window.Event("pointerdown", { bubbles: true }));
-      render(turnView([...turns, ...turn(30), ...turn(31)], new Set()));
+      render(turnView([...turns, ...turn(TURNS), ...turn(TURNS + 1)], new Set()));
     });
     expect(node.scrollTop).toBe(before);
     await act(async () => {

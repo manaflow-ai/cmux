@@ -8,8 +8,10 @@ import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { JSDOM } from "jsdom";
 import { ContextRing } from "./ComposerPickers";
+import { ShortcutsContext } from "./shortcuts";
 import { cacheTimeLeft, contextSegments } from "./contextCardModel";
 import { translate } from "./i18n";
+import { settleReact } from "../../../test/support/domTeardown";
 
 let dom: JSDOM | undefined;
 let root: Root | undefined;
@@ -56,6 +58,7 @@ afterEach(async () => {
       await new Promise((resolve) => setTimeout(resolve, 0));
     });
   root = undefined;
+  await settleReact();
   dom?.window.close();
   dom = undefined;
   for (const [key, value] of saved) {
@@ -389,4 +392,68 @@ test("time left reads minutes and seconds, rounded up", () => {
   expect(cacheTimeLeft(191_001)).toBe("3:12");
   expect(cacheTimeLeft(3_130_000)).toBe("52:10");
   expect(cacheTimeLeft(-5)).toBe("0:00");
+});
+
+test("the usage card names the ring's key once usage is known", async () => {
+  // Fleet check 2026-11-20: with usage known the ring shows this card in place of its tooltip, so
+  // the card is where Show Context Usage's key (agentPane.composer.showContextUsage) has to show.
+  const container = installDom();
+  await act(async () => {
+    root = createRoot(container);
+    root.render(
+      <ShortcutsContext.Provider value={{ "agentPane.composer.showContextUsage": "⌃⌥⌘U" }}>
+        <ContextRing used={111_000} size={475_000} />
+      </ShortcutsContext.Provider>,
+    );
+  });
+  const ring = container.querySelector<HTMLButtonElement>(".acpmux-context-ring")!;
+  await act(async () => ring.focus());
+  await wait();
+  expect(card()!.querySelector(".ui-tooltip-hint")?.textContent).toBe("⌃⌥⌘U");
+});
+
+// Leo 2026-11-25: "honestly do we want a compact button here or...". One Compact conversation row
+// above Details, sending /compact; emphasised from 80% used; inert, in place, mid-turn.
+test("Compact conversation sits above Details, sends once and closes the card", async () => {
+  let compacted = 0;
+  const ring = await mount({
+    used: 154_100,
+    size: 157_100,
+    onOpenDetails: () => undefined,
+    onCompact: () => compacted++,
+  });
+  await act(async () => ring.focus());
+  await wait();
+  const rows = [...card()!.querySelectorAll<HTMLButtonElement>(".acpmux-context-card-foot button")];
+  expect(rows.map((row) => row.textContent)).toEqual([
+    translate("context.compactConversation"),
+    translate("context.details"),
+  ]);
+  expect(rows[0]!.hasAttribute("data-emphasis")).toBe(true);
+  expect(rows[0]!.disabled).toBe(false);
+  await act(async () => rows[0]!.click());
+  await wait();
+  expect(compacted).toBe(1);
+  expect(card()).toBeNull();
+});
+
+test("Compact conversation reads plain under 80% and stays in place, disabled, mid-turn", async () => {
+  const ring = await mount({
+    used: 60_000,
+    size: 200_000,
+    onCompact: () => undefined,
+    compactDisabled: true,
+  });
+  await act(async () => ring.focus());
+  await wait();
+  const row = card()!.querySelector<HTMLButtonElement>(".acpmux-context-card-compact")!;
+  expect(row.hasAttribute("data-emphasis")).toBe(false);
+  expect(row.disabled).toBe(true);
+});
+
+test("no Compact conversation row where the agent offers no /compact", async () => {
+  const ring = await mount({ used: 60_000, size: 200_000, onOpenDetails: () => undefined });
+  await act(async () => ring.focus());
+  await wait();
+  expect(card()!.querySelector(".acpmux-context-card-compact")).toBeNull();
 });

@@ -171,6 +171,23 @@ int cmux_shim_print(int browser_id) {
   return 1;
 }
 
+int cmux_shim_page_command(int browser_id, int command) {
+  int id = 0;
+  switch (command) {
+    case CMUX_SHIM_PAGE_SAVE_AS: id = 35004; break;    // IDC_SAVE_PAGE
+    case CMUX_SHIM_PAGE_CAST: id = 35011; break;       // IDC_ROUTE_MEDIA
+    case CMUX_SHIM_PAGE_QR_CODE: id = 35021; break;    // IDC_QRCODE_GENERATOR
+    case CMUX_SHIM_PAGE_TRANSLATE: id = 35009; break;  // IDC_SHOW_TRANSLATE
+    default: return 0;
+  }
+  CefRefPtr<CefBrowserHost> host = HostOf(browser_id);
+  // Chromium's commands act on the page's Browser (its active tab is the
+  // page: the host activates the shown tab), as DevTools' Console does.
+  if (!host || !host->CanExecuteChromeCommand(id)) return 0;
+  host->ExecuteChromeCommand(id, CEF_WOD_CURRENT_TAB);
+  return 1;
+}
+
 void cmux_shim_find(int browser_id, int find_id, const char* text, int forward, int match_case, int find_next) {
   // CEF reports its own identifier in OnFindResult; this build ignores the
   // caller's, so Swift matches results by browser and the latest request.
@@ -208,6 +225,10 @@ int cmux_shim_try_close(int browser_id) {
 
 int cmux_shim_devtools_call(int browser_id, const char* method, const char* params_json) {
   CefRefPtr<CefBrowserHost> host = HostOf(browser_id);
+  // A docked DevTools frontend is a browser of its own, not a page browser: a window image asks it for its picture.
+  if (!host) {
+    if (CefRefPtr<CefBrowser> frontend = DevToolsFrontendById(browser_id)) host = frontend->GetHost();
+  }
   const size_t params_size = params_json ? std::strlen(params_json) : 0;
   if (!host || !IsDevToolsMethodName(method) || (params_size > 0 && !IsOneJSONObject(params_json, params_size))) {
     return 0;

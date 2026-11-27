@@ -4,7 +4,7 @@
 // ran whatever. the ran thing basiclly replcaes the thinking usually"). His chat had a `cp` still
 // running in an earlier run while the agent messaged others: the row read "Ran cp …" with
 // "⌃B to run in background" beside it, and the line at the bottom read "Thinking".
-import { expect, test } from "bun:test";
+import { afterAll, beforeAll, expect, test } from "bun:test";
 import { renderToStaticMarkup } from "react-dom/server";
 import type { AcpmuxActivity, AcpmuxRow } from "../src/agent-session/acpmux/model";
 import { CommandRow } from "../src/agent-session/acpmux/conversation/CommandRow";
@@ -14,6 +14,17 @@ import { WorkingFor } from "../src/agent-session/acpmux/conversation/WorkingFor"
 import { RunInBackgroundContext } from "../src/agent-session/acpmux/conversation/runInBackground";
 import { THINKING, turnView } from "../src/agent-session/acpmux/conversation/turns";
 import { callsToHold, linedCallOf, withoutHeldCalls } from "../src/agent-session/acpmux/conversation/turnEndHold";
+
+// This file covers the `runs` arm of liveTurnWork.experiment.ts: a running turn keeps its finished
+// runs in sight until it ends. The `line` arm (one live line, as chatgpt.com draws a running
+// turn) is covered by live-turn-one-line.test.ts.
+const liveTurnArmsBefore = globalThis.cmuxExperiments;
+beforeAll(() => {
+  globalThis.cmuxExperiments = { ...liveTurnArmsBefore, "live-turn-work": "runs" };
+});
+afterAll(() => {
+  globalThis.cmuxExperiments = liveTurnArmsBefore;
+});
 
 let at = 0;
 const row = (id: string, kind: string, extra: Partial<AcpmuxRow> = {}): AcpmuxRow => ({
@@ -69,7 +80,23 @@ test("a command still running in an earlier run is the live line, not Thinking u
         />,
       ),
     ),
-  ).toBe(`Running ${cp} 12s ⌃B to run in background`);
+  ).toBe(`${cp} 12s ⌃B to run in background`);
+});
+
+test("the live line shows the shell description in prose and retains its background shortcut", () => {
+  const command = "timeout 30 acpmux session inbox session-id";
+  const description = "Read the three non-notice inbox threads";
+  const line = codex([
+    row("u", "user"),
+    row("r", "activity", { items: [call(command, "in_progress", { description })] }),
+  ]).at(-1)!;
+  expect(line).toMatchObject({ kind: THINKING, doing: description, doingCommand: true });
+  const html = withCtrlB(
+    <Thinking since={line.at} doing={line.doing} doingShell={line.doingShell} command={line.doingCommand} />,
+  );
+  expect(words(html)).toContain(description);
+  expect(words(html)).toContain("⌃B to run in background");
+  expect(html).not.toContain(command);
 });
 
 test("the call in the latest step still names the line before an older command", () => {
@@ -79,7 +106,7 @@ test("the call in the latest step still names the line before an older command",
     row("a", "assistant", { text: LONG_NOTE }),
     row("r2", "activity", { items: [call("bun test", "in_progress")] }),
   ]);
-  expect(shaped.at(-1)).toMatchObject({ doing: "bun test", doingCommand: true });
+  expect(shaped.at(-1)).toMatchObject({ doing: "Running tests", doingCommand: true });
   expect(shaped.at(-1)!.linedCall).toBeUndefined();
   // The older command keeps its row, which says it is still running and offers no ⌃B.
   expect(shaped.find((entry) => entry.id === "r1")?.items?.map((item) => item.tool?.id)).toEqual(["cp a b"]);
@@ -99,12 +126,13 @@ test("a backgrounded command stays in its run and never takes the line", () => {
   expect(shaped.some((entry) => entry.id === "r1")).toBe(true);
 });
 
-test("a running command's row has no ⌃B hint and reads Running, then what it did", () => {
+test("a running command's row has no ⌃B hint and reads the command, then what it did", () => {
   const running = call("cp a b", "in_progress").tool!;
   const item = { kind: "tool", text: "", tool: running } as AcpmuxActivity;
   for (const html of [withCtrlB(<CommandRow item={item} />), withCtrlB(<ToolRow item={item} />)]) {
     expect(html).not.toContain("cv-command__bg");
-    expect(words(html)).toContain("Running cp a b");
+    expect(words(html)).toContain("cp a b");
+    expect(words(html)).not.toContain("Running ");
     expect(words(html)).not.toContain("Ran ");
   }
   const done = { ...item, tool: { ...running, status: "completed", exitCode: 0 } } as AcpmuxActivity;
@@ -150,59 +178,6 @@ test("a run whose command is on the line never shares a version with its ended, 
   const folded = ended.find((entry) => entry.id === "r1")!;
   expect(folded.items?.map((item) => item.tool?.id)).toEqual(["git log", "cp a b"]);
   expect(folded.version).not.toBe(lined.version);
-});
-
-test("with a todo list the activity line offers ⌃B for a running command", async () => {
-  const { ActivityLine } = await import("../src/agent-session/acpmux/conversation/ActivityLine");
-  const plan = row("p", "plan", { plan: [{ content: "Copy the logs", status: "in_progress" }] });
-  const shaped = turnView(
-    [row("u", "user"), plan, row("run", "activity", { items: [call("git log"), call("cp a b", "in_progress")] })],
-    new Set(),
-    { working: true, sessionStatus: true },
-  );
-  const line = shaped.at(-1)!;
-  expect(line).toMatchObject({ kind: "activityLine", doingCommand: true });
-  expect(withCtrlB(<ActivityLine row={line} />)).toContain("cv-command__bg");
-});
-
-// Re-review on #24305 (Codex xhigh): with a todo list the activity line names the command the runs
-// left out, even when a newer earlier run holds a read or a call Claude is still writing.
-test("with a todo list the activity line names the command its run gave up", () => {
-  const plan = row("p", "plan", { plan: [{ content: "Copy the logs", status: "in_progress" }] });
-  const newer = [
-    call("Bash", "pending", { title: "Bash", command: undefined }),
-    call("Read session.log", "in_progress", { kind: "read", command: undefined }),
-  ];
-  for (const other of newer) {
-    const shaped = turnView(
-      [
-        row("u", "user"),
-        plan,
-        row("r1", "activity", { items: [call("cp a b", "in_progress")] }),
-        row("a1", "assistant", { text: LONG_NOTE }),
-        row("r2", "activity", { items: [other] }),
-        row("a2", "assistant", { text: LONG_NOTE }),
-        row("r3", "activity", { items: [call("git status")] }),
-      ],
-      new Set(),
-      { working: true, sessionStatus: true },
-    );
-    const line = shaped.at(-1)!;
-    expect(line).toMatchObject({ kind: "activityLine", doingCommand: true });
-    expect(line.text).toContain("cp a b");
-    expect(shaped.some((entry) => entry.id === "r1")).toBe(false);
-  }
-});
-
-// Leo, 2026-11-03, on a row that opened to nothing: "these background updates don't really expand out
-// to anything? idk what those are even for". The "Sending message to …" line opens nothing either, so
-// it draws no chevron.
-test("the Sending message line draws no chevron: it has nothing to open", async () => {
-  const { ActivityLine } = await import("../src/agent-session/acpmux/conversation/ActivityLine");
-  const line = { id: "l", version: 1, at: 0, kind: "activityLine", doingSendTo: "tests" } as AcpmuxRow;
-  const html = renderToStaticMarkup(<ActivityLine row={line} now={() => 1000} />);
-  expect(html).toContain("tests");
-  expect(html).not.toContain("cv-tool__chevron");
 });
 
 // cmux#33200: while the reader is scrolled up, the command the line lets go of stays out of its run,

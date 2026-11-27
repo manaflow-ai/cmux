@@ -45,6 +45,23 @@ public struct SendTerminalInputRequest: DaemonRequest {
     }
 }
 
+/// The person closed the pane of a terminal this connection is still creating
+/// (`creating-input-cancel-v1`): the daemon drops the input this connection queued for it with no
+/// give-back, writes none of it to the new terminal, and refuses later input by this id until the
+/// creation ends and for a short time after. The creation itself goes on; its close is a
+/// separate request. Only the connection that asked for the terminal can cancel.
+public struct CancelCreatingInputRequest: DaemonRequest {
+    public struct Response: Decodable, Sendable, Equatable {
+        /// True when the daemon knew the creation: its queued input is dropped.
+        public var cancelled: Bool?
+    }
+    public static let command = "cancel-creating-input"
+    public var terminalID: String
+    public init(terminalID: String) {
+        self.terminalID = terminalID
+    }
+}
+
 /// Bytes the daemon queued for a terminal that was being created and did not write
 /// (`terminal-input-while-creating-v1`), sent to the connection that queued them. The client
 /// gives them to the terminal that has focus.
@@ -67,17 +84,6 @@ public struct TerminalInputUnclaimed: Decodable, Sendable, Equatable {
     }
     enum CodingKeys: String, CodingKey {
         case terminalId = "terminal_id", bytesBase64 = "bytes_base64", reason
-    }
-}
-
-public struct SendKeyRequest: DaemonRequest {
-    public typealias Response = EmptyResponse
-    public static let command = "send-key"
-    public var surface: SurfaceID
-    public var keys: [String]
-    public init(surface: SurfaceID, keys: [String]) {
-        self.surface = surface
-        self.keys = keys
     }
 }
 

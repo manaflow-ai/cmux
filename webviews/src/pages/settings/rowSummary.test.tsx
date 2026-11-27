@@ -6,8 +6,8 @@
 // file default on a busy worker:
 // cmux-web-test-timeout: 360
 import { afterAll, afterEach, expect, test } from "bun:test";
-import { readFileSync } from "node:fs";
 import path from "node:path";
+import { readCatalog } from "../../../scripts/pages/catalog.mjs";
 import { LOCALES } from "../../../scripts/pages/gen-strings.mjs";
 import { categories } from "./categories";
 import type { ComputerUsePhase } from "./ops";
@@ -23,7 +23,7 @@ const LIMIT = 60;
 const here = import.meta.dir;
 const catalogFile = path.resolve(
   here,
-  "../../../../Packages/macOS/CmuxNext/Sources/CmuxNextSettings/Localizable.xcstrings",
+  "../../../../Packages/macOS/CmuxNext/Sources/CmuxNextSettings/Localizable.xcstrings.d",
 );
 
 /** Characters as a reader counts them (Thai and Khmer marks join the letter they sit on). */
@@ -38,12 +38,16 @@ afterEach(() => {
 
 /**
  * Every description line the page draws: a row's line under its title, a card's intro, a status
- * line. `.selectable` lines show a value (a file path, a config file), not a description.
+ * line. `.selectable` lines show a value (a file path, a config file), not a description. A hidden
+ * element is not drawn: it is a control's screen-reader description (FactsHoverCard.tsx WithFacts,
+ * a device's whole fingerprint), so its text is not part of the line.
  */
 function descriptionLines(container: ParentNode): string[] {
-  return [...container.querySelectorAll<HTMLElement>(".row-help:not(.selectable), [data-intro]")].map(
-    (line) => line.textContent?.trim() ?? "",
-  );
+  return [...container.querySelectorAll<HTMLElement>(".row-help:not(.selectable), [data-intro]")].map((line) => {
+    const drawn = line.cloneNode(true) as HTMLElement;
+    for (const hidden of drawn.querySelectorAll("[hidden]")) hidden.remove();
+    return drawn.textContent?.trim() ?? "";
+  });
 }
 
 const phases: ComputerUsePhase[] = ["off", "unavailable", "starting", "ready", "version_mismatch"];
@@ -76,6 +80,7 @@ const views: View[] = [
 ];
 
 test("Material says what Clear Glass does in one short line, with no tooltip repeating it", async () => {
+  // Appearance draws the background rows in its picker.
   page = await renderPage({ path: "/settings/appearance" });
   const line = rowElement(page.container, "appearance.backgroundBlur").querySelector<HTMLElement>(".row-help");
   expect(line?.textContent).toBe("Clear Glass shows the desktop through the wallpaper");
@@ -114,7 +119,7 @@ test("no description line on any Settings page is over 60 characters, in any lan
 }, 300_000);
 
 test("every schema summary fits 60 characters in every language", () => {
-  const catalog = JSON.parse(readFileSync(catalogFile, "utf8")) as {
+  const catalog = readCatalog(catalogFile) as {
     strings: Record<string, { localizations?: Record<string, { stringUnit?: { value?: string } }> }>;
   };
   const keys = schema.rows.flatMap((row) => (row.summary?.key ? [row.summary.key] : []));

@@ -1,8 +1,8 @@
-// l10n-allow-file: test fixture questions and todo items, not shipped UI.
-// The answered question card and the todo list sit in a turn while the agent's reply streams below
-// them. Each token re-renders the turn around them; neither card may redraw for it (Leo,
-// 2026-10-21: no new O(rows) work per token in the transcript path). Both are memoized on their
-// immutable inputs: the decided question record and the plan's entries.
+// l10n-allow-file: test fixture questions, not shipped UI.
+// The answered question cards sit in a turn while the agent's reply streams below them. Each token
+// re-renders the turn around them; no card may redraw for it (Leo, 2026-10-21: no new O(rows) work
+// per token in the transcript path). Each is memoized on its immutable input: the decided question
+// record.
 //
 // A card's renders are counted through `useT`, which each of them calls once per render (and
 // nothing else in this tree calls). A React Profiler can't count them: one made again on every
@@ -12,11 +12,17 @@ import { act, Profiler, useState, type ReactNode } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { JSDOM } from "jsdom";
 import * as i18n from "../i18n";
-import type { AcpmuxPermission, AcpmuxPlanEntry } from "../model";
+import type { AcpmuxPermission } from "../model";
 import type { AgentQuestion } from "../question/model";
+import { teardownDom } from "../../../../test/support/domTeardown";
 
 let cardRenders = 0;
 const realUseT = i18n.useT;
+// mock.module replaces the module for the rest of the bun process: the real one goes back after this file.
+const realI18n = { ...i18n };
+afterAll(async () => {
+  await mock.module("../i18n", () => realI18n);
+});
 void mock.module("../i18n", () => ({
   ...i18n,
   useT: () => {
@@ -25,7 +31,6 @@ void mock.module("../i18n", () => ({
   },
 }));
 const { QuestionCard } = await import("../question/QuestionCard");
-const { PlanList } = await import("./PlanList");
 const { PermissionQuestion } = await import("../question/PermissionQuestion");
 
 const TOKENS = 200;
@@ -47,12 +52,8 @@ beforeAll(() => {
   });
 });
 
-afterAll(() => {
-  dom.window.close();
-  for (const [key, had, value] of saved) {
-    if (had) scope[key] = value;
-    else delete scope[key];
-  }
+afterAll(async () => {
+  await teardownDom(saved, { window: dom.window, scope });
 });
 
 const answered: AgentQuestion = {
@@ -74,11 +75,6 @@ const answered: AgentQuestion = {
   state: { kind: "answered", answer: { selections: { q0: { optionIDs: ["Passkeys"] } } } },
 };
 const skipped: AgentQuestion = { ...answered, id: "perm_skip", state: { kind: "cancelled", reason: "skipped" } };
-const plan: AcpmuxPlanEntry[] = [
-  { content: "Check the current auth config", status: "completed" },
-  { content: "Switch to the personal account", status: "in_progress" },
-  { content: "Verify the login", status: "pending" },
-];
 const ignoreReply = () => {};
 
 /// A turn: the cards above, then the reply that streams one token per update. The cards are made
@@ -113,18 +109,17 @@ async function stream(cards: () => ReactNode) {
   return { turn, cards: cardRenders, reply };
 }
 
-test("streaming tokens never redraw an answered or skipped question or the todo list", async () => {
+test("streaming tokens never redraw an answered or skipped question", async () => {
   const { turn, cards, reply } = await stream(() => (
     <>
       <QuestionCard question={answered} onReply={ignoreReply} />
       <QuestionCard question={skipped} onReply={ignoreReply} />
-      <PlanList entries={plan} />
     </>
   ));
   expect(reply.split(" ").length - 1).toBe(TOKENS);
-  // The turn commits once per token; the three cards render once each, on mount.
+  // The turn commits once per token; the two cards render once each, on mount.
   expect(turn).toBe(TOKENS + 1);
-  expect(cards).toBe(3);
+  expect(cards).toBe(2);
 });
 
 test("the live ask's card keeps still while the pane streams", async () => {
@@ -136,26 +131,4 @@ test("the live ask's card keeps still while the pane streams", async () => {
   const { cards } = await stream(() => <PermissionQuestion permission={permission} question={pending} send={send} />);
   // PendingAsk and PendingQuestion each read the strings once, on mount only.
   expect(cards).toBe(2);
-});
-
-test("a plan update or the turn's end still redraws the list", async () => {
-  let setEntries: (entries: AcpmuxPlanEntry[]) => void = () => {};
-  let setEnded: (ended: boolean) => void = () => {};
-  function Live() {
-    const [entries, entriesSetter] = useState(plan);
-    const [ended, endedSetter] = useState(false);
-    setEntries = entriesSetter;
-    setEnded = endedSetter;
-    return <PlanList entries={entries} ended={ended} />;
-  }
-  const host = dom.window.document.getElementById("root")!;
-  const root = createRoot(host);
-  cardRenders = 0;
-  await act(async () => root.render(<Live />));
-  await act(async () => setEntries(plan.map((entry) => ({ ...entry, status: "completed" }))));
-  expect(host.querySelectorAll('.cv-plan__item[data-status="completed"]').length).toBe(3);
-  await act(async () => setEnded(true));
-  expect(host.querySelector(".cv-plan")?.hasAttribute("data-ended")).toBe(true);
-  expect(cardRenders).toBe(3);
-  await act(async () => root.unmount());
 });

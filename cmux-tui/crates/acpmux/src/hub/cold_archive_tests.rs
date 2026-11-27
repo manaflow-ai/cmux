@@ -1,0 +1,380 @@
+//! Cold archive of old chats through the hub (`hub/cold_archive.rs`).
+
+use super::*;
+use crate::config::{Config, StoreMode};
+
+struct Root(PathBuf);
+
+impl Drop for Root {
+    fn drop(&mut self) {
+        let _ = std::fs::remove_dir_all(&self.0);
+    }
+}
+
+fn record(seq: u64, dir: &str, kind: &str, msg: Value) -> EventRecord {
+    EventRecord { seq, at: 1_000 + seq, dir: dir.into(), kind: kind.into(), msg, host_seq: None }
+}
+
+/// A chat with `turns` prompts and answers, saved `updated_at` and closed.
+fn chat(
+    store: &dyn crate::store::Store,
+    id: &str,
+    updated_at: u64,
+    turns: u64,
+) -> Vec<EventRecord> {
+    let meta = json!({
+        "schema": crate::store::META_SCHEMA, "id": id, "name": format!("chat {id}"),
+        "harness": "claude", "cwd": "/tmp", "status": "closed", "createdAt": 1,
+        "updatedAt": updated_at, "lastSeq": turns * 2, "eventCount": turns * 2,
+    });
+    store.save(&serde_json::from_value(meta).unwrap()).unwrap();
+    let mut records = Vec::new();
+    for turn in 0..turns {
+        records.push(record(
+            turn * 2 + 1,
+            "mux",
+            "user_message",
+            json!({"text": format!("question {turn} {}", "q".repeat(400))}),
+        ));
+        records.push(record(
+            turn * 2 + 2,
+            "in",
+            "agent_message_chunk",
+            json!({"jsonrpc": "2.0", "method": "session/update", "params": {"sessionId": "a", "update": {"sessionUpdate": "agent_message_chunk", "messageId": format!("m{turn}"), "content": {"type": "text", "text": format!("answer {turn}")}}}}),
+        ));
+    }
+    for r in &records {
+        store.append(id, r).unwrap();
+    }
+    store.close_log(id);
+    records
+}
+
+fn open(root: &Path) -> (Config, Arc<Hub>) {
+    let mut cfg = Config::default();
+    cfg.store.mode = StoreMode::Local;
+    let hub = Hub::new(cfg.clone(), crate::store::open(&cfg.store, root).unwrap());
+    (cfg, hub)
+}
+
+#[tokio::test]
+async fn archive_lists_from_its_preview_and_opens_back() {
+    let root = Root(std::env::temp_dir().join(format!("acpmux-cold-hub-{}", uuid::Uuid::now_v7())));
+    let mut cfg = Config::default();
+    cfg.store.mode = StoreMode::Local;
+    let records = {
+        let store = crate::store::open(&cfg.store, &root.0).unwrap();
+        let records = chat(&*store, "old", 2, 5);
+        store.flush().unwrap();
+        records
+    };
+    let (_, hub) = open(&root.0);
+    let session = hub.resolve("old").unwrap();
+    let mut heard = hub.subscribe();
+    let summary = hub.cold_archive_request(session.clone(), true).await.unwrap();
+    // The watchers hear the row's change, with nothing logged for it.
+    let ev = heard.try_recv().unwrap();
+    assert_eq!((ev.session_id.as_str(), ev.record.dir.as_str()), ("old", COLD_CHANGED));
+    let cold = &summary["coldArchive"];
+    assert_eq!(cold["messages"], json!(10), "{summary}");
+    let last = cold["last"].as_array().unwrap();
+    assert_eq!(last.len(), PREVIEW_MESSAGES);
+    assert_eq!(last[2], json!({"role": "assistant", "text": "answer 4", "at": 1_010}));
+    assert!(last[1]["text"].as_str().unwrap().ends_with('…'), "{}", last[1]);
+    assert!(hub.store.is_cold("old"));
+    // Archiving it again changes nothing.
+    assert!(hub.cold_archive_request(session.clone(), true).await.is_err());
+    hub.store.flush().unwrap();
+    hub.shutdown_all().await;
+    drop(hub);
+
+    // A new daemon lists it and reads every log at its start, without opening the archive: one
+    // that would not decode stays as it is.
+    let archive = root.0.join("sessions").join("old").join(crate::store::COLD_FILE);
+    let kept = std::fs::read(&archive).unwrap();
+    std::fs::write(&archive, b"not zstd").unwrap();
+    let (_, hub) = open(&root.0);
+    hub.load_logs();
+    let session = hub.resolve("old").unwrap();
+    assert_eq!(hub.session_list_summary(&session)["coldArchive"]["messages"], json!(10));
+    assert_eq!(std::fs::read(&archive).unwrap(), b"not zstd");
+    std::fs::write(&archive, &kept).unwrap();
+
+    // Opening it brings the log back, byte for byte, and the preview goes.
+    hub.session_log_on_screen(&session).await;
+    assert!(!hub.store.is_cold("old"));
+    assert!(session.meta().cold.is_none());
+    assert!(hub.session_summary(&session).get("coldArchive").is_none());
+    assert_eq!(hub.events("old", 0, 100).unwrap(), records);
+    hub.shutdown_all().await;
+}
+
+#[tokio::test]
+async fn a_replay_rehydrates_and_unarchive_is_explicit_too() {
+    let root = Root(std::env::temp_dir().join(format!("acpmux-cold-hub-{}", uuid::Uuid::now_v7())));
+    let mut cfg = Config::default();
+    cfg.store.mode = StoreMode::Local;
+    let records = {
+        let store = crate::store::open(&cfg.store, &root.0).unwrap();
+        let mut records = chat(&*store, "a", 2, 3);
+        records.extend(chat(&*store, "b", 2, 2));
+        store.flush().unwrap();
+        records
+    };
+    let (_, hub) = open(&root.0);
+    for id in ["a", "b"] {
+        hub.cold_archive_request(hub.resolve(id).unwrap(), true).await.unwrap();
+    }
+    let mut replayed = Vec::new();
+    hub.scan_events("a", 0, &mut |r| {
+        replayed.push(r);
+        true
+    })
+    .unwrap();
+    assert_eq!(replayed, records[..6]);
+    assert!(hub.resolve("a").unwrap().meta().cold.is_none());
+
+    let b = hub.resolve("b").unwrap();
+    hub.cold_archive_request(b.clone(), false).await.unwrap();
+    assert!(!hub.store.is_cold("b"));
+    assert!(b.meta().cold.is_none());
+    assert_eq!(hub.events("b", 0, 100).unwrap(), records[6..]);
+    hub.shutdown_all().await;
+}
+
+#[tokio::test]
+async fn the_automatic_pass_takes_only_chats_idle_past_the_setting() {
+    let root = Root(std::env::temp_dir().join(format!("acpmux-cold-hub-{}", uuid::Uuid::now_v7())));
+    let mut cfg = Config::default();
+    cfg.store.mode = StoreMode::Local;
+    let day = 86_400_000;
+    {
+        let store = crate::store::open(&cfg.store, &root.0).unwrap();
+        chat(&*store, "old", now_ms() - 40 * day, 2);
+        chat(&*store, "recent", now_ms() - 10 * day, 2);
+        chat(&*store, "today", now_ms(), 2);
+        store.flush().unwrap();
+    }
+    let (_, hub) = open(&root.0);
+    let after = std::time::Duration::from_millis(30 * day);
+    assert_eq!(hub.cold_pass_after(after), 1);
+    assert!(hub.store.is_cold("old"));
+    assert!(!hub.store.is_cold("recent"));
+    assert!(!hub.store.is_cold("today"));
+    // A chat with an agent attached or a turn open is left too: here, one a client attached.
+    let recent = hub.resolve("recent").unwrap();
+    recent.attached.fetch_add(1, Ordering::SeqCst);
+    assert_eq!(hub.cold_pass_after(std::time::Duration::from_millis(day)), 0);
+    recent.attached.fetch_sub(1, Ordering::SeqCst);
+    assert_eq!(hub.cold_pass_after(std::time::Duration::from_millis(day)), 1);
+    assert!(hub.store.is_cold("recent"));
+    hub.shutdown_all().await;
+}
+
+#[test]
+fn the_setting_is_off_by_default() {
+    assert_eq!(auto_after(&json!({})), None);
+    assert_eq!(auto_after(&json!({"agents": {"chats": {"coldArchiveAfterDays": 3}}})), None);
+    assert_eq!(
+        auto_after(&json!({"agents": {"chats": {"coldArchive": true}}})),
+        Some(std::time::Duration::from_secs(30 * 86_400))
+    );
+    assert_eq!(
+        auto_after(
+            &json!({"agents.chats.coldArchive": true, "agents.chats.coldArchiveAfterDays": 7})
+        ),
+        Some(std::time::Duration::from_secs(7 * 86_400))
+    );
+}
+
+#[tokio::test]
+async fn a_rehydrate_on_any_path_drops_the_preview() {
+    let root = Root(std::env::temp_dir().join(format!("acpmux-cold-hub-{}", uuid::Uuid::now_v7())));
+    let mut cfg = Config::default();
+    cfg.store.mode = StoreMode::Local;
+    {
+        let store = crate::store::open(&cfg.store, &root.0).unwrap();
+        chat(&*store, "old", 2, 3);
+        store.flush().unwrap();
+    }
+    let (_, hub) = open(&root.0);
+    let session = hub.resolve("old").unwrap();
+    hub.cold_archive_request(session.clone(), true).await.unwrap();
+    assert!(session.meta().cold.is_some());
+    // A read straight through the store, not the hub's open: the turn summary's.
+    assert_eq!(hub.history(&session, 10).len(), 3);
+    assert!(!hub.store.is_cold("old"));
+    // The hook queued it; the worker (or this call) drops the preview.
+    hub.settle_rehydrated();
+    assert!(session.meta().cold.is_none());
+    assert!(hub.session_summary(&session).get("coldArchive").is_none());
+    hub.shutdown_all().await;
+    drop(hub);
+    let (_, hub) = open(&root.0);
+    assert!(hub.resolve("old").unwrap().meta().cold.is_none(), "session.json has no preview");
+    hub.shutdown_all().await;
+}
+
+#[tokio::test]
+async fn a_preview_left_by_a_crash_goes_at_the_next_start() {
+    let root = Root(std::env::temp_dir().join(format!("acpmux-cold-hub-{}", uuid::Uuid::now_v7())));
+    let mut cfg = Config::default();
+    cfg.store.mode = StoreMode::Local;
+    let records = {
+        let store = crate::store::open(&cfg.store, &root.0).unwrap();
+        let records = chat(&*store, "old", 2, 3);
+        store.flush().unwrap();
+        records
+    };
+    let (_, hub) = open(&root.0);
+    hub.cold_archive_request(hub.resolve("old").unwrap(), true).await.unwrap();
+    hub.shutdown_all().await;
+    drop(hub);
+    // The log comes back with no hub to drop the preview: a crash right after a rehydrate.
+    {
+        let store = crate::store::open(&cfg.store, &root.0).unwrap();
+        assert!(store.rehydrate("old").unwrap());
+        assert!(store.load("old").unwrap().unwrap().cold.is_some());
+        store.flush().unwrap();
+    }
+    let (_, hub) = open(&root.0);
+    hub.load_logs();
+    let session = hub.resolve("old").unwrap();
+    assert!(session.meta().cold.is_none());
+    assert!(hub.session_log_loaded(&session));
+    assert_eq!(hub.events("old", 0, 100).unwrap(), records);
+    hub.shutdown_all().await;
+}
+
+/// Second review of #39141 (F2): the startup pass leaves a cold chat's log unread. Decompressed
+/// after the pass, the chat took the pass's end for its own read, so its log was never read: its
+/// transfer authority stayed unset, and the ownership checks refused it.
+#[tokio::test]
+async fn a_chat_decompressed_after_a_restart_reads_its_log() {
+    let root = Root(std::env::temp_dir().join(format!("acpmux-cold-hub-{}", uuid::Uuid::now_v7())));
+    let mut cfg = Config::default();
+    cfg.store.mode = StoreMode::Local;
+    {
+        let store = crate::store::open(&cfg.store, &root.0).unwrap();
+        chat(&*store, "old", 2, 3);
+        store.flush().unwrap();
+    }
+    let (_, hub) = open(&root.0);
+    hub.cold_archive_request(hub.resolve("old").unwrap(), true).await.unwrap();
+    hub.store.flush().unwrap();
+    hub.shutdown_all().await;
+    drop(hub);
+    // A daemon's restart: the logs are read after its ready line, the archived one's not.
+    let store = crate::store::open(&cfg.store, &root.0).unwrap();
+    let hub = Hub::new_deferred(cfg.clone(), store, crate::mailbox::Mailbox::memory());
+    hub.load_logs();
+    assert!(hub.logs_loaded());
+    let session = hub.resolve("old").unwrap();
+    assert!(session.meta().cold.is_some() && session.transfer_blocked().is_none());
+    hub.cold_archive_request(session.clone(), false).await.unwrap();
+    assert!(session.meta().cold.is_none() && !hub.store.is_cold("old"));
+    assert!(!hub.session_log_loaded(&session), "decompressed, its log is still to be read");
+    // The next request reads it, as `_acpmux/info` does.
+    hub.session_log(&session).await;
+    assert!(hub.session_log_loaded(&session));
+    assert_eq!(session.transfer_blocked(), Some(false), "its transfer authority is restored");
+    hub.shutdown_all().await;
+}
+
+/// Second review of #39141 (F3): a read that brought the log back between an archive's commit
+/// and its preview going in left the worker no preview to drop; the preview then went in, and the
+/// hot chat stayed marked archived, refused for another archive.
+#[tokio::test]
+async fn a_rehydrate_before_the_preview_goes_in_leaves_no_preview() {
+    let root = Root(std::env::temp_dir().join(format!("acpmux-cold-hub-{}", uuid::Uuid::now_v7())));
+    let mut cfg = Config::default();
+    cfg.store.mode = StoreMode::Local;
+    let records = {
+        let store = crate::store::open(&cfg.store, &root.0).unwrap();
+        let records = chat(&*store, "old", 2, 3);
+        store.flush().unwrap();
+        records
+    };
+    let (_, hub) = open(&root.0);
+    let session = hub.resolve("old").unwrap();
+    // Right after the commit: a read straight through the store brings the log back, and the
+    // worker drains its hook.
+    AFTER_COLD_COMMIT.set(Some(|hub: &Hub, session: &Session| {
+        assert!(hub.store.is_cold(&session.id));
+        assert_eq!(hub.store.events(&session.id, 0, 100).unwrap().len(), 6);
+        assert_eq!(hub.settle_rehydrated(), 0, "no preview yet");
+    }));
+    let hosted = std::collections::HashSet::new();
+    assert_eq!(hub.cold_archive_chat(&session, None, &hosted).unwrap_err(), "changed");
+    assert!(!hub.store.is_cold("old"));
+    assert!(session.meta().cold.is_none(), "no preview for a hot chat");
+    assert!(hub.session_summary(&session).get("coldArchive").is_none());
+    assert_eq!(hub.events("old", 0, 100).unwrap(), records);
+    // It archives again.
+    hub.cold_archive_chat(&session, None, &hosted).unwrap();
+    assert!(hub.store.is_cold("old") && session.meta().cold.is_some());
+    hub.shutdown_all().await;
+}
+
+/// Third review of #39141 (F1): a preview's messages went to a peer unmasked, and a cut through a
+/// token left its head, which no masking after the cut knows for one. The cut comes after the
+/// mask, and a peer's list row and change notification read each message masked.
+#[tokio::test]
+async fn a_peer_reads_a_preview_masked_even_where_the_cut_splits_a_secret() {
+    use crate::rpc::{Message, method};
+    let token = format!("gh{}_{}", "p", "aZ3kQ9mX7pL2vB8nR4tW6yC1dF5gH0jS1234");
+    let root = Root(std::env::temp_dir().join(format!("acpmux-cold-hub-{}", uuid::Uuid::now_v7())));
+    let mut cfg = Config::default();
+    cfg.store.mode = StoreMode::Local;
+    // The answer's token starts 9 characters before the preview's cut.
+    let long = format!("{} {token} and more", "y".repeat(PREVIEW_CHARS - 10));
+    {
+        let store = crate::store::open(&cfg.store, &root.0).unwrap();
+        let meta = json!({
+            "schema": crate::store::META_SCHEMA, "id": "old", "name": "chat old",
+            "harness": "claude", "cwd": "/tmp", "status": "closed", "createdAt": 1,
+            "updatedAt": 2, "lastSeq": 2, "eventCount": 2,
+        });
+        store.save(&serde_json::from_value(meta).unwrap()).unwrap();
+        let prompt =
+            record(1, "mux", "user_message", json!({"text": format!("push with {token}")}));
+        let answer = record(
+            2,
+            "in",
+            "agent_message_chunk",
+            json!({"jsonrpc": "2.0", "method": "session/update", "params": {"sessionId": "a", "update": {"sessionUpdate": "agent_message_chunk", "messageId": "m0", "content": {"type": "text", "text": long}}}}),
+        );
+        store.append("old", &prompt).unwrap();
+        store.append("old", &answer).unwrap();
+        store.close_log("old");
+        store.flush().unwrap();
+    }
+    let (_, hub) = open(&root.0);
+    let session = hub.resolve("old").unwrap();
+    let summary = hub.cold_archive_request(session.clone(), true).await.unwrap();
+    let last = summary["coldArchive"]["last"].as_array().unwrap().clone();
+    assert_eq!(last.len(), 2, "{summary}");
+    // Here, the whole prompt keeps its raw text; the cut answer is masked before its cut.
+    assert_eq!(last[0]["text"], format!("push with {token}"));
+    let cut = last[1]["text"].as_str().unwrap();
+    assert!(!cut.contains("ghp_"), "the cut left the token's head: {cut}");
+    assert!(cut.ends_with("[GitHub P…"), "{cut}");
+    assert_eq!(cut.chars().count(), PREVIEW_CHARS + 1);
+    // A peer's list row and change notification.
+    let list = Message::ok(json!(1), json!({"sessions": [hub.session_list_summary(&session)]}));
+    let changed = Message::notification(
+        method::MUX_SESSION_CHANGED,
+        json!({"sessionId": "old", "session": summary, "kind": COLD_CHANGED}),
+    );
+    for msg in [list, changed] {
+        let out = crate::server::peer_text::masked(&msg).expect("the row carries a secret");
+        let text = match out {
+            Message::Response { result: Some(result), .. } => result.to_string(),
+            Message::Notification { params: Some(params), .. } => params.to_string(),
+            other => panic!("{other:?}"),
+        };
+        assert!(!text.contains("ghp_"), "a raw token reached a peer: {text}");
+        assert!(text.contains("push with [GitHub Personal Access Token]"), "{text}");
+    }
+    hub.shutdown_all().await;
+}

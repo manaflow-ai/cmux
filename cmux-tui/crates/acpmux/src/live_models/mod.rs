@@ -141,6 +141,11 @@ impl Probe {
             crate::agent::foreign_login::remove_foreign(&runs, Some(env), |key| {
                 cmd.env_remove(key);
             });
+            // A probe Claude Code joins no peer list, as an agent's does not (`agent/command.rs`,
+            // `hub/native_messaging.rs`); the profile's own value, set below, wins.
+            if matches!(cli, Cli::Claude) {
+                cmd.env(crate::claude_stdio::native_messaging::SWITCH_ENV, "0");
+            }
             cmd.args(rest)
                 .args(match cli {
                     Cli::Claude => claude::args(),
@@ -205,7 +210,7 @@ pub(crate) fn text<'a>(v: &'a Value, key: &str) -> Option<&'a str> {
 
 /// The program's identity for the cache: its real path, size and
 /// modification time. Unset when the program cannot be read.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub struct CacheKey {
     pub program: PathBuf,
     pub len: u64,
@@ -247,8 +252,8 @@ impl Cache {
         cache_path(&self.dir, harness)
     }
 
-    /// Every cached list whose program is unchanged, by harness.
-    pub fn load_all(&self) -> BTreeMap<String, Vec<LiveModel>> {
+    /// Every cached list whose program is unchanged, by harness, with that program's identity.
+    pub fn load_all(&self) -> BTreeMap<String, (Vec<LiveModel>, CacheKey)> {
         let mut out = BTreeMap::new();
         let Ok(entries) = std::fs::read_dir(&self.dir) else { return out };
         for entry in entries.flatten() {
@@ -260,20 +265,24 @@ impl Cache {
             else {
                 continue;
             };
-            if let Some(models) = self.load(harness, None) {
-                out.insert(harness.to_owned(), models);
+            if let Some(listed) = self.load(harness, None) {
+                out.insert(harness.to_owned(), listed);
             }
         }
         out
     }
 
     /// The cached list for `harness` when its program is unchanged (and is
-    /// `program`, when given).
-    pub fn load(&self, harness: &str, program: Option<&Path>) -> Option<Vec<LiveModel>> {
+    /// `program`, when given), with the identity it was read under.
+    pub fn load(
+        &self,
+        harness: &str,
+        program: Option<&Path>,
+    ) -> Option<(Vec<LiveModel>, CacheKey)> {
         let file: CacheFile<Vec<LiveModel>> =
             serde_json::from_slice(&std::fs::read(self.path(harness)).ok()?).ok()?;
         let current = CacheKey::of(program.unwrap_or(&file.key.program))?;
-        (current == file.key && !file.models.is_empty()).then_some(file.models)
+        (current == file.key && !file.models.is_empty()).then_some((file.models, current))
     }
 
     /// Keeps `models` for `harness` (write to a temporary file, then rename).
@@ -284,13 +293,15 @@ impl Cache {
         models: &[LiveModel],
     ) -> std::io::Result<()> {
         // A probe that ends after the home was lost never makes it again (`config::mark_home_lost`).
+        // Through the folder this daemon holds (`home_fs`): a home replaced after the check never
+        // gets the list.
         crate::config::refuse_lost_home(&self.dir).map_err(std::io::Error::other)?;
-        std::fs::create_dir_all(&self.dir)?;
+        crate::home_fs::create_dir_all(&self.dir, 0o777)?;
         let path = self.path(harness);
         let tmp = path.with_extension("json.tmp");
         let body = serde_json::to_vec(&CacheFile { key: key.clone(), models })?;
-        std::fs::write(&tmp, body)?;
-        std::fs::rename(&tmp, &path)
+        crate::home_fs::write_synced(&tmp, &body)?;
+        crate::home_fs::rename(&tmp, &path)
     }
 }
 
@@ -381,8 +392,9 @@ impl AcpCache {
         models: &[(String, String)],
     ) -> std::io::Result<()> {
         // A probe that ends after the home was lost never makes it again (`config::mark_home_lost`).
+        // Through the folder this daemon holds (`home_fs`), as `Cache::store`.
         crate::config::refuse_lost_home(&self.dir).map_err(std::io::Error::other)?;
-        std::fs::create_dir_all(&self.dir)?;
+        crate::home_fs::create_dir_all(&self.dir, 0o777)?;
         let path = cache_path(&self.dir, harness);
         let tmp = path.with_extension("json.tmp");
         let file = AcpCacheFile {
@@ -392,8 +404,8 @@ impl AcpCache {
                 .map(|(id, name)| AcpModel { id: id.clone(), name: name.clone() })
                 .collect(),
         };
-        std::fs::write(&tmp, serde_json::to_vec(&file)?)?;
-        std::fs::rename(&tmp, &path)
+        crate::home_fs::write_synced(&tmp, &serde_json::to_vec(&file)?)?;
+        crate::home_fs::rename(&tmp, &path)
     }
 }
 
@@ -420,7 +432,9 @@ pub fn overlay(models: &mut [Value], live: &[LiveModel]) {
         if let Some(fast) = model.fast {
             entry["fast"] = json!(fast);
         }
-        if !model.service_tiers.is_empty() {
+        if !model.service_tiers.is_empty()
+            || (model.fast == Some(false) && entry.get("serviceTiers").is_some())
+        {
             entry["serviceTiers"] = json!(model.service_tiers);
         }
     }

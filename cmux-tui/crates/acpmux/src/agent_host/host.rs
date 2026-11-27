@@ -5,9 +5,9 @@ use super::*;
 use crate::claude_stdio::{Outbound, Translator};
 use crate::rpc::Message;
 use std::collections::VecDeque;
-use std::os::fd::AsRawFd;
+use std::os::fd::{AsRawFd, OwnedFd};
 use std::sync::Arc;
-use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
+use tokio::io::{AsyncWriteExt, BufReader};
 use tokio::net::UnixListener;
 use tokio::sync::mpsc;
 
@@ -39,7 +39,7 @@ async fn run() -> Result<()> {
     // keeps its router through a daemon restart. The path comes from the
     // daemon, whose home may be a tagged build's override.
     let _router_owner =
-        spec.router_owner_fifo.as_deref().and_then(crate::daemon::open_router_owner);
+        spec.router_owner_fifo.as_deref().and_then(crate::daemon_parts::open_router_owner);
     match start(&spec).await {
         Ok(started) => {
             write_frame(&mut stdout, &BootstrapReply::Ready { record: started.record.clone() })
@@ -69,12 +69,131 @@ fn detach_stdio() {
 struct Started {
     record: HostRecord,
     listener: UnixListener,
-    child: tokio::process::Child,
+    harness: Harness,
+    /// The agent holder's ring and custody copies (`custody.rs`), when this host keeps them.
+    holder: Option<Holder>,
     /// Held for the life of the process: the liveness proof.
     _live: std::fs::File,
 }
 
+/// The harness this host runs.
+enum Harness {
+    /// Started by this host: its child.
+    Spawned(tokio::process::Child),
+    /// A replacement host's (`custody.rs`): the harness of a host that died, no child of this
+    /// one, with its stdio inherited and its exit watched by `pidfd` (Linux) or pid.
+    Adopted { pid: u32, stdin: OwnedFd, stdout: OwnedFd, stderr: OwnedFd, pidfd: Option<OwnedFd> },
+}
+
+/// The agent holder in a host (`custody.rs`).
+struct Holder {
+    /// What custody hands over.
+    fds: super::custody::HostFds,
+    /// Where the stdout reader starts in the ring.
+    replay_from: u64,
+    /// A replacement host: what it continues from.
+    adopt: Option<Adopt>,
+}
+
+/// The holder of a harness this host just started: an empty ring and copies of its pipes. None,
+/// with a warning, when one can not be made (the harness then runs as without the holder).
+fn holder_of(child: &tokio::process::Child, spec: &SpawnSpec) -> Option<Holder> {
+    use super::custody::{HostFds, Ring, dup, pidfd_open, start_time};
+    let made = (|| -> std::io::Result<Holder> {
+        let missing = || std::io::Error::other("a harness pipe is missing");
+        let pid = child.id().ok_or_else(missing)?;
+        let fds = HostFds {
+            stdin: dup(child.stdin.as_ref().ok_or_else(missing)?.as_raw_fd())?,
+            stdout: dup(child.stdout.as_ref().ok_or_else(missing)?.as_raw_fd())?,
+            stderr: dup(child.stderr.as_ref().ok_or_else(missing)?.as_raw_fd())?,
+            ring: Arc::new(Ring::create(&spec.hosts_dir)?),
+            // Opened while the harness is this host's unreaped child: the pid is its own.
+            pidfd: pidfd_open(pid),
+            harness_start: start_time(pid),
+        };
+        Ok(Holder { fds, replay_from: 0, adopt: None })
+    })();
+    match made {
+        Ok(holder) => Some(holder),
+        Err(e) => {
+            tracing::warn!("agent holder: no output ring for this harness: {e}");
+            None
+        }
+    }
+}
+
+/// A replacement host (`custody.rs`): takes over the running harness of a host that died, with
+/// the descriptors its daemon kept, under the same incarnation and owner token.
+async fn start_adopted(spec: &SpawnSpec, adopt: Adopt) -> Result<Started> {
+    use super::custody::{HostFds, dup, inherited, pidfd_exited, start_time};
+    ensure_private_dir(&spec.hosts_dir)?;
+    if let Some(parent) = spec.socket.parent() {
+        ensure_private_dir(parent)?;
+    }
+    let (stdin, stdout, stderr, ring, pidfd) = inherited(&adopt)?;
+    let pid = adopt.harness_pid;
+    let alive = match &pidfd {
+        Some(fd) => !pidfd_exited(fd),
+        None => {
+            // SAFETY: signal 0 only checks existence.
+            let exists = unsafe { libc::kill(pid as i32, 0) == 0 };
+            exists && (adopt.harness_start.is_none() || start_time(pid) == adopt.harness_start)
+        }
+    };
+    if !alive {
+        bail!("the harness exited before its replacement host started");
+    }
+    let nonce = random_hex(16)?;
+    let live_file = live_path(&spec.hosts_dir, &spec.session_id, &nonce);
+    let live = lock_live_file(&live_file)?;
+    let mut cleanup = StartCleanup { paths: vec![live_file] };
+    let _ = crate::home_fs::remove_file(&spec.socket);
+    let listener = UnixListener::bind(&spec.socket)
+        .with_context(|| format!("bind {}", spec.socket.display()))?;
+    cleanup.paths.push(spec.socket.clone());
+    crate::home_fs::set_mode(&spec.socket, 0o600)?;
+    let record = HostRecord {
+        record_version: RECORD_VERSION,
+        session_id: spec.session_id.clone(),
+        incarnation: adopt.incarnation.clone(),
+        host_pid: std::process::id(),
+        start_nonce: nonce,
+        harness_pid: Some(pid),
+        owner_token: adopt.owner_token.clone(),
+        caller_token: adopt.caller_token.clone(),
+        protocol_min: PROTOCOL_MIN,
+        protocol_max: PROTOCOL_MAX,
+        host_build: crate::build_info::build().to_owned(),
+        socket: spec.socket.clone(),
+        claude_translator: spec.translator.is_some(),
+        host_level: HOST_LEVEL,
+        // A replacement host is the holder of the harness it took over.
+        holder: Some(true),
+    };
+    write_record_atomic(&record_path(&spec.hosts_dir, &spec.session_id), &record)?;
+    cleanup.paths.clear();
+    let fds = HostFds {
+        stdin: dup(stdin.as_raw_fd())?,
+        stdout: dup(stdout.as_raw_fd())?,
+        stderr: dup(stderr.as_raw_fd())?,
+        ring: Arc::new(ring),
+        pidfd: pidfd.as_ref().map(|fd| dup(fd.as_raw_fd())).transpose()?,
+        harness_start: adopt.harness_start,
+    };
+    let holder = Holder { fds, replay_from: adopt.replay_from, adopt: Some(adopt) };
+    Ok(Started {
+        record,
+        listener,
+        harness: Harness::Adopted { pid, stdin, stdout, stderr, pidfd },
+        holder: Some(holder),
+        _live: live,
+    })
+}
+
 async fn start(spec: &SpawnSpec) -> Result<Started> {
+    if let Some(adopt) = spec.holder.as_ref().and_then(|h| h.adopt.clone()) {
+        return start_adopted(spec, adopt).await;
+    }
     ensure_private_dir(&spec.hosts_dir)?;
     if let Some(parent) = spec.socket.parent() {
         ensure_private_dir(parent)?;
@@ -100,18 +219,15 @@ async fn start(spec: &SpawnSpec) -> Result<Started> {
         // started (background shells included).
         .process_group(0)
         .kill_on_drop(false);
-    // Never at background class while it starts (`cpu_class.rs`): the daemon lowers it once its
-    // session's start is over.
+    // Never at background class or this host's utility disk tier (`cpu_class.rs`): the daemon
+    // lowers a `background` session's harness once its start is over.
     crate::cpu_class::start_at_normal(&mut cmd);
     // Bind before the harness starts, so a failure leaves nothing running.
-    let _ = std::fs::remove_file(&spec.socket);
+    let _ = crate::home_fs::remove_file(&spec.socket);
     let listener = UnixListener::bind(&spec.socket)
         .with_context(|| format!("bind {}", spec.socket.display()))?;
     cleanup.paths.push(spec.socket.clone());
-    {
-        use std::os::unix::fs::PermissionsExt;
-        std::fs::set_permissions(&spec.socket, std::fs::Permissions::from_mode(0o600))?;
-    }
+    crate::home_fs::set_mode(&spec.socket, 0o600)?;
     let mut child = cmd.spawn().map_err(|e| {
         // Both a missing folder and a missing program fail as ENOENT: say which.
         if e.kind() == std::io::ErrorKind::NotFound && !spec.cwd.exists() {
@@ -123,6 +239,7 @@ async fn start(spec: &SpawnSpec) -> Result<Started> {
             anyhow!(e).context(format!("spawn harness process {}", spec.program))
         }
     })?;
+    let holder = spec.keeps_holder().then(|| holder_of(&child, spec)).flatten();
     let record = HostRecord {
         record_version: RECORD_VERSION,
         session_id: spec.session_id.clone(),
@@ -134,8 +251,11 @@ async fn start(spec: &SpawnSpec) -> Result<Started> {
         caller_token: spec.caller_token(),
         protocol_min: PROTOCOL_MIN,
         protocol_max: PROTOCOL_MAX,
-        host_build: crate::hub::build().to_owned(),
+        host_build: crate::build_info::build().to_owned(),
         socket: spec.socket.clone(),
+        claude_translator: spec.translator.is_some(),
+        host_level: HOST_LEVEL,
+        holder: Some(holder.is_some()),
     };
     if let Err(e) = write_record_atomic(&record_path(&spec.hosts_dir, &spec.session_id), &record) {
         if let Some(pg) = child.id() {
@@ -146,7 +266,7 @@ async fn start(spec: &SpawnSpec) -> Result<Started> {
         return Err(e);
     }
     cleanup.paths.clear();
-    Ok(Started { record, listener, child, _live: live })
+    Ok(Started { record, listener, harness: Harness::Spawned(child), holder, _live: live })
 }
 
 /// Files a host start created, removed on drop unless the start succeeded.
@@ -157,14 +277,13 @@ struct StartCleanup {
 impl Drop for StartCleanup {
     fn drop(&mut self) {
         for path in &self.paths {
-            let _ = std::fs::remove_file(path);
+            let _ = crate::home_fs::remove_file(path);
         }
     }
 }
 
 fn lock_live_file(path: &Path) -> Result<std::fs::File> {
-    use std::os::unix::fs::OpenOptionsExt;
-    let file = std::fs::OpenOptions::new()
+    let file = crate::home_fs::OpenOptions::new()
         .read(true)
         .write(true)
         .create_new(true)
@@ -173,7 +292,7 @@ fn lock_live_file(path: &Path) -> Result<std::fs::File> {
         .with_context(|| format!("create {}", path.display()))?;
     // SAFETY: flock on a descriptor this function owns.
     if unsafe { libc::flock(file.as_raw_fd(), libc::LOCK_EX | libc::LOCK_NB) } != 0 {
-        let _ = std::fs::remove_file(path);
+        let _ = crate::home_fs::remove_file(path);
         bail!("lock {}", path.display());
     }
     Ok(file)
@@ -188,7 +307,8 @@ enum Stdin {
 }
 
 enum Event {
-    Stdout(Option<String>),
+    /// A stdout line, with the ring offset after it (0 without the agent holder).
+    Stdout(Option<(String, u64)>),
     Stderr(Option<String>),
     Exited(Option<i32>),
     Accepted(tokio::net::UnixStream),
@@ -251,6 +371,14 @@ fn pooled_without_owner(pooled: bool, last_owner: Option<u64>) -> bool {
 /// a quiet period passes.
 const DRAIN_BUDGET: std::time::Duration = std::time::Duration::from_secs(2);
 
+/// How the host learns of its harness's exit.
+enum HarnessExit {
+    /// Its own child: waited for, and reaped.
+    Child(tokio::process::Child),
+    /// A replacement host's harness (`custody.rs`): its exit event only.
+    Watch(crate::agent::leader_exit::LeaderExit),
+}
+
 /// Encoded frames to one connection's writer (`super::encode_frame`).
 #[derive(Clone)]
 struct FrameTx(mpsc::UnboundedSender<Arc<[u8]>>);
@@ -277,6 +405,8 @@ struct Controller {
 /// One retained entry ([`State::push`]).
 struct Retained {
     h: u64,
+    /// The ring offset after the stdout line it is the last entry of (`custody.rs`).
+    o: Option<u64>,
     /// The entry's frame, as sent.
     bytes: Arc<[u8]>,
     weight: usize,
@@ -327,7 +457,7 @@ struct State {
     stall_hello: bool,
     /// Claude's output lines after a carry, read once the next turn's prompt came
     /// (`claude_stdio/carry.rs` `holding`), oldest first.
-    held: VecDeque<String>,
+    held: VecDeque<(String, u64)>,
     /// The carry that holds the output now (its number, `claude_stdio/carry.rs` `holding`), and
     /// whether its bound passed: each carry holds once, with a bound of its own.
     hold: (u64, bool),
@@ -335,6 +465,17 @@ struct State {
     orphan: Orphan,
     /// The output ended: what a carry held is read, and no carry holds more.
     read_all: bool,
+    /// The agent holder (`custody.rs`): the ring and the copies custody hands over.
+    holder: Option<Holder>,
+    /// The ring is released up to here.
+    ring_released: u64,
+    /// The ring offset after the last line whose entries the controller acknowledged.
+    acked_o: u64,
+    /// While one stdout line is handled: its entries, numbered once it is done, so its ring
+    /// offset goes on the last of them (`on_stdout_at`).
+    collect: Option<Vec<Entry>>,
+    /// Connections that may ask for custody: dups of their sockets until they say `Hello`.
+    custody_socks: std::collections::HashMap<u64, OwnedFd>,
 }
 
 /// The debug builds' hello-stall seam's variable ([`claim_hello_stall`]):
@@ -401,14 +542,94 @@ fn claim_query_stall(harness_env: &[(String, String)]) -> bool {
     false
 }
 
+/// Debug builds only: `ACPMUX_TEST_TRANSLATOR_PANIC` in the harness's environment makes the
+/// Claude translator panic on a stdout line of type `acpmux_test_panic`, so the daemon's
+/// integration tests can drive a translator crash mid-turn. Release builds have no seam.
+#[cfg_attr(not(debug_assertions), allow(unused_variables))]
+fn test_translator_panic(harness_env: &[(String, String)], raw: &Value) {
+    #[cfg(debug_assertions)]
+    if raw.get("type").and_then(Value::as_str) == Some("acpmux_test_panic")
+        && harness_env.iter().any(|(k, _)| k == "ACPMUX_TEST_TRANSLATOR_PANIC")
+    {
+        crate::daemon::test_panic("test: the translator panics on an acpmux_test_panic line");
+    }
+}
+
+/// Whether a Claude stdout line ends requests: its final `result`, or a control answer.
+fn claude_answer(raw: &Value) -> bool {
+    matches!(raw.get("type").and_then(Value::as_str), Some("result" | "control_response"))
+}
+
+/// Runs one call into a translator, the crash-prone part of a host, so that a panic in it ends
+/// that call and not the host that holds the harness's pipes (`translator_panicked`).
+async fn contained<T>(call: impl std::future::Future<Output = T>) -> Result<T, String> {
+    use futures::FutureExt as _;
+    std::panic::AssertUnwindSafe(call).catch_unwind().await.map_err(panic_text)
+}
+
+/// [`contained`], for the Codex translator's calls, which do not wait.
+fn contained_sync<T>(call: impl FnOnce() -> T) -> Result<T, String> {
+    std::panic::catch_unwind(std::panic::AssertUnwindSafe(call)).map_err(panic_text)
+}
+
+fn panic_text(payload: Box<dyn std::any::Any + Send>) -> String {
+    payload
+        .downcast_ref::<&str>()
+        .map(|s| (*s).to_owned())
+        .or_else(|| payload.downcast_ref::<String>().cloned())
+        .unwrap_or_else(|| "a panic with no message".to_owned())
+}
+
 impl Started {
     async fn serve(self, spec: SpawnSpec) -> Result<()> {
-        let Started { record, listener, mut child, _live } = self;
+        let Started { record, listener, harness, holder, _live } = self;
         let (events_tx, mut events) = mpsc::channel::<Event>(1024);
-        let stdout = child.stdout.take().context("harness stdout")?;
-        let stderr = child.stderr.take().context("harness stderr")?;
-        let stdin = child.stdin.take().context("harness stdin")?;
-        let pgid = child.id().map(|p| p as i32);
+        type Writer = Box<dyn tokio::io::AsyncWrite + Unpin + Send>;
+        type Reader = Box<dyn tokio::io::AsyncRead + Unpin + Send>;
+        // With the agent holder, stdout is read through its ring (`custody.rs`).
+        let ring_reader = |pipe: OwnedFd, holder: &Holder| -> Result<Reader> {
+            let ring = holder.fds.ring.clone();
+            Ok(Box::new(super::custody::RingPipe::new(pipe, ring, holder.replay_from)?))
+        };
+        let (stdin, stdout, stderr, pgid, exit): (
+            Writer,
+            Reader,
+            Reader,
+            Option<i32>,
+            HarnessExit,
+        ) = match harness {
+            Harness::Spawned(mut child) => {
+                let stdout = child.stdout.take().context("harness stdout")?;
+                let stderr = child.stderr.take().context("harness stderr")?;
+                let stdin = child.stdin.take().context("harness stdin")?;
+                let pgid = child.id().map(|p| p as i32);
+                let stdout: Reader = match &holder {
+                    Some(h) => ring_reader(stdout.into_owned_fd()?, h)?,
+                    None => Box::new(stdout),
+                };
+                (Box::new(stdin), stdout, Box::new(stderr), pgid, HarnessExit::Child(child))
+            }
+            Harness::Adopted { pid, stdin, stdout, stderr, pidfd } => {
+                let holder = holder.as_ref().context("a replacement host without its ring")?;
+                let stdout = ring_reader(stdout, holder)?;
+                let stdin = tokio::net::unix::pipe::Sender::from_owned_fd(stdin)?;
+                let stderr = tokio::net::unix::pipe::Receiver::from_owned_fd(stderr)?;
+                #[cfg(target_os = "linux")]
+                let watch = match pidfd {
+                    Some(fd) => crate::agent::leader_exit::LeaderExit::from_pidfd(fd),
+                    None => crate::agent::leader_exit::LeaderExit::open(pid),
+                };
+                #[cfg(not(target_os = "linux"))]
+                let watch = {
+                    drop(pidfd);
+                    crate::agent::leader_exit::LeaderExit::open(pid)
+                };
+                let watch = watch.context("no way to watch the adopted harness's exit")?;
+                let pgid = Some(pid as i32);
+                (Box::new(stdin), stdout, Box::new(stderr), pgid, HarnessExit::Watch(watch))
+            }
+        };
+        let replay_base = holder.as_ref().map_or(0, |h| h.replay_from);
 
         // stdin writer: a full pipe never blocks the event loop.
         let (stdin_tx, mut stdin_rx) = mpsc::unbounded_channel::<Stdin>();
@@ -449,9 +670,15 @@ impl Started {
         {
             let tx = events_tx.clone();
             tokio::spawn(async move {
-                let mut lines = BufReader::new(stdout).lines();
+                // Lossy: a line that is not UTF-8 never ends the pipe (`lossy_lines`).
+                let mut lines = crate::lossy_lines::LossyLines::new(BufReader::new(stdout));
                 while pace_rx.recv().await.is_some() {
-                    let next = lines.next_line().await.ok().flatten();
+                    let next = lines
+                        .next_line()
+                        .await
+                        .ok()
+                        .flatten()
+                        .map(|line| (line, replay_base + lines.consumed()));
                     let done = next.is_none();
                     if tx.send(Event::Stdout(next)).await.is_err() || done {
                         break;
@@ -462,7 +689,7 @@ impl Started {
         {
             let tx = events_tx.clone();
             tokio::spawn(async move {
-                let mut lines = BufReader::new(stderr).lines();
+                let mut lines = crate::lossy_lines::LossyLines::new(BufReader::new(stderr));
                 loop {
                     let next = lines.next_line().await.ok().flatten();
                     let done = next.is_none();
@@ -477,6 +704,17 @@ impl Started {
             let tx = events_tx.clone();
             let alive = leader_alive.clone();
             tokio::spawn(async move {
+                let mut child = match exit {
+                    HarnessExit::Child(child) => child,
+                    // No child of this host: its exit status is not known here, and its leader
+                    // is reaped by another, so its group is not proven ours once it exited.
+                    HarnessExit::Watch(watch) => {
+                        watch.exited().await;
+                        alive.store(false, std::sync::atomic::Ordering::SeqCst);
+                        let _ = tx.send(Event::Exited(None)).await;
+                        return;
+                    }
+                };
                 // End what the agent left running while the exited leader is
                 // still a zombie: its group id cannot be reused yet, so the
                 // kill reaches only this harness's group. Then reap it.
@@ -506,9 +744,9 @@ impl Started {
                     return;
                 };
                 // Who sent it goes to the home's `agent-host-signals.log` (`daemon/term_sender.rs`).
-                crate::daemon::term_sender::record();
+                crate::term_sender::record();
                 if term.recv().await.is_some() {
-                    let sender = crate::daemon::term_sender::settled().await;
+                    let sender = crate::term_sender::settled().await;
                     note_term(&signals_log, &session, sender);
                     let _ = tx.send(Event::Term).await;
                 }
@@ -522,7 +760,7 @@ impl Started {
         #[cfg(debug_assertions)]
         {
             let tx = events_tx.clone();
-            crate::daemon::owner_exit::follow_test_owner(move |_| {
+            crate::owner_exit::follow_test_owner(move |_| {
                 let _ = tx.blocking_send(Event::Term);
             });
         }
@@ -542,6 +780,12 @@ impl Started {
         crate::claude_stdio::prompt_suggestions::set_managed(spec.prompt_suggestions_managed);
         let translator = spec.translator.as_ref().map(|t| {
             let tr = Translator::new(t.acp_session_id.clone(), &t.mode, &t.model, &t.effort);
+            tr.stop_condition.store(t.stop_condition, std::sync::atomic::Ordering::Relaxed);
+            if let Some((_, home)) =
+                spec.env.iter().find(|(key, _)| key == crate::bg_hook::HOME_ENV)
+            {
+                let _ = tr.plugin_hook_home.set(home.into());
+            }
             if t.fast
                 && let Ok(mut fast) = tr.fast.try_lock()
             {
@@ -554,18 +798,23 @@ impl Started {
             {
                 *slot = Some(sid.clone());
             }
+            if t.resumes_cut_turn {
+                tr.owe_resumed();
+            }
             tr
         });
         let codex = (spec.translator.is_none() && spec.codex_bridge)
             .then(crate::codex_app_server::translator);
+        let resumed_at = holder.as_ref().and_then(|h| h.adopt.as_ref());
+        let (start_h, start_out_id) = resumed_at.map_or((0, 0), |a| (a.last_h, a.max_out_id));
         let mut state = State {
             record,
             spec,
             entries: VecDeque::new(),
             weight: 0,
-            next_h: 0,
-            acked_h: 0,
-            max_out_id: 0,
+            next_h: start_h,
+            acked_h: start_h,
+            max_out_id: start_out_id,
             exit_h: None,
             stdout_done: false,
             stderr_done: false,
@@ -587,6 +836,11 @@ impl Started {
             hold: (0, false),
             orphan: Orphan::default(),
             read_all: false,
+            ring_released: replay_base,
+            acked_o: replay_base,
+            holder,
+            collect: None,
+            custody_socks: std::collections::HashMap::new(),
         };
         // The app-server's initialize goes out at spawn, before the hub's.
         if let Some(cx) = state.codex.clone() {
@@ -691,6 +945,11 @@ impl Started {
                 Event::Accepted(stream) => {
                     next_conn += 1;
                     let id = next_conn;
+                    // Custody may be asked on it (`custody.rs`): a copy of its socket until then,
+                    // so that even a host with no holder answers the ask (with no).
+                    if let Ok(sock) = super::custody::dup(stream.as_raw_fd()) {
+                        state.custody_socks.insert(id, sock);
+                    }
                     let (mut rd, mut wr) = stream.into_split();
                     // Unbounded: the retained entries already bound it, and a
                     // slow owner must not be dropped (it would never return).
@@ -780,9 +1039,15 @@ impl Started {
 /// lose it) is kept as what [`over_frame_limit`] puts in its place, or, when that is over
 /// the limit too (an answer whose id alone is), as a stderr note. Never an empty frame:
 /// None only if even the note cannot be encoded.
+#[cfg(test)]
 fn encode_entry(h: u64, entry: &Entry, max: usize) -> Option<(Arc<[u8]>, bool)> {
+    encode_entry_at(h, entry, None, max)
+}
+
+/// [`encode_entry`], carrying ring offset `o` (`custody.rs`).
+fn encode_entry_at(h: u64, entry: &Entry, o: Option<u64>, max: usize) -> Option<(Arc<[u8]>, bool)> {
     let encode = |e: &Entry| {
-        super::encode_frame_within(&super::EntryFrame::Entry { h, e }, max)
+        super::encode_frame_within(&super::EntryFrame::Entry { h, e, o }, max)
             .map(|bytes| (bytes, orphan::needs_a_daemon(e)))
     };
     encode(entry)
@@ -811,20 +1076,42 @@ impl State {
     /// Note the processes under this host before its harness group is
     /// ended, while the harness still parents what it moved out of it.
     fn note_under(&mut self) {
-        for p in super::tree::descendants(&[std::process::id()]) {
+        for p in super::tree::descendants(&self.under_roots()) {
             if !self.under.contains(&p) {
                 self.under.push(p);
             }
         }
     }
 
-    /// Number and retain one entry, and send it to a resumed controller.
+    /// Where the processes under this host's harness hang: this host, and a replacement host's
+    /// harness, which is not its child (`custody.rs`).
+    pub(super) fn under_roots(&self) -> Vec<u32> {
+        let mut roots = vec![std::process::id()];
+        if self.holder.as_ref().is_some_and(|h| h.adopt.is_some())
+            && let Some(pid) = self.record.harness_pid
+        {
+            roots.push(pid);
+        }
+        roots
+    }
+
+    /// Number and retain one entry, and send it to a resumed controller. While a stdout line
+    /// is handled with the agent holder, kept for [`Self::on_stdout_at`] instead.
     fn push(&mut self, entry: Entry) {
+        if let Some(collect) = self.collect.as_mut() {
+            collect.push(entry);
+            return;
+        }
+        self.push_at(entry, None);
+    }
+
+    /// [`Self::push`], carrying ring offset `o` (`custody.rs`).
+    fn push_at(&mut self, entry: Entry, o: Option<u64>) {
         self.orphan.note_entry(&entry);
         let h = self.next_h + 1;
         // One serialization per entry: the bytes are sent and kept (perf100: the entry was
         // serialized to weigh it, copied to send it and serialized again to write it).
-        let Some((bytes, needed)) = encode_entry(h, &entry, super::MAX_FRAME) else {
+        let Some((bytes, needed)) = encode_entry_at(h, &entry, o, super::MAX_FRAME) else {
             // Not even a one-line note fits a frame: nothing to number, send or keep.
             tracing::warn!(h, "an agent host entry and its note are over the frame limit");
             return;
@@ -840,7 +1127,7 @@ impl State {
             // The connection closed; the next owner resumes from the buffer.
             self.controller = None;
         }
-        self.entries.push_back(Retained { h, bytes, weight, needed });
+        self.entries.push_back(Retained { h, o, bytes, weight, needed });
         self.weight += weight;
     }
 
@@ -864,10 +1151,33 @@ impl State {
             return;
         }
         self.acked_h = h.min(self.next_h);
+        let mut acked_o = None;
         while self.entries.front().is_some_and(|e| e.h <= self.acked_h) {
             if let Some(e) = self.entries.pop_front() {
                 self.weight -= e.weight;
+                acked_o = e.o.or(acked_o);
             }
+        }
+        // What the daemon logged is never read again: its ring bytes go.
+        if let (Some(holder), Some(o)) = (&self.holder, acked_o) {
+            self.acked_o = self.acked_o.max(o);
+            holder.fds.ring.release_through(&mut self.ring_released, o);
+        }
+    }
+
+    /// One stdout line ending at ring offset `o`: with the agent holder its entries carry `o` on
+    /// the last of them, so a replacement host reads the ring again after the line only once
+    /// the daemon has logged all of them (`custody.rs`).
+    async fn on_stdout_at(&mut self, line: String, o: u64) {
+        if self.holder.is_none() {
+            return self.on_stdout(line).await;
+        }
+        self.collect = Some(Vec::new());
+        self.on_stdout(line).await;
+        let entries = self.collect.take().unwrap_or_default();
+        let last = entries.len();
+        for (i, entry) in entries.into_iter().enumerate() {
+            self.push_at(entry, (i + 1 == last).then_some(o));
         }
     }
 
@@ -908,8 +1218,8 @@ impl State {
     /// also one made while an earlier carry still holds.
     async fn read_held(&mut self, events: &mpsc::Sender<Event>) {
         while !self.holds(events) {
-            let Some(line) = self.held.pop_front() else { return };
-            self.on_stdout(line).await;
+            let Some((line, o)) = self.held.pop_front() else { return };
+            self.on_stdout_at(line, o).await;
         }
     }
 
@@ -945,23 +1255,23 @@ impl State {
             // For Claude only its final `result` (or a control answer) ends
             // requests; other oversized lines carry tool output and are
             // dropped with the note above.
-            let claude_answer = serde_json::from_str::<Value>(&line)
-                .ok()
-                .and_then(|v| v.get("type").and_then(Value::as_str).map(str::to_owned))
-                .is_some_and(|t| t == "result" || t == "control_response");
+            let parsed = serde_json::from_str::<Value>(&line).ok();
             if let Some(cx) = self.codex.clone() {
-                // An answer to one of the translator's requests: it gets an
-                // error in its place, so what waits on it is answered.
-                if let Ok(v) = serde_json::from_str::<Value>(&line)
-                    && let Some(id) = v.get("id").filter(|_| v.get("method").is_none())
-                {
-                    let err = serde_json::json!({"jsonrpc": "2.0", "id": id, "error": {"code": -32603, "message": "codex app-server answer was over the size limit"}});
-                    self.codex_out(cx.from_server(&err));
+                if let Some(v) = &parsed {
+                    self.codex_answer_failed(
+                        &cx,
+                        v,
+                        "codex app-server answer was over the size limit",
+                    );
                 }
             } else if let Some(tr) = self.translator.clone() {
-                if claude_answer {
-                    for m in tr.fail_pending("agent answer was over the size limit").await {
-                        self.push(Entry::In { msg: m.into_value() });
+                if parsed.as_ref().is_some_and(claude_answer) {
+                    let failed = contained(tr.fail_pending("agent answer was over the size limit"));
+                    match failed.await {
+                        Ok(failed) => failed
+                            .into_iter()
+                            .for_each(|m| self.push(Entry::In { msg: m.into_value() })),
+                        Err(why) => self.translator_panicked("Claude", &why),
                     }
                 }
             } else if let Ok(v) = serde_json::from_str::<Value>(&line)
@@ -983,11 +1293,17 @@ impl State {
             if let Some(kind) = crate::codex_app_server::tap_kind(&raw) {
                 self.push(Entry::Tap {
                     dir: TapDir::In,
-                    msg: Message::notification(&kind, crate::codex_app_server::redact(&raw))
+                    msg: Message::notification(&kind, crate::codex_app_server::logged(&raw))
                         .into_value(),
                 });
             }
-            self.codex_out(cx.from_server(&raw));
+            match contained_sync(|| cx.from_server(&raw)) {
+                Ok(outs) => self.codex_out(outs),
+                Err(why) => {
+                    self.translator_panicked("Codex", &why);
+                    self.codex_answer_failed(&cx, &raw, "the translator panicked on this answer");
+                }
+            }
             return;
         }
         let Some(tr) = self.translator.clone() else {
@@ -1007,16 +1323,75 @@ impl State {
         // Keep the raw Claude line in the log under its own kind.
         // Translated first, so the raw line moves into its record instead of being
         // copied; the raw record still comes first.
-        let translated = tr.inbound(&raw).await;
+        let answer = claude_answer(&raw);
+        let env = &self.spec.env;
+        let translated = contained(async {
+            test_translator_panic(env, &raw);
+            tr.inbound(&raw).await
+        })
+        .await;
         self.push(Entry::Tap {
             dir: TapDir::In,
             msg: crate::claude_stdio::logged_line_owned(raw).into_value(),
         });
-        for l in tr.take_stdin_replies().await {
-            self.write_claude_line(l);
+        let translated = match translated {
+            Ok(translated) => translated,
+            Err(why) => {
+                self.translator_panicked("Claude", &why);
+                // An answer it dropped still ends what waits on it.
+                if answer {
+                    contained(tr.fail_pending("the translator panicked on the agent's answer"))
+                        .await
+                        .unwrap_or_default()
+                } else {
+                    Vec::new()
+                }
+            }
+        };
+        match contained(tr.take_stdin_replies()).await {
+            Ok(replies) => replies.into_iter().for_each(|l| self.write_claude_line(l)),
+            Err(why) => self.translator_panicked("Claude", &why),
         }
         for m in translated {
             self.push(Entry::In { msg: m.into_value() });
+        }
+    }
+
+    /// A translator call panicked (cmuxterm-hq `docs/handbook/durable-state-beside-crash-prone-code.md`):
+    /// the line it was on is dropped and named in the log. The host keeps the harness's pipes,
+    /// so the agent and its turn go on; ending the host would cut the turn, since a translated
+    /// harness gets no custody (`custody.rs`).
+    fn translator_panicked(&mut self, which: &str, why: &str) {
+        self.push(Entry::Err {
+            line: format!(
+                "[the {which} translator panicked on a line and dropped it: {why}; the agent and its turn go on]"
+            ),
+        });
+    }
+
+    /// The Codex app-server's answer `raw` was not translated (over the size limit, or the
+    /// translator panicked on it): the translator gets an error in its place, so what waits on
+    /// it is answered.
+    fn codex_answer_failed(
+        &mut self,
+        cx: &crate::codex_app_server::Translator,
+        raw: &Value,
+        why: &str,
+    ) {
+        let Some(id) = raw.get("id").filter(|_| raw.get("method").is_none()) else { return };
+        let err = serde_json::json!({"jsonrpc": "2.0", "id": id, "error": {"code": -32603, "message": why}});
+        match contained_sync(|| cx.from_server(&err)) {
+            Ok(outs) => self.codex_out(outs),
+            Err(why) => self.translator_panicked("Codex", &why),
+        }
+    }
+
+    /// A controller request the translator panicked on gets an error answer, so it never waits.
+    fn request_failed(&mut self, message: &Message) {
+        if let Message::Request { id, .. } = message {
+            let err =
+                crate::rpc::RpcError::internal("the agent's translator panicked on this request");
+            self.push(Entry::In { msg: Message::err(id.clone(), err).into_value() });
         }
     }
 
@@ -1087,7 +1462,13 @@ impl State {
                 msg: crate::codex_app_server::redact(&message.to_value()),
             });
             // Answers and updates the translator gives itself go out as if Codex sent them.
-            self.codex_out(cx.from_client(&message.to_value()));
+            match contained_sync(|| cx.from_client(&message.to_value())) {
+                Ok(outs) => self.codex_out(outs),
+                Err(why) => {
+                    self.translator_panicked("Codex", &why);
+                    self.request_failed(&message);
+                }
+            }
             return;
         }
         let Some(tr) = self.translator.clone() else {
@@ -1096,7 +1477,14 @@ impl State {
             return;
         };
         self.push(Entry::Tap { dir: TapDir::Out, msg: message.to_value() });
-        match tr.outbound(&message).await {
+        let outbound = match contained(tr.outbound(&message)).await {
+            Ok(outbound) => outbound,
+            Err(why) => {
+                self.translator_panicked("Claude", &why);
+                return self.request_failed(&message);
+            }
+        };
+        match outbound {
             Outbound::Lines(lines) => {
                 for l in lines {
                     self.write_claude_line(l);
@@ -1104,12 +1492,20 @@ impl State {
             }
             // An immediate local answer, as if Claude replied.
             Outbound::Reply(reply) => self.push(Entry::In { msg: reply.to_value() }),
+            // Written first, so Claude Code reads them; then answered without it.
+            Outbound::LinesThenReply(lines, reply) => {
+                for l in lines {
+                    self.write_claude_line(l);
+                }
+                self.push(Entry::In { msg: reply.to_value() });
+            }
         }
     }
 
     async fn on_frame(&mut self, id: u64, frame: Option<ControllerFrame>) {
         let is_owner = self.controller.as_ref().is_some_and(|c| c.id == id);
         let Some(frame) = frame else {
+            self.custody_socks.remove(&id);
             if is_owner {
                 self.controller = None;
             }
@@ -1123,6 +1519,12 @@ impl State {
             self.pending_conns.retain(|(pid, _)| *pid != id);
             return;
         };
+        if let ControllerFrame::Custody { token } = &frame {
+            self.custody(id, token);
+            return;
+        }
+        // A connection that says `Hello` is a controller's: never asked for custody.
+        self.custody_socks.remove(&id);
         if let ControllerFrame::Hello { min, max, token, .. } = &frame {
             // An orphaned host that ends its harness answers once its exit is logged (`orphan.rs`).
             let waits = self.hello_waits();
@@ -1164,6 +1566,9 @@ impl State {
                 acked_h: self.acked_h,
                 max_out_id: self.max_out_id,
                 exited,
+                launch_credential: super::LaunchCredential(
+                    crate::agent_credentials::launched_with(&self.spec.env),
+                ),
             });
             self.controller = Some(Controller { id, tx, resumed: false });
             self.last_owner = Some(id);
@@ -1173,7 +1578,7 @@ impl State {
             return;
         }
         match frame {
-            ControllerFrame::Hello { .. } => {}
+            ControllerFrame::Hello { .. } | ControllerFrame::Custody { .. } => {}
             ControllerFrame::Resume { after } => {
                 // The controller logged everything through `after`.
                 self.drop_through(after);
@@ -1244,6 +1649,39 @@ impl State {
     }
 }
 
+impl State {
+    /// `ControllerFrame::Custody` on connection `id` (`custody.rs`): the daemon gets copies of
+    /// the harness's stdio, ring and pidfd, with the spawn spec, and the connection closes. A
+    /// wrong token, a host with no holder, or one whose harness's output ended, says no
+    /// (`spec: None`), so the daemon reads an answer and never an end of file.
+    fn custody(&mut self, id: u64, token: &str) {
+        let sock = self.custody_socks.remove(&id);
+        let Some(pos) = self.pending_conns.iter().position(|(pid, _)| *pid == id) else { return };
+        // Its writer ends with this sender: the connection closes once the daemon read it all.
+        self.pending_conns.remove(pos);
+        let Some(sock) = sock else { return };
+        if !constant_time_eq(token.as_bytes(), self.record.owner_token.as_bytes()) {
+            super::custody::refuse(sock);
+            return;
+        }
+        // The nonce the harness was started with: this host's, or the first host's.
+        let mark = self
+            .holder
+            .as_ref()
+            .and_then(|h| h.adopt.as_ref())
+            .and_then(|a| a.harness_mark.clone())
+            .unwrap_or_else(|| self.record.start_nonce.clone());
+        match self.holder.as_ref().filter(|_| self.exit_h.is_none() && !self.stdout_done) {
+            Some(holder) => {
+                if let Err(e) = holder.fds.send(sock, &self.spec, self.acked_o, &mark) {
+                    tracing::warn!("agent holder: custody not handed over: {e}");
+                }
+            }
+            None => super::custody::refuse(sock),
+        }
+    }
+}
+
 fn constant_time_eq(a: &[u8], b: &[u8]) -> bool {
     a.len() == b.len() && a.iter().zip(b).fold(0u8, |acc, (x, y)| acc | (x ^ y)) == 0
 }
@@ -1292,11 +1730,6 @@ fn record_present(spec: &SpawnSpec, nonce: &str) -> bool {
             .is_some_and(|hosts| names_this_host(&record_path(hosts, &spec.session_id), nonce))
 }
 
-/// Watches the directories that hold this host's record (kqueue on macOS,
-/// inotify on Linux; `record_watch.rs`; no polling). When the record is gone
-/// (the daemon's home was deleted, or a daemon removed the record), no daemon
-/// can ever adopt this host: it ends like SIGTERM. Every event only triggers a
-/// stat; a record rewritten in place (write, then rename) is still present.
 /// The file a host notes each SIGTERM it ends on: `agent-host-signals.log` in the acpmux home
 /// (the parent of `hosts/`, or of `hosts/pool/` for a pooled host). Hosts write no other log, so
 /// without it nothing said who ended a host (manaflow-ai/cmuxterm-hq#6338).
@@ -1316,47 +1749,58 @@ pub(crate) const SIGNALS_LOG: &str = "agent-host-signals.log";
 /// sender when the kernel named one. Best effort: a failed write changes nothing.
 fn note_term(log: &Path, session: &str, sender: Option<i32>) {
     use std::io::Write as _;
-    let from =
-        sender.map_or_else(|| "an unknown sender".to_owned(), crate::daemon::term_sender::describe);
+    let from = sender.map_or_else(|| "an unknown sender".to_owned(), crate::term_sender::describe);
     let line = format!(
         "{} agent host {} (session {session}) stopping: SIGTERM from {from}\n",
         chrono::Utc::now().to_rfc3339_opts(chrono::SecondsFormat::Micros, true),
         std::process::id()
     );
-    if let Ok(mut file) = std::fs::OpenOptions::new().create(true).append(true).open(log) {
+    if let Ok(mut file) = crate::home_fs::OpenOptions::new().create(true).append(true).open(log) {
         let _ = file.write_all(line.as_bytes());
     }
 }
 
+/// Watches this host's record (`record_watch.rs` `RecordWatch`; kqueue on macOS, inotify on
+/// Linux; no polling). When the record is gone (the daemon's home was deleted, a daemon removed
+/// the record, or a newer host of the session wrote its own), no daemon can ever adopt this host:
+/// it ends like SIGTERM. A record rewritten in place (write, then rename) is still present. It
+/// was already gone when the watch began (the home deleted right after the start): it ends now.
 fn watch_record(
     spec: &SpawnSpec,
     nonce: &str,
     tx: mpsc::Sender<Event>,
-) -> Option<super::record_watch::DirWatch> {
+) -> Option<super::record_watch::RecordWatch> {
     let watched = spec.clone();
     let own = nonce.to_owned();
-    let term = tx.clone();
     let mut dirs = vec![spec.hosts_dir.clone()];
     if spec.hosts_dir.file_name().and_then(|n| n.to_str()) == Some(POOL_DIR_NAME)
         && let Some(hosts) = spec.hosts_dir.parent()
     {
         dirs.push(hosts.to_path_buf());
     }
-    let watch = super::record_watch::DirWatch::start(&dirs, move || {
-        if record_present(&watched, &own) {
-            return false;
-        }
-        // The watch thread is not a runtime thread: a blocking send never
-        // drops the end when the event queue is full.
-        let _ = term.blocking_send(Event::Term);
-        true
-    });
-    // The record may have gone before the watch began (the home deleted
-    // right after the start): check once now.
-    if !record_present(spec, nonce) {
-        let _ = tx.try_send(Event::Term);
-    }
-    watch
+    let session = spec.session_id.clone();
+    let record_dirs = dirs.clone();
+    let files = move || {
+        record_dirs
+            .iter()
+            .map(|dir| record_path(dir, &session))
+            .filter(|path| path.exists())
+            .collect::<Vec<_>>()
+    };
+    super::record_watch::RecordWatch::start(
+        dirs,
+        files,
+        move || record_present(&watched, &own),
+        move || {
+            // On the watch thread, not a runtime thread: a blocking send never drops the end
+            // when the event queue is full. The check at the start runs on the runtime.
+            if tokio::runtime::Handle::try_current().is_ok() {
+                let _ = tx.try_send(Event::Term);
+            } else {
+                let _ = tx.blocking_send(Event::Term);
+            }
+        },
+    )
 }
 
 /// This user may chdir into `dir` (search permission, what a spawn's chdir needs).
@@ -1368,73 +1812,5 @@ fn can_enter(dir: &std::path::Path) -> bool {
 }
 
 #[cfg(test)]
-mod tests {
-    /// A pooled host ends at the end of its wait only when no controller
-    /// ever said `Hello`; a session's host never ends this way.
-    #[test]
-    fn only_a_pooled_host_with_no_controller_yet_ends_after_its_wait() {
-        assert!(super::pooled_without_owner(true, None));
-        assert!(!super::pooled_without_owner(true, Some(1)));
-        assert!(!super::pooled_without_owner(false, None));
-    }
-
-    /// The leader is waited for without being reaped: while it is a zombie
-    /// its process group id cannot be reused, so ending the group then can
-    /// never signal another process group.
-    #[test]
-    fn waiting_for_the_leader_leaves_it_unreaped() {
-        let mut child =
-            std::process::Command::new("/bin/sh").args(["-c", "exit 3"]).spawn().unwrap();
-        let pid = child.id() as i32;
-        assert!(super::wait_exit_unreaped(pid), "the wait failed");
-        // SAFETY: signal 0 to this test's own child only checks existence.
-        assert_eq!(unsafe { libc::kill(pid, 0) }, 0, "the leader was reaped by the wait");
-        assert_eq!(child.wait().unwrap().code(), Some(3), "the exit status is kept for the reaper");
-    }
-
-    /// An entry too big for one frame is kept as a frame that fits, never as an empty one:
-    /// an answer whose id alone is over the limit becomes a stderr note, which a next daemon
-    /// does not need.
-    #[test]
-    fn an_entry_whose_replacement_is_over_the_limit_too_is_kept_as_a_note() {
-        use super::{Entry, encode_entry};
-        let answer = Entry::In { msg: serde_json::json!({"id": "x".repeat(300), "result": {}}) };
-        let (bytes, needed) = encode_entry(5, &answer, 200).expect("a note fits");
-        assert!(!needed, "a stderr note keeps no orphaned host waiting");
-        let body: serde_json::Value = serde_json::from_slice(&bytes[4..]).unwrap();
-        assert_eq!(body["h"], 5);
-        assert_eq!(body["e"]["line"], "[entry 5 over the frame limit dropped]", "{body}");
-
-        let small = Entry::In { msg: serde_json::json!({"id": 1, "result": "y".repeat(300)}) };
-        let (bytes, needed) = encode_entry(6, &small, 200).expect("the error answer fits");
-        assert!(needed, "an answer is logged by a next daemon");
-        let body: serde_json::Value = serde_json::from_slice(&bytes[4..]).unwrap();
-        assert_eq!(body["e"]["msg"]["id"], 1, "{body}");
-        assert!(body["e"]["msg"]["error"].is_object(), "{body}");
-
-        assert!(encode_entry(7, &small, 20).is_none(), "nothing fits: no empty frame");
-    }
-
-    /// An entry too big for one frame is replaced, not dropped with its connection: an
-    /// answer by an error answer to the same id, anything else by a stderr note.
-    #[test]
-    fn an_entry_over_the_frame_limit_is_answered_or_noted() {
-        use super::{Entry, TapDir, over_frame_limit};
-        let answer =
-            Entry::In { msg: serde_json::json!({"jsonrpc": "2.0", "id": 7, "result": {}}) };
-        let Entry::In { msg } = over_frame_limit(3, &answer) else { panic!("not an answer") };
-        assert_eq!(msg["id"], 7);
-        assert_eq!(msg["error"]["message"], "agent answer was over the frame limit");
-        assert!(msg.get("result").is_none());
-
-        let update =
-            serde_json::json!({"jsonrpc": "2.0", "method": "session/update", "params": {}});
-        for entry in [
-            Entry::In { msg: update },
-            Entry::Tap { dir: TapDir::In, msg: serde_json::json!({"id": 1, "result": {}}) },
-        ] {
-            let Entry::Err { line } = over_frame_limit(4, &entry) else { panic!("not a note") };
-            assert_eq!(line, "[entry 4 over the frame limit dropped]");
-        }
-    }
-}
+#[path = "host_tests.rs"]
+mod tests;

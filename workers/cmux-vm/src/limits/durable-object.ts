@@ -6,6 +6,7 @@
  */
 import type { SnapshotCaptureCommand, SnapshotCaptureResult } from "./snapshot-capture.ts";
 import type { MeshCreationCommand, MeshCreationResult } from "./mesh-creation.ts";
+import type { AgentSlotOutcome } from "./agent-slots.ts";
 import type { GeneratedCreation, GeneratedCreationPage } from "../domain/generated-creation.ts";
 import { DurableObject } from "cloudflare:workers";
 import {
@@ -19,6 +20,7 @@ import {
   type RateDecision,
   type RateRule,
   type ReserveDecision,
+  type RetainedCreationSlot,
 } from "./ledger.ts";
 
 const storageOf = (store: DurableObjectStorage | DurableObjectTransaction): LedgerStorage => ({
@@ -36,6 +38,7 @@ export class TenantLimitsObject extends DurableObject {
 
   beginCreateSend(key: string, vmId: string, token: string, nowMs: number): Promise<boolean> { return this.ledger.beginCreateSend(key, vmId, token, nowMs); }
   settleAbsentCancellation(key: string, vmId: string, nowMs: number): Promise<boolean> { return this.ledger.settleAbsentCancellation(key, vmId, nowMs); }
+  retainedCreations(createdBy: string, limit: number): Promise<ReadonlyArray<RetainedCreationSlot>> { return this.ledger.retainedCreations(createdBy, limit); }
   readmitCreation(key: string, vmId: string, limit: number, liveCount: number, nowMs: number): Promise<"readmitted" | "over_quota" | "none"> { return this.ledger.readmitCreation(key, vmId, limit, liveCount, nowMs); }
   rejectCreateSend(key: string, vmId: string, token: string): Promise<boolean> { return this.ledger.rejectCreateSend(key, vmId, token); }
   creationActive(key: string, vmId: string): Promise<boolean> { return this.ledger.creationActive(key, vmId); }
@@ -60,6 +63,11 @@ export class TenantLimitsObject extends DurableObject {
     return this.ledger.reserve(kind, limit, liveCount, nowMs, reservationId);
   }
 
+  admitAgentSlot(agent: string, limit: number, ownedVmIds: ReadonlyArray<string>, nowMs: number, slotId: string): Promise<boolean> { return this.ledger.admitAgentSlot(agent, limit, ownedVmIds, nowMs, slotId); }
+  settleAgentSlot(agent: string, slotId: string, outcome: AgentSlotOutcome, nowMs: number): Promise<void> { return this.ledger.settleAgentSlot(agent, slotId, outcome, nowMs); }
+  bindAgentCreation(agent: string, creationKey: string, vmId: string, nowMs: number): Promise<void> { return this.ledger.bindAgentCreation(agent, creationKey, vmId, nowMs); }
+  forgetAgentVm(vmId: string, creationKey: string | null): Promise<void> { return this.ledger.forgetAgentVm(vmId, creationKey); }
+
   release(reservationId: string): Promise<void> {
     return this.ledger.release(reservationId);
   }
@@ -70,10 +78,11 @@ export class TenantLimitsObject extends DurableObject {
     return this.ledger.begin(key, fingerprint, nowMs, clientFingerprint, generated);
   }
 
-  async advance(key: string, progress: IdempotencyProgress, nowMs: number): Promise<boolean> {
+  /** true, or the ledger's refusal reason (never swallowed: a bare false became an anonymous 503 on staging). */
+  async advance(key: string, progress: IdempotencyProgress, nowMs: number): Promise<true | string> {
     // Expected stale/conflicting claims return a receipt rather than a rejected RPC promise.
     try { await this.ledger.advance(key, progress, nowMs); return true; }
-    catch { return false; }
+    catch (cause) { return cause instanceof Error && cause.message !== "" ? cause.message : "allocation journal write was not confirmed"; }
   }
 
   abandon(key: string, nowMs: number): Promise<void> {
@@ -87,4 +96,12 @@ export class TenantLimitsObject extends DurableObject {
   unlock(key: string, holder: string): Promise<void> {
     return this.ledger.unlock(key, holder);
   }
+
+  lockUnlessCovered(key: string, holder: string, leaseMs: number, nowMs: number, coverageKey: string, need: number): Promise<"taken" | "busy" | "covered"> {
+    return this.ledger.lockUnlessCovered(key, holder, leaseMs, nowMs, coverageKey, need);
+  }
+
+  coverageWant(key: string): Promise<number> { return this.ledger.coverageWant(key); }
+  coverageWanted(key: string): Promise<number> { return this.ledger.coverageWanted(key); }
+  coverageApplied(key: string, upTo: number): Promise<void> { return this.ledger.coverageApplied(key, upTo); }
 }

@@ -13,9 +13,12 @@ nonisolated extension SidebarLayout {
     ///
     /// - Parameters:
     ///   - insertion: The set that added the row (its section as the set left it, and the row's node index).
-    ///   - base: The list's metrics (`options.minimal` makes them minimal, as in `make`).
+    ///   - base: The list's metrics (`options` resolves them, as in `make`).
     ///   - o: The options the list lays out with; the layout was made with the same ones.
-    mutating func insertLoose(_ insertion: SidebarRowInsertion, metrics base: SidebarLayoutMetrics, options o: SidebarLayoutOptions) -> Bool {
+    ///   - pending: Later nodes of the section a batch (`SidebarLooseEdits`) splices in after this one, in node order: no
+    ///     row has them yet, so the row goes before the first later node that has one.
+    mutating func insertLoose(_ insertion: SidebarRowInsertion, metrics base: SidebarLayoutMetrics, options o: SidebarLayoutOptions,
+                              pending: Set<Int> = []) -> Bool {
         let section = insertion.section, k = insertion.node
         guard let ws = insertion.workspace, o.filterMatches == nil, o.gap == nil, gapY == nil, o.excludedGroup == nil,
               o.excludedItem == nil, !o.excludedWorkspaces.contains(ws.id), !o.grouping.isGrouped, !o.hidesWorkspaces,
@@ -27,15 +30,16 @@ nonisolated extension SidebarLayout {
         // or a group drawn as its one member) and drawn in node order (not behind a "Done" or "Archived" row).
         let nodes = section.nodes
         var at: Int?, y: CGFloat = 0, sibling = 0
-        if k + 1 < nodes.count, !Self.folds(nodes[k + 1], o), let next = position(of: Self.rowKey(nodes[k + 1])),
+        var after = k + 1
+        while pending.contains(after) { after += 1 }
+        if after < nodes.count, !Self.folds(nodes[after], o), let next = position(of: Self.rowKey(nodes[after])),
            Self.isOwnTopRow(rows[next], in: section) {
             (at, y, sibling) = (next, rows[next].y, rows[next].siblingIndex)
         } else if k > 0, !Self.folds(nodes[k - 1], o), Self.isLoose(nodes[k - 1]), let previous = position(of: Self.rowKey(nodes[k - 1])),
                   Self.isOwnTopRow(rows[previous], in: section) {
             (at, y, sibling) = (previous + 1, rows[previous].maxY + rowSpacing, rows[previous].siblingIndex + 1)
         }
-        // An anchor under "Archive (N)" is an archived group's row there (`appendArchive`), not its node's place.
-        guard let at, position(of: .doneFold(.archive)).map({ at <= $0 }) ?? true else { return false }
+        guard let at else { return false }
         let m = base.resolved(for: o)
         guard m.rowSpacing == rowSpacing else { return false }
         let content = o.rowContent(ws, machine: Self.machineLabel(section, options: o))
@@ -69,9 +73,53 @@ nonisolated extension SidebarLayout {
         return true
     }
 
-    /// Whether `ws` is drawn behind a fold row (Done, archived), out of node order.
+    /// Takes `removal`'s workspace row out of this layout, as `make(sections:metrics:options:)` lays out the sections
+    /// without it (a close; a move's first half, `insertLoose` its second): the rows after it move up by its slot and
+    /// the section's later rows count one node fewer before them. False (unchanged) when the row cannot be taken out
+    /// and the list must be laid out again: the same cases as `insertLoose`, a section left with no row, or a row that
+    /// is not its node's own row at the top level of the section in node order.
+    mutating func removeLoose(_ removal: SidebarRowRemoval, metrics base: SidebarLayoutMetrics, options o: SidebarLayoutOptions) -> Bool {
+        let section = removal.section, ws = removal.workspace, k = removal.node
+        guard o.filterMatches == nil, o.gap == nil, gapY == nil, o.excludedGroup == nil, o.excludedItem == nil,
+              !o.grouping.isGrouped, !o.hidesWorkspaces, o.sessionTree == nil, o.rowLimit == 0, pinnedChatsY == nil,
+              earlierChatsY == nil, section.machine != nil, !section.isDocSection, !section.nodes.isEmpty, !Self.folds(ws, o),
+              let at = position(of: .workspace(ws.id)), Self.isOwnTopRow(rows[at], in: section), rows[at].siblingIndex == k,
+              base.resolved(for: o).rowSpacing == rowSpacing else { return false }
+        let row = rows[at]
+        // The row's slot is its height and the spacing to a row of its section beside it: the next one starts there,
+        // or it starts there after the one before it. A row alone between other sections' rows keeps `make`'s gaps.
+        let slot = row.height + rowSpacing
+        let nextFollows = at + 1 < rows.count && rows[at + 1].section == section.id && abs(rows[at + 1].y - (row.maxY + rowSpacing)) < 0.001
+        let followsPrevious = at > 0 && rows[at - 1].section == section.id && abs(row.y - (rows[at - 1].maxY + rowSpacing)) < 0.001
+        // Another row of the section stays: a section left with only its header draws `make`'s empty placeholder (its
+        // nodes may still hold an archived or folded one).
+        guard nextFollows || (followsPrevious && rows[at - 1].key != .section(section.id)) else { return false }
+        replaceRows(at..<(at + 1), with: [], shiftingFollowingBy: -slot)
+        // The section's later rows: a top-level row's node index, and a member's group index, count one node fewer.
+        var i = at
+        while i < rows.count, rows[i].section == section.id {
+            var later = rows[i], moved = false
+            switch later.key {
+            case .doneFold, .showMore: break // a fold row's index is no node's
+            default:
+                if later.parentIndex == nil, later.siblingIndex > k { (later.siblingIndex, moved) = (later.siblingIndex - 1, true) }
+            }
+            if let parent = later.parentIndex, parent > k { (later.parentIndex, moved) = (parent - 1, true) }
+            if moved { setRow(later, at: i) }
+            i += 1
+        }
+        if let header = position(of: .section(section.id)) {
+            var counted = rows[header]
+            counted.childCount -= 1
+            setRow(counted, at: header)
+        }
+        SidebarPerfCounters.add(.layoutRows)
+        return true
+    }
+
+    /// Whether `ws` is drawn behind a fold row (Done, Settled, archived), out of node order.
     private static func folds(_ ws: SidebarWorkspace, _ o: SidebarLayoutOptions) -> Bool {
-        ws.isArchived || (o.foldsDone && ws.taskStatus == .done)
+        ws.isArchived || (o.foldsDone && ws.taskStatus == .done) || o.settles(ws)
     }
 
     private static func folds(_ node: SidebarNode, _ o: SidebarLayoutOptions) -> Bool {

@@ -29,7 +29,7 @@ extension ConversationViewController {
     }
 
     private var wantsTopEdgeBlur: Bool {
-        if #available(iOS 26.0, *), options.header.scrollEdge == .system { return true }
+        if #available(iOS 26.0, *), options.header.scrollEdge == .system || !showsHeader { return true }
         return Self.blursTopEdge
     }
 
@@ -96,7 +96,7 @@ extension ConversationViewController {
 
     func applyBackgroundChoice(_ choice: ConversationBackgroundChoice) {
         let rejected: @MainActor (ConversationBackendError) -> Void = { [weak self] _ in
-            UINotificationFeedbackGenerator().notificationOccurred(.error)
+            ConversationHaptics.notify(.error)
             self?.applyBackground(animated: true)
         }
         switch choice {

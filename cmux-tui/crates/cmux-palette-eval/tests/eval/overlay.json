@@ -822,7 +822,7 @@
     },
     "entry": {
       "actionID": "agentChat.copyAcpmuxSessionFile",
-      "title": "Copy acpmux Session File",
+      "title": "Copy cmux Session File",
       "keywords": ["agent", "chat", "acpmux", "session", "session.json", "json", "record", "copy"],
       "rankBias": 0,
       "frecencyKey": "action:agentChat.copyAcpmuxSessionFile",

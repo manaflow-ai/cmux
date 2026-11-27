@@ -34,14 +34,14 @@
   height: 28px;
   padding: 0 8px;
   font-size: var(--text-title);
-  border-radius: 6px;
+  border-radius: var(--ds-radius-md);
   border: 1px solid var(--page-separator);
   background: transparent;
   outline: none;
   user-select: text;
 }
 
-.bm-search:focus {
+.bm-search:focus-visible {
   border-color: var(--page-text-3);
 }
 
@@ -58,7 +58,7 @@
   height: 28px;
   padding: 0;
   border: 0;
-  border-radius: 6px;
+  border-radius: var(--ds-radius-md);
   background: transparent;
   color: var(--page-text-2);
 }
@@ -100,7 +100,7 @@
   align-items: stretch;
   height: 24px;
   min-width: 0;
-  border-radius: 6px;
+  border-radius: var(--ds-radius-md);
   color: var(--page-text-2);
 }
 
@@ -121,7 +121,7 @@
   gap: 4px;
   min-width: 0;
   padding-inline-end: 8px;
-  border-radius: 6px;
+  border-radius: var(--ds-radius-md);
 }
 
 .bm-tree-title {
@@ -173,7 +173,7 @@
 .bm-row {
   display: flex;
   min-width: 0;
-  border-radius: 6px;
+  border-radius: var(--ds-radius-md);
   outline: none;
 }
 
@@ -235,7 +235,7 @@
 .bm-icon img {
   width: 100%;
   height: 100%;
-  border-radius: 4px;
+  border-radius: var(--ds-radius-sm);
 }
 
 /* A template symbol (a folder's SF Symbol) is a mask in the icon box's color, never an <img>. */
@@ -275,14 +275,42 @@
   padding: 0 8px;
 }
 
-.bm-crumbs.is-narrow-only {
+.bm-crumbs.is-narrow-only,
+.bm-roots.is-narrow-only {
   display: none;
+}
+
+/* The roots of a page without its tree: Bookmarks Bar and Other Bookmarks, the shown one pressed. */
+.bm-roots {
+  display: flex;
+  min-width: 0;
+  margin: 0;
+  border: 0;
+  gap: var(--ds-space-1);
+  padding: var(--ds-space-1) var(--page-edge) 0;
+}
+.bm-root {
+  padding: 0 var(--ds-space-2);
+  border: 0;
+  border-radius: var(--ds-radius-control);
+  background: transparent;
+  color: var(--page-text-2);
+  font: inherit;
+  font-size: var(--text-detail);
+  transition: background-color var(--cmux-motion-quick) var(--cmux-ease-out);
+}
+.bm-root:hover {
+  background: var(--page-hover);
+}
+.bm-root[aria-pressed="true"] {
+  background: var(--page-selection);
+  color: var(--page-text);
 }
 
 .bm-crumb {
   padding: 0 4px;
   border: 0;
-  border-radius: 4px;
+  border-radius: var(--ds-radius-sm);
   background: transparent;
   color: inherit;
 }
@@ -306,7 +334,8 @@
     display: none;
   }
 
-  .bm-crumbs.is-narrow-only {
+  .bm-crumbs.is-narrow-only,
+  .bm-roots.is-narrow-only {
     display: flex;
   }
 }
@@ -376,14 +405,14 @@
   height: 28px;
   min-width: 0;
   padding: 0 8px;
-  border-radius: 6px;
+  border-radius: var(--ds-radius-md);
   border: 1px solid var(--page-separator);
   background: transparent;
   outline: none;
   user-select: text;
 }
 
-.bm-editor-input:focus {
+.bm-editor-input:focus-visible {
   border-color: var(--page-text-3);
 }
 
@@ -413,7 +442,7 @@
 .bm-button {
   height: 28px;
   padding: 0 12px;
-  border-radius: 6px;
+  border-radius: var(--ds-radius-control);
   border: 1px solid var(--page-separator);
   background: transparent;
   color: var(--page-text);
@@ -429,8 +458,3 @@
   filter: brightness(0.94);
 }
 
-/* The keycap (ui/DialogButton) reads one step quieter than its button's label, on both fills. */
-.bm-button .ui-keyhint {
-  color: inherit;
-  opacity: 0.6;
-}

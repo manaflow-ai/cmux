@@ -21,10 +21,10 @@ import { Icon } from "../icons";
 import { managedOf, valueOf } from "../store";
 import { t } from "../strings";
 import { CONFIG_ROW as CONFIG, pickerRows, rowGroupStart, rowTheme, toggledFavorites } from "../themePickerModel";
+import { FAVORITE_THEMES_KEY } from "../cardRows";
 /** How long the pointer rests on a row before that row previews. */
 export const DWELL_MS = 450;
-/** appearance.favoriteThemes: the starred themes, shared by every theme picker on the page. */
-export const FAVORITE_THEMES_KEY = "appearance.favoriteThemes";
+export { FAVORITE_THEMES_KEY };
 
 /** The starred themes and the toggle every ThemePicker caller passes it; no toggle (no stars) while
  * the key is managed or the owner is away. An empty list resets the key. */
@@ -209,7 +209,7 @@ export function ThemePicker({
       >
         <ThemeBall name={value ?? undefined} colors={value ? colors?.get(value) : configColors} />
         <span className="theme-button-name">{value ? label(value) : configLabel}</span>
-        <Icon name="chevron" />
+        <Icon name="chevron.popup" className="popup-caret" />
       </Button>
       <Popover
         open={open && !disabled}
@@ -233,11 +233,16 @@ export function ThemePicker({
             onToggleFavorite(name);
           }}
           itemLabel={(row) => (row === CONFIG ? configLabel : label(rowTheme(row)))}
+          isItemCurrent={(row) => (row === CONFIG ? value === null : rowTheme(row) === value)}
           label={t("settingsWindow.themeSearch")}
           placeholder={t("settingsWindow.themeSearch")}
           inputClassName="field theme-search"
           listClassName="theme-list"
           itemClassName="theme-option"
+          // Past a menu's worth of themes only the rows in view mount. A group's heading sits in its
+          // first row's top margin and moves as stars and the search change: that row's size is
+          // keyed by its heading, and every row's by its theme, so one that moves keeps its own.
+          virtualRows={{ estimate: 28, sizeKey: (row) => headings.get(row) ?? "" }}
           renderItem={(row) => {
             const name = rowTheme(row);
             const heading = headings.get(row);

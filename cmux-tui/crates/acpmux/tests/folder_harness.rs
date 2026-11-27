@@ -80,6 +80,7 @@ fn scratch(name: &str) -> (PathBuf, PathBuf, FolderGate) {
             record: root.join("acpmux").join("trust.json"),
             agent_home: None,
             cmux_worktrees: None,
+            peer_scratch: None,
         },
     };
     (root, folder, gate)

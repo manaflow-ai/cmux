@@ -1,8 +1,15 @@
-//! `widget` parts (plans/cmux-next/chat-widgets-DESIGN.md section 3): an
-//! agent's message that a client with the named app draws natively from the
-//! app's `cmux.chat.widget/1` export, and every other client shows as its
-//! `fallback` text (builds from before widgets show its `url`). The same pure
-//! rules as the cloud owner will apply; this module checks only the shape.
+//! `widget` parts: an agent's message that a client with the named
+//! extension draws from its `cmux.chat.widget/1` export (the transcript's
+//! scene renderer), and every other client shows as its `fallback` text
+//! (builds from before widgets show its `url`).
+//!
+//! Only extensions draw widgets. cmux ships no widgets of its own (Leo,
+//! 2026-11-14: "it was about the hardcoded widgets. thats it. we want them to
+//! be super supported but not necessarily ship built versions outselevs
+//! (yet)"), so a part naming a first-party app (`cmux/...`,
+//! `manaflow-ai/...`, the publishers cmux-app-manifest reserves) is refused:
+//! the built-in widgets 4f3b29a4073 removed stay removed. The same pure rules
+//! as the cloud owner will apply; this module checks only the shape.
 
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
@@ -42,6 +49,16 @@ fn valid_segment(segment: &str) -> bool {
         })
 }
 
+/// Publishers reserved for first-party apps (cmux-app-manifest `rules.rs`
+/// `FIRST_PARTY`): a widget from one would be a widget cmux ships itself.
+pub const BUILT_IN_WIDGET_PUBLISHERS: &[&str] = &["cmux", "manaflow-ai"];
+
+/// Whether `app` is an extension's id, not a first-party (built-in) app's.
+pub fn is_extension_widget_app(app: &str) -> bool {
+    app.split_once('/')
+        .is_some_and(|(publisher, _)| !BUILT_IN_WIDGET_PUBLISHERS.contains(&publisher))
+}
+
 /// `publisher/name`.
 pub fn valid_widget_app(app: &str) -> bool {
     app.split_once('/')
@@ -63,20 +80,14 @@ pub fn valid_widget(widget: &Widget) -> bool {
     let url_ok = widget.url.as_deref().is_none_or(|url| {
         url.get(..8).is_some_and(|s| s.eq_ignore_ascii_case("https://")) && valid_link_url(url)
     });
-    valid_widget_app(&widget.app) && name_ok && fallback_ok && props_ok && url_ok
+    valid_widget_app(&widget.app)
+        && is_extension_widget_app(&widget.app)
+        && name_ok
+        && fallback_ok
+        && props_ok
+        && url_ok
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn app_ids_are_publisher_slash_name() {
-        assert!(valid_widget_app("cmux/pr-card"));
-        assert!(valid_widget_app("local/customize"));
-        assert!(!valid_widget_app("cmux"));
-        assert!(!valid_widget_app("cmux/pr/card"));
-        assert!(!valid_widget_app("Cmux/pr"));
-        assert!(!valid_widget_app("/pr"));
-    }
-}
+#[path = "widget_tests.rs"]
+mod tests;

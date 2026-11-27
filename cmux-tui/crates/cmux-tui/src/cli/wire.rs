@@ -30,6 +30,18 @@ const SESSION_JOURNAL_PROTOCOL_MAXIMUM: u64 = cmux_tui_core::server::PROTOCOL_VE
 /// it twice (plans/cmux-next/state-ownership.md, section 4). Streams are never
 /// resent. `mutation.outcome_unknown` is printed only after the last try.
 pub(super) fn run(global: GlobalArgs, mut plan: RequestPlan) -> i32 {
+    // `--machine <Cloud VM>`: the whole request goes to the VM's daemon over the app's link
+    // (cloud_route.rs); the local daemon has no such machine.
+    #[cfg(unix)]
+    let global = match super::cloud_route::route(&global, &plan) {
+        Some(super::cloud_route::Route::Link { socket, .. }) => {
+            super::cloud_route::routed(&global, &socket)
+        }
+        Some(super::cloud_route::Route::Refused(error)) => {
+            return print_local_error(&error, global.output, 1);
+        }
+        Some(super::cloud_route::Route::Local) | None => global,
+    };
     if !plan.stream
         && plan.operation.class() == OperationClass::Mutation
         && plan.idempotency_key.is_none()
@@ -95,13 +107,7 @@ fn run_once(global: &GlobalArgs, mut plan: RequestPlan, tries: &retry::Tries) ->
                 return 3;
             }
             // Only this socket was tried; nothing falls back to another one.
-            let error = json!({
-                "code": "socket.unreachable",
-                "message": connect_failure(&socket, &error),
-                "details": {"socket": socket.display().to_string()},
-                "retryable": false,
-            });
-            return print_local_error(&error, global.output, 3);
+            return report_connect_failure(&socket, &error, global.output);
         }
     };
     let _ = stream.set_read_timeout(Some(SERVER_PREFLIGHT_TIMEOUT));
@@ -153,6 +159,7 @@ fn run_once(global: &GlobalArgs, mut plan: RequestPlan, tries: &retry::Tries) ->
         &mut plan,
         &mut request,
         &mut reader,
+        &socket,
         caller_route,
         &key_report,
     ) {
@@ -198,7 +205,8 @@ fn run_once(global: &GlobalArgs, mut plan: RequestPlan, tries: &retry::Tries) ->
         return code;
     }
     if notify_desktop::drop_unsupported(&mut reader, &socket, &mut request)
-        | workspace_created_by::drop_unsupported(&mut reader, &socket, &mut request)
+        | created_by_stamp::stamp(&mut request)
+        | created_by_stamp::drop_unsupported(&mut reader, &socket, &mut request)
         | super::launch_credential::attach(&mut reader, &socket, &mut request)
         | list_order::apply(&mut plan, &mut request, &socket)
     {
@@ -496,6 +504,8 @@ pub(super) fn response_read_timeout(
                 | cmux_tui_core::resource::ResourceOperation::GitWorktreeCreate
                 | cmux_tui_core::resource::ResourceOperation::GitWorktreeApply
                 | cmux_tui_core::resource::ResourceOperation::GitWorktreeRemove
+                | cmux_tui_core::resource::ResourceOperation::GitReviewStart
+                | cmux_tui_core::resource::ResourceOperation::GitReviewComment
         )
     ) {
         return Some(Duration::from_secs(200));
@@ -669,20 +679,28 @@ fn run_response(
                         }
                         WireOperation::Raw { .. } => result,
                     };
-                    // The app's Cloud machines and the team's joined machines join the
-                    // daemon's machine list.
+                    // The app's Cloud machines, the team's joined machines and the machines
+                    // acpmux reaches itself join the daemon's machine list: each is a
+                    // `cmux chat --on` target.
                     #[cfg(unix)]
                     let result = match &plan.operation {
                         WireOperation::Typed(
                             cmux_tui_core::resource::ResourceOperation::MachineList,
-                        ) => super::machine_join::merge(
+                        ) => super::machine_join::merge_peers(
                             global,
-                            super::cloud_machines::merge(global, result),
+                            super::machine_join::merge(
+                                global,
+                                super::cloud_machines::merge(global, result),
+                            ),
                         ),
                         // The app's Cloud machines' workspaces join the daemon's list.
                         WireOperation::Typed(
                             cmux_tui_core::resource::ResourceOperation::WorkspaceList,
                         ) => super::cloud_workspaces::merge(global, result),
+                        // A Screen Sharing tab carries the app's state of its share.
+                        WireOperation::Typed(
+                            cmux_tui_core::resource::ResourceOperation::TabGet,
+                        ) => super::mac_screen_view::with_tab_state(global, result),
                         _ => result,
                     };
                     let result = match list_filter::apply(reader, plan, result) {
@@ -845,10 +863,14 @@ pub(super) fn read_envelope(
     reader: &mut BufReader<Box<dyn transport::Stream>>,
     allow_timeout: bool,
 ) -> Result<Option<Value>, String> {
+    // A read timeout may come in the middle of a line: the bytes read
+    // before it stay here and the next read finishes the line.
+    let mut bytes = Vec::new();
     loop {
-        let mut bytes = Vec::new();
-        match reader.by_ref().take((RESPONSE_LIMIT + 2) as u64).read_until(b'\n', &mut bytes) {
-            Ok(0) => return Ok(None),
+        let limit = (RESPONSE_LIMIT + 2).saturating_sub(bytes.len()) as u64;
+        match reader.by_ref().take(limit).read_until(b'\n', &mut bytes) {
+            Ok(0) if bytes.is_empty() => return Ok(None),
+            Ok(0) => return Err("transport closed with a partial JSON line".into()),
             Ok(_) => {}
             Err(error)
                 if allow_timeout
@@ -898,6 +920,9 @@ pub(super) fn print_result(global: &GlobalArgs, plan: &RequestPlan, result: Valu
         && plan.view == super::command::ResponseView::TerminalProgramStatus
     {
         result = program_status_view::human_records(result);
+    }
+    if global.output == OutputMode::Human {
+        created_by_stamp::human_rows(plan, &mut result);
     }
     if global.output == OutputMode::Human
         && plan.view == super::command::ResponseView::ScreenText
@@ -966,10 +991,18 @@ fn human_view<'a>(plan: &RequestPlan, result: &'a Value) -> std::borrow::Cow<'a,
     ) {
         return std::borrow::Cow::Owned(super::command::settings_human_rows(result));
     }
-    let personal = matches!(
+    let workspaces = matches!(
         &plan.operation,
         WireOperation::Typed(cmux_tui_core::resource::ResourceOperation::WorkspaceList)
-    ) && plan.params.get("order").and_then(Value::as_str) == Some("personal");
+    );
+    if workspaces
+        && plan.filter.tree
+        && let Some(rows) = result.as_array()
+    {
+        return std::borrow::Cow::Owned(list_filter::tree_human_rows(rows));
+    }
+    let personal =
+        workspaces && plan.params.get("order").and_then(Value::as_str) == Some("personal");
     match result.as_array() {
         Some(rows) if personal => std::borrow::Cow::Owned(Value::Array(
             rows.iter()
@@ -1138,10 +1171,32 @@ fn envelope_error_code(message: &str) -> &'static str {
     }
 }
 
+/// The session socket did not take the connection: `socket.unreachable`
+/// in the one error shape (the `--json` envelope, or the message alone),
+/// exit 3. Every command that dials the session reports it this way.
+pub(super) fn report_connect_failure(socket: &Path, error: &io::Error, output: OutputMode) -> i32 {
+    let error = json!({
+        "code": "socket.unreachable",
+        "message": connect_failure(socket, error),
+        "details": {"socket": socket.display().to_string()},
+        "retryable": false,
+    });
+    print_local_error(&error, output, 3)
+}
+
 pub(super) fn print_local_error(error: &Value, output: OutputMode, exit_code: i32) -> i32 {
+    // A VM command's error says `vm:ID` and `cmux vm ls`, never the app's words (vm_words.rs).
+    let respelled;
+    let error = if super::vm_words::active() {
+        respelled = super::vm_words::respell_value(error);
+        &respelled
+    } else {
+        error
+    };
     match output {
         OutputMode::Json | OutputMode::JsonLines => {
-            let _ = serde_json::to_writer(io::stderr().lock(), error);
+            let error = json_error_envelope(error);
+            let _ = serde_json::to_writer(io::stderr().lock(), &error);
             eprintln!();
         }
         OutputMode::Quiet | OutputMode::Human => {
@@ -1149,6 +1204,25 @@ pub(super) fn print_local_error(error: &Value, output: OutputMode, exit_code: i3
         }
     }
     exit_code
+}
+
+/// The one `--json` error shape (docs/cli-conventions in cmuxterm-hq):
+/// `{"code", "message", "details", "retryable"}`, every key present. The
+/// human form prefixes its message with `cmux: ` for a person's terminal;
+/// that prefix is not part of a JSON message, so a caller that built the
+/// message for both forms does not leak it into the envelope.
+pub(super) fn json_error_envelope(error: &Value) -> Value {
+    let mut error = error.clone();
+    if let Some(object) = error.as_object_mut() {
+        if let Some(Value::String(message)) = object.get_mut("message")
+            && let Some(rest) = message.strip_prefix("cmux: ")
+        {
+            *message = rest.to_owned();
+        }
+        object.entry("details").or_insert_with(|| json!({}));
+        object.entry("retryable").or_insert(Value::Bool(false));
+    }
+    error
 }
 
 /// Render an operation error for human-readable stderr. The message and any
@@ -1188,6 +1262,9 @@ fn human_error_lines(error: &Value) -> String {
 }
 
 pub(super) fn print_local_success(value: &Value, output: OutputMode) -> i32 {
+    if super::vm_words::active() {
+        return print_success(&super::vm_words::respell_value(value), output);
+    }
     print_success(value, output)
 }
 
@@ -1227,6 +1304,7 @@ fn write_json_lines(value: &Value) -> io::Result<()> {
 
 mod agent_roster;
 mod closed_view;
+mod created_by_stamp;
 mod hints;
 mod human;
 mod list_filter;
@@ -1238,23 +1316,30 @@ mod retry;
 mod sanitize;
 mod socket;
 pub(super) mod wait_timeout;
-mod workspace_created_by;
 pub(super) use agent_roster::across as agent_roster_across;
 pub(super) use agent_roster::{NOTIFICATION_LIMIT, daemon_state_for_status};
 // terminal_talk (unix-only) reads unread notifications the same way.
 #[cfg(unix)]
 pub(super) use agent_roster::unseen_terminals;
+pub(super) use created_by_stamp::{
+    drop_unsupported as drop_unsupported_created_by, stamp as stamp_created_by,
+};
 pub(super) use hints::connect_failure;
 #[cfg(test)]
 use human::human_text;
 use human::{append_table_row, human_cell, write_human};
 use sanitize::{sanitize_human_block, sanitize_human_cell};
-pub(super) use workspace_created_by::drop_unsupported as drop_unsupported_created_by;
 
 /// Remote-supplied error text made safe for a terminal (cx-8mla8: the chief
 /// CLI shows a daemon's own words).
 pub(in crate::cli) fn sanitize_remote_text(value: &str) -> String {
     sanitize_human_block(value)
+}
+
+/// A remote-supplied string for one line or table cell of human output: controls become inert and
+/// line breaks a visible `\n`.
+pub(in crate::cli) fn sanitize_remote_cell(value: &str) -> String {
+    sanitize_human_cell(value)
 }
 #[cfg(unix)]
 pub(super) use socket::resolve_failure_message;

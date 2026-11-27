@@ -1,6 +1,10 @@
 use serde_json::json;
 
-use super::{Resolved, Short, app_list, cloud_words, misuse, parse, resolve};
+use super::{
+    Resolved, Short, app_list, cloud_words, confirmed, given_target, misuse, not_listed,
+    not_loaded, parse, pausable, pause_all_misuse, pause_all_requested, resolve, restore_machine,
+    table,
+};
 
 fn words(list: &[&str]) -> Vec<String> {
     list.iter().map(|word| (*word).to_owned()).collect()
@@ -26,6 +30,8 @@ fn a_short_verb_takes_a_name_by_position() {
             targeted: false,
             tail: vec![],
             api_verb: true,
+            command: vec![],
+            stdin: super::super::vm_exec_input::StdinMode::Auto,
         }
     );
     let resize = parse(&words(&["vm", "resize", "--size", "large", "dev"])).unwrap();
@@ -148,4 +154,251 @@ fn shutdown_is_pause() {
     assert_eq!(shutdown, pause);
     assert_eq!(parse(&words(&["cloud", "shutdown"])).unwrap().cloud_verb, "pause-machine");
     assert_eq!(parse(&words(&["vm", "stop", "dev"])), None);
+}
+
+/// Leo, 2026-11-10: "We need to keep cleaning up the cli commands so they're nice to type". `vm
+/// exec dev -- uname -a` was `vm exec --target machine:vm_… --command 'uname -a'`: the VM by name,
+/// the command as the words after it.
+#[test]
+fn exec_ssh_and_move_name_the_vm_by_position() {
+    // The app's own form, `--arg command=…`, keeps its value.
+    let legacy =
+        parse(&words(&["vm", "exec", "--target", "vm:vm_a1", "--arg", "command=uname -a"]))
+            .unwrap();
+    assert!(legacy.targeted && legacy.command.is_empty());
+    assert_eq!(
+        cloud_words(&legacy, None),
+        words(&["--target", "vm:vm_a1", "--arg", "command=uname -a"])
+    );
+    // `cloud move --target TAB --machine vm:ID`: the tab and the VM both reach the app.
+    let mut moved = parse(&words(&["cloud", "move", "--target", "tab_1"])).unwrap();
+    restore_machine(&mut moved, Some("vm:vm_a1".to_owned()));
+    assert_eq!(
+        cloud_words(&moved, None),
+        words(&["--target", "tab_1", "--machine", "machine:vm_a1"])
+    );
+    let mut bare = parse(&words(&["vm", "move"])).unwrap();
+    restore_machine(&mut bare, Some("vm:vm_a1".to_owned()));
+    assert_eq!(bare.named.as_deref(), Some("vm_a1"));
+    // A delete's flag value stays as typed: `--path -y` removes the file `-y`.
+    assert_eq!(
+        super::super::vm::yes_words("file-remove", &words(&["--path", "-y", "-y"])),
+        words(&["--path", "-y", "--confirm"])
+    );
+    // `--yes` is a delete's yes, never another verb's value.
+    let value = parse(&words(&["vm", "exec", "dev", "--arg", "-y"])).unwrap();
+    assert_eq!(value.tail, words(&["--arg", "-y"]));
+    assert_eq!(cloud_words(&value, Some("vm_a1"))[2..], words(&["--arg", "-y"])[..]);
+    for typed in [
+        &["vm", "exec", "dev", "--", "uname", "-a"][..],
+        &["vm", "exec", "dev", "uname", "-a"],
+        &["cloud", "exec", "dev", "--", "uname", "-a"],
+    ] {
+        let exec = parse(&words(typed)).unwrap();
+        assert_eq!((exec.cloud_verb, exec.named.as_deref()), ("exec", Some("dev")), "{typed:?}");
+        assert_eq!(
+            cloud_words(&exec, Some("vm_a1")),
+            words(&["--target", "machine:vm_a1", "--command", "uname -a"]),
+            "{typed:?}"
+        );
+    }
+    // The old form still runs as typed.
+    let old =
+        parse(&words(&["vm", "exec", "--target", "machine:vm_a1", "--command", "ls"])).unwrap();
+    assert!(old.targeted && old.command.is_empty());
+    assert_eq!(cloud_words(&old, None), words(&["--target", "machine:vm_a1", "--command", "ls"]));
+    // A command's own flags after `--` are the command's.
+    let flags = parse(&words(&["vm", "exec", "dev", "--", "ls", "--help"])).unwrap();
+    assert_eq!(flags.command, words(&["ls", "--help"]));
+    // Several words keep their argv: each is shell-quoted (`sh -c 'cat > f'`, not `sh -c cat > f`);
+    // one word is a shell line as typed.
+    let quoted = parse(&words(&["vm", "exec", "dev", "--", "sh", "-c", "cat > f"])).unwrap();
+    assert_eq!(cloud_words(&quoted, Some("vm_a1"))[3], "sh -c 'cat > f'");
+    let line = parse(&words(&["vm", "exec", "dev", "--", "ls | wc -l"])).unwrap();
+    assert_eq!(cloud_words(&line, Some("vm_a1"))[3], "ls | wc -l");
+    // `--stdin` / `--no-stdin` before the command are exec's; after `--` they are the command's.
+    use super::super::vm_exec_input::StdinMode;
+    let on = parse(&words(&["vm", "exec", "dev", "--stdin", "--", "cat"])).unwrap();
+    assert_eq!((on.stdin, on.tail.is_empty()), (StdinMode::On, true));
+    let off = parse(&words(&["vm", "exec", "--no-stdin", "dev", "cat"])).unwrap();
+    assert_eq!((off.stdin, off.named.as_deref()), (StdinMode::Off, Some("dev")));
+    let theirs = parse(&words(&["vm", "exec", "dev", "--", "tool", "--stdin"])).unwrap();
+    assert_eq!((theirs.stdin, theirs.command), (StdinMode::Auto, words(&["tool", "--stdin"])));
+    assert_eq!(
+        given_target(&words(&["--target", "machine:vm_a1"])).as_deref(),
+        Some("machine:vm_a1")
+    );
+    assert_eq!(given_target(&words(&["--target=machine:vm_b2"])).as_deref(), Some("machine:vm_b2"));
+
+    let ssh = parse(&words(&["vm", "ssh", "dev"])).unwrap();
+    assert_eq!(cloud_words(&ssh, Some("vm_a1")), words(&["--target", "machine:vm_a1"]));
+    // `move` names its VM with the app's `--machine`.
+    let mv = parse(&words(&["vm", "move", "dev", "--path", "/src"])).unwrap();
+    assert_eq!(
+        cloud_words(&mv, Some("vm_a1")),
+        words(&["--machine", "machine:vm_a1", "--path", "/src"])
+    );
+    assert!(parse(&words(&["vm", "move"])).unwrap().named.is_none());
+}
+
+/// `vm rm dev --yes` (or `-y`) is the app's `--confirm`; the old `--confirm` still counts as yes.
+#[test]
+fn rm_says_yes_with_yes() {
+    for (typed, yes) in [
+        (&["vm", "rm", "dev", "--yes"][..], true),
+        (&["vm", "rm", "dev", "-y"], true),
+        (&["vm", "rm", "dev", "--confirm"], true),
+        (&["vm", "rm", "dev"], false),
+    ] {
+        let rm = parse(&words(typed)).unwrap();
+        assert_eq!(confirmed(&rm), yes, "{typed:?}");
+        if yes {
+            assert_eq!(
+                cloud_words(&rm, Some("vm_a1")),
+                words(&["--target", "machine:vm_a1", "--confirm"]),
+                "{typed:?}"
+            );
+        }
+    }
+}
+
+/// `vm ls` for a person: a table, name first, never the app's key/value dump with the VMs as one
+/// JSON line.
+#[test]
+fn ls_prints_a_table() {
+    let listed = json!({"machines": [
+        {"machine_id": "vm_a1", "title": "dev", "status": "running",
+         "created_at": "2026-11-05T06:20:17Z",
+         "disk": {"label": "13.2 / 20 GB", "segments": [
+             {"kind": "system", "gb": 5.3}, {"kind": "project", "gb": 6.2},
+             {"kind": "caches", "gb": 1.7}, {"kind": "free", "gb": 6.8}]}},
+        {"machine_id": "vm_b2", "title": "", "status": "paused", "created_at": "2026-11-09T01:02:03Z"},
+        {"machine_id": "vm_c3", "title": "evil\u{1b}]52;c;aGk=\u{7}", "status": "running",
+         "created_at": "2026-11-09T01:02:03Z"},
+    ], "creating": [{"name": "new-one", "status": "creating"}]});
+    let text = table(&listed);
+    let lines: Vec<&str> = text.lines().collect();
+    assert_eq!(
+        lines[0].split_whitespace().collect::<Vec<_>>(),
+        ["NAME", "ID", "STATUS", "CREATED", "DISK"]
+    );
+    assert_eq!(
+        lines[1].split_whitespace().collect::<Vec<_>>(),
+        [
+            "dev",
+            "vm:vm_a1",
+            "running",
+            "2026-11-05",
+            "13.2",
+            "/",
+            "20",
+            "GB",
+            "system",
+            "5.3",
+            "project",
+            "6.2",
+            "caches",
+            "1.7"
+        ]
+    );
+    assert_eq!(
+        lines[2].split_whitespace().collect::<Vec<_>>(),
+        ["-", "vm:vm_b2", "paused", "2026-11-09", "-"]
+    );
+    assert!(!lines[3].contains('\u{1b}') && !lines[3].contains('\u{7}'), "{:?}", lines[3]);
+    assert_eq!(
+        lines[4].split_whitespace().collect::<Vec<_>>(),
+        ["new-one", "-", "creating", "-", "-"]
+    );
+    assert!(table(&json!({"machines": []})).contains("cmux vm new"));
+    // Still loading is not "no VMs".
+    let loading = table(&json!({"loaded": false, "machines": []}));
+    assert!(loading.contains("not loaded") && !loading.contains("cmux vm new"), "{loading}");
+}
+
+/// `vm rename OLD NEW` renames: the second word is the new name (`--name NEW`), not an unknown
+/// action whose error was only `usage: cmux cloud <action>`. A third word is still refused.
+#[test]
+fn rename_takes_the_new_name_after_the_vm() {
+    let rename = parse(&words(&["vm", "rename", "vm_a1", "api-dev"])).unwrap();
+    assert_eq!((rename.cloud_verb, rename.named.as_deref()), ("rename-machine", Some("vm_a1")));
+    assert_eq!(
+        cloud_words(&rename, Some("vm_a1")),
+        words(&["--target", "machine:vm_a1", "--name", "api-dev"])
+    );
+    let flagged = parse(&words(&["vm", "rename", "dev", "--name", "api"])).unwrap();
+    assert_eq!(flagged.tail, words(&["--name", "api"]));
+    assert_eq!(parse(&words(&["vm", "rename", "dev", "--name", "api", "extra"])), None);
+    assert_eq!(parse(&words(&["vm", "rename", "dev", "a", "b"])), None);
+}
+
+/// `vm status <a deleted vm_… id>` says no VM of yours has that id, with the id as typed (never
+/// a generic usage line, never respelled).
+#[test]
+fn an_unlisted_vm_id_for_an_app_verb_is_named_verbatim() {
+    assert_eq!(resolve(Some("vm_a7b3c9d0"), &listed()), Resolved::VmApi);
+    let error = not_listed("vm_a7b3c9d0");
+    assert_eq!(error["code"], "cloud.unknown_machine");
+    let message = error["message"].as_str().unwrap_or_default();
+    assert!(message.contains("vm_a7b3c9d0"), "{message}");
+    assert!(message.contains("cmux vm ls"), "{message}");
+    let respelled = crate::cli::vm_words::respell_value(&error);
+    assert!(
+        respelled["message"].as_str().unwrap_or_default().contains("vm_a7b3c9d0"),
+        "{respelled}"
+    );
+}
+
+/// ask-b97d36a28a: `vm pause --all` pauses only the running VMs, by id, with their names.
+#[test]
+fn pause_all_picks_the_running_vms() {
+    let listed = json!({"machines": [
+        {"machine_id": "vm_a1", "title": "dev", "status": "running"},
+        {"machine_id": "vm_b2", "title": "build", "status": "paused"},
+        {"machine_id": "vm_c3", "status": "running"},
+        {"machine_id": "vm_d4", "title": "broken", "status": "failed"},
+    ], "creating": [{"name": "new", "status": "creating"}]});
+    assert_eq!(
+        pausable(&listed),
+        vec![("vm_a1".to_owned(), "dev".to_owned()), ("vm_c3".to_owned(), "vm:vm_c3".to_owned())]
+    );
+    assert!(pausable(&json!({"machines": []})).is_empty());
+    let short = parse(&words(&["vm", "pause", "--all"])).expect("pause --all parses");
+    assert_eq!(short.cloud_verb, "pause-machine");
+    assert!(short.named.is_none() && short.tail == words(&["--all"]));
+}
+
+/// Greptile P1 on #52473: an app that has not loaded its VMs lists none; `vm pause --all` must
+/// refuse with a retry, never print "No running Cloud VMs to pause." and exit 0.
+#[test]
+fn pause_all_on_an_unloaded_list_is_a_retry_not_a_success() {
+    let unloaded = json!({"account": {"signed_in": true}, "loaded": false, "machines": []});
+    let error = not_loaded(&unloaded).expect("an unloaded list is refused");
+    assert_eq!(error.get("code"), Some(&json!("cloud.not_loaded")));
+    assert!(not_loaded(&json!({"loaded": true, "machines": []})).is_none());
+    assert!(not_loaded(&json!({"machines": []})).is_none());
+}
+
+/// Review F1 on #52664: with no app, `pause --all` must not fall through to the VM API, which
+/// has no `--all`; `run_if_requested` refuses it when `pause_all_requested` holds.
+#[test]
+fn pause_all_is_recognised_for_pause_and_shutdown_only() {
+    for verb in ["pause", "shutdown"] {
+        let short = parse(&words(&["vm", verb, "--all"])).expect("parses");
+        assert!(pause_all_requested(&short), "{verb}");
+        assert!(short.api_verb, "{verb} would otherwise go to the VM API");
+    }
+    let one = parse(&words(&["vm", "pause", "dev"])).expect("parses");
+    assert!(!pause_all_requested(&one));
+}
+
+/// Review F2 on #48221: `vm pause --all --minutes 15` was a silent mass pause; it is refused.
+#[test]
+fn pause_all_refuses_other_words() {
+    let check = |typed: &[&str]| pause_all_misuse(&parse(&words(typed)).unwrap());
+    assert_eq!(check(&["vm", "pause", "--all"]), None);
+    assert_eq!(check(&["vm", "shutdown", "--all"]), None);
+    let refused = check(&["vm", "pause", "--all", "--minutes", "15"]).expect("refused");
+    assert!(refused.contains("--minutes"), "{refused}");
+    assert_eq!(check(&["vm", "pause", "box"]), None);
 }

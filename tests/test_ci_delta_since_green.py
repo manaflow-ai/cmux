@@ -19,6 +19,13 @@ import unittest
 from pathlib import Path
 
 import yaml
+# tests/git_fixture_env.py, loaded by path: `python3 -I` puts no script folder on sys.path.
+import importlib.util as _git_fixture_importlib  # noqa: E402
+from os import path as _git_fixture_path  # noqa: E402
+_git_fixture_spec = _git_fixture_importlib.spec_from_file_location(
+    "git_fixture_env", _git_fixture_path.join(_git_fixture_path.dirname(_git_fixture_path.abspath(__file__)), "git_fixture_env.py"))
+git_fixture_env = _git_fixture_importlib.module_from_spec(_git_fixture_spec)
+_git_fixture_spec.loader.exec_module(git_fixture_env)
 
 ROOT = Path(__file__).resolve().parents[1]
 HELPER = ROOT / "scripts" / "ci" / "delta_since_green.py"
@@ -400,14 +407,14 @@ class VerdictTests(unittest.TestCase):
         import io
         import json
 
-        def fake_urlopen(request, timeout=0):
+        def fake_request(request, seconds=None, **_kwargs):
             calls.append(request.full_url)
             body = graphql if request.full_url.endswith("/graphql") else {"workflow_runs": runs}
-            return io.BytesIO(json.dumps(body).encode())
+            return 200, json.dumps(body).encode(), {}
 
-        original = delta.urllib.request.urlopen
-        delta.urllib.request.urlopen = fake_urlopen
-        self.addCleanup(setattr, delta.urllib.request, "urlopen", original)
+        original = delta.deadline_http.request
+        delta.deadline_http.request = fake_request
+        self.addCleanup(setattr, delta.deadline_http, "request", original)
         return delta.github_verdicts("o/r", "t", "https://api.github.com/graphql", 7, "main")
 
     def test_a_retargeted_pull_request_keeps_its_whole_diff(self) -> None:
@@ -433,19 +440,19 @@ class VerdictTests(unittest.TestCase):
             with self.subTest(label):
                 calls = []
 
-                def fake_urlopen(request, timeout=0, runs=runs):
+                def fake_request(request, seconds=None, runs=runs, **_kwargs):
                     calls.append(request.full_url)
                     body = graphql if request.full_url.endswith("/graphql") else {"workflow_runs": runs}
-                    import io, json
-                    return io.BytesIO(json.dumps(body).encode())
+                    import json
+                    return 200, json.dumps(body).encode(), {}
 
-                original = delta.urllib.request.urlopen
-                delta.urllib.request.urlopen = fake_urlopen
+                original = delta.deadline_http.request
+                delta.deadline_http.request = fake_request
                 try:
                     lookup = delta.github_verdicts("o/r", "t", "https://api.github.com/graphql", 7, "main")
                     self.assertEqual(lookup([oid]), {oid: expected})
                 finally:
-                    delta.urllib.request.urlopen = original
+                    delta.deadline_http.request = original
                 self.assertIn(f"head_sha={oid}", calls[1])
 
 
@@ -467,7 +474,7 @@ class MainTests(unittest.TestCase):
 
 
 def evaluate_condition(expression: str, context: dict[str, str]) -> bool:
-    """Evaluate a GitHub Actions `if:` made of ==, !=, && and || over string contexts.
+    """Evaluate a GitHub Actions `if:` made of ==, !=, !, &&, ||, startsWith, endsWith and contains over string contexts.
 
     Anything else in the expression is an error rather than a guess.
     """
@@ -476,11 +483,21 @@ def evaluate_condition(expression: str, context: dict[str, str]) -> bool:
     if body.startswith("${{") and body.endswith("}}"):
         body = body[3:-2]
     tokens = re.findall(r"'[^']*'|[A-Za-z_][A-Za-z0-9_.-]*|==|!=|&&|\|\||\(|\)|\S", body)
+    functions = {
+        # GitHub's string functions compare case-insensitively.
+        "startsWith": lambda text, prefix: str(text).lower().startswith(str(prefix).lower()),
+        "endsWith": lambda text, suffix: str(text).lower().endswith(str(suffix).lower()),
+        "contains": lambda text, part: str(part).lower() in str(text).lower(),
+    }
     python = []
     for token in tokens:
         if token.startswith("'"):
             python.append(repr(token[1:-1]))
-        elif token in ("==", "!=", "(", ")"):
+        elif token in ("==", "!=", "(", ")", ","):
+            python.append(token)
+        elif token == "!":
+            python.append("not")
+        elif token in functions:
             python.append(token)
         elif token == "&&":
             python.append("and")
@@ -490,7 +507,11 @@ def evaluate_condition(expression: str, context: dict[str, str]) -> bool:
             python.append(repr(context.get(token, "")))
         else:
             raise AssertionError(f"unsupported token {token!r} in {expression!r}")
-    return bool(eval(" ".join(python), {"__builtins__": {}}))
+    return bool(eval(" ".join(python), {"__builtins__": {}, **functions}))
+
+
+# #49195 moved the detector's list off a fixed /tmp path, under RUNNER_TEMP.
+CHANGED_FILES_REDIRECT = "> ${RUNNER_TEMP}/cmux-ci-changed-files.txt"
 
 
 class WorkflowTests(unittest.TestCase):
@@ -540,7 +561,64 @@ class WorkflowTests(unittest.TestCase):
         run = detect["run"]
         override = run.index('BASE_SHA="$DELTA_BASE_SHA"')
         self.assertLess(run.index('BASE_SHA="$(git rev-parse "$MERGE_SHA^1")"'), override)
-        self.assertLess(override, run.index("> /tmp/cmux-ci-changed-files.txt"))
+        self.assertLess(override, run.index(CHANGED_FILES_REDIRECT))
+
+    def test_a_drafts_base_merge_on_a_green_head_routes_nothing(self) -> None:
+        # A draft does not land; its own changes passed at the green head the
+        # delta step found, and the base's changes run on the base push. Over
+        # 11-13..19 heads that only merged the base were 37% of PR minutes.
+        detect = self.steps["detect"]
+        flag = detect["env"]["DRAFT_BASE_MERGE"]
+        for needed in ("github.event.pull_request.draft == true",
+                       "steps.delta.outputs.base_sha != ''",
+                       "!contains(github.event.pull_request.labels.*.name, 'full-ci')",
+                       "(vars.CI_DRAFT_BASE_MERGE_SKIP || '1') != '0'"):
+            self.assertIn(needed, flag)
+        self.assertNotIn("||", flag.replace("(vars.CI_DRAFT_BASE_MERGE_SKIP || '1')", ""))
+        run = detect["run"]
+        skip = run.index('if [ "${DRAFT_BASE_MERGE:-}" = "true" ]; then')
+        # after the delta override, so it wins; before the diff, so the diff is empty
+        self.assertLess(run.index('BASE_SHA="$DELTA_BASE_SHA"'), skip)
+        self.assertLess(run.index('BASE_SHA="$MERGE_SHA"', skip), run.index(CHANGED_FILES_REDIRECT))
+        # an empty diff routes every product area off
+        self.assertLess(run.index(CHANGED_FILES_REDIRECT), run.index("PR diff is empty; skipping product-area CI."))
+
+    def test_draft_base_merge_skip_routes_an_empty_diff(self) -> None:
+        # The detector's own lines, run in a repository: a draft's base merge
+        # diffs the tested merge against itself.
+        run = self.steps["detect"]["run"]
+        start = run.index('if git rev-parse -q --verify "$MERGE_SHA^2"')
+        end = run.index(CHANGED_FILES_REDIRECT)
+        end = run.index("\n", end)
+        snippet = run[start:end].replace(CHANGED_FILES_REDIRECT, '> "$OUT"')
+        snippet = snippet.replace("if ! git diff", "git diff", 1).rstrip().removesuffix("; then")
+        with tempfile.TemporaryDirectory() as directory:
+            env = git_fixture_env.write_env()
+            env.update(GIT_AUTHOR_NAME="t", GIT_AUTHOR_EMAIL="t@t", GIT_COMMITTER_NAME="t", GIT_COMMITTER_EMAIL="t@t")
+            def git(*args: str) -> str:
+                return subprocess.run(["git", *args], cwd=directory, env=env, check=True,
+                                      capture_output=True, text=True).stdout.strip()
+            git("init", "-q", "-b", "main")
+            Path(directory, "a.txt").write_text("a\n")
+            git("add", "."); git("commit", "-qm", "base")
+            base = git("rev-parse", "HEAD")
+            git("checkout", "-qb", "pr")
+            Path(directory, "b.txt").write_text("b\n")
+            git("add", "."); git("commit", "-qm", "pr")
+            green = git("rev-parse", "HEAD")  # the head the delta step found green
+            git("checkout", "-q", "main")
+            Path(directory, "c.txt").write_text("c\n")
+            git("add", "."); git("commit", "-qm", "main moves")
+            git("merge", "-q", "--no-ff", "-m", "tested merge", "pr")
+            merge = git("rev-parse", "HEAD")
+            # off: the delta routes what the base gained since the green head; on: nothing
+            for flag, expected in (("true", ""), ("false", "c.txt")):
+                out = Path(directory, f"out-{flag}")
+                script = (f"set -euo pipefail\nRUNNER_TEMP={directory}\nMERGE_SHA={merge}\nBASE_SHA={base}\nDELTA_BASE_SHA={green}\n"
+                          f"DRAFT_BASE_MERGE={flag}\nOUT={out}\n{snippet}\n")
+                subprocess.run(["bash", "-c", script], cwd=directory, env=env, check=True, capture_output=True)
+                with self.subTest(draft_base_merge=flag):
+                    self.assertEqual(out.read_text().strip(), expected)
 
     def test_dev_build_label_builds_a_head_that_only_merged_main(self) -> None:
         # The delta routes a merge-only head from its last green head, so the
@@ -552,7 +630,7 @@ class WorkflowTests(unittest.TestCase):
         self.assertIn(label, condition)
         condition = condition.replace(label, "github.has_dev_build == 'true'")
         # These runs are not cancelled; why the job calls !cancelled() is tested in
-        # tests/test_ci_portable_job_placement.py (SkippedPlacementKeepsRouting).
+        # tests/test_ci_routed_jobs_check_needs.py.
         self.assertIn("(!cancelled() && ", condition)
         condition = condition.replace("(!cancelled() && ", "(", 1)
         # The label-event guard is tested in tests/test_ci_label_events_skip_full_ci.py.

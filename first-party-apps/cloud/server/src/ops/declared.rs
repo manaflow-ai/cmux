@@ -55,6 +55,7 @@ const OPS: &[(&str, &[&str], &[&str])] = &[
         "cloud.machine.create",
         MUTATION,
         &[
+            "cloud.machine.not_found",
             "cloud.no_snapshot_configured",
             "cloud.plan.required",
             "cloud.quota.exceeded",
@@ -96,6 +97,13 @@ const OPS: &[(&str, &[&str], &[&str])] = &[
     ),
     ("cloud.machine.delete", MUTATION, &["cloud.machine.not_found", "cloud.rate_limited"]),
     ("cloud.machine.idle_policy.set", MUTATION, &["cloud.machine.not_found"]),
+    ("cloud.machine.keep", MUTATION, &["cloud.machine.not_found"]),
+    (
+        "cloud.machine.archive_delete",
+        MUTATION,
+        &["cloud.machine.not_found", "cloud.machine.not_paused"],
+    ),
+    ("cloud.retention.set", MUTATION, &[]),
     ("cloud.machine.connect_info", READ, &["cloud.machine.not_bound", "cloud.machine.not_found"]),
     // Only `cmux link` calls it; this server never does (listed so the table
     // is the whole CloudDO catalog).
@@ -183,10 +191,15 @@ const OPS: &[(&str, &[&str], &[&str])] = &[
         ],
     ),
     ("cloud.plan.get", READ, &[]),
-    ("cloud.billing.checkout", MUTATION, &[]),
+    ("cloud.allotment.get", READ, &["cloud.allotment.off"]),
+    ("cloud.usage.current", READ, &[]),
+    ("cloud.billing.checkout", MUTATION, &["cloud.billing.off"]),
     ("cloud.shell.open", MUTATION, &["cloud.machine.not_found", "cloud.machine.paused"]),
     ("cloud.migration.status", READ, &[]),
     ("cloud.migration.start", MUTATION, &["cloud.migration.unavailable"]),
+    // A bounded capacity burst through the team's provider (#49766).
+    ("cloud.surge.preview", READ, &[]),
+    ("cloud.surge.create", MUTATION, &["cloud.surge.capacity", "cloud.surge.unavailable"]),
     // A VM calls these about itself; this server never does (listed so the
     // table is the whole CloudDO catalog).
     ("cloud.vm.self.get", VM_SELF, &["cloud.machine.not_found", "cloud.rate_limited"]),
@@ -201,6 +214,12 @@ const OPS: &[(&str, &[&str], &[&str])] = &[
             "idempotency.conflict",
             "owner.unreachable",
         ],
+    ),
+    // `cmux machine request` from the agent on the machine (agent-work-placement RFD 9, 13).
+    (
+        "cloud.vm.machine.request",
+        VM_SELF,
+        &["cloud.machine.not_found", "cloud.rate_limited", "validation.invalid"],
     ),
     // The Native guest receiver (#28947): its network policy read and its
     // lifecycle report, which carries a revision.
@@ -247,6 +266,23 @@ const PROVIDER_OPS: &[&str] = &[
     "cloud.environment.boot",
 ];
 
+/// Codes the team's spending cap adds (cmux-platform SpendCap.ts): a member's
+/// start at the team's cap, or over their own monthly budget.
+const SPEND_CAP: &[&str] = &["cloud.member_budget.reached", "cloud.spend_cap.reached"];
+
+/// The provider's VM limit for the team, paused machines included (cmux-platform#1192): any op
+/// that makes or starts a VM can meet it, the same ops the spending cap refuses.
+const VM_LIMIT: &[&str] = &["cloud.quota.vm_limit"];
+
+/// Ops that start a machine for a member, which the spending cap refuses.
+const SPEND_CAP_OPS: &[&str] = &[
+    "cloud.machine.create",
+    "cloud.machine.start",
+    "cloud.snapshot.restore",
+    "cloud.environment.build",
+    "cloud.environment.boot",
+];
+
 /// The backend Cloud ops this table describes, in catalog order.
 pub fn backend_ops() -> impl Iterator<Item = &'static str> {
     OPS.iter().map(|(name, _, _)| *name)
@@ -262,11 +298,15 @@ pub fn declared_errors(op: &str) -> Option<&'static [&'static str]> {
             .map(|(name, base, own)| {
                 let provider: &[&str] = if PROVIDER_OPS.contains(name) { PROVIDER } else { &[] };
                 let approval: &[&str] = if APPROVAL_OPS.contains(name) { APPROVAL } else { &[] };
+                let cap: &[&str] = if SPEND_CAP_OPS.contains(name) { SPEND_CAP } else { &[] };
+                let vm_limit: &[&str] = if SPEND_CAP_OPS.contains(name) { VM_LIMIT } else { &[] };
                 let mut codes: Vec<&'static str> = base
                     .iter()
                     .chain(own.iter())
                     .chain(provider.iter())
                     .chain(approval.iter())
+                    .chain(cap.iter())
+                    .chain(vm_limit.iter())
                     .copied()
                     .collect();
                 codes.sort_unstable();

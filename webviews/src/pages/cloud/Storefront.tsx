@@ -4,6 +4,9 @@
 // The page prices nothing and computes no limit; "See plans" links the public plans page. Get opens
 // the create sheet on that size, the host confirms the create natively (a money op), and the new
 // machine opens in a workspace once it runs (store `openWhenRunning`).
+import { useAutoRetry } from "../../agent-session/acpmux/autoRetry";
+import { useLoadingShown } from "../../ui/lasting";
+import { SignInBackend } from "../../ui/SignInButton";
 import type { Strings } from "../shared/i18n";
 import { AccountPanel } from "./AccountPanel";
 import { formatMegabytes, memoryChoices } from "./model";
@@ -30,20 +33,33 @@ export function Storefront({ store, state, strings }: { store: CloudStore; state
   const signedIn = !!state.auth?.signedIn;
   const plan = state.plan;
   const choices = memoryChoices(plan);
+  // Every machine the plan runs at once is running. Get stays open: a create there makes room by pausing a
+  // machine (the platform pauses an idle one of the person's, else the host asks which to pause).
   const full = !!plan && plan.limits.max_active > 0 && plan.usage.active >= plan.limits.max_active;
   const firstAllowed = choices.find((choice) => choice.allowed)?.mb;
+  const planLoadingShown = useLoadingShown(signedIn && !plan && !state.planFailed);
+  // A failed plan read is read again on its own (a read: nothing to decide), with no button; only one
+  // that lasts says so, quietly, where the sizes go.
+  const planRetry = useAutoRetry(signedIn && !plan && !!state.planFailed, () => void store.retryPlan());
   const cta = () => {
     if (!signedIn)
       return state.unavailable.includes(AccountOps.signIn) ? (
         <p className="cloud-muted cloud-unavailable">{t(L.unavailable)}</p>
       ) : (
-        <button type="button" className="cloud-button primary cloud-signin-button" onClick={() => void store.signIn()}>
-          {t(L.signIn)}
-        </button>
+        <>
+          <button
+            type="button"
+            className="cloud-button primary cloud-signin-button"
+            onClick={() => void store.signIn()}
+          >
+            {t(L.signIn)}
+          </button>
+          {state.signInBackend && <SignInBackend line={state.signInBackend} />}
+        </>
       );
     // The plan is still loading, or its read failed: no offer until the backend answers one.
     if (!plan) return null;
-    if (firstAllowed !== undefined && !full)
+    if (firstAllowed !== undefined)
       return (
         <button
           type="button"
@@ -89,14 +105,12 @@ export function Storefront({ store, state, strings }: { store: CloudStore; state
             {plan && <Availability plan={plan} full={full} strings={strings} />}
           </header>
           {!plan && state.planFailed ? (
-            <p className="cloud-muted cloud-store-no-plan" role="alert">
-              {t(L.storePlanFailed)}{" "}
-              <button type="button" className="cloud-link-button" onClick={() => void store.retryPlan()}>
-                {t(L.retry)}
-              </button>
+            <p className="cloud-muted cloud-store-no-plan">
+              {planRetry.stillTrying ? t(L.storePlanStillTrying) : null}
             </p>
           ) : !plan ? (
-            <p className="cloud-muted cloud-store-no-plan">{t(L.loading)}</p>
+            // The plan read says nothing while it is quick, as the page's first read (ui/lasting.ts).
+            <p className="cloud-muted cloud-store-no-plan">{planLoadingShown ? t(L.loading) : null}</p>
           ) : choices.length === 0 ? (
             <p className="cloud-muted cloud-store-no-plan">{t(L.storeNoPlan)}</p>
           ) : (
@@ -112,7 +126,6 @@ export function Storefront({ store, state, strings }: { store: CloudStore; state
                       <button
                         type="button"
                         className="cloud-button primary cloud-store-get"
-                        disabled={full}
                         aria-label={format(t(L.storeGetSize), { size: formatMegabytes(mb, t, strings.language) })}
                         onClick={() => store.openCreate(mb, true)}
                       >
@@ -145,7 +158,7 @@ export function Storefront({ store, state, strings }: { store: CloudStore; state
   );
 }
 
-/** Live availability from the plan: machines active of the plan's limit, and when the limit is reached. */
+/** Live availability from the plan: machines running of the most it runs at once; at that limit, what a new one does. */
 function Availability({ plan, full, strings }: { plan: CloudPlan; full: boolean; strings: Strings }) {
   const { t } = strings;
   if (plan.limits.max_active <= 0) return null;

@@ -15,7 +15,7 @@ await requireBrowserLane("palette-scroll-edge-fade.browser.test.ts", async () =>
     ["agent-pane.file-search", "long-results", '.acpmux-file-search [role="listbox"]'],
     ["pages.diff", "jump-file-overflow", ".jump-palette-list"],
     ["pages.diff", "branch-base-overflow", ".base-picker-list"],
-    ["pages.diff", "committed-overflow", ".toolbar-submenu"],
+    ["pages.diff", "committed-overflow", ".toolbar-submenu > .ui-popup-scroll"],
   ] as const;
 
   beforeAll(async () => {

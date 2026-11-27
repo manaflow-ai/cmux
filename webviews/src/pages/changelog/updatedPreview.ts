@@ -6,8 +6,12 @@
 //
 // This file holds the parts with no DOM: the rows the preview lists, and the hover intent that
 // decides when it opens and closes.
+import { HOVER_INTENT } from "../../ui/hoverIntent";
 import { areaOf, byArea, subjectArea, type AreaKey } from "./areas";
 import { changeItems, echoKey, mergedView, readableChanges, readableUpdate } from "./model";
+import { plainChange, readableChange, type ChangeGroup } from "./readableChange";
+
+const KIND: Record<ChangeGroup, WhatsNewCategory> = { new: "new", fixed: "fixed", changed: "improved" };
 import { curatedArea } from "./SheetPage";
 import type { ReleaseNotes, WhatsNewCategory } from "./types";
 import type { UpdateHighlights } from "./updateHighlights";
@@ -21,6 +25,39 @@ export interface PreviewEntry {
   category?: WhatsNewCategory;
   /** The app area the change is in (areas.ts), as What's New groups it; absent: Other. */
   area?: AreaKey;
+  /** The title What's New lists it under, when the popover says it in plainer words (plainEntries):
+      a click opens the page at this one. */
+  target?: string;
+}
+
+/** The popover's rows in plain words (readableChange.ts plainChange), and how many changes no person
+    sees folded into its one "Maintenance and fixes" line (Leo 2026-11-14, on rows that read as
+    engineering notes). Rows that now say the same thing show once. */
+export function plainEntries(
+  entries: PreviewEntry[],
+  language: string,
+): { entries: PreviewEntry[]; maintenance: number } {
+  const rows: PreviewEntry[] = [];
+  const seen = new Set<string>();
+  let maintenance = 0;
+  for (const entry of entries) {
+    const plain = plainChange(entry.title, entry.detail, language);
+    if (!plain) {
+      maintenance++;
+      continue;
+    }
+    const key = `${entry.area ?? ""}:${plain.title.toLowerCase()}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    const { detail: _detail, ...rest } = entry;
+    rows.push({
+      ...rest,
+      title: plain.title,
+      ...(plain.detail ? { detail: plain.detail } : {}),
+      ...(plain.title === entry.title ? {} : { target: entry.target ?? entry.title }),
+    });
+  }
+  return { entries: rows, maintenance };
 }
 
 /** The preview's rows under their areas, in What's New's order (``byArea``): Leo 2026-11-08, "the
@@ -29,14 +66,15 @@ export function previewSections(entries: PreviewEntry[]): { area?: AreaKey; item
   return byArea(entries);
 }
 
-/** The rest on the card before the preview opens: the app's hover-card dwell
-    (HoverCardTiming.showDelay), so passing over the card on the way to the footer opens nothing. */
-export const PREVIEW_DWELL_MS = 400;
+/** The rest on the card before the preview opens: the delay every hover card waits
+    (`HOVER_INTENT.cardDwell`, Chrome's), so passing over the card on the way to the footer opens nothing. */
+export const PREVIEW_DWELL_MS: number = HOVER_INTENT.cardDwell;
 /** How long the preview stays after the pointer leaves the card, so a pointer that slips out over
-    the card's edge and back does not close and reopen it. */
-export const PREVIEW_GRACE_MS = 180;
+    the card's edge and back does not close and reopen it: the hover card grace. */
+export const PREVIEW_GRACE_MS: number = HOVER_INTENT.cardGrace;
 /** How long the preview's close runs before the card hands its room back (the card's own curve,
     `--wn-preview-motion` in updateSurfaces.css); a pointer back on it within that reopens at once. */
+// motion-allow: the card's fixed preview curve (updateSurfaces.css --wn-preview-motion)
 export const PREVIEW_CLOSE_MS = 180;
 
 /** The update's changes as the preview lists them: the notes of every build the update spans (each
@@ -78,11 +116,20 @@ export function previewEntries(
       // Each change's area from its commit subject, before the subject reads as a title, as the
       // page files it (model.ts pageChanges; review F2 of #38332).
       const items = changeItems(build).map((item) => ({ ...item, area: subjectArea(item.title) }));
+      // Each change's kind from its subject's type (feat: New, fix: Fixed), as the notes group it:
+      // the popover heads its changes New, Improved and Fixed (Leo's reference, 2026-11-14).
+      const kinds = new Map(
+        items.map((item) => {
+          const readable = readableChange(item.title);
+          return [readable.title, KIND[readable.group]] as const;
+        }),
+      );
       readableChanges(items).changes.forEach((change, index) =>
         add({
           id: `${build.build}-${index}`,
           title: change.title,
           detail: change.description || undefined,
+          category: kinds.get(change.title) ?? "improved",
           area: change.area,
         }),
       );
@@ -123,7 +170,7 @@ export function repeatsTitle(title: string, detail: string): boolean {
 }
 
 /** A build's notes without the generic What's New entry (``isGenericWhatsNewEntry``). */
-function withoutGenericEntry(notes: ReleaseNotes): ReleaseNotes {
+export function withoutGenericEntry(notes: ReleaseNotes): ReleaseNotes {
   const document = notes.whatsNew;
   if (!document?.entries.some(isGenericWhatsNewEntry)) return notes;
   return { ...notes, whatsNew: { ...document, entries: document.entries.filter((e) => !isGenericWhatsNewEntry(e)) } };

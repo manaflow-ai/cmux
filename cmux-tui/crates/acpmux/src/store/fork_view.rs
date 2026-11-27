@@ -28,7 +28,6 @@ pub const HISTORY_KINDS: &[&str] = &[
     "agent_thought_chunk",
     "tool_call",
     "tool_call_update",
-    "plan",
     "turn_started",
     "turn_result",
     "turn_end",
@@ -76,7 +75,7 @@ pub fn folder_to_replace(store: &dyn Store, id: &str) -> Result<Option<PathBuf>>
     if let Some(dir) = store.session_dir(id) {
         return Ok(Some(dir));
     }
-    if store.session_path(id).is_some_and(|path| std::fs::symlink_metadata(path).is_ok()) {
+    if store.session_path(id).is_some_and(|path| crate::home_fs::symlink_metadata(path).is_ok()) {
         anyhow::bail!("its history could not be written into its folder; try the move again");
     }
     Ok(None)
@@ -89,17 +88,31 @@ pub struct ForkView {
     /// What this view knows of the references ([`Refs`]).
     refs: RwLock<Refs>,
     /// Held exclusively by `materialize` for the whole write, so one fork's history is written
-    /// once, by the delete and compaction of a chat, and by a save of a meta that names a
-    /// reference, from its check to its write; shared by each read of a fork's history: a save that read the
-    /// reference first cannot write it back after the drop (review of #37020: after a restart
-    /// the fork named its deleted chat again; two writes of one fork's history raced).
-    dropping: RwLock<()>,
+    /// once, by the delete and compaction of a chat, by a cold archive's commit, and by a save of
+    /// a meta that names a reference, from its check to its write; shared by each read of a fork's
+    /// history: a save that read the reference first cannot write it back after the drop (review
+    /// of #37020: after a restart the fork named its deleted chat again; two writes of one fork's
+    /// history raced).
+    ///
+    /// Lock order: the hub's `Session::append_lock` (a retention or cold archive commit takes it
+    /// first, `hub/retention.rs`, `hub/cold_archive.rs`), then this, then the inner store's own
+    /// locks (`LocalStore`'s writers', then its cold lock). This view takes no session lock under
+    /// it, and nothing under the inner store's locks takes it.
+    dropping: crate::worker_lock::RwLock<()>,
 }
 
 thread_local! {
     /// Whether this thread holds `dropping` already: a fork of a fork reads its parent through
     /// this view again, and a write reads the history it writes, under the hold they started.
     static HELD: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
+}
+
+#[cfg(test)]
+thread_local! {
+    /// Tests: this thread says so, once, when it is about to wait for `dropping` held exclusively
+    /// by another thread.
+    pub(super) static NOTE_DROPPING_WAIT: super::log_sync::Note =
+        const { std::cell::RefCell::new(None) };
 }
 
 /// A hold of [`ForkView`]'s `dropping`, or none when this thread holds it already.
@@ -158,6 +171,10 @@ impl ForkView {
         if HELD.with(|h| h.replace(true)) {
             return Held::Nested;
         }
+        #[cfg(test)]
+        if self.dropping.write_would_wait() {
+            super::log_sync::note(&NOTE_DROPPING_WAIT, "waits");
+        }
         Held::Exclusive(self.dropping.write().unwrap_or_else(|e| e.into_inner()))
     }
 
@@ -199,6 +216,16 @@ impl ForkView {
     /// chat goes, or before its files are read or moved as files. Nothing for a session that
     /// references none. A failure leaves the reference as it was.
     pub fn materialize(&self, id: &str) -> Result<()> {
+        // Most chats reference no history: that is read under a shared hold, so asking for one's
+        // folder does not wait for a long read of any chat to end (a move's begin waited seconds
+        // for a pack's read of a large log). No write of a reference runs under a shared hold,
+        // so a chat that names none here would name none under the exclusive one either.
+        {
+            let _reading = self.shared();
+            if self.reference(id)?.is_none() {
+                return Ok(());
+            }
+        }
         let _dropping = self.exclusive();
         self.materialize_locked(id)
     }
@@ -235,6 +262,12 @@ impl ForkView {
         if let Some(e) = failed {
             return Err(e);
         }
+        // From the commit on, the fork's history is its own segment `000000`, each record written
+        // again: a line may read differently than the chat's line did. Its count (its own plus
+        // its chat's, `log_stamp`) goes past what it was before the write: no read under `dropping`
+        // sees it in between, and after the drop it reads its own count alone.
+        let shown = self.log_stamp(&reference.session)?;
+        self.inner.bump_log_stamp(id, shown.saturating_add(1))?;
         writer.commit()?;
         // The meta first: if its save fails, the reference stands on disk and here, and the next
         // write replaces segment `000000` whole (review of #37020: a failed save left the
@@ -342,11 +375,131 @@ impl Store for ForkView {
     fn save_kept(&self, meta: &SessionMeta) -> Result<()> {
         self.save_with(meta, |meta| self.inner.save_kept(meta))
     }
+    /// The inner store's digest when the metadata goes through as it is; a fork's save may
+    /// rewrite its history fields first (`save_with`), so that one gives none.
+    fn save_digest(&self, meta: &SessionMeta, keep: ShowAfter) -> Result<Option<MetaDigest>> {
+        if meta.history_from.is_some() {
+            return match keep {
+                ShowAfter::Durable => self.save(meta),
+                ShowAfter::Written => self.save_kept(meta),
+            }
+            .map(|()| None);
+        }
+        let digest = self.inner.save_digest(meta, keep)?;
+        self.note(meta);
+        Ok(digest)
+    }
+    fn digest(&self, meta: &SessionMeta) -> Option<MetaDigest> {
+        self.inner.digest(meta)
+    }
     fn append(&self, id: &str, record: &EventRecord) -> Result<()> {
         self.inner.append(id, record)
     }
     fn flush_session(&self, id: &str) -> Result<()> {
         self.inner.flush_session(id)
+    }
+    /// A journal restore's cut of `id`'s own records past `after` (`hub/journal_restore.rs`):
+    /// the forks that show them get them first, as a retention commit does. The trait's own
+    /// default stages through this view, which stages nothing for a store with no segments (the
+    /// memory store), and the cut never happened.
+    fn truncate_after(&self, id: &str, after: u64) -> Result<bool> {
+        let _dropping = self.exclusive();
+        for fork in self.forks_of(id)? {
+            self.materialize_locked(&fork)?;
+        }
+        self.inner.truncate_after(id, after)
+    }
+    /// What a chat keeps while a journal restore holds it (`hub/restore_writer.rs`): the
+    /// store's own, beside its log. The trait's default keeps nothing across a restart.
+    fn keep_parked(&self, id: &str, kept: Option<&[u8]>) -> Result<()> {
+        self.inner.keep_parked(id, kept)
+    }
+    fn kept_parked(&self, id: &str) -> Result<Option<Vec<u8>>> {
+        self.inner.kept_parked(id)
+    }
+    /// The held tool output bodies of a chat (`store/deferred.rs`): the store's own, beside its
+    /// log, a fork's beside its own.
+    fn keep_held(&self, id: &str, slot: &str, held: Option<&[u8]>) -> Result<()> {
+        self.inner.keep_held(id, slot, held)
+    }
+    fn kept_held(&self, id: &str) -> Result<Vec<(String, Vec<u8>)>> {
+        self.inner.kept_held(id)
+    }
+    /// A fork's lines are its chat's history lines through the seq it was forked through, then
+    /// its own, as `scan` shows them. A chunk ends where the history does.
+    fn read_log(
+        &self,
+        id: &str,
+        from: u64,
+        filter: LogFilter<'_>,
+        stamp: u64,
+        marks: &mut LogMarks,
+        out: &mut Vec<u8>,
+    ) -> Result<LogChunk> {
+        let _held = self.shared();
+        let Some(r) = self.reference(id)? else {
+            return self.inner.read_log(id, from, filter, stamp, marks, out);
+        };
+        let mut read = 0;
+        if from <= r.through_seq {
+            let history = LogFilter {
+                through: filter.through.min(r.through_seq),
+                kinds: Some(HISTORY_KINDS),
+            };
+            let chunk = self.read_log(&r.session, from, history, stamp, marks, out)?;
+            if !out.is_empty() || !chunk.at_end || filter.through <= r.through_seq {
+                return Ok(LogChunk {
+                    at_end: chunk.at_end && filter.through <= r.through_seq,
+                    ..chunk
+                });
+            }
+            read = chunk.read;
+        }
+        let from = from.max(r.through_seq.saturating_add(1));
+        let chunk = self.inner.read_log(id, from, filter, stamp, marks, out)?;
+        Ok(LogChunk { read: chunk.read + read, ..chunk })
+    }
+    /// A fork's line at a seq through the one it was forked through is its chat's history line,
+    /// read from that chat's log; a later one is its own.
+    fn read_log_part(
+        &self,
+        id: &str,
+        seq: u64,
+        offset: u64,
+        max: usize,
+        stamp: u64,
+        marks: &mut LogMarks,
+        out: &mut Vec<u8>,
+    ) -> Result<LogPart> {
+        let _held = self.shared();
+        match self.reference(id)? {
+            Some(r) if seq <= r.through_seq => {
+                self.read_log_part(&r.session, seq, offset, max, stamp, marks, out)
+            }
+            _ => self.inner.read_log_part(id, seq, offset, max, stamp, marks, out),
+        }
+    }
+    /// A fork by reference reads its own count plus its chat's: a change to either log's lines
+    /// changes what the fork shows.
+    fn log_stamp(&self, id: &str) -> Result<u64> {
+        let _held = self.shared();
+        let own = self.inner.log_stamp(id)?;
+        match self.reference(id)? {
+            Some(r) => Ok(own.saturating_add(self.log_stamp(&r.session)?)),
+            None => Ok(own),
+        }
+    }
+    fn bump_log_stamp(&self, id: &str, by: u64) -> Result<()> {
+        self.inner.bump_log_stamp(id, by)
+    }
+    fn sync_log_through(&self, id: &str, seq: u64) -> Result<()> {
+        let _held = self.shared();
+        if let Some(r) = self.reference(id)?
+            && seq <= r.through_seq.saturating_add(1)
+        {
+            return self.sync_log_through(&r.session, seq);
+        }
+        self.inner.sync_log_through(id, seq)
     }
     fn events(&self, id: &str, after: u64, limit: usize) -> Result<Vec<EventRecord>> {
         let _held = self.shared();
@@ -426,26 +579,60 @@ impl Store for ForkView {
         skip: &dyn Fn(&[u8], &[u8]) -> bool,
         visit: &mut dyn FnMut(EventRecord) -> bool,
     ) -> Result<()> {
+        self.back(id, after, before, skip, visit, false)
+    }
+    fn scan_back_indexed(
+        &self,
+        id: &str,
+        after: u64,
+        before: u64,
+        skip: &dyn Fn(&[u8], &[u8]) -> bool,
+        visit: &mut dyn FnMut(EventRecord) -> bool,
+    ) -> Result<()> {
+        self.back(id, after, before, skip, visit, true)
+    }
+    /// A fork's view joins two logs: it keeps no restore point, and its load reads it whole.
+    fn restore_point(&self, id: &str) -> Option<Vec<u8>> {
         let _held = self.shared();
-        let Some(r) = self.reference(id)? else {
-            return self.inner.scan_back(id, after, before, skip, visit);
-        };
-        let mut going = true;
-        if before > r.through_seq + 1 {
-            self.inner.scan_back(id, after.max(r.through_seq), before, skip, &mut |rec| {
-                going = visit(rec);
-                going
-            })?;
+        match self.reference(id) {
+            Ok(None) => self.inner.restore_point(id),
+            _ => None,
         }
-        if !going || after >= r.through_seq {
-            return Ok(());
+    }
+    fn save_restore_point(&self, id: &str, bytes: &[u8]) -> Result<()> {
+        let _held = self.shared();
+        match self.reference(id)? {
+            None => self.inner.save_restore_point(id, bytes),
+            Some(_) => Ok(()),
         }
-        let skip_other = |dir: &[u8], kind: &[u8]| {
-            skip(dir, kind) || !HISTORY_KINDS.iter().any(|k| k.as_bytes() == kind)
-        };
-        self.scan_back(&r.session, after, before.min(r.through_seq + 1), &skip_other, &mut |rec| {
-            !is_history(&rec.kind) || visit(rec)
-        })
+    }
+    /// A fork's view joins two logs: an adoption of it reads it whole (`hub/hosts/checkpoint.rs`).
+    fn adoption_checkpoint(&self, id: &str) -> Option<Vec<u8>> {
+        let _held = self.shared();
+        match self.reference(id) {
+            Ok(None) => self.inner.adoption_checkpoint(id),
+            _ => None,
+        }
+    }
+    fn save_adoption_checkpoint(&self, id: &str, bytes: &[u8]) -> Result<()> {
+        let _held = self.shared();
+        match self.reference(id)? {
+            None => self.inner.save_adoption_checkpoint(id, bytes),
+            Some(_) => Ok(()),
+        }
+    }
+    fn scan_heads_from(
+        &self,
+        id: &str,
+        from: u64,
+        hint: Option<LinePos>,
+        visit: &mut dyn FnMut(&RecordHead<'_>, Option<LinePos>) -> bool,
+    ) -> Result<()> {
+        let _held = self.shared();
+        if self.reference(id)?.is_none() {
+            return self.inner.scan_heads_from(id, from, hint, visit);
+        }
+        self.scan_heads(id, &mut |head| head.seq < from || visit(head, None))
     }
     fn tail_after(&self, id: &str, after: u64) -> Result<(u64, u64)> {
         let _held = self.shared();
@@ -458,6 +645,17 @@ impl Store for ForkView {
         })?;
         let (own, own_last) = self.inner.tail_after(id, after.max(r.through_seq))?;
         Ok((count + own, if own > 0 { own_last } else { last }))
+    }
+    /// A fork's own log alone takes its store's read; one that shows its chat's history reads
+    /// the joined view back (`scan_back`).
+    fn newest_window(&self, id: &str, before: u64, n: u64) -> Result<NewestWindow> {
+        {
+            let _held = self.shared();
+            if self.reference(id)?.is_none() {
+                return self.inner.newest_window(id, before, n);
+            }
+        }
+        newest_window_by_scan(self, id, before, n)
     }
     fn scan_kinds(
         &self,
@@ -482,6 +680,36 @@ impl Store for ForkView {
             return Ok(());
         }
         self.inner.scan_kinds(id, kinds, &mut |rec| rec.seq <= r.through_seq || visit(rec))
+    }
+    /// `scan_kinds`'s join, `keep` shown the heads of both sides: the parent's past the fork
+    /// point and the fork's own before it are shown and never visited, which only keeps more.
+    fn scan_kinds_keyed(
+        &self,
+        id: &str,
+        kinds: &[&str],
+        keep: &mut dyn FnMut(&super::KindHead<'_>) -> bool,
+        visit: &mut dyn FnMut(EventRecord) -> bool,
+    ) -> Result<()> {
+        let _held = self.shared();
+        let Some(r) = self.reference(id)? else {
+            return self.inner.scan_kinds_keyed(id, kinds, keep, visit);
+        };
+        let shown: Vec<&str> = kinds.iter().copied().filter(|k| is_history(k)).collect();
+        let mut going = true;
+        if !shown.is_empty() {
+            self.scan_kinds_keyed(&r.session, &shown, keep, &mut |rec| {
+                if rec.seq > r.through_seq {
+                    return false;
+                }
+                going = visit(rec);
+                going
+            })?;
+        }
+        if !going {
+            return Ok(());
+        }
+        self.inner
+            .scan_kinds_keyed(id, kinds, keep, &mut |rec| rec.seq <= r.through_seq || visit(rec))
     }
     fn scan_kinds_strict(
         &self,
@@ -509,6 +737,34 @@ impl Store for ForkView {
         }
         self.inner.scan_kinds_strict(id, kinds, &mut |rec| rec.seq <= r.through_seq || visit(rec))
     }
+    /// A fork's view is read whole (it keeps no restore point): its kinds as `scan_kinds` joins
+    /// them, past `after`.
+    fn scan_kinds_after(
+        &self,
+        id: &str,
+        after: u64,
+        kinds: &[&str],
+        visit: &mut dyn FnMut(EventRecord) -> bool,
+    ) -> Result<()> {
+        let _held = self.shared();
+        if self.reference(id)?.is_none() {
+            return self.inner.scan_kinds_after(id, after, kinds, visit);
+        }
+        self.scan_kinds(id, kinds, &mut |rec| rec.seq <= after || visit(rec))
+    }
+    fn scan_kinds_after_strict(
+        &self,
+        id: &str,
+        after: u64,
+        kinds: &[&str],
+        visit: &mut dyn FnMut(EventRecord) -> bool,
+    ) -> Result<()> {
+        let _held = self.shared();
+        if self.reference(id)?.is_none() {
+            return self.inner.scan_kinds_after_strict(id, after, kinds, visit);
+        }
+        self.scan_kinds_strict(id, kinds, &mut |rec| rec.seq <= after || visit(rec))
+    }
     fn scan_heads(&self, id: &str, visit: &mut dyn FnMut(&RecordHead<'_>) -> bool) -> Result<()> {
         let _held = self.shared();
         let Some(r) = self.reference(id)? else { return self.inner.scan_heads(id, visit) };
@@ -527,6 +783,34 @@ impl Store for ForkView {
         }
         self.inner.scan_heads(id, &mut |head| head.seq <= r.through_seq || visit(head))
     }
+    fn search_records(&self, id: &str, visit: &mut dyn FnMut(EventRecord)) -> Result<()> {
+        let _held = self.shared();
+        let Some(r) = self.reference(id)? else { return self.inner.search_records(id, visit) };
+        self.search_records(&r.session, &mut |rec| {
+            if rec.seq <= r.through_seq {
+                visit(rec);
+            }
+        })?;
+        self.inner.search_records(id, &mut |rec| {
+            if rec.seq > r.through_seq {
+                visit(rec);
+            }
+        })
+    }
+
+    fn conversation_entries(
+        &self,
+        id: &str,
+        visit: &mut dyn FnMut(crate::session_search::Entry),
+    ) -> Result<()> {
+        // A commit to cold storage or a fork's materialization cannot cross the read.
+        let _held = self.shared();
+        if self.reference(id)?.is_none() {
+            return self.inner.conversation_entries(id, visit);
+        }
+        crate::session_search::project_records(|feed| self.search_records(id, feed), visit)
+    }
+
     fn text_entries(
         &self,
         id: &str,
@@ -579,6 +863,67 @@ impl Store for ForkView {
             self.materialize_locked(&fork)?;
         }
         self.inner.commit_compaction(id, staged)
+    }
+    fn stage_cold(&self, id: &str) -> Result<Option<StagedCold>> {
+        self.inner.stage_cold(id)
+    }
+    /// A cold archive keeps every byte (`store/cold.rs`): a fork that shows the chat's records
+    /// keeps its reference, and its read brings the chat's log back. Under `dropping`, as a
+    /// compaction's commit is: a write of `id`'s own history (`materialize`, its chat's delete)
+    /// rehydrates its log and then writes segment `000000` into `events/`, and a commit between
+    /// the two moved `events/` into the archive, so the write made a new `events/` with the
+    /// history alone and the fork's own turns stayed in an archive never read again (third review
+    /// of #39141, F2). After a write, the commit finds the log changed and refuses.
+    fn commit_cold(&self, id: &str, staged: StagedCold) -> Result<bool> {
+        let _dropping = self.exclusive();
+        self.inner.commit_cold(id, staged)
+    }
+    fn rehydrate(&self, id: &str) -> Result<bool> {
+        self.inner.rehydrate(id)
+    }
+    fn is_cold(&self, id: &str) -> bool {
+        self.inner.is_cold(id)
+    }
+    /// No `dropping` needed: the offload's commit runs under the inner store's cold lock and
+    /// skips a chat that has a segment again, so a fork's write of `id`'s history (which
+    /// rehydrates it first) between the upload and the commit leaves the archive in place.
+    fn offload_cold(&self, id: &str) -> Result<Option<u64>> {
+        self.inner.offload_cold(id)
+    }
+    fn register_cloud_root(&self) -> Result<Option<usize>> {
+        self.inner.register_cloud_root()
+    }
+    fn on_rehydrate(&self, hook: RehydrateHook) {
+        self.inner.on_rehydrate(hook)
+    }
+    /// A cold segment keeps every byte and reads back in place (`store/cold_segments.rs`): a fork
+    /// that shows the chat's records keeps its reference and reads them through the archive.
+    /// Segment `000000`, a fork's own history, never goes cold.
+    fn stage_cold_segments(
+        &self,
+        id: &str,
+        max: usize,
+        level: i32,
+    ) -> Result<Option<StagedColdSegments>> {
+        self.inner.stage_cold_segments(id, max, level)
+    }
+    fn prepare_cold_segments(&self, id: &str, staged: &StagedColdSegments) -> Result<bool> {
+        self.inner.prepare_cold_segments(id, staged)
+    }
+    fn commit_cold_segments(&self, id: &str, staged: StagedColdSegments) -> Result<ColdMoved> {
+        self.inner.commit_cold_segments(id, staged)
+    }
+    fn settle_cold_segments(&self, id: &str) -> Result<()> {
+        self.inner.settle_cold_segments(id)
+    }
+    fn warm_cold_segments(&self, id: &str) -> Result<ColdWarmed> {
+        self.inner.warm_cold_segments(id)
+    }
+    fn on_segment_sealed(&self, hook: SealHook) {
+        self.inner.on_segment_sealed(hook)
+    }
+    fn on_log_grown(&self, hook: SealHook) {
+        self.inner.on_log_grown(hook)
     }
     /// Under `dropping`, as a reservation is: one that came first is written in here (or, still
     /// being made, fails this), and one after is refused until `end_release`.
@@ -663,6 +1008,64 @@ impl Store for ForkView {
     }
     fn history_writer(&self, id: &str) -> Result<Option<Box<dyn HistoryWriter + '_>>> {
         self.inner.history_writer(id)
+    }
+}
+
+impl ForkView {
+    /// The inner store's `scan_back` (`indexed`: its `scan_back_indexed`).
+    fn inner_back(
+        &self,
+        indexed: bool,
+        id: &str,
+        after: u64,
+        before: u64,
+        skip: &dyn Fn(&[u8], &[u8]) -> bool,
+        visit: &mut dyn FnMut(EventRecord) -> bool,
+    ) -> Result<()> {
+        if indexed {
+            self.inner.scan_back_indexed(id, after, before, skip, visit)
+        } else {
+            self.inner.scan_back(id, after, before, skip, visit)
+        }
+    }
+
+    /// `scan_back` (`indexed`: `scan_back_indexed`): the fork's own records, then its chat's
+    /// history before the fork point.
+    fn back(
+        &self,
+        id: &str,
+        after: u64,
+        before: u64,
+        skip: &dyn Fn(&[u8], &[u8]) -> bool,
+        visit: &mut dyn FnMut(EventRecord) -> bool,
+        indexed: bool,
+    ) -> Result<()> {
+        let _held = self.shared();
+
+        let Some(r) = self.reference(id)? else {
+            return self.inner_back(indexed, id, after, before, skip, visit);
+        };
+        let mut going = true;
+        if before > r.through_seq + 1 {
+            self.inner_back(indexed, id, after.max(r.through_seq), before, skip, &mut |rec| {
+                going = visit(rec);
+                going
+            })?;
+        }
+        if !going || after >= r.through_seq {
+            return Ok(());
+        }
+        let skip_other = |dir: &[u8], kind: &[u8]| {
+            skip(dir, kind) || !HISTORY_KINDS.iter().any(|k| k.as_bytes() == kind)
+        };
+        self.back(
+            &r.session,
+            after,
+            before.min(r.through_seq + 1),
+            &skip_other,
+            &mut |rec| !is_history(&rec.kind) || visit(rec),
+            indexed,
+        )
     }
 }
 

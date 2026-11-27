@@ -1,10 +1,11 @@
 import { type PaneLanguage, type Translate } from "../i18n";
 import type { TurnTokenSplit } from "../model";
 import { cachedTokens, uncachedTokens } from "../tokenSplit";
+import { intl } from "../../../ui/intl";
 
 /// A token count, compact in the pane's language: 2.1M, 840K, 12.4K.
 export const compactTokens = (language: PaneLanguage, tokens: number) =>
-  new Intl.NumberFormat(language, { notation: "compact", maximumFractionDigits: 1 }).format(tokens);
+  intl.NumberFormat(language, { notation: "compact", maximumFractionDigits: 1 }).format(tokens);
 
 /// "2.1M out": the turn's generated output, compact in the pane's language. Prompt and cache tokens
 /// belong to the context card and the split's "in", and are never folded into this count.
@@ -20,13 +21,16 @@ export const readTokens = (split: TurnTokenSplit) => split.input + split.cacheRe
 export const hasTokens = (split: TurnTokenSplit | undefined): split is TurnTokenSplit =>
   split !== undefined && split.output + readTokens(split) > 0;
 
-/// The hover: "Output 12.4K · fresh input 1.2K · cache reads 3.8M · cache writes 40K".
+/// The hover, in plain words: "Wrote 12.4K tokens · read 60K new, 2.1M again". Never the prompt
+/// cache's jargon (Leo, 2026-11-12, on "Output 7K · fresh input 4 · cache reads 0 · cache writes
+/// 219.6K": "what even are cache writes? When I'm seeing this stuff, what's going on?"): what the
+/// model read for the first time is its fresh input plus what it saved to the cache, and what it
+/// read again is the cache's reads.
 export const tokenDetail = (t: Translate, language: PaneLanguage, split: TurnTokenSplit) =>
   t("turn.tokens.detail", {
     output: compactTokens(language, split.output),
-    input: compactTokens(language, split.input),
-    cacheRead: compactTokens(language, split.cacheRead),
-    cacheWrite: compactTokens(language, split.cacheWrite),
+    fresh: compactTokens(language, split.input + split.cacheWrite),
+    reused: compactTokens(language, split.cacheRead),
   });
 
 const UNCACHED = "\ue000";
@@ -60,7 +64,7 @@ export const tokenRows = (t: Translate, language: PaneLanguage, split: TurnToken
     ]),
   ),
   ...(split.context ? [t("turn.tokens.contextRow", { tokens: compactTokens(language, split.context) })] : []),
-  ...(split.calls ? [t("turn.tokens.callsRow", { n: new Intl.NumberFormat(language).format(split.calls) })] : []),
+  ...(split.calls ? [t("turn.tokens.callsRow", { n: intl.NumberFormat(language).format(split.calls) })] : []),
 ];
 
 /// A reply time's tooltip: its words on the first line ("Worked for 13s", "Stopped by cmux"), then

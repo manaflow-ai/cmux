@@ -6,7 +6,10 @@ import CmuxNextDesign
 /// `<app id>#<section id>`). One mount per section, rendered from the app
 /// supervisor's scene stream (`apps-scene`); the view stays alive while the
 /// sidebar shows it. While the supervisor is unreachable the section shows
-/// the disconnected reason.
+/// the disconnected reason; while apps cannot run here at all (a daemon with no
+/// app host, or apps turned off) it draws nothing (Lawrence 2026-11-12: "get rid
+/// of “Needs a newer cmux”"): the sidebar has nothing to offer about it, and the
+/// Apps page says why.
 @MainActor
 public final class AppSectionProvider {
     let client: AppsClient
@@ -16,7 +19,11 @@ public final class AppSectionProvider {
     /// `apps.section.look` unless overridden (demo).
     public var lookOverride: AppSectionLook?
     /// Runs when a mounted section's content height may have changed.
-    public var onContentChange: (() -> Void)?
+    public var onContentChange: (() -> Void)? {
+        didSet { widgets?.onContentChange = onContentChange }
+    }
+    /// The window's widget area (``AppWidgetSection/contribution``), once ``showWidgets(place:)`` ran.
+    public private(set) var widgets: AppWidgetSection?
 
     public init(client: AppsClient, isPresented: ((String) -> Bool)? = nil) {
         self.client = client
@@ -25,12 +32,25 @@ public final class AppSectionProvider {
 
     /// The section's title, or nil when no visible app implements it (the
     /// sidebar then shows its "App not installed" placeholder).
+    /// Draws the window's widget area of `place` too (the sidebar's); reads its layout now.
+    public func showWidgets(place: String) {
+        guard widgets == nil else { return }
+        widgets = AppWidgetSection(client: client, place: place)
+        widgets?.onContentChange = onContentChange
+    }
+
     public func title(for contribution: String) -> String? {
+        if contribution == AppWidgetSection.contribution { return widgets?.title }
         if let (app, section) = resolve(contribution) { return section.title?.resolved() ?? client.app(app)?.manifest.name.resolved() ?? app }
         return provisional(contribution).map { $0.app }
     }
 
     public func makeView(for contribution: String) -> NSView? {
+        if contribution == AppWidgetSection.contribution { return widgets?.makeView() }
+        if appsCannotRunHere {
+            release(contribution)
+            return nil
+        }
         if let existing = mounts[contribution] {
             // A section mounted before the list landed: drop it once the list says it does not show.
             guard client.isListed, resolve(contribution) == nil else { return existing.view }
@@ -40,8 +60,7 @@ public final class AppSectionProvider {
         guard let (app, section) = resolve(contribution) ?? provisional(contribution) else { return nil }
         let mount = client.mount(app, implementation: section, surface: "sidebarSection")
         let look = lookOverride ?? AppsTunables.sectionLook.value
-        // AppKit: the scene draws natively when it is built from the kit's list pieces, so a custom
-        // section reads as the built-in rows (the SwiftUI renderer stays below it for other scenes).
+        // AppKit: the scene draws natively, so a custom section reads as the built-in rows.
         let scene = AppSceneHostingView(model: mount.model, bundleDirectory: mount.bundleDirectory)
         let view = AppSectionView(scene: scene, look: look)
         scene.onContentSizeChange = { [weak self] in self?.onContentChange?() }
@@ -50,8 +69,16 @@ public final class AppSectionProvider {
     }
 
     public func preferredHeight(for contribution: String, width: CGFloat) -> CGFloat {
+        if contribution == AppWidgetSection.contribution { return widgets?.preferredHeight(width: width) ?? 0 }
         guard let view = mounts[contribution]?.view as? AppSectionView else { return 0 }
         return view.preferredHeight(width: width)
+    }
+
+    /// Apps cannot run on this daemon (no app host beside it) or a policy turned them off: no
+    /// connect or retry changes that, so a section is not worth a card.
+    private var appsCannotRunHere: Bool {
+        guard let reason = client.unavailableReason else { return false }
+        return !reason.daemonUnreachable
     }
 
     /// Unmounts a section the sidebar no longer shows (the supervisor stops
@@ -67,8 +94,7 @@ public final class AppSectionProvider {
     private func resolve(_ contribution: String) -> (app: String, section: AppImplementation)? {
         let parts = contribution.split(separator: "#", maxSplits: 1).map(String.init)
         guard parts.count == 2, isPresented(parts[0]), let app = client.app(parts[0]) else { return nil }
-        let sections = app.manifest.sections.filter(\.hasScene)
-        guard let section = sections.first(where: { $0.id == parts[1] }) ?? (sections.count == 1 ? sections.first : nil) else { return nil }
+        guard let section = app.manifest.sceneSection(parts[1]) else { return nil }
         return (app.id, section)
     }
 
@@ -82,8 +108,22 @@ public final class AppSectionProvider {
         return (parts[0], AppImplementation(interface: AppImplementation.section, id: parts[1]))
     }
 
-    /// Unmounts every section (the window's sidebar went away or replaced its sections).
+    /// This window's workspace list (`cmux.sidebar/1`, `sidebar.workspaceListApp`), made on first ask;
+    /// it mounts nothing until the person names an app.
+    public var workspaceList: SidebarListService {
+        if let list { return list }
+        let made = SidebarListService(client: client, chosenApp: { DesignSettings.shared.sidebarSections.workspaceListApp }, isPresented: isPresented)
+        list = made
+        return made
+    }
+    private var list: SidebarListService?
+
+    /// Unmounts every section, widget and the workspace list (the window's sidebar went away or replaced its sections).
+    /// The widget area is not released with its section: it keeps its tiles while they are placed.
     public func releaseAll() {
+        widgets?.releaseAll()
         for contribution in Array(mounts.keys) { release(contribution) }
+        list?.release()
+        list = nil
     }
 }

@@ -50,7 +50,7 @@ fn the_paths_read_are_the_explicit_file_alone_or_the_ambient_ones() {
     assert_eq!(
         credential_paths(&map(&[]), HOME),
         [
-            "/home/me/.config/cmux/dev-account",
+            dev_account_path(HOME).as_str(),
             "/home/me/.secrets/cmuxterm-dev.env",
             "/home/me/.secrets/cmux.env"
         ]
@@ -84,8 +84,9 @@ fn ambient_files_sign_in_only_the_declared_owner() {
     assert_eq!(decide(&reads(&[], &[], false)).refusal, Some(Refusal::NoDeclaredAccount));
     let other = "CMUX_DOGFOOD_STACK_EMAIL=someone@x\nCMUX_DOGFOOD_STACK_PASSWORD=p1\n";
     let owner = "CMUX_DOGFOOD_STACK_EMAIL=OWNER@x\nCMUX_DOGFOOD_STACK_PASSWORD=p2\n";
+    let account = dev_account_path(HOME);
     let files = [
-        ("/home/me/.config/cmux/dev-account", " owner@x\n"),
+        (account.as_str(), " owner@x\n"),
         ("/home/me/.secrets/cmuxterm-dev.env", other),
         ("/home/me/.secrets/cmux.env", owner),
     ];
@@ -110,7 +111,7 @@ fn ambient_files_sign_in_only_the_declared_owner() {
     assert_eq!(decide(&reads(&unknown, &files, false)), Decision::default());
     // A half pair never mixes sources.
     let half = [
-        ("/home/me/.config/cmux/dev-account", "owner@x"),
+        (account.as_str(), "owner@x"),
         ("/home/me/.secrets/cmux.env", "CMUX_DOGFOOD_STACK_EMAIL=owner@x\n"),
     ];
     let rest = [("CMUX_DOGFOOD_STACK_PASSWORD", "p4")];
@@ -242,6 +243,30 @@ fn automatic_keeps_the_popup_for_safari_only() {
 }
 
 #[test]
+fn automatic_opens_the_in_app_tab_when_the_app_can() {
+    let safari = Some("com.apple.Safari");
+    let edge = Some("com.microsoft.edgemac");
+    for browser in [safari, edge, None] {
+        assert_eq!(sign_in_place(SignInWindow::Automatic, browser, true), SignInPlace::InApp);
+        assert_eq!(sign_in_place(SignInWindow::InApp, browser, true), SignInPlace::InApp);
+    }
+    // No in-app browser: the old rule, popup with Safari, else the default browser.
+    assert_eq!(sign_in_place(SignInWindow::Automatic, safari, false), SignInPlace::Popup);
+    assert_eq!(sign_in_place(SignInWindow::Automatic, None, false), SignInPlace::Popup);
+    assert_eq!(sign_in_place(SignInWindow::Automatic, edge, false), SignInPlace::DefaultBrowser);
+    assert_eq!(sign_in_place(SignInWindow::InApp, edge, false), SignInPlace::DefaultBrowser);
+    // The Debug Settings choices stay what they name.
+    assert_eq!(sign_in_place(SignInWindow::Popup, edge, true), SignInPlace::Popup);
+    assert_eq!(
+        sign_in_place(SignInWindow::DefaultBrowser, safari, true),
+        SignInPlace::DefaultBrowser
+    );
+    // The old answer is unchanged for the old choices.
+    assert!(!opens_default_browser(SignInWindow::InApp, safari));
+    assert!(opens_default_browser(SignInWindow::InApp, edge));
+}
+
+#[test]
 fn a_waiting_creation_survives_only_its_own_sign_in() {
     let s = |v: &str| Some(v.to_owned());
     assert!(creation_survives_scope_change(&[None, None], &[s("u"), None]));
@@ -277,4 +302,70 @@ fn seat_facts_and_invite_answers() {
     assert_eq!(invite_answer(None, Some(false)), InviteAnswer::SendFailed);
     assert_eq!(invite_answer(Some("forbidden"), None), InviteAnswer::NotAllowed);
     assert_eq!(invite_answer(Some("signedOut"), None), InviteAnswer::Unreachable);
+}
+
+fn facts(id: &str, name: &str, plan: Option<&str>) -> TeamFacts {
+    TeamFacts { id: id.to_owned(), name: name.to_owned(), plan: plan.map(str::to_owned) }
+}
+
+#[test]
+fn team_rows_check_only_the_active_team_and_name_the_personal_one() {
+    let teams = [
+        facts("t1", "cmux", Some(" Team ")),
+        facts("t2", "leo@example.com's Team", None),
+        facts("t3", "Personal", Some("pro")),
+        facts("t4", "  ", Some("")),
+    ];
+    let rows = team_rows(&teams, Some("t1"), None);
+    assert_eq!(rows.iter().filter(|row| row.active).count(), 1);
+    assert_eq!(rows[0].title, "cmux");
+    assert_eq!(rows[0].kind, TeamKind::Team);
+    assert_eq!(rows[0].plan.as_deref(), Some("team"));
+    assert_eq!(rows[1].kind, TeamKind::Team);
+    assert_eq!(rows[1].plan, None);
+    assert_eq!(rows[2].kind, TeamKind::Personal);
+    assert_eq!(rows[2].plan.as_deref(), Some("pro"));
+    assert!(!rows[2].active);
+    // A blank name shows the id, and a blank plan is none.
+    assert_eq!(rows[3].title, "t4");
+    assert_eq!(rows[3].plan, None);
+    // An active id no row has checks none.
+    assert!(team_rows(&teams, Some("gone"), None).iter().all(|row| !row.active));
+    assert!(team_rows(&teams, None, None).iter().all(|row| !row.active));
+}
+
+// Leo 2026-11-10: his composer showed "leo@cmux.com's…" with the shared-team icon for the team the
+// sign-in service made for his account by itself.
+#[test]
+fn team_rows_show_only_the_accounts_own_default_team_as_personal() {
+    let own = Some("leo@cmux.com");
+    let teams = [facts("t1", "cmux", Some("team")), facts("t2", "leo@cmux.com's Team", None)];
+    let rows = team_rows(&teams, Some("t2"), own);
+    assert_eq!(
+        (rows[1].title.as_str(), rows[1].kind, rows[1].id.as_str()),
+        ("Personal", TeamKind::Personal, "t2")
+    );
+    assert!(rows[1].active);
+    assert_eq!(rows[0].kind, TeamKind::Team);
+    // A curly apostrophe and any case are the same default team.
+    let curly = team_rows(&[facts("t3", "Leo@Cmux.com\u{2019}s team", None)], None, own);
+    assert_eq!((curly[0].title.as_str(), curly[0].kind), ("Personal", TeamKind::Personal));
+    // A shared team named after another email, or any other name, keeps its name.
+    for name in ["zoe@cmux.com's Team", "Leo's Team", "leo@cmux.com's Team for ops", "ops team"] {
+        let rows = team_rows(&[facts("t4", name, None)], None, own);
+        assert_eq!((rows[0].title.as_str(), rows[0].kind), (name, TeamKind::Team), "{name}");
+    }
+    // Without the account's email nothing is relabeled.
+    let unknown = team_rows(&teams, None, None);
+    assert_eq!(
+        (unknown[1].title.as_str(), unknown[1].kind),
+        ("leo@cmux.com's Team", TeamKind::Team)
+    );
+    // An account that already has a Personal team keeps both names.
+    let both = team_rows(
+        &[facts("t5", "Personal", None), facts("t2", "leo@cmux.com's Team", None)],
+        None,
+        own,
+    );
+    assert_eq!((both[1].title.as_str(), both[1].kind), ("leo@cmux.com's Team", TeamKind::Team));
 }

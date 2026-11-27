@@ -36,6 +36,46 @@ fn an_answer_is_the_last_json_line_and_anything_else_is_a_bad_answer() {
         0,
     ));
     assert_eq!((seed.seed_started_at, seed.seed_finished_at), (Some(3.0), Some(4.5)));
+    let (refused, _) = parse(&output(
+        "{\"ok\":false,\"error_code\":\"seed_refused\",\"fallback_code\":\"seed.needs_github\",\"install_url\":\"https://x.test\"}",
+        "",
+        1,
+    ));
+    assert_eq!(refused.fallback_code.as_deref(), Some("seed.needs_github"));
+    assert_eq!(refused.install_url.as_deref(), Some("https://x.test"));
+    // The app's Swift `Answer` decodes these names.
+    let named = serde_json::to_value(&refused).unwrap();
+    assert_eq!(named["fallbackCode"], "seed.needs_github");
+    assert_eq!(named["installURL"], "https://x.test");
+}
+
+/// A start's refused line keeps how the platform's refusal is handled (cmux-platform#1192): a busy
+/// machine or a rate limit is retryable (the card offers Retry; a rate limit after its wait), a
+/// cap is final. The app reads these from the answer as Rust re-encodes it.
+#[test]
+fn a_refused_start_keeps_whether_it_may_be_retried() {
+    let encoded = |line: &str| serde_json::to_value(parse(&output(line, "", 1)).0).unwrap();
+    let limited = encoded(
+        r#"{"ok":false,"error_code":"cloud.rate_limited","error":"e","handling":"retry_after","retryable":true,"retry_after_s":42}"#,
+    );
+    assert_eq!(
+        (limited["retryable"].clone(), limited["retryAfterS"].clone()),
+        (json!(true), json!(42)),
+        "{limited}"
+    );
+    let busy = encoded(
+        r#"{"ok":false,"error_code":"cloud.machine.busy","error":"e","handling":"retry","retryable":true}"#,
+    );
+    assert_eq!(
+        (busy["retryable"].clone(), busy["retryAfterS"].clone()),
+        (json!(true), Value::Null)
+    );
+    let capped = encoded(
+        r#"{"ok":false,"error_code":"cloud.quota.vm_limit","error":"e","handling":"final","retryable":false}"#,
+    );
+    assert_eq!(capped["retryable"], json!(false), "{capped}");
+    // A line that says nothing of it (every other verb) is not retryable.
+    assert_eq!(encoded(r#"{"ok":false,"error_code":"x"}"#)["retryable"], json!(false));
 }
 
 /// A `link machine update` success line must carry its outcome and exit 0; `{"ok":true}` alone,
@@ -101,12 +141,31 @@ fn a_plan_names_its_machine_keys_and_setup_and_without_keys_is_no_answer() {
     assert_eq!(plan.machine.as_deref(), Some("vm-1"));
     assert_eq!((plan.create_key.as_str(), plan.tab_key.as_str()), ("c", "t"));
     assert!(plan.create_sent);
+    // A ledger that names no routes keeps none: every create of its send is the relay's.
+    assert_eq!((plan.create_route.as_deref(), plan.keeps_create_route), (None, false));
+    let routed = json!({"ok": true, "create_key": "c", "tab_key": "t", "create_sent": true,
+        "create_route": "direct", "create_routes": true})
+    .to_string();
+    let (answer, object) = parse(&output(&routed, "", 0));
+    let routed = start_chat_plan(answer, object.as_ref()).1;
+    assert_eq!((routed.create_route.as_deref(), routed.keeps_create_route), (Some("direct"), true));
     assert_eq!(plan.environment_id.as_deref(), Some("env-1"));
     let setup = plan.setup.unwrap();
     assert_eq!(
         (setup.state.as_deref(), setup.started_at, setup.has_script),
         (Some("running"), Some(2.0), Some(true))
     );
+    // A machine the plan found (or a reservation it bound) is not this send's to delete.
+    assert!(!plan.made_for_send);
+    let made = json!({"ok": true, "machine": "vm-2", "create_key": "c", "tab_key": "t", "ensured": {"created": true}});
+    let (answer, object) = parse(&output(&made.to_string(), "", 0));
+    assert!(start_chat_plan(answer, object.as_ref()).1.made_for_send, "{made}");
+    let (answer, object) = parse(&output(
+        &json!({"ok": true, "machine": "vm-2", "create_key": "c", "tab_key": "t", "ensured": {"created": false}}).to_string(),
+        "",
+        0,
+    ));
+    assert!(!start_chat_plan(answer, object.as_ref()).1.made_for_send);
     let (answer, object) =
         parse(&output("{\"ok\":true,\"new_name\":\"n\",\"create_key\":\"c\"}", "", 0));
     let (answer, plan) = start_chat_plan(answer, object.as_ref());
@@ -147,6 +206,43 @@ fn a_copy_is_an_answer_only_with_an_absolute_folder_holding_the_chat() {
     );
 }
 
+/// `link start-chat trust`, read before any machine: a level only from an ok answer naming one of
+/// acpmux's three, so an unreadable answer never refuses a start the copy would have trusted.
+#[test]
+fn a_trust_answer_names_this_macs_level_else_none() {
+    let call = invocation(
+        &serde_json::from_value(
+            json!({"verb": "start-chat-trust", "folder": "/Users/me/paint", "acpmuxHome": "/Users/me/.acpmux"}),
+        )
+        .unwrap(),
+    );
+    assert_eq!(
+        call.args,
+        [
+            "link",
+            "start-chat",
+            "trust",
+            "--folder",
+            "/Users/me/paint",
+            "--acpmux-home",
+            "/Users/me/.acpmux"
+        ]
+    );
+    assert_eq!(call.timeout_seconds, Some(START_CHAT_TRUST_TIMEOUT_SECONDS));
+    let level = |stdout: &str| {
+        read(Reading::StartChatTrust, &output(stdout, "", 0))["trust"]["level"]
+            .as_str()
+            .map(str::to_owned)
+    };
+    for answer in ["trusted", "untrusted", "unknown"] {
+        let line = json!({"ok": true, "folder": "/Users/me/paint", "level": answer}).to_string();
+        assert_eq!(level(&line).as_deref(), Some(answer));
+    }
+    assert_eq!(level(r#"{"ok":true,"level":"maybe"}"#), None);
+    assert_eq!(level(r#"{"ok":false,"error_code":"trust_unreadable","level":"untrusted"}"#), None);
+    assert_eq!(level("crashed"), None);
+}
+
 #[test]
 fn each_verb_carries_its_arguments() {
     let call = |value: Value| invocation(&serde_json::from_value(value).unwrap());
@@ -184,7 +280,73 @@ fn each_verb_carries_its_arguments() {
             "42"
         ]
     );
-    assert_eq!(agent_move_flags(None, false, None, None), ["--interrupt"]);
+    assert_eq!(agent_move_flags(&[], false, None, None), ["--interrupt"]);
+    // The hybrid start's move never stops a turn; the app's answer without the field still does.
+    assert!(agent_move_flags_at_boundary(&[], false, None, None).is_empty());
+    let hybrid = call(json!({"verb": "agent-move", "from": "/a", "surface": 3, "to": "/b",
+        "cwd": "/w", "vmKind": "owner", "interrupt": false}));
+    assert_eq!(hybrid.args[11..], ["--vm-kind", "owner"]);
+    let today = call(json!({"verb": "agent-move", "from": "/a", "surface": 3, "to": "/b",
+        "cwd": "/w", "vmKind": "owner"}));
+    assert_eq!(today.args[11..], ["--interrupt", "--vm-kind", "owner"]);
+    // The owner's login: a flag that says it is on stdin, never the value in argv.
+    let login = call(json!({"verb": "agent-move", "from": "/a", "surface": 3, "to": "/b",
+        "cwd": "/w", "vmKind": "owner", "login": true}));
+    assert_eq!(login.args[11..], ["--interrupt", "--vm-kind", "owner", "--login-stdin"]);
+    // Move to Another Machine: a pull from the old machine, then a seed of the new one, in that order.
+    let relay =
+        call(json!({"verb": "agent-move", "from": "/a", "surface": 3, "to": "/b", "cwd": "/w",
+        "sync": {"pull": true, "socket": "/old", "local": "/l", "remote": "/r1"},
+        "thenSync": {"pull": false, "socket": "/new", "local": "/l", "remote": "/r2"}}));
+    assert_eq!(
+        relay.args[11..],
+        [
+            "--interrupt",
+            "--sync",
+            "pull",
+            "--sync-socket",
+            "/old",
+            "--sync-local",
+            "/l",
+            "--sync-remote",
+            "/r1",
+            "--sync",
+            "seed",
+            "--sync-socket",
+            "/new",
+            "--sync-local",
+            "/l",
+            "--sync-remote",
+            "/r2",
+        ]
+    );
+    // Move to another Cloud machine: the frozen copy is a relay between the two machines.
+    let relayed = call(
+        json!({"verb": "agent-move", "from": "/one.sock", "surface": 3, "to": "/two.sock",
+        "cwd": "/home/cmux/work/app",
+        "sync": {"pull": false, "socket": "/two.sock", "local": "/home/cmux/work/app", "remote": "/home/cmux/work/app",
+                 "fromSocket": "/one.sock", "seedLocal": "/Users/me/app"}, "vmKind": "owner"}),
+    );
+    assert_eq!(
+        relayed.args[11..],
+        [
+            "--interrupt",
+            "--sync",
+            "relay",
+            "--sync-from-socket",
+            "/one.sock",
+            "--sync-socket",
+            "/two.sock",
+            "--sync-local",
+            "/home/cmux/work/app",
+            "--sync-remote",
+            "/home/cmux/work/app",
+            "--sync-seed-local",
+            "/Users/me/app",
+            "--vm-kind",
+            "owner"
+        ]
+    );
     let update =
         call(json!({"verb": "machine-update", "socket": "/s", "toBundled": true, "ifOlder": true}));
     assert_eq!(
@@ -197,6 +359,26 @@ fn each_verb_carries_its_arguments() {
         ["link", "machine", "update", "--socket", "/s"]
     );
     assert_eq!(call(json!({"verb": "machine-pin"})).timeout_seconds, Some(150));
+    let gateway = call(json!({"verb": "inference-gateway-status"}));
+    assert_eq!(
+        (gateway.args, gateway.timeout_seconds),
+        (
+            vec!["inference".to_owned(), "gateway".into(), "status".into(), "--json".into()],
+            Some(10)
+        )
+    );
+    // The start gate names the team its machines are made in (the install's own): the active team's gateway serves
+    // only that team's machines, so reading it waved a start through that no gateway served (start matrix, 13:10Z
+    // 2026-11-22: the active team's gateway off, the machines' team's on).
+    assert_eq!(
+        call(json!({"verb": "inference-gateway-status", "team": "team_0123456789abcdef0123"})).args,
+        ["inference", "gateway", "status", "--json", "--team", "team_0123456789abcdef0123"]
+    );
+    // The gate hands over the install token it holds (hq#19758): no nested mint inside the 10 s read.
+    assert_eq!(
+        call(json!({"verb": "inference-gateway-status", "team": "team_0123456789abcdef0123", "held": true})).args,
+        ["inference", "gateway", "status", "--json", "--team", "team_0123456789abcdef0123", "--token-stdin"]
+    );
     let release = call(json!({"verb": "start-chat-reservation", "release": true, "request": "{}"}));
     assert_eq!((release.args[2].as_str(), release.timeout_seconds), ("release", Some(15)));
     assert_eq!(
@@ -226,11 +408,86 @@ fn each_verb_carries_its_arguments() {
             "default"
         ]
     );
+    let ask = call(
+        json!({"verb": "start-chat-copy", "key": "k", "account": "u/", "machine": "m", "socket": "/s", "local": "/l", "subpath": "",
+        "workRoots": ["/w"], "onSeedRefusal": "ask"}),
+    );
+    assert_eq!(ask.args[15..], ["--work-root", "/w", "--on-seed-refusal", "ask"]);
+    let copies = call(
+        json!({"verb": "start-chat-copy", "key": "k", "account": "u/", "machine": "m", "socket": "/s", "local": "/l", "subpath": "",
+        "workRoots": ["/w"], "store": true, "onSeedRefusal": "copy"}),
+    );
+    assert_eq!(
+        copies.args[15..],
+        ["--work-root", "/w", "--store", "default", "--on-seed-refusal", "copy"]
+    );
     let pin = call(json!({"verb": "start-chat-pin", "key": "k", "account": "a", "machine": "m"}));
     assert_eq!(
         pin.args,
         ["link", "start-chat", "pin", "--key", "k", "--account", "a", "--machine", "m"]
     );
+    // The ledger verbs are a locked file change on this Mac: a minute, never the 30 of a copy.
+    assert_eq!(pin.timeout_seconds, Some(START_CHAT_LEDGER_TIMEOUT_SECONDS));
+    for ledger in [
+        json!({"verb": "start-chat-create-begin", "key": "k", "account": "a", "name": "n", "createKey": "c"}),
+        json!({"verb": "start-chat-create-sent", "key": "k", "account": "a", "team": "t", "createKey": "c"}),
+        json!({"verb": "start-chat-create-refused", "key": "k", "account": "a", "createKey": "c"}),
+        json!({"verb": "start-chat-target-pane", "key": "k", "account": "a", "machine": "m", "pane": "p"}),
+        json!({"verb": "start-chat-import", "entries": "[]"}),
+        json!({"verb": "start-chat-strand", "key": "k", "account": "a", "machine": "m"}),
+    ] {
+        assert_eq!(
+            call(ledger.clone()).timeout_seconds,
+            Some(START_CHAT_LEDGER_TIMEOUT_SECONDS),
+            "{ledger}"
+        );
+    }
+    // A sent create names its route only when the App gives one; without it the words are as before.
+    let sent = |route: Option<&str>| {
+        let mut verb = json!({"verb": "start-chat-create-sent", "key": "k", "account": "a", "team": "t", "createKey": "c"});
+        if let Some(route) = route {
+            verb["route"] = json!(route);
+        }
+        call(verb).args
+    };
+    assert_eq!(sent(None).last().map(String::as_str), Some("c"));
+    assert_eq!(sent(Some("direct"))[sent(None).len()..], ["--route", "direct"]);
+    let strand =
+        call(json!({"verb": "start-chat-strand", "key": "k", "account": "a", "machine": "m"}));
+    assert_eq!(
+        strand.args,
+        ["link", "start-chat", "strand", "--key", "k", "--account", "a", "--machine", "m"]
+    );
+    // The folder check before any machine: its own bound, never a copy's 30 minutes.
+    let preflight = call(json!({"verb": "start-chat-preflight", "local": "/Users/me/Projects"}));
+    assert_eq!(
+        preflight.args,
+        ["link", "start-chat", "preflight", "--local", "/Users/me/Projects"]
+    );
+    assert_eq!(preflight.timeout_seconds, Some(START_CHAT_PREFLIGHT_TIMEOUT_SECONDS));
+    // `cloud new-machine --environment`: the workspace ensure in that environment, keyed by the create's own key.
+    let ensure = call(
+        json!({"verb": "start-chat-ensure", "key": "k", "environment": "env_0123456789abcdef01234567", "platform": "https://p"}),
+    );
+    assert_eq!(
+        ensure.args,
+        [
+            "link",
+            "start-chat",
+            "ensure",
+            "--workspace",
+            "k",
+            "--key",
+            "k",
+            "--environment",
+            "env_0123456789abcdef01234567",
+            "--platform",
+            "https://p"
+        ]
+    );
+    assert_eq!(ensure.timeout_seconds, Some(150));
+    // A plan reaches the platform and a copy moves the folder: they keep the default.
+    assert_eq!(call(json!({"verb": "start-chat-plan", "request": "{}"})).timeout_seconds, None);
     assert_eq!(
         call(json!({"verb": "bring-back-pull", "socket": "/s", "local": "/l", "remote": "/r"}))
             .args
@@ -238,6 +495,28 @@ fn each_verb_carries_its_arguments() {
             .unwrap(),
         "--or-copy"
     );
+    assert_eq!(
+        call(json!({"verb": "transfer-fetch", "socket": "/s", "local": "/l", "remote": "/r/sub", "adopt": true})).args,
+        ["link", "seed", "fetch", "--socket", "/s", "/l", "/r/sub", "--find-root", "--adopt"]
+    );
+    assert_eq!(
+        call(json!({"verb": "transfer-fetch", "socket": "/s", "local": "/l", "remote": "/r"}))
+            .args
+            .last()
+            .unwrap(),
+        "--find-root",
+        "a copy keeps the machine's records"
+    );
+}
+
+#[test]
+fn a_fetch_answer_names_the_folder_it_copied() {
+    let output = Output {
+        stdout: r#"{"ok":true,"mode":"git","folder":"/l","remote_root":"/r"}"#.into(),
+        stderr: String::new(),
+        status: 0,
+    };
+    assert_eq!(parse(&output).0.remote_root.as_deref(), Some("/r"));
 }
 
 #[test]
@@ -309,5 +588,44 @@ fn a_failure_says_its_result_line_else_the_end_of_stderr() {
     assert_eq!(
         ExecRun { exit_code: 0, stdout: "a\nstarted\n".into(), stderr: String::new() }.last_line(),
         "started"
+    );
+}
+
+/// A seed refusal's copy size reaches the app (its room check reads it), and a first-pass copy says what it left on
+/// this Mac, at the line's top or in its `copy` summary, so the start never reads as a whole copy.
+#[test]
+fn a_copy_answer_carries_its_bytes_and_what_it_left_on_this_mac() {
+    let encoded = |line: &str| serde_json::to_value(parse(&output(line, "", 0)).0).unwrap();
+    let refused = encoded(r#"{"ok":false,"error_code":"seed_refused","copy_bytes":123}"#);
+    assert_eq!(refused["copyBytes"], 123);
+    let nested =
+        encoded(r#"{"ok":true,"mode":"copy","copy":{"skipped_counts":{"left_on_mac":7}}}"#);
+    assert_eq!(nested["leftOnMac"], 7);
+    let top = encoded(r#"{"ok":true,"skipped_counts":{"left_on_mac":2,"heavy":1}}"#);
+    assert_eq!(top["leftOnMac"], 2);
+    let whole = encoded(r#"{"ok":true,"copy":{"skipped_counts":{"heavy":1}}}"#);
+    assert_eq!(whole["leftOnMac"], Value::Null);
+    let locked = serde_json::to_value(
+        parse(&output(
+            r#"{"ok":false,"error_code":"cloud.size.locked","size_locked":{"needed":"xl"}}"#,
+            "",
+            1,
+        ))
+        .0,
+    )
+    .unwrap();
+    assert_eq!(locked["sizeLocked"], json!({"needed": "xl"}));
+    let small = serde_json::to_value(
+        parse(&output(
+            r#"{"ok":false,"error_code":"seed_refused","fallback_code":"machine.too_small","copy_bytes":5,"machine_title":"cloud-chats"}"#,
+            "",
+            1,
+        ))
+        .0,
+    )
+    .unwrap();
+    assert_eq!(
+        (&small["fallbackCode"], &small["copyBytes"], &small["machineTitle"]),
+        (&json!("machine.too_small"), &json!(5), &json!("cloud-chats"))
     );
 }

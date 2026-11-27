@@ -32,7 +32,7 @@ use std::sync::Arc;
 const MAX_REPLY_CHARS: usize = 4000;
 
 /// The accepted offer that started a chat, from its parent's log.
-struct Started {
+pub(super) struct Started {
     offer_id: String,
     title: String,
     /// The parent has the result already.
@@ -80,6 +80,10 @@ impl Hub {
             prompt_id: Some(format!("offer-result-{}", started.offer_id)),
             resend: true,
             provenance: Some(provenance),
+            // The suggested task's chat's message: an idle parent's turn gathers the ones after
+            // it, and a cold parent's waits for its batch (`cold_wake.rs`).
+            agent: Some(child.meta().name),
+            class: Some(crate::prompt_class::PromptClass::Result),
             ..PromptOptions::default()
         };
         let blocks = vec![json!({"type": "text", "text": text})];
@@ -94,14 +98,16 @@ impl Hub {
     }
 
     /// The accepted offer of `parent` that started chat `child`, if any.
-    fn started_by_offer(&self, parent: &Session, child: &str) -> Option<Started> {
+    pub(super) fn started_by_offer(&self, parent: &Session, child: &str) -> Option<Started> {
         let mut titles: HashMap<String, String> = HashMap::new();
         let mut started: Option<Started> = None;
         let text = |e: &EventRecord, key: &str| {
             e.msg.get(key).and_then(Value::as_str).unwrap_or_default().to_owned()
         };
-        // Streamed, not collected: a long chat's log stays on disk.
-        let scanned = self.store.scan(&parent.id, 0, &mut |e: EventRecord| {
+        // Every turn end of a child reads this, and a parent is often the longest chat there is:
+        // its offers and prompts only, from the log's copies of them (`store/kind_index.rs`).
+        let kinds = ["session_offer", "session_offer_decision", "user_message", "queued"];
+        let scanned = self.store.scan_kinds(&parent.id, &kinds, &mut |e: EventRecord| {
             if e.dir != "mux" {
                 return true;
             }

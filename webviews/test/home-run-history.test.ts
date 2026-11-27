@@ -842,8 +842,8 @@ test("a slow failing later history page does not hide messages already found", a
 });
 
 test("Transcript discovers run summaries but reads steps only when the view asks", async () => {
-  const { setPresentation } = await import("../src/pages/home-channels/presentation");
-  setPresentation("chief-conv", "transcript");
+  const { setDetail } = await import("../src/pages/home-channels/presentation");
+  setDetail("chief-conv", "normal");
   const fake = client([message(1)], [run(1, "m1")]);
   const store = new HomeChannelsStore(fake.api as never);
   const finished = trackRunLoads(store);
@@ -859,6 +859,6 @@ test("Transcript discovers run summaries but reads steps only when the view asks
     expect(store.runs.get("chief-conv", "chief", "r1")?.steps[0]?.text).toBe("[a1] report");
   } finally {
     stop();
-    setPresentation("chief-conv", "messages");
+    setDetail("chief-conv", "messages");
   }
 });

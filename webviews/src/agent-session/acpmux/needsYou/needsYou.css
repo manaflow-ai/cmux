@@ -45,9 +45,10 @@
 .acpmux-needs-you {
   display: flex;
   flex-direction: column;
-  width: 360px;
+  /* Its frame follows Text Size as its rows do (--ui-px, ui/popupSurface.css). */
+  width: calc(360 * var(--ui-px, 1px));
   max-width: calc(100vw - 24px);
-  max-height: min(520px, 75vh);
+  max-height: min(calc(520 * var(--ui-px, 1px)), 75vh);
   overflow: hidden;
   box-sizing: border-box;
   padding: 0;
@@ -286,7 +287,7 @@
   margin-top: var(--ds-space-1);
   padding: var(--ds-space-1) var(--ds-space-2);
   border-radius: var(--ds-radius-control);
-  background: color-mix(in srgb, var(--agent-text) 6%, transparent);
+  background: var(--ds-surface-inset);
   font-family: var(--font-mono, ui-monospace, monospace);
 }
 .acpmux-needs-you-actions {
@@ -303,7 +304,7 @@
   gap: 1px;
   padding: 2px;
   border-radius: var(--ds-radius-popup);
-  background: color-mix(in srgb, var(--agent-text) 4%, transparent);
+  background: var(--ds-surface-card);
   box-shadow: inset 0 0 0 var(--cmux-hairline, 0.5px) var(--agent-border);
   counter-reset: acpmux-needs-you-option;
 }
@@ -337,7 +338,7 @@
 }
 .acpmux-needs-you-answer:first-child,
 .acpmux-needs-you-answer:hover:not(:disabled) {
-  background: color-mix(in srgb, var(--agent-text) 9%, transparent);
+  background: var(--ds-surface-hover);
 }
 .acpmux-needs-you-answer[data-tone="deny"] .acpmux-needs-you-answer-label {
   color: var(--agent-soft, var(--agent-muted));
@@ -418,7 +419,7 @@
   font-size: var(--text-body);
   letter-spacing: var(--text-body--letter-spacing);
 }
-.acpmux-needs-you-side-field:focus {
+.acpmux-needs-you-side-field:focus-visible {
   box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--agent-text) 40%, transparent);
 }
 
@@ -432,7 +433,7 @@
   height: var(--ds-control-primary);
   padding: 0 var(--ds-space-3);
   border-radius: var(--ds-radius-popup);
-  color: var(--acpmux-needs-you-mark);
+  color: var(--acpmux-needs-you-ink);
   font-family: var(--font-ui);
   font-size: var(--text-control);
   font-weight: var(--weight-regular);
@@ -473,7 +474,7 @@
   padding: 0 var(--ds-space-2);
   border: 0;
   border-radius: var(--ds-radius-control);
-  background: color-mix(in srgb, var(--agent-text) 6%, transparent);
+  background: var(--ds-surface-inset);
   color: var(--agent-text);
   font: inherit;
   font-size: var(--text-detail);
@@ -494,7 +495,7 @@
   margin: var(--ds-space-2) 0 0 var(--ds-space-5);
   padding: var(--ds-space-1) var(--ds-space-2);
   border-radius: var(--ds-radius-control);
-  background: color-mix(in srgb, var(--agent-text) 4%, transparent);
+  background: var(--ds-surface-card);
   font-size: var(--text-detail);
   line-height: var(--text-detail--line-height);
   letter-spacing: var(--text-detail--letter-spacing);
@@ -585,7 +586,6 @@
 .acpmux-needs-you-answer[data-answer-key] {
   grid-template-columns: 14px minmax(0, 1fr) auto;
 }
-.acpmux-needs-you-answer .acpmux-keycap {
+.acpmux-needs-you-answer .ui-key-hint {
   margin: 0;
-  color: var(--agent-muted);
 }

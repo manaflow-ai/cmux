@@ -7,6 +7,10 @@ scripts/cmux-next/hybrid_ref_capture.py and the cmux-scheme-compile steps around
   or the toolchain, and not with a source file or an iOS xcconfig;
 - a module whose SwiftDriver task has no frontend compile line makes the capture incomplete, and
   an incomplete capture uploads nothing;
+- a capture is timed from the job's start without a GitHub API call (the runner's worker process, the
+  decide step; the jobs read only as a one-try fallback), stops by its own deadline, uploads with no
+  client self-update, and leaves an incomplete manifest when it is killed, fails or runs out of time
+  (run 45845663445);
 - a complete capture packs the build without objects, the compilation cache, .git or the app,
   with the compiled-out browser sources the compiler read, the same bytes twice, split under the
   store's file limit, every part uploaded with its own sha256, and a manifest of names and digests;
@@ -27,8 +31,11 @@ import subprocess
 import sys
 import tarfile
 import tempfile
+import time
 import unittest
+import urllib.error
 from argparse import Namespace
+from datetime import datetime, timezone
 from pathlib import Path
 
 import yaml
@@ -36,6 +43,13 @@ import yaml
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "scripts/cmux-next"))
 import hybrid_ref_capture as cap  # noqa: E402
+# tests/git_fixture_env.py, loaded by path: `python3 -I` puts no script folder on sys.path.
+import importlib.util as _git_fixture_importlib  # noqa: E402
+from os import path as _git_fixture_path  # noqa: E402
+_git_fixture_spec = _git_fixture_importlib.spec_from_file_location(
+    "git_fixture_env", _git_fixture_path.join(_git_fixture_path.dirname(_git_fixture_path.abspath(__file__)), "git_fixture_env.py"))
+git_fixture_env = _git_fixture_importlib.module_from_spec(_git_fixture_spec)
+_git_fixture_spec.loader.exec_module(git_fixture_env)
 
 WORKFLOW = ROOT / ".github/workflows/cmux-next.yml"
 COMPILE_SCRIPT = ROOT / "scripts/cmux-next/check-cmux-scheme-compile.sh"
@@ -132,16 +146,21 @@ class Key(unittest.TestCase):
 
 
 class Capture(unittest.TestCase):
-    def run_capture(self, log: str, part_bytes: int | None = None, upload: bool = True):
+    def run_capture(self, log: str, part_bytes: int | None = None, upload: bool = True, client_body: str = "",
+                    deadline_s: float = 600, rc: int = 0):
         tmp = Path(self.tmp.name)
         repo, dd = make_repo(tmp), make_dd(tmp)
         (tmp / "xcodebuild.log").write_text(log)
         calls = tmp / "calls.jsonl"
         client = tmp / "cmux-ci"
-        client.write_text("#!/usr/bin/env python3\nimport json, sys\n"
-                          f"open({str(calls)!r}, 'a').write(json.dumps(sys.argv[1:]) + '\\n')\n")
-        client.chmod(0o755)
         out = tmp / f"out-{len(list(tmp.glob('out-*')))}"
+        # The fake client records its argv, the update switch and the manifest on disk while it runs.
+        client.write_text("#!/usr/bin/env python3\nimport json, os, sys\n"
+                          f"m = json.load(open({str(out / 'manifest.json')!r}))\n"
+                          f"open({str(calls)!r}, 'a').write(json.dumps(sys.argv[1:] + "
+                          "[os.environ.get('CMUX_CI_NO_UPDATE'), m['complete'], m.get('stage')]) + '\\n')\n"
+                          + client_body)
+        client.chmod(0o755)
         output = tmp / "github_output"
         env = {"CMUX_CI_CLIENT": str(client), "HYBRID_REF_SETTINGS": "CMUX_NEXT_BROWSER_DATA_IMPORT=compiled-out\n",
                "GITHUB_OUTPUT": str(output), "TMPDIR": "/var/folders/x/T/"}
@@ -152,11 +171,15 @@ class Capture(unittest.TestCase):
         if part_bytes:
             cap.PART_BYTES = part_bytes
         try:
-            self.assertEqual(cap.capture(a, env), 0)
+            self.assertEqual(cap.capture(a, env, budget=lambda environ, now: (now + deadline_s, "test")), rc)
         finally:
             cap.PART_BYTES = saved
         manifest = json.loads((out / "manifest.json").read_text())
         uploads = [json.loads(line) for line in calls.read_text().splitlines()] if calls.exists() else []
+        for u in uploads:
+            self.assertEqual(u[-3:], ["1", False, "uploading"],
+                             "no client self-update, and an incomplete manifest is on disk while parts upload")
+            del u[-3:]
         return manifest, out, uploads, output.read_text()
 
     def setUp(self) -> None:
@@ -220,6 +243,94 @@ class Capture(unittest.TestCase):
         self.assertEqual(len(joined), blob["size"])
         self.assertTrue(all(p["size"] <= 200 for p in blob["parts"]))
         self.assertEqual(len(uploads), sum(len(b["parts"]) for b in manifest["blobs"].values()))
+
+    def test_a_failed_upload_leaves_an_incomplete_manifest(self) -> None:
+        manifest, _, uploads, output = self.run_capture(
+            LOG + CMUX_LINE, client_body="if sys.argv[2].endswith('ws-src.tgz'): sys.exit('store said no')\n", rc=1)
+        self.assertFalse(manifest["complete"])
+        self.assertEqual(manifest["stage"], "upload unfinished")
+        self.assertEqual(list(manifest["unfinished"]), ["ws-src.tgz"])
+        self.assertIn("store said no", manifest["unfinished"]["ws-src.tgz"])
+        self.assertEqual(len(uploads), 5, "the other parts still go")
+        self.assertNotIn("complete=true", output)
+        self.assertIn("complete=false", output)
+
+    def test_an_upload_past_the_deadline_is_stopped(self) -> None:
+        start = time.monotonic()
+        manifest, _, _, _ = self.run_capture(LOG + CMUX_LINE, client_body="import time; time.sleep(30)\n",
+                                             deadline_s=2, rc=1)
+        self.assertLess(time.monotonic() - start, 20, "each upload is bounded by the capture's deadline")
+        self.assertFalse(manifest["complete"])
+        self.assertTrue(all("deadline" in why or "ran out" in why for why in manifest["unfinished"].values()),
+                        manifest["unfinished"])
+
+    def test_a_capture_past_its_start_window_does_nothing(self) -> None:
+        tmp = Path(self.tmp.name)
+        a = Namespace(log=str(tmp / "missing.log"), workspace="w", derived_data="d", read_workspace=None,
+                      read_derived_data=None, sha="a" * 40, key="k" * 64, run_id=7, out=str(tmp / "out"),
+                      lane="hybrid-ref-dev", upload=True)
+        self.assertEqual(cap.capture(a, {}, budget=lambda environ, now: (None, "too late")), 0)
+        self.assertFalse((tmp / "out").exists(), "no manifest: nothing was tried")
+
+
+class JobBudget(unittest.TestCase):
+    NOW = 1_800_000_000.0
+
+    def test_etime(self) -> None:
+        self.assertEqual(cap.etime_seconds("05:07"), 307)
+        self.assertEqual(cap.etime_seconds("01:00:01"), 3601)
+        self.assertEqual(cap.etime_seconds("2-00:00:00"), 172800)
+
+    def test_the_worker_process_is_found_up_the_tree(self) -> None:
+        table = {10: "9 00:03 /bin/bash", 9: "8 21:30 /Users/r/bin/Runner.Worker", 8: "1 3-00:00:00 Runner.Listener"}
+        self.assertEqual(cap.worker_started(self.NOW, 10, lambda pid: table[pid]), self.NOW - 21 * 60 - 30)
+        self.assertIsNone(cap.worker_started(self.NOW, 10, lambda pid: {10: "1 00:01 bash"}[pid]))
+        self.assertIsNone(cap.worker_started(self.NOW, 10, lambda pid: ""), "an unreadable ps is an unknown start")
+
+    def sources(self, worker=None, jobs=None):
+        calls = []
+
+        def jobs_read(environ):
+            calls.append(environ)
+            return jobs
+        return {"worker": lambda now: worker, "jobs_read": jobs_read}, calls
+
+    def test_no_api_call_when_the_start_is_known(self) -> None:
+        sources, calls = self.sources(worker=self.NOW - 600, jobs=self.NOW)
+        self.assertEqual(cap.job_started({"DECIDE_STARTED": str(int(self.NOW - 300))}, self.NOW, **sources),
+                         (self.NOW - 600, "the runner's worker process"), "the earlier start stands")
+        sources, calls2 = self.sources(jobs=self.NOW)
+        self.assertEqual(cap.job_started({"DECIDE_STARTED": str(int(self.NOW - 300))}, self.NOW, **sources)[0],
+                         self.NOW - 300)
+        self.assertEqual(calls + calls2, [], "the jobs read is only a fallback (run 45845663445: a rate limit)")
+        sources, calls = self.sources(jobs=self.NOW - 60)
+        self.assertEqual(cap.job_started({"DECIDE_STARTED": ""}, self.NOW, **sources), (self.NOW - 60, "the jobs read"))
+
+    def test_the_budget(self) -> None:
+        sources, _ = self.sources(worker=self.NOW - 21.5 * 60)
+        deadline, _ = cap.job_budget({}, self.NOW, **sources)
+        self.assertEqual(deadline, self.NOW + cap.STEP_BUDGET_S)
+        sources, _ = self.sources(worker=self.NOW - cap.LATEST_START_S - 1)
+        self.assertIsNone(cap.job_budget({}, self.NOW, **sources)[0])
+        sources, _ = self.sources()
+        self.assertEqual(cap.job_budget({}, self.NOW, **sources), (None, "the job's start is unknown"))
+
+    def test_the_jobs_read_is_one_short_try(self) -> None:
+        seen = []
+
+        def opener(request, timeout):
+            seen.append(timeout)
+            raise urllib.error.HTTPError(request.full_url, 403, "rate limit", {}, io.BytesIO(b"API rate limit exceeded"))
+        env = {"GITHUB_REPOSITORY": "o/r", "GITHUB_RUN_ID": "1", "GH_TOKEN": "t", "RUNNER_NAME": "m"}
+        self.assertIsNone(cap.jobs_read_started(env, opener))
+        self.assertEqual(seen, [cap.JOBS_READ_TIMEOUT_S])
+
+        def ok(request, timeout):
+            return FakeResponse(json.dumps({"jobs": [
+                {"runner_name": "other", "status": "in_progress", "started_at": "2026-11-26T15:00:00Z"},
+                {"runner_name": "m", "status": "in_progress", "started_at": "2026-11-26T15:09:30Z"}]}).encode())
+        self.assertEqual(cap.jobs_read_started(env, ok),
+                         datetime(2026, 11, 26, 15, 9, 30, tzinfo=timezone.utc).timestamp())
 
 
 class Toolchain(unittest.TestCase):
@@ -359,7 +470,8 @@ def shortest_minutes(timeout: int | str) -> int:
 class Workflow(unittest.TestCase):
     @classmethod
     def setUpClass(cls) -> None:
-        cls.job = yaml.safe_load(WORKFLOW.read_text())["jobs"]["cmux-scheme-compile"]
+        cls.workflow = yaml.safe_load(WORKFLOW.read_text())
+        cls.job = cls.workflow["jobs"]["cmux-scheme-compile"]
         cls.steps = {s.get("id"): s for s in cls.job["steps"] if s.get("id")}
         cls.order = [s.get("id") or s.get("name") for s in cls.job["steps"]]
 
@@ -373,24 +485,33 @@ class Workflow(unittest.TestCase):
 
     def test_off_by_default_and_never_in_the_way(self) -> None:
         decide, capture = self.steps["hybrid-ref"], self.steps["hybrid-ref-capture"]
-        self.assertTrue(decide["if"].startswith("vars.CMUX_NEXT_HYBRID_REF_CAPTURE == '1' &&"))
+        self.assertTrue(decide["if"].startswith("(vars.CMUX_NEXT_HYBRID_REF_CAPTURE == '1' || inputs.hybrid_ref_capture == true) &&"))
+        dispatch = self.workflow[True]["workflow_dispatch"]["inputs"]["hybrid_ref_capture"]
+        self.assertEqual((dispatch["type"], dispatch["default"]), ("boolean", False), "a dispatch opts in to one capture; off by default")
         for step in (decide, capture):
             self.assertTrue(step["continue-on-error"])
         upload = next(s for s in self.job["steps"] if s.get("name") == "Upload the REF capture manifest")
         self.assertLessEqual(decide["timeout-minutes"], 12, "the lookup waits out a rate limit for 10 minutes at most")
         self.assertIn("--budget 600", decide["run"])
         self.assertTrue(upload["continue-on-error"])
-        self.assertLessEqual(40 + capture["timeout-minutes"] + upload["timeout-minutes"], shortest_minutes(self.job["timeout-minutes"]) - 10,
-                             "a capture that starts by job minute 40 ends, upload included, well inside the job's limit")
-        self.assertIn("(( $(date +%s) - started > 40 * 60 ))", capture["run"])
-        self.assertIn("actions/runs/$GITHUB_RUN_ID/attempts/$GITHUB_RUN_ATTEMPT/jobs", capture["run"],
-                      "timed from the job's own start, not from a later step")
-        self.assertIn('if [[ -z "$started" ]]', capture["run"], "an unknown start skips the capture")
-        self.assertIn('[[ -n "$started" ]] || started="$DECIDE_STARTED"', capture["run"],
-                      "a failed jobs read (a rate limit that outlasted the lookup) falls back to the decide step's start")
+        job_minutes = shortest_minutes(self.job["timeout-minutes"])
+        self.assertEqual(job_minutes * 60, cap.JOB_LIMIT_S)
+        self.assertLessEqual(cap.LATEST_START_S // 60 + capture["timeout-minutes"] + upload["timeout-minutes"], job_minutes - 10,
+                             "a capture that starts by its latest minute ends, upload included, well inside the job's limit")
+        self.assertLessEqual(cap.STEP_BUDGET_S // 60 + 2, capture["timeout-minutes"],
+                             "the capture stops itself, manifest written, before the step's backstop")
+        self.assertNotIn("gh api", capture["run"], "the job's start needs no API call (run 45845663445: rate limit)")
+        self.assertIn("--upload", capture["run"], "the upload path is the one that times itself (job_budget)")
         self.assertEqual(capture["env"]["DECIDE_STARTED"], "${{ steps.hybrid-ref.outputs.started }}")
+        # A capture killed at its backstop still leaves a manifest; the upload does not wait for the step's outputs.
+        self.assertEqual(upload["if"], "${{ !cancelled() && steps.hybrid-ref-capture.outcome != 'skipped' }}")
+        self.assertEqual(upload["with"]["path"], "${{ runner.temp }}/hybrid-ref-capture/manifest.json")
+        self.assertIn('--out "$RUNNER_TEMP/hybrid-ref-capture"', capture["run"])
+        self.assertEqual(upload["with"]["if-no-files-found"], "ignore", "a capture skipped by age writes none")
         self.assertIn("hybrid_ref_capture.py have --key", decide["run"], "the lookup that retries a rate limit")
-        self.assertEqual(upload["with"]["retention-days"], 14, "the manifest lives as long as the store keeps the packs")
+        # Every upload keeps 7 days at most (#43466, test_ci_upload_artifact_retention MAX_ALLOWED_DAYS); `have`
+        # counts only unexpired manifests, so a capture older than that is taken again.
+        self.assertEqual(upload["with"]["retention-days"], 7, "every upload-artifact step is bounded to 7 days")
         self.assertIn("steps.hybrid-ref.outputs.capture == 'true'", capture["if"])
         self.assertIn("outputs.build_mode == 'host'", capture["if"])
         self.assertIn("steps.compile-cmux-next-dev-release.outcome == 'success'", capture["if"])

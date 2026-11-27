@@ -23,6 +23,7 @@ import {
   type ProcessSource,
 } from "../src/agent-session/acpmux/session-info/processes";
 import type { SummaryBackgroundTask } from "../src/agent-session/acpmux/summary/sessionSummary";
+import { settleReact } from "./support/domTeardown";
 
 let dom: JSDOM | undefined;
 let root: Root | undefined;
@@ -57,6 +58,7 @@ beforeEach(() => resetSessionInfoState());
 afterEach(async () => {
   if (root) await act(async () => root!.unmount());
   root = undefined;
+  await settleReact();
   dom?.window.close();
   dom = undefined;
   for (const [key, value] of saved) {
@@ -172,9 +174,15 @@ test("no section before the first background process; then running ones with ela
   ]);
   expect(rows().map((row) => row.querySelector(".acpmux-session-info-task__time")?.textContent)).toEqual([
     "1m 16s",
-    "1h 2m 3s",
+    "1h 2m",
   ]);
-  expect(tasks.querySelector(".acpmux-session-info-section__meta")?.textContent).toBe("2 running");
+  // Past an hour the time is to the minute and its box is its own digits, never "00h 00m 00s"
+  // (TaskRowReason.gallery.tsx: that reserve cut the command at 420 px).
+  const sizes = rows().map(
+    (row) => row.querySelector<HTMLElement>(".acpmux-session-info-task__time")?.dataset.clockSize,
+  );
+  expect(sizes).toEqual(["00m 00s", "0h 0m"]);
+  expect(tasks.querySelector(".acpmux-session-info-section__meta")?.textContent).toBe("2");
 
   // The finished ones fold behind their count; open, each with how long it ran and how it ended.
   const fold = tasks.querySelector<HTMLButtonElement>("button.acpmux-session-info-fold")!;
@@ -208,7 +216,7 @@ test("a dev server heads Background tasks: the globe, its address, its command; 
   );
   // One section for every background command, a dev server's included (no Servers card of its own).
   const servers = section(container, "tasks")!;
-  expect(servers.querySelector(".acpmux-session-info-section__meta")?.textContent).toBe("1 running");
+  expect(servers.querySelector(".acpmux-session-info-section__meta")?.textContent).toBe("1");
   expect(servers.querySelectorAll('.acpmux-session-info-task[data-kind="server"]')).toHaveLength(1);
   expect(servers.querySelectorAll('.acpmux-session-info-task:not([data-kind="server"])')).toHaveLength(0);
   const row = servers.querySelector<HTMLButtonElement>('[data-kind="server"] button.acpmux-session-info-task__open')!;
@@ -417,7 +425,7 @@ test("a background Bash only the transcript knows is a running task, without Sto
     // No start time: it says it runs.
     ["make docs", "Running", false],
   ]);
-  expect(meta(section(container, "tasks"))).toBe("2 running");
+  expect(meta(section(container, "tasks"))).toBe("2");
   // One that finished folds under the count with how it ended.
   await renderSessionInfo(container, { transcriptTasks: [task("call-r", "cargo test", "failed", 1_000)] });
   const tasks = section(container, "tasks")!;
@@ -509,4 +517,31 @@ test("a transcript task a running server stands for is listed once, as the serve
   const tasks = section(container, "tasks")!;
   expect(tasks.querySelectorAll('.acpmux-session-info-task[data-kind="server"]')).toHaveLength(1);
   expect(tasks.querySelectorAll('.acpmux-session-info-task:not([data-kind="server"])')).toHaveLength(0);
+});
+
+test("a command with nothing to open keeps its row: the reason is its tooltip and aria-description, not row text", async () => {
+  const container = installDom();
+  // No call that started it, so no terminal to open.
+  await render(container, [process("bun test test/session-info-tasks.test.tsx --watch")]);
+  const row = container.querySelector<HTMLElement>(".acpmux-session-info-task--command")!;
+  const button = row.querySelector<HTMLButtonElement>("button.acpmux-session-info-task__open")!;
+  expect(button.disabled).toBe(true);
+  expect(row.hasAttribute("data-closed")).toBe(true);
+  expect(row.title).toBe("No terminal to open");
+  expect(button.getAttribute("aria-description")).toBe("No terminal to open");
+  expect(row.querySelector(".acpmux-session-info-task__why")).toBeNull();
+  // The row's text is the command and its time, never the reason.
+  expect(button.textContent).not.toContain("No terminal to open");
+  expect(row.querySelector(".acpmux-session-info-task__command")?.textContent).toBe(
+    "bun test test/session-info-tasks.test.tsx --watch",
+  );
+});
+
+test("a command that opens has no reason: no tooltip, no aria-description", async () => {
+  const container = installDom();
+  await render(container, [{ ...process("bun run build"), toolCallId: "call-build" }]);
+  const row = container.querySelector<HTMLElement>(".acpmux-session-info-task--command")!;
+  expect(row.hasAttribute("title")).toBe(false);
+  expect(row.hasAttribute("data-closed")).toBe(false);
+  expect(row.querySelector("button")!.hasAttribute("aria-description")).toBe(false);
 });

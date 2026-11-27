@@ -1,6 +1,8 @@
 use cmux_json::JsonSet as _;
 
 mod plugin_generation;
+mod reader;
+mod subjects;
 use super::output_cleanup::pruned_gap;
 use super::*;
 use base64::Engine;
@@ -11,6 +13,8 @@ use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
 use std::io::{BufRead, BufReader, Read};
 use std::sync::Arc;
 use std::time::{SystemTime, UNIX_EPOCH};
+use subjects::{collect_patch_subjects, collect_subjects};
+pub(crate) use subjects::{expand_topology_subjects, terminal_topology_subjects_batch};
 
 pub(crate) mod salvage;
 const JOURNAL_RECORD_SCHEMA_VERSION: u32 = 1;
@@ -187,253 +191,6 @@ pub(crate) struct JournalRestoreCursor {
     segment_decode_count: usize,
     #[cfg(test)]
     segment_content_load_count: usize,
-}
-
-impl SessionJournalReader {
-    pub(crate) fn open(database_path: &Path) -> anyhow::Result<Self> {
-        let connection = open_registry_database_with_flags(
-            database_path,
-            OpenFlags::SQLITE_OPEN_READ_ONLY | OpenFlags::SQLITE_OPEN_NO_MUTEX,
-        )
-        .with_context(|| format!("open session journal reader {}", database_path.display()))?;
-        connection.busy_timeout(std::time::Duration::from_secs(5))?;
-        connection.execute_batch("PRAGMA query_only=ON; PRAGMA foreign_keys=ON;")?;
-        Ok(Self { connection })
-    }
-
-    pub(crate) fn after(&self, sequence: u64, limit: usize) -> anyhow::Result<SessionJournalPage> {
-        query_session_journal_after(&self.connection, sequence, limit)
-    }
-
-    /// The resource events after `revision`, read on this reader's own
-    /// read-only connection (no registry lock). `generation` is the
-    /// registry's, which never changes while it is open.
-    pub(crate) fn resource_events_after(
-        &self,
-        generation: &str,
-        revision: u64,
-    ) -> anyhow::Result<ResourceEventPage> {
-        resource_store::query_resource_events_after(&self.connection, generation, revision)
-    }
-
-    pub(crate) fn after_subjects(
-        &self,
-        sequence: u64,
-        limit: usize,
-        subjects: &[JournalSubject],
-    ) -> anyhow::Result<SessionJournalSubjectPage> {
-        query_session_journal_after_subjects(&self.connection, sequence, limit, subjects)
-    }
-
-    pub(crate) fn restore_cursor(
-        self,
-        source_sequence: u64,
-    ) -> anyhow::Result<JournalRestoreCursor> {
-        self.connection.execute_batch("BEGIN DEFERRED TRANSACTION")?;
-        let target_head = query_journal_head(&self.connection)?;
-        anyhow::ensure!(
-            source_sequence <= target_head,
-            "cursor.invalid: journal sequence {source_sequence} is ahead of {target_head}"
-        );
-        Ok(JournalRestoreCursor {
-            connection: self.connection,
-            source_sequence,
-            target_head,
-            next_segment_start: -1,
-            segments_exhausted: false,
-            decoded_segment: None,
-            record_offset: 0,
-            active_sequence: source_sequence,
-            previous_segment_end: None,
-            finished: false,
-            #[cfg(test)]
-            segment_decode_count: 0,
-            #[cfg(test)]
-            segment_content_load_count: 0,
-        })
-    }
-}
-
-impl JournalRestoreCursor {
-    pub(crate) fn next_page(&mut self, limit: usize) -> anyhow::Result<SessionJournalPage> {
-        anyhow::ensure!(!self.finished, "journal restore cursor is finished");
-        anyhow::ensure!(limit > 0, "journal page limit must be positive");
-        anyhow::ensure!(
-            limit <= MAX_JOURNAL_PAGE_SIZE,
-            "journal page limit exceeds {MAX_JOURNAL_PAGE_SIZE}"
-        );
-        let mut records = Vec::with_capacity(limit);
-        while records.len() < limit {
-            if let Some(decoded) = self.decoded_segment.as_ref() {
-                if self.record_offset == decoded.records.len() {
-                    self.decoded_segment = None;
-                    self.record_offset = 0;
-                    continue;
-                }
-                let record = decoded.records[self.record_offset].clone();
-                self.record_offset += 1;
-                if record.sequence <= self.source_sequence {
-                    continue;
-                }
-                if record.sequence > self.target_head {
-                    break;
-                }
-                self.validate_and_advance(record, &mut records)?;
-                continue;
-            }
-
-            let Some(segment_id) = self.next_segment()? else {
-                break;
-            };
-            self.note_segment_decoded();
-            let row = self.load_segment(&segment_id)?;
-            let decoded = decode_journal_segment(&self.connection, row)?;
-            if let Some(previous_end) = self.previous_segment_end {
-                anyhow::ensure!(
-                    decoded.start_sequence == previous_end + 1,
-                    "journal segments contain a gap before sequence {}",
-                    decoded.start_sequence
-                );
-            } else {
-                anyhow::ensure!(
-                    decoded.start_sequence <= self.source_sequence.saturating_add(1),
-                    "journal segments contain a gap before sequence {}",
-                    decoded.start_sequence
-                );
-            }
-            self.previous_segment_end = Some(decoded.end_sequence);
-            self.decoded_segment = Some(decoded);
-        }
-
-        if records.len() < limit {
-            let remaining = limit - records.len();
-            let mut statement = self.connection.prepare(
-                "SELECT sequence, event_id, schema_version, kind, class, replay_policy,
-                        occurred_at_ms, committed_at_ms, producer_json, authority_json,
-                        causation_id, correlation_id, causation_depth, subjects_json,
-                        sensitivity, payload_json, content, resource_revision,
-                        previous_resource_revision
-                 FROM session_journal
-                 WHERE sequence > ?1 AND sequence <= ?2
-                 ORDER BY sequence ASC
-                 LIMIT ?3",
-            )?;
-            let active = statement
-                .query_map(
-                    params![
-                        i64::try_from(self.active_sequence)?,
-                        i64::try_from(self.target_head)?,
-                        i64::try_from(remaining)?,
-                    ],
-                    stored_record_row,
-                )?
-                .map(|row| decode_record(row?))
-                .collect::<anyhow::Result<Vec<_>>>()?;
-            drop(statement);
-            for record in active {
-                self.validate_and_advance(record, &mut records)?;
-            }
-        }
-        anyhow::ensure!(
-            self.active_sequence == self.target_head
-                || !records.is_empty()
-                || pruned_gap(
-                    &self.connection,
-                    self.active_sequence,
-                    self.target_head.saturating_add(1)
-                )?,
-            "session journal contains a gap after sequence {}",
-            self.active_sequence
-        );
-        Ok(SessionJournalPage { head_sequence: self.target_head, records })
-    }
-
-    fn next_segment(&mut self) -> anyhow::Result<Option<String>> {
-        if self.segments_exhausted {
-            return Ok(None);
-        }
-        let mut statement = self.connection.prepare(
-            "SELECT segment_id, start_sequence
-             FROM journal_segments
-             WHERE end_sequence > ?1 AND start_sequence > ?2
-             ORDER BY end_sequence ASC
-             LIMIT 1",
-        )?;
-        let segment = statement
-            .query_row(
-                params![i64::try_from(self.source_sequence)?, self.next_segment_start,],
-                |row| Ok((row.get::<_, String>(0)?, row.get::<_, i64>(1)?)),
-            )
-            .optional()?;
-        let Some((segment_id, start_sequence)) = segment else {
-            self.segments_exhausted = true;
-            return Ok(None);
-        };
-        self.next_segment_start = start_sequence;
-        Ok(Some(segment_id))
-    }
-
-    #[cfg(test)]
-    fn note_segment_decoded(&mut self) {
-        self.segment_decode_count += 1;
-    }
-
-    #[cfg(not(test))]
-    fn note_segment_decoded(&mut self) {}
-
-    fn load_segment(&mut self, segment_id: &str) -> anyhow::Result<JournalSegmentRow> {
-        self.note_segment_content_loaded();
-        let mut statement = self.connection.prepare(
-            "SELECT segment_id, start_sequence, end_sequence, record_count, codec,
-                    content, uncompressed_bytes, sha256
-             FROM journal_segments
-             WHERE segment_id = ?1
-               AND length(content) <= ?2",
-        )?;
-        statement
-            .query_row(
-                params![segment_id, i64::try_from(MAX_JOURNAL_SEGMENT_COMPRESSED_BYTES)?],
-                journal_segment_row,
-            )
-            .with_context(|| format!("load journal segment {segment_id}"))
-    }
-
-    #[cfg(test)]
-    fn note_segment_content_loaded(&mut self) {
-        self.segment_content_load_count += 1;
-    }
-
-    #[cfg(not(test))]
-    fn note_segment_content_loaded(&mut self) {}
-
-    fn validate_and_advance(
-        &mut self,
-        record: SessionJournalRecord,
-        records: &mut Vec<SessionJournalRecord>,
-    ) -> anyhow::Result<()> {
-        let expected = self.active_sequence.saturating_add(1);
-        anyhow::ensure!(
-            record.sequence == expected
-                || (record.sequence > expected
-                    && pruned_gap(&self.connection, self.active_sequence, record.sequence)?),
-            "session journal contains a gap before sequence {}",
-            record.sequence
-        );
-        self.active_sequence = record.sequence;
-        records.push(record);
-        Ok(())
-    }
-
-    /// Every sequence after `last` through the head is a pruned range.
-    pub(crate) fn tail_is_pruned(&self, last: u64) -> anyhow::Result<bool> {
-        pruned_gap(&self.connection, last, self.target_head.saturating_add(1))
-    }
-
-    pub(crate) fn finish(mut self) -> anyhow::Result<()> {
-        self.finished = true;
-        self.connection.execute_batch("COMMIT")?;
-        Ok(())
-    }
 }
 
 pub(crate) struct JournalAppend<'a> {
@@ -870,33 +627,6 @@ pub(crate) fn migrate_resource_events_to_session_journal(
     Ok(())
 }
 
-#[allow(clippy::too_many_arguments)]
-pub(crate) fn append_resource_journal_record(
-    transaction: &Transaction<'_>,
-    revision: u64,
-    previous_revision: u64,
-    origin: &str,
-    idempotency_key: &str,
-    operation: &str,
-    patch: Option<&ResourcePatch>,
-    result: &Value,
-    changes: &Value,
-) -> anyhow::Result<()> {
-    append_resource_journal_record_at(
-        transaction,
-        revision,
-        previous_revision,
-        origin,
-        idempotency_key,
-        operation,
-        patch,
-        result,
-        changes,
-        unix_epoch_ms()?,
-        true,
-    )
-}
-
 pub(crate) fn append_resource_effect_journal_record(
     transaction: &Transaction<'_>,
     idempotency_key: &str,
@@ -985,6 +715,7 @@ pub(crate) fn append_resource_effect_journal_record(
     Ok(())
 }
 
+/// Gives the changes as the record states them (`session_journal/resource_record.rs`).
 #[allow(clippy::too_many_arguments)]
 fn append_resource_journal_record_at(
     transaction: &Transaction<'_>,
@@ -998,7 +729,7 @@ fn append_resource_journal_record_at(
     changes: &Value,
     occurred_at_ms: u64,
     with_current_state: bool,
-) -> anyhow::Result<()> {
+) -> anyhow::Result<Value> {
     validate_identifier("journal operation", operation)?;
     // Every upsert carries the state fields a fresh snapshot shows, whatever
     // path produced it (state-ownership.md: clients rebuild from events).
@@ -1013,11 +744,9 @@ fn append_resource_journal_record_at(
     }
     let changes = &decorated;
     let kind = semantic_journal_kind(operation);
-    let session_id = transaction.query_row(
-        "SELECT value FROM meta WHERE key = 'session_public_id'",
-        [],
-        |row| row.get::<_, String>(0),
-    )?;
+    let session_id = transaction
+        .prepare_cached("SELECT value FROM meta WHERE key = 'session_public_id'")?
+        .query_row([], |row| row.get::<_, String>(0))?;
     let mut subjects = BTreeSet::from([JournalSubject { kind: "session".into(), id: session_id }]);
     if let Some(patch) = patch {
         collect_patch_subjects(patch, &mut subjects);
@@ -1060,7 +789,7 @@ fn append_resource_journal_record_at(
             actor: actor.as_deref(),
         },
     )?;
-    Ok(())
+    Ok(decorated)
 }
 
 /// The registry journal's write budget per kind (`cmux_tui_platform::write_budget`): a kind past
@@ -1113,15 +842,17 @@ pub(crate) fn append_journal_record(
     let subjects_json = canonical_json(&serde_json::to_value(append.subjects)?)?;
     let payload_json = canonical_json(append.payload)?;
     note_write_budget(append, &payload_json, committed_at_ms);
-    transaction.execute(
-        "INSERT INTO session_journal(
+    transaction
+        .prepare_cached(
+            "INSERT INTO session_journal(
            event_id, schema_version, kind, class, replay_policy,
            occurred_at_ms, committed_at_ms, producer_json, authority_json,
            causation_id, correlation_id, causation_depth, subjects_json,
            sensitivity, payload_json, content, resource_revision, previous_resource_revision, actor
          ) VALUES(?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18,
                   ?19)",
-        params![
+        )?
+        .execute(params![
             append.event_id,
             i64::from(append.schema_version),
             append.kind,
@@ -1155,26 +886,25 @@ pub(crate) fn append_journal_record(
                 .transpose()
                 .context("previous resource revision exceeds SQLite range")?,
             append.actor,
-        ],
-    )?;
+        ])?;
     let sequence = transaction.last_insert_rowid();
     let causal_hook_id = if append.producer.kind == "hook_dispatcher" {
         Some(append.producer.id.clone())
     } else if let Some(causation_id) = append.causation_id {
-        transaction.query_row(
-            "SELECT causal_hook_id FROM journal_event_index WHERE event_id = ?1",
-            [causation_id],
-            |row| row.get::<_, Option<String>>(0),
-        )?
+        transaction
+            .prepare_cached("SELECT causal_hook_id FROM journal_event_index WHERE event_id = ?1")?
+            .query_row([causation_id], |row| row.get::<_, Option<String>>(0))?
     } else {
         None
     };
-    transaction.execute(
-        "INSERT INTO journal_event_index(
+    transaction
+        .prepare_cached(
+            "INSERT INTO journal_event_index(
            event_id, sequence, causation_depth, causation_id, causal_hook_id,
            resource_revision, previous_resource_revision
          ) VALUES(?1, ?2, ?3, ?4, ?5, ?6, ?7)",
-        params![
+        )?
+        .execute(params![
             append.event_id,
             sequence,
             i64::from(append.causation_depth),
@@ -1190,14 +920,14 @@ pub(crate) fn append_journal_record(
                 .map(i64::try_from)
                 .transpose()
                 .context("previous resource revision exceeds SQLite range")?,
-        ],
-    )?;
-    transaction.execute(
-        "INSERT OR IGNORE INTO journal_subject_index(sequence, kind, id)
+        ])?;
+    transaction
+        .prepare_cached(
+            "INSERT OR IGNORE INTO journal_subject_index(sequence, kind, id)
          SELECT ?1, json_extract(value, '$.kind'), json_extract(value, '$.id')
          FROM json_each(?2)",
-        params![sequence, subjects_json],
-    )?;
+        )?
+        .execute(params![sequence, subjects_json])?;
     u64::try_from(sequence).context("journal sequence is negative")
 }
 
@@ -1448,8 +1178,10 @@ pub(crate) fn query_session_journal_after(
         records.truncate(limit);
         return Ok(SessionJournalPage { head_sequence, records });
     }
+    #[cfg(test)]
+    run_between_journal_reads_for_test();
     let active_after = records.last().map_or(sequence, |record| record.sequence);
-    let mut statement = connection.prepare(
+    let mut statement = connection.prepare_cached(
         "SELECT sequence, event_id, schema_version, kind, class, replay_policy,
                     occurred_at_ms, committed_at_ms, producer_json, authority_json,
                     causation_id, correlation_id, causation_depth, subjects_json,
@@ -1493,11 +1225,9 @@ pub(crate) fn query_session_journal_after(
 }
 
 fn query_archived_journal_head(connection: &Connection) -> anyhow::Result<u64> {
-    let end: i64 = connection.query_row(
-        "SELECT COALESCE(MAX(end_sequence), 0) FROM journal_segments",
-        [],
-        |row| row.get(0),
-    )?;
+    let end: i64 = connection
+        .prepare_cached("SELECT COALESCE(MAX(end_sequence), 0) FROM journal_segments")?
+        .query_row([], |row| row.get(0))?;
     u64::try_from(end).context("archived journal sequence is negative")
 }
 
@@ -1679,6 +1409,27 @@ pub(crate) fn unproven_kind_maps(
     unproven_kind_maps_after(connection, marker.as_deref())
 }
 
+impl WorkspaceRegistry {
+    /// One slice of a legacy kind backfill that started and has not
+    /// finished ([`unproven_kind_maps`]): while it is unfinished, every kind
+    /// read decodes the segments it has not proven whole. It runs inside a
+    /// kind read on this (the writer's) connection, but on a persistent
+    /// registry the roster's replays read on their own read-only
+    /// connection, so without the owner's index backfill worker calling
+    /// this nothing would finish it. True while it remains. Never starts a
+    /// backfill: segments sealed before kind maps with no marker get their
+    /// maps from the reducer record backfill
+    /// ([`Self::plan_reducer_record_backfill`]).
+    pub(crate) fn continue_legacy_kind_backfill(&self) -> anyhow::Result<bool> {
+        let db = self.connection.get();
+        if unproven_kind_maps(&db)?.is_none() {
+            return Ok(false);
+        }
+        backfill_legacy_journal_segment_kinds(&db)?;
+        Ok(unproven_kind_maps(&db)?.is_some())
+    }
+}
+
 /// How long one call of the kind backfill, and one kind read's sealed part
 /// after it, may decode: each stops at the first segment or batch past it.
 pub(super) fn kind_slice() -> std::time::Duration {
@@ -1695,6 +1446,25 @@ thread_local! {
     /// part, may decode on this thread ([`kind_slice`]).
     pub(crate) static BACKFILL_SLICE_FOR_TEST: Cell<Option<std::time::Duration>> =
         const { Cell::new(None) };
+}
+
+#[cfg(test)]
+thread_local! {
+    /// Test seam: runs once on this thread between a journal read's sealed
+    /// part and its active rows ([`query_session_journal_after`],
+    /// [`query_session_journal_sequences`]), where a concurrent seal can
+    /// commit.
+    pub(crate) static BETWEEN_JOURNAL_READS_FOR_TEST: std::cell::RefCell<Option<Box<dyn FnOnce()>>> =
+        const { std::cell::RefCell::new(None) };
+}
+
+#[cfg(test)]
+fn run_between_journal_reads_for_test() {
+    // Taken before it runs: a read the hook itself makes does not run it again.
+    let hook = BETWEEN_JOURNAL_READS_FOR_TEST.with(|slot| slot.borrow_mut().take());
+    if let Some(hook) = hook {
+        hook();
+    }
 }
 
 fn not_output(kind: &str) -> bool {
@@ -1769,15 +1539,17 @@ fn load_journal_segment(
 }
 
 pub(super) fn query_journal_head(connection: &Connection) -> anyhow::Result<u64> {
-    let head_sequence = connection.query_row(
-        "SELECT MAX(
+    let head_sequence = connection
+        .prepare_cached(
+            "SELECT MAX(
            COALESCE((SELECT MAX(sequence) FROM session_journal), 0),
            COALESCE((SELECT MAX(end_sequence) FROM journal_segments), 0)
          )",
-        [],
-        |row| row.get::<_, i64>(0),
-    )?;
-    u64::try_from(head_sequence).context("journal head sequence is negative")
+        )?
+        .query_row([], |row| row.get::<_, i64>(0))?;
+    let head_sequence =
+        u64::try_from(head_sequence).context("journal head sequence is negative")?;
+    Ok(head_sequence.max(output_cleanup::pruned_head(connection)?))
 }
 
 pub(crate) fn query_session_journal_sequences(
@@ -1796,7 +1568,7 @@ pub(crate) fn query_session_journal_sequences(
     let requested_set = sequences.iter().copied().collect::<HashSet<_>>();
     let mut records = BTreeMap::new();
 
-    let mut segment_statement = connection.prepare(
+    let mut segment_statement = connection.prepare_cached(
         "SELECT segment_id, start_sequence, end_sequence, record_count, codec,
                 content, uncompressed_bytes, sha256
          FROM journal_segments
@@ -1817,8 +1589,10 @@ pub(crate) fn query_session_journal_sequences(
             }
         }
     }
+    #[cfg(test)]
+    run_between_journal_reads_for_test();
 
-    let mut active_statement = connection.prepare(
+    let mut active_statement = connection.prepare_cached(
         "SELECT sequence, event_id, schema_version, kind, class, replay_policy,
                 occurred_at_ms, committed_at_ms, producer_json, authority_json,
                 causation_id, correlation_id, causation_depth, subjects_json,
@@ -1855,14 +1629,14 @@ fn query_session_journal_after_subjects(
         "journal page limit exceeds {MAX_JOURNAL_PAGE_SIZE}"
     );
     anyhow::ensure!(!subjects.is_empty(), "journal subject filter must not be empty");
-    let head_sequence = connection.query_row(
-        "SELECT MAX(
+    let head_sequence = connection
+        .prepare_cached(
+            "SELECT MAX(
            COALESCE((SELECT MAX(sequence) FROM session_journal), 0),
            COALESCE((SELECT MAX(end_sequence) FROM journal_segments), 0)
          )",
-        [],
-        |row| row.get::<_, i64>(0),
-    )?;
+        )?
+        .query_row([], |row| row.get::<_, i64>(0))?;
     let head_sequence =
         u64::try_from(head_sequence).context("journal head sequence is negative")?;
     anyhow::ensure!(
@@ -1870,7 +1644,7 @@ fn query_session_journal_after_subjects(
         "cursor.invalid: journal sequence {sequence} is ahead of {head_sequence}"
     );
     let requested_json = canonical_json(&serde_json::to_value(subjects)?)?;
-    let mut statement = connection.prepare(
+    let mut statement = connection.prepare_cached(
         "SELECT DISTINCT indexed.sequence
          FROM json_each(?1) AS requested
          JOIN journal_subject_index AS indexed
@@ -2372,273 +2146,6 @@ pub(crate) fn journal_record_for_archive(record: &SessionJournalRecord) -> Sessi
     archived
 }
 
-fn collect_patch_subjects(patch: &ResourcePatch, subjects: &mut BTreeSet<JournalSubject>) {
-    for change in &patch.changes {
-        match change {
-            ResourceChange::UpsertWorkspace { workspace, active_screen, .. } => {
-                insert_subject(subjects, "workspace", workspace.public_id.as_str());
-                if let Some(screen) = active_screen {
-                    insert_subject(subjects, "screen", screen.as_str());
-                }
-            }
-            ResourceChange::TombstoneWorkspace { workspace_id } => {
-                insert_subject(subjects, "workspace", workspace_id.as_str());
-            }
-            // The order is the session's: the workspaces a commit adds,
-            // moves or selects are subjects through their own changes and
-            // the result, not every workspace the order lists (2000 index
-            // rows per create at 2000 workspaces).
-            ResourceChange::SetWorkspaceOrder { .. } => {}
-            ResourceChange::SetActiveWorkspace { workspace_id } => {
-                if let Some(workspace) = workspace_id {
-                    insert_subject(subjects, "workspace", workspace.as_str());
-                }
-            }
-            ResourceChange::UpsertScreen(screen) => {
-                insert_subject(subjects, "screen", screen.public_id.as_str());
-                insert_subject(subjects, "workspace", screen.workspace_id.as_str());
-                insert_subject(subjects, "pane", screen.active_pane.as_str());
-                if let Some(pane) = &screen.zoomed_pane {
-                    insert_subject(subjects, "pane", pane.as_str());
-                }
-                if let Some(panes) = &screen.auto_layout {
-                    for pane in panes {
-                        insert_subject(subjects, "pane", pane.as_str());
-                    }
-                }
-                collect_layout_subjects(&screen.layout, subjects);
-                for column in &screen.viewport.columns {
-                    insert_subject(subjects, "split", column.id.as_str());
-                    collect_layout_subjects(&column.layout, subjects);
-                    if let Some(panes) = &column.auto_layout {
-                        for pane in panes {
-                            insert_subject(subjects, "pane", pane.as_str());
-                        }
-                    }
-                }
-            }
-            ResourceChange::TombstoneScreen { screen_id } => {
-                insert_subject(subjects, "screen", screen_id.as_str());
-            }
-            ResourceChange::SetScreenOrder { workspace_id, screen_ids } => {
-                insert_subject(subjects, "workspace", workspace_id.as_str());
-                for screen in screen_ids {
-                    insert_subject(subjects, "screen", screen.as_str());
-                }
-            }
-            ResourceChange::UpsertPane(pane) => {
-                insert_subject(subjects, "pane", pane.public_id.as_str());
-                insert_subject(subjects, "screen", pane.screen_id.as_str());
-                if let Some(tab) = &pane.active_tab {
-                    insert_subject(subjects, "tab", tab.as_str());
-                }
-            }
-            ResourceChange::TombstonePane { pane_id } => {
-                insert_subject(subjects, "pane", pane_id.as_str());
-            }
-            ResourceChange::UpsertTab(tab) => {
-                insert_subject(subjects, "tab", tab.public_id.as_str());
-                insert_subject(subjects, "pane", tab.pane_id.as_str());
-                match &tab.content_id {
-                    ContentPublicId::Terminal(terminal) => {
-                        insert_subject(subjects, "terminal", terminal.as_str());
-                    }
-                    ContentPublicId::Browser(browser) => {
-                        insert_subject(subjects, "browser", browser.as_str());
-                    }
-                }
-            }
-            ResourceChange::TombstoneTab { tab_id, .. } => {
-                insert_subject(subjects, "tab", tab_id.as_str());
-            }
-            ResourceChange::SetTabOrder { pane_id, tab_ids } => {
-                insert_subject(subjects, "pane", pane_id.as_str());
-                for tab in tab_ids {
-                    insert_subject(subjects, "tab", tab.as_str());
-                }
-            }
-            ResourceChange::UpsertTerminal { public_id, .. }
-            | ResourceChange::TombstoneTerminal { public_id, .. } => {
-                insert_subject(subjects, "terminal", public_id.as_str());
-            }
-            ResourceChange::UpsertBrowser(browser) => {
-                insert_subject(subjects, "browser", browser.public_id.as_str());
-            }
-            ResourceChange::TombstoneBrowser { public_id } => {
-                insert_subject(subjects, "browser", public_id.as_str());
-            }
-        }
-    }
-}
-
-fn collect_layout_subjects(layout: &RegistryLayoutNode, subjects: &mut BTreeSet<JournalSubject>) {
-    match layout {
-        RegistryLayoutNode::Leaf { pane } => insert_subject(subjects, "pane", pane.as_str()),
-        RegistryLayoutNode::Split { split, first, second, .. } => {
-            insert_subject(subjects, "split", split.as_str());
-            collect_layout_subjects(first, subjects);
-            collect_layout_subjects(second, subjects);
-        }
-        RegistryLayoutNode::Stack { panes, expanded } => {
-            for pane in panes {
-                insert_subject(subjects, "pane", pane.as_str());
-            }
-            insert_subject(subjects, "pane", expanded.as_str());
-        }
-    }
-}
-
-fn insert_subject(subjects: &mut BTreeSet<JournalSubject>, kind: &str, id: &str) {
-    subjects.insert(JournalSubject { kind: kind.into(), id: id.into() });
-}
-
-fn collect_subjects(value: &Value, subjects: &mut BTreeSet<JournalSubject>) {
-    match value {
-        Value::Array(values) => {
-            for value in values {
-                collect_subjects(value, subjects);
-            }
-        }
-        Value::Object(values) => {
-            for value in values.values() {
-                collect_subjects(value, subjects);
-            }
-        }
-        Value::String(value) => {
-            if let Some(kind) = public_id_kind(value) {
-                subjects.insert(JournalSubject { kind: kind.into(), id: value.clone() });
-            }
-        }
-        Value::Null | Value::Bool(_) | Value::Number(_) => {}
-    }
-}
-
-pub(crate) fn expand_topology_subjects(
-    transaction: &Transaction<'_>,
-    subjects: &mut BTreeSet<JournalSubject>,
-) -> anyhow::Result<()> {
-    if !subjects.iter().any(|subject| {
-        matches!(subject.kind.as_str(), "screen" | "pane" | "tab" | "terminal" | "browser")
-    }) {
-        return Ok(());
-    }
-    let ids = subjects.iter().map(|subject| &subject.id).collect::<Vec<_>>();
-    let ids_json = canonical_json(&serde_json::to_value(ids)?)?;
-    let mut statement = transaction.prepare(
-        "WITH seeds(id) AS (
-           SELECT value FROM json_each(?1)
-         ),
-         tab_paths(tab_id, pane_id, screen_id, workspace_id) AS (
-           SELECT tab.public_id, tab.pane_id, pane.screen_id, screen.workspace_id
-           FROM resource_tabs AS tab
-           JOIN resource_panes AS pane ON pane.public_id = tab.pane_id
-           JOIN resource_screens AS screen ON screen.public_id = pane.screen_id
-           WHERE tab.public_id IN (SELECT id FROM seeds)
-              OR tab.content_id IN (SELECT id FROM seeds)
-         ),
-         pane_paths(pane_id, screen_id, workspace_id) AS (
-           SELECT pane.public_id, pane.screen_id, screen.workspace_id
-           FROM resource_panes AS pane
-           JOIN resource_screens AS screen ON screen.public_id = pane.screen_id
-           WHERE pane.public_id IN (SELECT id FROM seeds)
-         ),
-         screen_paths(screen_id, workspace_id) AS (
-           SELECT screen.public_id, screen.workspace_id
-           FROM resource_screens AS screen
-           WHERE screen.public_id IN (SELECT id FROM seeds)
-         )
-         SELECT 'tab', tab_id FROM tab_paths
-         UNION SELECT 'pane', pane_id FROM tab_paths
-         UNION SELECT 'screen', screen_id FROM tab_paths
-         UNION SELECT 'workspace', workspace_id FROM tab_paths
-         UNION SELECT 'pane', pane_id FROM pane_paths
-         UNION SELECT 'screen', screen_id FROM pane_paths
-         UNION SELECT 'workspace', workspace_id FROM pane_paths
-         UNION SELECT 'screen', screen_id FROM screen_paths
-         UNION SELECT 'workspace', workspace_id FROM screen_paths",
-    )?;
-    let expanded = statement
-        .query_map([ids_json], |row| Ok(JournalSubject { kind: row.get(0)?, id: row.get(1)? }))?
-        .collect::<Result<Vec<_>, _>>()?;
-    subjects.extend(expanded);
-    Ok(())
-}
-
-pub(crate) fn terminal_topology_subjects_batch(
-    transaction: &Transaction<'_>,
-    terminal_ids: impl IntoIterator<Item = String>,
-) -> anyhow::Result<HashMap<String, Vec<JournalSubject>>> {
-    let terminal_ids = terminal_ids.into_iter().collect::<BTreeSet<_>>();
-    if terminal_ids.is_empty() {
-        return Ok(HashMap::new());
-    }
-    let ids_json = canonical_json(&serde_json::to_value(&terminal_ids)?)?;
-    let mut statement = transaction.prepare(
-        "WITH seeds(terminal_id) AS (
-           SELECT value FROM json_each(?1)
-         ),
-         paths(terminal_id, tab_id, pane_id, screen_id, workspace_id) AS (
-           SELECT seed.terminal_id, tab.public_id, tab.pane_id,
-                  pane.screen_id, screen.workspace_id
-           FROM seeds AS seed
-           JOIN resource_tabs AS tab ON tab.content_id = seed.terminal_id
-           JOIN resource_panes AS pane ON pane.public_id = tab.pane_id
-           JOIN resource_screens AS screen ON screen.public_id = pane.screen_id
-         )
-         SELECT terminal_id, 'tab', tab_id FROM paths
-         UNION SELECT terminal_id, 'pane', pane_id FROM paths
-         UNION SELECT terminal_id, 'screen', screen_id FROM paths
-         UNION SELECT terminal_id, 'workspace', workspace_id FROM paths",
-    )?;
-    let expanded = statement
-        .query_map([ids_json], |row| {
-            Ok((row.get::<_, String>(0)?, JournalSubject { kind: row.get(1)?, id: row.get(2)? }))
-        })?
-        .collect::<Result<Vec<_>, _>>()?;
-    let mut by_terminal = HashMap::<String, BTreeSet<JournalSubject>>::new();
-    for (terminal_id, subject) in expanded {
-        by_terminal.entry(terminal_id).or_default().insert(subject);
-    }
-    Ok(by_terminal
-        .into_iter()
-        .map(|(terminal_id, subjects)| (terminal_id, subjects.into_iter().collect()))
-        .collect())
-}
-
-fn public_id_kind(value: &str) -> Option<&'static str> {
-    const PREFIXES: [(&str, &str); 17] = [
-        ("frontend_projection", "projection"),
-        ("pairing_request", "pairing"),
-        ("sidebar_plugin", "sidebar_plugin"),
-        ("sidebar_view", "sidebar_view"),
-        ("notification", "notification"),
-        ("workspace", "ws"),
-        ("terminal", "term"),
-        ("session", "session"),
-        ("machine", "machine"),
-        ("screen", "screen"),
-        ("browser", "browser"),
-        ("client", "client"),
-        ("pane", "pane"),
-        ("split", "split"),
-        ("agent", "agent"),
-        ("stream", "stream"),
-        ("tab", "tab"),
-    ];
-    for (kind, prefix) in PREFIXES {
-        let Some(payload) = value.strip_prefix(prefix).and_then(|value| value.strip_prefix('_'))
-        else {
-            continue;
-        };
-        if payload.len() == 32
-            && payload.bytes().all(|byte| byte.is_ascii_digit() || (b'a'..=b'f').contains(&byte))
-        {
-            return Some(kind);
-        }
-    }
-    None
-}
-
 fn semantic_journal_kind(operation: &str) -> Cow<'_, str> {
     if operation.contains('-') && !operation.contains('.') {
         Cow::Owned(operation.replace('-', "."))
@@ -2670,11 +2177,16 @@ pub(crate) mod tests;
 
 mod actors;
 mod digest_reader;
+#[cfg(test)]
+mod kind_map_backfill_tests;
 pub(crate) mod kind_read;
 #[cfg(test)]
 pub(crate) mod kind_read_tests;
+mod live_terminal;
 pub(crate) mod reducer_records;
+mod resource_record;
 use digest_reader::DigestReader;
+pub(crate) use resource_record::{append_resource_journal_record, journal_resource_record};
 #[cfg(test)]
 mod actor_tests;
 
@@ -2740,10 +2252,11 @@ pub(crate) fn write_journal_reducer_state(
         "cursor": cursor.to_string(),
         "snapshot": snapshot,
     });
-    connection.execute(
-        "INSERT INTO meta(key, value) VALUES(?1, ?2)
+    connection
+        .prepare_cached(
+            "INSERT INTO meta(key, value) VALUES(?1, ?2)
          ON CONFLICT(key) DO UPDATE SET value = excluded.value",
-        params![format!("journal_reducer.{reducer_id}"), value.to_string()],
-    )?;
+        )?
+        .execute(params![format!("journal_reducer.{reducer_id}"), value.to_string()])?;
     Ok(())
 }

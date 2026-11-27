@@ -1,9 +1,3 @@
-// Leo 2026-10-18 (photo, "ff" typed in New Tab): the suggestions offered "Ask Claude Code", the web
-// search and the workspaces, but New terminal, New browser tab and New chat only as buttons under
-// the field, hidden behind the open list. Leo 2026-10-24 ("the new terminal, new browser tab, new
-// tab. Like is there a better sort of UI we can do for this where it's just less annoying?"): they
-// stay one click away while the list shows, as one quiet strip under the rows, and a row only when
-// the text names one ("new t"). The chat-first order keeps the three rows.
 import { afterAll, beforeAll, expect, test } from "bun:test";
 import { JSDOM } from "jsdom";
 import { act } from "react";
@@ -11,64 +5,27 @@ import type { Root } from "react-dom/client";
 import { noChat } from "../src/gallery/fixtures/acpmux";
 import type { MarkdownFieldElement } from "../src/agent-session/acpmux/MarkdownField";
 import { proseMirrorGlobals } from "../src/agent-session/acpmux/promptFieldTesting";
-import { EMPTY_OMNIBAR, type OmnibarContext } from "../src/agent-session/acpmux/omnibar";
-import { inStrip, screenRows, type ScreenRow } from "../src/agent-session/acpmux/newtab/screenModel";
-import type { SuggestionOrder } from "../src/agent-session/acpmux/newtab/suggestionOrder";
+import { EMPTY_OMNIBAR, omnibarContext, type OmnibarAction } from "../src/agent-session/acpmux/omnibar";
+import { screenRows } from "../src/agent-session/acpmux/newtab/screenModel";
+import { setHarnessSymbolHost } from "../src/agent-session/shared/harnessIcons";
+import { teardownDom } from "./support/domTeardown";
 
-const ask = { harness: "claude", agent: "Claude Code", model: "Claude Opus 5.5" };
-const create = ["terminal", "browser", "chat"] as const;
-const context = (fields: Partial<OmnibarContext> = {}, order?: SuggestionOrder) => ({
-  omnibar: { ...EMPTY_OMNIBAR, ...fields },
-  ask,
-  create,
-  ...(order ? { order } : {}),
-});
-const kinds = (rows: ScreenRow[]) =>
-  rows.filter((row) => !inStrip(row)).map((row) => (row.type === "create" ? `create:${row.kind}` : row.type));
-const createStrip = (rows: ScreenRow[]) =>
-  rows.flatMap((row) => (row.type === "create" && inStrip(row) ? [row.kind] : []));
-const scratch = { workspaces: [{ id: "ws", name: "ff-scratch" }] };
-
-test("a prompt's create actions are the strip under the rows, not three rows", () => {
-  const rows = screenRows("ff", context(scratch));
-  expect(kinds(rows)).toEqual(["ask", "workspace", "search"]);
-  expect(createStrip(rows)).toEqual(["terminal", "browser", "chat"]);
-});
-
-test("an address keeps its top hit, Ask and the web search, and the strip", () => {
-  const rows = screenRows("reddit.com", context());
-  expect(kinds(rows)).toEqual(["open", "ask", "search"]);
-  expect(createStrip(rows)).toEqual(["terminal", "browser", "chat"]);
-});
-
-test("text that names a create action lists it as a row, and the strip keeps the rest", () => {
-  const rows = screenRows("term", context());
-  expect(kinds(rows)).toEqual(["ask", "search", "create:terminal"]);
-  expect(createStrip(rows)).toEqual(["browser", "chat"]);
-  expect(kinds(screenRows("new", context())).slice(-3)).toEqual(["create:terminal", "create:browser", "create:chat"]);
-  // One letter names nothing.
-  expect(kinds(screenRows("n", context()))).toEqual(["ask", "search"]);
-});
-
-test("the chat-first order ends with the three create rows; minimal shows none while typing", () => {
-  const chat = screenRows("ff", context(scratch, "chat"));
-  expect(kinds(chat)).toEqual(["ask", "workspace", "search", "create:terminal", "create:browser", "create:chat"]);
-  expect(createStrip(chat)).toEqual([]);
-  const minimal = screenRows("new", context({}, "minimal"));
-  expect(kinds(minimal).filter((kind) => kind.startsWith("create:"))).toEqual([]);
-  expect(createStrip(minimal)).toEqual([]);
-});
-
-test("the strip rows come last, so the arrow keys reach them after the rows", () => {
-  const rows = screenRows("ff", context(scratch));
-  expect(rows.slice(-3).map(inStrip)).toEqual([true, true, true]);
-  expect(rows.slice(0, -3).some(inStrip)).toBe(false);
-});
-
-test("an empty field and shell mode still show no rows and no strip", () => {
-  expect(screenRows("", context())).toEqual([]);
-  expect(screenRows("!ls", context())).toEqual([]);
-  expect(createStrip(screenRows("", context()))).toEqual([]);
+test("every suggestion order finds create commands only when the query matches", () => {
+  for (const order of ["intent", "chat", "minimal"] as const) {
+    const context = { omnibar: EMPTY_OMNIBAR, order, create: ["terminal", "browser", "chat"] as const };
+    for (const text of ["", "ff", "reddit.com"])
+      expect(screenRows(text, context).filter((row) => row.type === "create")).toEqual([]);
+    expect(
+      screenRows("new", context)
+        .filter((row) => row.type === "create")
+        .map((row) => row.kind),
+    ).toEqual(["terminal", "browser", "chat"]);
+    expect(
+      screenRows("term", context)
+        .filter((row) => row.type === "create")
+        .map((row) => row.kind),
+    ).toEqual(["terminal"]);
+  }
 });
 
 const scope = globalThis as Record<string, unknown>;
@@ -121,17 +78,14 @@ beforeAll(() => {
   host = window.document.getElementById("root")!;
 });
 
-afterAll(() => {
+afterAll(async () => {
   act(() => root?.unmount());
-  for (const [key, had, value] of saved) {
-    if (had) scope[key] = value;
-    else delete scope[key];
-  }
+  await teardownDom(saved, { scope });
 });
 
 const noop = () => {};
 
-async function render(calls: unknown[][]) {
+async function render(calls: unknown[][], harness = "claude", actions: OmnibarAction[] = []) {
   const { createRoot } = await import("react-dom/client");
   const { NewTabScreen } = await import("../src/agent-session/acpmux/newtab/NewTabScreen");
   act(() => root?.unmount());
@@ -139,10 +93,10 @@ async function render(calls: unknown[][]) {
   await act(async () =>
     root!.render(
       <NewTabScreen
-        template="default"
+        template="minimal"
         snapshot={noChat()}
-        omnibar={{ ...EMPTY_OMNIBAR, workspaces: [{ id: "ws", name: "ff-scratch" }] }}
-        lastAgent="claude"
+        omnibar={omnibarContext({ ...EMPTY_OMNIBAR, workspaces: [{ id: "ws", name: "ff-scratch" }], actions })}
+        lastAgent={harness}
         onAsk={(...args) => calls.push(["ask", ...args])}
         onOpen={noop}
         onSearch={noop}
@@ -150,6 +104,7 @@ async function render(calls: unknown[][]) {
         onJump={noop}
         onOpenSession={noop}
         onShowAll={noop}
+        onAction={(id) => calls.push(["action", id])}
         onCreate={(kind) => calls.push(["create", kind])}
       />,
     ),
@@ -169,42 +124,113 @@ async function type(text: string) {
   return field.querySelector<HTMLElement>("[contenteditable]")!;
 }
 
-const rows = () => [...window.document.querySelectorAll<HTMLElement>('[role="option"]')];
+const rows = () => [...window.document.querySelectorAll<HTMLElement>('.nt-popover [role="option"]')];
 const label = (row: HTMLElement) => row.querySelector(".nt-row-title")?.textContent ?? "";
+const creates = () => rows().filter((row) => row.dataset.type === "create");
+const key = (field: Element, name: string) =>
+  act(async () => {
+    field.dispatchEvent(new window.KeyboardEvent("keydown", { key: name, bubbles: true, cancelable: true }));
+  });
 
-const strip = () => [...window.document.querySelectorAll<HTMLElement>(".nt-create-strip-item")];
-const listRows = () => rows().filter((row) => !row.classList.contains("nt-create-strip-item"));
-
-test('typing "ff" lists Ask, the workspace and the web search, with the create strip under them', async () => {
+test("Minimal keeps the home clear and shows create rows for a matching search", async () => {
   await render([]);
+  expect(host.querySelector(".nt-create")).toBeNull();
+  expect(creates()).toEqual([]);
   await type("ff");
-  expect(listRows().map(label)).toEqual(["Ask Claude Code", "ff-scratch", "Search the web for ff"]);
-  // The strip's actions are options too: the arrow keys and the native popup reach them.
-  expect(strip().map(label)).toEqual(["New terminal", "New browser tab", "New chat"]);
-  expect(strip().every((item) => item.getAttribute("role") === "option")).toBe(true);
+  expect(rows().map(label)).toEqual(["Ask Claude Code", "ff-scratch", "Search the web for ff"]);
+  expect(rows().some((row) => row.dataset.type === "create")).toBe(false);
+  await render([]);
+  await type("new");
+  expect(creates().map(label)).toEqual(["New terminal", "New browser tab", "New chat"]);
+  expect(creates().every((row) => row.closest('[role="listbox"]'))).toBe(true);
 });
 
-test("a create action opens what its button opens, from the strip or a named row", async () => {
+test("create suggestion rows run the terminal, browser and empty chat actions", async () => {
+  for (const kind of ["terminal", "browser", "chat"]) {
+    const calls: unknown[][] = [];
+    await render(calls);
+    await type("new");
+    const title = kind === "browser" ? "New browser tab" : `New ${kind}`;
+    const row = creates().find((row) => label(row) === title)!;
+    await act(async () => row.dispatchEvent(new window.MouseEvent("mousedown", { bubbles: true, cancelable: true })));
+    expect(calls[0]?.slice(0, 3)).toEqual(kind === "chat" ? ["ask", "claude", ""] : ["create", kind]);
+  }
+});
+
+test("arrows visit suggestions and Return runs the highlighted row", async () => {
   const calls: unknown[][] = [];
   await render(calls);
-  await type("ff");
-  const terminal = strip().find((item) => label(item) === "New terminal")!;
-  await act(async () => terminal.dispatchEvent(new window.MouseEvent("mousedown", { bubbles: true, button: 0 })));
-  expect(calls).toEqual([["create", "terminal"]]);
+  const field = await type("ff");
+  await key(field, "ArrowDown");
+  await key(field, "ArrowDown");
+  expect(label(rows().find((row) => row.getAttribute("aria-selected") === "true")!)).toBe("Search the web for ff");
+  await key(field, "ArrowDown");
+  expect(label(rows().find((row) => row.getAttribute("aria-selected") === "true")!)).toBe("Ask Claude Code");
+  await key(field, "Enter");
+  expect(calls[0]?.slice(0, 3)).toEqual(["ask", "claude", "ff"]);
+});
 
-  calls.length = 0;
-  await render(calls);
-  // Up from the top row goes back to the text; from there Up takes the last row, the strip's New
-  // chat, which Return takes.
-  const field2 = await type("ff");
-  for (let press = 0; press < 2; press += 1)
-    await act(async () =>
-      field2.dispatchEvent(new window.KeyboardEvent("keydown", { key: "ArrowUp", bubbles: true, cancelable: true })),
+test("Ask rows show each harness mark without action or Return hints", async () => {
+  for (const harness of ["claude", "codex"]) {
+    await render([], harness);
+    await type("ff");
+    const ask = rows().find((row) => row.dataset.type === "ask")!;
+    expect(ask.querySelector(".agent-mark")?.getAttribute("data-agent")).toBe(
+      harness === "codex" ? "openai" : "claude",
     );
-  const selected = rows().find((row) => row.getAttribute("aria-selected") === "true")!;
-  expect(label(selected)).toBe("New chat");
-  await act(async () =>
-    field2.dispatchEvent(new window.KeyboardEvent("keydown", { key: "Enter", bubbles: true, cancelable: true })),
-  );
-  expect(calls).toEqual([["ask", "claude", "ff", undefined, "claude-opus-5-5"]]);
+    expect(ask.querySelector(".ui-key-hint, .nt-row-action")).toBeNull();
+  }
+});
+
+test("command rows show catalog icons and live shortcut keycaps", async () => {
+  const calls: unknown[][] = [];
+  const actions = [
+    { id: "terminal", title: "Show terminal", keywords: ["show"], symbol: "terminal", keycaps: ["⌃", "`"] },
+    { id: "browser", title: "Show browser", keywords: ["show"], symbol: "globe", keycaps: ["⌥", "B"] },
+    { id: "sidebar", title: "Show sidebar", keywords: ["show"], symbol: "sidebar.left" },
+  ];
+  await render(calls, "claude", actions);
+  const field = await type("show");
+  const commands = rows().filter((row) => row.dataset.type === "action");
+  expect(commands.map((row) => row.querySelector("[data-icon]")?.getAttribute("data-icon"))).toEqual([
+    "terminal",
+    "browser",
+    "tunable.sidebar",
+  ]);
+  expect(
+    commands.map((row) => [...row.querySelectorAll(".nt-row-shortcut .ui-key-hint-key")].map((cap) => cap.textContent)),
+  ).toEqual([["⌃", "`"], ["⌥", "B"], []]);
+  expect(commands.every((row) => row.getAttribute("aria-selected") === "false")).toBe(true);
+  expect(document.querySelector(".nt-section, .nt-popover .nt-row-action")).toBeNull();
+  await key(field, "ArrowDown");
+  await key(field, "Enter");
+  expect(calls).toEqual([["action", "terminal"]]);
+  await render([], "claude", [{ ...actions[0]!, keycaps: ["⇧", "⌘", "J"] }]);
+  await type("show");
+  expect(
+    [
+      ...rows()
+        .find((row) => row.dataset.type === "action")!
+        .querySelectorAll(".nt-row-shortcut .ui-key-hint-key"),
+    ].map((cap) => cap.textContent),
+  ).toEqual(["⇧", "⌘", "J"]);
+});
+
+test("commands use the host's symbol image when the cmux pack has no icon for the symbol", async () => {
+  const asked: string[] = [];
+  const src = "data:image/png;base64,iVBORw0KGgo=";
+  const release = setHarnessSymbolHost(async (name) => {
+    asked.push(name);
+    return src;
+  });
+  try {
+    await render([], "claude", [{ id: "custom", title: "Custom command", keywords: [], symbol: "tortoise" }]);
+    await type("custom");
+    const command = rows().find((row) => row.dataset.type === "action")!;
+    expect(asked).toEqual(["tortoise"]);
+    const symbol = command.querySelector<HTMLElement>("[data-symbol=tortoise]")!;
+    expect(symbol.style.maskImage).toContain(src);
+  } finally {
+    release();
+  }
 });

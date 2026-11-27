@@ -20,6 +20,7 @@ use serde_json::{Value, json};
 use super::super::Origin;
 use crate::mesh_http::{HttpHub, MeshRelayConfig};
 use crate::rpc::{RpcError, method};
+use cmux_usage_share::upload::Sent;
 
 pub(super) const GROUPS: [&str; 6] = ["person", "repo", "model", "harness", "machine", "day"];
 const CALL_TIMEOUT: Duration = Duration::from_secs(30);
@@ -105,7 +106,8 @@ fn client() -> Option<Arc<Client>> {
     }
     let origin = reqwest::Url::parse(relay.url.trim()).ok()?.origin().ascii_serialization();
     let hub = HttpHub::new(&relay).ok()?;
-    let http = reqwest::Client::builder()
+    let http = crate::happy_dial::http_client()
+        .default_headers(cmux_build_space::headers().ok()?)
         .redirect(reqwest::redirect::Policy::none())
         .connect_timeout(Duration::from_secs(10))
         .user_agent(concat!("acpmux/", env!("CARGO_PKG_VERSION")))
@@ -182,6 +184,125 @@ impl Client {
             };
         }
     }
+}
+
+impl Client {
+    /// `POST {origin}/v1/usage/records` with one upload body (`cmux-usage-share`), with the same
+    /// sign-in as the audit read: one more try with a new token on a 401.
+    async fn post_usage(&self, body: Vec<u8>) -> Sent {
+        let url = format!("{}/v1/usage/records", self.origin);
+        let mut fresh = false;
+        loop {
+            let Ok(token) = self.hub.token(fresh).await else {
+                return Sent::Stopped { status: 401, code: Some("signedOut".into()) };
+            };
+            let sent = self
+                .http
+                .post(&url)
+                .bearer_auth(token.as_str())
+                .header(reqwest::header::CONTENT_TYPE, "application/json")
+                .body(body.clone())
+                .timeout(CALL_TIMEOUT)
+                .send()
+                .await;
+            let response = match sent {
+                Ok(response) => response,
+                Err(e) => return Sent::Retry { why: e.without_url().to_string() },
+            };
+            let status = response.status().as_u16();
+            if status == 401 && !fresh {
+                fresh = true;
+                continue;
+            }
+            let answer = read_capped(response).await.unwrap_or_default();
+            return cmux_usage_share::upload::classify(status, &answer);
+        }
+    }
+}
+
+struct UsageSender(Arc<Client>);
+
+impl cmux_usage_share::upload::Sender for UsageSender {
+    fn send(&self, body: Vec<u8>) -> impl std::future::Future<Output = Sent> + Send {
+        let client = Arc::clone(&self.0);
+        async move { client.post_usage(body).await }
+    }
+}
+
+/// The first retry after a 5xx or no answer; it doubles up to [`cmux_usage_share::UPLOAD_EVERY`].
+const UPLOAD_RETRY_FIRST: Duration = Duration::from_secs(60);
+
+/// Uploads this daemon's shared usage spool (`cmux-usage-share`) to the person's team: once
+/// [`cmux_usage_share::FIRST_UPLOAD_AFTER`] after sharing is first seen on, then every
+/// [`cmux_usage_share::UPLOAD_EVERY`], sooner with backoff after a 5xx or no answer. While sharing
+/// is off it sets no timer: it reads the setting again when the settings file changes
+/// (`settings`, the hub's `settings_changes`), so an idle daemon does not wake for it (it woke 30
+/// s after start and every 10 minutes, `tests/daemon_idle.rs`). Without a person's sign-in, or
+/// with an answer that says this person or server does not share (401, 403, 404) or refuses a
+/// batch, it logs the status once and waits for the next round. Lives as long as the daemon.
+pub(crate) async fn usage_upload_loop(mut settings: tokio::sync::watch::Receiver<u64>) {
+    let Some(sharer) = cmux_usage_share::global() else { return };
+    let mut first = true;
+    let mut retry = UPLOAD_RETRY_FIRST;
+    let mut last_logged: Option<String> = None;
+    loop {
+        // Marked seen before the read: a change after it ends the wait below at once.
+        settings.borrow_and_update();
+        sharer.reread();
+        if !tokio::task::spawn_blocking(|| sharer.enabled()).await.unwrap_or(false) {
+            if settings.changed().await.is_err() {
+                return;
+            }
+            continue;
+        }
+        if std::mem::take(&mut first) {
+            tokio::time::sleep(cmux_usage_share::FIRST_UPLOAD_AFTER).await;
+        }
+        let ended = usage_round(sharer).await;
+        let wait = match &ended {
+            Some(Sent::Retry { .. }) => {
+                let wait = retry;
+                retry = retry.saturating_mul(2).min(cmux_usage_share::UPLOAD_EVERY);
+                wait
+            }
+            _ => {
+                retry = UPLOAD_RETRY_FIRST;
+                cmux_usage_share::UPLOAD_EVERY
+            }
+        };
+        let said = ended.as_ref().map(|e| format!("{e:?}"));
+        if said != last_logged {
+            match &ended {
+                None => tracing::info!("usage sharing: upload caught up"),
+                Some(e) => {
+                    tracing::info!(ended = ?e, "usage sharing: upload stopped for this round")
+                }
+            }
+            last_logged = said;
+        }
+        tokio::time::sleep(wait).await;
+    }
+}
+
+/// One round: what ended it early, None when it sent everything (or sharing is off).
+async fn usage_round(sharer: &'static cmux_usage_share::Sharer) -> Option<Sent> {
+    if !sharer.enabled() {
+        return None;
+    }
+    let Some(client) = client() else {
+        return Some(Sent::Stopped { status: 401, code: Some("signedOut".into()) });
+    };
+    let round = sharer.upload_round(&UsageSender(client)).await?;
+    if round.batches > 0 {
+        tracing::info!(
+            batches = round.batches,
+            records = round.records,
+            accepted = round.accepted,
+            duplicates = round.duplicates,
+            "usage sharing: uploaded"
+        );
+    }
+    round.ended
 }
 
 /// The refusal's code when the platform sent one, else the status.
@@ -274,130 +395,83 @@ async fn write_new(dir: &Path, name: &str, body: &[u8], limit: usize) -> Result<
     Err(format!("{name} and {} numbered copies already exist in {}", limit - 1, dir.display()))
 }
 
+/// The CSV with every cell a spreadsheet would read as a formula made text: a cell starting with
+/// `=`, `+`, `-`, `@` or a tab (a quoted one also with a carriage return) gets a leading `'`, the
+/// usual CSV injection defence, so a session title or person name like `=HYPERLINK(...)` opens as
+/// text in a spreadsheet app. A plain number (`-12.5`) stays a number. Quoting is RFC 4180's: a quoted cell may hold commas, line breaks and `""`.
+fn defuse_formulas(body: &[u8]) -> Vec<u8> {
+    fn is_number(cell: &[u8]) -> bool {
+        let digits = cell.strip_prefix(b"-").or_else(|| cell.strip_prefix(b"+")).unwrap_or(cell);
+        let mut parts = digits.splitn(2, |b| *b == b'.');
+        let whole = parts.next().unwrap_or_default();
+        let fraction = parts.next();
+        !whole.is_empty()
+            && whole.iter().all(u8::is_ascii_digit)
+            && fraction.is_none_or(|f| !f.is_empty() && f.iter().all(u8::is_ascii_digit))
+    }
+    /// A cell that starts with `first` (its whole text `cell`) would be read as a formula.
+    fn risky(first: u8, cell: &[u8], quoted: bool) -> bool {
+        match first {
+            b'=' | b'@' | b'\t' => true,
+            b'\r' => quoted,
+            b'+' | b'-' => !is_number(cell),
+            _ => false,
+        }
+    }
+    let mut out = Vec::with_capacity(body.len() + 64);
+    let (mut at_start, mut quoted) = (true, false);
+    let mut rest = body;
+    while let Some((&byte, after)) = rest.split_first() {
+        if at_start {
+            at_start = false;
+            if byte == b'"' {
+                quoted = true;
+                out.push(b'"');
+                let end = after.iter().position(|b| *b == b'"').unwrap_or(after.len());
+                let cell = after.get(..end).unwrap_or(after);
+                if let Some(&first) = cell.first()
+                    && risky(first, cell, true)
+                {
+                    out.push(b'\'');
+                }
+                rest = after;
+                continue;
+            }
+            let end =
+                rest.iter().position(|b| matches!(b, b',' | b'\r' | b'\n')).unwrap_or(rest.len());
+            if risky(byte, rest.get(..end).unwrap_or(rest), false) {
+                out.push(b'\'');
+            }
+        }
+        if quoted {
+            if byte == b'"' {
+                if after.first() == Some(&b'"') {
+                    out.extend_from_slice(b"\"\"");
+                    rest = after.get(1..).unwrap_or_default();
+                    continue;
+                }
+                quoted = false;
+            }
+        } else if matches!(byte, b',' | b'\r' | b'\n') {
+            at_start = true;
+        }
+        out.push(byte);
+        rest = after;
+    }
+    out
+}
+
 async fn save_csv(body: &[u8], disposition: Option<&str>) -> Value {
     let Some(dir) = dirs::download_dir().or_else(dirs::home_dir) else {
         return failed("no Downloads folder");
     };
-    match write_new(&dir, &suggested_name(disposition), body, CSV_NAMES).await {
+    let body = defuse_formulas(body);
+    match write_new(&dir, &suggested_name(disposition), &body, CSV_NAMES).await {
         Ok(path) => json!({"status": "saved", "path": path.to_string_lossy()}),
         Err(message) => failed(message),
     }
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn reads_days_groupings_and_formats_and_refuses_anything_else() {
-        assert_eq!(
-            AuditQuery::from_params(&json!({})).unwrap(),
-            AuditQuery { since: None, until: None, group_by: "person", csv: false }
-        );
-        assert_eq!(
-            AuditQuery::from_params(
-                &json!({"since": "2026-11-01", "until": "2026-11-09", "groupBy": "machine", "format": "csv"})
-            )
-            .unwrap(),
-            AuditQuery {
-                since: Some("2026-11-01".into()),
-                until: Some("2026-11-09".into()),
-                group_by: "machine",
-                csv: true
-            }
-        );
-        for bad in [
-            json!({"since": "yesterday"}),
-            json!({"until": 1762646400000u64}),
-            json!({"since": "2026-11-1"}),
-            json!({"groupBy": "team"}),
-            json!({"groupBy": ["day"]}),
-            json!({"format": "xml"}),
-        ] {
-            assert!(AuditQuery::from_params(&bad).is_err(), "{bad}");
-        }
-    }
-
-    #[tokio::test]
-    async fn only_the_local_socket_and_the_app_read_the_team_audit() {
-        for origin in [Origin::Web, Origin::Peer] {
-            let err = handle(origin, &json!({})).await.unwrap_err();
-            assert!(format!("{err:?}").contains("_acpmux/team_audit"), "{err:?}");
-        }
-        assert!(handle(Origin::Local, &json!({"groupBy": "nope"})).await.is_err());
-    }
-
-    #[test]
-    fn a_csv_keeps_a_plain_suggested_name() {
-        assert_eq!(
-            suggested_name(Some(
-                r#"attachment; filename="cmux-agent-spend-2026-11-01-2026-11-09-model.csv""#
-            )),
-            "cmux-agent-spend-2026-11-01-2026-11-09-model.csv"
-        );
-        for odd in [
-            None,
-            Some("attachment"),
-            Some(r#"attachment; filename="../x.csv""#),
-            Some("filename=a.sh"),
-        ] {
-            assert_eq!(suggested_name(odd), DEFAULT_CSV_NAME, "{odd:?}");
-        }
-    }
-
-    #[tokio::test]
-    async fn a_csv_never_replaces_a_file_and_concurrent_downloads_get_their_own() {
-        let dir = tempfile::tempdir().unwrap();
-        std::fs::write(dir.path().join("a.csv"), "theirs").unwrap();
-        let saved = write_new(dir.path(), "a.csv", b"mine", CSV_NAMES).await.unwrap();
-        assert_eq!(saved, dir.path().join("a 2.csv"));
-        assert_eq!(std::fs::read_to_string(dir.path().join("a.csv")).unwrap(), "theirs");
-        assert_eq!(std::fs::read_to_string(&saved).unwrap(), "mine");
-
-        let both = tempfile::tempdir().unwrap();
-        let downloads = (0..16).map(|i| {
-            let dir = both.path().to_owned();
-            tokio::spawn(async move {
-                let body = format!("download {i}");
-                let path = write_new(&dir, "b.csv", body.as_bytes(), CSV_NAMES).await.unwrap();
-                (path, body)
-            })
-        });
-        let mut paths = std::collections::BTreeSet::new();
-        for download in downloads.collect::<Vec<_>>() {
-            let (path, body) = download.await.unwrap();
-            assert_eq!(std::fs::read_to_string(&path).unwrap(), body);
-            assert!(paths.insert(path));
-        }
-        assert_eq!(paths.len(), 16);
-    }
-
-    #[tokio::test]
-    async fn a_csv_fails_when_every_name_is_taken_and_touches_nothing() {
-        let dir = tempfile::tempdir().unwrap();
-        let taken: Vec<_> = candidates(dir.path(), "c.csv", 3).collect();
-        assert_eq!(
-            taken,
-            ["c.csv", "c 2.csv", "c 3.csv"].map(|name| dir.path().join(name)).to_vec()
-        );
-        for path in &taken {
-            std::fs::write(path, "theirs").unwrap();
-        }
-        let err = write_new(dir.path(), "c.csv", b"mine", 3).await.unwrap_err();
-        assert!(err.contains("already exist"), "{err}");
-        for path in &taken {
-            assert_eq!(std::fs::read_to_string(path).unwrap(), "theirs");
-        }
-        assert_eq!(std::fs::read_dir(dir.path()).unwrap().count(), 3);
-    }
-
-    #[test]
-    fn a_refusal_names_only_a_plain_code() {
-        assert_eq!(
-            refusal(503, br#"{"code":"usage.unavailable"}"#),
-            "cmux-platform refused (503 usage.unavailable)"
-        );
-        assert_eq!(refusal(500, b"<html>secret</html>"), "cmux-platform refused (500)");
-        assert_eq!(refusal(400, br#"{"code":"has spaces in it"}"#), "cmux-platform refused (400)");
-    }
-}
+#[path = "team_audit_tests.rs"]
+mod tests;

@@ -44,13 +44,13 @@ final class QuitFailureAlert {
         self.center = center
         body = QuitFailureContent.lines(failures)
         lines = [QuitStrings.failedTitle] + body
-        buttons = [(Self.quitAnywayID, QuitStrings.quitAnyway), (Self.retryID, QuitStrings.retry)]
+        buttons = [(Self.quitAnywayID, QuitStrings.quitAnyway), (Self.retryID, QuitStrings.retry)]  // retry-prompt-ok: quitting: Retry runs the quit work again, Quit Anyway drops what did not finish; the person picks
     }
 
     var spec: CmuxDialogSpec {
-        CmuxDialogSpec(title: QuitStrings.failedTitle, lines: body,
+        CmuxDialogSpec(usesTransientMaterial: true, title: QuitStrings.failedTitle, lines: body,
                        buttons: [CmuxDialogButton(id: Self.quitAnywayID, title: QuitStrings.quitAnyway, role: .cancel),
-                                 CmuxDialogButton(id: Self.retryID, title: QuitStrings.retry, role: .default)],
+                                 CmuxDialogButton(id: Self.retryID, title: QuitStrings.retry, role: .default)],  // retry-prompt-ok: quitting: Retry runs the quit work again, Quit Anyway drops what did not finish; the person picks
                        identifier: "cmux.dialog.quitFailure")
     }
 

@@ -16,18 +16,39 @@ public final class AgentPaneGitLink {
     private let clientName: String
     /// The commits' and pushes' own connection, opened at the first write.
     private var writeLink: AgentPaneGitLink?
+    /// The person's own mutations' connection (``userMutate(_:params:idempotencyKey:)``), opened at
+    /// the first: it proves itself the app with `hello`, which only that link has.
+    private var userLink: AgentPaneGitLink?
+    private let hello: ClientHelloIdentity?
     private var opening: Task<DaemonConnection, any Error>?
     /// Reads and drops the connection's tree events: every handshake
     /// subscribes, and nothing here uses them.
     private var drain: Task<Void, Never>?
 
-    public init(daemon: DaemonService, clientName: String = "cmux-next-agent-git") {
+    public convenience init(daemon: DaemonService, clientName: String = "cmux-next-agent-git") {
+        self.init(daemon: daemon, clientName: clientName, hello: nil)
+    }
+
+    private init(daemon: DaemonService, clientName: String, hello: ClientHelloIdentity?) {
         self.daemon = daemon
         self.clientName = clientName
+        self.hello = hello
     }
 
     /// This Mac's link: the Changes view's git writes run here only for a chat it reads.
     public var isLocal: Bool { daemon.isLocal }
+
+    /// What a session host with `git.fingerprint` advertises; a read that names it is sent only
+    /// to such a host (``read(_:params:requiring:)``).
+    public nonisolated static let fingerprintCapability = DaemonCapability.gitFingerprint.rawValue
+
+    /// Whether the session host answers `diff.comments.send`, as its last handshake said.
+    public var sendsDiffComments: Bool { daemon.identity?.supports(DaemonCapability.diffCommentsSend.rawValue) == true }
+
+    /// Whether the session host supports threaded diff comment mutations and sends.
+    public var supportsDiffCommentThreads: Bool {
+        daemon.identity?.supports(DaemonCapability.diffCommentsThreads.rawValue) == true
+    }
 
     /// The operation's result as JSON for the page. Throws an
     /// ``AgentPaneGitFailure``: the session host's resource error, or why
@@ -37,7 +58,10 @@ public final class AgentPaneGitLink {
     }
 
     /// Session host read `operation` with `params` as sent (the Files page's `git.files.list`).
-    public func read(_ operation: String, params: [String: JSONValue]) async throws(AgentPaneGitFailure) -> Data {
+    /// With a `capability` (the diff tab's `git.fingerprint`), a session host that does not
+    /// advertise it gets no request: the read throws ``AgentPaneGitFailure/unsupported``.
+    public func read(_ operation: String, params: [String: JSONValue],
+                     requiring capability: String? = nil) async throws(AgentPaneGitFailure) -> Data {
         let connection: DaemonConnection
         do {
             connection = try await self.connection()
@@ -46,7 +70,7 @@ public final class AgentPaneGitLink {
             throw AgentPaneGitFailure.notConnected
         }
         do {
-            let result = try await GitResourceClient(connection: connection).read(operation, params: params)
+            let result = try await GitResourceClient(connection: connection).read(operation, params: params, requiring: capability)
             return try await Self.encode(result)
         } catch {
             throw AgentPaneGitFailure(reading: error)
@@ -70,6 +94,11 @@ public final class AgentPaneGitLink {
     /// A whole diff, status or search result can be megabytes of JSON: encoded off the main actor.
     @concurrent private nonisolated static func encode(_ result: JSONValue) async throws -> Data {
         try JSONEncoder().encode(result)
+    }
+
+    /// A mutation's params as the page sent them (a comment or review body of any length): decoded off the main actor.
+    @concurrent private nonisolated static func object(_ params: Data) async -> [String: JSONValue]? {
+        try? JSONDecoder().decode([String: JSONValue].self, from: params)
     }
 
     /// The mutation's `MutationResult` as JSON for the page, run under the
@@ -98,12 +127,36 @@ public final class AgentPaneGitLink {
     /// `idempotencyKey`, on the write connection (the diff page's `diff.comments.save` and
     /// `.delete`). Throws like ``write(_:in:)``; params that are no JSON object are `native.failed`.
     public func mutate(_ operation: String, params: Data, idempotencyKey: String) async throws(AgentPaneGitFailure) -> Data {
-        guard let params = try? JSONDecoder().decode([String: JSONValue].self, from: params) else { throw AgentPaneGitFailure.failed }
+        guard let params = await Self.object(params) else { throw AgentPaneGitFailure.failed }
         let connection: DaemonConnection
         do {
             let writes = writeLink ?? AgentPaneGitLink(daemon: daemon, clientName: clientName + "-write")
             writeLink = writes
             connection = try await writes.connection()
+        } catch {
+            throw AgentPaneGitFailure.notConnected
+        }
+        do {
+            let result = try await GitResourceClient(connection: connection).write(operation, params: params, idempotencyKey: idempotencyKey)
+            return try await Self.encode(result)
+        } catch {
+            throw AgentPaneGitFailure(reading: error)
+        }
+    }
+
+    /// Session host mutation `operation` only the person sends (`git.review.post`, a review under
+    /// their GitHub account): on a connection of its own that proves itself the verified app, as
+    /// the control connection does, so the host takes it as the user's without holding terminal
+    /// commands behind it. A daemon the app did not start (another machine's) has no such
+    /// connection: `native.not_connected`. Throws like ``mutate(_:params:idempotencyKey:)``.
+    public func userMutate(_ operation: String, params: Data, idempotencyKey: String) async throws(AgentPaneGitFailure) -> Data {
+        guard let params = await Self.object(params) else { throw AgentPaneGitFailure.failed }
+        guard let hello = daemon.clientHello else { throw AgentPaneGitFailure.notConnected }
+        let connection: DaemonConnection
+        do {
+            let user = userLink ?? AgentPaneGitLink(daemon: daemon, clientName: clientName + "-user", hello: hello)
+            userLink = user
+            connection = try await user.connection()
         } catch {
             throw AgentPaneGitFailure.notConnected
         }
@@ -149,6 +202,8 @@ public final class AgentPaneGitLink {
     public func close() {
         writeLink?.close()
         writeLink = nil
+        userLink?.close()
+        userLink = nil
         let opening = opening
         self.opening = nil
         // task-owner: one bounded close of a connection nothing else holds
@@ -158,10 +213,11 @@ public final class AgentPaneGitLink {
     private func open() -> Task<DaemonConnection, any Error> {
         let daemon = daemon
         let clientName = clientName
+        let hello = hello
         return Task {
             let connection = DaemonConnection(
                 configuration: DaemonConnection.Configuration(
-                    clientName: clientName, treeEvents: .coarse, terminalEnvironment: nil),
+                    clientName: clientName, treeEvents: .coarse, terminalEnvironment: nil, clientHello: hello),
                 endpointProvider: { try await daemon.endpoint() })
             do {
                 try await connection.start()
@@ -222,9 +278,10 @@ extension AgentPaneGitWrite {
             if includeUntracked { params["include_untracked"] = .bool(true) }
             if let expectedHead { params["expected_head"] = .string(expectedHead) }
             return params
-        case .push(_, let expectedHead, _):
+        case .push(_, let expectedHead, let setUpstream, _):
             var params: [String: JSONValue] = ["path": .string(cwd)]
             if let expectedHead { params["expected_head"] = .string(expectedHead) }
+            if setUpstream { params["set_upstream"] = .bool(true) }
             return params
         case .worktree(_, let name, _):
             var params: [String: JSONValue] = ["path": .string(cwd)]
@@ -235,6 +292,10 @@ extension AgentPaneGitWrite {
         case .worktreeRemove(_, let discard, _):
             var params: [String: JSONValue] = ["path": .string(cwd)]
             if discard { params["discard"] = .bool(true) }
+            return params
+        case .worktreeSetupRun(_, let approve, _):
+            var params: [String: JSONValue] = ["path": .string(cwd)]
+            if let approve { params["approve"] = .string(approve) }
             return params
         }
     }
@@ -254,6 +315,8 @@ extension AgentPaneGitFailure {
             self.init(code: code, details: json, retryable: retryable, origin: .sessionHost)
         case DaemonError.notConnected:
             self = .notConnected
+        case DaemonError.missingCapabilities:
+            self = .unsupported
         case DaemonError.timedOut, DaemonError.connectionClosed, DaemonError.daemonShutdown:
             self = .timedOut
         default:

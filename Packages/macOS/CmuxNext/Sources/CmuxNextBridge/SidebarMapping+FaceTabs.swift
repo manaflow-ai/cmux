@@ -42,13 +42,16 @@ extension SidebarMapping {
     /// The tabs `workspace`'s face picks, its panes showing the tabs `selectedTab` picks (the window's selection;
     /// nil: the daemon's default tab). `newTabPages` are the ids of its tabs still on the New Tab page. A call takes
     /// its own buffers (one workspace's: O(its tabs)); the sidebar's many rows reuse the window's (`FaceRowBatch`).
+    ///
+    /// A caller in an observation (the titlebar's name) is woken by the title, folder, running command and title
+    /// activity of the front tab only, never by another tab's: the rules read those of the front tab alone (is it
+    /// an idle shell?), so only its are given. The rules answer twice: first with no tab's text, which gives the
+    /// front tab (panes and selection decide it), then with the front tab's text for the other picks.
     public func faceTabs(_ workspace: WorkspaceModel, selectedTab: (PaneModel) -> String?,
                          newTabPages: Set<String> = []) -> FaceTabs {
         let batch = SidebarFaceBatch(home: home)
-        // Only the picks are read: the row facts (status, machine, list titles, brands) do not change them.
-        batch.reset(showsUnread: false, newTabTitled: false)
-        batch.append(workspace, local: true, status: nil, selectedTab: selectedTab, newTabPages: newTabPages,
-                     listTitle: { _ in "" }, branded: { _ in false })
+        guard let front = stageFront(batch, workspace, selectedTab: selectedTab, newTabPages: newTabPages) else { return FaceTabs() }
+        batch.addFrontFacts(front)
         guard let reply = batch.run() else {
             faceTabsLog.error("sidebar face rules could not read workspace \(workspace.id, privacy: .public)")
             return FaceTabs()
@@ -57,5 +60,26 @@ extension SidebarMapping {
         func at(_ index: Int?) -> TabModel? { index.flatMap { tabs.indices.contains($0) ? tabs[$0] : nil } }
         return FaceTabs(front: at(picks.front), label: at(picks.label), face: at(picks.face), work: at(picks.work),
                         chat: at(picks.chat))
+    }
+
+    /// `faceTabs(_:selectedTab:).front` alone: the selected tab of `workspace`'s most recently focused pane. It
+    /// reads no tab's text, so a caller in an observation follows the panes, their tab lists and the selection only.
+    public func frontTab(_ workspace: WorkspaceModel, selectedTab: (PaneModel) -> String?) -> TabModel? {
+        let batch = SidebarFaceBatch(home: home)
+        return stageFront(batch, workspace, selectedTab: selectedTab, newTabPages: []).map { batch.tabs[$0] }
+    }
+
+    /// Stages `workspace` in `batch` with no tab's text and returns the index of its front tab in `batch.tabs`;
+    /// nil for a workspace with no tabs, or (logged) when the rules could not read it.
+    private func stageFront(_ batch: SidebarFaceBatch, _ workspace: WorkspaceModel, selectedTab: (PaneModel) -> String?,
+                            newTabPages: Set<String>) -> Int? {
+        // Only the picks are read: the row facts (status, machine, list titles, brands) do not change them.
+        batch.reset(showsUnread: false, newTabTitled: false)
+        batch.appendPicks(workspace, selectedTab: selectedTab, newTabPages: newTabPages)
+        guard let reply = batch.run() else {
+            faceTabsLog.error("sidebar face rules could not read workspace \(workspace.id, privacy: .public)")
+            return nil
+        }
+        return reply.picks(0).front.flatMap { batch.tabs.indices.contains($0) ? $0 : nil }
     }
 }

@@ -79,6 +79,16 @@ import Testing
         #expect(installs.count == 0, "the click installed pulled build 400")
     }
 
+    /// cmux#41013 review F2: a rollback's quit with `updates.installOnQuit` on cancels staged build
+    /// 300 instead of letting it install over the build just put in place.
+    @Test func aRollbackQuitCancelsTheStagedUpdate() {
+        let (h, installs) = Click.make(newer: false)
+        h.updater.rollbackQuitPending = true
+        #expect(h.updater.prepareForQuit() == .cancelPendingInstall)
+        #expect(h.sparkle.cancels == 1)
+        #expect(installs.count == 0)
+    }
+
     /// Newer build 500 is on the appcast but no installer this app holds can be cancelled, and the
     /// pulled list (listing staged 300) is slow: the click waits for the list instead of installing 300.
     @Test func aNewerBuildWithNoCancellableInstallerStillWaitsForThePulledList() async throws {

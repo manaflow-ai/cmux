@@ -1,5 +1,5 @@
 // This file is generated. Do not edit by hand.
-// cmux-tui mux protocol 12, IR 4092e18628956f6f0140e6c2a2f97a370ff80cf2f567a54c4d066c1240242b1d.
+// cmux-tui mux protocol 12; the IR SHA-256 is SDK_IR_SHA256 in metadata.rs.
 // The emitter owns this layout so generation is independent of the installed rustfmt.
 
 mod commands;

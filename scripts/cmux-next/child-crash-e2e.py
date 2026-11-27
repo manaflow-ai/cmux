@@ -19,6 +19,8 @@ socket; the script never launches or quits it.
 Usage: child-crash-e2e.py --socket <path> [--app-pid PID] [--only renderer,gpu,webkit,agent]
 """
 import argparse, functools, http.server, json, os, signal, socket, subprocess, sys, tempfile, threading, time
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from safe_log import safe_print  # noqa: E402  (a line before a kill never skips the kill)
 
 parser = argparse.ArgumentParser()
 parser.add_argument("--socket", required=True)
@@ -163,7 +165,7 @@ def main():
         sys.exit("FAIL the app does not answer on its socket")
     url = serve()
     only = set(opts.only.split(","))
-    print(f"app pid {pid}, page {url}", flush=True)
+    safe_print(f"app pid {pid}, page {url}", flush=True)
 
     # First, while the window still shows its New Tab page (an agent page).
     if "agent" in only:
@@ -178,13 +180,13 @@ def main():
         page = reply.get("pid")
         if check("agent: an agent page reports its WebContent process", bool(page), reply):
             os.kill(int(page), signal.SIGKILL)
-            print(f"killed agent WebContent {int(page)}", flush=True)
-            time.sleep(1.0)  # test harness wait: WebKit reports the process ended
-            check("agent: app still runs", alive(pid))
+            safe_print(f"killed agent WebContent {int(page)}", flush=True)
+            # WebKit reports the process ended: the page names a new WebContent process.
             fresh = wait(lambda: (lambda p: p if p and p != page else None)((rpc("debug.agent_pane", {"action": "pid", "pane": pane}) or {}).get("pid")), 30)
+            check("agent: app still runs", alive(pid))
             check("agent: the page reloads in a new WebContent process", bool(fresh), fresh)
-            # A page that keeps crashing stops reloading (PageCrashReloads: 3 reloads in 10 minutes)
-            # and offers Reload instead; Reload starts it again.
+            # A page that keeps crashing (3 retries in 60 s) shows the notice, a line with no Reload
+            # button, and still loads again by itself every 30 s (AgentPageCrashBudget.noticeRetryDelay).
             notice, current = None, fresh
             for crash in range(2, 6):
                 if not current:
@@ -195,15 +197,14 @@ def main():
                     break
                 previous = current
                 current = wait(lambda: (lambda p: p if p and p != previous else None)((rpc("debug.agent_pane", {"action": "pid", "pane": pane}) or {}).get("pid")), 30)
-            print(f"agent: notice after crash {crash}", flush=True)
+            safe_print(f"agent: notice after crash {crash}", flush=True)
             texts = (notice or {}).get("texts") or []
-            check("agent: a page that keeps crashing shows the crashed page with Reload", len(texts) == 2 and all(texts), texts)
+            check("agent: a page that keeps crashing shows the crash notice with no button", len(texts) == 1 and all(texts), texts)
             check("agent: app still runs after repeated crashes", alive(pid))
             if notice:
-                pressed = (rpc("debug.agent_pane", {"action": "crash_notice", "pane": pane, "press": "reload"}) or {}).get("pressed")
-                back = pressed and wait(lambda: (lambda p: p if p and p != current else None)((rpc("debug.agent_pane", {"action": "pid", "pane": pane}) or {}).get("pid")), 30)
-                gone = not (rpc("debug.agent_pane", {"action": "crash_notice", "pane": pane}) or {}).get("shown")
-                check("agent: Reload starts the page again", bool(back) and gone, f"pressed={pressed} pid={back}")
+                back = wait(lambda: (lambda p: p if p and p != current else None)((rpc("debug.agent_pane", {"action": "pid", "pane": pane}) or {}).get("pid")), 45)
+                gone = back and wait(lambda: not (rpc("debug.agent_pane", {"action": "crash_notice", "pane": pane}) or {}).get("shown"), 15)
+                check("agent: a crash loop still loads the page again by itself", bool(back) and bool(gone), f"pid={back}")
 
     cef_tab = None
     if only & {"renderer", "gpu"}:
@@ -214,17 +215,17 @@ def main():
             if check("renderer: the Chromium tab has its own renderer process", bool(renderers), children(pid, "renderer")):
                 for renderer in renderers:
                     os.kill(renderer, signal.SIGKILL)
-                print(f"killed renderer {renderers}", flush=True)
+                safe_print(f"killed renderer {renderers}", flush=True)
                 sad_tab_reloads("renderer", cef_tab, pid)
         if cef_tab and "gpu" in only:
             gpus = children(pid, "gpu-process")
             if check("gpu: Chromium runs a GPU process", bool(gpus)):
                 for gpu in gpus:
                     os.kill(gpu, signal.SIGKILL)
-                print(f"killed gpu-process {gpus}", flush=True)
-                time.sleep(2.0)  # test harness wait: Chromium notices the GPU process ended
-                check("gpu: app still runs", alive(pid))
+                safe_print(f"killed gpu-process {gpus}", flush=True)
+                # Chromium notices the GPU process ended: a new GPU process runs.
                 restarted = wait(lambda: set(children(pid, "gpu-process")) - set(gpus), 20)
+                check("gpu: app still runs", alive(pid))
                 check("gpu: Chromium starts a new GPU process", bool(restarted), children(pid, "gpu-process"))
                 if status(cef_tab).get("gone") == "1":
                     sad_tab_reloads("gpu", cef_tab, pid)
@@ -236,7 +237,7 @@ def main():
         page = tab and wait(lambda: status(tab).get("page_pid"), 20)
         if check("webkit: the WebKit tab reports its WebContent process", bool(page), status(tab) if tab else None):
             os.kill(int(page), signal.SIGKILL)
-            print(f"killed WebContent {page}", flush=True)
+            safe_print(f"killed WebContent {page}", flush=True)
             sad_tab_reloads("webkit", tab, pid)
             fresh = status(tab).get("page_pid")
             check("webkit: the page runs in a new WebContent process", bool(fresh) and fresh != page, fresh)
@@ -244,7 +245,7 @@ def main():
     check("app still runs at the end", alive(pid))
     if failures:
         sys.exit(f"FAIL {len(failures)}: {', '.join(failures)}")
-    print("PASS every child process crash is contained")
+    safe_print("PASS every child process crash is contained")
 
 
 main()

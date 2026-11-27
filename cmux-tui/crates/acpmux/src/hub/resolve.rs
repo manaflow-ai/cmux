@@ -56,7 +56,16 @@ impl Hub {
             }
             None => {
                 let resolved = cfg.resolve_harness(&head).map_err(|e| {
-                    RpcError::invalid_params(self.with_model_hint(cfg, &head, model, e))
+                    let mut text = self.with_model_hint(cfg, &head, model, e);
+                    // A harness discovery adds from PATH was looked for again at this start
+                    // (`rediscover_head`): say when the login PATH, where a profile puts its
+                    // CLI, was never read, not only how to configure it.
+                    if crate::config::discoverable(&head)
+                        && let Some(note) = self.login_path_note()
+                    {
+                        text.push_str(&format!(". Also, {note}"));
+                    }
+                    RpcError::invalid_params(text)
                 })?;
                 if let Some(reason) = cfg.unavailable.get(&resolved) {
                     return Err(RpcError::invalid_params(format!(
@@ -103,21 +112,25 @@ impl Hub {
     }
 
     /// Resolve exactly what `new_session` will run while the remote request
-    /// is still in admission, before a session or child process exists.
+    /// is still in admission, before a session or child process exists, and
+    /// judge it by the one remote start rule (`web_modes::remote_start_for_config`,
+    /// which `session_profile_checked` also applies): the modes a Web start runs
+    /// in, or why it may not start (a refused family by its derived family; a
+    /// launcher profile of Claude Code by Claude's row).
     pub(crate) async fn preflight_remote_new(
         &self,
         harness: Option<String>,
         preset: Option<String>,
         model: Option<String>,
         cwd: Option<PathBuf>,
-    ) -> Result<(String, bool), RpcError> {
-        self.wait_startup().await;
+    ) -> Result<Result<Vec<String>, String>, RpcError> {
+        // As `session/new`: the catalog and launcher checks, not every chat's adoption.
+        self.wait_spawn_ready().await;
+        self.rediscover_head(harness.as_deref(), preset.as_deref()).await;
         let cfg = self.config.read().await;
         let resolved =
             self.resolve_new(&cfg, harness, &preset, model.as_deref(), true, cwd.as_deref())?;
-        let family = crate::config::derive_family(&resolved.agent, &resolved.profile);
-        let any_mode = crate::codex_app_server::is_profile_launch(&resolved.profile.argv);
-        Ok((family, any_mode))
+        Ok(crate::web_modes::remote_start_for_config(&cfg, &resolved.agent, &resolved.profile))
     }
 }
 
@@ -125,7 +138,7 @@ impl Hub {
 /// child working directory. Freeze a bare PATH program or configured
 /// absolute path to its canonical absolute executable before any spawn.
 pub(super) fn fix_remote_executable(profile: &mut HarnessProfile) -> Result<(), RpcError> {
-    let Some(program) = profile.argv.first() else { return Err(remote_executable_refused()) };
+    let Some(program) = profile.argv.first() else { return Err(remote_executable_refused("")) };
     profile.argv[0] = remote_executable(program)?;
     Ok(())
 }
@@ -138,16 +151,19 @@ pub(super) fn remote_executable(program: &str) -> Result<String, RpcError> {
         || program.starts_with("~/")
         || (!path.is_absolute() && (program.contains('/') || program.contains('\\')))
     {
-        return Err(remote_executable_refused());
+        return Err(remote_executable_refused(program));
     }
     let selected = if path.is_absolute() {
         path.to_path_buf()
     } else {
-        crate::config::which(program).map(PathBuf::from).ok_or_else(remote_executable_refused)?
+        crate::config::which(program)
+            .map(PathBuf::from)
+            .ok_or_else(|| remote_executable_refused(program))?
     };
-    let selected = std::fs::canonicalize(selected).map_err(|_| remote_executable_refused())?;
+    let selected =
+        std::fs::canonicalize(selected).map_err(|_| remote_executable_refused(program))?;
     if !selected.is_file() || !selected.is_absolute() {
-        return Err(remote_executable_refused());
+        return Err(remote_executable_refused(program));
     }
     Ok(selected.to_string_lossy().into_owned())
 }
@@ -156,20 +172,44 @@ pub(super) fn refuse_remote_cwd_executable(program: &str, cwd: &Path) -> Result<
     let program = Path::new(program);
     let cwd = std::fs::canonicalize(cwd).unwrap_or_else(|_| cwd.to_path_buf());
     if program.starts_with(cwd) {
-        return Err(remote_executable_refused());
+        return Err(remote_executable_refused(&program.to_string_lossy()));
     }
     Ok(())
 }
 
-fn remote_executable_refused() -> RpcError {
+/// A remote start whose program cannot be fixed to one canonical executable outside the chat's
+/// folder. Its own words, not the asking-mode refusal's: the two read the same until the Door A
+/// timing run (2026-11-16), where a refused Claude start on a joined VM could not be told apart.
+fn remote_executable_refused(program: &str) -> RpcError {
+    let program = if program.is_empty() { "(none)" } else { program };
+    RpcError::invalid_params(format!(
+        "this harness's program {program:?} cannot start for a remote connection: it is not on this machine's PATH, is not one fixed executable, or lies in the chat's folder"
+    ))
+    .with_data(json!({"reason": "remote.executable_refused", "program": program}))
+}
+
+/// A remote start whose launch would put the request's folder or model into its command.
+fn remote_launch_shape_refused() -> RpcError {
     RpcError::invalid_params(
-        "this harness has no reviewed asking mode for a remote WebSocket connection",
+        "this harness's launch puts the chat's folder or model into its command, which a remote connection never starts",
     )
     .with_data(json!({"reason": "remote.executable_refused"}))
 }
 
-fn remote_launch_shape_refused() -> RpcError {
-    remote_executable_refused()
+#[cfg(test)]
+mod remote_refusal_tests {
+    /// Door A timing run: the VM refused a remote Claude start with the asking-mode text while
+    /// the reason was its program. A program refusal names the program in its own words.
+    #[test]
+    fn a_program_refusal_names_the_program_and_is_not_the_asking_mode_refusal() {
+        let error = super::remote_executable("cmux-no-such-program-door-a").unwrap_err();
+        assert!(!error.message.contains("no reviewed asking mode"), "{}", error.message);
+        assert!(error.message.contains("cmux-no-such-program-door-a"), "{}", error.message);
+        let data = error.data.unwrap_or_default();
+        assert_eq!(data["reason"], "remote.executable_refused");
+        let shape = super::refuse_remote_launch_shape([&"run ${cwd}".to_owned()]).unwrap_err();
+        assert!(!shape.message.contains("no reviewed asking mode"), "{}", shape.message);
+    }
 }
 
 /// The request's cwd and model are data passed to a reviewed agent, never
@@ -302,7 +342,12 @@ pub(super) fn draft_meta(d: Draft<'_>) -> SessionMeta {
         schema: META_SCHEMA.into(),
         id: d.id,
         name: String::new(),
+        handle: None,
+        icon: None,
         name_given: false,
+        former_names: Vec::new(),
+        succeeds: Vec::new(),
+        roles: Vec::new(),
         harness: d.agent.into(),
         harness_argv: d.profile.argv.clone(),
         spawn_argv: None,
@@ -310,8 +355,13 @@ pub(super) fn draft_meta(d: Draft<'_>) -> SessionMeta {
         family: Some(d.family.to_owned()),
         preset: d.preset,
         model_request: d.model_request,
+        effort_request: None,
+        capacity_fallback: None,
         cwd: d.cwd,
         additional_directories: Vec::new(),
+        stop_condition: None,
+        stop_condition_sent: false,
+        restricted: false,
         agent_session_id: d.agent_session_id,
         previous_agent_session_ids: Vec::new(),
         retired_agent_session_ids: Vec::new(),
@@ -321,12 +371,14 @@ pub(super) fn draft_meta(d: Draft<'_>) -> SessionMeta {
         updated_at: now,
         last_seq: 0,
         transcript_seq: 0,
+        recovered_after: None,
         parent_id: None,
         fork_seq: None,
         fork_before: None,
         history_from: None,
         history_kept_through: None,
         fork_requests: Default::default(),
+        fork_start: None,
         fork_parent_verified: None,
         agent_info: None,
         agent_capabilities: None,
@@ -364,11 +416,21 @@ pub(super) fn draft_meta(d: Draft<'_>) -> SessionMeta {
         seen_seq: None,
         unread_turns: 0,
         last_return: None,
+        away_recap: None,
+        approved_plan: None,
+        read_through: Default::default(),
         claude_unstored: false,
+        claude_unstored_work: false,
         // Never the parent's: only its creator asks (`SessionMeta::wait_start`).
         wait_start: false,
+        throwaway: false,
+        create_key: None,
+        placed_by: None,
+        agent_behind_seq: None,
         hibernated_ms: 0,
+        close: None,
         idle_launch: None,
+        start_level: None,
         moved_to: None,
         claude_profile: None,
         last_turn: None,
@@ -384,14 +446,17 @@ pub(super) fn draft_meta(d: Draft<'_>) -> SessionMeta {
         harness_roots: vec![],
         watching: None,
         composer_draft: None,
+        pinned: false,
         preset_mode_approval: None,
         bookmarks: Default::default(),
         tools: Default::default(),
         // Read off the async runtime by `session/new` (`adoption::start_folder`).
         totals: None,
         harness_cost_usd: None,
+        task_cost_usd: None,
         pull_requests: vec![],
         pull_request_times: Default::default(),
+        closed_pull_requests: vec![],
         touched_files: vec![],
         git_branch: None,
         git_head: None,
@@ -406,6 +471,11 @@ pub(super) fn draft_meta(d: Draft<'_>) -> SessionMeta {
         turn_cap_ms: None,
         turn_cap_noticed: None,
         delegator: None,
+        cold: None,
+        auto_session: None,
+        fork_of_subagent: None,
+        // A new chat starts on Auto; a pick is the chat's own and never a default.
+        place_mode: None,
     }
 }
 

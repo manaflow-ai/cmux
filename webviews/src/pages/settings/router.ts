@@ -12,13 +12,24 @@ import {
 import type { QueryClient } from "@tanstack/react-query";
 import { ensureSection, routeSection } from "./sectionQueries";
 import type { SettingsStore } from "./store";
+import { routeFocus } from "./legacyLinks";
 
 /** What every route's loader reads from: the page's query cache and its store. */
 export type SettingsRouterContext = { queryClient: QueryClient; store: SettingsStore };
 
 /** The route's search: the focused key, the workspace Change Background… came from, the sidebar
- * search's text (`q`) and its Changed filter (`changed=1`). Plain `?a=b` pairs, never JSON. */
-export type SettingsSearch = { focus?: string; workspace?: string; q?: string; changed?: true };
+ * search's text (`q`). `changed=1` is the removed Changed filter's: an old link keeps it, and the page
+ * ignores it. An old Personalization link's `part` becomes its focus (legacyLinks.ts). Plain `?a=b`
+ * pairs, never JSON. */
+export type SettingsSearch = {
+  focus?: string;
+  workspace?: string;
+  q?: string;
+  changed?: true;
+  /** `cmux://slack/connected` lands here: a hint to re-read the connection, never trusted for its contents. */
+  slack?: "connect" | "connected";
+  open?: string;
+};
 
 export function validateSettingsSearch(raw: Record<string, unknown>): SettingsSearch {
   const text = (value: unknown) => (value === undefined || value === null || value === "" ? undefined : String(value));
@@ -26,9 +37,16 @@ export function validateSettingsSearch(raw: Record<string, unknown>): SettingsSe
   const focus = text(raw.focus);
   const workspace = text(raw.workspace);
   const q = text(raw.q);
+  const part = text(raw.part);
   if (focus) out.focus = focus;
+  // `?part=` was Personalization's (#/settings/personalization?part=background): its focus now.
+  else if (part) out.focus = `personalization.${part}`;
   if (workspace) out.workspace = workspace;
   if (q) out.q = q;
+  if ((raw.slack === "connect" || raw.slack === "connected") && text(raw.open)) {
+    out.slack = raw.slack;
+    out.open = text(raw.open);
+  }
   if (raw.changed === true || raw.changed === "1" || raw.changed === 1) out.changed = true;
   return out;
 }
@@ -135,6 +153,9 @@ export function fragmentLocation(fragment: string, state: unknown): FragmentLoca
   } as FragmentLocation;
 }
 
+/** An old Personalization link's `?part=` as the focus it meant (legacyLinks.ts). */
+const legacyFocus = (part: string | null) => (part ? `personalization.${part}` : null);
+
 /** `workspace` is the workspace Change Background… came from (the picker's This Workspace). */
 export type SettingsLocation = {
   section: string;
@@ -142,8 +163,6 @@ export type SettingsLocation = {
   workspace: string | null;
   /** The sidebar search's text; empty when not searching. */
   query: string;
-  /** Whether the search lists only changed settings. */
-  changedOnly: boolean;
 };
 
 /**
@@ -165,13 +184,12 @@ export function parseLocation(href: string): SettingsLocation {
       if (!(error instanceof URIError)) throw error;
     }
   }
-  const section = routeSection(requestedSection, focus);
+  const section = routeSection(requestedSection, focus ?? legacyFocus(url.searchParams.get("part")));
   return {
     section,
-    focus,
+    focus: routeFocus(requestedSection, focus ?? legacyFocus(url.searchParams.get("part"))),
     workspace: url.searchParams.get("workspace"),
     query: url.searchParams.get("q") ?? "",
-    changedOnly: url.searchParams.get("changed") === "1",
   };
 }
 
@@ -179,13 +197,12 @@ export function sectionHref(
   section: string,
   focus?: string | null,
   workspace?: string | null,
-  filter?: { query?: string; changedOnly?: boolean },
+  options?: { query?: string },
 ): string {
   const query = new URLSearchParams();
   if (focus) query.set("focus", focus);
   if (workspace) query.set("workspace", workspace);
-  if (filter?.query) query.set("q", filter.query);
-  if (filter?.changedOnly) query.set("changed", "1");
+  if (options?.query) query.set("q", options.query);
   const search = query.toString();
   return `/settings/${encodeURIComponent(section)}${search ? `?${search}` : ""}`;
 }

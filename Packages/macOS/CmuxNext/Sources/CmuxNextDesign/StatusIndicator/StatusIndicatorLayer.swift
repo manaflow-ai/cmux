@@ -95,6 +95,10 @@ public final class StatusIndicatorLayer {
     }
 
     private(set) var glyphLayer: CAShapeLayer?
+    /// The inputs the sublayers were last built from (``relayout()`` skips a build with the same).
+    private var built: BuildInputs?
+    /// Glyph builds, for tests.
+    private(set) var glyphBuilds = 0
     private var trackLayer: CAShapeLayer?
     private(set) var nativeLayer: CALayer?
     /// The pixel side the native mask was rendered for.
@@ -174,7 +178,11 @@ public final class StatusIndicatorLayer {
         self.plan = plan
         self.config = config
         layer.isHidden = plan.glyph == .none
-        if glyphChanged { rebuild() }
+        if glyphChanged {
+            // A settle still playing belongs to the glyph it was for, also when neither glyph loops.
+            removeSettle()
+            rebuild()
+        }
         applyColors()
         // New loop timing or pulse depth: restart the running animation.
         if configChanged { removeAllAnimations() }
@@ -189,8 +197,24 @@ public final class StatusIndicatorLayer {
         // same in the flipped tab strip and in plain views.
         let flipped = hostIsFlipped ?? layer.superlayer?.contentsAreFlipped() ?? false
         if layer.isGeometryFlipped != flipped { layer.isGeometryFlipped = flipped }
-        rebuild()
+        // A host lays out after every apply (a sidebar row's status flip); at the frame, scale and
+        // flip the glyph was built for, building it again only drew the same shape again.
+        if built != buildInputs { rebuild() }
         updateAnimation()
+    }
+
+    /// What ``rebuild()`` builds from: the glyph and config, the square it fills and the space it
+    /// draws in. Equal inputs build the same sublayers.
+    private struct BuildInputs: Equatable {
+        var glyph: StatusIndicatorPlan.Glyph
+        var config: StatusIndicatorConfig
+        var rect: CGRect
+        var scale: CGFloat
+        var flipped: Bool
+    }
+
+    private var buildInputs: BuildInputs {
+        BuildInputs(glyph: plan.glyph, config: config, rect: glyphRect, scale: contentsScale, flipped: layer.isGeometryFlipped)
     }
 
     // MARK: Geometry
@@ -221,6 +245,8 @@ public final class StatusIndicatorLayer {
     }
 
     private func rebuild() {
+        built = buildInputs
+        glyphBuilds &+= 1
         let rect = glyphRect
         let thickness = config.settings.thickness
         if case .mark = plan.glyph {} else { removeMark() }
@@ -385,6 +411,8 @@ public final class StatusIndicatorLayer {
     }
 
     private func removeAllAnimations() {
+        // A settle still playing (StatusIndicatorLayer+Settle) must not scale the glyph that replaces it.
+        removeSettle()
         glyphLayer?.removeAllAnimations()
         markLayer?.removeAllAnimations()
         nativeLayer?.removeAllAnimations()

@@ -36,10 +36,43 @@
 /* Claude Code's split adds the quiet row (28 px and its 4 px gap) under the card: the transcript
    gives that up first, down to 64 px above the stack, so a short pane with a queued prompt keeps the
    quiet row inside it (re-review of #22285). */
-/* The dock is the `:has()` subject, never the pane: one on the pane would be checked again for every node a
-   streamed chunk inserts into the transcript (test/agent-pane-stream-composer-still.test.ts). */
-.acpmux-main[data-dock="float"] > .acpmux-dock:has(.acpmux-composer-foot) {
+/* The dock's `data-foot` (App.tsx: the dock draws the composer, whose card always draws its quiet
+   row), never a `:has()`: one on the pane, or on the dock with a descendant argument, was checked
+   again for every node a streamed chunk or a keystroke inserts (test/agent-pane-stream-composer-still.test.ts,
+   transcript-motion-model step 7). */
+.acpmux-main[data-dock="float"] > .acpmux-dock[data-foot] {
   max-height: calc(100% - 44px - max(64px, var(--acpmux-transcript-min, 96px) - 32px));
+}
+/* A pane too short for that floor and the composer both (140 and 200 px tall, ask c-6a24624c5c, Leo
+   2026-11-25: the composer clipped, the mode and model row cut): the transcript's floor gives way, and
+   the stack may take the whole pane under the header. The floor left the stack 32 px at 140 px and
+   92 px at 200 px, under the card and its quiet row, so the stack ran past the pane's bottom edge and
+   the quiet row with it. The card's draft still gives up its height first and scrolls inside the card
+   (below), so the card and the quiet row stay in the pane. The rule takes no part at 260 px and up, where
+   the floor and the composer both fit (test/agent-pane-short-pane-composer.test.ts; gallery
+   `agent-pane.composer-stress` short-*). */
+@media (height < 260px) {
+  .acpmux-main[data-dock="float"] > .acpmux-dock,
+  .acpmux-main[data-dock="float"] > .acpmux-dock[data-foot] {
+    max-height: calc(100% - 44px);
+  }
+}
+/* Under 180 px the card and its quiet row take about all the room under the header: the queue, the
+   tray and a question give up their one-row floor too and scroll in what is left, so a running turn's
+   queued prompts never push the controls out of the pane (140 px with three queued prompts). */
+@media (height < 180px) {
+  .acpmux-main[data-dock="float"] > .acpmux-dock > :not(.acpmux-composer),
+  .acpmux-main[data-dock="float"] > .acpmux-dock > .acpmux-composer > .acpmux-composer-queue {
+    min-height: 0;
+  }
+}
+/* An open chat's stack in flow (`data-dock="flow"`: the inspector, a handoff review) keeps the same
+   floor over it, so a tall draft's composer keeps its height as the stage over it switches (Leo,
+   2026-11-24: "we need to have more things decoupled from posisble shifts";
+   test/agent-pane-composer-anchored-above.test.ts). The stage carries the dock's `data-foot`. */
+.acpmux-main[data-dock="flow"] > .acpmux-stage[data-foot] {
+  --acpmux-stage-floor-foot: calc(44px + max(64px, var(--acpmux-transcript-min, 96px) - 32px));
+  min-height: var(--acpmux-stage-floor-foot);
 }
 /* A part of the floating stack is a band the pane's width wide whose card or bar sits inset in it by
    the column's gutters (--cv-inset): the question card, the pull request dock, or an error card. The
@@ -53,6 +86,19 @@
    card, and only its list takes it (styles.css). */
 .acpmux-main[data-dock="float"] > .acpmux-dock > :not(.acpmux-composer),
 .acpmux-main[data-dock="float"] > .acpmux-dock > .acpmux-composer > :not(.acpmux-composer-list-layer) {
+  pointer-events: auto;
+}
+/* The asks stack keeps the rows behind it in sight but for what it draws (useBesideStack.ts; Leo,
+   2026-11-17: "this needs your input dismiss row erases things behind it"), so its room passes the
+   pointer to those rows too: a drag there selects their text (gutterSelect.ts), a click reaches
+   them. Only its label, Dismiss and cards take it. Only with See-Through Dock on
+   (`experiments.seeThroughDock`, `data-see-through`); off, the stack takes the pointer as before. */
+.acpmux-main[data-dock="float"] > .acpmux-dock[data-see-through] > .acpmux-asks-stack {
+  pointer-events: none;
+}
+.acpmux-main[data-dock="float"] > .acpmux-dock[data-see-through] > .acpmux-asks-stack > :not(.acpmux-pending-ask),
+.acpmux-main[data-dock="float"] > .acpmux-dock[data-see-through] > .acpmux-asks-stack > .acpmux-pending-ask > :not(.acpmux-pending-ask__head),
+.acpmux-main[data-dock="float"] > .acpmux-dock[data-see-through] > .acpmux-asks-stack :is(.acpmux-pending-ask__label, .acpmux-pending-ask__dismiss) {
   pointer-events: auto;
 }
 /* The tray of running subagents and background commands (subagents/SubagentTray.tsx), aligned
@@ -77,11 +123,31 @@
 .acpmux-dock {
   --acpmux-stack-gap: 0px;
   --acpmux-stack-radius: 10px;
+  /* A tray joined to the composer shares one quiet seam. Keep the stack's edge and depth
+     independent from the regular floating-card treatment so the join reads as one surface. */
+  --acpmux-stack-edge: color-mix(in srgb, var(--agent-text) 12%, var(--agent-page-bg, var(--acpmux-base)));
+  --acpmux-stack-shadow: 0 1px 2px color-mix(in srgb, black 4%, transparent);
   /* The composer's 8px narrow outset (composerLocation.css, under 298px of content width), for the
      other parts on the card's edges: the recap card (summary.css) and the host's line (styles.css)
      take --cv-inset and --cv-inset-end less this, as the running tray does above. The percentage
      resolves where it is used, against the part's own width. */
   --acpmux-stack-outset: clamp(0px, calc((297.5px - (100% - var(--cv-inset) - var(--cv-inset-end, var(--cv-inset)))) * 1000), 8px);
+}
+:root[data-composer-edge="before"] .acpmux-dock {
+  --acpmux-stack-edge: var(--acpmux-composer-edge);
+  --acpmux-stack-shadow: var(--elevation-1);
+}
+:root[data-composer-edge="minimal"] .acpmux-dock {
+  --acpmux-stack-edge: color-mix(in srgb, var(--agent-text) 8%, var(--agent-page-bg, var(--acpmux-base)));
+  --acpmux-stack-shadow: 0 1px 2px color-mix(in srgb, black 2%, transparent);
+}
+.acpmux-dock > .acpmux-running-tray[data-card]:has(+ .acpmux-composer),
+.acpmux-dock > .acpmux-running-tray[data-card] + .acpmux-composer {
+  --acpmux-composer-edge: var(--acpmux-stack-edge);
+}
+.acpmux-dock > .acpmux-running-tray[data-card] + .acpmux-composer
+  > .acpmux-composer-box {
+  --acpmux-composer-shadow: var(--acpmux-stack-shadow);
 }
 :root[data-bottom-stack="cards"] .acpmux-dock {
   --acpmux-stack-gap: var(--ds-space-1, 4px);
@@ -117,20 +183,25 @@
   border-radius: inherit;
 }
 /* The joined stack in the shared glass material (glass.css "GLASS MATERIAL"; Leo's image of
-   2026-11-05, the composer hat over the composer): one glass is lit once, from above. The tray's top
-   takes the card's light (its specular line, the soft band into the top corners and the sheen under
-   the top edge, at the card's glint, composerStates.css), and a card right under it gives up its own
-   top light, keeping the hairline where they meet and the return along its bottom. Before, the
-   card's bright top line ran across the middle of the stack under the hat, and the hat's top had
-   only the hairline. Over a see-through window the tray's frost is the card's vivid one. Reduce
-   Transparency, Lens and Spectrum over art, and the gallery's `cards` look keep what they drew.
-   test/composer-hat-material.test.ts measures it. */
+   2026-11-05, the composer hat over the composer): one glass is lit once, from above. The stack's top
+   part (the tray, or the Goal banner heading it, TaskGoalStrip.css) takes the card's light (the soft
+   band into the top corners and the sheen under the top edge, at the card's glint,
+   composerStates.css), and every part joined under it gives up its own top light, keeping the
+   hairline where they meet and, for the card, the return along its bottom. Before, the card's bright
+   top line ran across the middle of the stack under the hat (the seam under the Goal banner read 165
+   gray where the stack's edge read 103, user 2026-11-20), and the hat's top had only the hairline.
+   The light never draws a line on the edge: every edge, seams too, is --acpmux-composer-edge
+   (composerStates.css, test/composer-one-edge.test.ts). Over a see-through window the tray's frost
+   is the card's vivid one. Reduce Transparency, Lens and Spectrum over art, and the gallery's `cards`
+   look keep what they drew. test/composer-hat-material.test.ts measures it. */
 @media not (prefers-reduced-transparency: reduce) {
-  :root:not([data-reduce-transparency], [data-bottom-stack="cards"]):not(
+  :root:not([data-reduce-transparency], [data-glass="off"], [data-bottom-stack="cards"]):not(
       [data-cmux-see-through]:is([data-glass="lens"], [data-glass="spectrum"])
     )
     .acpmux-dock
-    > .acpmux-running-tray[data-card]:has(+ .acpmux-composer > .acpmux-composer-box.ui-glass-material) {
+    > .acpmux-running-tray[data-card]:not(.acpmux-goal[data-look="head"] + *):has(
+      + .acpmux-composer > .acpmux-composer-box.ui-glass-material
+    ) {
     --acpmux-tray-glint: var(--acpmux-composer-glint, 0.5);
     --acpmux-tray-specular: light-dark(
       color-mix(in srgb, var(--cmux-tone-light, #fff) calc(95% * var(--glass-rim)), transparent),
@@ -144,25 +215,22 @@
       inset 0 var(--cmux-hairline, 0.5px) 0 var(--acpmux-composer-edge, transparent),
       inset var(--cmux-hairline, 0.5px) 0 0 var(--acpmux-composer-edge, transparent),
       inset calc(-1 * var(--cmux-hairline, 0.5px)) 0 0 var(--acpmux-composer-edge, transparent),
-      inset 0 var(--cmux-hairline, 0.5px) 0 0 var(--acpmux-tray-specular),
       inset 1px 1.5px 1px -1px var(--acpmux-tray-specular),
       inset 0 16px 20px -16px var(--acpmux-tray-sheen);
   }
-  :root[data-cmux-see-through]:not([data-reduce-transparency], [data-bottom-stack="cards"], [data-glass="lens"], [data-glass="spectrum"])
+  :root[data-cmux-see-through]:not([data-reduce-transparency], [data-glass="off"], [data-bottom-stack="cards"], [data-glass="lens"], [data-glass="spectrum"])
     .acpmux-dock
     > .acpmux-running-tray[data-card]:has(+ .acpmux-composer > .acpmux-composer-box.ui-glass-material) {
     --acpmux-tray-frost: var(--glass-material-backdrop);
   }
-  :root:not([data-reduce-transparency], [data-bottom-stack="cards"]):not(
+  :root:not([data-reduce-transparency], [data-glass="off"], [data-bottom-stack="cards"]):not(
       [data-cmux-see-through]:is([data-glass="lens"], [data-glass="spectrum"])
     )
     .acpmux-dock
-    > .acpmux-running-tray[data-card]
+    > :is(.acpmux-running-tray[data-card], .acpmux-goal:is([data-look="head"], [data-look="foot"]))
     + .acpmux-composer
     > .acpmux-composer-box.ui-glass-material:not(.acpmux-composer-queue ~ *) {
-    --acpmux-composer-rim:
-      inset -1px -1px 1px -1px var(--glass-material-return),
-      inset 0 calc(-1 * var(--cmux-hairline, 0.5px)) 0 0 var(--glass-material-return);
+    --acpmux-composer-rim: inset -1px -1px 1px -1px var(--glass-material-return);
   }
 }
 .acpmux-dock > .acpmux-composer {
@@ -211,6 +279,72 @@
   /* The stack is a no-scroll zone (wheelPassThrough.ts): reaching a part's end scrolls nothing else. */
   overscroll-behavior: contain;
 }
+/* The folder trust question folding out once answered (App.tsx `trustFold`, conversation/fold.ts)
+   takes the stack's gap beside it inside the height its fold animates, and, when nothing else is left
+   in the stack (`data-leaving`), the stack's floor and foot too: the stack's top and the rows over it
+   travel the whole height on the fold's clock, and nothing is left to drop in one frame when it goes.
+   At rest the layout is the same. */
+.acpmux-asks-stack > .acpmux-trust-fold:not(:last-child) {
+  margin-bottom: -8px;
+}
+.acpmux-asks-stack > * + .acpmux-trust-fold:last-child {
+  margin-top: -8px;
+}
+.acpmux-asks-stack > .acpmux-trust-fold:not(:last-child)::after,
+.acpmux-asks-stack > * + .acpmux-trust-fold:last-child::before {
+  content: "";
+  display: block;
+  padding-top: var(--ds-space-2, 8px);
+}
+.acpmux-dock > .acpmux-asks-stack[data-leaving] {
+  min-height: 0;
+  padding-bottom: 0;
+}
+/* The stack's foot (styles.css `.acpmux-asks-stack` padding-bottom), carried inside the fold of the
+   trust question or a pinned question, whichever leaves last. */
+.acpmux-asks-stack[data-leaving] {
+  --acpmux-stack-foot: 10px;
+}
+.acpmux-asks-stack[data-leaving] > .acpmux-trust-fold:last-child::after {
+  content: "";
+  display: block;
+  padding-top: var(--acpmux-stack-foot);
+}
+/* A pinned question folding out (PendingAsks.tsx `PinnedAsk`, `data-leaving`) carries the same: the
+   stack's gap beside it, and the stack's foot when nothing else is left, inside the height its fold
+   animates. Its own column gap (PendingAsks.css) sits before the added room, so the room takes it back. */
+.acpmux-asks-stack > .acpmux-pending-ask[data-leaving]:not(:last-child) {
+  margin-bottom: -8px;
+}
+.acpmux-asks-stack > * + .acpmux-pending-ask[data-leaving]:last-child {
+  margin-top: -8px;
+}
+.acpmux-asks-stack > .acpmux-pending-ask[data-leaving]:not(:last-child)::after {
+  content: "";
+  display: block;
+  margin-top: calc(-1 * var(--ds-space-1, 4px));
+  padding-top: var(--ds-space-2, 8px);
+}
+.acpmux-asks-stack > * + .acpmux-pending-ask[data-leaving]:last-child::before {
+  content: "";
+  display: block;
+  order: -1;
+  margin-bottom: calc(-1 * var(--ds-space-1, 4px));
+  padding-top: var(--ds-space-2, 8px);
+}
+.acpmux-asks-stack[data-leaving] > .acpmux-pending-ask[data-leaving]:last-child::after {
+  content: "";
+  display: block;
+  margin-top: calc(-1 * var(--ds-space-1, 4px));
+  padding-top: var(--acpmux-stack-foot);
+}
+/* The gallery's wipe arm (`agent-pane.bottom-stack` trust-fold-wipe): the question holds still and the
+   fold cuts it from its top, where the shipped fold slides it down under what is below it. */
+[data-trust-fold="wipe"] .acpmux-trust-fold {
+  display: flex;
+  flex-direction: column;
+  justify-content: flex-end;
+}
 /* The tray never scrolls as a whole: its header stays pinned and only its list scrolls
    (subagents.css). As the stack's own scroller it scrolled its header out of view in a short pane.
    In a short pane its list gives up its height to nothing first; the header never does. Clip, not
@@ -230,7 +364,9 @@
 .acpmux-asks-stack > *,
 .acpmux-composer-queue > li {
   --ui-enter-y: var(--ui-enter-distance);
-  animation: ui-enter var(--ui-enter-duration) var(--ui-enter-ease) both;
+  /* Retaining an opacity animation makes a wrapper a backdrop root, so its nested glass cannot
+     sample the wallpaper. ui-enter has only a from frame; release it after the entrance. */
+  animation: ui-enter var(--ui-enter-duration) var(--ui-enter-ease) backwards;
 }
 /* A queued prompt only fades: the queue scrolls its focused row and Show less into whole-row view as
    rows mount (an opened long queue mounts them all at once), and a row still travelling measured as

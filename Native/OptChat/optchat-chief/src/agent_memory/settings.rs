@@ -1,16 +1,20 @@
 //! The `agents.memory.*` keys of the cmux settings file, read at each use so
 //! a change applies to the next call. The file and its JSONC dialect are
-//! acpmux's `user_settings.rs`: `CMUX_NEXT_CONFIG_FILE`, else
-//! `~/.config/cmux/cmux-next.json`, else `~/.config/cmux/cmux.json`. The
-//! CLI and every agent session read the same keys here, so they build the
+//! cmux-config's (`location`, `jsonc`): `CMUX_NEXT_CONFIG_FILE`, else
+//! `~/.config/cmux/cmux-next.json`. The CLI and every agent session read the same keys here, so they build the
 //! same index (a different source list would rebuild it on every switch).
 
+use std::ffi::OsString;
 use std::path::{Path, PathBuf};
+
+use cmux_config::{jsonc, location};
 
 use serde_json::Value;
 
-/// The settings file override the app and tests set.
-pub const CONFIG_OVERRIDE: &str = "CMUX_NEXT_CONFIG_FILE";
+/// The owner route a moved chat brought, set by acpmux on that chat's memory server only.
+pub const OWNER_ENV: &str = "CMUX_AGENT_MEMORY_OWNER";
+/// That route's `cmux remote rpc` options, a JSON array of strings.
+pub const OWNER_ARGS_ENV: &str = "CMUX_AGENT_MEMORY_OWNER_ARGS";
 
 /// What this machine's memory does.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
@@ -40,6 +44,26 @@ impl MemorySettings {
     /// (memory off, nothing extra), which never widen what runs.
     pub fn read(home: &Path) -> MemorySettings {
         Self::from_document(settings_file(home).as_ref(), home)
+            .with_followed_owner(crate::cli::env(OWNER_ENV), crate::cli::env(OWNER_ARGS_ENV))
+    }
+
+    /// The owner a moved chat's session brought (acpmux `memory_follow.rs`): a chat that moved
+    /// here from a machine with memory on keeps reaching the index it used there. This
+    /// machine's own `agents.memory.owner` wins; `args` is a JSON array of strings.
+    pub fn with_followed_owner(mut self, owner: Option<String>, args: Option<String>) -> Self {
+        let owner = owner.map(|o| o.trim().to_owned()).filter(|o| !o.is_empty());
+        if self.owner.is_none()
+            && let Some(owner) = owner
+        {
+            self.owner = Some(owner);
+            self.owner_args = args
+                .and_then(|a| serde_json::from_str::<Vec<String>>(&a).ok())
+                .unwrap_or_default()
+                .into_iter()
+                .filter(|a| !a.is_empty())
+                .collect();
+        }
+        self
     }
 
     pub fn from_document(doc: Option<&Value>, home: &Path) -> MemorySettings {
@@ -96,19 +120,23 @@ pub fn document_checked(home: &Path) -> Result<Option<Value>, String> {
         Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(None),
         Err(e) => Err(format!("{}: {e}", path.display())),
     };
-    let text = match crate::cli::env(CONFIG_OVERRIDE) {
-        Some(path) => read(&expand_tilde(&path, home))?,
-        None => match read(&home.join(".config/cmux/cmux-next.json"))? {
-            Some(text) => Some(text),
-            None => read(&home.join(".config/cmux/cmux.json"))?,
-        },
+    // The environment, with `home` as HOME, so tests name their own home.
+    let env = |name: &str| match name {
+        "HOME" => Some(OsString::from(home)),
+        _ => crate::cli::env(name).map(OsString::from),
     };
-    let Some(text) = text else {
+    let Some(text) = read(&location::config_path_from(env))? else {
         return Ok(None);
     };
-    serde_json::from_str(&strip_jsonc(&text))
-        .map(Some)
-        .map_err(|e| format!("the settings file does not parse: {e}"))
+    parse(&text).map(Some)
+}
+
+/// Settings text as JSON: cmux-config's JSONC reader (comments, trailing
+/// commas, a BOM), the dialect the app and the daemon read.
+pub fn parse(text: &str) -> Result<Value, String> {
+    let strict =
+        jsonc::strip(text).map_err(|e| format!("the settings file does not parse: {e}"))?;
+    serde_json::from_str(&strict).map_err(|e| format!("the settings file does not parse: {e}"))
 }
 
 /// The parsed settings file, or None when there is none or it does not parse.
@@ -123,77 +151,6 @@ pub fn value(doc: &Value, key: &str) -> Option<Value> {
         return Some(v.clone());
     }
     doc.pointer(&format!("/{}", key.replace('.', "/"))).cloned()
-}
-
-/// JSONC to JSON: `//` and `/* */` comments, then trailing commas, outside
-/// strings. A copy of acpmux's `strip_jsonc`, so this crate takes no new
-/// dependency for one settings read.
-pub fn strip_jsonc(text: &str) -> String {
-    let chars: Vec<char> = text.chars().collect();
-    let mut out = String::with_capacity(text.len());
-    let (mut i, mut in_string) = (0, false);
-    while i < chars.len() {
-        let c = chars[i];
-        if in_string {
-            out.push(c);
-            if c == '\\' && i + 1 < chars.len() {
-                out.push(chars[i + 1]);
-                i += 1;
-            } else if c == '"' {
-                in_string = false;
-            }
-        } else if c == '"' {
-            in_string = true;
-            out.push(c);
-        } else if c == '/' && chars.get(i + 1) == Some(&'/') {
-            while i < chars.len() && chars[i] != '\n' {
-                i += 1;
-            }
-            continue;
-        } else if c == '/' && chars.get(i + 1) == Some(&'*') {
-            i += 2;
-            while i < chars.len() && !(chars[i] == '*' && chars.get(i + 1) == Some(&'/')) {
-                i += 1;
-            }
-            i += 2;
-            continue;
-        } else {
-            out.push(c);
-        }
-        i += 1;
-    }
-    drop_trailing_commas(&out)
-}
-
-fn drop_trailing_commas(text: &str) -> String {
-    let chars: Vec<char> = text.chars().collect();
-    let mut out = String::with_capacity(text.len());
-    let mut in_string = false;
-    let mut i = 0;
-    while i < chars.len() {
-        let c = chars[i];
-        if in_string {
-            out.push(c);
-            if c == '\\' && i + 1 < chars.len() {
-                out.push(chars[i + 1]);
-                i += 1;
-            } else if c == '"' {
-                in_string = false;
-            }
-        } else if c == '"' {
-            in_string = true;
-            out.push(c);
-        } else if c == ',' {
-            let next = chars[i + 1..].iter().find(|c| !c.is_whitespace());
-            if !matches!(next, Some('}' | ']')) {
-                out.push(c);
-            }
-        } else {
-            out.push(c);
-        }
-        i += 1;
-    }
-    out
 }
 
 #[cfg(test)]
@@ -229,9 +186,30 @@ mod tests {
     }
 
     #[test]
+    fn a_followed_owner_applies_only_where_no_owner_is_set() {
+        let here = MemorySettings::from_document(None, Path::new("/h")).with_followed_owner(
+            Some(" ssh://studio ".into()),
+            Some(r#"["--no-install", ""]"#.into()),
+        );
+        assert_eq!(here.owner.as_deref(), Some("ssh://studio"));
+        assert_eq!(here.owner_args, ["--no-install"]);
+        let doc = json!({"agents": {"memory": {"owner": "ssh://mine"}}});
+        let mine = MemorySettings::from_document(Some(&doc), Path::new("/h"))
+            .with_followed_owner(Some("ssh://studio".into()), None);
+        assert_eq!(
+            mine.owner.as_deref(),
+            Some("ssh://mine"),
+            "this machine's own key wins"
+        );
+        let none = MemorySettings::from_document(None, Path::new("/h"))
+            .with_followed_owner(Some("  ".into()), None);
+        assert_eq!(none.owner, None);
+    }
+
+    #[test]
     fn jsonc_comments_and_trailing_commas() {
         let text = "{\n // a\n \"a\": \"x // not a comment\", /* b */\n \"b\": [1, 2,],\n}";
-        let v: Value = serde_json::from_str(&strip_jsonc(text)).unwrap();
+        let v = parse(text).unwrap();
         assert_eq!(v, json!({"a": "x // not a comment", "b": [1, 2]}));
     }
 }

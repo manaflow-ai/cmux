@@ -12,6 +12,7 @@ import { IncomingMessageLine } from "./IncomingMessageCard";
 import { pendingMessagesRow } from "./pendingMessages";
 import type { AcpmuxRow } from "../model";
 import { setDigestOpened, setMessageOpened } from "./incomingOpened";
+import { settleReact } from "../../../../test/support/domTeardown";
 
 let dom: JSDOM | undefined;
 let root: Root | undefined;
@@ -47,6 +48,7 @@ function installDom(): HTMLElement {
 afterEach(async () => {
   if (root) await act(async () => root!.unmount());
   root = undefined;
+  await settleReact();
   dom?.window.close();
   dom = undefined;
   for (const [key, value] of saved) {
@@ -366,4 +368,65 @@ test("the row estimator gives a preview-only thread its newest message's height,
     );
     setMessageOpened(undefined, short.id, false);
   }
+});
+
+// Leo, 2026-11-25, on rows reading "cmux-cp-1 [notice from now on cmux-cp-1 · Fl… >": "how can we
+// improve this?" A tool's notice (acpmux's `notice` part) is one line: its detector, its severity,
+// its title, its condition's repeats; the chevron opens the whole text.
+const RELAYED_NOTICE =
+  "[notice from now on cmux-cp-1 · FIRE] Runner label stalled: trusted xcode-26.6, 12 queued\nNo runner took a job.";
+const noticeThread = (look?: "off"): InboxNotice => ({
+  threads: [
+    {
+      threadId: "topic:runner",
+      label: '"runner"',
+      from: ["cmux-cp-1"],
+      count: 3,
+      preview: RELAYED_NOTICE.split("\n")[0]!,
+      blocker: false,
+      promptIds: ["n1", "n2", "n3"],
+      messages: [
+        { promptId: "n1", from: "cmux-cp-1", text: RELAYED_NOTICE },
+        { promptId: "n2", from: "cmux-cp-1", text: RELAYED_NOTICE },
+        { promptId: "n3", from: "cmux-cp-1", text: RELAYED_NOTICE },
+      ],
+      ...(look === undefined && {
+        notice: {
+          sender: "now",
+          severity: "fire" as const,
+          title: "Runner label stalled: trusted xcode-26.6, 12 queued",
+          host: "cmux-cp-1",
+          repeats: 3,
+          lastAt: Date.UTC(2026, 10, 25, 9, 40),
+        },
+      }),
+    },
+  ],
+});
+
+test("a tool's notice reads as one line: its detector, severity, title and repeats", async () => {
+  const container = await render(
+    <InboxNoticeCard rowId="row-notice" notice={noticeThread()} onOpen={() => undefined} />,
+  );
+  const line = container.querySelector(".cv-inbox__notice")!;
+  expect(line.getAttribute("data-notice-severity")).toBe("fire");
+  expect(line.querySelector(".cv-inbox__detector")?.textContent).toBe("now");
+  expect(line.querySelector(".cv-notice-mark")?.getAttribute("data-severity")).toBe("fire");
+  expect(line.querySelector(".cv-agentmsg__preview")?.textContent).toBe(
+    "Runner label stalled: trusted xcode-26.6, 12 queued",
+  );
+  expect(line.querySelector(".cv-inbox__repeats")?.textContent).toBe("×3, last 09:40Z");
+  // Neither the relay host as its name nor the raw head anywhere on the line; no card under it.
+  expect(line.textContent).not.toContain("[notice from");
+  expect(line.querySelector(".cv-received__text")).toBeNull();
+  await open(container);
+  expect(container.querySelector(".cv-received__text")?.textContent).toContain("No runner took a job.");
+});
+
+test("a thread with no notice part keeps the sender's line", async () => {
+  const container = await render(
+    <InboxNoticeCard rowId="row-plain" notice={noticeThread("off")} onOpen={() => undefined} />,
+  );
+  expect(container.querySelector(".cv-inbox__notice")).toBeNull();
+  expect(container.querySelector(".cv-inbox__detector")).toBeNull();
 });

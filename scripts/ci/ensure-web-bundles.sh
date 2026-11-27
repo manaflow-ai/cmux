@@ -22,12 +22,9 @@ if "$BUILD" --verify > /dev/null 2>&1; then
   exit 0
 fi
 
-bun_pin="$(python3 -c 'import json; m = (json.load(open("webviews/package.json")).get("devEngines") or {}).get("packageManager") or {}; print(m.get("version", ""))')"
+# The one shared reader of the pin; it says why when there is none.
+bun_pin="$(python3 -I scripts/webviews_bun_version.py webviews/package.json)" || exit 1
 tools="$CACHE/tools"
-if [ -z "$bun_pin" ]; then
-  echo "error: webviews/package.json pins no bun version" >&2
-  exit 1
-fi
 # CMUX_WEB_BUNDLES_NO_INSTALL=1 (nx-remote jobs, which never install a toolchain from
 # the internet): a missing pin is an error instead of a curl.
 no_install() {
@@ -54,7 +51,11 @@ if [ "$(bun --version 2>/dev/null || true)" != "$bun_pin" ]; then
   fi
 fi
 if ! node -e 'const [a, b] = process.versions.node.split(".").map(Number); process.exit(a > 22 || (a === 22 && b >= 18) ? 0 : 1)' 2>/dev/null; then
-  node_dir="$tools/node-v$NODE_PIN-darwin-$(uname -m | sed 's/x86_64/x64/')"
+  # nodejs.org's own names: darwin or linux, x64 or arm64. A Linux host (a fleet step routed to
+  # Linux, a GCP lane VM) got the darwin build, which cannot run there.
+  node_os="$(uname -s | tr '[:upper:]' '[:lower:]')"
+  node_arch="$(uname -m | sed -e 's/^x86_64$/x64/' -e 's/^aarch64$/arm64/')"
+  node_dir="$tools/node-v$NODE_PIN-$node_os-$node_arch"
   if [ ! -x "$node_dir/bin/node" ] && [ "${CMUX_WEB_BUNDLES_NO_INSTALL:-0}" = 1 ]; then
     no_install "node >= 22.18"
   fi

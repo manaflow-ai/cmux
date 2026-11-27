@@ -69,6 +69,7 @@ fn fold(rows: &[LayoutRow], trees: Vec<Node>) -> Node {
             ratio: before / (before + height),
             a: Box::new(root),
             b: Box::new(tree),
+            divider_hidden: false,
         };
         before += height;
     }

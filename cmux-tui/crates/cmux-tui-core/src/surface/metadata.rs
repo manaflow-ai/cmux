@@ -100,7 +100,7 @@ impl Surface {
     }
 
     pub fn process_id(&self) -> Option<u32> {
-        self.as_pty().and_then(|pty| pty.pid)
+        self.as_pty().and_then(|pty| pty.pid.process_id())
     }
 
     pub fn spawn_command(&self) -> Option<String> {

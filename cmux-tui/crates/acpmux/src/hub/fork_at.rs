@@ -78,9 +78,10 @@ pub(super) fn claude_transcript_through_checked(
         expected.is_none_or(|n| prompts == n && answered),
         "native history does not cover the complete recorded prefix"
     );
-    let mut copy = std::fs::OpenOptions::new()
+    let mut copy = crate::home_fs::OpenOptions::new()
         .write(true)
         .create_new(true)
+        .mode(0o600)
         .open(file.with_file_name(format!("{id}.jsonl")))?;
     for line in lines {
         writeln!(copy, "{line}")?;
@@ -98,7 +99,19 @@ const CUT_TOOL_RESULT: &str =
 /// id. A tool call stored with no result yet gets one in the copy only (an error
 /// result saying the fork cut it off, as Claude Code stores an interrupted tool):
 /// Claude's API refuses a conversation whose tool call has no result.
-pub(super) fn claude_transcript_now(store: &Path, parent: &str) -> anyhow::Result<String> {
+///
+/// `streamed` is the running turn's reply text as the chat streamed it, by API
+/// message id, in order (`Hub::streamed_reply`). Claude Code stores a message's
+/// text only once its block ends, so the text it was streaming when the fork cut
+/// it is in acpmux's log alone: the fork shows it, and without it the fork's agent
+/// remembered no such reply (Claude fills the gap with "No response requested.",
+/// cmux#50021). A message whose text the transcript lacks ends the copy as an
+/// assistant line, so the fork's agent knows what its chat shows it said.
+pub(super) fn claude_transcript_now(
+    store: &Path,
+    parent: &str,
+    streamed: &[(String, String)],
+) -> anyhow::Result<String> {
     let file = crate::adopt::is_bare_id(parent)
         .then(|| crate::adopt::find_claude(store, parent))
         .flatten()
@@ -108,9 +121,30 @@ pub(super) fn claude_transcript_now(store: &Path, parent: &str) -> anyhow::Resul
     let mut prompts = 0;
     let mut unresolved: Vec<String> = Vec::new();
     let mut last: Option<Value> = None;
+    // The last line in Claude's uuid chain, which a line added to the copy follows.
+    let mut last_uuid: Option<Value> = None;
+    // The API messages whose text the transcript holds, and the model the last one ran.
+    let mut stored_text = std::collections::HashSet::new();
+    let mut model: Option<Value> = None;
     for line in BufReader::new(std::fs::File::open(&file)?).lines() {
         let Ok(mut record) = serde_json::from_str::<Value>(&line?) else { continue };
         prompts += usize::from(is_prompt(&record));
+        if record.get("type").and_then(Value::as_str) == Some("assistant") {
+            if let Some(m) = record.pointer("/message/model").filter(|m| m.is_string()) {
+                model = Some(m.clone());
+            }
+            let has_text = record
+                .pointer("/message/content")
+                .and_then(Value::as_array)
+                .is_some_and(|blocks| {
+                    blocks.iter().any(|b| b.get("type").and_then(Value::as_str) == Some("text"))
+                });
+            if let Some(message) = record.pointer("/message/id").and_then(Value::as_str)
+                && has_text
+            {
+                stored_text.insert(message.to_owned());
+            }
+        }
         if let Some(Value::Array(blocks)) = record.pointer("/message/content") {
             for b in blocks {
                 let id = |key: &str| b.get(key).and_then(Value::as_str).map(str::to_owned);
@@ -128,9 +162,35 @@ pub(super) fn claude_transcript_now(store: &Path, parent: &str) -> anyhow::Resul
             record.set("sessionId", Value::String(id.clone()));
         }
         lines.push(serde_json::to_string(&record)?);
-        last = Some(record);
+        // Claude's bookkeeping lines (no uuid) carry no folder or version: an added line takes
+        // those from the last line in the chain, or the last line when none has a uuid.
+        if let Some(uuid) = record.get("uuid").filter(|u| u.is_string()) {
+            last_uuid = Some(uuid.clone());
+            last = Some(record);
+        } else if last_uuid.is_none() {
+            last = Some(record);
+        }
     }
     anyhow::ensure!(prompts > 0, "Claude has not stored this chat's conversation yet");
+    // A line the copy adds: it follows the transcript's last chained one, with its time, folder and
+    // version, and Claude's uuid chain (`parentUuid`) when the transcript keeps one.
+    let mut added = |mut line: Value| -> anyhow::Result<()> {
+        if let Some(last) = &last {
+            for key in ["timestamp", "cwd", "version", "gitBranch", "userType", "entrypoint"] {
+                if let Some(v) = last.get(key) {
+                    line.set(key, v.clone());
+                }
+            }
+        }
+        if let Some(parent_uuid) = &last_uuid {
+            let uuid = Value::String(uuid::Uuid::now_v7().to_string());
+            line.set("parentUuid", parent_uuid.clone());
+            line.set("uuid", uuid.clone());
+            last_uuid = Some(uuid);
+        }
+        lines.push(serde_json::to_string(&line)?);
+        Ok(())
+    };
     if !unresolved.is_empty() {
         let content: Vec<Value> = unresolved
             .iter()
@@ -138,29 +198,35 @@ pub(super) fn claude_transcript_now(store: &Path, parent: &str) -> anyhow::Resul
                 serde_json::json!({"type": "tool_result", "tool_use_id": u, "is_error": true, "content": CUT_TOOL_RESULT})
             })
             .collect();
-        let mut result = serde_json::json!({
+        added(serde_json::json!({
             "type": "user",
             "sessionId": id,
             "message": {"role": "user", "content": content},
-        });
-        // The line follows the transcript's last one: its time, folder and version, and
-        // Claude's uuid chain (`parentUuid`) when the transcript keeps one.
-        if let Some(last) = &last {
-            for key in ["timestamp", "cwd", "version", "gitBranch", "userType", "entrypoint"] {
-                if let Some(v) = last.get(key) {
-                    result[key] = v.clone();
-                }
-            }
-            if let Some(parent_uuid) = last.get("uuid") {
-                result.set("parentUuid", parent_uuid.clone());
-                result.set("uuid", Value::String(uuid::Uuid::now_v7().to_string()));
-            }
-        }
-        lines.push(serde_json::to_string(&result)?);
+        }))?;
     }
-    let mut copy = std::fs::OpenOptions::new()
+    for (message, text) in streamed {
+        if text.trim().is_empty() || stored_text.contains(message) {
+            continue;
+        }
+        let mut reply = serde_json::json!({
+            "id": message, "type": "message", "role": "assistant",
+            "content": [{"type": "text", "text": text}],
+            "stop_reason": null, "stop_sequence": null,
+        });
+        if let Some(model) = &model {
+            reply.set("model", model.clone());
+        }
+        added(serde_json::json!({
+            "type": "assistant",
+            "isSidechain": false,
+            "sessionId": id,
+            "message": reply,
+        }))?;
+    }
+    let mut copy = crate::home_fs::OpenOptions::new()
         .write(true)
         .create_new(true)
+        .mode(0o600)
         .open(file.with_file_name(format!("{id}.jsonl")))?;
     for line in lines {
         writeln!(copy, "{line}")?;
@@ -257,9 +323,10 @@ pub(super) fn codex_rollout_through_checked(
         expected.is_none_or(|n| turns == n && complete && user && answer),
         "native history does not cover the complete recorded prefix"
     );
-    let mut copy = std::fs::OpenOptions::new()
+    let mut copy = crate::home_fs::OpenOptions::new()
         .write(true)
         .create_new(true)
+        .mode(0o600)
         .open(file.with_file_name(copy_name))?;
     for line in lines {
         writeln!(copy, "{line}")?;
@@ -299,4 +366,88 @@ fn is_prompt(record: &Value) -> bool {
 fn written_ms(record: &Value) -> Option<u64> {
     let at = record.get("timestamp")?.as_str()?;
     cmux_chat_index::parse_rfc3339_ms(at).and_then(|ms| u64::try_from(ms).ok())
+}
+
+#[cfg(test)]
+mod streamed_reply_tests {
+    use super::*;
+    use serde_json::json;
+
+    /// A Claude store holding `records` as session `parent`'s transcript; returns its root.
+    fn store(parent: &str, records: &[Value]) -> std::path::PathBuf {
+        let root = std::env::temp_dir().join(format!("acpmux-fork-now-{}", uuid::Uuid::now_v7()));
+        let project = root.join("projects").join("p");
+        std::fs::create_dir_all(&project).unwrap();
+        let text: String = records.iter().map(|r| format!("{r}\n")).collect();
+        std::fs::write(project.join(format!("{parent}.jsonl")), text).unwrap();
+        root
+    }
+
+    fn copy(root: &Path, id: &str) -> Vec<Value> {
+        let file = root.join("projects").join("p").join(format!("{id}.jsonl"));
+        std::fs::read_to_string(file)
+            .unwrap()
+            .lines()
+            .map(|l| serde_json::from_str(l).unwrap())
+            .collect()
+    }
+
+    fn prompt() -> Value {
+        json!({"type": "user", "sessionId": "parent-1", "uuid": "u1", "timestamp": "2026-11-22T08:35:20.062Z",
+               "cwd": "/w", "message": {"role": "user", "content": [{"type": "text", "text": "count to 400"}]}})
+    }
+
+    /// The reply the chat was streaming, of which Claude Code stored only its thinking, ends
+    /// the copy as the agent's own text, chained after the transcript's last line (cmux#50021).
+    #[test]
+    fn a_reply_still_streaming_ends_the_copy_as_its_text() {
+        let thinking = json!({"type": "assistant", "sessionId": "parent-1", "uuid": "a1", "parentUuid": "u1",
+            "timestamp": "2026-11-22T08:35:22.000Z", "cwd": "/w",
+            "message": {"id": "msg_live", "role": "assistant", "model": "claude-haiku-5-5",
+                        "content": [{"type": "thinking", "thinking": "counting"}]}});
+        // A line with no uuid (Claude's bookkeeping) does not break the chain.
+        let bookkeeping = json!({"type": "queue-operation", "sessionId": "parent-1"});
+        let root = store("parent-1", &[prompt(), thinking, bookkeeping]);
+        let streamed = vec![
+            ("msg_live".to_owned(), "one, two, three".to_owned()),
+            ("msg_empty".to_owned(), " ".to_owned()),
+        ];
+        let id = claude_transcript_now(&root, "parent-1", &streamed).unwrap();
+        // The copy is the owner's only, whatever the umask (review F2 on #41462).
+        #[cfg(unix)]
+        {
+            let file = root.join("projects").join("p").join(format!("{id}.jsonl"));
+            let mode = std::os::unix::fs::PermissionsExt::mode(
+                &std::fs::metadata(&file).unwrap().permissions(),
+            );
+            assert_eq!(mode & 0o777, 0o600, "mode {mode:o}");
+        }
+        let lines = copy(&root, &id);
+        assert_eq!(lines.len(), 4, "{lines:#?}");
+        let last = &lines[3];
+        assert_eq!(last["type"], "assistant");
+        assert_eq!(last["sessionId"], json!(id));
+        assert_eq!(last["parentUuid"], "a1");
+        assert!(last["uuid"].is_string());
+        assert_eq!(last["message"]["id"], "msg_live");
+        assert_eq!(last["message"]["model"], "claude-haiku-5-5");
+        assert_eq!(
+            last["message"]["content"],
+            json!([{"type": "text", "text": "one, two, three"}])
+        );
+        assert_eq!(last["cwd"], "/w");
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    /// A message whose text the transcript holds already is not written again.
+    #[test]
+    fn a_stored_reply_is_not_repeated() {
+        let answer = json!({"type": "assistant", "sessionId": "parent-2", "uuid": "a1", "parentUuid": "u1",
+            "message": {"id": "msg_done", "role": "assistant", "content": [{"type": "text", "text": "one, two"}]}});
+        let root = store("parent-2", &[prompt(), answer]);
+        let streamed = vec![("msg_done".to_owned(), "one, two".to_owned())];
+        let id = claude_transcript_now(&root, "parent-2", &streamed).unwrap();
+        assert_eq!(copy(&root, &id).len(), 2);
+        let _ = std::fs::remove_dir_all(&root);
+    }
 }

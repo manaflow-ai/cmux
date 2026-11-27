@@ -17,6 +17,7 @@ import {
   setSessionInfoMore,
 } from "../src/agent-session/acpmux/session-info/sessionInfoState";
 import { chat } from "../src/gallery/fixtures/acpmux";
+import { settleReact } from "./support/domTeardown";
 
 let dom: JSDOM | undefined;
 let root: Root | undefined;
@@ -54,6 +55,7 @@ beforeEach(() => {
 afterEach(async () => {
   if (root) await act(async () => root!.unmount());
   root = undefined;
+  await settleReact();
   dom?.window.close();
   dom = undefined;
   for (const [key, value] of saved) {
@@ -107,7 +109,7 @@ test("connector rows use the Environment row icon slot", async () => {
   expect(connectorIcon?.getAttribute("height")).toBe(environmentIcon?.getAttribute("height"));
 });
 
-test("a failed server's Reconnect asks for that server, waits, and offers Try again after an error", async () => {
+test("a failed server's Reconnect asks for that server, waits, and stays Reconnect after an error", async () => {
   const container = installDom();
   const asked: string[] = [];
   let answer: { resolve: () => void; reject: () => void } | undefined;
@@ -128,7 +130,7 @@ test("a failed server's Reconnect asks for that server, waits, and offers Try ag
   expect(buttons[0]!.disabled).toBe(true);
 
   await act(async () => answer!.reject());
-  expect(buttons[0]!.textContent).toBe(translate("sessionInfo.connectors.retry"));
+  expect(buttons[0]!.textContent).toBe(translate("sessionInfo.connectors.reconnectAction"));
   expect(buttons[0]!.disabled).toBe(false);
   expect(buttons[0]!.dataset.state).toBe("failed");
 

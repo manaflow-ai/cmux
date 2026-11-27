@@ -9,6 +9,9 @@ snapshots again. Run on cmux-lawrence-2, never the laptop.
 Usage: sidebar-reorder-e2e.py --tag <tag> [--out DIR]
 """
 import argparse, glob, json, os, socket, subprocess, sys, tempfile, time
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from safe_log import safe_print  # noqa: E402  (a line in a cleanup path never skips the kill)
+from state_wait import wait_stable, wait_until  # noqa: E402
 
 parser = argparse.ArgumentParser()
 parser.add_argument("--tag", required=True)
@@ -88,6 +91,24 @@ def shot(name):
                       f"alpha={row.get('view_alpha')} in_list={row.get('in_list')} suppressed={row.get('suppressed')}", flush=True)
 
 
+def sidebar_state():
+    """The sidebar as the shots read it (rows' titles, frames and flags, the window's drag and paging): it stops
+    changing once the list settled."""
+    report = rpc("debug.sidebar_rows") or {}
+    windows = report.get("windows", []) if isinstance(report, dict) else []
+    return json.dumps([(w.get("selection"), w.get("dragging"), w.get("paging"),
+                        [(r.get("title"), r.get("window_frame"), r.get("view_alpha"), r.get("in_list"), r.get("suppressed"))
+                         for r in w.get("rows", [])]) for w in windows], sort_keys=True, default=str)
+
+
+def settle(what):
+    wait_stable(sidebar_state, f"the sidebar after {what}", timeout=15, interval=0.1, reads=5)
+
+
+def titles():
+    return {r.get("title") for w in (rpc("debug.sidebar_rows") or {}).get("windows", []) for r in w.get("rows", [])}
+
+
 FRAME = [0]
 
 
@@ -106,9 +127,9 @@ def record_spaces():
     delta = json.loads(made.splitlines()[-1]).get("value", {}).get("workspace_id") if made else None
     print("room:", cli("room", "create", "--name", "Work"), flush=True)
     print("pin:", cli("room", "Work", "pin", "--workspace", str(delta)), flush=True)
-    time.sleep(1)  # test harness: let the rooms settle
+    settle("the room and pin")
     print("space.next:", cli("action", "run", "space.next"), flush=True)
-    print("paging at slide:", [w.get("paging") for w in (rpc("debug.sidebar_rows") or {}).get("windows", [])], flush=True)
+    print("paging after space.next:", [w.get("paging") for w in (rpc("debug.sidebar_rows") or {}).get("windows", [])], flush=True)
     frames("next", 1.0)
     print("space.previous:", cli("action", "run", "space.previous"), flush=True)
     frames("previous", 1.0)
@@ -134,7 +155,7 @@ def launch():
     app = subprocess.Popen([BINARY], env=env, stdout=open(os.path.join(SCRATCH, "app.log"), "a"),
                            stderr=subprocess.STDOUT, stdin=subprocess.DEVNULL)
     wait("the tagged app comes up", lambda: os.path.exists(SOCKET) and (rpc("debug.surfaces") or {}).get("windows"), 90)
-    time.sleep(2)  # test harness: let the window settle
+    settle("launch")
     print(f"launched pid {app.pid}", flush=True)
     return app
 
@@ -143,22 +164,26 @@ app = launch()
 find_session()
 try:
     raw = cli("--json", "workspace", "list")
-    print("raw list:", raw[:800], flush=True)
+    safe_print("raw list:", raw[:800], flush=True)
     try:
         listed = json.loads(raw.splitlines()[-1]) if raw else {}
     except ValueError:
         listed = {}
     if not listed:
-        print("plain list:", cli("workspace", "list")[:800], flush=True)
-    print("workspaces before:", json.dumps(listed)[:600], flush=True)
+        safe_print("plain list:", cli("workspace", "list")[:800], flush=True)
+    safe_print("workspaces before:", json.dumps(listed)[:600], flush=True)
     # A clean list: close every workspace but Home (state survives runs on one tag).
     for item in listed if isinstance(listed, list) else []:
         if (item.get("extra") or {}).get("kind") != "home":
             cli("workspace", item["id"], "close")
-    time.sleep(1)  # test harness: let the closes land
+    closing = {item.get("title") or item.get("name") for item in (listed if isinstance(listed, list) else [])
+               if (item.get("extra") or {}).get("kind") != "home"} - {None}
+    wait_until(lambda: not (closing & titles()), f"the closed workspaces' rows to leave ({sorted(closing)})", timeout=15)
+    settle("the closes")
     for name in ("Alpha", "Beta", "Gamma"):
-        print(cli("workspace", "create", "--name", name), flush=True)
-    time.sleep(2)  # test harness: let the rows appear
+        safe_print(cli("workspace", "create", "--name", name), flush=True)
+    wait_until(lambda: {"Alpha", "Beta", "Gamma"} <= titles(), "the Alpha, Beta and Gamma rows", timeout=15)
+    settle("the creates")
     shot("r77-0-start")
     rows = {r["title"]: r["window_frame"] for w in (rpc("debug.sidebar_rows") or {}).get("windows", []) for r in w["rows"] if r.get("title")}
     gamma, alpha = rows["Gamma"], rows["Alpha"]
@@ -166,20 +191,20 @@ try:
     ty = alpha["y"] + alpha["height"] / 2 + 2.5  # just below Alpha's middle, as nxdog30 held it
     rpc("debug.mouse", {"x": gx, "y": gy, "action": "drag", "to_x": gx, "to_y": ty, "steps": 12, "release": False})
     for delay, name in ((0.05, "r77-1-held-50ms"), (0.45, "r77-2-held-500ms"), (1.5, "r77-3-held-2s")):
-        time.sleep(delay)  # test harness: snapshot points during the hold
+        time.sleep(delay)  # sleep-ok: the snapshot points during the held drag (50 ms, 500 ms, 2 s) are what is shown
         shot(name)
     rpc("debug.mouse", {"x": gx, "y": ty, "action": "up"})
-    time.sleep(1.5)  # test harness: let the drop land
+    settle("the drop")
     shot("r77-4-dropped")
-    print("daemon order after drop:", cli("workspace", "list"), flush=True)
-    print("personal placements after drop:", cli("workspace", "placement", "list"), flush=True)
+    safe_print("daemon order after drop:", cli("workspace", "list"), flush=True)
+    safe_print("personal placements after drop:", cli("workspace", "placement", "list"), flush=True)
     if opts.spaces:
         record_spaces()
     app.terminate()
     app.wait(timeout=30)
     app = launch()
     shot("r77-5-relaunched")
-    print("personal placements after relaunch:", cli("workspace", "placement", "list"), flush=True)
+    safe_print("personal placements after relaunch:", cli("workspace", "placement", "list"), flush=True)
 finally:
     if app and app.poll() is None:
         app.terminate()

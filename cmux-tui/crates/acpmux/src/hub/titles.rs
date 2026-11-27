@@ -11,6 +11,13 @@
 //! A chat started under a name (`--name`, a lane) is `LAUNCHED`: its name is
 //! a handle, not a title, so it is titled like any chat (Leo, 2026-10-30, on a
 //! sidebar of lane names: "eg a lot of these subtitles are bad").
+//!
+//! A fork opens under its parent's title with a fork mark (`INHERITED`, "Plan the picnic (fork)"),
+//! in its tab, the sidebar and `acpmux ls` at once, never untitled (#50024). Its first prompt may
+//! refine that title: the title command reads the parent's title with it (`FORK_ASKED`), so the
+//! fork is never named after its first prompt alone ("No codewords appear anywhere in this"), and
+//! no harness title made from that prompt replaces it (pi titled forks after acpmux's sender
+//! banner, #50098).
 
 use super::*;
 use cmux_json::JsonSet as _;
@@ -30,6 +37,44 @@ pub(super) const NAMED: &str = "named";
 /// Started under a name (`session/new` with `name`: `--name`, a lane): the name stays its
 /// handle, and its first prompt and then a generated title title it, as for an unnamed chat.
 pub(super) const LAUNCHED: &str = "launched";
+/// A fork's title, its parent's with [`FORK_MARK`] ([`fork_title`]), until its first prompt.
+pub(super) const INHERITED: &str = "inherited";
+/// A fork's first prompt came: the title command is asked to refine the inherited title from it.
+const FORK_PROMPT: &str = "forkPrompt";
+/// The refining request is out; the inherited title shows meanwhile, and stays when it fails.
+const FORK_ASKED: &str = "forkAsked";
+/// What a fork's title adds to its parent's: once, a fork of a fork is not "(fork) (fork)".
+pub(super) const FORK_MARK: &str = " (fork)";
+
+/// A fork's title and source as it is made: its parent's title with [`FORK_MARK`], or none when the
+/// parent has none yet (its first prompt then titles it, as for any chat). A probe's line ("Reply
+/// with only: OK", the parent's placeholder) is no title to inherit.
+pub(super) fn fork_title(parent: &SessionMeta) -> (Option<String>, Option<String>) {
+    inherited_title(parent.title.as_deref())
+}
+
+fn inherited_title(parent: Option<&str>) -> (Option<String>, Option<String>) {
+    let Some(title) = parent.map(str::trim).filter(|t| !t.is_empty()) else {
+        return (None, None);
+    };
+    if crate::probe_prompt::is_probe(title) {
+        return (None, None);
+    }
+    let base = title.strip_suffix(FORK_MARK).unwrap_or(title).trim_end();
+    (Some(format!("{base}{FORK_MARK}")), Some(INHERITED.to_owned()))
+}
+
+/// Whether a harness may title the chat now. A fork's inherited title, or one its first prompt is
+/// refining, is the chat's history's name: a harness title then comes from the fork's first
+/// prompt alone (#50098), so it does not replace it.
+pub(super) fn takes_harness_title(source: Option<&str>) -> bool {
+    !matches!(source, Some(INHERITED) | Some(FORK_PROMPT) | Some(FORK_ASKED))
+}
+
+/// A title request is out for the chat (a first prompt's, or a fork's refining one).
+fn asking(source: Option<&str>) -> bool {
+    matches!(source, Some(ASKED) | Some(FORK_ASKED))
+}
 
 /// The env that names a title command (one program), over `titles.command`.
 const COMMAND_ENV: &str = "ACPMUX_TITLE_COMMAND";
@@ -60,7 +105,16 @@ fn fallback_title_fields(
         *title = None;
     }
     let gist = prompt_gist(text);
-    if title.is_some() || gist.line.is_empty() {
+    if gist.line.is_empty() {
+        return;
+    }
+    // A fork's first prompt refines its inherited title, which shows until the answer comes.
+    if source.as_deref() == Some(INHERITED) {
+        *source = Some(FORK_PROMPT.to_owned());
+        *title_prompt = Some(short_text(gist.body.trim(), 2000));
+        return;
+    }
+    if title.is_some() {
         return;
     }
     *title = Some(short_text(gist.line, 80));
@@ -82,7 +136,15 @@ pub(super) fn title_renamed(m: &mut SessionMeta) {
 }
 
 fn renamed_source(source: &mut Option<String>) -> bool {
-    if !matches!(source.as_deref(), None | Some(PROMPT) | Some(ASKED) | Some(LAUNCHED)) {
+    if !matches!(
+        source.as_deref(),
+        None | Some(PROMPT)
+            | Some(ASKED)
+            | Some(LAUNCHED)
+            | Some(INHERITED)
+            | Some(FORK_PROMPT)
+            | Some(FORK_ASKED)
+    ) {
         return false;
     }
     *source = Some(NAMED.to_owned());
@@ -138,18 +200,72 @@ fn prompt_gist(text: &str) -> PromptGist<'_> {
     PromptGist { line, body }
 }
 
-/// `text` without the `<tag>…</tag>` blocks it opens with. A block that never
-/// closes leaves nothing: its first line is no title.
+/// `text` without the `<tag>…</tag>` blocks and standing-rules sections it opens
+/// with. A block that never closes leaves nothing: its first line is no title.
 fn strip_leading_blocks(text: &str) -> &str {
     let mut rest = text.trim_start();
-    while let Some(tag) = opening_tag(rest) {
-        let close = format!("</{tag}>");
-        match rest.find(&close) {
-            Some(at) => rest = rest[at + close.len()..].trim_start(),
-            None => return "",
+    loop {
+        if let Some(tag) = opening_tag(rest) {
+            let close = format!("</{tag}>");
+            match rest.split_once(close.as_str()) {
+                Some((_, after)) => rest = after.trim_start(),
+                None => return "",
+            }
+        } else if let Some(after) = skip_tagged_section(rest) {
+            rest = after.trim_start();
+        } else {
+            return rest;
         }
     }
-    rest
+}
+
+/// What follows a standing-rules section `text` opens with, if it opens with one: a
+/// Markdown heading tagged with a kebab-case `[slug]`, the way a fleet brief's
+/// boilerplate starts ("## Restrictions you will hit [session-restrictions]",
+/// 2026-11-20: dozens of chats were titled after it, not their task). The section's
+/// paragraph and list run to the first blank line that a list item or an indented line
+/// does not continue.
+fn skip_tagged_section(text: &str) -> Option<&str> {
+    let (first, _) = text.split_once('\n').unwrap_or((text, ""));
+    if !is_tagged_heading(first.trim()) {
+        return None;
+    }
+    let mut at = first.len() + 1;
+    let (mut seen_text, mut blank) = (false, false);
+    for line in text.get(at..).unwrap_or("").split_inclusive('\n') {
+        let t = line.trim();
+        if t.is_empty() {
+            blank |= seen_text;
+        } else if blank && !continues_section(line) {
+            return Some(text.get(at..).unwrap_or(""));
+        } else {
+            (seen_text, blank) = (true, false);
+        }
+        at += line.len();
+    }
+    Some("")
+}
+
+/// `## Title [kebab-slug]`: a heading whose last word is a bracketed slug with a dash.
+fn is_tagged_heading(line: &str) -> bool {
+    if !line.starts_with('#') {
+        return false;
+    }
+    let Some(slug) = line.strip_suffix(']').and_then(|l| l.rsplit_once('[')).map(|(_, s)| s) else {
+        return false;
+    };
+    slug.contains('-')
+        && !slug.starts_with('-')
+        && slug.chars().all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == '-')
+}
+
+/// A list item or an indented line carries a section on past a blank line.
+fn continues_section(line: &str) -> bool {
+    let t = line.trim_start();
+    line.starts_with([' ', '\t'])
+        || t.starts_with("- ")
+        || t.starts_with("* ")
+        || t.starts_with("+ ")
 }
 
 /// The name of the tag `text` opens with (`<chat>`, `<context kind="x">`), if
@@ -200,11 +316,19 @@ impl Hub {
     pub(super) fn watch_titles(self: &Arc<Self>) {
         let mut events = self.subscribe();
         let hub = Arc::downgrade(self);
-        tokio::spawn(async move {
+        self.scope.spawn_until_cancelled("title-events", async move {
             loop {
                 let ev = match events.recv().await {
                     Ok(ev) => ev,
-                    Err(broadcast::error::RecvError::Lagged(_)) => continue,
+                    // Turns may have ended unheard: every idle chat is asked again, which does
+                    // nothing for one that needs no title (rework stage 3, E4).
+                    Err(broadcast::error::RecvError::Lagged(n)) => {
+                        let Some(hub) = hub.upgrade() else { return };
+                        for session in hub.lagged_reader("title-events", n) {
+                            hub.title_after_turn(&session);
+                        }
+                        continue;
+                    }
                     Err(broadcast::error::RecvError::Closed) => return,
                 };
                 let rec = &ev.record;
@@ -227,20 +351,40 @@ impl Hub {
     pub(super) fn title_after_prompt(self: &Arc<Self>, session: &Arc<Session>) {
         let request = {
             let mut m = session.meta.lock().unwrap_or_else(|e| e.into_inner());
-            if m.title_source.as_deref() != Some(PROMPT) || m.title_asking {
+            // A throwaway session (a Chief compactor node, purged minutes after its one prompt)
+            // is no one's chat: a title for it is one haiku call per node, about 55 a minute on
+            // Leo's laptop (2026-11-15).
+            let fork = m.title_source.as_deref() == Some(FORK_PROMPT);
+            if m.throwaway || !(fork || m.title_source.as_deref() == Some(PROMPT)) || m.title_asking
+            {
                 return;
             }
-            // `title_prompt` is ephemeral. A daemon restart before the request was written can
-            // leave a persisted prompt placeholder with source `PROMPT`; recover from it.
-            let Some(prompt) =
-                m.title_prompt.take().or_else(|| m.title.clone()).or_else(|| m.last_prompt.clone())
-            else {
-                return;
-            };
-            m.title_thin = is_thin_prompt(&prompt);
-            m.title_source = Some(ASKED.to_owned());
-            m.title_asking = true;
-            request(&prompt, "", true)
+            if fork {
+                // After a restart the ephemeral prompt is gone: the fork's latest prompt stands in.
+                let Some(prompt) = m.title_prompt.take().or_else(|| m.last_prompt.clone()) else {
+                    return;
+                };
+                let Some(inherited) = m.title.clone() else { return };
+                m.title_thin = false;
+                m.title_source = Some(FORK_ASKED.to_owned());
+                m.title_asking = true;
+                fork_request(&inherited, &prompt)
+            } else {
+                // `title_prompt` is ephemeral. A daemon restart before the request was written can
+                // leave a persisted prompt placeholder with source `PROMPT`; recover from it.
+                let Some(prompt) = m
+                    .title_prompt
+                    .take()
+                    .or_else(|| m.title.clone())
+                    .or_else(|| m.last_prompt.clone())
+                else {
+                    return;
+                };
+                m.title_thin = is_thin_prompt(&prompt);
+                m.title_source = Some(ASKED.to_owned());
+                m.title_asking = true;
+                request(&prompt, "", true)
+            }
         };
         self.spawn_title_request(session.clone(), request);
     }
@@ -256,7 +400,8 @@ impl Hub {
                 && m.title_prompt.is_none()
                 && m.title_failures == 0
                 && !m.title_asking;
-            if m.title_source.as_deref() != Some(ASKED)
+            if m.throwaway
+                || m.title_source.as_deref() != Some(ASKED)
                 || (!thin_retry && !restarted_request)
                 || m.title_asking
                 || m.turn_count == 0
@@ -284,17 +429,17 @@ impl Hub {
                 let m = session.meta.lock().unwrap_or_else(|e| e.into_inner());
                 (m.title_source.clone(), m.harness.clone())
             };
-            if source.as_deref() != Some(ASKED) {
+            if !asking(source.as_deref()) {
                 return;
             }
-            let title = hub.generate_title(&session, &harness, &request).await;
-            hub.apply_generated_title(&session, title);
+            let (title, attempt) = hub.generate_title(&session, &harness, &request).await;
+            hub.apply_generated_title_with(&session, title, attempt);
         });
     }
 
     /// The command that titles a chat on `harness`, or None (none applies,
     /// or `titles.generate` is off).
-    async fn title_command(&self, harness: &str) -> Option<tokio::process::Command> {
+    pub(super) async fn title_command(&self, harness: &str) -> Option<tokio::process::Command> {
         // Never the shared temp dir or the daemon's folder: Claude Code runs
         // `rg --files --hidden` over its cwd at start, and one titler per
         // finished chat over all of `$TMPDIR` pegged the Mac's CPU.
@@ -317,7 +462,10 @@ impl Hub {
             return Some(cmd);
         }
         // The chat's own Claude Code: the sign-in and route its turn just used.
-        let profile = cfg.harnesses.get(harness)?;
+        // A copy: the lock is let go before the login shell's environment is awaited below (up
+        // to a few seconds cold), or a config writer queued behind it would stall every reader,
+        // `_acpmux/status` too (ask-64cfa32e34).
+        let profile = cfg.harnesses.get(harness)?.clone();
         if profile.kind != crate::config::HarnessKind::ClaudeStdio {
             return None;
         }
@@ -344,9 +492,10 @@ impl Hub {
             ]
             .map(str::to_owned),
         );
+        drop(cfg);
         match crate::agent::harness_command_ready(
             harness,
-            profile,
+            &profile,
             &cwd,
             Some((program, args)),
             None,
@@ -366,7 +515,7 @@ impl Hub {
         session: &Session,
         harness: &str,
         request: &str,
-    ) -> Option<String> {
+    ) -> (Option<String>, Attempt) {
         let (custom, model, enabled) = {
             let cfg = self.config.read().await;
             let custom = std::env::var(COMMAND_ENV)
@@ -377,17 +526,21 @@ impl Hub {
             (custom, cfg.titles.model.clone(), cfg.titles.generate != Some(false))
         };
         if !enabled {
-            return None;
+            return (None, Attempt::default());
         }
         if custom.is_some() {
-            let command = self.title_command(harness).await?;
-            if session.meta.lock().unwrap_or_else(|e| e.into_inner()).title_source.as_deref()
-                != Some(ASKED)
-            {
-                return None;
+            let Some(command) = self.title_command(harness).await else {
+                super::title_log::record(session, harness, None, "no_command", None, 0, 0);
+                return (None, Attempt::default());
+            };
+            if !asking(
+                session.meta.lock().unwrap_or_else(|e| e.into_inner()).title_source.as_deref(),
+            ) {
+                return (None, Attempt::default());
             }
             let started = std::time::Instant::now();
             let title = run(command, request).await;
+            let ms = u64::try_from(started.elapsed().as_millis()).unwrap_or(u64::MAX);
             tracing::info!(
                 event = "chat_title",
                 harness,
@@ -399,19 +552,21 @@ impl Hub {
                 estimated_output_tokens = title.as_deref().map_or(0, |t| t.len().div_ceil(4)),
                 "chat title completion"
             );
-            return title;
+            return (title, Attempt { model: "custom".to_owned(), ms });
         }
         let mut params = json!({"prompt": request, "harness": harness, "maxTokens": 16});
         if let Some(model) = model {
             params.set("model", json!(model));
         }
-        if session.meta.lock().unwrap_or_else(|e| e.into_inner()).title_source.as_deref()
-            != Some(ASKED)
-        {
-            return None;
+        if !asking(session.meta.lock().unwrap_or_else(|e| e.into_inner()).title_source.as_deref()) {
+            return (None, Attempt::default());
         }
         let started = std::time::Instant::now();
-        let result = self.complete(crate::server::Origin::Local, &params).await.ok()?;
+        let Ok(result) = self.complete(crate::server::Origin::Local, &params).await else {
+            let ms = u64::try_from(started.elapsed().as_millis()).unwrap_or(u64::MAX);
+            super::title_log::record(session, harness, None, "error", None, 0, ms);
+            return (None, Attempt::default());
+        };
         let title = result.get("text").and_then(Value::as_str).and_then(clean);
         tracing::info!(
             event = "chat_title",
@@ -424,10 +579,30 @@ impl Hub {
             estimated_output_tokens = title.as_deref().map_or(0, |t| t.len().div_ceil(4)),
             "chat title completion"
         );
-        title
+        let model =
+            result.get("model").and_then(serde_json::Value::as_str).unwrap_or("default").to_owned();
+        let ms = u64::try_from(started.elapsed().as_millis()).unwrap_or(u64::MAX);
+        (title, Attempt { model, ms })
     }
 
-    fn apply_generated_title(self: &Arc<Self>, session: &Arc<Session>, title: Option<String>) {
+    #[cfg(test)]
+    pub(super) fn apply_generated_title(
+        self: &Arc<Self>,
+        session: &Arc<Session>,
+        title: Option<String>,
+    ) {
+        self.apply_generated_title_with(session, title, Attempt::default());
+    }
+
+    fn apply_generated_title_with(
+        self: &Arc<Self>,
+        session: &Arc<Session>,
+        title: Option<String>,
+        attempt: Attempt,
+    ) {
+        let harness = session.read_meta(|m| m.harness.clone());
+        let words = title.as_deref().map_or(0, |t| t.split_whitespace().count());
+        let outcome = if title.is_some() { "generated" } else { "empty" };
         let (title, retry) = {
             let mut m = session.meta.lock().unwrap_or_else(|e| e.into_inner());
             m.title_asking = false;
@@ -444,16 +619,25 @@ impl Hub {
                     (None, m.title_thin && completed && m.title_failures == 1)
                 }
                 Some(title) => {
-                    // A harness title that came meanwhile wins.
-                    if m.title_source.as_deref() != Some(ASKED) {
+                    // A harness title or a rename that came meanwhile wins.
+                    if !asking(m.title_source.as_deref()) {
                         return;
                     }
+                    // A fork's answer that only repeats its parent's title keeps the fork mark.
+                    let title = match m.title.as_deref() {
+                        Some(inherited) if m.title_source.as_deref() == Some(FORK_ASKED) => {
+                            refined_title(inherited, title)
+                        }
+                        _ => title,
+                    };
                     m.title = Some(title.clone());
                     m.title_source = Some(GENERATED.to_owned());
                     (Some(title), false)
                 }
             }
         };
+        let model = Some(attempt.model.as_str()).filter(|m| !m.is_empty());
+        super::title_log::record(session, &harness, model, outcome, None, words, attempt.ms);
         if retry {
             self.title_after_turn(session);
             return;
@@ -462,6 +646,33 @@ impl Hub {
         self.append(session, "mux", "titled", json!({"title": title}));
         self.save_meta(session);
     }
+}
+
+/// The request that refines a fork's inherited title from its first prompt: the title command reads
+/// the chat's title with it, so a prompt about the chat's history ("list every codeword I gave
+/// you") names that history, not what the prompt says alone.
+fn fork_request(inherited: &str, prompt: &str) -> String {
+    let parent = inherited.strip_suffix(FORK_MARK).unwrap_or(inherited);
+    format!(
+        "{SYSTEM}\n\nThis chat is a fork of a chat titled \"{parent}\" and carries all of its \
+         history. Reply with that title, unchanged, if the person's first message in the fork goes \
+         on with the same work; else with a title for where the fork goes that keeps the chat's \
+         subject.\n\nThe person's first message in the fork:\n{prompt}\n"
+    )
+}
+
+/// A fork's refined title: the answer, or the inherited title (with its fork mark) when the answer
+/// is only the parent's title again.
+fn refined_title(inherited: &str, answer: String) -> String {
+    let parent = inherited.strip_suffix(FORK_MARK).unwrap_or(inherited);
+    if answer.trim().eq_ignore_ascii_case(parent.trim()) { inherited.to_owned() } else { answer }
+}
+
+/// What a title request ran on and how long it took, for `title_log`.
+#[derive(Default)]
+struct Attempt {
+    model: String,
+    ms: u64,
 }
 
 fn request(prompt: &str, reply: &str, first: bool) -> String {
@@ -474,7 +685,7 @@ fn request(prompt: &str, reply: &str, first: bool) -> String {
 }
 
 /// Run a title command with the request on stdin; its cleaned first line.
-async fn run(mut cmd: tokio::process::Command, request: &str) -> Option<String> {
+pub(super) async fn run(mut cmd: tokio::process::Command, request: &str) -> Option<String> {
     cmd.stdin(Stdio::piped()).stdout(Stdio::piped()).stderr(Stdio::null()).kill_on_drop(true);
     let mut child = cmd.spawn().map_err(|e| tracing::debug!("title command: {e}")).ok()?;
     let pid = child.id();
@@ -506,7 +717,7 @@ async fn run(mut cmd: tokio::process::Command, request: &str) -> Option<String> 
 
 /// The title in a model's answer: its first line without quotes, a
 /// `Title:` label or trailing punctuation, at most 6 words and 60 chars.
-fn clean(out: &str) -> Option<String> {
+pub(super) fn clean(out: &str) -> Option<String> {
     let line = out.lines().map(str::trim).find(|l| !l.is_empty())?;
     let line = line.strip_prefix("Title:").unwrap_or(line);
     let quotes: &[char] = &['"', '\'', '`', '*', '“', '”', '‘', '’'];
@@ -547,6 +758,74 @@ fn is_thin_prompt(prompt: &str) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_fork_opens_under_its_parents_title_with_one_fork_mark() {
+        // #50024: forks opened untitled (`title: null`) until their first prompt.
+        assert_eq!(
+            inherited_title(Some("Remember Codeword PELICAN-41")),
+            (Some("Remember Codeword PELICAN-41 (fork)".to_owned()), Some(INHERITED.to_owned()))
+        );
+        // A fork of a fork is not "(fork) (fork)".
+        assert_eq!(
+            inherited_title(Some("Remember Codeword PELICAN-41 (fork)")).0.as_deref(),
+            Some("Remember Codeword PELICAN-41 (fork)")
+        );
+        // An untitled parent, or one only a probe titled, gives the fork nothing to inherit.
+        for none in [None, Some(""), Some("  "), Some("Reply with only: OK")] {
+            assert_eq!(inherited_title(none), (None, None), "{none:?}");
+        }
+    }
+
+    #[test]
+    fn a_forks_first_prompt_refines_its_inherited_title_and_never_replaces_it_alone() {
+        let (mut title, mut source) = inherited_title(Some("Remember Codeword PELICAN-41"));
+        let mut prompt = None;
+        // A probe changes nothing.
+        fallback_title_fields(&mut title, &mut source, &mut prompt, "Reply with only: OK");
+        assert_eq!(source.as_deref(), Some(INHERITED));
+        let ask = "Without tools: list every codeword I gave you.";
+        fallback_title_fields(&mut title, &mut source, &mut prompt, ask);
+        // The inherited title still shows; the prompt only feeds the refining request.
+        assert_eq!(title.as_deref(), Some("Remember Codeword PELICAN-41 (fork)"));
+        assert_eq!(source.as_deref(), Some(FORK_PROMPT));
+        assert_eq!(prompt.as_deref(), Some(ask));
+        // The request reads the chat's title with the prompt, never the prompt alone.
+        let req = fork_request(title.as_deref().unwrap(), ask);
+        assert!(req.contains("a fork of a chat titled \"Remember Codeword PELICAN-41\""), "{req}");
+        assert!(req.contains(ask));
+        // A later prompt does not ask again.
+        fallback_title_fields(&mut title, &mut source, &mut prompt, "and another");
+        assert_eq!(prompt.as_deref(), Some(ask));
+    }
+
+    #[test]
+    fn a_forks_refined_title_keeps_the_mark_when_it_only_repeats_the_parent() {
+        let inherited = "Remember Codeword PELICAN-41 (fork)";
+        assert_eq!(refined_title(inherited, "remember codeword pelican-41".into()), inherited);
+        assert_eq!(
+            refined_title(inherited, "List Remembered Codewords".into()),
+            "List Remembered Codewords"
+        );
+    }
+
+    #[test]
+    fn a_forks_title_is_not_its_harnesss_until_it_settles() {
+        // #50098: a harness title from the fork's first prompt (acpmux's banner) does not win.
+        for held in [INHERITED, FORK_PROMPT, FORK_ASKED] {
+            assert!(!takes_harness_title(Some(held)), "{held}");
+        }
+        for open in [None, Some(PROMPT), Some(ASKED), Some(GENERATED), Some(NAMED), Some(HARNESS)] {
+            assert!(takes_harness_title(open), "{open:?}");
+        }
+        // A rename of a fork is final.
+        for unsettled in [INHERITED, FORK_PROMPT, FORK_ASKED] {
+            let mut source = Some(unsettled.to_owned());
+            assert!(renamed_source(&mut source));
+            assert_eq!(source.as_deref(), Some(NAMED));
+        }
+        assert!(asking(Some(FORK_ASKED)) && asking(Some(ASKED)) && !asking(Some(FORK_PROMPT)));
+    }
 
     #[test]
     fn only_thin_first_messages_are_eligible_for_a_refresh() {
@@ -703,5 +982,47 @@ mod tests {
     fn a_line_that_only_looks_like_a_tag_still_titles() {
         assert_eq!(prompt_gist("<3 this app, make it faster").line, "<3 this app, make it faster");
         assert_eq!(prompt_gist("a < b: why").line, "a < b: why");
+    }
+
+    /// The standing block a fleet brief opens with (leo-workspace `tools/session_restrictions.py`):
+    /// a heading tagged `[slug]`, a paragraph and a list, then a blank line and the task.
+    const RESTRICTIONS: &str = "## Restrictions you will hit [session-restrictions]\n\nAny of these ends a session mid-work: usage limits, a NIGHTLY install,\nhost drains and reboots.\n- Push a draft PR within 15 minutes of your first edit. Push again\n  at least every 30 minutes.\n- Post a one-line check-in every 30 minutes.\n";
+
+    #[test]
+    fn a_standing_rules_preamble_never_titles_a_chat() {
+        // 2026-11-20: dozens of sessions were titled "Session restrictions and stalled PR batch"
+        // or the preamble's heading itself, from the block every brief opens with.
+        let text = format!("{RESTRICTIONS}\nTask: rename live sessions after their task.\nMore.");
+        let gist = prompt_gist(&text);
+        assert_eq!(gist.line, "Task: rename live sessions after their task.");
+        assert!(
+            !gist.body.contains("Restrictions"),
+            "the title model never reads it: {}",
+            gist.body
+        );
+        assert!(gist.body.contains("More."));
+    }
+
+    #[test]
+    fn several_tagged_blocks_and_context_blocks_are_all_skipped() {
+        let text = format!(
+            "<chat>\nview\n</chat>\n{RESTRICTIONS}\n# Building what Leo asks [build-what-named]\n\n- Build exactly what he named.\n\nFix the sidebar spinner"
+        );
+        assert_eq!(prompt_gist(&text).line, "Fix the sidebar spinner");
+    }
+
+    #[test]
+    fn a_prompt_that_is_only_a_preamble_gives_no_title() {
+        assert_eq!(prompt_gist(RESTRICTIONS).line, "");
+    }
+
+    #[test]
+    fn an_untagged_heading_or_a_mere_mention_still_titles() {
+        assert_eq!(prompt_gist("## Fix the sidebar\n\nIt spins").line, "## Fix the sidebar");
+        assert_eq!(
+            prompt_gist("fix [session-restrictions] parsing").line,
+            "fix [session-restrictions] parsing"
+        );
+        assert_eq!(prompt_gist("## Ship it [wip]\n\nnow").line, "## Ship it [wip]");
     }
 }

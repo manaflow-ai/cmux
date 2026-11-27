@@ -1,7 +1,12 @@
 import CmuxNextActions
 import CmuxNextAgentPane
+import CmuxNextBridge
 import CmuxNextDaemon
-import CmuxNextWindowRules
+import CmuxNextHistory
+import CmuxNextTabs
+import CmuxNextTerminal
+public import CmuxNextWindowRules // the two faces conform to its ports (bottom of the file)
+import Foundation
 
 /// Open Terminal as Chat (`palette.openTerminalChatView`; the palette and `cmux agent
 /// open-terminal-as-chat`, so MCP's action run too): the Claude Code or Codex session the focused
@@ -9,31 +14,90 @@ import CmuxNextWindowRules
 /// beside the terminal, resuming the same session over ACP (acpmux adopt, as Open Chat and the
 /// classic import resume an outside chat). The terminal stays open: closing it would end the
 /// running agent. A tab that already resumes the session is shown instead of a second one.
+/// Toggle Terminal and Chat (`palette.toggleTerminalChat`) does that from the terminal (View Only:
+/// the terminal keeps running it), and from the chat shows the terminal running the session it
+/// resumes, else resumes the session in a new terminal in the chat's place: one action flips the two views.
 enum TerminalChatHandler {
     static func bind(into registry: ActionRegistry, context: AppActionContext) {
-        registry.bind("palette.openTerminalChatView", run: { try open($0, context: context) })
+        registry.bindEffect("palette.openTerminalChatView", requires: nil, effect: { try open($0, context: context) })
+        registry.bindEffect("palette.toggleTerminalChat", requires: nil, effect: { try toggle($0, context: context, watches: true) })
+        // Each row reads as the way it goes (user 2026-11-20, the switch back "inside the 3 dots thing"): Switch to
+        // Chat on a terminal, Switch to Terminal on a chat, in the pane's ⋮, the tab's right-click and the palette.
+        // The CLI and MCP keep the catalog's title and id.
+        ActionTargetTitles.set("palette.toggleTerminalChat", in: registry) { invocation in
+            targetTab(invocation, context: context).flatMap { switchTitle(of: $0, services: context.services) }
+        }
+        ActionTargetTitles.setPaletteTitle("palette.toggleTerminalChat", in: registry) {
+            targetTab(ActionInvocation(), context: context).flatMap { switchTitle(of: $0, services: context.services) }
+        }
     }
 
-    private static func open(_ invocation: ActionInvocation, context: AppActionContext) throws {
+    /// The row's title on `tab`, the way Toggle goes from it: a terminal running a Claude Code or Codex session
+    /// switches to its chat, a chat with such a session to its terminal; nil (the catalog's "Toggle Terminal and Chat")
+    /// for any other tab. Reads only the tab and its session: a palette title must not walk every machine's agents.
+    static func switchTitle(of tab: TabModel, services: AppServices) -> String? {
+        if tab.kind == .pty {
+            guard tab.agent?.harnessSessionID != nil, let agent = tab.agent?.agent, WindowRules().agentHarness(agent) != nil else { return nil }
+            return MiscHandlerStrings.terminalChatSwitchToChat
+        }
+        guard services.agentTabs.isAgentTab(tab.id), let session = chatSession(of: tab, services: services),
+              WindowRules().agentHarness(session.harness) != nil else { return nil }
+        return MiscHandlerStrings.terminalChatSwitchToTerminal
+    }
+
+    /// The tab `invocation` names (a menu row's), else the focused pane's selected tab (the palette's).
+    private static func targetTab(_ invocation: ActionInvocation, context: AppActionContext) -> TabModel? {
+        if let target = invocation.target, target.kind == .tab {
+            // A named machine never falls back to a same-id tab of another (a fork keeps its ids).
+            return context.targetTab(target.id, invocation)?.0
+        }
+        guard let (pane, id) = context.scope(invocation).tab else { return nil }
+        return pane.tab(id)
+    }
+
+    private static func open(_ invocation: ActionInvocation, context: AppActionContext) throws -> ActionEffect {
         guard let (pane, id) = context.scope(invocation).tab, let tab = pane.tab(id), tab.kind == .pty else {
             throw ActionFailure(message: MiscHandlerStrings.noTerminal)
         }
-        let services = context.services
-        // The route is Rust's (cmux-window-rules `tabs::terminal_chat`): the harness's own id is a hook
-        // report's `agent_session_id` (its `session` is a label).
-        switch WindowRules().terminalChat(agent: tab.agent?.agent, session: tab.agent?.harnessSessionID) {
-        case .noSession?, nil:
-            throw ActionFailure(message: MiscHandlerStrings.terminalChatNoSession)
-        case .unsupportedHarness?:
-            throw ActionFailure(message: MiscHandlerStrings.terminalChatHarness)
-        case .adopt(let harness, let session)?:
-            let adopt = AgentPaneAdopt(harness: harness, agentSessionId: session)
+        return try toggle(invocation, context: context)
+    }
+
+    private static func toggle(_ invocation: ActionInvocation, context: AppActionContext, watches: Bool = false) throws -> ActionEffect {
+        guard let (pane, id) = context.scope(invocation).tab, let tab = pane.tab(id) else {
+            throw ActionFailure(message: MiscHandlerStrings.terminalChatNotAgentTab)
+        }
+        let services = context.services, tabs = services.agentTabs, terminal = tab.kind == .pty
+        let read = facts(tab, services: services), key = read.key, terminals = read.terminals
+        // The route is Rust's (cmux-window-rules `tabs::terminal_chat_toggle`).
+        switch WindowRules().terminalChatToggle(read.facts) {
+        case .notAgentTab?, nil: throw ActionFailure(message: MiscHandlerStrings.terminalChatNotAgentTab)
+        case .noSession?: throw ActionFailure(message: terminal ? MiscHandlerStrings.terminalChatNoSession : MiscHandlerStrings.terminalChatNoTerminal)
+        case .unsupportedHarness?: throw ActionFailure(message: MiscHandlerStrings.terminalChatHarness)
+        case .noTerminal?: throw ActionFailure(message: MiscHandlerStrings.terminalChatNoTerminal, isQuiet: true) // no row offers it
+        // No longer answered (a chat mid-turn resumes in a terminal that waits for the turn); kept for decoding.
+        case .busy?: throw ActionFailure(message: MiscHandlerStrings.terminalChatBusy)
+        case .handingOff(let made)?:
+            // An earlier Toggle is resuming the session: its terminal shows, and nothing resumes it twice.
+            if let made, invocation.allowsViewChange { _ = services.revealTab(made) }
+            return .done
+        case .resumeInTerminal(let harness, let session)?:
+            return try resume(harness: harness, session: session, chat: (pane, id), tab: tab, services: services)
+        case .toTerminal?:
+            if let key { tabs.terminalHandOffs[key] = nil } // a terminal reports the session: any hand-off is over
+            // Showing it is a view change; a headless run leaves the user's focus alone.
+            guard invocation.allowsViewChange else { return .done }
+            // The terminal it places is the one it shows first: a live one (its view is built).
+            let live = terminals.filter { services.cache.existingTerminal($0) != nil }, order = live + terminals.filter { !live.contains($0) }
+            return try swap(placing(chat: tab.id, terminal: order.first, services), toTerminal: true) {
+                order.contains(where: { services.revealTab($0) })
+            }
+        case .toChat(let harness, let session)?:
+            tabs.terminalHandOffs["\(harness):\(session)"] = nil // the terminal reports the session
+            let adopt = AgentPaneAdopt(harness: harness, agentSessionId: session, watch: watches ? true : nil)
             // A tab that already resumes this session is shown instead of a duplicate.
-            if let existing = services.agentTabs.tab(resuming: adopt) {
-                // Showing it is a view change; a headless run leaves the user's focus alone.
-                guard invocation.allowsViewChange else { return }
-                _ = services.revealTab(existing)
-                return
+            if let existing = services.agentTabs.tab(resuming: adopt) ?? chat(running: session, services: services) {
+                guard invocation.allowsViewChange else { return .done }
+                return try swap(placing(chat: existing, terminal: tab.id, services), toTerminal: false) { _ = services.revealTab(existing); return true }
             }
             let seed = AgentPaneSeedSource(AgentPaneSeed(cwd: tab.cwd, adopt: adopt))
             let pending: AgentTabPending
@@ -42,19 +106,132 @@ enum TerminalChatHandler {
             } catch let refusal as AgentTabRefusal {
                 throw ActionFailure(message: refusal.message)
             }
+            // The new tab shows now; the registry reports a failed open.
             pane.selectWhenReported(surface: pending.surface)
-            let logger = pane.daemon.logger
-            context.registry.track(Task { @MainActor in
-                do {
-                    _ = try await pending.value()
-                    return nil
-                } catch is CancellationError {
-                    return nil // the person closed the tab first
-                } catch {
-                    logger.error("open-terminal-as-chat failed: \(String(describing: error), privacy: .public)")
-                    return ActionWorkFailure("open terminal as chat", error)
-                }
+            return .applied(result: {
+                do { _ = try await pending.value(); return .success([:]) } catch is CancellationError {
+                    return .success([:]) // the person closed the tab first
+                } catch { return .failure(ActionWorkFailure("open terminal as chat", error)) }
             })
         }
     }
+
+    /// Toggle Terminal and Chat's facts about `tab` for the Rust route (the action and its right-click row alike), with the
+    /// chat's adopted session (`key`, `harness:agentSessionId`) and the live terminals running it, best first.
+    /// `membership`: only the tab's kind and its session (hibernation's pairing, read on every switch): the running
+    /// terminals, the turn and the hand-off would walk every machine's agents there. The right-click row reads them all.
+    static func facts(_ tab: TabModel, services: AppServices, membership: Bool = false)
+        -> (facts: WindowRules.ToggleFacts, key: String?, terminals: [String]) {
+        let tabs = services.agentTabs, terminal = tab.kind == .pty
+        let adopted = terminal ? nil : chatSession(of: tab, services: services), key = adopted.map { "\($0.harness):\($0.agentSessionId)" }
+        var facts = WindowRules.ToggleFacts(terminal: terminal, chat: !terminal && tabs.isAgentTab(tab.id),
+                                            agent: terminal ? tab.agent?.agent : adopted?.harness,
+                                            session: terminal ? tab.agent?.harnessSessionID : adopted?.agentSessionId, // a terminal's: its agent's report
+                                            cannotStartTerminal: !terminal && (tabs.session(of: tab.id) == nil // a remote chat's run: not ours
+                                                || tabs.remoteMachineID(of: tab.id) != nil || QuitAgents.environment(services) == nil)) // searches paths: last
+        guard !membership, let adopted else { return (facts, key, []) }
+        let terminals = DeepLink.agentTabs(harness: adopted.harness, session: adopted.agentSessionId, adopted: nil,
+                                           harnessSessions: services.machines.daemons.flatMap(\.store.reachableAgentHarnessSessions).filter { $0.tab != tab.id })
+        let handOff = key.flatMap { tabs.terminalHandOffs[$0] }
+        facts.running = !terminals.isEmpty
+        facts.busy = tab.agentSession.map(turnOpen) ?? false
+        facts.handOff = handOff
+        facts.handOffOpen = handOff.flatMap { made in made.tab.flatMap { id in made.machine.flatMap { services.locateTab(id, onMachine: $0) } } } != nil // its own machine's
+        facts.now = Date().timeIntervalSince1970
+        return (facts, key, terminals)
+    }
+
+    /// Chat `tab`'s session: the outside one it adopted, else (started here) its acpmux run's conversation (its lane's `agentSessionId`), else the run.
+    static func chatSession(of tab: TabModel, services: AppServices) -> AgentPaneAdopt? {
+        services.agentTabs.adoption(of: tab.id) ?? tab.agentSession.flatMap { ref in ref.harness.flatMap { harness in
+            services.agentTabs.session(of: tab.id).map { AgentPaneAdopt(harness: harness, agentSessionId: services.agentLanes.lane($0)?.agentSession ?? $0) }
+        } }
+    }
+
+    /// Whether `tab` is half of a live terminal and chat pair, so its right-click offers the action (``PaneController/contextMenu(for:)``).
+    /// A chat no terminal runs is a GUI chat and offers none (Leo, 2026-11-17: "just... stop showing the toggle on gui");
+    /// the key and the palette still resume it in a terminal. One walk per right-click, as the key's own.
+    static func offersToggle(on tab: TabModel, services: AppServices) -> Bool {
+        offersToggle(WindowRules().terminalChatToggle(facts(tab, services: services).facts))
+    }
+
+    /// Whether the route's answer `route` shows the toggle, as cmux-window-rules `TerminalChatToggle::shows_toggle` answers it.
+    static func offersToggle(_ route: WindowRules.TerminalChatToggle?) -> Bool {
+        switch route {
+        case .notAgentTab?, .noSession?, .unsupportedHarness?, .noTerminal?, .resumeInTerminal?, .busy?, nil: false
+        case .toChat?, .toTerminal?, .handingOff?: true
+        }
+    }
+
+    /// The chat tab started in cmux whose acpmux run holds harness session `session` (its lane's `agentSessionId`):
+    /// such a chat adopted nothing, so ``AgentTabs/tab(resuming:)`` misses it, and a Toggle from the terminal its
+    /// hand-off made would open a second chat of the same session instead of showing it.
+    private static func chat(running session: String, services: AppServices) -> String? {
+        services.agentLanes.lanes.values.lazy.filter { $0.agentSession == session }
+            .compactMap { services.agentTabs.tab(showing: $0.id) }.first
+    }
+
+    /// A swap of a pair lands at the same turn in the other view (``TerminalChatPlacing``, Rust's
+    /// `tabs::place`): the face about to show moves first, then `reveal` shows it; at once when nothing moves.
+    private static func swap(_ placing: TerminalChatPlacing, toTerminal: Bool, reveal: @escaping @MainActor @Sendable () -> Bool) throws -> ActionEffect {
+        if placing.settled { if reveal() { return .done }; throw ActionFailure(message: MiscHandlerStrings.terminalChatNoTerminal) }
+        // action-wait-allow: the chat page (its own process) names its turn before either face shows, 60 ms at most in all
+        return .waiting(.externalProcess) {
+            if toTerminal { await placing.placeTerminal() } else { await placing.placeChat() }
+            return reveal() ? nil : "\(MiscHandlerStrings.terminalChatNoTerminal)"
+        }
+    }
+
+    private static func placing(chat: String?, terminal: String?, _ services: AppServices) -> TerminalChatPlacing {
+        TerminalChatPlacing(chat: chat.flatMap { services.agentTabs.existingView($0) }.map(AgentPaneTogglePlace.init),
+                            terminal: terminal.flatMap { services.cache.existingTerminal($0)?.session })
+    }
+
+    /// Whether chat `ref` has a turn open: working, or waiting on a permission or a question.
+    private static func turnOpen(_ ref: AgentSessionRef) -> Bool {
+        let store = AgentTurnStateStore.shared
+        return store.state(for: ref) == .needsInput || store.isWorking(ref, isChatMachine: { _ in false })
+    }
+
+    /// A chat no terminal runs, mid-turn or not: a new terminal beside it shows at once and runs
+    /// `acpmux resume-here <run>` (cmux-tui `acpmux/src/cli/resume_here.rs`). That command shows the
+    /// running turn, waits for it to end (never cut off), then acpmux turns this same chat into a View
+    /// Only watch of the conversation (`_acpmux/release_to_watch`) and the terminal runs the harness's
+    /// resume command. The chat tab stays where it is, with its history and scroll: no tab is replaced
+    /// and nothing reloads (Leo, 2026-11-12: two live views of one session, instant both ways, mid-turn).
+    private static func resume(harness: String, session: String, chat: (pane: PaneController, id: StripTabID), tab: TabModel,
+                               services: AppServices) throws -> ActionEffect {
+        let tabs = services.agentTabs, key = "\(harness):\(session)"
+        guard let acpmux = QuitAgents.environment(services), let run = tabs.session(of: tab.id) else {
+            throw ActionFailure(message: MiscHandlerStrings.terminalChatStopFailed)
+        }
+        let cwd = tabs.existingView(tab.id)?.model.transport.sessions.folder(of: run) ?? tab.cwd
+        let target = chat.pane
+        // Until the terminal's hooks report the session, a second Toggle shows it instead of resuming again.
+        tabs.terminalHandOffs[key] = WindowRules.HandOff(deadline: Date().timeIntervalSince1970 + 60)
+        let work = services.registry.capturingWork {
+            // A `then` replaces Home's dock placement, so it places the tab too.
+            target.newTerminalTab(cwd: cwd, typing: resumeHere(acpmux, run: run) + "\r",
+                                  placementOwner: HomeDockOpens.opensBeside(target.pane, services: services),
+                                  then: HomeDockOpens.placing(target.pane, services: services, focus: true, then: { surface in
+                if let made = target.daemon.store.tab(surface: surface) { tabs.terminalHandOffs[key]?.tab = made.id; tabs.terminalHandOffs[key]?.machine = target.daemon.machineID }
+            }))
+        }
+        if work.isEmpty { tabs.terminalHandOffs[key] = nil; throw ActionFailure(message: MiscHandlerStrings.terminalChatNoPane) }
+        return .applied(result: {
+            for task in work { if let failure = await task.value { tabs.terminalHandOffs[key] = nil; return .failure(failure) } }
+            return .success([:])
+        })
+    }
+
+    /// The line the hand-off's terminal runs: this app's acpmux, on this app's daemon, resuming chat `run` here.
+    static func resumeHere(_ acpmux: AcpmuxEnvironment, run: String) -> String {
+        let quote = AgentResume.shellQuoted
+        let env = ["ACPMUX_HOME": acpmux.home.path, "ACPMUX_SOCKET": acpmux.socketPath].map { "\($0.key)=\(quote($0.value))" }.sorted()
+        return (env + [quote(acpmux.executable.path), "resume-here", quote(run)]).joined(separator: " ")
+    }
 }
+
+/// The two faces of a pair, as a swap reads and moves them (``TerminalChatPlacing``).
+extension TerminalSession: TogglePlaceTerminal {}
+extension AgentPaneTogglePlace: TogglePlaceChat {}

@@ -1,12 +1,14 @@
 // The create sheet: name, memory (the plan's `memory_options_mb`; sizes in
 // `locked_memory_options_mb` show disabled with the reason), source (base image or one of the team's
-// snapshots, sent as `from_snapshot`; a snapshot list that failed says so with Retry, which keeps
-// the draft) and the plan's active machine limit as the backend reports it.
+// snapshots, sent as `from_snapshot`; a snapshot list that failed is read again on its own, keeping
+// the draft, and says so in one quiet line only once that lasts) and the plan's active machine limit
+// as the backend reports it.
 // The page never computes a limit: a refusal (`plan_required`, `quota_exceeded`, `size_locked`)
 // shows as a sentence with "See plans". Create is a money op, so the host confirms it natively. The
 // draft holds one idempotency key, so a double submit or a retry creates one machine. Plain Return
 // submits and Escape closes; chords are ignored.
 import type { KeyboardEvent } from "react";
+import { useAutoRetry } from "../../agent-session/acpmux/autoRetry";
 import type { Strings } from "../shared/i18n";
 import { formatMegabytes, memoryChoices, plain } from "./model";
 import { PlanNotice } from "./Notices";
@@ -14,6 +16,12 @@ import type { CloudState, CloudStore, CreateDraft } from "./store";
 import { errorText, format, L } from "./strings";
 import { DialogButton } from "../../ui/DialogButton";
 import { Sheet } from "../../ui/Sheet";
+
+const OFFER_LABEL = {
+  delete: L.capDeleteAndCreate,
+  archive: L.capArchiveAndCreate,
+  pause: L.capPauseAndCreate,
+} as const;
 
 const focusOnMount = (node: HTMLInputElement | null) => node?.focus();
 
@@ -30,9 +38,11 @@ export function CreateSheet({
 }) {
   const { t, language } = strings;
   const plan = state.plan;
+  // A failed snapshot list is a read: asked again on its own, nothing to press.
+  const snapshotsRetry = useAutoRetry(draft.snapshotsFailed, () => store.retrySnapshots());
   const choices = memoryChoices(plan);
   // A size is required; without a plan there is no size to offer.
-  const canSubmit = !draft.submitting && draft.memoryMb !== undefined;
+  const canSubmit = !draft.submitting && !draft.waitingFor && draft.memoryMb !== undefined;
   const reached = !!plan && plan.usage.active >= plan.limits.max_active;
   // Each field takes plain Escape (close) and, for inputs, plain Return (create).
   const onKeyDown = (event: KeyboardEvent<HTMLInputElement | HTMLSelectElement>) => {
@@ -108,18 +118,8 @@ export function CreateSheet({
           ))}
         </select>
       </label>
-      {draft.snapshotsFailed && (
-        <p className="cloud-muted cloud-create-snapshots-failed" role="alert">
-          {t(L.createSnapshotsFailed)}{" "}
-          <button
-            type="button"
-            className="cloud-link-button"
-            disabled={draft.submitting}
-            onClick={() => store.retrySnapshots()}
-          >
-            {t(L.retry)}
-          </button>
-        </p>
+      {draft.snapshotsFailed && snapshotsRetry.stillTrying && (
+        <p className="cloud-muted cloud-create-snapshots-failed">{t(L.createSnapshotsStillTrying)}</p>
       )}
       {plan && (
         <p className={`cloud-plan-limit${reached ? " reached" : ""}`}>
@@ -131,6 +131,29 @@ export function CreateSheet({
         </p>
       )}
       {draft.refusal && <PlanNotice refusal={draft.refusal} strings={strings} />}
+      {draft.offer && !draft.waitingFor && (
+        // At a machines cap: free the machine the platform names (or the oldest paused one), then create.
+        // At the running-machines limit with nothing idle: pause the running one used longest ago.
+        <p className="cloud-create-offer">
+          <DialogButton
+            dialogKey={null}
+            className="cloud-button cloud-create-make-room"
+            disabled={draft.submitting}
+            onClick={() => void store.makeRoom()}
+          >
+            {format(t(OFFER_LABEL[draft.offer.kind]), {
+              name: draft.offer.name,
+            })}
+          </DialogButton>
+        </p>
+      )}
+      {draft.waitingFor && (
+        <output className="cloud-muted cloud-create-waiting">
+          {format(t(L.capWaiting), {
+            name: state.machines.find((machine) => machine.id === draft.waitingFor)?.name ?? draft.waitingFor,
+          })}
+        </output>
+      )}
       {draft.blocked === "no_snapshot_configured" && (
         <p className="cloud-sheet-error cloud-create-blocked" role="alert">
           {t(L.noSnapshotConfigured)}

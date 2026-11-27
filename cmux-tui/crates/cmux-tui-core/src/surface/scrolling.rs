@@ -109,15 +109,15 @@ impl Surface {
             } else {
                 broadcast_render_scroll_locked(pty, after);
                 let generation = pty.render_generation.fetch_add(1, Ordering::AcqRel) + 1;
-                let _ = pty.build_frame_locked(&mut term, generation, false);
+                let _ = pty.build_frame_locked(&mut term, generation, true);
                 Some(after)
             };
             (term.scrollbar(), changed)
         };
-        if let Some((offset, at_bottom)) = changed
+        if changed.is_some()
             && let Some(mux) = pty.mux.upgrade()
         {
-            pty.frame_requests.publish_scroll_now(&mux, pty.event_surface_id, offset, at_bottom);
+            pty.frame_requests.flush_scroll(&mux, pty.event_surface_id);
         }
         Ok(Some((scrollbar, changed.is_some())))
     }
@@ -136,14 +136,14 @@ impl Surface {
             } else {
                 broadcast_render_scroll_locked(pty, after);
                 let generation = pty.render_generation.fetch_add(1, Ordering::AcqRel) + 1;
-                let _ = pty.build_frame_locked(&mut term, generation, false);
+                let _ = pty.build_frame_locked(&mut term, generation, true);
                 Some(after)
             }
         };
-        if let Some((offset, at_bottom)) = changed
+        if changed.is_some()
             && let Some(mux) = pty.mux.upgrade()
         {
-            pty.frame_requests.publish_scroll_now(&mux, pty.event_surface_id, offset, at_bottom);
+            pty.frame_requests.flush_scroll(&mux, pty.event_surface_id);
         }
         Ok(())
     }
@@ -151,6 +151,9 @@ impl Surface {
 
 pub(super) fn broadcast_render_scroll_locked(pty: &PtySurface, position: (u64, bool)) {
     let (offset, at_bottom) = position;
+    // Both streams record the same transition under the terminal lock.
+    // Bus publication waits until no terminal or geometry lock is held.
+    pty.frame_requests.defer_scroll(offset, at_bottom);
     let mut render = pty.render.lock().unwrap();
     render.taps.retain(|tap| tap.send(RenderAttachFrame::ScrollChanged { offset, at_bottom }));
 }

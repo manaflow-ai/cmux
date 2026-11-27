@@ -1,5 +1,19 @@
 import Foundation
 
+/// What became of a creation's stand-in tab that its pane no longer lists, by the store's record of the creation.
+public enum StandInFate: Equatable, Sendable {
+    /// The daemon's tab that the creation made, by its id: the creation's reply or its echo named it for the
+    /// creation's transaction, and the pane's records hold it.
+    case became(String)
+    /// Not answered and not closed by the person: its tab can still arrive.
+    case underway
+    /// Closed by the person, refused or failed, or its tab left the pane: no tab of the pane takes its place.
+    case ended
+
+    /// The tab that the stand-in became, if it became one.
+    public var tab: String? { if case .became(let tab) = self { tab } else { nil } }
+}
+
 /// The store's pending creations as a close sees them (``CancelledCreation``): a close of a
 /// provisional tab or pane cancels its creation, the creator asks whether it was cancelled, and
 /// a split's reply names the daemon's surface for that close.
@@ -61,6 +75,20 @@ import Foundation
     public func replacement(ofStandIn id: String, in pane: PaneModel) -> TabModel? {
         guard ProvisionalTab.isProvisional(id), let surface = store.intentLog.replacement(ofStandIn: id) else { return nil }
         return pane.tabs.first { $0.surface == surface }
+    }
+
+    /// The stand-in tab id that daemon tab `surface` took the place of (a reply or echo named it), nil for any
+    /// other surface: the daemon's tab takes over what the app made for its stand-in (a split's page) instead of
+    /// making it again.
+    public func standIn(replacedBy surface: SurfaceID) -> String? { store.intentLog.standIn(replacedBy: surface) }
+
+    /// What became of stand-in tab `id`, which `pane` no longer lists (``StandInFate``): the tab of `pane` that the daemon named
+    /// for its creation and the person did not close (``became(standIn:tab:in:)``), else whether its creation is still under way.
+    /// A stand-in that the person closed, one whose creation was refused or failed (its intent left the log with no tab), and
+    /// one whose tab is in no record of `pane` (closed, hidden, or moved away) ended.
+    public func fate(ofStandIn id: String, in pane: PaneModel) -> StandInFate {
+        if let tab = replacement(ofStandIn: id, in: pane), became(standIn: id, tab: tab.id, in: pane) { return .became(tab.id) }
+        return isUnderway(standIn: id) ? .underway : .ended
     }
 
     /// Whether stand-in tab `id` stands for a creation still under way: neither closed by the person (cancelled) nor answered

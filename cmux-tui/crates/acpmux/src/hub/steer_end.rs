@@ -144,6 +144,11 @@ pub(super) async fn agent_prompt_hook<F: FnOnce()>(
                     return Err(super::turns::stopped_before_prompt());
                 }
                 *unwritten = None;
+                drop(unwritten);
+                // The person's steer that queued while this turn was starting goes in now
+                // (`queue.rs` `QueuedPrompt::steer_on_start`): it waits for the handoff this
+                // prompt holds, so it reaches the agent after it.
+                session.queue_moved.notify_waiters();
             }
         }
         delivery_started.store(true, std::sync::atomic::Ordering::SeqCst);
@@ -239,7 +244,15 @@ impl Hub {
             .agent_session_id
             .ok_or_else(|| RpcError::internal("no agent session"))?;
         let text = prompt_text(&blocks);
-        let msg = json!({"text": text, "steer": true, "client": client, "promptId": prompt_id, "turnId": turn_id});
+        // With what a run of it checks again, as a turn's prompt records it (`turns.rs`): a restart
+        // that finds it unread runs it next under the same rules (`unread_steer.rs`).
+        let mut msg = json!({"text": text, "steer": true, "client": client, "promptId": prompt_id, "turnId": turn_id,
+                             "control": control.as_str(), "cloudMobile": opts.cloud_mobile, "trustGate": trust_gate});
+        // Into this turn or nowhere: a restart that finds it unread does not run it next
+        // (`unread_steer.rs`).
+        if opts.steer_only {
+            crate::no_panic::JsonExt::set(&mut msg, "steerOnly", json!(true));
+        }
         let msg = crate::prompt_provenance::marked(msg, opts.provenance.as_ref());
         self.append_prompt(session, msg, &blocks, opts.display_parts.as_ref());
         let mut accepted = json!({"sessionId": session.id, "promptId": prompt_id, "turnId": turn_id, "queued": false, "state": "steered", "steer": true});
@@ -303,6 +316,7 @@ impl Hub {
                     trigger: crate::prompt_provenance::is_trigger(opts.provenance.as_ref()),
                     asked: opts.provenance.clone(),
                 },
+                device: opts.full_access_device.clone().filter(|_| control == Control::Web),
             };
             now.sent.insert(prompt_id.clone(), sent);
             now.step.remove(&prompt_id) || opts.steer_now
@@ -326,6 +340,20 @@ impl Hub {
             && !super::digest::inbox_digest::is_digest(opts.provenance.as_ref())
         {
             params["_meta"]["batch"] = json!({"from": from});
+        } else if !step_now
+            && super::inbox::persons_prompt(opts.agent.as_deref(), opts.provenance.as_ref())
+            && !crate::prompt_provenance::is_trigger(opts.provenance.as_ref())
+            && !super::subsession_guard::is_family_prompt(opts.provenance.as_ref())
+            && super::forum::slash_command(&blocks).is_none()
+            && !crate::prompt_uploads::any(&blocks)
+        {
+            // The person's plain steer goes in with their others waiting for this step, as one
+            // message, so one message sent in pieces reads and carries as one (`steer_batch.rs`).
+            // Keyed by its author: two people of a shared chat never share a line.
+            let author = crate::author::of_provenance(opts.provenance.as_ref()).unwrap_or("");
+            if let Some(meta) = params.get_mut("_meta").and_then(Value::as_object_mut) {
+                meta.insert("batch".to_owned(), json!({"person": author}));
+            }
         }
         // Counted in the turn before the agent can read it (`lane_reports.rs`).
         let count = self.lane_steer_in(session, opts.provenance.as_ref());
@@ -343,10 +371,13 @@ impl Hub {
         let agent_steer = !opts.send_now
             && super::digest::agent_sender(opts.provenance.as_ref(), opts.agent.as_deref())
                 .is_some();
-        // A digest its drain asked to steer is not held behind a waiting prompt (`turns.rs`).
+        // A digest its drain asked to steer still goes into the person's own turn (`turns.rs`
+        // `persons_held`), but never ahead of the person's waiting prompt.
         let digest = super::digest::inbox_digest::is_digest(opts.provenance.as_ref());
-        // A sub-session family message still goes into the person's own turn (`turns.rs`).
-        let family = super::subsession_guard::is_family_prompt(opts.provenance.as_ref());
+        // A sub-session family message, and a report of the chat's own lane, still go into the
+        // person's own turn (`turns.rs`).
+        let family = super::subsession_guard::is_family_prompt(opts.provenance.as_ref())
+            || self.own_lane_report(session, opts.provenance.as_ref());
         // Set when the person's waiting prompt is what held it, so a steer-only one says so.
         let prompt_held = std::sync::atomic::AtomicBool::new(false);
         // Another agent's message (an inbox notice too) never goes into a turn a Stop is ending:
@@ -366,7 +397,7 @@ impl Hub {
                 super::inbox::notice_held(session)
             } else if agent_steer && super::inbox::review_box(session) {
                 true
-            } else if agent_steer && !digest && super::inbox::persons_prompt_waits(session) {
+            } else if agent_steer && super::inbox::persons_prompt_waits(session) {
                 prompt_held.store(true, std::sync::atomic::Ordering::SeqCst);
                 true
             } else if agent_steer && !digest && !family && super::inbox::persons_turn(session) {
@@ -395,6 +426,11 @@ impl Hub {
                 self.question_reply_in_turn(session, &prompt_id, turn_id);
                 if inbox_notice {
                     self.inbox_prompt_written(session, &prompt_id);
+                }
+                // A blocker that sits unread behind a step that never ends stops the step
+                // (`urgent_steer.rs`).
+                if inbox_notice && super::urgent_steer::carries_blocker(opts.provenance.as_ref()) {
+                    self.watch_urgent_steer(session, &prompt_id, turn_id);
                 }
             },
         );
@@ -488,10 +524,13 @@ impl Hub {
         let mut r = match answer {
             Err(e) if e.message.starts_with(crate::claude_stdio::STEER_NO_TURN) => {
                 let Some(blocks) = fallback else {
-                    // Logged above, it never went: the log says so (a notice whose turn ended, a
-                    // steer-only one the person's prompt queued ahead of meanwhile).
+                    // Logged above, it never went: the log says so (the turn cap's notice or an
+                    // inbox notice whose turn ended or that a waiting prompt held, a steer-only
+                    // one the person's prompt queued ahead of meanwhile). An inbox notice's
+                    // messages go in with the next notice (`inbox.rs` `notice_done`): unmarked,
+                    // the chat showed them twice, and the log said they went in twice.
                     let waits = prompt_held.load(std::sync::atomic::Ordering::SeqCst);
-                    if bound || waits {
+                    if bound || waits || inbox_notice {
                         let msg = json!({"promptId": prompt_id, "turnId": turn_id});
                         self.append(session, "mux", "steer_withdrawn", msg);
                     }

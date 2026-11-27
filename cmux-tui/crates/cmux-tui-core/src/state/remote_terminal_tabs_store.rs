@@ -129,14 +129,19 @@ pub struct RemoteTerminalUpdate {
     pub snapshot: Option<Option<String>>,
 }
 
-/// What an update changed: the presented record (title or session name)
-/// and, separately, the snapshot.
+/// What an update changed: the stored record (title or session name), what
+/// a tab shows of it, and, separately, the snapshot.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub struct RemoteTerminalChange {
+    /// The stored record changed. A spinner frame changes it: the raw title
+    /// is stored.
     pub presentation: bool,
-    /// The tab's display title changed (a session name change under an
-    /// explicit title does not change it).
+    /// What the tab shows of its display title ([`crate::TabTitle::terminal`])
+    /// changed. A spinner frame of one text does not change it, and neither
+    /// does a session name change under an explicit title.
     pub title: bool,
+    /// Something a tab shows changed: `title` or the session name.
+    pub tab: bool,
     pub snapshot: bool,
 }
 
@@ -235,9 +240,12 @@ pub(crate) fn update_remote_terminal(
     }
     record.validate()?;
     let snapshot = update.snapshot.clone().unwrap_or_else(|| snapshot_before.clone());
+    let title = crate::TabTitle::terminal(&record.display_title())
+        != crate::TabTitle::terminal(&before.display_title());
     let change = RemoteTerminalChange {
         presentation: record != before,
-        title: record.display_title() != before.display_title(),
+        title,
+        tab: title || record.session_name != before.session_name,
         snapshot: snapshot != snapshot_before,
     };
     if change.presentation {

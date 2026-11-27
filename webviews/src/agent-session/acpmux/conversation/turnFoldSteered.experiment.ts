@@ -6,11 +6,26 @@ import { defineExperiment } from "../../../experiments/experiment";
 /// folds for one turn (Leo, 2026-11-07: "there's two competing sort of folds in here", "this could have
 /// been, like, tucked inside the worked for", "when you open the worked for, that, like, finished two,
 /// whatever, that's already automatically expanded"). Compare in `agent-pane.one-fold-per-turn`.
+/// The default, `in-order`, folds each stretch where it ran: the turn's Worked for ends at a message
+/// that came in mid-turn (the person's steer, another agent's message) and the work after it folds
+/// under its own line below it. The other arms drew one Worked for at the turn's top, which pulled the
+/// work after the message up above it (Leo, 2026-11-11: "it sort of, like, steals commands that came
+/// in, perhaps, like, in between something, and it just shunts them to the top, like it rewrites the
+/// transcript in a way").
+/// Two more arms for Leo's steered-turn pick (hq#18554 section 4, 2026-11-22: "these cases are maybe
+/// taste calls, but potentially we can just stick the steered together. not sure tho."), compared in
+/// `agent-pane.steered-turn-layouts`: `stacked` draws the person's steers right under the prompt, then
+/// one Worked for over the whole turn; `inline` folds the whole turn, each steer inside it where it
+/// arrived.
 export const turnFoldSteered = defineExperiment({
   id: "turn-fold-steered",
   title: "One fold for a steered turn",
-  description: "Where a steered turn's run lines go: inside its Worked for, or beside it as before.",
+  description: "Where a steered turn's work folds: in order around the steer, inside one Worked for, or beside it.",
   arms: {
+    "in-order": {
+      label: "In order",
+      description: "A message that came in mid-turn ends the Worked for above it; the work after it folds below it.",
+    },
     "nested-open": {
       label: "Nested, open",
       description: "Every run line sits inside Worked for and is already open when Worked for opens.",
@@ -23,10 +38,18 @@ export const turnFoldSteered = defineExperiment({
       label: "On the header",
       description: "Worked for's line names the work it holds; its run lines open with it.",
     },
+    stacked: {
+      label: "Steers stacked",
+      description: "The person's steers stack under the prompt, live and finished; one Worked for holds the rest.",
+    },
+    inline: {
+      label: "Steer inside the fold",
+      description: "One Worked for holds the whole turn; each steer sits inside it where it arrived.",
+    },
     split: {
       label: "Beside the fold",
       description: "Before: the run lines around the steer's reply draw beside the closed Worked for.",
     },
   },
-  defaultArm: "nested-open",
+  defaultArm: "in-order",
 });

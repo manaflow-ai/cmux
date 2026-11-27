@@ -5,7 +5,7 @@
 //! is `cmux-tui acp <word>`: cmux-tui runs acpmux only when argv0 is `acpmux`
 //! or the first argument is `acp` (`cmux-tui/src/main.rs`). On Linux
 //! `current_exe` resolves an `acpmux` link to `cmux-tui`, so a process that
-//! starts itself again must put the prefix ([`crate::daemon::daemon_prefix`],
+//! starts itself again must put the prefix ([`crate::daemon_parts::daemon_prefix`],
 //! set once by the entry point) before the word. Every place that starts this
 //! binary with an acpmux subcommand goes through [`SelfCommand`].
 //!
@@ -30,7 +30,7 @@ impl SelfCommand {
     /// replaced the file: a config or argv written for another process names
     /// the installed path, and [`Self::command`] still starts this build.
     pub fn current() -> std::io::Result<Self> {
-        Ok(Self::new(undeleted(std::env::current_exe()?), crate::daemon::daemon_prefix()))
+        Ok(Self::new(undeleted(std::env::current_exe()?), crate::daemon_parts::daemon_prefix()))
     }
 
     pub fn new(exe: PathBuf, prefix: Vec<OsString>) -> Self {
@@ -69,6 +69,18 @@ impl SelfCommand {
         command
     }
 
+    /// [`Self::command`] as an owned [`cmux_process::Command`]: its child's process group ends
+    /// when the child is dropped.
+    pub fn process_command<S: AsRef<OsStr>>(&self, words: &[S]) -> cmux_process::Command {
+        let program = self.program();
+        let mut command = cmux_process::Command::new(&program);
+        if program != self.exe {
+            command.arg0(&self.exe);
+        }
+        command.args(self.args(words));
+        command
+    }
+
     /// [`Self::command`] for tokio.
     pub fn tokio_command<S: AsRef<OsStr>>(&self, words: &[S]) -> tokio::process::Command {
         tokio::process::Command::from(self.command(words))
@@ -101,55 +113,5 @@ pub fn undeleted(path: PathBuf) -> PathBuf {
 pub(crate) use tests::both as test_commands;
 
 #[cfg(test)]
-mod tests {
-    use super::SelfCommand;
-    use std::ffi::OsString;
-    use std::path::PathBuf;
-
-    /// The two ways this binary runs: standalone and inside cmux-tui.
-    pub(crate) fn both() -> [SelfCommand; 2] {
-        [
-            SelfCommand::new(PathBuf::from("/opt/cmux/bin/acpmux"), Vec::new()),
-            SelfCommand::new(PathBuf::from("/opt/cmux/bin/cmux-tui"), vec![OsString::from("acp")]),
-        ]
-    }
-
-    #[test]
-    fn subcommands_follow_the_prefix() {
-        let [standalone, tui] = both();
-        assert_eq!(standalone.args(&["daemon", "run"]), ["daemon", "run"]);
-        assert_eq!(tui.args(&["daemon", "run"]), ["acp", "daemon", "run"]);
-        assert_eq!(tui.args_lossy::<&str>(&[]), ["acp"]);
-        let command = tui.command(&["router", "serve"]);
-        assert_eq!(command.get_program(), "/opt/cmux/bin/cmux-tui");
-        let args: Vec<_> = command.get_args().collect();
-        assert_eq!(args, ["acp", "router", "serve"]);
-        let command = tui.tokio_command(&["subsession-mcp"]);
-        let args: Vec<_> = command.as_std().get_args().collect();
-        assert_eq!(args, ["acp", "subsession-mcp"]);
-    }
-
-    /// This process's own binary runs from the open inode on Linux, with
-    /// argv0 the path; another binary runs as given.
-    #[test]
-    fn its_own_binary_runs_from_the_open_inode_on_linux() {
-        let this = SelfCommand::current().expect("this binary");
-        let exe = std::env::current_exe().expect("current exe");
-        assert_eq!(this.exe, exe);
-        let command = this.command(&["daemon", "run"]);
-        if cfg!(target_os = "linux") {
-            assert_eq!(command.get_program(), "/proc/self/exe");
-        } else {
-            assert_eq!(command.get_program(), exe);
-        }
-        let [standalone, _] = both();
-        assert_eq!(standalone.program(), PathBuf::from("/opt/cmux/bin/acpmux"));
-    }
-
-    #[test]
-    fn a_replaced_file_reads_as_its_path() {
-        let path = "/home/cmux/.cmux/bin/cmux-tui";
-        assert_eq!(super::undeleted(format!("{path} (deleted)").into()), PathBuf::from(path));
-        assert_eq!(super::undeleted(path.into()), PathBuf::from(path));
-    }
-}
+#[path = "self_command_tests.rs"]
+mod tests;

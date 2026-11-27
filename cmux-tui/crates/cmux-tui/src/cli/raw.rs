@@ -74,10 +74,7 @@ pub(super) fn run(global: GlobalArgs, plan: RawCommandPlan) -> i32 {
     };
     let stream = match cmux_tui_core::server::connect_session_socket(&socket, socket_is_derived) {
         Ok(stream) => stream,
-        Err(error) => {
-            eprintln!("{}", super::wire::connect_failure(&socket, &error));
-            return 3;
-        }
+        Err(error) => return super::wire::report_connect_failure(&socket, &error, global.output),
     };
     let _ = stream.set_read_timeout(if plan.stream { None } else { Some(Duration::from_secs(10)) });
     #[cfg(unix)]
@@ -232,28 +229,5 @@ fn read_line_limited(
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn raw_plan_keeps_the_exact_private_object() {
-        let request = json!({"id": 7, "cmd": "private-operation", "opaque": {"x": true}});
-        let plan = RawCommandPlan { request: request.clone(), stream: false };
-        assert_eq!(plan.request, request);
-    }
-
-    #[test]
-    fn explicit_session_precedes_ambient_socket_fallbacks() {
-        let global = GlobalArgs { session: Some("session-alpha".into()), ..GlobalArgs::default() };
-        let socket = super::super::wire::resolve_socket_with_env(&global, |_| {
-            Some("/tmp/stale.sock".into())
-        })
-        .expect("session socket path should resolve");
-
-        assert_eq!(
-            socket.0,
-            cmux_tui_core::server::try_default_socket_path("session-alpha")
-                .expect("session socket path should resolve")
-        );
-    }
-}
+#[path = "raw_tests.rs"]
+mod tests;

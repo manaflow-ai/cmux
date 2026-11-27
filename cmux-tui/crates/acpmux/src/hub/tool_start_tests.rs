@@ -14,7 +14,10 @@ fn event(dir: &str, kind: &str, update: Value) -> HubEvent {
         }),
         remote: None,
         update_line: Default::default(),
+        event_params: Default::default(),
         row: Default::default(),
+        list_seq: 0,
+        peer_batch: false,
     }
 }
 
@@ -50,6 +53,6 @@ fn a_running_call_an_update_or_a_peers_record_is_no_start() {
     assert!(tool_start(&event("mux", "tool_call", pending.clone())).is_none());
     assert!(tool_start(&event("in", "tool_call", json!({"status": "pending"}))).is_none(), "no id");
     let mut remote = event("in", "tool_call", pending);
-    remote.remote = Some(RemoteRef { peer: "p".into(), summary: json!({}) });
+    remote.remote = Some(RemoteRef { peer: "p".into(), summary: json!({}).into() });
     assert!(tool_start(&remote).is_none());
 }

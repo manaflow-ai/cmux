@@ -14,6 +14,7 @@ import { nextStepAsk } from "./nextStepAsk";
 import { answerThrough } from "./turnActions";
 import { NEXT_STEP, turnViewFrom, waitingAsks } from "./turns";
 import { askKey, bottomAsks, claimAnswer, dismissAsk, dismissedAsks, resetAnswerClaims } from "./waitingAskStore";
+import { settleReact } from "../../../../test/support/domTeardown";
 
 let dom: JSDOM | undefined;
 let root: Root | undefined;
@@ -49,6 +50,7 @@ beforeEach(() => {
 afterEach(async () => {
   if (root) await act(async () => root!.unmount());
   root = undefined;
+  await settleReact();
   dom?.window.close();
   dom = undefined;
   for (const [key, value] of saved) {
@@ -69,7 +71,7 @@ const inbound = (id: string, text: string) =>
     incoming: { kind: "message", message: { name: "peer-lane", text, raw: text } },
   } as Partial<AcpmuxRow>);
 
-test("F1: an answer clicked on the older of two pinned questions settles the older one", () => {
+test("F1: an answer clicked on the older of two questions settles the older one", () => {
   const rows = [
     line("p1", "user", { text: "Why does it stop on lock?" }),
     line("a1", "assistant", { text: "[taste] Should agents keep working while the Mac is locked?" }),
@@ -82,10 +84,12 @@ test("F1: an answer clicked on the older of two pinned questions settles the old
     line("s3", "turnSummary", { status: "completed" }),
   ];
   const before = turnViewFrom(rows, new Set());
-  const [older, newer] = waitingAsks(before);
+  // Only the newest question pins (turns.ts `waitingAsks`, https://github.com/manaflow-ai/cmux/issues/52766); the older stays answerable
+  // in the transcript.
+  const [older] = before.rows.filter((row) => row.kind === NEXT_STEP);
   expect(older?.nextStep?.ask.question).toBe("Should agents keep working while the Mac is locked?");
-  expect(newer?.nextStep?.ask.question).toBe("Should I post the gallery?");
-  // The person clicks Yes on the older card; its prompt comes after both cards.
+  expect(waitingAsks(before).map((card) => card.nextStep?.ask.question)).toEqual(["Should I post the gallery?"]);
+  // The person clicks Yes on the older card in the transcript; its prompt comes after both cards.
   claimAnswer(askKey(older!), "Yes", at);
   const answered = [...rows, line("p2", "user", { text: "Yes" })];
   const view = turnViewFrom(answered, new Set(), {}, before);
@@ -107,7 +111,7 @@ test("F1: an answer clicked on the older of two pinned questions settles the old
   ]);
 });
 
-test("F1: a typed answer after the newer card answers it, and the older stays pinned and answerable", () => {
+test("F1: a typed answer after the newer card answers it; the older stays answerable, unpinned", () => {
   const rows = [
     line("p1", "user", { text: "Why does it stop on lock?" }),
     line("a1", "assistant", { text: "[taste] Should agents keep working while the Mac is locked?" }),
@@ -122,10 +126,8 @@ test("F1: a typed answer after the newer card answers it, and the older stays pi
   expect(cards[1]?.nextStep?.answer).toBe("Yes");
   expect(cards[0]?.nextStep?.answer).toBeUndefined();
   expect(cards[0]?.nextStep?.superseded).toBeUndefined();
-  // Still waiting on the person, so still pinned: never live in the transcript but hidden above the composer.
-  expect(waitingAsks(view).map((card) => card.nextStep?.ask.question)).toEqual([
-    "Should agents keep working while the Mac is locked?",
-  ]);
+  // The newest question stands for the older ones (https://github.com/manaflow-ai/cmux/issues/52766): answered, nothing stays pinned.
+  expect(waitingAsks(view)).toEqual([]);
 });
 
 test("F2: the card's two copies share the answer on its way, so two clicks send it once", async () => {
@@ -147,13 +149,16 @@ test("F2: the card's two copies share the answer on its way, so two clicks send 
     );
   });
   const buttons = () => [...container.querySelectorAll("button")].filter((b) => b.textContent?.includes("Inline"));
+  const second = buttons()[1]!;
   await act(async () => buttons()[0]!.click());
-  expect(buttons().every((b) => b.disabled)).toBe(true);
-  await act(async () => buttons()[1]!.click());
+  // Both copies read as answered from the click on: no answer left to click.
+  expect(buttons()).toEqual([]);
+  await act(async () => second.click());
   // No asker named: the quote is the question alone (nextStepAsk.ts `answerPrompt`).
   expect(sent).toEqual(["> Which look should ship?\n\nInline"]);
   await act(async () => finish());
-  expect(buttons().some((b) => b.disabled)).toBe(false);
+  expect(buttons()).toEqual([]);
+  expect(container.querySelectorAll(".acpmux-question-answered-answer")).toHaveLength(2);
 });
 
 test("F3: a send acpmux already took counts as sent; one it never took still says so", async () => {
@@ -172,7 +177,13 @@ test("dismissals without local storage: a second one keeps the first", () => {
 });
 
 test("F4: pinned questions show the stack but leave the composer's keys alone", () => {
-  expect(bottomAsks(false, 2)).toEqual({ shows: true, holdsKeys: false });
-  expect(bottomAsks(true, 0)).toEqual({ shows: true, holdsKeys: true });
-  expect(bottomAsks(false, 0)).toEqual({ shows: false, holdsKeys: false });
+  expect(bottomAsks(false, 2)).toEqual({ shows: true, holdsKeys: false, leaving: false });
+  expect(bottomAsks(true, 0)).toEqual({ shows: true, holdsKeys: true, leaving: false });
+  expect(bottomAsks(false, 0)).toEqual({ shows: false, holdsKeys: false, leaving: false });
+});
+
+test("a trust question folding out keeps the stack drawn, holds no keys, and marks it leaving", () => {
+  expect(bottomAsks(false, 0, true)).toEqual({ shows: true, holdsKeys: false, leaving: true });
+  expect(bottomAsks(true, 0, true)).toEqual({ shows: true, holdsKeys: true, leaving: false });
+  expect(bottomAsks(false, 1, true)).toEqual({ shows: true, holdsKeys: false, leaving: false });
 });

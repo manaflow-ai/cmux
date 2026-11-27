@@ -61,9 +61,12 @@ fn a_working_tab_shows_the_toast() {
 }
 
 #[test]
-fn one_idle_terminal_asks_what_it_runs() {
-    let tabs = [browser("about:blank"), terminal()];
-    assert_eq!(toast(&tabs), Toast::AskTerminals { terminals: vec![1] });
+fn one_tab_that_is_not_working_closes_quietly() {
+    // Lawrence 2026-11-09: "Closed “lawrence@…:~/fun/cmuxterm-hq”  Undo" is an unnecessary
+    // dialog. Cmd-Z and Reopen Closed bring one tab back; the toast is for work at risk.
+    assert_eq!(toast(&[browser("about:blank"), terminal()]), Toast::Skip);
+    assert_eq!(toast(&[terminal()]), Toast::Skip);
+    assert_eq!(toast(&[browser("https://a.test")]), Toast::Skip);
 }
 
 #[test]
@@ -146,8 +149,8 @@ fn the_wire_reads_the_apps_spelling() {
     let other: ClosingTab = serde_json::from_str(r#"{"kind":"markdown"}"#).expect("other kind");
     assert_eq!(other.kind, TabKind::Other);
     assert_eq!(
-        serde_json::to_value(Toast::AskTerminals { terminals: vec![0] }).expect("toast"),
-        serde_json::json!({"decision": "askTerminals", "terminals": [0]})
+        serde_json::to_value(Toast::Skip).expect("toast"),
+        serde_json::json!({"decision": "skip"})
     );
     assert_eq!(
         serde_json::to_value(Warning::Agent { name: None }).expect("warning"),
@@ -162,4 +165,46 @@ fn tab_warnings_off_read_no_terminal() {
         reads(&[agent(Some("claude")), terminal()], agent_only),
         Some(Reads { agents: vec![Some("Claude".to_owned())], others: vec![] })
     );
+}
+
+#[test]
+fn a_running_command_is_a_known_program() {
+    let command = ProgramFacts {
+        command_since_ms: Some(5),
+        prompt_since_ms: Some(9),
+        ..ProgramFacts::default()
+    };
+    assert!(runs_known_program(&command));
+    assert!(!runs_known_program(&ProgramFacts::default()));
+}
+
+#[test]
+fn an_agent_or_program_status_counts_only_without_a_prompt() {
+    let agent = ProgramFacts { agent_done: Some(false), ..ProgramFacts::default() };
+    assert!(runs_known_program(&agent));
+    assert!(!runs_known_program(&ProgramFacts { prompt_since_ms: Some(1), ..agent }));
+    // An agent whose session ended (`done`) runs nothing known.
+    assert!(!runs_known_program(&ProgramFacts {
+        agent_done: Some(true),
+        ..ProgramFacts::default()
+    }));
+    let status = ProgramFacts { program_status: true, ..ProgramFacts::default() };
+    assert!(runs_known_program(&status));
+    assert!(!runs_known_program(&ProgramFacts { prompt_since_ms: Some(1), ..status }));
+}
+
+#[test]
+fn known_to_ask_needs_a_working_agent_with_its_warning_or_a_known_program() {
+    let both = Warnings { warn_tab: true, warn_agent: true };
+    let agent_off = Warnings { warn_tab: true, warn_agent: false };
+    let agents = Reads { agents: vec![None], others: vec![] };
+    assert!(known_to_ask(&agents, &[], both));
+    assert!(!known_to_ask(&agents, &[], agent_off));
+    let shell = ProgramFacts { prompt_since_ms: Some(1), ..ProgramFacts::default() };
+    let running = ProgramFacts { command_since_ms: Some(1), ..ProgramFacts::default() };
+    let others = Reads { agents: vec![], others: vec![0, 1] };
+    assert!(!known_to_ask(&others, &[shell, shell], both));
+    assert!(known_to_ask(&others, &[shell, running], agent_off));
+    // An index past the tabs sent is no known program.
+    assert!(!known_to_ask(&Reads { agents: vec![], others: vec![2] }, &[running, running], both));
 }

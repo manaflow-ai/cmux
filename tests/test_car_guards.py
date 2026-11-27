@@ -27,6 +27,16 @@ GUARDS = ROOT / "scripts/ci/car_guards.py"
 WORKFLOW = ROOT / ".github/workflows/cmux-next-car-guards.yml"
 sys.path.insert(0, str(ROOT / "scripts/ci"))
 import car_guards  # noqa: E402
+# tests/git_fixture_env.py, loaded by path: `python3 -I` puts no script folder on sys.path.
+import importlib.util as _git_fixture_importlib  # noqa: E402
+from os import path as _git_fixture_path  # noqa: E402
+_git_fixture_spec = _git_fixture_importlib.spec_from_file_location(
+    "git_fixture_env", _git_fixture_path.join(_git_fixture_path.dirname(_git_fixture_path.abspath(__file__)), "git_fixture_env.py"))
+git_fixture_env = _git_fixture_importlib.module_from_spec(_git_fixture_spec)
+_git_fixture_spec.loader.exec_module(git_fixture_env)
+
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+import workflow_jobs  # noqa: E402
 
 
 def write(root: Path, files: dict[str, str]) -> None:
@@ -44,8 +54,10 @@ def repo(tmp: str, files: dict[str, str]) -> Path:
     root = Path(tmp) / "repo"
     root.mkdir()
     # The helpers the map imports, from this checkout.
-    for helper in ("select_package_tests.py", "focused_tests.py", "car_guards.py", "cmux_next_route.py",
-                   "nightly-next-car-guard.sh", "car-guard-python.sh"):
+    for helper in ("select_package_tests.py", "focused_tests.py", "car_guards.py", "cmux_next_route.py", "cargo_affected.py",
+                   "ci_process_tree.py", "gh_expressions.py", "nightly-next-car-guard.sh", "car-guard-python.sh",
+                   # The crate-graph map cmux_next_route.py routes the daemon tier from (#45464).
+                   "affected-jobs.json"):
         write(root, {f"scripts/ci/{helper}": (ROOT / "scripts/ci" / helper).read_text(encoding="utf-8")})
     write(root, files)
     git(root, "init", "-q")
@@ -161,9 +173,28 @@ class FocusedTestMap(unittest.TestCase):
             self.assertEqual([n["manifest"] for n in got["native"]], ["Native/OptChat/chief/Cargo.toml"])
             self.assertEqual(got["unmapped"], ["elsewhere/mystery.bin"], "a file no rule maps is reported")
 
+    def test_a_file_outside_cmux_tui_that_a_crate_reads_goes_to_cargo_affected(self):
+        # #50462 (BackdropShader.swift) and looks under examples/looks/ landed cmux-config reds:
+        # its tests read them through CARGO_MANIFEST_DIR paths, and the car ran no cargo.
+        with tempfile.TemporaryDirectory() as tmp:
+            root = repo(tmp, {
+                "cmux-tui/crates/cfg/Cargo.toml": "[package]\nname = \"cfg\"\n",
+                "cmux-tui/crates/cfg/src/lib.rs": (
+                    'const S: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/../../../Sources/Shader.swift");\n'
+                    'fn repo() -> PathBuf {\n    // affected-reads: examples\n'
+                    '    Path::new(env!("CARGO_MANIFEST_DIR")).join("../../..")\n}\n'),
+                "Sources/Shader.swift": "",
+                "examples/looks/a/themes/a.json": "{}",
+                "elsewhere/mystery.bin": "",
+            })
+            got = plan(root, "Sources/Shader.swift", "examples/looks/a/themes/a.json", "elsewhere/mystery.bin")
+            self.assertEqual(got["cargo"], {"changed": True,
+                                            "files": ["Sources/Shader.swift", "examples/looks/a/themes/a.json"]})
+            self.assertEqual(got["unmapped"], ["elsewhere/mystery.bin"],
+                             "a root reference with affected-reads selects only the paths it lists")
+
     def test_cmux_next_follows_the_committed_target_graph(self):
         """The car guards and the PR's swift test tier select the same CmuxNext targets."""
-        sys.path.insert(0, str(ROOT / "scripts/ci"))
         import cmux_next_route
         import focused_tests
 
@@ -398,7 +429,6 @@ class Deferred(unittest.TestCase):
             got = plan(root, "Packages/macOS/App/Package.swift")
             self.assertEqual(got["swift"], [])
             self.assertIn("every test target", got["swift_deferred"])
-        sys.path.insert(0, str(ROOT / "scripts/ci"))
         import focused_tests
         got = focused_tests.plan(ROOT, ["Packages/macOS/CmuxNext/Package.swift"])
         self.assertEqual([s for s in got["swift"] if s["package"] == "Packages/macOS/CmuxNext"], [])
@@ -482,12 +512,16 @@ class CarGuardsWorkflow(unittest.TestCase):
 
     def test_it_runs_on_ci_runners_only_and_holds_no_secret(self):
         text = WORKFLOW.read_text(encoding="utf-8")
-        self.assertNotIn("secrets.", text)
+        self.assertEqual(workflow_jobs.secret_names(text), set())
         for name, job in self.workflow()["jobs"].items():
             with self.subTest(job=name):
-                runs_on = str(job["runs-on"])
-                self.assertRegex(runs_on, r"blacksmith-|ubuntu-|macos-26")
-                self.assertNotRegex(runs_on.lower(), r"self-hosted|glaeda|cosmic|air-blue")
+                self.assertEqual(workflow_jobs.secret_names(job), set())
+                cells = workflow_jobs.runs_on_cells(job)
+                self.assertIsNotNone(cells, f"{name}: runs-on has a matrix value nothing resolves")
+                self.assertTrue(cells, f"{name}: no runs-on")
+                for runs_on in cells:
+                    self.assertRegex(runs_on, r"blacksmith-|ubuntu-|macos-26")
+                    self.assertNotRegex(runs_on.lower(), r"self-hosted|glaeda|cosmic|air-blue")
         mac_steps = self.workflow()["jobs"]["mac"]["steps"]
         restore = next(s for s in mac_steps if "cache-restore" in str(s.get("uses", "")))
         self.assertEqual(restore["env"]["CI_CACHE_R2_PUBLIC_URL"], "https://ci-cache-next.cmux.com",
@@ -557,6 +591,126 @@ class ToolsOutsideTheCar(unittest.TestCase):
         self.assertEqual(listed["web"][-1], str(ROOT / "scripts/ci/run-webviews-tests.sh"))
         self.assertEqual(listed["cargo"][2], str(ROOT / "scripts/ci/cargo_affected.py"))
         self.assertEqual(listed["guard:prepush"][2], "scripts/cmux-next/prepush-gate.py", "the car's own guard")
+
+
+class EntryTimeouts(unittest.TestCase):
+    """A busy runner makes a car's guards slower, never red on their own (cmux#41742's class).
+
+    Each case fakes a slow subprocess: a guard or test that sleeps past its limit, with the limits patched down to
+    seconds. A timed-out entry is retried once, alone, with a longer limit. If it times out again it fails the car
+    only when the car touches what it runs: a focused test always (the car's change selected it), a guard only
+    when the car changes the guard's folder; otherwise it warns naming the guard.
+    """
+
+    SLOW = "import time\ntime.sleep(30)\n"
+    PREPUSH = "scripts/cmux-next/prepush-gate.py"
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tmp.cleanup)
+        self.marker = Path(self.tmp.name) / "slow-once"
+        for patcher in (mock.patch.dict(car_guards.TIMEOUT, {"guard": 1, "python": 1}),
+                        mock.patch.object(car_guards, "RETRY_TIMEOUT", {"guard": 2, "python": 2}, create=True)):
+            patcher.start()
+            self.addCleanup(patcher.stop)
+
+    def slow_once(self) -> str:
+        return (f"from pathlib import Path\nimport time\nmarker = Path({str(self.marker)!r})\n"
+                "if not marker.exists():\n    marker.write_text('x')\n    time.sleep(30)\n")
+
+    def judge(self, base: dict[str, str], car: dict[str, str], kinds: set[str], python=()) -> dict:
+        """The verdict for a car that writes CAR over a tree of BASE, running only KINDS."""
+        root = repo(self.tmp.name, {"scripts/cmux-next/check-no-godfiles.sh": "exit 0\n", **base})
+        base_sha = git(root, "rev-parse", "HEAD")
+        write(root, car)
+        git(root, "add", "-A")
+        git(root, "-c", "user.name=t", "-c", "user.email=t@t", "commit", "-qm", "car")
+        head = git(root, "rev-parse", "HEAD")
+        the_plan = {"files": sorted(car), "web": [], "native": [], "cargo": {"changed": False}, "swift": [],
+                    "unmapped": [], "python": [{"path": path, "lane": "linux-guard", "why": "changed"} for path in python]}
+        return car_guards.run(root, base_sha, head, "linux", the_plan, {}, kinds=kinds)
+
+    @staticmethod
+    def status(verdict: dict, name: str) -> str:
+        return {r["name"]: r["status"] for r in verdict["results"]}[name]
+
+    def test_a_guard_the_car_does_not_touch_warns_after_timing_out_twice(self):
+        verdict = self.judge({self.PREPUSH: self.SLOW}, {"README.md": "car\n"}, {"guard"})
+        self.assertEqual((verdict["status"], self.status(verdict, "guard:prepush")), ("pass", "warn"))
+        tail = next(r["tail"] for r in verdict["results"] if r["name"] == "guard:prepush")
+        self.assertIn("timed out", tail)
+        self.assertIn("does not touch scripts/cmux-next/", tail)
+
+    def test_a_timed_out_entry_is_retried_once_with_a_longer_limit(self):
+        verdict = self.judge({self.PREPUSH: self.slow_once()}, {"README.md": "car\n"}, {"guard"})
+        self.assertEqual((verdict["status"], self.status(verdict, "guard:prepush")), ("pass", "pass"))
+        self.assertTrue(self.marker.exists(), "the first run timed out")
+
+    def test_a_guard_the_car_changes_still_fails_after_timing_out_twice(self):
+        verdict = self.judge({self.PREPUSH: "import sys\nsys.exit(0)\n"}, {self.PREPUSH: self.SLOW}, {"guard"})
+        self.assertEqual((verdict["status"], self.status(verdict, "guard:prepush")), ("fail", "timeout"))
+
+    def test_a_focused_test_the_car_selected_still_fails_after_timing_out_twice(self):
+        verdict = self.judge({}, {"tests/test_slow.py": self.SLOW}, {"python"}, python=["tests/test_slow.py"])
+        self.assertEqual((verdict["status"], self.status(verdict, "python:tests/test_slow.py")), ("fail", "timeout"))
+
+    def test_a_timed_out_entry_leaves_no_process_behind(self):
+        """A guard's own children stop with it (cmux#41752 review F1's class): the retry and the next entries never
+        race what the timed-out run started."""
+        pid_file = Path(self.tmp.name) / "child.pid"
+        entry = {"name": "guard:sleeper", "kind": "guard",
+                 "cmd": ["sh", "-c", f"sleep 30 & echo $! > {pid_file}; wait"]}
+        result = car_guards.run_one(Path(self.tmp.name), entry)
+        self.assertEqual(result["status"], "retry")
+        pid = int(pid_file.read_text())
+        try:
+            os.kill(pid, 0)
+            state = Path(f"/proc/{pid}/stat").read_text().split()[2] if Path(f"/proc/{pid}/stat").exists() else "?"
+            alive = state != "Z"
+        except ProcessLookupError:
+            alive = False
+        if alive:
+            os.kill(pid, 9)  # the sleeper this test started
+        self.assertFalse(alive, "the timed-out guard's child is still running")
+
+    def test_a_test_slow_at_the_base_gets_the_same_retry_there(self):
+        """Run 45372757083: a test red at both ends timed out at the base, where the head's had its alone retry, and
+        read as the car's. The base run gets the same retry."""
+        failing = "import sys\nsys.exit(1)\n"
+        verdict = self.judge({"tests/test_slow.py": self.slow_once() + failing},
+                             {"tests/test_slow.py": "# the car's edit\n" + failing}, {"python"},
+                             python=["tests/test_slow.py"])
+        self.assertTrue(self.marker.exists(), "the base's first run timed out")
+        self.assertEqual((verdict["status"], self.status(verdict, "python:tests/test_slow.py")), ("pass", "base-red"))
+
+    def test_a_test_that_only_times_out_at_the_base_is_still_the_cars(self):
+        verdict = self.judge({"tests/test_slow.py": self.SLOW},
+                             {"tests/test_slow.py": "import sys\nsys.exit(1)\n"}, {"python"},
+                             python=["tests/test_slow.py"])
+        self.assertEqual((verdict["status"], self.status(verdict, "python:tests/test_slow.py")), ("fail", "fail"))
+
+    def test_a_real_failure_of_an_untouched_guard_still_fails(self):
+        verdict = self.judge({self.PREPUSH: "import sys\nsys.exit(1)\n"}, {"README.md": "car\n"}, {"guard"})
+        self.assertEqual((verdict["status"], self.status(verdict, "guard:prepush")), ("fail", "fail"))
+
+class Tails(unittest.TestCase):
+    """A red entry's log names every failure its summary counts (run 45372757083: 6 of 27 `FAIL:` lines survived the
+    4000-character tail, and base_red_excuse.py refused the job as naming fewer failures than it reported)."""
+
+    def test_every_cut_failure_line_is_kept_once_with_the_tail(self):
+        names = [f"FAIL: test_{n} (__main__.T.test_{n})" for n in range(30)]
+        output = "".join(f"{name}\n{'x' * 400}\n" for name in names) + "FAILED (failures=30)\n"
+        tail = car_guards.tail_of(output)
+        self.assertTrue(tail.endswith(output[-car_guards.TAIL_CHARS:]))
+        for name in names:
+            self.assertEqual(tail.count(name + "\n"), 1, name)
+        import test_reds
+        self.assertEqual(test_reds.runner_unnamed(tail.splitlines()), [])
+
+    def test_a_short_output_and_one_naming_nothing_are_unchanged(self):
+        self.assertEqual(car_guards.tail_of("FAIL: a (b.c)\nok\n"), "FAIL: a (b.c)\nok\n")
+        output = "y" * 9000
+        self.assertEqual(car_guards.tail_of(output), output[-car_guards.TAIL_CHARS:])
 
 
 if __name__ == "__main__":

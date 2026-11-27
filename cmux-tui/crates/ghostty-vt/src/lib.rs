@@ -19,6 +19,7 @@
     )
 )]
 
+mod formatter_options;
 mod key;
 mod kitty;
 mod kitty_replay;
@@ -44,7 +45,8 @@ pub use mouse::{
 pub use render::{
     ATTR_BLINK, ATTR_BOLD, ATTR_FAINT, ATTR_INVERSE, ATTR_INVISIBLE, ATTR_ITALIC,
     ATTR_STRIKETHROUGH, Cell, CellWidth, ColorSpec, CursorInfo, CursorShape, Dirty,
-    KittyGraphicsFrameDelta, RenderFrame, RenderState, StyledRun, UnderlineStyle, rows_to_runs,
+    KittyGraphicsFrameDelta, RenderFrame, RenderRow, RenderState, StyledRun, UnderlineStyle,
+    rows_to_runs,
 };
 pub use screen_text::{ScreenRowText, ScreenSearch, ScreenTextCell};
 pub use snapshot::{
@@ -55,12 +57,13 @@ pub use snapshot::{
 };
 pub use terminal::{
     Callbacks, ClearHistoryOutcome, ClipboardLocation, ClipboardReadFn, ClipboardReadRequest,
-    HistoryPage, HistoryPages, HistorySnapshot, KittyGraphicsLimits, KittyImageIdCursors,
-    KittyReplayState, MAX_CLIPBOARD_READ_BYTES, MarkerError, NotifyFn, ProgramStatusEvent,
-    ProgramStatusFn, ProgramStatusKind, ProgramStatusReport, ProgramStatusState, PtyWriteFn, Rgb,
-    SNAPSHOT_CONTINUATION_MAX_BYTES, Screen, Scrollbar, SelectionPoint, SelectionRange, Terminal,
-    TerminalColorOverrides, TerminalPointerSemanticSnapshot, TrackedScreenPoint, VtReplay,
-    VtReplayTail, parse_color, parse_palette_entry,
+    CommandOutput, HistoryPage, HistoryPages, HistorySnapshot, KittyGraphicsLimits,
+    KittyImageIdCursors, KittyReplayState, MAX_CLIPBOARD_READ_BYTES, MarkerError, NotifyFn,
+    ProgramStatusEvent, ProgramStatusFn, ProgramStatusKind, ProgramStatusReport,
+    ProgramStatusState, PtyWriteFn, Rgb, SNAPSHOT_CONTINUATION_MAX_BYTES, Screen, Scrollbar,
+    SelectionPoint, SelectionRange, Terminal, TerminalColorOverrides,
+    TerminalPointerSemanticSnapshot, TrackedScreenPoint, VtReplay, VtReplayTail, VtReplayWindow,
+    parse_color, parse_palette_entry,
 };
 
 pub(crate) fn check(result: ghostty_vt_sys::GhosttyResult) -> std::result::Result<(), Error> {
