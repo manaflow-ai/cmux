@@ -6,13 +6,16 @@
 # - no delta: every crate compiles, and the delta it packs makes the next leg compile nothing;
 # - a leg that compiled nothing still packs everything it applied, so the leg after it is warm too;
 # - a changed core: core and app recompile, side stays fresh, app prints the change;
-# - pack without apply packs nothing.
+# - pack without apply packs nothing;
+# - a target linked to a pool tree (the darwin leg) packs through the link, and stays warm.
 set -euo pipefail
 ROOT=$(cd "$(dirname "$0")/../../.." && pwd)
 TMP=$(mktemp -d); trap 'rm -rf "$TMP"' EXIT
 fail() { echo "FAIL: $*" >&2; exit 1; }
 command -v cargo >/dev/null || fail "cargo is required"
 export RUNNER_TEMP="$TMP/runner-temp"; mkdir -p "$RUNNER_TEMP"
+# The fixture's target is ws/target; a runner's shared CARGO_TARGET_DIR would build elsewhere.
+unset CARGO_TARGET_DIR
 
 repo="$TMP/repo"
 mkdir -p "$repo/scripts/ci" "$repo/ws/core/src" "$repo/ws/app/src" "$repo/ws/side/src"
@@ -76,4 +79,41 @@ leg
 rm -f "$stamp"
 delta pack "$target" "$stamp" "$TMP/none" | grep -q "nothing packed" || fail "pack without apply packs nothing"
 [[ ! -e "$TMP/none" ]] || fail "and writes no tree"
+# The darwin pool leg: machine-channel-warm-target.sh restore moves the applied target into the
+# runner slot's tree and links cmux-tui/target to it, so pack reads the delta through a link
+# (job 140189679068 packed nothing: record had removed the tree behind the link).
+pool="$TMP/pool/target"
+pool_leg() {
+  sleep 1.1; rm -rf "$target" "$TMP/restored" "$stamp" "$stamp.list" "$TMP/pool"
+  find "$repo/ws" -exec touch {} +
+  if [[ -d "$saved/delta" ]]; then cp -a "$saved/delta" "$TMP/restored"; fi
+  delta apply "$target" "$TMP/restored" "$stamp" > "$TMP/apply.log"
+  mkdir -p "$TMP/pool"; mv "$target" "$pool"; ln -s "$pool" "$target"
+  (cd "$repo/ws" && CARGO_INCREMENTAL=0 cargo build --offline -v 2>&1) > "$TMP/build.log"
+  compiled=$(grep -cE '^ +Compiling ' "$TMP/build.log" || true)
+  delta pack "$target" "$stamp" "$TMP/out" > "$TMP/pack.log"
+  rm -rf "$saved/delta"; cp -a "$TMP/out" "$saved/delta"
+}
+rm -rf "$saved/delta"
+pool_leg
+[[ $compiled == 3 ]] || fail "pool, cold: 3 crates compile, got $compiled"
+grep -q "cargo delta: packed" "$TMP/pack.log" || fail "pool: pack reads the target through its link: $(cat "$TMP/pack.log")"
+grep -qE '\(target [0-9.]+[KMG]' "$TMP/pack.log" || fail "pool: the target size is the linked tree's: $(cat "$TMP/pack.log")"
+pool_leg
+grep -q "hit" "$TMP/apply.log" || fail "pool: the linked leg's delta is a hit"
+[[ $compiled == 0 ]] || fail "pool: the linked leg's delta is warm, got $compiled"
+rm -rf "$TMP/pool"
+delta pack "$target" "$stamp" "$TMP/none" | grep -q "a link to the missing $pool); nothing packed" \
+  || fail "pool: a tree removed behind the link is named"
+rm -f "$target"
+
+# TRIPLE host (the cmux-next fast tier) keeps this machine's CPU: the delta records the real fingerprint.
+rm -rf "$saved/delta"
+delta() { bash "$repo/scripts/ci/cargo-target-delta.sh" "$@" host; }
+leg
+[[ $compiled == 3 ]] || fail "host, cold: 3 crates compile, got $compiled"
+host_cpu=$(python3 -I -c 'import importlib.util,sys; s=importlib.util.spec_from_file_location("m", sys.argv[1]); m=importlib.util.module_from_spec(s); s.loader.exec_module(m); print(m.cpu_fingerprint())' "$ROOT/scripts/blacksmith-testbox-source-mtimes.py")
+[[ -n "$host_cpu" && "$(cat "$saved/delta/.cmux-testbox-cpu" 2>/dev/null)" == "$host_cpu" ]] || fail "host: the delta records this CPU"
+leg
+[[ $compiled == 0 && $fresh == 3 ]] || fail "host, same CPU: 0 compiled, 3 fresh; got $compiled/$fresh"
 echo "cargo-target-delta: ok"
