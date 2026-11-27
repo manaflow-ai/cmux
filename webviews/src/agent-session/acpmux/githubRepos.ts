@@ -198,8 +198,9 @@ export function reopenAfterConnect(
 ): "reopen" | "wait" | "drop" {
   const status = state.status;
   if (state.connecting === true || status === from) return "wait";
-  if (status?.state === "ready") return "reopen";
+  // Still on GitHub's page even with GitHub ready (Choose more repositories…, Add organization): not over yet.
   if (status?.progress === "on_github" || status?.progress === "finishing") return "wait";
+  if (status?.state === "ready") return "reopen";
   return "drop";
 }
 

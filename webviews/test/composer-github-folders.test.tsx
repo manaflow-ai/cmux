@@ -33,7 +33,7 @@ Object.assign(scope, replacements);
 const { act } = await import("react");
 const { createRoot } = await import("react-dom/client");
 const { ComposerContext } = await import("../src/agent-session/acpmux/ComposerContext");
-const { createGitHubPicker, useGitHubPicker, githubFolderRepo, githubStatusFromReply } =
+const { createGitHubPicker, useGitHubPicker, githubFolderRepo, githubStatusFromReply, reopenAfterConnect } =
   await import("../src/agent-session/acpmux/githubRepos");
 const { cloudStartFolder } = await import("../src/agent-session/acpmux/cloudRun");
 const { setNativeHost } = await import("../src/agent-session/acpmux/native");
@@ -1934,6 +1934,18 @@ test("Connect to GitHub in the app's own sheet opens Add project again on the re
     await act(async () => root.unmount());
     uninstall();
   }
+});
+
+test("reopen waits while GitHub's page is still open, even with GitHub ready (cmux#55104)", () => {
+  const from = githubStatusFromReply(status("ready", { repos_scope: "selected" }));
+  const onGitHub = githubStatusFromReply(status("ready", { repos_scope: "selected", progress: "on_github" }));
+  const connected = githubStatusFromReply(status("ready", { repos_scope: "selected", progress: "connected" }));
+  const cancelled = githubStatusFromReply(status("not_connected"));
+  expect(reopenAfterConnect(from, { status: from })).toBe("wait");
+  expect(reopenAfterConnect(from, { status: onGitHub })).toBe("wait");
+  expect(reopenAfterConnect(from, { status: connected, connecting: true })).toBe("wait");
+  expect(reopenAfterConnect(from, { status: connected })).toBe("reopen");
+  expect(reopenAfterConnect(from, { status: cancelled })).toBe("drop");
 });
 
 test("the native palette a Connect to GitHub closed opens again and goes to its GitHub page (cmux#55104)", async () => {

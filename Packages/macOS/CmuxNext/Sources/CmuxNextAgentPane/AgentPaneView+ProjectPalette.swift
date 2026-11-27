@@ -12,9 +12,10 @@ extension AgentPaneView {
         case .show:
             // A Connect to GitHub closed it (GitHub's page took the keys): the page opens it again once GitHub is ready,
             // with no click of the person's (cmux#55104). Once, and only soon after.
+            guard window != nil, !isHiddenOrHasHiddenAncestor else { return refused }
             let resumed = !person && projectPaletteResume.take(at: ProcessInfo.processInfo.systemUptime)
             if person { projectPaletteResume = AgentProjectPaletteResume() }
-            guard person || resumed, window != nil, !isHiddenOrHasHiddenAncestor else { return refused }
+            guard person || resumed else { return refused }
             guard onProjectPaletteRequest(request) else { return refused }
             projectPaletteID = request.id
             return .object(["shown": .bool(true)])
