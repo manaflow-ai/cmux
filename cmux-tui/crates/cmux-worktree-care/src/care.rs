@@ -171,16 +171,30 @@ pub fn run(config: &Config, look: Option<&Look>) -> Result<Report, String> {
     options.pressure = Some(pressure);
     options.apply = config.apply;
     options.measure = true;
-    let mut scan = if wanted(config, WORKTREES) {
+    // Worktrees not chosen (`--family docker-images`, or turned off): no
+    // root, no session folder to find repositories from, and no archive
+    // expiry at the end; the scan finds nothing and nothing of theirs moves.
+    let worktrees_wanted = wanted(config, WORKTREES);
+    let skipped = pass::Options {
+        roots: Vec::new(),
+        sessions: Vec::new(),
+        only: Vec::new(),
+        apply: false,
+        ..options.clone()
+    };
+    let mut scan = if worktrees_wanted {
         pass::scan(&options, &config.store)?
     } else {
-        pass::scan(
-            &pass::Options { roots: Vec::new(), only: Vec::new(), ..options.clone() },
-            &config.store,
-        )?
+        pass::scan(&skipped, &config.store)?
     };
     for item in &mut scan.report.items {
-        if let Some(glob) = never.holds_tree(&config.home, &item.path) {
+        // Only a worktree that would go is walked for something kept inside.
+        let held = if item.verdict.action == Action::Keep {
+            never.holds(&config.home, &item.path)
+        } else {
+            never.holds_tree(&config.home, &item.path)
+        };
+        if let Some(glob) = held {
             item.verdict.action = Action::Keep;
             item.verdict.reason = format!("never-delete: {glob}");
         }
@@ -275,7 +289,8 @@ pub fn run(config: &Config, look: Option<&Look>) -> Result<Report, String> {
     }
     errors.extend(scan.report.errors.clone());
     errors.extend(cache_report.errors.clone());
-    let worktrees = pass::finish(scan, &options, &config.store)?;
+    let worktrees =
+        pass::finish(scan, if worktrees_wanted { &options } else { &skipped }, &config.store)?;
     if let Err(error) = ledger.append(&rows) {
         errors.push(format!("ledger: {error}"));
     }
@@ -548,6 +563,40 @@ mod tests {
         assert!(!gone.exists());
         let item = report.caches.items.iter().find(|i| i.path == old).unwrap();
         assert!(item.verdict.reason.contains("never-delete"), "{}", item.verdict.reason);
+        let _ = std::fs::remove_dir_all(&home);
+    }
+
+    #[test]
+    fn a_family_filtered_pass_reads_no_worktree_from_sessions() {
+        let home = scratch("care-filtered");
+        let repo = home.join("repo");
+        std::fs::create_dir_all(&repo).unwrap();
+        let git = |dir: &Path, args: &[&str]| {
+            let out = std::process::Command::new("git")
+                .args(["-c", "user.name=t", "-c", "user.email=t@t", "-c", "commit.gpgsign=false"])
+                .args(args)
+                .current_dir(dir)
+                .output()
+                .unwrap();
+            assert!(out.status.success(), "{args:?}: {}", String::from_utf8_lossy(&out.stderr));
+        };
+        git(&repo, &["init", "-q", "-b", "main"]);
+        git(&repo, &["commit", "-q", "--allow-empty", "-m", "one"]);
+        let linked = home.join("linked");
+        git(&repo, &["worktree", "add", "-q", "-b", "side", &linked.to_string_lossy()]);
+        let mut config = config(&home, true);
+        config.pass.sessions = vec![crate::policy::Session {
+            name: "s".into(),
+            cwd: repo.clone(),
+            open: false,
+            archived_checkout: None,
+            updated_ms: 0,
+            ids: Vec::new(),
+        }];
+        let report = run(&config, None).unwrap();
+        assert!(report.worktrees.items.is_empty(), "{:?}", report.worktrees.items);
+        assert!(report.worktrees.expired.is_empty());
+        assert!(linked.exists());
         let _ = std::fs::remove_dir_all(&home);
     }
 }
