@@ -2161,6 +2161,24 @@ export async function createWithRoom<T>(create: (attempt: number) => Promise<T>,
   }
 }
 
+/**
+ * The machines that hold a team's quota, one short entry each (`id "name" status, age, idle`), newest first, for the
+ * preflight's shortfall reason. Without them a full cap reads only as `used 5/5`: the production matrix's team sat at
+ * 4/5 then 5/5 for a day (run 45973883832) while the sweep deleted 0 of 5, and nothing said which 5 machines or who made them.
+ */
+export function quotaHolders(rows: any[], nowMs: number, max = 8): string {
+  const live = rows.filter((r) => r && r.status !== "deleted" && r.status !== "deleting");
+  const at = (v: unknown) => (typeof v === "number" ? v : typeof v === "string" ? Date.parse(v) : NaN);
+  const age = (ms: number) => (!Number.isFinite(ms) ? "?" : ms >= 3_600_000 ? `${Math.round(ms / 360_000) / 10} h` : `${Math.round(ms / 60_000)} min`);
+  live.sort((a, b) => (at(b.created_at) || 0) - (at(a.created_at) || 0));
+  const one = (r: any) => {
+    const idle = at(r.last_active_at);
+    return `${String(r.id ?? r.machine_id ?? "?")} "${String(r.name ?? "").slice(0, 60)}" ${String(r.status ?? "?")}, age ${age(nowMs - at(r.created_at))}, ${Number.isFinite(idle) ? `idle ${age(nowMs - idle)}` : "no activity time"}`;
+  };
+  const shown = live.slice(0, max).map(one);
+  return `${live.length} live: ${shown.join("; ")}${live.length > max ? `; +${live.length - max} more` : ""}`;
+}
+
 /** The capacity preflight's step: read before the first create, so a full cap is named before any create is refused. */
 export const CAPACITY_PREFLIGHT_STEP = "capacity preflight (quota headroom)";
 
@@ -5255,8 +5273,13 @@ export function newReds(before: Step[] | null, after: Step[]): Step[] {
  * `cloud.quota.exceeded` (createWithRoom: a create refused at the cap) are the same: cmux-vm.yml run 46001354720's
  * after-deploy journey went red on "quota_headroom:account-team used 5/5, need 2" while cmux-platform's own deploy
  * journeyed on that team, and NOW's cloud_deploy_gate read the deploy as broken.
+ *
+ * A provider that refuses to make a machine at all is capacity too: `cloud.provider.unavailable` (VM API 503
+ * `vm-provider.createQueueFull`) and Freestyle's "infrastructure overloaded: VM start capacity queue wait expired".
+ * cmux-platform run 46010808734 went red on a cold create that settled `create_overdue` after 6 such refusals.
+ * A bare exec `vm_unavailable` on a machine that was given stays the build's (above).
  */
-export const CAPACITY_RED = /\b429\b|rate.?limit|too many requests|no (?:machine|spare|capacity)s? (?:is |are )?available|out of capacity|at capacity|insufficient capacity|no_capacity|cloud\.quota\.(?:headroom|exceeded)\b/i;
+export const CAPACITY_RED = /\b429\b|rate.?limit|too many requests|no (?:machine|spare|capacity)s? (?:is |are )?available|out of capacity|at capacity|insufficient capacity|no_capacity|cloud\.quota\.(?:headroom|exceeded)\b|cloud\.provider\.unavailable|createQueueFull|infrastructure overloaded|start capacity queue/i;
 export function capacityOnly(reds: Step[]): boolean {
   return reds.length > 0 && reds.every((s) => CAPACITY_RED.test(s.detail));
 }
@@ -5855,7 +5878,30 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
         gatewayMachineBefore = beforeMachine;
         return { value: null, detail: `was ${before}; set before the chat machine is made, so its edge route goes to the gateway` };
       });
+    } else {
+      // A --gateway run killed before its cleanup leaves the team in gateway mode with no gateway online, and every
+      // later chat machine's edge answers "No cmux inference gateway is online" (prod real legs, 11-26..11-27). The
+      // edge route is picked at create, so the mode is read, and a stranded one set back to off, before any machine.
+      const name = "team gateway mode (not stranded)";
+      const t0 = Date.now();
+      try {
+        const g = await installApi.raw("GET", "/v1/cloud/inference-gateway");
+        if (g.status !== 200) throw new Error(`GET HTTP ${g.status} ${short(g.body?.error ?? g.body)}`);
+        const mode = String(g.body?.gateway?.mode ?? "off");
+        const online = g.body?.gateway?.online === true;
+        if (!strandedGatewayMode(g.body)) {
+          J.record({ step: name, status: "pass", ms: Date.now() - t0, detail: `mode ${mode}, gateway online ${online}` });
+        } else {
+          const r = await installApi.raw("PUT", "/v1/cloud/inference-gateway", { mode: "off", machine: null });
+          if (r.status !== 200) throw new Error(`PUT off HTTP ${r.status} ${short(r.body?.error ?? r.body)}`);
+          J.record({ step: name, status: "pass", ms: Date.now() - t0, detail: `mode was gateway with no gateway online; set to off before the chat machine is made` });
+        }
+      } catch (error) {
+        J.record({ step: name, status: "skip", ms: Date.now() - t0, detail: `could not read or heal: ${String((error as Error)?.message ?? error).slice(0, 300)}` });
+      }
     }
+    // The sweep's machine list, kept so a full cap's preflight names the machines that hold it.
+    let sweptRows: any[] | null = null;
     if (!keep && !cleanupCreatedIdsOnly) {
       // Machines that killed or timed-out runs left behind hold the account's quota (cloud.quota.exceeded at create).
       // A sweep error never fails the journey: the step is recorded as skipped with the error, and create goes on.
@@ -5864,6 +5910,7 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
       const err = (e: unknown) => String((e as Error)?.message ?? e).slice(0, 300);
       try {
         const rows = await listAllMachines((params) => api.read("cloud.machine.list", params));
+        sweptRows = rows;
         const stale = staleJourneyMachines(rows, Date.now());
         const failed: string[] = [];
         for (const m of stale) {
@@ -5886,8 +5933,14 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
     if (!reuse) {
       const need = 1 + (only.has("cold") ? 0 : 1);
       await J.step(CAPACITY_PREFLIGHT_STEP, async () => {
-        const r = await capacityPreflight(() => api.read("cloud.plan.get", {}), need, api.team ?? team ?? "account-team");
-        return { value: null, detail: r.detail };
+        try {
+          const r = await capacityPreflight(() => api.read("cloud.plan.get", {}), need, api.team ?? team ?? "account-team");
+          return { value: null, detail: r.detail };
+        } catch (e) {
+          // Name what holds the cap: a fresh list (the sweep's is minutes old by now), else the sweep's.
+          const rows = await listAllMachines((params) => api.read("cloud.machine.list", params)).catch(() => sweptRows);
+          throw new Error(`${String((e as Error)?.message ?? e)}; held by ${rows ? quotaHolders(rows, Date.now()) : "unlisted (machine list failed)"}`);
+        }
       });
     }
     // The app's part on a warm spare (SpareReady), before create and so outside the first-text window: the login is
@@ -7417,6 +7470,12 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
   }
   console.log(`\n${failed.length ? "FAIL" : "PASS"} ${backend.name}: ${J.steps.filter((s) => s.status === "pass").length} passed, ${failed.length} failed, ${J.steps.filter((s) => s.status === "skip").length} skipped, ${(J.steps.reduce((n, s) => n + s.ms, 0) / 1000).toFixed(1)} s`);
   return failed.length ? 1 : 0;
+}
+
+/** A team in gateway mode with no gateway online: every chat machine it makes answers the offline 400. */
+export function strandedGatewayMode(body: unknown): boolean {
+  const g = (body as { gateway?: { mode?: unknown; online?: unknown } } | null)?.gateway;
+  return g?.mode === "gateway" && g.online !== true;
 }
 
 if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) process.exit(await main());
