@@ -357,6 +357,7 @@ PY
 }
 
 case "$verb" in
+  caps) echo viewer-grants ;;
   build)
     screen_sharing_app >/dev/null || { echo "apple-$mode: Screen Sharing.app is unavailable" >&2; exit 1; }
     command -v screencapture >/dev/null || { echo "apple-$mode: screencapture is unavailable" >&2; exit 1; }
