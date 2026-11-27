@@ -32,16 +32,19 @@ pick_sim() {
   }
 }
 
-build_app() {
-  local t0=$SECONDS
-  pick_sim >"$EVAL_STATE/sim-choice" || return 3
-  echo "iphone-sim: simulator $(cat "$EVAL_STATE/sim-choice")"
-  # The host: the webrtc target's build, run in place (it loads WebRTC.framework from beside it).
+# The host: the webrtc target's build, run in place (it loads WebRTC.framework from beside it).
+build_host() {
   local package="$EVAL_ROOT/Packages/Shared/CmuxVNCWebRTC"
   swift build -c release --package-path "$package" --product cmux-vnc-host
   printf '#!/bin/sh\nexec "%s/cmux-vnc-host" "$@"\n' "$(swift build -c release --package-path "$package" --show-bin-path)" \
     >"$EVAL_BIN/cmux-vnc-host"
   chmod +x "$EVAL_BIN/cmux-vnc-host"
+}
+
+build_app() {
+  local t0=$SECONDS
+  pick_sim >"$EVAL_STATE/sim-choice" || return 3
+  echo "iphone-sim: simulator $(cat "$EVAL_STATE/sim-choice")"
   # The app's Rust link: the worker's source-keyed cache (scripts/ci/ios_ffi_cache.py), else a build.
   local key=""
   key=$(cd "$EVAL_ROOT" && python3 -I scripts/ci/ios_ffi_cache.py key "$EVAL_ROOT" "$EVAL_STATE/ffi-inputs.json" 2>/dev/null) || key=""
@@ -148,6 +151,12 @@ case "$verb" in
   build)
     [[ -z "${EVAL_PREBUILT:-}" ]] || { echo "iphone-sim: no prebuilt= mode (it builds the iPhone app)" >&2; exit 1; }
     one_mac_only
+    build_host
+    build_app
+    ;;
+  app-build)
+    # The iPhone app alone, for a host that is not on this Mac (ios-linux-screen-e2e.yml: a Linux
+    # cmux-rd host on the dev device hub).
     build_app
     ;;
   host-start)
@@ -182,6 +191,42 @@ case "$verb" in
     done
     simctl terminate "$udid" "$bundle" >/dev/null 2>&1 || true
     grep '^iphonesim: ' "$raw.app" >"$raw" || { echo "iphone-sim: no report within $limit s" >&2; tail -20 "$raw.app.err" >&2; exit 1; }
+    ;;
+  hub-view)
+    # hub-view DEVICE INPUT SAMPLES RAW: the app signed in from $EVAL_REFRESH_TOKEN_FILE (a 0600 file
+    # holding a Stack refresh token of the host's account), opens the account's hub device DEVICE (its id,
+    # or its name in this DEBUG build) with control on, and times INPUT on the cmux-rd marker (cmux.rd/1,
+    # MacScreenRdView). The Linux host's marker is 20 cells of 32 px at (0,0); EVAL_HUB_MARKER is its
+    # cell width and top as fractions of the frame (default: a 1280 px wide screen).
+    device=$1 input=$2 samples=$3 raw=$4
+    kind=key
+    [[ $input == pointer ]] && kind=click
+    [[ -r "${EVAL_REFRESH_TOKEN_FILE:-}" ]] || { echo "iphone-sim: hub-view needs EVAL_REFRESH_TOKEN_FILE" >&2; exit 2; }
+    hub=${EVAL_HUB_URL:-https://cmux-device-hub-dev.debussy.workers.dev}
+    marker=${EVAL_HUB_MARKER:-0.025,0}
+    link="cmux://mac-screen?device=$(python3 -I -c 'import sys, urllib.parse; print(urllib.parse.quote(sys.argv[1], safe=""))' "$device")&control=1"
+    udid=$(ensure_sim) || { echo "iphone-sim: could not make, boot or install the simulator" >&2; exit 1; }
+    bundle=$(/usr/libexec/PlistBuddy -c 'Print :CFBundleIdentifier' "$(cat "$EVAL_BIN/iphone-sim-app")/Info.plist")
+    : >"$raw.app"
+    # The token goes to the app through simctl's child environment, never argv; this shell's copy is
+    # read from the file only for this one command.
+    SIMCTL_CHILD_CMUX_MOBILE_STACK_REFRESH_TOKEN="$(cat "$EVAL_REFRESH_TOKEN_FILE")" \
+      SIMCTL_CHILD_CMUX_MOBILE_DEVICE_HUB_URL="$hub" SIMCTL_CHILD_CMUX_MOBILE_OPEN_URL="$link" \
+      SIMCTL_CHILD_CMUX_MOBILE_SS_MARKER="$marker" SIMCTL_CHILD_CMUX_MOBILE_SS_INPUT="$kind" \
+      SIMCTL_CHILD_CMUX_MOBILE_SS_SAMPLES="$samples" \
+      simctl launch --terminate-running-process --stdout="$raw.app" --stderr="$raw.app.err" "$udid" "$bundle" \
+      -cmuxMobile.setupComplete YES >/dev/null
+    # Bounded: sign-in, the hub list and the session take up to 90 s, then at most 1.2 s an input.
+    limit=$((120 + samples * 12 / 10))
+    for _ in $(seq 1 "$limit"); do
+      grep -q '^iphonesim: ' "$raw.app" && break
+      sleep 1 # bounded wait for the app's report line
+    done
+    simctl terminate "$udid" "$bundle" >/dev/null 2>&1 || true
+    grep '^iphonesim: ' "$raw.app" >"$raw" || { echo "iphone-sim: no report within $limit s" >&2; tail -40 "$raw.app.err" >&2; exit 1; }
+    ;;
+  sims-delete)
+    delete_sims
     ;;
   latency-report)
     # latency-report INPUT RAW OUT: RAW.span cuts the host's encode lines to the view.
