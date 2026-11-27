@@ -194,7 +194,7 @@ fn every_app_refusal_names_the_command_that_moves_on() {
     assert!(!view_only.retryable);
 
     let waiting = case("mac_screen.waiting_for_approval", &click);
-    assert_eq!(waiting.next, "cmux rd click --device studio --x 0.5 --y 0.25 --json");
+    assert_eq!(waiting.next, "cmux rd click --device studio --json --x 0.5 --y 0.25");
     assert!(waiting.retryable);
 
     assert_eq!(case("mac_screen.not_signed_in", &shot).next, "cmux login");
@@ -282,7 +282,7 @@ fn a_command_line_quotes_what_the_shell_would_split() {
         "cmux rd type --device 'my mac' 'it'\\''s -here'"
     );
     let verb = Verb::Type { text: "-n".into() };
-    assert_eq!(command_line("m", &verb, true), "cmux rd type --device m -- -n --json");
+    assert_eq!(command_line("m", &verb, true), "cmux rd type --device m --json -- -n");
     let verb = Verb::Key { combo: "cmd+shift+4".into(), usages: vec![] };
     assert_eq!(command_line("m", &verb, false), "cmux rd key --device m cmd+shift+4");
     let verb = Verb::Click { x: 1.0, y: 0.0, button: Button::Middle, double: true };
@@ -290,6 +290,22 @@ fn a_command_line_quotes_what_the_shell_would_split() {
         command_line("m", &verb, false),
         "cmux rd click --device m --x 1 --y 0 --button middle --double"
     );
+}
+
+#[test]
+fn retry_commands_preserve_dash_prefixed_text_and_output_mode() {
+    for text in ["-n", "--", "--json", "--device=other"] {
+        for json in [false, true] {
+            let verb = Verb::Type { text: text.into() };
+            let command = command_line("studio", &verb, json);
+            let words = command.split_whitespace().skip(2).map(str::to_owned).collect::<Vec<_>>();
+            assert_eq!(
+                parse(&words).unwrap(),
+                Request::Run { device: "studio".into(), verb, json },
+                "{command}"
+            );
+        }
+    }
 }
 
 #[test]

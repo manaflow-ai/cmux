@@ -426,6 +426,9 @@ pub(super) fn command_line(device: &str, verb: &Verb, json: bool) -> String {
         "--device".into(),
         shell_quote(device),
     ];
+    if json {
+        words.push("--json".into());
+    }
     match verb {
         Verb::Screenshot { out } => {
             if let Some(out) = out {
@@ -448,9 +451,6 @@ pub(super) fn command_line(device: &str, verb: &Verb, json: bool) -> String {
             words.push(shell_quote(text));
         }
         Verb::Key { combo, .. } => words.push(shell_quote(combo)),
-    }
-    if json {
-        words.push("--json".into());
     }
     words.join(" ")
 }
