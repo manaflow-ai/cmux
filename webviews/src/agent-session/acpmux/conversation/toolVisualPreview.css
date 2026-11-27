@@ -1,0 +1,53 @@
+.cv-tool-with-visual {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+.cv-tool-with-visual > .cv-tool {
+  flex: 1;
+  min-width: 0;
+}
+.cv-tool-visual {
+  flex: 0 0 34px;
+  width: 34px;
+  height: 24px;
+  overflow: hidden;
+  border-radius: 4px;
+}
+.cv-tool-visual .cv-thumb {
+  width: 34px;
+  height: 24px;
+  min-width: 0;
+  min-height: 0;
+  margin: 0;
+  padding: 0;
+  border-radius: inherit;
+}
+.cv-tool-visual .cv-thumb__img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+.cv-tool-visual-card {
+  width: min(360px, calc(100vw - 24px));
+  max-width: calc(100vw - 24px);
+  padding: 0;
+  overflow: hidden;
+}
+.cv-tool-visual-card__body {
+  display: grid;
+  min-width: 0;
+}
+.cv-tool-visual-card__body :is(.cv-img, .cv-img-open) {
+  width: 100%;
+  max-height: 240px;
+  object-fit: contain;
+}
+.cv-tool-visual-card__caption {
+  padding: 8px 12px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--cv-muted);
+}

@@ -1,0 +1,12 @@
+2026-10-24T05:27:21.524001Z  INFO cmux_mobile_link::dial::turn: TURN allocation for WireGuard relayed=104.30.144.60:22587 server="turn.cloudflare.com:3478" transport=Udp
+2026-10-24T05:27:21.732412Z DEBUG cmux_mobile_link::link: input lane attached role=Phone
+objc[57926]: Class UIAccessibilityLoaderWebShared is implemented in both /Library/Developer/CoreSimulator/Volumes/iOS_23F77/Library/Developer/CoreSimulator/Profiles/Runtimes/iOS 26.5.simruntime/Contents/Resources/RuntimeRoot/System/Library/AccessibilityBundles/WebKit.axbundle/WebKit (0x117fdc398) and /Library/Developer/CoreSimulator/Volumes/iOS_23F77/Library/Developer/CoreSimulator/Profiles/Runtimes/iOS 26.5.simruntime/Contents/Resources/RuntimeRoot/System/Library/AccessibilityBundles/WebCore.axbundle/WebCore (0x10d650310). This may cause spurious casting failures and mysterious crashes. One of the duplicates must be removed or renamed.
+2026-10-24T05:27:22.118152Z DEBUG cmux_mobile_link::dial::wireguard: peer confirmed our datagrams reach it direct=Some(Route { carrier: Turn, addr: 104.184.154.177:56324 })
+2026-10-23 22:27:24.664 CmuxMobileApp[57926:615565106] CoreText performance note: Client called CTFontCreateWithName() using name "Apple Color Emoji" and got font with PostScript name "AppleColorEmoji". For best performance, only use PostScript names when calling this API.
+2026-10-23 22:27:24.664 CmuxMobileApp[57926:615565106] CoreText performance note: Set a breakpoint on CTFontLogSuboptimalRequest to debug.
+IOSurfaceClientSetSurfaceNotify failed e00002c7
+2026-10-24T05:27:38.852408Z  INFO cmux_mobile_link::hybrid: media session up session="639ca1a7-83a9-4bea-a27c-4272db914853"
+2026-10-24T05:27:50.946872Z DEBUG cmux_mobile_link::signaling: dropping a signal for an unknown session session="5b52b628-3297-4bfb-ae8e-29ff461f175a"
+2026-10-24T05:28:18.854768Z  INFO cmux_mobile_link::hybrid: dev: killing the media session every_s=40
+2026-10-24T05:28:18.854973Z  INFO cmux_mobile_link::hybrid: media session killed (test)
+2026-10-24T05:28:18.857168Z  INFO cmux_mobile_link::hybrid: media session ended session="639ca1a7-83a9-4bea-a27c-4272db914853" reason="killed (test)"

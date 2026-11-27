@@ -1,18 +1,3 @@
-export type ProviderId = "codex" | "claude" | "opencode";
-
-export type RendererKind = "react" | "solid";
-
-export type ComposerPermissionMode = "default" | "auto-review" | "full-access" | "custom";
-
-export type ProviderInfo = {
-  id: ProviderId;
-  displayName: string;
-  executableName: string;
-  transportKind: "stdio-jsonrpc" | "stdio-jsonl" | "http-loopback";
-  arguments: string[];
-  autoStart: boolean;
-};
-
 export type AgentSessionTheme = {
   isDark: boolean;
   pageBackground: string;
@@ -26,151 +11,62 @@ export type AgentSessionTheme = {
   softText: string;
   accent: string;
   accentSoft: string;
+  /// A lit (pressed, on) control's glyph or label: the accent lifted to at least the muted text's
+  /// contrast (`ThemeTokens.litGlyph`); without it, `accent`.
+  litGlyph?: string;
+  /// Labels on the accent; the cmux-next pane sends it, others fall back to white.
+  accentText?: string;
+  /// Glyphs on `accent` where it fills a control (Send); without it, `accentText`.
+  onAccent?: string;
   danger: string;
+  /// Caution, softer than `danger` (ANSI yellow): the full-access mode chip.
+  warning?: string;
+  /// Done and passing marks (ANSI green): open PRs, passing checks, a finished Chief task.
+  success?: string;
+  /// The primary action (the composer's Send): the theme's ANSI blue.
+  highlight?: string;
+  /// Glyphs on `highlight`.
+  highlightText?: string;
   shadow: string;
+  /// The terminal's 16 ANSI colors, for syntax colors that follow the theme; the cmux-next
+  /// pane sends it. Without it, code keeps the built-in dark hues on the theme's text colors.
+  palette?: string[];
+  /// appearance.borders; `none` sets `data-borders="none"` on the root, which clears the
+  /// pane's own edges and rings (the composer, menus, code and tool cards). `border` and
+  /// `borderStrong` are already transparent then. Absent means default.
+  borders?: "default" | "none";
+  /// Whether keyboard focus outlines, including transcript response rows, are shown.
+  focusRingEnabled?: boolean;
+  /// appearance.agentSignature (off by default): each agent's dot glyph from its session id before
+  /// the running line's words (acpmux conversation/agentSignatureModel.ts). Absent or false draws nothing
+  /// and asks acpmux for nothing.
+  agentSignature?: boolean;
+  /// A collapsed tool run's look (acpmux toolRunLook.ts): `kind` (absent), `pencil`, `quiet` or
+  /// `quiet-pencil`. Only the gallery sends it, for the versions it keeps beside the default.
+  toolRunLook?: string;
+  /// The answer footer's copy/retry/fork controls: right by default, or left when selected by the host.
+  turnActionsPlacement?: "left" | "right";
+  /// The host's motion durations in seconds (MotionFade after ui.animationSpeed and Reduce
+  /// Motion; 0 means apply at once), as `--agent-motion-*`. Absent keeps the stylesheet defaults.
+  /// `hoverOut` is how fast a hover fill clears (0 by default, as in Edge). `move` is the native
+  /// `move` spring's timed equivalent (MotionSpring), 0 when movement is instant.
+  motion?: { hover: number; hoverOut?: number; focus: number; fadeIn: number; fadeOut: number; move?: number };
+  /// appearance.statusIndicator.animation, `static` also under Reduce Motion (cx-sya4n): sets
+  /// `data-status-indicators` on the root; under `static` no status loop runs and color-only
+  /// marks draw a shape each. Absent means the stylesheet defaults (animated).
+  statusIndicators?: "animated" | "static";
+  /// How agent work shows (Debug Settings `status.working`, CmuxNextDesign StatusWorkingLook): sets
+  /// `data-working-look` on the root. Absent means the stylesheet default, the spinner.
+  workingLook?: "breathe" | "shimmer" | "spinner";
+  /// appearance.homeCardStyle (CmuxNextDesign HomeCardStyle): how Home's and the New Tab page's cards draw. Sets
+  /// `data-home-cards` on the root for `flat`, `raised` and `glass` (newtab/screen.css HOME-CARDS); absent or
+  /// `standard` leaves today's cards.
+  homeCardStyle?: "standard" | "flat" | "raised" | "glass";
+  /// The theme's choice per theme slot (schemas/theme/slots.json): `{ "<slot id>": "<variant id>" }`,
+  /// e.g. `{ "chat.thinkingIndicator": "counting-dots" }` (slots/registry.ts). Absent, or an id no
+  /// variant has, draws each slot's default.
+  slots?: Record<string, string>;
+  /// Running tray placement; absent keeps the tray above the composer. The alternate is
+  /// fixture/Labs-driven until a native setting owns it.
+  subagentTrayPlacement?: "tray" | "after-latest-message";
 };
-
-export type AppContext = {
-  panelId: string;
-  workspaceId: string;
-  renderer: RendererKind;
-  initialProviderId: ProviderId;
-  workingDirectory?: string;
-  rateLimitRows?: AgentSessionRateLimitRow[];
-  copy: AgentSessionCopy;
-  theme: AgentSessionTheme;
-};
-
-export type AgentSessionRateLimitRow = {
-  role: "primary" | "secondary";
-  remainingPercent: number;
-  usedPercent?: number;
-  windowDurationMins?: number;
-  resetsAt?: number;
-};
-
-export type AgentSessionCopy = {
-  start: string;
-  stop: string;
-  send: string;
-  provider: string;
-  rateLimits: string;
-  rateLimitUsageRemaining: string;
-  rateLimitPrimary: string;
-  rateLimitSecondary: string;
-  rateLimitWeekly: string;
-  rateLimitMonthly: string;
-  rateLimitDaysFormat: string;
-  rateLimitHoursFormat: string;
-  rateLimitMinutesFormat: string;
-  rateLimitResets: string;
-  voiceInput: string;
-  promptPlaceholder: string;
-  attachFile: string;
-  addFilesAndMore: string;
-  addPhotosAndFiles: string;
-  removeAttachment: string;
-  copyOutput: string;
-  copyAssistantMessage: string;
-  copiedAssistantMessage: string;
-  copyUserMessage: string;
-  copiedUserMessage: string;
-  shellLabel: string;
-  copyShellContents: string;
-  copiedShellContents: string;
-  collapseShell: string;
-  shellSuccess: string;
-  showMore: string;
-  showLess: string;
-  browseWeb: string;
-  autoContext: string;
-  includeIdeContext: string;
-  ideContext: string;
-  tools: string;
-  changePermissions: string;
-  permissionsDefault: string;
-  permissionsFullAccess: string;
-  permissionsAutoReview: string;
-  permissionsCustom: string;
-  reasoningEffortHigh: string;
-  mentionMenuTitle: string;
-  mentionCurrentWorkspace: string;
-  skillMenuTitle: string;
-  composerNoResults: string;
-  planMode: string;
-  planSuggestionAction: string;
-  planSuggestionDismiss: string;
-  planSuggestionShortcut: string;
-  planSuggestionTitle: string;
-  skillPlan: string;
-  skillCodeReview: string;
-  skillResearch: string;
-  loadingStatus: string;
-  idleStatus: string;
-  startingStatus: string;
-  runningStatus: string;
-  stoppingStatus: string;
-  failedStatus: string;
-  rendererReadyFormat: string;
-  stopped: string;
-  sentCharsFormat: string;
-  providerStarted: string;
-  providerExitedFormat: string;
-  requestFailed: string;
-};
-
-export type AgentSessionAttachment = {
-  dataUrl?: string;
-  fsPath?: string;
-  id: string;
-  kind: "file" | "image";
-  label: string;
-  mimeType?: string;
-  path: string;
-};
-
-export type AgentEvent =
-  | {
-      type: "app.theme";
-      theme: AgentSessionTheme;
-    }
-  | {
-      type: "app.rateLimitRows";
-      rateLimitRows: AgentSessionRateLimitRow[];
-    }
-  | {
-      type: "provider.started";
-      sessionId: string;
-      providerId: ProviderId;
-      executablePath: string;
-      arguments: string[];
-    }
-  | {
-      type: "provider.output";
-      sessionId: string;
-      providerId: ProviderId;
-      stream: "stdout" | "stderr";
-      text: string;
-    }
-  | {
-      type: "provider.activity";
-      sessionId: string;
-      providerId: ProviderId;
-      activityId: string;
-      kind: "command" | "fileChange" | "other";
-      status: "inProgress" | "completed" | "failed" | "stopped";
-      action: string;
-      detail?: string;
-      outputDelta?: string;
-    }
-  | {
-      type: "provider.turnComplete";
-      sessionId: string;
-      providerId: ProviderId;
-    }
-  | {
-      type: "provider.exit";
-      sessionId: string;
-      providerId: ProviderId;
-      status: number;
-    };

@@ -1,0 +1,4 @@
+{
+  "_comment": "Which harness mode ids (and config option values) skip every approval, for sessions.allowFullAccess. acpmux (hub/start_mode.rs) and the cmux NEXT app (AgentPaneModeConfirmation.swift, checked by FullAccessModeRuleTests) both apply this rule: lowercase the id, drop every '-', '_' and space, then it is full access when it contains any marker.",
+  "markers": ["bypass", "fullaccess", "yolo", "dangerous", "autoapprove", "skippermissions"]
+}

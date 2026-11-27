@@ -12,12 +12,12 @@ app/api/analytics/events/route.ts	5b8350cbb5fe4698ffc1cf697eb5fa98685ff07e132be9
 app/api/devices/route-classification.ts	513b71ee5fa1c204ab467c27ca2444b7f5b354c41e75bae69234af13e586b6af	function `manualRoutesAreValid` has a complexity of 24. Maximum allowed is 20.
 app/api/devices/route.ts	efa8ebbabb3504addae597384da1583c5073c99743dc9760f6994b367d68b7be	async function `POST` has a complexity of 22. Maximum allowed is 20.
 app/api/enterprise/contact/route.ts	59834d0588bbdc79cd51791500241b2d478ccdf71f75acb2f5c95dc2b6865476	async function has a complexity of 21. Maximum allowed is 20.
-app/api/freestyle/forward-auth/route.ts	260875e349335e792f8c384a1297e9f43ef0d7f657421e070b32e247d998db18	async function `handleForwardAuthRequest` has a complexity of 24. Maximum allowed is 20.
 app/api/stripe/founders-welcome/route.ts	c0c0ad634aa3a9cd96e424f10f245fa73ca6d19e66486cd3b95898c0e7e7b64e	async function has a complexity of 41. Maximum allowed is 20.
 app/api/support/contact/route.ts	3ae990ffbae762e5770962a2520b8aa9f2844e682db6b9a0a115ea2382b21d8f	async function has a complexity of 22. Maximum allowed is 20.
 app/handler/app-session-handoff/route.ts	b00db532cf0982aa7f35823e3c7a01313537a82320880e91c3338ffb41e22cdd	async function `POST` has a complexity of 25. Maximum allowed is 20.
 app/lib/browser-nightly-download.ts	cb98c6c83aaa369ce81b790afa7b8fb39d24768143d6ad530a2285f706838d2c	function `verifiedAssetLocation` has a complexity of 26. Maximum allowed is 20.
 app/lib/direct-dev-backend-origin.ts	cf7b4a29151651923eb58809508a9cedcb19685a9399788e8e29e81e7174934a	function `directDevBackendOrigin` has a complexity of 22. Maximum allowed is 20.
+services/admin/proGrants.ts	02ae16bbcdb14faaa27a9785b42ce352f587383991bd9e5df7387cc4a829102d	async function `applyPendingEmailGrants` has a complexity of 21. Maximum allowed is 20.
 services/apns/sender.ts	1653b1b61816989f332044e0acedde8abff7c291d02c78149c7403a2d8dec0be	async function `sendApnsNotificationReliably` has a complexity of 27. Maximum allowed is 20.
 services/billing/purchase.ts	4ea33a458e56d6d8f9462808ea65bb5ea1637a04fe6076b6adc014a4ad5e9a12	async function `recordProCheckoutCompletionByEmail` has a complexity of 34. Maximum allowed is 20.
 services/billing/purchase.ts	6bb48cb9b3f67bb0c4bbc2721b99b909db0197934100c3e6a878605aec2571ee	async function `recordCheckoutCompletion` has a complexity of 48. Maximum allowed is 20.

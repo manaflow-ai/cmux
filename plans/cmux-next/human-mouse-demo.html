@@ -1,0 +1,105 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Agent mouse: before / after</title>
+<style>
+  :root { color-scheme: light dark; font: 13px -apple-system, system-ui, sans-serif; }
+  body { margin: 16px; background: Canvas; color: CanvasText; }
+  h1 { font-size: 16px; margin: 0 0 4px; }
+  p.note { margin: 0 0 12px; opacity: .7; max-width: 900px; }
+  .row { display: flex; gap: 16px; flex-wrap: wrap; }
+  .panel { flex: 1 1 420px; min-width: 380px; }
+  .panel h2 { font-size: 13px; margin: 0 0 6px; }
+  .stage { position: relative; height: 340px; border-radius: 10px; overflow: hidden;
+           background: color-mix(in srgb, CanvasText 5%, Canvas); }
+  .cell { position: absolute; width: 54px; height: 34px; border-radius: 6px;
+          background: color-mix(in srgb, CanvasText 8%, Canvas); transition: background .25s; }
+  .cell.hot { background: color-mix(in srgb, #0a84ff 45%, Canvas); transition: none; }
+  .button { position: absolute; right: 22px; bottom: 22px; width: 96px; height: 34px; border-radius: 8px;
+            background: #0a84ff; color: white; display: grid; place-items: center; font-weight: 600; }
+  .button.pressed { filter: brightness(.8); }
+  .cursor { position: absolute; width: 18px; height: 22px; left: 0; top: 0; pointer-events: none; }
+  .trail { position: absolute; inset: 0; pointer-events: none; }
+  .stats { font: 12px ui-monospace, monospace; margin-top: 6px; white-space: pre; opacity: .85; }
+  button.go { font: inherit; padding: 6px 14px; border-radius: 8px; margin-bottom: 12px; }
+</style>
+</head>
+<body>
+<h1>Agent mouse: before and after (same click, same page)</h1>
+<p class="note">Both panels click the blue button from the top-left. The grey cells are hover targets: a cell lights up when it gets a pointerover, as a page's menus and tooltips would. Left: today's stream (one move, then press and release at once). Right: the new stream from human-mouse.js (the planner in this commit), played at its real timing. Simulation of the event stream, not a recording of the app.</p>
+<button class="go" id="go">Replay</button>
+<div class="row">
+  <div class="panel"><h2>Before: teleport</h2><div class="stage" id="before"></div><div class="stats" id="before-stats"></div></div>
+  <div class="panel"><h2>After: human path</h2><div class="stage" id="after"></div><div class="stats" id="after-stats"></div></div>
+</div>
+<script src="../../cmux-tui/crates/cmux-browser-host/js/human-mouse.js"></script>
+<script>
+const HM = window.CmuxBrowserRepl.humanMouse;
+const W = 420, H = 340;
+const CURSOR = '<svg viewBox="0 0 18 22" width="18" height="22"><path d="M2 2 L2 18 L6.5 14 L9.5 20.5 L12 19.3 L9 13 L15 13 Z" fill="#3a3a3c" stroke="white" stroke-width="1.6" stroke-linejoin="round"/></svg>';
+function build(id) {
+  const stage = document.getElementById(id);
+  stage.innerHTML = "";
+  const cells = [];
+  for (let r = 0; r < 5; r++) for (let c = 0; c < 6; c++) {
+    if (r >= 4 && c >= 4) continue;
+    const el = document.createElement("div");
+    el.className = "cell";
+    el.style.left = 14 + c * 64 + "px"; el.style.top = 14 + r * 46 + "px";
+    stage.appendChild(el);
+    cells.push({ el, x: 14 + c * 64, y: 14 + r * 46, w: 54, h: 34 });
+  }
+  const btn = document.createElement("div"); btn.className = "button"; btn.textContent = "Submit"; stage.appendChild(btn);
+  const trail = document.createElementNS("http://www.w3.org/2000/svg", "svg");
+  trail.setAttribute("class", "trail"); trail.setAttribute("viewBox", `0 0 ${W} ${H}`); stage.appendChild(trail);
+  const cur = document.createElement("div"); cur.className = "cursor"; cur.innerHTML = CURSOR; stage.appendChild(cur);
+  return { stage, cells, btn, trail, cur, hovered: null, overs: 0 };
+}
+function place(s, x, y) {
+  s.cur.style.transform = `translate(${x - 2}px, ${y - 2}px)`;
+  const hit = s.cells.find((c) => x >= c.x && x <= c.x + c.w && y >= c.y && y <= c.y + c.h) || null;
+  if (hit !== s.hovered) { if (hit) { s.overs++; hit.el.classList.add("hot"); setTimeout(() => hit.el.classList.remove("hot"), 30); } s.hovered = hit; }
+}
+function dot(s, x, y) {
+  const c = document.createElementNS("http://www.w3.org/2000/svg", "circle");
+  c.setAttribute("cx", x); c.setAttribute("cy", y); c.setAttribute("r", 1.6); c.setAttribute("fill", "#0a84ff"); c.setAttribute("opacity", ".55");
+  s.trail.appendChild(c);
+}
+const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+async function run(seed) {
+  const from = { x: 20, y: 20 };
+  const to = { x: W - 22 - 48, y: H - 22 - 17 };
+  const b = build("before"), a = build("after");
+  place(b, from.x, from.y); place(a, from.x, from.y);
+  b.overs = 0; a.overs = 0;
+  await sleep(500);
+  // Before: one move, down and up back to back.
+  const t0 = performance.now();
+  place(b, to.x, to.y); dot(b, to.x, to.y);
+  b.btn.classList.add("pressed"); await sleep(0); b.btn.classList.remove("pressed");
+  document.getElementById("before-stats").textContent =
+    `moves: 1   hover events on the way: ${b.overs}\nhover before press: 0 ms   press: 0 ms   total: ${(performance.now() - t0).toFixed(0)} ms`;
+  // After: the planned path at its real timing, dwell, hold.
+  const cfg = HM.config();
+  const rand = HM.rng(seed);
+  const path = HM.planMove(from, to, cfg, rand, { width: 96 });
+  const start = performance.now();
+  for (const p of path) {
+    const wait = p.t - (performance.now() - start);
+    if (wait > 0) await sleep(wait);
+    place(a, p.x, p.y); dot(a, p.x, p.y);
+  }
+  const moved = performance.now() - start;
+  const dwell = HM.pause(cfg.dwellMs, rand); await sleep(dwell);
+  const hold = HM.pause(cfg.holdMs, rand);
+  a.btn.classList.add("pressed"); await sleep(hold); a.btn.classList.remove("pressed");
+  document.getElementById("after-stats").textContent =
+    `moves: ${path.length}   hover events on the way: ${a.overs}\nmove: ${moved.toFixed(0)} ms (cap ${cfg.maxMoveMs})   hover before press: ${dwell.toFixed(0)} ms   press: ${hold.toFixed(0)} ms`;
+}
+let seed = 1;
+document.getElementById("go").onclick = () => run(++seed);
+run(seed);
+</script>
+</body>
+</html>

@@ -3,14 +3,11 @@
 
 from __future__ import annotations
 
-import contextlib
 import importlib.util
 import io
 import sys
-import tempfile
 import unittest
 from pathlib import Path
-from unittest import mock
 
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
@@ -24,7 +21,7 @@ SPEC.loader.exec_module(LINT)
 
 class StoredDispatchWorkItemScannerTests(unittest.TestCase):
     def scan(self, source: str):
-        return LINT.scan_declarations(source, "Sources/Fixture.swift")
+        return LINT.scan_declarations(source, "CLI/Fixture.swift")
 
     def test_finds_annotated_inferred_and_multiline_declarations(self) -> None:
         declarations = self.scan(
@@ -188,7 +185,7 @@ class StoredDispatchWorkItemScannerTests(unittest.TestCase):
                 @State private var feedbackTimer: Timer?
             }
             """,
-            "Sources/FixtureView.swift",
+            "Packages/macOS/Fixture/Sources/Fixture/FixtureView.swift",
         )
 
         self.assertEqual(
@@ -287,7 +284,7 @@ class StoredDispatchWorkItemScannerTests(unittest.TestCase):
                 private var timer: DispatchSourceTimer?
             }
             """,
-            "Sources/FixtureView.swift",
+            "Packages/macOS/Fixture/Sources/Fixture/FixtureView.swift",
         )
         ios_declarations = LINT.scan_declarations(
             """
@@ -303,7 +300,7 @@ class StoredDispatchWorkItemScannerTests(unittest.TestCase):
 
     def test_allowance_comparison_rejects_changed_ownership_and_stale_entries(self) -> None:
         allowance = LINT.Allowance(
-            "Sources/Fixture.swift",
+            "CLI/Fixture.swift",
             "timeout",
             "DispatchWorkItem?",
             "local:Owner.schedule",
@@ -311,7 +308,7 @@ class StoredDispatchWorkItemScannerTests(unittest.TestCase):
             "fixture",
         )
         moved_to_member = LINT.Declaration(
-            "Sources/Fixture.swift",
+            "CLI/Fixture.swift",
             "timeout",
             "DispatchWorkItem?",
             "member:Owner",
@@ -332,17 +329,6 @@ class StoredDispatchWorkItemScannerTests(unittest.TestCase):
                 ): 1
             },
         )
-
-    def test_missing_bonsplit_source_root_fails_closed(self) -> None:
-        with tempfile.TemporaryDirectory() as directory:
-            missing_root = Path(directory) / "missing-bonsplit-sources"
-            stderr = io.StringIO()
-            with mock.patch.object(LINT, "BONSPLIT_SOURCES_ROOT", missing_root):
-                with contextlib.redirect_stderr(stderr):
-                    result = LINT.main()
-
-        self.assertEqual(result, 1)
-        self.assertIn("required audited source root is missing", stderr.getvalue())
 
 
 if __name__ == "__main__":

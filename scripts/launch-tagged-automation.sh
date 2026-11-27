@@ -1,5 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
+# shellcheck source=scripts/lib/stop-app-instances.sh
+source "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/lib/stop-app-instances.sh"
 
 usage() {
   cat <<'EOF'
@@ -117,11 +119,11 @@ if [[ ! -d "$APP" ]]; then
   exit 1
 fi
 
-/usr/bin/osascript -e "tell application id \"${BID}\" to quit" >/dev/null 2>&1 || true
-sleep 0.5
-pkill -f "cmux DEV ${TAG}.app/Contents/MacOS/cmux DEV" || true
+# Returns once every old instance's pid has exited (cmux_wait_for_pids_exit), so the stale sockets go after
+# their owners are gone and nothing is left to wait for before the launch.
+cmux_stop_app_instances "$BID" "$APP/Contents/MacOS/cmux DEV" \
+  "$(dirname "$APP")/cmux DEV.app/Contents/MacOS/cmux DEV"
 rm -f "$SOCK" "$DSOCK"
-sleep 0.5
 
 OPEN_ENV=(
   env
@@ -133,6 +135,13 @@ OPEN_ENV=(
   -u CMUX_WORKSPACE_ID
   -u CMUXD_UNIX_PATH
   -u CMUX_TAG
+  # A launch from an acpmux agent inherits its daemon's home and socket: the
+  # build would share that daemon and hand it off as its own outdated one.
+  -u ACPMUX_HOME
+  -u ACPMUX_SOCKET
+  -u ACPMUX_ENV
+  -u ACPMUX_SESSION_ID
+  -u ACPMUX_SESSION_NAME
   -u CMUX_PORT
   -u CMUX_PORT_END
   -u CMUX_PORT_RANGE
@@ -157,7 +166,7 @@ OPEN_ENV=(
 )
 
 if (( EXTRA_ENV_COUNT > 0 )); then
-  for kv in "${EXTRA_ENV[@]}"; do
+  for kv in ${EXTRA_ENV[@]+"${EXTRA_ENV[@]}"}; do
     OPEN_ENV+=("${kv}")
   done
 fi
@@ -189,7 +198,7 @@ if [[ -n "$SHELL_LOG" ]]; then
 fi
 if (( EXTRA_ENV_COUNT > 0 )); then
   echo "extra_env:"
-  for kv in "${EXTRA_ENV[@]}"; do
+  for kv in ${EXTRA_ENV[@]+"${EXTRA_ENV[@]}"}; do
     echo "  $kv"
   done
 fi

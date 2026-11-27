@@ -1,0 +1,7 @@
+/* The icon picker page fills its popover; the popover's material is the background. */
+html,
+body,
+#root {
+  height: 100%;
+  overflow: hidden;
+}

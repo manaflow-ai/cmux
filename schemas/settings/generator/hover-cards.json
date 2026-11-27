@@ -1,0 +1,8 @@
+{
+  "source": "schemas/settings/source/hover-cards.json",
+  "swift": "Packages/macOS/CmuxNext/Sources/CmuxNextSettings/Schema/SettingsSchema+HoverCards.generated.swift",
+  "type": "HoverCardSettingsSchema",
+  "lists": {
+    "hoverCards": ["descriptors", "HoverCardSettings"]
+  }
+}

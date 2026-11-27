@@ -1,0 +1,24 @@
+{"t": 1792816200.27, "utc": "04:30:00", "tab": "A", "act": "open", "name": "A", "url": "https://en.wikipedia.org/wiki/Cat", "load_s": 16.6, "key": "new-6ba7693a-t1", "mac_ws": "ws_4d420dd4261ce1796354ab19c9a6c0fe"}
+{"t": 1792816201.98, "utc": "04:30:01", "tab": "A", "act": "back", "rtt": 1.27}
+{"t": 1792816214.25, "utc": "04:30:14", "tab": "A", "act": "tap", "rtt": null, "at": [96, 430]}
+{"t": 1792816223.75, "utc": "04:30:23", "tab": "A", "act": "scroll-down", "rtt": null}
+{"t": 1792816236.27, "utc": "04:30:36", "tab": "A", "act": "forward", "rtt": null}
+{"t": 1792816266.49, "utc": "04:31:06", "tab": "A", "act": "search", "rtt": null, "via": "address-bar", "marker": "brfz001", "type_s": 2.49}
+{"t": 1792816277.42, "utc": "04:31:17", "tab": "A", "act": "tap", "rtt": null, "at": [142, 554]}
+{"t": 1792816296.0, "utc": "04:31:35", "tab": "A", "act": "long-scroll", "rtt": null, "swipes": 12, "seconds": 16.8, "reconnecting": []}
+{"t": 1792816307.54, "utc": "04:31:47", "tab": "A", "act": "tap", "rtt": null, "at": [335, 466]}
+{"t": 1792816317.58, "utc": "04:31:57", "tab": "A", "act": "scroll-up", "rtt": null}
+{"t": 1792816346.55, "utc": "04:32:26", "tab": "A", "act": "error", "error": "/Users/cmux/cmux-next-ios-e2e/bin/ocr /tmp/cmux-mobile-e2e-ocr-03979B9C-C6CA-4C94-8758-7E68A81FF15F.png failed: Swift/ErrorType.swift:254: Fatal error: Error raised at top level: TextRecognition.CRIma"}
+{"t": 1792816406.41, "utc": "04:33:26", "tab": "A", "act": "search", "rtt": null, "via": "address-bar", "marker": "brfz003", "type_s": 4.05}
+{"t": 1792816454.38, "utc": "04:34:14", "tab": "B", "act": "open_tab-failed", "error": "/Users/cmux/cmux-next-ios-e2e/bin/ocr /tmp/cmux-mobile-e2e-ocr-03979B9C-C6CA-4C94-8758-7E68A81FF15F.png failed: Swift/ErrorType.swift:254: Fatal error: Error raised at top level: TextRecognition.CRIma"}
+{"t": 1792816462.89, "utc": "04:34:22", "tab": "B", "act": "scroll-up", "rtt": null}
+{"t": 1792816466.82, "utc": "04:34:26", "tab": "B", "act": "scroll-down", "rtt": 2.53}
+{"t": 1792816471.99, "utc": "04:34:31", "tab": "B", "act": "scroll-up", "rtt": 3.4}
+{"t": 1792816476.11, "utc": "04:34:36", "tab": "B", "act": "scroll-up", "rtt": 2.19}
+{"t": 1792816480.2, "utc": "04:34:40", "tab": "B", "act": "back", "rtt": 2.0}
+{"t": 1792816490.07, "utc": "04:34:50", "tab": "B", "act": "scroll-down", "rtt": null}
+{"t": 1792816498.91, "utc": "04:34:58", "tab": "B", "act": "scroll-up", "rtt": null}
+{"t": 1792816503.2, "utc": "04:35:03", "tab": "B", "act": "back", "rtt": 1.22}
+{"t": 1792816505.11, "utc": "04:35:05", "tab": "B", "act": "back", "skipped": "no button"}
+{"t": 1792816536.79, "utc": "04:35:36", "tab": "B", "act": "search", "error": "no address bar or pill"}
+{"t": 1792816538.92, "utc": "04:35:38", "tab": null, "act": "list-idle", "seconds": 45, "left": "B"}

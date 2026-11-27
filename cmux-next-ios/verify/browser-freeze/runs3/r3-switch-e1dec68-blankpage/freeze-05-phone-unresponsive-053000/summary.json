@@ -1,0 +1,511 @@
+{
+  "t": 1792819800.859603,
+  "utc": "05:30:00",
+  "kind": "phone-unresponsive",
+  "detail": "5 inputs in a row with no screen change in 8 s (last: scroll-up on A)",
+  "tab": "A",
+  "since_start_s": 160.4,
+  "kf_last": [
+    [
+      1792819663.863958,
+      1
+    ],
+    [
+      1792819668.958006,
+      1
+    ],
+    [
+      1792819673.963595,
+      1
+    ],
+    [
+      1792819678.969782,
+      1
+    ],
+    [
+      1792819683.977651,
+      1
+    ],
+    [
+      1792819688.98839,
+      2
+    ],
+    [
+      1792819694.00052,
+      2
+    ],
+    [
+      1792819699.025804,
+      3
+    ],
+    [
+      1792819704.029543,
+      1
+    ],
+    [
+      1792819709.04764,
+      2
+    ],
+    [
+      1792819714.060622,
+      2
+    ],
+    [
+      1792819719.08674,
+      2
+    ],
+    [
+      1792819724.108488,
+      2
+    ],
+    [
+      1792819729.125725,
+      2
+    ],
+    [
+      1792819734.149866,
+      2
+    ],
+    [
+      1792819739.182488,
+      2
+    ],
+    [
+      1792819744.214804,
+      112
+    ],
+    [
+      1792819749.240827,
+      112
+    ],
+    [
+      1792819754.266146,
+      113
+    ],
+    [
+      1792819764.286607,
+      114
+    ],
+    [
+      1792819769.319613,
+      114
+    ],
+    [
+      1792819774.35037,
+      1
+    ],
+    [
+      1792819779.377808,
+      1
+    ],
+    [
+      1792819784.403273,
+      1
+    ],
+    [
+      1792819789.411388,
+      1
+    ],
+    [
+      1792819794.415737,
+      1
+    ],
+    [
+      1792819799.435607,
+      1
+    ]
+  ],
+  "lane_last": [
+    {
+      "t": 1792819663.863958,
+      "frames": "2",
+      "keyframe_requests": "1",
+      "loss": "0.0",
+      "target_kbps": "2520",
+      "packets": "6",
+      "nacks": "0"
+    },
+    {
+      "t": 1792819668.958006,
+      "frames": "12",
+      "keyframe_requests": "1",
+      "loss": "0.0",
+      "target_kbps": "2754",
+      "packets": "169",
+      "nacks": "0"
+    },
+    {
+      "t": 1792819673.963595,
+      "frames": "14",
+      "keyframe_requests": "1",
+      "loss": "0.0",
+      "target_kbps": "2974",
+      "packets": "173",
+      "nacks": "0"
+    },
+    {
+      "t": 1792819678.969782,
+      "frames": "18",
+      "keyframe_requests": "1",
+      "loss": "0.0",
+      "target_kbps": "3238",
+      "packets": "183",
+      "nacks": "0"
+    },
+    {
+      "t": 1792819683.977651,
+      "frames": "36",
+      "keyframe_requests": "1",
+      "loss": "0.0",
+      "target_kbps": "3669",
+      "packets": "219",
+      "nacks": "0"
+    },
+    {
+      "t": 1792819688.98839,
+      "frames": "37",
+      "keyframe_requests": "2",
+      "loss": "0.0",
+      "target_kbps": "3962",
+      "packets": "222",
+      "nacks": "0"
+    },
+    {
+      "t": 1792819694.00052,
+      "frames": "54",
+      "keyframe_requests": "2",
+      "loss": "0.0",
+      "target_kbps": "4480",
+      "packets": "256",
+      "nacks": "0"
+    },
+    {
+      "t": 1792819699.025804,
+      "frames": "55",
+      "keyframe_requests": "3",
+      "loss": "0.0",
+      "target_kbps": "4838",
+      "packets": "259",
+      "nacks": "0"
+    },
+    {
+      "t": 1792819704.029543,
+      "frames": "76",
+      "keyframe_requests": "1",
+      "loss": "0.0",
+      "target_kbps": "2843",
+      "packets": "40",
+      "nacks": "0"
+    },
+    {
+      "t": 1792819709.04764,
+      "frames": "84",
+      "keyframe_requests": "2",
+      "loss": "0.0",
+      "target_kbps": "3569",
+      "packets": "63",
+      "nacks": "0"
+    },
+    {
+      "t": 1792819714.060622,
+      "frames": "117",
+      "keyframe_requests": "2",
+      "loss": "0.0",
+      "target_kbps": "5228",
+      "packets": "145",
+      "nacks": "0"
+    },
+    {
+      "t": 1792819719.08674,
+      "frames": "134",
+      "keyframe_requests": "2",
+      "loss": "0.0",
+      "target_kbps": "7841",
+      "packets": "196",
+      "nacks": "0"
+    },
+    {
+      "t": 1792819724.108488,
+      "frames": "151",
+      "keyframe_requests": "2",
+      "loss": "0.0",
+      "target_kbps": "11757",
+      "packets": "247",
+      "nacks": "0"
+    },
+    {
+      "t": 1792819729.125725,
+      "frames": "167",
+      "keyframe_requests": "2",
+      "loss": "0.0",
+      "target_kbps": "17217",
+      "packets": "295",
+      "nacks": "0"
+    },
+    {
+      "t": 1792819734.149866,
+      "frames": "183",
+      "keyframe_requests": "2",
+      "loss": "0.0",
+      "target_kbps": "20000",
+      "packets": "343",
+      "nacks": "0"
+    },
+    {
+      "t": 1792819739.182488,
+      "frames": "200",
+      "keyframe_requests": "2",
+      "loss": "0.0",
+      "target_kbps": "20000",
+      "packets": "394",
+      "nacks": "0"
+    },
+    {
+      "t": 1792819744.214804,
+      "frames": "204",
+      "keyframe_requests": "112",
+      "loss": "0.0",
+      "target_kbps": "2721",
+      "packets": "9",
+      "nacks": "0"
+    },
+    {
+      "t": 1792819749.240827,
+      "frames": "204",
+      "keyframe_requests": "112",
+      "loss": "0.0",
+      "target_kbps": "2721",
+      "packets": "9",
+      "nacks": "0"
+    },
+    {
+      "t": 1792819754.266146,
+      "frames": "205",
+      "keyframe_requests": "113",
+      "loss": "0.0",
+      "target_kbps": "2939",
+      "packets": "12",
+      "nacks": "0"
+    },
+    {
+      "t": 1792819759.279664,
+      "frames": "205",
+      "keyframe_requests": "113",
+      "loss": "0.0",
+      "target_kbps": "2939",
+      "packets": "12",
+      "nacks": "0"
+    },
+    {
+      "t": 1792819764.286607,
+      "frames": "206",
+      "keyframe_requests": "114",
+      "loss": "0.0",
+      "target_kbps": "3174",
+      "packets": "15",
+      "nacks": "0"
+    },
+    {
+      "t": 1792819769.319613,
+      "frames": "206",
+      "keyframe_requests": "114",
+      "loss": "0.0",
+      "target_kbps": "3174",
+      "packets": "15",
+      "nacks": "0"
+    },
+    {
+      "t": 1792819774.35037,
+      "frames": "222",
+      "keyframe_requests": "1",
+      "loss": "0.0",
+      "target_kbps": "3519",
+      "packets": "48",
+      "nacks": "0"
+    },
+    {
+      "t": 1792819779.377808,
+      "frames": "237",
+      "keyframe_requests": "1",
+      "loss": "0.0",
+      "target_kbps": "5170",
+      "packets": "93",
+      "nacks": "0"
+    },
+    {
+      "t": 1792819784.403273,
+      "frames": "254",
+      "keyframe_requests": "1",
+      "loss": "0.0",
+      "target_kbps": "7752",
+      "packets": "144",
+      "nacks": "0"
+    },
+    {
+      "t": 1792819789.411388,
+      "frames": "269",
+      "keyframe_requests": "1",
+      "loss": "0.0",
+      "target_kbps": "11346",
+      "packets": "189",
+      "nacks": "0"
+    },
+    {
+      "t": 1792819794.415737,
+      "frames": "304",
+      "keyframe_requests": "1",
+      "loss": "0.0",
+      "target_kbps": "17058",
+      "packets": "276",
+      "nacks": "0"
+    },
+    {
+      "t": 1792819799.435607,
+      "frames": "321",
+      "keyframe_requests": "1",
+      "loss": "0.0",
+      "target_kbps": "20000",
+      "packets": "327",
+      "nacks": "0"
+    }
+  ],
+  "fps_last": [
+    [
+      1792819659.2400398,
+      "new-36e00711-t1",
+      1,
+      "track"
+    ],
+    [
+      1792819682.8068109,
+      "new-36e00711-t1",
+      13,
+      "track"
+    ],
+    [
+      1792819703.506763,
+      "new-36e00711-t1",
+      2,
+      "track"
+    ],
+    [
+      1792819711.0601962,
+      "new-36e00711-t1",
+      4,
+      "track"
+    ],
+    [
+      1792819714.990989,
+      "new-36e00711-t1",
+      4,
+      "track"
+    ],
+    [
+      1792819724.0363488,
+      "new-36e00711-t1",
+      4,
+      "track"
+    ],
+    [
+      1792819733.3835058,
+      "new-36e00711-t1",
+      4,
+      "track"
+    ],
+    [
+      1792819770.996852,
+      "new-36e00711-t1",
+      4,
+      "track"
+    ],
+    [
+      1792819780.398164,
+      "new-36e00711-t1",
+      4,
+      "track"
+    ],
+    [
+      1792819789.7525492,
+      "new-36e00711-t1",
+      4,
+      "track"
+    ],
+    [
+      1792819793.68693,
+      "new-36e00711-t1",
+      21,
+      "track"
+    ]
+  ],
+  "decode_failed": [],
+  "host_events": [
+    {
+      "t": 1792819641.722996,
+      "utc": "05:27:21",
+      "line": "link up session_id=\"c356186a-5b51-4c07-a38a-9b3225451ccc\" kind=WireGuard path=Turn phone=\"07d3d268-ebfe-4601-af11-a32bd5d268cd\" video=true timings=offer_received=0.0ms ice_servers_cached=0.0ms video_lane=113.7ms link_ready=113.7ms"
+    },
+    {
+      "t": 1792819641.723078,
+      "utc": "05:27:21",
+      "line": "link path changed session_id=\"c356186a-5b51-4c07-a38a-9b3225451ccc\" path=Turn"
+    },
+    {
+      "t": 1792819658.853212,
+      "utc": "05:27:38",
+      "line": "media session up session_id=\"639ca1a7-83a9-4bea-a27c-4272db914853\" link_session=\"c356186a-5b51-4c07-a38a-9b3225451ccc\" path=Direct timings=media_offer_received=0.0ms pc_created=0.2ms media_answer_sent=0.4ms remote_host=0.4ms ice_checking=0."
+    },
+    {
+      "t": 1792819670.88962,
+      "utc": "05:27:50",
+      "line": "link down session_id=\"5b52b628-3297-4bfb-ae8e-29ff461f175a\" reason=\"keepalive timed out\""
+    },
+    {
+      "t": 1792819699.740348,
+      "utc": "05:28:19",
+      "line": "media session down session_id=\"639ca1a7-83a9-4bea-a27c-4272db914853\" link_session=\"c356186a-5b51-4c07-a38a-9b3225451ccc\" reason=\"bye: closed\""
+    },
+    {
+      "t": 1792819700.020971,
+      "utc": "05:28:20",
+      "line": "media session up session_id=\"01a957c3-dbdd-4264-bf7f-68152f457f48\" link_session=\"c356186a-5b51-4c07-a38a-9b3225451ccc\" path=Direct timings=media_offer_received=0.0ms pc_created=0.3ms media_answer_sent=0.8ms remote_host=0.8ms ice_checking=0."
+    },
+    {
+      "t": 1792819700.284453,
+      "utc": "05:28:20",
+      "line": "media lane switched route at a keyframe from=\"wireguard-udp\" to=\"webrtc-track\""
+    },
+    {
+      "t": 1792819740.084954,
+      "utc": "05:29:00",
+      "line": "media session down session_id=\"01a957c3-dbdd-4264-bf7f-68152f457f48\" link_session=\"c356186a-5b51-4c07-a38a-9b3225451ccc\" reason=\"bye: closed\""
+    },
+    {
+      "t": 1792819752.275813,
+      "utc": "05:29:12",
+      "line": "media session failed session_id=\"66203f9a-a646-4b90-93b9-4f564894154e\" link_session=\"c356186a-5b51-4c07-a38a-9b3225451ccc\" error=transport: the media session's peer connection failed timings=media_offer_received=0.0ms pc_created=0.9ms media"
+    },
+    {
+      "t": 1792819749.240827,
+      "utc": "05:29:09",
+      "line": "[driver] keyframe storm ended, began 05:28:59"
+    },
+    {
+      "t": 1792819765.584156,
+      "utc": "05:29:25",
+      "line": "media session failed session_id=\"408d5943-45c7-4b1c-a0ea-cd5c5d70279f\" link_session=\"c356186a-5b51-4c07-a38a-9b3225451ccc\" error=transport: the media session's peer connection failed timings=media_offer_received=0.0ms pc_created=0.6ms media"
+    },
+    {
+      "t": 1792819769.80588,
+      "utc": "05:29:29",
+      "line": "media session up session_id=\"a62bb7f0-5a63-4f88-b464-d6dd965d0aaa\" link_session=\"c356186a-5b51-4c07-a38a-9b3225451ccc\" path=Direct timings=media_offer_received=0.0ms pc_created=0.6ms media_answer_sent=1.4ms ice_checking=1.4ms remote_host=1."
+    },
+    {
+      "t": 1792819769.812597,
+      "utc": "05:29:29",
+      "line": "media lane switched route at a keyframe from=\"wireguard-udp\" to=\"webrtc-track\""
+    }
+  ],
+  "tabs": {
+    "A": "new-36e00711-t1"
+  }
+}

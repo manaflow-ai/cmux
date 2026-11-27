@@ -1,0 +1,43 @@
+{
+ "scenario": "1350",
+ "build": "2e1369f0",
+ "sha": "2e1369f054",
+ "bundle": "dev.cmux.cnx.r2e1369f0",
+ "agent": "codexlike",
+ "video": "/Users/azizalbahar/cnx-ios-e2e/termqa-raw/tv9/reg-1350-2e1369f0-024503.mp4",
+ "time": "2026-10-15 02:45:45",
+ "load": 23.82,
+ "rows": {
+  "T-REG-1350-a": {
+   "red": true,
+   "evidence": {
+    "shot": "/Users/azizalbahar/Development/cmuxterm-hq/worktrees/feat-cnx-ios-termqa/cnx-ios/verify/termqa/artifacts/shots/reg-1350-2e1369f0-024503-grid.jpg",
+    "prompt_in_card": false,
+    "history_rows": [
+     "#0000161",
+     "#0000162 +",
+     "#0000164",
+     "#0000105 +",
+     "#0000166 0@"
+    ]
+   }
+  },
+  "T-REG-1350-b": {
+   "red": null,
+   "evidence": {
+    "cards": [
+     "e2e-t1, tab",
+     "e2e-t2, tab"
+    ],
+    "menu": false,
+    "phantom": [],
+    "samples": 0
+   }
+  },
+  "T-REG-1350-c": {
+   "red": null,
+   "note": "toast placement: read the recording (not automated)"
+  }
+ },
+ "red": true
+}

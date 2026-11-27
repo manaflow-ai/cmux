@@ -1,0 +1,14 @@
+.dot-focus-fixture {
+  --acpmux-composer-dim: var(--agent-muted);
+  position: relative;
+  height: 100vh;
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  padding: 24px;
+  color: var(--agent-text);
+  background: var(--agent-page-bg);
+}
+.dot-focus-fixture .nt-style {
+  bottom: 48px;
+}

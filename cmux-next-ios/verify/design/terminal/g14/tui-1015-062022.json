@@ -1,0 +1,14 @@
+{
+ "case": "tui",
+ "text": "#0000005 foxtrot mike juliet oscar xray\n#0000006 golf tango golf tango golf tang\n#0000007 hotel alpha delta yankee papa e\n#0000008 india hotel alpha delta yankee\n#0000009 juliet oscar xray india hotel a",
+ "pressed_row": 5,
+ "copied": true,
+ "rows": [
+  5,
+  9
+ ],
+ "count": 5,
+ "exact_match": false,
+ "pass": false,
+ "time": "2026-10-15 06:20:22"
+}

@@ -14,6 +14,9 @@ Builds cmuxd-remote release assets for the supported remote platforms and emits:
   cmuxd-remote-<goos>-<goarch>[-<suffix>]
   cmuxd-remote-checksums[-<suffix>].txt
   cmuxd-remote-manifest[-<suffix>].json
+  cmuxd-remote-THIRD_PARTY_LICENSES[-<suffix>].txt  (Go std and Go module
+      texts, scripts/remote_daemon_notices.py; a release asset beside the
+      binaries, not in the manifest)
 
 When --asset-suffix is provided, all output filenames and manifest download URLs
 include the suffix, making each build's assets immutable (used by nightly builds
@@ -75,6 +78,26 @@ fi
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 REPO_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
 DAEMON_ROOT="${REPO_ROOT}/daemon/remote"
+
+# Every shipped build uses the exact Go named by the `toolchain` line of
+# daemon/remote/go.mod: the Mac nightly and the HQ Linux nightly-next builder
+# must produce the same bytes. GOTOOLCHAIN=local stops a silent switch to a
+# downloaded Go; any other installed Go fails the build.
+PINNED_GO="$(sed -n 's/^toolchain \(go[0-9][0-9.]*\)$/\1/p' "${DAEMON_ROOT}/go.mod")"
+if [[ ! "$PINNED_GO" =~ ^go1\.[0-9]+\.[0-9]+$ ]]; then
+  echo "error: daemon/remote/go.mod has no exact 'toolchain go1.N.P' line" >&2
+  exit 1
+fi
+export GOTOOLCHAIN=local
+# The build info records these; an environment value also overrides a
+# `go env -w` file, so a runner image cannot change the bytes on one side.
+export GOAMD64=v1 GOARM64=v8.0 GOFLAGS= GOEXPERIMENT=
+ACTUAL_GO="$(go -C "$DAEMON_ROOT" env GOVERSION)"
+if [[ "$ACTUAL_GO" != "$PINNED_GO" ]]; then
+  echo "error: cmuxd-remote needs ${PINNED_GO} (daemon/remote/go.mod), but go is ${ACTUAL_GO}" >&2
+  exit 1
+fi
+echo "cmuxd-remote Go: ${ACTUAL_GO}"
 mkdir -p "$OUTPUT_DIR"
 OUTPUT_DIR="$(cd "$OUTPUT_DIR" && pwd)"
 rm -f "$OUTPUT_DIR"/cmuxd-remote-* "$OUTPUT_DIR"/cmuxd-remote-checksums.txt "$OUTPUT_DIR"/cmuxd-remote-manifest.json
@@ -165,5 +188,10 @@ python3 "$SCRIPT_DIR/generate_remote_daemon_release_manifest.py" \
 
 python3 "$SCRIPT_DIR/verify_remote_daemon_release.py" \
   --manifest "$MANIFEST_PATH" --assets-dir "$OUTPUT_DIR"
+
+# Third-party notices: the Go texts and the reviewed texts of every linked module.
+python3 "$SCRIPT_DIR/remote_daemon_notices.py" generate \
+  --daemon-root "$DAEMON_ROOT" \
+  --out "${OUTPUT_DIR}/cmuxd-remote-THIRD_PARTY_LICENSES${SUFFIX_TAG}.txt"
 
 echo "Built cmuxd-remote assets in ${OUTPUT_DIR}"

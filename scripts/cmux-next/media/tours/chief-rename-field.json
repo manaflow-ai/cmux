@@ -1,0 +1,83 @@
+{
+  "title": "A Chief rename that lands while its name field is open stays, also after a relaunch (2026-11-07: \"renaming chief doesnt work\")",
+  "steps": [
+    {
+      "title": "Launch",
+      "wait": 2,
+      "shot": false
+    },
+    {
+      "title": "Home with the Chief",
+      "cmux": [
+        "action",
+        "run",
+        "home.show"
+      ],
+      "wait": 5
+    },
+    {
+      "title": "Chief settings open, the keyboard in the name field (it shows Chief)",
+      "rpc": {
+        "method": "debug.home.drive",
+        "params": {
+          "action": "chief_name"
+        }
+      },
+      "wait": 1.5
+    },
+    {
+      "title": "The Chief is renamed Chief mom while the field is open (the save's echo, the CLI, the phone)",
+      "rpc": {
+        "method": "debug.home.api",
+        "params": {
+          "call": "rename_chief",
+          "name": "Chief mom"
+        }
+      },
+      "wait": 3
+    },
+    {
+      "title": "The card closes with no keystroke in the field (a click outside): the Home list and the header keep the Chief's name",
+      "rpc": {
+        "method": "debug.home.drive",
+        "params": {
+          "action": "chief_name",
+          "close": true
+        }
+      },
+      "wait": 3
+    },
+    {
+      "title": "Each surface's name and the Chief's record",
+      "rpc": {
+        "method": "debug.home.api",
+        "params": {
+          "call": "chief_names"
+        }
+      },
+      "wait": 1,
+      "shot": false
+    },
+    {
+      "title": "Quit and reopen the app: the name is still there",
+      "relaunch": true,
+      "cmux": [
+        "action",
+        "run",
+        "home.show"
+      ],
+      "wait": 10
+    },
+    {
+      "title": "Each surface's name and the Chief's record after the relaunch",
+      "rpc": {
+        "method": "debug.home.api",
+        "params": {
+          "call": "chief_names"
+        }
+      },
+      "wait": 1,
+      "shot": false
+    }
+  ]
+}

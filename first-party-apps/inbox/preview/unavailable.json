@@ -1,0 +1,79 @@
+{
+  "grant": [
+    "feed:read",
+    "feed:write",
+    "actions:run",
+    "workspace:read"
+  ],
+  "scopes": {
+    "feed.list": {
+      "scope": "feed:read",
+      "class": "read"
+    },
+    "feed.get": {
+      "scope": "feed:read",
+      "class": "read"
+    },
+    "feed.counts": {
+      "scope": "feed:read",
+      "class": "read"
+    },
+    "feed.read": {
+      "scope": "feed:write",
+      "class": "mutation"
+    },
+    "feed.archive": {
+      "scope": "feed:write",
+      "class": "mutation"
+    },
+    "feed.unarchive": {
+      "scope": "feed:write",
+      "class": "mutation"
+    },
+    "feed.snooze": {
+      "scope": "feed:write",
+      "class": "mutation"
+    },
+    "feed.answer": {
+      "scope": "feed:write",
+      "class": "mutation"
+    },
+    "feed.cancel": {
+      "scope": "feed:write",
+      "class": "mutation"
+    }
+  },
+  "ops": {
+    "feed.list": {
+      "$error": {
+        "code": "operation.unsupported",
+        "message": "feed.list is not supported by this host yet"
+      }
+    },
+    "feed.counts": {
+      "$error": {
+        "code": "operation.unsupported",
+        "message": "feed.list is not supported by this host yet"
+      }
+    },
+    "action.run": null,
+    "workspace.list": [
+      {
+        "id": "workspace_1",
+        "session_id": "session_1",
+        "name": "api-server",
+        "index": 0,
+        "focused": true
+      },
+      {
+        "id": "workspace_2",
+        "session_id": "session_1",
+        "name": "web-dashboard",
+        "index": 1,
+        "focused": false
+      }
+    ],
+    "app.storage.get": null,
+    "app.storage.set": {}
+  }
+}

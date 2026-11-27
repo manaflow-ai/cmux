@@ -1,0 +1,84 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Workspace hover card designs (u3320)</title>
+<style>
+  :root { --bg:#f3f3f5; --card:rgba(255,255,255,.92); --edge:rgba(0,0,0,.10); --ink:#1d1d1f; --muted:#6e6e73; --accent:#0a84ff; --row:#e8e8ed; --sel:#d9e7ff; }
+  @media (prefers-color-scheme: dark) { :root { --bg:#1c1c1e; --card:rgba(44,44,46,.94); --edge:rgba(255,255,255,.10); --ink:#f5f5f7; --muted:#98989d; --accent:#0a84ff; --row:#2c2c2e; --sel:#1f3a5f; } }
+  body { margin:0; padding:32px; background:var(--bg); color:var(--ink); font:13px -apple-system, BlinkMacSystemFont, "SF Pro Text", sans-serif; }
+  h1 { font-size:20px; margin:0 0 4px; } p.lead { color:var(--muted); margin:0 0 28px; max-width:820px; }
+  .grid { display:grid; grid-template-columns:repeat(auto-fill, minmax(560px, 1fr)); gap:36px; }
+  .variant h2 { font-size:14px; margin:0 0 2px; } .variant .key { color:var(--muted); font:12px ui-monospace, SFMono-Regular, monospace; margin-bottom:12px; }
+  .variant .why { color:var(--muted); font-size:12px; margin:10px 0 0; max-width:540px; }
+  .scene { display:flex; gap:0; align-items:flex-start; }
+  .sidebar { width:220px; background:var(--row); border-radius:10px; padding:6px; }
+  .ws { padding:7px 9px; border-radius:7px; display:flex; gap:8px; align-items:center; color:var(--ink); }
+  .ws.hover { background:var(--sel); } .dot { width:8px; height:8px; border-radius:50%; background:var(--muted); } .dot.work { background:var(--accent); } .dot.wait { background:#ff9f0a; }
+  .card { width:280px; background:var(--card); border:1px solid var(--edge); border-radius:12px; padding:16px; box-shadow:0 10px 30px rgba(0,0,0,.18); backdrop-filter:blur(20px); }
+  .card.wide { width:340px; }
+  .title { display:flex; gap:8px; align-items:baseline; font-weight:600; } .title .age { margin-left:auto; color:var(--muted); font-weight:400; font-size:11px; }
+  .status { display:flex; gap:8px; align-items:center; margin-top:12px; font-variant-numeric:tabular-nums; }
+  .stats { color:var(--muted); font-size:11px; margin-top:12px; font-variant-numeric:tabular-nums; }
+  .facts { margin-top:12px; display:grid; gap:8px; } .fact { display:flex; gap:8px; color:var(--muted); } .fact.msg { color:var(--ink); }
+  .ico { width:13px; text-align:center; color:var(--muted); flex:none; }
+  .hist { margin-top:12px; } .hist .h { color:var(--muted); font-size:11px; margin-bottom:8px; }
+  .scroll { max-height:220px; overflow-y:auto; display:grid; gap:8px; padding-right:4px; } .wide .scroll { max-height:360px; }
+  .line { display:grid; grid-template-columns:54px 13px 1fr; gap:8px; align-items:baseline; }
+  .line .t { color:var(--muted); font-size:11px; text-align:right; font-variant-numeric:tabular-nums; }
+  .line .x { color:var(--muted); display:-webkit-box; -webkit-line-clamp:2; -webkit-box-orient:vertical; overflow:hidden; }
+  .wide .line .x { -webkit-line-clamp:3; }
+  .line.prompt .x { color:var(--ink); } .line.wait .ico { color:#ff9f0a; }
+  .default-badge { display:inline-block; margin-left:6px; padding:1px 6px; border-radius:6px; background:var(--accent); color:white; font-size:10px; vertical-align:2px; }
+</style>
+</head>
+<body>
+<h1>Workspace hover card: five designs</h1>
+<p class="lead">u3320 (Lawrence 2026-10-19): the history of prompts, when they were sent, when Codex finished and when Claude started waiting for input, in a scrollable area, with the card customizable. Pick one with <code>sidebar.hoverCards.layout</code> (Settings &gt; Appearance &gt; Sidebar, Cmd+Shift+P, or <code>cmux settings set</code>). Scroll the history in each card: the card keeps the wheel.</p>
+<div class="grid" id="grid"></div>
+<script>
+const history = [
+  ["wait", "4:12 PM", "!", "Claude Code is waiting for your input: Allow Bash: bun test web/?"],
+  ["prompt", "4:09 PM", "➤", "Run the web tests too and fix whatever fails"],
+  ["done", "4:08 PM", "✓", "Codex finished"],
+  ["prompt", "3:55 PM", "➤", "Make the hover card scroll instead of dismissing when I scroll over it"],
+  ["done", "3:51 PM", "✓", "Claude Code finished"],
+  ["wait", "3:47 PM", "!", "Claude Code is waiting for your input: Allow Edit: WorkspaceHoverCard.swift?"],
+  ["prompt", "3:40 PM", "➤", "Add a timeline of prompts and waits to the workspace hover card, newest first"],
+  ["done", "3:32 PM", "✓", "Codex finished"],
+  ["prompt", "3:20 PM", "➤", "Rebase on feat-cmux-next and push"],
+  ["done", "Oct 18", "✓", "Codex finished"],
+  ["prompt", "Oct 18", "➤", "Why does the sidebar jump when a card opens?"],
+];
+const facts = [
+  ["◎", "Claude Code · opus-5-5", false], ["▸", "Add a timeline of prompts and waits…", true],
+  ["▢", "cmux", false], ["⑂", "hover-card-history", false], ["⇄", "#22417", false], ["⌁", ":3000, :5173", false],
+];
+const title = `<div class="title"><span class="ico">▣</span><span>a185 · Hover card history</span><span class="age">12m</span></div>`;
+const status = `<div class="status"><span class="dot wait"></span><span>Needs input · 2m 14s</span></div>`;
+const stats = `<div class="stats">Prompts: 5 · Worked 41m</div>`;
+const factsHTML = (list) => `<div class="facts">${list.map(([i,t,m]) => `<div class="fact${m?" msg":""}"><span class="ico">${i}</span><span>${t}</span></div>`).join("")}</div>`;
+const histHTML = (rows) => `<div class="hist"><div class="h">History</div><div class="scroll">${rows.map(([k,t,i,x]) => `<div class="line ${k}"><span class="t">${t}</span><span class="ico">${i}</span><span class="x">${x}</span></div>`).join("")}</div></div>`;
+const sidebar = `<div class="sidebar"><div class="ws"><span class="dot"></span>Home</div><div class="ws hover"><span class="dot wait"></span>a185 · Hover card history</div><div class="ws"><span class="dot work"></span>a168 · Tab switch rewrite</div><div class="ws"><span class="dot"></span>a175 · Scroll-up fix</div></div>`;
+const variants = [
+  { name:"Stats and History", key:"timeline", def:true, card:title+status+stats+factsHTML(facts)+histHTML(history),
+    why:"The default. Answers what I asked, when, and what it is doing now, and keeps every fact the card had. The history scrolls past 220 pt; the wheel stays in the card." },
+  { name:"Compact", key:"compact", card:title+status+factsHTML(facts)+histHTML(history.slice(0,3)),
+    why:"The facts card with the last three moments; never scrolls. For a small card." },
+  { name:"Full History", key:"log", wide:true, card:title+status+stats+histHTML(history),
+    why:"Only the history, wider (340 pt) and taller (360 pt), prompts up to three lines. For long agent workspaces." },
+  { name:"Details Only", key:"classic", card:title+status+factsHTML(facts),
+    why:"The card before this change (no history)." },
+  { name:"Minimal", key:"minimal", card:title+status+factsHTML([["➤","Run the web tests too and fix whatever fails",true]]),
+    why:"Title, status and the last prompt." },
+];
+document.getElementById("grid").innerHTML = variants.map(v => `
+  <section class="variant">
+    <h2>${v.name}${v.def?'<span class="default-badge">default</span>':""}</h2>
+    <div class="key">"sidebar.hoverCards.layout": "${v.key}"</div>
+    <div class="scene">${sidebar}<div class="card${v.wide?" wide":""}">${v.card}</div></div>
+    <p class="why">${v.why}</p>
+  </section>`).join("");
+</script>
+</body>
+</html>

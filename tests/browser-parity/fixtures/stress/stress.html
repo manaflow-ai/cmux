@@ -52,11 +52,13 @@
     }
     case "deep": {
       // Built with DOM calls: the HTML parser stops nesting at 512 levels.
+      // Every `every`-th level (default 50) is a named group.
+      const every = Number(params.get("every")) || 50;
       let at = root;
       for (let i = 0; i < n; i++) {
         const div = at.appendChild(document.createElement("div"));
         if (i % 10 === 0) div.className = "deep";
-        if (i % 50 === 0) {
+        if (i % every === 0) {
           div.setAttribute("role", "group");
           div.setAttribute("aria-label", `level ${i}`);
         }

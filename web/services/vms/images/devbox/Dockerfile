@@ -32,7 +32,7 @@ FROM ubuntu:24.04
 # Cache-buster: bump the date to force remote builders past stale layer
 # caches (a remote builder served stale layers for chatmux on 2026-08-21 and
 # 2026-08-25). Also the image version /etc/cmux/image-stamp carries.
-ENV CMUX_IMAGE_EPOCH=2026-10-28-r1
+ENV CMUX_IMAGE_EPOCH=2026-10-14-r1
 
 ENV LANG=C.UTF-8 \
     DEBIAN_FRONTEND=noninteractive
@@ -56,6 +56,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     iputils-arping \
     openssh-client \
     pkg-config \
+    locales \
     jq \
     fd-find \
     fzf \
@@ -71,6 +72,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     util-linux \
     e2fsprogs \
   && rm -rf /var/lib/apt/lists/* \
+  && locale-gen C.UTF-8 >/dev/null \
   && ln -s "$(command -v fdfind)" /usr/local/bin/fd \
   && echo 'LANG=C.UTF-8' > /etc/default/locale \
   && fd --version && jq --version && fzf --version && sqlite3 --version && tmux -V && ss -V
@@ -78,6 +80,8 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 # Muse needs a current bubblewrap; Ubuntu 24.04 ships 0.9.0. Build the
 # checksum-pinned upstream release, and divert /usr/bin/bwrap so a later apt
 # install cannot replace it. Keep /usr/bin/bwrap for Ubuntu's AppArmor profile.
+# Codex's Linux sandbox uses this bwrap instead of warning on every launch that
+# it is falling back to its bundled copy.
 # build-devbox-freestyle.ts reads these pins and replays this install command.
 ARG CMUX_IMAGE_BUBBLEWRAP_URL=https://github.com/containers/bubblewrap/releases/download/v0.13.1/bubblewrap-0.13.1.tar.xz
 ARG CMUX_IMAGE_BUBBLEWRAP_SHA256=0e85c8702248b8dd64144f594147553650cdd0e4c951690345faace79c217c4d
@@ -156,9 +160,14 @@ RUN curl -LsSf https://astral.sh/uv/install.sh | env UV_INSTALL_DIR=/usr/local/b
   && uv --version
 
 # Media layer for agent-browser and display capture: ffmpeg for x11grab,
-# Xvfb + xdpyinfo/xprop for a headless display, xdotool, fonts for Chrome.
+# Xvfb + xdpyinfo/xprop for a headless display, xdotool, fonts for Chrome;
+# imagemagick, poppler-utils and git-lfs for people's own media, PDFs and LFS
+# repos (Leo, 2026-11-25: a chat on a folder of MP4s had no ffprobe).
 RUN apt-get update && apt-get install -y --no-install-recommends \
     ffmpeg \
+    imagemagick \
+    poppler-utils \
+    git-lfs \
     xvfb \
     xauth \
     x11-utils \
@@ -166,7 +175,9 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     fonts-dejavu-core \
     fonts-liberation \
   && rm -rf /var/lib/apt/lists/* \
-  && command -v Xvfb && command -v xdpyinfo && command -v xprop && command -v xdotool
+  && git lfs install --system --skip-repo \
+  && command -v Xvfb && command -v xdpyinfo && command -v xprop && command -v xdotool \
+  && ffprobe -hide_banner -version >/dev/null && convert -version >/dev/null && command -v pdftotext
 
 # Google Chrome stable from the official .deb (amd64 only; every provider
 # here runs amd64 sandboxes) with the managed policy (DuckDuckGo default
@@ -191,6 +202,29 @@ RUN curl -fsSL https://cua.ai/driver/install.sh -o /tmp/cua-install.sh \
   && rm -f /tmp/cua-install.sh \
   && chmod -R a+rX /opt/cua-driver \
   && cua-driver --version
+
+# agent-desktop (vercel-labs, Apache-2.0): computer use through the AT-SPI
+# accessibility tree (snapshot with refs, find, click, type, launch, window
+# and screenshot commands). The release archive is pinned by URL and SHA-256
+# (`gh attestation verify --repo vercel-labs/agent-desktop` passed on it when
+# it was pinned); its clipboard helper stays beside the binary, which finds it
+# through the link. Like cua-driver it acts on the display a shell points it
+# at: the VNC desktop below, through /etc/cmux/desktop-env.sh (DISPLAY, the
+# session bus and the accessibility bus). Verified against openbox under
+# TigerVNC, not only GNOME. build-devbox-freestyle.ts reads these pins and
+# replays this install command.
+ARG CMUX_IMAGE_AGENT_DESKTOP_URL=https://github.com/vercel-labs/agent-desktop/releases/download/v1.0.2/agent-desktop-v1.0.2-x86_64-unknown-linux-gnu.tar.gz
+ARG CMUX_IMAGE_AGENT_DESKTOP_SHA256=ad661b7a3fd8f990a769243f4889a240ca0e2c8dab3ef5bddd6019086c71e0b4
+RUN curl -fsSL -o /tmp/agent-desktop.tar.gz $CMUX_IMAGE_AGENT_DESKTOP_URL \
+  && echo "$CMUX_IMAGE_AGENT_DESKTOP_SHA256  /tmp/agent-desktop.tar.gz" | sha256sum -c - \
+  && rm -rf /opt/agent-desktop \
+  && mkdir -p /opt/agent-desktop \
+  && tar -xzf /tmp/agent-desktop.tar.gz -C /opt/agent-desktop --no-same-owner \
+  && rm -f /tmp/agent-desktop.tar.gz \
+  && chmod -R a+rX /opt/agent-desktop \
+  && test -x /opt/agent-desktop/agent-desktop-linux-clipboard-owner \
+  && ln -sfn /opt/agent-desktop/agent-desktop /usr/local/bin/agent-desktop \
+  && test "$(agent-desktop --version)" = "agent-desktop 1.0.2"
 
 # Desktop layer: TigerVNC serving an openbox session with the tint2 dock
 # (Chrome, Files, Ghostty), Thunar, the CC0 wallpaper, the accessibility bus
@@ -231,8 +265,11 @@ COPY desktop/start-vnc.sh /usr/local/bin/start-vnc.sh
 COPY desktop/cmux-desktop-boot /usr/local/bin/cmux-desktop-boot
 COPY desktop/cmux-desktop.service /etc/systemd/system/cmux-desktop.service
 COPY desktop/desktop-env.sh /etc/cmux/desktop-env.sh
-RUN chmod 0755 /usr/local/bin/start-vnc.sh /usr/local/bin/cmux-desktop-boot \
-  && bash -n /usr/local/bin/start-vnc.sh && sh -n /usr/local/bin/cmux-desktop-boot && sh -n /etc/cmux/desktop-env.sh \
+# Cloud browser role (plans/cmux-next/cloud-browser-DESIGN.md CB-2): shipped, never enabled here.
+COPY desktop/cmux-cloud-browser /usr/local/bin/cmux-cloud-browser
+COPY desktop/cmux-cloud-browser.service /etc/systemd/system/cmux-cloud-browser.service
+RUN chmod 0755 /usr/local/bin/start-vnc.sh /usr/local/bin/cmux-desktop-boot /usr/local/bin/cmux-cloud-browser \
+  && bash -n /usr/local/bin/cmux-cloud-browser && bash -n /usr/local/bin/start-vnc.sh && sh -n /usr/local/bin/cmux-desktop-boot && sh -n /etc/cmux/desktop-env.sh \
   && mkdir -p /etc/cmux/icons \
   && cp /opt/google/chrome/product_logo_128.png /etc/cmux/icons/google-chrome.png \
   && cp "$(find /usr/share/icons -name 'org.xfce.thunar.png' -path '*128*' | head -1)" /etc/cmux/icons/thunar.png \
@@ -362,6 +399,14 @@ RUN mkdir -p /etc/cmux/blesh-cache-seed \
 # proves the persisted-env re-source path, then proves the image itself
 # ships no generated config.
 COPY agent-config.sh /etc/cmux/agent-config.sh
+COPY claude-onboarding.py /etc/cmux/claude-onboarding.py
+# Claude Code user-settings defaults: messages from the person's other Claude
+# Code sessions are delivered, not held (Leo, 2026-11-18: "they shouldnt hold
+# em"). User settings, not managed ones, so the person's own value wins
+# (devboxClaudeSettingsDefaultsCommand).
+RUN python3 -I /etc/cmux/claude-onboarding.py --settings-default /root/.claude/settings.json \
+  && sudo -n -u cmux python3 -I /etc/cmux/claude-onboarding.py --settings-default /home/cmux/.claude/settings.json \
+  && python3 -c 'import json; assert all("crossSessionInbound" in (row := json.load(open(p))) and row["crossSessionInbound"] in ("accept", "hold", "refuse") for p in ["/root/.claude/settings.json", "/home/cmux/.claude/settings.json"])'
 # Agent sign-in launchers: /usr/local/bin/<agent> resolves the team or
 # own-login mode per launch (agent-auth.sh) and execs
 # /usr/local/libexec/cmux-<agent>-real. mise's shims come first on PATH, so
@@ -381,7 +426,10 @@ RUN sh -n /etc/cmux/agent-auth.sh && mkdir -p /usr/local/libexec \
        && /usr/local/bin/$a --version >/dev/null || exit 1; \
      done \
   && for a in claude codex opencode; do test "$(readlink -f "$(command -v $a)")" = /etc/cmux/$a || exit 1; done
+# The check below proves the owner path (agent-config.sh keeps a caller's model-plane env
+# only on an owner record); the team record every machine boots with is written further down.
 RUN bash -n /etc/cmux/agent-config.sh \
+  && mkdir -p /etc/cmux && echo owner > /etc/cmux/vm-kind \
   && echo '[ -f /etc/cmux/agent-config.sh ] && . /etc/cmux/agent-config.sh' > /etc/profile.d/cmux-agents.sh \
   && echo '[ -f /etc/cmux/agent-config.sh ] && . /etc/cmux/agent-config.sh' >> /etc/bash.bashrc \
   && echo '[ -f /etc/cmux/agent-config.sh ] && . /etc/cmux/agent-config.sh' >> /etc/skel/.bashrc \
@@ -424,15 +472,19 @@ RUN bash -n /etc/cmux/agent-config.sh \
 # by the driver at create time, never baked). Without systemd it also runs the
 # desktop supervisor as the work user.
 COPY cmux-devbox-boot /usr/local/bin/cmux-devbox-boot
+COPY cmux-vm-kind-sync /usr/local/bin/cmux-vm-kind-sync
 COPY cmux-tui-state-mount /usr/local/bin/cmux-tui-state-mount
-# The Ghostty generation panes announce as TERM_PROGRAM_VERSION next to
-# TERM_PROGRAM=ghostty (the supervisor reads it; base images without the .deb
-# still record the pin). The Freestyle bake writes the same file.
+# The Ghostty .deb pin, recorded for the acpmux daemon launch (base images
+# without the .deb still record it); terminal panes say TERM_PROGRAM=cmux with
+# cmux's own version. The Freestyle bake writes the same file.
 RUN chmod 0755 /usr/local/bin/cmux-devbox-boot \
+  && chmod 0755 /usr/local/bin/cmux-vm-kind-sync \
   && chmod 0755 /usr/local/bin/cmux-tui-state-mount \
   && sh -n /usr/local/bin/cmux-devbox-boot \
+  && sh -n /usr/local/bin/cmux-vm-kind-sync \
   && sh -n /usr/local/bin/cmux-tui-state-mount \
   && mkdir -p /etc/cmux \
+  && echo team > /etc/cmux/vm-kind && chmod 0644 /etc/cmux/vm-kind \
   && echo "$CMUX_IMAGE_GHOSTTY_DEB_URL" | sed -n 's|.*/ghostty_\([0-9][0-9]*\.[0-9][0-9]*\.[0-9][0-9]*\)[-_].*|\1|p' > /etc/cmux/ghostty-version \
   && grep -Eq '^[0-9]+\.[0-9]+\.[0-9]+$' /etc/cmux/ghostty-version
 

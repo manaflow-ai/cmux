@@ -1,0 +1,29 @@
+{
+  "title": "Screenshots: a tab that an agent or a script opens or shows lists nothing until the person clicks Show Screenshots (macOS guards the Desktop)",
+  "steps": [
+    {
+      "title": "Launch",
+      "wait": 3,
+      "shot": false
+    },
+    {
+      "title": "A workspace",
+      "cmux": ["workspace", "new", "--name", "shots"],
+      "wait": 2,
+      "shot": false,
+      "optional": "needs the daemon"
+    },
+    {
+      "title": "A script opens Screenshots with --focus: it opens in the background and says so",
+      "cmux": ["screenshots", "open", "--focus"],
+      "wait": 2,
+      "shot": false
+    },
+    {
+      "title": "The tab shown, as an agent can show it: the Show Screenshots prompt, and no folder is read",
+      "cmux": ["action", "run", "nextSurface", "--focus"],
+      "wait": 3,
+      "optional": "the tab strip order may differ"
+    }
+  ]
+}

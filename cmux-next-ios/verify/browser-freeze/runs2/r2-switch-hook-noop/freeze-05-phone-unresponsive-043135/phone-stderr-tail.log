@@ -1,0 +1,11 @@
+2026-10-24T04:29:37.705361Z  INFO cmux_mobile_link::dial::turn: TURN allocation for WireGuard relayed=104.30.144.60:54989 server="turn.cloudflare.com:3478" transport=Udp
+2026-10-23 21:29:38.003 CmuxMobileApp[80080:613001478] void * _Nullable NSMapGet(NSMapTable * _Nonnull, const void * _Nullable): map table argument is NULL
+objc[80080]: Class UIAccessibilityLoaderWebShared is implemented in both /Library/Developer/CoreSimulator/Volumes/iOS_23F77/Library/Developer/CoreSimulator/Profiles/Runtimes/iOS 26.5.simruntime/Contents/Resources/RuntimeRoot/System/Library/AccessibilityBundles/WebKit.axbundle/WebKit (0x10cd94398) and /Library/Developer/CoreSimulator/Volumes/iOS_23F77/Library/Developer/CoreSimulator/Profiles/Runtimes/iOS 26.5.simruntime/Contents/Resources/RuntimeRoot/System/Library/AccessibilityBundles/WebCore.axbundle/WebCore (0x117ef4310). This may cause spurious casting failures and mysterious crashes. One of the duplicates must be removed or renamed.
+2026-10-24T04:29:38.105434Z DEBUG cmux_mobile_link::link: input lane attached role=Phone
+2026-10-23 21:29:40.503 CmuxMobileApp[80080:613001478] CoreText performance note: Client called CTFontCreateWithName() using name "Apple Color Emoji" and got font with PostScript name "AppleColorEmoji". For best performance, only use PostScript names when calling this API.
+2026-10-23 21:29:40.503 CmuxMobileApp[80080:613001478] CoreText performance note: Set a breakpoint on CTFontLogSuboptimalRequest to debug.
+IOSurfaceClientSetSurfaceNotify failed e00002c7
+2026-10-24T04:29:46.051480Z DEBUG cmux_mobile_link::dial::wireguard: peer confirmed our datagrams reach it direct=Some(Route { carrier: Turn, addr: 104.184.154.177:61546 })
+2026-10-24T04:29:50.684435Z  INFO cmux_mobile_link::hybrid: media session up session="9c08d3cc-3897-4adb-ae6e-0d18f425026e"
+2026-10-24T04:30:03.385781Z DEBUG cmux_mobile_link::signaling: dropping a signal for an unknown session session="cdd15001-5468-4bd8-9e02-7cfa4ce26454"
+2026-10-24T04:30:30.684782Z  INFO cmux_mobile_link::hybrid: dev: killing the media session every_s=40

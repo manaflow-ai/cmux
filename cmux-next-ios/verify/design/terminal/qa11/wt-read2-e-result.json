@@ -1,0 +1,83 @@
+{
+ "tag": "wt-read2-e",
+ "mode": "read2",
+ "gap": 3.4,
+ "kills_v": [
+  5.17,
+  8.75
+ ],
+ "hostd": [
+  [
+   1.86,
+   "NFO cnx_hostd: starting device_id=\"e768bbe4-2a31-4632-a394-8ceefbb89287\" team=\"personal-4c3c1f89-a263-4381-b729-db4b6d38"
+  ],
+  [
+   2.93,
+   "NFO cnx_hostd::host: link up session_id=\"d5efd411-98df-4d8b-af20-d9d1aea19957\" kind=WebRtc path=Turn phone=\"c839f17d-951"
+  ],
+  [
+   6.57,
+   "NFO cnx_hostd: starting device_id=\"e768bbe4-2a31-4632-a394-8ceefbb89287\" team=\"personal-4c3c1f89-a263-4381-b729-db4b6d38"
+  ],
+  [
+   7.95,
+   "NFO cnx_hostd::host: link up session_id=\"4cc02fe8-45c4-4fe2-8ba6-d75dda6a00d0\" kind=WebRtc path=Turn phone=\"c839f17d-951"
+  ]
+ ],
+ "before": [
+  "GEN-1874",
+  "GEN-1875",
+  "GEN-1876",
+  "GEN-1877",
+  "GEN-1878",
+  "GEN-1879"
+ ],
+ "before_plus1s": [
+  "GEN-1874",
+  "GEN-1875",
+  "GEN-1876",
+  "GEN-1877",
+  "GEN-1878",
+  "GEN-1879"
+ ],
+ "after": [
+  "GEN-1874",
+  "GEN-1875",
+  "GEN-1876",
+  "GEN-1877",
+  "GEN-1878",
+  "GEN-1879"
+ ],
+ "after_plus3s": [
+  "GEN-1874",
+  "GEN-1875",
+  "GEN-1876",
+  "GEN-1877",
+  "GEN-1878",
+  "GEN-1879"
+ ],
+ "jump_visible_after": true,
+ "replays": [
+  "surface 37: mirror reset cause=reattach",
+  "surface 37: mirror reset cause=reattach"
+ ],
+ "unknown_surface": 0,
+ "reading_marks": [
+  "reading mark row 15712 of 17515: kept",
+  "reading mark restored row 15712 -> 15712 of 17633",
+  "reading mark row 15712 of 17686: kept",
+  "reading mark restored row 15712 -> 14825 of 17051"
+ ],
+ "blank_page_lines": [],
+ "video_black_runs": [],
+ "video_black_over_1_frame": [],
+ "framelog_blank_runs_over_1": [],
+ "framelog_blank_frames": 0,
+ "dt_max": 66.53,
+ "frac_gaps_over_34ms": 0.0817,
+ "load": [
+  49.55,
+  36.65,
+  29.44
+ ]
+}

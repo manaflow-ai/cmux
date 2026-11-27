@@ -1,0 +1,105 @@
+{
+ "title": "Auto-archive: suggest (default) asks with a sidebar card",
+ "steps": [
+  {
+   "title": "Launch",
+   "wait": 2
+  },
+  {
+   "title": "Workspace design-review",
+   "cmux": [
+    "workspace",
+    "new",
+    "--name",
+    "design-review"
+   ],
+   "shot": false,
+   "wait": 1
+  },
+  {
+   "title": "Workspace flaky-ci",
+   "cmux": [
+    "workspace",
+    "new",
+    "--name",
+    "flaky-ci"
+   ],
+   "shot": false,
+   "wait": 1
+  },
+  {
+   "title": "Workspace old-spike",
+   "cmux": [
+    "workspace",
+    "new",
+    "--name",
+    "old-spike"
+   ],
+   "shot": false,
+   "wait": 1
+  },
+  {
+   "title": "Workspace release-notes",
+   "cmux": [
+    "workspace",
+    "new",
+    "--name",
+    "release-notes"
+   ],
+   "shot": false,
+   "wait": 1
+  },
+  {
+   "title": "Group the last one",
+   "cmux": [
+    "action",
+    "run",
+    "workspace.moveToNewGroup"
+   ],
+   "shot": false,
+   "wait": 1,
+   "optional": "group creation by CLI depends on the target the run resolves"
+  },
+  {
+   "title": "Second member of the group",
+   "cmux": [
+    "action",
+    "run",
+    "workspaceGroup.newWorkspace"
+   ],
+   "shot": false,
+   "wait": 1,
+   "optional": "group creation by CLI depends on the target the run resolves"
+  },
+  {
+   "title": "Workspace today",
+   "cmux": [
+    "workspace",
+    "new",
+    "--name",
+    "today"
+   ],
+   "shot": false,
+   "wait": 1
+  },
+  {
+   "title": "Ten days pass (Debug: Age Workspaces for Auto-Archive)",
+   "cmux": [
+    "action",
+    "run",
+    "debug.autoArchive.age",
+    "--arg",
+    "days=10"
+   ],
+   "wait": 3
+  }
+ ],
+ "settings": {
+  "workspaces": {
+   "autoArchive": {
+    "style": "suggest",
+    "idleDays": 3
+   }
+  }
+ }
+}

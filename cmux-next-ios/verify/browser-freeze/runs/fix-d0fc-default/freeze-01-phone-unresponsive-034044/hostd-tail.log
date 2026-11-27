@@ -1,0 +1,69 @@
+2026-10-24T03:37:10.013490Z DEBUG cmux_mobile_link::dial::wireguard: peer confirmed our datagrams reach it direct=Some(Route { carrier: Udp, addr: 104.30.145.6:59663 })
+2026-10-24T03:37:10.030184Z  INFO cmux_mobile_host::host: link up session_id="16f9c8e1-c8bc-4fd7-980a-342696560161" kind=WireGuard path=Turn phone="07d3d268-ebfe-4601-af11-a32bd5d268cd" video=true timings=offer_received=0.0ms ice_servers_cached=0.0ms video_lane=130.4ms link_ready=130.6ms
+2026-10-24T03:37:10.030451Z  INFO cmux_mobile_host::host: link path changed session_id="16f9c8e1-c8bc-4fd7-980a-342696560161" path=Turn
+2026-10-24T03:37:10.031612Z  INFO cmux_mobile_host::host: first channel session_id="16f9c8e1-c8bc-4fd7-980a-342696560161" timings=offer_received=0.0ms ice_servers_cached=0.0ms video_lane=130.4ms link_ready=130.6ms first_channel=132.0ms
+2026-10-24T03:37:10.031825Z  INFO cmux_mobile_host::services: channel opened service="daemon" channel=3 lane=Bulk own_stream=false peer="07d3d268-ebfe-4601-af11-a32bd5d268cd"
+2026-10-24T03:37:10.031854Z  INFO cmux_mobile_host::services: channel opened service="auth" channel=1 lane=Bulk own_stream=false peer="07d3d268-ebfe-4601-af11-a32bd5d268cd"
+2026-10-24T03:37:10.045708Z  INFO cmux_mobile_host::services: channel opened service="version" channel=5 lane=Bulk own_stream=false peer="07d3d268-ebfe-4601-af11-a32bd5d268cd"
+2026-10-24T03:37:10.045781Z DEBUG cmux_mobile_link::link: input lane attached role=Mac
+2026-10-24T03:37:10.090510Z  INFO cmux_mobile_host::services: channel opened service="acpmux" channel=7 lane=Bulk own_stream=false peer="07d3d268-ebfe-4601-af11-a32bd5d268cd"
+2026-10-24T03:37:10.187393Z  INFO cmux_mobile_host::services: channel opened service="chief" channel=9 lane=Bulk own_stream=false peer="07d3d268-ebfe-4601-af11-a32bd5d268cd"
+2026-10-24T03:37:10.221238Z  INFO cmux_mobile_host::services: channel opened service="chief" channel=11 lane=Bulk own_stream=false peer="07d3d268-ebfe-4601-af11-a32bd5d268cd"
+2026-10-24T03:37:10.266893Z  INFO cmux_mobile_host::media_session: media session up session_id="90997b2b-5106-405f-9da0-12f39f256c39" link_session="16f9c8e1-c8bc-4fd7-980a-342696560161" path=Direct timings=media_offer_received=0.0ms pc_created=0.3ms media_answer_sent=0.9ms remote_host=0.9ms ice_checking=0.9ms remote_srflx=0.9ms local_host=1.6ms remote_relay=4.5ms local_srflx=17.7ms local_relay=29.1ms ice_connected=78.1ms dtls_connected=82.2ms media_connected=82.2ms
+2026-10-24T03:37:19.196493Z  INFO cmux_mobile_host::media_session: media session down session_id="8279cba8-79a9-4916-af2f-c5f2a6bfe2a2" link_session="559c67fd-c7a9-49cc-b0cc-3c6206d2228c" reason="failed"
+2026-10-24T03:37:21.757674Z  INFO cmux_mobile_host::services: channel opened service="daemon" channel=13 lane=Bulk own_stream=false peer="07d3d268-ebfe-4601-af11-a32bd5d268cd"
+2026-10-24T03:37:21.760138Z  INFO cmux_mobile_host::services: channel opened service="daemon" channel=15 lane=Bulk own_stream=false peer="07d3d268-ebfe-4601-af11-a32bd5d268cd"
+2026-10-24T03:37:21.819953Z  INFO cmux_mobile_host::services: channel opened service="daemon" channel=17 lane=Input own_stream=true peer="07d3d268-ebfe-4601-af11-a32bd5d268cd"
+2026-10-24T03:37:23.511058Z DEBUG cmux_mobile_link::dial::wireguard: WireGuard route no longer confirmed; sending on every route again why="route silent"
+2026-10-24T03:37:23.664242Z  WARN boringtun::noise::timers: HANDSHAKE(KEEPALIVE + REKEY_TIMEOUT)
+2026-10-24T03:37:23.914924Z DEBUG cmux_mobile_link::dial::wireguard: WireGuard repeats an unanswered handshake initiation repeat=1
+2026-10-24T03:37:24.416887Z DEBUG cmux_mobile_link::dial::wireguard: WireGuard repeats an unanswered handshake initiation repeat=2
+2026-10-24T03:37:25.418510Z DEBUG cmux_mobile_link::dial::wireguard: WireGuard repeats an unanswered handshake initiation repeat=3
+2026-10-24T03:37:27.419566Z DEBUG cmux_mobile_link::dial::wireguard: WireGuard repeats an unanswered handshake initiation repeat=4
+2026-10-24T03:37:28.693575Z  WARN boringtun::noise::timers: HANDSHAKE(REKEY_TIMEOUT)
+2026-10-24T03:37:28.945632Z DEBUG cmux_mobile_link::dial::wireguard: WireGuard repeats an unanswered handshake initiation repeat=1
+2026-10-24T03:37:29.447570Z DEBUG cmux_mobile_link::dial::wireguard: WireGuard repeats an unanswered handshake initiation repeat=2
+2026-10-24T03:37:30.448182Z DEBUG cmux_mobile_link::dial::wireguard: WireGuard repeats an unanswered handshake initiation repeat=3
+2026-10-24T03:37:32.449953Z DEBUG cmux_mobile_link::dial::wireguard: WireGuard repeats an unanswered handshake initiation repeat=4
+2026-10-24T03:37:33.615854Z DEBUG cmux_mobile_link::link: link closed reason="keepalive timed out"
+2026-10-24T03:37:33.617173Z  INFO cmux_mobile_host::host: link down session_id="559c67fd-c7a9-49cc-b0cc-3c6206d2228c" reason="keepalive timed out"
+2026-10-24T03:37:47.442872Z  INFO cmux_mobile_host::services: channel opened service="browser" channel=19 lane=Bulk own_stream=false peer="07d3d268-ebfe-4601-af11-a32bd5d268cd"
+2026-10-24T03:37:47.604982Z  INFO cmux_mobile_host::browser: browser: host started tab="new-44d03d19-t1" addr=127.0.0.1:50992
+2026-10-24T03:37:47.605204Z  INFO cmux_mobile_host::browser: browser: video on the link's media lane
+2026-10-24T03:37:47.791057Z  INFO cmux_mobile_host::services: channel opened service="daemon" channel=21 lane=Bulk own_stream=false peer="07d3d268-ebfe-4601-af11-a32bd5d268cd"
+2026-10-24T03:37:48.061487Z  INFO cmux_mobile_host::media_session: browser video route link_session="16f9c8e1-c8bc-4fd7-980a-342696560161" carrier=Some("webrtc-track")
+2026-10-24T03:37:52.611464Z  INFO cmux_mobile_host::browser: browser: media lane frames=2 held_acks=0 host_datagrams=2 target_kbps=2520 in_flight=0 congested=false feedback_delay_ms=13 loss=0.0 packets=6 nacks=0 keyframe_requests=1
+2026-10-24T03:37:57.618959Z  INFO cmux_mobile_host::browser: browser: media lane frames=2 held_acks=0 host_datagrams=2 target_kbps=2520 in_flight=0 congested=false feedback_delay_ms=13 loss=0.0 packets=6 nacks=0 keyframe_requests=1
+2026-10-24T03:38:02.638740Z  INFO cmux_mobile_host::browser: browser: media lane frames=3 held_acks=0 host_datagrams=3 target_kbps=2721 in_flight=0 congested=false feedback_delay_ms=12 loss=0.0 packets=9 nacks=0 keyframe_requests=2
+2026-10-24T03:38:07.645020Z  INFO cmux_mobile_host::browser: browser: media lane frames=3 held_acks=0 host_datagrams=3 target_kbps=2721 in_flight=0 congested=false feedback_delay_ms=12 loss=0.0 packets=9 nacks=0 keyframe_requests=2
+2026-10-24T03:38:12.651703Z  INFO cmux_mobile_host::browser: browser: media lane frames=4 held_acks=0 host_datagrams=4 target_kbps=2939 in_flight=0 congested=false feedback_delay_ms=13 loss=0.0 packets=12 nacks=0 keyframe_requests=3
+2026-10-24T03:38:17.654775Z  INFO cmux_mobile_host::browser: browser: media lane frames=4 held_acks=0 host_datagrams=4 target_kbps=2939 in_flight=0 congested=false feedback_delay_ms=13 loss=0.0 packets=12 nacks=0 keyframe_requests=3
+2026-10-24T03:38:22.659123Z  INFO cmux_mobile_host::browser: browser: media lane frames=5 held_acks=0 host_datagrams=5 target_kbps=3174 in_flight=0 congested=false feedback_delay_ms=12 loss=0.0 packets=15 nacks=0 keyframe_requests=4
+2026-10-24T03:38:27.665530Z  INFO cmux_mobile_host::browser: browser: media lane frames=5 held_acks=0 host_datagrams=5 target_kbps=3174 in_flight=0 congested=false feedback_delay_ms=12 loss=0.0 packets=15 nacks=0 keyframe_requests=4
+2026-10-24T03:38:32.672201Z  INFO cmux_mobile_host::browser: browser: media lane frames=11 held_acks=0 host_datagrams=165 target_kbps=3783 in_flight=0 congested=false feedback_delay_ms=10 loss=0.0 packets=214 nacks=0 keyframe_requests=5
+2026-10-24T03:38:34.524490Z  INFO cmux_mobile_host::services: channel opened service="daemon" channel=23 lane=Bulk own_stream=false peer="07d3d268-ebfe-4601-af11-a32bd5d268cd"
+2026-10-24T03:38:37.678441Z  INFO cmux_mobile_host::browser: browser: media lane frames=11 held_acks=0 host_datagrams=165 target_kbps=3783 in_flight=0 congested=false feedback_delay_ms=10 loss=0.0 packets=214 nacks=0 keyframe_requests=5
+2026-10-24T03:38:42.685204Z  INFO cmux_mobile_host::browser: browser: media lane frames=13 held_acks=0 host_datagrams=167 target_kbps=4086 in_flight=0 congested=false feedback_delay_ms=11 loss=0.0 packets=218 nacks=0 keyframe_requests=5
+2026-10-24T03:38:47.689944Z  INFO cmux_mobile_host::browser: browser: media lane frames=13 held_acks=0 host_datagrams=167 target_kbps=4086 in_flight=0 congested=false feedback_delay_ms=11 loss=0.0 packets=218 nacks=0 keyframe_requests=5
+2026-10-24T03:38:52.694311Z  INFO cmux_mobile_host::browser: browser: media lane frames=14 held_acks=0 host_datagrams=168 target_kbps=4413 in_flight=0 congested=false feedback_delay_ms=11 loss=0.0 packets=221 nacks=0 keyframe_requests=6
+2026-10-24T03:38:57.706369Z  INFO cmux_mobile_host::browser: browser: media lane frames=14 held_acks=0 host_datagrams=168 target_kbps=4413 in_flight=0 congested=false feedback_delay_ms=11 loss=0.0 packets=221 nacks=0 keyframe_requests=6
+2026-10-24T03:39:02.708601Z  INFO cmux_mobile_host::browser: browser: media lane frames=15 held_acks=0 host_datagrams=169 target_kbps=4766 in_flight=0 congested=false feedback_delay_ms=12 loss=0.0 packets=224 nacks=0 keyframe_requests=7
+2026-10-24T03:39:07.713045Z  INFO cmux_mobile_host::browser: browser: media lane frames=15 held_acks=0 host_datagrams=169 target_kbps=4766 in_flight=0 congested=false feedback_delay_ms=12 loss=0.0 packets=224 nacks=0 keyframe_requests=7
+2026-10-24T03:39:12.744468Z  INFO cmux_mobile_host::browser: browser: media lane frames=16 held_acks=0 host_datagrams=170 target_kbps=5147 in_flight=0 congested=false feedback_delay_ms=14 loss=0.0 packets=227 nacks=0 keyframe_requests=8
+2026-10-24T03:39:17.753803Z  INFO cmux_mobile_host::browser: browser: media lane frames=16 held_acks=0 host_datagrams=170 target_kbps=5147 in_flight=0 congested=false feedback_delay_ms=14 loss=0.0 packets=227 nacks=0 keyframe_requests=8
+2026-10-24T03:39:22.760743Z  INFO cmux_mobile_host::browser: browser: media lane frames=17 held_acks=0 host_datagrams=171 target_kbps=5559 in_flight=0 congested=false feedback_delay_ms=13 loss=0.0 packets=230 nacks=0 keyframe_requests=9
+2026-10-24T03:39:27.777041Z  INFO cmux_mobile_host::browser: browser: media lane frames=17 held_acks=0 host_datagrams=171 target_kbps=5559 in_flight=0 congested=false feedback_delay_ms=13 loss=0.0 packets=230 nacks=0 keyframe_requests=9
+2026-10-24T03:39:32.782783Z  INFO cmux_mobile_host::browser: browser: media lane frames=18 held_acks=0 host_datagrams=172 target_kbps=6004 in_flight=0 congested=false feedback_delay_ms=14 loss=0.0 packets=233 nacks=0 keyframe_requests=10
+2026-10-24T03:39:37.789204Z  INFO cmux_mobile_host::browser: browser: media lane frames=18 held_acks=0 host_datagrams=172 target_kbps=6004 in_flight=0 congested=false feedback_delay_ms=14 loss=0.0 packets=233 nacks=0 keyframe_requests=10
+2026-10-24T03:39:42.793360Z  INFO cmux_mobile_host::browser: browser: media lane frames=23 held_acks=0 host_datagrams=237 target_kbps=6511 in_flight=0 congested=false feedback_delay_ms=15 loss=0.0 packets=316 nacks=0 keyframe_requests=10
+2026-10-24T03:39:47.804523Z  INFO cmux_mobile_host::browser: browser: media lane frames=23 held_acks=0 host_datagrams=237 target_kbps=6511 in_flight=0 congested=false feedback_delay_ms=15 loss=0.0 packets=316 nacks=0 keyframe_requests=10
+2026-10-24T03:39:52.811006Z  INFO cmux_mobile_host::browser: browser: media lane frames=24 held_acks=0 host_datagrams=276 target_kbps=7031 in_flight=0 congested=false feedback_delay_ms=14 loss=0.0 packets=364 nacks=0 keyframe_requests=11
+2026-10-24T03:39:57.816657Z  INFO cmux_mobile_host::browser: browser: media lane frames=24 held_acks=0 host_datagrams=276 target_kbps=7031 in_flight=0 congested=false feedback_delay_ms=14 loss=0.0 packets=364 nacks=0 keyframe_requests=11
+2026-10-24T03:40:02.820814Z  INFO cmux_mobile_host::browser: browser: media lane frames=25 held_acks=0 host_datagrams=315 target_kbps=7594 in_flight=0 congested=false feedback_delay_ms=13 loss=0.0 packets=412 nacks=0 keyframe_requests=12
+2026-10-24T03:40:07.832068Z  INFO cmux_mobile_host::browser: browser: media lane frames=94 held_acks=0 host_datagrams=669 target_kbps=9448 in_flight=0 congested=false feedback_delay_ms=10 loss=0.0 packets=896 nacks=0 keyframe_requests=12
+2026-10-24T03:40:12.833819Z  INFO cmux_mobile_host::browser: browser: media lane frames=217 held_acks=0 host_datagrams=1342 target_kbps=11887 in_flight=0 congested=false feedback_delay_ms=12 loss=0.0 packets=1804 nacks=0 keyframe_requests=12
+2026-10-24T03:40:17.840986Z  INFO cmux_mobile_host::browser: browser: media lane frames=366 held_acks=0 host_datagrams=1818 target_kbps=17711 in_flight=0 congested=false feedback_delay_ms=16 loss=0.0 packets=2509 nacks=0 keyframe_requests=12
+2026-10-24T03:40:22.842509Z  INFO cmux_mobile_host::browser: browser: media lane frames=456 held_acks=0 host_datagrams=2132 target_kbps=20000 in_flight=0 congested=false feedback_delay_ms=14 loss=0.0 packets=2963 nacks=0 keyframe_requests=12
+2026-10-24T03:40:27.849739Z  INFO cmux_mobile_host::browser: browser: media lane frames=456 held_acks=0 host_datagrams=2132 target_kbps=20000 in_flight=0 congested=false feedback_delay_ms=14 loss=0.0 packets=2963 nacks=0 keyframe_requests=12
+2026-10-24T03:40:32.857314Z  INFO cmux_mobile_host::browser: browser: media lane frames=457 held_acks=0 host_datagrams=2155 target_kbps=20000 in_flight=0 congested=false feedback_delay_ms=15 loss=0.0 packets=2993 nacks=0 keyframe_requests=13
+2026-10-24T03:40:37.865974Z  INFO cmux_mobile_host::browser: browser: media lane frames=457 held_acks=0 host_datagrams=2155 target_kbps=20000 in_flight=0 congested=false feedback_delay_ms=15 loss=0.0 packets=2993 nacks=0 keyframe_requests=13

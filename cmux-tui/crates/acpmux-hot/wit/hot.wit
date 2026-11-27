@@ -1,0 +1,23 @@
+package cmux:acpmux-hot@0.1.0;
+
+/// The acpmux pieces a dev may swap live (plans/cmux-next/acpmux-hot-modules-DESIGN.md).
+/// Every export is a pure function of its arguments: no state survives a call that the host
+/// relies on, so a new module takes over between two calls with nothing to move. The world
+/// imports nothing; the host traps every import the toolchain adds (no WASI capability).
+world hot {
+  /// Bumped when an export's shape changes; the host refuses a module of another version.
+  export abi-version: func() -> u32;
+
+  /// write_journal::classify::is_pure_read: true when one shell command line only reads files.
+  export is-pure-read: func(command: string) -> bool;
+
+  enum agent { claude, codex }
+
+  record offer {
+    url: string,
+    user-code: option<string>,
+  }
+
+  /// agent_login::parse::offer: what an agent CLI's sign-in output offers so far.
+  export login-offer: func(agent: agent, output: string) -> option<offer>;
+}

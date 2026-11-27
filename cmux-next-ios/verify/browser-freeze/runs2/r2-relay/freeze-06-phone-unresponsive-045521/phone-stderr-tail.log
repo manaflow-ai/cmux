@@ -1,0 +1,26 @@
+2026-10-23 21:50:04.259 CmuxMobileApp[80806:613959192] void * _Nullable NSMapGet(NSMapTable * _Nonnull, const void * _Nullable): map table argument is NULL
+objc[80806]: Class UIAccessibilityLoaderWebShared is implemented in both /Library/Developer/CoreSimulator/Volumes/iOS_23F77/Library/Developer/CoreSimulator/Profiles/Runtimes/iOS 26.5.simruntime/Contents/Resources/RuntimeRoot/System/Library/AccessibilityBundles/WebKit.axbundle/WebKit (0x114bc0398) and /Library/Developer/CoreSimulator/Volumes/iOS_23F77/Library/Developer/CoreSimulator/Profiles/Runtimes/iOS 26.5.simruntime/Contents/Resources/RuntimeRoot/System/Library/AccessibilityBundles/WebCore.axbundle/WebCore (0x117cb8310). This may cause spurious casting failures and mysterious crashes. One of the duplicates must be removed or renamed.
+IOSurfaceClientSetSurfaceNotify failed e00002c7
+2026-10-24T04:50:05.794510Z  INFO cmux_mobile_link::dial::turn: TURN allocation for WireGuard relayed=104.30.136.4:47817 server="turn.cloudflare.com:3478" transport=Udp
+2026-10-24T04:50:05.991421Z DEBUG cmux_mobile_link::dial::wireguard: peer confirmed our datagrams reach it direct=Some(Route { carrier: Turn, addr: 104.184.154.177:55537 })
+2026-10-24T04:50:06.006146Z DEBUG cmux_mobile_link::link: input lane attached role=Phone
+2026-10-24T04:50:06.794488Z  INFO cmux_mobile_link::hybrid: media session up session="1d97c14e-cccc-4804-8274-86e9f2f246c0"
+2026-10-23 21:50:16.726 CmuxMobileApp[80806:613959192] CoreText performance note: Client called CTFontCreateWithName() using name "Apple Color Emoji" and got font with PostScript name "AppleColorEmoji". For best performance, only use PostScript names when calling this API.
+2026-10-23 21:50:16.726 CmuxMobileApp[80806:613959192] CoreText performance note: Set a breakpoint on CTFontLogSuboptimalRequest to debug.
+2026-10-24T04:50:29.816242Z  INFO cmux_mobile_link_ffi::browser: browser: lane frames for another tab count=1 ours="f8a9cba7" got=Some("68dd9ac3") keyframe=true
+2026-10-24T04:50:30.371986Z  INFO cmux_mobile_link_ffi::browser: browser: lane frames for another tab count=1 ours="68dd9ac3" got=Some("f8a9cba7") keyframe=true
+2026-10-24T04:50:30.380141Z  INFO cmux_mobile_link_ffi::browser: browser: lane frames for another tab count=2 ours="68dd9ac3" got=Some("f8a9cba7") keyframe=false
+2026-10-24T04:50:37.724300Z  INFO cmux_mobile_link_ffi::browser: browser: lane frames for another tab count=4 ours="68dd9ac3" got=Some("f8a9cba7") keyframe=false
+2026-10-24T04:50:37.850700Z  INFO cmux_mobile_link_ffi::browser: browser: lane frames for another tab count=8 ours="68dd9ac3" got=Some("f8a9cba7") keyframe=false
+2026-10-24T04:51:17.592184Z  INFO cmux_mobile_link_ffi::browser: browser: lane frames for another tab count=16 ours="68dd9ac3" got=Some("f8a9cba7") keyframe=false
+2026-10-24T04:51:18.174315Z  INFO cmux_mobile_link_ffi::browser: browser: lane frames for another tab count=32 ours="68dd9ac3" got=Some("f8a9cba7") keyframe=false
+2026-10-24T04:52:11.448076Z  INFO cmux_mobile_link_ffi::browser: browser: lane frames for another tab count=64 ours="68dd9ac3" got=Some("f8a9cba7") keyframe=false
+2026-10-24T04:52:53.209484Z  INFO cmux_mobile_link_ffi::browser: browser: lane frames for another tab count=128 ours="68dd9ac3" got=Some("f8a9cba7") keyframe=false
+2026-10-24T04:52:59.917497Z DEBUG cmux_mobile_link::media::receiver: media receiver: gave a gap up; asking for a keyframe next=4294981662 highest=4294981840 hole=true
+2026-10-24T04:53:00.080854Z  INFO cmux_mobile_link_ffi::browser: browser: lane frames for another tab count=256 ours="68dd9ac3" got=Some("f8a9cba7") keyframe=false
+2026-10-24T04:53:19.467508Z  INFO cmux_mobile_link_ffi::browser: browser: lane frames for another tab count=512 ours="68dd9ac3" got=Some("f8a9cba7") keyframe=false
+2026-10-24T04:54:53.718650Z  INFO cmux_mobile_link_ffi::browser: browser: lane frames for another tab count=1 ours="0b50c01c" got=Some("f8a9cba7") keyframe=true
+2026-10-24T04:54:54.254645Z  INFO cmux_mobile_link_ffi::browser: browser: lane frames for another tab count=2 ours="f8a9cba7" got=Some("0b50c01c") keyframe=true
+2026-10-24T04:55:01.143916Z  INFO cmux_mobile_link_ffi::browser: browser: lane frames for another tab count=4 ours="f8a9cba7" got=Some("0b50c01c") keyframe=false
+2026-10-24T04:55:10.588539Z  INFO cmux_mobile_link_ffi::browser: browser: lane frames for another tab count=8 ours="f8a9cba7" got=Some("0b50c01c") keyframe=false
+2026-10-24T04:55:14.566175Z  INFO cmux_mobile_link_ffi::browser: browser: lane frames for another tab count=16 ours="f8a9cba7" got=Some("0b50c01c") keyframe=false

@@ -1,0 +1,5 @@
+<!doctype html><meta charset=utf-8><title>bu-frames</title>
+<style>body{font:16px -apple-system;margin:40px}iframe{width:420px;height:260px;border:1px solid #ccc;border-radius:8px}</style>
+<h2>Iframe and shadow DOM</h2><iframe id=fr src="login.html"></iframe><div id=host></div>
+<script>const s=host.attachShadow({mode:'open'});s.innerHTML='<button id=shadowbtn style="font-size:18px;margin-top:20px">Shadow button</button><span id=sout></span>';
+s.getElementById('shadowbtn').onclick=()=>s.getElementById('sout').textContent=' clicked';</script>

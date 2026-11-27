@@ -1,21 +1,24 @@
+import { MOTION_MS, MOTION_SEND_MS, MOTION_SEND_POP_MS } from "../../motion/scale.generated";
 import type { AgentSessionTheme } from "./types";
+import { codeFontFamily } from "../../appearance";
+import { configureThemeSlots } from "../../slots/registry";
+import { AGENT_THEME_VARIABLES } from "./themeVariables";
 
-const cssVariables: Record<keyof AgentSessionTheme, string | null> = {
-  isDark: null,
-  pageBackground: "--agent-page-bg",
-  surfaceBackground: "--agent-surface",
-  surfaceElevatedBackground: "--agent-surface-elevated",
-  inputBackground: "--agent-input-bg",
-  border: "--agent-border",
-  borderStrong: "--agent-border-strong",
-  text: "--agent-text",
-  mutedText: "--agent-muted",
-  softText: "--agent-soft",
-  accent: "--agent-accent",
-  accentSoft: "--agent-accent-soft",
-  danger: "--agent-danger",
-  shadow: "--agent-shadow",
-};
+const cssVariables = AGENT_THEME_VARIABLES;
+
+const motionVariables = {
+  hover: "--agent-motion-hover",
+  hoverOut: "--agent-motion-hover-out",
+  focus: "--agent-motion-focus",
+  fadeIn: "--agent-motion-in",
+  fadeOut: "--agent-motion-out",
+  move: "--agent-motion-move",
+} as const;
+
+/** The `data-home-cards` value of an `appearance.homeCardStyle`: null for `standard` (today's cards) or an unknown value. */
+export function homeCardStyle(value: unknown): "flat" | "raised" | "glass" | null {
+  return value === "flat" || value === "raised" || value === "glass" ? value : null;
+}
 
 export function applyAgentTheme(theme: AgentSessionTheme): void {
   if (typeof document === "undefined") {
@@ -23,35 +26,123 @@ export function applyAgentTheme(theme: AgentSessionTheme): void {
   }
   const root = document.documentElement;
   root.dataset.theme = theme.isDark ? "dark" : "light";
-  applyCodexDocumentMetadata();
+  applyAgentDocumentMetadata();
   root.classList.toggle("dark", theme.isDark);
-  root.classList.toggle("electron-dark", theme.isDark);
   root.classList.toggle("light", !theme.isDark);
   root.style.colorScheme = theme.isDark ? "dark" : "light";
-  for (const [key, variable] of Object.entries(cssVariables) as Array<
-    [keyof AgentSessionTheme, string | null]
-  >) {
+  // appearance.borders: the stylesheets clear their edges under `[data-borders="none"]`.
+  if (theme.borders === "none") root.dataset.borders = "none";
+  else delete root.dataset.borders;
+  // The native focusRing.enabled setting also controls transcript response outlines.
+  if (theme.focusRingEnabled === true) root.dataset.focusRingEnabled = "true";
+  else delete root.dataset.focusRingEnabled;
+  // Static status indicators (or Reduce Motion): the stylesheets stop their loops under it.
+  if (theme.statusIndicators) root.dataset.statusIndicators = theme.statusIndicators;
+  else delete root.dataset.statusIndicators;
+  // How agent work shows on running rows (conversation.css WORKING-LOOK).
+  if (theme.workingLook) root.dataset.workingLook = theme.workingLook;
+  else delete root.dataset.workingLook;
+  // appearance.homeCardStyle: Home's and the New Tab page's cards (newtab/screen.css HOME-CARDS). `standard`, absent
+  // or a value this page does not know draws today's cards.
+  const homeCards = homeCardStyle(theme.homeCardStyle);
+  if (homeCards) root.dataset.homeCards = homeCards;
+  else delete root.dataset.homeCards;
+  // The theme's slot choices (schemas/theme/slots.json): each slot draws the variant the look names;
+  // a look without `slots` (every host today) leaves every slot on its default.
+  configureThemeSlots(theme.slots);
+  for (const [key, variable] of Object.entries(cssVariables) as Array<[keyof AgentSessionTheme, string | null]>) {
     if (!variable) {
+      continue;
+    }
+    // A key this theme leaves out must not keep the last theme's value.
+    if (theme[key] === undefined) {
+      root.style.removeProperty(variable);
       continue;
     }
     root.style.setProperty(variable, String(theme[key]));
   }
+  // A theme without motion clears the host's durations, so the stylesheet defaults apply.
+  for (const [key, variable] of Object.entries(motionVariables) as Array<[keyof typeof motionVariables, string]>) {
+    const seconds = theme.motion?.[key];
+    if (typeof seconds === "number" && Number.isFinite(seconds) && seconds >= 0) {
+      root.style.setProperty(variable, `${Math.round(seconds * 1000)}ms`);
+    } else root.style.removeProperty(variable);
+  }
+  // A sent prompt's motion (`--agent-motion-send`) is the scale's send step, scaled as the host scaled
+  // its move step (ui.animationSpeed; 0 with animations off), since the host sends no send duration.
+  // Its fades (`--agent-motion-send-fade`) run that same clock. The scale's send step is 0 (Leo,
+  // 2026-11-11: "that slow settle animation is just so bad. Like, just do it."), so a sent prompt is
+  // in place at once, Reduce Motion (Calm mode too) included: no fade stands in for the motion.
+  const move = theme.motion?.move;
+  if (typeof move === "number" && Number.isFinite(move) && move >= 0) {
+    const send = Math.round(((move * 1000) / MOTION_MS.standard) * MOTION_SEND_MS);
+    root.style.setProperty("--agent-motion-send", `${send}ms`);
+    root.style.setProperty("--agent-motion-send-fade", `${send}ms`);
+    // The sent prompt's pop (conversation.css SEND-POP) on the same scaling: 0 with animations off
+    // or the app's Reduce Motion (its move step is 0), so the prompt is then in place at once.
+    root.style.setProperty(
+      "--agent-motion-send-pop",
+      `${Math.round(((move * 1000) / MOTION_MS.standard) * MOTION_SEND_POP_MS)}ms`,
+    );
+  } else {
+    root.style.removeProperty("--agent-motion-send");
+    root.style.removeProperty("--agent-motion-send-fade");
+    root.style.removeProperty("--agent-motion-send-pop");
+  }
+  // `ui.animationSpeed: off` reaches the page as an all-zero motion policy. Mark it on the root so
+  // CSS animations and transitions that represent loops or third-party surfaces stop as well as
+  // tokenized fades. Reduce Motion keeps its short crossfade values and therefore does not trip this.
+  const motionValues = theme.motion ? Object.values(theme.motion) : [];
+  if (motionValues.length > 0 && motionValues.every((value) => value === 0)) root.dataset.agentMotion = "off";
+  else delete root.dataset.agentMotion;
+  // Reduce Motion zeroes only the move duration; CSS can't compare a custom property to 0, so the
+  // root says so, and transitions on the move token (the fold's chevron) snap under it.
+  if (theme.motion?.move === 0) root.dataset.agentMove = "instant";
+  else delete root.dataset.agentMove;
+  if (root.dataset.agentMotion === "off") {
+    for (const animation of document.getAnimations?.() ?? []) animation.cancel();
+  }
+  // `--agent-ansi-0` … `--agent-ansi-15`; a theme without a palette clears them.
+  for (let index = 0; index < 16; index += 1) {
+    const color = theme.palette?.[index];
+    if (color) root.style.setProperty(`--agent-ansi-${index}`, color);
+    else root.style.removeProperty(`--agent-ansi-${index}`);
+  }
+  applyTerminalCodeFont(root);
 }
 
-export function applyCodexDocumentMetadata(): void {
+/** The pane's code font variables: diffs (diffTheme.ts) and code blocks, file names and paths. */
+const CODE_FONT_VARIABLES = ["--cmux-diff-code-font-family", "--cv-code-font"] as const;
+
+/**
+ * Code in the pane draws in the terminal's face, as on the diff, markdown and editor pages. The host
+ * applies the shared web theme (`window.cmuxTheme`, its `terminal.fontFamily`) just before the pane's
+ * own on every theme change (AgentPaneTheme.swift `script`); without a named face the stylesheets'
+ * mono stack applies.
+ */
+function applyTerminalCodeFont(root: HTMLElement): void {
+  const host = (
+    window as { cmuxTheme?: { current?: { terminal?: { fontFamily?: unknown; fallbackFamilies?: unknown } } | null } }
+  ).cmuxTheme;
+  const family = host?.current?.terminal?.fontFamily;
+  const fallbackFamilies = host?.current?.terminal?.fallbackFamilies;
+  const face = typeof family === "string" ? family.trim() : "";
+  for (const variable of CODE_FONT_VARIABLES) {
+    if (face)
+      root.style.setProperty(variable, codeFontFamily(face, Array.isArray(fallbackFamilies) ? fallbackFamilies : []));
+    else root.style.removeProperty(variable);
+  }
+}
+
+export function applyAgentDocumentMetadata(): void {
   if (typeof document === "undefined") {
     return;
   }
   const root = document.documentElement;
-  root.dataset.codexWindowType = "electron";
-  root.dataset.windowType = "electron";
-  root.dataset.codexOs = codexOs();
-  if (document.body) {
-    document.body.dataset.codexWindowType = "electron";
-  }
+  root.dataset.agentOs = agentOs();
 }
 
-function codexOs(): string {
+function agentOs(): string {
   if (typeof navigator === "undefined") {
     return "unknown";
   }

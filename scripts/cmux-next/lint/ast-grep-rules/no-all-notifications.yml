@@ -1,0 +1,6 @@
+id: no-all-notifications
+language: swift
+severity: error
+message: "Observe specific notification names; a wildcard main-queue observer can deadlock SwiftUI's background renderer."
+rule:
+  pattern: '$CENTER.addObserver(forName: nil, $$$ARGS) { $$$BODY }'

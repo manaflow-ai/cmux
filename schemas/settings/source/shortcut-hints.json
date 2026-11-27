@@ -1,0 +1,37 @@
+{
+  "$comment": "HAND-EDITED source of the shortcut hint settings (cx-d5b5d); gen-settings-sources.py writes the Swift descriptors and parser constants. Row fields: see schemas/settings/source/updates.json.",
+  "lists": [
+    {
+      "name": "shortcutHints",
+      "section": "keyboard",
+      "group": {
+        "key": "settings.shortcuts.hintsGroup",
+        "text": "Shortcut Hints"
+      },
+      "note": "The Command/Control shortcut hint overlay; the same key as classic cmux.",
+      "rows": [
+        {
+          "key": "shortcuts.showModifierHoldHints",
+          "note": "Shows hints when the configuration does not specify a preference.",
+          "title": {
+            "key": "settings.shortcuts.showModifierHoldHints",
+            "text": "Show Shortcuts When Holding a Modifier"
+          },
+          "help": {
+            "key": "settings.shortcuts.showModifierHoldHints.help",
+            "text": "Hold Command or Control for 0.30 seconds to show shortcut hints."
+          },
+          "kind": "toggle",
+          "default": true,
+          "keywords": [
+            "command",
+            "control",
+            "hold",
+            "hints",
+            "keyboard"
+          ]
+        }
+      ]
+    }
+  ]
+}

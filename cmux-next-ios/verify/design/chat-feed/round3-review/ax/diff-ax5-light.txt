@@ -1,0 +1,160 @@
+Application    'cmux'                                                         v='' x0 y0 w402 h874
+Group          ''                                                             v='' x0 y0 w402 h874
+Group          ''                                                             v='' x0 y0 w402 h874
+Group          ''                                                             v='' x0 y0 w402 h874
+Group          ''                                                             v='' x0 y0 w402 h874
+Group          ''                                                             v='' x0 y0 w402 h874
+Group          ''                                                             v='' x0 y0 w402 h874
+Group          ''                                                             v='' x0 y0 w402 h874
+Group          ''                                                             v='' x0 y0 w402 h874
+Group          ''                                                             v='' x0 y0 w402 h874
+Group          ''                                                             v='' x0 y0 w402 h874
+Group          ''                                                             v='' x0 y0 w402 h874
+Group          ''                                                             v='' x0 y0 w402 h874
+Group          ''                                                             v='' x0 y0 w402 h874
+Group          ''                                                             v='' x0 y0 w402 h874
+Group          ''                                                             v='' x0 y0 w402 h874
+Group          ''                                                             v='' x0 y0 w402 h874
+Group          ''                                                             v='1' x0 y0 w402 h874
+Group          ''                                                             v='' x0 y62 w402 h54
+Button         'Back'                                                         v='' x16 y62 w44 h44
+Heading        'LinkDialer.swift'                                             v='' x127 y71 w147 h25
+Group          ''                                                             v='' x334 y66 w48 h36
+Group          ''                                                             v='' x334 y66 w48 h36
+PopUpButton    'Diff options'                                                 v='' x334 y66 w48 h36
+Button         ''                                                             v='' x334 y66 w48 h36
+Image          'More'                                                         v='' x336 y62 w44 h44
+Group          ''                                                             v='' x0 y0 w402 h874
+Group          ''                                                             v='' x0 y0 w402 h874
+Group          ''                                                             v='' x0 y0 w402 h874
+Group          ''                                                             v='' x0 y0 w402 h874
+StaticText     'cnx-ios/CnxKit/Sources/CnxTransport//, LinkDialer.swift'      v='' x59 y122 w327 h105
+StaticText     'LinkDialer.swift'                                             v='' x113 y122 w272 h105
+StaticText     'cnx-ios/CnxKit/Sources/CnxTransport//'                        v='' x59 y148 w55 h53
+StaticText     'Modified'                                                     v='' x16 y148 w33 h53
+GenericElement '15 additions, 6 deletions'                                    v='' x162 y227 w142 h53
+StaticText     '+15'                                                          v='' x162 y227 w83 h53
+StaticText     '−6'                                                           v='' x249 y227 w55 h53
+Button         'Mark as viewed'                                               v='' x308 y231 w44 h44
+PopUpButton    'File actions'                                                 v='' x352 y231 w44 h44
+Button         ''                                                             v='' x352 y231 w44 h44
+Image          'More'                                                         v='' x352 y231 w44 h44
+ScrollArea     ''                                                             v='' x0 y0 w402 h874
+Group          ''                                                             v='' x0 y0 w402 h874
+Group          ''                                                             v='' x0 y0 w402 h156
+Group          ''                                                             v='' x0 y748 w402 h126
+Group          ''                                                             v='' x0 y0 w402 h874
+Group          ''                                                             v='' x0 y0 w402 h156
+Group          ''                                                             v='' x0 y748 w402 h126
+Group          ''                                                             v='' x0 y279 w402 h1852
+ScrollArea     ''                                                             v='' x94 y279 w308 h1828
+Group          ''                                                             v='' x94 y279 w2880 h1828
+StaticText     '@@ -1,21 +1,30 @@'                                            v='' x102 y289 w116 h13
+GenericElement 'line 1: import Foundation'                                    v='' x96 y313 w396 h45
+StaticText     'import Foundation'                                            v='' x96 y313 w396 h45
+GenericElement 'line 2: '                                                     v='' x96 y362 w23 h45
+StaticText     ' '                                                            v='' x96 y362 w23 h45
+GenericElement 'removed line 3: /// Opens the framed link to a Mac.'          v='' x94 y409 w2880 h49
+StaticText     '/// Opens the framed link to a Mac.'                          v='' x96 y411 w815 h45
+GenericElement 'added line 3: /// Opens the framed link to a Mac over the se' v='' x94 y458 w2880 h49
+StaticText     '/// Opens the framed link to a Mac over the selected transpo' v='' x96 y460 w1467 h45
+GenericElement 'line 4: public struct LinkDialer: Sendable {'                 v='' x96 y509 w838 h45
+StaticText     'public struct LinkDialer: Sendable {'                         v='' x96 y509 w838 h45
+GenericElement 'line 5:     let signaling: SignalingClient'                   v='' x96 y558 w792 h45
+StaticText     '    let signaling: SignalingClient'                           v='' x96 y558 w792 h45
+GenericElement 'line 6:     let iceProvider: ICEProvider'                     v='' x96 y607 w745 h45
+StaticText     '    let iceProvider: ICEProvider'                             v='' x96 y607 w745 h45
+GenericElement 'added line 7:     let transport: @Sendable () -> TransportKi' v='' x94 y654 w2880 h49
+StaticText     '    let transport: @Sendable () -> TransportKind'             v='' x96 y656 w1118 h45
+GenericElement 'line 8: '                                                     v='' x96 y705 w23 h45
+StaticText     ' '                                                            v='' x96 y705 w23 h45
+GenericElement 'removed line 8:     public init(signaling: SignalingClient, ' v='' x94 y752 w2880 h49
+StaticText     '    public init(signaling: SignalingClient, iceProvider: ICE' v='' x96 y754 w1653 h45
+GenericElement 'added line 9:     public init(signaling: SignalingClient, ic' v='' x94 y801 w2880 h49
+StaticText     '    public init(signaling: SignalingClient, iceProvider: ICE' v='' x96 y803 w2864 h45
+GenericElement 'line 10:         self.signaling = signaling'                  v='' x96 y852 w792 h45
+StaticText     '        self.signaling = signaling'                           v='' x96 y852 w792 h45
+GenericElement 'line 11:         self.iceProvider = iceProvider'              v='' x96 y901 w885 h45
+StaticText     '        self.iceProvider = iceProvider'                       v='' x96 y901 w885 h45
+GenericElement 'added line 12:         self.transport = transport'            v='' x94 y948 w2880 h49
+StaticText     '        self.transport = transport'                           v='' x96 y950 w792 h45
+GenericElement 'line 13:     }'                                               v='' x96 y999 w117 h45
+StaticText     '    }'                                                        v='' x96 y999 w117 h45
+GenericElement 'line 14: '                                                    v='' x96 y1048 w23 h45
+StaticText     ' '                                                            v='' x96 y1048 w23 h45
+GenericElement 'line 15:     public func dial(_ mac: MacDevice) async throws' v='' x96 y1097 w1490 h45
+StaticText     '    public func dial(_ mac: MacDevice) async throws -> MacLi' v='' x96 y1097 w1490 h45
+GenericElement 'removed line 14:         let servers = try await iceProvider' v='' x94 y1144 w2880 h49
+StaticText     '        let servers = try await iceProvider.servers()'        v='' x96 y1146 w1234 h45
+GenericElement 'line 16:         let session = UUID()'                        v='' x96 y1195 w652 h45
+StaticText     '        let session = UUID()'                                 v='' x96 y1195 w652 h45
+GenericElement 'removed line 16:         let channel = try await WebRTCDiale' v='' x94 y1242 w2880 h49
+StaticText     '        let channel = try await WebRTCDialer(servers: server' v='' x96 y1244 w1444 h45
+GenericElement 'removed line 17:             .connect(to: mac.id, session: s' v='' x94 y1291 w2880 h49
+StaticText     '            .connect(to: mac.id, session: session, signaling' v='' x96 y1293 w1677 h45
+GenericElement 'removed line 18:         return MacLink(stream: channel)'     v='' x94 y1340 w2880 h49
+StaticText     '        return MacLink(stream: channel)'                      v='' x96 y1342 w908 h45
+GenericElement 'added line 17:         switch transport() {'                  v='' x94 y1389 w2880 h49
+StaticText     '        switch transport() {'                                 v='' x96 y1391 w652 h45
+GenericElement 'added line 18:         case .webrtc:'                         v='' x94 y1438 w2880 h49
+StaticText     '        case .webrtc:'                                        v='' x96 y1440 w489 h45
+GenericElement 'added line 19:             let servers = try await iceProvid' v='' x94 y1487 w2880 h49
+StaticText     '            let servers = try await iceProvider.servers()'    v='' x96 y1489 w1327 h45
+GenericElement 'added line 20:             let channel = try await WebRTCDia' v='' x94 y1536 w2880 h49
+StaticText     '            let channel = try await WebRTCDialer(servers: se' v='' x96 y1538 w1537 h45
+GenericElement 'added line 21:                 .connect(to: mac.id, session:' v='' x94 y1585 w2880 h49
+StaticText     '                .connect(to: mac.id, session: session, signa' v='' x96 y1587 w1770 h45
+GenericElement 'added line 22:             return MacLink(stream: channel, k' v='' x94 y1634 w2880 h49
+StaticText     '            return MacLink(stream: channel, kind: .webrtc)'   v='' x96 y1636 w1351 h45
+GenericElement 'added line 23:         case .wireguard:'                      v='' x94 y1683 w2880 h49
+StaticText     '        case .wireguard:'                                     v='' x96 y1685 w559 h45
+GenericElement 'added line 24:             let tunnel = try await WireGuardD' v='' x94 y1732 w2880 h49
+StaticText     '            let tunnel = try await WireGuardDialer(signaling' v='' x96 y1734 w1677 h45
+GenericElement 'added line 25:                 .connect(to: mac.id, session:' v='' x94 y1781 w2880 h49
+StaticText     '                .connect(to: mac.id, session: session)'       v='' x96 y1783 w1258 h45
+GenericElement 'added line 26:             return MacLink(stream: try await ' v='' x94 y1830 w2880 h49
+StaticText     '            return MacLink(stream: try await tunnel.openStre' v='' x96 y1832 w2166 h45
+GenericElement 'added line 27:         }'                                     v='' x94 y1879 w2880 h49
+StaticText     '        }'                                                    v='' x96 y1881 w210 h45
+GenericElement 'line 28:     }'                                               v='' x96 y1930 w117 h45
+StaticText     '    }'                                                        v='' x96 y1930 w117 h45
+GenericElement 'line 29: '                                                    v='' x96 y1979 w23 h45
+StaticText     ' '                                                            v='' x96 y1979 w23 h45
+GenericElement 'line 30:     public func redial(_ link: MacLink, to mac: Mac' v='' x96 y2028 w1956 h45
+StaticText     '    public func redial(_ link: MacLink, to mac: MacDevice) a' v='' x96 y2028 w1956 h45
+Button         'Expand 8 hidden lines'                                        v='' x94 y2075 w2880 h32
+Slider         'Horizontal scroll bar, 10 pages'                              v='0%' x94 y2074 w246 h30
+Group          ''                                                             v='' x392 y2101 w7 h3
+Slider         'Horizontal scroll bar, 10 pages'                              v='0%' x94 y2074 w246 h30
+Group          ''                                                             v='' x392 y2101 w7 h3
+Slider         'Vertical scroll bar, 4 pages'                                 v='0%' x369 y279 w30 h533
+Group          ''                                                             v='' x396 y282 w3 h208
+Slider         'Vertical scroll bar, 4 pages'                                 v='0%' x369 y279 w30 h533
+Group          ''                                                             v='' x396 y282 w3 h208
+Group          'Toolbar'                                                      v='' x0 y0 w402 h874
+Group          ''                                                             v='' x0 y0 w402 h874
+Group          ''                                                             v='' x0 y62 w402 h812
+Group          ''                                                             v='' x0 y62 w402 h812
+Group          ''                                                             v='' x0 y62 w0 h0
+Group          ''                                                             v='' x28 y798 w115 h48
+Group          ''                                                             v='' x28 y798 w56 h48
+Group          ''                                                             v='' x33 y803 w46 h38
+Group          ''                                                             v='' x33 y803 w46 h38
+Button         'Previous file'                                                v='' x33 y803 w46 h38
+Group          ''                                                             v='' x88 y798 w56 h48
+Group          ''                                                             v='' x93 y803 w46 h38
+Group          ''                                                             v='' x93 y803 w46 h38
+Button         'Next file'                                                    v='' x93 y803 w46 h38
+Group          ''                                                             v='' x326 y798 w48 h48
+Group          ''                                                             v='' x326 y798 w48 h48
+Group          ''                                                             v='' x331 y803 w38 h38
+Group          ''                                                             v='' x331 y803 w38 h38
+Button         'Mark viewed'                                                  v='' x331 y803 w38 h38
+Group          ''                                                             v='' x0 y0 w402 h874
+Group          ''                                                             v='' x0 y791 w402 h83
+Group          ''                                                             v='' x0 y0 w402 h874
+Group          ''                                                             v='' x0 y791 w402 h83
+Group          ''                                                             v='' x0 y62 w402 h778
+Group          ''                                                             v='' x0 y0 w402 h874
+Group          ''                                                             v='' x0 y0 w402 h874
+Group          ''                                                             v='' x0 y0 w402 h874

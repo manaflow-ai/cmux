@@ -1,0 +1,9 @@
+{
+  "title": "New Tab",
+  "steps": [
+    {"title": "Launch", "wait": 2},
+    {"title": "Cold New Tab", "cmux": ["tab", "new-page"], "wait": 2},
+    {"title": "Warm New Tab", "cmux": ["tab", "new-page"], "wait": 1.5},
+    {"title": "Tab grow", "cmux": ["tab", "new-page"], "wait": 1.5}
+  ]
+}

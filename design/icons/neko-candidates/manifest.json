@@ -1,0 +1,189 @@
+{
+  "schemaVersion": 1,
+  "generatedAt": "2026-11-04",
+  "candidates": [
+    {
+      "id": "noto-emoji",
+      "repository": "https://github.com/googlefonts/noto-emoji",
+      "commit": "99701e07d3d1fe1bdbcdb14964547f0fd592966f",
+      "license": "Apache-2.0 (2D SVG artwork)",
+      "files": {
+        "asset": {
+          "path": "noto-emoji/cat.svg",
+          "sourcePath": "2D/svg/emoji_u1f431.svg",
+          "sha256": "fbb19611e927d40ff0188f5d4da8457e8d83faeb18a3adc66d91cb5ef17f2f1c",
+          "bytes": 3625
+        },
+        "license": {
+          "path": "noto-emoji/LICENSE.txt",
+          "sourcePath": "2D/svg/LICENSE",
+          "sha256": "611ceab36dae96644ca84e8ace6873821790192bf6f73b0d0624a21b24b4b332",
+          "bytes": 574
+        },
+        "readme": {
+          "path": "noto-emoji/README.md",
+          "sourcePath": "README.md",
+          "sha256": "7824b8fa4a8c2cf204d02ceecedcc35ec3d492c8ed40ad43ebfdbd7a180de85b",
+          "bytes": 2494
+        },
+        "licenseFull": {
+          "path": "noto-emoji/APACHE-2.0.txt",
+          "sourcePath": "https://www.apache.org/licenses/LICENSE-2.0.txt",
+          "sha256": "cfc7749b96f63bd31c3c42b5c471bf756814053e847c10f3eb003417bc523d30",
+          "bytes": 11358,
+          "scope": "canonical Apache License 2.0 text referenced by 2D/svg/LICENSE"
+        }
+      }
+    },
+    {
+      "id": "fluent-emoji",
+      "repository": "https://github.com/microsoft/fluentui-emoji",
+      "commit": "1ffb34c752ecf5d402f04cfb4b392c77f57c54bc",
+      "license": "MIT (repository; artwork terms in repository license)",
+      "files": {
+        "asset": {
+          "path": "fluent-emoji/cat-flat.svg",
+          "sourcePath": "assets/Cat/Flat/cat_flat.svg",
+          "sha256": "59f5401062509f4d0fb310817ce9a9656724c6c924a4d42f2a33ac6bb0964602",
+          "bytes": 3210
+        },
+        "license": {
+          "path": "fluent-emoji/LICENSE.txt",
+          "sourcePath": "LICENSE",
+          "sha256": "c2cfccb812fe482101a8f04597dfc5a9991a6b2748266c47ac91b6a5aae15383",
+          "bytes": 1141
+        },
+        "readme": {
+          "path": "fluent-emoji/README.md",
+          "sourcePath": "README.md",
+          "sha256": "3843d1e6eab6f56dbbad90f0e35eafd2f09ab35dec888388d3a49f50350f6d0f",
+          "bytes": 792
+        }
+      }
+    },
+    {
+      "id": "lucide",
+      "repository": "https://github.com/lucide-icons/lucide",
+      "commit": "1980e3d59b0fa1a2aeb566d5902b25ee98204001",
+      "license": "ISC (icon source; see repository license)",
+      "files": {
+        "asset": {
+          "path": "lucide/cat.svg",
+          "sourcePath": "icons/cat.svg",
+          "sha256": "aa8dacc2b7db300a4137da7a7b0e2b4983061d45ef8bfff2c8078796b97e7518",
+          "bytes": 537
+        },
+        "license": {
+          "path": "lucide/LICENSE.txt",
+          "sourcePath": "LICENSE",
+          "sha256": "b495047bd93a9b06913511076f504daba17d5bbeb3e0650f3bb53a4220329c57",
+          "bytes": 3208
+        },
+        "readme": {
+          "path": "lucide/README.md",
+          "sourcePath": "README.md",
+          "sha256": "9146a8ffbe9ba54b1c75357a265f1a57be96dfeb7d4ca1d0579a84e787babe52",
+          "bytes": 8712
+        }
+      }
+    }
+  ],
+  "surveyed": {
+    "round": 3,
+    "date": "2026-11-15",
+    "scope": "MIT or Apache-2.0 sets checked for cat-themed copy, retry, speak, bookmark, pin and more. Recorded, not vendored: none has one.",
+    "sets": [
+      {
+        "id": "phosphor",
+        "repository": "https://github.com/phosphor-icons/core",
+        "commit": "2b75f3ad12b420c9504ef05df8d2564a28f8500e",
+        "license": "MIT, Copyright (c) 2023 Phosphor Icons",
+        "files": {
+          "license": {
+            "sourcePath": "LICENSE",
+            "sha256": "b5b1f1da112d18ea2147decfd48ddc1bf2b5aeb6c265381579340e95b15a2bb2",
+            "bytes": 1071
+          },
+          "cat": {
+            "sourcePath": "assets/regular/cat.svg",
+            "sha256": "71123efb9241bbe923e7abe04608e89532984b9178fae6dcf56ac1024140b83b",
+            "bytes": 777
+          },
+          "paw": {
+            "sourcePath": "assets/regular/paw-print.svg",
+            "sha256": "da36f1f7ed3d7f32262863c8d0d21230042f5b023e4ca8802a66f400d889d0f6",
+            "bytes": 816
+          }
+        },
+        "finding": "Cat face and paw print nouns on a 256 grid at stroke 16; no cat treatment of copy, retry, speak, bookmark, pin or more."
+      },
+      {
+        "id": "material-symbols",
+        "repository": "https://github.com/google/material-design-icons",
+        "commit": "10ecc14790612ca8fd164e3f4ffe9c16fc50d5b7",
+        "license": "Apache-2.0",
+        "files": {
+          "license": {
+            "sourcePath": "LICENSE",
+            "sha256": "58d1e17ffe5109a7ae296caafcadfdbe6a7d176f0bc4ab01e12a689b0499d8bd",
+            "bytes": 11357
+          },
+          "pets": {
+            "sourcePath": "symbols/web/pets/materialsymbolsoutlined/pets_24px.svg",
+            "sha256": "36de9fdf4f0dd9b9df0240bd3a88ad26a648bfbffe8fd53caf1de4a8f4114fb9",
+            "bytes": 638
+          }
+        },
+        "finding": "One paw-print noun (pets), filled; no cat action family."
+      },
+      {
+        "id": "tabler",
+        "repository": "https://github.com/tabler/tabler-icons",
+        "commit": "4581ad20d8d13e24f6c3be75caaea1c4ad6c4b35",
+        "license": "MIT, Copyright (c) 2020-2026 Pawel Kuna",
+        "files": {
+          "license": {
+            "sourcePath": "LICENSE",
+            "sha256": "b740a1d46122672da62833e97f7e7c8a13fa85cbc7445b584b297cc00dde93db",
+            "bytes": 1073
+          },
+          "cat": {
+            "sourcePath": "icons/outline/cat.svg",
+            "sha256": "eb88199a30bda2290cc017798c5865533d429166df437bc15a968e605735576d",
+            "bytes": 632
+          },
+          "paw": {
+            "sourcePath": "icons/outline/paw.svg",
+            "sha256": "175d0c25e0c5b54c017233cd5446edf8e7cd4baa84aa7fa7be70e9c14e758855",
+            "bytes": 1557
+          }
+        },
+        "finding": "Cat and paw nouns at stroke 2 on a 24 grid; no cat action variants (re-checked at a newer commit than round 1)."
+      },
+      {
+        "id": "fluent-system-icons",
+        "repository": "https://github.com/microsoft/fluentui-system-icons",
+        "commit": "67e6dec1ee956af3ab4c746a2b3bb6a2e5520a44",
+        "license": "MIT, Copyright (c) 2020 Microsoft Corporation",
+        "files": {
+          "license": {
+            "sourcePath": "LICENSE",
+            "sha256": "69bc45dc42b9acb96a69823adbc6ae538374e3c0bde169b855b32c48eaaef52f",
+            "bytes": 1078
+          },
+          "cat": {
+            "sourcePath": "assets/Animal Cat/SVG/ic_fluent_animal_cat_24_regular.svg",
+            "sha256": "2b8a0193b031e3bcd1d787772331bd85f2e35544005a6b9452a857226f78fa52",
+            "bytes": 1857
+          },
+          "paw": {
+            "sourcePath": "assets/Animal Paw Print/SVG/ic_fluent_animal_paw_print_24_regular.svg",
+            "sha256": "07bee94c7b27fad4e288bb6069e1ebffcae0272103738d92b5e5841d0cb36bdd",
+            "bytes": 1725
+          }
+        },
+        "finding": "Animal cat and paw print nouns, filled outlines; no cat action variants."
+      }
+    ]
+  }
+}

@@ -1,0 +1,41 @@
+{
+  "envs": [
+    ["light", "none"],
+    ["dark", "none"]
+  ],
+  "shots": [
+    {
+      "name": "link-chips-now",
+      "entry": "agent-pane.reconvene-link-chips",
+      "variant": "now",
+      "width": 760,
+      "height": 420,
+      "deviceScaleFactor": 2
+    },
+    {
+      "name": "link-chips-chip-caret",
+      "entry": "agent-pane.reconvene-link-chips",
+      "variant": "chip-caret",
+      "width": 760,
+      "height": 420,
+      "deviceScaleFactor": 2
+    },
+    {
+      "name": "link-chips-inline-link",
+      "entry": "agent-pane.reconvene-link-chips",
+      "variant": "inline-link",
+      "width": 760,
+      "height": 420,
+      "deviceScaleFactor": 2
+    },
+    {
+      "name": "link-chips-chip-edit",
+      "entry": "agent-pane.reconvene-link-chips",
+      "variant": "chip-edit",
+      "width": 760,
+      "height": 420,
+      "deviceScaleFactor": 2,
+      "hover": ".acpmux-md .is-titled[data-title]"
+    }
+  ]
+}

@@ -1,0 +1,1 @@
+{"manifestVersion":2,"id":"local/x","name":"X","version":"1.0.0","description":"d","engines":{"cmux":"^2.0"},"runtime":{"main":"m.js"},"implements":{"cmux.section/1":{"export":"r","options":{"defaultRegion":"left"}}}}

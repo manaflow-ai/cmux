@@ -3,9 +3,7 @@
 // Two sources, listed separately so an admin can see why an account is Pro:
 // - Stripe: active user and team subscription rows, joined to the recorded
 //   customer email (no Stack calls).
-// - Manual grants: the classic `cmuxVmPlan` override and the cmux NEXT grant
-//   (`cmuxNextVmPlan`, else a legacy NEXT id in `cmuxVmPlan`) on Stack users
-//   and teams; one row per account carries both. Stack has
+// - Manual grants: `cmuxVmPlan` overrides on Stack users and teams. Stack has
 //   no metadata filter, so these are found by paging through all accounts in
 //   bounded pages that the page walks one request at a time.
 
@@ -20,20 +18,17 @@ import {
   PERSONAL_PLAN_IDS,
   PRO_PLAN_ID,
   TEAM_PLAN_ID,
-  classicManualVmPlanOverride,
   isPaidPlanId,
+  manualVmPlanOverride,
 } from "../billing/pro";
-import { nextGrantPlanIdFromMetadata, type NextPlanId } from "../billing/nextPlans";
 import {
   grantRecordFromServerMetadata,
-  nextGrantRecordFromServerMetadata,
   isMissingGrantsTableError,
   type AdminPendingGrantRow,
   type AdminPlanGrantRecord,
   type AdminStackTeam,
   type AdminStackUser,
 } from "./proGrants";
-import { teamEntitlementsView, type AdminTeamEntitlementsView } from "./teamEntitlements";
 
 export const PRO_LIST_SCAN_PAGE_SIZE = 100;
 export const PRO_LIST_MAX_ROWS = 5000;
@@ -59,31 +54,19 @@ export type StripeTeamSubscription = {
   readonly currentPeriodEnd: string | null;
 };
 
-/**
- * Both operator grants of one account. `plan` / `lastGrant` keep their
- * meaning for older admin pages: the paid classic grant when there is one,
- * else the cmux NEXT grant. `manualPlanId` / `nextManualPlanId` name each
- * slot, with the same meaning as on the user and team search rows.
- */
-type ManualGrantSlots = {
-  readonly plan: string;
-  readonly lastGrant: AdminPlanGrantRecord | null;
-  /** The paid classic grant (`cmuxVmPlan`), or null. */
-  readonly manualPlanId: string | null;
-  /** The cmux NEXT grant (`cmuxNextVmPlan`, else a legacy id in `cmuxVmPlan`), or null. */
-  readonly nextManualPlanId: NextPlanId | null;
-  readonly lastNextGrant: AdminPlanGrantRecord | null;
-};
-
-export type ManualUserGrant = ManualGrantSlots & {
+export type ManualUserGrant = {
   readonly userId: string;
   readonly email: string | null;
   readonly emailVerified: boolean;
+  readonly plan: string;
+  readonly lastGrant: AdminPlanGrantRecord | null;
 };
 
-export type ManualTeamGrant = ManualGrantSlots & {
+export type ManualTeamGrant = {
   readonly teamId: string;
   readonly displayName: string;
+  readonly plan: string;
+  readonly lastGrant: AdminPlanGrantRecord | null;
 };
 
 /** A list plus whether the hard row cap cut it off. */
@@ -374,7 +357,7 @@ export async function listAllPendingEmailGrants(
   };
 }
 
-/** One page of the Stack user directory, keeping only accounts with a paid or cmux NEXT manual override. */
+/** One page of the Stack user directory, keeping only accounts with a paid manual override. */
 export async function scanManualUserGrants(
   cursor: string | null,
   options: { readonly app?: ProListStackApp; readonly pageSize?: number } = {},
@@ -389,19 +372,20 @@ export async function scanManualUserGrants(
   const rows: ManualUserGrant[] = [];
   for (const user of users) {
     if (user.isAnonymous) continue;
-    const slots = manualGrantSlots(user.clientReadOnlyMetadata, user.serverMetadata);
-    if (!slots) continue;
+    const plan = manualVmPlanOverride(user.clientReadOnlyMetadata);
+    if (!isPaidPlanId(plan)) continue;
     rows.push({
       userId: user.id,
       email: user.primaryEmail ?? null,
       emailVerified: user.primaryEmailVerified === true,
-      ...slots,
+      plan: plan!,
+      lastGrant: grantRecordFromServerMetadata(user.serverMetadata),
     });
   }
   return { rows, scanned: users.length, nextCursor: users.nextCursor ?? null };
 }
 
-/** One page of the Stack team directory, keeping only teams with a paid or cmux NEXT manual override. */
+/** One page of the Stack team directory, keeping only teams with a paid manual override. */
 export async function scanManualTeamGrants(
   cursor: string | null,
   options: { readonly app?: ProListStackApp; readonly pageSize?: number } = {},
@@ -413,53 +397,16 @@ export async function scanManualTeamGrants(
   });
   const rows: ManualTeamGrant[] = [];
   for (const team of teams) {
-    const slots = manualGrantSlots(team.clientReadOnlyMetadata, team.serverMetadata);
-    if (!slots) continue;
+    const plan = manualVmPlanOverride(team.clientReadOnlyMetadata);
+    if (!isPaidPlanId(plan)) continue;
     rows.push({
       teamId: team.id,
       displayName: team.displayName,
-      ...slots,
+      plan: plan!,
+      lastGrant: grantRecordFromServerMetadata(team.serverMetadata),
     });
   }
   return { rows, scanned: teams.length, nextCursor: teams.nextCursor ?? null };
-}
-
-/**
- * One page of the Stack team directory, keeping only teams with a custom
- * deal (enterprise): limits in client metadata, or a label or price in server
- * metadata. Each row is the same view the deal editor shows.
- */
-export async function scanTeamDeals(
-  cursor: string | null,
-  options: { readonly app?: ProListStackApp; readonly pageSize?: number } = {},
-): Promise<ProListScanPage<AdminTeamEntitlementsView>> {
-  const app = options.app ?? defaultProListStackApp();
-  const teams = await app.listTeams({
-    cursor: cursor ?? undefined,
-    limit: options.pageSize ?? PRO_LIST_SCAN_PAGE_SIZE,
-  });
-  const rows = teams.map(teamEntitlementsView).filter((view) => view.override !== null);
-  return { rows, scanned: teams.length, nextCursor: teams.nextCursor ?? null };
-}
-
-/**
- * The account's grants worth listing (a paid classic plan, a cmux NEXT plan,
- * or both), or null when it holds neither.
- */
-function manualGrantSlots(clientMetadata: unknown, serverMetadata: unknown): ManualGrantSlots | null {
-  const classic = classicManualVmPlanOverride(clientMetadata);
-  const classicPlan = isPaidPlanId(classic) ? classic : null;
-  const nextPlan = nextGrantPlanIdFromMetadata(clientMetadata);
-  if (classicPlan === null && nextPlan === null) return null;
-  const lastClassicGrant = grantRecordFromServerMetadata(serverMetadata);
-  const lastNextGrant = nextGrantRecordFromServerMetadata(serverMetadata);
-  return {
-    plan: (classicPlan ?? nextPlan)!,
-    lastGrant: classicPlan !== null ? lastClassicGrant : lastNextGrant,
-    manualPlanId: classicPlan,
-    nextManualPlanId: nextPlan,
-    lastNextGrant,
-  };
 }
 
 /** Opaque Stack cursors are short tokens; refuse anything that looks like injection or garbage. */

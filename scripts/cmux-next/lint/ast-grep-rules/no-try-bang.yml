@@ -1,0 +1,7 @@
+id: no-try-bang
+language: swift
+severity: error
+message: "try! crashes on the first error: throw a typed error, or `// crash-allow: <reason>`"
+note: plans/cmux-next/browser-isolation.md, Crash safety rules (check-crash-safety.sh)
+rule:
+  pattern: try! $EXPR

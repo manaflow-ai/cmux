@@ -1,0 +1,56 @@
+/* A sender's icon (SenderIcon.tsx): the big glyph fills the slot and the badge hangs a little past
+   one of its corners, over a ring cut out of the big glyph (its inline mask), so the badge reads on
+   any row fill and the slot keeps its width in the icon column. */
+.cv-sender-icon {
+  position: relative;
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  justify-content: center;
+  vertical-align: middle;
+}
+.cv-sender-icon > *,
+.cv-sender-icon__main > *,
+.cv-sender-icon__toned {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+.cv-sender-icon svg,
+.cv-sender-icon img {
+  display: block;
+}
+.cv-sender-icon__main {
+  width: 100%;
+  height: 100%;
+}
+.cv-sender-icon__toned {
+  color: var(--agent-tone-ink, var(--agent-muted));
+}
+.cv-sender-icon__badge {
+  position: absolute;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  pointer-events: none;
+}
+.cv-sender-icon__badge[data-corner="bottom-right"] {
+  right: var(--cv-sender-overhang);
+  bottom: var(--cv-sender-overhang);
+}
+.cv-sender-icon__badge[data-corner="bottom-left"] {
+  left: var(--cv-sender-overhang);
+  bottom: var(--cv-sender-overhang);
+}
+.cv-sender-icon__badge[data-corner="top-right"] {
+  right: var(--cv-sender-overhang);
+  top: var(--cv-sender-overhang);
+}
+.cv-sender-icon__badge[data-corner="top-left"] {
+  left: var(--cv-sender-overhang);
+  top: var(--cv-sender-overhang);
+}
+/* A toned badge glyph takes the tone itself, not mixed toward the text: at 7 px it needs the hue. */
+.cv-sender-icon__badge .cv-sender-icon__toned {
+  color: var(--agent-tone, var(--agent-muted));
+}

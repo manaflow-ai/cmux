@@ -1,0 +1,4 @@
+{
+  "$comment": "What a chat page and its host agree on when the host asks the page for what it holds (`pane.wakeState`: the composer's chips, shell command and the transcript's place), at a quit, an update's relaunch or a hidden chat's release. The page first waits for its typed draft to reach acpmux, at most draftSettleMs (webviews composerDraft.ts DRAFT_SETTLE_MS reads it), then answers. The host's quit ask (AgentPaneRelaunchWake.askLimit in CmuxNextAgentPane) must be longer than draftSettleMs with room for a large chip to cross the bridge; AgentPaneRelaunchWakeTests reads this file and checks it. A late answer is dropped (agentPaneFirst), so a shorter ask loses the chips.",
+  "draftSettleMs": 500
+}

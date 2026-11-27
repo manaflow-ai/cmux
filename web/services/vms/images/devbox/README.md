@@ -87,7 +87,10 @@ writes):
   comments are intentionally part of the digest, because telling a comment
   from code in TypeScript needs a full lexer and any line heuristic can hide
   a code change, so a comment-only edit to the bake script also asks for a
-  re-promotion) was baked from exactly this checkout's sources. An entry is checked with the schema it was recorded
+  re-promotion), and from schema 3 the files the bake installs from outside
+  this directory (`DEVBOX_BAKED_PAYLOADS`: `cmux-machine-health`, its hygiene
+  command and their installer module) was baked from exactly this checkout's
+  sources. An entry is checked with the schema it was recorded
   with (absent: 1), so a formula change never forces a rebake; new bakes
   record `DEVBOX_SOURCE_SCHEMA`, and `bun run devbox:promote -- freestyle
   --upgrade-source-schema` moves older defaults up without a bake only where
@@ -95,7 +98,32 @@ writes):
   its digest at its own schema, its `builderScriptVersion` against this
   checkout's bake script, and the Dockerfile's instructions at its
   `repoCommit` (read from git) against this checkout's. Anything else is
-  kept and reported; a rebake is the only other way up.
+  kept and reported; a rebake is the only other way up. Git proves no
+  schema-3 payload, so that upgrade stops at schema 2
+  (`DEVBOX_SOURCE_PROVABLE_SCHEMA`).
+
+A source change that landed before its bake is listed in `services/vms/images/awaiting-rebake.json`
+(`DEVBOX_AWAITING_REBAKE`), which excuses exactly that drift for `devbox:manifest:check` and the
+manifest test, never for `promote`; the promotion that bakes those sources deletes the entry
+(`bun scripts/devbox-rebake.ts settle`).
+
+### Rebake workflow
+
+`.github/workflows/cloud-devbox-image-rebake.yml` runs when a commit that touches an image input
+(`REBAKE_INPUTS` in `web/scripts/devbox-rebake.ts`: every file in the bake's import closure and
+every file it ships; the test keeps the workflow's paths equal to it) lands on `feat-cmux-next`,
+and on manual dispatch from `feat-cmux-next` (`force`, `keep`; any other ref does nothing). It bakes when the inputs differ from the ones the last
+published rebake recorded in `services/vms/images/rebake-state.json`, or a Freestyle default was
+baked from other sources than that commit's, unless an open `devbox-rebake/<inputs key 12>` PR
+already has them. It then promotes (bake, verify, derive every size, manifest rows), settles
+`awaiting-rebake.json`, records `rebake-state.json`, smoke-tests the new md desktop default (its
+`/etc/cmux/image-stamp` and a cmux-tui round trip, `check-devbox-image-reachable.ts
+--expect-stamp`), opens the PR with the manifest diff, and closes older open rebake PRs as
+superseded. The version is `<UTC yyyymmddHHMM>-<commit 10>-<inputs key 12>`; every snapshot is
+slugged `cmux-devbox-ci-<version>[-<size>]` and its manifest rows carry it. Merging the PR is the
+promotion. The run then keeps the newest `keep` (default 5) rebake versions plus every snapshot a
+manifest row names (this run's, and feat-cmux-next's and main's as they are now), and deletes the other `cmux-devbox-ci-*`
+snapshots; nothing else on the account is touched.
 
 Rollback is therefore a revert of the promotion commit as a whole, never the
 manifest flags alone.
@@ -177,6 +205,14 @@ on 6901. The contract (`web/services/vms/images/desktop.ts`;
   are the same account, so an app started from a terminal pane joins the
   session bus of the screen a person is watching; root gets `DISPLAY` but not
   that bus (it admits only its owner).
+- `agent-desktop` (vercel-labs, pinned release archive in `/opt/agent-desktop`,
+  linked as `/usr/local/bin/agent-desktop`) drives the desktop's apps through
+  that accessibility bus: `agent-desktop snapshot --app thunar -i`, `click`,
+  `type`, `launch`, `list-windows`, `screenshot`. Upstream targets GNOME; on
+  this openbox session the accessibility tree, launch, semantic actions and
+  window listing work. It needs the session bus, so it runs as `cmux` (root:
+  `sudo -u cmux -i agent-desktop …`). The verifier launches Thunar and
+  snapshots it (`DEVBOX_AGENT_DESKTOP_SNAPSHOT_PROBE`).
 - Readiness is signalled by its owners, never inferred from elapsed time:
   Xvnc reports its display on `-displayfd` once it accepts connections, the
   accessibility bus is awaited by name (`gdbus wait org.a11y.Bus`), the
@@ -225,7 +261,11 @@ on 6901. The contract (`web/services/vms/images/desktop.ts`;
   generated config), and every agent's launch drops the model-plane endpoints
   and placeholder, so an own credential is never sent to CodeRouter (OpenCode
   sends `opencode auth login` keys to whatever `OPENAI_BASE_URL` and
-  `ANTHROPIC_BASE_URL` name). Image-only: older machines keep the old
+  `ANTHROPIC_BASE_URL` name). A machine whose control-plane-derived
+  `/etc/cmux/vm-kind` is `team` (or unavailable) always uses team mode:
+  teammates share the same Unix HOME and could otherwise read a personal
+  provider login. Use own sign-in only on an `owner` machine. Image-only:
+  older machines keep the old
   behavior until they are recreated.
 - Ghostty comes from a pinned community `.deb` for Ubuntu 24.04
   (`ARG CMUX_IMAGE_GHOSTTY_DEB_URL` in the Dockerfile, verified against
@@ -326,14 +366,16 @@ container, so the hostname there is the runtime's.
 ## Terminal capabilities (`cmux-terminfo.src`)
 
 Daemon-spawned shells get the TERM the Mac exports (`xterm-256color`, or
-`xterm-ghostty` when passed through) plus `COLORTERM=truecolor`, and inherit
-`TERM_PROGRAM=ghostty` with `TERM_PROGRAM_VERSION` from
-`/etc/cmux/ghostty-version` (the Ghostty .deb pin, written by the bake and
-the Dockerfile) via the supervisor's environment, the same identity the app
-exports to local and SSH shells. Claude Code and other agents gate
-synchronized output, progress reporting, strikethrough, and Cmd-click on
-`TERM_PROGRAM`; `verify-devbox-image.ts` reads the daemon's environ to prove
-it. Programs still resolve TERM against the guest's terminfo. Stock ncurses
+`xterm-ghostty` when passed through) plus `COLORTERM=truecolor`, and
+`TERM_PROGRAM=cmux` with cmux's own `TERM_PROGRAM_VERSION`, the same identity
+the app gives local shells. The supervisor starts the daemon with
+`TERM_PROGRAM=cmux` and no version; `verify-devbox-image.ts` reads the
+daemon's environ to prove it. Claude Code and Codex gate synchronized output,
+progress reporting, strikethrough, and Cmd-click on `TERM_PROGRAM=ghostty`, so
+the `claude` and `codex` wrappers start them with that name and no version: a
+Ghostty version would turn their copy-on-select drag fallback off, because cmux
+forwards a full-screen TUI's mouse reports instead of providing Ghostty's
+native selection (cmux#22585). Programs still resolve TERM against the guest's terminfo. Stock ncurses
 `xterm-256color` advertises no truecolor (`Tc`) or styled underlines (`Su`)
 and emits SGR 90 for `setaf 8`, which the cmux renderer shows as invisible
 ghost text. `cmux-terminfo.src` is the app's `Resources/terminfo-overlay`
@@ -357,8 +399,9 @@ unit with `CMUX_TUI_REMOTE_WS_BIND=[::]:1337` (the driver reaches the daemon
 at the VM's IPv6 address, so the listener must be dual-stack), reads the
 platform instance id from the metadata service, wipes the remote identity
 when the machine is a clone, and starts the daemon. The driver runs no
-bootstrap at create and no guest work on attach, so nothing on a running
-machine changes its cmux-tui: upgrade running machines with
+bootstrap at create; a first enrolled-auth attach uses only the daemon's
+short-lived invitation/approval commands, while later attaches are exec-free.
+Nothing in that flow changes the installed cmux-tui: upgrade running machines with
 `bun scripts/upgrade-fleet-cmux-tui.ts` and the in-place guest script
 `scripts/cloud-vm/cmux-tui-upgrade.sh`, under the compatibility rules in
 docs/cloud-guest-upgrades.md. The container Dockerfile still ships only the
@@ -445,6 +488,7 @@ it. `promote-devbox-image.ts` is the only sanctioned writer:
 FREESTYLE_API_KEY=... bun run devbox:promote -- freestyle                     # bake -> verify -> sm,md,lg,lgx,xl,2xl -> manifest
 FREESTYLE_API_KEY=... bun run devbox:promote -- freestyle --sizes lg,xl       # a subset of the ladder
 FREESTYLE_API_KEY=... bun run devbox:promote -- freestyle --sizes none        # one size-less entry (pre-ladder behaviour)
+FREESTYLE_API_KEY=... bun run devbox:promote -- freestyle --image sh-…        # verify + derive + record an existing bake
 ```
 
 Snapshots are account-scoped: promote under the Freestyle account the
@@ -576,20 +620,23 @@ snapshot to address an attach failure:
 ```bash
 # From web/, using the Freestyle account that owns this snapshot.
 # Load FREESTYLE_API_KEY from ~/.secrets/cmux.env without printing it.
-bun run devbox:verify:private-link sh-<snapshot-id> /path/to/cmux-tui
+bun run devbox:verify:private-link sh-<snapshot-id> /path/to/cmux-tui [--client-grant]
 ```
 
-For a Mac app, use its `Contents/Resources/bin/cmux-tui` binary. The probe
+Pass `--client-grant` for a pre-promotion image whose manifest row does not yet
+carry `cmuxRemoteAuth`; promoted images are also safe to test explicitly this
+way. For a Mac app, use its `Contents/Resources/bin/cmux-tui` binary. The probe
 first requires the client's `wireguard-hub` capability; an older client must
 be updated before a private-network image can be assessed. Rebuilding a guest
 image cannot add that missing capability to an installed Mac app.
 
 The probe creates its own VPC, VM from the requested snapshot, and temporary
-WireGuard tunnel. It uses the production driver to confirm the machine serves
-the trusted-carrier listener, dials it with `--carrier` (no enrollment, no
-approval), reads the session snapshot through the private hub, then connects
-again the same way. The report records both commits and the trusted-listener,
-reconnect, and snapshot results.
+WireGuard tunnel. For a compatibility image it confirms the trusted-carrier
+listener and dials with `--carrier`; a client-grant image instead uses the
+production invitation and approval path, then proves a separate `--carrier`
+dial is rejected over the same live network path. It reads the session snapshot
+through the private hub, then reconnects with the resulting enrollment. The
+report records both commits, auth mode, carrier refusal, reconnect, and snapshot results.
 The client need not match the image's older baked commit: successful protocol
 operations are the compatibility check.
 

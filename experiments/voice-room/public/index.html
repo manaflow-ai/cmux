@@ -1,0 +1,41 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Voice Room</title>
+    <link rel="stylesheet" href="/room.css" />
+  </head>
+  <body>
+    <header>
+      <div class="title">
+        <span id="rec" class="rec" title="This room records what is said">●</span>
+        <strong>Voice Room</strong>
+        <span id="recLabel" class="muted">Recording</span>
+      </div>
+      <div class="controls">
+        <button id="mic" title="Mute or unmute your mic">Mute</button>
+        <button id="cam" title="Turn your camera on or off">Camera off</button>
+        <button id="share" title="Share your screen with the room">Share screen</button>
+        <button id="pause" title="Pause recording for everyone (Ctrl+Option+P)">Pause recording</button>
+        <label class="muted" title="Uses this browser's speech service, which may send audio to its maker">
+          <input id="browserStt" type="checkbox" /> Transcribe in this browser
+        </label>
+      </div>
+      <div class="muted" id="cost" title="What the cheap model has cost since the room started"></div>
+    </header>
+    <main>
+      <section id="tiles" class="tiles" aria-label="People in the room"></section>
+      <aside>
+        <h2>Tasks</h2>
+        <ol id="tasks" class="tasks"></ol>
+        <h2>Transcript</h2>
+        <ol id="transcript" class="transcript"></ol>
+        <h2>Memory</h2>
+        <pre id="memory" class="memory"></pre>
+      </aside>
+    </main>
+    <p id="error" class="error" role="alert" hidden></p>
+    <script type="module" src="/room.js"></script>
+  </body>
+</html>

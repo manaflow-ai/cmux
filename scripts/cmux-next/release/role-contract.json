@@ -1,0 +1,36 @@
+{
+  "schema": 1,
+  "_doc": "Grants a migration may carry without a contract header. Empty grantees: today the operator grants each PlanetScale branch's own Worker role (per-branch user names), so no migration grants. Add a stable group role here in a reviewed change before a migration grants to it.",
+  "trees": {
+    "cmux-vm": {
+      "grantees": [],
+      "tablePrivileges": [
+        "SELECT",
+        "INSERT",
+        "UPDATE",
+        "DELETE"
+      ],
+      "schemas": [
+        "cmux_vm"
+      ],
+      "schemaPrivileges": [
+        "USAGE"
+      ]
+    },
+    "backend": {
+      "grantees": [],
+      "tablePrivileges": [
+        "SELECT",
+        "INSERT",
+        "UPDATE",
+        "DELETE"
+      ],
+      "schemas": [
+        "public"
+      ],
+      "schemaPrivileges": [
+        "USAGE"
+      ]
+    }
+  }
+}

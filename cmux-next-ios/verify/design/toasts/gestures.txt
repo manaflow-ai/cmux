@@ -1,0 +1,10 @@
+Workspace toast gestures (-cnx-toast-demo; the demo toast does not auto-dismiss), iPhone 17 Pro, default text size
+PASS  page: before any gesture: toast shown (expected shown)
+PASS  page: swipe up 75 pt: toast dismissed (expected dismissed)
+PASS  page: swipe right 180 pt: toast dismissed (expected dismissed)
+PASS  page: swipe left 200 pt: toast dismissed (expected dismissed)
+PASS  page: slow pull down 125 pt (rubber-bands back): toast shown (expected shown)
+PASS  page: tap: toast dismissed (expected dismissed)
+  (grid toast center y=749)
+PASS  grid: toast shown above the bottom controls: toast shown (expected shown)
+PASS  grid: swipe down: toast dismissed (expected dismissed)

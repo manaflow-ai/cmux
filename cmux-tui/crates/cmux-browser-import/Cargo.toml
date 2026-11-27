@@ -1,0 +1,23 @@
+[package]
+name = "cmux-browser-import"
+version = "0.1.0"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+description = "Reads another browser's data for the cmux NEXT import (the daemon's browser_import.read): Chromium, Arc, Firefox and Safari bookmarks, history, open tabs, search engines and Chrome extensions, from a private copy of each database. It never fetches a Keychain item; key material and secrets come from the app"
+
+[lints]
+workspace = true
+
+[dependencies]
+# Each source database is read from a private copy (src/sqlite.rs), like cmux-cookie-sync.
+rusqlite = { workspace = true, features = ["serialize"] }
+serde_json.workspace = true
+# Safari's Bookmarks.plist (binary or XML). No serde: the reader walks plist::Value.
+plist = { version = "1.10", default-features = false }
+# The `base64` request field: a file's bytes the app already holds (an archive entry).
+base64.workspace = true
+
+[dev-dependencies]
+tempfile = "3"

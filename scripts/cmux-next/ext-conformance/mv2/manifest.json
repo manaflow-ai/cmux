@@ -1,0 +1,40 @@
+{
+  "manifest_version": 2,
+  "name": "cmux conformance MV2",
+  "version": "1.0",
+  "description": "cmux-next chrome.* API conformance probe (MV2).",
+  "key": "MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEA1cil1Z4cxbWQ521Mrn8SbVAx+L0CbRuMYBN7U172i5iSjZ6X3YmTG5ITrbwu2GxJN4CE5Mf5kkVwajFVGG1WSpAci+v6LAE/PJqgEhXXH0IQcDeBeDaLJ4bpWcvgJoYHeM4Fj4O4koOtg4BGP78NcZPVfLFEXlIq/ho5KoSepWIqVoWVqRKuUhq6R2c3YSbDvAfbPkGl7M04ySycgpABze77eGac7AWen9OQniJjyJQkDvI5nm5XQ/1qVnRgtrqFB7+j/awXYHL6u/MDbDk9d2kXnLFUdCcIUSSefXk3rEmRwd8CGN0BnvPi2og2SyhBep7N+Ai8j2QTcvijz3AlGwIDAQAB",
+  "background": {
+    "scripts": [
+      "harness.js",
+      "bg.js"
+    ],
+    "persistent": true
+  },
+  "browser_action": {
+    "default_popup": "popup.html",
+    "default_title": "cmux conformance MV2"
+  },
+  "permissions": [
+    "tabs",
+    "storage",
+    "webRequest",
+    "webRequestBlocking",
+    "<all_urls>"
+  ],
+  "content_scripts": [
+    {
+      "matches": [
+        "http://127.0.0.1/*"
+      ],
+      "js": [
+        "harness.js",
+        "content.js"
+      ],
+      "run_at": "document_idle"
+    }
+  ],
+  "web_accessible_resources": [
+    "config.json"
+  ]
+}

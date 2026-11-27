@@ -19,6 +19,9 @@ while IFS= read -r line || [[ -n "$line" ]]; do
   trimmed="${line#"${line%%[![:space:]]*}"}"
   case "$trimmed" in
     ""|"#"*|"set -"*|"root="*|'cd "$root"'|"stage() {"|"}"|"stage "*) continue ;;
+    # ci-guard.sh's per-command check bookkeeping; here each command's outcome is written below.
+    'export CMUX_GUARD_CHECK_RESULTS='*|"failed=0"|"check() {"*|'[[ "$failed" -eq 0 ]] || exit 1') continue ;;
+    "check "*) commands+=("${trimmed#check }") ;;
     'python3 "$root/scripts/ci/cmux_workload_profile.py" stage "$1" "$2"') continue ;;
     "./"*|"python3 "*|"bash "*) commands+=("$trimmed") ;;
     *) echo "run_ci_guard_payload.sh: unrecognized line in $payload: $line" >&2; exit 2 ;;
@@ -33,11 +36,16 @@ for i in "${!commands[@]}"; do
 done
 status=0
 for i in "${!commands[@]}"; do
-  if ! wait "${pids[$i]}"; then
+  if wait "${pids[$i]}"; then
+    passed=1
+  else
+    passed=0
     echo "FAIL: ${commands[$i]}"
     cat "$logs/$i"
     status=1
   fi
+  # One check per command, as ci-guard.sh writes them (run_ci_guards.py reads the file).
+  [[ -z "${CMUX_GUARD_CHECK_RESULTS:-}" ]] || printf '%s\t%s\n' "$passed" "${commands[$i]}" >> "$CMUX_GUARD_CHECK_RESULTS"
 done
 [[ $status -eq 0 ]] && echo "ci-guard payload: ${#commands[@]} commands passed"
 exit "$status"

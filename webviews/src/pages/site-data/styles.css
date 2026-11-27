@@ -1,0 +1,12 @@
+/* A Page Info window's page: it draws over the window's own surface, and scrolls once the window
+   reaches its tallest (PageInfoWebWindow.maxContentHeight). */
+html,
+body {
+  background: transparent;
+  overflow-x: hidden;
+  overflow-y: auto;
+}
+
+#root {
+  display: block;
+}

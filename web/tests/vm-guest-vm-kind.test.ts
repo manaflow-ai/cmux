@@ -354,6 +354,14 @@ describe("createVm records the machine's vm-kind", () => {
     expect(cmuxVm(root)).toBe(false);
   });
 
+  test("a GCP machine gets no marker from the create", async () => {
+    const root = guestRoot();
+    const h = harness({ root, vm: row({ provider: "gcp" }) });
+    await h.create();
+    await h.runDeferred();
+    expect(h.markerExecs()).toEqual([]);
+  });
+
   test("an exec that keeps failing never fails the create, and its work ends on the real schedule", async () => {
     const root = guestRoot();
     const h = harness({ root, failExecs: Number.MAX_SAFE_INTEGER });

@@ -43,104 +43,28 @@ export interface AgentModelCatalog {
   };
 }
 
-export const agentModelCatalog = {
-  schemaVersion: 1,
-  updatedAt: "2026-08-09T00:00:00.000Z",
-  providers: {
-    claude: {
-      defaultModel: "claude-sonnet-5",
-      models: [
-        {
-          id: "claude-fable-5",
-          label: "Claude Fable 5",
-          contextWindow: 200000,
-          supportsOneMillion: true,
-          minVersion: "2.1.169",
-        },
-        {
-          id: "claude-opus-4-8",
-          label: "Claude Opus 4.8",
-          contextWindow: 200000,
-          fast: true,
-          minVersion: "2.1.154",
-        },
-        {
-          id: "claude-opus-4-7",
-          label: "Claude Opus 4.7",
-          contextWindow: 200000,
-          fast: true,
-          minVersion: "2.1.111",
-        },
-        {
-          id: "claude-opus-4-6",
-          label: "Claude Opus 4.6",
-          contextWindow: 200000,
-          supportsOneMillion: true,
-          fast: true,
-        },
-        {
-          id: "claude-opus-4-5",
-          label: "Claude Opus 4.5",
-          contextWindow: 200000,
-          fast: true,
-        },
-        {
-          id: "claude-sonnet-5",
-          label: "Claude Sonnet 5",
-          contextWindow: 200000,
-          supportsOneMillion: true,
-        },
-        {
-          id: "claude-sonnet-4-6",
-          label: "Claude Sonnet 4.6",
-          contextWindow: 200000,
-          supportsOneMillion: true,
-        },
-        {
-          id: "claude-haiku-4-5",
-          label: "Claude Haiku 4.5",
-          contextWindow: 200000,
-        },
-      ],
-    },
-    codex: {
-      defaultModel: "gpt-5.5",
-      models: [
-        {
-          id: "gpt-5.5",
-          label: "GPT-5.5",
-          description: "Frontier model for complex coding, computer use, knowledge work, and research workflows in Codex.",
-          contextWindow: 1050000,
-          supportsOneMillion: true,
-          isDefault: true,
-        },
-        {
-          id: "gpt-5.5-pro",
-          label: "GPT-5.5 Pro",
-          description: "Higher-capability GPT-5.5 model for difficult professional work.",
-          contextWindow: 1050000,
-          supportsOneMillion: true,
-        },
-      ],
-    },
-    opencode: {
-      defaultModel: "anthropic/claude-sonnet-5",
-      models: [
-        { id: "anthropic/claude-sonnet-5", label: "Claude Sonnet 5" },
-        { id: "anthropic/claude-opus-4-8", label: "Claude Opus 4.8" },
-        { id: "openai/gpt-5.5", label: "GPT-5.5" },
-      ],
-    },
-    gemini: {
-      defaultModel: "gemini-3.1-pro-preview",
-      models: [
-        { id: "gemini-3.1-pro-preview", label: "Gemini 3.1 Pro Preview" },
-        { id: "gemini-3-pro-preview", label: "Gemini 3 Pro Preview" },
-        { id: "gemini-3-flash-preview", label: "Gemini 3 Flash Preview" },
-        { id: "gemini-2.5-pro", label: "Gemini 2.5 Pro" },
-        { id: "gemini-2.5-flash", label: "Gemini 2.5 Flash" },
-        { id: "gemini-2.5-flash-lite", label: "Gemini 2.5 Flash Lite" },
-      ],
-    },
+/**
+ * What the model catalog (services/model-catalog, the one source of Claude and Codex models,
+ * cx-miuo) does not carry, for the agent-chat payload: the Claude Code version a model needs and
+ * the models with a 1M context choice. Keyed by catalog model id.
+ */
+export const agentModelExtras: Record<string, Pick<AgentModel, "minVersion" | "supportsOneMillion">> = {
+  "claude-fable-5": { minVersion: "2.1.169", supportsOneMillion: true },
+  "claude-opus-4-8": { minVersion: "2.1.154" },
+  "claude-opus-4-7": { minVersion: "2.1.111" },
+  "claude-opus-4-6": { supportsOneMillion: true },
+  "claude-sonnet-5": { supportsOneMillion: true },
+  "claude-sonnet-4-6": { supportsOneMillion: true },
+};
+
+/** OpenCode, which the model catalog only probes (its models are the user's own providers). */
+export const otherAgentModelProviders: Pick<AgentModelCatalog["providers"], "opencode"> = {
+  opencode: {
+    defaultModel: "anthropic/claude-sonnet-5",
+    models: [
+      { id: "anthropic/claude-sonnet-5", label: "Claude Sonnet 5" },
+      { id: "anthropic/claude-opus-4-8", label: "Claude Opus 4.8" },
+      { id: "openai/gpt-5.5", label: "GPT-5.5" },
+    ],
   },
-} as const satisfies AgentModelCatalog;
+};

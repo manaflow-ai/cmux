@@ -1,0 +1,100 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Remote groups: sidebar mocks (a283)</title>
+<style>
+  :root { color-scheme: light dark; --bg:#f4f4f6; --side:#ececef; --text:#1d1d1f; --dim:#86868b; --line:#d2d2d7; --sel:#dcdcf5; --ok:#2fb45a; --warn:#e6a23c; --bad:#e5484d; }
+  @media (prefers-color-scheme: dark) { :root { --bg:#1b1b1d; --side:#232326; --text:#f2f2f7; --dim:#8e8e93; --line:#3a3a3c; --sel:#34345a; } }
+  body { margin:0; font:13px -apple-system, BlinkMacSystemFont, "SF Pro Text", sans-serif; background:var(--bg); color:var(--text); }
+  header { padding:20px 28px 4px; } h1 { font-size:20px; margin:0 0 4px; } header p { color:var(--dim); margin:0; max-width:900px; }
+  .grid { display:flex; flex-wrap:wrap; gap:24px; padding:20px 28px 40px; }
+  .card { width:300px; } .card h2 { font-size:14px; margin:0 0 4px; } .card p { color:var(--dim); margin:0 0 10px; min-height:52px; }
+  .rec { display:inline-block; font-size:11px; padding:1px 7px; border-radius:9px; background:#2f6fec; color:white; margin-left:6px; vertical-align:1px; }
+  .side { background:var(--side); border:1px solid var(--line); border-radius:12px; padding:8px 6px; height:470px; overflow:hidden; }
+  .sec { display:flex; align-items:center; gap:6px; padding:8px 8px 4px; font-size:11px; font-weight:600; color:var(--dim); text-transform:none; }
+  .sec .name { flex:1; color:var(--text); font-size:12px; }
+  .sec .st { font-weight:500; font-size:11px; display:flex; align-items:center; gap:4px; }
+  .dot { width:7px; height:7px; border-radius:50%; display:inline-block; }
+  .ok { background:var(--ok); } .warn { background:var(--warn); } .bad { background:var(--bad); }
+  .row { display:flex; align-items:center; gap:6px; height:26px; padding:0 8px; border-radius:6px; white-space:nowrap; }
+  .row.sel { background:var(--sel); } .row.dim { opacity:.45; }
+  .grp { font-weight:600; font-size:12px; }
+  .bar { width:3px; height:16px; border-radius:2px; }
+  .chev { color:var(--dim); width:10px; font-size:9px; }
+  .plus { margin-left:auto; color:var(--dim); }
+  .glyph { width:14px; text-align:center; }
+  .chip { display:inline-flex; align-items:center; gap:4px; border:1px solid var(--line); border-radius:10px; padding:1px 7px; font-size:11px; color:var(--dim); }
+  .switcher { display:flex; gap:4px; padding:4px 6px 8px; flex-wrap:wrap; }
+  .switcher span { border:1px solid var(--line); border-radius:8px; padding:3px 8px; font-size:11px; } .switcher .on { background:var(--sel); }
+  .new { color:var(--dim); font-style:italic; }
+  .why { font-size:12px; color:var(--dim); margin-top:8px; }
+</style>
+</head>
+<body>
+<header>
+  <h1>Remote groups: 3 sidebar layouts</h1>
+  <p>A remote group is a host (Mac mini over Tailscale or SSH, Linux VM, cmux cloud). Everything inside it runs on that host, and groups nest inside it: host &gt; project &gt; branch, at most 3 levels. Sample data. Design: plans/cmux-next/remote-groups-DESIGN.md section 7.</p>
+</header>
+<div class="grid">
+
+<div class="card">
+  <h2>A. Host header + nested groups<span class="rec">Recommended</span></h2>
+  <p>Each host is its own section. The header shows a host glyph, a status dot and a short status. Groups indent 12 pt per level, with the group color bar.</p>
+  <div class="side">
+    <div class="sec"><span class="glyph">💻</span><span class="name">This Mac</span><span class="plus">+</span></div>
+    <div class="row">notes</div>
+    <div class="row">dotfiles</div>
+    <div class="sec"><span class="glyph">▣</span><span class="name">cmux-mini</span><span class="st"><span class="dot ok"></span>Connected</span><span class="plus">+</span></div>
+    <div class="row grp"><span class="chev">▾</span><span class="bar" style="background:#7c5cff"></span>cmux</div>
+    <div class="row grp" style="padding-left:20px"><span class="chev">▾</span><span class="bar" style="background:#2fb45a"></span>feat-cmux-next</div>
+    <div class="row sel" style="padding-left:44px">remote-groups</div>
+    <div class="row" style="padding-left:44px">sidebar lag</div>
+    <div class="row grp" style="padding-left:20px"><span class="chev">▸</span><span class="bar" style="background:#e6a23c"></span>main <span class="chip">3</span></div>
+    <div class="row" style="padding-left:20px">Chief</div>
+    <div class="sec"><span class="glyph">🐧</span><span class="name">gcp-linux-1</span><span class="st"><span class="dot warn"></span>Reconnecting…</span><span class="plus">+</span></div>
+    <div class="row grp"><span class="chev">▾</span><span class="bar" style="background:#2f6fec"></span>backend</div>
+    <div class="row dim" style="padding-left:20px">migrations</div>
+    <div class="sec"><span class="glyph">☁︎</span><span class="name">cmux cloud</span><span class="st"><span class="dot bad"></span>Offline since 14:02</span><span class="plus">+</span></div>
+    <div class="row dim">agent-evals</div>
+    <div class="row new">New Remote Group…</div>
+  </div>
+  <div class="why">Why: "where it sits is where it runs" is visible at a glance; matches the sidebar document (one machine section per session), so no new object.</div>
+</div>
+
+<div class="card">
+  <h2>B. Host rows inside one Remote section</h2>
+  <p>All hosts live as top-level rows of one "Remote" section; a host row expands like a group.</p>
+  <div class="side">
+    <div class="sec"><span class="name">This Mac</span></div>
+    <div class="row">notes</div>
+    <div class="row">dotfiles</div>
+    <div class="sec"><span class="name">Remote</span><span class="plus">+</span></div>
+    <div class="row grp"><span class="chev">▾</span><span class="dot ok"></span>cmux-mini</div>
+    <div class="row grp" style="padding-left:20px"><span class="chev">▾</span><span class="bar" style="background:#7c5cff"></span>cmux</div>
+    <div class="row grp" style="padding-left:36px"><span class="chev">▾</span><span class="bar" style="background:#2fb45a"></span>feat-cmux-next</div>
+    <div class="row sel" style="padding-left:60px">remote-groups</div>
+    <div class="row grp"><span class="chev">▸</span><span class="dot warn"></span>gcp-linux-1</div>
+    <div class="row grp"><span class="chev">▸</span><span class="dot bad"></span>cmux cloud</div>
+  </div>
+  <div class="why">Rejected: a host looks like an ordinary group, burns one nesting level, and breaks "one section per machine" in the document.</div>
+</div>
+
+<div class="card">
+  <h2>C. Host switcher</h2>
+  <p>A host picker on top filters the list to one host at a time.</p>
+  <div class="side">
+    <div class="switcher"><span>This Mac</span><span class="on">● cmux-mini</span><span>◐ gcp-linux-1</span><span>○ cloud</span><span>+</span></div>
+    <div class="row grp"><span class="chev">▾</span><span class="bar" style="background:#7c5cff"></span>cmux</div>
+    <div class="row grp" style="padding-left:20px"><span class="chev">▾</span><span class="bar" style="background:#2fb45a"></span>feat-cmux-next</div>
+    <div class="row sel" style="padding-left:44px">remote-groups</div>
+    <div class="row" style="padding-left:44px">sidebar lag</div>
+    <div class="row grp" style="padding-left:20px"><span class="chev">▸</span><span class="bar" style="background:#e6a23c"></span>main</div>
+    <div class="row">Chief</div>
+  </div>
+  <div class="why">Rejected: hides cross-host work (the Chief on the mini, a build on the VM) and is T3 Code's "pick an environment first" again.</div>
+</div>
+
+</div>
+</body>
+</html>

@@ -28,6 +28,7 @@ import {
   requiredRuntimeEnvKeys,
   VERCEL_SENSITIVE_PLACEHOLDER,
 } from "../scripts/cloud-vm/projects.mjs";
+import { auditRuntimeEnv } from "../scripts/cloud-vm/audit-vercel-env.mjs";
 import { defaultProviderId } from "../services/vms/drivers";
 import { isVmFreeProvisioningAllowed } from "../services/vms/entitlements";
 
@@ -272,6 +273,53 @@ describe("audit constants stay tied to the runtime", () => {
 });
 
 describe("required runtime env keys cover the production provider path", () => {
+  const productionEnv = {
+    AWS_REGION: "us-east-1",
+    CMUX_ALERTS_SLACK_WEBHOOK_URL: "https://hooks.slack.com/services/T0/B0/x",
+    CMUX_APNS_KEY_ID: "key",
+    CMUX_APNS_KEY_P8: "p8",
+    CMUX_APNS_TEAM_ID: "team",
+    CMUX_DB_DRIVER: "planetscale",
+    CMUX_VM_CREATE_ENABLED: "1",
+    CMUX_VM_DEFAULT_PROVIDER: "freestyle",
+    CMUX_VM_FREESTYLE_ENABLED: "1",
+    CRON_SECRET: "cron",
+    CLICKHOUSE_DATABASE: "db",
+    CLICKHOUSE_PASSWORD: "password",
+    CLICKHOUSE_URL: "https://clickhouse.example",
+    CLICKHOUSE_USER: "user",
+    CODEROUTER_KMS_KEY_ID: "kms",
+    FREESTYLE_API_KEY: "freestyle",
+    NEXT_PUBLIC_STACK_PROJECT_ID: "project",
+    DATABASE_URL: "postgres://database",
+    STACK_SECRET_SERVER_KEY: "server",
+  };
+
+  test("a fully configured keyless production env passes the strict audit", () => {
+    const result = auditRuntimeEnv({
+      env: productionEnv,
+      target: "production",
+      projectName: "cmux",
+      webDir: path.join(path.dirname(fileURLToPath(import.meta.url)), ".."),
+    });
+    expect(result.ok).toBe(true);
+    expect(result.missingRequired).toEqual([]);
+    expect(result.forbiddenPresent).toEqual([]);
+  });
+
+  test("the strict audit still rejects missing Stack project or server keys", () => {
+    for (const key of ["NEXT_PUBLIC_STACK_PROJECT_ID", "STACK_SECRET_SERVER_KEY"]) {
+      const result = auditRuntimeEnv({
+        env: Object.fromEntries(Object.entries(productionEnv).filter(([entry]) => entry !== key)),
+        target: "production",
+        projectName: "cmux",
+        webDir: path.join(path.dirname(fileURLToPath(import.meta.url)), ".."),
+      });
+      expect(result.ok).toBe(false);
+      expect(result.missingRequired).toContain(key);
+    }
+  });
+
   test("freestyle credentials, cron auth, and the alert sink are required", () => {
     for (const key of [
       "FREESTYLE_API_KEY",

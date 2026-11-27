@@ -1,0 +1,10 @@
+{
+ "video": "/Users/azizalbahar/cnx-ios-e2e/termqa-raw/tq11/wt-read2-e.mp4",
+ "source_frames": 968,
+ "duration": 25.72,
+ "lit_median": 0.0385,
+ "black_runs": [],
+ "black_runs_over_17ms": [],
+ "frac_gaps_over_34ms": 0.0817,
+ "max_gap_ms": 616.7
+}

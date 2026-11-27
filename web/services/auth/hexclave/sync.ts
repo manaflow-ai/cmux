@@ -9,6 +9,8 @@ export type HexclaveSyncDependencies = {
   readonly revokeTeamAccess: (input: { readonly teamId: string }) => Promise<unknown>;
   /** Drop the user's identity snapshot and native auth cache. Must throw on failure. */
   readonly invalidateUser: (userId: string) => Promise<void>;
+  /** Queue live Team subscription quantity reconciliation. Idempotent. */
+  readonly markTeamSeatsDirty: (teamId: string) => Promise<void>;
 };
 
 export type HexclaveSyncResult = {
@@ -52,7 +54,7 @@ export async function applyHexclaveWebhookEvent(
 }
 
 /**
- * The entity an event names, plus the memberships it may have ended. Several
+ * The entity an event names, plus the memberships it may have changed. Several
  * events for one entity coalesce into one target (the union of candidates):
  * the reconcile reads Hexclave fresh, so one read answers all of them.
  */
@@ -71,6 +73,10 @@ export function hexclaveEventTarget(event: HexclaveWebhookEvent): HexclaveSyncTa
     case "team_membership.deleted":
       return { kind: "user", id: event.data.user_id, revokeCandidateTeamIds: [event.data.team_id] };
     case "team_membership.created":
+      // The candidate survives an inbox retry after the mirror already holds
+      // the new membership. writePendingRevocations subtracts current teams,
+      // while seat reconciliation still retries this durable team id.
+      return { kind: "user", id: event.data.user_id, revokeCandidateTeamIds: [event.data.team_id] };
     case "team_permission.created":
     case "team_permission.deleted":
     case "project_permission.created":
@@ -114,14 +120,36 @@ export async function syncHexclaveUser(
     { revokeCandidateTeamIds },
   );
   const revoked: string[] = [];
-  await settleAll(result.pendingRevocationTeamIds.map((teamId) => async () => {
-    // A concurrent reconcile that saw the member re-added deleted the row.
-    if (!await store.isRevocationPending({ teamId, userId })) return;
-    await dependencies.revokeTeamMemberAccess({ teamId, userId });
-    await store.clearPendingRevocation({ teamId, userId });
-    revoked.push(teamId);
-  }));
-  await dependencies.invalidateUser(userId);
+  // Mark every current team, not only additions. If the queue write fails
+  // after the mirror commits, the retry can no longer reconstruct the diff;
+  // the current set is the retry-stable billing authority. Removed teams are
+  // tied to their durable pending-revocation row below.
+  const dirtyTeamIds = [...new Set(result.currentTeamIds)].sort();
+  let sideEffectFailure: unknown;
+  try {
+    await settleAll([
+      ...result.pendingRevocationTeamIds.map((teamId) => async () => {
+        // The inbox never claims two rows for one entity at once. Re-check in
+        // case a prior reconcile already restored this membership.
+        if (!await store.isRevocationPending({ teamId, userId })) return;
+        await dependencies.revokeTeamMemberAccess({ teamId, userId });
+        // Do not clear the durable revoke until billing reconciliation is
+        // queued too. A failed mark then retries both idempotent operations.
+        await dependencies.markTeamSeatsDirty(teamId);
+        await store.clearPendingRevocation({ teamId, userId });
+        revoked.push(teamId);
+      }),
+      ...dirtyTeamIds.map((teamId) => () => dependencies.markTeamSeatsDirty(teamId)),
+    ]);
+  } catch (error) {
+    sideEffectFailure = error;
+  }
+  try {
+    await dependencies.invalidateUser(userId);
+  } catch (error) {
+    sideEffectFailure ??= error;
+  }
+  if (sideEffectFailure !== undefined) throw sideEffectFailure;
   return { entity: "user", id: userId, gone: result.state.kind === "gone", revokedTeamIds: revoked.sort() };
 }
 
@@ -136,8 +164,11 @@ export async function syncHexclaveTeam(
 ): Promise<HexclaveSyncResult> {
   const result = await dependencies.store.reconcileTeam(teamId, () => dependencies.source.getTeam(teamId));
   const gone = result.team === null;
-  if (gone) await dependencies.revokeTeamAccess({ teamId });
-  await settleAll(result.memberIds.map((userId) => () => dependencies.invalidateUser(userId)));
+  await settleAll([
+    ...(gone ? [() => dependencies.revokeTeamAccess({ teamId })] : []),
+    ...(gone ? [() => dependencies.markTeamSeatsDirty(teamId)] : []),
+    ...result.memberIds.map((userId) => () => dependencies.invalidateUser(userId)),
+  ]);
   return { entity: "team", id: teamId, gone, revokedTeamIds: gone ? [teamId] : [] };
 }
 

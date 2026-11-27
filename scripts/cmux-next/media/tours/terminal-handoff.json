@@ -1,0 +1,14 @@
+{
+  "title": "Update handoff: while the new daemon adopts a terminal's host (tab terminal_state adopting), the terminal shows no \"Reconnecting to the shell…\" for the first 5 s; an adopt that lasts past that says so",
+  "steps": [
+    {"title": "Launch", "wait": 2, "shot": false},
+    {"title": "New workspace", "cmux": ["workspace", "new", "--name", "Handoff"], "shot": false},
+    {"title": "Show the Handoff workspace", "cmux": ["workspace", "name:Handoff", "focus"], "shot": false},
+    {"title": "A shell with output on screen", "daemon": true,
+     "cmux": ["workspace", "name:Handoff", "screen", "current", "pane", "current", "tab", "current",
+              "terminal", "current", "write", "--text", "clear; echo shell running before the update handoff\r"], "wait": 1.5},
+    {"title": "1 s into the handoff: every terminal tab is adopting", "rpc": {"method": "debug.terminal_state", "params": {"state": "adopting"}}, "wait": 1},
+    {"title": "6 s into the handoff: an adopt that lasts past the grace shows its label", "wait": 5},
+    {"title": "Adopted: the shell runs again", "rpc": {"method": "debug.terminal_state", "params": {"state": "running"}}, "wait": 1.5}
+  ]
+}

@@ -389,36 +389,10 @@ def replace_generated(body: str, generated: str) -> str:
     return body[:start] + "\n" + generated.strip() + "\n" + body[end:]
 
 
-# GitHub refuses a token for more reasons than one; the body says which ("API rate limit exceeded for
-# installation", a missing permission). A refusal without it is a 403 nobody can act on (run 43989604298).
-REFUSED = {401, 403, 429}
-
-
-def github_message(error: urllib.error.HTTPError) -> str:
-    try:
-        raw = error.read().decode("utf-8", "replace")
-    except Exception:  # noqa: BLE001 - a body that will not read leaves only the status
-        raw = ""
-    try:
-        message = json.loads(raw).get("message")
-    except (ValueError, AttributeError):
-        message = None
-    return str(message or raw.strip())[:300]
-
-
 class GitHub:
-    """Reads go out on `token` (the cmux-bot App's, with its own budget), writes on `write_token`
-    (github.token, so the radar issue's editor is unchanged). A refused read is asked once more on
-    `write_token`: the repository's GITHUB_TOKEN pool, which every workflow shares, is then only the
-    fallback. With one token, everything uses it."""
-
-    def __init__(self, token: str, repo: str, write_token: str = "") -> None:
+    def __init__(self, token: str, repo: str) -> None:
         self.repo = repo
-        self.token = token
-        self.write_token = write_token or token
-
-    def _headers(self, token: str) -> dict[str, str]:
-        return {
+        self.headers = {
             "Accept": "application/vnd.github+json",
             "Authorization": f"Bearer {token}",
             "X-GitHub-Api-Version": "2022-11-28",
@@ -426,28 +400,8 @@ class GitHub:
         }
 
     def request(self, method: str, path: str, payload: dict[str, Any] | None = None) -> Any:
-        if method != "GET":
-            return self._send(method, path, payload, self.write_token)
-        try:
-            return self._send(method, path, payload, self.token)
-        except urllib.error.HTTPError as error:
-            if error.code not in REFUSED or self.write_token == self.token:
-                raise self._failure(error) from error
-            print(
-                f"triage-radar: GET {path} refused on the read token (HTTP {error.code}: "
-                f"{github_message(error)}); asking again with the workflow token",
-                file=sys.stderr,
-            )
-            if error.code == 401:
-                self.token = self.write_token
-        try:
-            return self._send(method, path, payload, self.write_token)
-        except urllib.error.HTTPError as error:
-            raise self._failure(error) from error
-
-    def _send(self, method: str, path: str, payload: dict[str, Any] | None, token: str) -> Any:
         data = None
-        headers = self._headers(token)
+        headers = dict(self.headers)
         if payload is not None:
             data = json.dumps(payload).encode("utf-8")
             headers["Content-Type"] = "application/json"
@@ -458,15 +412,9 @@ class GitHub:
                     return {}
                 return json.load(response)
         except urllib.error.HTTPError as error:
-            if method != "GET":
-                raise self._failure(error) from error
-            raise
+            raise RuntimeError(f"GitHub API request failed ({error.code})") from error
         except urllib.error.URLError as error:
-            raise RuntimeError(f"GitHub API request failed: {error.reason}") from error
-
-    @staticmethod
-    def _failure(error: urllib.error.HTTPError) -> RuntimeError:
-        return RuntimeError(f"GitHub API request failed (HTTP {error.code}: {github_message(error)})")
+            raise RuntimeError("GitHub API request failed") from error
 
     def search(self, query: str, *, sort: str, order: str = "desc") -> list[dict[str, Any]]:
         encoded = urllib.parse.urlencode(
@@ -508,7 +456,7 @@ def main() -> int:
         print("triage-radar: issue number and windows must be positive", file=sys.stderr)
         return 2
 
-    github = GitHub(token, repo, os.environ.get("GH_FALLBACK_TOKEN", ""))
+    github = GitHub(token, repo)
     now = dt.datetime.now(dt.timezone.utc)
     try:
         issues = github.search(

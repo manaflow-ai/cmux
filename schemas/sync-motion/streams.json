@@ -1,0 +1,261 @@
+{
+  "version": 1,
+  "notes": "Sync motion streams (plans/cmux-next/sync-ux/DESIGN.md part 1). Each stream starts from 'initial' and replays timed ops as a synced client receives them. 'client' is the device that made the change; on that device the change is direct manipulation (already drawn), on every other device it animates. Ops: rename {id,title}, move {id,before: id or null for the end}, insert {id,title,before}, remove {id}, snapshot {rows}. Replayed by the web gallery (webviews/src/motion/syncMotion.gallery.tsx) and meant for the native galleries (CmuxNextGallery, cnx-ios).",
+  "clients": [
+    {
+      "id": "mac-a",
+      "device_kind": "mac",
+      "device_name": "Lawrence's MacBook Pro"
+    },
+    {
+      "id": "mac-b",
+      "device_kind": "mac",
+      "device_name": "Mac Studio"
+    },
+    {
+      "id": "phone",
+      "device_kind": "iphone",
+      "device_name": "Lawrence's iPhone"
+    },
+    {
+      "id": "chief",
+      "device_kind": "agent",
+      "device_name": "Chief"
+    }
+  ],
+  "initial": [
+    {
+      "id": "ws_01",
+      "title": "cmux-next sidebar"
+    },
+    {
+      "id": "ws_02",
+      "title": "object sync design"
+    },
+    {
+      "id": "ws_03",
+      "title": "iOS pairing"
+    },
+    {
+      "id": "ws_04",
+      "title": "perf gate"
+    },
+    {
+      "id": "ws_05",
+      "title": "release notes"
+    },
+    {
+      "id": "ws_06",
+      "title": "subrouter deploy"
+    },
+    {
+      "id": "ws_07",
+      "title": "docs: shared sizing"
+    },
+    {
+      "id": "ws_08",
+      "title": "bugfix #21802"
+    }
+  ],
+  "streams": [
+    {
+      "name": "renames-from-another-mac",
+      "note": "Mac Studio renames two workspaces; an agent names a new chat. Every other client crossfades the title in place.",
+      "events": [
+        {
+          "at": 400,
+          "client": "mac-b",
+          "origin": "remote",
+          "op": "rename",
+          "id": "ws_02",
+          "title": "object sync: phase 1"
+        },
+        {
+          "at": 900,
+          "client": "chief",
+          "origin": "remote",
+          "op": "rename",
+          "id": "ws_05",
+          "title": "0.42 release notes draft"
+        },
+        {
+          "at": 1500,
+          "client": "mac-b",
+          "origin": "remote",
+          "op": "rename",
+          "id": "ws_08",
+          "title": "fix: tab close focus"
+        }
+      ]
+    },
+    {
+      "name": "reorder-from-iphone",
+      "note": "The phone drags 'perf gate' to the top. The phone shows it at once (its own drag); the Macs slide it there.",
+      "events": [
+        {
+          "at": 400,
+          "client": "phone",
+          "origin": "remote",
+          "op": "move",
+          "id": "ws_04",
+          "before": "ws_01"
+        },
+        {
+          "at": 1300,
+          "client": "chief",
+          "origin": "remote",
+          "op": "move",
+          "id": "ws_07",
+          "before": "ws_02"
+        }
+      ]
+    },
+    {
+      "name": "inserts-from-second-client",
+      "note": "Mac Studio creates two workspaces and closes one. Rows open their slot and close it on the move spring.",
+      "events": [
+        {
+          "at": 400,
+          "client": "mac-b",
+          "origin": "remote",
+          "op": "insert",
+          "id": "ws_09",
+          "title": "new: terminal bench",
+          "before": "ws_03"
+        },
+        {
+          "at": 1000,
+          "client": "mac-b",
+          "origin": "remote",
+          "op": "insert",
+          "id": "ws_10",
+          "title": "scratch",
+          "before": null
+        },
+        {
+          "at": 1700,
+          "client": "mac-b",
+          "origin": "remote",
+          "op": "remove",
+          "id": "ws_06"
+        }
+      ]
+    },
+    {
+      "name": "burst-batched",
+      "note": "An agent fleet renames 6 rows and moves 2 within 12 ms. One transition: every row moves once, every title crossfades once.",
+      "events": [
+        {
+          "at": 400,
+          "client": "chief",
+          "origin": "remote",
+          "op": "rename",
+          "id": "ws_01",
+          "title": "cmux-next sidebar (running)"
+        },
+        {
+          "at": 402,
+          "client": "chief",
+          "origin": "remote",
+          "op": "rename",
+          "id": "ws_02",
+          "title": "object sync design (running)"
+        },
+        {
+          "at": 404,
+          "client": "chief",
+          "origin": "remote",
+          "op": "rename",
+          "id": "ws_03",
+          "title": "iOS pairing (running)"
+        },
+        {
+          "at": 406,
+          "client": "chief",
+          "origin": "remote",
+          "op": "rename",
+          "id": "ws_04",
+          "title": "perf gate (running)"
+        },
+        {
+          "at": 408,
+          "client": "chief",
+          "origin": "remote",
+          "op": "rename",
+          "id": "ws_05",
+          "title": "release notes (running)"
+        },
+        {
+          "at": 410,
+          "client": "chief",
+          "origin": "remote",
+          "op": "rename",
+          "id": "ws_06",
+          "title": "subrouter deploy (running)"
+        },
+        {
+          "at": 410,
+          "client": "chief",
+          "origin": "remote",
+          "op": "move",
+          "id": "ws_08",
+          "before": "ws_01"
+        },
+        {
+          "at": 412,
+          "client": "chief",
+          "origin": "remote",
+          "op": "move",
+          "id": "ws_06",
+          "before": "ws_02"
+        }
+      ]
+    },
+    {
+      "name": "reconnect-snapshot",
+      "note": "The phone reconnects after a gap and receives a snapshot with 3 renames and a new order. It applies in one frame, no motion.",
+      "events": [
+        {
+          "at": 400,
+          "client": "phone",
+          "origin": "remote",
+          "op": "snapshot",
+          "rows": [
+            {
+              "id": "ws_03",
+              "title": "iOS pairing (done)"
+            },
+            {
+              "id": "ws_01",
+              "title": "cmux-next sidebar"
+            },
+            {
+              "id": "ws_02",
+              "title": "object sync design"
+            },
+            {
+              "id": "ws_05",
+              "title": "release notes"
+            },
+            {
+              "id": "ws_04",
+              "title": "perf gate"
+            },
+            {
+              "id": "ws_06",
+              "title": "subrouter deploy"
+            },
+            {
+              "id": "ws_07",
+              "title": "docs: sizing policies"
+            },
+            {
+              "id": "ws_08",
+              "title": "bugfix #21802"
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

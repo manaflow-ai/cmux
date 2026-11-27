@@ -1,0 +1,340 @@
+{
+  "family": "agent_memory",
+  "operations": [
+    {
+      "class": "read",
+      "cli": {
+        "path": "memory roots",
+        "visible": true
+      },
+      "docs": "Root handles where agent memory lives on that machine: the user's home (only memory paths are readable through it) and each workspace folder.",
+      "focuses": false,
+      "idempotency": "forbidden",
+      "input": {
+        "additionalProperties": false,
+        "properties": {
+          "machine": {
+            "description": "machine_ id; the current machine when absent",
+            "type": "string"
+          }
+        },
+        "required": [],
+        "type": "object"
+      },
+      "mcp": {
+        "expose": "default",
+        "group": "memory"
+      },
+      "name": "memory.roots",
+      "owner": "session_host",
+      "palette": null,
+      "queue_offline": false,
+      "remote_relay": "allow",
+      "risk": "read",
+      "since": "memory/1"
+    },
+    {
+      "class": "read",
+      "cli": {
+        "path": "memory list",
+        "visible": true
+      },
+      "docs": "Memory files under a root that match the provider table (CLAUDE.md, AGENTS.md, Claude project memory, ...): relative path, size, modified time, revision, project label for Claude project memory.",
+      "focuses": false,
+      "idempotency": "forbidden",
+      "input": {
+        "additionalProperties": false,
+        "properties": {
+          "root": {
+            "description": "root_ handle from memory.roots",
+            "type": "string"
+          }
+        },
+        "required": [
+          "root"
+        ],
+        "type": "object"
+      },
+      "mcp": {
+        "expose": "default",
+        "group": "memory"
+      },
+      "name": "memory.list",
+      "owner": "session_host",
+      "palette": null,
+      "queue_offline": false,
+      "remote_relay": "allow",
+      "risk": "read",
+      "since": "memory/1"
+    },
+    {
+      "class": "read",
+      "cli": {
+        "path": "memory search",
+        "visible": true
+      },
+      "docs": "Text search in memory files under the given roots: root, path, line, line text.",
+      "focuses": false,
+      "idempotency": "forbidden",
+      "input": {
+        "additionalProperties": false,
+        "properties": {
+          "roots": {
+            "description": "root_ handles",
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "query": {
+            "description": "Text to find",
+            "type": "string"
+          },
+          "limit": {
+            "description": "Maximum hits",
+            "minimum": 1,
+            "type": "integer"
+          }
+        },
+        "required": [
+          "roots",
+          "query"
+        ],
+        "type": "object"
+      },
+      "mcp": {
+        "expose": "default",
+        "group": "memory"
+      },
+      "name": "memory.search",
+      "owner": "session_host",
+      "palette": null,
+      "queue_offline": false,
+      "remote_relay": "allow",
+      "risk": "read",
+      "since": "memory/1"
+    },
+    {
+      "class": "stream",
+      "cli": null,
+      "docs": "A memory file under a root was created, changed or removed (agents write memory too).",
+      "focuses": false,
+      "idempotency": "forbidden",
+      "input": {
+        "additionalProperties": false,
+        "properties": {
+          "root": {
+            "description": "root_ handle from memory.roots",
+            "type": "string"
+          }
+        },
+        "required": [],
+        "type": "object"
+      },
+      "mcp": {
+        "expose": "never"
+      },
+      "name": "memory.watch",
+      "owner": "session_host",
+      "palette": null,
+      "queue_offline": false,
+      "remote_relay": "allow",
+      "risk": "read",
+      "since": "memory/1"
+    },
+    {
+      "class": "read",
+      "cli": null,
+      "docs": "V3: a document handle for a file under a root handle.",
+      "focuses": false,
+      "idempotency": "forbidden",
+      "input": {
+        "additionalProperties": false,
+        "properties": {
+          "root": {
+            "description": "root_ handle from memory.roots",
+            "type": "string"
+          },
+          "path": {
+            "description": "Relative path under the root",
+            "type": "string"
+          }
+        },
+        "required": [
+          "root",
+          "path"
+        ],
+        "type": "object"
+      },
+      "mcp": {
+        "expose": "never"
+      },
+      "name": "document.open",
+      "owner": "session_host",
+      "palette": null,
+      "queue_offline": false,
+      "remote_relay": "allow",
+      "risk": "read",
+      "since": "memory/1"
+    },
+    {
+      "class": "read",
+      "cli": null,
+      "docs": "V3: text and revision of a document.",
+      "focuses": false,
+      "idempotency": "forbidden",
+      "input": {
+        "additionalProperties": false,
+        "properties": {
+          "doc": {
+            "description": "doc_ handle",
+            "type": "string"
+          }
+        },
+        "required": [
+          "doc"
+        ],
+        "type": "object"
+      },
+      "mcp": {
+        "expose": "never"
+      },
+      "name": "document.read",
+      "owner": "session_host",
+      "palette": null,
+      "queue_offline": false,
+      "remote_relay": "allow",
+      "risk": "read",
+      "since": "memory/1"
+    },
+    {
+      "class": "mutation",
+      "cli": null,
+      "docs": "V3: line edits against base_revision; a different current revision answers document.stale.",
+      "focuses": false,
+      "idempotency": "required",
+      "input": {
+        "additionalProperties": false,
+        "properties": {
+          "doc": {
+            "description": "doc_ handle",
+            "type": "string"
+          },
+          "base_revision": {
+            "description": "Revision the edit was made on",
+            "type": "string"
+          },
+          "edits": {
+            "description": "[{start, end, lines}] 1-based, end exclusive",
+            "type": "array"
+          }
+        },
+        "required": [
+          "doc",
+          "base_revision",
+          "edits"
+        ],
+        "type": "object"
+      },
+      "mcp": {
+        "expose": "never"
+      },
+      "name": "document.edit",
+      "owner": "session_host",
+      "palette": null,
+      "queue_offline": false,
+      "remote_relay": "deny",
+      "risk": "mutate-shared",
+      "since": "memory/1",
+      "origin": "user"
+    },
+    {
+      "class": "mutation",
+      "cli": null,
+      "docs": "V3+V5: the same edits as a diff resource (producer: document host) for a diff renderer; accepting it applies them with the same base revision check.",
+      "focuses": false,
+      "idempotency": "required",
+      "input": {
+        "additionalProperties": false,
+        "properties": {
+          "doc": {
+            "description": "doc_ handle",
+            "type": "string"
+          },
+          "base_revision": {
+            "description": "Revision the edit was made on",
+            "type": "string"
+          },
+          "edits": {
+            "description": "[{start, end, lines}]",
+            "type": "array"
+          }
+        },
+        "required": [
+          "doc",
+          "base_revision",
+          "edits"
+        ],
+        "type": "object"
+      },
+      "mcp": {
+        "expose": "never"
+      },
+      "name": "document.propose",
+      "owner": "session_host",
+      "palette": null,
+      "queue_offline": false,
+      "remote_relay": "allow",
+      "risk": "mutate-own",
+      "since": "memory/1"
+    },
+    {
+      "class": "mutation",
+      "cli": null,
+      "docs": "Move files under a root to the Trash (never unlink); expected_revisions refuses a file that changed.",
+      "focuses": false,
+      "idempotency": "required",
+      "input": {
+        "additionalProperties": false,
+        "properties": {
+          "root": {
+            "description": "root_ handle from memory.roots",
+            "type": "string"
+          },
+          "paths": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "description": "Relative paths"
+          },
+          "expected_revisions": {
+            "type": "object",
+            "description": "path -> revision"
+          }
+        },
+        "required": [
+          "root",
+          "paths"
+        ],
+        "type": "object"
+      },
+      "mcp": {
+        "expose": "never"
+      },
+      "name": "fs.trash",
+      "owner": "session_host",
+      "palette": null,
+      "queue_offline": false,
+      "remote_relay": "deny",
+      "risk": "destructive",
+      "since": "memory/1",
+      "origin": "user"
+    }
+  ],
+  "owner": "session_host",
+  "schema_version": 1,
+  "trigger_events": [
+    "memory.changed"
+  ]
+}

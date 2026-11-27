@@ -4,9 +4,9 @@ import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
 import { Database } from "../../db/effect";
 import { tracePublicationAuthEffect } from "./requestTelemetry";
-import { cloudVmPublications, cloudVmDomains, cloudVms, cloudVmPublicationSessions, cloudVmPublicationAuthTransactions, cloudVmPublicationAuthCodes, cloudVmPublicationEmailGrants, accountDeletionTombstones } from "../../db/schema";
+import { cloudVmPublications, cloudVmDomains, cloudVms, cloudVmPublicationSessions, cloudVmPublicationAuthTransactions, cloudVmPublicationAuthCodes, cloudVmPublicationEmailGrants, cloudVmPublicationApiKeys, accountDeletionTombstones } from "../../db/schema";
 import { accountDeletionAdvisoryLockKey, accountDeletionUserHash, isBlockingAccountDeletionTombstone } from "../account/deletionLock";
-import { PublicationDatabaseError, PublicationNotFoundError, PublicationConflictError, PublicationAuthArtifactError, PublicationAccountDeletionBlockedError, AUTH_ARTIFACT_SWEEP_LIMIT, AUTH_TRANSACTION_ABANDONED_AFTER_MS, MAX_PENDING_AUTH_TRANSACTIONS_PER_PUBLICATION, type CloudVmPublicationRepositoryShape } from "./repository";
+import { PublicationDatabaseError, PublicationNotFoundError, PublicationConflictError, PublicationAuthArtifactError, PublicationAccountDeletionBlockedError, AUTH_ARTIFACT_SWEEP_LIMIT, AUTH_TRANSACTION_ABANDONED_AFTER_MS, MAX_PENDING_AUTH_TRANSACTIONS_PER_PUBLICATION, type CloudVmPublicationRepositoryShape, liveApiKeyJoin } from "./repository";
 
 export type PublicationAuthRepositoryShape = Pick<CloudVmPublicationRepositoryShape, "hasEmailGrant"|"findActivePublicationForRequest"|"findRequestContext"|"createAuthTransaction"|"findPendingAuthTransaction"|"issueAuthCode"|"consumeAuthCodeAndCreateSession"|"findValidSession"|"revokePublicationSessions">;
 export class PublicationAuthRepository extends Context.Tag("cmux/PublicationAuthRepository")<PublicationAuthRepository, PublicationAuthRepositoryShape>() {}
@@ -88,6 +88,7 @@ findRequestContext: (input) => databaseEffect("findRequestContext", () => Effect
         domain: cloudVmDomains,
         vm: cloudVms,
         session: cloudVmPublicationSessions,
+        apiKey: { id: cloudVmPublicationApiKeys.id, ownerUserId: cloudVmPublicationApiKeys.ownerUserId },
     })
         .from(cloudVmPublications)
         .leftJoin(cloudVmDomains, eq(cloudVmPublications.domainId, cloudVmDomains.id))
@@ -97,6 +98,7 @@ findRequestContext: (input) => databaseEffect("findRequestContext", () => Effect
         .leftJoin(cloudVmPublicationSessions, and(input.sessionTokenHash === null
         ? sql `false`
         : eq(cloudVmPublicationSessions.tokenHash, input.sessionTokenHash), eq(cloudVmPublicationSessions.publicationId, cloudVmPublications.id), eq(cloudVmPublicationSessions.routingRevision, cloudVmPublications.routingRevision), gt(cloudVmPublicationSessions.expiresAt, input.now), isNull(cloudVmPublicationSessions.revokedAt)))
+        .leftJoin(cloudVmPublicationApiKeys, liveApiKeyJoin(input.apiKeyHash ?? null, input.now))
         .where(and(eq(cloudVmPublications.providerTlsRuleId, input.providerTlsRuleId), eq(cloudVmPublications.state, "active"), isNull(cloudVmPublications.disabledAt), inArray(cloudVms.status, ["running", "paused"])))
         .limit(1);
     return context ?? null;

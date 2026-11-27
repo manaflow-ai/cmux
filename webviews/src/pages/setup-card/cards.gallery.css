@@ -1,0 +1,78 @@
+/* The gallery's frames around the Home chat cards (HomeMessagesCards.gallery.tsx). */
+.hm-gallery-stage {
+  box-sizing: border-box;
+  max-width: 100%;
+  padding: 16px;
+  color: var(--cmux-text);
+  font-size: var(--text-body);
+}
+.hm-gallery-note {
+  margin: 8px 0 0;
+  color: var(--cmux-text-tertiary);
+  font-size: var(--text-caption);
+}
+.hm-gallery-message {
+  margin: 0 0 16px;
+  line-height: var(--text-body--line-height);
+}
+.hm-gallery-cards {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  gap: 16px;
+}
+.hm-gallery-card {
+  padding: 12px;
+  border-radius: 12px;
+}
+.hm-gallery-first-run {
+  max-height: 100%;
+}
+.hm-gallery-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 8px 12px;
+  border-bottom: 1px solid var(--cmux-separator);
+  color: var(--cmux-text);
+}
+.hm-gallery-header__name {
+  font-weight: 600;
+}
+/* SetupCard.gallery.tsx: Home's chat column, Chief's welcome over the card and the composer under it. */
+.hm-gallery-setup {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 12px;
+  height: 100%;
+  padding: 16px 24px;
+  box-sizing: border-box;
+}
+.hm-gallery-setup__chat {
+  display: flex;
+  flex: 1;
+  align-items: flex-start;
+  width: 100%;
+  max-width: 560px;
+}
+.hm-gallery-setup__bubble {
+  padding: 8px 12px;
+  border-radius: 6px;
+  background: var(--cmux-elevated-background);
+  color: var(--cmux-text);
+  font-size: var(--text-body);
+}
+.hm-gallery-setup__composer {
+  width: 100%;
+  max-width: 560px;
+  box-sizing: border-box;
+  padding: 12px;
+  border: 1px solid var(--cmux-separator);
+  border-radius: 8px;
+  color: var(--cmux-text-tertiary);
+  font-size: var(--text-body);
+}
+.hm-gallery-setup-window {
+  height: 100%;
+}

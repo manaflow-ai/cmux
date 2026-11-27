@@ -1,0 +1,19 @@
+{
+  "caption": "Hold Command over a link or file:line in a terminal to underline it, then click to open it in a tab.",
+  "frameInterval": 0.25,
+  "settings": {"terminal": {"fontSize": 22}},
+  "steps": [
+    {"title": "Launch", "wait": 2},
+    {"title": "A terminal that printed a URL and a path", "rpc": {"method": "action.run", "params": {"action": "workspace new", "origin": "script", "args": {"name": "Docs site", "cwd": "/tmp", "command": "mkdir -p /tmp/docs-site/src && cd /tmp/docs-site && printf '%s\\n' 'export function greet(name: string) {' '  return `Hello, ${name}`;' '}' '' 'export function farewell(name: string) {' '  return `Goodbye, ${name}`;' '}' '' 'export const pages = [' '  \"getting-started\",' '  \"configuration\",' '  \"keyboard-shortcuts\",' '];' '' > src/app.ts; printf '\\033]7;file://localhost/tmp/docs-site\\007\\033]2;Docs build\\007\\033[?25l\\033[H\\033[2J'; printf '\\n Docs build finished in 2.4s\\n 1 warning in src/app.ts:12\\n\\n Read the guide:\\n https://example.com/docs/getting-started\\n'; exec sleep 86400", "focus": true}}}, "wait": 3},
+    {"title": "Pointer rests on the URL", "rpc": {"method": "debug.terminal.links", "params": {"hover": [10, 5], "keys": []}}, "wait": 0.8, "clip": true},
+    {"title": "Command down: the URL underlines", "rpc": {"method": "debug.terminal.links", "params": {"modifiers": ["command"]}}, "wait": 1.0, "clip": true},
+    {"title": "Cmd-click opens it", "rpc": {"method": "debug.terminal.links", "params": {"click": [10, 5]}}, "wait": 1.8, "clip": true},
+    {"title": "Back to the terminal", "cmux": ["action", "run", "focusLeft"], "wait": 0.3, "clip": true, "optional": "the page may open in the terminal's own pane"},
+    {"title": "Command over src/app.ts:12 underlines it", "rpc": {"method": "debug.terminal.links", "params": {"hover": [18, 2]}}, "wait": 1.0, "clip": true, "optional": "the terminal may not have focus"},
+    {"title": "Cmd-click opens the file at line 12", "rpc": {"method": "debug.terminal.links", "params": {"click": [18, 2]}}, "wait": 1.8, "clip": true, "optional": "the terminal may not have focus"},
+    {"title": "End", "rpc": {"method": "debug.terminal.links", "params": {"modifiers": []}}, "wait": 0.3, "optional": "the terminal may not have focus"}
+  ],
+  "crop": [0.17, 0, 0.83, 0.42],
+  "lead": 0.6,
+  "hold": 1.6
+}

@@ -1,0 +1,58 @@
+.status-glyphs-stage {
+  padding: 12px;
+  color: var(--cmux-app-text, CanvasText);
+  background-size: cover;
+}
+
+.status-glyphs-sheet {
+  border-collapse: collapse;
+  font-size: var(--text-body);
+  line-height: var(--text-body--line-height);
+  background: var(--cmux-app-content, Canvas);
+  border-radius: 8px;
+  letter-spacing: var(--text-body--letter-spacing);
+}
+
+.status-glyphs-sheet th,
+.status-glyphs-sheet td {
+  padding: 6px 10px;
+  text-align: start;
+  vertical-align: middle;
+}
+
+.status-glyphs-sheet thead th {
+  font-size: var(--text-caption);
+  line-height: var(--text-caption--line-height);
+  font-weight: var(--weight-regular);
+  color: var(--cmux-app-text-secondary, GrayText);
+  letter-spacing: var(--text-caption--letter-spacing);
+}
+
+.status-glyphs-sheet tbody th {
+  display: grid;
+  font-weight: var(--weight-regular);
+}
+
+.status-glyphs-sheet tbody th strong {
+  font-weight: var(--weight-emphasis);
+}
+
+.status-glyphs-sheet tbody th span {
+  max-width: 220px;
+  font-size: var(--text-detail);
+  line-height: var(--text-detail--line-height);
+  color: var(--cmux-app-text-secondary, GrayText);
+  letter-spacing: var(--text-detail--letter-spacing);
+}
+
+.status-glyphs-row {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  white-space: nowrap;
+}
+
+.status-glyphs-pixels {
+  display: block;
+  image-rendering: pixelated;
+}

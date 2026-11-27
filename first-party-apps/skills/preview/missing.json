@@ -1,0 +1,86 @@
+{
+  "grant": [
+    "workspace:read",
+    "workspace:write",
+    "skill:read",
+    "skill:write",
+    "mcp_server:read",
+    "mcp_server:write"
+  ],
+  "scopes": {
+    "skill.list": {
+      "scope": "skill:read",
+      "class": "read"
+    },
+    "mcp_server.list": {
+      "scope": "mcp_server:read",
+      "class": "read"
+    },
+    "skill.enable": {
+      "scope": "skill:write",
+      "class": "mutation"
+    },
+    "skill.disable": {
+      "scope": "skill:write",
+      "class": "mutation"
+    },
+    "skill.remove": {
+      "scope": "skill:write",
+      "class": "mutation"
+    },
+    "skill.install": {
+      "scope": "skill:write",
+      "class": "mutation"
+    },
+    "mcp_server.add": {
+      "scope": "mcp_server:write",
+      "class": "mutation"
+    },
+    "mcp_server.enable": {
+      "scope": "mcp_server:write",
+      "class": "mutation"
+    },
+    "mcp_server.disable": {
+      "scope": "mcp_server:write",
+      "class": "mutation"
+    },
+    "mcp_server.remove": {
+      "scope": "mcp_server:write",
+      "class": "mutation"
+    },
+    "diff.decide": {
+      "scope": "mcp_server:write",
+      "class": "mutation"
+    },
+    "workspace.root": {
+      "scope": "workspace:read",
+      "class": "read"
+    },
+    "ui.open": {
+      "scope": "workspace:read",
+      "class": "mutation"
+    },
+    "app.pane.open": {
+      "scope": "workspace:write",
+      "class": "mutation"
+    }
+  },
+  "ops": {
+    "workspace.list": [
+      {
+        "id": "workspace_1",
+        "session_id": "session_1",
+        "name": "notes",
+        "index": 0,
+        "focused": false
+      },
+      {
+        "id": "workspace_2",
+        "session_id": "session_1",
+        "name": "api-server",
+        "index": 1,
+        "focused": true
+      }
+    ]
+  }
+}

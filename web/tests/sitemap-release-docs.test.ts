@@ -25,30 +25,20 @@ const saved = {
   fetch: globalThis.fetch,
   channel: process.env.CMUX_DOCS_CHANNEL,
   origin: process.env.CMUX_RELEASE_DOCS_ORIGIN,
-  registry: process.env.CMUX_REGISTRY_URL,
 };
 let requested: string[] = [];
 
-// The main sitemap also reads the extension registry (CMUX_REGISTRY_URL); it answers with no listings here.
-const REGISTRY = "https://registry.test";
-
 function serveReleaseSitemap(response: () => Response) {
   globalThis.fetch = (async (input: RequestInfo | URL) => {
-    const url = String(input);
-    if (url.startsWith(REGISTRY)) return Response.json({ items: [] });
-    requested.push(url);
+    requested.push(String(input));
     return response();
   }) as typeof fetch;
 }
-
-/** The extension and setup index pages, listed whatever the registry answers. */
-const EXTENSION_INDEXES = ["https://cmux.com/extensions", "https://cmux.com/setups"];
 
 beforeEach(() => {
   requested = [];
   delete process.env.CMUX_DOCS_CHANNEL;
   process.env.CMUX_RELEASE_DOCS_ORIGIN = "https://release-docs.test";
-  process.env.CMUX_REGISTRY_URL = REGISTRY;
 });
 
 afterEach(() => {
@@ -57,8 +47,6 @@ afterEach(() => {
   else process.env.CMUX_DOCS_CHANNEL = saved.channel;
   if (saved.origin === undefined) delete process.env.CMUX_RELEASE_DOCS_ORIGIN;
   else process.env.CMUX_RELEASE_DOCS_ORIGIN = saved.origin;
-  if (saved.registry === undefined) delete process.env.CMUX_REGISTRY_URL;
-  else process.env.CMUX_REGISTRY_URL = saved.registry;
 });
 
 describe("main site sitemap", () => {
@@ -74,7 +62,6 @@ describe("main site sitemap", () => {
     expect(urls).not.toContain("https://cmux.com/docs/configuration");
     // Pages this deployment serves itself are unaffected.
     expect(urls).toContain("https://cmux.com/pricing");
-    for (const url of EXTENSION_INDEXES) expect(urls).toContain(url);
     expect(urls).toContain("https://cmux.com/ja/pricing");
   });
 
@@ -94,10 +81,9 @@ describe("main site sitemap", () => {
       () => new Response("<urlset><url><loc>https://cmux.com/pricing</loc></url></urlset>"),
     ]) {
       serveReleaseSitemap(response);
-      expect((await sitemap()).map((entry) => entry.url)).toEqual([
-        ...sitemapEntries().map((entry) => entry.url),
-        ...EXTENSION_INDEXES,
-      ]);
+      expect((await sitemap()).map((entry) => entry.url)).toEqual(
+        sitemapEntries().map((entry) => entry.url),
+      );
     }
   });
 });

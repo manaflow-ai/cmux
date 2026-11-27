@@ -1,5 +1,5 @@
 {
-  "comment": "One schema for agent session links, so an emitter and a parser cannot drift. The web fallback page (https://cmux.com/deeplink/agent?harness=&session=&host=&name=&message=) and the native link cmux NEXT opens (cmux://agent/<harness>/<session>?host=&name=&message=) carry the same parameters. harness and session address the session; host names the machine it runs on; name is its callsign; message names one message to scroll to and highlight; machine is the hint every kind of cmux link takes. A link is an address, not a credential. Consumers: web/app/[locale]/(landing)/deeplink/[kind]/deeplink-agent.ts (web/tests/deeplink-agent.test.ts) and the app's parser, Packages/macOS/CmuxNext/Sources/CmuxNextActions/DeepLink (Tests/CmuxNextActionsTests/AgentLinkSchemaTests.swift). Both run the vectors below, so neither can drift from this file.",
+  "comment": "One schema for agent session links, so an emitter and a parser cannot drift. The web fallback page (https://cmux.com/deeplink/agent?harness=&session=&host=&name=&message=) and the native link cmux NEXT opens (cmux://agent/<harness>/<session>?host=&name=&message=) carry the same parameters. harness and session address the session; host names the machine it runs on; name is its callsign; message names one message to scroll to and highlight; machine is the hint every kind of cmux link takes. A link is an address, not a credential. Consumers: web/app/[locale]/(landing)/deeplink/[kind]/deeplink-agent.ts (web/tests/deeplink-agent.test.ts) and the app's parser, Packages/macOS/CmuxNext/Sources/CmuxNextActions/DeepLink (Tests/CmuxNextActionsTests/AgentLinkSchemaTests.swift), and acpmux's reader behind `acpmux resolve`, cmux-tui/crates/acpmux/src/agent_link.rs. All three run the vectors below, so none can drift from this file.",
   "nativeHost": "agent",
   "pathParams": ["harness", "session"],
   "queryParams": ["host", "name", "message", "machine"],
@@ -15,7 +15,7 @@
     },
     "session": {
       "required": true,
-      "pattern": "^(?!\\.+$)[A-Za-z0-9._-]{1,200}$",
+      "pattern": "^(?!\\.+$)[A-Za-z0-9._:-]{1,256}$",
       "comment": "The harness's own session id."
     },
     "machine": {

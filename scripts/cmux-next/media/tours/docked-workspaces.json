@@ -1,0 +1,228 @@
+{
+  "title": "Docked workspaces: logs at the bottom, notes at the left, the stage switches",
+  "steps": [
+    {
+      "title": "Launch",
+      "wait": 2,
+      "shot": false
+    },
+    {
+      "title": "Debug Settings window.dockedWorkspaces on",
+      "rpc": {
+        "method": "debug.tunables",
+        "params": {
+          "action": "set",
+          "key": "window.dockedWorkspaces",
+          "value": true
+        }
+      },
+      "shot": false,
+      "optional": "debug.tunables is DEBUG only"
+    },
+    {
+      "title": "New workspace app",
+      "cmux": [
+        "workspace",
+        "new",
+        "--name",
+        "app"
+      ],
+      "wait": 1,
+      "shot": false
+    },
+    {
+      "title": "app: a plain $ prompt and a label",
+      "cmux": [
+        "workspace",
+        "name:app",
+        "screen",
+        "current",
+        "pane",
+        "current",
+        "tab",
+        "current",
+        "terminal",
+        "current",
+        "write",
+        "--text",
+        "export PS1='$ ' PROMPT='$ '; clear; echo 'stage: the workspace the sidebar selects'\r"
+      ],
+      "wait": 1,
+      "shot": false
+    },
+    {
+      "title": "New workspace logs",
+      "cmux": [
+        "workspace",
+        "new",
+        "--name",
+        "logs"
+      ],
+      "wait": 1,
+      "shot": false
+    },
+    {
+      "title": "logs: a plain $ prompt and a label",
+      "cmux": [
+        "workspace",
+        "name:logs",
+        "screen",
+        "current",
+        "pane",
+        "current",
+        "tab",
+        "current",
+        "terminal",
+        "current",
+        "write",
+        "--text",
+        "export PS1='$ ' PROMPT='$ '; clear; echo 'logs: docked to the window bottom'\r"
+      ],
+      "wait": 1,
+      "shot": false
+    },
+    {
+      "title": "New workspace notes",
+      "cmux": [
+        "workspace",
+        "new",
+        "--name",
+        "notes"
+      ],
+      "wait": 1,
+      "shot": false
+    },
+    {
+      "title": "notes: a plain $ prompt and a label",
+      "cmux": [
+        "workspace",
+        "name:notes",
+        "screen",
+        "current",
+        "pane",
+        "current",
+        "tab",
+        "current",
+        "terminal",
+        "current",
+        "write",
+        "--text",
+        "export PS1='$ ' PROMPT='$ '; clear; echo 'notes: docked to the window left'\r"
+      ],
+      "wait": 1,
+      "shot": false
+    },
+    {
+      "title": "New workspace web",
+      "cmux": [
+        "workspace",
+        "new",
+        "--name",
+        "web"
+      ],
+      "wait": 1,
+      "shot": false
+    },
+    {
+      "title": "web: a plain $ prompt and a label",
+      "cmux": [
+        "workspace",
+        "name:web",
+        "screen",
+        "current",
+        "pane",
+        "current",
+        "tab",
+        "current",
+        "terminal",
+        "current",
+        "write",
+        "--text",
+        "export PS1='$ ' PROMPT='$ '; clear; echo 'web: another stage workspace'\r"
+      ],
+      "wait": 1,
+      "shot": false
+    },
+    {
+      "title": "Focus app",
+      "cmux": [
+        "workspace",
+        "name:app",
+        "focus"
+      ],
+      "wait": 1,
+      "shot": false
+    },
+    {
+      "title": "Focus logs",
+      "cmux": [
+        "workspace",
+        "name:logs",
+        "focus"
+      ],
+      "wait": 1,
+      "shot": false
+    },
+    {
+      "title": "logs docks at the bottom",
+      "cmux": [
+        "action",
+        "run",
+        "workspace.dockBottom"
+      ],
+      "wait": 2,
+      "shot": false
+    },
+    {
+      "title": "Focus notes",
+      "cmux": [
+        "workspace",
+        "name:notes",
+        "focus"
+      ],
+      "wait": 1,
+      "shot": false
+    },
+    {
+      "title": "notes docks at the left: the stage keeps app (column-major corners)",
+      "cmux": [
+        "action",
+        "run",
+        "workspace.dockLeft"
+      ],
+      "wait": 2
+    },
+    {
+      "title": "The sidebar switches the stage to web: both docks stay",
+      "cmux": [
+        "workspace",
+        "name:web",
+        "focus"
+      ],
+      "wait": 2
+    },
+    {
+      "title": "Dark",
+      "rpc": {
+        "method": "debug.appearance",
+        "params": {
+          "mode": "dark"
+        }
+      },
+      "wait": 2,
+      "optional": "debug.appearance is DEBUG only"
+    },
+    {
+      "title": "Back to the system appearance",
+      "rpc": {
+        "method": "debug.appearance",
+        "params": {
+          "mode": "system"
+        }
+      },
+      "wait": 1,
+      "shot": false,
+      "optional": "debug.appearance is DEBUG only"
+    }
+  ]
+}

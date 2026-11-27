@@ -1,0 +1,11 @@
+2026-10-24T03:37:09.814240Z  INFO cmux_mobile_link::dial::turn: TURN allocation for WireGuard relayed=104.30.145.6:59663 server="turn.cloudflare.com:3478" transport=Udp
+2026-10-24T03:37:10.036097Z DEBUG cmux_mobile_link::link: input lane attached role=Phone
+2026-10-24T03:37:10.085115Z DEBUG cmux_mobile_link::dial::wireguard: peer confirmed our datagrams reach it direct=Some(Route { carrier: Turn, addr: 104.184.154.177:55608 })
+2026-10-23 20:37:10.210 CmuxMobileApp[12340:609974166] void * _Nullable NSMapGet(NSMapTable * _Nonnull, const void * _Nullable): map table argument is NULL
+2026-10-24T03:37:10.264974Z  INFO cmux_mobile_link::hybrid: media session up session="90997b2b-5106-405f-9da0-12f39f256c39"
+objc[12340]: Class UIAccessibilityLoaderWebShared is implemented in both /Library/Developer/CoreSimulator/Volumes/iOS_23F77/Library/Developer/CoreSimulator/Profiles/Runtimes/iOS 26.5.simruntime/Contents/Resources/RuntimeRoot/System/Library/AccessibilityBundles/WebKit.axbundle/WebKit (0x113e30398) and /Library/Developer/CoreSimulator/Volumes/iOS_23F77/Library/Developer/CoreSimulator/Profiles/Runtimes/iOS 26.5.simruntime/Contents/Resources/RuntimeRoot/System/Library/AccessibilityBundles/WebCore.axbundle/WebCore (0x1166a4310). This may cause spurious casting failures and mysterious crashes. One of the duplicates must be removed or renamed.
+IOSurfaceClientSetSurfaceNotify failed e00002c7
+2026-10-24T03:37:19.254288Z DEBUG cmux_mobile_link::signaling: dropping a signal for an unknown session session="8279cba8-79a9-4916-af2f-c5f2a6bfe2a2"
+2026-10-23 20:37:21.425 CmuxMobileApp[12340:609974166] CoreText performance note: Client called CTFontCreateWithName() using name "Apple Color Emoji" and got font with PostScript name "AppleColorEmoji". For best performance, only use PostScript names when calling this API.
+2026-10-23 20:37:21.425 CmuxMobileApp[12340:609974166] CoreText performance note: Set a breakpoint on CTFontLogSuboptimalRequest to debug.
+2026-10-24T03:37:33.677362Z DEBUG cmux_mobile_link::signaling: dropping a signal for an unknown session session="559c67fd-c7a9-49cc-b0cc-3c6206d2228c"

@@ -1,0 +1,15 @@
+[package]
+name = "cmux-screen-proto"
+version = "0.1.0"
+edition.workspace = true
+license.workspace = true
+publish.workspace = true
+description = "cmux screen stream wire formats: pairing links, room signaling, input and host messages"
+
+[dependencies]
+serde.workspace = true
+serde_json.workspace = true
+url.workspace = true
+percent-encoding = "2"
+getrandom.workspace = true
+base64.workspace = true

@@ -1,3 +1,14 @@
+import { DESKTOP_LEVELS, parseComputedColor, type RGBA } from "./backdrop";
+import { applyDiffTints } from "./diffWeight";
+import {
+  contrastBetween,
+  mixColors,
+  SYNTAX_MIN_CONTRAST,
+  withMinimumContrast,
+  withMinimumContrastOn,
+} from "./syntax-colors";
+import { pageSyntaxVariable, syntaxRoleColors, type SyntaxRoleName } from "./syntax-theme";
+
 export type DiffViewerTheme = {
   background?: string;
   foreground?: string;
@@ -12,6 +23,7 @@ export type DiffViewerTheme = {
 export type DiffViewerAppearance = {
   backgroundOpacity?: number;
   fontFamily?: string;
+  fallbackFamilies?: string[];
   fontSize?: number;
   lineHeight?: number;
   theme?: {
@@ -57,17 +69,107 @@ const defaultDarkTheme: DiffViewerTheme = {
   type: "dark",
 };
 
+type HostThemeWindow = Window & {
+  cmuxTheme?: {
+    current?: { terminal?: HostTerminalTheme; variables?: Record<string, string>; colorScheme?: string } | null;
+  };
+};
+type HostTerminalTheme = {
+  type?: string;
+  background?: string;
+  foreground?: string;
+  palette?: Record<string, string>;
+  selectionBackground?: string;
+  fontFamily?: string | null;
+  fallbackFamilies?: string[];
+};
+
+/**
+ * The terminal's font family the host sends with its theme (WebTheme.swift `terminal.fontFamily`:
+ * cmux.json's `terminal.fontFamily`, else the Ghostty config's), or null when it names none. Code
+ * on the diff, markdown and editor pages draws in it, as in the terminal.
+ */
+export function hostTerminalFontFamily(): string | null {
+  if (typeof window === "undefined") return null;
+  const family = (window as HostThemeWindow).cmuxTheme?.current?.terminal?.fontFamily;
+  return typeof family === "string" && family.trim() !== "" ? family.trim() : null;
+}
+
+export function hostTerminalFontFallbackFamilies(): string[] {
+  if (typeof window === "undefined") return [];
+  const families = (window as HostThemeWindow).cmuxTheme?.current?.terminal?.fallbackFamilies;
+  return Array.isArray(families)
+    ? families.filter((family): family is string => typeof family === "string" && family.trim() !== "")
+    : [];
+}
+
+/** The terminal theme the host sends with every theme change (WebTheme.swift `terminal`), or null. */
+export function hostTerminalTheme(): DiffViewerTheme | null {
+  if (typeof window === "undefined") return null;
+  const terminal = (window as HostThemeWindow).cmuxTheme?.current?.terminal;
+  if (!terminal || typeof terminal !== "object") return null;
+  // Only the colors it names, so a missing one keeps the default theme's.
+  const theme: DiffViewerTheme = {};
+  if (typeof terminal.background === "string") theme.background = terminal.background;
+  if (typeof terminal.foreground === "string") theme.foreground = terminal.foreground;
+  if (terminal.palette && typeof terminal.palette === "object") theme.palette = terminal.palette;
+  // The app's one highlight color (WebTheme.swift `terminal.selectionBackground`), so code pages
+  // select in it rather than a fixed blue (user 2026-10-28).
+  if (typeof terminal.selectionBackground === "string") theme.selectionBackground = terminal.selectionBackground;
+  if (terminal.type === "light" || terminal.type === "dark") theme.type = terminal.type;
+  return theme;
+}
+
+/**
+ * The host's terminal theme as one scheme's: its colors when it is that scheme's (or names none),
+ * else only the app's one highlight color. The host sends its App Theme's palette, so a fixed
+ * `markdown.theme` paper of the other scheme keeps the default palette that reads on it, rather
+ * than a light theme's dark-grey code on dark paper.
+ */
+function hostThemeFor(host: DiffViewerTheme | null, scheme: "light" | "dark"): DiffViewerTheme | null {
+  if (!host || !host.type || host.type === scheme) return host;
+  return host.selectionBackground === undefined ? null : { selectionBackground: host.selectionBackground };
+}
+
+/**
+ * Runs `apply` now and after every host theme change (`cmux-theme`), so a page's code colors and
+ * diff colors follow a Ghostty config edit in place. Returns the unsubscribe.
+ */
+export function followHostTerminalTheme(apply: () => void): () => void {
+  if (typeof window === "undefined") return () => {};
+  const listener = () => apply();
+  window.addEventListener("cmux-theme", listener);
+  apply();
+  return () => window.removeEventListener("cmux-theme", listener);
+}
+
+/**
+ * The page's appearance: the host's own when it sends one (its `themes`), else the terminal theme
+ * of the page's scope (`window.cmuxTheme`), else the default terminal theme.
+ */
 export function resolveDiffViewerAppearance(appearance?: DiffViewerAppearance): ResolvedDiffViewerAppearance {
-  const lightTheme = { ...defaultLightTheme, ...appearance?.themes?.light };
-  const darkTheme = { ...defaultDarkTheme, ...appearance?.themes?.dark };
+  const host = appearance?.themes ? null : hostTerminalTheme();
+  const lightTheme = { ...defaultLightTheme, ...hostThemeFor(host, "light"), ...appearance?.themes?.light };
+  const darkTheme = { ...defaultDarkTheme, ...hostThemeFor(host, "dark"), ...appearance?.themes?.dark };
   lightTheme.foreground = readableColor(lightTheme.foreground, lightTheme.background, defaultLightTheme.foreground);
-  lightTheme.selectionForeground = readableColor(lightTheme.selectionForeground, lightTheme.selectionBackground, defaultLightTheme.selectionForeground);
+  lightTheme.selectionForeground = readableColor(
+    lightTheme.selectionForeground,
+    lightTheme.selectionBackground,
+    defaultLightTheme.selectionForeground,
+  );
   darkTheme.foreground = readableColor(darkTheme.foreground, darkTheme.background, defaultDarkTheme.foreground);
-  darkTheme.selectionForeground = readableColor(darkTheme.selectionForeground, darkTheme.selectionBackground, defaultDarkTheme.selectionForeground);
+  darkTheme.selectionForeground = readableColor(
+    darkTheme.selectionForeground,
+    darkTheme.selectionBackground,
+    defaultDarkTheme.selectionForeground,
+  );
   return {
     backgroundOpacity: normalizedOpacity(appearance?.backgroundOpacity),
-    fontFamily: appearance?.fontFamily ?? "Menlo",
-    fontSize: metric(appearance?.fontSize, 10),
+    fontFamily: appearance?.fontFamily ?? hostTerminalFontFamily() ?? "Menlo",
+    fallbackFamilies: appearance?.fallbackFamilies ?? hostTerminalFontFallbackFamilies(),
+    // The chat's code block size (diff-viewer/fontZoom.ts), not the 10 px the viewer drew before (user
+    // 2026-11-19: "default font size needs to better match chat trajectory").
+    fontSize: metric(appearance?.fontSize, 12),
     lineHeight: metric(appearance?.lineHeight, 20),
     theme: {
       light: appearance?.theme?.light ?? lightTheme.name ?? "cmux-ghostty-light",
@@ -80,35 +182,133 @@ export function resolveDiffViewerAppearance(appearance?: DiffViewerAppearance): 
   };
 }
 
+/// Diff Colors (Settings > Diff Viewer, `diff.colors`): where additions and deletions get their
+/// colors. `theme` takes the terminal palette's green and red, `muted` mixes those toward the
+/// background, `standard` keeps fixed GitHub-style colors.
+export type DiffChangeColors = "theme" | "muted" | "standard";
+
+const STANDARD_ADDITION = { light: "#257a3e", dark: "#8fd88f" } as const;
+const STANDARD_DELETION = { light: "#b42318", dark: "#ff8a80" } as const;
+/// How far Muted moves the theme's color toward the background, before restoring 4.5:1.
+const MUTED_MIX = 0.4;
+
+let changeColors: DiffChangeColors = "theme";
+let appliedAppearance: DiffViewerAppearance | undefined;
+
+/// Sets the Diff Colors mode (`undefined` is the default, Theme) and recolors the page in place.
+export function setDiffChangeColors(colors: DiffChangeColors | undefined) {
+  const next = colors ?? "theme";
+  if (next === changeColors) return;
+  changeColors = next;
+  applyDiffTints(document.documentElement.style, changeColors);
+  applyDiffViewerAppearance(appliedAppearance);
+}
+
 export function applyDiffViewerAppearance(appearance?: DiffViewerAppearance) {
   if (!appearance) {
     return;
   }
+  appliedAppearance = appearance;
 
   const lightTheme = appearance.themes?.light ?? {};
   const darkTheme = appearance.themes?.dark ?? {};
   const rootStyle = document.documentElement.style;
 
-  // `--cmux-diff-bg` stays opaque: it is the base color the page blends against
-  // for text, borders, and floating overlays (menus).
+  // `--cmux-diff-bg` is the opaque terminal theme color. styles.css derives
+  // `--cmux-diff-viewer-bg` from it, the one background of the whole viewer
+  // (page, toolbar, file headers, files sidebar and tree).
   rootStyle.setProperty("--cmux-diff-bg-light", colorString(lightTheme.background, "#ffffff"));
   rootStyle.setProperty("--cmux-diff-bg-dark", colorString(darkTheme.background, "#000000"));
-  // The diff viewer page stays transparent. The native browser panel behind
-  // the WebView owns the themed fill for opaque terminal themes, while clear
-  // terminal themes can show the window backdrop through the same path.
-  rootStyle.setProperty("--cmux-diff-surface-fill-light", "transparent");
-  rootStyle.setProperty("--cmux-diff-surface-fill-dark", "transparent");
   rootStyle.setProperty("--cmux-diff-fg-light", colorString(lightTheme.foreground, "#000000"));
   rootStyle.setProperty("--cmux-diff-fg-dark", colorString(darkTheme.foreground, "#ffffff"));
-  rootStyle.setProperty("--cmux-diff-addition-fg-light", semanticPaletteColor(lightTheme, ["10", "2"], "#257a3e"));
-  rootStyle.setProperty("--cmux-diff-addition-fg-dark", semanticPaletteColor(darkTheme, ["10", "2"], "#8fd88f"));
-  rootStyle.setProperty("--cmux-diff-deletion-fg-light", semanticPaletteColor(lightTheme, ["9", "1"], "#b42318"));
-  rootStyle.setProperty("--cmux-diff-deletion-fg-dark", semanticPaletteColor(darkTheme, ["9", "1"], "#ff8a80"));
+  for (const [type, theme] of [
+    ["light", lightTheme],
+    ["dark", darkTheme],
+  ] as const) {
+    const addition = changeColor(theme, type, ["10", "2"], STANDARD_ADDITION[type]);
+    const deletion = changeColor(theme, type, ["9", "1"], STANDARD_DELETION[type]);
+    // A modified file in the files list: the palette's blue, else the theme's own text color
+    // (no fixed blue: the page paints the theme).
+    const modified = semanticPaletteColor(
+      theme,
+      ["12", "4"],
+      colorString(theme.foreground, type === "light" ? "#000000" : "#ffffff"),
+    );
+    rootStyle.setProperty(`--cmux-diff-addition-fg-${type}`, addition);
+    rootStyle.setProperty(`--cmux-diff-deletion-fg-${type}`, deletion);
+    rootStyle.setProperty(`--cmux-diff-modified-fg-${type}`, modified);
+    // The same colors as text (the +N -N counts, a modified file's name): measured on what text sits on,
+    // as code is (`syntaxBackdrops`), so over a see-through window they read on the tint over any desktop.
+    // In an opaque window they are the colors above; the row tints and gutter bars keep those.
+    rootStyle.setProperty(`--cmux-diff-addition-text-${type}`, changeText(addition, theme, type));
+    rootStyle.setProperty(`--cmux-diff-deletion-text-${type}`, changeText(deletion, theme, type));
+    rootStyle.setProperty(`--cmux-diff-modified-text-${type}`, changeText(modified, theme, type));
+  }
   rootStyle.setProperty("--cmux-diff-selection-bg-light", colorString(lightTheme.selectionBackground, "#abd8ff"));
   rootStyle.setProperty("--cmux-diff-selection-bg-dark", colorString(darkTheme.selectionBackground, "#3f638b"));
-  rootStyle.setProperty("--cmux-diff-code-font-family", codeFontFamily(appearance.fontFamily));
-  rootStyle.setProperty("--cmux-diff-font-size", `${metric(appearance.fontSize, 10)}px`);
-  rootStyle.setProperty("--cmux-diff-line-height", `${metric(appearance.lineHeight, 20)}px`);
+  rootStyle.setProperty(
+    "--cmux-diff-code-font-family",
+    codeFontFamily(appearance.fontFamily, appearance.fallbackFamilies),
+  );
+  // Keep the host fallback aligned with the shared code type step used by the
+  // page stylesheet (12/18), including hosts that do not provide appearance
+  // metrics yet.
+  rootStyle.setProperty("--cmux-diff-font-size", `${metric(appearance.fontSize, 12)}px`);
+  rootStyle.setProperty("--cmux-diff-line-height", `${metric(appearance.lineHeight, 18)}px`);
+  // Code colors (syntax-theme.ts): each token rule reads its role's variable, so this recolors
+  // code in place.
+  for (const [type, theme] of [
+    ["light", lightTheme],
+    ["dark", darkTheme],
+  ] as const) {
+    const colors = syntaxColorsFor(theme, type);
+    for (const role of Object.keys(colors) as SyntaxRoleName[]) {
+      rootStyle.setProperty(pageSyntaxVariable(type, role), colors[role]);
+    }
+  }
+}
+
+/** The background code colors are measured on: the theme's, else black or white for its type. */
+export function syntaxContrastBackground(theme: DiffViewerTheme, type: "light" | "dark"): string {
+  if (typeof theme.background === "string" && theme.background.trim() !== "") return theme.background.trim();
+  return type === "light" ? "#ffffff" : "#000000";
+}
+
+/**
+ * What code is drawn on in a scheme: the opaque theme background, or, while the host's window is
+ * see-through in that scheme (`--cmux-surface-background` not opaque, WebTheme.swift), the window's
+ * tint (`--cmux-window-tint`) over every desktop from black to white. A see-through page paints no
+ * ground, so code sits on the tint over a picture or the desktop, which the page cannot see; code
+ * colors measured on the opaque theme color alone read 1.2:1 there (fleet capture of b9491fe7, the
+ * default dark theme over a picture: keywords, comments and function names).
+ */
+export function syntaxBackdrops(theme: DiffViewerTheme, type: "light" | "dark"): string[] {
+  const opaque = syntaxContrastBackground(theme, type);
+  const tint = seeThroughTint(type);
+  if (!tint) return [opaque];
+  return DESKTOP_LEVELS.map((level) => {
+    const channel = (value: number) => Math.round(value * tint.a + level * 255 * (1 - tint.a));
+    return `#${[tint.r, tint.g, tint.b].map((value) => channel(value).toString(16).padStart(2, "0")).join("")}`;
+  });
+}
+
+/** The tint of the host's window while it is see-through in `type`'s scheme, else null. */
+function seeThroughTint(type: "light" | "dark"): RGBA | null {
+  if (typeof window === "undefined") return null;
+  const current = (window as HostThemeWindow).cmuxTheme?.current;
+  const variables = current?.variables;
+  if (!variables || current?.colorScheme !== type) return null;
+  const page = parseComputedColor(variables["--cmux-surface-background"] ?? "");
+  if (!page || page.a >= 1) return null;
+  const tint = parseComputedColor(variables["--cmux-window-tint"] ?? "");
+  return tint ?? { r: 0, g: 0, b: 0, a: 0 };
+}
+
+/** Each code role's color for a terminal theme (syntax-theme.ts), on what it is drawn on (`syntaxBackdrops`). */
+export function syntaxColorsFor(theme: DiffViewerTheme, type: "light" | "dark") {
+  const background = syntaxContrastBackground(theme, type);
+  const foreground = readableColor(theme.foreground, background, type === "light" ? "#000000" : "#ffffff");
+  return syntaxRoleColors(theme.palette ?? {}, type, syntaxBackdrops(theme, type), foreground);
 }
 
 export function appearanceBackgroundColor(_color: unknown, _appearance?: DiffViewerAppearance) {
@@ -130,9 +330,33 @@ export function readableColor(value: unknown, background: unknown, fallback: str
   return contrastRatio(black, parsedBackground) >= contrastRatio(white, parsedBackground) ? "#000000" : "#ffffff";
 }
 
+/// A change color as text: unchanged in an opaque window; over a see-through one, blended toward the
+/// text color just enough to read on the window's tint over every desktop (`syntaxBackdrops`, 3:1 as code).
+function changeText(color: string, theme: DiffViewerTheme, type: "light" | "dark"): string {
+  const backdrops = syntaxBackdrops(theme, type);
+  if (backdrops.length === 1) return color;
+  const background = syntaxContrastBackground(theme, type);
+  const foreground = readableColor(theme.foreground, background, type === "light" ? "#000000" : "#ffffff");
+  return withMinimumContrastOn(color, backdrops, foreground, SYNTAX_MIN_CONTRAST);
+}
+
+/// An addition or deletion color in the current Diff Colors mode.
+function changeColor(theme: DiffViewerTheme, type: "light" | "dark", paletteKeys: string[], standard: string): string {
+  if (changeColors === "standard") return standard;
+  const themed = semanticPaletteColor(theme, paletteKeys, standard);
+  if (changeColors === "theme") return themed;
+  const background = syntaxContrastBackground(theme, type);
+  const foreground = readableColor(theme.foreground, background, type === "light" ? "#000000" : "#ffffff");
+  const muted = withMinimumContrast(mixColors(themed, background, MUTED_MIX), background, foreground, 4.5);
+  // A color that cannot be measured (not hex) keeps the theme's own, which already reads.
+  return (contrastBetween(muted, background) ?? 0) >= 4.5 ? muted : themed;
+}
+
 function semanticPaletteColor(theme: DiffViewerTheme, paletteKeys: string[], fallback: string): string {
   const palette = theme.palette ?? {};
-  const candidate = paletteKeys.map((key) => palette[key]).find((value) => typeof value === "string" && value.trim() !== "");
+  const candidate = paletteKeys
+    .map((key) => palette[key])
+    .find((value) => typeof value === "string" && value.trim() !== "");
   if (meetsContrast(candidate, theme.background, 4.5)) {
     return colorString(candidate, fallback);
   }
@@ -146,9 +370,18 @@ function colorString(value: unknown, fallback: string) {
   return typeof value === "string" && value.trim() !== "" ? value.trim() : fallback;
 }
 
-function codeFontFamily(fontFamily: unknown) {
+/** Shared fallback faces keep private-use symbols and CJK in the same code/chat stack. */
+export const TERMINAL_FONT_FALLBACK_STACK =
+  '"Symbols Nerd Font Mono", "Noto Sans Mono CJK JP", ui-monospace, "SF Mono", SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace';
+
+export function codeFontFamily(fontFamily: unknown, fallbackFamilies: unknown[] = []) {
   const family = typeof fontFamily === "string" && fontFamily.trim() !== "" ? fontFamily.trim() : "Menlo";
-  return `${JSON.stringify(family)}, ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace`;
+  const configured = fallbackFamilies
+    .filter((value): value is string => typeof value === "string" && value.trim() !== "")
+    .map((value) => value.trim())
+    .filter((value, index, values) => values.indexOf(value) === index && value !== family)
+    .map((value) => JSON.stringify(value));
+  return [JSON.stringify(family), ...configured, TERMINAL_FONT_FALLBACK_STACK].join(", ");
 }
 
 function metric(value: unknown, fallback: number) {
@@ -204,9 +437,11 @@ function contrastRatio(foreground: RGBColor, background: RGBColor): number {
 }
 
 function relativeLuminance(color: RGBColor): number {
-  return 0.2126 * luminanceChannel(color.red) +
+  return (
+    0.2126 * luminanceChannel(color.red) +
     0.7152 * luminanceChannel(color.green) +
-    0.0722 * luminanceChannel(color.blue);
+    0.0722 * luminanceChannel(color.blue)
+  );
 }
 
 function luminanceChannel(value: number): number {

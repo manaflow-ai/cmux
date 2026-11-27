@@ -48,14 +48,14 @@ class NightlyNotarizationPollLoopTests(unittest.TestCase):
 
     def test_preflight_uses_metadata_only_when_all_variants_exist(self) -> None:
         workflow = yaml.safe_load(WORKFLOW.read_text(encoding="utf-8"))
-        check = next(s for s in workflow["jobs"]["preflight"]["steps"] if s.get("id") == "check")["run"]
+        check = workflow["jobs"]["preflight"]["steps"][0]["run"]
         program = re.search(r'<<\'PY\' > "\$RUNNER_TEMP/artifact-check"\n(.*?)\nPY', check, re.S).group(1)
-        # Nightly builds arm64 only; an arm64-only run is complete without Intel or universal.
-        variants = ("arm64",)
+        variants = ("arm64", "x86_64", "universal")
         recovery = [f"cmux-nightly-notarization-recovery-{v}-aaaaaaa" for v in variants]
         metadata = [f"cmux-nightly-notarization-metadata-{v}-aaaaaaa" for v in variants]
         for names, expired, ready, metadata_only in (
             (recovery, (), True, False),
+            (recovery + metadata[:2], (), True, False),
             (recovery + metadata, (), True, True),
             (recovery + metadata, (metadata[0],), True, False),
             (metadata, (), False, False),
@@ -128,8 +128,7 @@ shutil.copytree(pathlib.Path(os.environ['ARTIFACTS']) / name, destination)
                     result = subprocess.run(["bash", "-c", script], cwd=root, env=env, capture_output=True, text=True)
                     self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
                 self.assertIn("all_accepted=true", (root / "output").read_text())
-                self.assertEqual(sorted(path.name for path in (root / "recovery").iterdir()), ["arm64"])
-                for variant in ("arm64",):
+                for variant in ("arm64", "x86_64", "universal"):
                     recovered = root / "recovery" / variant
                     self.assertEqual((recovered / "cmux-nightly-notarization-recovery-app").exists(), not metadata_only)
                     self.assertEqual(len(list(recovered.glob("*.dmg"))), 0 if metadata_only else 1)

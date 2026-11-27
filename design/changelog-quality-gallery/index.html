@@ -1,0 +1,130 @@
+<!doctype html>
+<!-- l10n-allow-file: design gallery, not shipped UI. -->
+<html lang="en" data-theme="dark">
+<head>
+<meta charset="utf-8">
+<title>What's New · Conductor-quality, cmux design</title>
+<style>
+  :root { --mono: ui-monospace, "SF Mono", Menlo, monospace; font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", system-ui, sans-serif; --accent: #0a84ff; }
+  html[data-theme="dark"] { --bg: #161618; --page: #1c1c1f; --pop: rgba(44,44,48,.96); --text: #ececef; --text-2: rgba(236,236,239,.72); --text-3: rgba(236,236,239,.48); --hover: rgba(255,255,255,.07); --sep: rgba(255,255,255,.1); --thumb: rgba(236,236,239,.38); color-scheme: dark; }
+  html[data-theme="light"] { --bg: #ececee; --page: #fff; --pop: rgba(250,250,252,.97); --text: #1d1d1f; --text-2: rgba(29,29,31,.72); --text-3: rgba(29,29,31,.48); --hover: rgba(0,0,0,.05); --sep: rgba(0,0,0,.1); --thumb: rgba(29,29,31,.38); color-scheme: light; }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--text); font-size: 13px; line-height: 1.45; -webkit-font-smoothing: antialiased; }
+  header.g { padding: 24px 28px 8px; max-width: 1500px; }
+  header.g h1 { font-size: 20px; margin: 0 0 6px; }
+  header.g p { margin: 4px 0; color: var(--text-2); max-width: 1000px; }
+  .controls { display: flex; gap: 8px; margin-top: 12px; }
+  .controls button { background: var(--hover); color: var(--text); border: 1px solid var(--sep); border-radius: 7px; height: 26px; padding: 0 10px; font: inherit; font-size: 12px; }
+  .v { padding: 16px 28px 28px; max-width: 1500px; }
+  .v-head { display: flex; gap: 10px; align-items: baseline; }
+  .v-num { font: 600 12px var(--mono); color: var(--text-3); }
+  .v-name { font-weight: 650; font-size: 15px; }
+  .tag { font-size: 11px; font-weight: 650; border-radius: 5px; padding: 1px 7px; border: 1px solid var(--sep); color: var(--text-2); }
+  .tag.rec { background: #30d158; color: #062b12; border-color: transparent; }
+  .note { color: var(--text-3); font-size: 12px; margin: 4px 0 10px; max-width: 980px; }
+  .row { display: flex; gap: 20px; align-items: flex-start; flex-wrap: wrap; }
+  .cap { font-size: 11px; color: var(--text-3); margin: 0 0 6px; }
+  .frame { background: var(--page); border: 1px solid var(--sep); border-radius: 12px; overflow: auto; width: 860px; max-width: 100%; height: 600px; }
+  .popwrap { width: 340px; }
+  img.shot { display: block; width: 100%; aspect-ratio: 16/9; object-fit: cover; object-position: left top; border-radius: 10px; border: 1px solid var(--sep); }
+  /* Ledger, as shipped */
+  .led { padding: 44px 32px 60px 200px; max-width: 840px; }
+  .led article { position: relative; padding-bottom: 32px; margin-bottom: 32px; border-bottom: 1px solid var(--sep); }
+  .gut { position: absolute; left: -168px; top: 0; bottom: 0; width: 140px; }
+  .gut-in { position: sticky; top: 24px; display: flex; flex-direction: column; gap: 6px; color: var(--text-3); font-size: 12px; }
+  .ver { align-self: flex-start; font: 11px var(--mono); letter-spacing: .06em; text-transform: uppercase; color: var(--text-2); background: var(--hover); border: 1px solid var(--sep); border-radius: 3px; padding: 0 5px; }
+  .led h2 { font-size: 21px; line-height: 1.3; font-weight: 600; letter-spacing: -.01em; margin: 0 0 10px; }
+  .led h3 { font-size: 15px; margin: 18px 0 4px; }
+  .led ul { margin: 0; padding-left: 20px; }
+  .led li { padding: 3px 0; }
+  .led li b { font-weight: 600; }
+  .led .s { color: var(--text-2); }
+  .led .rm { margin: 8px 0 6px; max-width: 420px; }
+  .led .lede { color: var(--text-2); margin: 0 0 12px; max-width: 62ch; }
+  .raw li { font: 12px var(--mono); color: var(--text-2); }
+  /* Popover */
+  .pop { background: var(--pop); border: 1px solid var(--sep); border-radius: 12px; box-shadow: 0 12px 32px rgba(0,0,0,.28); padding: 10px 12px 8px; max-height: 420px; overflow-y: auto; }
+  .pop::-webkit-scrollbar { width: 7px; } .pop::-webkit-scrollbar-thumb { border: 2px solid transparent; border-radius: 7px; background: var(--thumb) padding-box; }
+  .pop.fade { -webkit-mask: linear-gradient(to bottom, #000 calc(100% - 28px), transparent) left top / calc(100% - 7px) 100% no-repeat, linear-gradient(#000,#000) right top / 7px 100% no-repeat; }
+  .pt { color: var(--text-2); font-size: 12px; } .pf { color: var(--text-3); font-size: 12px; }
+  .pop ol { list-style: none; margin: 6px 0 0; padding: 0; }
+  .pop ol li { display: grid; grid-template-columns: 12px 1fr; gap: 6px; padding: 4px 0; }
+  .pop .n { color: var(--text-3); font-size: 11px; font-variant-numeric: tabular-nums; }
+  .pop .l { display: block; color: var(--text-2); font-size: 12px; }
+  .pop h4 { margin: 8px 0 2px 18px; color: var(--text-3); font-size: 11px; font-weight: 600; }
+  .pop ul { list-style: none; margin: 0; padding: 0 0 0 18px; } .pop ul li { padding: 3px 0; color: var(--text-2); }
+  .foot { display: flex; justify-content: space-between; margin-top: 6px; padding-top: 6px; border-top: 1px solid var(--sep); }
+  .foot button { all: unset; color: var(--text); font-weight: 500; }
+  .guide { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; max-width: 1180px; }
+  .card { background: var(--page); border: 1px solid var(--sep); border-radius: 12px; padding: 14px 16px; }
+  .card h4 { margin: 0 0 8px; font-size: 13px; }
+  .good { color: #30d158; } .bad { color: #ff453a; }
+  .card code { font: 12px var(--mono); }
+</style>
+</head>
+<body>
+<header class="g">
+  <h1>What's New at Conductor's quality, in cmux's design</h1>
+  <p>Like conductor.build/changelog, entries are grouped by release, each line is short and written by a person, features have pictures, and changes sit under New, Improved and Fixed. The layout is cmux's own: the Ledger page, the Update Ready popover and the sidebar card. Entries are the real curated highlights in <code>release-notes/next/highlights</code>; how they split into releases is illustrative.</p>
+  <p><b>Recommended and shipped: 01 Curated Ledger and grouped popover.</b> 02 is what a nightly without curated notes looked like. 03 is the writing rule now enforced by <code>validate.py</code> (<code>release-notes/next/WRITING.md</code>).</p>
+  <div class="controls"><button data-t="dark">Dark</button><button data-t="light">Light</button></div>
+</header>
+<div id="out"></div>
+<script src="../changelog-variations-gallery/data.js"></script>
+<script>
+const R = window.CHANGELOG;
+const esc = (s) => s.replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
+const md = (s) => esc(s).replace(/`([^`]+)`/g, "<code>$1</code>");
+const first = (s) => (s.match(/^.*?[.!?](\s|$)/) || [s])[0].trim();
+const short = (v) => "nightly " + (/nightly\.(\d+)/.exec(v) || [, v])[1].slice(0, 7);
+const day = (d) => new Date(d + "T12:00:00").toLocaleDateString("en-US", { month: "short", day: "numeric" });
+const theme = () => document.documentElement.dataset.theme;
+const shot = (cls = "") => `<img class="shot ${cls}" alt="" src="../changelog-variations-gallery/workspace-groups-${theme()}.jpg">`;
+const CATS = [["new", "New"], ["improved", "Improved"], ["fixed", "Fixed"], ["security", "Security"]];
+const by = (r, c) => r.items.filter((i) => i.category === c);
+const pics = new Set(["agent-browser-computer-use", "all-chats-on-device", "whats-new-page", "sidebar-profile-menu", "browser-device-emulation", "icon-picker-sf-symbols", "smart-arrange-new-panes"]);
+const headline = (r) => { const n = by(r, "new"); const lead = n[0] || r.items[0]; return r.items.length > 1 ? `${lead.title}, and ${r.items.length - 1} more` : lead.title; };
+const toSubject = (i) => i.id.replace(/-/g, " ").replace(/^(\w+) /, (m, a) => `${a}: `);
+
+function ledger() {
+  return `<div class="led">${R.map((r, n) => { const lead = by(r, "new")[0] || r.items[0];
+    return `<article><div class="gut"><div class="gut-in"><span class="ver">${short(r.version)}</span><span>${n === 0 ? "Today" : day(r.date)}</span>${n === 0 ? "<span>Installed</span>" : ""}</div></div>
+    <h2>${esc(headline(r))}</h2><h3 style="margin-top:0;font-size:13px">${md(lead.title)}</h3><p class="lede">${md(lead.body)}</p>${shot()}
+    ${CATS.map(([c, l]) => { const items = by(r, c).filter((i) => i !== lead); return items.length ? `<h3>${l}</h3><ul>${items.map((i) => `<li><b>${md(i.title)}</b> <span class="s">${md(first(i.body))}</span>${pics.has(i.id) ? shot("rm") : ""}</li>`).join("")}</ul>` : ""; }).join("")}</article>`; }).join("")}</div>`;
+}
+function raw() {
+  return `<div class="led raw">${R.map((r, n) => `<article><div class="gut"><div class="gut-in"><span class="ver">${short(r.version)}</span><span>${day(r.date)}</span></div></div>
+    <h2 style="font-size:16px">What's new in ${short(r.version)}</h2><ul>${r.items.slice(0, 14).map((i) => `<li>${esc(toSubject(i))}</li>`).join("")}</ul><p class="s">${r.items.length - 14} more changes</p></article>`).join("")}</div>`;
+}
+function pop(grouped) {
+  const r = R[0], top = by(r, "new").slice(0, 3), rest = r.items.filter((i) => !top.includes(i));
+  return `<div class="pop ${grouped ? "fade" : ""}"><div class="pt">What's new in ${short(r.version)}</div><div class="pf">Updating from nightly 3913596</div>
+    <ol>${top.map((i, n) => `<li><span class="n">${n + 1}</span><div>${md(i.title)}<span class="l">${md(first(i.body))}</span>${n === 0 ? shot() : ""}</div></li>`).join("")}</ol>
+    ${grouped ? CATS.map(([c, l]) => { const items = rest.filter((i) => i.category === c); return items.length ? `<h4>${l}</h4><ul>${items.map((i) => `<li>${md(i.title)}</li>`).join("")}</ul>` : ""; }).join("") : ""}
+    <div class="foot"><span class="pf">${grouped ? "" : `${rest.length} more changes`}</span><button>See all changes →</button></div></div>`;
+}
+function guide() {
+  return `<div class="guide"><div class="card"><h4 class="good">Written for people (passes)</h4>
+    <p><code>title: Every chat on your Mac, in one place</code><br><code>category: new</code></p>
+    <p>cmux finds your Claude Code, Codex and other agent chats on this Mac and lists them in All chats at the bottom of the sidebar. Open one to resume it.</p>
+    <p class="s">One file per change, added in the same commit. Title: what you can do now, at most 60 characters. Body: one or two whole sentences that say where to find it. A picture for each New feature people can see.</p></div>
+    <div class="card"><h4 class="bad">Commit subject (rejected by validate.py)</h4>
+    <p><code>title: fix(sidebar): group labels keep band color</code></p><p><code>sidebar: group labels keep their band color</code></p>
+    <p class="s">"reads like a commit subject; write what people can do now"<br>"does not end a sentence; a summary is one or two whole sentences"<br>Also rejected: bead ids, PR numbers, commit hashes, lane and crate names.</p></div></div>`;
+}
+function render() {
+  document.getElementById("out").innerHTML = `
+  <section class="v"><div class="v-head"><span class="v-num">01</span><span class="v-name">Curated Ledger + grouped popover</span><span class="tag rec">Recommended · shipped</span></div>
+  <p class="note">Each release has a title (its headline), the lead change with its picture, then New, Improved and Fixed with one bold line and one sentence each. Every change that has a picture shows it. The popover numbers the top three, then scrolls to the rest of the update grouped the same way. A fade at the bottom edge shows there is more, and the scrollbar is the shared 3 px card scroller. The fade appears and disappears at once, so Reduce Motion and the Motion setting have nothing to stop.</p>
+  <div class="row"><div><p class="cap">What's New page</p><div class="frame">${ledger()}</div></div><div class="popwrap"><p class="cap">Update Ready popover</p>${pop(true)}</div></div></section>
+  <section class="v"><div class="v-head"><span class="v-num">02</span><span class="v-name">Before: a nightly without curated notes</span><span class="tag">Before</span></div>
+  <p class="note">Commit subjects as the change list, no release title, no pictures, and three changes plus a count in the popover. The curated notes and the gate now prevent this.</p>
+  <div class="row"><div><p class="cap">What's New page</p><div class="frame">${raw()}</div></div><div class="popwrap"><p class="cap">Update Ready popover</p>${pop(false)}</div></div></section>
+  <section class="v"><div class="v-head"><span class="v-num">03</span><span class="v-name">How entries get written</span><span class="tag">WRITING.md</span></div>
+  <p class="note">Curated highlights per nightly: the nightly digest is the highlight files its commits added. Commit titles show only in the folded All changes list.</p>${guide()}</section>`;
+}
+for (const b of document.querySelectorAll("[data-t]")) b.onclick = () => { document.documentElement.dataset.theme = b.dataset.t; render(); };
+render();
+</script>
+</body>
+</html>

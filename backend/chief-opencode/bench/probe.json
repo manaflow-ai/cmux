@@ -1,0 +1,7 @@
+{
+  "name": "probe",
+  "turns": [
+    { "kind": "short", "gap": 0, "text": "Reply with exactly one word: OK" },
+    { "kind": "tool", "gap": 2, "text": "Use the chiefs tool to list my Chiefs, then tell me how many there are in one sentence." }
+  ]
+}

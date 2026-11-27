@@ -1,0 +1,15 @@
+{
+ "xcode": "Xcode 26.6",
+ "xctrace": "xctrace version 16.0 (17F113)",
+ "macos": "27.0",
+ "emitter": {
+  "subsystem": "com.cmuxterm.app.next",
+  "category": "action",
+  "signpost": "action.perform",
+  "message": "id=fixture.spin origin=user input_age_ms=1.00",
+  "rounds": 20,
+  "spin_ms": 20,
+  "spin_function": "fixtureSpin",
+  "usleep_ms": 5
+ }
+}

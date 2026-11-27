@@ -48,8 +48,7 @@ class NightlyArtifactAliasTests(unittest.TestCase):
             root = Path(directory)
             verified = root / "verified"
             payloads = {}
-            # Nightly builds arm64 only.
-            for variant in ("arm64",):
+            for variant in ("arm64", "x86_64", "universal"):
                 folder = verified / f"accepted-{variant}-TEST"
                 folder.mkdir(parents=True)
                 immutable = folder / f"cmux-nightly-macos-{variant}-123.dmg"
@@ -58,7 +57,7 @@ class NightlyArtifactAliasTests(unittest.TestCase):
                 payloads[variant] = payload
                 feed = "appcast.xml" if variant == "universal" else f"appcast-{variant}.xml"
                 (folder / feed).write_text("feed\n", encoding="utf-8")
-                tested = root / "tested" / f"launch-tested-{variant}-TEST"
+                tested = root / "tested" / f"verified-{variant}-TEST"
                 tested.mkdir(parents=True)
                 (tested / f"tested-{variant}.sha256").write_text(
                     f"{hashlib.sha256(payload).hexdigest()}  {immutable.name}\n", encoding="utf-8"
@@ -78,8 +77,15 @@ class NightlyArtifactAliasTests(unittest.TestCase):
                 "DMG_PREFIX": "cmux-nightly-macos",
                 "GITHUB_ENV": str(root / "github.env"),
             })
+            # Air's system Bash is 3.2 and cannot parse `${var,,}`. The real
+            # publish job runs on Ubuntu; fixture hashes are already lowercase,
+            # so direct comparison exercises the same gate here.
+            portable_assemble = assemble.replace(
+                '[ "${actual,,}" = "${expected,,}" ]',
+                '[ "$actual" = "$expected" ]',
+            )
             result = subprocess.run(
-                ["bash", "-euo", "pipefail", "-c", assemble],
+                ["bash", "-euo", "pipefail", "-c", portable_assemble],
                 cwd=root,
                 env=env,
                 capture_output=True,
@@ -92,8 +98,10 @@ class NightlyArtifactAliasTests(unittest.TestCase):
                     (root / "nightly-out" / f"cmux-nightly-macos-{variant}.dmg").read_bytes(),
                     payload,
                 )
-            # The universal download alias is frozen at its last build: never reassembled.
-            self.assertFalse((root / "nightly-out" / "cmux-nightly-macos.dmg").exists())
+            self.assertEqual(
+                (root / "nightly-out" / "cmux-nightly-macos.dmg").read_bytes(),
+                payloads["universal"],
+            )
 
 
 if __name__ == "__main__":

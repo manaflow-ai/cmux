@@ -1,0 +1,21 @@
+{
+  "id": "grain-silk",
+  "name": "Grain and Silk",
+  "description": "Film grain drifting over slow silk folds; the fold under the pointer lifts and catches the light, and a fast pass leaves a ripple that settles.",
+  "shader": "wallpaper.wgsl",
+  "fps": 30,
+  "scale": 0.5,
+  "interactive": true,
+  "params": [
+    { "name": "scale", "title": "Fold scale", "default": 1.6, "min": 0.6, "max": 4 },
+    { "name": "speed", "title": "Speed", "default": 0.4, "min": 0, "max": 2 },
+    { "name": "grain", "title": "Grain", "default": 0.5, "min": 0, "max": 1.5 },
+    { "name": "sheen", "title": "Sheen", "default": 1.0, "min": 0.3, "max": 2 }
+  ],
+  "still": { "time": 14.0, "pointer": [0.55, 0.50] },
+  "variants": [
+    { "name": "Satin", "accent": "#3D7BFF", "params": { "scale": 1.6, "speed": 0.4, "grain": 0.5, "sheen": 1.0 } },
+    { "name": "Crepe", "accent": "#D9894A", "params": { "scale": 2.4, "speed": 0.3, "grain": 0.9, "sheen": 0.8 }, "still": { "time": 14.0, "pointer": [0.64, 0.47] } },
+    { "name": "Drape", "accent": "#7C6CF0", "params": { "scale": 1.0, "speed": 0.2, "grain": 0.35, "sheen": 1.5 }, "still": { "time": 14.0, "pointer": [0.68, 0.36] } }
+  ]
+}

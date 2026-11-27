@@ -85,7 +85,7 @@ export type FoundersBackfillDependencies = {
 };
 
 /**
- * Reconcile operator-selected Founder's Edition lockout cases.
+ * Reconcile operator-selected legacy purchase lockout cases.
  *
  * Dry-run performs provider reads and prints the exact intended ownership
  * changes without calling any mutating helper. Apply mode uses the same

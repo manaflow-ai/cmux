@@ -1,0 +1,67 @@
+import AppKit
+@testable import CmuxNextDesign
+
+/// Shared host capability checks for tests that assert AppKit animation state.
+/// Blacksmith can expose an online virtual display while WindowServer is not
+/// advancing frames, so `NSScreen.screens` and `CGDisplayIsAsleep` are not
+/// sufficient admission checks.
+@MainActor
+enum GUIAnimationTestSupport {
+    static func animatesHere() async -> Bool {
+        guard let screen = NSScreen.main, Motion.speed != .off,
+              !DisplaySleep.shared.isAsleep(screen),
+              let number = screen.deviceDescription[NSDeviceDescriptionKey("NSScreenNumber")] as? NSNumber else {
+            return false
+        }
+        let display = CGDirectDisplayID(number.uint32Value)
+        guard CGDisplayIsOnline(display) != 0, CGDisplayIsActive(display) != 0,
+              CGDisplayCopyDisplayMode(display) != nil else { return false }
+
+        let probe = DisplayFrameProbe(screen: screen)
+        return await withTaskGroup(of: Bool.self) { group in
+            group.addTask { await probe.waitForFrame() }
+            group.addTask {
+                try? await Task.sleep(for: .milliseconds(350))
+                return false
+            }
+            let result = await group.next() ?? false
+            group.cancelAll()
+            await MainActor.run { probe.stop() }
+            return result
+        }
+    }
+
+    @MainActor
+    private final class DisplayFrameProbe: NSObject {
+        private var link: CADisplayLink?
+        private var continuation: CheckedContinuation<Bool, Never>?
+
+        init(screen: NSScreen) {
+            super.init()
+            let link = screen.displayLink(target: self, selector: #selector(frame(_:)))
+            self.link = link
+        }
+
+        func waitForFrame() async -> Bool {
+            await withCheckedContinuation { continuation in
+                self.continuation = continuation
+                // Install the continuation before starting the link; a fast display can
+                // deliver its first tick synchronously on the next run-loop turn.
+                link?.add(to: .main, forMode: .common)
+            }
+        }
+
+        @objc private func frame(_: CADisplayLink) { finish(true) }
+
+        func stop() {
+            finish(false)
+            link?.invalidate()
+            link = nil
+        }
+
+        private func finish(_ result: Bool) {
+            continuation?.resume(returning: result)
+            continuation = nil
+        }
+    }
+}

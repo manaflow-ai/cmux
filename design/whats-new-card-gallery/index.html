@@ -1,0 +1,363 @@
+<!doctype html>
+<!-- l10n-allow-file: design gallery, not shipped UI. -->
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>What's New card · 16 variations</title>
+<style>
+  :root {
+    --text: #ececef; --text-2: rgba(236,236,239,.72); --text-3: rgba(236,236,239,.5);
+    --hover: rgba(255,255,255,.08); --sel: rgba(255,255,255,.14); --sep: rgba(255,255,255,.1);
+    --elev: #2a2a2e; --accent: #0a84ff; --new: #30d158; --fix: #ff9f0a; --fast: #64d2ff;
+    --body: 13px; --detail: 12px; --caption: 11px;
+    font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", system-ui, sans-serif;
+    color-scheme: dark;
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: #161618; color: var(--text); font-size: var(--body); line-height: 1.38; -webkit-font-smoothing: antialiased; }
+  header { padding: 28px 32px 8px; max-width: 1400px; }
+  h1 { font-size: 20px; margin: 0 0 6px; font-weight: 650; }
+  header p { margin: 4px 0; color: var(--text-2); max-width: 900px; }
+  header b { color: var(--text); }
+  .controls { display: flex; gap: 8px; margin-top: 12px; flex-wrap: wrap; }
+  .controls button { background: var(--hover); color: var(--text); border: 1px solid var(--sep); border-radius: 7px; height: 26px; padding: 0 10px; font: inherit; font-size: 12px; }
+  .controls button[aria-pressed="true"] { background: var(--sel); border-color: rgba(255,255,255,.25); }
+  .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); gap: 22px; padding: 18px 32px 60px; max-width: 1400px; }
+  .cell { display: flex; flex-direction: column; gap: 8px; }
+  .label { display: flex; align-items: baseline; gap: 8px; }
+  .num { font: 600 12px ui-monospace, SFMono-Regular, Menlo, monospace; color: var(--text-3); }
+  .name { font-weight: 600; }
+  .tag { margin-left: auto; font-size: 11px; color: #0b0b0c; background: var(--new); border-radius: 5px; padding: 0 6px; font-weight: 600; }
+  .note { color: var(--text-3); font-size: 12px; min-height: 32px; }
+
+  /* A mock sidebar: real cmux-next width (260pt), the bottom card slot pinned above the footer. */
+  .sidebar { position: relative; width: 260px; height: 420px; border-radius: 12px; overflow: hidden; border: 1px solid var(--sep);
+    background: linear-gradient(160deg, #2b3c52 0%, #5a4232 48%, #3a3328 62%, #1f2c24 100%); }
+  .plain .sidebar { background: #1d1d20; }
+  .rows { padding: 38px 8px 0; }
+  .row { height: 28px; border-radius: 7px; display: flex; align-items: center; gap: 8px; padding: 0 8px; color: var(--text-2); font-size: 13px; }
+  .row.sel { background: var(--sel); color: var(--text); }
+  .row i { width: 14px; height: 14px; border-radius: 4px; background: rgba(255,255,255,.18); flex: none; }
+  .footer { position: absolute; left: 0; right: 0; bottom: 0; height: 34px; display: flex; align-items: center; gap: 10px; padding: 0 12px; color: var(--text-3); }
+  .footer i { width: 18px; height: 18px; border-radius: 50%; background: rgba(255,255,255,.2); }
+  .slot { position: absolute; left: 8px; right: 8px; bottom: 40px; }
+
+  /* The current card surface: the composer's (text at 13% over the wallpaper, 18% hairline). */
+  .card { position: relative; padding: 10px 12px; border-radius: 12px; background: rgba(236,236,239,.13);
+    box-shadow: inset 0 0 0 .5px rgba(236,236,239,.18); backdrop-filter: blur(20px) saturate(1.4); }
+  .plain .card { background: rgba(236,236,239,.08); }
+  .eyebrow { color: var(--text-3); font-size: var(--caption); padding-right: 20px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .headline { font-weight: 600; margin: 3px 0 2px; }
+  .line { color: var(--text-2); font-size: var(--detail); }
+  .btn { height: 24px; padding: 0 10px; border-radius: 7px; border: 1px solid var(--sep); background: var(--hover); color: var(--text); font: inherit; font-size: var(--detail); font-weight: 500; white-space: nowrap; }
+  .btn:hover { background: var(--sel); }
+  .link { border: 0; padding: 0; background: none; color: var(--text); font: inherit; font-size: var(--detail); font-weight: 500; }
+  .link:hover { text-decoration: underline; text-underline-offset: 3px; }
+  .muted { color: var(--text-3); font-size: var(--detail); }
+
+  /* X: only on hover or keyboard focus, opacity fade ~0.12s (all variations). */
+  .x { position: absolute; top: 7px; right: 8px; width: 18px; height: 18px; border-radius: 9px; border: 0; padding: 0; display: grid; place-items: center;
+    background: transparent; color: var(--text-3); opacity: 0; transition: opacity .12s ease-out; }
+  .x svg { width: 8px; height: 8px; stroke: currentColor; stroke-width: 1.4; stroke-linecap: round; }
+  .x:hover { background: var(--hover); color: var(--text); }
+  .hoverable:hover .x, .hoverable:focus-within .x, .force-x .x { opacity: 1; }
+  @media (prefers-reduced-motion: reduce) { .x { transition: none; } }
+
+  ul.changes { list-style: none; margin: 6px 0 0; padding: 0; }
+  ul.changes li { display: grid; grid-template-columns: 10px 1fr; gap: 6px; padding: 2px 0; font-size: var(--detail); }
+  ul.changes li::before { content: ""; width: 4px; height: 4px; border-radius: 2px; background: var(--text-3); margin-top: 7px; justify-self: center; }
+  ul.changes li span { overflow: hidden; display: -webkit-box; -webkit-line-clamp: 1; -webkit-box-orient: vertical; }
+  .foot { display: flex; align-items: center; justify-content: space-between; margin-top: 8px; gap: 8px; }
+
+  ol.num-list { list-style: none; margin: 6px 0 0; padding: 0; }
+  ol.num-list li { display: grid; grid-template-columns: 12px 1fr; gap: 7px; padding: 4px 0; }
+  ol.num-list .n { color: var(--text-3); font-size: var(--caption); font-variant-numeric: tabular-nums; padding-top: 1px; }
+  ol.num-list b { display: block; font-size: var(--detail); font-weight: 600; }
+  ol.num-list small { display: block; color: var(--text-2); font-size: var(--caption); }
+
+  .grp { margin-top: 6px; display: grid; gap: 6px; }
+  .grp div { display: grid; grid-template-columns: 66px 1fr; gap: 6px; font-size: var(--detail); align-items: baseline; }
+  .grp em { white-space: nowrap; font-style: normal; font-size: 10px; font-weight: 700; letter-spacing: .04em; text-transform: uppercase; }
+  .grp span { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+
+  .icons li { display: grid; grid-template-columns: 20px 1fr; gap: 8px; align-items: center; padding: 4px 0; font-size: var(--detail); }
+  .icons { list-style: none; margin: 6px 0 0; padding: 0; }
+  .ic { width: 20px; height: 20px; border-radius: 6px; display: grid; place-items: center; }
+  .ic svg { width: 12px; height: 12px; fill: none; stroke: currentColor; stroke-width: 1.6; stroke-linecap: round; stroke-linejoin: round; }
+
+  .more-list { display: grid; grid-template-rows: 0fr; transition: grid-template-rows .18s ease-out; }
+  .more-list > div { overflow: hidden; }
+  .open .more-list { grid-template-rows: 1fr; }
+
+  .hovercard { position: absolute; left: 8px; right: 8px; bottom: 40px; }
+  .hc-trigger { height: 30px; border-radius: 8px; display: flex; align-items: center; gap: 8px; padding: 0 10px; background: rgba(236,236,239,.13); box-shadow: inset 0 0 0 .5px rgba(236,236,239,.18); font-size: var(--detail); }
+  .hc-dot { width: 7px; height: 7px; border-radius: 4px; background: var(--accent); flex: none; }
+  .hc-pop { position: absolute; left: 0; right: 0; bottom: 34px; padding: 12px; border-radius: 12px; background: var(--elev); box-shadow: 0 0 0 .5px rgba(255,255,255,.14), 0 10px 30px rgba(0,0,0,.45);
+    opacity: 0; transform: translateY(4px); transition: opacity .12s ease-out, transform .12s ease-out; pointer-events: none; }
+  .hovercard:hover .hc-pop, .force-x .hc-pop { opacity: 1; transform: none; pointer-events: auto; }
+
+  .toast { position: absolute; left: 8px; right: 8px; bottom: 40px; padding: 10px 12px 12px; border-radius: 12px; background: var(--elev); box-shadow: 0 0 0 .5px rgba(255,255,255,.14), 0 8px 24px rgba(0,0,0,.4); overflow: hidden; animation: rise .22s ease-out; }
+  .toast .bar { position: absolute; left: 0; bottom: 0; height: 2px; background: var(--accent); animation: drain 12s linear infinite; }
+  @keyframes rise { from { opacity: 0; transform: translateY(8px); } }
+  @keyframes drain { from { width: 100%; } to { width: 0; } }
+
+  .srow { height: 30px; border-radius: 8px; display: flex; align-items: center; gap: 8px; padding: 0 8px; font-size: 13px; }
+  .srow:hover { background: var(--hover); }
+  .srow .chev { margin-left: auto; color: var(--text-3); transition: transform .15s; }
+  .open .srow .chev { transform: rotate(90deg); }
+  .srow .x { position: static; }
+  .pill { font-size: 10.5px; font-weight: 600; padding: 1px 6px; border-radius: 8px; background: var(--accent); color: white; font-variant-numeric: tabular-nums; }
+
+  .carousel .slide { min-height: 50px; }
+  .dots { display: flex; gap: 4px; }
+  .dots i { width: 5px; height: 5px; border-radius: 3px; background: var(--text-3); opacity: .5; }
+  .dots i.on { opacity: 1; background: var(--text); }
+  .arrows { display: flex; gap: 2px; }
+  .arrows button { width: 22px; height: 22px; border-radius: 6px; border: 0; background: transparent; color: var(--text-2); font-size: 13px; }
+  .arrows button:hover { background: var(--hover); color: var(--text); }
+
+  .chips { display: flex; flex-wrap: wrap; gap: 4px; margin: 6px 0; }
+  .chip { font-size: 11px; padding: 1px 7px; border-radius: 9px; background: var(--hover); box-shadow: inset 0 0 0 .5px var(--sep); }
+  .chip b { font-weight: 650; }
+
+  .timeline { margin: 8px 0 2px; padding-left: 12px; border-left: 1px solid var(--sep); display: grid; gap: 6px; }
+  .timeline div { position: relative; font-size: var(--detail); }
+  .timeline div::before { content: ""; position: absolute; left: -15.5px; top: 6px; width: 6px; height: 6px; border-radius: 3px; background: var(--text-3); }
+  .timeline div.now::before { background: var(--accent); box-shadow: 0 0 0 3px rgba(10,132,255,.25); }
+
+  .hero-v { font-size: 26px; font-weight: 700; letter-spacing: -.02em; font-variant-numeric: tabular-nums; margin: 2px 0 2px; }
+
+  .try li { display: flex; align-items: center; gap: 6px; padding: 3px 0; font-size: var(--detail); }
+  .try { list-style: none; margin: 6px 0 0; padding: 0; }
+  .try li span { flex: 1; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .try li button { flex: none; height: 20px; padding: 0 7px; border-radius: 6px; border: 1px solid var(--sep); background: transparent; color: var(--text-2); font: inherit; font-size: 11px; }
+  .try li button:hover { background: var(--hover); color: var(--text); }
+
+  .thumb { height: 74px; border-radius: 8px; margin: 6px 0 6px; background:
+      linear-gradient(#1b1b1e, #1b1b1e) 10px 10px / 70px 54px no-repeat,
+      linear-gradient(rgba(10,132,255,.6), rgba(10,132,255,.6)) 90px 14px / 120px 8px no-repeat,
+      linear-gradient(rgba(255,255,255,.25), rgba(255,255,255,.25)) 90px 30px / 90px 6px no-repeat,
+      linear-gradient(rgba(255,255,255,.18), rgba(255,255,255,.18)) 90px 42px / 100px 6px no-repeat,
+      linear-gradient(135deg, #24324a, #3d2a40); box-shadow: inset 0 0 0 .5px var(--sep); }
+
+  .bars { display: grid; gap: 5px; margin: 8px 0 4px; }
+  .bars div { display: grid; grid-template-columns: 48px 1fr 22px; gap: 6px; align-items: center; font-size: 11px; color: var(--text-2); }
+  .bars s { display: block; height: 5px; border-radius: 3px; text-decoration: none; }
+  .bars b { text-align: right; font-weight: 600; color: var(--text); font-variant-numeric: tabular-nums; }
+
+  /* Compact list + auto-dismiss timer (the pick): #01's card surface, #07's draining bar, clipped by the card's radius. */
+  .picks { padding: 22px 32px 0; max-width: 1400px; }
+  .picks h2 { font-size: 15px; font-weight: 650; margin: 0 0 4px; }
+  .picks > p { margin: 0; color: var(--text-2); max-width: 900px; }
+  .picks .grid { padding: 14px 0 6px; }
+  .timed { overflow: hidden; transition: background .12s ease-out, opacity .2s ease-out, transform .2s ease-out; }
+  .timed .tbar { position: absolute; left: 0; bottom: 0; height: 2px; width: 100%; background: var(--accent); opacity: .85;
+    transform-origin: left; animation: tdrain 12s linear forwards; }
+  @keyframes tdrain { from { transform: scaleX(1); } to { transform: scaleX(0); } }
+  .timed:hover, .timed:focus-within, .timed.is-hover { background: rgba(236,236,239,.17); }
+  .plain .timed:hover, .plain .timed:focus-within, .plain .timed.is-hover { background: rgba(236,236,239,.12); }
+  .timed:hover .tbar, .timed:focus-within .tbar, .timed.frozen .tbar { animation-play-state: paused; }
+  .timed:hover .tbar, .timed.is-hover .tbar { opacity: .45; }
+  .timed.is-hover .x { opacity: 1; }
+  .timed.gone { opacity: 0; transform: translateY(6px); pointer-events: none; }
+  .btn.is-hover { background: var(--sel); }
+  .btn.primary { background: var(--accent); border-color: transparent; color: #fff; font-weight: 600; }
+  .btn.primary:hover, .btn.primary.is-hover { background: #3399ff; }
+  .x.is-hover { background: var(--hover); color: var(--text); }
+  .replay { margin-left: auto; }
+  @media (prefers-reduced-motion: reduce) { .timed, .timed .tbar { transition: none; } }
+
+  .stack-under { position: absolute; left: 14px; right: 14px; bottom: 34px; height: 30px; border-radius: 12px; background: rgba(236,236,239,.08); box-shadow: inset 0 0 0 .5px rgba(236,236,239,.12); }
+</style>
+</head>
+<body>
+<header>
+  <h1>What's New card · 16 variations</h1>
+  <p>The bottom-left card after an update, in a 260pt cmux-next sidebar. Real content: the changes in nightly 3934171 (from feat-cmux-next). In every variation the <b>X shows only on hover</b> (or keyboard focus) and fades in over 0.12s. Hover a card to see it.</p>
+  <p>Built by default in the app: <b>#01 Compact list</b>. To switch, tell the Chief “What's New card #NN”.</p>
+  <div class="controls">
+    <button id="bg-wall" aria-pressed="true">On wallpaper</button>
+    <button id="bg-plain" aria-pressed="false">Plain sidebar</button>
+    <button id="force" aria-pressed="false">Show hover state on all</button>
+  </div>
+</header>
+<section class="picks">
+  <h2>#17 Compact list + timer: the states</h2>
+  <p>#01's look (the same card, list and button row) with #07's auto-dismiss: a thin bar drains along the bottom edge over 12s, then the card fades away by itself. <b>Hovering pauses the timer</b>, shows the X, and lifts the card a little. The first mock is live: hover it to pause, or let it run out (it comes back after 2s). The rest are frozen states.</p>
+  <main class="grid" id="picks"></main>
+</section>
+<main class="grid" id="grid"></main>
+
+<template id="x"><button class="x" aria-label="Close" title="Close"><svg viewBox="0 0 10 10"><path d="M2 2l6 6M8 2l-6 6"/></svg></button></template>
+
+<script>
+const X = document.getElementById("x").innerHTML;
+const V = "nightly 3934171";
+const TOTAL = 38;
+const C = [
+  { t: "Dictation progress is announced to VoiceOver", s: "Assistive tech hears recording and transcribing.", k: "fix" },
+  { t: "New Tab names its project and machine at once", s: "The first frame already shows where it opens.", k: "new" },
+  { t: "Chats stay smooth while an agent streams", s: "Rows no longer redraw on every token.", k: "fast" },
+  { t: "Find keeps its match in view", s: "It stops following at once and holds still.", k: "fix" },
+  { t: "Composer is calmer at rest", s: "No pills until you hover; one button at a time.", k: "new" },
+  { t: "Accept New Tab suggestions safely", s: "Tab accepts inline suggestions without surprises.", k: "new" },
+];
+const COUNTS = { new: 11, fix: 21, fast: 6 };
+const KIND = { new: ["New", "var(--new)"], fix: ["Fixed", "var(--fix)"], fast: ["Faster", "var(--fast)"] };
+const ICON = {
+  new: '<svg viewBox="0 0 12 12"><path d="M6 1.5v9M1.5 6h9"/></svg>',
+  fix: '<svg viewBox="0 0 12 12"><path d="M2 6.5l2.5 2.5L10 3"/></svg>',
+  fast: '<svg viewBox="0 0 12 12"><path d="M7 1L3 7h3l-1 4 4-6H6z"/></svg>',
+};
+const more = n => `+${n} more`;
+const eyebrow = `<div class="eyebrow">Updated to ${V}</div>`;
+const see = `<button class="btn">See What's New</button>`;
+const seeLink = `<button class="link">See all ${TOTAL} →</button>`;
+
+const variants = [
+  { name: "Compact list", tag: "Default", note: "Today's card, but the top 3 changes are listed right on it, one line each. “+35 more” and the button share one row.",
+    html: () => `<div class="card hoverable">${eyebrow}${X}
+      <ul class="changes">${C.slice(0,3).map(c=>`<li><span>${c.t}</span></li>`).join("")}</ul>
+      <div class="foot"><span class="muted">${more(TOTAL-3)}</span>${see}</div></div>` },
+  { name: "Numbered with summaries", note: "Top 3 numbered, each a bold title and one plain line, like the update-ready popover. Taller, reads the most.",
+    html: () => `<div class="card hoverable">${eyebrow}${X}
+      <ol class="num-list">${C.slice(0,3).map((c,i)=>`<li><span class="n">${i+1}</span><div><b>${c.t}</b><small>${c.s}</small></div></li>`).join("")}</ol>
+      <div class="foot"><span class="muted">${more(TOTAL-3)}</span><button class="link">See all →</button></div></div>` },
+  { name: "Grouped by area", note: "One headline change per kind (New, Fixed, Faster) with the count of each kind.",
+    html: () => `<div class="card hoverable">${eyebrow}${X}
+      <div class="grp">${["new","fix","fast"].map(k=>{const c=C.find(x=>x.k===k);return `<div><em style="color:${KIND[k][1]}">${KIND[k][0]} ${COUNTS[k]}</em><span>${c.t}</span></div>`}).join("")}</div>
+      <div class="foot"><span></span>${seeLink}</div></div>` },
+  { name: "Icon per change", note: "Each change gets a small tinted glyph by kind. Scans fast; the color does the grouping.",
+    html: () => `<div class="card hoverable">${eyebrow}${X}
+      <ul class="icons">${C.slice(0,4).map(c=>`<li><span class="ic" style="color:${KIND[c.k][1]};background:color-mix(in srgb, ${KIND[c.k][1]} 18%, transparent)">${ICON[c.k]}</span><span>${c.t}</span></li>`).join("")}</ul>
+      <div class="foot"><span class="muted">${more(TOTAL-4)}</span><button class="link">See all →</button></div></div>` },
+  { name: "Expandable list", note: "3 changes; “Show 3 more” opens more in place (click it). The full page is still one click away.",
+    html: () => `<div class="card hoverable exp">${eyebrow}${X}
+      <ul class="changes">${C.slice(0,3).map(c=>`<li><span>${c.t}</span></li>`).join("")}</ul>
+      <div class="more-list"><div><ul class="changes" style="margin-top:0">${C.slice(3).map(c=>`<li><span>${c.t}</span></li>`).join("")}</ul></div></div>
+      <div class="foot"><button class="link toggle">Show 3 more</button>${seeLink}</div></div>`,
+    wire: el => { const card = el.querySelector(".exp"); el.querySelector(".toggle").onclick = e => { card.classList.toggle("open"); e.target.textContent = card.classList.contains("open") ? "Show less" : "Show 3 more"; }; } },
+  { name: "Hover card", note: "A small one-row chip in the slot; hovering it opens the list above it with the workspace hover card's look and fade (a125's component).",
+    html: () => `<div class="hovercard">
+      <div class="hc-pop hoverable">${X}<div class="eyebrow">${V}</div>
+        <ol class="num-list">${C.slice(0,3).map((c,i)=>`<li><span class="n">${i+1}</span><div><b>${c.t}</b><small>${c.s}</small></div></li>`).join("")}</ol>
+        <div class="foot"><span class="muted">${more(TOTAL-3)}</span><button class="link">See all →</button></div></div>
+      <div class="hc-trigger"><span class="hc-dot"></span>Updated · ${TOTAL} changes<span style="margin-left:auto;color:var(--text-3)">⌃</span></div></div>` },
+  { name: "Toast", note: "Solid popup surface that rises in, lists 2 changes and leaves by itself after 12s (the bar). Never stays in the way.",
+    slot: false,
+    html: () => `<div class="toast hoverable">${X}<div class="eyebrow">Updated to ${V}</div>
+      <ul class="changes">${C.slice(0,2).map(c=>`<li><span>${c.t}</span></li>`).join("")}</ul>
+      <div class="foot"><span class="muted">${more(TOTAL-2)}</span><button class="link">What's new →</button></div><div class="bar"></div></div>` },
+  { name: "Sidebar row", note: "Looks like a sidebar row with a count pill, no card at all. Click the row to unfold the list in place.",
+    html: () => `<div class="hoverable sr">
+      <div class="srow"><span class="hc-dot"></span>What's new<span class="pill">${TOTAL}</span>${X.replace('class="x"','class="x" style="margin-left:auto"')}<span class="chev">›</span></div>
+      <div class="more-list"><div style="padding:0 8px 4px 23px"><ul class="changes">${C.slice(0,4).map(c=>`<li><span>${c.t}</span></li>`).join("")}</ul><div class="foot"><span></span>${seeLink}</div></div></div></div>`,
+    wire: el => { const r = el.querySelector(".sr"); r.querySelector(".srow").onclick = e => { if (!e.target.closest(".x")) r.classList.toggle("open"); }; } },
+  { name: "Minimal one-liner", note: "One line: version + count. The smallest footprint; the list lives on the page.",
+    html: () => `<div class="card hoverable" style="padding:8px 12px;display:flex;align-items:center;gap:8px"><span class="hc-dot"></span>
+      <span style="font-size:12px;flex:1;white-space:nowrap;overflow:hidden;text-overflow:ellipsis"><b>${TOTAL} changes</b> <span class="muted">in ${V}</span></span>
+      ${X.replace('class="x"','class="x" style="position:static"')}</div>` },
+  { name: "Carousel", note: "One change at a time, title and line, with ‹ › and dots (click the arrows). Good for longer summaries.",
+    html: () => `<div class="card hoverable carousel">${eyebrow}${X}
+      <div class="slide"><div class="headline"></div><div class="line"></div></div>
+      <div class="foot"><div class="dots">${C.map((_,i)=>`<i></i>`).join("")}</div><div class="arrows"><button class="prev">‹</button><button class="next">›</button></div></div></div>`,
+    wire: el => { let i = 0; const s = () => { el.querySelector(".headline").textContent = C[i].t; el.querySelector(".slide .line").textContent = C[i].s; el.querySelectorAll(".dots i").forEach((d,j)=>d.classList.toggle("on", j===i)); };
+      el.querySelector(".prev").onclick = () => { i = (i+C.length-1)%C.length; s(); }; el.querySelector(".next").onclick = () => { i = (i+1)%C.length; s(); }; s(); } },
+  { name: "Count chips + lead", note: "Counts as chips (11 new, 21 fixed, 6 faster), then the single biggest change as the headline.",
+    html: () => `<div class="card hoverable">${eyebrow}${X}
+      <div class="chips">${["new","fix","fast"].map(k=>`<span class="chip"><b style="color:${KIND[k][1]}">${COUNTS[k]}</b> ${KIND[k][0].toLowerCase()}</span>`).join("")}</div>
+      <div class="headline" style="font-size:12.5px">${C[1].t}</div><div class="line">${C[1].s}</div>
+      <div class="foot"><span></span>${see}</div></div>` },
+  { name: "Timeline", note: "From the build you had to the one you have now, with the steps in between. Shows how far you jumped.",
+    html: () => `<div class="card hoverable"><div class="eyebrow">nightly 3913596 → 3934171</div>${X}
+      <div class="timeline"><div>${C[3].t}</div><div>${C[2].t}</div><div class="now"><b>${C[1].t}</b></div></div>
+      <div class="foot"><span class="muted">3 builds · ${TOTAL} changes</span><button class="link">See all →</button></div></div>` },
+  { name: "Big version", note: "The build number as the hero, the top 3 changes small under it. Feels like an event.",
+    html: () => `<div class="card hoverable"><div class="eyebrow">You're on</div>${X}<div class="hero-v">3934171</div>
+      <ul class="changes" style="margin-top:2px">${C.slice(0,3).map(c=>`<li><span>${c.t}</span></li>`).join("")}</ul>
+      <div class="foot"><span class="muted">${more(TOTAL-3)}</span><button class="link">See all →</button></div></div>` },
+  { name: "Try it", note: "Each change has a “Try” button that opens the feature (New Tab, Find, Composer). Teaches by doing.",
+    html: () => `<div class="card hoverable">${eyebrow}${X}
+      <ul class="try">${[C[1],C[3],C[4]].map(c=>`<li><span>${c.t}</span><button>Try</button></li>`).join("")}</ul>
+      <div class="foot"><span class="muted">${more(TOTAL-3)}</span><button class="link">See all →</button></div></div>` },
+  { name: "Spotlight with picture", note: "The lead change with a small picture of it, plus 2 more titles. Needs a screenshot per highlight in the release notes.",
+    html: () => `<div class="card hoverable">${eyebrow}${X}<div class="thumb"></div>
+      <div class="headline" style="font-size:12.5px;margin-top:0">${C[1].t}</div>
+      <ul class="changes" style="margin-top:2px">${[C[0],C[2]].map(c=>`<li><span>${c.t}</span></li>`).join("")}</ul>
+      <div class="foot"><span class="muted">${more(TOTAL-3)}</span><button class="link">See all →</button></div></div>` },
+  { name: "Digest bars", note: "A tiny chart of what kind of update it was, then the lead change. Stacks under the media card if both show.",
+    stacked: true,
+    html: () => `<div class="card hoverable">${eyebrow}${X}
+      <div class="bars">${["new","fix","fast"].map(k=>`<div><span>${KIND[k][0]}</span><s style="width:${COUNTS[k]/21*100}%;background:${KIND[k][1]}"></s><b>${COUNTS[k]}</b></div>`).join("")}</div>
+      <div class="line" style="color:var(--text)">${C[0].t}</div>
+      <div class="foot"><span></span>${seeLink}</div></div>` },
+];
+
+const grid = document.getElementById("grid");
+variants.forEach((v, i) => {
+  const n = String(i + 1).padStart(2, "0");
+  const cell = document.createElement("section");
+  cell.className = "cell"; cell.id = "v" + n;
+  const inner = v.slot === false || v.name === "Hover card" ? v.html() : `<div class="slot">${v.html()}</div>`;
+  cell.innerHTML = `<div class="label"><span class="num">#${n}</span><span class="name">${v.name}</span>${v.tag ? `<span class="tag">${v.tag}</span>` : ""}</div>
+    <div class="note">${v.note}</div>
+    <div class="sidebar"><div class="rows">
+      <div class="row"><i></i>cmux-next</div><div class="row sel"><i></i>Chief</div><div class="row"><i></i>whats-new-card</div><div class="row"><i></i>nightly-on-minis</div><div class="row"><i></i>Home</div>
+    </div>${v.stacked ? '<div class="stack-under"></div>' : ""}${inner}<div class="footer"><i></i><span style="font-size:12px">Lawrence</span></div></div>`;
+  grid.appendChild(cell);
+  v.wire?.(cell);
+});
+
+// #17: Compact list + timer, one mock per state.
+const timedCard = ({ cls = "", btn = see, x = X, at = 0, eb = eyebrow } = {}) =>
+  `<div class="card hoverable timed ${cls}">${eb}${x}
+    <ul class="changes">${C.slice(0,3).map(c=>`<li><span>${c.t}</span></li>`).join("")}</ul>
+    <div class="foot"><span class="muted">${more(TOTAL-3)}</span>${btn}</div>
+    <div class="tbar" style="animation-delay:-${at}s"></div></div>`;
+const xHover = X.replace('class="x"', 'class="x is-hover"');
+const updEyebrow = `<div class="eyebrow">Update ready · ${TOTAL} changes</div>`;
+const upd = (c = "") => `<button class="btn primary ${c}">Restart to Update</button>`;
+const states = [
+  { name: "Live", tag: "Try it", note: "Rest state, timer running. Hover to pause it and show the X; let go and it carries on. At 0 the card fades out.",
+    html: () => timedCard({ cls: "live" }), live: true },
+  { name: "Hover", note: "Pointer over the card: the X shows, the bar pauses and dims, the card lifts to 17%.",
+    html: () => timedCard({ cls: "is-hover frozen", at: 5 }) },
+  { name: "Hover on the button", note: "Pointer on “See What's New”: the button takes the selected fill; the timer stays paused.",
+    html: () => timedCard({ cls: "is-hover frozen", at: 5, btn: `<button class="btn is-hover">See What's New</button>` }) },
+  { name: "Hover on the X", note: "Pointer on the X: it gets its round hover fill. Clicking dismisses at once.",
+    html: () => timedCard({ cls: "is-hover frozen", at: 5, x: xHover }) },
+  { name: "Update button", note: "A newer build is waiting: the eyebrow says so and the button turns into a blue “Restart to Update”.",
+    html: () => timedCard({ cls: "frozen", at: 2, eb: updEyebrow, btn: upd() }) },
+  { name: "Update button, hover", note: "Pointer on “Restart to Update”: the blue brightens, the X shows, the timer is paused.",
+    html: () => timedCard({ cls: "is-hover frozen", at: 2, eb: updEyebrow, btn: upd("is-hover") }) },
+];
+const picks = document.getElementById("picks");
+states.forEach((v, i) => {
+  const cell = document.createElement("section");
+  cell.className = "cell"; cell.id = "s" + (i + 1);
+  cell.innerHTML = `<div class="label"><span class="num">#17${"abcdef"[i]}</span><span class="name">${v.name}</span>${v.tag ? `<span class="tag">${v.tag}</span>` : ""}</div>
+    <div class="note">${v.note}</div>
+    <div class="sidebar"><div class="rows">
+      <div class="row"><i></i>cmux-next</div><div class="row sel"><i></i>Chief</div><div class="row"><i></i>whats-new-card</div><div class="row"><i></i>nightly-on-minis</div><div class="row"><i></i>Home</div>
+    </div><div class="slot">${v.html()}</div><div class="footer"><i></i><span style="font-size:12px">Lawrence</span></div></div>`;
+  picks.appendChild(cell);
+  if (v.live) {
+    const slot = cell.querySelector(".slot");
+    const arm = () => {
+      const card = slot.querySelector(".timed");
+      card.querySelector(".x").onclick = () => card.classList.add("gone");
+      card.querySelector(".tbar").addEventListener("animationend", () => card.classList.add("gone"));
+      card.addEventListener("transitionend", e => { if (e.propertyName === "opacity" && card.classList.contains("gone"))
+        setTimeout(() => { slot.innerHTML = v.html(); arm(); }, 2000); });
+    };
+    arm();
+  }
+});
+
+const set = (plain) => { document.body.classList.toggle("plain", plain); document.getElementById("bg-plain").setAttribute("aria-pressed", plain); document.getElementById("bg-wall").setAttribute("aria-pressed", !plain); };
+document.getElementById("bg-wall").onclick = () => set(false);
+document.getElementById("bg-plain").onclick = () => set(true);
+document.getElementById("force").onclick = e => { const on = document.body.classList.toggle("force-x"); e.target.setAttribute("aria-pressed", on); };
+</script>
+</body>
+</html>

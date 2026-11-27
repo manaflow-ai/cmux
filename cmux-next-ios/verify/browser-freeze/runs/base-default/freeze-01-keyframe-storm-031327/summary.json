@@ -1,0 +1,88 @@
+{
+  "t": 1792811607.321154,
+  "utc": "03:13:27",
+  "kind": "keyframe-storm",
+  "detail": "keyframe_requests 1->12 in 5.0s (2.2/s) since 03:13:21",
+  "tab": "A",
+  "since_start_s": 31.6,
+  "kf_last": [
+    [
+      1792811595.906397,
+      1
+    ],
+    [
+      1792811601.005494,
+      1
+    ],
+    [
+      1792811606.014031,
+      12
+    ]
+  ],
+  "lane_last": [
+    {
+      "t": 1792811595.906397,
+      "frames": "2",
+      "keyframe_requests": "1",
+      "loss": "0.0",
+      "target_kbps": "2500",
+      "packets": "6",
+      "nacks": "0"
+    },
+    {
+      "t": 1792811601.005494,
+      "frames": "2",
+      "keyframe_requests": "1",
+      "loss": "0.0",
+      "target_kbps": "2500",
+      "packets": "6",
+      "nacks": "0"
+    },
+    {
+      "t": 1792811606.014031,
+      "frames": "13",
+      "keyframe_requests": "12",
+      "loss": "0.0",
+      "target_kbps": "3040",
+      "packets": "33",
+      "nacks": "0"
+    }
+  ],
+  "fps_last": [
+    [
+      1792811591.607444,
+      "new-a9b9d947-t1",
+      1,
+      "wg-rtp"
+    ]
+  ],
+  "decode_failed": [],
+  "host_events": [
+    {
+      "t": 1792811577.343096,
+      "utc": "03:12:57",
+      "line": "link up session_id=\"24040e48-f463-4e11-b919-12093aa1d025\" kind=WireGuard path=Turn phone=\"07d3d268-ebfe-4601-af11-a32bd5d268cd\" video=true timings=offer_received=0.0ms ice_servers_cached=0.0ms video_lane=116.1ms link_ready=116.2ms"
+    },
+    {
+      "t": 1792811577.343195,
+      "utc": "03:12:57",
+      "line": "link path changed session_id=\"24040e48-f463-4e11-b919-12093aa1d025\" path=Turn"
+    },
+    {
+      "t": 1792811601.90598,
+      "utc": "03:13:21",
+      "line": "media session failed session_id=\"38f99b1a-97bb-439b-8544-e96c432bc8fc\" link_session=\"24040e48-f463-4e11-b919-12093aa1d025\" error=transport: the media session's peer connection failed timings=media_offer_received=0.0ms pc_created=0.6ms media"
+    },
+    {
+      "t": 1792811603.127594,
+      "utc": "03:13:23",
+      "line": "media session up session_id=\"5c2a6ff7-8f6e-4760-8ed8-311577687cdb\" link_session=\"24040e48-f463-4e11-b919-12093aa1d025\" path=Direct timings=media_offer_received=0.0ms pc_created=0.3ms media_answer_sent=0.9ms remote_host=0.9ms remote_srflx=0."
+    },
+    {
+      "t": 1792811603.13454,
+      "utc": "03:13:23",
+      "line": "media lane switched route at a keyframe from=\"wireguard-udp\" to=\"webrtc-track\""
+    }
+  ],
+  "tabs": {}
+}

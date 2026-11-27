@@ -1,0 +1,215 @@
+{
+ "ev": [
+  {
+   "n": "shrink",
+   "t": 1792478610.72678,
+   "k": 0
+  },
+  {
+   "n": "expand",
+   "t": 1792478647.438435,
+   "k": 0
+  },
+  {
+   "n": "shrink",
+   "t": 1792478650.630514,
+   "k": 1
+  },
+  {
+   "n": "expand",
+   "t": 1792478655.688736,
+   "k": 1
+  },
+  {
+   "n": "shrink",
+   "t": 1792478658.9465148,
+   "k": 2
+  },
+  {
+   "n": "expand",
+   "t": 1792478663.91405,
+   "k": 2
+  },
+  {
+   "n": "shrink",
+   "t": 1792478667.161599,
+   "k": 3
+  },
+  {
+   "n": "expand",
+   "t": 1792478672.1754618,
+   "k": 3
+  },
+  {
+   "n": "shrink",
+   "t": 1792478675.387248,
+   "k": 4
+  },
+  {
+   "n": "expand",
+   "t": 1792478680.473153,
+   "k": 4
+  },
+  {
+   "n": "shrink",
+   "t": 1792478683.692675,
+   "k": 5
+  },
+  {
+   "n": "expand",
+   "t": 1792478688.794472,
+   "k": 5
+  }
+ ],
+ "a": {
+  "video": "/Users/cmux/cnx-ios-e2e/r13/raw/tabs-a-grid.mp4",
+  "t0": 1792478609.0117419
+ },
+ "cards": [
+  {
+   "k": 0,
+   "rep": 0,
+   "card_max": 262,
+   "mac_last": 852,
+   "t": 1792478612.306876,
+   "dt_mac": 32.08
+  },
+  {
+   "k": 0,
+   "rep": 1,
+   "card_max": 871,
+   "mac_last": 881,
+   "t": 1792478645.395467,
+   "dt_mac": 0.46
+  },
+  {
+   "k": 1,
+   "rep": 0,
+   "card_max": 998,
+   "mac_last": 1016,
+   "t": 1792478652.23702,
+   "dt_mac": 0.39
+  },
+  {
+   "k": 1,
+   "rep": 1,
+   "card_max": 1030,
+   "mac_last": 1046,
+   "t": 1792478653.631287,
+   "dt_mac": 0.48
+  },
+  {
+   "k": 2,
+   "rep": 0,
+   "card_max": 1165,
+   "mac_last": 1182,
+   "t": 1792478660.525561,
+   "dt_mac": 0.39
+  },
+  {
+   "k": 2,
+   "rep": 1,
+   "card_max": null,
+   "mac_last": 1211,
+   "t": 1792478661.91785,
+   "dt_mac": 0.43
+  },
+  {
+   "k": 3,
+   "rep": 0,
+   "card_max": 1329,
+   "mac_last": 1346,
+   "t": 1792478668.742403,
+   "dt_mac": 0.38
+  },
+  {
+   "k": 3,
+   "rep": 1,
+   "card_max": 1360,
+   "mac_last": 1376,
+   "t": 1792478670.135848,
+   "dt_mac": 0.47
+  },
+  {
+   "k": 4,
+   "rep": 0,
+   "card_max": 1493,
+   "mac_last": 1512,
+   "t": 1792478677.006335,
+   "dt_mac": 0.43
+  },
+  {
+   "k": 4,
+   "rep": 1,
+   "card_max": 1524,
+   "mac_last": 1542,
+   "t": 1792478678.4562209,
+   "dt_mac": 0.45
+  },
+  {
+   "k": 5,
+   "rep": 0,
+   "card_max": 1660,
+   "mac_last": 1678,
+   "t": 1792478685.285928,
+   "dt_mac": 0.41
+  },
+  {
+   "k": 5,
+   "rep": 1,
+   "card_max": 1691,
+   "mac_last": 1708,
+   "t": 1792478686.710289,
+   "dt_mac": 0.5
+  }
+ ],
+ "closes": [
+  {
+   "k": 0,
+   "asked": true,
+   "s": 1.0,
+   "texts": [
+    "Close",
+    "Close",
+    "Close e2e-t1",
+    "Close \u201ce2e-t1\u201d?",
+    "Close \u201ce2e-t1\u201d?",
+    "Still running: python3.14.",
+    "Close"
+   ],
+   "kept": true
+  },
+  {
+   "k": 1,
+   "asked": true,
+   "s": 0.97,
+   "texts": [
+    "Close",
+    "Close",
+    "Close e2e-t1",
+    "Close",
+    "Close \u201ce2e-t1\u201d?",
+    "Close \u201ce2e-t1\u201d?",
+    "Still running: python3.14.",
+    "Close"
+   ],
+   "kept": true
+  },
+  {
+   "k": 2,
+   "asked": true,
+   "s": 1.04,
+   "texts": [
+    "Close",
+    "Close",
+    "Close e2e-t1",
+    "Close",
+    "Close \u201ce2e-t1\u201d?",
+    "Close \u201ce2e-t1\u201d?",
+    "Still running: python3.14.",
+    "Close"
+   ],
+   "kept": true
+  }
+ ]
+}

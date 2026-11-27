@@ -22,7 +22,8 @@ if (existsSync(chunksDir)) {
 let compilerCacheCalls = 0;
 for (const bundlePath of bundlePaths) {
   const bundle = readFileSync(bundlePath, "utf8");
-  compilerCacheCalls += (bundle.match(/\b[A-Za-z_$][\w$]*\.c\(\d+\)/g) ?? []).length;
+  // `x.c(6)` from Rollup/esbuild, `(0,x.c)(6)` from Rolldown's minifier.
+  compilerCacheCalls += (bundle.match(/\b[A-Za-z_$][\w$]*\.c\)?\(\d+\)/g) ?? []).length;
 }
 
 if (compilerCacheCalls < 8) {

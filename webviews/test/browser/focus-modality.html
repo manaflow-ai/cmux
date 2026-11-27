@@ -1,0 +1,25 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <title>focus ring harness</title>
+    <style>
+      .acpmux-shell > .acpmux-composer {
+        flex: none;
+        inline-size: 380px;
+      }
+    </style>
+  </head>
+  <body>
+    <button type="button" class="ui-button" id="a">A</button>
+    <button type="button" class="ui-button" id="b">B</button>
+    <section class="acpmux-shell">
+      <div class="acpmux-composer">
+        <div class="ui-glass ui-glass-floats ui-glass-material acpmux-composer-box" id="composer">
+          <div class="acpmux-md" contenteditable="true" id="field"></div>
+        </div>
+      </div>
+    </section>
+    <script type="module" src="./focus-modality.harness.ts"></script>
+  </body>
+</html>

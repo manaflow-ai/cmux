@@ -76,4 +76,26 @@ rm -f "$TMP/api/runs.json"
 invoke
 dispatched && fail "a failed query must not request a run" "$(cat "$TMP/out")"
 
+# 7. A malformed CMUX_NOW_EPOCH (a non-number, an empty string, out of range, a newline in it):
+#    exit 2 with one line naming the value as printf %q quotes it, before any GitHub call.
+for bad in abc "" 99999999999999999999 $'4133980800\nX' $'\n'; do
+  : > "$TMP/gh.log"
+  status=0
+  PATH="$TMP/bin:$PATH" CMUX_NOW_EPOCH="$bad" bash "$SCRIPT" --repo manaflow-ai/cmux > "$TMP/out" 2>&1 || status=$?
+  [[ "$status" == 2 ]] || fail "CMUX_NOW_EPOCH=$(printf %q "$bad") must exit 2, got $status" "$(cat "$TMP/out")"
+  [[ "$(grep -c "" "$TMP/out")" == 1 ]] || fail "CMUX_NOW_EPOCH=$(printf %q "$bad") must print exactly one line" "$(cat "$TMP/out")"
+  grep -qF "error: CMUX_NOW_EPOCH=$(printf %q "$bad") is not an epoch" "$TMP/out" || fail "CMUX_NOW_EPOCH=$(printf %q "$bad") must say it is not an epoch" "$(cat "$TMP/out")"
+  [[ ! -s "$TMP/gh.log" ]] || fail "CMUX_NOW_EPOCH=$(printf %q "$bad") must stop before any GitHub call" "$(cat "$TMP/gh.log")"
+done
+
+# 8. Leading zeros are the same second: 0000000000000 is 0 and 0001791547200 is the fixed clock.
+runs "$(run 3 push in_progress 2026-10-09T11:50:00Z), $(run 2 push completed 2026-10-09T11:00:00Z)"
+recovery 2
+for good in 0000000000000 "000$NOW"; do
+  : > "$TMP/gh.log"
+  PATH="$TMP/bin:$PATH" CMUX_NOW_EPOCH="$good" bash "$SCRIPT" --repo manaflow-ai/cmux > "$TMP/out" 2>&1 || fail "CMUX_NOW_EPOCH=$good must be accepted" "$(cat "$TMP/out")"
+  grep -q "is not an epoch" "$TMP/out" && fail "CMUX_NOW_EPOCH=$good is in range" "$(cat "$TMP/out")"
+done
+dispatched || fail "CMUX_NOW_EPOCH=000$NOW must judge ages from the fixed clock and ask for the pending run" "$(cat "$TMP/out")"
+
 echo "PASS: continue-nightly-next requests a continuation only for a recent pending notarization, at most every 30 minutes"

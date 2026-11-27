@@ -1,0 +1,8 @@
+{
+  "repository": "manaflow-ai/cmux",
+  "pullRequest": 16930,
+  "revision": "7d550047e233809260f502d1cc16ab791e7280e5",
+  "path": "cmux-tui/crates/acpmux/docs/acpmux-schema.json",
+  "sha256": "7db676f4f95e423a3bce834299fe2dc23e20daacfa2ffcf48f0032b076308e0e",
+  "contractVersion": "1.1"
+}

@@ -1,0 +1,24 @@
+{
+  "$schema": "https://cmux.dev/schemas/cmux-app/2.json",
+  "manifestVersion": 2,
+  "id": "local/customize",
+  "name": "My views",
+  "version": "1.0.0",
+  "description": "Your agent chats as a thread list: what needs you first, then the rest, newest first.",
+  "engines": { "cmux": "^2.0" },
+  "runtime": { "main": "main.js" },
+  "implements": {
+    "cmux.section/1": {
+      "export": "renderThreads",
+      "title": "Threads",
+      "symbol": "bubble.left.and.bubble.right",
+      "options": { "defaultRegion": "middle", "maxRows": 40 }
+    }
+  },
+  "scopes": {
+    "agent_chat:read": "Read your agent chats: title, state, folder and times.",
+    "workspace:read": "Know which workspace is open, to mark its chat.",
+    "workspace:write": "Show a chat's workspace when you click its thread.",
+    "actions:run": "Open a chat that has no workspace in a new tab."
+  }
+}

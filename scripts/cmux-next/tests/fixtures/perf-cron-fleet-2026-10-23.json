@@ -1,0 +1,424 @@
+{
+ "_recorded": "2026-10-23T14:01Z: `cmux-ci workers` (two of its workers, unchanged) and /v1/status exclusive_hold and queue (its keys the cron reads). cmux20-bench was running a foreground perf-bench step (no fits); cmuxs-Mac-mini.local was idle (fits exclusive).",
+ "workers": {
+  "cmux20-bench": {
+   "name": "cmux20-bench",
+   "labels": [
+    "bench",
+    "source-bundle-v1",
+    "source-patch-v1",
+    "source-working-tree-v1",
+    "tools-v1",
+    "measure",
+    "macos-27"
+   ],
+   "labels_seen": {
+    "bench": "2026-10-23T14:01:34.916721Z",
+    "macos-27": "2026-10-23T14:01:34.916721Z",
+    "measure": "2026-10-23T14:01:34.916721Z",
+    "source-bundle-v1": "2026-10-23T14:01:34.916721Z",
+    "source-patch-v1": "2026-10-23T14:01:34.916721Z",
+    "source-working-tree-v1": "2026-10-23T14:01:34.916721Z",
+    "tools-v1": "2026-10-23T14:01:34.916721Z"
+   },
+   "download_mbps": 0,
+   "upload_mbps": 0,
+   "free_bytes": 109485989888,
+   "last_seen": "2026-10-23T14:01:34.916721Z",
+   "storage": {
+    "sampled_at": "2026-10-23T14:01:34.901916Z",
+    "volumes": [
+     {
+      "path": "/Users/cmux/cmux-ci-bench",
+      "reserve_bytes": 10737418240,
+      "mount": "/System/Volumes/Data",
+      "total_bytes": 245054767104,
+      "free_bytes": 109485989888,
+      "used_bytes": 135568777216,
+      "below_reserve": false
+     },
+     {
+      "path": "/Users/cmux/cmux-ci-bench/cache",
+      "reserve_bytes": 10737418240,
+      "mount": "/System/Volumes/Data",
+      "total_bytes": 245054767104,
+      "free_bytes": 109485989888,
+      "used_bytes": 135568777216,
+      "below_reserve": false
+     }
+    ]
+   },
+   "build_state": {
+    "validated_at": "0001-01-01T00:00:00Z"
+   },
+   "telemetry": {
+    "sampled_at": "2026-10-23T14:01:23.536876Z",
+    "ok": true,
+    "error": "",
+    "cpu_percent": 100,
+    "cpu_cores": 12,
+    "mem_total_bytes": 17179869184,
+    "mem_used_bytes": 10978426880,
+    "mem_free_bytes": 6201442304,
+    "disk_total_bytes": 245054767104,
+    "disk_used_bytes": 108397588480,
+    "disk_free_bytes": 109723709440,
+    "duration_ms": 1091
+   },
+   "build_slots": 1,
+   "lane_distance_to_head": -1,
+   "xcodes": [
+    {
+     "app": "/Applications/Xcode_26.6.app",
+     "version": "26.6",
+     "build": "17F113"
+    }
+   ],
+   "toolchains": {
+    "fleet-tools": {
+     "path": "/Users/Shared/cmux-build-fleet/tools/bin",
+     "target": "bun 1.4.2, cmake 4.4.4, go 1.26.9, ninja 1.13.2, node 24.22.1"
+    },
+    "metal": {
+     "version": "32023.883",
+     "path": "/usr/bin/xcrun metal"
+    },
+    "zig": {
+     "version": "0.16.0",
+     "path": "/opt/homebrew/bin/zig",
+     "target": "/opt/homebrew/Cellar/zig@0.16/0.16.0/bin/zig"
+    }
+   },
+   "cache_probes": [
+    {
+     "endpoint": "artifact-store",
+     "ok": true,
+     "seconds": 1.887958292,
+     "at": "2026-10-23T13:53:55.330662Z"
+    }
+   ],
+   "counts_runner_jobs": true,
+   "reports_current_job": true,
+   "host_reset_at": "2026-10-23T07:13:34.117327Z",
+   "build": {
+    "commit": "91222429dd52",
+    "build_time": 1792726067,
+    "sha256": "65edeb2e2cc5d3c00b62ae0af2a3f77109ee822dcb57ceef3e6688731f4afad5",
+    "self_update": "on"
+   },
+   "self_update_note": "staying on 65edeb2e2cc5: current (release 65edeb2e2cc5, commit 91222429dd52)",
+   "host_bin": {
+    "refused": {
+     "disk-pressure.sh": "bin/: lstat /Users/cmux/cmux-ci-bench/host/bin: no such file or directory",
+     "with-host-lock": "bin/: lstat /Users/cmux/cmux-ci-bench/host/bin: no such file or directory"
+    },
+    "checked_at": "2026-10-23T13:44:10.546041Z"
+   },
+   "recipes": {
+    "state": "skipped: not managed (recipes/: lstat /Users/cmux/cmux-ci-bench/host/recipes: no such file or directory)",
+    "checked_at": "2026-10-23T07:14:54.745382Z"
+   },
+   "readiness": {
+    "schema_version": 1,
+    "ready": false,
+    "reason_code": "unknown",
+    "boundaries": {
+     "apply": false,
+     "ci": false,
+     "controller": false
+    }
+   },
+   "healthy": true
+  },
+  "cmuxs-Mac-mini.local": {
+   "name": "cmuxs-Mac-mini.local",
+   "labels": [
+    "cmux",
+    "chromium",
+    "ram48",
+    "ios",
+    "source-bundle-v1",
+    "source-patch-v1",
+    "source-working-tree-v1",
+    "tools-v1",
+    "measure",
+    "macos-27",
+    "cmux-browser",
+    "cmux-browser-warm"
+   ],
+   "labels_seen": {
+    "chromium": "2026-10-23T14:01:38.419675Z",
+    "cmux": "2026-10-23T14:01:38.419675Z",
+    "cmux-browser": "2026-10-23T14:01:38.419675Z",
+    "cmux-browser-warm": "2026-10-23T14:01:38.419675Z",
+    "ios": "2026-10-23T14:01:38.419675Z",
+    "macos-27": "2026-10-23T14:01:38.419675Z",
+    "measure": "2026-10-23T14:01:38.419675Z",
+    "ram48": "2026-10-23T14:01:38.419675Z",
+    "source-bundle-v1": "2026-10-23T14:01:38.419675Z",
+    "source-patch-v1": "2026-10-23T14:01:38.419675Z",
+    "source-working-tree-v1": "2026-10-23T14:01:38.419675Z",
+    "tools-v1": "2026-10-23T14:01:38.419675Z"
+   },
+   "download_mbps": 0,
+   "upload_mbps": 0,
+   "free_bytes": 27309613056,
+   "last_seen": "2026-10-23T14:01:38.419675Z",
+   "storage": {
+    "sampled_at": "2026-10-23T14:01:38.414148Z",
+    "volumes": [
+     {
+      "path": "/Users/Shared/cmux-build-fleet",
+      "reserve_bytes": 10737418240,
+      "mount": "/System/Volumes/Data",
+      "total_bytes": 494384795648,
+      "free_bytes": 27309613056,
+      "used_bytes": 467075182592,
+      "below_reserve": false
+     },
+     {
+      "path": "/Users/Shared/cmux-build-fleet/cache",
+      "reserve_bytes": 10737418240,
+      "mount": "/System/Volumes/Data",
+      "total_bytes": 494384795648,
+      "free_bytes": 27309613056,
+      "used_bytes": 467075182592,
+      "below_reserve": false
+     }
+    ]
+   },
+   "build_state": {
+    "validated_at": "0001-01-01T00:00:00Z"
+   },
+   "telemetry": {
+    "sampled_at": "2026-10-23T14:01:33.162731Z",
+    "ok": true,
+    "error": "",
+    "cpu_percent": 19,
+    "cpu_cores": 14,
+    "mem_total_bytes": 51539607552,
+    "mem_used_bytes": 33657782272,
+    "mem_free_bytes": 17881825280,
+    "disk_total_bytes": 494384795648,
+    "disk_used_bytes": 410726576128,
+    "disk_free_bytes": 27309670400,
+    "duration_ms": 1187
+   },
+   "build_slots": 1,
+   "lane_distance_to_head": -1,
+   "fits": [
+    "exclusive"
+   ],
+   "xcodes": [
+    {
+     "app": "/Applications/Xcode.app",
+     "version": "26.6",
+     "build": "17F113"
+    },
+    {
+     "app": "/Applications/Xcode_26.5.app",
+     "version": "26.5",
+     "build": "17F42"
+    },
+    {
+     "app": "/Applications/Xcode_26.6.app",
+     "version": "26.6",
+     "build": "17F113"
+    }
+   ],
+   "toolchains": {
+    "fleet-tools": {
+     "path": "/Users/Shared/cmux-build-fleet/tools/bin",
+     "target": "bun 1.4.2, cmake 4.4.4, go 1.26.9, ninja 1.13.2, node 24.22.1"
+    },
+    "metal": {
+     "version": "32023.883",
+     "path": "/usr/bin/xcrun metal"
+    },
+    "zig": {
+     "version": "0.16.0",
+     "path": "/opt/homebrew/bin/zig",
+     "target": "/opt/homebrew/Cellar/zig/0.16.0_1/bin/zig"
+    }
+   },
+   "cache_probes": [
+    {
+     "endpoint": "primary",
+     "ok": true,
+     "seconds": 0.039516208,
+     "at": "2026-10-23T14:00:21.118187Z"
+    },
+    {
+     "endpoint": "artifact-store",
+     "ok": true,
+     "seconds": 0.752941792,
+     "at": "2026-10-23T14:01:16.761914Z"
+    }
+   ],
+   "counts_runner_jobs": true,
+   "reports_current_job": true,
+   "host_reset_at": "2026-10-23T03:30:18.327797Z",
+   "build": {
+    "commit": "91222429dd52",
+    "build_time": 1792726067,
+    "sha256": "65edeb2e2cc5d3c00b62ae0af2a3f77109ee822dcb57ceef3e6688731f4afad5",
+    "self_update": "on"
+   },
+   "self_update_note": "staying on 65edeb2e2cc5: current (release 65edeb2e2cc5, commit 91222429dd52)",
+   "host_bin": {
+    "current": [
+     "disk-pressure.sh"
+    ],
+    "refused": {
+     "with-host-lock": "owned by root (uid 0)"
+    },
+    "checked_at": "2026-10-23T14:01:38.413092Z"
+   },
+   "recipes": {
+    "state": "activated",
+    "bundle": "d47cdb49c8c9bc4b94e78acac06d7ce1783bfc11ed22c770f3167738c454d982",
+    "release": "468c653773a74b9a378eb4689e85e6ada45a24244d16b1a6b9d1b711d7f660b5",
+    "checked_at": "2026-10-23T03:32:19.970812Z"
+   },
+   "readiness": {
+    "schema_version": 1,
+    "ready": false,
+    "reason_code": "unknown",
+    "boundaries": {
+     "apply": false,
+     "ci": false,
+     "controller": false
+    }
+   },
+   "healthy": true
+  }
+ },
+ "status": {
+  "exclusive_hold": {
+   "worker": "cmux20-bench",
+   "job_id": "6ff77b010a92aca99335864c",
+   "since": "2026-10-23T13:44:10.856142Z",
+   "reason": "exclusive step 6ff77b010a92aca99335864c (scripts/measure/perf-bench.sh) queued 1h51m47s, past 15m0s; cmux20-bench takes no other new work until it starts",
+   "exclusive": true,
+   "drain_seconds": 1062.528433
+  },
+  "queue": [
+   {
+    "id": "6ff77b010a92aca99335864c",
+    "kind": "ci-step",
+    "state": "queued",
+    "submitter": "lawrence",
+    "submitter_verified": true,
+    "priority_class": "agent",
+    "priority": -10,
+    "owner": true,
+    "labels": [
+     "bench",
+     "measure"
+    ],
+    "measurement": true,
+    "created_at": "2026-10-23T11:52:24.314558Z",
+    "wait_seconds": 7769.070017
+   },
+   {
+    "id": "4d34cd28d4ec53ce21a1bfd2",
+    "kind": "ci-step",
+    "state": "queued",
+    "submitter": "lawrence",
+    "submitter_verified": true,
+    "priority_class": "agent",
+    "priority": -10,
+    "owner": true,
+    "labels": [
+     "bench",
+     "measure"
+    ],
+    "measurement": true,
+    "created_at": "2026-10-23T11:52:30.65064Z",
+    "wait_seconds": 7762.733935
+   },
+   {
+    "id": "7fdb7a06d442bf43fe8a2734",
+    "kind": "ci-step",
+    "state": "queued",
+    "submitter": "lawrence",
+    "submitter_verified": true,
+    "priority_class": "agent",
+    "priority": -10,
+    "owner": true,
+    "labels": [
+     "measure"
+    ],
+    "measurement": true,
+    "created_at": "2026-10-23T13:15:02.632334Z",
+    "wait_seconds": 2810.752241
+   },
+   {
+    "id": "22db22747846bdc852dcd59d",
+    "kind": "ci-step",
+    "state": "queued",
+    "submitter": "lawrence",
+    "submitter_verified": true,
+    "priority_class": "agent",
+    "priority": -10,
+    "owner": true,
+    "labels": [
+     "measure"
+    ],
+    "measurement": true,
+    "created_at": "2026-10-23T13:15:02.632339Z",
+    "wait_seconds": 2810.752236
+   },
+   {
+    "id": "dd124d248f0139667c11d59b",
+    "kind": "ci-step",
+    "state": "queued",
+    "submitter": "lawrence",
+    "submitter_verified": true,
+    "priority_class": "agent",
+    "priority": -10,
+    "owner": true,
+    "labels": [
+     "macos-27",
+     "measure"
+    ],
+    "measurement": true,
+    "created_at": "2026-10-23T13:40:08.758811Z",
+    "wait_seconds": 1304.625764
+   },
+   {
+    "id": "d0d09c6b0ee0504b11a936a3",
+    "kind": "ci-step",
+    "state": "queued",
+    "submitter": "lawrence",
+    "submitter_verified": true,
+    "priority_class": "agent",
+    "priority": -10,
+    "owner": true,
+    "labels": [
+     "measure"
+    ],
+    "measurement": true,
+    "created_at": "2026-10-23T13:45:53.029507Z",
+    "wait_seconds": 960.355068
+   },
+   {
+    "id": "c4f38cbdf298a819927d6679",
+    "kind": "ci-step",
+    "state": "queued",
+    "submitter": "lawrence",
+    "submitter_verified": true,
+    "background": true,
+    "priority_class": "background",
+    "priority": -10000,
+    "owner": true,
+    "labels": [
+     "measure"
+    ],
+    "measurement": true,
+    "created_at": "2026-10-23T13:52:26.235421Z",
+    "wait_seconds": 567.149154
+   }
+  ]
+ }
+}

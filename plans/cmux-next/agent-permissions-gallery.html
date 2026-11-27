@@ -1,0 +1,130 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Agent permission card · variants</title>
+<style>
+  :root { color-scheme: light dark; --bg:#1d1d1f; --glass:rgba(58,58,62,.62); --rim:rgba(255,255,255,.14); --t1:#f2f2f4; --t2:#b4b4ba; --t3:#86868c; --fill:rgba(255,255,255,.08); }
+  @media (prefers-color-scheme: light) { :root { --bg:#e9e9ec; --glass:rgba(255,255,255,.66); --rim:rgba(0,0,0,.08); --t1:#1d1d1f; --t2:#55555a; --t3:#86868c; --fill:rgba(0,0,0,.06); } }
+  * { box-sizing:border-box }
+  body { margin:0; padding:28px; font:13px/1.4 -apple-system, BlinkMacSystemFont, sans-serif; color:var(--t1);
+         background: radial-gradient(1200px 600px at 20% 0%, #5b5e66 0%, transparent 60%), radial-gradient(900px 500px at 90% 20%, #3e4148 0%, transparent 60%), var(--bg); }
+  h1 { font-size:20px; margin:0 0 4px } h2 { font-size:15px; margin:28px 0 10px } p.note { color:var(--t2); margin:0 0 18px; max-width:860px }
+  .grid { display:grid; grid-template-columns:repeat(auto-fill,minmax(460px,1fr)); gap:22px }
+  .tile { padding:18px; border-radius:16px; background:rgba(0,0,0,.18); position:relative }
+  .tile h3 { margin:0 0 4px; font-size:14px } .tile .why { color:var(--t2); font-size:12px; margin:0 0 14px }
+  .rec { position:absolute; top:16px; right:16px; font-size:11px; font-weight:600; padding:3px 9px; border-radius:99px; background:var(--t1); color:var(--bg) }
+  .glass { background:var(--glass); backdrop-filter:blur(30px) saturate(1.6); -webkit-backdrop-filter:blur(30px) saturate(1.6);
+           border:1px solid var(--rim); border-radius:14px; box-shadow:0 12px 40px rgba(0,0,0,.35), inset 0 1px 0 rgba(255,255,255,.12); }
+  .card { width:420px; padding:14px 16px; display:flex; flex-direction:column; gap:8px }
+  .who { font-size:11px; font-weight:500; color:var(--t2); display:flex; align-items:center; gap:6px }
+  .mark { width:16px; height:16px; border-radius:5px; background:linear-gradient(135deg,#d9d9de,#8d8d94) }
+  .title { font-size:15px; font-weight:600 } .sum { font-size:12px; color:var(--t2) }
+  .label { font-size:11px; font-weight:600; color:var(--t3); margin-bottom:1px } .body { font-size:13px }
+  .warn { font-size:12px; font-weight:500; padding:7px 9px; border-radius:8px; background:var(--fill) }
+  .row { display:flex; align-items:center; gap:8px } .grow { flex:1 } .more { font-size:11px; color:var(--t3) }
+  .btn { font:600 12px -apple-system; padding:5px 12px; border-radius:99px; border:0; background:var(--fill); color:var(--t1) }
+  .btn.primary { background:var(--t1); color:var(--bg) } .key { opacity:.6; font-weight:500; margin-left:5px }
+  .tilebox { display:flex; align-items:center; gap:10px; padding:8px 12px 8px 10px; border-radius:10px; background:var(--fill); width:max-content; cursor:grab }
+  .icon { width:32px; height:32px; border-radius:8px; background:linear-gradient(160deg,#4a4a50,#202024); border:1px solid var(--rim) }
+  .banner { width:560px; padding:9px 12px; display:flex; align-items:center; gap:10px; border-radius:99px }
+  .sheet { width:440px; padding:20px; display:flex; flex-direction:column; gap:10px; border-radius:18px }
+  .steps { display:flex; gap:6px } .dot { width:6px; height:6px; border-radius:99px; background:var(--t3) } .dot.on { background:var(--t1) }
+  .chat { width:440px; padding:12px; border-radius:18px 18px 18px 6px; display:flex; flex-direction:column; gap:8px }
+  .flow { display:flex; gap:14px; overflow-x:auto; padding-bottom:6px } .flow .card { width:300px; min-height:220px }
+  .cursor { width:22px; height:22px; } .tag { font-size:11px; font-weight:600; padding:2px 8px; border-radius:99px; background:rgba(120,120,128,.55); color:#fff }
+</style>
+</head>
+<body>
+<h1>Agent permission card</h1>
+<p class="note">An agent asks for a macOS grant with <code>cmux permissions request &lt;kind&gt; --reason …</code> (socket <code>permissions.request</code>, MCP <code>permissions_request</code>). cmux shows its own card first. System Settings opens only after Continue. Gray only, Liquid Glass, top center, never takes the keyboard. Example below: Full Disk Access for reading Mail, and one with a reason that does not match.</p>
+
+<div class="grid">
+  <div class="tile">
+    <span class="rec">Recommended · shipped</span>
+    <h3>A · Context card</h3>
+    <p class="why">Who, what, why and what you asked, in one card. Turns into the drag guide in place. Works for every kind.</p>
+    <div class="glass card">
+      <div class="who"><span class="mark"></span>Claude Code in a214 · Invoices · name given by the agent</div>
+      <div class="title">Allow Full Disk Access?</div>
+      <div class="sum">Lets cmux read files macOS protects, like Mail, Messages and other apps’ data.</div>
+      <div><div class="label">Why</div><div class="body">“Read your Mail database to find the March invoice emails.”</div></div>
+      <div><div class="label">You asked</div><div class="body">find the March invoices in my email and total them</div></div>
+      <div class="row"><span class="more">1 more waiting</span><span class="grow"></span><button class="btn">Deny<span class="key">⎋</span></button><button class="btn primary">Continue<span class="key">↩</span></button></div>
+    </div>
+    <div style="height:14px"></div>
+    <div class="glass card">
+      <div class="who"><span class="mark"></span>Codex in Sidebar polish</div>
+      <div class="title">Allow Full Disk Access?</div>
+      <div class="sum">Lets cmux read files macOS protects, like Mail, Messages and other apps’ data.</div>
+      <div><div class="label">Why</div><div class="body">“Need to scan the whole system for keys.”</div></div>
+      <div><div class="label">You asked</div><div class="body">rename the sidebar groups to shorter titles</div></div>
+      <div class="warn">⚠︎ This reason does not clearly match what you asked. Deny if you did not expect this.</div>
+      <div class="row"><span class="grow"></span><button class="btn">Deny<span class="key">⎋</span></button><button class="btn primary">Continue<span class="key">↩</span></button></div>
+    </div>
+    <div style="height:14px"></div>
+    <div class="glass card">
+      <div class="who"><span class="mark"></span>Claude Code in a214 · Invoices</div>
+      <div class="title">Allow Full Disk Access?</div>
+      <div class="sum">Lets cmux read files macOS protects, like Mail, Messages and other apps’ data.</div>
+      <div class="body">Drag cmux into the list in System Settings, then turn it on.</div>
+      <div class="tilebox"><span class="icon"></span><b>cmux</b></div>
+      <div class="row"><span class="grow"></span><button class="btn">Close<span class="key">⎋</span></button></div>
+    </div>
+  </div>
+
+  <div class="tile">
+    <h3>B · Compact banner</h3>
+    <p class="why">One line, least intrusive. The reason and your prompt hide behind a disclosure, so a mismatch is easy to miss.</p>
+    <div class="glass banner">
+      <span class="mark"></span><span><b>Claude Code</b> wants Full Disk Access · “Read your Mail database…”</span><span class="grow"></span>
+      <button class="btn">Deny</button><button class="btn primary">Continue</button>
+    </div>
+  </div>
+
+  <div class="tile">
+    <h3>C · Two-step sheet</h3>
+    <p class="why">A sheet in the window with numbered steps. Clear, but it covers work and needs the cmux window in front.</p>
+    <div class="glass sheet">
+      <div class="steps"><span class="dot on"></span><span class="dot"></span><span class="dot"></span></div>
+      <div class="title">Claude Code asks for Full Disk Access</div>
+      <div class="sum">Step 1 of 3 · Read why, then continue to System Settings.</div>
+      <div><div class="label">Why</div><div class="body">“Read your Mail database to find the March invoice emails.”</div></div>
+      <div class="row"><span class="grow"></span><button class="btn">Deny</button><button class="btn primary">Next</button></div>
+    </div>
+  </div>
+
+  <div class="tile">
+    <h3>D · Inline chat card</h3>
+    <p class="why">Shows in the agent’s chat next to your message. Good context, but nothing shows when that chat is not on screen.</p>
+    <div class="glass chat">
+      <div class="who"><span class="mark"></span>Claude Code</div>
+      <div class="body">To find the invoices I need <b>Full Disk Access</b> to read your Mail database.</div>
+      <div class="row"><button class="btn">Deny</button><button class="btn primary">Allow in System Settings</button></div>
+    </div>
+  </div>
+</div>
+
+<h2>Computer use onboarding (one question per step)</h2>
+<div class="flow">
+  <div class="glass card"><div class="steps"><span class="dot on"></span><span class="dot"></span><span class="dot"></span><span class="dot"></span><span class="dot"></span></div>
+    <div class="title">What computer use does</div><div class="sum">Agents can use apps on this Mac for you: click, type, read the screen. You see a gray cursor with the agent’s name whenever one acts. Nothing runs until you allow it.</div>
+    <div class="row"><span class="grow"></span><button class="btn">Not now</button><button class="btn primary">Set up<span class="key">↩</span></button></div></div>
+  <div class="glass card"><div class="steps"><span class="dot"></span><span class="dot on"></span><span class="dot"></span><span class="dot"></span><span class="dot"></span></div>
+    <div class="title">Accessibility</div><div class="sum">Lets the agent click and type in other apps.</div>
+    <div class="tilebox"><span class="icon"></span><b>cmux Computer Use</b></div><div class="sum">Drag it into the list, then turn it on. This step finishes by itself.</div>
+    <div class="row"><span class="grow"></span><button class="btn primary">Open System Settings</button></div></div>
+  <div class="glass card"><div class="steps"><span class="dot"></span><span class="dot"></span><span class="dot on"></span><span class="dot"></span><span class="dot"></span></div>
+    <div class="title">Screen Recording</div><div class="sum">Lets the agent see the window it works in.</div>
+    <div class="tilebox"><span class="icon"></span><b>cmux Computer Use</b></div>
+    <div class="row"><span class="grow"></span><button class="btn primary">Open System Settings</button></div></div>
+  <div class="glass card"><div class="steps"><span class="dot"></span><span class="dot"></span><span class="dot"></span><span class="dot on"></span><span class="dot"></span></div>
+    <div class="title">Try it</div><div class="sum">cmux opens a test window and the agent cursor clicks one button.</div>
+    <div class="row"><svg class="cursor" viewBox="0 0 22 22"><path d="M4 3 L18 11 L11 12.5 L8 19 Z" fill="rgba(150,150,158,.85)" stroke="rgba(255,255,255,.7)" stroke-width="1.2" stroke-linejoin="round"/></svg><span class="tag">test</span></div>
+    <div class="row"><span class="grow"></span><button class="btn primary">Run test</button></div></div>
+  <div class="glass card"><div class="steps"><span class="dot"></span><span class="dot"></span><span class="dot"></span><span class="dot"></span><span class="dot on"></span></div>
+    <div class="title">How to stop</div><div class="sum">Press Esc twice, or click Stop on the cursor tag. Turn computer use off in Settings › Computer Use. Remove the grants in System Settings at any time.</div>
+    <div class="row"><span class="grow"></span><button class="btn primary">Done</button></div></div>
+</div>
+</body>
+</html>

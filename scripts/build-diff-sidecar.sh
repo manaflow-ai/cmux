@@ -31,11 +31,10 @@ rust_target_for_arch() {
   esac
 }
 
+# shellcheck source=scripts/lib/rust-targets.sh
+. "${ROOT}/scripts/lib/rust-targets.sh"
 ensure_rust_target() {
-  local target="$1"
-  if ! rustup target list --toolchain "$TOOLCHAIN" --installed | grep -qx "$target"; then
-    rustup target add --toolchain "$TOOLCHAIN" "$target"
-  fi
+  ensure_rust_targets --toolchain "$TOOLCHAIN" "$1"
 }
 
 requested_archs="${CMUX_DIFF_SIDECAR_ARCHS:-${ARCHS:-}}"
@@ -80,7 +79,7 @@ output_binary="${BUILD_OUTPUT_DIR}/${BINARY_NAME}"
 if [[ "${#binaries[@]}" -eq 1 ]]; then
   rsync -a "${binaries[0]}" "$output_binary"
 else
-  lipo -create -output "$output_binary" "${binaries[@]}"
+  lipo -create -output "$output_binary" ${binaries[@]+"${binaries[@]}"}
 fi
 chmod +x "$output_binary"
 "${ROOT}/scripts/verify-diff-sidecar-artifact.sh" "$output_binary" --archs "$requested_archs"

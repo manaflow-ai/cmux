@@ -1,9 +1,9 @@
 import { describe, expect, test } from "bun:test";
-import { chmodSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
 import path from "node:path";
 import { runChild } from "./helpers/run-child";
 import {
+  DEVBOX_AWAITING_REBAKE,
+  DEVBOX_SOURCE_PROVABLE_SCHEMA,
   DEVBOX_SOURCE_SCHEMA,
   appendImageManifestEntries,
   bakeMetadata,
@@ -16,7 +16,9 @@ import {
   devboxUnifiedSnapshotProblems,
   devboxSourceDigest,
   devboxSourceDriftProblems,
+  devboxDriftAwaitingRebake,
   imageManifestProblems,
+  isAwaitingRebake,
   manifestEntryEpoch,
   manifestEntrySkeleton,
   promoteImageManifestEntry,
@@ -48,36 +50,6 @@ const passedEntry = (overrides: Partial<DevboxManifestEntry> = {}): DevboxManife
   ...overrides,
 });
 
-test("refuses snapshot promotion without a bake record", async () => {
-  const directory = mkdtempSync(path.join(tmpdir(), "devbox-promotion-"));
-  const web = path.resolve(import.meta.dirname, "..");
-  const manifest = path.join(web, "services/vms/images/manifest.json");
-  const before = readFileSync(manifest, "utf8");
-  // Keep the old implementation's preflight offline: the regression must
-  // expose invented provenance, rather than fail on a GitHub fetch.
-  const git = path.join(directory, "git");
-  writeFileSync(git, '#!/bin/sh\nif [ "$1" = rev-parse ]; then printf "%s\\n" 0000000000000000000000000000000000000000; fi\n');
-  chmodSync(git, 0o755);
-  try {
-    const result = await runChild(process.execPath, [
-      "scripts/promote-devbox-image.ts", "freestyle",
-      "--image", "sh-unrecorded-snapshot", "--no-desktop",
-      "--skip-verify", "--sizes", "none", "--pointer-slug", "none", "--dry-run",
-    ], {
-      cwd: web,
-      env: { ...process.env, PATH: `${directory}:${process.env.PATH}`, CMUX_BAKE_ALLOW_BRANCH: "1", FREESTYLE_API_KEY: undefined },
-      timeout: 20_000,
-    });
-    expect(result.error).toBeUndefined();
-    expect(result.status).toBe(1);
-    expect(result.stderr).toContain("--image cannot establish snapshot provenance");
-    expect(result.stderr).toContain("--bake-result");
-    expect(readFileSync(manifest, "utf8")).toBe(before);
-  } finally {
-    rmSync(directory, { recursive: true, force: true });
-  }
-}, 30_000);
-
 describe("checked-in image manifest", () => {
   test("holds its invariants", () => {
     expect(imageManifestProblems(readImageManifest())).toEqual([]);
@@ -103,7 +75,18 @@ describe("checked-in image manifest", () => {
     // the digest of the files and pins the bake took from this checkout. A
     // pin or template change lands together with its promotion, and a
     // rollback reverts the promotion commit whole (sources included).
-    expect(devboxSourceDriftProblems(readImageManifest())).toEqual([]);
+    // DEVBOX_AWAITING_REBAKE excuses exactly the drifts awaiting their bake.
+    expect(devboxSourceDriftProblems(readImageManifest()).filter((problem) => !devboxDriftAwaitingRebake(problem))).toEqual([]);
+  });
+
+  test("every drift awaiting its rebake is still this checkout's and still unbaked", () => {
+    // Delete the DEVBOX_AWAITING_REBAKE entry with the promotion that bakes
+    // its sources, or when the sources move again (then bake those).
+    const drift = devboxSourceDriftProblems(readImageManifest());
+    for (const pending of DEVBOX_AWAITING_REBAKE) {
+      expect(devboxSourceDigest(pending.layers, readDevboxDockerfile(), pending.schema)).toBe(pending.current);
+      expect(drift.some((problem) => isAwaitingRebake(problem, pending))).toBe(true);
+    }
   });
 });
 
@@ -354,7 +337,8 @@ describe("upgradeDevboxSourceRecords (promote --upgrade-source-schema)", () => {
     expect(result.upgraded).toEqual(["freestyle-desktop-v1", "freestyle-base-v1"]);
     expect(result.skipped).toEqual([]);
     for (const entry of result.manifest.images) {
-      expect(entry.devboxSource).toEqual({ layers: entry.kind, digest: devboxSourceDigest(entry.kind!, dockerfile, DEVBOX_SOURCE_SCHEMA), schema: DEVBOX_SOURCE_SCHEMA });
+      // Up to the formula git can prove: schema 3's payloads only a bake proves.
+      expect(entry.devboxSource).toEqual({ layers: entry.kind, digest: devboxSourceDigest(entry.kind!, dockerfile, DEVBOX_SOURCE_PROVABLE_SCHEMA), schema: DEVBOX_SOURCE_PROVABLE_SCHEMA });
     }
     expect(devboxSourceDriftProblems(result.manifest)).toEqual([]);
     // Idempotent: nothing left to upgrade.

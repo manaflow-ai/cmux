@@ -1,0 +1,44 @@
+.path-picker-gallery-host {
+  min-height: 620px;
+  background: var(--cmux-background, Canvas);
+}
+
+/* The dialog is portaled outside the fixture host. Keep the gallery sheet at a fixed size so
+   changing folder levels does not move the query field or surrounding surface. The product
+   sheet remains content-sized because this stylesheet is gallery-only. */
+.ve-picker {
+  height: min(480px, 78vh);
+}
+
+/* Path mode replaces the leading "Go to" row once the final segment is typed. Reserve that
+   row's slot while the segment is non-empty so the real completion rows stay anchored. */
+.ve-picker[data-path-rest="nonempty"] .ve-picker-list {
+  padding-block-start: 28px;
+}
+
+/* Keep the field width independent of whether a large folder currently needs a scrollbar. */
+.ve-picker-list {
+  overflow-y: scroll;
+  scrollbar-gutter: stable;
+}
+
+/* VirtualList sets its own overflow shorthand inline; keep its gutter stable when a breadcrumb
+   navigation swaps a large virtualized level for a short ordinary level. */
+.ve-picker-list.ui-virtual {
+  overflow-y: scroll !important;
+  scrollbar-gutter: stable;
+}
+
+.path-picker-gallery-receipt {
+  position: fixed;
+  inset-block-end: 12px;
+  inset-inline-end: 16px;
+  padding: 4px 8px;
+  border: 1px solid color-mix(in srgb, CanvasText 12%, transparent);
+  border-radius: 5px;
+  background: color-mix(in srgb, Canvas 90%, transparent);
+  color: color-mix(in srgb, CanvasText 68%, transparent);
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: var(--text-caption);
+  line-height: var(--text-caption--line-height);
+}

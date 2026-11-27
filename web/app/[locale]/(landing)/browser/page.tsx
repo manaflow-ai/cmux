@@ -13,7 +13,6 @@ import {
 } from "@/app/lib/download";
 import { buildAlternates, openGraphDefaults, twitterSummary } from "@/i18n/seo";
 import { BrowserDownloadCardAction } from "./browser-download-card-action";
-import { BrowserWaitlistCardAction } from "./browser-waitlist-card-action";
 
 export async function generateMetadata({
   params,
@@ -130,23 +129,14 @@ export default async function BrowserPage() {
                 </p>
               )}
               <div className="mt-auto pt-6">
-                {!card.available && card.platform !== "macos" ? (
-                  // Unreleased Windows and Linux builds take waitlist signups
-                  // instead of showing a download button that does nothing.
-                  <BrowserWaitlistCardAction
-                    platform={card.platform}
-                    label={waitlist("title", { platform: card.name })}
-                  />
-                ) : (
-                  <BrowserDownloadCardAction
-                    platform={card.platform}
-                    artifact={card.artifact}
-                    href={card.href}
-                    available={card.available}
-                  >
-                    {card.cta}
-                  </BrowserDownloadCardAction>
-                )}
+                <BrowserDownloadCardAction
+                  platform={card.platform}
+                  artifact={card.artifact}
+                  href={card.href}
+                  available={card.available}
+                >
+                  {card.cta}
+                </BrowserDownloadCardAction>
               </div>
             </section>
           ))}

@@ -1,0 +1,11 @@
+// WebRTC signaling for the cmux VNC demo (experiments/cmux-vnc-ios/README.md).
+// Secrets (optional, enable TURN relay): CLOUDFLARE_TURN_KEY_ID, CLOUDFLARE_TURN_KEY_API_TOKEN.
+{
+  "name": "cmux-vnc-signal",
+  "main": "src/index.ts",
+  "account_id": "0c1675e0def6de1ab3a50a4e17dc5656",
+  "compatibility_date": "2025-09-01",
+  "durable_objects": { "bindings": [{ "name": "ROOMS", "class_name": "Room" }] },
+  "migrations": [{ "tag": "v1", "new_sqlite_classes": ["Room"] }],
+  "observability": { "enabled": true }
+}

@@ -1,0 +1,435 @@
+//! Part of `Hub`; see `hub/mod.rs`. The model catalog of each harness: the ids a profile can
+//! run, the lists agents report (`model_lists`), and the probe that asks every ACP harness for
+//! its models without creating a session.
+
+use super::model_lists::{Freshness, ListTag};
+use super::*;
+use std::sync::PoisonError;
+
+impl Hub {
+    /// Every model id a profile can run: declared in config, then reported
+    /// (Claude's static list for the stdio backend).
+    pub async fn catalog_ids(&self, profile: &str) -> Vec<String> {
+        let cfg = self.config.read().await;
+        let Some(p) = cfg.harnesses.get(profile) else { return vec![] };
+        let mut ids: Vec<String> = p.models.iter().map(|m| m.id().to_owned()).collect();
+        match p.kind {
+            crate::config::HarnessKind::ClaudeStdio => {
+                ids.extend(crate::claude_stdio::models().iter().map(|(id, _)| id.to_string()))
+            }
+            crate::config::HarnessKind::Acp => {
+                ids.extend(self.model_lists.acp(profile).into_iter().flatten().map(|(id, _)| id))
+            }
+            crate::config::HarnessKind::Terminal => {}
+        }
+        ids.extend(super::models_view::curated_ids(&self.catalog, profile, p));
+        ids.dedup();
+        ids
+    }
+
+    /// Remember the models an agent lists so the picker can show them for
+    /// harnesses without a live session.
+    pub(super) fn remember_models(&self, agent: &str, meta: &SessionMeta) {
+        let now = self.model_lists.stamp();
+        self.remember_models_from(agent, meta.config_options.as_deref(), meta.models.as_ref(), now);
+    }
+
+    /// Whether the list `agent` reported is not the one served before (none, the disk copy, or
+    /// an earlier report): only then do watchers hear of it (`keep_probed_models`). `written`:
+    /// the cache clock (`model_lists`) when the report was asked for, so a refresh or a profile
+    /// change since leaves the list stale.
+    fn remember_models_from(
+        &self,
+        agent: &str,
+        config_options: Option<&Value>,
+        models: Option<&Value>,
+        written: cmux_tag_cache::Stamp,
+    ) -> bool {
+        let mut list: Vec<(String, String)> = Vec::new();
+        if let Some(opts) = config_options.and_then(Value::as_array)
+            && let Some(o) =
+                opts.iter().find(|o| o.get("id").and_then(Value::as_str) == Some("model"))
+        {
+            list.extend(crate::model_catalog::choices(o));
+        }
+        if list.is_empty()
+            && let Some(models) =
+                models.and_then(|m| m.get("availableModels")).and_then(Value::as_array)
+        {
+            for m in models {
+                let v = m.get("modelId").and_then(Value::as_str).unwrap_or("").to_owned();
+                let n = m.get("name").and_then(Value::as_str).unwrap_or(&v).to_owned();
+                list.push((v, n));
+            }
+        }
+        if list.is_empty() {
+            return false;
+        }
+        self.recheck_live_models(agent, &list);
+        // Only a report that lists `availableModels` says what the levels are: a resumed chat's
+        // answer without them keeps the ones known.
+        let lists_ids = models.and_then(|m| m.get("availableModels")).is_some_and(Value::is_array);
+        let efforts_changed = lists_ids && {
+            let efforts = crate::model_catalog::variant_efforts(&list, models);
+            let mut known = self.known_efforts.lock().unwrap_or_else(PoisonError::into_inner);
+            let old = if efforts.is_empty() {
+                known.remove(agent)
+            } else {
+                known.insert(agent.to_owned(), efforts.clone())
+            };
+            old.unwrap_or_default() != efforts
+        };
+        let list_changed = self.model_lists.put_acp(agent, list, written);
+        efforts_changed || list_changed
+    }
+
+    /// Startup's model lists from disk: the live lists, then the ACP probes'. A models read
+    /// waits for them (`wait_model_caches`): answered first it named only "default", and the
+    /// list served after it announced nothing, so a pane with no copy of its own stayed empty.
+    pub(super) async fn load_model_caches(&self) {
+        self.load_live_cache().await;
+        self.load_acp_cache().await;
+        self.model_caches_ready.send_replace(true);
+    }
+
+    #[cfg(test)]
+    pub(super) async fn load_model_caches_from(&self, dir: std::path::PathBuf) {
+        self.load_acp_cache_from(dir).await;
+        self.model_caches_ready.send_replace(true);
+    }
+
+    /// Until startup has served the disk lists (`load_model_caches`), a few file reads at most.
+    pub(crate) async fn wait_model_caches(&self) {
+        let _ = self.model_caches_ready.subscribe().wait_for(|ready| *ready).await;
+    }
+
+    /// Reads the ACP lists earlier probes kept (`live_models::AcpCache`) and serves each whose
+    /// profile is unchanged. Daemon start, before the login environment and the probes, so the
+    /// first `_acpmux/models` names OpenCode's or Gemini's models, not only "default"; the
+    /// probe still runs and replaces the list.
+    pub(super) async fn load_acp_cache(&self) {
+        self.load_acp_cache_from(crate::live_models::AcpCache::default_dir()).await;
+    }
+
+    pub(super) async fn load_acp_cache_from(&self, dir: std::path::PathBuf) {
+        // A capture fixture's harnesses show no list of this host's (`harness_fixture.rs`).
+        if crate::harness_fixture::active().is_some() {
+            return;
+        }
+        let cached =
+            tokio::task::spawn_blocking(move || crate::live_models::AcpCache::new(dir).load_all())
+                .await
+                .unwrap_or_default();
+        *self.acp_cached.lock().unwrap_or_else(PoisonError::into_inner) =
+            cached.into_iter().collect();
+        let cfg = self.config.read().await;
+        self.serve_acp_cache(&cfg.harnesses);
+    }
+
+    /// Serves the disk copy (`model_lists`, stale) for each ACP profile that has no list yet and
+    /// was probed under the same profile. Also after a catalog reload: a profile found on the
+    /// login PATH appears only then.
+    pub(super) fn serve_acp_cache(
+        &self,
+        harnesses: &std::collections::BTreeMap<String, HarnessProfile>,
+    ) {
+        let cached = self.acp_cached.lock().unwrap_or_else(PoisonError::into_inner);
+        if cached.is_empty() {
+            return;
+        }
+        let lists = harnesses.iter().filter_map(|(name, profile)| {
+            if profile.kind != crate::config::HarnessKind::Acp {
+                return None;
+            }
+            let (key, list) = cached.get(name)?;
+            (*key == crate::live_models::AcpCache::profile_key(profile))
+                .then(|| (name.clone(), list.clone()))
+        });
+        self.model_lists.serve_acp_from_disk(lists);
+    }
+
+    /// A probe of `name` under `profile` answered: its list goes to disk when the disk copy is
+    /// not the same, and watchers hear `_acpmux/harnesses_changed` only when the served list
+    /// `changed`, so a probe that confirms the cached list, or a repeat probe, announces nothing.
+    async fn keep_probed_models(&self, name: &str, profile: &HarnessProfile, changed: bool) {
+        let dir = crate::live_models::AcpCache::default_dir();
+        self.keep_probed_models_in(dir, name, profile, changed).await;
+    }
+
+    pub(super) async fn keep_probed_models_in(
+        &self,
+        dir: std::path::PathBuf,
+        name: &str,
+        profile: &HarnessProfile,
+        changed: bool,
+    ) {
+        let Some(list) = self.model_lists.acp(name) else {
+            return;
+        };
+        let entry = (crate::live_models::AcpCache::profile_key(profile), list);
+        let on_disk = self.acp_cached.lock().unwrap_or_else(PoisonError::into_inner).get(name)
+            == Some(&entry);
+        if !on_disk {
+            let (harness, (key, list)) = (name.to_owned(), entry.clone());
+            let stored = tokio::task::spawn_blocking(move || {
+                crate::live_models::AcpCache::new(dir).store(&harness, &key, &list)
+            })
+            .await;
+            match stored {
+                Ok(Ok(())) => {
+                    self.acp_cached
+                        .lock()
+                        .unwrap_or_else(PoisonError::into_inner)
+                        .insert(name.to_owned(), entry);
+                }
+                Ok(Err(e)) => tracing::warn!(agent = %name, error = %e, "model list not kept"),
+                Err(_) => {}
+            }
+        }
+        if changed {
+            self.announce_harnesses().await;
+        }
+    }
+
+    /// Ask every ACP harness for its model list once, without creating an
+    /// acpmux session: spawn, `initialize`, `session/new`, read the models,
+    /// kill. Codex, OpenCode and Gemini only reveal models this way. Runs in
+    /// the background at daemon start so the picker is full before the first
+    /// session exists.
+    pub async fn probe_models(self: &Arc<Self>) {
+        self.probe_models_with(false, false, None).await;
+    }
+
+    /// `daemon models --refresh` (the picker's Refresh models): every list turns stale (one
+    /// invalidation, `model_lists`), every harness is probed again, and this caller waits for the
+    /// answers (bounded). Nothing is forgotten: every other read meanwhile (a picker open, a start
+    /// default, a model hint) is served the lists it had until each probe answers.
+    pub async fn refresh_models(self: &Arc<Self>) {
+        self.model_lists.invalidate(ListTag::Every);
+        self.probe_models_with(true, true, None).await;
+    }
+
+    /// `only`: probe these harnesses alone (`allow_probes`); None: every
+    /// harness the probe list allows.
+    pub(super) async fn probe_models_with(
+        self: &Arc<Self>,
+        force: bool,
+        wait: bool,
+        only: Option<std::collections::BTreeSet<String>>,
+    ) {
+        // A probe starts the agent: none while launches are off (cx-9ettq).
+        if crate::launch_policy::agent_launch_disabled() {
+            tracing::info!("agent launch is disabled; model probes skipped");
+            return;
+        }
+        let picked = |n: &str| only.as_ref().is_none_or(|o| o.contains(n));
+        let agents: Vec<(String, HarnessProfile)> = {
+            let cfg = self.config.read().await;
+            // A stale list (served from disk, its profile changed) is probed again all the same
+            // (stale while revalidating); a fresh one only when forced.
+            cfg.harnesses
+                .iter()
+                .filter(|(n, p)| {
+                    p.kind == crate::config::HarnessKind::Acp
+                        && (force || self.model_lists.acp_freshness(n) != Freshness::Fresh)
+                        && self.probes(n)
+                        && picked(n)
+                })
+                .map(|(n, p)| (n.clone(), p.clone()))
+                .collect()
+        };
+        // Claude Code's and Codex's own lists, beside the ACP probes.
+        let live = {
+            let hub = self.clone();
+            let only = only.clone();
+            tokio::spawn(async move { hub.probe_live_models(wait, only).await })
+        };
+        let mut handles = vec![live];
+        for (name, profile) in agents {
+            let hub = self.clone();
+            handles.push(tokio::spawn(async move {
+                // Probes spawn agents: wait for the login environment.
+                hub.wait_startup().await;
+                // Resolved here, once, so neither this probe nor a later
+                // session spawn launches through npx.
+                hub.resolve_launcher(&profile.argv).await;
+                match tokio::time::timeout(
+                    std::time::Duration::from_secs(60),
+                    hub.probe_one(&name, &profile),
+                )
+                .await
+                {
+                    Ok(Ok(n)) => {
+                        tracing::info!(agent = %name, models = n, "model probe done");
+                        hub.probe_errors.lock().unwrap().remove(&name);
+                    }
+                    Ok(Err(e)) => {
+                        tracing::warn!(agent = %name, error = %e, "model probe failed");
+                        hub.probe_errors.lock().unwrap().insert(name, format!("{e:#}"));
+                    }
+                    Err(_) => {
+                        tracing::warn!(agent = %name, "model probe timed out");
+                        hub.probe_errors
+                            .lock()
+                            .unwrap()
+                            .insert(name, "the model probe timed out after 60 s".into());
+                    }
+                }
+            }));
+        }
+        if wait {
+            for h in handles {
+                let _ = h.await;
+            }
+        }
+    }
+
+    pub(super) async fn probe_one(
+        self: &Arc<Self>,
+        name: &str,
+        profile: &HarnessProfile,
+    ) -> anyhow::Result<usize> {
+        // MDM's off as the probe starts: its one read, taken first (review 120). An off that holds
+        // or begins while it runs ends it once its harness reported full access, an unset after it
+        // too (reviews 71 and 73 of #23322).
+        let latch = self.off_latch();
+        // The cache clock before the agent is asked: a refresh or a profile change while it runs
+        // leaves what it read stale (`model_lists`).
+        let written = self.model_lists.stamp();
+        let (tx, mut rx) = tokio::sync::mpsc::channel(64);
+        // What the harness reports while its session starts (`StartReports`, reviews 41 and 46 of
+        // #23322). The tap sees each line before its answer is handed back, so none sent before
+        // that answer is missed.
+        let reports =
+            Arc::new(std::sync::Mutex::new(super::full_access_bound::StartReports::default()));
+        // Notified on each report of full access: a probe ends on one under MDM's off (review 71).
+        let reported = Arc::new(tokio::sync::Notify::new());
+        let (seen, notify) = (reports.clone(), reported.clone());
+        let tap: crate::agent::Tap = Arc::new(move |dir, msg, _| {
+            if let (Direction::In, Message::Notification { method: m, params: Some(params) }) =
+                (dir, msg)
+                && m == method::SESSION_UPDATE
+            {
+                seen.lock().unwrap_or_else(|e| e.into_inner()).note(params);
+                if super::full_access_bound::StartReports::reports_full_access(params) {
+                    notify.notify_one();
+                }
+            }
+            true
+        });
+        // Never the home folder: the agent scans its folder at start (LAUNCH-NO-TCC-PROMPTS).
+        let cwd = tokio::task::spawn_blocking(crate::protected_folders::unattended_cwd)
+            .await
+            .unwrap_or_else(|_| std::env::temp_dir());
+        // MDM forces full access off (#23322): a profile pinning it is never started to probe,
+        // and a probe that runs when the off lands ends then (`probe_bound`).
+        let mut bound =
+            self.probe_bound(&latch, &profile.argv).map_err(|e| anyhow::anyhow!("{name}: {e}"))?;
+        let mut resolved = profile.clone();
+        resolved.argv = self.resolved_launcher_argv(resolved.argv);
+        let child = crate::agent::ChildAgent::spawn(name, &resolved, &cwd, tx, tap).await?;
+        // A probe dropped before its end below (the 60 s bound in `probe_models`, a stopping
+        // daemon's runtime) would leave its agent running for good: the agent's exit watcher
+        // holds it, so its child's `kill_on_drop` never fires. The group ends on that drop.
+        #[cfg(unix)]
+        let mut group = EndGroupOnDrop(child.pid.and_then(|p| i32::try_from(p).ok()));
+        // Drain anything the agent sends so its writer never blocks.
+        let drain = tokio::spawn(async move { while rx.recv().await.is_some() {} });
+        let listed = tokio::time::timeout(std::time::Duration::from_secs(50), async {
+            child
+                .request(method::INITIALIZE, json!({"protocolVersion": 1, "clientCapabilities": {}, "clientInfo": {"name": "acpmux", "version": env!("CARGO_PKG_VERSION")}}))
+                .await
+                .map_err(|e| anyhow::anyhow!(e.to_string()))?;
+            let res = child
+                .request(method::SESSION_NEW, json!({"cwd": cwd, "mcpServers": []}))
+                .await
+                .map_err(|e| anyhow::anyhow!(e.to_string()))?;
+            // MDM forces full access off (#23322, review 32): a session that came up in it (its
+            // mode or a config option, a profile that pins nothing included) keeps nothing. Read
+            // once it answered, so an off that landed during the handshake counts.
+            let mut view =
+                super::full_access_bound::FullAccessView::of_session_new(&profile.argv, Some(&res));
+            view.reported = reports.lock().unwrap_or_else(|e| e.into_inner()).of_answer(Some(&res));
+            if latch.off() && super::full_access_bound::runs_full_access(&view).is_some() {
+                anyhow::bail!("{name}: its session came up in full access, which MDM forces off");
+            }
+            // The config read ends before the announcement, which reads it again.
+            let remembered = {
+                let cfg = self.config.read().await;
+                (cfg.harnesses.get(name) == Some(profile)).then(|| {
+                    self.remember_models_from(
+                        name,
+                        res.get("configOptions").filter(|v| !v.is_null()),
+                        res.get("models").filter(|v| !v.is_null()),
+                        written,
+                    )
+                })
+            };
+            // The answer's modes and option definitions: a new chat's choices before any chat of
+            // the harness reports them (`reported_options`). Only for the profile it probed.
+            let choices = remembered.is_some().then(|| {
+                let field = |key: &str| res.get(key).filter(|v| !v.is_null()).cloned();
+                let choices = (field("modes"), field("configOptions"));
+                let mut kept = self.probed_choices.lock().unwrap_or_else(PoisonError::into_inner);
+                kept.insert(name.to_owned(), choices.clone()) != Some(choices)
+            });
+            if let Some(changed) = remembered {
+                self.keep_probed_models(name, profile, changed || choices == Some(true)).await;
+            }
+            Ok(self.model_lists.acp(name).map(|l| l.len()).unwrap_or(0))
+        });
+        let result = tokio::select! {
+            listed = listed => listed,
+            () = super::full_access_bound::full_access_forced_off(bound.as_mut()) => {
+                Ok(Err(anyhow::anyhow!("{name}: MDM forced full access off, which its profile pins")))
+            }
+            () = latch.reported_under_off(&reported, || {
+                reports.lock().unwrap_or_else(|e| e.into_inner()).of(None)
+            }) => {
+                Ok(Err(anyhow::anyhow!("{name}: its harness reported full access, which MDM forces off")))
+            }
+        };
+        child.kill().await;
+        #[cfg(unix)]
+        group.disarm();
+        drain.abort();
+        // The probe's session leaves no transcript behind (it listed as an empty chat).
+        let folder = cwd.clone();
+        let _ = tokio::task::spawn_blocking(move || {
+            crate::probe_cleanup::remove_probe_transcripts(&folder)
+        })
+        .await;
+        result.map_err(|_| anyhow::anyhow!("model probe timed out"))?
+    }
+}
+
+/// SIGKILL to a probe's process group (its agent leads one, `agent/command.rs`) when the probe
+/// is dropped before it ended its agent itself.
+#[cfg(unix)]
+pub(super) struct EndGroupOnDrop(pub(super) Option<i32>);
+
+#[cfg(unix)]
+impl EndGroupOnDrop {
+    /// The probe ended its agent: nothing is left to signal, and the group id may be reused.
+    pub(super) fn disarm(&mut self) {
+        self.0 = None;
+    }
+}
+
+#[cfg(unix)]
+impl Drop for EndGroupOnDrop {
+    fn drop(&mut self) {
+        // Never group 0 or 1: those name this daemon's own group and every process.
+        if let Some(group) = self.0.filter(|g| *g > 1) {
+            // SAFETY: killpg takes a process group id and a signal; the group is the probe's
+            // agent's, which the probe has not ended (or this was disarmed).
+            unsafe {
+                libc::killpg(group, libc::SIGKILL);
+            }
+        }
+    }
+}
+
+#[cfg(test)]
+#[path = "model_probe_tests.rs"]
+mod tests;

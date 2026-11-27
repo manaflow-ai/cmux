@@ -1,0 +1,59 @@
+{
+  "source": "reference prototype src/conversation/fixtures/rollouts/specimen.jsonl",
+  "prompt": "UI rendering specimen for a screenshot atlas. Do not read my files, change settings, or run commands. Reply with rendered examples, not one enclosing code fence. Keep it about 900 words. Include: H1/H2/H3 headings; bold, italic, strikethrough, inline code, links; nested numbered and bullet lists; task checkboxes; blockquotes; horizontal rule; a 5-column Markdown table with alignment and a long cell; fenced Python, JSON, diff, and plain text; inline LaTeX and display LaTeX with a fraction, integral, aligned equations and a matrix; Unicode Greek, emoji, CJK, RTL Arabic; definition list, footnote, escaped Markdown; HTML details/summary and sup/sub; Mermaid flowchart; and an ASCII tree. Label each example and preserve unsupported formats as source. Finally solve a small arithmetic puzzle using thoughtful explanation so the UI can show working status. Title this conversation UI rendering atlas specimen.\n",
+  "steps": [
+    {
+      "atMs": 2000,
+      "update": {
+        "sessionUpdate": "agent_message_chunk",
+        "messageId": "commentary",
+        "content": {
+          "type": "text",
+          "text": "I’ll set the conversation title, then provide the specimen inline with each format labeled and unsupported formats preserved as source."
+        }
+      }
+    },
+    {
+      "atMs": 2500,
+      "update": {
+        "sessionUpdate": "tool_call",
+        "toolCallId": "set-title",
+        "kind": "other",
+        "title": "set_thread_title",
+        "status": "in_progress",
+        "rawInput": {
+          "title": "UI rendering atlas specimen"
+        }
+      }
+    },
+    {
+      "atMs": 3000,
+      "update": {
+        "sessionUpdate": "tool_call_update",
+        "toolCallId": "set-title",
+        "status": "failed",
+        "content": [
+          {
+            "type": "content",
+            "content": {
+              "type": "text",
+              "text": "tool call error: tool call failed for `codex_app/set_thread_title`\n\nCaused by:\n    Mcp error: -32602: MCP error -32602: Invalid app tool request"
+            }
+          }
+        ]
+      }
+    },
+    {
+      "atMs": 15000,
+      "update": {
+        "sessionUpdate": "agent_message_chunk",
+        "messageId": "answer",
+        "content": {
+          "type": "text",
+          "text": "# UI Rendering Atlas Specimen\n\n## 1. Headings and inline emphasis\n\n### A smaller heading\n\nThis sentence includes **bold text**, *italic text*, ~~strikethrough text~~, and `inline code`. Here is a [rendered link](https://example.com) beside Unicode Greek: α β γ Δ Ω.\n\n---\n\n## 2. Nested lists\n\n1. First numbered item\n   1. Nested numbered item\n   2. Another nested item\n      - Nested bullet\n      - Another bullet\n2. Second numbered item\n   - Supporting bullet\n   - Final bullet\n\n- [x] Completed task\n- [ ] Remaining task\n- [ ] Optional follow-up\n\n> “A user interface is a conversation between intention and response.”\n>\n> — Design notebook\n\n## 3. Five-column Markdown table\n\n| Feature | Left aligned | Center aligned | Right aligned | Notes |\n|:--------|:-------------|:--------------:|--------------:|:------|\n| Headings | H1 | H2 | H3 | Hierarchical structure for scanning |\n| Code | Python | JSON | Diff | Fenced blocks preserve whitespace and syntax |\n| Text | Short | Medium | Long | This deliberately long cell tests wrapping, overflow behavior, and whether the table remains readable on narrow screens. |\n| Math | α | ∫ | ½ | Inline and display equations |\n| Status | Done | In progress | Queued | Useful for rendering a compact progress matrix |\n\n## 4. Fenced Python\n\n```python\ndef fibonacci(n: int) -> int:\n    \"\"\"Return the nth Fibonacci number.\"\"\"\n    if n < 0:\n        raise ValueError(\"n must be non-negative\")\n    a, b = 0, 1\n    for _ in range(n):\n        a, b = b, a + b\n    return a\n```\n\n## 5. Fenced JSON\n\n```json\n{\n  \"title\": \"UI rendering atlas specimen\",\n  \"status\": \"in_progress\",\n  \"features\": [\"markdown\", \"math\", \"mermaid\"],\n  \"visible\": true\n}\n```\n\n## 6. Fenced diff\n\n```diff\n- status: \"queued\"\n+ status: \"in_progress\"\n  title: \"UI rendering atlas specimen\"\n```\n\n## 7. Fenced plain text\n\n```text\nPlain text preserves spacing,\nline breaks, and literal punctuation.\nNo syntax highlighting is expected here.\n```\n\n## 8. Mathematics\n\nInline LaTeX: \\(E = mc^2\\), \\(\\frac{a}{b}\\), and \\(\\sqrt{x^2+y^2}\\).\n\nDisplay LaTeX:\n\n\\[\n\\begin{aligned}\nA &= \\frac{1}{2}bh \\\\\n\\int_0^1 x^2\\,dx &= \\frac{1}{3} \\\\\n\\mathbf{v} &= \\begin{bmatrix} 1 \\\\ 2 \\\\ 3 \\end{bmatrix}\n\\end{aligned}\n\\]\n\n## 9. International text\n\nGreek: Καλημέρα κόσμε — Γειά σου!\n\nEmoji: 🧭 🧪 ✨ 🚀 👍🏽\n\nCJK: こんにちは世界。你好，世界。안녕하세요, 세계.\n\nRTL Arabic: مرحبًا بالعالم، كيف حالك اليوم؟\n\n## 10. Definition list source\n\nTerm\n: A word or phrase being defined.\n\nRendering\n: The visual interpretation of structured content by a user interface.\n\n## 11. Footnote source\n\nHere is a statement with a footnote.[^atlas-note]\n\n[^atlas-note]: This note tests reference markers and explanatory text.\n\n## 12. Escaped Markdown\n\n\\*This asterisk is literal.\\*  \n\\_These underscores are literal.\\_  \n\\[This bracket is escaped.\\]  \n\\# This hash does not create a heading.\n\n## 13. HTML details and inline HTML source\n\n<details>\n<summary>Show rendering note</summary>\n\nThis expandable section tests HTML details and summary support.\n\n</details>\n\nWater is H<sub>2</sub>O, while Einstein’s equation is E = mc<sup>2</sup>.\n\n## 14. Mermaid flowchart source\n\n```mermaid\nflowchart LR\n    A[Open specimen] --> B{Rendered?}\n    B -->|Yes| C[Inspect layout]\n    B -->|No| D[Preserve source]\n    C --> E[Record result]\n    D --> E\n```\n\n## 15. ASCII tree\n\n```text\natlas/\n├── headings/\n│   ├── h1.md\n│   ├── h2.md\n│   └── h3.md\n├── code/\n│   ├── example.py\n│   ├── payload.json\n│   └── change.diff\n└── media/\n    ├── diagram.mmd\n    └── equations.tex\n```\n\n## 16. Arithmetic puzzle with working status\n\n**Puzzle:** A two-digit number has digits that add to 9. Reversing the digits makes a number 27 larger. What is the original number?\n\n**Working status — Step 1: model the number.**  \nLet the tens digit be \\(x\\). Since the digits add to 9, the ones digit is \\(9-x\\). The original number is therefore:\n\n\\[\n10x + (9-x) = 9x + 9\n\\]\n\n**Working status — Step 2: model the reversal.**  \nAfter reversing the digits, the number becomes:\n\n\\[\n10(9-x) + x = 90 - 9x\n\\]\n\n**Working status — Step 3: use the difference.**  \nThe reversed number is 27 larger:\n\n\\[\n90 - 9x = (9x + 9) + 27\n\\]\n\n\\[\n90 - 9x = 9x + 36\n\\]\n\n\\[\n54 = 18x\n\\]\n\n\\[\nx = 3\n\\]\n\n**Working status — Step 4: verify.**  \nThe ones digit is \\(9-3=6\\), so the original number is **36**. Reversing it gives **63**, and \\(63-36=27\\). The solution checks out."
+        }
+      }
+    }
+  ],
+  "endAtMs": 54000
+}

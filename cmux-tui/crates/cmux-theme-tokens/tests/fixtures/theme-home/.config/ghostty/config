@@ -1,0 +1,4 @@
+# A comment, then keys that are not colors.
+font-family = "Menlo"
+theme = "Monokai Fixture"
+keybind = cmd+ctrl+h=goto_split:left

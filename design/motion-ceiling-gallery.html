@@ -1,0 +1,388 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Motion ceiling gallery</title>
+<style>
+  :root {
+    --bg: #f7f7f5;
+    --card: #ffffff;
+    --ink: #1d1d1f;
+    --muted: #6e6e73;
+    --line: #e2e2e0;
+    --grid: #efefed;
+    --a: #8e8e93;
+    --b: #0a66d8;
+    --c: #d9730d;
+    --rest: #1f9d55;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    padding: 24px 16px 40px;
+    background: var(--bg);
+    color: var(--ink);
+    font: 14px/1.45 -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif;
+  }
+  main { max-width: 1368px; margin: 0 auto; }
+  h1 { font-size: 24px; margin: 0 0 4px; letter-spacing: -0.01em; }
+  .lede { color: var(--muted); margin: 0 0 20px; max-width: 980px; }
+  .legend { display: flex; gap: 18px; flex-wrap: wrap; margin: 0 0 20px; font-size: 13px; color: var(--muted); }
+  .legend span { display: inline-flex; align-items: center; gap: 6px; }
+  .sw { width: 14px; height: 3px; border-radius: 2px; display: inline-block; }
+  .sw.box { width: 12px; height: 12px; border-radius: 3px; border: 2px solid var(--rest); background: transparent; }
+  section {
+    background: var(--card);
+    border: 1px solid var(--line);
+    border-radius: 12px;
+    padding: 16px;
+    margin: 0 0 20px;
+  }
+  section h2 { font-size: 17px; margin: 0 0 2px; }
+  .src { color: var(--muted); font-size: 12px; margin: 0 0 8px; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
+  .pick {
+    margin: 0 0 12px;
+    padding: 8px 12px;
+    border-left: 3px solid var(--b);
+    background: #eef4fd;
+    border-radius: 0 8px 8px 0;
+    font-size: 14px;
+  }
+  .pick b { color: var(--b); }
+  canvas { display: block; }
+  .stack { overflow: hidden; }
+</style>
+</head>
+<body>
+<main>
+  <h1>Motion ceiling gallery</h1>
+  <p class="lede">Every row is a filmstrip: the element drawn at each 120 Hz frame (8.33 ms), from 0 ms until its motion ends, computed from the exact curve. All strips and plots share one time axis, 0 to 300 ms, so end times line up down the page. The green box marks the first frame from which the motion stays within 0.5% of rest; the number under each frame is its progress in percent. A is today, B is the proposal, C is one more option.</p>
+  <div class="legend">
+    <span><i class="sw" style="background:var(--a)"></i>A current</span>
+    <span><i class="sw" style="background:var(--b)"></i>B proposed (pick)</span>
+    <span><i class="sw" style="background:var(--c)"></i>C alternative</span>
+    <span><i class="sw box"></i>within 0.5% of rest</span>
+    <span>solid = in / enter, dashed = out / exit</span>
+  </div>
+  <div id="root"></div>
+</main>
+<script>
+"use strict";
+// ---- Curves ---------------------------------------------------------------------------------
+// CSS cubic-bezier(x1, y1, x2, y2): solve x(s) = t for s (Newton, then bisection), return y(s).
+function cubicBezier(x1, y1, x2, y2) {
+  const cx = 3 * x1, bx = 3 * (x2 - x1) - cx, ax = 1 - cx - bx;
+  const cy = 3 * y1, by = 3 * (y2 - y1) - cy, ay = 1 - cy - by;
+  const sx = s => ((ax * s + bx) * s + cx) * s;
+  const sy = s => ((ay * s + by) * s + cy) * s;
+  const dsx = s => (3 * ax * s + 2 * bx) * s + cx;
+  return function (t) {
+    if (t <= 0) return 0;
+    if (t >= 1) return 1;
+    let s = t;
+    for (let i = 0; i < 8; i++) {
+      const err = sx(s) - t;
+      if (Math.abs(err) < 1e-7) return sy(s);
+      const d = dsx(s);
+      if (Math.abs(d) < 1e-6) break;
+      s -= err / d;
+    }
+    let lo = 0, hi = 1; s = t;
+    for (let i = 0; i < 60; i++) {
+      const v = sx(s);
+      if (Math.abs(v - t) < 1e-7) break;
+      if (v < t) lo = s; else hi = s;
+      s = (lo + hi) / 2;
+    }
+    return sy(s);
+  };
+}
+// CSS linear(v0 p0%, v1 p1%, ...): piecewise-linear between stops (points are [value, percent]).
+function linearEasing(points) {
+  return function (t) {
+    const x = t * 100;
+    if (x <= points[0][1]) return points[0][0];
+    for (let i = 1; i < points.length; i++) {
+      const [v1, p1] = points[i], [v0, p0] = points[i - 1];
+      if (x <= p1) return p1 === p0 ? v1 : v0 + (v1 - v0) * (x - p0) / (p1 - p0);
+    }
+    return points[points.length - 1][0];
+  };
+}
+// schemas/motion-scale/motion-scale.json spring.points (the house --cmux-ease-spring).
+const SPRING = linearEasing([[0, 0], [0.21, 6], [0.53, 14], [0.78, 24], [0.92, 34], [0.985, 46], [1.006, 58], [1.004, 72], [1, 100]]);
+const SESSION_IN = cubicBezier(0.23, 1, 0.32, 1);
+const SESSION_OUT = cubicBezier(0.32, 0.72, 0, 1);
+const POPUP_ENTER = cubicBezier(0.2, 0, 0, 1);
+const POPUP_EXIT = cubicBezier(0.4, 0, 1, 1);
+
+const FRAME = 1000 / 120;
+const AXIS_MS = 300;
+const COLORS = { A: "#8e8e93", B: "#0a66d8", C: "#d9730d" };
+const REST = "#1f9d55";
+
+// Frames from 0 until the motion ends (the last frame is at or past the duration, drawn at rest).
+function frames(ms, ease) {
+  const out = [];
+  const n = Math.ceil(ms / FRAME - 1e-9);
+  for (let i = 0; i <= n; i++) {
+    const t = Math.min(i * FRAME, ms);
+    out.push({ i, t: i * FRAME, p: ease(t / ms) });
+  }
+  return out;
+}
+// First frame from which progress stays within 0.5% of rest (1) to the end.
+function restFrame(fr) {
+  let k = fr.length - 1;
+  for (let j = fr.length - 1; j >= 0; j--) {
+    if (Math.abs(1 - fr[j].p) <= 0.005) k = j; else break;
+  }
+  return k;
+}
+
+// ---- Motions --------------------------------------------------------------------------------
+const MOTIONS = [
+  {
+    title: "The ceiling step: a selection indicator on the house spring",
+    src: "--cmux-ease-spring (motion-scale.json spring.points) over --cmux-motion-large · ui/motion/motion.css, pages/shared/desktop.css",
+    pick: "<b>Proposed next, not changed by this page's PR: B, 200 ms.</b> The spring keeps its settle but lands 40 ms sooner, inside the 200 ms line where a state change stops reading slow; 180 ms (C) clips the travel. Lowering the ceiling waits on the no-bounce spring change, which keeps every spring's response.",
+    scene: "indicator",
+    variants: [
+      { key: "A", label: "A · large 240 ms (today)", rows: [{ dir: "in", ms: 240, ease: SPRING, name: "spring" }] },
+      { key: "B", label: "B · large 200 ms", rows: [{ dir: "in", ms: 200, ease: SPRING, name: "spring" }] },
+      { key: "C", label: "C · large 180 ms", rows: [{ dir: "in", ms: 180, ease: SPRING, name: "spring" }] },
+    ],
+  },
+  {
+    title: "Session info panel pushing in from the right",
+    src: "session-info/sessionInfo.css · in cubic-bezier(0.23, 1, 0.32, 1), out cubic-bezier(0.32, 0.72, 0, 1)",
+    pick: "<b>Pick B, in 180 ms (standard) / out 120 ms (micro).</b> Both ends sit on scale tokens instead of 120×2 and 80×2.5, the panel and the chat column it pushes come to rest well under 200 ms, and the exit stays shorter than the entrance.",
+    scene: "panel",
+    variants: [
+      { key: "A", label: "A · in 240 / out 200 (today, 120×2 and 80×2.5)", rows: [
+        { dir: "in", ms: 240, ease: SESSION_IN, name: "in" }, { dir: "out", ms: 200, ease: SESSION_OUT, name: "out" }] },
+      { key: "B", label: "B · in 180 / out 120 (standard, micro)", rows: [
+        { dir: "in", ms: 180, ease: SESSION_IN, name: "in" }, { dir: "out", ms: 120, ease: SESSION_OUT, name: "out" }] },
+      { key: "C", label: "C · in 200 / out 180 (ceiling, standard)", rows: [
+        { dir: "in", ms: 200, ease: SESSION_IN, name: "in" }, { dir: "out", ms: 180, ease: SESSION_OUT, name: "out" }] },
+    ],
+  },
+  {
+    title: "A popup surface entering and leaving (opacity + 8 px travel)",
+    src: "ui/popupSurface.css · enter cubic-bezier(0.2, 0, 0, 1), exit cubic-bezier(0.4, 0, 1, 1)",
+    pick: "<b>Pick B, enter 120 ms (micro) / exit 80 ms (quick).</b> These are the scale's own steps for a popup opening and anything leaving, so the 1.25× multiplier goes away; C's 80 ms entrance pops in before the eye registers the travel.",
+    scene: "popup",
+    variants: [
+      { key: "A", label: "A · enter 150 / exit 100 (today, ×1.25)", rows: [
+        { dir: "in", ms: 150, ease: POPUP_ENTER, name: "enter" }, { dir: "out", ms: 100, ease: POPUP_EXIT, name: "exit" }] },
+      { key: "B", label: "B · enter 120 / exit 80 (micro, quick)", rows: [
+        { dir: "in", ms: 120, ease: POPUP_ENTER, name: "enter" }, { dir: "out", ms: 80, ease: POPUP_EXIT, name: "exit" }] },
+      { key: "C", label: "C · enter 80 / exit 80 (quick, quick)", rows: [
+        { dir: "in", ms: 80, ease: POPUP_ENTER, name: "enter" }, { dir: "out", ms: 80, ease: POPUP_EXIT, name: "exit" }] },
+    ],
+  },
+];
+
+// ---- Layout ---------------------------------------------------------------------------------
+const ROOT = document.getElementById("root");
+const SECTION_W = Math.min(1368, document.documentElement.clientWidth - 32) - 34; // inside card padding+border
+const LABEL_W = 210;
+const AXIS_W = SECTION_W - LABEL_W - 70; // room right of 300 ms for the end label
+const xOf = ms => LABEL_W + ms / AXIS_MS * AXIS_W;
+const CELL_W = AXIS_W * FRAME / AXIS_MS;
+const DPR = Math.max(1, window.devicePixelRatio || 1);
+
+function makeCanvas(w, h) {
+  const c = document.createElement("canvas");
+  c.width = Math.round(w * DPR); c.height = Math.round(h * DPR);
+  c.style.width = w + "px"; c.style.height = h + "px";
+  const g = c.getContext("2d");
+  g.scale(DPR, DPR);
+  return [c, g];
+}
+function rrect(g, x, y, w, h, r) {
+  r = Math.max(0, Math.min(r, w / 2, h / 2));
+  g.beginPath();
+  g.moveTo(x + r, y); g.arcTo(x + w, y, x + w, y + h, r); g.arcTo(x + w, y + h, x, y + h, r);
+  g.arcTo(x, y + h, x, y, r); g.arcTo(x, y, x + w, y, r); g.closePath();
+}
+function font(g, px, weight) { g.font = `${weight || 400} ${px}px -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif`; }
+
+// ---- Plot -----------------------------------------------------------------------------------
+function drawPlot(m) {
+  const H = 200, top = 14, bottom = 28, ph = H - top - bottom;
+  const [c, g] = makeCanvas(SECTION_W, H);
+  const lo = m.scene === "indicator" ? -0.05 : 0, hi = m.scene === "indicator" ? 1.1 : 1.05;
+  const yOf = v => top + (hi - v) / (hi - lo) * ph;
+  // grid
+  g.strokeStyle = "#efefed"; g.lineWidth = 1;
+  for (let ms = 0; ms <= AXIS_MS; ms += 20) {
+    g.beginPath(); g.moveTo(xOf(ms) + 0.5, top); g.lineTo(xOf(ms) + 0.5, top + ph); g.stroke();
+  }
+  [0, 0.5, 1].forEach(v => { g.beginPath(); g.moveTo(xOf(0), yOf(v) + 0.5); g.lineTo(xOf(AXIS_MS), yOf(v) + 0.5); g.stroke(); });
+  // 200 ms ceiling line
+  g.strokeStyle = "#c0392b"; g.setLineDash([3, 3]);
+  g.beginPath(); g.moveTo(xOf(200) + 0.5, top); g.lineTo(xOf(200) + 0.5, top + ph); g.stroke();
+  g.setLineDash([]);
+  font(g, 11, 600); g.fillStyle = "#c0392b"; g.textAlign = "left";
+  g.fillText("200 ms ceiling", xOf(200) + 4, top + 10);
+  // axes labels
+  font(g, 11); g.fillStyle = "#6e6e73"; g.textAlign = "center";
+  for (let ms = 0; ms <= AXIS_MS; ms += 20) g.fillText(ms + "", xOf(ms), H - 10);
+  g.textAlign = "right";
+  [0, 0.5, 1].forEach(v => g.fillText((v * 100) + "%", xOf(0) - 6, yOf(v) + 4));
+  g.textAlign = "left"; font(g, 12, 600); g.fillStyle = "#1d1d1f";
+  g.fillText("progress vs time", 0, top + 10);
+  font(g, 11); g.fillStyle = "#6e6e73";
+  g.fillText("toward rest, 0 to 300 ms", 0, top + 26);
+  // curves
+  m.variants.forEach(v => {
+    v.rows.forEach(r => {
+      g.strokeStyle = COLORS[v.key]; g.lineWidth = v.key === "B" ? 2.5 : 1.75;
+      g.setLineDash(r.dir === "out" ? [6, 4] : []);
+      g.beginPath();
+      for (let ms = 0; ms <= r.ms; ms += 0.5) {
+        const p = r.ease(ms / r.ms);
+        if (ms === 0) g.moveTo(xOf(ms), yOf(p)); else g.lineTo(xOf(ms), yOf(p));
+      }
+      g.lineTo(xOf(r.ms), yOf(1));
+      g.stroke(); g.setLineDash([]);
+      // end tick
+      g.fillStyle = COLORS[v.key];
+      g.beginPath(); g.arc(xOf(r.ms), yOf(1), 3.5, 0, Math.PI * 2); g.fill();
+    });
+  });
+  // end labels stacked to the right of each end point
+  const ends = [];
+  m.variants.forEach(v => v.rows.forEach(r => ends.push({ key: v.key, ms: r.ms, name: r.name })));
+  ends.sort((a, b) => a.ms - b.ms);
+  font(g, 10, 600); g.textAlign = "center";
+  const used = {};
+  ends.forEach(e => {
+    const slot = used[e.ms] = (used[e.ms] || 0) + 1;
+    g.fillStyle = COLORS[e.key];
+    g.fillText(`${e.key} ${e.name} ${e.ms}`, xOf(e.ms), yOf(1) - 8 - (slot - 1) * 11 - (m.scene === "indicator" ? 10 : 0));
+  });
+  return c;
+}
+
+// ---- Filmstrip ------------------------------------------------------------------------------
+function drawScene(g, scene, x, y, w, h, state, color) {
+  // state: 0 = start, 1 = rest of an "in"; the caller maps "out" to 1 - progress.
+  g.save();
+  rrect(g, x + 1, y, w - 2, h, 4); g.fillStyle = "#f4f4f2"; g.fill();
+  g.clip();
+  if (scene === "indicator") {
+    // Two tab slots stacked; the pill travels from the top slot to the bottom one.
+    const slotH = 14, gap = (h - 2 * slotH - 8);
+    const y0 = y + 4, y1 = y0 + slotH + gap;
+    g.strokeStyle = "#d6d6d3"; g.lineWidth = 1;
+    rrect(g, x + 4.5, y0 + 0.5, w - 9, slotH - 1, 4); g.stroke();
+    rrect(g, x + 4.5, y1 + 0.5, w - 9, slotH - 1, 4); g.stroke();
+    // rest line
+    g.strokeStyle = REST; g.globalAlpha = 0.5;
+    g.beginPath(); g.moveTo(x + 2, y1 + 0.5); g.lineTo(x + w - 2, y1 + 0.5); g.stroke();
+    g.globalAlpha = 1;
+    const py = y0 + (y1 - y0) * state;
+    rrect(g, x + 4, py, w - 8, slotH, 4); g.fillStyle = color; g.fill();
+  } else if (scene === "panel") {
+    // A pane: the chat column (lines) pushed left as the panel slides in from past the right edge.
+    const pw = Math.round(w * 0.46);
+    const shift = pw * state;
+    g.fillStyle = "#c9c9c6";
+    for (let k = 0; k < 5; k++) {
+      const lw = (w - 10) * (k % 2 ? 0.55 : 0.75);
+      g.fillRect(x + 5 + (w - 10 - lw) / 2 - shift / 2 + (w - 10 - lw) * 0, y + 8 + k * 9, lw, 4);
+    }
+    const px = x + w - shift;
+    g.fillStyle = color;
+    g.globalAlpha = 0.9;
+    g.fillRect(px, y + 2, pw, h - 4);
+    g.globalAlpha = 1;
+    g.fillStyle = "#ffffff";
+    for (let k = 0; k < 4; k++) g.fillRect(px + 3, y + 8 + k * 9, pw - 7, 3);
+  } else {
+    // Popup: fades in and travels 8 px up into place (the real 8 px, drawn 1:1).
+    const travel = 8 * (1 - state);
+    const bw = w - 8, bh = 26, bx = x + 4, by = y + (h - bh) / 2 - 2 + travel;
+    // rest outline
+    g.strokeStyle = REST; g.globalAlpha = 0.35; g.lineWidth = 1;
+    rrect(g, bx + 0.5, y + (h - bh) / 2 - 2 + 0.5, bw - 1, bh - 1, 5); g.stroke();
+    g.globalAlpha = Math.max(0, Math.min(1, state));
+    rrect(g, bx, by, bw, bh, 5); g.fillStyle = color; g.fill();
+    g.fillStyle = "#ffffff";
+    g.fillRect(bx + 4, by + 7, bw - 8, 3); g.fillRect(bx + 4, by + 15, (bw - 8) * 0.6, 3);
+    g.globalAlpha = 1;
+  }
+  g.restore();
+}
+
+function drawStrip(m, v, r) {
+  const H = 92, sceneTop = 6, sceneH = 60;
+  const [c, g] = makeCanvas(SECTION_W, H);
+  const fr = frames(r.ms, r.ease);
+  const k = restFrame(fr);
+  const color = COLORS[v.key];
+  // label
+  g.textAlign = "left";
+  font(g, 12, v.key === "B" ? 700 : 600); g.fillStyle = v.key === "B" ? COLORS.B : "#1d1d1f";
+  const lbl = r === v.rows[0] ? v.label : "";
+  wrapText(g, lbl, 0, sceneTop + 12, LABEL_W - 12, 15);
+  font(g, 11, 600); g.fillStyle = color;
+  g.fillText(r.name + (r.dir === "out" ? "  (leaving)" : ""), 0, sceneTop + sceneH - 2);
+  // ceiling guide
+  g.strokeStyle = "#c0392b"; g.globalAlpha = 0.5; g.setLineDash([3, 3]);
+  g.beginPath(); g.moveTo(xOf(200) + 0.5, 0); g.lineTo(xOf(200) + 0.5, H); g.stroke();
+  g.setLineDash([]); g.globalAlpha = 1;
+  // frames
+  fr.forEach((f, idx) => {
+    const x = xOf(f.t);
+    const state = r.dir === "out" ? 1 - f.p : f.p;
+    drawScene(g, m.scene, x, sceneTop, CELL_W, sceneH, state, color);
+    if (idx === k) {
+      g.strokeStyle = REST; g.lineWidth = 2;
+      rrect(g, x + 1, sceneTop - 1, CELL_W - 2, sceneH + 2, 5); g.stroke();
+    }
+    font(g, 9, idx === k ? 700 : 400);
+    g.fillStyle = idx === k ? REST : "#6e6e73"; g.textAlign = "center";
+    g.fillText(Math.round(f.p * 100) + "", x + CELL_W / 2, sceneTop + sceneH + 11);
+  });
+  // rest + end labels
+  const endX = xOf(fr[fr.length - 1].t) + CELL_W + 6;
+  g.textAlign = "left"; font(g, 12, 700); g.fillStyle = "#1d1d1f";
+  g.fillText(`${r.ms} ms`, endX, sceneTop + 22);
+  font(g, 10); g.fillStyle = "#6e6e73";
+  g.fillText(`${fr.length} frames`, endX, sceneTop + 36);
+  font(g, 10, 600); g.fillStyle = REST;
+  g.fillText(`rest ${Math.round(fr[k].t)} ms`, endX, sceneTop + 50);
+  // time axis under the strip
+  font(g, 9); g.fillStyle = "#a1a1a6"; g.textAlign = "center";
+  for (let ms = 0; ms <= AXIS_MS; ms += 50) g.fillText(ms + " ms", xOf(ms), H - 4);
+  return c;
+}
+function wrapText(g, text, x, y, maxW, lh) {
+  if (!text) return;
+  const words = text.split(" "); let line = "", yy = y;
+  for (const w of words) {
+    const test = line ? line + " " + w : w;
+    if (g.measureText(test).width > maxW && line) { g.fillText(line, x, yy); line = w; yy += lh; }
+    else line = test;
+  }
+  if (line) g.fillText(line, x, yy);
+}
+
+// ---- Build ----------------------------------------------------------------------------------
+MOTIONS.forEach(m => {
+  const s = document.createElement("section");
+  s.innerHTML = `<h2>${m.title}</h2><p class="src">${m.src}</p><p class="pick">${m.pick}</p>`;
+  const stack = document.createElement("div"); stack.className = "stack";
+  stack.appendChild(drawPlot(m));
+  m.variants.forEach(v => v.rows.forEach(r => stack.appendChild(drawStrip(m, v, r))));
+  s.appendChild(stack);
+  ROOT.appendChild(s);
+});
+document.documentElement.dataset.ready = "1";
+</script>
+</body>
+</html>

@@ -1,4 +1,5 @@
 import type { ProviderId } from "../drivers";
+import type { CloudRemoteAuthMode } from "../clientGrant";
 import { allowUnmanifestedImages, type VmRuntimeEnv } from "../config";
 import { VmImageConfigError, type VmImageSource } from "../errors";
 import manifest from "./manifest.json";
@@ -59,6 +60,8 @@ export type VmImageManifestEntry = {
   /** The shape this snapshot boots at. Entries without one are size-less (pre-ladder bakes). */
   readonly size?: VmImageManifestSize;
   readonly cmuxdRemoteCommit: string;
+  /** Authentication mode frozen into this image's cmux remote listener. */
+  readonly cmuxRemoteAuth?: CloudRemoteAuthMode;
   /** The cmux commit whose devbox definition produced this image. */
   readonly repoCommit?: string;
   readonly builtAt: string;
@@ -262,6 +265,7 @@ export function resolveVmImage(
   env: VmRuntimeEnv = process.env,
   options: VmImageResolveOptions = {},
 ): VmImageSelection {
+  if (provider === "gcp") return resolveGcpImage(requestedImage, env, options);
   const kind = options.kind;
   if (kind !== undefined && !isVmImageKind(kind)) {
     throw new VmImageConfigError({
@@ -293,6 +297,32 @@ export function resolveVmImage(
     allowedImages: listVmImageIds(provider),
     reason,
   });
+}
+
+/** GCP images live in the user's project, so Labs uses an explicit image URI or deployment default. */
+function resolveGcpImage(
+  requestedImage: string | undefined,
+  env: VmRuntimeEnv,
+  options: VmImageResolveOptions,
+): VmImageSelection {
+  const image = requestedImage?.trim() || env.CMUX_VM_GCP_IMAGE?.trim();
+  if (!image) {
+    throw new VmImageConfigError({
+      provider: "gcp",
+      kind: options.kind,
+      source: requestedImage ? "request" : "default",
+      allowedImages: [],
+      reason: "CMUX_VM_GCP_IMAGE is not configured",
+    });
+  }
+  return {
+    provider: "gcp",
+    image,
+    imageVersion: null,
+    manifestEntry: null,
+    kind: options.kind ?? "base",
+    size: null,
+  };
 }
 
 function resolveRequested(

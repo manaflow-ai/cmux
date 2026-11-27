@@ -1,0 +1,145 @@
+{
+  "about": "Capability-gated CLI commands for scripts/cmux-next/skew-matrix.py (plans/cmux-next/version-skew.md step 5). argv follows the global options `--socket <daemon socket> --json`. A case passes when it works, re-execs the daemon's CLI, or prints one exact fix command (cli/fix_command.rs). works_if: error texts that mean the command reached a daemon that serves it (a domain answer, not a skew). stops_daemon: the command ends the daemon, so the runner does not stop it again.",
+  "cases": [
+    {
+      "id": "journal-producer-list",
+      "argv": [
+        "session",
+        "current",
+        "journal",
+        "producer",
+        "list"
+      ],
+      "capability": "session-journal-v1",
+      "gate": "cli/wire.rs required_server_capability",
+      "pass": "lists producers, or the restart fix command"
+    },
+    {
+      "id": "journal-hook-list",
+      "argv": [
+        "session",
+        "current",
+        "journal",
+        "hook",
+        "list"
+      ],
+      "capability": "session-journal-v1",
+      "gate": "cli/wire.rs required_server_capability",
+      "pass": "lists hooks, or the restart fix command"
+    },
+    {
+      "id": "journal-checkpoint-list",
+      "argv": [
+        "session",
+        "current",
+        "journal",
+        "checkpoint",
+        "list"
+      ],
+      "capability": "session-journal-v1",
+      "gate": "cli/wire.rs required_server_capability",
+      "pass": "lists checkpoints, or the restart fix command"
+    },
+    {
+      "id": "journal-segment-list",
+      "argv": [
+        "session",
+        "current",
+        "journal",
+        "segment",
+        "list"
+      ],
+      "capability": "session-journal-v1",
+      "gate": "cli/wire.rs required_server_capability",
+      "pass": "lists segments, or the restart fix command"
+    },
+    {
+      "id": "server-stats",
+      "argv": [
+        "server",
+        "stats"
+      ],
+      "capability": "server-stats-v1",
+      "gate": "cli/lifecycle.rs ServerAction::Stats",
+      "pass": "the stats, or server.stats_unsupported with the restart fix command"
+    },
+    {
+      "id": "chief-pipe",
+      "argv": [
+        "chief",
+        "-p",
+        "skew matrix probe",
+        "--timeout",
+        "5"
+      ],
+      "capability": "local-conversations-v1",
+      "gate": "cli/chief/mod.rs Session::open (reexec_at_dead_end_on)",
+      "pass": "reaches conversation.list (no Chief on an isolated daemon), or the stop fix command",
+      "works_if": [
+        "no Chief conversation"
+      ]
+    },
+    {
+      "id": "server-stop-force",
+      "argv": [
+        "server",
+        "stop",
+        "--force"
+      ],
+      "capability": "daemon-handoff-force-v1",
+      "gate": "cli/lifecycle.rs ServerAction::Stop force",
+      "pass": "the daemon stops, or a fix command",
+      "stops_daemon": true
+    },
+    {
+      "id": "server-stop-end-terminals",
+      "argv": [
+        "server",
+        "stop",
+        "--end-terminals"
+      ],
+      "capability": "terminal-reap-v1",
+      "gate": "cli/lifecycle.rs ServerAction::Stop end_terminals",
+      "pass": "the daemon stops with its terminals, or a fix command",
+      "stops_daemon": true
+    }
+  ],
+  "skipped": [
+    {
+      "id": "journal-mutations",
+      "commands": "session <s> journal subscribe | append | producer put | hook put | checkpoint create | segment seal",
+      "capability": "session-journal-v1",
+      "reason": "the same wire.rs gate as the journal list cases; subscribe follows forever, and the writes need a producer manifest. The list cases cover the gate."
+    },
+    {
+      "id": "journal-restore-preview",
+      "commands": "session <s> journal restore preview",
+      "capability": "session-journal-v1",
+      "reason": "needs a checkpoint: on an empty journal every build answers operation.failed (\"journal operation failed\"), not a skew. The list cases cover the same wire.rs gate."
+    },
+    {
+      "id": "apps-run-cancel",
+      "commands": "apps run <app> <op> (Ctrl-C)",
+      "capability": "cancel-request-v1",
+      "reason": "no dead end: without the capability the CLI cancels by closing the connection. Needs an installed app plugin and an interrupt."
+    },
+    {
+      "id": "app-socket-method-skew",
+      "commands": "every `cmux app|action|settings|window ...` command (cli/app.rs skew::annotate on method_not_found)",
+      "capability": "app system.identify",
+      "reason": "needs the cmux macOS app's control socket; not headless. Covered by the step 6 live proof."
+    },
+    {
+      "id": "attach-viewport-and-clear-history",
+      "commands": "cmux attach (session/remote.rs viewport-splits, column-resize, clear-history)",
+      "capability": "viewport and clear-history capabilities",
+      "reason": "interactive TUI attach; it hides the feature without the capability (no error to classify)."
+    },
+    {
+      "id": "reexec-daemon-build",
+      "commands": "every dead end above, re-exec half (cli/skew.rs)",
+      "capability": "daemon-build-v1",
+      "reason": "the CLI re-execs only from inside a cmux .app bundle on macOS; on Linux and for unbundled binaries the pass is works or fix. Covered by step 6 on cmux-lawrence-2."
+    }
+  ]
+}

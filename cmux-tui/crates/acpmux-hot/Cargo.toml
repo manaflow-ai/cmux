@@ -1,0 +1,33 @@
+[package]
+name = "acpmux-hot"
+version = "0.0.0"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+description = "Dev-only prototype: acpmux pieces (the sign-in output parser, the write-journal read check) hosted as WebAssembly components and swapped live, with no daemon restart (plans/cmux-next/acpmux-hot-modules-DESIGN.md)"
+
+[lints]
+workspace = true
+
+[features]
+# Off by default: without it every call answers None and the caller runs its native code, and
+# wasmtime is not built. acpmux's `hot-modules` feature turns it on; no shipped build does.
+wasm = ["dep:wasmtime", "dep:arc-swap", "dep:sha2", "dep:hex", "dep:libc"]
+
+[dependencies]
+arc-swap = { workspace = true, optional = true }
+hex = { workspace = true, optional = true }
+libc = { workspace = true, optional = true }
+sha2 = { workspace = true, optional = true }
+# 48 is the newest wasmtime whose rust-version (1.95) fits rust-toolchain.toml.
+wasmtime = { version = "48.0.8", optional = true, default-features = false, features = [
+    "runtime",
+    "cranelift",
+    "component-model",
+    "std",
+] }
+
+[[example]]
+name = "hot_bench"
+required-features = ["wasm"]

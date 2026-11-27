@@ -1,0 +1,649 @@
+{
+  "$comment": "Catalog fragment of cmux/notes (operation-catalog format, as cmux-tui/crates/cmux-tasks-core/catalog/tasks-catalog.json). Served by the notes server (cmux-notes serve, one instance per user, durable data). The server is also the document host of every note's document (doc_…): document.open, document.edit {doc, base_revision, edits} and document.watch for those handles route to it by the document's home. Proposal; nothing implements it yet.",
+  "family": "note",
+  "owner": "app:cmux/notes",
+  "schema_version": 1,
+  "server": {
+    "kind": "native",
+    "binary": "cmux-notes",
+    "args": [
+      "serve"
+    ],
+    "instances": "user",
+    "data": "durable"
+  },
+  "documents": {
+    "prefix": "doc_",
+    "mime": "text/markdown",
+    "host": "app:cmux/notes",
+    "max_bytes": 1048576
+  },
+  "types": {
+    "WorkspaceRef": {
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string"
+        },
+        "name": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "id",
+        "name"
+      ]
+    },
+    "LastEdit": {
+      "type": "object",
+      "description": "Stamped by the server from the caller's principal, never taken from params.",
+      "properties": {
+        "actor_kind": {
+          "enum": [
+            "user",
+            "agent",
+            "app",
+            "automation"
+          ]
+        },
+        "actor": {
+          "type": "string"
+        },
+        "at": {
+          "type": "integer"
+        }
+      },
+      "required": [
+        "actor_kind",
+        "actor",
+        "at"
+      ]
+    },
+    "NoteSummary": {
+      "type": "object",
+      "properties": {
+        "id": {
+          "description": "Note id (note_…)",
+          "pattern": "^note_[0-9a-z]{16}$",
+          "type": "string"
+        },
+        "doc": {
+          "type": "string",
+          "pattern": "^doc_"
+        },
+        "title": {
+          "type": "string",
+          "description": "Explicit, else derived from the first heading or prose line"
+        },
+        "title_explicit": {
+          "type": "boolean"
+        },
+        "preview": {
+          "type": "string",
+          "maxLength": 120
+        },
+        "pinned": {
+          "type": "boolean"
+        },
+        "scratchpad": {
+          "type": "boolean"
+        },
+        "workspace": {
+          "oneOf": [
+            {
+              "$ref": "#/types/WorkspaceRef"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "lines": {
+          "type": "integer"
+        },
+        "created_at": {
+          "type": "integer"
+        },
+        "updated_at": {
+          "type": "integer"
+        },
+        "revision": {
+          "type": "integer",
+          "description": "The document revision; base_revision of the next edit"
+        },
+        "last_edit": {
+          "$ref": "#/types/LastEdit"
+        }
+      }
+    },
+    "Note": {
+      "allOf": [
+        {
+          "$ref": "#/types/NoteSummary"
+        },
+        {
+          "type": "object",
+          "properties": {
+            "body": {
+              "type": "string",
+              "maxLength": 200000
+            }
+          },
+          "required": [
+            "body"
+          ]
+        }
+      ]
+    },
+    "NoteEvent": {
+      "type": "object",
+      "properties": {
+        "seq": {
+          "type": "integer"
+        },
+        "kind": {
+          "enum": [
+            "created",
+            "updated",
+            "deleted"
+          ]
+        },
+        "note": {
+          "$ref": "#/types/NoteSummary"
+        }
+      },
+      "required": [
+        "seq",
+        "kind",
+        "note"
+      ]
+    }
+  },
+  "operations": [
+    {
+      "name": "note.list",
+      "owner": "app:cmux/notes",
+      "class": "read",
+      "risk": "read",
+      "focuses": false,
+      "idempotency": "forbidden",
+      "docs": "List notes, pinned first: titles, previews, pins, workspaces and revisions, never bodies. With query, the server's ranked search.",
+      "input": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "query": {
+            "type": "string",
+            "maxLength": 200
+          },
+          "workspace": {
+            "description": "Workspace: an id, a name, or \"current\" (the caller's workspace, resolved by the op router like other selectors)",
+            "type": "string"
+          },
+          "sort": {
+            "enum": [
+              "updated",
+              "created",
+              "title"
+            ]
+          },
+          "limit": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 2000
+          },
+          "after": {
+            "description": "Note id (note_…)",
+            "pattern": "^note_[0-9a-z]{16}$",
+            "type": "string"
+          }
+        },
+        "required": []
+      },
+      "mcp": {
+        "expose": "default",
+        "group": "notes"
+      },
+      "cli": {
+        "path": "note list",
+        "visible": true
+      },
+      "palette": null,
+      "queue_offline": false,
+      "remote_relay": "deny",
+      "since": "notes/1",
+      "result": {
+        "notes": {
+          "type": "array",
+          "items": {
+            "$ref": "#/types/NoteSummary"
+          }
+        },
+        "next": {
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
+      "errors": [
+        "auth.forbidden",
+        "validation.invalid",
+        "selector.not_found"
+      ]
+    },
+    {
+      "name": "note.get",
+      "owner": "app:cmux/notes",
+      "class": "read",
+      "risk": "read",
+      "focuses": false,
+      "idempotency": "forbidden",
+      "docs": "Read one note with its body and revision.",
+      "input": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "note": {
+            "description": "Note id (note_…)",
+            "pattern": "^note_[0-9a-z]{16}$",
+            "type": "string"
+          }
+        },
+        "required": [
+          "note"
+        ]
+      },
+      "mcp": {
+        "expose": "default",
+        "group": "notes"
+      },
+      "cli": {
+        "path": "note read",
+        "visible": true
+      },
+      "palette": null,
+      "queue_offline": false,
+      "remote_relay": "deny",
+      "since": "notes/1",
+      "result": {
+        "note": {
+          "$ref": "#/types/Note"
+        }
+      },
+      "errors": [
+        "auth.forbidden",
+        "validation.invalid",
+        "selector.not_found"
+      ]
+    },
+    {
+      "name": "note.search",
+      "owner": "app:cmux/notes",
+      "class": "read",
+      "risk": "read",
+      "focuses": false,
+      "idempotency": "forbidden",
+      "docs": "Ranked search results in the search-provider shape (title, snippet, how to open).",
+      "input": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "query": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 200
+          },
+          "limit": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 50
+          }
+        },
+        "required": [
+          "query"
+        ]
+      },
+      "mcp": {
+        "expose": "default",
+        "group": "notes"
+      },
+      "cli": {
+        "path": "note search",
+        "visible": true
+      },
+      "palette": null,
+      "queue_offline": false,
+      "remote_relay": "deny",
+      "since": "notes/1",
+      "errors": [
+        "auth.forbidden",
+        "validation.invalid",
+        "selector.not_found"
+      ]
+    },
+    {
+      "name": "note.watch",
+      "owner": "app:cmux/notes",
+      "class": "stream",
+      "risk": "read",
+      "focuses": false,
+      "idempotency": "forbidden",
+      "docs": "Typed changes in commit order: created, updated (with the new summary) and deleted. Resume with after_seq.",
+      "input": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "after_seq": {
+            "type": "integer",
+            "minimum": 0
+          }
+        },
+        "required": []
+      },
+      "mcp": {
+        "expose": "never",
+        "group": "notes"
+      },
+      "cli": {
+        "path": "note watch",
+        "visible": true
+      },
+      "palette": null,
+      "queue_offline": false,
+      "remote_relay": "deny",
+      "since": "notes/1",
+      "result": {
+        "$ref": "#/types/NoteEvent"
+      },
+      "errors": [
+        "auth.forbidden",
+        "validation.invalid",
+        "selector.not_found"
+      ]
+    },
+    {
+      "name": "note.create",
+      "owner": "app:cmux/notes",
+      "class": "mutation",
+      "risk": "mutate-own",
+      "focuses": false,
+      "idempotency": "required",
+      "docs": "Create a note. With scratchpad and workspace, return the workspace's scratchpad when it exists (one per workspace).",
+      "input": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "title": {
+            "type": "string",
+            "maxLength": 200
+          },
+          "body": {
+            "type": "string",
+            "maxLength": 200000
+          },
+          "workspace": {
+            "description": "Workspace: an id, a name, or \"current\" (the caller's workspace, resolved by the op router like other selectors)",
+            "type": "string"
+          },
+          "pinned": {
+            "type": "boolean"
+          },
+          "scratchpad": {
+            "type": "boolean"
+          }
+        },
+        "required": []
+      },
+      "mcp": {
+        "expose": "default",
+        "group": "notes"
+      },
+      "cli": {
+        "path": "note create",
+        "visible": true
+      },
+      "palette": {
+        "title": "New Note"
+      },
+      "queue_offline": false,
+      "remote_relay": "deny",
+      "since": "notes/1",
+      "result": {
+        "note": {
+          "$ref": "#/types/Note"
+        }
+      },
+      "errors": [
+        "auth.forbidden",
+        "validation.invalid",
+        "selector.not_found",
+        "note.too_large",
+        "notes.full",
+        "idempotency.conflict"
+      ]
+    },
+    {
+      "name": "note.capture",
+      "owner": "app:cmux/notes",
+      "class": "mutation",
+      "risk": "mutate-own",
+      "focuses": false,
+      "idempotency": "required",
+      "docs": "Quick capture: a new note from text; its first line becomes the title.",
+      "input": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "text": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 200000
+          },
+          "workspace": {
+            "description": "Workspace: an id, a name, or \"current\" (the caller's workspace, resolved by the op router like other selectors)",
+            "type": "string"
+          }
+        },
+        "required": [
+          "text"
+        ]
+      },
+      "mcp": {
+        "expose": "default",
+        "group": "notes"
+      },
+      "cli": {
+        "path": "note capture",
+        "visible": true
+      },
+      "palette": {
+        "title": "Quick Capture Note"
+      },
+      "queue_offline": false,
+      "remote_relay": "deny",
+      "since": "notes/1",
+      "result": {
+        "note": {
+          "$ref": "#/types/Note"
+        }
+      },
+      "errors": [
+        "auth.forbidden",
+        "validation.invalid",
+        "selector.not_found",
+        "note.too_large",
+        "notes.full",
+        "idempotency.conflict"
+      ]
+    },
+    {
+      "name": "note.append",
+      "owner": "app:cmux/notes",
+      "class": "mutation",
+      "risk": "mutate-own",
+      "focuses": false,
+      "idempotency": "required",
+      "docs": "Append lines to a note, or to a workspace's scratchpad (created on first use). Appends commute: no base revision is needed, and an agent's append never moves anyone's focus or caret.",
+      "input": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "note": {
+            "description": "Note id (note_…)",
+            "pattern": "^note_[0-9a-z]{16}$",
+            "type": "string"
+          },
+          "workspace": {
+            "description": "Workspace: an id, a name, or \"current\" (the caller's workspace, resolved by the op router like other selectors)",
+            "type": "string"
+          },
+          "text": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 50000
+          }
+        },
+        "required": [
+          "text"
+        ]
+      },
+      "mcp": {
+        "expose": "default",
+        "group": "notes"
+      },
+      "cli": {
+        "path": "note append",
+        "visible": true
+      },
+      "palette": null,
+      "queue_offline": false,
+      "remote_relay": "deny",
+      "since": "notes/1",
+      "result": {
+        "note": {
+          "$ref": "#/types/Note"
+        }
+      },
+      "errors": [
+        "auth.forbidden",
+        "validation.invalid",
+        "selector.not_found",
+        "note.too_large",
+        "notes.full",
+        "idempotency.conflict"
+      ]
+    },
+    {
+      "name": "note.update",
+      "owner": "app:cmux/notes",
+      "class": "mutation",
+      "risk": "mutate-own",
+      "focuses": false,
+      "idempotency": "required",
+      "docs": "Change a note's title, pin or workspace (last writer wins per field; body edits go through document.edit).",
+      "input": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "note": {
+            "description": "Note id (note_…)",
+            "pattern": "^note_[0-9a-z]{16}$",
+            "type": "string"
+          },
+          "title": {
+            "type": "string",
+            "maxLength": 200
+          },
+          "pinned": {
+            "type": "boolean"
+          },
+          "workspace": {
+            "oneOf": [
+              {
+                "description": "Workspace: an id, a name, or \"current\" (the caller's workspace, resolved by the op router like other selectors)",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "required": [
+          "note"
+        ]
+      },
+      "mcp": {
+        "expose": "never",
+        "group": "notes"
+      },
+      "cli": {
+        "path": "note update",
+        "visible": true
+      },
+      "palette": null,
+      "queue_offline": false,
+      "remote_relay": "deny",
+      "since": "notes/1",
+      "result": {
+        "note": {
+          "$ref": "#/types/Note"
+        }
+      },
+      "errors": [
+        "auth.forbidden",
+        "validation.invalid",
+        "selector.not_found",
+        "note.too_large",
+        "notes.full",
+        "idempotency.conflict"
+      ]
+    },
+    {
+      "name": "note.delete",
+      "owner": "app:cmux/notes",
+      "class": "mutation",
+      "risk": "mutate-own",
+      "focuses": false,
+      "idempotency": "required",
+      "docs": "Delete a note and its document.",
+      "input": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "note": {
+            "description": "Note id (note_…)",
+            "pattern": "^note_[0-9a-z]{16}$",
+            "type": "string"
+          }
+        },
+        "required": [
+          "note"
+        ]
+      },
+      "mcp": {
+        "expose": "never",
+        "group": "notes"
+      },
+      "cli": {
+        "path": "note delete",
+        "visible": true
+      },
+      "palette": null,
+      "queue_offline": false,
+      "remote_relay": "deny",
+      "since": "notes/1",
+      "errors": [
+        "auth.forbidden",
+        "selector.not_found",
+        "idempotency.conflict"
+      ]
+    }
+  ],
+  "trigger_events": [
+    "note.created",
+    "note.updated",
+    "note.deleted"
+  ]
+}

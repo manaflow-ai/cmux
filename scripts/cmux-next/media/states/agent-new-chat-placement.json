@@ -1,0 +1,17 @@
+{
+  "title": "Agent new chat placement",
+  "steps": [
+    {"title": "Fresh launch at Home", "wait": 4},
+    {"title": "Enable preview pages", "cmux": ["settings", "set", "labs.previewFeatures", "true"], "wait": 1, "shot": false},
+    {"title": "Open the App Store top page", "rpc": {"method": "action.run", "params": {"action": "appStore.show", "focus": true, "origin": "script"}}, "wait": 0},
+    {"title": "CLI new chat during page transition", "cmux": ["agent", "new-chat"], "wait": 5},
+    {"title": "Record first placement", "rpc": {"method": "debug.windows"}, "record": true, "shot": false},
+    {"title": "Record first pane layout", "rpc": {"method": "debug.pane_chrome"}, "record": true, "shot": false},
+    {"title": "Repeat CLI new chat", "cmux": ["agent", "new-chat"], "wait": 5},
+    {"title": "Record second placement", "rpc": {"method": "debug.windows"}, "record": true, "shot": false},
+    {"title": "Record second pane layout", "rpc": {"method": "debug.pane_chrome"}, "record": true, "shot": false},
+    {"title": "Third CLI new chat", "cmux": ["agent", "new-chat"], "wait": 5},
+    {"title": "Record third placement", "rpc": {"method": "debug.windows"}, "record": true, "shot": false},
+    {"title": "Record third pane layout", "rpc": {"method": "debug.pane_chrome"}, "record": true, "shot": false}
+  ]
+}

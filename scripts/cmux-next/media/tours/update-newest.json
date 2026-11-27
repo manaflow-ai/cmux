@@ -1,0 +1,8 @@
+{
+  "title": "A pulled running build gets the newest build, in one line",
+  "steps": [
+    {"title": "Launch", "wait": 2},
+    {"title": "Restart to Update found a newer build: Getting the Newest Build…", "cmux": ["app", "call", "debug.updater", "{\"action\": \"newest\"}"], "wait": 2},
+    {"title": "The running build was pulled: one line, no buttons (the stills show this)", "cmux": ["app", "call", "debug.updater", "{\"action\": \"newest\", \"pulled\": true}"], "wait": 2}
+  ]
+}

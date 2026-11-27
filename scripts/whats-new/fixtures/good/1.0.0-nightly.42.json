@@ -1,0 +1,27 @@
+{
+  "schemaVersion": 1,
+  "version": "1.0.0-nightly.42",
+  "channel": "nightly",
+  "date": "2026-10-07",
+  "headline": {"en": "Faster sidebar and a new What's New page"},
+  "entries": [
+    {
+      "id": "whats-new-page",
+      "category": "new",
+      "title": {"en": "See what changed after every update"},
+      "summary": {"en": "After an update, a What's New item at the top of the sidebar opens a page with the highlights of every version you missed."},
+      "tryIt": {"action": "updates.whatsNew"},
+      "platforms": ["macos"],
+      "audience": "all"
+    },
+    {
+      "id": "sidebar-scroll",
+      "category": "fixed",
+      "title": {"en": "Smoother sidebar scrolling"},
+      "summary": {"en": "Long workspace lists no longer stutter while agents report status."},
+      "docs": "https://cmux.com/docs/sidebar",
+      "platforms": ["macos"],
+      "audience": "all"
+    }
+  ]
+}

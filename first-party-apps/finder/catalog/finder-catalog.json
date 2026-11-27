@@ -1,0 +1,123 @@
+{
+  "family": "finder",
+  "operations": [
+    {
+      "name": "finder.open",
+      "owner": "app:cmux/finder",
+      "class": "mutation",
+      "risk": "mutate-own",
+      "idempotency": "required",
+      "focuses": true,
+      "queue_offline": false,
+      "remote_relay": "deny",
+      "input": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {},
+        "required": []
+      },
+      "cli": {
+        "path": "open",
+        "visible": true
+      },
+      "mcp": {
+        "expose": "never"
+      },
+      "palette": {
+        "title": "Open Finder"
+      },
+      "docs": "Open the Finder pane.",
+      "since": "finder/1",
+      "export": "openFinder"
+    },
+    {
+      "name": "finder.add_folder",
+      "owner": "app:cmux/finder",
+      "class": "mutation",
+      "risk": "mutate-own",
+      "idempotency": "required",
+      "focuses": true,
+      "queue_offline": false,
+      "remote_relay": "deny",
+      "input": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {},
+        "required": []
+      },
+      "cli": {
+        "path": "add-folder",
+        "visible": true
+      },
+      "mcp": {
+        "expose": "never"
+      },
+      "palette": {
+        "title": "Add Folder to Finder…"
+      },
+      "docs": "Pick a folder to add to Finder.",
+      "since": "finder/1",
+      "export": "addFolder",
+      "gesture": "required"
+    },
+    {
+      "name": "finder.connect_host",
+      "owner": "app:cmux/finder",
+      "class": "mutation",
+      "risk": "mutate-own",
+      "idempotency": "required",
+      "focuses": true,
+      "queue_offline": false,
+      "remote_relay": "deny",
+      "input": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {},
+        "required": []
+      },
+      "cli": {
+        "path": "connect-host",
+        "visible": true
+      },
+      "mcp": {
+        "expose": "never"
+      },
+      "palette": {
+        "title": "Connect to Host…"
+      },
+      "docs": "Open the cmux connect sheet to add a host to Finder.",
+      "since": "finder/1",
+      "export": "connectHost",
+      "gesture": "required"
+    },
+    {
+      "name": "finder.cycle_variant",
+      "owner": "app:cmux/finder",
+      "class": "mutation",
+      "risk": "mutate-own",
+      "idempotency": "required",
+      "focuses": false,
+      "queue_offline": false,
+      "remote_relay": "deny",
+      "input": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {},
+        "required": []
+      },
+      "cli": {
+        "path": "cycle-variant",
+        "visible": false
+      },
+      "mcp": {
+        "expose": "never"
+      },
+      "palette": {
+        "title": "Next Finder Variant"
+      },
+      "docs": "Switch to the next Finder design variant (DEV and NIGHTLY).",
+      "since": "finder/1",
+      "export": "cycleVariant"
+    }
+  ]
+}

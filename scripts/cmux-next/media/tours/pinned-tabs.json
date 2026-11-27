@@ -1,0 +1,15 @@
+{
+  "title": "Pinned tabs",
+  "steps": [
+    {"title": "Launch", "wait": 2},
+    {"title": "New workspace", "cmux": ["workspace", "new", "--name", "Pins"]},
+    {"title": "Second terminal tab", "cmux": ["action", "run", "newSurface"], "shot": false},
+    {"title": "Third terminal tab", "cmux": ["action", "run", "newSurface"], "shot": false},
+    {"title": "Browser tab: four tabs", "cmux": ["tab", "new-browser", "--url", "https://example.com"], "wait": 5},
+    {"title": "Pin the browser tab: it moves to the start as an icon-only tab", "cmux": ["action", "run", "palette.toggleTabPin"], "wait": 2},
+    {"title": "Select the next tab", "cmux": ["action", "run", "nextSurface"], "shot": false},
+    {"title": "Pin a terminal tab: it joins the pinned tabs", "cmux": ["action", "run", "palette.toggleTabPin"], "wait": 2},
+    {"title": "Close Other Tabs from a pinned tab keeps both pinned tabs", "cmux": ["action", "run", "closeOtherTabsInPane"], "wait": 2},
+    {"title": "Unpin the terminal: it returns to the normal tabs", "cmux": ["action", "run", "palette.toggleTabPin"], "wait": 2}
+  ]
+}

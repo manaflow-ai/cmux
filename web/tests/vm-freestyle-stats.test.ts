@@ -40,11 +40,7 @@ async function readStats(
       if (path === "/v5/vms/vm-stats/exec-await" && init?.method === "POST") {
         resourceCalls.push("probe");
         expect(JSON.parse(String(init.body))).toMatchObject({ timeoutMs: 5_000, linuxUser: "nobody" });
-        if (options.resourceHttpStatus) {
-          // Freestyle names a missing machine; a bare 404 is only an unavailable sample.
-          const body = options.resourceHttpStatus === 404 ? { code: "NOT_FOUND", message: "VM not found" } : {};
-          return Response.json(body, { status: options.resourceHttpStatus });
-        }
+        if (options.resourceHttpStatus) return Response.json({}, { status: options.resourceHttpStatus });
         return Response.json({
           statusCode: options.resourceExitCode ?? 0,
           stdout: typeof options.resourceOutput === "string"

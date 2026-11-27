@@ -17,6 +17,7 @@ import {
 import {
   PUBLICATION_CALLBACK_PATH,
   hashPublicationToken,
+  isPublicationApiKey,
   isPublicationToken,
   normalizePublicationAuthOrigin,
   publicationPkceChallenge,
@@ -152,20 +153,24 @@ export function evaluatePublicationRequest(input: {
   readonly providerTlsRuleId: string;
   readonly method: string;
   readonly sessionToken: string | null;
+  /** The `__Host-cmux-api-key` cookie an API client sent, if any. */
+  readonly apiKey?: string | null;
   readonly now?: Date;
 }) {
   return Effect.gen(function* () {
     const repository = yield* PublicationAuthRepository;
     const viewerResolver = yield* PublicationViewerResolver;
     const now = input.now ?? new Date();
+    const apiKey = input.apiKey ?? null;
     const requestContext = yield* repository.findRequestContext({
       providerTlsRuleId: input.providerTlsRuleId,
       sessionTokenHash: isPublicationToken(input.sessionToken)
         ? hashPublicationToken(input.sessionToken) : null,
+      apiKeyHash: isPublicationApiKey(apiKey) ? hashPublicationToken(apiKey) : null,
       now,
     });
     if (!requestContext) return { kind: "not_found" } as const satisfies PublicationRequestEvaluation;
-    const { session, ...target } = requestContext;
+    const { session, apiKey: liveApiKey, ...target } = requestContext;
 
     if (target.publication.accessMode === "public") {
       // This can occur briefly during the fail-open-safe half of a protected ->
@@ -186,6 +191,16 @@ export function evaluatePublicationRequest(input: {
       }
     }
 
+    if (liveApiKey && (yield* publicationApiKeyOwnerAllowed(target, liveApiKey.ownerUserId, viewerResolver))) {
+      return { kind: "allow" } as const satisfies PublicationRequestEvaluation;
+    }
+    // An API client that sent a key gets a plain refusal, never a sign-in
+    // redirect. Only a well-formed key counts: junk in the cookie must not
+    // take a browser's way to sign in.
+    if (isPublicationApiKey(apiKey)) {
+      return { kind: "unauthorized" } as const satisfies PublicationRequestEvaluation;
+    }
+
     // Only a top-level browser navigation can complete the sign-in handoff.
     // Other methods fail without minting a transaction a browser could never
     // finish, so a scripted caller cannot grow the auth tables per request.
@@ -193,6 +208,25 @@ export function evaluatePublicationRequest(input: {
       return { kind: "unauthorized" } as const satisfies PublicationRequestEvaluation;
     }
     return { kind: "sign_in_required", target } as const satisfies PublicationRequestEvaluation;
+  });
+}
+
+/**
+ * An API key acts for the publication owner who minted it, so it works only
+ * while that owner still may manage the publication: a key on a team VM stops
+ * working the moment its owner leaves the team, without a revoke.
+ */
+function publicationApiKeyOwnerAllowed(
+  target: Pick<CloudVmPublicationTarget, "publication" | "vm">,
+  keyOwnerUserId: string,
+  viewerResolver: PublicationViewerResolverShape,
+) {
+  return Effect.gen(function* () {
+    if (keyOwnerUserId !== target.publication.ownerUserId) return false;
+    const owningTeamId = publicationOwningTeamId(target.vm);
+    if (owningTeamId === null) return true;
+    const owner = yield* viewerResolver.resolve(keyOwnerUserId);
+    return owner?.userId === keyOwnerUserId && owner.teamIds.includes(owningTeamId);
   });
 }
 

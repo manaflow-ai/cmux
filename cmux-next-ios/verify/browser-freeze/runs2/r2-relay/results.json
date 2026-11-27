@@ -1,0 +1,403 @@
+{
+  "args": {
+    "app": "/Users/cmux/brfreeze/app-ee3bedc8151e/CmuxMobileApp.app",
+    "sim": "cmux-brfz",
+    "runtime": "com.apple.CoreSimulator.SimRuntime.iOS-26-5",
+    "rig": "mini-cmux11s-mac-mini:~/brfreeze-rig:brfz-term",
+    "prepare_phone": false,
+    "out": "/Users/cmux/brfreeze/runs/r2-relay",
+    "bundle": "dev.cmux.app.internal",
+    "reuse": true,
+    "install": false,
+    "config": "relay",
+    "drop_permille": 0,
+    "bg": 0,
+    "url": [
+      "https://en.wikipedia.org/wiki/Cat",
+      "https://news.ycombinator.com",
+      "https://duckduckgo.com"
+    ],
+    "env": [],
+    "minutes": 10.0,
+    "phone_log": "info,cmux_mobile_link=debug,cmux_mobile_link_ffi=debug",
+    "page_y0": 130,
+    "page_y1": 740,
+    "change_threshold": 1.5
+  },
+  "t0": "04:50:03",
+  "minutes": 10.6,
+  "tabs": {
+    "A": "new-c33ece33-t1",
+    "B": "new-8d5e7da6-t1"
+  },
+  "freezes": [
+    {
+      "t": 1792817516.308031,
+      "utc": "04:51:56",
+      "kind": "phone-unresponsive",
+      "detail": "2 inputs in a row with no screen change in 8 s (last: search on A)",
+      "tab": "A",
+      "since_start_s": 112.8
+    },
+    {
+      "t": 1792817529.3197849,
+      "utc": "04:52:09",
+      "kind": "phone-unresponsive",
+      "detail": "3 inputs in a row with no screen change in 8 s (last: scroll-down on A)",
+      "tab": "A",
+      "since_start_s": 125.8
+    },
+    {
+      "t": 1792817538.761365,
+      "utc": "04:52:18",
+      "kind": "phone-unresponsive",
+      "detail": "4 inputs in a row with no screen change in 8 s (last: scroll-up on A)",
+      "tab": "A",
+      "since_start_s": 135.2
+    },
+    {
+      "t": 1792817570.8580532,
+      "utc": "04:52:50",
+      "kind": "phone-unresponsive",
+      "detail": "5 inputs in a row with no screen change in 8 s (last: search on A)",
+      "tab": "A",
+      "since_start_s": 167.3
+    },
+    {
+      "t": 1792817588.516795,
+      "utc": "04:53:08",
+      "kind": "phone-unresponsive",
+      "detail": "6 inputs in a row with no screen change in 8 s (last: long-scroll on A)",
+      "tab": "A",
+      "since_start_s": 185.0
+    },
+    {
+      "t": 1792817721.935529,
+      "utc": "04:55:21",
+      "kind": "phone-unresponsive",
+      "detail": "2 inputs in a row with no screen change in 8 s (last: scroll-down on B)",
+      "tab": "B",
+      "since_start_s": 318.4
+    },
+    {
+      "t": 1792817734.992169,
+      "utc": "04:55:34",
+      "kind": "phone-unresponsive",
+      "detail": "3 inputs in a row with no screen change in 8 s (last: tap on B)",
+      "tab": "B",
+      "since_start_s": 331.4
+    },
+    {
+      "t": 1792817745.04048,
+      "utc": "04:55:45",
+      "kind": "phone-unresponsive",
+      "detail": "4 inputs in a row with no screen change in 8 s (last: scroll-up on B)",
+      "tab": "B",
+      "since_start_s": 341.5
+    },
+    {
+      "t": 1792817756.637097,
+      "utc": "04:55:56",
+      "kind": "phone-unresponsive",
+      "detail": "5 inputs in a row with no screen change in 8 s (last: tap on B)",
+      "tab": "B",
+      "since_start_s": 353.1
+    },
+    {
+      "t": 1792817766.763735,
+      "utc": "04:56:06",
+      "kind": "phone-unresponsive",
+      "detail": "6 inputs in a row with no screen change in 8 s (last: scroll-down on B)",
+      "tab": "B",
+      "since_start_s": 363.2
+    },
+    {
+      "t": 1792817824.261203,
+      "utc": "04:57:04",
+      "kind": "phone-unresponsive",
+      "detail": "7 inputs in a row with no screen change in 8 s (last: search on B)",
+      "tab": "B",
+      "since_start_s": 420.7
+    },
+    {
+      "t": 1792817888.601323,
+      "utc": "04:58:08",
+      "kind": "phone-unresponsive",
+      "detail": "8 inputs in a row with no screen change in 8 s (last: scroll-down on B)",
+      "tab": "B",
+      "since_start_s": 485.1
+    },
+    {
+      "t": 1792817899.649107,
+      "utc": "04:58:19",
+      "kind": "phone-unresponsive",
+      "detail": "9 inputs in a row with no screen change in 8 s (last: scroll-down on B)",
+      "tab": "B",
+      "since_start_s": 496.1
+    },
+    {
+      "t": 1792817911.1048052,
+      "utc": "04:58:31",
+      "kind": "phone-unresponsive",
+      "detail": "10 inputs in a row with no screen change in 8 s (last: tap on B)",
+      "tab": "B",
+      "since_start_s": 507.6
+    },
+    {
+      "t": 1792817943.630649,
+      "utc": "04:59:03",
+      "kind": "phone-unresponsive",
+      "detail": "11 inputs in a row with no screen change in 8 s (last: search on B)",
+      "tab": "B",
+      "since_start_s": 540.1
+    },
+    {
+      "t": 1792817955.259263,
+      "utc": "04:59:15",
+      "kind": "phone-unresponsive",
+      "detail": "12 inputs in a row with no screen change in 8 s (last: tap on B)",
+      "tab": "B",
+      "since_start_s": 551.7
+    },
+    {
+      "t": 1792817968.554205,
+      "utc": "04:59:28",
+      "kind": "phone-unresponsive",
+      "detail": "13 inputs in a row with no screen change in 8 s (last: tap on B)",
+      "tab": "B",
+      "since_start_s": 565.0
+    },
+    {
+      "t": 1792818032.233552,
+      "utc": "05:00:32",
+      "kind": "phone-unresponsive",
+      "detail": "2 inputs in a row with no screen change in 8 s (last: search on A)",
+      "tab": "A",
+      "since_start_s": 628.7
+    }
+  ],
+  "per_minute": [
+    {
+      "minute": 0,
+      "decoded_frames": 90,
+      "fps_max": 29,
+      "carriers": [
+        "track"
+      ],
+      "kf_requests": 3,
+      "inputs": 0,
+      "no_response": 0,
+      "rtt_median_s": null
+    },
+    {
+      "minute": 1,
+      "decoded_frames": 30,
+      "fps_max": 16,
+      "carriers": [
+        "track"
+      ],
+      "kf_requests": 5,
+      "inputs": 3,
+      "no_response": 3,
+      "rtt_median_s": null
+    },
+    {
+      "minute": 2,
+      "decoded_frames": 270,
+      "fps_max": 39,
+      "carriers": [
+        "track"
+      ],
+      "kf_requests": 6,
+      "inputs": 3,
+      "no_response": 3,
+      "rtt_median_s": null
+    },
+    {
+      "minute": 3,
+      "decoded_frames": 480,
+      "fps_max": 55,
+      "carriers": [
+        "track"
+      ],
+      "kf_requests": 3,
+      "inputs": 11,
+      "no_response": 5,
+      "rtt_median_s": 3.43
+    },
+    {
+      "minute": 4,
+      "decoded_frames": 90,
+      "fps_max": 23,
+      "carriers": [
+        "track"
+      ],
+      "kf_requests": 3,
+      "inputs": 1,
+      "no_response": 1,
+      "rtt_median_s": null
+    },
+    {
+      "minute": 5,
+      "decoded_frames": 60,
+      "fps_max": 11,
+      "carriers": [
+        "track"
+      ],
+      "kf_requests": 4,
+      "inputs": 4,
+      "no_response": 4,
+      "rtt_median_s": null
+    },
+    {
+      "minute": 6,
+      "decoded_frames": 0,
+      "fps_max": 0,
+      "carriers": [],
+      "kf_requests": 6,
+      "inputs": 1,
+      "no_response": 1,
+      "rtt_median_s": null
+    },
+    {
+      "minute": 7,
+      "decoded_frames": 30,
+      "fps_max": 12,
+      "carriers": [
+        "track"
+      ],
+      "kf_requests": 1,
+      "inputs": 1,
+      "no_response": 1,
+      "rtt_median_s": null
+    },
+    {
+      "minute": 8,
+      "decoded_frames": 30,
+      "fps_max": 1,
+      "carriers": [
+        "track"
+      ],
+      "kf_requests": 6,
+      "inputs": 4,
+      "no_response": 4,
+      "rtt_median_s": null
+    },
+    {
+      "minute": 9,
+      "decoded_frames": 60,
+      "fps_max": 4,
+      "carriers": [
+        "track"
+      ],
+      "kf_requests": 9,
+      "inputs": 6,
+      "no_response": 5,
+      "rtt_median_s": 6.8
+    },
+    {
+      "minute": 10,
+      "decoded_frames": 120,
+      "fps_max": 4,
+      "carriers": [
+        "track"
+      ],
+      "kf_requests": 4,
+      "inputs": 1,
+      "no_response": 1,
+      "rtt_median_s": null
+    }
+  ],
+  "host_events": [
+    {
+      "t": 1792817405.994223,
+      "utc": "04:50:05",
+      "line": "link up session_id=\"980ba915-3084-44c8-964e-e4d7c282f2f8\" kind=WireGuard path=Turn phone=\"07d3d268-ebfe-4601-af11-a32bd5d268cd\" video=true timings=offer_received=0.0ms ice_servers_cached=0.0ms video_lane=115.7ms link_ready=115.7ms"
+    },
+    {
+      "t": 1792817405.994309,
+      "utc": "04:50:05",
+      "line": "link path changed session_id=\"980ba915-3084-44c8-964e-e4d7c282f2f8\" path=Turn"
+    },
+    {
+      "t": 1792817406.796943,
+      "utc": "04:50:06",
+      "line": "media session up session_id=\"1d97c14e-cccc-4804-8274-86e9f2f246c0\" link_session=\"980ba915-3084-44c8-964e-e4d7c282f2f8\" path=Turn timings=media_offer_received=0.0ms pc_created=0.2ms media_answer_sent=0.4ms remote_relay=0.4ms ice_checking=0.5"
+    },
+    {
+      "t": 1792817430.006421,
+      "utc": "04:50:30",
+      "line": "browser: another tab took the media lane; video returns to the channel"
+    },
+    {
+      "t": 1792817693.907047,
+      "utc": "04:54:53",
+      "line": "browser: another tab took the media lane; video returns to the channel"
+    },
+    {
+      "t": 1792817974.173614,
+      "utc": "04:59:34",
+      "line": "browser: the shown tab takes the media lane back"
+    },
+    {
+      "t": 1792817974.186662,
+      "utc": "04:59:34",
+      "line": "browser: another tab took the media lane; video returns to the channel"
+    },
+    {
+      "t": 1792817974.897185,
+      "utc": "04:59:34",
+      "line": "media route stalled (no feedback); video moves to the next route carrier=\"webrtc-track\""
+    },
+    {
+      "t": 1792817975.756492,
+      "utc": "04:59:35",
+      "line": "media lane switched route at a keyframe from=\"webrtc-track\" to=\"wireguard-udp\""
+    },
+    {
+      "t": 1792817976.984315,
+      "utc": "04:59:36",
+      "line": "media lane switched route at a keyframe from=\"wireguard-udp\" to=\"webrtc-track\""
+    }
+  ],
+  "decode_failed": [],
+  "phone_media_lines": [
+    "objc[80806]: Class UIAccessibilityLoaderWebShared is implemented in both /Library/Developer/CoreSimulator/Volumes/iOS_23F77/Library/Developer/CoreSimulator/Profiles/Runtimes/iOS 26.5.simruntime/Contents/Resources/RuntimeRoot/System/Library/AccessibilityBundles/WebKit.axbundle/WebKit (0x114bc0398) an",
+    "2026-10-24T04:50:05.991421Z DEBUG cmux_mobile_link::dial::wireguard: peer confirmed our datagrams reach it direct=Some(Route { carrier: Turn, addr: 104.184.154.177:55537 })",
+    "2026-10-24T04:50:06.006146Z DEBUG cmux_mobile_link::link: input lane attached role=Phone",
+    "2026-10-24T04:50:06.794488Z  INFO cmux_mobile_link::hybrid: media session up session=\"1d97c14e-cccc-4804-8274-86e9f2f246c0\"",
+    "2026-10-24T04:50:29.816242Z  INFO cmux_mobile_link_ffi::browser: browser: lane frames for another tab count=1 ours=\"f8a9cba7\" got=Some(\"68dd9ac3\") keyframe=true",
+    "2026-10-24T04:50:30.371986Z  INFO cmux_mobile_link_ffi::browser: browser: lane frames for another tab count=1 ours=\"68dd9ac3\" got=Some(\"f8a9cba7\") keyframe=true",
+    "2026-10-24T04:50:30.380141Z  INFO cmux_mobile_link_ffi::browser: browser: lane frames for another tab count=2 ours=\"68dd9ac3\" got=Some(\"f8a9cba7\") keyframe=false",
+    "2026-10-24T04:50:37.724300Z  INFO cmux_mobile_link_ffi::browser: browser: lane frames for another tab count=4 ours=\"68dd9ac3\" got=Some(\"f8a9cba7\") keyframe=false",
+    "2026-10-24T04:50:37.850700Z  INFO cmux_mobile_link_ffi::browser: browser: lane frames for another tab count=8 ours=\"68dd9ac3\" got=Some(\"f8a9cba7\") keyframe=false",
+    "2026-10-24T04:51:17.592184Z  INFO cmux_mobile_link_ffi::browser: browser: lane frames for another tab count=16 ours=\"68dd9ac3\" got=Some(\"f8a9cba7\") keyframe=false",
+    "2026-10-24T04:51:18.174315Z  INFO cmux_mobile_link_ffi::browser: browser: lane frames for another tab count=32 ours=\"68dd9ac3\" got=Some(\"f8a9cba7\") keyframe=false",
+    "2026-10-24T04:52:11.448076Z  INFO cmux_mobile_link_ffi::browser: browser: lane frames for another tab count=64 ours=\"68dd9ac3\" got=Some(\"f8a9cba7\") keyframe=false",
+    "2026-10-24T04:52:53.209484Z  INFO cmux_mobile_link_ffi::browser: browser: lane frames for another tab count=128 ours=\"68dd9ac3\" got=Some(\"f8a9cba7\") keyframe=false",
+    "2026-10-24T04:52:59.917497Z DEBUG cmux_mobile_link::media::receiver: media receiver: gave a gap up; asking for a keyframe next=4294981662 highest=4294981840 hole=true",
+    "2026-10-24T04:53:00.080854Z  INFO cmux_mobile_link_ffi::browser: browser: lane frames for another tab count=256 ours=\"68dd9ac3\" got=Some(\"f8a9cba7\") keyframe=false",
+    "2026-10-24T04:53:19.467508Z  INFO cmux_mobile_link_ffi::browser: browser: lane frames for another tab count=512 ours=\"68dd9ac3\" got=Some(\"f8a9cba7\") keyframe=false",
+    "2026-10-24T04:54:53.718650Z  INFO cmux_mobile_link_ffi::browser: browser: lane frames for another tab count=1 ours=\"0b50c01c\" got=Some(\"f8a9cba7\") keyframe=true",
+    "2026-10-24T04:54:54.254645Z  INFO cmux_mobile_link_ffi::browser: browser: lane frames for another tab count=2 ours=\"f8a9cba7\" got=Some(\"0b50c01c\") keyframe=true",
+    "2026-10-24T04:55:01.143916Z  INFO cmux_mobile_link_ffi::browser: browser: lane frames for another tab count=4 ours=\"f8a9cba7\" got=Some(\"0b50c01c\") keyframe=false",
+    "2026-10-24T04:55:10.588539Z  INFO cmux_mobile_link_ffi::browser: browser: lane frames for another tab count=8 ours=\"f8a9cba7\" got=Some(\"0b50c01c\") keyframe=false",
+    "2026-10-24T04:55:14.566175Z  INFO cmux_mobile_link_ffi::browser: browser: lane frames for another tab count=16 ours=\"f8a9cba7\" got=Some(\"0b50c01c\") keyframe=false",
+    "2026-10-24T04:55:37.377964Z  INFO cmux_mobile_link_ffi::browser: browser: lane frames for another tab count=32 ours=\"f8a9cba7\" got=Some(\"0b50c01c\") keyframe=false",
+    "2026-10-24T04:55:59.521680Z  INFO cmux_mobile_link_ffi::browser: browser: lane frames for another tab count=64 ours=\"f8a9cba7\" got=Some(\"0b50c01c\") keyframe=false",
+    "2026-10-24T04:59:34.205584Z  INFO cmux_mobile_link_ffi::browser: browser: lane frames for another tab count=2 ours=\"0b50c01c\" got=Some(\"f8a9cba7\") keyframe=true",
+    "2026-10-24T04:59:34.329557Z  INFO cmux_mobile_link_ffi::browser: browser: lane frames for another tab count=4 ours=\"0b50c01c\" got=Some(\"f8a9cba7\") keyframe=true",
+    "2026-10-24T04:59:35.769937Z  INFO cmux_mobile_link::media: media gate: nothing passed for 250 ms; asking for a keyframe source=1 current=Some(2) keyframe=true tag=Some(\"f8a9cba7\") ts=49003043 newest=Some(49003043) carrier=Some(\"wireguard-udp\")",
+    "2026-10-24T04:59:40.573754Z  INFO cmux_mobile_link_ffi::browser: browser: lane frames for another tab count=8 ours=\"0b50c01c\" got=Some(\"f8a9cba7\") keyframe=true",
+    "2026-10-24T04:59:47.210334Z  INFO cmux_mobile_link_ffi::browser: browser: lane frames for another tab count=16 ours=\"0b50c01c\" got=Some(\"f8a9cba7\") keyframe=true",
+    "2026-10-24T04:59:54.454803Z  INFO cmux_mobile_link_ffi::browser: browser: lane frames for another tab count=32 ours=\"0b50c01c\" got=Some(\"f8a9cba7\") keyframe=true",
+    "2026-10-24T04:59:56.270823Z  INFO cmux_mobile_link_ffi::browser: browser: lane frames for another tab count=1024 ours=\"68dd9ac3\" got=Some(\"f8a9cba7\") keyframe=true",
+    "2026-10-24T05:00:04.126856Z  INFO cmux_mobile_link_ffi::browser: browser: lane frames for another tab count=64 ours=\"0b50c01c\" got=Some(\"f8a9cba7\") keyframe=true",
+    "2026-10-24T05:00:14.572665Z DEBUG cmux_mobile_link::media::receiver: media receiver: gave a gap up; asking for a keyframe next=4294990865 highest=4294990966 hole=true",
+    "2026-10-24T05:00:22.316512Z  INFO cmux_mobile_link_ffi::browser: browser: lane frames for another tab count=128 ours=\"0b50c01c\" got=Some(\"f8a9cba7\") keyframe=true",
+    "2026-10-24T05:00:30.844471Z DEBUG cmux_mobile_link::media::receiver: media receiver: gave a gap up; asking for a keyframe next=4294996598 highest=4294996711 hole=true",
+    "2026-10-24T05:00:35.424674Z DEBUG cmux_mobile_link::media::receiver: media receiver: gave a gap up; asking for a keyframe next=4294998323 highest=4294998436 hole=false",
+    "2026-10-24T05:00:38.695022Z DEBUG cmux_mobile_link::media::receiver: media receiver: gave a gap up; asking for a keyframe next=4294999588 highest=4294999702 hole=true",
+    "2026-10-24T05:00:39.600300Z DEBUG cmux_mobile_link::media::receiver: media receiver: gave a gap up; asking for a keyframe next=4294999933 highest=4295000047 hole=true"
+  ]
+}

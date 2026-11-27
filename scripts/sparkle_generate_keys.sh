@@ -1,9 +1,14 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+# The output contains the private update-signing key. Keep both newly created
+# files and replacement temporaries private regardless of the caller's umask.
+umask 077
+
 SPARKLE_VERSION="${SPARKLE_VERSION:-2.8.1}"
 SPARKLE_KEYCHAIN_ACCOUNT="${SPARKLE_KEYCHAIN_ACCOUNT:-cmux}"
 SPARKLE_ENV_FILE="${SPARKLE_ENV_FILE:-.env}"
+SPARKLE_281_TARBALL_SHA256="5cddb7695674ef7704268f38eccaee80e3accbf19e61c1689efff5b6116d85be"
 
 work_dir="$(mktemp -d)"
 cleanup() {
@@ -11,19 +16,26 @@ cleanup() {
 }
 trap cleanup EXIT
 
-echo "Cloning Sparkle ${SPARKLE_VERSION}..."
-git clone --depth 1 --branch "$SPARKLE_VERSION" https://github.com/sparkle-project/Sparkle "$work_dir/Sparkle"
+if [[ "$SPARKLE_VERSION" != 2.8.1 ]]; then
+  echo "Unsupported Sparkle tools version $SPARKLE_VERSION; add and review its release tarball checksum first." >&2
+  exit 1
+fi
 
-echo "Building Sparkle generate_keys tool..."
-xcodebuild \
-  -project "$work_dir/Sparkle/Sparkle.xcodeproj" \
-  -scheme generate_keys \
-  -configuration Release \
-  -derivedDataPath "$work_dir/build" \
-  CODE_SIGNING_ALLOWED=NO \
-  build >/dev/null
+echo "Downloading verified Sparkle ${SPARKLE_VERSION} tools..."
+tarball="$work_dir/Sparkle-${SPARKLE_VERSION}.tar.xz"
+curl --proto '=https' --tlsv1.2 --fail --silent --show-error --location \
+  --retry 3 --retry-delay 2 --connect-timeout 15 --max-time 300 \
+  -o "$tarball" \
+  "https://github.com/sparkle-project/Sparkle/releases/download/${SPARKLE_VERSION}/Sparkle-${SPARKLE_VERSION}.tar.xz"
+actual_sha="$(shasum -a 256 "$tarball" | awk '{print $1}')"
+if [[ "$actual_sha" != "$SPARKLE_281_TARBALL_SHA256" ]]; then
+  echo "Sparkle ${SPARKLE_VERSION} tarball checksum mismatch: $actual_sha" >&2
+  exit 1
+fi
+mkdir -p "$work_dir/Sparkle"
+tar -xf "$tarball" -C "$work_dir/Sparkle" ./bin
 
-generate_keys="$work_dir/build/Build/Products/Release/generate_keys"
+generate_keys="$work_dir/Sparkle/bin/generate_keys"
 if [[ ! -x "$generate_keys" ]]; then
   echo "generate_keys binary not found at $generate_keys" >&2
   exit 1

@@ -1,0 +1,20 @@
+{
+  "title": "Subagent tray: eases in, folds shut and open, ticks as each subagent ends, and leaves, beside a received message (debug seed_rows fixture \"subagents\", webviews subagentsFixture.ts). Record it with: cmux-ci capture SHA --state scripts/cmux-next/media/states/subagent-tray.json --video",
+  "launch_args": ["--showcase"],
+  "frameInterval": 0.25,
+  "steps": [
+    {"title": "Open a main workspace", "cmux": ["action", "run", "newTab", "--name", "Tray capture", "--focus", "--cwd", "/tmp"]},
+    {"title": "Open a chat", "cmux": ["agent", "new-chat", "--cwd", "/tmp"]},
+    {"title": "Wait for the chat page", "rpc": {"method": "debug.agent_pane", "params": {"action": "chat_state"}}},
+    {"title": "Start the chat's session (the showcase mock answers): the tray's entrance plays only in a chat with one", "rpc": {"method": "debug.agent_pane", "params": {"action": "send_prompt", "text": "Review the tray motion"}}, "wait": 4, "shot": false},
+    {"title": "The chat has a session", "rpc": {"method": "debug.agent_pane", "params": {"action": "chat_state"}}, "shot": false},
+    {"title": "The ask, no subagent yet", "rpc": {"method": "debug.agent_pane", "params": {"action": "seed_rows", "fixture": "subagents", "count": 0}}, "wait": 1.5},
+    {"title": "Two subagents start: the tray eases in", "rpc": {"method": "debug.agent_pane", "params": {"action": "seed_rows", "fixture": "subagents", "count": 1}}, "wait": 1.5},
+    {"title": "Fold the tray shut", "rpc": {"method": "debug.agent_pane", "params": {"action": "click", "selector": ".acpmux-running-tray__head"}}, "wait": 1.25},
+    {"title": "Fold it open", "rpc": {"method": "debug.agent_pane", "params": {"action": "click", "selector": ".acpmux-running-tray__head"}}, "wait": 1.25},
+    {"title": "A message arrives beside the tray", "rpc": {"method": "debug.agent_pane", "params": {"action": "seed_rows", "fixture": "subagents", "count": 2}}, "wait": 1.5},
+    {"title": "The reviewer ends: the count ticks", "rpc": {"method": "debug.agent_pane", "params": {"action": "seed_rows", "fixture": "subagents", "count": 3}}, "wait": 1.5},
+    {"title": "The auditor ends", "rpc": {"method": "debug.agent_pane", "params": {"action": "seed_rows", "fixture": "subagents", "count": 4}}, "wait": 1.5},
+    {"title": "The group goes: the tray leaves", "rpc": {"method": "debug.agent_pane", "params": {"action": "seed_rows", "fixture": "subagents", "count": 5}}, "wait": 1.5}
+  ]
+}

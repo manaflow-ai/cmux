@@ -1,0 +1,172 @@
+{
+  "meta": {
+    "date": "2026-10-14",
+    "run": "055005-ios26",
+    "ios_head": "9cb1b24215ebfb83479251cf6814bb6faa75cc16",
+    "ios_config": "Demo",
+    "ios_runtime": "com.apple.CoreSimulator.SimRuntime.iOS-26-5",
+    "simulator": {
+      "name": "cnx-term-review",
+      "udid": "5C77944D-50D2-4AB7-9779-BCA202E0C9B8"
+    },
+    "mac_app": "cmux DEV cnx-e2e-604fc689.app",
+    "mac_bundle_id": "com.cmuxterm.app.debug.cnx.e2e.604fc689",
+    "mac_tag": "cnx-e2e-604fc689",
+    "mac_source": "origin/feat-cnx-ios-machost 604fc6893acca49b81b7cbf2763e4503ae94776f; fleet job f9133c722640bee8bd62af2b, tag cnx-e2e-604fc689",
+    "mac_launch_s": 0.2,
+    "mac_windows": []
+  },
+  "steps": [
+    {
+      "id": "fresh_install",
+      "title": "Fresh install and Welcome",
+      "owner": "wsdesign",
+      "started": 1791982234.854424,
+      "status": "pass",
+      "notes": "Welcome in 0.9 s: ['Your Macs, in your pocket.', 'Continue with Google', 'GoogleLogo']",
+      "seconds": 3.9,
+      "screenshot": "shots/01-fresh_install.png"
+    },
+    {
+      "id": "sign_in",
+      "title": "Sign in (dev account, email 42)",
+      "owner": "prodinfra",
+      "started": 1791982239.54878,
+      "status": "pass",
+      "notes": "signed in with the DEBUG dev credential (email 42) in 2.0 s",
+      "metric_signin_s": 1.99,
+      "seconds": 9.03,
+      "screenshot": "shots/02-sign_in.png"
+    },
+    {
+      "id": "choose_space",
+      "title": "Choose team / personal, setup steps",
+      "owner": "wsdesign",
+      "started": 1791982249.827657,
+      "status": "pass",
+      "notes": "space: Personal; connect step: Aziz\u2019s MacBook Pro is online",
+      "seconds": 7.03,
+      "screenshot": "shots/03-choose_space.png"
+    },
+    {
+      "id": "mac_discovered",
+      "title": "Mac discovered, no false 'No workspaces'",
+      "owner": "fastconn",
+      "started": 1791982258.433944,
+      "status": "pass",
+      "notes": "Filter > rig Mac: rows in 1.8 s; link 'Aziz's MacBook Pro 1952 Online \u2022 Connected \u2022 WebRTC direct \u2022 0 ms'",
+      "seconds": 16.48,
+      "screenshot": "shots/04-mac_discovered.png"
+    },
+    {
+      "id": "workspace_list",
+      "title": "Workspaces list filtered by Mac matches the Mac",
+      "owner": "dataflow",
+      "started": 1791982276.1045618,
+      "status": "pass",
+      "notes": "3 rows match the Mac (Home, e2e-055031, workspace-1)",
+      "seconds": 0.79,
+      "screenshot": "shots/05-workspace_list.png"
+    },
+    {
+      "id": "open_workspace",
+      "title": "Open workspace",
+      "owner": "wsdesign",
+      "started": 1791982278.020837,
+      "status": "pass",
+      "notes": "opened e2e-055031 on a terminal in 1.25 s; toolbar ['e2e-t1, ~']",
+      "seconds": 2.28,
+      "screenshot": "shots/06-open_workspace.png"
+    },
+    {
+      "id": "last_tab_restore",
+      "title": "Last-tab restore and tab grid",
+      "owner": "wsdesign",
+      "started": 1791982281.204061,
+      "status": "pass",
+      "notes": "reopened on the last tab (e2e-t2); grid switch back to e2e-t1",
+      "seconds": 65.76,
+      "screenshot": "shots/07-last_tab_restore.png"
+    },
+    {
+      "id": "term_direct",
+      "title": "Terminal: direct typing (soft keyboard)",
+      "owner": "termlive",
+      "started": 1791982347.91269,
+      "status": "pass",
+      "notes": "typed 'echo d81778' + return on the software keyboard; the Mac ran it",
+      "seconds": 13.62,
+      "screenshot": "shots/08-term_direct.png"
+    },
+    {
+      "id": "term_composer",
+      "title": "Terminal: composer",
+      "owner": "termlive",
+      "started": 1791982362.713265,
+      "status": "pass",
+      "notes": "composer sent 'echo c97933'",
+      "seconds": 17.93,
+      "screenshot": "shots/09-term_composer.png"
+    },
+    {
+      "id": "term_keys",
+      "title": "Terminal: ^C, arrows, joystick",
+      "owner": "termlive",
+      "started": 1791982381.605655,
+      "status": "fail",
+      "notes": "key bar has no 'Left Arrow'",
+      "trace": "Traceback (most recent call last):\n  File \"/Users/azizalbahar/Development/cmuxterm-hq/worktrees/feat-cnx-ios-term-review/cnx-ios/verify/e2e/journey.py\", line 85, in step\n    notes = fn() or {}\n  File \"/Users/azizalbahar/Development/cmuxterm-hq/worktrees/feat-cnx-ios-term-review/cnx-ios/verify/e2e/journey.py\", line 593, in s_term_keys\n    self.keybar_reveal(\"Left Arrow\")\n  File \"/Users/azizalbahar/Development/cmuxterm-hq/worktrees/feat-cnx-ios-term-review/cnx-ios/verify/e2e/journey.py\", line 261, in keybar_reveal\n    check(e, f\"key bar has no {label!r}\")\njourney.Fail: key bar has no 'Left Arrow'\n",
+      "seconds": 125.33,
+      "screenshot": "shots/10-term_keys.png"
+    },
+    {
+      "id": "term_tui",
+      "title": "Terminal: vim and top TUI",
+      "owner": "termlive",
+      "started": 1791982508.346988,
+      "status": "fail",
+      "notes": "vim edit did not reach the Mac file",
+      "trace": "Traceback (most recent call last):\n  File \"/Users/azizalbahar/Development/cmuxterm-hq/worktrees/feat-cnx-ios-term-review/cnx-ios/verify/e2e/journey.py\", line 85, in step\n    notes = fn() or {}\n  File \"/Users/azizalbahar/Development/cmuxterm-hq/worktrees/feat-cnx-ios-term-review/cnx-ios/verify/e2e/journey.py\", line 633, in s_term_tui\n    check(os.path.exists(path) and \"hello e2e\" in open(path).read(), \"vim edit did not reach the Mac file\")\n  File \"/Users/azizalbahar/Development/cmuxterm-hq/worktrees/feat-cnx-ios-term-review/cnx-ios/verify/e2e/journey.py\", line 28, in check\n    raise Fail(msg)\njourney.Fail: vim edit did not reach the Mac file\n",
+      "seconds": 78.78,
+      "screenshot": "shots/11-term_tui.png"
+    },
+    {
+      "id": "term_scrollback",
+      "title": "Terminal: scrollback",
+      "owner": "termlive",
+      "started": 1791982588.513133,
+      "status": "pass",
+      "notes": "B1: after clear the first row is at y 66 pt and a short session does not scroll; scrolled back through 400 lines; jump-to-bottom tapped",
+      "seconds": 23.57,
+      "screenshot": "shots/12-term_scrollback.png"
+    },
+    {
+      "id": "files_links",
+      "title": "Terminal: Files and Links preview",
+      "owner": "termlive",
+      "started": 1791982613.0156312,
+      "status": "pass",
+      "notes": "listed cnx-e2e-055031-sample.md; preview shows the refusal (not blank); link listed; preview refused: accessibility id artifacts.preview.refused",
+      "seconds": 17.01,
+      "screenshot": "shots/13-files_links.png"
+    },
+    {
+      "id": "background",
+      "title": "Background 45 s / foreground reconnect",
+      "owner": "fastconn",
+      "started": 1791982630.9074502,
+      "status": "pass",
+      "notes": "45 s in background; Connected 4.28 s after foreground; terminal input reached the Mac",
+      "metric_foreground_reconnect_s": 4.28,
+      "seconds": 79.37,
+      "screenshot": "shots/14-background.png"
+    }
+  ],
+  "latency": {},
+  "hangs": [],
+  "summary": {
+    "pass": 12,
+    "fail": 2,
+    "blocked": 0
+  }
+}

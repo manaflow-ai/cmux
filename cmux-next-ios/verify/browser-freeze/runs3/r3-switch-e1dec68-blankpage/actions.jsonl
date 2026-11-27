@@ -1,0 +1,36 @@
+{"t": 1792819679.46, "utc": "05:27:59", "tab": "A", "act": "open", "name": "A", "url": "https://en.wikipedia.org/wiki/Cat", "load_s": 23.3, "key": "new-36e00711-t1", "mac_ws": "ws_75efce61ba0031214ae1d9818653ed40", "row": "workspace.row.4ac9b986-197a-4497-9c1e-3d2a3335c5f9"}
+{"t": 1792819689.95, "utc": "05:28:09", "tab": "A", "act": "scroll-down", "rtt": null}
+{"t": 1792819699.25, "utc": "05:28:19", "tab": "A", "act": "scroll-up", "rtt": null}
+{"t": 1792819710.95, "utc": "05:28:30", "tab": "A", "act": "scroll-down", "rtt": null}
+{"t": 1792819719.99, "utc": "05:28:39", "tab": "A", "act": "scroll-up", "rtt": null}
+{"t": 1792819721.73, "utc": "05:28:41", "tab": "A", "act": "still-idle", "seconds": 70}
+{"t": 1792819792.26, "utc": "05:29:52", "tab": "A", "act": "still-idle-end", "reconnecting": []}
+{"t": 1792819800.86, "utc": "05:30:00", "tab": "A", "act": "scroll-up", "rtt": null}
+{"t": 1792819811.64, "utc": "05:30:11", "tab": "A", "act": "scroll-down", "rtt": null}
+{"t": 1792819821.24, "utc": "05:30:21", "tab": "A", "act": "scroll-down", "rtt": null}
+{"t": 1792819831.52, "utc": "05:30:31", "tab": "A", "act": "scroll-down", "rtt": null}
+{"t": 1792819832.25, "utc": "05:30:32", "tab": "A", "act": "still-idle", "seconds": 70}
+{"t": 1792819902.75, "utc": "05:31:42", "tab": "A", "act": "still-idle-end", "reconnecting": []}
+{"t": 1792819911.25, "utc": "05:31:51", "tab": "A", "act": "scroll-up", "rtt": null}
+{"t": 1792819923.85, "utc": "05:32:03", "tab": "A", "act": "tap", "rtt": null, "at": [297, 314]}
+{"t": 1792819934.55, "utc": "05:32:14", "tab": "A", "act": "scroll-down", "rtt": null}
+{"t": 1792819947.0, "utc": "05:32:27", "tab": "A", "act": "tap", "rtt": null, "at": [112, 511]}
+{"t": 1792819948.87, "utc": "05:32:28", "tab": "A", "act": "still-idle", "seconds": 70}
+{"t": 1792820019.21, "utc": "05:33:39", "tab": "A", "act": "still-idle-end", "reconnecting": []}
+{"t": 1792820029.7, "utc": "05:33:49", "tab": "A", "act": "tap", "rtt": null, "at": [288, 446]}
+{"t": 1792820042.91, "utc": "05:34:02", "tab": "A", "act": "tap", "rtt": null, "at": [136, 571]}
+{"t": 1792820052.25, "utc": "05:34:12", "tab": "A", "act": "scroll-down", "rtt": null}
+{"t": 1792820063.55, "utc": "05:34:23", "tab": "A", "act": "tap", "rtt": null, "at": [148, 460]}
+{"t": 1792820065.12, "utc": "05:34:25", "tab": "A", "act": "still-idle", "seconds": 70}
+{"t": 1792820135.63, "utc": "05:35:35", "tab": "A", "act": "still-idle-end", "reconnecting": []}
+{"t": 1792820146.32, "utc": "05:35:46", "tab": "A", "act": "tap", "rtt": null, "at": [75, 609]}
+{"t": 1792820155.56, "utc": "05:35:55", "tab": "A", "act": "scroll-down", "rtt": null}
+{"t": 1792820165.52, "utc": "05:36:05", "tab": "A", "act": "scroll-up", "rtt": null}
+{"t": 1792820175.97, "utc": "05:36:15", "tab": "A", "act": "scroll-down", "rtt": null}
+{"t": 1792820177.1, "utc": "05:36:17", "tab": "A", "act": "still-idle", "seconds": 70}
+{"t": 1792820248.46, "utc": "05:37:28", "tab": "A", "act": "still-idle-end", "reconnecting": []}
+{"t": 1792820261.9, "utc": "05:37:41", "tab": "A", "act": "scroll-down", "rtt": null}
+{"t": 1792820276.92, "utc": "05:37:56", "tab": "A", "act": "scroll-up", "rtt": null}
+{"t": 1792820291.62, "utc": "05:38:11", "tab": "A", "act": "tap", "rtt": null, "at": [286, 510]}
+{"t": 1792820293.5, "utc": "05:38:13", "tab": "A", "act": "still-idle", "seconds": 70}
+{"t": 1792820364.34, "utc": "05:39:24", "tab": "A", "act": "still-idle-end", "reconnecting": []}

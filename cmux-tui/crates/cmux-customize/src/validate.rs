@@ -1,0 +1,363 @@
+//! Validate before apply: what is wrong with the live tree, by file and
+//! line, in the words of the validators cmux itself runs (the settings
+//! owner's schema, the app manifest validator).
+//!
+//! A problem never stops a preview: each surface already keeps its last good
+//! version on screen when a save does not load. It stops an apply, so a
+//! generation is always a setup that loads. One kind never stops a change
+//! that leaves it alone: a settings value the person's file already held
+//! that the schema refuses (the app reads that key as its default), see
+//! [`introduced`].
+
+use std::collections::BTreeMap;
+
+use cmux_app_manifest::hidden;
+use cmux_config::{FileRead, Schema, State, jsonc};
+use serde::Serialize;
+use serde_json::Value;
+
+use crate::tree::Part;
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct Problem {
+    /// The logical path of the file.
+    pub path: String,
+    pub part: Part,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub line: Option<u32>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub column: Option<u32>,
+    pub message: String,
+    /// For a settings value the schema refuses: its key and a digest of the
+    /// value as written, so [`introduced`] can tell a value the person's
+    /// file already held from one a change brings. Never shown: the value
+    /// may be a credential typed under the wrong key.
+    #[serde(skip)]
+    setting: Option<(String, u64)>,
+    /// For a stylesheet that would load something by address: a digest of
+    /// the file as written, so [`introduced`] can tell a sheet the person
+    /// already had from one a change brings. The pane refuses it either way.
+    #[serde(skip)]
+    held: Option<u64>,
+}
+
+impl Problem {
+    fn at(
+        path: &str,
+        line: Option<u32>,
+        column: Option<u32>,
+        message: impl Into<String>,
+    ) -> Problem {
+        Problem {
+            path: path.to_owned(),
+            part: Part::of(path),
+            line,
+            column,
+            message: message.into(),
+            setting: None,
+            held: None,
+        }
+    }
+
+    /// The dotted key of a settings value the schema refuses, when that is
+    /// what this problem is.
+    pub(crate) fn refused_setting(&self) -> Option<&str> {
+        self.setting.as_ref().map(|(key, _)| key.as_str())
+    }
+
+    /// `themes/night.json:14:9: message`, the shape a compiler prints.
+    pub fn line(&self) -> String {
+        match (self.line, self.column) {
+            (Some(line), Some(column)) => {
+                format!("{}:{line}:{column}: {}", self.path, self.message)
+            }
+            (Some(line), None) => format!("{}:{line}: {}", self.path, self.message),
+            _ => format!("{}: {}", self.path, self.message),
+        }
+    }
+}
+
+/// Every problem in `files` (logical path to bytes). Only the paths given
+/// are read, so a caller checks just what changed, or the whole tree.
+pub fn problems(files: &BTreeMap<String, Vec<u8>>) -> Vec<Problem> {
+    let mut found = Vec::new();
+    for (path, bytes) in files {
+        let Ok(text) = std::str::from_utf8(bytes) else {
+            if is_text_path(path) {
+                found.push(Problem::at(path, None, None, "is not UTF-8 text"));
+            }
+            continue;
+        };
+        // The one rule an app's script and manifest are held to at load
+        // (cmux_app_manifest::hidden), so a draft never passes here and
+        // fails there.
+        if let Some(mark) = hidden::first_hidden(text, hidden::Context::Code) {
+            found.push(Problem::at(
+                path,
+                Some(mark.line),
+                Some(mark.column),
+                format!(
+                    "has {} ({}); what you read is not what runs",
+                    mark.describe(),
+                    mark.code_point
+                ),
+            ));
+        }
+        match Part::of(path) {
+            Part::Settings => settings(path, text, &mut found),
+            Part::Keybindings => keybindings(path, text, &mut found),
+            Part::Themes | Part::Automations => {
+                json_object(path, text, &mut found);
+            }
+            Part::Views => view(path, text, files, &mut found),
+            // cmux.stylesheetGuard/1 (schemas/agent-pane/stylesheet-guard.json): a stylesheet is
+            // any CSS, but the surface refuses one that loads something by address, so a draft
+            // that would be refused there never passes here.
+            Part::Styles => {
+                if let Some(why) = crate::community::fetches(text) {
+                    let mut problem = Problem::at(
+                        path,
+                        None,
+                        None,
+                        format!(
+                            "{why}; a stylesheet loads nothing by address (inline images as data: URLs)"
+                        ),
+                    );
+                    problem.held = Some(digest(&Value::String(text.to_owned())));
+                    found.push(problem);
+                }
+            }
+        }
+    }
+    // Whatever a validator quoted from a file goes through the same masking
+    // as a diff: a problem is read by agents too.
+    for problem in &mut found {
+        problem.message = crate::redact::text(&problem.message);
+    }
+    found
+}
+
+fn is_text_path(path: &str) -> bool {
+    [".json", ".js", ".ts", ".css", ".md", ".txt"].iter().any(|ending| path.ends_with(ending))
+}
+
+fn settings(path: &str, text: &str, found: &mut Vec<Problem>) {
+    if text.trim().is_empty() {
+        return;
+    }
+    if json_object(path, text, found).is_none() {
+        return;
+    }
+    // The owner's own reading of the file: no managed layers and no published
+    // value domains, as `cmux settings validate` reads it.
+    let state = State::new(
+        Schema::embedded(),
+        FileRead::Text(text.to_owned()),
+        Default::default(),
+        Default::default(),
+        Default::default(),
+        0,
+    );
+    let document = jsonc::parse(text).ok();
+    for diagnostic in state.snapshot().diagnostics {
+        let (line, column) = line_of_key(text, &diagnostic.path).unzip();
+        // The owner's message quotes the refused value, and a value may be
+        // a credential typed under the wrong key. The key and its line say
+        // where to look; the value stays in the file.
+        let (message, setting) = match diagnostic.kind {
+            cmux_config::diagnostics::DiagnosticKind::InvalidValue => {
+                let written = document
+                    .as_ref()
+                    .filter(|_| !diagnostic.path.is_empty())
+                    .and_then(|document| written_at(document, &diagnostic.path));
+                (
+                    if diagnostic.path == "workspaceColors.indicatorStyle" {
+                        "workspaceColors.indicatorStyle has an unsupported value; use \"dot\", \"leftRail\" or \"fill\" (legacy \"solidFill\" is accepted)".to_owned()
+                    } else {
+                        format!("{} has a value this setting does not accept", diagnostic.path)
+                    },
+                    written.map(|value| (diagnostic.path.clone(), digest(value))),
+                )
+            }
+            _ => (diagnostic.message, None),
+        };
+        let mut problem = Problem::at(path, line, column, message);
+        problem.setting = setting;
+        found.push(problem);
+    }
+}
+
+/// The problems in `after` that `before` does not already have.
+///
+/// A settings value the schema refuses that `before` held at the same key,
+/// unchanged, is the person's own: the app reads that one key as its
+/// default and says so on its Settings row, and status still lists it. It
+/// never stops a change that leaves it alone (a person's file held a value
+/// an older build wrote, `"workspaceColors.indicatorStyle": "solidFill"`,
+/// and every `cmux customize use` of any profile was refused,
+/// ask-180d77061a). The file keeps it as written: nothing here rewrites it.
+/// A stylesheet that would load something by address, held unchanged, is
+/// the person's own the same way: the pane refuses it and status lists it,
+/// but it never stops a change that leaves it alone.
+/// Every other problem counts, a refused value a change writes too.
+pub(crate) fn introduced(after: Vec<Problem>, before: &[Problem]) -> Vec<Problem> {
+    after
+        .into_iter()
+        .filter(|problem| {
+            let held = |had: &Problem| {
+                had.path == problem.path
+                    && ((problem.setting.is_some() && had.setting == problem.setting)
+                        || (problem.held.is_some() && had.held == problem.held))
+            };
+            (problem.setting.is_none() && problem.held.is_none()) || !before.iter().any(held)
+        })
+        .collect()
+}
+
+/// The value written under a dotted key, found the way the settings reader
+/// finds it (its key path).
+fn written_at<'a>(document: &'a Value, dotted: &str) -> Option<&'a Value> {
+    cmux_config::value::value_at(document, &cmux_config::keypath::key_path(dotted))
+}
+
+/// Tells two written values apart without keeping either.
+fn digest(value: &Value) -> u64 {
+    use std::hash::{Hash, Hasher};
+    let mut hasher = std::collections::hash_map::DefaultHasher::new();
+    value.to_string().hash(&mut hasher);
+    hasher.finish()
+}
+
+/// The shortcuts file by its own reader (`cmux_config::keybindings`): a
+/// JSONC array of bindings, and an empty or comment-only file is fine. Only
+/// a file that reader cannot load at all stops an apply; one bad entry is
+/// skipped by the app and shown on its Settings row, as before.
+fn keybindings(path: &str, text: &str, found: &mut Vec<Problem>) {
+    let unreadable = cmux_config::keybindings::parse(text)
+        .diagnostics
+        .into_iter()
+        .find(|entry| entry.problem == cmux_config::keybindings::Problem::UnreadableFile);
+    let Some(unreadable) = unreadable else { return };
+    // The parse error with its line when the text is not JSON at all.
+    match json_value(path, text, found) {
+        Some(value) if value.is_array() => {
+            found.push(Problem::at(path, Some(1), None, unreadable.message));
+        }
+        Some(_) => found.push(Problem::at(
+            path,
+            Some(1),
+            None,
+            "must be a JSON array of bindings, like [{ \"key\": \"cmd+k\", \"command\": \"...\" }]",
+        )),
+        None => {}
+    }
+}
+
+/// Parses a JSON object with comments; pushes what is wrong with its position.
+fn json_object(path: &str, text: &str, found: &mut Vec<Problem>) -> Option<Value> {
+    match json_value(path, text, found) {
+        Some(value) if value.is_object() => Some(value),
+        Some(_) => {
+            found.push(Problem::at(path, Some(1), None, "must be a JSON object"));
+            None
+        }
+        None => None,
+    }
+}
+
+/// Parses JSON with comments; pushes the parse error with its position.
+fn json_value(path: &str, text: &str, found: &mut Vec<Problem>) -> Option<Value> {
+    match jsonc::parse(text) {
+        Ok(value) => Some(value),
+        Err(error) => {
+            let (line, column, message) = match &error {
+                jsonc::JsoncError::Malformed { offset } => {
+                    let (line, column) = line_column(text, *offset);
+                    (Some(line), Some(column), "malformed JSON".to_owned())
+                }
+                jsonc::JsoncError::Json(message) => {
+                    let (line, column) = serde_position(message).unzip();
+                    (line, column, strip_serde_position(message))
+                }
+                other => (None, None, other.to_string()),
+            };
+            found.push(Problem::at(path, line, column, message));
+            None
+        }
+    }
+}
+
+/// The views app: its manifest by the validator the daemon runs, and the
+/// script the manifest names must be there.
+fn view(path: &str, text: &str, files: &BTreeMap<String, Vec<u8>>, found: &mut Vec<Problem>) {
+    if path != "customize/cmux-app.json" && path != "customize/cmux-app.v2.json" {
+        return;
+    }
+    let Some(manifest) = json_object(path, text, found) else { return };
+    for issue in cmux_app_manifest::validate_manifest(&manifest) {
+        if issue.severity != cmux_app_manifest::Severity::Error {
+            continue;
+        }
+        let key =
+            issue.path.rsplit('/').next().unwrap_or_default().replace("~1", "/").replace("~0", "~");
+        let (line, column) = line_of_key(text, &key).unzip();
+        let at = if issue.path.is_empty() { String::new() } else { format!("{}: ", issue.path) };
+        found.push(Problem::at(path, line, column, format!("{at}{}", issue.message)));
+    }
+    if let Some(id) = manifest.get("id").and_then(Value::as_str)
+        && id != "local/customize"
+    {
+        let (line, column) = line_of_key(text, "id").unzip();
+        found.push(Problem::at(
+            path,
+            line,
+            column,
+            format!("id is {id:?}; the views app in this folder is \"local/customize\""),
+        ));
+    }
+    if let Some(main) = manifest.pointer("/runtime/main").and_then(Value::as_str)
+        && !files.contains_key(&format!("customize/{main}"))
+    {
+        let (line, column) = line_of_key(text, "main").unzip();
+        found.push(Problem::at(
+            path,
+            line,
+            column,
+            format!("runtime.main names {main:?}, which is not in the folder"),
+        ));
+    }
+}
+
+fn line_column(text: &str, offset: usize) -> (u32, u32) {
+    let before = text.as_bytes().get(..offset.min(text.len())).unwrap_or_default();
+    let line = before.iter().filter(|byte| **byte == b'\n').count() as u32 + 1;
+    let column = before.iter().rev().take_while(|byte| **byte != b'\n').count() as u32 + 1;
+    (line, column)
+}
+
+/// `"… at line 3 column 7"`, the tail serde_json puts on a message.
+fn serde_position(message: &str) -> Option<(u32, u32)> {
+    let (_, tail) = message.rsplit_once(" at line ")?;
+    let (line, column) = tail.split_once(" column ")?;
+    Some((line.trim().parse().ok()?, column.trim().parse().ok()?))
+}
+
+fn strip_serde_position(message: &str) -> String {
+    message.rsplit_once(" at line ").map_or(message, |(head, _)| head).to_owned()
+}
+
+/// Where a dotted key's last name is written as an object key: best effort,
+/// so an error names a line an editor can jump to.
+fn line_of_key(text: &str, dotted: &str) -> Option<(u32, u32)> {
+    let name = dotted.rsplit('.').next().filter(|name| !name.is_empty())?;
+    let needle = format!("\"{name}\"");
+    text.match_indices(&needle)
+        .find(|(at, _)| {
+            text.get(at + needle.len()..).is_some_and(|after| after.trim_start().starts_with(':'))
+        })
+        .map(|(at, _)| line_column(text, at))
+}
+
+#[cfg(test)]
+#[path = "validate_tests.rs"]
+mod tests;

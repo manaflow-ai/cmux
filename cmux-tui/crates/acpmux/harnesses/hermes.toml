@@ -1,0 +1,18 @@
+# Hermes Agent (NousResearch/hermes-agent) speaks ACP itself: `hermes acp`.
+# Install: uv tool install 'hermes-agent[acp]' (or Hermes' own install.sh).
+# Pick its provider and model (API key or provider sign-in) with `hermes model`.
+schema = 1
+id = "hermes"
+name = "Hermes Agent"
+icon = "hermes"
+protocol = "acp"
+command = "hermes"
+args = ["acp"]
+
+[capabilities]
+permission_modes = true
+resume = true
+
+[auth]
+login = "hermes model"
+docs = "https://hermes-agent.nousresearch.com/docs/user-guide/features/acp"

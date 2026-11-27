@@ -1,0 +1,8 @@
+{
+  "source": "schemas/settings/source/status-indicator.json",
+  "swift": "Packages/macOS/CmuxNext/Sources/CmuxNextSettings/Schema/SettingsSchema+StatusIndicator.generated.swift",
+  "type": "StatusIndicatorSettingsSchema",
+  "lists": {
+    "statusIndicator": ["descriptors", "StatusIndicatorConfigParser"]
+  }
+}

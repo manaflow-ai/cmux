@@ -1,0 +1,27 @@
+<svg width="1024" height="1024" viewBox="0 0 1024 1024" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <linearGradient id="chevron" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0" stop-color="#00cfff"/>
+      <stop offset="1" stop-color="#5a6cf5"/>
+    </linearGradient>
+    <linearGradient id="signal" x1="0" y1="1" x2="1" y2="0">
+      <stop offset="0" stop-color="#12c7f5"/>
+      <stop offset="1" stop-color="#6c5cff"/>
+    </linearGradient>
+    <filter id="glow" x="-30%" y="-30%" width="160%" height="160%">
+      <feGaussianBlur stdDeviation="9" result="blur"/>
+      <feMerge><feMergeNode in="blur"/><feMergeNode in="SourceGraphic"/></feMerge>
+    </filter>
+  </defs>
+  <g transform="translate(512 512) scale(0.82) translate(-540 -470)">
+  <!-- The display: a screen, its neck and foot. -->
+  <rect x="170" y="268" width="620" height="420" rx="46" fill="none" stroke="#e9eef6" stroke-width="34"/>
+  <path d="M430 688 L410 778 M530 688 L550 778" stroke="#e9eef6" stroke-width="30" stroke-linecap="round"/>
+  <path d="M352 786 L608 786" stroke="#e9eef6" stroke-width="34" stroke-linecap="round"/>
+  <!-- The cmux chevron on the screen. -->
+  <path d="M318 352 L318 418 L448 478 L318 538 L318 604 L566 478 Z" fill="url(#chevron)" filter="url(#glow)"/>
+  <!-- Remote: two signal arcs from the screen's corner. -->
+  <path d="M760 214 A118 118 0 0 1 878 332" fill="none" stroke="url(#signal)" stroke-width="36" stroke-linecap="round"/>
+  <path d="M760 128 A204 204 0 0 1 964 332" fill="none" stroke="url(#signal)" stroke-width="36" stroke-linecap="round" opacity="0.75"/>
+  </g>
+</svg>

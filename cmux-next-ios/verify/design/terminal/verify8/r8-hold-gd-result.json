@@ -1,0 +1,19 @@
+{
+ "tag": "r8-hold-gd",
+ "seconds": 90,
+ "prunes": 0,
+ "blank_page_lines": [],
+ "black_runs": [
+  [
+   14.7667,
+   14.7667
+  ]
+ ],
+ "flashes": 0,
+ "valid": false,
+ "load": [
+  23.36,
+  23.54,
+  37.61
+ ]
+}

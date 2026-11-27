@@ -1,0 +1,92 @@
+{
+  "family": "agents",
+  "operations": [
+    {
+      "class": "mutation",
+      "cli": {
+        "path": "open",
+        "visible": true
+      },
+      "docs": "Open the Agent CLIs pane.",
+      "focuses": true,
+      "idempotency": "required",
+      "input": {
+        "additionalProperties": false,
+        "properties": {},
+        "required": [],
+        "type": "object"
+      },
+      "mcp": {
+        "expose": "never"
+      },
+      "name": "agents.open",
+      "owner": "app:cmux/agents",
+      "palette": {
+        "title": "Open Agent CLIs"
+      },
+      "queue_offline": false,
+      "remote_relay": "allow",
+      "risk": "mutate-own",
+      "since": "agents/1",
+      "export": "openAgents"
+    },
+    {
+      "class": "read",
+      "cli": {
+        "path": "check-updates",
+        "visible": true
+      },
+      "docs": "Ask every machine for the latest versions of its agent CLIs.",
+      "focuses": false,
+      "idempotency": "forbidden",
+      "input": {
+        "additionalProperties": false,
+        "properties": {},
+        "required": [],
+        "type": "object"
+      },
+      "mcp": {
+        "expose": "never"
+      },
+      "name": "agents.check_updates",
+      "owner": "app:cmux/agents",
+      "palette": {
+        "title": "Check Agent CLIs for Updates"
+      },
+      "queue_offline": false,
+      "remote_relay": "allow",
+      "risk": "read",
+      "since": "agents/1",
+      "export": "checkForUpdates"
+    },
+    {
+      "class": "mutation",
+      "cli": null,
+      "docs": "DEV/NIGHTLY: show the next design of the pane.",
+      "focuses": false,
+      "idempotency": "required",
+      "input": {
+        "additionalProperties": false,
+        "properties": {},
+        "required": [],
+        "type": "object"
+      },
+      "mcp": {
+        "expose": "never"
+      },
+      "name": "agents.cycle_variant",
+      "owner": "app:cmux/agents",
+      "palette": {
+        "title": "Next Agent CLIs Variant"
+      },
+      "queue_offline": false,
+      "remote_relay": "allow",
+      "risk": "mutate-own",
+      "since": "agents/1",
+      "export": "cycleVariant"
+    }
+  ],
+  "owner": "app:cmux/agents",
+  "schema_version": 1,
+  "trigger_events": []
+}

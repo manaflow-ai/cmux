@@ -3,7 +3,7 @@
 import { Checkbox } from "@base-ui-components/react/checkbox";
 import { Dialog } from "@base-ui-components/react/dialog";
 import { useTranslations } from "next-intl";
-import { POSTHOG_API_HOST, POSTHOG_PROJECT_KEY } from "../../lib/posthog-client";
+import posthog from "posthog-js";
 import { useRef, useState } from "react";
 import {
   WAITLIST_EARLY_ACCESS_FLAGS,
@@ -11,6 +11,7 @@ import {
   type WaitlistPlatform,
   type WaitlistTarget,
 } from "../../lib/download";
+import { Spinner } from "../../components/spinner";
 import { Modal } from "./modal";
 
 // Pragmatic email check: requires something@something.tld without whitespace.
@@ -41,11 +42,9 @@ async function recordWaitlistSignup(
   platforms: WaitlistPlatform[],
   location: string,
 ): Promise<boolean> {
-  // The constants, not `posthog.config`: PostHog is not initialized for a
-  // visitor who has not accepted analytics, and this form submission is the
-  // visitor asking to be told, which works either way.
-  const host = POSTHOG_API_HOST;
-  const token = POSTHOG_PROJECT_KEY;
+  const host = posthog.config?.api_host;
+  const token = posthog.config?.token;
+  if (!host || !token) return false;
   const enrollment = Object.fromEntries(
     platforms.map((p) => [
       `$feature_enrollment/${WAITLIST_EARLY_ACCESS_FLAGS[p]}`,
@@ -394,7 +393,7 @@ function WaitlistBody({
                 submitting ? "opacity-100" : "opacity-0"
               }`}
             >
-              <Spinner />
+              <Spinner className="h-4 w-4 shrink-0" />
               {t("joining")}
             </span>
           </button>
@@ -443,22 +442,3 @@ function WaitlistBody({
   );
 }
 
-/**
- * A smooth conic-gradient ring spinner that tapers from transparent to the
- * button's text color (`currentColor`), masked to a thin ring.
- */
-function Spinner() {
-  return (
-    <span
-      className="h-4 w-4 shrink-0 animate-spin rounded-full"
-      style={{
-        background:
-          "conic-gradient(from 90deg at 50% 50%, transparent 0deg, currentColor 300deg)",
-        WebkitMask:
-          "radial-gradient(farthest-side, transparent calc(100% - 2px), #000 calc(100% - 2px))",
-        mask: "radial-gradient(farthest-side, transparent calc(100% - 2px), #000 calc(100% - 2px))",
-      }}
-      aria-hidden="true"
-    />
-  );
-}

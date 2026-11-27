@@ -1,0 +1,71 @@
+{
+  "title": "Recovered draft notice: it shows at the first launch with a draft, not again at the next launch",
+  "steps": [
+    {
+      "title": "Launch",
+      "wait": 2,
+      "shot": false
+    },
+    {
+      "title": "Start clean: no draft of notes.md left by an earlier capture",
+      "rpc": {
+        "method": "debug.filepages",
+        "params": {
+          "clear_draft": "/tmp/cmux-capture-recovered-draft/notes.md"
+        }
+      },
+      "wait": 0.3,
+      "shot": false
+    },
+    {
+      "title": "Plant a recovered draft of notes.md (an edit, then a quit that could not wait)",
+      "rpc": {
+        "method": "debug.filepages",
+        "params": {
+          "plant_draft": {
+            "path": "/tmp/cmux-capture-recovered-draft/notes.md",
+            "text": "# Notes\n\nUnsaved line typed before the quit.\n"
+          }
+        }
+      },
+      "wait": 0.5,
+      "shot": false
+    },
+    {
+      "title": "First launch with the draft: the Recovered unsaved changes toast",
+      "rpc": {
+        "method": "debug.filepages",
+        "params": {
+          "launch_notice": true
+        }
+      },
+      "wait": 1.5
+    },
+    {
+      "title": "The toast ends on its own (12 s)",
+      "wait": 13,
+      "shot": false
+    },
+    {
+      "title": "Next launch, same draft: base shows the toast again, head shows nothing",
+      "rpc": {
+        "method": "debug.filepages",
+        "params": {
+          "launch_notice": true
+        }
+      },
+      "wait": 1.5
+    },
+    {
+      "title": "Clean up: remove the planted draft and its notice record",
+      "rpc": {
+        "method": "debug.filepages",
+        "params": {
+          "clear_draft": "/tmp/cmux-capture-recovered-draft/notes.md"
+        }
+      },
+      "wait": 0.3,
+      "shot": false
+    }
+  ]
+}

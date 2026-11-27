@@ -12,8 +12,6 @@
     "src/syncDevices.ts",
     "src/syncStorage.ts",
     "src/controlPlane.ts",
-    "src/controlPlaneProof.ts",
-    "src/releaseFeed.ts",
-    "src/releaseFeedRoute.ts"
+    "src/controlPlaneProof.ts"
   ]
 }

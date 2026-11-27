@@ -1,0 +1,54 @@
+04:29:35 rig mini-cmux11s-mac-mini: device 20b6e48c-f0ba-4169-a60b-52b887731225, workspace brfz-term (10 workspaces: ['Home', 'brfz-term', 'New Workspace', 'brfz-term', 'lr-a', 'lr-a', 'lr-a', 'lr-a'])
+04:29:37 app launched, config default, env ['CMUX_MOBILE_DEV_KILL_MEDIA_EVERY_S', 'CMUX_MOBILE_LOG'], drop 0, bg 0
+04:29:42 host 04:29:38 link up session_id="4bdd6ae3-a83e-4b17-b383-3904bd5f87a1" kind=WireGuard path=Turn phone="07d3d268-ebfe-4601-af11-a32bd5d268cd" video=true timings=offer_received=0.0ms ice_servers_cached=0.0ms video_l
+04:29:42 host 04:29:38 link path changed session_id="4bdd6ae3-a83e-4b17-b383-3904bd5f87a1" path=Turn
+04:29:43 step open_tab ('A', 'https://en.wikipedia.org/wiki/Cat') at +0.1 min
+04:29:50 phone tab new-6ba7693a-t1 opens -
+04:29:52 host 04:29:50 media session up session_id="9c08d3cc-3897-4adb-ae6e-0d18f425026e" link_session="4bdd6ae3-a83e-4b17-b383-3904bd5f87a1" path=Direct timings=media_offer_received=0.0ms pc_created=2.3ms media_answer_sent
+04:30:00 act {"t": 1792816200.27, "utc": "04:30:00", "tab": "A", "act": "open", "name": "A", "url": "https://en.wikipedia.org/wiki/Cat", "load_s": 16.6, "key": "new-6ba7693a-t1", "mac_ws": "ws_4d420dd4261ce1796354ab19c9a6c0fe"}
+04:30:00 step interact (70,) at +0.4 min
+04:30:01 act {"t": 1792816201.98, "utc": "04:30:01", "tab": "A", "act": "back", "rtt": 1.27}
+04:30:07 host 04:30:03 link down session_id="cdd15001-5468-4bd8-9e02-7cfa4ce26454" reason="keepalive timed out"
+04:30:14 act {"t": 1792816214.25, "utc": "04:30:14", "tab": "A", "act": "tap", "rtt": null, "at": [96, 430]}
+04:30:23 act {"t": 1792816223.75, "utc": "04:30:23", "tab": "A", "act": "scroll-down", "rtt": null}
+04:30:23 FREEZE phone-unresponsive: 2 inputs in a row with no screen change in 8 s (last: scroll-down on A)
+04:30:24 captured /Users/cmux/brfreeze/runs/r2-switch/freeze-01-phone-unresponsive-043023
+04:30:36 act {"t": 1792816236.27, "utc": "04:30:36", "tab": "A", "act": "forward", "rtt": null}
+04:30:36 FREEZE phone-unresponsive: 3 inputs in a row with no screen change in 8 s (last: forward on A)
+04:31:06 act {"t": 1792816266.49, "utc": "04:31:06", "tab": "A", "act": "search", "rtt": null, "via": "address-bar", "marker": "brfz001", "type_s": 2.49}
+04:31:06 FREEZE phone-unresponsive: 4 inputs in a row with no screen change in 8 s (last: search on A)
+04:31:17 act {"t": 1792816277.42, "utc": "04:31:17", "tab": "A", "act": "tap", "rtt": null, "at": [142, 554]}
+04:31:17 FREEZE phone-unresponsive: 5 inputs in a row with no screen change in 8 s (last: tap on A)
+04:31:19 step long_scroll (12,) at +1.7 min
+04:31:35 act {"t": 1792816296.0, "utc": "04:31:35", "tab": "A", "act": "long-scroll", "rtt": null, "swipes": 12, "seconds": 16.8, "reconnecting": []}
+04:31:35 FREEZE phone-unresponsive: 6 inputs in a row with no screen change in 8 s (last: long-scroll on A)
+04:31:37 captured /Users/cmux/brfreeze/runs/r2-switch/freeze-05-phone-unresponsive-043135
+04:31:37 step interact (60,) at +2.0 min
+04:31:47 act {"t": 1792816307.54, "utc": "04:31:47", "tab": "A", "act": "tap", "rtt": null, "at": [335, 466]}
+04:31:47 FREEZE phone-unresponsive: 7 inputs in a row with no screen change in 8 s (last: tap on A)
+04:31:57 act {"t": 1792816317.58, "utc": "04:31:57", "tab": "A", "act": "scroll-up", "rtt": null}
+04:31:57 FREEZE phone-unresponsive: 8 inputs in a row with no screen change in 8 s (last: scroll-up on A)
+04:32:26 act {"t": 1792816346.55, "utc": "04:32:26", "tab": "A", "act": "error", "error": "/Users/cmux/cmux-next-ios-e2e/bin/ocr /tmp/cmux-mobile-e2e-ocr-03979B9C-C6CA-4C94-8758-7E68A81FF15F.png failed: Swift/ErrorType.swift:254: Fatal error: Error raised at top level: TextRecognition.CRIma"}
+04:33:26 act {"t": 1792816406.41, "utc": "04:33:26", "tab": "A", "act": "search", "rtt": null, "via": "address-bar", "marker": "brfz003", "type_s": 4.05}
+04:33:26 FREEZE phone-unresponsive: 9 inputs in a row with no screen change in 8 s (last: search on A)
+04:33:27 captured /Users/cmux/brfreeze/runs/r2-switch/freeze-08-phone-unresponsive-043326
+04:33:28 step open_tab ('B', 'https://news.ycombinator.com') at +3.9 min
+04:33:37 phone tab new-26c00da4-t1 opens -
+04:33:39 host 04:33:38 browser: another tab took the media lane; video returns to the channel
+04:34:14 act {"t": 1792816454.38, "utc": "04:34:14", "tab": "B", "act": "open_tab-failed", "error": "/Users/cmux/cmux-next-ios-e2e/bin/ocr /tmp/cmux-mobile-e2e-ocr-03979B9C-C6CA-4C94-8758-7E68A81FF15F.png failed: Swift/ErrorType.swift:254: Fatal error: Error raised at top level: TextRecognition.CRIma"}
+04:34:14 step interact (60,) at +4.6 min
+04:34:22 act {"t": 1792816462.89, "utc": "04:34:22", "tab": "B", "act": "scroll-up", "rtt": null}
+04:34:22 FREEZE phone-unresponsive: 10 inputs in a row with no screen change in 8 s (last: scroll-up on B)
+04:34:26 act {"t": 1792816466.82, "utc": "04:34:26", "tab": "B", "act": "scroll-down", "rtt": 2.53}
+04:34:31 act {"t": 1792816471.99, "utc": "04:34:31", "tab": "B", "act": "scroll-up", "rtt": 3.4}
+04:34:36 act {"t": 1792816476.11, "utc": "04:34:36", "tab": "B", "act": "scroll-up", "rtt": 2.19}
+04:34:40 act {"t": 1792816480.2, "utc": "04:34:40", "tab": "B", "act": "back", "rtt": 2.0}
+04:34:50 act {"t": 1792816490.07, "utc": "04:34:50", "tab": "B", "act": "scroll-down", "rtt": null}
+04:34:58 act {"t": 1792816498.91, "utc": "04:34:58", "tab": "B", "act": "scroll-up", "rtt": null}
+04:34:58 FREEZE phone-unresponsive: 2 inputs in a row with no screen change in 8 s (last: scroll-up on B)
+04:35:00 captured /Users/cmux/brfreeze/runs/r2-switch/freeze-10-phone-unresponsive-043458
+04:35:03 act {"t": 1792816503.2, "utc": "04:35:03", "tab": "B", "act": "back", "rtt": 1.22}
+04:35:05 act {"t": 1792816505.11, "utc": "04:35:05", "tab": "B", "act": "back", "skipped": "no button"}
+04:35:36 act {"t": 1792816536.79, "utc": "04:35:36", "tab": "B", "act": "search", "error": "no address bar or pill"}
+04:35:37 step list_idle (45,) at +6.0 min
+04:35:38 act {"t": 1792816538.92, "utc": "04:35:38", "tab": null, "act": "list-idle", "seconds": 45, "left": "B"}

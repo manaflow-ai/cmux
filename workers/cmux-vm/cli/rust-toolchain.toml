@@ -1,0 +1,6 @@
+# Same toolchain as cmux-tui/rust-toolchain.toml (a regular file: the fleet build
+# fingerprint rejects symlinked dependency files). Keep the two in sync.
+[toolchain]
+channel = "1.95.0"
+profile = "minimal"
+components = ["clippy", "rustfmt"]

@@ -1,0 +1,143 @@
+{
+  "grant": [
+    "power:read",
+    "power:write",
+    "terminal:read",
+    "mcp:expose",
+    "actions:run"
+  ],
+  "scopes": {
+    "power.assertion.list": {
+      "scope": "power:read",
+      "class": "read"
+    },
+    "power.assertion.create": {
+      "scope": "power:write",
+      "class": "mutation"
+    },
+    "power.assertion.release": {
+      "scope": "power:write",
+      "class": "mutation"
+    },
+    "app.settings.set": {
+      "scope": "settings:write",
+      "class": "mutation"
+    }
+  },
+  "ops": {
+    "power.assertion.list": {
+      "revision": "10",
+      "available": true,
+      "power_source": "ac",
+      "assertions": [],
+      "limits": {
+        "max_per_app": 8,
+        "max_timed_s": 86400
+      }
+    },
+    "terminal.list": [
+      {
+        "id": "terminal_7",
+        "tab_id": "tab_7",
+        "tab_ids": [
+          "tab_7"
+        ],
+        "title": "api",
+        "cols": 120,
+        "rows": 40,
+        "running": true,
+        "lifecycle": "running"
+      },
+      {
+        "id": "terminal_8",
+        "tab_id": "tab_8",
+        "tab_ids": [
+          "tab_8"
+        ],
+        "title": "web",
+        "cols": 120,
+        "rows": 40,
+        "running": true,
+        "lifecycle": "running"
+      },
+      {
+        "id": "terminal_9",
+        "tab_id": "tab_9",
+        "tab_ids": [
+          "tab_9"
+        ],
+        "title": "notes",
+        "cols": 120,
+        "rows": 40,
+        "running": true,
+        "lifecycle": "running"
+      }
+    ],
+    "terminal.process.get": {
+      "$sequence": [
+        {
+          "pid": 4100,
+          "argv": [
+            "-zsh"
+          ],
+          "foreground_cwd": "/work/api",
+          "foreground_executable": "/usr/bin/make",
+          "children": [
+            4101
+          ]
+        },
+        {
+          "pid": 4200,
+          "argv": [
+            "-zsh"
+          ],
+          "foreground_cwd": "/work/web",
+          "foreground_executable": "/opt/tools/bin/bun",
+          "children": [
+            4201
+          ]
+        },
+        {
+          "pid": 4300,
+          "argv": [
+            "-zsh"
+          ],
+          "foreground_cwd": "/work",
+          "foreground_executable": "/bin/zsh",
+          "children": []
+        },
+        {
+          "pid": 4100,
+          "argv": [
+            "-zsh"
+          ],
+          "foreground_cwd": "/work/api",
+          "foreground_executable": "/usr/bin/make",
+          "children": [
+            4101
+          ]
+        },
+        {
+          "pid": 4200,
+          "argv": [
+            "-zsh"
+          ],
+          "foreground_cwd": "/work/web",
+          "foreground_executable": "/opt/tools/bin/bun",
+          "children": [
+            4201
+          ]
+        },
+        {
+          "pid": 4300,
+          "argv": [
+            "-zsh"
+          ],
+          "foreground_cwd": "/work",
+          "foreground_executable": "/bin/zsh",
+          "children": []
+        }
+      ]
+    }
+  }
+}

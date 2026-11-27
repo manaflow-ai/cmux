@@ -333,9 +333,7 @@ def source_identity(expected_commit: str | None, expected_tree: str | None) -> d
         "--ignore-submodules=dirty",
     )
     if untracked:
-        lines = untracked.splitlines()
-        shown = "; ".join(lines[:10]) + (f"; and {len(lines) - 10} more" if len(lines) > 10 else "")
-        raise ProfileError(f"checkout has non-ignored source changes: {shown}")
+        raise ProfileError("checkout has non-ignored source changes")
     submodules = git_text("submodule", "status", "--recursive")
     for line in submodules.splitlines():
         if not line:
@@ -809,7 +807,7 @@ def settle_process_group(
     # once and mark the semantic result ambiguous.
     try:
         os.killpg(pid, signal.SIGKILL)
-    except ProcessLookupError:
+    except (ProcessLookupError, PermissionError):
         return True, "complete"
     return False, "forced"
 
@@ -1003,17 +1001,20 @@ def run_profile(args: argparse.Namespace) -> int:
             timed_out = True
             try:
                 os.killpg(child.pid, signal.SIGTERM)
-            except ProcessLookupError:
+            except (ProcessLookupError, PermissionError):
                 pass
             try:
                 exit_code = wait_child_unreaped(child.pid, 5)
             except subprocess.TimeoutExpired:
-                try:
-                    os.killpg(child.pid, signal.SIGKILL)
-                except ProcessLookupError:
-                    pass
-                wait_child_unreaped(child.pid, None)
                 exit_code = 124
+            # After the grace period the whole group goes, whether or not the leader exited: a child that ignores
+            # SIGTERM would outlive it (cmux#41767 review F1).
+            try:
+                os.killpg(child.pid, signal.SIGKILL)
+            except (ProcessLookupError, PermissionError):
+                pass
+            if exit_code == 124:
+                wait_child_unreaped(child.pid, None)
         elapsed = time.monotonic() - started_monotonic
         try:
             settled_cleanly, cleanup_state = settle_process_group(

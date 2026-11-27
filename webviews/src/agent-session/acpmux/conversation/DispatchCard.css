@@ -1,0 +1,74 @@
+/* Dispatch/steer/report rows keep the transcript's quiet tool rhythm. The brief is selectable
+   when opened, but the resting line stays one compact sentence like linked-session cards. */
+.cv-dispatch {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  min-width: 0;
+}
+.cv-dispatch__line {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+.cv-dispatch__link {
+  flex: none;
+  margin-inline-start: 8px;
+  color: var(--cv-text-muted);
+  font-size: var(--text-caption);
+  text-decoration: underline;
+  text-underline-offset: 2px;
+  letter-spacing: var(--text-caption--letter-spacing);
+}
+.cv-dispatch__link:focus-visible {
+  color: var(--cv-text);
+}
+.cv-dispatch__status {
+  color: var(--cv-text-muted);
+  font-size: var(--text-detail);
+  letter-spacing: var(--text-detail--letter-spacing);
+}
+.cv-dispatch[data-status="failed"] .cv-tool__icon,
+.cv-dispatch[data-status="failed"] .cv-dispatch__status {
+  color: var(--agent-danger);
+}
+.cv-dispatch[data-status="running"] .cv-tool__icon {
+  color: var(--cv-text-muted);
+}
+.cv-dispatch__body {
+  position: relative;
+  margin: -2px 0 8px 22.5px;
+  max-width: calc(100% - 22.5px);
+  color: var(--cv-text-muted);
+  font-size: var(--text-detail);
+  line-height: var(--text-detail--line-height);
+  letter-spacing: var(--text-detail--letter-spacing);
+}
+.cv-dispatch__text {
+  max-height: calc(8 * 20px);
+  overflow: auto;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  user-select: text;
+  -webkit-user-select: text;
+  flex-basis: 100%;
+}
+.cv-dispatch__meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 12px;
+  margin-top: 6px;
+  color: var(--cv-text-dim);
+  font-size: var(--text-caption);
+  letter-spacing: var(--text-caption--letter-spacing);
+}
+.cv-dispatch__brief-link {
+  margin-bottom: 4px;
+}
+.cv-dispatch__brief-link a {
+  color: var(--cv-text-muted);
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+.cv-dispatch__body > .cv-iconbtn {
+  margin-top: 4px;
+}

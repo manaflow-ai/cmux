@@ -1,0 +1,137 @@
+{
+  "sourceLanguage" : "en",
+  "strings" : {
+    "settings.remote.agentShareIdleMinutes.help" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "ar" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "عندما يشغّل أحد وكلائك المشاركة لجهاز Mac هذا، تتوقف مجددًا بعد هذا العدد من الدقائق دون أن يشاهده أو يتحكم فيه أي جهاز."
+          }
+        },
+        "bs" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Kada jedan od vaših agenata uključi dijeljenje za ovaj Mac, ono se ponovo isključuje nakon ovoliko minuta bez uređaja koji ga gleda ili kontroliše."
+          }
+        },
+        "da" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Når en af dine agenter slår deling til for denne Mac, slås den fra igen efter så mange minutter, uden at en enhed ser eller styrer den."
+          }
+        },
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Wenn einer deiner Agenten die Freigabe für diesen Mac einschaltet, endet sie wieder nach so vielen Minuten, in denen kein Gerät zusieht oder steuert."
+          }
+        },
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "When one of your agents turns sharing on for this Mac, it turns off again after this many minutes with no device viewing or controlling it."
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Cuando uno de tus agentes activa el uso compartido de este Mac, se desactiva de nuevo tras estos minutos sin que ningún dispositivo lo vea ni lo controle."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Quand l’un de vos agents active le partage de ce Mac, il s’arrête après ce nombre de minutes sans appareil qui le regarde ou le contrôle."
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Quando uno dei tuoi agenti attiva la condivisione di questo Mac, si disattiva dopo questi minuti senza dispositivi che lo guardano o lo controllano."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "エージェントがこのMacの共有をオンにしたとき、この分数のあいだどのデバイスも閲覧・操作しなければ、再びオフになります。"
+          }
+        },
+        "km" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "នៅពេលភ្នាក់ងាររបស់អ្នកបើកការចែករំលែកសម្រាប់ Mac នេះ វានឹងបិទវិញបន្ទាប់ពីចំនួននាទីនេះដែលគ្មានឧបករណ៍មើល ឬគ្រប់គ្រងវា។"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "에이전트가 이 Mac의 공유를 켜면, 이 시간(분) 동안 보거나 제어하는 기기가 없을 때 다시 꺼집니다."
+          }
+        },
+        "nb" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Når en av agentene dine slår på deling for denne Macen, slås den av igjen etter så mange minutter uten at en enhet ser på eller styrer den."
+          }
+        },
+        "pl" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Gdy jeden z Twoich agentów włączy udostępnianie tego Maca, wyłączy się ono po tylu minutach, w których żadne urządzenie go nie ogląda ani nim nie steruje."
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Quando um dos seus agentes ativa o compartilhamento deste Mac, ele é desativado de novo após estes minutos sem nenhum dispositivo vendo ou controlando."
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Когда один из ваших агентов открывает доступ к этому Mac, доступ выключается через столько минут, если ни одно устройство его не смотрит и не управляет им."
+          }
+        },
+        "th" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "เมื่อเอเจนต์ของคุณเปิดการแชร์ Mac เครื่องนี้ การแชร์จะปิดอีกครั้งหลังจากไม่มีอุปกรณ์ใดดูหรือควบคุมตามจำนวนนาทีนี้"
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Ajanlarınızdan biri bu Mac için paylaşımı açtığında, hiçbir aygıt izlemez veya denetlemezse bu kadar dakika sonra yeniden kapanır."
+          }
+        },
+        "uk" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Коли один із ваших агентів відкриває доступ до цього Mac, доступ вимикається через стільки хвилин, якщо жоден пристрій його не переглядає й не керує ним."
+          }
+        },
+        "vi" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Khi một tác tử của bạn bật chia sẻ cho máy Mac này, chia sẻ sẽ tắt lại sau số phút này nếu không có thiết bị nào xem hoặc điều khiển."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "当你的智能体为这台 Mac 开启共享后，如果这么多分钟内没有设备观看或控制，共享会再次关闭。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "當你的代理為這台 Mac 開啟共享後，若這麼多分鐘內沒有裝置觀看或控制，共享會再次關閉。"
+          }
+        }
+      }
+    }
+  },
+  "version" : "1.0"
+}

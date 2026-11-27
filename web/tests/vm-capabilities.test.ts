@@ -29,11 +29,12 @@ describe("vm capability derivation", () => {
     });
   });
 
-  test("freestyle driver no longer carries throwing attach/ssh stubs", () => {
+  test("freestyle driver serves scoped SSH identities without advertising SSH as a transport", () => {
     const driver = getProvider("freestyle");
     expect(driver.openAttach).toBeUndefined();
-    expect(driver.openSSH).toBeUndefined();
-    expect(driver.revokeSSHIdentity).toBeUndefined();
+    expect(typeof driver.openSSH).toBe("function");
+    expect(typeof driver.revokeSSHIdentity).toBe("function");
+    expect(vmCapabilitiesOf(driver).attachTransports).toEqual(["cmux-remote"]);
   });
 
   test("a minimal provider derives the minimal capability set", () => {

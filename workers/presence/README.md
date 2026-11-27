@@ -23,9 +23,6 @@ solo-account user id).
 | `/v1/connectivity/invalidate` | POST | backend-only publication of `{revision}` to every connected Mac and iPhone for the verified Stack user |
 | `/v1/sync/vms` | POST | backend-only Cloud machine list publication `{teamId, ops}`; no user bearer, authenticated by `X-Cmux-Vms-Publisher-Secret` only; the team DO applies the ops and broadcasts `vms` sync deltas |
 | `/v1/control/socket` | GET | account control-plane WebSocket (`AccountControlPlane` DO, one per verified Stack user): revisioned `directory` / `hint_update` / `relay_passes` / `snapshot_complete` facts per the frozen `schemas/control-plane/` contract |
-| `/releases/v1/socket?feed=<id>` | GET | **public, no auth.** Release push WebSocket (`ReleaseFeed` DO, one per allowlisted feed id: `nightly-next`, `tip`, `nightly-next-legacy`): `{"type":"release","feed","build","version","at"}` on connect and on every new build; `ping` is answered `pong` |
-| `/releases/v1/poke?feed=<id>` | POST | **public, no auth.** Re-read that feed's public appcast (at most once per 10 s per feed; later pokes coalesce into one alarm read) and answer `202 {"build":N}`. Publishers call it after a feed write; a minute cron pokes every feed as the self-heal |
-| `/releases/v1/latest?feed=<id>` | GET | **public, no auth.** The current release frame |
 
 The heartbeat response returns `heartbeatIntervalMs` (15s) and
 `offlineTimeoutMs` (45s); hosts should follow the returned cadence rather than
@@ -142,10 +139,13 @@ Run each once on production (`wrangler.toml`) and once on the dev instance
 
 ```bash
 bunx wrangler secret put STACK_PROJECT_ID
-bunx wrangler secret put STACK_PUBLISHABLE_CLIENT_KEY
 bunx wrangler secret put CONNECTIVITY_INVALIDATION_SECRET
 bunx wrangler secret put VMS_PUBLISHER_SECRET
 ```
+
+Production sets no `STACK_PUBLISHABLE_CLIENT_KEY`: the production Stack
+project requires none, and a revoked key would fail every request. Set it only
+for a project that requires one.
 
 Set `SENTRY_DSN` once for production and for each isolated dev Worker. The
 Worker sends application exceptions to this DSN using Sentry's envelope API;

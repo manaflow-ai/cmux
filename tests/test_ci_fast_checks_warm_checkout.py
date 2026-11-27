@@ -54,7 +54,7 @@ class WarmCheckoutTest(unittest.TestCase):
             git(repo, "config", "core.fsmonitor", "/bin/false")
             (repo / ".git" / "hooks" / "post-checkout").write_text("#!/bin/sh\nexit 1\n")
 
-            subprocess.run(["bash", "-e", "-c", sanitize_script()], cwd=workspace, check=True)
+            subprocess.run(["bash", "-e", "-c", sanitize_script()], cwd=repo, check=True)
 
             self.assertEqual(git(repo, "rev-parse", "--git-dir"), ".git")
             self.assertEqual(git(repo, "cat-file", "-t", commit), "commit")
@@ -66,7 +66,9 @@ class WarmCheckoutTest(unittest.TestCase):
     def test_fresh_disk_is_left_for_checkout_to_initialize(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             workspace = Path(tmp)
-            subprocess.run(["bash", "-e", "-c", sanitize_script()], cwd=workspace, check=True)
+            # On this branch the step runs inside the checkout directory (working-directory).
+            (workspace / ".fast-checks-checkout").mkdir()
+            subprocess.run(["bash", "-e", "-c", sanitize_script()], cwd=workspace / ".fast-checks-checkout", check=True)
             self.assertFalse((workspace / ".fast-checks-checkout" / ".git").exists())
 
 

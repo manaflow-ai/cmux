@@ -1,0 +1,221 @@
+{
+  "title": "Project badges: framework marks, folder fallback, owner avatar",
+  "settings": {
+    "appearance": {
+      "theme": "Soft Blue Light"
+    }
+  },
+  "steps": [
+    {
+      "title": "Launch",
+      "wait": 2,
+      "shot": false
+    },
+    {
+      "title": "Sample projects workspace",
+      "cmux": [
+        "workspace",
+        "new",
+        "--name",
+        "Projects"
+      ],
+      "shot": false
+    },
+    {
+      "title": "Write the sample projects",
+      "daemon": true,
+      "cmux": [
+        "workspace",
+        "name:Projects",
+        "screen",
+        "current",
+        "pane",
+        "current",
+        "tab",
+        "current",
+        "terminal",
+        "current",
+        "write",
+        "--text",
+        "mkdir -p /tmp/cmux-tour-projects/web-app /tmp/cmux-tour-projects/rust-cli /tmp/cmux-tour-projects/notes /tmp/cmux-tour-projects/cmux && cd /tmp/cmux-tour-projects && printf '{\"name\":\"web-app\",\"dependencies\":{\"next\":\"15.0.0\",\"react\":\"19.0.0\"}}\\n' > web-app/package.json && printf '[package]\\nname = \"rust-cli\"\\nversion = \"0.1.0\"\\n' > rust-cli/Cargo.toml && printf 'notes\\n' > notes/README.txt && git -C cmux init -q && git -C cmux remote add origin https://github.com/manaflow-ai/cmux.git; clear\r"
+      ],
+      "wait": 2,
+      "shot": false
+    },
+    {
+      "title": "Open agent chat",
+      "cmux": [
+        "agent",
+        "new-chat"
+      ],
+      "wait": 4,
+      "optional": "agent backend unavailable on this runner"
+    },
+    {
+      "title": "light theme",
+      "cmux": [
+        "settings",
+        "set",
+        "appearance.theme",
+        "Soft Blue Light"
+      ],
+      "wait": 2,
+      "shot": false
+    },
+    {
+      "title": "Next.js mark (light): web-app picked",
+      "rpc": {
+        "method": "debug.agent_pane",
+        "params": {
+          "action": "pick_folder",
+          "cwd": "/tmp/cmux-tour-projects/web-app"
+        }
+      },
+      "wait": 3,
+      "optional": "agent backend unavailable on this runner"
+    },
+    {
+      "title": "Rust mark (light): rust-cli picked",
+      "rpc": {
+        "method": "debug.agent_pane",
+        "params": {
+          "action": "pick_folder",
+          "cwd": "/tmp/cmux-tour-projects/rust-cli"
+        }
+      },
+      "wait": 3,
+      "optional": "agent backend unavailable on this runner"
+    },
+    {
+      "title": "Folder fallback, no manifest (light): notes picked",
+      "rpc": {
+        "method": "debug.agent_pane",
+        "params": {
+          "action": "pick_folder",
+          "cwd": "/tmp/cmux-tour-projects/notes"
+        }
+      },
+      "wait": 3,
+      "optional": "agent backend unavailable on this runner"
+    },
+    {
+      "title": "GitHub owner's avatar (light): cmux picked",
+      "rpc": {
+        "method": "debug.agent_pane",
+        "params": {
+          "action": "pick_folder",
+          "cwd": "/tmp/cmux-tour-projects/cmux"
+        }
+      },
+      "wait": 3,
+      "optional": "agent backend unavailable on this runner"
+    },
+    {
+      "title": "Location menu (light)",
+      "rpc": {
+        "method": "debug.agent_pane",
+        "params": {
+          "action": "open_menu",
+          "label": "Location"
+        }
+      },
+      "wait": 2,
+      "optional": "agent backend unavailable on this runner"
+    },
+    {
+      "title": "Close the menu (light)",
+      "rpc": {
+        "method": "debug.agent_pane",
+        "params": {
+          "action": "close_menus"
+        }
+      },
+      "shot": false,
+      "wait": 1,
+      "optional": "agent backend unavailable on this runner"
+    },
+    {
+      "title": "dark theme",
+      "cmux": [
+        "settings",
+        "set",
+        "appearance.theme",
+        "Soft Blue"
+      ],
+      "wait": 2,
+      "shot": false
+    },
+    {
+      "title": "Next.js mark (dark): web-app picked",
+      "rpc": {
+        "method": "debug.agent_pane",
+        "params": {
+          "action": "pick_folder",
+          "cwd": "/tmp/cmux-tour-projects/web-app"
+        }
+      },
+      "wait": 3,
+      "optional": "agent backend unavailable on this runner"
+    },
+    {
+      "title": "Rust mark (dark): rust-cli picked",
+      "rpc": {
+        "method": "debug.agent_pane",
+        "params": {
+          "action": "pick_folder",
+          "cwd": "/tmp/cmux-tour-projects/rust-cli"
+        }
+      },
+      "wait": 3,
+      "optional": "agent backend unavailable on this runner"
+    },
+    {
+      "title": "Folder fallback, no manifest (dark): notes picked",
+      "rpc": {
+        "method": "debug.agent_pane",
+        "params": {
+          "action": "pick_folder",
+          "cwd": "/tmp/cmux-tour-projects/notes"
+        }
+      },
+      "wait": 3,
+      "optional": "agent backend unavailable on this runner"
+    },
+    {
+      "title": "GitHub owner's avatar (dark): cmux picked",
+      "rpc": {
+        "method": "debug.agent_pane",
+        "params": {
+          "action": "pick_folder",
+          "cwd": "/tmp/cmux-tour-projects/cmux"
+        }
+      },
+      "wait": 3,
+      "optional": "agent backend unavailable on this runner"
+    },
+    {
+      "title": "Location menu (dark)",
+      "rpc": {
+        "method": "debug.agent_pane",
+        "params": {
+          "action": "open_menu",
+          "label": "Location"
+        }
+      },
+      "wait": 2,
+      "optional": "agent backend unavailable on this runner"
+    },
+    {
+      "title": "Close the menu (dark)",
+      "rpc": {
+        "method": "debug.agent_pane",
+        "params": {
+          "action": "close_menus"
+        }
+      },
+      "shot": false,
+      "wait": 1,
+      "optional": "agent backend unavailable on this runner"
+    }
+  ]
+}

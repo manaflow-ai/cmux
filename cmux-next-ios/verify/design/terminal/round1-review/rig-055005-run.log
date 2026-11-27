@@ -1,0 +1,33 @@
+05:50:05 Mac app cmux DEV cnx-e2e-604fc689.app (com.cmuxterm.app.debug.cnx.e2e.604fc689), rig /Users/azizalbahar/cnx-ios-e2e/cnx-e2e-604fc689, settings /Users/azizalbahar/cnx-ios-e2e/cnx-e2e-604fc689/config/cmux-next.json
+05:50:05 created simulator cnx-term-review 5C77944D-50D2-4AB7-9779-BCA202E0C9B8
+05:50:31 Mac app up (pid 77924), cnx-hostd running, windows []
+05:50:34 --- fresh_install: Fresh install and Welcome
+05:50:39     PASS (3.9 s) Welcome in 0.9 s: ['Your Macs, in your pocket.', 'Continue with Google', 'GoogleLogo']
+05:50:39 --- sign_in: Sign in (dev account, email 42)
+05:50:49     PASS (9.03 s) signed in with the DEBUG dev credential (email 42) in 2.0 s
+05:50:49 --- choose_space: Choose team / personal, setup steps
+05:50:57     PASS (7.03 s) space: Personal; connect step: Aziz’s MacBook Pro is online
+05:50:58 --- mac_discovered: Mac discovered, no false 'No workspaces'
+05:51:15     PASS (16.48 s) Filter > rig Mac: rows in 1.8 s; link 'Aziz's MacBook Pro 1952 Online • Connected • WebRTC direct • 0 ms'
+05:51:16 --- workspace_list: Workspaces list filtered by Mac matches the Mac
+05:51:17     PASS (0.79 s) 3 rows match the Mac (Home, e2e-055031, workspace-1)
+05:51:18 --- open_workspace: Open workspace
+05:51:20     PASS (2.28 s) opened e2e-055031 on a terminal in 1.25 s; toolbar ['e2e-t1, ~']
+05:51:21 --- last_tab_restore: Last-tab restore and tab grid
+05:52:27     PASS (65.76 s) reopened on the last tab (e2e-t2); grid switch back to e2e-t1
+05:52:27 --- term_direct: Terminal: direct typing (soft keyboard)
+05:52:42     PASS (13.62 s) typed 'echo d81778' + return on the software keyboard; the Mac ran it
+05:52:42 --- term_composer: Terminal: composer
+05:53:01     PASS (17.93 s) composer sent 'echo c97933'
+05:53:01 --- term_keys: Terminal: ^C, arrows, joystick
+05:55:07     FAIL (125.33 s) key bar has no 'Left Arrow'
+05:55:08 --- term_tui: Terminal: vim and top TUI
+05:56:28     FAIL (78.78 s) vim edit did not reach the Mac file
+05:56:28 --- term_scrollback: Terminal: scrollback
+05:56:52     PASS (23.57 s) B1: after clear the first row is at y 66 pt and a short session does not scroll; scrolled back through 400 lines; jump-to-bottom tapped
+05:56:53 --- files_links: Terminal: Files and Links preview
+05:57:10     PASS (17.01 s) listed cnx-e2e-055031-sample.md; preview shows the refusal (not blank); link listed; preview refused: accessibility id artifacts.preview.refused
+05:57:10 --- background: Background 45 s / foreground reconnect
+05:58:31     PASS (79.37 s) 45 s in background; Connected 4.28 s after foreground; terminal input reached the Mac
+05:58:31 results: {'pass': 12, 'fail': 2, 'blocked': 0} -> /Users/azizalbahar/Development/cmuxterm-hq/worktrees/feat-cnx-ios-term-review/cnx-ios/verify/evidence/2026-10-14/e2e/055005-ios26/results.json
+05:58:31 rig done

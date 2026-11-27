@@ -1,6 +1,6 @@
 # Xcode Project Normalization
 
-The pin (`.xcode-version`, `objectVersion = 60`), the pre-commit hook, and the CI guard are described in [../SKILL.md](../SKILL.md).
+The pin (`.xcode-version`; `objectVersion = 77` with synchronized folders, else 60), the pre-commit hook, and the CI guard are described in [../SKILL.md](../SKILL.md).
 
 ## Bumping the Xcode pin
 

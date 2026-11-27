@@ -14,8 +14,8 @@ BIN_DIR="$TMP_DIR/bin"
 RUNNER_TEMP="$TMP_DIR/runner-temp"
 CURL_LOG="$TMP_DIR/curl.log"
 OUTPUT="$TMP_DIR/output"
-EXPECTED_VERSION="1.7.7"
-EXPECTED_ASSET_ID="221573254"
+EXPECTED_VERSION="1.7.12-manaflow.1"
+EXPECTED_ASSET_ID="656977422"
 EXPECTED_SHA256=""
 
 mkdir -p "$FIXTURE_DIR" "$BIN_DIR" "$RUNNER_TEMP"
@@ -65,17 +65,17 @@ printf '%s\t%s\n' "$url" "$accept_header" >> "${CURL_LOG:?}"
 case "${FAKE_CURL_MODE:?}" in
   success)
     case "$url" in
-      https://github.com/rhysd/actionlint/releases/download/v1.7.7/actionlint_1.7.7_linux_amd64.tar.gz) ;;
+      https://github.com/manaflow-ai/actionlint/releases/download/v1.7.12-manaflow.1/actionlint_1.7.12-manaflow.1_linux_amd64.tar.gz) ;;
       *) exit 90 ;;
     esac
     cp "${FAKE_ARCHIVE:?}" "$output"
     ;;
   fallback)
     case "$url" in
-      https://github.com/rhysd/actionlint/releases/download/v1.7.7/actionlint_1.7.7_linux_amd64.tar.gz)
+      https://github.com/manaflow-ai/actionlint/releases/download/v1.7.12-manaflow.1/actionlint_1.7.12-manaflow.1_linux_amd64.tar.gz)
         exit 22
         ;;
-      https://api.github.com/repos/rhysd/actionlint/releases/assets/221573254)
+      https://api.github.com/repos/manaflow-ai/actionlint/releases/assets/656977422)
         [ "$accept_header" = "Accept: application/octet-stream" ]
         cp "${FAKE_ARCHIVE:?}" "$output"
         ;;
@@ -84,7 +84,7 @@ case "${FAKE_CURL_MODE:?}" in
     ;;
   mismatch)
     case "$url" in
-      https://github.com/rhysd/actionlint/releases/download/v1.7.7/actionlint_1.7.7_linux_amd64.tar.gz) ;;
+      https://github.com/manaflow-ai/actionlint/releases/download/v1.7.12-manaflow.1/actionlint_1.7.12-manaflow.1_linux_amd64.tar.gz) ;;
       *) exit 92 ;;
     esac
     cp "${FAKE_WRONG_ARCHIVE:?}" "$output"
@@ -118,11 +118,11 @@ run_install() {
 : > "$CURL_LOG"
 run_install success "$OUTPUT"
 grep -Fqx "$RUNNER_TEMP/actionlint" "$OUTPUT"
-grep -Fq $'https://github.com/rhysd/actionlint/releases/download/v1.7.7/actionlint_1.7.7_linux_amd64.tar.gz\t' "$CURL_LOG"
+grep -Fq $'https://github.com/manaflow-ai/actionlint/releases/download/v1.7.12-manaflow.1/actionlint_1.7.12-manaflow.1_linux_amd64.tar.gz\t' "$CURL_LOG"
 
 : > "$CURL_LOG"
 run_install fallback "$OUTPUT"
-grep -Fq $'https://api.github.com/repos/rhysd/actionlint/releases/assets/221573254\tAccept: application/octet-stream' "$CURL_LOG"
+grep -Fq $'https://api.github.com/repos/manaflow-ai/actionlint/releases/assets/656977422\tAccept: application/octet-stream' "$CURL_LOG"
 [ "$(wc -l < "$CURL_LOG" | tr -d ' ')" -eq 2 ]
 
 if FAKE_ACTIONLINT_STATUS=17 "$RUNNER_TEMP/actionlint"; then
@@ -135,7 +135,7 @@ if run_install mismatch "$OUTPUT"; then
   echo "FAIL: checksum mismatch was accepted" >&2
   exit 1
 fi
-if grep -Fq 'releases/assets/221573254' "$CURL_LOG"; then
+if grep -Fq 'releases/assets/656977422' "$CURL_LOG"; then
   echo "FAIL: checksum mismatch unexpectedly used the fallback" >&2
   exit 1
 fi

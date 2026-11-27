@@ -1,0 +1,15 @@
+<!doctype html>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>input</title>
+<style>
+  body { font: 20px -apple-system, sans-serif; margin: 0; padding: 120px 20px 20px; }
+  input { font-size: 28px; width: 100%; box-sizing: border-box; padding: 16px; border: 3px solid #333; border-radius: 12px; }
+  #echo { margin-top: 24px; font: 32px ui-monospace, monospace; }
+</style>
+<!-- verify/scripts/surface-checks.py `type`: text typed on the phone lands here through the simulator's HID. -->
+<input id="field" placeholder="Type here" autocapitalize="off" autocorrect="off" spellcheck="false">
+<div id="echo">echo:</div>
+<script>
+  const field = document.getElementById("field"), echo = document.getElementById("echo");
+  field.addEventListener("input", () => { echo.textContent = "echo: " + field.value; });
+</script>

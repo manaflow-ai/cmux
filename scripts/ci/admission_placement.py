@@ -106,15 +106,20 @@ def main(env: Mapping[str, str] = os.environ) -> int:
     token, repo = env.get("ROUTE_TOKEN", ""), env.get("GITHUB_REPOSITORY", "")
     run_id, attempt = env.get("GITHUB_RUN_ID", ""), env.get("GITHUB_RUN_ATTEMPT", "")
     if token and repo:
-        github = pool.GitHub(token, repo)
+        # Only the org runner list needs the routing App.  The previous
+        # attempt's job listing is an Actions read and belongs on the workflow
+        # token so a placement retry cannot drain the routing App's quota.
+        runner_github = pool.GitHub(token, repo)
+        read_token = (env.get("GITHUB_TOKEN") or env.get("GH_TOKEN") or token).strip()
+        read_github = pool.GitHub(read_token, repo)
         try:
-            runners = github.runners()
+            runners = runner_github.runners()
         except Exception as error:  # noqa: BLE001 - fail open: keep the picker's choice
             print(f"::warning title=admission placement::could not list runners ({error})")
         if runners is not None and run_id.isdigit() and attempt.isdigit() and int(attempt) > 1:
             try:
-                jobs = github.get(f"/actions/runs/{run_id}/attempts/{int(attempt) - 1}/jobs"
-                                  f"?per_page={pool.PAGE_SIZE}").get("jobs") or []
+                jobs = read_github.get(f"/actions/runs/{run_id}/attempts/{int(attempt) - 1}/jobs"
+                                       f"?per_page={pool.PAGE_SIZE}").get("jobs") or []
                 failed = failed_members(jobs)
             except Exception as error:  # noqa: BLE001 - fail open: skip no mini
                 print(f"::warning title=admission placement::could not read attempt {int(attempt) - 1} ({error})")

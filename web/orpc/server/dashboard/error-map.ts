@@ -29,7 +29,6 @@ export const DASHBOARD_ERRORS = {
   BAD_GATEWAY: { status: 502, data: refusal },
   NOT_IMPLEMENTED: { status: 501, data: refusal },
   UNAVAILABLE: { status: 503, data: refusal },
-  GATEWAY_TIMEOUT: { status: 504, data: refusal },
 } as const;
 
 export type DashboardErrorCode = keyof typeof DASHBOARD_ERRORS;
@@ -57,6 +56,7 @@ export const TEAM_ERROR_CODES = [
   "link_not_found",
   "link_invalid",
   "team_has_active_subscription",
+  "team_has_cloud_grant",
   "service_unavailable",
 ] as const satisfies readonly TeamErrorCode[];
 

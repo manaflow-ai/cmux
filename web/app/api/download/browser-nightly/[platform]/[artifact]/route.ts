@@ -3,19 +3,6 @@ import {
   resolveBrowserNightlyDownload,
   type BrowserNightlyDownloadDependencies,
 } from "@/app/lib/browser-nightly-download";
-import {
-  isPlatformDownloadAvailable,
-  type DownloadPlatform,
-} from "@/app/lib/download";
-
-/**
- * Feed platforms whose website downloads follow a cmux.com release switch.
- * Linux is waitlist-only, so its direct links stop resolving here; installed
- * copies update from the signed feed and never come through this route.
- */
-const GATED_FEED_PLATFORMS: Readonly<Record<string, DownloadPlatform>> = {
-  "linux-x64": "linux",
-};
 
 
 interface BrowserNightlyRouteParameters {
@@ -27,14 +14,7 @@ export async function GET(
   _request: Request,
   context: { params: Promise<BrowserNightlyRouteParameters> },
 ): Promise<Response> {
-  const parameters = await context.params;
-  // The release switch is checked before any feed request, so a waitlist-only
-  // platform never reaches GitHub.
-  const gated = GATED_FEED_PLATFORMS[parameters.platform];
-  if (gated && !isPlatformDownloadAvailable(gated)) {
-    return jsonError("browser_download_unavailable", 404);
-  }
-  return handleBrowserNightlyDownloadRequest(parameters);
+  return handleBrowserNightlyDownloadRequest(await context.params);
 }
 
 /** Exported separately so route behavior can be tested without live GitHub I/O. */

@@ -10,7 +10,6 @@ import {
   type TeamBillingRole,
   type TeamBillingStackTeam,
 } from "./teamBillingAccess";
-import { loadTeamEnterpriseDeal, type TeamEnterpriseDeal } from "./teamEnterprise";
 import { teamPlanStatusForTeam, type TeamPlanStatus } from "./teamPlanStatus";
 import {
   billingPlanIdFromMetadata,
@@ -47,8 +46,6 @@ export type ReadyTeamBillingView = {
    */
   readonly overSeat: boolean;
   readonly paymentPastDue: boolean;
-  /** Set when the team is on an enterprise deal: its plan name and limits replace the Team plan picker. */
-  readonly enterprise: TeamEnterpriseDeal | null;
 };
 
 export type TeamBillingView =
@@ -66,7 +63,6 @@ export type TeamBillingView =
 export async function loadTeamBillingView(
   user: TeamBillingAccessUser,
   teamId: string,
-  dependencies: { readonly loadEnterprise?: typeof loadTeamEnterpriseDeal } = {},
 ): Promise<TeamBillingView> {
   const access = await resolveTeamBillingAccess(user, teamId, { requireAdmin: false });
   if (!access.ok) {
@@ -75,19 +71,10 @@ export async function loadTeamBillingView(
     return { status: "not_found", teamId };
   }
   const { team } = access;
-  const [planStatus, subscription, memberCount, enterprise] = await Promise.all([
+  const [planStatus, subscription, memberCount] = await Promise.all([
     teamPlanStatusForTeam(team),
     latestActiveTeamSubscription(team.id),
     teamMemberCount(team),
-    (dependencies.loadEnterprise ?? loadTeamEnterpriseDeal)(
-      {
-        id: team.id,
-        displayName: team.displayName ?? "",
-        clientReadOnlyMetadata: team.clientReadOnlyMetadata,
-        serverMetadata: team.serverMetadata,
-      },
-      { canManageBilling: access.canManageBilling },
-    ),
   ]);
   const seats = subscription?.seats ?? billingSeatsFromMetadata(team.clientReadOnlyMetadata);
   return {
@@ -103,7 +90,6 @@ export async function loadTeamBillingView(
     memberCount,
     overSeat: subscription !== null && seats !== null && memberCount !== null && memberCount > seats,
     paymentPastDue: subscription?.status === "past_due",
-    enterprise,
   };
 }
 

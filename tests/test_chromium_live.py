@@ -1,0 +1,300 @@
+#!/usr/bin/env python3
+"""scripts/cmux-next/chromium-live.py: which helpers it ends, how it swaps, what it records.
+
+Run it yourself after changing chromium-live.py (under 1 s, no build, no app):
+python3 tests/test_chromium_live.py
+"""
+
+from __future__ import annotations
+
+import importlib.util
+import json
+import os
+from pathlib import Path
+import subprocess
+import sys
+import tempfile
+import unittest
+from unittest import mock
+
+ROOT = Path(__file__).resolve().parent.parent
+spec = importlib.util.spec_from_file_location("chromium_live", ROOT / "scripts/cmux-next/chromium-live.py")
+cl = importlib.util.module_from_spec(spec)
+sys.modules["chromium_live"] = cl
+spec.loader.exec_module(cl)
+
+APP = "/Users/me/Applications/cmux NEXT DEV live.app"
+PS = f"""\
+  500     1 {APP}/Contents/MacOS/cmux NEXT DEV live
+  501   500 {APP}/Contents/Frameworks/cmux NEXT DEV live Helper (Renderer).app/Contents/MacOS/x --type=renderer --lang=en
+  502   500 {APP}/Contents/Frameworks/cmux NEXT DEV live Helper (Renderer).app/Contents/MacOS/x --type=renderer --extension-process
+  503   500 {APP}/Contents/Frameworks/cmux NEXT DEV live Helper (GPU).app/Contents/MacOS/x --type=gpu-process
+  504   500 {APP}/Contents/Frameworks/cmux NEXT DEV live Helper.app/Contents/MacOS/x --type=utility
+  505   500 /bin/zsh -l
+  600     1 /Applications/cmux.app/Contents/MacOS/cmux
+  601   600 /Applications/cmux.app/Contents/Frameworks/cmux Helper (Renderer).app/Contents/MacOS/x --type=renderer
+"""
+
+
+class HelpersTest(unittest.TestCase):
+    def test_only_this_apps_page_renderers_end(self):
+        procs = cl.parse_ps(PS)
+        app_pid = cl.app_process(Path(APP), procs)
+        self.assertEqual(app_pid, 500)
+        self.assertEqual(cl.helpers_to_end(procs, app_pid, gpu=False), [501])
+        self.assertEqual(cl.helpers_to_end(procs, app_pid, gpu=True), [501, 503])
+
+    def test_an_app_that_is_not_running_is_an_error(self):
+        with self.assertRaises(cl.LiveError):
+            cl.app_process(Path("/Applications/Other.app"), cl.parse_ps(PS))
+
+
+class SwapTest(unittest.TestCase):
+    def test_the_swap_renames_so_the_mapped_file_keeps_its_bytes(self):
+        with tempfile.TemporaryDirectory() as d:
+            dest = Path(d) / "Chromium Embedded Framework"
+            dest.write_bytes(b"old" * 1000)
+            new = Path(d) / "built"
+            new.write_bytes(b"new" * 1000)
+            with dest.open("rb") as mapped, mock.patch.object(cl, "run") as run:
+                run.return_value = mock.Mock(returncode=1)  # no `cp -c`, no codesign here
+                cl.swap_in(new, dest)
+                self.assertEqual(mapped.read(3), b"old")
+            self.assertEqual(dest.read_bytes()[:3], b"new")
+            self.assertEqual(sorted(p.name for p in Path(d).iterdir()), ["Chromium Embedded Framework", "built"])
+
+
+class RespawnTest(unittest.TestCase):
+    def test_it_ends_renderers_then_reloads_only_the_tabs_on_chromium(self):
+        tabs = json.dumps({"tabs": [{"id": "tab_1"}, {"id": "tab_2"}, {"id": "tab_3"}]}).encode()
+        agents = {"tab_1": b'{"value": "Mozilla/5.0 (Macintosh) AppleWebKit/537.36 Chrome/151.0 Safari/537.36"}',
+                  "tab_2": b'{"value": "Mozilla/5.0 (Macintosh) AppleWebKit/605.1.15 Version/27.0 Safari/605.1.15"}'}
+        calls = []
+        killed = []
+
+        def fake_run(argv, **_):
+            calls.append((argv, list(killed)))
+            if argv[0] == "ps":
+                return mock.Mock(returncode=0, stdout=PS.encode())
+            if argv[-3:] == ["tabs", "--all", "--json"]:
+                return mock.Mock(returncode=0, stdout=tabs)
+            if "eval" in argv:
+                tab = argv[2]
+                return mock.Mock(returncode=0 if tab in agents else 1, stdout=agents.get(tab, b""))
+            return mock.Mock(returncode=0, stdout=b"")
+
+        with mock.patch.object(cl, "run", fake_run), mock.patch.object(cl.os, "kill",
+                                                                     lambda pid, sig: killed.append(pid)), \
+                mock.patch.dict(os.environ, {"CMUX_CLI": "cmux"}):
+            result = cl.respawn(Path(APP))
+        self.assertEqual(killed, [501])
+        self.assertEqual(result["reloaded"], 1)
+        argvs = [argv for argv, _ in calls]
+        self.assertIn(["cmux", "browser", "tab_1", "reload"], argvs)
+        self.assertNotIn(["cmux", "browser", "tab_2", "reload"], argvs)  # WebKit
+        self.assertNotIn(["cmux", "browser", "tab_3", "reload"], argvs)  # did not answer
+        self.assertTrue(all(not before for argv, before in calls if "eval" in argv),
+                        "engines are asked before any renderer ends")
+
+
+class StatusTest(unittest.TestCase):
+    def test_status_prints_the_last_cycle_and_nothing_when_unused(self):
+        with tempfile.TemporaryDirectory() as d, mock.patch.dict(os.environ,
+                                                                {"CMUX_CHROMIUM_LIVE_STATE_DIR": d}):
+            self.assertEqual(cl.main(["status", "--if-used"]), 0)
+            cl.record(Path(d), {"at": 0, "files": ["third_party/blink/x.cc"],
+                                "respawn": {"ended": [1, 2], "reloaded": 3},
+                                "seconds": {"save_to_reloaded": 9.5, "build": 8.0}})
+            line = cl.summary(json.loads((Path(d) / "last.json").read_text()))
+            self.assertIn("2 renderers ended, 3 pages reloaded", line)
+            self.assertIn("9.5 s", line)
+
+
+class SyncTest(unittest.TestCase):
+    def test_the_tree_copy_is_kept_before_the_edit_is_sent(self):
+        calls = []
+
+        def fake_run(argv, **kw):
+            calls.append((argv, kw.get("input") or b""))
+            return mock.Mock(returncode=0, stdout=b"/Users/b" if "HOME" in argv[-1] else b"")
+
+        with tempfile.TemporaryDirectory() as d, mock.patch.object(cl, "run", fake_run):
+            builder = cl.Builder({"build_host": "h", "src": "~/cef/src", "out": "out/R",
+                                  "target": "libcef", "session": "s1"}, Path(d))
+            builder.sync(Path(d), ["third_party/blink/x.cc"])
+        kinds = ["rsync" if argv[0] == "rsync" else "keep" if cl.KEEP_SCRIPT.encode() == data
+                 else "home" for argv, data in calls]
+        self.assertEqual(kinds, ["home", "keep", "rsync"])
+        keep_cmd = calls[1][0][-1]
+        self.assertEqual(keep_cmd, "bash -s -- /Users/b/cef/src /Users/b/.cmux-chromium-live/s1 "
+                                   "third_party/blink/x.cc")
+        self.assertEqual(calls[2][0][-1], "h:/Users/b/cef/src/")
+
+    def test_a_crafted_path_reaches_the_host_as_one_word(self):
+        calls = []
+
+        def fake_run(argv, **kw):
+            calls.append(argv)
+            return mock.Mock(returncode=0, stdout=b'{"rc": 0}')
+
+        with tempfile.TemporaryDirectory() as d, mock.patch.object(cl, "run", fake_run):
+            builder = cl.Builder({"build_host": "h", "src": "/x/$(touch pwned)", "out": "out/R",
+                                  "target": "libcef", "session": "s1"}, Path(d))
+            builder._home = "/Users/b"
+            builder.build()
+        self.assertIn("'/x/$(touch pwned)'", calls[0][-1])
+        self.assertEqual(cl.BUILT_BINARY_REL, "Chromium Embedded Framework.framework/Versions/A/"
+                                              "Chromium Embedded Framework")
+        self.assertNotIn("eval ", cl.BUILD_SCRIPT + cl.KEEP_SCRIPT + cl.RESTORE_SCRIPT)
+
+
+class WatcherStateTest(unittest.TestCase):
+    def test_a_reused_pid_is_not_the_watcher(self):
+        with tempfile.TemporaryDirectory() as d:
+            state = Path(d)
+            cl.pid_file(state).write_text(f"{os.getpid()} /tree\n")  # alive, but this test is not a watcher
+            self.assertIsNone(cl.running_pid(state))
+            self.assertFalse(cl.pid_file(state).exists())
+            with mock.patch.object(cl, "run", return_value=mock.Mock(
+                    stdout=b"python3 /x/scripts/cmux-next/chromium-live.py _watch")):
+                cl.pid_file(state).write_text(f"{os.getpid()} /tree\n")
+                self.assertEqual(cl.running_pid(state), os.getpid())
+
+    def test_a_stop_sent_before_the_watcher_starts_is_kept(self):
+        with tempfile.TemporaryDirectory() as d:
+            state = Path(d)
+            (state / "stop").write_text("stop\n")
+            cfg = {"build_host": "h", "src": "/s", "out": "out/R", "target": "libcef", "session": "s",
+                   "edits": str(state / "edits")}
+            with mock.patch.object(cl, "scan", return_value={}), mock.patch.object(cl.time, "sleep") as slept:
+                self.assertEqual(cl.watch(cfg, state), 0)
+            slept.assert_not_called()  # the stop is seen before the first scan interval
+            self.assertFalse((state / "stop").exists())
+
+
+class RestoreScriptTest(unittest.TestCase):
+    def test_a_deleted_edit_restores_only_that_path(self):
+        with tempfile.TemporaryDirectory() as d:
+            src, keep = Path(d) / "src", Path(d) / "keep"
+            for rel, text in (("a.cc", "edit a"), ("b.cc", "edit b")):
+                (src / rel).parent.mkdir(parents=True, exist_ok=True)
+                (src / rel).write_text(text)
+                (keep / "orig").mkdir(parents=True, exist_ok=True)
+                (keep / "orig" / rel).write_text(f"orig {rel}")
+            (keep / "absent").mkdir()
+            (keep / "absent" / "new.cc").write_text("")
+            (src / "new.cc").write_text("added")
+            run = lambda *a: subprocess.run(["bash", "-s", "--", str(src), str(keep), *a],
+                                            input=cl.RESTORE_SCRIPT, capture_output=True, text=True, check=True)
+            self.assertEqual(run("a.cc", "new.cc").stdout.strip(), "2")
+            self.assertEqual((src / "a.cc").read_text(), "orig a.cc")
+            self.assertFalse((src / "new.cc").exists())
+            self.assertEqual((src / "b.cc").read_text(), "edit b")  # still edited, still kept
+            self.assertEqual(run().stdout.strip(), "1")
+            self.assertEqual((src / "b.cc").read_text(), "orig b.cc")
+            self.assertFalse(keep.exists())
+
+
+class ReviewFixesTest(unittest.TestCase):
+    def test_a_real_path_ending_in_absent_is_kept_and_put_back(self):
+        with tempfile.TemporaryDirectory() as d:
+            src, keep = Path(d) / "src", Path(d) / "keep"
+            src.mkdir()
+            (src / "x.absent").write_text("orig x")
+
+            def script(body, *a):
+                return subprocess.run(["bash", "-s", "--", str(src), str(keep), *a], input=body,
+                                      capture_output=True, text=True, check=True)
+            script(cl.KEEP_SCRIPT, "x.absent", "x", "new.cc")
+            (src / "x.absent").write_text("edit x")
+            (src / "new.cc").write_text("added")
+            self.assertEqual(script(cl.RESTORE_SCRIPT).stdout.strip(), "3")
+            self.assertEqual((src / "x.absent").read_text(), "orig x")
+            self.assertFalse((src / "x").exists())
+            self.assertFalse((src / "new.cc").exists())
+
+    def test_the_framework_comes_back_through_a_link_with_no_quotes_and_old_builds_go(self):
+        calls = []
+        with tempfile.TemporaryDirectory() as d:
+            state = Path(d)
+            builds = state / "builds"
+            for name in ("20260101T000000", "20260101T000001"):
+                (builds / name).mkdir(parents=True)
+                (builds / name / cl.BINARY_NAME).write_bytes(b"old")
+
+            def fake_run(argv, **_):
+                calls.append(argv)
+                Path(argv[-1]).write_bytes(b"new")
+                return mock.Mock(returncode=0)
+
+            builder = cl.Builder({"build_host": "h", "src": "/Users/b/cef/src", "out": "out/R",
+                                  "target": "libcef", "session": "s1"}, state)
+            builder._home = "/Users/b"
+            report = {"binary": "out/R/" + cl.BUILT_BINARY_REL, "sha256": cl.hashlib.sha256(b"new").hexdigest()}
+            with mock.patch.object(cl, "run", fake_run):
+                built = builder.fetch(report, builds / "20260101T000002")
+            self.assertEqual(calls[0][-2], "h:/Users/b/.cmux-chromium-live/s1/framework")
+            self.assertIn("-L", calls[0])
+            self.assertEqual([p.name for p in builds.iterdir()], ["20260101T000002"])
+            self.assertEqual(built.read_bytes(), b"new")
+        self.assertIn('ln -sfn "$PWD/$bin" "$keep/framework"', cl.BUILD_SCRIPT)
+
+    def test_a_tree_path_rsync_cannot_carry_is_refused(self):
+        with tempfile.TemporaryDirectory() as d, mock.patch.object(cl, "run") as run:
+            builder = cl.Builder({"build_host": "h", "src": "/Users/b/my cef/src", "out": "out/R",
+                                  "target": "libcef", "session": "s1"}, Path(d))
+            builder._home = "/Users/b"
+            with self.assertRaises(cl.LiveError):
+                builder.sync(Path(d), ["a.cc"])
+            self.assertFalse(any(c.args[0][0] == "rsync" for c in run.call_args_list))
+
+    def test_start_holds_the_lock_until_the_pid_is_written(self):
+        import fcntl
+        seen = {}
+        with tempfile.TemporaryDirectory() as d, mock.patch.dict(os.environ,
+                                                                {"CMUX_CHROMIUM_LIVE_STATE_DIR": d}):
+            state = Path(d)
+            app = state / "x.app"
+            binary = app / cl.FRAMEWORK_REL / cl.BINARY_NAME
+            binary.parent.mkdir(parents=True)
+            binary.write_bytes(b"")
+
+            def fake_popen(*_a, **_k):
+                with (state / "lock").open("a") as fh:
+                    try:
+                        fcntl.flock(fh, fcntl.LOCK_EX | fcntl.LOCK_NB)
+                        seen["locked"] = False
+                    except BlockingIOError:
+                        seen["locked"] = True
+                return mock.Mock(pid=4242)
+
+            with mock.patch.object(cl.subprocess, "Popen", fake_popen):
+                rc = cl.main(["start", "--build-host", "h", "--src", "/s", "--app", str(app),
+                              "--worktree", d, "--edits", str(state / "edits")])
+            self.assertEqual(rc, 0)
+            self.assertTrue(seen["locked"], "a stop or second start waits while start writes the pid")
+            self.assertTrue(cl.pid_file(state).read_text().startswith("4242 "))
+
+    def test_start_puts_back_what_a_dead_watcher_left_before_its_new_session(self):
+        with tempfile.TemporaryDirectory() as d, mock.patch.dict(os.environ,
+                                                                {"CMUX_CHROMIUM_LIVE_STATE_DIR": d}):
+            state = Path(d)
+            app = state / "x.app"
+            binary = app / cl.FRAMEWORK_REL / cl.BINARY_NAME
+            binary.parent.mkdir(parents=True)
+            binary.write_bytes(b"")
+            old = {"build_host": "h", "src": "/s", "out": "out/R", "target": "libcef", "session": "old"}
+            (state / "config.json").write_text(json.dumps(old))
+            restored = []
+            with mock.patch.object(cl.Builder, "restore", lambda self, rels=None: restored.append(
+                    self._keep) or 2), \
+                    mock.patch.object(cl.subprocess, "Popen", lambda *a, **k: mock.Mock(pid=4242)):
+                rc = cl.main(["start", "--build-host", "h", "--src", "/s", "--app", str(app),
+                              "--worktree", d, "--edits", str(state / "edits")])
+            self.assertEqual(rc, 0)
+            self.assertEqual(restored, ["~/.cmux-chromium-live/old"])
+            self.assertNotEqual(json.loads((state / "config.json").read_text())["session"], "old")
+
+
+if __name__ == "__main__":
+    unittest.main()

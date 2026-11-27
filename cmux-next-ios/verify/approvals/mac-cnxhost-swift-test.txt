@@ -1,0 +1,23 @@
+✔ Test teamIsTheSelectedOneElseThePersonalSpace() passed after 0.001 seconds.
+✔ Test decisionsNeedTheSameKeys() passed after 0.001 seconds.
+✔ Test aRemovalIsAPhaseThatDropsPhones() passed after 0.001 seconds.
+✔ Test stateTracksPhasesAndPhones() passed after 0.001 seconds.
+✔ Test parsesPairingEvents() passed after 0.001 seconds.
+✔ Test phonesGroupTheirLinkAndPresenceIDs() passed after 0.001 seconds.
+✔ Test parsesEveryHostdEvent() passed after 0.001 seconds.
+✔ Test missingHostdIsUnavailable() passed after 0.001 seconds.
+✔ Test environmentPointsAtTheAppsDaemonAndLeaksNothingElse() passed after 0.001 seconds.
+✔ Test directoryListsAndRemovesWithTheBearerToken() passed after 0.002 seconds.
+✔ Test dropPhoneIsOneControlLine() passed after 0.002 seconds.
+✔ Test parsesBrowserRequestsAndWritesTheAnswers() passed after 0.002 seconds.
+✔ Test controlLinesAreSingleJSONLines() passed after 0.002 seconds.
+✔ Test hostdAndAcpmuxGetOnlyApprovedKeys() passed after 0.003 seconds.
+✔ Test deviceIDPersists() passed after 0.003 seconds.
+✔ Test theFileBelongsToOneUser() passed after 0.003 seconds.
+✔ Test theRemovalMarkerForgetsTheDeviceAndHoldsPerAccount() passed after 0.003 seconds.
+✔ Suite CnxPairingTests passed after 0.003 seconds.
+✔ Test supervisorRunsHostdAndStops() passed after 0.101 seconds.
+✔ Test supervisorStartsBrowserHostsForHostd() passed after 0.103 seconds.
+✔ Test aRemovedHostdIsNotRestarted() passed after 2.108 seconds.
+✔ Suite CnxHostTests passed after 2.108 seconds.
+✔ Test run with 20 tests in 2 suites passed after 2.108 seconds.

@@ -1,0 +1,135 @@
+Filtering the log data using "subsystem BEGINSWITH "dev.cmux""
+Timestamp               Ty Process[PID:TID]
+2026-10-23 22:27:20.791 I  CmuxMobileApp[57926:24b0c732] [dev.cmux.mobile:auth] Stack project 9790718f-14cd-4f7e-824d-eaf527a82b82 (production), callback https://cmux.com/auth/callback, service mobile-api.cmux.dev
+2026-10-23 22:27:21.019 I  CmuxMobileApp[57926:24b0c732] [dev.cmux.mobile:shell] Stack teams: 0
+2026-10-23 22:27:21.026 I  CmuxMobileApp[57926:24b0c732] [dev.cmux.mobile:timing] timing launch coordinator_start +642ms (642ms)
+2026-10-23 22:27:21.059 I  CmuxMobileApp[57926:24b0c732] [dev.cmux.mobile:timing] timing launch snapshot_restored +675ms (675ms) 7 workspaces
+2026-10-23 22:27:21.066 I  CmuxMobileApp[57926:24b0c732] [dev.cmux.mobile:link] link connecting(CmuxMobileTransport.TransportKind.wireGuard, attempt: 1)
+2026-10-23 22:27:21.066 I  CmuxMobileApp[57926:24b0c732] [dev.cmux.mobile:link] dial wireguard relayOnly=false blockUDP=false
+2026-10-23 22:27:21.066 I  CmuxMobileApp[57926:24b0c732] [dev.cmux.mobile:timing] timing launch dial_start +682ms (682ms) wireguard
+2026-10-23 22:27:21.067 I  CmuxMobileApp[57926:24b0c732] [dev.cmux.mobile:shell] live data on mobile-api.cmux.dev
+2026-10-23 22:27:21.067 I  CmuxMobileApp[57926:24b0c732] [dev.cmux.mobile:shell] Stack teams: 0
+2026-10-23 22:27:21.068 I  CmuxMobileApp[57926:24b0c7db] [dev.cmux.mobile:timing] timing launch token_ready +684ms (684ms)
+2026-10-23 22:27:21.069 I  CmuxMobileApp[57926:24b0c732] [dev.cmux.mobile:link] link macOffline
+2026-10-23 22:27:21.500 I  CmuxMobileApp[57926:24b0c7da] [dev.cmux.mobile:timing] timing launch prewarmed +1116ms (1116ms) ice_servers_fetched=91 signaling_open=433
+2026-10-23 22:27:21.607 I  CmuxMobileApp[57926:24b0c732] [dev.cmux.mobile:timing] timing launch workspace_row_cached +1223ms (1223ms)
+2026-10-23 22:27:21.716 I  CmuxMobileApp[57926:24b0c7d8] [dev.cmux.mobile:timing] timing launch link_connected +1332ms (1332ms) ice_servers_fetched=88 signaling_joined=431 signaling_reused=431 dial_start=431 turn_allocated=455 endpoints_gathered=455 wg_init_sent=455 wg_resp_received=606 video_lane=608 link_ready=647
+2026-10-23 22:27:21.719 I  CmuxMobileApp[57926:24b0c7d8] [dev.cmux.mobile:timing] timing launch pairing_opened +1336ms (1336ms)
+2026-10-23 22:27:21.720 I  CmuxMobileApp[57926:24b0c7d8] [dev.cmux.mobile:timing] timing launch daemon_channel_open +1336ms (1336ms)
+2026-10-23 22:27:21.742 I  CmuxMobileApp[57926:24b0c732] [dev.cmux.mobile:live] foreground: connecting(CmuxMobileTransport.TransportKind.wireGuard, attempt: 1)
+2026-10-23 22:27:21.797 I  CmuxMobileApp[57926:24b0c732] [dev.cmux.mobile:timing] timing launch link_adopted +1413ms (1413ms)
+2026-10-23 22:27:21.801 I  CmuxMobileApp[57926:24b0c732] [dev.cmux.mobile:link] link connected(CmuxMobileTransport.TransportKind.wireGuard, CmuxMobileTransport.LinkPathKind.turn, rttMillis: nil)
+2026-10-23 22:27:21.802 I  CmuxMobileApp[57926:24b0c732] [dev.cmux.mobile:timing] timing launch link_served +1418ms (1418ms)
+2026-10-23 22:27:21.862 I  CmuxMobileApp[57926:24b0c7db] [dev.cmux.mobile:timing] timing launch first_daemon_response +1478ms (1478ms)
+2026-10-23 22:27:21.907 I  CmuxMobileApp[57926:24b0c732] [dev.cmux.mobile:live] Mac host: 0.1.0, link protocol 2
+2026-10-23 22:27:21.908 I  CmuxMobileApp[57926:24b0c732] [dev.cmux.mobile:timing] timing launch workspaces_live +1524ms (1524ms) 7 workspaces
+2026-10-23 22:27:21.930 Db CmuxMobileApp[57926:24b0c7db] [dev.cmux.mobile:acpmux-rpc] -> 1 initialize 148 bytes
+2026-10-23 22:27:21.940 Db CmuxMobileApp[57926:24b0c7db] [dev.cmux.mobile:acpmux-rpc] <- 1 result
+2026-10-23 22:27:21.971 I  CmuxMobileApp[57926:24b0c732] [dev.cmux.mobile:timing] timing launch workspace_row_live +1588ms (1588ms)
+2026-10-23 22:27:21.979 Db CmuxMobileApp[57926:24b0c7da] [dev.cmux.mobile:acpmux-rpc] -> 2 _acpmux/watch 76 bytes
+2026-10-23 22:27:21.982 I  CmuxMobileApp[57926:24b0c732] [dev.cmux.mobile:shell] Stack teams: 1
+2026-10-23 22:27:21.991 I  CmuxMobileApp[57926:24b0c732] [dev.cmux.mobile:link] link connected(CmuxMobileTransport.TransportKind.wireGuard, CmuxMobileTransport.LinkPathKind.turn, rttMillis: Optional(16))
+2026-10-23 22:27:21.995 Db CmuxMobileApp[57926:24b0c7da] [dev.cmux.mobile:acpmux-rpc] <- 2 result
+2026-10-23 22:27:22.001 I  CmuxMobileApp[57926:24b0c732] [dev.cmux.mobile:acpmux] acpmux ready, 0 sessions
+2026-10-23 22:27:22.001 I  CmuxMobileApp[57926:24b0c732] [dev.cmux.mobile:feed] feed history 0 turns
+2026-10-23 22:27:22.034 I  CmuxMobileApp[57926:24b0c732] [dev.cmux.mobile:feed] feed history 0 turns
+2026-10-23 22:27:22.187 I  CmuxMobileApp[57926:24b0c732] [dev.cmux.mobile:timing] timing launch registered +1803ms (1803ms) bootstrap
+2026-10-23 22:27:22.187 I  CmuxMobileApp[57926:24b0c732] [dev.cmux.mobile:timing] timing launch macs_loaded +1803ms (1803ms) 2
+2026-10-23 22:27:24.808 Df CmuxMobileApp[57926:24b0c732] [dev.cmux.mobile:terminal-sizing] mirror rows 0 -> 151 cause=layout page 874pt
+2026-10-23 22:27:24.826 Df CmuxMobileApp[57926:24b0c732] [dev.cmux.mobile:terminal-sizing] resize 53x39 cause=first attached=false (TUI false)
+2026-10-23 22:27:24.826 Df CmuxMobileApp[57926:24b0c732] [dev.cmux.mobile:terminal] surface 141: resize to 53x39
+2026-10-23 22:27:25.010 Df CmuxMobileApp[57926:24b0c732] [dev.cmux.mobile:terminal] surface 141: mirror reset cause=attach size=53x39
+2026-10-23 22:27:25.011 Df CmuxMobileApp[57926:24b0c732] [dev.cmux.mobile:terminal-sizing] mirror reset cause=session-reset (the session's replay follows)
+2026-10-23 22:27:25.025 Df CmuxMobileApp[57926:24b0c732] [dev.cmux.mobile:terminal-sizing] replay done bytes=853 ms=10
+2026-10-23 22:27:25.212 Df CmuxMobileApp[57926:24b0c732] [dev.cmux.mobile:terminal-sizing] resize 53x42 cause=settled attached=true (TUI false)
+2026-10-23 22:27:25.212 Df CmuxMobileApp[57926:24b0c732] [dev.cmux.mobile:terminal] surface 141: resize to 53x42
+2026-10-23 22:27:25.212 Df CmuxMobileApp[57926:24b0c732] [dev.cmux.mobile:terminal] surface 141: resize-surface sent 53x42 cause=requested
+2026-10-23 22:27:25.230 Df CmuxMobileApp[57926:24b0c732] [dev.cmux.mobile:terminal] surface 141: mirror reset cause=resized-event (rows 42, last size asked 53x42)
+2026-10-23 22:27:25.230 Df CmuxMobileApp[57926:24b0c732] [dev.cmux.mobile:terminal-sizing] mirror reset cause=session-reset (the session's replay follows)
+2026-10-23 22:27:25.242 Df CmuxMobileApp[57926:24b0c732] [dev.cmux.mobile:terminal-sizing] replay done bytes=874 ms=8
+2026-10-23 22:27:32.154 Df CmuxMobileApp[57926:24b0c732] [dev.cmux.mobile:terminal] surface 141: left the screen, releasing its size
+2026-10-23 22:27:36.739 I  CmuxMobileApp[57926:24b0c732] [dev.cmux.mobile:link] link connected(CmuxMobileTransport.TransportKind.wireGuard, CmuxMobileTransport.LinkPathKind.turn, rttMillis: Optional(14))
+2026-10-23 22:27:36.860 I  CmuxMobileApp[57926:24b0c732] [dev.cmux.mobile:timing] timing launch link_alive +16476ms (16476ms) 16 ms
+2026-10-23 22:27:36.860 I  CmuxMobileApp[57926:24b0c732] [dev.cmux.mobile:link] link connected(CmuxMobileTransport.TransportKind.wireGuard, CmuxMobileTransport.LinkPathKind.turn, rttMillis: Optional(16))
+2026-10-23 22:27:38.626 Df CmuxMobileApp[57926:24b0c732] [dev.cmux.mobile:browser-stream] browser new-36e00711-t1: open at -
+2026-10-23 22:27:38.687 I  CmuxMobileApp[57926:24b0c732] [dev.cmux.mobile:link] link media connecting
+2026-10-23 22:27:38.687 I  CmuxMobileApp[57926:24b0c732] [dev.cmux.mobile:timing] timing launch media +18303ms (18303ms) connecting
+2026-10-23 22:27:38.785 I  CmuxMobileApp[57926:24b0c732] [dev.cmux.mobile:feed] feed history 0 turns
+2026-10-23 22:27:38.846 I  CmuxMobileApp[57926:24b0c732] [dev.cmux.mobile:feed] feed history 0 turns
+2026-10-23 22:27:38.847 Df CmuxMobileApp[57926:24b0c732] [dev.cmux.mobile:browser-stream] browser rename new-36e00711-t1 -> s148
+2026-10-23 22:27:38.877 I  CmuxMobileApp[57926:24b0c732] [dev.cmux.mobile:feed] feed history 0 turns
+2026-10-23 22:27:38.879 I  CmuxMobileApp[57926:24b0c732] [dev.cmux.mobile:link] link media up(CmuxMobileTransport.LinkPathKind.direct, rttMillis: nil)
+2026-10-23 22:27:39.239 I  CmuxMobileApp[57926:24b0c732] [dev.cmux.mobile:browser-stream] browser new-36e00711-t1: 1 fps 2 kbps latency 202.3 ms decode 6.9 ms 804x1444 via track dropped 0 recovered 0
+2026-10-23 22:27:51.751 I  CmuxMobileApp[57926:24b0c732] [dev.cmux.mobile:link] link connected(CmuxMobileTransport.TransportKind.wireGuard, CmuxMobileTransport.LinkPathKind.turn, rttMillis: Optional(18))
+2026-10-23 22:27:51.874 I  CmuxMobileApp[57926:24b0c732] [dev.cmux.mobile:link] link connected(CmuxMobileTransport.TransportKind.wireGuard, CmuxMobileTransport.LinkPathKind.turn, rttMillis: Optional(14))
+2026-10-23 22:27:52.593 I  CmuxMobileApp[57926:24b0c732] [dev.cmux.mobile:feed] feed history 0 turns
+2026-10-23 22:28:01.619 I  CmuxMobileApp[57926:24b0c732] [dev.cmux.mobile:feed] feed history 0 turns
+2026-10-23 22:28:01.698 I  CmuxMobileApp[57926:24b0c732] [dev.cmux.mobile:feed] feed history 0 turns
+2026-10-23 22:28:02.806 I  CmuxMobileApp[57926:24b0c732] [dev.cmux.mobile:browser-stream] browser new-36e00711-t1: 13 fps 12 kbps latency 9.1 ms decode 1.8 ms 804x1444 via track dropped 0 recovered 0
+2026-10-23 22:28:06.941 I  CmuxMobileApp[57926:24b0c732] [dev.cmux.mobile:link] link connected(CmuxMobileTransport.TransportKind.wireGuard, CmuxMobileTransport.LinkPathKind.turn, rttMillis: Optional(15))
+2026-10-23 22:28:18.865 I  CmuxMobileApp[57926:24b0c732] [dev.cmux.mobile:link] link media failed(reason: "killed (test)")
+2026-10-23 22:28:19.859 I  CmuxMobileApp[57926:24b0c732] [dev.cmux.mobile:link] link media connecting
+2026-10-23 22:28:20.020 I  CmuxMobileApp[57926:24b0c732] [dev.cmux.mobile:link] link media up(CmuxMobileTransport.LinkPathKind.direct, rttMillis: nil)
+2026-10-23 22:28:21.783 I  CmuxMobileApp[57926:24b0c732] [dev.cmux.mobile:link] link connected(CmuxMobileTransport.TransportKind.wireGuard, CmuxMobileTransport.LinkPathKind.turn, rttMillis: Optional(14))
+2026-10-23 22:28:23.506 I  CmuxMobileApp[57926:24b0c732] [dev.cmux.mobile:browser-stream] browser new-36e00711-t1: 2 fps 1 kbps latency 6.7 ms decode 1.1 ms 804x1444 via track dropped 0 recovered 0
+2026-10-23 22:28:31.059 I  CmuxMobileApp[57926:24b0c732] [dev.cmux.mobile:browser-stream] browser new-36e00711-t1: 4 fps 9 kbps latency 6684.3 ms decode 2.7 ms 804x1444 via track dropped 0 recovered 0
+2026-10-23 22:28:34.983 I  CmuxMobileApp[57926:24b0c732] [dev.cmux.mobile:browser-stream] browser new-36e00711-t1: 4 fps 9 kbps latency 1586.7 ms decode 3.7 ms 804x1444 via track dropped 0 recovered 0
+2026-10-23 22:28:36.802 I  CmuxMobileApp[57926:24b0c732] [dev.cmux.mobile:link] link connected(CmuxMobileTransport.TransportKind.wireGuard, CmuxMobileTransport.LinkPathKind.turn, rttMillis: Optional(15))
+2026-10-23 22:28:44.035 I  CmuxMobileApp[57926:24b0c732] [dev.cmux.mobile:browser-stream] browser new-36e00711-t1: 4 fps 9 kbps latency 10638.0 ms decode 3.7 ms 804x1444 via track dropped 0 recovered 0
+2026-10-23 22:28:51.845 I  CmuxMobileApp[57926:24b0c732] [dev.cmux.mobile:link] link connected(CmuxMobileTransport.TransportKind.wireGuard, CmuxMobileTransport.LinkPathKind.turn, rttMillis: Optional(41))
+2026-10-23 22:28:52.088 I  CmuxMobileApp[57926:24b0c732] [dev.cmux.mobile:link] link connected(CmuxMobileTransport.TransportKind.wireGuard, CmuxMobileTransport.LinkPathKind.turn, rttMillis: Optional(14))
+2026-10-23 22:28:53.382 I  CmuxMobileApp[57926:24b0c732] [dev.cmux.mobile:browser-stream] browser new-36e00711-t1: 4 fps 9 kbps latency 19985.4 ms decode 3.7 ms 804x1444 via track dropped 0 recovered 0
+2026-10-23 22:29:00.021 I  CmuxMobileApp[57926:24b0c732] [dev.cmux.mobile:link] link media failed(reason: "killed (test)")
+2026-10-23 22:29:01.033 I  CmuxMobileApp[57926:24b0c732] [dev.cmux.mobile:link] link media connecting
+2026-10-23 22:29:06.881 I  CmuxMobileApp[57926:24b0c732] [dev.cmux.mobile:link] link connected(CmuxMobileTransport.TransportKind.wireGuard, CmuxMobileTransport.LinkPathKind.turn, rttMillis: Optional(35))
+2026-10-23 22:29:07.201 I  CmuxMobileApp[57926:24b0c732] [dev.cmux.mobile:link] link connected(CmuxMobileTransport.TransportKind.wireGuard, CmuxMobileTransport.LinkPathKind.turn, rttMillis: Optional(14))
+2026-10-23 22:29:12.330 I  CmuxMobileApp[57926:24b0c732] [dev.cmux.mobile:link] link media failed(reason: "transport: the media session\134's peer connection failed")
+2026-10-23 22:29:14.330 I  CmuxMobileApp[57926:24b0c732] [dev.cmux.mobile:link] link media connecting
+2026-10-23 22:29:22.212 I  CmuxMobileApp[57926:24b0c732] [dev.cmux.mobile:link] link connected(CmuxMobileTransport.TransportKind.wireGuard, CmuxMobileTransport.LinkPathKind.turn, rttMillis: Optional(15))
+2026-10-23 22:29:25.642 I  CmuxMobileApp[57926:24b0c732] [dev.cmux.mobile:link] link media failed(reason: "the peer ended the session: transport: the media session\134's peer connection failed")
+2026-10-23 22:29:29.642 I  CmuxMobileApp[57926:24b0c732] [dev.cmux.mobile:link] link media connecting
+2026-10-23 22:29:29.805 I  CmuxMobileApp[57926:24b0c732] [dev.cmux.mobile:link] link media up(CmuxMobileTransport.LinkPathKind.direct, rttMillis: nil)
+2026-10-23 22:29:30.994 I  CmuxMobileApp[57926:24b0c732] [dev.cmux.mobile:browser-stream] browser new-36e00711-t1: 4 fps 9 kbps latency 57592.6 ms decode 3.3 ms 804x1444 via track dropped 0 recovered 0
+2026-10-23 22:29:36.912 I  CmuxMobileApp[57926:24b0c732] [dev.cmux.mobile:link] link connected(CmuxMobileTransport.TransportKind.wireGuard, CmuxMobileTransport.LinkPathKind.turn, rttMillis: Optional(14))
+2026-10-23 22:29:37.257 I  CmuxMobileApp[57926:24b0c732] [dev.cmux.mobile:link] link connected(CmuxMobileTransport.TransportKind.wireGuard, CmuxMobileTransport.LinkPathKind.turn, rttMillis: Optional(17))
+2026-10-23 22:29:40.397 I  CmuxMobileApp[57926:24b0c732] [dev.cmux.mobile:browser-stream] browser new-36e00711-t1: 4 fps 9 kbps latency 66992.4 ms decode 3.7 ms 804x1444 via track dropped 0 recovered 0
+2026-10-23 22:29:49.751 I  CmuxMobileApp[57926:24b0c732] [dev.cmux.mobile:browser-stream] browser new-36e00711-t1: 4 fps 9 kbps latency 76351.1 ms decode 4.7 ms 804x1444 via track dropped 0 recovered 0
+2026-10-23 22:29:51.929 I  CmuxMobileApp[57926:24b0c732] [dev.cmux.mobile:link] link connected(CmuxMobileTransport.TransportKind.wireGuard, CmuxMobileTransport.LinkPathKind.turn, rttMillis: Optional(14))
+2026-10-23 22:29:52.257 I  CmuxMobileApp[57926:24b0c732] [dev.cmux.mobile:link] link connected(CmuxMobileTransport.TransportKind.wireGuard, CmuxMobileTransport.LinkPathKind.turn, rttMillis: Optional(16))
+2026-10-23 22:29:53.686 I  CmuxMobileApp[57926:24b0c732] [dev.cmux.mobile:browser-stream] browser new-36e00711-t1: 21 fps 21 kbps latency 5.8 ms decode 2.3 ms 804x1444 via track dropped 0 recovered 0
+2026-10-23 22:30:02.424 I  CmuxMobileApp[57926:24b0c732] [dev.cmux.mobile:browser-stream] browser new-36e00711-t1: 4 fps 9 kbps latency 8377.2 ms decode 2.8 ms 804x1444 via track dropped 0 recovered 0
+2026-10-23 22:30:06.349 I  CmuxMobileApp[57926:24b0c732] [dev.cmux.mobile:browser-stream] browser new-36e00711-t1: 3 fps 7 kbps latency 1469.7 ms decode 3.7 ms 804x1444 via track dropped 0 recovered 0
+2026-10-23 22:30:06.945 I  CmuxMobileApp[57926:24b0c732] [dev.cmux.mobile:link] link connected(CmuxMobileTransport.TransportKind.wireGuard, CmuxMobileTransport.LinkPathKind.turn, rttMillis: Optional(15))
+2026-10-23 22:30:07.261 I  CmuxMobileApp[57926:24b0c732] [dev.cmux.mobile:link] link connected(CmuxMobileTransport.TransportKind.wireGuard, CmuxMobileTransport.LinkPathKind.turn, rttMillis: Optional(14))
+2026-10-23 22:30:09.809 I  CmuxMobileApp[57926:24b0c732] [dev.cmux.mobile:link] link media failed(reason: "killed (test)")
+2026-10-23 22:30:10.812 I  CmuxMobileApp[57926:24b0c732] [dev.cmux.mobile:link] link media connecting
+2026-10-23 22:30:10.995 I  CmuxMobileApp[57926:24b0c732] [dev.cmux.mobile:link] link media up(CmuxMobileTransport.LinkPathKind.direct, rttMillis: nil)
+2026-10-23 22:30:14.055 I  CmuxMobileApp[57926:24b0c732] [dev.cmux.mobile:browser-stream] browser new-36e00711-t1: 11 fps 14 kbps latency 8.5 ms decode 2.1 ms 804x1444 via track dropped 0 recovered 0
+2026-10-23 22:30:19.759 I  CmuxMobileApp[57926:24b0c732] [dev.cmux.mobile:browser-stream] browser new-36e00711-t1: 4 fps 9 kbps latency 5114.4 ms decode 3.8 ms 804x1444 via track dropped 0 recovered 0
+2026-10-23 22:30:21.961 I  CmuxMobileApp[57926:24b0c732] [dev.cmux.mobile:link] link connected(CmuxMobileTransport.TransportKind.wireGuard, CmuxMobileTransport.LinkPathKind.turn, rttMillis: Optional(13))
+2026-10-23 22:30:22.344 I  CmuxMobileApp[57926:24b0c732] [dev.cmux.mobile:link] link connected(CmuxMobileTransport.TransportKind.wireGuard, CmuxMobileTransport.LinkPathKind.turn, rttMillis: Optional(15))
+2026-10-23 22:30:24.431 I  CmuxMobileApp[57926:24b0c732] [dev.cmux.mobile:browser-stream] browser new-36e00711-t1: 18 fps 17 kbps latency 9.6 ms decode 2.3 ms 804x1444 via track dropped 0 recovered 0
+2026-10-23 22:30:32.734 I  CmuxMobileApp[57926:24b0c732] [dev.cmux.mobile:browser-stream] browser new-36e00711-t1: 4 fps 9 kbps latency 7887.2 ms decode 3.4 ms 804x1444 via track dropped 0 recovered 0
+2026-10-23 22:30:36.976 I  CmuxMobileApp[57926:24b0c732] [dev.cmux.mobile:link] link connected(CmuxMobileTransport.TransportKind.wireGuard, CmuxMobileTransport.LinkPathKind.turn, rttMillis: Optional(14))
+2026-10-23 22:30:41.779 I  CmuxMobileApp[57926:24b0c732] [dev.cmux.mobile:browser-stream] browser new-36e00711-t1: 4 fps 9 kbps latency 16934.3 ms decode 3.3 ms 804x1444 via track dropped 0 recovered 0
+2026-10-23 22:30:50.836 I  CmuxMobileApp[57926:24b0c732] [dev.cmux.mobile:browser-stream] browser new-36e00711-t1: 4 fps 9 kbps latency 25990.6 ms decode 3.8 ms 804x1444 via track dropped 0 recovered 0
+2026-10-23 22:30:50.997 I  CmuxMobileApp[57926:24b0c732] [dev.cmux.mobile:link] link media failed(reason: "killed (test)")
+2026-10-23 22:30:51.991 I  CmuxMobileApp[57926:24b0c732] [dev.cmux.mobile:link] link connected(CmuxMobileTransport.TransportKind.wireGuard, CmuxMobileTransport.LinkPathKind.turn, rttMillis: Optional(13))
+2026-10-23 22:30:52.013 I  CmuxMobileApp[57926:24b0c732] [dev.cmux.mobile:link] link media connecting
+2026-10-23 22:30:52.161 I  CmuxMobileApp[57926:24b0c732] [dev.cmux.mobile:link] link media up(CmuxMobileTransport.LinkPathKind.direct, rttMillis: nil)
+2026-10-23 22:30:52.506 I  CmuxMobileApp[57926:24b0c732] [dev.cmux.mobile:link] link connected(CmuxMobileTransport.TransportKind.wireGuard, CmuxMobileTransport.LinkPathKind.turn, rttMillis: Optional(14))
+2026-10-23 22:31:00.578 I  CmuxMobileApp[57926:24b0c732] [dev.cmux.mobile:browser-stream] browser new-36e00711-t1: 4 fps 9 kbps latency 35736.4 ms decode 3.8 ms 804x1444 via track dropped 0 recovered 0
+2026-10-23 22:31:07.549 I  CmuxMobileApp[57926:24b0c732] [dev.cmux.mobile:link] link connected(CmuxMobileTransport.TransportKind.wireGuard, CmuxMobileTransport.LinkPathKind.turn, rttMillis: Optional(20))
+2026-10-23 22:31:09.639 I  CmuxMobileApp[57926:24b0c732] [dev.cmux.mobile:browser-stream] browser new-36e00711-t1: 4 fps 9 kbps latency 44793.5 ms decode 3.8 ms 804x1444 via track dropped 0 recovered 0
+2026-10-23 22:31:18.703 I  CmuxMobileApp[57926:24b0c732] [dev.cmux.mobile:browser-stream] browser new-36e00711-t1: 4 fps 9 kbps latency 53858.5 ms decode 3.8 ms 804x1444 via track dropped 0 recovered 0
+2026-10-23 22:31:22.026 I  CmuxMobileApp[57926:24b0c732] [dev.cmux.mobile:link] link connected(CmuxMobileTransport.TransportKind.wireGuard, CmuxMobileTransport.LinkPathKind.turn, rttMillis: Optional(16))
+2026-10-23 22:31:22.567 I  CmuxMobileApp[57926:24b0c732] [dev.cmux.mobile:link] link connected(CmuxMobileTransport.TransportKind.wireGuard, CmuxMobileTransport.LinkPathKind.turn, rttMillis: Optional(14))
+2026-10-23 22:31:27.805 I  CmuxMobileApp[57926:24b0c732] [dev.cmux.mobile:browser-stream] browser new-36e00711-t1: 4 fps 9 kbps latency 62960.4 ms decode 5.0 ms 804x1444 via track dropped 0 recovered 0
+2026-10-23 22:31:32.165 I  CmuxMobileApp[57926:24b0c732] [dev.cmux.mobile:link] link media failed(reason: "killed (test)")
+2026-10-23 22:31:33.167 I  CmuxMobileApp[57926:24b0c732] [dev.cmux.mobile:link] link media connecting
+2026-10-23 22:31:34.195 I  CmuxMobileApp[57926:24b0c732] [dev.cmux.mobile:link] link media up(CmuxMobileTransport.LinkPathKind.direct, rttMillis: nil)
+2026-10-23 22:31:37.043 I  CmuxMobileApp[57926:24b0c732] [dev.cmux.mobile:link] link connected(CmuxMobileTransport.TransportKind.wireGuard, CmuxMobileTransport.LinkPathKind.turn, rttMillis: Optional(16))
+2026-10-23 22:31:37.624 I  CmuxMobileApp[57926:24b0c732] [dev.cmux.mobile:link] link connected(CmuxMobileTransport.TransportKind.wireGuard, CmuxMobileTransport.LinkPathKind.turn, rttMillis: Optional(14))
+2026-10-23 22:31:38.398 I  CmuxMobileApp[57926:24b0c732] [dev.cmux.mobile:browser-stream] browser new-36e00711-t1: 4 fps 9 kbps latency 73547.9 ms decode 4.9 ms 804x1444 via track dropped 0 recovered 0
+2026-10-23 22:31:44.061 I  CmuxMobileApp[57926:24b0c732] [dev.cmux.mobile:browser-stream] browser new-36e00711-t1: 15 fps 15 kbps latency 7.2 ms decode 1.1 ms 804x1444 via track dropped 0 recovered 0
+2026-10-23 22:31:51.062 I  CmuxMobileApp[57926:24b0c732] [dev.cmux.mobile:browser-stream] browser new-36e00711-t1: 4 fps 9 kbps latency 6484.9 ms decode 3.6 ms 804x1444 via track dropped 0 recovered 0

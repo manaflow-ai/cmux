@@ -1,0 +1,70 @@
+{
+  "description": "Where a `cmux` call of the Chief (its turns, subagents and acpmux) goes, the same rule for a Chief that the cmux-next app started and one that `cmux chief` started without the app. The brain host (optchat-chief host.rs session_env) writes `turn_env` from `host`; the cmux CLI (cmux-tui cli/chief_target.rs) reads that env and the sockets that exist. Rule: if the app control socket (CMUX_SOCKET_PATH) and the app's daemon (CMUX_APP_DAEMON_SOCKET) exist, daemon commands go to the app's daemon and app commands to the app. Else daemon commands go to the Chief's owner daemon (CMUX_CHIEF_OWNER_SOCKET) and app commands answer that they need the cmux app. `sockets` lists the paths that exist as sockets. `expect.daemon` is the socket of `cmux workspace list`; `expect.app` is the socket of `cmux window list`, or null when that command needs the app. Each case runs with `case_environment` (a turn env as `turn_env`), its paths relative to one directory.",
+  "host": {
+    "daemon_socket": "/T/cmux-tui-501/cmux-chief-b902d10e.sock",
+    "environment": {
+      "CMUX_SOCKET_PATH": "/Users/u/.cmux/chief/default/state/app.sock",
+      "CMUX_APP_DAEMON_SOCKET": "/Users/u/.cmux/chief/default/state/app-daemon.sock"
+    }
+  },
+  "turn_env": {
+    "CMUX_SOCKET_PATH": "/Users/u/.cmux/chief/default/state/app.sock",
+    "CMUX_APP_DAEMON_SOCKET": "/Users/u/.cmux/chief/default/state/app-daemon.sock",
+    "CMUX_CHIEF_OWNER_SOCKET": "/T/cmux-tui-501/cmux-chief-b902d10e.sock",
+    "CMUX_TUI_SOCKET": "/Users/u/.cmux/chief/default/state/app-daemon.sock",
+    "CMUX_MUX_SOCKET": "/Users/u/.cmux/chief/default/state/app-daemon.sock"
+  },
+  "case_environment": {
+    "CMUX_SOCKET_PATH": "app.sock",
+    "CMUX_APP_DAEMON_SOCKET": "app-daemon.sock",
+    "CMUX_CHIEF_OWNER_SOCKET": "owner.sock",
+    "CMUX_TUI_SOCKET": "app-daemon.sock",
+    "CMUX_MUX_SOCKET": "app-daemon.sock"
+  },
+  "cases": [
+    {
+      "name": "the app runs: its daemon and its control socket",
+      "sockets": [
+        "app.sock",
+        "app-daemon.sock",
+        "owner.sock"
+      ],
+      "expect": {
+        "daemon": "app-daemon.sock",
+        "app": "app.sock"
+      }
+    },
+    {
+      "name": "no app (cmux chief without the app): the owner daemon, app commands need the app",
+      "sockets": [
+        "owner.sock"
+      ],
+      "expect": {
+        "daemon": "owner.sock",
+        "app": null
+      }
+    },
+    {
+      "name": "the app quit and left its daemon: the owner daemon",
+      "sockets": [
+        "app-daemon.sock",
+        "owner.sock"
+      ],
+      "expect": {
+        "daemon": "owner.sock",
+        "app": null
+      }
+    },
+    {
+      "name": "a stale control link without the app's daemon: the owner daemon",
+      "sockets": [
+        "app.sock",
+        "owner.sock"
+      ],
+      "expect": {
+        "daemon": "owner.sock",
+        "app": "app.sock"
+      }
+    }
+  ]
+}

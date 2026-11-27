@@ -1,0 +1,34 @@
+{
+  "sourceLanguage": "en",
+  "strings": {
+    "mobile.devices.removal.supported": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {"stringUnit": {"state": "translated", "value": "Disconnects now. Reconnect with Allow Again in the Mac’s Settings → Mobile."}},
+        "de": {"stringUnit": {"state": "translated", "value": "Wird jetzt getrennt. Verbinde dich über „Erneut erlauben“ in den Einstellungen des Mac unter „Mobile“ wieder."}},
+        "fr": {"stringUnit": {"state": "translated", "value": "Déconnecte maintenant. Reconnectez-vous avec « Autoriser à nouveau » dans Réglages → Mobile du Mac."}},
+        "ar": {"stringUnit": {"state": "translated", "value": "يفصل الآن. أعد الاتصال باستخدام «السماح مرة أخرى» في إعدادات جهاز Mac ← Mobile."}},
+        "es": {"stringUnit": {"state": "translated", "value": "Se desconecta ahora. Vuelve a conectarlo con «Permitir de nuevo» en Ajustes → Mobile del Mac."}},
+        "zh-Hant": {"stringUnit": {"state": "translated", "value": "立即中斷連線。前往 Mac 的「設定」→「Mobile」，使用「再次允許」重新連線。"}},
+        "zh-Hans": {"stringUnit": {"state": "translated", "value": "立即断开连接。前往 Mac 的“设置”→“Mobile”，使用“再次允许”重新连接。"}},
+        "ko": {"stringUnit": {"state": "translated", "value": "지금 연결을 해제합니다. Mac의 설정 → Mobile에서 ‘다시 허용’으로 다시 연결하세요."}},
+        "ja": {"stringUnit": {"state": "translated", "value": "今すぐ接続を解除します。Mac の「設定」→「Mobile」で「再度許可」を選択して再接続してください。"}}
+      }
+    },
+    "mobile.devices.removal.legacy": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {"stringUnit": {"state": "translated", "value": "May return automatically; turn off the Mac’s Settings → Mobile to prevent this."}},
+        "de": {"stringUnit": {"state": "translated", "value": "Möglicherweise wird die Verbindung automatisch wiederhergestellt. Deaktiviere dies in den Einstellungen des Mac unter „Mobile“."}},
+        "fr": {"stringUnit": {"state": "translated", "value": "Peut revenir automatiquement ; désactivez-le dans Réglages → Mobile du Mac pour l’empêcher."}},
+        "ar": {"stringUnit": {"state": "translated", "value": "قد يعود تلقائيًا؛ عطّل ذلك من إعدادات جهاز Mac ← Mobile لمنع حدوثه."}},
+        "es": {"stringUnit": {"state": "translated", "value": "Puede volver automáticamente; desactiva Ajustes → Mobile del Mac para evitarlo."}},
+        "zh-Hant": {"stringUnit": {"state": "translated", "value": "可能會自動恢復；請在 Mac 的「設定」→「Mobile」中關閉以防止。"}},
+        "zh-Hans": {"stringUnit": {"state": "translated", "value": "可能会自动恢复；请在 Mac 的“设置”→“Mobile”中关闭以防止。"}},
+        "ko": {"stringUnit": {"state": "translated", "value": "자동으로 다시 연결될 수 있습니다. 이를 방지하려면 Mac의 설정 → Mobile에서 끄세요."}},
+        "ja": {"stringUnit": {"state": "translated", "value": "自動的に戻ることがあります。Mac の「設定」→「Mobile」でオフにすると防げます。"}}
+      }
+    }
+  },
+  "version": "1.0"
+}

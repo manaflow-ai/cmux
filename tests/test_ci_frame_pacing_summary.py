@@ -8,6 +8,7 @@ only: a slow night must show up there and must never fail the run.
 from __future__ import annotations
 
 import json
+import os
 import subprocess
 import sys
 import tempfile
@@ -26,8 +27,19 @@ def write_run(out: Path, display: str, flings: dict[str, list[tuple[int, float, 
             (out / f"{mode}-{n}.json").write_text(json.dumps({"fling": fling, "perf": {}}))
 
 
-def run(out: Path) -> subprocess.CompletedProcess[str]:
-    return subprocess.run([sys.executable, str(SCRIPT), str(out)], capture_output=True, text=True, check=False)
+def run(
+    out: Path,
+    receipt: Path | None = None,
+    env: dict[str, str] | None = None,
+    skip_reason: str | None = None,
+) -> subprocess.CompletedProcess[str]:
+    command = [sys.executable, str(SCRIPT), str(out)]
+    if receipt is not None:
+        command += ["--receipt", str(receipt)]
+    if skip_reason is not None:
+        command += ["--skip-reason", skip_reason]
+    process_env = None if env is None else {**os.environ, **env}
+    return subprocess.run(command, capture_output=True, text=True, check=False, env=process_env)
 
 
 def test_a_healthy_night_reports_both_modes_without_warnings() -> None:
@@ -98,12 +110,72 @@ def test_a_fling_whose_rpc_replied_with_an_error_is_left_out() -> None:
         assert "::warning" not in result.stderr, result.stderr
 
 
+def test_receipt_captures_exact_source_and_reviewable_measurements() -> None:
+    with tempfile.TemporaryDirectory() as temp:
+        out = Path(temp)
+        receipt = out / "summary.json"
+        write_run(out, "ready 17 8.33 main=17", {
+            "0": [(181, 17, 18, 0)],
+            "1": [(360, 8, 9, 1)],
+        })
+        result = run(out, receipt, {"CMUX_PERF_SOURCE_SHA": "source-sha", "CMUX_PERF_WORKFLOW_SHA": "workflow-sha"})
+        assert result.returncode == 0, result.stderr
+        data = json.loads(receipt.read_text())
+        assert data["schema"] == "cmux.next.frame-pacing.v1"
+        assert data["source_sha"] == "source-sha"
+        assert data["workflow_sha"] == "workflow-sha"
+        assert data["status"] == "ok"
+        assert data["thresholds_enforced"] is False
+        assert data["modes"]["1"]["p50_ms_median"] == 8.0
+        assert data["modes"]["1"]["dropped_frames"] == 1
+
+
+def test_receipt_preserves_skip_reason() -> None:
+    with tempfile.TemporaryDirectory() as temp:
+        out = Path(temp)
+        receipt = out / "summary.json"
+        write_run(out, "error: CGVirtualDisplay unavailable", {})
+        result = run(out, receipt)
+        assert result.returncode == 0, result.stderr
+        data = json.loads(receipt.read_text())
+        assert data["status"] == "skipped"
+        assert data["reason"] == "error: CGVirtualDisplay unavailable"
+
+
+def test_receipt_marks_unmeasured_mode_as_partial() -> None:
+    with tempfile.TemporaryDirectory() as temp:
+        out = Path(temp)
+        receipt = out / "summary.json"
+        write_run(out, "ready 17 8.33 main=17", {"0": [(181, 17, 18, 0)]})
+        result = run(out, receipt)
+        assert result.returncode == 0, result.stderr
+        data = json.loads(receipt.read_text())
+        assert data["status"] == "partial"
+        assert data["unmeasured_modes"] == ["1"]
+        assert data["modes"]["1"]["status"] == "not_measured"
+
+
+def test_receipt_can_record_a_prebench_skip() -> None:
+    with tempfile.TemporaryDirectory() as temp:
+        out = Path(temp) / "out"
+        receipt = out / "summary.json"
+        result = run(out, receipt, skip_reason="no owned Mac was available")
+        assert result.returncode == 0, result.stderr
+        data = json.loads(receipt.read_text())
+        assert data["status"] == "skipped"
+        assert data["reason"] == "no owned Mac was available"
+
+
 def main() -> int:
     test_a_healthy_night_reports_both_modes_without_warnings()
     test_a_regression_is_flagged_and_warned_but_exits_zero()
     test_no_virtual_display_skips_the_table()
     test_a_mode_that_never_drew_says_why_instead_of_flagging()
     test_a_fling_whose_rpc_replied_with_an_error_is_left_out()
+    test_receipt_captures_exact_source_and_reviewable_measurements()
+    test_receipt_preserves_skip_reason()
+    test_receipt_marks_unmeasured_mode_as_partial()
+    test_receipt_can_record_a_prebench_skip()
     print("PASS: frame pacing summary reports numbers and flags regressions without failing")
     return 0
 

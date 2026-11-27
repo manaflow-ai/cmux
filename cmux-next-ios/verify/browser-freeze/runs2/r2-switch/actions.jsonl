@@ -1,0 +1,43 @@
+{"t": 1792818118.0, "utc": "05:01:57", "tab": "A", "act": "open_tab-failed", "error": "/Users/cmux/cmux-next-ios-e2e/bin/ocr /tmp/cmux-mobile-e2e-ocr-03979B9C-C6CA-4C94-8758-7E68A81FF15F.png failed: Swift/ErrorType.swift:254: Fatal error: Error raised at top level: TextRecognition.CRIma"}
+{"t": 1792818122.63, "utc": "05:02:02", "tab": "A", "act": "scroll-down", "rtt": 4.1}
+{"t": 1792818127.73, "utc": "05:02:07", "tab": "A", "act": "scroll-up", "rtt": 3.94}
+{"t": 1792818132.87, "utc": "05:02:12", "tab": "A", "act": "scroll-up", "rtt": 2.76}
+{"t": 1792818143.35, "utc": "05:02:23", "tab": "A", "act": "scroll-up", "rtt": null}
+{"t": 1792818149.48, "utc": "05:02:29", "tab": "A", "act": "scroll-down", "rtt": 4.11}
+{"t": 1792818153.13, "utc": "05:02:33", "tab": "A", "act": "tap", "rtt": 2.2, "at": [149, 360]}
+{"t": 1792818162.91, "utc": "05:02:42", "tab": "A", "act": "scroll-down", "rtt": null}
+{"t": 1792818164.7, "utc": "05:02:44", "tab": "A", "act": "forward", "skipped": "no history from this run"}
+{"t": 1792818176.82, "utc": "05:02:56", "tab": "A", "act": "back", "rtt": null}
+{"t": 1792818179.85, "utc": "05:02:59", "tab": "A", "act": "forward", "skipped": "no history from this run"}
+{"t": 1792818196.69, "utc": "05:03:16", "tab": "A", "act": "search", "error": "no address bar or pill"}
+{"t": 1792818215.34, "utc": "05:03:35", "tab": "A", "act": "long-scroll", "rtt": null, "swipes": 14, "seconds": 16.9, "reconnecting": ["Reconnecting to the Mac\u2026"]}
+{"t": 1792818225.82, "utc": "05:03:45", "tab": "A", "act": "tap", "rtt": null, "at": [142, 364]}
+{"t": 1792818236.08, "utc": "05:03:56", "tab": "A", "act": "scroll-down", "rtt": null}
+{"t": 1792818248.4, "utc": "05:04:08", "tab": "A", "act": "back", "rtt": null}
+{"t": 1792818261.57, "utc": "05:04:21", "tab": "A", "act": "back", "rtt": null}
+{"t": 1792818273.25, "utc": "05:04:33", "tab": "A", "act": "tap", "rtt": null, "at": [301, 381]}
+{"t": 1792818282.94, "utc": "05:04:42", "tab": "A", "act": "scroll-down", "rtt": null}
+{"t": 1792818320.16, "utc": "05:05:20", "tab": "A", "act": "to-list-retry", "error": "could not get back to the Workspaces list", "labels": [["Application", "cmux INTERNAL", null], ["StaticText", "Reconnecting to the Mac\u2026", "workspace.new-11be14fd"], ["Button", "Keyboard", "workspace.new-11be14fd"], ["Button", "Back", "chevron.left"], ["Button", "Forward", "chevron.right"], ["Button", "Page Menu", null], ["Button", "Show toolbar, en.wikipedia.org", null], ["Button", "Reload", "arrow.clockwise"], ["Button", "Show toolbar, en.wikipedia.org", null], ["Button", "Tabs", "workspace.new-11be14fd"]]}
+{"t": 1792818359.18, "utc": "05:05:59", "tab": "A", "act": "open", "name": "B", "url": "https://news.ycombinator.com", "error": "list: could not get back to the Workspaces list"}
+{"t": 1792818367.86, "utc": "05:06:07", "tab": "A", "act": "scroll-down", "rtt": null}
+{"t": 1792818380.88, "utc": "05:06:20", "tab": "A", "act": "back", "rtt": null}
+{"t": 1792818390.35, "utc": "05:06:30", "tab": "A", "act": "scroll-down", "rtt": null}
+{"t": 1792818392.88, "utc": "05:06:32", "tab": "A", "act": "search", "error": "no address bar or pill"}
+{"t": 1792818405.55, "utc": "05:06:45", "tab": "A", "act": "back", "rtt": null}
+{"t": 1792818414.89, "utc": "05:06:54", "tab": "A", "act": "scroll-up", "rtt": null}
+{"t": 1792818424.38, "utc": "05:07:04", "tab": "A", "act": "scroll-down", "rtt": null}
+{"t": 1792818461.58, "utc": "05:07:41", "tab": "A", "act": "to-list-retry", "error": "could not get back to the Workspaces list", "labels": [["Application", "cmux INTERNAL", null], ["StaticText", "Reconnecting to the Mac\u2026", "workspace.new-11be14fd"], ["Button", "Keyboard", "workspace.new-11be14fd"], ["Button", "Back", "chevron.left"], ["Button", "Forward", "chevron.right"], ["Button", "Page Menu", null], ["Button", "Show toolbar, en.wikipedia.org", null], ["Button", "Reload", "arrow.clockwise"], ["Button", "Show toolbar, en.wikipedia.org", null], ["Button", "Tabs", "workspace.new-11be14fd"]]}
+{"t": 1792818500.76, "utc": "05:08:20", "tab": "A", "act": "list_idle-failed", "error": "could not get back to the Workspaces list"}
+{"t": 1792818536.31, "utc": "05:08:56", "tab": "A", "act": "to-list-retry", "error": "could not get back to the Workspaces list", "labels": [["Application", "cmux INTERNAL", null], ["StaticText", "Reconnecting to the Mac\u2026", "workspace.new-11be14fd"], ["Button", "Keyboard", "workspace.new-11be14fd"], ["Button", "Back", "chevron.left"], ["Button", "Forward", "chevron.right"], ["Button", "Page Menu", null], ["Button", "Show toolbar, en.wikipedia.org", null], ["Button", "Reload", "arrow.clockwise"], ["Button", "Show toolbar, en.wikipedia.org", null], ["Button", "Tabs", "workspace.new-11be14fd"]]}
+{"t": 1792818575.18, "utc": "05:09:35", "tab": "A", "act": "switch-failed", "error": "could not get back to the Workspaces list"}
+{"t": 1792818583.75, "utc": "05:09:43", "tab": "A", "act": "scroll-down", "rtt": null}
+{"t": 1792818588.57, "utc": "05:09:48", "tab": "A", "act": "search", "error": "no address bar or pill"}
+{"t": 1792818598.91, "utc": "05:09:58", "tab": "A", "act": "scroll-up", "rtt": null}
+{"t": 1792818611.17, "utc": "05:10:11", "tab": "A", "act": "tap", "rtt": null, "at": [223, 504]}
+{"t": 1792818622.87, "utc": "05:10:22", "tab": "A", "act": "tap", "rtt": null, "at": [208, 452]}
+{"t": 1792818632.49, "utc": "05:10:32", "tab": "A", "act": "scroll-down", "rtt": null}
+{"t": 1792818642.0, "utc": "05:10:41", "tab": "A", "act": "scroll-up", "rtt": null}
+{"t": 1792818652.26, "utc": "05:10:52", "tab": "A", "act": "scroll-down", "rtt": null}
+{"t": 1792818655.29, "utc": "05:10:55", "tab": "A", "act": "forward", "skipped": "no history from this run"}
+{"t": 1792818692.5, "utc": "05:11:32", "tab": "A", "act": "to-list-retry", "error": "could not get back to the Workspaces list", "labels": [["Application", "cmux INTERNAL", null], ["StaticText", "Reconnecting to the Mac\u2026", "workspace.new-11be14fd"], ["Button", "Keyboard", "workspace.new-11be14fd"], ["Button", "Back", "chevron.left"], ["Button", "Forward", "chevron.right"], ["Button", "Page Menu", null], ["Button", "Show toolbar, en.wikipedia.org", null], ["Button", "Reload", null], ["Image", "Refresh", "arrow.clockwise"], ["Button", "Show toolbar, en.wikipedia.org", null], ["Button", "Tabs", "workspace.new-11be14fd"], ["Image", "Tabs", "square.on.square"]]}
+{"t": 1792818732.03, "utc": "05:12:12", "tab": "A", "act": "switch-failed", "error": "could not get back to the Workspaces list"}

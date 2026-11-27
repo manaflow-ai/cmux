@@ -1,0 +1,10 @@
+[Unit]
+Description=Nightly cmux idea ledger, at 05:30 Pacific
+
+[Timer]
+OnCalendar=*-*-* 12:30:00 UTC
+Persistent=true
+RandomizedDelaySec=10min
+
+[Install]
+WantedBy=timers.target

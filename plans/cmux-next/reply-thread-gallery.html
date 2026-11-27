@@ -1,0 +1,116 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Home chat: quoted reply designs</title>
+<style>
+  :root { --blue:#0284fe; --in-l:#e9e9eb; --in-d:#3b3b3d; --txt-l:#242424; --txt-d:#e1e1e1; }
+  body { margin:0; font:13px -apple-system, system-ui, sans-serif; background:#f4f4f6; color:#222; }
+  header { padding:20px 28px 6px; }
+  h1 { font-size:20px; margin:0 0 4px; }
+  header p { margin:0; color:#666; max-width:900px; line-height:1.45; }
+  .variant { margin:18px 28px; background:#fff; border-radius:14px; box-shadow:0 1px 3px rgba(0,0,0,.08); overflow:hidden; }
+  .variant.rec { outline:2px solid var(--blue); }
+  .vhead { padding:12px 16px 4px; display:flex; gap:10px; align-items:baseline; }
+  .vhead b { font-size:15px; }
+  .tag { background:var(--blue); color:#fff; border-radius:999px; padding:2px 9px; font-size:11px; font-weight:600; }
+  .vhead span.desc { color:#666; }
+  .pair { display:grid; grid-template-columns:1fr 1fr; }
+  .chat { padding:16px 18px 18px; display:flex; flex-direction:column; gap:2px; min-height:260px; }
+  .chat.light { background:#fff; --in:var(--in-l); --itxt:var(--txt-l); --bg:#fff; --conn:#c7c7cc; --sub:#8a8a8e; }
+  .chat.dark  { background:#1e1e1e; --in:var(--in-d); --itxt:var(--txt-d); --bg:#1e1e1e; --conn:#4a4a4e; --sub:#8d8d93; }
+  .row { display:flex; position:relative; }
+  .row.out { justify-content:flex-end; }
+  .b { max-width:70%; padding:6px 12px 7px; border-radius:15px; line-height:1.32; position:relative; }
+  .out .b { background:var(--blue); color:#fff; }
+  .in  .b { background:var(--in); color:var(--itxt); }
+  .tail.out .b::after, .tail.in .b::after { content:""; position:absolute; bottom:0; width:12px; height:15px; }
+  .tail.out .b::after { right:-5px; background:radial-gradient(circle at 0 0, transparent 9px, var(--blue) 9.5px); border-bottom-left-radius:10px; }
+  .tail.in .b::after { left:-5px; background:radial-gradient(circle at 100% 0, transparent 9px, var(--in) 9.5px); border-bottom-right-radius:10px; }
+  .gap { height:12px; }
+  .name { font-size:11px; color:var(--sub); margin:0 0 2px 12px; }
+  .replies { font-size:10.5px; font-weight:600; color:var(--blue); margin:2px 6px 0; }
+  .out + .replies, .replies.r { text-align:right; }
+  a.id { color:inherit; text-decoration:underline; text-underline-offset:2px; }
+  /* Connector: a soft curve from under the quote into the reply's side. */
+  .conn { position:relative; height:10px; }
+  .conn i { position:absolute; width:12px; height:14px; top:-4px; border:2px solid var(--conn); border-top:0; }
+  .conn.out i { right:22px; border-left:0; border-bottom-right-radius:10px; }
+  .conn.in i { left:22px; border-right:0; border-bottom-left-radius:10px; }
+
+  /* A: Faded twin (recommended) */
+  .A .q .b { opacity:.55; font-size:12px; padding:5px 11px 6px; border-radius:14px; max-width:60%;
+             display:-webkit-box; -webkit-line-clamp:2; -webkit-box-orient:vertical; overflow:hidden; }
+  /* B: Full-size dimmed */
+  .B .q .b { opacity:.45; display:-webkit-box; -webkit-line-clamp:2; -webkit-box-orient:vertical; overflow:hidden; }
+  /* C: Quote inside the reply */
+  .C .qin { border-radius:9px; padding:4px 8px 5px; margin:0 -4px 5px; font-size:12px; display:block; }
+  .C .out .qin { background:rgba(255,255,255,.18); border-left:3px solid rgba(255,255,255,.8); }
+  .C .in .qin { background:rgba(127,127,127,.14); border-left:3px solid var(--blue); }
+  .C .qin small { display:block; font-weight:600; font-size:11px; opacity:.85; }
+  /* D: Outline twin, fixed */
+  .D .q .b { background:transparent !important; font-size:12px; padding:4px 10px 5px; max-width:60%; border-radius:14px; }
+  .D .q.out .b { color:var(--blue); box-shadow:inset 0 0 0 1px var(--blue); }
+  .D .q.in .b { color:var(--sub); box-shadow:inset 0 0 0 1px var(--conn); }
+  /* E: Tinted card */
+  .E .q .b { font-size:12px; padding:5px 11px 6px; max-width:60%; border-radius:14px; }
+  .E .q.out .b { background:color-mix(in srgb, var(--blue) 20%, var(--bg)); color:var(--blue); }
+  .E .q.in .b { background:color-mix(in srgb, var(--in) 60%, var(--bg)); color:var(--sub); }
+</style>
+</head>
+<body>
+<header>
+  <h1>Home chat: quoted replies, 5 designs</h1>
+  <p>Each design shows the same thread in light and dark: Chief answers your message in its thread, then you answer Chief. The old design drew your message as a thin blue outline with blue 10 pt text and a full-size tail on a 24 pt bubble. All designs below reuse the real bubble shape: 15 pt radius, half-circle ends on one line, and no tail on a quote (a tail marks the last bubble of a run, and a quote is never that). Pick one; <b>A</b> ships now.</p>
+</header>
+
+<template id="thread">
+  <div class="row out tail"><div class="b">Reply-to-conversation UI is very bad. It does not match my message at all.</div></div>
+  <div class="gap"></div>
+  <div class="name">Chief</div>
+  <div class="row out q"><div class="b">Reply-to-conversation UI is very bad. It does not match my message at all.</div></div>
+  <div class="conn out"><i></i></div>
+  <div class="row in tail"><div class="b"><span class="qslot"></span>On it: <a class="id" href="#">a345</a> redesigns quoted replies from first principles.</div></div>
+  <div class="gap"></div>
+  <div class="row in q"><div class="b">On it: a345 redesigns quoted replies from first principles.</div></div>
+  <div class="conn in"><i></i></div>
+  <div class="row out tail"><div class="b">Thanks, show me the gallery.</div></div>
+  <div class="replies r">2 Replies</div>
+</template>
+
+<div id="variants"></div>
+
+<script>
+const V = [
+  ["A", "Faded twin", "The quote is a smaller copy of the real bubble: same fill, same text colour, real corner rounding, no tail, at 55% opacity, at most 2 lines. A curved connector runs from under the quote to the reply.", true],
+  ["B", "Full-size dimmed", "The quote is the original bubble at full size, 45% opacity, 2 lines. Most faithful; takes the most space.", false],
+  ["C", "Quote inside the reply", "No separate bubble: the reply carries a quote block with a side bar (Slack/Telegram). Compact, but not iMessage.", false],
+  ["D", "Outline twin, fixed", "Close to macOS Messages: an outline, but with real rounding, the source colour and 12 pt text, no tail.", false],
+  ["E", "Tinted card", "The source colour at 20% over the background, source-tinted text. Calm; reads as context, not a message.", false],
+];
+const tpl = document.getElementById("thread");
+const host = document.getElementById("variants");
+for (const [id, name, desc, rec] of V) {
+  const sec = document.createElement("section");
+  sec.className = "variant " + id + (rec ? " rec" : "");
+  sec.innerHTML = `<div class="vhead"><b>${id}. ${name}</b>${rec ? '<span class="tag">Recommended</span>' : ""}<span class="desc">${desc}</span></div><div class="pair"></div>`;
+  const pair = sec.querySelector(".pair");
+  for (const mode of ["light", "dark"]) {
+    const c = document.createElement("div");
+    c.className = "chat " + mode;
+    c.appendChild(tpl.content.cloneNode(true));
+    if (id === "C") {
+      // The quote lives inside the reply; drop the separate quote rows and connectors.
+      c.querySelectorAll(".q, .conn").forEach(e => e.remove());
+      const slots = c.querySelectorAll(".qslot");
+      slots[0].outerHTML = '<span class="qin"><small>You</small>Reply-to-conversation UI is very bad…</span>';
+      const last = c.querySelectorAll(".row.out.tail .b")[1];
+      last.insertAdjacentHTML("afterbegin", '<span class="qin"><small>Chief</small>On it: a345 redesigns quoted replies…</span>');
+    }
+    pair.appendChild(c);
+  }
+  host.appendChild(sec);
+}
+</script>
+</body>
+</html>

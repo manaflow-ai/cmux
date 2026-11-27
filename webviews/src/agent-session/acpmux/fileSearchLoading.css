@@ -1,0 +1,30 @@
+[data-file-search-placeholder] {
+  pointer-events: none;
+}
+.acpmux-file-loading-name,
+.acpmux-file-loading-dir {
+  position: relative;
+  display: inline-block;
+}
+.acpmux-file-loading-name { width: 12ch; }
+.acpmux-file-loading-dir { width: 20ch; }
+.acpmux-file-loading-name::after,
+.acpmux-file-loading-dir::after {
+  content: "";
+  position: absolute;
+  inset: 25% 0;
+  background: color-mix(in srgb, var(--agent-muted) 20%, transparent);
+  border-radius: var(--ds-radius-control);
+}
+.acpmux-file-loading-icon {
+  aspect-ratio: 1;
+  background: color-mix(in srgb, var(--agent-muted) 20%, transparent);
+  border-radius: var(--ds-radius-control);
+}
+
+.acpmux-file-loading-note {
+  position: absolute;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+}

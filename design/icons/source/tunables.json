@@ -1,0 +1,236 @@
+{
+ "batch": "tunables",
+ "icons": [
+  {
+   "name": "tunable.agentActivity",
+   "meaning": "Debug settings section: Agent Activity",
+   "line": "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='currentColor' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'><path d='M8 16.5H6.5a3 3 0 0 1 -3 -3v-6a3 3 0 0 1 3 -3h11a3 3 0 0 1 3 3v6a3 3 0 0 1 -3 3h-5.5L8 19.5Z'/><circle cx='8.25' cy='10.5' r='1.15' fill='currentColor' stroke='none'/><circle cx='12' cy='10.5' r='1.15' fill='currentColor' stroke='none'/><circle cx='15.75' cy='10.5' r='1.15' fill='currentColor' stroke='none'/></svg>",
+   "solid": "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'><defs><mask id='cmxs-tunable-agentActivity' maskUnits='userSpaceOnUse' x='0' y='0' width='24' height='24'><rect width='24' height='24' fill='#fff'/><g fill='none' stroke='#000' stroke-width='1.75' stroke-linecap='round' stroke-linejoin='round'></g><circle cx='8.25' cy='10.5' r='1.25' fill='#000' stroke='none'/><circle cx='12' cy='10.5' r='1.25' fill='#000' stroke='none'/><circle cx='15.75' cy='10.5' r='1.25' fill='#000' stroke='none'/></mask></defs><g fill='currentColor' stroke='currentColor' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round' mask='url(#cmxs-tunable-agentActivity)'><path d='M8 16.5H6.5a3 3 0 0 1 -3 -3v-6a3 3 0 0 1 3 -3h11a3 3 0 0 1 3 3v6a3 3 0 0 1 -3 3h-5.5L8 19.5Z'/></g></svg>",
+   "cat": "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='currentColor' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'><path d='M8 16.5H6.5a3 3 0 0 1 -3 -3v-6a3 3 0 0 1 3 -3h11a3 3 0 0 1 3 3v6a3 3 0 0 1 -3 3h-5.5L8 19.5Z'/><circle cx='8.25' cy='10.5' r='1.15' fill='currentColor' stroke='none'/><circle cx='12' cy='10.5' r='1.15' fill='currentColor' stroke='none'/><circle cx='15.75' cy='10.5' r='1.15' fill='currentColor' stroke='none'/><path class='accent' stroke='var(--accent)' d='M6 4.5V1.5L9 4.5M18 4.5V1.5L15 4.5'/></svg>",
+   "alts": [],
+   "note": "agent.chat bubble with typing dots instead of eyes: an agent doing something. Cat ears = agent.chat cat.",
+   "replaces": [
+    "cursorarrow.click.2"
+   ]
+  },
+  {
+   "name": "tunable.apps",
+   "meaning": "Debug settings section: Apps",
+   "line": "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='currentColor' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'><rect x='3.5' y='3.5' width='7' height='7' rx='2.5'/><rect x='13.5' y='3.5' width='7' height='7' rx='2.5'/><rect x='3.5' y='13.5' width='7' height='7' rx='2.5'/><path d='M17 14v6M14 17h6'/></svg>",
+   "solid": "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='currentColor' stroke='currentColor' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'><rect x='3.5' y='3.5' width='7' height='7' rx='2.5'/><rect x='13.5' y='3.5' width='7' height='7' rx='2.5'/><rect x='3.5' y='13.5' width='7' height='7' rx='2.5'/><path d='M17 14v6M14 17h6' fill='none' stroke-width='2'/></svg>",
+   "alts": [],
+   "note": "Three app tiles and a plus slot (app library). Tiles rx 2.5 (rounder than spaces' rx 2), and the plus keeps it apart from spaces/view.grid.",
+   "replaces": [
+    "bag"
+   ]
+  },
+  {
+   "name": "tunable.dropOverlay",
+   "meaning": "Debug settings section: Drop Overlay",
+   "line": "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='currentColor' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'><rect x='3.846' y='4.752' width='16.308' height='14.496' rx='2.265'/><rect x='6.791' y='7.697' width='10.419' height='8.607' rx='1.133' pathLength='24' stroke-dasharray='2 2' stroke-dashoffset='-1'/></svg>",
+   "solid": "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'><defs><mask id='cmxs-tunable-dropOverlay' maskUnits='userSpaceOnUse' x='0' y='0' width='24' height='24'><rect width='24' height='24' fill='#fff'/><g fill='none' stroke='#000' stroke-width='1.6' stroke-linecap='round' stroke-linejoin='round'><rect x='6.791' y='7.697' width='10.419' height='8.607' rx='1.133' pathLength='24' stroke-dasharray='2 2' stroke-dashoffset='-1'/></g></mask></defs><g fill='currentColor' stroke='currentColor' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round' mask='url(#cmxs-tunable-dropOverlay)'><rect x='3.846' y='4.752' width='16.308' height='14.496' rx='2.265'/></g></svg>",
+   "alts": [],
+   "note": "Pane frame with a dashed inset drop target (square.dashed.inset).",
+   "replaces": [
+    "square.dashed.inset.filled"
+   ]
+  },
+  {
+   "name": "tunable.fades",
+   "meaning": "Debug settings section: Fades and Loops",
+   "line": "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='currentColor' stroke='none'><rect x='4' y='4' width='2.5' height='16' rx='1.25' fill-opacity='1'/><rect x='8.5' y='4' width='2.5' height='16' rx='1.25' fill-opacity='0.7'/><rect x='13' y='4' width='2.5' height='16' rx='1.25' fill-opacity='0.45'/><rect x='17.5' y='4' width='2.5' height='16' rx='1.25' fill-opacity='0.22'/></svg>",
+   "solid": "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='currentColor' stroke='none'><rect x='3.5' y='3.5' width='3.5' height='17' rx='1.5' fill-opacity='1'/><rect x='8.0' y='3.5' width='3.5' height='17' rx='1.5' fill-opacity='0.7'/><rect x='12.5' y='3.5' width='3.5' height='17' rx='1.5' fill-opacity='0.45'/><rect x='17.0' y='3.5' width='3.5' height='17' rx='1.5' fill-opacity='0.22'/></svg>",
+   "alts": [
+    {
+     "label": "bars shrinking (no opacity, for single-color renderers)",
+     "line": "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='currentColor' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'><path d='M5 4v16M9.5 6v12M14 8v8M18.5 10v4'/></svg>",
+     "solid": "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='currentColor' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'><path d='M5 4v16M9.5 6v12M14 8v8M18.5 10v4'/></svg>"
+    }
+   ],
+   "note": "Four bars stepping from full ink to 22% (a gradient made of bars). Uses fill-opacity; alt is a pure-stroke version if a pack renderer cannot do opacity.",
+   "replaces": [
+    "circle.lefthalf.filled"
+   ]
+  },
+  {
+   "name": "tunable.feed",
+   "meaning": "Debug settings section: Feed",
+   "line": "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='currentColor' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'><path d='M5 11a8 8 0 0 1 8 8M5 4.5A14.5 14.5 0 0 1 19.5 19'/><circle cx='6' cy='18' r='1.75' fill='currentColor' stroke='none'/></svg>",
+   "solid": "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='currentColor' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'><path d='M5 11a8 8 0 0 1 8 8M5 4.5A14.5 14.5 0 0 1 19.5 19'/><circle cx='6' cy='18' r='2.25' fill='currentColor' stroke='none'/></svg>",
+   "alts": [],
+   "note": "Feed = a dot broadcasting two arcs (generic feed glyph, no brand). inbox (tray.full) stays the inbox icon.",
+   "replaces": [
+    "tray.full"
+   ]
+  },
+  {
+   "name": "tunable.focus",
+   "meaning": "Debug settings section: Focus and Scroll",
+   "line": "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='currentColor' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'><path d='M3.5 8V6a2.5 2.5 0 0 1 2.5-2.5h2M16 3.5h2a2.5 2.5 0 0 1 2.5 2.5v2M20.5 16v2a2.5 2.5 0 0 1-2.5 2.5h-2M8 20.5H6A2.5 2.5 0 0 1 3.5 18v-2'/><circle cx='12' cy='12' r='3'/></svg>",
+   "solid": "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='currentColor' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'><path d='M3.5 8V6a2.5 2.5 0 0 1 2.5-2.5h2M16 3.5h2a2.5 2.5 0 0 1 2.5 2.5v2M20.5 16v2a2.5 2.5 0 0 1-2.5 2.5h-2M8 20.5H6A2.5 2.5 0 0 1 3.5 18v-2'/><circle cx='12' cy='12' r='3' fill='currentColor'/></svg>",
+   "alts": [],
+   "note": "Viewfinder corners around a target ring (focus and scroll-into-view).",
+   "replaces": [
+    "scope"
+   ]
+  },
+  {
+   "name": "tunable.glass",
+   "meaning": "Debug settings section: Glass and Overlays",
+   "line": "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='currentColor' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'><rect x='4.231' y='4.231' width='15.538' height='15.538' rx='3.656'/><path d='M7.887 12 12 7.887M7.887 15.199l1.371 -1.371'/></svg>",
+   "solid": "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'><defs><mask id='cmxs-tunable-glass' maskUnits='userSpaceOnUse' x='0' y='0' width='24' height='24'><rect width='24' height='24' fill='#fff'/><g fill='none' stroke='#000' stroke-width='1.75' stroke-linecap='round' stroke-linejoin='round'><path d='M7.887 12 12 7.887M7.887 15.199l1.371 -1.371'/></g></mask></defs><g fill='currentColor' stroke='currentColor' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round' mask='url(#cmxs-tunable-glass)'><rect x='4.231' y='4.231' width='15.538' height='15.538' rx='3.656'/></g></svg>",
+   "alts": [],
+   "note": "Rounded pane with two diagonal glints in the top-left (glass and overlays).",
+   "replaces": [
+    "drop"
+   ]
+  },
+  {
+   "name": "tunable.hover",
+   "meaning": "Debug settings section: Hover and Marquee",
+   "line": "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='currentColor' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'><defs><mask id='cmxl-tunable-hover' maskUnits='userSpaceOnUse' x='0' y='0' width='24' height='24'><rect width='24' height='24' fill='#fff' stroke='none'/><g fill='#000' stroke='#000'><path d='M11 11l9.5 3.75-4 1.5-1.5 4Z' stroke-width='4.5'/></g></mask></defs><g mask='url(#cmxl-tunable-hover)'><rect x='3.5' y='3.5' width='12' height='12' rx='2' pathLength='32' stroke-dasharray='2 2' stroke-dashoffset='-1'/></g><path d='M11 11l9.5 3.75-4 1.5-1.5 4Z'/></svg>",
+   "solid": "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='currentColor' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'><defs><mask id='cmxl-tunable-hover-s' maskUnits='userSpaceOnUse' x='0' y='0' width='24' height='24'><rect width='24' height='24' fill='#fff' stroke='none'/><g fill='#000' stroke='#000'><path d='M11 11l9.5 3.75-4 1.5-1.5 4Z' stroke-width='5'/></g></mask></defs><g mask='url(#cmxl-tunable-hover-s)'><rect stroke-width='2' x='3.5' y='3.5' width='12' height='12' rx='2' pathLength='32' stroke-dasharray='2 2' stroke-dashoffset='-1'/></g><path d='M11 11l9.5 3.75-4 1.5-1.5 4Z' fill='currentColor'/></svg>",
+   "alts": [],
+   "note": "Dashed marquee with the computeruse cursor resting on its corner (hover and marquee). Distinct from computeruse.click (rays) and agent.activity.",
+   "replaces": [
+    "cursorarrow.rays"
+   ]
+  },
+  {
+   "name": "tunable.palette",
+   "meaning": "Debug settings section: Palette and Panels",
+   "line": "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='currentColor' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'><path d='M9 9V6.5A2.5 2.5 0 1 0 6.5 9H17.5A2.5 2.5 0 1 0 15 6.5V17.5A2.5 2.5 0 1 0 17.5 15H6.5A2.5 2.5 0 1 0 9 17.5Z'/></svg>",
+   "solid": "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='currentColor' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'><path d='M9 9V6.5A2.5 2.5 0 1 0 6.5 9H17.5A2.5 2.5 0 1 0 15 6.5V17.5A2.5 2.5 0 1 0 17.5 15H6.5A2.5 2.5 0 1 0 9 17.5Z'/></svg>",
+   "alts": [
+    {
+     "label": "palette window with a search field",
+     "line": "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='currentColor' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'><rect x='3.846' y='4.752' width='16.308' height='14.496' rx='2.265'/><rect x='6.564' y='7.47' width='10.872' height='3.171' rx='1.586'/><path d='M7.47 13.812h9.06M7.47 16.53h5.436'/></svg>",
+     "solid": "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'><defs><mask id='cmxs-tunable-palette-alt1' maskUnits='userSpaceOnUse' x='0' y='0' width='24' height='24'><rect width='24' height='24' fill='#fff'/><g fill='none' stroke='#000' stroke-width='1.75' stroke-linecap='round' stroke-linejoin='round'><rect x='6.564' y='7.47' width='10.872' height='3.171' rx='1.586'/><path d='M7.47 13.812h9.06M7.47 16.53h5.436'/></g></mask></defs><g fill='currentColor' stroke='currentColor' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round' mask='url(#cmxs-tunable-palette-alt1)'><rect x='3.846' y='4.752' width='16.308' height='14.496' rx='2.265'/></g></svg>"
+    }
+   ],
+   "note": "Drawn command loop symbol (palette = command palette). Alt: a window with a field and two result rows, if the section is more about panels.",
+   "replaces": [
+    "command"
+   ]
+  },
+  {
+   "name": "tunable.panes",
+   "meaning": "Debug settings section: Panes and Columns",
+   "line": "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='currentColor' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'><rect x='3.846' y='4.752' width='16.308' height='14.496' rx='2.265'/><path d='M12 4.752v14.496M12 12h8.154'/></svg>",
+   "solid": "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'><defs><mask id='cmxs-tunable-panes' maskUnits='userSpaceOnUse' x='0' y='0' width='24' height='24'><rect width='24' height='24' fill='#fff'/><g fill='none' stroke='#000' stroke-width='1.75' stroke-linecap='round' stroke-linejoin='round'><path d='M12 4.752v14.496M12 12h8.154'/></g></mask></defs><g fill='currentColor' stroke='currentColor' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round' mask='url(#cmxs-tunable-panes)'><rect x='3.846' y='4.752' width='16.308' height='14.496' rx='2.265'/></g></svg>",
+   "alts": [],
+   "note": "Frame split vertically, right column split again (panes and columns). column (3x1) and pane.split.* stay separate.",
+   "replaces": [
+    "rectangle.split.3x1"
+   ]
+  },
+  {
+   "name": "tunable.server",
+   "meaning": "Debug settings section: Server",
+   "line": "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='currentColor' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'><rect x='3.9' y='4.35' width='16.2' height='6.75' rx='2.025'/><rect x='3.9' y='12.9' width='16.2' height='6.75' rx='2.025'/><circle cx='7.5' cy='7.725' r='0.9' fill='currentColor' stroke='none'/><circle cx='7.5' cy='16.275' r='0.9' fill='currentColor' stroke='none'/></svg>",
+   "solid": "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'><defs><mask id='cmxs-tunable-server' maskUnits='userSpaceOnUse' x='0' y='0' width='24' height='24'><rect width='24' height='24' fill='#fff'/><g fill='none' stroke='#000' stroke-width='1.75' stroke-linecap='round' stroke-linejoin='round'></g><circle cx='7.5' cy='7.725' r='1.035' fill='#000' stroke='none'/><circle cx='7.5' cy='16.275' r='1.035' fill='#000' stroke='none'/></mask></defs><g fill='currentColor' stroke='currentColor' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round' mask='url(#cmxs-tunable-server)'><rect x='3.9' y='4.35' width='16.2' height='6.75' rx='2.025'/><rect x='3.9' y='12.9' width='16.2' height='6.75' rx='2.025'/></g></svg>",
+   "alts": [],
+   "note": "Same server rack as machine.remote (places).",
+   "replaces": [
+    "server.rack"
+   ]
+  },
+  {
+   "name": "tunable.settingsWindow",
+   "meaning": "Debug settings section: Settings Window",
+   "line": "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='currentColor' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'><rect x='3.846' y='4.752' width='16.308' height='14.496' rx='2.265'/><path d='M3.846 9.282h16.308'/><rect x='7.47' y='12' width='9.06' height='4.53' rx='2.265'/><circle cx='14.265' cy='14.265' r='1.133' fill='currentColor' stroke='none'/></svg>",
+   "solid": "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'><defs><mask id='cmxs-tunable-settingsWindow' maskUnits='userSpaceOnUse' x='0' y='0' width='24' height='24'><rect width='24' height='24' fill='#fff'/><g fill='none' stroke='#000' stroke-width='1.75' stroke-linecap='round' stroke-linejoin='round'><path d='M3.846 9.282h16.308'/><rect x='7.47' y='12' width='9.06' height='4.53' rx='2.265'/></g><circle cx='14.265' cy='14.265' r='1.223' fill='#000' stroke='none'/></mask></defs><g fill='currentColor' stroke='currentColor' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round' mask='url(#cmxs-tunable-settingsWindow)'><rect x='3.846' y='4.752' width='16.308' height='14.496' rx='2.265'/></g></svg>",
+   "cat": "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='currentColor' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'><rect x='3.846' y='5.658' width='16.308' height='13.59' rx='2.265'/><path d='M3.846 9.735h16.308'/><rect x='7.47' y='12.453' width='9.06' height='4.53' rx='2.265'/><circle cx='14.265' cy='14.718' r='1.133' fill='currentColor' stroke='none'/><path class='accent' stroke='var(--accent)' d='M12.453 5.658V3.393l1.812 1.812M18.342 5.658V3.393l-1.812 1.812'/></svg>",
+   "alts": [],
+   "note": "Window with a title bar and one toggle switch: the settings window itself, not a gear (settings owns the gear).",
+   "replaces": [
+    "gearshape"
+   ]
+  },
+  {
+   "name": "tunable.shape",
+   "meaning": "Debug settings section: Shape and Icons",
+   "line": "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='currentColor' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'><defs><mask id='cmxl-tunable-shape' maskUnits='userSpaceOnUse' x='0' y='0' width='24' height='24'><rect width='24' height='24' fill='#fff' stroke='none'/><g fill='#000' stroke='#000'><circle cx='15' cy='9' r='7.25' stroke='none'/></g></mask></defs><g mask='url(#cmxl-tunable-shape)'><rect x='3.5' y='9.5' width='11' height='11' rx='2'/></g><circle cx='15' cy='9' r='5.5'/></svg>",
+   "solid": "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'><defs><mask id='cmxs-tunable-shape' maskUnits='userSpaceOnUse' x='0' y='0' width='24' height='24'><rect width='24' height='24' fill='#fff'/><g fill='none' stroke='#000' stroke-width='1.75' stroke-linecap='round' stroke-linejoin='round'></g><circle cx='15' cy='9' r='7.5' fill='#000'/></mask></defs><g fill='currentColor' stroke='currentColor' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round' mask='url(#cmxs-tunable-shape)'><rect x='3.5' y='9.5' width='11' height='11' rx='2'/></g><g fill='currentColor' stroke='currentColor' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'><circle cx='15' cy='9' r='5.5'/></g></svg>",
+   "alts": [],
+   "note": "A circle overlapping a square with the shared 1.5 gap (shape and icon tuning).",
+   "replaces": [
+    "app.dashed"
+   ]
+  },
+  {
+   "name": "tunable.sidebar",
+   "meaning": "Debug settings section: Sidebar and Window",
+   "line": "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='currentColor' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'><rect x='3.846' y='4.752' width='16.308' height='14.496' rx='2.265'/><rect x='5.885' y='6.791' width='3.624' height='10.419' rx='0.906' fill='currentColor' stroke='none'/></svg>",
+   "solid": "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'><defs><mask id='cmxs-tunable-sidebar' maskUnits='userSpaceOnUse' x='0' y='0' width='24' height='24'><rect width='24' height='24' fill='#fff'/><g fill='none' stroke='#000' stroke-width='1.75' stroke-linecap='round' stroke-linejoin='round'></g><rect x='10.867' y='5.432' width='8.607' height='13.137' rx='1.586' fill='#000'/></mask></defs><g fill='currentColor' stroke='currentColor' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round' mask='url(#cmxs-tunable-sidebar)'><rect x='3.846' y='4.752' width='16.308' height='14.496' rx='2.265'/></g></svg>",
+   "cat": "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='currentColor' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'><rect x='3.846' y='5.658' width='16.308' height='13.59' rx='2.265'/><rect x='5.885' y='7.697' width='3.624' height='9.513' rx='0.906' fill='currentColor' stroke='none'/><path class='accent' stroke='var(--accent)' d='M12.453 5.658V3.393l1.812 1.812M18.342 5.658V3.393l-1.812 1.812'/></svg>",
+   "alts": [],
+   "note": "Frame with a filled left column, the pane.split.* language mirrored (sidebar and window). workspace keeps the line-divided reference.",
+   "replaces": [
+    "sidebar.left"
+   ]
+  },
+  {
+   "name": "tunable.springs",
+   "meaning": "Debug settings section: Springs",
+   "line": "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='currentColor' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'><path d='M4.85 18L4.68 17.97L4.51 17.87L4.34 17.71L4.19 17.48L4.04 17.2L3.9 16.85L3.79 16.46L3.69 16.01L3.61 15.53L3.55 15L3.51 14.44L3.5 13.85L3.51 13.25L3.55 12.63L3.62 12L3.71 11.37L3.83 10.75L3.98 10.15L4.15 9.56L4.34 9L4.56 8.47L4.8 7.99L5.06 7.54L5.33 7.15L5.63 6.8L5.93 6.52L6.25 6.29L6.57 6.13L6.9 6.03L7.24 6L7.57 6.03L7.9 6.13L8.22 6.29L8.54 6.52L8.85 6.8L9.14 7.15L9.42 7.54L9.67 7.99L9.91 8.47L10.13 9L10.33 9.56L10.5 10.15L10.64 10.75L10.76 11.37L10.85 12L10.92 12.63L10.96 13.25L10.97 13.85L10.96 14.44L10.93 15L10.87 15.53L10.79 16.01L10.69 16.46L10.57 16.85L10.43 17.2L10.29 17.48L10.13 17.71L9.96 17.87L9.79 17.97L9.62 18L9.44 17.97L9.27 17.87L9.11 17.71L8.95 17.48L8.8 17.2L8.67 16.85L8.55 16.46L8.45 16.01L8.37 15.53L8.31 15L8.28 14.44L8.26 13.85L8.28 13.25L8.32 12.63L8.38 12L8.48 11.37L8.59 10.75L8.74 10.15L8.91 9.56L9.11 9L9.32 8.47L9.56 7.99L9.82 7.54L10.1 7.15L10.39 6.8L10.7 6.52L11.01 6.29L11.34 6.13L11.67 6.03L12 6L12.33 6.03L12.66 6.13L12.99 6.29L13.3 6.52L13.61 6.8L13.9 7.15L14.18 7.54L14.44 7.99L14.68 8.47L14.89 9L15.09 9.56L15.26 10.15L15.41 10.75L15.52 11.37L15.62 12L15.68 12.63L15.72 13.25L15.74 13.85L15.72 14.44L15.69 15L15.63 15.53L15.55 16.01L15.45 16.46L15.33 16.85L15.2 17.2L15.05 17.48L14.89 17.71L14.73 17.87L14.56 17.97L14.38 18L14.21 17.97L14.04 17.87L13.87 17.71L13.71 17.48L13.57 17.2L13.43 16.85L13.31 16.46L13.21 16.01L13.13 15.53L13.07 15L13.04 14.44L13.03 13.85L13.04 13.25L13.08 12.63L13.15 12L13.24 11.37L13.36 10.75L13.5 10.15L13.67 9.56L13.87 9L14.09 8.47L14.33 7.99L14.58 7.54L14.86 7.15L15.15 6.8L15.46 6.52L15.78 6.29L16.1 6.13L16.43 6.03L16.76 6L17.1 6.03L17.43 6.13L17.75 6.29L18.07 6.52L18.37 6.8L18.67 7.15L18.94 7.54L19.2 7.99L19.44 8.47L19.66 9L19.85 9.56L20.02 10.15L20.17 10.75L20.29 11.37L20.38 12L20.45 12.63L20.49 13.25L20.5 13.85L20.49 14.44L20.45 15L20.39 15.53L20.31 16.01L20.21 16.46L20.1 16.85L19.96 17.2L19.81 17.48L19.66 17.71L19.49 17.87L19.32 17.97L19.15 18'/></svg>",
+   "solid": "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='currentColor' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'><path d='M4.85 18L4.68 17.97L4.51 17.87L4.34 17.71L4.19 17.48L4.04 17.2L3.9 16.85L3.79 16.46L3.69 16.01L3.61 15.53L3.55 15L3.51 14.44L3.5 13.85L3.51 13.25L3.55 12.63L3.62 12L3.71 11.37L3.83 10.75L3.98 10.15L4.15 9.56L4.34 9L4.56 8.47L4.8 7.99L5.06 7.54L5.33 7.15L5.63 6.8L5.93 6.52L6.25 6.29L6.57 6.13L6.9 6.03L7.24 6L7.57 6.03L7.9 6.13L8.22 6.29L8.54 6.52L8.85 6.8L9.14 7.15L9.42 7.54L9.67 7.99L9.91 8.47L10.13 9L10.33 9.56L10.5 10.15L10.64 10.75L10.76 11.37L10.85 12L10.92 12.63L10.96 13.25L10.97 13.85L10.96 14.44L10.93 15L10.87 15.53L10.79 16.01L10.69 16.46L10.57 16.85L10.43 17.2L10.29 17.48L10.13 17.71L9.96 17.87L9.79 17.97L9.62 18L9.44 17.97L9.27 17.87L9.11 17.71L8.95 17.48L8.8 17.2L8.67 16.85L8.55 16.46L8.45 16.01L8.37 15.53L8.31 15L8.28 14.44L8.26 13.85L8.28 13.25L8.32 12.63L8.38 12L8.48 11.37L8.59 10.75L8.74 10.15L8.91 9.56L9.11 9L9.32 8.47L9.56 7.99L9.82 7.54L10.1 7.15L10.39 6.8L10.7 6.52L11.01 6.29L11.34 6.13L11.67 6.03L12 6L12.33 6.03L12.66 6.13L12.99 6.29L13.3 6.52L13.61 6.8L13.9 7.15L14.18 7.54L14.44 7.99L14.68 8.47L14.89 9L15.09 9.56L15.26 10.15L15.41 10.75L15.52 11.37L15.62 12L15.68 12.63L15.72 13.25L15.74 13.85L15.72 14.44L15.69 15L15.63 15.53L15.55 16.01L15.45 16.46L15.33 16.85L15.2 17.2L15.05 17.48L14.89 17.71L14.73 17.87L14.56 17.97L14.38 18L14.21 17.97L14.04 17.87L13.87 17.71L13.71 17.48L13.57 17.2L13.43 16.85L13.31 16.46L13.21 16.01L13.13 15.53L13.07 15L13.04 14.44L13.03 13.85L13.04 13.25L13.08 12.63L13.15 12L13.24 11.37L13.36 10.75L13.5 10.15L13.67 9.56L13.87 9L14.09 8.47L14.33 7.99L14.58 7.54L14.86 7.15L15.15 6.8L15.46 6.52L15.78 6.29L16.1 6.13L16.43 6.03L16.76 6L17.1 6.03L17.43 6.13L17.75 6.29L18.07 6.52L18.37 6.8L18.67 7.15L18.94 7.54L19.2 7.99L19.44 8.47L19.66 9L19.85 9.56L20.02 10.15L20.17 10.75L20.29 11.37L20.38 12L20.45 12.63L20.49 13.25L20.5 13.85L20.49 14.44L20.45 15L20.39 15.53L20.31 16.01L20.21 16.46L20.1 16.85L19.96 17.2L19.81 17.48L19.66 17.71L19.49 17.87L19.32 17.97L19.15 18'/></svg>",
+   "cat": "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='currentColor' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'><path d='M4.85 18L4.68 17.97L4.51 17.87L4.34 17.71L4.19 17.48L4.04 17.2L3.9 16.85L3.79 16.46L3.69 16.01L3.61 15.53L3.55 15L3.51 14.44L3.5 13.85L3.51 13.25L3.55 12.63L3.62 12L3.71 11.37L3.83 10.75L3.98 10.15L4.15 9.56L4.34 9L4.56 8.47L4.8 7.99L5.06 7.54L5.33 7.15L5.63 6.8L5.93 6.52L6.25 6.29L6.57 6.13L6.9 6.03L7.24 6L7.57 6.03L7.9 6.13L8.22 6.29L8.54 6.52L8.85 6.8L9.14 7.15L9.42 7.54L9.67 7.99L9.91 8.47L10.13 9L10.33 9.56L10.5 10.15L10.64 10.75L10.76 11.37L10.85 12L10.92 12.63L10.96 13.25L10.97 13.85L10.96 14.44L10.93 15L10.87 15.53L10.79 16.01L10.69 16.46L10.57 16.85L10.43 17.2L10.29 17.48L10.13 17.71L9.96 17.87L9.79 17.97L9.62 18L9.44 17.97L9.27 17.87L9.11 17.71L8.95 17.48L8.8 17.2L8.67 16.85L8.55 16.46L8.45 16.01L8.37 15.53L8.31 15L8.28 14.44L8.26 13.85L8.28 13.25L8.32 12.63L8.38 12L8.48 11.37L8.59 10.75L8.74 10.15L8.91 9.56L9.11 9L9.32 8.47L9.56 7.99L9.82 7.54L10.1 7.15L10.39 6.8L10.7 6.52L11.01 6.29L11.34 6.13L11.67 6.03L12 6L12.33 6.03L12.66 6.13L12.99 6.29L13.3 6.52L13.61 6.8L13.9 7.15L14.18 7.54L14.44 7.99L14.68 8.47L14.89 9L15.09 9.56L15.26 10.15L15.41 10.75L15.52 11.37L15.62 12L15.68 12.63L15.72 13.25L15.74 13.85L15.72 14.44L15.69 15L15.63 15.53L15.55 16.01L15.45 16.46L15.33 16.85L15.2 17.2L15.05 17.48L14.89 17.71L14.73 17.87L14.56 17.97L14.38 18L14.21 17.97L14.04 17.87L13.87 17.71L13.71 17.48L13.57 17.2L13.43 16.85L13.31 16.46L13.21 16.01L13.13 15.53L13.07 15L13.04 14.44L13.03 13.85L13.04 13.25L13.08 12.63L13.15 12L13.24 11.37L13.36 10.75L13.5 10.15L13.67 9.56L13.87 9L14.09 8.47L14.33 7.99L14.58 7.54L14.86 7.15L15.15 6.8L15.46 6.52L15.78 6.29L16.1 6.13L16.43 6.03L16.76 6L17.1 6.03L17.43 6.13L17.75 6.29L18.07 6.52L18.37 6.8L18.67 7.15L18.94 7.54L19.2 7.99L19.44 8.47L19.66 9L19.85 9.56L20.02 10.15L20.17 10.75L20.29 11.37L20.38 12L20.45 12.63L20.49 13.25L20.5 13.85L20.49 14.44L20.45 15L20.39 15.53L20.31 16.01L20.21 16.46L20.1 16.85L19.96 17.2L19.81 17.48L19.66 17.71L19.49 17.87L19.32 17.97L19.15 18'/><path class='accent' stroke='var(--accent)' d='M20.5 18c.75 1.5.25 3-1.5 3'/></svg>",
+   "alts": [
+    {
+     "label": "zigzag between two plates",
+     "line": "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='currentColor' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'><path d='M3.5 6.5v11M20.5 6.5v11M3.5 12h2l2-4.5 3 9 3-9 3 9 2-4.5h2'/></svg>",
+     "solid": "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='currentColor' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'><path d='M3.5 6.5v11M20.5 6.5v11M3.5 12h2l2-4.5 3 9 3-9 3 9 2-4.5h2'/></svg>"
+    }
+   ],
+   "note": "A side-on coil (three loops). Alt: physics zigzag between plates; crisper at 12 px but reads 'resistor'. Cat: tail curl off the coil end.",
+   "replaces": [
+    "waveform.path"
+   ]
+  },
+  {
+   "name": "tunable.status",
+   "meaning": "Debug settings section: Status Indicators",
+   "line": "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='currentColor' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'><path d='M12 7.5L12 3.5' stroke-opacity='1'/><path d='M15.18 8.82L18.01 5.99' stroke-opacity='0.88'/><path d='M16.5 12L20.5 12' stroke-opacity='0.76'/><path d='M15.18 15.18L18.01 18.01' stroke-opacity='0.64'/><path d='M12 16.5L12 20.5' stroke-opacity='0.52'/><path d='M8.82 15.18L5.99 18.01' stroke-opacity='0.4'/><path d='M7.5 12L3.5 12' stroke-opacity='0.3'/><path d='M8.82 8.82L5.99 5.99' stroke-opacity='0.2'/></svg>",
+   "solid": "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='currentColor' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'><path d='M12 7.5L12 3.5' stroke-opacity='1'/><path d='M15.18 8.82L18.01 5.99' stroke-opacity='0.88'/><path d='M16.5 12L20.5 12' stroke-opacity='0.76'/><path d='M15.18 15.18L18.01 18.01' stroke-opacity='0.64'/><path d='M12 16.5L12 20.5' stroke-opacity='0.52'/><path d='M8.82 15.18L5.99 18.01' stroke-opacity='0.4'/><path d='M7.5 12L3.5 12' stroke-opacity='0.3'/><path d='M8.82 8.82L5.99 5.99' stroke-opacity='0.2'/></svg>",
+   "alts": [],
+   "note": "Eight-spoke activity spinner fading round (progress.indicator). Distinct from status.running's arc, which it tunes.",
+   "replaces": [
+    "progress.indicator"
+   ]
+  },
+  {
+   "name": "tunable.tabDrag",
+   "meaning": "Debug settings section: Tab Drag",
+   "line": "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='currentColor' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'><path d='M3 11.5V6a2.5 2.5 0 0 1 2.5-2.5h7A2.5 2.5 0 0 1 15 6v5.5Z'/><path d='M9 11.5v4.5a2 2 0 0 0 2 2h9.5M17 15l3 3-3 3'/></svg>",
+   "solid": "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='currentColor' stroke='currentColor' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'><path d='M3 11.5V6a2.5 2.5 0 0 1 2.5-2.5h7A2.5 2.5 0 0 1 15 6v5.5Z'/><path d='M9 11.5v4.5a2 2 0 0 0 2 2h9.5M17 15l3 3-3 3' fill='none' stroke-width='2'/></svg>",
+   "alts": [],
+   "note": "A tab with an arrow dragging out of it and to the right.",
+   "replaces": [
+    "hand.draw"
+   ]
+  },
+  {
+   "name": "tunable.tabs",
+   "meaning": "Debug settings section: Tabs",
+   "line": "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='currentColor' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'><rect x='3.846' y='4.752' width='16.308' height='14.496' rx='2.265'/><path d='M3.846 9.282h16.308M10.188 4.752v4.53'/></svg>",
+   "solid": "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'><defs><mask id='cmxs-tunable-tabs' maskUnits='userSpaceOnUse' x='0' y='0' width='24' height='24'><rect width='24' height='24' fill='#fff'/><g fill='none' stroke='#000' stroke-width='1.75' stroke-linecap='round' stroke-linejoin='round'><path d='M3.846 9.282h16.308M10.188 4.752v4.53'/></g></mask></defs><g fill='currentColor' stroke='currentColor' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round' mask='url(#cmxs-tunable-tabs)'><rect x='3.846' y='4.752' width='16.308' height='14.496' rx='2.265'/></g></svg>",
+   "alts": [],
+   "note": "Window with a tab row (two tabs) on top (rectangle.topthird).",
+   "replaces": [
+    "rectangle.topthird.inset.filled"
+   ]
+  },
+  {
+   "name": "tunable.tasks",
+   "meaning": "Debug settings section: Tasks",
+   "line": "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='currentColor' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'><path d='M4 5.5l1.5 1.5 3 -3M4 12l1.5 1.5 3 -3M11.5 6h8.5M11.5 12.5h8.5M11.5 18.5h8.5'/><circle cx='6.25' cy='18.25' r='1.75'/></svg>",
+   "solid": "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='currentColor' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'><path d='M4 5.5l1.5 1.5 3 -3M4 12l1.5 1.5 3 -3M11.5 6h8.5M11.5 12.5h8.5M11.5 18.5h8.5'/><circle cx='6.25' cy='18.25' r='1.75'/></svg>",
+   "alts": [],
+   "note": "Two checked rows and an open one (checklist). Distinct from feed.choice (radio rows).",
+   "replaces": [
+    "checklist"
+   ]
+  }
+ ]
+}

@@ -1,0 +1,100 @@
+03:24:14 rig mini-cmux9s-mac-mini: device 731e14b7-0e9c-4504-9132-67b869cd25e5, workspace brfz-term (8 workspaces: ['Home', 'brfz-term', 'lr-b', 'lr-b2', 'lr-b', 'lr-b', 'lr-b', 'lr-b'])
+03:24:16 app launched, config default, env ['CMUX_MOBILE_LOG'], drop 0, bg 20.0
+03:24:21 step open_tab ('A', 'https://en.wikipedia.org/wiki/Cat') at +0.1 min
+03:24:27 host 03:24:16 link up session_id="ec680f43-5621-4ef0-b771-2d4d231c33b7" kind=WireGuard path=Turn phone="07d3d268-ebfe-4601-af11-a32bd5d268cd" video=true timings=offer_received=0.0ms ice_servers_cached=0.0ms video_l
+03:24:27 host 03:24:16 link path changed session_id="ec680f43-5621-4ef0-b771-2d4d231c33b7" path=Turn
+03:24:27 host 03:24:26 media session down session_id="a096ad75-8add-4153-a5c5-6a2eda787ff2" link_session="df65c97a-9cc4-46c4-9f1b-f8f0cab967d9" reason="failed"
+03:24:42 phone tab new-c3dfdf05-t1 opens -
+03:24:43 host 03:24:42 media session up session_id="a52ae1c4-3607-4615-964c-fdc63a801eeb" link_session="ec680f43-5621-4ef0-b771-2d4d231c33b7" path=Direct timings=media_offer_received=0.0ms pc_created=0.3ms media_answer_sent
+03:24:53 host 03:24:50 link down session_id="df65c97a-9cc4-46c4-9f1b-f8f0cab967d9" reason="keepalive timed out"
+03:25:49 act {"t": 1792812349.65, "utc": "03:25:49", "tab": "A", "act": "open", "name": "A", "url": "https://en.wikipedia.org/wiki/Cat", "load_s": 82.0, "key": "new-c3dfdf05-t1", "mac_ws": "ws_b794f702d864c56578287007d8aa98a7"}
+03:25:49 step interact (70,) at +1.6 min
+03:25:58 act {"t": 1792812358.02, "utc": "03:25:58", "tab": "A", "act": "scroll-up", "rtt": null}
+03:26:00 act {"t": 1792812360.4, "utc": "03:26:00", "tab": "A", "act": "scroll-up", "rtt": 0.95}
+03:26:10 act {"t": 1792812370.21, "utc": "03:26:10", "tab": "A", "act": "scroll-down", "rtt": null}
+03:26:11 act {"t": 1792812371.04, "utc": "03:26:11", "tab": "A", "act": "forward", "skipped": "no button"}
+03:26:20 act {"t": 1792812380.47, "utc": "03:26:20", "tab": "A", "act": "scroll-down", "rtt": null}
+03:26:20 FREEZE phone-unresponsive: 2 inputs in a row with no screen change in 8 s (last: scroll-down on A)
+03:26:21 captured /Users/cmux/brfreeze/runs/fix-d0fc-default/freeze-01-phone-unresponsive-032620
+03:26:31 act {"t": 1792812391.22, "utc": "03:26:31", "tab": "A", "act": "scroll-down", "rtt": null}
+03:26:31 FREEZE phone-unresponsive: 3 inputs in a row with no screen change in 8 s (last: scroll-down on A)
+03:26:40 act {"t": 1792812400.98, "utc": "03:26:40", "tab": "A", "act": "scroll-down", "rtt": null}
+03:26:40 FREEZE phone-unresponsive: 4 inputs in a row with no screen change in 8 s (last: scroll-down on A)
+03:26:50 act {"t": 1792812410.39, "utc": "03:26:50", "tab": "A", "act": "scroll-down", "rtt": null}
+03:26:50 FREEZE phone-unresponsive: 5 inputs in a row with no screen change in 8 s (last: scroll-down on A)
+03:26:59 act {"t": 1792812419.57, "utc": "03:26:59", "tab": "A", "act": "scroll-down", "rtt": null}
+03:26:59 FREEZE phone-unresponsive: 6 inputs in a row with no screen change in 8 s (last: scroll-down on A)
+03:27:01 step long_scroll (12,) at +2.8 min
+03:27:18 act {"t": 1792812438.41, "utc": "03:27:18", "tab": "A", "act": "long-scroll", "rtt": null, "swipes": 17, "seconds": 16.7, "reconnecting": []}
+03:27:18 FREEZE phone-unresponsive: 7 inputs in a row with no screen change in 8 s (last: long-scroll on A)
+03:27:18 step interact (60,) at +3.0 min
+03:27:20 act {"t": 1792812440.03, "utc": "03:27:20", "tab": "A", "act": "search", "error": "no address bar or pill"}
+03:27:29 act {"t": 1792812449.1, "utc": "03:27:29", "tab": "A", "act": "scroll-down", "rtt": null}
+03:27:29 FREEZE phone-unresponsive: 8 inputs in a row with no screen change in 8 s (last: scroll-down on A)
+03:27:30 captured /Users/cmux/brfreeze/runs/fix-d0fc-default/freeze-07-phone-unresponsive-032729
+03:27:39 act {"t": 1792812459.67, "utc": "03:27:39", "tab": "A", "act": "scroll-up", "rtt": null}
+03:27:39 FREEZE phone-unresponsive: 9 inputs in a row with no screen change in 8 s (last: scroll-up on A)
+03:27:40 act {"t": 1792812460.69, "utc": "03:27:40", "tab": "A", "act": "forward", "skipped": "no button"}
+03:27:50 act {"t": 1792812470.52, "utc": "03:27:50", "tab": "A", "act": "scroll-down", "rtt": null}
+03:27:50 FREEZE phone-unresponsive: 10 inputs in a row with no screen change in 8 s (last: scroll-down on A)
+03:28:00 act {"t": 1792812480.15, "utc": "03:28:00", "tab": "A", "act": "scroll-down", "rtt": null}
+03:28:00 FREEZE phone-unresponsive: 11 inputs in a row with no screen change in 8 s (last: scroll-down on A)
+03:28:11 act {"t": 1792812491.81, "utc": "03:28:11", "tab": "A", "act": "back", "rtt": null}
+03:28:11 FREEZE phone-unresponsive: 12 inputs in a row with no screen change in 8 s (last: back on A)
+03:28:23 act {"t": 1792812503.12, "utc": "03:28:23", "tab": "A", "act": "back", "rtt": null}
+03:28:23 FREEZE phone-unresponsive: 13 inputs in a row with no screen change in 8 s (last: back on A)
+03:28:24 step open_tab ('B', 'https://news.ycombinator.com') at +4.2 min
+03:29:03 act {"t": 1792812543.49, "utc": "03:29:03", "tab": "B", "act": "open", "name": "B", "url": "https://news.ycombinator.com", "error": "could not get back to the Workspaces list"}
+03:29:03 step interact (60,) at +4.8 min
+03:29:13 act {"t": 1792812553.75, "utc": "03:29:13", "tab": "B", "act": "tap", "rtt": null, "at": [149, 510]}
+03:29:13 FREEZE phone-unresponsive: 14 inputs in a row with no screen change in 8 s (last: tap on B)
+03:29:14 captured /Users/cmux/brfreeze/runs/fix-d0fc-default/freeze-13-phone-unresponsive-032913
+03:29:25 act {"t": 1792812565.83, "utc": "03:29:25", "tab": "B", "act": "tap", "rtt": null, "at": [99, 371]}
+03:29:25 FREEZE phone-unresponsive: 15 inputs in a row with no screen change in 8 s (last: tap on B)
+03:29:34 act {"t": 1792812574.95, "utc": "03:29:34", "tab": "B", "act": "scroll-up", "rtt": null}
+03:29:34 FREEZE phone-unresponsive: 16 inputs in a row with no screen change in 8 s (last: scroll-up on B)
+03:29:45 act {"t": 1792812585.19, "utc": "03:29:45", "tab": "B", "act": "scroll-down", "rtt": null}
+03:29:45 FREEZE phone-unresponsive: 17 inputs in a row with no screen change in 8 s (last: scroll-down on B)
+03:29:54 act {"t": 1792812594.86, "utc": "03:29:54", "tab": "B", "act": "scroll-down", "rtt": null}
+03:29:54 FREEZE phone-unresponsive: 18 inputs in a row with no screen change in 8 s (last: scroll-down on B)
+03:30:06 act {"t": 1792812606.39, "utc": "03:30:06", "tab": "B", "act": "back", "rtt": null}
+03:30:06 FREEZE phone-unresponsive: 19 inputs in a row with no screen change in 8 s (last: back on B)
+03:30:07 step list_idle (45,) at +5.9 min
+03:30:40 act {"t": 1792812640.73, "utc": "03:30:40", "tab": "B", "act": "to-list-retry", "error": "could not get back to the Workspaces list", "labels": [["Application", "cmux INTERNAL", null], ["StaticText", "the app did not start a browser host in time", "workspace.new-c3dfdf05"], ["Button", "Keyboard", "workspace.new-c3dfdf05"], ["Button", "Back", "chevron.left"], ["Button", "Page Menu", null], ["Button", "Show toolbar, en.wikipedia.org", null], ["Button", "Reload", null], ["Image", "Refresh", "arrow.clockwise"], ["Button", "Show toolbar, en.wikipedia.org", null], ["Button", "Tabs", "workspace.new-c3dfdf05"], ["Image", "Tabs", "square.on.square"]]}
+03:31:18 act {"t": 1792812678.43, "utc": "03:31:18", "tab": "B", "act": "list_idle-failed", "error": "could not get back to the Workspaces list"}
+03:31:18 step switch ('B',) at +7.0 min
+03:31:51 act {"t": 1792812711.39, "utc": "03:31:51", "tab": "B", "act": "to-list-retry", "error": "could not get back to the Workspaces list", "labels": [["Application", "cmux INTERNAL", null], ["StaticText", "the app did not start a browser host in time", "workspace.new-c3dfdf05"], ["Button", "Keyboard", "workspace.new-c3dfdf05"], ["Button", "Back", "chevron.left"], ["Button", "Page Menu", null], ["Button", "Show toolbar, en.wikipedia.org", null], ["Button", "Reload", "arrow.clockwise"], ["Button", "Show toolbar, en.wikipedia.org", null], ["Button", "Tabs", "workspace.new-c3dfdf05"]]}
+03:32:29 act {"t": 1792812749.29, "utc": "03:32:29", "tab": "B", "act": "switch-failed", "error": "could not get back to the Workspaces list"}
+03:32:29 step interact (80,) at +8.2 min
+03:32:37 act {"t": 1792812757.58, "utc": "03:32:37", "tab": "B", "act": "scroll-down", "rtt": null}
+03:32:37 FREEZE phone-unresponsive: 20 inputs in a row with no screen change in 8 s (last: scroll-down on B)
+03:32:38 captured /Users/cmux/brfreeze/runs/fix-d0fc-default/freeze-19-phone-unresponsive-033237
+03:32:41 act {"t": 1792812761.21, "utc": "03:32:41", "tab": "B", "act": "search", "error": "no address bar or pill"}
+03:32:50 act {"t": 1792812770.04, "utc": "03:32:50", "tab": "B", "act": "scroll-up", "rtt": null}
+03:32:50 FREEZE phone-unresponsive: 21 inputs in a row with no screen change in 8 s (last: scroll-up on B)
+03:32:59 act {"t": 1792812779.49, "utc": "03:32:59", "tab": "B", "act": "scroll-up", "rtt": null}
+03:32:59 FREEZE phone-unresponsive: 22 inputs in a row with no screen change in 8 s (last: scroll-up on B)
+03:33:09 act {"t": 1792812789.7, "utc": "03:33:09", "tab": "B", "act": "scroll-down", "rtt": null}
+03:33:09 FREEZE phone-unresponsive: 23 inputs in a row with no screen change in 8 s (last: scroll-down on B)
+03:33:11 act {"t": 1792812791.13, "utc": "03:33:11", "tab": "B", "act": "forward", "skipped": "no button"}
+03:33:13 act {"t": 1792812793.66, "utc": "03:33:13", "tab": "B", "act": "search", "error": "no address bar or pill"}
+03:33:23 act {"t": 1792812803.88, "utc": "03:33:23", "tab": "B", "act": "scroll-down", "rtt": null}
+03:33:23 FREEZE phone-unresponsive: 24 inputs in a row with no screen change in 8 s (last: scroll-down on B)
+03:33:25 act {"t": 1792812805.02, "utc": "03:33:25", "tab": "B", "act": "forward", "skipped": "no button"}
+03:33:26 act {"t": 1792812806.47, "utc": "03:33:26", "tab": "B", "act": "forward", "skipped": "no button"}
+03:33:36 act {"t": 1792812816.78, "utc": "03:33:36", "tab": "B", "act": "scroll-down", "rtt": null}
+03:33:36 FREEZE phone-unresponsive: 25 inputs in a row with no screen change in 8 s (last: scroll-down on B)
+03:33:37 act {"t": 1792812817.89, "utc": "03:33:37", "tab": "B", "act": "forward", "skipped": "no button"}
+03:33:49 act {"t": 1792812829.36, "utc": "03:33:49", "tab": "B", "act": "back", "rtt": null}
+03:33:49 FREEZE phone-unresponsive: 26 inputs in a row with no screen change in 8 s (last: back on B)
+03:33:50 captured /Users/cmux/brfreeze/runs/fix-d0fc-default/freeze-25-phone-unresponsive-033349
+03:33:51 step switch ('A',) at +9.6 min
+03:34:24 act {"t": 1792812864.69, "utc": "03:34:24", "tab": "B", "act": "to-list-retry", "error": "could not get back to the Workspaces list", "labels": [["Application", "cmux INTERNAL", null], ["StaticText", "the app did not start a browser host in time", "workspace.new-c3dfdf05"], ["Button", "Keyboard", "workspace.new-c3dfdf05"], ["Button", "Back", "chevron.left"], ["Button", "Page Menu", null], ["Button", "Show toolbar, en.wikipedia.org", null], ["Button", "Reload", null], ["Image", "Refresh", "arrow.clockwise"], ["Button", "Show toolbar, en.wikipedia.org", null], ["Button", "Tabs", "workspace.new-c3dfdf05"], ["Image", "Tabs", "square.on.square"]]}
+03:35:19 act {"t": 1792812919.31, "utc": "03:35:19", "tab": "B", "act": "switch-failed", "error": "could not get back to the Workspaces list"}
+03:35:19 step interact (50,) at +11.1 min
+03:35:25 act {"t": 1792812925.72, "utc": "03:35:25", "tab": "B", "act": "search", "error": "no address bar or pill"}
+03:35:35 act {"t": 1792812935.97, "utc": "03:35:35", "tab": "B", "act": "scroll-down", "rtt": null}
+03:35:35 FREEZE phone-unresponsive: 27 inputs in a row with no screen change in 8 s (last: scroll-down on B)
+03:35:37 captured /Users/cmux/brfreeze/runs/fix-d0fc-default/freeze-26-phone-unresponsive-033535
+03:35:46 act {"t": 1792812946.94, "utc": "03:35:46", "tab": "B", "act": "scroll-up", "rtt": null}
+03:35:46 FREEZE phone-unresponsive: 28 inputs in a row with no screen change in 8 s (last: scroll-up on B)

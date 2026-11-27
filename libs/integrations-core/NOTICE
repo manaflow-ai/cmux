@@ -1,0 +1,34 @@
+@cmux/integrations-core
+Copyright (c) 2026-present Manaflow, Inc.
+The cmux code is licensed under GPL-3.0-or-later (see LICENSE).
+
+This package contains code adapted from executor
+https://github.com/UsefulSoftwareCo/executor (commit 98d606bd2b47b9dcc2c03a129a14b5134d9852c8)
+MIT License, Copyright (c) 2026 Rhys Sullivan (text in LICENSE-executor)
+
+Adapted files (each keeps a header naming its upstream paths and the changes):
+
+  src/policy.ts         packages/core/sdk/src/policies.ts
+                        packages/plugins/openapi/src/sdk/invoke.ts (annotationsForOperation)
+                        packages/plugins/graphql/src/sdk/plugin.ts (annotationsFor)
+                        packages/plugins/mcp/src/sdk/plugin.ts (toToolDef)
+  src/openapi.ts        packages/plugins/openapi/src/sdk/extract.ts
+                        packages/plugins/openapi/src/sdk/openapi-utils.ts (DocResolver)
+  src/openapi-paths.ts  packages/plugins/openapi/src/sdk/definitions.ts
+  src/openapi-auth.ts   packages/plugins/openapi/src/sdk/preview.ts (security schemes and presets)
+  src/graphql.ts        packages/plugins/graphql/src/sdk/extract.ts
+                        packages/plugins/graphql/src/sdk/introspect.ts (types)
+                        packages/plugins/graphql/src/sdk/plugin.ts (tool naming)
+  src/mcp.ts            packages/plugins/mcp/src/sdk/manifest.ts
+                        packages/plugins/mcp/src/sdk/types.ts (McpToolAnnotations)
+
+cmux files (no upstream code): src/types.ts, src/catalog.ts, src/auth.ts,
+src/egress.ts, src/mcp-names.ts, src/text.ts, src/index.ts and the tests.
+src/policy.ts adds cmux code to the adapted matcher: the exact-rule condition
+for loosening a Block default in resolveEffectivePolicy.
+
+No telemetry, billing, analytics, registry-fetch or credential-storage code was
+copied.
+
+Any work that bundles or copies this package (for example the cmux/integrations
+app's dist/main.js) must keep this NOTICE and the LICENSE and LICENSE-executor texts.

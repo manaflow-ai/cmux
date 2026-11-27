@@ -1,0 +1,80 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><title>Reply to Selection: 4 designs</title>
+<style>
+:root{--font:-apple-system,BlinkMacSystemFont,"SF Pro Text",sans-serif}
+body{margin:0;font-family:var(--font);background:#f5f5f7;color:#1d1d1f;padding:28px}
+h1{font-size:22px;margin:0 0 4px}p.lede{color:#6e6e73;margin:0 0 24px;max-width:860px}
+.variant{margin:0 0 36px}.variant h2{font-size:16px;margin:0 0 4px}.variant p{margin:0 0 12px;color:#6e6e73;font-size:13px;max-width:860px}
+.rec{display:inline-block;background:#1d1d1f;color:#fff;border-radius:6px;padding:1px 7px;font-size:11px;margin-left:8px;vertical-align:2px}
+.pair{display:flex;gap:18px;flex-wrap:wrap}
+.chat{width:380px;border-radius:14px;padding:16px 14px 12px;box-shadow:0 1px 3px rgba(0,0,0,.12);position:relative}
+.light{background:#fff;--in:#e9e9eb;--intext:#000;--sec:rgba(0,0,0,.5);--field:#fff;--fieldb:rgba(0,0,0,.14);--card:rgba(0,0,0,.04);--hl:rgba(255,214,10,.55)}
+.dark{background:#1e1e1e;--in:#3b3b3d;--intext:#fff;--sec:rgba(255,255,255,.55);--field:#2a2a2c;--fieldb:rgba(255,255,255,.14);--card:rgba(255,255,255,.06);--hl:rgba(255,214,10,.45);color:#fff}
+.row{display:flex;margin:4px 0}.row.out{justify-content:flex-end}
+.b{max-width:270px;padding:7px 12px;border-radius:18px;font-size:13.5px;line-height:1.32}
+.in .b{background:var(--in);color:var(--intext)}.out .b{background:#0a84ff;color:#fff}
+.q{display:block;opacity:.66;margin-bottom:3px}
+.sel{background:rgba(10,132,255,.35);border-radius:2px}
+.flash{background:var(--hl);border-radius:3px;box-shadow:0 0 0 2px var(--hl)}
+.field{margin-top:12px;border:1px solid var(--fieldb);background:var(--field);border-radius:18px;padding:7px 12px;font-size:13px;color:var(--sec)}
+.card{margin-top:12px;display:flex;gap:8px;align-items:flex-start;background:var(--card);border-radius:12px;padding:7px 10px 7px 8px;font-size:12px}
+.bar{width:3px;align-self:stretch;border-radius:2px;background:var(--sec)}
+.card .who{font-weight:600;color:var(--sec);font-size:11px}.card .ex{color:inherit;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
+.x{margin-left:auto;color:var(--sec);font-size:13px}
+.pill{font-size:11.5px;color:var(--sec);background:var(--card);border-radius:10px;padding:3px 9px;margin:6px 0 2px auto;max-width:240px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;width:fit-content}
+.mark{text-decoration:underline;text-decoration-color:var(--sec);text-decoration-thickness:2px;text-underline-offset:3px}
+.badge{font-size:10px;background:var(--sec);color:var(--field);border-radius:8px;padding:0 5px;margin-left:4px}
+.menu{position:absolute;right:18px;top:58px;background:rgba(246,246,246,.96);color:#000;border-radius:8px;box-shadow:0 6px 20px rgba(0,0,0,.25);font-size:13px;padding:5px;width:190px}
+.dark .menu{background:rgba(44,44,46,.97);color:#fff}
+.menu div{padding:3px 8px;border-radius:4px}.menu .on{background:#0a84ff;color:#fff}.menu hr{border:0;border-top:1px solid rgba(128,128,128,.3);margin:4px 2px}
+.label{font-size:11px;color:#6e6e73;margin:4px 0 6px}
+</style></head><body>
+<h1>Reply to Selection</h1>
+<p class="lede">Select part of a message, right-click, <b>Reply to Selection</b> (or Cmd-Shift-R). Each design shows the menu, the composer and the sent reply, light and dark. The Recommended one is built and on feat-cmux-next; say "switch to B/C/D" to change it.</p>
+
+<div class="variant"><h2>Step 0 · The menu (all designs)</h2>
+<div class="pair">
+<div class="chat light"><div class="row in"><div class="b">I moved the nightly off Blacksmith. <span class="sel">The NEXT build now runs on cmux22</span>, and classic stays on cmux15.</div></div>
+<div class="menu"><div>Tapback Details…</div><div class="on">Reply to Selection</div><div>Reply…</div><hr><div>Copy</div><div>Copy Link</div></div><div style="height:120px"></div></div>
+<div class="chat dark"><div class="row in"><div class="b">I moved the nightly off Blacksmith. <span class="sel">The NEXT build now runs on cmux22</span>, and classic stays on cmux15.</div></div>
+<div class="menu"><div>Tapback Details…</div><div class="on">Reply to Selection</div><div>Reply…</div><hr><div>Copy</div><div>Copy Link</div></div><div style="height:120px"></div></div>
+</div></div>
+
+<div class="variant"><h2>A · Quote card on the field, quiet quote in the bubble<span class="rec">Recommended</span></h2>
+<p>iOS-style card over the field while you type (bar, "Replying to Chief", two lines, close). The sent bubble opens with the excerpt in quotes at 66% text colour. Clicking the quote scrolls to the original and flashes only those words.</p>
+<div class="pair">
+<div class="chat light"><div class="label">Composing</div><div class="row in"><div class="b">I moved the nightly off Blacksmith. The NEXT build now runs on cmux22, and classic stays on cmux15.</div></div>
+<div class="card"><div class="bar"></div><div><div class="who">Replying to Chief</div><div class="ex">The NEXT build now runs on cmux22</div></div><div class="x">✕</div></div><div class="field">Is cmux22 the M4 Pro?</div>
+<div class="label" style="margin-top:14px">Sent, then the quote clicked</div>
+<div class="row in"><div class="b">I moved the nightly off Blacksmith. <span class="flash">The NEXT build now runs on cmux22</span>, and classic stays on cmux15.</div></div>
+<div class="row out"><div class="b"><span class="q">“The NEXT build now runs on cmux22”</span>Is cmux22 the M4 Pro?</div></div></div>
+<div class="chat dark"><div class="label">Composing</div><div class="row in"><div class="b">I moved the nightly off Blacksmith. The NEXT build now runs on cmux22, and classic stays on cmux15.</div></div>
+<div class="card"><div class="bar"></div><div><div class="who">Replying to Chief</div><div class="ex">The NEXT build now runs on cmux22</div></div><div class="x">✕</div></div><div class="field">Is cmux22 the M4 Pro?</div>
+<div class="label" style="margin-top:14px">Sent, then the quote clicked</div>
+<div class="row in"><div class="b">I moved the nightly off Blacksmith. <span class="flash">The NEXT build now runs on cmux22</span>, and classic stays on cmux15.</div></div>
+<div class="row out"><div class="b"><span class="q">“The NEXT build now runs on cmux22”</span>Is cmux22 the M4 Pro?</div></div></div>
+</div></div>
+
+<div class="variant"><h2>B · Mail-style quote in the text field</h2>
+<p>The excerpt is inserted as editable "&gt; " text at the top of the field. Simple and fully editable, but it looks like plain text, not a reply, and it is easy to delete by accident.</p>
+<div class="pair">
+<div class="chat light"><div class="field" style="color:inherit"><span style="opacity:.55">&gt; The NEXT build now runs on cmux22</span><br>Is cmux22 the M4 Pro?</div>
+<div class="row out" style="margin-top:12px"><div class="b"><span class="q">&gt; The NEXT build now runs on cmux22</span>Is cmux22 the M4 Pro?</div></div></div>
+<div class="chat dark"><div class="field" style="color:inherit"><span style="opacity:.55">&gt; The NEXT build now runs on cmux22</span><br>Is cmux22 the M4 Pro?</div>
+<div class="row out" style="margin-top:12px"><div class="b"><span class="q">&gt; The NEXT build now runs on cmux22</span>Is cmux22 the M4 Pro?</div></div></div>
+</div></div>
+
+<div class="variant"><h2>C · Detached quote pill above the bubble</h2>
+<p>Like iMessage's reply preview: a small grey pill above my bubble, one line. Cleaner bubble, but the pill floats apart from the reply and reads as metadata.</p>
+<div class="pair">
+<div class="chat light"><div class="pill">“The NEXT build now runs on cmux22”</div><div class="row out"><div class="b">Is cmux22 the M4 Pro?</div></div></div>
+<div class="chat dark"><div class="pill">“The NEXT build now runs on cmux22”</div><div class="row out"><div class="b">Is cmux22 the M4 Pro?</div></div></div>
+</div></div>
+
+<div class="variant"><h2>D · Persistent marker on the original</h2>
+<p>The quoted words stay underlined in the original, with a reply count (Notes and Docs comments). Great for long Chief reports, heavier for chat; a later step on top of A.</p>
+<div class="pair">
+<div class="chat light"><div class="row in"><div class="b">I moved the nightly off Blacksmith. <span class="mark">The NEXT build now runs on cmux22</span><span class="badge">1</span>, and classic stays on cmux15.</div></div></div>
+<div class="chat dark"><div class="row in"><div class="b">I moved the nightly off Blacksmith. <span class="mark">The NEXT build now runs on cmux22</span><span class="badge">1</span>, and classic stays on cmux15.</div></div></div>
+</div></div>
+</body></html>

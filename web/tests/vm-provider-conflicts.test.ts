@@ -68,7 +68,7 @@ describe("a machine-state conflict", () => {
     const { response, payload } = await answer("exec", cause);
     expect(response.status).toBe(409);
     expect(payload).toMatchObject({ error: "vm_state_conflict", retryable: true });
-    expect(String(payload.action)).toContain("cmux vm ls");
+    expect(String(payload.action)).toContain("cmux cloud list-machines");
     expect(isOperatorFaultVmError({ error: String(payload.error), status: response.status })).toBe(false);
   });
 
@@ -89,67 +89,6 @@ describe("a machine-state conflict", () => {
     expect(String(payload.action)).toMatch(/contact support/i);
     expect(String(payload.action)).toMatch(/trace ID/i);
     expect(String(payload.action)).not.toMatch(/cmux vm (?:pause|resume|restart|rm)/);
-  });
-});
-
-// Production 2026-11-16 (https://github.com/manaflow-ai/cmux/issues/44783):
-// a Freestyle host went down and every machine whose retained disk head lived
-// on it was refused with 409 CONFLICT naming the disk head or a recovery
-// hold. Resume, exec and attach answered the generic 502 "temporarily
-// unavailable, retrying is safe", so clients retried every minute for hours
-// against a refusal only the provider's host recovery could lift.
-const diskHeadMustBeRecovered = () => new FreestyleApiError(409, {
-  code: "CONFLICT",
-  message: "conflict: cannot start vm vm-1: its retained disk head must be recovered on vms10-as1010",
-});
-const diskHeadOwnerUnreachable = () => new FreestyleApiError(409, {
-  code: "CONFLICT",
-  message: "conflict: cannot start vm vm-1: disk head owner vms10-as1010 is not reachable",
-});
-const recoveryHold = () => new FreestyleApiError(409, {
-  code: "CONFLICT",
-  message: "conflict: VM has recovery hold 66b4699d-096b-499a-b1dd-b518f8839e3b: Bounded admission hold to drain repeated failed starts before guarded original-running metadata repair",
-});
-
-describe("a machine whose disk is held by a host being recovered", () => {
-  const refusals: Array<[string, () => FreestyleApiError]> = [
-    ["its retained disk head must be recovered", diskHeadMustBeRecovered],
-    ["its disk head owner is not reachable", diskHeadOwnerUnreachable],
-    ["the provider holds it for recovery", recoveryHold],
-  ];
-  test.each(refusals)("a resume refused because %s answers host recovery, not a retry-now outage", async (_label, refusal) => {
-    const provider = providerWith({ start: async () => { throw refusal(); } });
-    const cause = await failure(() => provider.resume("vm-1"));
-    const { response, payload } = await answer("resume", cause);
-    expect(response.status).toBe(503);
-    expect(response.headers.get("retry-after")).toBe("300");
-    expect(payload).toMatchObject({ error: "vm_host_recovery_pending", retryable: true, phase: "resume" });
-    expect(String(payload.message)).toMatch(/being recovered/i);
-    expect(String(payload.message)).toMatch(/files are kept/i);
-    expect(String(payload.action)).toMatch(/don't delete or recreate/i);
-    expect(JSON.stringify(payload)).not.toMatch(/temporarily unavailable|retrying is safe/i);
-    // Provider host names and hold ids stay in server traces.
-    expect(JSON.stringify(payload)).not.toMatch(/vms10-as1010|66b4699d/);
-    // Only the provider can recover the host, so the incident still pages.
-    expect(isOperatorFaultVmError({ error: String(payload.error), status: response.status })).toBe(true);
-  });
-
-  test("an exec that has to wake the machine answers the same host recovery", async () => {
-    const provider = providerWith({ exec: async () => { throw diskHeadMustBeRecovered(); } });
-    const cause = await failure(() => provider.exec("vm-1", "true", { timeoutMs: 1_000 }));
-    const { response, payload } = await answer("exec", cause);
-    expect(response.status).toBe(503);
-    expect(payload).toMatchObject({ error: "vm_host_recovery_pending" });
-  });
-
-  test("the answer is localized", async () => {
-    const response = await vmWorkflowErrorResponse(
-      new VmProviderOperationError({ provider: "freestyle", operation: "resume", cause: diskHeadOwnerUnreachable() }),
-      { locale: "de" },
-    );
-    const payload = await response!.json() as Record<string, unknown>;
-    expect(payload.error).toBe("vm_host_recovery_pending");
-    expect(String(payload.message)).toMatch(/wiederhergestellt/);
   });
 });
 

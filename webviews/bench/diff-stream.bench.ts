@@ -1,8 +1,7 @@
 import { parsePatchFiles, processFile } from "@pierre/diffs";
+import { writeFileSync } from "node:fs";
 import { resolve } from "node:path";
-import { createElement } from "react";
-import { renderToStaticMarkup } from "react-dom/server";
-import { JumpSelect } from "../src/App";
+import { jumpToFileRows } from "../src/toolbar-model";
 import { createDiffViewerLabelResolver } from "../src/labels";
 import { streamPatch, type DiffItem, type StreamMetrics } from "../src/diff-stream";
 import { makeMixedPatch } from "./diff-fixture";
@@ -17,11 +16,10 @@ if (!Number.isSafeInteger(iterations) || iterations <= 0) {
 }
 const patch = makeMixedPatch(fileCount);
 const includeAppRender = process.env.CMUX_DIFF_BENCH_RENDER_APP === "1";
-const patchOutputPath = process.env.CMUX_DIFF_BENCH_PATCH_OUTPUT == null
-  ? undefined
-  : resolve(process.env.CMUX_DIFF_BENCH_PATCH_OUTPUT);
+const patchOutputPath =
+  process.env.CMUX_DIFF_BENCH_PATCH_OUTPUT == null ? undefined : resolve(process.env.CMUX_DIFF_BENCH_PATCH_OUTPUT);
 if (patchOutputPath != null) {
-  await Bun.write(patchOutputPath, patch);
+  writeFileSync(patchOutputPath, patch);
 }
 const originalFetch = globalThis.fetch;
 const originalDocument = globalThis.document;
@@ -30,15 +28,17 @@ const originalWindow = globalThis.window;
 Object.assign(globalThis, {
   document: { visibilityState: "hidden", hasFocus: () => false },
   window: globalThis,
-  fetch: async () => new Response(patch, {
-    status: 200,
-    headers: { "Content-Type": "text/x-diff" },
-  }),
+  fetch: async () =>
+    new Response(patch, {
+      status: 200,
+      headers: { "Content-Type": "text/x-diff" },
+    }),
 });
 
 const samples: number[] = [];
-let lastMetrics: StreamMetrics | null = null;
-let lastAppMetrics: ReturnType<typeof createAppRenderMetrics> | null = null;
+// Assigned inside callbacks, so keep TypeScript from narrowing it to `null`.
+let lastMetrics = null as StreamMetrics | null;
+let lastAppMetrics = null as ReturnType<typeof createAppRenderMetrics> | null;
 for (let index = 0; index < iterations; index += 1) {
   const appMetrics = createAppRenderMetrics();
   const started = performance.now();
@@ -86,17 +86,16 @@ const report = {
   p95Ms: Number(p95Ms.toFixed(2)),
   filesPerSecond: Math.round(fileCount / (medianMs / 1000)),
   firstBatchFileCount: lastMetrics?.firstBatchFileCount ?? 0,
-  firstBatchMs: lastMetrics?.firstBatchAt == null
-    ? null
-    : Number((lastMetrics.firstBatchAt - lastMetrics.startedAt).toFixed(2)),
+  firstBatchMs:
+    lastMetrics?.firstBatchAt == null ? null : Number((lastMetrics.firstBatchAt - lastMetrics.startedAt).toFixed(2)),
   flushCount: lastMetrics?.flushCount ?? 0,
   longYieldCount: lastMetrics?.longYieldCount ?? 0,
   maxBatchSize: lastMetrics?.maxBatchSize ?? 0,
   maxYieldMs: Number((lastMetrics?.maxYieldMs ?? 0).toFixed(2)),
-  appRenderCount: includeAppRender ? lastAppMetrics?.renderCount ?? 0 : undefined,
+  appRenderCount: includeAppRender ? (lastAppMetrics?.renderCount ?? 0) : undefined,
   appRenderMs: includeAppRender ? Number((lastAppMetrics?.renderMs ?? 0).toFixed(2)) : undefined,
-  appRenderedItemCount: includeAppRender ? lastAppMetrics?.itemCount ?? 0 : undefined,
-  maxJumpOptionCount: includeAppRender ? lastAppMetrics?.maxJumpOptionCount ?? 0 : undefined,
+  appRenderedItemCount: includeAppRender ? (lastAppMetrics?.itemCount ?? 0) : undefined,
+  maxJumpOptionCount: includeAppRender ? (lastAppMetrics?.maxJumpOptionCount ?? 0) : undefined,
   patchOutputPath,
   yieldCount: lastMetrics?.yieldCount ?? 0,
 };
@@ -107,7 +106,8 @@ if (!Number.isFinite(maxP95Ms) && maxP95Ms !== Number.POSITIVE_INFINITY) {
 if (p95Ms > maxP95Ms) {
   throw new Error(`diff stream p95 was ${p95Ms.toFixed(2)} ms, budget is ${maxP95Ms.toFixed(2)} ms`);
 }
-await Bun.write(Bun.stdout, `${JSON.stringify(report, null, 2)}\n`);
+// Let the write drain before exiting; a piped stdout can otherwise be cut short.
+await new Promise<void>((resolve) => process.stdout.write(`${JSON.stringify(report, null, 2)}\n`, () => resolve()));
 process.exit(0);
 
 function percentile(values: number[], target: number): number {
@@ -137,17 +137,11 @@ function createAppRenderMetrics() {
     render(batch: DiffItem[]) {
       items = [...items, ...batch];
       const startedAt = performance.now();
-      const markup = renderToStaticMarkup(createElement(JumpSelect, {
-        items,
-        label,
-        onJump: () => {},
-        onOpenSearch: () => {},
-        searchOpen: false,
-        selectedItemId: items[0]?.id ?? "",
-      }));
+      // The jump-to-file palette builds its capped row list only while open.
+      const { rows } = jumpToFileRows(items, "", label("untitled"));
       renderMs += performance.now() - startedAt;
       renderCount += 1;
-      maxJumpOptionCount = Math.max(maxJumpOptionCount, markup.match(/<option(?:\s|>)/g)?.length ?? 0);
+      maxJumpOptionCount = Math.max(maxJumpOptionCount, rows.length);
     },
   };
 }

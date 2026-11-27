@@ -1,0 +1,10 @@
+{
+ "video": "/Users/azizalbahar/cnx-ios-e2e/termqa-raw/tq11/wt-hold-a.mp4",
+ "source_frames": 7109,
+ "duration": 151.36,
+ "lit_median": 0.0392,
+ "black_runs": [],
+ "black_runs_over_17ms": [],
+ "frac_gaps_over_34ms": 0.0834,
+ "max_gap_ms": 115.0
+}

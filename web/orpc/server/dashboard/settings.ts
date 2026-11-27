@@ -1,6 +1,5 @@
 import { z } from "zod";
 import { getStackServerApp } from "@/app/lib/stack";
-import { accountDeletionCheckForUser } from "@/services/billing/apple/accountDeletion";
 import { authed } from "./base";
 import { dashboardRefusal } from "./errors";
 
@@ -191,23 +190,4 @@ const oauthProviders = authed
     };
   });
 
-const accountDeletionSchema = z.object({
-  appStoreSubscriptionRenews: z.boolean(),
-  manageSubscriptionsUrl: z.string().nullable(),
-});
-
-export type SettingsAccountDeletion = z.output<typeof accountDeletionSchema>;
-
-/**
- * What the delete-account dialog warns about: an App Store subscription that
- * keeps renewing after the account is gone (Guideline 5.1.1(v)), and where
- * to cancel it. The same answer as `GET /api/account/deletion-check`.
- */
-const accountDeletion = authed
-  .output(accountDeletionSchema)
-  .handler(async ({ context }) => {
-    const user = await sessionStackUser(context.request);
-    return await accountDeletionCheckForUser(user.id);
-  });
-
-export const settingsRouter = { overview, notifications, sessions, apiKeys, oauthProviders, accountDeletion };
+export const settingsRouter = { overview, notifications, sessions, apiKeys, oauthProviders };

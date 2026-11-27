@@ -15,7 +15,9 @@ each copy's test pins fingerprint() of its block to FINGERPRINT (the ci_log_rule
 ctx (what a caller passes; every key optional): repo, workflow, job, run_id, run_attempt, head_sha, head_ref, base_ref,
 pr (number or None), pr_author, own_branch (lane/* and an agent author), required (bool), flaky (bool: tap_flakes
 knows the failing test as flaky), changed_files, log_tail (the job log's last ~400 lines, str or list), steps (the job's
-steps from the jobs API: [{"name", "conclusion", "number"}]).
+steps from the jobs API: [{"name", "conclusion", "number"}]), base_red (True: the base branch's newest run of this same
+`workflow / job` is red too, from base-red-watch's current.json `base` (oops.base_reds); False: it is green there; None:
+unknown), base_red_why (the base's evidence: its sha and url).
 
 A rule (rules/<class>.json, a list): {"id": "infra.oom", "class": "infra", "any": [regex, ...], "job": regex,
 "workflow": regex, "repo": regex, "base_ref": regex, "head_ref": regex, "when": [predicate, ...], "none": [regex, ...],
@@ -72,6 +74,16 @@ def _cancelled_mid_step(ctx: dict) -> bool:
     return any(s.get("conclusion") == "cancelled" for s in _steps(ctx))
 
 
+CHECKOUT_STEP = re.compile(r"actions/checkout|\bcheck(?:ing)? ?out\b", re.IGNORECASE)
+
+
+def _checkout_failed(ctx: dict) -> bool:
+    """The job's checkout step is the one that failed. git prints `not uptodate; will not remove` as it switches a
+    reused workspace and often goes on (handbook sparse-checkout-left-on-a-reused-runner): those lines blame the
+    runner only when the checkout itself failed, never a later step's red."""
+    return any(s.get("conclusion") == "failure" and CHECKOUT_STEP.search(str(s.get("name", ""))) for s in _steps(ctx))
+
+
 def _own_branch(ctx: dict) -> bool:
     return bool(ctx.get("own_branch"))
 
@@ -80,8 +92,13 @@ def _not_required(ctx: dict) -> bool:
     return ctx.get("required") is False
 
 
+def _base_red(ctx: dict) -> bool:
+    """The same job is red on the base right now (ctx base_red): a panic rule's `when`, never a guess (None is False)."""
+    return ctx.get("base_red") is True
+
+
 WHEN = {"no_step_ran": _no_step_ran, "setup_failed": _setup_failed, "cancelled_mid_step": _cancelled_mid_step,
-        "own_branch": _own_branch, "not_required": _not_required}
+        "checkout_failed": _checkout_failed, "own_branch": _own_branch, "not_required": _not_required, "base_red": _base_red}
 
 
 def log_lines(log_tail) -> list[str]:
@@ -205,7 +222,7 @@ def validate_rules(rules) -> list[str]:
 
 BEGIN = "# ---- ci-oops core (begin) ----"
 END = "# ---- ci-oops core (end) ----"
-FINGERPRINT = "aa3143b4f8bd4ee96a49fa442b9feee704bb851d019a6bbdc8cf6fe2e3632b65"
+FINGERPRINT = "529aae36f710b6cf1a718a5ecc4ea25eb7cfcb2a50fc0b18215f649ab4342ce8"
 
 
 def fingerprint(source: str) -> str:

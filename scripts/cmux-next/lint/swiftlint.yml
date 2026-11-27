@@ -1,0 +1,14 @@
+# SwiftLint for the cmux-next pre-push gate: swift-syntax rules only (no analyzer, no SourceKit),
+# run on the pushed files. try! is ast-grep's no-try-bang rule, so force_try is not repeated here.
+only_rules:
+  - force_cast
+  - duplicate_imports
+  - trailing_semicolon
+  - unused_optional_binding
+  - redundant_optional_initialization
+  - empty_parentheses_with_trailing_closure
+  - unneeded_break_in_switch
+  - redundant_discardable_let
+  - legacy_constructor
+  - void_return
+  - return_arrow_whitespace

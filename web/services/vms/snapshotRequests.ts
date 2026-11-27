@@ -1,7 +1,7 @@
-import { and, eq, lt, sql } from "drizzle-orm";
+import { and, eq, sql } from "drizzle-orm";
 import * as Effect from "effect/Effect";
 import { cloudDb } from "../../db/client";
-import { cloudVmSnapshotRequests } from "../../db/schema";
+import { cloudVmSnapshotRequests, cloudVmUsageEvents } from "../../db/schema";
 import type { SnapshotRef } from "./drivers";
 import { VmDatabaseError } from "./errors";
 
@@ -10,19 +10,20 @@ export type SnapshotRequestBegin =
   | { readonly kind: "started" }
   | { readonly kind: "succeeded"; readonly snapshot: SnapshotRef }
   | { readonly kind: "in_progress" }
-  | { readonly kind: "conflict" };
+  | { readonly kind: "conflict" }
+  | { readonly kind: "quota_exceeded"; readonly limit: number };
 
 export type SnapshotRequestOutcome =
   | { readonly kind: "succeeded"; readonly snapshot: SnapshotRef }
-  | { readonly kind: "failed" };
+  | { readonly kind: "rejected" };
 
 export type BeginSnapshotRequestInput = {
   /** `cloud_vms.id` of the machine (not the provider id). */
   readonly vmId: string;
   readonly idempotencyKey: string;
   readonly name: string | null;
-  /** A pending row last touched before this instant belongs to a dead attempt. */
-  readonly staleBefore: Date;
+  /** Maximum provider snapshots retained for this machine. */
+  readonly maxSnapshots: number;
 };
 
 export type FinishSnapshotRequestInput = {
@@ -36,57 +37,96 @@ function dbEffect<A>(operation: string, run: () => Promise<A>): Effect.Effect<A,
 }
 
 /**
- * Claims (machine, key). The insert and the stale takeover are single
- * statements, so two concurrent retries cannot both start a snapshot.
+ * Claims (machine, key). A pending row is permanent until the machine is
+ * deleted: a provider timeout is ambiguous and must never authorize another
+ * non-idempotent snapshot call with the same key.
  */
 export function beginSnapshotRequest(input: BeginSnapshotRequestInput): Effect.Effect<SnapshotRequestBegin, VmDatabaseError> {
   return dbEffect("beginSnapshotRequest", async () => {
     const db = cloudDb();
     const table = cloudVmSnapshotRequests;
-    const inserted = await db
-      .insert(table)
-      .values({ vmId: input.vmId, idempotencyKey: input.idempotencyKey, name: input.name, status: "pending" })
-      .onConflictDoNothing()
-      .returning({ vmId: table.vmId });
-    if (inserted.length > 0) return { kind: "started" };
-    const match = and(eq(table.vmId, input.vmId), eq(table.idempotencyKey, input.idempotencyKey));
-    const takenOver = await db
-      .update(table)
-      .set({ updatedAt: sql`clock_timestamp()` })
-      .where(and(
-        match,
-        eq(table.status, "pending"),
-        sql`${table.name} is not distinct from ${input.name}`,
-        lt(table.updatedAt, input.staleBefore),
-      ))
-      .returning({ vmId: table.vmId });
-    if (takenOver.length > 0) return { kind: "started" };
-    const [row] = await db.select().from(table).where(match).limit(1);
-    // The row was deleted (a failed attempt) between the insert and now: the
-    // caller retries and claims it.
-    if (!row) return { kind: "in_progress" };
-    if ((row.name ?? null) !== input.name) return { kind: "conflict" };
-    if (row.status === "succeeded" && row.providerSnapshotId && row.snapshotCreatedAtMs !== null) {
-      return {
-        kind: "succeeded",
-        snapshot: {
-          id: row.providerSnapshotId,
-          createdAt: row.snapshotCreatedAtMs,
-          ...(row.snapshotName ? { name: row.snapshotName } : {}),
-        },
-      };
-    }
-    return { kind: "in_progress" };
+    const limit = Math.max(1, Math.trunc(input.maxSnapshots));
+    return db.transaction(async (tx) => {
+      await tx.execute(sql`select pg_advisory_xact_lock(hashtextextended(${`vm-snapshots:${input.vmId}`}, 0))`);
+      const match = and(eq(table.vmId, input.vmId), eq(table.idempotencyKey, input.idempotencyKey));
+      const [existing] = await tx.select().from(table).where(match).limit(1);
+      if (existing) {
+        if ((existing.name ?? null) !== input.name) return { kind: "conflict" };
+        if (existing.status === "succeeded" && existing.providerSnapshotId && existing.snapshotCreatedAtMs !== null) {
+          return {
+            kind: "succeeded",
+            snapshot: {
+              id: existing.providerSnapshotId,
+              createdAt: existing.snapshotCreatedAtMs,
+              ...(existing.snapshotName ? { name: existing.snapshotName } : {}),
+            },
+          };
+        }
+        return { kind: "in_progress" };
+      }
+
+      const countRows = await tx.execute(sql`
+        with active_snapshots as (
+          select distinct created.metadata->>'snapshotId' as snapshot_id
+          from ${cloudVmUsageEvents} as created
+          where created.vm_id = ${input.vmId}::uuid
+            and created.event_type = 'vm.snapshot.created'
+            and nullif(created.metadata->>'snapshotId', '') is not null
+            and not exists (
+              select 1 from ${cloudVmUsageEvents} as deleted
+              where deleted.vm_id = created.vm_id
+                and deleted.event_type = 'vm.snapshot.deleted'
+                and deleted.metadata->>'snapshotId' = created.metadata->>'snapshotId'
+            )
+        ), request_reservations as (
+          select case
+            when request.status = 'succeeded' and request.provider_snapshot_id is not null
+              then 'snapshot:' || request.provider_snapshot_id
+            else 'request:' || request.idempotency_key
+          end as slot
+          from ${table} as request
+          where request.vm_id = ${input.vmId}::uuid
+            and (
+              request.status = 'pending'
+              or (
+                request.status = 'succeeded'
+                and request.provider_snapshot_id is not null
+                and not exists (
+                  select 1 from ${cloudVmUsageEvents} as deleted
+                  where deleted.vm_id = request.vm_id
+                    and deleted.event_type = 'vm.snapshot.deleted'
+                    and deleted.metadata->>'snapshotId' = request.provider_snapshot_id
+                )
+              )
+            )
+        ), quota_slots as (
+          select 'snapshot:' || snapshot_id as slot from active_snapshots
+          union
+          select slot from request_reservations
+        )
+        select count(*)::int as count from quota_slots
+      `);
+      if (Number(countRows[0]?.count ?? 0) >= limit) return { kind: "quota_exceeded", limit };
+
+      const inserted = await tx
+        .insert(table)
+        .values({ vmId: input.vmId, idempotencyKey: input.idempotencyKey, name: input.name, status: "pending" })
+        .onConflictDoNothing()
+        .returning({ vmId: table.vmId });
+      return inserted.length > 0 ? { kind: "started" } : { kind: "in_progress" };
+    });
   });
 }
 
-/** Records the provider result, or frees the key after a failure. */
+/** Records a confirmed provider result. Ambiguous failures keep their reservation. */
 export function finishSnapshotRequest(input: FinishSnapshotRequestInput): Effect.Effect<void, VmDatabaseError> {
   return dbEffect("finishSnapshotRequest", async () => {
     const db = cloudDb();
     const table = cloudVmSnapshotRequests;
     const match = and(eq(table.vmId, input.vmId), eq(table.idempotencyKey, input.idempotencyKey), eq(table.status, "pending"));
-    if (input.outcome.kind === "failed") {
+    if (input.outcome.kind === "rejected") {
+      // Only a definitive provider refusal reaches this branch. Transport
+      // errors and timeouts never call finish, so their pending fence remains.
       await db.delete(table).where(match);
       return;
     }

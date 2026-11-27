@@ -1,0 +1,558 @@
+// The gallery (src/gallery): its dev route and the build inputs it shares with the app.
+//   /gallery/            the shell: every entry and state, with the controls
+//   /gallery/frame.html  one stage: one state of one entry under the controls (the shell's iframes,
+//                        the matrix runner's screenshots)
+//   /gallery/app.html    the whole app: one window (sidebar, tab strips, panes) around the live
+//                        agent pane, loading only the app.window scenes (app/main.tsx)
+//   /gallery/mock-app.html  the mock app: the whole window with each pane a real stage frame, every
+//                        condition a URL key (mock-app/main.ts, mock-app/axes.ts)
+// Virtual modules, for `bun run dev` and the static build (vite.config.gallery.ts) alike:
+//   virtual:cmux-gallery/themes            every theme the app ships (Resources/ghostty/themes, Resources/cmux-themes)
+//   virtual:cmux-gallery/web-theme         WebTheme.bootstrapScript, the script the app injects at
+//                                          document start in every cmux web view (WebTheme.swift)
+//   virtual:cmux-gallery/agent-pane.css    the agent pane's shipped stylesheet: the sheets dev.tsx
+//                                          reaches, in the order build-agent-pane-web.sh inlines them
+//   virtual:cmux-gallery/metrics           the chrome metrics (MetricTunables.swift: sidebar width,
+//                                          tab strip height, ...) per density, for window mode
+//   virtual:cmux-gallery/fixtures          every shared fixture JSON (schemas/gallery/fixtures.json
+//                                          roots, the Swift packages' Fixtures folders) by repo path
+// The agent pane's chart library is served as `__lib/vega.js` beside the frame (the markdown
+// viewer's bundled Vega and Vega-Lite, as the pane's scheme handler serves them).
+//   virtual:cmux-gallery/entry-index       each gallery entry id and its file (the first `id: "..."` in
+//                                          every *.gallery.ts(x)), so a stage or the mock app loads one
+//                                          entry file instead of the whole registry
+//   virtual:cmux-gallery/looks             the golden screen's looks (src/gallery/golden/looks.json and the
+//                                          setup folders it names, dev-server/goldenLooks.ts)
+//   virtual:cmux-gallery/revision          the checkout's commit (sha, subject, commit time, branch),
+//                                          read when the module loads; the live server pushes newer
+//                                          ones (galleryLive.ts)
+import { execFile, execFileSync } from "node:child_process";
+import fs from "node:fs";
+import os from "node:os";
+import path from "node:path";
+import { fileURLToPath } from "node:url";
+import { promisify } from "node:util";
+import type { Plugin } from "vite-plus";
+import { parseGhosttyTheme, type GhosttyTheme } from "../src/gallery/theme/ghostty";
+import { GOLDEN_LOOKS_FILE, readGoldenLooks } from "./goldenLooks";
+
+const webviewsRoot = path.resolve(fileURLToPath(new URL("..", import.meta.url)));
+const repoRoot = path.join(webviewsRoot, "..");
+export const THEMES_DIR = path.join(repoRoot, "Resources/ghostty/themes");
+/** cmux's own themes, which the app's bundle phase adds to Ghostty's themes folder. */
+export const CMUX_THEMES_DIR = path.join(repoRoot, "Resources/cmux-themes");
+const WEB_THEME_SWIFT = path.join(repoRoot, "Packages/macOS/CmuxNext/Sources/CmuxNextDesign/Windows/WebTheme.swift");
+const PANE_BUILD_SCRIPT = path.join(repoRoot, "scripts/cmux-next/build-agent-pane-web.sh");
+const SESSION = path.join(webviewsRoot, "src/agent-session");
+const PANE_TAILWIND = path.join(SESSION, "acpmux/tailwind.css");
+const galleryDir = path.join(webviewsRoot, "src/gallery");
+
+const FIXTURE_INDEX = path.join(repoRoot, "schemas/gallery/fixtures.json");
+const FIXTURES_ID = "virtual:cmux-gallery/fixtures";
+const METRICS_ID = "virtual:cmux-gallery/metrics";
+const METRICS_SWIFT = path.join(
+  repoRoot,
+  "Packages/macOS/CmuxNext/Sources/CmuxNextDesign/Tunables/MetricTunables.swift",
+);
+const THEMES_ID = "virtual:cmux-gallery/themes";
+const WEB_THEME_ID = "virtual:cmux-gallery/web-theme";
+const REVISION_ID = "virtual:cmux-gallery/revision";
+const ENTRY_INDEX_ID = "virtual:cmux-gallery/entry-index";
+const PANE_CSS_ID = "virtual:cmux-gallery/agent-pane.css";
+const LOOKS_ID = "virtual:cmux-gallery/looks";
+const EXAMPLE_LOOKS_DIR = path.join(repoRoot, "examples/looks");
+// The CSS id is a path under the gallery (no file there), so Vite's CSS pipeline takes it.
+const PANE_CSS_PATH = path.join(galleryDir, "agent-pane.virtual.css");
+
+/** Every shipped theme (Ghostty's and cmux's own), sorted by name; files that name no colors are skipped. */
+export function readShippedThemes(dirs = [THEMES_DIR, CMUX_THEMES_DIR]): GhosttyTheme[] {
+  return dirs
+    .filter((dir) => fs.existsSync(dir))
+    .flatMap((dir) =>
+      fs
+        .readdirSync(dir)
+        .filter((name) => !name.startsWith("."))
+        .map((name) => ({ name, file: path.join(dir, name) })),
+    )
+    .sort((a, b) => a.name.localeCompare(b.name, "en"))
+    .map(({ name, file }) => parseGhosttyTheme(name, fs.readFileSync(file, "utf8")))
+    .filter((theme): theme is GhosttyTheme => theme !== null);
+}
+
+/** The shared fixture roots (repo-relative), from schemas/gallery/fixtures.json. */
+export function fixtureRoots(index = FIXTURE_INDEX): string[] {
+  const roots = (JSON.parse(fs.readFileSync(index, "utf8")) as { roots?: unknown }).roots;
+  if (!Array.isArray(roots) || !roots.every((root) => typeof root === "string"))
+    throw new Error(`gallery: ${index} must list "roots" as strings`);
+  return roots;
+}
+
+/** Every fixture JSON under the shared roots, by repo-relative path. */
+export function readSharedFixtures(): Record<string, unknown> {
+  const out: Record<string, unknown> = {};
+  const walk = (dir: string) => {
+    for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
+      const full = path.join(dir, entry.name);
+      if (entry.isDirectory()) walk(full);
+      else if (entry.name.endsWith(".json"))
+        out[path.relative(repoRoot, full)] = JSON.parse(fs.readFileSync(full, "utf8"));
+    }
+  };
+  for (const root of fixtureRoots()) walk(path.join(repoRoot, root));
+  return out;
+}
+
+/** Every MetricTunable's default per density: `{ sidebarWidth: { compact: 208, comfortable: 240 }, ... }`. */
+export function readChromeMetrics(file = METRICS_SWIFT): Record<string, { compact: number; comfortable: number }> {
+  const swift = fs.readFileSync(file, "utf8");
+  const out: Record<string, { compact: number; comfortable: number }> = {};
+  for (const match of swift.matchAll(
+    /MetricTunable\.make\(\s*"(\w+)"[^)]*?compact:\s*([\d.]+),\s*comfortable:\s*([\d.]+)/g,
+  ))
+    out[match[1]!] = { compact: Number(match[2]), comfortable: Number(match[3]) };
+  for (const name of ["sidebarWidth", "titlebarHeight", "tabStripHeight", "tabHeight", "columnGap"])
+    if (!out[name]) throw new Error(`gallery: no ${name} in ${file}; update readChromeMetrics`);
+  return out;
+}
+
+/** WebTheme.bootstrapScript's JavaScript: the Swift multi-line literal, without its indentation. */
+export function readWebThemeBootstrap(file = WEB_THEME_SWIFT): string {
+  const swift = fs.readFileSync(file, "utf8");
+  const match = /static let bootstrapScript = """\n([\s\S]*?)\n([ \t]*)"""/.exec(swift);
+  if (!match) throw new Error(`gallery: no bootstrapScript literal in ${file}`);
+  const indent = match[2]!;
+  const script = match[1]!
+    .split("\n")
+    .map((line) => (line.startsWith(indent) ? line.slice(indent.length) : line.trimStart()))
+    .join("\n");
+  // The gallery runs what the app runs: a Swift `\\` is one backslash (a regular expression's, as in
+  // the color transition's rgba parser); any other escape or an interpolation would differ.
+  if (/\\[nt"(]/.test(script.replace(/\\\\/g, "")))
+    throw new Error("gallery: bootstrapScript has Swift escapes; extend the reader");
+  return script.replace(/\\\\/g, "\\");
+}
+
+/**
+ * The pane's stylesheets in shipped order, derived as build-agent-pane-web.sh derives them: every
+ * sheet dev.tsx (the dev server's entry) reaches, in the order its modules run (bundle.mjs
+ * --css-inputs-only, cssInImportOrder), with Tailwind's entry last, where the script compiles it.
+ * No list to parse here: a sheet a component imports lands in the gallery pane as in the app.
+ * (KaTeX's stylesheet loads beside it; the shipped copy only inlines its fonts.)
+ */
+export function agentPaneStylesheets(): string[] {
+  return (paneSheets ??= derivePaneSheets());
+}
+
+let paneSheets: string[] | undefined;
+
+/** bundle.mjs's arguments: the script's own command, writing the sheet list to `list`. */
+function paneSheetsArgs(work: string, list: string): string[] {
+  return [
+    "scripts/agent-pane/bundle.mjs",
+    path.join(SESSION, "acpmux/dev.tsx"),
+    path.join(SESSION, "acpmux/shiki"),
+    path.join(work, "order/dev.js"),
+    "--split",
+    "--css-inputs",
+    list,
+    "--css-inputs-only",
+  ];
+}
+
+/** The list bundle.mjs wrote, as absolute paths, Tailwind's entry moved last. */
+function readPaneSheets(list: string): string[] {
+  const sheets = fs
+    .readFileSync(list, "utf8")
+    .split("\n")
+    .filter(Boolean)
+    .map((sheet) => path.join(webviewsRoot, sheet))
+    .filter((file) => file !== PANE_TAILWIND);
+  if (!sheets.some((file) => file.endsWith("shared/styles.css")))
+    throw new Error("gallery: dev.tsx's sheets leave out shared/styles.css; the pane would render unstyled");
+  return [...sheets, PANE_TAILWIND];
+}
+
+// process.execPath: bun or node, whichever runs the gallery (touched.ts, Vite).
+function derivePaneSheets(): string[] {
+  const work = fs.mkdtempSync(path.join(os.tmpdir(), "cmux-gallery-pane-sheets-"));
+  try {
+    const list = path.join(work, "page-sheets");
+    execFileSync(process.execPath, paneSheetsArgs(work, list), {
+      cwd: webviewsRoot,
+      stdio: ["ignore", "ignore", "inherit"],
+    });
+    return readPaneSheets(list);
+  } finally {
+    fs.rmSync(work, { recursive: true, force: true });
+  }
+}
+
+async function derivePaneSheetsAsync(): Promise<string[]> {
+  const work = await fs.promises.mkdtemp(path.join(os.tmpdir(), "cmux-gallery-pane-sheets-"));
+  try {
+    const list = path.join(work, "page-sheets");
+    await promisify(execFile)(process.execPath, paneSheetsArgs(work, list), { cwd: webviewsRoot });
+    return readPaneSheets(list);
+  } finally {
+    await fs.promises.rm(work, { recursive: true, force: true });
+  }
+}
+
+let rederiving: Promise<void> | undefined;
+let rederiveAgain = false;
+
+/**
+ * The dev server's answer to a saved source, which may add or drop a stylesheet import: the list
+ * derived again off the save's path, and `changed` called when it differs. A save while one runs
+ * runs it once more after (it may have read the file before the save); it stops when no save came.
+ */
+function rederivePaneSheets(changed: () => void): void {
+  if (rederiving) {
+    rederiveAgain = true;
+    return;
+  }
+  rederiving = (async () => {
+    do {
+      rederiveAgain = false;
+      try {
+        const next = await derivePaneSheetsAsync();
+        const before = paneSheets;
+        paneSheets = next;
+        if (before && before.join("\n") !== next.join("\n")) changed();
+      } catch (error) {
+        console.warn(`gallery: the agent pane's sheets were not derived again: ${String(error)}`);
+      }
+    } while (rederiveAgain);
+  })().finally(() => {
+    rederiving = undefined;
+  });
+}
+
+export type Revision = { sha: string; subject: string; committedAt: number; branch: string };
+
+/** The checkout's HEAD: sha, subject, commit time (unix seconds) and branch (empty when detached). */
+export function readRevision(root = repoRoot): Revision {
+  try {
+    const [sha = "", committedAt = "0", subject = ""] = execFileSync(
+      "git",
+      ["-C", root, "log", "-1", "--format=%H%x00%ct%x00%s", "HEAD"],
+      { encoding: "utf8", stdio: ["ignore", "pipe", "ignore"] },
+    )
+      .trim()
+      .split("\0");
+    // CMUX_GALLERY_BRANCH: the live host's checkouts are detached on the branch they follow.
+    let branch = process.env.CMUX_GALLERY_BRANCH ?? "";
+    if (!branch)
+      branch = execFileSync("git", ["-C", root, "branch", "--show-current"], {
+        encoding: "utf8",
+        stdio: ["ignore", "pipe", "ignore"],
+      }).trim();
+    return { sha, subject, committedAt: Number(committedAt) || 0, branch };
+  } catch {
+    return { sha: "unknown", subject: "", committedAt: 0, branch: "" };
+  }
+}
+
+/**
+ * The pane's combined stylesheet. `skip` leaves out sheets a page already loads another way (the
+ * guest page's first frame, vite.config.guest-page.mjs), so no rule loads twice.
+ */
+export function agentPaneCSS(skip: ReadonlySet<string> = new Set()): string {
+  // As the script: a sheet's own @import never loads in the page (the walk already lists an imported
+  // local sheet before its importer); Tailwind's entry keeps its import and gets the pane's sources.
+  return agentPaneStylesheets()
+    .filter((file) => !skip.has(file))
+    .map((file) => {
+      const css = fs.readFileSync(file, "utf8");
+      const body =
+        file === PANE_TAILWIND
+          ? `${paneRelativeImports(css)}\n${tailwindSources()}`
+          : css.replace(/^@import .*$/gm, "");
+      return `/* ${path.relative(webviewsRoot, file)} */\n${body}`;
+    })
+    .join("\n");
+}
+
+/** The combined sheet sits under the gallery, so the Tailwind entry's relative imports (the shared
+ * theme, ui/theme.generated.css) name their files by absolute path. */
+function paneRelativeImports(css: string): string {
+  return css.replace(
+    /^@import "(\.{1,2}\/[^"]+)"/gm,
+    (_, rel: string) => `@import "${path.resolve(path.dirname(PANE_TAILWIND), rel)}"`,
+  );
+}
+
+/**
+ * The pane's Tailwind entry scans nothing by itself (`source(none)`): the combined stylesheet sits
+ * under the gallery, so it names the pane's sources by absolute path, as
+ * scripts/agent-pane/tailwind-css.mjs does for the app build.
+ */
+function tailwindSources(): string {
+  return [path.join(SESSION, "acpmux"), path.join(webviewsRoot, "src/ui")]
+    .map((dir) => `@source "${dir}/**/*.{ts,tsx}";`)
+    .join("\n");
+}
+
+/** The virtual modules, for the dev server and the static build. */
+/** The markdown viewer's Vega then Vega-Lite, joined as MarkdownPageResource.library joins them. */
+/** Entry id to its file (`src/...gallery.ts`), from the exported entry's `id: "..."` in each file. An
+ * entry whose id is not a literal is missing here; a stage then falls back to the whole registry. */
+export function readEntryIndex(root = path.join(webviewsRoot, "src")): Record<string, string> {
+  const index: Record<string, string> = {};
+  const walk = (dir: string) => {
+    for (const item of fs.readdirSync(dir, { withFileTypes: true })) {
+      const file = path.join(dir, item.name);
+      if (item.isDirectory()) {
+        if (item.name !== "node_modules") walk(file);
+      } else if (/\.gallery\.tsx?$/.test(item.name)) {
+        // The exported entry's own id: the first after `export default` (an entry file may declare
+        // nested ids, such as a picker option's, above it), else the file's first.
+        const text = fs.readFileSync(file, "utf8");
+        const literal = /\bid:\s*"([a-z0-9][a-z0-9.-]*)"/;
+        const exported = text.indexOf("export default");
+        const id = (exported >= 0 ? literal.exec(text.slice(exported))?.[1] : undefined) ?? literal.exec(text)?.[1];
+        if (id && !index[id]) index[id] = path.relative(webviewsRoot, file).split(path.sep).join("/");
+      }
+    }
+  };
+  walk(root);
+  return index;
+}
+
+function readVegaLibrary(): string {
+  const folder = path.join(repoRoot, "Resources/markdown-viewer");
+  return ["vega.min.js", "vega-lite.min.js"]
+    .map((name) => fs.readFileSync(path.join(folder, name), "utf8"))
+    .join("\n;\n");
+}
+
+const SKIPPED_ENTRY = "\0cmux-gallery/skipped-entry";
+const REGISTRY = path.join(webviewsRoot, "src/gallery/registry.ts");
+
+/** The entry files a build of only `ids` compiles, or undefined for every entry: an id with no file builds
+ * nothing for it (a state the base lacks), and an entry that embeds the mock app (`mock-app.html`, which
+ * loads other entries by id) needs them all. */
+export function entrySubsetFiles(ids: string[], root = path.join(webviewsRoot, "src")): Set<string> | undefined {
+  const index = readEntryIndex(root);
+  const files = new Set<string>();
+  for (const id of ids) {
+    const file = index[id];
+    if (!file) continue;
+    const absolute = path.join(webviewsRoot, file);
+    if (fs.readFileSync(absolute, "utf8").includes("mock-app.html")) return undefined;
+    files.add(absolute);
+  }
+  return files;
+}
+
+/** `CMUX_GALLERY_ENTRIES=a,b bun run gallery:build` compiles only those entries' files: every other entry the
+ * registry's glob names loads as an empty module, so nothing it imports is built. gallery health's base replay
+ * renders a shard's few red states, and the whole gallery (3,224 modules) took ~80 s of each judged shard
+ * (2026-11-11). A file another module imports (states.tsx imports CloudStartView.gallery) is still built for that
+ * importer: only the registry's own imports are swapped. Unset, empty or naming a mock-app entry: everything. */
+export function galleryEntrySubset(entries = process.env.CMUX_GALLERY_ENTRIES): Plugin {
+  const ids = (entries ?? "")
+    .split(",")
+    .map((id) => id.trim())
+    .filter(Boolean);
+  const keep = ids.length ? entrySubsetFiles(ids) : undefined;
+  return {
+    name: "cmux-gallery-entry-subset",
+    apply: "build",
+    enforce: "pre",
+    buildStart() {
+      if (keep) this.info(`gallery entry subset: ${keep.size} of the entry files (${ids.join(",")})`);
+    },
+    async resolveId(source, importer, options) {
+      if (!keep || !importer || importer.split("?")[0] !== REGISTRY || !/\.gallery\.tsx?$/.test(source)) return null;
+      const resolved = await this.resolve(source, importer, { ...options, skipSelf: true });
+      if (!resolved || keep.has(resolved.id.split("?")[0])) return resolved;
+      return `${SKIPPED_ENTRY}?${encodeURIComponent(resolved.id)}`;
+    },
+    load(id) {
+      return id.startsWith(SKIPPED_ENTRY) ? "export default undefined;" : null;
+    },
+  };
+}
+
+/** Each `virtual:cmux-gallery/*` data module (every one but the pane sheet) and what it exports, read when
+ * it is first imported. One table for both kinds of runner: Vite's (galleryModules: `bun run dev`,
+ * gallery:dev, gallery:build) and bun's own (installGalleryModulesForBun: manifest.ts, touched.ts, notes.ts and
+ * the tests, which import gallery files without Vite). A module only one of them knew broke the other:
+ * cmux#46783 added `looks` to Vite's list only, and every gallery health shard then failed in manifest.ts
+ * with "Cannot find module 'virtual:cmux-gallery/looks'". test/gallery-virtual-modules.test.ts checks every
+ * id src/gallery/virtual.d.ts declares against both runners and every gallery Vite config. */
+export const GALLERY_DATA_MODULES: Record<string, () => unknown> = {
+  [THEMES_ID]: () => readShippedThemes(),
+  [WEB_THEME_ID]: () => readWebThemeBootstrap(),
+  [FIXTURES_ID]: () => readSharedFixtures(),
+  [METRICS_ID]: () => readChromeMetrics(),
+  [REVISION_ID]: () => readRevision(),
+  [ENTRY_INDEX_ID]: () => readEntryIndex(),
+  [LOOKS_ID]: () => readGoldenLooks(),
+};
+/** The pane's combined stylesheet: a CSS module under Vite, an empty module under bun. */
+export const GALLERY_CSS_MODULE_ID = PANE_CSS_ID;
+
+export function galleryDataModuleSource(id: string): string {
+  const read = GALLERY_DATA_MODULES[id];
+  if (!read) throw new Error(`${id} is not a gallery data module`);
+  return `export default ${JSON.stringify(read())};`;
+}
+
+/** Bun's resolver for the same modules, so a gallery file a bun script or test imports (not through Vite)
+ * gets the data Vite serves. Each is read on its first import. Safe to call more than once. */
+export function installGalleryModulesForBun(): void {
+  const scope = globalThis as { __cmuxGalleryModulesForBun?: boolean };
+  if (scope.__cmuxGalleryModulesForBun) return;
+  scope.__cmuxGalleryModulesForBun = true;
+  Bun.plugin({
+    name: "cmux-gallery-modules-bun",
+    setup(build) {
+      for (const id of Object.keys(GALLERY_DATA_MODULES))
+        build.module(id, () => ({ contents: galleryDataModuleSource(id), loader: "js" }));
+      build.module(GALLERY_CSS_MODULE_ID, () => ({ contents: "export {};", loader: "js" }));
+    },
+  });
+}
+
+export function galleryModules(): Plugin {
+  return {
+    name: "cmux-gallery-modules",
+    generateBundle() {
+      this.emitFile({ type: "asset", fileName: "__lib/vega.js", source: readVegaLibrary() });
+    },
+    resolveId(source) {
+      if (Object.hasOwn(GALLERY_DATA_MODULES, source)) return `\0${source}`;
+      if (source === PANE_CSS_ID) return PANE_CSS_PATH;
+      return null;
+    },
+    load(id) {
+      if (id.startsWith("\0") && Object.hasOwn(GALLERY_DATA_MODULES, id.slice(1)))
+        return galleryDataModuleSource(id.slice(1));
+      if (id.split("?")[0] === PANE_CSS_PATH) return agentPaneCSS();
+      return null;
+    },
+    configureServer(server) {
+      server.middlewares.use((request, response, next) => {
+        if (!request.url?.split("?")[0]?.endsWith("/__lib/vega.js")) return next();
+        response.setHeader("Content-Type", "text/javascript; charset=utf-8");
+        response.end(readVegaLibrary());
+      });
+      // The sources live partly outside webviews/ (the themes, WebTheme.swift, the build script),
+      // where Vite does not watch: watch them, and reload the module built from a changed one.
+      const roots = fixtureRoots().map((root) => path.join(repoRoot, root));
+      server.watcher.add([
+        THEMES_DIR,
+        CMUX_THEMES_DIR,
+        WEB_THEME_SWIFT,
+        PANE_BUILD_SCRIPT,
+        FIXTURE_INDEX,
+        METRICS_SWIFT,
+        GOLDEN_LOOKS_FILE,
+        EXAMPLE_LOOKS_DIR,
+        ...roots,
+      ]);
+      server.watcher.on("all", (_event, file) => {
+        const fixture = file === FIXTURE_INDEX || roots.some((root) => file.startsWith(`${root}/`));
+        // An entry file may change its id: the index is read again on its next import, with no
+        // reload (the live gallery reloads the entry itself, galleryLive.ts).
+        if (/\.gallery\.tsx?$/.test(file)) {
+          const index = server.moduleGraph.getModuleById(`\0${ENTRY_INDEX_ID}`);
+          if (index) server.moduleGraph.invalidateModule(index);
+          return;
+        }
+        const id = fixture
+          ? `\0${FIXTURES_ID}`
+          : file === METRICS_SWIFT
+            ? `\0${METRICS_ID}`
+            : file === GOLDEN_LOOKS_FILE || file.startsWith(`${EXAMPLE_LOOKS_DIR}/`)
+              ? `\0${LOOKS_ID}`
+              : file.startsWith(`${THEMES_DIR}/`) || file.startsWith(`${CMUX_THEMES_DIR}/`)
+                ? `\0${THEMES_ID}`
+                : file === WEB_THEME_SWIFT
+                  ? `\0${WEB_THEME_ID}`
+                  : file === PANE_BUILD_SCRIPT
+                    ? PANE_CSS_PATH
+                    : undefined;
+        const module = id ? server.moduleGraph.getModuleById(id) : undefined;
+        if (!module) return;
+        server.moduleGraph.invalidateModule(module);
+        server.ws.send({ type: "full-reload" });
+      });
+    },
+    handleHotUpdate({ file, server, modules }) {
+      const source = /\.(tsx?|mjs)$/.test(file) && file.startsWith(`${webviewsRoot}/src/`);
+      // Only a page that loaded the combined sheet (the gallery's pane) needs the sheet list. The
+      // agent pane and the app's live pages import each sheet themselves, so a save there must not
+      // wait on it: deriving the list runs bundle.mjs over dev.tsx, about 600 ms, and the first
+      // stylesheet save ran it synchronously, inside Vite's update (hot-reload-proof.mjs: 676 ms to
+      // shown, against 49 ms for the next save of the same sheet). With no combined sheet loaded the
+      // list is dropped instead, so its next load derives it from the files as they are then.
+      const combined = server.moduleGraph.getModuleById(PANE_CSS_PATH);
+      if (!combined) {
+        if (source) {
+          paneSheets = undefined;
+          if (rederiving) rederiveAgain = true;
+        }
+        return undefined;
+      }
+      // A saved source may add or drop a stylesheet import: the list is derived again after this
+      // update, and the combined sheet reloads when it changed. A save of a pane stylesheet updates
+      // the combined sheet in place.
+      if (source) {
+        rederivePaneSheets(() => {
+          const loaded = server.moduleGraph.getModuleById(PANE_CSS_PATH);
+          if (!loaded) return;
+          server.moduleGraph.invalidateModule(loaded);
+          server.ws.send({ type: "full-reload" });
+        });
+        return undefined;
+      }
+      if (!agentPaneStylesheets().includes(file)) return undefined;
+      server.moduleGraph.invalidateModule(combined);
+      return [...modules, combined];
+    },
+  };
+}
+
+/**
+ * The shell, a stage and the two whole-window pages in the dev server: `<mount>`, `<mount>frame.html`,
+ * `<mount>app.html` and `<mount>mock-app.html`. `bun run dev` mounts
+ * them at /gallery/; the live gallery (vite.config.gallery-dev.ts) at its base, `/live/` or
+ * `/wt/<name>/`, where the base is also every module URL's prefix.
+ */
+export function galleryHost({ mount = "/gallery/" }: { mount?: string } = {}): Plugin {
+  const escaped = mount.replace(/[.*+?^$()|[\]{}\\]/g, "\\$&");
+  const page = new RegExp(`^${escaped}(index\\.html|frame\\.html|app\\.html|mock-app\\.html)?$`);
+  return {
+    name: "cmux-dev-gallery",
+    apply: "serve",
+    configureServer(server) {
+      server.middlewares.use(async (request, response, next) => {
+        const url = new URL(request.url ?? "/", "http://localhost");
+        if (url.pathname === mount.slice(0, -1)) {
+          response.statusCode = 302;
+          response.setHeader("Location", `${mount}${url.search}`);
+          return response.end();
+        }
+        const match = page.exec(url.pathname);
+        if (!match) return next();
+        const name = match[1] ?? "index.html";
+        try {
+          let html = fs.readFileSync(path.join(galleryDir, name), "utf8");
+          // The page's relative script sources are relative to src/gallery, not the mount. (Vite
+          // puts its base before a root-absolute URL.)
+          html = html.replace(/(\bsrc=")\.\//g, "$1/src/gallery/");
+          html = await server.transformIndexHtml(`/src/gallery/${name}`, html, request.originalUrl);
+          response.statusCode = 200;
+          response.setHeader("Content-Type", "text/html; charset=utf-8");
+          response.setHeader("Cache-Control", "no-store");
+          response.end(html);
+        } catch (error) {
+          next(error);
+        }
+      });
+    },
+  };
+}

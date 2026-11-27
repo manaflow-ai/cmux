@@ -3,7 +3,7 @@ import { afterAll, beforeAll, describe, expect, setDefaultTimeout, test } from "
 // Every shim run spawns dozens of processes (sh + jq per step); give the suites room.
 setDefaultTimeout(60_000);
 import { runChild } from "./helpers/run-child";
-import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, statSync, unlinkSync, writeFileSync } from "node:fs";
+import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, statSync, symlinkSync, unlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { createServer } from "node:net";
 import { join } from "node:path";
@@ -208,7 +208,7 @@ esac
         fakeCurl("200"),
       );
       expect(run.status).toBe(0);
-      const payload = JSON.parse(run.stdout) as Record<string, any>;
+      const payload = JSON.parse(run.stdout) as Record<string, unknown>;
       expect(payload.authenticated).toBe(true);
       expect(payload.daemon).toMatchObject({ running: true, authenticated: true, session: "cloud" });
       expect(payload.tls).toEqual({ reachable: true });
@@ -224,9 +224,9 @@ esac
       );
       expect(run.signal).toBeNull();
       expect(run.status).not.toBe(0);
-      const payload = JSON.parse(run.stdout) as Record<string, any>;
+      const payload = JSON.parse(run.stdout) as Record<string, unknown>;
       expect(payload.authenticated).toBe(false);
-      expect(payload.daemon.authenticated).toBe(true);
+      expect(payload.daemon).toMatchObject({ authenticated: true });
       expect(payload.tls).toEqual({ reachable: true });
       expect(payload.coderouter).toMatchObject({ route_authenticated: "rejected", http_status: "401" });
     });
@@ -235,7 +235,7 @@ esac
       const run = await runShim(["auth", "status", "--json"]);
       expect(run.signal).toBeNull();
       expect(run.status).not.toBe(0);
-      const payload = JSON.parse(run.stdout) as Record<string, any>;
+      const payload = JSON.parse(run.stdout) as Record<string, unknown>;
       expect(payload.authenticated).toBe(false);
       expect(payload.daemon).toMatchObject({ running: true, authenticated: true });
       expect(payload.coderouter).toMatchObject({ configured: false, route_authenticated: "not_configured" });
@@ -478,6 +478,17 @@ esac
       expect(run.stdout.trim().split("\n")).toEqual(["exec", "reply exactly pong"]);
     });
 
+    // cmux-tui on a Cloud machine exits 124 from a timed-out process wait only
+    // for a caller that says it reads 124; an older adapter, on disk or still
+    // running in a shell, does not, and keeps exit 0.
+    test("tells cmux-tui that it reads a timed-out wait's 124", async () => {
+      const run = await runShim(["agent", "list"], {}, (directory) => {
+        writeFileSync(join(directory, "cmux-tui"), '#!/bin/sh\nprintf \'%s\\n\' "${CMUX_CALLER_READS_WAIT_124:-unset}"\n');
+      });
+      expect(run.status).toBe(0);
+      expect(run.argv).toEqual(["1"]);
+    });
+
     test("keeps cmux-tui's local agent scope available", async () => {
       const run = await runShim(["agent", "list"]);
       expect(run.status).toBe(0);
@@ -689,7 +700,7 @@ if [ "$a" = terminal ] && [ "$c" = screen ] && [ "$d" = wait ]; then
 fi
 if [ "$a" = terminal ] && [ "$c" = screen ] && [ "$d" = read ]; then printf '{"cols":80,"rows":24,"text":"hello screen"}\\n'; exit 0; fi
 if [ "$a" = terminal ] && [ "$c" = process ] && [ "$d" = wait ]; then
-  if [ "\${FAKE_EXIT_PENDING:-0}" = 1 ] || [ "$n" -lt "\${FAKE_EXIT_PENDING_UNTIL:-0}" ]; then printf '{"value":{"terminal_id":"%s","state":"pending"},"generation":"g","revision":%s,"replayed":false}\\n' "$b" "$n"; exit 0; fi
+  if [ "\${FAKE_EXIT_PENDING:-0}" = 1 ] || [ "$n" -lt "\${FAKE_EXIT_PENDING_UNTIL:-0}" ]; then printf '{"value":{"terminal_id":"%s","state":"pending","timed_out":true},"generation":"g","revision":%s,"replayed":false}\\n' "$b" "$n"; exit "\${FAKE_EXIT_PENDING_STATUS:-0}"; fi
   case "\${FAKE_EXIT_KIND:-exit}" in
     signal) printf '{"value":{"terminal_id":"%s","state":"exited","outcome":{"kind":"signal","signal":9,"core_dumped":false}},"generation":"g","revision":%s,"replayed":false}\\n' "$b" "$n" ;;
     *) printf '{"value":{"terminal_id":"%s","state":"exited","outcome":{"kind":"exit","code":3}},"generation":"g","revision":%s,"replayed":false}\\n' "$b" "$n" ;;
@@ -1326,6 +1337,22 @@ describe("in-VM cmux shim: agent primitives", () => {
       expect(run.stdout.trim()).toBe("from-env");
     });
 
+    test("agents see the machine config's env (machine.env) under the machine env, which wins; a linked machine.env is skipped", async () => {
+      const dir = makeStatefulDir();
+      mkdirSync(join(dir, ".config", "cmux"), { recursive: true });
+      writeFileSync(join(dir, ".config", "cmux", "machine.env"), "export CMUX_TEST_DECLARED='from-config'\nexport CMUX_TEST_TOKEN='from-config'\n");
+      await runStateful(dir, ["env", "set", "CMUX_TEST_TOKEN=from-env"]);
+      const claude = join(dir, "claude");
+      writeFileSync(claude, "#!/bin/sh\nprintf '%s %s\\n' \"$CMUX_TEST_DECLARED\" \"$CMUX_TEST_TOKEN\"\n");
+      chmodSync(claude, 0o755);
+      expect((await runStateful(dir, ["agent", "claude", "say hi"])).stdout.trim()).toBe("from-config from-env");
+      const elsewhere = join(dir, "elsewhere.env");
+      writeFileSync(elsewhere, "export CMUX_TEST_DECLARED='through-a-link'\n");
+      rmSync(join(dir, ".config", "cmux", "machine.env"));
+      symlinkSync(elsewhere, join(dir, ".config", "cmux", "machine.env"));
+      expect((await runStateful(dir, ["agent", "claude", "say hi"])).stdout.trim()).toBe("from-env");
+    });
+
     test("agent --wait/--output are already how this form runs; --timeout caps it with timeout(1)", async () => {
       const dir = makeStatefulDir();
       const claude = join(dir, "claude");
@@ -1825,16 +1852,16 @@ describe("in-VM cmux shim: reflection", () => {
   test("auth status reports the identity next to the daemon and CodeRouter checks", async () => {
     const run = await runShim(["auth", "status", "--json"], REFLECTION_ENV, fakeReflectionCurl);
     expect(run.status).toBe(0);
-    const payload = JSON.parse(run.stdout) as Record<string, any>;
+    const payload = JSON.parse(run.stdout) as Record<string, unknown>;
     expect(payload.authenticated).toBe(true);
     expect(payload.identity).toEqual({ vm_id: "11111111-2222-4333-8444-555555555555", name: "build-box" });
     const human = await runShim(["auth", "status"], REFLECTION_ENV, fakeReflectionCurl);
     expect(human.stdout).toContain("Identity: build-box (11111111-2222-4333-8444-555555555555)");
     const denied = await runShim(["auth", "status", "--json"], { ...REFLECTION_ENV, CMUX_TEST_REFLECTION: "deny" }, fakeReflectionCurl);
-    expect((JSON.parse(denied.stdout) as Record<string, any>).identity).toBeNull();
+    expect((JSON.parse(denied.stdout) as Record<string, unknown>).identity).toBeNull();
     expect((await runShim(["auth", "status"], { ...REFLECTION_ENV, CMUX_TEST_REFLECTION: "deny" }, fakeReflectionCurl)).stdout).toContain("Identity: unavailable (reflection: this machine has no VM identity");
     // Without an alias the field is still present, so JSON readers never see a missing key.
-    expect((JSON.parse((await runShim(["auth", "status", "--json"])).stdout) as Record<string, any>).identity).toBeNull();
+    expect((JSON.parse((await runShim(["auth", "status", "--json"])).stdout) as Record<string, unknown>).identity).toBeNull();
   });
 
   test("vm ls lists the owner's machines: this one marked, reachability, and this machine's link state", async () => {
@@ -2084,6 +2111,11 @@ describe("in-VM cmux shim: terminal exit and output", () => {
     const pendingJson = await runStateful(dir, ["terminal", "wait-exit", "term_x", "--json"], { FAKE_EXIT_PENDING: "1" });
     expect(pendingJson.status).toBe(1);
     expect(JSON.parse(pendingJson.stdout).value.state).toBe("pending");
+    // A cmux-tui that exits 124 on a timed-out process wait is still pending, not a failure.
+    const timedOut = await runStateful(dir, ["terminal", "wait-exit", "term_x", "--timeout", "0.5"], { FAKE_EXIT_PENDING: "1", FAKE_EXIT_PENDING_STATUS: "124" });
+    expect(timedOut.stderr).toBe("");
+    expect(timedOut.status).toBe(1);
+    expect(timedOut.stdout).toBe("pending\n");
     expect((await runStateful(dir, ["terminal", "wait-exit", "term_x", "--timeout", "nope"])).status).toBe(2);
     expect((await runStateful(dir, ["terminal", "wait-exit"])).status).toBe(2);
   });

@@ -4,19 +4,15 @@ import {
   ADMIN_USER_SEARCH_MIN_QUERY_LENGTH,
   AdminGrantConflictError,
   AdminUserNotFoundError,
-  type AdminGrantSlot,
-  isAdminGrantSlot,
   isAdminGrantablePlanId,
   isMissingGrantsTableError,
   type AdminGrantablePlanId,
   listPendingEmailGrants,
   searchAdminTeams,
   searchAdminUsers,
-  resolveGrantSlot,
   setManualPlanGrant,
 } from "../../../../services/admin/proGrants";
 import { auditRequestId, withAdminAudit } from "../../../../services/admin/auditLog";
-import { isValidScanCursor } from "../../../../services/admin/proList";
 import {
   adminJsonResponse,
   readJsonBody,
@@ -26,48 +22,24 @@ import { enforceBrowserMutationProtection } from "../../../../services/vms/route
 
 const MAX_QUERY_LENGTH = 200;
 
-/**
- * GET /api/admin/users?q=<email, name, or id>[&teamsCursor=<cursor>][&showTestTeams=1]
- * — users, one page of teams, and pending email grants. Empty probe teams are
- * left out of `teams` unless showTestTeams=1; `hiddenTestTeams` counts them,
- * and `teamsNextCursor` (when set) fetches the next page of teams.
- */
+/** GET /api/admin/users?q=<email, name, or id> — users, teams, and pending email grants. */
 export async function GET(request: NextRequest) {
   const gate = await requireAdmin(request);
   if (!gate.ok) return gate.response;
 
-  const params = request.nextUrl.searchParams;
-  const query = (params.get("q") ?? "").trim();
+  const query = (request.nextUrl.searchParams.get("q") ?? "").trim();
   if (query.length < ADMIN_USER_SEARCH_MIN_QUERY_LENGTH || query.length > MAX_QUERY_LENGTH) {
     return adminJsonResponse({ error: "invalid_query" }, 400);
   }
-  const teamsCursor = params.get("teamsCursor");
-  if (teamsCursor !== null && !isValidScanCursor(teamsCursor)) {
-    return adminJsonResponse({ error: "invalid_cursor" }, 400);
-  }
-  const includeTestTeams = params.get("showTestTeams") === "1";
-  const [users, teamPage, pendingGrants] = await Promise.all([
+  const [users, teams, pendingGrants] = await Promise.all([
     searchAdminUsers(query),
-    searchAdminTeams(query, { cursor: teamsCursor, includeTestTeams }),
+    searchAdminTeams(query),
     listPendingEmailGrantsSafely(query),
   ]);
-  return adminJsonResponse({
-    users,
-    teams: teamPage.teams,
-    teamsNextCursor: teamPage.nextCursor,
-    hiddenTestTeams: teamPage.hiddenTestTeams,
-    pendingGrants,
-  });
+  return adminJsonResponse({ users, teams, pendingGrants });
 }
 
-/**
- * POST /api/admin/users { userId, plan: "pro" | "max" | "founders" | "next_plus" | "next_pro" | "next_max" | null, slot?: "classic" | "next" }
- *
- * An account holds a classic grant and a cmux NEXT grant side by side. A NEXT
- * plan always writes the NEXT slot; a classic plan writes the classic slot.
- * `plan: null` removes the grant of `slot` (absent: the classic slot).
- * `slot: "next"` with a classic plan is refused with 400.
- */
+/** POST /api/admin/users { userId, plan: "pro" | "max" | "founders" | null } */
 export async function POST(request: NextRequest) {
   const protection = enforceBrowserMutationProtection(request);
   if (protection) return protection;
@@ -82,26 +54,21 @@ export async function POST(request: NextRequest) {
       action: "user_grant_set",
       targetKind: "user",
       targetId: parsed?.userId ?? null,
-      details: parsed ? { plan: parsed.plan, slot: parsed.slot } : null,
+      details: parsed ? { plan: parsed.plan } : null,
       requestId: auditRequestId(request),
     },
-    async () => {
-      if (!parsed) return adminJsonResponse({ error: "invalid_body" }, 400);
-      if (parsed.slot === null) return adminJsonResponse({ error: "slot_plan_mismatch" }, 400);
-      return applyUserGrant({ ...parsed, slot: parsed.slot }, gate.admin);
-    },
+    async () => (parsed ? applyUserGrant(parsed, gate.admin) : adminJsonResponse({ error: "invalid_body" }, 400)),
   );
 }
 
 async function applyUserGrant(
-  parsed: { userId: string; plan: AdminGrantablePlanId | null; slot: AdminGrantSlot },
+  parsed: { userId: string; plan: AdminGrantablePlanId | null },
   admin: { id: string; primaryEmail: string | null },
 ): Promise<Response> {
   try {
     const user = await setManualPlanGrant({
       targetUserId: parsed.userId,
       plan: parsed.plan,
-      slot: parsed.slot,
       admin,
     });
     return adminJsonResponse({ user });
@@ -132,23 +99,13 @@ async function listPendingEmailGrantsSafely(query: string) {
   }
 }
 
-/**
- * The grant request, or null for a malformed body. `slot` is the resolved
- * slot, or null when `slot: "next"` names a classic plan.
- */
 function parseGrantBody(
   body: unknown,
-): { userId: string; plan: AdminGrantablePlanId | null; slot: AdminGrantSlot | null } | null {
+): { userId: string; plan: AdminGrantablePlanId | null } | null {
   if (!body || typeof body !== "object" || Array.isArray(body)) return null;
-  const { userId, plan, slot } = body as { userId?: unknown; plan?: unknown; slot?: unknown };
+  const { userId, plan } = body as { userId?: unknown; plan?: unknown };
   if (typeof userId !== "string" || !userId.trim()) return null;
-  if (slot !== undefined && !isAdminGrantSlot(slot)) return null;
-  if (plan !== null && !isAdminGrantablePlanId(plan)) return null;
-  let resolved: AdminGrantSlot | null;
-  try {
-    resolved = resolveGrantSlot(plan, slot);
-  } catch {
-    resolved = null;
-  }
-  return { userId: userId.trim(), plan, slot: resolved };
+  if (plan === null) return { userId: userId.trim(), plan: null };
+  if (!isAdminGrantablePlanId(plan)) return null;
+  return { userId: userId.trim(), plan };
 }

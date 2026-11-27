@@ -240,7 +240,11 @@ start_workers() {
   # the apps' CMUX_IROH_V2_ENVIRONMENT. Durable Object state persists only
   # under this run's scratch dir.
   export WRANGLER_SEND_METRICS=false CI=1
+  # STACK_PUBLISHABLE_KEY is optional, so it is not in wrangler.jsonc's
+  # required secrets and `wrangler dev` drops it from .dev.vars; a public
+  # key may ride argv.
   (cd "$REPO_ROOT/workers/iroh-v2" && exec node_modules/.bin/wrangler dev --env development \
+      ${E2E_VAR_STACK_PUBLISHABLE_KEY:+--var "STACK_PUBLISHABLE_KEY:$E2E_VAR_STACK_PUBLISHABLE_KEY"} \
       --ip 127.0.0.1 --port "$IROH_V2_PORT" --persist-to "$STATE/wrangler-iroh-v2" \
       --inspector-port 9230 --show-interactive-dev-session=false \
       >"$LOGS/iroh-v2.log" 2>&1) &

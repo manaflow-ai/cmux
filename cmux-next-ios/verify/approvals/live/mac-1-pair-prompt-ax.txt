@@ -1,0 +1,5 @@
+AXStaticText | Allow “cnx-approvals-fin” to connect to this Mac? | {'h': 17.0, 'w': 358.0, 'x': 781.0, 'y': 457.0}
+AXStaticText | It is signed in as cmux-agent-development@manaflow.ai. Once allowed, it can open your terminals and agent chats, and approve agent actions with Face ID. | {'h': 47.0, 'w': 358.0, 'x': 781.0, 'y': 478.0}
+AXStaticText | Device key daa0604d9e072e2e | {'h': 17.0, 'w': 358.0, 'x': 781.0, 'y': 529.0}
+AXButton | Don't Allow | {'h': 28.0, 'w': 83.0, 'x': 980.0, 'y': 550.0}
+AXButton | Allow | {'h': 28.0, 'w': 74.0, 'x': 1065.0, 'y': 550.0}

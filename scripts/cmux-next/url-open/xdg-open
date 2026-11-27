@@ -1,0 +1,9 @@
+#!/bin/sh
+# `xdg-open` in cmux-next terminals, for cross-platform scripts that call it on
+# macOS: an http(s) URL goes to cmux-open-url (a cmux browser tab, by
+# `terminal.linkOpener`), anything else to the system's `open`.
+system_open=${CMUX_SYSTEM_OPEN:-/usr/bin/open}
+case "${1:-}" in
+  http://*|https://*|HTTP://*|HTTPS://*) exec "$(dirname "$0")/cmux-open-url" "$1" ;;
+  *) exec "$system_open" "$@" ;;
+esac

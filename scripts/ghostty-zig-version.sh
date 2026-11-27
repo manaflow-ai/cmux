@@ -6,7 +6,18 @@ ghostty_minimum_zig_version() {
     repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
   fi
 
-  local manifest="$repo_root/ghostty/build.zig.zon"
+  # GHOSTTY_ZIG_SOURCE names the Ghostty source submodule whose manifest sets
+  # the Zig version: `ghostty` (the Mac app's GhosttyKit fork, default) or
+  # `ghostty-next` (libghostty-vt for cmux-tui).
+  local source="${GHOSTTY_ZIG_SOURCE:-ghostty}"
+  case "$source" in
+    ghostty|ghostty-next) ;;
+    *)
+      echo "error: unsupported GHOSTTY_ZIG_SOURCE: $source (expected ghostty or ghostty-next)" >&2
+      return 1
+      ;;
+  esac
+  local manifest="$repo_root/$source/build.zig.zon"
   if [[ ! -f "$manifest" ]]; then
     echo "error: Ghostty Zig manifest not found: $manifest" >&2
     return 1

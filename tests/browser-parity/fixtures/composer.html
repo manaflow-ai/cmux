@@ -1,0 +1,36 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>Composer Fixture</title>
+<!-- Imitates the composers the site helpers fill (sites/x.js, linkedin.js,
+     gmail.js): the draft arrives in the URL, as on the real sites. With
+     ?tamper=1 the page changes the end of the draft, as a composer could
+     that holds the draft's start and then something else. -->
+<body>
+<script>
+  const q = new URLSearchParams(location.search);
+  const site = q.get("site");
+  let draft = q.get(site === "gmail" ? "body" : "text") || "";
+  if (q.get("tamper")) draft = draft.slice(0, Math.max(0, draft.length - 12)) + " but not that";
+  const done = (text) => {
+    document.body.innerHTML = `<p>${text}</p>`;
+  };
+  if (site === "x") {
+    document.body.innerHTML = '<div data-testid="tweetTextarea_0" contenteditable="true"></div><button data-testid="tweetButton">Post</button>';
+    document.querySelector('[data-testid="tweetTextarea_0"]').textContent = draft;
+    document.querySelector('[data-testid="tweetButton"]').onclick = () => done("Your post was sent");
+  } else if (site === "linkedin") {
+    document.body.innerHTML = '<div role="dialog"><div role="textbox" contenteditable="true"></div><button class="share-actions__primary-action">Post</button></div>';
+    document.querySelector('[role="textbox"]').textContent = draft;
+    document.querySelector("button").onclick = () => done("Posted");
+  } else if (site === "gmail") {
+    document.body.innerHTML = '<div role="textbox" aria-label="Message Body" contenteditable="true"><div class="draft"></div><div class="gmail_signature">-- Sent from the fixture</div></div><div role="button" data-tooltip="Send">Send</div>';
+    // Gmail draws an emoji as an image whose alt is the emoji.
+    const body = document.querySelector(".draft");
+    for (const [i, part] of draft.split("🙂").entries()) {
+      if (i) body.appendChild(Object.assign(document.createElement("img"), { alt: "🙂", className: "an1" }));
+      body.appendChild(document.createTextNode(part));
+    }
+    document.querySelector('[data-tooltip="Send"]').onclick = () => done("Message sent");
+  }
+</script>
+</body>

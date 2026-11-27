@@ -3,27 +3,27 @@ export function makeMixedPatch(count: number): string {
   for (let index = 0; index < count; index += 1) {
     const path = `src/generated/group-${index % 100}/file-${index}.ts`;
     switch (index % 7) {
-    case 0:
-      result += modifiedPatch(path, index);
-      break;
-    case 1:
-      result += addedPatch(path, index);
-      break;
-    case 2:
-      result += deletedPatch(path, index);
-      break;
-    case 3:
-      result += pureRenamePatch(path, index);
-      break;
-    case 4:
-      result += changedRenamePatch(path, index);
-      break;
-    case 5:
-      result += modePatch(path);
-      break;
-    default:
-      result += binaryPatch(path);
-      break;
+      case 0:
+        result += modifiedPatch(path, index);
+        break;
+      case 1:
+        result += addedPatch(path, index);
+        break;
+      case 2:
+        result += deletedPatch(path, index);
+        break;
+      case 3:
+        result += pureRenamePatch(path, index);
+        break;
+      case 4:
+        result += changedRenamePatch(path, index);
+        break;
+      case 5:
+        result += modePatch(path);
+        break;
+      default:
+        result += binaryPatch(path);
+        break;
     }
   }
   return result;
@@ -37,8 +37,8 @@ function modifiedPatch(path: string, index: number): string {
     `+++ b/${path}`,
     "@@ -1,3 +1,3 @@",
     ` export const id = ${index};`,
-    "-export const state = \"old\";",
-    "+export const state = \"new\";",
+    '-export const state = "old";',
+    '+export const state = "new";',
     " export const enabled = true;",
     "@@ -20,2 +20,3 @@ export function tail() {",
     "   return true;",
@@ -100,11 +100,7 @@ function changedRenamePatch(path: string, index: number): string {
 }
 
 function modePatch(path: string): string {
-  return lines([
-    `diff --git a/${path} b/${path}`,
-    "old mode 100644",
-    "new mode 100755",
-  ]);
+  return lines([`diff --git a/${path} b/${path}`, "old mode 100644", "new mode 100755"]);
 }
 
 function binaryPatch(path: string): string {

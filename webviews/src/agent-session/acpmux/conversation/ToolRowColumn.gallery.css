@@ -1,0 +1,37 @@
+.tool-row-column-gallery {
+  --trc-space-22: 22px;
+  box-sizing: border-box;
+  min-height: 100%;
+  padding: var(--trc-space-22);
+  color: var(--cv-text, #222);
+  background: var(--cv-page, #f4f5f7);
+  font-family: var(--cv-font, var(--font-ui));
+}
+.tool-row-column-gallery[data-mode="light"] {
+  --cv-page: #f4f5f7;
+  --cv-text: #22252b;
+  --cv-text-muted: #626a76;
+  --cv-tool-strong: #30343b;
+}
+.tool-row-column-gallery[data-mode="dark"] {
+  --cv-page: #17181d;
+  --cv-text: #f4f5f7;
+}
+.tool-row-column-gallery .cv-tools {
+  margin: 0;
+}
+/* Before: no bottom fade on the scrolling response. */
+.tool-row-column-gallery[data-look="before"] :is(.cv-mcp-call__body, .cv-mcp-call .cv-tool-output) {
+  -webkit-mask-image: none;
+  mask-image: none;
+}
+/* A fixed-width column instead of the widest verb's. */
+.tool-row-column-gallery[data-look="fixed"] .cv-tool__verb {
+  min-width: 4.6em;
+}
+.tool-row-column-gallery[data-look="fixed"] .cv-tool__verb::after {
+  content: none;
+}
+.tool-row-column-gallery[data-look="tall-fade"] {
+  --cv-output-fade: 48px;
+}

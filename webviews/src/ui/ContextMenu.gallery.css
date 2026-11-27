@@ -1,0 +1,55 @@
+.context-menu-gallery-stage {
+  box-sizing: border-box;
+  display: flex;
+  min-height: 320px;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 18px;
+  padding: 48px;
+  background: var(
+    --cmux-page-background,
+    var(--cmux-window-background, Canvas)
+  );
+  color: var(--cmux-text, CanvasText);
+  font-family: var(--font-ui);
+  font-size: var(--text-control);
+  line-height: var(--text-control--line-height);
+  letter-spacing: var(--text-control--letter-spacing);
+}
+
+.context-menu-gallery-stage--edge {
+  height: 100vh;
+  justify-content: flex-end;
+  align-items: flex-end;
+  padding: 4px;
+}
+
+.context-menu-gallery-target {
+  min-width: 220px;
+  min-height: 46px;
+  padding: 10px 14px;
+  border: 1px solid color-mix(in srgb, currentColor 22%, transparent);
+  border-radius: 8px;
+  background: color-mix(in srgb, currentColor 7%, transparent);
+  color: inherit;
+  cursor: context-menu;
+  text-align: left;
+}
+
+.context-menu-gallery-target:focus-visible {
+  outline: 1.5px solid var(--cmux-focus-ring-color, currentColor);
+  outline-offset: 2px;
+}
+
+.context-menu-gallery-copy {
+  max-width: 390px;
+  margin: 0;
+  color: color-mix(in srgb, currentColor 78%, transparent);
+  user-select: text;
+}
+
+.context-menu-gallery-receipt {
+  min-height: 1.4em;
+  color: color-mix(in srgb, currentColor 70%, transparent);
+  font-variant-numeric: tabular-nums;
+}

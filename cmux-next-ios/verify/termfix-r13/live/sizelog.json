@@ -1,0 +1,251 @@
+{
+ "resizes": {
+  "first": 6,
+  "settled": 2,
+  "settled-tui": 3
+ },
+ "resets": {
+  "attach": 5,
+  "resized-event": 9,
+  "reattach": 3
+ },
+ "replays": 14,
+ "replay_ms_max": 125,
+ "events": [
+  {
+   "kind": "resize",
+   "size": "53x39",
+   "cause": "first",
+   "line": "2026-10-19 23:30:38.793"
+  },
+  {
+   "kind": "reset",
+   "cause": "attach",
+   "line": "2026-10-19 23:30:39.117"
+  },
+  {
+   "kind": "reset",
+   "cause": "resized-event",
+   "line": "2026-10-19 23:30:39.130"
+  },
+  {
+   "kind": "replay",
+   "bytes": 314,
+   "ms": 20,
+   "line": "2026-10-19 23:30:39.151"
+  },
+  {
+   "kind": "resize",
+   "size": "53x42",
+   "cause": "settled",
+   "line": "2026-10-19 23:30:39.369"
+  },
+  {
+   "kind": "reset",
+   "cause": "reattach",
+   "line": "2026-10-19 23:37:40.514"
+  },
+  {
+   "kind": "replay",
+   "bytes": 1182295,
+   "ms": 75,
+   "line": "2026-10-19 23:37:40.596"
+  },
+  {
+   "kind": "reset",
+   "cause": "resized-event",
+   "line": "2026-10-19 23:37:40.737"
+  },
+  {
+   "kind": "replay",
+   "bytes": 1226174,
+   "ms": 69,
+   "line": "2026-10-19 23:37:40.814"
+  },
+  {
+   "kind": "reset",
+   "cause": "reattach",
+   "line": "2026-10-19 23:40:13.799"
+  },
+  {
+   "kind": "replay",
+   "bytes": 1700172,
+   "ms": 106,
+   "line": "2026-10-19 23:40:13.913"
+  },
+  {
+   "kind": "reset",
+   "cause": "resized-event",
+   "line": "2026-10-19 23:40:14.258"
+  },
+  {
+   "kind": "replay",
+   "bytes": 1764432,
+   "ms": 83,
+   "line": "2026-10-19 23:40:14.348"
+  },
+  {
+   "kind": "resize",
+   "size": "53x24",
+   "cause": "settled-tui",
+   "line": "2026-10-19 23:41:11.479"
+  },
+  {
+   "kind": "reset",
+   "cause": "resized-event",
+   "line": "2026-10-19 23:41:11.482"
+  },
+  {
+   "kind": "replay",
+   "bytes": 208,
+   "ms": 5,
+   "line": "2026-10-19 23:41:11.495"
+  },
+  {
+   "kind": "resize",
+   "size": "53x42",
+   "cause": "settled-tui",
+   "line": "2026-10-19 23:41:13.563"
+  },
+  {
+   "kind": "reset",
+   "cause": "resized-event",
+   "line": "2026-10-19 23:41:13.621"
+  },
+  {
+   "kind": "replay",
+   "bytes": 2697,
+   "ms": 4,
+   "line": "2026-10-19 23:41:13.630"
+  },
+  {
+   "kind": "reset",
+   "cause": "reattach",
+   "line": "2026-10-19 23:41:23.112"
+  },
+  {
+   "kind": "reset",
+   "cause": "resized-event",
+   "line": "2026-10-19 23:41:23.118"
+  },
+  {
+   "kind": "replay",
+   "bytes": 4348,
+   "ms": 22,
+   "line": "2026-10-19 23:41:23.140"
+  },
+  {
+   "kind": "resize",
+   "size": "53x24",
+   "cause": "settled-tui",
+   "line": "2026-10-19 23:42:16.427"
+  },
+  {
+   "kind": "reset",
+   "cause": "resized-event",
+   "line": "2026-10-19 23:42:16.436"
+  },
+  {
+   "kind": "replay",
+   "bytes": 2726,
+   "ms": 4,
+   "line": "2026-10-19 23:42:16.446"
+  },
+  {
+   "kind": "resize",
+   "size": "53x42",
+   "cause": "settled",
+   "line": "2026-10-19 23:42:19.458"
+  },
+  {
+   "kind": "reset",
+   "cause": "resized-event",
+   "line": "2026-10-19 23:42:20.006"
+  },
+  {
+   "kind": "replay",
+   "bytes": 1816529,
+   "ms": 104,
+   "line": "2026-10-19 23:42:20.116"
+  },
+  {
+   "kind": "resize",
+   "size": "53x42",
+   "cause": "first",
+   "line": "2026-10-19 23:45:47.946"
+  },
+  {
+   "kind": "reset",
+   "cause": "attach",
+   "line": "2026-10-19 23:45:48.107"
+  },
+  {
+   "kind": "replay",
+   "bytes": 251,
+   "ms": 14,
+   "line": "2026-10-19 23:45:48.124"
+  },
+  {
+   "kind": "resize",
+   "size": "53x42",
+   "cause": "first",
+   "line": "2026-10-19 23:45:51.953"
+  },
+  {
+   "kind": "reset",
+   "cause": "attach",
+   "line": "2026-10-19 23:45:51.994"
+  },
+  {
+   "kind": "reset",
+   "cause": "resized-event",
+   "line": "2026-10-19 23:45:52.000"
+  },
+  {
+   "kind": "replay",
+   "bytes": 320,
+   "ms": 4,
+   "line": "2026-10-19 23:45:52.004"
+  },
+  {
+   "kind": "resize",
+   "size": "53x39",
+   "cause": "first",
+   "line": "2026-10-19 23:46:34.098"
+  },
+  {
+   "kind": "resize",
+   "size": "53x42",
+   "cause": "first",
+   "line": "2026-10-19 23:46:34.670"
+  },
+  {
+   "kind": "reset",
+   "cause": "attach",
+   "line": "2026-10-19 23:46:35.406"
+  },
+  {
+   "kind": "replay",
+   "bytes": 1796406,
+   "ms": 125,
+   "line": "2026-10-19 23:46:35.534"
+  },
+  {
+   "kind": "resize",
+   "size": "53x42",
+   "cause": "first",
+   "line": "2026-10-19 23:46:45.486"
+  },
+  {
+   "kind": "reset",
+   "cause": "attach",
+   "line": "2026-10-19 23:46:45.550"
+  },
+  {
+   "kind": "replay",
+   "bytes": 251,
+   "ms": 14,
+   "line": "2026-10-19 23:46:45.571"
+  }
+ ]
+}

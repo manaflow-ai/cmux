@@ -1,0 +1,34 @@
+// Boots the Files page (`cmux-page://cmux.files/`, cx-p4rt). In the app the host installs the
+// `cmuxPage` bridge; in the browser dev loop (`/files/?mock`) the mock provider stands in.
+import "../shared/desktop";
+import { createRoot } from "react-dom/client";
+import { createPageClient, type PageClient } from "../shared/pageClient";
+import { createStrings } from "../shared/i18n";
+import table from "./generated/strings.json";
+import { FilesPage } from "./FilesPage";
+import { MockFilesProvider } from "./mockProvider";
+import { FilesStore } from "./store";
+import "../shared/pageBase.css";
+import "./styles.css";
+
+export function mountFilesPage(root: HTMLElement, client: PageClient | null = defaultClient()): FilesStore {
+  const store = new FilesStore(client, (text) => navigator.clipboard.writeText(text));
+  const strings = createStrings(table);
+  document.documentElement.lang = strings.language;
+  document.title = strings.t("files.page.title");
+  createRoot(root).render(<FilesPage store={store} strings={strings} />);
+  void store.start();
+  // Coming back to the tab lists the open folders again: an agent may have changed them.
+  document.addEventListener("visibilitychange", () => {
+    if (document.visibilityState === "visible") void store.refresh();
+  });
+  return store;
+}
+
+function defaultClient(): PageClient | null {
+  const mock = new URLSearchParams(location.search).has("mock");
+  return createPageClient(mock ? () => new MockFilesProvider() : undefined);
+}
+
+const root = document.getElementById("root");
+if (root && document.documentElement.dataset.cmuxPage === "files") mountFilesPage(root);

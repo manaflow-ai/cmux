@@ -1,0 +1,24 @@
+.acpmux-sender {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 4px;
+  min-width: 0;
+  max-width: 100%;
+  vertical-align: baseline;
+}
+.acpmux-sender > svg,
+.acpmux-sender > .agent-mark {
+  align-self: center;
+  flex: none;
+}
+.acpmux-sender__name,
+.acpmux-sender__host {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.acpmux-sender__host {
+  flex-shrink: 2;
+  color: var(--agent-muted);
+  font-weight: 400;
+}

@@ -1,0 +1,391 @@
+{
+  "sourceLanguage": "en",
+  "strings": {
+    "Call Chief in ${applicationName}": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringSet": {
+            "state": "needs_review",
+            "values": [
+              "الاتصال بـ Chief في ${applicationName}"
+            ]
+          }
+        },
+        "de": {
+          "stringSet": {
+            "state": "needs_review",
+            "values": [
+              "Chief in ${applicationName} anrufen"
+            ]
+          }
+        },
+        "en": {
+          "stringSet": {
+            "state": "translated",
+            "values": [
+              "Call Chief in ${applicationName}"
+            ]
+          }
+        },
+        "es": {
+          "stringSet": {
+            "state": "needs_review",
+            "values": [
+              "Llamar a Chief en ${applicationName}"
+            ]
+          }
+        },
+        "fr": {
+          "stringSet": {
+            "state": "needs_review",
+            "values": [
+              "Appeler Chief dans ${applicationName}"
+            ]
+          }
+        },
+        "ja": {
+          "stringSet": {
+            "state": "translated",
+            "values": [
+              "${applicationName} で Chief に電話"
+            ]
+          }
+        },
+        "ko": {
+          "stringSet": {
+            "state": "needs_review",
+            "values": [
+              "${applicationName}에서 Chief에게 전화"
+            ]
+          }
+        },
+        "zh-Hans": {
+          "stringSet": {
+            "state": "needs_review",
+            "values": [
+              "在 ${applicationName} 中呼叫 Chief"
+            ]
+          }
+        },
+        "zh-Hant": {
+          "stringSet": {
+            "state": "needs_review",
+            "values": [
+              "在 ${applicationName} 中撥給 Chief"
+            ]
+          }
+        }
+      }
+    },
+    "Call my Chief in ${applicationName}": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringSet": {
+            "state": "needs_review",
+            "values": [
+              "اتصل بـ Chief في ${applicationName}"
+            ]
+          }
+        },
+        "de": {
+          "stringSet": {
+            "state": "needs_review",
+            "values": [
+              "Meinen Chief in ${applicationName} anrufen"
+            ]
+          }
+        },
+        "en": {
+          "stringSet": {
+            "state": "translated",
+            "values": [
+              "Call my Chief in ${applicationName}"
+            ]
+          }
+        },
+        "es": {
+          "stringSet": {
+            "state": "needs_review",
+            "values": [
+              "Llamar a mi Chief en ${applicationName}"
+            ]
+          }
+        },
+        "fr": {
+          "stringSet": {
+            "state": "needs_review",
+            "values": [
+              "Appeler mon Chief dans ${applicationName}"
+            ]
+          }
+        },
+        "ja": {
+          "stringSet": {
+            "state": "translated",
+            "values": [
+              "${applicationName} で Chief に電話して"
+            ]
+          }
+        },
+        "ko": {
+          "stringSet": {
+            "state": "needs_review",
+            "values": [
+              "${applicationName}에서 내 Chief에게 전화해"
+            ]
+          }
+        },
+        "zh-Hans": {
+          "stringSet": {
+            "state": "needs_review",
+            "values": [
+              "在 ${applicationName} 中呼叫我的 Chief"
+            ]
+          }
+        },
+        "zh-Hant": {
+          "stringSet": {
+            "state": "needs_review",
+            "values": [
+              "在 ${applicationName} 中撥給我的 Chief"
+            ]
+          }
+        }
+      }
+    },
+    "Record a voice note for my Chief in ${applicationName}": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringSet": {
+            "state": "needs_review",
+            "values": [
+              "سجّل ملاحظة صوتية إلى Chief في ${applicationName}"
+            ]
+          }
+        },
+        "de": {
+          "stringSet": {
+            "state": "needs_review",
+            "values": [
+              "Sprachnotiz für meinen Chief in ${applicationName} aufnehmen"
+            ]
+          }
+        },
+        "en": {
+          "stringSet": {
+            "state": "translated",
+            "values": [
+              "Record a voice note for my Chief in ${applicationName}"
+            ]
+          }
+        },
+        "es": {
+          "stringSet": {
+            "state": "needs_review",
+            "values": [
+              "Grabar una nota de voz para mi Chief en ${applicationName}"
+            ]
+          }
+        },
+        "fr": {
+          "stringSet": {
+            "state": "needs_review",
+            "values": [
+              "Enregistrer une note vocale pour mon Chief dans ${applicationName}"
+            ]
+          }
+        },
+        "ja": {
+          "stringSet": {
+            "state": "translated",
+            "values": [
+              "${applicationName} で Chief へのボイスメモを録音"
+            ]
+          }
+        },
+        "ko": {
+          "stringSet": {
+            "state": "needs_review",
+            "values": [
+              "${applicationName}에서 내 Chief에게 보낼 음성 메모 녹음"
+            ]
+          }
+        },
+        "zh-Hans": {
+          "stringSet": {
+            "state": "needs_review",
+            "values": [
+              "在 ${applicationName} 中为我的 Chief 录制语音备忘"
+            ]
+          }
+        },
+        "zh-Hant": {
+          "stringSet": {
+            "state": "needs_review",
+            "values": [
+              "在 ${applicationName} 中為我的 Chief 錄製語音備忘"
+            ]
+          }
+        }
+      }
+    },
+    "Talk to my Chief in ${applicationName}": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringSet": {
+            "state": "needs_review",
+            "values": [
+              "تحدث إلى Chief في ${applicationName}"
+            ]
+          }
+        },
+        "de": {
+          "stringSet": {
+            "state": "needs_review",
+            "values": [
+              "Mit meinem Chief in ${applicationName} sprechen"
+            ]
+          }
+        },
+        "en": {
+          "stringSet": {
+            "state": "translated",
+            "values": [
+              "Talk to my Chief in ${applicationName}"
+            ]
+          }
+        },
+        "es": {
+          "stringSet": {
+            "state": "needs_review",
+            "values": [
+              "Hablar con mi Chief en ${applicationName}"
+            ]
+          }
+        },
+        "fr": {
+          "stringSet": {
+            "state": "needs_review",
+            "values": [
+              "Parler à mon Chief dans ${applicationName}"
+            ]
+          }
+        },
+        "ja": {
+          "stringSet": {
+            "state": "translated",
+            "values": [
+              "${applicationName} で Chief と話す"
+            ]
+          }
+        },
+        "ko": {
+          "stringSet": {
+            "state": "needs_review",
+            "values": [
+              "${applicationName}에서 내 Chief와 대화"
+            ]
+          }
+        },
+        "zh-Hans": {
+          "stringSet": {
+            "state": "needs_review",
+            "values": [
+              "在 ${applicationName} 中和我的 Chief 通话"
+            ]
+          }
+        },
+        "zh-Hant": {
+          "stringSet": {
+            "state": "needs_review",
+            "values": [
+              "在 ${applicationName} 中和我的 Chief 通話"
+            ]
+          }
+        }
+      }
+    },
+    "Voice note for Chief in ${applicationName}": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringSet": {
+            "state": "needs_review",
+            "values": [
+              "ملاحظة صوتية إلى Chief في ${applicationName}"
+            ]
+          }
+        },
+        "de": {
+          "stringSet": {
+            "state": "needs_review",
+            "values": [
+              "Sprachnotiz für Chief in ${applicationName}"
+            ]
+          }
+        },
+        "en": {
+          "stringSet": {
+            "state": "translated",
+            "values": [
+              "Voice note for Chief in ${applicationName}"
+            ]
+          }
+        },
+        "es": {
+          "stringSet": {
+            "state": "needs_review",
+            "values": [
+              "Nota de voz para Chief en ${applicationName}"
+            ]
+          }
+        },
+        "fr": {
+          "stringSet": {
+            "state": "needs_review",
+            "values": [
+              "Note vocale pour Chief dans ${applicationName}"
+            ]
+          }
+        },
+        "ja": {
+          "stringSet": {
+            "state": "translated",
+            "values": [
+              "${applicationName} で Chief にボイスメモ"
+            ]
+          }
+        },
+        "ko": {
+          "stringSet": {
+            "state": "needs_review",
+            "values": [
+              "${applicationName}에서 Chief에게 음성 메모"
+            ]
+          }
+        },
+        "zh-Hans": {
+          "stringSet": {
+            "state": "needs_review",
+            "values": [
+              "在 ${applicationName} 中给 Chief 发语音备忘"
+            ]
+          }
+        },
+        "zh-Hant": {
+          "stringSet": {
+            "state": "needs_review",
+            "values": [
+              "在 ${applicationName} 中給 Chief 傳語音備忘"
+            ]
+          }
+        }
+      }
+    }
+  },
+  "version": "1.0"
+}

@@ -18,8 +18,6 @@ export type TeamBillingStackTeam = {
   readonly id: string;
   readonly displayName?: string | null;
   readonly clientReadOnlyMetadata?: unknown;
-  /** Present on a Stack server team; holds the enterprise deal's label and price. */
-  readonly serverMetadata?: unknown;
   listUsers?(): Promise<readonly unknown[]>;
 };
 

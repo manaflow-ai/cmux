@@ -1,0 +1,58 @@
+<!doctype html>
+<html><head><meta charset="utf-8"><title>Home link chips · gallery</title>
+<style>
+:root{color-scheme:dark light}
+body{margin:0;padding:28px;font:13px -apple-system,BlinkMacSystemFont,"SF Pro Text",sans-serif;background:#1c1c1e;color:#f2f2f7}
+h1{font-size:18px;margin:0 0 4px}h2{font-size:14px;margin:28px 0 8px;display:flex;gap:8px;align-items:center}
+.sub{color:#8e8e93;margin-bottom:18px}
+.rec{font-size:11px;background:#0a84ff;color:#fff;border-radius:6px;padding:1px 7px}
+.bubble{max-width:430px;background:#3a3a3c;border-radius:18px;padding:8px 13px;line-height:22px;margin:6px 0}
+.grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(460px,1fr));gap:8px 28px}
+.ic{display:inline-block;width:12px;height:12px;vertical-align:-1px;margin-right:4px}
+/* A tinted pill */
+.a{color:#4aa8ff;background:rgba(74,168,255,.14);border-radius:5px;padding:1px 6px 1px 4px;white-space:nowrap;cursor:pointer}
+.a:hover{background:rgba(74,168,255,.24)}
+/* B outline */
+.b{color:#f2f2f7;border:1px solid rgba(255,255,255,.28);border-radius:6px;padding:0 6px 0 4px;white-space:nowrap}
+.b .ic{opacity:.75}
+/* C inline icon */
+.c{color:#4aa8ff;text-decoration:underline}
+/* D kind prefix */
+.d{color:#4aa8ff;background:rgba(74,168,255,.14);border-radius:5px;padding:1px 6px 1px 4px;white-space:nowrap}
+.d i{font-style:normal;color:#8e8e93}
+.card{width:300px;background:rgba(44,44,46,.92);border:1px solid rgba(255,255,255,.12);border-radius:12px;padding:10px 12px;box-shadow:0 10px 30px rgba(0,0,0,.45);backdrop-filter:blur(20px)}
+.card .t{font-weight:600;display:flex;gap:6px;align-items:center}.card .s{color:#8e8e93;font-size:11px;margin:2px 0 6px}
+.card pre{margin:0;font:11px ui-monospace,Menlo,monospace;color:#d1d1d6;background:rgba(0,0,0,.25);border-radius:6px;padding:6px;white-space:pre-wrap}
+.card .thumb{height:120px;border-radius:7px;background:linear-gradient(135deg,#2c3e50,#4a6b8a);margin-top:4px;display:flex;align-items:end;padding:6px;color:#fff;font-size:11px}
+.state{font-size:10px;border-radius:4px;padding:0 5px;margin-left:auto}
+.ok{background:rgba(48,209,88,.2);color:#30d158}.closed{background:rgba(255,69,58,.2);color:#ff6961}
+.row{display:flex;gap:24px;flex-wrap:wrap}
+</style></head><body>
+<h1>Home link chips</h1>
+<div class="sub">Four chip styles in a Chief reply, then two hover previews. Plan: <code>plans/cmux-next/home-link-chips-DESIGN.md</code>.</div>
+<svg width="0" height="0" style="position:absolute">
+ <symbol id="ws" viewBox="0 0 16 16"><rect x="1.5" y="2.5" width="13" height="11" rx="2" fill="none" stroke="currentColor" stroke-width="1.4"/><path d="M1.5 5.5h13" stroke="currentColor" stroke-width="1.4"/></symbol>
+ <symbol id="term" viewBox="0 0 16 16"><rect x="1.5" y="2.5" width="13" height="11" rx="2" fill="none" stroke="currentColor" stroke-width="1.4"/><path d="M4.5 6l2 2-2 2M8 10.5h3.5" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/></symbol>
+ <symbol id="globe" viewBox="0 0 16 16"><circle cx="8" cy="8" r="6.3" fill="none" stroke="currentColor" stroke-width="1.4"/><path d="M1.7 8h12.6M8 1.7c2.2 2.4 2.2 10.2 0 12.6M8 1.7c-2.2 2.4-2.2 10.2 0 12.6" fill="none" stroke="currentColor" stroke-width="1.2"/></symbol>
+ <symbol id="chat" viewBox="0 0 16 16"><path d="M2 3.5h8.5a1.5 1.5 0 0 1 1.5 1.5v4a1.5 1.5 0 0 1-1.5 1.5H6L3.5 12.5V10.5H2A1.5 1.5 0 0 1 .5 9V5A1.5 1.5 0 0 1 2 3.5z" fill="none" stroke="currentColor" stroke-width="1.3"/></symbol>
+ <symbol id="doc" viewBox="0 0 16 16"><path d="M4 1.5h5.5L13 5v9.5H4z" fill="none" stroke="currentColor" stroke-width="1.4"/><path d="M6 8h5M6 10.5h5" stroke="currentColor" stroke-width="1.2"/></symbol>
+ <symbol id="pr" viewBox="0 0 16 16"><circle cx="4" cy="3.5" r="1.8" fill="none" stroke="currentColor" stroke-width="1.3"/><circle cx="4" cy="12.5" r="1.8" fill="none" stroke="currentColor" stroke-width="1.3"/><circle cx="12" cy="12.5" r="1.8" fill="none" stroke="currentColor" stroke-width="1.3"/><path d="M4 5.3v5.4M12 10.7V6a2 2 0 0 0-2-2H7.5" fill="none" stroke="currentColor" stroke-width="1.3"/></symbol>
+</svg>
+<script>
+const items=[["ws","Chief · tab audio toggles","Workspace"],["term","build log","Terminal"],["globe","manaflow.com","Browser tab"],["chat","a186 chat","Agent chat"],["doc","REPORT.md","Markdown"],["pr","#22245","Pull request"]];
+function chip(cls,[ic,label,kind]){const pre=cls==="d"?`<i>${kind} · </i>`:"";return `<span class="${cls}"><svg class="ic"><use href="#${ic}"/></svg>${pre}${label}</span>`}
+function reply(cls){const c=items.map(i=>chip(cls,i));return `<div class="bubble">I moved ${c[0]} to the top. The build in ${c[1]} passed, and the page in ${c[2]} loads. ${c[3]} is done; notes in ${c[4]}, merged as ${c[5]}.</div>`}
+const v=[["a","A. Tinted pill","Icon and label in the link tint, soft fill, no underline. Reads as one object; quiet in long replies.",true],["b","B. Outline tag","Hairline border, text colour. Neutral, but competes with inline code."],["c","C. Inline icon","Icon before a normal underlined link. Lightest; weakest as a click target."],["d","D. Kind-prefixed pill","Says the kind in words. Clear, but long in dense replies."]];
+document.write('<div class="grid">'+v.map(([cls,t,d,r])=>`<div><h2>${t}${r?' <span class="rec">Recommended</span>':''}</h2><div class="sub">${d}</div>${reply(cls)}</div>`).join("")+'</div>');
+</script>
+<h2>Hover previews</h2>
+<div class="row">
+ <div class="card"><div class="t"><svg class="ic"><use href="#term"/></svg>build log<span class="state ok">Running</span></div><div class="s">Terminal · Chief · tab audio toggles</div><pre>Compiling CmuxNextHome (42/118)
+✓ HomeLinkChipTests (14 tests)
+Build succeeded in 38.2 s</pre></div>
+ <div class="card"><div class="t"><svg class="ic"><use href="#globe"/></svg>manaflow.com<span class="state ok">Open</span></div><div class="s">https://manaflow.com/ · Browser tab</div><div class="thumb">page thumbnail</div></div>
+ <div class="card"><div class="t"><svg class="ic"><use href="#doc"/></svg>REPORT.md</div><div class="s">~/fun/cmux · Markdown</div><pre># Report
+Pushed 3 commits to feat-cmux-next. Tests pass on the fleet.</pre></div>
+ <div class="card"><div class="t"><svg class="ic"><use href="#ws"/></svg>old workspace<span class="state closed">Closed</span></div><div class="s">ws_9166682e… · no longer open</div></div>
+</div>
+</body></html>

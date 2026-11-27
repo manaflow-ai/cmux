@@ -1,0 +1,10 @@
+{
+ "video": "/Users/azizalbahar/cnx-ios-e2e/termqa-raw/tq12/n1-fix-wrtc-01.mp4",
+ "source_frames": 865,
+ "duration": 16.18,
+ "lit_median": 0.0484,
+ "black_runs": [],
+ "black_runs_over_17ms": [],
+ "frac_gaps_over_34ms": 0.0093,
+ "max_gap_ms": 546.7
+}

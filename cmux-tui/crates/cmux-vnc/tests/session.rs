@@ -1,0 +1,765 @@
+//! End-to-end sessions against an in-process RFB server that speaks the
+//! way each guest OS's server does: macOS Screen Sharing (3.889, Apple
+//! DH), Windows (VNC password, and an RFB 3.3 server), Linux TigerVNC
+//! (no auth, ExtendedDesktopSize resize, VeNCrypt auth and refusal). Each test drives
+//! connect, render, keyboard and pointer input, resize and reconnect.
+
+use std::io::{Read, Write};
+use std::net::{TcpListener, TcpStream};
+use std::thread::{self, JoinHandle};
+use std::time::Duration;
+
+use aes::Aes128;
+use aes::cipher::{BlockDecrypt, KeyInit};
+use cmux_vnc::auth::{des, md5};
+use cmux_vnc::decode::encoding;
+use cmux_vnc::keysym::{Key, keysym};
+use cmux_vnc::message::button;
+use cmux_vnc::pixel::PixelFormat;
+use cmux_vnc::{Backoff, Credentials, Event, Session, SessionOptions, Transport, VncError};
+use num_bigint::BigUint;
+
+const TIMEOUT: Duration = Duration::from_secs(10);
+
+struct Server {
+    stream: TcpStream,
+}
+
+impl Server {
+    fn read(&mut self, len: usize) -> Vec<u8> {
+        let mut buf = vec![0; len];
+        self.stream.read_exact(&mut buf).unwrap();
+        buf
+    }
+
+    fn u8(&mut self) -> u8 {
+        self.read(1)[0]
+    }
+
+    fn u16(&mut self) -> u16 {
+        u16::from_be_bytes(self.read(2).try_into().unwrap())
+    }
+
+    fn u32(&mut self) -> u32 {
+        u32::from_be_bytes(self.read(4).try_into().unwrap())
+    }
+
+    fn send(&mut self, bytes: &[u8]) {
+        self.stream.write_all(bytes).unwrap();
+    }
+
+    fn send_reason(&mut self, reason: &str) {
+        self.send(&(reason.len() as u32).to_be_bytes());
+        self.send(reason.as_bytes());
+    }
+
+    /// Sends ServerInit with a big-endian native format (as macOS does).
+    fn server_init(&mut self, width: u16, height: u16, name: &str) {
+        self.send(&width.to_be_bytes());
+        self.send(&height.to_be_bytes());
+        let mut native = PixelFormat::RGBX;
+        native.big_endian = true;
+        native.red_shift = 16;
+        native.blue_shift = 0;
+        self.send(&native.encode());
+        self.send_reason(name);
+    }
+
+    /// Reads SetPixelFormat, SetEncodings and the first update request;
+    /// returns the requested format and encodings.
+    fn client_setup(&mut self) -> (PixelFormat, Vec<i32>) {
+        assert_eq!(self.u8(), 0, "SetPixelFormat");
+        self.read(3);
+        let format = PixelFormat::parse(&self.read(16).try_into().unwrap());
+        assert_eq!(self.u8(), 2, "SetEncodings");
+        self.read(1);
+        let count = self.u16();
+        let encodings = (0..count).map(|_| self.u32() as i32).collect();
+        let request = self.read(10);
+        assert_eq!(request[..2], [3, 0], "a full, non-incremental first request");
+        (format, encodings)
+    }
+
+    /// One FramebufferUpdate rectangle header.
+    fn rect(&mut self, x: u16, y: u16, w: u16, h: u16, encoding: i32) {
+        for value in [x, y, w, h] {
+            self.send(&value.to_be_bytes());
+        }
+        self.send(&encoding.to_be_bytes());
+    }
+
+    fn update_header(&mut self, count: u16) {
+        self.send(&[0, 0]);
+        self.send(&count.to_be_bytes());
+    }
+
+    /// A solid raw rectangle in the RGBX format the client asked for.
+    fn raw_fill(&mut self, x: u16, y: u16, w: u16, h: u16, rgb: [u8; 3]) {
+        self.rect(x, y, w, h, encoding::RAW);
+        let pixel = [rgb[0], rgb[1], rgb[2], 0];
+        let bytes: Vec<u8> = (0..usize::from(w) * usize::from(h)).flat_map(|_| pixel).collect();
+        self.send(&bytes);
+    }
+
+    fn extended_desktop_size(&mut self, reason: u16, status: u16, w: u16, h: u16) {
+        self.rect(reason, status, w, h, encoding::EXTENDED_DESKTOP_SIZE);
+        self.send(&[1, 0, 0, 0]);
+        self.send(&9u32.to_be_bytes());
+        for value in [0, 0, w, h] {
+            self.send(&value.to_be_bytes());
+        }
+        self.send(&0u32.to_be_bytes());
+    }
+
+    /// The incremental request the client sends after each update.
+    fn expect_update_request(&mut self, incremental: bool) -> (u16, u16) {
+        let request = self.read(10);
+        assert_eq!(request[0], 3);
+        assert_eq!(request[1], u8::from(incremental));
+        (u16::from_be_bytes([request[6], request[7]]), u16::from_be_bytes([request[8], request[9]]))
+    }
+}
+
+fn listen() -> (TcpListener, u16) {
+    let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+    let port = listener.local_addr().unwrap().port();
+    (listener, port)
+}
+
+fn serve(
+    listener: TcpListener,
+    script: impl FnOnce(&mut Server) + Send + 'static,
+) -> JoinHandle<()> {
+    thread::spawn(move || {
+        let (stream, _) = listener.accept().unwrap();
+        stream.set_read_timeout(Some(TIMEOUT)).unwrap();
+        script(&mut Server { stream });
+    })
+}
+
+fn connect(port: u16, credentials: Credentials) -> cmux_vnc::Result<Session> {
+    let transport = Transport::tcp("127.0.0.1", port, TIMEOUT)?;
+    Session::start(transport, &SessionOptions { credentials, ..SessionOptions::default() })
+}
+
+fn update(session: &mut Session) -> cmux_vnc::Update {
+    match session.next_event().unwrap() {
+        Event::Update(update) => update,
+        other => panic!("expected an update, got {other:?}"),
+    }
+}
+
+fn pixel(session: &Session, x: usize, y: usize) -> [u8; 4] {
+    let fb = session.framebuffer();
+    let at = (y * usize::from(fb.width()) + x) * 4;
+    fb.pixels()[at..at + 4].try_into().unwrap()
+}
+
+fn password(text: &str) -> Credentials {
+    Credentials { username: None, password: Some(text.into()) }
+}
+
+#[test]
+fn linux_tigervnc_renders_takes_input_resizes_and_reconnects() {
+    let (listener, port) = listen();
+    let server = serve(listener.try_clone().unwrap(), |server| {
+        server.send(b"RFB 003.008\n");
+        assert_eq!(server.read(12), b"RFB 003.008\n");
+        server.send(&[1, 1]); // one type: None
+        assert_eq!(server.u8(), 1);
+        server.send(&0u32.to_be_bytes()); // 3.8 always sends SecurityResult
+        assert_eq!(server.u8(), 1, "shared");
+        server.server_init(64, 48, "cmux devbox");
+        let (format, encodings) = server.client_setup();
+        assert_eq!(format, PixelFormat::RGBX);
+        assert!(encodings.contains(&encoding::ZRLE));
+        assert!(encodings.contains(&encoding::EXTENDED_DESKTOP_SIZE));
+        assert!(!encodings.iter().any(|e| (-32..=-23).contains(e)), "no JPEG quality level");
+
+        // First frame: layout, then a red background and a green square.
+        server.update_header(3);
+        server.extended_desktop_size(0, 0, 64, 48);
+        server.raw_fill(0, 0, 64, 48, [255, 0, 0]);
+        server.raw_fill(8, 8, 4, 4, [0, 255, 0]);
+        assert_eq!(server.expect_update_request(true), (64, 48));
+
+        // Keyboard: "a" down and up, then Return.
+        assert_eq!(server.read(8), [4, 1, 0, 0, 0, 0, 0, 0x61]);
+        assert_eq!(server.read(8), [4, 0, 0, 0, 0, 0, 0, 0x61]);
+        assert_eq!(server.read(8), [4, 1, 0, 0, 0, 0, 0xff, 0x0d]);
+        // Pointer: left button at (10, 12).
+        assert_eq!(server.read(6), [5, button::LEFT, 0, 10, 0, 12]);
+
+        // SetDesktopSize to 80x60 keeps the server's screen id.
+        let resize = server.read(24);
+        assert_eq!(resize[..8], [251, 0, 0, 80, 0, 60, 1, 0]);
+        assert_eq!(resize[8..12], 9u32.to_be_bytes());
+        server.update_header(1);
+        server.extended_desktop_size(1, 0, 80, 60);
+        assert_eq!(server.expect_update_request(false), (80, 60), "a full frame after a resize");
+
+        // A refused resize leaves the size alone.
+        server.read(24);
+        server.update_header(1);
+        server.extended_desktop_size(1, 3, 4000, 4000);
+        server.expect_update_request(true);
+        // Then the server goes away (a VM reboot).
+    });
+
+    let mut session = connect(port, Credentials::default()).unwrap();
+    assert_eq!(session.name(), "cmux devbox");
+    let first = update(&mut session);
+    assert!(!first.resized);
+    assert_eq!(first.damage, cmux_vnc::Rect::new(0, 0, 64, 48));
+    assert!(session.resize_supported());
+    assert_eq!(pixel(&session, 0, 0), [255, 0, 0, 255]);
+    assert_eq!(pixel(&session, 9, 9), [0, 255, 0, 255]);
+
+    let input = session.input();
+    let a = keysym(Key::Char('a')).unwrap();
+    input.key(a, true).unwrap();
+    input.key(a, false).unwrap();
+    input.key(keysym(Key::Enter).unwrap(), true).unwrap();
+    input.pointer(10, 12, button::LEFT).unwrap();
+    input.resize(80, 60, session.screens()[0].id).unwrap();
+    let resized = update(&mut session);
+    assert!(resized.resized);
+    assert_eq!((session.framebuffer().width(), session.framebuffer().height()), (80, 60));
+    input.resize(4000, 4000, 9).unwrap();
+    let refused = update(&mut session);
+    assert_eq!(refused.resize_refused, Some(3));
+    assert_eq!(session.framebuffer().width(), 80);
+    server.join().unwrap();
+
+    // The server closed: the session ends with an I/O error, the backoff
+    // retries, and a new session on the same address works.
+    let error = session.next_event().unwrap_err();
+    assert!(matches!(error, VncError::Io(_)), "{error}");
+    let mut backoff = Backoff::default();
+    assert!(backoff.after_failure(Duration::from_secs(1), &error).is_some());
+    let again = serve(listener, |server| {
+        server.send(b"RFB 003.008\n");
+        server.read(12);
+        server.send(&[1, 1]);
+        server.read(1);
+        server.send(&0u32.to_be_bytes());
+        server.read(1);
+        server.server_init(32, 32, "cmux devbox");
+        server.client_setup();
+        server.update_header(1);
+        server.raw_fill(0, 0, 32, 32, [0, 0, 255]);
+        server.expect_update_request(true);
+    });
+    let mut session = connect(port, Credentials::default()).unwrap();
+    update(&mut session);
+    assert_eq!(pixel(&session, 31, 31), [0, 0, 255, 255]);
+    again.join().unwrap();
+}
+
+#[test]
+fn macos_screen_sharing_apple_dh_and_vnc_password() {
+    // A toy DH group keeps the test fast; real macOS uses a 128-byte prime.
+    let prime: [u8; 4] = 0xFFFF_FFFBu32.to_be_bytes();
+    let (listener, port) = listen();
+    let server = serve(listener, move |server| {
+        server.send(b"RFB 003.889\n");
+        assert_eq!(server.read(12), b"RFB 003.008\n", "Apple's 3.889 is answered with 3.8");
+        server.send(&[4, 30, 33, 36, 35]);
+        assert_eq!(server.u8(), 30, "Apple DH when a user name is known");
+        let modulus = BigUint::from_bytes_be(&prime);
+        let server_secret = BigUint::from(123_456u32);
+        let server_public = BigUint::from(2u8).modpow(&server_secret, &modulus).to_bytes_be();
+        let mut padded = vec![0; 4 - server_public.len()];
+        padded.extend_from_slice(&server_public);
+        server.send(&2u16.to_be_bytes());
+        server.send(&4u16.to_be_bytes());
+        server.send(&prime);
+        server.send(&padded);
+        let mut block: [u8; 128] = server.read(128).try_into().unwrap();
+        let client_public = BigUint::from_bytes_be(&server.read(4));
+        let shared = client_public.modpow(&server_secret, &modulus).to_bytes_be();
+        let mut shared_padded = vec![0; 4 - shared.len()];
+        shared_padded.extend_from_slice(&shared);
+        let cipher = Aes128::new(&md5::digest(&shared_padded).into());
+        for chunk in block.chunks_exact_mut(16) {
+            cipher.decrypt_block(chunk.into());
+        }
+        assert_eq!(&block[..4], b"leo\0");
+        assert_eq!(&block[64..74], b"s3cret-pw\0");
+        server.send(&0u32.to_be_bytes());
+        server.read(1);
+        server.server_init(16, 16, "Leo's Mac mini");
+        server.client_setup();
+        // macOS sends ZRLE; a solid tile.
+        let mut zrle = flate2::Compress::new(flate2::Compression::default(), true);
+        let mut data = Vec::with_capacity(64);
+        zrle.compress_vec(&[1, 10, 20, 30], &mut data, flate2::FlushCompress::Sync).unwrap();
+        server.update_header(1);
+        server.rect(0, 0, 16, 16, encoding::ZRLE);
+        server.send(&(data.len() as u32).to_be_bytes());
+        server.send(&data);
+        server.expect_update_request(true);
+        // Command-Q from the viewer arrives as Super_L + q.
+        assert_eq!(server.read(8), [4, 1, 0, 0, 0, 0, 0xff, 0xeb]);
+        assert_eq!(server.read(8), [4, 1, 0, 0, 0, 0, 0, b'q']);
+    });
+    let credentials =
+        Credentials { username: Some("leo".into()), password: Some("s3cret-pw".into()) };
+    let mut session = connect(port, credentials).unwrap();
+    assert_eq!(session.server_init().security, 30);
+    update(&mut session);
+    assert_eq!(pixel(&session, 15, 15), [10, 20, 30, 255]);
+    let input = session.input();
+    input.key(keysym(Key::Super).unwrap(), true).unwrap();
+    input.key(keysym(Key::Char('q')).unwrap(), true).unwrap();
+    server.join().unwrap();
+
+    // Without a user name the client says what it needs, without retrying.
+    let (listener, port) = listen();
+    let server = serve(listener, |server| {
+        server.send(b"RFB 003.889\n");
+        server.read(12);
+        server.send(&[1, 30]);
+    });
+    let error = connect(port, password("pw")).err().unwrap();
+    assert!(matches!(error, VncError::CredentialsRequired { username: true }), "{error}");
+    assert_eq!(Backoff::default().after_failure(Duration::ZERO, &error), None);
+    server.join().unwrap();
+}
+
+#[test]
+fn windows_vnc_password_success_and_refusal() {
+    for (typed, correct) in [("hunter22", true), ("wrong", false)] {
+        let (listener, port) = listen();
+        let server = serve(listener, move |server| {
+            server.send(b"RFB 003.008\n");
+            server.read(12);
+            server.send(&[1, 2]);
+            assert_eq!(server.u8(), 2);
+            let challenge: [u8; 16] = core::array::from_fn(|i| (i * 7) as u8);
+            server.send(&challenge);
+            let response: [u8; 16] = server.read(16).try_into().unwrap();
+            if response == des::vnc_response(b"hunter22", challenge) {
+                server.send(&0u32.to_be_bytes());
+                server.read(1);
+                server.server_init(8, 8, "DESKTOP-WIN11");
+                server.client_setup();
+                // TightVNC prefers Tight: a fill.
+                server.update_header(1);
+                server.rect(0, 0, 8, 8, encoding::TIGHT);
+                server.send(&[0x80, 1, 2, 3]);
+                server.expect_update_request(true);
+                // Clipboard both ways.
+                server.send(&[3, 0, 0, 0, 0, 0, 0, 5]);
+                server.send(b"hello");
+                assert_eq!(server.read(8), [6, 0, 0, 0, 0, 0, 0, 3]);
+                assert_eq!(server.read(3), b"caf");
+            } else {
+                server.send(&1u32.to_be_bytes());
+                server.send_reason("Authentication failed");
+            }
+        });
+        let result = connect(port, password(typed));
+        if correct {
+            let mut session = result.unwrap();
+            update(&mut session);
+            assert_eq!(pixel(&session, 7, 7), [1, 2, 3, 255]);
+            assert_eq!(session.next_event().unwrap(), Event::Clipboard("hello".into()));
+            session.input().clipboard("caf").unwrap();
+        } else {
+            let error = result.err().unwrap();
+            assert!(
+                matches!(&error, VncError::AuthFailed(reason) if reason == "Authentication failed"),
+                "{error}"
+            );
+            assert!(error.is_auth());
+        }
+        server.join().unwrap();
+    }
+}
+
+#[test]
+fn rfb_3_3_server_picks_the_security_type() {
+    let (listener, port) = listen();
+    let server = serve(listener, |server| {
+        server.send(b"RFB 003.003\n");
+        assert_eq!(server.read(12), b"RFB 003.003\n");
+        server.send(&2u32.to_be_bytes());
+        let challenge = [9u8; 16];
+        server.send(&challenge);
+        assert_eq!(server.read(16), des::vnc_response(b"pw", challenge));
+        server.send(&0u32.to_be_bytes());
+        server.read(1);
+        server.server_init(4, 4, "UltraVNC");
+        server.client_setup();
+        server.update_header(2);
+        server.raw_fill(0, 0, 4, 4, [7, 7, 7]);
+        server.rect(0, 0, 0, 0, encoding::LAST_RECT);
+        server.expect_update_request(true);
+        // A bell, then a DesktopSize resize.
+        server.send(&[2]);
+        server.update_header(1);
+        server.rect(0, 0, 6, 5, encoding::DESKTOP_SIZE);
+        server.expect_update_request(false);
+    });
+    let mut session = connect(port, password("pw")).unwrap();
+    update(&mut session);
+    assert_eq!(pixel(&session, 3, 3), [7, 7, 7, 255]);
+    assert_eq!(session.next_event().unwrap(), Event::Bell);
+    let resized = update(&mut session);
+    assert!(resized.resized);
+    assert!(!session.resize_supported(), "no ExtendedDesktopSize: scale locally");
+    assert_eq!((session.framebuffer().width(), session.framebuffer().height()), (6, 5));
+    server.join().unwrap();
+}
+
+#[test]
+fn tigervnc_plain_is_refused_before_any_password_bytes() {
+    let (listener, port) = listen();
+    let server = serve(listener, |server| {
+        server.send(b"RFB 003.008\n");
+        assert_eq!(server.read(12), b"RFB 003.008\n");
+        server.send(&[1, 19]); // VeNCrypt
+        assert_eq!(server.u8(), 19);
+        server.send(&[0, 2]); // version 0.2
+        assert_eq!(server.read(2), [0, 2]);
+        server.send(&[0]); // version accepted
+        server.send(&[3]); // TLS-only variants and the insecure Plain variant
+        for subtype in [262u32, 259, 256] {
+            server.send(&subtype.to_be_bytes());
+        }
+        // The client closes as soon as it sees that only insecure or
+        // unsupported variants remain: no username, password or length.
+        let mut leaked = Vec::new();
+        server.stream.read_to_end(&mut leaked).unwrap();
+        assert!(leaked.is_empty(), "credential bytes left the client: {leaked:?}");
+    });
+    let credentials = Credentials {
+        username: Some("bob".into()),
+        password: Some("sensitive-account-password".into()),
+    };
+    let error = connect(port, credentials).err().unwrap();
+    assert!(
+        matches!(&error, VncError::Protocol(message) if message.contains("VeNCrypt Plain")),
+        "{error}"
+    );
+    server.join().unwrap();
+}
+
+#[test]
+fn tigervnc_vencrypt_prefers_vnc_auth_to_plain() {
+    let (listener, port) = listen();
+    let server = serve(listener, |server| {
+        server.send(b"RFB 003.008\n");
+        server.read(12);
+        server.send(&[1, 19]); // VeNCrypt
+        assert_eq!(server.u8(), 19);
+        server.send(&[0, 2]);
+        assert_eq!(server.read(2), [0, 2]);
+        server.send(&[0]);
+        server.send(&[2]);
+        for subtype in [256u32, 2] {
+            server.send(&subtype.to_be_bytes());
+        }
+        assert_eq!(server.u32(), 2, "VNC authentication, not Plain");
+        let challenge = [7u8; 16];
+        server.send(&challenge);
+        assert_eq!(server.read(16), des::vnc_response(b"password", challenge));
+        server.send(&0u32.to_be_bytes()); // authenticated
+        assert_eq!(server.u8(), 1, "shared");
+        server.server_init(2, 2, "TigerVNC");
+        server.client_setup();
+    });
+    let credentials =
+        Credentials { username: Some("bob".into()), password: Some("password".into()) };
+    let session = connect(port, credentials).unwrap();
+    assert_eq!(session.server_init().security, 19);
+    server.join().unwrap();
+}
+
+#[test]
+fn hostile_servers_end_with_protocol_errors() {
+    // A framebuffer far past the limit.
+    let (listener, port) = listen();
+    let server = serve(listener, |server| {
+        server.send(b"RFB 003.008\n");
+        server.read(12);
+        server.send(&[1, 1]);
+        server.read(1);
+        server.send(&0u32.to_be_bytes());
+        server.read(1);
+        server.server_init(60000, 60000, "huge");
+    });
+    assert!(matches!(connect(port, Credentials::default()), Err(VncError::Protocol(_))));
+    server.join().unwrap();
+
+    // A rectangle outside the framebuffer.
+    let (listener, port) = listen();
+    let server = serve(listener, |server| {
+        server.send(b"RFB 003.008\n");
+        server.read(12);
+        server.send(&[1, 1]);
+        server.read(1);
+        server.send(&0u32.to_be_bytes());
+        server.read(1);
+        server.server_init(4, 4, "bad");
+        server.client_setup();
+        server.update_header(1);
+        server.rect(2, 2, 4, 4, encoding::RAW);
+    });
+    let mut session = connect(port, Credentials::default()).unwrap();
+    assert!(matches!(session.next_event(), Err(VncError::Protocol(_))));
+    server.join().unwrap();
+
+    // Not an RFB server at all.
+    let (listener, port) = listen();
+    let server = serve(listener, |server| server.send(b"SSH-2.0-Open"));
+    assert!(matches!(connect(port, Credentials::default()), Err(VncError::Protocol(_))));
+    server.join().unwrap();
+}
+
+#[test]
+fn close_unblocks_the_reader() {
+    let (listener, port) = listen();
+    let (ready_tx, ready_rx) = std::sync::mpsc::channel();
+    let server = serve(listener, move |server| {
+        server.send(b"RFB 003.008\n");
+        server.read(12);
+        server.send(&[1, 1]);
+        server.read(1);
+        server.send(&0u32.to_be_bytes());
+        server.read(1);
+        server.server_init(2, 2, "idle");
+        server.client_setup();
+        ready_tx.send(()).unwrap();
+        // Then nothing: the client is waiting in next_event.
+        let mut rest = Vec::new();
+        let _ = server.stream.read_to_end(&mut rest);
+    });
+    let mut session = connect(port, Credentials::default()).unwrap();
+    // Setup is queued asynchronously; immediate close may discard it.
+    ready_rx.recv_timeout(TIMEOUT).unwrap();
+    let input = session.input();
+    let reader = thread::spawn(move || session.next_event().is_err());
+    input.close();
+    assert!(reader.join().unwrap());
+    server.join().unwrap();
+}
+
+#[test]
+fn a_graceful_close_sends_queued_input_first() {
+    let (listener, port) = listen();
+    let (rest_tx, rest_rx) = std::sync::mpsc::channel();
+    let server = serve(listener, move |server| {
+        server.send(b"RFB 003.008\n");
+        server.read(12);
+        server.send(&[1, 1]);
+        server.read(1);
+        server.send(&0u32.to_be_bytes());
+        server.read(1);
+        server.server_init(2, 2, "idle");
+        server.client_setup();
+        let mut rest = Vec::new();
+        let _ = server.stream.read_to_end(&mut rest);
+        rest_tx.send(rest).unwrap();
+    });
+    let session = connect(port, Credentials::default()).unwrap();
+    let input = session.input();
+    input.keys(&[(0xFFE3, true), (0xFFE3, false)]).unwrap();
+    input.close_after_pending(Duration::from_secs(5));
+    server.join().unwrap();
+    let expected =
+        [cmux_vnc::message::key_event(0xFFE3, true), cmux_vnc::message::key_event(0xFFE3, false)]
+            .concat();
+    assert_eq!(rest_rx.recv().unwrap(), expected);
+}
+
+/// Uses the same TCP peer for the old viewer path and the streamed path. The
+/// peer checks every key and clipboard byte without collecting the wire output.
+/// Its pause after the first key also exercises a temporarily stalled reader.
+#[test]
+fn large_paste_is_complete_ordered_and_streamed() {
+    use std::io::BufReader;
+    use std::sync::Arc;
+    use std::sync::atomic::{AtomicUsize, Ordering};
+    use std::sync::mpsc;
+    use std::time::Instant;
+
+    const PATTERN: &str = "aé界🦀\r\n\tZ";
+    const REPEATS: usize = (8 * 1024 * 1024) / (PATTERN.len() - 1) + 1;
+    const LATER_KEY: u32 = 0xffbe; // F1 cannot occur in the paste.
+
+    struct MeasuredWriter {
+        writer: Box<dyn Write + Send>,
+        peak: Arc<AtomicUsize>,
+    }
+
+    impl Write for MeasuredWriter {
+        fn write(&mut self, bytes: &[u8]) -> std::io::Result<usize> {
+            self.peak.fetch_max(bytes.len(), Ordering::Relaxed);
+            self.writer.write(bytes)
+        }
+
+        fn flush(&mut self) -> std::io::Result<()> {
+            self.writer.flush()
+        }
+    }
+
+    fn check_clipboard(reader: &mut impl Read) -> usize {
+        let mut header = [0; 8];
+        reader.read_exact(&mut header).unwrap();
+        assert_eq!(header[..4], [6, 0, 0, 0]);
+        let count = PATTERN.chars().count() * REPEATS;
+        assert_eq!(u32::from_be_bytes(header[4..].try_into().unwrap()) as usize, count);
+        let mut expected = PATTERN.chars().cycle().map(|c| u8::try_from(c as u32).unwrap_or(b'?'));
+        let mut buffer = [0; 16 * 1024];
+        let mut remaining = count;
+        while remaining != 0 {
+            let len = remaining.min(buffer.len());
+            reader.read_exact(&mut buffer[..len]).unwrap();
+            for &byte in &buffer[..len] {
+                assert_eq!(byte, expected.next().unwrap());
+            }
+            remaining -= len;
+        }
+        count + header.len()
+    }
+
+    for legacy in [true, false] {
+        let (listener, port) = listen();
+        let (ready_tx, ready_rx) = mpsc::channel();
+        let (start_tx, start_rx) = mpsc::channel::<Instant>();
+        let (first_tx, first_rx) = mpsc::channel();
+        let (resume_tx, resume_rx) = mpsc::channel();
+        let (done_tx, done_rx) = mpsc::channel();
+        let server = serve(listener, move |server| {
+            server.send(b"RFB 003.008\n");
+            server.read(12);
+            server.send(&[1, 1]);
+            server.read(1);
+            server.send(&0u32.to_be_bytes());
+            server.read(1);
+            server.server_init(2, 2, "paste receiver");
+            server.client_setup();
+            ready_tx.send(()).unwrap();
+            let start = start_rx.recv_timeout(TIMEOUT).unwrap();
+            let mut reader = BufReader::with_capacity(64 * 1024, &mut server.stream);
+            let mut wire_bytes = 0;
+            if legacy {
+                wire_bytes += check_clipboard(&mut reader);
+            }
+            let all_chars = PATTERN.chars().filter(|&c| c != '\r').count() * REPEATS;
+            let count = if legacy { 64 * 1024 } else { all_chars };
+            let mut pair = [0; 16];
+            let mut first = Duration::ZERO;
+            let mut text_bytes = 0;
+            for (i, c) in PATTERN.chars().filter(|&c| c != '\r').cycle().take(count).enumerate() {
+                reader.read_exact(&mut pair).unwrap();
+                // Check the complete down/up pair and Unicode keysym, in order.
+                let sym = cmux_vnc::keysym::char_keysym(c);
+                assert_eq!(pair[..4], [4, 1, 0, 0]);
+                assert_eq!(pair[4..8], sym.to_be_bytes());
+                assert_eq!(pair[8..12], [4, 0, 0, 0]);
+                assert_eq!(pair[12..], sym.to_be_bytes());
+                text_bytes += c.len_utf8();
+                if i == 0 {
+                    first = start.elapsed();
+                    first_tx.send(first).unwrap();
+                    resume_rx.recv_timeout(TIMEOUT).unwrap();
+                }
+            }
+            wire_bytes += count * pair.len();
+            if !legacy {
+                wire_bytes += check_clipboard(&mut reader);
+            }
+            // Later input must remain behind both the paste and its clipboard.
+            reader.read_exact(&mut pair).unwrap();
+            assert_eq!(&pair[..8], cmux_vnc::message::key_event(LATER_KEY, true));
+            assert_eq!(&pair[8..], cmux_vnc::message::key_event(LATER_KEY, false));
+            wire_bytes += pair.len();
+            done_tx.send((start.elapsed(), first, text_bytes, wire_bytes)).unwrap();
+        });
+
+        let mut transport = Transport::tcp("127.0.0.1", port, TIMEOUT).unwrap();
+        let peak = Arc::new(AtomicUsize::new(0));
+        transport.writer =
+            Box::new(MeasuredWriter { writer: transport.writer, peak: peak.clone() });
+        let session = Session::start(transport, &SessionOptions::default()).unwrap();
+        ready_rx.recv_timeout(TIMEOUT).unwrap();
+        peak.store(0, Ordering::Relaxed);
+        let input = session.input();
+        let text = PATTERN.repeat(REPEATS);
+        let source_bytes = text.len();
+        assert!(source_bytes > 8 * 1024 * 1024);
+        let start = Instant::now();
+        start_tx.send(start).unwrap();
+        if legacy {
+            // The previous viewer implementation: clipboard first, then a
+            // fully buffered and silently capped sequence of key events.
+            input.clipboard(&text).unwrap();
+            let keys: Vec<_> = text
+                .chars()
+                .filter(|&c| c != '\r')
+                .take(64 * 1024)
+                .map(cmux_vnc::keysym::char_keysym)
+                .flat_map(|sym| [(sym, true), (sym, false)])
+                .collect();
+            input.keys(&keys).unwrap();
+        } else {
+            input.paste(text).unwrap();
+        }
+        input.keys(&[(LATER_KEY, true), (LATER_KEY, false)]).unwrap();
+        first_rx.recv_timeout(TIMEOUT).unwrap();
+        assert!(
+            matches!(done_rx.try_recv(), Err(mpsc::TryRecvError::Empty)),
+            "the first visible key arrives before the paste has completed"
+        );
+        resume_tx.send(()).unwrap();
+        let (elapsed, first, delivered, wire_bytes) =
+            done_rx.recv_timeout(Duration::from_secs(60)).unwrap();
+        let peak = peak.load(Ordering::Relaxed);
+        if legacy {
+            assert!(delivered < source_bytes / 2, "baseline must reproduce the old truncation");
+        } else {
+            assert_eq!(delivered, source_bytes - REPEATS, "only CR is filtered, as before");
+            assert!(delivered > 8 * 1024 * 1024);
+            assert!(peak <= 16 * 1024, "writer buffered a whole paste: {peak} bytes");
+        }
+        eprintln!(
+            "paste mode={} source_bytes={source_bytes} delivered_text_bytes={delivered} first_key_ms={:.3} elapsed_ms={:.3} wire_MiB_per_s={:.3} text_MiB_per_s={:.3} peak_write_bytes={peak}",
+            if legacy { "legacy" } else { "streamed" },
+            first.as_secs_f64() * 1000.0,
+            elapsed.as_secs_f64() * 1000.0,
+            wire_bytes as f64 / elapsed.as_secs_f64() / 1048576.0,
+            delivered as f64 / elapsed.as_secs_f64() / 1048576.0
+        );
+        server.join().unwrap();
+        input.close();
+    }
+}
+
+/// A proxy command gets stdin's end and time to forward the last input
+/// before it is stopped; killing it at once would lose the bytes (the
+/// proxy here starts reading only after a delay).
+#[cfg(unix)]
+#[test]
+fn finishing_a_proxy_lets_it_forward_what_was_written() {
+    let dir = std::env::temp_dir().join(format!("cmux-vnc-drain-{}", std::process::id()));
+    std::fs::create_dir_all(&dir).unwrap();
+    let out = dir.join("forwarded");
+    let (transport, _stderr) =
+        Transport::command(&format!("sleep 0.3; cat > '{}'", out.display())).unwrap();
+    let closer = transport.closer();
+    let Transport { mut reader, mut writer, .. } = transport;
+    writer.write_all(b"key-up").unwrap();
+    writer.flush().unwrap();
+    drop(writer);
+    let drain = thread::spawn(move || {
+        let mut rest = Vec::new();
+        let _ = reader.read_to_end(&mut rest);
+    });
+    closer.finish(Duration::from_secs(5));
+    drain.join().unwrap();
+    assert_eq!(std::fs::read(&out).unwrap(), b"key-up");
+    let _ = std::fs::remove_dir_all(&dir);
+}

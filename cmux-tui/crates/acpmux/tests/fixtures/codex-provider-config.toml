@@ -1,0 +1,25 @@
+# A Codex config.toml with its own model provider (_acpmux/complete, hq#1957).
+model = "deepseek/deepseek-v4"
+model_provider = "openrouter"
+approval_policy = "on-request"
+
+[mcp_servers.files]
+command = "npx"
+args = ["-y", "files-mcp"]
+
+[model_providers.openrouter]
+name = "OpenRouter"
+base_url = "https://openrouter.ai/api/v1"
+env_key = "OPENROUTER_API_KEY"
+wire_api = "chat"
+request_max_retries = 2
+experimental_bearer_token = "sk-or-secret"
+
+[model_providers.openrouter.http_headers]
+X-Title = "secret-header"
+
+[model_providers.openrouter.query_params]
+api-version = "2026-01"
+
+[model_providers.other]
+base_url = "https://example.invalid"

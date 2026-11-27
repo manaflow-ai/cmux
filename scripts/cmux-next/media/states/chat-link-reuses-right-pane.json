@@ -1,0 +1,157 @@
+{
+ "title": "An agent chat with a page already open in the pane on its right (cmux#28544, Leo's layout). From the transcript it opens another agent's chat, then a pull request link, then Cmd-T in the chat. Base makes the opened chat's tab in the chat's pane and moves it to a new pane on the right; after, it is a tab in the page's pane, and Cmd-T opens the New Tab page in the chat's pane.",
+ "launch_args": [
+  "--showcase"
+ ],
+ "steps": [
+  {
+   "title": "Launch",
+   "wait": 3,
+   "shot": false
+  },
+  {
+   "title": "A terminal for the right pane",
+   "cmux": [
+    "action",
+    "run",
+    "newTab",
+    "--name",
+    "Notes",
+    "--focus",
+    "--cwd",
+    "/tmp"
+   ],
+   "wait": 1,
+   "shot": false
+  },
+  {
+   "title": "A page in that pane (example.com: synthetic, no one's names)",
+   "cmux": [
+    "tab",
+    "create",
+    "browser",
+    "--url",
+    "https://example.com/",
+    "--name",
+    "Pull requests"
+   ],
+   "wait": 4,
+   "shot": false
+  },
+  {
+   "title": "An agent chat (it docks left; the page's pane is on its right)",
+   "cmux": [
+    "agent",
+    "new-chat",
+    "--cwd",
+    "/tmp"
+   ],
+   "wait": 3,
+   "shot": false
+  },
+  {
+   "title": "Wait for the chat page",
+   "rpc": {
+    "method": "debug.agent_pane",
+    "params": {
+     "action": "chat_state"
+    }
+   },
+   "shot": false
+  },
+  {
+   "title": "The chat's turn (the showcase mock answers)",
+   "rpc": {
+    "method": "debug.agent_pane",
+    "params": {
+     "action": "send_prompt",
+     "pane": "{pane}",
+     "text": "Look at the pull request"
+    }
+   },
+   "wait": 4,
+   "shot": false
+  },
+  {
+   "title": "Messages from other agents' chats, the page on the right",
+   "rpc": {
+    "method": "debug.agent_pane",
+    "params": {
+     "action": "seed_rows",
+     "pane": "{pane}",
+     "fixture": "incoming"
+    }
+   },
+   "wait": 1.5
+  },
+  {
+   "title": "Open the sending agent's chat from the transcript (chat.offer.open)",
+   "rpc": {
+    "method": "debug.agent_pane",
+    "params": {
+     "action": "click",
+     "pane": "{pane}",
+     "selector": ".cv-received:last-of-type .cv-disclosure__open"
+    }
+   },
+   "wait": 0.3
+  },
+  {
+   "title": "Mid-open",
+   "wait": 0.3
+  },
+  {
+   "title": "Where the opened chat landed",
+   "wait": 2
+  },
+  {
+   "title": "A turn that links a pull request",
+   "rpc": {
+    "method": "debug.agent_pane",
+    "params": {
+     "action": "seed_rows",
+     "pane": "{pane}",
+     "fixture": "link"
+    }
+   },
+   "wait": 1.5,
+   "shot": false
+  },
+  {
+   "title": "Click the pull request link (example.com/pull/4321)",
+   "rpc": {
+    "method": "debug.agent_pane",
+    "params": {
+     "action": "click",
+     "pane": "{pane}",
+     "selector": "a[href=\"https://example.com/pull/4321\"]"
+    }
+   },
+   "wait": 0.3
+  },
+  {
+   "title": "Where the link landed",
+   "wait": 2
+  },
+  {
+   "title": "Focus the chat",
+   "cmux": [
+    "pane",
+    "{pane}",
+    "focus"
+   ],
+   "wait": 1,
+   "shot": false,
+   "optional": "the key step below names the chat's pane too"
+  },
+  {
+   "title": "Cmd-T in the chat (the main pane)",
+   "key": "t",
+   "pane": "{pane}",
+   "modifiers": [
+    "command"
+   ],
+   "wait": 1.5
+  }
+ ]
+}

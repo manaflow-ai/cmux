@@ -34,13 +34,8 @@ export function TeamAvatar({
   );
 }
 
-export function PlanBadge({ planId, enterpriseLabel }: {
-  readonly planId: string | null | undefined;
-  /** An enterprise deal's plan name, shown in place of the plan. */
-  readonly enterpriseLabel?: string | null;
-}) {
+export function PlanBadge({ planId }: { readonly planId: string | null | undefined }) {
   const t = useTranslations("dashboard.teams.plan");
-  if (enterpriseLabel) return <Badge tone="default">{enterpriseLabel}</Badge>;
   const key = planLabelKey(planId);
   return <Badge tone={key === "free" ? "muted" : "default"}>{t(key)}</Badge>;
 }

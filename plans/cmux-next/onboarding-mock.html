@@ -1,0 +1,179 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>cmux-next onboarding mock (cx-aha)</title>
+<style>
+  :root {
+    --bg: #161616; --pane: #1e1e1e; --raise: #262626; --line: #333; --text: #e6e6e6;
+    --dim: #9a9a9a; --faint: #6c6c6c; --accent: #d9d9d9; --warn: #e0b45c;
+    font: 13px/1.45 -apple-system, BlinkMacSystemFont, "SF Pro Text", system-ui, sans-serif;
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: #0e0e0e; color: var(--text); padding: 32px; }
+  h1 { font-size: 15px; font-weight: 600; margin: 0 0 4px; }
+  .note { color: var(--dim); margin: 0 0 24px; max-width: 900px; }
+  .frames { display: grid; grid-template-columns: repeat(auto-fit, minmax(520px, 1fr)); gap: 28px; }
+  .frame { background: var(--bg); border: 1px solid var(--line); border-radius: 12px; overflow: hidden; }
+  .caption { padding: 10px 14px; border-bottom: 1px solid var(--line); color: var(--dim); font-size: 12px; }
+  .caption b { color: var(--text); font-weight: 600; }
+  .window { display: grid; grid-template-columns: 150px 1fr; min-height: 380px; }
+  .sidebar { background: #121212; border-right: 1px solid var(--line); padding: 12px 10px; color: var(--dim); font-size: 12px; }
+  .sidebar .row { padding: 4px 8px; border-radius: 6px; }
+  .sidebar .row.on { background: var(--raise); color: var(--text); }
+  .page { display: flex; flex-direction: column; align-items: center; justify-content: center; padding: 28px; gap: 12px; position: relative; }
+  .heading { font-size: 17px; font-weight: 500; display: flex; gap: 10px; align-items: center; }
+  .x { color: var(--faint); font-size: 12px; border: 1px solid var(--line); border-radius: 50%; width: 18px; height: 18px; display: inline-grid; place-items: center; }
+  .pickers { display: flex; gap: 8px; width: 100%; max-width: 460px; }
+  .chip { background: var(--raise); border: 1px solid var(--line); border-radius: 999px; padding: 4px 10px; font-size: 12px; display: inline-flex; gap: 6px; align-items: center; }
+  .chip .k { color: var(--faint); }
+  .chip.open { outline: 1px solid var(--accent); }
+  .prompt { width: 100%; max-width: 460px; background: var(--pane); border: 1px solid var(--line); border-radius: 12px; padding: 12px 14px; min-height: 64px; color: var(--faint); position: relative; }
+  .prompt.typed { color: var(--text); }
+  .send { position: absolute; right: 10px; bottom: 10px; width: 24px; height: 24px; border-radius: 50%; background: var(--accent); color: #111; display: grid; place-items: center; font-size: 13px; }
+  .status { width: 100%; max-width: 460px; font-size: 12px; color: var(--warn); display: flex; gap: 8px; align-items: center; }
+  .btn { border: 1px solid var(--line); background: var(--raise); color: var(--text); border-radius: 6px; padding: 2px 8px; font-size: 12px; }
+  .link { color: var(--dim); font-size: 12px; text-decoration: underline; text-underline-offset: 3px; position: absolute; bottom: 14px; }
+  .menu { width: 100%; max-width: 460px; background: var(--raise); border: 1px solid var(--line); border-radius: 10px; padding: 6px; font-size: 12px; }
+  .menu .search { padding: 4px 8px 8px; color: var(--faint); border-bottom: 1px solid var(--line); margin-bottom: 4px; }
+  .menu .item { padding: 4px 8px; border-radius: 6px; display: flex; justify-content: space-between; }
+  .menu .item.on { background: #333; }
+  .menu .item .k { color: var(--faint); }
+  .menu .sep { border-top: 1px solid var(--line); margin: 4px 0; }
+  .split { width: 100%; max-width: 460px; background: #0b0b0b; border: 1px solid var(--line); border-radius: 8px; padding: 8px 10px; font: 11px/1.4 ui-monospace, Menlo, monospace; color: #bdbdbd; }
+  .settings { display: grid; grid-template-columns: 170px 1fr; min-height: 420px; }
+  .nav { background: #121212; border-right: 1px solid var(--line); padding: 12px 10px; font-size: 12px; color: var(--dim); }
+  .nav .row { padding: 4px 8px; border-radius: 6px; }
+  .nav .row.on { background: var(--raise); color: var(--text); }
+  .section { padding: 18px 22px; display: flex; flex-direction: column; gap: 14px; }
+  .section h2 { margin: 0; font-size: 15px; font-weight: 600; display: flex; justify-content: space-between; }
+  .group { border: 1px solid var(--line); border-radius: 10px; padding: 10px 12px; display: grid; gap: 8px; }
+  .group .label { font-size: 12px; color: var(--dim); }
+  .seg { display: flex; flex-wrap: wrap; gap: 6px; }
+  .seg span { border: 1px solid var(--line); border-radius: 6px; padding: 3px 8px; font-size: 12px; }
+  .seg span.on { background: var(--accent); color: #111; border-color: var(--accent); }
+  .themes { display: grid; grid-template-columns: repeat(5, 1fr); gap: 6px; }
+  .sw { border: 1px solid var(--line); border-radius: 6px; height: 34px; font-size: 10px; padding: 3px 5px; }
+  .sw.on { outline: 2px solid var(--accent); }
+  .slider { height: 4px; background: var(--line); border-radius: 2px; position: relative; }
+  .slider i { position: absolute; top: -5px; width: 14px; height: 14px; border-radius: 50%; background: var(--accent); }
+  .keys { font-size: 11px; color: var(--faint); font-family: ui-monospace, Menlo, monospace; }
+  .plain .page { gap: 10px; }
+</style>
+</head>
+<body>
+<h1>cmux-next onboarding mock (plans/cmux-next/onboarding.md)</h1>
+<p class="note">Static mock, no product code. Frame 1 is what a fresh user sees at first launch: the real New Tab page in the launch's fresh workspace, with three first-run additions (heading, status line, "Make it yours"). Frame 2 is the moment-of-need sign-in. Frame 3 is the "Make it yours" section of React Settings. Frame 4 is what a user with data sees: the app as it is, nothing added.</p>
+
+<div class="frames">
+
+  <div class="frame">
+    <div class="caption"><b>1. Fresh user, first launch.</b> Project picker open; newest agent-session folder pre-picked; harness = installed and signed in.</div>
+    <div class="window">
+      <div class="sidebar"><div class="row on">New workspace</div></div>
+      <div class="page">
+        <div class="heading">Where do you want to work? <span class="x" title="Dismiss">×</span></div>
+        <div class="pickers">
+          <span class="chip open"><span class="k">Project</span> api-server ▾</span>
+          <span class="chip"><span class="k">Agent</span> Claude Code · Opus 5.5 ▾</span>
+        </div>
+        <div class="menu">
+          <div class="search">Search projects</div>
+          <div class="item on"><span>~/code/api-server</span><span class="k">Claude · 2 h ago</span></div>
+          <div class="item"><span>~/code/web</span><span class="k">Codex · yesterday</span></div>
+          <div class="item"><span>~/Projects/dotfiles</span><span class="k">git repo</span></div>
+          <div class="sep"></div>
+          <div class="item"><span>Private folder</span><span class="k">no project</span></div>
+          <div class="item"><span>Choose Folder…</span><span class="k">open panel</span></div>
+        </div>
+        <div class="prompt">Ask Claude Code to do something in api-server…<span class="send">↑</span></div>
+        <a class="link">Make it yours</a>
+      </div>
+    </div>
+  </div>
+
+  <div class="frame">
+    <div class="caption"><b>2. Chosen harness is not signed in.</b> Status shows before send. Prompt is held and sent when sign-in completes.</div>
+    <div class="window">
+      <div class="sidebar"><div class="row on">api-server</div></div>
+      <div class="page">
+        <div class="heading">Where do you want to work? <span class="x">×</span></div>
+        <div class="pickers">
+          <span class="chip"><span class="k">Project</span> api-server ▾</span>
+          <span class="chip"><span class="k">Agent</span> Codex · Default ▾</span>
+        </div>
+        <div class="prompt typed">Fix the flaky retry test in payments/<span class="send">↑</span></div>
+        <div class="status">Codex is not signed in. <span class="btn">Sign in</span> <span style="color:var(--faint)">Your prompt is kept and sent after sign-in.</span></div>
+        <div class="split">$ codex login<br>Opening browser to sign in…<br>▌</div>
+        <a class="link">Make it yours</a>
+      </div>
+    </div>
+  </div>
+
+  <div class="frame">
+    <div class="caption"><b>3. Make it yours</b> (Settings section; Help › Continue Setup…, palette, first-run link). Each control applies live and writes only its own keys.</div>
+    <div class="settings">
+      <div class="nav">
+        <div class="row on">Make it yours</div><div class="row">General</div><div class="row">Appearance</div>
+        <div class="row">Terminal</div><div class="row">Keyboard Shortcuts</div><div class="row">Accounts</div><div class="row">Computer Use</div>
+      </div>
+      <div class="section">
+        <h2>Make it yours <span class="btn">Undo all</span></h2>
+        <div class="group">
+          <div class="label">Keyboard style</div>
+          <div class="seg"><span class="on">cmux</span><span>VS Code-like</span><span>Terminal / iTerm-like</span><span>tmux-like (Ctrl-B)</span></div>
+          <div class="label">Ctrl-1…9 select</div>
+          <div class="seg"><span class="on">Tabs</span><span>Spaces</span></div>
+          <div class="keys">writes shortcuts.bindings.&lt;action&gt; (changed only) · space.selectByNumber · selectSurfaceByNumber</div>
+        </div>
+        <div class="group">
+          <div class="label">Theme (Ghostty themes, live preview)</div>
+          <div class="themes">
+            <div class="sw on" style="background:#1e1e1e;color:#ddd">My Ghostty config</div>
+            <div class="sw" style="background:#282a36;color:#f8f8f2">Dracula</div>
+            <div class="sw" style="background:#fdf6e3;color:#586e75">Solarized Light</div>
+            <div class="sw" style="background:#1a1b26;color:#c0caf5">Tokyo Night</div>
+            <div class="sw" style="background:#2e3440;color:#d8dee9">Nord</div>
+          </div>
+          <div class="keys">writes appearance.theme · unset = your Ghostty config · More Themes… lists every Ghostty theme</div>
+        </div>
+        <div class="group">
+          <div class="label">Window opacity and blur</div>
+          <div class="slider"><i style="left:78%"></i></div>
+          <div class="seg"><span>None</span><span class="on">Frosted</span><span>Glass</span><span>Glass clear</span></div>
+          <div class="keys">writes appearance.backgroundOpacity · appearance.backgroundBlur · disabled under Reduce Transparency</div>
+        </div>
+        <div class="group">
+          <div class="label">Font and size</div>
+          <div class="seg"><span class="on">SF Mono</span><span>JetBrains Mono</span><span>Menlo</span><span>More…</span></div>
+          <div class="slider"><i style="left:30%"></i></div>
+          <div class="keys">writes terminal.fontFamily · terminal.fontSize · appearance.metrics.chromeFontSize · Edit Ghostty config for the rest</div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="frame plain">
+    <div class="caption"><b>4. User with data</b> (workspaces, chats, cmux-next settings or a classic snapshot). No onboarding window, no heading, no link. Record: reason existing-data.</div>
+    <div class="window">
+      <div class="sidebar">
+        <div class="row">api-server</div><div class="row">web</div><div class="row on">New Tab</div><div class="row">dotfiles</div>
+      </div>
+      <div class="page">
+        <div class="pickers">
+          <span class="chip"><span class="k">Project</span> web ▾</span>
+          <span class="chip"><span class="k">Agent</span> Claude Code · Opus 5.5 ▾</span>
+        </div>
+        <div class="prompt">Ask Claude Code, type a URL, or ! for a terminal…<span class="send">↑</span></div>
+        <div class="menu" style="background:transparent">
+          <div class="item"><span>Refactor auth middleware</span><span class="k">2 h ago</span></div>
+          <div class="item"><span>Bump deps and fix types</span><span class="k">yesterday</span></div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+</div>
+</body>
+</html>

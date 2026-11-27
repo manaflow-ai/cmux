@@ -1,0 +1,70 @@
+{
+  "title": "First SSH connection recovery",
+  "steps": [
+    {
+      "title": "Connect to an unreachable host",
+      "cmux": [
+        "action",
+        "run",
+        "remote.connect",
+        "--destination",
+        "nohost.invalid",
+        "--focus"
+      ],
+      "wait": 8
+    },
+    {
+      "title": "Recovery offers Retry and diagnostics",
+      "rpc": {
+        "method": "debug.dialog",
+        "params": {}
+      },
+      "wait": 0,
+      "shot": false
+    },
+    {
+      "title": "Retry the same destination",
+      "rpc": {
+        "method": "debug.dialog",
+        "params": {
+          "press": "retry"
+        }
+      },
+      "wait": 8
+    },
+    {
+      "title": "Copy Error keeps recovery open",
+      "rpc": {
+        "method": "debug.dialog",
+        "params": {
+          "press": "copy"
+        }
+      },
+      "wait": 0.2,
+      "expect": {"method": "debug.dialog", "fields": {"dialogs.0.visible": true}}
+    },
+    {
+      "title": "Dismiss recovery",
+      "rpc": {
+        "method": "debug.dialog",
+        "params": {
+          "dismiss": true
+        }
+      },
+      "wait": 0.2,
+      "shot": false
+    },
+    {
+      "title": "Install Tailscale from Add Device",
+      "rpc": {
+        "method": "debug.add_device",
+        "params": {
+          "network": "none",
+          "computers": [],
+          "way": "network"
+        }
+      },
+      "wait": 1
+    }
+  ]
+}

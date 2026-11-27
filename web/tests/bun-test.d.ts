@@ -61,7 +61,4 @@ declare module "bun:test" {
   export const test: TestFunction;
 }
 
-declare const Bun: {
-  TOML: { parse(input: string): unknown };
-  YAML: { parse(input: string): unknown };
-};
+declare const Bun: { TOML: { parse(input: string): unknown } };
