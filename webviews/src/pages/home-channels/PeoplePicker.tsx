@@ -7,6 +7,7 @@ import { KeyboardScope } from "../../ui/KeyboardScope";
 import { useScrollEdges } from "../../ui/scrollEdges";
 import type { Strings } from "../shared/i18n";
 import { Avatar } from "./Avatar";
+import { shownPeople } from "./peoplePickerFilter";
 import type { HomeParticipant } from "./types";
 import "./peoplePickerLoading.css";
 import "../../ui/popupSurface.css";
@@ -26,13 +27,10 @@ export function PeoplePicker({ people, picked, onPicked, strings, loading }: Peo
   const [query, setQuery] = useState("");
   const list = useRef<HTMLDivElement | null>(null);
   const rowsEdges = useScrollEdges();
+  const pickedSet = useMemo(() => new Set(picked), [picked]);
   const shown = useMemo(() => {
-    const needle = query.trim().toLocaleLowerCase();
-    const byId = new Map(people.map((person) => [person.id, person]));
-    const first = picked.flatMap((id) => (byId.has(id) ? [byId.get(id)!] : []));
-    const rest = people.filter((person) => !picked.includes(person.id));
-    return [...first, ...rest.filter((person) => !needle || person.name.toLocaleLowerCase().includes(needle))];
-  }, [people, picked, query]);
+    return shownPeople(people, pickedSet, picked, query.trim().toLocaleLowerCase());
+  }, [people, pickedSet, picked, query]);
   const toggle = (id: string) => onPicked(picked.includes(id) ? picked.filter((p) => p !== id) : [...picked, id]);
   // Up and Down walk the field and the rows (each row is a checkbox the browser focuses).
   const keys = (event: KeyboardEvent<HTMLDivElement>) => {
@@ -87,7 +85,7 @@ export function PeoplePicker({ people, picked, onPicked, strings, loading }: Peo
               <input
                 type="checkbox"
                 aria-label={person.name}
-                checked={picked.includes(person.id)}
+                checked={pickedSet.has(person.id)}
                 onChange={() => toggle(person.id)}
               />
               <Avatar participant={person} size={24} />
