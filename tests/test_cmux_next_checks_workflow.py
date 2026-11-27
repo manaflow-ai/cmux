@@ -3630,6 +3630,10 @@ class SameRepositoryPullRequestsRunTheirTiers(unittest.TestCase):
                             # path_route hands the jobs its labels as ",a,b," (note-97).
                             "needs.path_route.outputs.labels": "," + ",".join(labels) + ",",
                             "github.event.pull_request.author_association": "CONTRIBUTOR"})
+            if "full-ci" in labels:
+                # The full-ci run is the labeled event's (CI_FULL_CI_ONE_SHOT: a later push into feat-cmux-next
+                # runs the cheap tier).
+                context.update({"github.event.action": "labeled", "github.event.label.name": "full-ci"})
         context.update({f"inputs.{key}": value for key, value in inputs.items()})
         return context
 

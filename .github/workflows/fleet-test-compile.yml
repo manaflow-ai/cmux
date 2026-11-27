@@ -84,7 +84,7 @@ jobs:
     # The fleet takes same-repository pull requests only (as the Swift canary's fleet job).
     # A pull request compiles its test targets here only with full-ci (2026-11-21, below); the tip compile
     # (cmux-next-tip-test-compile.yml) checks every feat-cmux-next push that reaches a test target.
-    if: ${{ github.repository_owner == 'manaflow-ai' && github.event.pull_request.head.repo.full_name == github.repository && contains(github.event.pull_request.labels.*.name, 'full-ci') }}
+    if: ${{ github.repository_owner == 'manaflow-ai' && github.event.pull_request.head.repo.full_name == github.repository && (contains(github.event.pull_request.labels.*.name, 'full-ci') && (github.event.pull_request.base.ref != 'feat-cmux-next' || (github.event.action == 'labeled' && github.event.label.name == 'full-ci') || (vars.CI_FULL_CI_ONE_SHOT || '1') == '0')) }}
     # Blacksmith, behind the fork branch, so a GitHub billing block cannot stop it (tests/test_ci_self_hosted_guard.sh).
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || vars.CI_OVERFLOW_LINUX || 'cmux-linux' }}
     permissions:
