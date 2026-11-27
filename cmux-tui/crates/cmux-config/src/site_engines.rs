@@ -119,8 +119,8 @@ fn known_engine(engine: &str) -> Option<&'static str> {
 /// with no host.
 pub fn normalize(pattern: &str) -> Option<String> {
     let mut text = pattern.trim().to_lowercase();
-    if let Some(index) = text.find("://") {
-        text = text[index + 3..].to_owned();
+    if let Some((_, rest)) = text.split_once("://") {
+        text = rest.to_owned();
     }
     if let Some(rest) = text.strip_prefix("*.") {
         text = rest.to_owned();
@@ -134,9 +134,9 @@ pub fn normalize(pattern: &str) -> Option<String> {
 
 /// The host and the path prefix (`/gp/video`) of a normalized pattern.
 fn split(pattern: &str) -> (&str, Option<&str>) {
-    match pattern.find('/') {
-        Some(index) if &pattern[index..] != "/" => (&pattern[..index], Some(&pattern[index..])),
-        Some(index) => (&pattern[..index], None),
+    match pattern.find('/').and_then(|index| pattern.split_at_checked(index)) {
+        Some((host, "/")) => (host, None),
+        Some((host, path)) => (host, Some(path)),
         None => (pattern, None),
     }
 }
