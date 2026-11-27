@@ -44,6 +44,8 @@ check("private-key: ${{ secrets.GLAEDA_ROUTE_APP_KEY }}" in text and "APP_TOKEN:
       "the dispatcher must read with the manaflow-glaeda-route App token when it can mint one")
 check("github.rest.git.getRef" not in text and "github.rest.actions.list" not in text,
       "every dispatcher read must go through the App token client")
+check("listJobsForWorkflowRun" not in text and "listArtifactsForRepo" in text,
+      "the dispatcher must reconcile exact-SHA app artifacts instead of fanning out over source-run jobs")
 check(re.search(r"await github\.rest\.actions\.createWorkflowDispatch\(\{\s*owner,\s*repo,\s*workflow_id: workflow,", text) is not None,
       "the DEV build dispatch must stay on GITHUB_TOKEN")
 check(re.search(r"await call\(\(client\) => client\.rest\.actions\.createWorkflowDispatch\(\{\s*owner,\s*repo,\s*workflow_id: 'cmux-next-dev-daily.yml'", text) is not None,
@@ -115,6 +117,8 @@ check(re.search(r"select\(\.conclusion == \"success\"\) \| \.name' \|\| true", p
       "a failed source-job read must fail the publisher run, not succeed with nothing published")
 check("finishedRuns.slice(0, 10)" not in text,
       "the dispatcher must not hide an older app behind ten failed source runs")
+check("appArtifactPrefix = 'cmux-next-dev-daily-unsigned-'" in text and "page <= 5" in text,
+      "the dispatcher artifact reconciliation must have a bounded page scan")
 # verify is the admission gate since the signer moved to Linux (Apple's codesign runs only
 # there): a red verify fails the run on purpose, so the dispatcher hands the source run over
 # again instead of counting a build that never published as handled.
@@ -209,9 +213,10 @@ const github = { rest: {
   actions: {
     listWorkflowRuns: async ({ workflow_id }) => ({ data: { workflow_runs:
       workflow_id === 'cmux-next.yml' ? fixture.sourceRuns : fixture.publishRuns } }),
-    listJobsForWorkflowRun: async ({ run_id }) => {
-      calls.push(['jobs', run_id]);
-      return { data: { jobs: fixture.jobs[String(run_id)] || [] } };
+    listArtifactsForRepo: async ({ page }) => {
+      calls.push(['artifacts', page]);
+      const start = (page - 1) * 100;
+      return { data: { artifacts: fixture.artifacts.slice(start, start + 100) } };
     },
     createWorkflowDispatch: async (args) => { calls.push(['dispatch', args.workflow_id, args.inputs]); },
   },
@@ -261,8 +266,18 @@ def app_job(conclusion):
 
 
 def run(source_runs, jobs, publish_runs=(), app=None, expect_failure=False):
+    artifacts = []
+    source_by_id = {str(run["id"]): run for run in source_runs}
+    for run_id, run_jobs in jobs.items():
+        if any(job.get("name") == "cmux NEXT DEV Release compile" and job.get("conclusion") == "success"
+               for job in run_jobs):
+            source = source_by_id.get(str(run_id))
+            if source:
+                artifacts.append({"name": "cmux-next-dev-daily-unsigned-" + source["head_sha"],
+                                  "expired": False, "created_at": "2026-11-24T00:00:00Z",
+                                  "workflow_run": {"id": run_id}})
     fixture = {"tip": TIP, "sourceRuns": list(source_runs), "publishRuns": list(publish_runs),
-               "jobs": {str(k): v for k, v in jobs.items()}, "app": app}
+               "jobs": {str(k): v for k, v in jobs.items()}, "artifacts": artifacts, "app": app}
     with tempfile.TemporaryDirectory() as tmp:
         (Path(tmp) / "fixture.json").write_text(json.dumps(fixture))
         (Path(tmp) / "run.js").write_text(HARNESS.replace("SCRIPT", script_body()))
