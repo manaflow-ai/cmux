@@ -1,8 +1,8 @@
 {
   "cmuxSetup": 1,
   "id": "manaflow-ai/claude-code-profile",
-  "name": "Kiln",
-  "description": "Warm tones, roomy chat.",
+  "name": "Claude Code",
+  "description": "Like Claude Code.",
   "version": "1.0.0",
   "license": "MIT",
   "repository": "https://github.com/manaflow-ai/cmux",

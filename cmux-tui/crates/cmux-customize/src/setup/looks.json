@@ -3,8 +3,8 @@
   "looks": [
     {
       "id": "manaflow-ai/codex-profile",
-      "name": "Pebble",
-      "tagline": "Clean, quiet, sidebar of threads.",
+      "name": "Codex",
+      "tagline": "Like Codex.",
       "traits": [
         "Light",
         "Round corners"
@@ -18,8 +18,8 @@
     },
     {
       "id": "manaflow-ai/claude-code-profile",
-      "name": "Kiln",
-      "tagline": "Warm tones, roomy chat.",
+      "name": "Claude Code",
+      "tagline": "Like Claude Code.",
       "traits": [
         "Dark",
         "Warm"
