@@ -179,15 +179,33 @@ impl Shared {
         Some(json!({"event": "online", "id": hub.device.id, "user_id": user}).to_string())
     }
 
+    /// `{"event":"stopped","id":..}` once the link stopped (link.rs `Hold::Fatal`: the hub removed
+    /// or signed out this device): the hub no longer lists `id`, so an app running on it starts its
+    /// hub again and, `device.identity` naming no account now, registers its own device.
+    pub(crate) fn stopped_event(&self) -> Option<String> {
+        if self.link().state != "stopped" {
+            return None;
+        }
+        Some(json!({"event": "stopped", "id": self.hub().device.id}).to_string())
+    }
+
     /// A new app channel that hears [`Shared::online_event`]: now when the link is online, and
-    /// each time it comes online again.
+    /// each time it comes online again; and [`Shared::stopped_event`], now when the link stopped
+    /// and when it stops.
     pub(crate) fn watch(&self, sender: UnboundedSender<String>) {
-        if let Some(line) = self.online_event()
+        if let Some(line) = self.online_event().or_else(|| self.stopped_event())
             && sender.send(line).is_err()
         {
             return;
         }
         lock(&self.watchers).push(sender);
+    }
+
+    /// Tells every watching app channel the link stopped (as [`Shared::stopped_event`]).
+    pub(crate) fn announce_stopped(&self) {
+        if let Some(line) = self.stopped_event() {
+            lock(&self.watchers).retain(|s| s.send(line.clone()).is_ok());
+        }
     }
 
     /// Tells every watching app channel the link is online (as [`Shared::online_event`]).

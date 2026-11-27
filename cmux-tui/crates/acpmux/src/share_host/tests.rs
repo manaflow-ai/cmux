@@ -1611,3 +1611,34 @@ fn a_stopped_link_offers_no_account_so_the_app_keeps_its_own_device() {
     assert_eq!(stopped["ok"], true);
     assert!(stopped["result"].get("user_id").is_none());
 }
+
+#[test]
+fn a_link_that_stops_after_the_app_adopted_its_device_tells_the_app_to_register_its_own() {
+    let home = tempfile::tempdir().unwrap();
+    let hub = Hub::new("https://hub.example", Device::generate("Mac").unwrap(), Some("u".into()))
+        .unwrap();
+    let host = Shared::new(home.path().to_path_buf(), hub);
+    let id = host.hub().device.id.clone();
+    // The app adopted the daemon's device while it was online.
+    host.update_link(|link| link.state = "online");
+    let (app, mut lines) = tokio::sync::mpsc::unbounded_channel();
+    host.watch(app);
+    let online: Value = serde_json::from_str(&lines.try_recv().unwrap()).unwrap();
+    assert_eq!(online["event"], json!("online"));
+    assert!(host.stopped_event().is_none(), "online: nothing stopped");
+    // The hub drops the device (link.rs Hold::Fatal): the app hears it at once.
+    host.update_link(|link| link.state = "stopped");
+    host.announce_stopped();
+    let stopped: Value = serde_json::from_str(&lines.try_recv().unwrap()).unwrap();
+    assert_eq!(stopped, json!({"event": "stopped", "id": id}));
+    // And the identity it reads on its hub restart names no account: it registers its own device.
+    let (identity, _) = ask(&host, json!({"id": 2, "method": "device.identity"}));
+    assert_eq!(identity["result"]["id"], json!(id));
+    assert!(identity["result"].get("user_id").is_none());
+    // An app that starts watching later (it restarted) hears it too; the same event each time.
+    let (late, mut late_lines) = tokio::sync::mpsc::unbounded_channel();
+    host.watch(late);
+    assert_eq!(late_lines.try_recv().unwrap(), stopped.to_string());
+    host.announce_stopped();
+    assert_eq!(lines.try_recv().unwrap(), stopped.to_string());
+}

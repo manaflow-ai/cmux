@@ -134,10 +134,11 @@ public nonisolated final class CmuxRemoteDevices: Sendable {
     }
 
     /// Each time the acpmux daemon's share host comes online as its device (`device.watch`): the device id and the hub
-    /// user it signed in as, the first at once when it is online already. Ends with the channel (the daemon stopped, or
-    /// one without the method), or when the stream is dropped.
-    func onlineEvents() -> AsyncStream<ShareHostOnline> {
-        // Only the newest matters: the device the daemon is online as now.
+    /// user it signed in as, the first at once when it is online already; and when its link stops (the hub dropped the
+    /// device), the id it held. Ends with the channel (the daemon stopped, or one without the method), or when the
+    /// stream is dropped.
+    func events() -> AsyncStream<ShareHostEvent> {
+        // Only the newest matters: the device the daemon is online as now, or that it lost.
         AsyncStream(bufferingPolicy: .bufferingNewest(1)) { continuation in
             // task-owner: one watch channel; the stream's end cancels it and closes the channel.
             let task = Task.detached(priority: .utility) { [open] in
@@ -148,7 +149,7 @@ public nonisolated final class CmuxRemoteDevices: Sendable {
                 guard (try? await watch.call("device.watch")) != nil else { return }
                 await withTaskCancellationHandler {
                     while let line = await watch.nextPush() {
-                        if let online = ShareHostOnline(line: line) { continuation.yield(online) }
+                        if let event = ShareHostEvent(line: line) { continuation.yield(event) }
                     }
                 } onCancel: { watch.close() }
             }
@@ -218,5 +219,22 @@ nonisolated struct ShareHostOnline: Equatable, Sendable {
               object["event"] as? String == "online", let id = object["id"] as? String, !id.isEmpty,
               let user = object["user_id"] as? String, !user.isEmpty else { return nil }
         self.init(id: id, userID: user)
+    }
+}
+
+/// What the acpmux daemon's `device.watch` says: it is online as a device (``ShareHostOnline``), or its link stopped
+/// (`{"event":"stopped","id":..}`: the hub removed or signed out device `id`, which it no longer lists).
+nonisolated enum ShareHostEvent: Equatable, Sendable {
+    case online(ShareHostOnline)
+    case stopped(id: String)
+
+    init?(line: String) {
+        if let online = ShareHostOnline(line: line) {
+            self = .online(online)
+            return
+        }
+        guard let object = (try? JSONSerialization.jsonObject(with: Data(line.utf8))) as? [String: Any],
+              object["event"] as? String == "stopped", let id = object["id"] as? String, !id.isEmpty else { return nil }
+        self = .stopped(id: id.lowercased())
     }
 }

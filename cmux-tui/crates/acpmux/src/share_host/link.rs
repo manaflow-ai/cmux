@@ -84,6 +84,8 @@ pub(crate) fn run(shared: &Arc<Shared>, stop: &CancellationToken) {
                     link.state = "stopped";
                     link.detail = Some(why);
                 });
+                // An app running on this device would stay unlisted: it registers its own.
+                shared.announce_stopped();
                 return;
             }
             Hold::SignIn(why) => {

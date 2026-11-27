@@ -5,7 +5,8 @@
 //! uid). Requests are `{"id":N,"method":M,"params":{..}}`; answers `{"id":N,"ok":true,
 //! "result":{..}}` or `{"id":N,"ok":false,"error":{"message":..}}`; a subscribed channel also
 //! gets `{"event":"push","text":"<push json>"}`, and a watching one (`device.watch`)
-//! `{"event":"online","id":..,"user_id":..}` each time the daemon comes online as its device.
+//! `{"event":"online","id":..,"user_id":..}` each time the daemon comes online as its device, and
+//! `{"event":"stopped","id":..}` when its link stops (the hub dropped the device).
 
 use super::state::Shared;
 use cmux_hub_host::b64;
