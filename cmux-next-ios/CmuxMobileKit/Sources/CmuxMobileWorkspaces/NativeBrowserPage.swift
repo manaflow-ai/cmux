@@ -96,6 +96,10 @@ struct NativeBrowserPage: View {
                 if canMirror {
                     Button("Mirror from \(macName)", action: mirror)
                         .buttonStyle(.glassProminent)
+                        // One plain element framed by layout: the prominent glass
+                        // style's own reported an unconverted frame in the iPhone
+                        // app's scaled window on iPad (as Welcome's sign-in row).
+                        .accessibilityRepresentation { Button("Mirror from \(macName)", action: mirror) }
                         .accessibilityIdentifier("browser.native.mirror")
                 }
             }

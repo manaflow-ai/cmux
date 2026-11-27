@@ -3,7 +3,7 @@ import type { ApprovedPlan } from "./approvedPlan";
 import { experimentArm } from "../../experiments/experiment";
 import type { PromptHeads } from "./promptHeads";
 import { nextStepCardHeight, permissionCardHeight } from "./permissions/cardHeight";
-import { freshMeasureContext } from "./measureContext";
+import { ensureMeasureContext, freshMeasureContext } from "./measureContext";
 import type { SentFrom } from "./conversation/sentFromHarness";
 import type { PeerLinkDetail } from "./linkState";
 import type { ComposerStatus } from "./composerStatusModel";
@@ -505,6 +505,10 @@ export type ClaimCheck = {
   command?: string;
 };
 
+/// The chat a fork came from, on the fork's "Forked from" notice row (direct.ts `forked`): its
+/// session, and its title as the row's text names it (conversation/ForkedFromLine.tsx links it).
+export type ForkedFrom = { parentId: string; chat: string };
+
 export type AcpmuxRow = {
   id: string;
   version: number;
@@ -519,8 +523,17 @@ export type AcpmuxRow = {
   /// transcript rows that belong to one turn use this identity when it is available.
   turnId?: string;
   text?: string;
+  /// A fork's "Forked from" notice: the chat its name links to (conversation/ForkedFromLine.tsx).
+  forkedFrom?: ForkedFrom;
   /// Codex's explicit message phase; absent for harnesses and history without phase metadata.
   assistantPhase?: "commentary" | "final_answer";
+  /// The message's text is whole: no further delta will grow it, though the row can still be
+  /// `streaming` until its turn ends. Codex says so by stamping a message's phase a second time, on
+  /// `item/completed` (direct.ts; acpmux codex_app_server/message_phases.rs), and a reply that
+  /// arrives in one chunk with its phase (a watched rollout, replayed history) is whole as it comes.
+  /// What a final answer says is read out of it only then: a half-written tagged ask parses
+  /// differently with every delta (turns.ts `answerComplete`).
+  textComplete?: boolean;
   /// A reply or summary's actual turn start, retained after the snapshot's live clock clears.
   turnStartedAtMs?: number;
   /// A finished reply's checked claims ("tests pass"), from acpmux's `claim_checks` at its turn's
@@ -740,6 +753,9 @@ export type AcpmuxRow = {
   /// hub/turn_retry.rs): on the client's `TURN_RETRY` row while it retries, and on the live line,
   /// which then says the model cannot be reached instead of "Thinking" (conversation/Thinking.tsx).
   retry?: AcpmuxTurnRetry;
+  /// On the live line while it retries: when the retries began, on this computer's clock, so "Can't
+  /// reach the model" waits out the shared bound from then, not from when the line was drawn.
+  retryAt?: number;
   /// On the `TURN_RETRY` row: how long the turn's finished retries took, which the live line's
   /// "Thinking" time leaves out (conversation/turns.ts `withRetry`).
   retriedMs?: number;
@@ -1160,6 +1176,7 @@ export type AcpmuxCatalogModel = {
   curated?: boolean;
   declared?: boolean;
   unavailable?: string;
+  codexUpdateVersion?: string;
   shortName?: string;
   family?: string;
   efforts?: string[];
@@ -3347,6 +3364,7 @@ function textHeight(
   let measured = prepared.get(key);
   if (measured === undefined) {
     try {
+      ensureMeasureContext();
       measured = prepare(text, measureFont, { whiteSpace: "pre-wrap" });
       notePreparedText(text.length);
     } catch {
@@ -3834,6 +3852,7 @@ function preparedLines(
   let measured = prepared.get(key) as PreparedTextWithSegments | null | undefined;
   if (measured === undefined) {
     try {
+      ensureMeasureContext();
       measured = prepareWithSegments(text, font, {
         whiteSpace: "pre-wrap",
       });

@@ -75,7 +75,11 @@ def git_tree_ids(sha: str) -> dict[str, tuple[str, str]] | None:
     try:
         listed = ls_tree()
         if listed.returncode != 0:
-            subprocess.run(["git", "fetch", "--quiet", "--no-tags", "--depth=1", "--filter=blob:none", "origin", sha],
+            # --depth=1 only in a checkout that is already shallow (tests/test_ci_no_shallow_dev_fetch.py).
+            shallow = subprocess.run(["git", "rev-parse", "--is-shallow-repository"],
+                                     capture_output=True, text=True, timeout=30).stdout.strip() == "true"
+            subprocess.run(["git", "fetch", "--quiet", "--no-tags", *(["--depth=1"] if shallow else []),
+                            "--filter=blob:none", "origin", sha],
                            capture_output=True, text=True, timeout=120)
             listed = ls_tree()
     except (OSError, subprocess.SubprocessError):
