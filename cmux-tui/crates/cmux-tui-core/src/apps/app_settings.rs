@@ -142,7 +142,9 @@ pub(super) struct SetParams {
 
 impl Supervisor {
     /// `apps.settings.list`: every installed app whose manifest declares settings, with the
-    /// schema to draw and the values it runs with.
+    /// schema to draw and the values it runs with; and in `servers`, every installed app that
+    /// declares an `external` server, with whether the person granted `server:execute`, so
+    /// Settings > Extensions can offer the credential approval (`apps-server-credential`).
     pub(super) fn settings_list(&self) -> Value {
         let inner = self.inner.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
         let apps: Vec<Value> = inner
@@ -161,7 +163,23 @@ impl Supervisor {
                 }))
             })
             .collect();
-        json!({ "apps": apps })
+        let servers: Vec<Value> = inner
+            .catalog
+            .packages
+            .values()
+            .filter(|package| super::servers::kind(package) == Some("external"))
+            .filter_map(|package| {
+                let record = inner.mirror.apps.get(&package.id).filter(|r| r.installed)?;
+                Some(json!({
+                    "app": package.id,
+                    "name": package.manifest.get("name").map(text).unwrap_or_default(),
+                    "enabled": record.enabled,
+                    "kind": "external",
+                    "approved": Self::server_approved_locked(&inner, &package.id).is_ok(),
+                }))
+            })
+            .collect();
+        json!({ "apps": apps, "servers": servers })
     }
 
     /// `apps.settings.set {app, values, idempotency_key}`: validates, stores and pushes the change.

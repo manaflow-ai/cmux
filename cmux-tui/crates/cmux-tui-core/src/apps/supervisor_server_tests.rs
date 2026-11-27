@@ -244,6 +244,11 @@ fn an_external_server_serves_ops_only_with_the_credential_the_person_approved() 
     let approved = f.supervisor.server_credential("acme/ext", Origin::User).unwrap();
     let credential = approved["credential"].as_str().unwrap().to_string();
     assert!(credential.starts_with("cmuxsrv1_"), "{approved}");
+    // Settings > Extensions shows it approved (its row offers the credential button).
+    let listed =
+        f.supervisor.store_call(CLIENT, "apps.settings.list", json!({}), Origin::User).unwrap();
+    assert_eq!(listed["servers"][0]["app"], "acme/ext", "{listed}");
+    assert_eq!(listed["servers"][0]["approved"], true, "{listed}");
     // The daemon keeps only its digest.
     let stored = std::fs::read_to_string(f.state.join("apps-credentials/acme.ext")).unwrap();
     assert!(!stored.contains(&credential[9..]), "{stored}");
@@ -327,6 +332,13 @@ fn js_and_external_servers_are_off_until_the_person_approves_them() {
     for app in ["acme/jsoff", "acme/extoff", "acme/json"] {
         f.install(app);
     }
+    // Settings > Extensions lists only the external one, unapproved: its row offers no credential.
+    let listed =
+        f.supervisor.store_call(CLIENT, "apps.settings.list", json!({}), Origin::User).unwrap();
+    assert_eq!(
+        listed["servers"],
+        json!([{ "app": "acme/extoff", "name": "Server", "enabled": true, "kind": "external", "approved": false }])
+    );
     let code = |app: &str, op: &str| run_op(&f, app, op, Origin::User).unwrap_err().code;
     assert_eq!(code("acme/jsoff", "acme.jsoff.go"), "apps.server_unapproved");
     assert_eq!(code("acme/extoff", "acme.extoff.go"), "apps.server_unapproved");
