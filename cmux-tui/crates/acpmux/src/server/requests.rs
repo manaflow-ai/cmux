@@ -2436,6 +2436,18 @@ async fn dispatch_request_with_identity(
                             .flatten()
                     });
             let mut on_accepted = Some(composer::on_accepted(hub, conn, &s, &params)?);
+            // This page opted in, and the daemon proved its sender is the local person.
+            // An agent cannot turn its message into an ask by supplying the experiment flag.
+            if mux_meta(&params).and_then(|m| m.get("askLedger")).and_then(Value::as_bool)
+                == Some(true)
+                && person_asks(conn)
+                && !conn.agent_side()
+                && !conn.is_trigger()
+                && provenance.is_none()
+                && agent.is_none()
+            {
+                on_accepted = hub.capture_ask_on_accept(&s, &sent_text, on_accepted);
+            }
             // A key replaces its sender's queued prompts (`supersede.rs`), which knows agents and
             // the owner only: a person's prompt neither replaces nor is replaced.
             let supersede = crate::hub::supersede_key(&params)?.filter(|_| !person_message);

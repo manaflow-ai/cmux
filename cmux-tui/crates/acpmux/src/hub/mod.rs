@@ -566,6 +566,7 @@ pub use native_history::FEATURE as NATIVE_HISTORY_FEATURE;
 pub use peer_row::PeerRow;
 pub use person_hold::PromptTriager;
 pub(crate) use policy_mode::SetRequest;
+pub(crate) mod ask_ledger;
 pub(crate) use pool::SESSION_NEW_BUDGET;
 pub use prompt_coach::CoachRewriter;
 pub use retention::RetentionRequest;
@@ -1211,6 +1212,9 @@ pub struct Hub {
     pub(crate) review_index: review_queue::Index,
     /// The approvals audit trail (`audit_log.rs`).
     pub(crate) audit: audit_log::AuditLog,
+    /// The opt-in ask-ledger experiment: accepted human prompts as durable events
+    /// (`hub/ask_ledger`).
+    pub(crate) ask_ledger: ask_ledger::AskLedger,
     pub shutdown: Notify,
     /// The owner of the hub's own tasks (`cmux_scope`). Every task that lives off the hub (the
     /// idle reaper, each chat's inbound loop, pool starts, carried turns, retries, message
@@ -1799,6 +1803,9 @@ impl Hub {
         let suggestion_gate = StdMutex::new(crate::suggestion_gate::Gate::open(home.as_deref()));
         // Beside the session store in its home; a memory store keeps it in memory only.
         let ledger = ledger::Ledger::open(home.as_ref().map(|h| h.join("ledger")));
+        // The ask ledger's events, beside it; nothing is made there before a first ask.
+        let ask_ledger =
+            ask_ledger::AskLedger::open(home.as_ref().map(|h| h.join(ask_ledger::DIR)));
         let peer_snapshots = peer_snapshot::PeerSnapshots::open(home);
         let briefs = dispatch::Briefs::open(store.briefs_path());
         let audit = audit_log::AuditLog::open(store.audit_dir());
@@ -1863,6 +1870,7 @@ impl Hub {
             models_fanouts: std::sync::atomic::AtomicUsize::new(0),
             review_index: Default::default(),
             audit,
+            ask_ledger,
             shutdown: Notify::new(),
             scope: cmux_scope::Scope::new("acpmux hub"),
             ws_shutdown: Default::default(),

@@ -27,8 +27,10 @@ import { AllChatsList } from "./AllChatsList";
 import { type LoadChatsPage } from "./allChatsListModel";
 import { useNoEntryMotion } from "./noEntryMotion";
 import { useNt } from "./strings";
+import { askLedger } from "../askLedger/askLedger.experiment";
+import { AskLedgerScreen } from "../askLedger/AskLedgerScreen";
 
-export type HistoryTab = "history" | "queue" | "ledger" | "team" | "people";
+export type HistoryTab = "history" | "queue" | "ledger" | "team" | "asks" | "people";
 
 export function HistoryScreen({
   load,
@@ -39,6 +41,7 @@ export function HistoryScreen({
   queue,
   ledger,
   team: teamProps,
+  asks: asksProps,
   directory: directoryProps,
   initialTab = "history",
 }: {
@@ -53,6 +56,7 @@ export function HistoryScreen({
   ledger?: ComponentProps<typeof LedgerScreen>;
   /// Team's read; no tab without it, or while the `team-audit` experiment is off.
   team?: ComponentProps<typeof TeamAuditScreen>;
+  asks?: ComponentProps<typeof AskLedgerScreen>;
   /// People's reads; no tab without them, or while the `team-directory` experiment is off.
   directory?: ComponentProps<typeof TeamDirectoryScreen>;
   initialTab?: HistoryTab;
@@ -72,12 +76,14 @@ export function HistoryScreen({
     if (queueKey !== undefined) queueCache.note(queueKey);
   }, [queueCache, queueKey]);
   const team = experimentArm(teamAudit) === "on" ? teamProps : undefined;
+  const asks = experimentArm(askLedger) === "capture" ? asksProps : undefined;
   const directory = experimentArm(teamDirectory) === "on" ? directoryProps : undefined;
-  const tabbed = Boolean(queue || ledger || team || directory);
+  const tabbed = Boolean(queue || ledger || team || asks || directory);
   const shown: HistoryTab =
     (tab === "queue" && !queue) ||
     (tab === "ledger" && !ledger) ||
     (tab === "team" && !team) ||
+    (tab === "asks" && !asks) ||
     (tab === "people" && !directory)
       ? "history"
       : tab;
@@ -97,6 +103,7 @@ export function HistoryScreen({
             {queue && <TabsTrigger value="queue">{t("waiting.title")}</TabsTrigger>}
             {ledger && <TabsTrigger value="ledger">{t("ledger.title")}</TabsTrigger>}
             {team && <TabsTrigger value="team">{t("teamAudit.title")}</TabsTrigger>}
+            {asks && <TabsTrigger value="asks">{t("askLedger.title")}</TabsTrigger>}
             {directory && <TabsTrigger value="people">{t("teamDirectory.title")}</TabsTrigger>}
           </TabsList>
         </Tabs>
@@ -107,6 +114,8 @@ export function HistoryScreen({
         <LedgerScreen {...ledger} cache={ledgerCache} {...(now !== undefined ? { now } : {})} />
       ) : shown === "team" && team ? (
         <TeamAuditScreen {...team} {...(now !== undefined ? { now } : {})} />
+      ) : shown === "asks" && asks ? (
+        <AskLedgerScreen load={asks.load} />
       ) : shown === "people" && directory ? (
         <TeamDirectoryScreen {...directory} />
       ) : (

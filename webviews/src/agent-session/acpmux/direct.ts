@@ -232,6 +232,7 @@ import {
 } from "./conversation/backgroundTurns";
 import { backgroundReactionLook, reactsOnCall } from "./conversation/backgroundReaction.experiment";
 import { experimentArm } from "../../experiments/experiment";
+import { askLedger } from "./askLedger/askLedger.experiment";
 import { AskTracker, pendingReader, SIDE_SESSION_METHOD } from "./needsYou/asks";
 import { BTW_INLINE_HERE } from "./btwCapability";
 import { chatTools, toolApplied, type ToolApplied } from "./summary/chatTools";
@@ -13320,6 +13321,7 @@ export class AcpmuxDirectClient {
                 acpmux: {
                   promptId,
                   ...(steer ? { steer: true } : {}),
+                  ...(experimentArm(askLedger) === "capture" ? { askLedger: true } : {}),
                   ...(suggestionTaken ? { promptSuggestion: "taken" } : {}),
                   ...(context ? { context } : {}),
                   ...(fileDisplay.length ? { inlineParts: fileDisplay } : {}),
@@ -14582,6 +14584,7 @@ export class AcpmuxDirectClient {
         _meta: {
           acpmux: {
             promptId: gesture?.promptId ?? crypto.randomUUID(),
+            ...(experimentArm(askLedger) === "capture" ? { askLedger: true } : {}),
             // `@computer-use` / `@browser-use` say which cmux tool they mean, as a send's do (toolMentions.ts).
             ...(toolMentionsIn(text).length ? { context: toolMentionContext(toolMentionsIn(text)) } : {}),
           },
@@ -16945,6 +16948,12 @@ export class AcpmuxDirectClient {
   /// from acpmux's ledger index, never a log scan. An older acpmux answers method not found.
   async ledger(params: Record<string, unknown>): Promise<unknown> {
     return this.request("_acpmux/ledger", params, 15_000);
+  }
+  /// The opt-in first ask-ledger experiment for History > Your asks (`_acpmux/ask_ledger`,
+  /// askLedger/AskLedgerScreen.tsx): this daemon run's accepted human prompts. An older acpmux
+  /// answers method not found.
+  async askLedger(): Promise<unknown> {
+    return this.request("_acpmux/ask_ledger", {}, 15_000);
   }
   /// The team's agent spend for History > Team (`_acpmux/team_audit`, teamAudit/teamAuditModel.ts):
   /// acpmux reads cmux-platform with its sign-in. An older acpmux answers method not found.

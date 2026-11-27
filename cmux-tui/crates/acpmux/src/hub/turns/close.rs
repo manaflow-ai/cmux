@@ -200,6 +200,8 @@ impl Hub {
             purging.0 = None;
             // Its spend, title and folder leave the cost ledger with it (`hub/ledger`).
             self.ledger.purge(&session.id);
+            // Its asks and their events leave the ask ledger's file too (`hub/ask_ledger`).
+            self.ask_ledger.purge(&session.id);
             self.remove_cached_closed_summary(&session.id);
             let replaced = session.replaced.load(Ordering::SeqCst);
             if !self
