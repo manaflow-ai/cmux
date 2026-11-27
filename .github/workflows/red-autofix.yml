@@ -91,7 +91,7 @@ jobs:
       run: ${{ steps.triage.outputs.run }}
       red: ${{ steps.triage.outputs.red }}
     steps:
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           ref: refs/heads/main
           fetch-depth: 0
@@ -139,14 +139,14 @@ jobs:
       pushed_at: ${{ steps.open.outputs.pushed_at }}
     steps:
       # The helper at this workflow's own commit, never the target's or a candidate's copy.
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           ref: ${{ github.workflow_sha }}
           path: trusted
           sparse-checkout: scripts/ci/red_autofix.py
           sparse-checkout-cone-mode: false
           persist-credentials: false
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           ref: ${{ needs.triage.outputs.target }}
           path: fresh
@@ -201,14 +201,14 @@ jobs:
       summary: ${{ steps.fixer.outputs.summary || steps.regen.outputs.summary }}
     steps:
       # The helper at this workflow's own commit, never the target's or a candidate's copy.
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           ref: ${{ github.workflow_sha }}
           path: trusted
           sparse-checkout: scripts/ci/red_autofix.py
           sparse-checkout-cone-mode: false
           persist-credentials: false
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           ref: ${{ needs.triage.outputs.target }}
           path: target
@@ -236,50 +236,81 @@ jobs:
           python3 -I trusted/scripts/ci/red_autofix.py regen --report "$RUNNER_TEMP/red/report.json" --repo-dir target --files "$RUNNER_TEMP/regen" \
             --patch-out "$RUNNER_TEMP/fix.patch"
       # Read and Edit only, in a plain copy of the tracked files with no .git (ci-compile-attribution.yml says why).
+      # One credential running out never stalls a red for days: the Claude subscription first, then the Anthropic API
+      # key, then Codex (its sandbox: workspace writes only, no network). Each attempt's outcome is read by
+      # red_autofix.py fixer-result; the next is tried on limited or failed, and limited=true (every one out) fails
+      # the run below instead of reporting success.
       - name: Ask the fixer for a mechanical fix
         id: fixer
         if: ${{ steps.regen.outputs.applied != 'true' }}
         continue-on-error: true
         timeout-minutes: 15
         env:
-          CLAUDE_CODE_OAUTH_TOKEN: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+          CLAUDE_OAUTH: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+          ANTHROPIC_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          CODEX_AUTH: ${{ secrets.CODEX_AUTH_JSON }}
+          FIXER_ORDER: ${{ vars.RED_AUTOFIX_FIXERS || 'claude-oauth claude-api codex' }}
         run: |
           set -euo pipefail
           culprit="$(python3 -I -c 'import json,sys; print((json.load(open(sys.argv[1])).get("culprit") or {}).get("sha",""))' "$RUNNER_TEMP/red/report.json")"
           [ -z "$culprit" ] || git -C target fetch --quiet --depth=2 "https://github.com/$GITHUB_REPOSITORY.git" "$culprit" || true
-          npm install --global --no-fund --no-audit @anthropic-ai/claude-code@2.1.284 >/dev/null
           python3 -I trusted/scripts/ci/red_autofix.py prompt --report "$RUNNER_TEMP/red/report.json" --repo-dir target --out "$RUNNER_TEMP/prompt.txt"
-          schema='{"type":"object","properties":{"mechanical":{"type":"boolean"},"summary":{"type":"string"}},"required":["mechanical","summary"]}'
+          schema='{"type":"object","properties":{"mechanical":{"type":"boolean"},"summary":{"type":"string"}},"required":["mechanical","summary"],"additionalProperties":false}'
+          printf '%s' "$schema" > "$RUNNER_TEMP/schema.json"
           tree="$RUNNER_TEMP/fixer-tree"
-          mkdir -p "$tree"
           git -C target ls-files -z > "$RUNNER_TEMP/tracked.z"
-          (cd target && tar --null -T "$RUNNER_TEMP/tracked.z" -cf -) | tar -xf - -C "$tree"
-          (cd "$tree" && claude -p "$(cat "$RUNNER_TEMP/prompt.txt")" \
-            --allowedTools "Read,Edit,Glob,Grep" \
-            --disallowedTools "Bash,WebFetch,WebSearch" \
-            --max-turns 40 --output-format json --json-schema "$schema") > "$RUNNER_TEMP/fixer.json" \
-            2> "$RUNNER_TEMP/fixer.err" || echo "red-autofix: the fixer exited $?: $(tail -c 600 "$RUNNER_TEMP/fixer.err")" | tee -a "$GITHUB_STEP_SUMMARY"
-          [ -s "$RUNNER_TEMP/fixer.json" ] || echo '{}' > "$RUNNER_TEMP/fixer.json"
-          python3 -I trusted/scripts/ci/red_autofix.py diff --repo-dir target --tree "$tree" --out "$RUNNER_TEMP/fix.patch" > /dev/null
-          python3 -I - "$RUNNER_TEMP/fixer.json" <<'PY' >> "$GITHUB_OUTPUT"
-          import json, sys
-          data = json.load(open(sys.argv[1]))
-          if data.get("is_error") or data.get("subtype", "success") != "success":
-              print(f"red-autofix: the fixer ended {data.get('subtype')}: {str(data.get('result'))[:300]}", file=sys.stderr)
-          out = data.get("structured_output") or {}
-          if not out:
-              try:
-                  out = json.loads(data.get("result") or "{}")
-              except ValueError:
-                  out = {}
-          print(f"mechanical={'true' if out.get('mechanical') is True else 'false'}")
-          print("summary=" + " ".join(str(out.get("summary") or "").split())[:400])
-          PY
+          status=none; tried=""
+          for fixer in $FIXER_ORDER; do
+            case "$fixer" in
+              claude-oauth) [ -n "$CLAUDE_OAUTH" ] || continue ;;
+              claude-api) [ -n "$ANTHROPIC_KEY" ] || continue ;;
+              codex) [ -n "$CODEX_AUTH" ] || continue ;;
+              *) continue ;;
+            esac
+            tried="$tried $fixer"
+            # A fresh copy per attempt: a half-done edit from a failed attempt never leaks into the next one's patch.
+            rm -rf -- "$tree"; mkdir -p "$tree"
+            (cd target && tar --null -T "$RUNNER_TEMP/tracked.z" -cf -) | tar -xf - -C "$tree"
+            answer="$RUNNER_TEMP/fixer-$fixer.json"; err="$RUNNER_TEMP/fixer-$fixer.err"; : > "$answer"; code=0
+            case "$fixer" in
+              claude-*)
+                command -v claude >/dev/null || npm install --global --no-fund --no-audit @anthropic-ai/claude-code@2.1.284 >/dev/null
+                if [ "$fixer" = claude-oauth ]; then cred=(env -u ANTHROPIC_API_KEY CLAUDE_CODE_OAUTH_TOKEN="$CLAUDE_OAUTH")
+                else cred=(env -u CLAUDE_CODE_OAUTH_TOKEN ANTHROPIC_API_KEY="$ANTHROPIC_KEY"); fi
+                (cd "$tree" && "${cred[@]}" claude -p "$(cat "$RUNNER_TEMP/prompt.txt")" \
+                  --allowedTools "Read,Edit,Glob,Grep" \
+                  --disallowedTools "Bash,WebFetch,WebSearch" \
+                  --max-turns 40 --output-format json --json-schema "$schema") > "$answer" 2> "$err" || code=$?
+                harness=claude ;;
+              codex)
+                command -v codex >/dev/null || npm install --global --no-fund --no-audit @openai/codex@0.172.0 >/dev/null
+                export CODEX_HOME="$RUNNER_TEMP/codex-home"; mkdir -p "$CODEX_HOME"
+                (umask 077; printf '%s' "$CODEX_AUTH" > "$CODEX_HOME/auth.json")
+                (cd "$tree" && codex exec --skip-git-repo-check --sandbox workspace-write --ephemeral \
+                  --output-schema "$RUNNER_TEMP/schema.json" --output-last-message "$answer" \
+                  "$(cat "$RUNNER_TEMP/prompt.txt")") > /dev/null 2> "$err" < /dev/null || code=$?
+                rm -f -- "$CODEX_HOME/auth.json"
+                harness=codex ;;
+            esac
+            python3 -I trusted/scripts/ci/red_autofix.py fixer-result --harness "$harness" --credential "$fixer" \
+              --answer "$answer" --err "$err" --exit "$code" > "$RUNNER_TEMP/fixer.out"
+            cat "$RUNNER_TEMP/fixer.out"
+            status="$(sed -n 's/^status=//p' "$GITHUB_OUTPUT" | tail -1)"
+            [ "$status" = ok ] && break
+          done
+          if [ "$status" = ok ]; then
+            echo "fixer=${fixer}" >> "$GITHUB_OUTPUT"
+            python3 -I trusted/scripts/ci/red_autofix.py diff --repo-dir target --tree "$tree" --out "$RUNNER_TEMP/fix.patch" > /dev/null
+          else
+            echo "red-autofix: no fixer answered (tried:${tried:- none}; last ${status})." | tee -a "$GITHUB_STEP_SUMMARY"
+            echo "limited=true" >> "$GITHUB_OUTPUT"
+          fi
       - name: Hand the patch over
         id: patch
         env:
           MECHANICAL: ${{ steps.fixer.outputs.mechanical }}
           REGEN: ${{ steps.regen.outputs.applied }}
+          NO_FIXER: ${{ steps.fixer.outputs.limited == 'true' || steps.fixer.outcome == 'failure' }}
         run: |
           echo "tip=$(git -C target rev-parse HEAD)" >> "$GITHUB_OUTPUT"
           if [ -s "$RUNNER_TEMP/fix.patch" ] && { [ "$REGEN" = true ] || [ "$MECHANICAL" = true ]; }; then
@@ -287,6 +318,12 @@ jobs:
           else
             echo "ready=false" >> "$GITHUB_OUTPUT"
             echo "red-autofix: no mechanical fix to open." >> "$GITHUB_STEP_SUMMARY"
+          fi
+          # No fixer answered (every credential out of quota or login, or the step failed): a red run, never a green
+          # one with verify and land skipped.
+          if [ "$NO_FIXER" = true ] && [ "$REGEN" != true ]; then
+            echo "::error::red-autofix: no fixer could run, so this red is not fixed (see the fixer step's summary)."
+            exit 1
           fi
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         if: ${{ steps.patch.outputs.ready == 'true' }}
@@ -315,14 +352,14 @@ jobs:
       pushed_at: ${{ steps.open.outputs.pushed_at }}
     steps:
       # The helper at this workflow's own commit, never the target's or a candidate's copy.
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           ref: ${{ github.workflow_sha }}
           path: trusted
           sparse-checkout: scripts/ci/red_autofix.py
           sparse-checkout-cone-mode: false
           persist-credentials: false
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           ref: ${{ needs.fix.outputs.tip }}
           path: fresh
@@ -383,7 +420,7 @@ jobs:
       verified_at: ${{ steps.verify.outputs.verified_at }}
     steps:
       # The helper at this workflow's own commit, never the target's or a candidate's copy.
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           ref: ${{ github.workflow_sha }}
           path: trusted
@@ -392,7 +429,7 @@ jobs:
           persist-credentials: false
       # The candidate and its parent (the target's tip). The helper exports both trees out of this checkout and
       # runs them as its sandbox uid; nothing in them runs as the runner user.
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           ref: ${{ needs.open-fix.outputs.sha }}
           path: cand
@@ -436,7 +473,7 @@ jobs:
       verified_at: ${{ steps.verify.outputs.verified_at }}
     steps:
       # The helper at this workflow's own commit, never the target's or a candidate's copy.
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           ref: ${{ github.workflow_sha }}
           path: trusted
@@ -445,7 +482,7 @@ jobs:
           persist-credentials: false
       # The candidate and its parent (the target's tip). The helper exports both trees out of this checkout and
       # runs them as its sandbox uid; nothing in them runs as the runner user.
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           ref: ${{ needs.revert.outputs.sha }}
           path: cand
@@ -487,7 +524,7 @@ jobs:
       contents: read
     steps:
       # The helper at this workflow's own commit, never the target's or a candidate's copy.
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           ref: ${{ github.workflow_sha }}
           path: trusted
@@ -543,7 +580,7 @@ jobs:
       contents: read
     steps:
       # The helper at this workflow's own commit, never the target's or a candidate's copy.
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           ref: ${{ github.workflow_sha }}
           path: trusted
@@ -598,7 +635,7 @@ jobs:
       issues: write
     steps:
       # The helper at this workflow's own commit, never the target's or a candidate's copy.
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           ref: ${{ github.workflow_sha }}
           path: trusted

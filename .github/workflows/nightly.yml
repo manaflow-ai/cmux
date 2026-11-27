@@ -200,7 +200,7 @@ jobs:
       # each github-script step that installs gh_budget_wait.cjs, waits through a rate limit or a
       # GitHub 5xx under the job's GH_BUDGET_WAIT_MAX_SECONDS, then fails loud.
       - name: Checkout the GitHub API wait
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           persist-credentials: false
           ref: ${{ github.sha }}
@@ -217,7 +217,7 @@ jobs:
       # router CI uses, which reads the Xcode project and the package graph.
       # Only the paths are needed, so one revision of history is enough.
       - name: Check out the revision under consideration
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           persist-credentials: false
           ref: ${{ github.sha }}
@@ -691,7 +691,7 @@ jobs:
       # each github-script step that installs gh_budget_wait.cjs, waits through a rate limit or a
       # GitHub 5xx under the job's GH_BUDGET_WAIT_MAX_SECONDS, then fails loud.
       - name: Checkout the GitHub API wait
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           persist-credentials: false
           ref: ${{ github.sha }}
@@ -705,7 +705,7 @@ jobs:
         run: bash .gh-budget-tooling/scripts/ci/gh_budget_wait.sh --install
 
       - name: Checkout the promote guard from main
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           ref: ${{ github.sha }}
           persist-credentials: false
@@ -714,6 +714,7 @@ jobs:
             scripts/ci/nightly_next_train.py
             scripts/ci/signing-runner-claim.sh
             .github/release-surface.txt
+            .github/actions/app-token-spread/
           sparse-checkout-cone-mode: false
 
       # Before any App key: on an owned Mac the job must hold the whole mini (glaeda's exclusive class).
@@ -728,10 +729,12 @@ jobs:
         if: vars.GLAEDA_ROUTE_APP_ID != ''
         continue-on-error: true
         timeout-minutes: 1
-        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
+        uses: ./.github/actions/app-token-spread
         with:
-          app-id: ${{ vars.GLAEDA_ROUTE_APP_ID }}
-          private-key: ${{ secrets.GLAEDA_ROUTE_APP_KEY }}
+          route-app-id: ${{ vars.GLAEDA_ROUTE_APP_ID }}
+          route-private-key: ${{ secrets.GLAEDA_ROUTE_APP_KEY }}
+          bot-app-id: ${{ vars.CMUX_BOT_APP_ID }}
+          bot-private-key: ${{ secrets.CMUX_BOT_APP_KEY }}
           owner: ${{ github.repository_owner }}
           repositories: ${{ github.event.repository.name }}
           permission-actions: read
@@ -845,7 +848,7 @@ jobs:
     # if: (needs.promote-nightly-next.outputs.action == 'needs-ack' || needs.promote-nightly-next.outputs.action == 'promote') && needs.promote-nightly-next.outputs.dry_run != 'true'
     if: false
     environment: ${{ needs.promote-nightly-next.outputs.action == 'needs-ack' && 'release-surface-ack' || '' }}
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.run_attempt == 1 && 'cmux-gcp-nightly-jit-x64' || contains(fromJSON('["blacksmith-2vcpu-ubuntu-2404","blacksmith-4vcpu-ubuntu-2404"]'), fromJSON(vars.RUNNER_POOLS || '{}').linux_2) && fromJSON(vars.RUNNER_POOLS || '{}').linux_2 || 'blacksmith-2vcpu-ubuntu-2404' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.run_attempt == 1 && 'cmux-gcp-nightly-jit-x64' || 'blacksmith-2vcpu-ubuntu-2404' }}
     timeout-minutes: 5
     permissions: {}
     concurrency:
@@ -892,7 +895,7 @@ jobs:
       # each github-script step that installs gh_budget_wait.cjs, waits through a rate limit or a
       # GitHub 5xx under the job's GH_BUDGET_WAIT_MAX_SECONDS, then fails loud.
       - name: Checkout the GitHub API wait
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           persist-credentials: false
           ref: ${{ github.sha }}
@@ -906,7 +909,7 @@ jobs:
         run: bash .gh-budget-tooling/scripts/ci/gh_budget_wait.sh --install
 
       - name: Checkout the promote guard from main
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           ref: ${{ github.sha }}
           persist-credentials: false
@@ -1026,7 +1029,7 @@ jobs:
           fi
 
       - name: Checkout cache ref
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           persist-credentials: false
           ref: ${{ needs.decide.outputs.head_sha }}
@@ -1220,7 +1223,7 @@ jobs:
           fi
 
       - name: Checkout cache ref
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           persist-credentials: false
           ref: ${{ needs.decide.outputs.head_sha }}
@@ -1373,7 +1376,7 @@ jobs:
           fi
 
       - name: Checkout helper ref
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           persist-credentials: false
           ref: ${{ needs.decide.outputs.head_sha }}
@@ -1421,7 +1424,7 @@ jobs:
   pick-nightly-app-runner:
     needs: decide
     if: needs.decide.outputs.should_build == 'true' && (github.event_name != 'schedule' || github.event.schedule == '2,17,32,47 * * * *' || github.event.schedule == '5 8 * * *')
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.run_attempt == 1 && 'cmux-gcp-nightly-jit-x64' || contains(fromJSON('["blacksmith-2vcpu-ubuntu-2404","blacksmith-4vcpu-ubuntu-2404"]'), fromJSON(vars.RUNNER_POOLS || '{}').linux_2) && fromJSON(vars.RUNNER_POOLS || '{}').linux_2 || 'blacksmith-2vcpu-ubuntu-2404' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.run_attempt == 1 && 'cmux-gcp-nightly-jit-x64' || 'blacksmith-2vcpu-ubuntu-2404' }}
     timeout-minutes: 15
     permissions:
       # The queue janitor's pool snapshot (an artifact).
@@ -1432,23 +1435,27 @@ jobs:
       cloud: ${{ steps.pick.outputs.cloud }}
     steps:
       - name: Checkout the picker at the workflow commit
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         continue-on-error: true
         timeout-minutes: 2
         with:
           persist-credentials: false
           ref: ${{ github.sha }}
-          sparse-checkout: scripts/ci
+          sparse-checkout: |
+            scripts/ci
+            .github/actions/app-token-spread
 
       - name: Mint the owned-pool routing token
         id: route-token
         if: github.repository == 'manaflow-ai/cmux' && github.run_attempt == 1 && vars.GLAEDA_ROUTE_APP_ID != ''
         continue-on-error: true
         timeout-minutes: 1
-        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
+        uses: ./.github/actions/app-token-spread
         with:
-          app-id: ${{ vars.GLAEDA_ROUTE_APP_ID }}
-          private-key: ${{ secrets.GLAEDA_ROUTE_APP_KEY }}
+          route-app-id: ${{ vars.GLAEDA_ROUTE_APP_ID }}
+          route-private-key: ${{ secrets.GLAEDA_ROUTE_APP_KEY }}
+          bot-app-id: ${{ vars.CMUX_BOT_APP_ID }}
+          bot-private-key: ${{ secrets.CMUX_BOT_APP_KEY }}
           permission-administration: read
           permission-organization-self-hosted-runners: read
 
@@ -1457,10 +1464,12 @@ jobs:
         if: steps.route-token.outcome == 'failure'
         continue-on-error: true
         timeout-minutes: 1
-        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
+        uses: ./.github/actions/app-token-spread
         with:
-          app-id: ${{ vars.GLAEDA_ROUTE_APP_ID }}
-          private-key: ${{ secrets.GLAEDA_ROUTE_APP_KEY }}
+          route-app-id: ${{ vars.GLAEDA_ROUTE_APP_ID }}
+          route-private-key: ${{ secrets.GLAEDA_ROUTE_APP_KEY }}
+          bot-app-id: ${{ vars.CMUX_BOT_APP_ID }}
+          bot-private-key: ${{ secrets.CMUX_BOT_APP_KEY }}
           permission-administration: read
 
       - name: Pick the trusted mini or a moving cloud macOS label
@@ -1544,7 +1553,7 @@ jobs:
           fi
 
       - name: Checkout build ref
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           persist-credentials: false
           ref: ${{ needs.decide.outputs.head_sha }}
@@ -1892,7 +1901,8 @@ jobs:
   resolve-nightly-cmux-tui-client:
     needs: decide
     if: needs.decide.outputs.should_build == 'true' && (github.event_name != 'schedule' || github.event.schedule == '2,17,32,47 * * * *' || github.event.schedule == '5 8 * * *') && needs.decide.outputs.build_only != 'true'
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.CI_CLASSIC_NIGHTLY_MINI != '' && github.ref == 'refs/heads/main' && vars.CI_CLASSIC_NIGHTLY_MINI || github.run_attempt == 1 && 'cmux-gcp-nightly-x64' || 'blacksmith-2vcpu-ubuntu-2404' }}
+    # Mini mode runs this keyless job on the Linux lane VM, every attempt: it needs no Mac (Leo: free the Macs).
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.CI_CLASSIC_NIGHTLY_MINI != '' && github.ref == 'refs/heads/main' && 'cmux-gcp-nightly-x64' || github.run_attempt == 1 && 'cmux-gcp-nightly-x64' || contains(fromJSON('["blacksmith-2vcpu-ubuntu-2404","blacksmith-4vcpu-ubuntu-2404"]'), fromJSON(vars.RUNNER_POOLS || '{}').linux_2) && fromJSON(vars.RUNNER_POOLS || '{}').linux_2 || 'blacksmith-2vcpu-ubuntu-2404' }}
     permissions:
       contents: read
     timeout-minutes: ${{ vars.CI_CLASSIC_NIGHTLY_MINI != '' && 150 || 30 }}
@@ -1900,7 +1910,7 @@ jobs:
       commit: ${{ steps.resolve.outputs.commit }}
     steps:
       - name: Checkout build ref
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           persist-credentials: false
           ref: ${{ needs.decide.outputs.head_sha }}
@@ -1928,7 +1938,8 @@ jobs:
   pick-classic-sign-runner:
     needs: [decide, build-nightly-app]
     if: needs.decide.outputs.should_build == 'true' && (github.event_name != 'schedule' || github.event.schedule == '2,17,32,47 * * * *' || github.event.schedule == '5 8 * * *') && needs.decide.outputs.build_only != 'true'
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.CI_CLASSIC_NIGHTLY_MINI != '' && github.ref == 'refs/heads/main' && vars.CI_CLASSIC_NIGHTLY_MINI || github.run_attempt == 1 && 'cmux-gcp-nightly-x64' || 'blacksmith-2vcpu-ubuntu-2404' }}
+    # Mini mode runs this keyless job on the Linux lane VM, every attempt: it needs no Mac (Leo: free the Macs).
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.CI_CLASSIC_NIGHTLY_MINI != '' && github.ref == 'refs/heads/main' && 'cmux-gcp-nightly-x64' || github.run_attempt == 1 && 'cmux-gcp-nightly-x64' || contains(fromJSON('["blacksmith-2vcpu-ubuntu-2404","blacksmith-4vcpu-ubuntu-2404"]'), fromJSON(vars.RUNNER_POOLS || '{}').linux_2) && fromJSON(vars.RUNNER_POOLS || '{}').linux_2 || 'blacksmith-2vcpu-ubuntu-2404' }}
     timeout-minutes: ${{ vars.CI_CLASSIC_NIGHTLY_MINI != '' && 126 || 6 }}
     permissions:
       # The queue janitor's pool snapshot (an artifact).
@@ -1941,7 +1952,7 @@ jobs:
       attempt: ${{ steps.pick.outputs.attempt }}
     steps:
       - name: Checkout the picker at the workflow commit
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         continue-on-error: true
         timeout-minutes: 2
         with:
@@ -1971,7 +1982,7 @@ jobs:
   pick-classic-prepare-runner:
     needs: [decide, build-nightly-app]
     if: needs.decide.outputs.should_build == 'true' && (github.event_name != 'schedule' || github.event.schedule == '2,17,32,47 * * * *' || github.event.schedule == '5 8 * * *') && needs.decide.outputs.build_only != 'true'
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.run_attempt == 1 && 'cmux-gcp-nightly-jit-x64' || contains(fromJSON('["blacksmith-2vcpu-ubuntu-2404","blacksmith-4vcpu-ubuntu-2404"]'), fromJSON(vars.RUNNER_POOLS || '{}').linux_2) && fromJSON(vars.RUNNER_POOLS || '{}').linux_2 || 'blacksmith-2vcpu-ubuntu-2404' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.run_attempt == 1 && 'cmux-gcp-nightly-jit-x64' || 'blacksmith-2vcpu-ubuntu-2404' }}
     timeout-minutes: 6
     permissions:
       contents: read
@@ -1979,23 +1990,27 @@ jobs:
       trusted: ${{ steps.pick.outputs.trusted }}
     steps:
       - name: Checkout the picker at the workflow commit
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         continue-on-error: true
         timeout-minutes: 2
         with:
           persist-credentials: false
           ref: ${{ github.sha }}
-          sparse-checkout: scripts/ci
+          sparse-checkout: |
+            scripts/ci
+            .github/actions/app-token-spread
 
       - name: Mint the owned-pool routing token
         id: route-token
         if: github.repository == 'manaflow-ai/cmux' && github.run_attempt == 1 && vars.GLAEDA_ROUTE_APP_ID != ''
         continue-on-error: true
         timeout-minutes: 1
-        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
+        uses: ./.github/actions/app-token-spread
         with:
-          app-id: ${{ vars.GLAEDA_ROUTE_APP_ID }}
-          private-key: ${{ secrets.GLAEDA_ROUTE_APP_KEY }}
+          route-app-id: ${{ vars.GLAEDA_ROUTE_APP_ID }}
+          route-private-key: ${{ secrets.GLAEDA_ROUTE_APP_KEY }}
+          bot-app-id: ${{ vars.CMUX_BOT_APP_ID }}
+          bot-private-key: ${{ secrets.CMUX_BOT_APP_KEY }}
           permission-administration: read
           permission-organization-self-hosted-runners: read
 
@@ -2004,10 +2019,12 @@ jobs:
         if: steps.route-token.outcome == 'failure'
         continue-on-error: true
         timeout-minutes: 1
-        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
+        uses: ./.github/actions/app-token-spread
         with:
-          app-id: ${{ vars.GLAEDA_ROUTE_APP_ID }}
-          private-key: ${{ secrets.GLAEDA_ROUTE_APP_KEY }}
+          route-app-id: ${{ vars.GLAEDA_ROUTE_APP_ID }}
+          route-private-key: ${{ secrets.GLAEDA_ROUTE_APP_KEY }}
+          bot-app-id: ${{ vars.CMUX_BOT_APP_ID }}
+          bot-private-key: ${{ secrets.CMUX_BOT_APP_KEY }}
           permission-administration: read
 
       - name: Pick the trusted mini if it is idle now
@@ -2063,7 +2080,7 @@ jobs:
           fi
 
       - name: Checkout build ref
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           persist-credentials: false
           ref: ${{ needs.decide.outputs.head_sha }}
@@ -2343,7 +2360,7 @@ jobs:
           fi
 
       - name: Checkout build ref
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           persist-credentials: false
           ref: ${{ needs.decide.outputs.head_sha }}
@@ -3003,7 +3020,7 @@ jobs:
       CHANNEL_APP_PATH: signed/${{ needs.decide.outputs.app_name }}.app
     steps:
       - name: Checkout build ref
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           persist-credentials: false
           ref: ${{ needs.decide.outputs.head_sha }}
@@ -3146,14 +3163,14 @@ jobs:
       CHANNEL_FEED_BASE: ${{ needs.decide.outputs.feed_base }}
     steps:
       - name: Checkout publish ref
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           persist-credentials: false
           ref: ${{ needs.decide.outputs.head_sha }}
 
       # The wrapper comes from the workflow commit: the build checkout may predate it.
       - name: Checkout the gh token wrapper at the workflow commit
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           ref: ${{ github.sha }}
           fetch-depth: 1
@@ -3274,7 +3291,8 @@ jobs:
             --repo "$GITHUB_REPOSITORY" --tag "$CHANNEL_RELEASE_TAG" \
             --head "$NOTES_HEAD" --branch "$NOTES_BRANCH" \
             --details nightly-downloads.md --out nightly-notes.md \
-            --appcasts nightly-out --build "$NIGHTLY_BUILD"
+            --appcasts nightly-out --build "$NIGHTLY_BUILD" \
+            --feeds appcast-arm64.xml
 
       - name: Upload branch nightly artifacts
         if: needs.decide.outputs.should_publish != 'true'
@@ -3477,7 +3495,8 @@ jobs:
   report-nightly-failure:
     needs: [decide, build-nightly-ghostty-cli-helper, build-nightly-app, resolve-nightly-cmux-tui-client, prepare-nightly-variant, build-sign-notarize-nightly, verify-signed-nightly, publish-nightly]
     if: always() && needs.decide.outputs.should_publish == 'true' && (contains(needs.*.result, 'failure') || needs.publish-nightly.outputs.tag_status == 'stale')
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.CI_CLASSIC_NIGHTLY_MINI != '' && github.ref == 'refs/heads/main' && vars.CI_CLASSIC_NIGHTLY_MINI || github.run_attempt == 1 && 'cmux-gcp-nightly-x64' || 'blacksmith-2vcpu-ubuntu-2404' }}
+    # Mini mode runs this keyless job on the Linux lane VM, every attempt: it needs no Mac (Leo: free the Macs).
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.CI_CLASSIC_NIGHTLY_MINI != '' && github.ref == 'refs/heads/main' && 'cmux-gcp-nightly-x64' || github.run_attempt == 1 && 'cmux-gcp-nightly-x64' || contains(fromJSON('["blacksmith-2vcpu-ubuntu-2404","blacksmith-4vcpu-ubuntu-2404"]'), fromJSON(vars.RUNNER_POOLS || '{}').linux_2) && fromJSON(vars.RUNNER_POOLS || '{}').linux_2 || 'blacksmith-2vcpu-ubuntu-2404' }}
     permissions:
       contents: read
       issues: write
@@ -3489,7 +3508,7 @@ jobs:
       # each github-script step that installs gh_budget_wait.cjs, waits through a rate limit or a
       # GitHub 5xx under the job's GH_BUDGET_WAIT_MAX_SECONDS, then fails loud.
       - name: Checkout the GitHub API wait
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           persist-credentials: false
           ref: ${{ github.sha }}
@@ -3503,7 +3522,7 @@ jobs:
         run: bash .gh-budget-tooling/scripts/ci/gh_budget_wait.sh --install
 
       - name: Checkout the failure incident script
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           ref: ${{ github.sha }}
           fetch-depth: 1

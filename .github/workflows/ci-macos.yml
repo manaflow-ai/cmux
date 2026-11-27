@@ -194,6 +194,10 @@ on:
       # the jobs keep their run-start placement.
       GLAEDA_ROUTE_APP_KEY:
         required: false
+      # The cmux-bot App key: the same reads spread onto its installation when it has
+      # more budget left (.github/actions/app-token-spread). Optional, like the one above.
+      CMUX_BOT_APP_KEY:
+        required: false
 
 permissions:
   contents: read
@@ -233,7 +237,7 @@ jobs:
     # no gap to take the pinned runner first. Any failure outputs "" and
     # admission keeps pr_admission_runner on attempt 1, its label after.
     if: ${{ github.repository_owner == 'manaflow-ai' && (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository || github.event_name == 'workflow_dispatch') && vars.CI_OWNED_SPREAD == '1' && vars.GLAEDA_ROUTE_APP_ID != '' && (startsWith(inputs.pr_root_runner, 'glaeda-root-') || startsWith(inputs.pr_root_runner, 'glaeda-aws-root-')) && contains(inputs.pr_owned_jobs, ' admission ') && (inputs.macos == 'true' || inputs.cli == 'true') && (inputs.compile_admitted != 'true' || inputs.full_suite == 'true' || inputs.cli == 'true') }}
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && !contains(fromJSON(inputs.owned_head_repos), github.event.pull_request.head.repo.full_name) && 'ubuntu-24.04' || contains(fromJSON('["blacksmith-4vcpu-ubuntu-2404","blacksmith-8vcpu-ubuntu-2404","blacksmith-16vcpu-ubuntu-2404","blacksmith-32vcpu-ubuntu-2404"]'), vars.LINUX_RUNNER) && vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && !contains(fromJSON(inputs.owned_head_repos), github.event.pull_request.head.repo.full_name) && 'ubuntu-24.04' || 'blacksmith-4vcpu-ubuntu-2404' }}
     timeout-minutes: 3
     permissions:
       contents: read
@@ -247,19 +251,32 @@ jobs:
       # The picker's code from the base branch, as ci.yml's changes job uses it.
       - name: Check out the trusted picker
         continue-on-error: true
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           ref: ${{ github.event.pull_request.base.sha || github.sha }}
           sparse-checkout: scripts/ci
           persist-credentials: false
+      - name: Check out the App token spread action
+        # Why: .github/actions/app-token-spread (mint on both Apps, spend the fuller one).
+        continue-on-error: true
+        timeout-minutes: 1
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+        with:
+          ref: ${{ github.sha }}
+          path: .app-token-spread
+          sparse-checkout: .github/actions/app-token-spread
+          persist-credentials: false
+
       - name: Mint the owned-pool routing token
         id: route-token
         continue-on-error: true
         timeout-minutes: 1
-        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
+        uses: ./.app-token-spread/.github/actions/app-token-spread
         with:
-          app-id: ${{ vars.GLAEDA_ROUTE_APP_ID }}
-          private-key: ${{ secrets.GLAEDA_ROUTE_APP_KEY }}
+          route-app-id: ${{ vars.GLAEDA_ROUTE_APP_ID }}
+          route-private-key: ${{ secrets.GLAEDA_ROUTE_APP_KEY }}
+          bot-app-id: ${{ vars.CMUX_BOT_APP_ID }}
+          bot-private-key: ${{ secrets.CMUX_BOT_APP_KEY }}
           permission-administration: read
           permission-organization-self-hosted-runners: read
           # On a re-run, the jobs of the attempt before (admission_placement.failed_members()).
@@ -270,10 +287,12 @@ jobs:
         if: steps.route-token.outcome == 'failure'
         continue-on-error: true
         timeout-minutes: 1
-        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
+        uses: ./.app-token-spread/.github/actions/app-token-spread
         with:
-          app-id: ${{ vars.GLAEDA_ROUTE_APP_ID }}
-          private-key: ${{ secrets.GLAEDA_ROUTE_APP_KEY }}
+          route-app-id: ${{ vars.GLAEDA_ROUTE_APP_ID }}
+          route-private-key: ${{ secrets.GLAEDA_ROUTE_APP_KEY }}
+          bot-app-id: ${{ vars.CMUX_BOT_APP_ID }}
+          bot-private-key: ${{ secrets.CMUX_BOT_APP_KEY }}
           permission-administration: read
           permission-actions: read
       - name: Place compile admission
@@ -438,7 +457,7 @@ jobs:
       - name: Checkout
         id: checkout
         continue-on-error: true
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           submodules: recursive
           persist-credentials: false
@@ -456,7 +475,7 @@ jobs:
         id: checkout-retry
         if: steps.checkout.outcome == 'failure'
         continue-on-error: true
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           submodules: recursive
           persist-credentials: false
@@ -584,6 +603,18 @@ jobs:
 
       - name: Install Rust
         run: ./scripts/install-rust-ci.sh
+
+      # The app's build phase clones the pinned cmux-cua source into this
+      # Mac's cache when the pin is missing, with no token: build settings
+      # carry no secrets (compile-app-host-test-product.sh). GitHub answers
+      # anonymous fetches from these Macs' shared address with 403 and
+      # 429 under load, and main's run 45760337662 failed compile admission
+      # on that clone. Fetch it here with the run's token; a warm cache makes
+      # no network call.
+      - name: Fetch the pinned cmux-cua source
+        env:
+          CMUX_CUA_GIT_TOKEN: ${{ github.token }}
+        run: ./scripts/build-cmux-cua.sh --source-only
 
       - name: Identify reusable compiled products
         id: product-key
@@ -1751,7 +1782,7 @@ jobs:
     needs:
       - macos-compile-admission
     if: ${{ !cancelled() && needs.macos-compile-admission.result == 'success' && github.repository_owner == 'manaflow-ai' && github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && vars.CI_PR_POOL_OWNED == '1' && vars.GLAEDA_ROUTE_APP_ID != '' && (github.run_attempt <= 2 || github.triggering_actor != 'github-actions[bot]') }}
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && !contains(fromJSON(inputs.owned_head_repos), github.event.pull_request.head.repo.full_name) && 'ubuntu-24.04' || contains(fromJSON('["blacksmith-4vcpu-ubuntu-2404","blacksmith-8vcpu-ubuntu-2404","blacksmith-16vcpu-ubuntu-2404","blacksmith-32vcpu-ubuntu-2404"]'), vars.LINUX_RUNNER) && vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && !contains(fromJSON(inputs.owned_head_repos), github.event.pull_request.head.repo.full_name) && 'ubuntu-24.04' || 'blacksmith-4vcpu-ubuntu-2404' }}
     timeout-minutes: 3
     permissions:
       contents: read
@@ -1769,11 +1800,23 @@ jobs:
       # The picker's code from the base branch, as ci.yml's changes job uses it.
       - name: Check out the trusted picker
         continue-on-error: true
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           ref: ${{ github.event.pull_request.base.sha }}
           sparse-checkout: scripts/ci
           persist-credentials: false
+      - name: Check out the App token spread action
+        # Why: .github/actions/app-token-spread (mint on both Apps, spend the fuller one).
+        if: ${{ inputs.pr_grant == '' }}
+        continue-on-error: true
+        timeout-minutes: 1
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+        with:
+          ref: ${{ github.sha }}
+          path: .app-token-spread
+          sparse-checkout: .github/actions/app-token-spread
+          persist-credentials: false
+
       - name: Mint the owned-pool routing token
         id: route-token
         # A Mac grant (inputs.pr_grant, scripts/ci/mac-grants.json) already names every job's runner:
@@ -1782,10 +1825,12 @@ jobs:
         if: ${{ inputs.pr_grant == '' }}
         continue-on-error: true
         timeout-minutes: 1
-        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
+        uses: ./.app-token-spread/.github/actions/app-token-spread
         with:
-          app-id: ${{ vars.GLAEDA_ROUTE_APP_ID }}
-          private-key: ${{ secrets.GLAEDA_ROUTE_APP_KEY }}
+          route-app-id: ${{ vars.GLAEDA_ROUTE_APP_ID }}
+          route-private-key: ${{ secrets.GLAEDA_ROUTE_APP_KEY }}
+          bot-app-id: ${{ vars.CMUX_BOT_APP_ID }}
+          bot-private-key: ${{ secrets.CMUX_BOT_APP_KEY }}
           permission-administration: read
           permission-organization-self-hosted-runners: read
           # The gui and Blacksmith backlogs: the jobs of in-flight CI runs (late_placement.gui_backlog()).
@@ -1796,10 +1841,12 @@ jobs:
         if: steps.route-token.outcome == 'failure'
         continue-on-error: true
         timeout-minutes: 1
-        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
+        uses: ./.app-token-spread/.github/actions/app-token-spread
         with:
-          app-id: ${{ vars.GLAEDA_ROUTE_APP_ID }}
-          private-key: ${{ secrets.GLAEDA_ROUTE_APP_KEY }}
+          route-app-id: ${{ vars.GLAEDA_ROUTE_APP_ID }}
+          route-private-key: ${{ secrets.GLAEDA_ROUTE_APP_KEY }}
+          bot-app-id: ${{ vars.CMUX_BOT_APP_ID }}
+          bot-private-key: ${{ secrets.CMUX_BOT_APP_KEY }}
           permission-administration: read
           permission-actions: read
       - name: Place the jobs after admission
@@ -2028,7 +2075,7 @@ jobs:
       - name: Checkout
         id: checkout
         continue-on-error: true
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           persist-credentials: false
 
@@ -2045,7 +2092,7 @@ jobs:
         id: checkout-retry
         if: steps.checkout.outcome == 'failure'
         continue-on-error: true
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           persist-credentials: false
 
@@ -2903,7 +2950,7 @@ jobs:
       # No submodules: this lane never compiles Ghostty or the app, it only
       # loads an already-built bundle and spawns the already-built CLI.
       - name: Checkout
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           persist-credentials: false
 
@@ -3284,7 +3331,7 @@ jobs:
       # No submodules: this lane never compiles Ghostty or the app, it only
       # loads an already-built bundle and spawns the already-built CLI.
       - name: Checkout
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           persist-credentials: false
 
@@ -3641,7 +3688,7 @@ jobs:
         id: checkout
         if: env.PACKAGE_TESTS_VIA_STEP != '1'
         continue-on-error: true
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           submodules: recursive
           # Depth 2 reaches the parent this commit was built on, which is what
@@ -3656,7 +3703,7 @@ jobs:
 
       - name: Retry checkout without the git object seed
         if: steps.checkout.outcome == 'failure'
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           submodules: recursive
           fetch-depth: 2
@@ -4011,7 +4058,7 @@ jobs:
           fi
 
       - name: Checkout
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
 
       - name: Select Xcode
         run: |
@@ -4442,7 +4489,7 @@ jobs:
           fi
 
       - name: Checkout
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           submodules: recursive
 
@@ -4459,6 +4506,18 @@ jobs:
       # by current-run validation.
       - name: Install Rust
         run: ./scripts/install-rust-ci.sh
+
+      # The app's build phase clones the pinned cmux-cua source into this
+      # Mac's cache when the pin is missing, with no token: build settings
+      # carry no secrets (compile-app-host-test-product.sh). GitHub answers
+      # anonymous fetches from these Macs' shared address with 403 and
+      # 429 under load, and main's run 45760337662 failed compile admission
+      # on that clone. Fetch it here with the run's token; a warm cache makes
+      # no network call.
+      - name: Fetch the pinned cmux-cua source
+        env:
+          CMUX_CUA_GIT_TOKEN: ${{ github.token }}
+        run: ./scripts/build-cmux-cua.sh --source-only
 
       - name: Set up Go for the Cloud tunnel extension
         uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
@@ -4826,7 +4885,7 @@ jobs:
       # it, and fails when a selected job never ran (scripts/ci/gate_verdict.py;
       # tests/test_ci_gate_absent_signal.py walks the needs graph).
       - name: Check out the gate verdict
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           persist-credentials: false
           sparse-checkout: |
