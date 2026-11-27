@@ -2,7 +2,7 @@
 // borders, and the app's big round corners. Colors from the codex-app recipe
 // (manaflow-ai/cmux#45804); edit and save, the window repaints at once.
 {
-  "name": "Codex app",
+  "name": "Pebble",
   "description": "Gray sidebar, white page, round corners.",
 
   "appearance.theme": "Builtin Light",

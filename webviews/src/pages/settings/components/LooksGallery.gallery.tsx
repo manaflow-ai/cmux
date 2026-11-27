@@ -96,7 +96,7 @@ const LAYOUTS: Record<LooksLayout, string> = {
   list: "One compact row per look with a small preview",
 };
 const STATES: Record<State, string> = {
-  shipped: "the shipped catalog: Codex, Claude Code, T3 Code and Paper",
+  shipped: "the shipped catalog: Pebble, Kiln, Studio and Paper",
   catalog: "the catalog, nothing installed, every preview drawn",
   loading: "previews still on their way: each tile holds its frame, so nothing moves when they land",
   missing: "New Tab Threads' repo has no preview image",
