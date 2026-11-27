@@ -244,6 +244,7 @@ export async function runComposerLoad(
     return { typing: debug.typingStats(), renders: debug.renders(), watch: (window as any).__finishTypingWatch() };
   });
   if (process.env.CTL0_PROBE) console.log("CTL0 " + JSON.stringify(await page.evaluate(() => (window as any).__ctl0?.()))); // CTL0-TEMP
+  if (process.env.CTL0_SAMPLES) require("fs").appendFileSync(process.env.CTL0_SAMPLES, JSON.stringify({ mode, frames: result.watch.frames, samples: result.typing.samples }) + "\n"); // CTL0-TEMP
   const after = await readLoads();
   for (const surface of loads) await surface.evaluate(() => (window as any).cmuxAcpmuxDebug.typingLoad({ stop: true }));
   const loadRates = after.map((receipt, i) => {
