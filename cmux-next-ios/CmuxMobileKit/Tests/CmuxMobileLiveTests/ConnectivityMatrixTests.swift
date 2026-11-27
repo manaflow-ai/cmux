@@ -269,7 +269,7 @@ private let timeoutReason = LinkController.reason(LinkError(code: "timeout", mes
     /// none (cellular stayed "satisfied" through the outage). While down, 30% of dials
     /// and presence attempts hang to their timeout (25 s, 10 s), the rest fail fast.
     /// Presence notices the outage 0 to 20 s in (ping interval plus timeout) and retries
-    /// on ``PresenceListener/retryDelay(afterFailures:)``; its hello after the outage
+    /// on ``PresenceTiming/retryDelay(afterFailures:)``; its hello after the outage
     /// redials the links (`LiveCoordinator.presenceReturned`).
     ///
     /// `before`: the old backoff (1, 2, 4, 8, 15, 30) and no presence redial. `after`:
@@ -304,14 +304,14 @@ private let timeoutReason = LinkController.reason(LinkError(code: "timeout", mes
             let noticed = flap.lost + flap.detect
             guard noticed < flap.back else { return nil } // never noticed: never down
             var failures = 1
-            var at = noticed + PresenceListener.retryDelay(afterFailures: failures)
+            var at = noticed + PresenceTiming.retryDelay(afterFailures: failures)
             while at < flap.back {
-                at += hangs(at, 2) ? PresenceListener.helloTimeout : .milliseconds(100)
+                at += hangs(at, 2) ? PresenceTiming.helloTimeout : .milliseconds(100)
                 failures += 1
-                at += PresenceListener.retryDelay(afterFailures: failures)
+                at += PresenceTiming.retryDelay(afterFailures: failures)
             }
             let hello = at + helloTime
-            return hello - noticed >= LiveCoordinator.presenceOutageMin ? hello : nil
+            return hello - noticed >= PresenceTiming.outageMin ? hello : nil
         }
 
         var summary: [String: [String: Double]] = [:]
@@ -734,7 +734,12 @@ private let timeoutReason = LinkController.reason(LinkError(code: "timeout", mes
     /// gone): minting a token fails with 401. The person must be asked to
     /// sign in again, not shown "Reconnecting…" forever.
     @MainActor @Test func cellPairingRevokedToken() async throws {
+        #if os(Linux)
+        struct RefusedToken: LinkServiceFailure { let status = 401 }
+        let failure = RefusedToken()
+        #else
         let failure = LiveAPI.Failure(status: 401, code: "unauthorized", message: "refresh token revoked")
+        #endif
         let dialer = ScriptedDialer(outcomes: [.connect])
         let controller = ScriptedDialer.controller(dialer) { _ in throw failure }
         defer { controller.send(.target(nil)) }
