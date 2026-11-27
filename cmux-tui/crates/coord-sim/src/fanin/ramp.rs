@@ -644,6 +644,23 @@ fn ramp_in<'s>(
     // The controller's memory with its peers configured, before their sessions are listed.
     let rss_baseline = gauge_mem(&rpc).0;
 
+    // A peer is dialed when something uses it (acpmux #56640): open one chat on each host, as
+    // the app does when a person opens a chat there, so the links come up. The results do not
+    // count; the attach pass below measures them.
+    std::thread::scope(|s| {
+        for hi in 0..h {
+            let rpc = &rpc;
+            s.spawn(move || {
+                let (_, nm) = name(h, hi as u64 + 1);
+                let _ = rpc.call(
+                    "_acpmux/attach",
+                    json!({"sessionId": format!("h{hi:02}/{nm}"), "limit": 0, "waitLogs": false}),
+                    Duration::from_secs(30),
+                );
+            });
+        }
+    });
+
     // Every peer connected and every session listed.
     let ready_limit = Duration::from_secs(120 + n as u64 / 10);
     let mut ready_ms = None;
