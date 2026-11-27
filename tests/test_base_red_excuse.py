@@ -18628,6 +18628,8 @@ class GuardJobsFollowTheWorkflows(unittest.TestCase):
             "cmux-next-react-doctor.yml",
             # The tab switch check: a display Mac measures the pull request head's tab switches (advisory).
             "cmux-next-tab-switch.yml",
+            # Split latency measurements (#61185) and acpmux's transfer_cli product tests (#58314).
+            "cmux-next-split-table.yml", "session-move-tests.yml",
             # Type-checks the measuring probes (scripts/measure/*.swift) on a Mac when a change touches them.
             "measure-swift-typecheck.yml",
             # Push-only checks that also run, advisory and path-gated, on PRs into feat-cmux-next (#47445): the
@@ -18723,13 +18725,18 @@ class GuardJobsFollowTheWorkflows(unittest.TestCase):
 
     def test_every_pull_request_workflow_is_classified(self):
         listed = [file for files in self.NOT_GUARD_WORKFLOWS.values() for file in files]
-        self.assertEqual(len(listed), len(set(listed)), "a workflow is listed twice")
         guard = set(excuse.GUARD_WORKFLOWS) | {file for file, _ in excuse.GUARD_JOB_IDS}
-        self.assertEqual(sorted(self.pull_request_workflows() - guard - set(listed)), [],
-                         "a workflow that runs on pull requests is neither in excuse.GUARD_WORKFLOWS nor "
-                         "NOT_GUARD_WORKFLOWS: classify its jobs")
-        self.assertEqual(sorted(set(listed) - set(self.workflows)), [], "a classified workflow is gone")
-        self.assertEqual(sorted(set(listed) & guard), [], "a guard workflow is listed as not one")
+        # Report every mismatch in one run: a duplicate must not hide unclassified workflows after a base merge.
+        with self.subTest(check="duplicates"):
+            self.assertEqual(len(listed), len(set(listed)), "a workflow is listed twice")
+        with self.subTest(check="unclassified"):
+            self.assertEqual(sorted(self.pull_request_workflows() - guard - set(listed)), [],
+                             "a workflow that runs on pull requests is neither in excuse.GUARD_WORKFLOWS nor "
+                             "NOT_GUARD_WORKFLOWS: classify its jobs")
+        with self.subTest(check="removed"):
+            self.assertEqual(sorted(set(listed) - set(self.workflows)), [], "a classified workflow is gone")
+        with self.subTest(check="conflicting"):
+            self.assertEqual(sorted(set(listed) & guard), [], "a guard workflow is listed as not one")
 
     def test_every_job_of_a_guard_workflow_is_declared_or_excluded_with_a_reason(self):
         declared = set(excuse.GUARD_JOB_IDS)
