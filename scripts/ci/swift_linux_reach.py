@@ -42,6 +42,7 @@ WHOLE_RUN = (
     "scripts/ci/require_swift_test_execution.py",
     "scripts/ci/swift-test-debug-info.sh",
     "scripts/ci/swiftpm-binary-module-guard.sh",
+    "scripts/ci/lib/swiftpm-stale-artifact.sh",
 )
 # The listed group runs every row on a change to the list itself.
 LISTED_WHOLE = (LIST,)

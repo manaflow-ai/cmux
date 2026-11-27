@@ -777,6 +777,8 @@ sim_set_dir() {
 # sim_reduce_motion UDID [SET] and reduce_motion_app_verdict LOG (reducemotion=1).
 # shellcheck source-path=SCRIPTDIR source=lib/ios-sim-reduce-motion.sh
 source "$(dirname "${BASH_SOURCE[0]}")/lib/ios-sim-reduce-motion.sh"
+# shellcheck source-path=SCRIPTDIR source=lib/swiftpm-stale-artifact.sh
+source "$(dirname "${BASH_SOURCE[0]}")/lib/swiftpm-stale-artifact.sh"
 # sim_boot_reduce_motion UDID WHAT: boots a default-set simulator (unless booted) and turns Reduce Motion on.
 sim_boot_reduce_motion() {
   local value
@@ -984,6 +986,18 @@ if [[ "$mode" == release-build ]]; then
   note "- configuration: Release; destination: generic/platform=iOS Simulator; signing: disabled"
   note "- compilation conditions: Release defaults; no injected DEBUG or CMUX_MOBILE_DEMO"
 fi
+# Resolve the Swift packages once before any build: every build shares SwiftPM's artifact cache
+# (~/Library/Caches/org.swift.swiftpm). On a cold cache (a hosted runner) the Demo and UI builds raced to
+# download the same binary targets, one failing "already exists in file system" (exit 74), so the UI suite
+# ran no test. An interrupted or concurrent download on a fleet Mac leaves such an entry half-written, and
+# then every resolve there fails the same way (2026-11-26, cmux13: step 1e2f85289f8bcef6d2670377 waited
+# 10 h for a simulator and lost its run to WebRTC-M154 and GhosttyNextKit entries): the entries the
+# failure names are removed and the resolve runs once more (swiftpm_run_clearing_stale_artifacts).
+# Warm, this takes a few seconds; a failure leaves the builds to report it.
+swiftpm_run_clearing_stale_artifacts "$work/spm-resolve.log" \
+  xcodebuild -resolvePackageDependencies -project cmux-next-ios/CmuxMobileApp.xcodeproj -scheme CmuxMobileApp \
+  -derivedDataPath "$dd" ||
+  note "- SwiftPM resolve before the builds: failed ($(tail -n 1 "$work/spm-resolve.log"))"
 # The UI tests' own build (test ui=SUITE, $ui_config in dd-ui), started beside the Demo build: the two
 # share no DerivedData, so the step no longer waits for one compile and then the other. Only for plain
 # UI suites (no cold suites, duress, net or profile, which build on their own below). The UI section
@@ -998,13 +1012,6 @@ if [[ "$mode" == test && ${#ui_suites[@]} -gt 0 && ${#ui_cold[@]} -eq 0 && ${#du
     CODE_SIGN_STYLE=Manual CODE_SIGN_IDENTITY=- DEVELOPMENT_TEAM= CMUX_MOBILE_APPLE_SIGN_IN=YES
     ARCHS=arm64 ONLY_ACTIVE_ARCH=YES -quiet)
   [[ "$ui_config" != Demo ]] || ui_prebuild_args+=('SWIFT_ACTIVE_COMPILATION_CONDITIONS=$(inherited) DEBUG CMUX_MOBILE_DEMO')
-  # Resolve the Swift packages once first: both builds share SwiftPM's artifact cache
-  # (~/Library/Caches/org.swift.swiftpm), and on a cold cache (a hosted runner) the two raced to
-  # download the same binary targets, one failing "already exists in file system" (exit 74), so the
-  # UI suite ran no test. Warm, this takes a few seconds; a failure leaves the builds to report it.
-  xcodebuild -resolvePackageDependencies -project cmux-next-ios/CmuxMobileApp.xcodeproj -scheme CmuxMobileApp \
-    -derivedDataPath "$dd_root/dd-ui" >"$work/spm-resolve.log" 2>&1 ||
-    note "- SwiftPM resolve before the parallel builds: failed ($(tail -n 1 "$work/spm-resolve.log"))"
   ui_prebuild_t0=$SECONDS
   xcodebuild build-for-testing "${ui_prebuild_args[@]}" >"$work/ui-build.log" 2>&1 &
   ui_prebuild_pid=$!

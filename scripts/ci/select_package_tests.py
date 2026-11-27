@@ -49,6 +49,7 @@ GLOBAL_INPUTS = (
     "scripts/ci/swift_suite_names_precheck.py",
     "scripts/ci/swift-test-debug-info.sh",
     "scripts/ci/swiftpm-binary-module-guard.sh",
+    "scripts/ci/lib/swiftpm-stale-artifact.sh",
     "scripts/ci/github-egress-direct.sh",
     "scripts/ci/github-egress-run.sh",
     "scripts/ci/swiftpm_prefetch_binary_artifacts.py",
