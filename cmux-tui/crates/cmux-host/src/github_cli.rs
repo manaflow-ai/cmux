@@ -1286,24 +1286,30 @@ fn gh_auto(args: &[String]) -> u8 {
         }
         GhRoute::Token { repo, args, asks } => {
             command.args(&args);
-            // The person's own GitHub login, carried from their Mac, when it reaches the repo.
-            if let Some(token) = own_login_token() {
+            // The person's own GitHub login, carried from their Mac: first when it can push to the
+            // repo; a read-only one only when the cmux GitHub App has no token (a gh write with it
+            // would be refused where the App's token could have done it).
+            let own = own_login_token().map(|token| {
                 let reach = crate::github_own_login::probe(
                     &crate::github_own_login::probe_gh(),
                     &token,
                     &repo,
                 );
-                if reach != crate::github_own_login::Reach::None {
-                    command
-                        .env("GH_TOKEN", token.as_str())
-                        .env("GH_HOST", "github.com")
-                        .env_remove("GITHUB_TOKEN")
-                        .env_remove("GH_ENTERPRISE_TOKEN")
-                        .env_remove("GITHUB_ENTERPRISE_TOKEN");
-                    let err = command.exec();
-                    eprintln!("cmux github gh: gh: {err}");
-                    return 1;
-                }
+                (token, reach)
+            });
+            let use_own = |command: &mut std::process::Command, token: &str| -> u8 {
+                command
+                    .env("GH_TOKEN", token)
+                    .env("GH_HOST", "github.com")
+                    .env_remove("GITHUB_TOKEN")
+                    .env_remove("GH_ENTERPRISE_TOKEN")
+                    .env_remove("GITHUB_ENTERPRISE_TOKEN");
+                let err = command.exec();
+                eprintln!("cmux github gh: gh: {err}");
+                1
+            };
+            if let Some((token, crate::github_own_login::Reach::Write)) = &own {
+                return use_own(&mut command, token.as_str());
             }
             match first_token(&asks, &mut |ask| ask_retrying(Path::new(AGENT_SOCKET), ask)) {
                 Ok((minted, wider)) => {
@@ -1316,6 +1322,14 @@ fn gh_auto(args: &[String]) -> u8 {
                         .env_remove("GITHUB_TOKEN")
                         .env_remove("GH_ENTERPRISE_TOKEN")
                         .env_remove("GITHUB_ENTERPRISE_TOKEN");
+                }
+                Err(_) if matches!(&own, Some((_, crate::github_own_login::Reach::Read))) => {
+                    eprintln!(
+                        "cmux github gh: the cmux GitHub App has no token for {repo}; gh runs with your GitHub login, which can read it but not push to it."
+                    );
+                    if let Some((token, _)) = &own {
+                        return use_own(&mut command, token.as_str());
+                    }
                 }
                 Err(e) => match e.explain(&repo) {
                     (what, Some(fix)) => {
