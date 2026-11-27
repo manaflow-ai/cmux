@@ -1,7 +1,9 @@
 #!/usr/bin/env python3
 """Reads the app's always-on transition frame log (TransitionFrameLog.swift, goal instant-splits) and prints, per
 transition, the count and the p50 / p95 / max of `ms` (the input event to the end of the first Core Animation commit
-that carries the change).
+that carries the change). A drag's work line (`divider_drag_work`: `ms` its first move to its release, `moves`, and
+what the browser's page counters moved in it: `detaches`, `attaches`, `fence_joined`, `fence_missed`, ...) also
+gets each counter's mean and max per drag.
 
     python3 scripts/cmux-next/frame_timing.py                      # every app's log on this Mac
     python3 scripts/cmux-next/frame_timing.py FILE...              # given files (frame-timing.jsonl, .1)
@@ -20,6 +22,8 @@ import os
 import sys
 
 FILE = "frame-timing.jsonl"
+# Fields of a row that are no per-drag counter.
+SKIP_FIELDS = {"transition", "ms", "commit_ms", "input_ts", "first_frame_ts", "event", "build", "at_ms"}
 OLDER = "frame-timing.1.jsonl"
 
 
@@ -70,6 +74,13 @@ def summarize(rows, transition=None, last=None):
         ms = [float(r["ms"]) for r in group]
         out[name] = {"count": len(ms), "p50_ms": pct(ms, 0.5), "p95_ms": pct(ms, 0.95), "max_ms": round(max(ms), 2),
                      "from_event": sum(1 for r in group if r.get("event") is True)}
+        counters = {}
+        for row in group:
+            for key, value in row.items():
+                if key not in SKIP_FIELDS and isinstance(value, int) and not isinstance(value, bool):
+                    counters.setdefault(key, []).append(value)
+        if counters:
+            out[name]["per_drag"] = {key: {"mean": round(sum(v) / len(v), 2), "max": max(v)} for key, v in sorted(counters.items())}
     return out
 
 
@@ -113,6 +124,8 @@ def main(argv=None):
         for transition, s in entry["transitions"].items():
             print(f"  {transition}: count {s['count']}  p50 {s['p50_ms']} ms  p95 {s['p95_ms']} ms  max {s['max_ms']} ms"
                   f"  (from event {s['from_event']})")
+            if s.get("per_drag"):
+                print("    per drag: " + "  ".join(f"{k} {v['mean']} (max {v['max']})" for k, v in s["per_drag"].items()))
     return 0
 
 

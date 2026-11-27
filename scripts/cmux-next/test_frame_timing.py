@@ -54,6 +54,16 @@ class ReaderTests(unittest.TestCase):
         self.assertEqual(sorted(stats), ["right_split_open/live", "right_split_open/snapshot"])
         self.assertEqual((stats["right_split_open/live"]["p50_ms"], stats["right_split_open/snapshot"]["p50_ms"]), (40, 5))
 
+    def test_work_lines_get_each_counters_mean_and_max_per_drag(self):
+        work = [json.dumps({"transition": "divider_drag_work", "ms": 400, "moves": 30, "fence_joined": j, "detaches": 0,
+                            "build": "1", "at_ms": 0}) for j in (90, 30)]
+        stats = ft.summarize(ft.read_lines(work + [line(10)])[0])
+        per = stats["divider_drag_work"]["per_drag"]
+        self.assertEqual(per["fence_joined"], {"mean": 60, "max": 90})
+        self.assertEqual(per["moves"], {"mean": 30, "max": 30})
+        self.assertNotIn("at_ms", per)
+        self.assertNotIn("per_drag", stats["divider_drag"])
+
     def test_empty_is_none(self):
         self.assertIsNone(ft.pct([], 0.95))
         self.assertEqual(ft.summarize([]), {})

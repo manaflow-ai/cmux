@@ -87,4 +87,47 @@ import Testing
         let bare = TransitionFrameLog.line(.dividerDrag, input: 10, displayed: 10.004, ended: 10.005, fromEvent: true, build: "1", atMilliseconds: 1)
         #expect(!bare.contains("path"))
     }
+
+    /// A drag's work line (instant-splits gap row 1): what its counters moved from its press to its release, and its moves.
+    @Test func aReleaseWritesWhatTheCountersMovedInTheDrag() throws {
+        let log = Self.log()
+        var lines: [String] = []
+        log.onLine = { lines.append($0) }
+        var joined = 40, detaches = 2
+        log.workCounts = { [("fence_joined", joined), ("detaches", detaches)] }
+        log.arm(.dividerDrag)
+        joined += 1 // before the first move: still this drag's
+        log.input(now: 100, event: nil)
+        log.input(now: 100.1, event: nil)
+        log.input(now: 100.2, event: nil)
+        joined += 30
+        log.ended(now: 100.25)
+        let line = try #require(lines.first)
+        #expect(lines.count == 1)
+        let object = try #require(JSONSerialization.jsonObject(with: Data(line.utf8)) as? [String: Any])
+        #expect(object["transition"] as? String == "divider_drag_work")
+        #expect(abs((object["ms"] as? Double ?? 0) - 250) < 0.02)
+        #expect(object["moves"] as? Int == 3)
+        #expect(object["fence_joined"] as? Int == 31)
+        #expect(object["detaches"] as? Int == 0)
+        log.ended(now: 101) // once a drag
+        #expect(lines.count == 1)
+    }
+
+    @Test func aCancelledOrUncountedDragWritesNoWorkLine() {
+        let log = Self.log()
+        var lines: [String] = []
+        log.onLine = { lines.append($0) }
+        log.arm(.dividerDrag)
+        log.input(now: 100, event: nil)
+        log.ended(now: 100.2) // no counters: no line
+        log.workCounts = { [("fences", 1)] }
+        log.arm(.dividerDrag)
+        log.input(now: 100, event: nil)
+        log.cancel()
+        log.ended(now: 100.2)
+        log.arm(.dividerDrag)
+        log.ended(now: 100.2) // released with no move
+        #expect(lines.isEmpty)
+    }
 }

@@ -19,6 +19,13 @@ nonisolated private let frameTimingLogger = Logger(subsystem: "com.cmuxterm.app.
 ///   (``CommitProbe``: after AppKit's layout and display, the frame handed to the window server, which shows it at the
 ///   next vsync). `ms` is `first_frame_ts - input_ts`; `commit_ms` is the same to the commit's display step.
 ///
+/// A drag also writes, at its release, one work line (``ended()``): what moved in the app's counters between its press and
+/// its release (``workCounts``, the browser's page detaches, attaches and resize fence joins), and its move count:
+///
+///     {"transition":"divider_drag_work","ms":412.5,"moves":31,"detaches":0,"attaches":0,"fence_joined":93,...}
+///
+/// with `ms` the drag's first move to its release. A fence's answer that comes after the release counts in no drag.
+///
 /// One transition is timed at a time: a new one drops one still waiting for its change. `scripts/cmux-next/frame_timing.py`
 /// prints each transition's p50, p95 and count from the file.
 ///
@@ -73,8 +80,16 @@ public final class TransitionFrameLog {
     private lazy var probe = CommitProbe { [weak self] displayed, ended in self?.committed(displayed: displayed, ended: ended) }
     /// Gets each line (tests); nil writes the file.
     var onLine: ((String) -> Void)?
+    /// The counters a drag's work line reports (name, running total), read at its press and its release; nil writes no
+    /// work line. The app reads the browser's (`CEFEngine.dragWorkCounts`): a few integer reads, twice a drag.
+    public var workCounts: (@MainActor () -> [(String, Int)])?
+    /// The drag whose work line comes at its release: its counters at the press, its first move and its moves.
+    private var work: (transition: Transition, counts: [(String, Int)], input: CFTimeInterval?, moves: Int)?
 
-    public nonisolated init(directory: URL, build: String, bound: Int = TransitionFrameLog.maximumBytes) {
+    /// `workCounts`: the counters each drag's work line reports (``workCounts``).
+    public nonisolated init(directory: URL, build: String, bound: Int = TransitionFrameLog.maximumBytes,
+                            workCounts: (@MainActor () -> [(String, Int)])? = nil) {
+        self.workCounts = workCounts
         self.directory = directory
         self.build = build
         self.bound = bound
@@ -89,18 +104,33 @@ public final class TransitionFrameLog {
     /// `transition` began (a divider press): its input comes next (``input(at:)``).
     public func arm(_ transition: Transition) {
         phase = .armed(transition)
+        work = workCounts.map { (transition, $0(), nil, 0) }
     }
 
     /// The armed transition's input: the pointer event the app handles now, or `now` when it handles none of this
     /// transition's. Every later call until the next ``arm(_:)`` costs one comparison.
     public func input(now: CFTimeInterval = CACurrentMediaTime(), event: NSEvent? = NSApp?.currentEvent) {
+        if work != nil { work?.moves += 1 }
         guard case let .armed(transition) = phase else { return }
         let pointer: Set<NSEvent.EventType> = [.leftMouseDragged, .leftMouseDown, .leftMouseUp, .mouseMoved, .keyDown]
         if let event, pointer.contains(event.type), now - event.timestamp >= 0, now - event.timestamp < Self.maximumEventAge {
             phase = .waiting(transition, input: event.timestamp, fromEvent: true)
+            work?.input = event.timestamp
         } else {
             phase = .waiting(transition, input: now, fromEvent: false)
+            work?.input = now
         }
+    }
+
+    /// The armed transition was released (a divider drag's mouse up, after its last change): its work line is written.
+    public func ended(now: CFTimeInterval = CACurrentMediaTime()) {
+        guard let work, let input = work.input, let counts = workCounts?() else { self.work = nil; return }
+        self.work = nil
+        let before = Dictionary(work.counts, uniquingKeysWith: { first, _ in first })
+        let line = Self.workLine(work.transition, input: input, ended: now, moves: work.moves,
+                                 deltas: counts.map { ($0.0, $0.1 - (before[$0.0] ?? $0.1)) }, build: build,
+                                 atMilliseconds: (Date().timeIntervalSince1970 * 1000).rounded())
+        write(line)
     }
 
     /// The transition's first change is in the transaction open now, in `window`: its commit ends the timing.
@@ -128,6 +158,7 @@ public final class TransitionFrameLog {
 
     /// The transition ended with no change to time (a click, Escape): nothing is written.
     public func cancel() {
+        work = nil
         if case .marked = phase { return }
         phase = .idle
     }
@@ -140,6 +171,10 @@ public final class TransitionFrameLog {
                              fromEvent: fromEvent, build: build, atMilliseconds: (Date().timeIntervalSince1970 * 1000).rounded(),
                              path: markedPath)
         (markedPath, markedEndsAtDisplay) = (nil, false)
+        write(line)
+    }
+
+    private func write(_ line: String) {
         if let onLine {
             onLine(line)
         } else {
@@ -161,11 +196,25 @@ public final class TransitionFrameLog {
     /// One line, newline included.
     nonisolated static func line(_ transition: Transition, input: CFTimeInterval, displayed: CFTimeInterval, ended: CFTimeInterval,
                                  fromEvent: Bool, build: String, atMilliseconds: Double, path: String? = nil) -> String {
-        func ms(_ seconds: CFTimeInterval) -> Double { (seconds * 100_000).rounded() / 100 }
-        let buildJSON = build.unicodeScalars.allSatisfy { $0.isASCII && $0 != "\"" && $0 != "\\" && $0.value >= 0x20 } ? build : ""
+        let buildJSON = jsonSafe(build)
         return "{\"transition\":\"\(transition.rawValue)\",\"ms\":\(ms(ended - input)),\"commit_ms\":\(ms(displayed - input)),"
             + "\"input_ts\":\(input),\"first_frame_ts\":\(ended),\"event\":\(fromEvent),\"build\":\"\(buildJSON)\","
             + "\"at_ms\":\(Int64(atMilliseconds))"
             + (path.map { $0.allSatisfy { $0.isLetter || $0 == "_" } ? ",\"path\":\"\($0)\"" : "" } ?? "") + "}\n"
+    }
+
+    /// One work line, newline included: `ms` the first move to the release, then the moves and each counter's change.
+    nonisolated static func workLine(_ transition: Transition, input: CFTimeInterval, ended: CFTimeInterval, moves: Int,
+                                     deltas: [(String, Int)], build: String, atMilliseconds: Double) -> String {
+        let fields = deltas.filter { jsonSafe($0.0) == $0.0 && !$0.0.isEmpty }.map { ",\"\($0.0)\":\($0.1)" }.joined()
+        return "{\"transition\":\"\(transition.rawValue)_work\",\"ms\":\(ms(max(0, ended - input))),\"moves\":\(moves)\(fields),"
+            + "\"build\":\"\(jsonSafe(build))\",\"at_ms\":\(Int64(atMilliseconds))}\n"
+    }
+
+    nonisolated static func ms(_ seconds: CFTimeInterval) -> Double { (seconds * 100_000).rounded() / 100 }
+
+    /// `text` when it needs no JSON escape, else "".
+    nonisolated static func jsonSafe(_ text: String) -> String {
+        text.unicodeScalars.allSatisfy { $0.isASCII && $0 != "\"" && $0 != "\\" && $0.value >= 0x20 } ? text : ""
     }
 }
