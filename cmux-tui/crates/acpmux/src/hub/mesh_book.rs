@@ -447,10 +447,15 @@ impl Hub {
     pub(super) fn mesh_book_hosts(&self) -> Vec<Value> {
         let mut rows: Vec<Value> = {
             let book = self.mesh_book.lock().unwrap_or_else(|e| e.into_inner());
+            // One walk of the rows for every host, not one per host.
+            let mut counts: HashMap<&str, usize> = HashMap::new();
+            for (_, row) in book.rows.values() {
+                *counts.entry(row.peer.as_str()).or_default() += 1;
+            }
             book.hosts
                 .iter()
                 .map(|(host, seen)| {
-                    let count = book.rows.values().filter(|(_, r)| &r.peer == host).count();
+                    let count = counts.get(host.as_str()).copied().unwrap_or(0);
                     json!({
                         "name": host,
                         "connected": true,
