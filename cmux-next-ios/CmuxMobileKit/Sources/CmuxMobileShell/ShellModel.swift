@@ -122,6 +122,8 @@ final class ShellModel {
     private(set) var deviceDirectory: (any SettingsDeviceDirectory)?
     /// The Macs' terminal sizing policies (Settings and Connected Devices).
     var sizingService: (any TerminalSizingService)? { live }
+    /// The Macs that install a pull request's cmux Dev on this phone (Settings → Developer).
+    var tryPullRequestService: (any TryPullRequestService)? { live }
     /// Screen Sharing with the account's Macs while signed in (Settings → Screen Sharing).
     private(set) var screenSharing: ScreenSharingService?
     /// DEBUG mock mode (Settings → Developer → Mock): sample content only.
@@ -504,6 +506,7 @@ final class ShellModel {
             terminalTabs.hasLiveSession = { [weak live] id, macID in live?.hasLiveSession(tabID: id, macID: macID) ?? false }
             terminalTabs.workspaceLookup = { [weak store] id in store?.workspace(id: id) }
             terminalTabs.macLinkUp = { [weak store] macID in store?.macConnection[macID].map { $0 == .connected } ?? true }
+            terminalTabs.linkStatus = { [weak store] macID in store?.macLinkStatus[macID] }
             terminalTabs.artifactSourceProvider = { [weak live] tab, macID in live?.terminalArtifactSource(tabID: tab.id, macID: macID) }
             terminalTabs.uploaderProvider = { [weak live] tab, macID in live?.terminalUploader(tabID: tab.id, macID: macID) }
             terminalTabs.attachmentSenderProvider = { [weak live] tab, macID in
@@ -576,6 +579,7 @@ final class ShellModel {
             terminalTabs.showConnectedDevices = nil
             terminalTabs.hasLiveSession = nil
             terminalTabs.macLinkUp = nil
+            terminalTabs.linkStatus = nil
             terminalTabs.artifactSourceProvider = nil
             terminalTabs.uploaderProvider = nil
             terminalTabs.attachmentSenderProvider = nil
