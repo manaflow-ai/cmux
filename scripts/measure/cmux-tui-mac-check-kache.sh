@@ -35,6 +35,12 @@ sed -e 's/^cargo check --release --locked /cargo check --timings --release --loc
 grep -q -- '--timings' "$out/check-none.sh" && grep -q -- '--timings' "$out/check-kache.sh" \
   && ! grep -q 'RANLIB_aarch64_apple_darwin RUSTC_WRAPPER$' "$out/check-kache.sh" \
   || { echo "the image's check has another shape; no verdict" >&2; exit 69; }
+# The check puts $HOME/.cargo/bin on PATH; a fleet test job's HOME is not the pool user's, so point it at
+# the home whose .cargo serves this job's cargo (the swift-check recipe runs as that user).
+if [[ ! -x "$HOME/.cargo/bin/cargo" ]] && c="$(command -v cargo)" && [[ $c == */.cargo/bin/cargo ]]; then
+  export HOME="${c%/.cargo/bin/cargo}"
+fi
+echo "HOME=$HOME cargo=$(ls "$HOME/.cargo/bin/cargo" 2>&1) rustup=$(ls "$HOME/.cargo/bin/rustup" 2>&1)"
 kache_ok=0
 [[ -x /opt/kache/kache && -S /run/kache/daemon.sock ]] && kache_ok=1
 echo "host=$(hostname) nproc=$(nproc) mem=$(free -g | awk '/Mem/{print $2}')G kache_daemon=$kache_ok"
