@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # rivals (Leo, 2026-11-22, ask-7c96907088: "compare to claude and codex and t3 code too. we absolutely need as many
 # numbers as possible [...] go look at edge/chrome/safari/slack/helium too"): cmux NEXT (the newest nightly-next
-# DMG) against Zed, Claude, Codex, T3 Code, Slack, Chrome, Edge, Helium, Safari and Rex (when the host has
+# DMG) against Zed, Claude, ChatGPT (apps=chatgpt), Codex, T3 Code, Slack, Chrome, Edge, Helium, Safari and Rex (when the host has
 # /Applications/Rex.app): first launch of a new install, launch after purge (close to a restart), warm relaunch,
 # the CPU and peak RAM each costs, and a 5 minute idle soak (RAM ceiling, growth per minute, CPU, wakeups); per app
 # the bundle size and its count of signed code items. quarantined=1 adds the first launch of a copy carrying a

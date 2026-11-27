@@ -1,6 +1,7 @@
 {
   "sourceLanguage": "en",
   "strings": {
+    "cloud.start.localOnlyModel": {"comment":"Cloud send refusal for a model that can run only on the local computer.","extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"This model runs locally. Choose a Cloud model or run the chat on this computer."}},"ar":{"stringUnit":{"state":"translated","value":"يعمل هذا النموذج محليًا. اختر نموذجًا سحابيًا أو شغّل المحادثة على هذا الكمبيوتر."}},"bs":{"stringUnit":{"state":"translated","value":"Ovaj model radi lokalno. Odaberite Cloud model ili pokrenite razgovor na ovom računaru."}},"da":{"stringUnit":{"state":"translated","value":"Denne model kører lokalt. Vælg en Cloud-model, eller kør chatten på denne computer."}},"de":{"stringUnit":{"state":"translated","value":"Dieses Modell läuft lokal. Wähle ein Cloud-Modell oder starte den Chat auf diesem Computer."}},"es":{"stringUnit":{"state":"translated","value":"Este modelo se ejecuta de forma local. Elige un modelo de Cloud o ejecuta el chat en este equipo."}},"fr":{"stringUnit":{"state":"translated","value":"Ce modèle s’exécute localement. Choisissez un modèle Cloud ou lancez la conversation sur cet ordinateur."}},"it":{"stringUnit":{"state":"translated","value":"Questo modello viene eseguito in locale. Scegli un modello Cloud o avvia la chat su questo computer."}},"ja":{"stringUnit":{"state":"translated","value":"このモデルはローカルで動作します。Cloud モデルを選ぶか、このコンピュータでチャットを実行してください。"}},"km":{"stringUnit":{"state":"translated","value":"ម៉ូដែលនេះដំណើរការក្នុងម៉ាស៊ីន។ ជ្រើសម៉ូដែល Cloud ឬដំណើរការការជជែកនៅលើកុំព្យូទ័រនេះ។"}},"ko":{"stringUnit":{"state":"translated","value":"이 모델은 로컬에서 실행됩니다. Cloud 모델을 선택하거나 이 컴퓨터에서 채팅을 실행하세요."}},"nb":{"stringUnit":{"state":"translated","value":"Denne modellen kjører lokalt. Velg en Cloud-modell, eller kjør chatten på denne datamaskinen."}},"pl":{"stringUnit":{"state":"translated","value":"Ten model działa lokalnie. Wybierz model Cloud lub uruchom czat na tym komputerze."}},"pt-BR":{"stringUnit":{"state":"translated","value":"Este modelo roda localmente. Escolha um modelo do Cloud ou inicie a conversa neste computador."}},"ru":{"stringUnit":{"state":"translated","value":"Эта модель работает локально. Выберите модель Cloud или запустите чат на этом компьютере."}},"th":{"stringUnit":{"state":"translated","value":"โมเดลนี้ทำงานบนเครื่อง เลือกโมเดล Cloud หรือเปิดแชทบนคอมพิวเตอร์เครื่องนี้"}},"tr":{"stringUnit":{"state":"translated","value":"Bu model yerel olarak çalışır. Bir Cloud modeli seçin veya sohbeti bu bilgisayarda çalıştırın."}},"uk":{"stringUnit":{"state":"translated","value":"Ця модель працює локально. Виберіть модель Cloud або запустіть чат на цьому комп’ютері."}},"vi":{"stringUnit":{"state":"translated","value":"Mô hình này chạy cục bộ. Hãy chọn một mô hình Cloud hoặc chạy cuộc trò chuyện trên máy tính này."}},"zh-Hans":{"stringUnit":{"state":"translated","value":"此模型在本地运行。请选择 Cloud 模型，或在这台电脑上运行聊天。"}},"zh-Hant":{"stringUnit":{"state":"translated","value":"此模型在本機執行。請選擇 Cloud 模型，或在這部電腦上執行聊天。"}},"nl":{"stringUnit":{"state":"translated","value":"Dit model draait lokaal. Kies een Cloud-model of start de chat op deze computer."}},"sv":{"stringUnit":{"state":"translated","value":"Den här modellen körs lokalt. Välj en Cloud-modell eller starta chatten på den här datorn."}}}},
     "agentPane.github.requested": {"comment":"The new chat folder picker after the person asked their GitHub organization's owners to install the cmux App (GitHub sent the request to the owners).","extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Asked the organization's owners to approve cmux. Its repositories appear here once they do."}},"ar":{"stringUnit":{"state":"translated","value":"طُلب من مالكي المؤسسة الموافقة على cmux. ستظهر مستودعاتها هنا بعد موافقتهم."}},"bs":{"stringUnit":{"state":"translated","value":"Zatraženo je od vlasnika organizacije da odobre cmux. Njeni repozitoriji će se pojaviti ovdje kada to urade."}},"da":{"stringUnit":{"state":"translated","value":"Organisationens ejere er blevet bedt om at godkende cmux. Dens repositories vises her, når de gør."}},"de":{"stringUnit":{"state":"translated","value":"Die Inhaber der Organisation wurden gebeten, cmux zu genehmigen. Ihre Repositorys erscheinen hier, sobald sie zustimmen."}},"es":{"stringUnit":{"state":"translated","value":"Se pidió a los propietarios de la organización que aprueben cmux. Sus repositorios aparecerán aquí cuando lo hagan."}},"fr":{"stringUnit":{"state":"translated","value":"Les propriétaires de l'organisation ont été invités à approuver cmux. Ses dépôts apparaîtront ici dès qu'ils l'auront fait."}},"it":{"stringUnit":{"state":"translated","value":"È stato chiesto ai proprietari dell'organizzazione di approvare cmux. I suoi repository compariranno qui quando lo faranno."}},"ja":{"stringUnit":{"state":"translated","value":"組織のオーナーに cmux の承認を依頼しました。承認されると、ここにリポジトリが表示されます。"}},"km":{"stringUnit":{"state":"translated","value":"បានស្នើសុំម្ចាស់ស្ថាប័នឱ្យយល់ព្រម cmux។ ឃ្លាំងរបស់វានឹងបង្ហាញនៅទីនេះ នៅពេលពួកគេយល់ព្រម។"}},"ko":{"stringUnit":{"state":"translated","value":"조직 소유자에게 cmux 승인을 요청했습니다. 승인되면 저장소가 여기에 표시됩니다."}},"nb":{"stringUnit":{"state":"translated","value":"Organisasjonens eiere er bedt om å godkjenne cmux. Repositoriene vises her når de gjør det."}},"pl":{"stringUnit":{"state":"translated","value":"Poproszono właścicieli organizacji o zatwierdzenie cmux. Jej repozytoria pojawią się tutaj, gdy to zrobią."}},"pt-BR":{"stringUnit":{"state":"translated","value":"Pedimos aos proprietários da organização que aprovem o cmux. Os repositórios aparecem aqui assim que aprovarem."}},"ru":{"stringUnit":{"state":"translated","value":"Владельцам организации отправлен запрос на одобрение cmux. Её репозитории появятся здесь после одобрения."}},"th":{"stringUnit":{"state":"translated","value":"ขอให้เจ้าขององค์กรอนุมัติ cmux แล้ว ที่เก็บของจะปรากฏที่นี่เมื่ออนุมัติ"}},"tr":{"stringUnit":{"state":"translated","value":"Kuruluş sahiplerinden cmux'u onaylamaları istendi. Onayladıklarında depoları burada görünür."}},"uk":{"stringUnit":{"state":"translated","value":"Власникам організації надіслано запит на схвалення cmux. Її репозиторії з'являться тут після схвалення."}},"vi":{"stringUnit":{"state":"translated","value":"Đã đề nghị chủ sở hữu tổ chức phê duyệt cmux. Các kho mã sẽ hiện ở đây khi họ phê duyệt."}},"zh-Hans":{"stringUnit":{"state":"translated","value":"已请组织所有者批准 cmux。批准后，其仓库会显示在这里。"}},"zh-Hant":{"stringUnit":{"state":"translated","value":"已請組織擁有者核准 cmux。核准後，其儲存庫會顯示在這裡。"}}}},
     "agentPane.github.requestedOwner": {"comment":"The new chat folder picker after the person asked a GitHub organization's owners to install the cmux App; %@ is the organization's name.","extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Asked the owners of %@ to approve cmux. Its repositories appear here once they do."}},"ar":{"stringUnit":{"state":"translated","value":"طُلب من مالكي %@ الموافقة على cmux. ستظهر مستودعاتها هنا بعد موافقتهم."}},"bs":{"stringUnit":{"state":"translated","value":"Zatraženo je od vlasnika %@ da odobre cmux. Njeni repozitoriji će se pojaviti ovdje kada to urade."}},"da":{"stringUnit":{"state":"translated","value":"Ejerne af %@ er blevet bedt om at godkende cmux. Dens repositories vises her, når de gør."}},"de":{"stringUnit":{"state":"translated","value":"Die Inhaber von %@ wurden gebeten, cmux zu genehmigen. Die Repositorys erscheinen hier, sobald sie zustimmen."}},"es":{"stringUnit":{"state":"translated","value":"Se pidió a los propietarios de %@ que aprueben cmux. Sus repositorios aparecerán aquí cuando lo hagan."}},"fr":{"stringUnit":{"state":"translated","value":"Les propriétaires de %@ ont été invités à approuver cmux. Ses dépôts apparaîtront ici dès qu'ils l'auront fait."}},"it":{"stringUnit":{"state":"translated","value":"È stato chiesto ai proprietari di %@ di approvare cmux. I suoi repository compariranno qui quando lo faranno."}},"ja":{"stringUnit":{"state":"translated","value":"%@ のオーナーに cmux の承認を依頼しました。承認されると、ここにリポジトリが表示されます。"}},"km":{"stringUnit":{"state":"translated","value":"បានស្នើសុំម្ចាស់ %@ ឱ្យយល់ព្រម cmux។ ឃ្លាំងរបស់វានឹងបង្ហាញនៅទីនេះ នៅពេលពួកគេយល់ព្រម។"}},"ko":{"stringUnit":{"state":"translated","value":"%@ 소유자에게 cmux 승인을 요청했습니다. 승인되면 저장소가 여기에 표시됩니다."}},"nb":{"stringUnit":{"state":"translated","value":"Eierne av %@ er bedt om å godkjenne cmux. Repositoriene vises her når de gjør det."}},"pl":{"stringUnit":{"state":"translated","value":"Poproszono właścicieli %@ o zatwierdzenie cmux. Repozytoria pojawią się tutaj, gdy to zrobią."}},"pt-BR":{"stringUnit":{"state":"translated","value":"Pedimos aos proprietários de %@ que aprovem o cmux. Os repositórios aparecem aqui assim que aprovarem."}},"ru":{"stringUnit":{"state":"translated","value":"Владельцам %@ отправлен запрос на одобрение cmux. Репозитории появятся здесь после одобрения."}},"th":{"stringUnit":{"state":"translated","value":"ขอให้เจ้าของ %@ อนุมัติ cmux แล้ว ที่เก็บของจะปรากฏที่นี่เมื่ออนุมัติ"}},"tr":{"stringUnit":{"state":"translated","value":"%@ sahiplerinden cmux'u onaylamaları istendi. Onayladıklarında depoları burada görünür."}},"uk":{"stringUnit":{"state":"translated","value":"Власникам %@ надіслано запит на схвалення cmux. Репозиторії з'являться тут після схвалення."}},"vi":{"stringUnit":{"state":"translated","value":"Đã đề nghị chủ sở hữu %@ phê duyệt cmux. Các kho mã sẽ hiện ở đây khi họ phê duyệt."}},"zh-Hans":{"stringUnit":{"state":"translated","value":"已请 %@ 的所有者批准 cmux。批准后，其仓库会显示在这里。"}},"zh-Hant":{"stringUnit":{"state":"translated","value":"已請 %@ 的擁有者核准 cmux。核准後，其儲存庫會顯示在這裡。"}}}},
     "agentPane.insertPhoto.prompt": {"comment":"Insert Photo: the open panel's button that inserts the chosen pictures into the focused pane.","extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Insert"}},"ar":{"stringUnit":{"state":"translated","value":"إدراج"}},"bs":{"stringUnit":{"state":"translated","value":"Umetni"}},"da":{"stringUnit":{"state":"translated","value":"Indsæt"}},"de":{"stringUnit":{"state":"translated","value":"Einfügen"}},"es":{"stringUnit":{"state":"translated","value":"Insertar"}},"fr":{"stringUnit":{"state":"translated","value":"Insérer"}},"it":{"stringUnit":{"state":"translated","value":"Inserisci"}},"ja":{"stringUnit":{"state":"translated","value":"挿入"}},"km":{"stringUnit":{"state":"translated","value":"បញ្ចូល"}},"ko":{"stringUnit":{"state":"translated","value":"삽입"}},"nb":{"stringUnit":{"state":"translated","value":"Sett inn"}},"pl":{"stringUnit":{"state":"translated","value":"Wstaw"}},"pt-BR":{"stringUnit":{"state":"translated","value":"Inserir"}},"ru":{"stringUnit":{"state":"translated","value":"Вставить"}},"th":{"stringUnit":{"state":"translated","value":"แทรก"}},"tr":{"stringUnit":{"state":"translated","value":"Yerleştir"}},"uk":{"stringUnit":{"state":"translated","value":"Вставити"}},"vi":{"stringUnit":{"state":"translated","value":"Chèn"}},"zh-Hans":{"stringUnit":{"state":"translated","value":"插入"}},"zh-Hant":{"stringUnit":{"state":"translated","value":"插入"}}}},
@@ -12003,130 +12004,10 @@
     "agentPane.error.daemonStopped": {
       "extractionState": "manual",
       "localizations": {
-        "ar": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "توقفت خدمة الوكلاء."
-          }
-        },
-        "bs": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Servis agenata je zaustavljen."
-          }
-        },
-        "da": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Agenttjenesten er stoppet."
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Der Agentendienst wurde gestoppt."
-          }
-        },
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "The agent service stopped."
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "El servicio de agentes se detuvo."
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Le service d’agents s’est arrêté."
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Il servizio agenti si è arrestato."
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "エージェントサービスが停止しました。"
-          }
-        },
-        "km": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "សេវាភ្នាក់ងារបានឈប់។"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "에이전트 서비스가 중지되었습니다."
-          }
-        },
-        "nb": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Agenttjenesten er stoppet."
-          }
-        },
-        "pl": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Usługa agentów została zatrzymana."
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "O serviço de agentes parou."
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Служба агентов остановлена."
-          }
-        },
-        "th": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "บริการเอเจนต์หยุดทำงานแล้ว"
-          }
-        },
-        "tr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Ajan hizmeti durdu."
-          }
-        },
-        "uk": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Службу агентів зупинено."
-          }
-        },
-        "vi": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Dịch vụ tác tử đã dừng."
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "代理服务已停止。"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "代理服務已停止。"
+            "value": "cmux couldn't start its agent service. Quit and reopen cmux to try again."
           }
         }
       }
@@ -37088,127 +36969,7 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "The agent service is not running. Try again in a moment."
-          }
-        },
-        "ar": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "خدمة الوكيل لا تعمل. حاول مرة أخرى بعد قليل."
-          }
-        },
-        "bs": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Usluga agenta nije pokrenuta. Pokušajte ponovo za trenutak."
-          }
-        },
-        "da": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Agenttjenesten kører ikke. Prøv igen om lidt."
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Der Agentdienst läuft nicht. Versuche es gleich noch einmal."
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "El servicio de agentes no se está ejecutando. Inténtalo de nuevo en un momento."
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Le service d'agents n'est pas en cours d'exécution. Réessayez dans un instant."
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Il servizio agenti non è in esecuzione. Riprova tra un momento."
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "エージェントサービスが実行されていません。しばらくしてからもう一度お試しください。"
-          }
-        },
-        "km": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "សេវាភ្នាក់ងារមិនកំពុងដំណើរការទេ។ សូមព្យាយាមម្ដងទៀតបន្តិចទៀត។"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "에이전트 서비스가 실행 중이 아닙니다. 잠시 후 다시 시도하세요."
-          }
-        },
-        "nb": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Agenttjenesten kjører ikke. Prøv igjen om et øyeblikk."
-          }
-        },
-        "pl": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Usługa agentów nie działa. Spróbuj ponownie za chwilę."
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "O serviço de agentes não está em execução. Tente novamente em instantes."
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Служба агентов не запущена. Повторите попытку через мгновение."
-          }
-        },
-        "th": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "บริการเอเจนต์ไม่ได้ทำงานอยู่ ลองอีกครั้งในอีกสักครู่"
-          }
-        },
-        "tr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Ajan hizmeti çalışmıyor. Birazdan yeniden deneyin."
-          }
-        },
-        "uk": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Служба агентів не запущена. Спробуйте ще раз за мить."
-          }
-        },
-        "vi": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Dịch vụ tác tử không chạy. Hãy thử lại sau giây lát."
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "代理服务未运行。请稍后重试。"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "代理程式服務未在執行。請稍後再試。"
+            "value": "cmux couldn't start its agent service to do this. Quit and reopen cmux, then try again."
           }
         }
       }
@@ -42880,7 +42641,7 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Your GitHub login %1$@ can't reach %2$@. Sign in with GitHub to give Cloud access to it."
+            "value": "Your GitHub login %1$@ has no access to %2$@. Sign in with GitHub to give Cloud access to it."
           }
         },
         "ar": {
