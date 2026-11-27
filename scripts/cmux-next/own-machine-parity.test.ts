@@ -26,7 +26,7 @@ const allBuilt = (argv: string[]): Exec => {
   if (line.includes("mktemp -d ")) return ok("/tmp/owp-1-a1B2c3\n")
   if (line.includes("app machines")) return ok(JSON.stringify([{ name: "mac-b", state: "connected" }]))
   if (line.includes(" chat ")) return ok(JSON.stringify({ session_id: "mac-b/x", cwd: "/Users/b/proj" }))
-  if (line.includes("machine ports")) return ok(JSON.stringify({ ports: [5173, 5174, 5175] }))
+  if (/ ports( |$)/.test(line)) return ok(JSON.stringify({ ports: [{ port: 5173 }, { port: 5174 }, { port: 5175 }] }))
   if (line.includes("file open")) return ok()
   if (line.includes("tab list")) return ok('[{"title":"hello.txt"}]')
   return ok()
@@ -46,7 +46,7 @@ describe("own-machine-parity", () => {
   test("steps whose piece has not landed report not-built, no crash", async () => {
     const { d } = deps((argv) => {
       const line = argv.join(" ")
-      if (line.includes("machine ports") || line.includes("file open")) return { code: 2, stdout: "", stderr: "unknown verb" }
+      if (/ ports( |$)/.test(line) || line.includes("file open")) return { code: 2, stdout: "", stderr: "unknown verb" }
       if (line.includes(" chat ")) return { code: 1, stdout: "", stderr: "workspaces need a link" }
       return allBuilt(argv)
     })

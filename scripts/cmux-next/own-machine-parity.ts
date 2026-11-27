@@ -262,7 +262,7 @@ export function parseOptions(argv: string[], env: Record<string, string | undefi
     bShell: v("--b-shell").split(/\s+/).filter(Boolean),
     report: v("--report"),
     sha: v("--sha") || "unknown",
-    portsArgv: arr(env.OWP_PORTS_ARGV, ["machine", "ports", "--machine", "{name}", "--json"]),
+    portsArgv: arr(env.OWP_PORTS_ARGV, ["machine", "{name}", "ports", "--json"]),
     fileArgv: arr(env.OWP_FILE_ARGV, ["file", "open", "--machine", "{name}", "--path", "{path}"])
   }
   if (!o.aSocket.startsWith("/")) return "--a-socket must be an absolute path"
