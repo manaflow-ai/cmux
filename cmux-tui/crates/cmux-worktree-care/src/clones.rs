@@ -163,6 +163,28 @@ mod tests {
     }
 
     #[test]
+    fn linked_worktree_data_keeps_the_common_clone() {
+        let (base, clone) = clone_pair("clone-linked-preserve");
+        git(&clone, &["worktree", "add", "-qb", "linked", "../linked"]);
+        let linked = base.join("linked");
+        std::fs::write(linked.join("a"), "staged only").unwrap();
+        git(&linked, &["add", "a"]);
+        std::fs::write(linked.join("a"), "1").unwrap();
+        let store = Store::open(base.join("store")).unwrap();
+        assert!(work(&clone).is_err());
+        assert!(archive(&clone, &store, 1).is_err());
+    }
+
+    #[test]
+    fn submodule_object_stores_keep_the_clone() {
+        let (base, clone) = clone_pair("clone-modules-preserve");
+        std::fs::create_dir_all(clone.join(".git/modules/local")).unwrap();
+        let store = Store::open(base.join("store")).unwrap();
+        assert!(work(&clone).is_err());
+        assert!(archive(&clone, &store, 1).is_err());
+    }
+
+    #[test]
     fn dirty_stashed_or_remoteless_clones_are_kept() {
         let (base, clone) = clone_pair("clone-dirty");
         std::fs::write(clone.join("loose"), "x").unwrap();
