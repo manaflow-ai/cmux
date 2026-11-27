@@ -160,12 +160,9 @@ export function BackgroundTasksPanel({
   const [stack, setStack] = useState<Drill[]>(() => (initialDrill ? [initialDrill] : []));
   // Workflows turned off (Labs) while a workflow agent's transcript shows: there is nothing to read
   // it with, so the panel steps back out of it rather than show a blank pane.
-  if (!workflow && stack.some((entry) => entry.workflow))
-    setStack(stack.filter((entry) => !entry.workflow));
+  if (!workflow && stack.some((entry) => entry.workflow)) setStack(stack.filter((entry) => !entry.workflow));
   // The request the panel acts on, and the latest one it has seen.
-  const [target, setTarget] = useState(() =>
-    focus && Date.now() - focus.at < FOCUS_FRESH_MS ? focus : undefined,
-  );
+  const [target, setTarget] = useState(() => (focus && Date.now() - focus.at < FOCUS_FRESH_MS ? focus : undefined));
   const [seenFocus, setSeenFocus] = useState(focus?.at);
   if (focus && focus.at !== seenFocus) {
     setSeenFocus(focus.at);
@@ -207,9 +204,7 @@ export function BackgroundTasksPanel({
   );
   const ownRows = drillAgent ? own.log?.views[drillAgent] : undefined;
   const drillRows =
-    viewRows?.length && (drillRunning || (ownRows?.length ?? 0) <= viewRows.length)
-      ? viewRows
-      : (ownRows ?? []);
+    viewRows?.length && (drillRunning || (ownRows?.length ?? 0) <= viewRows.length) ? viewRows : (ownRows ?? []);
   return (
     <StopsAgents.Provider value={stopsAgents}>
       <ReadsOutput.Provider value={readsOutput}>
@@ -223,12 +218,7 @@ export function BackgroundTasksPanel({
             onExpand={onExpand}
             onClose={onClose}
           >
-            <div
-              ref={list}
-              className="acpmux-bg__list"
-              data-look={look}
-              hidden={drill !== undefined}
-            >
+            <div ref={list} className="acpmux-bg__list" data-look={look} hidden={drill !== undefined}>
               {groups.length === 0 ? (
                 <p className="acpmux-bg__empty">
                   {loading ? t("backgroundTasks.loading") : t("backgroundTasks.empty")}
@@ -287,9 +277,7 @@ export function BackgroundTasksPanel({
                   rows={drillRows}
                   running={drillRunning}
                   anchor={drill.rowId}
-                  notice={
-                    drillRows.length === 0 && own.loading ? t("subagents.loading.title") : undefined
-                  }
+                  notice={drillRows.length === 0 && own.loading ? t("subagents.loading.title") : undefined}
                 />
               </NestedAgents.Provider>
             )}
@@ -348,18 +336,15 @@ function Section({
 }
 
 /// The time of the request (`focus`) that names one of `tasks`, if one does.
-const focusedIn = (
-  tasks: readonly BackgroundTask[],
-  focus: { toolCallId: string; at: number } | undefined,
-) => (focus && tasks.some((task) => task.toolCallId === focus.toolCallId) ? focus.at : undefined);
+const focusedIn = (tasks: readonly BackgroundTask[], focus: { toolCallId: string; at: number } | undefined) =>
+  focus && tasks.some((task) => task.toolCallId === focus.toolCallId) ? focus.at : undefined;
 
 /// The group a subagent is, or the one it is a task of.
 function agentOf(groups: readonly BackgroundGroup[], agentId: string) {
   for (const group of groups) {
     if (group.agentId === agentId) return { name: group.name, state: group.state };
     for (const task of [...group.running, ...group.finished]) {
-      if (task.kind === "agent" && task.agentId === agentId)
-        return { name: task.title, state: task.state };
+      if (task.kind === "agent" && task.agentId === agentId) return { name: task.title, state: task.state };
       if (task.workflow?.pane === agentId)
         return { name: task.title, state: task.state, workflow: task.workflow.agent };
     }
@@ -381,20 +366,10 @@ function WorkflowAgentTranscript({
   running: boolean;
   reads: WorkflowReads;
 }) {
-  const transcript = useWorkflowTranscript(
-    pane,
-    reads.sessionId,
-    true,
-    agent,
-    reads.read,
-    reads.connection,
-  );
+  const transcript = useWorkflowTranscript(pane, reads.sessionId, true, agent, reads.read, reads.connection);
   // The panel's head names the agent. The hook's notice row (Loading, or why the history is short) is a line of its own above the rows, so
   // the window is taken from the agent's rows when they arrive, never from the notice.
-  const rows = useMemo(
-    () => (transcript.rows ?? []).filter((row) => row.kind !== "notice"),
-    [transcript.rows],
-  );
+  const rows = useMemo(() => (transcript.rows ?? []).filter((row) => row.kind !== "notice"), [transcript.rows]);
   const notice = transcript.rows?.find((row) => row.kind === "notice")?.text;
   // Older history, a page at a time, from the transcript's top (the hook's loader changes each render).
   const loader = useRef(transcript.loadOlder);
@@ -516,13 +491,7 @@ function PanelFrame({
 /// Elapsed while it runs; once ended, its duration ("856ms" under a second, spanDuration), or
 /// nothing when its end time is unknown (a command known only from the transcript) or it was
 /// stamped at one moment, never a time that keeps counting or a floored "0s".
-function backgroundTime(
-  t: Translate,
-  from?: number,
-  to?: number,
-  running = false,
-  clock?: string,
-): ReactNode {
+function backgroundTime(t: Translate, from?: number, to?: number, running = false, clock?: string): ReactNode {
   if (running && from !== undefined) return <Elapsed since={from} clock={clock} />;
   const text = from !== undefined && to !== undefined ? spanDuration(t, to - from) : undefined;
   return clock ? <Clock className={clock} text={text ?? ""} /> : text;
@@ -558,19 +527,9 @@ function GroupBlock({
   // A group whose own agent ended still runs while any of its tasks (a nested agent) does.
   const live = isLive(group);
   return (
-    <div
-      className="acpmux-bg__group"
-      data-state={live ? "running" : group.state}
-      data-group={group.id}
-    >
+    <div className="acpmux-bg__group" data-state={live ? "running" : group.state} data-group={group.id}>
       <div className="acpmux-bg__agent">
-        <Button
-          variant="ghost"
-          type="button"
-          className="acpmux-bg__name"
-          disabled={!opens}
-          onClick={opens}
-        >
+        <Button variant="ghost" type="button" className="acpmux-bg__name" disabled={!opens} onClick={opens}>
           <span className="acpmux-bg__label">{group.name}</span>
           {opens && (
             <span className="acpmux-bg__chevron" aria-hidden="true">
@@ -668,13 +627,7 @@ function TaskList({
     if (parent !== undefined) kids.set(parent, [...(kids.get(parent) ?? []), task]);
   }
   const taskRow = (task: BackgroundTask) => (
-    <TaskRow
-      key={task.id}
-      task={task}
-      onDrill={onDrill}
-      onStop={onStop}
-      onOpenCommand={onOpenCommand}
-    />
+    <TaskRow key={task.id} task={task} onDrill={onDrill} onStop={onStop} onOpenCommand={onOpenCommand} />
   );
   const row = (task: BackgroundTask) => {
     const under = kids.get(task.id);
@@ -767,13 +720,7 @@ function TaskRow({
         : undefined;
   return (
     <div className="acpmux-bg__task" data-state={task.state}>
-      <Button
-        variant="ghost"
-        type="button"
-        className="acpmux-bg__task-open"
-        disabled={!opens}
-        onClick={opens}
-      >
+      <Button variant="ghost" type="button" className="acpmux-bg__task-open" disabled={!opens} onClick={opens}>
         {/* A running task's time and Stop say it runs: it leads with the same mark as one that ended. */}
         <span className="acpmux-bg__disclosure" aria-hidden="true">
           <Icon name="disclosure.collapsed" size={12} row />

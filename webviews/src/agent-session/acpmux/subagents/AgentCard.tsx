@@ -197,7 +197,5 @@ function CardStatus({
 }) {
   const agent = typeof time === "object" ? time : undefined;
   const now = useNow(agent !== undefined && running(agent));
-  return [state, queued, agent ? subagentTime(agent, now) : time, detail]
-    .filter(Boolean)
-    .join(" · ");
+  return [state, queued, agent ? subagentTime(agent, now) : time, detail].filter(Boolean).join(" · ");
 }

@@ -22,11 +22,7 @@ import { SubagentCardBody } from "../subagents/SubagentPreview";
 import { ResumeControl, type ResumeActions } from "../subagents/ResumeControl";
 import { useSenderIconLook } from "../subagents/senderIconLook";
 import { useAgentProgress } from "../subagents/agentProgressStore";
-import {
-  foreignHarness,
-  isRepeatedAgentKind,
-  SUBAGENT_FALLBACK,
-} from "../subagents/agentIdentityModel";
+import { foreignHarness, isRepeatedAgentKind, SUBAGENT_FALLBACK } from "../subagents/agentIdentityModel";
 import { subagentProgress } from "../subagents/subagentProgress";
 import { namedAction } from "../subagents/trayDetail";
 import { nestAgents } from "../subagents/agentsPillModel";
@@ -37,11 +33,7 @@ import { Elapsed } from "../subagents/Elapsed";
 import { IDLE_AFTER_MS } from "../subagents/idle";
 import { subsessionResumeRow } from "../subagents/resumeState";
 import { retrying } from "../subagents/retryState";
-import {
-  subagentStateText,
-  subagentStatus,
-  type SubagentStatus,
-} from "../summary/subagentStatusListModel";
+import { subagentStateText, subagentStatus, type SubagentStatus } from "../summary/subagentStatusListModel";
 import { orderedSessions, sessionStatus, sessionStateText } from "./childSessionRowsModel";
 import "./SubagentsSection.css";
 import { heightAbove, useFoldMotion } from "./foldMotion";
@@ -137,8 +129,7 @@ type Line = {
   open?: () => void;
 };
 
-const live = (status: SubagentStatus) =>
-  status === "running" || status === "waiting" || status === "idle";
+const live = (status: SubagentStatus) => status === "running" || status === "waiting" || status === "idle";
 /// An idle line keeps its place among the live ones but takes no part in the running shimmer.
 const working = (status: SubagentStatus) => status === "running" || status === "waiting";
 /// The ended list's order: a failed one first, then a stopped one, then the done ones.
@@ -186,9 +177,7 @@ export function SubagentsSection({
   const senderBadge = useSenderIconLook().badge;
   // Show more grows the running lines in place, and the ended row opens its list, each as one motion
   // with the sections under it and the panel's edge (foldMotion.ts).
-  const moreFold = useFoldMotion<HTMLUListElement>(more, (list) =>
-    heightAbove(list, list.children[SUBAGENTS_SHOWN]),
-  );
+  const moreFold = useFoldMotion<HTMLUListElement>(more, (list) => heightAbove(list, list.children[SUBAGENTS_SHOWN]));
   const endedFold = useFoldMotion<HTMLDivElement>(endedOpen, () => 0);
   const clockRuns = agents.some(running);
   const agentLine = (agent: Subagent, depth: number): Line => {
@@ -202,10 +191,7 @@ export function SubagentsSection({
       // What it does now, while it runs; its kind (Explore, general-purpose) is no subtitle on the
       // line (Leo, 2026-10-31: "a lot of these subtitles are bad"): the hover card keeps it.
       detail: working(status) ? namedAction(t, agent.action, agent.actionShell) : undefined,
-      kind:
-        agent.kind && agent.kind !== agent.name && !isRepeatedAgentKind(agent.kind)
-          ? agent.kind
-          : undefined,
+      kind: agent.kind && agent.kind !== agent.name && !isRepeatedAgentKind(agent.kind) ? agent.kind : undefined,
       status,
       state: subagentStateText(t, agent, waiting, connectionQuiet, now),
       working: Boolean(retrying(agent)),
@@ -229,9 +215,7 @@ export function SubagentsSection({
     identity: child.sessionId,
     name: child.title,
     status: sessionStatus(child),
-    ...(({ text, working }) => ({ state: text, working }))(
-      sessionStateText(t, child, connectionQuiet),
-    ),
+    ...(({ text, working }) => ({ state: text, working }))(sessionStateText(t, child, connectionQuiet)),
     icon: "agent.chat",
     mark: child.harness,
     depth: 0,
@@ -243,8 +227,8 @@ export function SubagentsSection({
   // first, a nested one under its parent; among siblings a waiting one first, so it never leaves its
   // parent), then the running chats.
   const waitsFirst = (a: Subagent, b: Subagent) =>
-    Number(subagentStatus(b, waiting) === "waiting") -
-      Number(subagentStatus(a, waiting) === "waiting") || a.startedAt - b.startedAt;
+    Number(subagentStatus(b, waiting) === "waiting") - Number(subagentStatus(a, waiting) === "waiting") ||
+    a.startedAt - b.startedAt;
   const runningAgents = nestAgents(
     agents.filter((agent) => live(subagentStatus(agent, waiting, now))).sort(waitsFirst),
   ).map(({ agent, depth }) => agentLine(agent, depth));
@@ -255,9 +239,7 @@ export function SubagentsSection({
     ...children.filter((child) => sessionStatus(child) === "running").map(sessionLine),
   ];
   const endedLines = [
-    ...agents
-      .filter((agent) => !live(subagentStatus(agent, waiting, now)))
-      .map((agent) => agentLine(agent, 0)),
+    ...agents.filter((agent) => !live(subagentStatus(agent, waiting, now))).map((agent) => agentLine(agent, 0)),
     ...children.filter((child) => !live(sessionStatus(child))).map(sessionLine),
   ].sort((a, b) => ENDED_RANK[a.status] - ENDED_RANK[b.status] || b.at - a.at);
   const shown = moreFold.drawn ? runningLines : runningLines.slice(0, SUBAGENTS_SHOWN);
@@ -284,10 +266,7 @@ export function SubagentsSection({
   return (
     <div className="acpmux-session-info-subagents">
       {runningLines.length > 0 && (
-        <ul
-          ref={moreFold.ref}
-          className="acpmux-summary-list acpmux-session-info-subagents__running"
-        >
+        <ul ref={moreFold.ref} className="acpmux-summary-list acpmux-session-info-subagents__running">
           <WindowedRows items={shown} render={line} />
         </ul>
       )}
@@ -330,9 +309,7 @@ export function SubagentsSection({
 
 function AgentCard({ item }: { item: Line }) {
   const progress = useAgentProgress(item.agent) ?? item.progress;
-  const detail = [item.kind, progress, working(item.status) ? item.detail : undefined]
-    .filter(Boolean)
-    .join(" · ");
+  const detail = [item.kind, progress, working(item.status) ? item.detail : undefined].filter(Boolean).join(" · ");
   // The one subagent card (subagents/SubagentPreview.tsx), which a subagent's name chip shows too.
   return (
     <SubagentCardBody

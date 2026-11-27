@@ -35,17 +35,12 @@ const globals = {
 const saved = Object.keys(globals).map((key) => [key, key in scope, scope[key]] as const);
 Object.assign(scope, globals);
 const { createRoot } = await import("react-dom/client");
-const { SubagentGroupHeader, SubagentListRow } =
-  await import("../src/agent-session/acpmux/subagents/SubagentGroup");
+const { SubagentGroupHeader, SubagentListRow } = await import("../src/agent-session/acpmux/subagents/SubagentGroup");
 const { AgentRunCard } = await import("../src/agent-session/acpmux/subagents/AgentRunCard");
-const { SubagentStatusList } =
-  await import("../src/agent-session/acpmux/summary/SubagentStatusList");
-const { SubagentsSection } =
-  await import("../src/agent-session/acpmux/session-info/SubagentsSection");
-const { BackgroundTasksPanel } =
-  await import("../src/agent-session/acpmux/backgroundTasks/BackgroundTasksPanel");
-const { SubagentClockContext } =
-  await import("../src/agent-session/acpmux/subagents/subagentGroupModel");
+const { SubagentStatusList } = await import("../src/agent-session/acpmux/summary/SubagentStatusList");
+const { SubagentsSection } = await import("../src/agent-session/acpmux/session-info/SubagentsSection");
+const { BackgroundTasksPanel } = await import("../src/agent-session/acpmux/backgroundTasks/BackgroundTasksPanel");
+const { SubagentClockContext } = await import("../src/agent-session/acpmux/subagents/subagentGroupModel");
 const { IDLE_AFTER_MS } = await import("../src/agent-session/acpmux/subagents/idle");
 const host = window.document.getElementById("root")!;
 let root: Root;
@@ -139,14 +134,12 @@ test("the page second advances elapsed text while group, row, card, summary and 
       "[data-summary] .acpmux-agent-line__time",
       ".acpmux-bg__time",
     ];
-    for (const selector of clocks)
-      expect(host.querySelector(selector)?.textContent).toContain("5s");
+    for (const selector of clocks) expect(host.querySelector(selector)?.textContent).toContain("5s");
     const counter = rowRenders();
     counter.begin(host, names.join(","));
     act(() => jest.advanceTimersByTime(1_000));
     expect(counter.end()).toEqual({ rerendered: 0, wasted: 0, added: 0, maxRenders: 0 });
-    for (const selector of clocks)
-      expect(host.querySelector(selector)?.textContent).toContain("6s");
+    for (const selector of clocks) expect(host.querySelector(selector)?.textContent).toContain("6s");
   } finally {
     act(() => root.render(null));
     jest.useRealTimers();
