@@ -150,7 +150,6 @@ final class AppControl {
             GhosttyDiagnosticsControl().method,
             ClickTraceControl.method(), // `cmux app clicks`: where the last presses went
         ])
-        // `cmux app chat perf` (frames and record-to-paint times, read-only) and `agent.chat.drive` (a held hover and wheel ticks): the chat page by tab id, never shown.
         service.router.register(AgentChatPerfControl { [weak services] id in
             guard let services, let (tab, _) = services.locateTab(id) else { return .missing }
             guard tab.agentSession != nil else { return .notAgentChat }
