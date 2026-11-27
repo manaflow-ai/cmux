@@ -7,6 +7,7 @@ import json
 import pathlib
 import re
 import sys
+import tempfile
 import unittest
 
 ROOT = pathlib.Path(__file__).resolve().parents[1]
@@ -135,8 +136,7 @@ class Plan(unittest.TestCase):
         step = {"name": "pair", "mode": "pair-e2e", "worker": "cmux22", "args": ["pair-e2e"]}
 
         def dispatch(head=HEAD, strict=False, attempt="1", **changes):
-            result = ios_verify.subprocess.CompletedProcess([], 0, stdout="", stderr="")
-            with mock.patch.object(ios_verify.subprocess, "run", return_value=result) as run:
+            with mock.patch.object(ios_verify, "stream", return_value=(0, "")) as run:
                 ios_verify.run_step({**step, **changes}, head, 7, strict, attempt)
             cmd = run.call_args.args[0]
             return cmd[cmd.index("--key") + 1]
@@ -297,6 +297,54 @@ class TokenFallbackTest(unittest.TestCase):
             self.assertEqual(pr.read_tokens(), ["run", "pool1", "pool2"])
         with mock.patch.dict(os.environ, {"GH_TOKEN": "", "GITHUB_TOKEN": "", "TOKENS": ""}, clear=False):
             self.assertEqual(pr.read_tokens(), [])
+
+
+class SimStepRoutingTest(unittest.TestCase):
+    """cmux#38805, 11-27: a step pinned to cmux22 moved to a simulator host with no Xcode 27.2 (exit 3), and the
+    strict rerun at the same head was refused, its key already naming that step (HTTP 409)."""
+
+    def test_label_is_newest_macos_pin(self):
+        tmp = pathlib.Path(tempfile.mkdtemp()) / "xcode-pins.txt"
+        tmp.write_text("# macOS  Xcode\n15       26.3\n26       27.2\n27       27.3  # newest\n")
+        self.assertEqual(ios_verify.xcode_label(tmp), "xcode-27.3")
+        self.assertIsNone(ios_verify.xcode_label(tmp.with_name("missing.txt")))
+        self.assertRegex(ios_verify.xcode_label() or "", r"^xcode-\d+\.\d+$")
+
+    def test_run_step_asks_for_the_xcode_label(self):
+        seen = {}
+
+        def fake_stream(cmd, tag):
+            seen["cmd"] = cmd
+            return 0, "step: abcdef123456"
+
+        real = ios_verify.stream
+        ios_verify.stream = fake_stream
+        try:
+            ios_verify.run_step({"name": "sim 1/1", "mode": "test", "worker": "cmux22", "args": ["test"]}, HEAD, 7, True)
+        finally:
+            ios_verify.stream = real
+        cmd = seen["cmd"]
+        self.assertEqual(cmd[cmd.index("--label") + 1], ios_verify.xcode_label())
+        self.assertIn("--pin-strict", cmd)
+
+    def test_stream_echoes_lines_and_returns_output(self):
+        import io
+        err, real = io.StringIO(), ios_verify.sys.stderr
+        ios_verify.sys.stderr = err
+        try:
+            code, text = ios_verify.stream([sys.executable, "-c", "print('queued'); print('step: abc'); raise SystemExit(3)"], "sim 1/1")
+        finally:
+            ios_verify.sys.stderr = real
+        self.assertEqual(code, 3)
+        self.assertEqual(text, "queued\nstep: abc\n")
+        self.assertIn("[sim 1/1] queued\n", err.getvalue())
+
+    def test_key_names_head_and_pin_mode(self):
+        step = {"mode": "test", "worker": "cmux22", "name": "sim 1/1: test", "args": ["test"]}
+        loose, strict = ios_verify.step_key(step, HEAD, 7, False), ios_verify.step_key(step, HEAD, 7, True)
+        self.assertNotEqual(loose, strict)
+        self.assertNotEqual(loose, ios_verify.step_key(step, OTHER, 7, False))
+        self.assertIn(HEAD[:12], loose)
 
 
 if __name__ == "__main__":
