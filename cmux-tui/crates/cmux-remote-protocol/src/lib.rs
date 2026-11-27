@@ -24,6 +24,7 @@ mod frame;
 mod relay;
 pub mod reliable;
 mod rpc;
+pub mod skew;
 
 pub use frame::{
     FrameDecodeError, FrameFlags, Lane, LanePolicy, MAX_FRAME_PAYLOAD, MAX_WIRE_FRAME_BYTES,

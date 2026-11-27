@@ -33,8 +33,7 @@ async fn pump(
     up: bool,
 ) {
     let mut buffer = vec![0_u8; 16 * 1024];
-    loop {
-        let Ok(read) = from.read(&mut buffer).await else { break };
+    while let Ok(read) = from.read(&mut buffer).await {
         if read == 0 {
             break;
         }
@@ -83,10 +82,10 @@ async fn settle(counts: &Counts) -> usize {
         tokio::time::sleep(Duration::from_millis(100)).await;
         let now = counts.active.load(Ordering::Acquire);
         if now == last {
-            steady += 1
+            steady += 1;
         } else {
             steady = 0;
-            last = now
+            last = now;
         }
     }
     last

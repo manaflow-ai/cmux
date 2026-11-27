@@ -10,7 +10,7 @@ use cmux_remote_protocol::{
     MUX_LINE_ZLIB_V1_FEATURE, ProcessEvent, ProcessId, ProcessReplayRange, RouteId, RpcError,
     RpcErrorDetails, RpcEvent, RpcRequest, RpcResponse, Service, ServiceControl,
     TERMINAL_BYTES_VIEWER_SIZE_PRIORITY, TERMINAL_BYTES_VIEWER_SIZE_PRIORITY_PREFERRED,
-    WorkspaceRequest, WorkspaceResponse,
+    WorkspaceRequest, WorkspaceResponse, skew,
 };
 #[cfg(unix)]
 use cmux_terminal_host_protocol::terminal_host::{
@@ -575,7 +575,29 @@ impl DaemonServices {
                 }
             };
             let Some(encoded) = encoded else { break };
-            let request = decode_workspace_request(&workspace, purpose, encoded).await?;
+            let request = match decode_workspace_request(&workspace, purpose, encoded.clone()).await
+            {
+                Ok(request) => request,
+                // A newer client's request shape gets an error under its own
+                // id; the channel and every other request on it go on.
+                Err(error @ (ServicesError::Json(_) | ServicesError::Remote(_))) => {
+                    let Some(id) = skew::message_id(&encoded) else {
+                        skew::SKEW.channel_reset();
+                        return Err(error);
+                    };
+                    skew::SKEW.unsupported_request();
+                    let response = RpcResponse {
+                        id,
+                        result: Err(RpcError::new(
+                            skew::UNSUPPORTED_REQUEST,
+                            format!("this daemon cannot read the request: {error}"),
+                        )),
+                    };
+                    send_workspace_response(&workspace, &messages, response, false).await?;
+                    continue;
+                }
+                Err(error) => return Err(error),
+            };
             let request_id = request.id;
             if purpose == WorkspaceRpcPurpose::Cancellation
                 && !matches!(&request.request, WorkspaceRequest::CancelRequest { .. })
@@ -1878,3 +1900,7 @@ mod mux_control_role_tests;
 #[cfg(test)]
 #[path = "services_tests.rs"]
 mod tests;
+
+#[cfg(test)]
+#[path = "services_skew_tests.rs"]
+mod skew_tests;
