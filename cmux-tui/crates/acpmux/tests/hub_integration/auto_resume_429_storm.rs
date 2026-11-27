@@ -149,8 +149,21 @@ async fn a_429_storm_holds_the_chat_backs_off_and_loses_no_message() {
             "the backoff did not grow across the session: gaps {gaps:?} ms (configured {DELAYS_MS:?})"
         );
     }
+    // The wait is from a turn's end to the next turn's start: the backoff is scheduled when the
+    // 429 comes back. A gap between starts also holds the 429 turn itself (a fake agent's answer,
+    // 130 ms past the bound on a loaded CI runner: 2551 ms against 2420). The bound: the longest
+    // wait, up to a fifth later (`staggered`), and 500 ms for the scheduler.
+    let ends: Vec<u64> = of_kind(&hub, &id, "turn_result").iter().map(|e| e.at).collect();
+    let waits: Vec<u64> = starts
+        .iter()
+        .skip(1)
+        .filter_map(|s| ends.iter().filter(|e| *e <= s).max().map(|e| s - e))
+        .collect();
     let bound = cap + cap / 5 + 500;
-    assert!(gaps.iter().all(|g| *g <= bound), "a wait past the bound {bound} ms: {gaps:?}");
+    assert!(
+        waits.iter().all(|w| *w <= bound),
+        "a wait past the bound {bound} ms: waits {waits:?}, gaps between starts {gaps:?}"
+    );
 
     // 3. The person sees why.
     assert!(reason_seen, "the row never said the chat was rate-limited: {row}");

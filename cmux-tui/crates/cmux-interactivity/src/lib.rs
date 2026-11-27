@@ -19,6 +19,7 @@
 //! user-interactive whether or not they are interacting; work that nobody watches yields while they interact
 //! (the policy's lower classes) and is back at its idle class once the decay passes.
 
+use std::marker::PhantomData;
 use std::sync::OnceLock;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::{Duration, Instant};
@@ -258,6 +259,9 @@ pub fn qos_for(class: WorkClass) -> Qos {
 pub struct Previous {
     #[cfg(target_vendor = "apple")]
     qos: libc::qos_class_t,
+    /// The relative priority within the class (`-15..=0`), put back with it.
+    #[cfg(target_vendor = "apple")]
+    relative: libc::c_int,
     #[cfg(all(target_os = "linux", not(target_vendor = "apple")))]
     nice: Option<libc::c_int>,
 }
@@ -280,8 +284,8 @@ pub fn apply_current_thread(qos: Qos) -> Previous {
             Qos::Utility => Q::QOS_CLASS_UTILITY,
             Qos::Background => Q::QOS_CLASS_BACKGROUND,
         };
-        set_apple(class);
-        Previous { qos: previous }
+        set_apple(class, 0);
+        Previous { qos: previous, relative }
     }
     #[cfg(all(target_os = "linux", not(target_vendor = "apple")))]
     {
@@ -306,11 +310,11 @@ pub fn apply_current_thread(qos: Qos) -> Previous {
 pub fn restore_current_thread(previous: Previous) {
     #[cfg(target_vendor = "apple")]
     {
-        let class = match previous.qos {
-            libc::qos_class_t::QOS_CLASS_UNSPECIFIED => libc::qos_class_t::QOS_CLASS_DEFAULT,
-            other => other,
+        let (class, relative) = match previous.qos {
+            libc::qos_class_t::QOS_CLASS_UNSPECIFIED => (libc::qos_class_t::QOS_CLASS_DEFAULT, 0),
+            other => (other, previous.relative),
         };
-        set_apple(class);
+        set_apple(class, relative);
     }
     #[cfg(all(target_os = "linux", not(target_vendor = "apple")))]
     if let Some(nice) = previous.nice {
@@ -323,9 +327,9 @@ pub fn restore_current_thread(previous: Previous) {
 }
 
 #[cfg(target_vendor = "apple")]
-fn set_apple(class: libc::qos_class_t) {
+fn set_apple(class: libc::qos_class_t, relative: libc::c_int) {
     // SAFETY: sets the calling thread's own QoS class; no pointers.
-    unsafe { libc::pthread_set_qos_class_self_np(class, 0) };
+    unsafe { libc::pthread_set_qos_class_self_np(class, relative) };
 }
 
 #[cfg(all(target_os = "linux", not(target_vendor = "apple")))]
@@ -344,15 +348,34 @@ fn get_nice(tid: libc::id_t) -> Option<libc::c_int> {
     }
 }
 
-/// Whether this thread may lower its nice value back to `nice` (root, or RLIMIT_NICE allows it).
+/// Whether this thread may lower its nice value back to `nice`: CAP_SYS_NICE in its effective set, or
+/// RLIMIT_NICE allows it. Being uid 0 is not enough: a container's root often runs without CAP_SYS_NICE, and a
+/// thread lowered there could never come back.
 #[cfg(all(target_os = "linux", not(target_vendor = "apple")))]
 fn can_restore(nice: libc::c_int) -> bool {
     let mut limit = libc::rlimit { rlim_cur: 0, rlim_max: 0 };
     // SAFETY: valid out pointer.
     let ok = unsafe { libc::getrlimit(libc::RLIMIT_NICE, &mut limit) } == 0;
-    // SAFETY: no arguments.
-    let root = unsafe { libc::geteuid() } == 0;
-    root || (ok && 20 - i64::try_from(limit.rlim_cur).unwrap_or(i64::MAX) <= i64::from(nice))
+    let cap = std::fs::read_to_string("/proc/thread-self/status")
+        .ok()
+        .and_then(|status| cap_eff_has_sys_nice(&status))
+        .unwrap_or(false);
+    cap || (ok && rlimit_allows(limit.rlim_cur, nice))
+}
+
+/// RLIMIT_NICE's rule: a thread may set nice values down to `20 - limit`.
+#[cfg(any(test, all(target_os = "linux", not(target_vendor = "apple"))))]
+fn rlimit_allows(limit: u64, nice: i32) -> bool {
+    20 - i64::try_from(limit).unwrap_or(i64::MAX) <= i64::from(nice)
+}
+
+/// Whether a `/proc/.../status` text's `CapEff` holds CAP_SYS_NICE (bit 23); `None` when it has no readable line.
+#[cfg(any(test, all(target_os = "linux", not(target_vendor = "apple"))))]
+fn cap_eff_has_sys_nice(status: &str) -> Option<bool> {
+    const CAP_SYS_NICE: u32 = 23;
+    let hex = status.lines().find_map(|line| line.strip_prefix("CapEff:"))?.trim();
+    let bits = u64::from_str_radix(hex, 16).ok()?;
+    Some(bits & (1 << CAP_SYS_NICE) != 0)
 }
 
 #[cfg(all(target_os = "linux", not(target_vendor = "apple")))]
@@ -390,14 +413,27 @@ pub fn lower_current_thread_for_life() {
 /// A long-lived thread that follows the policy: [`Follower::follow`] before each unit of work sets the thread's QoS
 /// when the policy's answer for the class changed since the last call. One atomic-load check per call (plus a clock
 /// read), a system call only on a change; never put back (the thread lives by the policy).
+///
+/// It goes both ways: lowered while the person interacts, back up once the decay passes. On Linux the way back up
+/// is to the nice the thread had at its first `follow` (its base), and the thread is only ever lowered when it may
+/// return there; else it stays at its base.
 #[derive(Default)]
 pub struct Follower {
     current: Option<Qos>,
+    #[cfg(all(target_os = "linux", not(target_vendor = "apple")))]
+    base: Option<Option<libc::c_int>>,
+    /// A follower sets the QoS of the thread it runs on.
+    _thread: PhantomData<*const ()>,
 }
 
 impl Follower {
     pub const fn new() -> Self {
-        Self { current: None }
+        Self {
+            current: None,
+            #[cfg(all(target_os = "linux", not(target_vendor = "apple")))]
+            base: None,
+            _thread: PhantomData,
+        }
     }
 
     /// Sets the calling thread to the policy's QoS for `class` now when it differs from the last one set.
@@ -405,20 +441,53 @@ impl Follower {
         let qos = qos_for(class);
         if self.current != Some(qos) {
             self.current = Some(qos);
-            apply_current_thread(qos);
+            self.set(qos);
+        }
+    }
+
+    #[cfg(not(all(target_os = "linux", not(target_vendor = "apple"))))]
+    fn set(&mut self, qos: Qos) {
+        apply_current_thread(qos);
+    }
+
+    #[cfg(all(target_os = "linux", not(target_vendor = "apple")))]
+    fn set(&mut self, qos: Qos) {
+        let tid = thread_id();
+        let base =
+            *self.base.get_or_insert_with(|| get_nice(tid).filter(|nice| can_restore(*nice)));
+        if let Some(base) = base {
+            set_nice(tid, linux_target(base, qos));
         }
     }
 }
 
-/// The calling thread at `qos` until dropped.
+/// The nice a Linux follower sets for `qos` from its base: never above its base's priority.
+#[cfg(any(test, all(target_os = "linux", not(target_vendor = "apple"))))]
+fn linux_target(base: i32, qos: Qos) -> i32 {
+    base.max(qos.nice())
+}
+
+/// The calling thread at `qos` until dropped. It is not `Send`, so it drops on the thread it set:
+///
+/// ```compile_fail
+/// fn send<T: Send>() {}
+/// send::<cmux_interactivity::Scoped>();
+/// ```
+///
+/// ```compile_fail
+/// fn send<T: Send>() {}
+/// send::<cmux_interactivity::Follower>();
+/// ```
 #[must_use = "the thread goes back when the guard drops"]
 pub struct Scoped {
     previous: Option<Previous>,
+    /// Not `Send`: the drop puts back the thread the guard was made on, so it must drop there.
+    _thread: PhantomData<*const ()>,
 }
 
 impl Scoped {
     pub fn new(qos: Qos) -> Self {
-        Self { previous: Some(apply_current_thread(qos)) }
+        Self { previous: Some(apply_current_thread(qos)), _thread: PhantomData }
     }
 
     /// The calling thread at the policy's QoS for `class` right now, for the scope of the guard.

@@ -107,6 +107,7 @@ public struct TerminalCommentAnchor {
     }
 
     private static func firstLine(of quote: String) -> Substring? {
+        // main-actor-ok: one comment's quote (the person's selection), on a Comment… or Show click.
         quote.split(whereSeparator: \.isNewline).first { !$0.allSatisfy(\.isWhitespace) }
     }
 

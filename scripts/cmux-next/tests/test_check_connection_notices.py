@@ -214,6 +214,15 @@ IOS_FIXED = """\
     }
 """
 
+DROP_SET = """\
+    const SELF_HEALING: ReadonlySet<string> = new Set([
+      "Reconnecting",
+    ]);
+    export function readStatusItem(raw: Raw): Item | undefined {
+      if (SELF_HEALING.has(raw.words)) return undefined;
+      return { words: raw.words };
+    }
+"""
 WEB = "webviews/src/agent-session/acpmux"
 PAGE = "webviews/src/pages/editor"
 MAC = "Packages/macOS/CmuxNext/Sources/CmuxNextApp/Remote"
@@ -283,6 +292,31 @@ class WebShapes(unittest.TestCase):
         tree.write(f"{WEB}/AutoResumeNotice.tsx", ACTION_NOTICE)
         code, out = tree.check()
         self.assertEqual(code, 0, out)
+
+    def test_a_per_key_hold_at_the_bound_passes(self):
+        """useConnectionQuietKeys (ui/lasting.ts) holds each pending row for the bound, as useConnectionQuiet does."""
+        tree = Tree(self)
+        tree.write(f"{WEB}/retryState.ts", RETRY_LABEL)
+        tree.write(f"{WEB}/AutoResumeNotice.tsx", HELD_NOTICE.replace(
+            "useConnectionQuiet } from", "useConnectionQuietKeys } from").replace(
+            "useConnectionQuiet(retry !== undefined)", "useConnectionQuietKeys(retry ? [\"r\"] : []).has(\"r\")"))
+        code, out = tree.check()
+        self.assertEqual(code, 0, out)
+
+    def test_the_text_for_a_failed_send_or_start_is_an_outcome(self):
+        """The words for a send or start the person asked for that did not go through answer their action."""
+        for name in ("failedSendText", "startFailureNotice"):
+            with self.subTest(name=name):
+                tree = Tree(self)
+                tree.write(f"{WEB}/retryState.ts", RETRY_LABEL)
+                tree.write(f"{WEB}/outcome.ts", NOISY_NOTICE.replace("AutoResumeNotice", name))
+                code, out = tree.check()
+                self.assertEqual(code, 0, out)
+        tree = Tree(self)
+        tree.write(f"{WEB}/retryState.ts", RETRY_LABEL)
+        tree.write(f"{WEB}/outcome.ts", NOISY_NOTICE.replace("AutoResumeNotice", "failedSendBadge"))
+        code, out = tree.check()
+        self.assertEqual(code, 1, "only the outcome's words are exempt, not any unit named failed*")
 
     def test_a_view_drawing_its_own_button_component_carries_the_action(self):
         tree = Tree(self)
@@ -446,6 +480,18 @@ class WebShapes(unittest.TestCase):
         self.assertEqual(code, 0, out)
 
 
+    def test_a_word_set_read_only_to_drop_what_it_names_shows_nothing(self):
+        """composerStatusModel.ts (cmux#55968) keeps the self-healing link words to drop an older acpmux's item."""
+        tree = Tree(self)
+        tree.write(f"{WEB}/statusModel.ts", DROP_SET)
+        code, out = tree.check()
+        self.assertEqual(code, 0, out)
+        tree.write(f"{WEB}/statusModel.ts", DROP_SET.replace(
+            "if (SELF_HEALING.has(raw.words)) return undefined;", "const shown = SELF_HEALING.has(raw.words);"))
+        code, out = tree.check()
+        self.assertEqual(code, 1, "a set read for anything but a drop still carries its words to its reader")
+
+
 class NativeShapes(unittest.TestCase):
     def test_old_remote_placeholder_fails_at_the_view_not_the_strings(self):
         tree = Tree(self)
@@ -546,6 +592,76 @@ class NativeShapes(unittest.TestCase):
         tree.write(f"{IOS}/ConnectionChip.swift", chip)
         code, out = tree.check()
         self.assertEqual(code, 0, out)
+
+    # The iOS terminal's stalled cover (TerminalLoadStalledPanel, cmux#57933): failure copy with the shared
+    # `RetryButton(action: retry)` beside it, the Button inside RetryButton, in another module.
+    RETRY_BUTTON = ("public struct RetryButton: View {\n"
+                    "    let action: @MainActor () async -> Void\n"
+                    "    public var body: some View { Button { Task { await action() } } label: { Text(\"Retry\") } }\n}\n")
+    DESIGN = "cmux-next-ios/CmuxMobileKit/Sources/CmuxMobileDesign"
+
+    @staticmethod
+    def stalled_panel(control: str) -> str:
+        return ("struct TerminalLoadStalledPanel: View {\n"
+                "    let retry: @MainActor () async -> Void\n"
+                "    var body: some View {\n"
+                "        VStack {\n"
+                "            Text(verbatim: \"Can't reach this terminal\")\n"
+                f"            {control}\n"
+                "        }\n    }\n}\n")
+
+    def test_a_swift_view_composing_an_action_view_carries_its_action(self):
+        tree = Tree(self)
+        tree.write(f"{self.DESIGN}/RetryButton.swift", self.RETRY_BUTTON)
+        tree.write(f"{IOS}/Screen/TerminalConnectingView.swift", self.stalled_panel("RetryButton(action: retry)"))
+        code, out = tree.check()
+        self.assertEqual(code, 0, out)
+        # A trailing closure draws it too, and a button wrapping the shared one lends it on.
+        tree.write(f"{IOS}/Screen/PanelRetryButton.swift",
+                   "struct PanelRetryButton: View {\n    let retry: @MainActor () async -> Void\n"
+                   "    var body: some View { RetryButton(style: .inline, action: retry) }\n}\n")
+        tree.write(f"{IOS}/Screen/TerminalConnectingView.swift", self.stalled_panel("PanelRetryButton { await retry() }"))
+        code, out = tree.check()
+        self.assertEqual(code, 0, out)
+
+    def test_a_swift_view_composing_no_action_keeps_its_finding(self):
+        """Each shape fails at the panel: a *Button with no action of its own, one declared out of sight (a system
+        or kit view the scan cannot read), a component not named for an action, a static member or a type
+        annotation (no drawing), and a namesake declared only on another surface."""
+        cases = {
+            "no action": ("StatusButton(action: retry)",
+                          {f"{self.DESIGN}/StatusButton.swift":
+                           "public struct StatusButton: View {\n    let action: () async -> Void\n"
+                           "    public var body: some View { Image(systemName: \"bolt\") }\n}\n"}),
+            "out of sight": ("KitRetryButton(action: retry)", {}),
+            "not an action's name": ("RetryRow(action: retry)",
+                                     {f"{self.DESIGN}/RetryRow.swift":
+                                      self.RETRY_BUTTON.replace("RetryButton", "RetryRow")}),
+            "a static member": ("Text(RetryButton.defaultTitle)", {f"{self.DESIGN}/RetryButton.swift": self.RETRY_BUTTON}),
+            "another surface": ("RetryButton(action: retry)",
+                                {f"{MAC}/RetryButton.swift": self.RETRY_BUTTON}),
+        }
+        for label, (control, files) in cases.items():
+            with self.subTest(label):
+                tree = Tree(self)
+                for path, text in files.items():
+                    tree.write(path, text)
+                tree.write(f"{IOS}/Screen/TerminalConnectingView.swift", self.stalled_panel(control))
+                code, out = tree.check()
+                self.assertEqual(code, 1, out)
+                self.assertIn("TerminalLoadStalledPanel shows a connection state (\"Can't reach this terminal\") with "
+                              "no action and no time bound", out)
+
+    def test_a_swift_declaration_of_an_action_view_is_not_a_drawing(self):
+        """`extension RetryButton {` and `-> RetryButton {` name the type; they draw nothing beside the words."""
+        tree = Tree(self)
+        tree.write(f"{self.DESIGN}/RetryButton.swift", self.RETRY_BUTTON)
+        tree.write(f"{IOS}/Screen/TerminalConnectingView.swift",
+                   "struct TerminalLoadStalledPanel: View {\n"
+                   "    var body: some View { Text(verbatim: \"Can't reach this terminal\") }\n"
+                   "    func make() -> RetryButton { fatalError() }\n}\n")
+        code, out = tree.check()
+        self.assertEqual(code, 1, out)
 
     def test_a_model_that_names_its_action_type_is_an_action_and_a_text_field_is_not(self):
         """A row model's `var action: Action?` (Mac Home chief connections) carries the person's action; a field
