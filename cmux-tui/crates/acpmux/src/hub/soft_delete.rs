@@ -108,6 +108,7 @@ impl Hub {
             row: Default::default(),
             list_seq: 0,
             peer_batch: false,
+            event_params: Default::default(),
         });
         drop(sessions);
         self.note_rows_reading(session);
