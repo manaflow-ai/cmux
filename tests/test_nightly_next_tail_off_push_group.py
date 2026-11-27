@@ -99,10 +99,12 @@ else:
     if not re.search(r"gh api [^\n]*actions/runs/[^\n]*/attempts/", body) \
             or "nightly_published_build.py check-source" not in body:
         failures.append("published-build must check the source run through the API (check-source)")
-    download = next((s for s in source.get("steps", []) if "download-artifact" in str(s.get("uses", ""))), None)
-    with_ = (download or {}).get("with") or {}
-    if download is None or "nightly-published-build" not in str(with_.get("name", "")) \
-            or "steps.source.outputs.run" not in str(with_.get("run-id", "")):
+    # gh run download through gh_budget_wait.sh (run 45819376175 went red on a rate-limited read, 2026-11-26).
+    download = next((s for s in source.get("steps", []) if "gh run download" in str(s.get("run", ""))), None)
+    env_ = (download or {}).get("env") or {}
+    if download is None or "nightly-published-build" not in str(env_.get("NAME", "")) \
+            or "steps.source.outputs.run" not in str(env_.get("RUN", "")) \
+            or not re.search(r'gh run download "\$RUN" [^\n]*--name "\$NAME"', str(download.get("run", ""))):
         failures.append("published-build must read the record from the checked source run's artifact")
 
 for name in TAIL:
@@ -187,10 +189,10 @@ else:
         if "nightly.yml" not in run or re.findall(r"-f (\w+)=", run) != ["nightly_next_post_publish"]:
             failures.append("dispatch-published-in must dispatch nightly.yml with only -f nightly_next_post_publish=")
     runs_on = workflow_jobs.single_runs_on(dispatch)
-    # Our own runners, never Blacksmith: the nightly mini, or the nightly's Linux label (it holds the dispatch's App
-    # keys, which stay off the mini; run 45562645699 slept 18.4 and 12.9 min on github.token's spent hour).
-    if "blacksmith" in runs_on.lower() or not ("CI_NIGHTLY_MINI" in runs_on or "cmux-gcp-nightly-x64" in runs_on):
-        failures.append("dispatch-published-in runs on our nightly runners (the mini or the nightly Linux label), never Blacksmith")
+    # Both dispatch jobs hold App keys and now use the dedicated one-job JIT nightly VM.
+    # Keep the route assertion aligned with that isolation boundary, never Blacksmith.
+    if "blacksmith" in runs_on.lower() or "cmux-gcp-nightly-jit-x64" not in runs_on:
+        failures.append("dispatch-published-in runs on the dedicated nightly JIT runner, never Blacksmith")
 if TEXT.count("-f nightly_next_post_publish=") > 1:
     failures.append("only dispatch-published-in dispatches a tail run")
 if "fromJSON(inputs.nightly_next_post_publish)" in TEXT:

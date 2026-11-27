@@ -3042,6 +3042,10 @@ fn running(net: &Arc<Mutex<Option<Arc<WgNet>>>>) -> Result<Arc<WgNet>, DialError
         .ok_or_else(|| DialError::Bye("tunnel closed".into()))
 }
 
+/// The gather's result: endpoints, the TURN allocation, the hop allocation,
+/// and the relay allocations still running.
+type GatherDial = (Gathered, Allocated, Option<HopCarrier>, tokio::task::JoinSet<RelayAllocation>);
+
 enum RelayAllocation {
     Hop(Option<HopCarrier>),
     Turn(Box<super::turn::Allocated>),
@@ -3053,7 +3057,7 @@ async fn gather_dial(
     socket: &UdpSocket,
     options: &DialOptions,
     early: Option<EarlyTurn>,
-) -> (Gathered, super::turn::Allocated, Option<HopCarrier>, tokio::task::JoinSet<RelayAllocation>) {
+) -> GatherDial {
     let mut pending = tokio::task::JoinSet::new();
     if !hop::configured(options) {
         let (gathered, allocated) = match early {
@@ -3095,6 +3099,129 @@ async fn gather_dial(
     (gathered, allocated, hop, pending)
 }
 
+/// Whether the phone sends `wg-init` before its STUN and TURN gather: it
+/// dials the relay first (`relay: "first"`), so a relay ticket at dial start
+/// and both sides' joins carry the link while the gather runs, and plain UDP
+/// is on (with it off there is nothing to gather but TURN, which the offer
+/// needs). Measurement baselines turn it off with
+/// [`DialOptions::init_after_gather`].
+fn init_before_gather(options: &DialOptions) -> bool {
+    options.relay_first
+        && relay_endpoint(options).is_some()
+        && !no_plain_udp(options)
+        && !options.init_after_gather
+}
+
+/// What the phone's `wg-init` offers.
+struct InitOffer {
+    endpoints: Vec<String>,
+    relayed: Vec<String>,
+    relayed_tls: Vec<String>,
+    relay_offer: Option<String>,
+    ticket_early: bool,
+    /// The hop/1 PoP's relayed address, when its allocation came in time.
+    hop: Option<String>,
+}
+
+impl InitOffer {
+    /// Before the gather ([`init_before_gather`]): host endpoints of the
+    /// socket on `port`, relay first, and the relay ticket asked for now.
+    fn first(options: &DialOptions, port: u16) -> Self {
+        let relay_offer = relay_offer(options, false);
+        Self {
+            endpoints: offered(host_endpoints(port, options), options),
+            relayed: Vec::new(),
+            relayed_tls: Vec::new(),
+            ticket_early: relay_offer.is_some(),
+            relay_offer,
+            hop: None,
+        }
+    }
+}
+
+/// The phone's gather, checked and ready for the offer and the tunnel.
+struct Prepared {
+    /// Host, reflexive and TURN relayed endpoints.
+    own_endpoints: Vec<String>,
+    stun: Vec<SocketAddr>,
+    turn: Option<TurnCarrier>,
+    hop: Option<HopCarrier>,
+    /// The relay allocations still running; the live tunnel takes them.
+    pending: tokio::task::JoinSet<RelayAllocation>,
+    own_relay_now: bool,
+    turn_missed: bool,
+}
+
+impl Prepared {
+    /// The `wg-init` of a dial that gathered first.
+    fn init(&self, options: &DialOptions) -> InitOffer {
+        let relay_offer = relay_offer(options, self.own_relay_now);
+        let (mut relayed, relayed_tls) = relayed_of(self.turn.as_ref());
+        let hop = self.hop.as_ref().map(|h| h.relayed.to_string());
+        relayed.extend(hop.clone());
+        // A side with no path but the relay (`now`), or one that dials the
+        // relay first (`first`), asks for its ticket in its `wg-init`, so its
+        // join runs while the Mac gathers and answers instead of after
+        // `wg-resp` (PROTOCOL.md "Early relay ticket"). An older hub ignores it.
+        let ticket_early = self.own_relay_now || relay_offer.as_deref() == Some(RELAY_FIRST);
+        InitOffer { endpoints: self.own_endpoints.clone(), relayed, relayed_tls, relay_offer, ticket_early, hop }
+    }
+}
+
+/// Check the phone's gather: a proxy's refusal with no other way out is the
+/// dial's error, and the diagnosis records what plain UDP and TURN did.
+fn prepare_gathered(
+    options: &DialOptions,
+    (gathered, allocated, hop, pending): GatherDial,
+) -> Result<Prepared, DialError> {
+    // A proxy refused TURN over TLS (sign-in the link cannot do, a policy).
+    // With no UDP that works either (UDP off, STUN silent, or no STUN server
+    // even resolved: a network whose DNS names only what its proxy may
+    // reach) and no relay to try next, say the proxy's reason now instead
+    // of a timeout. With a relay, it is the next way out (#53163), and the
+    // diagnosis keeps the proxy's reason.
+    let unresolved = gathered.stun.is_empty() && !stun_servers(&options.ice_servers).is_empty();
+    let udp_useless = no_plain_udp(options) || gathered.udp_looks_blocked() || unresolved;
+    if let Some(refusal) = allocated.refusal.as_ref().filter(|_| allocated.carrier.is_none()) {
+        options.diagnosis.turn_refused_by_proxy(&refusal.to_string(), turn_host(options));
+    }
+    if options.relay.is_none()
+        && hop.is_none()
+        && let Some(error) = refused_by_proxy(udp_useless, &allocated)
+    {
+        return Err(error);
+    }
+    let turn = allocated.carrier;
+    if no_plain_udp(options) && turn.is_none() && hop.is_none() && options.relay.is_none() {
+        let reason = if hop::configured(options) {
+            "no hop or TURN allocation, and plain UDP is off"
+        } else {
+            "no TURN allocation, and plain UDP is off"
+        };
+        return Err(DialError::Transport(reason.into()));
+    }
+    let udp_blocked = gathered.udp_looks_blocked();
+    diagnose_gather(options, udp_blocked, turn.as_ref(), true);
+    let own_relay_now = only_the_relay(options, udp_blocked, turn.as_ref());
+    let turn_missed = missed_turn(true, turn.as_ref(), options);
+    let Gathered { mut endpoints, stun, .. } = gathered;
+    let (relayed, _) = relayed_of(turn.as_ref());
+    endpoints.extend(relayed);
+    if let Some(hop) = &hop {
+        options.timeline.mark("hop_allocated");
+        endpoints.push(hop.relayed.to_string());
+    }
+    if let Some(turn) = &turn {
+        options.timeline.mark(if turn.transport.is_stream() {
+            "turn_tls_allocated"
+        } else {
+            "turn_allocated"
+        });
+    }
+    options.timeline.mark("endpoints_gathered");
+    Ok(Prepared { own_endpoints: endpoints, stun, turn, hop, pending, own_relay_now, turn_missed })
+}
+
 /// The phone's WireGuard dial: its TURN allocation is `early` (started
 /// beside the signaling reconnect or open) or one it starts now, beside
 /// the STUN gather.
@@ -3125,61 +3252,36 @@ pub(super) fn dial_wireguard<'a>(
             }
         }
         let socket = bind_udp().map_err(transport_error)?;
-        let (gathered, allocated, hop, pending) = gather_dial(&socket, options, early).await;
+        let port = socket.local_addr().map_err(transport_error)?.port();
+        let mut gather = Box::pin(gather_dial(&socket, options, early));
+        // Relay first (RFD 0142 R1, disco over the relay): `wg-init` goes now
+        // with this side's host endpoints, and STUN and TURN run beside the
+        // Mac's answer instead of before it. What they find follows as the
+        // trickled `wg-endpoints` and the in-tunnel announcement (sealed by
+        // WireGuard, riding the relay once it is joined), as the Mac's own
+        // answer already does ([`answer_trickles`]).
+        let init_first = init_before_gather(options);
+        let mut done = if init_first { None } else { Some(gather.as_mut().await) };
+        let (private_key, public_key) = keypair();
+        let (init, prepared) = match done.take() {
+            Some(done) => {
+                let prepared = prepare_gathered(options, done)?;
+                (prepared.init(options), Some(prepared))
+            }
+            None => {
+                options.timeline.mark("wg_init_before_gather");
+                (InitOffer::first(options, port), None)
+            }
+        };
+        let InitOffer { endpoints, relayed, relayed_tls, relay_offer, ticket_early: ask_ticket_early, hop: hop_address } =
+            init;
+        let mut prepared = prepared;
         // A proxy refused TURN over TLS (sign-in the link cannot do, a policy).
         // With no UDP that works either (UDP off, STUN silent, or no STUN server
         // even resolved: a network whose DNS names only what its proxy may
         // reach) and no relay to try next, say the proxy's reason now instead
         // of a timeout. With a relay, it is the next way out (#53163), and the
         // diagnosis keeps the proxy's reason.
-        let unresolved = gathered.stun.is_empty() && !stun_servers(&options.ice_servers).is_empty();
-        let udp_useless = no_plain_udp(options) || gathered.udp_looks_blocked() || unresolved;
-        if let Some(refusal) = allocated.refusal.as_ref().filter(|_| allocated.carrier.is_none()) {
-            options.diagnosis.turn_refused_by_proxy(&refusal.to_string(), turn_host(options));
-        }
-        if options.relay.is_none()
-            && hop.is_none()
-            && let Some(error) = refused_by_proxy(udp_useless, &allocated)
-        {
-            return Err(error);
-        }
-        let turn = allocated.carrier;
-        if no_plain_udp(options) && turn.is_none() && hop.is_none() && options.relay.is_none() {
-            let reason = if hop::configured(options) {
-                "no hop or TURN allocation, and plain UDP is off"
-            } else {
-                "no TURN allocation, and plain UDP is off"
-            };
-            return Err(DialError::Transport(reason.into()));
-        }
-        let udp_blocked = gathered.udp_looks_blocked();
-        diagnose_gather(options, udp_blocked, turn.as_ref(), true);
-        let own_relay_now = only_the_relay(options, udp_blocked, turn.as_ref());
-        let relay_offer = relay_offer(options, own_relay_now);
-        // A side with no path but the relay (`now`), or one that dials the
-        // relay first (`first`), asks for its ticket in its `wg-init`, so its
-        // join runs while the Mac gathers and answers instead of after
-        // `wg-resp` (PROTOCOL.md "Early relay ticket"). An older hub ignores it.
-        let ask_ticket_early = own_relay_now || relay_offer.as_deref() == Some(RELAY_FIRST);
-        let turn_missed = missed_turn(true, turn.as_ref(), options);
-        let Gathered { mut endpoints, stun, .. } = gathered;
-        let (mut relayed, relayed_tls) = relayed_of(turn.as_ref());
-        let hop_address = hop.as_ref().map(|h| h.relayed.to_string());
-        if let Some(addr) = &hop_address {
-            options.timeline.mark("hop_allocated");
-            relayed.push(addr.clone());
-        }
-        endpoints.extend(relayed.iter().cloned());
-        if let Some(turn) = &turn {
-            options.timeline.mark(if turn.transport.is_stream() {
-                "turn_tls_allocated"
-            } else {
-                "turn_allocated"
-            });
-        }
-        options.timeline.mark("endpoints_gathered");
-        let (private_key, public_key) = keypair();
-        let own_endpoints = endpoints.clone();
         signaling
             .send_signal(
                 mac,
@@ -3216,7 +3318,15 @@ pub(super) fn dial_wireguard<'a>(
         let classes_agreed;
         let screen_agreed;
         let (peer_key, peer_endpoints, peer_ip, peer_relayed, peer_relayed_tls, peer_version, peer_relay) = loop {
-            match events.next().await? {
+            let event = tokio::select! {
+                event = events.next() => event,
+                // Relay first: the gather that runs beside the answer.
+                done = &mut gather, if init_first && prepared.is_none() => {
+                    prepared = Some(prepare_gathered(options, done)?);
+                    continue;
+                }
+            };
+            match event? {
                 SessionEvent::Signal(envelope) => match envelope.payload {
                     SignalPayload::WgResp {
                         public_key,
@@ -3284,6 +3394,16 @@ pub(super) fn dial_wireguard<'a>(
             abort_early(early_join.as_ref());
             return Err(DialError::Unexpected("peer overlay address collides".into()));
         }
+        // The answer came before the gather beside it ended: the tunnel takes
+        // the socket only once STUN is done with it (bounded by its clock).
+        let prepared = match prepared {
+            Some(prepared) => prepared,
+            None => {
+                prepare_gathered(options, gather.as_mut().await)?
+            }
+        };
+        drop(gather);
+        let Prepared { own_endpoints, stun, turn, hop, pending, own_relay_now, turn_missed } = prepared;
         let relay = relay_plan(
             options,
             own_relay_now,
@@ -3320,6 +3440,12 @@ pub(super) fn dial_wireguard<'a>(
         let tunnel = start_tunnel(signaling, spec, options)?;
         options.timeline.mark("tunnel_started");
         tunnel.session.follow(events.session);
+        if init_first {
+            // `wg-init` carried host endpoints only: the reflexive and TURN
+            // ones go now, through signaling and inside the tunnel.
+            options.timeline.mark("endpoints_trickled");
+            tunnel.session.announce_gathered();
+        }
         let keeper = dormant::Keeper::new(dormant::KeeperSpec {
             session: Arc::clone(&tunnel.session),
             dialer: true,
