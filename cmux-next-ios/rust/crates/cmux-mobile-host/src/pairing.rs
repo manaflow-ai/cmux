@@ -721,24 +721,41 @@ fn phone_apps() -> &'static Mutex<HashMap<String, PhoneApp>> {
     APPS.get_or_init(Default::default)
 }
 
-/// Records the phone app `phone` states in `auth` args, logs it once with the link's path, and
-/// returns it. A machine's `auth` is not recorded.
+/// Records the phone app `phone` states in `auth` args, logs it once with the link's path and
+/// the auth's action, and returns what is recorded. A machine's `auth` is not recorded.
+///
+/// An `auth` that states no app (the phone's `unpair`, from "Remove This iPhone from My Macs",
+/// sends only its keys) keeps the app the device stated before: it used to overwrite it with
+/// `unknown`, so the log and `phone_app` said a TestFlight phone sent no app info.
 pub fn note_phone_app(phone: &str, args: &Value, path: Option<&str>) -> Option<PhoneApp> {
     if crate::peer::PeerKind::parse(args.get("kind").and_then(Value::as_str).unwrap_or_default())
         .is_some_and(|kind| kind.is_machine())
     {
         return None;
     }
-    let app = PhoneApp::from_args(args);
+    let action = match args.get("action").and_then(Value::as_str) {
+        None | Some("" | "pair") => "pair",
+        Some("unpair") => "unpair",
+        Some(_) => "other",
+    };
+    let stated = PhoneApp::from_args(args);
+    let mut apps = phone_apps().lock().expect("phone apps");
+    let states_app = stated.bundle_id.is_some() || stated.build.is_some();
+    let app = match apps.get(phone) {
+        Some(known) if !states_app => known.clone(),
+        _ => stated,
+    };
     tracing::info!(
         device = phone,
+        action,
         variant = app.variant,
         bundle = app.bundle_id.as_deref().unwrap_or("-"),
         build = app.build.as_deref().unwrap_or("-"),
+        stated = states_app,
         path = path.unwrap_or("-"),
         "phone app"
     );
-    phone_apps().lock().expect("phone apps").insert(phone.to_owned(), app.clone());
+    apps.insert(phone.to_owned(), app.clone());
     Some(app)
 }
 
@@ -1085,6 +1102,10 @@ mod tests {
         assert_eq!(phone_app(phone).unwrap().variant, "dev");
         // A later auth from the same device replaces it.
         note_phone_app(phone, &json!({"kind": "phone", "bundleId": "com.cmux.app", "appBuild": "80"}), None);
+        assert_eq!(phone_app(phone).unwrap().build.as_deref(), Some("80"));
+        // The unpair auth states no app: the recorded one stays.
+        let unpair = json!({"kind": "phone", "identityKey": "04aa", "approvalKey": "04bb", "name": "", "action": "unpair"});
+        assert_eq!(note_phone_app(phone, &unpair, None).unwrap().variant, "appstore");
         assert_eq!(phone_app(phone).unwrap().build.as_deref(), Some("80"));
         let machine = "machine-app-record-test";
         assert_eq!(note_phone_app(machine, &json!({"kind": "mac", "bundleId": "com.cmux.app"}), None), None);
