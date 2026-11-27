@@ -89,6 +89,7 @@ const onCreate = (error: UpstreamError): BadRequest | Conflict | NotFound | Quot
   if (error.status === 404) return snapshotNotFound();
   if (error.status === 400) return badRequest("The VM could not be created as asked (check its snapshot and sizes)");
   if (error.status === 409) return conflict("No capacity is available for a new VM right now; retry later");
+  if (error.kind === "capacity_overloaded") return unavailable(error);
   if (error.status === 429) return new QuotaExceeded({ message: "VM capacity is exhausted for now; retry later", retryAfterSeconds: 60, budget: "capacity" });
   return unavailable(error);
 };
@@ -127,6 +128,8 @@ interface NewVm {
   readonly maxRunSeconds: number | undefined;
   readonly autoDeleteSeconds: number | undefined;
   readonly size: SizeRequest | undefined;
+  /** `x-cmux-create-priority: background`: a create no one is waiting on (a spare), queued behind everyone else's. */
+  readonly background?: boolean;
 }
 
 /**
@@ -331,6 +334,7 @@ const createRecordedTimed = <C, S, M>(
           ...(spec.size === undefined ? {} : { size: spec.size }),
           environment: policy.environment,
           ...(caller.value.actor.kind === "service" && policy.createsWithoutReads(caller.value.actor.serviceId) ? { withoutReads: true } : {}),
+          ...(spec.background === true ? { background: true } : {}),
           journal,
           phases,
         },
@@ -521,7 +525,7 @@ const withMeshToJoin = <C, A, E, R>(
     );
   });
 
-const createVm = (requested: CreateVmRequest, idempotencyKey: string | undefined) =>
+const createVm = (requested: CreateVmRequest, idempotencyKey: string | undefined, background = false) =>
   withCaller("vm:write", "write", (caller, scope) =>
     Effect.flatMap(Clock.currentTimeMillis, (entered) =>
     Effect.gen(function* () {
@@ -566,6 +570,7 @@ const createVm = (requested: CreateVmRequest, idempotencyKey: string | undefined
         maxRunSeconds: payload.maxRunSeconds,
         autoDeleteSeconds: payload.autoDeleteSeconds,
         size: payload.resources,
+        ...(background ? { background: true } : {}),
       };
       if (imageIntent !== undefined) request.push(`image:${imageIntent.fingerprint}`);
       const generated = idempotencyKey === undefined ? yield* issueCreation(principal, "create", payload) : undefined;
@@ -922,7 +927,7 @@ export const vmsHandlers = HttpApiBuilder.group(CmuxVmApi, "vms", (handlers) =>
       ),
     )
     .handle("createVm", ({ payload, headers }) =>
-      audited("vm.create", null, createVm(payload, headers["idempotency-key"]), (vm) => vm.id),
+      audited("vm.create", null, createVm(payload, headers["idempotency-key"], headers["x-cmux-create-priority"] === "background"), (vm) => vm.id),
     )
     .handle("listVms", ({ urlParams }) => listVms(urlParams))
     .handle("resizeVm", ({ path, payload, headers }) =>
