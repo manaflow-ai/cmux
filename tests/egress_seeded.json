@@ -101,6 +101,12 @@
   "cmux_tui::carrier::tunnel": {
    "test": "cmux-tui/crates/cmux-tui/src/carrier/tunnel_tests.rs::the_tunnel_read_carries_only_its_signed_proof"
   },
+  "cmux_tui::cli::api_tokens": {
+   "test": "cmux-tui/crates/cmux-tui/src/cli/api_tokens_tests.rs::seeded_secrets_ride_only_in_authorization_the_team_header_and_the_create_body"
+  },
+  "cmux_tui::cli::app::web_cas": {
+   "none": "GETs of cas/1 objects under the published https base with only a Range header and the cmux-web-cas user-agent, no redirects: no token, cookie, prompt or person text"
+  },
   "cmux_tui::cli::app::web_pieces": {
    "none": "a GET of the published web-pieces switch file with Accept and an If-None-Match etag, no redirects: no token, cookie, prompt or person text"
   },

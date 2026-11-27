@@ -309,3 +309,43 @@ fn json_answers_are_one_object_with_ok() {
     assert_eq!(failure["ok"], json!(false));
     assert_eq!(failure["error"]["code"], json!("token.scope"));
 }
+
+/// Seeded secrets on the wire (cmux_egress::capture): the person's access token rides only in
+/// `Authorization`, the team only in `x-cmux-team`, and a new token's name only in the create body.
+/// tests/egress_seeded.json names this test for `cmux_tui::cli::api_tokens`.
+#[test]
+fn seeded_secrets_ride_only_in_authorization_the_team_header_and_the_create_body() {
+    let _ = rustls::crypto::ring::default_provider().install_default();
+    cmux_egress::capture::install().unwrap();
+    let token = "SEEDapiTokensBearer-7c31";
+    let team = "SEEDapiTokensTeam-2b84";
+    let name = "SEEDapiTokensName-e019";
+    let runtime = tokio::runtime::Builder::new_current_thread().enable_all().build().unwrap();
+    let client = Client::new(
+        cmux_cloud_environment::PRODUCTION_PLATFORM.trim_end_matches('/').to_owned(),
+        Zeroizing::new(token.to_owned()),
+        Some(team.to_owned()),
+        runtime,
+    )
+    .unwrap();
+    let create = Verb::Create {
+        name: name.into(),
+        scopes: all(),
+        expires: Expiry::Days(90),
+        spend_cap: None,
+        team_token: false,
+    };
+    let _ = client.send(&create, None);
+    let _ = client.send(&Verb::List, None);
+    let sent = cmux_egress::capture::requests_to("cmux-platform-production.debussy.workers.dev");
+    assert!(sent.iter().filter(|r| r.target.starts_with("/v1/tokens")).count() >= 2, "{sent:?}");
+    let places = cmux_egress::capture::leaks(token);
+    assert!(!places.is_empty(), "{sent:?}");
+    assert!(places.iter().all(|p| p.ends_with(": header authorization")), "{places:?}");
+    let places = cmux_egress::capture::leaks(team);
+    assert!(!places.is_empty(), "{sent:?}");
+    assert!(places.iter().all(|p| p.ends_with(": header x-cmux-team")), "{places:?}");
+    let places = cmux_egress::capture::leaks(name);
+    assert_eq!(places.len(), 1, "{places:?}");
+    assert!(places[0].contains("POST /v1/tokens") && places[0].ends_with(": body"), "{places:?}");
+}
