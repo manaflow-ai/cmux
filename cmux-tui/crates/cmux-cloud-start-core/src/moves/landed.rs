@@ -187,6 +187,51 @@ pub fn read(object: &Map<String, Value>) -> Option<Landed> {
     Some(Landed { how, headline, reason, skipped, summary })
 }
 
+/// Paths shown per group in the toast's grouped look before a `+N` (the gallery's look C,
+/// webviews `MoveLanded.tsx` `SHOWN`).
+pub const SHOWN: usize = 4;
+
+/// The app's native done toast (`CmuxToast`) for a move that landed as `landed`, in the grouped
+/// look (look C): the one line it shows, and its Details, revealed in place.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Toast {
+    /// "Copied, not cloned. This chat now runs on dev. Left on this Mac: 2 secrets."
+    pub message: String,
+    /// Why it copied, then each group: its heading over its first [`SHOWN`] paths and a `+N`.
+    /// None when there is nothing more to say.
+    pub detail: Option<String>,
+}
+
+/// The done toast for `moved` (the app's "This chat now runs on dev.") with what `landed` says;
+/// none when there is nothing to add, so the toast stays the one it always was.
+pub fn toast(moved: &str, landed: Option<&Landed>) -> Option<Toast> {
+    let landed = landed.filter(|landed| landed.how == How::Copied || !landed.skipped.is_empty())?;
+    let headline = landed.headline.as_deref().map(|headline| format!("{headline}."));
+    let summary = landed.summary.as_deref().map(|summary| format!("{summary}."));
+    let message = [headline.as_deref(), Some(moved.trim()), summary.as_deref()]
+        .into_iter()
+        .flatten()
+        .filter(|part| !part.is_empty())
+        .collect::<Vec<_>>()
+        .join(" ");
+    let groups = landed.skipped.iter().map(|group| {
+        let shown: Vec<&str> = group.paths.iter().take(SHOWN).map(String::as_str).collect();
+        let rest = (group.paths.len() - shown.len()) as u64 + group.more;
+        let mut paths = shown.join("   ");
+        if rest > 0 {
+            if !paths.is_empty() {
+                paths.push_str("   ");
+            }
+            paths.push_str(&format!("+{rest}"));
+        }
+        format!("{}\n{paths}", group.label)
+    });
+    let parts: Vec<String> = landed.reason.iter().cloned().chain(groups).collect();
+    let detail = (!parts.is_empty()).then(|| parts.join("\n\n"));
+    Some(Toast { message, detail })
+}
+
 /// A group on one line: "Secrets, kept on this Mac: .env, id_rsa and 2 more".
 fn line(group: Group, paths: &[String], more: u64) -> String {
     let named: Vec<&str> = paths.iter().take(NAMED).map(String::as_str).collect();

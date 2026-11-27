@@ -548,3 +548,29 @@ fn a_session_moves_run_says_what_the_tab_opens() {
         json!({"kind": "failed", "message": "nope"})
     );
 }
+
+#[test]
+fn a_seed_pushs_landed_reaches_the_done_toast() {
+    // The seed push's answer as the app reads it (`cloud_move_cli_read`), its `landed` handed
+    // back with the app's done sentence: the toast's words in look C.
+    let read = ok(
+        c"cloud_move_cli_read",
+        json!({"reading": "plain", "stdout": "{\"ok\":true,\"mode\":\"copy\",\"skipped_files\":[{\"path\":\".env\",\"kind\":\"secret\",\"why\":\"a secret\"}]}\n", "stderr": "", "status": 0}),
+    );
+    let landed = read["answer"]["landed"].clone();
+    assert_eq!(landed["how"], "copied");
+    let body = ok(
+        c"cloud_move_landed_toast",
+        json!({"moved": "This chat now runs on dev.", "landed": landed}),
+    );
+    assert_eq!(
+        body["toast"]["message"],
+        "Copied, not cloned. This chat now runs on dev. Left on this Mac: 1 secret."
+    );
+    assert!(body["toast"]["detail"].as_str().unwrap().ends_with("Secrets, kept on this Mac\n.env"));
+    let clean = ok(
+        c"cloud_move_landed_toast",
+        json!({"moved": "This chat now runs on dev.", "landed": null}),
+    );
+    assert_eq!(clean["toast"], Value::Null, "a clean clone keeps its toast");
+}

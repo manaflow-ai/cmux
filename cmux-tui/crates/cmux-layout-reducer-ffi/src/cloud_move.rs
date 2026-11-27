@@ -597,6 +597,16 @@ pub(crate) fn respond(operation: &[u8], request: &[u8]) -> Result<Vec<u8>, i32> 
                 &request.machines,
             ))?
         }
+        // Move to Cloud's done toast, with how the folder landed (hq RFD 0066 piece 1, look C).
+        b"cloud_move_landed_toast" => {
+            #[derive(Deserialize)]
+            struct Request {
+                moved: String,
+                landed: Option<cmux_cloud_start_core::moves::landed::Landed>,
+            }
+            let request: Request = read(request)?;
+            json!({ "toast": to_value(cmux_cloud_start_core::moves::landed::toast(&request.moved, request.landed.as_ref()))? })
+        }
         b"cloud_move_place_steps" => {
             let steps: Vec<_> = place::Step::ALL
                 .iter()
