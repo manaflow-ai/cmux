@@ -29,6 +29,7 @@ sys.path.insert(0, HERE)
 from tag_teardown import TagTeardown  # noqa: E402
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from safe_log import safe_print  # noqa: E402  (a line in a cleanup path never skips the kill)
+from windowserver_gpu import GPUSampler  # noqa: E402
 
 _spec = importlib.util.spec_from_file_location("browser_engine_bench", os.path.join(HERE, "..", "perf", "browser_engine_bench.py"))
 bench = importlib.util.module_from_spec(_spec)
@@ -189,14 +190,18 @@ def window_server_cpu_s():
     for line in out.splitlines():
         parts = line.strip().split(None, 1)
         if len(parts) == 2 and parts[1].endswith("/WindowServer"):
-            total = 0.0
             clock = parts[0]
+            days = 0
             if "-" in clock:
-                days, clock = clock.split("-", 1)
-                total += int(days) * 86400
+                day_text, clock = clock.split("-", 1)
+                days = int(day_text)
+            fields = [float(field) for field in clock.split(":")]
+            if len(fields) > 3 or len(fields) < 2:
+                return None
+            total = 0.0
             for field in clock.split(":"):
                 total = total * 60 + float(field)
-            return total
+            return days * 86400 + total
     return None
 
 
@@ -220,10 +225,12 @@ def log_size():
 def measure(app_pid, phase):
     rows = processes(app_pid)
     ws_before = window_server_cpu_s()
-    before, log_before, t0, ticks_before = snapshot(rows), log_size(), time.monotonic(), ticks[0]
-    time.sleep(opts.idle_s)  # sleep-ok: the measured idle window itself
-    after, log_after, seconds = snapshot(rows), log_size(), time.monotonic() - t0
-    ws_after = window_server_cpu_s()
+    with GPUSampler() as gpu_sampler:
+        before, log_before, t0, ticks_before = snapshot(rows), log_size(), time.monotonic(), ticks[0]
+        time.sleep(opts.idle_s)  # sleep-ok: the measured idle window itself
+        after, log_after, seconds = snapshot(rows), log_size(), time.monotonic() - t0
+        ws_after = window_server_cpu_s()
+    gpu = gpu_sampler.result
     classes = {}
     for pid, kind in rows.items():
         if pid not in before or pid not in after:
@@ -249,6 +256,7 @@ def measure(app_pid, phase):
               "pages_visible": sorted(n for n, state in visibility.items() if state == "visible"),
               "cef_log_bytes_per_min": round((log_after - log_before) * 60 / seconds),
               "total_cpu_percent": round(sum(c["cpu_percent"] for c in classes.values()), 3),
+              "gpu": gpu,
               "window_server_cpu_percent": None if ws_before is None or ws_after is None
               else round(100 * (ws_after - ws_before) / seconds, 3)}
     for name in ("debug.cef", "debug.wakeups"):
