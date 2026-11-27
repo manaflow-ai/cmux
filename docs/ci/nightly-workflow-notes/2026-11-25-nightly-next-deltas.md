@@ -1,5 +1,5 @@
-# nightly-next-deltas, its own job after nightly-next-one
+# 2026-11-25-nightly-next-deltas
 
-Follows [note-31](../nightly-workflow-notes.md#note-31) (nightly-next-one builds the nearest deltas after the feed write).
+Where: `.github/workflows/nightly.yml`, the nightly-next job's delta steps, before "Refuse stray processes before secrets (deltas)".
 
-Since 2026-11-25 (ask-c0123d25e8) those deltas run in their own job, nightly-next-deltas, which needs nightly-next-one: published-build and the GitHub release start as soon as nightly-next-one ends instead of waiting the ~5 min the deltas took (run 45575194160: 283 s build, 17 s upload). nightly-next-one only hands the job the build number, DMG names, appcast and minimum system version (step deltas-inputs, no secret); the job downloads the arm64 variant artifact into its own `.nightly-next-deltas` directory, runs the same two scripts with DELTAS_ONLY_WHILE_NEWEST=1, and removes that directory. It is continue-on-error, so a missing delta never fails the run.
+The deltas follow the feed in this job, off the critical path to it (the item above was written full-only), and never fail the build: every step here continues on error, and each one's `if` names what it needs. The two that hold the signing key carry no `!cancelled()`, so a failed claim skips them (tests/test_ci_signing_owned_mac.py). The delta build signs what the keyless prebuild made when it finished beside the checks, else builds them. The signing key reaches only the delta build, after a third stray-process check; nothing from the bundle runs in these steps (tests/test_nightly_next_one_job.py). Why: docs/ci/nightly-workflow-notes.md#note-31
