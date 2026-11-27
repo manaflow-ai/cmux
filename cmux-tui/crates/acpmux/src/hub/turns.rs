@@ -986,6 +986,7 @@ impl Hub {
         }
         // A new turn must not inherit a previous turn's green evidence, including when it
         // fails before the model is heard and therefore never reaches stalled_turn's reset.
+        self.reset_claim_runs(session);
         self.reset_tripwires(session, Some(&turn_id));
         self.arm_turn_cap(session, &turn_id);
         // The inbox's notice this turn is lands (`inbox.rs`): noticed once its prompt is written
