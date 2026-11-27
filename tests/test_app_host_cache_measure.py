@@ -3,11 +3,14 @@
 from __future__ import annotations
 
 import importlib.util
+import fcntl
 import json
 import os
 from pathlib import Path
 import shutil
+import signal
 import subprocess
+import sys
 import tempfile
 import unittest
 
@@ -46,6 +49,7 @@ if incremental and mode == os.environ.get('FAKE_FAIL_MODE'):
 products = d / 'Build/Products'
 (products / 'Debug').mkdir(parents=True, exist_ok=True)
 (products / 'Debug/cmux').write_text('test product')
+(products / 'Debug/cmux').chmod(0o755)
 (products / 'cmux.xctestrun').write_text('test plan')
 line = "SwiftCompile normal arm64 Compiling\\ AppDelegate.swift (in target 'cmux' from project 'cmux')\n"
 if incremental and os.environ.get('FAKE_NOOP'):
@@ -113,7 +117,7 @@ class CacheMeasureTests(unittest.TestCase):
         self.assertEqual(self.source.read_bytes(), self.original)
         self.assertEqual(self.source.stat().st_mtime_ns, self.mtime)
         saved = json.loads((self.output / 'receipt.json').read_text())
-        self.assertEqual([arm['status'] for arm in saved['arms']], ['completed', 'running'])
+        self.assertEqual([arm['status'] for arm in saved['arms']], ['completed', 'failed'])
         self.assertNotEqual(saved['mutation']['before_sha256'], saved['mutation']['after_sha256'])
 
     def test_noop_is_not_accepted_as_measurement(self):
@@ -121,6 +125,73 @@ class CacheMeasureTests(unittest.TestCase):
         with self.assertRaisesRegex(RuntimeError, 'no app SwiftCompile'):
             self.run_measure()
         self.assertEqual(self.source.read_bytes(), self.original)
+
+    def test_setup_materializes_pinned_submodules_in_private_clone(self):
+        env = dict(self.env, GIT_ALLOW_PROTOCOL='file', GIT_CONFIG_NOSYSTEM='1',
+                   GIT_CONFIG_GLOBAL=os.devnull, GIT_AUTHOR_NAME='test',
+                   GIT_AUTHOR_EMAIL='test@example.invalid', GIT_COMMITTER_NAME='test',
+                   GIT_COMMITTER_EMAIL='test@example.invalid', GHOSTTY_SHA='wrong')
+
+        def git(root, *args):
+            return subprocess.check_output(['git', *args], cwd=root, env=env, text=True).strip()
+
+        module = self.state / 'module'
+        module.mkdir()
+        git(module, 'init', '-q')
+        (module / 'Package.swift').write_text('// test module\n')
+        git(module, 'add', '.')
+        git(module, 'commit', '-qm', 'fixture')
+        pin = git(module, 'rev-parse', 'HEAD')
+        git(self.root, 'init', '-q')
+        git(self.root, 'submodule', 'add', '-q', str(module), 'ghostty')
+        git(self.root, 'submodule', 'add', '-q', str(module), 'vendor/bonsplit')
+        for name, body in {
+            'select-ci-xcode.sh': 'echo DEVELOPER_DIR=/fixture/Xcode >> "$GITHUB_ENV"',
+            'install-rust-ci.sh': 'exit 0',
+            'download-prebuilt-ghosttykit.sh': 'printf "%s" "$GHOSTTY_SHA" > observed-ghostty-pin',
+        }.items():
+            script = self.root / 'scripts' / name
+            script.write_text('#!/bin/sh\nset -eu\n' + body + '\n')
+            script.chmod(0o755)
+        git(self.root, 'add', '.')
+        git(self.root, 'commit', '-qm', 'fixture')
+        clone = self.state / 'clone'
+        git(self.root, 'clone', '--shared', str(self.root), str(clone))
+        measure.setup(clone, self.state, env)
+        for name in ('ghostty', 'vendor/bonsplit'):
+            self.assertTrue((clone / name / 'Package.swift').is_file())
+            self.assertEqual(git(clone / name, 'rev-parse', 'HEAD'), pin)
+        self.assertEqual((clone / 'observed-ghostty-pin').read_text(), pin)
+        self.assertEqual(env['DEVELOPER_DIR'], '/fixture/Xcode')
+
+    def test_interruption_stops_term_resistant_compiler_descendant(self):
+        lock = self.state / 'compiler.lock'
+        child_code = '''import fcntl, signal, sys, time
+signal.signal(signal.SIGTERM, signal.SIG_IGN)
+lock = open(sys.argv[1], 'w')
+fcntl.flock(lock, fcntl.LOCK_EX)
+print('ready', flush=True)
+time.sleep(60)
+'''
+        helper_code = '''import os, signal, subprocess, sys, time
+child = subprocess.Popen([sys.executable, '-c', sys.argv[1], sys.argv[2]], stdout=subprocess.PIPE)
+assert child.stdout.readline() == b'ready\\n'
+os.kill(int(sys.argv[3]), signal.SIGUSR1)
+time.sleep(60)
+'''
+
+        def interrupt(signum, frame):
+            raise InterruptedError('fixture interruption')
+
+        previous = signal.signal(signal.SIGUSR1, interrupt)
+        try:
+            with self.assertRaises(InterruptedError):
+                measure.command([sys.executable, '-c', helper_code, child_code, str(lock),
+                                 str(os.getpid())], self.root, self.env)
+        finally:
+            signal.signal(signal.SIGUSR1, previous)
+        with lock.open() as stream:
+            fcntl.flock(stream, fcntl.LOCK_EX | fcntl.LOCK_NB)
 
 
 if __name__ == '__main__':

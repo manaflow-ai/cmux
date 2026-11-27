@@ -25,7 +25,29 @@ MUTATION = b"\n// App-host compilation-cache measurement: identical incremental 
 
 def command(argv: list[str], root: Path, env: dict[str, str]) -> float:
     start = time.monotonic()
-    subprocess.run(argv, cwd=root, env=env, check=True)
+    process = subprocess.Popen(argv, cwd=root, env=env, start_new_session=True)
+    try:
+        status = process.wait()
+        if status:
+            raise subprocess.CalledProcessError(status, argv)
+    except BaseException:
+        # Helpers launch xcodebuild/cargo children. Stop this owned group before
+        # restoring source or deleting its private build state.
+        try:
+            os.killpg(process.pid, signal.SIGTERM)
+        except ProcessLookupError:
+            pass
+        try:
+            process.wait(timeout=10)
+        except subprocess.TimeoutExpired:
+            pass
+        finally:
+            try:
+                os.killpg(process.pid, signal.SIGKILL)
+            except ProcessLookupError:
+                pass
+            process.wait()
+        raise
     return time.monotonic() - start
 
 
@@ -98,12 +120,17 @@ def measure(root: Path, state: Path, output: Path, env: dict[str, str], receipt:
             if metrics["compiler_cache"]["cache_backend"] != "local":
                 raise RuntimeError(f"{mode}: expected isolated local CAS")
             products = derived / "Build/Products"
-            if not (products / "Debug/cmux").is_file() or not list(products.rglob("*.xctestrun")):
+            product = products / "Debug/cmux"
+            if not product.is_file() or not os.access(product, os.X_OK) or not list(products.rglob("*.xctestrun")):
                 raise RuntimeError(f"{mode}: missing app-host test product")
             command(["python3", str(root / "scripts/swift_warning_budget.py"),
                      "--log", str(derived / "cmux-build.log")], root, env)
             arm["status"] = "completed"
             write_receipt(output, receipt)
+    except (OSError, RuntimeError, subprocess.SubprocessError) as error:
+        if receipt["arms"]:
+            receipt["arms"][-1].update(status="failed", error=str(error))
+        raise
     finally:
         source.write_bytes(original)
         os.utime(source, ns=(original_stat.st_atime_ns, original_stat.st_mtime_ns))
@@ -111,6 +138,10 @@ def measure(root: Path, state: Path, output: Path, env: dict[str, str], receipt:
 
 
 def setup(root: Path, state: Path, env: dict[str, str]) -> None:
+    command(["git", "submodule", "update", "--init", "--recursive", "--",
+             "ghostty", "vendor/bonsplit"], root, env)
+    env["GHOSTTY_SHA"] = subprocess.check_output(
+        ["git", "rev-parse", "HEAD:ghostty"], cwd=root, text=True).strip()
     xcode_env = state / "xcode.env"
     xcode_env.touch()
     command([str(root / "scripts/select-ci-xcode.sh")], root, dict(env, GITHUB_ENV=str(xcode_env)))
@@ -136,7 +167,7 @@ def main() -> int:
                                "no production savings or byte-equivalence claim"]}
     env = dict(os.environ, GITHUB_SHA=sha, CMUX_SKIP_ZIG_BUILD="1", CMUX_CI_REQUIRED_MACOS_SDK_MAJOR="26")
     env["PATH"] = str(Path.home() / ".cargo/bin") + os.pathsep + env["PATH"]
-    # The worker bounds the entire process group. Let TERM also unwind owned state.
+    # command() stops its owned process group before TERM unwinds private state.
     def interrupted(signum, frame):
         raise InterruptedError(f"measurement interrupted by signal {signum}")
     signal.signal(signal.SIGTERM, interrupted)
@@ -146,16 +177,15 @@ def main() -> int:
         with tempfile.TemporaryDirectory(prefix="app-host-cache-") as scratch:
             state = Path(scratch).resolve()
             source = state / "src"
-            command(["git", "worktree", "add", "--detach", str(source), sha], root, env)
-            try:
-                receipt["source_path"] = str(source)
-                receipt["setup_seconds"] = 0.0
-                started = time.monotonic()
-                setup(source, state, env)
-                receipt["setup_seconds"] = time.monotonic() - started
-                measure(source, state, output, env, receipt)
-            finally:
-                command(["git", "worktree", "remove", "--force", str(source)], root, env)
+            # A local clone borrows immutable objects but owns its Git metadata,
+            # including submodules; cleanup cannot change the worker checkout.
+            command(["git", "clone", "--shared", "--no-checkout", str(root), str(source)], root, env)
+            command(["git", "checkout", "--detach", sha], source, env)
+            receipt["source_path"] = str(source)
+            started = time.monotonic()
+            setup(source, state, env)
+            receipt["setup_seconds"] = time.monotonic() - started
+            measure(source, state, output, env, receipt)
         receipt["status"] = "completed"
     except (OSError, RuntimeError, subprocess.SubprocessError) as error:
         receipt["status"] = "failed"

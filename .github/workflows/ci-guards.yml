@@ -1479,6 +1479,12 @@ jobs:
         if: ${{ matrix.group == 'app-host-cache' }}
         run: python3 tests/test_ci_prune_xcode_compilation_cache.py
 
+      - name: Validate app-host cache measurement orchestration
+        if: ${{ matrix.group == 'app-host-cache' }}
+        run: |
+          python3 tests/test_app_host_cache_measure.py
+          bash -n scripts/measure/app-host-cache.sh
+
       - name: Validate TestFlight notes generator
         if: ${{ matrix.group == 'release-ios' }}
         run: python3 tests/test_ios_testflight_notes.py
