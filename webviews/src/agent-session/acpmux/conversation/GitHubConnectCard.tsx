@@ -30,6 +30,7 @@ const CAUSE: Record<GitHubConnectNeed["reason"], StringKey> = {
   "needs-reauth": "githubConnect.needsReauth",
   "not-covered": "githubConnect.notCovered",
   "not-installed": "githubConnect.notInstalled",
+  "permissions-pending": "githubConnect.permissionsPending",
   asked: "githubConnect.asked",
 };
 

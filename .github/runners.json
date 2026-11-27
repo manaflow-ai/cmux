@@ -288,21 +288,21 @@
     ],
     "agent-brands.yml#swift-test": {
       "class": "apple-swift-tests",
-      "placement_followup": "runs-on reads vars.CI_SIDE_LANE_RUNNER directly; take the label from a placement job"
+      "picker_followup": "runs-on names a fixed macOS label (it no longer reads the side or light lane variable); take it from a picker job's output"
     },
     "app-ffi-release.yml#build": "apple-app-build",
     "fast-checks.yml#checks-mac": {
       "class": "apple-swift-tests",
-      "placement_followup": "setup=kernel-free dispatch (#46651) reads vars.CI_LIGHT_LANE_RUNNER directly; take the label from a placement job"
+      "picker_followup": "runs-on names a fixed macOS label (it no longer reads the side or light lane variable); take it from a picker job's output"
     },
     "measure-swift-typecheck.yml#typecheck": {
       "class": "apple-swift-tests",
-      "placement_followup": "runs-on reads vars.CI_LIGHT_LANE_RUNNER / CI_SIDE_LANE_RUNNER directly; take the label from a placement job"
+      "picker_followup": "runs-on names a fixed macOS label (it no longer reads the side or light lane variable); take it from a picker job's output"
     },
     "billing.yml#ios-billing": "apple-ios",
     "auth-refresh-tests.yml#auth-refresh-tests": {
       "class": "apple-swift-tests",
-      "placement_followup": "runs-on reads vars.CI_SIDE_LANE_RUNNER directly; take the label from a placement job"
+      "picker_followup": "runs-on names a fixed macOS label (it no longer reads the side or light lane variable); take it from a picker job's output"
     },
     "auto-resume-nightly-notarization.yml#generate-deltas": {
       "class": "apple-signing-release",
@@ -338,8 +338,9 @@
     },
     "cloud-chat-proof.yml#proof-staging": {"class": "apple-app-build"},
     "cloud-chat-proof.yml#proof-prod": {"class": "apple-app-build"},
+    "cloud-mvp-nightly-readback.yml#readback": {"class": "macos-runtime-tests"},
     "cloud-composer-journey.yml#journey": {"class": "apple-app-build"},
-    "cloud-rd-link-readback.yml#readback": {"class": "macos-runtime-tests", "picker_followup": "builds cmux-tui and launches it on a Mac behind NAT to dial the Cloud desktop's UDP link while holding the dev stack pair: an ephemeral Blacksmith Mac from the declared macos_26 pool only, as cloud-chat-proof.yml#proof; manual dispatch"},
+    "cloud-rd-link-readback.yml#readback": {"class": "macos-runtime-tests", "picker_followup": "builds cmux-tui and launches it on a Mac behind NAT to dial the Cloud desktop's UDP link while holding the dev stack pair: attempt 1 takes the owned side label (glaeda-side-std-xcode-26.6) while CI_PR_POOL_OWNED is 1, a re-run the declared macos_26 pool; feat-cmux-next only, manual dispatch; take the label from a placement job"},
     "cmux-mobile-ffi.yml#apple": {
       "class": "apple-swift-tests",
       "picker_followup": "runs-on names a fixed macOS label; take it from a picker job's output"
@@ -349,15 +350,15 @@
     },
     "cmux-next-batch.yml#build": {
       "class": "apple-app-build",
-      "placement_followup": "runs-on reads vars.CI_SIDE_LANE_RUNNER directly; take the label from a placement job"
+      "picker_followup": "runs-on names a fixed macOS label (it no longer reads the side or light lane variable); take it from a picker job's output"
     },
     "cmux-next-batch.yml#regen": {
       "class": "apple-app-build",
-      "placement_followup": "runs-on reads vars.CI_SIDE_LANE_RUNNER directly; take the label from a placement job"
+      "picker_followup": "runs-on names a fixed macOS label (it no longer reads the side or light lane variable); take it from a picker job's output"
     },
     "cmux-next-car-guards.yml#mac": {
       "class": "apple-swift-tests",
-      "placement_followup": "runs-on reads vars.CI_SIDE_LANE_RUNNER directly (#43255 put the side label before the off-switch's Blacksmith fallback); take the label from a placement job"
+      "picker_followup": "runs-on names a fixed macOS label (it no longer reads the side or light lane variable); take it from a picker job's output"
     },
     "cmux-next-daemon-macos-shadow.yml#cmux-next-daemon-macos-shadow": {
       "class": "macos-runtime-tests",
@@ -407,7 +408,7 @@
     },
     "cmux-next-shell-integration.yml#zsh-head-watch": {
       "class": "macos-runtime-tests",
-      "placement_followup": "runs-on reads vars.CI_SIDE_LANE_RUNNER directly; take the label from a placement job"
+      "picker_followup": "runs-on names a fixed macOS label (it no longer reads the side or light lane variable); take it from a picker job's output"
     },
     "cmux-next-source-archive.yml#archive": {
       "class": "apple-app-build",
@@ -415,25 +416,20 @@
     },
     "cmux-next-terminal.yml#rust-terminal": {
       "class": "macos-runtime-tests",
-      "placement_followup": "runs-on reads vars.CI_SIDE_LANE_RUNNER directly; take the label from a placement job"
+      "picker_followup": "runs-on names a fixed macOS label (it no longer reads the side or light lane variable); take it from a picker job's output"
     },
-    "cmux-next-tip-test-compile.yml#compile": {
+    "cmux-next-tip-test-compile.yml#compile-fleet": {
       "class": "apple-app-build",
       "picker_followup": "runs-on names a fixed macOS label; take it from a picker job's output"
     },
-    "cmux-next.yml#app-compile-fleet": "apple-app-build",
-    "cmux-next.yml#checks": "portable-checks",
-    "cmux-next.yml#path_route": "portable-checks",
     "cmux-next.yml#cmux-scheme-compile": "apple-app-build",
     "cmux-next.yml#daemon-test": "apple-swift-tests",
     "cmux-next.yml#dev-landing-compile": "apple-app-build",
     "cmux-next.yml#fast-tier": "apple-app-build",
-    "cmux-next.yml#fast-tier-fleet": "apple-swift-tests",
     "cmux-next.yml#generated-files": "apple-app-build",
     "cmux-next.yml#release-compile": "apple-app-build",
     "cmux-next.yml#release-compile-fast": "apple-app-build",
     "cmux-next.yml#swift-canary": "apple-app-build",
-    "cmux-next.yml#swift-canary-fleet": "apple-app-build",
     "cmux-next.yml#swift-test": "apple-swift-tests",
     "cmux-tui-artifacts.yml#macos-cross-runtime-x86_64": {
       "class": "macos-runtime-tests",
@@ -450,15 +446,11 @@
     },
     "cmux-tui.yml#macos": {
       "class": "macos-runtime-tests",
-      "placement_followup": "runs-on reads vars.CI_SIDE_LANE_RUNNER directly; take the label from a placement job"
+      "picker_followup": "runs-on names a fixed macOS label (it no longer reads the side or light lane variable); take it from a picker job's output"
     },
     "cmux-vnc.yml#swift-test": {
       "class": "apple-swift-tests",
       "picker_followup": "runs-on names a fixed macOS label; take it from a picker job's output"
-    },
-    "coderouter-release.yml#build": {
-      "class": "apple-signing-release",
-      "picker_followup": "signs with release keys on an ephemeral Blacksmith Mac; an owned route needs a picker with the per-job keychain and exclusive claim (signing_runner.py)"
     },
     "ios-app-store.yml#upload-and-validate": {
       "class": "apple-ios",
@@ -485,6 +477,7 @@
     },
     "ios-reliability-matrix.yml#ios": "apple-ios",
     "pr-pipeline.yml#ios": "apple-ios",
+    "cmux-next-pr-pipeline-ios-batch.yml#ios": "apple-ios",
     "ios-screenshots.yml#screenshots": "apple-ios",
     "ios-streamed-validate.yml#validate": {
       "class": "apple-ios",
@@ -498,7 +491,7 @@
     "gateway-e2e.yml#mac": "macos-runtime-tests",
     "iroh-v2.yml#client": {
       "class": "apple-swift-tests",
-      "placement_followup": "runs-on reads vars.CI_SIDE_LANE_RUNNER directly; take the label from a placement job"
+      "picker_followup": "runs-on names a fixed macOS label (it no longer reads the side or light lane variable); take it from a picker job's output"
     },
     "machine-vault-e2e.yml#e2e": {"class": "macos-runtime-tests", "picker_followup": "adds an OS user and opens ssh to it while holding the dev stack secrets: an ephemeral Blacksmith Mac only, never a persistent owned Mac; an owned route needs a disposable VM on the fleet"},
     "macos-cross-parity.yml#runtime-x86_64": {
@@ -508,7 +501,7 @@
     "main-compile-probe.yml#compile": "apple-app-build",
     "nightly-next-canary.yml#canary": {
       "class": "macos-runtime-tests",
-      "placement_followup": "runs-on reads vars.CI_SIDE_LANE_RUNNER directly on attempt 1 (#26688); take the label from a placement job like pick-train-runner"
+      "picker_followup": "runs-on names a fixed macOS label (it no longer reads the side or light lane variable); take it from a picker job's output"
     },
     "nightly-next-launch-smoke.yml#smoke": "apple-gui",
     "nightly-next-train.yml#build": "apple-app-build",
@@ -523,24 +516,15 @@
     "nightly.yml#pick-nightly-next-signer": {"class": "portable-checks"},
     "nightly.yml#await-release-surface-ack": {"class": "portable-checks"},
     "nightly.yml#pick-nightly-sign-runner": {"class": "portable-checks"},
-    "nightly.yml#published-in": {"class": "portable-checks"},
-    "nightly.yml#dispatch-published-in": {"class": "portable-checks"},
     "nightly.yml#retry-nightly-next": {"class": "portable-checks"},
-    "nightly.yml#wake-nightly-next-tick": {"class": "portable-checks"},
-    "nightly.yml#published-build": {"class": "portable-checks"},
     "nightly.yml#close-nightly-failure-issue": {"class": "portable-checks"},
-    "nightly.yml#resolve-nightly-cmux-tui-client": {"class": "portable-checks"},
     "nightly.yml#pick-nightly-build-runner": {"class": "portable-checks"},
-    "nightly.yml#resolve-nightly-ghostty-cli-helper": {"class": "portable-checks"},
     "nightly.yml#build-nightly-inputs": {"class": "portable-checks"},
     "nightly.yml#find-nightly-next-recovery": {"class": "portable-checks"},
     "nightly.yml#check-nightly-webviews": {"class": "portable-checks"},
     "nightly.yml#route-visual-gate-nightly": {"class": "portable-checks"},
     "nightly.yml#attest-nightly-remote-daemon": {"class": "portable-checks"},
-    "nightly.yml#prepare-nightly-variant-primary": {"class": "portable-checks"},
-    "nightly.yml#prepare-nightly-variant": {"class": "portable-checks"},
     "nightly.yml#build-nightly-remote-daemon": "portable-checks",
-    "nightly.yml#await-nightly-tree-marker": "portable-checks",
     "nightly.yml#build-nightly-ghostty-cli-helper": "apple-app-build",
     "nightly.yml#build-sign-notarize-nightly": "apple-signing-release",
     "nightly.yml#nightly-next-one": "apple-signing-release",
@@ -573,7 +557,7 @@
     },
     "relay-tls.yml#diagnostic-presentation": {
       "class": "apple-swift-tests",
-      "placement_followup": "runs-on reads vars.CI_SIDE_LANE_RUNNER directly; take the label from a placement job"
+      "picker_followup": "runs-on names a fixed macOS label (it no longer reads the side or light lane variable); take it from a picker job's output"
     },
     "relay-tls.yml#system-keychain": {
       "class": "macos-runtime-tests",
@@ -621,18 +605,36 @@
     },
     "terminal-hang-diagnostics.yml#phase-attribution": {
       "class": "apple-swift-tests",
-      "placement_followup": "runs-on reads vars.CI_SIDE_LANE_RUNNER directly; take the label from a placement job"
+      "picker_followup": "runs-on names a fixed macOS label (it no longer reads the side or light lane variable); take it from a picker job's output"
     },
     "test-feed-reply-providers.yml#full-text": {
       "class": "apple-swift-tests",
-      "placement_followup": "runs-on reads vars.CI_SIDE_LANE_RUNNER directly; take the label from a placement job"
+      "picker_followup": "runs-on names a fixed macOS label (it no longer reads the side or light lane variable); take it from a picker job's output"
     },
     "test-feed-reply-providers.yml#verify": {
       "class": "apple-gui",
       "placement_followup": "runs-on reads vars.CI_SIDE_LANE_RUNNER directly (#43255 put the side label before the off-switch's Blacksmith fallback); take the label from a placement job"
     },
     "test-ios.yml#ios-simulator-build": "apple-ios",
-    "test-ios.yml#mobile-core-package": "apple-ios"
+    "auto-journey.yml#journey": {"class": "apple-gui", "picker_followup": "runs-on reads RUNNER_POOLS.macos_26; take it from a picker job's output"},
+    "cmux-next-fast-tier-batch.yml#swift": {"class": "apple-swift-tests", "picker_followup": "runs-on reads one gateway variable; take it from a picker job's output"},
+    "cmux-next-pr-pipeline-mac-batch.yml#mac": {"class": "apple-swift-tests", "picker_followup": "runs-on reads vars.CI_OVERFLOW_MAC or cmux-mac; take it from a picker job's output"},
+    "cmux-next-pr-pipeline-ios-batch.yml#ios-macos": {"class": "apple-swift-tests", "picker_followup": "runs-on reads vars.CI_BLACKSMITH_MACOS, vars.CI_OVERFLOW_MAC or cmux-mac; take it from a picker job's output"},
+    "cmux-next-head-compile.yml#compile": {"class": "apple-app-build", "picker_followup": "runs-on reads one gateway variable; take it from a picker job's output"},
+    "cmux-next-ios-keyboard-motion.yml#bench": {"class": "apple-ios", "picker_followup": "runs-on reads one gateway variable; take it from a picker job's output"},
+    "cmux-next-pair-e2e-vm.yml#pair-e2e": {"class": "apple-ios", "picker_followup": "runs-on reads RUNNER_POOLS.macos_26; take it from a picker job's output"},
+    "cmux-next.yml#fast-tier-fleet-mac": "apple-swift-tests",
+    "cmux-tui-team-signed.yml#build-helper": {"class": "apple-app-build", "picker_followup": "runs-on reads RUNNER_POOLS.macos_26; take it from a picker job's output"},
+    "cmux-tui-team-signed.yml#sign-helper": {"class": "apple-signing-release", "picker_followup": "runs-on names a literal Blacksmith macOS label, as the keychain guard's rule 7 asks of a signer holding release-next's identity; take it from a picker job's output once signers may take one"},
+    "fleet-test-compile.yml#mac-fallback": {"class": "apple-swift-tests", "picker_followup": "runs-on reads one gateway variable; take it from a picker job's output"},
+    "nightly.yml#early-nightly-webviews": {"class": "portable-checks"},
+    "nightly.yml#nightly-next-pkg": "apple-signing-release",
+    "nightly.yml#build-live-code-variant": {"class": "apple-app-build"},
+    "nightly.yml#sign-live-code-variant": {"class": "apple-signing-release", "picker_followup": "runs-on names the trusted signing label; take it from pick-nightly-sign-runner's output"},
+    "nightly.yml#fixit-handoff": {"class": "portable-checks"},
+    "pr-pipeline.yml#mac": {"class": "apple-swift-tests", "picker_followup": "runs-on is cmux-mac on own-branch runs (RFD 0165: no Blacksmith overflow); take it from a picker job's output"},
+    "pr-pipeline.yml#mac-fallback": {"class": "apple-swift-tests", "picker_followup": "runs-on is cmux-mac on own-branch runs (RFD 0165: no Blacksmith overflow); take it from a picker job's output"},
+    "swift-linux-packages.yml#mac-fallback": {"class": "apple-swift-tests", "picker_followup": "runs-on reads RUNNER_POOLS.macos_15; take it from a picker job's output"}
   },
   "hosted_light_jobs": {
     "$comment": [
@@ -695,7 +697,6 @@
       "ci-web.yml#web-tests": {"routes": [16, 32], "target": 4, "measured": {"32": [14.0, 1.12, 1.32], "16": [464.5, 0.97, 1.33], "4": [46.5, 1.7, 2.37]}, "pending": "#30277 and #29981 change this file's runs-on"},
       "ci-web.yml#web-typecheck": {"routes": [16, 32], "target": 4, "measured": {"32": [4.5, 0.2, 0.23], "16": [115.5, 0.36, 0.6], "4": [12.5, 0.51, 0.82]}, "pending": "#30277 and #29981 change this file's runs-on"},
       "ci-web.yml#webviews-typecheck": {"routes": [16, 32], "target": 4, "measured": {}, "pending": "new job (ci-self-heal 0c): the webviews type check, moved out of react-apps-check (1); same runs-on as web-typecheck"},
-      "cloudflare-relay.yml#cloudflare-relay": {"size": 8, "failover": 16, "measured": {}, "why": "compile or test (cargo, swift, bun, playwright): on the minis these classes use at most 6.2 cores at p90 (HQ mini_job_cores_by_class, 2026-10-25..31: compile 3.8, isolated 6.2), so 8 fits; no runs in the window"},
       "cmux-actions.yml#check": {"size": 4, "failover": 8, "measured": {"16": [151.0, 0.71, 0.9]}, "why": "setup-bound: under 2 min, or measured on 4 vCPU within 1.5x of 32; light jobs use 0.7 cores at p90 on the minis (HQ mini_job_cores_by_class)"},
       "cmux-browser-host-chromium.yml#chromium": {"size": 8, "failover": 16, "measured": {}, "why": "compile or test (cargo, swift, bun, playwright): on the minis these classes use at most 6.2 cores at p90 (HQ mini_job_cores_by_class, 2026-10-25..31: compile 3.8, isolated 6.2), so 8 fits; no runs in the window"},
       "cmux-browser-host-release.yml#build": {"size": 8, "failover": 16, "measured": {}, "why": "compile or test (cargo, swift, bun, playwright): on the minis these classes use at most 6.2 cores at p90 (HQ mini_job_cores_by_class, 2026-10-25..31: compile 3.8, isolated 6.2), so 8 fits; no runs in the window"},
@@ -713,7 +714,7 @@
       "cmux-next-web-bundles.yml#bundles": {"size": 8, "failover": 16, "measured": {}, "why": "compile or test (cargo, swift, bun, playwright): on the minis these classes use at most 6.2 cores at p90 (HQ mini_job_cores_by_class, 2026-10-25..31: compile 3.8, isolated 6.2), so 8 fits; no runs in the window"},
       "cmux-next-web-bundles.yml#webviews-checks": {"size": 8, "failover": 16, "measured": {}, "why": "compile or test (cargo, swift, bun, playwright): on the minis these classes use at most 6.2 cores at p90 (HQ mini_job_cores_by_class, 2026-10-25..31: compile 3.8, isolated 6.2), so 8 fits; no runs in the window"},
       "cmux-next.yml#checks": {"size": 16, "failover": 8, "measured": {"16": [2677.0, 6.21, 7.33]}, "why": "6.2 min mean, 7.3 p90 on 16 vCPU against a 10 min timeout; 8 is its failover"},
-      "cmux-next.yml#fast-tier-cargo": {"size": 8, "failover": 16, "measured": {"32": [2401.0, 3.24, 3.7]}, "why": "compile or test (cargo, swift, bun, playwright): on the minis these classes use at most 6.2 cores at p90 (HQ mini_job_cores_by_class, 2026-10-25..31: compile 3.8, isolated 6.2), so 8 fits"},
+      "cmux-next.yml#fast-tier-cargo": {"size": 16, "measured": {"32": [2401.0, 3.24, 3.7]}, "why": "names the GCP label (cmux-fleet-linux-x64), as the linux_16 pool did: on linux_8's Freestyle lead 2026-11-25..26 it passed 98 of 653 runs, 243 hit the 30 min timeout (docs/ci/cmux-next-workflow-notes.md#note-206); the fork lane keeps 4 vCPU"},
       "cmux-next.yml#web-bundles": {"size": 4, "failover": 8, "measured": {"32": [2024.5, 0.62, 1.17]}, "why": "setup-bound: under 2 min, or measured on 4 vCPU within 1.5x of 32; light jobs use 0.7 cores at p90 on the minis (HQ mini_job_cores_by_class)"},
       "cmux-tui-artifacts.yml#adopt-commit-manifest": {"size": 4, "failover": 8, "measured": {}, "why": "setup-bound: reads and writes a few small CDN objects; the same shape as mark-tree-commits (not measured yet)"},
       "cmux-tui-artifacts.yml#cmux-next-daemon-tests": {"size": 8, "failover": 16, "measured": {"32": [115.5, 5.51, 6.22]}, "why": "compile or test (cargo, swift, bun, playwright): on the minis these classes use at most 6.2 cores at p90 (HQ mini_job_cores_by_class, 2026-10-25..31: compile 3.8, isolated 6.2), so 8 fits"},
@@ -726,7 +727,8 @@
       "cmux-tui-artifacts.yml#point-windows-channel": {"size": 4, "failover": 8, "measured": {}, "why": "setup-bound: reads one completion record and uploads one channel file; the same shape as point-feat-channel (not measured yet)"},
       "cmux-tui-artifacts.yml#point-mac-live-channel": {"size": 4, "failover": 8, "measured": {}, "why": "delivery-only: downloads and hashes Mac binaries, signs a small manifest and uploads it; split from point-machine-channel (not measured separately yet)"},
       "cmux-tui-artifacts.yml#point-machine-channel": {"size": 4, "failover": 8, "measured": {}, "why": "setup-bound: downloads four published binaries, signs and uploads one file; the same shape as point-feat-channel (not measured yet)"},
-      "cmux-tui-artifacts.yml#point-machine-channel-early": {"size": 4, "failover": 8, "measured": {}, "why": "setup-bound: uploads four Linux binaries from this run's artifacts, reads them back, signs and uploads one file; the same shape as point-machine-channel (not measured yet)"},
+      "cmux-machine-channel.yml#point-x86_64": {"size": 4, "failover": 8, "measured": {}, "why": "setup-bound: uploads four Linux binaries from this run's artifacts, reads them back, signs and uploads one file; the same shape as point-machine-channel (not measured yet)"},
+      "cmux-machine-channel.yml#point-linux": {"size": 4, "failover": 8, "measured": {}, "why": "setup-bound: uploads four Linux binaries from this run's artifacts, reads them back, signs and uploads one file; the same shape as point-machine-channel (not measured yet)"},
       "cmux-tui-artifacts.yml#publish": {"size": 8, "failover": 16, "measured": {"32": [584.5, 2.33, 7.55], "4": [129.5, 4.72, 8.13]}, "why": "compile or test (cargo, swift, bun, playwright): on the minis these classes use at most 6.2 cores at p90 (HQ mini_job_cores_by_class, 2026-10-25..31: compile 3.8, isolated 6.2), so 8 fits"},
       "cmux-tui-artifacts.yml#publish-ref-notice": {"size": 4, "failover": 8, "measured": {}, "why": "setup-bound: under 2 min, or measured on 4 vCPU within 1.5x of 32; light jobs use 0.7 cores at p90 on the minis (HQ mini_job_cores_by_class); no runs in the window"},
       "cmux-tui-artifacts.yml#publish-tree": {"size": 4, "failover": 8, "measured": {"32": [548.0, 1.18, 1.48], "4": [108.0, 2.13, 2.67]}, "why": "setup-bound: under 2 min, or measured on 4 vCPU within 1.5x of 32; light jobs use 0.7 cores at p90 on the minis (HQ mini_job_cores_by_class)"},
@@ -771,8 +773,6 @@
       "cmux-vm-clients.yml#sdk": {"size": 4, "failover": 8, "measured": {"16": [21.5, 0.53, 0.67]}, "why": "setup-bound: under 2 min, or measured on 4 vCPU within 1.5x of 32; light jobs use 0.7 cores at p90 on the minis (HQ mini_job_cores_by_class)"},
       "cmux-vm-cloud.yml#check": {"size": 4, "failover": 8, "measured": {"16": [1.5, 1.96, 2.02]}, "why": "setup-bound: under 2 min, or measured on 4 vCPU within 1.5x of 32; light jobs use 0.7 cores at p90 on the minis (HQ mini_job_cores_by_class)"},
       "cmux-vm.yml#check": {"size": 8, "failover": 16, "measured": {"16": [28.5, 2.51, 3.03]}, "why": "compile or test (cargo, swift, bun, playwright): on the minis these classes use at most 6.2 cores at p90 (HQ mini_job_cores_by_class, 2026-10-25..31: compile 3.8, isolated 6.2), so 8 fits"},
-      "coderouter-ci.yml#test": {"size": 8, "failover": 16, "measured": {}, "why": "compile or test (cargo, swift, bun, playwright): on the minis these classes use at most 6.2 cores at p90 (HQ mini_job_cores_by_class, 2026-10-25..31: compile 3.8, isolated 6.2), so 8 fits; no runs in the window"},
-      "coderouter-release.yml#build-linux": {"size": 8, "failover": 16, "measured": {}, "why": "compile or test (cargo, swift, bun, playwright): on the minis these classes use at most 6.2 cores at p90 (HQ mini_job_cores_by_class, 2026-10-25..31: compile 3.8, isolated 6.2), so 8 fits; no runs in the window"},
       "fast-checks.yml#checks": {"routes": [8, 16, 32], "target": 8, "measured": {"32": [1524.0, 3.56, 5.88], "16": [77.5, 2.89, 5.08]}, "pending": "#29934 and #29932 change this job's runs-on; the broker's reroute set lists 32 (tests/test_ci_runner_set.py)"},
       "gallery-advisory.yml#capture": {"size": 8, "failover": 16, "measured": {"16": [870.5, 3.3, 4.25]}, "why": "compile or test (cargo, swift, bun, playwright): on the minis these classes use at most 6.2 cores at p90 (HQ mini_job_cores_by_class, 2026-10-25..31: compile 3.8, isolated 6.2), so 8 fits"},
       "gallery-health.yml#health": {"routes": [4, 16, 32], "target": 16, "measured": {"16": [3964.0, 12.24, 21.77]}, "pending": "#29844 moves this job to the Linux pool"},

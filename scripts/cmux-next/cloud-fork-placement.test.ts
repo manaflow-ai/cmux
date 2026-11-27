@@ -1,14 +1,21 @@
 import { describe, expect, test } from "bun:test";
 import {
-  divergenceVerdict,
-  divergenceWriteCommand,
+  RISKY_STEP,
+  checkpointKept,
+  notFound,
+  dirtyCommand,
   facts,
   parity,
   parityCommand,
   setupCommand,
   verdict,
+  workCommand,
   type RunRow,
   p95,
+  divergenceVerdict,
+  divergenceWriteCommand,
+  deadDrill,
+  DEAD_DRILL_RUNS,
 } from "./cloud-fork-placement.ts";
 
 const row = (over: Partial<RunRow>): RunRow => ({
@@ -49,6 +56,25 @@ describe("cloud fork placement", () => {
     expect(setupCommand("n1")).toContain("setsid");
     expect(parityCommand()).toContain("kill -0");
   });
+
+  test("--risky: the checkpoint held only when the parent lost the work and the copy kept it", () => {
+    expect(checkpointKept("w", "", "w")).toEqual({ parent_lost_work: true, copy_kept_work: true });
+    expect(checkpointKept("w", "w", "")).toEqual({ parent_lost_work: false, copy_kept_work: false });
+    expect(checkpointKept(undefined, "", "")).toEqual({ parent_lost_work: false, copy_kept_work: false });
+    const held = { step_exit: 0, parent_lost_work: true, copy_kept_work: true };
+    expect(verdict([row({ risky: held })], {}).pass).toBe(true);
+    expect(verdict([row({ risky: { ...held, copy_kept_work: false } })], {}).pass).toBe(false);
+    expect(verdict([row({ risky: null, error: "fork: HTTP 500" })], {}).pass).toBe(false);
+    expect(RISKY_STEP).toContain("git reset -q --hard");
+    expect(dirtyCommand("n1")).toContain("work-n1");
+    expect(workCommand()).toContain("sha256sum");
+  });
+
+  test("a fork that answers machine.not_found is asked again; other errors are not", () => {
+    expect(notFound(404, { _tag: "MachineNotFound", code: "machine.not_found" })).toBe(true);
+    expect(notFound(404, { code: "route.not_found" })).toBe(false);
+    expect(notFound(401, { code: "machine.not_found" })).toBe(false);
+  });
   test("divergence: billed as diverged only when the paused copy is cheaper than its parent", () => {
     const parent = { paused_hourly_rate_usd: 0.002 };
     const d = divergenceVerdict(1024, 9000, { paused_hourly_rate_usd: 0.002 }, { status: "paused", paused_hourly_rate_usd: 0.0001 }, parent);
@@ -74,5 +100,17 @@ describe("cloud fork placement", () => {
     expect(c).toContain("if=/dev/urandom");
     expect(c).toContain("count=64");
     expect(c).toContain("conv=fsync");
+  });
+
+  test("a drill whose first runs all failed stops; one that forked once keeps every run", () => {
+    // Jobs 140215233872 and 140362817873: 404 machine.not_found, then 401, every run, into the job's timeout.
+    const dead = (fork_status: number | null) => row({ child: null, parity: null, fork_status, fork_to_first_exec_ms: null, error: "fork: HTTP 404" });
+    expect(DEAD_DRILL_RUNS).toBe(2);
+    expect(deadDrill([dead(404)], 10)).toBeNull();
+    expect(deadDrill([dead(404), dead(null)], 10)).toBe("stopped after 2 of 10 runs: every run so far failed (fork HTTP 404, no fork call)");
+    expect(deadDrill([dead(404), dead(401), dead(404)], 10)).toContain("stopped after 3 of 10");
+    expect(deadDrill([row({}), dead(404), dead(404)], 10)).toBeNull();
+    expect(deadDrill([dead(404), dead(404)], 2)).toBeNull(); // every asked run ran: nothing left to stop
+    expect(verdict([dead(404), dead(401)], { runs_asked: 10, stopped: "x" }).pass).toBe(false);
   });
 });

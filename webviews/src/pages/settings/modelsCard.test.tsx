@@ -130,7 +130,9 @@ test("Continue with ChatGPT waits on the browser with Cancel, and Cancel stops i
   await click(sheet()!.querySelector('[data-models-choice="chatgpt"]')!);
   await click(action(sheet()!, "connectChatGPT")!);
   expect(rendered.provider.modelRuns).toEqual([{ action: "connectChatGPT" }]);
-  expect(sheet()!.querySelector('[data-chatgpt="pending"]')?.textContent).toContain("Waiting for you to finish");
+  expect(sheet()!.querySelector('[data-chatgpt="pending"]')?.textContent).toContain(
+    "Waiting for you to sign in to ChatGPT",
+  );
   await click(action(sheet()!, "cancelChatGPT")!);
   expect(rendered.provider.modelRuns.at(-1)).toEqual({ action: "cancelChatGPT" });
   expect(rendered.store.getSnapshot().models?.chatgpt.attempt).toBeNull();

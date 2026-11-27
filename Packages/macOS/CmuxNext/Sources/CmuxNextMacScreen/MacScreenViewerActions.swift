@@ -60,6 +60,7 @@ enum MacScreenViewerControl: CaseIterable {
     }
 
     static var noStream: String { L.t("macScreen.actions.noStream", "Choose a Screen Sharing tab that is showing a screen.") }
+    // retry-prompt-ok: a palette command's refusal (no disconnected tab to reconnect), not a retry prompt
     static var noReconnect: String { L.t("macScreen.actions.noReconnect", "Choose a disconnected Screen Sharing tab to reconnect.") }
 }
 
@@ -102,10 +103,11 @@ extension MacScreenPages {
 }
 
 extension MacScreenPaneModel {
-    /// The card offers Reconnect, Try Again or Connect Again (each runs ``MacScreenChromeActions/connect``).
+    /// The state could be answered by Reconnect, Try Again or Connect Again (each runs ``MacScreenChromeActions/connect``),
+    /// whether the card shows that button or the pane retries on its own (the palette's Reconnect then asks now).
     var offersReconnect: Bool {
         guard hub != nil else { return false }
-        switch card {
+        switch stateCard {
         case .failed?, .ended?: return true
         case let .hubRevoked(reason)?, let .hubEnded(reason)?: return reason.canReconnect
         default: return false

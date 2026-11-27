@@ -1,0 +1,261 @@
+# The compile preflight: a pull request into feat-cmux-next that touches a web bundle's sources builds the web
+# bundles before it lands, on every tier, landing heads included.
+#
+# Leo, 2026-11-27: "surely we can just have legit build fail preflight checks" / "like the classes of failures
+# before we can analyze them".
+#
+# Why: the land tier (scripts/ci/head_tier.py, "landing on the affected tier") gives a ready-to-land head the cheap
+# tier, which turns off ci.yml's web shards, defers cmux-next.yml's web bundles to the feat-cmux-next push and
+# skips the fast gates. cmux#57269 (a second `layoutGeometry` import in VirtualTranscript.tsx) and cmux#46930
+# (SetupCard importing SignInButton from a path that does not exist) both landed with every web build skipped,
+# and each turned feat-cmux-next's web bundle build and NIGHTLY red (run 45907763450). This job has no tier rule:
+# pr-router.yml calls it on every head its route job runs for, and its own first step decides whether the change
+# reaches a web bundle (scripts/ci/compile_preflight.py, the exact inputs web-bundle-key.py --routed names).
+#
+# What it builds: the pull request's merge commit (its head merged onto the base GitHub computed for this event),
+# so a change that only breaks beside another change already on the base is caught here too. It runs
+# build-web-bundles.sh, the build the app, NIGHTLY and safe-push.sh run, not the type check (a type error never
+# stops that build; Leo, 2026-11-19). A merged tree whose source key is already in the R2 web bundle cache (the
+# feat-cmux-next push publishes every key it built) passes without building: the same sources built once.
+#
+# The verdict is never "skipped" for a change that reaches a web bundle: the lander (leo-workspace
+# tools/next_autoland.py COMPILES, "Web") holds a web change whose `compile preflight / web bundle build` did not
+# pass at its head, the same as a skipped one, and a head that changes no web source passes in seconds.
+#
+# A head whose every changed path no web bundle reads (pr-router.yml's route, pr_router.py preflight_web: Rust,
+# Cargo, Swift, Python, docs and plans prose, other workflows, never a path under a web input tree) calls this with
+# `web: false`, and the job skips before taking a runner. It used to take one to learn that: 756 of 1,237 no-op runs,
+# ~487 runner-min, in the 6 h to 2026-11-27 10Z (scripts/measure/ci140-head-minutes; Leo, 2026-11-21: "whatever we
+# need to cut, we cut. whatever we can reuse, we reuse."). On every head that reaches a web bundle the job checks that
+# no routed input is a path the router ignores (compile_preflight.py never-web-check), so a new import of such a file
+# fails here, at the head that adds it, instead of turning later heads' builds off.
+name: cmux-next compile preflight
+
+on:
+  # Register the dispatch entrypoint when this workflow lands off main.
+  push:
+    branches: [feat-cmux-next]
+    paths: [.github/workflows/cmux-next-compile-preflight.yml]
+  workflow_call:
+    inputs:
+      web:
+        # `false`: the router found no changed path a web bundle can read (pr_router.py preflight_web).
+        description: "'false' skips the job (no changed path reaches a web bundle)"
+        type: string
+        required: false
+        default: 'true'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  web:
+    name: web bundle build
+    # The router's answer (pr_router.py preflight_web); a push or a dispatch has no input and builds.
+    if: ${{ inputs.web != 'false' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || 'cmux-linux' }}
+    # Budget: a cache hit or an unchanged web source is under 30 s; a cold build on a warm runner about 2 min
+    # (bun install from the runner's own package cache, then the four bundles).
+    timeout-minutes: 8
+    env:
+      CI_CACHE_R2_BUCKET: cmux-ci-cache-next
+    steps:
+      # The merge commit (pull_request's default ref) and its first parent, the base it merged onto.
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+        timeout-minutes: 6
+        with:
+          fetch-depth: 2
+          persist-credentials: false
+
+      # Its own test (no tier gate, no job-level if:, the build NIGHTLY runs) is the step table's
+      # compile-preflight-rules step (ci/steps.toml), routed by these files. It ran here on every head, 14-15 s of a
+      # 40 s no-op run (jobs 140303340556, 140303466828, 2026-11-27 04:00Z), about 300 runs an hour: ~1.8k
+      # runner-min/day (Leo, 2026-11-21: "de facto, im asking for 99% fewer minutes of ci time, period.").
+
+      # Leo, 2026-11-27: "shouldn't a build check fail beforehand fast like fast-fail is useful ci all stuff".
+      # cmux#51044 passed this job at 06:36Z and landed at 07:03Z, then broke feat-cmux-next: the merge commit above was
+      # GitHub's, built on base 2dae74e007e (05:23Z), 73 min and two web PRs (#46544, #60849: the second
+      # `layoutGeometry` import) behind the live tip. So the head is merged onto the base as it is now.
+      - name: Merge the head onto the live base
+        if: github.event_name == 'pull_request'
+        env:
+          GIT_AUTH_TOKEN: ${{ github.token }}
+          BASE_REF: ${{ github.event.pull_request.base.ref }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+        run: python3 -I scripts/ci/compile_preflight.py merge-live-base . "$BASE_REF" "$PR_NUMBER"
+
+      - name: Does this change reach a web bundle
+        id: touched
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+        run: |
+          if [ "$EVENT_NAME" = pull_request ] && git rev-parse -q --verify HEAD^2 >/dev/null; then
+            python3 -I scripts/ci/compile_preflight.py web-touched . HEAD^1 HEAD >> "$GITHUB_OUTPUT"
+          else
+            # A dispatch (or a head with no merge commit) builds: there is no base to compare with.
+            echo "web=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      # The router skips this job on a change whose every path is in pr_router.json's compile preflight `paths-ignore`.
+      # A web bundle input among those paths (a webviews source that starts importing a .md, .py or .swift file) would
+      # turn this build off for a change to it, so a head that reaches a web bundle checks the list against
+      # web-bundle-key.py --routed here, in seconds, where such an import first appears.
+      - name: No web bundle input is a path the router skips
+        if: steps.touched.outputs.web == 'true'
+        run: python3 -I scripts/ci/compile_preflight.py never-web-check .
+
+      # Only a head that builds needs the reset: a head that reaches no web bundle (about 60% of heads, a 43 s median
+      # job) passes after the diff alone (scripts/measure/ci140-pr-segment).
+      - name: Drop stale submodule checkouts (self-hosted reused workspace)
+        if: steps.touched.outputs.web == 'true'
+        run: scripts/ci/reset-stale-submodules.sh
+
+      # Seconds, before any install: the parse-class break (a binding imported twice in one statement) fails here, not
+      # after the 2-3 min build.
+      - name: Fast fail - no webviews import names a binding twice
+        if: steps.touched.outputs.web == 'true'
+        run: python3 -I tests/test_webviews_no_duplicate_import_names.py
+
+      - name: Source key of the web bundles
+        id: web-bundle-key
+        if: steps.touched.outputs.web == 'true'
+        run: echo "key=$(python3 scripts/cmux-next/web-bundle-key.py . --source)" >> "$GITHUB_OUTPUT"
+
+      - name: Look up the web bundles in R2
+        id: web-bundle-r2
+        if: steps.touched.outputs.web == 'true'
+        # A miss (or an unreachable bucket) builds; only a hit stands in for the build.
+        timeout-minutes: 3
+        continue-on-error: true
+        uses: ./.github/actions/cache-restore
+        env:
+          CI_CACHE_R2_PUBLIC_URL: https://ci-cache-next.cmux.com
+          CI_CACHE_R2_NAMESPACE: any
+        with:
+          backend: r2
+          path: web-bundles-out
+          key: cmux-next-web-bundles-v1-${{ steps.web-bundle-key.outputs.key }}
+
+      # R2 holds only the keys a feat-cmux-next push built. The GitHub cache holds the keys this pull request already
+      # built: cmux-next.yml's web-bundles job and this job's own save below, under the same key. Every head of a pull
+      # request with a web change reaches a web bundle (the diff is against the base), so its next push that moves no
+      # web source, or a base merge, rebuilt the same sources: 67 of 186 preflight builds, 209 of 664 build minutes
+      # (11-26 22Z..11-27 05Z, ci140-pr-segment). A hit there passes the same way an R2 hit does, without a download.
+      - name: Look up the web bundles this pull request already built
+        id: web-bundle-cache
+        if: steps.touched.outputs.web == 'true' && steps.web-bundle-r2.outputs.cache-hit != 'true'
+        timeout-minutes: 3
+        continue-on-error: true
+        uses: actions/cache/restore@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
+        with:
+          path: web-bundles-out
+          key: cmux-next-web-bundles-v1-${{ steps.web-bundle-key.outputs.key }}
+          enableCrossOsArchive: true
+          lookup-only: true
+
+      - name: Restore pinned Bun 1.4.4 from the CI cache bucket
+        if: steps.touched.outputs.web == 'true' && steps.web-bundle-r2.outputs.cache-hit != 'true' && steps.web-bundle-cache.outputs.cache-hit != 'true'
+        shell: bash
+        continue-on-error: true
+        env: { TOOLCHAIN_R2_ALL: "1" }
+        run: bash "$GITHUB_WORKSPACE/scripts/ci/toolchain-r2.sh" restore bun 1.4.4 || true
+
+      - name: Setup Bun
+        if: steps.touched.outputs.web == 'true' && steps.web-bundle-r2.outputs.cache-hit != 'true' && steps.web-bundle-cache.outputs.cache-hit != 'true'
+        uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
+        with:
+          bun-version: "1.4.4"
+          no-cache: true
+
+      - name: Give this job its own bun
+        if: steps.touched.outputs.web == 'true' && steps.web-bundle-r2.outputs.cache-hit != 'true' && steps.web-bundle-cache.outputs.cache-hit != 'true'
+        run: scripts/cmux-next/private-bun.sh
+
+      - name: Restore pinned Node 24.22.1 from the CI cache bucket
+        if: steps.touched.outputs.web == 'true' && steps.web-bundle-r2.outputs.cache-hit != 'true' && steps.web-bundle-cache.outputs.cache-hit != 'true'
+        shell: bash
+        continue-on-error: true
+        run: bash "$GITHUB_WORKSPACE/scripts/ci/toolchain-r2.sh" restore node 24.22.1 || true
+
+      - name: Setup Node
+        if: steps.touched.outputs.web == 'true' && steps.web-bundle-r2.outputs.cache-hit != 'true' && steps.web-bundle-cache.outputs.cache-hit != 'true'
+        timeout-minutes: 5
+        uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
+        with:
+          node-version: "24.22.1"
+
+      # Why: docs/ci/cmux-next-workflow-notes/2026-11-26-bun-cache-warm.md, the check fast gates and cmux-next.yml's
+      # web-bundles job already run. A pool runner keeps its own Bun cache across jobs, and this job unpacked the
+      # 1.1 GB archive over it anyway: 30 s median of a 205 s build job (27 builds sampled 11-27 05:30-11:36Z), about
+      # 220 of the job's 2,041 runner-min in those 6 h. bun install fetches only what a warm cache lacks.
+      - name: Is this runner's own Bun package cache warm
+        id: bun-warm
+        timeout-minutes: 1
+        if: steps.touched.outputs.web == 'true' && steps.web-bundle-r2.outputs.cache-hit != 'true' && steps.web-bundle-cache.outputs.cache-hit != 'true'
+        shell: bash
+        run: |
+          d="${BUN_INSTALL_CACHE_DIR:-$HOME/.bun/install/cache}"
+          if [[ "${RESTORE_ON_WARM:-}" != 1 && -n "$(find "$d" -mindepth 1 -maxdepth 1 -print -quit 2>/dev/null)" ]]; then
+            echo "warm=true" >> "$GITHUB_OUTPUT"
+            echo "$d is already filled from this runner's earlier jobs; the cache archive is not unpacked over it"
+          fi
+        env:
+          RESTORE_ON_WARM: ${{ vars.CI_BUN_CACHE_RESTORE_WARM }}
+
+      # Restore only: a pull request never writes the shared Bun cache (cmux-next.yml's web-bundles job saves it on
+      # the base branches).
+      - name: Restore the webviews Bun package cache
+        if: steps.touched.outputs.web == 'true' && steps.web-bundle-r2.outputs.cache-hit != 'true' && steps.web-bundle-cache.outputs.cache-hit != 'true' && steps.bun-warm.outputs.warm != 'true'
+        timeout-minutes: 3
+        continue-on-error: true
+        uses: actions/cache/restore@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
+        with:
+          path: ~/.bun/install/cache
+          key: bun-web-shared-v1-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('web/bun.lock', 'webviews/bun.lock', 'cmux-tui/frontends/web/bun.lock', 'scripts/react-doctor/bun.lock', 'agent-chat/bun.lock', 'backend/bun.lock') }}
+          restore-keys: bun-web-shared-v1-${{ runner.os }}-${{ runner.arch }}-
+
+      # Seconds after the install, before the 2-3 min build: oxc-parser (the parser the build runs) reads every module
+      # and fails on any name bound twice in one scope, and on an import a top-level declaration names again. The step
+      # above reads import lists alone, so `import { a }` beside `const a`, or `const a` beside `let a`, passed it
+      # (paneSends, #51093 after #61160, 2026-11-27). The install is the build script's own (no-op there after this).
+      - name: Fast fail - no webviews module binds a name twice
+        if: steps.touched.outputs.web == 'true' && steps.web-bundle-r2.outputs.cache-hit != 'true' && steps.web-bundle-cache.outputs.cache-hit != 'true'
+        working-directory: webviews
+        run: |
+          bun install --frozen-lockfile >/dev/null
+          node scripts/check-duplicate-bindings.mjs
+
+      - name: Build the web bundles (the build NIGHTLY runs)
+        if: steps.touched.outputs.web == 'true' && steps.web-bundle-r2.outputs.cache-hit != 'true' && steps.web-bundle-cache.outputs.cache-hit != 'true'
+        run: python3 -I scripts/ci/compile_preflight.py web-build . "$GITHUB_WORKSPACE/web-bundles-out"
+
+      # The build passed: keep it under its source key (the key and layout cmux-next.yml's web-bundles job saves), so
+      # this pull request's next head with the same web sources passes on the lookup above. A pull request's save is
+      # scoped to its own ref; R2 stays written by the feat-cmux-next push alone.
+      - name: Cache the web bundles under this source key
+        if: steps.touched.outputs.web == 'true' && steps.web-bundle-r2.outputs.cache-hit != 'true' && steps.web-bundle-cache.outputs.cache-hit != 'true'
+        timeout-minutes: 3
+        continue-on-error: true
+        uses: actions/cache/save@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
+        with:
+          # The same path string as the lookup: the GitHub cache's version hashes it.
+          path: web-bundles-out
+          key: cmux-next-web-bundles-v1-${{ steps.web-bundle-key.outputs.key }}
+          enableCrossOsArchive: true
+
+      - name: Verdict
+        env:
+          WEB: ${{ steps.touched.outputs.web }}
+          HIT: ${{ steps.web-bundle-r2.outputs.cache-hit }}
+          PR_HIT: ${{ steps.web-bundle-cache.outputs.cache-hit }}
+        run: |
+          if [ "$WEB" != true ]; then
+            echo "no web bundle source changed: nothing to build" | tee -a "$GITHUB_STEP_SUMMARY"
+          elif [ "$HIT" = true ]; then
+            echo "this merged tree's web sources already built (R2 cache hit)" | tee -a "$GITHUB_STEP_SUMMARY"
+          elif [ "$PR_HIT" = true ]; then
+            echo "this merged tree's web sources already built on this pull request (cache hit)" | tee -a "$GITHUB_STEP_SUMMARY"
+          else
+            echo "the web bundles built from this merged tree" | tee -a "$GITHUB_STEP_SUMMARY"
+          fi

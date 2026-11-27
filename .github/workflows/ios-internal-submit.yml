@@ -47,7 +47,7 @@ jobs:
   check:
     name: The builder run's gate said YES on this IPA
     if: github.repository == 'manaflow-ai/cmux' && github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/rc/cnx-ios-builder'
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && (vars.CI_FORK_LINUX_RUNNER || 'ubuntu-24.04') || 'cmux-linux' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || 'cmux-linux' }}
     timeout-minutes: 10
     permissions:
       contents: read
@@ -119,7 +119,8 @@ jobs:
     name: ${{ inputs.confirm == 'SUBMIT' && 'Submit for App Review' || 'Preview the App Review submission' }}
     needs: check
     if: github.repository == 'manaflow-ai/cmux' && github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/rc/cnx-ios-builder' && needs.check.result == 'success'
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || vars.MACOS_RUNNER_26 || fromJSON(vars.RUNNER_POOLS).macos_26 }}
+    # API-only submission; release keys stay on an isolated one-job Linux VM.
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'cmux-gcp-nightly-jit-x64' }}
     timeout-minutes: 20
     environment: release
     env:
@@ -130,7 +131,7 @@ jobs:
       BUILD_RUN: ${{ inputs.build_run }}
     steps:
       - name: Checkout the builder branch (trusted script)
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           persist-credentials: false
           # The review notes the submit writes first (asc_review_package.py --config TestFlight).
@@ -139,11 +140,22 @@ jobs:
             cmux-next-ios/AppStoreReview
             scripts
 
-      - name: Select Xcode
-        run: ./scripts/select-ci-xcode.sh
-
-      - name: Install asc
-        run: brew list asc >/dev/null 2>&1 || brew install asc
+      - name: Install pinned Linux asc
+        run: |
+          set -euo pipefail
+          version=7.6.1
+          case "$(uname -m)" in
+            x86_64) arch=amd64; digest=fa3901f4a794e435eec2bc9c0a3b4756e86f093df9a91a9083f3239676248f22 ;;
+            aarch64|arm64) arch=arm64; digest=558e3a2936465825bd2e2f62e8fbaf0bf361a9f7634071a6e10be6c2c70bf7d7 ;;
+            *) echo "::error::unsupported Linux architecture: $(uname -m)"; exit 1 ;;
+          esac
+          bin="$RUNNER_TEMP/asc-bin"; mkdir -p "$bin"
+          curl --fail --show-error --location --connect-timeout 10 --max-time 120 --retry 3 \
+            "https://github.com/rorkai/App-Store-Connect-CLI/releases/download/$version/asc_${version}_linux_$arch" -o "$bin/asc"
+          printf '%s  %s\n' "$digest" "$bin/asc" | sha256sum --check --status
+          chmod 700 "$bin/asc"
+          "$bin/asc" --version
+          echo "$bin" >> "$GITHUB_PATH"
 
       - name: asc review submit
         env:

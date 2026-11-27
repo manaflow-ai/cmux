@@ -24,7 +24,7 @@
 import { afterAll, beforeAll, expect, setDefaultTimeout, test } from "bun:test";
 import { mkdirSync, writeFileSync } from "node:fs";
 import path from "node:path";
-import type { Page } from "playwright";
+import type { Locator, Page } from "playwright";
 import { MODEL_PICKER } from "../src/agent-session/acpmux/composerSelectors";
 import {
   chipValues,
@@ -63,8 +63,23 @@ await requireBrowserLane("agent-pane-picks-hold.test.ts", async () => {
       console.log(line);
     };
 
-    /** The chips once the page has drawn every value the daemon sent: two painted frames later. */
+    /**
+     * The chips once the page has drawn every value the daemon sent. The page paints its chips
+     * before its acpmux link is up (a guess from the bundled catalog: Opus 5.5 on a Linux runner),
+     * so first wait for the link (model.ts linkUp: not "disconnected", not "connecting…") and
+     * for acpmux's harness list in the composer, then for painted frames.
+     */
     async function settled(page: Page) {
+      await page.waitForFunction(
+        () => {
+          const state = (window as any).cmuxAcpmuxDebug?.chatState?.();
+          const connection = String(state?.connection ?? "disconnected");
+          const up = connection !== "disconnected" && !connection.startsWith("connecting");
+          return up && (state?.composerInputs?.catalog?.length ?? 0) > 0;
+        },
+        undefined,
+        { timeout: 60_000 },
+      );
       for (let frame = 0; frame < 30; frame++) await page.evaluate(() => window.cmuxPaintFrame());
       return chipValues(page);
     }
@@ -103,23 +118,52 @@ await requireBrowserLane("agent-pane-picks-hold.test.ts", async () => {
       return menu;
     }
 
-    async function pickModel(page: Page, harness: string | undefined, name: string) {
+    function modelLabel(menu: Locator, name: string | RegExp) {
+      // The live catalog can list variants that share the fixture model's name as a prefix.
+      return menu
+        .locator("[role=option], [role=menuitemradio]")
+        .locator(MODEL_ROW_NAME)
+        .and(menu.getByText(name, { exact: true }));
+    }
+
+    async function pickModel(page: Page, harness: string | undefined, name: string | RegExp) {
       const menu = await openModelMenu(page);
       if (harness) await menu.locator(`.acpmux-cols-tab[aria-label="${harness}"]`).first().click();
-      await menu
-        .locator("[role=option], [role=menuitemradio]")
-        .filter({ hasText: name })
-        .first()
-        .locator(MODEL_ROW_NAME)
-        .first()
-        .click();
+      const row = modelLabel(menu, name);
+      // A missing row is a wrong start (the menu opened on another harness's tab), not a slow
+      // click: say what the menu showed in 10 s instead of a bare 30 s click timeout. On
+      // 2026-11-23 and 11-25 this step timed out on "GPT-6.1 Sol" with the menu on Claude Code's
+      // tab, and each red took hours to read back from a failure dump (#56045, #56476).
+      if (
+        !(await row.waitFor({ timeout: 10_000 }).then(
+          () => true,
+          () => false,
+        ))
+      ) {
+        const shown = await page.evaluate(() => {
+          const menu = document.querySelector(".acpmux-cols, .acpmux-quick-menu");
+          const text = (el: Element | null | undefined) => (el?.textContent ?? "").trim();
+          const state = (window as any).cmuxAcpmuxDebug?.chatState?.();
+          return {
+            tab: text(menu?.querySelector(".acpmux-cols-tab[aria-selected=true]")) || "(no tabs)",
+            rows: [...(menu?.querySelectorAll("[role=option], [role=menuitemradio]") ?? [])].map(text),
+            connection: String(state?.connection ?? "unknown"),
+            catalog: state?.composerInputs?.catalog?.length ?? 0,
+          };
+        });
+        throw new Error(
+          `model menu has no "${name}" row${harness ? ` on the ${harness} tab` : ""}: it shows tab ${shown.tab}, ` +
+            `rows ${JSON.stringify(shown.rows)}; link ${shown.connection}, ${shown.catalog} harnesses from acpmux`,
+        );
+      }
+      await row.click();
       await page.keyboard.press("Escape").catch(() => {});
     }
 
     async function pickEffort(page: Page, model: string, level: string) {
       const menu = await openModelMenu(page);
       // Focus the model's row (hover), then its level in the Reasoning column.
-      await menu.locator("[role=option]").filter({ hasText: model }).first().hover();
+      await modelLabel(menu, model).hover();
       await menu.locator(".acpmux-cols-tune [role=radio]").filter({ hasText: level }).first().click();
       await page.keyboard.press("Escape").catch(() => {});
     }
@@ -163,6 +207,9 @@ await requireBrowserLane("agent-pane-picks-hold.test.ts", async () => {
           await page.locator(MODEL_PICKER).filter({ hasText: "GPT-6 Astra" }).first().waitFor({ timeout: 90_000 });
           const start = await settled(page);
           note(`new tab: ${JSON.stringify(start)}`);
+          // The start under test is acpmux's (Codex on GPT-6 Astra), not the page's pre-connect
+          // guess (Opus 5.5): a wrong start fails here, by name, before any pick.
+          expect(start.model).toMatch(/GPT-6 Astra/);
           await startValueSampler(page);
           await takeValues(page);
 
@@ -192,7 +239,7 @@ await requireBrowserLane("agent-pane-picks-hold.test.ts", async () => {
           held("first send", await takeValues(page), want);
           const ran = await daemonPicks(sessionId);
           note(`acpmux runs: ${JSON.stringify(ran)}`);
-          expect(String(ran.model)).toContain("gpt-6.1-sol");
+          expect(ran.model).toBe("gpt-6.1-sol");
           expect(JSON.stringify(ran.options)).toContain("high");
 
           // A reload of the page on the chat: a new document (a goto that changes only the hash
@@ -219,7 +266,7 @@ await requireBrowserLane("agent-pane-picks-hold.test.ts", async () => {
           held("daemon restart", await takeValues(page), want);
           const restarted = await daemonPicks(sessionId);
           note(`acpmux runs after restart: ${JSON.stringify(restarted)}`);
-          expect(String(restarted.model)).toContain("gpt-6.1-sol");
+          expect(restarted.model).toBe("gpt-6.1-sol");
 
           // A New Tab: Claude Code and back.
           await page.goto("about:blank");
@@ -232,7 +279,7 @@ await requireBrowserLane("agent-pane-picks-hold.test.ts", async () => {
           await pickAccess(page, FULL);
           await settled(page);
           await takeValues(page);
-          await pickModel(page, "Claude Code", "Opus");
+          await pickModel(page, "Claude Code", /^(?:Claude )?Opus 5\.5$/);
           note(`on Claude: ${JSON.stringify(await settled(page))}`);
           await takeValues(page);
           await pickModel(page, "Codex", "GPT-6.1 Sol");

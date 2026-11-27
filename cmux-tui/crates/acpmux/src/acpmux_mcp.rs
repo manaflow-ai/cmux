@@ -11,7 +11,8 @@
 //! in one condensed call (`pr_state`, `acpmux_mcp_pr.rs`), and ends a turn with the next-step
 //! box the person sees under the answer (`wrap_up`, `acpmux_mcp_wrap_up.rs`), and keeps the chat's
 //! goal and its done-when on any harness (`goal_set`, `goal_update`, `goal_get`,
-//! `acpmux_mcp_goal.rs`), and wakes it when other sessions are done or blocked (`watch_add`,
+//! `acpmux_mcp_goal.rs`), reads its own packed history after a compaction (`chat_history`,
+//! `acpmux_mcp_history.rs`), and wakes it when other sessions are done or blocked (`watch_add`,
 //! `watch_ls`, `watch_rm`, `acpmux_mcp_watch.rs`), and waits on or stops another session's turn,
 //! any session, not only its own sub-sessions (`wait`, `cancel`, `acpmux_mcp_control.rs`).
 //! `github_status` names the GitHub account cmux can see, never a token (`github_status.rs`). With a cmux sign-in it also saves,
@@ -85,6 +86,8 @@ pub(crate) mod bridge;
 mod goal;
 #[path = "acpmux_mcp_guest.rs"]
 mod guest;
+#[path = "acpmux_mcp_history.rs"]
+mod history;
 #[path = "acpmux_mcp_pr.rs"]
 pub(crate) mod pr;
 /// `pr_state`'s parse of a pull request, which the daemon's poller reads too (`pr_poller.rs`).
@@ -95,6 +98,8 @@ mod control;
 mod look;
 #[path = "acpmux_mcp_machine.rs"]
 mod machine;
+#[path = "acpmux_mcp_machine_request.rs"]
+mod machine_request;
 #[path = "acpmux_mcp_race.rs"]
 mod race;
 #[path = "acpmux_mcp_send.rs"]
@@ -111,6 +116,9 @@ mod watch;
 mod who_else;
 #[path = "acpmux_mcp_wrap_up.rs"]
 mod wrap_up;
+/// The box a wrap-up call draws, built from the call's own input (`code_mode.rs` records it as a
+/// folded call's `shown`; the call's answer echoes none of it).
+pub use wrap_up::box_of as wrap_up_box;
 /// The most facts a wrap-up offers, and the longest one (`memory_inbox.rs`).
 pub(crate) use wrap_up::{MAX_FACT as WRAP_UP_MAX_FACT, MAX_LEARNED as WRAP_UP_MAX_LEARNED};
 
@@ -125,12 +133,14 @@ pub(crate) fn tools() -> Value {
         list.push(who_else::tool());
         list.push(look::tool());
         list.extend(goal::tools());
+        list.push(history::tool());
         list.extend(watch::tools());
         list.extend(race::tools());
         list.push(send_status::tool());
         list.extend(start::tools());
         list.extend(control::tools());
         list.extend(machine::tools());
+        list.push(machine_request::tool());
         for tool in list.iter_mut() {
             let named = tool.get("name").and_then(Value::as_str);
             if named.is_some_and(|n| ALWAYS_LOADED.contains(&n)) {
@@ -141,13 +151,17 @@ pub(crate) fn tools() -> Value {
     all
 }
 
-/// The tools a chat calls in most turns, marked `_meta["anthropic/alwaysLoad"]` so Claude Code
-/// puts their schemas in the prompt instead of deferring them behind ToolSearch. Measured on
-/// fs-agent-lane-7 in the 24 h to 2026-11-23T11:00Z: 147 ToolSearch calls, each a whole round
-/// trip, and these six were 107 of the names they loaded (wrap_up 35, bg_output 21, who_else 20,
-/// bg_start 16, inbox_read 11, inbox_reply 4). Their schemas cost a few KB of cached prompt.
-pub(crate) const ALWAYS_LOADED: [&str; 6] =
-    [wrap_up::NAME, who_else::NAME, "bg_start", "bg_output", "inbox_read", "inbox_reply"];
+/// The tools marked `_meta["anthropic/alwaysLoad"]` so Claude Code puts their schemas in the prompt
+/// instead of deferring them behind ToolSearch. A schema here costs its tokens on every request; a
+/// deferred one costs one ToolSearch round trip (about a whole context) in each session that
+/// calls it, so a tool belongs here only while sessions calling it × context < its tokens ×
+/// requests. Measured on one lane VM in the 24 h to 2026-11-26T12:00Z (351 sessions, 142.9k
+/// requests, median context 73k), sessions calling each: bg_start 240 (563 tokens), bg_output 229
+/// (535), wrap_up 197 (962), who_else 129 (596), inbox_read 93 (417), inbox_reply 90 (424):
+/// ~500M tokens/day loaded (each counted alone) against ~71M/day deferred, so none stays (cut 1 of
+/// cmuxterm-hq goals/agents-most-lane-tokens-land-prs.md). Every tool is still listed by name and
+/// the instructions still name wrap_up and bg_start. Add one back only on that data.
+pub(crate) const ALWAYS_LOADED: [&str; 0] = [];
 
 /// What `tools/list` answers: [`tools`], and the artifact tools when this daemon has a cmux
 /// sign-in for them (`artifacts::advertised`).
@@ -166,7 +180,12 @@ fn base_tools() -> Value {
             "description": "List inbox threads with unread counts. Pass thread to read its messages newest first and mark them read. Notices arrive at the next tool step and can wait.",
             "inputSchema": {
                 "type": "object",
-                "properties": {"thread": {"type": "string", "description": "threadId from a notice or the thread list."}}
+                "properties": {
+                    "thread": {"type": "string", "description": "threadId from a notice or the thread list."},
+                    "unread": {"type": "boolean", "description": "List only threads with unread messages."},
+                    "from": {"type": "string", "description": "List only threads from this sender: a name, HOST/NAME or session id."},
+                    "limit": {"type": "integer", "minimum": 1, "description": "List at most this many threads, newest first as listed; the answer says how many more match."}
+                }
             }
         },
         {
@@ -331,6 +350,9 @@ fn instructions(tools: &Value) -> Option<String> {
     if crate::mcp_hint::names(tools).any(|n| goal::TOOLS.contains(&n)) {
         parts.push(goal::STEER);
     }
+    if crate::mcp_hint::names(tools).any(|n| n == history::NAME) {
+        parts.push(history::STEER);
+    }
     if crate::mcp_hint::names(tools).any(|n| n == "watch_add") {
         parts.push(watch::STEER);
     }
@@ -454,6 +476,9 @@ fn served_with(
                 if goal::TOOLS.contains(&name) {
                     return goal::call(&daemon, &session, name, &args).await;
                 }
+                if name == history::NAME {
+                    return history::call(&daemon, &session, &args).await;
+                }
                 if name == crate::github_status::TOOL {
                     let sources = crate::github_status::Sources::current();
                     let status = crate::github_status::resolve(&sources).await;
@@ -523,6 +548,7 @@ async fn call_as(daemon: &Arc<Client>, params: &Value, sub: Option<&Value>) -> V
         name if watch::TOOLS.contains(&name) => watch::call(daemon, name, &args).await,
         name if race::TOOLS.contains(&name) => race::call(daemon, name, &args).await,
         name if machine::TOOLS.contains(&name) => machine::call(daemon, name, &args).await,
+        machine_request::NAME => machine_request::call(&args).await,
         "last" => {
             let Some(name) = arg(&args, "name") else {
                 return error_result("name is required".to_owned());
@@ -560,6 +586,9 @@ async fn call_as(daemon: &Arc<Client>, params: &Value, sub: Option<&Value>) -> V
 
 /// Send a team-scoped message through the daemon's hub client. The daemon owns the
 /// caller token and team-messaging gate, so this MCP surface cannot bypass either one.
+/// How long `team_send` waits for the next daemon through an update or restart.
+const TEAM_SEND_RESTART_WAIT: std::time::Duration = std::time::Duration::from_secs(20);
+
 async fn team_send(daemon: &Arc<Client>, args: &Value) -> Value {
     let (Some(to), Some(body)) = (arg(args, "to"), args.get("body").and_then(Value::as_str)) else {
         return error_result("to and body are required".to_owned());
@@ -567,7 +596,17 @@ async fn team_send(daemon: &Arc<Client>, args: &Value) -> Value {
     if body.trim().is_empty() {
         return error_result("body is empty".to_owned());
     }
-    match daemon.request(method::MUX_TEAM_SEND, json!({"to": to, "body": body})).await {
+    // One key for every attempt: sent again to the next daemon after an update or restart, the
+    // mesh hub keeps the first (`server/team.rs` `idempotencyKey`), so it lands once.
+    let params =
+        json!({"to": to, "body": body, "idempotencyKey": uuid::Uuid::now_v7().to_string()});
+    let deadline = tokio::time::Instant::now() + TEAM_SEND_RESTART_WAIT;
+    let sent = crate::cli::output::through_restart(daemon, deadline, |daemon, _resend| {
+        let params = params.clone();
+        async move { daemon.request(method::MUX_TEAM_SEND, params).await }
+    })
+    .await;
+    match sent.map(|(_, result)| result) {
         Ok(result) => ok(team_result_text(&result), result),
         Err(e) => refusal(e),
     }
@@ -706,12 +745,49 @@ async fn inbox_tool(daemon: &Arc<Client>, session: &str, name: &str, args: &Valu
     match reply {
         Ok(mut v) => {
             // The text line is written from the whole answer, then the answer drops what it said.
-            let text = crate::cli::session_inbox::describe(&v);
+            let more = filter_threads(&mut v, args);
+            let mut text = crate::cli::session_inbox::describe(&v);
+            if more > 0 {
+                text.push_str(&format!("\n{more} more threads match; raise limit to see them."));
+            }
             trim_threads(&mut v);
             ok(text, v)
         }
         Err(e) => refusal(e),
     }
+}
+
+/// Keep the threads of a listing that `inbox_read`'s `unread`, `from` and `limit` ask for, and say
+/// how many more match past the limit (also as `moreThreads`). A coordinator's whole inbox was
+/// about 80 threads and tens of KB per call with no way to ask for less (2026-11-27). A thread
+/// read (no `threads`) is left whole; a listing with none of the three is too.
+fn filter_threads(answer: &mut Value, args: &Value) -> usize {
+    let unread_only = args.get("unread").and_then(Value::as_bool) == Some(true);
+    let from = arg(args, "from").map(str::trim).filter(|f| !f.is_empty());
+    let limit = args.get("limit").and_then(Value::as_u64).filter(|n| *n > 0);
+    let Some(threads) = answer.get_mut("threads").and_then(Value::as_array_mut) else { return 0 };
+    let sent_by = |t: &Value, who: &str| {
+        let names = t["from"].as_array().into_iter().flatten().filter_map(Value::as_str);
+        let sender = ["label", "session", "machine"].map(|k| t["sender"][k].as_str());
+        let host_name = match (t["sender"]["machine"].as_str(), t["sender"]["label"].as_str()) {
+            (Some(m), Some(l)) => Some(format!("{m}/{l}")),
+            _ => None,
+        };
+        names
+            .chain(sender.into_iter().flatten())
+            .any(|n| n.eq_ignore_ascii_case(who) || n.rsplit('/').next() == Some(who))
+            || host_name.is_some_and(|h| h.eq_ignore_ascii_case(who))
+    };
+    threads.retain(|t| {
+        (!unread_only || t["unread"].as_u64().unwrap_or(0) > 0)
+            && from.is_none_or(|who| sent_by(t, who))
+    });
+    let more = limit.map_or(0, |n| threads.len().saturating_sub(n as usize));
+    if more > 0 {
+        threads.truncate(threads.len() - more);
+        answer["moreThreads"] = json!(more);
+    }
+    more
 }
 
 /// What a thread listing says twice, dropped before the reader pays for it. The daemon's
@@ -979,6 +1055,9 @@ fn ls_result(all: &Value, args: &Value) -> Value {
     ok(lines.join("\n"), json!({"sessions": slim, "more": more}))
 }
 
+#[cfg(test)]
+#[path = "acpmux_mcp_restart_tests.rs"]
+mod restart_tests;
 #[cfg(test)]
 #[path = "acpmux_mcp_tests.rs"]
 mod tests;

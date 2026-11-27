@@ -164,7 +164,10 @@ fn origin(value: Option<String>) -> Result<String> {
             && parsed.fragment().is_none(),
         "hub origin must contain only scheme, host and port"
     );
-    Ok(parsed.origin().ascii_serialization())
+    let origin = parsed.origin().ascii_serialization();
+    // A hub the person or the app named (a preview or self-hosted platform): a host they name.
+    cmux_egress::allow_named(&origin);
+    Ok(origin)
 }
 
 fn local_name(name: Option<String>) -> String {
@@ -785,6 +788,7 @@ pub async fn status(hub: Option<String>, json_out: bool) -> Result<()> {
     if json_out {
         crate::cli::output::print_json(&out);
     } else if out["joinIncomplete"] == true {
+        // retry-prompt-ok: join resumes a side-effecting enrollment the person started.
         println!("join incomplete, rerun join");
     } else if cloned {
         println!("cloned: {CLONED_HINT}");
@@ -1534,6 +1538,8 @@ mod tests {
     /// Harness for the write loop: an idle joined daemon heartbeats every 10 s; count the
     /// rewrites of `machine-credential.json` (a new inode per atomic replace) over 10 minutes.
     #[test]
+    #[cfg(unix)] // counts inodes
+    #[cfg(unix)]
     fn ten_idle_minutes_of_heartbeats_rewrite_the_credential_twenty_times_not_sixty() {
         use std::os::unix::fs::MetadataExt as _;
         let dir = tempfile::tempdir().unwrap();

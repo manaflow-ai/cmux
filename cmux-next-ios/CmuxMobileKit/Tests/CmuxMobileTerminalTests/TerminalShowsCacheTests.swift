@@ -42,6 +42,58 @@ import UIKit
         #expect(TerminalConnectingView.content(hasLastFrame: false, showsPlaceholder: false, hasScreenText: true) == .nothing)
     }
 
+    /// The link's own line (a network that blocks it) is the stalled panel's reason, over the
+    /// generic words; "Offline" alone adds nothing to the title.
+    @Test func theStalledPanelPrefersTheLinksOwnLine() {
+        #expect(TerminalLoadStalledPanel.notice(.offline(mac: "Mac Studio"), linkStatus: "This network blocks the connection")?.detail
+            == "This network blocks the connection")
+        #expect(TerminalLoadStalledPanel.notice(.offline(mac: "Mac Studio"), linkStatus: "Offline")?.detail
+            == "The terminal opens when it is back.")
+        #expect(TerminalLoadStalledPanel.notice(.failed(message: "x"), linkStatus: "Blocked")?.detail == "Blocked")
+        #expect(TerminalLoadStalledPanel.notice(.reattaching(mac: "Mac Studio"), linkStatus: "Blocked") == nil)
+    }
+
+    /// The offline subtitle says how old the saved copy is, and only when the page shows one.
+    @Test func theOfflineLineSaysHowOldTheSavedCopyIs() {
+        let now = Date(timeIntervalSince1970: 1_000_000)
+        let model = makeModel()
+        #expect(model.savedCopyAgePhrase(since: now.addingTimeInterval(-20), now: now) == "updated just now")
+        #expect(model.savedCopyAgePhrase(since: now.addingTimeInterval(-185), now: now) == "updated 3 min ago")
+        #expect(model.savedCopyAgePhrase(since: now.addingTimeInterval(-7300), now: now) == "updated 2 h ago")
+        #expect(model.offlineSubtitle(nil) == nil)
+        // Nothing of the Mac's on the page: no age to tell.
+        model.restoreSavedAt(now.addingTimeInterval(-185))
+        #expect(model.offlineSubtitle("Mac offline", now: now) == "Mac offline")
+        model.restoreLastFrame(Self.frame())
+        #expect(model.offlineSubtitle("Mac offline", now: now) == "Mac offline · updated 3 min ago")
+        // An older date never replaces a newer one.
+        model.restoreSavedAt(now.addingTimeInterval(-9000))
+        #expect(model.offlineSubtitle("Mac offline", now: now) == "Mac offline · updated 3 min ago")
+    }
+
+    /// A page with nothing of its own takes a saved copy that arrives late; one that is attached
+    /// or already shows rows never does.
+    @Test func onlyABlankDetachedPageTakesALateSeed() {
+        let model = makeModel()
+        #expect(model.takesLateSeed)
+        model.cardScreenText = "$ ls\nREADME.md"
+        #expect(model.takeSeed() != nil)
+        #expect(!model.takesLateSeed)
+        let attached = makeModel()
+        attached.ingest(.connection(.attached))
+        #expect(!attached.takesLateSeed)
+    }
+
+    /// A cover with no kept frame ends at the composer's top, never under the composer bar
+    /// (iOS regression row 20, Aziz 2026-11-26: "the loading terminal placeholder shouldnt leak
+    /// under the composer bar").
+    @Test func theCoverEndsAtTheComposersTop() {
+        #expect(TerminalConnectingView.coverBottom(height: 800, rowsLift: 120) == 680)
+        #expect(TerminalConnectingView.coverBottom(height: 800, rowsLift: nil) == 800)
+        #expect(TerminalConnectingView.coverBottom(height: 800, rowsLift: -5) == 800)
+        #expect(TerminalConnectingView.coverBottom(height: 100, rowsLift: 300) == 0)
+    }
+
     /// Connection changes keep the cached frame (only drawn live rows replace it).
     @Test func connectionChangesKeepTheCachedFrame() {
         let model = makeModel()
@@ -63,8 +115,8 @@ import UIKit
         model.ingest(.connection(.attached))
         model.ingest(.connection(.reattaching(mac: "Mac Studio")))
         #expect(model.connectionLine == nil)
-        for _ in 0..<200 where model.connectionLine == nil { try await Task.sleep(for: .milliseconds(10)) }
-        #expect(model.connectionLine == "Reconnecting to Mac Studio…")
+        try await Task.sleep(for: .milliseconds(300))
+        #expect(model.connectionLine == nil, "a reattach says nothing, however long (Leo 2026-11-22)")
         // Retries keep the first instant; a failure after them reads plainly.
         model.ingest(.connection(.failed(message: "daemon channel closed")))
         #expect(model.connectionLine == "Can't reach this terminal")
@@ -73,13 +125,14 @@ import UIKit
     }
 
     @Test func quietLinesNeverCarryTransportWords() {
-        for state in [TerminalConnectionState.connecting(mac: nil), .reattaching(mac: "Mac Studio"), .offline(mac: nil),
-                      .failed(message: "daemon channel closed")] {
+        for state in [TerminalConnectionState.offline(mac: nil), .failed(message: "daemon channel closed")] {
             let line = state.quietLine ?? ""
             #expect(!line.isEmpty)
             #expect(!line.contains("daemon") && !line.contains("channel"), "\(line)")
         }
         #expect(TerminalConnectionState.attached.quietLine == nil)
+        #expect(TerminalConnectionState.connecting(mac: nil).quietLine == nil)
+        #expect(TerminalConnectionState.reattaching(mac: "Mac Studio").quietLine == nil)
     }
 }
 #endif

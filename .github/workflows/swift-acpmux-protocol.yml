@@ -25,7 +25,9 @@ on:
 
 concurrency:
   # A batch run and its bisect probes (one commit, one job each) never cancel one another.
-  group: swift-acpmux-protocol-${{ github.ref }}${{ inputs.sha && format('-{0}-{1}', inputs.sha, inputs.only) || '' }}
+  # A post-merge call (inputs.sha set) is keyed by its caller's run too: same-commit calls (a confirm round's red-1/red-2,
+  # back-to-back probes) evicted or cancelled each other, and each lost call was dispatched again (cmux runs 45988834788, 45997396504).
+  group: swift-acpmux-protocol-${{ github.ref }}${{ inputs.sha && format('-{0}-{1}', inputs.sha, inputs.only) || '' }}${{ inputs.sha && format('-call-{0}', github.run_id) || '' }}
   cancel-in-progress: true
 
 permissions:
@@ -39,18 +41,21 @@ jobs:
   check:
     name: Swift acpmux calls are in the protocol
     if: ${{ inputs.only == '' || inputs.only == 'check' }}
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && (vars.CI_FORK_LINUX_RUNNER || 'ubuntu-24.04') || 'cmux-linux' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || 'cmux-linux' }}
     timeout-minutes: 5
     steps:
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           persist-credentials: false
           ref: ${{ inputs.sha || '' }}
           sparse-checkout: |
             Packages/macOS/CmuxNext/Sources
             cmux-tui/crates/acpmux/spec/acpmux-protocol.json
+            cmux-tui/crates/cmux-agent-pane-policy/policy.json
+            scripts/cmux-next/gen-agent-pane-policy-swift.py
             scripts/ci
             tests/test_check_swift_acpmux_protocol.py
+            .gitmodules
           sparse-checkout-cone-mode: false
 
       # Red on a planted drifted method, pane method and param key, and on a stale allowlist entry.

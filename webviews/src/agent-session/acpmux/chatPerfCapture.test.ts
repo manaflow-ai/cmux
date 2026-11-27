@@ -1,4 +1,5 @@
 import { describe, expect, test } from "bun:test";
+import { AcpmuxPerf } from "./perf";
 import {
   ChatPerfCapture,
   type CaptureEnv,
@@ -6,11 +7,11 @@ import {
   captureKind,
   frameSummary,
   layoutShiftSummary,
-  keydownSummary,
   longTaskSummary,
   scriptSource,
   unmeasuredReason,
   visibilitySummary,
+  keydownSummary,
 } from "./chatPerfCapture";
 import { startFrameOwners } from "./frameOwners";
 
@@ -86,11 +87,11 @@ describe("chat perf capture: pure parts", () => {
 
   test("script time sums every script in long animation frames, not only the top list", () => {
     const scripts = Array.from({ length: 8 }, () => ({ invoker: "i", sourceURL: "u", duration: 10 }));
-    const report = longTaskSummary([{ duration: 120, scripts }], "long-animation-frame");
+    const report = longTaskSummary([{ duration: 120, scripts }], "long-animation-frame"); // motion-allow: a long-task entry's length, not motion
     expect(report.script_ms).toBe(80);
     expect(report.top_scripts).toHaveLength(1);
     // A longtask entry carries no script attribution: no number, not zero.
-    expect(longTaskSummary([{ duration: 120 }], "longtask").script_ms).toBeNull();
+    expect(longTaskSummary([{ duration: 120 }], "longtask").script_ms).toBeNull(); // motion-allow: a long-task entry's length, not motion
   });
 
   test("keydown-to-frame is the p95 of keydown entries, null when nobody typed", () => {
@@ -248,6 +249,32 @@ describe("chat perf capture: a record's own paint", () => {
   });
 });
 
+describe("chat perf capture: typing", () => {
+  test("keys typed in the window are reported, the recorder is on only for the window, keys before it are left out", async () => {
+    const page = fakeEnv();
+    const perf = new AcpmuxPerf();
+    page.env.perf = perf;
+    const key = (paint: number) => ({ key: "a", frame: paint - 1, paint, chars: 5_000, next_frame_ms: 16.7 });
+    perf.typing.push(key(99));
+    perf.typingPushed += 1;
+    const running = new ChatPerfCapture().capture({ seconds: 1 }, page.env);
+    expect(perf.enabled).toBe(true);
+    perf.typing.push(key(10), key(30));
+    perf.typingPushed += 2;
+    page.advance(16);
+    page.frame();
+    page.paint();
+    page.finish();
+    const report = (await running) as Record<string, any>;
+    expect(perf.enabled).toBe(false);
+    expect(report.typing.keys).toBe(2);
+    expect(report.typing.to_paint.max_ms).toBe(30);
+    expect(report.typing.dropped_frames).toBe(1);
+    expect(report.typing.max_chars).toBe(5_000);
+    expect(report.typing.samples).toBeUndefined();
+  });
+});
+
 describe("chat perf capture: the window", () => {
   test("times each arriving record to the first painted frame and removes everything after", async () => {
     const page = fakeEnv();
@@ -278,6 +305,7 @@ describe("chat perf capture: the window", () => {
     expect(report.records.tool_call.to_paint.max_ms).toBe(16);
     expect(report.records.tool_call.apply.max_ms).toBe(4);
     expect(report.frames.count).toBe(5);
+    expect(report.frames.first_ms).toBe(16);
     expect(report.long_tasks.count).toBe(1);
     expect(report.long_tasks.source).toBe("long-animation-frame");
     expect(report.layout_shift).toEqual({ count: 1, sum: 0.2 });
@@ -286,6 +314,24 @@ describe("chat perf capture: the window", () => {
     // After the window, records cost one check and are not kept.
     recorder.arrived("tool_call", 0, 0);
     expect(page.live().frames).toBe(0);
+  });
+
+  test("frames.first_ms is the window's start to its first frame, so a caller can time a click to the first paint", async () => {
+    const page = fakeEnv();
+    const recorder = new ChatPerfCapture();
+    page.advance(1000);
+    const running = recorder.capture({ seconds: 1 }, page.env);
+    // The page draws nothing for 323 ms after the window opens, then one frame every 16 ms.
+    page.advance(323);
+    page.frame();
+    for (let index = 0; index < 4; index += 1) {
+      page.advance(16);
+      page.frame();
+    }
+    page.finish();
+    const report = (await running) as Record<string, any>;
+    expect(report.frames.first_ms).toBe(323);
+    expect(report.frames.count).toBe(5);
   });
 
   test("a second capture while one runs is refused, and a page with no frames says so", async () => {
@@ -297,6 +343,7 @@ describe("chat perf capture: the window", () => {
     const report = (await running) as Record<string, any>;
     expect(report.measured).toBe(false);
     expect(report.unmeasured_reason).toBe("no_frames");
+    expect(report.frames.first_ms).toBe(null);
     expect(page.live().observers).toBe(0);
   });
 });
