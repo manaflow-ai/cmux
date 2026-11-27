@@ -61,6 +61,52 @@ class CmuxNextBaseWebVerdict(unittest.TestCase):
         self.assertIn("group: cmux-next-web-${{ github.sha }}\n  cancel-in-progress: false\n", self.text)
 
 
+class CiWebInstallsBeforeNodeModules(unittest.TestCase):
+    """A ci-web.yml step that runs node_modules/.bin, or a checker told --no-install, needs an earlier step of its
+    job that installs webviews' node_modules on a pull request too. #61532 moved react-apps-check's pull request
+    path to restoring the producer's bundles (build-web-bundles.sh --from installs nothing) and dropped the
+    install with it; a clean runner then had no node_modules/.bin (`vp: command not found`, no playwright), and
+    every web pull request that drew one went red from 2026-11-27 18:18Z (hosted#1050)."""
+
+    INSTALL = re.compile(r"bun install|build-webviews-app\.sh|build-web-bundles\.sh --force")
+    USE = re.compile(r"node_modules/\.bin/|--no-install\b")
+    # A branch only a push, batch or dispatch takes installs nothing for a pull request.
+    OFF_PR = re.compile(r'(?ms)^(\s*)if \[ "\$(?:GITHUB_)?EVENT_NAME" != pull_request \]; then\n.*?^\1fi\n')
+
+    def uninstalled_uses(self, text: str) -> list[str]:
+        body = text.split("\njobs:\n", 1)[1]
+        parts = re.split(r"(?m)^  ([A-Za-z0-9_-]+):\n", body)[1:]
+        found = []
+        for job, block in zip(parts[::2], parts[1::2]):
+            installed = False
+            for step in re.split(r"(?m)^      - ", block)[1:]:
+                code = "\n".join(line for line in step.splitlines() if not line.strip().startswith("#")) + "\n"
+                if self.USE.search(code) and not installed:
+                    found.append(f"{job}: {step.splitlines()[0].strip()}")
+                if self.INSTALL.search(self.OFF_PR.sub("", code)):
+                    installed = True
+        return found
+
+    def test_every_node_modules_use_follows_a_pull_request_install(self):
+        workflow = (ROOT / ".github/workflows/ci-web.yml").read_text()
+        self.assertEqual(self.uninstalled_uses(workflow), [])
+
+    def test_an_install_only_off_pull_requests_does_not_count(self):
+        job = (
+            "jobs:\n  shard:\n    steps:\n"
+            "      - name: Verify\n        run: |\n"
+            '          if [ "$GITHUB_EVENT_NAME" != pull_request ]; then\n'
+            "            exec ./scripts/build-webviews-app.sh --check\n"
+            "          fi\n"
+            "          ./scripts/check-webviews-bun-version.sh\n"
+            "      - name: Engines\n        run: ./node_modules/.bin/playwright install webkit\n"
+        )
+        self.assertEqual(self.uninstalled_uses(job), ["shard: name: Engines"])
+        fixed = job.replace("check-webviews-bun-version.sh\n", "check-webviews-bun-version.sh\n"
+                            "          (cd webviews && bun install --frozen-lockfile)\n")
+        self.assertEqual(self.uninstalled_uses(fixed), [])
+
+
 class WebValidationTests(unittest.TestCase):
     def test_web_inputs_and_mixed_changes_are_selected(self):
         for path in (
