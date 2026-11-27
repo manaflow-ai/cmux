@@ -71,10 +71,10 @@ request-human ID "what to do"\` and tell them in chat; \`chief-vm computer hand-
  * without a screen gets one line with the pricing page, so the upsell is never intrusive. Everything else works as usual:
  * a Chief's turns need no plan.
  */
-export const COMPUTER_OFF = `Computer: you have no computer of your own: it needs cmux NEXT Plus, Pro or Max, and the person's plan
+export const COMPUTER_OFF = `Computer: you have no computer of your own: it needs cmux NEXT Plus, Pro, Max or Team, and the person's plan
 has none. Do not offer it, mention it or suggest upgrading. Do every task you can without a screen (exec, fetch, an API,
 a sandbox). Only when the person asks for something that truly cannot be done without a screen (a site to use like a
-person, a GUI app), say in one short line that this needs a Chief computer, part of cmux NEXT Plus, Pro or Max, with the
+person, a GUI app), say in one short line that this needs a Chief computer, part of cmux NEXT Plus, Pro, Max or Team, with the
 link ${PRICING_URL}, once in this conversation; then do the part you can.`
 
 export const ccAddendum = (minutes: number, computer = true): string => `## This route

@@ -631,7 +631,7 @@ export class ChiefBrainDO extends DurableObject<Env> {
     return ccComputerStatus(this, agent, owner)
   }
 
-  /** Whether `owner`'s plan gives a Chief's own computer (Plus, Pro or Max; sandbox-plan.ts COMPUTER_PLANS). */
+  /** Whether `owner`'s plan gives a Chief's own computer (Plus, Pro, Max or Team; sandbox-plan.ts COMPUTER_PLANS). */
   async ccComputerEntitled(owner: string): Promise<boolean> {
     return ownerComputerEntitled(this, owner)
   }

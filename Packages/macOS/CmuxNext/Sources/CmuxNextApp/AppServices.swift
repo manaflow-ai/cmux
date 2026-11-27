@@ -973,7 +973,7 @@ final class AppServices {
 extension AppServices {
     /// The upgrade path every paywall takes: cmux.com Checkout as the signed-in account, returning to this build.
     func paidPlanUpgrade() -> PaidPlanUpgrade {
-        let client = cloud.isSignedIn ? accounts.client : nil
+        let client = cloud.isSignedIn ? accounts.billingClient : nil
         return PaidPlanUpgrade(checkout: client.map(PaidPlanUpgrade.cmuxComCheckout), open: { LinkRouter.shared.open($0) },
                                scheme: cloud.configuration.callbackScheme, onboarding: PaidPlanOnboarding(defaults: .standard), pricing: StaticURL.pricing.url, web: cloud.configuration.authWebOrigin)
     }

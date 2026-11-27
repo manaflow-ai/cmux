@@ -12,6 +12,8 @@ extension AppServices: ChiefComputerHost {
     var defaultChiefConversation: String? { home.defaultChiefConversation }
     var cloudPlanID: String? { machines.cloudLimits?.planId }
     var cloudMachinesListed: Bool { machines.cloudLimits != nil }
+    var cloudPlanError: String? { machines.cloudLimits == nil ? cloud.planReadError : nil }
+    func retryCloudPlan() { Task { _ = await cloud.refresh() } } // task-owner: one list and plan read; its answer lands in the store the tab reads
     func cloudMachineRecord(_ id: String) -> CloudMachine? { machines.session(id)?.machine }
     var computerControl: ChiefComputerControlStore { cloud.computerControl }
     var cloudMachineAPI: CloudDaemon { cloud.machineAPI }

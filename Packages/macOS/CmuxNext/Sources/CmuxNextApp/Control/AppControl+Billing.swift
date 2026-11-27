@@ -44,7 +44,7 @@ extension AppControl {
             ControlMethod.async("billing.portal") { call in
                 let params = call.params
                 let open = try Self.openRequest(params)
-                let base = await MainActor.run { services.cloud.configuration.apiBaseURL }
+                let base = await MainActor.run { services.cloud.configuration.authWebOrigin }
                 let team = (params["teamId"] ?? params["team_id"])?.stringValue
                 guard let url = base.billingPortal(team: team) else { throw ControlError(code: "bad_response", message: BillingStrings.badResponse) }
                 return .object(["url": .string(url.absoluteString)].merging(try await Self.openBillingPage(url, open, services)) { _, opened in opened })
@@ -67,11 +67,11 @@ extension AppControl {
         return open
     }
 
-    /// The signed-in cmux.com client (``CodeRouterClient`` authenticates any `/api/*` call as the user).
+    /// The signed-in cmux.com client (``AccountsService/billingClient``: the web origin, where `/api/billing/*` is).
     nonisolated private static func billingClient(_ services: AppServices) async throws -> CodeRouterClient {
         try await MainActor.run {
             if let refusal = ControlError.policyRefusal("billing.checkout", disabled: services.registry.disabledFeatures) { throw refusal }
-            guard let client = services.accounts.client else { throw ControlError(code: "unavailable", message: BillingStrings.unavailable) }
+            guard let client = services.accounts.billingClient else { throw ControlError(code: "unavailable", message: BillingStrings.unavailable) }
             guard services.cloud.isSignedIn else { throw ControlError(code: "not_signed_in", message: BillingStrings.notSignedIn) }
             return client
         }
@@ -83,14 +83,7 @@ extension AppControl {
             let data = try await call()
             return data.isEmpty ? .object([:]) : try JSONValue.parse(data)
         } catch let error as CodeRouterError {
-            switch error {
-            case .notSignedIn: throw ControlError(code: "not_signed_in", message: BillingStrings.notSignedIn)
-            case .scopeChanged: throw ControlError(code: "scope_changed", message: error.description)
-            case .timedOut: throw ControlError(code: "timeout", message: error.description)
-            case .http(let status, let code, _): throw ControlError(code: code ?? "http_\(status)", message: error.description)
-            case .transport: throw ControlError(code: "unavailable", message: error.description)
-            case .decoding: throw ControlError(code: "bad_response", message: BillingStrings.badResponse)
-            }
+            throw ControlError(code: error.billingFailure.code, message: error.billingFailure.message)
         }
     }
 

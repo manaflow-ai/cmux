@@ -114,7 +114,7 @@ struct PageFactory {
         let native = AppPageNativeProvider(services: services, page: .cloud)
         let cloud = Self.cloudProvider(cloud: services.cloud)
         native.forward = { op, params, context in try await cloud.call(op, params: params, context: context) }
-        let routes = [PageRoute(prefix: "cmux.cloud.", provider: cloud), PageRoute(prefix: "cmux.app.", provider: native), PageRoute(prefix: BillingStatusPageProvider.op, provider: BillingStatusPageProvider { [weak services] in services?.cloud.isSignedIn == true ? services?.accounts.client : nil })]
+        let routes = [PageRoute(prefix: "cmux.cloud.", provider: cloud), PageRoute(prefix: "cmux.app.", provider: native), PageRoute(prefix: BillingStatusPageProvider.op, provider: BillingStatusPageProvider { [weak services] in services?.cloud.isSignedIn == true ? services?.accounts.billingClient : nil })]
         let attributes = ["cloud-machines-layout": PageTunables.cloudMachinesLayout.value.rawValue]
         let page = services.pageHostPool.claim(.cloud, routes: routes,
                                                documentAttributes: attributes,

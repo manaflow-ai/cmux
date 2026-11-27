@@ -25,10 +25,25 @@ import Testing
         #expect(HomeChiefComputer.planAllows(paysForCloud: nil))
         #expect(HomeChiefComputer.planAllows(paysForCloud: true))
         #expect(!HomeChiefComputer.planAllows(paysForCloud: false))
-        // Only Plus (`go`), Pro, Max and Founders get a Chief's computer; Team and free do not.
-        for plan in ["go", "pro", "max", "founders", "Pro"] { #expect(HomeChiefComputer.planAllows(planId: plan), "\(plan)") }
-        for plan in ["team", "free", "enterprise"] { #expect(!HomeChiefComputer.planAllows(planId: plan), "\(plan)") }
+        // Plus (`go`), Pro, Max, Team and Founders get a Chief's computer; free does not.
+        for plan in ["go", "pro", "max", "team", "founders", "Pro"] { #expect(HomeChiefComputer.planAllows(planId: plan), "\(plan)") }
+        for plan in ["free", "enterprise"] { #expect(!HomeChiefComputer.planAllows(planId: plan), "\(plan)") }
         #expect(HomeChiefComputer.planAllows(planId: nil))
+    }
+
+    /// cmux issue 59902: a Team account's plan reads `team` (`cloud.plan.get`), and its Computer tab showed
+    /// "Chief gets its own computer with cmux Cloud" with Upgrade instead of the computer.
+    @Test func aTeamPlanGetsTheComputerNotTheUpsell() {
+        #expect(HomeChiefComputer.planAllows(planId: "team"))
+        #expect(HomeChiefProfileView.gate(paid: HomeChiefComputer.planAllows(planId: "team"), cloudChief: true, hasComputer: false) == .notSetUp)
+        #expect(HomeChiefProfileView.gate(paid: HomeChiefComputer.planAllows(planId: "team"), cloudChief: true, hasComputer: true) == nil)
+    }
+
+    /// A plan read that failed is not a free plan: the tab says so, unless the Chief's computer already shows.
+    @Test func anUnreadablePlanIsNotAPaywall() {
+        #expect(HomeChiefProfileView.gate(paid: true, cloudChief: true, hasComputer: false, planUnreadable: true) == .planUnreadable)
+        #expect(HomeChiefProfileView.gate(paid: true, cloudChief: false, hasComputer: false, planUnreadable: true) == .planUnreadable)
+        #expect(HomeChiefProfileView.gate(paid: true, cloudChief: true, hasComputer: true, planUnreadable: true) == nil)
     }
 
     @Test func freestyleStatesMapToTheSectionsStates() {

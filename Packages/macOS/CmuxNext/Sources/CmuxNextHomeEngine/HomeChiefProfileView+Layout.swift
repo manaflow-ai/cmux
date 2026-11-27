@@ -153,6 +153,7 @@ extension HomeChiefProfileView {
     @objc private func gateAction() {
         switch shownGate {
         case .paywall: onUpgrade()
+        case .planUnreadable: onRetryPlan()
         case .notSetUp, .noComputer: provision()
         default: onMoveToCloud()
         }

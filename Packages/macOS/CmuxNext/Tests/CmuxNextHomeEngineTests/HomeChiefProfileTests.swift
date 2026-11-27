@@ -74,6 +74,29 @@ import Testing
         #expect(panel.gateButton.keyEquivalent.isEmpty)
     }
 
+    /// cmux issue 59902: a plan read that failed showed the upsell. The tab says why the plan could not be read and
+    /// offers Try Again, never Upgrade; once a plan reads, the error goes and the tab follows the plan.
+    @Test func aPlanThatCannotBeReadSaysSoInsteadOfUpgrade() {
+        let panel = HomeChiefProfileView(settings: Self.card())
+        var error: String? = "Cloud isn’t answering right now."
+        var retries = 0
+        panel.paid = { true }
+        panel.cloudChief = { true }
+        panel.planError = { error }
+        panel.onRetryPlan = { retries += 1 }
+        panel.select(.computer)
+        #expect(panel.shownGate == .planUnreadable)
+        #expect(panel.gateLabel.stringValue.contains("Cloud isn’t answering right now."))
+        #expect(panel.gateButton.title == HomeEngineStrings.computerRetryPlan)
+        #expect(panel.gateButton.title != HomeEngineStrings.computerUpgrade)
+        #expect(panel.gateButton.keyEquivalent.isEmpty, "Return never presses Try Again by accident")
+        panel.gateButton.performClick(nil)
+        #expect(retries == 1)
+        error = nil
+        panel.refresh()
+        #expect(panel.shownGate == .notSetUp)
+    }
+
     /// Every Settings row puts its control in one column, whatever the control: the pickers, Can Wake the
     /// Chief, and an Appearance row (the panel at its width, laid out).
     @Test func settingsRowsShareOneControlColumn() throws {

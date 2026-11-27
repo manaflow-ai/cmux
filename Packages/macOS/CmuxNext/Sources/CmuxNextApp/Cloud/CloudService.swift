@@ -89,6 +89,7 @@ final class CloudService {
     @ObservationIgnored let sendTimelines = CloudSendTimelines()
     /// The last list or connection failure, for diagnostics and refusals.
     private(set) var lastError: String?
+    private(set) var planReadError: String? // the last failed plan read's reason, nil once one answers: the Chief's Computer tab shows it, not an upsell (#59902)
     private(set) var hasLoadedMachines = false
     /// Whom the loaded list is for (``listAccount`` when it landed).
     @ObservationIgnored private var loadedAccount: [String?]?
@@ -542,10 +543,11 @@ final class CloudService {
             let answer: JSONValue
             do { answer = try await appOps("cloud.plan.get", .object([:]), nil, .script) } catch {
                 logger.error("plan read failed: \(String(describing: error), privacy: .public)")
+                if planGeneration == generation, listAccount == account, auth.isSignedIn { planReadError = CloudStrings.errorText(error) }
                 return
             }
             guard planGeneration == generation, listAccount == account, auth.isSignedIn else { return }
-            planRead(answer)
+            planReadError = nil; planRead(answer)
         }
     }
 
@@ -704,7 +706,7 @@ final class CloudService {
         recordReadApplied = [:]
         recordReadsOutstanding = [:]
         deferredRecordRemovals = [:]
-        machines.cloudLimits = nil
+        machines.cloudLimits = nil; planReadError = nil
         hasLoadedMachines = false
         listLoadedAt = nil
     }

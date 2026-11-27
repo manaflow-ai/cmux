@@ -30,6 +30,10 @@ extension HomeChiefProfileView {
         case .machine:
             gateLabel.stringValue = HomeEngineStrings.computerOnMachine(name())
             gateButton.isHidden = true
+        case .planUnreadable:
+            gateLabel.stringValue = HomeEngineStrings.computerPlanUnreadable(planError() ?? "")
+            gateButton.title = HomeEngineStrings.computerRetryPlan
+            gateButton.isHidden = false
         case nil:
             break
         }

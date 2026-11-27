@@ -17,6 +17,10 @@ public protocol ChiefComputerHost: AnyObject, Sendable {
     var defaultChiefConversation: String? { get }
     /// The team's plan id; nil before it is read.
     var cloudPlanID: String? { get }
+    /// Why the plan could not be read, while no plan is known; nil otherwise.
+    var cloudPlanError: String? { get }
+    /// Reads the plan again (the Computer tab's Try Again).
+    func retryCloudPlan()
     /// Whether the Cloud machine list (and its plan) has been read.
     var cloudMachinesListed: Bool { get }
     /// The loaded Cloud machines, by id.
@@ -149,6 +153,11 @@ public struct ChiefComputerWiring {
     public static func wire(_ view: HomeChiefProfileView, host: any ChiefComputerHost, conversation: String) {
         view.computer.source = source(host: host, conversation: conversation)
         view.paid = { [weak host] in HomeChiefComputer.planAllows(planId: host?.cloudPlanID) }
+        view.planError = { [weak host] in host?.cloudPlanError }
+        view.onRetryPlan = { [weak host, weak view] in
+            host?.retryCloudPlan()
+            view?.refresh()
+        }
         view.cloudChief = { [weak host] in host?.cloudChiefID(conversation) != nil }
         view.onProvision = { [weak host] in  // a Cloud Chief: a normal Cloud machine under its name
             guard let host else { throw CancellationError() }
