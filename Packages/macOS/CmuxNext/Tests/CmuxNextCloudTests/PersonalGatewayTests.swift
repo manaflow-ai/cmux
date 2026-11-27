@@ -78,16 +78,28 @@ struct PersonalGatewayTests {
         #expect(gateway.state == .starting)
     }
 
-    /// A route that does use it: the start still waits for the gateway, up to its deadline.
+    /// A route that may use it (nothing else read as serving the chat): the start still waits for the gateway, up to its deadline.
     @Test func aStartOnTheMacsGatewayStillWaitsForIt() async throws {
         let clock = ManualClock()
         let children = Children([[]])
         let gateway = make(children, clock: clock)
         gateway.start()
-        let beside = gateway.onlineBeside(within: .seconds(10)) { .gateway(family: "claude") }
+        let beside = gateway.onlineBeside(within: .seconds(10)) { .fallback }
         try await clock.waitForSleeper()
         clock.advance(by: .seconds(10))
         #expect(await beside.value == false)
+    }
+
+    /// The team's gateway read online and serving while this Mac's is still starting: another gateway serves the turn,
+    /// so the start waits for none (the production probe's first start after sign-in sat out the whole 10 s deadline).
+    @Test func aStartTheTeamsOnlineGatewayServesWaitsForNoneWhileThisOneStarts() async {
+        let clock = ManualClock()
+        let children = Children([[]]) // never comes online
+        let gateway = make(children, clock: clock)
+        gateway.start()
+        let beside = gateway.onlineBeside(within: .seconds(10)) { .gateway(family: "claude") }
+        #expect(await beside.value) // no deadline advanced: answered at once
+        #expect(gateway.state == .starting) // left starting, not restarted
     }
 
     /// Which routes reach this Mac's gateway: only the connection's credential and the organization's key do not.
