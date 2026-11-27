@@ -3,7 +3,7 @@
 // app shows up, permissions in plain words, its facts). Every listing draws through these, so a new
 // app looks like the others and a new surface is a few lines. Apps only: cmux's own features stay
 // in Settings (apps-web-DESIGN.md).
-import { useState, type ReactNode } from "react";
+import { useState, type ReactNode, memo, type Ref } from "react";
 import type { Strings } from "../shared/i18n";
 import {
   categoryLabel,
@@ -17,8 +17,10 @@ import {
   type CardStyle,
 } from "./model";
 import { AppIcon, Badge, Switch } from "./parts";
+import { SourceLink } from "./SourceLink";
 import type { AppsStore } from "./store";
 import type { AppContribution, AppDetail, CatalogApp, ScopeRequest } from "./types";
+import { UseAsNewTab } from "./UseAsNewTab";
 
 type ItemProps = { app: CatalogApp; store: AppsStore; strings: Strings };
 
@@ -107,15 +109,27 @@ function descriptionId(app: CatalogApp, scope = "description"): string {
  * A listing as a card: icon, name, publisher, its one line (the tagline, else the description),
  * then its category, state and the action. `standard` is the catalog card; `compact` is one line
  * and the action only; `artwork` leads with the icon on a tinted panel. The non-default styles are
- * DEV variants (`card=` in the route, the gallery).
+ * DEV variants (`card=` in the route, the gallery). Memoized: the windowed catalog draws a card
+ * again only when its own listing changes. `position` and `count` place it among every listing
+ * for a screen reader when only the cards near the viewport are mounted.
  */
-export function ItemCard({
+export const ItemCard = memo(function ItemCard({
   app,
   store,
   strings,
   style,
   featured = false,
-}: ItemProps & { style: CardStyle; featured?: boolean }) {
+  position,
+  count,
+  ref,
+}: ItemProps & {
+  style: CardStyle;
+  featured?: boolean;
+  position?: number;
+  count?: number;
+  /** The windowed catalog measures its rows by their cards (AppsPage.tsx CatalogList). */
+  ref?: Ref<HTMLElement>;
+}) {
   const { t } = strings;
   const id = descriptionId(app);
   const classes = `apps-card${featured ? " featured" : ""}${style === "standard" ? "" : ` ${style}`}`;
@@ -145,7 +159,15 @@ export function ItemCard({
     </button>
   );
   return (
-    <article className={classes} data-card-style={style} data-item-state={itemState(app)}>
+    <article
+      ref={ref}
+      className={classes}
+      data-card-style={style}
+      data-item-state={itemState(app)}
+      data-app={app.id}
+      aria-posinset={position}
+      aria-setsize={count}
+    >
       {style === "compact" ? (
         <div className="apps-card-line">
           {open}
@@ -160,19 +182,20 @@ export function ItemCard({
           {app.categories[0] && <Badge text={categoryLabel(app.categories[0], t)} />}
           <StateBadge app={app} strings={strings} />
           <span className="apps-card-actions">
+            {app.installed && <UseAsNewTab app={app} strings={strings} />}
             <ItemAction app={app} store={store} strings={strings} />
           </span>
         </footer>
       )}
     </article>
   );
-}
+});
 
 /**
  * Discover's hero (the App Store's Today card): the featured app large, with its tagline, the
  * action, and a screenshot of it in use (`preview`), else its icon on a tinted panel.
  */
-export function HeroCard({ app, preview, store, strings }: ItemProps & { preview?: string }) {
+export const HeroCard = memo(function HeroCard({ app, preview, store, strings }: ItemProps & { preview?: string }) {
   const id = descriptionId(app, "hero");
   const select = () => void store.select(app.id);
   return (
@@ -204,10 +227,11 @@ export function HeroCard({ app, preview, store, strings }: ItemProps & { preview
       </button>
     </article>
   );
-}
+});
 
-/** A listing as a store list row (the Raycast Store): icon, name and one line, categories, action. */
-export function ListRow({ app, store, strings }: ItemProps) {
+/** A listing as a store list row (the Raycast Store): icon, name and one line, categories, action;
+ *  memoized like the card. */
+export const ListRow = memo(function ListRow({ app, store, strings }: ItemProps) {
   const id = descriptionId(app, "line");
   return (
     <div className="apps-list-row" data-item-state={itemState(app)}>
@@ -239,10 +263,10 @@ export function ListRow({ app, store, strings }: ItemProps) {
       </span>
     </div>
   );
-}
+});
 
-/** A listing as a list row (the list and split layouts). */
-export function ItemRow({ app, selected, store, strings }: ItemProps & { selected: boolean }) {
+/** A listing as a list row (the list and split layouts); memoized like the card. */
+export const ItemRow = memo(function ItemRow({ app, selected, store, strings }: ItemProps & { selected: boolean }) {
   return (
     <div className={`apps-row${selected ? " selected" : ""}`} data-item-state={itemState(app)}>
       <button type="button" className="apps-row-open" onClick={() => void store.select(app.id)} aria-label={app.name}>
@@ -257,7 +281,7 @@ export function ItemRow({ app, selected, store, strings }: ItemProps & { selecte
       <ItemAction app={app} store={store} strings={strings} />
     </div>
   );
-}
+});
 
 /**
  * All, then each category present on the shelf; the selected one is pressed. With `examples` (the
@@ -493,11 +517,7 @@ export function InfoFacts({ detail, strings }: { detail: AppDetail; strings: Str
           </div>
         ))}
       </dl>
-      {detail.repository?.startsWith("https://") && (
-        <a className="apps-link" href={detail.repository} target="_blank" rel="noreferrer">
-          {t("store.action.repository")} ↗
-        </a>
-      )}
+      <SourceLink source={detail} strings={strings} />
     </DetailSection>
   );
 }

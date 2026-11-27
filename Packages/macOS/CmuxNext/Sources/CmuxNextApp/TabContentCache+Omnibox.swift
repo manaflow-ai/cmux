@@ -1,4 +1,5 @@
 import CmuxNextBrowser
+import CmuxNextSettings
 import Foundation
 
 /// The omnibar suggestion engines (plans/cmux-next/omnibar-suggestions.md):
@@ -30,7 +31,7 @@ extension TabContentCache {
     /// The bare-word intranet check (`wiki` loads `http://wiki/` when the
     /// company's DNS resolves it), under Chrome's IntranetRedirectBehavior policy.
     static func makeIntranetProbe() -> IntranetHostProbe {
-        IntranetHostProbe(lookup: SystemHostLookup(), behavior: ChromeIntranetPolicy().behavior())
+        IntranetHostProbe(lookup: SystemHostLookup(), behavior: IntranetRedirectBehavior(policyValue: ChromeIntranetPolicy().policyValue()))
     }
 
     /// The omnibar engine of `page`'s profile: the incognito one for an

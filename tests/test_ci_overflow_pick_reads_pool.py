@@ -39,6 +39,7 @@ import workflow_jobs  # noqa: E402
 ROOT = Path(__file__).resolve().parents[1]
 WORKFLOWS = ROOT / ".github" / "workflows"
 POOL = "fromJSON(vars.RUNNER_POOLS).linux"
+LABEL = "'cmux-linux'"
 OUT_OF_SCOPE = re.compile(r"nightly|notarization")
 PICK = re.compile(
     r"vars\.CI_CLOUD_OVERFLOW_SAVED && 'blacksmith-\d+vcpu-ubuntu-2404'"
@@ -51,7 +52,6 @@ PICKS: dict[str, int] = {
     "app-ffi-release.yml": 3,
     "backend.yml": 1,
     "chief-evals.yml": 1,
-    "ci-artifact-canary.yml": 1,
     "ci-compile-attribution.yml": 1,
     "ci-health-report.yml": 1,
     "ci-macos.yml": 2,
@@ -59,7 +59,6 @@ PICKS: dict[str, int] = {
     "ci-web.yml": 7,
     "cloud-capture-provision.yml": 1,
     "cloud-devbox-image-rebake.yml": 1,
-    "cloud-image-staleness.yml": 1,
     "cloud-vm-dogfood.yml": 3,
     "cloud-vm-image-bake.yml": 3,
     "cloud-vm-image-promote.yml": 2,
@@ -86,7 +85,6 @@ PICKS: dict[str, int] = {
     "cmux-next-perf-budgets.yml": 3,
     "cmux-next-pr-autofix.yml": 4,
     "cmux-next-shim-cpp.yml": 1,
-    "cmux-next-skew-matrix.yml": 1,
     "cmux-next-source-archive.yml": 2,
     "cmux-next-tip-test-compile.yml": 2,
     "cmux-next-web-bundle-publish.yml": 3,
@@ -107,9 +105,6 @@ PICKS: dict[str, int] = {
     "cmux-vm-clients.yml": 2,
     "cmux-vm-cloud.yml": 1,
     "cmux-vm.yml": 8,
-    "coderouter-ci.yml": 1,
-    "coderouter-release.yml": 3,
-    "coderouter-verify-release.yml": 1,
     "docs-deploy-reusable.yml": 1,
     "feature-flag-review-drift.yml": 1,
     "fleet-artifact-cdn.yml": 2,
@@ -119,15 +114,12 @@ PICKS: dict[str, int] = {
     "gallery-advisory.yml": 1,
     "gallery-health.yml": 1,
     "git-mirror-bundle.yml": 2,
-    "herdr-upstream-drift.yml": 1,
     "ios-app-store.yml": 2,
     "ios-appstore-upload.yml": 2,
     "ios-e2e.yml": 2,
     "ios-screenshots.yml": 1,
     "ios-testflight.yml": 2,
-    "iroh-relay-minter.yml": 1,
     "iroh-release-gate.yml": 1,
-    "iroh-v2-production-drift.yml": 1,
     "iroh-v2.yml": 2,
     "machine-join-e2e.yml": 1,
     "macos-cross-parity.yml": 1,
@@ -145,16 +137,11 @@ PICKS: dict[str, int] = {
     "remote-daemon.yml": 1,
     "resolve-dispatch-ref.yml": 1,
     "rust-workspaces.yml": 3,
-    "sdk-bootstrap-crates.yml": 6,
-    "sdk-bootstrap-npm.yml": 3,
-    "sdk-bootstrap-pypi.yml": 4,
     "sdk-publish-crates.yml": 2,
     "sdk-publish-go.yml": 4,
     "sdk-publish-java.yml": 3,
     "sdk-publish-npm.yml": 2,
     "sdk-publish-python.yml": 3,
-    "sdk-release-cut.yml": 9,
-    "seed-derived-data.yml": 1,
     "signing-keychain-macos.yml": 1,
     "stable-next-rollback.yml": 1,
     "stable-next.yml": 6,
@@ -229,10 +216,9 @@ class ClassifierTests(unittest.TestCase):
 
 
 class WorkflowTests(unittest.TestCase):
-    def test_the_stuck_cmux_tui_spec_jobs_read_the_pool(self) -> None:
-        # Run 41299099061: inventory and rustfmt waited on LINUX_RUNNER's stalled 4 vCPU size. Its other
-        # waiting jobs (acpmux-tests, acpmux-protocol-ir, clippy) are measured 8 vCPU compile jobs and keep
-        # their size and outage switch (tests/test_ci_linux_compile_runners.py).
+    def test_the_stuck_cmux_tui_spec_jobs_take_the_one_linux_label(self) -> None:
+        # Run 41299099061: inventory and rustfmt waited on LINUX_RUNNER's stalled 4 vCPU size. Since
+        # 2026-11-20 every Linux x64 job takes the one label, cmux-linux (scripts/ci/one_linux_label.py).
         jobs = workflow_jobs.jobs(WORKFLOWS / "cmux-tui-spec.yml")
         for name in ("inventory", "rustfmt"):
             with self.subTest(job=name):
@@ -241,7 +227,8 @@ class WorkflowTests(unittest.TestCase):
                 self.assertEqual(len(cells), 1, cells)
                 runs_on = cells[0]
                 self.assertFalse(picks_one_size(runs_on), runs_on)
-                self.assertTrue(runs_on.rstrip().endswith("|| " + POOL + " }}"), runs_on)
+                self.assertTrue(runs_on.rstrip().endswith("|| " + LABEL + " }}"), runs_on)
+                self.assertNotIn(POOL, runs_on)
 
     def test_no_workflow_adds_a_one_size_linux_pick(self) -> None:
         grown = {name: (count, PICKS.get(name, 0)) for name, count in counts().items() if count > PICKS.get(name, 0)}

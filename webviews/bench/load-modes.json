@@ -11,8 +11,8 @@
     "",
     "`web` is what a page harness applies; `native` is what the app harness applies. A knob a harness cannot express",
     "is listed in that harness's `missing`, and the harness prints it beside the row, so a number is never read as",
-    "the full mode (a webview page has no terminals or workspaces; the native typing surfaces are a terminal, Home",
-    "and the omnibar, so they have no chat transcript to make a god chat of).",
+    "the full mode (a webview page has no terminals or workspaces). `native.rows` is the focused agent chat's",
+    "transcript: the native harness seeds that many rows into it (debug.agent_pane seed_rows) before it streams.",
     "",
     "`gate_p95_ms` is the design's target for key to frame (16 ms, 8.3 hoped for). It is a bench flag",
     "(--gate-p95-ms), not a CI gate (written under the 2026-10-23 no-new-CI rule, since lifted)."
@@ -30,7 +30,7 @@
         "otherChatChunksPerSecond": 0,
         "cpuSaturation": false
       },
-      "native": { "chats": 0, "busyTerminals": 0, "cpuSaturation": false, "session": "light" }
+      "native": { "rows": 0, "chats": 0, "busyTerminals": 0, "cpuSaturation": false, "session": "light" }
     },
     {
       "id": "L1",
@@ -43,7 +43,7 @@
         "otherChatChunksPerSecond": 0,
         "cpuSaturation": false
       },
-      "native": { "chats": 1, "busyTerminals": 1, "cpuSaturation": false, "session": "light" }
+      "native": { "rows": 0, "chats": 1, "busyTerminals": 1, "cpuSaturation": false, "session": "light" }
     },
     {
       "id": "L2",
@@ -56,7 +56,7 @@
         "otherChatChunksPerSecond": 30,
         "cpuSaturation": false
       },
-      "native": { "chats": 10, "busyTerminals": 0, "cpuSaturation": false, "session": "light" }
+      "native": { "rows": 0, "chats": 10, "busyTerminals": 0, "cpuSaturation": false, "session": "light" }
     },
     {
       "id": "L3",
@@ -69,8 +69,7 @@
         "otherChatChunksPerSecond": 0,
         "cpuSaturation": false
       },
-      "native": { "chats": 1, "busyTerminals": 1, "cpuSaturation": false, "session": "light" },
-      "nativeMissing": ["the 100k-row chat transcript (no native surface here types into a chat)"]
+      "native": { "rows": 100000, "chats": 1, "busyTerminals": 1, "cpuSaturation": false, "session": "light" }
     },
     {
       "id": "L4",
@@ -83,7 +82,7 @@
         "otherChatChunksPerSecond": 0,
         "cpuSaturation": true
       },
-      "native": { "chats": 0, "busyTerminals": 0, "cpuSaturation": true, "session": "light" }
+      "native": { "rows": 0, "chats": 0, "busyTerminals": 0, "cpuSaturation": true, "session": "light" }
     },
     {
       "id": "L5",
@@ -96,11 +95,10 @@
         "otherChatChunksPerSecond": 30,
         "cpuSaturation": true
       },
-      "native": { "chats": 10, "busyTerminals": 20, "cpuSaturation": true, "session": "stress" },
+      "native": { "rows": 100000, "chats": 10, "busyTerminals": 20, "cpuSaturation": true, "session": "stress" },
       "webMissing": [
         "20 printing terminals and 60 workspaces (a page harness has neither; the native harness's stress session has both)"
-      ],
-      "nativeMissing": ["the 100k-row chat transcript (no native surface here types into a chat)"]
+      ]
     }
   ]
 }

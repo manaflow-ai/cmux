@@ -61,7 +61,7 @@ jobs:
   sweep:
     name: ${{ github.event_name == 'pull_request' && 'sim sweep' || 'acpmux simulation sweep' }} (${{ matrix.faults }}${{ matrix.resend == '0' && ', bare resend' || '' }}${{ matrix.known_gap && ', known gap' || '' }})${{ github.event_name == 'pull_request' && ' (advisory)' || '' }}
     if: ${{ (inputs.only == '' || inputs.only == 'sweep') && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) }}
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && fromJSON(vars.RUNNER_POOLS).linux_4 || !startsWith(vars.LINUX_RUNNER, 'blacksmith-') && vars.LINUX_RUNNER || vars.CI_CLOUD_OVERFLOW_SAVED && fromJSON(vars.RUNNER_POOLS).linux_16 || fromJSON(vars.RUNNER_POOLS).linux_8 }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || 'cmux-linux' }}
     timeout-minutes: ${{ github.event_name == 'pull_request' && 45 || 90 }}
     strategy:
       fail-fast: false
@@ -82,11 +82,27 @@ jobs:
             resend: "1"
             known_gap: true
     steps:
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           persist-credentials: false
           # A batch run or probe tests inputs.sha; under the batch caller github.sha is its tip.
           ref: ${{ inputs.sha || github.sha }}
+
+      # The sweep builds acpmux's test profile (several GiB of target) and then runs thousands of seeds; a pool host
+      # admitted at the pool's per-job need had too little left (run 45768539377, 2026-11-26: "No space left on
+      # device", 50 MB free, every leg). scripts/ci/pool-make-room.sh (cmux#58361) runs the pool hook's room phase
+      # with this job's need, bounded; it never fails the job and does nothing off a pool host or before it lands.
+      - name: Make room on the pool host
+        if: runner.os == 'Linux' && startsWith(runner.name, 'cmux-runner-pool-')
+        continue-on-error: true
+        timeout-minutes: 3
+        shell: bash
+        run: |
+          if [ -x scripts/ci/pool-make-room.sh ]; then
+            scripts/ci/pool-make-room.sh "$((25 * 1024 * 1024 * 1024))" 120
+          else
+            df -h "$GITHUB_WORKSPACE" || true
+          fi
 
       - name: Set up pinned Rust
         uses: ./.github/actions/setup-cmux-tui-rust
@@ -94,9 +110,11 @@ jobs:
       - name: Cache cargo build
         uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
         with:
+          # Why: docs/ci/cmux-next-workflow-notes.md#note-210 (pool runners keep different leftover toolchains)
+          add-rust-environment-hash-key: false
           cache-bin: false
           workspaces: cmux-tui -> target
-          shared-key: cmux-tui-acpmux-sim
+          shared-key: cmux-tui-acpmux-sim-${{ hashFiles('cmux-tui/rust-toolchain.toml', 'cmux-tui/Cargo.lock', '.cargo/config.toml') }}
           save-if: false
 
       - name: Run the seeds
@@ -115,7 +133,21 @@ jobs:
         run: |
           set -o pipefail
           status=0
-          cargo test --locked -p acpmux --features sim --test sim seeds_hold -- --nocapture 2>&1 | tee "$RUNNER_TEMP/sim.log" || status=$?
+          # Chunks of at most 500 seeds, each its own process: every hub a seed builds stays
+          # alive until the process exits (about 13 MB a seed), so 4000 seeds in one process
+          # reached 31 GB and filled the host's disk with swap (run 45768539377). The test
+          # refuses more than 500 in one process.
+          chunk=400
+          : > "$RUNNER_TEMP/sim.log"
+          cargo test --locked -p acpmux --features sim --test sim --no-run 2>&1 | tail -n 5
+          done_seeds=0
+          while [ "$done_seeds" -lt "$SIM_SEEDS" ]; do
+            n=$(( SIM_SEEDS - done_seeds < chunk ? SIM_SEEDS - done_seeds : chunk ))
+            SIM_SEEDS="$n" SIM_SEED_BASE=$(( SIM_SEED_BASE + done_seeds )) \
+              cargo test --locked -p acpmux --features sim --test sim seeds_hold -- --nocapture 2>&1 \
+              | tee -a "$RUNNER_TEMP/sim.log" || status=$?
+            done_seeds=$(( done_seeds + n ))
+          done
           {
             grep -E '^sim: ' "$RUNNER_TEMP/sim.log" || true
             grep -E '^seed [0-9]+:|replay:' "$RUNNER_TEMP/sim.log" | head -60 || true

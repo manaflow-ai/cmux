@@ -26,10 +26,13 @@ import re
 import subprocess
 import sys
 from pathlib import Path
+from unittest.mock import patch
 
 
 ROOT = Path(__file__).resolve().parents[1]
 WORKFLOW_DIR = ROOT / ".github" / "workflows"
+sys.path.insert(0, str(ROOT / "scripts" / "ci"))
+import validate_test_execution_registry as registry
 
 # A guard is identified by what it reads, not by where it lives, so a test that
 # is moved or renamed keeps its obligation. Both spellings occur in-tree: a
@@ -45,6 +48,16 @@ INVOKED_PATH = re.compile(r"(?:\./)?(tests(?:_v2)?/[A-Za-z0-9_.-]+\.(?:py|sh))")
 # an allowlist that can be appended to without argument is the failure mode
 # this test exists to prevent.
 UNWIRED: set[str] = {
+    # A shell test the registry does not take (it lists .py tests). Exit: wire it into ci-guards.yml or a nightly step.
+    "tests/test_ci_nightly_warm_checkout_mirror.sh",
+    # Red on feat-cmux-next at 2026-11-23 when #49253 wired the other guards: shard picks now carry an empty entry for
+    # shard 1 ({1: []}) that its expectations lack. Exit: settle whether shard 1 lists no tests, fix the side that is
+    # wrong, then wire it into ci-guards.yml's ci group.
+    "tests/test_ci_webviews_affected.py",
+    # Manual capture harness regression; the workflow path is an admission identity fixture,
+    # not a workflow file read. Run after changing the harness or its HQ workflow identity.
+    # Exit: remove if this test begins reading workflows or gains an approved CI execution lane.
+    "tests/test_ios_screen_sharing_proof.py",
     # lane = "manual" in tests/test-execution.d/other.toml. Checks that every job of
     # each workflow in its GATED set carries the draft-head condition and that its trigger lists ready_for_review (the
     # draft tier, scripts/ci/head_tier.py); it reads the workflows as data. Run it by hand when a workflow is added to
@@ -104,6 +117,11 @@ UNWIRED: set[str] = {
     # 2026-11-18). It pins scripts/cmux-next/check-single-host-fallbacks.py, which the pre-push gate runs strictly and
     # CI runs with --advisory; it reads the workflows only as that script's data. Exit: as below.
     "tests/test_ci_single_host_fallbacks.py",
+    # lane = "manual" in tests/test-execution.d/ci.toml (kept manual under the 2026-10-23 no-new-CI rule, lifted
+    # 2026-11-18). It checks that every runs-on label, runners.json member and runner-label constant maps to one
+    # provider in tests/ci_label_providers.json; it reads the workflows only as data. Run it by hand after adding a
+    # runner label or moving a provider. Exit: as below.
+    "tests/test_ci_label_has_provider.py",
     # lane = "manual" in tests/test-execution.d/other.toml (kept manual under the 2026-10-23 no-new-CI rule, lifted
     # 2026-11-18). It pins scripts/install-axe-ci.sh's sha256 refusal and reads ios-e2e.yml only to check it calls that
     # script, not the Homebrew tap. Run it by hand when either changes. Exit: as below.
@@ -128,10 +146,6 @@ UNWIRED: set[str] = {
     # scripts only as data: which callers read reload.sh's App path after --build-only without --keep-app. Run it after
     # adding such a caller. Exit: as below.
     "tests/test_reload_build_only_app_path_readers.py",
-    # lane = "manual" (kept manual under the 2026-10-23 no-new-CI rule, lifted 2026-11-18). It reads workflows only as
-    # data: which files exist and which call a reusable declared workflow, for scripts/ci/hosted_light_rescue.py's
-    # scope. Exit: as below.
-    "tests/test_ci_hosted_light_rescue.py",
     # lane = "manual" in tests/test-execution.d/ci.toml (kept manual under the 2026-10-23 no-new-CI rule, lifted
     # 2026-11-18). It runs scripts/ci/swiftpm_prefetch_binary_artifacts.py against a fake cache and reads the owned-Mac
     # workflows only as data (each SwiftPM step seeds first, #43932). Run it by hand when the seed or such a step
@@ -205,14 +219,10 @@ UNWIRED: set[str] = {
     # GitHub release, the rest of the tail dispatched, and the retry at the newest head; run it by hand after
     # changing decide, retry-nightly-next or dispatch-published-in.
     "tests/test_nightly_next_single_loop.py",
-    # lane = "manual" for the same rule. It checks the nightly-next build and sign stages (the push run builds,
-    # dispatch-nightly-next-sign hands the unsigned app to a sign run in its own group); run it by hand after
-    # changing decide, the sign-stage dispatch, retry-nightly-next or resume-unsigned-nightly.py.
-    "tests/test_nightly_next_pipeline.py",
-    # lane = "manual" for the same rule (tests/test-execution.d/nightly.toml). It checks the one-job nightly-next
-    # path of nightly.yml (gate, concurrency, shared steps, the kept Zig cache and the single Zig install); run it
-    # by hand after changing nightly-next-one or a step it shares with the split jobs.
-    "tests/test_nightly_next_one_job.py",
+    # lane = "manual" for the same rule. It checks that retry-nightly-next's third failure in a row comments on the
+    # nightly-next-feed-stale issue (nightly_next_retry_exhausted.py) and that the job may write issues; run it by hand
+    # after changing retry-ask-push-group.sh, that script or the job's permissions.
+    "tests/test_nightly_next_retry_exhausted.py",
     # lane = "manual" for the same rule. It checks that every nightly upload-artifact step has one retry that keeps
     # the first try's condition; run it by hand after adding or changing an upload in nightly.yml.
     "tests/test_nightly_artifact_uploads_retry.py",
@@ -238,9 +248,6 @@ UNWIRED: set[str] = {
     "tests/test_ci_blacksmith_linux_sizes.py",
     # a Linux runs-on or the RUNNER_POOLS.linux picker (#30878);
     "tests/test_ci_overflow_pick_reads_pool.py",
-    # scripts/ci/cloud_probe_rescue.py, run by the main controller's workflow_run adapter, not a PR job
-    # (#30796): python3 -m unittest tests.test_ci_cloud_probe_rescue from the repository root.
-    "tests/test_ci_cloud_probe_rescue.py",
     # lane = "manual" for the same rule. It checks the weekly rollback drill (nightly-next-rollback-drill.yml) and
     # its call into nightly-next-rollback.yml; run it by hand after changing either or
     # scripts/ci/nightly_next_rollback_drill.py.
@@ -309,10 +316,66 @@ UNWIRED: set[str] = {
     # lane-branch push of cmux-tui artifacts skips before it takes a Blacksmith runner (#45997). Run it by hand after
     # changing cmux-tui-artifacts.yml's gate. Exit: as above.
     "tests/test_cmux_tui_superseded_gate.py",
+    # lane = "manual" (no new CI tests, CLAUDE.md). It checks that feat-cmux-next tree publishing is latest-wins:
+    # tree-preflight's shared feat push group and supersede-feat-runs cancelling only never-started older push runs
+    # (#48296). Run it by hand after changing either or scripts/ci/cmux_tui_feat_supersede.py. Exit: as above.
+    "tests/test_cmux_tui_feat_latest_wins.py",
     # lane = "manual" (kept manual under the 2026-10-23 no-new-CI rule, since lifted). It checks that every git fetch
     # and curl in nightly.yml's nightly- next-one job has its own bound and the ones that fail it retry (nightly run
     # 44232805509). Run it by hand after changing a fetch or download there. Exit: as above.
     "tests/test_nightly_next_network_bounds.py",
+    # No new CI tests (CLAUDE.md). It checks scripts/ci/post_merge_batch.py (tick, plan, judge, bisect, revert) and
+    # that .github/post-merge-batch.json, cmux-next-post-merge.yml's caller jobs and the callees stay in step (#48662).
+    # Run it by hand after changing any of them. Exit: as above.
+    "tests/test_ci_post_merge_batch.py",
+    # No new CI tests (CLAUDE.md). It checks scripts/ci/pr_ran_line.py on fixture .github/workflows trees: the status
+    # comment's ran line names the workflows a diff starts and why (#47361). Run it by hand after changing
+    # pr_ran_line.py. Exit: as above.
+    "tests/test_ci_pr_ran_line.py",
+    # No new CI tests (CLAUDE.md); scripts/ci/pr_trigger_paths.py says the same. It checks every pull request
+    # workflow has trigger paths or an every_pr reason, and derived paths match their decider (#49072). Run it by hand
+    # after changing a PR workflow's trigger or a decider's source. Exit: as above.
+    "tests/test_ci_pr_trigger_paths.py",
+    # lane = "manual" (tests/test-execution.d/ci.toml; no new CI tests, CLAUDE.md). It pins tooling_steps.py's per-step
+    # selection and that each tooling-tests run step of cmux-next-guards.yml carries its selection (#47388). Run it by
+    # hand after changing tooling_steps.py or a tooling-tests step. Exit: as above.
+    "tests/test_ci_tooling_steps.py",
+    # No new CI tests (CLAUDE.md). It checks that a re-run cmux-tui build leg rereads the runner pool instead of a 2 or
+    # 4 vCPU label its plan baked in (#48691). Run it by hand after changing cmux-tui-artifacts.yml's build runs-on.
+    # Exit: as above.
+    "tests/test_ci_tui_rerun_leg_rereads_pool.py",
+    # lane = "manual" (tests/test-execution.d/cmux.toml; no new CI tests, CLAUDE.md). It checks that a same-repo pull
+    # request's cmux-next control hops take the reserved PR control JIT label on attempt 1 (#48405). Run it by hand
+    # after changing those jobs' runs-on. Exit: as above.
+    "tests/test_cmux_next_pr_control_on_jit.py",
+    # No new CI tests (CLAUDE.md). It checks the cache-restore receipt classification and the composite's shell wiring. Run it by hand after changing the cache restore action. Exit: as above.
+    "tests/test_ci_cache_restore_receipt.py",
+    # No new CI tests (CLAUDE.md). It checks scripts/ci/mac_grants.py: which cmux-next Mac PR jobs take a scheduler grant, and on which labels. Run it by hand after changing mac_grants.py or those jobs' runs-on. Exit: as above.
+    "tests/test_ci_mac_grants.py",
+    # No new CI tests (CLAUDE.md). It checks ci-oops fault isolation (scripts/ci/oops/isolate.py, optional-units.json): a PR build leaves out an optional unit that alone fails to compile. Run it by hand after changing isolate.py or optional-units.json. Exit: as above.
+    "tests/test_ci_oops_isolate.py",
+    # No new CI tests (CLAUDE.md). It checks scripts/ci/piece_swap.py: a first-red commit's pieces come out one at a time, never the whole commit. Run it by hand after changing piece_swap.py. Exit: as above.
+    "tests/test_ci_piece_swap.py",
+    # No new CI tests (CLAUDE.md). It checks that a routed job reads each need's result itself and the web rollup gate always runs. Run it by hand after adding or changing a routed job's if. Exit: as above.
+    "tests/test_ci_routed_jobs_check_needs.py",
+    # No new CI tests (CLAUDE.md). It checks that a same-repository Linux job names the persistent cmux-linux pool on attempt 1, not Blacksmith. Run it by hand after changing a Linux job's runs-on. Exit: as above.
+    "tests/test_ci_same_repo_linux_owned_first.py",
+    # No new CI tests (CLAUDE.md). It checks scripts/ci/webviews_affected.py picks the webviews test files a pull request can affect. Run it by hand after changing webviews_affected.py. Exit: as above.
+    "tests/test_ci_webviews_affected.py",
+    # No new CI tests (CLAUDE.md). It checks that a Linux leg the runner lost does not turn off the macOS fallback, while a Linux build failure still does. Run it by hand after changing darwin-fallback-plan. Exit: as above.
+    "tests/test_cmux_tui_fallback_lost_leg.py",
+    # No new CI tests (CLAUDE.md). It checks the IndexNow notification step of the web deploy workflow. Run it by hand after changing that step. Exit: as above.
+    "tests/test_indexnow_notification.py",
+    # No new CI tests (CLAUDE.md). It checks the Mac publication step with failed delivery dependencies: a missing live build fails its job. Run it by hand after changing the Mac publication step. Exit: as above.
+    "tests/test_mac_live_delivery.py",
+    # No new CI tests (CLAUDE.md). It checks that every job cross-building the cmux-tui macOS binaries on Linux installs the Go cmux-tailnet's build.rs needs. Run it by hand after adding or changing a macOS cross-build job. Exit: as above.
+    "tests/test_macos_cross_builds_have_go.py",
+    # No new CI tests (CLAUDE.md). It checks that the one-job nightly runs its webview checks before the signer and skips the retry on a webview red. Run it by hand after changing nightly.yml's webview step or retry. Exit: as above.
+    "tests/test_nightly_early_webviews.py",
+    # No new CI tests (CLAUDE.md). It checks that every nightly job that compiles gives its tools the macOS SDK of the Xcode it selected. Run it by hand after adding or changing a compiling nightly job. Exit: as above.
+    "tests/test_nightly_job_sdkroot.py",
+    # No new CI tests (CLAUDE.md). It checks scripts/ci/nightly_next_signer_pick.py and nightly.yml's use of it. Run it by hand after changing the signer pick or its use in nightly.yml. Exit: as above.
+    "tests/test_nightly_next_signer_pick.py",
 }
 
 
@@ -340,27 +403,56 @@ def workflow_guards() -> set[str]:
 
 
 def invoked_by_workflows() -> set[str]:
-    sys.path.insert(0, str(ROOT / "scripts" / "ci"))
-    import workload_entrypoints
-
-    invoked = set()
-    for workflow in sorted(WORKFLOW_DIR.glob("*.yml")):
-        text = workflow.read_text(encoding="utf-8")
-        invoked.update(INVOKED_PATH.findall(text))
-        # A workload profile step runs everything its entrypoint names.
-        for _, script in workload_entrypoints.entrypoints(text, ROOT):
-            invoked.update(INVOKED_PATH.findall(script))
+    """What CI runs, read the way the execution registry's validator reads it: every workflow, the step table
+    pr-pipeline.yml runs through `ci/run` (ci/steps.toml), each workload profile's entrypoint and the shared recipe,
+    plus every registry entry whose lane a workflow's run_python_test_lane.py step runs."""
+    # Workflow comments often cite the guard that documents a job.
+    text = registry.all_workflow_text(WORKFLOW_DIR)
+    commands = [line.split("#", 1)[0] for line in text.splitlines()]
+    slow_checks = "scripts/ci/cmux-next-slow-checks.txt"
+    if any(f"< {slow_checks}" in line for line in commands):
+        commands.extend(line.split("#", 1)[0] for line in (ROOT / slow_checks).read_text().splitlines())
+    invoked = set(INVOKED_PATH.findall("\n".join(commands)))
+    live_lanes = registry.runner_lanes(WORKFLOW_DIR)
+    for entry in registry.load_tree(ROOT):
+        if entry.get("lane") in live_lanes and isinstance(entry.get("path"), str):
+            invoked.add(entry["path"])
     return invoked
 
 
+def registered_manual() -> set[str]:
+    """Tests the execution registry (tests/test-execution.d/*.toml) gives lane = "manual" with a reason: the
+    registry is where a knowingly unwired test says why and how to run it, so it needs no second entry here."""
+    return {
+        entry["path"]
+        for entry in registry.load_tree(ROOT)
+        if entry.get("lane") == "manual" and isinstance(entry.get("path"), str)
+        and str(entry.get("reason") or "").strip()
+        and str(entry["reason"]).strip() != registry.derived_reason(entry["path"]).strip()
+    }
+
+
+def test_generated_manual_reasons_are_not_exemptions() -> None:
+    path = "tests/test_example.py"
+    for lane, reason, expected in (
+        ("manual", registry.derived_reason(path), set()),
+        ("manual", "  " + registry.derived_reason(path) + "\n", set()),
+        ("manual", " ", set()),
+        ("manual", "Requires an interactive signed-in app; run python3 " + path, {path}),
+        ("linux-guard", "Requires an interactive app", set()),
+    ):
+        with patch.object(registry, "load_tree", return_value=[dict(path=path, lane=lane, reason=reason)]):
+            assert registered_manual() == expected, (lane, reason)
+
+
 def test_every_workflow_guard_is_run_by_a_workflow() -> None:
-    unwired = sorted(workflow_guards() - invoked_by_workflows() - UNWIRED)
+    unwired = sorted(workflow_guards() - invoked_by_workflows() - UNWIRED - registered_manual())
     assert not unwired, (
         "these tests read .github/workflows/ but no workflow runs them, so the "
         "invariants they assert are not enforced:\n  "
         + "\n  ".join(unwired)
-        + "\n\nAdd a step to .github/workflows/ci-guards.yml, or add an "
-        "entry to UNWIRED in this file explaining why not."
+        + "\n\nAdd a step to ci/steps.toml or .github/workflows/ci-guards.yml, or register it in "
+        "tests/test-execution.d/ with lane = \"manual\" and a reason (or add it to UNWIRED here) explaining why not."
     )
 
 
@@ -376,6 +468,7 @@ def test_allowlist_does_not_outlive_its_entries() -> None:
 
 
 if __name__ == "__main__":
+    test_generated_manual_reasons_are_not_exemptions()
     test_every_workflow_guard_is_run_by_a_workflow()
     test_allowlist_does_not_outlive_its_entries()
     print("all workflow guards are wired")

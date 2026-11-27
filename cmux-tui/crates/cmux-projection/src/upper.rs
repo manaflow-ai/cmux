@@ -1,13 +1,54 @@
-//! The upper folder's file calls (Linux). Each call reaches its folder one name at a time from a
-//! descriptor of the upper folder (`openat` with `O_NOFOLLOW`), so a path of any length works (the
-//! mount's own paths may be longer than `PATH_MAX` once the state folder is put in front) and no
-//! link the agent made is followed out of the folder.
+//! The upper folder's file calls (Linux and macOS). Each call reaches its folder one name at a time
+//! from a descriptor of the upper folder (`openat` with `O_NOFOLLOW`), so a path of any length works
+//! (the mount's own paths may be longer than `PATH_MAX` once the state folder is put in front) and
+//! no link the agent made is followed out of the folder.
 
 use std::ffi::CString;
 use std::fs;
 use std::os::fd::{AsRawFd as _, FromRawFd as _, OwnedFd};
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering};
+
+/// `st_mode` bits as `u32` on every system (`mode_t` is 16 bits on macOS, 32 on Linux).
+#[allow(clippy::unnecessary_cast, clippy::cast_lossless)]
+pub mod fmt {
+    pub const S_IFMT: u32 = libc::S_IFMT as u32;
+    pub const S_IFDIR: u32 = libc::S_IFDIR as u32;
+    pub const S_IFREG: u32 = libc::S_IFREG as u32;
+    pub const S_IFLNK: u32 = libc::S_IFLNK as u32;
+    pub const S_IFIFO: u32 = libc::S_IFIFO as u32;
+    pub const S_IFSOCK: u32 = libc::S_IFSOCK as u32;
+    pub const S_IFCHR: u32 = libc::S_IFCHR as u32;
+    pub const S_IFBLK: u32 = libc::S_IFBLK as u32;
+    pub const S_ISGID: u32 = libc::S_ISGID as u32;
+}
+
+/// rename flags as Linux's `renameat2` numbers them, which the overlay takes on every system (the
+/// FUSE mount hands the kernel's flags through as they are; macOS maps them to `renameatx_np`'s).
+pub const RENAME_NOREPLACE: u32 = 1;
+pub const RENAME_EXCHANGE: u32 = 2;
+
+/// How a folder on the way to a name is opened: for search only.
+#[cfg(target_os = "linux")]
+const DIR_FLAGS: libc::c_int = libc::O_PATH | libc::O_DIRECTORY;
+#[cfg(not(target_os = "linux"))]
+const DIR_FLAGS: libc::c_int = libc::O_SEARCH | libc::O_DIRECTORY;
+
+/// `O_NOATIME` where the system has it.
+#[cfg(target_os = "linux")]
+const NOATIME: libc::c_int = libc::O_NOATIME;
+#[cfg(not(target_os = "linux"))]
+const NOATIME: libc::c_int = 0;
+
+/// A permission or type mode as the system's `mode_t`.
+#[allow(
+    clippy::unnecessary_cast,
+    clippy::cast_possible_truncation,
+    reason = "mode_t is u16 on macOS; permission and type bits fit in 16 bits"
+)]
+pub(crate) fn mode_t(mode: u32) -> libc::mode_t {
+    mode as libc::mode_t
+}
 
 /// `stat` of an upper path, the fields the overlay uses.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -28,14 +69,16 @@ pub struct Stat {
 }
 
 impl Stat {
-    #[allow(clippy::unnecessary_cast)]
+    // `stat`'s field types differ by architecture (`st_nlink` is u64 on x86_64, u32 on arm64),
+    // so a cast or conversion one needs is a no-op on the other.
+    #[allow(clippy::unnecessary_cast, clippy::useless_conversion)]
     fn of(st: &libc::stat) -> Self {
         let ns = |secs: i64, nanos: i64| secs.saturating_mul(1_000_000_000).saturating_add(nanos);
         Self {
             dev: st.st_dev as u64,
             ino: st.st_ino as u64,
             mode: st.st_mode as u32,
-            nlink: u32::try_from(st.st_nlink).unwrap_or(u32::MAX),
+            nlink: u32::try_from(u64::from(st.st_nlink)).unwrap_or(u32::MAX),
             uid: st.st_uid,
             gid: st.st_gid,
             rdev: st.st_rdev as u64,
@@ -50,12 +93,12 @@ impl Stat {
     /// The `S_IFMT` part of the mode.
     #[must_use]
     pub fn format(&self) -> u32 {
-        self.mode & libc::S_IFMT
+        self.mode & fmt::S_IFMT
     }
 
     #[must_use]
     pub fn is_dir(&self) -> bool {
-        self.format() == libc::S_IFDIR
+        self.format() == fmt::S_IFDIR
     }
 }
 
@@ -95,9 +138,21 @@ fn split(path: &str) -> (&str, &str) {
     })
 }
 
-/// Opens `file` (its descriptor's own path, `/proc/self/fd/N`) with std, for folder listings.
-fn proc_path(fd: &OwnedFd) -> PathBuf {
-    PathBuf::from(format!("/proc/self/fd/{}", fd.as_raw_fd()))
+/// A path that reaches what descriptor `fd` holds: `/proc/self/fd/N` on Linux (an `O_PATH`
+/// descriptor has no other use for the path calls), the path the system has for it on macOS.
+#[cfg(target_os = "linux")]
+fn proc_path(fd: &OwnedFd) -> Result<PathBuf, i32> {
+    Ok(PathBuf::from(format!("/proc/self/fd/{}", fd.as_raw_fd())))
+}
+
+#[cfg(not(target_os = "linux"))]
+fn proc_path(fd: &OwnedFd) -> Result<PathBuf, i32> {
+    use std::os::unix::ffi::OsStrExt as _;
+    let mut buffer = vec![0u8; libc::PATH_MAX as usize + 1];
+    // SAFETY: an open descriptor and a buffer of at least PATH_MAX bytes, as F_GETPATH needs.
+    check(unsafe { libc::fcntl(fd.as_raw_fd(), libc::F_GETPATH, buffer.as_mut_ptr()) })?;
+    let end = buffer.iter().position(|&byte| byte == 0).unwrap_or(buffer.len());
+    Ok(PathBuf::from(std::ffi::OsStr::from_bytes(buffer.get(..end).unwrap_or_default())))
 }
 
 /// The upper folder.
@@ -116,8 +171,7 @@ impl Upper {
         let c = CString::new(path.as_os_str().as_encoded_bytes())
             .map_err(|_| std::io::Error::from_raw_os_error(libc::EINVAL))?;
         // SAFETY: `c` is a valid NUL-terminated path; the result is checked before use.
-        let fd =
-            unsafe { libc::open(c.as_ptr(), libc::O_PATH | libc::O_DIRECTORY | libc::O_CLOEXEC) };
+        let fd = unsafe { libc::open(c.as_ptr(), DIR_FLAGS | libc::O_CLOEXEC) };
         if fd < 0 {
             return Err(std::io::Error::last_os_error());
         }
@@ -146,7 +200,7 @@ impl Upper {
                 libc::openat(
                     at.as_raw_fd(),
                     part.as_ptr(),
-                    libc::O_PATH | libc::O_DIRECTORY | libc::O_NOFOLLOW | libc::O_CLOEXEC,
+                    DIR_FLAGS | libc::O_NOFOLLOW | libc::O_CLOEXEC,
                 )
             };
             if fd < 0 {
@@ -172,10 +226,8 @@ impl Upper {
         // SAFETY: a zeroed stat is a valid out buffer.
         let mut st: libc::stat = unsafe { std::mem::zeroed() };
         if path.is_empty() {
-            // SAFETY: the root descriptor is open; an empty path with AT_EMPTY_PATH stats it.
-            check(unsafe {
-                libc::fstatat(self.root.as_raw_fd(), c"".as_ptr(), &mut st, libc::AT_EMPTY_PATH)
-            })?;
+            // SAFETY: the root descriptor is open (fstat takes an O_PATH one on Linux too).
+            check(unsafe { libc::fstat(self.root.as_raw_fd(), &mut st) })?;
             return Ok(Stat::of(&st));
         }
         let (dir, last) = self.parent(path)?;
@@ -197,14 +249,23 @@ impl Upper {
     pub fn mkdir(&self, path: &str, mode: u32) -> Result<(), i32> {
         let (dir, last) = self.parent(path)?;
         // SAFETY: valid descriptor and C string.
-        check(unsafe { libc::mkdirat(dir.as_raw_fd(), last.as_ptr(), mode) }).map(drop)
+        check(unsafe { libc::mkdirat(dir.as_raw_fd(), last.as_ptr(), mode_t(mode)) }).map(drop)
     }
 
     /// A fifo, socket or device node (`mode` carries the type).
     pub fn mknod(&self, path: &str, mode: u32, rdev: u64) -> Result<(), i32> {
         let (dir, last) = self.parent(path)?;
         // SAFETY: valid descriptor and C string.
-        check(unsafe { libc::mknodat(dir.as_raw_fd(), last.as_ptr(), mode, rdev) }).map(drop)
+        #[allow(
+            clippy::useless_conversion,
+            clippy::cast_possible_truncation,
+            clippy::cast_possible_wrap,
+            reason = "dev_t is i32 on macOS; rdev came from this platform's own stat"
+        )]
+        let rdev = rdev as libc::dev_t;
+        // SAFETY: valid descriptor and C string.
+        check(unsafe { libc::mknodat(dir.as_raw_fd(), last.as_ptr(), mode_t(mode), rdev) })
+            .map(drop)
     }
 
     pub fn symlink(&self, target: &[u8], path: &str) -> Result<(), i32> {
@@ -248,20 +309,7 @@ impl Upper {
     pub fn rename(&self, from: &str, to: &str, flags: u32) -> Result<(), i32> {
         let (from_dir, from_name) = self.parent(from)?;
         let (to_dir, to_name) = self.parent(to)?;
-        // The raw syscall: musl, which the Linux release binaries link, has no `renameat2`
-        // wrapper, so `libc::renameat2` left the musl builds with an undefined symbol.
-        // SAFETY: valid descriptors and C strings; renameat2 takes exactly these arguments.
-        let done = unsafe {
-            libc::syscall(
-                libc::SYS_renameat2,
-                from_dir.as_raw_fd(),
-                from_name.as_ptr(),
-                to_dir.as_raw_fd(),
-                to_name.as_ptr(),
-                flags,
-            )
-        };
-        check(done as libc::c_int).map(drop)
+        rename_at(&from_dir, &from_name, &to_dir, &to_name, flags)
     }
 
     /// Moves a file from outside the upper folder (the scratch folder, same disk) to `to`.
@@ -301,31 +349,31 @@ impl Upper {
             return Self::chmod_fd(&dir, mode);
         }
         // fchmodat follows a link at the last name: a link is never chmod-ed (nor its target).
-        if self.stat(path)?.format() == libc::S_IFLNK {
+        if self.stat(path)?.format() == fmt::S_IFLNK {
             return Err(libc::EOPNOTSUPP);
         }
         let (dir, last) = self.parent(path)?;
         // SAFETY: valid descriptor and C string.
-        check(unsafe { libc::fchmodat(dir.as_raw_fd(), last.as_ptr(), mode & 0o7777, 0) }).map(drop)
+        check(unsafe { libc::fchmodat(dir.as_raw_fd(), last.as_ptr(), mode_t(mode & 0o7777), 0) })
+            .map(drop)
     }
 
     /// Permission bits through a descriptor (`O_PATH` ones too, through `/proc`).
     pub fn chmod_fd(fd: &OwnedFd, mode: u32) -> Result<(), i32> {
-        let path =
-            CString::new(proc_path(fd).as_os_str().as_encoded_bytes()).map_err(|_| libc::EINVAL)?;
+        let path = CString::new(proc_path(fd)?.as_os_str().as_encoded_bytes())
+            .map_err(|_| libc::EINVAL)?;
         // SAFETY: a valid C string.
-        check(unsafe { libc::chmod(path.as_ptr(), mode & 0o7777) }).map(drop)
+        check(unsafe { libc::chmod(path.as_ptr(), mode_t(mode & 0o7777)) }).map(drop)
     }
 
     /// Owner and group of `path` (`u32::MAX` leaves one alone), never through a link.
     pub fn chown(&self, path: &str, uid: u32, gid: u32) -> Result<(), i32> {
         if path.is_empty() {
             let dir = self.dir("")?;
-            // SAFETY: valid descriptor; AT_EMPTY_PATH acts on it.
-            return check(unsafe {
-                libc::fchownat(dir.as_raw_fd(), c"".as_ptr(), uid, gid, libc::AT_EMPTY_PATH)
-            })
-            .map(drop);
+            let path = CString::new(proc_path(&dir)?.as_os_str().as_encoded_bytes())
+                .map_err(|_| libc::EINVAL)?;
+            // SAFETY: a valid C string; the upper folder itself is never a link.
+            return check(unsafe { libc::chown(path.as_ptr(), uid, gid) }).map(drop);
         }
         let (dir, last) = self.parent(path)?;
         // SAFETY: valid descriptor and C string.
@@ -345,7 +393,7 @@ impl Upper {
         let times = [timespec(atime), timespec(mtime)];
         if path.is_empty() {
             let dir = self.dir("")?;
-            let path = CString::new(proc_path(&dir).as_os_str().as_encoded_bytes())
+            let path = CString::new(proc_path(&dir)?.as_os_str().as_encoded_bytes())
                 .map_err(|_| libc::EINVAL)?;
             // SAFETY: valid C string and a two-element times array.
             return check(unsafe {
@@ -402,7 +450,10 @@ impl Upper {
         if !self.keep_atime.load(Ordering::Relaxed) {
             return open(flags);
         }
-        match open(flags | libc::O_NOATIME) {
+        if NOATIME == 0 {
+            return open(flags);
+        }
+        match open(flags | NOATIME) {
             Err(libc::EPERM) => open(flags),
             opened => opened,
         }
@@ -445,28 +496,30 @@ impl Upper {
         }
         let mut out = Vec::new();
         loop {
-            // SAFETY: `stream` is open; the entry it returns lives until the next readdir64.
-            let entry = unsafe { libc::readdir64(stream) };
+            // SAFETY: `stream` is open; the entry it returns lives until the next read.
+            let entry = unsafe { read_entry(stream) };
             if entry.is_null() {
                 break;
             }
-            // SAFETY: a non-null entry from readdir64 holds a NUL-terminated name.
+            // SAFETY: a non-null entry from readdir holds a NUL-terminated name.
             let (raw, ino, d_type) = unsafe {
                 let entry = &*entry;
-                (std::ffi::CStr::from_ptr(entry.d_name.as_ptr()), entry.d_ino, entry.d_type)
+                #[allow(clippy::useless_conversion)]
+                let ino = u64::from(entry.d_ino);
+                (std::ffi::CStr::from_ptr(entry.d_name.as_ptr()), ino, entry.d_type)
             };
             let Ok(found) = raw.to_str() else { continue };
             if found == "." || found == ".." {
                 continue;
             }
             let format = match d_type {
-                libc::DT_DIR => libc::S_IFDIR,
-                libc::DT_REG => libc::S_IFREG,
-                libc::DT_LNK => libc::S_IFLNK,
-                libc::DT_FIFO => libc::S_IFIFO,
-                libc::DT_SOCK => libc::S_IFSOCK,
-                libc::DT_CHR => libc::S_IFCHR,
-                libc::DT_BLK => libc::S_IFBLK,
+                libc::DT_DIR => fmt::S_IFDIR,
+                libc::DT_REG => fmt::S_IFREG,
+                libc::DT_LNK => fmt::S_IFLNK,
+                libc::DT_FIFO => fmt::S_IFIFO,
+                libc::DT_SOCK => fmt::S_IFSOCK,
+                libc::DT_CHR => fmt::S_IFCHR,
+                libc::DT_BLK => fmt::S_IFBLK,
                 // A disk that names no type: its stat does.
                 _ => match self.stat(&if dir.is_empty() {
                     found.to_owned()
@@ -494,4 +547,74 @@ impl Upper {
         check(unsafe { libc::statvfs(path.as_ptr(), &mut out) })?;
         Ok(out)
     }
+}
+
+/// The next entry of an open folder stream.
+#[cfg(target_os = "linux")]
+unsafe fn read_entry(stream: *mut libc::DIR) -> *mut libc::dirent64 {
+    // SAFETY: the caller's stream is open.
+    unsafe { libc::readdir64(stream) }
+}
+
+#[cfg(not(target_os = "linux"))]
+unsafe fn read_entry(stream: *mut libc::DIR) -> *mut libc::dirent {
+    // SAFETY: the caller's stream is open.
+    unsafe { libc::readdir(stream) }
+}
+
+/// `renameat2` on Linux (the raw syscall: musl, which the Linux release binaries link, has no
+/// `renameat2` wrapper, so `libc::renameat2` left the musl builds with an undefined symbol).
+#[cfg(target_os = "linux")]
+fn rename_at(
+    from_dir: &OwnedFd,
+    from_name: &CString,
+    to_dir: &OwnedFd,
+    to_name: &CString,
+    flags: u32,
+) -> Result<(), i32> {
+    // SAFETY: valid descriptors and C strings; renameat2 takes exactly these arguments.
+    let done = unsafe {
+        libc::syscall(
+            libc::SYS_renameat2,
+            from_dir.as_raw_fd(),
+            from_name.as_ptr(),
+            to_dir.as_raw_fd(),
+            to_name.as_ptr(),
+            flags,
+        )
+    };
+    #[allow(clippy::cast_possible_truncation, reason = "the rename syscall returns 0 or -1")]
+    check(done as libc::c_int).map(drop)
+}
+
+/// `renameatx_np` on macOS, with Linux's flags turned into its own (`RENAME_EXCL`, `RENAME_SWAP`).
+#[cfg(not(target_os = "linux"))]
+fn rename_at(
+    from_dir: &OwnedFd,
+    from_name: &CString,
+    to_dir: &OwnedFd,
+    to_name: &CString,
+    flags: u32,
+) -> Result<(), i32> {
+    if flags & !(RENAME_NOREPLACE | RENAME_EXCHANGE) != 0 {
+        return Err(libc::EINVAL);
+    }
+    let mut own = 0;
+    if flags & RENAME_NOREPLACE != 0 {
+        own |= libc::RENAME_EXCL;
+    }
+    if flags & RENAME_EXCHANGE != 0 {
+        own |= libc::RENAME_SWAP;
+    }
+    // SAFETY: valid descriptors and C strings.
+    check(unsafe {
+        libc::renameatx_np(
+            from_dir.as_raw_fd(),
+            from_name.as_ptr(),
+            to_dir.as_raw_fd(),
+            to_name.as_ptr(),
+            own,
+        )
+    })
+    .map(drop)
 }

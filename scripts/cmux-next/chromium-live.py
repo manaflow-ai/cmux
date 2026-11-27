@@ -56,6 +56,7 @@ import sys
 import time
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from safe_log import safe_print  # noqa: E402  (a line in a cleanup path never skips the kill)
+import live_frames  # noqa: E402  (a frame of each swapped engine in the chat, RFD 0152)
 
 FRAMEWORK_REL = Path("Contents/Frameworks/Chromium Embedded Framework.framework")
 BINARY_NAME = "Chromium Embedded Framework"
@@ -422,6 +423,7 @@ def cycle(cfg: dict, state: Path, builder: Builder, rels: list[str], saved_at: f
         result = swap(app, built, cfg.get("gpu", False))
         t.update(result.pop("seconds"))
         entry["respawn"] = result
+        live_frames.built("chromium")  # the pages reloaded on the new engine: the chat's frame shows it
     t["save_to_reloaded"] = time.time() - saved_at
     entry["seconds"] = {k: round(v, 3) for k, v in t.items()}
     record(state, entry)
@@ -571,7 +573,12 @@ def stop_locked(state: Path) -> int:
             time.sleep(0.2)
         if running_pid(state) == pid:
             os.kill(pid, signal.SIGTERM)  # our own watcher, started by `start`
-            time.sleep(0.5)
+            # It exits on SIGTERM: wait until its pid is gone before restoring.
+            gone_by = time.monotonic() + 10
+            while running_pid(state) == pid and time.monotonic() < gone_by:
+                time.sleep(0.1)
+            if running_pid(state) == pid:
+                safe_print(f"note: the watcher {pid} still runs 10 s after SIGTERM; restoring anyway")
     cfg_path = state / "config.json"
     if cfg_path.is_file():
         cfg = json.loads(cfg_path.read_text())

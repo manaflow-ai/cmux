@@ -94,8 +94,8 @@ fn a_press_that_may_have_run_is_not_clicked_again() {
     assert!(!roles::press_error_falls_back(-25200)); // failure
 }
 
-/// Review 3 (8, 9): the scope runs only on the verified minors (26.6+,
-/// 27.0.1+; earlier versions and other majors run with it off), and any off
+/// Review 3 (8, 9): the scope runs only on the verified minors (26.5+,
+/// 27.0+; earlier versions and other majors run with it off), and any off
 /// switch that says 0 turns it off, whichever source says it.
 #[test]
 fn the_key_in_app_scope_is_gated() {
@@ -104,11 +104,13 @@ fn the_key_in_app_scope_is_gated() {
     assert!(gate("26.7", &[]));
     assert!(gate("27.2", &[]));
     assert!(gate("27.3.1", &[]));
-    assert!(!gate("26.5.1", &[]), "before the verified 26 minor");
-    // 27.0.1 verified live (the person's macOS): on from 27.0.1, not 27.0.
+    assert!(gate("26.5.2", &[]), "26.5.2: the eval guest's image");
+    assert!(gate("26.5", &[]));
+    assert!(!gate("26.4.1", &[]), "before the verified 26 minor");
+    // 27.0 and 27.0.1 verified live: on for every 27.
+    assert!(gate("27.0", &[]), "27.0 verified live (TextEdit, a fleet Mac)");
     assert!(gate("27.0.1", &[]));
     assert!(gate("27.0.2", &[]));
-    assert!(!gate("27.0", &[]), "27.0 itself was not verified");
     assert!(!gate("28.0", &[]));
     assert!(!gate("15.7", &[]));
     assert!(!gate("", &[]));
@@ -1109,7 +1111,10 @@ fn blocked_in(
 
 #[test]
 fn a_denied_app_is_never_reachable_through_menus_in_any_language() {
-    let guard = PolicyGuard(crate::policy::PolicyConfig::default()); // Terminal, Keychain, System Settings, Ghostty, ...
+    // Keychain, System Settings, ... (the default) plus Terminal and Ghostty.
+    let mut config = crate::policy::PolicyConfig::default();
+    config.denied_apps.extend(["com.apple.Terminal".into(), "com.mitchellh.ghostty".into()]);
+    let guard = PolicyGuard(config);
     // German Apple menu > Benutzte Objekte (Recent Items): by structure (Apple menu, a submenu), not by title.
     let recent = ["Programme", "Terminal", "TextEdit", "notizen.txt", "Menü löschen"];
     assert!(blocked_in(&guard, Some(0), 2, &recent, "Terminal"));
@@ -1209,6 +1214,62 @@ fn keys_and_menu_commands_reach_only_the_key_window() {
     assert_eq!(roles::submenu_refusal("AXMenuItem", false), None);
     assert!(roles::submenu_refusal("AXMenuItem", true).is_some());
     assert_eq!(roles::submenu_refusal("AXMenuBarItem", true), None);
+}
+
+#[test]
+fn keys_reach_an_inline_editor_over_the_target_only() {
+    let target = Rect { x: 544.0, y: 94.0, width: 920.0, height: 436.0 };
+    // Finder's rename field, measured: no focused window, the Finder window
+    // as main window, a text field in no window, inside the target.
+    let field = roles::OverlayEditor {
+        role: "AXTextField".into(),
+        in_other_window: false,
+        frame: Some(Rect { x: 759.0, y: 228.0, width: 54.0, height: 21.0 }),
+    };
+    assert!(roles::keys_reach_overlay_editor(false, true, Some(&field), &target));
+    // A focused window (a sheet, an alert, another document) keeps the
+    // key-window rule.
+    assert!(!roles::keys_reach_overlay_editor(true, true, Some(&field), &target));
+    // The editor is over another window of the app.
+    assert!(!roles::keys_reach_overlay_editor(false, false, Some(&field), &target));
+    let elsewhere = roles::OverlayEditor {
+        frame: Some(Rect { x: 10.0, y: 40.0, width: 54.0, height: 21.0 }),
+        ..field.clone()
+    };
+    assert!(!roles::keys_reach_overlay_editor(false, true, Some(&elsewhere), &target));
+    // In another window, not a text input, or no frame: refused.
+    let other = roles::OverlayEditor { in_other_window: true, ..field.clone() };
+    assert!(!roles::keys_reach_overlay_editor(false, true, Some(&other), &target));
+    let button = roles::OverlayEditor { role: "AXButton".into(), ..field.clone() };
+    assert!(!roles::keys_reach_overlay_editor(false, true, Some(&button), &target));
+    let unread = roles::OverlayEditor { frame: None, ..field.clone() };
+    assert!(!roles::keys_reach_overlay_editor(false, true, Some(&unread), &target));
+    assert!(!roles::keys_reach_overlay_editor(false, true, None, &target));
+    // A window as big as the target is not an editor inside it.
+    assert!(!roles::rect_within(&target, &target));
+}
+
+#[test]
+fn an_inline_editor_window_id_names_the_window_keys_go_to() {
+    let hint = roles::overlay_editor_window_hint(3910, "AXTextField", Some(3902));
+    assert!(hint.contains("window 3910 is an inline editor (a text field"), "{hint}");
+    assert!(hint.contains("window_id 3902"), "{hint}");
+    let hint = roles::overlay_editor_window_hint(3910, "AXTextField", None);
+    assert!(hint.contains("the window it lies over"), "{hint}");
+}
+
+#[test]
+fn set_value_focuses_a_native_field_that_commits_when_editing_ends() {
+    // Finder's Get Info name field: not focused, AXConfirm offered.
+    assert!(roles::focus_before_value_write("AXTextField", false, false, Some(false), true));
+    // Already being edited, web content, the person's app, no confirm, an
+    // unreadable focus or a text area: left as it is.
+    assert!(!roles::focus_before_value_write("AXTextField", false, false, Some(true), true));
+    assert!(!roles::focus_before_value_write("AXTextField", true, false, Some(false), true));
+    assert!(!roles::focus_before_value_write("AXTextField", false, true, Some(false), true));
+    assert!(!roles::focus_before_value_write("AXTextField", false, false, Some(false), false));
+    assert!(!roles::focus_before_value_write("AXTextField", false, false, None, true));
+    assert!(!roles::focus_before_value_write("AXTextArea", false, false, Some(false), true));
 }
 
 #[test]
@@ -1362,6 +1423,36 @@ fn menu_items_fail_closed_while_the_app_name_index_builds() {
     let open =
         PolicyGuard(crate::policy::PolicyConfig { denied_apps: vec![], ..Default::default() });
     assert!(roles::menu_item_blocked(&open, &ctx, &pending));
+}
+
+#[test]
+fn a_never_switched_layout_is_read_from_the_selected_or_only_enabled_source() {
+    use roles::{InputSourceEntry as E, Layout as L, layout_id_from_sources as from};
+    let layout =
+        |name: &str| E { kind: Some("Keyboard Layout".into()), layout_name: Some(name.into()) };
+    let kind = |k: &str| E { kind: Some(k.into()), layout_name: None };
+    let palette = kind("Non Keyboard Input Method");
+    // A Mac never switched records no current layout ID, only its sources:
+    // cmd+s was refused there for every app (2026-11-26 CU suite, TextEdit).
+    let us = from(&[layout("U.S.")], &[layout("U.S."), palette.clone()]);
+    assert_eq!(us.as_deref(), Some("com.apple.keylayout.US"));
+    assert_eq!(roles::layout_of(us.as_deref(), true), L::Ansi);
+    let abc = from(&[], &[layout("ABC"), palette.clone()]);
+    assert_eq!(roles::layout_of(abc.as_deref(), true), L::Ansi);
+    let british = from(&[layout("British")], &[]);
+    assert_eq!(roles::layout_of(british.as_deref(), true), L::LettersDigits);
+    // The selected layout wins over other enabled ones.
+    let selected = from(&[layout("German")], &[layout("U.S."), layout("German")]);
+    assert_eq!(roles::layout_of(selected.as_deref(), true), L::Other);
+    // Still fail closed: two enabled and none selected, an input method,
+    // an unknown name, or nothing.
+    assert_eq!(from(&[], &[layout("U.S."), layout("German")]), None);
+    assert_eq!(from(&[layout("U.S."), kind("Input Mode")], &[]), None);
+    assert_eq!(from(&[], &[layout("ABC"), kind("Keyboard Input Method")]), None);
+    let pc = from(&[layout("British – PC")], &[]);
+    assert_eq!(roles::layout_of(pc.as_deref(), true), L::Other);
+    assert_eq!(from(&[], &[]), None);
+    assert_eq!(from(&[], &[palette]), None);
 }
 
 #[test]
@@ -2099,7 +2190,9 @@ fn a_shortcut_blocked_only_while_names_load_says_they_are_loading() {
 #[test]
 fn a_menu_item_check_tells_a_real_block_from_a_name_not_resolved_yet() {
     use roles::{ItemCheck, MenuItemContext, menu_item_check};
-    let guard = PolicyGuard(crate::policy::PolicyConfig::default());
+    let mut config = crate::policy::PolicyConfig::default();
+    config.denied_apps.push("com.apple.Terminal".into());
+    let guard = PolicyGuard(config);
     let ctx =
         |t| MenuItemContext { title: t, top_index: None, depth: 1, siblings: &[], launch: None };
     let loading = |_: &str| -> Option<Vec<String>> { None };
@@ -2171,8 +2264,10 @@ fn a_refusal_names_why_an_item_is_blocked() {
 #[test]
 fn an_open_with_item_naming_an_allowed_app_is_allowed_once_the_index_is_built() {
     use crate::menus::BlockReason;
-    // The default deny list is not empty (Terminal is on it).
-    let guard = PolicyGuard(crate::policy::PolicyConfig::default());
+    // The default deny list is not empty; Terminal is denied on top of it.
+    let mut config = crate::policy::PolicyConfig::default();
+    config.denied_apps.push("com.apple.Terminal".into());
+    let guard = PolicyGuard(config);
     let open_with = vec!["Open With".to_string()];
     let index = |n: &str| -> Option<Vec<String>> {
         Some(match n.to_lowercase().as_str() {
@@ -2865,6 +2960,52 @@ fn the_web_value_route_writes_only_into_plain_visible_text_fields() {
     assert!(roles::web_value_gate(Some(&proxy), setting).is_err(), "a padded 1x1 helper");
 }
 
+/// A web slider (`<input type="range">`) takes set_value, which writes its
+/// number straight to it with no page-focus wait: its increment action
+/// moves it by 5% (WebKit), so 42 of 0-100 was out of reach in the
+/// background (cu suite form-slider, 0 of 3 on 2026-11-26: "the slider can
+/// only be set to multiples of 5 in the background"). Typing into one stays
+/// refused, and every other rule of the gate still holds.
+#[test]
+#[allow(clippy::redundant_clone)]
+fn a_web_slider_takes_set_value_without_waiting_for_page_focus() {
+    assert_eq!(roles::web_kind("AXSlider", 0), roles::WebKind::Range);
+    assert_eq!(roles::web_kind("AXSlider", 1), roles::WebKind::Range, "WebKit's thumb child");
+    let slider = roles::WebField {
+        kind: roles::WebKind::Range,
+        secure: false,
+        width: 129.0,
+        height: 21.0,
+        on_screen: true,
+        hidden: false,
+        limited: false,
+        center: Point { x: 0.0, y: 0.0 },
+    };
+    let setting = roles::SecureField::Allow;
+    assert!(roles::web_value_gate(Some(&slider), setting).is_ok());
+    assert!(
+        roles::web_value_gate(Some(&slider), roles::SecureField::Refuse).is_err(),
+        "nothing types into a slider"
+    );
+    assert!(
+        roles::web_value_gate(Some(&roles::WebField { hidden: true, ..slider.clone() }), setting)
+            .is_err(),
+        "hidden"
+    );
+    assert!(
+        roles::web_value_gate(
+            Some(&roles::WebField { on_screen: false, ..slider.clone() }),
+            setting
+        )
+        .is_err(),
+        "off screen"
+    );
+    assert!(!roles::web_write_needs_page_focus(Some(roles::WebKind::Range)));
+    for kind in [None, Some(roles::WebKind::Plain), Some(roles::WebKind::Other)] {
+        assert!(roles::web_write_needs_page_focus(kind), "text inputs keep the focus rule");
+    }
+}
+
 /// Live in Safari (macOS 27.0.1): an <input> has no children; a native
 /// <textarea> and a one-paragraph contenteditable (an empty ProseMirror
 /// `<p><br></p>`, a one-paragraph Quill, a one-line CodeMirror 6) are both an
@@ -3217,13 +3358,42 @@ fn background_web_keys_go_only_where_the_page_has_the_keyboard() {
 
 #[test]
 fn chromium_shows_its_pages_once_asked_like_a_screen_reader() {
-    use roles::{web_accessibility_attribute, web_engine};
+    use roles::web_accessibility_attribute;
     assert_eq!(
-        web_accessibility_attribute(web_engine(Some("com.google.Chrome"))),
+        web_accessibility_attribute(Some("com.google.Chrome")),
         Some("AXEnhancedUserInterface")
     );
-    assert_eq!(web_accessibility_attribute(web_engine(Some("com.apple.Safari"))), None);
-    assert_eq!(web_accessibility_attribute(web_engine(None)), None);
+    assert_eq!(web_accessibility_attribute(Some("com.apple.Safari")), None);
+    assert_eq!(web_accessibility_attribute(None), None);
+}
+
+/// Snag 3: cmux's agent chat is a Chromium (CEF) page that builds its
+/// accessibility tree only once a client sets `AXManualAccessibility` or
+/// `AXEnhancedUserInterface` on the app. cmux's bundle read as WebKit, so
+/// get_ui_tree never asked and the chat (messages, composer) was missing.
+#[test]
+fn cmux_is_asked_for_its_chromium_chat_pages_before_a_tree_walk() {
+    use roles::{WebEngine, embeds_chromium, web_accessibility_attribute, web_engine};
+    for id in [
+        "com.cmuxterm.app",
+        "com.cmuxterm.app.next",
+        "com.cmuxterm.app.nightly",
+        "com.cmuxterm.app.nightly.cmux-next",
+        "com.cmuxterm.app.debug.my-tag",
+        "COM.CMUXTERM.APP.Debug",
+    ] {
+        assert!(embeds_chromium(Some(id)), "{id}");
+        assert_eq!(web_accessibility_attribute(Some(id)), Some("AXManualAccessibility"), "{id}");
+        // Focus and caret rules stay WebKit's: cmux's internal pages are WKWebViews.
+        assert_eq!(web_engine(Some(id)), WebEngine::Other, "{id}");
+    }
+    for id in
+        ["com.cmuxterm.appx", "com.cmuxterm.remote", "com.cmuxterm.remote.dev", "com.apple.Safari"]
+    {
+        assert!(!embeds_chromium(Some(id)), "{id}");
+        assert_eq!(web_accessibility_attribute(Some(id)), None, "{id}");
+    }
+    assert!(!embeds_chromium(None));
 }
 
 #[test]

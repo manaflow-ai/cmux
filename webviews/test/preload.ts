@@ -1,12 +1,45 @@
+// A browser stamps each animation frame on the clock `performance.now()` reads. jsdom's
+// `requestAnimationFrame` (pretendToBeVisual) stamps it from the jsdom window's creation instead, so
+// a page that compares a frame's time with the global `performance.now()` (scrollMotion.ts's
+// runScroll) read seconds of negative elapsed time and its glide stalled: under 8 parallel runs
+// transcript-jump-momentum failed 10 of 48. Every window a test file creates goes through
+// createWindow, so wrapping it here (before anything loads jsdom's api.js, which keeps its own
+// reference) gives every window's frames the global clock, read when the frame runs.
+{
+  const { createRequire } = await import("node:module");
+  const { dirname, join } = await import("node:path");
+  const require = createRequire(import.meta.url);
+  const root = dirname(require.resolve("jsdom/package.json"));
+  const windowModule = require(join(root, "lib/jsdom/browser/Window.js")) as {
+    createWindow: (options: unknown) => Record<string, unknown>;
+  };
+  const createWindow = windowModule.createWindow;
+  windowModule.createWindow = (options) => {
+    const window = createWindow(options);
+    const frame = window.requestAnimationFrame as ((callback: unknown) => number) | undefined;
+    if (typeof frame === "function")
+      window.requestAnimationFrame = function requestAnimationFrame(callback: unknown) {
+        // A non-function keeps jsdom's own TypeError.
+        if (typeof callback !== "function") return frame.call(this, callback);
+        return frame.call(this, function (this: unknown) {
+          return (callback as (time: number) => unknown).call(this, globalThis.performance.now());
+        });
+      };
+    return window;
+  };
+}
+
 // Base UI decides once, when its module first loads, whether to run layout effects: it checks for
 // a global `document` (@base-ui/utils/useIsoLayoutEffect). Test files install jsdom in beforeAll,
 // after their imports have loaded Base UI, and bun shares one module cache across files, so the
 // first file to import src/ui would turn Base UI's layout effects off for every file after it
 // (popovers and dialogs that never open). Load that one module here with a stand-in document.
+import { resolveBaseUiDependency } from "./support/baseUiDependency";
+
 const scope = globalThis as Record<string, unknown>;
 const hadDocument = "document" in scope;
 if (!hadDocument) scope.document = {};
-await import("@base-ui/utils/useIsoLayoutEffect");
+await import(resolveBaseUiDependency("@base-ui/utils/useIsoLayoutEffect", import.meta.path));
 if (!hadDocument) delete scope.document;
 export {};
 
@@ -26,6 +59,19 @@ export {};
   // The design scale's Tailwind theme and token list (gen-design-scale.mjs) are build output as well.
   const { writeDesignScale } = await import("../scripts/pages/gen-design-scale.mjs");
   writeDesignScale({ log: () => {} });
+  // So are the pane and acpmux protocol types (pane-protocol-codegen.ts, acpmux-protocol-codegen.ts),
+  // made from the committed IR; each file is written only when its content changed.
+  const { writePaneProtocol } = await import("../scripts/pane-protocol-codegen");
+  writePaneProtocol({ log: () => {} });
+  const { writeAcpmuxProtocol } = await import("../scripts/acpmux-protocol-codegen");
+  writeAcpmuxProtocol({ log: () => {} });
+}
+
+// React reads its commit hook once, when react-dom loads: install the row render counter
+// (support/commitRenders.ts) first, so a jsdom test can count which rows a change rendered.
+{
+  const { installRowRenderCounter } = await import("./support/commitRenders");
+  installRowRenderCounter();
 }
 
 // React's scheduler keeps its queue private, and react-dom copies its entry points when it first
@@ -61,7 +107,7 @@ export {};
   // of the run. session-info-subagent-card-stays failed so behind session-info-motion in one
   // `bun test` process, and passed alone. Loaded here, after react-dom, which it imports: the copy
   // Base UI itself resolves (a dependency of @base-ui/react, not of this package).
-  await import(Bun.resolveSync("@floating-ui/react-dom", Bun.resolveSync("@base-ui/react/tooltip", import.meta.path)));
+  await import(resolveBaseUiDependency("@floating-ui/react-dom", import.meta.path));
   for (const [key, had, value] of saved)
     if (had) scope[key] = value;
     else delete scope[key];
@@ -116,6 +162,20 @@ if (!("Element" in scope)) {
   const { chromium, firefox, webkit } = await import("playwright");
   useSystemChrome(chromium as unknown as Parameters<typeof useSystemChrome>[0]);
   refusePlaywrightOnMacs([chromium, webkit, firefox]);
+}
+
+// The chunks a page fetches once it is idle after its first frame (src/lazyChunk.ts: the facts hover
+// card) are in place before a file's first test, as they are on a page by the time anyone points at
+// a card: a render draws them at once, with no update outside act. Before the first test, not here: a
+// chunk's modules (Base UI) read `navigator` once when they load, so they load after the file has
+// installed its window, as they did when they were the file's own imports. A file that imports none
+// of them fetches nothing.
+// Outside `bun test` (scripts/cloud-ergonomics.ts, cmuxterm-hq's cloud-ergonomics-linux probe, runs this
+// preload as a plain script) there is no first test, beforeAll throws, and the script draws no lazy chunk.
+if (process.env.NODE_ENV === "test") {
+  const { beforeAll } = await import("bun:test");
+  const { loadLazyChunks } = await import("../src/lazyChunk");
+  beforeAll(() => loadLazyChunks());
 }
 
 // Cross-file leaks: a test file that leaves module state, a timer, a listener or a global behind

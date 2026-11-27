@@ -16,7 +16,10 @@ pub(super) struct Authority {
 
 impl Authority {
     pub(super) fn current(legacy: PathBuf) -> Result<Self> {
-        Ok(Self { root: account_home()?.join(".acpmux/machine-consent"), legacy })
+        Ok(Self {
+            root: crate::config::resolve_supervised_home(&account_home()?).join("machine-consent"),
+            legacy,
+        })
     }
 
     fn validate_namespace(&self) -> Result<()> {
@@ -198,8 +201,14 @@ impl Authority {
         let mut consent = self.consent();
         let state = if granted { ConsentState::Granted } else { ConsentState::None };
         match surface {
-            "screen" => consent.screen = state,
-            "control" => consent.control = state,
+            "screen" => {
+                consent.screen = state;
+                consent.screen_local = Some(granted);
+            }
+            "control" => {
+                consent.control = state;
+                consent.control_local = Some(granted);
+            }
             crate::machine_record::SIGNED_IN_MACHINES => {
                 anyhow::ensure!(
                     !granted || user.is_some(),
@@ -312,7 +321,7 @@ fn exists(path: &Path) -> Result<bool> {
 }
 
 #[cfg(unix)]
-fn account_home() -> Result<PathBuf> {
+pub(crate) fn account_home() -> Result<PathBuf> {
     // The kernel uid, never HOME or a tag's env.
     // SAFETY: geteuid has no preconditions.
     home_of_uid(unsafe { libc::geteuid() })
@@ -349,7 +358,7 @@ pub(super) fn home_of_uid(uid: libc::uid_t) -> Result<PathBuf> {
 /// (`SHGetKnownFolderPath(FOLDERID_Profile)`, what `dirs::home_dir` reads on Windows), never
 /// `USERPROFILE` or a tag's env.
 #[cfg(windows)]
-fn account_home() -> Result<PathBuf> {
+pub(crate) fn account_home() -> Result<PathBuf> {
     let path = dirs::home_dir().ok_or_else(|| anyhow::anyhow!("OS account home unavailable"))?;
     anyhow::ensure!(path.is_absolute(), "OS account home unavailable");
     Ok(path)

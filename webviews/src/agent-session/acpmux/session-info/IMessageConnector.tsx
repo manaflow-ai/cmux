@@ -16,7 +16,7 @@ export const IMessageConnector = memo(function IMessageConnector({
   look?: IMessageLook;
 }) {
   const t = useT();
-  const { data, busy, expanded, perform, toggle } = view;
+  const { data, busy, expanded, perform, toggle, stillTrying } = view;
   const connected = data.status === "connected";
   const button = (action: Parameters<typeof perform>[0], label: string) => (
     <button type="button" className="acpmux-session-info-link" disabled={busy} onClick={() => void perform(action)}>
@@ -49,10 +49,14 @@ export const IMessageConnector = memo(function IMessageConnector({
           <span className="acpmux-session-info-row__end">{t("imessage.setup")}</span>
         )}
       </div>
-      {data.error && (
+      {/* A read that keeps failing is asked again on its own (imessage.ts): one quiet line past the
+          deadline, no button. An error the person can act on (open Messages, Connect again) shows at once. */}
+      {data.error ? (
         <p className="acpmux-imessage-copy" role="alert">
           {imessageError(data.error, t)}
         </p>
+      ) : (
+        stillTrying && <p className="acpmux-imessage-copy">{t("imessage.stillTrying")}</p>
       )}
       {data.status === "needs_full_disk_access" && (
         <div className="acpmux-imessage-body">
@@ -100,7 +104,6 @@ export const IMessageConnector = memo(function IMessageConnector({
           )}
           <div className="acpmux-imessage-actions">
             {!data.sends_enabled && button("automation", t("imessage.allowMessages"))}
-            {data.error && button("threads", t("sessionInfo.connectors.retry"))}
             {button("disconnect", t("imessage.disconnect"))}
           </div>
         </div>

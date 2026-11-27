@@ -137,7 +137,7 @@ MAX_OTHER_WINDOWS = 4
 MIN_OTHER_WINDOW = (40, 24)
 # All of a step's other-window shots share this many seconds.
 OTHER_WINDOWS_BUDGET = 20.0
-TOUR_KEYS = {"title", "steps", "settings", "env", "customize", "launch_args", "harnessFixture"}
+TOUR_KEYS = {"title", "steps", "settings", "env", "customize", "launch_args", "harnessFixture", "menus"}
 # A directional focus right after a pane close (focus_after_close).
 DIRECTIONAL_FOCUS = {"focusLeft", "focusRight", "focusUp", "focusDown"}
 # Focus moves that open no pane, so they never undo a close (ActionCatalog+Focus.swift).
@@ -169,6 +169,9 @@ MAX_STEPS = 30
 # The CMUX_* knobs (not CMUX_NEXT_*) a tour's `env` may set: they reach the app's terminals too, so a
 # tour's own store is the one its shells and the app's pages read.
 FIXTURE_ENV = frozenset({"CMUX_AUTOMATIONS_DIR"})
+# The files a launch's app reads that a step's own CLI writes too (cmux-customize `Roots`): App.environment
+# hands the CLI the launch's values, so both name one place.
+APP_FILE_ENV = frozenset({"CMUX_CUSTOMIZE_DIR", "CMUX_AUTOMATIONS_DIR"})
 READ_ONLY_POSTCONDITION_METHODS = {
     "debug.layers", "debug.surfaces", "debug.focus", "debug.window_list", "debug.windows",
     "debug.pane_chrome", "debug.notifications", "debug.themes", "debug.dialog",
@@ -254,6 +257,8 @@ def load_tour(path: Path) -> dict[str, Any]:
     if harness_fixture is not None and (not isinstance(harness_fixture, dict)
                                         or not isinstance(harness_fixture.get("harnesses", {}), dict)):
         raise TourError(f"{path}: `harnessFixture` is an acpmux harness fixture object ({{\"harnesses\": {{...}}}})")
+    if not isinstance(data.get("menus", False), bool):
+        raise TourError(f"{path}: `menus` must be true or false")
     launch_args = data.get("launch_args", [])
     if not isinstance(launch_args, list) or not all(isinstance(arg, str) for arg in launch_args):
         raise TourError(f"{path}: `launch_args` must be a list of strings (arguments the app launches with)")
@@ -351,7 +356,7 @@ def load_tour(path: Path) -> dict[str, Any]:
         harness_fixture = json.loads(json.dumps(harness_fixture).replace("{repo}", json.dumps(repo)[1:-1]))
     return {"name": slug(path.stem), "title": data["title"].strip(), "steps": steps, "settings": data.get("settings"),
             "env": launch_env, "customize": data.get("customize", False), "launch_args": launch_args,
-            "harness_fixture": harness_fixture}
+            "harness_fixture": harness_fixture, "menus": data.get("menus", False)}
 
 
 def _action(step: dict[str, Any]) -> str | None:
@@ -639,8 +644,12 @@ def frame_interval(mode: str) -> float:
 
 
 class WindowVideo:
-    def __init__(self, session, pid: int | None, directory: Path, scratch: Path):
+    """capture.mov of the app's largest window (record-window.swift). With `menus`, every window of the app
+    cut to that window's frame, so an open native menu (its own window) is in the video too."""
+
+    def __init__(self, session, pid: int | None, directory: Path, scratch: Path, menus: bool = False):
         self.session, self.pid = session, pid
+        self.menus = menus
         self.path = directory / "capture.mov"
         self.scratch = scratch
         self.process = None
@@ -664,7 +673,7 @@ class WindowVideo:
             for mode, prefix in self.session.capture_routes:
                 self.path.unlink(missing_ok=True)
                 self.log = self.log_path.open("w+")
-                self.process = subprocess.Popen(prefix + [str(binary), str(self.pid), str(self.path)],
+                self.process = subprocess.Popen(prefix + [str(binary), str(self.pid), str(self.path)] + (["--menus"] if self.menus else []),
                                                 stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=self.log,
                                                 text=True)
                 with selectors.DefaultSelector() as ready:
@@ -705,6 +714,9 @@ class Recorder(threading.Thread):
         self.step = 0
         self.frames: list[dict[str, Any]] = []
         self.error: str | None = None
+        # The window's frames stopped for good while the tour ran (the app quit or closed its window):
+        # {"step", "time", "reason"} of the first failed capture after the last frame, None while frames come.
+        self.ended: dict[str, Any] | None = None
         self.stopping = threading.Event()
         self.lock = threading.Lock()
         self.interval = frame_interval(screen.mode)
@@ -729,7 +741,10 @@ class Recorder(threading.Thread):
                     break
                 if problem:
                     self.error = problem
+                    if self.frames and self.ended is None:
+                        self.ended = {"step": self.step, "time": round(started - self.started, 3), "reason": problem}
                 else:
+                    self.ended = None
                     self.frames.append({"file": f"frames/{path.name}", "step": self.step,
                                         "time": started - self.started})
             self.stopping.wait(max(0.0, self.interval - (time.monotonic() - started)))
@@ -784,7 +799,15 @@ class App:
         self.identity: dict[str, Any] = {}
 
     def environment(self) -> dict[str, str]:
+        """The steps' and the bundled CLI's environment: the caller's, scrubbed, with the files this launch's
+        app reads (its settings file, customize folder, automations store), so a command that writes them
+        itself (`cmux theme install`, `cmux customize ...`) writes what the app shows, never the runner's own
+        ~/.config/cmux-next. Media run 45937441993's theme-flourishes installed its theme there while the tagged
+        DEV app read its own files, and all 367 frames of its clip were one unthemed window."""
         env = {key: value for key, value in os.environ.items() if key not in SCRUBBED_ENV}
+        env.update({key: value for key, value in self.launch_env.items() if key in APP_FILE_ENV})
+        if self.settings_path:
+            env["CMUX_NEXT_CONFIG_FILE"] = str(self.settings_path)
         return env
 
     def clear_leftovers(self) -> None:
@@ -1199,6 +1222,11 @@ def run_step(app: App, screen: Screen, step: dict[str, Any], index: int, shots: 
         if done.returncode != 0:
             result["status"] = "unavailable" if step.get("optional") else "failed"
             result["detail"] = f"exited {done.returncode}"
+            # The command's own last line ("no terminal is ...", "... can't be split") goes in the
+            # job log too, so a failed step reads without downloading the run's artifact.
+            last = next((line.strip() for line in reversed(output.splitlines()) if line.strip()), "")
+            if last:
+                result["detail"] += f" ({last[:200]})"
             if step.get("optional"):
                 result["detail"] += f" ({step['optional']})"
     rpc = step.get("rpc")
@@ -1312,7 +1340,7 @@ def run_tour(app_path: Path, tour: dict[str, Any], out: Path, session: Session, 
               launch_env=launch_env, launch_args=tour.get("launch_args"))
     screen = Screen(session, session.shareable(workdir / "raw"), app)
     recorder = Recorder(screen, frames)
-    video = WindowVideo(session, None, session.shareable(directory), screen.scratch)
+    video = WindowVideo(session, None, session.shareable(directory), screen.scratch, menus=bool(tour.get("menus")))
     video_started = False
     # When the recording (video or stills) began: each step's `at` is its start on that clock, which
     # whats-new-clips.py's render-tour uses to cut a step range out of capture.mov.
@@ -1352,7 +1380,8 @@ def run_tour(app_path: Path, tour: dict[str, Any], out: Path, session: Session, 
             video_started = video.start()
             clock = time.monotonic()
             if video_started:
-                manifest["video_mode"] = "ScreenCaptureKit window, requested 60 fps"
+                manifest["video_mode"] = ("ScreenCaptureKit window with the app's menus" if video.menus
+                                          else "ScreenCaptureKit window") + ", requested 60 fps"
             else:
                 manifest["video_fallback"] = video.reason
                 print(f"[{tour['name']}] still-only video fallback: {video.reason}", flush=True)
@@ -1392,6 +1421,9 @@ def run_tour(app_path: Path, tour: dict[str, Any], out: Path, session: Session, 
         app.stop()
         if recorder.error and not manifest["frames"]:
             manifest.setdefault("frames_error", recorder.error)
+        if recorder.ended and manifest["frames"]:
+            # whats-new-clips.py shows a clip whose window went away (a before whose ⌘Q quits) ending on it.
+            manifest["frames_ended"] = recorder.ended
         manifest["capture_rect"] = screen.rect
         if not screen.app:
             manifest["capture_window"] = screen.window_id

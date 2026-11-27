@@ -101,6 +101,9 @@ FAST_GROUPS = ("ci",)
 # profile). They run in CI; a macOS run skips them and says so.
 LINUX_ONLY_STEPS = {
     "Validate CMUX workload profile contract",
+    # Their pinned zizmor and gitleaks release binaries are Linux builds (scripts/static-analysis/).
+    "Fail on a workflow security hole this change adds (zizmor)",
+    "Fail on a secret this change commits (gitleaks)",
 }
 # Linux-only wrappers whose payload is portable: off Linux, run the payload.
 # The workload profile runner refuses macOS, but ci-guard.sh's commands (the
@@ -667,11 +670,13 @@ def default_base(head_sha: str) -> str:
     explicit = os.environ.get("CMUX_GUARDS_BASE_SHA")
     if explicit:
         return explicit
+    # A push checkout of feat-cmux-next has none of these refs; each miss is expected, so git's
+    # "fatal: Not a valid object name" stays out of the log (it read as the group's red on job 139513893359).
     for ref in ("upstream/main", "mf/main", "origin/main"):
-        try:
-            return git("merge-base", head_sha, ref)
-        except subprocess.CalledProcessError:
-            continue
+        found = subprocess.run(["git", "merge-base", head_sha, ref], cwd=ROOT, stdout=subprocess.PIPE,
+                               stderr=subprocess.DEVNULL, text=True)
+        if found.returncode == 0:
+            return found.stdout.strip()
     return ""
 
 

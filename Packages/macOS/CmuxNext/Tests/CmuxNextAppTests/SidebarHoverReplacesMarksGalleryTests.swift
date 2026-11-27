@@ -11,6 +11,7 @@ import Testing
 /// hovered cells show only the controls in the trailing cluster. Artifact `sidebar-hover-replaces-gallery.tar`
 /// (`CMUX_TEST_REQUIRE_GUI=1`).
 @MainActor @Suite(.serialized, .closesItsWindows) struct SidebarHoverReplacesMarksGalleryTests {
+    /// Each mark set.
     static let variants: [SidebarRowCloseClearsMarksTests.Marks] = [.unreadDot, .unreadCount, .error, .pullRequestCount, .everything]
 
     static func render(_ marks: SidebarRowCloseClearsMarksTests.Marks, hovered: Bool, dark: Bool) throws -> CGImage {

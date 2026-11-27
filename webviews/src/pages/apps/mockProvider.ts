@@ -13,9 +13,11 @@ import {
   type InstalledApp,
   type LogLine,
 } from "./types";
-import type { WireDetail, WireIcon, WireInstalledList, WireListing, WireUpdatesList } from "./wire";
+import type { WireDetail, WireInstalledList, WireListing, WireUpdatesList, WireIcon } from "./wire";
+import { NewTabOps } from "./UseAsNewTab";
 import { iconArt, screenshotArt } from "./mockArt";
 
+import type { FeatureRow } from "./types";
 export interface MockCall {
   op: string;
   /** The params without `idempotency_key`, which is recorded in `key`. */
@@ -37,6 +39,13 @@ export class MockAppsProvider implements PageClient {
   /** Package files `asset.get` serves, by app and path (screenshots, icon images). */
   assets: Record<string, Record<string, string>>;
   offline = false;
+  /** The daemon's built-in features (`apps.features.list`), each an existing setting. */
+  features: FeatureRow[] = sampleFeatures();
+  /** `experiments.appStoreFeatures`: on here so the dev loop and the gallery draw the tab. */
+  featuresEnabled = true;
+  /** `tabs.newTabApp`: the app New Tab shows. */
+  newTabApp?: string;
+  private readonly newTabWatchers = new Map<number, (data: unknown, seq: number) => void>();
   /** Errors the next call of an op throws once (a timeout, a refusal). */
   private readonly failures = new Map<string, Error>();
   /** The host's page streams (connection, dispatcher commands). */
@@ -54,6 +63,7 @@ export class MockAppsProvider implements PageClient {
     this.details = data.details;
     this.installed = data.installed;
     this.grants = data.grants;
+    this.newTabApp = data.newTabApp;
     this.assets = data.assets ?? {};
     this.examples = data.examples === true;
   }
@@ -99,6 +109,7 @@ export class MockAppsProvider implements PageClient {
             name: row.name,
             tier: row.tier ?? "verified",
             hide_only: row.tier === "first-party",
+            new_tab: row.new_tab ?? this.details[row.id]?.new_tab === true,
             state: {
               installed: true,
               enabled: row.enabled,
@@ -180,6 +191,18 @@ export class MockAppsProvider implements PageClient {
         }
         return this.changed(app) as R;
       }
+      case AppsOps.featuresList:
+        return this.featuresEnabled
+          ? ({ revision: this.revision, enabled: true, features: structuredClone(this.features) } as R)
+          : ({ revision: this.revision, enabled: false, features: [] } as R);
+      case AppsOps.featuresSet: {
+        const row = this.features.find((feature) => feature.id === params.id);
+        if (!row) throw pageError("cmux.resource.validation_invalid", `no feature ${String(params.id)}`);
+        if (row.managed) throw pageError("cmux.resource.operation_failed", "managed");
+        row.on = params.on === true;
+        this.revision += 1;
+        return { revision: this.revision, replayed: false, changed: true } as R;
+      }
       case AppsOps.hiddenSet: {
         const row = this.installed[app];
         if (!row) throw pageError("cmux.apps.not_installed", app);
@@ -215,6 +238,18 @@ export class MockAppsProvider implements PageClient {
         }
         return this.changed(app) as R;
       }
+      case NewTabOps.get:
+        return { app: this.newTabApp ?? null } as R;
+      case NewTabOps.set: {
+        this.newTabApp = typeof params.app === "string" ? params.app : undefined;
+        const event = { app: this.newTabApp ?? null };
+        for (const [sub, watcher] of this.newTabWatchers) {
+          const seq = (this.seqs.get(sub) ?? 0) + 1;
+          this.seqs.set(sub, seq);
+          watcher(event, seq);
+        }
+        return event as R;
+      }
       case OPEN_ACTION.op:
         return { ran: true } as R;
       default:
@@ -232,6 +267,10 @@ export class MockAppsProvider implements PageClient {
     if (this.offline) throw pageError(LINK_CLOSED, "disconnected", true);
     const sub = this.nextSub++;
     const emit = onEvent as (data: unknown, seq: number) => void;
+    if (stream === NewTabOps.changed) {
+      this.newTabWatchers.set(sub, emit);
+      return () => void this.newTabWatchers.delete(sub);
+    }
     if (stream === AppsOps.watch) {
       this.watchers.set(sub, emit);
       return () => void this.watchers.delete(sub);
@@ -268,6 +307,13 @@ export class MockAppsProvider implements PageClient {
       categories: detail.categories,
       keywords: detail.keywords,
       hide_only: detail.tier === "first-party",
+      ...(detail.commit && {
+        repository: detail.repository,
+        path: detail.path,
+        commit: detail.commit,
+        tag: detail.tag,
+      }),
+      new_tab: detail.new_tab === true,
       shelf: detail.shelf ?? "store",
       install: installed
         ? {
@@ -321,6 +367,8 @@ export function sampleApps(): {
   details: Record<string, AppDetail>;
   installed: Record<string, InstalledApp>;
   grants: Record<string, Grants>;
+  /** The app New Tab shows (`tabs.newTabApp`), when one is set. */
+  newTabApp?: string;
   /** The owner offers the Examples shelf. */
   examples?: boolean;
   /** Package files by app and path. */
@@ -911,4 +959,59 @@ export function manyStoreApps(): SampleData {
     failure: "The app failed to start.",
   };
   return data;
+}
+
+const feature = (
+  id: string,
+  group: string,
+  key: string,
+  title: string,
+  on = false,
+  extra: Partial<FeatureRow> = {},
+): FeatureRow => ({
+  id,
+  group,
+  key,
+  kind: "toggle",
+  on,
+  default_on: false,
+  managed: false,
+  title: { text: title },
+  ...extra,
+});
+
+/** Public-safe sample features, the daemon's groups in its order (server/app_features.rs). */
+export function sampleFeatures(): FeatureRow[] {
+  return [
+    feature(
+      "backgrounds.shufflePaintings",
+      "Backgrounds",
+      "appearance.background",
+      "Background: Shuffle Paintings",
+      false,
+      {
+        kind: "choice",
+      },
+    ),
+    feature("backgrounds.glass", "Backgrounds", "appearance.backgroundBlur", "Material: Glass", true, {
+      kind: "choice",
+    }),
+    feature("chief.pet", "Chief", "home.chiefPetEnabled", "Show Chief Pet", true, {
+      summary: { text: "A small companion on Chief's home" },
+    }),
+    feature("chief.channels", "Chief", "home.channelsEnabled", "Channels"),
+    feature("chief.suggestedTasks", "Chief", "sessions.promptSuggestions", "Suggested Tasks", true, {
+      default_on: true,
+    }),
+    feature("media.newTabNowPlaying", "Music", "tabs.newTabNowPlaying", "Show Now Playing on New Tab"),
+    feature("media.sidebar", "Music", "sidebar.nowPlaying.enabled", "Now Playing in Sidebar"),
+    feature("editor.minimap", "Editor", "editor.minimap.enabled", "Minimap"),
+    feature("browser.bookmarksBar", "Browser", "browser.showBookmarksBar", "Show Bookmarks Bar", false, {
+      managed: true,
+    }),
+    feature("labs.liveTree", "Labs", "labs.liveTree", "Live Tree"),
+    feature("labs.voiceRoom", "Labs", "labs.voiceRoom", "Voice Room"),
+    feature("experiments.composerV2", "Experiments", "experiments.composerV2", "Composer V2", true),
+    feature("experiments.toastsV2", "Experiments", "experiments.toastsV2", "Toasts V2"),
+  ];
 }

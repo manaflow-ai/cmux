@@ -19,12 +19,15 @@ import {
   SPACE_ROWS,
   THEME_EDITS_KEY,
   THEME_FILE_KEY,
+  SELECTION_KEY,
+  DOCTOR_NOTICE_KEY,
   THEME_KEY,
   useBackdropsShown,
   useSeveralSpaces,
 } from "../cardRows";
 import { arrangeGroups } from "../rowLevels";
 import { Card } from "./cardModules";
+import { LinkMissing, useLinkLanding } from "./LinkLanding";
 
 /** One category: its title, the cards before its groups, the groups, the cards after, actions. */
 export function SectionView({
@@ -32,20 +35,43 @@ export function SectionView({
   focus,
   workspace = null,
   reveal = null,
+  target = null,
+  targetRequired = false,
+  missing = null,
 }: {
   section: string;
   focus: string | null;
   workspace?: string | null;
   /** The card the route opens the page on (`#/settings/machines`), else null. */
   reveal?: CategoryCard | null;
+  /** The element the link lands on and highlights (settingsLinks.ts), else null. */
+  target?: string | null;
+  /** The target's absence is a miss (a connection the host does not draw). */
+  targetRequired?: boolean;
+  /** The part of the link nothing matched, named at the top of the page. */
+  missing?: string | null;
 }) {
+  const absent = useLinkLanding(target, targetRequired);
+  const unmatched = missing ?? (absent && target ? linkName(target) : null);
   const category = categoryById(section);
   // The theme studio draws appearance.theme, appearance.appTheme, appearance.accent,
-  // appearance.highlightColor, appearance.rotateFavoriteThemes and appearance.themeFile itself; the
-  // schema's group for them would draw each a second time (a second "App Theme" card).
+  // appearance.selection, appearance.highlightColor, appearance.rotateFavoriteThemes,
+  // appearance.themeFile and customize.doctorNotice itself; the schema's group for them would draw each a second time (a second
+  // "App Theme" card).
   const studio = category.lead.includes("themeStudio");
   const drawn = new Set(
-    studio ? [THEME_KEY, APP_THEME_KEY, ACCENT_KEY, HIGHLIGHT_COLOR_KEY, ROTATE_FAVORITES_KEY, THEME_FILE_KEY] : [],
+    studio
+      ? [
+          THEME_KEY,
+          APP_THEME_KEY,
+          ACCENT_KEY,
+          SELECTION_KEY,
+          HIGHLIGHT_COLOR_KEY,
+          ROTATE_FAVORITES_KEY,
+          THEME_FILE_KEY,
+          DOCTOR_NOTICE_KEY,
+        ]
+      : [],
   );
   // The background picker draws appearance.background and its Opacity while it shows.
   const picker = useBackdropsShown() && [...category.lead, ...category.trail].includes("backdrops");
@@ -86,6 +112,7 @@ export function SectionView({
   return (
     <div className="section" data-section={category.id}>
       <h1 className="section-title">{text(category.title)}</h1>
+      {unmatched && <LinkMissing name={unmatched} />}
       {category.lead.map((card) => (
         <CardSlot key={card} card={card} focus={focus} workspace={workspace} reveal={reveal === card} />
       ))}
@@ -96,12 +123,23 @@ export function SectionView({
       {category.actions.map((id) => (
         <SectionActions key={id} section={id} />
       ))}
-      {APPEARANCE_CATEGORIES.includes(category.id) && <AppearanceBar />}
+      {APPEARANCE_CATEGORIES.includes(category.id) && <AppearanceBar section={category.id} />}
     </div>
   );
 }
 
 /** One card, loaded with its section (cardModules.tsx). */
 function CardSlot(props: { card: CategoryCard; focus: string | null; workspace: string | null; reveal: boolean }) {
-  return <Card {...props} />;
+  // `display: contents`: no box of its own, so the page's layout is unchanged; a deep link finds the
+  // card by it (settingsLinks.ts), whether or not the card marks itself.
+  return (
+    <div className="card-slot" data-card-slot={props.card}>
+      <Card {...props} />
+    </div>
+  );
+}
+
+/** The name a target selector asked for (`[data-hub-connection="linear"]` is "linear"). */
+function linkName(target: string): string {
+  return /="([^"]+)"/.exec(target)?.[1] ?? target;
 }

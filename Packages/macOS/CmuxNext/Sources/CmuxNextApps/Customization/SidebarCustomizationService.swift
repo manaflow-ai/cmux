@@ -1,6 +1,7 @@
 import AppKit
 import CmuxNextCompat
 public import CmuxNextDesign
+public import CmuxNextSettings
 public import Observation
 
 /// The user's sidebar customization from the app platform (cx-swovq.1, cx-swovq.2; Lawrence
@@ -25,10 +26,16 @@ public final class SidebarCustomizationService: SidebarCustomization {
     @ObservationIgnored private var rowsKey: String?
     @ObservationIgnored private var appsWatch: Task<Void, Never>?
     @ObservationIgnored private var sceneWatch: Task<Void, Never>?
+    @ObservationIgnored private var lookGlyphWatch: Task<Void, Never>?
 
-    public init(client: AppsClient, isPresented: @escaping (String) -> Bool) {
+    /// - Parameter lookGlyph: reads `agentPane.display.thinking.glyph` from the settings, for rows
+    ///   whose `indicator` is `"glyph"` (``followLookGlyph(_:)``).
+    public init(client: AppsClient, lookGlyph: (@MainActor @Sendable () -> JSONValue?)? = nil, isPresented: @escaping (String) -> Bool) {
         self.client = client
         self.isPresented = isPresented
+        // A row's particles glyph plays in the native player (SidebarRowChoreographyView).
+        StatusIndicatorAppearance.shared.glyphPlayer = { SidebarRowChoreographyView() }
+        if let lookGlyph { followLookGlyph { lookGlyph().flatMap { ThinkingGlyphSetting.accepts($0) ? $0.compactText : nil } } }
         // task-owner: the service lives as long as the app; one watch of which app decorates rows.
         appsWatch = Task { [weak self] in
             // A trigger: the same key remounts after a failed render (a fixed script keeps its version).
@@ -101,6 +108,24 @@ public final class SidebarCustomizationService: SidebarCustomization {
         onRowDecorationsChange?()
     }
 
+    /// The look's thinking glyph (`agentPane.display.thinking.glyph`) as compact JSON, for rows whose
+    /// `indicator` is `"glyph"`; the app's settings set it. A new glyph (a look tried on, a
+    /// `cmux settings set`) reaches the rows that play it at once: the indicators look again.
+    func followLookGlyph(_ read: @escaping @MainActor @Sendable () -> String?) {
+        StatusIndicatorAppearance.shared.lookGlyph = read
+        lookGlyphWatch?.cancel()
+        // task-owner: one watch of the look's glyph for the service's life, replaced when followed again.
+        lookGlyphWatch = Task {
+            var last: String?
+            var first = true
+            for await text in ObservationStream({ read() }) {
+                defer { (last, first) = (text, false) }
+                guard !first, text != last else { continue }
+                StatusIndicatorAppearance.shared.resync()
+            }
+        }
+    }
+
     /// Every `Group` node naming its row by `row` (the id) or `title`, read as a decoration (later nodes win).
     /// `title` is read too: a rows view that names rows by title (the documented example, the example
     /// looks) decorated nothing while only `row` was read.
@@ -109,9 +134,31 @@ public final class SidebarCustomizationService: SidebarCustomization {
         for node in scene.nodes.values where node.type == .group {
             var props: [String: String] = [:]
             for key in ["row", "title", "icon", "weight", "indicator", "badge"] { props[key] = node.string(key) }
-            if let (id, decoration) = SidebarRowDecoration.parse(props) { out[id] = decoration }
+            if let (id, decoration) = SidebarRowDecoration.parse(props, glyph: glyph(node.props["indicator"])) { out[id] = decoration }
         }
         return out
+    }
+
+    /// The `indicator` prop as a particles glyph: `"glyph"` (the look's thinking glyph),
+    /// `{choreography: "glyph", trigger?}` (the same, with a trigger), or `{choreography: <a
+    /// cmux.particles/1 document>, trigger?}`, which the app host's validator checked with the scene
+    /// (a refused one arrives as null and plays nothing). Nil for anything else.
+    static func glyph(_ indicator: AppJSON?) -> SidebarRowGlyph? {
+        if indicator?.stringValue == "glyph" { return SidebarRowGlyph() }
+        guard let members = indicator?.objectValue, let choreography = members["choreography"] else { return nil }
+        let trigger = members["trigger"]?.stringValue.flatMap { $0.isEmpty ? nil : String($0.prefix(32)) }
+        if choreography.stringValue == "glyph" { return SidebarRowGlyph(trigger: trigger) }
+        guard choreography.objectValue != nil, let text = compactText(choreography) else { return nil }
+        return SidebarRowGlyph(document: text, trigger: trigger)
+    }
+
+    private static func compactText(_ value: AppJSON) -> String? {
+        // main-actor-ok: one choreography the app host already validated (at most 16 particles,
+        // MAX_DOCUMENT_BYTES 32 KiB).
+        let encoder = JSONEncoder()
+        // main-actor-ok: the order is read: equal documents must give equal text for SidebarRowGlyph's Equatable.
+        encoder.outputFormatting = [.sortedKeys]
+        return (try? encoder.encode(value)).flatMap { String(data: $0, encoding: .utf8) }
     }
 }
 
@@ -139,6 +186,12 @@ final class AppHoverCardContent: SidebarCustomContent {
     }
 
     var isReady: Bool { mount.model.status == .ready }
+
+    /// The script failed to load or render; a disconnect is not a failure (it reconnects by itself).
+    var hasFailed: Bool {
+        if case .failed = mount.model.status { return true }
+        return false
+    }
 
     /// Why the card did not draw, in plain words: a script error's place and message (`Line 2,
     /// column 12: expecting ';'`), else what failed (AppFailureCopy); a disconnected reason as it is.

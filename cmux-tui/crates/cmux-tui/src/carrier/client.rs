@@ -41,7 +41,7 @@ use cmux_remote::crypto::{ClientAuthMode, CryptoError, StaticIdentity};
 use cmux_remote::link::FrameLink;
 use cmux_remote::provider::{
     ConnectRequest, LinkGroup, LinkRequest, ProviderError, RelayClientConfig,
-    RelayCredentialSource, RelayProvider, lane_bindings, ssh_stderr_of,
+    RelayCredentialSource, RelayProvider, lane_bindings,
 };
 use cmux_remote::service::{EndpointRole, ServiceMultiplexer};
 use cmux_remote::session::SessionLimits;
@@ -51,7 +51,8 @@ use zeroize::Zeroizing;
 
 use super::answer::{CarrierAnswer, CarrierSource, Prefetched, SourceError, TicketCache};
 use super::contract::{
-    Failure, FreshSessions, Phase, PhaseTimes, PhasesOf, Step, phases_line, route_line, routes_line,
+    Failure, FreshSessions, Phase, PhaseTimes, PhasesOf, Step, phases_line, route_line,
+    routes_line, routes_line_on,
 };
 use super::source::{
     CARRIER_AUTH, CARRIER_LANES, CachedGroup, CarrierRoutes, CurrentRoute, RouteSet, carrier_routes,
@@ -73,7 +74,29 @@ const HANDSHAKE_TIMEOUT: Duration = Duration::from_secs(15);
 /// How long an established session tries to resume before it gives up.
 /// After that its streams end, and the next stream (`held`) or the
 /// caller's next dial opens a fresh session instead of resuming forever.
+/// A session with an ssh route behind its carrier has the longer
+/// [`SSH_FAILOVER_WINDOW`] ([`resume_window`]).
 pub(super) const RESUME_DEADLINE: Duration = Duration::from_secs(10);
+/// The resume window of a session with an ssh route: one whole failover
+/// onto ssh fits in it, its carrier key's authorization
+/// (`ssh::AUTHORIZE_TIMEOUT`) and then the Noise handshake over the new
+/// `ssh` run ([`HANDSHAKE_TIMEOUT`]). A window of [`RESUME_DEADLINE`] alone
+/// was shorter than the authorization's own bound, so a failover whose key
+/// was not authorized yet was cut before ssh answered, and the session
+/// closed under the chat (`carrier_fault.resume_failed: ... connection is
+/// closed`, cloud-carrier-ssh-failover, 2026-11-26 run 45892981109).
+pub(super) const SSH_FAILOVER_WINDOW: Duration =
+    Duration::from_secs(super::ssh::AUTHORIZE_TIMEOUT.as_secs() + HANDSHAKE_TIMEOUT.as_secs());
+
+/// How long a session over `dialers` resumes before it gives up: long
+/// enough for one whole try on each of its routes.
+pub(super) fn resume_window(dialers: &[super::source::RouteDialer]) -> Duration {
+    if dialers.iter().any(super::source::RouteDialer::is_ssh) {
+        SSH_FAILOVER_WINDOW.max(RESUME_DEADLINE)
+    } else {
+        RESUME_DEADLINE
+    }
+}
 
 /// A connected carrier session.
 pub(super) struct Dialed {
@@ -181,6 +204,8 @@ struct Tracked {
 pub(super) struct Progress {
     step: AtomicU8,
     marks: std::sync::Mutex<Marks>,
+    /// Woken once the relay allocated the attempt's first link ([`Marks::first_allocated`]).
+    allocated: tokio::sync::Notify,
 }
 
 /// When one attempt reached each of its steps (see [`PhaseTimes`]).
@@ -241,6 +266,29 @@ impl Progress {
         *self.marks.lock().unwrap_or_else(std::sync::PoisonError::into_inner)
     }
 
+    /// The relay allocated one of the attempt's lanes: the handshake is next.
+    pub(super) fn allocated_lane(&self) {
+        self.advance(Step::Handshake);
+        // A lane counts once the relay has allocated it, not on the ask.
+        self.mark(|marks| {
+            marks.lanes += 1;
+            marks.first_allocated.get_or_insert_with(Instant::now);
+        });
+        self.allocated.notify_one();
+    }
+
+    /// When the relay allocated the attempt's first link, once it has.
+    pub(super) async fn first_allocated(&self) -> Instant {
+        loop {
+            // `notify_one` keeps its permit for a waiter that comes later.
+            let woken = self.allocated.notified();
+            if let Some(at) = self.marks().first_allocated {
+                return at;
+            }
+            woken.await;
+        }
+    }
+
     /// Every step's duration so far.
     pub(super) fn times(&self) -> PhaseTimes {
         self.marks.lock().unwrap_or_else(std::sync::PoisonError::into_inner).times(Instant::now())
@@ -278,12 +326,7 @@ impl LinkGroup for Tracked {
             marks.first_open.get_or_insert_with(Instant::now);
         });
         let link = self.inner.open(request).await?;
-        self.step.advance(Step::Handshake);
-        // A lane counts once the relay has allocated it, not on the ask.
-        self.step.mark(|marks| {
-            marks.lanes += 1;
-            marks.first_allocated.get_or_insert_with(Instant::now);
-        });
+        self.step.allocated_lane();
         Ok(link)
     }
     async fn close(&self) -> Result<(), ProviderError> {
@@ -300,19 +343,81 @@ pub(super) const PARK_REDIAL: Duration = Duration::from_secs(10);
 
 /// When an attempt begun at `now` stops waiting for its parked link: [`PARK_REDIAL`] on, or the
 /// dial's `deadline` when that is sooner. Its allocation then times out, which the dial retries
-/// at the park step with a new link ([`classify`]).
+/// at the park step with a new link ([`classify`]). Only the attempt's first link waits this
+/// long at most: the relay parks a link only until the machine's host registers, so the lanes
+/// opened after the first one is allocated wait until the dial's `deadline`, however near
+/// `PARK_REDIAL` the first allocation came.
 pub(super) fn park_until(deadline: Instant, now: Instant) -> Instant {
     deadline.min(now + PARK_REDIAL)
+}
+
+/// How long a lane's first circuit waits for the machine's daemon to join it, once the relay
+/// allocated it, before the attempt is given up for a new allocation (`join_stalls` 0). A link
+/// parked on a new machine is paired the moment its daemon registers, and that daemon sometimes
+/// never joins the circuit: production `cloud-chat-replies-production`, fresh machines,
+/// 2026-11-18 13:20Z to 11-19 15:30Z, 6 of 44 starts had a dial paired with a daemon that had
+/// registered seconds before wait out the whole 15 s join (`outcome=relay`, `parked_ms` 17.8 to
+/// 22.2 s), and the next attempt was allocated and joined in 0.5 to 1.2 s every time. A daemon that
+/// joins does so in about a second of its `Incoming`.
+pub(super) const PEER_JOIN_REDIAL: Duration = Duration::from_secs(4);
+
+/// The join wait of an attempt after `join_stalls` attempts of this dial whose daemon never
+/// joined: [`PEER_JOIN_REDIAL`], doubled per stall, at most [`CONTROL_TIMEOUT`]. A machine whose
+/// daemon joins slowly every time still connects, on a later attempt.
+pub(super) fn peer_join_wait(join_stalls: u32) -> Duration {
+    PEER_JOIN_REDIAL.saturating_mul(1_u32 << join_stalls.min(8)).min(CONTROL_TIMEOUT)
+}
+
+/// Whether `failure` is an attempt whose daemon never joined its allocated circuit.
+pub(super) fn join_stalled(failure: &Failure) -> bool {
+    failure.detail.contains("relay circuit join timed out")
+}
+
+/// How long a first connect waits for the daemon to finish the handshake on its allocated
+/// links (`handshake_stalls` 0) before the attempt is given up for a new one. On a machine just
+/// created or claimed the relay sometimes pairs the first lane with a daemon that never answers
+/// its Noise handshake: production app-chat probes, 2026-11-20 to 11-23, 8 of 206 first dials
+/// waited out the whole 15 s [`HANDSHAKE_TIMEOUT`] (`outcome=handshake`, `handshake_ms` 9.8 to
+/// 16.5 s, first dial 13.2 to 19.4 s), and the next attempt connected in about 2 s every time. A
+/// daemon that answers finishes all three lanes in 0.9 s at the median and 2.75 s at p99 (444
+/// connected dials since 11-15; 3 above 4 s).
+pub(super) const HANDSHAKE_REDIAL: Duration = Duration::from_secs(4);
+
+/// The handshake wait of an attempt after `handshake_stalls` attempts of this dial whose daemon
+/// never answered: [`HANDSHAKE_REDIAL`], doubled per stall, at most [`HANDSHAKE_TIMEOUT`]. A
+/// daemon that is only slow to answer still connects, on a later attempt.
+pub(super) fn handshake_wait(handshake_stalls: u32) -> Duration {
+    HANDSHAKE_REDIAL.saturating_mul(1_u32 << handshake_stalls.min(8)).min(HANDSHAKE_TIMEOUT)
+}
+
+/// The words of a first connect given up by [`handshake_watch`].
+const HANDSHAKE_STALL: &str = "the handshake timed out: the daemon did not answer within";
+
+/// Whether `failure` is an attempt whose daemon never answered its handshake in time.
+pub(super) fn handshake_stalled(failure: &Failure) -> bool {
+    failure.detail.contains(HANDSHAKE_STALL)
+}
+
+/// Resolves with the attempt's failure once its handshake has run `wait` past both `since` (when
+/// the connection began) and the first link's allocation; never while the relay has not
+/// allocated one (the park's own deadline bounds that).
+pub(super) async fn handshake_watch(step: &Progress, since: Instant, wait: Duration) -> Failure {
+    let allocated = step.first_allocated().await;
+    tokio::time::sleep_until(allocated.max(since) + wait).await;
+    Failure::retry(Step::Handshake, format!("{HANDSHAKE_STALL} {} s", wait.as_secs()))
 }
 
 fn relay_provider(
     answer: &CarrierAnswer,
     tickets: Arc<TicketCache>,
     deadline: Instant,
+    join_wait: Duration,
 ) -> Result<RelayProvider, Failure> {
-    let credentials = RelayCredentialSource::callback(move || {
+    // Each allocation presents the grant its ticket names (cmuxterm-hq#19075);
+    // a control socket's authentication takes the ticket alone.
+    let credentials = RelayCredentialSource::bound_callback(move || {
         let tickets = tickets.clone();
-        async move { tickets.ticket().await }
+        async move { tickets.credential().await }
     });
     RelayProvider::with_credentials(
         RelayClientConfig {
@@ -323,7 +428,12 @@ fn relay_provider(
         },
         credentials,
     )
-    .map(|provider| provider.with_allocation_deadline(park_until(deadline, Instant::now())))
+    .map(|provider| {
+        provider
+            .with_allocation_deadline(deadline)
+            .with_first_allocation_deadline(park_until(deadline, Instant::now()))
+            .with_peer_join_wait(join_wait)
+    })
     .map_err(|e| Failure::fatal(Step::Relay, e.to_string()))
 }
 
@@ -335,12 +445,14 @@ fn random_session() -> Result<SessionId, Failure> {
 
 /// One attempt, recording its step in `step` as it goes (the caller reads
 /// it when the deadline cuts the attempt off): the answer, then one pass
-/// over its routes.
+/// over its routes. Its lanes wait `join_wait` for the daemon to join, and
+/// `waits.handshake` for it to answer the handshake.
 async fn attempt(
     plan: &DialPlan,
     step: &Arc<Progress>,
     resume: &Arc<Resume>,
     current: &Arc<CurrentRoute>,
+    waits: Waits,
 ) -> Result<Dialed, Failure> {
     step.set(Step::Ticket);
     step.mark(|marks| marks.started = Some(Instant::now()));
@@ -354,10 +466,10 @@ async fn attempt(
         .grant
         .clone()
         .ok_or_else(|| Failure::fatal(Step::Ticket, "cmux-platform sent no carrier grant"))?;
-    let tickets = TicketCache::new(plan.source.clone(), plan.machine.clone(), &answer);
+    let tickets = TicketCache::new(plan.source.clone(), plan.machine.clone(), key, &answer);
     step.set(Step::Relay);
     let session = random_session()?;
-    let provider = Arc::new(relay_provider(&answer, tickets, plan.deadline)?);
+    let provider = Arc::new(relay_provider(&answer, tickets, plan.deadline, waits.join)?);
     let ssh = ssh_route(
         &plan.ssh,
         &answer,
@@ -368,7 +480,7 @@ async fn attempt(
     );
     step.mark(|marks| marks.ssh = Some(ssh.as_ref().map_or_else(|absent| absent.code(), |_| "on")));
     let set = carrier_routes(&answer, provider, ssh.ok());
-    let mut route = RouteAttempt {
+    let route = RouteAttempt {
         plan,
         step,
         resume,
@@ -377,12 +489,13 @@ async fn attempt(
         grant,
         session,
         set: &set,
-        first: None,
+        first: std::sync::Mutex::new(None),
+        handshake_wait: waits.handshake,
     };
     let selected =
-        select_initial_route(&set.routes, session, CARRIER_LANES, CARRIER_AUTH, false, &mut route)
+        select_initial_route(&set.routes, session, CARRIER_LANES, CARRIER_AUTH, false, &route)
             .await;
-    let first = route.first.take();
+    let first = route.first.into_inner().unwrap_or_else(|poisoned| poisoned.into_inner());
     selected.map_err(|selection| {
         // Every route failed: the first route's step names the attempt (the
         // relay's, which the route line's words describe), every route's
@@ -411,7 +524,16 @@ struct RouteAttempt<'a> {
     session: SessionId,
     set: &'a RouteSet,
     /// The first route's failure, when it failed.
-    first: Option<Failure>,
+    first: std::sync::Mutex<Option<Failure>>,
+    /// How long the daemon may take to answer the handshake ([`handshake_wait`]).
+    handshake_wait: Duration,
+}
+
+/// One attempt's waits on the daemon, from the dial's stalls so far.
+#[derive(Clone, Copy)]
+struct Waits {
+    join: Duration,
+    handshake: Duration,
 }
 
 /// A failed route. A relay failure past the park that no retry fixes (a
@@ -459,7 +581,7 @@ pub(super) enum RouteKind {
 #[async_trait]
 impl InitialRouteAttempt<Dialed, Failure> for RouteAttempt<'_> {
     async fn bootstrap_ssh(
-        &mut self,
+        &self,
         _endpoint: &Url,
         _upgrade: bool,
     ) -> Result<(), InitialRouteAttemptError<Failure>> {
@@ -470,7 +592,7 @@ impl InitialRouteAttempt<Dialed, Failure> for RouteAttempt<'_> {
     }
 
     async fn connect(
-        &mut self,
+        &self,
         index: usize,
         request: ConnectRequest,
     ) -> Result<Dialed, InitialRouteAttemptError<Failure>> {
@@ -478,7 +600,8 @@ impl InitialRouteAttempt<Dialed, Failure> for RouteAttempt<'_> {
         if let Err(failure) = &result
             && index == 0
         {
-            self.first = Some(failure.clone());
+            *self.first.lock().unwrap_or_else(|poisoned| poisoned.into_inner()) =
+                Some(failure.clone());
         }
         let dialer = self.set.dialers.get(index);
         let kind = match dialer {
@@ -553,30 +676,59 @@ impl RouteAttempt<'_> {
             limits: SessionLimits::default(),
             reconnect: ReconnectPolicy {
                 attempt_timeout: HANDSHAKE_TIMEOUT.min(remaining.max(Duration::from_millis(1))),
-                maximum_duration: Some(RESUME_DEADLINE),
+                maximum_duration: Some(resume_window(&self.set.dialers)),
                 ..ReconnectPolicy::default()
             },
         };
-        let carrier_routes = Arc::new(CarrierRoutes::new(
-            RouteSet { routes: self.set.routes.clone(), dialers: self.set.dialers.clone() },
-            index,
-            cached,
-            self.session,
-            self.current.clone(),
-        ));
+        let carrier_routes = Arc::new(
+            CarrierRoutes::new(
+                RouteSet { routes: self.set.routes.clone(), dialers: self.set.dialers.clone() },
+                index,
+                cached,
+                self.session,
+                self.current.clone(),
+            )
+            .reporting_discovery({
+                let (machine, phases) = (self.plan.machine.clone(), self.plan.phases.clone());
+                Arc::new(move |error: &ProviderError| {
+                    let detail = error.to_string();
+                    let line = routes_line(
+                        &machine,
+                        Phase::Discover,
+                        None,
+                        None,
+                        Some(Step::Relay),
+                        Some(&detail),
+                    );
+                    phases(line);
+                })
+            }),
+        );
         let routes: Arc<dyn ReconnectGroupSource> = carrier_routes.clone();
-        let connection =
-            match ClientConnection::connect_with_reconnect_groups(tracked, config, Some(routes))
-                .await
-            {
+        let connecting =
+            ClientConnection::connect_with_reconnect_groups(tracked, config, Some(routes));
+        let connection = tokio::select! {
+            connected = connecting => match connected {
                 Ok(connection) => connection,
                 Err(error) => {
                     let _ = group.close().await;
                     return Err(classify(&error, step.get()));
                 }
-            };
+            },
+            stalled = handshake_watch(step, Instant::now(), self.handshake_wait) => {
+                let _ = group.close().await;
+                return Err(stalled);
+            }
+        };
         step.mark(|marks| marks.connected = Some(Instant::now()));
         connection.set_resume_hooks(self.resume.clone());
+        // A paused machine is woken by any byte: an idle session sends none
+        // while it reads asleep (cmux-platform#1849).
+        connection.set_sleep_gate(Arc::new(super::sleep_gate::MachineSleep {
+            source: plan.source.clone(),
+            machine: plan.machine.clone(),
+            look: super::sleep_gate::look_time(),
+        }));
         let multiplexer = ServiceMultiplexer::new(connection.clone(), EndpointRole::Client);
         // A grant that does not admit mux control is refused here, before the
         // reply line says ok.
@@ -769,9 +921,20 @@ impl ResumeHooks for Resume {
         let outcome = result.err().map(resume_outcome);
         let detail = result.err().map(ToString::to_string);
         (self.log)(route_line(&self.machine, Phase::Resume, outcome, detail.as_deref(), elapsed));
-        let carrier = Some(self.current.get()).filter(|_| outcome.is_none());
-        let said = detail.as_deref().and_then(ssh_stderr_of);
-        (self.phases)(routes_line(&self.machine, Phase::Resume, None, carrier, outcome, said));
+        // The route the session last moved to is the one this resume ran on.
+        let on = self.current.get();
+        let carrier = Some(on).filter(|_| outcome.is_none());
+        let tried = Some(on).filter(|_| outcome.is_some());
+        let line = routes_line_on(
+            &self.machine,
+            Phase::Resume,
+            None,
+            carrier,
+            tried,
+            outcome,
+            detail.as_deref(),
+        );
+        (self.phases)(line);
     }
 }
 
@@ -826,6 +989,10 @@ struct Attempts {
     current: Option<(Arc<Progress>, Instant)>,
     /// The last attempt's retryable failure.
     last: Option<Failure>,
+    /// Attempts whose daemon never joined their allocated circuit ([`peer_join_wait`]).
+    join_stalls: u32,
+    /// Attempts whose daemon never answered their handshake ([`handshake_wait`]).
+    handshake_stalls: u32,
 }
 
 /// One attempt's route line and phases line.
@@ -851,8 +1018,7 @@ fn log_attempt(
     let marks = step.marks();
     if let Some(ssh) = marks.ssh {
         let carrier = marks.carrier.filter(|_| outcome.is_none());
-        let said = detail.and_then(ssh_stderr_of);
-        (plan.phases)(routes_line(&plan.machine, phase, Some(ssh), carrier, outcome, said));
+        (plan.phases)(routes_line(&plan.machine, phase, Some(ssh), carrier, outcome, detail));
     }
 }
 
@@ -883,25 +1049,38 @@ pub(super) async fn dial(plan: &DialPlan) -> Result<Dialed, Failure> {
             async move {
                 let step = Arc::new(Progress::default());
                 let started = Instant::now();
-                let number = {
+                let (number, waits) = {
                     let mut attempts = lock();
                     attempts.count = attempts.count.saturating_add(1);
                     attempts.current = Some((step.clone(), started));
-                    attempts.count
+                    let waits = Waits {
+                        join: peer_join_wait(attempts.join_stalls),
+                        handshake: handshake_wait(attempts.handshake_stalls),
+                    };
+                    (attempts.count, waits)
                 };
                 if let Some(progress) = &plan.progress {
                     progress.attempt(step.clone());
                 }
                 let result = match tokio::time::timeout_at(
                     plan.deadline,
-                    attempt(plan, &step, resume, current),
+                    attempt(plan, &step, resume, current, waits),
                 )
                 .await
                 {
                     Ok(result) => result,
                     Err(_) => Err(Failure::deadline(step.get())),
                 };
-                lock().current = None;
+                {
+                    let mut attempts = lock();
+                    attempts.current = None;
+                    if result.as_ref().err().is_some_and(join_stalled) {
+                        attempts.join_stalls = attempts.join_stalls.saturating_add(1);
+                    }
+                    if result.as_ref().err().is_some_and(handshake_stalled) {
+                        attempts.handshake_stalls = attempts.handshake_stalls.saturating_add(1);
+                    }
+                }
                 log_attempt(plan, number, result.as_ref().err(), &step, started.elapsed());
                 if let (Err(_), Some(progress)) = (&result, &plan.progress) {
                     progress.retrying();

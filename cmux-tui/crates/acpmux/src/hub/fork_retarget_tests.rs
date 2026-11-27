@@ -231,11 +231,18 @@ fn lister_hub(calls: &std::path::Path) -> Arc<Hub> {
     let mut nofork = lister.clone();
     nofork["env"]["FAKE_NO_FORK"] = json!("1");
     let lister2 = lister.clone();
+    let mut refuses_asking = lister.clone();
+    refuses_asking["family"] = json!("claude");
+    refuses_asking["env"]["FAKE_PICKER_INITIAL_MODE"] = json!("bypassPermissions");
+    refuses_asking["env"]["FAKE_REFUSE_MODES"] = json!("default,acceptEdits,plan");
+    let native = json!({"kind": "claude-stdio", "family": "claude",
+        "argv": ["python3", concat!(env!("CARGO_MANIFEST_DIR"), "/tests/fake_claude.py")]});
     // Another family whose modes (`normal`, `strict`) no list names: a chat in one asks.
     let moded = json!({"argv": ["python3", fake], "family": "moded",
                        "env": {"FAKE_PICKER": "1", "FAKE_PICKER_MODES": "1"}});
     let cfg = json!({"harnesses": {"fake": {"argv": ["python3", fake]}, "lister": lister,
-                                   "nofork": nofork, "lister2": lister2, "moded": moded},
+                                   "nofork": nofork, "lister2": lister2, "moded": moded,
+                                   "native": native, "refuses-asking": refuses_asking},
                      "defaultHarness": "fake",
                      // New chats start in full access, the default a person has: a fork must
                      // still start at its chat's own level.
@@ -569,5 +576,106 @@ async fn a_switch_keeps_the_chats_permission_mode() {
         !tried.iter().any(|m| m["modeId"] == "bypassPermissions"),
         "a fork of an asking chat tried full access: {tried:?}"
     );
+    hub.shutdown_all().await;
+}
+
+/// A cross-family asking fork is launched asking, and a target that cannot keep
+/// that level is refused even when the parent has no explicit policy.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn an_asking_fork_starts_claude_asking_and_refuses_a_broader_target() {
+    let dir = tempfile::tempdir().unwrap();
+    let hub = lister_hub(&dir.path().join("calls.jsonl"));
+    let parent = hub
+        .new_session(NewRequest {
+            harness: Some("moded".into()),
+            cwd: Some(dir.path().to_path_buf()),
+            ..Default::default()
+        })
+        .await
+        .unwrap();
+    hub.prompt(&parent, vec![json!({"type": "text", "text": "ONE"})], "test", false).await.unwrap();
+    assert!(parent.meta().permission_policy.is_none());
+    let fork = hub
+        .fork_to(&parent, to("native"), None, None, Default::default(), None, false)
+        .await
+        .unwrap();
+    assert_eq!(crate::web_modes::mode_of(&fork.meta()).as_deref(), Some("default"));
+    let before_reply = replies(&hub, &fork).len();
+    hub.prompt(&fork, vec![json!({"type": "text", "text": "spawn flags"})], "test", false)
+        .await
+        .unwrap();
+    let argv: Vec<String> = serde_json::from_str(&replies(&hub, &fork)[before_reply..]).unwrap();
+    let at = argv.iter().position(|arg| arg == "--permission-mode").unwrap();
+    assert_eq!(argv[at + 1], "default");
+    let before = live(&hub);
+    let refused = hub
+        .fork_to(&parent, to("refuses-asking"), None, None, Default::default(), None, false)
+        .await;
+    assert!(refused.is_err(), "a target that refuses asking must not remain broader");
+    assert_eq!(live(&hub), before, "a refused fork remained live");
+    let explicit = hub
+        .fork_start(
+            &parent,
+            Some(to("refuses-asking")),
+            None,
+            None,
+            Default::default(),
+            None,
+            false,
+            super::fork_subagent::ForkStart {
+                mode: Some("bypassPermissions".into()),
+                person: true,
+                ..Default::default()
+            },
+        )
+        .await
+        .unwrap();
+    assert_eq!(crate::web_modes::mode_of(&explicit.meta()).as_deref(), Some("bypassPermissions"));
+    hub.shutdown_all().await;
+}
+
+/// ForkStart's model selection uses the same normalization as an explicit retarget,
+/// and a simultaneous mode selection still applies.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_fork_start_normalizes_its_model_and_keeps_its_explicit_mode() {
+    let dir = tempfile::tempdir().unwrap();
+    let hub = lister_hub(&dir.path().join("calls.jsonl"));
+    let parent = hub
+        .new_session(NewRequest {
+            harness: Some("lister".into()),
+            cwd: Some(dir.path().to_path_buf()),
+            ..Default::default()
+        })
+        .await
+        .unwrap();
+    hub.prompt(&parent, vec![json!({"type": "text", "text": "ONE"})], "test", false).await.unwrap();
+    for target in [None, Some(to("lister2"))] {
+        let own = target.is_none();
+        let fork = hub
+            .fork_start(
+                &parent,
+                target,
+                None,
+                None,
+                Default::default(),
+                None,
+                false,
+                super::fork_subagent::ForkStart {
+                    model: own.then(|| "lister/claude-opus-5-5".into()),
+                    mode: Some("acceptEdits".into()),
+                    person: true,
+                    ..Default::default()
+                },
+            )
+            .await
+            .unwrap();
+        assert_eq!(crate::web_modes::mode_of(&fork.meta()).as_deref(), Some("acceptEdits"));
+        if own {
+            hub.prompt(&fork, vec![json!({"type": "text", "text": "picked-model"})], "test", false)
+                .await
+                .unwrap();
+            assert!(replies(&hub, &fork).ends_with("claude-opus-5-5"));
+        }
+    }
     hub.shutdown_all().await;
 }

@@ -103,7 +103,7 @@ final class PaneController: SurfacePresenter, PresentablePane {
         let toolbarView = PaneToolbarView() // its toolbar's buttons: 15 of 102 samples of Cmd-,'s key turn (2026-11-17)
         init(services: AppServices) {
             view = PaneContentView(stripModel: stripModel)
-            (view.stripView.previewProvider, view.stripView.resourceSource) = (services.previews, services.resources)
+            (view.stripView.previewProvider, view.stripView.resourceSource, view.wallpaperBadge) = (services.previews, services.resources, services.wallpaperBadge)
             (view.stripView.opensNewTabMenuOnPress, view.stripView.showsNewTabMenuButton) = (false, true) // the + stays a plain default-tab action (hold/right-click: the type menu); its chevron opens that menu
         }
     }
@@ -292,6 +292,9 @@ final class PaneController: SurfacePresenter, PresentablePane {
         let isNewTabPage = titles.isNewTabPage(tab)
         var item = TabItemMapping.shared.item(tab, fallbackTitle: titles.untitled(tab, fallback: fallback), isNewTabPage: isNewTabPage, restarting: daemon.restartsKeptTab(tab),
                                               harnessIcons: daemon.isLocal ? services.harnessIconLookup : .none)
+        if daemon.isLocal, tab.kind == .pty, tab.remote == nil {
+            item.terminalHistoryKey = TerminalHistorySource.chatKey(tab.agent)
+        }
         // Reading the app's provider here (the apps mirror) re-runs the snapshot, and so the
         // content, when the app becomes available after the tree arrived.
         // An app or page tab names and badges itself like the page it shows.
@@ -309,7 +312,7 @@ final class PaneController: SurfacePresenter, PresentablePane {
             (item.machineBadge, item.machineName) = services.remoteTerminals.badge(for: tab)
             item.icon = .terminal
         } else if tab.kind != .browser {
-            item.setMachineBadge(machine, name: machine.flatMap { _ in services.machines.machineName(daemon.machineID) }, cloudChat: tab.agentSession != nil && services.machines.session(daemon.machineID) != nil)
+            item.setMachineBadge(machine, name: machine.flatMap { _ in services.machines.machineName(daemon.machineID) }, cloudChat: tab.agentSession != nil && services.machines.session(daemon.machineID) != nil); if daemon.isLocal, let cloud = CloudChatTabMark.mark(agent: tab.agentSession != nil, frontedMachine: services.agentTabs.frontedChats.front(of: AgentTabKey(machine: daemon.machineID, key: tab.id))?.machine, sentToCloud: services.cloudStartTitles.marksCloud(tab, workspace: ownWorkspace?.id), localSession: tab.agentSession?.session != nil) { item.setCloudChatBadge(name: cloud.machine.flatMap { services.machines.machineName($0) }) } // a Cloud chat this Mac's tab sends, starts or shows in place: the cloud from the Send (cmux#51000)
             item.themeBadge = services.themes.badge(forTerminal: TerminalThemeKey(machine: daemon.machineID, tab: tab))
         } else {
             // A browser tab names the machine whose localhost it sees.
@@ -331,6 +334,9 @@ final class PaneController: SurfacePresenter, PresentablePane {
             browserIcon(key: tab.id, recordFavicon: incognito ? nil : tab.faviconURL, recordURL: tab.url, known: (tab, incognito)).apply(to: &item)
             item.audio = BrowserTabAudio.badge(services.cache.existingBrowser(tab.id)?.tab.state)
         }
+        // `tabs.shellIconTheme` machine: a shell tab draws its machine's icon (a remote terminal's: the machine it runs on).
+        let shellMachine = tab.kind == .remoteTerminal ? tab.remote.flatMap { services.machines.daemon(session: $0.sessionID)?.machineID } : daemon.machineID
+        item.applyShellIconTheme(DesignSettings.shared.tabShellIconTheme, machineIcon: shellMachine.flatMap { services.machines.shellTabIcon(machine: $0) })
         item.agentTone = tab.userIcon == nil ? SubagentTabTitles.shared.tone(ofTab: tab.id) : nil; if let mark = SubagentTabTitles.shared.icon(ofTab: tab.id) { item.icon = TabItemMapping.subagentIcon(harness: mark.harness) }; TabItemMapping.shared.applyUserIcon(tab, to: &item, asset: IconAssetImages.shared.tabIcon(owner: daemon)); if let sub = SubagentTabTitles.shared.facts(ofTab: tab.id) { item.showSubagent(state: sub.state.rawValue, since: sub.since, model: sub.model, spins: DesignSettings.shared.statusIndicator.showsAgentWorkingOnTabs) }
         return item
     }
@@ -483,6 +489,7 @@ final class PaneController: SurfacePresenter, PresentablePane {
         if view.stripView.window != nil { BenchSpans.measure("switch.strip") { view.stripView.syncFromModel() } } // strip + content: one transaction (L4)
         DebugTabSwitch.mark(self, "stripSync")
         BenchSpans.measure("switch.view") { _ = view.show(content?.view) }
+        showTerminalHistoryLink(in: content)
         dropGuestTerminal(keeping: key) // after its view left the pane
         syncGuestTerminal()
         if shownBefore != key { stoppedDrawing(shownBefore) }
@@ -532,7 +539,9 @@ final class PaneController: SurfacePresenter, PresentablePane {
     /// This pane is its workspace's focused pane.
     var isFocusedInWorkspace: Bool { workspace?.focus.state.pane == paneKey }
 
+    func defersPageUntilFrame(_ key: String) -> Bool { services.launchReveal.pages.defers("\(paneKey)/\(key)") { [weak self] in if let self, self.currentTabKey == key { self.showSelected() } } } // `key`'s new page view waits for the first window frame (`LaunchPageDeferral`); this pane shows it again then
     func content(for key: String) -> TabContent? {
+        if services.launchReveal.pages.holds, key.hasPrefix(LocalPageTab.prefix) || key.hasPrefix(LocalBrowserTab.prefix) || pane.tabs.first(where: { $0.id == key }).map({ $0.kind == .browser || ($0.kind == .conversation && $0.agentSession == nil && $0.page != nil) }) == true, existingContent(for: key) == nil, defersPageUntilFrame(key) { return nil } // no new page view (local page or browser tab, store browser or page tab) before the first frame; an agent tab's waits in AgentTabContent
         if key.hasPrefix(LocalPageTab.prefix) { return services.pages.view(for: key).map(TabContent.page) }
         if let mirrored = mirroredContent(for: key) { return mirrored }
         if key.hasPrefix(LocalBrowserTab.prefix) {
