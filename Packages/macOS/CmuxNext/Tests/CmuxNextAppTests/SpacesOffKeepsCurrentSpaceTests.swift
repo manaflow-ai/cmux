@@ -105,6 +105,62 @@ struct SpacesOffKeepsCurrentSpaceTests {
         #expect(windows.pinSelections.isEmpty)
     }
 
+    /// notify-banner-click burst-click (run 46007715275): the window was on a space of its own (Move to New Window gives
+    /// one) and owned the burst's chat workspaces, which the default space holds. A banner click revealed one: the window
+    /// showed it at once and sent its pin. A daemon delta before the pin landed (here the previous click's pin landing)
+    /// re-ran reconcile, whose selection repair found the revealed workspace outside the window's space and picked a
+    /// neighbor (`via reconcile-repair`); the pin then landed for a window that no longer showed it, so nothing brought it
+    /// back. A revealed workspace the window lists stays selected through every repair until its pin lands.
+    @Test func aRevealedWorkspaceStaysSelectedThroughAReconcileBeforeItsPinLands() async throws {
+        let fixture = try await Fixture(settings: #"{"sidebar":{"showSpaces":true}}"#)
+        defer { fixture.close() }
+        let windows = fixture.services.windows
+        windows.switchProfile(Fixture.work, in: fixture.state)
+        try await fixture.write("{}")
+        #expect(fixture.state.workspaceID == "k2")
+
+        // A banner click on k1's chat: the window lists k1 (its own, in the default space) and shows it now.
+        #expect(windows.reveal(workspaceID: "k1") === fixture.controller)
+        #expect(fixture.state.workspaceID == "k1")
+        #expect(windows.pinSelections["k1"]?.window == fixture.state.id)
+        // A daemon delta before the pin lands: reconcile must not take the reveal back.
+        windows.reconcileMembership()
+        #expect(fixture.state.workspaceID == "k1", "reconcile-repair undid the reveal: \(fixture.state.workspaceID ?? "nil")")
+        #expect(fixture.state.profileID == Fixture.work)
+        // The pin lands: k1 joins the window's view, still selected.
+        fixture.store.apply(snapshot: Fixture.tree(pinned: ["k1": Fixture.work]))
+        windows.reconcileMembership()
+        #expect(fixture.shown == ["k1", "k2", "k3"])
+        #expect(fixture.state.workspaceID == "k1")
+        #expect(windows.pinSelections.isEmpty)
+    }
+
+    /// The burst's order: click one hidden workspace, then another before the first's pin lands. The first pin landing
+    /// re-runs reconcile; the second click's workspace stays selected, and is still selected once its own pin lands.
+    @Test func aSecondRevealSurvivesTheFirstRevealsPinLanding() async throws {
+        let fixture = try await Fixture(settings: #"{"sidebar":{"showSpaces":true}}"#)
+        defer { fixture.close() }
+        let windows = fixture.services.windows
+        windows.switchProfile(Fixture.work, in: fixture.state)
+        try await fixture.write("{}")
+        // k4 joins this window's list in the default space (a daemon-made workspace reconcile filed here).
+        let id = fixture.state.id
+        windows.transition { $0.move(["k4"], to: id) }
+        #expect(!fixture.shown.contains("k4"))
+
+        windows.reveal(workspaceID: "k1")
+        windows.reveal(workspaceID: "k4")
+        #expect(fixture.state.workspaceID == "k4")
+        fixture.store.apply(snapshot: Fixture.tree(pinned: ["k1": Fixture.work]))
+        windows.reconcileMembership()
+        #expect(fixture.state.workspaceID == "k4", "the first reveal's pin landing took the second reveal back: \(fixture.state.workspaceID ?? "nil")")
+        fixture.store.apply(snapshot: Fixture.tree(pinned: ["k1": Fixture.work, "k4": Fixture.work]))
+        windows.reconcileMembership()
+        #expect(fixture.shown == ["k1", "k2", "k3", "k4"])
+        #expect(fixture.state.workspaceID == "k4")
+        #expect(windows.pinSelections.isEmpty)
+    }
+
     /// Merge All Windows while Spaces is off: the other window's workspaces join this window's view; it keeps its space.
     @Test func mergeAllKeepsThisWindowsViewAndShowsTheMergedWorkspaces() async throws {
         let fixture = try await Fixture(settings: #"{"sidebar":{"showSpaces":true}}"#)
