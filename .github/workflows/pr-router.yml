@@ -49,7 +49,10 @@ jobs:
     # Every other edit skips here with no runner. Each callee's own job `if:` still skips the edits it
     # does not read, so an edit routed for one callee starts no runner in another.
     if: ${{ (github.event.action != 'edited' || github.event.changes.base || (github.event.changes.body && (contains(github.event.pull_request.body, 'size:') || contains(github.event.changes.body.from, 'size:') || contains(github.event.pull_request.body, 'Classic API change:') || contains(github.event.changes.body.from, 'Classic API change:') || contains(github.event.pull_request.body, 'Swift-growth:') || contains(github.event.changes.body.from, 'Swift-growth:')))) && !(github.event_name == 'pull_request' && github.event.pull_request.base.ref == 'feat-cmux-next' && (github.event.action == 'labeled' && !contains(fromJSON('["full-ci","ready-to-land"]'), github.event.label.name) || github.event.action == 'unlabeled')) }}
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || 'cmux-linux' }}
+    # Every routed workflow waits on this job, so a queue here is the head's verdict wait: on 2026-11-26 the
+    # persistent cmux-linux pool queued it 11-14 min for seconds of work (run 45755655410). A one-job VM, the
+    # CI_TRUSTED_RUNNER selector of pr-checks.yml's advisory job; forks keep GitHub-hosted Ubuntu.
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || contains(fromJSON('["blacksmith-2vcpu-ubuntu-2404","blacksmith-4vcpu-ubuntu-2404"]'), vars.CI_TRUSTED_RUNNER) && vars.CI_TRUSTED_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }} # ephemeral-required: statuses write token; the router gates every routed workflow, so no shared-pool queue; CI_TRUSTED_RUNNER picks the Blacksmith size
     timeout-minutes: 5
     permissions:
       # head_tier.py reads the previous head's Actions runs (the green-head base merge rule).
@@ -80,10 +83,11 @@ jobs:
         with:
           persist-credentials: false
           fetch-depth: 2
-          # A same-repo pull request's runner reads the git mirror, which serves whole blobs in about 10 s; a blob
-          # filter skips the mirror and the sparse checkout then fetches each blob from GitHub (57 to 81 s a head,
-          # note-559). A fork, or any other event, keeps blob:none.
-          filter: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && '' || 'blob:none' }}
+          # A same-repo pull request on a pool VM reads the runner git mirror, which serves whole blobs in about
+          # 10 s; a blob filter skips the mirror and the sparse checkout then fetches each blob from GitHub (57 to
+          # 81 s a head, note-559). Any runner with no mirror (the one-job VM above, a fork's), or any other event,
+          # keeps blob:none: an unfiltered depth-2 fetch from GitHub would pull every blob of the tree.
+          filter: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && startsWith(runner.name, 'cmux-runner-pool-') && '' || 'blob:none' }}
           sparse-checkout: |
             scripts/ci/pr_router.py
             scripts/ci/pr_router.json

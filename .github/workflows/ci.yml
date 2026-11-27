@@ -129,10 +129,13 @@ jobs:
     if: ${{ always() && !cancelled() && !(github.event_name == 'pull_request' && github.event.pull_request.base.ref == 'feat-cmux-next' && (github.event.action == 'labeled' && !contains(fromJSON('["full-ci","dev-build","ready-to-land"]'), github.event.label.name) || github.event.action == 'unlabeled')) }}
     environment: ${{ !contains(fromJSON('["pull_request","merge_group"]'), github.event_name) && 'ci-routing-agent' || '' }}
     # The run's router. It mints GLAEDA_ROUTE_APP_KEY tokens for GitHub API reads only (no signing or release
-    # secret), so it takes the persistent cmux-linux pool like the rest of Linux CI. Fork pull requests keep
-    # their Blacksmith branch. It took GitHub-hosted Ubuntu on attempt 1 until 2026-11-18, when hosted runners
-    # left it queued for hours (cmux#45735). Measured: 11 s of work, 5 min timeout.
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || 'cmux-linux' }}
+    # secret). Every other job of the run waits on it, so a queue here is the head's verdict wait: on
+    # 2026-11-26 the persistent cmux-linux pool queued it 11-14 min for about 11 s of work (runs 45730230884 on
+    # cmux-runner-pool-s1c-0080, 45754634897), 6-20 min on 4 of the newest 20 feat-cmux-next heads. It takes
+    # a one-job VM, the CI_TRUSTED_RUNNER selector of pr-checks.yml's advisory job and pr-red-checks' comment.
+    # Forks keep GitHub-hosted Ubuntu. It took GitHub-hosted Ubuntu on attempt 1 until 2026-11-18, when hosted
+    # runners left it queued for hours (cmux#45735). Measured: 11 s of work, 5 min timeout.
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || contains(fromJSON('["blacksmith-2vcpu-ubuntu-2404","blacksmith-4vcpu-ubuntu-2404"]'), vars.CI_TRUSTED_RUNNER) && vars.CI_TRUSTED_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }} # ephemeral-required: the routing App key; the router gates every job, so no shared-pool queue; CI_TRUSTED_RUNNER picks the Blacksmith size
     timeout-minutes: 5
     outputs:
       # true for a pull request on the cmux NEXT line, stacked ones included

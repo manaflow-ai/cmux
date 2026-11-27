@@ -35,6 +35,11 @@ EXCEPTIONS = {
     "backend-migrations.yml": (4, "the required migration checks move to the gate label with their own policy PR, as on main"),
     "pr-checks.yml": (1, "the advisory comment job left the PR control label when it backed up (tests/test_ci_runner_set.py)"),
     "cmux-next.yml": (2, "the push/PR control arms (tests/test_cmux_next_pr_control_on_jit.py)"),
+    "ci.yml": (1, "the `changes` router takes the CI_TRUSTED_RUNNER selector; cmux-linux queued it 11-14 min (tests/test_ci_runner_set.py)"),
+    "ios-asc-subscription-records.yml": (1, "leads with the nightly JIT label on the first attempt and retries on linux_4; no SKIP_FLEET switch names that label (#50028)"),
+    "machine-vault-e2e.yml": (1, "a macOS job on a one-job Blacksmith Mac; the GCP JIT labels are Linux only"),
+    "relay-tls.yml": (1, "the system-keychain job runs on a one-job Blacksmith Mac (#58618); the GCP JIT labels are Linux only"),
+    "pr-router.yml": (1, "the `route` job takes the CI_TRUSTED_RUNNER selector; cmux-linux queued it 11-14 min (tests/test_ci_runner_set.py)"),
 }
 
 

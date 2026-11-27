@@ -48,19 +48,26 @@ def runs_on_text(job: dict, where: str) -> str:
 
 
 class RunnerSetTests(unittest.TestCase):
-    def test_changes_router_takes_the_persistent_linux_pool(self) -> None:
-        # Its App-token body (GitHub API reads, no signing or release secret) takes the persistent
-        # cmux-linux pool on every attempt, with no placement job before it; forks keep Blacksmith.
-        # GitHub-hosted Ubuntu left it queued for hours on 2026-11-18 (cmux#45735).
-        jobs = yaml.safe_load((WORKFLOWS / "ci.yml").read_text())["jobs"]
-        job = jobs["changes"]
-        runs_on = runs_on_text(job, "ci.yml#changes")
-        self.assertNotIn("needs.", runs_on)
-        self.assertNotIn("github.run_attempt == 1 && 'ubuntu-24.04'", runs_on)
-        self.assertIn("github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04'", runs_on)
-        self.assertTrue(runs_on.rstrip().endswith("|| 'cmux-linux' }}"), runs_on)
-        self.assertNotIn("needs", job)
-        self.assertNotIn("portable-placement", jobs)
+    def test_routers_take_the_trusted_one_job_runner(self) -> None:
+        # ci.yml's `changes` and pr-router.yml's `route` gate every other job of a head, so a queue on them is the
+        # head's verdict wait: on 2026-11-26 the persistent cmux-linux pool queued them 11-14 min for seconds of work
+        # (runs 45730230884, 45754634897, 45755655410). They take the CI_TRUSTED_RUNNER one-job VM on every attempt,
+        # with no placement job before them; forks keep GitHub-hosted Ubuntu. GitHub-hosted Ubuntu left the router
+        # queued for hours on 2026-11-18 (cmux#45735), so no attempt-1 hosted branch.
+        for workflow, name in (("ci.yml", "changes"), ("pr-router.yml", "route")):
+            with self.subTest(job=f"{workflow}#{name}"):
+                job = yaml.safe_load((WORKFLOWS / workflow).read_text())["jobs"][name]
+                runs_on = runs_on_text(job, f"{workflow}#{name}")
+                self.assertNotIn("needs.", runs_on)
+                self.assertNotIn("github.run_attempt == 1 && 'ubuntu-24.04'", runs_on)
+                self.assertIn("github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04'",
+                              runs_on)
+                self.assertTrue(runs_on.endswith("vars.CI_TRUSTED_RUNNER) && vars.CI_TRUSTED_RUNNER || "
+                                                 "'blacksmith-4vcpu-ubuntu-2404' }}"), runs_on)
+                for persistent in ("RUNNER_POOLS", "cmux-linux", "cmux-fleet-linux-x64"):
+                    self.assertNotIn(persistent, runs_on)
+                self.assertNotIn("needs", job)
+        self.assertNotIn("portable-placement", yaml.safe_load((WORKFLOWS / "ci.yml").read_text())["jobs"])
 
     def test_light_report_jobs_run_on_blacksmith_every_attempt(self) -> None:
         # A few seconds of report or routing work each. They took hosted Ubuntu on attempt 1 until
