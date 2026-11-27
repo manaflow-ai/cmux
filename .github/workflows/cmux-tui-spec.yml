@@ -59,6 +59,7 @@ on:
       - "schemas/settings/settings-schema.json"
       - "schemas/settings/source/agent-cache.json"
       - "schemas/settings/source/agent-defaults.json"
+      - "schemas/settings/source/agent-settle.json"
       - "schemas/settings/source/agent-retry.json"
       - "schemas/settings/source/general.json"
       - "schemas/settings/source/subsessions.json"
@@ -193,6 +194,7 @@ jobs:
       acpmux_sim_tree: ${{ steps.graph.outputs.acpmux_sim_tree }}
       carrier_sim: ${{ steps.tier.outputs.skip == 'true' && 'false' || (steps.graph.outputs.carrier_sim || steps.gate.outputs.carrier_sim) }}
       carrier_sim_tree: ${{ steps.graph.outputs.carrier_sim_tree }}
+      remote_web_wasm: ${{ steps.tier.outputs.skip == 'true' && 'false' || (steps.graph.outputs.remote_web_wasm || steps.gate.outputs.remote_web_wasm) }}
       router_changed: ${{ steps.tier.outputs.skip == 'true' && 'false' || (steps.graph.outputs.router_changed || steps.gate.outputs.router_changed) }}
       acpmux_own: ${{ steps.tier.outputs.skip == 'true' && 'false' || (steps.acpmux-own.outputs.changed) }}
     steps:
@@ -1153,7 +1155,8 @@ jobs:
     # A pull request whose files miss acpmux's own paths skips it even with full-ci (the post-merge batch and base
     # pushes still run it): 2026-11-26 14:00-21:03Z, the acpmux family took 7,125 runner-min (about 13 per merge)
     # on about 390 full-ci runs with acpmux_own=false, with 0 reds of the pull request's own (every red matched a red base).
-    if: ${{ ((github.event_name != 'pull_request' || contains(github.event.pull_request.labels.*.name, 'full-ci') || (github.event.pull_request.draft == true && (vars.CI_DRAFT_CHEAP_TIER || '1') == '0') || (github.event.pull_request.draft != true && ((contains(github.event.pull_request.labels.*.name, 'ready-to-land') && vars.CI_LAND_FULL_PER_PR == '1') || github.event.pull_request.base.ref != 'feat-cmux-next' || github.event.pull_request.head.repo.full_name != github.repository || (vars.CI_LAND_TIER || '1') == '0'))) && (((inputs.only == '' || inputs.only == 'acpmux-sim') && ((!cancelled() && (needs.changes.result != 'success' || needs.changes.outputs.acpmux_sim != 'false')) && (github.event_name != 'pull_request' || needs.changes.outputs.acpmux_own != 'false') && (github.event_name != 'pull_request' || !startsWith(github.event.pull_request.base.ref, 'feat-cmux-next') || contains(github.event.pull_request.labels.*.name, 'full-ci'))))) && !(github.event_name == 'pull_request' && github.event.pull_request.base.ref == 'feat-cmux-next' && (github.event.action == 'labeled' && !contains(fromJSON('["full-ci","ready-to-land"]'), github.event.label.name) || github.event.action == 'unlabeled'))) && (github.event_name != 'pull_request' || needs.changes.result == 'success' || needs.changes.result == 'skipped') }}
+    # The last conjunct keeps seeded simulations off pull requests into feat-cmux-next unless SIMS_ON_PULL_REQUESTS=on.
+    if: ${{ ((github.event_name != 'pull_request' || contains(github.event.pull_request.labels.*.name, 'full-ci') || (github.event.pull_request.draft == true && (vars.CI_DRAFT_CHEAP_TIER || '1') == '0') || (github.event.pull_request.draft != true && ((contains(github.event.pull_request.labels.*.name, 'ready-to-land') && vars.CI_LAND_FULL_PER_PR == '1') || github.event.pull_request.base.ref != 'feat-cmux-next' || github.event.pull_request.head.repo.full_name != github.repository || (vars.CI_LAND_TIER || '1') == '0'))) && (((inputs.only == '' || inputs.only == 'acpmux-sim') && ((!cancelled() && (needs.changes.result != 'success' || needs.changes.outputs.acpmux_sim != 'false')) && (github.event_name != 'pull_request' || needs.changes.outputs.acpmux_own != 'false') && (github.event_name != 'pull_request' || !startsWith(github.event.pull_request.base.ref, 'feat-cmux-next') || contains(github.event.pull_request.labels.*.name, 'full-ci'))))) && !(github.event_name == 'pull_request' && github.event.pull_request.base.ref == 'feat-cmux-next' && (github.event.action == 'labeled' && !contains(fromJSON('["full-ci","ready-to-land"]'), github.event.label.name) || github.event.action == 'unlabeled'))) && (github.event_name != 'pull_request' || needs.changes.result == 'success' || needs.changes.result == 'skipped') && (github.event_name != 'pull_request' || !startsWith(github.event.pull_request.base.ref, 'feat-cmux-next') || vars.SIMS_ON_PULL_REQUESTS == 'on') }}
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || 'cmux-linux' }}
     timeout-minutes: 40
     steps:
@@ -1281,8 +1284,10 @@ jobs:
     # By the crate graph (the changes job's graph step). A router that failed or was skipped never skips
     # the job (a skip passes a required check), and neither does a missing output.
     # After merge (CI 10x, 2026-11-21: 1.02% of pull request runner-minutes, 0.05% of heads it alone caught): every
-    # post-merge batch runs it (the safety net runs every job); a pull request only with the full-ci label.
-    if: ${{ ((github.event_name != 'pull_request' || contains(github.event.pull_request.labels.*.name, 'full-ci') || (github.event.pull_request.draft == true && (vars.CI_DRAFT_CHEAP_TIER || '1') == '0') || (github.event.pull_request.draft != true && ((contains(github.event.pull_request.labels.*.name, 'ready-to-land') && vars.CI_LAND_FULL_PER_PR == '1') || github.event.pull_request.base.ref != 'feat-cmux-next' || github.event.pull_request.head.repo.full_name != github.repository || (vars.CI_LAND_TIER || '1') == '0'))) && (((inputs.only == '' || inputs.only == 'carrier-sim') && (!cancelled() && (github.event_name != 'pull_request' || contains(github.event.pull_request.labels.*.name, 'full-ci')) && (needs.changes.result != 'success' || needs.changes.outputs.carrier_sim != 'false')))) && !(github.event_name == 'pull_request' && github.event.pull_request.base.ref == 'feat-cmux-next' && (github.event.action == 'labeled' && !contains(fromJSON('["full-ci","ready-to-land"]'), github.event.label.name) || github.event.action == 'unlabeled'))) && (github.event_name != 'pull_request' || needs.changes.result == 'success' || needs.changes.result == 'skipped') }}
+    # post-merge batch runs it (the safety net runs every job); a pull request only with the full-ci label, and not
+    # one into feat-cmux-next (the last conjunct): land puts full-ci on nearly every landing head, so it ran 137 times
+    # on pull request heads in 2026-11-26 14-17Z (173 runner-min/h). Back on: repository variable SIMS_ON_PULL_REQUESTS=on.
+    if: ${{ ((github.event_name != 'pull_request' || contains(github.event.pull_request.labels.*.name, 'full-ci') || (github.event.pull_request.draft == true && (vars.CI_DRAFT_CHEAP_TIER || '1') == '0') || (github.event.pull_request.draft != true && ((contains(github.event.pull_request.labels.*.name, 'ready-to-land') && vars.CI_LAND_FULL_PER_PR == '1') || github.event.pull_request.base.ref != 'feat-cmux-next' || github.event.pull_request.head.repo.full_name != github.repository || (vars.CI_LAND_TIER || '1') == '0'))) && (((inputs.only == '' || inputs.only == 'carrier-sim') && (!cancelled() && (github.event_name != 'pull_request' || contains(github.event.pull_request.labels.*.name, 'full-ci')) && (needs.changes.result != 'success' || needs.changes.outputs.carrier_sim != 'false')))) && !(github.event_name == 'pull_request' && github.event.pull_request.base.ref == 'feat-cmux-next' && (github.event.action == 'labeled' && !contains(fromJSON('["full-ci","ready-to-land"]'), github.event.label.name) || github.event.action == 'unlabeled'))) && (github.event_name != 'pull_request' || needs.changes.result == 'success' || needs.changes.result == 'skipped') && (github.event_name != 'pull_request' || !startsWith(github.event.pull_request.base.ref, 'feat-cmux-next') || vars.SIMS_ON_PULL_REQUESTS == 'on') }}
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || 'cmux-linux' }}
     timeout-minutes: 40
     env:
@@ -1393,7 +1398,14 @@ jobs:
             BASE_SHA=$(git cat-file -p HEAD | awk '/^parent /{print $2; exit}')
           fi
           if [[ -n "$BASE_SHA" && "$BASE_SHA" != 0000000000000000000000000000000000000000 ]]; then
-            git fetch --no-tags --depth=1 origin "$BASE_SHA" || echo "::warning::could not fetch $BASE_SHA; checking every package"
+            # A slow link once stalled this fetch and the fallback linted every crate,
+            # turning old debt in untouched crates into this PR's red. Retry first.
+            fetched=""
+            for attempt in 1 2 3; do
+              if git -c http.lowSpeedLimit=1000 -c http.lowSpeedTime=20 fetch --no-tags --depth=1 origin "$BASE_SHA"; then fetched=1; break; fi
+              sleep $((attempt * 5))
+            done
+            [[ -n "$fetched" ]] || echo "::warning::could not fetch $BASE_SHA; checking every package after 3 tries"
           fi
           echo "sha=$BASE_SHA" >> "$GITHUB_OUTPUT"
 
@@ -1418,7 +1430,9 @@ jobs:
   remote-web-wasm:
     name: cmux remote web wasm
     needs: changes
-    if: ${{ (inputs.only == '' || inputs.only == 'remote-web-wasm') && (!cancelled() && (needs.changes.result != 'success' || needs.changes.outputs.run == 'true')) }}
+    # Routed by the crate graph (scripts/ci/affected-jobs.json): it builds cmux-remote-web and what that reaches, so a
+    # change none of those inputs sees skips it; a failed router, a push and full-ci on a reaching change run it.
+    if: ${{ (inputs.only == '' || inputs.only == 'remote-web-wasm') && (!cancelled() && (needs.changes.result != 'success' || needs.changes.outputs.run == 'true' && needs.changes.outputs.remote_web_wasm != 'false')) }}
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || 'cmux-linux' }}
     timeout-minutes: 20
     steps:
@@ -1515,7 +1529,14 @@ jobs:
             BASE_SHA=""
           fi
           if [[ -n "$BASE_SHA" && "$BASE_SHA" != 0000000000000000000000000000000000000000 ]]; then
-            git fetch --no-tags --depth=1 origin "$BASE_SHA" || echo "::warning::could not fetch $BASE_SHA; linting the whole workspace"
+            # A slow link once stalled this fetch and the fallback linted every crate,
+            # turning old debt in untouched crates into this PR's red. Retry first.
+            fetched=""
+            for attempt in 1 2 3; do
+              if git -c http.lowSpeedLimit=1000 -c http.lowSpeedTime=20 fetch --no-tags --depth=1 origin "$BASE_SHA"; then fetched=1; break; fi
+              sleep $((attempt * 5))
+            done
+            [[ -n "$fetched" ]] || echo "::warning::could not fetch $BASE_SHA; linting the whole workspace after 3 tries"
           fi
           echo "sha=$BASE_SHA" >> "$GITHUB_OUTPUT"
 
