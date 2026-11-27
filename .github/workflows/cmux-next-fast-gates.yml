@@ -82,6 +82,9 @@ jobs:
       # The receipt steps: the verifier reads the receipt's Fast checks run, and a valid one posts the status.
       actions: read
       statuses: write
+      # The lane receipt lookup (ci_receipt.py --lane): the controller answers only this workflow's OIDC token, for the
+      # audience cmux-ci-lane-receipt (cmuxterm-hq build-fleet/cmd/controller/lane_receipt.go).
+      id-token: write
     outputs:
       head_sha: ${{ steps.resolve.outputs.head_sha }}
       base: ${{ steps.resolve.outputs.base }}
@@ -99,7 +102,7 @@ jobs:
       # A pull request's merge commit and both parents; only git reads it here.
       - name: Checkout the merge ref
         if: ${{ github.event_name == 'pull_request' && !startsWith(runner.name, 'cmux-runner-pool-') }}
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           persist-credentials: false
           fetch-depth: 2
@@ -308,6 +311,8 @@ jobs:
           HEAD_TREE: ${{ steps.resolve.outputs.head_tree }}
           MERGE_TREE: ${{ steps.resolve.outputs.merge_tree }}
           AUDIT_PERCENT: ${{ vars.CI_RECEIPT_AUDIT_PERCENT }}
+          LANE: ${{ vars.CI_LANE_RECEIPTS }}
+          RUN_URL_SELF: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
         run: |
           set -euo pipefail
           [[ "$BASE" =~ ^[0-9a-f]{40}$ ]] || { echo "::error::no base to take the verifier from"; exit 1; }
@@ -321,9 +326,17 @@ jobs:
           for file in ci_receipt.py deadline_http.py cmux_next_fast_gates.py; do
             git show "$BASE:scripts/ci/$file" > "$verifier/$file"
           done
+          # gh_http.py (the verifier's retried GitHub read) is copied when the base has it; a base from before it
+          # has a verifier that does not import it.
+          if git cat-file -e "$BASE:scripts/ci/gh_http.py" 2>/dev/null; then
+            git show "$BASE:scripts/ci/gh_http.py" > "$verifier/gh_http.py"
+          fi
           DISCOVER_ARGS=()
           # The base's verifier decides: one from before discover existed has no --pr.
           if [[ "${DISCOVER:-1}" != 0 ]] && grep -q -- '"--pr"' "$verifier/ci_receipt.py"; then DISCOVER_ARGS=(--pr "$PR_NUMBER"); fi
+          # A lane's own pass recorded with the controller (on unless vars.CI_LANE_RECEIPTS=0), when the base's
+          # verifier knows it.
+          if [[ "${LANE:-1}" != 0 ]] && grep -q -- '"--lane"' "$verifier/ci_receipt.py"; then DISCOVER_ARGS+=(--lane); fi
           python3 -I "$verifier/ci_receipt.py" verify fast-gates --repo "$GITHUB_REPOSITORY" --head "$HEAD_SHA" \
             --base "$BASE" --head-tree "$HEAD_TREE" --merge-tree "$MERGE_TREE" --audit-percent "$AUDIT_PERCENT" \
             ${DISCOVER_ARGS[@]+"${DISCOVER_ARGS[@]}"} --output "$GITHUB_OUTPUT"
@@ -378,7 +391,7 @@ jobs:
       - name: Checkout
         if: ${{ !startsWith(runner.name, 'cmux-runner-pool-') }}
         timeout-minutes: 6
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           persist-credentials: false
           # A pull request's merge commit and both parents. A dispatch fetches
@@ -477,6 +490,12 @@ jobs:
         env:
           RESTORE_ON_WARM: ${{ vars.CI_BUN_CACHE_RESTORE_WARM }}
 
+      - name: Use the VM runner guest Bun cache
+        id: fsr-bun-cache
+        timeout-minutes: 2
+        if: ${{ startsWith(runner.name, 'fsr-') && (steps.prepare.outputs.web == 'true' || steps.prepare.outputs.checks == 'true') }}
+        run: bash scripts/ci/fsr-bun-cache.sh check bun-web-lint webviews/bun.lock web/bun.lock cmux-tui/frontends/web/bun.lock
+
       # Restore only, on pull requests and dispatches alike: cmux-next-web-lint.yml's web-lint job saves this key on
       # each feat-cmux-next push. A pull request's own save was a copy of about 1.2 GB in that pull request's scope,
       # which nothing else reads and which evicts the base's caches from the 10 GB store (2026-11-22: 10.56 GB, 6.66 GB
@@ -491,7 +510,7 @@ jobs:
       # web-lint job saves the key there. An R2 miss falls through to the GitHub store, as before.
       - name: Restore the Bun package cache from R2
         id: bun-r2
-        if: ${{ (steps.prepare.outputs.web == 'true' || steps.prepare.outputs.checks == 'true') && steps.bun-warm.outputs.warm != 'true' }}
+        if: ${{ (steps.prepare.outputs.web == 'true' || steps.prepare.outputs.checks == 'true') && steps.bun-warm.outputs.warm != 'true' && steps.fsr-bun-cache.outputs.hit != 'true' }}
         timeout-minutes: 4
         continue-on-error: true
         uses: ./.github/actions/cache-restore
@@ -509,7 +528,7 @@ jobs:
       # failed and the gates installed cold anyway: 605 s median over 84 jobs. An R2 miss on Freestyle still lands here.
       - name: Restore the Bun package cache
         id: bun-cache
-        if: ${{ (steps.prepare.outputs.web == 'true' || steps.prepare.outputs.checks == 'true') && steps.bun-r2.outputs.cache-matched-key == '' && steps.bun-warm.outputs.warm != 'true' }}
+        if: ${{ (steps.prepare.outputs.web == 'true' || steps.prepare.outputs.checks == 'true') && steps.bun-r2.outputs.cache-matched-key == '' && steps.bun-warm.outputs.warm != 'true' && steps.fsr-bun-cache.outputs.hit != 'true' }}
         timeout-minutes: 2
         continue-on-error: true
         uses: actions/cache/restore@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
@@ -608,7 +627,7 @@ jobs:
       CMUX_GHOSTTY_SRC: ""
     steps:
       - name: Checkout
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           persist-credentials: false
           fetch-depth: 2
@@ -670,6 +689,8 @@ jobs:
     timeout-minutes: 15
     permissions:
       statuses: write
+    outputs:
+      state: ${{ steps.status.outputs.state }}
     steps:
       # The cmux-bot App's own REST budget, as pr-router.yml's cmux/land-tier and cmux-next.yml's same-tree statuses
       # post with. The job's GITHUB_TOKEN draws on the repository's budget, which every workflow drains: on
@@ -688,6 +709,7 @@ jobs:
           repositories: ${{ github.event.repository.name }}
           permission-statuses: write
       - name: Post the cmux-next/fast-gates status
+        id: status
         env:
           GH_TOKEN: ${{ github.token }}
           APP_TOKEN: ${{ steps.status-token.outputs.token }}
@@ -765,6 +787,7 @@ jobs:
               if response="$(GH_TOKEN="$token" gh api --method POST "repos/$GITHUB_REPOSITORY/statuses/$HEAD_SHA" \
                 -f state="$state" -f context="$CONTEXT" -f target_url="$TARGET_URL" -f description="$description" 2>&1)"; then
                 echo "$CONTEXT: $state on $HEAD_SHA (base $BASE), try $tries"
+                echo "state=$state" >> "${GITHUB_OUTPUT:-/dev/null}"
                 exit 0
               fi
               if ! grep -qiE "$throttled" <<<"$response"; then
@@ -806,3 +829,33 @@ jobs:
     permissions:
       actions: write
       contents: read
+
+  # A lane receipt that was re-run in full (an audit, or a producer in shadow): tell the controller whether the gates
+  # agreed, so a lane whose green re-ran red stops counting until it agrees again (cmuxterm-hq
+  # build-fleet/cmd/controller/lane_receipt.go). Best effort: a failed report changes no verdict. No checkout, no
+  # repository code: an OIDC token and one POST.
+  lane-receipt-audit:
+    name: report the lane receipt audit
+    needs: [resolve, post]
+    if: ${{ always() && !cancelled() && needs.resolve.outputs.receipt_audit == 'true' && startsWith(needs.resolve.outputs.receipt_producer, 'lane:') && (needs.post.outputs.state == 'success' || needs.post.outputs.state == 'failure') }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || 'cmux-linux' }}
+    timeout-minutes: 3
+    continue-on-error: true
+    permissions:
+      id-token: write
+    steps:
+      - name: Report the audit
+        env:
+          PRODUCER: ${{ needs.resolve.outputs.receipt_producer }}
+          HEAD_TREE: ${{ needs.resolve.outputs.head_tree }}
+          STATE: ${{ needs.post.outputs.state }}
+        run: |
+          set -euo pipefail
+          token="$(curl -fsS --max-time 20 -H "Authorization: Bearer $ACTIONS_ID_TOKEN_REQUEST_TOKEN" \
+            "$ACTIONS_ID_TOKEN_REQUEST_URL&audience=cmux-ci-lane-receipt" | python3 -c 'import json,sys; print(json.load(sys.stdin)["value"])')"
+          passed=false; [[ "$STATE" == success ]] && passed=true
+          body="$(python3 -c 'import json,os,sys; print(json.dumps({"op": "audit", "check": "fast-gates", "head_tree": os.environ["HEAD_TREE"], "producer": os.environ["PRODUCER"], "passed": sys.argv[1] == "true"}))' "$passed")"
+          curl -fsS --max-time 20 -X POST -H "Authorization: Bearer $token" -H 'Content-Type: application/json' \
+            --data "$body" https://gh-events.cmux.com/github/lane-receipt
+          echo
+          echo "lane receipt audit: $PRODUCER passed=$passed on head tree $HEAD_TREE"
