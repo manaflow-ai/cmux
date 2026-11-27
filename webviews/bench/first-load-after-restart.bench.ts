@@ -1927,17 +1927,48 @@ try {
     try {
       const page = await context.newPage();
       await prepare(page, null, 120_000);
-      await page.goto(url);
-      await page.waitForFunction(
-        (quietMs) => {
-          const recording = (window as unknown as BenchWindow).__firstLoad;
-          return (
-            recording.latestAt > 0 && performance.now() - Math.max(recording.latestAt, recording.changedAt) > quietMs
-          );
-        },
-        SETTLE_QUIET_MS,
-        { timeout: 120_000, polling: 100 },
+      // What the page said while it loaded, printed only when the load never settles: a timeout alone
+      // names no cause.
+      const said: string[] = [];
+      page.on("pageerror", (error) => said.push(`pageerror ${error.message}`));
+      page.on("console", (message) => {
+        if (message.type() === "error" || message.type() === "warning")
+          said.push(`${message.type()} ${message.text()}`);
+      });
+      page.on("requestfailed", (request) =>
+        said.push(`requestfailed ${request.url()} ${request.failure()?.errorText ?? ""}`),
       );
+      await page.goto(url);
+      await page
+        .waitForFunction(
+          (quietMs) => {
+            const recording = (window as unknown as BenchWindow).__firstLoad;
+            return (
+              recording.latestAt > 0 && performance.now() - Math.max(recording.latestAt, recording.changedAt) > quietMs
+            );
+          },
+          SETTLE_QUIET_MS,
+          { timeout: Number(process.env.WARM_TIMEOUT_MS ?? 120_000), polling: 100 },
+        )
+        .catch(async (error: unknown) => {
+          const state = await page
+            .evaluate(() => {
+              const recording = (window as unknown as BenchWindow).__firstLoad;
+              const root = document.querySelector<HTMLElement>("#root");
+              return {
+                latestAt: recording?.latestAt ?? null,
+                changedAt: recording?.changedAt ?? null,
+                now: performance.now(),
+                rows: document.querySelectorAll(".acpmux-row[data-row-id]").length,
+                root: root ? `${root.childElementCount} children, hidden=${root.hidden}` : "no #root",
+                text: (document.body.textContent ?? "").trim().replace(/\s+/g, " ").slice(0, 400),
+              };
+            })
+            .catch((failed: unknown) => `page state unreadable: ${String(failed)}`);
+          console.log(`WARM never settled: ${JSON.stringify(state)}`);
+          for (const line of said.slice(0, 40)) console.log(`WARM page ${line.slice(0, 600)}`);
+          throw error;
+        });
       await page.addScriptTag({ content: captureScript });
       const written = await page.evaluate((theme) => {
         const w = window as unknown as BenchWindow;
