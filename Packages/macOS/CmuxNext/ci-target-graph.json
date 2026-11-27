@@ -60,7 +60,8 @@
       ],
       "packages": [
         "CMUXAuthCore",
-        "CmuxAgentBrands"
+        "CmuxAgentBrands",
+        "CmuxEgress"
       ]
     },
     "CmuxNextActions": {
@@ -185,6 +186,7 @@
       "kind": "regular",
       "path": "Packages/macOS/CmuxNext/Sources/CmuxNextAgentPane",
       "targets": [
+        "CCmuxAppFFI",
         "CmuxNextActions",
         "CmuxNextAgentList",
         "CmuxNextAgentPanePlacement",
@@ -887,6 +889,7 @@
         "CmuxNextDesign",
         "CmuxNextDesignTokens",
         "CmuxNextFloating",
+        "CmuxNextHomeModel",
         "CmuxNextSettings",
         "CmuxNextSidebar"
       ],
@@ -1338,6 +1341,7 @@
       "path": "Packages/macOS/CmuxNext/Sources/CmuxNextDiff",
       "targets": [
         "CmuxNextAgentPane",
+        "CmuxNextBrowserCore",
         "CmuxNextCompat",
         "CmuxNextDaemonService",
         "CmuxNextPages",
@@ -1378,6 +1382,7 @@
       "kind": "regular",
       "path": "Packages/macOS/CmuxNext/Sources/CmuxNextFeedClient",
       "targets": [
+        "CmuxNextCloud",
         "CmuxNextCompat",
         "CmuxNextDaemon",
         "CmuxNextWakeups"
@@ -1450,6 +1455,15 @@
         "CCmuxAppFFI"
       ],
       "packages": []
+    },
+    "CmuxNextFocusTests": {
+      "kind": "test",
+      "path": "Packages/macOS/CmuxNext/Tests/CmuxNextFocusTests",
+      "targets": [
+        "CmuxNextFocus"
+      ],
+      "packages": [],
+      "reads": []
     },
     "CmuxNextFocusUI": {
       "kind": "regular",
@@ -1527,6 +1541,7 @@
       "targets": [
         "CmuxNextCompat",
         "CmuxNextDesign",
+        "CmuxNextDesignTokens",
         "CmuxNextIcons"
       ],
       "packages": [
@@ -1586,6 +1601,7 @@
       "kind": "regular",
       "path": "Packages/macOS/CmuxNext/Sources/CmuxNextHomeEngine",
       "targets": [
+        "CCmuxAppFFI",
         "CmuxNextActions",
         "CmuxNextAgentPane",
         "CmuxNextCloud",
@@ -1632,6 +1648,7 @@
       "kind": "regular",
       "path": "Packages/macOS/CmuxNext/Sources/CmuxNextHomeModel",
       "targets": [
+        "CCmuxAppFFI",
         "CmuxNextCompat",
         "CmuxNextDesignTokens",
         "CmuxNextIcons"
@@ -1812,6 +1829,7 @@
         "CCmuxAppFFI",
         "CmuxNextActions",
         "CmuxNextAgentActivity",
+        "CmuxNextBrowserCore",
         "CmuxNextCloud",
         "CmuxNextCompat",
         "CmuxNextComputerUse",
@@ -1863,6 +1881,7 @@
       "kind": "regular",
       "path": "Packages/macOS/CmuxNext/Sources/CmuxNextMobile",
       "targets": [
+        "CCmuxAppFFI",
         "CmuxNextCompat",
         "CmuxNextDaemon",
         "CmuxNextWakeups"
@@ -2024,6 +2043,7 @@
         "CCmuxAppFFI",
         "CmuxNextActions",
         "CmuxNextCompat",
+        "CmuxNextDaemon",
         "CmuxNextDesign",
         "CmuxNextSignposts"
       ],
@@ -2476,7 +2496,8 @@
         "CmuxNextCompat",
         "CmuxNextDaemonService",
         "CmuxNextDesign",
-        "CmuxNextDiff"
+        "CmuxNextDiff",
+        "CmuxNextTerminal"
       ],
       "packages": []
     },
@@ -2491,6 +2512,15 @@
       "path": "Packages/macOS/CmuxNext/Sources/CmuxNextTerminalGeometry",
       "targets": [],
       "packages": []
+    },
+    "CmuxNextTerminalGeometryTests": {
+      "kind": "test",
+      "path": "Packages/macOS/CmuxNext/Tests/CmuxNextTerminalGeometryTests",
+      "targets": [
+        "CmuxNextTerminalGeometry"
+      ],
+      "packages": [],
+      "reads": []
     },
     "CmuxNextTerminalTests": {
       "kind": "test",
@@ -2548,6 +2578,7 @@
       "kind": "regular",
       "path": "Packages/macOS/CmuxNext/Sources/CmuxNextUpdater",
       "targets": [
+        "CCmuxAppFFI",
         "CmuxNextActions",
         "CmuxNextCompat",
         "CmuxNextDesign",
@@ -2666,6 +2697,18 @@
       ],
       "packages": [],
       "reads": []
+    },
+    "DaemonWireTypesPlugin": {
+      "kind": "plugin",
+      "path": "Packages/macOS/CmuxNext/Plugins/DaemonWireTypesPlugin",
+      "targets": [],
+      "packages": []
+    },
+    "DesignScalePlugin": {
+      "kind": "plugin",
+      "path": "Packages/macOS/CmuxNext/Plugins/DesignScalePlugin",
+      "targets": [],
+      "packages": []
     },
     "SettingsSchemaPlugin": {
       "kind": "plugin",
