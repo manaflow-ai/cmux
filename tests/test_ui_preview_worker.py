@@ -928,5 +928,43 @@ class PublishTests(unittest.TestCase):
             self.assertTrue(any("publish exited 1" in x and "STATE_MAX" in x for x in lines), lines)
 
 
+class SendTests(unittest.TestCase):
+    """A post names the pushing session HOST/NAME: a bare NAME's fleet lookup refuses while any machine is unread."""
+
+    def test_a_bare_recipient_goes_to_its_host_first(self):
+        self.assertEqual(w.send_targets(request(recipient="lane-x", recipient_host="fs-agent-lane-1")),
+                         ["fs-agent-lane-1/lane-x", "lane-x"])
+        self.assertEqual(w.send_targets(request()), ["gcp-agent-lane-12/lane-x"])
+        self.assertEqual(w.send_targets(request(recipient="lane-x", recipient_host=None)), ["lane-x"])
+
+    def fake_send(self, tmp: str, refuse: set) -> str:
+        script = Path(tmp) / "send.sh"
+        log = Path(tmp) / "sent.log"
+        script.write_text("#!/bin/sh\ncat >/dev/null\necho \"$1\" >> %s\n" % log
+                          + "".join(f'[ "$1" = "{r}" ] && {{ echo "lane-gh send: a report reads faster with its '
+                                    f'state: add --state" >&2; echo "lane-gh: send: no session named \'{r}\'" >&2;'
+                                    f' exit 1; }}\n' for r in refuse) + "exit 0\n")
+        script.chmod(0o755)
+        return f"{script} {{recipient}}"
+
+    def test_a_moved_session_falls_back_to_the_bare_name(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            worker = w.Worker(Path(tmp) / "state", None, self.fake_send(tmp, {"h1/lane-x"}), None, host="t")
+            w.SEND_RETRY_S, keep = 0, w.SEND_RETRY_S
+            try:
+                self.assertEqual(worker.send(["h1/lane-x", "lane-x"], "hi\n"), "lane-x")
+            finally:
+                w.SEND_RETRY_S = keep
+            self.assertEqual((Path(tmp) / "sent.log").read_text().split(), ["h1/lane-x", "lane-x"])
+
+    def test_a_refusal_names_the_refusal_not_the_hint(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            worker = w.Worker(Path(tmp) / "state", None, self.fake_send(tmp, {"lane-x"}), None, host="t")
+            with self.assertRaises(w.LookError) as caught:
+                worker.send(["lane-x"], "hi\n")
+            self.assertIn("no session named 'lane-x'", str(caught.exception))
+            self.assertNotIn("reads faster", str(caught.exception))
+
+
 if __name__ == "__main__":
     unittest.main()
