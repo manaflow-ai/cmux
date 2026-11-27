@@ -1916,9 +1916,9 @@ pub mod types {
     ///`Conflict`
     #[derive(::serde::Deserialize, ::serde::Serialize, Clone, Debug)]
     pub struct Conflict {
-        ///mesh.device.intent_revoked: the enroll's intentId was revoked (or its device deleted); this intent never makes a device again.
+        ///mesh.device.intent_revoked: the enroll's intentId was revoked (or its device deleted); this intent never makes a device again. creation.intent_refused: this Idempotency-Key's recorded create refuses this attempt (its intent changed, it was cancelled or completed, or its reservation expired); retrying the same key never creates it.
         #[serde(skip_serializing_if = "::std::option::Option::is_none")]
-        pub code: ::std::option::Option<ConflictCode>,
+        pub code: ::std::option::Option<::std::string::String>,
         #[serde(
             rename = "creationKey",
             skip_serializing_if = "::std::option::Option::is_none"
@@ -1933,53 +1933,6 @@ pub mod types {
         pub pending_snapshot_id: ::std::option::Option<ConflictPendingSnapshotId>,
         #[serde(rename = "_tag")]
         pub tag: ConflictTag,
-    }
-    ///mesh.device.intent_revoked: the enroll's intentId was revoked (or its device deleted); this intent never makes a device again.
-    #[derive(
-        ::serde::Deserialize,
-        ::serde::Serialize,
-        Clone,
-        Copy,
-        Debug,
-        Eq,
-        Hash,
-        Ord,
-        PartialEq,
-        PartialOrd,
-    )]
-    pub enum ConflictCode {
-        #[serde(rename = "mesh.device.intent_revoked")]
-        MeshDeviceIntentRevoked,
-    }
-    impl ::std::fmt::Display for ConflictCode {
-        fn fmt(&self, f: &mut ::std::fmt::Formatter<'_>) -> ::std::fmt::Result {
-            match *self {
-                Self::MeshDeviceIntentRevoked => f.write_str("mesh.device.intent_revoked"),
-            }
-        }
-    }
-    impl ::std::str::FromStr for ConflictCode {
-        type Err = self::error::ConversionError;
-        fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
-            match value {
-                "mesh.device.intent_revoked" => Ok(Self::MeshDeviceIntentRevoked),
-                _ => Err("invalid value".into()),
-            }
-        }
-    }
-    impl ::std::convert::TryFrom<&str> for ConflictCode {
-        type Error = self::error::ConversionError;
-        fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
-            value.parse()
-        }
-    }
-    impl ::std::convert::TryFrom<::std::string::String> for ConflictCode {
-        type Error = self::error::ConversionError;
-        fn try_from(
-            value: ::std::string::String,
-        ) -> ::std::result::Result<Self, self::error::ConversionError> {
-            value.parse()
-        }
     }
     ///a string matching the pattern ^snap_[0123456789abcdefghjkmnpqrstvwxyz]{26}$
     #[derive(::serde::Serialize, Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
@@ -5785,6 +5738,8 @@ pub mod types {
     ///Network intent for the new VM only. Requires vm:network in addition to vm:write. Omit to keep the private default.
     #[derive(::serde::Deserialize, ::serde::Serialize, Clone, Debug, Default)]
     pub struct InitialVmNetwork {
+        #[serde(skip_serializing_if = "::std::option::Option::is_none")]
+        pub egress: ::std::option::Option<VmEgressAllowlist>,
         ///an array of at most 8 item(s)
         #[serde(
             rename = "httpsProxies",
@@ -5801,6 +5756,13 @@ pub mod types {
     ///Accepted creation-time policy. Proxy credentials and destination origins are never returned.
     #[derive(::serde::Deserialize, ::serde::Serialize, Clone, Debug)]
     pub struct InitialVmNetworkReceipt {
+        ///Present for an allowlist create: every exact HTTPS name the VM may reach besides its proxies.
+        #[serde(
+            rename = "allowedDomains",
+            default,
+            skip_serializing_if = "::std::vec::Vec::is_empty"
+        )]
+        pub allowed_domains: ::std::vec::Vec<::std::string::String>,
         #[serde(rename = "httpsProxyHosts")]
         pub https_proxy_hosts: ::std::vec::Vec<::std::string::String>,
         #[serde(rename = "publicEgress")]
@@ -10780,7 +10742,7 @@ pub mod types {
                 })
         }
     }
-    ///A VM's memory and disk, captured. A VM booted from a snapshot resumes from the captured memory. Whether the guest kernel's random number generator is reseeded, and whether the machine id, hostname and clock change on restore, is not documented by the platform and is not yet verified: assume every VM booted from one snapshot starts with identical RNG state, machine id and hostname, and reseed, regenerate and resync them in the guest when that matters.
+    ///A VM's memory and disk, captured. A VM booted from a snapshot resumes from the captured memory. On the cmux VM image, cmux-host sees the new instance id on the first boot of a restore or fork and, before any role starts, reseeds the kernel RNG, writes a new machine id and SSH host key (the inherited RSA, ECDSA and DSA host keys are removed), makes new per-machine install and WireGuard keys, and drops remote session state; the one-time bind token is spent and removed. The hostname and the clock are not changed. On any other image none of this runs: assume every VM booted from one snapshot starts with identical RNG state, machine id, host keys and hostname, and reseed, regenerate and resync them in the guest when that matters.
     #[derive(::serde::Deserialize, ::serde::Serialize, Clone, Debug)]
     pub struct Snapshot {
         #[serde(
@@ -13797,6 +13759,164 @@ pub mod types {
         }
     }
     impl<'de> ::serde::Deserialize<'de> for VmCreationsReconcileVmCreationXCmuxTeamId {
+        fn deserialize<D>(deserializer: D) -> ::std::result::Result<Self, D::Error>
+        where
+            D: ::serde::Deserializer<'de>,
+        {
+            ::std::string::String::deserialize(deserializer)?
+                .parse()
+                .map_err(|e: self::error::ConversionError| {
+                    <D::Error as ::serde::de::Error>::custom(e.to_string())
+                })
+        }
+    }
+    ///The VM reaches no public address: only these exact HTTPS names (plus the names every cmux VM needs: its CLI downloads and GitHub releases), and its HTTPS proxies. Conflicts with publicEgress true.
+    #[derive(::serde::Deserialize, ::serde::Serialize, Clone, Debug)]
+    pub struct VmEgressAllowlist {
+        ///Exact host names (no wildcard, no address), reached over HTTPS on 443 only.
+        #[serde(default, skip_serializing_if = "::std::vec::Vec::is_empty")]
+        pub domains: ::std::vec::Vec<VmEgressAllowlistDomainsItem>,
+        pub mode: VmEgressAllowlistMode,
+        ///Named groups of exact host names: anthropic, openai, openrouter, opencode, github, npm, pypi, rust.
+        #[serde(default, skip_serializing_if = "::std::vec::Vec::is_empty")]
+        pub presets: ::std::vec::Vec<VmEgressAllowlistPresetsItem>,
+    }
+    ///a string at most 253 character(s) long
+    #[derive(::serde::Serialize, Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+    #[serde(transparent)]
+    pub struct VmEgressAllowlistDomainsItem(::std::string::String);
+    impl ::std::ops::Deref for VmEgressAllowlistDomainsItem {
+        type Target = ::std::string::String;
+        fn deref(&self) -> &::std::string::String {
+            &self.0
+        }
+    }
+    impl ::std::convert::From<VmEgressAllowlistDomainsItem> for ::std::string::String {
+        fn from(value: VmEgressAllowlistDomainsItem) -> Self {
+            value.0
+        }
+    }
+    impl ::std::str::FromStr for VmEgressAllowlistDomainsItem {
+        type Err = self::error::ConversionError;
+        fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+            if value.chars().count() > 253usize {
+                return Err("longer than 253 characters".into());
+            }
+            Ok(Self(value.to_string()))
+        }
+    }
+    impl ::std::convert::TryFrom<&str> for VmEgressAllowlistDomainsItem {
+        type Error = self::error::ConversionError;
+        fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+            value.parse()
+        }
+    }
+    impl ::std::convert::TryFrom<::std::string::String> for VmEgressAllowlistDomainsItem {
+        type Error = self::error::ConversionError;
+        fn try_from(
+            value: ::std::string::String,
+        ) -> ::std::result::Result<Self, self::error::ConversionError> {
+            value.parse()
+        }
+    }
+    impl<'de> ::serde::Deserialize<'de> for VmEgressAllowlistDomainsItem {
+        fn deserialize<D>(deserializer: D) -> ::std::result::Result<Self, D::Error>
+        where
+            D: ::serde::Deserializer<'de>,
+        {
+            ::std::string::String::deserialize(deserializer)?
+                .parse()
+                .map_err(|e: self::error::ConversionError| {
+                    <D::Error as ::serde::de::Error>::custom(e.to_string())
+                })
+        }
+    }
+    ///`VmEgressAllowlistMode`
+    #[derive(
+        ::serde::Deserialize,
+        ::serde::Serialize,
+        Clone,
+        Copy,
+        Debug,
+        Eq,
+        Hash,
+        Ord,
+        PartialEq,
+        PartialOrd,
+    )]
+    pub enum VmEgressAllowlistMode {
+        #[serde(rename = "allowlist")]
+        Allowlist,
+    }
+    impl ::std::fmt::Display for VmEgressAllowlistMode {
+        fn fmt(&self, f: &mut ::std::fmt::Formatter<'_>) -> ::std::fmt::Result {
+            match *self {
+                Self::Allowlist => f.write_str("allowlist"),
+            }
+        }
+    }
+    impl ::std::str::FromStr for VmEgressAllowlistMode {
+        type Err = self::error::ConversionError;
+        fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+            match value {
+                "allowlist" => Ok(Self::Allowlist),
+                _ => Err("invalid value".into()),
+            }
+        }
+    }
+    impl ::std::convert::TryFrom<&str> for VmEgressAllowlistMode {
+        type Error = self::error::ConversionError;
+        fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+            value.parse()
+        }
+    }
+    impl ::std::convert::TryFrom<::std::string::String> for VmEgressAllowlistMode {
+        type Error = self::error::ConversionError;
+        fn try_from(
+            value: ::std::string::String,
+        ) -> ::std::result::Result<Self, self::error::ConversionError> {
+            value.parse()
+        }
+    }
+    ///a string at most 32 character(s) long
+    #[derive(::serde::Serialize, Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+    #[serde(transparent)]
+    pub struct VmEgressAllowlistPresetsItem(::std::string::String);
+    impl ::std::ops::Deref for VmEgressAllowlistPresetsItem {
+        type Target = ::std::string::String;
+        fn deref(&self) -> &::std::string::String {
+            &self.0
+        }
+    }
+    impl ::std::convert::From<VmEgressAllowlistPresetsItem> for ::std::string::String {
+        fn from(value: VmEgressAllowlistPresetsItem) -> Self {
+            value.0
+        }
+    }
+    impl ::std::str::FromStr for VmEgressAllowlistPresetsItem {
+        type Err = self::error::ConversionError;
+        fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+            if value.chars().count() > 32usize {
+                return Err("longer than 32 characters".into());
+            }
+            Ok(Self(value.to_string()))
+        }
+    }
+    impl ::std::convert::TryFrom<&str> for VmEgressAllowlistPresetsItem {
+        type Error = self::error::ConversionError;
+        fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+            value.parse()
+        }
+    }
+    impl ::std::convert::TryFrom<::std::string::String> for VmEgressAllowlistPresetsItem {
+        type Error = self::error::ConversionError;
+        fn try_from(
+            value: ::std::string::String,
+        ) -> ::std::result::Result<Self, self::error::ConversionError> {
+            value.parse()
+        }
+    }
+    impl<'de> ::serde::Deserialize<'de> for VmEgressAllowlistPresetsItem {
         fn deserialize<D>(deserializer: D) -> ::std::result::Result<Self, D::Error>
         where
             D: ::serde::Deserializer<'de>,
@@ -20962,7 +21082,7 @@ impl Client {
     }
     /**Snapshot a running or paused VM
 
-    Snapshot a running or paused VM. Requires the snapshot:write scope. Each capture is journaled before sending. A key permanently identifies one capture; use a fresh key for a new capture. Retained failures return pendingSnapshotId. Inspect, reconcile or cancel it at /v1/snapshot-creations/:snapshotId; reconcile never captures again. Omitted-key requests are separate captures; recover a lost handle from GET /v1/snapshot-creations. Unknown outcomes retain quota. A VM booted from a snapshot resumes from the captured memory. Whether the guest kernel's random number generator is reseeded, and whether the machine id, hostname and clock change on restore, is not documented by the platform and is not yet verified: assume every VM booted from one snapshot starts with identical RNG state, machine id and hostname, and reseed, regenerate and resync them in the guest when that matters.
+    Snapshot a running or paused VM. Requires the snapshot:write scope. Each capture is journaled before sending. A key permanently identifies one capture; use a fresh key for a new capture. Retained failures return pendingSnapshotId. Inspect, reconcile or cancel it at /v1/snapshot-creations/:snapshotId; reconcile never captures again. Omitted-key requests are separate captures; recover a lost handle from GET /v1/snapshot-creations. Unknown outcomes retain quota. A VM booted from a snapshot resumes from the captured memory. On the cmux VM image, cmux-host sees the new instance id on the first boot of a restore or fork and, before any role starts, reseeds the kernel RNG, writes a new machine id and SSH host key (the inherited RSA, ECDSA and DSA host keys are removed), makes new per-machine install and WireGuard keys, and drops remote session state; the one-time bind token is spent and removed. The hostname and the clock are not changed. On any other image none of this runs: assume every VM booted from one snapshot starts with identical RNG state, machine id, host keys and hostname, and reseed, regenerate and resync them in the guest when that matters.
 
     Sends a `POST` request to `/v1/vms/{vmId}/snapshots`
 

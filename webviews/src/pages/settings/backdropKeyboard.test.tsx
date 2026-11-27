@@ -18,7 +18,9 @@ const wait = (ms: number) => void jest.advanceTimersByTime(ms);
 const drain = () => act(async () => {});
 
 test("tabbing across the tiles previews only the tile you rest on", async () => {
-  const page = await renderPage({ path: "/settings/personalization?part=background" });
+  // Appearance's cards keep More Options closed: opening them is a click, which takes the keyboard's
+  // focus ring away (ui/focusModality.ts), and a tile previews on focus only while the ring shows.
+  const page = await renderPage({ path: "/settings/appearance", closedMore: true });
   const tiles = [
     ...page.container.querySelectorAll<HTMLButtonElement>(
       '[data-card="backdrop"] .backdrop-tile[aria-pressed]:not(.backdrop-pending)',

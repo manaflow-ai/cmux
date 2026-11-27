@@ -227,6 +227,7 @@ fn agent_proxy_refuses_every_non_chat_entrypoint() {
                 &config,
                 &author(),
                 "boot-1",
+                false,
                 json!({"cmd": cmd, "surface": 42})
             ),
             Err("scope_not_granted")
@@ -237,6 +238,7 @@ fn agent_proxy_refuses_every_non_chat_entrypoint() {
             &config,
             &author(),
             "boot-1",
+            false,
             json!({"protocol": "cmux.protocol/2", "cmd": "agent-session-attach", "surface": 42})
         ),
         Err("scope_not_granted")
@@ -253,6 +255,7 @@ fn agent_proxy_requires_this_login_and_surface_and_a_live_grant() {
                 &config,
                 &author(),
                 "boot-1",
+                false,
                 json!({"cmd": "agent-session-attach", "surface": surface})
             ),
             Err("agent_session.not_shared")
@@ -261,14 +264,14 @@ fn agent_proxy_requires_this_login_and_surface_and_a_live_grant() {
     config.shares[0].login = LEO.into();
     let frame = json!({"cmd": "agent-session-attach", "surface": 42});
     assert_eq!(
-        super::agent_proxy::filter(&config, &author(), "boot-1", frame.clone()),
+        super::agent_proxy::filter(&config, &author(), "boot-1", false, frame.clone()),
         Err("agent_session.not_shared")
     );
     config.shares[0].login = LAWRENCE.into();
-    assert!(super::agent_proxy::filter(&config, &author(), "boot-1", frame.clone()).is_ok());
+    assert!(super::agent_proxy::filter(&config, &author(), "boot-1", false, frame.clone()).is_ok());
     config.grants[0].revoked_at = Some(grant::now_rfc3339());
     assert_eq!(
-        super::agent_proxy::filter(&config, &author(), "boot-1", frame),
+        super::agent_proxy::filter(&config, &author(), "boot-1", false, frame),
         Err("scope_not_granted")
     );
 }
@@ -283,6 +286,7 @@ fn agent_proxy_guests_only_observe_events_and_detach() {
                 &config,
                 &author(),
                 "boot-1",
+                false,
                 json!({"cmd": cmd, "surface": 42})
             )
             .is_ok()
@@ -299,6 +303,7 @@ fn agent_proxy_guests_only_observe_events_and_detach() {
                 &config,
                 &author(),
                 "boot-1",
+                false,
                 json!({"cmd": cmd, "surface": 42})
             ),
             Err("scope_not_granted")
@@ -317,6 +322,7 @@ fn agent_proxy_strips_client_authorship_and_stamps_whois() {
         &shared_chat(super::shares::Role::Member),
         &author(),
         "boot-1",
+        false,
         frame,
     )
     .unwrap();
@@ -332,7 +338,7 @@ fn agent_proxy_shares_expire_on_daemon_change() {
     let config = shared_chat(super::shares::Role::Member);
     let frame = serde_json::json!({"cmd":"agent-session-attach", "surface":42});
     assert_eq!(
-        super::agent_proxy::filter(&config, &author(), "boot-2", frame),
+        super::agent_proxy::filter(&config, &author(), "boot-2", false, frame),
         Err("agent_session.not_shared")
     );
 }
@@ -425,11 +431,11 @@ fn a_member_cannot_answer_the_hosts_asks() {
     let frame = serde_json::json!({"cmd": "agent-session-permission", "surface": 42,
         "permission_id": "p", "option_id": "allow"});
     assert_eq!(
-        super::agent_proxy::filter(&config, &author, "boot-1", frame),
+        super::agent_proxy::filter(&config, &author, "boot-1", false, frame),
         Err("scope_not_granted")
     );
     let prompt = serde_json::json!({"cmd": "agent-session-prompt", "surface": 42, "text": "hi"});
-    assert!(super::agent_proxy::filter(&config, &author, "boot-1", prompt).is_ok());
+    assert!(super::agent_proxy::filter(&config, &author, "boot-1", false, prompt).is_ok());
 }
 
 /// A share confirmed at the prompt applies to the config as it is then: a daemon restart while the
@@ -493,7 +499,7 @@ fn a_share_is_pinned_to_the_consented_chat() {
     config.shares[0].session.clear();
     let frame = serde_json::json!({"cmd": "agent-session-attach", "surface": 42});
     assert_eq!(
-        super::agent_proxy::filter(&config, &author(), "boot-1", frame.clone()),
+        super::agent_proxy::filter(&config, &author(), "boot-1", false, frame.clone()),
         Err("agent_session.not_shared"),
         "an unpinned share is not a share"
     );
@@ -501,7 +507,7 @@ fn a_share_is_pinned_to_the_consented_chat() {
         applied("share", config, 42, LAWRENCE, Role::Member, &chat("boot-1"), &chat("boot-1"))
             .unwrap();
     assert_eq!(shared.shares[0].session, "acp_a");
-    let forwarded = super::agent_proxy::filter(&shared, &author(), "boot-1", frame).unwrap();
+    let forwarded = super::agent_proxy::filter(&shared, &author(), "boot-1", false, frame).unwrap();
     assert_eq!(forwarded["_host_session"], "acp_a");
     let rebound = Chat { generation: "boot-1".into(), session: "acp_b".into() };
     let refused =
@@ -579,7 +585,9 @@ fn every_config_write_goes_through_commit() {
     for entry in std::fs::read_dir(&dir).unwrap() {
         let path = entry.unwrap().path();
         let name = path.file_name().unwrap().to_string_lossy().into_owned();
-        if !name.ends_with(".rs") || name == "config.rs" || name == "teammate_tests.rs" {
+        // config.rs owns the writes; a `_tests.rs` file is tests, not a verb (#48016 moved
+        // config.rs's own tests, which pass Listener::Caller, to config_commit_tests.rs).
+        if !name.ends_with(".rs") || name == "config.rs" || name.ends_with("_tests.rs") {
             continue;
         }
         let source = std::fs::read_to_string(&path).unwrap();
@@ -616,4 +624,75 @@ fn every_config_write_goes_through_commit() {
     assert_eq!(bypasses(moved), ["Listener::Caller in revoke_access"]);
     let kept = "fn disable(args: &[String]) {\n    config::commit(&config, &lock, config::Listener::Caller)?;\n}";
     assert!(bypasses(kept).is_empty());
+}
+
+#[test]
+fn agent_proxy_presence_verbs_only_with_the_labs_switch() {
+    use super::shares::Role;
+    use serde_json::json;
+    let frame = |cmd: &str| json!({"cmd": cmd, "surface": 42, "on": true, "visible": true});
+    for role in [Role::Member, Role::Guest] {
+        let config = shared_chat(role);
+        // Off (the default): a teammate's presence frames are refused, as before.
+        for cmd in ["agent-session-typing", "agent-session-view"] {
+            assert_eq!(
+                super::agent_proxy::filter(&config, &author(), "boot-1", false, frame(cmd)),
+                Err("scope_not_granted"),
+                "{cmd} {role:?} off"
+            );
+        }
+        // On: a member views and types; a guest is seen viewing and never types.
+        let view = super::agent_proxy::filter(
+            &config,
+            &author(),
+            "boot-1",
+            true,
+            frame("agent-session-view"),
+        )
+        .unwrap();
+        assert_eq!(view["_host_author"], author());
+        assert_eq!(view["_host_session"], "acp_a");
+        let typing = super::agent_proxy::filter(
+            &config,
+            &author(),
+            "boot-1",
+            true,
+            frame("agent-session-typing"),
+        );
+        match role {
+            Role::Guest => assert_eq!(typing, Err("scope_not_granted")),
+            _ => assert!(typing.is_ok()),
+        }
+        // The switch adds nothing else: a guest still cannot prompt, nobody gets permission.
+        for cmd in ["agent-session-permission", "agent-session-start", "composer_set"] {
+            assert_eq!(
+                super::agent_proxy::filter(&config, &author(), "boot-1", true, frame(cmd)),
+                Err("scope_not_granted"),
+                "{cmd} {role:?} on"
+            );
+        }
+        if role == Role::Guest {
+            assert_eq!(
+                super::agent_proxy::filter(
+                    &config,
+                    &author(),
+                    "boot-1",
+                    true,
+                    frame("agent-session-prompt")
+                ),
+                Err("scope_not_granted")
+            );
+        }
+        // An unshared surface stays unshared.
+        assert_eq!(
+            super::agent_proxy::filter(
+                &config,
+                &author(),
+                "boot-1",
+                true,
+                json!({"cmd": "agent-session-view", "surface": 43, "visible": true})
+            ),
+            Err("agent_session.not_shared")
+        );
+    }
 }

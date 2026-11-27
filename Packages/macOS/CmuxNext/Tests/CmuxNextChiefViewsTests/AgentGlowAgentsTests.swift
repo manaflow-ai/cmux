@@ -16,10 +16,10 @@ import Testing
 
     @Test func lanesThatWorkOrWaitCountOnTheirMachine() {
         let lanes = AgentLaneStore()
-        lanes.lanes = ["a": Self.lane("a", peer: nil, state: .input), "b": Self.lane("b", peer: "big-red", state: .working),
+        lanes.lanes = ["a": Self.lane("a", peer: nil, state: .input), "b": Self.lane("b", peer: "my-vm", state: .working),
                        "c": Self.lane("c", peer: "huge-blue", state: .idle)]
         let agents = BackdropAgentGlow.Agent.current(workspaces: [], machineName: { _ in nil }, localMachine: "this-mac", lanes: lanes)
-        #expect(Set(agents) == [.init(machine: "this-mac", level: .needsYou), .init(machine: "big-red", level: .working)])
+        #expect(Set(agents) == [.init(machine: "this-mac", level: .needsYou), .init(machine: "my-vm", level: .working)])
     }
 
     /// A working agent changes its lane many times a second: a step must not wake the glow's

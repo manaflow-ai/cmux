@@ -35,6 +35,15 @@ pub mod customize {
 
 pub use cmux_app_manifest::{Issue, PackageReport, Severity, is_valid};
 
+/// The scene motion contract (`cmux.motion/1`): the typed `animation`, `loop`, `transition` and
+/// `contentTransition` vocabulary, its clamps, and the normalizer the app host runs on every scene
+/// batch, so a tool can check a motion value exactly as cmux will.
+pub use cmux_app_host::motion;
+
+/// A look's `motion` block (theme file `motion`): named `{duration, bounce}` spring presets and
+/// design-token spring and fade overrides, clamped to `cmux.motion/1`.
+pub use cmux_app_host::motion_profile;
+
 use serde_json::{Map, Value, json};
 use std::path::Path;
 
@@ -71,6 +80,13 @@ pub fn event(name: &str) -> Option<&'static Event> {
 /// The live source named `name`, if there is one.
 pub fn signal(name: &str) -> Option<&'static Signal> {
     SIGNALS.iter().find(|s| s.name == name)
+}
+
+/// Placement of a composer's live reasoning choices in a searchable model picker.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ReasoningMenu {
+    Column,
+    Separate,
 }
 
 /// Where a sidebar section starts; the person moves it.
@@ -173,12 +189,18 @@ impl Manifest {
         self.implement("cmux.section/1", export, title, symbol, Some(options))
     }
 
+    /// The whole workspace list (`cmux.sidebar/1`) drawn by the script's `export`, in place of
+    /// the built-in list once the person names this extension in `sidebar.workspaceListApp`.
+    pub fn sidebar(self, export: &str, title: &str, symbol: &str) -> Self {
+        self.implement("cmux.sidebar/1", export, title, symbol, None)
+    }
+
     /// A pane (`cmux.pane/1`) drawn by the script's `export`.
     pub fn pane(self, export: &str, title: &str, symbol: &str) -> Self {
         self.implement("cmux.pane/1", export, title, symbol, None)
     }
 
-    /// A whole New Tab page (`cmux.newtab/1`) drawn by the script's `export`. It shows only once
+    /// A New Tab view (`cmux.newtab/1`, over cmux's composer) drawn by the script's `export`. It shows only once
     /// the person names the extension in `tabs.newTabApp`; otherwise cmux draws its own page.
     pub fn new_tab(self, export: &str, title: &str, symbol: &str) -> Self {
         self.implement("cmux.newtab/1", export, title, symbol, None)
@@ -228,12 +250,52 @@ impl Manifest {
         self
     }
 
+    /// Use the searchable model menu, with the live reasoning choices in the menu's column
+    /// or in a separate chip. This data-only interface needs no activation or scope.
+    pub fn model_picker(mut self, reasoning: ReasoningMenu) -> Self {
+        let reasoning = match reasoning {
+            ReasoningMenu::Column => "column",
+            ReasoningMenu::Separate => "separate",
+        };
+        self.insert_in(
+            "implements",
+            "cmux.composer.model.picker/1",
+            json!({ "options": { "modelMenu": "search", "reasoningMenu": reasoning } }),
+        );
+        self
+    }
+
     /// A slash command in the agent chat composer (`cmux.composer.command/1`): the `/` menu lists
     /// it as `/name`, and picking it writes `insert` over the typed `/word`. Data only: cmux reads
     /// it from the manifest, and a save updates the menu without a restart.
     pub fn slash_command(self, name: &str, description: &str, insert: &str) -> Self {
         let entry = json!({ "name": name, "description": description, "insert": insert });
         self.append_data("cmux.composer.command/1", "commands", entry)
+    }
+
+    /// Shows an available composer action beside the + menu. Omitting the label uses the
+    /// action's localized title. The current composer's handler handles the click.
+    pub fn composer_toolbar_button(self, action: &str, label: Option<&str>) -> Self {
+        let mut entry = Map::new();
+        entry.insert("action".into(), json!(action));
+        if let Some(label) = label {
+            entry.insert("label".into(), json!(label));
+        }
+        self.append_data("cmux.composer.toolbar/1", "buttons", Value::Object(entry))
+    }
+
+    /// A context chip in the agent chat composer (`cmux.composer.chip/1`): a short `label` the
+    /// person clicks to add `insert` to the draft; `detail` is its tooltip. Data only: the daemon
+    /// lists it (`apps.composer.list`), and a save updates the chips without a restart.
+    pub fn composer_chip(self, id: &str, label: &str, insert: &str, detail: Option<&str>) -> Self {
+        let mut entry = Map::new();
+        entry.insert("id".into(), json!(id));
+        entry.insert("label".into(), json!(label));
+        if let Some(detail) = detail {
+            entry.insert("detail".into(), json!(detail));
+        }
+        entry.insert("insert".into(), json!(insert));
+        self.append_data("cmux.composer.chip/1", "chips", Value::Object(entry))
     }
 
     /// An item the person names with `@prefix` in the composer (`cmux.composer.mention/1`); the

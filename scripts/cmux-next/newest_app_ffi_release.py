@@ -8,7 +8,7 @@ Packages/macOS/CmuxNext/app-ffi-pin.json pins now and has a published cmux-app-f
 its SOURCE_SHA names that commit, and its SHA256SUMS carries the archive's checksum. Latest wins: a newer FFI
 commit whose release is not published yet (its build was cancelled by a newer push, or is still running, so
 SOURCE_SHA or SHA256SUMS is a 404) is skipped, never waited for. The base's FFI sources may be ahead of the
-release it picks; merge_hold's classifier (scripts/ci/base_red_excuse.py) accepts such a pin once the app
+release it picks; land-judge's classifier (scripts/ci/base_red_excuse.py) accepts such a pin once the app
 compiles against it. When nothing newer is published it prints the current pin, so the re-pin is a no-op.
 
 Reads tags with `git ls-remote` and release files anonymously from the release downloads: no API quota. A download

@@ -578,6 +578,7 @@ async fn saved_peer_cache_waits_for_remote_reconciliation() {
             peer_token: None,
             vm_boundary: false,
             github_broker: false,
+            group: None,
         },
     );
     let store = crate::store::open(&config.store, std::path::Path::new("/nonexistent")).unwrap();
@@ -679,6 +680,7 @@ async fn start_saved_peers_loads_a_cache_file_before_opening_remote_reconciliati
             peer_token: None,
             vm_boundary: false,
             github_broker: false,
+            group: None,
         },
     );
     let store = crate::store::open(&config.store, dir.path()).unwrap();
@@ -720,6 +722,7 @@ async fn shutdown_before_saved_peers_start_does_not_open_remote_reconciliation()
             peer_token: None,
             vm_boundary: false,
             github_broker: false,
+            group: None,
         },
     );
     let store = crate::store::open(&config.store, std::path::Path::new("/nonexistent")).unwrap();
@@ -960,6 +963,7 @@ async fn a_queued_family_prompt_marks_once_per_wait_edge() {
         admitted: false,
         after_turn: false,
         steer_on_start: false,
+        answer_due: None,
     };
     let mut accepted = |value: Value| assert_eq!(value.get("waitsForSlot"), Some(&json!(true)));
     let mut waiting = Box::pin(v1.queue_slot(&child, slot, &mut accepted));
@@ -971,7 +975,8 @@ async fn a_queued_family_prompt_marks_once_per_wait_edge() {
     })
     .await;
     assert!(v1.waits_for_slot(&child.meta()));
-    let ListItem::Summary(event) = next(&subscribed.receiver).await else { panic!("summary") };
+    let item = next(&subscribed.receiver).await;
+    let ListItem::Summary(event) = item else { panic!("a summary, not {item:?}") };
     assert_eq!(event.summary.chat_id, child.id);
     let extra: Value = serde_json::from_str(event.summary.extra.get()).unwrap();
     assert_eq!(extra.get("waitsForSlot"), Some(&json!(true)));
@@ -982,7 +987,8 @@ async fn a_queued_family_prompt_marks_once_per_wait_edge() {
         tokio::time::timeout(std::time::Duration::from_secs(5), waiting).await.unwrap().is_err()
     );
     assert!(!v1.waits_for_slot(&child.meta()));
-    let ListItem::Summary(event) = next(&subscribed.receiver).await else { panic!("summary") };
+    let item = next(&subscribed.receiver).await;
+    let ListItem::Summary(event) = item else { panic!("a summary, not {item:?}") };
     let extra: Value = serde_json::from_str(event.summary.extra.get()).unwrap();
     assert!(!extra.get("waitsForSlot").and_then(Value::as_bool).unwrap_or(false));
     assert!(subscribed.receiver.try_next().is_none());

@@ -13,12 +13,14 @@ mod agent_files;
 pub mod auto;
 pub mod channel;
 mod codex_provider;
+mod codex_releases;
 pub(crate) mod inventory;
 pub(crate) mod inventory_feed;
 mod inventory_refresh;
 pub(crate) use inventory_refresh::INVENTORY_REFRESH_FEATURE;
 mod update_plan;
 pub(crate) use update_plan::UPDATE_PLAN_FEATURE;
+pub(crate) mod turns;
 mod update_prepare;
 pub(crate) use update_prepare::UPDATE_PREPARE_FEATURE;
 pub mod latest;
@@ -63,6 +65,9 @@ pub struct HarnessHealth {
     /// When `latest` was read (ms since the epoch).
     pub latest_checked_at: Option<u64>,
     pub outdated: bool,
+    /// Visible models added to the newer Codex release, keyed by provider ID.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub new_codex_models: Option<BTreeMap<String, String>>,
     pub auth: Auth,
     /// Why `auth` is what it is (the probe error, or the check that ran).
     pub auth_detail: Option<String>,
@@ -73,12 +78,16 @@ pub struct HarnessHealth {
     /// Why a part of the check failed (not installed, `--version` failed).
     pub problem: Option<String>,
     pub checked_at: u64,
-    /// The person turned auto-update on for it (`auto.rs`; off by default).
+    /// Auto-update is on for it (`auto.rs`; on unless the person turned it off).
     #[serde(default)]
     pub auto_update: bool,
     /// The last update auto-update ran for it, since the daemon started.
     #[serde(default)]
     pub last_auto_update: Option<auto::AutoUpdateResult>,
+    /// Which Codex app-server a new chat starts while Labs
+    /// `labs.bundledCodexAppServer` is on (`codex_bundle.rs`); absent while it is off.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub codex_bundle: Option<crate::codex_bundle::Health>,
 }
 
 /// A harness to check, as the hub's configuration describes it.
@@ -134,7 +143,7 @@ pub struct Settings {
     pub cache: Option<PathBuf>,
     /// The user's home, where bun and the native installers live.
     pub home: PathBuf,
-    /// The harnesses with auto-update on (`<acpmux home>/harness-auto-update.json`); None: none.
+    /// The harnesses turned auto-update off (`<acpmux home>/harness-auto-update.json`); None: off for all.
     pub auto_update: Option<PathBuf>,
     /// A capture fixture's rows (`harness_fixture.rs`): served as every
     /// check, with nothing read from this machine and no update run.
@@ -157,6 +166,7 @@ pub struct HealthService {
     ran: Mutex<HashMap<String, auto::AutoUpdateResult>>,
     /// One auto-update run at a time.
     updating: tokio::sync::Mutex<()>,
+    pub(crate) turns: turns::InstallTurns,
 }
 
 fn now_ms() -> u64 {
@@ -178,10 +188,16 @@ pub(crate) fn builtin_login(family: &str) -> Option<&'static str> {
         // cards and `cmux harness login muse`.
         "muse" => "muse login",
         "opencode" => "opencode auth login",
+        // Cursor's CLI prints one cursor.com sign-in link (`agent_login`'s Cursor).
+        "cursor" => "cursor-agent login",
+        "antigravity" => "agy acp --login",
         // The bundled CLI's own sign-in: a clean Mac has no `unii` (first-run finding 2).
         "unii" => crate::uniichat_endpoint::LOGIN,
         "hermes" => "hermes model",
         "openclaw" => "openclaw onboard",
+        // oh-my-pi's terminal counterpart of `/login` (can1357/oh-my-pi
+        // `docs/cli-reference.md`, `commands/login.ts`).
+        "omp" => "omp login",
         _ => return None,
     })
 }
@@ -295,7 +311,8 @@ fn builtin_auth(s: &Subject, cwd: Option<&Path>) -> Option<(Auth, Option<String>
                 Err(why) => (Auth::SignedOut, Some(why)),
             })
         }
-        // Gemini, OpenCode, Pi, Cursor, Copilot, Grok, Muse and Antigravity: their login files and keys.
+        // Gemini, OpenCode, Pi, Cursor, Copilot, Grok, Muse, Antigravity, DeepSeek, Prime
+        // and Hermes: their login files and keys.
         family => {
             let env = crate::login_env::effective_for(Some(family), &s.env);
             agent_files::file_auth(family, &program, &env)
@@ -637,6 +654,10 @@ impl HealthService {
                 matches!((&row.latest, &row.version), (Some(l), Some(v)) if probe::is_newer(l, v));
         }
         self.apply_acp_auth(&mut rows);
+        // Private registries can distribute a different binary for the same version.
+        if settings.sources.as_ref().is_some_and(|s| s.npm == latest::Sources::public().npm) {
+            codex_releases::fill(&mut rows, &previous).await;
+        }
         self.mark_auto(&mut rows, &settings);
         if let Some(path) = settings.cache.as_deref() {
             save(path, &rows);
@@ -687,14 +708,20 @@ fn rebind_cached_logins(rows: &mut [HarnessHealth], subjects: &[Subject]) {
 fn save(path: &Path, rows: &[HarnessHealth]) {
     let Ok(body) = serde_json::to_vec_pretty(rows) else { return };
     // Owner-only whatever the umask, through a new temporary file each time.
-    if let Err(e) = crate::config::write_atomic(path, &body) {
-        tracing::info!(error = %e, "harness health not saved");
-    }
+    // The disk writer (`disk_writer.rs`) writes it and logs a failure; the next check saves
+    // again.
+    crate::config::write_atomic_later(path, body);
 }
 
 /// The part of a check that runs here: where the program is, how it was
 /// installed, its version, its sign-in, and its update and login commands.
 fn local(s: Subject, home: &Path) -> HarnessHealth {
+    // Bundled or installed, while Labs `labs.bundledCodexAppServer` is on; None while off.
+    let codex_bundle = (s.family == "codex")
+        .then(|| {
+            crate::codex_bundle::resolve_now(&[s.program.clone(), "app-server".into()]).health()
+        })
+        .flatten();
     let mut found = if Path::new(&s.program).is_absolute() {
         Path::new(&s.program).is_file().then(|| s.program.clone())
     } else {
@@ -766,6 +793,7 @@ fn local(s: Subject, home: &Path) -> HarnessHealth {
         latest: None,
         latest_checked_at: None,
         outdated: false,
+        new_codex_models: None,
         auth,
         auth_detail,
         update,
@@ -773,6 +801,7 @@ fn local(s: Subject, home: &Path) -> HarnessHealth {
         checked_at: now_ms(),
         auto_update: false,
         last_auto_update: None,
+        codex_bundle,
     }
 }
 
@@ -796,6 +825,12 @@ mod tests {
     #[test]
     fn muse_signs_in_with_the_official_cli() {
         assert_eq!(super::builtin_login("muse"), Some("muse login"));
+    }
+
+    /// Cursor found on PATH (no profile) still shows a Sign In: its CLI's own login.
+    #[test]
+    fn cursor_signs_in_with_its_cli() {
+        assert_eq!(super::builtin_login("cursor"), Some("cursor-agent login"));
     }
 
     /// UniiChat signs in through the CLI cmux bundles (first-run finding 2): a clean Mac has
@@ -884,6 +919,7 @@ mod tests {
             latest: None,
             latest_checked_at: None,
             outdated: false,
+            new_codex_models: None,
             auth: Auth::SignedOut,
             auth_detail: None,
             login: Some("codex login".into()),
@@ -892,6 +928,7 @@ mod tests {
             checked_at: 1,
             auto_update: false,
             last_auto_update: None,
+            codex_bundle: None,
         }]);
         let subject = Subject {
             id: "codex-sr".into(),
@@ -920,6 +957,7 @@ mod tests {
             latest: None,
             latest_checked_at: None,
             outdated: false,
+            new_codex_models: None,
             auth: Auth::Unknown,
             auth_detail: None,
             login: Some("muse login".into()),
@@ -928,6 +966,7 @@ mod tests {
             checked_at: 1,
             auto_update: false,
             last_auto_update: None,
+            codex_bundle: None,
         }]);
         let feed = service.inventory_changes();
         service.record_acp_auth_success("muse", "ACP session/new authenticated the harness");

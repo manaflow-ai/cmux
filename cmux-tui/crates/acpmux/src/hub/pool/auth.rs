@@ -9,6 +9,19 @@
 //! changing the account, and the harness refreshes its own tokens. Token
 //! files with no account field count by presence (a logout removes them). Values are
 //! hashed in memory and never stored or logged.
+//!
+//! Where the harness sends its requests counts too: a pooled Claude started before
+//! `~/.claude/settings.json` pointed it at another endpoint, or before the person chose their own
+//! sign-in over the team's model plane (`codex_cloud_auth::CHOICE_DIR`), keeps the route it
+//! started with (`hub/spawn.rs` decides team mode once, at spawn). Served later, it answered from
+//! the old route: the cloud journey's stub chat got no reply, or a real model's (9 of 9 runs from
+//! 2026-11-26 00:20Z). So the endpoint env, Claude's settings keys that move the endpoint or the
+//! credential, and the own-or-team choice are in the fingerprint. Codex's `config.toml` is the same
+//! for Codex: its provider (`model_provider`, a profile's, the `model_providers` tables,
+//! `chatgpt_base_url`) is read once at start, so a Codex warmed on the image's `cmux` provider and
+//! served after the cloud journey pointed `config.toml` at its stub ran on the old route: "Missing
+//! environment variable: `OPENAI_API_KEY`." or the team gateway, never the stub (cloud-journey-prod
+//! Codex stub leg, runs 45907662413, 45904569663, 2026-11-26).
 
 use std::collections::BTreeMap;
 use std::hash::{Hash, Hasher};
@@ -24,6 +37,7 @@ mod tests;
 const AUTH_ENV: &[&str] = &[
     "ANTHROPIC_API_KEY",
     "ANTHROPIC_AUTH_TOKEN",
+    "ANTHROPIC_BASE_URL",
     "CLAUDE_CODE_OAUTH_TOKEN",
     "CLAUDE_CONFIG_DIR",
     "OPENAI_API_KEY",
@@ -38,13 +52,60 @@ const AUTH_ENV: &[&str] = &[
     "GROK_HOME",
 ];
 
+/// Env keys that say where a harness sends its requests, and the own-or-team pins
+/// (`claude_cloud_auth.rs`, `provider_cloud_auth.rs`). A route, not a login, so not in
+/// [`AUTH_ENV`] (whose keys each name an owner family, `agent/foreign_login.rs`).
+const ROUTE_ENV: &[&str] = &[
+    "ANTHROPIC_BASE_URL",
+    "CLAUDE_CODE_USE_BEDROCK",
+    "CLAUDE_CODE_USE_VERTEX",
+    "CLAUDE_CODE_USE_FOUNDRY",
+    "OPENAI_BASE_URL",
+    "GOOGLE_GEMINI_BASE_URL",
+    "GROK_MODELS_BASE_URL",
+    "GROK_XAI_API_BASE_URL",
+    "CMUX_CLAUDE_AUTH",
+    "CMUX_CODEX_AUTH",
+    "CMUX_GEMINI_AUTH",
+    "CMUX_GROK_AUTH",
+    "CMUX_ANTIGRAVITY_AUTH",
+];
+
+/// The `~/.claude/settings.json` keys that move Claude's endpoint or credential: these `env`
+/// entries and the credential helpers (`claude_cloud_auth.rs` reads the same to keep own mode).
+const CLAUDE_SETTINGS_ENV: &[&str] = &[
+    "ANTHROPIC_BASE_URL",
+    "ANTHROPIC_API_KEY",
+    "ANTHROPIC_AUTH_TOKEN",
+    "CLAUDE_CODE_OAUTH_TOKEN",
+    "CLAUDE_CODE_USE_BEDROCK",
+    "CLAUDE_CODE_USE_VERTEX",
+    "CLAUDE_CODE_USE_FOUNDRY",
+];
+const CLAUDE_SETTINGS_HELPERS: &[&str] = &["apiKeyHelper", "awsCredentialExport", "awsAuthRefresh"];
+
+/// The root `config.toml` keys that move Codex's endpoint or credential.
+const CODEX_CONFIG_ROUTE: &[&str] =
+    &["model_provider", "profile", "chatgpt_base_url", "openai_base_url", "forced_login_method"];
+
 /// Where one family keeps its login, and how to read the account from it.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum Reader {
     /// `~/.claude.json`: OAuth account/organization and a saved `primaryApiKey`.
     ClaudeAccount,
+    /// Claude Code's `settings.json`: the login and endpoint its `env` sets (`ANTHROPIC_API_KEY` from
+    /// `agent_login`'s api_key, an `ANTHROPIC_BASE_URL` gateway) and its `apiKeyHelper`. Claude reads
+    /// them at start, so a spare started before they changed talks to the old endpoint or login (a
+    /// Cloud machine pointed at a model gateway got a 401 from the spare warmed a moment before).
+    /// Reads the keys in [`CLAUDE_SETTINGS_ENV`] and [`CLAUDE_SETTINGS_HELPERS`]. Not an account: it
+    /// changes the key, never the account fingerprint.
+    ClaudeSettings,
     /// Codex `auth.json`: `auth_mode`, `tokens.account_id`, `OPENAI_API_KEY`.
     CodexAuth,
+    /// Codex `config.toml`: the keys that move its endpoint or credential ([`CODEX_CONFIG_ROUTE`],
+    /// the `model_providers` tables, each profile's `model_provider`). A route, not an account; a
+    /// model pick or any other setting keeps the session.
+    CodexConfig,
     /// OpenCode `auth.json`: each provider's type, account and key.
     OpencodeAuth,
     /// Gemini CLI `google_accounts.json`: the signed-in Google account (`active`).
@@ -54,6 +115,19 @@ enum Reader {
     GrokAuth,
     /// No account field (token files): present or not.
     Stat,
+    /// The agent's file in `codex_cloud_auth::CHOICE_DIR`: `own` or `team`. A route, not an account.
+    Choice,
+}
+
+impl Reader {
+    /// Whether the file names the account the session runs under (the fingerprint's account
+    /// part), rather than counting by presence or naming a route.
+    fn names_account(self) -> bool {
+        !matches!(
+            self,
+            Reader::Stat | Reader::ClaudeSettings | Reader::CodexConfig | Reader::Choice
+        )
+    }
 }
 
 fn files(
@@ -65,6 +139,20 @@ fn files(
         .filter(|value| !value.is_empty())
         .map(PathBuf::from)
         .unwrap_or_else(|| home.to_path_buf());
+    let mut files = login_files(family, env, &home);
+    if !files.is_empty() {
+        // The image's own-or-team choice (`agent_login.rs` `choose_own`, `cr use`).
+        files.push((home.join(crate::codex_cloud_auth::CHOICE_DIR).join(family), Reader::Choice));
+    }
+    files
+}
+
+fn login_files(
+    family: &str,
+    env: &dyn Fn(&str) -> Option<String>,
+    home: &Path,
+) -> Vec<(PathBuf, Reader)> {
+    let home = home.to_path_buf();
     match family {
         "claude" => {
             let dir = env("CLAUDE_CONFIG_DIR").filter(|value| !value.is_empty()).map(PathBuf::from);
@@ -72,15 +160,22 @@ fn files(
                 Some(d) => d.join(".claude.json"),
                 None => home.join(".claude.json"),
             };
-            let creds = dir.unwrap_or_else(|| home.join(".claude")).join(".credentials.json");
-            vec![(account, Reader::ClaudeAccount), (creds, Reader::Stat)]
+            let dir = dir.unwrap_or_else(|| home.join(".claude"));
+            vec![
+                (account, Reader::ClaudeAccount),
+                (dir.join(".credentials.json"), Reader::Stat),
+                (dir.join("settings.json"), Reader::ClaudeSettings),
+            ]
         }
         "codex" => {
             let dir = env("CODEX_HOME")
                 .filter(|value| !value.is_empty())
                 .map(PathBuf::from)
                 .unwrap_or_else(|| home.join(".codex"));
-            vec![(dir.join("auth.json"), Reader::CodexAuth)]
+            vec![
+                (dir.join("auth.json"), Reader::CodexAuth),
+                (dir.join("config.toml"), Reader::CodexConfig),
+            ]
         }
         "opencode" | "opencode-v2" => {
             let data = env("XDG_DATA_HOME")
@@ -154,14 +249,14 @@ impl AuthCache {
         let mut account = std::collections::hash_map::DefaultHasher::new();
         let mut named = false;
         family.hash(&mut h);
-        for k in AUTH_ENV {
+        for k in AUTH_ENV.iter().chain(ROUTE_ENV) {
             (k, env(k)).hash(&mut h);
         }
         for (path, reader) in files(family, env, home) {
             path.hash(&mut h);
             let part = self.file_part(&path, reader);
             part.hash(&mut h);
-            if reader != Reader::Stat && part != 0 {
+            if reader.names_account() && part != 0 {
                 named = true;
                 part.hash(&mut account);
             }
@@ -202,6 +297,14 @@ impl AuthCache {
 
 fn account_part(reader: Reader, bytes: &[u8]) -> u64 {
     let mut h = std::collections::hash_map::DefaultHasher::new();
+    if reader == Reader::Choice {
+        String::from_utf8_lossy(bytes).trim().hash(&mut h);
+        return h.finish() | 1;
+    }
+    if reader == Reader::CodexConfig {
+        codex_config_route(bytes).hash(&mut h);
+        return h.finish() | 1;
+    }
     let Ok(v) = serde_json::from_slice::<serde_json::Value>(bytes) else {
         // Unreadable JSON: the bytes themselves, so any change counts.
         bytes.hash(&mut h);
@@ -230,6 +333,14 @@ fn account_part(reader: Reader, bytes: &[u8]) -> u64 {
             }
         }
         Reader::GeminiAccounts => s(&v, "/active").hash(&mut h),
+        Reader::ClaudeSettings => {
+            for k in CLAUDE_SETTINGS_ENV {
+                s(&v, &format!("/env/{k}")).hash(&mut h);
+            }
+            for k in CLAUDE_SETTINGS_HELPERS {
+                s(&v, &format!("/{k}")).hash(&mut h);
+            }
+        }
         Reader::GrokAuth => {
             // Its schema is grok's own: every account-shaped field it has, at the top or one level down.
             const IDS: [&str; 8] = [
@@ -260,8 +371,28 @@ fn account_part(reader: Reader, bytes: &[u8]) -> u64 {
             }
             ids.hash(&mut h);
         }
-        // Never parsed (`file_part` counts presence only).
-        Reader::Stat => {}
+        // Never parsed (`file_part` counts presence only); a choice and a Codex config are read above.
+        Reader::Stat | Reader::Choice | Reader::CodexConfig => {}
     }
     h.finish() | 1
+}
+
+/// What in Codex's `config.toml` says where it sends (`Reader::CodexConfig`); unparsable TOML is
+/// its bytes, so any change counts.
+fn codex_config_route(bytes: &[u8]) -> String {
+    let Ok(v) = String::from_utf8_lossy(bytes).parse::<toml::Table>() else {
+        return format!("unparsed:{}", String::from_utf8_lossy(bytes));
+    };
+    let mut out = String::new();
+    for k in CODEX_CONFIG_ROUTE {
+        out.push_str(&format!("{k}={:?};", v.get(*k).map(ToString::to_string)));
+    }
+    out.push_str(&format!("providers={:?};", v.get("model_providers").map(ToString::to_string)));
+    if let Some(profiles) = v.get("profiles").and_then(toml::Value::as_table) {
+        for (name, p) in profiles {
+            let provider = p.get("model_provider").map(ToString::to_string);
+            out.push_str(&format!("profile.{name}={provider:?};"));
+        }
+    }
+    out
 }

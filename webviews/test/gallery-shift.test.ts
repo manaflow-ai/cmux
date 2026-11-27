@@ -2,6 +2,7 @@ import { expect, test } from "bun:test";
 import { Window } from "happy-dom";
 import { judgeStep } from "../src/gallery/play";
 import {
+  MAX_CHANGED_DROPS,
   REST_FRAMES,
   afterEachPaint,
   type PaintClock,
@@ -12,6 +13,7 @@ import {
   scoreBoxFrames,
   type BoxFrame,
   type BoxSample,
+  heldRowDrift,
 } from "../src/gallery/shift";
 
 const viewport = { width: 800, height: 600 };
@@ -346,6 +348,7 @@ function handClock() {
   let callbacks: ((time: number) => void)[] = [];
   let tasks: (() => void)[] = [];
   let input: (() => void) | null = null;
+  let watched: { changed: () => void; rendered: () => void; armed: boolean } | null = null;
   const clock: PaintClock = {
     requestAnimationFrame: (callback) => callbacks.push(callback),
     cancelAnimationFrame: () => {
@@ -360,14 +363,33 @@ function handClock() {
         input = null;
       };
     },
+    watchChanges: (changed, rendered) => {
+      const watch = { changed, rendered, armed: false };
+      watched = watch;
+      return {
+        arm: () => {
+          watch.armed = true;
+        },
+        stop: () => {
+          watched = null;
+        },
+      };
+    },
   };
   return {
     clock,
+    /** The frame's callbacks, then its observer step (the page placed its rows: rendered). */
     frame() {
       const now = callbacks;
       callbacks = [];
       for (const callback of now) callback(0);
+      if (watched?.armed) {
+        watched.armed = false;
+        watched.rendered();
+      }
     },
+    /** The page's DOM changed (in a task, or in a frame callback before its observer step). */
+    change: () => watched?.changed(),
     paint() {
       const now = tasks;
       tasks = [];
@@ -420,4 +442,97 @@ test("afterEachPaint: input before the read runs it first; a read the next frame
   hand.frame();
   hand.paint();
   expect(seen).toEqual(["painted", "after input"]);
+});
+
+test("afterEachPaint: a read after a task changed the page is dropped; the next painted one reads both frames", () => {
+  const hand = handClock();
+  let state = "painted";
+  const seen: string[] = [];
+  afterEachPaint(hand.clock, () => {
+    seen.push(state);
+  });
+  // A change in the frame (its callbacks, its observers) is what the frame paints: read.
+  hand.alsoThisFrame(() => {
+    state = "placed in the frame";
+    hand.change();
+  });
+  hand.frame();
+  hand.paint();
+  expect(seen).toEqual(["placed in the frame"]);
+  // A streamed reply's render, queued before the read: the layout it leaves never painted.
+  hand.frame();
+  state = "a line taller, its live line not placed yet";
+  hand.change();
+  hand.paint();
+  expect(seen).toEqual(["placed in the frame"]);
+  // The next frame's observers place the line under it; the read after that paint sees both.
+  state = "line placed";
+  hand.frame();
+  hand.paint();
+  expect(seen).toEqual(["placed in the frame", "line placed"]);
+});
+
+test(`afterEachPaint: a page that changes before every read is still read every ${MAX_CHANGED_DROPS + 1} frames`, () => {
+  const hand = handClock();
+  let reads = 0;
+  afterEachPaint(hand.clock, () => {
+    reads += 1;
+  });
+  for (let frame = 0; frame < (MAX_CHANGED_DROPS + 1) * 3; frame += 1) {
+    hand.frame();
+    hand.change();
+    hand.paint();
+  }
+  expect(reads).toBe(3);
+});
+
+// The held-bottom detector (Leo, 2026-11-18: "did we fix this scroll bounce at the bottom yet?").
+const transcriptRow = (y: number, extra: Partial<BoxSample> = {}) =>
+  row(y, { row: true, label: "div.acpmux-row", ...extra });
+
+test("a held run whose rows never move drifts 0", () => {
+  const still = frames(
+    [
+      [1, transcriptRow(100)],
+      [2, transcriptRow(140)],
+    ],
+    [
+      [1, transcriptRow(100)],
+      [2, transcriptRow(140)],
+    ],
+    [
+      [1, transcriptRow(100.3)],
+      [2, transcriptRow(140)],
+    ],
+  );
+  expect(heldRowDrift(still)).toEqual({ worst: 0, driftFrames: 0 });
+});
+
+test("rows that slide away together and come back are a bounce, though they moved as one follow", () => {
+  // Leo's recording: every row down 27, 56, 260 px over a few frames, then back up home.
+  const bounce = [0, 27, 56, 260, 120, 30, 0].map(
+    (dy) =>
+      new Map<number, BoxSample>([
+        [1, transcriptRow(100 + dy)],
+        [2, transcriptRow(140 + dy)],
+      ]),
+  );
+  const drift = heldRowDrift(bounce);
+  expect(drift.worst).toBe(260);
+  expect(drift.frame).toBe(3);
+  expect(drift.driftFrames).toBe(5);
+});
+
+test("the held detector skips boxes that are not rows and rows an entrance animates", () => {
+  const run = frames(
+    [
+      [1, row(100)],
+      [2, transcriptRow(200, { animating: true })],
+    ],
+    [
+      [1, row(160)],
+      [2, transcriptRow(240, { animating: true })],
+    ],
+  );
+  expect(heldRowDrift(run).worst).toBe(0);
 });

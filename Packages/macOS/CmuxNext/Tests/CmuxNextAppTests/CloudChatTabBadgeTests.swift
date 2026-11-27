@@ -4,8 +4,9 @@ import CmuxNextIcons
 import CmuxNextTestSupport
 import Testing
 
-/// A Cloud chat's tab shows a cloud where other remote tabs show their machine's name: never the
-/// lease's name ("lease-lease…", #45952). Read from the strip as drawn.
+/// A Cloud chat's tab draws a small cloud in the trailing badge slot where other remote tabs show their machine's
+/// name: never the lease's name ("lease-lease…", #45952), and never at the left (Leo 2026-11-22, #50106); the cloud
+/// is the mark (Austin 2026-11-22, cmux#51000: "we can show the cloud icon in the tab tho for sure"). Read from the strip as drawn.
 @MainActor @Suite(.serialized, .closesItsWindows) struct CloudChatTabBadgeTests {
     static let lease = "lease-lease-7f3a9c"
 
@@ -25,7 +26,7 @@ import Testing
         return (try #require(strip.cells[item.id]), { window.closeAfterTest() })
     }
 
-    @Test func aCloudChatSaysCloudNotItsLease() {
+    @Test func aCloudChatShowsTheCloudNotItsLease() {
         let item = Self.item(chat: true, cloud: true)
         #expect(item.machineBadgeIcon == .cloud)
         #expect(item.machineBadge == Strings.cloudMachineBadge)
@@ -49,14 +50,11 @@ import Testing
         #expect(item.machineBadgeIcon == nil)
     }
 
-    @Test func theStripDrawsTheCloudAndNoText() throws {
+    @Test func theStripDrawsTheCloudGlyphAndNoWord() throws {
         let (cell, close) = try Self.cell(Self.item(chat: true, cloud: true))
         defer { close() }
-        #expect(cell.machineLayer == nil, "the lease's name still draws as text")
-        let icon = try #require(cell.machineIconLayer)
-        #expect(icon.contents != nil)
-        #expect(icon.opacity == 1)
-        #expect(icon.frame.width == TabCell.machineIconSize)
+        #expect(cell.machineIconLayer != nil, "no cloud glyph drawn")
+        #expect(cell.machineLayer == nil, "the word still draws")
     }
 
     @Test func theStripStillDrawsAMachineNameAsText() throws {
@@ -66,7 +64,17 @@ import Testing
         #expect(cell.machineLayer?.string as? String == Self.lease)
     }
 
-    @Test func theCellSwapsBetweenTextAndCloud() throws {
+    /// A Cloud machine's desktop tab says Cloud too, unless it already names a machine.
+    @Test func aCloudDesktopTabSaysCloud() {
+        var item = TabItem(id: TabID("t"), title: "Desktop")
+        item.setCloudBadgeIfUnbadged()
+        #expect(item.machineBadge == Strings.cloudMachineBadge && item.machineBadgeIcon == nil)
+        var named = Self.item(chat: false, cloud: true)
+        named.setCloudBadgeIfUnbadged()
+        #expect(named.machineBadge == Self.lease)
+    }
+
+    @Test func theCellSwapsBetweenTheLeaseAndTheCloud() throws {
         let item = Self.item(chat: false, cloud: true)
         let strip = TabStripView(model: TabStripModel(tabs: [item], selectedID: item.id))
         let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 900, height: TabStripView.preferredHeight), styleMask: [.borderless],
@@ -77,8 +85,8 @@ import Testing
         strip.layoutSubtreeIfNeeded()
         let cell = try #require(strip.cells[item.id])
         cell.update(item: Self.item(chat: true, cloud: true))
-        #expect(cell.machineLayer == nil)
         #expect(cell.machineIconLayer != nil)
+        #expect(cell.machineLayer == nil)
         cell.update(item: Self.item(chat: false, cloud: true))
         #expect(cell.machineIconLayer == nil)
         #expect(cell.machineLayer?.string as? String == Self.lease)

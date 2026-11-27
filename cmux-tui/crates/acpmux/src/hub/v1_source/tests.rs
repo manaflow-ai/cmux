@@ -104,23 +104,33 @@ pub(super) fn wait_ready(actor: &ChatActor) {
     }
 }
 
-/// Waits until the actor's chunks stop growing for 100 ms: it read what v1 holds.
-pub(super) fn wait_read(log: &V1Log<Arc<dyn Store>>, actor: &ChatActor) {
-    wait_ready(actor);
+/// These prompts settle outside a turn, so the actor checkpoints each one as it reads it.
+fn wait_for_cursor(book: &Path, expected: u64) {
+    let started = Instant::now();
+    while saved_cursor(book) != expected {
+        assert!(
+            started.elapsed() < Duration::from_secs(120),
+            "the checkpoint never reached {expected}"
+        );
+        std::thread::sleep(Duration::from_millis(10));
+    }
+}
+
+/// The writer has joined, but a child forked by another test may still hold its lock until exec.
+fn open_settled_book(book: &Path) -> Log {
     let started = Instant::now();
     loop {
-        let chunks = log.counters.chunks.load(Ordering::SeqCst);
-        std::thread::sleep(Duration::from_millis(100));
-        if log.counters.chunks.load(Ordering::SeqCst) == chunks {
-            return;
+        match Log::open(book, Options::default()) {
+            // Each Busy result already waited for the lock inside Log::open.
+            Err(log::Error::Busy) if started.elapsed() < Duration::from_secs(30) => continue,
+            result => return result.unwrap().0,
         }
-        assert!(started.elapsed() < Duration::from_secs(120), "the actor never stopped reading");
     }
 }
 
 /// The book's settled records, in seq order: rowId, rev and the first raw place.
 pub(crate) fn book_rows(book: &Path) -> Vec<(u64, u32, u64)> {
-    let (mut log, _) = Log::open(book, Options::default()).unwrap();
+    let mut log = open_settled_book(book);
     let mut cursor = 0;
     let mut rows = Vec::new();
     loop {
@@ -135,7 +145,7 @@ pub(crate) fn book_rows(book: &Path) -> Vec<(u64, u32, u64)> {
 
 /// The book's settled rows with their text.
 fn book_texts(book: &Path) -> Vec<(u64, Vec<u8>)> {
-    let (mut log, _) = Log::open(book, Options::default()).unwrap();
+    let mut log = open_settled_book(book);
     let mut cursor = 0;
     let mut rows = Vec::new();
     loop {
@@ -175,7 +185,7 @@ pub(crate) fn translated_of(store: &dyn Store, id: &str) -> Vec<(u64, u32, u64)>
             for op in translate::translate(&mut state, Harness::V1, seq, 1, line).unwrap() {
                 match op.change {
                     Change::Row(row) if !row.open => rows.push((row.id, row.rev, seq)),
-                    Change::Patch(row) => rows.push((row.id, row.rev, seq)),
+                    Change::Patch(row) | Change::Leave(row) => rows.push((row.id, row.rev, seq)),
                     _ => {}
                 }
             }
@@ -247,11 +257,7 @@ fn ready_comes_only_from_a_read_that_said_at_end_and_the_hint_finds_new_lines() 
     assert_eq!(log.counters.chunks.load(Ordering::SeqCst), chunks);
     // A line v1 appends now, with no notice sent: the hint moves and the actor reads it.
     let seq = home.prompt("one more thing");
-    let started = Instant::now();
-    while log.counters.chunks.load(Ordering::SeqCst) == chunks {
-        assert!(started.elapsed() < Duration::from_secs(30), "the line was never read");
-        std::thread::sleep(Duration::from_millis(5));
-    }
+    wait_for_cursor(&home.book(), seq + 1);
     let handle = actor.handle.clone();
     actor.join();
     // The line past the start's last seq was synced and checkpointed: no failure, no restart.
@@ -417,7 +423,7 @@ fn a_first_source_that_reads_100_lines_past_the_start_checkpoints_with_no_failur
         std::thread::sleep(Duration::from_millis(15));
     }
     let handle = actor.handle.clone();
-    wait_read(&log, &actor);
+    wait_for_cursor(&home.book(), seq + 1);
     actor.join();
     assert_eq!(handle.failures(), 0);
     assert_eq!(saved_cursor(&home.book()), seq + 1);

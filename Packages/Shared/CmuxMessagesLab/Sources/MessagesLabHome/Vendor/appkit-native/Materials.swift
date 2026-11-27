@@ -73,7 +73,7 @@ final class FieldChrome: NSView {
             // White on dark glass, black on light glass (light Messages capture, 2026-10-09).
             b.contentTintColor = NSColor(name: nil) { $0.bestMatch(from: [.darkAqua, .aqua]) == .aqua ? .black : .white }
             b.setAccessibilityLabel(label)
-            b.toolTip = label
+            b.setHomeToolTip(label)  // cmux: the host's themed tooltip (HomeToolTip.swift)
             b.target = self
             b.action = sel
             g.contentView = b
@@ -95,7 +95,7 @@ final class FieldChrome: NSView {
     /// the text view.
     override func hitTest(_ point: NSPoint) -> NSView? {
         let p = convert(point, from: superview)
-        for g in [plusGlass, emojiGlass] where g.frame.contains(p) { return g.contentView }
+        for g in [plusGlass, emojiGlass] where !g.isHidden && g.frame.contains(p) { return g.contentView }  // cmux: not a hidden button
         if pressTarget != nil, field.contentView === pressSensor, field.frame.contains(p) { return pressSensor }
         return nil
     }
@@ -220,7 +220,12 @@ final class FieldChrome: NSView {
         keyFix.emoji.place(snap(emojiGlass.frame.insetBy(dx: -0.5, dy: 0)))
     }
     /// Key state, appearance or scale changed: the correction shows only where it was measured.
-    func updateKeyFix() { keyFix.update(window: window) }
+    func updateKeyFix() {
+        keyFix.update(window: window)
+        // cmux: a hidden button keeps its rim hidden too (a narrow pane, ComposeChromeLayout).
+        if plusGlass.isHidden { keyFix.plus.show(false) }
+        if emojiGlass.isHidden { keyFix.emoji.show(false) }
+    }
     private var keyFixObservers: [NSObjectProtocol] = []
     override func viewDidMoveToWindow() {
         super.viewDidMoveToWindow()
@@ -245,11 +250,17 @@ final class FieldChrome: NSView {
         for l in keyFix.field.layers { l.opacity = hidden ? 0 : 1 }
     }
 
-    func place(field f: CGRect, plus p: CGRect, emoji e: CGRect) {
+    /// cmux: a nil button rect hides that button (a narrow pane, ComposeChromeLayout): its glass, its
+    /// click and its key-window rim go with it.
+    func place(field f: CGRect, plus p: CGRect?, emoji e: CGRect?) {
         follow(field: f)
-        if plusGlass.frame != p { plusGlass.frame = p }
-        if emojiGlass.frame != e { emojiGlass.frame = e }
+        var shownChanged = false
+        for (g, r) in [(plusGlass, p), (emojiGlass, e)] {
+            if g.isHidden != (r == nil) { g.isHidden = r == nil; shownChanged = true }
+            if let r, g.frame != r { g.frame = r }
+        }
         placeKeyFix()
+        if shownChanged { updateKeyFix() }
     }
 
     /// Model geometry (no animation), unless an animation is moving there.
@@ -486,7 +497,7 @@ final class TapbackPickerView: NSView {
             b.target = self
             b.action = #selector(tapped(_:))
             b.setAccessibilityLabel(label)
-            b.toolTip = label
+            b.setHomeToolTip(label)  // cmux: the host's themed tooltip (HomeToolTip.swift)
             b.widthAnchor.constraint(equalToConstant: Self.pitch).isActive = true
             b.heightAnchor.constraint(equalToConstant: Self.size.height).isActive = true
             stack.addArrangedSubview(b)

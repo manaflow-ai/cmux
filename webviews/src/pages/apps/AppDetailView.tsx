@@ -1,13 +1,27 @@
-// A listing's page: header (icon, name, publisher, tier, state, Open and the item action),
-// description, then the shared detail sections (items.tsx): screenshots (the live preview comes
-// later with a web scene renderer; coordinator Q6), what it adds, permissions with reasons (grant
-// switches once installed), settings once installed, versions, repository. A deployed app also says
-// which kinds of machine its server runs on ("Runs on").
+// A listing's page, modeled on the Mac App Store and the cmux App Store mocks: a header (the big
+// icon, the name, the one-line tagline, "publisher · category · Free", and Open plus the one-click
+// action on the right), the screenshots, the description, and the app's facts: where it shows up,
+// its permissions in plain words (grant switches once installed), its settings once installed, and
+// its information (developer, category, version, repository). A deployed app also says which kinds
+// of machine its server runs on ("Runs on"). `listing=` lays the same parts out three ways
+// (model.ts ListingStyle): a carousel with the facts in a column on its right (the default), a
+// stacked page, or one compact column.
 import type { Strings } from "../shared/i18n";
+import { useAutoRetry } from "../../agent-session/acpmux/autoRetry";
 import { GrantsPanel } from "./GrantsPanel";
-import { AddsList, DetailSection, ItemAction, ItemSettings, ScreenshotStrip, StateBadge } from "./items";
-import { orderScopes, RiskLabel, TierLabel } from "./model";
-import { AppIcon, Badge } from "./parts";
+import {
+  DetailSection,
+  InfoFacts,
+  ItemAction,
+  ItemSettings,
+  PermissionList,
+  ScreenshotCarousel,
+  ScreenshotStrip,
+  ShowsUpIn,
+  StateBadge,
+} from "./items";
+import { categoryLabel } from "./model";
+import { AppIcon } from "./parts";
 import type { AppsSnapshot, AppsStore } from "./store";
 
 /** The person's words for a manifest deploy target; an unknown kind shows as its name. */
@@ -34,8 +48,17 @@ export function AppDetailView({
   strings: Strings;
   showsBack?: boolean;
 }) {
-  const { t, format } = strings;
+  const { t } = strings;
   const detail = snap.detail?.id === snap.selection ? snap.detail : undefined;
+  // A listing read that failed is read again on its own and keeps the loading state; only one that
+  // lasts the deadline adds one quiet line, with no Reload. A failed catalog is the page's own retry
+  // (AppsPage), which loads this listing when it lands.
+  const own = !detail && snap.catalogStatus !== "error";
+  const { stillTrying } = useAutoRetry(
+    own && snap.detailStatus === "error" ? (snap.detailError ?? true) : undefined,
+    () => void store.retryDetail(),
+    { busy: own && snap.detailStatus === "loading" },
+  );
   const back = showsBack && (
     <button type="button" className="apps-back" onClick={() => void store.select(undefined)}>
       ‹ {t("store.tab.discover")}
@@ -48,7 +71,7 @@ export function AppDetailView({
   );
   if (!detail) {
     const state = snap.detailStatus;
-    if (state === "loading") {
+    if (state === "loading" || state === "error") {
       return (
         <div className="apps-detail apps-detail-state" data-detail-state="loading">
           <div className="apps-detail-body">
@@ -57,13 +80,13 @@ export function AppDetailView({
               <span className="apps-state-mark" aria-hidden="true">
                 …
               </span>
-              <strong>{t("store.detail.loading")}</strong>
+              <strong>{t(stillTrying ? "store.detail.stillLoading" : "store.detail.loading")}</strong>
             </output>
           </div>
         </div>
       );
     }
-    if (state === "not-found" || state === "error") {
+    if (state === "not-found") {
       return (
         <div className="apps-detail apps-detail-state" data-detail-state={state}>
           <div className="apps-detail-body">
@@ -72,13 +95,7 @@ export function AppDetailView({
               <span className="apps-state-mark" aria-hidden="true">
                 !
               </span>
-              <strong>{state === "not-found" ? t("store.detail.notFound") : t("store.error.load")}</strong>
-              {snap.detailError && <span className="selectable">{snap.detailError}</span>}
-              <span className="apps-detail-state-actions">
-                <button type="button" className="apps-button" onClick={() => void store.retryDetail()}>
-                  {t("store.action.reload")}
-                </button>
-              </span>
+              <strong>{t("store.detail.notFound")}</strong>
             </output>
           </div>
         </div>
@@ -86,77 +103,108 @@ export function AppDetailView({
     }
     return <div className="apps-detail">{back}</div>;
   }
+  const style = snap.listing;
   const grants = snap.grants[detail.id];
-  return (
-    <div className="apps-detail">
-      <div className="apps-detail-body">
-        {back}
-        <header className="apps-detail-header">
-          <AppIcon icon={detail.icon} name={detail.name} size={64} />
-          <div className="apps-detail-title">
-            <h1 className="apps-detail-name">{detail.name}</h1>
-            <div className="apps-detail-meta">
-              <span>{format("store.detail.publisher", detail.publisher)}</span>
-              <Badge text={t(TierLabel[detail.tier])} />
-              <StateBadge app={detail} strings={strings} />
-            </div>
-          </div>
-          <div className="apps-detail-actions">
-            {detail.installed && (
-              <button type="button" className="apps-button" onClick={() => void store.open(detail.id)}>
-                {t("store.action.open")}
-              </button>
+  const shots = detail.screenshotImages ?? [];
+  const iconSize = style === "compact" ? 64 : style === "stacked" ? 112 : 96;
+  const header = (
+    <header className="apps-listing-header">
+      <AppIcon icon={detail.icon} name={detail.name} size={iconSize} />
+      <div className="apps-listing-title">
+        <h1 className="apps-listing-name">{detail.name}</h1>
+        {detail.tagline && <p className="apps-listing-tagline">{detail.tagline}</p>}
+        <div className="apps-listing-meta">
+          <span className="apps-listing-publisher">
+            {detail.publisher_verified && (
+              <span className="apps-verified" title={t("store.tier.verified")} aria-hidden="true">
+                ✓
+              </span>
             )}
-            <ItemAction app={detail} store={store} strings={strings} />
-          </div>
-        </header>
-        <p className="apps-detail-description selectable">{detail.description}</p>
-        <ScreenshotStrip screenshots={detail.screenshots} strings={strings} />
-        <AddsList contributes={detail.contributes} strings={strings} />
-        {detail.deploy && detail.deploy.targets.length > 0 && (
-          <DetailSection title={t("store.detail.runsOn")}>
-            <ul className="apps-deploy-targets">
-              {detail.deploy.targets.map((target) => (
-                <li key={target}>
-                  <span>{targetLabel(target, strings)}</span> <code className="apps-muted">{target}</code>
-                </li>
-              ))}
-            </ul>
-          </DetailSection>
+            {detail.publisher}
+          </span>
+          {detail.categories[0] && <span>{categoryLabel(detail.categories[0], t)}</span>}
+          <span>{t("store.detail.free")}</span>
+          <StateBadge app={detail} strings={strings} />
+        </div>
+      </div>
+      <div className="apps-listing-actions">
+        {detail.installed && (
+          <button
+            type="button"
+            className="apps-button"
+            data-listing-action="open"
+            onClick={() => void store.open(detail.id)}
+          >
+            {t("store.action.open")}
+          </button>
         )}
-        <DetailSection title={t("store.detail.permissions")}>
-          {detail.scopes.length === 0 ? (
-            <p className="apps-muted">{t("store.detail.noPermissions")}</p>
-          ) : grants ? (
-            <GrantsPanel grants={grants} store={store} strings={strings} />
-          ) : (
-            <ul className="apps-scopes">
-              {orderScopes(detail.scopes).map((scope) => (
-                <li key={scope.scope} className="apps-scope">
-                  <code>{scope.scope}</code>
-                  {scope.risk !== "standard" && <Badge text={t(RiskLabel[scope.risk])} />}
-                  {scope.optional && <Badge text={t("store.detail.optional")} />}
-                  <span className="apps-muted selectable">{scope.reason}</span>
-                </li>
-              ))}
-            </ul>
-          )}
-        </DetailSection>
-        <ItemSettings app={detail} store={store} strings={strings} />
-        <DetailSection title={t("store.detail.versions")}>
-          <ul className="apps-versions">
-            {detail.versions.map((version) => (
-              <li key={version.version}>
-                <span className="apps-version">{version.version}</span>
-                <span className="apps-muted">{format("store.detail.requires", version.engines)}</span>
-              </li>
-            ))}
-          </ul>
-        </DetailSection>
-        {detail.repository?.startsWith("https://") && (
-          <a className="apps-link" href={detail.repository} target="_blank" rel="noreferrer">
-            {t("store.action.repository")} ↗
-          </a>
+        <ItemAction app={detail} store={store} strings={strings} />
+      </div>
+    </header>
+  );
+  const description = detail.description && <p className="apps-listing-description selectable">{detail.description}</p>;
+  const runsOn = detail.deploy && detail.deploy.targets.length > 0 && (
+    <DetailSection title={t("store.detail.runsOn")}>
+      <ul className="apps-deploy-targets">
+        {detail.deploy.targets.map((target) => (
+          <li key={target}>{targetLabel(target, strings)}</li>
+        ))}
+      </ul>
+    </DetailSection>
+  );
+  // Once installed, the permissions are switches; before, the plain list of what it asks for.
+  const permissions = grants ? (
+    <DetailSection title={t("store.detail.permissions")} section="permissions">
+      <GrantsPanel grants={grants} store={store} strings={strings} />
+    </DetailSection>
+  ) : (
+    <PermissionList scopes={detail.scopes} strings={strings} />
+  );
+  const settings = <ItemSettings app={detail} store={store} strings={strings} />;
+  const showsUpIn = <ShowsUpIn contributes={detail.contributes} strings={strings} />;
+  const info = <InfoFacts detail={detail} strings={strings} />;
+  return (
+    <div className="apps-detail" data-listing-style={style}>
+      <div className={`apps-detail-body apps-listing ${style}`}>
+        {back}
+        {header}
+        {style === "carousel" ? (
+          <div className="apps-listing-columns">
+            <div className="apps-listing-main">
+              {description}
+              <ScreenshotCarousel key={detail.id} screenshots={shots} strings={strings} />
+              {runsOn}
+              {grants && permissions}
+              {settings}
+            </div>
+            <aside className="apps-listing-aside">
+              {showsUpIn}
+              {!grants && permissions}
+              {info}
+            </aside>
+          </div>
+        ) : style === "stacked" ? (
+          <>
+            <ScreenshotStrip screenshots={shots} strings={strings} />
+            {description}
+            <div className="apps-listing-grid">
+              {showsUpIn}
+              {permissions}
+              {info}
+            </div>
+            {runsOn}
+            {settings}
+          </>
+        ) : (
+          <>
+            {description}
+            <ScreenshotCarousel key={detail.id} screenshots={shots} strings={strings} />
+            {showsUpIn}
+            {permissions}
+            {runsOn}
+            {settings}
+            {info}
+          </>
         )}
       </div>
     </div>

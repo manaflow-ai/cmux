@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
+import AppKit
 import CmuxNextCompat
 public import CmuxNextDaemon
+package import CmuxNextSettings
 public import Foundation
 public import Observation
 import CmuxNextWakeups
@@ -39,39 +41,52 @@ public final class CmuxRemoteComputerUseState {
         actingClear = DemandTimer(owner: "computer-use.acting", clock: clock)
     }
 
-    /// Takes the host's own status object (`remote-host-status`'s `host`, or a host call's answer).
+    /// Takes the host's own status object (`remote-host-status`'s `host`, or a host call's answer):
+    /// Rust reads the worker's fields (service.hostStatus).
     func take(host: [String: Any]?) {
-        let pid = (host?["pid"] as? Int).map { pid_t($0) }
+        let status = RdUI.call("service.hostStatus", ["host": host ?? NSNull()]) as? [String: Any] ?? [:]
+        let pid = (status["hostPid"] as? Int).map { pid_t($0) }
         if hostPID != pid { hostPID = pid }
-        let worker = (host?["workers"] as? [String: Any])?["computer-use"] as? [String: Any]
-        let failed = worker?["state"] as? String == "unavailable"
+        let failed = status["failed"] as? Bool ?? false
         if computerUseFailed != failed { computerUseFailed = failed }
-        let reason = failed ? worker?["reason"] as? String : nil
+        let reason = status["failure"] as? String
         if failure != reason { failure = reason }
-        let state = worker?["state"] as? String
+        let state = status["workerState"] as? String
         if workerState != state { workerState = state }
-        let workerPID = (worker?["pid"] as? Int).map { pid_t($0) }
+        let workerPID = (status["workerPid"] as? Int).map { pid_t($0) }
         if self.workerPID != workerPID { self.workerPID = workerPID }
         // No host: no session acts. An answer without the worker's fields (a config reply) changes nothing.
-        if host == nil || worker != nil {
-            take(activity: CmuxRemoteComputerUseSession.sessions(from: worker?["activity"] as? [Any]))
+        if status["takeActivity"] as? Bool ?? true {
+            take(activity: CmuxRemoteComputerUseSession.sessions(from: status["activity"] as? [Any]))
         }
     }
 
-    /// Takes a `list` answer: `{"saved":{"always":[...],"never":[...]}}` (ids, or `{"app_id"|"id"}` objects).
+    /// Takes a `list` answer: `{"saved":{"always":[...],"never":[...]}}`, sorted by id in Rust (service.approvals).
     func take(approvals answer: [String: Any]?) {
-        let saved = answer?["saved"] as? [String: Any] ?? answer ?? [:]
-        func ids(_ key: String) -> [String] {
-            (saved[key] as? [Any] ?? []).compactMap { entry in
-                if let id = entry as? String { return id }
-                let object = entry as? [String: Any]
-                return (object?["app_id"] ?? object?["id"]) as? String
-            }
-        }
-        let next = (ids("always").map { ($0, "always") } + ids("never").map { ($0, "never") }).sorted { $0.0 < $1.0 }
-        if next.map(\.0) != approvals.map(\.appID) || next.map(\.1) != approvals.map(\.decision) {
-            approvals = next.map { (appID: $0.0, decision: $0.1) }
-        }
+        let rows = RdUI.call("service.approvals", ["answer": answer ?? NSNull()]) as? [[String: Any]] ?? []
+        let next = rows.compactMap { row in (row["appId"] as? String).map { (appID: $0, decision: row["decision"] as? String ?? "") } }
+        if next.map(\.appID) != approvals.map(\.appID) || next.map(\.decision) != approvals.map(\.decision) { approvals = next }
+    }
+}
+
+extension CmuxRemoteComputerUseState {
+    /// Adds the embedded Remote worker and its approvals to the Settings card.
+    package func addSettingsFields(to fields: inout [String: CmuxNextSettings.JSONValue]) {
+        guard embedded else { return }
+        fields["engine"] = .string("cmux Computer Use")
+        let state = RdUI.call("service.workerLabel", ["state": workerState ?? NSNull()]) as? String ?? "stopped"
+        let pid: CmuxNextSettings.JSONValue = workerPID.map { CmuxNextSettings.JSONValue.number(Double($0)) } ?? .null
+        fields["worker"] = .object(["state": .string(state), "pid": pid])
+        fields["approvals"] = .array(approvals.map { approval -> CmuxNextSettings.JSONValue in
+            .object(["app_id": .string(approval.appID), "name": .string(Self.appName(approval.appID)),
+                     "decision": .string(approval.decision)])
+        })
+    }
+
+    /// An app id's display name from Launch Services, else the id.
+    private static func appName(_ appID: String) -> String {
+        guard let url = NSWorkspace.shared.urlForApplication(withBundleIdentifier: appID) else { return appID }
+        return FileManager.default.displayName(atPath: url.path).replacingOccurrences(of: ".app", with: "")
     }
 }
 
@@ -118,7 +133,8 @@ public struct CmuxRemoteComputerUsePolicy: Equatable, Sendable {
 
     /// The `computer-use-config` object: the PolicyConfig plus `cursorMotion` (the engine ignores
     /// keys it does not know; cmux Remote's worker reads it for the cursor).
-    var config: CmuxNextDaemon.JSONValue? {
+    /// Decoded off the main actor.
+    @concurrent nonisolated static func config(policy: Data, cursorAnimates: Bool, cursorSpeed: Double) async -> CmuxNextDaemon.JSONValue? {
         guard let object = try? JSONDecoder().decode(CmuxNextDaemon.JSONValue.self, from: policy),
               case .object(var fields) = object else { return nil }
         fields["cursorMotion"] = .object(["enabled": .bool(cursorAnimates), "speed": .number(cursorSpeed)])
@@ -131,11 +147,12 @@ extension CmuxRemoteService {
     /// Returns whether the daemon took it.
     @discardableResult
     public func applyComputerUse(_ policy: CmuxRemoteComputerUsePolicy) async -> Bool {
-        guard let config = policy.config else { return false }
+        guard let config = await CmuxRemoteComputerUsePolicy.config(policy: policy.policy, cursorAnimates: policy.cursorAnimates,
+                                                                    cursorSpeed: policy.cursorSpeed) else { return false }
         do {
             // The daemon checks the policy and hands it to cmux Remote (the verified app's only).
             let answer = try await daemonRequest(ComputerUseConfigRequest(config: config))
-            computerUse.take(host: Self.object(answer))
+            computerUse.take(host: await Self.object(answer))
             return true
         } catch {
             computerUseLogger.notice("cmux Remote Computer Use config refused: \(String(describing: error), privacy: .public)")
@@ -168,7 +185,7 @@ extension CmuxRemoteService {
     /// cmux Remote's fresh host status (`refresh`: a new probe of its grants), or nil.
     public func computerUseStatus() async -> [String: Any]? {
         guard started, let answer = try? await call("refresh") else { return nil }
-        let host = Self.object(answer)
+        let host = await Self.object(answer)
         computerUse.take(host: host)
         if computerUse.workerState == "ready" { await refreshComputerUseApprovals() }
         return host
@@ -176,6 +193,7 @@ extension CmuxRemoteService {
 
     /// Restarts the Computer Use worker (a new process reads new grants; grants and sessions stay).
     public func restartComputerUse() async {
+        guard computerUse.embedded else { return }
         _ = try? await call("restart", .object(["worker": .string("computer-use")]))
         _ = await computerUseStatus()
     }
@@ -183,7 +201,7 @@ extension CmuxRemoteService {
     /// Reads the saved approvals into ``computerUse`` (nothing when the worker does not run).
     public func refreshComputerUseApprovals() async {
         guard started, let answer = try? await daemonRequest(ComputerUseApprovalsRequest(action: "list")) else { return }
-        computerUse.take(approvals: Self.object(answer))
+        computerUse.take(approvals: await Self.object(answer))
     }
 
     /// Forgets `appID`'s saved answer, or saves `decision` ("always" or "never") for it, then reads the list again.
@@ -215,7 +233,7 @@ extension CmuxRemoteService {
     public func computerUseSession(_ action: ComputerUseSessionAction, session: String, label: String? = nil) async throws -> [String: Any] {
         var params: [String: CmuxNextDaemon.JSONValue] = ["action": .string(action.rawValue), "session": .string(session)]
         if let label { params["label"] = .string(label) }
-        let answer = Self.object(try await call("computer_use.session", .object(params))) ?? [:]
+        let answer = await Self.object(try await call("computer_use.session", .object(params))) ?? [:]
         switch action {
         case .stop: computerUse.mark(session, stopped: true)
         case .resume: computerUse.mark(session, stopped: false)
@@ -235,13 +253,31 @@ extension CmuxRemoteService {
         }
     }
 
-    /// Asks macOS for `permission` ("accessibility" or "screen-recording") in cmux Remote, so the
-    /// prompt and System Settings name cmux Remote.
+    /// The person moved, resized, hid or showed `session`'s live preview card: the daemon keeps it
+    /// (`remote-host-call computer_use.preview`, computer_use_preview_place.rs) and sends the card
+    /// back with its place. Returns at once; a refusal is logged.
+    public func sendComputerUsePreview(session: String, update: [String: CmuxNextDaemon.JSONValue]) {
+        var params = update
+        params["session"] = .string(session)
+        // task-owner: one request to the local daemon; a newer move sends its own.
+        Task { [weak self] in
+            do { _ = try await self?.call("computer_use.preview", .object(params), timeout: .seconds(5)) } catch {
+                computerUseLogger.notice("computer_use.preview refused: \(String(describing: error), privacy: .public)")
+            }
+        }
+    }
+
+    /// Asks for a grant in the signed host that macOS lists in System Settings.
     public func requestGrant(_ permission: String) async {
+        guard computerUse.embedded else {
+            await MacScreenHelper.requestBundledGrant(permission)
+            return
+        }
         _ = try? await call("request", .object(["permission": .string(permission)]))
     }
 
-    static func object(_ value: CmuxNextDaemon.JSONValue) -> [String: Any]? {
+    /// A daemon answer as Foundation objects, converted off the main actor.
+    @concurrent nonisolated static func object(_ value: CmuxNextDaemon.JSONValue) async -> sending [String: Any]? {
         guard let data = try? JSONEncoder().encode(value) else { return nil }
         return (try? JSONSerialization.jsonObject(with: data)) as? [String: Any]
     }

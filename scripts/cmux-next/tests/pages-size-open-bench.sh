@@ -1,25 +1,27 @@
 #!/usr/bin/env bash
 # Run once through cmux-ci Linux. The caller owns the baseline and candidate pins.
-# bash scripts/cmux-next/tests/pages-size-open-bench.sh --baseline SHA --candidate SHA
+# bash scripts/cmux-next/tests/pages-size-open-bench.sh --baseline SHA --candidate SHA [--pages A,B]
 # Artifacts default to the fleet's FAST_CHECKS_OUT/pages-proof (expanded here, not by the caller).
 set -euo pipefail
 BASELINE=""
 CANDIDATE=""
 OUT=""
 SAMPLES=20
+PAGES=""
 if [[ -n "${FAST_CHECKS_OUT:-}" ]]; then OUT="${FAST_CHECKS_OUT%/}/pages-proof"; fi
 while (($#)); do
   case "$1" in
-    --baseline|--candidate|--out|--samples)
+    --baseline|--candidate|--out|--samples|--pages)
       (($# >= 2)) || { echo "Missing value for $1" >&2; exit 2; }
       case "$1" in
         --baseline) BASELINE="$2" ;;
         --candidate) CANDIDATE="$2" ;;
         --out) OUT="$2" ;;
         --samples) SAMPLES="$2" ;;
+        --pages) PAGES="$2" ;;
       esac
       shift 2 ;;
-    *) echo "usage: $0 --baseline SHA --candidate SHA [--out ABSOLUTE_DIR] [--samples N]" >&2; exit 2 ;;
+    *) echo "usage: $0 --baseline SHA --candidate SHA [--out ABSOLUTE_DIR] [--samples N] [--pages A,B]" >&2; exit 2 ;;
   esac
 done
 # Validate BEFORE mkdir: a literal '$FAST_CHECKS_OUT' must never become a checkout directory.
@@ -30,6 +32,7 @@ case "$OUT" in *'$'*) echo 'OUT contains an unexpanded dollar expression' >&2; e
   echo 'Both full 40-character source pins are required' >&2; exit 2;
 }
 [[ "$SAMPLES" =~ ^[1-9][0-9]*$ ]] || { echo 'samples must be positive' >&2; exit 2; }
+[[ -z "$PAGES" || "$PAGES" =~ ^[a-z-]+(,[a-z-]+)*$ ]] || { echo 'pages is a comma-separated list of page names' >&2; exit 2; }
 [[ "$(uname -s)" == Linux ]] || { echo 'Run on cmux-ci Linux' >&2; exit 2; }
 ROOT="$(git rev-parse --show-toplevel)"
 [[ ! -e "$OUT/pins.json" ]] || { echo "Use a fresh receipt directory: $OUT" >&2; exit 2; }
@@ -83,7 +86,7 @@ if [[ -n "$chrome_shell" ]]; then export CMUX_CHROME_HEADLESS_SHELL="$chrome_she
 STAGE='Pages browser measurement'
 ACTIVE_LOG="$OUT/browser.log"
 cd "$ROOT/webviews"
-bun scripts/pages-size-open-bench.mjs --out "$OUT" --samples "$SAMPLES" > "$ACTIVE_LOG" 2>&1
+bun scripts/pages-size-open-bench.mjs --out "$OUT" --samples "$SAMPLES" ${PAGES:+--pages "$PAGES"} > "$ACTIVE_LOG" 2>&1
 # Browser output is already compact: one size line and one timing line per page, not every request/sample.
 cat "$ACTIVE_LOG"
 printf 'pages-proof completed: %s\n' "$OUT"

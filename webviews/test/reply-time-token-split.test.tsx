@@ -148,10 +148,10 @@ test("the reply time's tooltip reads its time, then one count per row; the foote
     text: "Done.",
     tokens: resultTokenSplit(CLAUDE_58),
   };
-  // The footer draws no time, so none of this is in its markup (Lawrence, 2026-11-11 standup: the
-  // Codex app shows no time on a reply's row).
+  // The footer draws its age on hover (Leo, 2026-11-22, over Lawrence's 2026-11-11 no-time footer: "you hover and you get the timing"), but no Worked for or token tooltip.
   const markup = renderToStaticMarkup(<TurnFooter row={row} />);
-  expect(markup).not.toContain("cv-turn-time");
+  expect(markup).toContain("cv-turn-time");
+  expect(markup).not.toContain("data-tooltip-detail");
   expect(markup).not.toContain("Worked for 1m 16s");
 });
 

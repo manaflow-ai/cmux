@@ -30,13 +30,13 @@ public nonisolated final class DaemonHomeSource: HomeSource {
     let attachmentCache: URL
     /// Most bytes `attachmentCache` keeps; least recently used files go first.
     let attachmentCacheLimit: Int
-    /// The Chief's subagents (`a<n>`) that have a session on its acpmux, read on the main actor; an
-    /// observable read, so ``agentStarts()`` yields each change. The app passes its Chief's lane watch.
-    let startedAgents: @MainActor @Sendable () -> Set<String>
+    /// The Chief's subagents (`a<n>`) that have a session on its acpmux, and when each session began, read on the
+    /// main actor; an observable read, so ``agentStarts()`` yields each change. The app passes its Chief's lane watch.
+    let startedAgents: @MainActor @Sendable () -> HomeAgentStarts
 
     public init(me: Participant, attachmentCache: URL = DaemonHomeSource.defaultAttachmentCache,
          attachmentCacheLimit: Int = DaemonHomeSource.defaultAttachmentCacheLimit,
-         startedAgents: @escaping @MainActor @Sendable () -> Set<String> = { [] }) {
+         startedAgents: @escaping @MainActor @Sendable () -> HomeAgentStarts = { HomeAgentStarts() }) {
         self.me = me
         self.startedAgents = startedAgents
         self.attachmentCache = attachmentCache
@@ -76,12 +76,12 @@ public nonisolated final class DaemonHomeSource: HomeSource {
 
     /// The Chief's subagents with a session on its acpmux (``startedAgents``, read on the main actor and
     /// observed): a queued agent that starts shows here first, with no word in the chat. Only the newest set waits.
-    public func agentStarts() async -> AsyncStream<Set<String>> {
-        let (stream, continuation) = AsyncStream.makeStream(of: Set<String>.self, bufferingPolicy: .bufferingNewest(1))
+    public func agentStarts() async -> AsyncStream<HomeAgentStarts> {
+        let (stream, continuation) = AsyncStream.makeStream(of: HomeAgentStarts.self, bufferingPolicy: .bufferingNewest(1))
         let read = startedAgents
         // task-owner: ends with the reader (onTermination); event-driven (Observation)
         let reader = Task {
-            for await peers in ObservationStream(read) { continuation.yield(peers) }
+            for await starts in ObservationStream(read) { continuation.yield(starts) }
             continuation.finish()
         }
         continuation.onTermination = { _ in reader.cancel() }
@@ -192,9 +192,7 @@ public nonisolated final class DaemonHomeSource: HomeSource {
         let page = try await Self.mapped {
             try await ConversationClient(self.requireConnection()).snapshot(conversation.rawValue, tail: min(max(tail, 1), 500))
         }
-        return ConversationPage(conversation: HomeCoreMapping.summary(page.conversation),
-                                messages: page.messages.map(HomeCoreMapping.message),
-                                threads: page.threads.map { HomeCoreMapping.thread($0) })
+        return HomeCoreMapping.conversationPage(page)
     }
 
     public func historyPage(of conversation: ConversationID, before beforeSeq: Seq, limit: Int) async throws -> HistoryPage {
@@ -202,7 +200,7 @@ public nonisolated final class DaemonHomeSource: HomeSource {
             try await ConversationClient(self.requireConnection())
                 .historyPage(conversation.rawValue, before: beforeSeq, limit: min(max(limit, 1), 500))
         }
-        return HistoryPage(messages: page.messages.map(HomeCoreMapping.message), threads: page.threads.map { HomeCoreMapping.thread($0) })
+        return HomeCoreMapping.historyPage(messages: page.messages, threads: page.threads)
     }
 
     /// The owner's thread read; a daemon from before `conversation-thread-v1` scans history.
@@ -214,14 +212,14 @@ public nonisolated final class DaemonHomeSource: HomeSource {
         let page = try await Self.mapped {
             try await ConversationClient(connection).thread(conversation.rawValue, root: root.rawValue, after: afterSeq, limit: limit)
         }
-        return HomeCoreMapping.threadPage(page, message: HomeCoreMapping.message)
+        return HomeCoreMapping.threadPage(page)
     }
 
     public func history(of conversation: ConversationID, before beforeSeq: Seq, limit: Int) async throws -> [Message] {
         try await Self.mapped {
             try await ConversationClient(self.requireConnection())
                 .history(conversation.rawValue, before: beforeSeq, limit: min(max(limit, 1), 500))
-        }.map(HomeCoreMapping.message)
+        }.map { HomeCoreMapping.message($0) }
     }
 
     /// `conversation-link-resolve` (conversation-tree-v1): the daemon's seq, thread root and path for a message link.

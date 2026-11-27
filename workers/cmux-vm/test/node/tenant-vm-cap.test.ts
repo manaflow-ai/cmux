@@ -5,7 +5,7 @@ import { DEFAULT_DEV_TEST_MAX_VMS, makeTenantPolicy, NO_VM_COUNT_CAP, PRODUCTION
 
 const tenant = (id: string) => TenantId.make(id);
 
-it("gives a production product tenant no machine-count cap, and keeps dev/test tenants and listed quotas capped", () => {
+it("gives product and off-production tenants no machine-count cap, and keeps the production smoke tenant and listed quotas capped", () => {
   const policy = makeTenantPolicy({
     environment: "production",
     devTestTenantIds: ["team_smoke"],
@@ -16,8 +16,10 @@ it("gives a production product tenant no machine-count cap, and keeps dev/test t
   expect(policy.maxVms(tenant("team_smoke"))).toBe(PRODUCTION_DEV_TEST_MAX_VMS);
   expect(PRODUCTION_DEV_TEST_MAX_VMS).toBe(20);
   expect(policy.maxVms(tenant("team_capped"))).toBe(3);
-  // Off production every tenant is dev/test.
-  expect(makeTenantPolicy({ environment: "staging" }).maxVms(tenant("team_paying"))).toBe(DEFAULT_DEV_TEST_MAX_VMS);
+  // Off production every tenant is dev/test, and none has a count cap: reapers and idle pause reclaim leaks.
+  expect(DEFAULT_DEV_TEST_MAX_VMS).toBe(NO_VM_COUNT_CAP);
+  expect(makeTenantPolicy({ environment: "staging" }).maxVms(tenant("team_paying"))).toBe(NO_VM_COUNT_CAP);
+  expect(makeTenantPolicy({ environment: "staging", vmQuotas: { team_capped: 3 } }).maxVms(tenant("team_capped"))).toBe(3);
 });
 
 it("admits a product tenant's create past the old 20-machine cap", async () => {
@@ -27,13 +29,13 @@ it("admits a product tenant's create past the old 20-machine cap", async () => {
   expect(await ledger.reserve("vm", 20, 20, 0, "at-twenty")).toEqual({ ok: false });
 });
 
-it("admits an off-production team holding 20 machines, paused ones too, as a plan above 20 allows (#45885)", async () => {
-  // Development teams hold machines under cmux-platform plans of 50 (NEXT Pro), 100 (company) and 300 (NEXT Max)
-  // machines kept; the provider's own cap must not stop them first at 20.
+it("admits an off-production team's create past the old 300-machine cap (staging drills hit 300 of 300)", async () => {
   const ledger = new TenantLedger(memoryLedgerStorage());
-  const limit = makeTenantPolicy({ environment: "staging" }).maxVms(tenant("team_next_max"));
-  expect(limit).toBeGreaterThanOrEqual(300);
+  const limit = makeTenantPolicy({ environment: "staging" }).maxVms(tenant("team_staging_tests"));
   expect(await ledger.reserve("vm", limit, 20, 0, "twenty-first")).toEqual({ ok: true, reservationId: "twenty-first" });
-  // Still a cap: a leaked test loop stops at it.
-  expect(await ledger.reserve("vm", limit, limit, 0, "past-cap")).toEqual({ ok: false });
+  expect(await ledger.reserve("vm", limit, 300, 0, "three-hundred-first")).toEqual({
+    ok: true,
+    reservationId: "three-hundred-first",
+  });
+  expect(await ledger.reserve("vm", limit, 5000, 0, "far-past")).toEqual({ ok: true, reservationId: "far-past" });
 });

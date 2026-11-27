@@ -146,25 +146,17 @@ pub const DEFAULT_HARNESS: &str = "claude";
 /// finds on the login shell's PATH, run with the user's own
 /// `~/.claude/settings.json` and login; Lawrence 2026-10-19: "make sure
 /// Chief, by default, will talk to the correct Claude, using the user's
-/// Claude CLI"). The subrouter2 route (`claude-sr2`) is an explicit choice
-/// (`chief engine set --harness claude-sr2`), and the default only when
-/// acpmux has no usable `claude` but can run sr2.
+/// Claude CLI"). The subrouter2 route (`claude-sr2`) is only an explicit
+/// choice (`chief engine set --harness claude-sr2`): a missing `claude` is
+/// refused with its reason, never moved to another route (Leo 2026-11-26:
+/// "identify all the weird opinoinated fleet things we shipped into the app
+/// and remove them").
 pub fn default_harness(answer: &serde_json::Value) -> &'static str {
     let harnesses = answer.get("harnesses");
     if harnesses.and_then(|h| h.get(CODEROUTER_HARNESS)).is_some() {
         return CODEROUTER_HARNESS;
     }
-    let runnable_stdio = |name: &str| {
-        harnesses.and_then(|h| h.get(name)).is_some_and(|p| {
-            p.get("kind").and_then(serde_json::Value::as_str) == Some("claude-stdio")
-                && p.get("unavailable").is_none()
-        })
-    };
-    if !runnable_stdio(DEFAULT_HARNESS) && runnable_stdio(SR2_HARNESS) {
-        SR2_HARNESS
-    } else {
-        DEFAULT_HARNESS
-    }
+    DEFAULT_HARNESS
 }
 
 /// Records which executable (and its `--version`) the turns, compactor and
@@ -269,6 +261,13 @@ pub fn turn_preset(
     env.insert(
         session_dir::TURN_TOOLS_ENV.to_owned(),
         session_dir::CHIEF_CMUX_TOOLS.join(","),
+    );
+    // The cmux server reads the Chief's attached Cloud computer from its
+    // engine.json at each call: `cloud_computer`'s default machine (acpmux
+    // `agent_tools::CHIEF_ENGINE_ENV`, passed to the `cmux` server only).
+    env.insert(
+        session_dir::CHIEF_ENGINE_ENV.to_owned(),
+        crate::engine::path(home).display().to_string(),
     );
     if family == Family::Codex {
         env.insert(
@@ -647,6 +646,19 @@ pub fn run(flags: &Flags, started_ms: u64) -> i32 {
             return 1;
         }
     };
+    // A memory handed to this machine over a projected folder (memory_place.rs) is taken in
+    // before anything opens the memory; a mounted hand-out that is not this machine's refuses.
+    {
+        let capability =
+            crate::memory_place::daemon_capability(Path::new(&daemon_socket)).unwrap_or(false);
+        match crate::memory_place::at_host_start(&home, capability) {
+            Ok(line) => log(line),
+            Err(why) => {
+                log(format!("not starting: {why}"));
+                return crate::migrate::MOVED_EXIT;
+            }
+        }
+    }
     // A status left by a host that crashed mid-wait says nothing true now.
     let settle = crate::settle_status::SettleStatus::new(&paths.settle_status);
     settle.clear();
@@ -956,13 +968,14 @@ fn start(
             "chief": chief.unwrap_or_else(|| crate::paths::home_id(home)),
         }),
     );
-    // Spec 4 (gist 3c190e0): a compaction sends the turns' own system
-    // prompt, so it reads it from the turns' cache entry.
+    // Turns read the full system prompt; compactions have their own small
+    // prompt with the view and compaction contract, without the Chief's turn
+    // and cmux instructions.
     let claude_text =
         crate::prompt::system_text(instructions.as_deref(), &crate::prompt::Tools::Mcp);
     let mut config = Config {
         agent: crate::prompt::AGENT.to_owned(),
-        prompt: optchat_host::CompactPrompt::Custom(claude_text.clone()),
+        prompt: optchat_host::CompactPrompt::Custom(crate::prompt::compactor_system_text()),
         reporter: Arc::new(|r: &Report| log(format!("memory: {r}"))),
         db: Some(paths.memory_db.clone()),
         ..Config::default()
@@ -1152,6 +1165,9 @@ fn start(
         .map_err(|e| format!("writing the subagent directory: {e}"))?;
 
     let (base_url, api_key) = (config.base_url.clone(), config.api_key.clone());
+    let direct_base_url = optchat_host::DEFAULT_BASE_URL.to_owned();
+    let direct_api_key = optchat_host::api_key(&direct_base_url, env);
+    let has_direct_credentials = direct_api_key != optchat_host::SUBROUTER_KEY;
     let (payer, provider) = crate::usage::payer_provider("native", Some(&base_url));
     trace.emit(
         "usage.native_route",
@@ -1298,6 +1314,7 @@ fn start(
     // Each installed brain's turn preset: the Chief's own home for it, cmux's Chief tools only.
     let mut brains = crate::brain_home::BrainTurns {
         root: Some(paths.root.clone()),
+        model: Some(crate::brain_home::BrainSetup::from_choice(&engine_choice_file, paths).model),
         ..Default::default()
     };
     for brain in &crate::brain_home::BRAINS {
@@ -1365,7 +1382,7 @@ fn start(
         .and_then(|s| s.program.clone())
         .and_then(|program| {
             let brain = crate::brain_home::brain("openclaw")?;
-            crate::brain_home_openclaw::Gateway::start(
+            crate::brain_home_openclaw::start_gateway(
                 std::path::Path::new(&program),
                 &crate::brain_home::dir(paths, brain),
                 &|line| log(line),
@@ -1374,6 +1391,27 @@ fn start(
                 log(format!("openclaw: starting its Gateway: {e}"));
                 if let Some(state) = brain_states.get("openclaw").and_then(|s| s.harness.clone()) {
                     brains.disable(&state, &format!("its Gateway did not start: {e}"));
+                }
+            })
+            .ok()
+        });
+    // Hermes' `acp` is a viewer of a gateway daemon it would otherwise start as a launchd job
+    // outside this host (brain_gateway.rs): this host runs it, one per Chief.
+    let _hermes_gateway = brain_states
+        .get("hermes")
+        .filter(|s| s.state == "ready")
+        .and_then(|s| s.program.clone())
+        .and_then(|program| {
+            let brain = crate::brain_home::brain("hermes")?;
+            crate::brain_gateway::start_hermes(
+                std::path::Path::new(&program),
+                &crate::brain_home::dir(paths, brain),
+                &|line| log(line),
+            )
+            .map_err(|e| {
+                log(format!("hermes: starting its gateway: {e}"));
+                if let Some(state) = brain_states.get("hermes").and_then(|s| s.harness.clone()) {
+                    brains.disable(&state, &format!("its gateway did not start: {e}"));
                 }
             })
             .ok()
@@ -1654,6 +1692,15 @@ fn start(
                     .map(|v| v.to_string())
                     .map_err(late)
             }
+            ControlRequest::Automations(request) => {
+                let (reply, answer) = channel();
+                tx.send(Input::Automations { request, reply })
+                    .map_err(stopping)?;
+                answer
+                    .recv_timeout(wait)
+                    .map(|v| v.to_string())
+                    .map_err(late)
+            }
             ControlRequest::Restart(names) => {
                 let (reply, answer) = channel();
                 tx.send(Input::RestartSubagents { names, reply })
@@ -1758,6 +1805,32 @@ fn start(
     } else {
         "this Chief host could not reach a cmux session to make the workspace in".to_owned()
     };
+    let gateway = uses_acpmux.then(|| {
+        let probe = crate::auto_resume::TcpProbe::from_env(
+            env,
+            std::env::var_os("HOME")
+                .map(std::path::PathBuf::from)
+                .as_deref(),
+        );
+        let endpoint = probe
+            .endpoints
+            .first()
+            .cloned()
+            .unwrap_or_else(|| "api.anthropic.com:443".into());
+        let fallback = if has_direct_credentials {
+            crate::gateway::GatewayFallback::DirectAnthropic
+        } else {
+            crate::gateway::GatewayFallback::Harness("codex".into())
+        };
+        Arc::new(
+            crate::gateway::GatewayHealth::new(
+                endpoint,
+                crate::gateway::DEFAULT_THRESHOLD,
+                fallback,
+            )
+            .with_probe(Arc::new(probe)),
+        )
+    });
     let mut sub_starter = None;
     let orchestrator = uses_acpmux.then(|| {
         let spawner = crate::subagents::Spawner::new(
@@ -1784,8 +1857,10 @@ fn start(
         .with_pinned_harness(sub_set.is_some())
         // goal.rs: Claude subagents work under /goal on Opus 5.5 until done.
         .with_goal(true)
+        .with_background_start(std::env::var("OPTCHAT_SPAWN_BACKGROUND").as_deref() == Ok("1"))
         .with_engine_file(Some(crate::engine::path(home)))
         .with_families(families.clone())
+        .with_gateway(gateway.clone())
         .with_harness_grant(chief_tools.clone())
         .with_workspaces(workspaces.clone())
         .with_no_workspace_reason(no_workspace_reason.clone())
@@ -1926,40 +2001,50 @@ fn start(
     {
         log(format!("OPTCHAT_CACHE_TTL={v:?} is not 5m or 1h; ignored"));
     }
+    let build_native_engine = |model_base_url: &str, model_api_key: &str| {
+        let native_config = NativeConfig {
+            model: env("OPTCHAT_CHIEF_MODEL").unwrap_or_else(|| NATIVE_MODEL.into()),
+            effort: Some(crate::effort::native_effort(env("OPTCHAT_CHIEF_EFFORT"))),
+            max_tokens: 64_000,
+            server_fallback: env("OPTCHAT_CHIEF_SERVER_FALLBACK").as_deref() == Some("1"),
+            system: crate::prompt::claude_md(instructions.as_deref()),
+            cwd: paths.session.clone(),
+            env: native_env(&setup, paths),
+            bash_timeout: BASH_TIMEOUT,
+            pwd_file: paths.root.join("bash.pwd"),
+        };
+        log(format!(
+            "turns: native engine, {} at effort {} via {}",
+            native_config.model,
+            native_config.effort.as_deref().unwrap_or("default"),
+            model_base_url
+        ));
+        let model = HttpModel::new(
+            model_base_url,
+            model_api_key.to_owned(),
+            native_config.server_fallback,
+        );
+        // The direct API: 5 minutes unless OPTCHAT_CACHE_TTL or cache.ttl
+        // says otherwise (read at host start).
+        let native_ttl = cache_ttl_env
+            .or(
+                crate::chief_settings::ChiefSettings::load(&paths.root.join("settings.json"))
+                    .cache_ttl,
+            )
+            .unwrap_or(crate::prompt::CacheTtl::FiveMinutes);
+        Engine::Native(Arc::new(
+            Native::new(native_config, Arc::new(model), crate::native::RETRY_BASE)
+                .with_trace(trace.clone())
+                .with_cache_ttl(native_ttl),
+        ))
+    };
+    let fallback_engine = if uses_acpmux && has_direct_credentials {
+        Some(build_native_engine(&direct_base_url, &direct_api_key))
+    } else {
+        None
+    };
     let engine = match engine_choice.as_deref() {
-        Some("native") => {
-            let native_config = NativeConfig {
-                model: env("OPTCHAT_CHIEF_MODEL").unwrap_or_else(|| NATIVE_MODEL.into()),
-                effort: Some(crate::effort::native_effort(env("OPTCHAT_CHIEF_EFFORT"))),
-                max_tokens: 64_000,
-                server_fallback: env("OPTCHAT_CHIEF_SERVER_FALLBACK").as_deref() == Some("1"),
-                system: crate::prompt::claude_md(instructions.as_deref()),
-                cwd: paths.session.clone(),
-                env: native_env(&setup, paths),
-                bash_timeout: BASH_TIMEOUT,
-                pwd_file: paths.root.join("bash.pwd"),
-            };
-            log(format!(
-                "turns: native engine, {} at effort {} via {}",
-                native_config.model,
-                native_config.effort.as_deref().unwrap_or("default"),
-                base_url
-            ));
-            let model = HttpModel::new(&base_url, api_key, native_config.server_fallback);
-            // The direct API: 5 minutes unless OPTCHAT_CACHE_TTL or cache.ttl
-            // says otherwise (read at host start).
-            let native_ttl = cache_ttl_env
-                .or(
-                    crate::chief_settings::ChiefSettings::load(&paths.root.join("settings.json"))
-                        .cache_ttl,
-                )
-                .unwrap_or(crate::prompt::CacheTtl::FiveMinutes);
-            Engine::Native(Arc::new(
-                Native::new(native_config, Arc::new(model), crate::native::RETRY_BASE)
-                    .with_trace(trace.clone())
-                    .with_cache_ttl(native_ttl),
-            ))
-        }
+        Some("native") => build_native_engine(&base_url, &api_key),
         None | Some("acpmux") => {
             log(format!(
                 "turns: {harness} sessions through acpmux ({}); no Messages API",
@@ -2015,7 +2100,6 @@ fn start(
         membership: membership.clone(),
         keep_turn_session: env("CHIEF_KEEP_TURN_SESSION").as_deref() != Some("0"),
         chief_inbox,
-        screen_share: Some(paths.screen.clone()),
     };
     let brain_log: crate::brain::Log = Arc::new(|line: &str| log(line));
     // Section 10: persist after each turn.
@@ -2080,6 +2164,8 @@ fn start(
         ))
     };
     let mut brain = brain;
+    brain.set_gateway(gateway.clone());
+    brain.set_fallback_engine(fallback_engine);
     brain.set_reported_elsewhere(reported_elsewhere);
     brain.set_sub_starter(sub_starter);
     let idle = brain.cloud_auto_pause_idle();
@@ -2097,6 +2183,21 @@ fn start(
     brain.set_max_live(crate::subagents::live_limit(
         env(crate::subagents::MAX_LIVE_ENV).as_deref(),
     ));
+    // The machine's own helper limit (machine_limits.rs): a ceiling from its
+    // cores and memory, and a hold while it is over budget. Queues, never
+    // refuses; OPTCHAT_MACHINE_HELPERS=0 turns it off.
+    let machine = crate::machine_limits::this_machine();
+    if let (Some(m), Some(ceiling)) = (
+        machine,
+        crate::machine_limits::ceiling_with(env(crate::machine_limits::ENV).as_deref(), machine),
+    ) {
+        brain.set_machine_limit(
+            ceiling,
+            Box::new(move || {
+                crate::machine_limits::over_budget(m, crate::machine_limits::load_now())
+            }),
+        );
+    }
     // Finished subagents' workspaces stay, names untouched, unless this says close.
     brain.set_sub_close_on_finish(env("OPTCHAT_SUBAGENT_ON_FINISH").as_deref() == Some("close"));
     // A person's message steered into the running turn and still unread

@@ -91,3 +91,47 @@ fn the_old_layout_keeps_its_full_claude_md() {
         &full[..60.min(full.len())]
     );
 }
+
+#[test]
+fn a_cached_claude_turn_keeps_its_own_pointer_after_the_full_file_is_removed() {
+    let dir = tempfile::tempdir().unwrap();
+    let paths = optchat_chief::paths::Paths::new(dir.path());
+    paths.create().unwrap();
+    write(&paths, &setup(&paths, Tools::Mcp)).unwrap();
+    // A cached turn carries the full instructions in its preset and removes
+    // the old root file before starting the harness.
+    optchat_chief::session_dir::set_claude_md(&paths.session, None).unwrap();
+    assert!(!paths.session.join("CLAUDE.md").exists());
+    assert!(paths.session.join("AGENTS.md").is_file());
+    let own = own_file(&paths.session).expect("the cached Claude pointer");
+    assert!(own.len() < 400, "a pointer, not a second prompt: {own}");
+    assert!(own.contains("system prompt"), "{own}");
+}
+
+#[test]
+fn the_old_layout_has_no_pointer_claiming_a_system_prompt() {
+    let dir = tempfile::tempdir().unwrap();
+    let paths = optchat_chief::paths::Paths::new(dir.path());
+    paths.create().unwrap();
+    write(&paths, &setup(&paths, Tools::Mcp)).unwrap();
+    // Without a preset system prompt the full text is the instructions, so the
+    // pointer ("your instructions are your system prompt") must not be there.
+    assert!(paths.session.join("CLAUDE.md").is_file());
+    assert!(!paths.session.join(".claude").join("CLAUDE.md").exists());
+}
+
+#[test]
+fn a_turn_without_the_preset_prompt_removes_the_pointer_again() {
+    let dir = tempfile::tempdir().unwrap();
+    let paths = optchat_chief::paths::Paths::new(dir.path());
+    paths.create().unwrap();
+    write(&paths, &setup(&paths, Tools::Mcp)).unwrap();
+    optchat_chief::session_dir::set_claude_md(&paths.session, None).unwrap();
+    assert!(paths.session.join(".claude").join("CLAUDE.md").is_file());
+    optchat_chief::session_dir::set_claude_md(&paths.session, Some("You are Chief.")).unwrap();
+    assert!(!paths.session.join(".claude").join("CLAUDE.md").exists());
+    assert_eq!(
+        std::fs::read_to_string(paths.session.join("CLAUDE.md")).unwrap(),
+        "You are Chief."
+    );
+}

@@ -1,6 +1,9 @@
 // Page strings come from xcstrings tables (scripts/pages/gen-strings.mjs writes
 // `<page>/generated/strings.json`); no string lives only in TypeScript. The page picks the app's
-// language from `navigator.languages`, which WebKit sets from the app's preferred localizations.
+// language from `appLanguages()` (appLanguage.ts): the Language setting's, else
+// `navigator.languages`, which WebKit sets from the app's preferred localizations.
+import { intl } from "../../ui/intl";
+import { appLanguages } from "./appLanguage";
 
 export type StringTable = Record<string, Record<string, string>>;
 
@@ -52,14 +55,14 @@ export function formatString(text: string, args: readonly string[]): string {
   });
 }
 
-export function createStrings(table: StringTable, tags: readonly string[] = navigatorLanguages()): Strings {
+export function createStrings(table: StringTable, tags: readonly string[] = appLanguages()): Strings {
   const language = resolveLanguage(tags, Object.keys(table));
   followDocumentLanguage(Object.keys(table));
   setDocumentLanguage(language);
   const local = table[language] ?? {};
   const english = table.en ?? {};
   const t = (key: string) => local[key] ?? english[key] ?? key;
-  const rules = new Intl.PluralRules(language);
+  const rules = intl.PluralRules(language);
   // A plural string's text for the count, else the locale's plain text for the key (a catalog that
   // gave this language no plural forms), else English.
   const form = (key: string, args: readonly string[]) => {
@@ -72,11 +75,6 @@ export function createStrings(table: StringTable, tags: readonly string[] = navi
     t,
     format: (key, ...args) => formatString(form(key, args), args),
   };
-}
-
-function navigatorLanguages(): readonly string[] {
-  const nav = globalThis.document?.defaultView?.navigator ?? globalThis.navigator;
-  return nav?.languages?.length ? nav.languages : [nav?.language ?? "en"];
 }
 
 // A document owns one languagechange listener, shared by every string table on the page.
@@ -96,6 +94,6 @@ function followDocumentLanguage(available: readonly string[]): void {
   const state = { available };
   documentLanguages.set(doc, state);
   doc.defaultView?.addEventListener("languagechange", () => {
-    setDocumentLanguage(resolveLanguage(navigatorLanguages(), state.available));
+    setDocumentLanguage(resolveLanguage(appLanguages(), state.available));
   });
 }

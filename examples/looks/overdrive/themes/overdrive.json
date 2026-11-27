@@ -1,0 +1,82 @@
+// Overdrive: near-black with a violet cast, hot pink as the accent (Send, the selected row,
+// links), electric cyan for work in progress, floating round panes with a gap between them.
+{
+  "name": "Overdrive",
+  "description": "Near-black, hot pink and electric cyan, floating round panes, fast motion.",
+
+  "appearance.theme": "Builtin Dark",
+  // The window, sidebar and pages take that theme too, over an App Theme of your own.
+  "appearance.appTheme": "followTerminal",
+  "colors": { "background": "#0b0a12", "foreground": "#f6f2ff", "selection": "#b352ab", "accent": "#ff3d8b" },
+  "appearance.accent": "theme",
+  "ghostty": [
+    "background = #0b0a12",
+    "foreground = #f6f2ff",
+    "cursor-color = #2ee6ff",
+    "cursor-text = #0b0a12",
+    "selection-background = #b352ab",
+    "selection-foreground = #0b0a12",
+    "palette = 0=#1a1726",
+    "palette = 1=#ff4d6d",
+    "palette = 2=#3df5a7",
+    "palette = 3=#ffd23d",
+    "palette = 4=#4d8bff",
+    "palette = 5=#ff3d8b",
+    "palette = 6=#2ee6ff",
+    "palette = 7=#d9d4e8",
+    "palette = 8=#5a5470",
+    "palette = 9=#ff7088",
+    "palette = 10=#72ffc0",
+    "palette = 11=#ffe270",
+    "palette = 12=#7aa8ff",
+    "palette = 13=#ff70a8",
+    "palette = 14=#70efff",
+    "palette = 15=#ffffff"
+  ],
+
+  "appearance.background": "none",
+  "appearance.backgroundBlur": "none",
+  "appearance.fontSmoothing": "antialiased",
+
+  // Round panes floating over the window with a gap: chunky, separate pieces.
+  "appearance.chromeStyle": "floating",
+  "appearance.borders": "default",
+  "appearance.focusIndicator": "both",
+  "appearance.density": "comfortable",
+
+  "appearance.metrics.titlebarHeight": 38,
+  "appearance.metrics.sidebarWidth": 264,
+  "appearance.metrics.sidebarRowHeight": 40,
+  "appearance.metrics.chromeFontSize": 13,
+  "appearance.metrics.tabStripHeight": 36,
+  "appearance.metrics.tabFontSize": 13,
+  "appearance.metrics.columnGap": 8,
+  "appearance.metrics.dividerThickness": 2,
+
+  "appearance.sidebarSurface": "separate",
+  "appearance.surfaces.sidebar.color": "#07060d",
+  "appearance.surfaces.sidebar.opacity": 1,
+  "appearance.surfaces.agentPane.color": "#0b0a12",
+  "appearance.surfaces.agentPane.opacity": 1,
+  "appearance.surfaces.terminal.color": "#0b0a12",
+  "appearance.surfaces.terminal.opacity": 1,
+  "appearance.surfaces.splitDivider.color": "#2a1f3d",
+  "appearance.surfaces.splitDivider.opacity": 1,
+  "sidebar.sectionLook": "card",
+
+  // Work in progress is a cyan dot that pulses, a size up and heavy.
+  "appearance.statusIndicator.style": "dot",
+  "appearance.statusIndicator.animation": "animated",
+  "appearance.statusIndicator.color": "#2ee6ff",
+  "appearance.statusIndicator.size": 1.25,
+  "appearance.statusIndicator.thickness": 2.5,
+  "appearance.statusIndicator.showAgentWorkingOnTabs": true,
+
+  // Snappy: color changes land in 90 ms on a spring.
+  "ui.animationSpeed": "fast",
+  "appearance.colorTransition.enabled": true,
+  "appearance.colorTransition.curve": "spring",
+  "appearance.colorTransition.duration": 90,
+  "appearance.colorTransition.colorSpace": "oklab",
+  "appearance.colorTransition.reduceMotion": "instant"
+}

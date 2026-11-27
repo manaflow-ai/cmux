@@ -77,15 +77,19 @@ describe("projectCatalog", () => {
 
   test("Codex drops API-only efforts, applies its default effort and filters chat and pro variants", () => {
     const codex = harness(catalog, "codex");
-    expect(codex.models.map((model) => model.id)).toEqual(["gpt-6.1-sol", "gpt-5.5"]);
-    expect(codex.models[1]).toMatchObject({
+    expect(codex.models.map((model) => model.id)).toEqual(["gpt-6.2-sol", "gpt-6.1-sol", "gpt-5.5"]);
+    // New Codex chats start on GPT-6.2 Sol at high, as `codex` in a terminal does (cmux#48354);
+    // the other models keep the harness's medium.
+    expect(codex.models[0]?.defaultEffort).toBe("high");
+    expect(codex.models[1]?.defaultEffort).toBe("medium");
+    expect(codex.models[2]).toMatchObject({
       name: "GPT-5.5",
       shortName: "GPT-5.5",
       efforts: ["low", "medium", "high", "xhigh"],
       defaultEffort: "medium",
       fast: true,
     });
-    expect(codex.defaultModel).toBe("gpt-6.1-sol");
+    expect(codex.defaultModel).toBe("gpt-6.2-sol");
   });
 
   test("probe harnesses carry no list; their models are described by ref", () => {
