@@ -3831,6 +3831,12 @@
       "title" : "Save a Checkpoint Before Each Cloud Chat Turn",
       "type" : "boolean"
     },
+    "cloud.useMyGitHubLogin" : {
+      "default" : false,
+      "description" : "Cloud machines use the cmux GitHub App by default. Turn this on to share this Mac’s personal GitHub CLI login with machines you start. To remove a shared login, run cmux github login forget on that machine.",
+      "title" : "Use My GitHub Login on Cloud Machines",
+      "type" : "boolean"
+    },
     "computerUse.allowForeground" : {
       "default" : false,
       "description" : "Advanced. Agents may bring an app to the front and move your pointer when it takes no background input.",
@@ -4597,6 +4603,12 @@
       "default" : false,
       "description" : "Cloud machine cards show disk use as a bar split into system, project and caches.",
       "title" : "Cloud Disk Bar",
+      "type" : "boolean"
+    },
+    "experiments.compactionThresholdInsight" : {
+      "default" : false,
+      "description" : "Show when Claude automatically compacted a chat and how to lower the context it carries between turns.",
+      "title" : "Compaction Threshold Insight",
       "type" : "boolean"
     },
     "experiments.cloudToggle" : {
@@ -7529,7 +7541,7 @@
     },
     "sidebar.workspacesAsTabs" : {
       "default" : false,
-      "description" : "Each workspace is one line, and Cmd-Shift-[ and ] switch workspaces.",
+      "description" : "Each workspace is one line in the sidebar, which stays a list (not a tab strip), and Cmd-Shift-[ and ] switch workspaces as they switch tabs.",
       "title" : "Workspaces as Tabs",
       "type" : "boolean"
     },

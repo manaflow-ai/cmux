@@ -1148,6 +1148,13 @@ class CustomizeTemplatesTourTests(unittest.TestCase):
     no shell expansion touches it, and no checkout is needed on the capture Mac); what it
     types must be the files in skills/cmux-customization/templates as they are now."""
 
+    def test_skill_sidebar_starter_matches_the_native_starter(self) -> None:
+        template = (ROOT / "skills/cmux-customization/templates/starter/main.js").read_text()
+        source = ROOT / "Packages/macOS/CmuxNext/Sources/CmuxNextApps/Customization/CustomizeFolder.swift"
+        script = re.search(r'let starterScript = """\n(.*?)\n"""', source.read_text(), re.DOTALL)
+        self.assertIsNotNone(script, "could not find the Swift starter")
+        self.assertEqual(template, script[1], "the skill and native sidebar starter scripts must match")
+
     def test_the_tour_writes_the_checked_in_templates_and_probe(self) -> None:
         import base64
         tour = json.loads((ROOT / "scripts/cmux-next/media/tours/customize-templates.json").read_text(encoding="utf-8"))
