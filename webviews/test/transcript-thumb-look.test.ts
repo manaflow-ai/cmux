@@ -30,18 +30,13 @@ import { requireBrowserLane } from "./support/requireBrowserLane";
 
 await requireBrowserLane("transcript-thumb-look.test.ts", async () => {
   setDefaultTimeout(420_000);
-  // Chromium with its scrollbars drawn: the pointer is near the thumb only over the lane the engine
-  // takes a press in (scrollers.ts scrollbarLane, 9411ca1e1fd0), and Playwright's default
-  // --hide-scrollbars leaves no lane at all.
-  const launch = (name: string, engine: BrowserType) =>
-    engine.launch({ headless: true, ...(name === "chromium" ? { ignoreDefaultArgs: ["--hide-scrollbars"] } : {}) });
   const engines: [string, BrowserType][] = [];
   for (const engine of [
     ["webkit", webkit],
     ["chromium", chromium],
   ] as [string, BrowserType][]) {
     try {
-      await (await launch(...engine)).close();
+      await (await engine[1].launch({ headless: true })).close();
       engines.push(engine);
     } catch {
       console.warn(`transcript-thumb-look: skipping ${engine[0]}`);

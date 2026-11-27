@@ -35,8 +35,8 @@ export function stageClock(ms: number): string {
 function elapsed(startedAt: number | undefined, finishedAt: number | undefined, now = Date.now()): string | undefined {
   if (startedAt === undefined) return undefined;
   const ms = Math.max(0, (finishedAt ?? now) - startedAt);
-  // A step under a second reads "0s", never "<1s", like the turn's Working for (#60596).
-  return stageClock(ms);
+  // A finished step that took under a second reads "<1s", not a floored "0s".
+  return finishedAt !== undefined && ms < 1000 ? "<1s" : stageClock(ms);
 }
 
 function operationStatus(operation: CloudStartupOperation | undefined): ChecklistStatus | undefined {

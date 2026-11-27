@@ -20,13 +20,10 @@ import path from "node:path";
 import { chromium, webkit, type Browser, type Page } from "playwright";
 import { readCatalog } from "../scripts/pages/catalog.mjs";
 import { galleryFrame, warmGalleryFrame } from "./support/galleryFrame";
-import { probeEngineOrSkip, requireBrowserLane } from "./support/requireBrowserLane";
+import { requireBrowserLane } from "./support/requireBrowserLane";
 
 await requireBrowserLane("harnesses-row-text.browser.test.ts", async () => {
   setDefaultTimeout(600_000);
-  // A WebKit that cannot launch here (no host libraries on a fleet worker) skips its test; on
-  // GitHub Actions it fails the file (probeEngineOrSkip).
-  const webkitRuns = await probeEngineOrSkip("harnesses-row-text.browser.test.ts", "webkit", webkit);
 
   const ENTRY = "agent-pane.harnesses";
   /** The agent column of the default window, the entry's narrow width, a narrow pane. */
@@ -178,7 +175,6 @@ await requireBrowserLane("harnesses-row-text.browser.test.ts", async () => {
 
   test("chromium: a harness row's network message reads in full, its actions in the row", () =>
     run("chromium", () => chromium.launch({ headless: true })));
-  test.if(webkitRuns)("webkit: a harness row's network message reads in full, its actions in the row", () =>
-    run("webkit", () => webkit.launch({ headless: true })),
-  );
+  test("webkit: a harness row's network message reads in full, its actions in the row", () =>
+    run("webkit", () => webkit.launch({ headless: true })));
 });

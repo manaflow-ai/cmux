@@ -25,9 +25,7 @@ import { gzipSync } from "node:zlib";
 // added.
 // Whole-tree search and the paused-read replica Durable Object (src/replica/, RFD 0144 piece 2) measured 469.2 KiB
 // locally; no dependency was added.
-// The provider create queue (src/limits/create-admission.ts) measured 473.8 KiB locally (470.7 KiB before); no
-// dependency was added.
-const BUDGET_GZIP_BYTES = 476 * 1024; // 298 KiB at S1
+const BUDGET_GZIP_BYTES = 472 * 1024; // 298 KiB at S1
 const dir = process.argv[2] ?? "dist";
 
 const files = readdirSync(dir, { recursive: true })

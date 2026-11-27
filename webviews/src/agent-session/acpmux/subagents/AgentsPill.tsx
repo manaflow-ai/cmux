@@ -6,11 +6,12 @@
 // it: its pane, or its view in this pane (App.tsx `showSubagent`). The pill is a part of the
 // bottom stack (bottomStack.css), not laid over the transcript, so it never hides the latest row.
 import { memo, useId, useContext } from "react";
+import { formatDuration } from "../conversation/turns";
 import { useT } from "../i18n";
 import { Icon } from "../icons/Icon";
 import { usePopover } from "../summary/usePopover";
 import { subagentStatus, subagentStatusLabel } from "../summary/subagentStatusListModel";
-import { running, subagentTime, useNow, SubagentHarnessContext } from "./subagentGroupModel";
+import { elapsed, running, useNow, SubagentHarnessContext } from "./subagentGroupModel";
 import type { Subagent } from "./subagentFold";
 import { AgentIdentity } from "./AgentIdentity";
 import { agentTone } from "./agentTones";
@@ -115,7 +116,7 @@ export const AgentsPill = memo(function AgentsPill({
                           <span className="acpmux-agents-list__name">{subagentDisplayName(t, agent)}</span>
                           <span className="acpmux-agents-list__state">{state}</span>
                         </span>
-                        <span className="acpmux-agents-list__time">{subagentTime(agent, now)}</span>
+                        <span className="acpmux-agents-list__time">{formatDuration(elapsed(agent, now))}</span>
                         <Icon name="disclosure.collapsed" size={12} />
                       </button>
                     </li>

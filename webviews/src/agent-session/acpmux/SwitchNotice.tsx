@@ -1,3 +1,4 @@
+import { useRef } from "react";
 import { StartRecovery } from "./StartRecovery";
 import { useT } from "./i18n";
 import { type MachineShareProps, useMachineShare } from "./MachineShareAction";
@@ -64,6 +65,7 @@ export function SwitchNotice({
   stillTrying?: boolean;
 }) {
   const t = useT();
+  const actionsRef = useRef<HTMLDivElement>(null);
   const machineShare = useMachineShare(share, switching?.phase === "failed" ? switching : undefined, onRetry, onShared);
   // A switch picked mid-turn (`deferred`) says nothing: the agent chip already shows the pick.
   if (!switching || switching.phase !== "failed") return null;
@@ -103,10 +105,10 @@ export function SwitchNotice({
       <div className="acpmux-host-error-card">
         <p className="acpmux-host-error-message">{view.sentence}</p>
         {(machineShare.line ?? hint) && <p className="acpmux-host-error-hint">{machineShare.line ?? hint}</p>}
-        <div className="acpmux-host-error-actions">
+        <div className="acpmux-host-error-actions" ref={actionsRef}>
           {machineShare.button}
           {signIn === "card" && agentSignIn && (
-            <CloudSignIn signIn={agentSignIn} rowId={undefined} prompt={undefined} />
+            <CloudSignIn signIn={agentSignIn} rowId={undefined} prompt={undefined} actionsRef={actionsRef} />
           )}
           {action && onAction && (
             <button

@@ -245,9 +245,7 @@ test("a handshake refused as message.too_large is told apart from every other re
 // connect) was a bare "Reconnecting…" forever: no reason, no Details, no Retry. The loop below is the
 // pane's own (App.tsx): each connect clears `failingSince`, so only the trouble clock, which a
 // connection lost within CONNECTION_STABLE_MS does not end, can bound it.
-// cmux#60478 (a brief forwarded as Leo's, unverified: "retry on its own ... just remove it"): this app's
-// own agent service is never said, however long it stays away; only a chat's other machine is.
-test("a chat that never stays open stays quiet past the bound", () => {
+test("a chat that never stays open stops being a bare Reconnecting… past the bound", () => {
   const timedOut = { code: "native.timed_out" };
   let now = 0;
   let troubleSince: number | undefined;
@@ -267,8 +265,10 @@ test("a chat that never stays open stays quiet past the bound", () => {
     now += lost.wait;
     said.push(!hostSelfRetrying(timedOut, false, now - troubleSince));
   }
-  // Never said: the pane keeps asking (slowly past the bound, hostRetryStep) and draws nothing.
-  expect(said.some(Boolean)).toBe(false);
+  const firstSaid = said.indexOf(true);
+  expect(firstSaid).toBeGreaterThan(0);
+  // Quiet for the usual recovery, then said, and said from then on.
+  expect(said.slice(firstSaid).every(Boolean)).toBe(true);
   expect(troubleSince).toBe(0);
 });
 
@@ -276,11 +276,7 @@ test("the usual recovery stays quiet, and a connection that stayed up starts the
   const lostLink = new Error("Couldn't connect to the agent.");
   expect(hostSelfRetrying(lostLink, false, 0)).toBe(true);
   expect(hostSelfRetrying(lostLink, false, SELF_RETRY_SAID_MS - 1)).toBe(true);
-  expect(hostSelfRetrying(lostLink, false, SELF_RETRY_SAID_MS)).toBe(true);
-  // A chat's other machine still gone past the bound is said: the person may bring it back.
-  const peer = new Error("peer_unreachable: studio (connecting, last seen 3s ago)");
-  expect(hostSelfRetrying(peer, false, SELF_RETRY_SAID_MS - 1)).toBe(hostIsReconnecting(peer));
-  expect(hostSelfRetrying(peer, false, SELF_RETRY_SAID_MS)).toBe(false);
+  expect(hostSelfRetrying(lostLink, false, SELF_RETRY_SAID_MS)).toBe(false);
   // A refusal that waits on the person is said at once, bound or not.
   expect(hostSelfRetrying({ code: "host_unavailable" }, false, 0)).toBe(false);
   // Lost after a minute up: a new trouble, starting now; lost after a second: the old one goes on.

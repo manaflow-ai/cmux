@@ -1,14 +1,4 @@
-import {
-  memo,
-  useCallback,
-  useEffect,
-  useLayoutEffect,
-  useMemo,
-  useRef,
-  useState,
-  type ReactNode,
-  useContext,
-} from "react";
+import { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { flushSync, createPortal } from "react-dom";
 import { usePresence } from "../../../ui/presence";
 import { useChatDisplay } from "../chatDisplay";
@@ -20,7 +10,7 @@ import { useTabRow } from "../header/tabRow";
 import { useT } from "../i18n";
 import { transcriptColumn, type AcpmuxRow, type AcpmuxSnapshot } from "../model";
 import { compactingUsage } from "../usageStats";
-import { registerPicker, ChatViewParked } from "../pickerOpeners";
+import { registerPicker } from "../pickerOpeners";
 import { opensProcessTerminal } from "../processTerminal";
 import { chatGallery, type GalleryItem } from "../summary/chatGallery";
 import { GalleryDialog } from "../summary/GalleryDialog";
@@ -525,9 +515,8 @@ export function useSessionInfo({
   useLayoutEffect(() => {
     uncover.current = bringBack;
   }, [bringBack]);
-  const parked = useContext(ChatViewParked);
   useEffect(() => {
-    if (!on || parked) return;
+    if (!on) return;
     return registerPicker(label, () => {
       onBeforeOpen?.();
       uncover.current?.();
@@ -536,7 +525,7 @@ export function useSessionInfo({
       ask();
       setSessionInfoOpen(true);
     });
-  }, [on, parked, label, onBeforeOpen, backFromAside, ask]);
+  }, [on, label, onBeforeOpen, backFromAside, ask]);
   // Esc closes it while the keyboard is in it or on its toggle (not in a text field there), before a
   // popup in the page takes it (they listen on the window, after the document). Anywhere else Esc
   // keeps its own meaning: with nothing focused and a turn running it is the composer's double press

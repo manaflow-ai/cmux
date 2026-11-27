@@ -1,7 +1,6 @@
 import { translate, useT } from "./i18n";
 import { Notice as UiNotice } from "../../ui/Notice";
 import { useNoticeTurn } from "./noticeSlotModel";
-import { untilLinked } from "./offlineSends";
 import {
   dismissPlanScopeDrift,
   keepPlanScopeArea,
@@ -44,13 +43,10 @@ function resolveDrift(action: DriftAction, drift: PlanScopeDrift, onStop?: () =>
     return;
   }
   dismissPlanScopeDrift(drift.sessionId);
-  // While the pane reconnects the steer waits for the link instead of being dropped (offlineSends.ts).
-  void untilLinked().then(() =>
-    window.cmuxAcpmuxActions?.["chat.send"]?.({
-      text: translate("planScopeDrift.replanPrompt", { path: drift.path }),
-      steer: true,
-    }),
-  );
+  void window.cmuxAcpmuxActions?.["chat.send"]?.({
+    text: translate("planScopeDrift.replanPrompt", { path: drift.path }),
+    steer: true,
+  });
 }
 
 export function PlanScopeDriftCard({ drift, onStop }: { drift: PlanScopeDrift; onStop?: () => void }) {

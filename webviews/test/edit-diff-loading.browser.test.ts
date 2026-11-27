@@ -22,10 +22,7 @@ await requireBrowserLane("edit-diff-loading.browser.test.ts", async () => {
     });
     await server.listen();
     base = `http://127.0.0.1:${(server.httpServer!.address() as { port: number }).port}`;
-    // Scrollbars drawn, as the app's WebKit draws Pierre's sideways lane: Playwright's default
-    // --hide-scrollbars takes that lane out of the rendered diff but not the placeholder's bottom
-    // padding that stands in for it (#49716), so the two would differ by the lane.
-    browser = await chromium.launch({ headless: true, ignoreDefaultArgs: ["--hide-scrollbars"] });
+    browser = await chromium.launch({ headless: true });
     await warmGalleryFrame(server, "agent-pane.inline-diff-loading", { browser, params: { variant: "loaded" } });
     await warmGalleryFrame(server, "agent-pane.transcript", { browser, params: { variant: "edit-long-line-code" } });
   });

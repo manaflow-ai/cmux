@@ -4,6 +4,7 @@ import type { AcpmuxActivity } from "../model";
 import { useT } from "../i18n";
 import { useFindReveal } from "./chatFind";
 import { Brain } from "./icons";
+import { playResize } from "./fold";
 import { useAnchoredCollapse, type AnchoredCollapse } from "./useAnchoredCollapse";
 import { useTranscriptViewContext } from "./transcriptDisclosureModel";
 import { formatDuration } from "./turns";
@@ -123,8 +124,19 @@ function FoldedThought({
     observer.observe(row);
     return () => observer.disconnect();
   }, [head.line, open, cut]);
-  // The line takes its open or closed height in one frame (no height is animated, cmuxterm-hq
-  // docs/design/transcript-motion-model.md rule 7): the transcript places the rows under it once.
+  // The line's height when the reader clicked, for the morph: only their toggle plays it.
+  const from = useRef<number | undefined>(undefined);
+  useLayoutEffect(() => {
+    const node = line.current;
+    const before = from.current;
+    from.current = undefined;
+    if (!node || before === undefined) return;
+    const after = thoughtLayout.height(node);
+    if (open) return playResize(node, before, after);
+    // Closing: the wrapped words stay until the line is one line tall again, then the ellipsis.
+    node.classList.add("is-closing");
+    playResize(node, before, after, () => node.classList.remove("is-closing"));
+  }, [open]);
   const words = head.line || t("tools.thought");
   const lineClass = `cv-tool__text cv-thought__preview${head.title ? " is-title" : ""}${open ? " is-open" : ""}`;
   // Find counts the thought's words, not how long it took.
@@ -155,7 +167,9 @@ function FoldedThought({
         aria-controls={open && head.rest ? bodyId : undefined}
         ref={fold.headerRef}
         onClick={(event) => {
-          fold.toggle(event);
+          const node = line.current;
+          const before = node ? thoughtLayout.height(node) : undefined;
+          if (fold.toggle(event)) from.current = before;
         }}
       >
         <span className="cv-tool__icon">

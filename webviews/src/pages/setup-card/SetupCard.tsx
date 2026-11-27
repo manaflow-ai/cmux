@@ -68,12 +68,7 @@ export function SetupCard({ strings, state, look = DEFAULT_SETUP_LOOK, onAction,
             <span className="hm-setup__next-text">
               <span className="hm-setup__row-title">{next.title}</span>
               <span className="hm-setup__row-detail">{next.detail}</span>
-              {next.note &&
-                (next.id === "account" ? (
-                  <SignInBackend line={next.note} />
-                ) : (
-                  <span className="hm-setup__row-detail">{next.note}</span>
-                ))}
+              {next.note && <SignInBackend line={next.note} />}
             </span>
             <Trailing step={next} onAction={onAction} wide />
           </div>
@@ -98,12 +93,7 @@ export function SetupCard({ strings, state, look = DEFAULT_SETUP_LOOK, onAction,
             <span className="hm-setup__row-text">
               <span className="hm-setup__row-title">{step.title}</span>
               <span className="hm-setup__row-detail">{step.detail}</span>
-              {step.note &&
-                (step.id === "account" ? (
-                  <SignInBackend line={step.note} />
-                ) : (
-                  <span className="hm-setup__row-detail">{step.note}</span>
-                ))}
+              {step.note && <SignInBackend line={step.note} />}
               {step.id === "look" && state.look && (
                 <TextSizePicker
                   className="hm-setup__look"

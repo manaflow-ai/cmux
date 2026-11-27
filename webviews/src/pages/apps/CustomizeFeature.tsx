@@ -10,7 +10,6 @@ import { useId, useState } from "react";
 import type { Strings } from "../shared/i18n";
 import { shippedLooks } from "../settings/customizeLooks";
 import type { VerifiedLook } from "../settings/customizeChecklist";
-import { Button } from "../../ui/Button";
 import type { AppsStore } from "./store";
 
 /** How many verified looks the card names before "and N more". */
@@ -44,9 +43,9 @@ export function CustomizeFeature({
   const settings = () => void store.openCustomize();
   const chip = (key: string, label: string, title?: string) => (
     // tooltip-allow: a look's tagline shows nowhere else; the chip shows its name only
-    <Button bare type="button" key={key} className="apps-customize-look" title={title} onClick={settings}>
+    <button type="button" key={key} className="apps-customize-look" title={title} onClick={settings}>
       {label}
-    </Button>
+    </button>
   );
   return (
     <section
@@ -67,8 +66,7 @@ export function CustomizeFeature({
             </span>
           )}
         </span>
-        <Button
-          bare
+        <button
           type="button"
           className="apps-button primary"
           aria-expanded={open}
@@ -76,7 +74,7 @@ export function CustomizeFeature({
           onClick={() => setOpen(!open)}
         >
           {t(open ? "store.customize.hide" : "store.customize.show")}
-        </Button>
+        </button>
       </div>
       {open && (
         <div className="apps-customize-panel" id={panelId}>
@@ -94,9 +92,9 @@ export function CustomizeFeature({
               {SWITCH_GROUPS.map((key) => chip(key, t(key)))}
             </span>
           </div>
-          <Button bare type="button" className="apps-customize-link" onClick={settings}>
+          <button type="button" className="apps-customize-link" onClick={settings}>
             {t("store.customize.settingsLink")}
-          </Button>
+          </button>
         </div>
       )}
     </section>

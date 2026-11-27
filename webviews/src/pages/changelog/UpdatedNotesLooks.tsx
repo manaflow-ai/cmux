@@ -31,18 +31,13 @@ export function NotesRow({
   entry,
   titlesOnly,
   actions,
-  index,
-  measure,
 }: {
   entry: PreviewEntry;
   titlesOnly: boolean;
   actions: UpdateSurfaceActions;
-  /** Its place in a windowed list (UpdatedNotes WindowedRows), whose `measure` sizes it. */
-  index?: number;
-  measure?: (el: Element | null) => void;
 }) {
   return (
-    <li ref={measure} data-index={index}>
+    <li>
       <button
         type="button"
         className="wn-notes-row"
