@@ -25,7 +25,7 @@ extension SettingsController {
     }
 
     /// The `{path, value?}` edits of a `keymap.*` reply as file edits (no `value` removes the path).
-    static func fileEdits(_ reply: JSONValue) -> [(path: [String], value: JSONValue?)] {
+    nonisolated static func fileEdits(_ reply: JSONValue) -> [(path: [String], value: JSONValue?)] {
         reply["edits"]?.arrayValue?.compactMap { edit in
             edit["path"]?.arrayValue.map { (path: $0.compactMap(\.stringValue), value: edit["value"]) }
         } ?? []
