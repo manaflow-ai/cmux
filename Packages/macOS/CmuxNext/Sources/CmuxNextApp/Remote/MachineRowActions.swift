@@ -11,7 +11,8 @@ extension AcpmuxPersonLine: JoinedDialLine {}
 /// `openJoined`), and a joined machine's Check, Rotate Credential and Revoke… in the registry.
 @MainActor enum MachineRowActions {
     /// New Workspace on a joined Mac reached through the hub alone, over the app's acpmux, servers and registry.
-    static func signedInDial(_ services: AppServices) -> SignedInMachineDial {
+    /// `newWorkspace` replaces its New Workspace (`cmux file open --machine` opens a page there instead).
+    static func signedInDial(_ services: AppServices, newWorkspace: (@MainActor (String) -> Bool)? = nil) -> SignedInMachineDial {
         SignedInMachineDial(
             line: { [weak services] in
                 guard let services, let environment = QuitAgents.environment(services) else { return nil }
@@ -23,8 +24,22 @@ extension AcpmuxPersonLine: JoinedDialLine {}
                 if case .connected = daemon.store.connectionState { return true }
                 return false
             },
-            newWorkspace: { [weak services] in
+            newWorkspace: newWorkspace ?? { [weak services] in
                 services?.registry.perform("workspace.newOnMachine", invocation: ActionInvocation(arguments: ["machine": .string($0)])) ?? false
+            })
+    }
+
+    /// `cmux file open --machine`'s machine and pane: the app's sessions, joined Macs and windows.
+    static func fileOpener(_ services: AppServices) -> MachineFileOpener<PaneController> {
+        let machines = services.machines, windows = services.windows, daemon = { (id: String) in machines.daemon(machine: id) }
+        return MachineFileOpener(
+            connected: { (machines.cloud.map(\.machineID) + machines.ssh.map(\.machineID) + machines.servers.map(\.machineID)).map { (id: $0, name: machines.machineName($0)) } },
+            joined: { (services.joinedMachines.machines, services.serverReach.signedIn.joinedByMachine) }, refreshJoined: { await services.joinedMachines.refresh() },
+            dial: { await signedInDial(services, newWorkspace: { _ in true }).open($0) },
+            shownPane: { daemon($0)?.store.workspaces.lazy.flatMap(\.screens).flatMap(\.panes).compactMap { services.paneController(for: $0) }.first },
+            newWorkspace: { id in
+                guard let daemon = daemon(id) else { return false }
+                return await windows.createWorkspace(on: daemon, into: windows.targetWindow(preferring: windows.active?.state.id)) != nil
             })
     }
 
@@ -48,16 +63,6 @@ extension AcpmuxPersonLine: JoinedDialLine {}
         }
     }
 
-    /// The registered action of a joined machine's menu row (`JoinedMachineActionCatalog`).
-    static func actionID(_ action: JoinedMachineAction) -> ActionID { ActionID(rawValue: "machine.joined.\(action.rawValue)") }
-
-    /// A joined machine's "…" menu: the registry's rows for it, run on its id with the row it opened
-    /// on (`row`, where Check records its result).
-    static func joinedMenu(_ machine: JoinedMachine, rowID: String, registry: ActionRegistry) -> NSMenu {
-        registry.makeContextMenu(for: .joinedMachine, target: ActionTargetRef(kind: .machine, id: machine.id),
-                                 arguments: ["row": .string(rowID)])
-    }
-
     static func bindJoinedActions(into registry: ActionRegistry, context: AppActionContext) {
         let services = context.services
         bindJoinedActions(into: registry, store: { [weak services] in services?.joinedMachines },
@@ -79,7 +84,7 @@ extension AcpmuxPersonLine: JoinedDialLine {}
             return store()?.machines.first { $0.id == id }
         }
         for action in JoinedMachineAction.allCases {
-            let id = actionID(action)
+            let id = action.actionID
             // Check opens its checklist and Revoke its question on this turn; Rotate starts at once.
             // The platform's answers come later, through the store (the row's spinner and caption).
             registry.bindEffect(id, unavailable: { labsOn() ? nil : JoinedMachineAction.labsOff }, effect: { invocation in

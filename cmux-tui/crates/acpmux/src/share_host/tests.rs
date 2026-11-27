@@ -533,6 +533,44 @@ fn the_helpers_own_grant_reading_is_kept_with_the_item_it_is_listed_as() {
 }
 
 #[test]
+fn a_fresh_install_reads_the_helpers_grants_once_before_any_share() {
+    use std::os::unix::fs::PermissionsExt;
+    let home = tempfile::tempdir().unwrap();
+    let macos = home.path().join("cmux NIGHTLY Helper.app/Contents/MacOS");
+    std::fs::create_dir_all(&macos).unwrap();
+    let exe = macos.join(helper::EXECUTABLE);
+    std::fs::write(
+        &exe,
+        b"#!/bin/sh\n[ \"$1\" = permissions ] || exit 2\necho '{\"screen_recording\":true,\"accessibility\":true}'\n",
+    )
+    .unwrap();
+    std::fs::set_permissions(&exe, std::fs::Permissions::from_mode(0o755)).unwrap();
+    let mut found = 0;
+    helper::read_grants_once(home.path(), || {
+        found += 1;
+        Some(exe.clone())
+    });
+    assert_eq!(found, 1);
+    let kept = &helper::status_json(home.path())["permissions"];
+    assert_eq!(kept["screen_recording"], true, "the helper's grant, before any share: {kept}");
+    assert_eq!(kept["listed_as"], "cmux NIGHTLY Helper");
+
+    // Once per home: a second ask neither looks the helper up again nor reads it again.
+    let other = tempfile::tempdir().unwrap();
+    let mut looked = 0;
+    helper::read_grants_once(other.path(), || {
+        looked += 1;
+        None
+    });
+    helper::read_grants_once(other.path(), || {
+        looked += 1;
+        None
+    });
+    assert_eq!(looked, 1);
+    assert_eq!(helper::status_json(other.path())["permissions"], Value::Null);
+}
+
+#[test]
 fn the_joins_install_mark_and_status_are_read_from_its_files() {
     use std::os::unix::fs::PermissionsExt;
     let home = tempfile::tempdir().unwrap();
@@ -1340,6 +1378,46 @@ fn a_running_unit_is_the_joins_only_when_cmux_rd_records_that_join() {
     write("", 0);
     assert!(rd_signed_in_for(&dir, &mark, home), "an empty machine id names no join");
     let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// `cmux remote-host share off` on a joined Mac turns the share host's own device off at the hub,
+/// with no app; a machine with no share host keeps the caller's path; a joined Linux machine
+/// names cmux-rd's switch; a failed hub call says why and what to do (design Z4).
+#[test]
+fn share_off_reaches_the_share_hosts_device_only_on_a_joined_mac() {
+    use super::NotRunning;
+    use super::cli::{OffHere, off_outcome};
+    let joined = || -> Result<(), NotRunning> { Ok(()) };
+    let not_joined = || -> Result<(), NotRunning> {
+        Err(NotRunning::new("not_joined", "this machine is not joined"))
+    };
+    let hub_ok = || Ok::<_, NotRunning>("hub");
+    let off = |hub: &&str| {
+        assert_eq!(*hub, "hub");
+        Ok(json!({"shared": false}))
+    };
+    let unreachable = |_: &&str| -> Result<Value, String> { panic!("no hub call expected") };
+
+    assert_eq!(off_outcome(false, joined(), hub_ok, off), OffHere::Off(json!({"shared": false})));
+    for linux in [false, true] {
+        assert_eq!(off_outcome(linux, not_joined(), hub_ok, unreachable), OffHere::NoHost);
+    }
+    let OffHere::Failed(line) = off_outcome(true, joined(), hub_ok, unreachable) else {
+        panic!("a joined Linux machine names cmux-rd's switch")
+    };
+    assert!(line.contains("cmux-rd linux-host share off"), "{line}");
+    let unregistered = || Err::<&str, _>(NotRunning::new("not_registered", "no device yet"));
+    assert_eq!(off_outcome(false, joined(), unregistered, unreachable), OffHere::NoHost);
+    let unreadable = || Err::<&str, _>(NotRunning::new("identity_unreadable", "bad key"));
+    let OffHere::Failed(line) = off_outcome(false, joined(), unreadable, unreachable) else {
+        panic!("an unreadable device is a failure")
+    };
+    assert!(line.contains("bad key") && line.contains("Allow Mac Screen"), "{line}");
+    let refused = |_: &&str| -> Result<Value, String> { Err("hub unreachable".to_owned()) };
+    let OffHere::Failed(line) = off_outcome(false, joined(), hub_ok, refused) else {
+        panic!("a failed hub call is a failure")
+    };
+    assert!(line.contains("hub unreachable") && line.contains("run it again"), "{line}");
 }
 
 /// What `peers` lists as `deviceHub` on a machine only the mesh hub reaches: the device hub's

@@ -376,6 +376,19 @@ fn build_harness_command(
     if !remote_environment && let Some(own) = env.get("PATH").filter(|p| !p.is_empty()) {
         cmd.env("PATH", crate::login_env::with_agent_path(own));
     }
+    // The exec router's shims first (`placement/exec_router.rs`): on a Cloud machine with run
+    // VMs on, a heavy build any process of this session starts (a script's, `make`'s, a
+    // helper's) goes where the run VM placer sends it, not only Claude Code's own Bash calls.
+    if session.is_some() && !remote_environment {
+        let current = command_env_with(&cmd, true)
+            .into_iter()
+            .find(|(k, _)| k == "PATH")
+            .map(|(_, v)| v)
+            .unwrap_or_default();
+        if let Some(path) = crate::placement::exec_router::session_path(&current) {
+            cmd.env("PATH", path);
+        }
+    }
     // A machine a Mac lends GitHub: git's helper and the gh shim ask the Mac for a short-lived
     // App token (`github_session_env.rs`). The person's own git and gh auth still answer first.
     #[cfg(unix)]
@@ -432,10 +445,16 @@ fn build_harness_command(
         if let Some(headers) = crate::subrouter_session::custom_headers(get) {
             cmd.env(crate::subrouter_session::HEADERS_ENV, headers);
         }
-        // Interactive or background (subrouter_priority.rs), after the lines already set.
+        // The sr and sr2 launchers reach their gateway with no base URL of their own.
+        let launcher = [Some(program.as_str()), Some(name), family]
+            .into_iter()
+            .flatten()
+            .any(|p| crate::sr2_priority::is_sr2_launcher(p) || is_sr_launcher(p));
+        // Interactive or background (subrouter_priority.rs), after the lines already set; only
+        // on a gateway's route, never on a direct Anthropic request.
         let env = command_env_with(&cmd, !remote_environment);
         let get = |k: &str| env.iter().find(|(n, _)| n == k).map(|(_, v)| v.clone());
-        if let Some(headers) = crate::subrouter_priority::custom_headers(get) {
+        if let Some(headers) = crate::subrouter_priority::custom_headers(get, launcher) {
             cmd.env(crate::subrouter_session::HEADERS_ENV, headers);
         }
         // sr2 cost labels (sr2_cost_labels.rs), over the lines set just above.
@@ -449,10 +468,10 @@ fn build_harness_command(
         cmd.env_remove(crate::sr2_priority::PERSON_ENV);
         let env = command_env_with(&cmd, !remote_environment);
         let get = |k: &str| env.iter().find(|(n, _)| n == k).map(|(_, v)| v.clone());
-        let launcher = crate::sr2_priority::is_sr2_launcher(program)
+        let sr2_launcher = crate::sr2_priority::is_sr2_launcher(program)
             || crate::sr2_priority::is_sr2_launcher(name)
             || family.is_some_and(crate::sr2_priority::is_sr2_launcher);
-        if let Some(headers) = crate::sr2_priority::custom_headers(get, launcher, sr2_person) {
+        if let Some(headers) = crate::sr2_priority::custom_headers(get, sr2_launcher, sr2_person) {
             cmd.env(crate::subrouter_session::HEADERS_ENV, headers);
         }
     }
@@ -517,6 +536,13 @@ fn ask_opencode(cmd: &mut Command, name: &str, inherit_ambient: bool) {
             "{CONFIG_ENV} is not a JSON object: kept as it is, so OpenCode is not asked to ask before each tool"
         ),
     }
+}
+
+/// Whether `program` (or a profile name) is the subrouter launcher: `sr` (`sr claude ...`) or
+/// the `claude-sr` profile named for it, which runs through the subrouter gateway.
+fn is_sr_launcher(program: &str) -> bool {
+    let base = std::path::Path::new(program.trim()).file_name().and_then(|n| n.to_str());
+    base.is_some_and(|b| b == "sr" || b == "claude-sr")
 }
 
 /// How Claude Code started from `profile` writes its question previews
