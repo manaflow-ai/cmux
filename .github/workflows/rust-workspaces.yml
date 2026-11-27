@@ -613,6 +613,11 @@ jobs:
     env:
       GHOSTTY_ZIG_SOURCE: ghostty-next
       CMUX_GHOSTTY_SRC: ""
+      # OptChat Chief links a large set of integration-test binaries. On the pool VM, the
+      # default Cargo fan-out started many rust-lld instances at once; unrelated links then
+      # all died in LLVM's parallelFor with SIGBUS. Keep the other workspaces at the pool's
+      # normal parallelism while bounding this memory-heavy workspace.
+      CARGO_BUILD_JOBS: ${{ matrix.root == 'Native/OptChat/optchat-chief' && '4' || '32' }}
     steps:
       # A persistent pool VM keeps the last job's checkout as a git cache. One left sparse (patterns, skip-worktree
       # bits) or with a ref to a missing object makes actions/checkout leave files out or fail (runs 44739498261 and
