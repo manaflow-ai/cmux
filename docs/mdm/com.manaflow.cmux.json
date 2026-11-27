@@ -412,6 +412,66 @@
       "title" : "Session Info",
       "type" : "string"
     },
+    "agentPane.display.sessionInfo.sections.carried" : {
+      "default" : true,
+      "description" : "The MCP servers and carried the chat has.",
+      "title" : "Session Info: Carried memory",
+      "type" : "boolean"
+    },
+    "agentPane.display.sessionInfo.sections.changes" : {
+      "default" : true,
+      "description" : "The chat's pull requests and their checks.",
+      "title" : "Session Info: Pull Requests",
+      "type" : "boolean"
+    },
+    "agentPane.display.sessionInfo.sections.connectors" : {
+      "default" : true,
+      "description" : "The MCP servers and connectors the chat has.",
+      "title" : "Session Info: Connectors",
+      "type" : "boolean"
+    },
+    "agentPane.display.sessionInfo.sections.context" : {
+      "default" : true,
+      "description" : "How full the context window is, and what fills it.",
+      "title" : "Session Info: Context",
+      "type" : "boolean"
+    },
+    "agentPane.display.sessionInfo.sections.environment" : {
+      "default" : true,
+      "description" : "Where the chat runs: this Mac or Cloud, its folder and branch.",
+      "title" : "Session Info: Environment",
+      "type" : "boolean"
+    },
+    "agentPane.display.sessionInfo.sections.outputs" : {
+      "default" : true,
+      "description" : "The documents and files the chat made for you.",
+      "title" : "Session Info: Outputs",
+      "type" : "boolean"
+    },
+    "agentPane.display.sessionInfo.sections.sources" : {
+      "default" : true,
+      "description" : "The files and pages the agent read.",
+      "title" : "Session Info: Sources",
+      "type" : "boolean"
+    },
+    "agentPane.display.sessionInfo.sections.subagents" : {
+      "default" : true,
+      "description" : "The subagents and chats this chat started.",
+      "title" : "Session Info: Subagents",
+      "type" : "boolean"
+    },
+    "agentPane.display.sessionInfo.sections.tasks" : {
+      "default" : true,
+      "description" : "The commands, servers and scheduled jobs the chat runs.",
+      "title" : "Session Info: Background Tasks",
+      "type" : "boolean"
+    },
+    "agentPane.display.sessionInfo.sections.usage" : {
+      "default" : true,
+      "description" : "Tokens, cost and time this chat used.",
+      "title" : "Session Info: Usage",
+      "type" : "boolean"
+    },
     "agentPane.display.statusVerbs.custom" : {
       "description" : "Comma-separated -ing verbs for the live status line.",
       "title" : "Custom Working Verbs",
@@ -763,6 +823,26 @@
       "minimum" : 0,
       "title" : "Seconds Between Retries",
       "type" : "number"
+    },
+    "agents.autoSettle.idleDays" : {
+      "default" : 0,
+      "description" : "Moves a chat to Settled after this many days with no activity. 0 never does. Running work, a pending question or a draft keeps it.",
+      "maximum" : 365,
+      "minimum" : 0,
+      "title" : "Settle After Idle Days",
+      "type" : "number"
+    },
+    "agents.autoSettle.onClose" : {
+      "default" : false,
+      "description" : "Moves a chat to Settled once every pull request it opened was closed without a merge.",
+      "title" : "Settle When Its Pull Request Closes",
+      "type" : "boolean"
+    },
+    "agents.autoSettle.onMerge" : {
+      "default" : false,
+      "description" : "Moves a chat to Settled once every pull request it opened is merged or closed. Your next message brings it back.",
+      "title" : "Settle When Its Pull Request Merges",
+      "type" : "boolean"
     },
     "agents.cacheCompact.enabled" : {
       "default" : false,
@@ -1483,7 +1563,16 @@
         "wang-ximeng-thousand-li",
         "jeong-seon-inwang",
         "jeong-seon-geumgang",
-        "kim-hong-do-samgong"
+        "kim-hong-do-samgong",
+        "kuniyoshi-takiyasha",
+        "kuniyoshi-horyukaku",
+        "hiroshige-gotenyama",
+        "hiroshige-asukayama",
+        "hokusai-yoshino",
+        "sesshu-winter-landscape",
+        "ma-yuan-spring-path",
+        "kim-hong-do-chuseongbu",
+        "sin-yun-bok-moonlit-lovers"
       ],
       "title" : "Backdrop Art",
       "type" : "string"
@@ -1531,6 +1620,7 @@
         "cabanel-fallen-angel",
         "spilliaert-woman-shoreline",
         "el-greco-view-of-toledo",
+        "kuniyoshi-takiyasha",
         "rembrandt-prodigal-son",
         "velazquez-las-meninas",
         "matejko-stanczyk",
@@ -1665,6 +1755,14 @@
         "jeong-seon-inwang",
         "jeong-seon-geumgang",
         "kim-hong-do-samgong",
+        "kuniyoshi-horyukaku",
+        "hiroshige-gotenyama",
+        "hiroshige-asukayama",
+        "hokusai-yoshino",
+        "sesshu-winter-landscape",
+        "ma-yuan-spring-path",
+        "kim-hong-do-chuseongbu",
+        "sin-yun-bok-moonlit-lovers",
         "desktop"
       ],
       "title" : "Background",
@@ -1719,6 +1817,7 @@
         "cabanel-fallen-angel",
         "spilliaert-woman-shoreline",
         "el-greco-view-of-toledo",
+        "kuniyoshi-takiyasha",
         "rembrandt-prodigal-son",
         "velazquez-las-meninas",
         "matejko-stanczyk",
@@ -1853,6 +1952,14 @@
         "jeong-seon-inwang",
         "jeong-seon-geumgang",
         "kim-hong-do-samgong",
+        "kuniyoshi-horyukaku",
+        "hiroshige-gotenyama",
+        "hiroshige-asukayama",
+        "hokusai-yoshino",
+        "sesshu-winter-landscape",
+        "ma-yuan-spring-path",
+        "kim-hong-do-chuseongbu",
+        "sin-yun-bok-moonlit-lovers",
         "desktop"
       ],
       "title" : "Dark Picture",
@@ -1906,6 +2013,7 @@
         "cabanel-fallen-angel",
         "spilliaert-woman-shoreline",
         "el-greco-view-of-toledo",
+        "kuniyoshi-takiyasha",
         "rembrandt-prodigal-son",
         "velazquez-las-meninas",
         "matejko-stanczyk",
@@ -2040,6 +2148,14 @@
         "jeong-seon-inwang",
         "jeong-seon-geumgang",
         "kim-hong-do-samgong",
+        "kuniyoshi-horyukaku",
+        "hiroshige-gotenyama",
+        "hiroshige-asukayama",
+        "hokusai-yoshino",
+        "sesshu-winter-landscape",
+        "ma-yuan-spring-path",
+        "kim-hong-do-chuseongbu",
+        "sin-yun-bok-moonlit-lovers",
         "desktop"
       ],
       "title" : "Light Picture",
@@ -3808,6 +3924,12 @@
       "title" : "Sidebar for Tasks That Mention",
       "type" : "array"
     },
+    "cloud.addFolderLive" : {
+      "default" : true,
+      "description" : "Sources shows Add Folder, and a folder an agent asks for joins its chat. Copies are read-only; secret files never go.",
+      "title" : "Add Folders to Running Cloud Chats",
+      "type" : "boolean"
+    },
     "cloud.agentMemory.follow" : {
       "default" : true,
       "description" : "Your CLAUDE.md, AGENTS.md, agents, commands, skills and Claude's memory notes follow you to Cloud machines. Never credentials or settings files. Agents' changes wait for you in Session Info; only you can change this. Off deletes your copy in the cloud and stops every push.",
@@ -4754,6 +4876,12 @@
       "title" : "See-Through Dock",
       "type" : "boolean"
     },
+    "experiments.setupShelf" : {
+      "default" : false,
+      "description" : "Make cmux Yours offers four setups, such as Calm or Dense. Try one, then keep it or put your settings back.",
+      "title" : "Setups in Make cmux Yours",
+      "type" : "boolean"
+    },
     "experiments.startedTaskTitleChip" : {
       "default" : false,
       "description" : "In Suggested Tasks, a started task opens its chat and highlights from its title only, not the whole row.",
@@ -5189,6 +5317,12 @@
       "default" : false,
       "description" : "Show the build cmux kept before the last update on the Updates card, with a button to go back to it.",
       "title" : "Go Back to Previous Build",
+      "type" : "boolean"
+    },
+    "labs.teamCompute" : {
+      "default" : false,
+      "description" : "Show your team's compute allotment and each member's use in Settings > Cloud.",
+      "title" : "Team Compute",
       "type" : "boolean"
     },
     "labs.voiceRoom" : {
