@@ -1341,6 +1341,8 @@ pub async fn listen_unix(hub: Arc<Hub>, path: PathBuf) -> Result<()> {
 }
 
 #[cfg(unix)]
+pub(crate) use unix_bind::bind_daemon_unix;
+#[cfg(unix)]
 pub use unix_bind::bind_unix;
 #[cfg(unix)]
 pub(crate) use unix_bind::peer_uid_allowed;
