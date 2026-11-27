@@ -816,13 +816,19 @@ def main():
             # The feed's newest item is the running build: nothing to update to.
             appcast = appcast.replace(f"<sparkle:version>{i2['CFBundleVersion']}</sparkle:version>",
                                       f"<sparkle:version>{i1['CFBundleVersion']}</sparkle:version>")
+        pushed_appcast = None
+        if a.push:
+            # Until the push, the feed offers v1 itself: the launch check finds nothing, so only the push can.
+            pushed_appcast = appcast
+            appcast = appcast.replace(f"<sparkle:version>{i2['CFBundleVersion']}</sparkle:version>",
+                                      f"<sparkle:version>{i1['CFBundleVersion']}</sparkle:version>")
         if a.scenario != "attempt-feed-error":
             with open(os.path.join(feed, "appcast.xml"), "w") as f:
                 f.write(appcast)
         if a.notes:
             write_notes(feed, keys, i2, log)
         feed_reads = os.path.join(out, "feed-reads.ndjson")
-        if a.feed_latency_ms:
+        if a.feed_latency_ms or a.push:
             serve = [sys.executable, "-I", os.path.join(HERE, "slow_feed.py"), str(a.port), feed, str(a.feed_latency_ms), feed_reads]
         else:
             serve = [sys.executable, "-m", "http.server", str(a.port), "--bind", "127.0.0.1", "--directory", feed]
@@ -926,9 +932,28 @@ def main():
             return
         # Sparkle's launch check may already run; an explicit check makes the run deterministic.
         if a.push:
-            # The release push a NIGHTLY gets when a build publishes, simulated: the fast check reads the
-            # feed and the found build downloads by itself, as a scheduled read's does.
-            log("push", json.dumps(rpc(sock, "debug.updater", {"action": "push", "build": i2["CFBundleVersion"]}))[:200])
+            # The release push a NIGHTLY gets when a build publishes, simulated: the launch check has read the
+            # feed (v1 only, nothing found), the feed now lists v2, and the push reads it; the found build
+            # must download by itself, as a scheduled read's does.
+            deadline = time.monotonic() + 60
+            while not read_feed_reads(feed_reads):
+                if time.monotonic() > deadline:
+                    raise SystemExit("v1's launch check never read the feed")
+                time.sleep(0.2)  # sleep-ok: bounded wait for the loopback feed's first read
+            wait_stable(lambda: len(read_feed_reads(feed_reads)), "the launch check's feed reads", timeout=30, interval=0.5, reads=4)
+            with open(os.path.join(feed, "appcast.xml"), "w") as f:
+                f.write(pushed_appcast)
+            deadline = time.monotonic() + 30
+            while True:
+                reply = rpc(sock, "debug.updater", {"action": "push", "build": i2["CFBundleVersion"]})
+                if (reply.get("result") or {}).get("pushed") is True:
+                    break
+                # The control methods register as the app finishes launching.
+                if time.monotonic() > deadline or (reply.get("error") or {}).get("code") != "method_not_found":
+                    raise SystemExit(f"the simulated push failed: {json.dumps(reply)[:400]}")
+                time.sleep(0.5)  # sleep-ok: bounded retry until the control method registers
+            result["push_reads_before"] = len(read_feed_reads(feed_reads))
+            log("push", json.dumps(reply)[:200])
         elif not a.sparkle_auto:
             log("check", json.dumps(rpc(sock, "action.run", {"id": CHECK_ACTION}))[:200])
         # With automatic downloads (the default) the update stages with no click; with --downloads-off
