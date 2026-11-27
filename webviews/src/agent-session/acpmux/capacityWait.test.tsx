@@ -5,7 +5,15 @@
 import { expect, test } from "bun:test";
 import { renderToStaticMarkup } from "react-dom/server";
 import { translate } from "./i18n";
-import { aboutTime, capacityEta, capacityProgress, readCapacityWait, waitsFor } from "./capacityWait";
+import type { AcpmuxRow } from "./model";
+import {
+  aboutTime,
+  capacityEta,
+  capacityProgress,
+  groupedCapacityHelpersFor,
+  readCapacityWait,
+  waitsFor,
+} from "./capacityWait";
 import { CapacityWaitCard } from "./conversation/CapacityWaitCard";
 
 const OVERLOAD = "API Error: Repeated 529 Overloaded errors";
@@ -28,6 +36,48 @@ test("a wait stands in for its own turn's failure only", () => {
   expect(waitsFor(wait, "t0")).toBe(false);
   expect(waitsFor({ reason: "capacity" }, undefined)).toBe(false);
   expect(waitsFor(undefined, "t1")).toBe(false);
+});
+
+test("a paused helper group only hides the card for its own held turn", () => {
+  const paused = {
+    id: "helpers-old",
+    version: 1,
+    at: 1,
+    kind: "subagents",
+    subagents: [
+      {
+        id: "old-helper",
+        parent: null,
+        name: "Old helper",
+        state: "failed",
+        startedAt: 1,
+        capacityWait: { reason: "capacity" },
+      },
+    ],
+  } as AcpmuxRow;
+  const oldSummary = { id: "old-summary", version: 1, at: 2, kind: "turnSummary", turnId: "old-turn" } as AcpmuxRow;
+  const heldSummary = { id: "held-summary", version: 1, at: 3, kind: "turnSummary", turnId: "held-turn" } as AcpmuxRow;
+  const rows = [paused, oldSummary, heldSummary];
+  expect(groupedCapacityHelpersFor(rows, { reason: "capacity", turnId: "held-turn" })).toBe(false);
+  expect(groupedCapacityHelpersFor(rows, { reason: "capacity", turnId: "old-turn" })).toBe(true);
+
+  const currentGroup = { ...paused, id: "helpers-current" } as AcpmuxRow;
+  expect(
+    groupedCapacityHelpersFor([oldSummary, currentGroup, heldSummary], { reason: "capacity", turnId: "held-turn" }),
+  ).toBe(true);
+
+  const nextPrompt = { id: "next-prompt", version: 1, at: 2, kind: "user", turnId: "held-turn" } as AcpmuxRow;
+  expect(
+    groupedCapacityHelpersFor([paused, nextPrompt, heldSummary], { reason: "capacity", turnId: "held-turn" }),
+  ).toBe(false);
+
+  const taggedMismatch = {
+    ...paused,
+    subagents: [{ ...paused.subagents![0]!, capacityWait: { reason: "capacity", turnId: "other-turn" } }],
+  } as AcpmuxRow;
+  expect(groupedCapacityHelpersFor([taggedMismatch, heldSummary], { reason: "capacity", turnId: "held-turn" })).toBe(
+    false,
+  );
 });
 
 test("the countdown reads in rounded steps", () => {

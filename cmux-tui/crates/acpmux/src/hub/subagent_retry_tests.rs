@@ -119,6 +119,56 @@ async fn a_429_storm_holds_twelve_helpers_and_resumes_the_same_agents() {
     assert!(!hub.any_open(&session));
 }
 
+/// A parent continuation already held by provider capacity must gate helper retries. Otherwise
+/// every helper's unbounded wait could start another paid parent turn while the parent is still
+/// unable to answer. The retry task wakes only after the parent mark is released.
+#[tokio::test]
+async fn helper_retries_do_not_start_paid_parent_turns_while_parent_is_held() {
+    for reason in [RetryReason::Capacity, RetryReason::RateLimit] {
+        let (hub, session, _conn) = chat(vec![1]);
+        hub.wait_to_continue_for_test(
+            &session,
+            "parent-capacity",
+            crate::store::now_ms() + 10_000,
+            reason,
+        );
+        let mut end = failed("s/held-parent");
+        end["error"] =
+            json!("API Error: 429 no non-exhausted claude accounts available; retry after 1s");
+        hub.observe_subagents(&session, &[end]);
+        // Capacity waits have a one-second minimum plus jitter. Read the scheduled deadline and
+        // wait past it, so this cannot pass merely because the retry task has not woken yet.
+        let due = last_entry(&hub, &session, "s/held-parent").unwrap()["capacityWait"]["resumesAt"]
+            .as_u64()
+            .expect("capacity wait deadline");
+        let now = crate::store::now_ms();
+        tokio::time::sleep(Duration::from_millis(due.saturating_sub(now) + 100)).await;
+        assert!(crate::store::now_ms() >= due);
+        assert_eq!(outcomes(&hub, &session), ["scheduled"], "{reason:?}");
+        let parent_turns = hub
+            .events(&session.id, 0, 10_000)
+            .unwrap()
+            .into_iter()
+            .filter(|e| e.kind == "user_message")
+            .count();
+        assert_eq!(parent_turns, 0, "a held parent must not receive a paid retry prompt");
+        // Positive control: once the parent's hold is released, the already-due helper fires.
+        session.auto_resume.lock().take();
+        if reason == RetryReason::RateLimit {
+            hub.lift_rate_hold(&session, "test");
+        }
+        hub.append(&session, "mux", "test_tick", json!({}));
+        for _ in 0..40 {
+            if outcomes(&hub, &session).iter().any(|o| o == "fired") {
+                break;
+            }
+            tokio::time::sleep(Duration::from_millis(50)).await;
+        }
+        assert!(outcomes(&hub, &session).iter().any(|o| o == "fired"), "{reason:?}");
+        hub.stop_subagent_retries(&session, true);
+    }
+}
+
 /// Duplicate failure notifications cannot postpone a provider deadline or enqueue more retries.
 #[tokio::test]
 async fn duplicate_capacity_notifications_keep_the_original_retry_deadline() {

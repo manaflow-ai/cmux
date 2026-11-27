@@ -580,7 +580,7 @@ import {
   RunElsewhereStore,
 } from "./conversation/runElsewhereModel";
 import { NewestSteerContext, SteerChatContext } from "./conversation/pendingSteerModel";
-import { CapacityWaitContext, waitsFor } from "./capacityWait";
+import { CapacityWaitContext, groupedCapacityHelpersFor, waitsFor } from "./capacityWait";
 import { chatWaitsOn, WaitingOnContext } from "./conversation/waitingOn";
 import { CloudAgentStartContext } from "./conversation/CloudAgentStartLine";
 import type { TranscriptView } from "./conversation/transcriptView";
@@ -2919,13 +2919,8 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
   // Count only groups in this pane's displayed transcript: a different child view must keep its
   // own capacity notice. acpmux owns the hold; this only chooses its one visible location.
   const groupedCapacityHelpers = useMemo(
-    () =>
-      transcriptRows.some(
-        (row) =>
-          (row.kind === "subagents" || row.kind === "subagentStarted") &&
-          row.subagents?.some((agent) => agent.capacityWait !== undefined),
-      ),
-    [transcriptRows],
+    () => groupedCapacityHelpersFor(transcriptRows, snapshot.capacityWait),
+    [transcriptRows, snapshot.capacityWait],
   );
   const capacityInTranscript =
     groupedCapacityHelpers ||

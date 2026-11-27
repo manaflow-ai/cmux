@@ -7,6 +7,7 @@
 import { createContext } from "react";
 import type { Translate } from "./i18n";
 import { intl } from "../../ui/intl";
+import type { AcpmuxRow } from "./model";
 
 export type CapacityWaitState = {
   reason: "capacity" | "rate_limit";
@@ -50,6 +51,49 @@ export function readCapacityWait(raw: unknown): CapacityWaitState | undefined {
 /// Whether the wait continues this failed turn: its card says so instead of failing.
 export function waitsFor(wait: CapacityWaitState | undefined, turnId: string | undefined): boolean {
   return wait !== undefined && wait.turnId !== undefined && wait.turnId === turnId;
+}
+
+/// Whether a displayed helper group belongs to the daemon wait's turn. Helper groups currently do
+/// not carry the parent turn id, so use the first footer/header row after the group as the
+/// presentation boundary. An explicitly tagged helper wait remains authoritative when available.
+export function groupedCapacityHelpersFor(rows: readonly AcpmuxRow[], wait: CapacityWaitState | undefined): boolean {
+  if (wait?.turnId === undefined) return false;
+  // A helper line can follow its Worked header or precede its footer. Keep both neighboring
+  // boundaries so an orphaned prior-turn group cannot borrow the next turn's footer id.
+  const nextTurnIds: (string | undefined)[] = Array.from({ length: rows.length });
+  let nextTurnId: string | undefined;
+  for (let index = rows.length - 1; index >= 0; index -= 1) {
+    const row = rows[index]!;
+    // A summary closes the turn, so it is the owner for groups immediately before it. A prompt or
+    // Worked header opens the next turn and blocks an older group from borrowing a later footer.
+    if (row.kind === "turnSummary") nextTurnId = row.turnId;
+    else if (row.kind === "user" || row.kind === "worked") nextTurnId = undefined;
+    nextTurnIds[index] = nextTurnId;
+  }
+  let previousTurnId: string | undefined;
+  for (let index = 0; index < rows.length; index += 1) {
+    const row = rows[index]!;
+    if (row.kind === "turnSummary") {
+      previousTurnId = undefined;
+      continue;
+    }
+    if (row.kind === "user" || row.kind === "worked") {
+      previousTurnId = row.turnId;
+      continue;
+    }
+    if (row.kind !== "subagents" && row.kind !== "subagentStarted") continue;
+    const paused = row.subagents?.filter((agent) => agent.capacityWait) ?? [];
+    if (paused.length === 0) continue;
+    const tagged = paused.filter((agent) => agent.capacityWait?.turnId !== undefined);
+    if (tagged.length > 0) {
+      if (tagged.some((agent) => waitsFor(wait, agent.capacityWait?.turnId))) return true;
+      continue;
+    }
+    const after = nextTurnIds[index];
+    if (previousTurnId !== undefined && after !== undefined && previousTurnId !== after) continue;
+    if (wait.turnId === previousTurnId || wait.turnId === after) return true;
+  }
+  return false;
 }
 
 /// "40s", "3m 5s", "about 2 h": rounded as the wait grows, so a long one does not tick every second.
