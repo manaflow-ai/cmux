@@ -38,7 +38,11 @@ jobs:
     environment:
       name: cmux-next-cloud-journey
       deployment: false
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'cmux-linux' }}
+    # An owned Mac: the fleet controller answers only on the tailnet, and no owned Linux runner reached it (the
+    # client fetch timed out in runs 46037691304 and 46039141923 here, and in each chief-evals fleet job on
+    # 2026-11-27; #60707 met the same on the Swift fast tier). The job only submits the step and waits, on the
+    # same label as cmux-next-batch.yml's fleet gateway. Back to cmux-linux once that pool reaches the controller.
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || vars.CI_OVERFLOW_MAC || 'cmux-mac' }}
     timeout-minutes: 75
     steps:
       # Only the client action is checked out here. The display worker checks out this commit and runs the

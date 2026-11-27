@@ -69,13 +69,14 @@ jobs:
     name: Energy bench on a fleet simulator
     needs: gate
     if: ${{ needs.gate.outputs.due != 'false' && github.repository_owner == 'manaflow-ai' && vars.CI_EVAL_STEP_GATEWAY != '' }}
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'glaeda-gateway-xcode-26.6' }} # frozen-label: CI_EVAL_STEP_GATEWAY (cmux#54437)
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'mac-gateway' }} # frozen-label: CI_EVAL_STEP_GATEWAY (cmux#54437)
     timeout-minutes: 240
     permissions:
       contents: read
     steps:
       - name: Bench
         env:
+          CI_SIM_BENCH_QUEUE_S: ${{ vars.CI_SIM_BENCH_QUEUE_S }}
           HEAD: ${{ github.sha }}
         # A failed or missing step is a warning: the bench reports, it does not gate.
         run: |
@@ -92,7 +93,9 @@ jobs:
           # 210 min. Before, --queue-timeout was cmux-ci's default 0 (wait forever) and --timeout 7200, so a step
           # queued behind the fleet's one simulator per Mac sat to the job limit and was cancelled with no
           # result (17.5 runner-h/day, cmuxterm-hq#29655); now it ends with a warning, as a failed step does.
-          QUEUE_S=3600 RUN_S=3600
+          # A simulator-class wait past 15 min has never paid off (job 140683535687: 71 min, zero clips). Repo variable
+          # CI_SIM_BENCH_QUEUE_S=3600 restores the old hour.
+          QUEUE_S="${CI_SIM_BENCH_QUEUE_S:-900}" RUN_S=3600
           rank=()
           if "$client" run --help 2>/dev/null | grep -q -- '--priority {'; then
             rank=(--priority pr --deadline "${QUEUE_S}s")
