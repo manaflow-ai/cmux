@@ -145,7 +145,7 @@ extension ActionArgument {
 
     /// Theme names the theme actions offer first, in picker order: the pinned values of the
     /// catalog's `theme` argument (cmux-action-catalog), without the Ghostty config.
-    public static let curatedThemes: [String] = {
+    nonisolated public static let curatedThemes: [String] = {
         let theme = ActionCatalog.all.lazy.flatMap(\.arguments)
             .first { $0.name == "theme" && $0.suggestions?.source == ActionSuggestions.ghosttyThemes }
         return (theme?.suggestions?.pinned ?? []).map(\.value).filter { $0 != themeConfigValue }
