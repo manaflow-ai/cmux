@@ -11,6 +11,18 @@ use super::*;
 use cmux_json::JsonSet as _;
 use std::sync::atomic::Ordering;
 
+/// The speculative queue count while a prompt waits for the turn lock. If its
+/// admission deadline drops that wait, no queue entry exists to retire the count.
+struct TurnLockWait<'a>(Option<&'a std::sync::atomic::AtomicU64>);
+
+impl Drop for TurnLockWait<'_> {
+    fn drop(&mut self) {
+        if let Some(count) = self.0 {
+            count.fetch_sub(1, Ordering::SeqCst);
+        }
+    }
+}
+
 // A prompt dequeued for a turn that never started goes back at the head (`restore_queue`).
 #[path = "lost_start.rs"]
 mod lost_start;
@@ -29,7 +41,7 @@ mod queue_restore;
 mod queue_approve;
 pub use queue_approve::Approver;
 pub(crate) use queue_approve::approved_prompts_error;
-pub(super) use queue_approve::{approved_error, declined_error, released};
+pub(super) use queue_approve::{HeldFold, approved_error, declined_error, released};
 
 // `_meta.acpmux.supersede`: a prompt replaces its sender's queued one under the same key.
 #[path = "supersede.rs"]
@@ -198,6 +210,9 @@ pub(super) struct Slot<'a> {
     /// [`QueuedPrompt::steer_on_start`]: the person's steer to an agent that steers, sent before
     /// the turn it is for showed.
     pub(super) steer_on_start: bool,
+    /// When its sender must have its answer (`prompt_admission.rs`): a prompt that would still
+    /// wait for the turn lock then joins the queue and is accepted as queued. None: it waits.
+    pub(super) answer_due: Option<tokio::time::Instant>,
 }
 
 /// What a queued prompt's task waits on (`enqueue`): its withdrawal, the turn it joined
@@ -219,6 +234,10 @@ pub(super) enum Wait<'a> {
 /// another daemon (`transfer_out.rs`). One whose move committed keeps its move's mark for good
 /// (`MOVED_AWAY` after a restart), and answers where it went: no move of it is under way.
 pub(super) fn moving_error(session: &Session) -> RpcError {
+    // Auto mode froze it (`auto_hold.rs`): no move is under way.
+    if session.moving().as_deref() == Some(super::AUTO_AWAY) {
+        return super::auto_hold::away_error(session);
+    }
     match session.read_meta(|m| m.moved_to.clone()) {
         Some(to) => super::transfer_out::moved_error(&to),
         None => {
@@ -305,7 +324,12 @@ impl Hub {
         accept: &mut impl FnMut(Value),
     ) -> Result<(String, bool, TurnGuard<'a>, Arc<PromptRun>), Answer> {
         let (limits, hold_ms) = {
-            let cfg = self.config.read().await;
+            let cfg = match p.answer_due {
+                Some(due) => tokio::time::timeout_at(due, self.config.read())
+                    .await
+                    .map_err(|_| Err(super::auto_resume::retry_turn::busy()))?,
+                None => self.config.read().await,
+            };
             (QueueLimits::of(&cfg), super::person_hold::hold_ms(&cfg, &session.meta().name))
         };
         // Claimed under the queue lock, as `restore_queue` takes them: a turn of agent messages
@@ -325,25 +349,11 @@ impl Hub {
             // Queued already, unless `remove_queued` withdrew it meanwhile: then it never runs.
             Some((turn_id, Some(waits))) => (turn_id, Some(waits)),
             Some((turn_id, None)) => return Err(Ok(withdrawn_reply(p.prompt_id, &turn_id))),
-            // A chat being moved takes no prompt: its new daemon does (`transfer_out.rs`).
-            None if session.moving().is_some() => return Err(Err(moving_error(session))),
-            // A watched chat takes no prompt until it is taken over (`watch.rs`).
-            None if session.meta().watching.is_some() => {
-                return Err(Err(super::watch::read_only()));
-            }
-            // A chat handing its conversation to a terminal takes no new prompt: the terminal
-            // does, once the turn ends (`release_to_watch.rs`).
-            None if session.releasing.load(Ordering::SeqCst) => {
-                return Err(Err(super::release_to_watch::releasing_error()));
-            }
-            // A lane's report to a parent whose close has begun: refused, never reopening it
-            // (`lane_reports.rs`). Nothing is awaited from this check to the commit below.
-            None if refuses_closing(&p) && closing(session) => return Err(Err(closing_error())),
-            // Nor once a shutdown began: no agent may start from then on (`shutdown.rs`).
-            None if refuses_closing(&p) && self.shutting_down() => {
-                return Err(Err(super::shutdown::shutting_down_error()));
-            }
+            // Nothing is awaited from this check to the commit below.
             None => {
+                if let Some(refused) = self.takes_no_prompt(session, &p) {
+                    return Err(Err(refused));
+                }
                 // A Cloud turn is prepared and captured before the prompt arrives. Reuse its
                 // immutable id so the platform fence covers exactly the turn that runs.
                 let turn_id = session
@@ -370,7 +380,14 @@ impl Hub {
                     tokio::pin!(done);
                     done.as_mut().enable();
                     if session.restoring.load(Ordering::SeqCst) {
-                        done.await;
+                        // The journal belongs to the restore until its last page. A sender
+                        // waiting for an answer may retry the same id after the restore.
+                        match p.answer_due {
+                            Some(due) => tokio::time::timeout_at(due, done)
+                                .await
+                                .map_err(|_| Err(super::prompt_admission::restore_deadline()))?,
+                            None => done.await,
+                        }
                         continue;
                     }
                     let _admit = session.admit.lock().unwrap_or_else(|e| e.into_inner());
@@ -388,8 +405,9 @@ impl Hub {
                     }
                     // A rate limit's compaction goes ahead of what the hold queued: those go in
                     // after it, with the continuation (`rate_hold.rs`, `compact_first.rs`).
-                    let rate_compaction =
-                        p.after_turn && super::auto_resume::rate_compaction_runs(session);
+                    let rate_compaction = p.after_turn
+                        && (super::auto_resume::rate_compaction_runs(session)
+                            || super::cold_wake::goes_ahead_of_batch(session, p.provenance));
                     // A prompt that took the turn lock and has not shown its turn yet
                     // (`start_turn` runs after awaits) is a turn too. The count is read before
                     // the claim: a prompt counts in `queued` until it holds the claim.
@@ -407,8 +425,16 @@ impl Hub {
                     // right after it, to go in with them (`digest.rs` `gathers`).
                     let gather = !waiting && super::digest::gathers(session, &p);
                     if gather {
+                        // A cold chat's batch (`cold_wake.rs`): the message waits for it, a burst
+                        // window past its deadline, so the inbox's notice at the deadline leads
+                        // the turn and takes it (`take_joined`).
+                        let wait = self
+                            .cold_batch_due(session, &session.meta(), now_ms())
+                            .map_or(0, |due| due.saturating_sub(now_ms()));
                         let until = tokio::time::Instant::now()
-                            + std::time::Duration::from_millis(super::digest::AGENT_GATHER_MS);
+                            + std::time::Duration::from_millis(
+                                wait + super::digest::AGENT_GATHER_MS,
+                            );
                         *session.gathering.lock().unwrap_or_else(|e| e.into_inner()) =
                             Some((turn_id.clone(), until));
                     }
@@ -423,6 +449,8 @@ impl Hub {
                     break waiting || gather || hold;
                 };
                 let withdraw = if waiting {
+                    // The admission loop released `admit`; enqueue reacquires it so a restore
+                    // cannot start between its final check and the durable queued record.
                     let (waits, position) = self
                         .enqueue_or_refuse(session, &p, &turn_id, limits)
                         .inspect_err(|_| {
@@ -483,25 +511,67 @@ impl Hub {
                     // too) may have come after this prompt's admission (review of #37284 at
                     // 4dcbe192, F3): it waits until the restore ends or lapses, as an admission
                     // does, and never runs into the seqs the restore needs.
+                    // Its sender hears from it by its due time (`prompt_admission.rs`): a turn
+                    // lock still held then (a turn that has not shown, or a call that never came
+                    // back) leaves it None, and it queues below. It waits at most
+                    // `TURN_LOCK_WAIT` for the lock: a lock held with no turn shown frees no sooner
+                    // for waiting, and the queue answers now.
+                    let lock_due = p.answer_due.map(|due| {
+                        due.min(
+                            tokio::time::Instant::now() + super::prompt_admission::TURN_LOCK_WAIT,
+                        )
+                    });
+                    let mut pending = TurnLockWait(Some(&session.queued));
                     let guard = loop {
                         let done = session.restore_done.notified();
                         tokio::pin!(done);
                         done.as_mut().enable();
-                        let guard = session.turn_lock.lock().await;
+                        let lock = session.turn_lock.lock();
+                        let guard = match lock_due {
+                            Some(due) => match tokio::time::timeout_at(due, lock).await {
+                                Ok(guard) => guard,
+                                Err(_) => break None,
+                            },
+                            None => lock.await,
+                        };
                         if !self.restore_holds(session) || self.at_4dcb() {
-                            break guard;
+                            break Some(guard);
                         }
                         drop(guard);
-                        done.await;
+                        // The restore wait keeps the same due time (as #55502 bounds it).
+                        match lock_due {
+                            Some(due) => {
+                                if tokio::time::timeout_at(due, done).await.is_err() {
+                                    break None;
+                                }
+                            }
+                            None => done.await,
+                        }
                     };
+                    // The synchronous claim or enqueue below now owns this count.
+                    pending.0.take();
                     // `waiting` was read before the lock: a prompt the owner approved (or a
                     // resumed one) since then waits in the queue ahead of this one and keeps its
                     // place (`queue_approve.rs`). This one queues behind it, never claiming the
                     // turn.
                     // A chat the rate limit holds starts nothing now (`rate_hold.rs`): it queues;
                     // only its compaction goes ahead of what the hold queued.
-                    let rate_compaction =
-                        p.after_turn && super::auto_resume::rate_compaction_runs(session);
+                    let rate_compaction = p.after_turn
+                        && (super::auto_resume::rate_compaction_runs(session)
+                            || super::cold_wake::goes_ahead_of_batch(session, p.provenance));
+                    let guard = match guard {
+                        Some(guard) => guard,
+                        None => {
+                            tracing::warn!(session = %session.id, prompt = %p.prompt_id, "turn lock not free by the answer's due time: queued");
+                            let (waits, position) =
+                                self.enqueue_or_refuse(session, &p, &turn_id, limits)?;
+                            accept(
+                                json!({"sessionId": session.id, "promptId": p.prompt_id, "turnId": turn_id, "queued": true, "state": "queued", "position": position}),
+                            );
+                            self.persons_prompt_unparks(session, p.agent, p.provenance);
+                            break 'run (waits, None);
+                        }
+                    };
                     if (queue_waits_for(session, p.agent.is_some()) && !rate_compaction)
                         || Self::rate_holds(session, p.provenance)
                     {
@@ -756,28 +826,72 @@ impl Hub {
     /// not the count, which a prompt about to start its turn is still in. A prompt the queue has
     /// no room for is counted back out of the session's queued total, and its refusal is what
     /// `session/prompt` answers.
-    fn enqueue_or_refuse(
+    pub(super) fn enqueue_or_refuse(
         &self,
         session: &Arc<Session>,
         p: &Slot<'_>,
         turn_id: &str,
         limits: QueueLimits,
     ) -> Result<(Waits, u64), Answer> {
-        self.enqueue(session, p, turn_id, limits).map_err(|e| {
-            session.queued.fetch_sub(1, Ordering::SeqCst);
-            Err(e)
-        })
+        self.enqueue(session, p, turn_id, limits, false, |_, waits| waits).map_err(Err)
+    }
+
+    /// Why the chat takes no new prompt now, if it takes none: [`Self::queue_slot`] and a
+    /// deferred prompt (`prompt_admission.rs`) refuse it alike.
+    pub(super) fn takes_no_prompt(&self, session: &Session, p: &Slot<'_>) -> Option<RpcError> {
+        // A chat being moved takes no prompt: its new daemon does (`transfer_out.rs`).
+        if session.moving().is_some() {
+            return Some(moving_error(session));
+        }
+        // A watched chat takes no prompt until it is taken over (`watch.rs`).
+        if session.meta().watching.is_some() {
+            return Some(super::watch::read_only());
+        }
+        // A chat handing its conversation to a terminal takes no new prompt: the terminal
+        // does, once the turn ends (`release_to_watch.rs`).
+        if session.releasing.load(Ordering::SeqCst) {
+            return Some(super::release_to_watch::releasing_error());
+        }
+        // A lane's report to a parent whose close has begun: refused, never reopening it
+        // (`lane_reports.rs`).
+        if refuses_closing(p) && closing(session) {
+            return Some(closing_error());
+        }
+        // Nor once a shutdown began: no agent may start from then on (`shutdown.rs`).
+        if refuses_closing(p) && self.shutting_down() {
+            return Some(super::shutdown::shutting_down_error());
+        }
+        None
     }
 
     /// [`Self::enqueue_or_refuse`]'s step: puts `p` in the queue, unless it has no room for it
     /// (`queue_admission.rs`): then nothing is put in, written or replaced.
-    fn enqueue(
+    pub(super) fn enqueue<T>(
         &self,
         session: &Arc<Session>,
         p: &Slot<'_>,
         turn_id: &str,
         limits: QueueLimits,
-    ) -> Result<(Waits, u64), RpcError> {
+        claimed_turn: bool,
+        register: impl FnOnce(&mut QueuedPrompt, Waits) -> T,
+    ) -> Result<(T, u64), RpcError> {
+        let _admit = session.admit.lock().unwrap_or_else(|e| e.into_inner());
+        self.enqueue_admitted(session, p, turn_id, limits, claimed_turn, register)
+    }
+
+    /// Inserts a prompt while the caller already holds `session.admit`.
+    ///
+    /// Keep this separate from [`Self::enqueue`] so admission can make its check and queue
+    /// insertion one atomic step without attempting to lock the non-reentrant mutex twice.
+    pub(super) fn enqueue_admitted<T>(
+        &self,
+        session: &Arc<Session>,
+        p: &Slot<'_>,
+        turn_id: &str,
+        limits: QueueLimits,
+        claimed_turn: bool,
+        register: impl FnOnce(&mut QueuedPrompt, Waits) -> T,
+    ) -> Result<(T, u64), RpcError> {
         // Measured before the lock: under it only sizes measured already are added up.
         let size = super::queue_admission::slot_bytes(p);
         let withdraw = Arc::new(Notify::new());
@@ -796,6 +910,13 @@ impl Hub {
         }
         if let Some(key) = p.supersede {
             queued.set("supersede", json!(key));
+        }
+        // The person's steer that waits only for its turn to show (`QueuedPrompt::steer_on_start`):
+        // a client keeps its bubble in the transcript, never a queued row it leaves a moment later
+        // (Leo, 2026-11-24: "my message passes through the composer hat/composer area and it looks
+        // like it goes through the queue and THEN goes properly").
+        if p.steer_on_start {
+            queued.set("steerOnStart", json!(true));
         }
         // It waits for the owner (`queue_approve.rs`); a restart keeps it waiting.
         if awaiting_owner {
@@ -822,12 +943,24 @@ impl Hub {
         // Its provenance first: `mark_pasted` reads it to leave a daemon-made prompt unnoted.
         let mut queued = crate::prompt_provenance::marked(queued, p.provenance);
         super::session::mark_pasted(&mut queued, p.blocks);
+        // A restore may have started while the prompt waited for the turn lock.
+        // The caller holds admission through the queued record so its receipt always names a
+        // durable entry.
+        if session.restoring.load(Ordering::SeqCst)
+            || session.restore_token.load(Ordering::SeqCst) != 0
+        {
+            session.queued.fetch_sub(1, Ordering::SeqCst);
+            return Err(super::prompt_admission::restore_deadline());
+        }
         let mut queue = session.queue.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
         // Check and insert under one lock: simultaneous prompts cannot all reserve the last
-        // held slot. Rejection precedes superseding and logging, so it has no queue side effects;
-        // `enqueue_or_refuse` counts it back out of the session's queued total.
+        // held slot. Rejection precedes superseding and logging, so it has no queue side effects.
+        // Either refusal releases the queued reservation the caller made.
+        let refused = |_: &RpcError| {
+            session.queued.fetch_sub(1, Ordering::SeqCst);
+        };
         if awaiting_owner {
-            queue_approve::held_cap(&queue, p.provenance)?;
+            queue_approve::held_cap(&queue, p.provenance).inspect_err(refused)?;
         }
         // Checked and put in under one lock, so two prompts cannot both take the last room. The
         // prompts it replaces leave as it comes in, so they do not count against it.
@@ -842,7 +975,8 @@ impl Hub {
             // takes them over (`digest.rs` `take_joined`) or they go back in: their charge, read
             // under the queue's lock, where every move in or out of it changes it.
             let taken = session.digest_bytes.load(Ordering::SeqCst);
-            super::queue_admission::room(&queue, others, taken, size, replaces, limits)?;
+            super::queue_admission::room(&queue, others, taken, size, replaces, limits)
+                .inspect_err(refused)?;
         }
         // The sender's prompts under its key leave under the lock that puts this one in
         // (`supersede.rs`), with the ledger pinned first as `remove_queued_because` pins it.
@@ -858,6 +992,7 @@ impl Hub {
         // (`cancel.rs` `hold_agent_messages`); a digest then waits held in its place.
         let stop_held = p.agent.is_some() && (session.stop_hold.load(Ordering::SeqCst) != 0);
         let at = match p.agent {
+            _ if claimed_turn && !stop_held => Some(0),
             Some(_) if super::digest::inbox_digest::is_digest(p.provenance) => {
                 Some(super::digest::inbox_digest::place(&queue))
             }
@@ -915,6 +1050,9 @@ impl Hub {
             let ids = self.settle_superseded(session, gone, &mut ledger, p.prompt_id);
             let _ = p.replaced.set(ids);
         }
+        // A deferred runner and its outcome must be visible before withdrawal or superseding
+        // can take this row. The superseded prompt's ledger guard was released above.
+        let registration = register(&mut queue[at], (withdraw, joined, declined));
         #[cfg(test)]
         {
             let seam = self.queued_log_seam.lock().unwrap_or_else(|e| e.into_inner()).take();
@@ -943,7 +1081,7 @@ impl Hub {
         // (`queue_approve.rs`, `queue_edit.rs`): none of them can be logged before its `queued`
         // record, which a restart would read as a prompt no answer reached (review of #26747).
         drop(queue);
-        Ok(((withdraw, joined, declined), position))
+        Ok((registration, position))
     }
 
     /// Waits until the queued prompt `turn_id` is at the head of the queue and no other turn
@@ -1269,7 +1407,7 @@ impl Hub {
         if session.moving().is_some() {
             return Err(moving_error(session));
         }
-        self.remove_queued_by(session, prompt_id, None, editor, from_agents_only)
+        self.remove_queued_by(session, prompt_id, None, editor, from_agents_only, None)
     }
 
     /// Takes a waiting prompt out of the queue before its turn starts; its `session/prompt` then
@@ -1286,12 +1424,13 @@ impl Hub {
         prompt_id: &str,
         reason: Option<&str>,
     ) -> bool {
-        self.remove_queued_by(session, prompt_id, reason, None, false)
+        self.remove_queued_by(session, prompt_id, reason, None, false, None)
             .is_ok_and(|w| w == Withdrawn::Removed)
     }
 
     /// `remove_queued_because`, only when `editor` sent it (`author.rs`; `None`: the hub's own)
-    /// and, with `from_agents_only`, only another agent's message.
+    /// and, with `from_agents_only`, only another agent's message. A restored run supplies
+    /// `expected_turn_id` so its completion cannot remove a newer copy of the same prompt.
     fn remove_queued_by(
         &self,
         session: &Arc<Session>,
@@ -1299,11 +1438,14 @@ impl Hub {
         reason: Option<&str>,
         editor: crate::author::Editor<'_>,
         from_agents_only: bool,
+        expected_turn_id: Option<&str>,
     ) -> Result<Withdrawn, RpcError> {
         // Taken out and logged under one lock (`QUEUE_KINDS`): a change and its record are one
         // step, so nothing rebuilt from the log between them loses it (`log_load.rs`).
         let mut queue = session.queue.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
-        let Some(i) = queue.iter().position(|q| q.prompt_id == prompt_id) else {
+        let Some(i) = queue.iter().position(|q| {
+            q.prompt_id == prompt_id && expected_turn_id.is_none_or(|turn| q.turn_id == turn)
+        }) else {
             return Ok(Withdrawn::NotWaiting);
         };
         let Some(item) = queue.get(i) else { return Ok(Withdrawn::NotWaiting) };
@@ -1361,6 +1503,14 @@ impl Hub {
     ) {
         let prompt_id = removed.prompt_id.as_str();
         if removed.restored {
+            // Remove the exact restored identity even after its runner claimed it. `resume` is
+            // only the startup hand-off marker; a taken/refused restored run can otherwise leave
+            // a stale (prompt_id, turn_id) that poisons a retry with the same prompt id.
+            session
+                .restored
+                .lock()
+                .unwrap_or_else(|e| e.into_inner())
+                .retain(|(id, turn)| id != prompt_id || turn != &removed.turn_id);
             let answer = if removed.declined.load(Ordering::SeqCst) {
                 Err(queue_approve::declined_error(prompt_id, &removed.turn_id))
             } else {
@@ -1368,6 +1518,7 @@ impl Hub {
             };
             if let Some((_, outcome)) = ledger.iter().find(|(id, _)| id == prompt_id) {
                 prompt_ledger::settle_once(outcome, answer);
+                super::turns::release_acceptance(session, prompt_id, outcome);
             }
             prompt_ledger::prune(ledger);
         }
@@ -1573,27 +1724,53 @@ impl Hub {
                     let mut ledger = session.prompts.lock().unwrap_or_else(|e| e.into_inner());
                     if let Some((_, outcome)) = ledger.iter().find(|(id, _)| *id == q.prompt_id) {
                         prompt_ledger::settle_once(outcome, result.clone());
+                        super::turns::release_acceptance(&session, &q.prompt_id, outcome);
                     }
                     prompt_ledger::prune(&mut ledger);
                     drop(ledger);
-                    // Refused before its turn (its harness is gone, or it may not start under
-                    // the chat's control): it leaves the queue, so the prompts behind it still
-                    // run, and its `prompt_refused` says why, so it never just disappears. Only
-                    // this copy: a turn that ran it and failed may have put it back under a new
-                    // turn id (`digest.rs` `requeue_unread`), and that one waits on.
-                    let waiting = || {
-                        let queue = session.queue.lock().unwrap_or_else(|e| e.into_inner());
-                        queue.iter().any(|w| w.turn_id == q.turn_id)
-                    };
-                    if let Err(e) = result
-                        && waiting()
-                        && hub.remove_queued(&session, &q.prompt_id)
-                    {
-                        tracing::warn!(session = %session.id, prompt = %q.prompt_id, "restored prompt refused: {}", e.message);
-                        let msg = json!({"promptId": q.prompt_id, "turnId": q.turn_id, "client": q.client, "error": e.message, "data": e.data});
-                        hub.append(&session, "mux", "prompt_refused", msg);
-                    }
+                    hub.settle_restored_run(&session, &q, result);
                 });
+            }
+        }
+    }
+}
+
+impl Hub {
+    /// What a restored prompt's run `result` leaves of its queue entry (`start_restored`).
+    ///
+    /// Refused before its turn (its harness is gone, or it may not start under the chat's
+    /// control): it leaves the queue, so the prompts behind it still run, and its
+    /// `prompt_refused` says why, so it never just disappears. Taken without its turn (another
+    /// agent's message the chat's inbox, its surge or a hold took): it leaves the queue too,
+    /// logged, so the next restore does not run it again. Before, only a refusal took it out:
+    /// Mango's 66 background notices went to its inbox again at every daemon start and its queue
+    /// never drained (2026-11-25). Only this copy: a turn that ran it took it out already, and
+    /// one that ran it and failed may have put it back under a new turn id (`digest.rs`
+    /// `requeue_unread`), which waits on.
+    pub(super) fn settle_restored_run(
+        &self,
+        session: &Arc<Session>,
+        q: &QueuedPrompt,
+        result: Result<Value, RpcError>,
+    ) {
+        // Check the restored run's identity under the same lock that removes it: an unread
+        // turn can requeue this prompt with a new turn id while its old run is settling.
+        let remove = |reason| {
+            self.remove_queued_by(session, &q.prompt_id, reason, None, false, Some(&q.turn_id))
+                .is_ok_and(|w| w == Withdrawn::Removed)
+        };
+        match result {
+            Err(e) => {
+                if remove(None) {
+                    tracing::warn!(session = %session.id, prompt = %q.prompt_id, "restored prompt refused: {}", e.message);
+                    let msg = json!({"promptId": q.prompt_id, "turnId": q.turn_id, "client": q.client, "error": e.message, "data": e.data});
+                    self.append(session, "mux", "prompt_refused", msg);
+                }
+            }
+            Ok(_) => {
+                if remove(Some("taken")) {
+                    tracing::info!(session = %session.id, prompt = %q.prompt_id, "restored prompt taken without its turn: it leaves the queue");
+                }
             }
         }
     }

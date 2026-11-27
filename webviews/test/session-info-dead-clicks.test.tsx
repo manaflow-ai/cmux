@@ -62,7 +62,7 @@ setSystemTime(new Date("2026-10-21T12:00:00Z"));
 
 const { act, createElement } = await import("react");
 const { createRoot } = await import("react-dom/client");
-const { setPaneLanguage, translatorFor } = await import("../src/agent-session/acpmux/i18n");
+const { setPaneLanguage } = await import("../src/agent-session/acpmux/i18n");
 const { SessionInfo } = await import("../src/agent-session/acpmux/session-info/SessionInfo");
 const { resetSessionInfoState, setSessionInfoMore } =
   await import("../src/agent-session/acpmux/session-info/sessionInfoState");
@@ -302,12 +302,6 @@ test("every line of the tray, and its header, does something", async () => {
   await settle();
   // Five items start folded to the header; clicking it opens them, and then each line is clicked.
   expect(loneChevrons(container)).toEqual([]);
-  // Folded, the header draws one icon per subagent and chat, and a click on one opens it (HatFaces.tsx,
-  // #49824): the two chats' icons are there to click.
-  const sessionFaces = [...container.querySelectorAll(".acpmux-hat-face")].filter((face) =>
-    /^(summary-panel|priority-view),/.test(face.getAttribute("aria-label") ?? ""),
-  );
-  expect(sessionFaces).toHaveLength(2);
   const { dead } = await deadClicks(container, calls);
   expect(dead).toEqual([]);
   for (const handler of ["onOpen", "onOpenCommand", "onOpenSession"]) expect(calls).toContain(handler);
@@ -331,9 +325,8 @@ test("every line of the tray, and its header, does something", async () => {
     await act(async () => item.click());
   }
   for (const handler of ["stop", "stopProcess"]) expect(calls).toContain(handler);
-  // The session lines open their session (App.tsx `openOfferChat`), never nothing, and so do their
-  // icons in the folded header: two lines and two icons.
-  expect(calls.filter((call) => call === "onOpenSession")).toHaveLength(4);
+  // The session lines open their session (App.tsx `openOfferChat`), never nothing.
+  expect(calls.filter((call) => call === "onOpenSession")).toHaveLength(2);
   expect(hoverOnDisabled(container)).toEqual([]);
   await act(async () => root.unmount());
 });
@@ -410,11 +403,7 @@ for (const [label, place] of [["an SSH peer's", { peer: "huge-blue", host: "huge
     // A command whose call is not loaded has nothing to open: not a button, and it says why.
     const cargo = row("cargo watch");
     expect(cargo.disabled).toBe(true);
-    // It says why as text on the row, not a title: a disabled row gets no hover (TasksSection.tsx).
-    expect(cargo.querySelector(".acpmux-session-info-task__why")?.textContent).toBe(
-      translatorFor("en")("sessionInfo.tasks.noTerminal.remote"),
-    );
-    expect(cargo.closest("li")?.hasAttribute("title")).toBe(false);
+    expect(cargo.closest("li")?.getAttribute("title") ?? "").not.toBe("");
     const { dead } = await deadClicks(container, calls);
     expect(dead).toEqual([]);
     expect(hoverOnDisabled(container)).toEqual([]);

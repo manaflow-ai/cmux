@@ -123,7 +123,9 @@ public actor TerminalAttachment: TerminalByteChannel {
         do {
             try await attachment.open(target: target, size: size, claimGeometry: claimGeometry,
                                       snapshotVersion: snapshotVersion, localHistory: localHistory,
-                                      clientName: clientName, device: device)
+                                      clientName: clientName, device: device,
+                                      // A `cmux link dial` bridge relays lines; only a direct socket is byte-clean.
+                                      outputFrames: endpoint.bridge == nil)
         } catch {
             transport.close()
             throw error
@@ -144,7 +146,7 @@ public actor TerminalAttachment: TerminalByteChannel {
 
     private func open(target: Target, size: CellSize, claimGeometry: Bool, snapshotVersion: UInt16?,
                       localHistory: Bool, clientName: String,
-                      device: TerminalSizingDevice?) async throws {
+                      device: TerminalSizingDevice?, outputFrames: Bool) async throws {
         let queue = queue
         let control = control
         let resolvedSurface = resolvedSurface
@@ -192,7 +194,9 @@ public actor TerminalAttachment: TerminalByteChannel {
                 name: clientName, kind: "frontend",
                 // A view that names its device joins shared sizing: `size-state` events, and its
                 // device in the size state ("Sized for <device>" on every other view).
-                capabilities: DaemonCapability.advertised + (device == nil ? [] : [DaemonCapability.sharedSizing.rawValue]),
+                // `attach-frames-v1`: plain output as binary OUTPUT frames, no base64 JSON (an older daemon ignores it).
+                capabilities: DaemonCapability.advertised + (device == nil ? [] : [DaemonCapability.sharedSizing.rawValue])
+                    + (outputFrames ? [AttachOutputFrame.capability] : []),
                 deviceKind: device?.kind, deviceName: device?.name)),
         ], timeout: DaemonConnection.defaultRequestTimeout)
         let identity = try WireCoding.decodeResponse(IdentifyRequest.Response.self, from: replies[0].get().line)
@@ -211,15 +215,19 @@ public actor TerminalAttachment: TerminalByteChannel {
             // Only the identity pair can name a terminal with no tab.
             throw DaemonError.missingCapabilities(["attach-identity-v1"])
         }
+        // A placed target names its tab's surface beside the identity pair (the daemon checks they agree): the stream
+        // then names that surface, the one events are read for. Identity alone resolved a terminal reopened into a new
+        // tab to its runtime's first surface id, and every event was dropped (cmux#53022: "Restoring" forever).
         let request = AttachSurfaceRequest(
-            surface: useIdentity ? nil : target.surface,
+            surface: useIdentity && target.surface == Self.unresolvedSurface ? nil : target.surface,
             expectedGeneration: useIdentity ? target.generation : nil,
             expectedTerminalID: useIdentity ? target.terminalResourceID : nil,
             size: size,
             snapshotVersion: identity.supports(Self.snapshotCapability) ? snapshotVersion : nil,
             snapshotLocalHistory: localHistory && identity.supports(DaemonCapability.terminalSnapshotLocalHistory.rawValue)
         )
-        // The reply carries the replay (up to 32 MiB): a longer, still bounded deadline.
+        // The reply carries the replay (up to 32 MiB): 10 s of silence, not 10 s in all. A replay still arriving over a
+        // slow link keeps going (``TransportProgress``); a daemon that sends nothing for 10 s fails the attach.
         let response = try await DaemonConnection.perform(request, on: transport, timeout: .seconds(10))
         #if DEBUG || CMUX_BENCH_HOOKS
         if NewTerminalTrace.shared.isArmed {

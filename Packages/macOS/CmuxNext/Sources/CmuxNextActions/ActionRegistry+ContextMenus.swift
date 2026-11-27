@@ -91,14 +91,7 @@ extension ActionRegistry {
     /// Focus facts a right-click implies (right-clicking a page means a
     /// browser is the target even if a terminal has focus).
     nonisolated static func impliedContext(for context: ActionMenuContext) -> ActionContext {
-        switch context {
-        case .browserPage, .browserLink, .browserImage, .browserSelection: .browserFocused
-        case .terminalSelection: .terminalFocused
-        case .agentChat, .priorityRow: .agentPaneFocused
-        // A right-clicked row is the explorer's even while another view has the keyboard.
-        case .fileExplorerRow: .fileExplorerFocused
-        default: []
-        }
+        MenuChoiceRules.impliedContext(for: context)
     }
 
     private func menuItems(_ entries: [ContextMenuEntry], target: ActionTargetRef?, context: ActionContext, implied: ActionContext,
@@ -146,11 +139,12 @@ extension ActionRegistry {
                 item.submenu = submenu
                 items.append(item)
             case .group(let group, let children):
-                // The person's own submenu (Settings > Menus): their title, no icon.
+                // The person's own submenu (Settings > Menus): their title, a folder's icon so it lines up with the rows beside it.
                 let childItems = menuItems(children, target: target, context: context, implied: implied, arguments: arguments, labels: labels,
                                            machineID: machineID, menu: menu)
                 guard childItems.contains(where: { !$0.isSeparatorItem }) else { continue }
                 let item = NSMenuItem(title: group.title, action: nil, keyEquivalent: "")
+                item.image = rowIcon("folder")
                 let submenu = NSMenu(title: group.title)
                 childItems.forEach(submenu.addItem)
                 item.submenu = submenu

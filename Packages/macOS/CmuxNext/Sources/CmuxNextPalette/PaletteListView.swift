@@ -311,3 +311,140 @@ final class PaletteSectionHeaderCell: NSTableCellView {
         label.frame = pixelAligned(NSRect(x: x, y: Metrics.space1, width: bounds.width - 2 * x, height: height))
     }
 }
+
+/// The v2 rail (`PaletteV2Look.rail`), left of the list in the list's band: All, then each group the query's rows
+/// have, its row count at the right (a mega menu's categories); the chosen one is a filled rounded pill like the
+/// selected row. A click or ⌥↑ / ⌥↓ (``step(for:)``) narrows the list to that group. Rows are reused and only
+/// restyled when the entries or the choice change; nothing animates.
+final class PaletteRailView: NSView {
+    var onChoose: ((PaletteV2Group?) -> Void)?
+    private var entries: [PaletteV2RailEntry] = []
+    private var chosen: PaletteV2Group?
+    private var rowViews: [PaletteRailRowView] = []
+
+    override var isFlipped: Bool { true }
+
+    override init(frame frameRect: NSRect) {
+        super.init(frame: frameRect)
+        setAccessibilityElement(true)
+        setAccessibilityRole(.list)
+    }
+
+    required init?(coder: NSCoder) { nil }
+
+    /// The rail step a key-down asks for: ⌥↑ the entry above, ⌥↓ the one below. Nil for any other key (the
+    /// palette binds no ⌥-arrow; plain Left and Right move the caret or walk a tree page).
+    static func step(for event: NSEvent) -> Int? {
+        guard event.modifierFlags.intersection([.command, .shift, .option, .control]) == .option else { return nil }
+        switch event.keyCode {
+        case 126: return -1
+        case 125: return 1
+        default: return nil
+        }
+    }
+
+    func update(entries: [PaletteV2RailEntry], chosen: PaletteV2Group?) {
+        guard entries != self.entries || chosen != self.chosen else { return }
+        self.entries = entries
+        self.chosen = chosen
+        while rowViews.count < entries.count {
+            let row = PaletteRailRowView(frame: .zero)
+            addSubview(row)
+            rowViews.append(row)
+        }
+        for (index, row) in rowViews.enumerated() {
+            guard entries.indices.contains(index) else {
+                row.isHidden = true
+                continue
+            }
+            row.isHidden = false
+            row.configure(entries[index], isChosen: entries[index].group == chosen)
+            row.onClick = { [weak self] in self?.choose(at: index) }
+        }
+        needsLayout = true
+    }
+
+    private func choose(at index: Int) {
+        guard entries.indices.contains(index) else { return }
+        onChoose?(entries[index].group)
+    }
+
+    override func layout() {
+        super.layout()
+        // The list's own inset above the first row and at the rows' sides; the list column's rows keep theirs.
+        let inset = PaletteLayout.listInset
+        let height = PaletteLayout.rowHeight
+        var y = inset
+        for row in rowViews where !row.isHidden {
+            row.frame = NSRect(x: inset, y: y, width: max(0, bounds.width - inset), height: height)
+            y += height
+        }
+    }
+}
+
+/// One rail entry: its title on the left, its count right-aligned, the chosen one on the selection fill.
+final class PaletteRailRowView: NSView {
+    var onClick: (() -> Void)?
+    private let title = PaletteText.label(Typography.body)
+    private let count = PaletteText.label(Typography.caption, tone: .secondary)
+    private var isChosen = false
+
+    override var isFlipped: Bool { true }
+
+    override init(frame frameRect: NSRect) {
+        super.init(frame: frameRect)
+        count.alignment = .right
+        addSubview(title)
+        addSubview(count)
+        setAccessibilityElement(true)
+        setAccessibilityRole(.button)
+    }
+
+    required init?(coder: NSCoder) { nil }
+
+    func configure(_ entry: PaletteV2RailEntry, isChosen: Bool) {
+        let text = entry.count.formatted()
+        if title.stringValue != entry.title || count.stringValue != text {
+            title.stringValue = entry.title
+            count.stringValue = text
+            needsLayout = true
+        }
+        if self.isChosen != isChosen {
+            self.isChosen = isChosen
+            needsDisplay = true
+        }
+        setAccessibilityLabel(entry.title)
+        setAccessibilityValue(text)
+        setAccessibilitySelected(isChosen)
+    }
+
+    override func mouseDown(with event: NSEvent) {
+        onClick?()
+    }
+
+    override func accessibilityPerformPress() -> Bool {
+        onClick?()
+        return true
+    }
+
+    override func draw(_ dirtyRect: NSRect) {
+        guard isChosen else { return }
+        performWithTheme {
+            Palette.selectionFill.setFill()
+            let radius = PaletteLayout.rowCornerRadius
+            NSBezierPath(roundedRect: bounds, xRadius: radius, yRadius: radius).fill()
+        }
+    }
+
+    override func layout() {
+        super.layout()
+        let side = Metrics.space4
+        let countWidth = PaletteText.fittingWidth(count)
+        let countHeight = PaletteText.height(count)
+        count.frame = pixelAligned(NSRect(x: bounds.width - side - countWidth, y: (bounds.height - countHeight) / 2,
+                                          width: countWidth, height: countHeight))
+        let titleHeight = PaletteText.height(title)
+        title.frame = pixelAligned(NSRect(x: side, y: (bounds.height - titleHeight) / 2,
+                                          width: max(0, count.frame.minX - side - Metrics.space2), height: titleHeight))
+    }
+}

@@ -42,6 +42,8 @@ struct LinkConnectivityEvents: Sendable {
             "transport": .code(transport.rawValue),
             "relay_only": .flag(endpoint.relayOnly),
             "block_udp": .flag(endpoint.blockUDP),
+            "proxy_only": .flag(endpoint.proxyOnly),
+            "drop_wireguard": .flag(endpoint.dropWireGuard),
             "mac_id": .text(endpoint.macDeviceID),
             "team_id": .text(endpoint.teamID),
         ], detail: endpoint.baseURL.absoluteString)
@@ -65,7 +67,7 @@ struct LinkConnectivityEvents: Sendable {
             fields["error_code"] = .safeCode(error.code)
             if !error.message.isEmpty { fields["error_message"] = .text(error.message) }
         } else {
-            fields["error_code"] = .code(error is LiveAPI.Failure ? "service_refused" : "other")
+            fields["error_code"] = .code(error is any LinkServiceFailure ? "service_refused" : "other")
             fields["error_type"] = .code(Self.word(String(describing: type(of: error))))
         }
         telemetry.record(.link, "dial_failed", outcome: .failure, fields: fields, detail: String(describing: error))

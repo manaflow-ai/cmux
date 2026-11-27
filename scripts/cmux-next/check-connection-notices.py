@@ -10,6 +10,7 @@ What it reads, in the cmux NEXT UI (SURFACES): the web pages (webviews/src), the
 and the iOS app (cmux-next-ios, Packages/iOS). Tests, galleries, fixtures and previews are not read.
 
 A connection state is a string the person can read that says one (CONNECTION_WORDS: connecting, reconnecting,
+reattaching (the iOS terminal pill's "Reattaching…"),
 retrying, restoring, handshaking, "Getting access", offline, disconnected, not connected, unreachable, can't reach,
 link down, waiting for the service): an inline literal that is copy (it starts with a capital: "Reconnecting…",
 "Not connected to cmux."), a JSX text node, or a dotted string-table key whose English value says one
@@ -27,18 +28,22 @@ when it
           NoticeTiming.connectionQuiet on the Mac, QuietStatusGate on iOS; schemas/notice-timing/notice-timing.json,
           each copy checked against it) or an existing hold built on one (TIME_GATES). A gate helper given a literal
           grace under the bound (`useLasting(down, 500)`) does not count: name the shared bound instead;
-  action  carries a person action: a button, a click or tap handler, an action closure (PERSON_ACTIONS);
+  action  carries a person action: a button, a click or tap handler, an action closure (PERSON_ACTIONS), or
+          draws a component named for its action that carries one (a web `<RetryButton>`, a Swift
+          `RetryButton(action: retry)`; drawn_actions, swift_drawn_actions);
   listed  is in the allowlist (scripts/cmux-next/connection-notices-allowlist.tsv: unit, surface, owner, reason).
 The allowlist only shrinks: with --base REV a row the list at REV lacks fails (a unit that moved to another file
 under the same name keeps its row), and a row whose unit no longer shows an unbounded connection state (fixed,
 renamed or deleted, by any file) fails as stale until a change removes it. Every unlisted offender is judged on
-every run, with or without --base. The unit is the granularity: a component with
+every run, with or without --base. Passive inline JSX words move to each component mounting them, including
+named imports and aliases; unsupported uses retain a finding in the presenter. The unit is the granularity: a component with
 any button passes, so the check catches a new state drawn with nothing to do, not a button that does the wrong thing.
 
     python3 scripts/cmux-next/check-connection-notices.py                     # the working tree
     python3 scripts/cmux-next/check-connection-notices.py --base HEAD^1       # and the shrink-only ratchet
     python3 scripts/cmux-next/check-connection-notices.py --list              # every hit, gated or not
     python3 scripts/cmux-next/check-connection-notices.py --write-allowlist   # drop the rows that are fixed
+    python3 scripts/cmux-next/check-connection-notices.py --input-block       # report input blocked while connecting
 """
 from __future__ import annotations
 
@@ -79,7 +84,7 @@ SKIP = re.compile(
 # What says a connection state. Matched against the English text, case-insensitive.
 CONNECTION_WORDS = re.compile(
     r"(?i)\b("
-    r"re-?connecting|connecting|retrying|restoring|handshak\w*|getting access"
+    r"re-?connecting|connecting|re-?attaching|retrying|restoring|handshak\w*|getting access"
     r"|offline|disconnected|not connected|no connection|connection (?:lost|closed|dropped|interrupted)"
     r"|lost (?:the )?connection|can'?t reach|cannot reach|couldn'?t reach|unreachable"
     r"|link (?:is )?down|waiting for (?:the )?(?:agent service|daemon|service|connection|network|host|machine|mac|server)"
@@ -105,8 +110,8 @@ ERROR_TYPE = re.compile(r"(Error|Failure|Errors|Failures)$")
 TIME_GATES = re.compile(
     r"\b("
     r"CONNECTION_QUIET_MS|useConnectionQuiet|connectionQuiet|NoticeTiming|QuietStatusGate"  # the shared bound
-    r"|useLasting|LASTING_MS|useAfterDelay|RESUME_NOTE_DELAY_MS|HOST_ERROR_DEADLINE_MS|hostErrorShows"  # web holds
-    r"|revealDelay|NoticePolicy|noticePolicy|RemoteLatencyHold|QuietHold|connectionChip|connectionLasting"  # native holds
+    r"|useLasting|LASTING_MS|useAfterDelay|RESUME_NOTE_DELAY_MS|HOST_ERROR_DEADLINE_MS|hostErrorShows|useAutoRetry|stillTrying|useLinkDownSaid|LINK_DOWN_SAID_MS"  # web holds
+    r"|revealDelay|NoticePolicy|noticePolicy|RemoteLatencyHold|QuietHold|AutoRetry|connectionChip|connectionLasting"  # native holds
     r")\b"
 )
 # A gate helper called with a literal grace: `useLasting(x, 500)`, `useAfterDelay(x, 1_000)`.
@@ -128,12 +133,20 @@ BOUND_COPIES: tuple[tuple[str, str, int], ...] = (
 # A person action on the same unit.
 PERSON_ACTIONS = re.compile(
     r"(\bonClick\s*=|\bonPress\s*=|<Button\b|<button\b|\bonAction\b|\bprimaryAction\b"  # web
+    # A web component the unit draws whose name says it is a button and that it hands a handler
+    # (`<ConnectButton onConnect={...} />`). A bare `<MarkButton />` is no action by its name alone: one declared
+    # or imported here counts only when it acts itself (drawn_actions).
+    r"|<[A-Z]\w*Button\b[^>]*?\bon[A-Z]\w*\s*="
     r"|\bButton\s*[({]|\bNSButton\b|\.onTapGesture\b|\baddAction\b|#selector\(|\bUIAction\b|\.swipeActions\b"  # Swift
     r"|\baction:\s*\{|\bactions:\s*\[|\baction:\s*\."
     # A Swift model that names the person's action for its state (`var action: Action?`), drawn by a view.
     r"|\bvar\s+action\s*:\s*\w*Action\?"
     # A sidebar section's click handler for its own rows (`func activate(_ id: LayoutItemID) -> Bool`).
-    r"|\bfunc\s+activate\s*\(\s*_\s+\w+\s*:\s*LayoutItemID\b)"
+    r"|\bfunc\s+activate\s*\(\s*_\s+\w+\s*:\s*LayoutItemID\b"
+    # A web list row's click handler (`run: () => goTo("github")`, `run: github.onRetry`): the person picks the row.
+    # Not a callback that takes an argument (`run: (agent) => resumes.run(agent)`), which is some other action,
+    # and not a type (`timeout(run: () => void, ms)`, a timer or frame scheduler's signature).
+    r"|\brun:\s*(?:\(\s*\)\s*=>(?!\s*(?:void|Promise\b|unknown\b))|\w+(?:\.\w+)*\.on[A-Z]\w*\b))"
 )
 # Lines that are not UI text: logs, errors, assertions.
 NOT_UI_LINE = re.compile(
@@ -337,11 +350,22 @@ def member_at(unit: Unit, index: int) -> str | None:
     if not unit.path.endswith(".swift"):
         m = MAP_PROP.match(unit.lines[index])
         return m.group(1) if m else None
+    # A `let` or `var` statement may be a local inside the member (`let state = isLive ? "…on" : "…off"` in
+    # `liveTooltip`): it is the member only if no declaration indented less encloses it. Read as the member `state`,
+    # which no view names, the words stayed on the strings type and failed there (cmux#53574's Live tooltip).
+    local: tuple[str, int] | None = None
     for back in range(index, -1, -1):
-        m = SWIFT_MEMBER.search(unit.lines[back])
-        if m and m.group(1) != unit.name:
-            return m.group(1)
-    return None
+        line = unit.lines[back]
+        m = SWIFT_MEMBER.search(line)
+        if not m or m.group(1) == unit.name:
+            continue
+        indent = len(line) - len(line.lstrip())
+        if line.lstrip().startswith(("let ", "var ")):
+            if local is None or indent < local[1]:
+                local = (m.group(1), indent)
+            continue
+        return local[0] if local is not None and indent >= local[1] else m.group(1)
+    return local[0] if local is not None else None
 
 
 def module_of(path: str) -> str:
@@ -355,6 +379,9 @@ def scan(tree: Tree) -> list[Unit]:
     bound = policy_bound_ms(tree)
     units: dict[str, Unit] = {}
     imports: dict[str, list[tuple[str, str]]] = {}  # file -> (local name, resolved module path without suffix)
+    presenter_imports: dict[str, list[tuple[str, str, str]]] = {}
+    opaque_modules: set[str] = set()
+    unresolved_exports: set[str] = set()
     for path in files:
         surface = surface_of(path)
         if surface is None or not path.endswith(SOURCE_SUFFIXES) or SKIP.search(path):
@@ -362,11 +389,30 @@ def scan(tree: Tree) -> list[Unit]:
         source = strip_comments(tree.read(path))
         lines = source.split("\n")
         if path.endswith((".ts", ".tsx")):
-            imports[path] = [
-                (binding.strip().split(" as ")[-1].strip(), resolve_spec(path, m.group(2)))
-                for m in TS_IMPORT.finditer(source) if m.group(2).startswith(".")
-                for binding in m.group(1).split(",") if binding.strip() and binding.strip() != "type"
-            ]
+            imports[path] = []
+            for match in TS_IMPORT.finditer(source):
+                target = resolve_spec(path, match[2]) if match[2].startswith(".") else None
+                for binding in match[1].split(","):
+                    binding = binding.strip()
+                    if binding and binding != "type":
+                        exported, _, local = binding.partition(" as ")
+                        local = local.strip() or exported
+                        if target is None:
+                            # Bundler aliases or bare specifiers are not relative module paths. An
+                            # unresolved import of this export can hide another JSX consumer.
+                            unresolved_exports.add(exported.strip())
+                        else:
+                            imports[path].append((local, target))
+                            if not exported.startswith("type "):
+                                presenter_imports.setdefault(target, []).append((path, exported.strip(), local))
+            # A default, namespace, re-export or dynamic module edge cannot identify every drawing.
+            other_imports = TS_IMPORT.sub("", source)
+            for match in re.finditer(r"""(?:\bfrom\s*|\b(?:import|require)\s*\(\s*)["']([^"']+)["']""", other_imports):
+                if match[1].startswith("."):
+                    opaque_modules.add(resolve_spec(path, match[1]))
+                else:
+                    # Only the filename survives an unknown namespace/default/dynamic alias.
+                    opaque_modules.add(re.sub(r"\.(tsx?|js)$", "", match[1]).rsplit("/", 1)[-1])
         for name, first, last in units_of(path, source):
             uid = f"{path}::{name}"
             unit = units.setdefault(uid, Unit(path, name, surface))
@@ -393,12 +439,93 @@ def scan(tree: Tree) -> list[Unit]:
                               if int(m.group(2).replace("_", "")) < bound]
         unit.literal_grace += [m.group(0) + ")" for m in SWIFT_LITERAL_GRACE.finditer(text)
                                if int(m.group(2).replace("_", "")) * (1000 if m.group(1) == "seconds" else 1) < bound]
+    drawn_actions(units, imports)
+    swift_drawn_actions(units)
     propagate(units, imports)
+    attribute_presenters(units, presenter_imports, opaque_modules, unresolved_exports)
     tree.unit_ids = set(units)  # every declaration read, connection words or not
     for unit in units.values():
         unit.lines = []
         unit.numbers = []
     return [u for u in units.values() if u.hits and not ERROR_TYPE.search(u.name)]
+
+
+# A component named for the action it draws (`ConnectButton`, `RetryAction`, `CardActions`); a component that only
+# holds some other click (a disclosure, a row) does not lend it to the words beside it.
+DRAWN_ACTION = re.compile(r"[A-Z]\w*(?:Button|Action|Actions)$")
+
+
+def drawn_actions(units: dict[str, Unit], imports: dict[str, list[tuple[str, str]]]) -> None:
+    """A web view that draws a button component (`<ConnectButton onConnect={...} />`, its `<button onClick>` inside)
+    carries that action too: the button sits on the same card as the words. The component is named for its action
+    (DRAWN_ACTION) and declared in the same file or imported into it; a few hops, so a button wrapping a button counts."""
+    acted_by_file: dict[str, set[str]] = {}
+    path_of: dict[str, str] = {}  # module path without suffix (and without a trailing /index) -> file
+    for unit in units.values():
+        if unit.path.endswith(".tsx"):
+            stem = unit.path[:-len(".tsx")]
+            path_of[stem] = unit.path
+            path_of.setdefault(stem.rsplit("/index", 1)[0], unit.path)
+    for _round in range(3):
+        acted_by_file = {}
+        for unit in units.values():
+            if unit.acted and unit.path.endswith(".tsx") and DRAWN_ACTION.match(unit.name):
+                acted_by_file.setdefault(unit.path, set()).add(unit.name)
+        moved = False
+        for unit in units.values():
+            if unit.acted or not unit.path.endswith(".tsx"):
+                continue
+            names = set(acted_by_file.get(unit.path, set())) - {unit.name}
+            for local, target in imports.get(unit.path, []):
+                if local in acted_by_file.get(path_of.get(target, ""), set()):
+                    names.add(local)
+            if names and re.search(r"<(?:%s)\b" % "|".join(sorted(map(re.escape, names))), "\n".join(unit.lines)):
+                unit.acted = True
+                moved = True
+        if not moved:
+            break
+
+
+# A Swift view composed into the unit (`RetryButton(action: retry)`, `ConnectButton { … }`): a component named for its
+# action, called as a value (an initializer or a trailing closure). Not its declaration (`struct RetryButton: View {`,
+# `extension RetryButton {`), a return type (`-> RetryButton {`) or a static member (`RetryButton.defaultTitle`).
+SWIFT_DRAWN = re.compile(r"(?<![\w.])([A-Z]\w*(?:Button|Action|Actions))\s*(?:\(|\{)")
+SWIFT_DECLARES = re.compile(r"(?:\b(?:struct|class|enum|actor|extension|protocol|typealias|func|case)\s+|->\s*)$")
+
+
+def swift_drawn_actions(units: dict[str, Unit]) -> None:
+    """A Swift view that composes an action view (`RetryButton(action: retry)` beside its failure copy) carries that
+    action, as drawn_actions does for a web `<RetryButton>`. The component is named for its action (DRAWN_ACTION) and
+    declared in the tree on the same surface with an action of its own (its `Button {`): the same module's
+    declaration if it has one, else every declaration of that name on the surface. One declared out of sight (a
+    system or kit view) or one that draws no action lends nothing; a few hops, so a button wrapping a button counts."""
+    declared: dict[tuple[str, str], dict[str, list[Unit]]] = {}  # (surface, name) -> module -> its units
+    swift = [u for u in units.values() if u.path.endswith(".swift") and u.name != "<file>"]
+    for unit in swift:
+        declared.setdefault((unit.surface, unit.name), {}).setdefault(module_of(unit.path), []).append(unit)
+
+    def lends(surface: str, name: str, module: str) -> bool:
+        modules = declared.get((surface, name))
+        if not modules:
+            return False
+        scope = [modules[module]] if module in modules else list(modules.values())
+        return all(any(u.acted for u in group) for group in scope)
+
+    for _round in range(3):
+        moved = False
+        for unit in swift:
+            if unit.acted:
+                continue
+            module = module_of(unit.path)
+            for line in unit.lines:
+                drawn = [m[1] for m in SWIFT_DRAWN.finditer(line)
+                         if m[1] != unit.name and not SWIFT_DECLARES.search(line[:m.start()])]
+                if any(DRAWN_ACTION.match(name) and lends(unit.surface, name, module) for name in drawn):
+                    unit.acted = True
+                    moved = True
+                    break
+        if not moved:
+            break
 
 
 def propagate(units: dict[str, Unit], imports: dict[str, list[tuple[str, str]]]) -> None:
@@ -467,6 +594,79 @@ def propagate(units: dict[str, Unit], imports: dict[str, list[tuple[str, str]]])
                 other.hits.append(Hit(other.numbers[i], f"{unit.name}: {said.text}", i, hops, said.origin))
             unit.hits = []
             moved = True
+        if not moved:
+            break
+
+
+# Inline text can share its containing row's action. A notice, alert, live region or stateful view
+# owns its own connection state even when a larger page also contains a button.
+INLINE_TAGS = {"span", "small", "strong", "em", "b", "i"}
+OPEN_TAG = re.compile(r"<([A-Za-z][\w.:-]*)(?=[\s/>])")
+RETURN_TAG = re.compile(r"(?:\breturn|=>)\s*\(?\s*<([A-Za-z]\w*)(?=[\s/>])")
+
+
+def inline_presenter(unit: Unit) -> bool:
+    if not unit.path.endswith(".tsx") or not unit.name[:1].isupper() or unit.literal_grace:
+        return False
+    body = "\n".join(unit.lines)
+    if not RETURN_TAG.search(body) or re.search(r"""\baria-live\s*=|\brole\s*=|\buse(?!\w*Strings\b|T\b)\w+\(""", body):
+        return False
+    tags = set(OPEN_TAG.findall(body))
+    # A pure forwarding wrapper may render the very child from which it just received the hit.
+    children = {hit.text.split(": ", 1)[0] for hit in unit.hits if hit.hops}
+    return tags <= INLINE_TAGS | children
+
+
+def attribute_presenters(units: dict[str, Unit], imports: dict[str, list[tuple[str, str, str]]],
+                         opaque_modules: set[str], unresolved_exports: set[str]) -> None:
+    """Follow known JSX mounts of passive inline copy to each drawing. A value use, orphan,
+    recursive mount or unresolved import keeps the leaf finding. A slot such as pill={<Pill />}
+    belongs to the caller composing that card and its controls."""
+    by_file: dict[str, list[Unit]] = {}
+    for unit in units.values():
+        by_file.setdefault(unit.path, []).append(unit)
+    for _ in range(4):  # same bounded depth as copy propagation; longer chains retain a finding
+        moved = False
+        for unit in units.values():
+            if unit.ok or not inline_presenter(unit) or max(h.hops for h in unit.hits) >= 4:
+                continue
+            stem = unit.path[:-len(".tsx")]
+            targets = {stem, stem.removesuffix("/index")}
+            if unit.name in unresolved_exports or any(
+                target in opaque_modules or target.rsplit("/", 1)[-1] in opaque_modules for target in targets
+            ):
+                continue
+            bindings = {(unit.path, unit.name)}
+            bindings.update((path, local) for target in targets for path, exported, local in imports.get(target, ())
+                            if exported == unit.name)
+            consumers: dict[tuple[str, str], tuple[Unit, int, str]] = {}
+            unresolved = False
+            for path, local in sorted(bindings):
+                name = re.escape(local)
+                reference = re.compile(rf"(?P<tag></?)?\b{name}\b")
+                for other in by_file.get(path, []):
+                    lines = other.lines
+                    if other.name == "<file>":
+                        lines = TS_IMPORT.sub(lambda m: "\n" * m[0].count("\n"), "\n".join(lines)).split("\n")
+                    for index, line in enumerate(lines):
+                        if other is unit and index == 0:
+                            # The declaration introduces this name; retain recursive uses on the very same line.
+                            line = re.sub(rf"\b(function|const|let)\s+{name}\b", "", line, count=1)
+                        for ref in reference.finditer(line):
+                            quoted = any(s.start() <= ref.start() < s.end() for s in STRING_LITERAL.finditer(line))
+                            mounted = (not quoted and ref["tag"] == "<"
+                                       and re.match(r"(?:\s|/?>|$)", line[ref.end():]))
+                            if mounted and other is not unit and other.name != "<file>":
+                                consumers.setdefault((other.id, local), (other, index, local))
+                            elif ref["tag"] != "</":
+                                unresolved = True
+            if consumers and not unresolved:
+                for other, index, local in consumers.values():
+                    for hit in unit.hits:
+                        other.hits.append(Hit(other.numbers[index], f"{local}: {hit.text}", index,
+                                              hit.hops + 1, hit.origin))
+                unit.hits = []
+                moved = True
         if not moved:
             break
 
@@ -582,6 +782,153 @@ def check(root: Path, base: str | None, *, list_all: bool = False, out=sys.stdou
     return 0
 
 
+# ---- Input blocked while connecting (report only) ----
+# Leo, 2026-11-24, back in the iOS app after minutes in another app: "the reattaching dot, dot, dot type thing. ...
+# the entire thing is somehow grayed out and I can't interact with anything at all." The same class as above, one
+# step worse: the screen does not only say a connection state, it takes the person's input away (disabled, no hit
+# testing, dimmed or grayed) until the link is back. This pass reports each place a control or a screen is disabled
+# or dimmed on a connection condition. It reports; it does not fail a run (a blocking check needs Leo's word).
+# A finding is fixed when input is accepted while the link comes back (queued or sent when it is up) and the screen
+# stays as drawn; one that must stay (a send that cannot be queued) says why with an action.
+
+# A condition about the link: an identifier or a state tag that names connecting, reconnecting, reattaching,
+# handshaking, restoring, resuming, offline or disconnected, or the link's own state.
+LINK_CONDITION = re.compile(
+    r"(?i)(?<!\w)(?!can(?:dis)?connect|connector|(?-i:on[A-Z]))"
+    r"\w*(?:connect|reattach|attaching|handshak|offline|resuming|linkstate|linkup|linkdown|linkislive|islinklive"
+    r"|transportstate|socketstate|isreachable|unreachable|isattached)\w*"
+    r"|\b(?:hub|link|relay|transport|socket|connection|session)\??\.(?:isReady|isLive|isAttached|ready|live)\b"
+    r"|\bisLive\b"
+)
+# What takes input away or grays a view out, by language.
+SWIFT_BLOCKS = re.compile(
+    r"\.(?P<kind>disabled|allowsHitTesting|opacity|grayscale|saturation|redacted|blur)\s*\("
+    r"|\b(?P<prop>isUserInteractionEnabled|isEnabled|alpha)\s*(?:=(?!=)|:\s)"
+)
+WEB_BLOCKS = re.compile(
+    r"\b(?P<kind>disabled|aria-disabled|inert|readOnly|aria-busy)\s*=\s*\{"
+    r"|\b(?P<prop>disabled|pointerEvents|opacity)\s*:\s*(?!\s*(?:boolean|number|string)\b)"
+    r"|(?P<cls>pointer-events-none|opacity-\d+|grayscale|is-dimmed|dimmed|is-disabled)\b"
+)
+# A derived name that is a yes-or-no: a Bool, a comparison, a negation or a logic operator.
+BOOLEAN_SHAPE = re.compile(r":\s*Bool\b|[!=]==?|!(?!=)\w|&&|\|\|")
+# A dimming value: an opacity strictly between 0 and 1 (`0.6`, `.5`), not a show-or-hide toggle.
+PARTIAL_OPACITY = re.compile(r"(?<![\w.])0?\.[0-9]*[1-9]")
+# A Swift or TS name the unit derives from the link (`var inputBlocked: Bool { link != .live }`), one hop.
+DERIVED = re.compile(r"\b(?:var|let|const)\s+(\w+)\b[^=\n{]*?(?:=(?!=)|\{)(.*)$")
+
+
+@dataclass
+class InputBlock:
+    surface: str
+    path: str
+    line: int
+    unit: str
+    kind: str
+    code: str
+
+
+def _span(lines: list[str], i: int, start: int) -> str:
+    """The modifier's text from START to its closing bracket, at most four lines on."""
+    text = lines[i][start:]
+    depth = 0
+    out = []
+    for n in range(i, min(i + 4, len(lines))):
+        chunk = text if n == i else lines[n]
+        for ch in chunk:
+            out.append(ch)
+            if ch in "({[":
+                depth += 1
+            elif ch in ")}]":
+                depth -= 1
+                if depth <= 0:
+                    return "".join(out)
+        out.append(" ")
+        if depth <= 0 and n == i and not chunk.rstrip().endswith(("(", "{", "[", "?", ":", "&&", "||")):
+            return "".join(out)
+    return "".join(out)
+
+
+def _argument(text: str) -> str:
+    """A labelled value (`isEnabled: x, …`, `disabled: x,`) up to its own end: the first comma or closing bracket
+    outside brackets of its own."""
+    depth = 0
+    for n, ch in enumerate(text):
+        if ch in "({[":
+            depth += 1
+        elif ch in ")}]":
+            if depth == 0:
+                return text[:n]
+            depth -= 1
+        elif ch in ",;" and depth == 0:
+            return text[:n]
+    return text
+
+
+def input_blocks(tree: Tree) -> list[InputBlock]:
+    """Every place a view's input is taken away or the view is grayed out on a link condition."""
+    found: list[InputBlock] = []
+    for path in tree.files():
+        surface = surface_of(path)
+        if surface is None or not path.endswith(SOURCE_SUFFIXES) or SKIP.search(path):
+            continue
+        swift = path.endswith(".swift")
+        blocks = SWIFT_BLOCKS if swift else WEB_BLOCKS
+        lines = strip_comments(tree.read(path)).split("\n")
+        for name, first, last in units_of(path, "\n".join(lines)):
+            body = lines[first:last + 1]
+            derived: set[str] = set()
+            for _round in range(2):
+                for i, line in enumerate(body):
+                    m = DERIVED.search(line)
+                    if not m:
+                        continue
+                    rest = m.group(2) + " " + (body[i + 1] if i + 1 < len(body) and len(m.group(2).strip()) < 3
+                                               else "")
+                    if not BOOLEAN_SHAPE.search(m.group(0)):
+                        continue  # an object (`let model = …`), not a yes-or-no about the link
+                    if LINK_CONDITION.search(rest) or any(re.search(rf"\b{re.escape(d)}\b", rest) for d in derived):
+                        derived.add(m.group(1))
+            derived_re = re.compile(r"\b(" + "|".join(map(re.escape, sorted(derived))) + r")\b") if derived else None
+            for i, line in enumerate(body):
+                if NOT_UI_LINE.search(line):
+                    continue
+                for m in blocks.finditer(line):
+                    kind = m.group("kind") or m.group("prop") or m.groupdict().get("cls") or ""
+                    text = line if m.groupdict().get("cls") else _span(body, i, m.start())
+                    if m.group("prop"):
+                        text = _argument(text)
+                    if m.groupdict().get("cls"):
+                        # A class is a block only when its own condition is the link: `link.up ? "" : "dimmed"`.
+                        text = line
+                    if kind in ("opacity", "alpha") and not PARTIAL_OPACITY.search(text):
+                        continue  # shown or hidden (`shown ? 1 : 0`), not grayed out
+                    if LINK_CONDITION.search(text) or (derived_re is not None and derived_re.search(text)):
+                        found.append(InputBlock(surface, path, first + i + 1, name, kind,
+                                                re.sub(r"\s+", " ", text.strip())[:160]))
+                        break
+    return found
+
+
+def report_input_blocks(root: Path, *, as_json: bool = False, out=sys.stdout) -> int:
+    tree = Tree(root)
+    found = input_blocks(tree)
+    if as_json:
+        print(json.dumps({"schema": "cmux.input-blocked-while-connecting.v1", "missing": len(tree.missing),
+                          "findings": [f.__dict__ for f in found]}, indent=2), file=out)
+        return 0
+    for f in found:
+        print(f"{f.surface}\t{f.path}:{f.line}\t{f.unit}\t{f.kind}\t{f.code}", file=out)
+    per: dict[str, int] = {}
+    for f in found:
+        per[f.surface] = per.get(f.surface, 0) + 1
+    note = f"; {len(tree.missing)} tracked file(s) not on disk, unread" if tree.missing else ""
+    print(f"input blocked while connecting: {len(found)} place(s) ("
+          + (", ".join(f"{k} {v}" for k, v in sorted(per.items())) or "none") + f"){note}. A report, not a failing "
+          "check: see cmuxterm-hq docs/handbook/connection-state-with-no-action-or-bound.md", file=out)
+    return 0
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
     parser.add_argument("--root", type=Path, default=ROOT)
@@ -590,7 +937,12 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--write-allowlist", action="store_true",
                         help="drop rows that are fixed; with --seed, list every offender (the first list only)")
     parser.add_argument("--seed", action="store_true", help=argparse.SUPPRESS)
+    parser.add_argument("--input-block", action="store_true",
+                        help="report each view disabled or dimmed while the link connects (exits 0: a report)")
+    parser.add_argument("--json", action="store_true", help="with --input-block, the findings as JSON")
     args = parser.parse_args(argv)
+    if args.input_block:
+        return report_input_blocks(args.root, as_json=args.json)
     if args.write_allowlist:
         path = args.root / ALLOWLIST
         allow = read_allowlist(path.read_text(encoding="utf-8")) if path.exists() else {}

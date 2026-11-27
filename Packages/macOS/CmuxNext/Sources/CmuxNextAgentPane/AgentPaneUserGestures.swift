@@ -112,6 +112,12 @@ import CmuxNextCompat
         return now() - last <= Self.lifetime
     }
 
+    /// A focus-changing presentation uses a recent event, like the shared page host.
+    func consume(within seconds: TimeInterval) -> Bool {
+        guard let last, now() - last <= seconds else { return false }
+        return consume()
+    }
+
     /// Uses the gesture for a prompt the person sent: true once per recorded gesture, however old.
     /// Only a send with no key press or click of the person's left is refused, never one for its
     /// age: on a loaded Mac the page's prompt reaches the host well past ``lifetime`` after the
@@ -352,6 +358,18 @@ import CmuxNextCompat
         guard let actAsMe else { return false }
         return actAsMe.isOn && actAsMe.revocations == under
     }
+
+    /// Starts `ticket`'s clock again: a permission answer's ticket the person's Fork first paid for,
+    /// held while the App forks the machine (``AgentPaneForkFirst``). False when it is gone (a
+    /// reconnect, a newer answer, or it expired while another ticket was reserved).
+    func renew(_ ticket: String) -> Bool {
+        guard tickets[ticket] != nil else { return false }
+        tickets[ticket]?.at = now()
+        return true
+    }
+
+    /// Drops `ticket`, unspent (a Fork first whose fork failed).
+    func drop(_ ticket: String) { dropTickets { key, _ in key == ticket } }
 
     /// Drops every ticket (a reconnect, the end of a harness switch, the page's release).
     /// A seeded prompt's ticket stays: it belongs to the pane's one seed, not to a connection.

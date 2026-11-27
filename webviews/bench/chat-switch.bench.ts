@@ -42,6 +42,7 @@ import { diff as heapDiff, takeSnapshot, type Snapshot } from "./heapProbe";
 import { perfRow as printRow, TARGET_MS } from "./perfRow";
 import { addStabilityProbe, cpuSession, measureIdle, settledAt, type Idle } from "./stability";
 import { addRenderCountProbe, formatRenderCounts, renderCountsReset, renderCountsTake } from "./renderCounts";
+import { sharedPaneDir } from "./support/sharedBuilds";
 
 const ROUNDS = Number(process.argv[2] ?? 7);
 const TURNS = Number(process.argv[3] ?? 300);
@@ -313,18 +314,22 @@ try {
     },
   ]);
 
-  const out = fs.mkdtempSync(path.join(process.env.TMPDIR ?? os.tmpdir(), "chat-switch-bench-"));
-  releases.push(["pane build", () => fs.rmSync(out, { recursive: true, force: true })]);
+  // Under bench/web-ui-suite.ts, the suite's one pane build of the run (bench/support/sharedBuilds.ts).
+  const variant = Boolean(PROFILE || RENDERS || process.env.HEAP_PROBE);
+  const shared = sharedPaneDir({ variant });
+  const out = shared ?? fs.mkdtempSync(path.join(process.env.TMPDIR ?? os.tmpdir(), "chat-switch-bench-"));
+  if (!shared) releases.push(["pane build", () => fs.rmSync(out, { recursive: true, force: true })]);
   const { build } = await import("vite");
-  await build({
-    configFile: path.join(webviews, "vite.config.acpmux-pane.mjs"),
-    build: {
-      outDir: out,
-      emptyOutDir: true,
-      ...(PROFILE || RENDERS || process.env.HEAP_PROBE ? { minify: false } : {}),
-    },
-    logLevel: "error",
-  });
+  if (!shared)
+    await build({
+      configFile: path.join(webviews, "vite.config.acpmux-pane.mjs"),
+      build: {
+        outDir: out,
+        emptyOutDir: true,
+        ...(variant ? { minify: false } : {}),
+      },
+      logLevel: "error",
+    });
   const statics = Bun.serve({
     port: 0,
     hostname: "127.0.0.1",
@@ -792,6 +797,7 @@ try {
       unit: "count",
       target: 0,
       floor: 0.5,
+      ...(quiet.sources.length ? { sources: quiet.sources } : {}),
     });
     if (quiet.cpuMs !== null)
       perfRow({
@@ -819,6 +825,7 @@ try {
         unit: "count",
         target: 0,
         floor: 0.5,
+        ...(steady.sources.length ? { sources: steady.sources } : {}),
       });
     }
   }

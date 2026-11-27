@@ -116,7 +116,7 @@ pub fn refusal_result(repo: Option<&str>, e: &Refused) -> Value {
         .filter(|c| c.is_ascii_alphanumeric() || matches!(c, '.' | '_' | '-'))
         .take(64)
         .collect();
-    let next = github_cli::next_step(&code);
+    let next = github_cli::next_step(&code, e.configure_url.as_deref());
     let connect =
         matches!(code.as_str(), "integration.not_found" | "needs_reauth" | "policy.denied");
     let subject = repo.map_or_else(|| "GitHub".to_owned(), |r| format!("GitHub for {r}"));
@@ -190,7 +190,7 @@ pub struct Bridge {
 impl Bridge {
     pub fn new(url: String, mint: Mint, default_repo: Option<String>) -> Result<Self, String> {
         let _ = rustls::crypto::ring::default_provider().install_default();
-        let http = reqwest::Client::builder()
+        let http = crate::happy_dial::http_client()
             .redirect(reqwest::redirect::Policy::none())
             .connect_timeout(CONNECT_TIMEOUT)
             .timeout(CALL_TIMEOUT)

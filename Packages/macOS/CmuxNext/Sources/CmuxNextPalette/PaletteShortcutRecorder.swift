@@ -55,5 +55,5 @@ public import CmuxNextActions
 
 extension PaletteShortcutRecorder {
     /// The recorder's view of a key-down (`ShortcutRecorder.shortcut(for:)`).
-    public static func shortcut(for event: NSEvent) -> Shortcut { ShortcutRecorder.shortcut(for: event) }
+    public static func shortcut(for event: NSEvent, qwerty: Bool) -> Shortcut { ShortcutRecorder.shortcut(for: event, qwerty: qwerty) }
 }

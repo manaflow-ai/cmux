@@ -4,7 +4,7 @@
  * Usage (from web/):
  *   bun ../images/cmux-vm/smoke.ts --snapshot <sh-id> --tag <tag> [--clones 5] [--browser-probe]
  *       [--idle-seconds 120] [--out-dir <dir>] [--lock <path>]
- *       [--expect-capabilities <json>] [--team-vm]
+ *       [--expect-capabilities <json>] [--team-vm] [--labs-npm-host-cache]
  *
  * Creates N clones (cmuxnp-dev-vmimg-<tag>-smoke-<i>) and measures create ->
  * first exec and create -> daemon listening. On two of them it checks: the
@@ -24,6 +24,8 @@
  * DNS (dns.ts): cmux-dns-check --restart restarts systemd-resolved (and tailscaled when
  * installed), then needs the resolv.conf stub link and a public name resolving (a tailnet name too
  * when logged in to one).
+ * IPv6 routes (ipv6-route.ts): no block route over public IPv6 (a dead-IPv6 host's `unreachable 2000::/3`), an IPv6
+ * default route, and a route lookup for a public IPv6 address that names a device (RFD 0067 item 5).
  * The daemon handshake (identify.ts) must serve REQUIRED_IMAGE_CAPABILITIES and, with
  * --expect-capabilities, every listed capability; --team-vm also checks /srv/team.
  * The session host stays up 60 s after boot and after one forced rebind, with no legacy or migration
@@ -39,15 +41,17 @@
  * Checks that need the bind agent are reported as PENDING.
  * Every clone is deleted whatever happens.
  */
-import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { appendFileSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { CMUX_TUI_SESSION, cmuxTuiRunCommand } from "../../services/vms/drivers/cmuxTuiDaemon";
-import { DEVBOX_WORK_HOME, DEVBOX_WORK_USER } from "../../services/vms/images/workUser";
-import { DEVBOX_INSTANCE_ID_COMMAND, devboxIdleWakeupCheckCommand, devboxWaitForDaemonCommand } from "../devbox-image-common";
+import { DEVBOX_WORK_HOME, DEVBOX_WORK_USER } from "../../services/vms/workUser";
+import { DEVBOX_INSTANCE_ID_COMMAND, devboxIdleWakeupCheckCommand, devboxWaitForDaemonCommand } from "./machine-commands";
 import { GUEST_DIR, TEAM_FILES_ROOT, teamVmDirsCommand, TMP_LEFTOVERS } from "./bake";
+import { npmHostCacheProfileCheck } from "./dep-cache";
 import { CREDENTIAL_FILES_CHECK, devTreeCredentialCheckCommand, devTreeUserPaths } from "./dev-tree";
 import { daemonIdentifyCommand, parseDaemonIdentify } from "./identify";
 import { DNS_SMOKE_COMMAND, dnsCheckProblems } from "./dns";
+import { ipv6RouteProblems, ipv6RouteSmokeCommand } from "./ipv6-route";
 import { machineHealthSmokeCommand, machineHealthSmokeProblems } from "./machine-health";
 import { argValue, createVm, type CreateTlsRule, deleteVm, firstExec, freestyleClient, Ledger, run, sleep, type Vm } from "./guest";
 import { bakedPrograms, CURRENT_BIN, DEFAULT_LOCK_PATH, type InputsLock, percentile, readInputsLock, ROLES_MANIFEST_PATH, sq } from "./lock";
@@ -56,6 +60,7 @@ import { browserRoleProbe } from "./browser-probe";
 import { GH_SHIM } from "./github-auth";
 import { API_ORIGINS, HOST_CLI, HOST_JOURNAL, SELF_UPDATE_OFF } from "./host-agent";
 import { agentBindProbe, resizeProbe } from "./probes";
+import { type CheckNote, type CheckResult, checkRegressionGate, LIVE_FAILING_FILE, liveBootImage, liveFailingLines } from "./harness-gate";
 import { daemonHoldCommand, daemonUptimeDetail, daemonUptimeProblems, forcedRebindCommand, HOLD_SECONDS } from "./daemon-uptime";
 import { sshdCertSmokeCommand, sshdListenProblems, sshdPolicyProblems } from "./sshd";
 
@@ -228,7 +233,7 @@ export function kv(stdout: string): Record<string, string> {
 }
 
 type Clone = { vm: Vm; vmId: string; name: string };
-type Report = { checks: Record<string, { ok: boolean; detail: string }>; pending: readonly string[]; [key: string]: unknown };
+type Report = { checks: Record<string, { ok: boolean; detail: string; warned?: boolean }>; pending: readonly string[]; [key: string]: unknown };
 
 function check(report: Report, name: string, ok: boolean, detail: string): void {
   report.checks[name] = { ok, detail };
@@ -367,9 +372,18 @@ export function edgeRuleResolveProblems(facts: Record<string, string>): string[]
 /**
  * One clone made as a gateway-mode team makes its machines, with an inline edge rule: it must still resolve a
  * public name and the API host, and its bind agent must reach the dev API. Prints the guest's resolver state.
+ * `control` runs the same clone on another snapshot (the live image) and records into its own report, under its
+ * own name and log prefix, so its lines never read as the candidate's.
  */
-async function edgeRuleChecks(fs: ReturnType<typeof freestyleClient>, ledger: Ledger, tag: string, snapshotId: string, report: Report): Promise<void> {
-  const name = `cmuxnp-dev-vmimg-${tag}-smoke-edge`;
+async function edgeRuleChecks(fs: ReturnType<typeof freestyleClient>, ledger: Ledger, tag: string, snapshotId: string, report: Report, control?: { suffix: string; label: string }): Promise<void> {
+  const name = `cmuxnp-dev-vmimg-${tag}-smoke-${control?.suffix ?? "edge"}`;
+  const label = control?.label ?? "edge-rule-guest";
+  const record = control
+    ? (key: string, ok: boolean, detail: string) => {
+        report.checks[key] = { ok, detail };
+        console.log(`INFO ${label} ${key}: ${ok ? "pass" : "fail"}: ${detail.split("\n").slice(0, 3).join(" | ").slice(0, 400)}`);
+      }
+    : (key: string, ok: boolean, detail: string) => check(report, key, ok, detail);
   const { vm, vmId, t0 } = await createVm(fs, ledger, { name, snapshotId, tlsRules: edgeRuleCreateRules() });
   try {
     const firstExecMs = await firstExec(vm, t0);
@@ -377,14 +391,56 @@ async function edgeRuleChecks(fs: ReturnType<typeof freestyleClient>, ledger: Le
     const guest = await run(vm, edgeRuleGuestCommand(), 180_000);
     const facts = edgeRuleFacts(guest.stdout);
     report.edgeRule = { vmId, firstExecMs, facts };
-    for (const [key, value] of Object.entries(facts)) console.log(`INFO edge-rule-guest ${key}: ${value}`);
+    for (const [key, value] of Object.entries(facts)) console.log(`INFO ${label} ${key}: ${value}`);
     const problems = edgeRuleResolveProblems(facts);
-    check(report, "edge-rule-resolve", guest.code === 0 && problems.length === 0, problems.join("\n") || `${facts["resolve-public"]} | ${facts["resolve-api"]} | edge ${facts["resolve-edge"]} ${facts["edge-https"]}`);
+    record("edge-rule-resolve", guest.code === 0 && problems.length === 0, problems.join("\n") || `${facts["resolve-public"]} | ${facts["resolve-api"]} | edge ${facts["resolve-edge"]} ${facts["edge-https"]}`);
     const probe = await agentBindProbe(vm);
-    check(report, "edge-rule-bind-probe", probe.ok, probe.detail);
+    record("edge-rule-bind-probe", probe.ok, probe.detail);
   } finally {
     await deleteVm(vm, vmId, name, ledger);
   }
+}
+
+/**
+ * The edge-rule clone's checks read the provider's TLS-rule resolver (the 61-freestyle-tls.conf nameserver a
+ * gateway-mode create gets), which a candidate shares with the live image. From 2026-11-26 ~05:00Z that resolver
+ * answered no name on any tlsRules clone while plain clones of the same snapshot resolved (dns-resolved-restart
+ * passed), and the smoke blocked every image roll on it, so no image carried a guest fix to production or dev spares.
+ */
+export const EDGE_RULE_CHECKS = ["edge-rule-resolve", "edge-rule-bind-probe"] as const;
+
+/**
+ * Judges the candidate's edge-rule checks against the live image's (harness-gate.ts checkRegressionGate): one that
+ * fails on both warns (it is marked ok with a WARN detail and returned, for LIVE_FAILING_FILE); one that passes on
+ * the live image, or has no live result, still fails the smoke.
+ */
+export function excuseLiveFailing(report: Report, live: Record<string, CheckResult | undefined> | null, names: readonly string[] = EDGE_RULE_CHECKS): CheckNote[] {
+  const gate = checkRegressionGate(names, report.checks, live);
+  for (const w of gate.warnings) {
+    report.checks[w.check] = { ok: true, detail: `WARN ${w.detail}`, warned: true };
+    console.log(`WARN ${w.check}: ${w.detail.split("\n").slice(0, 6).join(" | ")}`);
+  }
+  for (const b of gate.blocking) report.checks[b.check] = { ok: false, detail: b.detail };
+  return gate.warnings;
+}
+
+/** When an edge-rule check failed: the same clone on production's boot image, then excuseLiveFailing. */
+async function edgeRuleLiveControl(fs: ReturnType<typeof freestyleClient>, ledger: Ledger, tag: string, snapshotId: string, outDir: string, report: Report): Promise<void> {
+  if (EDGE_RULE_CHECKS.every((n) => report.checks[n]?.ok !== false)) return;
+  let live: Report | null = null;
+  try {
+    const image = await liveBootImage();
+    if (image.snapshotId === snapshotId) return;
+    console.log(`INFO edge-rule live control: the same clone on production's boot image ${image.id} (${image.snapshotId})`);
+    const control: Report = { checks: {}, pending: [] };
+    await edgeRuleChecks(fs, ledger, tag, image.snapshotId, control, { suffix: "edge-live", label: "edge-rule-live" });
+    live = control;
+    report.edgeRuleLive = { image: image.id, checks: control.checks, facts: (control.edgeRule as { facts?: unknown } | undefined)?.facts };
+  } catch (error) {
+    console.log(`INFO edge-rule live control failed, so the candidate's failures block: ${String(error).slice(0, 400)}`);
+  }
+  const warnings = excuseLiveFailing(report, live?.checks ?? null);
+  if (warnings.length) appendFileSync(path.join(outDir, LIVE_FAILING_FILE), `${liveFailingLines("smoke", warnings.map((w) => ({ name: w.check, detail: w.detail }))).join("\n")}\n`);
 }
 
 /** Replacement clones a smoke may create for ones the provider never finished. */
@@ -505,7 +561,9 @@ async function automationChecks(vm: Vm, report: Report): Promise<void> {
 
 /** The health loop runs clean and the guard drop-ins apply (machine-health.ts). */
 /**
- * Roles are parked (no Xvfb running), first-use packages are absent, and CJK fonts are baked. openbox is role
+ * Roles are parked (no Xvfb running), first-use packages are absent, and CJK fonts are baked. ffmpeg and ffprobe are
+ * baked in the agents layer since #56284 (the Computer Use driver still sees its refusing shims), so ffprobe must be on
+ * PATH. openbox is role
  * display-wm's: a first-use package, except that an agent-tools image bakes it for the desktop session
  * (AGENT_TOOLS_BAKED_ROLES, #44696). The agent tools' cmux-cua wrapper marks that image.
  */
@@ -514,7 +572,7 @@ export function rolesOffFontsOnCommand(): string {
     `test -s ${ROLES_MANIFEST_PATH}`,
     "! pgrep -x Xvfb >/dev/null",
     `{ test -x ${AGENT_TOOLS_BIN}/cmux-cua || ! command -v openbox >/dev/null; }`,
-    "! command -v ffmpeg >/dev/null",
+    "command -v ffprobe >/dev/null",
     "command -v Xvfb >/dev/null",
     "ls /usr/share/fonts/opentype/noto/ | grep -q '^NotoSansCJK'",
     "echo roles-off-fonts-on",
@@ -534,6 +592,14 @@ async function resolverChecks(vm: Vm, report: Report): Promise<void> {
   const problems = dnsCheckProblems(dns.code, dns.stdout);
   report.dns = dns.stdout.trim().split("\n");
   check(report, "dns-resolved-restart", problems.length === 0, problems.join("\n") || dns.stdout.trim());
+}
+
+/** Public IPv6 stays routed: no block route over 2000::/3 (a dead-IPv6 host's fix) and an IPv6 default route (ipv6-route.ts, RFD 0067 item 5). */
+async function ipv6RouteChecks(vm: Vm, report: Report): Promise<void> {
+  const out = await run(vm, ipv6RouteSmokeCommand(), 90_000);
+  const problems = ipv6RouteProblems(out.code, out.stdout);
+  report.ipv6Routes = out.stdout.trim().split("\n");
+  check(report, "ipv6-public-routed", problems.length === 0, problems.join("\n") || out.stdout.trim().split("\n").filter((l) => !l.startsWith("==")).join(" ; "));
 }
 
 /**
@@ -598,7 +664,7 @@ export function daemonListening(rows: Array<Record<string, number | string>>): b
   return rows.length > 0 && rows.every((r) => Number(r.createDoneToListeningMs) >= 0 && Number(r.createDoneToReadyMs) >= 0);
 }
 
-export async function smoke(options: { snapshotId: string; tag: string; clones: number; idleSeconds: number; outDir: string; lockPath: string; agentProbe?: boolean; resizeProbe?: boolean; browserProbe?: boolean; expectCapabilities?: readonly string[]; teamVm?: boolean }): Promise<Report> {
+export async function smoke(options: { snapshotId: string; tag: string; clones: number; idleSeconds: number; outDir: string; lockPath: string; agentProbe?: boolean; resizeProbe?: boolean; browserProbe?: boolean; expectCapabilities?: readonly string[]; teamVm?: boolean; labsNpmHostCache?: boolean; edgeBaseline?: "live" | "none" }): Promise<Report> {
   mkdirSync(options.outDir, { recursive: true });
   const lock = readInputsLock(options.lockPath);
   const ledger = new Ledger(path.join(options.outDir, "resources.tsv"));
@@ -648,6 +714,8 @@ export async function smoke(options: { snapshotId: string; tag: string; clones: 
     const rebindClone = kept[2];
     const onClone2 = async () => {
       await handshakeChecks(kept[1].vm, report, options.expectCapabilities);
+      const profile = await run(kept[1].vm, npmHostCacheProfileCheck(options.labsNpmHostCache === true));
+      check(report, "npm-host-cache-profile", profile.code === 0, profile.stdout.trim() || profile.stderr.trim());
       if (options.teamVm) {
         // The bake's own command is idempotent and verifies owner and mode; on a clone it must change nothing.
         const before = await run(kept[1].vm, `stat -c '%n %U:%G %a' ${TEAM_FILES_ROOT}`);
@@ -658,6 +726,7 @@ export async function smoke(options: { snapshotId: string; tag: string; clones: 
       await automationChecks(kept[1].vm, report);
       await machineHealthChecks(kept[1].vm, report);
       await resolverChecks(kept[1].vm, report);
+      await ipv6RouteChecks(kept[1].vm, report);
       if (options.agentProbe) {
         const probe = await agentBindProbe(kept[1].vm);
         check(report, "vm-agent-bind-probe", probe.ok, probe.detail);
@@ -683,6 +752,7 @@ export async function smoke(options: { snapshotId: string; tag: string; clones: 
       ...(rebindClone ? [timed("rebindClone3Ms", () => daemonRebindHold(rebindClone.vm, report))()] : []),
       ...(options.agentProbe ? [timed("edgeRuleCloneMs", edgeRule)()] : [])]);
     report.phasesMs = phases;
+    if (options.agentProbe && options.edgeBaseline === "live") await edgeRuleLiveControl(fs, ledger, options.tag, options.snapshotId, options.outDir, report);
     if (options.resizeProbe) {
       report.resize = await resizeProbe(kept[0].vm);
       const after = JSON.parse(String((report.resize as Record<string, unknown>).after)) as { cpu: number; memoryMb: number; rootMb: number };
@@ -722,7 +792,7 @@ function expectedCapabilities(file: string | undefined): string[] | undefined {
 export async function main(argv = process.argv): Promise<number> {
   const snapshotId = argValue("--snapshot", argv);
   const tag = argValue("--tag", argv);
-  if (!snapshotId?.startsWith("sh-") || !tag) throw new Error("usage: smoke.ts --snapshot <sh-id> --tag <tag> [--clones 5] [--idle-seconds 120] [--out-dir <dir>]");
+  if (!snapshotId?.startsWith("sh-") || !tag) throw new Error("usage: smoke.ts --snapshot <sh-id> --tag <tag> [--clones 5] [--idle-seconds 120] [--out-dir <dir>] [--labs-npm-host-cache]");
   const report = await smoke({
     snapshotId,
     tag,
@@ -735,6 +805,8 @@ export async function main(argv = process.argv): Promise<number> {
     browserProbe: argv.includes("--browser-probe"),
     expectCapabilities: expectedCapabilities(argValue("--expect-capabilities", argv)),
     teamVm: argv.includes("--team-vm"),
+    labsNpmHostCache: argv.includes("--labs-npm-host-cache"),
+    edgeBaseline: argValue("--edge-baseline", argv) === "live" ? "live" : "none",
   });
   return report.passed ? 0 : 1;
 }
