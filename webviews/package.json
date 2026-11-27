@@ -125,6 +125,7 @@
     "pixelmatch": "7.2.0",
     "playwright": "1.62.1",
     "pngjs": "7.0.0",
+    "postcss": "8.5.30",
     "react-doctor": "^0.2.4",
     "tailwindcss": "^4.3.0",
     "typescript": "^5.9.3",

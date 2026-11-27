@@ -21737,127 +21737,127 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "None yet. Ask the Chief to make one."
+            "value": "None yet. Ask the Chief: “Every morning, summarize my PRs.”"
           }
         },
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "لا شيء بعد. اطلب من الرئيس، مثلًا: «كل صباح الساعة 9، لخّص طلبات الدمج المفتوحة لدي.»"
+            "value": "لا شيء بعد. اطلب من Chief: «كل صباح، لخّص طلبات الدمج الخاصة بي.»"
           }
         },
         "bs": {
           "stringUnit": {
             "state": "translated",
-            "value": "Još ništa. Zamolite Chiefa, na primjer: „Svako jutro u 9 sažmi moje otvorene PR-ove.“"
+            "value": "Još ništa. Pitaj Chiefa: „Svako jutro sažmi moje PR-ove.”"
           }
         },
         "da": {
           "stringUnit": {
             "state": "translated",
-            "value": "Ingen endnu. Bed Chief om det, for eksempel: “Opsummer mine åbne PR’er hver morgen kl. 9.”"
+            "value": "Ingen endnu. Spørg Chief: “Opsummer mine PR’er hver morgen.”"
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Noch keine. Bitte den Chief zum Beispiel: „Fasse jeden Morgen um 9 meine offenen PRs zusammen.“"
+            "value": "Noch keine. Bitte den Chief: „Fasse jeden Morgen meine PRs zusammen.“"
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Todavía ninguna. Pídeselo al Chief, por ejemplo: «Cada mañana a las 9, resume mis PR abiertas»."
+            "value": "Ninguna todavía. Pide al Chief: «Cada mañana, resume mis PR»."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Aucune pour l’instant. Demandez au Chief, par exemple : « Chaque matin à 9 h, résume mes PR ouvertes. »"
+            "value": "Aucune pour l’instant. Demandez au Chief : « Chaque matin, résume mes PR. »"
           }
         },
         "it": {
           "stringUnit": {
             "state": "translated",
-            "value": "Ancora nessuna. Chiedi al Chief, per esempio: “Ogni mattina alle 9, riassumi le mie PR aperte.”"
+            "value": "Nessuna per ora. Chiedi al Chief: «Ogni mattina, riassumi le mie PR.»"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "まだありません。Chief に頼んでください。例:「毎朝9時に、開いている PR を要約して」"
+            "value": "まだありません。Chief に頼んでください:「毎朝、私の PR を要約して」"
           }
         },
         "km": {
           "stringUnit": {
             "state": "translated",
-            "value": "មិនទាន់មាននៅឡើយ។ សូមសួរ Chief ឧទាហរណ៍៖ “រៀងរាល់ព្រឹកម៉ោង 9 សូមសង្ខេប PR ដែលកំពុងបើករបស់ខ្ញុំ។”"
+            "value": "មិនទាន់មានទេ។ សួរ Chief៖ «រៀងរាល់ព្រឹក សង្ខេប PR របស់ខ្ញុំ។»"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "아직 없습니다. Chief에게 요청하세요. 예: “매일 아침 9시에 열린 PR을 요약해 줘.”"
+            "value": "아직 없습니다. Chief에게 요청하세요: “매일 아침 내 PR을 요약해 줘.”"
           }
         },
         "nb": {
           "stringUnit": {
             "state": "translated",
-            "value": "Ingen ennå. Be Chief om det, for eksempel: «Oppsummer de åpne PR-ene mine hver morgen kl. 9.»"
+            "value": "Ingen ennå. Be Chief: «Oppsummer PR-ene mine hver morgen.»"
           }
         },
         "pl": {
           "stringUnit": {
             "state": "translated",
-            "value": "Jeszcze brak. Poproś Chiefa, na przykład: „Codziennie o 9 rano podsumuj moje otwarte PR-y.”"
+            "value": "Jeszcze brak. Poproś Chiefa: „Każdego ranka podsumuj moje PR-y.”"
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "translated",
-            "value": "Nenhuma ainda. Peça ao Chief, por exemplo: “Toda manhã às 9, resuma meus PRs abertos.”"
+            "value": "Nenhuma ainda. Peça ao Chief: “Toda manhã, resuma meus PRs.”"
           }
         },
         "ru": {
           "stringUnit": {
             "state": "translated",
-            "value": "Пока нет. Попросите Chief, например: «Каждое утро в 9 кратко описывай мои открытые PR»."
+            "value": "Пока нет. Попросите Chief: «Каждое утро кратко описывай мои PR»."
           }
         },
         "th": {
           "stringUnit": {
             "state": "translated",
-            "value": "ยังไม่มี ลองขอ Chief เช่น “ทุกเช้าเวลา 9 โมง สรุป PR ที่ยังเปิดอยู่ของฉัน”"
+            "value": "ยังไม่มี ขอ Chief ว่า “ทุกเช้า สรุป PR ของฉัน”"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Henüz yok. Chief’ten isteyin, örneğin: “Her sabah 9’da açık PR’lerimi özetle.”"
+            "value": "Henüz yok. Chief'e sorun: “Her sabah PR'larımı özetle.”"
           }
         },
         "uk": {
           "stringUnit": {
             "state": "translated",
-            "value": "Поки немає. Попросіть Chief, наприклад: «Щоранку о 9 підсумовуй мої відкриті PR»."
+            "value": "Поки немає. Попросіть Chief: «Щоранку підсумовуй мої PR»."
           }
         },
         "vi": {
           "stringUnit": {
             "state": "translated",
-            "value": "Chưa có. Hãy nhờ Chief, ví dụ: “Mỗi sáng lúc 9 giờ, tóm tắt các PR đang mở của tôi.”"
+            "value": "Chưa có. Hãy nhờ Chief: “Mỗi sáng, tóm tắt các PR của tôi.”"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "还没有。可以让 Chief 帮你，例如：“每天早上 9 点，总结我未合并的 PR。”"
+            "value": "还没有。请让 Chief：“每天早上总结我的 PR。”"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "還沒有。可以請 Chief 幫你，例如：「每天早上 9 點，摘要我未合併的 PR。」"
+            "value": "還沒有。請讓 Chief：「每天早上總結我的 PR。」"
           }
         }
       }

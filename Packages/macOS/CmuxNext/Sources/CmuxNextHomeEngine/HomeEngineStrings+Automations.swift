@@ -8,7 +8,7 @@ nonisolated extension HomeEngineStrings {
     /// The block with no automation yet: how to make one.
     static var automationsEmpty: String {
         String(localized: "home.engine.automations.empty",
-               defaultValue: "None yet. Ask the Chief to make one.",
+               defaultValue: "None yet. Ask the Chief: “Every morning, summarize my PRs.”",
                table: "Home", bundle: .localizedModule)
     }
     /// A schedule's trigger, by its cron ("0 9 * * *").
