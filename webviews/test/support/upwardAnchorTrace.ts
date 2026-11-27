@@ -73,12 +73,12 @@ export async function traceUpwardAnchors({
       return transcriptMark.worked;
     // The live line right under a step or status row (model.ts isLiveStep): its gap is the scroller's
     // --cv-live-step-gap (transcriptGrid.ts MARK_LIVE_STEP, transcriptLiveVars).
-    if (kind === "acpmux-working" || kind === "acpmux-thinking" || kind === "acpmux-activityLine") {
+    if (kind === "acpmux-working" || kind === "acpmux-thinking") {
       if (row.classList.contains("acpmux-row--below") && row.classList.contains("acpmux-row--after-step"))
         return transcriptMark.liveStep;
       if (row.classList.contains("acpmux-row--after-step")) return transcriptMark.indicator;
       if (row.classList.contains("acpmux-row--below")) return transcriptMark.footerSlot;
-      return kind === "acpmux-activityLine" ? transcriptMark.step : transcriptMark.indicator;
+      return transcriptMark.indicator;
     }
     // An edited-files card (VirtualTranscript rowKind "editedFiles"; transcriptGrid.ts MARK_CARD): the
     // run gap from the one-line rows and prose around it, a step row toward a footer or a prompt.

@@ -61,3 +61,50 @@ fn symlinks_are_placed_and_put_back_and_a_changed_one_stays() {
     assert!(!root.join("deep").exists());
     assert_eq!(std::fs::read_link(root.join("mine")).unwrap(), Path::new("edited"));
 }
+
+/// The chain answers each path as `parent_of` does (the same folder, a
+/// missing folder as None, a symlinked folder as an error) while it keeps
+/// the folders paths share open between them, in git's sorted order.
+#[test]
+fn the_chain_reaches_each_files_folder_as_parent_of_does() {
+    use std::os::unix::fs::MetadataExt as _;
+    let top = tempfile::tempdir().unwrap();
+    let root = top.path();
+    for folder in ["a/b/c", "a/b/d", "a/e", "f"] {
+        std::fs::create_dir_all(root.join(folder)).unwrap();
+    }
+    std::os::unix::fs::symlink("f", root.join("link")).unwrap();
+    let dir = Dir::open(root).unwrap();
+    let mut chain = Chain::default();
+    let identity = |dir: &Dir| dir.identity().unwrap();
+    for path in [
+        "a/b/c/one",
+        "a/b/c/two",
+        "a/b/d/three",
+        "a/b/four",
+        "a/e/five",
+        "a/gone/six",
+        "a/gone/seven",
+        "f/eight",
+        "link/nine",
+        "ten",
+        "a/b/c/eleven",
+    ] {
+        let expected = parent_of(&dir, path);
+        let got = chain.parent_of(&dir, path);
+        match (expected, got) {
+            (Ok(Some((want, want_name))), Ok(Some((have, name)))) => {
+                assert_eq!(identity(have), identity(&want), "{path}");
+                assert_eq!(name, want_name, "{path}");
+                let folder = path.rsplit_once('/').map_or("", |(folder, _)| folder);
+                assert_eq!(identity(have).1, std::fs::metadata(root.join(folder)).unwrap().ino());
+            }
+            (Ok(None), Ok(None)) | (Err(_), Err(_)) => {}
+            (want, have) => panic!(
+                "{path}: parent_of {:?}, chain {:?}",
+                want.map(|o| o.is_some()),
+                have.map(|o| o.is_some())
+            ),
+        }
+    }
+}

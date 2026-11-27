@@ -31,6 +31,8 @@ The verdict (VERDICTS):
            judged again on every tick while B is the newest build, so a later crash still pulls it.
   pending  B has no session yet, or too few and too young for a pass.
   unknown  Sentry could not be read (the token, an HTTP error); the file says why. Nothing is pulled.
+           The judge calls such a gate blind (it can never pull), and nightly-next-health.yml's job blind
+           opens one issue (BLIND_TITLE) and turns the run red until Sentry reads again.
 
 Nothing here waits for a soak: a fail acts on the tick that sees it, and a pass never holds a build.
 """
@@ -69,6 +71,8 @@ VERDICTS = ("pass", "fail", "pending", "unknown")
 RECENT = 3
 DRILL_SESSIONS = 20
 DRILL_CRASHED = 5
+# The one issue a blind gate opens (nightly-next-health.yml, job blind); an open one is never repeated.
+BLIND_TITLE = "nightly-next health gate is blind: Sentry is not read"
 
 ITEM = re.compile(r"<item>.*?</item>", re.S)
 VERSION = re.compile(r"<sparkle:version>\s*(\d+)\s*</sparkle:version>")
@@ -205,7 +209,8 @@ def judge(feed: str, reading: Dict[str, Any], existing: Optional[Dict[str, Any]]
     age = (now - first).total_seconds() if first else None
 
     reasons = []
-    if reading.get("why") and (not mine or (previous is not None and not theirs)):
+    blind = bool(reading.get("why") and (not mine or (previous is not None and not theirs)))
+    if blind:
         # A build is judged only against the build before it: half a reading is no reading.
         verdict = "unknown"
         reasons.append(f"Sentry was not read: {reading['why']}")
@@ -242,14 +247,26 @@ def judge(feed: str, reading: Dict[str, Any], existing: Optional[Dict[str, Any]]
         "checked_at": iso(now), "source": reading.get("source"), "release": mine.get("release"), "run": run_url,
     }
     if verdict != "fail":
-        return {"health": health, "action": "none", "why": health["why"]}
+        return {"health": health, "action": "none", "why": health["why"], "blind": blind}
     if builds and build != builds[0][0]:
-        return {"health": health, "action": "none",
+        return {"health": health, "action": "none", "blind": False,
                 "why": f"the feed's newest build is {builds[0][0]}, newer than {build}; a pull of {build} would pull it too"}
     if previous is None:
-        return {"health": health, "action": "none", "why": f"no earlier Nightly build on the feed to serve instead of {build}"}
-    return {"health": health, "action": "rollback", "serving": str(previous),
+        return {"health": health, "action": "none", "blind": False, "why": f"no earlier Nightly build on the feed to serve instead of {build}"}
+    return {"health": health, "action": "rollback", "serving": str(previous), "blind": False,
             "why": f"build {build} failed its health check: {health['why']}"}
+
+
+def blind_report(result: Dict[str, Any], run_url: str) -> Dict[str, str]:
+    """The title and body of the one issue a blind gate opens: which build, why, and the fix."""
+    h = result.get("health") or {}
+    body = (f"The cmux NEXT health gate (nightly-next-health.yml) could not read Sentry release health, so build "
+            f"{h.get('build')} has the verdict unknown and a crashing build would stay on the feed.\n\n"
+            f"Why: {result.get('why')}\n\nRun: {run_url}\n\n"
+            "Fix: give the release-next environment's SENTRY_AUTH_TOKEN the org:read and event:read scopes "
+            "(org manaflow). Each tick turns red while the gate is blind; close this issue once a tick reads "
+            "Sentry again. This issue is opened once: an open one is never repeated.")
+    return {"title": BLIND_TITLE, "body": body}
 
 
 def drill_reading(build: int, now: dt.datetime) -> Dict[str, Any]:
@@ -287,6 +304,9 @@ def main(argv: Optional[List[str]] = None) -> int:
     j.add_argument("--out", required=True)
     p = sub.add_parser("recent")
     p.add_argument("--feed", required=True)
+    b = sub.add_parser("blind-report")
+    b.add_argument("--result", required=True)
+    b.add_argument("--run-url", default="")
     d = sub.add_parser("drill-reading")
     d.add_argument("--build", type=int, required=True)
     d.add_argument("--now", required=True)
@@ -322,6 +342,9 @@ def main(argv: Optional[List[str]] = None) -> int:
             return 1
         Path(args.out).write_text(json.dumps(result["health"], indent=2) + "\n")
         print(json.dumps(result))
+        return 0
+    if args.command == "blind-report":
+        print(json.dumps(blind_report(load(args.result) or {}, args.run_url)))
         return 0
     now = parse_time(args.now)
     if now is None:

@@ -1,0 +1,138 @@
+{
+  "sourceLanguage" : "en",
+  "strings" : {
+    "settings.chief.subagentSidebarHideWords.help" : {
+      "comment" : "Chief subagent sidebar choice (a1018, 2026-11-05).",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Words that put a subagent in Chief's workspaces, added to the built-in ones."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "サブエージェントを Chief's workspaces に入れる語句です。組み込みの語句に追加されます。"
+          }
+        },
+        "ar" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "كلمات تضع الوكيل الفرعي في مساحات عمل Chief، تُضاف إلى الكلمات المدمجة."
+          }
+        },
+        "de" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Wörter, die einen Subagenten in Chief's Workspaces einordnen, zusätzlich zu den eingebauten."
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Palabras que llevan un subagente a los espacios de trabajo del Chief, además de las integradas."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Mots qui placent un sous-agent dans les espaces de travail du Chief, en plus de ceux intégrés."
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "하위 에이전트를 Chief's workspaces에 두는 단어로, 기본 단어에 추가됩니다."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "让子代理进入 Chief 工作区的词语，添加在内置词语之外。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "讓子代理進入 Chief 工作區的字詞，會加入內建字詞。"
+          }
+        },
+        "bs" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Riječi koje stavljaju podagenta u Chiefove radne prostore, uz ugrađene."
+          }
+        },
+        "da" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Ord, der placerer en underagent i Chiefs arbejdsområder, ud over de indbyggede."
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Parole che mettono un subagente in Chief's Workspaces, in aggiunta a quelle integrate."
+          }
+        },
+        "km" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "ពាក្យដែលដាក់ភ្នាក់ងាររងក្នុងកន្លែងធ្វើការរបស់ Chief បន្ថែមលើពាក្យដែលមានស្រាប់។"
+          }
+        },
+        "nb" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Ord som legger en underagent i Chiefs arbeidsområder, i tillegg til de innebygde."
+          }
+        },
+        "pl" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Słowa, które umieszczają podagenta w obszarach roboczych Chiefa, oprócz wbudowanych."
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Palavras que colocam um subagente nos espaços de trabalho do Chief, somadas às integradas."
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Слова, которые помещают субагента в рабочие пространства Chief, в дополнение к встроенным."
+          }
+        },
+        "th" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "คำที่ทำให้เอเจนต์ย่อยไปอยู่ในพื้นที่ทำงานของ Chief เพิ่มจากคำในตัว"
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Bir alt ajanı Chief's workspaces içine koyan sözcükler; yerleşik olanlara eklenir."
+          }
+        },
+        "uk" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Слова, що поміщають субагента в робочі простори Chief, на додачу до вбудованих."
+          }
+        },
+        "vi" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Các từ đưa tác tử phụ vào không gian làm việc của Chief, thêm vào các từ có sẵn."
+          }
+        }
+      }
+    }
+  },
+  "version" : "1.0"
+}

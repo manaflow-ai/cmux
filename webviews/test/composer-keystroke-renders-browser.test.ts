@@ -1,5 +1,5 @@
 // l10n-allow-file: typed test keys, not shipped UI.
-// A keystroke in the agent chat's prompt draws the composer and the parts that read its text, and
+// A keystroke in the agent chat's prompt draws the field and the parts that read its text, and
 // nothing else, however long the chat (CMUX-571; Leo: "improve performance (chat, everything
 // related)"; Leo, 2026-11-12: long chats must have "no perceivable difference"). Not the pane root,
 // the transcript or a row; and not the model picker under the box, which does not read the text
@@ -99,8 +99,18 @@ await requireBrowserLane("composer-keystroke-renders-browser.test.ts", async () 
       Object.entries(renders)
         .filter(([name]) => name.startsWith(prefix))
         .reduce((total, [, value]) => total + value, 0);
-    // The composer itself draws once a key: the text is its state.
-    expect(renders.composer ?? 0).toBeGreaterThanOrEqual(KEYS);
+    // Nor the composer, its box or its queue: the field shows its own text, and a letter changes nothing
+    // else they draw. The first key ends the empty prompt (Send for Stop, no placeholder), which is one
+    // draw. A clock tick may be another.
+    expect({
+      composer: renders.composer ?? 0,
+      box: renders["composer:box"] ?? 0,
+      queue: renders["composer:queue"] ?? 0,
+    }).toEqual({
+      composer: Math.min(renders.composer ?? 0, 2),
+      box: Math.min(renders["composer:box"] ?? 0, 2),
+      queue: Math.min(renders["composer:queue"] ?? 0, 2),
+    });
     // The pane may draw once over the run (a clock tick), never once a key.
     expect(renders.pane ?? 0).toBeLessThanOrEqual(1);
     expect({

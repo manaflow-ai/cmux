@@ -18,15 +18,27 @@ public nonisolated struct ClassicImportPreviewStrings: Equatable, Sendable {
         self.cleanup = cleanup
     }
 
+    public static var consentTitle: String {
+        String(localized: "classicImport.preview.consentTitle", defaultValue: "Import from classic cmux?",
+               table: "ImportSuggestions", bundle: .localizedModule)
+    }
+    public static var consentData: String {
+        String(localized: "classicImport.preview.consentData", defaultValue: "Import your settings, shortcuts, palette history, terminal configuration and saved workspaces.",
+               table: "ImportSuggestions", bundle: .localizedModule)
+    }
+    public static var consentEffects: String {
+        String(localized: "classicImport.preview.consentEffects", defaultValue: "Opening saved workspaces can reconnect SSH hosts, load pages and resume agent chats.",
+               table: "ImportSuggestions", bundle: .localizedModule)
+    }
     public static var title: String {
-        String(localized: "classicImport.preview.title", defaultValue: "Import your classic cmux workspaces?", table: "ImportSuggestions", bundle: .module)
+        String(localized: "classicImport.preview.title", defaultValue: "Import your classic cmux workspaces?", table: "ImportSuggestions", bundle: .localizedModule)
     }
     public static var importButton: String {
-        String(localized: "classicImport.preview.button", defaultValue: "Import", table: "ImportSuggestions", bundle: .module)
+        String(localized: "classicImport.preview.button", defaultValue: "Import", table: "ImportSuggestions", bundle: .localizedModule)
     }
     /// The launch's Cancel: its prompt says where the import waits (``later``).
     public static var notNow: String {
-        String(localized: "classicImport.preview.notNow", defaultValue: "Not Now", table: "ImportSuggestions", bundle: .module)
+        String(localized: "classicImport.preview.notNow", defaultValue: "Not Now", table: "ImportSuggestions", bundle: .localizedModule)
     }
 
     /// The prompt's lines for this save of classic app `app` (as its Dock names it). At launch the last line says
@@ -52,8 +64,8 @@ public nonisolated struct ClassicImportPreviewStrings: Equatable, Sendable {
             + (browserTabs > 0 ? [S.browserTabs(browserTabs)] : []) + (filePages > 0 ? [S.filePages(filePages)] : [])
             + (sshWorkspaces > 0 ? [S.sshWorkspaces(sshWorkspaces)] : []) + (agentChats > 0 ? [S.agentChats(agentChats)] : [])
         let format = classicRunning
-            ? String(localized: "classicImport.preview.summaryAutosaved", defaultValue: "%1$@ from %2$@, autosaved %3$@.", table: "ImportSuggestions", bundle: .module)
-            : String(localized: "classicImport.preview.summarySaved", defaultValue: "%1$@ from %2$@, saved %3$@.", table: "ImportSuggestions", bundle: .module)
+            ? String(localized: "classicImport.preview.summaryAutosaved", defaultValue: "%1$@ from %2$@, autosaved %3$@.", table: "ImportSuggestions", bundle: .localizedModule)
+            : String(localized: "classicImport.preview.summarySaved", defaultValue: "%1$@ from %2$@, saved %3$@.", table: "ImportSuggestions", bundle: .localizedModule)
         return String(format: format, ListFormatter.localizedString(byJoining: parts), app, S.savedWhen(savedAt))
     }
 
@@ -68,63 +80,63 @@ public nonisolated struct ClassicImportPreviewStrings: Equatable, Sendable {
     }
 
     public static func workspaces(_ count: Int) -> String {
-        String(localized: "classicImport.preview.workspaces", defaultValue: "\(count) workspaces", table: "ImportSuggestions", bundle: .module)
+        String(localized: "classicImport.preview.workspaces", defaultValue: "\(count) workspaces", table: "ImportSuggestions", bundle: .localizedModule)
     }
     public static func browserTabs(_ count: Int) -> String {
-        String(localized: "classicImport.preview.browserTabs", defaultValue: "\(count) browser tabs", table: "ImportSuggestions", bundle: .module)
+        String(localized: "classicImport.preview.browserTabs", defaultValue: "\(count) browser tabs", table: "ImportSuggestions", bundle: .localizedModule)
     }
     public static func filePages(_ count: Int) -> String {
-        String(localized: "classicImport.preview.filePages", defaultValue: "\(count) file pages", table: "ImportSuggestions", bundle: .module)
+        String(localized: "classicImport.preview.filePages", defaultValue: "\(count) file pages", table: "ImportSuggestions", bundle: .localizedModule)
     }
     public static func sshWorkspaces(_ count: Int) -> String {
-        String(localized: "classicImport.preview.sshWorkspaces", defaultValue: "\(count) SSH workspaces", table: "ImportSuggestions", bundle: .module)
+        String(localized: "classicImport.preview.sshWorkspaces", defaultValue: "\(count) SSH workspaces", table: "ImportSuggestions", bundle: .localizedModule)
     }
     public static func agentChats(_ count: Int) -> String {
-        String(localized: "classicImport.preview.agentChats", defaultValue: "\(count) agent chats", table: "ImportSuggestions", bundle: .module)
+        String(localized: "classicImport.preview.agentChats", defaultValue: "\(count) agent chats", table: "ImportSuggestions", bundle: .localizedModule)
     }
     public static func cloudVMsSkipped(_ count: Int) -> String {
         String(localized: "classicImport.preview.cloudVMsSkipped", defaultValue: "\(count) Cloud VM workspaces stay in classic cmux.",
-               table: "ImportSuggestions", bundle: .module)
+               table: "ImportSuggestions", bundle: .localizedModule)
     }
     public static func interruptedClose(_ count: Int) -> String {
         String(localized: "classicImport.preview.interruptedClose",
                defaultValue: "\(count) workspaces left by an interrupted import close first, and their terminals end.",
-               table: "ImportSuggestions", bundle: .module)
+               table: "ImportSuggestions", bundle: .localizedModule)
     }
     public static var opensAsSaved: String {
-        String(localized: "classicImport.preview.opensAsSaved", defaultValue: "They open exactly as classic saved them.", table: "ImportSuggestions", bundle: .module)
+        String(localized: "classicImport.preview.opensAsSaved", defaultValue: "They open exactly as classic saved them.", table: "ImportSuggestions", bundle: .localizedModule)
     }
     /// "They open exactly as classic saved them: pages load, SSH hosts connect and agent chats resume."
     public static var opensAsSavedDoing: String {
         String(localized: "classicImport.preview.opensAsSavedDoing", defaultValue: "They open exactly as classic saved them: %@.",
-               table: "ImportSuggestions", bundle: .module)
+               table: "ImportSuggestions", bundle: .localizedModule)
     }
     public static var pagesLoad: String {
-        String(localized: "classicImport.preview.pagesLoad", defaultValue: "pages load", table: "ImportSuggestions", bundle: .module)
+        String(localized: "classicImport.preview.pagesLoad", defaultValue: "pages load", table: "ImportSuggestions", bundle: .localizedModule)
     }
     public static var hostsConnect: String {
-        String(localized: "classicImport.preview.hostsConnect", defaultValue: "SSH hosts connect", table: "ImportSuggestions", bundle: .module)
+        String(localized: "classicImport.preview.hostsConnect", defaultValue: "SSH hosts connect", table: "ImportSuggestions", bundle: .localizedModule)
     }
     public static var chatsResume: String {
-        String(localized: "classicImport.preview.chatsResume", defaultValue: "agent chats resume", table: "ImportSuggestions", bundle: .module)
+        String(localized: "classicImport.preview.chatsResume", defaultValue: "agent chats resume", table: "ImportSuggestions", bundle: .localizedModule)
     }
     public static var stillOpen: String {
         String(localized: "classicImport.preview.stillOpen",
                defaultValue: "%@ is still open, so this is its last autosave. Quit it first to bring its latest state.",
-               table: "ImportSuggestions", bundle: .module)
+               table: "ImportSuggestions", bundle: .localizedModule)
     }
     public static var later: String {
         String(localized: "classicImport.preview.later", defaultValue: "You can import them later from Settings › Import.",
-               table: "ImportSuggestions", bundle: .module)
+               table: "ImportSuggestions", bundle: .localizedModule)
     }
 
     /// The toast after the launch's Not Now: one short line, and ``importAgain`` asks again (Leo 2026-11-15, on
     /// the two-sentence toast with Don't Show Again it replaced: "the styling for that + this is just kinda awkward").
     public static var notImported: String {
-        String(localized: "classicImport.toast.notImported", defaultValue: "Classic workspaces weren’t imported.", table: "ImportSuggestions", bundle: .module)
+        String(localized: "classicImport.toast.notImported", defaultValue: "Classic workspaces weren’t imported.", table: "ImportSuggestions", bundle: .localizedModule)
     }
     public static var importAgain: String {
-        String(localized: "classicImport.toast.importAgain", defaultValue: "Import…", table: "ImportSuggestions", bundle: .module)
+        String(localized: "classicImport.toast.importAgain", defaultValue: "Import…", table: "ImportSuggestions", bundle: .localizedModule)
     }
 
     /// The classic app that saves under `bundle` (a classic bundle id), as its Dock names it.

@@ -1,11 +1,12 @@
 #!/usr/bin/env python3
 """Coalesce cmux-next-web.yml's feat-cmux-next push runs, and bisect a coalesced run's new webview reds.
 
-    web_coalesce.py wait --last LAST.json --sha SHA [--before SHA] [--hold-minutes 120] [--ref REF] [--off]
+    web_coalesce.py wait --last LAST.json --sha SHA [--before SHA] [--hold-minutes 120] [--tick] [--off]
                          --out OUT.json
-        the coalesce job: sleep until HOLD minutes after the last push that ran the web checks, then name this push
-        the newest covered one (OUT) and print `base=<the last covered sha>` and `run=true` to $GITHUB_OUTPUT, or,
-        when it slept and REF has moved past SHA, yield to the newer push (`run=false`, nothing recorded)
+        the coalesce job, which never sleeps: when HOLD minutes have passed since the last run of the web checks
+        started, name this commit the newest covered one (OUT) and print `base=<the last covered sha>` and `run=true`
+        to $GITHUB_OUTPUT; else yield at once (`run=false`, nothing recorded). --tick (the scheduled dispatch) also
+        yields when SHA is already covered
     web_coalesce.py bisect --base SHA --head SHA --results RESULTS.json... [--history HISTORY.json]
                            --probe PROBE.sh --report REPORT.json
         the web bisect job: for each webview test red at HEAD and not at BASE (the run before it), the first commit
@@ -14,7 +15,7 @@
 Why (2026-11-02): cmux-next-web.yml ran on every feat-cmux-next push, 919 runs, each 8 x 16 vCPU react-apps-check
 shards plus react-doctor: about $4.1k of Blacksmith a day (cmuxterm-hq build-fleet/data/raw/2026/11/02). Most of
 those runs tested a commit a newer push already contained. So the web checks now run at most once every HOLD
-minutes, on the newest push that waited; each run routes from the last run's commit (push_base), so it checks
+minutes, on the first push or tick after the window; each run routes from the last run's commit (push_base), so it checks
 everything since. Three rules from the decision (claude-sr2-coord, 2026-11-03):
 
 1. A run starts at least every HOLD (120) minutes while pushes land, so a base red is at most about 120 minutes of
@@ -26,17 +27,19 @@ everything since. Three rules from the decision (claude-sr2-coord, 2026-11-03):
    the first red commit and its pull request are still named (test_reds.py bisect_report reads its lines).
 3. Pull requests are untouched: react-apps-base-check and everything else ci.yml runs is the same.
 
-How the waiting works: the coalesce job has its own concurrency group with cancel-in-progress false. One coalesce
-job runs (waits) at a time; a newer push's coalesce job replaces a pending one, which never started, so that run
-ends cancelled with no job run (readers skip such runs: base_red_excuse.coalesced). Nothing that started is ever
-cancelled. When a job that slept wakes and the branch has moved past its push, it yields (#33872): it records
-nothing and outputs run=false, so its run ends with its checks skipped, and the newest push's coalesce job, pending
-behind it, starts past the deadline and runs at once from the last covered commit. A job that did not sleep never
-yields, so a window always ends in a run however fast pushes land. A yielded run is no verdict either (readers: a run
-whose every job bar `coalesce` was cancelled or skipped). The last covered push is kept in the Actions cache (one
-small entry a run, newest restored by prefix); with none (evicted, the first run) the push runs at once and runs
-every web check (push base EVERYTHING): a push replaced before it may have changed web/ outside its own push range
-(#33892).
+How the deciding works: the coalesce job decides in a few seconds and never sleeps. Until 2026-11-21 it slept up to
+HOLD minutes on a runner for the window to end (about 700 runner-minutes a day of sleep, the CI time map's timing
+feed, 2026-11-21). Now a push inside the window yields at once: it records nothing and outputs run=false, so its run
+ends with its checks skipped. The first push after the window, or the tick, runs the checks from the last covered
+commit. The tick is post_merge_batch.py tick (cmux-next-post-merge-dispatch.yml on main, every 30 minutes), which
+dispatches this workflow with tick=true on the branch tip; a tick yields when the tip is already covered or the window
+has not passed, so a quiet tail is checked at most about 30 minutes after its window ends. The coalesce job keeps its
+own concurrency group with cancel-in-progress false, so one decides at a time and each sees the marker the one before
+it saved; a newer push's job replaces a pending one, whose run ends cancelled with no job run (readers skip such
+runs: base_red_excuse.coalesced). A yielded run is no verdict either (readers: a run whose every job bar `coalesce`
+was cancelled or skipped). The last covered push is kept in the Actions cache (one small entry a run, newest restored
+by prefix); with none (evicted, the first run) the push runs at once and runs every web check (push base EVERYTHING):
+a yielded push may have changed web/ outside its own push range (#33892).
 
 Bisect, cheaply: a webview test's verdict changes only with its inputs (webviews_test_history.py inputs: the paths
 the router runs the suite on), so only commits that change those inputs can be a test's first red, and most
@@ -113,20 +116,6 @@ def plan_wait(last: dict | None, sha: str, before: str, now: float, hold_s: floa
     return max(0.0, last["started"] + hold_s - now), last["sha"]
 
 
-def branch_tip(ref: str) -> str | None:
-    """REF's sha on the remote (a public read, no credentials), or None when it cannot be read."""
-    server = os.environ.get("GITHUB_SERVER_URL", "https://github.com")
-    repo = os.environ.get("GITHUB_REPOSITORY", "")
-    if not repo:
-        return None
-    try:
-        out = subprocess.run(["git", "ls-remote", f"{server}/{repo}.git", ref], capture_output=True, text=True,
-                             timeout=60, check=True).stdout.split()
-    except (OSError, subprocess.SubprocessError):
-        return None
-    return out[0] if out and SHA.fullmatch(out[0]) else None
-
-
 def emit(base: str, run: bool) -> None:
     output = os.environ.get("GITHUB_OUTPUT")
     if output:
@@ -134,28 +123,36 @@ def emit(base: str, run: bool) -> None:
             stream.write(f"base={base}\nrun={'true' if run else 'false'}\n")
 
 
-def wait(args, sleep=time.sleep, clock=time.time, tip=branch_tip) -> int:
+def yield_run(args, last: dict | None, why: str) -> int:
+    """No web checks in this run: the marker stays as it was, so the next run routes from the same covered commit."""
+    print(why)
+    Path(args.out).parent.mkdir(parents=True, exist_ok=True)
+    Path(args.out).write_text(json.dumps(last) + "\n", encoding="utf-8")
+    emit("", False)
+    return 0
+
+
+def wait(args, clock=time.time) -> int:
+    """Decide at once, never sleeping: run the web checks (and record this commit as the newest covered one) when
+    the window since the last run has passed, else yield. A push inside the window yields; the first push after it,
+    or the tick (post_merge_batch.py tick dispatches this workflow with tick=true every 30 minutes), runs from the
+    last covered commit. A tick yields when the tip is already covered or the window has not passed."""
+    tick = bool(getattr(args, "tick", False))
+    if tick and args.off:
+        return yield_run(args, None, "coalescing is off: every push runs its own web checks, so a tick runs none")
     hold_s = 0.0 if args.off else args.hold_minutes * 60
     last = None if args.off else read_last(args.last)
     attempt = int(getattr(args, "attempt", 1) or 1)
     rerun = attempt > 1 or (last is not None and (args.sha in last["covered"] or last["sha"] == args.sha))
+    if tick and attempt == 1 and last is not None and (args.sha in last["covered"] or last["sha"] == args.sha):
+        return yield_run(args, last, f"the tip {args.sha[:12]} is already covered: this tick runs no web checks")
     seconds, base = plan_wait(last, args.sha, args.before or "", clock(), hold_s, attempt, off=args.off)
     if seconds > 0:
-        print(f"the last web checks started on {last['sha'][:12]}; waiting {seconds:.0f} s, so they run at most once "
-              f"every {args.hold_minutes:g} minutes (a newer push's run replaces this wait while it is pending, and "
-              "this run yields to a push that landed while it slept)")
-        sleep(seconds)
-        ref = getattr(args, "ref", None)
-        newest = tip(ref) if ref else None
-        if newest and newest != args.sha:
-            # A newer push's coalesce job waits behind this one: it starts past the deadline and runs at once, from the
-            # same last covered commit, so this push's commits are checked there. Nothing is recorded here.
-            print(f"{ref} moved to {newest[:12]} while this push waited: its run checks this push's commits too, so "
-                  "this run yields (no web checks here)")
-            Path(args.out).parent.mkdir(parents=True, exist_ok=True)
-            Path(args.out).write_text(json.dumps(last) + "\n", encoding="utf-8")
-            emit("", False)
-            return 0
+        opens = time.strftime("%H:%MZ", time.gmtime(clock() + seconds))
+        return yield_run(args, last, (
+            f"the last web checks started on {last['sha'][:12]}; they run at most once every {args.hold_minutes:g} "
+            f"minutes, so this {'tick' if tick else 'push'} yields (no web checks here, no runner held). The first "
+            f"push after {opens}, or the next tick after it, checks every commit since {last['sha'][:12]}"))
     started = clock()
     if rerun and last is not None:
         record = dict(last)  # a re-run is no newer covered push: the marker stays as it was
@@ -309,12 +306,42 @@ def report_lines(found: dict, commits: list[str], subjects: dict[str, str], name
     return lines
 
 
+def culprits(found: dict, commits: list[str], subjects: dict[str, str], skipped: dict[str, str], base: str) -> dict:
+    """The report's machine-readable verdicts, for a reader that acts on a culprit (fix-forward-velocity's
+    auto-revert): `verdicts` has one entry a file, `culprits` one entry a first red commit with every file it broke,
+    oldest first. A file is a culprit only when the bisect pinned it to one commit; base-red, flaky and unresolved
+    files name no commit to act on."""
+    def commit(sha: str) -> dict:
+        subject = subjects.get(sha, "")
+        match = SQUASH_PR.search(subject)
+        return {"sha": sha, "pr": int(match.group(1)) if match else None, "subject": subject}
+
+    verdicts, by_sha = [], {}
+    for file in sorted(found):
+        kind, a, b = found[file]
+        if kind == "first":
+            verdicts.append({"file": file, "verdict": "culprit", "culprit": commit(commits[a]), "green": commits[b]})
+            by_sha.setdefault(a, []).append(file)
+        elif kind == "base":
+            verdicts.append({"file": file, "verdict": "base-red", "culprit": None, "green": None})
+        else:
+            verdicts.append({"file": file, "verdict": "unresolved", "culprit": None, "green": commits[a],
+                             "red": commits[b]})
+    for file in sorted(skipped):
+        verdicts.append({"file": file, "verdict": "flaky" if skipped[file] == "flaky" else "base-red",
+                         "culprit": None, "green": None})
+    return {"schema": "web-bisect/2", "base": base, "verdicts": verdicts,
+            "culprits": [dict(commit(commits[a]), files=by_sha[a]) for a in sorted(by_sha)]}
+
+
 def bisect(args, run=subprocess.run) -> int:
     import webviews_test_history as history  # noqa: PLC0415
 
     requested_base = args.base
     base, base_source = choose_bisect_base(requested_base, getattr(args, "last_known_green", ""), args.head)
-    report: dict = {"base": base, "head": args.head, "files": {}, "lines": [], "base_source": base_source}
+    report: dict = {"base": base, "head": args.head, "files": {}, "lines": [], "base_source": base_source,
+                    "schema": "web-bisect/2", "verdicts": [], "culprits": [], "probes": [],
+                    "run_url": getattr(args, "run_url", "") or ""}
     Path(args.report).parent.mkdir(parents=True, exist_ok=True)
 
     def finish(note: str | None = None) -> int:
@@ -360,7 +387,9 @@ def bisect(args, run=subprocess.run) -> int:
             out = Path(args.report).parent / f"probe-{sha[:12]}.json"
             listed = Path(args.report).parent / f"probe-{sha[:12]}.files"
             listed.write_text("\n".join(files) + "\n", encoding="utf-8")
+            started = time.monotonic()
             run(["bash", args.probe, sha, str(listed), str(out)], check=False)
+            report["probes"].append({"sha": sha, "files": len(files), "seconds": round(time.monotonic() - started)})
             try:
                 got = json.loads(out.read_text(encoding="utf-8"))
             except (OSError, ValueError):
@@ -379,6 +408,7 @@ def bisect(args, run=subprocess.run) -> int:
     report["files"] = {f: list(v) for f, v in found.items()}
     report["skipped"] = skipped
     report["lines"] = report_lines(found, commits, subjects, names, skipped, base)
+    report.update(culprits(found, commits, subjects, skipped, base))
     if base_source == "last-known-green":
         line = f"web bisect: lower bound last-known-green at {base} (coalesced base {requested_base})"
         report["lines"].insert(0, line)
@@ -454,7 +484,7 @@ def main(argv: list[str] | None = None) -> int:
     w.add_argument("--before", default="")
     w.add_argument("--hold-minutes", type=float, default=HOLD_MINUTES)
     w.add_argument("--attempt", type=int, default=1, help="the run's attempt: a re-run never waits")
-    w.add_argument("--ref", help="the pushed ref: a job that slept yields when it moved past --sha")
+    w.add_argument("--tick", action="store_true", help="the scheduled tick: yields when the tip is covered")
     w.add_argument("--off", action="store_true", help="no coalescing: run at once, from the push's own base")
     w.add_argument("--out", required=True)
     b = sub.add_parser("bisect")
@@ -466,6 +496,7 @@ def main(argv: list[str] | None = None) -> int:
     b.add_argument("--probe", required=True)
     b.add_argument("--report", required=True)
     b.add_argument("--max-probes", type=int, default=MAX_PROBES)
+    b.add_argument("--run-url", default="", help="this run's URL, copied into the report for a reader acting on it")
     args = parser.parse_args(argv)
     return wait(args) if args.command == "wait" else bisect(args)
 

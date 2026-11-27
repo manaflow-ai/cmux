@@ -1,0 +1,137 @@
+{
+  "sourceLanguage" : "en",
+  "strings" : {
+    "settings.diagnostic.unreadable" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "ar" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "تعذرت قراءة cmux-next.json (%@). تظل آخر الإعدادات التي تم تحميلها سارية."
+          }
+        },
+        "bs" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "cmux-next.json nije moguće pročitati (%@). Posljednje učitane postavke ostaju na snazi."
+          }
+        },
+        "da" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "cmux-next.json kunne ikke læses (%@). De senest indlæste indstillinger gælder fortsat."
+          }
+        },
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "cmux-next.json konnte nicht gelesen werden (%@). Die zuletzt geladenen Einstellungen bleiben aktiv."
+          }
+        },
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "cmux-next.json could not be read (%@). The last settings that loaded stay in effect."
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "No se pudo leer cmux-next.json (%@). Siguen vigentes los últimos ajustes cargados."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Impossible de lire cmux-next.json (%@). Les derniers réglages chargés restent en vigueur."
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Impossibile leggere cmux-next.json (%@). Restano in vigore le ultime impostazioni caricate."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "cmux-next.json を読み込めませんでした（%@）。最後に読み込んだ設定がそのまま有効です。"
+          }
+        },
+        "km" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "មិនអាចអាន cmux-next.json បានទេ (%@)។ ការកំណត់ចុងក្រោយដែលបានផ្ទុកនៅតែមានប្រសិទ្ធភាព។"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "cmux-next.json을 읽을 수 없습니다(%@). 마지막으로 불러온 설정이 계속 적용됩니다."
+          }
+        },
+        "nb" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Kunne ikke lese cmux-next.json (%@). De sist innlastede innstillingene gjelder fortsatt."
+          }
+        },
+        "pl" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Nie można odczytać cmux-next.json (%@). Obowiązują ostatnio wczytane ustawienia."
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Não foi possível ler cmux-next.json (%@). Os últimos ajustes carregados continuam valendo."
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Не удалось прочитать cmux-next.json (%@). Действуют последние загруженные настройки."
+          }
+        },
+        "th" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "ไม่สามารถอ่าน cmux-next.json ได้ (%@) การตั้งค่าที่โหลดล่าสุดยังคงมีผล"
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "cmux-next.json okunamadı (%@). En son yüklenen ayarlar geçerli kalır."
+          }
+        },
+        "uk" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Не вдалося прочитати cmux-next.json (%@). Діють останні завантажені налаштування."
+          }
+        },
+        "vi" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Không thể đọc cmux-next.json (%@). Các cài đặt được tải gần nhất vẫn có hiệu lực."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "无法读取 cmux-next.json（%@）。最后加载的设置仍然有效。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "無法讀取 cmux-next.json（%@）。最後載入的設定仍然有效。"
+          }
+        }
+      }
+    }
+  },
+  "version" : "1.0"
+}

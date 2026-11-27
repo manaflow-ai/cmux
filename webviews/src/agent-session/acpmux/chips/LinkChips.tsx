@@ -16,7 +16,7 @@ import { callChipHost } from "./host";
 import { useMessageScope } from "./messageScope";
 import { Folder, GitHubMark, Globe, Lock } from "../conversation/icons";
 import { FileKindIcon } from "./FileKindIcon";
-import { usePathInfo, useSiteInfo } from "./linkStore";
+import { askSiteAgain, usePathInfo, useSiteInfo } from "./linkStore";
 import { isPrivateUrl, redactUrlText } from "./linkDisplay";
 import { isDeniedPath, pathName } from "./paths";
 import { useReplyFolders } from "./replyFolders";
@@ -28,10 +28,12 @@ import { useAgentLinkClick } from "../conversation/sessionRefModel";
 import { githubRefLabel, githubRefTitle } from "./linkChipsModel";
 import { useSessionHover } from "../started/useSessionHover";
 import { SubsessionContext } from "../subagents/subsessions";
+import { useVideoLinkClick } from "./ReplyMedia";
 
 /// A path chip. `label` is the link's text, else the file name; `written` is the reply's own
 /// text, which a path that gets no chip draws as.
-export function PathChip({ path, label, written }: { path: string; label?: ReactNode; written?: string }) {
+type PathChipProps = { path: string; line?: number; label?: ReactNode; written?: string };
+export function PathChip({ path, line, label, written }: PathChipProps) {
   const scope = useMessageScope();
   const readOnly = useTranscriptReadOnly();
   if (isDeniedPath(path)) return <span className="cv-chip-plain">{written ?? label ?? path}</span>;
@@ -39,10 +41,10 @@ export function PathChip({ path, label, written }: { path: string; label?: React
   // reader's every path is on the owner's machine.
   if (scope?.host !== undefined || readOnly)
     return <ElsewhereChip path={path} host={scope?.host ?? ""} label={label} />;
-  return <HostPathChip path={path} label={label} written={written} />;
+  return <HostPathChip path={path} line={line} label={label} written={written} />;
 }
 
-function HostPathChip({ path, label, written }: { path: string; label?: ReactNode; written?: string }) {
+function HostPathChip({ path, line, label, written }: PathChipProps) {
   const t = useT();
   const { info, policy } = usePathInfo(path);
   const plain =
@@ -61,7 +63,7 @@ function HostPathChip({ path, label, written }: { path: string; label?: ReactNod
       title={outside ? `${t("chip.outsideProject")}\n${path}` : path}
       /* It drags out as the file itself (conversation/dragOut.ts). */
       draggable
-      onClick={() => void callChipHost("link.openPath", { path })}
+      onClick={() => void callChipHost("link.openPath", policy.supportsFileLine && line ? { path, line } : { path })}
     >
       {folder ? <Folder size={16} className="cv-chip__icon" /> : <FileKindIcon path={path} className="cv-chip__icon" />}
       <span className="cv-chip__label">{label ?? pathName(path)}</span>
@@ -136,11 +138,14 @@ export function ElsewhereChip({ path, host, label }: { path: string; host: strin
 /// its mark centred) though its address is no pull request's, as a nightly build's or a run's does.
 export function UrlChip({
   href,
+  target,
   icon,
   reference = false,
   children,
 }: {
   href: string;
+  /** Run-step links keep opening a new browsing context while sharing the preview card. */
+  target?: "_blank";
   icon?: ReactNode;
   reference?: boolean;
   children: ReactNode;
@@ -170,6 +175,8 @@ export function UrlChip({
   // An agent link (`cmux.com/deeplink/agent?...`) opens the reader's own session's chat
   // (conversation/SessionRef.tsx); its web page otherwise.
   const agent = useAgentLinkClick(href);
+  // A web video's link plays in the app's player (ReplyMedia.tsx useVideoLinkClick).
+  const videoLink = useVideoLinkClick(href);
   // Once it names one of the reader's listed chats, its card is that chat's (started/SessionHoverCard.tsx),
   // opening it as the link does, in place of the site's.
   const subsessions = useContext(SubsessionContext);
@@ -222,27 +229,37 @@ export function UrlChip({
         data-open-session={agent["data-open-session"]}
         data-open-session-sender={agent["data-open-session-sender"]}
         href={href}
+        target={target}
         rel="noreferrer"
         {...trigger}
         onPointerEnter={(event) => {
+          if (!privateHost) askSiteAgain(href);
           agent.onPointerEnter?.();
           enter().onPointerEnter?.(event);
         }}
         onFocus={(event) => {
+          if (!privateHost) askSiteAgain(href);
           agent.onFocus?.();
           enter().onFocus?.(event);
         }}
-        onClick={agent.onClick}
+        onClick={(event) => {
+          agent.onClick?.(event);
+          videoLink.onClick?.(event);
+        }}
       >
         {mark}
         <span className="cv-chip__label">{label}</span>
       </a>
+      {videoLink.viewer}
       {chat ? (
         session.card
       ) : (
         <LinkHoverCard
           href={href}
           anchor={anchor}
+          // Preserve the page's link-click route for links with an explicit browsing target.
+          // Channels has no agent browser.openIn host; clicking its anchor lets the app handle it.
+          onOpenLink={target === "_blank" ? () => anchor?.click() : undefined}
           hover={hover}
           mark={cardMark}
           siteTitle={site?.title}

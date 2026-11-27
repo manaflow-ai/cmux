@@ -219,6 +219,9 @@ impl AgentPort for PlacedPort {
     fn find(&self, name: &str) -> Result<Option<String>, String> {
         self.home.find(name)
     }
+    fn session_names(&self) -> Result<Vec<String>, String> {
+        self.home.session_names()
+    }
     fn session(&self, id: &str) -> Result<Option<SessionSummary>, String> {
         self.port(id).session(id)
     }
@@ -230,9 +233,6 @@ impl AgentPort for PlacedPort {
     }
     fn remove_queued(&self, session: &str, prompt_id: &str) -> Result<bool, String> {
         self.port(session).remove_queued(session, prompt_id)
-    }
-    fn task_list_set(&self, session: &str, items: &Value) -> Result<Value, String> {
-        self.port(session).task_list_set(session, items)
     }
     fn withdraw_steer(&self, session: &str, prompt_id: &str) -> Result<bool, String> {
         self.port(session).withdraw_steer(session, prompt_id)

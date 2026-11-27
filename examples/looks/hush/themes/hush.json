@@ -82,7 +82,7 @@
 
   // The sidebar: opaque warm parchment, no edge line, sections under quiet headings.
   "appearance.sidebarSurface": "separate",
-  "appearance.surfaces.sidebar.color": "#f3eee2",
+  "appearance.surfaces.sidebar.color": "#fffcf0",
   "appearance.surfaces.sidebar.opacity": 1,
   "sidebar.style": "standard",
   "sidebar.border": false,
@@ -92,7 +92,7 @@
   // only light thing; docks and the browser's bar a half step under the card.
   "appearance.surfaces.agentPane.color": "#fdfcf8",
   "appearance.surfaces.agentPane.opacity": 1,
-  "appearance.surfaces.tabBar.color": "#f3eee2",
+  "appearance.surfaces.tabBar.color": "#fffcf0",
   "appearance.surfaces.tabBar.opacity": 1,
   "appearance.surfaces.browserChrome.color": "#f8f5ee",
   "appearance.surfaces.browserChrome.opacity": 1,

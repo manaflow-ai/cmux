@@ -92,12 +92,17 @@ extension CEFPaneHost {
             #endif
             if moved == 1 {
                 tab.awaitsWindowMove = false
+                tab.regroupedFrom = nil
                 if let opener = tab.popupOpenerHost { openers.append(opener) }
             } else if tab.homeHost != nil {
                 // An agent's background tab stays its pane's, open: it is drawn as before.
                 runtime.logger.error("CEF tab \(browser) could not move into an agent window; it stays in its pane")
                 tab.agentWindowRefused = true
                 returnHome(tab)
+            } else if let from = tab.regroupedFrom {
+                // A tab joining its pane's window stays open in the window it had.
+                runtime.logger.error("CEF tab \(browser) could not move into its pane's window; it stays in its own")
+                returnFromRegroup(tab, to: from)
             } else {
                 runtime.logger.error("CEF popup \(browser) could not move into its own window; closing it")
                 tab.close()

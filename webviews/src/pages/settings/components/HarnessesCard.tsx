@@ -8,6 +8,11 @@
 // An update that needs sudo shows its exact command instead of a button.
 // Accounts (`_acpmux/accounts`, when the daemon has it): a provider row says "Authenticated · <plan>"
 // for the CLI's own login and lists every account routing may use under it (ProviderAccounts).
+// Logins done right (Leo, 2026-11-22: "we want that for anywhere and everywhere we have codex stuff,
+// and extremely convieniently tightly integrated claude stuff ... this is simply logins, done
+// righr."): on a host that signs in in place (useSettingsSignIn), a Codex or Claude row's Sign In
+// and its accounts' Sign In and Add account show the sign-in card under the row (the code, the
+// provider's page beside the window) instead of a terminal tab; an older daemon still gets the tab.
 import { useCallback, useEffect, useId } from "react";
 import { Button } from "../../../ui/Button";
 import { Switch } from "../../../ui/Switch";
@@ -29,6 +34,11 @@ import {
 import type { HarnessRow, HarnessesState, ProviderAccount } from "../ops";
 import { locale, t } from "../strings";
 import { ProviderAccounts } from "./ProviderAccounts";
+import { DeviceSignInCard } from "../../shared/signIn/DeviceSignInCard";
+import { useSettingsSignIn } from "./useSettingsSignIn";
+
+/** The account families the in-place card signs a harness row in to. */
+const CARD_FAMILIES = new Set(["codex", "claude"]);
 
 const SOURCES = new Set(["managed", "user-file", "cmux-json", "registry", "path", "config"]);
 
@@ -104,6 +114,15 @@ function Row({ row, family }: { row: HarnessRow; family: string | null }) {
   const terminal = row.kind === "terminal";
   // Every row has a Check and a Sign In: each names its harness for assistive tech.
   const titleId = useId();
+  // A finished sign-in reads the row's health again, so "Signed out" goes with it.
+  const signIn = useSettingsSignIn(() => void store.runHarnesses({ action: "refresh", recheck: true }));
+  const cardFamily = signIn.inPlace && family && CARD_FAMILIES.has(family) ? (family as "codex" | "claude") : null;
+  const signInRow = () => {
+    const inTerminal = () => void store.runHarnesses({ action: "signIn", id: row.id });
+    // The CLI's own login is the row's: the card signs that account in, where the CLI keeps it.
+    if (cardFamily && primary) signIn.begin(cardFamily, primary.id, inTerminal);
+    else inTerminal();
+  };
   return (
     <div className="row accounts-row" data-harness={row.id}>
       <div className="row-main">
@@ -196,7 +215,7 @@ function Row({ row, family }: { row: HarnessRow; family: string | null }) {
                 className="button"
                 data-harness-action="signIn"
                 aria-describedby={titleId}
-                onClick={() => void store.runHarnesses({ action: "signIn", id: row.id })}
+                onClick={signInRow}
               >
                 {t("settingsWindow.harnesses.signIn")}
               </Button>
@@ -204,7 +223,14 @@ function Row({ row, family }: { row: HarnessRow; family: string | null }) {
           )}
         </div>
       </div>
-      {family && accounts && accounts.length > 0 && <ProviderAccounts family={family} accounts={accounts} />}
+      {signIn.running && (
+        <div className="harness-sign-in" data-harness-sign-in={signIn.running.family}>
+          <DeviceSignInCard family={signIn.running.family} view={signIn.running.view} look="inline" {...signIn.card} />
+        </div>
+      )}
+      {family && accounts && accounts.length > 0 && (
+        <ProviderAccounts family={family} accounts={accounts} {...(cardFamily ? { signIn } : {})} />
+      )}
     </div>
   );
 }
@@ -222,7 +248,10 @@ export function HarnessesCard() {
   // a harness installed since the last visit shows.
   const mounted = useCallback(
     (node: HTMLElement | null) => {
-      if (node) void store.runHarnesses({ action: "refresh" });
+      if (!node) return;
+      void store.runHarnesses({ action: "refresh" });
+      // Whether the host signs in in place (`accounts.signInAccounts`): the rows' Sign In use the card.
+      void store.refreshAccounts();
     },
     [store],
   );

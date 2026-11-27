@@ -31,7 +31,7 @@ The terminal record lists the tabs that show it, and a tab record names its pane
 
 In the cmux MCP server (`cmux_exec`), `current` is the caller's own workspace, screen, pane or tab: the server asks the app where the chat is on every call, so the person can look at another workspace while the script runs. `focused` is the one the person looks at. A chat the app cannot place fails with `caller.unresolved` instead of acting on the focused workspace.
 
-An agent's new terminal or link that names no place opens beside its own chat, in its own workspace: `tab_create_terminal` (and `cmux tab create terminal`) with no workspace, screen or pane goes to the column right of the chat, or makes that column; `workspace_open_url` with no workspace opens through the app's beside-the-chat rule, never in Home. To show a page in another agent's workspace, name only the workspace (`cmux tab create browser --workspace <ws_…> --url URL`, `cmux open --workspace <ws_…> URL`, `workspace_open_url {url, workspace}`): it opens in the column right of that workspace's chat. Name a pane only to put it somewhere else, and never a chat's own pane: a tab there hides the chat behind a tab strip.
+An agent's new terminal or link that names no place opens beside its own chat, in its own workspace: `tab_create_terminal` (and `cmux tab create terminal`) with no workspace, screen or pane goes to the column right of the chat, or makes that column; `workspace_open_url` with no workspace opens through the app's beside-the-chat rule, never in Home. To show a page or a terminal in another agent's workspace, name only the workspace (`cmux tab create browser --workspace <ws_…> --url URL`, `cmux open --workspace <ws_…> URL`, `workspace_open_url {url, workspace}`, `cmux tab create terminal --workspace <ws_…>`): it opens in the column right of that workspace's chat, and makes that column when the chat is alone. Name a pane only to put it somewhere else, and never a chat's own pane: a tab there hides the chat behind a tab strip.
 
 ## Non-disruptive automation
 
@@ -163,7 +163,7 @@ Status entries are keyed (at most 64 per workspace); `set` replaces the entry wi
 
 ## Contributor reloads
 
-For cmux app/runtime changes in a cmux source checkout, use a tagged reload from the active worktree. Never build or launch untagged `cmux DEV`.
+For cmux app/runtime changes in a cmux source checkout, first try `cmux app try .`: a copy of the NIGHTLY with your web and daemon code swapped in, no build. A change it cannot take (Swift signatures, resources, FFI Rust) uses a tagged reload from the active worktree. Never build or launch untagged `cmux DEV`.
 
 ```bash
 ./scripts/reload.sh --tag <short-tag>

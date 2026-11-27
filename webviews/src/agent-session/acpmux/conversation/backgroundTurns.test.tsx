@@ -55,9 +55,17 @@ const ids = (rows: AcpmuxRow[]) => rows.filter((entry) => entry.kind !== "date")
 
 test("a quiet background turn is one closed line that opens to its rows", () => {
   const rows = transcript({ quiet: true });
-  expect(ids(turnView(rows, new Set()))).toEqual(["prompt", "reply", "summary", backgroundTurnRowId("bg")]);
+  // The person's reply-only turn keeps its Worked for line (turns.ts `holdsHeader`, #51896).
+  expect(ids(turnView(rows, new Set()))).toEqual([
+    "prompt",
+    "worked-prompt",
+    "reply",
+    "summary",
+    backgroundTurnRowId("bg"),
+  ]);
   expect(ids(turnView(rows, new Set([backgroundTurnRowId("bg")])))).toEqual([
     "prompt",
+    "worked-prompt",
     "reply",
     "summary",
     backgroundTurnRowId("bg"),
@@ -70,10 +78,19 @@ test("a quiet background turn is one closed line that opens to its rows", () => 
   expect(html).not.toContain("cv-spinner");
 });
 
-test("a background turn that is not quiet draws its rows as they came, with no line", () => {
+test("a background turn that is not quiet folds its work and draws its reply, with no line", () => {
   const rows = transcript({ quiet: false });
-  // Its reply ends on its own footer (backgroundTurnFooter.test.ts).
-  expect(ids(turnView(rows, new Set()))).toEqual(["prompt", "reply", "summary", "check", "note", "backgroundEnd-bg"]);
+  // Its work folds under its "Worked for" (cmux#49592); its reply ends on its own footer
+  // (backgroundTurnFooter.test.ts).
+  expect(ids(turnView(rows, new Set()))).toEqual([
+    "prompt",
+    "worked-prompt",
+    "reply",
+    "summary",
+    "worked-backgroundTurn-bg",
+    "note",
+    "backgroundEnd-bg",
+  ]);
 });
 
 test("a running background turn is the compact line with the working spinner", () => {

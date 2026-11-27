@@ -2,6 +2,7 @@
 // person's language (Intl, so no plural strings), bucket labels, and the chart geometry (stacked
 // bars, lines, bands). The page, its gallery designs and its tests share these.
 import type { UsageBucket, UsagePoint, UsageTokens } from "./types";
+import { intl } from "../../ui/intl";
 
 /** The four token kinds, bottom of the stack first. */
 export const TOKEN_KINDS = ["input", "cache_read", "cache_write", "output"] as const;
@@ -15,34 +16,36 @@ export function formatUSD(value: number, language: string): string {
   if (value > 0 && value < 0.01) options.maximumSignificantDigits = 2;
   else if (value >= 100) options.maximumFractionDigits = 0;
   else options.minimumFractionDigits = options.maximumFractionDigits = 2;
-  return new Intl.NumberFormat(language, options).format(value);
+  return intl.NumberFormat(language, options).format(value);
 }
 
 /** `1.2M`, `845K`, `912` in the person's language. */
 export function formatTokens(value: number, language: string): string {
-  return new Intl.NumberFormat(language, { notation: "compact", maximumFractionDigits: 1 }).format(value);
+  return intl.NumberFormat(language, { notation: "compact", maximumFractionDigits: 1 }).format(value);
 }
 
 export function formatCount(value: number, language: string): string {
-  return new Intl.NumberFormat(language).format(value);
+  return intl.NumberFormat(language).format(value);
 }
 
 /** `93.4%`; an en dash when there is no value (no prompt tokens). */
 export function formatPercent(value: number | null | undefined, language: string): string {
   if (value === null || value === undefined) return "–";
-  return new Intl.NumberFormat(language, { style: "percent", maximumFractionDigits: 1 }).format(value);
+  return intl.NumberFormat(language, { style: "percent", maximumFractionDigits: 1 }).format(value);
 }
 
 /** `850ms`, `6.1s`, `1m 5s`; an en dash when no turn ran. */
 export function formatMs(ms: number | null | undefined, language: string): string {
   if (ms === null || ms === undefined) return "–";
   const unit = (value: number, name: "millisecond" | "second" | "minute", digits = 0) =>
-    new Intl.NumberFormat(language, {
-      style: "unit",
-      unit: name,
-      unitDisplay: "narrow",
-      maximumFractionDigits: digits,
-    }).format(value);
+    intl
+      .NumberFormat(language, {
+        style: "unit",
+        unit: name,
+        unitDisplay: "narrow",
+        maximumFractionDigits: digits,
+      })
+      .format(value);
   if (ms < 1_000) return unit(Math.round(ms), "millisecond");
   if (ms < 60_000) return unit(ms / 1_000, "second", ms < 10_000 ? 1 : 0);
   const seconds = Math.round(ms / 1_000);
@@ -59,7 +62,7 @@ export function bucketLabel(t: number, bucket: UsageBucket, language: string, ti
       : bucket === "month"
         ? { month: "short", year: "2-digit" }
         : { month: "short", day: "numeric" };
-  return new Intl.DateTimeFormat(language, { ...options, timeZone }).format(t);
+  return intl.DateTimeFormat(language, { ...options, timeZone }).format(t);
 }
 
 /** The tooltip title of a bucket: `Mon, Oct 19, 2 PM`, `Mon, Oct 19`, `October 2026`. */
@@ -70,18 +73,20 @@ export function bucketTitle(t: number, bucket: UsageBucket, language: string, ti
       : bucket === "month"
         ? { month: "long", year: "numeric" }
         : { weekday: "short", month: "short", day: "numeric" };
-  return new Intl.DateTimeFormat(language, { ...options, timeZone }).format(t);
+  return intl.DateTimeFormat(language, { ...options, timeZone }).format(t);
 }
 
 /** A moment of a top unit: `Oct 19, 14:05` in the person's language. */
 export function formatWhen(ts: number, language: string, timeZone?: string): string {
-  return new Intl.DateTimeFormat(language, {
-    month: "short",
-    day: "numeric",
-    hour: "numeric",
-    minute: "2-digit",
-    timeZone,
-  }).format(ts);
+  return intl
+    .DateTimeFormat(language, {
+      month: "short",
+      day: "numeric",
+      hour: "numeric",
+      minute: "2-digit",
+      timeZone,
+    })
+    .format(ts);
 }
 
 /** The smallest 1, 2 or 5 × 10^n at or above `value`, so axis ticks land on round numbers. */

@@ -44,9 +44,9 @@ public struct SidebarAppItemInfo {
             return info
         }
         let symbol = if case .symbol(let name)? = app.manifest.icon { name } else { "app" }
-        // A first-party app keeps its former built-in's icon and tile caption; no symbol draws the generic app.
+        // A first-party app keeps its former built-in's icon, title (every shipped language) and tile caption; no symbol draws the generic app.
         let firstParty = SidebarBuiltIn.firstParty(appID: id), icon = firstParty?.icon ?? (symbol == "app" ? IconName.appGeneric : nil)
-        return SidebarItemInfo(title: app.manifest.name.resolved(), symbol: symbol, icon: icon, isMissing: !app.installed,
+        return SidebarItemInfo(title: firstParty?.title ?? app.manifest.name.resolved(), symbol: symbol, icon: icon, isMissing: !app.installed,
                                isHidden: AppPresence([app]).suppressed.contains(id), caption: firstParty?.caption)
     }
 }

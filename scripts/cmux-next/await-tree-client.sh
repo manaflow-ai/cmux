@@ -29,8 +29,9 @@
 # CMUX_TUI_TREE_CLIENT_WAIT_SECONDS (default 2700), checking every
 # CMUX_TUI_TREE_CLIENT_POLL_SECONDS (default 20). CMUX_TUI_TREE_CLIENT_WAIT_SECONDS=0
 # looks once (the tree, then each candidate's manifest) and exits 1 on a miss
-# without reading any runs list: app-bundle-cmux-tui-client.sh then bundles the
-# newest published tree instead of waiting (RFD 0021, row 1).
+# without reading any runs list. app-bundle-cmux-tui-client.sh, when it has a fallback tree,
+# waits CMUX_TUI_TREE_CLIENT_FALLBACK_WAIT_SECONDS (default 1500) here, then bundles the
+# newest published tree on a miss instead of failing (RFD 0021, row 1).
 #
 # Usage: await-tree-client.sh <tree key> <candidate commit>...
 # Env: CMUX_TUI_PIN_BASE (default https://files.cmux.com/cmux-tui), GH_TOKEN
@@ -99,40 +100,15 @@ while :; do
     # run, and when none is left the wait ends at the second check instead of the 45 min
     # limit (2026-11-18: owner 44240874997's Linux build failed and the takeover run's Linux
     # builds sat queued on Blacksmith while nightly 44243166776 waited blind).
-    publisher="" stuck="" skip=""
-    for candidate in "$@"; do
-      state="$(bash "$script_dir/pin-cmux-tui.sh" runs-state "$candidate" 2>/dev/null || echo unknown)"
-      case "$state" in
-        active|ended\ *)
-          progress="$(bash "$script_dir/pin-cmux-tui.sh" run-progress "$candidate" 2>/dev/null || echo unknown)"
-          case "$progress" in
-            # none: the run list said active a moment ago; trust it until the next check.
-            building|unknown) publisher="$candidate"; break ;;
-            none) [[ "$state" != active ]] || { publisher="$candidate"; break; } ;;
-            *) stuck="the run of ${candidate:0:12} is $progress"; skip="$skip $candidate" ;;
-          esac ;;
-        unknown) publisher=unknown ;;
-      esac
-    done
-    if [[ -z "$publisher" ]]; then
-      # Bound alternate discovery; an unfinished scan is unknown, never proof
-      # that no publisher can finish. Pass over each stalled same-tree source.
-      for ((scan = 0; scan < 20; scan++)); do
-        found="$(CMUX_TUI_TREE_SKIP_PUBLISHERS="$skip" bash "$script_dir/pin-cmux-tui.sh" active-publisher "$key" 2>/dev/null || echo unknown)"
-        case "$found" in
-          unknown) publisher=unknown; break ;;
-          "") break ;;
-          *)
-            progress="$(bash "$script_dir/pin-cmux-tui.sh" run-progress "$found" 2>/dev/null || echo unknown)"
-            case "$progress" in
-              # none: the commit-filtered list lags the full one; the full list said active.
-              building|unknown|none) publisher="$found"; break ;;
-              *) stuck="the run of ${found:0:12} is $progress"; skip="$skip $found" ;;
-            esac ;;
-        esac
-      done
-      (( scan < 20 )) || publisher=unknown
-    fi
+    # pin-cmux-tui.sh tree-publisher is the reading resolve-tree-pending.sh also uses.
+    publisher="" stuck=""
+    found="$(bash "$script_dir/pin-cmux-tui.sh" tree-publisher "$key" "$@" 2>/dev/null || echo unknown)"
+    case "$found" in
+      building\ *) publisher="${found#building }" ;;
+      stuck\ *) stuck="${found#stuck }" ;;
+      ended|none) ;;
+      *) publisher=unknown ;;
+    esac
     case "$publisher" in
       unknown) idle_checks=0; echo "the cmux-tui artifacts runs could not all be read; waiting on" >&2 ;;
       "")

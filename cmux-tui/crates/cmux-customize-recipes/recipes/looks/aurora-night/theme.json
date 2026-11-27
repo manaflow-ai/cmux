@@ -1,0 +1,44 @@
+// Aurora: The living Aurora wallpaper behind clear glass, polar night blue and a green-teal accent, floating panes.
+// Polar night (#0b1020) and the aurora's green (#7ee0c3). ANSI colors are solved in OKLCH at one lightness over the page, so
+// no hue shouts. An opt-in look: nothing here changes until you pick it.
+{
+  "name": "Aurora",
+  "description": "The living Aurora wallpaper behind clear glass, polar night blue and a green-teal accent, floating panes.",
+  "appearance.theme": "Builtin Dark",
+  "appearance.appTheme": "followTerminal",
+  "colors": {
+    "background": "#0b1020",
+    "foreground": "#e6ecff",
+    "selection": "#24304d",
+    "accent": "#7ee0c3"
+  },
+  "appearance.accent": "theme",
+  "ghostty": [
+    "background = #0b1020",
+    "foreground = #e6ecff",
+    "cursor-color = #7ee0c3",
+    "cursor-text = #0b1020",
+    "selection-background = #24304d",
+    "selection-foreground = #e6ecff",
+    "palette = 0=#272c3c",
+    "palette = 1=#e18881",
+    "palette = 2=#77b779",
+    "palette = 3=#bfa14c",
+    "palette = 4=#74a7e8",
+    "palette = 5=#cc8bc5",
+    "palette = 6=#35b9c0",
+    "palette = 7=#b4b8be",
+    "palette = 8=#6e7278",
+    "palette = 9=#feaba4",
+    "palette = 10=#9cd69c",
+    "palette = 11=#ddc277",
+    "palette = 12=#98c7ff",
+    "palette = 13=#e9ade3",
+    "palette = 14=#6dd8dd",
+    "palette = 15=#e6ecff"
+  ],
+  "appearance.background": "shader:aurora",
+  "appearance.backgroundBlur": "glass-clear",
+  "appearance.backgroundOpacity": 0.55,
+  "appearance.chromeStyle": "floating"
+}

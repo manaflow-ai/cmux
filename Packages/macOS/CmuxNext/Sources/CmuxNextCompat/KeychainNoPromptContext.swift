@@ -1,3 +1,4 @@
+#if canImport(Security)
 internal import LocalAuthentication
 internal import Security
 
@@ -5,7 +6,9 @@ internal import Security
 /// items: the query carries an `LAContext` with `interactionNotAllowed`, so a call that would ask answers
 /// `errSecInteractionNotAllowed`. It does not reach the login (file-based) Keychain; calls there run inside
 /// ``LoginKeychain/withoutUI(_:)``.
-public enum KeychainNoPromptContext {
+public struct KeychainNoPromptContext {
+    public init() {}
+
     /// `query` with a context that refuses user interaction.
     public static func applied(to query: [String: Any]) -> [String: Any] {
         var query = query
@@ -15,3 +18,4 @@ public enum KeychainNoPromptContext {
         return query
     }
 }
+#endif

@@ -174,13 +174,16 @@ import Testing
         // The pinned row's glyph fills the one optical side (Lawrence 2026-11-09, one icon size). A density with its own
         // icon column draws a workspace favicon's bitmap at the tab's icon box (Lucas 2026-11-14: a row's icon is its
         // tab's size); the others draw it 4/3 its optical side, so its ink, not its margin, fills that side.
-        let (box, optical) = Self.at(setting) { (SidebarStyle.rowGlyphOptics.box, SidebarStyle.rowGlyphOpticalSide) }
+        // A favicon takes its tab's size (#49583), its bitmap that side's box.
+        let (box, optical, favicon) = Self.at(setting) {
+            (SidebarStyle.rowFaviconOptics.box, SidebarStyle.rowGlyphOpticalSide, SidebarStyle.rowFaviconOpticalSide)
+        }
         #expect(abs(m.pinnedGlyph - optical) <= 0.5, "\(setting): pinned icon \(m.pinnedGlyph), optical side \(optical)")
         if let box {
             #expect(abs(m.listGlyph - box) <= 0.5, "\(setting): workspace favicon \(m.listGlyph), the tab's icon box \(box)")
         } else {
             let listOptical = m.listGlyph * 3 / 4
-            #expect(abs(m.pinnedGlyph - listOptical) <= 0.5, "\(setting): pinned icon \(m.pinnedGlyph), workspace icon \(listOptical)")
+            #expect(abs(favicon - listOptical) <= 0.5, "\(setting): favicon side \(favicon), workspace icon \(listOptical)")
         }
     }
 
@@ -189,7 +192,7 @@ import Testing
     @Test(arguments: iconColumnSettings)
     func aRowAtAnIconColumnDensityDrawsTheTabsBox(_ setting: Setting) throws {
         let m = try Self.measure(setting)
-        let (box, optical) = Self.at(setting) { (SidebarStyle.rowGlyphOptics.box, SidebarStyle.rowGlyphOpticalSide) }
+        let (box, optical) = Self.at(setting) { (SidebarStyle.rowFaviconOptics.box, SidebarStyle.rowGlyphOpticalSide) }
         let tabBox = try #require(box, "\(setting): no icon box")
         #expect(abs(m.listGlyph - tabBox) <= 0.5, "\(setting): workspace favicon \(m.listGlyph), the tab's icon box \(tabBox)")
         #expect(abs(m.pinnedGlyph - optical) <= 0.5, "\(setting): pinned icon \(m.pinnedGlyph), optical side \(optical)")

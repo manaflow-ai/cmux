@@ -62,13 +62,13 @@ for (const [code, connection] of cases) {
         expect(reads).toBe(2);
         expect(store.getSnapshot()).toMatchObject({ connection, loading: false, errorCode: code });
         expect(store.getSnapshot().auth).toBeUndefined();
-        expect(store.canRetry).toBe(true);
-        jest.advanceTimersByTime(CLOUD_RESTART_MIN_MS * 2);
+        // Retryable or not, the store reads again on its own (no Retry to press), after twice the wait.
+        expect(store.getSnapshot().recovering).toBe(true);
+        jest.advanceTimersByTime(CLOUD_RESTART_MIN_MS * 2 - 1);
         await settle();
-        if (connection === "failed") {
-          expect(reads).toBe(2);
-          await store.retry();
-        }
+        expect(reads).toBe(2);
+        jest.advanceTimersByTime(1);
+        await settle();
         expect(reads).toBe(3);
         expect(store.getSnapshot()).toMatchObject({
           connection: "connected",

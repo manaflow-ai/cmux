@@ -8,6 +8,39 @@
 
 use serde_json::Value;
 
+/// The acpmux words for `share screens|start|stop|move …` and `share list --screens`: the screen
+/// shares this machine's daemon device reads and changes at the device hub (acpmux
+/// `share-host`, cmuxterm-hq docs/design/screen-share-under-100ms.md D9), not the app's chat links.
+/// None for every other `share` command. A `--json` before `share` or between `share` and the verb
+/// (`cmux --json share screens`, `cmux share --json screens`) goes last, where share-host reads it
+/// (docs/cli-conventions.md in cmuxterm-hq: `--json` goes anywhere).
+pub(crate) fn screen_verb(raw_args: &[String]) -> Option<Vec<String>> {
+    let is_json = |word: &String| word == "--json";
+    let lead = raw_args.iter().take_while(|word| is_json(word)).count();
+    let [scope, after_scope @ ..] = raw_args.get(lead..)? else { return None };
+    if scope != "share" {
+        return None;
+    }
+    let between = after_scope.iter().take_while(|word| is_json(word)).count();
+    let [verb, rest @ ..] = after_scope.get(between..)? else { return None };
+    let mut words = vec!["share-host".to_owned()];
+    match verb.as_str() {
+        "screens" | "start" | "stop" | "move" => {
+            words.push(verb.clone());
+            words.extend(rest.iter().cloned());
+        }
+        "list" if rest.iter().any(|word| word == "--screens") => {
+            words.push("screens".to_owned());
+            words.extend(rest.iter().filter(|word| *word != "--screens").cloned());
+        }
+        _ => return None,
+    }
+    if (lead > 0 || between > 0) && !words.iter().any(|word| word == "--json") {
+        words.push("--json".to_owned());
+    }
+    Some(words)
+}
+
 /// The app action and its arguments for `share revoke|kick <ids…> [flags]`, or None for other words.
 /// The ids are the words right after the verb. They are base64url and may start with `-`, so a word
 /// counts as a flag only when it names one of these commands' own flags. An id given more than once,
@@ -198,7 +231,11 @@ pub(super) fn human_line(params: &Value, result: &Value) -> Option<String> {
         "share chat" | "agent.share" => result.get("url")?.as_str().map(|url| format!("{url}\n")),
         "share invite" | "agent.share.invite" => {
             let account = result.get("account")?.as_str()?;
-            let can = if result.get("role")?.as_str()? == "view" { "view" } else { "talk" };
+            let can = match result.get("role")?.as_str()? {
+                "view" => "view",
+                "drive" => "drive",
+                _ => "talk",
+            };
             let mut line = format!("Invited {account} (can {can})\n");
             // The link the owner sends the invitee (none without a room).
             if let Some(link) = result.get("invite_url").and_then(Value::as_str) {

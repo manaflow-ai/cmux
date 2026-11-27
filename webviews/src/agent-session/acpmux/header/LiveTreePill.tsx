@@ -57,15 +57,18 @@ export function LiveTreePill({ cwd, readStatus }: { cwd?: string; readStatus: ()
         anchor={button}
         label={t("header.liveTree")}
         className="acpmux-pr-status acpmux-live-tree-status"
+        // "results": opens on "…" and the lanes' report arrives after, with no input from the
+        // person; the box follows the report (ui/popupSettle.ts).
+        popupSettle="results"
         side="bottom"
         finalFocus={buttonRef}
       >
         <div className="acpmux-pr-title">{t("header.liveTree")}</div>
         <div className="acpmux-pr-facts">{t("composer.folder")}</div>
         <code className="acpmux-live-tree-path">{cwd || t("project.noFolder")}</code>
-        <div className="acpmux-pr-facts" role="status">
+        <output className="acpmux-pr-facts">
           {!status ? "…" : !status.available ? t("header.liveTreeDisconnected") : t("header.liveTreeReport")}
-        </div>
+        </output>
         {status?.available && (
           <ul className="acpmux-live-tree-results">
             {status.lanes?.map((lane) => (

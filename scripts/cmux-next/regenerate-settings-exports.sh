@@ -1,10 +1,15 @@
 #!/usr/bin/env bash
 # Regenerates the settings exports for the CI and the autofix bots, on a Mac
-# runner, the same way the fleet export step does (run-swift-testing-suites.sh
-# with CMUX_CI_REQUIRED_MACOS_SDK_MAJOR=export-settings): build, compile the
-# string catalogs, then ManagedPreferencesManifestTests with
-# CMUX_UPDATE_MDM_SCHEMA=1 and SettingsSchemaExportTests with
-# CMUX_UPDATE_ACTION_SURFACES=1. It copies every export that changed into OUT
+# runner: build the CmuxNextSettingsExport tool (CmuxNextSettings and what it
+# depends on, never the package's test bundle), compile the string catalogs,
+# then run the tool, which writes settings-schema.json and docs/mdm through the
+# calls SettingsSchemaExportTests and ManagedPreferencesManifestTests check.
+# It used to run those two tests with CMUX_UPDATE_ACTION_SURFACES=1 and
+# CMUX_UPDATE_MDM_SCHEMA=1 after `swift build --build-tests`, so a compile error
+# in any of the package's test targets failed every settings export: on
+# 2026-11-25 two CmuxNextAppTests errors failed the base autofix's Mac exports
+# from 04:26Z to 07:07Z and the daemon kept a schema without presence.live.
+# It copies every export that changed into OUT
 # at its repository path: the --generated DIR of
 # scripts/cmux-next/base-autofix.sh, which copies them over the checkout and
 # then rewrites the defaults snapshot (defaults_guard.py snapshot) from them.
@@ -30,10 +35,10 @@
 #   cmux-ci artifact <step id> settings-exports.patch
 set -euo pipefail
 # cmux-ci-warm-contract: swiftpm-v1
-# swift test builds and runs cmux-next's test host: fleet or GitHub runner only.
+# swift build needs the macOS SDK and the app FFI: fleet or GitHub runner only.
 # shellcheck source-path=SCRIPTDIR source=lib/fleet-only.sh
 source "$(dirname "${BASH_SOURCE[0]}")/lib/fleet-only.sh"
-cmux_next_require_fleet regenerate-settings-exports.sh "swift test" "cmux-next generated files / base autofix action exports"
+cmux_next_require_fleet regenerate-settings-exports.sh "swift build" "cmux-next generated files / base autofix action exports"
 # shellcheck source-path=SCRIPTDIR source=lib/warm-swiftpm.sh
 source "$(dirname "${BASH_SOURCE[0]}")/lib/warm-swiftpm.sh"
 # One EXIT trap for every temporary path: a second `trap ... EXIT` would replace
@@ -60,30 +65,37 @@ exports=()
 while IFS= read -r path; do exports+=("$path"); done < <(sed -e 's/#.*//' -e '/^[[:space:]]*$/d' "$list")
 (( ${#exports[@]} )) || { echo "::error::$list lists no export" >&2; exit 1; }
 
-cmux_next_warm_build "$root/Packages/macOS/CmuxNext"
-cd "$root/Packages/macOS/CmuxNext"
+package="$root/Packages/macOS/CmuxNext"
+cmux_next_warm_select_xcode
+# The job that built the package itself (CMUX_NEXT_JOB_BUILT=plain) already ran the guard.
+[[ "${CMUX_NEXT_JOB_BUILT:-}" == plain ]] || swiftpm_binary_module_guard "$package"
+cd "$package"
+swift build ${cmux_next_swift_args[@]+"${cmux_next_swift_args[@]}"} --product CmuxNextSettingsExport
+bin="$(swift build ${cmux_next_swift_args[@]+"${cmux_next_swift_args[@]}"} --show-bin-path)"
 # SwiftPM copies raw catalogs but can keep old compiled tables on a reused
 # runner; the exported texts come from the compiled tables.
-CMUX_SWIFT_BIN_PATH="$(swift build ${cmux_next_swift_args[@]+"${cmux_next_swift_args[@]}"} --show-bin-path)" "$root/scripts/cmux-next/compile-string-catalogs.sh"
-# The exports are written before each test compares them, so an export test
-# that fails for another reason still leaves them current (and says so). One
-# that fails before it writes leaves an old copy: each export must be newer
-# than this marker (checked below).
+CMUX_SWIFT_BIN_PATH="$bin" "$root/scripts/cmux-next/compile-string-catalogs.sh"
+# Each export must be newer than this marker (checked below), so a run that
+# fails before it writes never hands over an old copy as fresh.
 marker="$(mktemp)"
 cmux_next_cleanup_paths+=("$marker")
-sleep 1 # the marker's mtime must be older than anything the tests write
-status=0
-CMUX_UPDATE_MDM_SCHEMA=1 swift test ${cmux_next_swift_args[@]+"${cmux_next_swift_args[@]}"} --skip-build --filter ManagedPreferencesManifestTests || status=$?
-CMUX_UPDATE_ACTION_SURFACES=1 swift test ${cmux_next_swift_args[@]+"${cmux_next_swift_args[@]}"} --skip-build --filter SettingsSchemaExportTests || status=$?
-(( status == 0 )) || echo "::warning::a settings export test failed (exit $status); the exports were still regenerated"
+# What was already changed before the export: check-settings-exports.sh checks the BASE parent's
+# settings sources out in place (schemas/settings/source/*.json among them) before it exports from
+# them, so those show in `git status` without the export writing them.
+dirty_before="$(cd "$root" && git status --porcelain --untracked-files=all -- docs/mdm schemas/settings)"
+sleep 1 # sleep-ok: an mtime-granularity tick: the marker must be older than anything the tool writes
+"$bin/CmuxNextSettingsExport" "$root"
 cd "$root"
 # A file the exporters wrote that this list does not name would be left stale
-# by the bots: refuse it.
+# by the bots: refuse it. Written: a status line that is new, or a file newer than the marker.
 listed="$(printf '%s\n' "${exports[@]}")"
-while IFS= read -r path; do
-  [[ -n "$path" ]] || continue
-  grep -qxF -- "$path" <<<"$listed" || { echo "::error::the settings export wrote $path, which regenerate-settings-exports.sh does not list" >&2; exit 1; }
-done < <(git status --porcelain --untracked-files=all -- docs/mdm schemas/settings | cut -c4-)
+while IFS= read -r line; do
+  [[ -n "$line" ]] || continue
+  path="${line:3}"
+  grep -qxF -- "$path" <<<"$listed" && continue
+  grep -qxF -- "$line" <<<"$dirty_before" && [[ ! "$path" -nt "$marker" ]] && continue
+  echo "::error::the settings export wrote $path, which regenerate-settings-exports.sh does not list" >&2; exit 1
+done < <(git status --porcelain --untracked-files=all -- docs/mdm schemas/settings)
 for file in "${exports[@]}"; do
   # OUT can sit in a kept .build (a fleet warm slot): drop an earlier run's copy, so only
   # what this run regenerated is handed over.

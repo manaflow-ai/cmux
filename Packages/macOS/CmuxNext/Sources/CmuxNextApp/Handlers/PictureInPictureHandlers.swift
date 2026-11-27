@@ -99,27 +99,27 @@ enum PictureInPictureHandlers {
 
 enum PictureInPictureStrings {
     static var exit: String {
-        String(localized: "pictureInPicture.menu.exit", defaultValue: "Exit Picture in Picture", table: "Music", bundle: .module)
+        String(localized: "pictureInPicture.menu.exit", defaultValue: "Exit Picture in Picture", table: "Music", bundle: .module.inAppLanguage)
     }
 
     static var off: String {
         String(localized: "pictureInPicture.refusal.off",
                defaultValue: "Picture in Picture is turned off: turn on media.pictureInPicture.enabled in Settings › Browser › Media.",
-               table: "Music", bundle: .module)
+               table: "Music", bundle: .module.inAppLanguage)
     }
 
     static var noVideo: String {
         String(localized: "pictureInPicture.refusal.noVideo", defaultValue: "No video to show in Picture in Picture.",
-               table: "Music", bundle: .module)
+               table: "Music", bundle: .module.inAppLanguage)
     }
 
     static var unsupported: String {
         String(localized: "pictureInPicture.refusal.unsupported", defaultValue: "This video can’t play in Picture in Picture.",
-               table: "Music", bundle: .module)
+               table: "Music", bundle: .module.inAppLanguage)
     }
 
     static var needsPage: String {
         String(localized: "pictureInPicture.refusal.needsPage", defaultValue: "Picture in Picture works on a web page’s video.",
-               table: "Music", bundle: .module)
+               table: "Music", bundle: .module.inAppLanguage)
     }
 }
