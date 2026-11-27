@@ -125,8 +125,12 @@ struct MacScreenHomeSnapshot: Equatable {
     /// Reads `home`'s models (under Observation, so a change of any value read here redraws the page).
     @MainActor
     init(home: MacScreenHomeView) {
+        let hub = home.devices?.box.hub
+        let registered = hub?.thisDevice != nil || hub?.status == .ready
+        // Recovery and sign-out must end the hold, even when no sharing note is drawn.
+        let hubNote = home.hubQuiet.note(hub?.status, registered: registered)
         if let source = home.devices {
-            if let hub = source.box.hub {
+            if let hub {
                 let listed = Self.listed(hub.otherDevices)
                 if listed.isEmpty {
                     devices = .note(Self.emptyNote(DeviceDiscovery.of(hub, shown: 0)))
@@ -140,14 +144,13 @@ struct MacScreenHomeSnapshot: Equatable {
                 // This Mac is drawn whenever signed in: before this device is registered, the switch waits and
                 // says why. Gating the section on registration hid it (and its permissions) for as long as the
                 // hub was unreachable (run 45954248647: socket connect timeouts, no This Mac section).
-                let registered = hub.thisDevice != nil || hub.status == .ready
                 let hubHost = source.hubHost
                 sharing = Sharing(isSharing: hubHost.isSharing, busy: hubHost.busy || !registered,
                                   screenRecordingGranted: home.host.screenRecordingGranted,
                                   accessibilityGranted: home.host.accessibilityGranted,
                                   session: hubHost.session, lastError: hubHost.lastError,
                                   showFirstUse: Self.showsFirstUse(store: source.store, isSharing: hubHost.isSharing),
-                                  hubNote: registered ? nil : home.hubQuiet.note(hub.status))
+                                  hubNote: hubNote)
             } else {
                 devices = source.box.startupMessage.map(Devices.note) ?? Self.setupDevices(configured: source.box.configured,
                                                                                                restoring: source.box.restoring || source.box.connecting)
@@ -621,9 +624,14 @@ final class MacScreenHubQuiet {
         joining = QuietHold(owner: "mac-screen-home-hub-joining", delay: MacScreenHomeSnapshot.hubJoiningDelay, clock: clock)
     }
 
-    /// The note for `status` while this Mac is not registered: a failure at once, the joining line once it has lasted.
-    func note(_ status: DeviceHub.Status) -> String? {
+    /// Read on every snapshot, including recovery and sign-out, so each new interruption gets its own hold.
+    /// An unregistered Mac shows a failure at once, or the joining line once it has lasted.
+    func note(_ status: DeviceHub.Status?, registered: Bool = false) -> String? {
         _ = revealed
+        guard let status, !registered, status != .ready else {
+            joining.update(false) {}
+            return nil
+        }
         var failed = false
         if case .failed = status { failed = true }
         joining.update(!failed) { [weak self] in self?.revealed &+= 1 }
