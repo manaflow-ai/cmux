@@ -138,7 +138,8 @@ impl Daemon {
     }
 }
 
-/// A client attached to one terminal in bytes mode: every `output` event's bytes arrive on `outputs`.
+/// A client attached to one terminal in bytes mode: the `vt-state` replay and every `output` event's bytes
+/// arrive on `outputs`.
 struct Attached {
     writer: UnixStream,
     outputs: mpsc::Receiver<Vec<u8>>,
@@ -154,7 +155,8 @@ impl Attached {
             for line in BufReader::new(reader).lines() {
                 let Ok(line) = line else { return };
                 let Ok(value) = serde_json::from_str::<Value>(&line) else { continue };
-                if value["event"] == "output"
+                // The attach answers with a `vt-state` replay of the screen; live bytes follow as `output`.
+                if (value["event"] == "output" || value["event"] == "vt-state")
                     && let Some(data) = value["data"].as_str()
                     && tx.send(b64().decode(data).unwrap_or_default()).is_err()
                 {
@@ -163,7 +165,7 @@ impl Attached {
             }
         });
         let mut attached = Self { writer: stream, outputs, surface };
-        attached.submit(json!({"cmd": "attach-surface", "surface": surface}));
+        attached.submit(json!({"cmd": "attach-surface", "surface": surface, "mode": "bytes"}));
         attached
     }
 
