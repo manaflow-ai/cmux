@@ -87,7 +87,7 @@ process start to the typed key taken. With no key window at that frame (a backgr
 probe takes the front itself, as a Dock launch does, and the round's `probe_focus` says so (`app_inactive`,
 `window_not_key`; `key` when a window was key). `terminal.probe_no_key_window` (no window could take keys) fails the
 round. A chat round's launch has CMUX_NEXT_LAUNCH_TYPE_PROBE_CHAT=1 instead: the app types its key when the front chat
-first drew (`agent_pane.painted`), into the composer, and marks `chat.probe_key_typed` (a key at the first frame lands
+first drew live (`agent_pane.page_painted`), into the composer, and marks `chat.probe_key_typed` (a key at the first frame lands
 before any chat page is up, so the composer's echo never came and no chat round read a number). A round whose app typed
 it and whose composer never echoed fails; a build without the chat probe (no `chat.probe_*` mark within
 CHAT_PROBE_GRACE_S of the paint) ends when the chat drew, `unmeasured`, its paint number standing, and fails nothing.
@@ -571,7 +571,7 @@ def input_path(post_access: bool, chosen: str = "auto") -> str:
 
 def launch_env(env: dict, probe: Path, path: str, delay_ms: int = 0, which: str = "terminal") -> dict:
     """The measured launch's environment: the typing probe always, on the in_app path the app's own key (a terminal
-    round's at the first frame, a chat round's at the chat's first paint), and with `delay_ms` the positive control's
+    round's at the first frame, a chat round's at the live chat's first paint), and with `delay_ms` the positive control's
     known wait before the first window (LaunchTestDelay)."""
     out = {**env, "CMUX_NEXT_TYPING_PROBE": str(probe)}
     if path == "in_app":
