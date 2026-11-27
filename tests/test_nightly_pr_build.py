@@ -159,6 +159,21 @@ class Workflow(unittest.TestCase):
         self.assertIn("if: ${{ needs.route.outputs.swift == 'true' }}", match.group(1))
         self.assertIn("vars.CI_EVAL_STEP_GATEWAY || vars.CI_OVERFLOW_LINUX || 'cmux-linux'", match.group(1))
 
+    def test_queue_wait_is_bounded_and_an_unstarted_step_is_cancelled(self) -> None:
+        # Leo, 2026-11-25: "Ok well we can't be letting important rfds like that take breaks unless I put in
+        # fleet wide pauses, esp when this is stuff that materially improves the app". A 3600 s queue wait held a
+        # Mac mini gateway runner for an hour per arch and gave no verdict (36 of 102 jobs, 2026-11-27).
+        text = (ROOT / npb.WORKFLOW).read_text()
+        match = re.search(r'QUEUE_WAIT_S: "(\d+)"', text)
+        self.assertIsNotNone(match)
+        self.assertLessEqual(int(match.group(1)), 1200)
+        self.assertIn('--queue-timeout "$QUEUE_WAIT_S"', text)
+        self.assertNotRegex(text, r"--queue-timeout [0-9]{4,}")
+        self.assertIn('"$client" cancel "$step"', text)
+        timeout = re.search(r"(?ms)^  swift-fleet:\n.*?timeout-minutes: (\d+)", text)
+        self.assertIsNotNone(timeout)
+        self.assertLessEqual(int(timeout.group(1)), 90)
+
 
 if __name__ == "__main__":
     unittest.main()
