@@ -115,6 +115,49 @@ pub(crate) struct InlineLoad {
     pub allocations_in_window: usize,
 }
 
+fn lease_expired(lease: &CircuitLease, now_ms: u64) -> bool {
+    matches!(lease, CircuitLease::Pending { deadline_ms, .. } | CircuitLease::Active { deadline_ms } if *deadline_ms <= now_ms)
+}
+
+/// Which slot circuit limit refused an allocation, with the counts that reached it. Sent as the message of the
+/// `slot-circuit-capacity` error, so a refused move says whether the slot holds too many circuits (and how many
+/// are pending, active or inline) or allocated too many in the window.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum CapacityRefusal {
+    /// The join deadline had already passed.
+    Expired,
+    /// `MAX_PENDING_CIRCUITS_PER_SLOT` unjoined circuits.
+    Pending { pending: usize },
+    /// `MAX_CIRCUITS_PER_SLOT` live circuits: `ledger` leases (`pending` of them unjoined) plus `inline` ones.
+    Live { ledger: usize, pending: usize, inline: usize },
+    /// `MAX_CIRCUIT_ALLOCATIONS_PER_WINDOW` allocations in the window: `ledger` leased plus `inline`.
+    Rate { ledger: usize, inline: usize },
+}
+
+impl std::fmt::Display for CapacityRefusal {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match *self {
+            Self::Expired => f.write_str("slot circuit join deadline already passed"),
+            Self::Pending { pending } => write!(
+                f,
+                "slot pending circuit limit reached: {pending} unjoined of {MAX_PENDING_CIRCUITS_PER_SLOT}"
+            ),
+            Self::Live { ledger, pending, inline } => write!(
+                f,
+                "slot live circuit limit reached: {ledger} leased ({pending} unjoined, {} active) + {inline} \
+                 inline of {MAX_CIRCUITS_PER_SLOT}",
+                ledger.saturating_sub(pending)
+            ),
+            Self::Rate { ledger, inline } => write!(
+                f,
+                "slot circuit allocation rate limit reached: {ledger} leased + {inline} inline in \
+                 {}s of {MAX_CIRCUIT_ALLOCATIONS_PER_WINDOW}",
+                CIRCUIT_ALLOCATION_WINDOW_MS / 1_000
+            ),
+        }
+    }
+}
+
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub(crate) struct CircuitLedger {
     entries: BTreeMap<String, CircuitLease>,
@@ -165,26 +208,48 @@ impl CircuitLedger {
         route: Option<PendingRoute>,
         inline: InlineLoad,
     ) -> bool {
+        self.try_reserve_beside(circuit, deadline_ms, now_ms, route, inline).is_ok()
+    }
+
+    /// `reserve_beside`, naming the limit a refusal hit and the counts that hit it.
+    pub fn try_reserve_beside(
+        &mut self,
+        circuit: String,
+        deadline_ms: u64,
+        now_ms: u64,
+        route: Option<PendingRoute>,
+        inline: InlineLoad,
+    ) -> Result<(), CapacityRefusal> {
         self.prune(now_ms);
+        if deadline_ms <= now_ms {
+            return Err(CapacityRefusal::Expired);
+        }
         let pending = self
             .entries
             .values()
             .filter(|lease| matches!(lease, CircuitLease::Pending { .. }))
             .count();
-        if deadline_ms <= now_ms
-            || pending >= MAX_PENDING_CIRCUITS_PER_SLOT
-            || self.entries.len().saturating_add(inline.live) >= MAX_CIRCUITS_PER_SLOT
-            || self.allocations_in_window.saturating_add(inline.allocations_in_window)
-                >= MAX_CIRCUIT_ALLOCATIONS_PER_WINDOW
+        if pending >= MAX_PENDING_CIRCUITS_PER_SLOT {
+            return Err(CapacityRefusal::Pending { pending });
+        }
+        let ledger = self.entries.len();
+        if ledger.saturating_add(inline.live) >= MAX_CIRCUITS_PER_SLOT {
+            return Err(CapacityRefusal::Live { ledger, pending, inline: inline.live });
+        }
+        if self.allocations_in_window.saturating_add(inline.allocations_in_window)
+            >= MAX_CIRCUIT_ALLOCATIONS_PER_WINDOW
         {
-            return false;
+            return Err(CapacityRefusal::Rate {
+                ledger: self.allocations_in_window,
+                inline: inline.allocations_in_window,
+            });
         }
         if self.allocations_in_window == 0 {
             self.allocation_window_started_ms = now_ms;
         }
         self.allocations_in_window += 1;
         self.entries.insert(circuit, CircuitLease::Pending { deadline_ms, route });
-        true
+        Ok(())
     }
 
     pub fn activate(&mut self, circuit: &str, now_ms: u64) -> bool {
@@ -259,13 +324,15 @@ impl CircuitLedger {
     /// Whether one more inline circuit fits beside the ledger's: the same total and allocation-rate limits
     /// `reserve_beside` applies, read without writing the ledger.
     pub fn admits_inline(&self, now_ms: u64, inline: InlineLoad) -> bool {
-        let live = self
-            .entries
-            .values()
-            .filter(|lease| {
-                !matches!(lease, CircuitLease::Pending { deadline_ms, .. } | CircuitLease::Active { deadline_ms } if *deadline_ms <= now_ms)
-            })
-            .count();
+        self.inline_refusal(now_ms, inline).is_none()
+    }
+
+    /// `admits_inline`'s refusal, if any: the limit hit and the counts that hit it.
+    pub fn inline_refusal(&self, now_ms: u64, inline: InlineLoad) -> Option<CapacityRefusal> {
+        let live = self.entries.values().filter(|lease| !lease_expired(lease, now_ms));
+        let (ledger, pending) = live.fold((0_usize, 0_usize), |(total, pending), lease| {
+            (total + 1, pending + usize::from(matches!(lease, CircuitLease::Pending { .. })))
+        });
         let in_window = if self.allocations_in_window > 0
             && now_ms
                 < self.allocation_window_started_ms.saturating_add(CIRCUIT_ALLOCATION_WINDOW_MS)
@@ -274,9 +341,18 @@ impl CircuitLedger {
         } else {
             0
         };
-        live.saturating_add(inline.live) < MAX_CIRCUITS_PER_SLOT
-            && in_window.saturating_add(inline.allocations_in_window)
-                < MAX_CIRCUIT_ALLOCATIONS_PER_WINDOW
+        if ledger.saturating_add(inline.live) >= MAX_CIRCUITS_PER_SLOT {
+            return Some(CapacityRefusal::Live { ledger, pending, inline: inline.live });
+        }
+        if in_window.saturating_add(inline.allocations_in_window)
+            >= MAX_CIRCUIT_ALLOCATIONS_PER_WINDOW
+        {
+            return Some(CapacityRefusal::Rate {
+                ledger: in_window,
+                inline: inline.allocations_in_window,
+            });
+        }
+        None
     }
 
     pub fn is_empty(&self) -> bool {

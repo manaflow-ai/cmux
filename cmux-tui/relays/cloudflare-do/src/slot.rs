@@ -12,9 +12,10 @@ use worker::{
 };
 
 use crate::abuse::{
-    CIRCUIT_IDLE_TIMEOUT_MS, CIRCUITS_STORAGE_KEY, CLIENT_CONTROL_IDLE_TIMEOUT_MS, CircuitLedger,
-    DAEMON_CONTROL_IDLE_TIMEOUT_MS, InlineLoad, PendingRoute, SLOT_HANDSHAKE_TIMEOUT_MS,
-    SlotEndpoint, SlotSocketCounts, admit_slot_socket, websocket_counts_toward_capacity,
+    CIRCUIT_IDLE_TIMEOUT_MS, CIRCUITS_STORAGE_KEY, CLIENT_CONTROL_IDLE_TIMEOUT_MS, CapacityRefusal,
+    CircuitLedger, DAEMON_CONTROL_IDLE_TIMEOUT_MS, InlineLoad, PendingRoute,
+    SLOT_HANDSHAKE_TIMEOUT_MS, SlotEndpoint, SlotSocketCounts, admit_slot_socket,
+    websocket_counts_toward_capacity,
 };
 use crate::attachment::{InlineState, SlotAttachment, SlotPhase};
 use crate::auth::{DEFAULT_TICKET_ISSUER, TicketExpectation, issue_ticket, verify_ticket};
@@ -302,10 +303,12 @@ impl RelaySlot {
     /// The slot's live inline circuits and their allocations in the window: read from the open sockets' attachments
     /// and memory, with no storage access (`crate::inline`).
     fn inline_load(&self, now_ms: u64) -> InlineLoad {
-        let live =
-            live_inline_circuits(self.state.get_websockets().into_iter().filter_map(|socket| {
+        let live = live_inline_circuits(
+            self.state.get_websockets().into_iter().filter_map(|socket| {
                 Some((socket.as_ref().ready_state(), Self::attachment(&socket).ok()?))
-            }));
+            }),
+            now_ms,
+        );
         self.inline_window.borrow().load(live, now_ms)
     }
 
@@ -338,15 +341,17 @@ impl RelaySlot {
         deadline_ms: u64,
         now_ms: u64,
         route: PendingRoute,
-    ) -> Result<bool> {
+    ) -> Result<Result<(), CapacityRefusal>> {
         let mut ledger = self.circuits().await?;
         let load = self.inline_load(now_ms);
-        if !ledger.reserve_beside(circuit.0.clone(), deadline_ms, now_ms, Some(route), load) {
-            return Ok(false);
+        if let Err(refusal) =
+            ledger.try_reserve_beside(circuit.0.clone(), deadline_ms, now_ms, Some(route), load)
+        {
+            return Ok(Err(refusal));
         }
         self.write_circuits(&ledger).await?;
         self.ensure_cleanup_alarm(deadline_ms).await?;
-        Ok(true)
+        Ok(Ok(()))
     }
 
     async fn activate_circuit(&self, circuit: &str, now_ms: u64) -> Result<bool> {
@@ -612,12 +617,9 @@ impl RelaySlot {
         // Everything below is synchronous: the standby chosen is the one taken.
         let now_ms = self.now_ms();
         let load = self.inline_load(now_ms);
-        if !ledger.admits_inline(now_ms, load) {
-            Self::capacity(
-                socket,
-                "slot-circuit-capacity",
-                "slot circuit quota or allocation rate limit was reached",
-            );
+        if let Some(refusal) = ledger.inline_refusal(now_ms, load) {
+            worker::console_warn!("slot-circuit-capacity (inline): {refusal}");
+            Self::capacity(socket, "slot-circuit-capacity", &refusal.to_string());
             return Ok(InlineOutcome::Refused);
         }
         let Some((standby, standby_attachment)) = self.takeable_standby(&request.slot, now_ms)
@@ -1094,12 +1096,11 @@ impl RelaySlot {
         )?;
         let join_deadline_ms = join_expires_at.saturating_mul(1_000);
         let route = PendingRoute { lane: lane.clone(), generation, region: region.clone() };
-        if !self.reserve_pending_circuit(&circuit, join_deadline_ms, now_ms, route).await? {
-            Self::capacity(
-                socket,
-                "slot-circuit-capacity",
-                "slot circuit quota or allocation rate limit was reached",
-            );
+        if let Err(refusal) =
+            self.reserve_pending_circuit(&circuit, join_deadline_ms, now_ms, route).await?
+        {
+            worker::console_warn!("slot-circuit-capacity: {refusal}");
+            Self::capacity(socket, "slot-circuit-capacity", &refusal.to_string());
             return Ok(Allocation::Sent);
         }
         // The awaits above let a Register replace the daemon, or its socket

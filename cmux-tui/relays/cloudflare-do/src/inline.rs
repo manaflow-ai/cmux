@@ -109,16 +109,25 @@ pub(crate) fn inline_peer<T>(
     })
 }
 
-/// Live inline circuits: open `Inline` client sockets, one per circuit.
+/// Live inline circuits: open `Inline` client sockets, one per circuit, whose circuit is still inside its idle
+/// deadline (the later of its two sockets', `latest_inline_deadline`). A circuit past that deadline is closed by
+/// the next alarm; until then it does not hold capacity, the same rule `websocket_counts_toward_capacity` applies
+/// to every other socket the slot counts.
 pub(crate) fn live_inline_circuits(
     sockets: impl IntoIterator<Item = (u16, SlotAttachment)>,
+    now_ms: u64,
 ) -> usize {
-    sockets
+    let open: Vec<SlotAttachment> = sockets
         .into_iter()
         .filter(|(ready_state, attachment)| {
-            attachment.phase == SlotPhase::Inline
-                && attachment.relay.role == RelayRole::Client
-                && websocket_is_open(*ready_state)
+            attachment.phase == SlotPhase::Inline && websocket_is_open(*ready_state)
+        })
+        .map(|(_, attachment)| attachment)
+        .collect();
+    open.iter()
+        .filter(|attachment| {
+            attachment.relay.role == RelayRole::Client
+                && latest_inline_deadline(attachment.relay.circuit.as_ref(), open.iter()) > now_ms
         })
         .count()
 }

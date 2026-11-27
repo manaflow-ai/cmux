@@ -2486,3 +2486,26 @@ async fn a_daemon_registers_on_a_second_socket_when_the_first_open_hangs() {
         .expect("relay registration shutdown did not complete");
     server.abort();
 }
+
+#[test]
+fn retryable_allocation_error_carries_the_relays_reason() {
+    let error = relay_unavailable_detail(
+        "relay allocation is temporarily unavailable",
+        "slot-circuit-capacity",
+        "slot live circuit limit reached: 30 leased (2 unjoined, 28 active) + 2 inline of 32",
+    );
+    assert_eq!(
+        error.to_string(),
+        relay_unavailable("relay allocation is temporarily unavailable", "slot-circuit-capacity")
+            .to_string()
+            + ": slot live circuit limit reached: 30 leased (2 unjoined, 28 active) + 2 inline of 32"
+    );
+    assert!(error.to_string().contains("(relay code slot-circuit-capacity): slot live"));
+    for hostile in ["", "line\nbreak", &"x".repeat(201)] {
+        assert_eq!(
+            relay_unavailable_detail("prefix", "slot-busy", hostile).to_string(),
+            relay_unavailable("prefix", "slot-busy").to_string(),
+            "{hostile:?} is not shown"
+        );
+    }
+}

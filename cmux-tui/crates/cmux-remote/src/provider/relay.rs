@@ -1470,13 +1470,14 @@ async fn read_until_allocation(
             {
                 return Ok(Allocation::Inline(circuit));
             }
-            RelayControl::Error { code, retryable, .. } => {
+            RelayControl::Error { code, message, retryable } => {
                 return Err(if relay_authentication_error(&code) {
                     AllocationError::Authentication(relay_rejection())
                 } else if retryable {
-                    AllocationError::Reconnect(relay_unavailable(
+                    AllocationError::Reconnect(relay_unavailable_detail(
                         "relay allocation is temporarily unavailable",
                         &code,
+                        &message,
                     ))
                 } else {
                     AllocationError::Terminal(relay_rejection())
@@ -2306,6 +2307,27 @@ fn relay_unavailable(message: &str, code: &str) -> ProviderError {
         ));
     }
     relay_carrier_error(format!("{message} (relay code {})", sanitize_relay_code(code)))
+}
+
+/// `relay_unavailable` with the relay's own message after the code, so a refusal says which limit it hit (a
+/// `slot-circuit-capacity` refusal names the live or rate limit and its counts). The message is shown only when
+/// it is short printable ASCII; the code stays in its `(relay code ...)` parenthetical for parsers.
+fn relay_unavailable_detail(message: &str, code: &str, detail: &str) -> ProviderError {
+    let error = relay_unavailable(message, code);
+    match (error, sanitize_relay_detail(detail)) {
+        (ProviderError::Link(LinkError::Transport(text)), Some(detail)) => {
+            relay_carrier_error(format!("{text}: {detail}"))
+        }
+        (error, _) => error,
+    }
+}
+
+fn sanitize_relay_detail(detail: &str) -> Option<&str> {
+    let detail = detail.trim();
+    (!detail.is_empty()
+        && detail.len() <= 200
+        && detail.bytes().all(|b| b.is_ascii_graphic() || b == b' '))
+    .then_some(detail)
 }
 
 /// A relay's error code as shown: a short word as is, anything else `other`.
