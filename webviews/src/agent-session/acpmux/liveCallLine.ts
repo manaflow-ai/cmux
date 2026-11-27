@@ -238,9 +238,23 @@ export function callOnly(previous: AcpmuxSnapshot, next: AcpmuxSnapshot): { line
 /// The pane kept its snapshot for a hidden call: the line the transcript drew is `line` now.
 export function setLiveLine(line: AcpmuxRow): void {
   if (!drawn) return;
+  const shown = entry?.from === drawn.line ? entry.to : drawn.line;
+  // A call that leaves the line's words, counts and look as they are (a read's end under one that runs
+  // on, its status only) draws nothing new: the line keeps its render and reads `line` at its next one.
+  // Before, every hidden call drew the line again (`content` 1 a tool_call record).
+  if (entry?.from === drawn.line && drawsSame(shown, line)) {
+    entry = { from: drawn.line, to: line, seq: entry.seq };
+    ahead = true;
+    return;
+  }
   entry = { from: drawn.line, to: line, seq: (seq += 1) };
   ahead = true;
   for (const listener of listeners) listener();
+}
+
+/// Whether `a` and `b` draw the same line: the same in every value but the row's version.
+function drawsSame(a: AcpmuxRow, b: AcpmuxRow): boolean {
+  return a.id === b.id && sameShape({ ...a, version: 0 }, { ...b, version: 0 }, COMPARE_DEPTH);
 }
 
 /// Lines moved by calls without the pane, for the live line's pulse (VirtualTranscript).
