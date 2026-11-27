@@ -9,12 +9,17 @@ thing you click is, and how fast it moves. The numbers live in `webviews/src/ui/
 
 ## Spacing
 
-- **8 px floor** (`--ds-space-2`): a chevron's 12 px glyph box stands at least 8 px from the nearest text or
-  glyph beside it: a pager's count, a row's label, another chevron. The box, not the ink: a chevron's ink
+- **8 px floor** (`--ds-space-2`), for a chevron that is its own target or glyph slot: its 12 px glyph box
+  stands at least 8 px from the nearest text or glyph beside it: a pager's count, a row's label, another
+  chevron. The box, not the ink: a chevron's ink
   is narrower than its box, so 8 px box to box reads as about 10 px of air.
 - **Pagers** (`‹ n of m ›`, `‹ n/m ›`): 24 px steps with a `--ds-space-1` gap to the count, which puts the
   glyph 10 px from the words. The count keeps tabular numerals so the chevrons do not move as it changes.
   Today: the composer hat 10, the question card 11.5, the version switcher 11.
+- **A trailing chevron inside a pill** (`label ⌄`: the composer strip's host, folder and model pickers, a
+  menu button) is part of one control, so it is measured in ink: 4 to 8 px of air from the label's last
+  glyph to the chevron's ink (`--grid-chevron-gap` is the 4 px floor). These are the chevrons Leo
+  pictured; the pill check guards them, not the pager check.
 - **A disclosure chevron leading a row** sits in the row's icon slot, with the row's own icon-to-label gap
   (never less than 8 px to the label).
 - **Two chevrons side by side** with no words between them (a `‹ ›` pair) stand 8 px apart, box to box,
@@ -47,6 +52,7 @@ thing you click is, and how fast it moves. The numbers live in `webviews/src/ui/
   expects it to fail, so the check keeps biting.
 - `webviews/test/chevron-motion.test.ts` reads every stylesheet and fails a chevron or disclosure rule that
   times its `transform` with a literal or with a token slower than `--cmux-motion-standard`.
+- The composer strip's pills have their own ink-gap check, from the pills fix (the same Leo ask).
 - A new pager adds its gallery entry to `PAGERS` in `chevron-spacing.test.ts`.
 
 ## Variants
