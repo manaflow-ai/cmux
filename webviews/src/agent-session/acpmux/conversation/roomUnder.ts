@@ -212,10 +212,7 @@ export function roomUnder(input: RoomUnderInput): RoomUnder {
   // and rest on the folded hat. Held, it left the list's height as blank room under the last row
   // until the rows grew again, the transcript's end gone from view over the hat's one line (Leo,
   // ask-31a1e4b192, 2026-11-27: "this isn't great").
-  const trayBase = Math.min(
-    dockTray,
-    input.lineLast ? Math.max(heldBase, dockTray - input.restExtra / 2) : heldBase,
-  );
+  const trayBase = Math.min(dockTray, input.lineLast ? Math.max(heldBase, dockTray - input.restExtra / 2) : heldBase);
   const trayHold = Math.min(dockSpace, dockTray - trayBase);
   // The overlay card's growth where the view follows but cannot lift, until the rows move.
   const cardHolds =
