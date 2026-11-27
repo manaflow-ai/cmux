@@ -1970,6 +1970,28 @@ fn print_listen(listen: &Value) {
     println!("{}\t{}\t{}\t{expires}", field("id"), field("teamAddress"), field("listener"));
 }
 
+/// `session info`'s CPU line from its `cpuClass`: the class asked for, the one it runs at now,
+/// and the time it spent demoted. None when the chat has no live harness.
+pub(crate) fn cpu_class_line(v: &Value) -> Option<String> {
+    let c = v.get("cpuClass").filter(|c| c.is_object())?;
+    let ms = c.get("demotedMs").and_then(Value::as_u64).unwrap_or(0);
+    let spells = c.get("demotions").and_then(Value::as_u64).unwrap_or(0);
+    let mut line = format!(
+        "{}, now {} (demoted {:.0} s in {spells} spell{})",
+        c.get("class").and_then(Value::as_str).unwrap_or("-"),
+        c.get("now").and_then(Value::as_str).unwrap_or("-"),
+        ms as f64 / 1000.0,
+        if spells == 1 { "" } else { "s" },
+    );
+    if c.get("waitedOn").and_then(Value::as_bool) == Some(true) {
+        line.push_str("; the person waits on its turn");
+    }
+    if c.pointer("/host/yielding").and_then(Value::as_bool) == Some(true) {
+        line.push_str("; the host is contended");
+    }
+    Some(line)
+}
+
 #[cfg(test)]
 mod tests {
     #[test]
@@ -2135,26 +2157,4 @@ mod tests {
         assert!(!new_requires_tty(true, true, false, false, false));
         assert!(new_requires_tty(false, true, false, false, true));
     }
-}
-
-/// `session info`'s CPU line from its `cpuClass`: the class asked for, the one it runs at now,
-/// and the time it spent demoted. None when the chat has no live harness.
-pub(crate) fn cpu_class_line(v: &Value) -> Option<String> {
-    let c = v.get("cpuClass").filter(|c| c.is_object())?;
-    let ms = c.get("demotedMs").and_then(Value::as_u64).unwrap_or(0);
-    let spells = c.get("demotions").and_then(Value::as_u64).unwrap_or(0);
-    let mut line = format!(
-        "{}, now {} (demoted {:.0} s in {spells} spell{})",
-        c.get("class").and_then(Value::as_str).unwrap_or("-"),
-        c.get("now").and_then(Value::as_str).unwrap_or("-"),
-        ms as f64 / 1000.0,
-        if spells == 1 { "" } else { "s" },
-    );
-    if c.get("waitedOn").and_then(Value::as_bool) == Some(true) {
-        line.push_str("; the person waits on its turn");
-    }
-    if c.pointer("/host/yielding").and_then(Value::as_bool) == Some(true) {
-        line.push_str("; the host is contended");
-    }
-    Some(line)
 }
