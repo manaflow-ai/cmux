@@ -447,10 +447,10 @@ final class WindowManager {
         }
         let controller = WindowController(state: state, services: services, frame: frame); DebugTimings.markLaunch("window.init_done")
         controller.window?.animationBehavior = Motion.panes.windowOpenBehavior(restoring: restoresSession(window.id)) // REOPEN-F2: a restore shows in place; a new window opens like one (#38128)
-        let sidebar = state.sidebarWidth == nil && window.id == launchWindowID ? cached?.sidebar : nil // a record's sidebar always wins
-        controller.sidebar.restore(width: state.sidebarWidth ?? sidebar?.width, hidden: sidebar?.collapsed ?? state.sidebarHidden)
+        DebugTimings.markLaunch("window.animation_set"); let sidebar = state.sidebarWidth == nil && window.id == launchWindowID ? cached?.sidebar : nil // a record's sidebar always wins
+        controller.sidebar.restore(width: state.sidebarWidth ?? sidebar?.width, hidden: sidebar?.collapsed ?? state.sidebarHidden); DebugTimings.markLaunch("window.sidebar_restored")
         if registry.value.isIncognito(window.id) { controller.showIncognitoBadge() }
-        services.dragSession.installWorkspaceHandoff(on: controller)
+        services.dragSession.installWorkspaceHandoff(on: controller); DebugTimings.markLaunch("window.handoff_installed")
         controllers.append(controller)
         // Its content goes in before it is ordered in (the launch snapshot's workspace, else the
         // connecting state), so its first frame on screen draws it, never the backdrop alone; the
