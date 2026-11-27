@@ -126,22 +126,18 @@ struct Journal;
 
 impl Source for Journal {
     fn read(&self, _: u32, _: u64, _: u32) -> Part {
-        Part::status(crate::wire::FAILED)
+        Part::status(wire::FAILED)
     }
 
     fn whole(&self, _: u32) -> Part {
-        Part::status(crate::wire::FAILED)
+        Part::status(wire::FAILED)
     }
 
     fn listing(&self, since: u64) -> Part {
         if since < 5 {
             return Part::status(CHANGED);
         }
-        Part::ok(
-            crate::listing_patch::Patch { from: since, to: since + 1, changes: Vec::new() }
-                .encode()
-                .unwrap(),
-        )
+        Part::ok(Patch { from: since, to: since + 1, changes: Vec::new() }.encode().unwrap())
     }
 }
 
