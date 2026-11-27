@@ -5,8 +5,12 @@ import Foundation
 /// CCmuxAppFFI as `cmux_settings_call`): parse, validation and defaults live there once; this
 /// module keeps the AppKit apply side.
 public nonisolated struct SettingsRust {
+<<<<<<< HEAD
     public init() {}
 
+=======
+    public nonisolated init() {}
+>>>>>>> 833e616b5b5
     /// Why an op gave no reply: a bad request or an op this library does not have.
     public struct Failure: Error, Sendable, Equatable {
         public let status: Int32

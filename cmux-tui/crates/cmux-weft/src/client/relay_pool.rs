@@ -203,3 +203,7 @@ async fn session(
         }
     }
 }
+
+#[cfg(test)]
+#[path = "relay_pool_seeded_tests.rs"]
+mod seeded_tests;

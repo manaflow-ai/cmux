@@ -178,9 +178,13 @@ SWIFT_JOB_INPUTS = (
     "cmux-tui/crates/cmux-cookie-sync/",
     "cmux-tui/crates/cmux-daemon-conn-core/",
     "cmux-tui/crates/cmux-daemon-launch-core/",
+    "cmux-tui/crates/cmux-update-prewarm-core/",
     "cmux-tui/crates/cmux-health-core/",
+    "cmux-tui/crates/cmux-sign-clone-sweep/",
     "cmux-tui/crates/cmux-launch-image/",
     "cmux-tui/crates/cmux-pane-pictures/",
+    "cmux-tui/crates/cmux-chat-markdown/",
+    "cmux-tui/crates/cmux-acpmux-remote-wire/",
     "cmux-tui/crates/cmux-screenshots/",
     "cmux-tui/crates/cmux-local-auth/",
     "cmux-tui/crates/cmux-imessage/",
@@ -192,6 +196,9 @@ SWIFT_JOB_INPUTS = (
     # The SDK's C ABI (the app's daemon client). The SDK it wraps (cmux-tui/bindings/rust/)
     # reaches the app only through the pinned FFI release, whose repin routes the Swift jobs.
     "cmux-tui/crates/cmux-sdk-ffi/",
+    # CmuxNextAgentPane's relay policy tables are generated from it at build time (AgentPanePolicyPlugin).
+    "cmux-tui/crates/cmux-agent-pane-policy/policy.json",
+    "scripts/cmux-next/gen-agent-pane-policy-swift.py",
     "cmux-tui/rust-toolchain.toml",
     "scripts/cmux-next/build-app-ffi.sh",
 )
@@ -409,6 +416,15 @@ NATIVE_SCRIPT_INPUTS = (
     "scripts/ci/check-screen-share-identity.sh", "scripts/ci/timeout.sh",
     # The LAN cache fetch download-prebuilt-ghosttykit.sh tries before GitHub (#57515).
     "scripts/ci/lan_cache_fetch.py",
+<<<<<<< HEAD
+=======
+    # zig-fetch-all.sh seeds the Ghostty build from these locked archives and download helpers.
+    "scripts/ci/seed-zig-package-archives.sh", "scripts/ci/zig-packages.lock",
+    "scripts/ci/zig-packages-r2.sh", "scripts/ci/github-release-download.sh",
+    "scripts/ci/github_release_asset.py",
+    # swiftpm-seed.sh runs this before resolving the app's binary artifacts.
+    "scripts/ci/swiftpm_prefetch_binary_artifacts.py",
+>>>>>>> 833e616b5b5
 )
 # The CI files that route themselves (the router reads them; the replay checks them).
 CI_SELF = (".github/workflows/cmux-next.yml", "scripts/ci/cmux_next_route.py", "scripts/ci/select_package_tests.py")
