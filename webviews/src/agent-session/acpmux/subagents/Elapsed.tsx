@@ -9,7 +9,8 @@
 import { useState, type ReactNode } from "react";
 import { Clock } from "../../../ui/Typography";
 import { formatDuration } from "../conversation/turns";
-import { useNow } from "./subagentGroupModel";
+import { groupElapsed, subagentTime, ticking, useNow } from "./subagentGroupModel";
+import type { Subagent } from "./subagentFold";
 
 /// How long something has run, as formatDuration writes it: from `since` to `until`, or to now while
 /// `until` is unset, then ticking each second on the page clock (subagentGroupModel.ts `useNow`, which
@@ -34,5 +35,21 @@ export function Elapsed({
   if (ended && stoppedAt === undefined) setStoppedAt(now);
   else if (!ended && stoppedAt !== undefined) setStoppedAt(undefined);
   const text = formatDuration(Math.max(0, (until ?? (ended ? (stoppedAt ?? now) : now)) - since));
+  return clock === undefined ? text : <Clock className={clock} text={text} />;
+}
+
+/// A subagent's elapsed label owns its page-clock subscription. The row that contains it can keep
+/// its identity and layout while this text changes once per second.
+export function SubagentElapsed({ agent, clock }: { agent: Subagent; clock?: string }): ReactNode {
+  const now = useNow(ticking(agent));
+  const text = subagentTime(agent, now);
+  return text === undefined ? null : clock === undefined ? text : <Clock className={clock} text={text} />;
+}
+
+/// The grouped transcript line's clock is a leaf too. Its header only re-renders when the group
+/// changes, while this label follows the shared page clock.
+export function GroupElapsed({ agents, clock }: { agents: readonly Subagent[]; clock?: string }): ReactNode {
+  const now = useNow(agents.some(ticking));
+  const text = formatDuration(groupElapsed(agents, now));
   return clock === undefined ? text : <Clock className={clock} text={text} />;
 }

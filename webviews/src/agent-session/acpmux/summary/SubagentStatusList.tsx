@@ -9,13 +9,13 @@
 import { useContext, memo } from "react";
 import { useConnectionQuietKeys } from "../../../ui/lasting";
 
-import { formatDuration } from "../conversation/turns";
 import { AgentLine } from "../subagents/AgentLine";
 import { ResumeControl, type ResumeActions } from "../subagents/ResumeControl";
 import { useT } from "../i18n";
 import { Icon } from "../icons/Icon";
 import { rowIconSize } from "../icons/iconSize";
-import { elapsed, SubagentHarnessContext, ticking, useNow } from "../subagents/subagentGroupModel";
+import { SubagentHarnessContext } from "../subagents/subagentGroupModel";
+import { SubagentElapsed } from "../subagents/Elapsed";
 import { type Subagent } from "../subagents/subagentFold";
 
 import { retrying, retryLabel, sessionRetry, sessionRetryKey } from "../subagents/retryState";
@@ -101,7 +101,6 @@ export function SubagentStatusList({
   // A retry waits out the shared bound before its row says so (retryState.ts ``retryWords``).
   const connectionQuiet = useConnectionQuietKeys();
   const chatHarness = useContext(SubagentHarnessContext);
-  const now = useNow(agents.some(ticking));
   const title = t("summary.subagents");
   const live =
     agents.filter((agent) => subagentStatus(agent, waiting) === "running").length +
@@ -124,7 +123,7 @@ export function SubagentStatusList({
           status={status}
           state={subagentStateText(t, agent, waiting, connectionQuiet)}
           working={Boolean(retrying(agent))}
-          time={formatDuration(elapsed(agent, now))}
+          time={<SubagentElapsed agent={agent} />}
           iconSize={ROW_ICON}
           depth={depth}
           current={agent.id === current}

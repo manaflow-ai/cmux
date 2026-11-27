@@ -41,18 +41,17 @@ import {
   useState,
   type ReactNode,
 } from "react";
-import { formatDuration, spanDuration } from "../conversation/turns";
+import { spanDuration } from "../conversation/turns";
 import { ChevronLeft, Close, Expand } from "../conversation/icons";
 import { useT, type Translate } from "../i18n";
 import { Icon } from "../icons/Icon";
 import type { AcpmuxRow } from "../model";
-import { useNow } from "../subagents/subagentGroupModel";
+import { Elapsed } from "../subagents/Elapsed";
 import { useOwnLog, type OwnLogChat, type ReadOwnLog } from "../subagents/subagentOwnLog";
 import type { WorkflowAgent } from "../summary/workflow";
 import type { TranscriptRead } from "../summary/workflowTranscript";
 import { useWorkflowTranscript } from "../summary/useWorkflowTranscript";
 import {
-  anyRunning,
   isLive,
   finishedGroupIds,
   type BackgroundGroup,
@@ -151,8 +150,6 @@ export function BackgroundTasksPanel({
   // and closing widens them again: a split's resize (schemas/layout-motion/contract.json `resize`), one
   // move of each box, as the side panel's (ArtifactPanel.tsx). Its own tab narrows nothing.
   useSplitOpenResize(onClose ? "background tasks" : undefined);
-  const live = anyRunning(groups);
-  const now = useNow(live);
   // The drill-ins, deepest last: an agent opened from another's transcript stacks on it, and Back
   // steps out one at a time, to the list last.
   const [stack, setStack] = useState<Drill[]>(() => (initialDrill ? [initialDrill] : []));
@@ -234,7 +231,6 @@ export function BackgroundTasksPanel({
                         key={task.id}
                         task={task}
                         openAt={focusedIn([task], target)}
-                        now={now}
                         onDrill={open}
                         onStop={onStop}
                         onOpenCommand={onOpenCommand}
@@ -245,7 +241,6 @@ export function BackgroundTasksPanel({
                         key={group.id}
                         group={group}
                         look={look}
-                        now={now}
                         startsOpen={section.id === "running" && index === 0}
                         onDrill={open}
                         onStop={onStop}
@@ -488,22 +483,30 @@ function PanelFrame({
   );
 }
 
-/// Elapsed while it runs; once ended, its duration ("856ms" under a second, spanDuration), or
-/// nothing when its end time is unknown (a command known only from the transcript) or it was
-/// stamped at one moment, never a time that keeps counting or a floored "0s".
-const time = (t: Translate, from: number | undefined, to: number | undefined, now: number, running: boolean) =>
-  from === undefined
-    ? undefined
-    : running
-      ? formatDuration(Math.max(0, now - from))
-      : to === undefined
-        ? undefined
-        : spanDuration(t, to - from);
+/// Elapsed while it runs, as a leaf so a clock tick never redraws the panel list. Ended work keeps
+/// its fixed duration, and work whose end is unknown keeps the empty time slot.
+function TaskElapsed({
+  t,
+  from,
+  to,
+  running,
+  className,
+}: {
+  t: Translate;
+  from?: number;
+  to?: number;
+  running: boolean;
+  className: string;
+}) {
+  if (from === undefined) return null;
+  if (running) return <Elapsed since={from} clock={className} />;
+  if (to === undefined) return null;
+  return <Clock className={className} text={spanDuration(t, to - from)} />;
+}
 
 function GroupBlock({
   group,
   look,
-  now,
   startsOpen,
   onDrill,
   onStop,
@@ -512,7 +515,6 @@ function GroupBlock({
 }: {
   group: BackgroundGroup;
   look: PanelLook;
-  now: number;
   startsOpen: boolean;
   onDrill(drill: Drill): void;
   onStop?(target: StopTarget): Promise<unknown>;
@@ -556,7 +558,7 @@ function GroupBlock({
         {!live && group.state === "failed" ? (
           <span className="acpmux-bg__time acpmux-bg__failed">{t("subagents.state.failed")}</span>
         ) : (
-          <Clock className="acpmux-bg__time" text={time(t, group.startedAt, group.endedAt, now, live) ?? ""} />
+          <TaskElapsed t={t} from={group.startedAt} to={group.endedAt} running={live} className="acpmux-bg__time" />
         )}
         <StopSlot target={group.stop} name={group.name} onStop={onStop} />
       </div>
@@ -575,7 +577,6 @@ function GroupBlock({
       {open && group.total > 0 && (
         <TaskList
           group={group}
-          now={now}
           nested={look !== "flat"}
           onDrill={onDrill}
           onStop={onStop}
@@ -607,14 +608,12 @@ const Disclosure = ({ open }: { open: boolean }) => (
 
 function TaskList({
   group,
-  now,
   nested,
   onDrill,
   onStop,
   onOpenCommand,
 }: {
   group: BackgroundGroup;
-  now: number;
   nested: boolean;
   onDrill(drill: Drill): void;
   onStop?(target: StopTarget): Promise<unknown>;
@@ -633,7 +632,7 @@ function TaskList({
     if (parent !== undefined) kids.set(parent, [...(kids.get(parent) ?? []), task]);
   }
   const taskRow = (task: BackgroundTask) => (
-    <TaskRow key={task.id} task={task} now={now} onDrill={onDrill} onStop={onStop} onOpenCommand={onOpenCommand} />
+    <TaskRow key={task.id} task={task} onDrill={onDrill} onStop={onStop} onOpenCommand={onOpenCommand} />
   );
   const row = (task: BackgroundTask) => {
     const under = kids.get(task.id);
@@ -684,7 +683,6 @@ function TaskList({
 function TaskRow({
   task,
   openAt,
-  now,
   onDrill,
   onStop,
   onOpenCommand,
@@ -692,7 +690,6 @@ function TaskRow({
   task: BackgroundTask;
   /// A request to open on this command (`focus`): its card opens and comes into view.
   openAt?: number;
-  now: number;
   onDrill(drill: Drill): void;
   onStop?(target: StopTarget): Promise<unknown>;
   onOpenCommand?(task: BackgroundTask): void;
@@ -712,7 +709,7 @@ function TaskRow({
         toolCallId={task.toolCallId}
         processId={task.processId}
         state={task.state}
-        time={time(t, task.startedAt, task.endedAt, now, task.state === "running")}
+        time={<TaskElapsed t={t} from={task.startedAt} to={task.endedAt} running={task.state === "running"} className="acpmux-bg-card__time" />}
         stop={<StopSlot target={task.stop} name={task.title} onStop={onStop} />}
         readOutput={readsOutput}
         openAt={openAt}
@@ -735,10 +732,7 @@ function TaskRow({
         </span>
         <span className="acpmux-bg__label">{task.title}</span>
       </Button>
-      <Clock
-        className="acpmux-bg__time"
-        text={time(t, task.startedAt, task.endedAt, now, task.state === "running") ?? ""}
-      />
+      <TaskElapsed t={t} from={task.startedAt} to={task.endedAt} running={task.state === "running"} className="acpmux-bg__time" />
       <StopSlot target={task.stop} name={task.title} onStop={onStop} />
     </div>
   );

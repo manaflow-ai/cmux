@@ -5,7 +5,8 @@ import { Spinner } from "../conversation/icons";
 import { useT } from "../i18n";
 import { Icon } from "../icons/Icon";
 import { StateMark } from "./StateMark";
-import { useNow } from "../subagents/subagentGroupModel";
+import { Elapsed } from "../subagents/Elapsed";
+import { Clock } from "../../../ui/Typography";
 import {
   workflowDetailRequest,
   workflowSignals,
@@ -34,9 +35,7 @@ export const WorkflowSummaries = memo(function WorkflowSummaries({
   daemonCapacity?: WorkflowCapacitySignal;
 }) {
   const t = useT();
-  const ticking = workflows.some((workflow) => workflow.state === "running");
-  const now = useNow(ticking);
-  const signals = useMemo(() => workflowSignals(workflows, now, daemonCapacity), [workflows, now, daemonCapacity]);
+  const signals = useMemo(() => workflowSignals(workflows, Date.now(), daemonCapacity), [workflows, daemonCapacity]);
   return (
     <>
       {ticking && signals.capacity && (
@@ -50,7 +49,6 @@ export const WorkflowSummaries = memo(function WorkflowSummaries({
           workflow={workflow}
           actions={actionsFor?.(workflow)}
           idle={signals.idle}
-          now={now}
         />
       ))}
     </>
@@ -86,12 +84,10 @@ export function WorkflowSummaryRow({
   workflow,
   actions = {},
   idle,
-  now,
 }: {
   workflow?: WorkflowSummary;
   actions?: WorkflowActions;
   idle?: ReadonlySet<string>;
-  now?: number;
 }) {
   const t = useT();
   const [open, setOpen] = useState(false);
@@ -117,11 +113,12 @@ export function WorkflowSummaryRow({
   if (!workflow) return null;
   const completed = workflow.counts?.done ?? workflow.agents.filter((agent) => agent.state === "completed").length;
   const total = workflow.counts?.started ?? workflow.agents.length;
-  const elapsedMs =
-    workflow.elapsedMs ??
-    (workflow.state === "running" && workflow.startedAt !== undefined && now !== undefined
-      ? Math.max(0, now - workflow.startedAt)
-      : undefined);
+  const elapsed =
+    workflow.elapsedMs !== undefined ? (
+      <Clock text={formatDuration(workflow.elapsedMs)} />
+    ) : workflow.state === "running" && workflow.startedAt !== undefined ? (
+      <Elapsed since={workflow.startedAt} />
+    ) : null;
   const selected = workflow.selectedAgentId
     ? workflow.agents.find((agent) => agent.id === workflow.selectedAgentId)
     : undefined;
@@ -159,7 +156,7 @@ export function WorkflowSummaryRow({
         )}
         <span className="acpmux-summary-meta">
           {total > 0 && `${completed}/${total}`}
-          {elapsedMs !== undefined && ` · ${formatDuration(elapsedMs)}`}
+          {elapsed !== null && <> · {elapsed}</>}
           {workflow.tokens !== undefined &&
             ` · ${t("subagents.tokens", { n: workflow.tokens, tokens: workflow.tokens })}`}
         </span>

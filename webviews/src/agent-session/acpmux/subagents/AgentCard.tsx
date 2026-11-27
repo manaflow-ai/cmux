@@ -36,7 +36,7 @@ export type AgentCardProps = {
   /// It waits for a run slot: it has not started, whatever its state says.
   slot?: boolean;
   /// How long it has run, or ran, after its state.
-  time?: string;
+  time?: ReactNode;
   /// Its state's word when the state's own is not it (a run that was stopped).
   stateLabel?: string;
   onOpen?: () => void;
@@ -92,6 +92,17 @@ export function AgentCard({
   const quiet = state === "working" && !slot && !stateLabel;
   const stateText = state ? (quiet ? "" : stateWord) : undefined;
   const join = (parts: readonly (string | false | undefined | 0)[]) => parts.filter(Boolean).join(" · ");
+  const withTime = (parts: readonly (string | false | undefined | 0)[]) => (
+    <>
+      {join(parts)}
+      {time !== undefined && (
+        <>
+          {parts.some(Boolean) && " · "}
+          {time}
+        </>
+      )}
+    </>
+  );
   if (disclosure) {
     const liveDetail = state === "input" || state === "failed" || slot ? doing : undefined;
     return (
@@ -117,7 +128,7 @@ export function AgentCard({
           stateText !== undefined && (
             <span title={stateWord} aria-label={stateWord}>
               {state === "working" && !slot && <Spinner size={12} loading />}
-              {join([stateText, queued && t("subsession.queued", { n: queued }), time, liveDetail])}
+              {withTime([stateText, queued && t("subsession.queued", { n: queued }), liveDetail])}
             </span>
           )
         }
@@ -160,7 +171,7 @@ export function AgentCard({
       {state && (
         <span className="cv-agent-card__state" data-state={slot ? "slot" : state} title={stateWord}>
           {state === "working" && <Spinner size={12} loading />}
-          {join([stateText, queued && t("subsession.queued", { n: queued }), time])}
+          {withTime([stateText, queued && t("subsession.queued", { n: queued })])}
         </span>
       )}
       {actions}

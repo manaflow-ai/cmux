@@ -17,7 +17,7 @@ import { openProcessTerminal } from "../processTerminal";
 import { arrivalKey, type BackgroundCommand, sendLabel, splitCommands } from "../session-info/processes";
 import { StopButton } from "../session-info/TasksSection";
 import { COMMAND_STATE } from "../session-info/tasksSectionModel";
-import { RunningElapsed, SummaryTaskClock } from "./SummaryTaskClock";
+import { RunningElapsed } from "./SummaryTaskClock";
 
 const ROW_ICON = rowIconSize(12);
 export function SummaryTasks({
@@ -104,9 +104,7 @@ export function SummaryTasks({
   return (
     <section className="acpmux-summary-section acpmux-summary-tasks" aria-label={title}>
       <h3 className="acpmux-summary-title">{title}</h3>
-      <SummaryTaskClock live={running.length > 0}>
-        <ul className="acpmux-summary-list">{cards}</ul>
-      </SummaryTaskClock>
+      <ul className="acpmux-summary-list">{cards}</ul>
     </section>
   );
 }

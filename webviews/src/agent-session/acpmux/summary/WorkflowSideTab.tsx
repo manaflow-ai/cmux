@@ -8,7 +8,7 @@ import { StateMark } from "./StateMark";
 import { rowIconSize } from "../icons/iconSize";
 import { phaseAgents, tally } from "./foldWorkflows";
 import type { WorkflowAgent, WorkflowPhase, WorkflowSummary } from "./workflow";
-import { useNow } from "../subagents/subagentGroupModel";
+import { Elapsed } from "../subagents/Elapsed";
 import { WorkflowAgentRow } from "../session-info/WorkflowTasks";
 import { StopButton } from "../session-info/TasksSection";
 import "./WorkflowSideTab.css";
@@ -50,22 +50,13 @@ function phaseLabel(t: ReturnType<typeof useT>, phase: WorkflowPhase): string {
   return phase.name || t("workflow.unassigned");
 }
 
-function elapsedFor(workflow: WorkflowSummary, now: number): number | undefined {
-  return (
-    workflow.elapsedMs ??
-    (running(workflow) && workflow.startedAt !== undefined ? Math.max(0, now - workflow.startedAt) : undefined)
-  );
-}
-
 function PhaseAgents({
   workflow,
   phase,
-  now,
   onOpenWorkflowAgent,
 }: {
   workflow: WorkflowSummary;
   phase: WorkflowPhase;
-  now: number;
   onOpenWorkflowAgent?: (agent: WorkflowAgent) => void;
 }) {
   const agents = phaseAgents(workflow, phase);
@@ -76,7 +67,6 @@ function PhaseAgents({
           key={agent.id}
           workflow={workflow}
           agent={agent}
-          now={now}
           onOpenWorkflowAgent={onOpenWorkflowAgent}
           variant="compact"
         />
@@ -87,11 +77,9 @@ function PhaseAgents({
 
 function Timeline({
   workflow,
-  now,
   onOpenWorkflowAgent,
 }: {
   workflow: WorkflowSummary;
-  now: number;
   onOpenWorkflowAgent?: (agent: WorkflowAgent) => void;
 }) {
   const t = useT();
@@ -125,7 +113,7 @@ function Timeline({
                   {counts.done}/{counts.total}
                 </span>
               </div>
-              <PhaseAgents workflow={workflow} phase={phase} now={now} onOpenWorkflowAgent={onOpenWorkflowAgent} />
+              <PhaseAgents workflow={workflow} phase={phase} onOpenWorkflowAgent={onOpenWorkflowAgent} />
             </div>
           </li>
         );
@@ -136,11 +124,9 @@ function Timeline({
 
 function Lanes({
   workflow,
-  now,
   onOpenWorkflowAgent,
 }: {
   workflow: WorkflowSummary;
-  now: number;
   onOpenWorkflowAgent?: (agent: WorkflowAgent) => void;
 }) {
   const t = useT();
@@ -152,7 +138,7 @@ function Lanes({
             <span>{phaseLabel(t, phase)}</span>
             <StateMark state={phase.state} label={stateLabel(t, phase.state)} mark />
           </header>
-          <PhaseAgents workflow={workflow} phase={phase} now={now} onOpenWorkflowAgent={onOpenWorkflowAgent} />
+          <PhaseAgents workflow={workflow} phase={phase} onOpenWorkflowAgent={onOpenWorkflowAgent} />
         </section>
       ))}
     </div>
@@ -161,11 +147,9 @@ function Lanes({
 
 function Table({
   workflow,
-  now,
   onOpenWorkflowAgent,
 }: {
   workflow: WorkflowSummary;
-  now: number;
   onOpenWorkflowAgent?: (agent: WorkflowAgent) => void;
 }) {
   const t = useT();
@@ -188,7 +172,6 @@ function Table({
                   <WorkflowAgentRow
                     workflow={workflow}
                     agent={agent}
-                    now={now}
                     onOpenWorkflowAgent={onOpenWorkflowAgent}
                     variant="grid"
                   />
@@ -207,8 +190,6 @@ function Table({
 
 export function WorkflowSideTab({ workflow, onClose, onStop, onOpenWorkflowAgent, layout = "timeline" }: Props) {
   const t = useT();
-  const now = useNow(running(workflow));
-  const elapsed = elapsedFor(workflow, now);
   const counts = tally(workflow.agents);
   return (
     <aside
@@ -243,11 +224,15 @@ export function WorkflowSideTab({ workflow, onClose, onStop, onOpenWorkflowAgent
             )}
             <StateMark state={workflow.state} label={stateLabel(t, workflow.state)} />
           </span>
-          {elapsed !== undefined && (
+          {workflow.elapsedMs !== undefined || (running(workflow) && workflow.startedAt !== undefined) ? (
             <time>
-              <Clock text={formatDuration(elapsed)} />
+              {workflow.elapsedMs !== undefined ? (
+                <Clock text={formatDuration(workflow.elapsedMs)} />
+              ) : (
+                <Elapsed since={workflow.startedAt!} />
+              )}
             </time>
-          )}
+          ) : null}
           <span>
             {counts.done}/{counts.total} {t("subagents.pill", { n: counts.total })}
           </span>
@@ -258,11 +243,11 @@ export function WorkflowSideTab({ workflow, onClose, onStop, onOpenWorkflowAgent
         </div>
         {workflow.description && <p className="acpmux-workflow-side-tab__description">{workflow.description}</p>}
         {layout === "lanes" ? (
-          <Lanes workflow={workflow} now={now} onOpenWorkflowAgent={onOpenWorkflowAgent} />
+          <Lanes workflow={workflow} onOpenWorkflowAgent={onOpenWorkflowAgent} />
         ) : layout === "table" ? (
-          <Table workflow={workflow} now={now} onOpenWorkflowAgent={onOpenWorkflowAgent} />
+          <Table workflow={workflow} onOpenWorkflowAgent={onOpenWorkflowAgent} />
         ) : (
-          <Timeline workflow={workflow} now={now} onOpenWorkflowAgent={onOpenWorkflowAgent} />
+          <Timeline workflow={workflow} onOpenWorkflowAgent={onOpenWorkflowAgent} />
         )}
       </div>
     </aside>

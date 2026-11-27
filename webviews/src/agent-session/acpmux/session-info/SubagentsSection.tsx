@@ -9,7 +9,7 @@
 // says its state and its task. The live counts sit in the section's head (the running ones as their mark
 // and number, then "40 done",
 // `subagentCountParts`).
-import { useState } from "react";
+import { useState, type ReactNode } from "react";
 import { useConnectionQuietKeys } from "../../../ui/lasting";
 import { useScrollEdges } from "../../../ui/scrollEdges";
 import { usePaneLanguage, useT, type Translate } from "../i18n";
@@ -25,7 +25,8 @@ import { foreignHarness, isRepeatedAgentKind, SUBAGENT_FALLBACK } from "../subag
 import { subagentProgress } from "../subagents/subagentProgress";
 import { namedAction } from "../subagents/trayDetail";
 import { nestAgents } from "../subagents/agentsPillModel";
-import { running, subagentTime, useNow } from "../subagents/subagentGroupModel";
+import { running } from "../subagents/subagentGroupModel";
+import { SubagentElapsed } from "../subagents/Elapsed";
 import { agentTone } from "../subagents/agentTones";
 import type { Subagent } from "../subagents/subagentFold";
 import { subsessionResumeRow } from "../subagents/resumeState";
@@ -89,7 +90,7 @@ type Line = {
   state: string;
   /// acpmux retries it: its line shows the turning ring (retryState.ts).
   working?: boolean;
-  time?: string;
+  time?: ReactNode;
   /// Its whole task, for the hover card.
   task?: string;
   icon: string;
@@ -133,7 +134,7 @@ export function SubagentsSection({
   // A retry waits out the shared bound before its line says so (retryState.ts ``retryWords``).
   const connectionQuiet = useConnectionQuietKeys();
   const language = usePaneLanguage();
-  const now = useNow(agents.some(running));
+  const now = Date.now();
   const [more, setMore] = useState(false);
   const [endedOpen, setEndedOpen] = useState(false);
   const endedEdges = useScrollEdges();
@@ -159,7 +160,7 @@ export function SubagentsSection({
       status,
       state: subagentStateText(t, agent, waiting, connectionQuiet, now),
       working: Boolean(retrying(agent)),
-      time: subagentTime(agent, now),
+      time: <SubagentElapsed agent={agent} />,
       task: agent.task,
       icon: SUBAGENT_FALLBACK,
       // Another family's mark; the chat's own subagents keep their toned sparkle (foreignHarness).
@@ -273,15 +274,14 @@ function AgentCard({ item }: { item: Line }) {
     <SubagentCardBody
       name={item.name}
       status={item.status}
-      state={[
-        item.state,
-        item.time,
-        item.kind,
-        progress,
-        item.status === "running" || item.status === "waiting" ? item.detail : undefined,
-      ]
-        .filter(Boolean)
-        .join(" · ")}
+      state={
+        <>
+          {[item.state, item.kind, progress, item.status === "running" || item.status === "waiting" ? item.detail : undefined]
+            .filter(Boolean)
+            .join(" · ")}
+          {item.time && <> · {item.time}</>}
+        </>
+      }
       task={item.task && item.task !== item.name ? item.task : undefined}
     />
   );
