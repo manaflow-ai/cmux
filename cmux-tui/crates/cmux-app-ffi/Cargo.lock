@@ -265,6 +265,8 @@ dependencies = [
  "cmux-update-prewarm-core",
  "cmux-url-input",
  "cmux-wallpaper",
+ "libc",
+ "plist",
  "serde",
  "serde_json",
  "unicode-segmentation",
@@ -406,6 +408,7 @@ dependencies = [
  "serde_json",
  "sha2",
  "unicode-segmentation",
+ "url",
  "uuid",
 ]
 
@@ -831,6 +834,7 @@ version = "0.1.0"
 dependencies = [
  "serde",
  "serde_json",
+ "unicode-segmentation",
  "uuid",
 ]
 

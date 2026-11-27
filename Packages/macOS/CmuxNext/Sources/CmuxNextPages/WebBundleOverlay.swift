@@ -373,28 +373,54 @@ public final class WebBundleServedViews {
         return Array(pins.pinned)
     }
 
-    /// Reloads `views` from `tree` (nil: the bundle). Returns how many it reloaded.
+    /// Reloads `views` from `tree` (nil: the bundle). Returns how many it reloaded. A page's view swaps
+    /// in place with no visible reload (``PageWebView/swapReload()``); another view reloads as before.
     @discardableResult
     public func reload(_ views: [WKWebView], to tree: URL?) -> Int {
-        for webView in views {
-            pins.pin(ObjectIdentifier(webView), to: tree)
-            if let cover = covers.object(forKey: webView) as? any WebReloadCovering {
-                cover.reloadUnderCover { [weak webView] in webView?.reload() }
-            } else {
-                webView.reload()
-            }
-        }
+        for webView in views { pins.pin(ObjectIdentifier(webView), to: tree) }
+        swapReloadCovered(views)
         return views.count
     }
 
-    /// Reloads `views` under `serving`. Returns how many it reloaded.
+    /// Reloads `views` under `serving`, each in place with no visible reload (``swapReload(_:)``).
+    /// Returns how many it reloaded.
     @discardableResult
     public func reload(_ views: [WKWebView], to serving: WebBundleOverlay.Serving) -> Int {
-        for webView in views {
-            pins.pin(ObjectIdentifier(webView), to: serving)
-            webView.reload()
-        }
+        for webView in views { pins.pin(ObjectIdentifier(webView), to: serving) }
+        swapReloadCovered(views)
         return views.count
+    }
+
+    /// Reloads `views` in place: one whose host holds its page on screen (the agent chat,
+    /// `AgentPaneView+ReloadCover`) through that host, every other one with the hand-off and its still
+    /// (``swapReload(_:)``).
+    private func swapReloadCovered(_ views: [WKWebView]) {
+        var rest: [WKWebView] = []
+        for webView in views {
+            if let cover = covers.object(forKey: webView) as? any WebReloadCovering, cover.coversNextReload {
+                cover.reloadUnderCover { [weak webView] in webView?.reload() }
+            } else {
+                rest.append(webView)
+            }
+        }
+        Self.swapReload(rest)
+    }
+
+    /// Reloads each of `views` into the web it is served now: a page's view in place with no visible
+    /// reload (``PageWebView/swapReload()``), any other view as before.
+    public static func swapReload(_ views: [WKWebView]) {
+        guard !views.isEmpty else { return }
+        let pages = PageRegistry.pages()
+        for webView in views {
+            guard let page = pages.first(where: { $0.webKitView === webView }) else {
+                // An agent chat's pane (not a page view): the same hand-off and still (WebViewSwap.swift).
+                // task-owner: one swap per view; it ends with the view's restored frame or its cover limit
+                Task { await WebViewSwap.reload(webView) }
+                continue
+            }
+            // task-owner: one swap per page; it ends with the page's restored frame or its cover limit
+            Task { await page.swapReload() }
+        }
     }
 
     /// Reloads every served view that shows a document from the folder now active. Returns how
