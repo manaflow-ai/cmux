@@ -575,6 +575,48 @@ fn two_folders_stack_as_layers_that_turn_off_reorder_and_remove_alone() {
     assert_eq!(failure.code, "setup.id_taken");
 }
 
+/// Installing a look that is installed already puts it on, on top: the gallery's Install of
+/// Linen after Basalt and others went on above it showed Basalt's theme still (hq feature flow
+/// `looks`, NIGHTLY c6ff1246), since an update alone keeps its place in the order and its off.
+#[test]
+fn installing_an_installed_look_again_puts_it_on_top_and_on() {
+    let root = tempfile::tempdir().unwrap();
+    let world = world(root.path());
+    let home = root.path().join("home");
+    let customize = Customize::open(Roots::under(&home));
+    let dusk = views_setup(root.path(), "leo/dusk", "dusk");
+    let dawn = views_setup(root.path(), "leo/dawn", "dawn");
+    let theme = || -> Value {
+        let text = fs::read_to_string(home.join("config/cmux-next.json")).unwrap();
+        cmux_config::jsonc::parse(&text).unwrap()["appearance"]["themeFile"].clone()
+    };
+    let top = || customize.setups().unwrap().first().map(|receipt| receipt.id.clone());
+    install(&customize, &world, OutputMode::Json, dusk.to_str().unwrap(), true).unwrap();
+    install(&customize, &world, OutputMode::Json, dawn.to_str().unwrap(), true).unwrap();
+    assert_eq!(theme(), json!("dawn"));
+
+    // Again, unchanged: no update, and still on top with its theme.
+    let answer =
+        install(&customize, &world, OutputMode::Json, dusk.to_str().unwrap(), true).unwrap();
+    assert_eq!(answer["on_top"], json!(true), "{answer}");
+    assert_eq!(top().as_deref(), Some("leo/dusk"));
+    assert_eq!(theme(), json!("dusk"));
+
+    // Off, then installed again: on, on top.
+    set_on(&customize, &world, Some("leo/dawn"), false).unwrap();
+    install(&customize, &world, OutputMode::Json, dawn.to_str().unwrap(), true).unwrap();
+    assert!(customize.setup("leo/dawn").unwrap().unwrap().on);
+    assert_eq!(top().as_deref(), Some("leo/dawn"));
+    assert_eq!(theme(), json!("dawn"));
+
+    // Changed since: the update goes on on top too, not in its old place.
+    fs::write(dusk.join("customize/main.js"), "// leo/dusk, v2\nvar __cmuxAppExports = {};\n")
+        .unwrap();
+    install(&customize, &world, OutputMode::Json, dusk.to_str().unwrap(), true).unwrap();
+    assert_eq!(top().as_deref(), Some("leo/dusk"));
+    assert_eq!(theme(), json!("dusk"));
+}
+
 #[test]
 fn the_grammar_takes_gallery_and_preview() {
     assert_eq!(parse(&words(&["gallery"])), Ok(Request::Gallery));
