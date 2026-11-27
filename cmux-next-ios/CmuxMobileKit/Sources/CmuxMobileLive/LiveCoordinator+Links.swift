@@ -329,6 +329,9 @@ extension LiveCoordinator {
         // The Mac's theme and wallpaper, for as long as this link lives (ask-87d30da8e5).
         let appearance = self.appearance
         Task { await appearance.read(on: link, macID: macID) }
+        // An agent on the Mac drives the tabs this iPhone shows itself (RFD 0089).
+        let phoneName = deviceName
+        Task { await PhonePageChannel.serve(on: link, macID: macID, deviceName: phoneName) }
         #if canImport(CmuxMobileLinkFFI)
         // Other devices waiting for this Mac's Allow, answered from here (ask-45c37458ea).
         pairRequests.linkServed(macID: macID, source: MacPairRequests.Source(

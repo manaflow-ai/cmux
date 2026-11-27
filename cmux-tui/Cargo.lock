@@ -2682,6 +2682,13 @@ dependencies = [
 ]
 
 [[package]]
+name = "cmux-phone-page"
+version = "0.1.0"
+dependencies = [
+ "serde_json",
+]
+
+[[package]]
 name = "cmux-pool-pod"
 version = "0.1.0"
 dependencies = [
@@ -3479,6 +3486,7 @@ dependencies = [
  "cmux-no-checkout",
  "cmux-palette-ranker",
  "cmux-panic-log",
+ "cmux-phone-page",
  "cmux-process",
  "cmux-projection",
  "cmux-proxy",

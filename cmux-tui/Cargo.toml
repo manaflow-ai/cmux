@@ -213,6 +213,7 @@ members = [
     "crates/cmux-cloud-wire",
     "crates/cmux-cloud-disk",
     "crates/cmux-tab-snapshots",
+    "crates/cmux-phone-page",
     "crates/cmux-palette-ranker",
     "crates/cmux-keymap",
     "crates/cmux-terminal-find",
@@ -589,6 +590,7 @@ cmux-app-host = { path = "crates/cmux-app-host", default-features = false }
 cmux-terminal-sizing = { path = "crates/cmux-terminal-sizing" }
 cmux-mobile-core = { path = "crates/cmux-mobile-core" }
 cmux-cloud-wire = { path = "crates/cmux-cloud-wire" }
+cmux-phone-page = { path = "crates/cmux-phone-page" }
 cmux-cloud-disk = { path = "crates/cmux-cloud-disk" }
 cmux-vnc = { path = "crates/cmux-vnc" }
 cmux-computer-use = { path = "crates/cmux-computer-use", default-features = false }

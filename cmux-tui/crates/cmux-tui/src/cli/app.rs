@@ -49,6 +49,7 @@ mod nightly;
 mod open;
 mod open_link;
 mod page;
+mod phone;
 mod published;
 mod record;
 mod renderers;
@@ -194,6 +195,12 @@ pub(super) enum AppCommand {
         params: Value,
         out: Option<String>,
     },
+    /// `browser tab_…@phone <verb>`: a page verb on the tab the iPhone shows
+    /// in its own web view, through this Mac's link host (app/phone.rs).
+    Phone {
+        device: Option<String>,
+        then: Box<AppCommand>,
+    },
     /// `app renderers`: `renderers.list`, joined into one row per renderer pid (app/renderers.rs).
     Renderers {
         params: Value,
@@ -255,6 +262,12 @@ pub(super) fn parse(args: &[String]) -> Result<Option<AppCommand>, UsageError> {
             timeout: Some(READ_TIMEOUT),
             pick: None,
         }));
+    }
+    if scope == "browser"
+        && let [_, target, phone_args @ ..] = args
+        && let Some(command) = phone::parse(target, phone_args)
+    {
+        return command.map(Some);
     }
     if scope == "browser"
         && let Some(target) = args.get(1)
@@ -967,6 +980,9 @@ fn run_command(global: &GlobalArgs, command: AppCommand) -> Ran {
         AppCommand::Record(request) => return Ran::Done(record::run(global, request.clone())),
         AppCommand::Health(command) => return Ran::Done(health::run(global, command)),
         AppCommand::WebPieces(command) => return Ran::Done(web_pieces::run(global, command)),
+        AppCommand::Phone { device, then } => {
+            return Ran::Done(phone::run(global, device.as_deref(), then));
+        }
         _ => {}
     }
     let mut stream = match connect_command(global) {
@@ -1120,6 +1136,9 @@ fn call(global: &GlobalArgs, stream: &mut UnixStream, command: AppCommand) -> Ra
         AppCommand::LaunchTimes(command) => return Ran::Done(launch_times::run(global, &command)),
         AppCommand::Health(command) => return Ran::Done(health::run(global, &command)),
         AppCommand::WebPieces(command) => return Ran::Done(web_pieces::run(global, &command)),
+        AppCommand::Phone { device, then } => {
+            return Ran::Done(phone::run(global, device.as_deref(), &then));
+        }
         AppCommand::Open { requests, stop_on_failure } => {
             let mut status = 0;
             for request in requests {

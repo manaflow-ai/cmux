@@ -176,6 +176,7 @@ pub async fn serve(
         "browser" => crate::browser::serve(&config.browser, &*config, &peer, &args, &sender, receiver).await,
         "surface" => crate::surface::serve(&config.surface, &*config, &peer, &args, &sender, receiver).await,
         "localhost" => crate::localhost::serve(&args, &sender, receiver).await,
+        cmux_phone_page::SERVICE => crate::phone_page::serve(&peer.device_id, &args, &sender, receiver).await,
         "phone-frames" => {
             let route = peer.route.clone();
             crate::phone_frames::serve_on(
@@ -271,12 +272,14 @@ const ACPMUX_MAX_MESSAGE_BYTES: usize = 64 << 20;
 /// logged to `phone-frames.jsonl`, `phone_frames.rs`).
 /// `tab-snapshots-v1`: the `tabs` service (every tab's title, favicon, thumbnail or screen text,
 /// with deltas and content-addressed blobs, `tab_snapshots.rs`).
+/// `phone-page-v1`: the `phone-page` service (agents' `browser.page.*` calls on a tab the
+/// phone shows itself, `phone_page.rs`).
 /// `mailbox-send-v1`: the mailbox takes `send` and `compose` items, held up to 24 hours and
 /// applied once in each phone's `seq` order (`mailbox.rs`, PROTOCOL.md "Store and forward").
 /// `bundle-v1`: the `bundle` service (attachment `put` and file `get` as sealed
 /// content-defined chunks, `bundle.rs`).
 /// The names are declared once in `cmux_mobile_link::names`.
-pub const CAPABILITIES: [&str; 12] = [
+pub const CAPABILITIES: [&str; 13] = [
     names::REMOVAL,
     names::FILE_PREVIEW,
     names::LOCALHOST_FORWARD,
@@ -287,6 +290,7 @@ pub const CAPABILITIES: [&str; 12] = [
     names::PAIR_REQUESTS,
     names::PHONE_FRAMES,
     names::TAB_SNAPSHOTS,
+    names::PHONE_PAGE,
     names::MAILBOX_SEND,
     names::BUNDLE,
 ];
@@ -2644,6 +2648,7 @@ mod tests {
                 "pair-requests-v1",
                 "phone-frames-v1",
                 "tab-snapshots-v1",
+                "phone-page-v1",
                 "mailbox-send-v1",
                 "bundle-v1"
             ]
@@ -2665,6 +2670,7 @@ mod tests {
                 "pair-requests-v1",
                 "phone-frames-v1",
                 "tab-snapshots-v1",
+                "phone-page-v1",
                 "mailbox-send-v1",
                 "bundle-v1",
                 BROWSER_STREAM,
