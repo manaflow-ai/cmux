@@ -12,7 +12,7 @@ public import AppKit
 /// main, so keys stay with the window's first responder. It is shown only
 /// by adding it as a child of a visible window (`addChildWindow`), never by
 /// itself, so it never takes the display.
-open class ContentChildPanel: NSPanel {
+open class ContentChildPanel: NSPanel, FullScreenFollowingChild {
     public init() {
         super.init(contentRect: .zero, styleMask: [.borderless, .nonactivatingPanel], backing: .buffered, defer: true)
         isOpaque = false

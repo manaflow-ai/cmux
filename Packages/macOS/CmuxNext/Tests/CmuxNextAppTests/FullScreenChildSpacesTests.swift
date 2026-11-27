@@ -7,8 +7,9 @@ import Testing
 /// Empty cmux window over a full screen transition (user, 2026-11-25): a background cmux window drew over another
 /// window's full screen enter and exit, about 0.6 s each. It was parked in ANOTHER app's full screen Space (Chrome's, on
 /// the same display), where it had followed a child panel declared `.fullScreenAuxiliary`: AppKit keeps a child on its
-/// parent's Space, and the child may join a full screen Space. A main window's child panels now carry that behavior
-/// only while the window itself is in full screen.
+/// parent's Space, and the child may join a full screen Space. A main window's child panels that cmux makes and marks
+/// (`FullScreenFollowingChild`) now carry that behavior only while the window itself is in full screen; every other
+/// child (a Chromium page window, a panel cmux did not mark) keeps its own.
 ///
 /// Real ShellWindows, their real `addChildWindow` override and the real overlay host panel. A window's full screen
 /// transition is AppKit's will/did enter and exit notifications, which a test posts to a private center for its own
@@ -42,7 +43,16 @@ import Testing
         return host
     }
 
+    /// A child panel cmux makes and marks (a native popup, as the omnibar's), with `behavior`.
     private func panel(_ behavior: NSWindow.CollectionBehavior) -> NSPanel {
+        let panel = NativePopupPanel(identifier: "test.fullScreenChild")
+        panel.setFrame(CGRect(x: -3000, y: -3000, width: 100, height: 60), display: false)
+        panel.collectionBehavior = behavior
+        return panel
+    }
+
+    /// A panel cmux did not mark (Chromium's own bubbles and popups can be panels), with `behavior`.
+    private func unmarkedPanel(_ behavior: NSWindow.CollectionBehavior) -> NSPanel {
         let panel = NSPanel(contentRect: CGRect(x: -3000, y: -3000, width: 100, height: 60), styleMask: [.borderless, .nonactivatingPanel],
                             backing: .buffered, defer: false)
         panel.isReleasedWhenClosed = false
@@ -138,6 +148,34 @@ import Testing
             #expect(!auxiliary(first) && !auxiliary(late))
             #expect(!auxiliary(page))
             for child in [first, late, page] { child.close() }
+            window.close()
+        }
+    }
+
+    /// Only the child panels cmux marks follow their window. A Chromium page window keeps the full screen behavior
+    /// Chromium gave it (Mission Control keeps a page's full screen and Spaces behaviors too, cmux#48535), and so does a
+    /// panel cmux did not mark, windowed or in full screen.
+    @Test func childrenCmuxDidNotMarkKeepTheirOwnBehavior() {
+        tracked { center in
+            let window = shellWindow()
+            let page = NSWindow(contentRect: CGRect(x: -3000, y: -3000, width: 100, height: 60), styleMask: [.borderless], backing: .buffered, defer: false)
+            page.isReleasedWhenClosed = false
+            page.collectionBehavior = [.managed, .fullScreenAuxiliary]
+            let foreign = unmarkedPanel([.fullScreenAuxiliary, .transient])
+            window.addChildWindow(page, ordered: .above)
+            window.addChildWindow(foreign, ordered: .above)
+            #expect(auxiliary(page), "a windowed window's page window lost the behavior Chromium gave it")
+            #expect(auxiliary(foreign) && foreign.collectionBehavior.contains(.transient), "a windowed window's unmarked panel lost its own behavior")
+            // Each one's behavior as AppKit holds it once added, not the literal set: without the rule (1b4284f5) the
+            // page read back other than `[.managed, .fullScreenAuxiliary]`, `.managed` being AppKit's default.
+            let given = (page: page.collectionBehavior, foreign: foreign.collectionBehavior)
+            post(NSWindow.willEnterFullScreenNotification, window, on: center)
+            post(NSWindow.didEnterFullScreenNotification, window, on: center)
+            #expect(page.collectionBehavior == given.page && foreign.collectionBehavior == given.foreign)
+            post(NSWindow.willExitFullScreenNotification, window, on: center)
+            post(NSWindow.didExitFullScreenNotification, window, on: center)
+            #expect(page.collectionBehavior == given.page && foreign.collectionBehavior == given.foreign)
+            for child in [page, foreign] { child.close() }
             window.close()
         }
     }
