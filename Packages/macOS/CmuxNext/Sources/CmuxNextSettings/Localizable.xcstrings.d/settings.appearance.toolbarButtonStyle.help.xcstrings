@@ -1,0 +1,138 @@
+{
+  "sourceLanguage" : "en",
+  "strings" : {
+    "settings.appearance.toolbarButtonStyle.help" : {
+      "comment" : "Settings row help for Top Right Buttons.",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "How a pane's buttons draw: today's, plain glyphs, a grouped pill, or glass."
+          }
+        },
+        "ar" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "طريقة رسم أزرار اللوحة: المظهر الحالي، أو رموز بسيطة، أو كبسولة مجمّعة، أو زجاج."
+          }
+        },
+        "bs" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Kako se crtaju dugmad okna: današnji izgled, obični simboli, grupisana kapsula ili staklo."
+          }
+        },
+        "da" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Sådan tegnes en rudes knapper: som i dag, enkle symboler, en samlet pille eller glas."
+          }
+        },
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Wie die Tasten eines Bereichs aussehen: wie bisher, schlichte Symbole, eine gruppierte Kapsel oder Glas."
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Cómo se dibujan los botones de un panel: el aspecto actual, glifos simples, una píldora agrupada o vidrio."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "L'apparence des boutons d'un volet : celle d'aujourd'hui, des glyphes simples, une pastille groupée ou du verre."
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Come appaiono i pulsanti di un riquadro: l'aspetto attuale, glifi semplici, una pillola raggruppata o vetro."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "ペインのボタンの表示：現在の表示、シンプルな記号、まとめたピル、またはガラス。"
+          }
+        },
+        "km" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "របៀបគូរប៊ូតុងរបស់ផ្ទាំង៖ ដូចបច្ចុប្បន្ន និមិត្តសញ្ញាធម្មតា គ្រាប់ថ្នាំរួម ឬកញ្ចក់។"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "패널 버튼 표시 방식: 현재 모양, 단순한 기호, 묶은 알약 모양 또는 유리."
+          }
+        },
+        "nb" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Slik tegnes knappene i en rute: som i dag, enkle symboler, en samlet pille eller glass."
+          }
+        },
+        "pl" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Jak wyglądają przyciski panelu: obecny wygląd, proste symbole, zgrupowana pigułka lub szkło."
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Como os botões de um painel são desenhados: o visual atual, símbolos simples, uma pílula agrupada ou vidro."
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Как выглядят кнопки панели: как сейчас, простые значки, общая капсула или стекло."
+          }
+        },
+        "th" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "รูปแบบปุ่มของบานหน้าต่าง: แบบปัจจุบัน สัญลักษณ์เรียบ แคปซูลรวมกลุ่ม หรือกระจก"
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Bir bölmenin düğmelerinin görünümü: bugünkü, sade simgeler, gruplu bir kapsül veya cam."
+          }
+        },
+        "uk" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Як виглядають кнопки панелі: як зараз, прості значки, спільна капсула або скло."
+          }
+        },
+        "vi" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Cách vẽ các nút của khung: như hiện tại, ký hiệu đơn giản, viên thuốc gộp nhóm hoặc kính."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "窗格按钮的样式：当前样式、简洁符号、组合胶囊或玻璃。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "窗格按鈕的樣式：目前樣式、簡潔符號、組合膠囊或玻璃。"
+          }
+        }
+      }
+    }
+  },
+  "version" : "1.0"
+}

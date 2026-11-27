@@ -1,6 +1,6 @@
 ---
 name: acpmux
-description: "Drive coding agents through acpmux, which keeps Claude Code, Codex, OpenCode, pi and Gemini sessions alive by name on this machine and others: run, prompt, wait on or inspect a session, or start a second agent for a subtask (also when ACPMUX_ENV=1). Every command has --json."
+description: "Drive coding-agent sessions by name with acpmux (Claude Code, Codex, OpenCode, pi, Gemini; this machine or others): run, prompt, wait on, inspect, or start a second agent for a subtask."
 ---
 
 # acpmux guide
@@ -93,7 +93,7 @@ model id the error tells you the spelling to use.
 | You want | Write | acpmux does |
 | --- | --- | --- |
 | a Claude, a Codex, with defaults | `-m claude`, `-m codex` | the family's preferred profile (an account pool, a router) plus its model, effort, policy |
-| one exact model | `-m claude/opus`, `-m codex/gpt-5.5`, `-m opencode/zai/glm-5.1`, `-m pi/subrouter/gpt-5.6-sol` | that harness, that model |
+| one exact model | `-m claude/opus`, `-m codex/gpt-5.5`, `-m opencode/zai/glm-5.1`, `-m pi/openai/gpt-5.5` | that harness, that model |
 | a fork | `-m omp`, `-m prime` | its own family; prime takes no model over ACP |
 | a bundle someone named | `-p deepseek`, `-p omx` | the preset's harness, model, effort, policy, env; `-m`/`-e` still win |
 | nothing in particular | no flag | the default harness and its defaults |
@@ -151,6 +151,7 @@ cmux agent ls [--status running|ready|waiting|idle|closed] [--pending] [--tag k=
 acpmux --json ls --live --fields name,status,peer  # scripts; bare `ls --json` is every record, thousands on a busy host
 cmux agent resolve Mango                         # the handle, stable session id, host and task
 cmux agent session rename --handle NAME Mango    # change the handle without changing the task or id
+acpmux icon @ 🥭                                   # the icon every surface draws for this session (emoji, sf:NAME, .svg, URL; `none` clears)
 cmux agent ls Mango                               # the same session's handle, task, host and harness
 acpmux --json ls --machine local --live            # this machine's sessions only: `ls` lists every machine's, so a script after its own passes this
 cmux agent session info NAME                           # model, mode, policy, pending permissions, usage
@@ -169,6 +170,8 @@ cmux agent session stop NAME --if-idle [--expect-revision LASTSEQ]   # stop only
 
 `send` on a busy or blocked session never refuses: the prompt queues and the
 output says `queued behind …`.
+
+A `--no-wait` or agent send exits 0 once handed off and prints `sent queued|held|delivered|steered id=ID to=TARGET` first (`--json`: `{"ok":true,"state":…,"id":…}`); a retry loop checks the exit code, never greps the text.
 
 ### Messages between agents
 
@@ -316,6 +319,7 @@ cmux agent wait A B --all --timeout 600 --print  # every named session, print ea
 cmux agent wait NAME --until running             # the prompt was accepted
 cmux agent wait NAME --until done                # turn ended while no client was attached
 cmux agent wait NAME --match "tests pass"        # or --regex; existing text matches at once
+cmux agent session tail NAME --since seen       # recap the records since the reader’s cutover, as JSON lines
 cmux agent session tail NAME --since CURSOR -f   # raw events as JSON lines; cursor = sessionId:seq
 ```
 
@@ -331,15 +335,15 @@ other `ACPMUX_*` variable and Claude Code's `CLAUDE_CODE_MESSAGING_*` there: the
 name your own session, its token and its daemon, so your sends would be your
 session's (or go to the shared daemon) and not the person's. The first command
 starts the daemon in the background by itself (detached; no background shell
-needed). A new home has no `defaults`: set the profile you want (`claude-sr2`
-for sr2), or `-m claude` runs plain `claude`.
+needed). A new home has no `defaults`: set the profile you want (your own
+profile's name), or `-m claude` runs plain `claude`.
 
 ```bash
 X=/abs/path/to/acpmux                       # the build you try (in a session, "$ACPMUX_BIN" is its daemon's)
 mkdir -p /tmp/try-acpmux
 for v in $(env | grep -oE '^(ACPMUX|CLAUDE_CODE_MESSAGING)_[A-Z0-9_]*'); do unset "$v"; done
 export ACPMUX_HOME=/tmp/try-acpmux ACPMUX_SOCKET=/tmp/try-acpmux/acpmux.sock
-$X defaults claude prefer=claude-sr2,claude  # as the shared home has it (`acpmux defaults` there)
+$X defaults claude prefer=my-claude,claude   # your own profile first (`acpmux defaults` in the shared home)
 $X daemon status                            # starts it; this home's sessions and live agents
 $X daemon restart                           # the new daemon adopts every live agent; they keep their conversation
 $X daemon shutdown --end-agents             # done: end its agents too, then rm -rf /tmp/try-acpmux
@@ -435,7 +439,8 @@ acpmux bead link NAME cx-cus7j.230               # the tracker bead NAME works o
 - **cmux Cloud machines.** A Cloud machine's chats run in that machine's own acpmux, which is not
   one of this Mac's machines. From the Mac, `cmux cloud start-chat --prompt TEXT --wait --json`
   starts a chat there, sends the prompt and answers the reply with its `machine_id` and
-  `session_id`; its `follow_up` commands send, wait and read on through `cmux cloud exec`.
+  `session_id`; its `follow_up` commands send (`cmux chat send`), wait and read on
+  (`cmux cloud chat status|last --target machine:vm-… --session SESSION_ID`).
 - **Old spellings.** `acpmux host` (and `hosts`, `peer`), `host place`, `host vm-host` and
   `--host` still work; `machine`, `machine pick`, `machine dedicated` and `--machine` are the names.
 - **Check first.** Run `acpmux machine status` before remote work and after any request to a
@@ -510,12 +515,24 @@ acpmux unarchive NAME                          # bring an archived chat back
 
 Add `--json` before the command for ids and paths to act on. The rest of the
 surface, one line each in `acpmux --help`: `race` and `compare` (one task on
-several models), `continue` (move a chat to another harness), `briefs` and `task`
-(tracked work), `watch` (wake me when others finish), `inbox` and `deliver`
-(durable messages, reports), `forum`, `bridge`, `desktop` and `register`
-(desktop apps), `group` (sidebar groups), `harness`, `capabilities`,
+several models), `fork-run` (fork a Cloud machine N ways, keep one), `continue`
+(move a chat to another harness), `briefs` and `task` (tracked work), `watch`
+(wake me when others finish), `inbox` and `deliver` (durable messages, reports),
+`trigger` (wake a Cloud chat on a CI failure or PR comment), `forum`, `run-ask`
+(run an accepted forum run ask here or through the scheduler), `bridge`,
+`desktop` and `register` (desktop apps), `group` (sidebar
+groups), `account` (sign the Codex, Claude and GitHub accounts in or out, add,
+switch, remove, list; `account readiness` says which still need installing or a
+sign-in), `harness`, `capabilities`,
 `machine-auth`, `hand`, `share-host`, `router`, `web`, `board`, `attach`, `resume-here`,
-`stdio`, `cli-agent`, `uniichat-agent`, and `skill` (this guide).
+`stdio`, `cli-agent`, `uniichat-agent`, `pr-wait` and `ci` (wait on a pull request's checks or a
+workflow run with one shared poller), `scorecard` (tokens and steering per settled pull request),
+`fetch` (one large download over parallel ranges), `channel` (named byte channels to an agent on
+another machine: `channel listen SERVICE`, `channel open PEER SERVICE`), `listen` (read a
+teammate's agent address while its grant lets you), `memory` (the memory mount shared by your machines, ~/.cmux/memory), `succeed`
+(make a session the successor of ones that died or moved), `role` (claim `goal:SLUG`-style
+addresses), `exec-router` (where heavy commands like cargo ran and why: `acpmux exec-router trace`;
+`CMUX_EXEC_ROUTE=local|routed` forces a side), and `skill` (this guide).
 
 ## 8. Output
 

@@ -55,9 +55,9 @@ mod status_conflict;
 #[cfg(unix)]
 use codex_trust::{
     CODEX_CONFIG_FILE, codex_owned_entry_keys, codex_present_expected_trust_entries,
-    codex_state_key_hooks_path, read_codex_config_text,
+    read_codex_config_text,
 };
-use codex_trust::{codex_event_state_label, codex_trust_hash};
+use codex_trust::{codex_event_state_label, codex_state_key_hooks_path, codex_trust_hash};
 use codex_trust::{
     codex_trust_state_verified, commit_codex_trust_state_or_rollback, prepare_codex_trust_state,
     snapshot_file,
@@ -2040,6 +2040,28 @@ fn muse_hook_command(helper: &Path, event: &str) -> anyhow::Result<String> {
     Ok(format!("{program} muse {event} #{COMMAND_MARKER}"))
 }
 
+/// How long `provider` waits for the hook command this installer writes for
+/// `event` before it gives up on it (and Claude Code shows "A hook didn't
+/// answer in time"): the `timeout` written, in the provider's own unit, as a
+/// duration. 5 s for a provider or file shape that writes none, the shortest
+/// any of them is given. The helper answers inside it (cmux-tui-hook
+/// `answer_deadline`).
+pub fn installed_hook_wait(provider: &str, event: &str) -> Duration {
+    let Some(entry) = PROVIDERS.iter().find(|entry| entry.id == provider) else {
+        return Duration::from_secs(COMMAND_HOOK_TIMEOUT_SECONDS);
+    };
+    match entry.format {
+        Format::Nested { timeout, .. } if entry.id == "gemini" => {
+            Duration::from_millis(installed_hook_timeout(*entry, event, timeout))
+        }
+        Format::Nested { timeout, .. } | Format::Flat { timeout } => {
+            Duration::from_secs(installed_hook_timeout(*entry, event, timeout))
+        }
+        Format::AntigravityJson => Duration::from_secs(10),
+        _ => Duration::from_secs(COMMAND_HOOK_TIMEOUT_SECONDS),
+    }
+}
+
 /// Pre-tool gates allow time for repo sync. Codex SessionEnd stays below its 3s cap.
 fn installed_hook_timeout(provider: Provider, event: &str, timeout: u64) -> u64 {
     if provider.id == "codex" {
@@ -2086,12 +2108,13 @@ pub fn claude_session_hook_settings(
     let binary = shell_quote(binary.to_str().context("the cmux-tui path is not UTF-8")?);
     let hooks = root.get_mut("hooks").and_then(Value::as_object_mut).context("hooks missing")?;
     for (event, groups) in hooks.iter_mut() {
-        let command = emit_hook_command(&binary, provider.id, event);
         for group in groups.as_array_mut().into_iter().flatten() {
             let handlers = group.get_mut("hooks").and_then(Value::as_array_mut);
             for handler in handlers.into_iter().flatten() {
                 if let Some(handler) = handler.as_object_mut() {
-                    handler.insert("command".into(), Value::String(command.clone()));
+                    let timeout = handler.get("timeout").and_then(Value::as_u64).unwrap_or(timeout);
+                    let command = emit_hook_command(&binary, provider.id, event, timeout);
+                    handler.insert("command".into(), Value::String(command));
                     // The pre-tool helper is synchronous; journal-only events are asynchronous.
                     handler.insert("async".into(), Value::Bool(!sync_barrier_event(event)));
                 }
@@ -2157,18 +2180,30 @@ fn sync_barrier_event(event: &str) -> bool {
 
 #[cfg(unix)]
 /// The fallback for `claude_session_hook_settings`. Pre-tool decisions are
-/// preserved; journal receipts from other events are discarded.
-fn emit_hook_command(quoted_binary: &str, provider: &str, event: &str) -> String {
+/// preserved; journal receipts from other events are discarded. The emit
+/// ends itself at [`emit_deadline_ms`] of the hook's installed `timeout`
+/// (seconds), so a stalled daemon never runs the hook past it.
+fn emit_hook_command(quoted_binary: &str, provider: &str, event: &str, timeout: u64) -> String {
     if sync_barrier_event(event) {
         return format!(
             "{quoted_binary} {HOOK_MODE_ARG} {provider} {event}||exit 2;#{COMMAND_MARKER}"
         );
     }
     format!(
-        "{quoted_binary} agent hook emit --source {} --event {} >/dev/null 2>&1||:;echo {{}};#{COMMAND_MARKER}",
+        "{quoted_binary} agent hook emit --source {} --event {} --deadline-ms {} >/dev/null 2>&1||:;echo {{}};#{COMMAND_MARKER}",
         shell_quote(provider),
         shell_quote(event),
+        emit_deadline_ms(timeout),
     )
+}
+
+/// When a hook installed with `timeout_seconds` answers: the timeout minus a
+/// tenth, the margin held between 1.5 s and 5 s (5 s gives 3.5 s, 3 s gives
+/// 1.5 s, 90 s gives 85 s), the rule the hook helper and leo-workspace#10655 use.
+pub fn emit_deadline_ms(timeout_seconds: u64) -> u64 {
+    let timeout = timeout_seconds.saturating_mul(1000);
+    let margin = (timeout / 10).clamp(1500, 5000);
+    timeout.saturating_sub(margin).max(500)
 }
 
 /// Codex's shared app-server may run hooks without the launching terminal's

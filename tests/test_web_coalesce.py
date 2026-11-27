@@ -355,6 +355,33 @@ class BisectTests(unittest.TestCase):
         self.assertEqual(report["lines"], [line for line in printed.splitlines() if line.startswith("web bisect: ")
                                            and "probing" not in line and "nothing" not in line])
 
+    def test_the_report_names_each_culprit_for_a_reader_that_acts_on_it(self):
+        base, culprit, _, probed, report = self.run_bisect()
+        self.assertEqual(report["schema"], "web-bisect/2")
+        self.assertEqual(report["culprits"], [{"sha": culprit, "pr": 103, "subject": "break a (#103)",
+                                               "files": ["src/a.test.ts"]}])
+        verdicts = {v["file"]: v for v in report["verdicts"]}
+        self.assertEqual(verdicts["src/a.test.ts"]["verdict"], "culprit")
+        self.assertEqual(verdicts["src/a.test.ts"]["culprit"]["sha"], culprit)
+        self.assertEqual(verdicts["src/old.test.ts"], {"file": "src/old.test.ts", "verdict": "base-red",
+                                                       "culprit": None, "green": None})
+        # One entry a probe run, with its seconds: the bisect's cost per culprit is their sum.
+        self.assertEqual([p["sha"] for p in report["probes"]], probed)
+        self.assertTrue(all(isinstance(p["seconds"], int) and p["files"] == 1 for p in report["probes"]))
+
+    def test_a_flaky_or_unpinned_red_names_no_culprit(self):
+        _, _, _, _, report = self.run_bisect(flaky_history=True)
+        self.assertEqual(report["culprits"], [])
+        self.assertEqual({v["file"]: v["verdict"] for v in report["verdicts"]}["src/a.test.ts"], "flaky")
+        _, _, _, _, report = self.run_bisect_again(timed_out=True)
+        self.assertEqual(report["culprits"], [])
+        self.assertIn({v["file"]: v["verdict"] for v in report["verdicts"]}["src/a.test.ts"], ("unresolved", "base-red"))
+
+    def run_bisect_again(self, **kw):
+        self.tmp.cleanup()
+        self.tmp = tempfile.TemporaryDirectory()
+        return self.run_bisect(**kw)
+
     def test_a_test_already_red_at_the_base_in_the_same_file_does_not_move_the_first_red(self):
         _, culprit, printed, probed, _ = self.run_bisect(old_red_in_file=True)
         found = test_reds.bisect_report(printed)["src/a.test.ts"]
@@ -656,27 +683,22 @@ class WorkflowTests(unittest.TestCase):
         self.assertIn("web-lint", self.lint["jobs"])
         self.assertEqual(self.lint["concurrency"]["group"], "cmux-next-web-lint-${{ github.sha }}")
         self.assertNotIn("web-lint", self.web["jobs"])
-        self.assertNotIn("needs", self.lint["jobs"]["web-lint"])
+        # #53869 (Leo, 11-24): push runs coalesce to one per 30-minute window, so web-lint needs `coalesce` only.
+        self.assertEqual(self.lint["jobs"]["web-lint"].get("needs"), "coalesce")
 
     def test_every_push_typechecks_the_whole_webviews_tree(self):
         # cmux#49052 (2026-11-22): a rename elsewhere broke webviews' types, and the range lint skips webviews on a
         # push that did not change it. Leo: "Every push to main gets a webview type check, so a break shows up on the
-        # status board within minutes." One job per push (no needs, no path routing, no step condition), whose name
-        # base-red-watch keys its push reds by and does not ignore.
-        on = self.lint.get("on", self.lint.get(True))
-        self.assertNotIn("paths", on["push"])
-        self.assertNotIn("paths-ignore", on["push"])
-        self.assertIs(self.lint["concurrency"]["cancel-in-progress"], False)
-        job = self.lint["jobs"]["webviews-typecheck"]
-        self.assertEqual(job["name"], "webviews typecheck (whole tree)")
-        self.assertNotIn("needs", job)
-        self.assertNotIn("if", job)
-        self.assertLessEqual(job["timeout-minutes"], 10)
-        for step in job["steps"]:
-            self.assertNotIn("if", step, step.get("name"))
-            self.assertNotIn("continue-on-error", step, step.get("name"))
-        check = next(s for s in job["steps"] if s.get("name") == "Typecheck webviews")
-        self.assertEqual((check["working-directory"], check["run"].strip()), ("webviews", "bun run typecheck"))
+        # status board within minutes." #54107 (CI v2 step 5) moved the whole-tree check out of
+        # cmux-next-web-lint.yml into the step table's `webviews-typecheck`, which runs on the merge commit.
+        self.assertNotIn("webviews-typecheck", self.lint["jobs"])
+        import tomllib  # noqa: PLC0415
+        step = tomllib.loads((ROOT / "ci/steps.toml").read_text())["step"]["webviews-typecheck"]
+        self.assertEqual(step["title"], "Webviews typecheck (whole tree)")
+        self.assertNotEqual(step.get("blocks"), False)
+        self.assertIn("webviews/**", step["inputs"])
+        self.assertIn("cd webviews", step["run"])
+        self.assertIn("bun run typecheck", step["run"])
         scripts = json.loads((ROOT / "webviews/package.json").read_text())["scripts"]
         self.assertIn("vp check", scripts["typecheck"])
 

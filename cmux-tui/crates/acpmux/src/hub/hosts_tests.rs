@@ -91,13 +91,18 @@ impl Log {
 /// and a background process among them) under one host, and is in a turn with a tool in flight,
 /// a steer, a subagent's update and an unanswered permission when the daemon stops.
 fn hosted_log() -> Log {
+    hosted_log_of(TURNS, UPDATES)
+}
+
+/// `hosted_log` with `turns` closed turns of `updates` updates each.
+fn hosted_log_of(turns: u64, updates: u64) -> Log {
     let mut log = Log { records: Vec::new(), host_seq: 0 };
     log.push("mux", "host_started", json!({"incarnation": "old"}), false);
     log.turn(9_000, 3);
     log.end_turn(9_000);
     log.push("mux", "host_started", json!({"incarnation": "inc"}), false);
-    for turn in 0..TURNS {
-        log.turn(turn, UPDATES);
+    for turn in 0..turns {
+        log.turn(turn, updates);
         if turn == 1 {
             log.ask(5_000, true);
             log.update(json!({"sessionUpdate": "tool_call", "toolCallId": "spawn", "status": "completed", "rawInput": {"prompt": "dig"}, "_meta": {"codex": {"collaboration": {"tool": "spawnAgent", "receiverThreadIds": ["sub"]}}}}));
@@ -107,7 +112,7 @@ fn hosted_log() -> Log {
         }
         log.end_turn(turn);
     }
-    log.turn(TURNS, 2);
+    log.turn(turns, 2);
     log.update(json!({"sessionUpdate": "tool_call", "toolCallId": "open", "title": "Run tests", "status": "in_progress"}));
     log.update_of("sub", json!({"sessionUpdate": "tool_call", "toolCallId": "sub-call", "title": "Sub", "status": "in_progress"}));
     log.push("out", "session/prompt", json!({"jsonrpc": "2.0", "id": 77, "method": "session/prompt", "params": {"sessionId": "own", "_meta": {"steer": true}}}), true);
@@ -163,6 +168,10 @@ async fn hub_with_meta(sessions: usize, log: &Log, extra: Value) -> (Arc<Hub>, s
             hub.store.append(&id, record).unwrap();
         }
         hub.store.close_log(&id);
+        // These direct store appends stand in for the previous daemon's append path. The
+        // already-loaded session must know their settled end before recovery snapshots it.
+        let session = hub.resolve(&id).unwrap();
+        session.seq.store(log.records.last().map_or(0, |record| record.seq), Ordering::SeqCst);
     }
     (hub, root)
 }
@@ -549,6 +558,336 @@ async fn a_deferred_withdrawal_never_moves_either_adoption_cursor() {
     }
 }
 
+/// Bytes this thread has read (Linux `rchar`): other tests' reads are not counted.
+fn read_bytes() -> u64 {
+    std::fs::read_to_string("/proc/thread-self/io")
+        .ok()
+        .and_then(|io| {
+            io.lines().find(|l| l.starts_with("rchar:"))?.split_whitespace().nth(1)?.parse().ok()
+        })
+        .unwrap_or(0)
+}
+
+/// The reads one adoption of host "inc" makes of `session`'s log (`hosts.rs` `adopt_held`), and
+/// what they recovered.
+fn adopt_reads(hub: &Arc<Hub>, session: &Arc<Session>) -> String {
+    let env = hub.remote_host_env_current(session, "inc");
+    let after = hub.last_host_seq(session, "inc");
+    hub.seed_subagents(session, hub.subagents_from_log(session, "inc"));
+    let work = hub.recovery_work(session, "inc", after);
+    let running = session.subagents.lock().unwrap().running_count();
+    format!("{env} {after} {running} {}", work_fields(&work))
+}
+
+/// The bytes a second adoption of the same host reads, after the host ran three more turns past
+/// the first one, from a log of `turns` closed turns before it; and the log's size.
+async fn second_adoption_reads(turns: u64) -> (u64, u64) {
+    let log = hosted_log_of(turns, UPDATES);
+    let (hub, root) = hub_with(1, &log).await;
+    let session = hub.resolve("chat0").unwrap();
+    adopt_reads(&hub, &session);
+    // The host runs on: its open turn ends and three more run, under the seqs the daemon hands
+    // out after its own records.
+    let mut tail = Log { records: Vec::new(), host_seq: log.host_seq };
+    tail.end_turn(turns);
+    for turn in turns + 1..turns + 4 {
+        tail.turn(turn, UPDATES);
+        tail.end_turn(turn);
+    }
+    tail.turn(turns + 4, 2);
+    let base = hub.settled_seq(&session);
+    for (n, record) in tail.records.iter_mut().enumerate() {
+        record.seq = base + 1 + n as u64;
+        record.at = 1_000 + record.seq;
+        hub.store.append("chat0", record).unwrap();
+    }
+    session.seq.store(base + tail.records.len() as u64, Ordering::SeqCst);
+    let read_before = read_bytes();
+    let second = adopt_reads(&hub, &session);
+    let read = read_bytes() - read_before;
+    // What it recovered is what a read of every record recovers.
+    let all = hub.open_work_reading(&session, "inc", |_, _, _| true);
+    let whole = hub.last_host_seq_parsed(&session, "inc");
+    assert!(second.ends_with(&work_fields(&{
+        let mut all = all;
+        all.requests.retain(|(_, _, _, h)| h.is_none_or(|h| h <= whole));
+        all
+    })));
+    assert!(second.starts_with(&format!("false {whole} ")), "{second}");
+    let size: u64 = std::fs::read_dir(hub.store.session_dir("chat0").unwrap().join("events"))
+        .unwrap()
+        .map(|e| e.unwrap().metadata().unwrap().len())
+        .sum();
+    hub.shutdown_all().await;
+    let _ = std::fs::remove_dir_all(&root);
+    (read, size)
+}
+
+/// A daemon restart that adopts a host it adopted before reads what the host logged since, not
+/// the chat's history: the second adoption of a chat whose log is 10x longer reads within 1.2x
+/// the bytes. Every adoption read the whole log four times (a 4 GB chat: 16 GB per restart).
+#[cfg(target_os = "linux")]
+#[tokio::test]
+async fn a_second_adoption_reads_what_followed_the_first_not_the_log() {
+    let (short, short_size) = second_adoption_reads(5).await;
+    let (long, long_size) = second_adoption_reads(50).await;
+    eprintln!(
+        "second adoption: log {:.1} MB read {:.2} MB; log {:.1} MB read {:.2} MB",
+        short_size as f64 / 1e6,
+        short as f64 / 1e6,
+        long_size as f64 / 1e6,
+        long as f64 / 1e6
+    );
+    assert!(long_size > 5 * short_size, "{short_size} {long_size}");
+    assert!(long * 5 <= short * 6, "read {long} bytes of a long log, {short} of a short one");
+}
+
+/// `value` with every array sorted: a set's order is its hasher's.
+fn canonical(mut value: Value) -> Value {
+    fn sort(value: &mut Value) {
+        match value {
+            Value::Array(items) => {
+                items.iter_mut().for_each(sort);
+                items.sort_by_key(|v| v.to_string());
+            }
+            Value::Object(map) => map.values_mut().for_each(sort),
+            _ => {}
+        }
+    }
+    sort(&mut value);
+    value
+}
+
+/// Everything the adoption reads of host `incarnation` recover, in a fixed order.
+fn adoption_state(hub: &Arc<Hub>, session: &Arc<Session>, incarnation: &str) -> String {
+    let work = hub.open_work(session, incarnation);
+    format!(
+        "{} {} {} {} {}",
+        hub.remote_host_env_current(session, incarnation),
+        hub.last_host_seq(session, incarnation),
+        canonical(serde_json::to_value(hub.subagents_from_log(session, incarnation)).unwrap()),
+        canonical(serde_json::to_value(&work).unwrap()),
+        work_fields(&work),
+    )
+}
+
+/// The logs the equivalence test folds: an open last turn (a steer, an unanswered ask, receipts,
+/// a subagent's tool), a withdrawal, a closed last turn, a carried turn, a later host started
+/// under the remote env policy with a compaction running.
+fn checkpoint_logs() -> Vec<Log> {
+    let open = hosted_log_of(3, 2);
+    let mut withdrawn = hosted_log_of(3, 2);
+    withdrawn.push(
+        "mux",
+        "permission_withdrawn",
+        json!({"agentRequestId": 6_000, "incarnation": "inc"}),
+        false,
+    );
+    let mut closed = hosted_log_of(3, 2);
+    let last_start = closed.records.iter().rposition(|r| r.kind == "turn_started").unwrap();
+    closed.records.truncate(last_start);
+    let mut carried = Log { records: Vec::new(), host_seq: 0 };
+    carried.push("mux", "host_started", json!({"incarnation": "inc"}), false);
+    carried.turn(1, 1);
+    let to = json!({"turnId": "t2", "promptId": "p-late", "prompt": "late", "client": "cli", "seq": 7, "promptIds": ["p-late"]});
+    carried.push(
+        "mux",
+        "turn_result",
+        json!({"turnId": "t1", "status": "completed", "carriedTo": to}),
+        false,
+    );
+    carried.push("mux", "turn_control", json!({"turnId": "t2", "control": "web"}), false);
+    let started = json!({"turnId": "t2", "promptId": "p-late", "prompt": "late", "client": "cli", "carried": {"fromTurnId": "t1", "promptIds": ["p-late"]}});
+    carried.push("mux", "turn_started", started, false);
+    let steer = json!({"jsonrpc": "2.0", "id": 3, "method": "session/prompt", "params": {"sessionId": "own", "_meta": {"steer": true, "promptId": "p-steer"}}});
+    carried.push("out", "session/prompt", steer, true);
+    let mut next = hosted_log_of(3, 2);
+    next.end_turn(3);
+    let policy = crate::agent::REMOTE_ENV_POLICY_ID;
+    next.push(
+        "mux",
+        "host_started",
+        json!({"incarnation": "next", "remoteEnvPolicy": policy}),
+        false,
+    );
+    next.turn(4, 2);
+    next.ask(9_100, false);
+    next.update(json!({"sessionUpdate": "compaction", "state": "running"}));
+    vec![open, withdrawn, closed, carried, next]
+}
+
+/// An adoption resumed from a checkpoint recovers what a fold of the whole log recovers: for
+/// each log, a checkpoint saved by an adoption of each host incarnation when the log ended at
+/// every record, then the rest of the log, against a fresh read of it all.
+#[tokio::test]
+async fn an_adoption_resumed_from_its_checkpoint_matches_a_whole_read() {
+    let incarnations = ["inc", "old", "gone", "next"];
+    for (n, log) in checkpoint_logs().iter().enumerate() {
+        let (hub, root) = hub_with(1, log).await;
+        let session = hub.resolve("chat0").unwrap();
+        hub.catch_up(&session);
+        let whole: Vec<String> =
+            incarnations.iter().map(|i| adoption_state(&hub, &session, i)).collect();
+        hub.shutdown_all().await;
+        let _ = std::fs::remove_dir_all(&root);
+        let mut resumed = 0;
+        for split in 1..log.records.len() {
+            let head = Log { records: log.records[..split].to_vec(), host_seq: 0 };
+            let (hub, root) = hub_with(1, &head).await;
+            let session = hub.resolve("chat0").unwrap();
+            // An adoption of each host when the log ended at `split`.
+            let mut saved = Vec::new();
+            let file = hub.store.session_dir("chat0").unwrap().join("adoption-checkpoint.json");
+            for incarnation in incarnations {
+                let _ = std::fs::remove_file(&file);
+                hub.recovery_work(&session, incarnation, 0);
+                saved.push(hub.store.adoption_checkpoint("chat0"));
+            }
+            for record in &log.records[split..] {
+                hub.store.append("chat0", record).unwrap();
+            }
+            session.seq.store(log.records.len() as u64, Ordering::SeqCst);
+            for ((incarnation, bytes), whole) in incarnations.iter().zip(saved).zip(&whole) {
+                let _ = std::fs::remove_file(&file);
+                if let Some(bytes) = bytes {
+                    hub.store.save_adoption_checkpoint("chat0", &bytes).unwrap();
+                    let inputs = hub.fold_inputs(&session);
+                    assert!(
+                        hub.adoption_checkpoint(&session, incarnation, &inputs).is_some(),
+                        "log {n} split {split} {incarnation}: its checkpoint was not used"
+                    );
+                    resumed += 1;
+                }
+                let state = adoption_state(&hub, &session, incarnation);
+                assert_eq!(&state, whole, "log {n} split {split} {incarnation}");
+            }
+            hub.shutdown_all().await;
+            let _ = std::fs::remove_dir_all(&root);
+        }
+        assert!(resumed * 2 > log.records.len() * incarnations.len(), "log {n}: {resumed} resumed");
+    }
+}
+
+/// A checkpoint saved with no host running (a daemon's load of the log) is resumed by the
+/// adoption of a host whose start the log holds after it, as a fold of the whole log reads it,
+/// and never by a host that started at or before it.
+#[tokio::test]
+async fn a_checkpoint_saved_with_no_host_serves_the_hosts_started_after_it() {
+    let incarnations = ["inc", "old", "gone", "next"];
+    let mut resumed = 0;
+    for (n, log) in checkpoint_logs().iter().enumerate() {
+        let (hub, root) = hub_with(1, log).await;
+        let session = hub.resolve("chat0").unwrap();
+        hub.catch_up(&session);
+        let whole: Vec<String> =
+            incarnations.iter().map(|i| adoption_state(&hub, &session, i)).collect();
+        hub.shutdown_all().await;
+        let _ = std::fs::remove_dir_all(&root);
+        for split in 1..log.records.len() {
+            let head = Log { records: log.records[..split].to_vec(), host_seq: 0 };
+            let (hub, root) = hub_with(1, &head).await;
+            let session = hub.resolve("chat0").unwrap();
+            hub.save_checkpoint_now(&session, journal::UNSTARTED);
+            let Some(bytes) = hub.store.adoption_checkpoint("chat0") else {
+                hub.shutdown_all().await;
+                let _ = std::fs::remove_dir_all(&root);
+                continue;
+            };
+            let point: checkpoint::Checkpoint = serde_json::from_slice(&bytes).unwrap();
+            for record in &log.records[split..] {
+                hub.store.append("chat0", record).unwrap();
+            }
+            session.seq.store(log.records.len() as u64, Ordering::SeqCst);
+            for (incarnation, whole) in incarnations.iter().zip(&whole) {
+                hub.store.save_adoption_checkpoint("chat0", &bytes).unwrap();
+                let inputs = hub.fold_inputs(&session);
+                let started_after = log.records.iter().any(|r| {
+                    r.kind == "host_started"
+                        && r.seq > point.seq
+                        && r.msg["incarnation"].as_str() == Some(incarnation)
+                });
+                let used = hub.adoption_checkpoint(&session, incarnation, &inputs).is_some();
+                assert_eq!(used, started_after, "log {n} split {split} {incarnation}");
+                resumed += usize::from(used);
+                let state = adoption_state(&hub, &session, incarnation);
+                assert_eq!(&state, whole, "log {n} split {split} {incarnation}");
+            }
+            hub.shutdown_all().await;
+            let _ = std::fs::remove_dir_all(&root);
+        }
+    }
+    assert!(resumed > 0, "no adoption resumed a checkpoint saved with no host");
+}
+
+/// A new hub must use the durable checkpoint, and changing the log must invalidate it even
+/// when its final record keeps the same sequence, timestamp and kind.
+#[tokio::test]
+async fn adoption_checkpoint_reopens_and_rejects_rewritten_content() {
+    let mut log = hosted_log_of(3, 2);
+    log.end_turn(3);
+    let (hub, root) = hub_with(1, &log).await;
+    let session = hub.resolve("chat0").unwrap();
+    hub.recovery_work(&session, "inc", u64::MAX);
+    let expected = adoption_state(&hub, &session, "inc");
+    hub.shutdown_all().await;
+    drop(session);
+    drop(hub);
+
+    let mut cfg = Config::default();
+    cfg.store.mode = StoreMode::Local;
+    let hub = Hub::new_deferred(
+        cfg.clone(),
+        crate::store::open(&cfg.store, &root).unwrap(),
+        crate::mailbox::Mailbox::memory(),
+    );
+    let session = hub.resolve("chat0").unwrap();
+    hub.catch_up(&session);
+    let inputs = hub.fold_inputs(&session);
+    let point = hub.adoption_checkpoint(&session, "inc", &inputs).unwrap();
+    assert_eq!(adoption_state(&hub, &session, "inc"), expected);
+
+    // Earlier records can change while the final one is identical. The log's existing
+    // rewrite stamp is the discriminator for this case.
+    hub.store.bump_log_stamp("chat0", 2).unwrap();
+    assert!(hub.adoption_checkpoint(&session, "inc", &inputs).is_none());
+    hub.save_adoption_checkpoint(&session, point);
+    assert!(hub.adoption_checkpoint(&session, "inc", &inputs).is_none());
+    hub.recovery_work(&session, "inc", u64::MAX);
+    let point = hub.adoption_checkpoint(&session, "inc", &inputs).unwrap();
+
+    // An imported/replaced file can retain those three header fields. Alter only its body,
+    // leaving the stamp alone, so this specifically exercises the full-record digest.
+    hub.store.close_log("chat0");
+    let events = hub.store.session_dir("chat0").unwrap().join("events");
+    let mut replaced = false;
+    for entry in std::fs::read_dir(events).unwrap() {
+        let path = entry.unwrap().path();
+        if path.extension().and_then(|s| s.to_str()) != Some("ndjson") {
+            continue;
+        }
+        let text = std::fs::read_to_string(&path).unwrap();
+        let mut rewritten = String::new();
+        let mut changed = false;
+        for line in text.lines() {
+            let mut record: EventRecord = serde_json::from_str(line).unwrap();
+            if record.seq == point.seq {
+                record.msg = json!({"turnId": "different", "status": "completed"});
+                changed = true;
+            }
+            rewritten.push_str(&serde_json::to_string(&record).unwrap());
+            rewritten.push('\n');
+        }
+        if changed {
+            std::fs::write(path, rewritten).unwrap();
+            replaced = true;
+        }
+    }
+    assert!(replaced);
+    assert!(hub.adoption_checkpoint(&session, "inc", &inputs).is_none());
+    hub.shutdown_all().await;
+    let _ = std::fs::remove_dir_all(&root);
+}
+
 /// The paired device that drove a Web turn is logged with it (`turn_started`, `turn_control`
 /// `device`) and read back on adoption: the owner's phone keeps the chat's mode across a restart,
 /// for the open turn and between turns (Leo, 2026-11-21: "i did not mean to pause you. it must
@@ -599,4 +938,68 @@ async fn adoption_reads_back_the_phone_that_drove_the_turn() {
     assert_eq!(work.last_device.as_deref(), Some("dev-ipad"));
     hub.shutdown_all().await;
     let _ = std::fs::remove_dir_all(&root);
+}
+
+/// `last_host_seq_parsed` reads back from the log's end; it answers what the fold from the start
+/// did (the largest `hostSeq` under the last `host_started` of the incarnation), for logs whose
+/// hosts start, restart and hand over in every order.
+#[tokio::test]
+async fn the_parsed_host_seq_read_from_the_end_is_the_fold_from_the_start() {
+    fn forward(records: &[EventRecord], incarnation: &str) -> u64 {
+        let (mut last, mut current) = (0, false);
+        for e in records {
+            if e.dir == "mux" && e.kind == "host_started" {
+                current = e.msg.get("incarnation").and_then(Value::as_str) == Some(incarnation);
+                if current {
+                    last = 0;
+                }
+            } else if current
+                && (e.kind != "permission_withdrawn"
+                    || e.msg.get("incarnation").and_then(Value::as_str) == Some(incarnation))
+                && let Some(h) = e.host_seq
+            {
+                last = last.max(h);
+            }
+        }
+        last
+    }
+    // Each plan names the hosts started in order; each host logs `n` updates.
+    let plans: &[&[(&str, u64)]] = &[
+        &[],
+        &[("inc", 3)],
+        &[("old", 4)],
+        &[("inc", 3), ("old", 5)],
+        &[("old", 5), ("inc", 2)],
+        &[("inc", 6), ("old", 2), ("inc", 1)],
+        &[("inc", 2), ("inc", 4), ("old", 3)],
+        &[("old", 1), ("inc", 0), ("old", 7)],
+    ];
+    for plan in plans {
+        let mut log = Log { records: Vec::new(), host_seq: 0 };
+        // Records before any host start count for none.
+        log.update(json!({"sessionUpdate": "agent_message_chunk", "content": {"type": "text", "text": "x"}}));
+        for (incarnation, updates) in plan.iter() {
+            log.push("mux", "host_started", json!({"incarnation": incarnation}), false);
+            for _ in 0..*updates {
+                log.update(json!({"sessionUpdate": "agent_message_chunk", "content": {"type": "text", "text": "x"}}));
+            }
+            // A withdrawal deferred from the other host carries a later `hostSeq`.
+            let other = if *incarnation == "inc" { "old" } else { "inc" };
+            log.push("mux", "permission_withdrawn", json!({"incarnation": other}), false);
+            if let Some(marker) = log.records.last_mut() {
+                marker.host_seq = Some(10_000);
+            }
+        }
+        let (hub, root) = hub_with(1, &log).await;
+        let session = hub.resolve("chat0").unwrap();
+        for incarnation in ["inc", "old", "none"] {
+            assert_eq!(
+                hub.last_host_seq_parsed(&session, incarnation),
+                forward(&log.records, incarnation),
+                "plan {plan:?}, incarnation {incarnation}"
+            );
+        }
+        hub.shutdown_all().await;
+        let _ = std::fs::remove_dir_all(&root);
+    }
 }

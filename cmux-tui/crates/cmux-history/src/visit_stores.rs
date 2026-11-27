@@ -124,14 +124,17 @@ impl VisitStores {
         now_ms: i64,
         local_day_start_ms: i64,
     ) -> Result<Vec<HistoryEntry>, HistoryError> {
-        if !query.wants(HistoryKind::Page) {
+        let mut filter = query.filter(now_ms, local_day_start_ms);
+        if !query.wants(HistoryKind::Page) || !filter.wants(&HistoryKind::Page) {
             return Ok(Vec::new());
         }
-        let since = query.range.start(now_ms, local_day_start_ms);
+        if let Some(since) = query.range.start(now_ms, local_day_start_ms) {
+            filter.after_ms = Some(filter.after_ms.map_or(since, |after| after.max(since)));
+        }
         let limit = query.limit.unwrap_or(DEFAULT_PAGE_LIMIT);
         let mut entries = Vec::new();
         for profile in self.profiles()? {
-            entries.extend(self.store(&profile)?.entries(&profile, &query.text, since, limit)?);
+            entries.extend(self.store(&profile)?.entries(&profile, &filter, limit, query.actor)?);
         }
         Ok(entries)
     }

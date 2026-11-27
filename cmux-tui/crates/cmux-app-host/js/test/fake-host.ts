@@ -26,10 +26,15 @@ export class FakeHost {
   onPaletteBatch?: (batch: PaletteBatch) => void
   onPaletteDone?: (reqId: number, ok: boolean, body: any) => void
   onCommandDone?: (cbId: number, ok: boolean, body: any) => void
+  /** The daemon signals cache's watches (`daemonWatch` hosts only), and refresh asks. */
+  readonly watches = new Map<number, { name: string; params: any; mount: string; everySeconds: number }>()
+  readonly watchRefreshes: number[] = []
+  /** Every `keepState` object the runtime sent (`cmux.state`), oldest first. */
+  readonly keptStates: Array<Record<string, unknown>> = []
   private nextSub = 1
   private nextTimer = 1
 
-  constructor(appSource = "", init: Record<string, unknown> = { app: { id: "local/test", version: "1.0.0" }, apiVersion: "1.0.0" }) {
+  constructor(appSource = "", init: Record<string, unknown> = { app: { id: "local/test", version: "1.0.0" }, apiVersion: "1.0.0" }, options: { daemonWatch?: boolean } = {}) {
     const host = this
     const native = {
       call(name: string, paramsJSON: string, optionsJSON: string, cbId: number) {
@@ -72,6 +77,9 @@ export class FakeHost {
       log(level: string, message: string) {
         host.logs.push([level, message])
       },
+      keepState(json: string) {
+        host.keptStates.push(JSON.parse(json))
+      },
       commandDone(cbId: number, ok: boolean, json: string) {
         const body = JSON.parse(json)
         host.commandResults.set(cbId, { ok, body })
@@ -102,6 +110,17 @@ export class FakeHost {
         }
       }
     } as Record<string, unknown>
+    if (options.daemonWatch) {
+      native.watch = (name: string, paramsJSON: string, mount: string, everySeconds: number) => {
+        const id = host.nextSub++
+        host.watches.set(id, { name, params: JSON.parse(paramsJSON), mount, everySeconds })
+        return id
+      }
+      native.unwatch = (id: number, refresh: boolean) => {
+        if (refresh) host.watchRefreshes.push(id)
+        else host.watches.delete(id)
+      }
+    }
     this.ctx = vm.createContext({ __cmuxAppNative: native, queueMicrotask })
     vm.runInContext(runtimeSource, this.ctx)
     if (appSource) vm.runInContext(appSource, this.ctx)
@@ -193,6 +212,11 @@ export class FakeHost {
 
   emit(stream: string, payload: unknown = {}) {
     for (const [id, s] of this.subscriptions) if (s.stream === stream) this.global.__cmuxAppEvent(id, JSON.stringify(payload))
+  }
+
+  /** Sends the daemon cache's state to every watch of `name`. */
+  watchState(name: string, state: unknown) {
+    for (const [id, w] of this.watches) if (w.name === name) this.global.__cmuxAppWatch(id, JSON.stringify(state))
   }
 
   findNode(mountId: string, pred: (n: { type: string; props: Record<string, unknown> }) => boolean): string | undefined {

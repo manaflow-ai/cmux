@@ -164,7 +164,7 @@ public struct ArtifactsBrowser: View {
         .trailingOverflowFade(width: 24)
         .textCase(nil)
         .foregroundStyle(.primary)
-        .sensoryFeedback(.selection, trigger: state.filter)
+        .cmuxMobileSensoryFeedback(.selection, trigger: state.filter)
     }
 }
 

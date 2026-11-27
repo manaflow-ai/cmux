@@ -11,6 +11,8 @@ import base64
 import importlib.util
 import io
 import os
+import re
+import shutil
 import json
 import sys
 import subprocess
@@ -26,6 +28,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[3]
 SCRIPT = ROOT / "scripts" / "cmux-next" / "hot-verify-ci.py"
 WORKFLOW = ROOT / ".github" / "workflows" / "cmux-next-hot-verify.yml"
+READ_PR = "Read the pull request"
 WEB_PUBLISH = ROOT / ".github" / "workflows" / "cmux-next-web-bundle-publish.yml"
 # tests/git_fixture_env.py, loaded by path (`python3 -I` puts no script folder on sys.path): the fetch fixture's
 # repositories get git's auto maintenance off, so no detached writer is left when the temp folder goes.
@@ -227,6 +230,18 @@ class Result(unittest.TestCase):
         self.assertIn("cmux17", str(refused.exception))
         self.assertIn("timed out after 300 seconds", str(refused.exception))
         self.assertIn("plan 300", str(refused.exception))
+        self.assertIsInstance(refused.exception, hv.NoReceipt)
+
+    def test_a_tar_with_no_receipt_exits_3_so_the_workflow_looks_again(self) -> None:
+        # Run 44455465520 (#45972): the worker's GitHub read ran out of quota, its out.tar had a step.json and no
+        # receipt, and `post the look` failed hard. Exit 3 is the retryable result; a bad marker stays exit 1.
+        out = self.unpacked({"out/step.json": json.dumps({"head": HEAD, "worker": "mini", "error": "rate limit"}).encode()})
+        argv = ["stage", str(out), "--pr", "43000", "--head", HEAD, "--stage", str(self.tmp / "m"),
+                "--text", str(self.tmp / "t.txt")]
+        with redirect_stderr(io.StringIO()):
+            self.assertEqual(hv.main(argv), 3)
+            bad = self.unpacked(look_files(marker="<!-- something else -->"))
+            self.assertEqual(hv.main(["stage", str(bad)] + argv[2:]), 1)
 
     def test_needs_build_stages_nothing(self) -> None:
         out = self.unpacked({"out/step.json": json.dumps({"head": HEAD, "needs_build": True}).encode()})
@@ -399,6 +414,31 @@ class Comment(unittest.TestCase):
                 hv.gh("api", "repos/manaflow-ai/cmux/pulls/7")
             self.assertEqual(slept, [])
 
+    def test_a_read_timeout_retries_with_an_alternate_token(self) -> None:
+        calls = []
+        timed_out = subprocess.TimeoutExpired(["gh", "api"], hv.GH_TIMEOUT_SECONDS)
+
+        def run(argv, **kw):
+            calls.append((argv, kw))
+            if len(calls) == 1:
+                raise timed_out
+            return subprocess.CompletedProcess(argv, 0, "ok\n", "")
+
+        with mock.patch.dict(hv.os.environ, {"GH_TOKEN": "primary", "GH_TOKEN_SPARE": "spare",
+                                              "GH_TOKEN_SPARES": "spare third"}, clear=True), \
+                mock.patch.object(hv.subprocess, "run", side_effect=run), redirect_stderr(io.StringIO()):
+            self.assertEqual(hv.gh("api", "repos/manaflow-ai/cmux/pulls/7"), "ok\n")
+        self.assertEqual(len(calls), 2)
+        self.assertEqual(calls[0][1]["env"], None)
+        self.assertEqual(calls[1][1]["env"]["GH_TOKEN"], "spare")
+
+    def test_a_write_timeout_is_refused_without_a_retry(self) -> None:
+        timed_out = subprocess.TimeoutExpired(["gh", "api"], hv.GH_TIMEOUT_SECONDS)
+        with mock.patch.object(hv.subprocess, "run", side_effect=timed_out) as run:
+            with self.assertRaisesRegex(hv.Refused, "timed out"):
+                hv.gh("api", "-X", "POST", "repos/manaflow-ai/cmux/issues/7/comments", body="{}")
+        self.assertEqual(run.call_count, 1)
+
 
 class Workflow(unittest.TestCase):
     """The workflow's wiring that the script relies on (text checks; the house guards check the rest)."""
@@ -478,11 +518,16 @@ class Workflow(unittest.TestCase):
                    len(lines))
         return lines[start:end]
 
-    def run_block(self, job: str, gh_out: str, env: dict, step: str = "") -> tuple[subprocess.CompletedProcess, Path, list[str]]:
-        """Run JOB's first `run: |` script (or STEP's), from the checkout's root, with a gh on PATH that prints GH_OUT
-        and logs its argv; returns the process, the GITHUB_OUTPUT file and the gh calls."""
+    def run_block(self, job: str, gh_out: str, env: dict, step: str) -> tuple[subprocess.CompletedProcess, Path, list[str]]:
+        """Run JOB's STEP `run: |` script, from the checkout's root, with a gh on PATH that prints GH_OUT and logs its
+        argv; returns the process, the GITHUB_OUTPUT file and the gh calls.
+
+        STEP is named, never "the job's first script": each job's first one is now "Drop a reused workspace's
+        repository" (`rm -rf "$GITHUB_WORKSPACE/.git"`), and run with the job's environment it deleted the checks
+        job's own .git mid-run (cmux-next.yml checks, runs 45871176600 and 45884200942: ~20 checks then failed with
+        "not a git repository"). GITHUB_WORKSPACE points at the scratch directory too, so no step body reaches it."""
         block = self.job_block(job)
-        first = next(i for i, line in enumerate(block) if line.strip() == f"- name: {step}") if step else 0
+        first = next(i for i, line in enumerate(block) if line.strip() == f"- name: {step}")
         at = next(i for i in range(first, len(block)) if block[i].strip() == "run: |")
         indent = len(block[at]) - len(block[at].lstrip()) + 2
         end = next((j for j in range(at + 1, len(block)) if block[j].strip()
@@ -497,7 +542,7 @@ class Workflow(unittest.TestCase):
         done = subprocess.run(["bash", "-c", script], cwd=ROOT, capture_output=True, text=True,
                               env={**os.environ, "PATH": f"{scratch / 'bin'}:{os.environ['PATH']}", "GH_OUT": gh_out,
                                    "GH_CALLS": str(calls), "GITHUB_OUTPUT": str(out), "GITHUB_STEP_SUMMARY": str(summary),
-                                   "GITHUB_REPOSITORY": "manaflow-ai/cmux", **env})
+                                   "GITHUB_REPOSITORY": "manaflow-ai/cmux", "GITHUB_WORKSPACE": str(scratch), **env})
         argv = calls.read_text().split("\0")[:-1] if calls.exists() else []
         return done, out, argv
 
@@ -516,7 +561,7 @@ class Workflow(unittest.TestCase):
         }
         for name, (row, ok) in cases.items():
             with self.subTest(name):
-                done, out, _ = self.run_block("target", row, env)
+                done, out, _ = self.run_block("target", row, env, READ_PR)
                 self.assertEqual(done.returncode, 0, done.stderr)
                 self.assertIn(f"ok={ok}\n", out.read_text())
 
@@ -543,7 +588,8 @@ class Workflow(unittest.TestCase):
         self.assertIn("inputs.look_result != ''", "\n".join(block))
         step = block.index("      - name: Dispatch one more look")
         self.assertEqual(block[step + 1].strip(), "if: ${{ steps.check.outputs.ok == 'true' && "
-                                                  "steps.result.outputs.tar == 'false' && inputs.attempt != '1' }}")
+                                                  "(steps.result.outputs.tar == 'false' || steps.stage.outputs.again == 'true') && "
+                                                  "inputs.attempt != '1' }}")
         self.assertIn("attempt:", WORKFLOW.read_text().split("jobs:", 1)[0])
         again = "Dispatch one more look"
         done, _, argv = self.run_block("publish", "", {"PR": "7", "HEAD_SHA": HEAD, "LAYERS": "web,rust",
@@ -558,34 +604,53 @@ class Workflow(unittest.TestCase):
         self.assertEqual(done.returncode, 0, done.stderr)
         self.assertIn("kind=merge", argv)
 
+    def test_a_tar_with_no_receipt_marks_the_publish_job_to_look_again_once(self) -> None:
+        # Run 44455465520 (#45972): stage exits 3 for an out.tar with no receipt; the stage step turns that into
+        # again=true (the dispatch step above runs on it) on the first look, and fails on the retry (attempt 1).
+        block = self.job_block("publish")
+        stage = block.index("      - name: Unpack and stage")
+        dispatch = block.index("      - name: Dispatch one more look")
+        self.assertLess(stage, dispatch, "the dispatch step reads steps.stage.outputs.again, so it runs after stage")
+        script = "\n".join(block[stage:dispatch])
+        self.assertIn('if [[ "$rc" == 3 && "${ATTEMPT:-}" != 1 ]]; then', script)
+        self.assertIn('echo "again=true" >> "$GITHUB_OUTPUT"', script)
+        self.assertIn('[[ "$rc" == 0 ]] || exit "$rc"', script)
+        self.assertIn("ATTEMPT: ${{ inputs.attempt }}", script)
+
     def test_a_merged_pr_with_no_receipt_is_looked_at_at_its_merge_commit(self) -> None:
         # A look at the PR head that needs the change's own Rust (8 of 90 looks, 2026-11-15/16) cannot run on the
         # nightly copy; at the merge commit the tree is published and the engine plans from its first parent. The
         # closed event plans and dispatches that look once, and only when the PR has no receipt yet.
         text = WORKFLOW.read_text()
-        self.assertIn("types: [opened, synchronize, reopened, ready_for_review, closed]", text)
+        self.assertIn("types: [opened, synchronize, reopened, ready_for_review, closed", text)
         self.assertIn("(github.event.action != 'closed' || github.event.pull_request.merged)", "\n".join(self.job_block("plan")))
         self.assertIn("hot-verify-receipt.py --pr", "\n".join(self.job_block("plan")))
-        hand_off = "\n".join(self.job_block("hand-off"))
-        self.assertIn("github.event.action == 'closed' && github.event.pull_request.merge_commit_sha", hand_off)
-        self.assertIn('-f kind="$KIND"', hand_off)
+        # The plan job's last step dispatches the look (the hand-off was its own job until 2026-11-23).
+        self.assertNotIn("  hand-off:", WORKFLOW.read_text().splitlines())
+        plan = self.job_block("plan")
+        dispatch = "\n".join(plan[next(i for i, line in enumerate(plan) if line.strip() == "- name: Dispatch the look"):])
+        self.assertIn("if: ${{ steps.plan.outputs.eligible == 'true' }}", dispatch)
+        self.assertIn("github.event.action == 'closed' && github.event.pull_request.merge_commit_sha", dispatch)
+        self.assertIn('-f kind="$KIND"', dispatch)
         # its own concurrency group: it never cancels a head look still queued when the PR merged
         self.assertIn("inputs.kind == 'merge') && '-merge'", text)
         merge = "c" * 40
         row = f"manaflow-ai/cmux\t{OTHER}\tfeat-cmux-next\tclosed\tfalse\t2026-11-16T10:00:00Z\t{merge}"
-        done, out, _ = self.run_block("target", row, {"PR": "7", "HEAD_SHA": merge, "LAYERS": "web,rust"})
+        done, out, _ = self.run_block("target", row, {"PR": "7", "HEAD_SHA": merge, "LAYERS": "web,rust"}, READ_PR)
         self.assertEqual(done.returncode, 0, done.stderr)
         self.assertIn("ok=true\n", out.read_text())
         self.assertIn(f"pr_head={OTHER}\n", out.read_text())  # the web layer waits for the PR's own head
         unmerged = f"manaflow-ai/cmux\t{OTHER}\tfeat-cmux-next\topen\tfalse\t-\t{merge}"
-        done, out, _ = self.run_block("target", unmerged, {"PR": "7", "HEAD_SHA": merge, "LAYERS": "rust"})
+        done, out, _ = self.run_block("target", unmerged, {"PR": "7", "HEAD_SHA": merge, "LAYERS": "rust"}, READ_PR)
         self.assertIn("ok=false\n", out.read_text())
 
     def test_a_receipt_check_that_cannot_read_github_still_looks(self) -> None:
         # Run 44033383427 (cmux#45098, 2026-11-17): the receipt read hit "API rate limit exceeded for installation",
         # receipt=unknown counted as a receipt, and the merged daemon PR got no look. Only receipt=true skips.
+        # From the Plan step on, not the job's first script: that is the workspace drop (see run_block).
         block = self.job_block("plan")
-        start = next(i for i, line in enumerate(block) if line.strip() == "run: |") + 1
+        plan = block.index("      - name: Plan")
+        start = next(i for i in range(plan, len(block)) if block[i].strip() == "run: |") + 1
         script = textwrap.dedent("\n".join(block[start:]))
         unreadable = "import sys\nprint('hot-verify-receipt: API rate limit exceeded', file=sys.stderr)\nsys.exit(1)\n"
         for answer, skips in ((unreadable, False), ("print('receipt=false')\n", False), ("print('receipt=true')\n", True)):
@@ -601,7 +666,8 @@ class Workflow(unittest.TestCase):
                 done = subprocess.run(["bash", "-c", script], cwd=scratch, capture_output=True, text=True,
                                       env={**os.environ, "PATH": f"{scratch / 'bin'}:{os.environ['PATH']}",
                                            "GITHUB_OUTPUT": str(out), "GITHUB_STEP_SUMMARY": str(summary),
-                                           "GITHUB_REPOSITORY": "manaflow-ai/cmux", "PR": "7", "BASE_REF": "feat-cmux-next",
+                                           "GITHUB_REPOSITORY": "manaflow-ai/cmux", "GITHUB_WORKSPACE": str(scratch),
+                                           "PR": "7", "BASE_REF": "feat-cmux-next",
                                            "HEAD_SHA": "c" * 40, "MERGED": "true"})
                 said = summary.read_text() if summary.exists() else ""
                 if skips:
@@ -611,6 +677,38 @@ class Workflow(unittest.TestCase):
                 else:
                     self.assertIn("reached-git", said, (done.stderr, said))
                     self.assertFalse(out.exists() and "eligible=false" in out.read_text())
+
+    def test_the_rust_layer_names_only_a_tree_something_will_publish(self) -> None:
+        # tree= makes the controller wait up to 50 min for the tree's completion.json. A pull request head's push
+        # builds no tree (ci-min-per-pr-30) and the dispatch below is off (#53824), so a named unpublished tree was a
+        # 50 min wait for nothing before the fleet step built the head's daemon itself (builds_head_daemon).
+        # Cases: curl exit, CMUX_TUI_BRANCH_ON_REQUEST, CMUX_TUI_LOOK_DISPATCH, the head's Cmux-Daemon-Tests value.
+        real_git = shutil.which("git")
+        cases = ((0, "1", "", "", True), (22, "1", "", "", False), (22, "0", "", "", True),
+                 (22, "1", "", " Run\n", True), (22, "1", "", "skip\n", False), (22, "1", "1", "", True))
+        for answer, on_request, dispatch, trailer, named in cases:
+            with self.subTest(curl_exit=answer, on_request=on_request, dispatch=dispatch, trailer=trailer):
+                fake = Path(self.enterContext(tempfile.TemporaryDirectory(prefix="hot-verify-tree-")))
+                (fake / "curl").write_text(f"#!/bin/bash\nprintf '%s\\n' \"$*\" >> {fake}/asked\nexit {answer}\n")
+                (fake / "curl").chmod(0o755)
+                # git log answers the trailer; the tree key's own git reads go to the real git.
+                (fake / "git").write_text(f'#!/bin/bash\nif [[ "$1" == log ]]; then printf "{trailer}"; exit 0; fi\n'
+                                          f'exec {real_git} "$@"\n')
+                (fake / "git").chmod(0o755)
+                done, out, calls = self.run_block("rust", "", {"HEAD_SHA": HEAD, "GITHUB_RUN_ID": "1",
+                                                               "BRANCH_ON_REQUEST": on_request, "LOOK_DISPATCH": dispatch,
+                                                               "PATH": f"{fake}:{os.environ['PATH']}"},
+                                                  step="The head's cmux-tui tree key")
+                self.assertEqual(done.returncode, 0, done.stderr)
+                self.assertEqual(calls, [])
+                self.assertRegex((fake / "asked").read_text(),
+                                 r"https://files\.cmux\.com/cmux-tui/tree/[0-9a-f]{40,64}/completion\.json")
+                written = out.read_text()
+                self.assertRegex(written, r"(?m)^key=[0-9a-f]{40,64}$")  # the dispatch step still reads it
+                self.assertEqual(bool(re.search(r"(?m)^tree=[0-9a-f]{40,64}$", written)), named, written)
+        block = "\n".join(self.job_block("rust"))
+        self.assertIn("key: ${{ steps.key.outputs.tree }}", block)
+        self.assertIn("BRANCH_ON_REQUEST: ${{ vars.CMUX_TUI_BRANCH_ON_REQUEST || '1' }}", block)
 
     def test_the_request_job_name_is_the_controllers_request(self) -> None:
         # The build fleet controller (cmuxterm-hq build-fleet/cmd/controller/hot_verify_look.go hotLookJobName) reads
@@ -624,15 +722,19 @@ class Workflow(unittest.TestCase):
                                "${{ needs.rust.outputs.key != '' && format(' tree={0}', needs.rust.outputs.key) || '' }}")
         self.assertIn("timeout-minutes: 2", block)
         self.assertIn("permissions: {}", block)
-        self.assertNotIn("sleep", "\n".join(self.job_block("rust")) + "\n".join(self.job_block("web")))
+        # No runner waits for a build here: a retry's pause is short and bounded (at most 60 s), never a poll.
+        for job in ("rust", "web"):
+            pauses = re.findall(r"\bsleep\s+(\S+)", "\n".join(self.job_block(job)))
+            self.assertTrue(all(p in ('"$pause"',) or (p.isdigit() and int(p) <= 60) for p in pauses), (job, pauses))
+        self.assertNotIn("sleep", "\n".join(self.job_block("rust")))
         row = f"manaflow-ai/cmux\t{HEAD}\tfeat-cmux-next\topen\tfalse\t-\t-"
         for env, want in (({"KIND": "", "ATTEMPT": "", "EVENT_AT": "1794800000"}, ("kind=head", "attempt=0", "event_at=1794800000")),
                           ({"KIND": "merge", "ATTEMPT": "1", "EVENT_AT": "x y=z"}, ("kind=merge", "attempt=1", "event_at=\n"))):
-            done, out, _ = self.run_block("target", row, {"PR": "7", "HEAD_SHA": HEAD, "LAYERS": "web,rust", **env})
+            done, out, _ = self.run_block("target", row, {"PR": "7", "HEAD_SHA": HEAD, "LAYERS": "web,rust", **env}, READ_PR)
             self.assertEqual(done.returncode, 0, done.stderr)
             for line in want:
                 self.assertIn(line, out.read_text())
-        done, _, _ = self.run_block("target", row, {"PR": "7", "HEAD_SHA": HEAD, "LAYERS": "web", "KIND": "head layers=web"})
+        done, _, _ = self.run_block("target", row, {"PR": "7", "HEAD_SHA": HEAD, "LAYERS": "web", "KIND": "head layers=web"}, READ_PR)
         self.assertNotEqual(done.returncode, 0)
 
     def test_the_look_result_names_its_pr_and_head_and_its_out_tar(self) -> None:
@@ -659,13 +761,257 @@ class Workflow(unittest.TestCase):
         feed = "<rss><channel>" + item(10, APP) + item(12, OTHER, "cmux-next-dev") + item(11, HEAD) + "</channel></rss>"
         self.assertEqual(hv.nightly_commit(feed), HEAD)
         self.assertEqual(hv.nightly_commit("<rss/>"), "")
+        # The writer (publish-nightly-next-r2.py add_source) binds cmux: inline on the tag itself.
+        inline = feed.replace("<cmux:sourceCommit>", '<cmux:sourceCommit xmlns:cmux="https://cmux.com/xml-namespaces/cmux">')
+        self.assertEqual(hv.nightly_commit(inline), HEAD)
         plan = "\n".join(self.job_block("plan"))
         self.assertIn('"$tool" nightly-commit', plan)
         self.assertIn('${base[@]+"${base[@]}"}', plan)
 
+    def test_every_checkout_clones_once_more_after_a_stalled_transport(self) -> None:
+        # 2026-11-25: 10 of 13 sampled hot verify reds were GitHub's git transport stalling ("Operation too slow",
+        # "could not fetch ... from promisor remote") in a checkout or the plan's fetch (runs 45701596650,
+        # 45702976944, 45711119163), each green on a rerun.
+        for job in ("plan", "target", "rust", "publish"):
+            with self.subTest(job=job):
+                block = "\n".join(self.job_block(job))
+                first = block.index("uses: actions/checkout@")
+                self.assertIn("id: checkout\n        continue-on-error: true", block[:first])
+                self.assertEqual(block.count("uses: actions/checkout@"), 2)
+                again = block.index("(again)\n        if: ${{ steps.checkout.outcome == 'failure' }}")
+                drop = block.index("- name: Drop the stalled clone")
+                self.assertLess(first, drop)
+                self.assertLess(drop, again)
+                # Both checkouts take the same inputs.
+                withs = [w.split("\n      - ", 1)[0].split("\n      # ", 1)[0]
+                         .replace("sparse-checkout: &publisher-sparse", "sparse-checkout:")
+                         for w in block.split("uses: actions/checkout@")[1:]]
+                self.assertEqual(withs[0], withs[1])
+
+    def test_the_plan_fetch_tries_a_stalled_transport_again(self) -> None:
+        lines = WORKFLOW.read_text().splitlines()
+        start = next(i for i, line in enumerate(lines) if line.strip() == "fetch_retry() {")
+        body = textwrap.dedent("\n".join(lines[start:start + 8]))
+        scratch = Path(self.enterContext(tempfile.TemporaryDirectory(prefix="hot-verify-fetch-retry-")))
+        (scratch / "git").write_text(f'#!/bin/bash\nn=$(cat {scratch}/n 2>/dev/null || echo 0); echo $((n+1)) > {scratch}/n\n'
+                                     '[[ $n -ge 2 ]]\n')
+        (scratch / "git").chmod(0o755)
+        (scratch / "sleep").write_text("#!/bin/bash\n")
+        (scratch / "sleep").chmod(0o755)
+        env = {**os.environ, "PATH": f"{scratch}:{os.environ['PATH']}"}
+        done = subprocess.run(["bash", "-c", body + "\nfetch_retry 5 origin x"], env=env, capture_output=True, text=True)
+        self.assertEqual(done.returncode, 0, done.stderr)
+        self.assertEqual((scratch / "n").read_text().strip(), "3")
+        (scratch / "n").write_text("-9")
+        done = subprocess.run(["bash", "-c", body + "\nfetch_retry 5 origin x"], env=env, capture_output=True, text=True)
+        self.assertNotEqual(done.returncode, 0)
+        self.assertEqual((scratch / "n").read_text().strip(), "-6")
+
+    def fake_gh_run(self, job: str, step: str, gh_body: str, env: dict) -> tuple[subprocess.CompletedProcess, str, str]:
+        block = self.job_block(job)
+        first = next(i for i, line in enumerate(block) if line.strip() == f"- name: {step}")
+        at = next(i for i in range(first, len(block)) if block[i].strip() == "run: |")
+        indent = len(block[at]) - len(block[at].lstrip()) + 2
+        end = next((j for j in range(at + 1, len(block)) if block[j].strip()
+                    and len(block[j]) - len(block[j].lstrip()) < indent), len(block))
+        script = textwrap.dedent("\n".join(block[at + 1:end]))
+        scratch = Path(self.enterContext(tempfile.TemporaryDirectory(prefix="hot-verify-gh-")))
+        (scratch / "gh").write_text(f"#!/bin/bash\necho \"$GH_TOKEN $*\" >> {scratch}/calls\n" + gh_body)
+        (scratch / "gh").chmod(0o755)
+        (scratch / "sleep").write_text("#!/bin/bash\n")
+        (scratch / "sleep").chmod(0o755)
+        done = subprocess.run(["bash", "-c", script], capture_output=True, text=True,
+                              env={**os.environ, "PATH": f"{scratch}:{os.environ['PATH']}", "RUNNER_TEMP": str(scratch),
+                                   "GITHUB_STEP_SUMMARY": str(scratch / "summary"), "GITHUB_REPOSITORY": "manaflow-ai/cmux",
+                                   "GITHUB_WORKSPACE": str(scratch), **env})
+        calls = (scratch / "calls").read_text() if (scratch / "calls").exists() else ""
+        summary = (scratch / "summary").read_text() if (scratch / "summary").exists() else ""
+        return done, calls, summary
+
+    def test_the_web_layer_warns_on_a_spent_hour_and_stays_red_on_a_real_refusal(self) -> None:
+        # 2026-11-25: 4 of 5 sampled web layer reds were github.token's spent hour (run 45711732758), one an HTTP 500
+        # (run 45710344100). gh here is gh_budget_wait.sh (spare pools, bounded wait, 5xx dispatch retry); what
+        # still comes back rate-limited is every pool's spent hour: a warning, not red, since nothing waits for
+        # this bundle. A real refusal is still red.
+        step = "Start the web layer"
+        env = {"GH_TOKEN": "t0", "PR": "7"}
+        done, calls, summary = self.fake_gh_run("web", step, "exit 0\n", env)
+        self.assertEqual(done.returncode, 0, done.stderr)
+        self.assertIn("publishing", summary)
+        limit = 'echo "HTTP 403: API rate limit exceeded for installation." >&2; exit 1\n'
+        done, calls, summary = self.fake_gh_run("web", step, limit, env)
+        self.assertEqual(done.returncode, 0, done.stderr)
+        self.assertEqual(len(calls.splitlines()), 1)
+        self.assertIn("::warning", done.stdout)
+        self.assertIn("not published", summary)
+        done, calls, _ = self.fake_gh_run("web", step, 'echo "HTTP 404: Not Found" >&2; exit 1\n', env)
+        self.assertNotEqual(done.returncode, 0)
+        self.assertIn("::error", done.stdout)
+
+    def test_one_more_look_tries_a_5xx_again(self) -> None:
+        # Runs 45709542537 and 45710724221: the dispatch API answered HTTP 500 once and the step ended red.
+        flaky = ('n=$(wc -l < "$RUNNER_TEMP/calls"); [[ $n -ge 2 ]] && exit 0\n'
+                 'echo "could not create workflow dispatch event: HTTP 500" >&2; exit 1\n')
+        env = {"PR": "7", "HEAD_SHA": HEAD, "LAYERS": "rust", "EVENT_AT": "1", "KIND": "head"}
+        done, calls, _ = self.fake_gh_run("publish", "Dispatch one more look", flaky, env)
+        self.assertEqual(done.returncode, 0, done.stderr)
+        self.assertEqual(len(calls.splitlines()), 2)
+        done, calls, _ = self.fake_gh_run("publish", "Dispatch one more look", 'echo "HTTP 422: no" >&2; exit 1\n', env)
+        self.assertNotEqual(done.returncode, 0)
+        self.assertEqual(len(calls.splitlines()), 3)
+
+    def test_the_plan_dispatch_judges_ghs_answer_not_the_wrappers_notice(self) -> None:
+        # Run 45707112427: the wrapper's ::notice ("refused for the API rate limit ... on GH_TOKEN_SPARE now") made
+        # the step stop retrying a later 5xx on the spare, and hid the spare's answer.
+        flaky = ('n=$(wc -l < "$RUNNER_TEMP/calls")\n'
+                 'echo "::notice title=GitHub API budget::gh workflow run was refused for the API rate limit" >&2\n'
+                 '[[ $n -ge 2 ]] && exit 0\necho "HTTP 500: Failed to run workflow dispatch" >&2; exit 1\n')
+        env = {"PR": "7", "HEAD_SHA": HEAD, "LAYERS": "rust", "EVENT_AT": "2026-11-25T00:00:00Z", "KIND": "head"}
+        done, calls, _ = self.fake_gh_run("plan", "Dispatch the look", flaky, env)
+        self.assertEqual(done.returncode, 0, done.stdout + done.stderr)
+        self.assertEqual(len(calls.splitlines()), 2)
+        # gh's own rate-limit answer still stops at once: the wrapper already waited (120 s at most) on every pool.
+        # The look is advisory, so a spent hour skips it green instead of a red (2026-11-24 runs slept ~24 min here).
+        done, calls, summary = self.fake_gh_run("plan", "Dispatch the look", 'echo "HTTP 403: API rate limit exceeded" >&2; exit 1\n', env)
+        self.assertEqual(done.returncode, 0, done.stdout + done.stderr)
+        self.assertEqual(len(calls.splitlines()), 1)
+        self.assertIn("no look", summary)
+        # Any other refusal is still red after its retries.
+        done, calls, _ = self.fake_gh_run("plan", "Dispatch the look", 'echo "HTTP 422: no" >&2; exit 1\n', env)
+        self.assertNotEqual(done.returncode, 0)
+
+    def test_the_rust_layer_reads_the_pr_only_to_send_a_dispatch(self) -> None:
+        # 5 of 6 sampled rust layer reds on 2026-11-25 were this read out of quota with the dispatch switched off.
+        step = "Ask for the head's tree when it is not published"
+        block = "\n".join(self.job_block("rust"))
+        body = block.split(f"- name: {step}", 1)[1]
+        self.assertLess(body.index('if [[ "${LOOK_DISPATCH:-}" != 1 ]]; then'), body.index("gh api "))
+
     def test_the_web_publisher_takes_a_pr_dispatch(self) -> None:
         text = WEB_PUBLISH.read_text()
         self.assertIn("workflow_dispatch:", text)
+
+
+PR_SH = ROOT / "scripts" / "cmux-next" / "hot-verify-pr.sh"
+BUDGET_WAIT = ROOT / "scripts" / "ci" / "gh_budget_wait.sh"
+HEAD = "a" * 40
+
+
+class PullRequestRead(unittest.TestCase):
+    """hot-verify-pr.sh reads the PR without sleeping: REST, then GraphQL's own hour, then a capped wait."""
+
+    def run_read(self, fake_body: str) -> tuple[subprocess.CompletedProcess, dict[str, str], str]:
+        with tempfile.TemporaryDirectory() as tmp:
+            t = Path(tmp)
+            real = t / "real"
+            real.mkdir()
+            calls = t / "calls.log"
+            fake = real / "gh"
+            fake.write_text("#!/usr/bin/env bash\n" f"echo \"$*\" >> {calls}\n" + textwrap.dedent(fake_body))
+            fake.chmod(0o755)
+            wrap = t / "wrap"
+            wrap.mkdir()
+            gh = wrap / "gh"
+            # The wrapper as --install writes it, pointed at the fake gh.
+            gh.write_text(BUDGET_WAIT.read_text().replace("REAL_GH=gh ", f"REAL_GH='{fake}' ", 1))
+            gh.chmod(0o755)
+            out = t / "out"
+            out.write_text("")
+            env = {
+                "PATH": f"{wrap}:/usr/bin:/bin", "PR": "42", "HEAD_SHA": HEAD, "LAYERS": "web",
+                "GITHUB_REPOSITORY": "manaflow-ai/cmux", "GITHUB_OUTPUT": str(out),
+                "GITHUB_STEP_SUMMARY": str(t / "summary"), "RUNNER_TEMP": str(t),
+                "GH_TOKEN": "t0", "GH_BUDGET_WAIT_MAX_SECONDS": "0",
+            }
+            done = subprocess.run(["bash", str(PR_SH)], env=env, capture_output=True, text=True, timeout=60)
+            lines = dict(l.split("=", 1) for l in out.read_text().splitlines() if "=" in l)
+            return done, lines, calls.read_text() if calls.exists() else ""
+
+    def test_rest_answers(self) -> None:
+        done, out, calls = self.run_read(f"""
+            [[ "$2" == graphql ]] && exit 9
+            printf 'manaflow-ai/cmux\\t{HEAD}\\tfeat-cmux-next\\topen\\tfalse\\t-\\t-\\n'
+            """)
+        self.assertEqual(done.returncode, 0, done.stderr)
+        self.assertEqual(out["ok"], "true")
+        self.assertEqual(out["publish_web"], "true")
+        self.assertEqual(out["layers"], "web")
+        self.assertNotIn("graphql", calls)
+
+    def test_spent_rest_hour_reads_graphql_without_sleeping(self) -> None:
+        done, out, calls = self.run_read(f"""
+            if [[ "$2" == rate_limit ]]; then echo 0; exit 0; fi
+            if [[ "$2" == graphql ]]; then
+              printf 'manaflow-ai/cmux\\t{HEAD}\\tfeat-cmux-next\\topen\\tfalse\\t-\\t-\\n'; exit 0
+            fi
+            echo "gh: API rate limit exceeded for installation ID 1 (HTTP 403)" >&2; exit 1
+            """)
+        self.assertEqual(done.returncode, 0, done.stderr)
+        self.assertEqual(out["ok"], "true")
+        self.assertEqual(out["pr_head"], HEAD)
+        self.assertIn("graphql", calls)
+
+    def test_graphql_merged_state_reads_as_closed_and_merged(self) -> None:
+        done, out, _ = self.run_read("""
+            if [[ "$2" == graphql ]]; then
+              # what gh's --jq prints for a merged pull request whose merge commit is the head
+              printf 'manaflow-ai/cmux\\tbbbb\\tfeat-cmux-next\\tclosed\\tfalse\\t2026-11-24T00:00:00Z\\t%s\\n' "$HEAD_SHA"; exit 0
+            fi
+            echo "API rate limit exceeded" >&2; exit 1
+            """)
+        self.assertEqual(done.returncode, 0, done.stderr)
+        self.assertEqual(out["ok"], "true")
+        self.assertEqual(out["publish_web"], "false")
+        self.assertEqual(out["layers"], "web")
+
+    def test_graphql_jq_maps_the_states(self) -> None:
+        text = PR_SH.read_text()
+        self.assertIn('if .state == "OPEN" then "open" else "closed" end', text)
+        self.assertIn("GH_BUDGET_WAIT_MAX_SECONDS=0 gh api graphql", text)
+
+    def test_both_refused_ends_with_the_refusal(self) -> None:
+        done, _, calls = self.run_read("""
+            if [[ "$2" == rate_limit ]]; then echo 0; exit 0; fi
+            echo "API rate limit exceeded" >&2; exit 1
+            """)
+        self.assertNotEqual(done.returncode, 0)
+        self.assertEqual(calls.count("pulls/42"), 2)
+
+    def test_workflow_reads_take_the_spare_and_target_caps_its_wait(self) -> None:
+        text = WORKFLOW.read_text()
+        self.assertEqual(text.count("- name: Mint the pull request read's spare token"), 2)
+        # plan's dispatch, web layer's dispatch, the two pull request reads, and publish's gallery read and
+        # one-more-look dispatch.
+        self.assertEqual(text.count("GH_TOKEN_SPARE: ${{ steps.cmux-bot-token.outputs.token }}"), 7)
+        target = text.split("  target:", 1)[1].split("\n  web:", 1)[0]
+        self.assertIn("GH_BUDGET_WAIT_MAX_SECONDS: 120", target)
+        self.assertIn("permission-pull-requests: read", target)
+
+    # 2026-11-25: every web and rust layer went red on github.token's spent hour ("API rate limit exceeded for
+    # installation", jobs 139099457954 and 139101072630).
+    def test_web_layer_dispatch_moves_to_the_spare_when_rate_limited(self) -> None:
+        web = WORKFLOW.read_text().split("\n  web:", 1)[1].split("\n  rust:", 1)[0]
+        self.assertIn("- name: Mint the dispatch's spare token", web)
+        self.assertIn("GH_TOKEN_SPARE: ${{ steps.cmux-bot-token.outputs.token }}", web)
+        # The budget wrapper is gh for the dispatch, so a rate limit moves to the spare and each pool.
+        self.assertLess(web.index("gh_budget_wait.sh --install"), web.index("- name: Start the web layer"))
+
+    # 2026-11-26 15:00-19:00Z: post the look ran 584 s at the median and 2,290 s at p90 over 215 jobs, nearly all of
+    # it in the one-more-look dispatch and the gallery read sleeping out github.token's spent hour.
+    def test_publish_dispatch_and_gallery_read_go_out_on_the_pools_and_spare(self) -> None:
+        publish = WORKFLOW.read_text().split("name: post the look", 1)[1]
+        self.assertIn('CI_POOL_PERMISSIONS: \'{"contents":"read","actions":"write"}\'', publish)
+        self.assertIn("permission-actions: write", publish.split("- name: Mint the pull request read's spare token", 1)[1].split("- name:", 1)[0])
+        for step in ("- name: Dispatch one more look", "- name: Is the gallery advisory also on this head"):
+            env = publish.split(step, 1)[1].split("run: |", 1)[0]
+            self.assertIn("GH_TOKEN: ${{ env.CI_POOL_GH_TOKEN || github.token }}", env)
+            self.assertIn("GH_TOKEN_SPARE: ${{ steps.cmux-bot-token.outputs.token }}", env)
+            self.assertIn("GH_TOKEN_SPARES: ${{ env.CI_POOL_GH_TOKEN_SPARES }} ${{ github.token }}", env)
+
+    def test_rust_layer_reads_the_pull_request_only_when_it_will_dispatch(self) -> None:
+        rust = WORKFLOW.read_text().split("\n  rust:", 1)[1].split("\n  request:", 1)[0]
+        ask = rust.split("- name: Ask for the head's tree when it is not published", 1)[1]
+        self.assertLess(ask.index('if [[ "${LOOK_DISPATCH:-}" != 1 ]]'), ask.index("gh api"))
 
 
 if __name__ == "__main__":

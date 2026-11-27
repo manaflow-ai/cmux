@@ -28,12 +28,16 @@ import Testing
 
     private func ws(_ store: AppStore, _ id: String) -> Workspace { store.workspaces.first { $0.id == id }! }
 
+    #if os(iOS)
+    // The row rules are Rust's (workspace_row_actions.rs), linked on iOS only.
     @Test func aRowOffersAboveBelowTopAndBottom() {
         let (store, creator, _, _) = setup()
         #expect(creator.newWorkspacePlacements(beside: ws(store, "b")) == [.above("b"), .below("b"), .top, .bottom])
         #expect(NewWorkspacePlacement.below("b").title == "New Workspace Below")
         #expect(NewWorkspacePlacement.inGroup(red).title == "New Workspace in Group")
     }
+
+    #endif
 
     /// Below a grouped row: into its group first, then right after it in the person's order.
     @Test func newWorkspaceBelowAGroupedRowJoinsItsGroupNextToIt() async throws {
@@ -52,6 +56,8 @@ import Testing
         #expect(recorder.moves == ["\(made.id) before a"])
     }
 
+    #if os(iOS)
+    // The row rules are Rust's (workspace_row_actions.rs), linked on iOS only.
     @Test func newWorkspaceAtTopAndBottomGoNextToTheFirstAndLastRows() async throws {
         let (_, creator, recorder, macID) = setup()
         let top = try #require(creator.create(macID: macID, placement: .top))
@@ -63,6 +69,8 @@ import Testing
         #expect(otherRecorder.moves == ["\(bottom.id) after c"])
     }
 
+    #endif
+
     @Test func newWorkspaceInGroupPlacesItInTheGroup() async throws {
         let (_, creator, recorder, macID) = setup()
         let made = try #require(creator.create(macID: macID, placement: .inGroup(red)))
@@ -71,6 +79,8 @@ import Testing
         #expect(recorder.moves.isEmpty)
     }
 
+    // The name and color rules are Rust's (cmux-mobile-link-ffi `workspace_groups`): only the iOS build links them.
+    #if os(iOS)
     @Test func newWorkspaceGroupMakesAnEmptyGroupInTheNextColor() async {
         let (_, creator, recorder, macID) = setup()
         creator.newGroup(on: macID, name: "  Backend ")
@@ -82,7 +92,10 @@ import Testing
         // Green has no workspace on this phone: the list shows it as an empty group.
         #expect(creator.emptyGroups(on: macID).map(\.id) == ["grp_g"])
     }
+    #endif
 
+    // The failure names the typed group, which the Rust rule (workspace_groups FFI, iOS only) trims.
+    #if os(iOS)
     @Test func aRefusedNewGroupSaysSo() async {
         let (_, creator, recorder, macID) = setup()
         var failures: [String] = []
@@ -92,6 +105,7 @@ import Testing
         await creator.settle()
         #expect(failures == ["Couldn't make the group Backend"])
     }
+    #endif
 
     /// The same name and color, each member duplicated in order and placed in the copy.
     @Test func duplicateWorkspaceGroupCopiesEveryMemberIntoANewGroup() async {
@@ -101,6 +115,8 @@ import Testing
         #expect(recorder.calls == ["create Red red", "duplicate b", "place b-copy grp_new", "duplicate c", "place c-copy grp_new"])
     }
 
+    #if os(iOS)
+    // The row rules are Rust's (workspace_row_actions.rs), linked on iOS only.
     @Test func edgeAnchorsSkipPinnedRowsAndHome() {
         func row(_ id: String, _ index: Int, pinned: Bool = false) -> Workspace {
             var ws = Workspace(id: id, macID: "m", title: id, directory: "~", tabs: [], lastActivityAt: Date())
@@ -116,6 +132,8 @@ import Testing
         #expect(WorkspaceCreator.edgeAnchor(false, of: rows[4], in: rows)?.id == "y")
         #expect(WorkspaceCreator.edgeAnchor(true, of: rows[4], in: [rows[4]]) == nil)
     }
+
+    #endif
 
     // MARK: The icon picker's catalog
 
@@ -216,7 +234,9 @@ import Testing
         store.workspaces = [source, into]
         let mover = Mover()
         let creator = WorkspaceCreator(store: store, backend: mover, defaults: UserDefaults(suiteName: "merge-\(UUID().uuidString)")!)
+        #if os(iOS)
         #expect(creator.mergeTargets(for: source).map(\.id) == ["dst"])
+        #endif
         // Nothing to move out of an empty workspace.
         #expect(creator.mergeTargets(for: into).isEmpty)
         creator.merge(source, into: into)
