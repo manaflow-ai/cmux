@@ -37,7 +37,11 @@ fn a_missing_harness_names_its_next_step() {
     assert!(codex.contains("`cmux harness install codex`"), "{codex}");
     let gemini = hint_text("unknown harness \"gemini\"".into(), "gemini", &[], None);
     assert!(gemini.contains("`cmux harness add gemini --example gemini`"), "{gemini}");
-    for agent in ["grok", "cursor", "antigravity"] {
+    // Cursor and Antigravity ship example profiles (`cli/harness.rs`), so the registry branch
+    // takes only brands with neither an example nor an installer.
+    let cursor = hint_text("unknown harness \"cursor\"".into(), "cursor", &[], None);
+    assert!(cursor.contains("`cmux harness add cursor --example cursor`"), "{cursor}");
+    for agent in ["grok", "amp", "goose"] {
         let out = hint_text(format!("unknown harness {agent:?}"), &format!("{agent}/x"), &[], None);
         assert!(out.contains(&format!("{agent:?} is not set up here")), "{out}");
         assert!(out.contains("`cmux harness add ID --registry`"), "{out}");
