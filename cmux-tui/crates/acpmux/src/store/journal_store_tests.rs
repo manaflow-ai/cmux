@@ -2038,13 +2038,6 @@ fn every_test_wait_on_a_hold_is_bounded() {
             "the page's reader drains the served connection's output: it ends when the \
              connection drops `output`, and no test waits on it",
         ),
-        (
-            "server/outbox.rs",
-            "out_rx",
-            "not test code: the scan reads every `outbox.rs` as a test file because \
-             `stress/mod.rs` declares `#[cfg(test)] mod outbox;`. `attempt_once` awaits it in a \
-             `select!` against `sleep_until(quiet.end())`, which bounds it",
-        ),
     ];
     fn sources(dir: &Path, into: &mut Vec<PathBuf>) {
         let entries = std::fs::read_dir(dir).unwrap_or_else(|e| panic!("{}: {e}", dir.display()));
@@ -2094,28 +2087,8 @@ fn every_test_wait_on_a_hold_is_bounded() {
         "a test module's `mod child;` resolves to no file:\n{}",
         unresolved.join("\n")
     );
-    // #41842 review F1: a `}` in a raw string once cut hub/restart_resume.rs's test module
-    // short at line 1143, hiding the tests after it. The scan reads it to its last test.
-    let resume = files
-        .iter()
-        .find(|(path, _)| path == Path::new("hub/restart_resume.rs"))
-        .map(|(_, text)| text)
-        .expect("hub/restart_resume.rs is a source of the crate");
-    let last_fn = resume.rfind("fn ").map_or(0, |at| resume[..at].lines().count());
-    let mut modules = Modules::default();
-    modules_in(lex(resume), Path::new(""), Path::new(""), false, &mut modules);
-    let reached = modules
-        .bodies
-        .iter()
-        .filter_map(|body| body.clone().into_iter().last())
-        .map(|tt| tt.span().end().line)
-        .max()
-        .unwrap_or(0);
-    assert!(
-        last_fn > 1143 && reached >= last_fn,
-        "the scan read hub/restart_resume.rs's test module to line {reached}, not its last \
-         test at line {last_fn}"
-    );
+    // Raw-string braces and extracted test modules are checked with fixtures in
+    // `the_bounded_wait_scan_exempts_by_meaning_not_text_shape`, independent of source layout.
     let mut found = Vec::new();
     let mut allowed_seen = vec![false; ALLOWED.len()];
     for (path, wait) in waits {
@@ -3181,6 +3154,17 @@ fn the_bounded_wait_scan_exempts_by_meaning_not_text_shape() {
     // from where the module tree puts it (`#[path]` when given).
     type Files<'a> = &'a [(&'a str, &'a str)];
     let crates: &[(&str, Files<'_>)] = &[
+        (
+            "a raw-string brace before a wait in an extracted test module",
+            &[
+                ("hub/resume.rs", "#[cfg(test)]\n#[path = \"resume_checks.rs\"]\nmod tests;\n"),
+                (
+                    "hub/resume_checks.rs",
+                    "fn before() { let text = r#\"}\"#; }\n\
+                     fn after() { arrived.RECV.unwrap(); }\n",
+                ),
+            ],
+        ),
         (
             "F2 at 699228e4: a child of an inline test module, by name",
             &[
