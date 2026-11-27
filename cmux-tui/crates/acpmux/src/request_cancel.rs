@@ -56,6 +56,33 @@ pub fn named_id(params: &Value) -> Option<&Value> {
     params.get("requestId").or_else(|| params.get("id")).filter(|v| v.is_string() || v.is_number())
 }
 
+/// `fut` on a task of its own, so it is polled from the top of a worker's stack, not under the
+/// frames of the request that awaits it: a request that serves another request inside it
+/// (`_acpmux/dispatch`'s session/new) polls `dispatch_request`'s large frame twice, and on one
+/// stack the two overflowed a 2 MiB tokio worker (`tests/request_stack.rs`). The request's cancel
+/// goes with it: dropped for any reason, this aborts the task, and after a client's cancel what
+/// the task waited on reads [`requested`] true, as it would have in the request's own task.
+#[inline(never)]
+pub async fn on_own_task<F>(fut: F) -> Result<F::Output, tokio::task::JoinError>
+where
+    F: Future + Send + 'static,
+    F::Output: Send + 'static,
+{
+    struct AbortOnDrop<T>(tokio::task::JoinHandle<T>);
+    impl<T> Drop for AbortOnDrop<T> {
+        fn drop(&mut self) {
+            self.0.abort();
+        }
+    }
+    // The owner of these tasks; each one is also aborted when its request drops it.
+    static SCOPE: std::sync::OnceLock<cmux_scope::Scope> = std::sync::OnceLock::new();
+    let scope = SCOPE.get_or_init(|| cmux_scope::Scope::new("request on its own task"));
+    let flag = CANCELLED.try_with(Arc::clone).unwrap_or_default();
+    let mut task =
+        AbortOnDrop(scope.spawn_named("request on its own task", CANCELLED.scope(flag, fut)));
+    (&mut task.0).await
+}
+
 /// Whether the request this task serves was cancelled by its client. True only while the
 /// future [`until_cancelled`] ran is dropped after a cancel.
 pub fn requested() -> bool {

@@ -22,6 +22,42 @@ async fn a_cancelled_future_is_dropped_inside_its_scope() {
 }
 
 #[tokio::test]
+async fn an_owned_task_keeps_the_cancel_scope_when_its_request_drops() {
+    struct Probe(Option<oneshot::Sender<bool>>);
+    impl Drop for Probe {
+        fn drop(&mut self) {
+            if let Some(tx) = self.0.take() {
+                let _ = tx.send(requested());
+            }
+        }
+    }
+    let (dropped_tx, dropped_rx) = oneshot::channel();
+    let probe = Probe(Some(dropped_tx));
+    let (cancel_tx, cancel_rx) = oneshot::channel();
+    let (started_tx, started_rx) = oneshot::channel();
+    let request = tokio::spawn(async move {
+        until_cancelled(
+            cancel_rx,
+            on_own_task(async move {
+                started_tx.send(()).unwrap();
+                let _probe = probe;
+                std::future::pending::<()>().await
+            }),
+        )
+        .await
+    });
+    started_rx.await.unwrap();
+    cancel_tx.send(()).unwrap();
+    assert!(request.await.unwrap().is_none());
+    assert!(
+        tokio::time::timeout(std::time::Duration::from_secs(1), dropped_rx)
+            .await
+            .expect("the owned task was dropped")
+            .expect("the probe sender stayed alive")
+    );
+}
+
+#[tokio::test]
 async fn a_finished_future_and_a_dropped_sender_are_no_cancel() {
     let (tx, rx) = oneshot::channel::<()>();
     drop(tx);
