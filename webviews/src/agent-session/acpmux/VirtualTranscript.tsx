@@ -6753,7 +6753,7 @@ function TranscriptView({
     // The fold writers' scroll writes (ToolGroupRow.tsx, useAnchoredCollapse.ts, KeepOpenedLine.tsx,
     // foldAnchor.ts) go through the owner, which writes this list's scroller.
     const unregisterListScroll = registerListScroll(node, (top) => {
-      node.scrollTop = top;
+      writeScrollTop(node, top, "fold");
     });
     const declareFold = (line: Element | null | undefined) => {
       const rowId = line?.closest<HTMLElement>("[data-row-id]")?.dataset.rowId;
