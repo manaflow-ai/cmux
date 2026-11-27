@@ -1,9 +1,10 @@
 // cmux-web-test-timeout: 300
 import { expect, test } from "bun:test";
-import { readdirSync, readFileSync } from "node:fs";
-import { resolve } from "node:path";
-import { packMonacoMessages, packShikiModule } from "../scripts/packed-shiki-data.mjs";
-import { unpackJson } from "../src/shiki-packed/unpackJson";
+import { mkdtempSync, readdirSync, readFileSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join, resolve } from "node:path";
+import { packShikiModule, packWasmModule, packMonacoMessages } from "../scripts/packed-shiki-data.mjs";
+import { unpackBytes, unpackJson } from "../src/shiki-packed/unpackJson";
 
 // Every Shiki grammar and theme the app ships is stored deflated by scripts/packed-shiki-data.mjs
 // and inflated by unpackJson on import (CMUX-570). Each one must come back as exactly the object
@@ -37,6 +38,80 @@ for (const name of ["langs", "themes"]) {
     // Inflating and comparing all ~330 grammars takes several seconds on a busy runner.
   }, 120_000);
 }
+
+test("every @pierre/theme document survives packing", async () => {
+  const pierre = resolve(import.meta.dir, "../node_modules/@pierre/theme/dist");
+  let packed = 0;
+  for (const file of readdirSync(pierre).filter((entry) => entry.endsWith(".mjs"))) {
+    const path = `${pierre}/${file}`;
+    const out: string | null = packShikiModule(readFileSync(path, "utf8"), path);
+    if (file === "index.mjs") {
+      expect(out).toBeNull();
+      continue;
+    }
+    const call = out!.match(PACKED_CALL);
+    expect(call).not.toBeNull();
+    expect(unpackJson(JSON.parse(call![1]))).toEqual((await import(path)).default);
+    packed += 1;
+  }
+  expect(packed).toBeGreaterThanOrEqual(4);
+});
+
+// The agent pane and the pages (esbuild, scripts/agent-pane/packedShikiPlugin.mjs): a page that
+// loads a grammar behind a dynamic import keeps the inflater out of its first load, and the built
+// grammar chunk exports Shiki's own object.
+test("an esbuild page packs its grammar and keeps the inflater lazy", async () => {
+  const { build } = await import("esbuild");
+  const { packedShikiPlugin } = await import("../scripts/agent-pane/packedShikiPlugin.mjs");
+  const outdir = mkdtempSync(join(tmpdir(), "packed-shiki-esbuild-"));
+  try {
+    const result = await build({
+      stdin: {
+        contents: `export const load = () => import("@shikijs/langs/rust");\nexport const theme = () => import("@pierre/theme/pierre-dark");`,
+        resolveDir: resolve(import.meta.dir, ".."),
+        sourcefile: "page.js",
+      },
+      bundle: true,
+      splitting: true,
+      format: "esm",
+      platform: "browser",
+      minify: true,
+      outdir,
+      entryNames: "page",
+      chunkNames: "chunks/[name]-[hash]",
+      metafile: true,
+      plugins: [packedShikiPlugin],
+      logLevel: "silent",
+    });
+    const outputs = result.metafile.outputs;
+    const page = Object.keys(outputs).find((output) => output.endsWith("page.js"))!;
+    const staticImports = outputs[page].imports.filter((item) => item.kind === "import-statement");
+    expect(staticImports).toEqual([]);
+    const pageSource = readFileSync(resolve(page), "utf8");
+    expect(pageSource).not.toContain("inflateSync");
+    const page_ = await import(resolve(page));
+    const rust = await page_.load();
+    expect(rust.default).toEqual((await import("@shikijs/langs/rust")).default);
+    const theme = await page_.theme();
+    expect(theme.default).toEqual((await import("@pierre/theme/pierre-dark")).default);
+    const grammarChunk = Object.keys(outputs).find((output) => /chunks\/rust-/.test(output))!;
+    expect(readFileSync(resolve(grammarChunk), "utf8")).not.toContain("JSON.parse");
+  } finally {
+    rmSync(outdir, { recursive: true, force: true });
+  }
+}, 60_000);
+
+test("the Oniguruma engine's WebAssembly survives packing", async () => {
+  const path = resolve(import.meta.dir, "../node_modules/@shikijs/engine-oniguruma/dist/wasm-inlined.mjs");
+  const source = readFileSync(path, "utf8");
+  const out = packWasmModule(source, path);
+  const call = out.match(/var binary = unpackBytes\(("[A-Za-z0-9+/=]*")\);/);
+  expect(call).not.toBeNull();
+  const { wasmBinary } = await import(path);
+  expect(unpackBytes(JSON.parse(call![1]))).toEqual(wasmBinary);
+  expect(out.length).toBeLessThan(source.length / 2);
+  expect(() => packWasmModule("var binary = 1;", path)).toThrow(/update the pattern/);
+});
 
 test("a module in neither shape fails the build", () => {
   expect(() => packShikiModule("export default {}", "/x/@shikijs/langs/dist/odd.mjs")).toThrow(/update the pattern/);

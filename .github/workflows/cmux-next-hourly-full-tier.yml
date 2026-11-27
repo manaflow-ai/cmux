@@ -36,13 +36,14 @@ jobs:
       contents: read
       issues: write
     steps:
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           persist-credentials: false
           fetch-depth: 1
           sparse-checkout: |
             scripts/ci/hourly_full_tier.py
             .github/hourly-full-tier.json
+            .gitmodules
           sparse-checkout-cone-mode: false
       # The run lists each workflow's runs and dispatches them (actions: write) and compares commits (contents: read)
       # on the App's own REST budget, not the shared job token's.

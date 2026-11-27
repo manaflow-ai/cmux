@@ -605,6 +605,12 @@ public final class WorkspaceCreator {
     @ObservationIgnored var taskOrigins: [String: TaskDraft] = [:]
     /// Why the Mac refused the task whose draft came back; New Task shows it until the next Start.
     public var taskRefusal: String?
+    /// The Cloud machines New Task can run on (``refreshCloudTaskTargets()``), beside the Macs.
+    public var cloudTaskTargets: [CloudTaskTarget] = []
+    /// Reads the Cloud machines the connected Macs list; nil when the read failed. Nil: no Cloud.
+    @ObservationIgnored public var loadCloudTaskTargets: (@MainActor () async -> [CloudTaskTarget]?)?
+    /// Opens a started Cloud task: its machine and the first message.
+    @ObservationIgnored public var openCloudTask: (@MainActor (CloudTaskTarget, String) -> Void)?
     /// Placeholders of refused tasks and where their task went (the failure toast says so).
     @ObservationIgnored var refusedTasks: [String: RefusedTaskPlace] = [:]
     /// The saved New Task drafts (the drafts list).
