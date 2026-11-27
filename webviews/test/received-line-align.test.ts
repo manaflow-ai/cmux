@@ -126,4 +126,41 @@ await requireBrowserLane("received-line-align.test.ts", async () => {
           await page.close();
         }
       });
+
+  test("a cut machine name scrolls left to its end while the pointer rests on it, and back when it leaves", async () => {
+    const page = await open("machine", 760);
+    try {
+      // A line too short for the machine's whole name: its box is held to 40px, as a narrow pane cuts it.
+      const host = page.locator(`${LINE} .cv-received__host`).first();
+      await host.evaluate((node) => {
+        (node as HTMLElement).style.maxWidth = "40px";
+      });
+      const cut = await host.evaluate((node) => node.scrollWidth - node.clientWidth);
+      expect(cut).toBeGreaterThan(2);
+      await host.hover();
+      // The tabs' clock (ui/titleFade.ts MOTION_MARQUEE): 0.6s at rest, then 40px/s.
+      await page.waitForTimeout(1100);
+      const moving = await host.evaluate((node) => ({
+        marquee: (node as HTMLElement).dataset.marquee !== undefined,
+        indent: Number.parseFloat(getComputedStyle(node).textIndent) || 0,
+        ellipsis: getComputedStyle(node).textOverflow,
+      }));
+      await shoot(page, "machine-marquee");
+      expect(moving.marquee).toBe(true);
+      expect(moving.indent).toBeLessThan(-2);
+      expect(moving.ellipsis).toBe("clip");
+      // Off the line: 30px above or below it.
+      const line = (await page.locator(LINE).first().boundingBox())!;
+      await page.mouse.move(2, line.y > 40 ? line.y - 30 : line.y + line.height + 30);
+      await page.waitForTimeout(900);
+      const back = await host.evaluate((node) => ({
+        marquee: (node as HTMLElement).dataset.marquee !== undefined,
+        indent: Number.parseFloat(getComputedStyle(node).textIndent) || 0,
+        ellipsis: getComputedStyle(node).textOverflow,
+      }));
+      expect(back).toEqual({ marquee: false, indent: 0, ellipsis: "ellipsis" });
+    } finally {
+      await page.close();
+    }
+  });
 });
