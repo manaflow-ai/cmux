@@ -174,6 +174,8 @@ pub mod journal_restore;
 mod journal_restore_tests;
 pub(crate) mod key_route;
 mod key_store;
+// A dead lane on a peer tells its starter here (`lane_death_watch.rs`).
+mod lane_death_watch;
 // The per-lane fan-out cap (`lane_fanout.rs`).
 pub(crate) mod lane_fanout;
 mod lane_report_reads;

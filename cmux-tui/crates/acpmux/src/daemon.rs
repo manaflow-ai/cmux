@@ -882,6 +882,9 @@ pub async fn run(opts: DaemonOptions, exit_tasks: &cmux_scope::Scope) -> Result<
     // Idle chats off this machine while it stays over budget: only with `autoEvacuate.enabled`
     // (off by default); off runs no timer (`hub/auto_evacuate.rs`).
     hub.start_auto_evacuate().await;
+    // A dead lane on a peer tells the session here that started it, once per death
+    // (`hub/lane_death_watch.rs`); off with ACPMUX_LANE_DEATH_WATCH=0.
+    hub.start_lane_death_watch();
     // Placed work yields when the owner comes back: only on a machine enrolled in AutoCloud
     // (off by default); off runs no timer (`hub/owner_return.rs`).
     hub.start_owner_return().await;
