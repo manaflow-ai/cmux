@@ -1,14 +1,12 @@
 // l10n-allow-file: gallery fixtures (sample prompts, tool output and agent errors), not shipped UI.
 // Every finished turn ends on its footer row (TurnRows.tsx TurnFooter; G04): a turn that only ran
 // tools copies their lines and the last call's output, and a turn that failed (an API error) keeps its
-// row under the error card with the failed mark. Compare arms shows the `failed-turn-mark`
-// experiment's three marks (failedTurnMark.experiment.ts); the reference is Claude desktop's row
-// under a reply (claude/live/transcript-turn-footer-stats-row) and its error card's circled !
-// (claude/live/status-subagent-failure-and-resume).
+// row under the error card, with no failed mark of its own: the card already says it failed (Leo,
+// 2026-11-27: "remove the extraneous error icon in the bottom area it's not important"). The
+// reference is Claude desktop's row under a reply (claude/live/transcript-turn-footer-stats-row).
 import { agentPaneEntry } from "../../../gallery/format";
 import { activity, assistant, chat, summary, tool, user } from "../../../gallery/fixtures/acpmux";
 import type { PlayContext } from "../../../gallery/play";
-import { failedTurnMark } from "./failedTurnMark.experiment";
 
 const prompt = "Run the sidebar tests and fix what fails";
 const apiError =
@@ -41,7 +39,7 @@ export const failedTurn = () => [
   summary(5.6, { status: "failed", durationMs: 41_000, toolCount: 1, error: apiError }),
 ];
 
-/// A turn that failed before it ran or said anything: nothing to copy, the row keeps its mark.
+/// A turn that failed before it ran or said anything: nothing to copy, and no failed mark under the card.
 const failedEmptyTurn = () => [user(prompt, 6), summary(5.9, { status: "failed", durationMs: 3_000, error: apiError })];
 
 const rowAtRest = async (ctx: PlayContext) => {
@@ -73,9 +71,11 @@ const copyOnHover = async (ctx: PlayContext) => {
   await ctx.waitFor(() => ctx.document.querySelector(".acpmux-turnSummary .cv-turn-actions button[aria-label='Copy']"));
 };
 
-const failedMarkShown = async (ctx: PlayContext) => {
-  await rowAtRest(ctx);
-  await ctx.waitFor(() => ctx.document.querySelector(".acpmux-turnSummary .cv-turn-end-mark--failed"));
+/// The error card says the turn failed; the row under it carries no mark of its own.
+const noFailedMark = async (ctx: PlayContext) => {
+  await ctx.waitFor(() => ctx.document.querySelector(".cv-turn-error"));
+  if (ctx.document.querySelector(".acpmux-turnSummary [aria-label='Failed']"))
+    throw new Error("A failed turn's row must not draw its own failed mark under the error card");
 };
 
 export default agentPaneEntry({
@@ -100,14 +100,17 @@ export default agentPaneEntry({
       play: copyOnHover,
     },
     "api-error": {
-      note: "A turn that ran a command and then hit an API error: the error card, then the row with Copy and the failed mark.",
+      note: "A turn that ran a command and then hit an API error: the error card, then the row with Copy and no failed mark.",
       snapshot: chat(failedTurn()),
-      play: failedMarkShown,
+      play: async (ctx) => {
+        await rowAtRest(ctx);
+        await noFailedMark(ctx);
+      },
     },
     "api-error-nothing-to-copy": {
-      note: "A turn that failed before it did anything: no Copy, but the row keeps the failed mark.",
+      note: "A turn that failed before it did anything: the error card, no Copy and no failed mark.",
       snapshot: chat(failedEmptyTurn()),
-      play: failedMarkShown,
+      play: noFailedMark,
     },
     "reply-then-tool-only": {
       note: "A replied turn, then a tool-only turn: both end on their rows, at the same 8 under their last line.",
@@ -119,10 +122,5 @@ export default agentPaneEntry({
       ]),
       play: copyOnHover,
     },
-  },
-  experiment: {
-    definition: failedTurnMark,
-    // The failed turn's row at rest: its mark shows without a pointer.
-    script: [{ name: "at rest", run: async () => {} }],
   },
 });

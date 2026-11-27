@@ -248,6 +248,7 @@ final class SidebarListView: NSView {
     /// The hover pill still follows the rows at once; only the forward waits.
     var scrollHoverSettle: Duration = .milliseconds(100)
     let scrollHoverForward = DemandTimer(owner: "SidebarListView.scrollHoverForward")
+    let relativeTimesTick = DemandTimer(owner: "SidebarListView.relativeTimes") // `scheduleRelativeTimesTick`
     /// The newest scheduled or cancelled scroll forward: a fire the timer already claimed when a later
     /// scroll frame or a pointer move replaced it does nothing, so the rested row is forwarded once.
     var scrollHoverGeneration: UInt64 = 0
