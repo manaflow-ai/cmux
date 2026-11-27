@@ -288,3 +288,28 @@ async fn an_offline_edit_crosses_on_reconnect() {
     let (_, lacking, _) = b.synced().pull(&a.synced().vv());
     assert!(lacking.entries.is_empty());
 }
+
+#[test]
+fn presence_sync_summary_tracks_acknowledgements_and_disconnects() {
+    let hub = hub();
+    let synced = hub.synced();
+    assert!(hub.here_now(&json!({})).unwrap().sync.is_none());
+    assert!(hub.here_now(&json!({"includeSync": true})).unwrap().sync.unwrap().is_empty());
+    synced.note_peer("phone", synced.vv());
+    synced.record(title_key("one"), json!("first"));
+    synced.record(title_key("one"), json!("second"));
+    let status = synced.peer_status(|_| true);
+    assert!(status[0].connected);
+    assert!(!status[0].acknowledged);
+    assert_eq!(status[0].unacknowledged_edits, 2);
+    synced.note_peer("phone", synced.vv());
+    let status = hub.here_now(&json!({"includeSync": true})).unwrap().sync.unwrap();
+    assert!(status[0].acknowledged);
+    assert!(!status[0].connected, "an acknowledgement is not connectivity");
+    assert_eq!(status[0].unacknowledged_edits, 0);
+    // A peer ahead of us is not converged even though it covers all our edits.
+    let mut ahead = synced.vv();
+    ahead.set(Actor::new("remote"), 1);
+    synced.note_peer("phone", ahead);
+    assert!(!synced.peer_status(|_| true)[0].acknowledged);
+}
