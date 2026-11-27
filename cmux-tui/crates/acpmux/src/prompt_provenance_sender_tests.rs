@@ -225,6 +225,20 @@ fn a_resent_or_ssh_carried_message_waited_and_no_other_did() {
     assert!(!waited(None));
 }
 
+/// A mesh relay's first lease is `resend` only for its prompt id: no wait, so an FYI it
+/// carries waits for the next notice. A lease after the first, and an outbox's resend (no
+/// lease attempt), waited and wake the chat as before.
+#[test]
+fn only_a_resend_that_came_again_waited() {
+    assert!(!resend_waited(Some(&json!({"resend": true, LEASE_ATTEMPT: 1}))));
+    assert!(!resend_waited(Some(&json!({"resend": true, LEASE_ATTEMPT: 0}))));
+    assert!(resend_waited(Some(&json!({"resend": true, LEASE_ATTEMPT: 2}))));
+    assert!(resend_waited(Some(&json!({"resend": true}))));
+    assert!(!resend_waited(Some(&json!({"resend": false}))));
+    assert!(!resend_waited(Some(&json!({LEASE_ATTEMPT: 3}))));
+    assert!(!resend_waited(None));
+}
+
 /// A relay's MACHINE/SESSION past `fromAgent`'s length (review of #37652, F1): the record
 /// keeps the whole name and is a verified relay sender; the name it gives the sender label
 /// fits `fromAgent`, so the send is never refused for it.

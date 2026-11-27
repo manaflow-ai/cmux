@@ -882,6 +882,25 @@ pub fn mark_waited(mut provenance: Value) -> Value {
     provenance
 }
 
+/// On a relayed prompt's `_meta.acpmux`: how many times the mesh hub leased the message
+/// (`mesh::InMessage::attempt`, 1 for the first). The mesh relay marks every delivery `resend`
+/// so a lease that comes back answers with its first run (`server/mesh_relay.rs`); only a lease
+/// after the first is a message that waited.
+pub const LEASE_ATTEMPT: &str = "leaseAttempt";
+
+/// Whether a peer's prompt whose `_meta.acpmux` is `mux` waited for this machine ([`WAITED`]):
+/// its outbox sent it again (`resend`), and, when the mesh hub relayed it, the hub leased it more
+/// than once. A first lease is marked `resend` for its prompt id alone: taken for waited, every
+/// relayed message woke its idle receiver whatever its class, FYIs that should wait for the next
+/// notice too (1,088 of 1,328 FYIs in one host's inboxes over 3 days, 2026-11-26).
+pub fn resend_waited(mux: Option<&Value>) -> bool {
+    let Some(mux) = mux else { return false };
+    if mux.get("resend") != Some(&Value::Bool(true)) {
+        return false;
+    }
+    mux.get(LEASE_ATTEMPT).and_then(Value::as_u64).is_none_or(|attempt| attempt > 1)
+}
+
 /// Whether a message waited for its receiver's machine to come back: a peer's outbox sent it
 /// again ([`WAITED`]), or that outbox's ssh carry brought it while the link was down
 /// ([`SSH_CARRY_RELAY`]). A wait that long is the sender's to know about: the receiver's inbox
