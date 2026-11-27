@@ -981,6 +981,55 @@ async fn a_scripts_claude_chat_starts_cold_without_suggestions_and_leaves_the_wa
     let _ = std::fs::remove_file(&init_log);
 }
 
+/// A Codex bridge reads the suggestion switch when its process starts. The person's warm
+/// bridge stays available after a script creates a chat, whichever setting it read.
+#[tokio::test(flavor = "multi_thread")]
+async fn codex_prompt_suggestions_follow_the_caller_and_the_global_setting() {
+    use std::os::unix::fs::PermissionsExt;
+
+    let bin = tempfile::tempdir().unwrap();
+    let codex = bin.path().join("codex");
+    std::fs::copy(concat!(env!("CARGO_MANIFEST_DIR"), "/tests/fake_codex_app_server.py"), &codex)
+        .unwrap();
+    std::fs::set_permissions(&codex, std::fs::Permissions::from_mode(0o755)).unwrap();
+    let profile = json!({"family": "codex", "argv": [codex, "app-server"]});
+    for enabled in [true, false] {
+        let settings = json!({"agents": {"promptSuggestions": enabled}});
+        let tag = if enabled { "cdxon" } else { "cdxoff" };
+        let daemon = Daemon::with_all(tag, 0, &profile, Some(settings), false, true);
+        let mut script = daemon.rpc().await;
+        let warm = script
+            .call("_acpmux/prewarm", json!({"harness": "fakeb", "cwd": daemon.home, "wait": true}))
+            .await;
+        assert_eq!(warm["accepted"], true, "{warm}");
+        wait_pool_ready(&mut script, "fakeb").await;
+        let pooled = one_pool_record(&daemon).await;
+        let mut person = daemon.rpc().await;
+        person.prove().await;
+        for (rpc, is_person) in [(&mut script, false), (&mut person, true)] {
+            let (id, _) = new_session(rpc, &daemon.home, "fakeb").await;
+            assert_eq!(taken(&daemon, &id), is_person);
+            if is_person {
+                assert_runs_on_pooled_host(&daemon, &id, &pooled);
+            }
+            let reply = rpc
+                .call(
+                    "session/prompt",
+                    json!({"sessionId": id, "prompt": [{"type":"text","text":"hi"}]}),
+                )
+                .await;
+            assert_eq!(reply["stopReason"], "end_turn", "{reply}");
+            let info = rpc.call("_acpmux/info", json!({"sessionId": id})).await;
+            let options = info["configOptions"].as_array().unwrap_or_else(|| panic!("{info}"));
+            assert_eq!(
+                options.iter().any(|option| option["id"] == "prompt-suggestions"),
+                is_person && enabled,
+                "is_person={is_person}, global={enabled}: {options:?}"
+            );
+        }
+    }
+}
+
 /// `sessions.allowFullAccess` off: a pooled chat whose harness started in full access on its own
 /// settings (not its argv, which acpmux leaves alone) is moved to a mode that asks when it is
 /// taken, the same as a cold start, before anything runs in it.

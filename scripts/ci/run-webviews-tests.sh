@@ -112,7 +112,9 @@ set -euo pipefail
 
 # run_with_timeout SECONDS COMMAND...: exit 124 when SECONDS pass, as `timeout -k 10` does. scripts/ci/timeout.sh
 # runs the command in its own process group, so the TERM (and the KILL 10 s later) reach everything bun started.
-ci_timeout="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd -P)/timeout.sh"
+# This script's own folder, absolute: it later cds into webviews/, where a relative BASH_SOURCE no longer resolves.
+ci_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd -P)"
+ci_timeout="$ci_dir/timeout.sh"
 run_with_timeout() {
   bash "$ci_timeout" --kill-after=10 "$@"
 }
@@ -221,6 +223,8 @@ if [ "${1:-}" = --one ]; then
   if [ "$result" = PASS ] && [ -n "${CMUX_WEB_TEST_PASSED_OUT:-}" ]; then printf '%s\n' "$file" >> "$CMUX_WEB_TEST_PASSED_OUT"; fi
   # Each run's wall seconds; a retry's line comes after its first run's, which the manifest keeps.
   printf '%s %s\n' "$((SECONDS - started))" "$file" >> "$results/durations"
+  # The same with the verdict, for the manifest: a failed first run records no seconds (webviews_test_shards.py record).
+  printf '%s %s %s\n' "$((SECONDS - started))" "$result" "$file" >> "$results/timed"
   # Keep the named verdict immediate; the complete log is emitted once in the final summary below.
   echo "$result $file (raw log retained for the final bounded summary)"
   exit 0
@@ -283,7 +287,7 @@ elif [ "${CMUX_BROWSER_TESTS:-}" = 1 ] && [ "${GITHUB_ACTIONS:-}" != true ]; the
   ./node_modules/.bin/playwright install webkit
   # Chromium is the system Google Chrome (test/preload.ts), never Playwright's bundled build, which
   # lacks recent security fixes and runs unsandboxed. A host without a current Chrome skips Chromium.
-  chrome_out="$("$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/ensure-system-chrome.sh" --optional)"
+  chrome_out="$("$ci_dir/ensure-system-chrome.sh" --optional)"
   printf '%s\n' "$chrome_out"
   shell_line="$(printf '%s\n' "$chrome_out" | grep '^CMUX_CHROME_HEADLESS_SHELL=' | tail -1 || true)"
   [ -n "$shell_line" ] && export CMUX_CHROME_HEADLESS_SHELL="${shell_line#CMUX_CHROME_HEADLESS_SHELL=}"
@@ -311,7 +315,7 @@ if [ "${GITHUB_ACTIONS:-}" = true ]; then
 fi
 git ls-files -z --cached ${others[@]+"${others[@]}"} -- '*.test.ts' '*.test.tsx' '*.test.js' '*.test.jsx' '*.test.mjs' \
   '*_test.ts' '*_test.tsx' '*.spec.ts' '*.spec.tsx' '*_spec.ts' '*_spec.tsx' > "$results/files"
-if [ -n "${CMUX_WEB_TEST_FILES:-}" ] || [ "${#selection[@]}" -gt 0 ]; then
+if [ -n "${CMUX_WEB_TEST_FILES:-}" ] || [ -n "${CMUX_WEB_TEST_FILES_FROM:-}" ] || [ "${#selection[@]}" -gt 0 ]; then
   python3 - "$results/files" ${selection[@]+"${selection[@]}"} <<'PY'
 import os
 import pathlib
@@ -319,7 +323,13 @@ import sys
 
 path = pathlib.Path(sys.argv[1])
 listed = [item.decode() for item in path.read_bytes().split(b"\0") if item]
-wanted = [line.strip() for line in os.environ.get("CMUX_WEB_TEST_FILES", "").splitlines() if line.strip()]
+text = os.environ.get("CMUX_WEB_TEST_FILES", "")
+# CMUX_WEB_TEST_FILES_FROM: a file with the same list, for lists past the 128 KiB a single environment
+# variable may hold (MAX_ARG_STRLEN): webviews_pr_shards.py passed a full-ci closure inline, the exec
+# failed with E2BIG and the shard pick fell back to every shard.
+if os.environ.get("CMUX_WEB_TEST_FILES_FROM"):
+    text += "\n" + pathlib.Path(os.environ["CMUX_WEB_TEST_FILES_FROM"]).read_text()
+wanted = [line.strip() for line in text.splitlines() if line.strip()]
 missing = [name for name in wanted if name not in listed]
 if missing:
     sys.exit("error: CMUX_WEB_TEST_FILES names files that are not webviews test files: " + ", ".join(missing))
@@ -961,7 +971,7 @@ done < <(sort -k2 "$results/summary")
 
 if [ -n "${CMUX_WEB_TEST_DURATIONS_OUT:-}" ]; then
   mkdir -p "$(dirname "$CMUX_WEB_TEST_DURATIONS_OUT")"
-  python3 "$shards_py" record "$results/durations" "$CMUX_WEB_TEST_DURATIONS_OUT"
+  python3 "$shards_py" record "$results/timed" "$CMUX_WEB_TEST_DURATIONS_OUT"
 fi
 
 # Per-test results for webviews-tests-new-reds.sh, which compares them with the base's.

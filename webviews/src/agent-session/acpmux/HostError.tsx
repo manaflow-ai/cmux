@@ -1,7 +1,8 @@
-import { type ReactNode, useId, useState } from "react";
+import { type ReactNode, useEffect, useId, useState } from "react";
 import { Notice } from "../../ui/Notice";
 import { Clock } from "../../ui/Typography";
 import { type HostRestoring, hostRecoveryLine } from "./hostRetry";
+import { noteHostLine } from "./flickerLog";
 import { useNow } from "./subagents/subagentGroupModel";
 import { useT } from "./i18n";
 import { waitedText } from "./hostErrorModel";
@@ -60,6 +61,22 @@ export function HostError({
 /// person and the chat comes back by itself (Leo, 2026-11-12: "the recovery needs to be a lot better
 /// and it shouldn't talk so much bullshit"; "try what? no, it should just automatically do stuff").
 /// Only a failure asking again cannot clear keeps its message and its one action.
+/// Records the host line `line` in the flicker ring while it is on screen: `shown` when it mounts,
+/// `cleared` with how long it showed when it goes (flickerLog.ts `host-line`). The gallery and tests
+/// start no flicker log, so they record nothing.
+function useHostLineLog(line: string): void {
+  useEffect(() => {
+    const shown = Date.now();
+    noteHostLine(line, "shown");
+    return () => noteHostLine(line, "cleared", Date.now() - shown);
+  }, [line]);
+}
+
+function HostLineLog({ line }: { line: string }) {
+  useHostLineLog(line);
+  return null;
+}
+
 export function HostUnavailableLine({
   message,
   detail,
@@ -90,6 +107,7 @@ export function HostUnavailableLine({
   // and a narrower one shows Restart and Retry as their icons.
   return (
     <div className="acpmux-host-line-group cv-fit" role="alert">
+      <HostLineLog line="unavailable" />
       <div className="acpmux-host-line cv-fit-row">
         <p
           className="acpmux-host-line-message cv-fit-text selectable"
@@ -172,6 +190,7 @@ export function ConnectionChip({
   variant?: ConnectionChipVariant;
 }) {
   const label = typeof words === "string" ? words : undefined;
+  useHostLineLog(kind);
   return (
     <output
       className="acpmux-host-chip"
@@ -200,7 +219,7 @@ export function HostLineSlot({ children }: { children?: ReactNode }) {
 
 /// The quiet line while the pane gets its chat back on its own (hostRetry.ts `hostRecoveryLine`):
 /// "Restoring sessions… m:ss" while the host says acpmux restores its chats, "Reconnecting…" while
-/// a lost connection comes back, as a ConnectionChip (out of flow). No button and no card: nothing
+/// a lost connection comes back and a sent prompt waits for it, as a ConnectionChip (out of flow). No button and no card: nothing
 /// waits on the person. Otherwise
 /// (`otherwise`) the host's other line, if any.
 export function HostRecoveringLine({

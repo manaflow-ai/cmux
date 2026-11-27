@@ -39,6 +39,7 @@ pub(crate) mod record_watch;
 #[cfg(all(test, unix))]
 mod record_write_tests;
 pub(crate) mod scope;
+pub(crate) mod scope_kill;
 pub mod sweep;
 #[cfg(unix)]
 pub(crate) mod tree;
@@ -255,8 +256,8 @@ pub struct SpawnSpec {
     /// before its CODEX_PATH picks the binary, whatever that binary is named.
     #[serde(default)]
     pub codex_bridge: bool,
-    /// Whether a Codex bridge was started for a person's chat. Agent lanes
-    /// keep this false so prompt suggestions are absent by default.
+    /// The daemon's effective prompt suggestion setting for this Codex start. A host has
+    /// its own environment and may not see the settings file selected by the daemon.
     #[serde(default)]
     pub codex_prompt_suggestions: bool,
     /// Directory for the record, socket fallback aside.
