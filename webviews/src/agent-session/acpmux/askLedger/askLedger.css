@@ -1,0 +1,7 @@
+.acpmux-ask-ledger { display: flex; flex: 1; min-height: 0; flex-direction: column; gap: var(--ds-space-3); }
+.acpmux-ask-ledger-title { flex: none; margin: 0 var(--ds-space-2); color: var(--agent-text); font-size: var(--text-title); line-height: var(--text-title--line-height); font-weight: var(--weight-emphasis); }
+.acpmux-ask-ledger-empty { margin: var(--ds-space-5) var(--ds-space-2); color: var(--agent-muted); }
+.acpmux-ask-ledger-list { display: flex; flex: 1; min-height: 0; flex-direction: column; gap: var(--ds-space-2); overflow: auto; margin: 0; padding: 0 var(--ds-space-2) var(--ds-space-3); list-style: none; }
+.acpmux-ask-ledger-row { padding: var(--ds-space-3); border-bottom: 1px solid color-mix(in srgb, var(--agent-text) 12%, transparent); }
+.acpmux-ask-ledger-text { margin: 0; color: var(--agent-text); white-space: pre-wrap; overflow-wrap: anywhere; }
+.acpmux-ask-ledger-meta { display: flex; flex-wrap: wrap; gap: var(--ds-space-2); margin: var(--ds-space-2) 0 0; color: var(--agent-muted); font-size: var(--text-caption); }
