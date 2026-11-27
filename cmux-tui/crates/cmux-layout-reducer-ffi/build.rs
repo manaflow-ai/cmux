@@ -13,6 +13,9 @@
 //! (a typed C ABI such as `focus`, a helper such as `typed`) is declared `pub mod`. Op modules
 //! are asked in name order, and no two may answer the same op (the `op_modules_are_disjoint`
 //! test), so the order never decides which module answers.
+//!
+//! A `#[path]` module's own `mod x;` resolves next to its file (`src/x.rs`), not in
+//! `src/<name>/`: a module with a directory names each child's file (`#[path = "focus/codec.rs"]`).
 
 use std::fmt::Write as _;
 use std::path::{Path, PathBuf};
