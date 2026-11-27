@@ -512,3 +512,37 @@ test("a screen saver that is not an aerial adds no tile", async () => {
   expect(runs(page, "cmux.settings.backdrop.image.screen_saver").length).toBeGreaterThan(0);
   page.unmount();
 });
+
+// This Workspace's Opacity saves when its press ends, also where the page never hears the
+// pointerup (a mouse released over another window, or after the window lost focus mid-drag): the
+// window's own blur and the first move with no button down save it too.
+for (const ending of ["the window's blur", "a move with no button down"] as const)
+  test(`This Workspace's Opacity saves on ${ending}`, async () => {
+    const page = await renderPage({
+      path: "/settings/personalization?workspace=ws-1",
+      mock: { workspaceBackgrounds: [{ workspace: "ws-1", title: "Research", value: "starryNight", opacity: null }] },
+    });
+    await settle();
+    const picker = page.container.querySelector<HTMLElement>('[data-card="backdrop"]')!;
+    await act(async () => picker.querySelector<HTMLInputElement>('[aria-label="This Workspace (Research)"]')!.click());
+    await settle();
+    const slider = picker.querySelector<HTMLInputElement>('[data-workspace-opacity] input[type="range"]')!;
+    await act(async () => {
+      slider.dispatchEvent(new window.MouseEvent("pointerdown", { bubbles: true, button: 0, buttons: 1 }));
+      const set = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, "value")!.set!;
+      set.call(slider, "0.8");
+      slider.dispatchEvent(new window.Event("input", { bubbles: true }));
+    });
+    await settle();
+    expect(runs(page, "cmux.settings.backdrop.workspace.set").length).toBe(0);
+    await act(async () => {
+      if (ending === "the window's blur") window.dispatchEvent(new window.FocusEvent("blur"));
+      else slider.dispatchEvent(new window.MouseEvent("pointermove", { bubbles: true, buttons: 0 }));
+    });
+    await settle();
+    expect(runs(page, "cmux.settings.backdrop.workspace.set").at(-1)).toMatchObject({
+      workspace: "ws-1",
+      opacity: 0.8,
+    });
+    page.unmount();
+  });

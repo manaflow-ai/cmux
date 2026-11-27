@@ -31,11 +31,12 @@ import { $prose } from "@milkdown/kit/utils";
 import {
   followShownScrollerFade,
   markSidewaysEdges,
-  RESIZE_HANDLE_ATTRIBUTE,
   SIDEWAYS_ATTRIBUTE,
   SIDEWAYS_INK,
   SIDEWAYS_SCROLLER_ATTRIBUTE,
+  RESIZE_HANDLE_ATTRIBUTE,
 } from "../../scrollers";
+import { watchPress } from "../../ui/pressRelease";
 
 /**
  * Column widths, in CSS pixels, for each table of the open file. A table is known by its index in
@@ -282,6 +283,8 @@ export class ResizableTableView extends TableView {
   private readonly handle: HTMLElement;
   private column = -1;
   private dragging = false;
+  // A column drag's watch (pressRelease.ts): a table gone mid-drag leaves no listener behind.
+  private stopDrag: (() => void) | undefined;
 
   constructor(
     node: ProseNode,
@@ -526,17 +529,20 @@ export class ResizableTableView extends TableView {
       this.layout(widths);
       this.show(column);
     };
-    const up = (next: MouseEvent) => {
-      move(next);
+    // The mouseup, or a move with the button up or the window's blur when the release happened
+    // where the page never heard it (watchPress): the column keeps the width it was dragged to.
+    const up = (next: MouseEvent | undefined) => {
+      if (next) {
+        move(next);
+        this.pointer = { x: next.clientX, y: next.clientY };
+      }
+      this.stopDrag = undefined;
       this.dragging = false;
-      this.pointer = { x: next.clientX, y: next.clientY };
       this.dom.classList.remove("md-col-resizing");
-      removeEventListener("mousemove", move, true);
-      removeEventListener("mouseup", up, true);
       this.save(widths);
     };
-    addEventListener("mousemove", move, true);
-    addEventListener("mouseup", up, true);
+    this.stopDrag?.();
+    this.stopDrag = watchPress(this.dom.ownerDocument, { events: "mouse", move, end: (_how, next) => up(next) });
   };
 
   /** Double-click: the column fits its content (the other columns keep their widths). */
@@ -570,6 +576,8 @@ export class ResizableTableView extends TableView {
   }
 
   destroy(): void {
+    this.stopDrag?.();
+    this.stopDrag = undefined;
     this.unfade();
     this.dom.removeEventListener("mousemove", this.hover);
     this.dom.removeEventListener("mouseleave", this.leave);
@@ -787,10 +795,8 @@ export const tableDragOutPlugin = $prose(
             if (!press || !table) return false;
             const anchor = press.pos;
             const tablePos = table.pos;
-            const window = view.dom.ownerDocument.defaultView;
-            if (!window) return false;
             const move = (moved: MouseEvent) => {
-              if (moved.buttons === 0 || view.isDestroyed) return stop();
+              if (view.isDestroyed) return stop();
               const hit = view.posAtCoords({ left: moved.clientX, top: moved.clientY });
               if (!hit) return;
               const { doc } = view.state;
@@ -799,12 +805,9 @@ export const tableDragOutPlugin = $prose(
               const selection = TextSelection.between(doc.resolve(Math.min(anchor, doc.content.size)), $head);
               if (!selection.eq(view.state.selection)) view.dispatch(view.state.tr.setSelection(selection));
             };
-            const stop = () => {
-              window.removeEventListener("mousemove", move);
-              window.removeEventListener("mouseup", stop);
-            };
-            window.addEventListener("mousemove", move);
-            window.addEventListener("mouseup", stop);
+            // Ends on the mouseup, a move with the button up, or the window's blur (watchPress): a
+            // release the page never heard leaves no move extending the selection.
+            const stop = watchPress(view.dom.ownerDocument, { events: "mouse", move, end: () => {} });
             return false;
           },
         },

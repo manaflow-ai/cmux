@@ -6,7 +6,7 @@ import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { JSDOM } from "jsdom";
 import { openDeclarations } from "../layout/motionContract";
-import { declareSplitResize, SplitEdge, splitEdgeWidth } from "./SplitEdge";
+import { SplitEdge, splitEdgeWidth, declareSplitResize } from "./SplitEdge";
 
 let dom: JSDOM | undefined;
 let root: Root | undefined;
@@ -94,7 +94,16 @@ const place = (element: Element, left: number, right: number) => {
 };
 const pointer = (target: Element, type: string, clientX: number) =>
   act(() => {
-    target.dispatchEvent(new MouseEvent(type, { bubbles: true, cancelable: true, button: 0, clientX }));
+    // A held mouse: every event but the release has the button down.
+    target.dispatchEvent(
+      new MouseEvent(type, {
+        bubbles: true,
+        cancelable: true,
+        button: 0,
+        buttons: type === "pointerup" ? 0 : 1,
+        clientX,
+      }),
+    );
   });
 
 test("the width a drag gives stays within bounds, in px or as a share of the page", () => {
@@ -178,6 +187,38 @@ test("an edge that leaves mid-drag gives the page its cursor and frames back", (
   expect(doc.documentElement.dataset.splitResizing).toBeUndefined();
   expect(localStorage.getItem("test.gone")).toBeNull();
 });
+
+// A mouse released over another window sends the page no pointerup and no lost capture: the window's
+// blur, or the next move with no button down, ends the drag (pressRelease.ts watchPress).
+for (const release of ["the window's blur", "a move with no button down"] as const)
+  test(`a drag released where the page never hears it ends on ${release}: the cursor goes, the width is saved`, () => {
+    const doc = render(
+      <div className="pane">
+        <SplitEdge side="right" property="--list-width" storageKey="test.unheard" min={160} max={400} />
+      </div>,
+    );
+    const pane = doc.querySelector<HTMLElement>(".pane")!;
+    const edge = doc.querySelector(".ui-split-edge")!;
+    place(pane, 0, 200);
+    pointer(edge, "pointerdown", 200);
+    pointer(edge, "pointermove", 300);
+    // An element's blur is not the window's.
+    act(() => {
+      edge.dispatchEvent(new window.FocusEvent("blur"));
+    });
+    expect(pane.dataset.splitResizing).toBe("");
+    act(() => {
+      if (release === "the window's blur") window.dispatchEvent(new window.Event("blur"));
+      else edge.dispatchEvent(new MouseEvent("pointermove", { bubbles: true, buttons: 0, clientX: 350 }));
+    });
+    expect(pane.dataset.splitResizing).toBeUndefined();
+    expect(doc.documentElement.dataset.splitResizing).toBeUndefined();
+    expect(localStorage.getItem("test.unheard")).toBe("300");
+    // A later hover over the edge resizes nothing.
+    pointer(edge, "pointermove", 380);
+    flushFrames();
+    expect(pane.style.getPropertyValue("--list-width")).toBe("300px");
+  });
 
 test("a drag declares the split's resize while it runs, and the release one more move of each box", () => {
   const resizes = () =>

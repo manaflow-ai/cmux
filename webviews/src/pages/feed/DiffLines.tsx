@@ -7,9 +7,10 @@
 // sizes all the others.
 //
 // Copy: the browser copies only mounted text, so a selection across lines that are not mounted copies
-// what the diff says instead, one line each as the browser copies these rows. The lines a selection
-// starts and ends on stay mounted, however it was made (a drag, Shift-click, Shift and the arrows),
-// so a scroll keeps both of its ends.
+// what the diff says instead, one line each as the browser copies these rows; select-all, whose end
+// lands in the block standing in for the lines below the window, copies the whole diff. The lines a
+// selection starts and ends on stay mounted, however it was made (a drag, Shift-click, Shift and the
+// arrows), so a scroll keeps both of its ends; no other line a press once touched stays mounted.
 import {
   memo,
   useCallback,
@@ -21,13 +22,14 @@ import {
   type ReactNode,
 } from "react";
 import { defaultRangeExtractor, useVirtualizer, type Range as VirtualRange } from "@tanstack/react-virtual";
+import { watchPress } from "../../ui/pressRelease";
 
 /** A line's height before the first one is measured (caption text, 14 px lines). */
 const LINE_ESTIMATE = 14;
 /** At least this many lines above and below the visible ones; else one viewport each side. */
 const MIN_OVERSCAN = 10;
 
-/** What a line shows and copies as: an empty line holds a space, so it keeps its height. */
+/** What a line shows: an empty line holds a space, so it keeps its height. It copies as itself. */
 export const shownLine = (line: string) => line || " ";
 
 /** A place in the lines: a line's index and a character in what it shows. */
@@ -36,15 +38,19 @@ export interface LinePoint {
   char: number;
 }
 
-/** The text of `lines` from `start` to `end` (its char may pass the line's end), as the browser copies rows. */
+/** The text of `lines` from `start` to `end` (its char may pass the line's end): the diff's own text,
+ *  so an empty line copies as nothing, not the space it shows. A char in an empty line's space is
+ *  past its end, and slices nothing. */
 export function copiedText(lines: readonly string[], start: LinePoint, end: LinePoint): string {
   const out: string[] = [];
   for (let at = start.line; at <= end.line && at < lines.length; at++)
-    out.push(shownLine(lines[at]!).slice(at === start.line ? start.char : 0, at === end.line ? end.char : undefined));
+    out.push(lines[at]!.slice(at === start.line ? start.char : 0, at === end.line ? end.char : undefined));
   return out.join("\n");
 }
 
 const NONE: readonly number[] = [];
+/** The key of the block below the lines: one element, mounted however far the lines scroll. */
+const END = "gap:end";
 const sameLines = (a: readonly number[], b: readonly number[]) =>
   a.length === b.length && a.every((at, index) => at === b[index]);
 
@@ -104,30 +110,50 @@ export function DiffLines({ lines, tone }: { lines: readonly string[]; tone: (li
   }, [findViewport, measureMargin]);
 
   // The lines a selection starts and ends on stay mounted: removing one would move that end of the
-  // selection. Each selection change pins its anchor's and focus's lines, whatever made it; a pointer
-  // also pins its line at once, keeping the others until the selection says where it now is (a
-  // Shift-click's anchor is a line already pinned, which may be out of view).
+  // selection. A caret is a selection too (a Shift-click extends from it), so a click that puts one
+  // keeps its line. A press also keeps its own line until it is released, before the selection says
+  // where it now is. Each selection change, press and release sets the pins again from those (at most
+  // three lines), never adding to the last ones: a press that leaves no selection end in the lines
+  // leaves no line mounted once released.
   const [pinned, setPinned] = useState<readonly number[]>(NONE);
-  const pin = useCallback(
-    (next: readonly number[]) => setPinned((previous) => (sameLines(previous, next) ? previous : next)),
-    [],
-  );
+  const pressed = useRef(-1);
+  const repin = useCallback(() => {
+    const root = body.current;
+    const selection = root?.ownerDocument.getSelection();
+    const ends = [pressed.current];
+    if (selection && selection.rangeCount > 0)
+      ends.push(lineOf(root!, selection.anchorNode), lineOf(root!, selection.focusNode));
+    const next = ends.filter((at, index) => at >= 0 && ends.indexOf(at) === index).sort((a, b) => a - b);
+    setPinned((previous) => (sameLines(previous, next) ? previous : next));
+  }, []);
+  // A press may end outside the lines (a drag out of them), or where the document never hears its
+  // pointerup: released outside the window, or after the window lost focus mid-press. watchPress
+  // ends it on each of those too.
+  const stopPress = useRef<() => void>(undefined);
   const onPointerDown = (event: PointerEvent) => {
-    const at = lineOf(body.current, event.target as Node);
-    if (at >= 0 && !pinned.includes(at)) pin([...pinned, at]);
+    stopPress.current?.();
+    stopPress.current = undefined;
+    const root = body.current;
+    pressed.current = lineOf(root, event.target as Node);
+    if (root && pressed.current >= 0)
+      stopPress.current = watchPress(root.ownerDocument, {
+        end: () => {
+          stopPress.current = undefined;
+          pressed.current = -1;
+          repin();
+        },
+      });
+    repin();
   };
   useEffect(() => {
     const document = body.current?.ownerDocument;
     if (!document) return;
-    const onSelectionChange = () => {
-      const selection = document.getSelection();
-      if (!selection || selection.rangeCount === 0) return pin(NONE);
-      const ends = [lineOf(body.current, selection.anchorNode), lineOf(body.current, selection.focusNode)];
-      pin(ends.filter((at, index) => at >= 0 && ends.indexOf(at) === index));
+    document.addEventListener("selectionchange", repin);
+    return () => {
+      document.removeEventListener("selectionchange", repin);
+      stopPress.current?.();
     };
-    document.addEventListener("selectionchange", onSelectionChange);
-    return () => document.removeEventListener("selectionchange", onSelectionChange);
-  }, [pin]);
+  }, [repin]);
 
   // The first measured line sizes every line not yet mounted: they are all one height.
   const lineHeight = useRef(0);
@@ -185,13 +211,16 @@ export function DiffLines({ lines, tone }: { lines: readonly string[]; tone: (li
   }, [lines, virtualizer]);
 
   // A block of the lines' height stands in for each run of lines not mounted: `data-gap` is its first
-  // line. Each is keyed by the line before it, so the top one stays the same element as lines scroll.
+  // line. Each is keyed by the line before it, so the top one stays the same element as lines scroll;
+  // the bottom one is keyed as the end and stays mounted, at no height once the last line is, so a
+  // select-all ending in it keeps its end there through any scroll (a new element, or none, would
+  // move that end out, to the last line mounted then).
   const children: ReactNode[] = [];
   let reached = scrollMargin;
   let previous = -1;
-  const gap = (height: number) => {
-    if (height > 0)
-      children.push(<span key={`gap:${previous}`} aria-hidden="true" data-gap={previous + 1} style={{ height }} />);
+  const gap = (height: number, key = `gap:${previous}`) => {
+    if (height > 0 || key === END)
+      children.push(<span key={key} aria-hidden="true" data-gap={previous + 1} style={{ height }} />);
   };
   for (const { index, start, end } of virtualizer.getVirtualItems()) {
     gap(start - reached);
@@ -202,7 +231,7 @@ export function DiffLines({ lines, tone }: { lines: readonly string[]; tone: (li
       <DiffRow key={index} index={index} line={line} tone={tone(line)} count={lines.length} measure={measure} />,
     );
   }
-  gap(virtualizer.getTotalSize() + scrollMargin - reached);
+  gap(Math.max(0, virtualizer.getTotalSize() + scrollMargin - reached), END);
 
   return (
     // oxlint-disable-next-line jsx-a11y/prefer-tag-over-role -- not a ul: blocks standing in for unmounted lines sit between the rows
@@ -230,8 +259,11 @@ function pointOf(root: HTMLElement, node: Node, offset: number, edge: "start" | 
   const container = node === root ? root : (element?.closest<HTMLElement>("[data-gap]") ?? undefined);
   if (!container) return undefined;
   if (container !== root) {
-    const from = Number(container.dataset.gap);
-    return edge === "start" ? { line: from, char: 0 } : { line: Math.max(0, from - 1), char: Number.POSITIVE_INFINITY };
+    // Inside a block standing in for lines: the selection holds them all. Select-all ends here, in
+    // the block below the window, in Chromium and WebKit.
+    if (edge === "start") return { line: Number(container.dataset.gap), char: 0 };
+    const next = (container.nextElementSibling as HTMLElement | null)?.dataset.index;
+    return next === undefined ? lastLine() : { line: Number(next) - 1, char: Number.POSITIVE_INFINITY };
   }
   const next = root.childNodes[offset] as HTMLElement | undefined;
   const at = next?.dataset?.index ?? next?.dataset?.gap;
@@ -240,9 +272,14 @@ function pointOf(root: HTMLElement, node: Node, offset: number, edge: "start" | 
   return edge === "start" ? { line, char: 0 } : { line: line - 1, char: Number.POSITIVE_INFINITY };
 }
 
-/** The selected text before or after the lines, as the browser's range reads it. */
+/** The selected text before or after the lines, as the browser copies it: read through the
+ *  selection (as the chat's copy reads a chip's text, conversation/chipCopy.ts), so text a person
+ *  cannot select (a button's label, the poster line, the diff's file name) is left out and a block
+ *  keeps its line end, where the range's own text would run them together. Untrimmed, so a selection
+ *  that starts or ends on a space copies it. The person's selection is put back as it was. */
 function outside(range: Range, root: HTMLElement, side: "before" | "after"): string {
-  const part = root.ownerDocument.createRange();
+  const document = root.ownerDocument;
+  const part = document.createRange();
   if (side === "before") {
     part.setStart(range.startContainer, range.startOffset);
     part.setEndBefore(root);
@@ -250,7 +287,25 @@ function outside(range: Range, root: HTMLElement, side: "before" | "after"): str
     part.setStartAfter(root);
     part.setEnd(range.endContainer, range.endOffset);
   }
-  return part.toString().trim();
+  const selection = document.getSelection();
+  if (!selection || selection.rangeCount === 0 || !selection.anchorNode || !selection.focusNode) return part.toString();
+  const { anchorNode, anchorOffset, focusNode, focusOffset } = selection;
+  const kept = selection.getRangeAt(0);
+  const forward = kept.startContainer === anchorNode && kept.startOffset === anchorOffset;
+  try {
+    selection.setBaseAndExtent(part.startContainer, part.startOffset, part.endContainer, part.endOffset);
+    // Less the line end where it meets the lines (the block it leaves, or the one the lines start):
+    // the copy puts one there. WebKit reads a selection that ends just above the lines as that alone.
+    const text = selection.toString();
+    return side === "before" ? text.replace(/\n$/, "") : text.replace(/^\n/, "");
+  } finally {
+    // A forward selection gets its own range back (whoever holds it still holds the selection's);
+    // a backward one, its anchor and focus.
+    if (forward) {
+      selection.removeAllRanges();
+      selection.addRange(kept);
+    } else selection.setBaseAndExtent(anchorNode, anchorOffset, focusNode, focusOffset);
+  }
 }
 
 interface RowProps {

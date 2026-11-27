@@ -4,6 +4,8 @@
 // edge, the side edge away from the chip, and the corner between them; one that opens down grows
 // from its bottom edge, the same side edge, and that corner.
 
+import { watchPress } from "./pressRelease";
+
 /// One size the person dragged a popup to, in px, kept in local storage under `key`. The sizes kept
 /// under `retired` keys (an older default's) are dropped once, so an update that changes the default
 /// starts everyone from it; a drag after that is kept as before (Lucas 2026-11-12). Every open page
@@ -200,9 +202,6 @@ export function startPopupResize(
   const end = () => {
     if (frame) view?.cancelAnimationFrame(frame);
     if (moved) apply();
-    grip.removeEventListener("pointermove", move);
-    grip.removeEventListener("pointerup", end);
-    grip.removeEventListener("pointercancel", end);
     delete grip.dataset.dragging;
     dragging = false;
     if (pin()) placed.disconnect();
@@ -211,8 +210,9 @@ export function startPopupResize(
       ...(vertical && Math.abs(height - startHeight) >= 1 ? { height } : {}),
     });
   };
-  grip.addEventListener("pointermove", move);
-  grip.addEventListener("pointerup", end);
-  grip.addEventListener("pointercancel", end);
+  // The drag ends where the press does, also where the page never hears its pointerup (released over
+  // another window, or after the window lost focus mid-drag) and when the grip goes mid-drag (its lost
+  // capture): watchPress (pressRelease.ts) removes its listeners as it ends.
+  watchPress(popup.ownerDocument, { pointerId: event.pointerId, move, end: () => end() });
   return true;
 }

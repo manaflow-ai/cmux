@@ -5,16 +5,17 @@ import {
   useContext,
   useEffect,
   useLayoutEffect,
-  useMemo,
   useRef,
   useState,
   useSyncExternalStore,
   type ReactNode,
+  useMemo,
   type RefObject,
 } from "react";
 import { measureElement as measureBox, useVirtualizer, type Range } from "@tanstack/react-virtual";
 import { Spinner } from "../../agent-session/acpmux/conversation/icons";
 import { Switch } from "../../ui/Switch";
+import { watchPress } from "../../ui/pressRelease";
 import { offsetRange, sliceBand, type VisibleSlice } from "../../ui/visibleSlice";
 import { SceneContextMenu, SceneMenu } from "./sceneMenus";
 import { SceneReorderable } from "./SceneReorderable";
@@ -277,6 +278,7 @@ function SceneSlider({ node, dispatch, disabled }: { node: SceneNode; dispatch: 
   // The last value sent or shown, so each snapped value is sent once even between two renders.
   const last = useRef(appValue);
   const dragging = useRef(false);
+  const stopPress = useRef<() => void>(undefined);
   useEffect(() => {
     if (dragging.current) return;
     last.current = appValue;
@@ -284,11 +286,20 @@ function SceneSlider({ node, dispatch, disabled }: { node: SceneNode; dispatch: 
   }, [appValue]);
   const live = node.props.onChange === true && !disabled;
   const endDrag = () => {
+    stopPress.current?.();
+    stopPress.current = undefined;
     if (!dragging.current) return;
     dragging.current = false;
     last.current = appValue;
     setShown(appValue);
   };
+  // The press's end (pressRelease.ts) runs the last committed render's endDrag: the app's latest
+  // value shows. Kept in a layout effect, before any later event, never written during render.
+  const endNow = useRef(endDrag);
+  useLayoutEffect(() => {
+    endNow.current = endDrag;
+  });
+  useEffect(() => () => stopPress.current?.(), []);
   return (
     <input
       type="range"
@@ -303,10 +314,14 @@ function SceneSlider({ node, dispatch, disabled }: { node: SceneNode; dispatch: 
         dragging.current = true;
         // A release outside the track still ends the drag here.
         event.currentTarget.setPointerCapture?.(event.pointerId);
+        // Its pointerup, pointercancel or lost capture, and also the window's blur or a move with no
+        // button down (a release the page never heard), ends the drag.
+        stopPress.current?.();
+        stopPress.current = watchPress(event.currentTarget.ownerDocument, {
+          pointerId: event.pointerId,
+          end: () => endNow.current(),
+        });
       }}
-      onPointerUp={endDrag}
-      onPointerCancel={endDrag}
-      onLostPointerCapture={endDrag}
       onBlur={endDrag}
       onChange={(event) => {
         if (!live) return;
@@ -999,8 +1014,16 @@ const SceneNodeView = memo(function SceneNodeView({
   const node = live ?? (leaving ? store.getDeparted(id) : undefined);
   const entering = useSceneEntering(store, node, scrolledIn?.(id) !== true);
   const inheritedDisabled = useContext(DisabledContext);
-  const ref = useCallback((element: HTMLElement | null) => measure?.(element), [measure]);
   const element = useRef<HTMLElement>(null);
+  // One ref for the node: its own handle (focus, the part's animations) and the virtualizer's measure
+  // (#46528). Two `ref` keys in `shared` let the later one win, so the rows were never measured.
+  const ref = useCallback(
+    (node: HTMLElement | null) => {
+      element.current = node;
+      measure?.(node);
+    },
+    [measure],
+  );
   const partRef = useRef<Element>(null);
   const type = node?.type;
   const part = useMemo<MotionPart | undefined>(() => {
@@ -1115,7 +1138,6 @@ const SceneNodeView = memo(function SceneNodeView({
     // A ZStack child's `position` (scene.css): its center at `--app-x`, `--app-y`.
     "data-positioned": style["--app-x"] !== undefined ? "" : undefined,
     className: `cmux-app-scene-node cmux-app-scene-${node.type.toLowerCase()}${sceneGlass(props.glass) ? " ui-glass" : ""}`,
-    ref: element as RefObject<HTMLDivElement & HTMLButtonElement>,
     style,
     title: sceneText(props.help) || undefined,
   };

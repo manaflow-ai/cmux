@@ -354,6 +354,37 @@ describe("the viewer in the split", () => {
     expect(position()).toBe("1 of 8");
   });
 
+  // The scrub ends on its pointerup, and also where the page never hears one: the window's own blur,
+  // or a move with no button down (released over another window). A scrub that never ended would
+  // step through the frames under a plain hover.
+  for (const ending of ["the window's blur", "a move with no button down"] as const)
+    test(`a drag across the frame ends on ${ending}: a later hover scrubs nothing`, async () => {
+      await render(fixture({ scrubSeq: 1 }));
+      const stage = document.querySelector<HTMLElement>(".viewer-stage")!;
+      const pointer = (type: string, clientX: number, buttons = 1) =>
+        act(async () => {
+          stage.dispatchEvent(new window.MouseEvent(type, { clientX, button: 0, buttons, bubbles: true }));
+        });
+      await pointer("pointerdown", 100);
+      await pointer("pointermove", 124);
+      expect(position()).toBe("3 of 8");
+      // An element's blur does not end it.
+      await act(async () => {
+        document.body.dispatchEvent(new window.FocusEvent("blur"));
+      });
+      await pointer("pointermove", 136);
+      expect(position()).toBe("4 of 8");
+      if (ending === "the window's blur") {
+        await act(async () => {
+          window.dispatchEvent(new window.FocusEvent("blur"));
+        });
+        // Even a move that claims a button scrubs nothing now: the press is over.
+        await pointer("pointermove", 400);
+      } else await pointer("pointermove", 400, 0);
+      await pointer("pointermove", 88, 0);
+      expect(position()).toBe("4 of 8");
+    });
+
   test("a press dragged along the filmstrip shows each frame it passes over", async () => {
     await render(fixture());
     const films = document.querySelectorAll(".filmstrip .film");

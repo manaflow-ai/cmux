@@ -7,7 +7,8 @@ import type { Rendered } from "./testing";
 // and the thumb never snaps back while the write is in flight.
 const restore = installDom();
 afterAll(() => restore());
-const { changeValue, fire, ops, renderPage, resetRow, rowElement, run } = await import("./testing");
+const { changeValue, fire, ops, renderPage, resetRow, rowElement, run, settle } = await import("./testing");
+const { act } = await import("react");
 
 let page: Rendered | null = null;
 afterEach(() => {
@@ -148,6 +149,27 @@ describe("slider rows", () => {
     expect(rows.get("appearance.theme")?.value).toBe("Dracula");
     expect(ops(page.provider, "cmux.settings.set")).toEqual([{ key: OPACITY, value: 0.55 }]);
   });
+
+  // A slider's press ends where the page hears it end: a mouse released over another window, or
+  // after the window lost focus mid-drag, sends no pointerup, so the window's own blur and the first
+  // move with no button down write the value too.
+  for (const ending of ["the window's blur", "a move with no button down"] as const)
+    test(`a slider drag is written on ${ending}`, async () => {
+      page = await renderPage({ path: OPACITY_PAGE });
+      const input = slider(OPACITY);
+      await act(async () => {
+        input.dispatchEvent(new window.MouseEvent("pointerdown", { bubbles: true, button: 0, buttons: 1 }));
+      });
+      await changeValue(input, "0.55");
+      expect(ops(page.provider, "cmux.settings.set")).toEqual([]);
+      await act(async () => {
+        if (ending === "the window's blur") window.dispatchEvent(new window.FocusEvent("blur"));
+        else input.dispatchEvent(new window.MouseEvent("pointermove", { bubbles: true, buttons: 0 }));
+      });
+      await settle();
+      expect(ops(page.provider, "cmux.settings.set")).toEqual([{ key: OPACITY, value: 0.55 }]);
+      expect(ops(page.provider, "cmux.settings.preview.end")).toEqual([{ key: OPACITY }]);
+    });
 
   test("over a background picture the window opacity slider reaches 100%", async () => {
     page = await renderPage({

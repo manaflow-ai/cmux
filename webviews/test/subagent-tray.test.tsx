@@ -12,7 +12,7 @@
 //   only the transcript knows (a peer's chat, whose end never arrived) does not pin the tray.
 // - The tray's lines are the summary card's Subagents rows: one component (AgentLine.tsx).
 import { PHASE_DWELL_MS } from "../src/agent-session/acpmux/subagents/hatStep";
-import { afterAll, afterEach, beforeAll, describe, expect, setSystemTime, test } from "bun:test";
+import { afterAll, beforeAll, describe, expect, setSystemTime, test, afterEach } from "bun:test";
 import { JSDOM, VirtualConsole } from "jsdom";
 import { teardownDom } from "./support/domTeardown";
 import { RUNNING_TRAY_LINE, RUNNING_TRAY_LIST_LINE } from "../src/agent-session/acpmux/subagents/subagentSelectors";
@@ -1960,6 +1960,60 @@ test("many live and finished commands share one terminal header mark without hid
   } finally {
     await shown.done();
   }
+});
+
+// The rim's drag (trayResize.ts) ends where its press does. With pointer capture the page hears most
+// releases, but one let go where it never does (the window lost focus mid-drag, the button came up
+// over another window) ends on the window's own blur or the next move with no button down: the
+// drag lands where it reached (hatDragEnd), and later moves size nothing.
+describe("the rim's drag ends on a release the page never hears", () => {
+  for (const release of ["the window's blur", "a move with no button down"] as const)
+    test(`${release} ends the drag at the height it reached`, async () => {
+      const { setHatHeight } = await import("../src/agent-session/acpmux/subagents/trayResize");
+      setHatHeight(undefined, true);
+      const items = trayItems([agent("Reviewer"), agent("Tester")], [], NONE, true);
+      const { root, done } = await render(
+        createElement(SubagentTray, { items, working: true, waiting: new Set<string>(), onOpen: () => {} }),
+        { open: true },
+      );
+      const proto = dom.window.HTMLElement.prototype as unknown as Record<string, unknown>;
+      const capture = proto.setPointerCapture;
+      proto.setPointerCapture = () => {};
+      // The rim measures the list with the page's own getComputedStyle.
+      const hadStyle = "getComputedStyle" in scope;
+      const style = scope.getComputedStyle;
+      scope.getComputedStyle = dom.window.getComputedStyle.bind(dom.window);
+      try {
+        const tray = root.querySelector<HTMLElement>(".acpmux-running-tray")!;
+        const rim = tray.querySelector<HTMLElement>(".acpmux-running-tray__rim")!;
+        const height = () => tray.style.getPropertyValue("--acpmux-tray-list-height");
+        const pointer = (target: EventTarget, type: string, clientY: number, buttons: number) =>
+          target.dispatchEvent(new dom.window.MouseEvent(type, { bubbles: true, button: 0, buttons, clientY }));
+        await act(async () => {
+          pointer(rim, "pointerdown", 500, 1);
+          pointer(rim, "pointermove", 400, 1);
+        });
+        expect(height()).not.toBe("");
+        expect(tray.hasAttribute("data-dragging")).toBe(true);
+        await act(async () => {
+          if (release === "the window's blur") dom.window.dispatchEvent(new dom.window.FocusEvent("blur"));
+          else pointer(dom.window.document.body, "pointermove", 400, 0);
+        });
+        expect(tray.hasAttribute("data-dragging")).toBe(false);
+        const landed = height();
+        expect(landed).not.toBe("");
+        // Over the rim again with a button down from elsewhere: no drag follows it.
+        await act(async () => void pointer(rim, "pointermove", 300, 1));
+        expect(height()).toBe(landed);
+        expect(tray.hasAttribute("data-dragging")).toBe(false);
+      } finally {
+        proto.setPointerCapture = capture;
+        if (hadStyle) scope.getComputedStyle = style;
+        else delete scope.getComputedStyle;
+        setHatHeight(undefined, true);
+        await done();
+      }
+    });
 });
 
 // The `tally` arm, the default (trayFoldHead.experiment.ts; Leo, 2026-11-23: "just listing the # of each

@@ -16,6 +16,7 @@ import { useLayoutEffect, useRef } from "react";
 import { declareMove } from "../layout/motionContract";
 import { RESIZE_HANDLE_PROPS } from "../scrollers";
 import "./SplitEdge.css";
+import { watchPress } from "./pressRelease";
 
 /** How long a one-off split resize (a pane opening or closing beside another, a double-click reset) is
  *  declared: the frames that lay it out and the judge's read of them, with room for slow frames. Ending
@@ -100,6 +101,8 @@ export function SplitEdge({ side, property, storageKey, unit = "px", min, max, o
   const drag = useRef<
     { pane: DOMRect; side: "left" | "right"; value: number; frame: number; moved: boolean } | undefined
   >(undefined);
+  // The drag's press (pressRelease.ts): it ends the drag also where the page never hears the release.
+  const stopPress = useRef<() => void>(undefined);
   const target = () => {
     const pane = handle.current?.parentElement ?? undefined;
     return on === "parent" ? (pane?.parentElement ?? undefined) : pane;
@@ -118,6 +121,8 @@ export function SplitEdge({ side, property, storageKey, unit = "px", min, max, o
     if (stored !== undefined) apply(Math.min(max, Math.max(min, stored)));
     return () => {
       // A pane that leaves mid-drag gets no pointerup: its markers leave with it.
+      stopPress.current?.();
+      stopPress.current = undefined;
       if (drag.current) {
         cancelAnimationFrame(drag.current.frame);
         drag.current = undefined;
@@ -128,6 +133,7 @@ export function SplitEdge({ side, property, storageKey, unit = "px", min, max, o
     // eslint-disable-next-line react-hooks/exhaustive-deps -- the edge's place and key are fixed for its life
   }, [storageKey, property]);
   const end = () => {
+    stopPress.current = undefined;
     const state = drag.current;
     if (!state) return;
     cancelAnimationFrame(state.frame);
@@ -161,6 +167,10 @@ export function SplitEdge({ side, property, storageKey, unit = "px", min, max, o
         pane.dataset.splitResizing = "";
         // The page's too: the resize cursor holds over the other pane and its frames while dragging.
         document.documentElement.dataset.splitResizing = "";
+        // Its pointerup, pointercancel or lost capture, and also the window's blur or a move with no
+        // button down (released over another window, where the page hears nothing).
+        stopPress.current?.();
+        stopPress.current = watchPress(event.currentTarget.ownerDocument, { pointerId: event.pointerId, end });
       }}
       onPointerMove={(event) => {
         const state = drag.current;
@@ -174,9 +184,6 @@ export function SplitEdge({ side, property, storageKey, unit = "px", min, max, o
             apply(state.value);
           });
       }}
-      onPointerUp={end}
-      onPointerCancel={end}
-      onLostPointerCapture={end}
       onDoubleClick={() => {
         apply(undefined);
         writeStored(storageKey, undefined);

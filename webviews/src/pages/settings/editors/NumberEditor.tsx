@@ -5,6 +5,7 @@ import { text } from "../strings";
 import { NumberField } from "./NumberField";
 import type { EditorProps } from "./types";
 import { rangeFill } from "../format";
+import { watchPress } from "../../../ui/pressRelease";
 
 /**
  * Slider + field. While the slider moves the page sends `preview` (never written); releasing
@@ -43,6 +44,10 @@ export function NumberEditor({ row, value, disabled, labelId }: EditorProps) {
   };
   const releaseRef = useRef(release);
   releaseRef.current = release;
+  // The slider's press, followed to its end wherever the page hears it (pressRelease.ts): every end
+  // releases, as its pointerup did.
+  const stopPress = useRef<() => void>(undefined);
+  useEffect(() => () => stopPress.current?.(), []);
   // The native `change` event fires once when a drag or a click on the track ends, wherever the
   // pointer is then; React's onChange is the per-step `input` event.
   useEffect(() => {
@@ -76,7 +81,16 @@ export function NumberEditor({ row, value, disabled, labelId }: EditorProps) {
         onPointerDown={(event) => {
           // The release reaches the slider even when the pointer leaves it mid-drag.
           event.currentTarget.setPointerCapture?.(event.pointerId);
+          stopPress.current?.();
+          stopPress.current = watchPress(event.currentTarget.ownerDocument, {
+            pointerId: event.pointerId,
+            end: () => {
+              stopPress.current = undefined;
+              releaseRef.current();
+            },
+          });
         }}
+        // A pointerup on the slider releases too, with or without a press it saw start.
         onPointerUp={release}
         onKeyUp={release}
         onBlur={release}

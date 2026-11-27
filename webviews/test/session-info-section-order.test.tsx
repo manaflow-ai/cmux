@@ -121,8 +121,9 @@ function stack(container: HTMLElement, heights: Record<string, number>) {
     });
 }
 
-const pointer = (type: string, clientY: number) =>
-  new dom.window.MouseEvent(type, { bubbles: true, cancelable: true, button: 0, clientY });
+// The button is down from the press until its release, as a real mouse sends it.
+const pointer = (type: string, clientY: number, buttons = type === "pointerup" ? 0 : 1) =>
+  new dom.window.MouseEvent(type, { bubbles: true, cancelable: true, button: 0, buttons, clientY });
 
 // Leo, 2026-11-03: "1. Machines showing up so I know if it's cloud or not 2. context 3.
 // Subagents/background tasks running 4. Sources". Then Outputs, the Show more line, and under it the
@@ -230,6 +231,35 @@ test("a section dragged under a closed Show more line folds away on the drop", a
   expect(saved.indexOf("outputs")).toBeGreaterThan(saved.indexOf("more"));
   await act(async () => root.unmount());
 });
+
+// A drag ends where the press does, also where the page never hears its pointerup (released over
+// another window): on the window's own blur, and on a move with no button down. It drops the section
+// where it is drawn, as a pointerup does; a later move moves nothing.
+for (const ending of ["the window's blur", "a move with no button down"] as const)
+  test(`a section's drag ends on ${ending}: dropped where it is drawn, and a later move moves nothing`, async () => {
+    const { container, root } = await mount();
+    stack(container, HEIGHTS);
+    await act(async () => handle(container, "outputs").dispatchEvent(pointer("pointerdown", 380)));
+    await act(async () => dom.window.dispatchEvent(pointer("pointermove", 152)));
+    const carried = order(container);
+    expect(carried.slice(0, 4)).toEqual(["environment", "context", "outputs", "subagents"]);
+    // An element's blur does not end it.
+    await act(async () => {
+      dom.window.document.body.dispatchEvent(new dom.window.FocusEvent("blur"));
+    });
+    expect(slotOf(container, "outputs").hasAttribute("data-lifted")).toBe(true);
+    await act(async () => {
+      if (ending === "the window's blur") dom.window.dispatchEvent(new dom.window.FocusEvent("blur"));
+      else dom.window.dispatchEvent(pointer("pointermove", 152, 0));
+    });
+    expect(container.querySelector("[data-lifted]")).toBeNull();
+    expect(container.querySelector("[data-dragging]")).toBeNull();
+    expect(dom.window.localStorage.getItem(ORDER_KEY)).not.toBeNull();
+    // Over: a move, even one that claims a button, carries nothing.
+    await act(async () => dom.window.dispatchEvent(pointer("pointermove", 10)));
+    expect(order(container)).toEqual(carried);
+    await act(async () => root.unmount());
+  });
 
 test("Escape during a drag puts the section back and saves nothing", async () => {
   const { container, root } = await mount();

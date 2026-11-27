@@ -16,6 +16,7 @@ import { animateScroll, reducedMotion, stopScroll } from "./scrollMotion";
 import { PreviewCard } from "./PreviewCard";
 import { RAIL_ACCESSIBILITY_ID, railEdge, useRailSide } from "./railSide";
 import { ContextMenu } from "../../../ui/ContextMenu";
+import { watchPress } from "../../../ui/pressRelease";
 import type { usePromptMarks } from "./promptMarks";
 import {
   CARD_DELAY,
@@ -159,6 +160,9 @@ export function ScrollMap({
   const card = useRef<HTMLDivElement>(null);
   const cardId = useId();
   const press = useRef<Press | undefined>(undefined);
+  /// Stops following the press (watchPress); the map gone mid-press leaves no listener behind.
+  const stopPress = useRef<() => void>(undefined);
+  useEffect(() => () => stopPress.current?.(), []);
   // The full-height map keeps its 36 px box and has no reveal strip, so it shows only where that box
   // overlaps the text by at most MAP_MAX_OVERLAP: past that its click and drag handlers would take
   // text selection and links (the compact rail compresses and reveals itself instead).
@@ -289,18 +293,21 @@ export function ScrollMap({
     setCardMark(at);
     intend("map");
   };
-  const endPress = (event: React.PointerEvent<HTMLElement>) => {
-    const state = press.current;
+  /// Ends the press `state` on the rail `node`. Only a pointerup on the rail (`release`) that never
+  /// moved picks its mark or seeks; a release off the rail, a cancel, or one the page never heard
+  /// (watchPress) only ends it.
+  const endPress = (state: Press, node: HTMLElement, release?: { clientY: number }) => {
+    stopPress.current = undefined;
+    if (press.current !== state) return;
     press.current = undefined;
-    if (!state) return;
     if (state.moved) {
       setScrubbing(false);
-      if (event.currentTarget.hasPointerCapture?.(state.pointer))
-        event.currentTarget.releasePointerCapture(state.pointer);
+      if (node.hasPointerCapture?.(state.pointer)) node.releasePointerCapture(state.pointer);
       return;
     }
+    if (!release) return;
     if (state.mark !== undefined) activate(state.mark, state.target);
-    else seek(railY(event.clientY));
+    else seek(railY(release.clientY));
   };
   // The previewed message stays lit while the pointer is on its card.
   const active = hovered ?? focused ?? (showCard ? cardMark : undefined);
@@ -395,22 +402,15 @@ export function ScrollMap({
               target,
             };
             press.current = state;
-            // A press released off the rail ends here, so a later hover cannot scrub.
-            const page = event.currentTarget.ownerDocument.defaultView ?? window;
-            const released = () => {
-              page.removeEventListener("pointerup", released);
-              page.removeEventListener("pointercancel", released);
-              if (press.current !== state) return;
-              press.current = undefined;
-              if (state.moved) setScrubbing(false);
-            };
-            page.addEventListener("pointerup", released);
-            page.addEventListener("pointercancel", released);
-          }}
-          onPointerUp={endPress}
-          onPointerCancel={(event) => {
-            if (press.current) press.current.moved = true;
-            endPress(event);
+            // The press ends wherever it is released, also off the rail or where the page never
+            // hears it (over another window, or after the window lost focus): a later hover cannot scrub.
+            const node = event.currentTarget;
+            stopPress.current?.();
+            stopPress.current = watchPress(node.ownerDocument, {
+              pointerId: event.pointerId,
+              end: (how, last) =>
+                endPress(state, node, how === "up" && last && node.contains(last.target as Node) ? last : undefined),
+            });
           }}
           onBlur={(event) => {
             const next = event.relatedTarget as Node | null;

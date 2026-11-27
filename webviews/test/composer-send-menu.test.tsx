@@ -264,6 +264,30 @@ test("a long press on Send opens the menu and its release does not send", async 
   expect(sent).toEqual([]);
 });
 
+// A press released where the page never hears it (over another window, after a switch away) ends on
+// the window's own blur or on the next move with no button down: the held time stops there.
+for (const release of ["the window's blur", "a move with no button down"] as const)
+  test(`a press on Send ended by ${release} opens no menu once the long press would have`, async () => {
+    const { send, sent } = await composer(working(), "Also cover the timeout path");
+    const button = send();
+    jest.useFakeTimers();
+    try {
+      await act(async () => {
+        button.dispatchEvent(new window.MouseEvent("pointerdown", { bubbles: true, button: 0, buttons: 1 }));
+      });
+      await act(async () => void jest.advanceTimersByTime(LONG_PRESS_MS / 2));
+      await act(async () => {
+        if (release === "the window's blur") window.dispatchEvent(new window.FocusEvent("blur"));
+        else document.body.dispatchEvent(new window.MouseEvent("pointermove", { bubbles: true, buttons: 0 }));
+      });
+      await act(async () => void jest.advanceTimersByTime(LONG_PRESS_MS));
+    } finally {
+      jest.useRealTimers();
+    }
+    expect(menu()).toBeNull();
+    expect(sent).toEqual([]);
+  });
+
 test("a click on Send still sends at once, with no menu", async () => {
   const { send, sent } = await composer(working(), "Also cover the timeout path");
   const button = send();

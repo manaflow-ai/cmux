@@ -288,3 +288,37 @@ test("the card draws outside the transcript scroller, whose edge mask would keep
     await view.unmount();
   }
 });
+
+// A release the page never hears (over another window, or after the window lost focus mid-press;
+// the map takes no capture before the slop) ends the press too: the window's own blur, or the first
+// move with no button down. Either way a later move does not scrub.
+for (const missed of ["the window's blur", "a move with no button down"] as const)
+  test(`a press released where the page never hears it ends on ${missed}: a later move does not scrub`, async () => {
+    const view = await mount(12);
+    try {
+      const map = document.querySelector<HTMLElement>(".acpmux-scrollmap")!;
+      const move = (clientY: number, buttons: number) =>
+        act(
+          async () =>
+            void map.dispatchEvent(new dom.window.MouseEvent("pointermove", { bubbles: true, clientY, buttons })),
+        );
+      const before = view.scroller.scrollTop;
+      await act(
+        async () =>
+          void tick(1).dispatchEvent(
+            new dom.window.MouseEvent("pointerdown", { bubbles: true, button: 0, clientY: 10 }),
+          ),
+      );
+      if (missed === "the window's blur") {
+        await act(async () => void dom.window.dispatchEvent(new dom.window.FocusEvent("blur")));
+        // A move with a button down: only the blur can have ended the press.
+        await move(200, 1);
+      } else await move(200, 0);
+      await move(400, 1);
+      await view.scrolled();
+      expect(map.hasAttribute("data-scrubbing")).toBe(false);
+      expect(view.scroller.scrollTop).toBe(before);
+    } finally {
+      await view.unmount();
+    }
+  });

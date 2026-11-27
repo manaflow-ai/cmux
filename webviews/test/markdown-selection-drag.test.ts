@@ -197,6 +197,33 @@ await requireBrowserLane("markdown-selection-drag.test.ts", async () => {
         await page.context().close();
       });
 
+      // A drag out of a table ends where the page last heard the press: the window's blur (switched
+      // away mid-drag; the release may come where the page never hears it) ends it, so a later move
+      // does not extend the selection. The move is the page's own event, with the button reported
+      // down: the browser's own drag selection does not follow it, only the plugin's listener could.
+      test("a drag from a table cell out of the table ends on the window's blur: a later move extends nothing", async () => {
+        const page = await open(engine);
+        await park(page);
+        await press(page, await at(page, "Ada", 1), await at(page, "answer", 2));
+        await page.evaluate(() => window.dispatchEvent(new FocusEvent("blur")));
+        const far = await at(page, "Last paragraph", 6);
+        await page.evaluate(
+          ({ x, y }) =>
+            document
+              .elementFromPoint(x, y)!
+              .dispatchEvent(new MouseEvent("mousemove", { bubbles: true, buttons: 1, clientX: x, clientY: y })),
+          far,
+        );
+        await rest(page);
+        // Released where the drag last was: the editor writes its selection back to the page.
+        await page.mouse.up();
+        await rest(page);
+        const after = await selected(page);
+        expect(after).toContain("const an");
+        expect(after).not.toContain("Last");
+        await page.context().close();
+      });
+
       // User 2026-10-28: snapping a drag to whole cells was "extremely unintuitive". A drag inside a
       // table selects text, as anywhere else (whole cells come from Cmd-A, markdown-table-obsidian).
       test("a drag inside a table selects text, not whole cells", async () => {

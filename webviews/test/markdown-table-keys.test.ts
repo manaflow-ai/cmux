@@ -318,7 +318,7 @@ async function openWithWidths(text: string, widths: TableWidths) {
     );
     for (let step = 1; step <= steps; step++) {
       dom.window.dispatchEvent(
-        new dom.window.MouseEvent("mousemove", { clientX: edge + (dx * step) / steps, clientY: 5 }),
+        new dom.window.MouseEvent("mousemove", { buttons: 1, clientX: edge + (dx * step) / steps, clientY: 5 }),
       );
     }
     dom.window.dispatchEvent(new dom.window.MouseEvent("mouseup", { clientX: edge + dx, clientY: 5 }));
@@ -378,6 +378,42 @@ describe("markdown table width memory", () => {
     const again = await openWithWidths(PLAIN_TABLE, host.tab());
     expect(again.columns()).toEqual(["250px", "100px"]);
     expect(host.writes.length).toBe(1);
+  });
+
+  test("a column drag released where the page never hears the mouseup ends on the window's blur", async () => {
+    const host = fakeHost();
+    const md = await openWithWidths(PLAIN_TABLE, host.tab());
+    const scope = globalThis as Record<string, unknown>;
+    const saved = [scope.addEventListener, scope.removeEventListener];
+    scope.addEventListener = dom.window.addEventListener.bind(dom.window);
+    scope.removeEventListener = dom.window.removeEventListener.bind(dom.window);
+    try {
+      const wrapper = md.view.dom.querySelector(".tableWrapper")!;
+      const edge = CELL - 2;
+      const move = (x: number) =>
+        dom.window.dispatchEvent(new dom.window.MouseEvent("mousemove", { buttons: 1, clientX: x, clientY: 5 }));
+      wrapper
+        .querySelectorAll("tr")[0]!
+        .children[0]!.dispatchEvent(
+          new dom.window.MouseEvent("mousemove", { bubbles: true, clientX: edge, clientY: 5 }),
+        );
+      wrapper
+        .querySelector(".md-col-resize")!
+        .dispatchEvent(
+          new dom.window.MouseEvent("mousedown", { bubbles: true, button: 0, detail: 1, clientX: edge, clientY: 5 }),
+        );
+      move(edge + 50);
+      // The button came up over another window; the page next hears the window's blur.
+      dom.window.dispatchEvent(new dom.window.Event("blur"));
+      expect(wrapper.classList.contains("md-col-resizing")).toBe(false);
+      expect(md.columns()).toEqual(["150px", "100px"]);
+      expect(host.writes.length).toBe(1);
+      // A later move with a button down (another press) no longer drags the column.
+      move(edge + 120);
+      expect(md.columns()).toEqual(["150px", "100px"]);
+    } finally {
+      [scope.addEventListener, scope.removeEventListener] = saved;
+    }
   });
 
   test("an edit elsewhere keeps the widths, a changed header drops them", async () => {

@@ -182,6 +182,180 @@ test("a copy across lines that are not mounted copies them from the diff", async
   expect(inside.defaultPrevented).toBe(false);
 });
 
+test("a copy across lines that are not mounted keeps the spaces the selection starts and ends with", async () => {
+  host = dom.window.document.getElementById("root")!;
+  root = createRoot(host);
+  const text = diffLines(1_000).join("\n");
+  await act(async () =>
+    root!.render(
+      <div className="feed-detail-scroll">
+        <DiffPreview attachment={{ id: "a", name: "my change.diff", mime: "text/x-diff", size: 0, text }} />
+        <p id="after">Reply below</p>
+      </div>,
+    ),
+  );
+  await act(async () => new Promise((resolve) => setTimeout(resolve, 0)));
+  expect(Number((lines()[lines().length - 1] as HTMLElement).dataset.index)).toBeLessThan(999);
+  const name = [...host.querySelector(".feed-diff-name")!.childNodes].find((node) => node.nodeType === 3)!;
+  expect(name.textContent).toBe("my change.diff");
+  // From " change.diff" (the attachment's name, above the lines) to "Reply " (below them): the range
+  // reads both ends' spaces, and the copy keeps them.
+  const range = dom.window.document.createRange();
+  range.setStart(name, "my".length);
+  range.setEnd(host.querySelector("#after")!.firstChild!, "Reply ".length);
+  const selection = dom.window.getSelection()!;
+  selection.removeAllRanges();
+  selection.addRange(range);
+  let copied = "";
+  const event = new dom.window.Event("copy", { bubbles: true, cancelable: true }) as Event & {
+    clipboardData: { setData(type: string, text: string): void };
+  };
+  event.clipboardData = { setData: (_type, data) => (copied = data) };
+  dom.window.document.dispatchEvent(event);
+  expect(event.defaultPrevented).toBe(true);
+  expect(copied).toBe([" change.diff", text, "Reply "].join("\n"));
+});
+
+test("select-all copies the whole diff, its end in the block below the window, and mounts no more lines", async () => {
+  const { pane } = await mount(10_000);
+  const box = host.querySelector<HTMLElement>(".feed-diff-lines")!;
+  const whole = diffLines(10_000).join("\n");
+  const copy = () => {
+    let copied = "";
+    const event = new dom.window.Event("copy", { bubbles: true, cancelable: true }) as Event & {
+      clipboardData: { setData(type: string, text: string): void };
+    };
+    event.clipboardData = { setData: (_type, text) => (copied = text) };
+    dom.window.document.dispatchEvent(event);
+    return { copied, taken: event.defaultPrevented };
+  };
+  // Chromium and WebKit end select-all at the block standing in for the lines below the window, at
+  // its offset 0: from the first line (or the block above the window) to there.
+  for (const scrolled of [0, LINE * 5_000]) {
+    await act(async () => {
+      pane.scrollTop = scrolled;
+      pane.dispatchEvent(new dom.window.Event("scroll"));
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+    const mounted = lines().length;
+    const first = box.firstElementChild as HTMLElement;
+    const below = box.lastElementChild as HTMLElement;
+    expect(below.dataset.gap).toBeDefined();
+    const range = dom.window.document.createRange();
+    range.setStart(first.dataset.gap === undefined ? first.firstChild! : first, 0);
+    range.setEnd(below, 0);
+    const selection = dom.window.getSelection()!;
+    selection.removeAllRanges();
+    selection.addRange(range);
+    const { copied, taken } = copy();
+    expect(taken).toBe(true);
+    expect(copied).toBe(whole);
+    expect(lines().length).toBe(mounted);
+
+    // A scroll after select-all keeps the block below the window the same element, so the
+    // selection's end stays in it (a new one would leave the end at the last mounted line).
+    await act(async () => {
+      pane.scrollTop += LINE * 200;
+      pane.dispatchEvent(new dom.window.Event("scroll"));
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+    expect(below.isConnected).toBe(true);
+    expect(copy().copied).toBe(whole);
+  }
+
+  // Scrolled to the last line: the block below has no height left, and stays, holding the end.
+  const below = box.lastElementChild as HTMLElement;
+  await act(async () => {
+    pane.scrollTop = LINE * 10_000;
+    pane.dispatchEvent(new dom.window.Event("scroll"));
+    await new Promise((resolve) => setTimeout(resolve, 0));
+  });
+  expect(host.querySelector('.feed-diff-line[data-index="9999"]')).not.toBeNull();
+  expect(below.isConnected).toBe(true);
+  expect(copy().copied).toBe(whole);
+});
+
+// An empty line shows a space so it keeps its height; the copy is the attachment's text, not what the
+// lines show. A diff whose text ends in a line end has an empty last line, and select-all copied it
+// as a space.
+const blankDiffs = {
+  "ends in a line end": `${diffLines(10_000).join("\n")}\n`,
+  "has an empty line in the middle": diffLines(10_000)
+    .map((line, index) => (index === 5_000 ? "" : line))
+    .join("\n"),
+  "has lines of only spaces and tabs": diffLines(10_000)
+    .map((line, index) => (index === 4_000 ? "   " : index === 6_000 ? "\t" : index === 9_999 ? " \t " : line))
+    .join("\n"),
+};
+for (const [kind, text] of Object.entries(blankDiffs))
+  test(`select-all of a 10,000-line diff that ${kind} copies its text byte for byte`, async () => {
+    host = dom.window.document.getElementById("root")!;
+    root = createRoot(host);
+    await act(async () =>
+      root!.render(
+        <div className="feed-detail-scroll">
+          <DiffPreview attachment={{ id: "a", name: "change.diff", mime: "text/x-diff", size: 0, text }} />
+        </div>,
+      ),
+    );
+    await act(async () => new Promise((resolve) => setTimeout(resolve, 0)));
+    const pane = host.querySelector<HTMLElement>(".feed-detail-scroll")!;
+    const box = host.querySelector<HTMLElement>(".feed-diff-lines")!;
+    // At the top, and scrolled to the last line (the empty one, where the text ends in a line end).
+    for (const scrolled of [0, LINE * 10_001]) {
+      await act(async () => {
+        pane.scrollTop = scrolled;
+        pane.dispatchEvent(new dom.window.Event("scroll"));
+        await new Promise((resolve) => setTimeout(resolve, 0));
+      });
+      const first = box.firstElementChild as HTMLElement;
+      const range = dom.window.document.createRange();
+      range.setStart(first.dataset.gap === undefined ? first.firstChild! : first, 0);
+      range.setEnd(box.lastElementChild!, 0);
+      const selection = dom.window.getSelection()!;
+      selection.removeAllRanges();
+      selection.addRange(range);
+      const { text: copied, taken } = copySelection();
+      expect(taken).toBe(true);
+      expect(copied.length).toBe(text.length);
+      expect(JSON.stringify(copied.slice(-8))).toBe(JSON.stringify(text.slice(-8)));
+      expect(copied === text).toBe(true);
+    }
+  });
+
+test("a copy that starts and ends on empty lines, across lines not mounted, copies no space for them", async () => {
+  const text = diffLines(1_000)
+    .map((line, index) => (index === 2 || index === 900 ? "" : line))
+    .join("\n");
+  host = dom.window.document.getElementById("root")!;
+  root = createRoot(host);
+  await act(async () =>
+    root!.render(
+      <div className="feed-detail-scroll">
+        <DiffPreview attachment={{ id: "a", name: "change.diff", mime: "text/x-diff", size: 0, text }} />
+      </div>,
+    ),
+  );
+  await act(async () => new Promise((resolve) => setTimeout(resolve, 0)));
+  const pane = host.querySelector<HTMLElement>(".feed-detail-scroll")!;
+  const empty = lineAt(2)!;
+  expect(empty.textContent).toBe(" ");
+  // From the end of empty line 2 (after the space it shows), held while the pane scrolls to line 900.
+  await act(async () => {
+    dom.window.getSelection()!.setBaseAndExtent(empty.firstChild!, 1, empty.firstChild!, 1);
+    await new Promise((resolve) => setTimeout(resolve, 0));
+  });
+  await scrollTo(pane, 890);
+  const end = lineAt(900)!;
+  expect(end.textContent).toBe(" ");
+  await act(async () => {
+    dom.window.getSelection()!.extend(end.firstChild!, 1);
+    await new Promise((resolve) => setTimeout(resolve, 0));
+  });
+  const all = text.split("\n");
+  expect(copySelection()).toEqual({ text: ["", ...all.slice(3, 900), ""].join("\n"), taken: true });
+});
+
 test("the line a selection starts on stays mounted while the pane scrolls far past it", async () => {
   const { pane } = await mount(1_000);
   const anchor = [...lines()][3] as HTMLElement;
@@ -240,4 +414,180 @@ test("a row's preview still shows its first lines and an ellipsis", async () => 
     ),
   );
   expect([...lines()].map((line) => line.textContent)).toEqual([...diffLines(6), "…"]);
+});
+
+// A press pins its line until the selection says where it is. Each press used to add its line to
+// the pinned ones for good: where a press leaves no selection end in the lines, no selection change
+// came to clear them, so every line pressed stayed mounted. (In Chromium a click on a line leaves a
+// caret there, whose selection change clears them: feed-diff-stale-pins-browser.test.ts.)
+const scrollTo = async (pane: HTMLElement, top: number) =>
+  act(async () => {
+    pane.scrollTop = top * LINE;
+    pane.dispatchEvent(new dom.window.Event("scroll"));
+    await new Promise((resolve) => setTimeout(resolve, 0));
+  });
+const lineAt = (index: number) => host.querySelector<HTMLElement>(`.feed-diff-line[data-index="${index}"]`);
+/** A press and release on a line; `caret` puts the caret where it pressed, as a click in the lines does. */
+async function click(index: number, { caret = false, shift = false, char = 2 } = {}) {
+  const row = lineAt(index)!;
+  await act(async () => {
+    row.dispatchEvent(new dom.window.MouseEvent("pointerdown", { bubbles: true, shiftKey: shift }));
+    const selection = dom.window.getSelection()!;
+    if (shift) selection.extend(row.firstChild!, char);
+    else if (caret) selection.setBaseAndExtent(row.firstChild!, char, row.firstChild!, char);
+    // The browser says so with a selectionchange, a task later (jsdom too).
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    row.dispatchEvent(new dom.window.MouseEvent("pointerup", { bubbles: true, shiftKey: shift }));
+  });
+}
+/** The mounted lines outside the window around the line at the pane's top (one viewport, 30 lines, each side). */
+const outsideWindow = (top: number) =>
+  [...lines()].map((row) => Number((row as HTMLElement).dataset.index)).filter((at) => at < top - 30 || at > top + 60);
+function copySelection() {
+  let text = "";
+  const event = new dom.window.Event("copy", { bubbles: true, cancelable: true }) as Event & {
+    clipboardData: { setData(type: string, text: string): void };
+  };
+  event.clipboardData = { setData: (_type, data) => (text = data) };
+  dom.window.document.dispatchEvent(event);
+  return { text, taken: event.defaultPrevented };
+}
+
+for (const caret of [false, true])
+  test(`50 presses on lines far apart that ${caret ? "put the caret" : "select nothing"} leave mounted only the window${caret ? " and the caret's line" : ""}`, async () => {
+    const { pane } = await mount(10_000);
+    await scrollTo(pane, 9_600);
+    const window = lines().length;
+    dom.window.getSelection()!.removeAllRanges();
+    const pressed: number[] = [];
+    for (let at = 0; at < 50; at++) {
+      const index = at * 190 + 5;
+      await scrollTo(pane, index - 2);
+      await click(index, { caret });
+      pressed.push(index);
+    }
+    await scrollTo(pane, 9_600);
+    const extra = outsideWindow(9_600);
+    console.log(JSON.stringify({ caret, window, mounted: lines().length, extra: extra.length }));
+    expect(extra).toEqual(caret ? [pressed.at(-1)!] : []);
+    expect(lines().length).toBeLessThanOrEqual(window + (caret ? 1 : 0));
+    if (!caret) return;
+
+    // A Shift-click far above extends from the caret, whose line stayed mounted, and copies what it covers.
+    const anchor = lineAt(9_315)!;
+    await scrollTo(pane, 0);
+    expect(anchor.isConnected).toBe(true);
+    await click(20, { shift: true, char: 3 });
+    const selection = dom.window.getSelection()!;
+    expect(selection.anchorNode).toBe(anchor.firstChild!);
+    expect(selection.anchorOffset).toBe(2);
+    expect(selection.focusNode).toBe(lineAt(20)!.firstChild!);
+    expect(outsideWindow(0)).toEqual([9_315]);
+    const all = diffLines(10_000);
+    const expected = [all[20]!.slice(3), ...all.slice(21, 9_315), all[9_315]!.slice(0, 2)].join("\n");
+    expect(copySelection()).toEqual({ text: expected, taken: true });
+    // Scrolled far from both ends: both stay mounted, and only they.
+    await scrollTo(pane, 5_000);
+    expect(outsideWindow(5_000)).toEqual([20, 9_315]);
+    expect(copySelection()).toEqual({ text: expected, taken: true });
+  });
+
+// A press keeps its line mounted until it is released. The release used to be heard only as a
+// pointerup or pointercancel reaching the document, so a press released where the document does not
+// hear it (outside the window, or after the window lost focus mid-press) kept its line mounted for
+// good. The window losing focus, or the pressed element losing pointer capture, ends the press too,
+// and so does a move with no button down: a mouse has no implicit capture, so a button let go over
+// another window sends the page neither a pointerup nor a lostpointercapture, only the next move.
+for (const release of ["window blur", "lostpointercapture", "move with no button down", "none"] as const)
+  test(`a press with no pointerup ${release === "none" ? "keeps its line mounted while it is held" : `is released by a ${release}: its line unmounts once scrolled away`}`, async () => {
+    const { pane } = await mount(10_000);
+    await scrollTo(pane, 9_600);
+    const window = lines().length;
+    dom.window.getSelection()!.removeAllRanges();
+    await scrollTo(pane, 98);
+    const row = lineAt(100)!;
+    await act(async () => {
+      row.dispatchEvent(new dom.window.MouseEvent("pointerdown", { bubbles: true }));
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+    // Held: the line stays mounted far away.
+    await scrollTo(pane, 9_600);
+    expect(row.isConnected).toBe(true);
+    expect(outsideWindow(9_600)).toEqual([100]);
+    await act(async () => {
+      if (release === "window blur") dom.window.dispatchEvent(new dom.window.FocusEvent("blur"));
+      else if (release === "lostpointercapture")
+        row.dispatchEvent(new dom.window.MouseEvent("lostpointercapture", { bubbles: true }));
+      else if (release === "move with no button down")
+        dom.window.document.body.dispatchEvent(new dom.window.MouseEvent("pointermove", { bubbles: true, buttons: 0 }));
+      // A move with the button still down (a drag) is not a release.
+      else
+        dom.window.document.body.dispatchEvent(new dom.window.MouseEvent("pointermove", { bubbles: true, buttons: 1 }));
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+    if (release === "none") {
+      expect(row.isConnected).toBe(true);
+      expect(outsideWindow(9_600)).toEqual([100]);
+      // Released at last: as before, a pointerup reaching the document lets it go.
+      await act(async () => {
+        dom.window.document.body.dispatchEvent(new dom.window.MouseEvent("pointerup", { bubbles: true }));
+        await new Promise((resolve) => setTimeout(resolve, 0));
+      });
+    }
+    expect(row.isConnected).toBe(false);
+    expect(outsideWindow(9_600)).toEqual([]);
+    expect(lines().length).toBeLessThanOrEqual(window);
+  });
+
+test("a focus moving between elements inside the window does not release a press", async () => {
+  const { pane } = await mount(1_000);
+  dom.window.getSelection()!.removeAllRanges();
+  const row = lineAt(3)!;
+  await act(async () => {
+    row.dispatchEvent(new dom.window.MouseEvent("pointerdown", { bubbles: true }));
+    // An element's blur reaches the window only in the capture phase; it is not the window's.
+    dom.window.document.body.dispatchEvent(new dom.window.FocusEvent("blur"));
+    await new Promise((resolve) => setTimeout(resolve, 0));
+  });
+  await scrollTo(pane, 400);
+  expect(row.isConnected).toBe(true);
+});
+
+test("a press's release listeners go when it ends, and when the diff unmounts mid-press", async () => {
+  const live = new Map<string, number>();
+  const kinds = ["blur", "lostpointercapture", "pointerup", "pointercancel", "pointermove"];
+  const add = dom.window.addEventListener;
+  const remove = dom.window.removeEventListener;
+  dom.window.addEventListener = function (this: Window, type: string, ...rest: unknown[]) {
+    if (kinds.includes(type)) live.set(type, (live.get(type) ?? 0) + 1);
+    return (add as (...args: unknown[]) => void).call(this, type, ...rest);
+  } as typeof add;
+  dom.window.removeEventListener = function (this: Window, type: string, ...rest: unknown[]) {
+    if (kinds.includes(type)) live.set(type, (live.get(type) ?? 0) - 1);
+    return (remove as (...args: unknown[]) => void).call(this, type, ...rest);
+  } as typeof remove;
+  const counts = () => kinds.map((kind) => live.get(kind) ?? 0);
+  const press = async () =>
+    act(async () => {
+      lineAt(3)!.dispatchEvent(new dom.window.MouseEvent("pointerdown", { bubbles: true }));
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+  try {
+    await mount(1_000);
+    expect(counts()).toEqual([0, 0, 0, 0, 0]);
+    await press();
+    expect(counts()).toEqual([1, 1, 1, 1, 1]);
+    await act(async () => {
+      dom.window.document.body.dispatchEvent(new dom.window.MouseEvent("pointerup", { bubbles: true }));
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+    expect(counts()).toEqual([0, 0, 0, 0, 0]);
+    await press();
+    act(() => root?.unmount());
+    root = undefined;
+    expect(counts()).toEqual([0, 0, 0, 0, 0]);
+  } finally {
+    dom.window.addEventListener = add;
+    dom.window.removeEventListener = remove;
+  }
 });

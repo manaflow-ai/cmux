@@ -80,6 +80,7 @@ import {
   useState,
 } from "react";
 import { experimentArm } from "../../../experiments/experiment";
+import { watchPress } from "../../../ui/pressRelease";
 import { ContextMenu, type ContextMenuItem } from "../../../ui/ContextMenu";
 import { Button } from "../../../ui/Button";
 import { Tooltip } from "../../../ui/Tooltip";
@@ -612,6 +613,10 @@ export const SubagentTray = memo(function SubagentTray({
     () => (foldHead === "kinds" && facesArm !== "lead" ? hatFaces(t, items, finished, chatHarness) : NO_FACES),
     [foldHead, facesArm, t, items, finished, chatHarness],
   );
+  // The rim drag's watch (pressRelease.ts); a tray gone mid-drag leaves no listener behind. Above the
+  // empty tray's early return, so the hooks run on every render; with no drag it stops nothing.
+  const stopRim = useRef<() => void>(undefined);
+  useEffect(() => () => stopRim.current?.(), []);
   if (items.length === 0 && finished.length === 0) return null;
   // The `line` arm names no silent turn (trayHeadLine): a hat of only those has no words, so it draws
   // nothing rather than an empty line over the composer (chat-flow-shift-budget's compaction-steer:
@@ -790,15 +795,12 @@ export const SubagentTray = memo(function SubagentTray({
       if (frame.edges.length === 0) frame.edges = measure(listNode()).edges;
       setHatHeight(hatDragHeight(frame, grown), false);
     };
-    const end = (ended: PointerEvent) => {
-      rim.removeEventListener("pointermove", move);
-      rim.removeEventListener("pointerup", end);
-      rim.removeEventListener("pointercancel", end);
-      rim.removeEventListener("lostpointercapture", end);
+    const end = (ended?: MouseEvent) => {
+      stopRim.current = undefined;
       trayNode.current?.removeAttribute("data-dragging");
       // A press that never moved does nothing at all: no fold, no click on what the rim lies over.
       if (!dragged) return;
-      if (ended.type === "pointerup") grown = startY - ended.clientY;
+      if (ended?.type === "pointerup") grown = startY - ended.clientY;
       const landed = hatDragEnd(frame, grown);
       if (landed.kind === "size") {
         setHatHeight(landed.height, true);
@@ -810,11 +812,14 @@ export const SubagentTray = memo(function SubagentTray({
         rememberTrayOpen(chat, false);
       }
     };
-    rim.addEventListener("pointermove", move);
-    rim.addEventListener("pointerup", end);
-    rim.addEventListener("pointercancel", end);
-    // The hat leaves mid-drag (its last line ended): the drag ends where it reached.
-    rim.addEventListener("lostpointercapture", end);
+    // The hat leaves mid-drag (its last line ended, the rim loses capture): the drag ends where it
+    // reached. So does a release the page never heard (watchPress).
+    stopRim.current?.();
+    stopRim.current = watchPress(rim.ownerDocument, {
+      pointerId: event.pointerId,
+      move,
+      end: (_how, ended) => end(ended),
+    });
   };
   // The header's mark is in the accent while anything under it runs.
   const runs = running > 0 || commands > 0;
