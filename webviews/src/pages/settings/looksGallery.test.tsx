@@ -3,7 +3,7 @@
 // page's words, pins the commit the card showed, and sends `order` every installed id top first.
 // On the page: Appearance leads with the gallery; Install shows the consent card and installs only
 // after it, pinned; an installed look turns off, moves and uninstalls (after asking).
-import { afterAll, afterEach, expect, test } from "bun:test";
+import { afterAll, afterEach, beforeAll, expect, test } from "bun:test";
 import { installDom } from "./testDom";
 import type { MockOptions } from "./mockProvider";
 import type { Rendered } from "./testing";
@@ -14,6 +14,41 @@ const { renderPage, settle, click } = await import("./testing");
 const { consentLines, moveOrder, pinnedReference, readLooksAnswer, asGallery, asPreview } =
   await import("./looksGallery");
 const { mockConsentCard, mockStackedLooks } = await import("./mockLooks");
+const { rowsByKey, schema } = await import("./schema");
+type SchemaRow = (typeof schema.rows)[number];
+
+// The Experiments row `experiments.lookDescriptions` in the page's schema when the checked-in export
+// (settings-schema.json, regenerated on a Mac) does not have it yet, shaped like the other Experiments
+// choices; a no-op once the export lists it.
+beforeAll(() => {
+  const key = "experiments.lookDescriptions";
+  if (rowsByKey.has(key)) return;
+  const like = schema.rows.find((row) => row.key === "experiments.paletteV2");
+  if (!like) throw new Error("no Experiments choice to copy");
+  const choice = (value: string, text: string) => ({
+    value,
+    title: { key: `settings.choice.lookDescriptions.${value}`, text },
+  });
+  const row = {
+    ...structuredClone(like),
+    key,
+    path: ["experiments", "lookDescriptions"],
+    default: "phrase",
+    accepts: ["phrase", "name", "tagged"],
+    choices: [
+      choice("phrase", "A: One Short Phrase"),
+      choice("name", "B: Name Only"),
+      choice("tagged", "C: Phrase and Tag Line"),
+    ],
+    title: { key: "settings.experiments.lookDescriptions", text: "Look Descriptions" },
+    help: {
+      key: "settings.experiments.lookDescriptions.help",
+      text: "How each look in the Looks gallery is described.",
+    },
+  } as SchemaRow;
+  schema.rows.push(row);
+  (rowsByKey as Map<string, SchemaRow>).set(row.key, row);
+});
 
 let page: Rendered | null = null;
 afterEach(() => {
