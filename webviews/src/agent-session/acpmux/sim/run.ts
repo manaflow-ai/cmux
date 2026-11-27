@@ -321,8 +321,10 @@ export function createSimulation(scenario: SimScenario, options: SimOptions = {}
       current = undefined;
       return undefined;
     }
+    const FBDBG = withSubagentLines(snap.rows, subagentLines) as AcpmuxRow[];
+    if (process.env.FB_DEBUG_STEPS?.split(',').includes(String(traces.length))) console.error('FBDBG', traces.length, JSON.stringify(FBDBG.map((r) => [r.id, r.kind, r.seq, r.at, r.steer, (r as any).turnId])));
     const view = turnViewFrom(
-      withSubagentLines(snap.rows, subagentLines) as AcpmuxRow[],
+      FBDBG,
       folds,
       {
         now: step.at,

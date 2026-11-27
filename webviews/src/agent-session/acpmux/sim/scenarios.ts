@@ -436,6 +436,21 @@ export const SCENARIOS: Record<string, () => SimScenario> = {
     return b.turnEnd().build();
   },
 
+  // Leo's leo-0522-midturn-inbox replay: a subagent the agent started after his steer drew its
+  // start line under the steer while the turn ran, and over it once the turn ended.
+  "steer-then-subagent": () => {
+    const b = sim(
+      "steer-then-subagent",
+      "The person steers before the agent did anything; the agent then runs a call, starts a subagent, answers, and the turn ends.",
+    );
+    b.prompt("Find why the nightly build is slow.");
+    b.steer("Check the cache step first.");
+    b.tool("gh run list --limit 5", { ms: 400 });
+    b.subagent("Read the cache step's logs", { ms: 3_000, tracked: true });
+    b.say("The cache step restores nothing: its key changed with every commit.");
+    return b.turnEnd().build();
+  },
+
   "queued-prompt": () => {
     const b = sim("queued-prompt", "A prompt sent while the turn runs waits in the queue, then runs as the next turn.");
     b.prompt("Run the migration.");
