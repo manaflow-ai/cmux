@@ -2,7 +2,7 @@
 //! worktree): the one family whose content can be unique. Before one goes,
 //! its work is checked and archived:
 //!
-//! - uncommitted or untracked changes: the clone stays (this archive keeps
+//! - uncommitted, untracked or ignored changes: the clone stays (this archive keeps
 //!   commits, not loose files);
 //! - commits on no remote branch: kept in a bundle in the archive store
 //!   (`clones/<id>.bundle`), verified, before the folder goes;
@@ -28,9 +28,10 @@ pub enum Work {
 
 /// What is in `clone` that would be lost, or why it cannot be said or must stay.
 pub fn work(clone: &Path) -> Result<Work, String> {
-    let status = crate::git::user_git(clone, &["status", "--porcelain=v1", "-uall"], LIMIT)?;
+    let status =
+        crate::git::user_git(clone, &["status", "--porcelain=v1", "-uall", "--ignored"], LIMIT)?;
     if !status.is_empty() {
-        return Err("it has uncommitted or untracked changes".into());
+        return Err("it has uncommitted, untracked or ignored changes".into());
     }
     // A stash is work too.
     let stash = crate::git::user_git(clone, &["stash", "list"], LIMIT)?;
@@ -41,6 +42,9 @@ pub fn work(clone: &Path) -> Result<Work, String> {
     if remotes.is_empty() {
         return Err("it has no remote to compare with".into());
     }
+    // Bundles below retain branches and tags, not a detached HEAD.
+    crate::git::user_git(clone, &["symbolic-ref", "--quiet", "HEAD"], LIMIT)
+        .map_err(|_| "its HEAD is detached or unreadable; it stays".to_string())?;
     let ahead = crate::git::user_git(
         clone,
         &["rev-list", "--branches", "--tags", "--not", "--remotes"],
@@ -48,6 +52,11 @@ pub fn work(clone: &Path) -> Result<Work, String> {
     )?;
     let count = String::from_utf8_lossy(&ahead).lines().filter(|l| !l.trim().is_empty()).count();
     Ok(if count == 0 { Work::Pushed } else { Work::Unpushed(count) })
+}
+
+/// References captured around archival, to detect work committed during it.
+pub(crate) fn references(clone: &Path) -> Result<Vec<u8>, String> {
+    crate::git::user_git(clone, &["show-ref", "--head"], LIMIT)
 }
 
 /// Keeps the clone's local-only commits in a verified bundle; the archive id,

@@ -180,7 +180,7 @@ pub fn run(config: &Config, look: Option<&Look>) -> Result<Report, String> {
         )?
     };
     for item in &mut scan.report.items {
-        if let Some(glob) = never.holds(&config.home, &item.path) {
+        if let Some(glob) = never.holds_tree(&config.home, &item.path) {
             item.verdict.action = Action::Keep;
             item.verdict.reason = format!("never-delete: {glob}");
         }
@@ -249,7 +249,12 @@ pub fn run(config: &Config, look: Option<&Look>) -> Result<Report, String> {
             let before = (scan.report.freed, cache_report.freed);
             match candidate.slot {
                 Slot::Worktree(index) => {
-                    pass::act_on(&mut scan, index, &options, &config.store);
+                    pass::act_on_guarded(&mut scan, index, &options, &config.store, &|path| {
+                        match never.holds_tree(&config.home, path) {
+                            Some(why) => Err(format!("never-delete: {why}")),
+                            None => Ok(()),
+                        }
+                    });
                     if let Some(item) = scan.report.items.get(index) {
                         rows.push(worktree_row(item));
                     }

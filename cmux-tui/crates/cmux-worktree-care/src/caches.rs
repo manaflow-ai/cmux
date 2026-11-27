@@ -851,13 +851,32 @@ fn remove(
         }
     }
     let mut archived = None;
+    let mut clone_refs = None;
     if family.kind == Kind::Unique {
         let Some(store) = options.store else {
             return Err(verdict(Action::Keep, "no archive store: unique data stays"));
         };
+        clone_refs = Some(crate::clones::references(path).map_err(|error| {
+            verdict(Action::Keep, format!("cannot read clone references: {error}"))
+        })?);
         match crate::clones::archive(path, store, crate::inventory::now_ms()) {
             Ok(id) => archived = id,
             Err(error) => return Err(verdict(Action::Keep, format!("not archived: {error}"))),
+        }
+    }
+    if !command {
+        if let Some(why) = options.never.holds_tree(options.home, path) {
+            return Err(verdict(Action::Keep, format!("never-delete: {why}")));
+        }
+    }
+    if let Some(before) = clone_refs {
+        crate::clones::work(path)
+            .map_err(|error| verdict(Action::Keep, format!("clone changed: {error}")))?;
+        let after = crate::clones::references(path).map_err(|error| {
+            verdict(Action::Keep, format!("cannot recheck clone references: {error}"))
+        })?;
+        if before != after {
+            return Err(verdict(Action::Keep, "clone references changed during archival"));
         }
     }
     let result = match &family.source {

@@ -25,6 +25,7 @@ const FLEET_NAMES: &[&str] =
 #[derive(Debug, Clone, Default)]
 pub struct NeverDelete {
     globs: Vec<String>,
+    problems: Vec<String>,
 }
 
 impl NeverDelete {
@@ -44,16 +45,19 @@ impl NeverDelete {
                 Err(e) => problems.push(format!("{}: {e}", file.display())),
             }
         }
-        (Self { globs }, problems)
+        (Self { globs, problems: problems.clone() }, problems)
     }
 
     /// From glob lines, for a caller that has them already.
     pub fn from_globs(globs: impl IntoIterator<Item = String>) -> Self {
-        Self { globs: globs.into_iter().collect() }
+        Self { globs: globs.into_iter().collect(), problems: Vec::new() }
     }
 
     /// Why `path` must stay, if it must: the glob or name that holds it.
     pub fn holds(&self, home: &Path, path: &Path) -> Option<String> {
+        if let Some(problem) = self.problems.first() {
+            return Some(format!("could not read protection rules: {problem}"));
+        }
         let text = path.to_string_lossy();
         if let Some(name) = text.rsplit('/').find(|part| !part.is_empty()) {
             let lower = text.to_ascii_lowercase();
@@ -74,6 +78,57 @@ impl NeverDelete {
         None
     }
 
+    /// A recursive deletion must preserve protected descendants too. An
+    /// incomplete inspection keeps the candidate; links are never followed.
+    pub fn holds_tree(&self, home: &Path, path: &Path) -> Option<String> {
+        self.inspect_tree(
+            home,
+            path,
+            100_000,
+            std::time::Instant::now() + std::time::Duration::from_secs(1),
+        )
+    }
+
+    fn inspect_tree(
+        &self,
+        home: &Path,
+        path: &Path,
+        mut remaining: usize,
+        deadline: std::time::Instant,
+    ) -> Option<String> {
+        let mut inspect = || -> Result<Option<String>, String> {
+            if let Some(why) = self.holds(home, path) {
+                return Ok(Some(why));
+            }
+            if !std::fs::symlink_metadata(path).map_err(|e| e.to_string())?.is_dir() {
+                return Ok(None);
+            }
+            let mut stack = vec![std::fs::read_dir(path).map_err(|e| e.to_string())?];
+            while !stack.is_empty() {
+                if remaining == 0 || std::time::Instant::now() >= deadline || stack.len() > 64 {
+                    return Err("descendant inspection limit reached".into());
+                }
+                let Some(entry) = stack.last_mut().and_then(Iterator::next) else {
+                    stack.pop();
+                    continue;
+                };
+                remaining -= 1;
+                let entry = entry.map_err(|e| e.to_string())?;
+                if let Some(why) = self.holds(home, &entry.path()) {
+                    return Ok(Some(why));
+                }
+                if entry.file_type().map_err(|e| e.to_string())?.is_dir() {
+                    stack.push(std::fs::read_dir(entry.path()).map_err(|e| e.to_string())?);
+                }
+            }
+            Ok(None)
+        };
+        match inspect() {
+            Ok(why) => why,
+            Err(error) => Some(format!("cannot rule out protected descendants: {error}")),
+        }
+    }
+
     pub fn len(&self) -> usize {
         self.globs.len()
     }
@@ -84,7 +139,7 @@ impl NeverDelete {
 }
 
 /// Nothing held but the built-in names; for tests and callers with no home.
-pub static NONE: NeverDelete = NeverDelete { globs: Vec::new() };
+pub static NONE: NeverDelete = NeverDelete { globs: Vec::new(), problems: Vec::new() };
 
 pub fn user_file(home: &Path) -> PathBuf {
     home.join(".cmux/care-never-delete")
@@ -185,11 +240,46 @@ mod tests {
     }
 
     #[test]
+    fn recursive_protection_is_bounded_and_fails_closed() {
+        use std::time::{Duration, Instant};
+        let home = scratch("never-tree");
+        let tree = home.join("tree");
+        std::fs::create_dir_all(tree.join("nested")).unwrap();
+        std::fs::write(tree.join("nested/keep.txt"), "precious").unwrap();
+        for glob in ["~/tree/nested/keep.txt", "keep.*", "~/tree/**/keep.txt"] {
+            let never = NeverDelete::from_globs([glob.into()]);
+            assert!(never.holds_tree(&home, &tree).is_some(), "{glob}");
+        }
+        assert!(NONE.holds_tree(&home, &tree).is_none());
+        assert!(
+            NONE.inspect_tree(&home, &tree, 0, Instant::now() + Duration::from_secs(1)).is_some()
+        );
+        assert!(NONE.inspect_tree(&home, &tree, 100, Instant::now()).is_some());
+        assert!(NONE.holds_tree(&home, &home.join("missing")).is_some());
+        std::fs::create_dir(tree.join("nested/depot_tools")).unwrap();
+        assert!(NONE.holds_tree(&home, &tree).is_some());
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn recursive_protection_does_not_follow_links_outside_the_tree() {
+        let home = scratch("never-tree-link");
+        let tree = home.join("tree");
+        std::fs::create_dir(&tree).unwrap();
+        std::fs::create_dir(home.join("outside")).unwrap();
+        std::fs::write(home.join("outside/keep.txt"), "precious").unwrap();
+        std::os::unix::fs::symlink(home.join("outside"), tree.join("link")).unwrap();
+        let never = NeverDelete::from_globs(["keep.txt".into()]);
+        assert!(never.holds_tree(&home, &tree).is_none());
+    }
+
+    #[test]
     fn an_unreadable_file_is_reported_not_fatal() {
         let home = scratch("never-bad");
         std::fs::create_dir_all(home.join(".cmux/care-never-delete")).unwrap();
         let (never, problems) = NeverDelete::load(&home);
         assert_eq!(problems.len(), 1);
         assert!(!never.is_empty());
+        assert!(never.holds(&home, &home.join("anything")).is_some());
     }
 }
