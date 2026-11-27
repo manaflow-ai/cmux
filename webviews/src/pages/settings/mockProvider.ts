@@ -10,6 +10,7 @@ import { runMockAgentKeys } from "./mockAgentKeys";
 import { mockAutocloudState, runMockAutocloud } from "./mockAutocloud";
 import { mockHubState, runMockHub } from "./mockHub";
 import { mockDictationState } from "./mockDictation";
+import { mockTokensState, runMockTokens } from "./mockTokens";
 import { mockConnectionsState, runMockConnections } from "./mockConnections";
 import { mockModels, runMockModels } from "./mockModels";
 import { mockAllotments, runMockAllotment } from "./mockAllotments";
@@ -102,6 +103,8 @@ import {
   type PreviousBuild,
   type LooksGallery,
   type LooksRun,
+  type DeveloperTokensRun,
+  type DeveloperTokensState,
 } from "./ops";
 import { mockLooks, previewLook, runLooks } from "./mockLooks";
 import { rowsByKey, schema, hostRowsByKey } from "./schema";
@@ -1089,6 +1092,14 @@ export class MockSettingsProvider {
         this.hub = runMockHub(this.hub, run);
         return {};
       },
+      "cmux.settings.tokens.state": () => this.tokens,
+      "cmux.settings.tokens.run": (params) => {
+        const run = params as DeveloperTokensRun;
+        if (run.action !== "refresh") this.tokensRuns.push(run);
+        const { state, created } = runMockTokens(this.tokens, run);
+        this.tokens = state;
+        return created ? { ok: true, created } : { ok: true };
+      },
       "cmux.settings.connections.state": () => this.connections,
       "cmux.settings.connections.run": (params) => {
         const run = params as ConnectionsRun;
@@ -1224,6 +1235,8 @@ export class MockSettingsProvider {
       "cmux.settings.autocloud.run",
       "cmux.settings.hub.state",
       "cmux.settings.hub.run",
+      "cmux.settings.tokens.state",
+      "cmux.settings.tokens.run",
       "cmux.settings.connections.state",
       "cmux.settings.connections.run",
       "cmux.settings.agentSkills.state",
@@ -2031,6 +2044,11 @@ export class MockSettingsProvider {
   hub: HubState = mockHubState();
   /** Every Integrations gesture but refresh, in order (the key a Link sent included). */
   hubRuns: HubRun[] = [];
+
+  /** Settings > Developer as the app serves it (`SettingsDeveloperTokens.state`). */
+  tokens: DeveloperTokensState = mockTokensState();
+  /** Every Developer gesture but refresh, in order. */
+  tokensRuns: DeveloperTokensRun[] = [];
 
   /** Settings > Connections as the app serves it (`SettingsConnections.state`). */
   connections: ConnectionsState = mockConnectionsState();

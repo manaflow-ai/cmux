@@ -18,7 +18,7 @@
 //! Bring Back (`cmux_projection::way_back`) reads what the agent changed with three more dials,
 //! each one request and its answer, by projection `name`, mounted or not (the state folder
 //! outlives the mount and a daemon restart):
-//! - `{"id", "cmd": "projection.layer", "name"}`: answered `{"id", "ok": true, "data": {"bytes",
+//! - `{"id", "cmd": "projection.layer", "name", "prune"?}`: answered `{"id", "ok": true, "data": {"bytes",
 //!   "upper", "whiteouts", "mark"}}`, then that many bytes of the encoded
 //!   `cmux_projection::layer::Layer`. `mark` is the upper layer as it was when it was read
 //!   (`cmux_projection::state::mark`);
@@ -32,6 +32,13 @@
 //!   An upper layer written since `mark` stays whole: `projection.edited_since`;
 //! - `{"id", "cmd": "projection.drop", "name"}`: the same with no mark (a Mac from before
 //!   `projection.brought_back`); `{"id", "ok": true, "data": {"dropped"}}`.
+//!
+//! - `{"id", "cmd": "projection.unsynced", "name", "prune"?}`: one metadata walk of the upper
+//!   layer, no bytes, for a "N files to bring back" line: `{"files", "bytes", "deleted"}`, what
+//!   Bring Back would list (files and links) and its whiteouts. With `prune`, as
+//!   `projection.layer` prunes, plus `"kept_on_machine": {"folders", "files", "bytes", "paths"}`
+//!   (the first 256 folders): a caller whose manifest holds one of `paths` asks again without
+//!   `prune`, as Bring Back does, so a committed `node_modules`'s edits are counted.
 //!
 //! Pinned folders (`cmux_projection::overlay::pin`, "available offline"), by projection `name`,
 //! mounted here, each one request and its answer:
@@ -133,6 +140,9 @@ pub const WARM: &str = "projection.warm";
 pub const WARM_MAX_FILES: usize = 256;
 /// The most bytes one [`WARM`] fetches.
 pub const WARM_MAX_BYTES: u64 = 32 * 1024 * 1024;
+/// What the agent changed that Bring Back would carry, and what stays on the machine, as counts
+/// (module docs).
+pub const UNSYNCED: &str = "projection.unsynced";
 /// How long after the daemon starts the first reaper pass runs (acpmux starts beside it).
 const REAP_FIRST_AFTER: std::time::Duration = std::time::Duration::from_secs(60);
 /// How often the reaper runs.
@@ -368,7 +378,7 @@ pub fn frame_command(line: &str) -> Option<&'static str> {
         return None;
     }
     let cmd = object.get("cmd")?.as_str()?;
-    [SERVE, LAYER, FILES, DROP, BROUGHT_BACK, RELEASE, PIN, UNPIN, PINS, WARM]
+    [SERVE, LAYER, FILES, DROP, BROUGHT_BACK, RELEASE, PIN, UNPIN, PINS, WARM, UNSYNCED]
         .into_iter()
         .find(|known| *known == cmd)
 }
@@ -483,10 +493,10 @@ fn serve_dial<R: Read, W: Write + Send + 'static, F: Write + Send + 'static>(
     let projected = match attach(first, &mut reader, roots) {
         Ok((projected, mut data)) => {
             // The Mac packs its answers (and writes binary lines) once it reads this.
-            if wants_wire(first)
-                && let Some(object) = data.as_object_mut()
-            {
-                object.insert("wire".into(), json!(WIRE));
+            if wants_wire(first) {
+                if let Some(object) = data.as_object_mut() {
+                    object.insert("wire".into(), json!(WIRE));
+                }
             }
             if send_line(&mut writer, &json!({"id": id, "ok": true, "data": data})).is_err() {
                 return;
@@ -612,6 +622,10 @@ struct WayBackLine {
     /// [`WARM`]'s paths, relative to the projected folder.
     #[serde(default)]
     paths: Vec<String>,
+    /// [`LAYER`]: leave dependency, cache and build folders out of the listing
+    /// (`cmux_projection::layer::Layer::collect_pruned`); they follow it as `pruned_bytes`.
+    #[serde(default)]
+    prune: bool,
 }
 
 /// A projection name: 1-64 letters, digits, `-` or `_`.
@@ -694,12 +708,38 @@ fn way_back_answer(
             // Taken before the listing: a write between the two makes the mark older than the
             // listing, so `projection.brought_back` finds it changed and keeps everything.
             let mark = cmux_projection::state::mark(&state).map_err(|error| io(&error))?;
-            let layer =
-                cmux_projection::layer::Layer::collect(&state).map_err(|error| io(&error))?;
-            let encoded = layer.encode().map_err(|error| io(&error))?;
-            let data = json!({"bytes": encoded.len(), "upper": layer.upper.len(),
-                              "whiteouts": layer.whiteouts.len(), "mark": mark});
+            let (layer, pruned) = if line.prune {
+                cmux_projection::layer::Layer::collect_pruned(&state)
+            } else {
+                cmux_projection::layer::Layer::collect(&state).map(|layer| (layer, Vec::new()))
+            }
+            .map_err(|error| io(&error))?;
+            let mut encoded = layer.encode().map_err(|error| io(&error))?;
+            let data = if line.prune {
+                // The pruned folders follow the listing, so a dial with thousands of them
+                // (`__pycache__` in every package) never makes a long answer line.
+                let more = cmux_projection::layer::Layer::encode_pruned(&pruned)
+                    .map_err(|error| io(&error))?;
+                let data = json!({"bytes": encoded.len(), "upper": layer.upper.len(),
+                "whiteouts": layer.whiteouts.len(), "mark": mark,
+                "pruned_bytes": more.len(), "kept_on_machine": {
+                    "folders": pruned.len(),
+                    "files": pruned.iter().map(|folder| folder.files).sum::<u64>(),
+                    "bytes": pruned.iter().map(|folder| folder.bytes).sum::<u64>(),
+                }});
+                encoded.extend_from_slice(&more);
+                data
+            } else {
+                json!({"bytes": encoded.len(), "upper": layer.upper.len(),
+                       "whiteouts": layer.whiteouts.len(), "mark": mark})
+            };
             Ok((data, WayBackBody::Bytes(encoded)))
+        }
+        UNSYNCED => {
+            if !state.is_dir() {
+                return Err(("projection.unknown", format!("no projection {} here", line.name)));
+            }
+            Ok((unsynced(&state, line.prune).map_err(|error| io(&error))?, WayBackBody::None))
         }
         FILES => {
             if line.paths_bytes > MAX_PATHS_BYTES {
@@ -733,7 +773,35 @@ fn way_back_answer(
     }
 }
 
-/// [`PIN`], [`UNPIN`], [`PINS`] or [`WARM`] of projection `line.name`, mounted here (module docs).
+/// The most pruned folders [`UNSYNCED`]'s answer names.
+const UNSYNCED_FOLDERS: usize = 256;
+
+/// [`UNSYNCED`]'s answer for the projection whose state folder is `state` (module docs).
+fn unsynced(state: &Path, prune: bool) -> anyhow::Result<Value> {
+    let (layer, pruned) = if prune {
+        cmux_projection::layer::Layer::collect_pruned(state)?
+    } else {
+        (cmux_projection::layer::Layer::collect(state)?, Vec::new())
+    };
+    let (files, bytes) = layer
+        .upper
+        .iter()
+        .filter(|entry| entry.kind != cmux_projection::manifest::Kind::Dir)
+        .fold((0u64, 0u64), |(files, bytes), entry| (files + 1, bytes + entry.size));
+    Ok(if prune {
+        json!({"files": files, "bytes": bytes, "deleted": layer.whiteouts.len(),
+        "kept_on_machine": {
+            "folders": pruned.len(),
+            "files": pruned.iter().map(|folder| folder.files).sum::<u64>(),
+            "bytes": pruned.iter().map(|folder| folder.bytes).sum::<u64>(),
+            "paths": pruned.iter().take(UNSYNCED_FOLDERS).map(|f| &f.path).collect::<Vec<_>>(),
+        }})
+    } else {
+        json!({"files": files, "bytes": bytes, "deleted": layer.whiteouts.len()})
+    })
+}
+
+/// [`PIN`], [`UNPIN`] or [`PINS`] of projection `line.name`, mounted here (module docs).
 fn pin_answer(cmd: &str, line: &WayBackLine) -> Result<Value, Refusal> {
     let projected =
         projections().lock().unwrap_or_else(PoisonError::into_inner).get(&line.name).cloned();
@@ -1148,10 +1216,10 @@ fn attach(
     let state = state_of(&line.name)?;
     let projected =
         mount(&line.name, manifest, &state, &at, digest, line.head, line.from.as_deref())?;
-    if let (Some(dir), Some(home)) = (state.parent(), std::env::var_os("HOME"))
-        && let Err(error) = git_stat::keep(dir, Path::new(&home), &at)
-    {
-        eprintln!("cmux-tui: projection {}: git settings: {error}", line.name);
+    if let (Some(dir), Some(home)) = (state.parent(), std::env::var_os("HOME")) {
+        if let Err(error) = git_stat::keep(dir, Path::new(&home), &at) {
+            eprintln!("cmux-tui: projection {}: git settings: {error}", line.name);
+        }
     }
     let data = json!({
         "at": at,
@@ -1421,11 +1489,10 @@ fn mount(
     } else if let Some(barrier) = old_barrier.take() {
         let _ = barrier.complete();
     }
-    // RFD 0007, seed bundles: with `CMUX_PROJECTION_GIT_SWAP=1`, a `.git` with a public remote
-    // takes its objects from the remote (a blobless fetch the machine makes) and only what the
-    // Mac has unpushed over the link, then switches from projection to that repository. Opt-in
-    // until Bring Back reads the machine's repository after a swap.
-    if std::env::var_os("CMUX_PROJECTION_GIT_SWAP").is_some_and(|value| value == "1") {
+    // RFD 0007, seed bundles: carry is on by default. The sender's live git probe adds a depth-1
+    // pack and base to the manifest, and the machine switches from projection to that repository.
+    // CMUX_PROJECTION_GIT_SWAP=off is the diagnostic kill switch.
+    if cmux_projection::git_swap::enabled() {
         let swapping = projected.clone();
         let (at, state) = (at.to_path_buf(), state.to_path_buf());
         let _ = std::thread::Builder::new().name("projection-git-swap".into()).spawn(move || {

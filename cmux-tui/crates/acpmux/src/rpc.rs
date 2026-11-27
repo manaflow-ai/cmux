@@ -394,6 +394,10 @@ impl Message {
 }
 
 /// ACP method names used by acpmux. Kept as constants so the wire is explicit.
+/// `_acpmux/status` with this `true` answers only the listing's counts and peers
+/// (`Hub::list_counts`); a daemon before it ignores it and sends the full status.
+pub const LIST_COUNTS: &str = "listCounts";
+
 pub mod method {
     pub const INITIALIZE: &str = "initialize";
     pub const AUTHENTICATE: &str = "authenticate";
@@ -602,6 +606,8 @@ pub mod method {
     /// `acpmux send --no-wait`: queue a prompt for this daemon to deliver (`hub/outbox.rs`).
     pub const MUX_SEND_QUEUE: &str = "_acpmux/send_queue";
     pub const MUX_SEND_STATUS: &str = "_acpmux/send_status";
+    /// A peer daemon's one-hop send to a host this daemon peers (`server/send_hop.rs`).
+    pub const MUX_SEND_HOP: &str = "_acpmux/send_hop";
     /// Local socket: enqueue or read a mesh lifecycle control receipt.
     pub const MUX_MESH_CONTROL: &str = "_acpmux/mesh_control";
     /// Resume agent message pairs the runaway guard paused (`hub/agent_pairs.rs`).
@@ -644,6 +650,11 @@ pub mod method {
     pub const MUX_TEAM_ACK: &str = "_acpmux/team/ack";
     /// Open, list and close a listen on another member's agent address, and read what it receives.
     pub const MUX_TEAM_LISTEN: &str = "_acpmux/team/listen";
+    /// RFD 0170 phase 1 views of the team directory (`server/team_directory.rs`): the navigator,
+    /// the recipient picker and a session's Session Info, each for the calling principal.
+    pub const MUX_TEAM_NAVIGATOR: &str = "_acpmux/team/navigator";
+    pub const MUX_TEAM_PICK: &str = "_acpmux/team/pick";
+    pub const MUX_TEAM_SESSION_INFO: &str = "_acpmux/team/session_info";
     /// An image a session's prompt sent, by its id (`hub/prompt_images.rs`).
     pub const MUX_ATTACHMENT: &str = "_acpmux/attachment";
     /// A turn's before and after picture of the chat's page (`hub/turn_shots.rs`).
@@ -1090,7 +1101,9 @@ pub mod method {
     /// olderThanDays?, only?, unreadOnly?}` -> the pass's report.
     pub const MUX_RETENTION: &str = "_acpmux/retention";
     /// Delete old chats' history (`hub/history_delete.rs`): `{dryRun?, olderThanDays?, export?}`
-    /// -> the chats deleted, or with `dryRun` the preview of those a pass would delete.
+    /// -> the chats deleted (hidden for the undo window) and purged, or with `dryRun` the preview
+    /// of those a pass would delete. `{deleted: true}` -> Recently deleted; `{restore: id}` ->
+    /// `{sessionId, restored}`, the undo.
     pub const MUX_HISTORY_DELETE: &str = "_acpmux/history_delete";
     /// Offload old cold-archived chats to cloud history (`hub/cloud_offload.rs`): `{dryRun?,
     /// olderThanDays?}` -> the chats offloaded, or those a pass would offload.
@@ -1250,7 +1263,7 @@ pub mod method {
     /// recorded, before the turn ends: `{sessionId, promptId, turnId, queued}`.
     pub const MUX_PROMPT_ACCEPTED: &str = "_acpmux/prompt_accepted";
     /// To a peer daemon's link, for a record of an attached session it is not sent live (an
-    /// agent request or answer, `server/mod.rs` `deliver`): `{sessionId, seq}`, so the owner's
+    /// agent request or answer, `server/delivery.rs` `deliver`): `{sessionId, seq}`, so the owner's
     /// copy (`hub/peer_snapshot.rs`) continues past that seq instead of stopping there.
     pub const MUX_UNSENT: &str = "_acpmux/unsent";
     /// To the connection whose `session/cancel` notification was refused, which has no answer to
