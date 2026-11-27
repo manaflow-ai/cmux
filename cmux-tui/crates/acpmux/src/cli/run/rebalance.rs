@@ -210,8 +210,12 @@ async fn hand_off(client: &Client, dest: &str, source: &str, waits: &[Value]) ->
     match released {
         Ok(r) => {
             let refused = r.get("refused").and_then(Value::as_array).is_some_and(|a| !a.is_empty());
-            let error = refused
-                .then(|| format!("moved and re-armed; {source} kept some: {}", r["refused"]));
+            let error = refused.then(|| {
+                format!(
+                    "moved and re-armed; {source} kept some: {}",
+                    r.get("refused").unwrap_or(&Value::Null)
+                )
+            });
             json!({"version": v, "armed": armed, "released": r, "error": error})
         }
         Err(e) => {
@@ -429,7 +433,7 @@ async fn undo(id: &str, timeout: u64, json_out: bool) -> Result<()> {
     let key = format!("{host}/{there}");
     let to = timeout.to_string();
     // Back where it came from: this host, or the peer a hub pass moved it off.
-    let source = r["source"].as_str().unwrap_or_default().to_owned();
+    let source = r.get("source").and_then(Value::as_str).unwrap_or_default().to_owned();
     let me = crate::host_pressure::host_name();
     let back = if source.is_empty()
         || crate::placement::canonical(&source) == crate::placement::canonical(&me)
@@ -460,7 +464,7 @@ async fn undo(id: &str, timeout: u64, json_out: bool) -> Result<()> {
     let mut d = rb::Done {
         source: host.clone(),
         session_id: there.clone(),
-        name: r["name"].as_str().unwrap_or_default().to_owned(),
+        name: r.get("name").and_then(Value::as_str).unwrap_or_default().to_owned(),
         target: if back == "local" { me } else { source },
         unavailable_ms: t0.elapsed().as_millis() as u64,
         undoes: Some(id.to_owned()),
