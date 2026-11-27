@@ -2,25 +2,32 @@
 // CmuxNextApps/Store). It fills an app screen or a narrow tab: the grid adapts its columns, the
 // detail keeps a readable width, split stacks below 640 px. State lives in `AppsStore`.
 import {
+  useRef,
+  useSyncExternalStore,
+  type KeyboardEvent,
+  type ReactNode,
   memo,
   useCallback,
   useEffect,
   useLayoutEffect,
   useMemo,
-  useRef,
   useState,
-  useSyncExternalStore,
-  type KeyboardEvent,
-  type ReactNode,
 } from "react";
 import { defaultRangeExtractor, useVirtualizer, type Range } from "@tanstack/react-virtual";
 import type { Strings } from "../shared/i18n";
 import { AppDetailView } from "./AppDetailView";
 import { CloudFeature } from "./CloudFeature";
 import { CustomizeFeature } from "./CustomizeFeature";
+import { CommunityView, useCommunity } from "./CommunityView";
+import type { CommunityStore } from "./community";
+import { FeaturesView } from "./FeaturesView";
 import { InstalledView } from "./InstalledView";
-import { CategoryBar, ItemCard, ItemRow, HeroCard, ListRow } from "./items";
+import { CategoryBar, HeroCard, ItemCard, ItemRow, ListRow } from "./items";
 import {
+  categoryLabel,
+  featuredApps,
+  filterApps,
+  type StoreTab,
   catalogRows,
   GRID_GAP,
   GRID_ROW_ESTIMATE,
@@ -30,10 +37,6 @@ import {
   type CardStyle,
   type CatalogRows,
   type StoreLayout,
-  type StoreTab,
-  categoryLabel,
-  featuredApps,
-  filterApps,
 } from "./model";
 import type { AppsSnapshot, AppsStore } from "./store";
 import type { CatalogApp } from "./types";
@@ -42,26 +45,67 @@ import { SplitEdge } from "../../ui/SplitEdge";
 import { useUiDirection } from "../../ui/UiProvider";
 import { ConnectionChip } from "../../ui/ConnectionChip";
 import { useConnectionQuiet } from "../../ui/lasting";
+import { useAutoRetry } from "../../agent-session/acpmux/autoRetry";
 
-/** The toolbar's tabs: the store's tabs, plus Examples in the `tab` placement. */
-type ToolbarTab = StoreTab | "examples";
+/** The toolbar's tabs: the store's tabs, plus Examples in the `tab` placement, plus Community. */
+type ToolbarTab = StoreTab | "examples" | "community";
 
-export function AppsPage({ store, strings }: { store: AppsStore; strings: Strings }) {
+export function AppsPage({
+  store,
+  strings,
+  community,
+}: {
+  store: AppsStore;
+  strings: Strings;
+  /** The Community tab (community.ts); absent, the page has no Community tab. */
+  community?: CommunityStore;
+}) {
   const snap = useSyncExternalStore(store.subscribe, store.getSnapshot, store.getSnapshot);
+  const communitySnap = useCommunity(community);
+  const onCommunity = !!community && communitySnap?.active === true;
   const tabRefs = useRef<Partial<Record<ToolbarTab, HTMLButtonElement>>>({});
   const { t } = strings;
   // A lost owner link keeps the listings it had and says so only once it lasts (a launch, a daemon
   // restart: the store re-reads once the link is back), as a corner mark that takes no room.
   const down = snap.connection === "disconnected";
   const downLasting = useConnectionQuiet(down);
+  // A catalog read that failed with the link up is read again on its own (the store's `reload`, which
+  // also loads a deep-linked detail); the page keeps its loading grid and only a failure that lasts the
+  // deadline says one quiet line, with no Reload (Leo, 2026-11-22: "vacuous decisions like that should
+  // be just done").
+  const catalogFailing = !down && snap.catalogStatus === "error";
+  const catalogFailed = catalogFailing ? (snap.catalogError ?? true) : undefined;
+  const { stillTrying: catalogStillTrying } = useAutoRetry(catalogFailed, () => void store.reload(), {
+    busy: !down && snap.catalogStatus === "loading",
+  });
   // The `tab` placement of Examples (DEV, examples=tab) is a third toolbar tab: Discover on the
   // Examples shelf. Every other placement keeps two tabs.
   const examplesTab = snap.examplesOffered && snap.examplesStyle === "tab";
-  const tabs: ToolbarTab[] = examplesTab ? ["discover", "examples", "installed"] : ["discover", "installed"];
-  const current: ToolbarTab =
-    snap.tab === "installed" ? "installed" : examplesTab && snap.shelf === "example" ? "examples" : "discover";
+  // Features (Leo, 10-21): every built-in feature as a switch, between Discover and Installed, only
+  // while Settings > Advanced > Experiments > App Store Features is on (off by default). A
+  // `#/features` route waits on the first read before it falls back to Discover.
+  const featuresShown =
+    snap.featuresEnabled ||
+    (snap.tab === "features" && (snap.featuresStatus === "idle" || snap.featuresStatus === "loading"));
+  const tabs: ToolbarTab[] = [
+    "discover",
+    ...(examplesTab ? (["examples"] as const) : []),
+    ...(snap.featuresEnabled ? (["features"] as const) : []),
+    ...(community ? (["community"] as const) : []),
+    "installed",
+  ];
+  const onFeatures = snap.tab === "features" && featuresShown;
+  const current: ToolbarTab = onCommunity
+    ? "community"
+    : snap.tab === "installed" || onFeatures
+      ? snap.tab
+      : examplesTab && snap.shelf === "example"
+        ? "examples"
+        : "discover";
   // Discover is a plain tab change unless the Examples shelf is the one showing.
   const show = (tab: ToolbarTab) => {
+    community?.setActive(tab === "community");
+    if (tab === "community") return;
     if (tab === "examples") store.setShelf("example");
     else if (tab === "discover" && snap.shelf === "example") store.setShelf("store");
     else store.setTab(tab);
@@ -106,28 +150,22 @@ export function AppsPage({ store, strings }: { store: AppsStore; strings: String
           type="search"
           placeholder={t("store.search")}
           aria-label={t("store.search")}
-          value={snap.query}
+          value={onCommunity ? communitySnap!.query : snap.query}
           // The search filters the list on screen: it stays live while the link comes back (Leo, 2026-11-24 11:57Z).
-          onChange={(event) => store.setQuery(event.target.value)}
+          onChange={(event) =>
+            onCommunity ? community!.setQuery(event.target.value) : store.setQuery(event.target.value)
+          }
           onKeyDown={(event: KeyboardEvent<HTMLInputElement>) => {
-            if (event.key === "Escape" && !event.metaKey && !event.ctrlKey && snap.query) {
-              store.setQuery("");
+            const query = onCommunity ? communitySnap!.query : snap.query;
+            if (event.key === "Escape" && !event.metaKey && !event.ctrlKey && query) {
+              if (onCommunity) community!.setQuery("");
+              else store.setQuery("");
               event.preventDefault();
             }
           }}
         />
       </header>
-      {snap.catalogError && snap.connection !== "disconnected" && (
-        <div className="apps-error" role="alert">
-          <span className="apps-error-copy">
-            <strong>{t("store.error.load")}</strong>
-            <span className="selectable">{snap.catalogError}</span>
-          </span>
-          <button type="button" className="apps-button" onClick={() => void store.reload()}>
-            {t("store.action.reload")}
-          </button>
-        </div>
-      )}
+      {catalogStillTrying && <output className="apps-error apps-muted">{t("store.stillLoading")}</output>}
       {snap.error && snap.connection !== "disconnected" && (
         <output className="apps-error selectable">{snap.error}</output>
       )}
@@ -135,6 +173,10 @@ export function AppsPage({ store, strings }: { store: AppsStore; strings: String
       {down && snap.catalog.length === 0 && snap.installed.length === 0 ? (
         // Nothing read yet and the link is down: blank, and no false empty shelf either.
         <div className="apps-state" />
+      ) : onCommunity ? (
+        <CommunityView snap={communitySnap!} store={community!} strings={strings} />
+      ) : onFeatures ? (
+        <FeaturesView snap={snap} store={store} strings={strings} />
       ) : snap.tab === "installed" ? (
         <InstalledView snap={snap} store={store} strings={strings} />
       ) : (
@@ -195,7 +237,9 @@ function Discover({ snap, store, strings }: { snap: AppsSnapshot; store: AppsSto
         strings={strings}
       />
       {snap.notice === "notInStore" && <output className="apps-notice">{t("store.notice.notInStore")}</output>}
-      {snap.loading && snap.visible.length === 0 ? (
+      {/* A catalog read that failed with the link up keeps the loading grid while the page asks again. */}
+      {(snap.loading || (snap.connection !== "disconnected" && snap.catalogStatus === "error")) &&
+      snap.visible.length === 0 ? (
         <LoadingGrid strings={strings} />
       ) : snap.visible.length === 0 && snap.catalogStatus === "error" ? null : snap.visible.length === 0 ? (
         <output className="apps-state apps-state-empty">

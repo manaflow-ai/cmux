@@ -3,8 +3,13 @@
 use clap::{Args, Parser, Subcommand};
 use std::path::PathBuf;
 
+pub use crate::cli::command_harness::{CodexRuntimeCmd, HarnessCmd, SecretCmd};
 pub use crate::cli::command_host::{PeerCmd, TicketCmd};
 pub use crate::cli::command_new::NewArgs;
+pub use crate::cli::command_session::{
+    AutoSettleMode, InboxArgs, InboxCmd, ListenCmd, SendNotice, SendRelay, SendThread, SessionCmd,
+    SessionInboxOpts, SessionInboxTarget,
+};
 pub use crate::cli::task::BriefsCmd;
 
 #[derive(Args, Debug, Clone, PartialEq, Eq)]
@@ -377,7 +382,9 @@ pub enum Command {
     /// Retry a session's failed last turn now, in the same session (a waiting retry fires).
     Retry(crate::cli::retry::RetryArgs),
     /// One turn per turn: prompt preview, status, tools, tokens, wall time, and how much of it
-    /// went to getting the prompt to the agent (START) and to the model's first output (MODEL).
+    /// went to getting the prompt to the agent (START), to the agent holding it behind its own
+    /// work or a compaction (QUEUED, `b` busy or `c` compacting), and to the model's first
+    /// output (MODEL).
     History {
         session: String,
         #[arg(long, short = 'n', default_value_t = 20)]
@@ -741,14 +748,14 @@ pub enum Command {
     #[command(subcommand, name = "machine", aliases = aliases::MACHINE)]
     Host(PeerCmd),
     /// Bring your own harness: list, add, doctor and reload harness profile
-    /// files (~/.config/cmux/harnesses/<id>.toml). Also `cmux harness …`.
+    /// files (~/.config/cmux-next/harnesses/<id>.toml). Also `cmux harness …`.
     #[command(subcommand)]
     Harness(HarnessCmd),
     /// Forum rules: announce one, list the current ones, ack one.
     #[command(subcommand)]
     Forum(crate::cli::forum::ForumCmd),
-    /// The fleet memory mount (~/.cmux/memory): sync, put, get, ls, history, status, and link a
-    /// harness's memory folder into it.
+    /// The memory mount shared by your machines (~/.cmux/memory): sync, put, get, ls, history,
+    /// status, and link a harness's memory folder into it.
     #[command(subcommand)]
     Memory(crate::cli::memory::MemoryCmd),
     /// Bridge Claude Desktop, Codex Desktop and ChatGPT Desktop to each other and to cmux sessions:
@@ -888,6 +895,8 @@ pub enum Command {
         #[arg(long)]
         ttl: Option<u64>,
     },
+    #[command(hide = true)]
+    UnsettleCmd { session: String },
     #[command(hide = true)]
     SessionSearch(crate::cli::session_search::SearchArgs),
     #[command(hide = true)]
@@ -1065,6 +1074,12 @@ pub enum Command {
         /// never registered.
         #[arg(long)]
         renew: bool,
+        /// For cmux's own Claude Code hook (`cmux-tui-hook`, UserPromptSubmit): the first step
+        /// with no person's step, under NAME unless the chat has a name already. Nothing when
+        /// the chat is registered with this process; else a one-time code goes to the chat's
+        /// inbox, as from a send. Starts no daemon, never fails (`cli/hook_register.rs`).
+        #[arg(long, hide = true, conflicts_with_all = ["code", "renew"], requires = "name")]
+        auto: bool,
     },
     #[command(hide = true)]
     DetachParent { session: String },
@@ -1151,6 +1166,12 @@ pub enum Command {
     #[command(hide = true)]
     Retention(RetentionArgs),
     #[command(hide = true)]
+    HistoryDelete(HistoryDeleteArgs),
+    #[command(hide = true)]
+    HistoryOffload(HistoryOffloadArgs),
+    #[command(hide = true)]
+    TranscriptOffload(TranscriptOffloadArgs),
+    #[command(hide = true)]
     Status {
         #[arg(long)]
         show_token: bool,
@@ -1220,7 +1241,8 @@ pub enum Command {
         /// one harness, `session.memory_mb=6144`, `session.swap_mb=2048`,
         /// `session.tasks_max=8192`, `session.sessions_tasks_max=131072`,
         /// `session.cpu_class=background`, `remote_daemon=127.0.0.1:PORT` or
-        /// `lane_gh_broker=~/.cache/lane-gh-broker/broker.sock`). A value the
+        /// `lane_gh_broker=~/.cache/lane-gh-broker/broker.sock`, or on a lane machine
+        /// `lane_gh_carrier=OWNER[,OWNER...]` for lane-gh over the carrier, off by default). A value the
         /// daemon would refuse to start with is refused and config.json is left as it was:
         /// `transport.wireguard=true` needs `transport.wireguardStatic` in config.json first.
         /// The hub carrier (`cmux remote ... --via-machine`) needs no setting here: a joined
@@ -1299,190 +1321,6 @@ pub struct DispatchArgs {
 }
 
 #[derive(Subcommand)]
-pub enum HarnessCmd {
-    /// Install a coding agent's CLI through its vendor's own installer (claude: Claude Code's
-    /// official installer; codex: the pinned official Codex release), then reload the daemon.
-    /// Runs only when asked; with --json each step is a JSON line, the last one the result.
-    Install {
-        /// claude or codex.
-        id: String,
-    },
-    /// Install or inspect cmux's opt-in managed Codex runtime.
-    CodexRuntime {
-        #[command(subcommand)]
-        action: CodexRuntimeCmd,
-    },
-    /// Every harness with its kind, source file and problems.
-    #[command(alias = "ls")]
-    List {
-        /// Also list the folder profiles in DIR/.cmux/harnesses with their state.
-        #[arg(long)]
-        folder: Option<PathBuf>,
-    },
-    /// Write a new profile file into ~/.config/cmux/harnesses and check it.
-    #[command(after_help = crate::cli::harness::add_help())]
-    Add {
-        /// Profile id (file name); default: the example's id or the command's name.
-        id: Option<String>,
-        /// The program to run: a name on PATH or an absolute path.
-        #[arg(long)]
-        command: Option<String>,
-        /// acp (Agent Client Protocol over stdio) or terminal (a CLI/TUI without ACP).
-        #[arg(long, default_value = "acp")]
-        protocol: String,
-        /// Start from a shipped example: claude, codex, opencode, pi, gemini, aider, or your
-        /// own model endpoint: anthropic-endpoint, openai-endpoint (with --base-url, --model).
-        #[arg(long)]
-        example: Option<String>,
-        /// anthropic-endpoint / openai-endpoint: the endpoint's base URL (https; http only
-        /// to localhost or 127.0.0.1).
-        #[arg(long)]
-        base_url: Option<String>,
-        /// anthropic-endpoint / openai-endpoint: a model id the endpoint serves; repeat it or
-        /// separate ids with commas for several (the first is the default). '*' adds every
-        /// model the endpoint lists at <base URL>/models.
-        #[arg(long)]
-        model: Vec<String>,
-        /// anthropic-endpoint / openai-endpoint: a Keychain item of your own that holds the key
-        /// (`service` or `service/account`; never cmux's own `cmux-harness` items).
-        #[arg(long, conflicts_with = "key")]
-        keychain_item: Option<String>,
-        /// anthropic-endpoint / openai-endpoint: read the key (a hidden prompt, or stdin) and
-        /// store it in the Keychain for this endpoint only. Never on the command line.
-        #[arg(long)]
-        key: bool,
-        /// anthropic-endpoint / openai-endpoint: the name the model picker shows.
-        #[arg(long)]
-        name: Option<String>,
-        /// Replace an existing file.
-        #[arg(long)]
-        force: bool,
-        /// ID is an ACP Registry agent (`cmux harness registry`): write a
-        /// profile that starts it at the registry's pinned version (its
-        /// installed program, else npx, else uvx).
-        #[arg(long, conflicts_with_all = ["command", "example"])]
-        registry: bool,
-        /// The icon cmux shows for it: one emoji, an SF Symbol name (hammer.fill), an agent
-        /// mark (claude, goose, ...) or an .svg/.png file. Default: the mark of the agent its
-        /// command runs, else a monogram.
-        #[arg(long)]
-        icon: Option<String>,
-    },
-    /// Show or set the icon cmux shows for one of your harnesses: one emoji, an SF Symbol
-    /// name (hammer.fill), an agent mark (claude, goose, ...) or an .svg/.png file (copied
-    /// next to the profile). With no VALUE, prints the icon cmux shows now and why.
-    Icon {
-        id: String,
-        value: Option<String>,
-        /// Remove the icon line: cmux picks the icon again.
-        #[arg(long, conflicts_with = "value")]
-        clear: bool,
-    },
-    /// Sign in to a harness with its own ACP sign-in (or `claude auth login`
-    /// for Claude Code). `--status` checks it; `--list` shows the methods.
-    Login {
-        id: String,
-        /// The sign-in method id (default: the harness's first browser or terminal sign-in).
-        #[arg(long)]
-        method: Option<String>,
-        /// Show the sign-in methods and whether the harness is signed in.
-        #[arg(long)]
-        list: bool,
-        /// Only check whether the harness is signed in.
-        #[arg(long)]
-        status: bool,
-    },
-    /// The ACP Registry's agents and how each can start here.
-    Registry {
-        /// Fetch the registry now instead of reading the cached copy.
-        #[arg(long)]
-        refresh: bool,
-    },
-    /// Start the harness in a temp folder, run the ACP handshake and one
-    /// prompt, and print each step with an exact fix. Never prints env values.
-    /// An id that is no catalog harness is looked up as a folder profile
-    /// (DIR/.cmux/harnesses/ID.toml in --folder or the current folder, or
-    /// their nearest parent); an enabled one starts inside its folder.
-    Doctor {
-        id: String,
-        /// Where to look for a folder profile (default: the current folder).
-        #[arg(long)]
-        folder: Option<PathBuf>,
-        /// Stop after session/new: send no prompt (no model call).
-        #[arg(long)]
-        no_prompt: bool,
-        /// Seconds each step may wait for the harness.
-        #[arg(long, default_value_t = 120)]
-        timeout: u64,
-    },
-    /// Allow a folder profile (DIR/.cmux/harnesses/ID.toml) in chats inside
-    /// DIR: shows the command and env, then asks. The folder must be trusted.
-    Enable {
-        id: String,
-        #[arg(long)]
-        folder: PathBuf,
-        /// Confirm without the prompt (needed without a terminal).
-        #[arg(long)]
-        yes: bool,
-    },
-    /// Withdraw a folder profile's confirmation.
-    Disable {
-        id: String,
-        #[arg(long)]
-        folder: PathBuf,
-    },
-    /// Run a protocol = "terminal" harness (a CLI/TUI without ACP) in this
-    /// terminal with its profile env; `--tab` (cmux) opens it in a new tab.
-    Run {
-        id: String,
-        /// The folder to run in (default: the current folder).
-        #[arg(long)]
-        cwd: Option<PathBuf>,
-        /// The model for `${model}` (default: the profile's).
-        #[arg(long)]
-        model: Option<String>,
-        /// Open a new tab in the current pane (cmux only).
-        #[arg(long)]
-        tab: bool,
-    },
-    /// Secrets for harness env keys, kept in the system secret store.
-    #[command(subcommand)]
-    Secret(SecretCmd),
-    /// Tell the running daemon to read the profile files again.
-    Reload,
-    /// Print the guide an agent follows to integrate a harness (schema,
-    /// doctor loop, examples, security rules).
-    Guide,
-    /// Move a profile file from your harness folder to a backup
-    /// (~/.acpmux/harness-backups); `restore` brings it back, its Keychain key included.
-    Remove {
-        id: String,
-        /// Also delete the endpoint's own Keychain items (`cmux-harness/<id>/...`); a later
-        /// `restore` then needs `cmux harness secret set` again.
-        #[arg(long)]
-        forget_key: bool,
-    },
-    /// Move a backup that `remove` made back into your harness folder.
-    Restore { backup: String },
-}
-
-#[derive(Subcommand)]
-pub enum CodexRuntimeCmd {
-    /// Download and verify the pinned official Codex release.
-    Install,
-    /// Print the managed runtime status.
-    Status,
-}
-
-#[derive(Subcommand)]
-pub enum SecretCmd {
-    /// Store a value for ID's env KEY (Keychain on macOS, secret-tool
-    /// elsewhere) and write `KEY = { keychain = "cmux-harness/ID/KEY" }` into
-    /// the profile file. Reads a hidden prompt, or stdin; never prints it.
-    Set { id: String, key: String },
-}
-
-#[derive(Subcommand)]
 pub enum RoleCmd {
     /// Claim ADDRESS: every other session here gives it up.
     #[command(after_help = "Examples:\n  acpmux role claim goal:ci-linux-on-pool")]
@@ -1500,479 +1338,6 @@ pub enum RoleCmd {
     },
     /// Every role and successor entry the sessions here hold.
     Ls,
-}
-
-#[derive(Subcommand)]
-pub enum SessionCmd {
-    /// Queue a new session on a mesh host; prints a receipt, not completed execution.
-    Start(crate::cli::mesh_control::StartArgs),
-    /// Read one mesh lifecycle receipt without waiting.
-    Receipt { message_id: String },
-    /// Show session details.
-    Info {
-        session: String,
-        /// Print only these comma-separated fields, one per line as `field<TAB>value` (a single
-        /// field prints its bare value); a dotted path reads a nested one (`turn.activity`).
-        /// With --json, an object of just those fields.
-        #[arg(long, value_name = "FIELD[,FIELD…]")]
-        fields: Option<String>,
-    },
-    /// Cancel the running turn.
-    Cancel { session: String },
-    /// Stop the agent process. The session stays resumable. The stop is recorded with who asked,
-    /// `--reason` and `--outcome` (`ls --closed --json` rows' `close`); a lane with work stopped
-    /// with no `--outcome` is recorded `unfinished`.
-    #[command(alias = "kill", alias = "close")]
-    Stop {
-        session: String,
-        #[command(flatten)]
-        mesh: crate::cli::mesh_control::RouteArgs,
-        /// Also delete the log.
-        #[arg(long)]
-        purge: bool,
-        #[command(flatten)]
-        condition: StopIf,
-        #[command(flatten)]
-        close: CloseArgs,
-    },
-    /// Pause an idle session: its agent process and MCP servers exit now, as after 2 idle
-    /// minutes, and the chat keeps its transcript and conversation. Its next prompt, opening it,
-    /// or `session wake` resumes the same conversation. Refused (exit 6) while it is busy.
-    Pause { session: String },
-    /// Resume a paused session now: its agent starts on the same conversation, and the time it
-    /// took is printed. A prompt resumes it too, without this.
-    Wake { session: String },
-    /// Hold a session: it takes no turn until the person asks for it. Every other agent's
-    /// message, tool notice or background task's end waits in its inbox; its idle agent is
-    /// paused. Its person's own prompt, opening it in the app, or `session release` lifts it.
-    /// With `--fleet`: hold every session on this machine but the allowlist's names (a trailing
-    /// `*` matches a prefix, `*TERM*` any name containing TERM in any case), and refuse new
-    /// sessions outside them, for 12 hours unless `--for` says otherwise. `--allow` adds names
-    /// to the allowlist of a hold that is on and keeps the rest (with no hold on it changes
-    /// nothing); `--set-allow` replaces it. Prints the allowlist before and after.
-    Hold {
-        /// The session (not with `--fleet`).
-        session: Option<String>,
-        /// Hold this machine's whole fleet of sessions.
-        #[arg(long)]
-        fleet: bool,
-        /// With `--fleet`: names added to the allowlist (it keeps the ones already there),
-        /// comma-separated: `NAME`, `PREFIX*` or `*TERM*`.
-        #[arg(long, value_delimiter = ',')]
-        allow: Vec<String>,
-        /// With `--fleet`: replace the whole allowlist with these names (then `--allow` adds to
-        /// it); `--set-allow ''` empties it.
-        #[arg(long, value_delimiter = ',', num_args = 0..=1)]
-        set_allow: Option<Vec<String>>,
-        /// With `--fleet`: why, shown in each refusal.
-        #[arg(long)]
-        reason: Option<String>,
-        /// With `--fleet`: print the fleet hold, change nothing.
-        #[arg(long)]
-        status: bool,
-        /// With `--fleet`: how long it holds (`30m`, `4h`, `2d`; `never` keeps it until
-        /// released). Default 12h.
-        #[arg(long = "for", value_name = "DURATION")]
-        hold_for: Option<String>,
-    },
-    /// Release a held session (`session hold`): it runs its next prompt as usual. With
-    /// `--fleet`: lift the fleet hold.
-    Release {
-        session: Option<String>,
-        #[arg(long)]
-        fleet: bool,
-    },
-    /// Restart the agent process in the same conversation: now when the
-    /// session is between turns, else when its turn ends (never cancelled).
-    /// It then runs the installed version and gets a new caller token (after
-    /// a daemon restart left it the earlier daemon's).
-    Restart { session: String },
-    /// Decide what happens next to a session that died while it owned work: restart it in
-    /// place, move it, start its host, start it again on a healthy host, start a successor,
-    /// wait, or hand its work off. Reads FACTS (a JSON file, `-` for stdin: its host, how it
-    /// died, what was tried, which hosts admit one more session) and prints one JSON step,
-    /// `{"step": "restart"|"move"|"successor"|...}`. Runs nothing; the caller runs the step
-    /// (`session restart`, `session move`) and asks again on its next pass.
-    Route {
-        #[arg(long, value_name = "FILE")]
-        facts: PathBuf,
-    },
-    /// Rename a session.
-    Rename {
-        session: String,
-        new_name: String,
-        /// Rename the spoken handle.
-        #[arg(long)]
-        handle: bool,
-        /// With --handle: set the icon too (as `acpmux icon`).
-        #[arg(long, requires = "handle")]
-        icon: Option<String>,
-    },
-    /// Set the icon every surface draws for a session (as `acpmux icon`).
-    Icon { session: String, icon: Option<String> },
-    /// Detach a session from the session that started it: its turns stop showing in that
-    /// session's chat, and its `lane.reportsTo` tag goes. The session keeps running.
-    Detach { session: String },
-    /// Run the queued prompts a failed turn held. An agent or a script may resume a
-    /// queue; only answering a permission or a question needs the cmux app. On a machine a
-    /// person works at, a stopped chat first moves to a fleet machine, as `session move --machine
-    /// auto` does; when none takes it, it resumes here and says why. A queue a daemon start
-    /// holds for a person (its folder is guarded: `hub/protected_hold.rs`) is named, with how to
-    /// release it; `--open` releases it as opening the chat in cmux does.
-    Resume {
-        session: String,
-        /// Open the chat as the cmux app does when a person clicks it, then resume: what a
-        /// daemon start held for a person (a guarded folder) runs now.
-        #[arg(long)]
-        open: bool,
-        #[command(flatten)]
-        mesh: crate::cli::mesh_control::RouteArgs,
-    },
-    /// Fork a session into a new one that shares the history so far.
-    Fork {
-        session: String,
-        #[arg(long, short)]
-        name: Option<String>,
-        #[arg(long)]
-        cwd: Option<PathBuf>,
-        /// Fork even when this host refuses new sessions (disk under its floor; max_lanes only warns).
-        #[arg(long)]
-        force_admit: bool,
-        /// Continue on another harness (a family or profile): the fork's agent gets the chat's
-        /// conversation with its first prompt.
-        #[arg(long)]
-        harness: Option<String>,
-        /// The model the fork starts on (with --harness).
-        #[arg(long, short, requires = "harness")]
-        model: Option<String>,
-    },
-    /// Change mode, model, a config option, or the permission policy: key=value.
-    Set {
-        session: String,
-        assignment: Option<String>,
-        /// Claim a team-scoped address (for example `coordinator`).
-        #[arg(long, conflicts_with = "assignment")]
-        team_address: Option<String>,
-    },
-    /// Answer a pending permission request. The daemon accepts an allow
-    /// only from the cmux app (approve it on the Mac app), or signed with this
-    /// machine's standing grant (--standing-grant); a deny option works from here.
-    Allow {
-        session: String,
-        option: Option<String>,
-        /// Sign the one-time allow with the standing grant
-        /// (`acpmux machine approvals grant` records it).
-        #[arg(long)]
-        standing_grant: bool,
-    },
-    /// Reject a pending permission request.
-    Deny { session: String },
-    /// Answer a pending agent question: one --answer per question, keyed by
-    /// question text, id or header; the choice is option labels or ids
-    /// (comma-separated for multi-select) or your own text. With no
-    /// --answer, print the questions and the command. An answer is an
-    /// allow: only the cmux app may send it.
-    Answer {
-        session: String,
-        #[arg(long = "answer", value_name = "QUESTION=CHOICE")]
-        answer: Vec<String>,
-    },
-    /// Move a chat between Local (this Mac), Cloud (stays in cmux Cloud) and AutoCloud (here
-    /// while the Mac is up, in the Cloud while it sleeps), through Auto mode's fenced handoff. The
-    /// person may make any move; a chat's own agent may move it off the Mac only while the
-    /// AutoCloud setting is on, and back to local never (the answer says needs_person and the
-    /// command). `cmux chat move SESSION --on PLACE` runs this.
-    Place {
-        session: String,
-        /// local, cloud or auto (autocloud).
-        #[arg(long)]
-        on: String,
-        /// Why, for the log.
-        #[arg(long)]
-        reason: Option<String>,
-    },
-    /// Export a session bundle.
-    Export {
-        session: String,
-        #[arg(long)]
-        dest: Option<PathBuf>,
-    },
-    /// Import a session bundle directory.
-    Import {
-        path: PathBuf,
-        #[arg(long, short)]
-        name: Option<String>,
-    },
-    /// Move chats to another machine's daemon (one you added), with their history, queue and
-    /// draft: the branch of a chat's worktree is pushed and checked out there as a fresh
-    /// worktree, a plain folder under the home maps to the same path under the machine's home. The
-    /// chat here never runs again, and `resolve` and agent links lead to its new place.
-    Move(MoveSessionsArgs),
-    /// Place an existing chat as the place menu does: `--mode auto`, `--mode cloud` or `--mode machine --machine NAME`. A chat moves only between turns (mid-turn it
-    /// moves after the turn); a move that leaves something behind lists it and needs `--yes`;
-    /// each move writes one line in the chat. `--undo` moves back; `--status` reads the pin.
-    #[command(name = "place-set")]
-    PlaceSet(PlaceSessionArgs),
-    /// Move this machine's excess chats off when it holds more live chats than its lanes.max_lanes:
-    /// only chats between turns with no work running below them, at most a few a pass, to the
-    /// machines placement gives room. Each move leaves a receipt whose undo moves it back. Off
-    /// unless the fleet registry's lane_overflow.rebalance.enabled is true (then it only plans).
-    Rebalance(RebalanceArgs),
-    /// Move a chat, with its history, queue and draft, to the daemon at another socket.
-    Transfer {
-        session: String,
-        /// The other daemon's socket (a sibling build's).
-        #[arg(long)]
-        to: PathBuf,
-        /// The chat's folder there, when it has another path.
-        #[arg(long)]
-        cwd: Option<String>,
-        #[arg(long, short)]
-        name: Option<String>,
-        /// Stop a running turn instead of refusing the move.
-        #[arg(long, conflicts_with = "after_turn")]
-        interrupt: bool,
-        /// Let a running turn end on its own, then move.
-        #[arg(long)]
-        after_turn: bool,
-    },
-    /// Print the last raw events as JSON lines; -f keeps following.
-    Tail {
-        session: String,
-        #[arg(long, short = 'n', visible_alias = "tail", default_value_t = 50)]
-        last: u64,
-        #[arg(long, short)]
-        follow: bool,
-        /// Start after a cursor (`<sessionId>:<seq>` or a seq), or use `seen` for the reader's cutover.
-        /// A chat the reader has never focused has no recap.
-        #[arg(long)]
-        since: Option<String>,
-    },
-    /// Label a session: key=value pairs, `--remove key`, `--ttl seconds`.
-    Tag {
-        session: String,
-        assignments: Vec<String>,
-        #[arg(long)]
-        remove: Vec<String>,
-        #[arg(long)]
-        ttl: Option<u64>,
-    },
-    /// Per-tool permission rules above the policy: a JSON object, `@file`, or `--clear`; omit to show.
-    Rules {
-        session: String,
-        rules: Option<String>,
-        #[arg(long)]
-        clear: bool,
-    },
-    /// How many of its sub-sessions run at once (more wait their turn), how many run and wait
-    /// now, and its other sub-session limits. `--max N` sets it, `--clear` falls back to the
-    /// workspace's, the settings' or the default (1000); setting takes the app or a parent session.
-    Limits {
-        session: String,
-        /// Most sub-sessions running at once (1 to 1000).
-        #[arg(long, value_parser = clap::value_parser!(u32).range(1..=1000), conflicts_with = "clear")]
-        max: Option<u32>,
-        /// Drop the session's own value.
-        #[arg(long)]
-        clear: bool,
-    },
-    /// The turn cap: past it, the running turn takes no other agent's message (they wait for the
-    /// next turn, and the agent is told once to end its turn); the person's still go in. Omit
-    /// the flags to show it; setting it takes the app or this socket, never an agent.
-    TurnCap {
-        session: String,
-        /// The cap in minutes (1 to 1440).
-        #[arg(long, value_parser = clap::value_parser!(u64).range(1..=1440), conflicts_with_all = ["off", "clear"])]
-        minutes: Option<u64>,
-        /// No cap for this session, whatever its default.
-        #[arg(long, conflicts_with = "clear")]
-        off: bool,
-        /// Drop the session's own value: back to its default.
-        #[arg(long)]
-        clear: bool,
-    },
-    /// The chat's inbox: other agents' messages, in threads, which take no turn of its own.
-    /// With --thread, that thread's messages whole, newest first; without it, every thread.
-    ///
-    /// With --digest, the other agents' messages still waiting in a busy session's queue (the
-    /// kinds that do not go to the inbox yet) go in as ONE prompt, now: steered into its running
-    /// turn when its agent steers, else at the head of the agents' messages in its queue, behind
-    /// the person's prompts (which it never touches). Each original keeps its full text in the
-    /// log under its promptId. With --dry-run, prints that digest and changes nothing. Only this
-    /// machine's person or the session's own agent may drain it.
-    Inbox {
-        session: String,
-        #[command(flatten)]
-        opts: SessionInboxOpts,
-    },
-    /// One line per turn.
-    History {
-        session: String,
-        #[arg(long, short = 'n', default_value_t = 20)]
-        limit: usize,
-    },
-    /// Find the session's messages that hold every word of TEXT, newest first.
-    Search(crate::cli::session_search::SearchArgs),
-    /// The prompts waiting for the running turn: list, remove PROMPT_ID..., clear --from-agents.
-    #[command(subcommand)]
-    Queue(crate::cli::session_queue::QueueCmd),
-}
-
-// The inbox's flags (`hub/inbox.rs`) are `Args` of their own, flattened: each builds in its own
-// frame. Inline, the derived builder's one frame for every command's flags overflowed libtest's
-// 2 MiB thread in a debug build.
-
-/// `acpmux send --notice`: a tool's or reconciler's notice (`_meta.acpmux.notice`,
-/// `prompt_provenance::notice_of`). The chat draws it as a notice row (severity, sender, title,
-/// links); its agent, and a daemon or page that knows no notice, read the rendered text
-/// `[notice from SENDER on HOST · FIRE] TITLE`, the body, then `Links: …`.
-#[derive(clap::Args, Debug, Default, Clone)]
-pub struct SendNotice {
-    /// Send it as a tool's notice, with --severity and --title (the prompt text is its body).
-    /// It is a named sender's message, never the person's.
-    #[arg(long, requires_all = ["severity", "title"])]
-    pub notice: bool,
-    /// How loud the notice is: info, warn or fire.
-    #[arg(long, value_name = "SEVERITY", value_parser = ["info", "warn", "fire"], requires = "notice")]
-    pub severity: Option<String>,
-    /// The notice's one-line title (at most 200 characters).
-    #[arg(long, value_name = "TITLE", requires = "notice")]
-    pub title: Option<String>,
-    /// Who sends the notice, a tool or role (default: --from, ACPMUX_FROM, else this session's
-    /// name).
-    #[arg(long, value_name = "NAME", requires = "notice")]
-    pub sender: Option<String>,
-    /// The machine it comes from (default: this one).
-    #[arg(long, value_name = "HOST", requires = "notice")]
-    pub host: Option<String>,
-    /// A link the notice carries, `URL` or `URL=LABEL`, https only (repeatable, at most 16).
-    #[arg(long = "link", value_name = "URL[=LABEL]", requires = "notice")]
-    pub links: Vec<String>,
-}
-
-/// `acpmux send --pr N | --thread T`: the receiver's inbox thread.
-#[derive(Args, Default)]
-pub struct SendThread {
-    /// The pull request your message is about: the receiver's inbox threads it with the
-    /// others about it.
-    #[arg(long, value_name = "N")]
-    pub pr: Option<u64>,
-    /// The inbox thread your message goes in: a topic, or a threadId the receiver's inbox
-    /// named (default: your messages about the PR its first line names, else all yours).
-    #[arg(long, value_name = "THREAD", conflicts_with = "pr")]
-    pub thread: Option<String>,
-}
-
-/// `acpmux send --relay NAME --relayed-from MACHINE[/SESSION]`: a relay's word on where the
-/// message it carries came from (`_meta.acpmux.fromRelay`, `prompt_provenance::FROM_RELAY`). The
-/// daemon takes it only from a send run outside any acpmux session on its own machine (the
-/// lane-gh broker's); an agent's send drops it, and its sender reads as self-declared.
-#[derive(Args, Default)]
-pub struct SendRelay {
-    /// The relay carrying the message, as it names itself (`lane-gh`).
-    #[arg(long, value_name = "NAME", requires = "relayed_from")]
-    pub relay: Option<String>,
-    /// The machine the relay took the message from, and its session there.
-    #[arg(long, value_name = "MACHINE[/SESSION]", requires = "relay")]
-    pub relayed_from: Option<String>,
-    /// That session's harness family (`claude`, `codex`, `gemini`, ...), in the machine's word.
-    #[arg(long, value_name = "FAMILY", requires = "relay")]
-    pub relayed_harness: Option<String>,
-}
-
-/// `acpmux session inbox NAME`'s flags.
-#[derive(Args, Default)]
-pub struct SessionInboxOpts {
-    /// Search the full text, sender and thread of surge-held messages.
-    #[arg(long, conflicts_with_all = ["thread", "digest", "dry_run"])]
-    pub search: Option<String>,
-    /// Continue a held-inbox search before this sequence number.
-    #[arg(long, requires = "search")]
-    pub before: Option<u64>,
-    /// Bind a surge thread to this recipient session for durable triage ownership.
-    #[arg(long, value_name = "THREAD", conflicts_with_all = ["search", "unsubscribe", "subscriptions", "thread", "digest", "dry_run"])]
-    pub subscribe: Option<String>,
-    /// Remove this recipient session's durable surge thread binding.
-    #[arg(long, value_name = "THREAD", conflicts_with_all = ["search", "subscribe", "subscriptions", "thread", "digest", "dry_run"])]
-    pub unsubscribe: Option<String>,
-    /// List this recipient session's durable surge thread bindings.
-    #[arg(long, conflicts_with_all = ["search", "subscribe", "unsubscribe", "thread", "digest", "dry_run"])]
-    pub subscriptions: bool,
-    /// A threadId, as the list names it.
-    #[arg(long, value_name = "THREAD", conflicts_with_all = ["digest", "dry_run"])]
-    pub thread: Option<String>,
-    /// With --thread: mark its messages read, as the agent's inbox_read does.
-    #[arg(long, requires = "thread")]
-    pub mark_read: bool,
-    /// Drain the agent messages waiting in its queue into one digest prompt now.
-    #[arg(long)]
-    pub digest: bool,
-    /// Print that digest and change nothing.
-    #[arg(long)]
-    pub dry_run: bool,
-}
-
-/// `acpmux session inbox NAME [--thread T [--mark-read]]`, flattened (`session_inbox.rs`).
-#[derive(Args)]
-pub struct SessionInboxTarget {
-    pub session: String,
-    #[arg(long)]
-    pub search: Option<String>,
-    #[arg(long, requires = "search")]
-    pub before: Option<u64>,
-    #[arg(long, value_name = "THREAD", conflicts_with_all = ["search", "unsubscribe", "subscriptions", "thread"])]
-    pub subscribe: Option<String>,
-    #[arg(long, value_name = "THREAD", conflicts_with_all = ["search", "subscribe", "subscriptions", "thread"])]
-    pub unsubscribe: Option<String>,
-    #[arg(long, conflicts_with_all = ["search", "subscribe", "unsubscribe", "thread"])]
-    pub subscriptions: bool,
-    #[arg(long)]
-    pub thread: Option<String>,
-    #[arg(long)]
-    pub unread: bool,
-}
-
-#[derive(Args)]
-pub struct InboxArgs {
-    /// Continue browsing from the previous JSON response's `next` cursor.
-    #[arg(long)]
-    pub before: Option<u64>,
-    #[command(subcommand)]
-    pub command: Option<InboxCmd>,
-}
-
-#[derive(Subcommand)]
-pub enum InboxCmd {
-    /// List team messages currently held by the hub.
-    List,
-    /// Read one message by id (the message remains acknowledged only when `ack` is used).
-    Read { id: String },
-    /// Acknowledge one team message.
-    Ack { id: String },
-}
-
-#[derive(Subcommand)]
-pub enum ListenCmd {
-    /// Open a listen on a teammate's agent address.
-    Open {
-        /// The address, @member/agent.
-        address: String,
-        /// How long it stays open, in seconds (60 to 604800; the hub's default without it).
-        #[arg(long, value_name = "SECONDS")]
-        ttl: Option<u64>,
-    },
-    /// List your listens and others' on your addresses.
-    Ls,
-    /// Close one of your listens by id.
-    Close { id: String },
-    /// Read the messages an address you listen on received.
-    Read {
-        /// The address, @member/agent.
-        address: String,
-        /// Continue from the previous JSON response's `next` cursor.
-        #[arg(long)]
-        before: Option<u64>,
-    },
 }
 
 #[derive(Subcommand)]
@@ -2128,6 +1493,16 @@ pub enum DaemonCmd {
     /// Compact the event logs of chats closed for longer than `store.closedLogDays` (default
     /// 14): their raw harness lines and long tool output go, their messages stay.
     Retention(RetentionArgs),
+    /// Delete the history of chats unchanged for longer than `agents.chats.deleteHistoryAfterDays`
+    /// (or --older-than-days): closed or archived, not pinned, nothing using them. --dry-run
+    /// previews them; --export copies each one first.
+    HistoryDelete(HistoryDeleteArgs),
+    /// Move old cold-archived chats to cloud history (`agents.chats.cloudOffload`), keeping a stub
+    /// that fetches them back on open. --dry-run lists them.
+    HistoryOffload(HistoryOffloadArgs),
+    /// Copy Claude's and Codex's transcripts to cloud history, read-only (setting
+    /// `agents.chats.transcriptOffload`, off by default).
+    TranscriptOffload(TranscriptOffloadArgs),
     /// Print the RPC schema (methods, notifications, types, exit codes) as JSON.
     Schema,
     /// Every model id each harness declares or reports (`provider/model` for OpenCode and pi).
@@ -2136,6 +1511,20 @@ pub enum DaemonCmd {
         #[arg(long)]
         refresh: bool,
     },
+}
+
+#[derive(Args, Debug, Clone, PartialEq, Eq)]
+pub struct TranscriptOffloadArgs {
+    /// List the transcripts and bytes that would be copied and removed locally; upload nothing,
+    /// change nothing. Runs here, with no daemon and no cloud needed.
+    #[arg(long, conflicts_with = "restore_all")]
+    pub dry_run: bool,
+    /// Transcripts unchanged for longer than this many days, instead of the setting.
+    #[arg(long)]
+    pub older_than_days: Option<u32>,
+    /// Bring back every transcript a pass removed (undo).
+    #[arg(long)]
+    pub restore_all: bool,
 }
 
 #[derive(Args, Debug, Clone, PartialEq, Eq)]
@@ -2158,6 +1547,37 @@ pub struct RetentionArgs {
     /// the old segments stay there.
     #[arg(long)]
     pub unread_only: bool,
+}
+
+#[derive(Args, Clone, Debug)]
+pub struct HistoryDeleteArgs {
+    /// Only list the chats a pass would delete, with their size; delete nothing.
+    #[arg(long)]
+    pub dry_run: bool,
+    /// Chats unchanged for longer than this many days, instead of the setting.
+    #[arg(long)]
+    pub older_than_days: Option<u32>,
+    /// Copy each chat's folder to `<folder>/<chat id>/` before it is deleted; a chat whose copy
+    /// fails is kept.
+    #[arg(long)]
+    pub export: Option<PathBuf>,
+    /// List Recently deleted: the deleted chats that can still be restored, and when each is
+    /// purged.
+    #[arg(long, conflicts_with_all = ["dry_run", "older_than_days", "export", "restore"])]
+    pub deleted: bool,
+    /// Restore a deleted chat (by id or name) before it is purged: back in the lists as it was.
+    #[arg(long, value_name = "CHAT", conflicts_with_all = ["dry_run", "older_than_days", "export"])]
+    pub restore: Option<String>,
+}
+
+#[derive(Args, Clone, Debug)]
+pub struct HistoryOffloadArgs {
+    /// Only list the chats a pass would offload.
+    #[arg(long)]
+    pub dry_run: bool,
+    /// Chats unchanged for longer than this many days, instead of the setting (default 14).
+    #[arg(long)]
+    pub older_than_days: Option<u32>,
 }
 
 /// `session stop`'s condition (`hub/stop_if_idle.rs`). Not with `--mesh`: the mesh hub's stop
@@ -2267,6 +1687,35 @@ pub fn flatten(c: Command) -> Command {
             SessionCmd::Tag { session, assignments, remove, ttl } => {
                 Command::TagCmd { session, assignments, remove, ttl }
             }
+            // The tags `hub/auto_settle.rs` reads: archived with a reason, and the override.
+            SessionCmd::Settle { session } => Command::TagCmd {
+                session,
+                assignments: vec![
+                    format!("archived={}", crate::store::now_ms()),
+                    format!(
+                        "{}={}",
+                        crate::hub::auto_settle::SETTLED_TAG,
+                        crate::hub::auto_settle::Reason::Manual.as_str()
+                    ),
+                ],
+                remove: vec!["unsettled".into()],
+                ttl: None,
+            },
+            SessionCmd::Unsettle { session } => Command::UnsettleCmd { session },
+            SessionCmd::AutoSettle { session, mode } => match mode {
+                AutoSettleMode::Never => Command::TagCmd {
+                    session,
+                    assignments: vec!["autoSettle=never".into()],
+                    remove: vec![],
+                    ttl: None,
+                },
+                AutoSettleMode::Follow => Command::TagCmd {
+                    session,
+                    assignments: vec![],
+                    remove: vec!["autoSettle".into()],
+                    ttl: None,
+                },
+            },
             SessionCmd::Limits { session, max, clear } => {
                 Command::LimitsCmd { session, max, clear }
             }
@@ -2332,6 +1781,9 @@ pub fn flatten(c: Command) -> Command {
             DaemonCmd::Harnesses => Command::Harnesses,
             DaemonCmd::Reload => Command::Reload,
             DaemonCmd::Retention(args) => Command::Retention(args),
+            DaemonCmd::HistoryDelete(args) => Command::HistoryDelete(args),
+            DaemonCmd::HistoryOffload(args) => Command::HistoryOffload(args),
+            DaemonCmd::TranscriptOffload(args) => Command::TranscriptOffload(args),
             DaemonCmd::Schema => Command::Schema,
             DaemonCmd::Models { refresh } => Command::Models { refresh },
         },
@@ -2350,6 +1802,10 @@ pub enum RouterCmd {
 #[cfg(test)]
 #[path = "command_help_contract_tests.rs"]
 mod help_contract_tests;
+
+#[cfg(test)]
+#[path = "intent_tests.rs"]
+mod intent_tests;
 
 #[cfg(test)]
 mod config_set_tests {
