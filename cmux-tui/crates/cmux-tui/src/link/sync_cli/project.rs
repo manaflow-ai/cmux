@@ -102,6 +102,21 @@ impl Drop for CarryFiles {
     }
 }
 
+/// The depth-1 pack and its base that a projected machine may carry into its own git object
+/// store. These files are generated outside the folder, then exposed as read-only manifest
+/// entries so the projection can fetch them without asking the configured remote.
+struct CarryFiles {
+    base_path: PathBuf,
+    pack_path: PathBuf,
+    folder: PathBuf,
+}
+
+impl Drop for CarryFiles {
+    fn drop(&mut self) {
+        let _ = std::fs::remove_dir_all(&self.folder);
+    }
+}
+
 fn ok(answer: &Value) -> bool {
     answer.get("ok").and_then(Value::as_bool) == Some(true)
 }
@@ -1072,6 +1087,61 @@ fn list_with_carry(folder: &Path, carry: Option<&CarryFiles>) -> anyhow::Result<
     }
     let root_identity = std::fs::metadata(folder).ok().map(|meta| (meta.dev(), meta.ino()));
     Ok(Listed { manifest, served, links: set.links, root: folder.to_path_buf(), root_identity })
+}
+
+/// Builds the carry files for the default-on projection swap. The live git probes make carry
+/// opportunistic, so a repository without a commit, or one that is itself a partial clone, simply
+/// keeps its projected `.git` and continues normally.
+fn projection_carry(folder: &Path) -> Option<CarryFiles> {
+    if !cmux_projection::git_swap::enabled() {
+        return None;
+    }
+    // Keep carry eligibility identical to the projection listing. In particular, a bare
+    // repository can resolve `HEAD`, but it has no working-tree `.git` directory for the
+    // receiver's swap and is therefore listed as a plain folder.
+    local::GitDirs::of(folder).ok().flatten()?;
+    let output = |args: &[&str]| {
+        cmux_process::Command::new("git")
+            .current_dir(folder)
+            .args(args)
+            .env("GIT_CONFIG_GLOBAL", "/dev/null")
+            .env("GIT_TERMINAL_PROMPT", "0")
+            .output()
+            .ok()
+            .filter(|output| output.status.success())
+    };
+    // The listing accepts repository roots (including worktrees and submodules),
+    // but refuses a subfolder. Do not pack the parent's history before that refusal.
+    if output(&["rev-parse", "--show-prefix"])?.stdout != b"\n" {
+        return None;
+    }
+    if output(&["config", "--get", "extensions.partialClone"]).is_some() {
+        return None;
+    }
+    let base = String::from_utf8(output(&["rev-parse", "--verify", "HEAD^{commit}"])?.stdout)
+        .ok()?
+        .trim()
+        .to_owned();
+    if !(base.len() == 40 || base.len() == 64) || !base.bytes().all(|byte| byte.is_ascii_hexdigit())
+    {
+        return None;
+    }
+    let unique = format!("cmux-projection-carry-{}", std::process::id());
+    let folder_out = std::env::temp_dir().join(unique);
+    if std::fs::create_dir(&folder_out).is_err() {
+        return None;
+    }
+    let pack_path = folder_out.join("carry.pack");
+    if carry::pack_projection(folder, &base, &pack_path).is_err() {
+        let _ = std::fs::remove_dir_all(&folder_out);
+        return None;
+    }
+    let base_path = folder_out.join("carry.base");
+    if std::fs::write(&base_path, format!("{base}\n")).is_err() {
+        let _ = std::fs::remove_dir_all(&folder_out);
+        return None;
+    }
+    Some(CarryFiles { base_path, pack_path, folder: folder_out })
 }
 
 /// Builds the carry files for the default-on projection swap. The live git probes make carry
