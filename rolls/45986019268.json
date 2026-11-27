@@ -1,0 +1,60 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/45986019268",
+  "recorded_at": "2026-11-27T11:15:08Z",
+  "reason": "cmux-tui f47cc565fce5 changes the image's cmux-tui (pinned a3ea2d0abd6a)",
+  "dry_run": false,
+  "cmux_tui": "f47cc565fce537479bbd7dcbad106b6d808d2df0",
+  "fixes": [
+    {
+      "sha": "77306621133891eb42a1df8706cc9d071dfaabb1",
+      "mergedAt": "2026-11-27T09:51:10+00:00",
+      "subject": "cmux ui proof: hold visual desktop/NEXT/web heads for a look diffed against NIGHTLY (#60415)"
+    },
+    {
+      "sha": "94cb24f46c723c13ab31c5235f3d13ccd0d22846",
+      "mergedAt": "2026-11-27T09:50:52+00:00",
+      "subject": "acpmux: end the session-tap cycle that leaked every simulated hub (sim sweep OOM/disk reds) (#58391)"
+    },
+    {
+      "sha": "03fd0612fba48555578f207507931d94bee33c20",
+      "mergedAt": "2026-11-27T09:49:41+00:00",
+      "subject": "cmux-tui: the agent hook emit fallback answers inside its hook timeout (#56594)"
+    },
+    {
+      "sha": "8eb1e62877c20bca6d395d176444546bfbe53fd8",
+      "mergedAt": "2026-11-27T09:46:24+00:00",
+      "subject": "acpmux: encode each peer snapshot record once and reuse it (#57367)"
+    },
+    {
+      "sha": "8fd693a8e4ad323b349fc2a75fa9a8670f936c50",
+      "mergedAt": "2026-11-27T09:45:14+00:00",
+      "subject": "computer use: fewer look turns (act-first instructions, a baseline before a batch's first step) (#60675)"
+    },
+    {
+      "sha": "2d086c312bdfe6f79daacc474db99fa16e615da2",
+      "mergedAt": "2026-11-27T09:44:27+00:00",
+      "subject": "acpmux: scorecard replay checks RFD 0161 invariants 2 and 5 (#59022)"
+    },
+    {
+      "sha": "c9e6f71630fe0dddc5d3ca14bc2d0acfb808f7b0",
+      "mergedAt": "2026-11-27T09:44:21+00:00",
+      "subject": "Updater: the drop-back's rollback pick as Rust ops, step A (swift logic −0) (#57449)"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "failed",
+    "bake_job": "failure",
+    "done_at": "2026-11-27T11:15:08Z"
+  },
+  "promotion": {
+    "result": "not-run",
+    "job": "skipped",
+    "commit": "",
+    "image": "",
+    "revision": "",
+    "at": null
+  },
+  "rolled_back": false
+}
