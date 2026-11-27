@@ -1041,4 +1041,13 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           GH_REPO: ${{ github.repository }}
         shell: bash
-        run: gh workflow run app-ffi-repin.yml --ref feat-cmux-next
+        # The run's installation token shares a rate limit with every other job: runs 46002456039 and
+        # 46005933257 got "HTTP 403: API rate limit exceeded for installation" here (2026-11-27 13:47Z and
+        # 14:17Z) and no re-pin ran. Retry on the bounded backoff app-ffi-repin.yml's twin step uses (about 9 min).
+        run: |
+          for wait in 0 60 120 180 180; do
+            sleep "$wait"
+            if gh workflow run app-ffi-repin.yml --ref feat-cmux-next; then exit 0; fi
+            echo "re-pin dispatch failed; retrying after backoff"
+          done
+          exit 1
