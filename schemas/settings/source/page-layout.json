@@ -203,9 +203,9 @@
           "symbol": "sidebar.left",
           "groups": [
             {"group": "settings.group.sidebar", "note": "Show Workspace Tabs leads the Sidebar card: it is off by default, and this is where a person turns each workspace's tabs back on (#26384)."},
-            {"title": {"key": "settings.pageGroup.sidebarLayout", "text": "Sidebar Layout"}, "note": "The three list shapes (#31140) get their own card so Sidebar Workspaces stays under max_rows_per_card. Float Hidden Sidebar on Hover (f53a01f2ebaf) and Sidebar Side are claimed here so the Sidebar card stays under it too.", "keys": [
+            {"title": {"key": "settings.pageGroup.sidebarLayout", "text": "Sidebar Layout"}, "note": "The three list shapes (#31140) get their own card so Sidebar Workspaces stays under max_rows_per_card. Float Hidden Sidebar on Hover (f53a01f2ebaf), Sidebar Side and Workspace List Extension (cmux.sidebar/1, which swaps the whole list) are claimed here so the Sidebar card stays under it too.", "keys": [
               "sidebar.workspacesAsTabs", "sidebar.chromeGroups", "sidebar.sideBySide", "sidebar.groupPalette", "sidebar.groupGradient",
-              "sidebar.floatOnHover", "sidebar.side", "sidebar.folderlessUngrouped"
+              "sidebar.floatOnHover", "sidebar.side", "sidebar.folderlessUngrouped", "sidebar.workspaceListApp"
             ]},
             {"title": {"key": "settings.pageGroup.sidebarWorkspaces", "text": "Sidebar Workspaces"}, "keys": [
               "workspaces.newPlacement", "workspaces.autoName", "sidebar.groupByComputer", "sidebar.sessionTree",
@@ -283,7 +283,7 @@
           "note": "How the agent chat looks and reads. Agents keeps what the agents may do.",
           "groups": [
             {"title": {"key": "settings.pageGroup.transcript", "text": "Transcript"}, "note": "Unread Banner is here, not in Chat Layout, so Chat Layout stays under max_rows_per_card.", "keys": [
-              "agentPane.display.detail", "agentPane.display.sendPop", "agentPane.display.compactShortTurns",
+              "agentPane.display.detail", "agentPane.display.sendPop", "agentPane.display.sendScrollsToTop", "agentPane.display.compactShortTurns",
               "agentPane.display.statusVerbs.mode", "agentPane.display.statusVerbs.custom",
               "agentPane.display.thinking.shimmer", "agentPane.display.thinking.shimmerPeriod", "agentPane.display.thinking.shimmerBand",
               "agentPane.display.thinking.jumpButton", "agentPane.display.thinking.glyphSize",
