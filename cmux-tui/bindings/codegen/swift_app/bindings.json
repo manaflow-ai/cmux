@@ -2515,6 +2515,40 @@
       }
     },
     "History": {
+      "requests": {
+        "set-terminal-command-history": {
+          "name": "SetTerminalCommandHistoryRequest",
+          "doc": [
+            "`set-terminal-command-history`: enables or disables terminal command history and optionally changes its retention."
+          ],
+          "order": [
+            "enabled",
+            "retention_days"
+          ],
+          "fields": {
+            "retention_days": {
+              "type": "Int"
+            }
+          },
+          "response": "hand-written"
+        },
+        "list-terminal-commands": {
+          "name": "ListTerminalCommandsRequest",
+          "doc": [
+            "`list-terminal-commands`: reads unexpired terminal commands after an optional id."
+          ],
+          "order": [
+            "after_id",
+            "limit"
+          ],
+          "fields": {
+            "limit": {
+              "type": "Int"
+            }
+          },
+          "response": "hand-written"
+        }
+      },
       "objects": {
         "TerminalCommandRow": {
           "type": "TerminalCommandRecord",

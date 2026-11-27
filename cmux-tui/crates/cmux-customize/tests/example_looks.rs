@@ -273,3 +273,49 @@ fn every_look_and_theme_says_what_it_looks_like_in_a_few_plain_words() {
     }
     assert!(checked >= 100, "checked only {checked} phrases");
 }
+
+/// The gallery's order on one machine, as Settings > Appearance installs them one after another
+/// (hq feature flow `looks`): each install puts its own theme on, over the ones before it. The
+/// NIGHTLY walk saw Linen's install leave Basalt's theme on (themeFile still `basalt`).
+#[test]
+fn every_look_installed_over_the_others_puts_its_theme_on() {
+    let home = tempfile::tempdir().unwrap();
+    let config = |path: &str| home.path().join("config").join(path);
+    fs::create_dir_all(config("")).unwrap();
+    fs::write(config("cmux-next.json"), MINE).unwrap();
+    let customize = Customize::open(Roots::under(home.path()));
+    let order = [
+        "tachyon", "kerf", "prism", "hush", "basalt", "linen", "docket", "ember", "folio", "tandem",
+    ];
+    let mut failures = Vec::new();
+    for (at, name) in order.iter().enumerate() {
+        let read = setup::read_dir(&looks().join(name)).unwrap();
+        let installed = match customize.install_setup(
+            &read,
+            &format!("setup {}", read.manifest.id),
+            "cli",
+            10 + at as u64,
+        ) {
+            Ok(installed) => installed,
+            Err(error) => {
+                failures.push(format!(
+                    "{name} (after {}): does not install: {error}",
+                    order[..at].join(", ")
+                ));
+                continue;
+            }
+        };
+        customize.record_setup(receipt(&read, &installed, name)).unwrap();
+        let settings: Value =
+            cmux_config::jsonc::parse(&fs::read_to_string(config("cmux-next.json")).unwrap())
+                .unwrap();
+        if settings["appearance"]["themeFile"] != json!(name) {
+            failures.push(format!(
+                "{name} (after {}): themeFile reads {}",
+                order[..at].join(", "),
+                settings["appearance"]["themeFile"]
+            ));
+        }
+    }
+    assert!(failures.is_empty(), "{}", failures.join("\n"));
+}
