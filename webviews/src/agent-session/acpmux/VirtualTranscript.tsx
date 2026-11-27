@@ -26,6 +26,7 @@ import { LoadFadeWindow } from "../shared/loadFade";
 import { entranceAllowed, pageAway } from "../shared/pageReveal";
 import { holdUntilSettled } from "./conversation/unsettledHeights";
 import { endOffscreenMotion } from "./conversation/offscreenMotion";
+import { shelfLine } from "./conversation/shelvedRows";
 import {
   layoutConversation,
   type PlacedLayout,
@@ -48,6 +49,7 @@ import {
   restRoom,
   rowFrameKey,
   SINCE_DIVIDER,
+  layoutGeometry,
 } from "./model";
 import { RowFrameCache } from "./conversation/rowFrameCache";
 import { railOwnsWheel } from "./threadMinimap/railWheel";
@@ -182,7 +184,7 @@ import { type TranscriptNeedsYou } from "./needsYou/JumpPill";
 import { copyTextResult } from "./conversation/clipboard";
 import { transcriptRangeText } from "./conversation/transcriptCopy";
 import { chatColumnOf, useChatSizing } from "./chatWidth";
-import { useChatDisplay, sendPopEnabled } from "./chatDisplay";
+import { useChatDisplay, sendPopEnabled, useSendScrollsToTop } from "./chatDisplay";
 import { useComposerSettings } from "./composerSettings";
 import { type Folds } from "./conversation/viewFolds";
 import { noteSendFromLatest } from "./conversation/sendMorph";
@@ -551,6 +553,9 @@ const SCROLL_GUARD_IDLE_MS = 250;
 
 /// More new rows than this in one update are a load (a session switch, older history), not live rows.
 const LIVE_ROWS_PER_UPDATE = 3;
+
+/// Keys of rows gone from the list that the known-rows set keeps before it drops them (`knownRows`).
+const KNOWN_ROWS_SLACK = 512;
 
 /// How recent an empty chat's first prompt is when its transcript mounts for it to enter (above).
 const FIRST_SEND_FRESH_MS = 2000;
@@ -2035,6 +2040,8 @@ function TranscriptView({
   const { scale: chatScale } = useChatSizing();
   // The user's chat look (font, sizes, width; chatDisplay.ts): a new one measures every row again.
   const chatLook = useChatDisplay();
+  // A sent prompt scrolls to the view's top (Settings, off by default; roomUnder.ts `sendTop`).
+  const sendScrollsToTop = useSendScrollsToTop();
   const measuredLook = useRef(chatLook);
   // The pane's attachment view moves a prompt's attachments between its bubble and the band above
   // it (UserBubble.tsx), so a new one estimates every prompt again (model.ts reads it).
@@ -2360,6 +2367,12 @@ function TranscriptView({
       // trying to replay the animations").
       else if (!readerIsMoving && happenedAfterOpen(row, opened.at, clockOffset)) arrived.push(row);
     }
+    // The rows the client shed (direct/heldRecords.ts) leave the list for good: their keys go too, or
+    // this set grows by every row a chat ever had (20,000 keys, 0.6 MB a page at 10,000 turns; Leo
+    // 2026-11-14: "memory and cpu staying flat on infinite chats"). A shed row that comes back is
+    // a page of older history (above `oldFirst`, drawn in place) or one this page drew (`redrawn`).
+    // Rebuilt only past twice the rows held, so O(1) a row amortized.
+    if (knownRows.current.size > 2 * rows.length + KNOWN_ROWS_SLACK) knownRows.current = new Set(rows.map(rowFrameKey));
     // A row that arrived while the chat is hidden (another tab or workspace shows), or that lands
     // before its first frame back, came while the user was away: it draws in place. WebKit
     // suspends a hidden page's animations, so its entrance would play on return (shared/pageReveal.ts).
@@ -4153,6 +4166,8 @@ function TranscriptView({
   // The last pass's rows (its layout effect writes them), read once for this pass.
   const placedRows = previousRows.current;
   const keptAt = following && !sessionSwitched ? newestPromptIndex(rows) : -1;
+  const promptTail = () =>
+    measured.layout.totalHeight - (keptAt >= 0 ? layoutGeometry(measured.layout).topAt(keptAt) : 0) + tailGap;
   const under = roomUnder({
     following,
     sessionSwitched,
@@ -4175,8 +4190,14 @@ function TranscriptView({
     held: heldRoom.current,
     prompt: keptAt >= 0 ? rows[keptAt]!.id : undefined,
     // From the prompt's top, so a page of older history landing above it takes none of the room.
-    promptTail: () =>
-      measured.layout.totalHeight - (keptAt >= 0 ? layoutGeometry(measured.layout).topAt(keptAt) : 0) + tailGap,
+    promptTail,
+    // Opt-in (Leo, cmux#56827: "sent message scrolls to top"): a prompt this view sent sits at the view's
+    // top, THREAD_TOP under it, with the room under it the reply fills. A chat opened on an old prompt keeps
+    // its end as before: only a prompt sent here (`sentPromptIds`) is put at the top.
+    sendTop:
+      sendScrollsToTop && keptAt >= 0 && sentPromptIdsForRender.has(rows[keptAt]!.id)
+        ? () => height - promptTail() - THREAD_TOP
+        : undefined,
     foldRoom,
     newerRoom,
     dragged: draggedHeight,
@@ -7590,6 +7611,8 @@ function TranscriptView({
     // skipped then. Scrolled up, `shownTop` is the offset this commit draws at.
     viewTop: shownTop,
     viewHeight: renderFollowing ? 0 : height,
+    // A followed view shelves the rows far above it (conversation/shelvedRows.ts); scrolled up, none.
+    shelfAbove: shelfLine(renderFollowing && !sessionSwitched, shownTop, height),
     frameKey,
     registry,
     setSizeRef,

@@ -311,7 +311,7 @@ private let timeoutReason = LinkController.reason(LinkError(code: "timeout", mes
                 at += PresenceListener.retryDelay(afterFailures: failures)
             }
             let hello = at + helloTime
-            return hello - noticed >= LiveCoordinator.presenceOutageMin ? hello : nil
+            return hello - noticed >= PresenceListener.outageMin ? hello : nil
         }
 
         var summary: [String: [String: Double]] = [:]
