@@ -795,7 +795,7 @@ mod tests {
         hub.outbox.add(old.clone()).unwrap();
         hub.outbox.add(fresh.clone()).unwrap();
         hub.watches
-            .change(|s| {
+            .change(&hub, |s| {
                 s.watches.insert("w".into(), watch.clone());
                 s.pending.insert(old.id.clone(), old.clone());
                 s.pending.insert(fresh.id.clone(), fresh.clone());
