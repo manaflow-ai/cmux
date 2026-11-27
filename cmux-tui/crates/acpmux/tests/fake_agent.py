@@ -860,6 +860,14 @@ def handle_prompt(rid, params):
         return run_hostname(rid, sid)
     if text == "gh-pr-create":
         return run_gh_pr_create(rid, sid)
+    if text == "remote-repository-refused":
+        update(sid, {"sessionUpdate": "tool_call_update", "toolCallId": "remote-git",
+                     "status": "failed", "content": [{"type": "content", "content": {
+                         "type": "text", "text": "cannot create .git/index.lock: Permission denied"}}]})
+        update(sid, {"sessionUpdate": "agent_message_chunk", "content": {
+            "type": "text", "text": "BLOCKED: cannot create .git/index.lock"}})
+        send({"jsonrpc": "2.0", "id": rid, "result": {"stopReason": "end_turn"}})
+        return
     if text == "stuck-loop":
         return run_stuck_loop(rid, sid)
     # Connection-loss simulation for auto-resume tests. "net-fail-once: X" fails that prompt
