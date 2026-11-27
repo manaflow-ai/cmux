@@ -545,3 +545,7 @@ pub fn to_value(r: &Replay) -> Value {
 #[cfg(test)]
 #[path = "scorecard_replay_tests.rs"]
 mod tests;
+
+#[cfg(test)]
+#[path = "scorecard_replay_fixtures_tests.rs"]
+mod fixtures_tests;
