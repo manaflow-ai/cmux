@@ -162,6 +162,8 @@ ALLOWED: dict[str, str] = {
         'retry only: base_red_skip.py get_json tries again only after a timeout, a dropped connection or a 429/5xx, 3 tries inside a 90 s deadline',
     'app-ffi-repin.yml: Start the re-pin workflow when this re-pin failed':
         'bounded retry: starts the re-pin workflow only while the failed run is current, with a finite retry budget',
+    'app-ffi-release.yml: Start the re-pin workflow when this re-pin failed':
+        'bounded retry: one workflow dispatch, retried after a failure on a 0/60/120/180/180 s backoff (5 tries), as app-ffi-repin.yml',
     'auto-resume-nightly-notarization.yml: Reject stale continuation before publication':
         'bounded retry: checks the continuation once per guarded attempt and stops before publication when stale',
     'cloud-vm-dogfood.yml: Verify the public-installed cmux-tui binary':
