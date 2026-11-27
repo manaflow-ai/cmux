@@ -363,7 +363,8 @@ jobs:
           if-no-files-found: ignore
           retention-days: 3
   # The `ios` job's Mac: an idle owned simulator Mac first (scripts/ci/ios_runner_pool.py, the `pipeline` lane: one
-  # simulator job on one Mac), Blacksmith macOS 26 on a re-run, a fork or a fork owner. The markers let the pool
+  # simulator job on one Mac), Blacksmith macOS 26 on the rescue bot's re-run, a fork or a fork owner; a person's
+  # re-run keeps this pick (Leo, 2026-11-16: past a bound on an owned label "it moves to Blacksmith", the bot's move). The markers let the pool
   # charge this run's simulator while it holds one, as cmux-next-ios-kit.yml's and ios-reliability-matrix.yml's
   # pickers do. Not a job of ci/steps.toml: it runs no step, only places the ios job, and only when that runs.
   ios-runner:
@@ -520,7 +521,7 @@ jobs:
     # a ready head into feat-cmux-next runs this job only once it is handed to land, not on every push.
     # Leo, 2026-11-23: "de facto, im asking for 99% fewer minutes of ci time, period."
     if: ${{ (inputs.jobs == '' || contains(fromJSON(inputs.jobs), 'ios')) && (github.event_name != 'pull_request' || contains(github.event.pull_request.labels.*.name, 'full-ci') || (github.event.pull_request.draft == true && (vars.CI_DRAFT_CHEAP_TIER || '1') == '0') || (github.event.pull_request.draft != true && (contains(github.event.pull_request.labels.*.name, 'ready-to-land') || github.event.pull_request.base.ref != 'feat-cmux-next' || github.event.pull_request.head.repo.full_name != github.repository || (vars.CI_LAND_TIER || '1') == '0'))) && !(github.event_name == 'pull_request' && github.event.pull_request.base.ref == 'feat-cmux-next' && (github.event.action == 'labeled' || github.event.action == 'unlabeled') && !contains(fromJSON('["full-ci","ready-to-land"]'), github.event.label.name)) }}
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-6vcpu-macos-26' || fromJSON(github.run_attempt > 1 && needs.ios-runner.outputs.retry_runs_on || needs.ios-runner.outputs.runs_on) }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-6vcpu-macos-26' || fromJSON(github.run_attempt > 1 && contains(fromJSON('["github-actions[bot]","cmux-bot[bot]"]'), github.triggering_actor) && needs.ios-runner.outputs.retry_runs_on || needs.ios-runner.outputs.runs_on) }}
     # ci/run's setup (10 min) and tool downloads (3 min), then the `alone` kit (80 min with the fleet pool's wait) and
     # phone cells (45 min), the fleet pool's build (25 min), with room for the checkout and Xcode
     # (tests/test_ci_step_table.py holds this).
@@ -810,7 +811,7 @@ jobs:
     name: ios fast verdict
     needs: [ios-fast-runner]
     if: ${{ needs.ios-fast-runner.outputs.run == 'true' }}
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-6vcpu-macos-26' || fromJSON(github.run_attempt > 1 && needs.ios-fast-runner.outputs.retry_runs_on || needs.ios-fast-runner.outputs.runs_on) }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-6vcpu-macos-26' || fromJSON(github.run_attempt > 1 && contains(fromJSON('["github-actions[bot]","cmux-bot[bot]"]'), github.triggering_actor) && needs.ios-fast-runner.outputs.retry_runs_on || needs.ios-fast-runner.outputs.runs_on) }}
     # Warm: about 3-4 min. Cold (a new Mac, a changed FFI or Package.resolved): the FFI (the fleet's copy, up to
     # 10 min, or this Mac builds it) and a full kit build.
     timeout-minutes: 40

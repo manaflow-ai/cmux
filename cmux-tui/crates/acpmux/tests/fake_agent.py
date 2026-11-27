@@ -798,6 +798,23 @@ def handle_prompt(rid, params):
         update(sid, {"sessionUpdate": "agent_message_chunk", "content": {"type": "text", "text": f"chose {chosen}"}})
         send({"jsonrpc": "2.0", "id": rid, "result": {"stopReason": "end_turn"}})
         return
+    # "carrier-sweep: TOTAL CUT GATE" (tests/carrier_faults.rs carrier_drop_sweep): streams "ev-1 "
+    # to "ev-CUT ", waits until the file GATE exists (the test cuts the carrier at that frame
+    # boundary, then makes it), streams the rest to "ev-TOTAL " while the carrier is down, then
+    # end_turn. No ask: the only thing under test is the stream across the cut.
+    if text.startswith("carrier-sweep:"):
+        total, cut, gate = text[len("carrier-sweep:"):].split("<", 1)[0].split()
+        total, cut = int(total), int(cut)
+        chunk = lambda n: update(sid, {"sessionUpdate": "agent_message_chunk",
+                                       "content": {"type": "text", "text": f"ev-{n} "}})
+        for n in range(1, cut + 1):
+            chunk(n)
+        while not os.path.exists(gate):
+            time.sleep(0.005)
+        for n in range(cut + 1, total + 1):
+            chunk(n)
+        send({"jsonrpc": "2.0", "id": rid, "result": {"stopReason": "end_turn"}})
+        return
     if os.environ.get("FAKE_UPSTREAM_URL"):
         return upstream_turn(rid, sid, text)
     cap_file = os.environ.get("FAKE_CAPACITY_FILE")

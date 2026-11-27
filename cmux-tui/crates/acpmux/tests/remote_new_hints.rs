@@ -313,7 +313,7 @@ async fn retry_metadata_stays_local_when_new_is_forwarded() {
     let (received_tx, mut received_rx) = mpsc::channel(1);
     let server = tokio::spawn(async move {
         let (tcp, _) = listener.accept().await.unwrap();
-        let mut ws = tokio_tungstenite::accept_async(tcp).await.unwrap();
+        let mut ws = acpmux::server::accept_ws(tcp).await.unwrap();
         // Non-text frames (the client's pings, #38015) are not requests: skip them.
         while let Some(Ok(frame)) = ws.next().await {
             let Ws::Text(text) = frame else { continue };
