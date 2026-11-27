@@ -47,7 +47,7 @@ function Board({ open, busy = false }: Props) {
   }, [open]);
   const name = auto ? "AutoCloud" : "This Mac";
   return (
-    <div ref={root} className="nt-composer where-menu-board" style={{ paddingTop: 360 }}>
+    <div ref={root} className="nt-composer where-menu-board" style={{ paddingTop: "22.5rem" }}>
       <EnvironmentPicker
         label="Environment"
         menu={`WhereMenu-${open}-${String(busy)}`}
