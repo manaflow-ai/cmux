@@ -12,7 +12,7 @@
 use cmux_json::JsonSet as _;
 use serde_json::{Value, json};
 
-use super::github::{rate_limited, refusal, retry_after_of, transient_refusal, valid_repo};
+use super::github::{refusal, valid_repo};
 use super::sender::Answer;
 
 pub const REQUEST_KEY: &str = "github_repos";
@@ -26,7 +26,7 @@ pub struct ReposAsk {
 
 impl ReposAsk {
     pub fn from_json(value: &Value) -> Result<Self, String> {
-        let object = value.as_object().ok_or("Pass an object with query and cursor.")?;
+        let object = value.as_object().ok_or("Use an object with query and cursor, then retry.")?;
         if object.keys().any(|key| key != "query" && key != "cursor") {
             return Err("Pass only query and cursor; the machine selects its own team.".to_owned());
         }
@@ -36,7 +36,7 @@ impl ReposAsk {
                 Some(Value::String(s)) if s.len() <= max && !s.chars().any(char::is_control) => {
                     Ok(Some(s.clone()))
                 }
-                _ => Err(format!("Pass a {key} string of at most {max} bytes.")),
+                _ => Err(format!("Use a {key} string of at most {max} bytes, then retry.")),
             }
         };
         Ok(Self { query: field("query", 256)?, cursor: field("cursor", 4096)? })
@@ -81,12 +81,10 @@ fn connect() -> Value {
 
 fn failure(answer: &Answer) -> Value {
     match answer {
-        // The machine already waited out a short outage (`client::patiently`).
-        Answer::Transport => transient_refusal(
+        Answer::Transport => refusal(
             "integration.unreachable",
-            "This Cloud machine could not reach cmux Cloud to list repositories.",
+            "Check this machine's connection and retry listing repositories.",
         ),
-        Answer::Http { status: 429, body } => rate_limited("GitHub", retry_after_of(body)),
         Answer::Http { status, body } => {
             let error = body.get("error");
             let api_code = error.and_then(|e| e.get("code")).and_then(Value::as_str);
@@ -95,6 +93,7 @@ fn failure(answer: &Answer) -> Value {
             let code = match (status, api_code) {
                 (400, _) if api_message.contains("cursor") => "cursor_stale",
                 (403, Some("policy.denied")) => "repo.no_access",
+                (429, _) => "rate_limited",
                 (400, _) => "request.invalid",
                 (401, _) => "auth.required",
                 (403, _) => "auth.forbidden",
@@ -104,24 +103,27 @@ fn failure(answer: &Answer) -> Value {
                 "cursor_stale" => {
                     "The repository selection changed. List repositories again from the first page."
                 }
-                "repo.no_access" => "Ask your team administrator to allow GitHub access.",
+                "repo.no_access" => {
+                    "Ask your team administrator to allow GitHub access, then retry."
+                }
+                "rate_limited" => "GitHub is rate limited. Wait a moment, then retry.",
                 "request.invalid" => {
                     "Check the repository search and list again from the first page."
                 }
                 "auth.required" => {
-                    "This machine's cmux Cloud sign-in needs renewing: reconnect to the machine."
+                    "This machine's cmux Cloud sign-in needs renewing. Reconnect to the machine, then retry."
                 }
                 // Not a sign-in to renew: the machine is not live, or it, its team or the person may not use GitHub.
                 "auth.forbidden" => {
-                    "cmux Cloud refused GitHub for this machine. Check that it is running and you are still in its team."
+                    "cmux Cloud refused GitHub for this machine. Check that it is running and you are still in its team, then retry."
                 }
-                _ => "GitHub did not answer the repository list.",
+                _ => "GitHub did not answer. Retry listing repositories.",
             };
-            if code == "integration.unavailable" {
-                transient_refusal(code, message)
-            } else {
-                refusal(code, message)
+            let mut reply = refusal(code, message);
+            if let Some(retry) = body.get("retry_after").and_then(Value::as_u64) {
+                reply.set("retry_after", json!(retry));
             }
+            reply
         }
     }
 }
@@ -137,7 +139,7 @@ pub fn answer(ask: &ReposAsk, team: &str, mut get: impl FnMut(&str) -> Answer) -
             let Some(rows) = body.get("repos").and_then(Value::as_array) else {
                 return refusal(
                     "integration.bad_answer",
-                    "GitHub returned an invalid repository list.",
+                    "GitHub returned an invalid repository list. Retry listing repositories.",
                 );
             };
             let mut repos = Vec::with_capacity(rows.len());
@@ -148,7 +150,7 @@ pub fn answer(ask: &ReposAsk, team: &str, mut get: impl FnMut(&str) -> Answer) -
                 let (Some(name), Some(private)) = (name, private) else {
                     return refusal(
                         "integration.bad_answer",
-                        "GitHub returned an invalid repository.",
+                        "GitHub returned an invalid repository. Retry listing repositories.",
                     );
                 };
                 repos.push(json!({"fullName": name, "private": private}));

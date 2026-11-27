@@ -7,7 +7,9 @@ use serde_json::{Value, json};
 use super::{CloudConversations, CloudError, HttpReply};
 
 fn invalid() -> CloudError {
-    CloudError::BadRequest("Invalid cloud environment request. Check the fields.".into())
+    CloudError::BadRequest(
+        "Invalid cloud environment request. Check the fields and try again.".into(),
+    )
 }
 
 /// The fields a create or an update may carry, the platform's own (cmux-platform
@@ -76,14 +78,16 @@ fn refused(reply: &HttpReply) -> Result<(), CloudError> {
     }) {
         return Err(CloudError::Rejected {
             code: code.into(),
-            message: "cmux Cloud could not save or load the cloud environment.".into(),
+            message: "Could not save or load the cloud environment. Try again.".into(),
             retryable: reply.status >= 500 || reply.status == 429,
         });
     }
     super::contract::classify(reply).map_err(|error| match error {
         CloudError::Rejected { retryable, .. } => CloudError::Rejected {
             code: format!("http_{}", reply.status),
-            message: "Could not save or load the cloud environment. Check the fields.".into(),
+            message:
+                "Could not save or load the cloud environment. Check the fields and try again."
+                    .into(),
             retryable,
         },
         other => other,

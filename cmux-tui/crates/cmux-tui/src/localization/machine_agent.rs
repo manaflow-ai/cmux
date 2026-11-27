@@ -56,14 +56,14 @@ OPTIONS:
   -h, --help               Show this help
 
 The agent opens one outbound connection. It never opens a public listener or
-edits shell files. It needs a signed-in session with the configured host.
+edits shell files. Authenticate with the configured host before retrying.
 ",
     usage: "cmux machine-agent       Share one local session through the configured host",
     pairing_code: "Pairing code",
     registered: "Sharing local cmux session",
     retrying: "Cloud connection lost; retrying in {milliseconds} ms",
-    migration_failed: "Could not move the machine to a new connection; it stays on its current one",
-    pairing_code_unavailable: "Pairing code could not be displayed securely. Run this command from an interactive terminal",
+    migration_failed: "Could not reconnect the machine; please try again",
+    pairing_code_unavailable: "Pairing code could not be displayed securely. Run this command from an interactive terminal and retry",
     runtime_failed: "The machine agent could not start or continue; check its configuration",
     invalid_session: "The session name is invalid; use a short name without spaces or control characters",
     identity_unavailable: "The private machine identity is unavailable; check that --state points to a private writable file",
@@ -93,14 +93,14 @@ cmux machine-agent - ローカルの cmux セッションをリモートサー�
   -h, --help               このヘルプを表示
 
 エージェントは外向きの接続を 1 つ開きます。公開リスナーを開いたり、シェルファイル
-を編集したりしません。設定したホストでサインイン済みのセッションが必要です。
+を編集したりしません。再試行する前に、設定したホストで認証してください。
 ",
     usage: "cmux machine-agent       設定したホスト経由でローカルセッションを共有",
     pairing_code: "ペアリングコード",
     registered: "ローカル cmux セッションを共有中",
     retrying: "クラウド接続が切断されました。{milliseconds} ミリ秒後に再接続します",
-    migration_failed: "マシンを新しい接続に移せませんでした。現在の接続のまま続けます",
-    pairing_code_unavailable: "ペアリングコードを安全に表示できませんでした。対話型端末でこのコマンドを実行してください",
+    migration_failed: "マシンを再接続できませんでした。もう一度お試しください",
+    pairing_code_unavailable: "ペアリングコードを安全に表示できませんでした。対話型端末でこのコマンドを実行して再試行してください",
     runtime_failed: "machine-agent を開始または続行できませんでした。設定を確認してください",
     invalid_session: "セッション名が無効です。空白や制御文字を含まない短い名前を使用してください",
     identity_unavailable: "非公開のマシン ID を使用できません。--state が非公開で書き込み可能なファイルを指していることを確認してください",

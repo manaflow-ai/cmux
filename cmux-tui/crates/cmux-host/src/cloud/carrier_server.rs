@@ -550,7 +550,7 @@ fn serve<H: Http>(
 /// refusal.
 fn answer<H: Http>(stream: UnixStream, shared: &Shared<H>, stop: &Stop, hooks: Hooks) {
     let started = Instant::now();
-    let stopping = || refusal("vm.agent_stopping", "the Cloud agent is stopping");
+    let stopping = || refusal("vm.agent_stopping", "the Cloud agent is stopping; retry");
     if let Err(why) = read_ask(&stream) {
         return finish(stream, refusal("request.invalid", &why), false, started, hooks);
     }
@@ -609,12 +609,12 @@ fn ticket<H: Http>(
     let mut state = shared.lock();
     loop {
         if stop.is_set() {
-            let stopping = refusal("vm.agent_stopping", "the Cloud agent is stopping");
+            let stopping = refusal("vm.agent_stopping", "the Cloud agent is stopping; retry");
             return (stopping, false, state.generation);
         }
         match state.ask((hooks.now)(), started) {
             Asked::Stopping => {
-                let stopping = refusal("vm.agent_stopping", "the Cloud agent is stopping");
+                let stopping = refusal("vm.agent_stopping", "the Cloud agent is stopping; retry");
                 return (stopping, false, state.generation);
             }
             Asked::Reply { reply, kept, generation } => {

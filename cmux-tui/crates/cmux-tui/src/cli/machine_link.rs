@@ -116,7 +116,8 @@ pub(super) fn refused(answer: &Value) -> Option<(String, String)> {
         "denied" => "that Mac's person did not allow this Mac".to_owned(),
         "offline" => "that Mac is offline (asleep, or cmux is not running there)".to_owned(),
         "timeout" => {
-            "nobody answered on that Mac in time; allow this Mac there or on your phone".to_owned()
+            "nobody answered on that Mac; allow this Mac there or on your phone, then try again"
+                .to_owned()
         }
         _ => message.to_owned(),
     };

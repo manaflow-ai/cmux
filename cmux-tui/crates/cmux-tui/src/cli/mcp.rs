@@ -266,7 +266,7 @@ pub(super) trait Backend {
         Err(CallFailure::local(
             FailureKind::NotRun,
             "repo.unavailable",
-            "This server has no Cloud machine daemon connection for repository actions.",
+            "Connect to the Cloud machine and retry.",
         ))
     }
 

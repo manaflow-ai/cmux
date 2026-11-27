@@ -35,8 +35,8 @@ pub(super) const ENGLISH: AuthHandoffMessages = AuthHandoffMessages {
     err_other_user: "cmux on this Mac is signed in as another account: sign out there first (the code was not used)",
     err_not_signed_in: "sign in to cmux on this Mac first",
     err_sso_required: "your organization requires sign-in with its SSO on each device",
-    err_rate_limited: "too many hand-off codes were made: make a new one after the limit resets",
-    err_unavailable: "cmux's servers did not answer: check this Mac's network",
+    err_rate_limited: "too many hand-off codes: try again in a few minutes",
+    err_unavailable: "cmux could not be reached: try again in a moment",
 };
 
 pub(super) const JAPANESE: AuthHandoffMessages = AuthHandoffMessages {
@@ -54,6 +54,6 @@ pub(super) const JAPANESE: AuthHandoffMessages = AuthHandoffMessages {
     err_other_user: "この Mac の cmux は別のアカウントでサインインしています。先にサインアウトしてください (コードは使われていません)",
     err_not_signed_in: "先にこの Mac で cmux にサインインしてください",
     err_sso_required: "組織の設定により、各デバイスで SSO によるサインインが必要です",
-    err_rate_limited: "ハンドオフコードの発行が多すぎます。制限が解除された後に新しいコードを発行してください",
-    err_unavailable: "cmux のサーバーが応答しませんでした。この Mac のネットワークを確認してください",
+    err_rate_limited: "ハンドオフコードの発行が多すぎます。数分後にもう一度試してください",
+    err_unavailable: "cmux に接続できませんでした。しばらくしてからもう一度試してください",
 };

@@ -581,7 +581,6 @@ pub(super) fn replace_stuck(
                 && let Some(message) = error.get("message").and_then(Value::as_str)
                 && !message.contains("could not be deleted")
             {
-                // retry-prompt-ok: another start makes a new machine, billed by the hour; the person chooses.
                 let message = format!(
                     "{message}. cmux deleted it and every machine it tried for this chat ({}); run the same \
                      command again to start on a new one",

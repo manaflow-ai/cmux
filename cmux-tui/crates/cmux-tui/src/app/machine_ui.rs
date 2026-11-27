@@ -476,7 +476,6 @@ impl App {
                 .snapshot
                 .active
                 .map_or(MachineRequest::ReconnectProvider, MachineRequest::Switch);
-            // retry-prompt-ok: a client log line naming the automatic reconnect, not text a person acts on
             crate::client_log::info(
                 "machine",
                 &format!("stream lost; queueing {request:?} to reconnect"),

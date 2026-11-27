@@ -77,7 +77,7 @@ impl fmt::Display for CloudError {
                 }
                 if *retryable {
                     formatter.write_str(
-                        "; the Cloud refused it for now (a rate limit or a brief outage); if it keeps failing, run `cmux cloud diagnostics`",
+                        "; retry the request; if it keeps failing, run `cmux cloud diagnostics`",
                     )
                 } else {
                     formatter.write_str("; run `cmux cloud diagnostics`")

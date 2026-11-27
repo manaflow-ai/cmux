@@ -23,8 +23,6 @@ cmux-cloud-environment.workspace = true
 cmux-server-core = { path = "../cmux-server-core" }
 # Shared elapsed authority budgets; cmux-link has no server dependency.
 cmux-link.workspace = true
-# Patience: bounded waits for a transient refusal (another apply's lock).
-cmux-tui-util.workspace = true
 futures-util.workspace = true
 flate2.workspace = true
 getrandom.workspace = true

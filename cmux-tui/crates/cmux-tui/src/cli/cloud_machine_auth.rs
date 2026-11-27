@@ -181,7 +181,7 @@ pub(super) fn ask(runner: &mut dyn Runner, machine: &str, route: &Route) -> Resu
         }
         Reported::Nothing => Err(reply_error(
             "machine_auth.unsupported",
-            "This machine's cmux-tui does not report its model route: its build predates that report.",
+            "This machine's cmux-tui does not report its model route yet. Update the machine, then try again.",
             machine,
         )),
         Reported::Other => Err(reply_error(
