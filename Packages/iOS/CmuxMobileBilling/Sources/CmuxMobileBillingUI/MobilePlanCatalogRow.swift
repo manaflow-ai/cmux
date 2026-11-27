@@ -38,7 +38,6 @@ struct MobilePlanCatalogRow: View {
             }
         }
         .padding(.vertical, 4)
-        .frame(minHeight: MobilePlanRowGeometry.minimumHeight, alignment: .top)
         .accessibilityElement(children: .combine)
         .accessibilityIdentifier("BillingCatalogPlan.\(planID.rawValue)")
     }

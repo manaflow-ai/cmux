@@ -26,10 +26,6 @@ public struct MobileSettingsPlanSection: View {
                     LabeledContent {
                         if let account = billing.account.account {
                             Text(BillingPlanCopy(planID: account.currentPlan.planID).name)
-                        } else {
-                            Text("—")
-                                .redacted(reason: .placeholder)
-                                .accessibilityIdentifier("MobileSettingsPlanPlaceholder")
                         }
                     } label: {
                         Label(

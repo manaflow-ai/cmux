@@ -40,17 +40,6 @@ final class BillingStoreKitTests: XCTestCase {
         rig = nil
     }
 
-    /// The cold plans screen reserves the current-plan row and every NEXT
-    /// plan card before the account request resolves, including Plus.
-    func testColdPlansScreenReservesPlusGeometry() {
-        let cold = BillingModel(api: rig.server, store: rig.store, analytics: nil)
-        let identifiers = PlansSnapshot.initialAccessibilityIdentifiers(cold)
-        XCTAssertTrue(identifiers.contains("BillingCurrentPlanPlaceholder"))
-        XCTAssertTrue(identifiers.contains("BillingLoadingPlan.next_plus"))
-        XCTAssertTrue(identifiers.contains("BillingLoadingPlan.next_pro"))
-        XCTAssertTrue(identifiers.contains("BillingLoadingPlan.next_max"))
-    }
-
     // MARK: - Purchase
 
     /// Buy Pro: the purchase JWS is posted, finished after the server
