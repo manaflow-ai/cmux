@@ -114,6 +114,32 @@ function Section() {
           }))}
         />
       );
+    // The summary card's shape (SubagentStatusList.tsx): focusable rows, then a windowed list's rows,
+    // in one <ul>, and a button after it.
+    case "shared":
+      return (
+        <>
+          <ul className="acpmux-summary-list" data-shared="">
+            {[0, 1, 2].map((index) => (
+              <li key={`before-${index}`} data-before={index}>
+                <button type="button">Before {index}</button>
+              </li>
+            ))}
+            <ChildSessionRows
+              onOpen={() => {}}
+              sessions={range.map((index) => ({
+                sessionId: `shared-${index}`,
+                title: `Shared ${index}`,
+                state: "idle" as const,
+                createdAt: at - index * 1000,
+              }))}
+            />
+          </ul>
+          <button type="button" data-after="">
+            After
+          </button>
+        </>
+      );
     case "usage":
       return (
         <UsageSection
