@@ -762,6 +762,8 @@ impl Hub {
             // after `slot.take()` and leave `detaching` set with the old host alive. A spawned
             // owner continues the committed teardown after this prompt defers; a queued prompt
             // also makes the task's final eligibility check refuse a new hibernation.
+            // task-owner: one quiet restart teardown for this session; admission only bounds the
+            // JoinHandle wait while the spawned owner finishes the committed kill.
             let quiet_restart = {
                 let hub = Arc::clone(self);
                 let session = Arc::clone(session);
