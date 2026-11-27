@@ -3349,7 +3349,7 @@ jobs:
       group: ${{ github.event_name == 'pull_request' && github.event.pull_request.base.ref == 'feat-cmux-next' && (github.event.action == 'labeled' && !contains(fromJSON('["full-ci","ready-to-land"]'), github.event.label.name) || github.event.action == 'unlabeled') && format('-label-{0}', github.run_id) || github.event_name == 'push' && format('cmux-next-push-{0}-fast-tier-cargo', github.ref) || format('cmux-next-run-{0}-fast-tier-cargo', github.run_id) }}
       cancel-in-progress: false
     # Why: note-206
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || 'cmux-fleet-linux-x64' }} # frozen-label: the next-checks workflow test needs an ephemeral Linux VM, never a reused host
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || fromJSON('["cmux-fleet-linux-x64","cmux-has-netem"]') }} # frozen-label: the next-checks workflow test needs an ephemeral Linux VM, never a reused host
     permissions:
       # Why: 2026-11-24-fast-tier-1.md
       actions: read

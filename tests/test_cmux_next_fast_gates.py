@@ -565,6 +565,38 @@ class WorkflowShape(unittest.TestCase):
         self.assertFalse(any("uses" in step for step in audit["steps"]))
         self.assertIn("audience=cmux-ci-lane-receipt", audit["steps"][0]["run"])
 
+    def test_head_commit_tree_names_the_lane_commit_under_an_update_branch_merge(self):
+        # 4 of 11 lane misses on 2026-11-27 were GitHub's update-branch merge heads; the receipt is the lane commit's.
+        body = step_named(job(workflow(), "resolve")["steps"], "Resolve the head and the base")["run"]
+        start = body.index("head_commit_tree() {")
+        func = textwrap.dedent(body[start:re.compile(r"\n *}\n").search(body, start).end()])
+        func = func.replace('GIT_CONFIG_COUNT=1 GIT_CONFIG_KEY_0=http.https://github.com/.extraheader '
+                            'GIT_CONFIG_VALUE_0="AUTHORIZATION: basic $auth" \\\n', '')
+        func = func.replace('"https://github.com/$GITHUB_REPOSITORY"', '"file://$SRC"')
+        with tempfile.TemporaryDirectory() as tmp:
+            src = Path(tmp) / "src"
+            def git(*args, **env):
+                return subprocess.run(["git", "-C", str(src), *args], check=True, capture_output=True, text=True,
+                                      env={**os.environ, "GIT_AUTHOR_NAME": "a", "GIT_AUTHOR_EMAIL": "a@x",
+                                           "GIT_COMMITTER_NAME": "a", "GIT_COMMITTER_EMAIL": "a@x", **env}
+                                      ).stdout.strip()
+            subprocess.run(["git", "init", "-q", "-b", "feat-cmux-next", str(src)], check=True)
+            git("commit", "-q", "--allow-empty", "-m", "base")
+            git("checkout", "-q", "-b", "lane/x")
+            (src / "f").write_text("lane\n"); git("add", "f"); git("commit", "-q", "-m", "lane change")
+            lane = git("rev-parse", "HEAD")
+            git("checkout", "-q", "feat-cmux-next")
+            (src / "g").write_text("base\n"); git("add", "g"); git("commit", "-q", "-m", "base moves")
+            git("checkout", "-q", "lane/x")
+            git("merge", "-q", "--no-ff", "-m", "Merge branch 'feat-cmux-next' into lane/x", "feat-cmux-next",
+                GIT_COMMITTER_NAME="GitHub")
+            merge = git("rev-parse", "HEAD")
+            def run(commit):
+                script = f'set -u; BRANCH=feat-cmux-next; SRC={src}; GH_TOKEN=x\n{func}\nhead_commit_tree {commit}'
+                return subprocess.run(["bash", "-c", script], check=True, capture_output=True, text=True).stdout
+            self.assertEqual(run(merge), f"{git('rev-parse', merge + '^{tree}')} {git('rev-parse', lane + '^{tree}')}")
+            self.assertEqual(run(lane), f"{git('rev-parse', lane + '^{tree}')} ")
+
     def test_a_lane_head_takes_its_receipt_at_the_merger_dispatch(self):
         # 78 of 100 fast-gates runs on 2026-11-26 were the merger's dispatches; on feat-cmux-next the pull request event
         # skips the gates, so a lane receipt has to count there (Leo: "Shift checks left into the lanes").
@@ -576,8 +608,9 @@ class WorkflowShape(unittest.TestCase):
         self.assertIn('if [[ "$head_ref" == lane/* && "${LANE:-1}" != 0 ]]; then', body)
         # The head tree is read over git, not REST: the REST budget was spent on every dispatch on 2026-11-27.
         self.assertNotIn("git/commits/$head", body)
-        self.assertIn('head_tree="$(head_commit_tree "$head")"', body)
-        self.assertIn("--depth=1 --filter=tree:0", body)
+        self.assertIn('read -r head_tree parent_tree <<<"$(head_commit_tree "$head")"', body)
+        self.assertIn("--depth=2 --filter=tree:0", body)
+        self.assertIn('echo "lane_parent_tree=$parent_tree"', body)
         self.assertIn('echo "merge_tree="; echo "lane_dispatch=true"', body)
         self.assertEqual(resolve["env"]["LANE"], "${{ vars.CI_LANE_RECEIPTS }}")
         verify = step_named(steps, "Verify the local test receipt")
