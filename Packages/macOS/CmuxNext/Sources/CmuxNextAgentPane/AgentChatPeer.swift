@@ -12,7 +12,7 @@ public nonisolated struct AgentChatPeer: Sendable, Equatable {
     }
 
     /// Matches environments.ts environmentReady: a state takes precedence over the old flag.
-    public var isReady: Bool { state.map { $0 == "connected" } ?? (connected != false) }
+    public var isReady: Bool { state.map { $0 == "connected" || $0 == "idle" } ?? (connected != false) }
 
     static func read(_ status: [String: Any]) -> [Self] {
         (status["peers"] as? [[String: Any]] ?? []).compactMap { peer in

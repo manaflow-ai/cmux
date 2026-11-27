@@ -61,7 +61,7 @@ export function reactWithCompiler(mode = reactCompilerMode()) {
  * compile the agent pane again. That pass is most of a dev server file's start: App.tsx (813 KB)
  * took 33 s alone on an idle machine (2026-11-04), and every dev server test file paid it in its own Vite,
  * 60 s and more with the shard's other files beside it, which put files that run in 30 s over
- * their 120 s limit and timed out their gallery warm-ups. The key is the module id, its
+ * their 120 s limit and timed out their gallery warm-ups. The key is the module id (relative to webviews/), its
  * environment and type, the exact code handed to the pass and the lockfile, so a hit is the output
  * that pass would make. Unset (dev servers, bundles), nothing changes.
  * @template T
@@ -89,13 +89,21 @@ function cacheTransforms(plugin, dir) {
   plugin.transform.handler = async function (code, id, opts) {
     const key = crypto
       .createHash("sha256")
-      .update(JSON.stringify([salt, this.environment?.name, opts?.moduleType, id]))
+      // The id relative to webviews/: a cache restored from another run (ci-web.yml keeps one across runs)
+      // was written in another checkout path, and runners' work directories differ.
+      .update(JSON.stringify([salt, this.environment?.name, opts?.moduleType, path.relative(webviews, id)]))
       .update("\0")
       .update(code)
       .digest("hex");
     const file = path.join(dir, key.slice(0, 2), `${key}.json`);
     try {
-      return JSON.parse(fs.readFileSync(file, "utf8"));
+      const hit = JSON.parse(fs.readFileSync(file, "utf8"));
+      // A hit is still in use: CI keeps the cache across runs and drops entries no run has read lately.
+      try {
+        const now = new Date();
+        fs.utimesSync(file, now, now);
+      } catch {}
+      return hit;
     } catch {}
     const result = await handler.call(this, code, id, opts);
     if (result) {

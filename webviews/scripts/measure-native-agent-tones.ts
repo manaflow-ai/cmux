@@ -14,6 +14,7 @@ const section = subagentsSection(
     waiting: new Set(),
     sessions: [],
     now: 1_000,
+    connectionQuiet: () => true,
   },
   new NativeInfoActions(),
   (key, values) => translate(key, values, "en"),

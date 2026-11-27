@@ -48,6 +48,24 @@ const reasoningChat = () =>
 const ALBUM_ART =
   "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAEAAAABACAIAAAAlC+aJAAACU0lEQVR42tXPCTcTAAAH8P8nkZJyC8uSRUNzX8uRNS0amvvMckSOJkcTOXJHJCJHkyOyHJEjckS8Xr16vXr1en2E9jX+3+D3g5labZ6ttrxx0yorxyYr1zYz1y4jzyEjX5B+yzGtQJha4JRa6JxyW5Rc5JJc7JpULE4scUso9Ui4I4nXeKo03qoyn+t3/eLKA2IrAmMrgmMqpcqqEOW9sGva8GhtRFS1LOq+/GpNpKJGoaiNuvIgOrJOKa+PkdfHXW5QyRrjZQ8TI5qSLjWlhDenhbekh7VmhrZlhbZlh7SrL3bkSB/lSTvzgzsLgroKgx4XBXaXBPSU+vdo/J+U+fWW+z6t9O0Dtb7Kpw/Ueq13P6j11V7PQK2v8RoAtb7WcwDU+jrJIKj1DZLnoNY3XhgCtb7JYxjU+mb3YVDrW91HQK1vdxsFtb5D/ALU+k6xDtT6rvM6UOu7XcdAre9xeQlqfa/LOKj1fecmQK3vF02AWj8gmgS1ftB5CtT6obOvQK0fcZoGtX7UEKDW687MgFo/JnwNav24cBbU+klHPaj1U6f1oNZPC96AWj8jmAO1ftZhHtR6vf08qPVz9gug1i/YLYJav3jqLaj1S7ZLoNYvGwLU+hWbZVDr16zfgVq/br0Cav2G1Sqo9ZuWq6DWb1msgVq/Y7EOav2u+XtQ6/fMNkCt3zcEqPUHJzdBrT888QHU+s+mW6DWfzHdBrX+6/FtUOu/meyAWv/dZBfU+h/HPoJa//PoHqj1v4z3QK3/bbwPav2fI59Arf9rdABq/T+jw/8n7vrBWnViYgAAAABJRU5ErkJggg==";
 
+/// A one-colour dark mark on a transparent ground, as a site made for a light page sends it: drawn as
+/// fetched it vanished on the dark rows (faviconInk.ts).
+const DARK_MARK_ICON =
+  "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAACAAAAAgCAYAAABzenr0AAAAgUlEQVR42u1X2w0AIQhzC91/UV3AmKst0jOS+CelRsqjlGegtVr76qQFDiOCBpYSYYNTJHYAZSRYEMpf+Y9bWOpshvAi5ARhRmn5Ey76eubu9D4LSBNWaB3xewT+S+BYEh6XYXohsijF6c3Ioh2nDyQWI5nFUGoxllssJjar2bU2APSvvvDKEBreAAAAAElFTkSuQmCC";
+
+/// The dark-favicon and attached variants' omnibar: a page with a dark one-colour mark, one with a coloured
+/// favicon, and a workspace, all matching "release".
+const MARK_OMNIBAR = {
+  tabs: [
+    { id: "tab-mark", kind: "browser", title: "release pull request", detail: "code.example", icon: DARK_MARK_ICON },
+    { id: "tab-1", kind: "browser", title: "Release notes", detail: "cmux.dev", icon: SITE_ICON },
+  ],
+  workspaces: [{ id: "workspace-1", name: "Release", detail: "~/src/release" }],
+  folders: [CWD],
+  commands: [],
+  history: [],
+};
+
 /// The typed-tab-match variants' omnibar: open tabs, a workspace and visited pages that match "release".
 const RELEASE_OMNIBAR = {
   tabs: [
@@ -287,15 +305,16 @@ function checkSuggestionSurface(ctx: PlayContext): void {
   const box = view.getComputedStyle(ctx.document.querySelector(".nt-box")!);
   const popover = ctx.document.querySelector(".nt-popover")!;
   const list = view.getComputedStyle(popover);
+  // An opaque window paints only the card solid with no blur; its popups read the shared transient material
+  // (cmux#57406, glass-levels.test.ts), so there the tint and blur differ and the rest still match.
+  const opaque = !ctx.document.documentElement.hasAttribute("data-cmux-see-through");
+  const material = opaque ? [] : ["--glass-tint", "--glass-backdrop", "background-color", "backdrop-filter"];
   for (const property of [
-    "--glass-tint",
-    "--glass-backdrop",
+    ...material,
     "--glass-opaque",
     "--glass-edge",
     "--glass-elevation",
-    "background-color",
     "background-image",
-    "backdrop-filter",
     "border-width",
     "border-color",
     "box-shadow",
@@ -304,7 +323,12 @@ function checkSuggestionSurface(ctx: PlayContext): void {
     if (box.getPropertyValue(property) !== list.getPropertyValue(property))
       throw new Error(`suggestions differ from the composer: ${property}`);
   }
-  if (popover.hasAttribute("data-host-glass")) throw new Error("suggestions draw a separate native popup material");
+  // One material with the box: the App's popover glass under both, with the cover the popover draws
+  // (#50119, #56805; NewTabScreen.test.tsx reads the same attributes).
+  const boxGlass = ctx.document.querySelector(".nt-box")!.getAttribute("data-host-glass");
+  if (popover.getAttribute("data-host-glass") !== "popover" || boxGlass !== "popover")
+    throw new Error("suggestions and the composer do not share the App's popover glass");
+  if (!popover.hasAttribute("data-host-glass-cover")) throw new Error("suggestions draw their glass without its cover");
 }
 
 /// The first two rows' kinds are `first` and `second` (one of them Ask); the other one is `title`.
@@ -1151,6 +1175,40 @@ export default agentPaneEntry({
         for (let step = 0; step < 3; step++) await ctx.press("ArrowDown");
         await ctx.press("Enter");
         await waitForTabJump(ctx, "tab", "tab-1");
+      },
+    },
+    "suggestions-dark-favicon": {
+      note: "A dark one-colour favicon draws in the row's label colour on the dark theme, where its own ink vanished; the coloured favicon beside it draws as fetched (faviconInk.ts).",
+      ready: newTab({ omnibar: MARK_OMNIBAR }),
+      snapshot: noChat(manySessions(3)),
+      play: async (ctx) => {
+        await typePrompt(ctx, "release");
+        await ctx.waitFor(() => ctx.document.querySelector('.nt-popover .nt-row-favicon[data-ink="dark"]'));
+      },
+    },
+    "suggestions-attached": {
+      note: "With a file attached, the rows offer only Ask: no tab, workspace or web search that would leave the file behind (Lucas 2026-11-26).",
+      ready: newTab({ omnibar: MARK_OMNIBAR }),
+      snapshot: noChat(manySessions(3)),
+      play: async (ctx) => {
+        await typePrompt(ctx, "release");
+        await ctx.waitFor(() => ctx.document.querySelector('.nt-popover [data-type="tab"]'));
+        const view = ctx.document.defaultView as unknown as typeof globalThis;
+        const canvas = ctx.document.createElement("canvas");
+        canvas.width = 320;
+        canvas.height = 200;
+        const paint = canvas.getContext("2d")!;
+        paint.fillStyle = "#3a7bd5";
+        paint.fillRect(0, 0, 320, 200);
+        const blob = await new Promise<Blob>((resolve) => canvas.toBlob((png) => resolve(png!), "image/png"));
+        const data = new view.DataTransfer();
+        data.items.add(new view.File([blob], "Screenshot.png", { type: "image/png" }));
+        ctx
+          .find({ selector: ".nt-field [contenteditable=true]" })
+          .dispatchEvent(new view.ClipboardEvent("paste", { clipboardData: data, bubbles: true, cancelable: true }));
+        await ctx.waitFor(() => ctx.document.querySelector(".acpmux-attachment-image:not([aria-busy])") !== null);
+        const rows = () => [...ctx.document.querySelectorAll<HTMLElement>(".nt-popover .nt-row")];
+        await ctx.waitFor(() => rows().length > 0 && rows().every((row) => row.dataset.type === "ask"));
       },
     },
     "suggestions-overflow": {

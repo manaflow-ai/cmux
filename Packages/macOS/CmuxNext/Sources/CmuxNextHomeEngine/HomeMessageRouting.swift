@@ -34,30 +34,28 @@ public struct HomeMessageRouting: Sendable {
         self.chiefNames = chiefNames
     }
 
-    /// `row`'s name: its Chief's own name, else its title.
-    private func title(of row: InboxRow, names: [ConversationID: String]) -> String { names[row.id] ?? row.title }
+    /// The inbox as the routing rules read it (`compose.routing.*`): rows in inbox order.
+    func routing(source: String? = nil, members: [HomeContact]? = nil) -> HomeComposeRules.Routing {
+        HomeComposeRules.Routing(rows: store.rows, me: store.me?.id, chief: chief(), chiefNames: chiefNames(),
+                                 source: source, members: members)
+    }
 
     /// The Chief's conversation: the app's choice, else the first Chief conversation listed.
     public var chiefConversation: ConversationID? {
-        if let id = chief(), store.rows.contains(where: { $0.id == id }) { return id }
-        return store.rows.orderedForInbox().first { $0.kind == .chief }?.id
+        let id: String? = HomeComposeRules().call("routing.chiefConversation", routing(), fallback: nil)
+        return id.map { ConversationID($0) }
     }
 
     /// Every conversation a message can go to, as the palette and `--to` list them: Chiefs first,
     /// then the rest in inbox order. `value` is the conversation id, `title` its row title.
     public func recipients() -> [(value: String, title: String)] {
-        let ordered = store.rows.orderedForInbox()
-        let chiefs = ordered.filter { $0.kind == .chief }, others = ordered.filter { $0.kind != .chief }
-        let names = chiefNames()
-        return (chiefs + others).map { row in
-            let title = title(of: row, names: names)
-            return (value: row.id.rawValue, title: title.isEmpty ? row.id.rawValue : title)
-        }
+        let choices: [HomeComposeRules.Choice] = HomeComposeRules().call("routing.recipients", routing(), fallback: [])
+        return choices.map { (value: $0.value, title: $0.title) }
     }
 
     /// The conversation `text` names: a conversation id; `chief` (any case) for the Chief's; a
     /// participant's id or name in a one-to-one conversation; a row title (any case). Nil when
-    /// nothing matches.
+    /// nothing matches. Stays in Swift: `caseInsensitiveCompare` has no exact Rust match yet.
     public func resolve(_ text: String) -> ConversationID? {
         let name = text.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !name.isEmpty else { return nil }
@@ -72,7 +70,7 @@ public struct HomeMessageRouting: Sendable {
         }) { return row.id }
         let names = chiefNames()
         return rows.first { row in
-            let title = title(of: row, names: names)
+            let title = names[row.id] ?? row.title
             return !title.isEmpty && title.caseInsensitiveCompare(name) == .orderedSame
         }?.id
     }
@@ -82,9 +80,8 @@ public struct HomeMessageRouting: Sendable {
     @discardableResult
     public func compose(_ text: String, into id: ConversationID) -> String? {
         guard store.rows.contains(where: { $0.id == id }) else { return nil }
-        let own = store.draft(for: id) ?? ""
-        let added = String(text.drop { $0.isNewline })
-        let draft = own.isEmpty || own.hasSuffix("\n") ? own + added : own + "\n" + added
+        let request = ComposeRequest(text: text, own: store.draft(for: id) ?? "")
+        guard let draft: String = HomeComposeRules().call("routing.compose", request, fallback: nil) else { return nil }
         store.setDraft(draft, for: id)
         return draft
     }
@@ -97,14 +94,25 @@ public struct HomeMessageRouting: Sendable {
     /// Selected text as a Markdown quote ("> " before each line), then an empty line for the
     /// person's own words.
     public static func quoted(_ text: String) -> String {
-        let lines = text.trimmingCharacters(in: .newlines).components(separatedBy: "\n")
-        return lines.map { $0.isEmpty ? ">" : "> " + $0 }.joined(separator: "\n") + "\n\n"
+        HomeComposeRules().call("routing.quoted", TextRequest(text: text), fallback: text)
     }
 
     /// A workspace or tab named in a message: a Markdown link Home shows as a link chip, then a space.
     public static func mention(_ title: String, link: String) -> String {
-        let label = title.trimmingCharacters(in: .whitespacesAndNewlines)
-            .replacingOccurrences(of: "[", with: "(").replacingOccurrences(of: "]", with: ")")
-        return "[\(label.isEmpty ? link : label)](\(link)) "
+        HomeComposeRules().call("routing.mention", MentionRequest(title: title, link: link), fallback: "[\(title)](\(link)) ")
+    }
+
+    private struct ComposeRequest: Encodable {
+        var text: String
+        var own: String
+    }
+
+    private struct TextRequest: Encodable {
+        var text: String
+    }
+
+    private struct MentionRequest: Encodable {
+        var title: String
+        var link: String
     }
 }

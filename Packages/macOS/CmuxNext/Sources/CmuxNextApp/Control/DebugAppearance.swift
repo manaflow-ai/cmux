@@ -14,12 +14,8 @@ import CmuxNextTerminal
 /// answer goes in a capture's report, whose privacy check refuses one.
 enum DebugAppearance {
     static func handle(_ params: [String: JSONValue]) -> JSONValue {
-        switch params["mode"]?.stringValue {
-        case "light": NSApp.appearance = NSAppearance(named: .aqua)
-        case "dark": NSApp.appearance = NSAppearance(named: .darkAqua)
-        case "system": NSApp.appearance = nil
-        default: break
-        }
+        // The same switch as the appearance.mode setting, without writing cmux.json.
+        if let mode = params["mode"]?.stringValue.flatMap(AppearanceMode.init(rawValue:)) { AppearanceModeSetting.apply(mode) }
         let dark = NSApp.effectiveAppearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua
         let background = GhosttyRuntime.shared.themeColors.map {
             JSONValue.string(String(format: "#%02X%02X%02X", $0.background.r, $0.background.g, $0.background.b))

@@ -33,9 +33,9 @@ pub(super) async fn establish_physical_links(
         ClientAuthMode::Invitation { .. } => ClientAuthMode::Enrolled,
         ref other => other.clone(),
     };
-    // A reconnect that pins the daemon's key and holds its IK offer learns nothing from its
-    // first link's welcome, so every lane link opens at once: the reconnect costs one link's
-    // setup, not two in a row (`cmux_braid_session::open_lanes_at_once`).
+    // A connect that pins the daemon's key learns nothing it needs from its first link's
+    // welcome, so every lane link opens at once: a connect or reconnect costs one link's setup,
+    // not two in a row (`cmux_braid_session::open_lanes_at_once`). A carrier dial always pins.
     if let Some(pinned) = config.expected_daemon.filter(|_| {
         cmux_braid_session::open_lanes_at_once(LinkFacts {
             invitation: matches!(config.auth, ClientAuthMode::Invitation { .. }),

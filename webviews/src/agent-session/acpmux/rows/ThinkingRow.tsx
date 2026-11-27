@@ -1,5 +1,9 @@
 import { memo, useContext, useEffect } from "react";
+import { experimentArm } from "../../../experiments/experiment";
+import { cloudStartQuietLook } from "../cloudStart.experiment";
+import { CloudAgentStartContext, CloudAgentStartLine } from "../conversation/CloudAgentStartLine";
 import { Thinking } from "../conversation/Thinking";
+import { WaitingOnContext } from "../conversation/waitingOn";
 import { LiveLinePulseContext } from "../conversation/liveLinePulse";
 import { LIVE_THINKING } from "../conversation/turns";
 import { glyphTrigger, setLiveGlyphTrigger } from "../conversation/thinkingGlyphModel";
@@ -11,6 +15,10 @@ export const ThinkingRow = memo(
   function ThinkingRow({ row }: RowProps) {
     // The transcript's live line hears its chunks without a draw (liveLinePulse.ts).
     const pulse = useContext(LiveLinePulseContext);
+    // A Cloud chat's first prompt waits for its agent to start on the machine: the line names it
+    // (CloudAgentStartLine), as the Mac's start view did, unless the quiet look's `thinking` arm is on.
+    const cloudAgent = useContext(CloudAgentStartContext);
+    const waiting = useContext(WaitingOnContext);
     // A look's thinking glyph plays the document's trigger for what the agent does now; the transcript's
     // live line tells Jump to latest too (thinkingGlyphModel.ts).
     const trigger = glyphTrigger({
@@ -23,6 +31,8 @@ export const ThinkingRow = memo(
     useEffect(() => {
       if (live) setLiveGlyphTrigger(trigger);
     }, [live, trigger]);
+    if (row.queued !== undefined && cloudAgent && !waiting && experimentArm(cloudStartQuietLook) !== "thinking")
+      return <CloudAgentStartLine agent={cloudAgent} since={row.at} below={row.below} />;
     return (
       <Thinking
         starting={row.queued !== undefined}
@@ -54,6 +64,7 @@ export const ThinkingRow = memo(
         below={row.below}
         command={row.doingCommand}
         retry={row.retry}
+        retryAt={row.retryAt}
         pulse={row.id === LIVE_THINKING ? (pulse ?? undefined) : undefined}
         glyphTrigger={trigger}
       />
@@ -90,5 +101,6 @@ export const ThinkingRow = memo(
     a.row.quietAt === b.row.quietAt &&
     a.row.below === b.row.below &&
     a.row.doingCommand === b.row.doingCommand &&
-    a.row.retry === b.row.retry,
+    a.row.retry === b.row.retry &&
+    a.row.retryAt === b.row.retryAt,
 );
