@@ -831,6 +831,11 @@ ROWS = []  # every PERF_ROW, printed again at the end as one {"rows": [...]} rep
 
 
 def perf_row(name, value, unit, floor=None):
+    # --row-arm ARM names the rows infinite_items.ARM.nN.* so a second arm (the all-live one, --lazy-start=off) sits
+    # beside the product arm's infinite_items.nN.* rows in one report instead of replacing them.
+    arm = getattr(ARGS, "row_arm", "") if ARGS is not None else ""
+    if arm and name.startswith("infinite_items."):
+        name = f"infinite_items.{arm}." + name[len("infinite_items."):]
     row = {"name": name, "p50": round(value, 4), "p95": round(value, 4), "unit": unit}
     if floor is not None:
         row["floor"] = floor
@@ -1064,8 +1069,13 @@ def main():
                    help="after the last sample, ask a dhat-heap acpmux to write its profile (_acpmux/heap_profile)")
     p.add_argument("--heap-profile-at", type=float, default=0.0,
                    help="a Unix time at which to ask for the heap profile even if the run has not ended (dhat is slow)")
+    p.add_argument("--row-arm", default="",
+                   help="name this arm's PERF_ROWs infinite_items.ARM.nN.* (e.g. all_live with --lazy-start=off), so "
+                        "perf-cron keeps them beside the product arm's infinite_items.nN.* rows; empty (default): no arm")
     p.add_argument("--out")
     args = p.parse_args()
+    if args.row_arm and not re.fullmatch(r"[a-z0-9_]+", args.row_arm):
+        raise SystemExit(f"infinite-items: --row-arm takes [a-z0-9_]+, not {args.row_arm!r}")
     args.dhat_mark_days = sorted({int(d) for d in args.dhat_mark_days.split(",") if d})
     global ARGS
     ARGS = args
