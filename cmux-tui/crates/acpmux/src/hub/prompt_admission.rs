@@ -208,6 +208,7 @@ pub(super) struct Deferral {
 }
 
 /// How a prompt with no answer by its due time ends.
+#[allow(clippy::large_enum_variant)] // one per unanswered prompt, matched at once; boxing buys nothing
 pub(super) enum Unanswered {
     /// Queued durably; its run from the queue answers it.
     Defer(Deferral),

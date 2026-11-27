@@ -81,6 +81,8 @@ public nonisolated struct AgentActivityLane: Hashable, Sendable, Identifiable {
     /// acpmux's short name (`shortName`, the name without its family prefix: "cloud-demo").
     public let shortName: String?
     public let capacityWaitCount: Int
+    /// The git branch of the session's folder (acpmux `gitBranch`), when acpmux knows it.
+    public let branch: String?
 
     public init(id: String, name: String, title: String, peer: String?, parent: String?, state: State, since: Date?, error: String?,
                 workspaceID: String? = nil, harness: String? = nil, step: String? = nil, unread: Bool = false, project: String? = nil,
@@ -89,9 +91,10 @@ public nonisolated struct AgentActivityLane: Hashable, Sendable, Identifiable {
                 sidebarRequiresOpen: Bool = false,
                 turnPrompt: String? = nil, turnActivity: String? = nil,
                 chiefChildren: String? = nil, chiefParticipant: String? = nil,
-                agentSession: String? = nil, shortName: String? = nil,
+                agentSession: String? = nil, shortName: String? = nil, branch: String? = nil,
                 capacityWaitCount: Int = 0) {
         self.id = id
+        self.branch = branch
         self.agentSession = agentSession
         self.shortName = shortName
         self.name = name
@@ -162,6 +165,7 @@ public nonisolated struct AgentActivityLane: Hashable, Sendable, Identifiable {
                                  chiefChildren: nonEmpty((summary["tags"] as? [String: Any])?["mux.children"]),
                                  chiefParticipant: nonEmpty((summary["tags"] as? [String: Any])?["cmux.chief.participant"]),
                                  agentSession: nonEmpty(summary["agentSessionId"]), shortName: nonEmpty(summary["shortName"]),
+                                 branch: nonEmpty(summary["gitBranch"]),
                                  capacityWaitCount: (summary["capacityWaitCount"] as? NSNumber)?.intValue ?? 0)
     }
 
