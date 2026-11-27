@@ -20,7 +20,7 @@
 
 use std::collections::VecDeque;
 
-use p256::{PublicKey, SecretKey};
+use p256::PublicKey;
 
 use crate::{Error, Floor, Opened, Position, peek};
 
@@ -207,9 +207,9 @@ pub enum ApplyError {
 /// The viewer's side: opens catch-up deltas in order under its floor. Each must be exactly the next position
 /// after the floor; the first one that is not (or does not open) stops the apply, and the deltas applied so
 /// far stay applied. With no floor, the viewer has no base state and must take the snapshot first.
-pub fn apply(
+pub fn apply<V: crate::Viewer + ?Sized>(
     floor: &mut Floor,
-    viewer: &SecretKey,
+    viewer: &V,
     source: &PublicKey,
     stream: &str,
     envelopes: &[Vec<u8>],

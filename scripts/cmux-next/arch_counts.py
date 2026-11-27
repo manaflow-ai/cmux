@@ -2929,6 +2929,14 @@ def parse_manifest(raw: str) -> Manifest:
         unreadable.setdefault(_normalized(lines[line - 1]), (line, "it reads or changes the manifest after it is built"))
 
     def dependency_names(expr: str, target: ManifestTarget, seen: frozenset[str] = frozenset()) -> None:
+        # `flag ? A : B` on a plain Bool (the Linux shape's `targetsLinux`): both arms' edges (their union), as
+        # for a ternary of products.
+        condition = _split_top(expr, "?")
+        arms = _split_top(condition[1], ":") if len(condition) == 2 else []
+        if len(arms) == 2 and re.fullmatch(r"!?[A-Za-z_]\w*", condition[0]):
+            for arm in arms:
+                dependency_names(arm, target, seen)
+            return
         for part in _split_top(expr, "+"):
             if part.startswith("[") and part.endswith("]"):
                 for element in _split_top(part[1:-1], ","):

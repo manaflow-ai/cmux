@@ -1,4 +1,8 @@
 {
+  "mobile.billing.plan.next_plus": {
+    "class": "brand",
+    "source": "Plus"
+  },
   "settings.choice.keyStyleVim": {
     "class": "brand",
     "source": "Vim"
@@ -8385,6 +8389,101 @@
         "reason": "Koi is a name (a loanword) kept in Latin letters.",
         "values": [
           "Koi"
+        ]
+      }
+    }
+  },
+  "settingsWindow.tokens.form.teamNamePlaceholder": {
+    "class": "technical",
+    "source": "CI"
+  },
+  "settingsWindow.tokens.row.fromGithub": {
+    "class": "brand",
+    "source": "GitHub Actions · %@"
+  },
+  "settingsWindow.tokens.github.title": {
+    "class": "brand",
+    "source": "GitHub Actions"
+  },
+  "settingsWindow.tokens.github.repositoryPlaceholder": {
+    "class": "syntax",
+    "source": "owner/name"
+  },
+  "settingsWindow.tokens.scope.machines": {
+    "source": "Machines",
+    "identityLocales": {
+      "fr": {
+        "reason": "Machines is the standard French plural for machines.",
+        "values": [
+          "Machines"
+        ]
+      }
+    }
+  },
+  "settingsWindow.tokens.scope.chats": {
+    "source": "Chats",
+    "identityLocales": {
+      "de": {
+        "reason": "Chats is the standard word for chat conversations in this language, as Apple's Messages uses it.",
+        "values": [
+          "Chats"
+        ]
+      },
+      "es": {
+        "reason": "Chats is the standard word for chat conversations in this language, as Apple's Messages uses it.",
+        "values": [
+          "Chats"
+        ]
+      }
+    }
+  },
+  "settingsWindow.tokens.form.name": {
+    "source": "Name",
+    "identityLocales": {
+      "de": {
+        "reason": "Name is the standard German word for a name field.",
+        "values": [
+          "Name"
+        ]
+      }
+    }
+  },
+  "settingsWindow.tokens.github.repository": {
+    "source": "Repository",
+    "identityLocales": {
+      "da": {
+        "reason": "Repository is the term GitHub and developer tools use in this language.",
+        "values": [
+          "Repository"
+        ]
+      },
+      "de": {
+        "reason": "Repository is the term GitHub and developer tools use in this language.",
+        "values": [
+          "Repository"
+        ]
+      },
+      "it": {
+        "reason": "Repository is the term GitHub and developer tools use in this language.",
+        "values": [
+          "Repository"
+        ]
+      }
+    }
+  },
+  "settingsWindow.tokens.github.workflow": {
+    "source": "Workflow",
+    "identityLocales": {
+      "da": {
+        "reason": "Workflow is the term GitHub Actions uses in this language.",
+        "values": [
+          "Workflow"
+        ]
+      },
+      "de": {
+        "reason": "Workflow is the term GitHub Actions uses in this language.",
+        "values": [
+          "Workflow"
         ]
       }
     }

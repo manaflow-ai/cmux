@@ -13,7 +13,7 @@
   "colors": {
     "background": "#2a2f37",
     "foreground": "#b0b8c6",
-    "selection": "#484e73",
+    "selection": "#6c75ac",
     "accent": "#8d95ff"
   },
   "appearance.accent": "theme",
@@ -22,8 +22,8 @@
     "foreground = #b0b8c6",
     "cursor-color = #8d95ff",
     "cursor-text = #2a2f37",
-    "selection-background = #484e73",
-    "selection-foreground = #b0b8c6",
+    "selection-background = #6c75ac",
+    "selection-foreground = #2a2f37",
     "palette = 0=#464e58",
     "palette = 1=#d78e88",
     "palette = 2=#77ae7f",

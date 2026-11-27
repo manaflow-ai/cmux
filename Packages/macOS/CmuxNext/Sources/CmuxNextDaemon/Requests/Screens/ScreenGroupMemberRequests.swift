@@ -5,30 +5,6 @@ import Foundation
 // by numeric handle. Group changes emit `tree-changed` plus a
 // `screen-changed` per member.
 
-/// Adds screens to a group. `index` is the position inside the group (default: the end).
-public struct AddScreensToScreenGroupRequest: DaemonRequest {
-    public typealias Response = ScreenGroupResult
-    public static let command = "add-screens-to-screen-group"
-    public static let requiredCapability: String? = DaemonCapability.screenGroups.rawValue
-    public var group: ScreenGroupID
-    public var screens: [ScreenID]
-    public var index: Int?
-    public init(group: ScreenGroupID, screens: [ScreenID], index: Int? = nil) {
-        self.group = group
-        self.screens = screens
-        self.index = index
-    }
-}
-
-/// Removes screens from their groups; each lands right after its former group.
-public struct RemoveScreensFromScreenGroupRequest: DaemonRequest {
-    public typealias Response = ScreenGroupResult
-    public static let command = "remove-screens-from-screen-group"
-    public static let requiredCapability: String? = DaemonCapability.screenGroups.rawValue
-    public var screens: [ScreenID]
-    public init(screens: [ScreenID]) { self.screens = screens }
-}
-
 /// Moves a whole group to `index` (the final index of its first screen), or
 /// into `workspace`.
 public struct MoveScreenGroupRequest: DaemonRequest {

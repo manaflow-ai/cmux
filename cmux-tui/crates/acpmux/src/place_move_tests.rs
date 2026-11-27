@@ -94,25 +94,77 @@ fn one_left() -> Vec<LeftBehind> {
 #[test]
 fn a_pick_lands_in_one_state() {
     let mini = PlaceMode::Machine { id: "mini".into() };
+    let to_mini = Some(Target::Machine("mini".into()));
     // Auto and the machine it is on only store the pin.
-    let p = plan(&PlaceMode::Auto, here(), false, &[], false);
+    let p = plan(&PlaceMode::Auto, here(), false, false, &[], false);
     assert_eq!((p.state, p.store, p.move_to), (State::Pinned, true, None));
-    let p = plan(&PlaceMode::Machine { id: "mac".into() }, here(), true, &one_left(), false);
+    let p = plan(&PlaceMode::Machine { id: "mac".into() }, here(), false, true, &one_left(), false);
     assert_eq!((p.state, p.move_to), (State::Pinned, None));
     // Between turns: moving. Mid-turn: after the turn.
-    let p = plan(&mini, here(), false, &[], false);
-    assert_eq!((p.state, p.move_to.as_deref()), (State::Moving, Some("mini")));
-    let p = plan(&mini, here(), true, &[], false);
+    let p = plan(&mini, here(), false, false, &[], false);
+    assert_eq!((p.state, p.move_to), (State::Moving, to_mini));
+    let p = plan(&mini, here(), false, true, &[], false);
     assert_eq!(p.state, State::AfterTurn);
     // Something stays behind: asked first, nothing moves; confirmed, it moves.
-    let p = plan(&mini, here(), false, &one_left(), false);
+    let p = plan(&mini, here(), false, false, &one_left(), false);
     assert_eq!((p.state, p.move_to), (State::NeedsConfirm, None));
-    assert_eq!(plan(&mini, here(), false, &one_left(), true).state, State::Moving);
-    assert_eq!(plan(&mini, here(), true, &one_left(), true).state, State::AfterTurn);
-    // Cloud says why it is refused and stores nothing.
-    let p = plan(&PlaceMode::Cloud, here(), false, &[], true);
-    assert_eq!((p.state, p.store), (State::Refused, false));
-    assert!(p.reason.unwrap().contains("app"));
+    assert_eq!(plan(&mini, here(), false, false, &one_left(), true).state, State::Moving);
+    assert_eq!(plan(&mini, here(), false, true, &one_left(), true).state, State::AfterTurn);
+}
+
+/// Cloud only moves the chat to a fresh Cloud machine, as a machine pick moves it: now between
+/// turns, after the turn mid-turn, asked first when something stays. On a Cloud machine it
+/// already holds.
+#[test]
+fn cloud_only_moves_to_a_fresh_machine() {
+    let cloud = PlaceMode::Cloud;
+    assert!(needs_left(&cloud, here(), false));
+    assert!(!needs_left(&cloud, here(), true));
+    assert!(!needs_left(&PlaceMode::Auto, here(), false));
+    let p = plan(&cloud, here(), false, false, &[], false);
+    assert_eq!((p.state, p.store, p.move_to), (State::Moving, false, Some(Target::NewCloud)));
+    assert_eq!(p.reason, None);
+    assert_eq!(plan(&cloud, here(), false, true, &[], false).state, State::AfterTurn);
+    let p = plan(&cloud, here(), false, false, &one_left(), false);
+    assert_eq!((p.state, p.move_to), (State::NeedsConfirm, None));
+    assert_eq!(
+        plan(&cloud, here(), false, false, &one_left(), true).move_to,
+        Some(Target::NewCloud)
+    );
+    let p = plan(&cloud, here(), true, false, &[], false);
+    assert_eq!((p.state, p.store, p.move_to), (State::Pinned, true, None));
+    assert_eq!(Target::NewCloud.label(), "Cloud");
+    assert_eq!(Target::Machine("mini".into()).label(), "mini");
+}
+
+/// The `cmux` steps of a Cloud move are the hybrid driver's own words.
+#[test]
+fn a_cloud_move_runs_the_drivers_cmux_steps() {
+    assert_eq!(cloud_new_words(), ["vm", "new", "--wait", "--json"]);
+    assert_eq!(cloud_move_words("s1", "m-9"), ["move", "s1", "--to", "vm:m-9", "--json"]);
+    assert_eq!(
+        cloud_pause_words("m-9"),
+        ["cloud", "pause-machine", "--target", "machine:m-9", "--json"]
+    );
+}
+
+/// A step's answer: its `result` (or the object), its error's message, else its last line; the
+/// fresh machine is the answer's `machine_id`.
+#[test]
+fn a_cmux_step_answers_its_result_or_why() {
+    let ok = step_answer(true, "starting\n{\"ok\":true,\"result\":{\"machine_id\":\"m-1\"}}\n", "");
+    assert_eq!(machine_of(&ok.unwrap()).unwrap(), "m-1");
+    let flat = step_answer(true, "{\"machine_id\":\"m-2\"}", "").unwrap();
+    assert_eq!(machine_of(&flat).unwrap(), "m-2");
+    assert!(machine_of(&json!({"machine_id": " "})).is_err());
+    let err =
+        step_answer(false, "", "{\"error\":{\"code\":\"auth\",\"message\":\"sign in to cmux\"}}");
+    assert_eq!(err.unwrap_err(), "sign in to cmux");
+    let err = step_answer(false, "", "{\"code\":\"x\",\"message\":\"no room\"}");
+    assert_eq!(err.unwrap_err(), "no room");
+    assert_eq!(step_answer(false, "", "boom\nlast words\n").unwrap_err(), "last words");
+    assert_eq!(step_answer(true, "not json", "").unwrap_err(), "not json");
+    assert!(step_answer(false, "", "").is_err());
 }
 
 #[test]

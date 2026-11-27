@@ -52,8 +52,24 @@ const rowAtRest = async (ctx: PlayContext) => {
   if (Number(getComputedStyle(row).opacity) < 1) throw new Error("The turn's footer row must show at rest");
 };
 
-const copyAtRest = async (ctx: PlayContext) => {
-  await rowAtRest(ctx);
+/// A finished turn's row is hidden at rest and shows while the pointer is on its turn (cmux#55888,
+/// Leo 2026-11-22: "claude hides buttons until you hover over the relevant area of a turn response"),
+/// so the play points at the turn, then the row must show in full with its Copy.
+const rowOnHover = async (ctx: PlayContext) => {
+  const find = () => ctx.document.querySelector<HTMLElement>(".acpmux-turnSummary .cv-turn-actions");
+  await ctx.waitFor(find);
+  await ctx.hover({ selector: ".acpmux-turnSummary" });
+  await ctx.waitFor(() => {
+    const row = find();
+    return row !== null && Number(getComputedStyle(row).opacity) >= 1;
+  });
+  const row = find();
+  if (!row) throw new Error("The turn's footer row is missing");
+  if (Number(getComputedStyle(row).opacity) < 1) throw new Error("The turn's footer row must show on hover");
+};
+
+const copyOnHover = async (ctx: PlayContext) => {
+  await rowOnHover(ctx);
   await ctx.waitFor(() => ctx.document.querySelector(".acpmux-turnSummary .cv-turn-actions button[aria-label='Copy']"));
 };
 
@@ -74,14 +90,14 @@ export default agentPaneEntry({
   keywords: ["footer", "copy", "done", "failed", "error", "tool-only", "turn end"],
   variants: {
     "tool-only": {
-      note: "A turn that only ran a command ends on its row at rest: Copy copies the command's line and its output.",
+      note: "A turn that only ran a command ends on its row, shown while the turn is hovered: Copy copies the command's line and its output.",
       snapshot: chat(toolOnlyTurn()),
-      play: copyAtRest,
+      play: copyOnHover,
     },
     "tool-only-codex": {
       note: "The same turn in a Codex chat, folded under Worked for: its row stays under the closed line.",
       snapshot: chat(toolOnlyTurn(), { harness: "codex" }),
-      play: copyAtRest,
+      play: copyOnHover,
     },
     "api-error": {
       note: "A turn that ran a command and then hit an API error: the error card, then the row with Copy and the failed mark.",
@@ -101,7 +117,7 @@ export default agentPaneEntry({
         summary(8.7, { status: "completed", durationMs: 6_000 }),
         ...toolOnlyTurn(),
       ]),
-      play: copyAtRest,
+      play: copyOnHover,
     },
   },
   experiment: {

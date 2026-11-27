@@ -36,6 +36,7 @@ target="$(uname -m)-apple-macos14.0"
 work="$(mktemp -d "${TMPDIR:-/tmp}/cmux-view-shell-patch.XXXXXX")"
 trap 'rm -rf "$work"' EXIT
 started=$(python3 -c 'import time; print(f"{time.time():.3f}")')
+patch="patch-$(date +%s)-$$.dylib"
 
 all=("$sources"/*.swift)
 # What the running build compiled (an object per file in `ViewShell.build`) and when: a file with
@@ -87,11 +88,32 @@ elif ((status)); then
   exit "$status"
 fi
 
-patch="patch-$(date +%s)-$$.dylib"
-xcrun swiftc -emit-library "${objects[@]}" -o "$work/$patch" -target "$target" -module-name ViewShellPatch \
-  -Xlinker -undefined -Xlinker dynamic_lookup
-codesign --force --sign "${CMUX_LIVE_CODE_SIGN_IDENTITY:--}" "$work/$patch" 2>/dev/null
+# The link, the same way: the driver's plan for linking these objects is kept per toolchain, target and file set
+# (patch_compile.py --link-plan writes it once, NUL-separated, with @WORK@ for this run's folder), and only its
+# linker job runs here, straight from bash. `xcrun swiftc -emit-library` ran xcrun's lookup and the driver around
+# that same job each time: 168 ms where the job alone takes 118 (goal dev-loop-ceiling, swift_inject on a fleet Mac).
+# A plan that is not one linker job, or a job that fails, falls back to the driver (and drops the kept plan).
+link_flags=(-target "$target" -module-name ViewShellPatch -Xlinker -undefined -Xlinker dynamic_lookup)
+link_key="$(printf '%s\n' "${DEVELOPER_DIR:-}" "$(xcode-select -p 2>/dev/null || true)" "${link_flags[@]}" "${names[@]}" \
+  | shasum -a 256 | cut -c1-32)"
+link_plan="$plans/link-$link_key.argv"
+if [[ ! -s "$link_plan" ]]; then
+  mkdir -p "$plans"
+  (cd "$work" && xcrun swiftc -emit-library "${objects[@]}" -o "$work/patch.dylib" "${link_flags[@]}" -###) >"$work/link-plan.txt" 2>&1 \
+    && python3 "$package/patch_compile.py" --link-plan "$work/link-plan.txt" --work "$work" --out "$link_plan.$$" \
+    && mv "$link_plan.$$" "$link_plan" || rm -f "$link_plan.$$"
+fi
+linked=0
+if [[ -s "$link_plan" ]]; then
+  job=()
+  while IFS= read -r -d '' arg; do job+=("${arg//@WORK@/$work}"); done <"$link_plan"
+  if ((${#job[@]})) && "${job[@]}"; then linked=1; else rm -f "$link_plan"; fi
+fi
+if ((!linked)); then
+  xcrun swiftc -emit-library "${objects[@]}" -o "$work/patch.dylib" "${link_flags[@]}"
+fi
+codesign --force --sign "${CMUX_LIVE_CODE_SIGN_IDENTITY:--}" "$work/patch.dylib" 2>/dev/null
 mkdir -p "$live"
 # Move into place in one step, so the shell never reads a half-written file.
-mv "$work/$patch" "$live/.$patch" && mv "$live/.$patch" "$live/$patch"
+mv "$work/patch.dylib" "$live/.$patch" && mv "$live/.$patch" "$live/$patch"
 echo "inject.sh: $live/$patch (started=$started)"
