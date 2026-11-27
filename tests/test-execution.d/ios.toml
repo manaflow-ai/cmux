@@ -77,7 +77,8 @@ reason = "No workflow step runs it (lane derived by --write). Run it yourself: p
 
 [[test]]
 path = "tests/test_ios_live_lease_owner.py"
-lane = "linux-guard"
+lane = "manual"
+reason = "No workflow step runs it (lane derived by --write). Run it yourself: python3 tests/test_ios_live_lease_owner.py"
 
 [[test]]
 path = "tests/test_ios_mobile_core_linux_only.py"
