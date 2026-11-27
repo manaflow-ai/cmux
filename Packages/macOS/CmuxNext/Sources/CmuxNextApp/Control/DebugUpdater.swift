@@ -5,9 +5,8 @@ import CmuxNextSettings
 import CmuxNextSidebar
 import CmuxNextUpdater
 
-/// `debug.updater {action: "relaunch"}` (DEV and NIGHTLY): drives the
-/// updater's relaunch path exactly as Sparkle does before it relaunches
-/// into an update, then terminates. R138 check update-relaunch-no-prompt.
+/// `debug.updater {action: "relaunch"}` (DEV and NIGHTLY): drives the updater's relaunch path exactly
+/// as Sparkle does before it relaunches into an update, then terminates. R138 check update-relaunch-no-prompt.
 /// `{action: "stage", version?, changes?}` shows a staged update with fake
 /// release notes (UPDATE-CARD screenshots; nothing downloads or installs);
 /// `{action: "simulate"}` stages one with real published notes, as Debug Settings "Simulate
