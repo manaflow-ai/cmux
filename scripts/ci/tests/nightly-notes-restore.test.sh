@@ -1,6 +1,10 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+# Dry runs use the fixture withdrawal list even when the suite runs in Actions.
+# The production-path cases below set their protected environment explicitly.
+export GITHUB_ACTIONS=false
+
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 SCRIPT="$ROOT/ci/nightly-notes-restore.py"
 TMP="$(mktemp -d "${TMPDIR:-/tmp}/nightly-notes-restore.XXXXXX")"
