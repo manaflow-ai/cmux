@@ -153,56 +153,72 @@ impl Customize {
     }
 }
 
-/// Every proper prefix of a setting's key path: an object there is read
-/// for its keys.
-pub(super) fn prefixes() -> BTreeSet<Vec<String>> {
-    let mut out = BTreeSet::new();
-    for row in Schema::embedded().rows_in(None) {
-        for depth in 1..row.path.len() {
-            if let Some(prefix) = row.path.get(..depth) {
-                out.insert(prefix.to_vec());
-            }
-        }
-    }
-    out
+/// Names the general settings file accepts, including its migration inputs.
+/// Keep the prefixes too so an unknown sibling still gets its own finding.
+#[derive(Default)]
+struct SettingNames {
+    leaves: BTreeSet<&'static str>,
+    prefixes: BTreeSet<&'static str>,
 }
 
-/// Keys in a settings object no setting has: `(dotted key, retired reason)`.
-pub(super) fn unknown_keys(
-    object: &serde_json::Map<String, Value>,
-    path: &mut Vec<String>,
-    prefixes: &BTreeSet<Vec<String>>,
-    out: &mut Vec<(String, Option<String>)>,
-) {
-    let schema = Schema::embedded();
-    for (key, value) in object {
-        if path.is_empty() && key.starts_with('$') {
-            continue;
-        }
-        // A dotted key at the top (`"appearance.accent": ...`) is the same setting.
-        let mut here: Vec<String> = path.clone();
-        here.extend(key.split('.').map(str::to_owned));
-        if schema.row_at(&here).is_some() || menus::SECTIONS.contains(&here.join(".").as_str()) {
-            continue;
-        }
-        if let Some(why) = cmux_config::schema::retired_reason(&here) {
-            out.push((here.join("."), Some(why.to_owned())));
-            continue;
-        }
-        if cmux_config::schema::replaced_by_row(&here).is_some() {
-            continue; // the owner reads it as its new key
-        }
-        match value {
-            Value::Object(inner) if prefixes.contains(&here) => {
-                let depth = path.len();
-                path.extend(key.split('.').map(str::to_owned));
-                unknown_keys(inner, path, prefixes, out);
-                path.truncate(depth);
+impl SettingNames {
+    fn get() -> &'static Self {
+        use cmux_config::schema::{
+            DESKTOP_BRIDGE_ENABLED, DESKTOP_BRIDGE_ENTRYPOINTS, retired_entries,
+        };
+        static NAMES: std::sync::OnceLock<SettingNames> = std::sync::OnceLock::new();
+        NAMES.get_or_init(|| {
+            let mut names = SettingNames::default();
+            for key in Schema::embedded()
+                .rows_in(None)
+                .map(|row| row.key.as_str())
+                .chain(retired_entries().iter().map(|entry| entry.key.as_str()))
+                .chain([DESKTOP_BRIDGE_ENABLED, DESKTOP_BRIDGE_ENTRYPOINTS])
+                // Menu sections the doctor checks itself (`menus.rs`).
+                .chain(menus::SECTIONS.iter().copied())
+            {
+                names.leaves.insert(key);
+                names.prefixes.extend(key.match_indices('.').map(|(at, _)| &key[..at]));
             }
-            _ if prefixes.contains(&here) => {}
-            _ => out.push((here.join("."), None)),
+            names
+        })
+    }
+
+    fn collect_unknown(
+        &self,
+        object: &serde_json::Map<String, Value>,
+        parent: &str,
+        out: &mut Vec<String>,
+    ) {
+        for (key, value) in object {
+            if parent.is_empty() && key.starts_with('$') {
+                continue;
+            }
+            // Both nested objects and dotted names occur in settings documents.
+            let path = if parent.is_empty() { key.clone() } else { format!("{parent}.{key}") };
+            if self.leaves.contains(path.as_str()) {
+                continue;
+            }
+            // A key no row has that another reader owns (file-keys.json), or anything under it.
+            let segments: Vec<String> = path.split('.').map(str::to_owned).collect();
+            if cmux_config::schema::file_key(&segments).is_some() {
+                continue;
+            }
+            if self.prefixes.contains(path.as_str()) {
+                if let Value::Object(inner) = value {
+                    self.collect_unknown(inner, &path, out);
+                }
+            } else {
+                out.push(path);
+            }
         }
     }
+}
+
+pub(super) fn unknown_keys(object: &serde_json::Map<String, Value>) -> Vec<String> {
+    let mut unknown = Vec::new();
+    SettingNames::get().collect_unknown(object, "", &mut unknown);
+    unknown
 }
 
 /// The 1-based line where a dotted key's last name is written as a key.
@@ -300,7 +316,7 @@ pub(super) fn display_path(logical: &str, roots: &crate::Roots) -> String {
     if logical == SETTINGS { file_name(&roots.settings_file) } else { logical.to_owned() }
 }
 
-/// `~/.config/cmux/themes`, or the path when it is not under home.
+/// `~/.config/cmux-next/themes`, or the path when it is not under home.
 pub(super) fn display_dir(path: &Path, roots: &crate::Roots) -> String {
     if let Ok(rest) = path.strip_prefix(&roots.config_dir)
         && !rest.as_os_str().is_empty()

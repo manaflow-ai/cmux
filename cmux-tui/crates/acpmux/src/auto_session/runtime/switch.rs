@@ -105,7 +105,13 @@ impl<C: AutoCloud + 'static> Loop<C> {
                 self.step(id, Event::AutoOn).await;
                 self.read_work(id, None);
             }
-            (true, true) => self.keep(id, keep, reply),
+            (true, true) => {
+                // Auto asked for again: the chat is no longer set to this machine only.
+                self.hub.update_auto_record(&session, |old| {
+                    old.map(|record| AutoRecord { local_wanted: false, ..record })
+                });
+                self.keep(id, keep, reply);
+            }
             (false, false) => answer(reply, Ok(row(&self.hub, id))),
             (false, true) => {
                 if let (Some(tracked), Some(reply)) = (self.chats.get_mut(id), reply) {
@@ -180,7 +186,11 @@ impl<C: AutoCloud + 'static> Loop<C> {
     /// no laptop has) leaves the chat an Auto chat, and whoever asked hears why.
     pub(super) async fn closed(&mut self, id: &str, result: Result<SessionView, AutoCloudError>) {
         let waiting = match self.chats.get_mut(id) {
-            Some(tracked) => std::mem::take(&mut tracked.closing),
+            Some(tracked) => {
+                // A chat set to this machine only may ask again (`moves.rs`).
+                tracked.leaving = false;
+                std::mem::take(&mut tracked.closing)
+            }
             None => Vec::new(),
         };
         // The chat's epoch in the store's answer tells the core whether a stopped tree is
@@ -209,26 +219,24 @@ impl<C: AutoCloud + 'static> Loop<C> {
     /// its Cloud inbox; a chat stopped here waits for the store first.
     pub(super) fn away(&mut self, id: &str, post: InboxPost, reply: Reply) {
         let state = self.chats.get(id).map(|tracked| tracked.chat.state);
-        match state {
-            Some(State::Standby { .. } | State::ComingHome { .. }) => {
-                let task = self.ctx.clone().post(id.to_owned(), post, reply);
-                self.ctx.start("auto-session inbox post", task);
-            }
-            Some(State::Stopped { .. }) => answer(Some(reply), Err(waits_for_network())),
-            // `Giving` and `Returning`: a move by hand is not run by the daemon yet, so no chat
-            // is in either.
+        // A chat in the middle of a give takes it through the inbox too: it runs once, where
+        // the chat lands, or here when the chat stays (the drain of a chat that may run again).
+        let standby = match state {
+            Some(State::Standby { .. } | State::ComingHome { .. }) => true,
+            Some(State::Giving { .. } | State::Returning { .. }) => false,
+            Some(State::Stopped { .. }) => return answer(Some(reply), Err(waits_for_network())),
             Some(
                 State::Off
                 | State::Registering
                 | State::Holding { .. }
-                | State::Giving { .. }
                 | State::Away
                 | State::Taking { .. }
-                | State::Serving { .. }
-                | State::Returning { .. },
+                | State::Serving { .. },
             )
-            | None => answer(Some(reply), Err(not_here())),
-        }
+            | None => return answer(Some(reply), Err(not_here())),
+        };
+        let task = self.ctx.clone().post(id.to_owned(), post, reply, standby);
+        self.ctx.start("auto-session inbox post", task);
     }
 }
 

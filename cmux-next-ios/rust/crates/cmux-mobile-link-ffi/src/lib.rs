@@ -8,7 +8,8 @@ use std::time::Duration;
 
 use cmux_mobile_link::api::ApiClient;
 use cmux_mobile_link::api::{HttpClient, IceCache, IceServer};
-use cmux_mobile_link::link::ChannelSender;
+use cmux_mobile_link::link::{ChannelReceiver, ChannelSender};
+use cmux_mobile_link::signaling::{AfterNetworkChange, after_network_change};
 use cmux_mobile_link::viewport::{PhoneViewport, ViewportReceiver};
 use cmux_mobile_link::{
     BuildSpace, ChannelEvent, DialError, DialOptions, LinkConfig, SignalingClient, Timeline,
@@ -17,30 +18,43 @@ use tokio::runtime::Runtime;
 
 mod auto_chats;
 mod browser;
+#[doc(hidden)]
+pub mod bundle;
 mod catch_up;
 mod chat_prompt_outbox;
 mod classic_leftovers;
 mod cloud_wake;
+mod cmux_link;
 mod composer_outbox;
+mod feed_list_edit;
 mod follow_camera;
 mod lan;
 mod last_place;
 mod link_progress;
 mod link_side;
 pub mod local_link;
+mod mac_reachability;
 mod mac_screen;
 mod mailbox_client;
 mod pair_requests;
+mod pane_filter;
 mod read_store;
 mod relay_hold;
 mod row_layout;
+mod screen;
 mod share_approval;
 mod tabs;
+mod task_composer;
 mod terminal_chat;
 mod terminal_fit;
 mod terminal_prediction;
 mod terminal_projection;
+mod vnc;
 mod window_layout;
+mod workspace_arrangement;
+mod workspace_groups;
+mod workspace_moves;
+mod workspace_row_actions;
 
 pub use auto_chats::{
     AutoChat, AutoChatError, AutoChats, AutoHttp, AutoHttpError, AutoHttpReply, AutoHttpRequest,
@@ -59,6 +73,7 @@ pub use cloud_wake::{
     CloudWakeAnswer, CloudWakeHint, CloudWakeIdle, CloudWakeOutcome, cloud_wake_hint, cloud_wake_idle,
     cloud_wake_input, cloud_wake_resumed, cloud_wake_version,
 };
+pub use cmux_link::{CmuxLinkTarget, ParsedCmuxLink, cmux_link_parse};
 pub use composer_outbox::{
     ComposerOutbox, ComposerSendAnswer, ComposerSendDone, ComposerSendOutcome, ComposerSendRequest,
 };
@@ -66,10 +81,24 @@ pub use follow_camera::{FollowCamera, FollowCameraMode, FollowRect};
 pub use last_place::{LastPlaceAnchor, LastPlaceRecord, LastPlaceScreen, LastPlaceStore};
 pub use link_progress::{HeldKeysExpiryReason, LinkProgressClock, held_keys_expiry};
 pub use link_side::{LinkOpenSide, link_open_side};
+pub use mac_reachability::{
+    MacLinkFailureKind, MacLinkState, MacReachabilityInput, MacReachabilityKind, MacRecoveryActionKind,
+    MacRecoveryAttemptState, MacRecoveryObservation, MacRecoveryResult, MacRecoveryStep,
+    mac_reachability_action, mac_reachability_late_quiet, mac_reachability_resolve, mac_reachability_span,
+    mac_recovery_advanced, mac_recovery_combined, mac_recovery_timed_out,
+};
 pub use mac_screen::{MacScreenAnswer, MacScreenDisplay, MacScreenIceServer, MacScreenObserver, MacScreenRd};
+pub use pane_filter::{
+    PaneFilter, PaneFilterResult, PaneKind, PaneScope, pane_filter_apply, pane_filter_decode,
+    pane_filter_default, pane_filter_encode, pane_filter_shows,
+};
 pub use read_store::{PhoneReadKey, PhoneReadStore, PhoneReadStoreError};
 pub use share_approval::{ShareApprovalDraft, ShareAsk, share_approval_draft, share_approval_signed};
 pub use tabs::{TabsEvent, TabsMirror, TabsRow, TabsViewport};
+pub use task_composer::{
+    TaskPickChange, TaskPickToggle, TaskTerminalLaunch, task_image_mime_type, task_pick_toggle,
+    task_terminal_line,
+};
 pub use terminal_chat::{
     TabFace, TerminalChatCandidate, TerminalChatFaces, TerminalChatFacts, TerminalChatSwap,
 };
@@ -78,7 +107,20 @@ pub use terminal_fit::{
 };
 pub use terminal_prediction::{PredictedGlyph, PredictionLayout, TerminalPrediction};
 pub use terminal_projection::{ProjectionSegment, ProjectionStats, TerminalProjection};
+pub use vnc::{VncJsonError, vnc_json};
 pub use window_layout::{WindowLayout, overview_columns, window_layout};
+pub use workspace_groups::{
+    GROUP_EDIT_CONFIRM_WINDOW, GROUP_EDIT_UNANSWERED_WINDOW, GroupEditStep, PendingGroupEdit,
+    PhoneSidebarRow, PhoneWorkspaceGroup, WorkspaceGroupSlot, pending_group_edit_step, workspace_group_slots,
+};
+pub use workspace_moves::{
+    WorkspaceSortStep, neighbor_move_reordered, neighbor_move_targets, personal_index_moving,
+    personal_index_placing, workspace_sort_steps,
+};
+pub use workspace_row_actions::{
+    WorkspaceRowFacts, WorkspaceRowPlacement, workspace_merge_targets, workspace_new_row_anchor,
+    workspace_row_placements,
+};
 
 uniffi::setup_scaffolding!();
 
@@ -356,6 +398,8 @@ pub struct LinkHandle {
     /// The phone end of viewport sync (cmux_mobile_link::viewport): what
     /// daemon channels ask for, and the link's datagram receivers.
     viewport: PhoneViewport,
+    /// The Mac refused `bundle` (`unknown_service`, an older hostd): files go the old way on this link.
+    bundle_refused: std::sync::atomic::AtomicBool,
 }
 
 impl Drop for LinkHandle {
@@ -1111,6 +1155,7 @@ async fn finish_link(
         tunnel_keys: connected.tunnel_keys,
         media,
         viewport,
+        bundle_refused: std::sync::atomic::AtomicBool::new(false),
     }))
 }
 
@@ -1365,53 +1410,16 @@ async fn network_changed_on(
     let roam = tokio::spawn(cmux_mobile_link::dial::wireguard::network_changed());
     let timeline = Timeline::new();
     let key = SocketKey { base_url, team_id, device_id, build_space: build_space() };
-    // A changed path is proof that the old socket's is gone (its TCP connection is bound to the
-    // old interface or route), as Chromium treats an IP address change for its TCP sockets
-    // (`ERR_NETWORK_CHANGED`, no probe): a new socket opens at once, and every session moves onto
-    // it (`open` rehomes them). Waiting first on the old socket was four of its round trips, half
-    // of a roam's reconnect (ask-48f698fc26). The old one is kept only when no new one opens.
-    //
-    // The open is bounded while there is an old socket to keep: a new route that drops every
-    // packet would otherwise hold the roam until the OS gives up on the TCP connect. The old
-    // socket is probed beside the open, so once the budget passes its answer is already known.
+    // The new socket opens at once, the old one probed beside it, never before it
+    // (`after_network_change`); a new socket moves every session onto it (`open` rehomes them).
     let old = pool.pooled(&key).await;
-    let mut probe = old.clone().map(|socket| {
-        tokio::spawn(async move { socket.client.probe(network_probe(socket.client.rtt())).await })
-    });
-    let mut alive = None;
     let open = pool.open_after_change(&key, &token, old.as_ref(), &timeline);
-    tokio::pin!(open);
-    let first = match &old {
-        None => Some(open.as_mut().await),
-        Some(socket) => {
-            tokio::time::timeout(network_open_budget(socket.client.rtt()), open.as_mut()).await.ok()
-        }
-    };
-    let opened = match first {
-        Some(result) => result.is_ok(),
-        None => {
-            // The budget passed with the open still going: keep the old socket if it answered,
-            // else the new one is the only way back, so wait for it.
-            let answered = probed(&mut probe).await;
-            alive = Some(answered);
-            if answered {
-                timeline.mark("open_slow");
-                false
-            } else {
-                open.as_mut().await.is_ok()
-            }
-        }
-    };
-    if opened {
-        if let Some(probe) = probe {
-            probe.abort();
-        }
-    } else {
-        let answered = match alive {
-            Some(answered) => answered,
-            None => probed(&mut probe).await,
-        };
-        pool.fall_back(&key, old.as_ref(), answered, &timeline).await;
+    let outcome = after_network_change(old.as_ref().map(|socket| &socket.client), open).await;
+    if let AfterNetworkChange::OldAnswered { open_slow: true } = outcome {
+        timeline.mark("open_slow");
+    }
+    if !matches!(outcome, AfterNetworkChange::Opened(_)) {
+        pool.fall_back(&key, old.as_ref(), outcome.old_answered(), &timeline).await;
     }
     let roamed = roam.await.unwrap_or_default();
     let mut marks = roamed.first().map(|(_, timeline)| timing_marks(timeline)).unwrap_or_default();
@@ -1421,14 +1429,6 @@ async fn network_changed_on(
             .map(|mark| TimingMark { name: format!("signaling:{}", mark.name), millis: mark.millis }),
     );
     marks
-}
-
-/// Whether the old socket's probe after a network change was answered (false with no old socket).
-async fn probed(probe: &mut Option<tokio::task::JoinHandle<bool>>) -> bool {
-    match probe.take() {
-        Some(probe) => probe.await.unwrap_or(false),
-        None => false,
-    }
 }
 
 /// How long `GET /v1/ice` may take before a dial goes on with host candidates only.
@@ -1633,6 +1633,16 @@ pub fn set_cellular_path(cellular: bool) {
     cmux_mobile_link::dial::wireguard::set_cellular_path(cellular);
 }
 
+/// Keep the IP literals every dialed host (TURN, STUN, signaling, API) last resolved to in the
+/// file at `path` (an Application Support file of this build's own), so a dial after a relaunch
+/// with DNS down still reaches them (`cmux_mobile_link::route_literals`). Without a call they
+/// are kept for this process only. Returns how many hosts the file remembered.
+#[uniffi::export]
+pub fn set_route_literals_path(path: String) -> u32 {
+    let loaded = cmux_mobile_link::route_literals::RouteLiterals::shared().set_file(path);
+    u32::try_from(loaded).unwrap_or(u32::MAX)
+}
+
 /// The Mac answered a typed batch's `send` `ack_ms` after its first key's tap
 /// (`DaemonTerminalSession`). The next `link_stat` carries it (PROTOCOL.md "Link stats").
 #[uniffi::export]
@@ -1712,58 +1722,6 @@ pub fn set_keepalive_alignment(on: bool) {
 pub fn keepalive_beat_delay_ms(period_ms: u64) -> u64 {
     let delay = cmux_mobile_link::keepalive::delay_to_beat(Duration::from_millis(period_ms.max(1)));
     u64::try_from(delay.as_millis()).unwrap_or(u64::MAX)
-}
-
-/// How long the old signaling socket may take to answer after a network
-/// change when no new one could open (the old network's socket is usually
-/// dead, and `bye` and new dials need a live one).
-const NETWORK_PROBE: Duration = Duration::from_millis(1000);
-/// The shortest wait for that answer: a few round trips of a fast network, plus scheduling.
-const NETWORK_PROBE_FLOOR: Duration = Duration::from_millis(300);
-
-/// How long to wait for the old socket after a network change: four of its measured round
-/// trips (a live socket answers in one), between [`NETWORK_PROBE_FLOOR`] and [`NETWORK_PROBE`].
-/// A flat 1 s was 90% of a roam's reconnect at an 80 ms round trip (ask-48f698fc26); a socket
-/// that never timed a pong keeps the full second.
-fn network_probe(rtt: Option<Duration>) -> Duration {
-    rtt.map_or(NETWORK_PROBE, |rtt| (rtt * 4).clamp(NETWORK_PROBE_FLOOR, NETWORK_PROBE))
-}
-
-/// The shortest wait for a new signaling socket after a network change while an old one could
-/// be kept: a WebSocket open on a new path (TCP, TLS, upgrade) at a slow cellular round trip.
-const NETWORK_OPEN_FLOOR: Duration = Duration::from_millis(1000);
-/// The longest such wait, and the wait for an old socket that never timed a pong.
-const NETWORK_OPEN_CAP: Duration = Duration::from_millis(3000);
-
-/// How long a new signaling socket may take to open after a network change before a live old
-/// socket is kept instead: eight of the old socket's round trips (an open takes three or four),
-/// between [`NETWORK_OPEN_FLOOR`] and [`NETWORK_OPEN_CAP`]. Unbounded, a new route that drops
-/// every packet held the roam until the OS gave up on the TCP connect.
-fn network_open_budget(rtt: Option<Duration>) -> Duration {
-    rtt.map_or(NETWORK_OPEN_CAP, |rtt| (rtt * 8).clamp(NETWORK_OPEN_FLOOR, NETWORK_OPEN_CAP))
-}
-
-#[cfg(test)]
-mod network_probe_tests {
-    use super::*;
-
-    #[test]
-    fn the_wait_after_a_network_change_follows_the_sockets_round_trip() {
-        assert_eq!(network_probe(None), NETWORK_PROBE);
-        assert_eq!(network_probe(Some(Duration::from_millis(10))), NETWORK_PROBE_FLOOR);
-        assert_eq!(network_probe(Some(Duration::from_millis(100))), Duration::from_millis(400));
-        assert_eq!(network_probe(Some(Duration::from_secs(2))), NETWORK_PROBE);
-    }
-
-    #[test]
-    fn the_new_sockets_open_after_a_network_change_is_bounded_by_the_old_ones_round_trip() {
-        assert_eq!(network_open_budget(None), NETWORK_OPEN_CAP);
-        assert_eq!(network_open_budget(Some(Duration::from_millis(80))), NETWORK_OPEN_FLOOR);
-        assert_eq!(network_open_budget(Some(Duration::from_millis(200))), Duration::from_millis(1600));
-        assert_eq!(network_open_budget(Some(Duration::from_secs(1))), NETWORK_OPEN_CAP);
-        // Past the budget the old socket's probe has its answer: the probe is never longer.
-        assert!(NETWORK_PROBE <= NETWORK_OPEN_FLOOR);
-    }
 }
 
 #[cfg(test)]
