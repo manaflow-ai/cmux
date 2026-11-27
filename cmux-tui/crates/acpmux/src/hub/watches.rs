@@ -128,6 +128,9 @@ pub struct Watches {
     timers: Notify,
     jobs: Mutex<Jobs>,
     available: Notify,
+    /// Chats whose live watches a timer fire changed, recounted by the timer task
+    /// (`background_waits.rs`; `fire_timers` has no hub).
+    recount: Mutex<BTreeSet<String>>,
     /// Tests: how often the loop of `start` came around, and a panic asked of its next pass.
     #[cfg(test)]
     passes: std::sync::atomic::AtomicUsize,
@@ -186,10 +189,9 @@ impl Watches {
     }
     // Do not acknowledge a mutation that could not be saved; keep the previous
     // checkpoint so a later event/restart can retry without losing the wake.
-    // A change in which live watches wake a chat recounts its background waits
-    // (`background_waits.rs`), once the watches are let go.
-    fn change<T>(&self, hub: &Hub, f: impl FnOnce(&mut Saved) -> T) -> Result<T, RpcError> {
-        let (result, moved) = {
+    // Returns the chats whose live watches the change moved (`background_waits.rs`).
+    fn save<T>(&self, f: impl FnOnce(&mut Saved) -> T) -> Result<(T, BTreeSet<String>), RpcError> {
+        Ok({
             let mut inner = self.inner.lock().unwrap_or_else(|e| e.into_inner());
             let mut next = inner.saved.clone();
             let result = f(&mut next);
@@ -208,11 +210,20 @@ impl Watches {
                 .collect();
             inner.saved = next;
             (result, moved)
-        };
+        })
+    }
+    // A change in which live watches wake a chat recounts its background waits
+    // (`background_waits.rs`), once the watches are let go.
+    fn change<T>(&self, hub: &Hub, f: impl FnOnce(&mut Saved) -> T) -> Result<T, RpcError> {
+        let (result, moved) = self.save(f)?;
         for to in moved {
             hub.refresh_background_waits_of(&to);
         }
         Ok(result)
+    }
+    /// The chats a timer fire moved since the last call (`fire_timers`).
+    fn take_recount(&self) -> BTreeSet<String> {
+        std::mem::take(&mut *self.recount.lock().unwrap_or_else(|e| e.into_inner()))
     }
     /// How many live watches wake chat `to` (`background_waits.rs`).
     pub(super) fn waking(&self, to: &str) -> usize {
@@ -220,11 +231,22 @@ impl Watches {
         inner.saved.watches.values().filter(|w| w.active && w.to == to).count()
     }
     pub fn add(&self, hub: &Hub, watch: Watch) -> Result<Value, RpcError> {
+        let (result, moved) = self.insert(watch)?;
+        for to in moved {
+            hub.refresh_background_waits_of(&to);
+        }
+        Ok(result)
+    }
+    /// `add` without the recount: the watch saved and its loops woken; returns its status and
+    /// the chats it moved.
+    fn insert(&self, watch: Watch) -> Result<(Value, BTreeSet<String>), RpcError> {
         let result = watch.status();
-        self.change(hub, |s| s.watches.insert(watch.id.clone(), watch))?;
+        let ((), moved) = self.save(|s| {
+            s.watches.insert(watch.id.clone(), watch);
+        })?;
         self.wake.notify_one();
         self.timers.notify_one();
-        Ok(result)
+        Ok((result, moved))
     }
     pub fn list(&self, hub: &Hub) -> Value {
         let inner = self.inner.lock().unwrap_or_else(|e| e.into_inner());
@@ -271,6 +293,10 @@ impl Watches {
                                     fired.join(" ")
                                 );
                                 drain(&hub, false);
+                            }
+                            // A fired one-shot is no longer a wait of its chat.
+                            for to in hub.watches.take_recount() {
+                                hub.refresh_background_waits_of(&to);
                             }
                             earliest
                         }

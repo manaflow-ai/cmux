@@ -35,7 +35,7 @@ fn next_due_keeps_phase_on_time_and_stops_at_the_end() {
 #[test]
 fn a_missed_every_fires_once_and_reschedules_from_now() {
     let watches = Watches::default();
-    watches.add(timer("w", 1_000, Some(100), None)).unwrap();
+    watches.insert(timer("w", 1_000, Some(100), None)).unwrap();
     let (fired, earliest) = watches.fire_timers(10_000).unwrap();
     assert_eq!(fired, vec![prompt_id("w", 1_000)]);
     assert_eq!(earliest, Some(10_100));
@@ -51,7 +51,7 @@ fn a_missed_every_fires_once_and_reschedules_from_now() {
 fn timers_within_slack_coalesce_into_one_wake() {
     let watches = Watches::default();
     for (id, due) in [("a", 5_000), ("b", 5_400), ("c", 6_000), ("d", 6_001)] {
-        watches.add(timer(id, due, None, None)).unwrap();
+        watches.insert(timer(id, due, None, None)).unwrap();
     }
     let (none, wake) = watches.fire_timers(4_999).unwrap();
     assert!(none.is_empty(), "fired early: {none:?}");
@@ -70,7 +70,7 @@ fn prompt_ids_are_stable_per_fire_and_distinct_across_fires() {
     assert_eq!(prompt_id("w", 1_000), prompt_id("w", 1_000));
     assert_ne!(prompt_id("w", 1_000), prompt_id("w", 1_100));
     let watches = Watches::default();
-    watches.add(timer("w", 1_000, Some(100), None)).unwrap();
+    watches.insert(timer("w", 1_000, Some(100), None)).unwrap();
     watches.fire_timers(1_000).unwrap();
     watches.fire_timers(1_100).unwrap();
     let pending = watches.inner.lock().unwrap().saved.pending.clone();
