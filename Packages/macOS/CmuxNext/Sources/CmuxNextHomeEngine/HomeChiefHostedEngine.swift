@@ -1,5 +1,6 @@
 public import CmuxNextDaemon
 public import Foundation
+import CmuxNextHomeModel
 
 /// A hosted cloud Chief's brain: a cloud Chief no paired server runs (no `brain_place`), whose
 /// brain runs in the Cloud service. Its settings go through the brain's own route as the signed-in
@@ -28,17 +29,8 @@ public nonisolated struct HomeChiefHostedEngine: HomeChiefEngineSource {
     public var place: String? { nil }
     public var choosesHarness: Bool { false }
 
-    /// The models the brain route takes for a Chief's turns (chief-brain/routes.ts).
-    static let models: [ChiefEngineReport.Model] = [
-        .init(id: "claude-opus-5-5", name: "Opus 5.5"),
-        .init(id: "claude-sonnet-5-5", name: "Sonnet 5.5"),
-        .init(id: "claude-haiku-5-5", name: "Haiku 5.5"),
-    ]
-    /// The efforts the brain route takes (contract.ts `Effort`).
-    static let efforts = ["off", "minimal", "low", "medium", "high", "xhigh", "max"]
-    /// The brain's own defaults (contract.ts `DEFAULT_MODEL`, `DEFAULT_EFFORT`).
-    static let defaultModel = "claude-opus-5-5"
-    static let defaultEffort = "low"
+    // The route's models, efforts and defaults (chief-brain/routes.ts, contract.ts) are Rust's
+    // `chief_settings.hostedOffer`; `hostedSnapshot` and `hostedPatch` apply them.
 
     public init(chief: @escaping @MainActor @Sendable () -> String?, send: @escaping Send, files: HomeChiefFiles) {
         self.chief = chief
@@ -59,7 +51,7 @@ public nonisolated struct HomeChiefHostedEngine: HomeChiefEngineSource {
         return Self.snapshot(try await call("PUT", body: body), avatar: files.avatar())
     }
 
-    private func call(_ method: String, body: Data?) async throws(HomeChiefEngineError) -> [String: Any] {
+    private func call(_ method: String, body: Data?) async throws(HomeChiefEngineError) -> [String: JSONValue] {
         guard let agent = await chief() else { throw .cloudUnreachable }
         let reply: (status: Int, body: Data)
         do {
@@ -75,40 +67,49 @@ public nonisolated struct HomeChiefHostedEngine: HomeChiefEngineSource {
     }
 
     /// The PUT body for a set: model and effort only, nil as the brain's default.
+    /// Rust's `chief_settings.hostedPatch`.
     static func patch(_ fields: [String: String?]) -> [String: String] {
-        var patch: [String: String] = [:]
-        if let model = fields["model"] { patch["model"] = model ?? defaultModel }
-        if let effort = fields["effort"] { patch["effort"] = effort ?? defaultEffort }
-        return patch
+        (try? HomeRules.call("chief_settings.hostedPatch", PatchRequest(fields: fields))) ?? [:]
     }
 
     /// The brain's config from one reply (GET's `value.config`, PUT's `value`), or why not.
-    static func config(status: Int, body: Data) throws(HomeChiefEngineError) -> [String: Any] {
-        let json = (try? JSONSerialization.jsonObject(with: body)) as? [String: Any] ?? [:]
-        if status == 200, let value = json["value"] as? [String: Any] {
-            return value["config"] as? [String: Any] ?? value
+    /// Rust's `chief_settings.hostedConfig`.
+    static func config(status: Int, body: Data) throws(HomeChiefEngineError) -> [String: JSONValue] {
+        let reply: ConfigReply
+        do {
+            reply = try HomeRules.call("chief_settings.hostedConfig",
+                                       ConfigRequest(status: status, bodyText: String(decoding: body, as: UTF8.self)))
+        } catch {
+            throw .cloudUnreachable
         }
-        let error = json["error"] as? [String: Any]
-        let code = error?["code"] as? String
-        switch status {
-        case 401: throw .signedOut
-        // The deployment runs no Chief brains (`CHIEF_BRAIN_ENABLED` off).
-        case 404: throw .cloudUnavailable
-        case 200, 0, 500...: throw .cloudUnreachable
-        default: throw .refused(reason: code ?? "http_\(status)", message: error?["message"] as? String ?? code ?? "HTTP \(status)")
-        }
+        if let config = reply.config { return config }
+        throw HomeChiefEngineError(wire: reply.error ?? .init(kind: "cloudUnreachable"))
     }
 
     /// What the card shows for one config: its model and effort as chosen (the route always has
     /// both), the route's offer, and whether the brain is off (it then answers no message).
-    static func snapshot(_ config: [String: Any], avatar: String?) -> HomeChiefSnapshot {
-        let model = config["model"] as? String
-        let effort = config["effort"] as? String
-        var snapshot = HomeChiefSnapshot(harness: nil, model: model, effort: effort, avatar: avatar, turns: [])
-        snapshot.models = models
-        snapshot.efforts = efforts
-        snapshot.effective = ChiefEngineReport.Engine(model: model, effort: effort)
-        snapshot.brainOff = config["enabled"] as? Bool == false
-        return snapshot
+    /// Rust's `chief_settings.hostedSnapshot`.
+    static func snapshot(_ config: [String: JSONValue], avatar: String?) -> HomeChiefSnapshot {
+        let wire: HomeChiefSnapshotWire? = try? HomeRules.call("chief_settings.hostedSnapshot", SnapshotRequest(config: config, avatar: avatar))
+        return wire?.snapshot(turns: []) ?? HomeChiefSnapshot(harness: nil, model: nil, effort: nil, avatar: avatar, turns: [])
+    }
+
+    private nonisolated struct PatchRequest: Encodable {
+        var fields: [String: String?]
+    }
+
+    private nonisolated struct ConfigRequest: Encodable {
+        var status: Int
+        var bodyText: String
+    }
+
+    private nonisolated struct ConfigReply: Decodable {
+        var config: [String: JSONValue]?
+        var error: HomeChiefEngineError.Wire?
+    }
+
+    private nonisolated struct SnapshotRequest: Encodable {
+        var config: [String: JSONValue]
+        var avatar: String?
     }
 }

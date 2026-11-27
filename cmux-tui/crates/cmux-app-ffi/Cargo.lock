@@ -247,9 +247,13 @@ dependencies = [
  "cmux-rd-ffi",
  "cmux-screenshots",
  "cmux-sdk-ffi",
+ "cmux-sign-clone-sweep",
  "cmux-terminal-prediction",
+ "cmux-update-prewarm-core",
  "cmux-url-input",
  "cmux-wallpaper",
+ "libc",
+ "plist",
  "serde",
  "serde_json",
  "unicode-segmentation",
@@ -380,6 +384,7 @@ dependencies = [
  "cmux-embed",
  "cmux-json",
  "cmux-layout-reducer",
+ "cmux-message-preview",
  "cmux-theme-tokens",
  "core-foundation",
  "core-foundation-sys",
@@ -390,6 +395,7 @@ dependencies = [
  "serde_json",
  "sha2",
  "unicode-segmentation",
+ "url",
  "uuid",
 ]
 
@@ -568,6 +574,7 @@ dependencies = [
  "cmux-imessage",
  "cmux-layout-reducer",
  "cmux-mobile-host-core",
+ "cmux-rd-core",
  "cmux-rd-screen",
  "cmux-tab-discard",
  "cmux-tasks-core",
@@ -591,6 +598,13 @@ dependencies = [
  "hmac",
  "sha2",
  "subtle",
+]
+
+[[package]]
+name = "cmux-message-preview"
+version = "0.1.0"
+dependencies = [
+ "unicode-segmentation",
 ]
 
 [[package]]
@@ -632,6 +646,8 @@ name = "cmux-rd-core"
 version = "0.1.0"
 dependencies = [
  "cmux-rd-proto",
+ "serde",
+ "serde_json",
 ]
 
 [[package]]
@@ -720,6 +736,13 @@ dependencies = [
 ]
 
 [[package]]
+name = "cmux-sign-clone-sweep"
+version = "0.1.0"
+dependencies = [
+ "libc",
+]
+
+[[package]]
 name = "cmux-tab-discard"
 version = "0.1.0"
 dependencies = [
@@ -758,6 +781,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "cmux-update-prewarm-core"
+version = "0.1.0"
+dependencies = [
+ "serde",
+ "serde_json",
+]
+
+[[package]]
 name = "cmux-url-input"
 version = "0.1.0"
 
@@ -789,6 +820,7 @@ version = "0.1.0"
 dependencies = [
  "serde",
  "serde_json",
+ "unicode-segmentation",
  "uuid",
 ]
 

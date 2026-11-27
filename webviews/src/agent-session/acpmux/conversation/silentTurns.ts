@@ -217,6 +217,11 @@ export function splitSilentTurnsFull(rows: AcpmuxRow[], working: boolean): Silen
     const turn = row.background;
     if (row.kind !== BACKGROUND_TURN || !turn || turn.running || turn.ownTurn) continue;
     if (backgroundWeight(turn) === "failure") continue;
+    // A subagent's end hands the chat its report: the turn's line is "Report from <the subagent>",
+    // which opens to the report (subagents/SubagentReportLine.tsx). Those are the subagent's words
+    // for the person, as another agent's message is, so the turn stays even when the agent's own
+    // reply was quiet.
+    if (turn.cause?.kind === "subagent") continue;
     const own = members.get(turn.id) ?? [];
     const work = readTurn(row, own, turn.quiet === true);
     if (!work) continue;

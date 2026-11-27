@@ -81,6 +81,14 @@ impl Store {
         }
     }
 
+    /// What `file` held just before cmux's latest write to it, when cmux has written it. An undo
+    /// (a switch turned back on) reads it to put back the person's own form of what it touched:
+    /// an empty object they wrote, a line they set by hand.
+    pub fn before_last_write(&self, file: &Path) -> Option<String> {
+        let target = fs::canonicalize(file).unwrap_or_else(|_| file.to_path_buf());
+        fs::read_to_string(self.last_backup_path(&target)).ok()
+    }
+
     /// Replaces `file` with `text`: the prior file is copied to [`Store::last_backup_path`], and
     /// to [`Store::backup_path`] when that does not exist yet; the new text goes to a temporary
     /// file beside it and is renamed over it, so a reader never sees half a file. A symlinked file

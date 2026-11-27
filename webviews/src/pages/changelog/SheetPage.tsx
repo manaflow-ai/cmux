@@ -6,7 +6,8 @@
 // first, the area list of #22838 (Leo 2026-11-02: "why is the what's new the 0 information density
 // one", on a day that listed every change as one long run of the same arrow). Each change is one
 // tight line: its title, then what its description adds; a long area shows its first rows and
-// "Show more". No internal codes, filler or infrastructure (model.ts readableItem, readableChange.ts WORK_CODES,
+// "Show more". A long index draws only the days on screen and a few either side (JournalPage
+// useDayWindow); a day redraws only when its own notes or builds change. No internal codes, filler or infrastructure (model.ts readableItem, readableChange.ts WORK_CODES,
 // readableChange). No version tags, build numbers or pull request chips: the Ledger
 // (`design=ledger`) keeps them. A day with nothing a person would notice says "Maintenance and
 // fixes". Days load as they near the viewport (JournalPage.loadNear); J and K move between them.
@@ -31,7 +32,7 @@
 // section, unfolds the area that hides it, and marks it for a moment (useFocusScroll).
 // A curated change whose highlight carries a before/after pair shows it under its line
 // (MediaCompare.tsx); the sheet shows no other pictures.
-import { useEffect, useRef, useState, type CSSProperties, type ReactNode } from "react";
+import { memo, useEffect, useMemo, useRef, useState, type CSSProperties, type ReactNode } from "react";
 import { KeyboardScope } from "../../ui/KeyboardScope";
 import { Button } from "../../ui/Button";
 import { Icon } from "../settings/icons";
@@ -48,7 +49,7 @@ import {
   type ReleaseView,
 } from "./model";
 import { withoutWorkCodes } from "./readableChange";
-import { journalKeys, loadNear } from "./JournalPage";
+import { DayRoom, dayKey, dayRef, journalKeys, loadNear, sameDay, useDayWindow } from "./JournalPage";
 import { Maintenance, Media } from "./ReleaseParts";
 import { publicPullNumber, pullURL } from "./ChangePullRequest";
 import type { ChangelogFocus, ChangelogSnapshot, ChangelogStore } from "./store";
@@ -72,6 +73,14 @@ export function SheetPage({
 }) {
   const main = useFocusScroll(focus, focusReady(s));
   const entry = focus?.entry ? titleKey(focus.entry) : undefined;
+  const days = useMemo(() => groupByDay(s.builds), [s.builds]);
+  // While a focus may ask for a row, the days it can be in stay drawn, so useFocusScroll finds it.
+  const pinned = useMemo(() => (focus ? focusDays(days, s.inSpan) : []), [focus, days, s.inSpan]);
+  const list = useRef<HTMLDivElement>(null);
+  const shown = useDayWindow(list, days, sheetDayHeight, pinned);
+  // Which days have their Versions open and which areas show every row, kept here: a long list
+  // unmounts a day scrolled far away, and it comes back as it was left.
+  const kept = useMemo<Kept>(() => new Map(), []);
   return (
     <KeyboardScope className={`cls cls-${layout} cls-prs-${links}`} handleKeyDown={journalKeys}>
       <main aria-labelledby="cls-title" ref={main}>
@@ -80,30 +89,49 @@ export function SheetPage({
         </h1>
         {s.failed && <p className="cl-error">{s.failed}</p>}
         {s.builds.length === 0 && !s.failed && <p className="cl-muted">{strings.t("changelog.page.noHistory")}</p>}
-        {groupByDay(s.builds).map((day) => (
-          <SheetDay
-            key={day.day + day.builds[0]!.build}
-            day={day.day}
-            builds={day.builds}
-            s={s}
-            store={store}
-            strings={strings}
-            entry={entry}
-          />
-        ))}
+        <div className="cls-days" ref={list} onFocus={shown.onFocus}>
+          {shown.days.map(({ index, gap }) => {
+            const day = days[index]!;
+            return (
+              <DayRoom key={dayKey(day)} gap={gap}>
+                <SheetDay
+                  index={index}
+                  measure={shown.measure}
+                  day={day.day}
+                  builds={day.builds}
+                  s={s}
+                  store={store}
+                  strings={strings}
+                  entry={entry}
+                  kept={kept}
+                />
+              </DayRoom>
+            );
+          })}
+          {shown.after > 0 && <div aria-hidden="true" style={{ height: shown.after }} />}
+        </div>
       </main>
     </KeyboardScope>
   );
 }
 
-function SheetDay({
-  day,
-  builds,
-  s,
-  store,
-  strings,
-  entry,
-}: {
+/** The days a focus can scroll to (useFocusScroll): those holding the update's builds, else the newest. */
+function focusDays(days: { builds: IndexEntry[] }[], inSpan: string[]): number[] {
+  const span = new Set(inSpan);
+  const found = days.flatMap((day, index) => (day.builds.some((b) => span.has(b.build)) ? [index] : []));
+  return found.length > 0 || days.length === 0 ? found : [0];
+}
+
+/** About how tall a day is before it is drawn: its date line and its loading placeholder (styles.css
+    .cls .clj-placeholder: a 20 px line per row, and per area its line and gap), and the gap under it. */
+function sheetDayHeight(day: { builds: IndexEntry[] }): number {
+  return 48 + placeholderRows(day.builds) * 20 + placeholderAreas(day.builds) * 28;
+}
+
+interface SheetDayProps {
+  /** Its place in the day list, which useDayWindow's `measure` reads. */
+  index: number;
+  measure: (el: Element | null) => void;
   day: string;
   builds: IndexEntry[];
   s: ChangelogSnapshot;
@@ -111,16 +139,44 @@ function SheetDay({
   strings: Strings;
   /** The focused change's title key: its area shows all its rows. */
   entry?: string;
-}) {
+  kept: Kept;
+}
+
+/** What a reader opened on the page (a day's Versions, an area's "Show more"), by its key. */
+type Kept = Map<string, boolean>;
+
+/** An open state that outlives its day being unmounted: it starts as `kept` remembers it. */
+function useKept(kept: Kept, key: string): [boolean, (open: boolean) => void] {
+  const [open, setOpen] = useState(() => kept.get(key) ?? false);
+  const keep = (next: boolean) => {
+    kept.set(key, next);
+    setOpen(next);
+  };
+  return [open, keep];
+}
+
+const SheetDay = memo(function SheetDay({
+  index,
+  measure,
+  day,
+  builds,
+  s,
+  store,
+  strings,
+  entry,
+  kept,
+}: SheetDayProps) {
   const loaded = builds.map((b) => s.loaded[b.build]).filter((n): n is ReleaseNotes => !!n);
   const pending = builds.some((b) => !s.loaded[b.build] && !s.unavailable[b.build]);
   const rows = sheetRows(mergedView(loaded, strings.language), strings);
   const installed = builds.some((b) => b.build === s.current);
-  const [versions, setVersions] = useState(false);
+  const key = `${day}/${builds[0]!.build}`;
+  const [versions, setVersions] = useKept(kept, `${key}/versions`);
   return (
     <section
       className="clj-section cls-day"
-      ref={loadNear(builds, store, pending)}
+      ref={dayRef(measure, loadNear(builds, store, pending))}
+      data-index={index}
       aria-label={dayLabel(day, strings.language)}
     >
       <h2 className="cls-date">
@@ -153,10 +209,30 @@ function SheetDay({
         <Maintenance strings={strings} />
       ) : (
         byArea(rows).map((group) => (
-          <SheetArea key={group.area ?? ""} area={group.area} rows={group.items} strings={strings} entry={entry} />
+          <SheetArea
+            key={group.area ?? ""}
+            area={group.area}
+            rows={group.items}
+            strings={strings}
+            entry={entry}
+            kept={kept}
+            keptKey={`${key}/${group.area ?? "other"}`}
+          />
         ))
       )}
     </section>
+  );
+}, sameSheetDay);
+
+/** A day draws the same when sameDay holds and its Versions list would: the same index and the same
+    install state. */
+function sameSheetDay(a: SheetDayProps, b: SheetDayProps): boolean {
+  return (
+    sameDay(a, b) &&
+    a.s.builds === b.s.builds &&
+    a.s.installs === b.s.installs &&
+    a.s.installing === b.s.installing &&
+    a.s.installFailed === b.s.installFailed
   );
 }
 
@@ -179,10 +255,11 @@ export function SheetBuilds({
   strings: Strings;
 }) {
   const [asking, setAsking] = useState<string>();
+  const places = buildPlaces(all);
   return (
     <ul className="cls-builds">
       {builds.map((b) => {
-        const before = all[all.findIndex((x) => x.build === b.build) + 1];
+        const before = all[(places.get(b.build) ?? -1) + 1];
         const failed = s.installFailed?.build === b.build ? s.installFailed.message : undefined;
         return (
           <li className="cls-build" key={b.build} data-build={b.build}>
@@ -222,6 +299,18 @@ export function SheetBuilds({
   );
 }
 
+const PLACES = new WeakMap<IndexEntry[], Map<string, number>>();
+
+/** Each build's place in the index, read once per index however many days open their Versions. */
+function buildPlaces(all: IndexEntry[]): Map<string, number> {
+  let places = PLACES.get(all);
+  if (!places) {
+    places = new Map(all.map((b, index) => [b.build, index]));
+    PLACES.set(all, places);
+  }
+  return places;
+}
+
 /** An area shows this many changes, then "Show more" (and how many it hides) for the rest. */
 export const AREA_ROWS = 6;
 
@@ -230,13 +319,17 @@ function SheetArea({
   rows,
   strings,
   entry,
+  kept,
+  keptKey,
 }: {
   area?: AreaKey;
   rows: SheetRow[];
   strings: Strings;
   entry?: string;
+  kept: Kept;
+  keptKey: string;
 }) {
-  const [open, setOpen] = useState(false);
+  const [open, setOpen] = useKept(kept, keptKey);
   const label = area ? strings.t(`updates.area.${area}`) : strings.t("changelog.page.otherArea");
   // The focused change is never folded away: its area shows every row.
   const focused = entry !== undefined && rows.some((row) => titleKey(row.title) === entry);

@@ -107,7 +107,13 @@ CLOSE_GRACE_HOURS = 6
 MAX_YIELDS = 3
 PART_RUN_SECONDS = 900      # one part, its app build included (Lawrence: under 15 minutes each)
 PART_QUEUE_SECONDS = 300    # a part that does not start at once gives its place back
-CANDIDATE_DEPTH = 80
+# How far back from the tip the plan looks for a commit with a published cmux-tui tree. The tree publisher coalesces
+# pushes, so about one commit an hour has a tree, and feat-cmux-next gets about 100 first-parent commits an hour
+# (2026-11-27). At 80 the walk stopped short of every published tree: at 04:54Z it fell back to the tree-less tip
+# e6896269634a while 001cba8182ee, 73 min older, had one, so the Mac parts (tabs among them, which goal
+# tabs-keep-speed reads) waited TREE_WAIT_HOURS for a tree that never came, and the next tip did the same. The walk
+# also stops at the last tip tried and at TREE_LOOKUP_SECONDS.
+CANDIDATE_DEPTH = 600
 # What one plan's tree lookups (tree_published) may take together, inside the plan step's `timeout 600`.
 TREE_LOOKUP_SECONDS = 300
 # feat-cmux-next gets ~400 first-parent commits a day and a tip measurement takes 3 h or more, so a newer tip
@@ -4057,6 +4063,7 @@ def plan(o):
                 print(f"perf-cron: the tree lookup of {sha[:12]} took {round(time.monotonic() - started)} s")
         return trees[sha]
     if not state.get("current"):
+        walked, reached_last = 0, True
         for sha in git("rev-list", "--first-parent", f"-n{CANDIDATE_DEPTH}", tip).split():
             if sha == last_sha or (last_sha and is_ancestor(sha, last_sha)):
                 break
@@ -4067,12 +4074,21 @@ def plan(o):
             if tree_ready(sha):
                 candidate = sha
                 break
-            print(f"perf-cron: {sha[:12]} has no published cmux-tui tree yet; trying its parent")
+            walked += 1
+            if trees.get("_spent"):
+                reached_last = False  # the rest read as unpublished this tick: no is_ancestor call for each of them
+                break
+            if walked <= 3 or walked % 50 == 0:
+                print(f"perf-cron: {sha[:12]} has no published cmux-tui tree yet; trying its parent ({walked} so far)")
+        else:
+            reached_last = False
         if not candidate and newest:
             # Only the Mac parts need the tree: the Linux parts measure the newest commit now (wait_for_tree).
             candidate = newest
-            print(f"perf-cron: no commit since the last tip has a published cmux-tui tree; the tip is {newest[:12]}, "
-                  f"its Mac parts wait for its tree (at most {TREE_WAIT_HOURS} h)")
+            where = ("since the last tip" if reached_last else
+                     "in the tree lookup budget" if trees.get("_spent") else f"in the newest {CANDIDATE_DEPTH} commits")
+            print(f"perf-cron: no commit {where} has a published cmux-tui tree ({walked} looked at); the tip is "
+                  f"{newest[:12]}, its Mac parts wait for its tree (at most {TREE_WAIT_HOURS} h)")
     bisect = None
     budget = BISECT_JUDGED_PER_TICK
     if not state.get("current") and not (candidate and tip_due(state, t)):
@@ -4137,8 +4153,12 @@ def plan(o):
     linux_request, waiting, runners = "", [], []
     if d.get("linux_parts") and state.get("current"):
         cur = state["current"]
+        starved = linux_starved(state, d["linux_parts"], t)
         runners, linux_request, waiting = linux_picks(cur, d["linux_parts"], t, bool(getattr(o, "linux_controller", False)),
-                                                      commit_has(d["sha"], LINUX_SCRIPT))
+                                                      commit_has(d["sha"], LINUX_SCRIPT), starved)
+        for part in sorted(starved & set(runners)):
+            print(f"perf-cron: Linux part {part}: no rows stored for {LINUX_STARVED_HOURS} h; on the runner, not asked of "
+                  "the controller")
         for part in waiting:
             print(f"perf-cron: Linux part {part}: its request to the build controller waits for an answer")
         if linux_request:
@@ -5215,6 +5235,15 @@ LINUX_POOL_FULL_MINUTES = 60
 # own token (the linux job's GH_TOKEN), which a pool worker has not. Asked of the controller, it waited two answer
 # windows (about 3 h 20 min) for an answer that never comes before it ran on the runner.
 LINUX_RUNNER_ONLY = frozenset({"cloud-claim"})
+# A Linux part whose newest stored rows (state['part_stored']) are older than this, or that has none, runs on the runner
+# job and is not asked of the controller (linux_starved, linux_picks). The controller takes one Linux request a tick,
+# the first in part_order, which puts the stalest part first; its request then waits an answer window (about 2 h) and
+# a second one before the runner, and a request lives only as long as its measurement. From 2026-11-23 to 11-26 the two
+# stalest Linux parts, daemon-restart (NOW restart_chat_attach_daemon_ms) and web-ui-scale, took that one request
+# slot in turn in every measurement, each measurement ended (a failed app build, a newer tip) before either fell back,
+# and neither stored a row in 93 and 128 h while the 22 parts behind them ran on the runner and stored theirs every
+# day. Past this age the row's freshness (a reading a day) is already lost: the route that runs now goes first.
+LINUX_STARVED_HOURS = 24
 
 
 def linux_answer_minutes(part):
@@ -5257,7 +5286,20 @@ def linux_pool_full(cur, t):
     return bool(at) and (t - at).total_seconds() < LINUX_POOL_FULL_MINUTES * 60
 
 
-def linux_picks(cur, order, t, controller, has_script):
+def linux_starved(state, parts, t):
+    """The Linux parts of PARTS whose newest stored rows are older than LINUX_STARVED_HOURS, or that have none (pure):
+    linux_picks runs them on the runner job instead of asking the controller."""
+    stored = state.get("part_stored") if isinstance(state.get("part_stored"), dict) else {}
+    out = set()
+    for part in parts:
+        e = stored.get(part)
+        at = parse_iso(e.get("at")) if isinstance(e, dict) and isinstance(e.get("at"), str) else None
+        if not at or hours_between(at, t) > LINUX_STARVED_HOURS:
+            out.add(part)
+    return out
+
+
+def linux_picks(cur, order, t, controller, has_script, starved=()):
     """This tick's Linux parts (runner parts, controller request, parts waiting), taking ORDER's parts in turn: every
     part linux_route sends to the runner joins the linux matrix (one runner each, all at once), the first it sends to
     the controller is asked, and a part whose request is in its answer window (linux_route 'wait') holds back only
@@ -5265,7 +5307,9 @@ def linux_picks(cur, order, t, controller, has_script):
     request kept for it. The linux and linux-request jobs are separate, so one tick may run parts on the runners and
     ask the controller for another. linux_route keeps state, so it runs on a copy to look and on CUR only for the parts
     picked. Before 2026-11-23 the first part in order alone was routed: while coord-sim's request waited (about 3 h a
-    window), no Linux part ran, and a superseded measurement (no Mac part) stored 5 Linux parts in 19 h."""
+    window), no Linux part ran, and a superseded measurement (no Mac part) stored 5 Linux parts in 19 h. A STARVED part
+    (linux_starved) the controller would be asked for runs on the runner instead, unasked (LINUX_STARVED_HOURS); one
+    whose request is already in its answer window still waits for it."""
     look = {"linux_requests": copy.deepcopy(cur.get("linux_requests") if isinstance(cur.get("linux_requests"), dict) else {})}
     runners, request, waiting, unasked = [], "", [], []
     full = linux_pool_full(cur, t)
@@ -5275,6 +5319,9 @@ def linux_picks(cur, order, t, controller, has_script):
             waiting.append(part)
         elif how == "runner":
             runners.append(part)
+        elif how == "request" and part in starved:
+            runners.append(part)
+            unasked.append(part)  # its rows are a day old: the runner now, not another answer window
         elif how == "request" and not request:
             request = part
         elif how == "request" and full:

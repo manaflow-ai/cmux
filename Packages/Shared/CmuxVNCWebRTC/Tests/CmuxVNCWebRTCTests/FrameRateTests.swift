@@ -1,110 +1,46 @@
 @testable import CmuxVNCWebRTC
 import Foundation
 import Testing
+import WebRTC
 
 /// 120 Hz streaming: the frame rate both sides agree on, the encoding it
 /// asks for, and the messages that carry it between old and new peers.
 struct FrameRateTests {
-    /// Auto and Smooth Motion run at the lower of the two displays' rates, at most 120.
-    @Test(arguments: [ScreenQuality.auto, .smooth])
-    func adaptivePresetsFollowBothDisplays(quality: ScreenQuality) {
-        #expect(quality.frameRate(hostMaximum: 120, viewerMaximum: 120) == 120)
-        #expect(quality.frameRate(hostMaximum: 120, viewerMaximum: 60) == 60)
-        #expect(quality.frameRate(hostMaximum: 60, viewerMaximum: 120) == 60)
-        #expect(quality.frameRate(hostMaximum: 144, viewerMaximum: 144) == 120, "capped at 120")
-        #expect(quality.frameRate(hostMaximum: 120, viewerMaximum: 90) == 90)
-        #expect(quality.frameRate(hostMaximum: 100, viewerMaximum: 120) == 100)
-    }
-
-    /// A peer that does not report a rate (an older viewer, the Screen Sharing
-    /// source, a display that says 0) leaves the stream at 60, as before.
-    @Test(arguments: [ScreenQuality.auto, .smooth])
-    func anUnreportedRateKeepsSixty(quality: ScreenQuality) {
-        #expect(quality.frameRate(hostMaximum: 120, viewerMaximum: nil) == 60)
-        #expect(quality.frameRate(hostMaximum: nil, viewerMaximum: 120) == 60)
-        #expect(quality.frameRate(hostMaximum: nil, viewerMaximum: nil) == 60)
-        #expect(quality.frameRate(hostMaximum: 0, viewerMaximum: 120) == 60)
-        // Never below today's 60, even on a slower display.
-        #expect(quality.frameRate(hostMaximum: 50, viewerMaximum: 120) == 60)
-        #expect(quality.frameRate(hostMaximum: 120, viewerMaximum: 30) == 60)
-    }
-
-    /// The fixed presets keep their own rate whatever the displays can do.
-    @Test func fixedPresetsIgnoreTheDisplays() {
-        for (host, viewer) in [(120, 120), (60, 60), (Optional<Int>.none, Optional<Int>.none)] as [(Int?, Int?)] {
-            #expect(ScreenQuality.low.frameRate(hostMaximum: host, viewerMaximum: viewer) == 30)
-            #expect(ScreenQuality.medium.frameRate(hostMaximum: host, viewerMaximum: viewer) == 30)
-            #expect(ScreenQuality.high.frameRate(hostMaximum: host, viewerMaximum: viewer) == 60)
+    /// Without the rules (cmux-rd-screen `screen_quality_encoding`, whose tests hold the rates,
+    /// bitrates and scale-down) a host keeps libwebrtc's own sender parameters at 60 fps.
+    @Test func withoutTheRulesThereIsNoEncoding() {
+        for quality in ScreenQuality.allCases {
+            #expect(quality.encoding(sourceWidth: 3456, sourceHeight: 2234, hostMaximum: 120, viewerMaximum: 120, rules: ScreenRules()) == nil)
         }
     }
 
-    /// At 120 fps Auto and Smooth Motion may use twice the bitrate, so each
-    /// frame keeps the same budget (200 kbit); at 60 nothing changes.
-    @Test func adaptiveBitrateScalesWithTheFrameRate() {
-        for quality in [ScreenQuality.auto, .smooth] {
-            let sixty = quality.settings(sourceHeight: 1800, frameRate: 60)
-            #expect(sixty == quality.settings(sourceHeight: 1800), "60 fps is today's encoding")
-            #expect(sixty.maxFramerate == 60 && sixty.maxBitrate == 12_000_000)
-            let oneTwenty = quality.settings(sourceHeight: 1800, frameRate: 120)
-            #expect(oneTwenty.maxFramerate == 120)
-            #expect(oneTwenty.maxBitrate == 24_000_000)
-            #expect(oneTwenty.degradation == sixty.degradation && oneTwenty.scaleDown == sixty.scaleDown)
-            let ninety = quality.settings(sourceHeight: 1800, frameRate: 90)
-            #expect(ninety.maxFramerate == 90 && ninety.maxBitrate == 18_000_000)
+    /// The caller asks the op with the preset, the display and both rates, and reads the answer
+    /// as cmux-rd-screen sends it (its json_tests' answers).
+    @Test func theEncodingIsTheRulesAnswer() throws {
+        let rules = ScreenRules { operation, data in
+            guard operation == "screen_quality_encoding",
+                  let request = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else { return nil }
+            switch request["quality"] as? String {
+            case "auto":
+                guard request["sourceWidth"] as? Int == 3456, request["sourceHeight"] as? Int == 2234,
+                      request["hostMaximum"] as? Int == 120, request["viewerMaximum"] as? Int == 120 else { return nil }
+                return Data(#"{"frameRate":120,"encoding":{"degradation":"maintainResolution","maxBitrate":24000000,"minBitrate":null,"maxFramerate":120,"scaleDown":1.6}}"#.utf8)
+            case "low":
+                guard request["hostMaximum"] == nil, request["viewerMaximum"] == nil else { return nil }
+                return Data(#"{"frameRate":30,"encoding":{"degradation":"disabled","maxBitrate":1500000,"minBitrate":1500000,"maxFramerate":30,"scaleDown":2.0}}"#.utf8)
+            default:
+                return nil
+            }
         }
-    }
-
-    /// A known picture's ceiling is 0.18 bits per encoded pixel per frame
-    /// (Petal's rule), at least 4 Mbps and at most 16 Mbps, or 200 kbit a
-    /// frame above 80 fps, so 120 fps keeps its 24 Mbps.
-    @Test(arguments: [ScreenQuality.auto, .smooth])
-    func adaptiveBitrateFollowsTheEncodedPixels(quality: ScreenQuality) {
-        // A 16" MacBook Pro's display: the most at 60, and 120 as before.
-        #expect(quality.settings(sourceWidth: 3456, sourceHeight: 2234, frameRate: 60).maxBitrate == 16_000_000)
-        #expect(quality.settings(sourceWidth: 3456, sourceHeight: 2234, frameRate: 120).maxBitrate == 24_000_000)
-        #expect(quality.settings(sourceWidth: 3456, sourceHeight: 2234, frameRate: 90).maxBitrate == 18_000_000)
-        // A small picture gets what its pixels need.
-        #expect(quality.settings(sourceWidth: 1280, sourceHeight: 800, frameRate: 60).maxBitrate == 11_059_200)
-        #expect(quality.settings(sourceWidth: 960, sourceHeight: 600, frameRate: 60).maxBitrate == 6_220_800)
-        // Never under the floor.
-        #expect(quality.settings(sourceWidth: 640, sourceHeight: 400, frameRate: 60).maxBitrate == 4_000_000)
-        // Pixels counted after the scale-down that keeps the encoder within its rate.
-        let scaled = quality.settings(sourceWidth: 1920, sourceHeight: 1080, frameRate: 60)
-        #expect(scaled.scaleDown == 1 && scaled.maxBitrate == 16_000_000, "1080p60 wants 22 Mbps, held at 16")
-    }
-
-    /// Above 60 fps Auto and Smooth Motion scale the picture down just enough
-    /// for the hardware H.264 encoder to keep up (measured: an M1 Max encodes
-    /// a 3456×2234 display at 55 fps, an M4 Pro at 66; both hold 2160×1396 at
-    /// 120). At 60 fps and for a display that already fits, nothing changes.
-    @Test(arguments: [ScreenQuality.auto, .smooth])
-    func aboveSixtyThePictureFitsTheEncoder(quality: ScreenQuality) {
-        let budget = Double(ScreenQuality.maximumEncodedPixelRate)
-        for (width, height, fps) in [(3456, 2234, 120), (3024, 1964, 120), (3456, 2234, 90), (5120, 2880, 120)] {
-            let settings = quality.settings(sourceWidth: width, sourceHeight: height, frameRate: fps)
-            let rate = Double(width) / settings.scaleDown * (Double(height) / settings.scaleDown) * Double(fps)
-            #expect(rate <= budget * 1.001, "\(width)x\(height) at \(fps) fps asks for \(Int(rate / 1e6)) Mpixel/s")
-            #expect(rate >= budget * 0.99, "\(width)x\(height) at \(fps) fps is scaled no more than it needs")
-            #expect(settings.maxFramerate == fps && settings.degradation == quality.settings(sourceHeight: height).degradation)
-        }
-        #expect(quality.settings(sourceWidth: 3456, sourceHeight: 2234, frameRate: 60).scaleDown == 1, "60 fps keeps the full size")
-        #expect(quality.settings(sourceWidth: 1920, sourceHeight: 1080, frameRate: 120).scaleDown == 1, "1080p fits at 120")
-        #expect(quality.settings(sourceWidth: 0, sourceHeight: 2234, frameRate: 120).scaleDown == 1, "an unknown size is not scaled")
-    }
-
-    @Test func fixedPresetsScaleAsBeforeAtAnyRate() {
-        for quality in [ScreenQuality.low, .medium, .high] {
-            #expect(quality.settings(sourceWidth: 3456, sourceHeight: 2234, frameRate: 120) == quality.settings(sourceHeight: 2234))
-        }
-    }
-
-    /// The fixed presets' encoding does not depend on the frame rate passed.
-    @Test func fixedPresetEncodingIsUnchanged() {
-        for quality in [ScreenQuality.low, .medium, .high] {
-            #expect(quality.settings(sourceHeight: 2160, frameRate: 120) == quality.settings(sourceHeight: 2160))
-        }
-        #expect(ScreenQuality.high.settings(sourceHeight: 2160).maxFramerate == 60)
-        #expect(ScreenQuality.low.settings(sourceHeight: 2160).maxFramerate == 30)
+        let auto = try #require(ScreenQuality.auto.encoding(sourceWidth: 3456, sourceHeight: 2234, hostMaximum: 120, viewerMaximum: 120, rules: rules))
+        #expect(auto.frameRate == 120)
+        #expect(auto.settings == ScreenQuality.Settings(degradation: .maintainResolution, maxBitrate: 24_000_000, minBitrate: nil,
+                                                        maxFramerate: 120, scaleDown: 1.6))
+        #expect(auto.settings.degradation.preference == .maintainResolution)
+        let low = try #require(ScreenQuality.low.encoding(sourceHeight: 1440, rules: rules))
+        #expect(low.frameRate == 30 && low.settings.minBitrate == 1_500_000 && low.settings.scaleDown == 2)
+        #expect(low.settings.degradation.preference == .disabled)
+        #expect(ScreenQuality.medium.encoding(rules: rules) == nil, "an answer the rules do not give is none")
     }
 
     /// The viewer reports its display's rate on the input channel; the host
