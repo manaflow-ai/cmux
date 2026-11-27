@@ -655,6 +655,8 @@ jobs:
           CMUX_GUARDS_BASE_SHA: ${{ steps.changes.outputs.base }}
           GUARDS_AT_TIP: ${{ steps.changes.outputs.tip }}
           GH_TOKEN: ${{ github.token }}
+          # guard_base_verdicts.py reads the base's verdicts here first: a public URL, no REST quota (ci-guard-verdicts-r2).
+          CI_CACHE_R2_PUBLIC_URL: https://ci-cache-next.cmux.com
         run: |
           # The job ends at 25 minutes; the base pass gets what the head pass leaves of 22 minutes of the job, so a slow base ends in a
           # verdict (with unfinished base steps deferred to the merge gate) instead of a cancelled job that land-judge waits on.
@@ -744,6 +746,48 @@ jobs:
             ${{ runner.temp }}/guards-head.json.failures.json
           if-no-files-found: ignore
           retention-days: 3
+
+  # The push run's verdicts into the CI cache bucket, where a pull request's guard group reads them with no token
+  # (scripts/ci/guard_base_verdicts.py r2_source). The artifact API read spends the repository's REST quota: on
+  # 2026-11-26 3 of 3 sampled pull request groups got HTTP 403 there and re-ran ~50 base-red steps for 301-406 s.
+  # Its own job: the bucket's write secrets never reach the job that runs the guards.
+  ci-guard-verdicts-r2:
+    name: guard verdicts to the CI cache
+    needs: [ci-guard-group]
+    if: ${{ !cancelled() && github.event_name == 'push' && github.ref == 'refs/heads/feat-cmux-next' && needs.ci-guard-group.result != 'skipped' }}
+    continue-on-error: true
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'cmux-linux' }}
+    timeout-minutes: 5
+    environment: next-cache-writer
+    permissions:
+      contents: read
+      actions: read
+    env:
+      CI_CACHE_R2_BUCKET: cmux-ci-cache-next
+      CI_CACHE_R2_PUBLIC_URL: https://ci-cache-next.cmux.com
+      CI_CACHE_R2_NAMESPACE: guard-verdicts
+    steps:
+      - name: Checkout the cache script
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+          sparse-checkout: scripts/ci
+      - name: Fetch the guard verdicts
+        id: fetched
+        continue-on-error: true
+        uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
+        with:
+          name: guard-verdicts-${{ github.sha }}
+          path: ${{ runner.temp }}/guard-verdicts
+      - name: Save them under the commit
+        if: steps.fetched.outcome == 'success'
+        env:
+          AWS_ACCESS_KEY_ID: ${{ secrets.CI_CACHE_R2_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.CI_CACHE_R2_SECRET_ACCESS_KEY }}
+          CI_CACHE_R2_ENDPOINT: ${{ format('https://{0}.r2.cloudflarestorage.com', secrets.CI_CACHE_R2_ACCOUNT_ID) }}
+        run: |
+          [ -s "$RUNNER_TEMP/guard-verdicts/guards-head.json" ] || { echo "the push run recorded no verdicts"; exit 0; }
+          scripts/ci/r2-cache.sh save "$RUNNER_TEMP/guard-verdicts" "guard-verdicts-$GITHUB_SHA"
 
   # The static checks that may be red on the base, in one runner session and one checkout. Each was a job of its own
   # (vt-link-graph, nightly-static-capabilities, defaults-snapshot, page-strings), seconds of work behind a runner start

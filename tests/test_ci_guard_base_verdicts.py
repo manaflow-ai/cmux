@@ -135,7 +135,7 @@ class MainTests(unittest.TestCase):
             out = Path(tmp, "out.json")
             argv = ["--repo", REPO, "--base", BASE, "--root", tmp, "--steps", str(red), "--out", str(out)]
             printed = io.StringIO()
-            with mock.patch.dict("os.environ", {"GH_TOKEN": "t"}), mock.patch("sys.stdout", printed), \
+            with mock.patch.dict("os.environ", {"GH_TOKEN": "t", "CI_CACHE_R2_PUBLIC_URL": ""}), mock.patch("sys.stdout", printed), \
                     mock.patch("sys.stderr", io.StringIO()):
                 with mock.patch.multiple(gbv, **patches):
                     self.assertEqual(gbv.main(argv), 0)
@@ -168,6 +168,80 @@ class MainTests(unittest.TestCase):
         )
         self.assertEqual(left, [])
         self.assertEqual(body, {"A": False, "_cmux_complete": False})
+
+
+def tar_blob(files: dict[str, dict]) -> bytes:
+    import tarfile
+    buf = io.BytesIO()
+    with tarfile.open(fileobj=buf, mode="w:gz") as archive:
+        for name, body in files.items():
+            data = json.dumps(body).encode()
+            info = tarfile.TarInfo(f"./{name}")
+            info.size = len(data)
+            archive.addfile(info, io.BytesIO(data))
+    return buf.getvalue()
+
+
+class R2Tests(unittest.TestCase):
+    """The CI cache copy: a public URL, no token, so a spent REST quota never forces the base re-run."""
+
+    def fetcher(self, objects: dict[str, bytes]):
+        seen: list[str] = []
+
+        def fetch(url: str) -> bytes | None:
+            seen.append(url)
+            return next((blob for key, blob in objects.items() if url.endswith(key)), None)
+        return fetch, seen
+
+    def test_reads_the_base_with_no_token(self) -> None:
+        blob = tar_blob({"guards-head.json": {"A": False}, "guards-head.json.failures.json": {"A": "log"}})
+        fetch, seen = self.fetcher({f"guard-verdicts-{BASE}.tar.gz": blob})
+        hit = gbv.r2_source("https://cache.example", Path("."), BASE, fetch=fetch, shas=[BASE, ANCESTOR])
+        self.assertEqual(hit, (BASE, ({"A": False}, {"A": "log"}), None))
+        self.assertTrue(all(url.startswith("https://cache.example/v1/guard-verdicts/objects/") for url in seen))
+
+    def test_nearest_ancestor_carries_its_diff(self) -> None:
+        fetch, _ = self.fetcher({f"guard-verdicts-{ANCESTOR}.tar.gz": tar_blob({"guards-head.json": {"A": True}})})
+        with mock.patch.object(gbv, "changed_between", return_value=["docs/x.md"]):
+            hit = gbv.r2_source("https://cache.example", Path("."), BASE, fetch=fetch, shas=[BASE, OTHER, ANCESTOR])
+        self.assertEqual(hit, (ANCESTOR, ({"A": True}, {}), ["docs/x.md"]))
+
+    def test_nothing_in_the_cache(self) -> None:
+        fetch, _ = self.fetcher({})
+        self.assertIsNone(gbv.r2_source("https://cache.example", Path("."), BASE, fetch=fetch, shas=[BASE]))
+
+    def test_main_prefers_the_cache_over_the_api(self) -> None:
+        def no_api(*_args, **_kwargs):
+            raise AssertionError("the artifact API was read")
+        with tempfile.TemporaryDirectory() as tmp:
+            red = Path(tmp, "red.txt")
+            red.write_text("A\nC\n")
+            out = Path(tmp, "out.json")
+            printed = io.StringIO()
+            with mock.patch.dict("os.environ", {"CI_CACHE_R2_PUBLIC_URL": "https://cache.example", "GH_TOKEN": ""}), \
+                    mock.patch("sys.stdout", printed), mock.patch("sys.stderr", io.StringIO()), \
+                    mock.patch.multiple(gbv, sources=no_api,
+                                        r2_source=lambda *_a, **_k: (BASE, ({"A": False}, {}), None)):
+                self.assertEqual(gbv.main(["--repo", REPO, "--base", BASE, "--root", tmp, "--steps", str(red),
+                                           "--out", str(out)]), 0)
+            self.assertEqual(printed.getvalue().split(), ["C"])
+            self.assertEqual(json.loads(out.read_text()), {"A": False, "_cmux_complete": False})
+
+    def test_a_broken_cache_read_falls_to_the_api(self) -> None:
+        def broken(*_a, **_k):
+            raise OSError("bucket down")
+        with tempfile.TemporaryDirectory() as tmp:
+            red = Path(tmp, "red.txt")
+            red.write_text("A\n")
+            printed = io.StringIO()
+            with mock.patch.dict("os.environ", {"CI_CACHE_R2_PUBLIC_URL": "https://cache.example", "GH_TOKEN": "t"}), \
+                    mock.patch("sys.stdout", printed), mock.patch("sys.stderr", io.StringIO()), \
+                    mock.patch.multiple(gbv, r2_source=broken,
+                                        sources=lambda *_: iter([({"id": 1, "head_sha": BASE}, None)]),
+                                        download_results=lambda *_: ({"A": True}, {})):
+                gbv.main(["--repo", REPO, "--base", BASE, "--root", tmp, "--steps", str(red),
+                          "--out", str(Path(tmp, "o.json"))])
+            self.assertEqual(printed.getvalue().split(), [])
 
 
 class MergeTests(unittest.TestCase):
