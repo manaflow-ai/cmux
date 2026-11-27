@@ -17,6 +17,7 @@ workspace = true
 resolver = "2"
 members = [
     "crates/acpmux",
+    "crates/cmux-bytes",
     "crates/cmux-pool-pod",
     "crates/cmux-vmd",
     "crates/cmux-terminal-host-protocol",
@@ -472,6 +473,7 @@ cmux-signed-envelope = { path = "crates/cmux-signed-envelope" }
 cmux-cas = { path = "crates/cmux-cas" }
 cmux-web-pieces = { path = "crates/cmux-web-pieces" }
 cmux-projection = { path = "crates/cmux-projection" }
+cmux-bytes = { path = "crates/cmux-bytes" }
 cmux-deadline = { path = "crates/cmux-deadline" }
 cmux-interactivity = { path = "crates/cmux-interactivity" }
 cmux-tailnet-join = { path = "crates/cmux-tailnet-join" }
