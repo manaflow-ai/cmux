@@ -13,7 +13,7 @@ use std::time::{Duration, Instant};
 
 use cmux_migrate::apply::{self, Cloud, Created, Event, Local, PatchRoute, WorkPatch};
 use cmux_migrate::ledger::{Ledger, Load};
-use cmux_migrate::preview::Preview;
+use cmux_migrate::preview::{self, Applied, Preview};
 use cmux_migrate::sources::competitors::{self, Product, Route};
 use cmux_migrate::sources::{compose, devcontainer, laptop, nix, ssh_host};
 use cmux_migrate::{Plan, Step};
@@ -233,16 +233,12 @@ fn run(global: &GlobalArgs, output: OutputMode, command: Command) -> Result<i32,
             }
             if preview {
                 let preview = Preview::of(&plan, &load_ledger()?);
-                print_answer(
-                    output,
-                    &serde_json::to_value(&preview).unwrap_or(Value::Null),
-                    || {
-                        format!(
-                            "{} project(s) to move, {} already moved",
-                            preview.moving, preview.already
-                        )
-                    },
-                );
+                print_answer(output, &preview_answer(&preview), || {
+                    format!(
+                        "{} project(s) to move, {} already moved",
+                        preview.moving, preview.already
+                    )
+                });
                 return Ok(0);
             }
             print_answer(output, &serde_json::to_value(&plan).unwrap_or(Value::Null), || {
@@ -272,10 +268,10 @@ fn run(global: &GlobalArgs, output: OutputMode, command: Command) -> Result<i32,
             let mut cloud = AppCloud { runner: SelfRunner::new(global) };
             let mut events = Vec::new();
             let outcome = apply::undo(&source_id, &mut ledger, &mut cloud, &mut |e| {
-                say(output, e, &mut events)
+                say(output, e, &mut events, None)
             });
             save_ledger(&ledger)?;
-            finish(output, &events, outcome.failed)
+            finish(output, &events, outcome.failed, None)
         }
         Command::Apply { from, only, dry_run, headless } => {
             let plan = if from.ends_with(".json") && Path::new(&from).is_file() {
@@ -297,6 +293,9 @@ fn run(global: &GlobalArgs, output: OutputMode, command: Command) -> Result<i32,
                 return Ok(0);
             }
             let mut ledger = load_ledger()?;
+            let before = ledger.clone();
+            // Each step reports one event: its line carries how far the run is (the app's card).
+            let steps = Some(apply::step_count(&plan, &only));
             let local = HomeLocal::new();
             let mut events = Vec::new();
             // The headless route carries no local files: apply skips those steps, said once each
@@ -317,7 +316,7 @@ fn run(global: &GlobalArgs, output: OutputMode, command: Command) -> Result<i32,
                         &mut ledger,
                         &mut cloud,
                         &local,
-                        &mut |e| say(output, e, &mut events),
+                        &mut |e| say(output, e, &mut events, steps),
                         &mut checkpoint,
                     )
                 }
@@ -329,13 +328,13 @@ fn run(global: &GlobalArgs, output: OutputMode, command: Command) -> Result<i32,
                         &mut ledger,
                         &mut cloud,
                         &local,
-                        &mut |e| say(output, e, &mut events),
+                        &mut |e| say(output, e, &mut events, steps),
                         &mut checkpoint,
                     )
                 }
             };
             save_ledger(&ledger)?;
-            finish(output, &events, outcome.failed)
+            finish(output, &events, outcome.failed, Some(Applied::of(&plan, &before, &ledger)))
         }
     }
 }
@@ -473,31 +472,90 @@ fn step_words(step: &Step) -> String {
     }
 }
 
-fn say(output: OutputMode, event: &Event, events: &mut Vec<Value>) {
+/// `--preview --json`'s answer: what the app's Move to AutoCloud preview decodes.
+pub(super) fn preview_answer(preview: &Preview) -> Value {
+    serde_json::to_value(preview).unwrap_or(Value::Null)
+}
+
+/// One step's event; an apply's `--json` line also says how far the run is (`progress`, 0 to 1,
+/// [`preview::progress`]), which the app's card shows while the run goes on.
+pub(super) fn event_json(event: &Event, progress: Option<f64>) -> Value {
     let (word, step, project, text) = match event {
         Event::Done { step, project, detail } => ("done", step, project, detail),
         Event::Skipped { step, project, why } => ("skipped", step, project, why),
         Event::Failed { step, project, error } => ("failed", step, project, error),
     };
-    let value = json!({ "event": word, "step": step, "project": project, "detail": text });
+    let mut value = json!({ "event": word, "step": step, "project": project, "detail": text });
+    if let Some(progress) = progress {
+        value["progress"] = json!(progress);
+    }
+    value
+}
+
+/// `steps`: how many events this apply reports ([`apply::step_count`]); nil for undo.
+fn say(output: OutputMode, event: &Event, events: &mut Vec<Value>, steps: Option<usize>) {
+    let value = event_json(event, steps.map(|steps| preview::progress(events.len() + 1, steps)));
     match output {
-        OutputMode::Human => eprintln!("{word:<7} {step} {project}: {text}"),
+        OutputMode::Human => eprintln!(
+            "{:<7} {} {}: {}",
+            value["event"].as_str().unwrap_or(""),
+            value["step"].as_str().unwrap_or(""),
+            value["project"].as_str().unwrap_or(""),
+            value["detail"].as_str().unwrap_or("")
+        ),
         _ => eprintln!("{value}"),
     }
     events.push(value);
 }
 
-fn finish(output: OutputMode, events: &[Value], failed: usize) -> Result<i32, String> {
-    let stats = load_ledger().map(|l| l.stats()).ok();
-    let answer = json!({
-        "events": events, "failed": failed,
-        "median_first_chat_ms": stats.as_ref().and_then(|s| s.median_first_chat_ms),
+/// An apply's or undo's `--json` answer. `applied`, an apply's: `moved` and `left`
+/// ([`Applied`]), the app's card's count and whether it ends done; `reason`, the first failed
+/// step, when one failed.
+pub(super) fn finish_answer(
+    events: &[Value],
+    failed: usize,
+    median_first_chat_ms: Option<i64>,
+    applied: Option<Applied>,
+) -> Value {
+    let mut answer = json!({
+        "events": events, "failed": failed, "median_first_chat_ms": median_first_chat_ms,
     });
+    // The first failed step, worded for a person: the app's card says it as the run's reason.
+    if let Some(first) = events.iter().find(|e| e["event"] == "failed") {
+        answer["reason"] = json!(format!(
+            "{} {}: {}",
+            first["step"].as_str().unwrap_or(""),
+            first["project"].as_str().unwrap_or(""),
+            first["detail"].as_str().unwrap_or("")
+        ));
+    }
+    if let Some(applied) = applied {
+        answer["moved"] = json!(applied.moved);
+        answer["left"] = json!(applied.left);
+    }
+    answer
+}
+
+fn finish(
+    output: OutputMode,
+    events: &[Value],
+    failed: usize,
+    applied: Option<Applied>,
+) -> Result<i32, String> {
+    let stats = load_ledger().map(|l| l.stats()).ok();
+    let answer =
+        finish_answer(events, failed, stats.as_ref().and_then(|s| s.median_first_chat_ms), applied);
     print_answer(output, &answer, || {
-        if failed == 0 {
-            "moved".into()
-        } else {
+        if failed > 0 {
             format!("{failed} step(s) failed: run it again to retry them")
+        } else if let Some(Applied { moved, left }) = applied {
+            if left == 0 {
+                format!("moved {moved} project(s)")
+            } else {
+                format!("moved {moved} project(s); {left} not moved yet: run it again for them")
+            }
+        } else {
+            "done".into()
         }
     });
     Ok(i32::from(failed > 0))

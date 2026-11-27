@@ -47,12 +47,27 @@ public struct MoveToAutoCloudImport {
         var moving = 0
         var names: [String] = []
         var more = false
+        /// Projects an earlier run already moved: apply skips them.
+        var already = 0
         var carry = 0
         var warnings: [String] = []
         var left = 0
         var leftRows: [String] = []
 
-        enum CodingKeys: String, CodingKey { case moving, names, more, carry, warnings, left, leftRows = "left_rows" }
+        enum CodingKeys: String, CodingKey { case moving, names, more, already, carry, warnings, left, leftRows = "left_rows" }
+    }
+
+    /// `cmux migrate apply PLAN --json`'s answer (cmux-migrate `preview.rs` `Applied`): how many
+    /// projects this run moved, how many are still not moved, and the first failed step's reason.
+    nonisolated struct Applied: Decodable, Equatable, Sendable {
+        var moved = 0
+        var left = 0
+        var reason: String?
+    }
+
+    /// One `cmux migrate apply --json` stderr line: how far the run is, 0 to 1 (`preview::progress`).
+    nonisolated struct Step: Decodable, Equatable, Sendable {
+        var progress: Double?
     }
 
     /// How one `cmux` run ended: its exit status, its stdout and its last stderr line.
@@ -62,8 +77,9 @@ public struct MoveToAutoCloudImport {
         var reason: String
     }
 
-    /// Runs `cmux <arguments>` within the timeout (a test's fake).
-    let cli: @MainActor ([String], Duration) async throws -> Ran
+    /// Runs `cmux <arguments>` within the timeout, handing each stderr line as it comes to the
+    /// third argument when given (a test's fake).
+    let cli: @MainActor ([String], Duration, (@Sendable (String) -> Void)?) async throws -> Ran
     /// Shows the preview; true when the person pressed Move.
     let confirm: @MainActor (Preview) async -> Bool
     /// Where the plan is written between the dry run and apply.
@@ -71,17 +87,17 @@ public struct MoveToAutoCloudImport {
 
     /// On the app's bundled `cmux`.
     public init(cli bundled: BundledExecutable) {
-        self.init(cli: { arguments, timeout in
+        self.init(cli: { arguments, timeout, line in
             guard let binary = await bundled.resolve() else { throw MoveToAutoCloudFailure.noCLI }
             let result = try await ProcessRunner.run(executable: binary, arguments: arguments, environment: nil, timeout: timeout,
-                                                     clock: ContinuousClock())
+                                                     stderrLine: line, clock: ContinuousClock())
             let stderr = String(decoding: result.stderr, as: UTF8.self)
             return Ran(status: result.status, output: result.stdout,
                        reason: stderr.split(separator: "\n").last.map(String.init) ?? "exit \(result.status)")
         }, confirm: { await Self.showPreview($0) })
     }
 
-    init(cli: @escaping @MainActor ([String], Duration) async throws -> Ran,
+    init(cli: @escaping @MainActor ([String], Duration, (@Sendable (String) -> Void)?) async throws -> Ran,
          confirm: @escaping @MainActor (Preview) async -> Bool,
          folder: URL = FileManager.default.temporaryDirectory) {
         self.cli = cli
@@ -90,14 +106,19 @@ public struct MoveToAutoCloudImport {
     }
 
     /// Runs the move; returns how many projects it moved, nil when the person declined or
-    /// nothing was left to move.
-    /// A failure shows its toast, then throws.
+    /// nothing was left to move. `progress` follows apply's steps as the CLI reports them.
+    /// A failure, or a run that left projects unmoved, shows its toast, then throws (the card
+    /// offers Try Again; the CLI's ledger skips what already moved).
     public func run(progress: (@MainActor (Double) -> Void)? = nil) async throws -> Int? {
         let file = folder.appending(path: "cmux-move-to-autocloud-\(UUID().uuidString.lowercased()).json", directoryHint: .notDirectory)
         do {
             let moved = try await moving(file, progress: progress)
             await Self.remove(file)
             return moved
+        } catch MoveToAutoCloudFailure.unfinished(let moved, let left) {
+            await Self.remove(file)
+            Self.toast(MoveToAutoCloudStrings.unfinished(moved: moved, left: left))
+            throw MoveToAutoCloudFailure.unfinished(moved: moved, left: left)
         } catch {
             await Self.remove(file)
             Self.toast(MoveToAutoCloudStrings.failed)
@@ -111,19 +132,50 @@ public struct MoveToAutoCloudImport {
     }
 
     private func moving(_ file: URL, progress: (@MainActor (Double) -> Void)?) async throws -> Int? {
-        let planned = try await cli(["migrate", "plan", "laptop", "--out", file.path, "--preview", "--json"], Self.planTimeout)
+        let planned = try await cli(["migrate", "plan", "laptop", "--out", file.path, "--preview", "--json"], Self.planTimeout, nil)
         guard planned.status == 0 else { throw MoveToAutoCloudFailure.plan(planned.reason) }
         let preview = try JSONDecoder().decode(Preview.self, from: planned.output)
         guard preview.moving > 0 else {
-            Self.toast(MoveToAutoCloudStrings.nothing)
+            Self.toast(preview.already > 0 ? MoveToAutoCloudStrings.allMoved(preview.already) : MoveToAutoCloudStrings.nothing)
             return nil
         }
         guard await confirm(preview) else { return nil }
-        let applied = try await cli(["migrate", "apply", file.path], Self.applyTimeout)
-        guard applied.status == 0 else { throw MoveToAutoCloudFailure.apply(applied.reason) }
-        progress?(1)
-        Self.toast(MoveToAutoCloudStrings.moved)
-        return preview.moving
+        let gate = progress.map(ProgressGate.init)
+        let ran = try await cli(["migrate", "apply", file.path, "--json"], Self.applyTimeout, gate.map(Self.stepLines))
+        let applied = try? JSONDecoder().decode(Applied.self, from: ran.output)
+        guard ran.status == 0 else { throw MoveToAutoCloudFailure.apply(applied?.reason ?? ran.reason) }
+        guard let applied else { throw MoveToAutoCloudFailure.apply(ran.reason) }
+        gate?.report(1)
+        if applied.left > 0 { throw MoveToAutoCloudFailure.unfinished(moved: applied.moved, left: applied.left) }
+        // Everything moved between the preview and apply (another run): nothing for this card to count.
+        guard applied.moved > 0 else {
+            Self.toast(MoveToAutoCloudStrings.allMoved(preview.moving + preview.already))
+            return nil
+        }
+        Self.toast(MoveToAutoCloudStrings.moved(applied.moved))
+        return applied.moved
+    }
+
+    /// Apply's stderr lines into the card's progress: each step's line says how far the run is.
+    static func stepLines(_ gate: ProgressGate) -> @Sendable (String) -> Void {
+        { line in
+            guard let fraction = (try? JSONDecoder().decode(Step.self, from: Data(line.utf8)))?.progress else { return }
+            Task { @MainActor in gate.report(fraction) }
+        }
+    }
+
+    /// The card's progress only goes forward: a step line that lands after the run's end is dropped.
+    @MainActor final class ProgressGate {
+        private let progress: @MainActor (Double) -> Void
+        private(set) var reached = 0.0
+
+        init(_ progress: @escaping @MainActor (Double) -> Void) { self.progress = progress }
+
+        func report(_ fraction: Double) {
+            guard fraction > reached else { return }
+            reached = fraction
+            progress(fraction)
+        }
     }
 
     private static func showPreview(_ preview: Preview) async -> Bool {
@@ -137,12 +189,14 @@ public struct MoveToAutoCloudImport {
         return await CmuxDialogCenter.shared.present(spec, in: window.map { .window($0) } ?? .app).button == moveButton
     }
 
-    /// The projects first (count, then each machine's name), then what comes along, the plan's
+    /// The projects first (count, then each machine's name, then how many an earlier run already
+    /// moved), then what comes along, the plan's
     /// warnings as the CLI wrote them, what stays on this Mac and that nothing here changes.
     static func previewLines(_ preview: Preview) -> [String] {
         var lines = [MoveToAutoCloudStrings.projects(preview.moving)]
         lines += preview.names.map { "• \($0)" }
         if preview.more { lines.append("• …") }
+        if preview.already > 0 { lines.append(MoveToAutoCloudStrings.already(preview.already)) }
         if preview.carry > 0 { lines.append(MoveToAutoCloudStrings.carry(preview.carry)) }
         lines += preview.warnings
         if preview.left > 0 {
@@ -163,12 +217,15 @@ nonisolated enum MoveToAutoCloudFailure: Error, Equatable, CustomStringConvertib
     case noCLI
     case plan(String)
     case apply(String)
+    /// Apply ended without a failed step, yet left projects unmoved: Try Again moves them.
+    case unfinished(moved: Int, left: Int)
 
     var description: String {
         switch self {
         case .noCLI: "move to autocloud: this build has no cmux"
         case .plan(let reason): "cmux migrate plan: \(reason)"
         case .apply(let reason): "cmux migrate apply: \(reason)"
+        case .unfinished(let moved, let left): "cmux migrate apply: moved \(moved), \(left) not moved yet"
         }
     }
 }

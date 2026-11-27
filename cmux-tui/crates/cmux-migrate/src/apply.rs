@@ -214,6 +214,28 @@ pub struct Outcome {
     pub failed: usize,
 }
 
+/// The project a step belongs to, [`MACHINE_WIDE`] for the machine-wide carries.
+fn step_project(step: &Step) -> &str {
+    match step {
+        Step::CreateMachine { project, .. }
+        | Step::CarryWorktree { project, .. }
+        | Step::DeliverSecrets { project, .. }
+        | Step::MoveChats { project, .. } => project,
+        Step::CarryFiles { .. } | Step::CarrySecretFiles { .. } => MACHINE_WIDE,
+    }
+}
+
+/// Whether an apply limited to `only` (every project when empty) runs a step of `project`.
+fn runs(project: &str, only: &[String]) -> bool {
+    project == MACHINE_WIDE || only.is_empty() || only.iter().any(|o| o == project)
+}
+
+/// How many steps an apply of `plan` limited to `only` reports: each one reports exactly one
+/// [`Event`], so events over this is how far the run is.
+pub fn step_count(plan: &Plan, only: &[String]) -> usize {
+    plan.steps().iter().filter(|step| runs(step_project(step), only)).count()
+}
+
 /// A step's ledger name.
 pub fn step_name(step: &Step) -> &'static str {
     match step {
@@ -332,17 +354,10 @@ pub fn apply_saving(
         }
         report(&event);
     };
-    let wanted = |project: &str| only.is_empty() || only.iter().any(|o| o == project);
     for step in plan.steps() {
         let name = step_name(&step).to_owned();
-        let project = match &step {
-            Step::CreateMachine { project, .. }
-            | Step::CarryWorktree { project, .. }
-            | Step::DeliverSecrets { project, .. }
-            | Step::MoveChats { project, .. } => project.clone(),
-            Step::CarryFiles { .. } | Step::CarrySecretFiles { .. } => MACHINE_WIDE.to_owned(),
-        };
-        if project != MACHINE_WIDE && !wanted(&project) {
+        let project = step_project(&step).to_owned();
+        if !runs(&project, only) {
             continue;
         }
         let carries = matches!(

@@ -170,6 +170,19 @@ fn applies_every_checked_step_and_never_sends_a_login() {
     assert_eq!(ledger.stats().attempted, 1);
 }
 
+/// Each step reports one event, so the app's progress (events over `step_count`) ends at 1, on a
+/// first run, a rerun and a run limited by `--only`.
+#[test]
+fn every_counted_step_reports_one_event() {
+    let (mut ledger, local) = (Ledger::new(), local());
+    for only in [vec![], vec!["~/code/off".to_owned()], vec![]] {
+        let mut events = 0;
+        apply(&plan(), &only, &mut ledger, &mut FakeCloud::default(), &local, &mut |_| events += 1);
+        assert_eq!(events, step_count(&plan(), &only), "only {only:?}");
+    }
+    assert!(step_count(&plan(), &[]) > step_count(&plan(), &["~/code/off".to_owned()]));
+}
+
 #[test]
 fn a_rerun_makes_nothing_twice() {
     let (mut ledger, mut cloud, local) = (Ledger::new(), FakeCloud::default(), local());

@@ -39,6 +39,8 @@ public final class ImportSuggestionsCenter {
     @ObservationIgnored private let defaults: UserDefaults
     @ObservationIgnored let ledgerURL: URL
     @ObservationIgnored private var lastScan: Date?
+    /// `cloud.autoCloud` when the last scan started: the Move to AutoCloud card follows a change at once.
+    @ObservationIgnored private var scannedOffer: Bool?
     /// The scan in flight, cancelled when `browser.import.enabled` turns off.
     @ObservationIgnored private var scanning: Task<Void, Never>?
     /// Bumped when a scan in flight is dropped, so its late answer changes nothing.
@@ -94,7 +96,10 @@ public final class ImportSuggestionsCenter {
         state.expire(now: now())
         activation = NotificationCenter.default.addObserver(forName: NSApplication.didBecomeActiveNotification, object: nil,
                                                             queue: .main) { [weak self] _ in
-            Task { @MainActor in self?.rescanIfStale() }
+            Task { @MainActor in
+                guard let self else { return }
+                if !refreshIfOfferChanged() { rescanIfStale() }
+            }
         }
         scan { [weak self] in self?.resumeInterrupted() }
     }
@@ -122,11 +127,22 @@ public final class ImportSuggestionsCenter {
         if now().timeIntervalSince(lastScan) >= Self.rescanInterval { scan() }
     }
 
+    /// Rescans when `cloud.autoCloud` changed since the last scan, so the Move to AutoCloud card shows
+    /// or goes when the setting does (#59280 F1), not at the next ten-minute rescan. True when it rescans.
+    @discardableResult
+    func refreshIfOfferChanged() -> Bool {
+        guard let scannedOffer, !isScanning, let host else { return false }
+        guard (host.autoCloud?.offered() ?? false) != scannedOffer else { return false }
+        scan()
+        return true
+    }
+
     /// Scans this Mac off the main thread; `then` runs on the main actor after the findings land.
     public func scan(then: (@MainActor () -> Void)? = nil) {
         guard isEnabled, !isScanning, let host else { then?(); return }
         isScanning = true
         lastScan = now()
+        scannedOffer = host.autoCloud?.offered() ?? false
         let scan = scanThisMac
         let generation = scanGeneration
         // task-owner: ImportSuggestionsCenter.scanning (cancelled when browser import turns off)
@@ -194,6 +210,11 @@ public final class ImportSuggestionsCenter {
     /// Settings › Import's list for the page's host lists (`import_suggestions`), with its empty text; null while the cards are off.
     public var settingsJSON: JSONValue {
         guard isEnabled else { return .null }
+        // Read here, so the page's observation rebuilds this section when `cloud.autoCloud` changes;
+        // the rescan runs after the read, never inside it.
+        if let scannedOffer, (host?.autoCloud?.offered() ?? false) != scannedOffer {
+            Task { @MainActor [weak self] in self?.refreshIfOfferChanged() }
+        }
         var value = ImportCardJSON.value(list(), icons: icons, keepEmpty: true)
         if case .object(var members) = value {
             members["empty"] = .string(ImportSuggestionStrings.settingsEmpty)

@@ -19718,138 +19718,6 @@
         }
       }
     },
-    "moveToAutoCloud.toast.moved" : {
-      "comment" : "Toast after the Move to AutoCloud plan is applied.",
-      "extractionState" : "manual",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Your projects are moving to AutoCloud."
-          }
-        },
-        "de" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Deine Projekte werden zu AutoCloud verschoben."
-          }
-        },
-        "fr" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Vos projets sont en cours de déplacement vers AutoCloud."
-          }
-        },
-        "es" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Tus proyectos se están moviendo a AutoCloud."
-          }
-        },
-        "it" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "I tuoi progetti si stanno spostando su AutoCloud."
-          }
-        },
-        "pt-BR" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Seus projetos estão sendo movidos para o AutoCloud."
-          }
-        },
-        "da" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Dine projekter flyttes til AutoCloud."
-          }
-        },
-        "nb" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Prosjektene dine flyttes til AutoCloud."
-          }
-        },
-        "tr" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Projelerin AutoCloud'a taşınıyor."
-          }
-        },
-        "ru" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Ваши проекты переносятся в AutoCloud."
-          }
-        },
-        "uk" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Ваші проєкти переносяться до AutoCloud."
-          }
-        },
-        "pl" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Twoje projekty są przenoszone do AutoCloud."
-          }
-        },
-        "bs" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Vaši projekti se premještaju u AutoCloud."
-          }
-        },
-        "ar" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "يجري نقل مشاريعك إلى AutoCloud."
-          }
-        },
-        "ja" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "プロジェクトを AutoCloud に移動しています。"
-          }
-        },
-        "ko" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "프로젝트를 AutoCloud로 옮기는 중입니다."
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "你的项目正在移至 AutoCloud。"
-          }
-        },
-        "zh-Hant" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "你的專案正在移至 AutoCloud。"
-          }
-        },
-        "th" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "กำลังย้ายโปรเจกต์ของคุณไปยัง AutoCloud"
-          }
-        },
-        "km" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "គម្រោងរបស់អ្នកកំពុងផ្លាស់ទីទៅ AutoCloud។"
-          }
-        },
-        "vi" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Các dự án của bạn đang được chuyển sang AutoCloud."
-          }
-        }
-      }
-    },
     "moveToAutoCloud.toast.nothing" : {
       "comment" : "Toast when the Move to AutoCloud plan has no projects.",
       "extractionState" : "manual",
@@ -21010,6 +20878,534 @@
                 }
               }
             }
+          }
+        }
+      }
+    },
+    "moveToAutoCloud.preview.already" : {
+      "comment" : "Line in the Move to AutoCloud dialog; %@ is a number of projects an earlier move already put on AutoCloud.",
+      "extractionState" : "manual",
+      "localizations" : {
+        "ar" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "موجودة على AutoCloud من نقل سابق، تم تخطيها: %@"
+          }
+        },
+        "bs" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Već na AutoCloudu iz ranijeg premještanja, preskočeno: %@"
+          }
+        },
+        "da" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Allerede på AutoCloud fra en tidligere flytning, springes over: %@"
+          }
+        },
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Schon von einem früheren Umzug auf AutoCloud, übersprungen: %@"
+          }
+        },
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Already on AutoCloud from an earlier move, skipped: %@"
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Ya en AutoCloud por un traslado anterior, se omiten: %@"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Déjà sur AutoCloud lors d’un déplacement précédent, ignorés : %@"
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Già su AutoCloud da uno spostamento precedente, saltati: %@"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "以前の移動で AutoCloud にあるためスキップ: %@"
+          }
+        },
+        "km" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "មាននៅលើ AutoCloud រួចហើយពីការផ្លាស់ទីមុន រំលង៖ %@"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "이전 이동으로 이미 AutoCloud에 있어 건너뜀: %@"
+          }
+        },
+        "nb" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Allerede på AutoCloud fra en tidligere flytting, hoppes over: %@"
+          }
+        },
+        "pl" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Już w AutoCloud z wcześniejszego przeniesienia, pominięte: %@"
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Já no AutoCloud de uma mudança anterior, ignorados: %@"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Уже в AutoCloud после прошлого переноса, пропущено: %@"
+          }
+        },
+        "th" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "อยู่บน AutoCloud แล้วจากการย้ายครั้งก่อน ข้าม: %@"
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Önceki bir taşımadan zaten AutoCloud’da, atlandı: %@"
+          }
+        },
+        "uk" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Уже в AutoCloud після попереднього перенесення, пропущено: %@"
+          }
+        },
+        "vi" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Đã có trên AutoCloud từ lần chuyển trước, bỏ qua: %@"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "之前已移至 AutoCloud，跳过：%@"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "先前已移至 AutoCloud，略過：%@"
+          }
+        }
+      }
+    },
+    "moveToAutoCloud.toast.movedCount" : {
+      "comment" : "Toast when Move to AutoCloud finishes; %@ is the number of projects moved.",
+      "extractionState" : "manual",
+      "localizations" : {
+        "ar" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "تم النقل إلى AutoCloud: %@ مشاريع."
+          }
+        },
+        "bs" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Premješteno u AutoCloud: %@ projekata."
+          }
+        },
+        "da" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Flyttet til AutoCloud: %@ projekter."
+          }
+        },
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Zu AutoCloud umgezogen: %@ Projekte."
+          }
+        },
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Moved to AutoCloud: %@ projects."
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Movidos a AutoCloud: %@ proyectos."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Déplacés vers AutoCloud : %@ projets."
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Spostati su AutoCloud: %@ progetti."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "AutoCloud に移動しました: %@ 件のプロジェクト。"
+          }
+        },
+        "km" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "បានផ្លាស់ទីទៅ AutoCloud៖ គម្រោង %@។"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "AutoCloud로 옮김: 프로젝트 %@개."
+          }
+        },
+        "nb" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Flyttet til AutoCloud: %@ prosjekter."
+          }
+        },
+        "pl" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Przeniesiono do AutoCloud: %@ projektów."
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Movidos para o AutoCloud: %@ projetos."
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Перенесено в AutoCloud: %@ проектов."
+          }
+        },
+        "th" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "ย้ายไปยัง AutoCloud แล้ว: %@ โปรเจกต์"
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "AutoCloud’a taşındı: %@ proje."
+          }
+        },
+        "uk" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Перенесено в AutoCloud: %@ проєктів."
+          }
+        },
+        "vi" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Đã chuyển sang AutoCloud: %@ dự án."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "已移至 AutoCloud：%@ 个项目。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "已移至 AutoCloud：%@ 個專案。"
+          }
+        }
+      }
+    },
+    "moveToAutoCloud.toast.allMoved" : {
+      "comment" : "Toast when Move to AutoCloud finds nothing left to move; %@ is the number of projects already on AutoCloud.",
+      "extractionState" : "manual",
+      "localizations" : {
+        "ar" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "موجودة على AutoCloud بالفعل: %@ مشاريع. لا شيء آخر لنقله."
+          }
+        },
+        "bs" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Već na AutoCloudu: %@ projekata. Nema više ničega za premještanje."
+          }
+        },
+        "da" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Allerede på AutoCloud: %@ projekter. Intet tilbage at flytte."
+          }
+        },
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Schon auf AutoCloud: %@ Projekte. Nichts mehr umzuziehen."
+          }
+        },
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Already on AutoCloud: %@ projects. Nothing left to move."
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Ya en AutoCloud: %@ proyectos. No queda nada por mover."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Déjà sur AutoCloud : %@ projets. Plus rien à déplacer."
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Già su AutoCloud: %@ progetti. Non resta nulla da spostare."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "すでに AutoCloud にあります: %@ 件のプロジェクト。移動するものはありません。"
+          }
+        },
+        "km" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "មាននៅលើ AutoCloud រួចហើយ៖ គម្រោង %@។ គ្មានអ្វីត្រូវផ្លាស់ទីទៀតទេ។"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "이미 AutoCloud에 있음: 프로젝트 %@개. 더 옮길 것이 없습니다."
+          }
+        },
+        "nb" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Allerede på AutoCloud: %@ prosjekter. Ingenting igjen å flytte."
+          }
+        },
+        "pl" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Już w AutoCloud: %@ projektów. Nie ma nic więcej do przeniesienia."
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Já no AutoCloud: %@ projetos. Nada mais para mover."
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Уже в AutoCloud: %@ проектов. Больше нечего переносить."
+          }
+        },
+        "th" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "อยู่บน AutoCloud แล้ว: %@ โปรเจกต์ ไม่มีอะไรเหลือให้ย้าย"
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Zaten AutoCloud’da: %@ proje. Taşınacak bir şey kalmadı."
+          }
+        },
+        "uk" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Уже в AutoCloud: %@ проєктів. Більше нічого переносити."
+          }
+        },
+        "vi" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Đã có trên AutoCloud: %@ dự án. Không còn gì để chuyển."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "已在 AutoCloud：%@ 个项目。没有需要移动的了。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "已在 AutoCloud：%@ 個專案。沒有需要移動的了。"
+          }
+        }
+      }
+    },
+    "moveToAutoCloud.toast.unfinished" : {
+      "comment" : "Toast when Move to AutoCloud ends with some projects not moved; %1$@ is the number moved, %2$@ the number not moved yet.",
+      "extractionState" : "manual",
+      "localizations" : {
+        "ar" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "تم النقل إلى AutoCloud: %1$@ مشاريع. لم يُنقل بعد: %2$@. «حاول مجددًا» ينقل الباقي."
+          }
+        },
+        "bs" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Premješteno u AutoCloud: %1$@ projekata. Još nije premješteno: %2$@. Pokušaj ponovo premješta ostatak."
+          }
+        },
+        "da" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Flyttet til AutoCloud: %1$@ projekter. Ikke flyttet endnu: %2$@. Prøv igen flytter resten."
+          }
+        },
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Zu AutoCloud umgezogen: %1$@ Projekte. Noch nicht umgezogen: %2$@. „Erneut versuchen“ zieht den Rest um."
+          }
+        },
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Moved to AutoCloud: %1$@ projects. Not moved yet: %2$@. Try Again moves the rest."
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Movidos a AutoCloud: %1$@ proyectos. Aún sin mover: %2$@. Reintentar mueve el resto."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Déplacés vers AutoCloud : %1$@ projets. Pas encore déplacés : %2$@. Réessayer déplace le reste."
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Spostati su AutoCloud: %1$@ progetti. Non ancora spostati: %2$@. Riprova sposta il resto."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "AutoCloud に移動しました: %1$@ 件。未移動: %2$@ 件。「再試行」で残りを移動します。"
+          }
+        },
+        "km" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "បានផ្លាស់ទីទៅ AutoCloud៖ គម្រោង %1$@។ មិនទាន់ផ្លាស់ទី៖ %2$@។ ព្យាយាមម្ដងទៀត ផ្លាស់ទីអ្វីដែលនៅសល់។"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "AutoCloud로 옮김: 프로젝트 %1$@개. 아직 안 옮김: %2$@개. 다시 시도하면 나머지를 옮깁니다."
+          }
+        },
+        "nb" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Flyttet til AutoCloud: %1$@ prosjekter. Ikke flyttet ennå: %2$@. Prøv igjen flytter resten."
+          }
+        },
+        "pl" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Przeniesiono do AutoCloud: %1$@ projektów. Jeszcze nieprzeniesione: %2$@. Spróbuj ponownie przeniesie resztę."
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Movidos para o AutoCloud: %1$@ projetos. Ainda não movidos: %2$@. Tentar novamente move o resto."
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Перенесено в AutoCloud: %1$@ проектов. Ещё не перенесено: %2$@. «Повторить» перенесёт остальные."
+          }
+        },
+        "th" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "ย้ายไปยัง AutoCloud แล้ว: %1$@ โปรเจกต์ ยังไม่ได้ย้าย: %2$@ ลองอีกครั้งเพื่อย้ายส่วนที่เหลือ"
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "AutoCloud’a taşındı: %1$@ proje. Henüz taşınmadı: %2$@. Yeniden Dene kalanları taşır."
+          }
+        },
+        "uk" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Перенесено в AutoCloud: %1$@ проєктів. Ще не перенесено: %2$@. «Повторити» перенесе решту."
+          }
+        },
+        "vi" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Đã chuyển sang AutoCloud: %1$@ dự án. Chưa chuyển: %2$@. Thử lại sẽ chuyển phần còn lại."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "已移至 AutoCloud：%1$@ 个项目。尚未移动：%2$@ 个。点“重试”移动其余项目。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "已移至 AutoCloud：%1$@ 個專案。尚未移動：%2$@ 個。按「重試」移動其餘專案。"
           }
         }
       }

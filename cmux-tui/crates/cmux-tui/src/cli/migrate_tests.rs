@@ -156,3 +156,71 @@ fn the_headless_journey_keeps_only_when_asked() {
     assert!(person.windows(2).any(|w| w[0] == "--model-stub" && w[1] == "s"));
     assert!(person.windows(2).any(|w| w[0] == "--machine-config" && w[1] == "/tmp/o/machine.toml"));
 }
+
+/// The JSON the app's Move this Mac to AutoCloud card reads from this CLI: `plan --preview
+/// --json`'s answer, an apply's `--json` event line and its answer. The app's Swift test
+/// (`MoveToAutoCloudImportTests.theCLIsJSONDecodes`) decodes this same file, so a field renamed
+/// here fails there. `CMUX_UPDATE_MIGRATE_GOLDEN=1` rewrites it.
+#[test]
+fn the_move_card_json_matches_its_golden() {
+    use cmux_migrate::ledger::Stage;
+    use cmux_migrate::plan::Unsupported;
+    use cmux_migrate::{Carry, CarryKind, Project, Source, SourceKind};
+
+    let mut plan = Plan::new(Source {
+        kind: SourceKind::Laptop,
+        label: "this Mac".into(),
+        id: "laptop:mac".into(),
+    });
+    for name in ["old", "app", "web"] {
+        plan.projects.push(Project {
+            key: format!("~/code/{name}"),
+            name: name.into(),
+            checked: true,
+            ..Project::default()
+        });
+    }
+    plan.carry.push(Carry {
+        kind: CarryKind::Shell,
+        path: "~/.zshrc".into(),
+        bytes: 0,
+        agent: None,
+        checked: true,
+    });
+    plan.warnings.push("web has uncommitted changes: they come along as a patch".into());
+    plan.unsupported.push(Unsupported { what: "Docker volumes".into(), why: "not copied".into() });
+    let mut before = Ledger::new();
+    before.entry_mut("laptop:mac", "~/code/old").stage = Stage::Done;
+    let mut after = before.clone();
+    after.entry_mut("laptop:mac", "~/code/app").stage = Stage::Done;
+    after.entry_mut("laptop:mac", "~/code/web").stage = Stage::Done;
+    let event = event_json(
+        &Event::Done {
+            step: "create-machine".into(),
+            project: "~/code/app".into(),
+            detail: "machine m1 (/home/cmux/work/app)".into(),
+        },
+        Some(preview::progress(1, 4)),
+    );
+    let failed = event_json(
+        &Event::Failed {
+            step: "create-machine".into(),
+            project: "~/code/app".into(),
+            error: "not signed in".into(),
+        },
+        Some(preview::progress(1, 4)),
+    );
+    let golden = json!({
+        "preview": preview_answer(&Preview::of(&plan, &before)),
+        "apply_event": event,
+        "apply_answer": finish_answer(&[event.clone()], 0, Some(9000), Some(Applied::of(&plan, &before, &after))),
+        "apply_failed": finish_answer(&[failed], 1, None, Some(Applied::of(&plan, &before, &before))),
+    });
+    let text = format!("{}\n", serde_json::to_string_pretty(&golden).unwrap());
+    let path = Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/data/migrate_move_card.json");
+    if std::env::var("CMUX_UPDATE_MIGRATE_GOLDEN").is_ok_and(|v| v == "1") {
+        std::fs::write(&path, &text).unwrap();
+    }
+    let kept = std::fs::read_to_string(&path).unwrap_or_default();
+    assert_eq!(kept, text, "{} is stale: rerun with CMUX_UPDATE_MIGRATE_GOLDEN=1", path.display());
+}
