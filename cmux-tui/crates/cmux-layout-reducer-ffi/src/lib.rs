@@ -721,7 +721,6 @@ pub unsafe extern "C" fn cmux_layout_reducer_json(
                 Some(answer) => answer?,
                 None => return Err(ERR_INVALID),
             },
-            _ => return Err(ERR_INVALID),
         };
         Ok(response)
     }));
