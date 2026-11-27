@@ -100,30 +100,47 @@ fun SignInButton(label: String, bg: Color, fg: Color, onClick: () -> Unit) {
 }
 
 enum class Tab(val label: String, val icon: ImageVector) {
-    Home("Home", Icons.Filled.ChatBubble), Workspaces("Workspaces", Icons.Filled.ViewAgenda),
-    Feed("Feed", Icons.Filled.Notifications), Settings("Settings", Icons.Filled.Settings)
+    Home("Home", Icons.Filled.Home), DMs("DMs", Icons.Filled.Forum), Feed("Feed", Icons.Filled.Notifications),
+    Search("Search", Icons.Filled.Search), More("More", Icons.Filled.MoreHoriz)
 }
+
+data class Dm(val name: String, val last: String, val ago: String, val unread: Int, val agent: Boolean, val online: Boolean)
+val mockDms = listOf(
+    Dm("Chief", "Two agents are working; one is waiting on you.", "now", 1, true, true),
+    Dm("Claude Code · cmux", "Run the iOS kit tests on the fleet Mac before pushing?", "2m", 1, true, true),
+    Dm("Codex · cmux-platform", "Migrated device registry to Hyperdrive. Tests green.", "11m", 0, true, false),
+    Dm("Claude Code · cmux-next-android", "Emulator screenshots are in the thread.", "18m", 0, true, true),
+    Dm("Austin", "can you look at the sidebar PR?", "1h", 0, false, true),
+    Dm("Sarah", "shipped the Expo build", "3h", 0, false, false),
+)
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun Shell(start: String?) {
     var tab by remember { mutableStateOf(Tab.entries.firstOrNull { it.name.equals(start, true) } ?: Tab.Home) }
+    var chat by remember { mutableStateOf<String?>(if (start == "chat") "Chief" else null) }
+    if (chat != null) { ChatScreen(chat!!) { chat = null }; return }
     Scaffold(
         containerColor = Cmux.bg,
         topBar = {
-            TopAppBar(
-                title = { Text(tab.label, fontWeight = FontWeight.Bold, fontSize = 28.sp) },
+            if (tab != Tab.Search) TopAppBar(
+                title = { Text(if (tab == Tab.Home) "Manaflow" else tab.label, fontWeight = FontWeight.Bold, fontSize = 24.sp) },
                 navigationIcon = { TeamBadge() },
                 colors = TopAppBarDefaults.topAppBarColors(containerColor = Cmux.bg, titleContentColor = Cmux.text),
             )
+        },
+        floatingActionButton = {
+            if (tab == Tab.Home || tab == Tab.DMs) FloatingActionButton({}, containerColor = Cmux.accent, contentColor = Color.White,
+                shape = RoundedCornerShape(16.dp)) { Icon(Icons.Filled.Edit, "New") }
         },
         bottomBar = {
             NavigationBar(containerColor = Cmux.surface) {
                 Tab.entries.forEach { t ->
                     NavigationBarItem(selected = t == tab, onClick = { tab = t }, icon = {
-                        if (t == Tab.Feed) BadgedBox({ Badge { Text("1") } }) { Icon(t.icon, null) } else Icon(t.icon, null)
+                        val n = when (t) { Tab.DMs -> "2"; Tab.Feed -> "1"; else -> null }
+                        if (n != null) BadgedBox({ Badge { Text(n) } }) { Icon(t.icon, null) } else Icon(t.icon, null)
                     }, label = { Text(t.label) },
-                        colors = NavigationBarItemDefaults.colors(selectedIconColor = Cmux.accent, selectedTextColor = Cmux.accent,
+                        colors = NavigationBarItemDefaults.colors(selectedIconColor = Cmux.text, selectedTextColor = Cmux.text,
                             indicatorColor = Cmux.surface2, unselectedIconColor = Cmux.muted, unselectedTextColor = Cmux.muted))
                 }
             }
@@ -131,8 +148,8 @@ fun Shell(start: String?) {
     ) { pad ->
         Box(Modifier.padding(pad).fillMaxSize()) {
             when (tab) {
-                Tab.Home -> HomeScreen(); Tab.Workspaces -> WorkspacesScreen()
-                Tab.Feed -> FeedScreen(); Tab.Settings -> SettingsScreen()
+                Tab.Home -> HomeScreen { chat = it }; Tab.DMs -> DmsScreen { chat = it }
+                Tab.Feed -> FeedScreen(); Tab.Search -> SearchScreen(); Tab.More -> SettingsScreen()
             }
         }
     }
@@ -145,16 +162,128 @@ fun TeamBadge() {
 }
 
 @Composable
-fun HomeScreen() {
-    Column(Modifier.fillMaxSize().padding(16.dp)) {
-        LazyColumn(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-            item { Bubble("What's running on my Macs right now?", mine = true) }
-            item { Bubble("Two agents are working: Claude Code in cmux (feat-cmux-next) is waiting on your answer about the iOS kit tests, and Claude Code in cmux-next-android is building the emulator APK. Codex in cmux-platform finished 11 minutes ago.", mine = false) }
+fun SectionHeader(title: String) {
+    Row(Modifier.fillMaxWidth().padding(start = 16.dp, end = 16.dp, top = 18.dp, bottom = 6.dp), verticalAlignment = Alignment.CenterVertically) {
+        Text(title, color = Cmux.text, fontWeight = FontWeight.Bold, fontSize = 15.sp, modifier = Modifier.weight(1f))
+        Icon(Icons.Filled.ExpandMore, null, tint = Cmux.muted)
+    }
+}
+
+@Composable
+fun Avatar(name: String, agent: Boolean, online: Boolean, size: Int = 36) {
+    Box {
+        Box(Modifier.size(size.dp).clip(RoundedCornerShape(8.dp)).background(if (agent) Cmux.accent else Cmux.surface2), contentAlignment = Alignment.Center) {
+            if (agent) Icon(Icons.Filled.SmartToy, null, tint = Color.White, modifier = Modifier.size((size * 0.6).dp))
+            else Text(name.take(1), color = Cmux.text, fontWeight = FontWeight.Bold)
         }
-        Row(Modifier.fillMaxWidth().clip(RoundedCornerShape(24.dp)).background(Cmux.surface2).padding(horizontal = 16.dp, vertical = 14.dp),
-            verticalAlignment = Alignment.CenterVertically) {
-            Text("Ask Chief…", color = Cmux.muted, modifier = Modifier.weight(1f))
-            Icon(Icons.Filled.ArrowUpward, null, tint = Color.Black, modifier = Modifier.size(28.dp).clip(CircleShape).background(Cmux.text).padding(4.dp))
+        Box(Modifier.align(Alignment.BottomEnd).offset(3.dp, 3.dp).size(12.dp).clip(CircleShape).background(Cmux.bg).padding(2.dp)
+            .clip(CircleShape).background(if (online) Cmux.green else Cmux.muted))
+    }
+}
+
+@Composable
+fun HomeScreen(open: (String) -> Unit) {
+    LazyColumn(Modifier.fillMaxSize()) {
+        item {
+            Row(Modifier.padding(horizontal = 16.dp, vertical = 4.dp), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                listOf(Icons.Filled.Notifications to "1 ask", Icons.Filled.Bookmark to "Saved", Icons.Filled.Terminal to "4 running").forEach { (ic, l) ->
+                    Column(Modifier.weight(1f).clip(RoundedCornerShape(12.dp)).background(Cmux.surface).padding(12.dp)) {
+                        Icon(ic, null, tint = Cmux.accent); Spacer(Modifier.height(6.dp)); Text(l, color = Cmux.text, fontSize = 14.sp)
+                    }
+                }
+            }
+        }
+        item { SectionHeader("Workspaces") }
+        items(mockWorkspaces) { w ->
+            Row(Modifier.fillMaxWidth().clickable { open(w.agent?.let { "$it · ${w.name}" } ?: w.name) }.padding(horizontal = 16.dp, vertical = 9.dp),
+                verticalAlignment = Alignment.CenterVertically) {
+                Text("#", color = Cmux.muted, fontSize = 20.sp, modifier = Modifier.width(26.dp))
+                Text(w.name, color = if (w.busy) Cmux.text else Cmux.muted, fontWeight = if (w.busy) FontWeight.Bold else FontWeight.Normal,
+                    fontSize = 16.sp, modifier = Modifier.weight(1f))
+                if (w.busy) Box(Modifier.size(8.dp).clip(CircleShape).background(Cmux.green))
+            }
+        }
+        item { SectionHeader("Direct messages") }
+        items(mockDms.take(4)) { d ->
+            Row(Modifier.fillMaxWidth().clickable { open(d.name) }.padding(horizontal = 16.dp, vertical = 7.dp), verticalAlignment = Alignment.CenterVertically) {
+                Avatar(d.name, d.agent, d.online, 24); Spacer(Modifier.width(12.dp))
+                Text(d.name, color = if (d.unread > 0) Cmux.text else Cmux.muted, fontWeight = if (d.unread > 0) FontWeight.Bold else FontWeight.Normal,
+                    fontSize = 16.sp, modifier = Modifier.weight(1f))
+                if (d.unread > 0) Box(Modifier.clip(CircleShape).background(Color(0xFFE01E5A)).padding(horizontal = 7.dp, vertical = 1.dp)) {
+                    Text("${d.unread}", color = Color.White, fontSize = 12.sp, fontWeight = FontWeight.Bold) }
+            }
+        }
+        item { SectionHeader("Macs") }
+        items(listOf("Lawrence's MacBook Pro" to true, "mini-cmuxs-mac-mini-2" to true)) { (m, on) ->
+            Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 9.dp), verticalAlignment = Alignment.CenterVertically) {
+                Icon(Icons.Filled.Laptop, null, tint = Cmux.muted, modifier = Modifier.width(26.dp))
+                Text(m, color = Cmux.muted, fontSize = 16.sp, modifier = Modifier.weight(1f))
+                Box(Modifier.size(8.dp).clip(CircleShape).background(if (on) Cmux.green else Cmux.muted))
+            }
+        }
+        item { Spacer(Modifier.height(80.dp)) }
+    }
+}
+
+@Composable
+fun DmsScreen(open: (String) -> Unit) {
+    LazyColumn(Modifier.fillMaxSize()) {
+        items(mockDms) { d ->
+            Row(Modifier.fillMaxWidth().clickable { open(d.name) }.padding(horizontal = 16.dp, vertical = 12.dp)) {
+                Avatar(d.name, d.agent, d.online, 40); Spacer(Modifier.width(12.dp))
+                Column(Modifier.weight(1f)) {
+                    Row {
+                        Text(d.name, color = Cmux.text, fontWeight = FontWeight.Bold, fontSize = 16.sp, modifier = Modifier.weight(1f), maxLines = 1)
+                        Text(d.ago, color = Cmux.muted, fontSize = 13.sp)
+                    }
+                    Text(d.last, color = if (d.unread > 0) Cmux.text else Cmux.muted, fontSize = 14.sp, maxLines = 2)
+                }
+            }
+        }
+    }
+}
+
+@Composable
+fun SearchScreen() {
+    Column(Modifier.fillMaxSize().padding(16.dp)) {
+        Row(Modifier.fillMaxWidth().clip(RoundedCornerShape(12.dp)).background(Cmux.surface2).padding(14.dp), verticalAlignment = Alignment.CenterVertically) {
+            Icon(Icons.Filled.Search, null, tint = Cmux.muted); Spacer(Modifier.width(10.dp))
+            Text("Search workspaces, agents, terminals", color = Cmux.muted)
+        }
+        Spacer(Modifier.height(16.dp))
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            listOf("Workspaces", "Agents", "Terminal output", "Files").forEach {
+                Text(it, color = Cmux.text, fontSize = 13.sp, modifier = Modifier.clip(RoundedCornerShape(8.dp)).background(Cmux.surface).padding(horizontal = 10.dp, vertical = 6.dp))
+            }
+        }
+        Spacer(Modifier.height(20.dp))
+        Text("Recent searches", color = Cmux.muted, fontWeight = FontWeight.Bold, fontSize = 13.sp)
+        listOf("pre-push hook", "feat-cmux-next", "emulator screenshot", "WireGuard").forEach {
+            Row(Modifier.fillMaxWidth().padding(vertical = 12.dp), verticalAlignment = Alignment.CenterVertically) {
+                Icon(Icons.Filled.History, null, tint = Cmux.muted); Spacer(Modifier.width(12.dp)); Text(it, color = Cmux.text)
+            }
+        }
+    }
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+fun ChatScreen(name: String, back: () -> Unit) {
+    Scaffold(containerColor = Cmux.bg, topBar = {
+        TopAppBar(title = { Text(name, fontWeight = FontWeight.Bold, fontSize = 18.sp) },
+            navigationIcon = { IconButton(back) { Icon(Icons.Filled.ArrowBack, "Back") } },
+            colors = TopAppBarDefaults.topAppBarColors(containerColor = Cmux.bg, titleContentColor = Cmux.text, navigationIconContentColor = Cmux.text))
+    }) { pad ->
+        Column(Modifier.padding(pad).fillMaxSize().imePadding().padding(16.dp)) {
+            LazyColumn(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                item { Bubble("What's running on my Macs right now?", mine = true) }
+                item { Bubble("Two agents are working: Claude Code in cmux (feat-cmux-next) is waiting on your answer about the iOS kit tests, and Claude Code in cmux-next-android is building the emulator APK. Codex in cmux-platform finished 11 minutes ago.", mine = false) }
+            }
+            Row(Modifier.fillMaxWidth().clip(RoundedCornerShape(24.dp)).background(Cmux.surface2).padding(horizontal = 16.dp, vertical = 14.dp),
+                verticalAlignment = Alignment.CenterVertically) {
+                Text("Message $name", color = Cmux.muted, modifier = Modifier.weight(1f))
+                Icon(Icons.Filled.ArrowUpward, null, tint = Color.Black, modifier = Modifier.size(28.dp).clip(CircleShape).background(Cmux.text).padding(4.dp))
+            }
         }
     }
 }
@@ -164,32 +293,6 @@ fun Bubble(text: String, mine: Boolean) {
     Row(Modifier.fillMaxWidth(), horizontalArrangement = if (mine) Arrangement.End else Arrangement.Start) {
         Text(text, color = Cmux.text, fontSize = 16.sp, lineHeight = 22.sp,
             modifier = if (mine) Modifier.widthIn(max = 280.dp).clip(RoundedCornerShape(20.dp)).background(Cmux.surface2).padding(12.dp) else Modifier)
-    }
-}
-
-@Composable
-fun WorkspacesScreen() {
-    LazyColumn(Modifier.fillMaxSize().padding(horizontal = 16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-        items(mockWorkspaces) { w ->
-            Column(Modifier.fillMaxWidth().clip(RoundedCornerShape(16.dp)).background(Cmux.surface).clickable {}.padding(16.dp)) {
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Icon(Icons.Filled.Terminal, null, tint = Cmux.accent)
-                    Spacer(Modifier.width(10.dp))
-                    Text(w.name, color = Cmux.text, fontSize = 17.sp, fontWeight = FontWeight.SemiBold, modifier = Modifier.weight(1f))
-                    Text("${w.tabs} tabs", color = Cmux.muted, fontSize = 13.sp)
-                }
-                Spacer(Modifier.height(6.dp))
-                Text("${w.branch} · ${w.mac}", color = Cmux.muted, fontSize = 13.sp, fontFamily = FontFamily.Monospace)
-                w.agent?.let {
-                    Spacer(Modifier.height(8.dp))
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        Box(Modifier.size(8.dp).clip(CircleShape).background(if (w.busy) Cmux.green else Cmux.muted))
-                        Spacer(Modifier.width(6.dp))
-                        Text(if (w.busy) "$it working" else "$it idle", color = Cmux.text, fontSize = 13.sp)
-                    }
-                }
-            }
-        }
     }
 }
 
