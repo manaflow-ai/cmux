@@ -7,15 +7,24 @@ import Testing
     private static let chatDock = WindowRules.ChatDock(role: "agentChat", pinned: false, allowsTabs: false)
 
     /// Leo 2026-10-30: "IF I'M FOCUSED ON THE MAIN PANE OPEN IT THERE": Cmd-T in the chat dock keeps its page; a
-    /// tool from it goes to the strip, and a tool dragged into it is refused.
+    /// tool from it goes to the strip. Which tools the dock takes is the Rust rule's (`chat::Dock::takes_only_chats`).
     @Test func theChatDocksNewTabsGoToTheStrip() throws {
         let columns = [WindowRules.ChatColumn(panes: ["chat"], dock: Self.chatDock), WindowRules.ChatColumn(panes: ["page"], dock: nil)]
         let read = try #require(WindowRules().chatColumn(pane: "chat", columns: columns, moving: .init(samePane: false, chat: false)),
                                 "the FFI did not answer")
         #expect(read.placement == .tab("page"))
         #expect(read.newChat == .dock("chat"))
-        #expect(read.keepsNewTabPage && read.chatDock && read.takesOnlyChats && read.splitsDown && read.refusesMove)
+        #expect(read.keepsNewTabPage && read.chatDock && read.splitsDown)
         #expect(read.pagePick == "page")
+    }
+
+    /// Home's pinned dock closed to tabs refuses a tool moved into it, and the app reads that refusal back.
+    @Test func homesDockClosedToTabsRefusesATool() throws {
+        let home = WindowRules.ChatDock(role: "agentChat", pinned: true, allowsTabs: false)
+        let columns = [WindowRules.ChatColumn(panes: ["home"], dock: home), WindowRules.ChatColumn(panes: ["page"], dock: nil)]
+        let read = try #require(WindowRules().chatColumn(pane: "home", columns: columns, moving: .init(samePane: false, chat: false)),
+                                "the FFI did not answer")
+        #expect(read.chatDock && read.takesOnlyChats && read.refusesMove)
     }
 
     /// A chat alone on its screen docks when the first tool opens; Cmd-I there focuses it.
