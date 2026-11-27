@@ -86,9 +86,12 @@ interaction is its launch marks `terminal_input_accepted` (accepted_ms) and `ter
 process start to the typed key taken. With no key window at that frame (a background runner's launch is never brought to the front) the
 probe takes the front itself, as a Dock launch does, and the round's `probe_focus` says so (`app_inactive`,
 `window_not_key`; `key` when a window was key). `terminal.probe_no_key_window` (no window could take keys) fails the
-round's input number (its paint number stands). The app types that one key wherever its key window takes it, before a
-chat page is up, so on the in_app path a chat round ends when the chat drew and fails nothing; the posted path's keys
-time the chat, and a build whose chat pages do not post the composer's input mark reads `no_mark` for its input.
+round's input number (its paint number stands). One key at the first frame lands before any chat page is up, so a
+chat round launches with CMUX_NEXT_LAUNCH_TYPE_PROBE=chat: the app types the same key from its first frame every
+KEY_EVERY_S until the composer echoes one (`agent_pane.input_echoed`, the posted path's pace and mark, still timed from
+the process start), and marks `chat.probe_typing`. A build without that mode (no mark) ends its chat round when the
+chat drew, `unmeasured`, failing nothing; with it, no echo within --settle fails the round. A build whose chat pages do
+not post the composer's input mark reads `no_mark` for its input.
 
 Every measured launch runs without CMUX_NEXT_NO_ACTIVATE (fresh_home_launch_smoke.fresh_env sets it for its own
 launch): under it the app refuses every activation and no window ever takes key (WindowActivation orders them in
@@ -139,6 +142,9 @@ CHAT_MARK = "agent_pane.input_echoed"
 TYPE_PROBE_VARIABLE = "CMUX_NEXT_LAUNCH_TYPE_PROBE"  # LaunchTypeProbe: the app types one key at its first window frame
 LAUNCH_DELAY_VARIABLE = "CMUX_NEXT_LAUNCH_TEST_DELAY_MS"  # LaunchTestDelay: the app waits this long before any window
 PROBE_TYPED, PROBE_NO_KEY_WINDOW = "terminal.probe_key_typed", "terminal.probe_no_key_window"
+# LaunchTypeProbe's chat mode (CMUX_NEXT_LAUNCH_TYPE_PROBE=chat) started: the app types from its first frame until the
+# composer echoes a key. A build without the mode never marks it, and its in_app chat round stays `unmeasured`.
+CHAT_PROBE_TYPING = "chat.probe_typing"
 BROWSER_PAINT, BROWSER_INPUT = "browser_pane.first_paint", "browser_pane.input_ready"  # CEFLaunchMarks.swift
 BROWSER_MARK_BYTES = BROWSER_PAINT.encode()  # a build whose executable names it has the browser marks
 TERMINAL_PAINT_MARKS = ("first_terminal_content", "first_terminal_content_applied", "first_terminal_frame")
@@ -150,7 +156,7 @@ PAINT_MARK = {"chat": "agent_pane.painted", "terminal": "first_terminal_frame", 
 PROBE_TOOK_FRONT = ("terminal.probe_app_inactive", "terminal.probe_window_not_key")
 KEPT_MARKS = ("main_start", "first_window_frame_committed", "reveal.pane", "reveal.home", "agent_pane.painted",
               CHAT_MARK, "first_terminal_surface_created", *TERMINAL_PAINT_MARKS, "terminal_input_accepted",
-              "terminal_echo", PROBE_TYPED, PROBE_NO_KEY_WINDOW, *PROBE_TOOK_FRONT, BROWSER_PAINT,
+              "terminal_echo", PROBE_TYPED, PROBE_NO_KEY_WINDOW, CHAT_PROBE_TYPING, *PROBE_TOOK_FRONT, BROWSER_PAINT,
               BROWSER_INPUT,
               "agent_pane.launch_images_read", "agent_pane.launch_image_shown", "agent_pane.launch_image_missed",
               "agent_pane.launch_image_cleared", "launch_snapshot_shown", "window.restore_wait_end")
@@ -554,12 +560,13 @@ def input_path(post_access: bool, chosen: str = "auto") -> str:
     return "posted" if post_access else "in_app"
 
 
-def launch_env(env: dict, probe: Path, path: str, delay_ms: int = 0) -> dict:
-    """The measured launch's environment: the typing probe always, the app's own first-frame key on the in_app path,
-    and with `delay_ms` the positive control's known wait before the first window (LaunchTestDelay)."""
+def launch_env(env: dict, probe: Path, path: str, delay_ms: int = 0, which: str = "terminal") -> dict:
+    """The measured launch's environment: the typing probe always, the app's own keys on the in_app path (one at the
+    first frame for the terminal; for the chat, from the first frame until the composer echoes one), and with
+    `delay_ms` the positive control's known wait before the first window (LaunchTestDelay)."""
     out = {**env, "CMUX_NEXT_TYPING_PROBE": str(probe)}
     if path == "in_app":
-        out[TYPE_PROBE_VARIABLE] = "1"
+        out[TYPE_PROBE_VARIABLE] = "chat" if which == "chat" else "1"
     if delay_ms > 0:
         out[LAUNCH_DELAY_VARIABLE] = str(delay_ms)
     return out
@@ -591,7 +598,7 @@ def round_failures(which: str, path: str, row: dict, marks: dict, settle: float)
     out = []
     if path == "posted" and not row.get("post_access", True):
         out.append("this process may not post keys (CGPreflightPostEventAccess false)")
-    if row.get("input_ms") is None and not row.get("no_mark") and not (path == "in_app" and which == "chat"):
+    if row.get("input_ms") is None and not row.get("no_mark") and not row.get("unmeasured"):
         if which == "browser":
             out.append(f"the browser page took no keys within {settle:.0f} s ({BROWSER_INPUT})")
         elif path == "in_app" and which == "terminal" and PROBE_NO_KEY_WINDOW in marks:
@@ -891,9 +898,9 @@ def round_once(n: int, kind: str, which: str, process, inst: rr.Instance, app: P
     spawned = uptime_ns()
     try:
         if args.launch == "open":
-            process, fd = ls_launch(app, launch_env(env, probe, path, args.launch_delay_ms), out / "app-tti.log")
+            process, fd = ls_launch(app, launch_env(env, probe, path, args.launch_delay_ms, which), out / "app-tti.log")
         else:
-            process, fd, _ = rr.launch(app, launch_env(env, probe, path, args.launch_delay_ms), out / "app-tti.log")
+            process, fd, _ = rr.launch(app, launch_env(env, probe, path, args.launch_delay_ms, which), out / "app-tti.log")
     except (OSError, RuntimeError, subprocess.SubprocessError) as error:
         args.load_runner.stop()
         failures.append(f"the launch failed: {error}")
@@ -917,9 +924,11 @@ def round_once(n: int, kind: str, which: str, process, inst: rr.Instance, app: P
         painted = PAINT_MARK[which] in marks or not has_marks["paint"]
         if which == "chat":
             # A build whose pages never post the composer's input mark (bundle_has_input_mark, decided once per run),
-            # or the in_app path (its one key is typed before a chat page is up): the round ends when the chat drew
-            # and types nothing into its draft; `no_mark` or nothing measured, not a failure of the app.
-            took = CHAT_MARK in marks or ((not has_marks["input"] or path == "in_app") and "agent_pane.painted" in marks)
+            # or an in_app round on a build without the probe's chat mode (no CHAT_PROBE_TYPING by the time the chat
+            # drew: its one key went in before a chat page was up): the round ends when the chat drew; `no_mark` or
+            # nothing measured, not a failure of the app.
+            old_probe = path == "in_app" and CHAT_PROBE_TYPING not in marks
+            took = CHAT_MARK in marks or ((not has_marks["input"] or old_probe) and "agent_pane.painted" in marks)
         elif which == "browser":
             took = BROWSER_INPUT in marks or not has_marks["input"]
             # A build without the browser marks: the round ends 2 s after its first frame (nothing to read).
@@ -973,10 +982,12 @@ def round_once(n: int, kind: str, which: str, process, inst: rr.Instance, app: P
         row["input_ms"] = marks.get(CHAT_MARK)
         if not has_marks["input"]:
             row["no_mark"] = True  # this build's pages never post the composer's input mark
-        elif path == "in_app" and row["input_ms"] is None and PAINT_MARK["chat"] in marks:
-            # The app typed its one key before this chat page was up: the round measured no chat key by design (the
-            # posted path times the chat). It drew, so it counts toward the verdict, named, never as a number.
-            row["unmeasured"] = "in_app: the app types its one key before a chat page is up"
+        elif (path == "in_app" and row["input_ms"] is None and PAINT_MARK["chat"] in marks
+              and CHAT_PROBE_TYPING not in marks):
+            # A build without the probe's chat mode typed its one key before this chat page was up: no chat key to
+            # time. It drew, so it counts toward the verdict, named, never as a number. A build with the mode types
+            # until the composer echoes, so a missing echo there fails the round (round_failures).
+            row["unmeasured"] = "in_app: this build's probe types one key before a chat page is up (no chat mode)"
     elif which == "browser":
         row["input_ms"] = marks.get(BROWSER_INPUT)
         if not has_marks["input"]:

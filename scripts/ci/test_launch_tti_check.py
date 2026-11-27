@@ -100,6 +100,20 @@ class UpdaterOff(unittest.TestCase):
     updater off: on 2026-11-22 a cold_install copy saw a newer build, downloaded it, and Sparkle's installer asked
     the fleet Mac for an administrator password. The run's environment is the smoke's fresh_env."""
 
+    def test_an_in_app_chat_round_types_until_the_composer_echoes(self):
+        env = M.launch_env({}, Path("/tmp/p.csv"), "in_app", 0, "chat")
+        self.assertEqual(env[M.TYPE_PROBE_VARIABLE], "chat")
+        self.assertEqual(M.launch_env({}, Path("/tmp/p.csv"), "in_app", 0, "terminal")[M.TYPE_PROBE_VARIABLE], "1")
+        self.assertNotIn(M.TYPE_PROBE_VARIABLE, M.launch_env({}, Path("/tmp/p.csv"), "posted", 0, "chat"))
+
+    def test_an_in_app_chat_round_with_the_chat_mode_and_no_echo_fails(self):
+        out = M.round_failures("chat", "in_app", {"input_ms": None}, {M.CHAT_PROBE_TYPING: 3100.0}, 30)
+        self.assertEqual(out, ["the chat took no key within 30 s (in_app)"])
+
+    def test_an_old_builds_in_app_chat_round_stays_unmeasured_and_fails_nothing(self):
+        row = {"input_ms": None, "unmeasured": "in_app: no chat mode"}
+        self.assertEqual(M.round_failures("chat", "in_app", row, {M.PROBE_TYPED: 3100.0}, 30), [])
+
     def test_the_measured_launch_environment_turns_the_updater_off(self):
         import fresh_home_launch_smoke as smoke
         root = Path(tempfile.mkdtemp(prefix="tti-updater-off-test-"))
