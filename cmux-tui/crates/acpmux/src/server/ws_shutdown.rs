@@ -121,8 +121,8 @@ impl WsShutdown {
 pub(super) fn close_admission(listener: tokio::net::TcpListener) {
     // The handover is unix-only; keeps_listeners is false off Unix.
     #[cfg(unix)]
-    let kept = crate::daemon::keeps_listeners()
-        || crate::daemon::listener_handover::listeners_live_on();
+    let kept =
+        crate::daemon::keeps_listeners() || crate::daemon::listener_handover::listeners_live_on();
     #[cfg(not(unix))]
     let kept = crate::daemon::keeps_listeners();
     close_admission_unless_kept(listener, kept);
