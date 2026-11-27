@@ -46,7 +46,7 @@ pub(crate) fn enabled_with(doc: Option<&Value>, env: Option<&str>) -> bool {
         _ => {}
     }
     doc.and_then(|d| crate::user_settings::value(d, &super::harness_magic::setting_key(FEATURE)))
-        .and_then(Value::as_bool)
+        .and_then(|v| v.as_bool())
         .unwrap_or(false)
 }
 
