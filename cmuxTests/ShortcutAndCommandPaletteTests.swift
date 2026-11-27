@@ -2191,9 +2191,20 @@ final class UpdateSettingsTests: XCTestCase {
 
         XCTAssertTrue(defaults.bool(forKey: UpdateSettings.automaticChecksKey))
         XCTAssertEqual(defaults.double(forKey: UpdateSettings.scheduledCheckIntervalKey), UpdateSettings().scheduledCheckInterval)
-        XCTAssertFalse(defaults.bool(forKey: UpdateSettings.automaticallyUpdateKey))
+        XCTAssertTrue(defaults.bool(forKey: UpdateSettings.automaticallyUpdateKey))
         XCTAssertFalse(defaults.bool(forKey: UpdateSettings.sendProfileInfoKey))
         XCTAssertTrue(defaults.bool(forKey: UpdateSettings.migrationKey))
+    }
+
+    func testApplyTurnsOnAutomaticInstallOnceForInstallsThatStoredTheOldFalse() {
+        let defaults = makeDefaults()
+        defaults.set(false, forKey: UpdateSettings.automaticallyUpdateKey)
+        UpdateSettings().apply(to: defaults)
+        XCTAssertTrue(defaults.bool(forKey: UpdateSettings.automaticallyUpdateKey))
+
+        defaults.set(false, forKey: UpdateSettings.automaticallyUpdateKey)  // the user turns it off
+        UpdateSettings().apply(to: defaults)
+        XCTAssertFalse(defaults.bool(forKey: UpdateSettings.automaticallyUpdateKey))
     }
 
     func testApplyRepairsLegacyDisabledAutomaticChecksOnce() {

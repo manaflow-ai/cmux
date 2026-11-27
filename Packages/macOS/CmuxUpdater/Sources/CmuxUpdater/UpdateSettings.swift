@@ -16,6 +16,8 @@ public struct UpdateSettings: Sendable {
     public static let scheduledCheckIntervalKey = "SUScheduledCheckInterval"
     /// Sparkle's "send anonymous system profile" key.
     public static let sendProfileInfoKey = "SUSendProfileInfo"
+    /// cmux's marker that the automatic-install migration already ran.
+    public static let automaticInstallMigrationKey = "cmux.sparkle.automaticallyUpdateMigration.v1"
     /// cmux's marker that the v2 automatic-checks migration already ran.
     public static let migrationKey = "cmux.sparkle.automaticChecksMigration.v2"
 
@@ -44,11 +46,12 @@ public struct UpdateSettings: Sendable {
     public func apply(to defaults: UserDefaults) {
         defaults.register(defaults: [
             Self.automaticChecksKey: true,
-            Self.automaticallyUpdateKey: false,
+            Self.automaticallyUpdateKey: true,
             Self.scheduledCheckIntervalKey: scheduledCheckInterval,
             Self.sendProfileInfoKey: false,
         ])
 
+        migrateAutomaticInstall(in: defaults)
         guard !defaults.bool(forKey: Self.migrationKey) else { return }
 
         // Repair older installs that may have ended up with automatic checks disabled
@@ -65,13 +68,20 @@ public struct UpdateSettings: Sendable {
             defaults.set(scheduledCheckInterval, forKey: Self.scheduledCheckIntervalKey)
         }
 
-        if defaults.object(forKey: Self.automaticallyUpdateKey) == nil {
-            defaults.set(false, forKey: Self.automaticallyUpdateKey)
-        }
         if defaults.object(forKey: Self.sendProfileInfoKey) == nil {
             defaults.set(false, forKey: Self.sendProfileInfoKey)
         }
 
         defaults.set(true, forKey: Self.migrationKey)
+    }
+
+    /// Turns automatic download and install-on-quit on once for installs that predate it. Earlier
+    /// versions persisted `false` for everyone, so a stored false is the old default, not a choice;
+    /// Sparkle downloads in the background and installs when the user quits, never relaunching the
+    /// app mid-session. Runs once, so a user who turns it off afterwards stays off.
+    private func migrateAutomaticInstall(in defaults: UserDefaults) {
+        guard !defaults.bool(forKey: Self.automaticInstallMigrationKey) else { return }
+        defaults.set(true, forKey: Self.automaticallyUpdateKey)
+        defaults.set(true, forKey: Self.automaticInstallMigrationKey)
     }
 }
