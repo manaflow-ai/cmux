@@ -75,3 +75,15 @@ refuses and `swap` is the live route.
   - `iOS-hold: proven` with a test that fails without the change, the flow shown in a simulator or on a device, an `## Implications` section, and a SHIP review at the head confirming them.
   - A screen-sharing PR touching no screen-sharing path: `iPhone-tested: <device> at <head sha> <capture url>`.
 - A change that flips a default stays with Leo.
+
+## Lessons from reverts (2026-11-27)
+
+Lawrence's phone recording (blank terminal tabs, a linked Mac reading offline, a stale "cmux not answering") traced back to these patterns. Each one is a rule now:
+
+- **A default flip ships behind a flag and is tried on a real phone first.** #57025 flipped TUI scrolling for every phone and #60338 had to revert it. Land the new behavior default-off (like #61836's `CMUX_MOBILE_VIEWPORT_DATAGRAM_START`), then flip it in its own PR with `iPhone-tested:` evidence.
+- **Connection, transport and presence changes carry device evidence.** A PR that touches `CmuxMobileTransport`, `cmux-mobile-link*`, `cmux-mobile-host`, or the presence and failure logic in `LiveCoordinator`/`AppStore` adds an `iPhone-tested:` line from a phone on Wi-Fi with cellular on (the case #61665 changed), plus one relay-only run. Green simulator tests alone don't cover route classification.
+- **Search open PRs before you start a lane.** `gh pr list --state open --search '<area words>'` first. #62641, #62666 and #62797 all fixed "linked Mac reads offline". When one already exists, add to it or close yours.
+- **A real failure found in a PR stops the merge or gets an issue.** If a PR's own text says a red test "looks like a real regression" (#61760 on the composer typing cap), file it and link it before merging. Don't just list it under "left as is".
+- **Quiet-state rules keep the way out.** Hiding connection text ("a reattach says nothing") can't hide the recovery. Every change to `quietLine`/`quietStatus` keeps a test that an outage past the quiet bound still shows Retry or Reconnect. #61760 found `offersReconnect` dead for every reattach.
+- **Stale errors clear on fresh data.** Any failure state set by a deadline (for example `serviceDown` from `armWorkspacesDeadline`) is cleared by the next successful payload, with a test (see #62661).
+- **WIP and auto-checkpoint PRs never merge.** Titles starting with `WIP:` or `probe:`, or bodies with "do not merge" or "do not land", are closed or finished. Never land one as is.
