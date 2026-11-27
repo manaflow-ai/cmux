@@ -12,6 +12,7 @@ fn noise(seed: u64, n: usize) -> Vec<u8> {
         .collect()
 }
 
+#[cfg(unix)]
 #[test]
 fn shared_chunks_are_counted_once_and_attributed_to_both_roots() {
     let a = tempfile::tempdir().unwrap();
