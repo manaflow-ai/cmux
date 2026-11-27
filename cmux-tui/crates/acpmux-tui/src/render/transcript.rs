@@ -356,6 +356,20 @@ pub(super) fn draw_transcript(f: &mut ratatui::Frame, area: Rect, app: &mut App)
             vp.follow = false;
         }
     }
+    // A return lands at the "N new messages" line when the news runs past one screen.
+    let new_row = app.new_line.as_ref().filter(|l| l.session == id).and_then(|l| {
+        let meta: Vec<(usize, &str)> = rows.iter().map(|r| (r.item, r.text.as_str())).collect();
+        crate::new_line::row(&meta, l.item)
+    });
+    if let (Some(r), Some(line)) = (new_row, app.new_line.as_mut())
+        && !line.landed
+    {
+        line.landed = true;
+        if let Some(o) = crate::new_line::landing(r, rows.len(), inner.height as usize) {
+            vp.offset = o.min(vp.max_offset());
+            vp.follow = false;
+        }
+    }
     vp.hover = hover.map(|(hx, hy)| vp.track_contains(hx, hy)).unwrap_or(false);
     let offset = vp.offset;
     let sel = app.selection.as_ref().filter(|s| s.session == id).cloned();
@@ -435,6 +449,16 @@ pub(super) fn draw_transcript(f: &mut ratatui::Frame, area: Rect, app: &mut App)
                 }
             }
         }
+    }
+    // The "N new messages" line, over the blank row before the first new block (new_line.rs).
+    if let (Some(r), Some(line)) = (new_row, app.new_line.as_ref())
+        && r >= offset
+        && r < offset + inner.height as usize
+    {
+        let w = (inner.width as usize).saturating_sub(2).min(COLUMN_WIDTH as usize);
+        let text = crate::new_line::rule(&line.label(), w);
+        let y = inner.y + (r - offset) as u16;
+        buf.set_stringn(inner.x, y, &text, w, Style::default().fg(c.prompt_button_accent_fg));
     }
     app.link_cells.extend(link_runs);
     if vp.has_scrollbar() {

@@ -433,17 +433,20 @@ pub fn draw(f: &mut ratatui::Frame, app: &mut App) {
     // A pending permission docks as a card above the composer, Codex-app
     // style, instead of covering the conversation.
     let pending = app.selected_id().and_then(|id| app.transcripts.get(&id)).and_then(|t| {
-        // Per-frame work (cmux-view-rows frame_work): `pending_permission` reads items from the
-        // newest until a pending one; with none pending, every item (#46143 review P1-F1).
+        // Per-frame work (cmux-view-rows frame_work): `live_permission` reads items from the
+        // newest until a pending one while the turn is open; with none pending, every item
+        // (#46143 review P1-F1). A closed turn reads none.
         #[cfg(test)]
-        cmux_view_rows::frame_work::walked(
-            t.items
-                .iter()
-                .rev()
-                .position(|i| matches!(i, Item::Permission { decided: None, .. }))
-                .map_or(t.items.len(), |n| n + 1),
-        );
-        match t.pending_permission() {
+        if t.status.is_empty() || matches!(t.status.as_str(), "running" | "waiting") {
+            cmux_view_rows::frame_work::walked(
+                t.items
+                    .iter()
+                    .rev()
+                    .position(|i| matches!(i, Item::Permission { decided: None, .. }))
+                    .map_or(t.items.len(), |n| n + 1),
+            );
+        }
+        match crate::live_permission(t) {
             Some(Item::Permission { title, options, .. }) => Some((title.clone(), options.clone())),
             _ => None,
         }
@@ -452,8 +455,16 @@ pub fn draw(f: &mut ratatui::Frame, app: &mut App) {
     let flow = app.live_answering().cloned();
     let card_h: u16 = match (&pending, &flow) {
         (Some(_), _) if main.height <= input_h + 8 => 0,
-        (Some(_), Some(flow)) => question::card_height(flow).min(main.height - input_h - 4),
-        (Some(_), None) => 4,
+        (Some(_), Some(flow)) => {
+            question::card_height(flow, col_w.saturating_sub(2)).min(main.height - input_h - 4)
+        }
+        // The whole command or tool title, wrapped (cmux#49116), above the option chips.
+        (Some((title, _)), None) => {
+            (4 + question::wrap_text(title, question::text_width(col_w.saturating_sub(2)))
+                .len()
+                .max(1) as u16)
+                .min(main.height - input_h - 4)
+        }
         (None, _) => 0,
     };
     let card = Rect {
@@ -582,7 +593,7 @@ pub fn draw(f: &mut ratatui::Frame, app: &mut App) {
                 line2.push_str(&format!("  {short}"));
             }
             if !harness.is_empty() {
-                line2.push_str(&format!("  ·  {harness}"));
+                line2.push_str(&format!("  ·  {}", crate::agent_names::display_name(&harness)));
             }
             if !model.is_empty() && model != "default" {
                 line2.push_str(&format!(" · {model}"));
