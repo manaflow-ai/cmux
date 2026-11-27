@@ -30,7 +30,6 @@ import { endOffscreenMotion } from "./conversation/offscreenMotion";
 import { shelfLine } from "./conversation/shelvedRows";
 import {
   layoutConversation,
-  layoutGeometry,
   type PlacedLayout,
   type ConversationLayout,
   LayoutBuffers,
