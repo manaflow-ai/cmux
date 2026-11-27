@@ -1755,7 +1755,10 @@ def handle_prompt(rid, params):
     # "delta-chunks: N L" streams N reply chunks of exactly L bytes each, one write per chunk as a
     # harness streams them, then ends the turn (tests/delta_cost.rs: what one text delta costs).
     if text.startswith("delta-chunks:"):
-        count, length = (int(x) for x in text[13:].split())
+        # The prompt adapter may append hidden context directly to the command. Keep the
+        # fixture command grammar stable by parsing its numeric prefix before that context.
+        command = text[13:].split("<", 1)[0].split()
+        count, length = (int(x) for x in command[:2])
         for _ in range(count):
             update(sid, {"sessionUpdate": "agent_message_chunk", "content": {"type": "text", "text": "d" * length}})
         send({"jsonrpc": "2.0", "id": rid, "result": {"stopReason": "end_turn"}})
