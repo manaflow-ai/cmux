@@ -4503,6 +4503,28 @@ export const LONG_JOURNEY_MS = 11 * 3_600_000;
 export function autoMachineName(tag: string, long: boolean): string {
   return `cloud journey auto ${tag}${long ? " long" : ""}`;
 }
+/**
+ * The `ttl_seconds` a CI journey's own machines are created with, so the platform's alarm (cmux-platform
+ * TestMachines.ts, `expires_at`) deletes a machine its run left behind once no run can still use it, instead of
+ * waiting for a later journey's sweep at STALE_JOURNEY_MS. A short run's invocation runs well under an hour (its whole
+ * job is at most half of STALE_JOURNEY_MS, the test above checks it), so half of STALE_JOURNEY_MS is past any run that
+ * named the machine; a long run's (` long`) gets LONG_JOURNEY_MS. 2026-11-27 23:23Z: the production journey team sat
+ * at its 20-machine cap (paused ones included) with 12 paused journey leftovers, all under 3 h old, so every sweep
+ * deleted 0 and the live journey failed `cloud.quota.exceeded` (cmux-platform run 46080502496).
+ * CLOUD_JOURNEY_MACHINE_TTL_S overrides it (300 to 604800, the create's bounds; 0 = none). Outside CI a hand run has no
+ * timeout, so its machines get none unless that is set.
+ */
+export function journeyMachineTtl(long: boolean, env: Record<string, string | undefined> = process.env): { ttl_seconds?: number } {
+  const raw = env.CLOUD_JOURNEY_MACHINE_TTL_S;
+  if (raw !== undefined && raw !== "") {
+    const n = Number(raw);
+    if (n === 0) return {};
+    if (!Number.isInteger(n) || n < 300 || n > 604_800) throw new Error(`CLOUD_JOURNEY_MACHINE_TTL_S: not 0 or a whole 300 to 604800: ${JSON.stringify(raw)}`);
+    return { ttl_seconds: n };
+  }
+  if (env.GITHUB_ACTIONS !== "true") return {};
+  return { ttl_seconds: Math.round((long ? LONG_JOURNEY_MS : STALE_JOURNEY_MS / 2) / 1000) };
+}
 /** And idle this long: a machine with activity since then is in use, whatever its age (a hand run has no timeout). */
 export const IDLE_JOURNEY_MS = 60 * 60_000;
 /**
@@ -5505,6 +5527,8 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
   // (the run meant to delete them). A --keep run keeps the plain "cloud journey jr-..." name, as every run used before
   // the sweep existed, and the sweep never matches it, so a kept machine is never deleted.
   const machineName = keep ? `cloud journey ${tag}` : autoMachineName(tag, resumePauses.length > 0 || wakeEchoN > 0);
+  // A CI run's own machines carry a ttl, so the platform deletes one this run leaves behind (journeyMachineTtl).
+  const machineTtl = journeyMachineTtl(resumePauses.length > 0 || wakeEchoN > 0);
   const J = new Journey(backend, outDir, { tag, team: team ?? "(personal)", agent, exec: cmux ? `cmux CLI ${cmux}` : "client session", model: modelStub ? "stub (on the machine)" : "real" }, preclaim);
   if (password) J.secrets.push(password);
   if (claudeLogin) J.secrets.push(claudeLogin);
@@ -6086,7 +6110,7 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
             if (n) J.firstText.reset();
             J.firstText.mark("create");
             createSentAt = Date.now();
-            return api.op("cloud.machine.create", { name: machineName, size: CHAT_START_SIZE, ...(seed === "none" ? { seed: "none" } : {}), ...(machineProvider ? { provider: machineProvider } : {}) }, n ? `${tag}-create-${n}` : `${tag}-create`, sendTrace.headers);
+            return api.op("cloud.machine.create", { name: machineName, size: CHAT_START_SIZE, ...(keep ? {} : machineTtl), ...(seed === "none" ? { seed: "none" } : {}), ...(machineProvider ? { provider: machineProvider } : {}) }, n ? `${tag}-create-${n}` : `${tag}-create`, sendTrace.headers);
           });
           const v = room.value;
           if (room.refusals) console.log(`create machine: waited ${Math.round(room.waitedMs / 1000)} s for room (${room.refusals} cloud.quota refusals)`);
@@ -6295,7 +6319,7 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
           let deadline = Date.now() + COLD_CREATE_BOUND_MS;
           let room: { value: any; waitedMs: number; refusals: number };
           try {
-            room = await createWithRoom((n) => api.op("cloud.machine.create", { name: coldName, size: COLD_CREATE_SIZE }, n ? `${tag}-cold-create-${n}` : `${tag}-cold-create`, {}, CREATE_OP_TIMEOUT_MS, (deadline = Date.now() + COLD_CREATE_BOUND_MS)));
+            room = await createWithRoom((n) => api.op("cloud.machine.create", { name: coldName, size: COLD_CREATE_SIZE, ...(keep ? {} : machineTtl) }, n ? `${tag}-cold-create-${n}` : `${tag}-cold-create`, {}, CREATE_OP_TIMEOUT_MS, (deadline = Date.now() + COLD_CREATE_BOUND_MS)));
           } catch (error) {
             // No answer, so no id: cleanup finds the machine by its name and deletes it off the step's clock.
             coldDeletes.push(deleteByName(coldName, `${tag}-cold-delete`));
@@ -6479,7 +6503,7 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
     let gwStubUrl: string | null = null;
     if (gatewayCmux) {
       const g = await J.step("gateway machine", async () => {
-        const v = await api.op("cloud.machine.create", { name: `${machineName} gateway`, size: { cpu: 2, memory_mb: 4096, disk_mb: 16384 } }, `${tag}-gw-create`);
+        const v = await api.op("cloud.machine.create", { name: `${machineName} gateway`, size: { cpu: 2, memory_mb: 4096, disk_mb: 16384 }, ...(keep ? {} : machineTtl) }, `${tag}-gw-create`);
         gatewayMachine = v.machine.id as string;
         const m = await waitRunning(api, gatewayMachine, 300_000);
         return { value: m, detail: `${gatewayMachine}, daemon ${m.image?.daemon_version ?? "?"}` };
