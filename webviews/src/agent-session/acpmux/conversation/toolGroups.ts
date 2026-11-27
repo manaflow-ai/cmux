@@ -114,6 +114,9 @@ export function toolGroupKind(tool: Tool): ToolGroupKind | undefined {
 /// `forumLook` is the `forum-call-card` arm (forumCall.experiment.ts): off, the default, keeps an
 /// `agent-forum` shell call a shell row. ToolRows passes the arm it follows live, so a Settings switch
 /// regroups at once.
+/// A row's groups per items array (each record copies the array): toolGroups below.
+const groupsByItems = new WeakMap<readonly AcpmuxActivity[], { look: ForumCallLook; groups: ToolGroup[] }>();
+
 export function toolGroups(
   items: readonly AcpmuxActivity[],
   forumLook: ForumCallLook = experimentArm(forumCallLook),
@@ -129,8 +132,6 @@ export function toolGroups(
   groupsByItems.set(items, { look: forumLook, groups });
   return groups;
 }
-
-const groupsByItems = new WeakMap<readonly AcpmuxActivity[], { look: ForumCallLook; groups: ToolGroup[] }>();
 
 function groupItems(items: readonly AcpmuxActivity[], forumLook: ForumCallLook): ToolGroup[] {
   const groups: ToolGroup[] = [];
