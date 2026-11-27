@@ -339,7 +339,9 @@ pub async fn serve(sender: &ChannelSender, args: &Value) -> Result<(), Refusal> 
     match op {
         Op::List => send(sender, &runner.list().await?).await,
         Op::Status => send(sender, &serde_json::json!({ "run": INSTALLS.last() })).await,
-        Op::Install(pr) => stream(INSTALLS.start(runner, pr)?, |frame| send(sender, frame)).await,
+        Op::Install(pr) => {
+            stream(INSTALLS.start(runner, pr)?, |frame| async move { send(sender, &frame).await }).await
+        }
     }
 }
 
@@ -347,7 +349,7 @@ pub async fn serve(sender: &ChannelSender, args: &Value) -> Result<(), Refusal> 
 /// `sink` (the phone's channel).
 async fn stream<F, Fut>(mut run: watch::Receiver<Run>, mut sink: F) -> Result<(), Refusal>
 where
-    F: FnMut(&Value) -> Fut,
+    F: FnMut(Value) -> Fut,
     Fut: std::future::Future<Output = Result<(), Refusal>>,
 {
     let mut sent = 0u64;
@@ -355,11 +357,11 @@ where
         let state = run.borrow_and_update().clone();
         let unsent = state.printed.saturating_sub(sent).min(state.lines.len() as u64) as usize;
         for line in state.lines.iter().skip(state.lines.len() - unsent) {
-            sink(&serde_json::json!({ "line": line })).await?;
+            sink(serde_json::json!({ "line": line })).await?;
         }
         sent = state.printed;
         if let Some(exit) = state.exit {
-            return sink(&serde_json::json!({ "done": true, "pr": state.pr, "exit": exit })).await;
+            return sink(serde_json::json!({ "done": true, "pr": state.pr, "exit": exit })).await;
         }
         if run.changed().await.is_err() {
             return Err(Refusal::new("unavailable", "the install stopped"));
@@ -459,7 +461,7 @@ exit 1"#,
         let out = std::sync::Arc::new(Mutex::new(Vec::new()));
         let sink = out.clone();
         stream(run, move |frame| {
-            sink.lock().unwrap().push(frame.clone());
+            sink.lock().unwrap().push(frame);
             std::future::ready(Ok(()))
         })
         .await
