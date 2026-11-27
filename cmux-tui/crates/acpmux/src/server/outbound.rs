@@ -247,7 +247,7 @@ impl Overrun {
         let error = RpcError::new(
             -32000,
             format!(
-                "this connection fell more than {} MiB behind; reconnect and read from your cursor",
+                "this connection fell more than {} MiB behind and was closed; a new connection reads on from its cursor",
                 bound >> 20
             ),
         )

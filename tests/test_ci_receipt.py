@@ -380,8 +380,10 @@ class Produce(unittest.TestCase):
         import os  # noqa: PLC0415
 
         out = io.StringIO()
-        saved_cwd, saved = Path.cwd(), ci_receipt.produce_fast_gates
+        saved_cwd, saved, saved_records = Path.cwd(), ci_receipt.produce_fast_gates, ci_receipt.lane_records
         ci_receipt.produce_fast_gates = runner
+        # Off a runner lane_records is true, and a test on a lane VM recorded a real receipt with the controller.
+        ci_receipt.lane_records = lambda args, env=None: False
         try:
             os.chdir(repo)
             with contextlib.redirect_stdout(out), contextlib.redirect_stderr(io.StringIO()):
@@ -389,6 +391,7 @@ class Produce(unittest.TestCase):
         finally:
             os.chdir(saved_cwd)
             ci_receipt.produce_fast_gates = saved
+            ci_receipt.lane_records = saved_records
         return code, out.getvalue()
 
     def test_a_failed_execution_mints_no_receipt(self):
@@ -415,13 +418,24 @@ class Produce(unittest.TestCase):
                                  .split("=", 1)[1])
             self.assertEqual(receipt["job"], "fast-gates")
 
-    def test_a_dirty_tracked_tree_mints_no_receipt(self):
+    def test_a_dirty_tracked_tree_tests_and_names_the_commit_not_the_edit(self):
         with tempfile.TemporaryDirectory() as scratch:
             repo, _ = self.repo(scratch)
+            committed = subprocess.run(["git", "-C", str(repo), "rev-parse", "HEAD"], check=True, capture_output=True,
+                                       text=True).stdout.strip()
             (repo / "a").write_text("edited, not committed")
-            code, out = self.run_produce(repo, lambda work, head, base: 0)
-            self.assertEqual(code, 2)
-            self.assertNotIn("CMUX_CI_RECEIPT=", out)
+            seen = []
+
+            def gates(work, head, base):
+                seen.append(((work / "a").read_text(), head))
+                return 0
+            code, out = self.run_produce(repo, gates)
+            self.assertEqual(code, 0)
+            self.assertNotEqual(seen[0][0], "edited, not committed")
+            self.assertEqual(seen[0][1], committed)
+            receipt = json.loads(next(line for line in out.splitlines() if line.startswith("CMUX_CI_RECEIPT="))
+                                 .split("=", 1)[1])
+            self.assertEqual(receipt["head"], committed)
 
     def test_tested_head_is_the_snapshot_parent_with_the_same_tree(self):
         with tempfile.TemporaryDirectory() as scratch:
@@ -730,8 +744,38 @@ class LaneAskDeadlineTest(unittest.TestCase):
             ci_receipt.lane_ask({"tree": "t"}, "token", "https://example.invalid/lane-receipt")
         finally:
             ci_receipt.deadline_http.request = original
-        self.assertEqual(seen, [ci_receipt.LOOKUP_DEADLINE_S])
+        self.assertEqual(len(seen), 1)
+        self.assertAlmostEqual(seen[0], ci_receipt.LOOKUP_DEADLINE_S, delta=1)
         self.assertGreaterEqual(ci_receipt.LOOKUP_DEADLINE_S, ci_receipt.RECORD_DEADLINE_S)
+
+    def _ask(self, answers):
+        now = [0.0]
+        slept = []
+        def sleep(seconds):
+            slept.append(seconds)
+            now[0] += seconds
+        original = ci_receipt.deadline_http.request
+        ci_receipt.deadline_http.request = lambda request, deadline: answers.pop(0)
+        try:
+            return ci_receipt.lane_ask({"tree": "t"}, "token", "https://example.invalid/lane-receipt",
+                                       clock=lambda: now[0], sleep=sleep), slept
+        finally:
+            ci_receipt.deadline_http.request = original
+
+    def test_a_starting_controller_is_asked_again(self):
+        starting = (503, b'{"error": "the controller is starting; retry"}', {})
+        answer, slept = self._ask([starting, starting, (200, b'{"receipt": null}', {})])
+        self.assertEqual(answer, {"receipt": None})
+        self.assertEqual(len(slept), 2)
+
+    def test_a_controller_down_past_the_deadline_is_no_receipt(self):
+        starting = (503, b'{"error": "the controller is starting; retry"}', {})
+        with self.assertRaisesRegex(ci_receipt.Rejected, "503"):
+            self._ask([starting] * 100)
+
+    def test_a_refusal_is_not_asked_again(self):
+        with self.assertRaisesRegex(ci_receipt.Rejected, "403"):
+            self._ask([(403, b'{"error": "no"}', {}), (200, b"{}", {})])
 
 
 
