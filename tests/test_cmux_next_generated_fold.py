@@ -180,6 +180,11 @@ REPO = "manaflow-ai/cmux"
 NEXT = "refs/heads/feat-cmux-next"
 
 
+def live_labels(labels):
+    """path_route's labels output: the pull request's live labels, comma-fenced (cmux#57329)."""
+    return "," + "".join(label + "," for label in labels)
+
+
 def route_ctx(event, ref, generated, swift, targets, daemon, tree, marker, labels=(), linux="0"):
     """path_route's own expression context: its route step, the tree probes and the marker upload.
     linux is vars.CI_GENERATED_FILES_LINUX: "0" is the Mac fallback mode the fold cases below cover."""
