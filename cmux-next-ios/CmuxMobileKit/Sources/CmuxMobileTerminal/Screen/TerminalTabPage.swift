@@ -189,8 +189,8 @@ public struct TerminalTabPage: View {
                             .padding(.bottom, insets.bottom)
                             .transition(.identity)
                             .placeholderBound("terminal.page.connecting", .milliseconds(2000))
-                        if case let .stalled(title, detail) = stage {
-                            TerminalLoadStalledPanel(title: title, detail: detail) { retryAttach() }
+                        if stage == .stalled {
+                            TerminalLoadStalledPanel(state: model.connectionState) { retryAttach() }
                                 .padding(.top, insets.top)
                                 .padding(.bottom, insets.bottom + rowsLift)
                         }
