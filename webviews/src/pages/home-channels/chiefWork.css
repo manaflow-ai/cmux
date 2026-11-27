@@ -163,14 +163,14 @@
   font-variant-numeric: tabular-nums;
 }
 .hc-chief-work__plan {
-  margin: 6px 0 0;
+  margin: calc(var(--ds-space-1) + var(--grid-half-step)) 0 0;
   color: var(--page-text-2);
   font-size: var(--text-detail);
   overflow-wrap: anywhere;
 }
 .hc-chief-work__plan[data-look="inline"] {
   display: flex;
-  gap: 6px;
+  gap: calc(var(--ds-space-1) + var(--grid-half-step));
   min-width: 0;
 }
 .hc-chief-work__plan-count {
@@ -187,10 +187,10 @@
 .hc-chief-work__plan progress {
   display: block;
   width: 100%;
-  height: 3px;
-  margin: 0 0 6px;
+  height: calc(var(--grid-half-step) + var(--grid-half-step) / 2);
+  margin: 0 0 calc(var(--ds-space-1) + var(--grid-half-step));
   border: 0;
-  border-radius: 2px;
+  border-radius: var(--grid-half-step);
   appearance: none;
   background: var(--lg-line);
   overflow: hidden;
@@ -202,7 +202,7 @@
   background: var(--page-text-2);
 }
 .hc-chief-work__plan p {
-  margin: 2px 0 0;
+  margin: var(--grid-half-step) 0 0;
 }
 .hc-chief-work__plan-label {
   color: var(--page-text-3);

@@ -228,21 +228,26 @@ fn lifetime_totals_survive_completed_turn_eviction() {
 #[test]
 fn change_rows_carry_the_chart_only_when_a_turn_ended_or_the_running_one_is_due() {
     let mut state = State::default();
-    assert!(state.row_snapshot(5).is_none(), "an unseeded chart is not built for a row");
+    assert!(state.row_snapshot(5, 0).is_none(), "an unseeded chart is not built for a row");
     state.initialized = true;
     state.record(&record(1, 10, "turn_started", serde_json::json!({"turnSeq": 1})));
-    assert!(state.row_snapshot(10).is_some(), "the first row carries it");
+    assert!(state.row_snapshot(10, 1).is_some(), "the first row carries it");
     state.record(&record(2, 20, "agent_message_chunk", serde_json::json!({})));
-    assert!(state.row_snapshot(20).is_none(), "a row inside the same turn leaves it out");
-    assert!(state.row_snapshot(10 + ROW_EVERY_MS).is_some(), "a running turn refreshes it");
-    assert!(state.row_snapshot(11 + ROW_EVERY_MS).is_none());
+    assert!(state.row_snapshot(20, 2).is_none(), "a row inside the same turn leaves it out");
+    assert!(state.row_snapshot(10 + ROW_EVERY_MS, 3).is_some(), "a running turn refreshes it");
+    assert!(state.row_snapshot(11 + ROW_EVERY_MS, 4).is_none());
     state.record(&record(3, 30 + ROW_EVERY_MS, "turn_end", serde_json::json!({})));
-    assert!(state.row_snapshot(30 + ROW_EVERY_MS).is_none(), "turn_end alone changes nothing");
+    assert!(state.row_snapshot(30 + ROW_EVERY_MS, 5).is_none(), "turn_end alone changes nothing");
     state.record(&record(4, 40 + ROW_EVERY_MS, "turn_result", serde_json::json!({})));
     let ended =
-        state.row_snapshot(40 + ROW_EVERY_MS).expect("the row after a turn ends carries it");
+        state.row_snapshot(40 + ROW_EVERY_MS, 6).expect("the row after a turn ends carries it");
     assert_eq!(ended, state.snapshot(40 + ROW_EVERY_MS));
-    assert!(state.row_snapshot(10 * ROW_EVERY_MS).is_none(), "an idle chat does not resend it");
+    assert!(state.row_snapshot(10 * ROW_EVERY_MS, 7).is_none(), "an idle chat does not resend it");
+    assert_eq!(
+        state.row_snapshot(10 * ROW_EVERY_MS, 6),
+        Some(state.snapshot(10 * ROW_EVERY_MS)),
+        "another build of the row that carried it carries it again"
+    );
 }
 
 #[test]

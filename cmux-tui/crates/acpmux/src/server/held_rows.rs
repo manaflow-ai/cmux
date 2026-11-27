@@ -76,7 +76,15 @@ pub(super) fn flush(hub: &Hub, conn: &Conn) {
     for row in &held {
         if built.as_ref().is_none_or(|(id, _)| *id != row.session_id) {
             let Ok(s) = hub.resolve(&row.session_id) else { continue };
-            built = Some((&row.session_id, hub.session_change_summary(&s)));
+            // A client that draws no breakdown gets the row without it (`server/mod.rs`'s
+            // `lean`), and its build leaves the chart the chat's rows owe to the next client.
+            let lean = conn.omit_time_breakdown.load(std::sync::atomic::Ordering::SeqCst)
+                || super::omits_time_breakdown(conn, &row.session_id);
+            let mut summary = hub.session_change_summary(&s, row.seq, lean);
+            if lean {
+                super::requests::without_time_breakdown(&mut summary);
+            }
+            built = Some((&row.session_id, summary));
         }
         let Some((_, summary)) = &built else { continue };
         conn.send_row(

@@ -124,7 +124,7 @@ export function SidebarEdgeFadeDesigns({ variant }: SidebarEdgeFadeDesignsProps)
   const maskStyle = { maskImage: mask, WebkitMaskImage: mask } as CSSProperties;
   return (
     <div className="sef-stage">
-      <div className="sef-sidebar" data-variant={variant} data-under-footer={spec.underFooter || undefined}>
+      <div className="sef-sidebar ui-glass" data-variant={variant} data-under-footer={spec.underFooter || undefined}>
         <div ref={scroll} className="sef-scroll" style={maskStyle} onScroll={measure}>
           <div className="sef-header">Sessions</div>
           {titles.map((title, index) => (

@@ -14,6 +14,7 @@ export async function mountComponent(
   state: ComponentVariant<Record<string, unknown>>,
   context: StageContext,
 ): Promise<void> {
+  if (state.experiments) globalThis.cmuxExperiments = { ...globalThis.cmuxExperiments, ...state.experiments };
   await installPaneStrings();
   applyAgentTheme(context.agentTheme as never);
   installChipHost(state.chipHost);

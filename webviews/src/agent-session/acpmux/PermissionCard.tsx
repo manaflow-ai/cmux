@@ -35,6 +35,10 @@ import { focusRoute } from "../../ui/focusRoute";
 import { cx } from "../../ui/cx";
 import { Surface } from "../../ui/surface/Surface";
 
+function focusPlanEditor(node: HTMLTextAreaElement | null) {
+  focusRoute(node, "person", "edit the plan");
+}
+
 type PermissionOption = AcpmuxPermission["options"][number];
 
 /** The single card frame used by legacy ACP asks and grouped tool permissions. */
@@ -757,7 +761,7 @@ export function PermissionCard({
                 value={planEdit.text}
                 rows={Math.min(16, Math.max(4, planEdit.text.split("\n").length + 1))}
                 spellCheck
-                autoFocus
+                ref={focusPlanEditor}
                 onChange={(event) => setPlanEdit({ permissionId: permission.permissionId, text: event.target.value })}
                 onKeyDown={(event) => {
                   // Typing stays in the field; Escape closes the edit without sending it.

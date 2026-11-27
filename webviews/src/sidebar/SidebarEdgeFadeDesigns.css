@@ -40,7 +40,7 @@
   color: var(--sef-ink);
 }
 
-.sef-sidebar {
+.sef-sidebar.ui-glass {
   position: relative;
   width: 260px;
   height: var(--sef-sidebar-height);
@@ -48,13 +48,12 @@
   flex-direction: column;
   border-radius: 12px;
   overflow: hidden;
-  background: color-mix(
+  --glass-tint: color-mix(
     in srgb,
     var(--sef-tone) var(--ds-glass-chrome-tint, 72%),
     transparent
   );
-  backdrop-filter: var(--surface-blur);
-  -webkit-backdrop-filter: var(--surface-blur);
+  --glass-backdrop: var(--surface-blur);
   box-shadow: 0 0 0 0.5px color-mix(in srgb, var(--sef-ink) 18%, transparent);
 }
 

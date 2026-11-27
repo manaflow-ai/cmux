@@ -2,6 +2,7 @@
 // Finder: it has no upload, so these were only refused. On this Mac the host answers where each one
 // is (`chat.attach.dropped`), and the first prompt carries them as links to those paths.
 import { afterAll, beforeAll, expect, test } from "bun:test";
+import { composerSettingsSnapshot, setComposerSettings } from "../src/agent-session/acpmux/composerSettings";
 import { JSDOM } from "jsdom";
 import { act } from "react";
 import type { Root } from "react-dom/client";
@@ -34,7 +35,9 @@ let root: Root | undefined;
 let host: HTMLElement;
 let window: JSDOM["window"];
 
+const initialView = composerSettingsSnapshot().attachmentView;
 beforeAll(() => {
+  setComposerSettings({ attachmentView: "inline" });
   window = new JSDOM("<!doctype html><div id=root></div>").window;
   Object.assign(window, {
     ResizeObserver: class {
@@ -64,6 +67,7 @@ beforeAll(() => {
 
 afterAll(async () => {
   act(() => root?.unmount());
+  setComposerSettings({ attachmentView: initialView });
   await teardownDom(saved, { scope });
 });
 
@@ -122,7 +126,7 @@ test("a folder and a zip dropped on the New Tab page go with the prompt as links
   await act(async () => {
     window.document.body.dispatchEvent(drop);
   });
-  // In the default inline view a drop goes in the field at the caret, each as a chip naming where it is.
+  // In the inline view a drop goes in the field at the caret, each as a chip naming where it is.
   const chips = () => [...field.querySelectorAll<HTMLElement>(".acpmux-md-inline-chip")];
   for (let tries = 0; tries < 500 && chips().length < 2; tries += 1)
     await act(() => new Promise((resolve) => setTimeout(resolve, 0)));

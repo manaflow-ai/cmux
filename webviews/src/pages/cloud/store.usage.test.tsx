@@ -106,7 +106,7 @@ test("no card shows Add payment method, which runs the checkout through the host
   );
   expect(checkout).toBeDefined();
   // No plan: the checkout attaches a card and leaves the plan alone.
-  expect((checkout?.params as { args?: Record<string, unknown> }).args).not.toHaveProperty("plan");
+  expect((checkout!.params as { args?: Record<string, unknown> }).args).not.toHaveProperty("plan");
   unsubscribe();
 });
 

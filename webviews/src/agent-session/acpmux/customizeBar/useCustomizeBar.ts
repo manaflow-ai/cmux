@@ -2,9 +2,23 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { pageHostClient } from "../pageHostClient";
 import { barState, refusalMessage, type CustomizeBarState, type CustomizeVerb } from "./customizeBarModel";
 import type { CustomizeBarOutcome } from "./CustomizeBar";
+import type { PageClient } from "../../../pages/shared/pageClient";
 
 const OP = "cmux.customize.run";
 const IDLE: CustomizeBarState = { kind: "idle" };
+
+async function runAction(page: PageClient, verb: CustomizeVerb, arg?: string): Promise<CustomizeBarOutcome> {
+  try {
+    const answer = await page.call<unknown>(OP, arg === undefined ? { verb } : { verb, arg });
+    const refused = refusalMessage(answer);
+    if (refused !== undefined) return { kind: "failed", message: refused };
+    if (verb === "apply") return { kind: "applied" };
+    if (verb === "save" && arg) return { kind: "saved", name: arg };
+    return { kind: "none" };
+  } catch (error) {
+    return { kind: "failed", message: error instanceof Error ? error.message : String(error) };
+  }
+}
 
 /// The bar's status and actions. It reads `cmux customize status` when it mounts, when the chat's
 /// turn ends (an agent's `customize_*` calls happen in a turn), and after each of its own actions:
@@ -44,21 +58,7 @@ export function useCustomizeBar(enabled: boolean, working: boolean) {
       const page = pageHostClient();
       if (!page) return;
       setOutcome({ kind: "busy", verb });
-      try {
-        const answer = await page.call<unknown>(OP, arg === undefined ? { verb } : { verb, arg });
-        const refused = refusalMessage(answer);
-        setOutcome(
-          refused !== undefined
-            ? { kind: "failed", message: refused }
-            : verb === "apply"
-              ? { kind: "applied" }
-              : verb === "save" && arg
-                ? { kind: "saved", name: arg }
-                : { kind: "none" },
-        );
-      } catch (error) {
-        setOutcome({ kind: "failed", message: error instanceof Error ? error.message : String(error) });
-      }
+      setOutcome(await runAction(page, verb, arg));
       await refresh();
     },
     [refresh],

@@ -118,8 +118,9 @@ export function TextRoll({
     if (current) drawn.current = children;
   });
   useLayoutEffect(() => {
-    if (cell.current) applyLook(cell.current.ownerDocument);
-  }, []);
+    const node = cell.current;
+    if (node) applyLook(node.ownerDocument);
+  }, [cell]);
   // The width ease: one animation per roll on the cell alone, on the roll's own clock.
   useLayoutEffect(() => {
     const from = widthFrom.current;
@@ -142,7 +143,7 @@ export function TextRoll({
     const width = node.animate([{ width: `${from}px` }, { width: `${to}px` }], { duration, easing });
     width.id = TEXT_ROLL_WIDTH;
     return () => width.cancel();
-  }, [n]);
+  }, [cell, n]);
   // A roll whose animations never started lands at once: a cell under `display: none` (a folded
   // tray), or one whose styles set no roll. A page without motion.css's styles (no roll clock on the
   // cell) is left to the end events.
@@ -153,7 +154,7 @@ export function TextRoll({
     if (!clock?.trim()) return;
     if (node.getAnimations({ subtree: true }).some((animation) => animation.id !== TEXT_ROLL_WIDTH)) return;
     setState((now) => (now.n === n ? { ...now, previous: undefined, entering: undefined } : now));
-  }, [n]);
+  }, [cell, n, shown.entering]);
   const settled = (part: "previous" | "entering") => () =>
     setState((now) => (now.n !== n ? now : { ...now, [part]: undefined }));
   const named = (part: string) => (name ? `${TEXT_ROLL}__${part} ${name}__${part}` : `${TEXT_ROLL}__${part}`);

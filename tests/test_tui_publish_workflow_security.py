@@ -259,7 +259,10 @@ def test_cmux_next_daemon_artifact_fetch_retries_cargo_and_requeues_failures() -
     assert "$SERVER_URL/repos/" not in artifacts
     for body in (preflight, owner_wait):
         assert "API_URL: ${{ github.api_url }}" in body
-    assert "$API_URL/repos/$REPOSITORY/actions/runs/$OWNER_RUN_ID" in owner_wait
+    # The owner wait uses run_read so the controller feed can answer without an
+    # Actions API request. Its fallback URL is parameterized by the run id.
+    assert 'run_read "$OWNER_RUN_ID"' in owner_wait
+    assert '"$API_URL/repos/$REPOSITORY/actions/runs/$1"' in owner_wait
     # Any branch's run of the same commit owns it, not only feat-cmux-next's.
     assert "runs?head_sha=$SHA&event=push" in preflight
     assert "refs/heads/main" in preflight
@@ -1215,11 +1218,27 @@ def test_package_workflow_uses_no_shared_build_cache() -> None:
     # a separate, write-protected scope that only release builds can write.
     jobs = _package_workflow_document()["jobs"]
     assert isinstance(jobs, dict)
+    build = jobs["build"]
+    assert isinstance(build, dict)
+    # Release builds use a separate R2 bucket. Only the release branch gets its
+    # writer environment and may prepare outputs for the save steps.
+    assert build["environment"] == "${{ github.ref == 'refs/heads/feat-cmux-next' && 'next-cache-writer' || '' }}"
+    assert build["env"]["CI_CACHE_R2_BUCKET"] == "cmux-ci-cache-next"
+    prepare = next(step for step in build["steps"] if step.get("id") == "r2-cargo-strip")
+    assert "github.ref == 'refs/heads/feat-cmux-next'" in prepare["if"]
+    assert "github.event_name != 'pull_request'" in prepare["if"]
     for name, job in jobs.items():
         if not isinstance(job, dict):
             continue
         for step in job.get("steps", []) or []:
-            assert "actions/cache" not in str(step.get("uses", "")), name
+            uses = str(step.get("uses", ""))
+            if uses in ("./.github/actions/cache-restore", "./.github/actions/cache-save"):
+                assert name == "build"
+                assert step.get("with", {}).get("backend") == "r2", name
+                if uses.endswith("/cache-save"):
+                    assert "steps.r2-cargo-strip.outcome == 'success'" in step["if"]
+            else:
+                assert "actions/cache" not in uses, name
 
 
 PACKAGE_BUILD_JOBS = (

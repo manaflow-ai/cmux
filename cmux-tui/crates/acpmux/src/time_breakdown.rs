@@ -166,8 +166,8 @@ pub(crate) struct State {
     /// The newest record the saved copy (`FILE`) covers: 0 when none was saved.
     pub(crate) saved_seq: u64,
     /// What the last change row that carried the breakdown held ([`Self::row_snapshot`]): the
-    /// turns ended by then, and when. None until a row carried it.
-    rowed: Option<(u64, u64)>,
+    /// turns ended by then, when, and the record it followed. None until a row carried it.
+    rowed: Option<(u64, u64, u64)>,
     reducer: Reducer,
 }
 
@@ -259,17 +259,25 @@ impl State {
     /// record, six rows a turn, each took 6.5 ms to build and went out ahead of the turn's first
     /// token on the same connection, 50 ms later to a peer's view of the chat than to its own
     /// (`tests/transfer_cli/view_latency.rs`).
-    pub(crate) fn row_snapshot(&mut self, now: u64) -> Option<TimeBreakdown> {
+    ///
+    /// `seq` is the record the row follows. One record's row is built more than once (each
+    /// watcher builds it again once the last copy is sent, `HubEvent::row`), and every build of
+    /// the row that carried it carries it again: the first build used to spend it, so a second
+    /// pane, or the pane after a phone's lean row, got that turn's row without the chart.
+    pub(crate) fn row_snapshot(&mut self, now: u64, seq: u64) -> Option<TimeBreakdown> {
         if !self.initialized {
             return None;
         }
         let ended = self.reducer.ended_turns;
-        let owed = self.rowed.is_none_or(|(turns, at)| {
+        if self.rowed.is_some_and(|(_, _, rowed_seq)| rowed_seq == seq) {
+            return Some(self.snapshot(now));
+        }
+        let owed = self.rowed.is_none_or(|(turns, at, _)| {
             turns != ended
                 || (self.reducer.turn.is_some() && now.saturating_sub(at) >= ROW_EVERY_MS)
         });
         owed.then(|| {
-            self.rowed = Some((ended, now));
+            self.rowed = Some((ended, now, seq));
             self.snapshot(now)
         })
     }

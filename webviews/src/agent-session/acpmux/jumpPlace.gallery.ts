@@ -121,7 +121,7 @@ export default agentPaneEntry({
     "agent-session/acpmux/jumpPlace.ts",
     "agent-session/acpmux/hatPillPlace.experiment.ts",
     "agent-session/acpmux/subagents/TrayPullTab.tsx",
-    "agent-session/acpmux/VirtualTranscript.tsx#JumpToLatest",
+    "agent-session/acpmux/transcript/JumpButtons.tsx#JumpToLatest",
   ],
   keywords: ["jump to latest", "jump to bottom", "composer hat", "tray", "pull tab", "side"],
   checks: {

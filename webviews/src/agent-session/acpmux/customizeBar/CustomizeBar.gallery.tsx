@@ -42,7 +42,7 @@ export default componentEntry({
       </div>
     );
   },
-  styles: () => Promise.all([import("../../../ui/ui.css")]),
+  styles: () => import("../../../ui/ui.css"),
   variants: {
     "strip-preview": { props: { look: "strip" } },
     "strip-applied": { props: { look: "strip", state: { kind: "idle", generation: 5 }, outcome: { kind: "applied" } } },

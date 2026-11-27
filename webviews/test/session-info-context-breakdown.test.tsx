@@ -32,21 +32,21 @@ const BREAKDOWN = {
   maxTokens: 400_000,
 };
 
-test("used categories come largest first, then the buffer, the deferred ones and the free space", () => {
+test("used categories come largest first, then the buffer, free space and deferred categories", () => {
   const rows = contextBreakdown(BREAKDOWN)!.rows;
   expect(rows.map((row) => row.name)).toEqual([
     "Messages",
     "Memory files",
     "System prompt",
     "Autocompact buffer",
-    "System tools (deferred)",
     "Free space",
+    "System tools (deferred)",
   ]);
   expect(rows.map((row) => row.tone)).toEqual([0, 1, 2, undefined, undefined, undefined]);
   expect(rows[0]!.share).toBeCloseTo(0.4245);
   // A deferred category takes no room until it loads: no share.
-  expect(rows[4]!.share).toBeUndefined();
-  expect(rows[5]!.share).toBeCloseTo(0.36675);
+  expect(rows[5]!.share).toBeUndefined();
+  expect(rows[4]!.share).toBeCloseTo(0.36675);
 });
 
 test("the folds name each MCP tool without its server prefix, each memory file by its name", () => {
@@ -218,8 +218,7 @@ test("Session Info's Compact stays live while a turn runs, and its click sends /
   // Leo, 2026-10-31: "COMPACT BUTTON LITERALLY DOESN'T EVEN F***IN WORK". It was disabled while a
   // turn ran, and his chats nearly always run; the /compact now queues behind the turn as one typed
   // in the composer does. The click goes through App.tsx's own path: compactThrough's chat.send.
-  // Context is one line that opens the composer's context card (no Compact there, Lucas 2026-11-05);
-  // Usage's "Context per call" row keeps Compact.
+  // The Context fold shows the breakdown. Usage’s "Context per call" row holds Compact.
   const container = installDom();
   root = createRoot(container);
   const calls: Array<[string, Record<string, unknown>]> = [];
@@ -241,12 +240,11 @@ test("Session Info's Compact stays live while a turn runs, and its click sends /
   );
   const context = container.querySelector('[data-section="context"]')!;
   expect(context.querySelector(".acpmux-session-info-context__compact")).toBeNull();
-  // Its line is a fold (Lucas, 2026-11-06): unfolded, the breakdown's rows from the first one down,
-  // with no total line and no bar (the head has the meter and tokens).
+  // Opening Context reveals the total and its bar above the category rows (#53132).
   const trigger = context.querySelector<HTMLButtonElement>("button.ui-disclosure-trigger")!;
   if (trigger.getAttribute("aria-expanded") !== "true") await act(async () => trigger.click());
-  expect(context.querySelector(".acpmux-session-info-context__total")).toBeNull();
-  expect(context.querySelector(".acpmux-session-info-context__bar")).toBeNull();
+  expect(context.querySelector(".acpmux-session-info-context__tokens")?.textContent).toContain("/");
+  expect(context.querySelectorAll(".acpmux-session-info-context__bar > span").length).toBeGreaterThan(0);
   expect(context.querySelectorAll(".acpmux-session-info-context .acpmux-session-info-row").length).toBeGreaterThan(0);
   const button = container.querySelector<HTMLButtonElement>(".acpmux-session-info-usage__action")!;
   expect(button.textContent).toBe("Compact");

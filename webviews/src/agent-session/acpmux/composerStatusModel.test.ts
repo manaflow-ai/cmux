@@ -165,9 +165,9 @@ describe("items", () => {
       "status.agentService.reconnecting",
     ])
       expect(readStatusItem({ kind: "machineLink", level: "info", words, since: 1 })).toBeUndefined();
-    expect(readStatusItem({ kind: "machineLink", level: "attention", words: "status.machineLink.offline" })?.words).toBe(
-      "status.machineLink.offline",
-    );
+    expect(
+      readStatusItem({ kind: "machineLink", level: "attention", words: "status.machineLink.offline" })?.words,
+    ).toBe("status.machineLink.offline");
   });
 
   test("a peer link's status rides along with its link, absent from an older daemon", () => {

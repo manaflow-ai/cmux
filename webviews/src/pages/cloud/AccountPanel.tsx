@@ -44,12 +44,12 @@ function finite(value: number | string | null | undefined): number | undefined {
 /** The failed-payment line with Manage Billing (the app's `billing.openPortal`). */
 function PaymentPastDue({ store, t }: { store: CloudStore; t: (key: string) => string }) {
   return (
-    <div className="cloud-past-due" role="status">
+    <output className="cloud-past-due">
       <span className="cloud-past-due-text">{t(L.planPastDue)}</span>
       <button type="button" className="cloud-button cloud-manage-billing" onClick={() => void store.manageBilling()}>
         {t(L.planManageBilling)}
       </button>
-    </div>
+    </output>
   );
 }
 

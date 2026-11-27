@@ -102,7 +102,7 @@ html[data-cmux-page="machines"] body {
   inset-inline-end: 0;
   top: 50%;
   transform: translateY(-50%);
-  z-index: 1;
+  z-index: var(--layer-raised);
   display: flex;
   align-items: center;
   gap: var(--ds-space-2);

@@ -1,10 +1,10 @@
 // cmux-web-test-timeout: 300
-// Every icon in the New Tab composer's row above the box draws at one visual size, centered on its
-// label, at every density (2026-11-23, of the GitHub mark, This Mac's laptop, both dropdown chevrons
-// and the start failure's Details chevron: "can we make sure all of the icons are the same size?
-// double check pls"). Measured in Chromium from the gallery, as ink (the drawn path, its line
-// included), not boxes:
-// - the folder chip and This Mac draw their glyphs in one box, of one ink footprint, on the label;
+// The New Tab composer's location icons and dropdown chevrons stay centered on their labels across
+// densities (2026-11-23: "can we make sure all of the icons are the same size? double check pls").
+// The unified card introduced optically matched silhouettes on 2026-11-25. The gallery measures
+// both the SVG box and its ink (the drawn path and its stroke) in Chromium:
+// - the unified card's bare folder and laptop draw comparable ink in fixed optical boxes;
+// - a picked project's badge scales with density, with the same visual weight at default density;
 // - the GitHub mark (GitHubIcons.tsx, chip) draws in the folder icon's box at that footprint;
 // - every chip's chevron draws the same ink at the composer's chevron size;
 // - the start failure's Details chevron is that chevron turned right, centered on Details.
@@ -123,7 +123,7 @@ await requireBrowserLane("newtab-chip-icon-sizes.test.ts", async () => {
 
   for (const variant of ["no-project", "project"])
     for (const density of DENSITIES)
-      test(`New Tab ${variant}, density ${density}: one glyph size, one chevron, each centered on its label`, async () => {
+      test(`New Tab ${variant}, density ${density}: optical glyph sizes and scaled chevrons, each centered on its label`, async () => {
         const page = await open(NEW_TAB, variant, density, ".nt-above .acpmux-location-button .ui-ghost-icon");
         try {
           const chips = await page.evaluate(measure, ".nt-above .acpmux-location-button");
@@ -132,10 +132,14 @@ await requireBrowserLane("newtab-chip-icon-sizes.test.ts", async () => {
           const mac = chips.find((chip) => chip.label === "This Mac");
           expect(folder?.glyph, where).toBeTruthy();
           expect(mac?.glyph, where).toBeTruthy();
-          // One glyph box, and the laptop's ink weighs what the folder's does.
-          near(folder!.glyph!.box, 16 * density, where, 0.01);
-          near(mac!.glyph!.box, 16 * density, where, 0.01);
-          const weight = footprint(mac!.glyph!) / footprint(folder!.glyph!);
+          // The unified card fixes the bare folder and laptop at their measured sizes.
+          // The picked project's badge keeps its density-scaled 16 px glyph.
+          const badgeScale = variant === "project" ? density : 1;
+          expect(folder!.picture, where).toBe(variant === "project");
+          near(folder!.glyph!.box, variant === "project" ? 16 * density : 16.25, where, 0.01);
+          near(mac!.glyph!.box, 16.22, where, 0.01);
+          // Compare default-density ink areas across both shapes.
+          const weight = footprint(mac!.glyph!) / (footprint(folder!.glyph!) / badgeScale ** 2);
           expect(weight, where).toBeGreaterThanOrEqual(0.9);
           expect(weight, where).toBeLessThanOrEqual(1.1);
           // Both location chips draw a glyph and a chevron, so the checks below run on each.

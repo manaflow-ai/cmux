@@ -151,6 +151,7 @@ export default agentPaneEntry({
   covers: [
     "agent-session/acpmux/VirtualTranscript.tsx#VirtualTranscript",
     "agent-session/acpmux/threadMinimap/ThreadMinimap.tsx#ThreadMinimap",
+    "agent-session/acpmux/threadMinimap/ThreadMinimap.tsx#ThreadMinimapRail",
     "agent-session/acpmux/threadMinimap/ScrollMap.tsx#ScrollMap",
     "agent-session/acpmux/threadMinimap/BookmarkIcon.tsx#BookmarkIcon",
     "agent-session/acpmux/threadMinimap/PreviewCard.tsx#PreviewCard",

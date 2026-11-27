@@ -1213,7 +1213,7 @@ button.acpmux-session-info-port:hover,
    ui/revealCover.ts measures it for the title's fade). The row's padding stays after it. */
 .acpmux-session-info-pr__actions {
   position: absolute;
-  z-index: 1;
+  z-index: var(--layer-raised);
   top: var(--grid-pill-inset);
   right: var(--grid-gap);
   display: flex;
@@ -1300,7 +1300,7 @@ button.acpmux-session-info-port:hover,
    (SourcesSection.tsx; ui/revealCover.ts measures it for the label's fade). */
 .acpmux-session-info-source__actions {
   position: absolute;
-  z-index: 1;
+  z-index: var(--layer-raised);
   top: 0;
   bottom: 0;
   right: var(--grid-gap);

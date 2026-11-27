@@ -115,7 +115,7 @@ def test_unix_installer_selects_verifies_and_installs_native_binary(
     tmp_path: Path,
 ) -> None:
     result, installed, downloads = run_unix_installer(
-        tmp_path, "https://fixtures.invalid/cmux-tui/latest",
+        tmp_path, "",
     )
 
     assert result.returncode == 0, result.stderr
@@ -123,8 +123,8 @@ def test_unix_installer_selects_verifies_and_installs_native_binary(
     assert installed.stat().st_mode & stat.S_IXUSR
     assert f"Installed cmux to {installed}" in result.stdout
     assert downloads[:2] == [
-        "https://fixtures.invalid/cmux-tui/latest/manifest.json",
-        f"https://fixtures.invalid/cmux-tui/{COMMIT}/cmux-tui-aarch64-apple-darwin",
+        "https://files.cmux.com/cmux-tui/latest/manifest.json",
+        f"https://files.cmux.com/cmux-tui/{COMMIT}/cmux-tui-aarch64-apple-darwin",
     ]
     assert sum(url.endswith("/manifest.json") for url in downloads) == 1
 
@@ -133,7 +133,6 @@ def test_install_scripts_are_public_and_checksum_verified() -> None:
     unix = UNIX_INSTALLER.read_text()
     windows = WINDOWS_INSTALLER.read_text()
 
-    assert "https://files.cmux.com/cmux-tui/latest" in unix
     assert "checksum verification failed" in unix
     assert '"commit"' in unix
     assert "artifact_base_url" in unix

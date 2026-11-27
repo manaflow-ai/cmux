@@ -21,10 +21,14 @@ function systemPath(): string {
   if (systemBin) return systemBin;
   const dir = mkdtempSync(path.join(tmpdir(), "cmux-dns-check-sys-"));
   dirs.push(dir);
+  // Names already linked are tracked, not probed with existsSync: that follows the link, so a
+  // dangling one (a runner's /usr/bin/rust-lld) read as absent and the /bin pass threw EEXIST.
+  const linked = new Set(["tailscale", "tailscaled"]);
   for (const from of ["/usr/bin", "/bin"]) {
     if (!existsSync(from)) continue;
     for (const name of readdirSync(from)) {
-      if (name === "tailscale" || name === "tailscaled" || existsSync(path.join(dir, name))) continue;
+      if (linked.has(name)) continue;
+      linked.add(name);
       symlinkSync(path.join(from, name), path.join(dir, name));
     }
   }

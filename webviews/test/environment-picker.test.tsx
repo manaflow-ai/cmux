@@ -660,9 +660,13 @@ test("Move to…: a chat on this Mac with two Cloud machines lists them, and a p
   await act(async () => newRows()[0]!.click());
   // It opens the targets in place; nothing moved yet.
   expect(doc().querySelector(".acpmux-env-popover.acpmux-env-moves")).not.toBeNull();
-  expect(newRows().map(rowText)).toEqual(["dev-box", "gpu-box"]);
+  expect(newRows().map(rowText)).toEqual([t("composer.thisMac"), "dev-box", "gpu-box"]);
   expect(moved).toEqual([]);
-  await act(async () => newRows()[1]!.click());
+  await act(async () =>
+    newRows()
+      .find((row) => rowText(row) === "gpu-box")!
+      .click(),
+  );
   expect(moved).toEqual(["vm-gpu"]);
   expect(offloaded).toEqual([]);
   expect(doc().querySelector(".acpmux-env-popover")).toBeNull();
@@ -1128,8 +1132,6 @@ test("previews on: every machine the daemon lists, grouped; the ones not connect
       row.querySelector(".acpmux-env-state")?.textContent,
     ]),
   ).toEqual([
-    // Still connecting: greyed in its place, among its section's machines.
-    ["agent-vm-6", t("rail.connectorPending")],
     ["gpu-box", t("composer.envNotConnected")],
     ["agent-vm-3", t("header.reconnecting")],
     ["agent-vm-4", t("header.reconnecting")],
@@ -1143,11 +1145,11 @@ test("previews on: every machine the daemon lists, grouped; the ones not connect
   await act(async () => greyed[1]!.click());
   expect(computers).toEqual([]);
   expect(doc().querySelector(".acpmux-env-popover")).not.toBeNull();
-  // A connected one is: the new chat moves there.
-  const target = shown.find((row) => label(row) === "ci-vm-10")!;
+  // A machine in its handshake accepts a chat while the connection settles.
+  const target = shown.find((row) => label(row) === "agent-vm-6")!;
   await act(async () => target.click());
-  expect(computers).toEqual(["ci-vm-10"]);
-  expect(computerButton()?.getAttribute("aria-label")).toBe(`${t("composer.computer")}: ci-vm-10`);
+  expect(computers).toEqual(["agent-vm-6"]);
+  expect(computerButton()?.getAttribute("aria-label")).toBe(`${t("composer.computer")}: agent-vm-6`);
 });
 
 test("previews on: 20+ machines stay searchable by name and section", async () => {
@@ -2071,8 +2073,8 @@ test("the machine list groups machines acpmux has not reached for a while under 
   const ssh = t("composer.envSSH");
   expect(labels()).toEqual([
     `gpu-box${ssh}${t("composer.envConnected")}⌥⌘2`,
-    `lane-4${ssh}${t("header.reconnecting")}`,
-    `lane-5${ssh}${t("rail.connectorPending")}`,
+    `lane-4${ssh}${t("composer.envConnected")}`,
+    `lane-5${ssh}${t("composer.envConnected")}`,
     t("composer.envUnavailableGroup", { n: 3 }),
     t("composer.addMachine"),
   ]);

@@ -688,14 +688,26 @@ jobs:
           # the integration tests print as they run and the libraries' log follows them.
           run_all() {
             bounded 60 cargo test "${suites[@]}" --no-run 2>&1 || return 1
-            local libs=0 tests=0
+            # These tests measure acpmux's 200 ms Stop budget. Run each before the other
+            # binaries start, as nextest does for its timing-alone group.
+            local timing=0 libs=0 tests=0 name
+            local stop_budget=(
+              stop::a_cancel_ends_an_honouring_agents_turn_within_the_budget
+              stop::a_cancel_is_answered_within_the_budget_while_the_agent_ignores_it
+            )
+            bounded 60 cargo test "${pkgs[@]}" --test hub_integration -- --exact --test-threads=1 "${stop_budget[@]}" 2>&1 || timing=$?
+            local integration_skip=("${skip[@]}")
+            (( ${#integration_skip[@]} )) || integration_skip=(--exact)
+            for name in "${stop_budget[@]}"; do
+              integration_skip+=(--skip "$name")
+            done
             # Each package's library binary runs at once with the others (RFD 0016, one shard per
             # workspace member group): `cargo test --lib` ran acpmux's (~431 s) and then
             # acpmux-book's (~208 s). The log reads as cargo prints it, one binary after another.
             bounded 60 ../scripts/ci/cargo-lib-tests-at-once.sh "$RUNNER_TEMP/acpmux-tests-lib" "${pkgs[@]}" -- "${skip[@]}" \
               > "$RUNNER_TEMP/acpmux-tests-lib.log" 2>&1 &
             local lib_pid=$!
-            bounded 60 cargo test "${pkgs[@]}" "${targets[@]}" --no-fail-fast -- "${skip[@]}" 2>&1 || tests=$?
+            bounded 60 cargo test "${pkgs[@]}" "${targets[@]}" --no-fail-fast -- "${integration_skip[@]}" 2>&1 || tests=$?
             wait "$lib_pid" || libs=$?
             cat "$RUNNER_TEMP/acpmux-tests-lib.log"
             if (( libs == 124 || libs == 137 )); then
@@ -704,7 +716,7 @@ jobs:
                 [[ -f "$log" ]] && { echo "     Running unittests (stopped at the time budget: $(basename "$log"))"; cat "$log"; }
               done
             fi
-            (( libs == 0 && tests == 0 ))
+            (( timing == 0 && libs == 0 && tests == 0 ))
           }
           if run_all 2>&1 | tee "$head_log"; then
             echo "acpmux tests: green in $((SECONDS - started)) s" >> "$GITHUB_STEP_SUMMARY"
@@ -1010,6 +1022,8 @@ jobs:
         with:
           persist-credentials: false
           ref: ${{ inputs.sha || '' }}
+          # Include the synthetic PR merge commit's comparison parent in the authenticated checkout.
+          fetch-depth: 2
 
       - name: Test the changed-package rustfmt check
         run: python3 .github/scripts/test_cmux_tui_fmt_changed.py
@@ -1029,7 +1043,7 @@ jobs:
           if [[ "$EVENT_NAME" == pull_request ]]; then
             BASE_SHA=$(git cat-file -p HEAD | awk '/^parent /{print $2; exit}')
           fi
-          if [[ -n "$BASE_SHA" && "$BASE_SHA" != 0000000000000000000000000000000000000000 ]]; then
+          if [[ -n "$BASE_SHA" && "$BASE_SHA" != 0000000000000000000000000000000000000000 ]] && ! git cat-file -e "${BASE_SHA}^{commit}" 2>/dev/null; then
             git fetch --no-tags --depth=1 origin "$BASE_SHA" || echo "::warning::could not fetch $BASE_SHA; checking every package"
           fi
           echo "sha=$BASE_SHA" >> "$GITHUB_OUTPUT"
@@ -1082,6 +1096,8 @@ jobs:
         with:
           persist-credentials: false
           ref: ${{ inputs.sha || '' }}
+          # Include the synthetic PR merge commit's comparison parent in the authenticated checkout.
+          fetch-depth: 2
 
       - name: Test the changed-package clippy check
         run: python3 .github/scripts/test_cmux_tui_clippy_changed.py
@@ -1119,7 +1135,7 @@ jobs:
             echo "::warning::base is not a full commit SHA; linting the whole workspace"
             BASE_SHA=""
           fi
-          if [[ -n "$BASE_SHA" && "$BASE_SHA" != 0000000000000000000000000000000000000000 ]]; then
+          if [[ -n "$BASE_SHA" && "$BASE_SHA" != 0000000000000000000000000000000000000000 ]] && ! git cat-file -e "${BASE_SHA}^{commit}" 2>/dev/null; then
             git fetch --no-tags --depth=1 origin "$BASE_SHA" || echo "::warning::could not fetch $BASE_SHA; linting the whole workspace"
           fi
           echo "sha=$BASE_SHA" >> "$GITHUB_OUTPUT"

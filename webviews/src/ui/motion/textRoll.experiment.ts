@@ -1,5 +1,6 @@
 // l10n-allow-file: experiment descriptions are gallery (developer tool) text, never shown in the pane.
 import { defineExperiment } from "../../experiments/experiment";
+import { MOTION_MS } from "../../motion/scale.generated";
 
 /// How deep the text roll's edges fade and how long it takes (TextRoll.tsx, motion.css "Text roll").
 /// Leo, 2026-11-25, on a subagent activity row and the thinking line: "the animation when it changes
@@ -13,7 +14,7 @@ export const textRollLook = defineExperiment({
     "A one-line label changing in place (the activity line, Working for, a subagent's row, the hat). Look at whether the words ever meet a hard edge and whether the change reads as one quick step.",
   arms: {
     roll: {
-      label: "28% fade, 180 ms",
+      label: `28% fade, ${MOTION_MS.standard} ms`,
       description: "The house move step; the cell's top and bottom 28% fade while the words cross.",
     },
     quick: {

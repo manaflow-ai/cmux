@@ -76,6 +76,16 @@ pub struct RequestMeta {
     pub cmux_gesture: Option<String>,
 }
 
+/// The machine copy the app made before allowing a risky step.
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "camelCase")]
+#[schemars(deny_unknown_fields)]
+pub struct ForkCheckpoint {
+    pub machine: String,
+    pub fork: String,
+    pub fork_ms: u64,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "camelCase")]
 #[schemars(deny_unknown_fields)]
@@ -91,6 +101,8 @@ pub struct PermissionRespondParams {
     /// Claude Code AskUserQuestion annotations beside the answers, by question text: `{preview?, notes?}`.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub annotations: Option<Value>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub fork_checkpoint: Option<ForkCheckpoint>,
     #[serde(rename = "_meta", skip_serializing_if = "Option::is_none")]
     pub meta: Option<RequestMeta>,
 }

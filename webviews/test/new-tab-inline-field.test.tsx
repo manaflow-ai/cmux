@@ -1,11 +1,11 @@
 // The New Tab field is the chat composer's Markdown field with its inline attachments (#26567).
 // Two things the review of that change found:
 // - A file pasted on the field went into the text as an attachment node and out of the strip, but
-//   the page never drew the field's attachments: in the default inline view the file, its × and its
+//   the page never drew the field's attachments: in the inline view the file, its × and its
 //   retry were gone. They draw in the field at their place, as Messages shows them.
 // - The field's value is Markdown, which escapes typed punctuation (`https\:`, `\*`, `\[`). The page
 //   opened, searched and ran that escaped text; an address or a shell command must go as typed.
-import { afterAll, afterEach, beforeAll, expect, test } from "bun:test";
+import { afterAll, afterEach, beforeAll, beforeEach, expect, test } from "bun:test";
 import { JSDOM } from "jsdom";
 import { act } from "react";
 import type { Root } from "react-dom/client";
@@ -13,7 +13,7 @@ import { noChat } from "../src/gallery/fixtures/acpmux";
 import { EMPTY_OMNIBAR } from "../src/agent-session/acpmux/omnibar";
 import type { MarkdownFieldElement } from "../src/agent-session/acpmux/MarkdownField";
 import { proseMirrorGlobals } from "../src/agent-session/acpmux/promptFieldTesting";
-import { setComposerSettings } from "../src/agent-session/acpmux/composerSettings";
+import { composerSettingsSnapshot, setComposerSettings } from "../src/agent-session/acpmux/composerSettings";
 import { teardownDom } from "./support/domTeardown";
 
 const scope = globalThis as Record<string, unknown>;
@@ -75,11 +75,16 @@ beforeAll(() => {
   host = window.document.getElementById("root")!;
 });
 
+const initialView = composerSettingsSnapshot().attachmentView;
+beforeEach(() => {
+  setComposerSettings({ attachmentView: "inline" });
+});
+
 afterEach(() => {
   act(() => root?.unmount());
   root = undefined;
   host.replaceChildren();
-  setComposerSettings({ attachmentView: "inline" });
+  setComposerSettings({ attachmentView: initialView });
 });
 
 afterAll(async () => {

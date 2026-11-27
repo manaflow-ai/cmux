@@ -5,7 +5,8 @@
 //! RowResize, StripStart, UniformEdge, KeepAliveBand; `layout_geometry_strip_vectors.json`: ColumnGeometry,
 //! StripScrollbarGeometry, ColumnEqualizer, ScrollAreaGeometry, WindowFrameGeometry, MovedWindowPlacement,
 //! ColumnWidthLedger; `layout_geometry_screen_vectors.json`: ScreenGeometry with its scroll areas, row shifts,
-//! floating panes and canvas, LayoutModelPrototype, LayoutColumn.minimumSize, SplitRoom).
+//! floating panes and canvas, LayoutModelPrototype, LayoutColumn.minimumSize, SplitRoom;
+//! `layout_geometry_slice5_vectors.json`: FloatingPaneCorners, DropPreviewLayout with CloseSizing, ShownResizeRange).
 //! Every case answers the Swift's reply; numbers compare as f64.
 
 use cmux_layout_reducer::geometry::wire;
@@ -63,6 +64,11 @@ fn layout_geometry_strip_vectors_answer_the_swift_rules() {
 #[test]
 fn layout_geometry_screen_vectors_answer_the_swift_rules() {
     replay(include_str!("data/layout_geometry_screen_vectors.json"));
+}
+
+#[test]
+fn layout_geometry_slice5_vectors_answer_the_swift_rules() {
+    replay(include_str!("data/layout_geometry_slice5_vectors.json"));
 }
 
 #[test]

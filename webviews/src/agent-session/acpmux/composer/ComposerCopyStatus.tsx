@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useLayoutEffect, useRef, useState } from "react";
 import type { ComposerCopyStatus } from "./composerCopy";
 import { UploadProgress } from "./attachmentIntake";
 import { useT } from "../i18n";
@@ -8,7 +8,6 @@ import "./composerCopyStatus.css";
 /// late replies cannot draw feedback in the next chat or in an unmounted composer.
 export function useComposerCopyStatus(scope: string | undefined) {
   const owner = useRef(scope);
-  owner.current = scope;
   const mounted = useRef(false);
   const active = useRef<ComposerCopyStatus>(undefined);
   const [shown, setShown] = useState<{ scope: string | undefined; status: ComposerCopyStatus }>();
@@ -33,7 +32,8 @@ export function useComposerCopyStatus(scope: string | undefined) {
     },
     [scope],
   );
-  useEffect(() => {
+  useLayoutEffect(() => {
+    owner.current = scope;
     mounted.current = true;
     return () => {
       mounted.current = false;

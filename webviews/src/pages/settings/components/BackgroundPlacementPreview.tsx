@@ -56,6 +56,7 @@ export function BackgroundPlacementPreview({ src, value, imageSize = null, disab
       <div
         ref={frame}
         className="placement-frame"
+        // oxlint-disable-next-line jsx-a11y/prefer-tag-over-role -- a 2D drag surface; a range input has one axis.
         role="slider"
         tabIndex={disabled ? -1 : 0}
         aria-label={t("settingsWindow.backdropPlacement.preview")}
@@ -133,6 +134,9 @@ export function BackgroundPlacementPreview({ src, value, imageSize = null, disab
             <label key={mode} className="segment" data-checked={value.mode === mode ? "" : undefined}>
               <input
                 type="radio"
+                aria-label={t(
+                  mode === "fill" ? "settingsWindow.backdropPlacement.fill" : "settingsWindow.backdropPlacement.fit",
+                )}
                 name={name}
                 value={mode}
                 checked={value.mode === mode}
