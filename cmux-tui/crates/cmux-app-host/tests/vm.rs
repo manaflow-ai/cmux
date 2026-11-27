@@ -501,4 +501,71 @@ mod apps {
             json!(["CmuxError", "zone.unknown"])
         );
     }
+
+    /// `cmux.state`: init's `state` seeds the signal, a write sends the whole kept object.
+    #[test]
+    fn kept_state_seeds_from_init_and_mirrors_writes() {
+        let mut h = Harness::with(
+            &app(
+                r#"const [open, setOpen] = cmux.state("open", false); globalThis.setOpen = setOpen; return { render: () => Text(() => open() ? "open" : "closed") }"#,
+            ),
+            json!({ "state": { "open": true, "scroll": 120 } }),
+            Limits::default(),
+        );
+        assert_eq!(h.mount("m1", "render", json!({})), None);
+        assert_eq!(h.texts("m1"), vec!["open".to_string()]);
+        h.eval(r#"setOpen(false)"#);
+        assert_eq!(h.texts("m1"), vec!["closed".to_string()]);
+        assert_eq!(h.kept.last(), Some(&json!({ "open": false, "scroll": 120 })));
+    }
+
+    /// Over the key or byte cap the VM sends no `State`, only a warn line, and init drops an
+    /// over-cap seed the same way.
+    #[test]
+    fn kept_state_over_the_cap_is_refused() {
+        let mut h = Harness::new(&app("return {}"));
+        h.eval(
+            r#"(() => { for (let i = 0; i < 300; i++) cmux.state("k" + i, 0)[1](1); return 0 })()"#,
+        );
+        assert!(
+            h.kept.iter().all(|v| v.as_object().is_some_and(|m| m.len() <= 256)),
+            "{:?}",
+            h.kept.len()
+        );
+        assert!(
+            h.logs.iter().any(|(l, m)| l == "warn" && m.contains("256 key cap")),
+            "{:?}",
+            h.logs
+        );
+        let mut b = Harness::new(&app("return {}"));
+        b.eval(r#"(() => { cmux.state("big", "")[1]("x".repeat(70000)); return 0 })()"#);
+        assert!(b.kept.is_empty(), "{:?}", b.kept.len());
+        assert!(b.logs.iter().any(|(l, m)| l == "warn" && m.contains("byte cap")), "{:?}", b.logs);
+
+        let big: serde_json::Map<String, Value> =
+            (0..300).map(|i| (format!("k{i}"), json!(1))).collect();
+        let mut seeded = Harness::with(
+            &app(r#"globalThis.k0 = cmux.state("k0", 7)[0]; return {}"#),
+            json!({ "state": Value::Object(big) }),
+            Limits::default(),
+        );
+        assert_eq!(seeded.eval("k0()"), json!(7));
+        assert!(
+            seeded.logs.iter().any(|(l, m)| l == "warn" && m.contains("key cap")),
+            "{:?}",
+            seeded.logs
+        );
+    }
+
+    /// The supervisor re-checks with the same rule: an object within 256 keys and 64 KiB.
+    #[test]
+    fn kept_state_refusal_rules() {
+        use cmux_app_host::protocol::kept_state_refusal;
+        assert_eq!(kept_state_refusal(&json!({ "a": 1 }), 7), None);
+        assert!(kept_state_refusal(&json!([1]), 3).is_some());
+        let many: serde_json::Map<String, Value> =
+            (0..257).map(|i| (format!("k{i}"), json!(1))).collect();
+        assert!(kept_state_refusal(&Value::Object(many), 10).unwrap().contains("key cap"));
+        assert!(kept_state_refusal(&json!({}), 64 * 1024 + 1).unwrap().contains("byte cap"));
+    }
 }
