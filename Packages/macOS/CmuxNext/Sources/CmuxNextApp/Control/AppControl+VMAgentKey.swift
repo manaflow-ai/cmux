@@ -54,7 +54,7 @@ extension AppControl {
         return try JSONEncoder().encode(envelope)
     }
 
-    nonisolated struct VMAgentKeyReply: Decodable, Sendable {
+    nonisolated private struct VMAgentKeyReply: Decodable, Sendable {
         var value: JSONValue?
         var error: VMAgentKeyRefusal?
     }
