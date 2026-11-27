@@ -47,8 +47,8 @@ import PackageDescription
 //   CmuxNextOnboarding -> Design, Icons, BrowserImport (first-run window; the App supplies OnboardingServices)
 //   CmuxNextHomeModel -> DesignTokens, Icons, CmuxHomeCore, CmuxHomeRender, CCmuxAppFFI (the Home models, tunables
 //     and their strings that code outside the Home views reads: Chief roster, avatars and engines, contacts, group and
-//     invite outcomes, pins, dock mode, chat colours; HomeRules, the Rust home rules' caller over cmux_home_call;
-//     no views, no MessagesLab, no daemon)
+//     invite outcomes, pins, dock mode, chat colours; HomeRules, the Rust home rules' caller over cmux_home_call,
+//     which ChiefPetWiring, ChiefViews and HomeEngine also call for the welcome.* ops; no views, no MessagesLab, no daemon)
 //   CmuxNextHome -> Compat, Design, Dictation, HomeModel, Wakeups, MessagesLabHome (the Home transcript: MessagesLabAppKitNative's
 //     vendored code over the shared HomeStore; no daemon; plans/cmux-next/home-mac.md),
 //     MessagesLabSidebar (MessagesLab's conversation list, the v1 sidebar seam)
@@ -195,7 +195,7 @@ let daemonSwiftSettings: [SwiftSetting] = [
 /// line together (scripts/cmux-next/repin-app-ffi.sh), never anything else.
 /// scripts/cmux-next/check-app-ffi-pin.sh fails CI when the FFI sources
 /// differ from the pinned source sha.
-// app-ffi-pin-checksum: e8540e6af152a709dc604d4bdfbdf33e5a4402340b5ed812b37ae43f446d3f3a
+// app-ffi-pin-checksum: bf19b8c77508dc261585fc8834bf52e53ac3b8fecd575bd6edcc7990c35029d1
 struct AppFFIPin: Decodable {
     let url: String
     let checksum: String
@@ -561,6 +561,7 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
                 "CmuxNextDesign",
                 "CmuxNextDesignTokens",
                 "CmuxNextFloating",
+                "CmuxNextHomeModel",
                 "CmuxNextSettings",
                 "CmuxNextSidebar",
             ],
