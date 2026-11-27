@@ -42,6 +42,74 @@ import crate_results  # noqa: E402
 from test_ci_post_merge_checks import BASE, branch_matches, load_workflows, triggers  # noqa: E402
 
 
+class MacIntegrationGateTest(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls) -> None:
+        import pr_router
+        cls.router = pr_router
+        cls.callees = pr_router.load_manifest()
+        cls.paths = ["Packages/Shared/CmuxVNCWebRTC/Sources/CmuxVNCWebRTC/ScreenStreamHost.swift"]
+        cls.selected = ["screen-webrtc-headless"]
+
+    def test_selected_suite_runs_on_cheap_none_and_carried_heads(self) -> None:
+        event = {"action": "synchronize", "pull_request": {"draft": False}}
+        for tier in ("cheap", "none", "full"):
+            with self.subTest(tier=tier):
+                start, _ = self.router.route(event, self.callees, self.paths,
+                                             decided=(tier, "carried"), carried={"pr-pipeline.yml"})
+                self.assertIn("pr-pipeline.yml", start)
+                jobs, selected, only = self.router.mac_integration_table(self.paths, start, [])
+                self.assertEqual((jobs, selected, only), (["mac"], self.selected, self.selected))
+
+    def test_full_tier_keeps_its_route_and_unrelated_paths_do_not_add_mac(self) -> None:
+        self.assertEqual(self.router.mac_integration_table(self.paths, ["pr-pipeline.yml"], ["linux", "mac"]),
+                         (["linux", "mac"], self.selected, []))
+        self.assertEqual(self.router.mac_integration_table(["docs/readme.md"], ["pr-pipeline.yml"], []),
+                         ([], [], []))
+        self.assertEqual(self.router.mac_integration_steps(None), self.selected)
+        with mock.patch.object(ci_steps, "load", side_effect=ValueError("unreadable table")):
+            self.assertEqual(self.router.mac_integration_steps(self.paths), self.selected)
+        self.assertEqual(self.router.mac_integration_table(self.paths, [], []), ([], [], []))
+
+    def test_only_actual_passing_selected_results_prove_the_suite(self) -> None:
+        step = ci_steps.Step("screen-webrtc-headless", "mac", "true")
+        for code, skipped, expected in ((0, False, "success"), (1, False, "failure"),
+                                        (None, False, "failure"), (0, True, "error")):
+            with self.subTest(code=code, skipped=skipped):
+                result = ci_steps.Result(step, code, 0, "", skipped=skipped)
+                self.assertEqual(ci_steps.selected_verdict([result], self.selected), expected)
+        self.assertEqual(ci_steps.selected_verdict([], self.selected), "error")
+        self.assertEqual(ci_steps.selected_verdict([ci_steps.Result(step, 0, 0, "")], ["absent"]), "error")
+        with tempfile.TemporaryDirectory() as tmp:
+            output = Path(tmp) / "output"
+            with mock.patch.dict(os.environ, {"CI_STEP_VERDICT_STEPS": step.name, "GITHUB_OUTPUT": str(output)}):
+                ci_steps.finish([ci_steps.Result(step, 0, 0, "", skipped=True)], "mac", io.StringIO())
+            self.assertIn("selected_verdict=error", output.read_text())
+
+    def test_workflow_passes_selection_and_aggregates_actual_assertion_result(self) -> None:
+        pipeline = yaml.safe_load((ROOT / ".github/workflows/pr-pipeline.yml").read_text())
+        router = yaml.safe_load((ROOT / ".github/workflows/pr-router.yml").read_text())
+        mac = pipeline["jobs"]["mac"]
+        self.assertIn("inputs.mac_integration != ''", mac["if"])
+        steps = {step["name"]: step for step in mac["steps"] if "name" in step}
+        self.assertEqual(steps["Route the Mac tiers"]["if"], "inputs.mac_integration_only == ''")
+        run = steps["Run the routed mac steps (ci/steps.toml)"]
+        self.assertIn('--only "$MAC_ONLY"', run["run"])
+        self.assertIn("inputs.mac_integration", run["env"]["CI_STEP_VERDICT_STEPS"])
+        self.assertIn("steps.routed.outputs.selected_verdict", mac["outputs"]["integration_verdict"])
+        post = next(step for step in router["jobs"]["ios-fast-status"]["steps"] if step.get("name") == "Post the verdict")
+        script = post["run"]
+        # Execute the actual workflow aggregation with no proof gate, replacing only the final status post.
+        script = script.replace('python3 -I scripts/ci/ios_fast_verdict.py status "$state" "$desc"', 'echo "$state"')
+        for selected, verdict, expected in (("", "", "success"), ("screen", "success", "success"),
+                                            ("screen", "failure", "failure"), ("screen", "", "error"),
+                                            ("screen", "skipped", "error")):
+            env = dict(os.environ, MAC_INTEGRATION=selected, MAC_VERDICT=verdict, PIPELINE="success",
+                       RUN="false", VERDICT="", NEED_PROOF="false")
+            result = subprocess.run(["bash", "-eu", "-c", script], env=env, text=True, capture_output=True, check=True)
+            self.assertEqual(result.stdout.strip(), expected)
+
+
 class NightlyGateTest(unittest.TestCase):
     """A step-table step that mirrors a nightly step (`nightly`) runs on the landing head that changes its inputs, every
     input kept, so a check that stops the nightly fails the landing (Leo, 2026-11-27: "shouldn't a build check fail

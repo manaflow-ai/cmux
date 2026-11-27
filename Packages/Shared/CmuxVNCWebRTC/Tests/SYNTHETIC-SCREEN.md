@@ -32,3 +32,9 @@ its own simulator coverage; don't count the Mac viewer as that coverage. ScreenR
 its existing no-channel behavior, so these checks don't prove Rust screen policy decisions.
 FlowSuite names the headless flow; `ci/steps.toml` owns its execution on PRs. This real
 asynchronous integration test runs outside the virtual-clock fast tier.
+
+The PR router selects this assertion even on cheap or carried heads. Those heads run only
+`screen-webrtc-headless` on the Mac job, with no full Mac tier or simulator boot. The
+`cmux/ios-fast` status consumes the selected step's assertion verdict, not the Mac job's
+exit status: missing, skipped and timed-out tests cannot pass. Manual verdict recovery
+also runs this single suite at the exact PR test-merge commit before posting green.

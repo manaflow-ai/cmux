@@ -200,6 +200,25 @@ def table_jobs_routed(callees: dict, files: list[str] | None, table: Path | None
     return [job for job in jobs if routed.get(job)]
 
 
+PR_MAC_INTEGRATION_STEPS = ("screen-webrtc-headless",)
+
+
+def mac_integration_steps(files: list[str] | None) -> list[str]:
+    """Small explicit integration allowlist, independent of full/cheap/carried tiers."""
+    try:
+        routed = ci_steps.route(ci_steps.load(), files, pr_scope=True).get("mac", [])
+    except Exception:  # noqa: BLE001 - unknown routing must not silently waive assertions
+        return list(PR_MAC_INTEGRATION_STEPS)
+    return [name for name in PR_MAC_INTEGRATION_STEPS if name in routed]
+
+
+def mac_integration_table(files: list[str] | None, start: list[str],
+                          table: list[str]) -> tuple[list[str], list[str], list[str]]:
+    selected = mac_integration_steps(files) if "pr-pipeline.yml" in start else []
+    only = selected if "mac" not in table else []
+    return (table + ["mac"] if selected and "mac" not in table else table), selected, only
+
+
 def route(event: dict, callees: dict, files: list[str] | None,
           draft_switch: str = "1", decided: tuple[str, str] | None = None,
           land_update: bool = False, carried: set[str] | None = None) -> tuple[list[str], dict[str, str]]:
@@ -254,6 +273,10 @@ def route(event: dict, callees: dict, files: list[str] | None,
         if added and added in config.get("labels", []):
             start.append(name)
             why[name] = f"label '{added}' added"
+            continue
+        if name == "pr-pipeline.yml" and mac_integration_steps(files):
+            start.append(name)
+            why[name] = "affected Mac integration assertions run on every head"
             continue
         if tier == "none":
             why[name] = tier_reason
@@ -569,6 +592,8 @@ def ios_status(event: dict, files: list[str] | None, start: list[str], land: str
     carries `success` only where cmux/land-tier does (LAND, land_status), else waits for the land handoff."""
     if not head_tier.land_rule_applies(event):
         return "", ""
+    if mac_integration_steps(files):
+        return "pending", "Selected screen integration assertions must finish on this head"
     if not ios_verdict_on():
         return "success", "iOS fast verdict is off (vars.CI_IOS_FAST_VERDICT=0): the ios job's kit tests still run"
     if not ios_touched(files):
@@ -630,11 +655,14 @@ def nightly_gate_table(callees: dict, files: list[str] | None, decided: tuple[st
 def write_outputs(start: list[str], why: dict[str, str], files: list[str] | None,
                   table: list[str] | None = None, status: str = "", ios: tuple[str, str] = ("", ""),
                   ui: tuple[str, str] = ("", ""), only: list[str] | None = None,
-                  preflight: tuple[bool, str] = (True, "")) -> None:
+                  preflight: tuple[bool, str] = (True, ""),
+                  mac_integration: list[str] | None = None, mac_integration_only: list[str] | None = None) -> None:
     with open(os.environ["GITHUB_OUTPUT"], "a", encoding="utf-8") as out:
         out.write(f"start={json.dumps(start, separators=(',', ':'))}\n")
         out.write(f"table={json.dumps(table or [], separators=(',', ':'))}\n")
         out.write(f"only={' '.join(only or [])}\n")
+        out.write(f"mac_integration={' '.join(mac_integration or [])}\n")
+        out.write(f"mac_integration_only={' '.join(mac_integration_only or [])}\n")
         out.write(f"land_status={status}\n")
         out.write(f"ios_status={ios[0]}\n")
         out.write(f"ios_status_description={ios[1]}\n")
@@ -669,6 +697,7 @@ def main(argv: list[str]) -> int:
         table = [job for job in table_jobs_routed(callees, files, full=full,
                                                   full_ci=full_ci_kept(event)) if job not in rows]
         table, only = nightly_gate_table(callees, files, decided, start, table)
+        table, integration, integration_only = mac_integration_table(files, start, table)
         if rows:
             why["pr-pipeline.yml"] = why.get("pr-pipeline.yml", "") + (
                 f" (table jobs that ran green at the previous head stay off: {', '.join(sorted(rows))})")
@@ -678,7 +707,7 @@ def main(argv: list[str]) -> int:
         held = (carried or rows) and not head_tier.full_rerun(decided)
         status = "pending" if status and held else status
         write_outputs(start, why, files, table, status, ios_status(event, files, start, status),
-                      ui_status(event, files), only, preflight_web(event, callees, files))
+                      ui_status(event, files), only, preflight_web(event, callees, files), integration, integration_only)
         return 0
     if mode == "check":
         problems = check(callees, ENTRY.read_text(), ENTRY.parent)

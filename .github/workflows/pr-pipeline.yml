@@ -48,6 +48,15 @@ on:
         required: false
         type: string
         default: ""
+      # Selected assertions feed ios-fast-status; only restricts the Mac job on cheap/carried tiers.
+      mac_integration:
+        required: false
+        type: string
+        default: ""
+      mac_integration_only:
+        required: false
+        type: string
+        default: ""
       # The commit the ios fast verdict checks out; empty: the event's (a pull request's merge commit).
       # ios-fast-verdict-dispatch.yml passes the PR's merge commit, since its own event's commit is the base tip.
       ref:
@@ -57,6 +66,8 @@ on:
     # The ios fast verdict, for pr-router.yml's ios-fast-status (the `cmux/ios-fast` commit status): whether its plan
     # builds anything, its summary, and the ios-fast job's result (empty when it never finished).
     outputs:
+      mac_integration_verdict:
+        value: ${{ jobs.mac.outputs.integration_verdict }}
       ios_fast_run:
         value: ${{ jobs.ios-fast-runner.outputs.run }}
       ios_fast_summary:
@@ -1012,10 +1023,12 @@ jobs:
   # A fork's pull request runs on Blacksmith; nightlies never run here.
   mac:
     name: mac
+    outputs:
+      integration_verdict: ${{ steps.routed.outputs.selected_verdict }}
     # The land tier (#54886's condition, tests/test_head_tier.py land_tier_condition), as linux and web-browser:
     # a ready head into feat-cmux-next runs this job only once it is handed to land, not on every push.
     # Leo, 2026-11-23: "de facto, im asking for 99% fewer minutes of ci time, period."
-    if: ${{ (inputs.jobs == '' || contains(fromJSON(inputs.jobs), 'mac')) && (github.event_name != 'pull_request' || (contains(github.event.pull_request.labels.*.name, 'full-ci') && (github.event.pull_request.base.ref != 'feat-cmux-next' || (github.event.action == 'labeled' && github.event.label.name == 'full-ci') || (vars.CI_FULL_CI_ONE_SHOT || '1') == '0')) || (github.event.pull_request.draft == true && (vars.CI_DRAFT_CHEAP_TIER || '1') == '0') || (github.event.pull_request.draft != true && (contains(github.event.pull_request.labels.*.name, 'ready-to-land') || github.event.pull_request.base.ref != 'feat-cmux-next' || github.event.pull_request.head.repo.full_name != github.repository || (vars.CI_LAND_TIER || '1') == '0'))) && !(github.event_name == 'pull_request' && github.event.pull_request.base.ref == 'feat-cmux-next' && (github.event.action == 'labeled' || github.event.action == 'unlabeled') && !contains(fromJSON('["full-ci","ready-to-land"]'), github.event.label.name)) }}
+    if: ${{ (inputs.jobs == '' || contains(fromJSON(inputs.jobs), 'mac')) && (inputs.mac_integration != '' || github.event_name != 'pull_request' || (contains(github.event.pull_request.labels.*.name, 'full-ci') && (github.event.pull_request.base.ref != 'feat-cmux-next' || (github.event.action == 'labeled' && github.event.label.name == 'full-ci') || (vars.CI_FULL_CI_ONE_SHOT || '1') == '0')) || (github.event.pull_request.draft == true && (vars.CI_DRAFT_CHEAP_TIER || '1') == '0') || (github.event.pull_request.draft != true && (contains(github.event.pull_request.labels.*.name, 'ready-to-land') || github.event.pull_request.base.ref != 'feat-cmux-next' || github.event.pull_request.head.repo.full_name != github.repository || (vars.CI_LAND_TIER || '1') == '0'))) && !(github.event_name == 'pull_request' && github.event.pull_request.base.ref == 'feat-cmux-next' && (github.event.action == 'labeled' || github.event.action == 'unlabeled') && !contains(fromJSON('["full-ci","ready-to-land"]'), github.event.label.name)) }}
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-6vcpu-macos-26' || 'cmux-mac' }}
     # The Mac setup below (Xcode, the owned build root, two cache restores of up to 8 min each), then ci/run: its
     # setup (10 min), the tool downloads (3 min), then the `alone` fast tier (tests/test_ci_step_table.py
@@ -1033,11 +1046,14 @@ jobs:
         uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           persist-credentials: false
+          ref: ${{ inputs.ref }}
           fetch-depth: 2
           submodules: false
           # An owned Mac reuses its workspace: keep the ignored SwiftPM builds a clean would delete.
           clean: false
       - name: List the changed paths
+        # A recovery ref conservatively runs its explicit --only suite, even on unrelated paths.
+        if: inputs.ref == ''
         run: |
           if git rev-parse -q --verify 'HEAD^2' >/dev/null; then
             git diff --name-only --no-renames -z 'HEAD^1' HEAD > "$RUNNER_TEMP/changed-paths.txt"
@@ -1047,6 +1063,7 @@ jobs:
             echo "::notice::No merge commit to diff: every mac step runs."
           fi
       - name: Route the Mac tiers
+        if: inputs.mac_integration_only == ''
         id: tiers
         env:
           CI_PATHS_FILE: ${{ env.PATHS_FILE }}
@@ -1072,7 +1089,7 @@ jobs:
           echo "ACPMUX_SOCKET=" >> "$GITHUB_ENV"
       # owned_pool_rescue.py reads this step by name.
       - name: Select Xcode
-        if: steps.tiers.outputs.fast_tier == 'true'
+        if: steps.tiers.outputs.fast_tier == 'true' || inputs.mac_integration != ''
         run: ./scripts/select-ci-xcode.sh
       # On an owned Mac the Swift steps build in a leased root every runner slot shares (owned_spm_scratch.py
       # lease); its holder process keeps the lease until the job ends, so this stays a workflow step.
@@ -1142,7 +1159,10 @@ jobs:
           ROOT: ${{ steps.spm-root.outputs.root || github.workspace }}
         run: python3 -I scripts/ci/e2e_warm_derived_data.py replay "$ROOT" "$ROOT/Packages/macOS/CmuxNext/.build/cmux-fast-tier-input-mtimes.json"
       - name: Run the routed mac steps (ci/steps.toml)
+        id: routed
         env:
+          MAC_ONLY: ${{ inputs.mac_integration_only }}
+          CI_STEP_VERDICT_STEPS: ${{ inputs.mac_integration }}
           CMUX_FAST_SWIFT_CACHE_KEY: ${{ steps.fast-cache-key.outputs.swift-key }}
           CMUX_FAST_SWIFT_CACHE_HIT: ${{ steps.fast-cache-restore.outputs.cache-hit }}
           CMUX_FAST_CACHE_MATCHED_KEY: ${{ steps.fast-cache-restore.outputs.cache-matched-key }}
@@ -1153,7 +1173,7 @@ jobs:
           CMUX_SWIFT_TEST_PRODUCTS: ${{ vars.CI_FAST_TIER_PRODUCTS_FLEET == '1' && 'fleet' || 'build' }}
           CMUX_FLEET_CONTROLLER: ${{ vars.CMUX_FLEET_CONTROLLER }}
           CMUX_PR_NUMBER: ${{ github.event.pull_request.number }}
-        run: ci/run run --job mac ${PATHS_FILE:+--paths-file "$PATHS_FILE"}
+        run: ci/run run --job mac ${PATHS_FILE:+--paths-file "$PATHS_FILE"} ${MAC_ONLY:+--only "$MAC_ONLY"}
       - name: Stop this job's acpmux daemons and remove its home
         if: ${{ always() && steps.tiers.outputs.fast_tier == 'true' }}
         continue-on-error: true

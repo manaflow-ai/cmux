@@ -673,7 +673,21 @@ def run_job(table: Table, job: str, paths: list[str] | None, label: str | None =
     return finish(results, job, out)
 
 
+def selected_verdict(results: list[Result], selected: list[str]) -> str:
+    """Only an actual passing assertion result (or its input-keyed reuse) proves a selected step."""
+    by_name = {r.step.name: r for r in results}
+    if any(name in by_name and not by_name[name].skipped and not by_name[name].ok for name in selected):
+        return "failure"
+    if not selected or any(name not in by_name or by_name[name].skipped for name in selected):
+        return "error"
+    return "success"
+
+
 def finish(results: list[Result], job: str, out=sys.stdout) -> int:
+    selected = parse_only(os.environ.get("CI_STEP_VERDICT_STEPS", ""))
+    if selected and os.environ.get("GITHUB_OUTPUT"):
+        with open(os.environ["GITHUB_OUTPUT"], "a", encoding="utf-8") as f:
+            f.write(f"selected_verdict={selected_verdict(results, selected)}\n")
     summary = report(results, job, out, logs=False)
     if os.environ.get("GITHUB_STEP_SUMMARY"):
         with open(os.environ["GITHUB_STEP_SUMMARY"], "a", encoding="utf-8") as f:

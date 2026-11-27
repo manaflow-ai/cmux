@@ -76,6 +76,8 @@ jobs:
       # The steps those jobs run only (pr_router.py nightly_gate_table): a landing head of the affected tier runs just
       # the steps the nightly also runs that its change routes. Empty: every routed step.
       only: ${{ steps.route.outputs.only }}
+      mac_integration: ${{ steps.route.outputs.mac_integration }}
+      mac_integration_only: ${{ steps.route.outputs.mac_integration_only }}
       # The `cmux/ios-fast` commit status the route posted (pr_router.py ios_status); `pending` hands it to
       # ios-fast-status below, which posts the verdict's own result.
       ios_status: ${{ steps.route.outputs.ios_status }}
@@ -559,6 +561,8 @@ jobs:
       defer_web_browser: true
       jobs: ${{ needs.route.outputs.table || '' }}
       only: ${{ needs.route.outputs.only || '' }}
+      mac_integration: ${{ needs.route.outputs.mac_integration || '' }}
+      mac_integration_only: ${{ needs.route.outputs.mac_integration_only || '' }}
     secrets:
       GLAEDA_ROUTE_APP_KEY: ${{ secrets.GLAEDA_ROUTE_APP_KEY }}
       CMUX_BOT_APP_KEY: ${{ secrets.CMUX_BOT_APP_KEY }}
@@ -628,6 +632,8 @@ jobs:
           REPO: ${{ github.repository }}
           SHA: ${{ github.event.pull_request.head.sha }}
           RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+          MAC_INTEGRATION: ${{ needs.route.outputs.mac_integration }}
+          MAC_VERDICT: ${{ needs.pipeline.outputs.mac_integration_verdict }}
           PIPELINE: ${{ needs.pipeline.result }}
           RUN: ${{ needs.pipeline.outputs.ios_fast_run }}
           VERDICT: ${{ needs.pipeline.outputs.ios_fast_verdict }}
@@ -656,6 +662,13 @@ jobs:
             gated=$(python3 -I scripts/ci/proof_record.py gate --suite ios-flows) || { echo "::error::proof record not read; failing so this job can be rerun"; exit 1; }
             IFS=$'\t' read -r pstate pdesc <<< "$gated"
             if [ "$pstate" != success ]; then state="${pstate:-error}"; desc="Build passed; ${pdesc}"; fi
+          fi
+          if [ -n "$MAC_INTEGRATION" ] && [ "$MAC_VERDICT" != success ]; then
+            if [ "$MAC_VERDICT" = failure ]; then
+              state=failure; desc="Failed selected integration assertions: $MAC_INTEGRATION"
+            else
+              state=error; desc="Missing or skipped selected integration assertions: $MAC_INTEGRATION"
+            fi
           fi
           python3 -I scripts/ci/ios_fast_verdict.py status "$state" "$desc"
 

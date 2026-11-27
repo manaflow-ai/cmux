@@ -94,26 +94,30 @@ class WorkflowTest(unittest.TestCase):
         self.assertTrue(inputs["sha"]["required"])
         self.assertEqual(self.wf["permissions"], {})
 
-    def test_the_pipeline_runs_only_the_ios_fast_verdict_at_the_merge_commit(self) -> None:
+    def test_the_pipeline_runs_ios_and_narrow_screen_assertions_at_the_merge_commit(self) -> None:
         call = self.jobs["pipeline"]
         self.assertEqual(call["uses"], "./.github/workflows/pr-pipeline.yml")
         self.assertEqual(call["needs"], ["resolve"])
         self.assertEqual(call["with"]["ref"], "${{ needs.resolve.outputs.merge }}")
         routed = json.loads(call["with"]["jobs"])
         table_jobs = {"linux", "web-browser", "ios", "mac"}
-        self.assertFalse(set(routed) & table_jobs)
-        # Every table job of the pipeline gates on inputs.jobs, so this list skips them all.
+        self.assertEqual(set(routed) & table_jobs, {"mac"})
+        self.assertEqual(call["with"]["mac_integration"], "screen-webrtc-headless")
+        self.assertEqual(call["with"]["mac_integration_only"], "screen-webrtc-headless")
+        # Every table job gates on inputs.jobs; recovery adds only the explicit Mac suite.
         for name, job in self.pipeline["jobs"].items():
             if name.startswith("ios-fast") or name == "mac-fallback":
                 continue
             with self.subTest(job=name):
                 self.assertIn("inputs.jobs", job.get("if", ""))
         self.assertEqual(call["permissions"], self.router["pipeline"]["permissions"])
+        paths = next(s for s in self.pipeline["jobs"]["mac"]["steps"] if s.get("name") == "List the changed paths")
+        self.assertEqual(paths["if"], "inputs.ref == ''")
 
     def test_both_ios_fast_checkouts_take_the_ref_input(self) -> None:
         ins = self.pipeline.get("on", self.pipeline.get(True))["workflow_call"]["inputs"]
         self.assertEqual(ins["ref"]["default"], "")
-        for job in ("ios-fast-runner", "ios-fast"):
+        for job in ("ios-fast-runner", "ios-fast", "mac"):
             checkout = next(s for s in self.pipeline["jobs"][job]["steps"] if "actions/checkout" in s.get("uses", ""))
             with self.subTest(job=job):
                 self.assertEqual(checkout["with"]["ref"], "${{ inputs.ref }}")

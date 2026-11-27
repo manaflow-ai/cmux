@@ -9,8 +9,9 @@ name: ios fast verdict dispatch
 #     gh workflow run ios-fast-verdict-dispatch.yml -R manaflow-ai/cmux --ref feat-cmux-next -f pr=N -f sha=FULL_HEAD_SHA
 #
 # resolve: the PR is open, same-repo, into feat-cmux-next, at SHA, and GitHub's test merge commit has SHA as its second
-# parent (scripts/ci/ios_fast_dispatch.py). pipeline: pr-pipeline.yml with no table job routed, so only its ios fast
-# verdict runs, checked out at that merge commit (its `ref` input). status: the same post as pr-router.yml's
+# parent (scripts/ci/ios_fast_dispatch.py). pipeline: pr-pipeline.yml runs the ios fast verdict and the narrowly
+# selected headless screen assertions, checked out at that merge commit (its `ref` input).
+# status: the same post as pr-router.yml's
 # ios-fast-status (tests/test_ci_ios_fast_dispatch.py keeps the two run blocks identical), at SHA. Never a fake
 # result: a verdict that did not finish posts error, as the router does.
 # The push on this file's own path registers the workflow (its jobs skip): GitHub answers 404 for a dispatch-only
@@ -71,8 +72,11 @@ jobs:
     needs: [resolve]
     uses: ./.github/workflows/pr-pipeline.yml
     with:
-      # No table job: linux, web-browser, ios, ios-macos and mac skip; the ios fast verdict always plans.
-      jobs: '["ios-fast-verdict-dispatch"]'
+      # Recovery cannot overwrite the screen verdict with a build-only green. Run the one headless assertion
+      # suite conservatively on the exact test merge; no full Mac suite or simulator is enabled.
+      jobs: '["mac"]'
+      mac_integration: screen-webrtc-headless
+      mac_integration_only: screen-webrtc-headless
       ref: ${{ needs.resolve.outputs.merge }}
     secrets:
       GLAEDA_ROUTE_APP_KEY: ${{ secrets.GLAEDA_ROUTE_APP_KEY }}
@@ -112,6 +116,8 @@ jobs:
           REPO: ${{ github.repository }}
           SHA: ${{ inputs.sha }}
           RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+          MAC_INTEGRATION: screen-webrtc-headless
+          MAC_VERDICT: ${{ needs.pipeline.outputs.mac_integration_verdict }}
           PIPELINE: ${{ needs.pipeline.result }}
           RUN: ${{ needs.pipeline.outputs.ios_fast_run }}
           VERDICT: ${{ needs.pipeline.outputs.ios_fast_verdict }}
@@ -137,5 +143,12 @@ jobs:
             gated=$(python3 -I scripts/ci/proof_record.py gate --suite ios-flows) || { echo "::error::proof record not read; failing so this job can be rerun"; exit 1; }
             IFS=$'\t' read -r pstate pdesc <<< "$gated"
             if [ "$pstate" != success ]; then state="${pstate:-error}"; desc="Build passed; ${pdesc}"; fi
+          fi
+          if [ -n "$MAC_INTEGRATION" ] && [ "$MAC_VERDICT" != success ]; then
+            if [ "$MAC_VERDICT" = failure ]; then
+              state=failure; desc="Failed selected integration assertions: $MAC_INTEGRATION"
+            else
+              state=error; desc="Missing or skipped selected integration assertions: $MAC_INTEGRATION"
+            fi
           fi
           python3 -I scripts/ci/ios_fast_verdict.py status "$state" "$desc"
