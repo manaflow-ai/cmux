@@ -2084,7 +2084,7 @@ impl LocalStore {
         // The segment that holds `after + 1`, found from the segments' kept first seqs: the read
         // opens only the segments it reads (`store/segment_starts.rs`).
         let start = self.segment_starts.start(id, &segments, after)?;
-        for (_, path) in &segments[start..] {
+        for (_, path) in segments.get(start..).unwrap_or_default() {
             let mut reader =
                 BufReader::with_capacity(256 * 1024, cold_segments::open_segment(path)?);
             loop {
