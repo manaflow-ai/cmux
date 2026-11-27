@@ -21,6 +21,8 @@ struct BoundActionCatalogTests {
         // which adds these rows to the Rust catalog: until it lands and re-pins, they do nothing.
         "macScreen.viewOnly", "macScreen.fullControl", "macScreen.fullScreen", "macScreen.sendSwitchApp",
         "macScreen.sendSpotlight", "macScreen.reconnect", "macScreen.stopAllViewing",
+        // appearance.mode (Light, Dark, Match System): rows in this same pull request; the re-pin carries them.
+        "appearance.mode.system", "appearance.mode.light", "appearance.mode.dark",
         // Make cmux Yours in the palette landed with its Rust row (catalog/home.rs); the pinned app FFI gains it on re-pin.
         "home.makeItYours",
         // Edit Chief…, Set Chief Model…, Set Chief Effort… and Make Agent a Chief… (ChiefRegistryPaletteTests) land with their

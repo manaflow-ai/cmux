@@ -8,7 +8,8 @@
 //   run in a worker (composer/imageWorker.ts), so the page's main thread never stalls on them.
 // - A host that never answers (`chat.attach.dropped`, `chat.upload.*`) never leaves a tile loading
 //   forever: an image becomes its chip once its preview is made, whatever its original's upload does.
-// - A loading tile spins and has a working ×; a tile that failed says why, and Retry tries again.
+// - A loading tile spins and has a working ×; a tile whose upload failed keeps loading and is asked
+//   again on its own, with no Retry (Leo, 2026-11-22; composer/uploadRetry.ts).
 // The page is the pane's dev entry with the in-page mock transport.
 //
 // Real Chromium from Playwright; CI fails the file when it cannot launch (requireBrowserLane).
@@ -153,7 +154,8 @@ await requireBrowserLane("agent-pane-paste-large-screenshots.test.ts", async () 
     });
 
   // The attachments the default inline view places in the prompt's line: one chip per attachment,
-  // a spinner while it loads, Retry when it failed (inlineAttachments.tsx).
+  // a spinner while it loads (and while a failed upload is asked again), its x when it failed
+  // (inlineAttachments.tsx).
   const INLINE = ".acpmux-composer-prompt .acpmux-md-inline-chip";
   const LOADING = `${INLINE}[data-state="loading"]`;
   const FAILED = `${INLINE} .acpmux-attachment-failed`;
@@ -225,7 +227,7 @@ await requireBrowserLane("agent-pane-paste-large-screenshots.test.ts", async () 
     await page.close();
   });
 
-  test("a file whose upload failed says why, and Retry attaches it", async () => {
+  test("a file whose upload failed keeps loading and is attached on its own once the host takes it", async () => {
     const page = await newChat({ "chat.upload.begin": "fail", "chat.upload.chunk": "ok", "chat.upload.finish": "ok" });
     await page.locator(COMPOSER_EDITOR).click();
     await page.evaluate(
@@ -237,21 +239,22 @@ await requireBrowserLane("agent-pane-paste-large-screenshots.test.ts", async () 
       },
       { COMPOSER_EDITOR },
     );
-    // The failed chip is cut to its size in the line; its tooltip has the reason.
-    const failed = page.locator(FAILED);
-    await failed.waitFor();
-    expect(await failed.getAttribute("title")).toContain("The disk is full.");
-    const before = (await failed.boundingBox())!;
+    // The loading chip is cut to its size in the line; it keeps loading through the failure, with no
+    // Retry and never a failed tile (its tooltip says "Still trying" only after the house deadline).
+    const loading = page.locator(`${INLINE} .acpmux-attachment[aria-busy="true"]`);
+    await loading.waitFor();
+    const before = (await loading.boundingBox())!;
     const composer = page.locator(".acpmux-composer-box");
     const composerHeight = (await composer.boundingBox())!.height;
-    // The host takes it this time.
+    expect(await page.locator(FAILED).count()).toBe(0);
+    expect(await page.locator(`${INLINE} .acpmux-attachment-retry`).count()).toBe(0);
+    // The host takes it from now on: the next ask (its backoff, 0.5-2 s) attaches it, untouched.
     await page.evaluate(() => {
       (window as unknown as { host: Record<string, string> }).host["chat.upload.begin"] = "ok";
     });
-    await failed.locator(".acpmux-attachment-retry").click();
     const ready = page.locator(`${INLINE} .acpmux-attachment-link`);
-    await ready.waitFor();
-    expect(await failed.count()).toBe(0);
+    await ready.waitFor({ timeout: 10_000 });
+    expect(await page.locator(FAILED).count()).toBe(0);
     const after = (await ready.boundingBox())!;
     expect(after.width).toBeCloseTo(before.width);
     expect(after.height).toBeCloseTo(before.height);
@@ -263,7 +266,8 @@ await requireBrowserLane("agent-pane-paste-large-screenshots.test.ts", async () 
   // is converted to JPEG or PNG in the worker, never on the page. (Chromium has no HEIF decoder, so
   // here it goes as a file; the app's WebKit decodes it in the worker.)
   test("a 5.2 MB HEIF photo never blocks typing", async () => {
-    const page = await newChat();
+    // The host takes its upload: one that fails is asked again on its own and keeps loading.
+    const page = await newChat({ "chat.upload.begin": "ok", "chat.upload.chunk": "ok", "chat.upload.finish": "ok" });
     await page.locator(COMPOSER_EDITOR).click();
     await page.evaluate(() => {
       const bytes = new Uint8Array(5.2 * 1024 * 1024);

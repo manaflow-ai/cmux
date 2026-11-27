@@ -128,10 +128,6 @@ jobs:
           sparse-checkout: |
             /*
             !/cmux-next-ios/verify/
-            scripts/ci/toolchain-r2.sh
-            scripts/ci/toolchain-archives.sha256
-            scripts/ci/r2-cache.sh
-            scripts/ci/lan_cache_fetch.py
           persist-credentials: false
           ref: ${{ github.sha }}
 
@@ -220,7 +216,8 @@ jobs:
           source scripts/ghostty-zig-version.sh
           want="$(GHOSTTY_ZIG_SOURCE=ghostty-next ghostty_minimum_zig_version "$PWD")"
           install_root="/opt/zig-$want"
-          if [ "$("$install_root/zig" version 2>/dev/null || true)" != "$want" ]; then
+          have="$("$install_root/zig" version 2>/dev/null)" || have=""
+          if [ "$have" != "$want" ]; then
             GHOSTTY_ZIG_SOURCE=ghostty-next \
               ZIG_REQUIRED="$want" \
               ZIG_FORCE_LOCAL_INSTALL=1 \

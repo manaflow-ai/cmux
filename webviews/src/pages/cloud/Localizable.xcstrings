@@ -3433,138 +3433,6 @@
         }
       }
     },
-    "create.snapshotsFailed": {
-      "comment": "Create sheet: the snapshot list could not be read; a Retry button follows",
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Couldn't load your snapshots."
-          }
-        },
-        "ar": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "تعذّر تحميل اللقطات الخاصة بك."
-          }
-        },
-        "bs": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Nije moguće učitati vaše snimke."
-          }
-        },
-        "da": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Dine snapshots kunne ikke indlæses."
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Deine Snapshots konnten nicht geladen werden."
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "No se pudieron cargar tus instantáneas."
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Impossible de charger vos instantanés."
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Impossibile caricare le tue istantanee."
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "スナップショットを読み込めませんでした。"
-          }
-        },
-        "km": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "មិនអាចផ្ទុករូបថតចាប់យករបស់អ្នកបានទេ។"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "스냅샷을 불러올 수 없습니다."
-          }
-        },
-        "nb": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Kunne ikke laste inn øyeblikksbildene dine."
-          }
-        },
-        "pl": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Nie udało się wczytać Twoich migawek."
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Não foi possível carregar seus snapshots."
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Не удалось загрузить ваши снимки."
-          }
-        },
-        "th": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "โหลดสแนปช็อตของคุณไม่ได้"
-          }
-        },
-        "tr": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Anlık görüntüleriniz yüklenemedi."
-          }
-        },
-        "uk": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Не вдалося завантажити ваші знімки."
-          }
-        },
-        "vi": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Không thể tải các bản chụp nhanh của bạn."
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "无法加载你的快照。"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "無法載入你的快照。"
-          }
-        }
-      }
-    },
     "create.submit": {
       "comment": "Button",
       "extractionState": "manual",
@@ -5409,270 +5277,6 @@
           "stringUnit": {
             "state": "translated",
             "value": "無法重新命名或封存預設環境。"
-          }
-        }
-      }
-    },
-    "environment.defaultMissing": {
-      "comment": "Cloud environment editor",
-      "extractionState": "manual",
-      "localizations": {
-        "ar": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "لم يتم إرجاع بيئة افتراضية. حاول مرة أخرى."
-          }
-        },
-        "bs": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Zadano okruženje nije vraćeno. Pokušajte ponovo."
-          }
-        },
-        "da": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Der blev ikke returneret noget standardmiljø. Prøv igen."
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Keine Standardumgebung zurückgegeben. Versuche es erneut."
-          }
-        },
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "No default environment was returned. Try again."
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "No se devolvió ningún entorno predeterminado. Inténtalo de nuevo."
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Aucun environnement par défaut n’a été renvoyé. Réessayez."
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Non è stato restituito alcun ambiente predefinito. Riprova."
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "デフォルト環境が返されませんでした。もう一度お試しください。"
-          }
-        },
-        "km": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "មិនបានត្រឡប់បរិស្ថានលំនាំដើម។ សូមព្យាយាមម្តងទៀត។"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "기본 환경이 반환되지 않았습니다. 다시 시도하세요."
-          }
-        },
-        "nb": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Ingen standardmiljøer ble returnert. Prøv igjen."
-          }
-        },
-        "pl": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Nie zwrócono środowiska domyślnego. Spróbuj ponownie."
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Nenhum ambiente padrão foi retornado. Tente novamente."
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Среда по умолчанию не получена. Повторите попытку."
-          }
-        },
-        "th": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "ไม่มีสภาพแวดล้อมเริ่มต้นส่งกลับมา ลองอีกครั้ง"
-          }
-        },
-        "tr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Varsayılan ortam döndürülmedi. Tekrar deneyin."
-          }
-        },
-        "uk": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Середовище за замовчуванням не повернуто. Повторіть спробу."
-          }
-        },
-        "vi": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Không có môi trường mặc định nào được trả về. Hãy thử lại."
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "未返回默认环境。请重试。"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "未傳回預設環境。請重試。"
-          }
-        }
-      }
-    },
-    "environment.deriveFailed": {
-      "comment": "Cloud environment editor",
-      "extractionState": "manual",
-      "localizations": {
-        "ar": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "تعذر تحميل برنامج الإعداد المقترح. حاول مرة أخرى أو اكتب برنامجك الخاص."
-          }
-        },
-        "bs": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Predloženu skriptu za postavljanje nije moguće učitati. Pokušajte ponovo ili napišite vlastitu."
-          }
-        },
-        "da": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Det foreslåede opsætningsscript kunne ikke indlæses. Prøv igen, eller skriv dit eget."
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Das vorgeschlagene Setup-Skript konnte nicht geladen werden. Versuche es erneut oder schreibe dein eigenes."
-          }
-        },
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Could not load the suggested setup script. Try again or write your own."
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "No se pudo cargar el script de configuración sugerido. Inténtalo de nuevo o escribe uno propio."
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Impossible de charger le script de configuration suggéré. Réessayez ou écrivez le vôtre."
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Impossibile caricare lo script di configurazione suggerito. Riprova o scrivine uno personalizzato."
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "提案されたセットアップスクリプトを読み込めませんでした。もう一度お試しいただくか、自分で入力してください。"
-          }
-        },
-        "km": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "មិនអាចផ្ទុកស្គ្រីបដំឡើងដែលបានណែនាំ។ សូមព្យាយាមម្តងទៀត ឬសរសេរដោយខ្លួនឯង។"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "제안된 설정 스크립트를 불러올 수 없습니다. 다시 시도하거나 직접 작성하세요."
-          }
-        },
-        "nb": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Kunne ikke laste inn det foreslåtte oppsettskriptet. Prøv igjen eller skriv ditt eget."
-          }
-        },
-        "pl": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Nie udało się załadować sugerowanego skryptu konfiguracji. Spróbuj ponownie lub napisz własny."
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Não foi possível carregar o script de configuração sugerido. Tente novamente ou escreva o seu próprio."
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Не удалось загрузить предложенный скрипт настройки. Повторите попытку или напишите свой."
-          }
-        },
-        "th": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "โหลดสคริปต์ตั้งค่าที่แนะนำไม่ได้ ลองอีกครั้งหรือเขียนเอง"
-          }
-        },
-        "tr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Önerilen kurulum betiği yüklenemedi. Tekrar deneyin veya kendi betiğinizi yazın."
-          }
-        },
-        "uk": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Не вдалося завантажити запропонований скрипт налаштування. Повторіть спробу або напишіть власний."
-          }
-        },
-        "vi": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Không thể tải tập lệnh thiết lập được đề xuất. Hãy thử lại hoặc tự viết."
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "无法加载建议的设置脚本。请重试或自行编写。"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "無法載入建議的設定指令碼。請重試或自行編寫。"
           }
         }
       }
@@ -7917,6 +7521,138 @@
           "stringUnit": {
             "state": "translated",
             "value": "無法儲存變更。你的編輯內容已保留，請重試。"
+          }
+        }
+      }
+    },
+    "environment.saveNeedsClick": {
+      "comment": "Cloud environment editor: Save was refused because the click was not the person's own (transport.gesture_required)",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "تم الاحتفاظ بتعديلاتك لكن لم تُحفظ: الحفظ يحتاج إلى نقرتك أنت. انقر على حفظ التغييرات مرة أخرى."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Vaše izmjene su sačuvane, ali nisu spremljene: spremanje traži vaš vlastiti klik. Ponovo kliknite Spremi izmjene."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Dine ændringer er bevaret, men ikke gemt: at gemme kræver dit eget klik. Klik på Gem ændringer igen."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Deine Änderungen bleiben erhalten, sind aber nicht gespeichert: Speichern braucht deinen eigenen Klick. Klicke noch einmal auf Änderungen speichern."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Your edits are kept but not saved: saving needs your own click. Click Save changes again."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Tus cambios se conservan, pero no se guardaron: guardar requiere tu propio clic. Vuelve a hacer clic en Guardar cambios."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Vos modifications sont conservées mais pas enregistrées : l’enregistrement demande votre propre clic. Cliquez à nouveau sur Enregistrer les modifications."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Le modifiche sono conservate ma non salvate: il salvataggio richiede un tuo clic. Fai di nuovo clic su Salva modifiche."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "編集内容は保持されていますが、保存されていません。保存にはご自身のクリックが必要です。もう一度「変更を保存」をクリックしてください。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ការកែសម្រួលរបស់អ្នកត្រូវបានរក្សាទុក ប៉ុន្តែមិនទាន់បានរក្សាទុកទេ៖ ការរក្សាទុកត្រូវការការចុចផ្ទាល់ខ្លួនរបស់អ្នក។ ចុច រក្សាទុកការផ្លាស់ប្តូរ ម្តងទៀត។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "편집 내용은 유지되지만 저장되지 않았습니다. 저장하려면 직접 클릭해야 합니다. 변경 사항 저장을 다시 클릭하세요."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Endringene dine er beholdt, men ikke lagret: lagring krever ditt eget klikk. Klikk Lagre endringer igjen."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Twoje zmiany są zachowane, ale niezapisane: zapis wymaga Twojego własnego kliknięcia. Kliknij ponownie Zapisz zmiany."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Suas edições foram mantidas, mas não salvas: salvar exige o seu próprio clique. Clique em Salvar alterações novamente."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ваши правки сохранены в редакторе, но не записаны: для сохранения нужен ваш собственный щелчок. Нажмите «Сохранить изменения» ещё раз."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "การแก้ไขของคุณยังอยู่แต่ยังไม่ได้บันทึก: การบันทึกต้องใช้การคลิกของคุณเอง คลิก บันทึกการเปลี่ยนแปลง อีกครั้ง"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Düzenlemeleriniz korundu ancak kaydedilmedi: kaydetmek için kendi tıklamanız gerekir. Değişiklikleri kaydet'e yeniden tıklayın."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ваші правки збережено в редакторі, але не записано: для збереження потрібне ваше власне клацання. Натисніть «Зберегти зміни» ще раз."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Các chỉnh sửa của bạn vẫn được giữ nhưng chưa được lưu: việc lưu cần chính cú nhấp của bạn. Hãy nhấp Lưu thay đổi lần nữa."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "你的编辑已保留但尚未保存：保存需要你本人点击。请再次点击“保存更改”。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "你的編輯已保留但尚未儲存：儲存需要你本人點按。請再次點按「儲存變更」。"
           }
         }
       }
@@ -17953,138 +17689,6 @@
         }
       }
     },
-    "page.disconnected": {
-      "comment": "Shown when the page cannot reach cmux",
-      "extractionState": "manual",
-      "localizations": {
-        "ar": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "السحابة غير متاحة حتى يعيد cmux الاتصال."
-          }
-        },
-        "bs": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Oblak nije dostupan dok se cmux ponovo ne poveže."
-          }
-        },
-        "da": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Cloud er ikke tilgængelig, før cmux opretter forbindelse igen."
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Cloud ist erst verfügbar, wenn cmux wieder verbunden ist."
-          }
-        },
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Cloud is not available until cmux reconnects."
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "La nube no está disponible hasta que cmux se vuelva a conectar."
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Le cloud n’est pas disponible tant que cmux n’est pas reconnecté."
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Il cloud non è disponibile finché cmux non si riconnette."
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "cmux が再接続するまでクラウドは利用できません。"
-          }
-        },
-        "km": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "ក្លោដមិនអាចប្រើបានទេ រហូតដល់ cmux ភ្ជាប់ម្តងទៀត។"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "cmux가 다시 연결될 때까지 클라우드를 사용할 수 없습니다."
-          }
-        },
-        "nb": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Sky er ikke tilgjengelig før cmux kobler til igjen."
-          }
-        },
-        "pl": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Chmura jest niedostępna, dopóki cmux nie połączy się ponownie."
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "A nuvem não está disponível até que o cmux se reconecte."
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Облако недоступно, пока cmux не подключится снова."
-          }
-        },
-        "th": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "คลาวด์จะใช้ไม่ได้จนกว่า cmux จะเชื่อมต่อใหม่"
-          }
-        },
-        "tr": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "cmux yeniden bağlanana kadar Bulut kullanılamaz."
-          }
-        },
-        "uk": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Хмара недоступна, доки cmux не підключиться знову."
-          }
-        },
-        "vi": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Đám mây không khả dụng cho đến khi cmux kết nối lại."
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "在 cmux 重新连接之前，云不可用。"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "在 cmux 重新連線之前，無法使用雲端。"
-          }
-        }
-      }
-    },
     "page.dismissError": {
       "comment": "Button that hides the error banner",
       "extractionState": "manual",
@@ -25473,138 +25077,6 @@
           "stringUnit": {
             "state": "needs_review",
             "value": "每台機器建立前都需你確認，並可隨時暫停或刪除。"
-          }
-        }
-      }
-    },
-    "store.planFailed": {
-      "comment": "Storefront text when the plan could not be read; a Retry button follows",
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Couldn't read your Cloud plan."
-          }
-        },
-        "ar": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "تعذّرت قراءة خطة السحابة الخاصة بك."
-          }
-        },
-        "bs": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Nije moguće učitati vaš Cloud plan."
-          }
-        },
-        "da": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Din Cloud-plan kunne ikke læses."
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Ihr Cloud-Plan konnte nicht gelesen werden."
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "No se pudo leer tu plan de Cloud."
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Impossible de lire votre forfait Cloud."
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Impossibile leggere il tuo piano Cloud."
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Cloud プランを読み込めませんでした。"
-          }
-        },
-        "km": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "មិនអាចអានគម្រោង Cloud របស់អ្នកបានទេ។"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Cloud 요금제를 읽지 못했습니다."
-          }
-        },
-        "nb": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Kunne ikke lese Cloud-planen din."
-          }
-        },
-        "pl": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Nie udało się odczytać Twojego planu Cloud."
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Não foi possível ler seu plano do Cloud."
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Не удалось получить ваш тариф Cloud."
-          }
-        },
-        "th": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "อ่านแผน Cloud ของคุณไม่ได้"
-          }
-        },
-        "tr": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Cloud planınız okunamadı."
-          }
-        },
-        "uk": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Не вдалося отримати ваш тариф Cloud."
-          }
-        },
-        "vi": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Không đọc được gói Cloud của bạn."
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "无法读取你的 Cloud 套餐。"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "無法讀取你的 Cloud 方案。"
           }
         }
       }
@@ -38937,6 +38409,661 @@
           "stringUnit": {
             "state": "needs_review",
             "value": "磁碟"
+          }
+        }
+      }
+    },
+    "page.stillTrying": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "لا تزال المحاولة جارية للوصول إلى cmux Cloud…"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Još uvijek pokušavamo doći do cmux Clouda…"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Prøver stadig at nå cmux Cloud…"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Versuche weiterhin, cmux Cloud zu erreichen…"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Still trying to reach cmux Cloud…"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Seguimos intentando conectar con cmux Cloud…"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Toujours en train de joindre cmux Cloud…"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ancora in attesa di raggiungere cmux Cloud…"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux Cloud への接続を引き続き試しています…"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "នៅតែកំពុងព្យាយាមភ្ជាប់ទៅ cmux Cloud…"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux Cloud에 계속 연결을 시도하는 중…"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Prøver fortsatt å nå cmux Cloud…"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Wciąż próbujemy połączyć się z cmux Cloud…"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ainda tentando acessar o cmux Cloud…"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Всё ещё пытаемся связаться с cmux Cloud…"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ยังคงพยายามเชื่อมต่อ cmux Cloud…"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux Cloud'a ulaşılmaya çalışılıyor…"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Досі намагаємося зв'язатися з cmux Cloud…"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Vẫn đang cố kết nối tới cmux Cloud…"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "仍在尝试连接 cmux Cloud…"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "仍在嘗試連線至 cmux Cloud…"
+          }
+        }
+      }
+    },
+    "create.snapshotsStillTrying": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "لا يزال تحميل لقطاتك جاريًا…"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Još uvijek učitavamo vaše snimke…"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Indlæser stadig dine snapshots…"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Deine Snapshots werden noch geladen…"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Still loading your snapshots…"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Seguimos cargando tus instantáneas…"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Chargement de vos instantanés en cours…"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Caricamento degli snapshot ancora in corso…"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "スナップショットを引き続き読み込んでいます…"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "នៅតែកំពុងផ្ទុក snapshot របស់អ្នក…"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "스냅샷을 계속 불러오는 중…"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Laster fortsatt inn øyeblikksbildene dine…"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Wciąż wczytujemy Twoje migawki…"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ainda carregando seus snapshots…"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Всё ещё загружаем ваши снимки…"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ยังคงโหลดสแนปช็อตของคุณ…"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Anlık görüntüleriniz hâlâ yükleniyor…"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Досі завантажуємо ваші знімки…"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Vẫn đang tải các bản chụp nhanh của bạn…"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "仍在加载你的快照…"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "仍在載入你的快照…"
+          }
+        }
+      }
+    },
+    "store.planStillTrying": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "لا تزال قراءة خطة Cloud الخاصة بك جارية…"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Još uvijek čitamo vaš Cloud plan…"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Læser stadig din Cloud-plan…"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dein Cloud-Tarif wird noch gelesen…"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Still reading your Cloud plan…"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Seguimos leyendo tu plan de Cloud…"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Lecture de votre forfait Cloud en cours…"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Lettura del piano Cloud ancora in corso…"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cloud プランを引き続き読み込んでいます…"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "នៅតែកំពុងអានគម្រោង Cloud របស់អ្នក…"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cloud 요금제를 계속 읽는 중…"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Leser fortsatt Cloud-planen din…"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Wciąż odczytujemy Twój plan Cloud…"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ainda lendo seu plano do Cloud…"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Всё ещё загружаем ваш тариф Cloud…"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ยังคงอ่านแพ็กเกจ Cloud ของคุณ…"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cloud planınız hâlâ okunuyor…"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Досі завантажуємо ваш тариф Cloud…"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Vẫn đang đọc gói Cloud của bạn…"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "仍在读取你的 Cloud 套餐…"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "仍在讀取你的 Cloud 方案…"
+          }
+        }
+      }
+    },
+    "environment.stillLoading": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "لا يزال تحميل البيئة جاريًا…"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Još uvijek učitavamo okruženje…"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Indlæser stadig miljøet…"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Die Umgebung wird noch geladen…"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Still loading the environment…"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Seguimos cargando el entorno…"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Chargement de l'environnement en cours…"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Caricamento dell'ambiente ancora in corso…"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "環境を引き続き読み込んでいます…"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "នៅតែកំពុងផ្ទុកបរិស្ថាន…"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "환경을 계속 불러오는 중…"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Laster fortsatt inn miljøet…"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Wciąż wczytujemy środowisko…"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ainda carregando o ambiente…"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Всё ещё загружаем окружение…"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ยังคงโหลดสภาพแวดล้อม…"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ortam hâlâ yükleniyor…"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Досі завантажуємо середовище…"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Vẫn đang tải môi trường…"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "仍在加载环境…"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "仍在載入環境…"
+          }
+        }
+      }
+    },
+    "environment.deriveStillTrying": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "لا يزال تحميل سكربت الإعداد المقترح جاريًا…"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Još uvijek učitavamo predloženu skriptu za postavljanje…"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Indlæser stadig det foreslåede opsætningsscript…"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Das vorgeschlagene Einrichtungsskript wird noch geladen…"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Still loading the suggested setup script…"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Seguimos cargando el script de configuración sugerido…"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Chargement du script de configuration suggéré en cours…"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Caricamento dello script di configurazione suggerito ancora in corso…"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "提案されたセットアップスクリプトを引き続き読み込んでいます…"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "នៅតែកំពុងផ្ទុកស្គ្រីបរៀបចំដែលបានណែនាំ…"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "추천 설정 스크립트를 계속 불러오는 중…"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Laster fortsatt inn det foreslåtte oppsettskriptet…"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Wciąż wczytujemy sugerowany skrypt konfiguracji…"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ainda carregando o script de configuração sugerido…"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Всё ещё загружаем предложенный скрипт настройки…"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ยังคงโหลดสคริปต์ตั้งค่าที่แนะนำ…"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Önerilen kurulum betiği hâlâ yükleniyor…"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Досі завантажуємо запропонований скрипт налаштування…"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Vẫn đang tải tập lệnh thiết lập được đề xuất…"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "仍在加载建议的设置脚本…"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "仍在載入建議的設定指令碼…"
           }
         }
       }
