@@ -2087,9 +2087,17 @@ export type WorkspaceFirstTab = ({ "kind": "browser" } & {
 export type WorkspaceGroup = {
   "collapsed": boolean;
   "color": (string) | null;
+  /** workspace-group-icon-v1: the group's icon (one emoji, an SF Symbol name or a stored image), in list-personal's groups. */
+  "icon"?: (string) | null;
   "id": string;
   "index": bigint;
   "name": string;
+  /** workspace-group-pin-v1: a pinned group stays as an empty saved group when its workspaces close, in list-personal's groups. */
+  "pinned"?: boolean;
+  /** profiles-v1: the room of a personal group, in list-personal's groups; list-workspaces leaves it out. */
+  "profile"?: (string) | null;
+  /** personal-mixed-order-v1: the personal workspace index the group shows right before, in list-personal's groups; null after every loose workspace. */
+  "top_index"?: (bigint) | null;
 };
 
 export type WorkspaceMutationResult = {

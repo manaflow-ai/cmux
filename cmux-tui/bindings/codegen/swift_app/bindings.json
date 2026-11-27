@@ -1089,7 +1089,7 @@
       }
     },
     "Tree": {
-      "$comment": "The daemon tree's snapshot types (list-workspaces). The schema's Tree objects are checked against the serializer by cmux-tui-core server/tree_schema_tests.rs. Workspace, LivePane, Tree and WorkspaceGroup stay hand-written until the schema has keep_awake, dead, saved_tab_groups and the group profile fields.",
+      "$comment": "The daemon tree's snapshot types (list-workspaces). The schema's Tree objects are checked against the serializer by cmux-tui-core server/tree_schema_tests.rs. WorkspaceGroupSnapshot also reads list-personal's groups, whose room, mixed-order slot, icon and pin the schema declares as optional WorkspaceGroup fields.",
       "objects": {
         "TabSnapshot": {
           "type": "Tab",
@@ -1502,6 +1502,374 @@
               "type": "LayoutNode",
               "doc": [
                 "The split tree inside the row."
+              ]
+            }
+          }
+        },
+        "WorkspaceSnapshot": {
+          "type": "Workspace",
+          "conformances": [
+            "Sendable",
+            "Hashable",
+            "Decodable"
+          ],
+          "doc": [
+            "One workspace as `list-workspaces` reports it (server.rs workspace_json). Every field the GUI can live",
+            "without decodes leniently, so a newer daemon never breaks an older app."
+          ],
+          "order": [
+            "id",
+            "key",
+            "resource_id",
+            "short_id",
+            "name",
+            "name_source",
+            "name_revision",
+            "active",
+            "screens",
+            "group",
+            "color",
+            "icon",
+            "title",
+            "pinned",
+            "marked_unread",
+            "unread_count",
+            "keep_awake",
+            "kind",
+            "app",
+            "recovered",
+            "screen_groups"
+          ],
+          "fields": {
+            "id": {
+              "type": "WorkspaceHandle"
+            },
+            "key": {
+              "type": "WorkspaceKey",
+              "doc": [
+                "Durable identity. Nil only on servers without `workspace-registry-v1`."
+              ]
+            },
+            "resource_id": {
+              "type": "ResourceID"
+            },
+            "name": {
+              "default": "\"\""
+            },
+            "name_source": {
+              "type": "WorkspaceNameSource",
+              "default": ".user",
+              "doc": [
+                "Who supplied `name`; missing on older daemons and conservatively user-owned."
+              ]
+            },
+            "name_revision": {
+              "type": "UInt64",
+              "default": "0",
+              "doc": [
+                "The workspace-local name revision; missing on older daemons and treated as zero."
+              ]
+            },
+            "active": {
+              "default": "false",
+              "doc": [
+                "Shared compatibility default, not user focus. Keep focus client-local."
+              ]
+            },
+            "screens": {
+              "type": "[ScreenSnapshot]",
+              "default": "[]"
+            },
+            "group": {
+              "type": "WorkspaceGroupID",
+              "doc": [
+                "Group membership (`workspace-groups-v1`); nil = ungrouped."
+              ]
+            },
+            "color": {
+              "doc": [
+                "Palette token or `#RRGGBB[AA]` (`workspace-metadata-v1`)."
+              ]
+            },
+            "icon": {
+              "doc": [
+                "SF Symbol name (`workspace-metadata-v1`)."
+              ]
+            },
+            "title": {
+              "doc": [
+                "Custom sidebar title that overrides `name` for display (`workspace-metadata-v1`)."
+              ]
+            },
+            "pinned": {
+              "default": "false",
+              "doc": [
+                "Listed in the sidebar's Pinned section (`workspace-pin-v1`)."
+              ]
+            },
+            "marked_unread": {
+              "default": "false",
+              "doc": [
+                "Marked unread by hand (`notification-mark-unread-v1`)."
+              ]
+            },
+            "unread_count": {
+              "type": "Int",
+              "doc": [
+                "Tabs with an unread marker (`notification-ack-v1`); nil on older daemons."
+              ]
+            },
+            "keep_awake": {
+              "default": "false",
+              "doc": [
+                "Kept awake from a Mac (`workspace-keep-awake-v1`); false on older daemons."
+              ]
+            },
+            "kind": {
+              "type": "String",
+              "doc": [
+                "`home` for the store's home workspace (`workspace-kind-v1`), `app` for an app workspace, else",
+                "`normal`; nil on older daemons."
+              ]
+            },
+            "app": {
+              "lenient": true,
+              "when": "kind == \"app\"",
+              "doc": [
+                "The app of an app workspace (`kind` `app`, `app-screens-v1`): one screen with one app tab; nil",
+                "for every other workspace."
+              ]
+            },
+            "recovered": {
+              "doc": [
+                "The daemon's recovery workspace (`workspace-recovered-v1`): its tabs are all terminals the daemon",
+                "recovered from orphaned hosts, so it is not a workspace the person made. Nil on daemons without it."
+              ]
+            },
+            "screen_groups": {
+              "type": "[ScreenGroupSnapshot]",
+              "default": "[]",
+              "doc": [
+                "Contiguous screen group runs in screen order (`screen-groups-v1`)."
+              ]
+            }
+          }
+        },
+        "PaneSnapshot": {
+          "type": "LivePane",
+          "conformances": [
+            "Sendable",
+            "Hashable",
+            "Decodable"
+          ],
+          "doc": [
+            "One pane of a screen as `list-workspaces` reports it (server.rs pane_json). A pane the tree names but",
+            "state lacks arrives as `{\"id\", \"dead\": true}` and reads as an empty pane."
+          ],
+          "order": [
+            "id",
+            "resource_id",
+            "short_id",
+            "name",
+            "active_tab",
+            "focused_at",
+            "tabs",
+            "tab_groups"
+          ],
+          "fields": {
+            "id": {
+              "type": "PaneID"
+            },
+            "resource_id": {
+              "type": "ResourceID"
+            },
+            "active_tab": {
+              "type": "Int",
+              "default": "0",
+              "doc": [
+                "Shared compatibility default, not user focus."
+              ]
+            },
+            "focused_at": {
+              "default": "0"
+            },
+            "tabs": {
+              "type": "[TabSnapshot]",
+              "default": "[]"
+            },
+            "tab_groups": {
+              "type": "[TabGroupSnapshot]",
+              "default": "[]",
+              "doc": [
+                "Tab groups in this strip, in strip order (`tab-groups-v1`)."
+              ]
+            }
+          }
+        },
+        "DaemonTree": {
+          "type": "Tree",
+          "conformances": [
+            "Sendable",
+            "Hashable",
+            "Decodable"
+          ],
+          "doc": [
+            "`list-workspaces` result (server.rs workspaces_json). The delta, paging and known-tree fields are for",
+            "other readers; this app asks for the whole tree."
+          ],
+          "order": [
+            "generation",
+            "registry_id",
+            "workspace_revision",
+            "pane_revision",
+            "terminal_revision",
+            "workspaces",
+            "groups",
+            "savedTabGroups",
+            "personal"
+          ],
+          "omit": [
+            "unchanged",
+            "tree_revision",
+            "total",
+            "next",
+            "delta",
+            "epoch",
+            "seq",
+            "changed",
+            "removed",
+            "order",
+            "lines_written_before_read"
+          ],
+          "fields": {
+            "generation": {
+              "type": "DaemonGeneration"
+            },
+            "workspace_revision": {
+              "default": "0",
+              "doc": [
+                "Ordered workspace registry revision. Missing means 0 (old servers)."
+              ]
+            },
+            "workspaces": {
+              "type": "[WorkspaceSnapshot]",
+              "default": "[]"
+            },
+            "groups": {
+              "type": "[WorkspaceGroupSnapshot]",
+              "default": "[]",
+              "doc": [
+                "Ordered sidebar groups (`workspace-groups-v1`)."
+              ]
+            }
+          },
+          "extra": {
+            "savedTabGroups": {
+              "type": "[SavedTabGroupSnapshot]",
+              "default": "[]",
+              "doc": [
+                "Session-wide saved tab groups (`saved-tab-groups-v1`). Not part of `list-workspaces`:",
+                "`DaemonConnection.snapshot()` fills it from `list-saved-tab-groups`."
+              ]
+            },
+            "personal": {
+              "type": "PersonalState?",
+              "default": "nil",
+              "doc": [
+                "Personal state (`profiles-v1`, home session only). Not part of `list-workspaces`:",
+                "`DaemonConnection.snapshot()` fills it from `list-personal`; nil on a daemon without it."
+              ]
+            }
+          }
+        },
+        "WorkspaceGroupSnapshot": {
+          "type": "WorkspaceGroup",
+          "conformances": [
+            "Sendable",
+            "Hashable",
+            "Decodable",
+            "Identifiable"
+          ],
+          "doc": [
+            "Sidebar section (`workspace-groups-v1`). Groups partition the one workspace order: a section lists its",
+            "workspaces in `workspaces` order."
+          ],
+          "order": [
+            "id",
+            "name",
+            "color",
+            "collapsed",
+            "index",
+            "profile",
+            "top_index",
+            "icon",
+            "pinned",
+            "parent",
+            "depth"
+          ],
+          "fields": {
+            "id": {
+              "type": "WorkspaceGroupID"
+            },
+            "name": {
+              "default": "\"\""
+            },
+            "color": {
+              "doc": [
+                "Palette token or `#RRGGBB[AA]`."
+              ]
+            },
+            "collapsed": {
+              "default": "false",
+              "doc": [
+                "Shared (not per-window) collapsed state."
+              ]
+            },
+            "index": {
+              "type": "Int",
+              "default": "0"
+            },
+            "profile": {
+              "type": "ProfileID",
+              "doc": [
+                "Room of a personal group (`list-personal`); nil for shared groups."
+              ]
+            },
+            "top_index": {
+              "type": "Int",
+              "doc": [
+                "The personal row index the group shows right before (`personal-mixed-order-v1`); nil after",
+                "every loose workspace."
+              ]
+            },
+            "icon": {
+              "doc": [
+                "The group's icon (`workspace-group-icon-v1`): one emoji or an SF Symbol name, the shared icon",
+                "string; nil is none."
+              ]
+            },
+            "pinned": {
+              "default": "false",
+              "doc": [
+                "Pinned (saved) group (`workspace-group-pin-v1`): kept as an empty saved group when its",
+                "workspaces close."
+              ]
+            }
+          },
+          "extra": {
+            "parent": {
+              "type": "WorkspaceGroupID?",
+              "default": "nil",
+              "doc": [
+                "The group this one sits in, for a nested sidebar-document group (remote-groups-DESIGN.md R1); nil",
+                "at the top level and for every daemon (wire) group."
+              ]
+            },
+            "depth": {
+              "type": "Int",
+              "default": "0",
+              "doc": [
+                "Group levels above it: 0 at the top level."
               ]
             }
           }

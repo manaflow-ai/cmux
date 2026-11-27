@@ -3644,9 +3644,21 @@ pub enum WorkspaceFirstTab {
 pub struct WorkspaceGroup {
     pub collapsed: bool,
     pub color: Nullable<String>,
+    /// workspace-group-icon-v1: the group's icon (one emoji, an SF Symbol name or a stored image), in list-personal's groups.
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub icon: Optional<String>,
     pub id: String,
     pub index: u64,
     pub name: String,
+    /// workspace-group-pin-v1: a pinned group stays as an empty saved group when its workspaces close, in list-personal's groups.
+    #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
+    pub pinned: Option<bool>,
+    /// profiles-v1: the room of a personal group, in list-personal's groups; list-workspaces leaves it out.
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub profile: Optional<String>,
+    /// personal-mixed-order-v1: the personal workspace index the group shows right before, in list-personal's groups; null after every loose workspace.
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub top_index: Optional<u64>,
 }
 
 #[rustfmt::skip]
