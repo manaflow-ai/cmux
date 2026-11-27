@@ -814,7 +814,7 @@ impl App {
         }
         let Some(id) = self.selected_id() else { return };
         let Some(t) = self.transcripts.get(&id) else { return };
-        let Some(Item::Permission { id: pid, options, .. }) = t.pending_permission() else {
+        let Some(Item::Permission { id: pid, options, .. }) = live_permission(t) else {
             self.status = "no pending permission".into();
             return;
         };
@@ -851,6 +851,13 @@ fn session_route_id(session: &Value) -> Option<String> {
 /// A session or transcript status with a turn still open: running, or waiting on a permission.
 fn turn_open_status(status: &str) -> bool {
     matches!(status, "running" | "waiting")
+}
+
+/// The transcript's undecided permission or question, only while its turn is open (cmux#41497
+/// `liveAsk`): an ask left behind when the turn ended, failed or was cancelled is no longer real,
+/// so no card offers Allow for it and y/n answer nothing. A status not yet known keeps it.
+pub(crate) fn live_permission(t: &Transcript) -> Option<&Item> {
+    (t.status.is_empty() || turn_open_status(&t.status)).then(|| t.pending_permission()).flatten()
 }
 
 #[cfg(test)]
@@ -1207,5 +1214,33 @@ pub(crate) mod interaction_tests {
         assert_eq!(blocks[1]["mimeType"], "image/png");
         assert!(!blocks[1]["data"].as_str().unwrap().is_empty());
         std::fs::remove_file(path).unwrap();
+    }
+}
+
+#[cfg(test)]
+mod live_permission_tests {
+    use super::*;
+
+    fn asking(status: &str) -> Transcript {
+        let mut t = Transcript::default();
+        t.items.push(Item::Permission {
+            id: "p1".into(),
+            title: "Run rm -rf build".into(),
+            options: vec![("a".into(), "Allow".into(), "allow_once".into())],
+            decided: None,
+            question: None,
+        });
+        t.status = status.into();
+        t
+    }
+
+    /// cmux#41497: an ask is drawn only while acpmux reports the chat running or waiting.
+    #[test]
+    fn an_ask_left_by_an_ended_turn_is_not_offered() {
+        assert!(live_permission(&asking("waiting")).is_some());
+        assert!(live_permission(&asking("running")).is_some());
+        assert!(live_permission(&asking("")).is_some());
+        assert!(live_permission(&asking("idle")).is_none());
+        assert!(live_permission(&asking("error")).is_none());
     }
 }
