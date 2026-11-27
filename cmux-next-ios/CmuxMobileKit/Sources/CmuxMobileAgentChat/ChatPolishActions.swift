@@ -391,7 +391,7 @@ public final class ChatTurnNavigator {
 
     func step(forward: Bool, store: AgentChatStore, surface: AgentChatSurface) {
         let turns = store.navigableTurns(bookmarkedOnly: bookmarkedOnly)
-        let reading = surface.scroller?.readingTurn(among: turns.map(\.id))
+        let reading = surface.scroller?.readingTurn(among: turns.map(\.rowKey))
         // The reader may have scrolled since the last step: the bar shows where they are.
         if let reading { position = reading.index }
         guard let index = Self.target(count: turns.count, reading: reading, forward: forward) else {
@@ -399,7 +399,7 @@ public final class ChatTurnNavigator {
             return
         }
         position = index
-        surface.scroller?.revealFindBlock(AgentChatFind.promptKey(turns[index].id), position: 0,
+        surface.scroller?.revealFindBlock(AgentChatFind.promptKey(turns[index].rowKey), position: 0,
                                           animated: !UIAccessibility.isReduceMotionEnabled)
     }
 }

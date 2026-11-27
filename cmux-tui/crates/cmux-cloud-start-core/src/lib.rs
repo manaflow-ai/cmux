@@ -5,6 +5,7 @@
 //! channel (`cmux-layout-reducer-ffi`, ops `cloud_*`).
 
 pub mod agent_check;
+pub mod app_state;
 pub mod approval_answer;
 pub mod ask;
 pub mod autosize_row;

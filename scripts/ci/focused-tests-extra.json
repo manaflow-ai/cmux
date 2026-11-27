@@ -13,6 +13,7 @@
     {"prefix": "Packages/macOS/CmuxNext/Sources/CmuxNextApp/Control/CaptureSceneRegistry", "python": ["tests/test_whats_new_clip_scenes.py"]},
     {"prefix": "scripts/fleet-", "python": ["tests/test_cmux_next_bench_cli_calls.py"]},
     {"prefix": "scripts/measure/", "python": ["tests/test_cmux_next_bench_cli_calls.py"]},
+    {"prefix": "webviews/src/", "python": ["tests/test_webviews_no_duplicate_import_names.py"]},
     {"prefix": "webviews/src/agent-session/", "python": ["tests/test_short_timeout_guard.py"]}
   ]
 }
