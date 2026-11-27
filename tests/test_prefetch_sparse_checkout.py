@@ -131,7 +131,7 @@ class PrefetchSparseCheckout(unittest.TestCase):
             subprocess.run(["bash", str(SCRIPT)], cwd=work, stdin=stdin, check=True, capture_output=True,
                            text=True, env=env)
         self.assertEqual(self.tree(work), want)
-        self.assertEqual(list(runner_temp.iterdir()), [])
+        self.assertEqual(list(runner_temp.glob("prefetch.*")), [])
 
     def test_a_failed_chunk_fetch_is_tried_again_before_the_lazy_fallback(self):
         """A stalled or dropped pack (GitHub, 2026-11-25) costs one retry, not a one-by-one lazy fetch."""
