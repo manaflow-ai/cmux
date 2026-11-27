@@ -257,7 +257,7 @@ jobs:
           name: r2-census-binaries
           path: ${{ runner.temp }}/r2-census-binaries.json
           if-no-files-found: ignore
-          retention-days: 7
+          retention-days: 7  # retention-class: publish
 
   r2-census-cef:
     environment: ci-cache-writer
@@ -294,7 +294,7 @@ jobs:
           name: r2-census-cef
           path: ${{ runner.temp }}/r2-census-cef.json
           if-no-files-found: ignore
-          retention-days: 7
+          retention-days: 7  # retention-class: publish
 
   r2-census-ci-cache:
     name: Census (ci-cache)
@@ -331,7 +331,7 @@ jobs:
           name: r2-census-ci-cache
           path: ${{ runner.temp }}/r2-census-ci-cache.json
           if-no-files-found: ignore
-          retention-days: 7
+          retention-days: 7  # retention-class: publish
 
   pr-media:
     name: Prune obsolete pull request media

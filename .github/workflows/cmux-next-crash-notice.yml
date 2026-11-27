@@ -62,4 +62,4 @@ jobs:
           name: cmux-next-crash-notice
           path: .build/crash-notice-nightly/
           if-no-files-found: warn
-          retention-days: 14
+          retention-days: 3  # retention-class: report

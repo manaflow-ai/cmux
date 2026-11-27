@@ -276,4 +276,4 @@ jobs:
             ${{ runner.temp }}/auto-journal-artifact/provenance.json
             ${{ runner.temp }}/auto-journal-recovery/evidence.json
           if-no-files-found: ignore
-          retention-days: 30
+          retention-days: 3  # retention-class: report

@@ -135,7 +135,7 @@ jobs:
           name: cloud-machine-count-probe-${{ github.run_id }}
           path: ${{ runner.temp }}/count-probe/
           if-no-files-found: warn
-          retention-days: 3
+          retention-days: 3  # retention-class: report
       - name: Surge preview, create, replay, conflict, cleanup on development
         if: ${{ !cancelled() && steps.bun.outcome == 'success' && steps.route.outputs.surge == 'true' }}
         timeout-minutes: 20
@@ -152,4 +152,4 @@ jobs:
           name: cloud-surge-proof-${{ github.run_id }}
           path: ${{ runner.temp }}/surge-proof/
           if-no-files-found: warn
-          retention-days: 3
+          retention-days: 3  # retention-class: report

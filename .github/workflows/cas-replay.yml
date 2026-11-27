@@ -181,7 +181,7 @@ jobs:
           name: ${{ steps.artifact_name.outputs.name }}
           path: ${{ runner.temp }}/cas-replay-artifact
           if-no-files-found: error
-          retention-days: 1
+          retention-days: 1  # retention-class: handoff
 
       - name: Upload cas-replay executable without OIDC
         if: steps.artifact-transport.outputs.transport == 'github'
@@ -190,7 +190,7 @@ jobs:
           name: ${{ steps.artifact_name.outputs.name }}
           path: ${{ runner.temp }}/cas-replay-artifact
           if-no-files-found: error
-          retention-days: 1
+          retention-days: 1  # retention-class: handoff
 
   w1:
     name: cas/1 replay, row W1 (web update bytes per merge)

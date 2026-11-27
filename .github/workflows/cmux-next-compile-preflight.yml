@@ -338,7 +338,7 @@ jobs:
           path: ${{ runner.temp }}/web-bundles-out
           if-no-files-found: error
           include-hidden-files: true
-          retention-days: 3
+          retention-days: 3  # retention-class: report
       - name: Publish this run's web bundles without a fleet identity
         if: steps.artifact-transport.outputs.transport == 'github'
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
@@ -347,7 +347,7 @@ jobs:
           path: ${{ runner.temp }}/web-bundles-out
           if-no-files-found: error
           include-hidden-files: true
-          retention-days: 1
+          retention-days: 1  # retention-class: handoff
 
       - name: Verdict
         env:

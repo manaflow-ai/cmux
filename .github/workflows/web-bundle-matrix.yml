@@ -134,7 +134,7 @@ jobs:
           name: web-bundle-matrix-${{ github.run_id }}
           path: ${{ runner.temp }}/web-bundle-matrix/logs
           if-no-files-found: ignore
-          retention-days: 3
+          retention-days: 3  # retention-class: report
 
   report:
     needs: matrix

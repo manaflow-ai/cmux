@@ -792,7 +792,7 @@ jobs:
           name: gallery-reds-${{ matrix.shard }}
           path: ${{ runner.temp }}/reds
           if-no-files-found: ignore
-          retention-days: 7
+          retention-days: 3  # retention-class: report
 
       - name: Fail past the case budget
         if: ${{ !cancelled() && steps.cap.outcome == 'failure' }}
