@@ -215,7 +215,7 @@ fn protected_descendants_keep_their_parent_even_after_scan() {
         let sibling = derived(&home, "Disposable");
         age(&parent, 10);
         age(&sibling, 10);
-        let never = crate::never_delete::NeverDelete::from_globs([pattern.to_string()]);
+        let never = NeverDelete::from_globs([pattern.to_string()]);
         let mut opts =
             options(&home, Pressure::Normal, crate::inventory::now_ms(), true, &no_uses, &not_open);
         opts.never = &never;

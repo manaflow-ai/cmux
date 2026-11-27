@@ -286,6 +286,15 @@ public final class SidebarView: NSView {
     /// The footer's Search button was pressed: the App opens Search (`palette.open`, scope
     /// `search`), the same centered palette as Cmd-P. Nil leaves the button doing nothing.
     public var onSearch: ((NSView) -> Void)?
+    /// Keeps the Search button's tooltip key (the Command Palette's, "⇧⌘P") current through a rebind.
+    private var searchShortcutObservation: Task<Void, Never>?
+    public func followSearchShortcut(_ shortcut: @escaping @MainActor () -> String?) {
+        searchShortcutObservation?.cancel()
+        // task-owner: the sidebar view (cancelled on the next call); event-driven (Observation)
+        searchShortcutObservation = Task { [weak self] in
+            for await key in ObservationStream({ shortcut() }) { self?.searchButton.themedToolTipShortcut = key }
+        }
+    }
 
     /// The profile menu the footer's profile control opens
     /// (SIDEBAR-FOOTER-AND-SPACE-MENU amendment 2); the App builds it from
