@@ -10,8 +10,10 @@
 // cmux#61614 draws such a late row in place under the fold; this test keeps it drawn once.
 //
 // The transcript draws the rows as the live pane gets them: first the background turn alone, then the
-// subagent's end and the next turn after it. Every "Worked for" drawn is its own row, every row is drawn
-// once, and no "Worked for" box crosses a reply's box, read from where the transcript placed each row.
+// subagent's end and the next turn after it. Every row is drawn once (a duplicate is the bug: jsdom mounts
+// both copies, the browser kept the stale one where it was), every "Worked for" drawn is its own row, and
+// rows are placed in view order, each below the last, so no "Worked for" band (its top to the next row's)
+// holds a reply. jsdom measures no height; the band ends where the transcript placed the next row.
 import { afterAll, expect, test } from "bun:test";
 import { JSDOM, VirtualConsole } from "jsdom";
 import { teardownDom } from "./support/domTeardown";
@@ -139,13 +141,13 @@ const after: AcpmuxRow[] = [
   { id: "assistant-7090", version: 1, at: 3_200, kind: "assistant", inBackground: REVIEW, text: "The review passed." },
 ];
 
-/// The placed band of each drawn row: its offset as the transcript wrote it and the height it gave it.
-function bands(document: Document) {
-  return [...document.querySelectorAll<HTMLElement>(".acpmux-row")].map((node) => {
-    const top = Number.parseFloat(node.style.top) + (Number.parseFloat(node.style.marginTop) || 0);
-    const height = Number.parseFloat(node.style.height) || Number.parseFloat(node.style.minHeight) || 1;
-    return { id: node.dataset.rowId ?? "", node, top, bottom: top + height };
-  });
+/// The offset the transcript placed each drawn row at.
+function placed(document: Document) {
+  return [...document.querySelectorAll<HTMLElement>(".acpmux-row")].map((node) => ({
+    id: node.dataset.rowId ?? "",
+    node,
+    top: Number.parseFloat(node.style.top) + (Number.parseFloat(node.style.marginTop) || 0),
+  }));
 }
 
 test("the turn view draws one Worked for per background turn, and a subagent's end after its footer in place", () => {
@@ -171,23 +173,37 @@ test("no Worked for row is drawn over a reply when a subagent ends after a backg
         root.render(<VirtualTranscript rows={rows} onToggleActivity={() => {}} expanded={expanded} />),
       );
       const document = dom.window.document;
-      const drawn = bands(document);
+      const drawn = placed(document);
       // Every row is drawn once: a row two elements claim is the stale copy React left behind.
-      const ids = drawn.map((band) => band.id);
+      const ids = drawn.map((row) => row.id);
       expect(ids.filter((id, index) => ids.indexOf(id) !== index)).toEqual([]);
       // Every "Worked for" drawn is a row of the view, inside the row the transcript placed for it.
       const worked = [...document.querySelectorAll(".cv-worked")];
       expect(worked.length).toBe(rows.filter((row) => row.kind === WORKED).length);
       for (const line of worked) expect(line.closest(".acpmux-row[data-row-id]")).not.toBeNull();
-      // No "Worked for" row's band crosses a reply's band.
-      const replies = drawn.filter((band) => band.node.querySelector(".cv-message, .acpmux-assistant") || band.id.startsWith("assistant-"));
-      for (const line of drawn.filter((band) => band.node.querySelector(".cv-worked")))
+      // Rows are placed in view order, each strictly below the last.
+      const top = new Map(drawn.map((row) => [row.id, row.top]));
+      const order = rows.map((row) => row.id).filter((id) => top.has(id));
+      expect(order.length).toBe(drawn.length);
+      for (let at = 1; at < order.length; at++)
+        expect({ row: order[at], below: top.get(order[at])! > top.get(order[at - 1])! }).toEqual({
+          row: order[at],
+          below: true,
+        });
+      // No "Worked for" band (its top to the next row's) holds the top of a reply.
+      const replies = drawn.filter((row) => row.node.matches(".acpmux-assistant") || row.node.querySelector(".acpmux-assistant"));
+      expect(replies.length).toBe(rows.filter((row) => row.kind === "assistant").length);
+      for (const [at, id] of order.entries()) {
+        if (!drawn.find((row) => row.id === id)?.node.querySelector(".cv-worked")) continue;
+        const from = top.get(id)!;
+        const to = at + 1 < order.length ? top.get(order[at + 1])! : Number.POSITIVE_INFINITY;
         for (const reply of replies)
-          expect({ line: line.id, reply: reply.id, crosses: line.top < reply.bottom && reply.top < line.bottom }).toEqual({
-            line: line.id,
+          expect({ line: id, reply: reply.id, inside: reply.top > from && reply.top < to }).toEqual({
+            line: id,
             reply: reply.id,
-            crosses: false,
+            inside: false,
           });
+      }
     }
   } finally {
     await act(async () => root.unmount());

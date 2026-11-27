@@ -133,6 +133,11 @@ test("chat simulator: a sanitized replay of a recorded lane chat keeps rule b", 
 test("chat simulator: a sanitized replay of a recorded lane chat keeps rule a", () => {
   expect(broken(replayed(), "a-")).toEqual([]);
 });
+// A background turn's late row in this chat (a subagent it started, done after the next turn began)
+// drew a second "Worked for" under the first one's key before cmux#61614 (cmux#59809).
+test("chat simulator: a sanitized replay of a recorded lane chat draws no two rows under one key", () => {
+  expect(broken(replayed(), "d-row-key")).toEqual([]);
+});
 
 // Leo, 2026-11-22 22:10Z, on the six minutes from 22:05 to 22:11Z this fixture replays (his acpmux
 // chat on cosmic-gray, sanitized): "IMMENSE BULLSHIT JUST HAPPENED. ENTIRE THING FUCKING BLANKED AND
