@@ -270,6 +270,8 @@ mod peer_grace_tests;
 mod peer_idle;
 mod peer_lease;
 #[cfg(test)]
+mod peer_list_slot_tests;
+#[cfg(test)]
 mod peer_notice_cost_tests;
 mod peer_row;
 pub(crate) mod peer_snapshot;
