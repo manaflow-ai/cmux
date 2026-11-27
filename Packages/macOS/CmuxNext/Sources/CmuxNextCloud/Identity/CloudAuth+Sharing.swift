@@ -1,4 +1,4 @@
-import Foundation
+public import Foundation
 
 extension CloudAuth {
     /// Team names and backend scopes from the existing Rust identity rules.
@@ -19,7 +19,9 @@ extension CloudAuth {
         if let accountScope, accountKey != accountScope { return nil }
         let scope = accountKey
         let share = await installs.identity(for: api)
+        guard user?.id == stackUser, accountKey == scope else { return nil }
         try await share.signedIn(stackUser: stackUser, session: { try await self.tokens().access })
+        guard user?.id == stackUser, accountKey == scope else { return nil }
         let token: String
         if let team {
             guard shareTeams.contains(where: { $0.id == team }), try accessTokenTeam(requested: team) == team else { return nil }
