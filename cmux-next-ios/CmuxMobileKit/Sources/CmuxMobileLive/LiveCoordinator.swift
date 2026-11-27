@@ -618,7 +618,8 @@ public final class LiveCoordinator {
             // Macs (0.10.0), so a Mac new to the list is the caller's.
             let owner = othersMacs.contains(mac.deviceId) ? known?.ownerUserID : (known?.ownerUserID ?? userID)
             let device = MacDevice(id: mac.deviceId, name: mac.name, isOnline: mac.online, lastSeenAt: mac.lastSeenDate,
-                                   ownerUserID: owner, machineID: mac.machineId ?? known?.machineID)
+                                   ownerUserID: owner, machineID: mac.machineId ?? known?.machineID,
+                                   deviceKind: mac.kind ?? known?.deviceKind)
             if let index = current.firstIndex(where: { $0.id == mac.deviceId }) { current[index] = device } else { current.append(device) }
             store.setMacs(current, teamID: teamID)
             let session = sessions[mac.deviceId]
@@ -667,7 +668,7 @@ public final class LiveCoordinator {
             if let owner = mac.ownerUserId, owner != userID { othersMacs.insert(mac.deviceId) } else { othersMacs.remove(mac.deviceId) }
         }
         store.setMacs(macs.map { MacDevice(id: $0.deviceId, name: $0.name, isOnline: $0.online, lastSeenAt: $0.lastSeenDate,
-                                           ownerUserID: $0.ownerUserId, machineID: $0.machineId) }, teamID: teamID)
+                                           ownerUserID: $0.ownerUserId, machineID: $0.machineId, deviceKind: $0.kind) }, teamID: teamID)
         retarget()
         steerToInvite()
         scheduleSnapshotSave()
@@ -873,7 +874,7 @@ public final class LiveCoordinator {
         let found = macs.compactMap { mac -> DiscoveredMac? in
             guard let teamID = mac.teamId else { return nil }
             return DiscoveredMac(id: mac.deviceId, name: mac.name, isOnline: mac.online, lastSeenAt: mac.lastSeenDate, teamID: teamID,
-                                 ownerUserID: mac.ownerUserId ?? userID, machineID: mac.machineId)
+                                 ownerUserID: mac.ownerUserId ?? userID, machineID: mac.machineId, deviceKind: mac.kind)
         }
         store.mergeDiscoveredMacs(found, personal: personal)
         if store.accountMacCount != found.count { store.accountMacCount = found.count }

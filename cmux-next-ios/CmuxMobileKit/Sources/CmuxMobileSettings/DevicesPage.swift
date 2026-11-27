@@ -1,4 +1,5 @@
 #if os(iOS)
+import CmuxDeviceHub
 import CmuxMobileDesign
 import CmuxMobileModel
 import SwiftUI
@@ -278,11 +279,15 @@ struct DevicesPage: View {
         CmuxMobileGutterRow(alignment: .firstTextBaseline) {
             Group {
                 if device.kind == .mac {
-                    // 8 pt at Large, growing with the text up to 16 pt.
-                    StatusDot(Self.dot(status(device)?.dot ?? (device.online == true ? .connected : .offline)),
-                              size: min(dotSize, 16))
+                    ZStack(alignment: .bottomTrailing) {
+                        SettingsIcon(Self.deviceSymbol(device))
+                        // Keep the live connection state without replacing the device glyph.
+                        StatusDot(Self.dot(status(device)?.dot ?? (device.online == true ? .connected : .offline)),
+                                  size: min(dotSize, 12))
+                            .offset(x: 2, y: 2)
+                    }
                 } else {
-                    SettingsIcon("iphone")
+                    SettingsIcon(Self.deviceSymbol(device))
                 }
             }
             // Centered on the name's line, not the two-line block (the offset
@@ -331,6 +336,11 @@ struct DevicesPage: View {
         // Same-name Macs: when each was added (the tag is next to the name).
         let added = rows.sameNames.added(for: device.id, addedAt: device.addedAt).map { [$0] } ?? []
         return ([presence] + build + added).joined(separator: " · ")
+    }
+
+    private static func deviceSymbol(_ device: SettingsDevice) -> String {
+        let fallback = device.kind == .mac ? "desktopcomputer" : "iphone"
+        return DeviceGlyphKind(name: device.deviceKind)?.symbol ?? fallback
     }
 
     /// Presence plus this phone's own connection, for a Mac this phone knows:

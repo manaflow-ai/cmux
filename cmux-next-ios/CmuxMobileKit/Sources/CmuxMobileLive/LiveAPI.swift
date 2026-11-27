@@ -29,9 +29,11 @@ public struct LiveAPI: Sendable {
         public var removed: Bool?
         /// The computer the Mac runs on (added 2026-10-21): one per computer, shared by its cmux builds.
         public var machineId: String?
+        /// The device kind used by the shared glyph table (nil from older Workers).
+        public var kind: String?
 
         public init(deviceId: String, name: String, online: Bool, lastSeenAt: String? = nil, ownerUserId: String? = nil, teamId: String? = nil, removed: Bool? = nil,
-                    machineId: String? = nil) {
+                    machineId: String? = nil, kind: String? = nil) {
             self.deviceId = deviceId
             self.name = name
             self.online = online
@@ -40,6 +42,7 @@ public struct LiveAPI: Sendable {
             self.teamId = teamId
             self.removed = removed
             self.machineId = machineId
+            self.kind = kind
         }
 
         public var lastSeenDate: Date? { lastSeenAt.flatMap(LiveAPI.parseDate) }

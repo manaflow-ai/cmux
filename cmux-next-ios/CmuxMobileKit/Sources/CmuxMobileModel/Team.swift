@@ -154,14 +154,17 @@ public struct MacDevice: Identifiable, Hashable, Sendable, Codable {
     /// build on one Mac, so ``MacRoster`` lists that Mac once. Nil when the Mac
     /// never said (an older host); a name is never used instead.
     public var machineID: String?
+    /// The device kind used by the shared glyph table (nil from older Workers).
+    public var deviceKind: String?
 
     public init(id: String, name: String, isOnline: Bool, lastSeenAt: Date? = nil, ownerUserID: String? = nil,
-                machineID: String? = nil) {
+                machineID: String? = nil, deviceKind: String? = nil) {
         self.id = id
         self.name = name
         self.isOnline = isOnline
         self.lastSeenAt = lastSeenAt
         self.ownerUserID = ownerUserID
         self.machineID = machineID
+        self.deviceKind = deviceKind
     }
 }

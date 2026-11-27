@@ -1,5 +1,6 @@
 #if os(iOS)
 import CmuxAgentBrands
+import CmuxDeviceHub
 import CmuxMobileDesign
 import CmuxMobileModel
 import CmuxSpinner
@@ -96,16 +97,20 @@ struct TaskComposerOptionsSheet: View {
                     ForEach(macs) { Text(sameNames.displayName($0)).tag($0.id) }
                 }
             } label: {
-                routeLabel(symbol: "desktopcomputer", title: "Mac", value: sameNames.displayName(mac), chevron: "chevron.up.chevron.down")
+                routeLabel(symbol: Self.macSymbol(mac), title: "Mac", value: sameNames.displayName(mac), chevron: "chevron.up.chevron.down")
             }
             .accessibilityLabel("Mac")
             .accessibilityValue(sameNames.displayName(mac))
             .accessibilityIdentifier("taskComposer.mac")
         } else {
-            routeLabel(symbol: "desktopcomputer", title: "Mac", value: mac.map { sameNames.displayName($0) } ?? "No Mac online", chevron: nil)
+            routeLabel(symbol: Self.macSymbol(mac), title: "Mac", value: mac.map { sameNames.displayName($0) } ?? "No Mac online", chevron: nil)
                 .accessibilityElement(children: .combine)
                 .accessibilityIdentifier("taskComposer.mac.only")
         }
+    }
+
+    private static func macSymbol(_ mac: MacDevice?) -> String {
+        DeviceGlyphKind(name: mac?.deviceKind)?.symbol ?? "desktopcomputer"
     }
 
     @ViewBuilder private var folderRow: some View {

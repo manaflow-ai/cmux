@@ -74,6 +74,8 @@ export interface MacPresence {
   ownerUserId: string
   /** Which computer the Mac runs on (PROTOCOL.md "Devices"); null when it never said. */
   machineId: string | null
+  /** The model kind from the device registration, for per-device glyphs. */
+  kind?: string | null
 }
 
 /** A device registration as the Worker hands it to the hub (POST /v1/devices). */
@@ -784,8 +786,8 @@ export class TeamHub extends DurableObject<Env> {
 
   private macRow(deviceId: string) {
     return this.sql
-      .exec<{ name: string; owner_user_id: string; owner_project_id: string | null; team_id: string | null; last_seen_at: number | null; machine_id: string | null }>(
-        `SELECT name, owner_user_id, owner_project_id, team_id, last_seen_at, machine_id FROM macs WHERE device_id = ?`,
+      .exec<{ name: string; owner_user_id: string; owner_project_id: string | null; team_id: string | null; last_seen_at: number | null; machine_id: string | null; kind: string | null }>(
+        `SELECT m.name, m.owner_user_id, m.owner_project_id, m.team_id, m.last_seen_at, m.machine_id, d.kind FROM macs m LEFT JOIN devices d ON d.device_id = m.device_id WHERE m.device_id = ?`,
         deviceId
       )
       .toArray()[0]
@@ -808,14 +810,15 @@ export class TeamHub extends DurableObject<Env> {
       online: !!this.open(deviceId),
       lastSeenAt: r.last_seen_at ? new Date(r.last_seen_at).toISOString() : null,
       ownerUserId: r.owner_user_id,
-      machineId: r.machine_id ?? null
+      machineId: r.machine_id ?? null,
+      kind: r.kind ?? null
     }
   }
 
-  /** The presence frame body: PROTOCOL.md `{deviceId, name, online, lastSeenAt, machineId}`. */
+  /** The presence frame body: PROTOCOL.md `{deviceId, name, online, lastSeenAt, machineId, kind}`. */
   private presenceOf(deviceId: string) {
     const p = this.presence(deviceId)!
-    return { deviceId: p.deviceId, name: p.name, online: p.online, lastSeenAt: p.lastSeenAt, ...(p.machineId ? { machineId: p.machineId } : {}) }
+    return { deviceId: p.deviceId, name: p.name, online: p.online, lastSeenAt: p.lastSeenAt, ...(p.machineId ? { machineId: p.machineId } : {}), ...(p.kind ? { kind: p.kind } : {}) }
   }
 
   /** To the sockets opened for `teamId` (the only team whose Macs they list). */
