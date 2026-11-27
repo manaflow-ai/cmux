@@ -148,26 +148,29 @@ final class QuitCoordinator {
         let behavior = services.settings?.snapshot.quitBehavior ?? QuitBehaviorSetting.fallback
         let completely = services.backgroundReady.quitBegan()  // `app.backgroundReady`: Quit Completely, or any quit while hidden
         logger.notice("quit origin=\(String(describing: origin), privacy: .public) behavior=\(behavior.rawValue, privacy: .public)")
+        let reply = QuitReplyWatchdog.started { sender.reply(toApplicationShouldTerminate: $0) } // replies if the Task below cannot
         // [services]: the quit task pins the app's services until it ends (cx-6so P1b).
         Task { @MainActor [services] in
             services.windows.recordSaver.layoutCache.flushNow() // the layout as seen, before anything leaves the screen
             let choice = QuitPolicy.decide(origin, behavior: behavior)
             // Unsaved documents (R96 quit hook) are the only question a quit can ask.
-            guard await resolveUnsaved(origin) else {
+            guard await reply.holding({ await resolveUnsaved(origin) }) else { // the person may be asked
                 isQuitting = false
-                sender.reply(toApplicationShouldTerminate: false)
+                reply.send(false)
                 quitRefused()
                 return
             }
             // `app.backgroundReady` (off by default, then never a stay): cmux keeps running hidden instead.
             if services.backgroundReady.staysHidden(after: origin, completely: completely) {
-                await services.backgroundReady.hide(choice: choice)  // the saves that end nothing; no deadline, updater, crash-recovery or end step
+                // The saves that end nothing; no deadline, updater, crash-recovery or end step. Held: the reply
+                // watchdog would otherwise answer Quit mid-hide and the stay would exit instead.
+                await reply.holding { await services.backgroundReady.hide(choice: choice) }
                 isQuitting = false
-                sender.reply(toApplicationShouldTerminate: false)
+                reply.send(false)
                 quitRefused()
                 return services.backgroundReady.exitIfUpdateStaged()  // staged already: quit for good, so Sparkle installs it
             }
-            await complete(choice, sender)
+            await complete(choice, reply)
         }
         return .terminateLater
     }
@@ -186,7 +189,7 @@ final class QuitCoordinator {
                                              writeDrafts: { [drafts = services.recoveryDrafts] in await drafts.writePending() })
     }
 
-    private func complete(_ choice: QuitSessionsChoice, _ sender: NSApplication) async {
+    private func complete(_ choice: QuitSessionsChoice, _ reply: QuitReplyWatchdog) async {
         logger.notice("quit choice=\(choice.rawValue, privacy: .public)")
         DebugTimings.markLaunch("quit.decided")
         let services = services
@@ -196,17 +199,16 @@ final class QuitCoordinator {
         // A keep quit ends within `keepQuitLimit` from here, whatever any step
         // below does (slow quit, 2026-10-20). An End quit arms its deadline
         // once its sessions ended (the end steps show their failures).
-        if !choice.ends { deadline.arm(after: QuitDeadline.keepQuitLimit) }
-        // From here the quit is decided: an end before AppKit's reply (a
-        // SIGKILL after a bounded wait, a slow Chromium shutdown) is still
-        // a quit the user asked for, not a crash.
+        if !choice.ends { deadline.arm(after: QuitDeadline.keepQuitLimit) } else { reply.hold() } // End's failure alert waits on the person
+        // From here the quit is decided: an end before AppKit's reply (a SIGKILL after a bounded wait,
+        // a slow Chromium shutdown) is still a quit the user asked for, not a crash.
         // Awaited (bounded, 500 ms) so `quitting` is on disk before the quit
         // can end the process; the write itself runs off the main thread.
         await services.crashRecovery.quitBegan()
         DebugTimings.markLaunch("quit.marked")
         await quitSteps(choice).run(ends: choice.ends)
         DebugTimings.markLaunch("quit.replied")
-        sender.reply(toApplicationShouldTerminate: true)
+        reply.send(true)
     }
 
     /// The quit's steps after the decision `choice` (`QuitSteps.run`).

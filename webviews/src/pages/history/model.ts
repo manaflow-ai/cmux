@@ -2,7 +2,7 @@
 // grouping, row text, row menus, selection. The provider filters entries (kinds, search tokens,
 // range); the page groups and presents them. Behavior matches the Swift page it replaces
 // (CmuxNextHistory/HistoryPageModel.swift, HistoryQuery.swift HistoryGrouping, HistoryPageRow.swift).
-import type { HistoryEntry, HistoryKind, HistoryRange } from "./types";
+import type { HistoryActor, HistoryEntry, HistoryKind, HistoryRange } from "./types";
 import { intl } from "../../ui/intl";
 
 export type HistoryFilter = "all" | "pages" | "locations" | "commands" | "agents" | "closed";
@@ -257,6 +257,12 @@ export const GroupingLabel: Record<HistoryGrouping, string> = {
   day: "group.day",
   workspace: "group.workspace",
   machine: "group.machine",
+};
+
+export const ActorLabel: Record<HistoryActor, string> = {
+  mine: "actor.mine",
+  agents: "actor.agents",
+  all: "actor.all",
 };
 
 export const RangeLabel: Record<HistoryRange, string> = {

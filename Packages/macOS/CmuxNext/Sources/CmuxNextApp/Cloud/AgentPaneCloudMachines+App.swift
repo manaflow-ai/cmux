@@ -6,11 +6,11 @@ extension AgentPaneCloudMachines {
     /// The App's answers to `cloudMachine.*`: the signed-in account's machines (``CloudService``, never another user's or team's
     /// list), Open, Resume, Pause, Kill Machine and typing prewarm on one, run as the person's own; and each switch of team.
     func wire(_ services: AppServices) {
-        let inventory: @MainActor (Duration) async -> Inventory = { [weak self, weak services] age in
+        let inventory: @MainActor (Duration, Bool) async -> Inventory = { [weak self, weak services] age, fresh in
             guard let services, services.cloud.isSignedIn else { return Inventory(signedIn: false, loaded: false, machines: []) }
             self?.readTeamsIfOld { [weak services] in await services?.cloud.auth.activeTeam.refresh() }
-            // A cold start shows the list last answered, marked last seen, while the read runs behind it (never the recovery list).
-            if age != .zero, !services.cloud.hasLoadedCurrentMachines, let kept = services.cloud.lastSeen.inventory(for: services.cloud.account, team: TeamRowText.paneTeam(services.cloud.auth), teams: TeamRowText.paneTeams(services.cloud.auth), refresh: { [weak services] in _ = await services?.cloud.refresh(ifOlderThan: age) }) { return kept }
+            // A cold start shows the list last answered, marked last seen, with the read behind it (a fresh read waits for it; never the recovery list).
+            if age != .zero, !services.cloud.hasLoadedCurrentMachines, let kept = await services.cloud.lastSeen.inventory(for: services.cloud.account, team: TeamRowText.paneTeam(services.cloud.auth), teams: TeamRowText.paneTeams(services.cloud.auth), fresh: fresh, refresh: { [weak services] in await services?.cloud.refresh() ?? false }) { return kept }
             // Complete only when this read's own refresh landed (the recovery list), or the store holds a server answer
             // within `age` (the picker): a superseded or failed refresh leaves the earlier registry, so a machine absent may exist.
             let complete = age == .zero ? await services.cloud.refresh() : await services.cloud.refresh(ifOlderThan: age)
@@ -18,16 +18,14 @@ extension AgentPaneCloudMachines {
                   age != .zero || (services.cloud.lastError == nil && services.cloud.unavailableReason == nil) else {
                 return Inventory(signedIn: services.cloud.isSignedIn, loaded: false, machines: [], team: TeamRowText.paneTeam(services.cloud.auth), teams: TeamRowText.paneTeams(services.cloud.auth))
             }
-            let machines = services.machines.cloud.compactMap { session in
-                session.effectiveStatus == .destroyed ? nil : Machine(id: session.machineID, name: session.machine.title, stage: session.stage.name, evictAt: session.machine.evictAt,
-                                                                       size: Machine.Size(session.machine.size))
-            }
+            let machines = services.machines.cloud.compactMap { session in session.effectiveStatus == .destroyed ? nil : Machine(id: session.machineID, name: session.machine.title, stage: session.stage.name, evictAt: session.machine.evictAt, size: Machine.Size(session.machine.size)) }
             if complete { services.cloud.lastSeen.keep(machines, for: services.cloud.account) } // only a whole server answer
             return Inventory(signedIn: true, loaded: true, machines: machines, account: services.cloud.account, complete: complete, team: TeamRowText.paneTeam(services.cloud.auth), teams: TeamRowText.paneTeams(services.cloud.auth), plan: await self?.planReads.read(account: services.cloud.account) { try await services.cloud.appOps("cloud.plan.get", .object([:]), nil, .script) } ?? .unknown) // cloud.plan.get, else unknown
         }
         teamWatch = TeamRowText.follow(services.cloud.auth) { [weak self] in self?.publishTeamChange() }
-        list = { await inventory(Self.listAge) }
-        recoveryList = { await inventory(.zero) }
+        list = { await inventory(Self.listAge, false) }
+        freshList = { await inventory(Self.listAge, true) }
+        recoveryList = { await inventory(.zero, false) }
         // The facts the typing prewarm and wake on intent (hidden `cloud.wakeOnIntent`) give their Rust rules.
         let facts: @MainActor (String) -> [String: Any] = { [weak services] id in guard let services else { return [:] }
             let cloud = services.cloud, status = services.machines.cloud.first(where: { $0.machineID == id })?.effectiveStatus, allowed = !services.registry.disabledFeatures.contains(.cloud) && cloud.mayCallCloud && cloud.unavailableReason == nil
