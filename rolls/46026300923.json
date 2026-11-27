@@ -1,0 +1,80 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/46026300923",
+  "recorded_at": "2026-11-27T15:47:28Z",
+  "reason": "cmux-tui 6a35eb8238d3 changes the image's cmux-tui (pinned b75b74ccf357)",
+  "dry_run": false,
+  "cmux_tui": "6a35eb8238d327b978234a089cba9064a8bf2c2e",
+  "fixes": [
+    {
+      "sha": "05e77b87852d5a07431c0c15c6302640e1f389ad",
+      "mergedAt": "2026-11-27T14:38:05Z",
+      "subject": "Fix owner remote full-access profiles and starter failure reports (#44541)"
+    },
+    {
+      "sha": "348064ca8eb2e655c83992dbc058ccd662a76ca4",
+      "mergedAt": "2026-11-27T14:33:30Z",
+      "subject": "history: sum a profile's omnibox seed in one table scan (#61507)"
+    },
+    {
+      "sha": "f7070a7ac0653826ce9d7f461b9add46a5ea7a04",
+      "mergedAt": "2026-11-27T14:30:08Z",
+      "subject": "cmux-relay: forward frames without the relay-wide lock (#61401)"
+    },
+    {
+      "sha": "ca96ced20a0f58e53632868ca0b72c6d354a3a59",
+      "mergedAt": "2026-11-27T14:25:35Z",
+      "subject": "acpmux: a Cloud move survives a daemon death, a failed one keeps its mode, a non owner/name origin goes as a bundle (#60404)"
+    },
+    {
+      "sha": "0c88796f397bd3c42acdcdd8f041df0908862160",
+      "mergedAt": "2026-11-27T14:23:14Z",
+      "subject": "NEXT: move inline tests out of cmux-tui files (sweep 6, part 3) (#57387)"
+    },
+    {
+      "sha": "3155cadcea573cfaff4e7efed3c03f41fe97a638",
+      "mergedAt": "2026-11-27T14:15:39Z",
+      "subject": "cmux-config: layout ops (workspace groups, pane chrome, surface tab bar) (#57149)"
+    },
+    {
+      "sha": "377ea5796ca45554791ecb5f9a6bb5eae7cd0f1c",
+      "mergedAt": "2026-11-27T14:11:20Z",
+      "subject": "coderouter: let Node fetch's lone sec-fetch-mode through the relay (#50037)"
+    },
+    {
+      "sha": "6995dfa033f06502e65c54d615a69f4d801944b6",
+      "mergedAt": "2026-11-27T14:10:36Z",
+      "subject": "feat(cmux-team-messaging): RFD 0170 phase 3 shared-document core (roles, suggestions, RFD drafts via PR, bounded updates) (#61525)"
+    },
+    {
+      "sha": "ccac877861f065de61271629d11b600b8da01483",
+      "mergedAt": "2026-11-27T14:06:59Z",
+      "subject": "A wrap-up answer says the box was drawn, not what was in it (#53433)"
+    },
+    {
+      "sha": "088b366da842236bba8d7d7a074bbf0bce012d37",
+      "mergedAt": "2026-11-27T14:06:34Z",
+      "subject": "cmux-wg + smoltcp: data on tunnel TCP SYNs behind CMUX_WG_SYN_DATA (default off) (#61583)"
+    },
+    {
+      "sha": "da5b8be5cb3ce227e8c7360b9599b2863d9d5f5b",
+      "mergedAt": "2026-11-27T14:05:44Z",
+      "subject": "cmux-remote: set TransportPathSnapshot.outer in redial_budget_e2e (#60279)"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "failed",
+    "bake_job": "failure",
+    "done_at": "2026-11-27T15:47:28Z"
+  },
+  "promotion": {
+    "result": "not-run",
+    "job": "skipped",
+    "commit": "",
+    "image": "",
+    "revision": "",
+    "at": null
+  },
+  "rolled_back": false
+}
