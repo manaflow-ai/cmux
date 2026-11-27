@@ -60,6 +60,53 @@ pub(super) fn host_scene(
     Ok(Value::Array(ops))
 }
 
+/// Loads a command extension's script and checks every catalog export without
+/// invoking any of the command handlers. The checker is a host-owned export
+/// that runs only type checks, then returns a harmless text view.
+pub(super) fn host_catalog(app: &str, main: &str, exports: &[String]) -> Result<(), String> {
+    let names = serde_json::to_string(exports).map_err(|e| format!("catalog exports: {e}"))?;
+    let checker = format!(
+        r#"
+(() => {{
+  const appExports = globalThis.__cmuxAppExports || {{}};
+  const expected = {names};
+  globalThis.__cmuxAppExports = appExports;
+  appExports.__cmuxCatalogCheck = () => {{
+    for (const name of expected) {{
+      if (typeof appExports[name] !== "function")
+        throw new Error(`catalog export ${{name}} is not a function`);
+    }}
+    return Text("catalog exports ok");
+  }};
+}})();
+"#
+    );
+    let mut script = String::with_capacity(main.len() + checker.len());
+    script.push_str(main);
+    script.push_str(&checker);
+    host_scene(app, &script, "__cmuxCatalogCheck", &json!({})).map(|_| ())
+}
+
+/// Export names declared by the package's catalog. Package validation already
+/// checks the catalog's schema and path, but reading it here keeps this check
+/// independent from the daemon and gives headless mode the same source of
+/// truth as the command runtime.
+fn catalog_exports(pkg: &dev::Package) -> Result<Vec<String>, String> {
+    let Some(path) = pkg.manifest.pointer("/catalog").and_then(Value::as_str) else {
+        return Ok(Vec::new());
+    };
+    let catalog: Value = serde_json::from_str(
+        &std::fs::read_to_string(pkg.dir.join(path)).map_err(|e| format!("{path}: {e}"))?,
+    )
+    .map_err(|e| format!("{path}: {e}"))?;
+    Ok(catalog["operations"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .filter_map(|op| op["export"].as_str().map(str::to_owned))
+        .collect())
+}
+
 /// One headless reload: validate, build, validate again, then load and render the probe.
 pub(super) fn once(options: &DevOptions) -> Outcome {
     let builds =
@@ -94,11 +141,15 @@ pub(super) fn once(options: &DevOptions) -> Outcome {
         "headless: validated, built and rendered here; run `cmux ext dev` with cmux open to see it in the window"
             .to_owned(),
     );
-    let Some(interface) = dev::probe_interface(&pkg.manifest) else {
+    let interface = dev::probe_interface(&pkg.manifest);
+    let exports = match catalog_exports(&pkg) {
+        Ok(exports) => exports,
+        Err(error) => return outcome.failed(Phase::Load, vec![Problem::message(error)]),
+    };
+    if interface.is_none() && exports.is_empty() {
         outcome.phase = Phase::Done;
         return outcome;
-    };
-    outcome.probe = Some(interface.clone());
+    }
     let main_path =
         pkg.manifest.pointer("/runtime/main").and_then(Value::as_str).unwrap_or("dist/main.js");
     let script = match std::fs::read_to_string(pkg.dir.join(main_path)) {
@@ -108,6 +159,20 @@ pub(super) fn once(options: &DevOptions) -> Outcome {
                 .failed(Phase::Load, vec![Problem::message(format!("{main_path}: {error}"))]);
         }
     };
+    let Some(interface) = interface else {
+        if !exports.is_empty() {
+            if let Err(reason) = host_catalog(&pkg.id, &script, &exports) {
+                return outcome.failed(Phase::Load, vec![dev::load_problem(&reason)]);
+            }
+            outcome.next = Some(
+                "headless: validated, built and loaded catalog command exports here; run `cmux ext dev` with cmux open to use it in the window"
+                    .to_owned(),
+            );
+        }
+        outcome.phase = Phase::Done;
+        return outcome;
+    };
+    outcome.probe = Some(interface.clone());
     let export = pkg.manifest["implements"][&interface]["export"].as_str().unwrap_or("");
     // As the daemon does (cmux-tui-core apps/widgets.rs): a widget renders with
     // `surface: "widget"`, which gives its ctx the host-owned now() clock.
