@@ -121,6 +121,60 @@ class PickRuleTests(unittest.TestCase):
         self.assertEqual(choice.retry_label, picker.BLACKSMITH[2])
 
 
+class StarvedLargeLabelTests(unittest.TestCase):
+    """The 12 vCPU macOS label is never the spare while the 6 vCPU one is queued (large_starved()).
+
+    2026-11-27 21:27Z: run 46059745828's pick read "Selected blacksmith-12vcpu-macos-26: lowest (queued + running)
+    / per-label cap" with 6 vCPU full and queued; its jobs sat 49 to 87 minutes there behind five DEV compiles while
+    the label started nothing (10-28 and 10-30 the same)."""
+
+    LARGE, SMALL, OLD = picker.BLACKSMITH
+
+    def blacksmith(self, *, small_queued, large_running=0, large_queued=0, old=(10, 10, 5)):
+        return (pool(self.LARGE, 5, large_running, large_queued), pool(self.SMALL, 10, 10, small_queued),
+                pool(self.OLD, *old))
+
+    def test_todays_case_never_picks_the_large_label(self):
+        # Nothing owned to take it (the fleet is full, or no owned pool matches the pin): the least-loaded label.
+        state = picker.State(jobs=12, blacksmith=self.blacksmith(small_queued=14))
+        choice = picker.pick(state)
+        self.assertNotEqual(choice.label, self.LARGE)
+        self.assertEqual(choice.label, self.OLD)  # 15/10 against 6 vCPU's 24/10
+
+    def test_a_free_large_slot_is_no_room_while_small_is_queued(self):
+        state = picker.State(jobs=1, blacksmith=self.blacksmith(small_queued=3, old=(10, 10, 20)))
+        self.assertNotEqual(picker.pick(state).label, self.LARGE)
+        self.assertIsNone(picker._free_blacksmith(state))
+
+    def test_an_owned_pool_with_room_comes_first_and_the_wait_is_owned(self):
+        owned = (pool("glaeda-std-xcode-26.6", 8, running=8, free=0, queued=2),)
+        state = picker.State(jobs=4, owned=owned, blacksmith=self.blacksmith(small_queued=3, old=(10, 10, 20)),
+                             owned_enabled=True, wait_on_owned=True)
+        choice = picker.pick(state)
+        # Before: _free_blacksmith() saw the large label's 5 free slots and sent the run there.
+        self.assertEqual((choice.label, choice.owned), ("glaeda-std-xcode-26.6", True))
+        self.assertNotEqual(choice.retry_label, self.LARGE)
+        room = (pool("glaeda-std-xcode-26.6", 8, free=4),)
+        self.assertEqual(picker.pick(dataclasses.replace(state, owned=room)).label, "glaeda-std-xcode-26.6")
+
+    def test_the_compile_admission_does_not_borrow_a_starved_large_slot(self):
+        state = picker.State(jobs=4, blacksmith=self.blacksmith(small_queued=2, old=(10, 10, 30)))
+        choice = picker.pick(state)
+        self.assertEqual(choice.label, self.SMALL)
+        self.assertEqual(choice.admission_label, "")
+
+    def test_with_small_not_queued_the_large_label_is_used_as_before(self):
+        state = picker.State(jobs=2, blacksmith=(pool(self.LARGE, 5), pool(self.SMALL, 10, 10, 0),
+                                                 pool(self.OLD, 10, 10, 5)))
+        self.assertEqual(picker.pick(state).label, self.LARGE)
+        borrow = picker.State(jobs=4, blacksmith=(pool(self.LARGE, 5, 4), pool(self.SMALL, 10, 2), pool(self.OLD, 10)))
+        self.assertEqual(picker.pick(borrow).admission_label, self.LARGE)
+
+    def test_the_large_label_alone_is_still_a_last_resort(self):
+        state = picker.State(jobs=1, blacksmith=(pool(self.LARGE, 5),))
+        self.assertEqual(picker.pick(state).label, self.LARGE)
+
+
 class NeverQueueBehindBlacksmithTests(unittest.TestCase):
     """Minis first; Blacksmith only while a label has a free, moving slot; else the fleet's queue.
 

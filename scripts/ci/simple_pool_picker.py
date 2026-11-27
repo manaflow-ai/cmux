@@ -319,7 +319,7 @@ def _borrow_large_for_admission(state: State, choice: Choice) -> Choice:
     if state.fork or choice.blocked or choice.label != small:
         return choice
     pool = next((pool for pool in state.blacksmith if pool.label == large), None)
-    if pool is None or pool.xcode_app or pool.unreserved_available < 1:
+    if pool is None or pool.xcode_app or pool.unreserved_available < 1 or large_starved(state):
         return choice
     return dataclasses.replace(choice, admission_label=large)
 
@@ -358,11 +358,31 @@ def _retry_label(state: State, owned: Pool) -> str:
     return lane.label if lane.label and not lane.blocked else state.fallback
 
 
+def large_starved(state: State) -> bool:
+    """Whether blacksmith-12vcpu-macos-26 starts nothing now: the 6 vCPU macOS 26 label has a job queued.
+
+    Blacksmith draws every macOS label from one org vCPU pool, and a 12 vCPU job needs twelve vCPUs freed at once;
+    while the 6 vCPU label is queued past its slot count, each freed slot goes to a 6 vCPU job first, so the large
+    label only starts in a lull. Its own queue is then empty and its ratio 0, so the least-loaded rule below read it
+    as the spare label: on 2026-11-27 run 46059745828 (21:27Z, "lowest (queued + running) / per-label cap") put every
+    macOS job of a PR there behind five DEV compiles, and they sat 49 to 87 minutes with nothing starting (the same
+    on 10-28 and 10-30). cmux#63003 gave DEV compiles this rule; this is the PR side."""
+    small = next((pool for pool in state.blacksmith if pool.label == BLACKSMITH[1]), None)
+    return small is not None and small.queued > 0
+
+
+def _without_starved_large(state: State, pools: Sequence[Pool]) -> list[Pool]:
+    """`pools` less the 12 vCPU label while large_starved(), unless it is the only one."""
+    if not large_starved(state):
+        return list(pools)
+    return [pool for pool in pools if pool.label != BLACKSMITH[0]] or list(pools)
+
+
 def _free_blacksmith(state: State) -> Pool | None:
     """The first Blacksmith label, in BLACKSMITH order, with a free, moving slot for every job of the run.
 
     A label blacksmith_stalled() names is not moving, so it does not count."""
-    pools = {pool.label: pool for pool in state.blacksmith}
+    pools = {pool.label: pool for pool in _without_starved_large(state, state.blacksmith)}
     return next((pools[label] for label in BLACKSMITH
                  if label in pools and pools[label].unreserved_available >= state.jobs
                  and not blacksmith_stalled(pools[label].queued, pools[label].waited)), None)
@@ -373,7 +393,9 @@ def _pick_blacksmith(state: State) -> Choice:
     if not state.overflow_enabled:
         return Choice(state.fallback, "Blacksmith overflow disabled")
     pools = {pool.label: pool for pool in state.blacksmith}
-    eligible = [pools[label] for label in BLACKSMITH if label in pools]
+    # The 12 vCPU label starts nothing while the 6 vCPU one is queued (large_starved()): neither a free slot nor
+    # the least-loaded rule takes it then.
+    eligible = _without_starved_large(state, [pools[label] for label in BLACKSMITH if label in pools])
     for pool in eligible:
         if pool.unreserved_available >= state.jobs:
             return Choice(pool.label, "first Blacksmith label with enough free slots", pool.xcode_app)
