@@ -1,0 +1,138 @@
+{
+  "sourceLanguage" : "en",
+  "strings" : {
+    "computerPanel.survives.resize_down.processes" : {
+      "comment" : "Survives table note.",
+      "extractionState" : "manual",
+      "localizations" : {
+        "ar" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "A computer cannot shrink in place, so this makes a new one and programs stop."
+          }
+        },
+        "bs" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "A computer cannot shrink in place, so this makes a new one and programs stop."
+          }
+        },
+        "da" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "A computer cannot shrink in place, so this makes a new one and programs stop."
+          }
+        },
+        "de" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "A computer cannot shrink in place, so this makes a new one and programs stop."
+          }
+        },
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "A computer cannot shrink in place, so this makes a new one and programs stop."
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "A computer cannot shrink in place, so this makes a new one and programs stop."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "A computer cannot shrink in place, so this makes a new one and programs stop."
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "A computer cannot shrink in place, so this makes a new one and programs stop."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "A computer cannot shrink in place, so this makes a new one and programs stop."
+          }
+        },
+        "km" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "A computer cannot shrink in place, so this makes a new one and programs stop."
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "A computer cannot shrink in place, so this makes a new one and programs stop."
+          }
+        },
+        "nb" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "A computer cannot shrink in place, so this makes a new one and programs stop."
+          }
+        },
+        "pl" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "A computer cannot shrink in place, so this makes a new one and programs stop."
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "A computer cannot shrink in place, so this makes a new one and programs stop."
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "A computer cannot shrink in place, so this makes a new one and programs stop."
+          }
+        },
+        "th" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "A computer cannot shrink in place, so this makes a new one and programs stop."
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "A computer cannot shrink in place, so this makes a new one and programs stop."
+          }
+        },
+        "uk" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "A computer cannot shrink in place, so this makes a new one and programs stop."
+          }
+        },
+        "vi" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "A computer cannot shrink in place, so this makes a new one and programs stop."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "A computer cannot shrink in place, so this makes a new one and programs stop."
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "A computer cannot shrink in place, so this makes a new one and programs stop."
+          }
+        }
+      }
+    }
+  },
+  "version" : "1.0"
+}
