@@ -220,6 +220,7 @@ jobs:
     if: contains(needs.plan.outputs.suites, ' swift-acpmux-protocol ')
     uses: ./.github/workflows/swift-acpmux-protocol.yml
     with:
+      check: acpmux
       sha: ${{ needs.plan.outputs.sha }}
       only: ${{ needs.plan.outputs.only }}
     permissions:
@@ -254,6 +255,7 @@ jobs:
     permissions:
       contents: read
       actions: read
+      id-token: write
 
   tip-test-compile:
     needs: plan
@@ -338,7 +340,7 @@ jobs:
   # without waiting for this run's bisect. A job of its own that only dispatches; the suites stay read-only.
   fixit-handoff:
     needs: [plan, web]
-    if: ${{ !cancelled() && vars.FIXIT_HANDOFF != '0' && github.ref_name == 'feat-cmux-next' && inputs.mode != 'probe' && needs.web.outputs.fixit_nofix == 'true' }}
+    if: ${{ !cancelled() && (vars.FIXIT_HANDOFF || '1') != '0' && github.ref_name == 'feat-cmux-next' && inputs.mode != 'probe' && needs.web.outputs.fixit_nofix == 'true' }}
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'cmux-linux' }}
     timeout-minutes: 5
     permissions:
@@ -382,6 +384,8 @@ jobs:
     with:
       sha: ${{ needs.plan.outputs.sha }}
       only: ${{ needs.plan.outputs.only }}
+      # The clippy job lints the members this window's change reaches, not the whole workspace.
+      base: ${{ needs.plan.outputs.base }}
     # R2 write secrets: the batch saves the base's acpmux test log there for pull requests.
     secrets:
       CI_CACHE_R2_ACCESS_KEY_ID: ${{ github.ref == 'refs/heads/feat-cmux-next' && secrets.CI_CACHE_R2_ACCESS_KEY_ID || '' }}
