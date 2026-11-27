@@ -53,8 +53,8 @@ on:
 permissions: {}
 
 concurrency:
-  # A batch run or bisect probe is keyed by its commit and job, so neither evicts the other's pending call.
-  group: cmux-next-tip-test-compile${{ inputs.sha && format('-{0}-{1}', inputs.sha, inputs.only) || '' }}
+  # A batch run or bisect probe is keyed by its commit, job and run (two confirm runs share a commit and job), so none evicts another's pending call.
+  group: cmux-next-tip-test-compile${{ inputs.sha && format('-{0}-{1}-{2}', inputs.sha, inputs.only, github.run_id) || '' }}
   cancel-in-progress: false
 
 env:

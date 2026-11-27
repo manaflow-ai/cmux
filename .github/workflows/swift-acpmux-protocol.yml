@@ -25,7 +25,7 @@ on:
 
 concurrency:
   # A batch run and its bisect probes (one commit, one job each) never cancel one another.
-  group: swift-acpmux-protocol-${{ github.ref }}${{ inputs.sha && format('-{0}-{1}', inputs.sha, inputs.only) || '' }}
+  group: swift-acpmux-protocol-${{ github.ref }}${{ inputs.sha && format('-{0}-{1}-{2}', inputs.sha, inputs.only, github.run_id) || '' }}
   cancel-in-progress: true
 
 permissions:

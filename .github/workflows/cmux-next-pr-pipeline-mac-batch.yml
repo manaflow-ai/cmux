@@ -33,7 +33,7 @@ on:
 permissions: {}
 
 concurrency:
-  group: cmux-next-pr-pipeline-mac-batch${{ inputs.sha && format('-{0}-{1}', inputs.sha, inputs.only) || format('-{0}', github.run_id) }}
+  group: cmux-next-pr-pipeline-mac-batch${{ inputs.sha && format('-{0}-{1}-{2}', inputs.sha, inputs.only, github.run_id) || format('-{0}', github.run_id) }}
   cancel-in-progress: false
 
 jobs:
