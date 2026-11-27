@@ -62,9 +62,12 @@ def mutate(text: str, node, key: str, value: str) -> str:
 
 
 # (workflow, how to read the runs-on, where it lives, the values each described variable may hold)
+# The overflow switch's variable: unset (every own-branch run keeps cmux-linux) or a Blacksmith Linux label to spill
+# onto (scripts/ci/one_linux_label.py's OVERFLOW).
+OVERFLOW_LINUX = {"CI_OVERFLOW_LINUX": {"", "blacksmith-4vcpu-ubuntu-2404"}}
 SITES = (
-    ("cmux-tui-artifacts.yml", daemon_runs_on, (_daemon_job, "runs-on"), {}),
-    ("cmux-tui.yml", lint_runner, (_lint_row, "runner"), {"LINUX_RUNNER": linux_runner_values()}),
+    ("cmux-tui-artifacts.yml", daemon_runs_on, (_daemon_job, "runs-on"), OVERFLOW_LINUX),
+    ("cmux-tui.yml", lint_runner, (_lint_row, "runner"), {"LINUX_RUNNER": linux_runner_values(), **OVERFLOW_LINUX}),
 )
 
 

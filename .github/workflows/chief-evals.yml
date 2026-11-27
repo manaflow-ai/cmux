@@ -47,7 +47,7 @@ jobs:
     # A pull request joins the tailnet only once the Tailscale trust credential admits pull_request: set the repo
     # variable CHIEF_EVALS_PR_TAILNET=true then (tests/test_ci_workflow_tailnet_oidc_pr_gate.py, cmux#43753).
     if: ${{ (github.event_name != 'pull_request' || github.event.pull_request.draft != true || (contains(github.event.pull_request.labels.*.name, 'full-ci') && (github.event.pull_request.base.ref != 'feat-cmux-next' || (github.event.action == 'labeled' && github.event.label.name == 'full-ci') || (vars.CI_FULL_CI_ONE_SHOT || '1') == '0')) || (vars.CI_DRAFT_CHEAP_TIER || '1') == '0') && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository && vars.CHIEF_EVALS_PR_TAILNET == 'true') }}
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || 'cmux-linux' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || vars.CI_OVERFLOW_LINUX || 'cmux-linux' }}
     timeout-minutes: 30
     outputs:
       # fleet-ab runs the model cases on the fleet when this join is refused.
@@ -178,7 +178,7 @@ jobs:
     name: model cases A/B on the fleet
     needs: evals
     if: ${{ !cancelled() && github.repository_owner == 'manaflow-ai' && vars.CI_EVAL_STEP_GATEWAY != '' && github.event_name == 'push' && needs.evals.outputs.tailnet != 'success' && github.event.before != '' && github.event.before != '0000000000000000000000000000000000000000' }}
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'cmux-linux' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.CI_OVERFLOW_LINUX || 'cmux-linux' }}
     timeout-minutes: 120
     continue-on-error: true
     permissions:

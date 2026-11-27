@@ -90,7 +90,7 @@ jobs:
     name: does the machine channel need this commit
     # A pull request's router already answered (inputs.build): no runner here.
     if: ${{ github.repository == 'manaflow-ai/cmux' && (inputs.build || '') == '' }}
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'cmux-linux' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.CI_OVERFLOW_LINUX || 'cmux-linux' }}
     # A merge waits here for its head's build still running (PR_HEAD_FAST_LANE, at most 25 min).
     timeout-minutes: 30
     # A push's stage group (see the header); a pull request's run is already one group of its own.
@@ -277,7 +277,7 @@ jobs:
       cancel-in-progress: false
     # This run's build, or the merged PR head's (PR_HEAD_FAST_LANE); a pull request run points nothing.
     if: ${{ !cancelled() && github.event_name == 'push' && (needs.build-x86_64.result == 'success' || needs.plan.outputs.from_run != '') }}
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'cmux-linux' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.CI_OVERFLOW_LINUX || 'cmux-linux' }}
     timeout-minutes: 10
     permissions:
       contents: read
@@ -360,7 +360,7 @@ jobs:
       group: cmux-machine-channel-point-${{ github.event_name == 'push' && github.ref || format('run-{0}', github.run_id) }}
       cancel-in-progress: false
     if: ${{ !cancelled() && github.event_name == 'push' && ((needs.build-x86_64.result == 'success' && needs.build-aarch64.result == 'success') || needs.plan.outputs.from_run != '') }}
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'cmux-linux' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.CI_OVERFLOW_LINUX || 'cmux-linux' }}
     timeout-minutes: 10
     permissions:
       contents: read

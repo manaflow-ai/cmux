@@ -93,7 +93,7 @@ env:
 
 jobs:
   plan:
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'cmux-linux' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.CI_OVERFLOW_LINUX || 'cmux-linux' }}
     timeout-minutes: 15
     # The read App's key lives in ci-routing-agent, which serves the base; elsewhere (a drill branch) the mint
     # finds no key and the reads fall back to GITHUB_TOKEN.
@@ -402,7 +402,7 @@ jobs:
     # A probe's judge also runs when its plan job died (a lost runner: drill-8 probe run 44980687386): it then
     # sees no verdict and dispatches the same probe again, so the bisect goes on instead of stopping.
     if: ${{ !cancelled() && (needs.plan.result == 'success' || inputs.mode == 'probe') }}
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'cmux-linux' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.CI_OVERFLOW_LINUX || 'cmux-linux' }}
     timeout-minutes: 20
     # The read App's key lives in ci-routing-agent, which serves the base; elsewhere (a drill branch) the mint
     # finds no key and the reads fall back to GITHUB_TOKEN.
@@ -517,7 +517,7 @@ jobs:
   revert:
     needs: judge
     if: ${{ !cancelled() && needs.judge.outputs.culprit != '' }}
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'cmux-linux' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.CI_OVERFLOW_LINUX || 'cmux-linux' }}
     timeout-minutes: 25
     # The routing App's key lives in ci-routing-agent, which serves the base; a drill branch opens
     # its revert with GITHUB_TOKEN instead (that pull request starts no CI, which a drill needs not).

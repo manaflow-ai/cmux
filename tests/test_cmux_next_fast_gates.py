@@ -163,7 +163,7 @@ class WorkflowShape(unittest.TestCase):
                     self.assertNotIn("inputs.", runner)
                     # #48644 (2026-11-23): every own-branch Linux job, the write-token ones too, takes the one
                     # cmux-linux label; only the fork branch reads a variable.
-                    self.assertTrue(runner.endswith("|| 'cmux-linux' }}"), runner)
+                    self.assertTrue(runner.endswith("|| vars.CI_OVERFLOW_LINUX || 'cmux-linux' }}"), runner)
                     self.assertNotIn("vars.RUNNER_POOLS", runner)
                     self.assertNotIn("macos", runner.lower())
                     self.assertNotIn("vars.LINUX_RUNNER", runner)

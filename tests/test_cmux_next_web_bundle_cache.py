@@ -163,7 +163,7 @@ def check_dev_release_compile(workflow: str) -> None:
         "web-bundles must build the commit a same-tree DEV run compiles"
     assert "runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04'" in producer
     # It takes the one Linux label (scripts/ci/one_linux_label.py), no size.
-    assert "|| 'cmux-linux' }}" in producer
+    assert "|| vars.CI_OVERFLOW_LINUX || 'cmux-linux' }}" in producer
     assert not re.search(r"blacksmith-\d+vcpu-ubuntu-2404(?!-)|RUNNER_POOLS\)\.linux_\d", producer)
     assert "needs.path_route.outputs.scheme" not in producer_if, \
         "scheme-only routing must not create an extra web producer"

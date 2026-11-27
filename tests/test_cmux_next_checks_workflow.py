@@ -1747,6 +1747,8 @@ def can_run_on_owned_runner(job: dict) -> bool:
         # The fork pull request arm (scripts/ci/one_linux_label.py) names a hosted or Blacksmith label, never a mini.
         runs_on = runs_on.replace("'ubuntu-24.04'", "")
         runs_on = OVERFLOW_FAILOVER.sub("", runs_on)
+        # The overflow switch (scripts/ci/one_linux_label.py) is unset or a Blacksmith Linux label, never a mini.
+        runs_on = runs_on.replace("vars.CI_OVERFLOW_LINUX", "")
         # The repair switch picks the ephemeral GCP repair JIT (cmux-gcp-repair-jit-x64) or the Linux pool, never a mini.
         runs_on = runs_on.replace("vars.CI_REPAIR_SKIP_FLEET != '1'", "")
         runs_on = re.sub(r"fromJSON\(vars\.RUNNER_POOLS\)\.[A-Za-z0-9_]+", "", runs_on)
@@ -3214,6 +3216,9 @@ class ChecksAndRouterTakeOneLabel(unittest.TestCase):
         for name in (JOB, "path_route"):
             runs_on = one_runs_on(jobs[name])
             with self.subTest(job=name):
+                # The overflow switch (scripts/ci/one_linux_label.py) is the one variable: unset, cmux-linux.
+                self.assertIn("|| vars.CI_OVERFLOW_LINUX || 'cmux-linux' }}", runs_on)
+                runs_on = runs_on.replace("vars.CI_OVERFLOW_LINUX || ", "")
                 self.assertNotIn("vars.", runs_on)
                 self.assertNotIn("needs.", runs_on)
                 for attempt in (1, 2, 3):

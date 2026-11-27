@@ -36,7 +36,7 @@ jobs:
   tooling-tests:
     name: tooling-tests
     if: ${{ (inputs.only == '' || inputs.only == 'tooling-tests') && github.repository == 'manaflow-ai/cmux' }}
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'cmux-linux' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.CI_OVERFLOW_LINUX || 'cmux-linux' }}
     permissions:
       contents: read
     timeout-minutes: 25

@@ -24,7 +24,7 @@ jobs:
   cancel:
     name: Cancel runs on older heads
     if: github.repository == 'manaflow-ai/cmux' && github.event.action == 'synchronize' && github.event.pull_request.head.repo.full_name == github.repository && !contains(github.event.pull_request.labels.*.name, 'no-janitor')
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'cmux-linux' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.CI_OVERFLOW_LINUX || 'cmux-linux' }}
     timeout-minutes: 3
     permissions:
       actions: write

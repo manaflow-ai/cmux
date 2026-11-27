@@ -62,7 +62,7 @@ jobs:
       && !github.event.pull_request.draft && contains(github.event.pull_request.labels.*.name, 'motion-golden')
       && (github.event.action != 'labeled' || github.event.label.name == 'motion-golden')
       ) }}
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || 'cmux-linux' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || vars.CI_OVERFLOW_LINUX || 'cmux-linux' }}
     timeout-minutes: 5
     permissions:
       actions: write # starts cmux-next-frame-pacing.yml on this pull request's branch

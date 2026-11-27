@@ -45,7 +45,7 @@ jobs:
     name: Cloud machine channel journey (baseline)
     if: inputs.phase == 'baseline'
     continue-on-error: true
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'cmux-linux' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.CI_OVERFLOW_LINUX || 'cmux-linux' }}
     environment:
       name: cmux-next-vm-image-dev
       deployment: false
@@ -91,7 +91,7 @@ jobs:
     name: Cloud machine channel journey (verdict)
     if: inputs.phase == 'after'
     continue-on-error: true
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'cmux-linux' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.CI_OVERFLOW_LINUX || 'cmux-linux' }}
     environment:
       name: cmux-next-vm-image-dev
       deployment: false
@@ -163,7 +163,7 @@ jobs:
     concurrency:
       group: cmux-tui-point-machine-early-${{ github.ref }}  # the early point's group: one channel writer at a time
       cancel-in-progress: false
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'cmux-linux' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.CI_OVERFLOW_LINUX || 'cmux-linux' }}
     timeout-minutes: 10
     permissions:
       contents: read

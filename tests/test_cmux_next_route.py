@@ -2295,7 +2295,7 @@ class HotAwareWorkflows(unittest.TestCase):
             guards["jobs"]["tooling-tests"]["runs-on"],
             "${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || "
             "github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != "
-            "github.repository && 'ubuntu-24.04' || 'cmux-linux' }}",
+            "github.repository && 'ubuntu-24.04' || vars.CI_OVERFLOW_LINUX || 'cmux-linux' }}",
         )
 
     # fleet-test-compile.yml: the plan step.

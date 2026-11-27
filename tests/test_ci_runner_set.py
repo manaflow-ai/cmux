@@ -58,7 +58,7 @@ class RunnerSetTests(unittest.TestCase):
         self.assertNotIn("needs.", runs_on)
         self.assertNotIn("github.run_attempt == 1 && 'ubuntu-24.04'", runs_on)
         self.assertIn("github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04'", runs_on)
-        self.assertTrue(runs_on.rstrip().endswith("|| 'cmux-linux' }}"), runs_on)
+        self.assertTrue(runs_on.rstrip().endswith("|| vars.CI_OVERFLOW_LINUX || 'cmux-linux' }}"), runs_on)
         self.assertNotIn("needs", job)
         self.assertNotIn("portable-placement", jobs)
 
@@ -74,8 +74,8 @@ class RunnerSetTests(unittest.TestCase):
         # scripts, retries only on ephemeral Blacksmith; the rest may take the reconciled pool.
         ephemeral = "|| vars.CI_CLOUD_OVERFLOW_SAVED && fromJSON(vars.RUNNER_POOLS).linux_16 || fromJSON(vars.RUNNER_POOLS).linux_8 }}"
         cases = {
-            ("cmux-next.yml", "path_route"): "|| 'cmux-linux' }}",
-            ("ci-guards.yml", "guard-status"): "|| 'cmux-linux' }}",
+            ("cmux-next.yml", "path_route"): "|| vars.CI_OVERFLOW_LINUX || 'cmux-linux' }}",
+            ("ci-guards.yml", "guard-status"): "|| vars.CI_OVERFLOW_LINUX || 'cmux-linux' }}",
         }
         for (workflow, name), tail in cases.items():
             with self.subTest(job=f"{workflow}#{name}"):
@@ -111,7 +111,7 @@ class RunnerSetTests(unittest.TestCase):
                     runs_on = runs_on_text(jobs[name], f"{workflow}#{name}")
                     direct = workflow == "web-validation.yml" and name == "web-validation"
                     if direct:
-                        self.assertTrue(runs_on.endswith("|| 'cmux-linux' }}"), runs_on)
+                        self.assertTrue(runs_on.endswith("|| vars.CI_OVERFLOW_LINUX || 'cmux-linux' }}"), runs_on)
                         self.assertIn("github.event.pull_request.head.repo.full_name != github.repository", runs_on)
                         self.assertNotIn("needs.", runs_on)
                     elif (workflow, name) in EPHEMERAL_POOL_JOBS:
@@ -161,7 +161,7 @@ class RunnerSetTests(unittest.TestCase):
         job = yaml.safe_load((WORKFLOWS / "gallery-health.yml").read_text(encoding="utf-8"))["jobs"]["health"]
         runs_on = runs_on_text(job, "gallery-health.yml#health")
         # One Linux label since scripts/ci/one_linux_label.py (Leo, 2026-11-20: "Just send it somewhere").
-        self.assertTrue(runs_on.rstrip().endswith("|| 'cmux-linux' }}"), runs_on)
+        self.assertTrue(runs_on.rstrip().endswith("|| vars.CI_OVERFLOW_LINUX || 'cmux-linux' }}"), runs_on)
         self.assertNotIn("vars.LINUX_RUNNER", runs_on)
         self.assertNotIn("'blacksmith-", runs_on.split("github.repository && ")[-1].split("|| ", 1)[-1])
 

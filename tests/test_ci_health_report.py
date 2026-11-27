@@ -65,7 +65,7 @@ def metrics_from(fixture: dict[str, Any], window: Any, partial: tuple[str, ...] 
 CURRENT_WINDOW, PREVIOUS_WINDOW = report.windows(NOW, 6)
 
 
-ONE_LINUX_LABEL = "${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || 'cmux-linux' }}"
+ONE_LINUX_LABEL = "${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || vars.CI_OVERFLOW_LINUX || 'cmux-linux' }}"
 
 class JobRowTests(unittest.TestCase):
     def setUp(self) -> None:

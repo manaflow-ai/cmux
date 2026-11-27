@@ -123,7 +123,7 @@ jobs:
     # Only pushes to feat-cmux-next decide anything: a pull request (and a workflow_call from one), a dispatch and any
     # other ref skip this job, so its outputs are empty and the caller's jobs run as before.
     if: ${{ !inputs.mark_failed && github.event_name == 'push' && github.ref == 'refs/heads/feat-cmux-next' }}
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || inputs.runner || 'cmux-linux' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || inputs.runner || vars.CI_OVERFLOW_LINUX || 'cmux-linux' }}
     timeout-minutes: 5
     # actions: read lists this workflow's runs in the window (the failed-run retry); the caller's coalesce job grants it.
     permissions:
@@ -344,7 +344,7 @@ jobs:
   mark:
     name: mark this window's run failed
     if: ${{ inputs.mark_failed && github.event_name == 'push' && github.ref == 'refs/heads/feat-cmux-next' }}
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || inputs.runner || 'cmux-linux' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || inputs.runner || vars.CI_OVERFLOW_LINUX || 'cmux-linux' }}
     timeout-minutes: 5
     env:
       WINDOW: ${{ inputs.window }}

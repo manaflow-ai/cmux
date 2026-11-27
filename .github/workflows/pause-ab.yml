@@ -62,7 +62,7 @@ jobs:
     environment:
       name: cmux-next-vm-image-dev
       deployment: false
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'cmux-linux' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.CI_OVERFLOW_LINUX || 'cmux-linux' }}
     # Pairs come up one after another for up to 25 minutes, the last pair drives about 20, then four-at-a-time deletes.
     timeout-minutes: 80
     steps:

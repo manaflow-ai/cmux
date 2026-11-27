@@ -181,9 +181,9 @@ class SameRepositoryLinuxOwnedFirstTests(unittest.TestCase):
         fork = ("github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != "
                 "github.repository && 'blacksmith-4vcpu-ubuntu-2404'")
         accepted = (
-            "${{ " + owner + " || 'cmux-linux' }}",
-            "${{ " + owner + " || " + fork + " || 'cmux-linux' }}",
-            "${{ " + owner + " || vars.CI_LINUX_GATE_OWNED_RUNNER || 'cmux-linux' }} # owned gate first",
+            "${{ " + owner + " || vars.CI_OVERFLOW_LINUX || 'cmux-linux' }}",
+            "${{ " + owner + " || " + fork + " || vars.CI_OVERFLOW_LINUX || 'cmux-linux' }}",
+            "${{ " + owner + " || vars.CI_LINUX_GATE_OWNED_RUNNER || vars.CI_OVERFLOW_LINUX || 'cmux-linux' }} # owned gate first",
             "${{ " + owner + " || needs.x.outputs.ok == 'true' && (" + fork + " || 'cmux-linux') || 'macos-26' }}",
         )
         for value in accepted:
