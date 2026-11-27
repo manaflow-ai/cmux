@@ -143,6 +143,7 @@ mod key_broker;
 mod mac_screen_view;
 #[cfg(unix)]
 mod notification_banners;
+mod vault;
 pub(crate) use completion::refuse_in_help_reader;
 #[cfg(unix)]
 mod autocloud;
@@ -1184,6 +1185,7 @@ fn run_unbounded(args: &[String], startup_usage: &str) -> i32 {
         .or_else(|| vnc::run_if_requested(args))
         .or_else(|| cloud_environment::run_if_requested(args))
         .or_else(|| cloud_secret::run_if_requested(args))
+        .or_else(|| vault::run_if_requested(args))
         .or_else(|| env_command::run_if_requested(args))
         .or_else(|| cloud_connect::run_if_requested(args))
         .or_else(|| cloud_team_keys::run_if_requested(args))

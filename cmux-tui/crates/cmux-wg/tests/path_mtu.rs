@@ -1,11 +1,11 @@
 //! A bulk transfer over an underlay path smaller than the tunnel MTU.
 //!
-//! At WireGuard's default MTU of 1420 a full segment leaves as a datagram
-//! that fills a 1500 byte IPv6 path exactly. A path even a little smaller
-//! (a tunnel, PPPoE, a mobile carrier) that drops oversized packets without
-//! an ICMP error carries the handshake, ACKs and keystrokes, and loses every
-//! full segment: a bulk transfer stalls for good. The link below models a
-//! 1400 byte IPv6 path. Black-hole fallback in the tunnel's TCP must notice
+//! At the tunnel's default MTU (1380) a full segment leaves as a datagram
+//! that fills a 1460 byte IPv6 path (a GCP VPC) exactly. A path smaller
+//! still (a tunnel, PPPoE, a mobile carrier) that drops oversized packets
+//! without an ICMP error carries the handshake, ACKs and keystrokes, and
+//! loses every full segment: a bulk transfer stalls for good. The link below
+//! models a 1400 byte IPv6 path. Black-hole fallback in the tunnel's TCP must notice
 //! the repeated timeouts of full segments and resend in 1280 byte packets.
 //! The clock is Tokio's paused clock, so durations are simulated.
 
@@ -21,8 +21,8 @@ use tokio::time::Instant;
 
 const CLIENT: &str = "[2001:db8::10]:51820";
 const SERVER: &str = "[2001:db8::20]:51820";
-/// WireGuard's default interface MTU.
-const TUNNEL_MTU: u16 = 1420;
+/// The tunnel's default interface MTU.
+const TUNNEL_MTU: u16 = cmux_wg::DEFAULT_MTU;
 /// The underlay path's MTU, less the outer IPv6 (40) and UDP (8) headers:
 /// the longest WireGuard datagram it carries.
 const PATH_MTU: usize = 1400;

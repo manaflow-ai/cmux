@@ -475,13 +475,13 @@ def main(argv: list[str] | None = None) -> int:
         return 0
     if args.cmd == "gate":
         repo, pr, sha = os.environ.get("REPO", ""), os.environ.get("PR", ""), os.environ.get("SHA", "")
-        token = os.environ.get("GH_TOKEN") or os.environ.get("GITHUB_TOKEN") or ""
+        tokens = proof_record.read_tokens()
         bots = [b for b in os.environ.get("PROOF_RECORD_BOTS", proof_record.DEFAULT_BOTS).split(",") if b]
-        if not (repo and pr and sha and token):
+        if not (repo and pr and sha and tokens):
             print("error\tUI proof not read: REPO, PR, SHA and GH_TOKEN are needed")
             return 0
         try:
-            state, desc = gate_now(repo, pr, sha, token, bots)
+            state, desc = proof_record.with_tokens(lambda token: gate_now(repo, pr, sha, token, bots), tokens)
         except Exception as e:  # noqa: BLE001 - unread is an error state, never a pass
             state, desc = "error", f"UI proof not read ({proof_record.read_error(e)}): see job log"
         print(f"{state}\t{desc}")
