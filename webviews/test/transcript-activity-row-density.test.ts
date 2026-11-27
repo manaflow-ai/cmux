@@ -20,6 +20,9 @@ import { ROW_METRIC } from "../src/agent-session/acpmux/rowMetric";
 import { galleryFrame, warmGalleryFrame } from "./support/galleryFrame";
 import { requireBrowserLane } from "./support/requireBrowserLane";
 
+/** The prose size "Worked for" keeps (chatDisplay.ts DEFAULT_CHAT_DISPLAY.fontSize). */
+const PROSE = 14;
+
 await requireBrowserLane("transcript-activity-row-density.test.ts", async () => {
   setDefaultTimeout(300_000);
   const ENTRY = "agent-pane.activity-row-density";
@@ -100,9 +103,8 @@ await requireBrowserLane("transcript-activity-row-density.test.ts", async () => 
           ".cv-bgtask__state",
           ".cv-message-group__count",
           ".cv-thought__preview",
-          ".cv-worked__label",
         ];
-        const words = LABELS.flatMap((selector) =>
+        const words = [...LABELS, ".cv-worked__label"].flatMap((selector) =>
           [...document.querySelectorAll<HTMLElement>(`.acpmux-row ${selector}`)]
             .filter((element) => element.getBoundingClientRect().height > 0)
             .map((element) => ({ cls: selector, size: parseFloat(getComputedStyle(element).fontSize) })),
@@ -171,7 +173,8 @@ await requireBrowserLane("transcript-activity-row-density.test.ts", async () => 
     test(`each row's words are ${ROW_METRIC.font}px, its chips ${ROW_METRIC.chip}px, its glyphs ${ROW_METRIC.glyph}px (${variant})`, async () => {
       const { words, chips, glyphs } = await of(variant);
       expect(words.length).toBeGreaterThan(0);
-      for (const word of words) expect(word).toEqual({ cls: word.cls, size: ROW_METRIC.font });
+      // "Worked for" keeps the prose size (--cv-worked-font-size), not the row metric's.
+      for (const word of words) expect(word).toEqual({ cls: word.cls, size: word.cls === ".cv-worked__label" ? PROSE : ROW_METRIC.font });
       for (const chip of chips) expect(chip).toBeCloseTo(ROW_METRIC.chip, 1);
       for (const glyph of glyphs) expect(glyph).toBeCloseTo(ROW_METRIC.glyph, 1);
     });
