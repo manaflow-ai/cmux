@@ -1,8 +1,8 @@
 import Foundation
 
-/// `process-info {surface}`: the PTY's child and its foreground process.
-/// Used to ask before closing a workspace whose terminals run something.
-public struct TerminalProcessInfoRequest: DaemonRequest {
+/// `process-info {surface}`: the PTY's child and its foreground process, used to ask before closing a workspace whose
+/// terminals run something. The request is generated (swift_app/bindings.json); its reply and the inits are here.
+extension TerminalProcessInfoRequest {
     public struct Response: Decodable, Sendable, Equatable {
         public var pid: Int?
         /// The spawn command (`argv` joined), nil for the login shell.
@@ -58,12 +58,6 @@ public struct TerminalProcessInfoRequest: DaemonRequest {
             return name
         }
     }
-
-    public static let command = "process-info"
-    public var surface: SurfaceID
-    /// A person's action on `surface` (typing into its foreground program): a stand-in is refused at the request boundary
-    /// and the refusal shows, as for every action (rule b).
-    public init(surface: SurfaceID) { self.surface = surface }
 
     /// A read of `surface`'s process that the person did not ask for: nil for a stand-in tab (a Ctrl-` or split still
     /// opening), whose terminal has no process in the daemon yet, so the read is never sent and never shows "This pane is
