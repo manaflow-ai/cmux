@@ -1,3 +1,5 @@
+// The rules run in Rust (cmux-mobile-link-ffi `mac_reachability.rs`), which links on iOS only.
+#if os(iOS)
 import Foundation
 import Testing
 @testable import CmuxMobileModel
@@ -158,3 +160,4 @@ import Testing
         #expect(MacRecoveryAttempt(step: .session, result: .connected).action == nil)
     }
 }
+#endif

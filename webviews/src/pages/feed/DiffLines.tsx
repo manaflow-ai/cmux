@@ -7,8 +7,9 @@
 // sizes all the others.
 //
 // Copy: the browser copies only mounted text, so a selection across lines that are not mounted copies
-// what the diff says instead, one line each as the browser copies these rows. The line a selection
-// starts on stays mounted, so a drag that scrolls keeps its anchor.
+// what the diff says instead, one line each as the browser copies these rows. The lines a selection
+// starts and ends on stay mounted, however it was made (a drag, Shift-click, Shift and the arrows),
+// so a scroll keeps both of its ends.
 import {
   memo,
   useCallback,
@@ -41,6 +42,17 @@ export function copiedText(lines: readonly string[], start: LinePoint, end: Line
   for (let at = start.line; at <= end.line && at < lines.length; at++)
     out.push(shownLine(lines[at]!).slice(at === start.line ? start.char : 0, at === end.line ? end.char : undefined));
   return out.join("\n");
+}
+
+const NONE: readonly number[] = [];
+const sameLines = (a: readonly number[], b: readonly number[]) =>
+  a.length === b.length && a.every((at, index) => at === b[index]);
+
+/** The index of the line under `root` that holds `node`, or -1. */
+function lineOf(root: HTMLElement | null, node: Node | null): number {
+  if (!root || !node || !root.contains(node)) return -1;
+  const row = (node.nodeType === 1 ? (node as Element) : node.parentElement)?.closest<HTMLElement>("[data-line]");
+  return row && root.contains(row) ? Number(row.dataset.index) : -1;
 }
 
 /** The closest element above `node` that scrolls vertically. */
@@ -91,12 +103,31 @@ export function DiffLines({ lines, tone }: { lines: readonly string[]; tone: (li
     return () => observer.disconnect();
   }, [findViewport, measureMargin]);
 
-  // The line a selection starts on stays mounted: removing it would move the selection's anchor.
-  const [anchor, setAnchor] = useState(-1);
+  // The lines a selection starts and ends on stay mounted: removing one would move that end of the
+  // selection. Each selection change pins its anchor's and focus's lines, whatever made it; a pointer
+  // also pins its line at once, keeping the others until the selection says where it now is (a
+  // Shift-click's anchor is a line already pinned, which may be out of view).
+  const [pinned, setPinned] = useState<readonly number[]>(NONE);
+  const pin = useCallback(
+    (next: readonly number[]) => setPinned((previous) => (sameLines(previous, next) ? previous : next)),
+    [],
+  );
   const onPointerDown = (event: PointerEvent) => {
-    const row = (event.target as Element).closest<HTMLElement>("[data-line]");
-    setAnchor(row ? Number(row.dataset.index) : -1);
+    const at = lineOf(body.current, event.target as Node);
+    if (at >= 0 && !pinned.includes(at)) pin([...pinned, at]);
   };
+  useEffect(() => {
+    const document = body.current?.ownerDocument;
+    if (!document) return;
+    const onSelectionChange = () => {
+      const selection = document.getSelection();
+      if (!selection || selection.rangeCount === 0) return pin(NONE);
+      const ends = [lineOf(body.current, selection.anchorNode), lineOf(body.current, selection.focusNode)];
+      pin(ends.filter((at, index) => at >= 0 && ends.indexOf(at) === index));
+    };
+    document.addEventListener("selectionchange", onSelectionChange);
+    return () => document.removeEventListener("selectionchange", onSelectionChange);
+  }, [pin]);
 
   // The first measured line sizes every line not yet mounted: they are all one height.
   const lineHeight = useRef(0);
@@ -109,10 +140,11 @@ export function DiffLines({ lines, tone }: { lines: readonly string[]; tone: (li
     overscan: Math.max(MIN_OVERSCAN, Math.ceil(viewportHeight / (lineHeight.current || LINE_ESTIMATE))),
     rangeExtractor: (range: VirtualRange) => {
       const indexes = defaultRangeExtractor(range);
-      if (anchor >= 0 && anchor < lines.length && !indexes.includes(anchor)) {
-        indexes.push(anchor);
-        indexes.sort((a, b) => a - b);
-      }
+      for (const at of pinned)
+        if (at < lines.length && !indexes.includes(at)) {
+          indexes.push(at);
+          indexes.sort((a, b) => a - b);
+        }
       return indexes;
     },
   });
