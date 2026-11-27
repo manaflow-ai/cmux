@@ -43,22 +43,6 @@ public struct DetachAttachedViewRequest: DaemonRequest {
     }
 }
 
-/// Claims (`enabled && exclusive`) or releases canonical geometry.
-public struct SetClientSizingRequest: DaemonRequest {
-    public typealias Response = EmptyResponse
-    public static let command = "set-client-sizing"
-    public var surface: SurfaceID
-    public var enabled: Bool
-    public var exclusive: Bool?
-    public var client: ClientID?
-    public init(surface: SurfaceID, enabled: Bool, exclusive: Bool? = nil, client: ClientID? = nil) {
-        self.surface = surface
-        self.enabled = enabled
-        self.exclusive = exclusive
-        self.client = client
-    }
-}
-
 /// Sets the terminal's own sizing policy (`set-size-policy {surface, policy}`, `shared-sizing-v1`).
 /// Take over under a policy that picks by size sets last active first, so its claim wins
 /// (plans/cmux-next/sync-ux/DESIGN.md 2.6).

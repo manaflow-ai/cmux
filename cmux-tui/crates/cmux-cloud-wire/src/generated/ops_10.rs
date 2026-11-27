@@ -4,6 +4,21 @@
 #[allow(unused_imports)]
 use super::*;
 
+wire_op! {
+    /// The paired daemon confirms its approved network reservation with a fresh signed policy read. Tenant, device and public keys must match the current owners. This records identity only; it does not activate transport or serving roles.
+    ServerNetworkConfirmOp {
+        name: "server.network.confirm",
+        class: Mutation,
+        idempotency: Required,
+        owner: "cloud:TeamDO",
+        risk: "mutate-own",
+        principals: [Install],
+        params: ServerNetworkConfirmParams,
+        result: ServerNetworkConfirmResult,
+        error: ServerNetworkConfirmError,
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct ServerNetworkConfirmParams {
     pub host: HostId,
@@ -878,17 +893,4 @@ pub struct TeamCloudSessionReassignParams {
     pub vm: CloudSessionVm,
     pub session: CloudSessionId,
     pub to: UserId,
-}
-
-wire_errors! {
-    /// The error codes team.cloud.session.reassign declares.
-    TeamCloudSessionReassignError {
-        AuthForbidden = "auth.forbidden",
-        AuthUnauthenticated = "auth.unauthenticated",
-        CloudSessionAssigneeNotMember = "cloud_session.assignee_not_member",
-        CloudSessionNotFound = "cloud_session.not_found",
-        IdempotencyConflict = "idempotency.conflict",
-        RevisionConflict = "revision.conflict",
-        ValidationInvalid = "validation.invalid",
-    }
 }

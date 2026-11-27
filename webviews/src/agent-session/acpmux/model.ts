@@ -3,7 +3,7 @@ import type { ApprovedPlan } from "./approvedPlan";
 import { experimentArm } from "../../experiments/experiment";
 import type { PromptHeads } from "./promptHeads";
 import { nextStepCardHeight, permissionCardHeight } from "./permissions/cardHeight";
-import { freshMeasureContext } from "./measureContext";
+import { ensureMeasureContext, freshMeasureContext } from "./measureContext";
 import type { SentFrom } from "./conversation/sentFromHarness";
 import type { PeerLinkDetail } from "./linkState";
 import type { ComposerStatus } from "./composerStatusModel";
@@ -34,6 +34,7 @@ import {
   transcriptGap,
 } from "./transcriptGrid";
 import type { MachineResources } from "./machineResources";
+import type { PeerGroup } from "./environments";
 import type { AutoResumeStatus } from "./autoResumeStatus";
 import type { AutoSession } from "./autoSession/autoSession";
 import type { CapacityWaitState } from "./capacityWait";
@@ -162,6 +163,7 @@ export type AcpmuxCompaction = {
   /// Failed because its turn ended while it ran, not because it said so; a later end replaces it.
   inferred?: boolean;
   reason?: string;
+  trigger?: "auto" | "manual";
   /// Why a failed compaction failed, in Claude Code's words ("Prompt is too long").
   error?: string;
   preTokens?: number;
@@ -505,6 +507,10 @@ export type ClaimCheck = {
   command?: string;
 };
 
+/// The chat a fork came from, on the fork's "Forked from" notice row (direct.ts `forked`): its
+/// session, and its title as the row's text names it (conversation/ForkedFromLine.tsx links it).
+export type ForkedFrom = { parentId: string; chat: string };
+
 export type AcpmuxRow = {
   id: string;
   version: number;
@@ -519,6 +525,8 @@ export type AcpmuxRow = {
   /// transcript rows that belong to one turn use this identity when it is available.
   turnId?: string;
   text?: string;
+  /// A fork's "Forked from" notice: the chat its name links to (conversation/ForkedFromLine.tsx).
+  forkedFrom?: ForkedFrom;
   /// Codex's explicit message phase; absent for harnesses and history without phase metadata.
   assistantPhase?: "commentary" | "final_answer";
   /// The message's text is whole: no further delta will grow it, though the row can still be
@@ -679,6 +687,9 @@ export type AcpmuxRow = {
   /// A finished turn footer's timed tool calls and thoughts, in order, for its waterfall
   /// (conversation/waterfallSpans.ts `turnWork`, TurnWaterfall.tsx); undefined when none was timed.
   turnWork?: AcpmuxActivity[];
+  /// The model calls that ended on this row, as acpmux timed them (claude_stdio/model_calls.rs): its
+  /// turn's footer draws each on its Timeline (conversation/waterfallSpans.ts `turnWork`).
+  modelCalls?: AcpmuxModelCall[];
   /// The chat's last turn's GitHub call that found no GitHub connection for this chat
   /// (conversation/githubConnect.ts): its footer draws the Connect GitHub card.
   githubConnect?: GitHubConnectNeed;
@@ -851,6 +862,9 @@ export type AcpmuxRow = {
   /// A finished turn's "Worked for" line: every call the turn made, said after its time (turnFoldStyle.ts
   /// `countsCalls`).
   workedCalls?: number;
+  /// A finished turn's "Worked for" whose turn said nothing to the person: tool rows alone, no reply
+  /// (conversation/turns.ts `said`). Closed, its line draws no rule (conversation.css `[data-alone]`).
+  workedAlone?: true;
   /// The prompt of other agents' messages a finished turn's "Worked for" folds (conversation/turns.ts
   /// `shapedTurn`): the line stands for that prompt where the closed fold draws none, so the turn
   /// keeps its minimap tick (threadMinimap/model.ts `minimapTurns`).
@@ -959,14 +973,30 @@ export type AcpmuxRow = {
   subagentReportFirst?: true;
 };
 
+/// One model call of the chat's own, as acpmux timed it where it read the call's stream
+/// (claude_stdio/model_calls.rs, `_meta.acpmux.timing` on the call's `usage_update`), unix ms on the
+/// daemon's clock: its request went out, its first byte came, its last token came.
+export type AcpmuxModelCall = {
+  requestAt?: number;
+  firstTokenAt: number;
+  lastTokenAt: number;
+  /// The call streamed thinking.
+  thought?: true;
+};
+
 export type AcpmuxActivity = {
   kind: string;
   text: string;
   status?: string;
   /// A thought's first and latest chunk (epoch ms), for a folded thought's "Thought for 12s"
-  /// (conversation/ThoughtRow.tsx `thoughtDuration`).
+  /// (conversation/ThoughtRow.tsx `thoughtDuration`). A Timeline's model call (kind `model`,
+  /// waterfallSpans.ts `turnWork`): its request to its last token.
   startedAt?: number;
   endedAt?: number;
+  /// A Timeline model call's first byte (epoch ms), for its hover's wait.
+  firstTokenAt?: number;
+  /// A Timeline model call that thought.
+  thought?: true;
   tool?: {
     id: string;
     title: string;
@@ -1170,6 +1200,7 @@ export type AcpmuxCatalogModel = {
   curated?: boolean;
   declared?: boolean;
   unavailable?: string;
+  codexUpdateVersion?: string;
   shortName?: string;
   family?: string;
   efforts?: string[];
@@ -1365,6 +1396,8 @@ export type AcpmuxSnapshot = {
   peerLinks?: Record<string, PeerLinkDetail>;
   /// Each peer's cached one-minute resource reading, as bounded by the pane's native status filter.
   peerResources?: Record<string, MachineResources>;
+  /// Each peer's group (`peers[].group`, environments.ts peerGroupsFromStatus): own or agent.
+  peerGroups?: Record<string, PeerGroup>;
   /// The open chat is a fork: the seq of its `forked` event, where the copied history ends (cx-ncc.61).
   forkedAtSeq?: number;
   /// The chat's held surge, its newest snapshot (conversation/surgeHold.ts): Session Info's Background
@@ -1537,6 +1570,13 @@ export type AcpmuxSnapshot = {
   /// page's first-paint report: a chat read cold fades in over the loading state, this one shows
   /// in one frame (AgentPaneView+Loading.swift).
   drewKeptTail?: true;
+  /// The kept tail drawn while the open connects ends inside a turn (the chat was kept while it ran,
+  /// as on a revive after an update), and neither acpmux's list nor its attach has said yet whether
+  /// that turn still runs. The transcript draws the turn's rows as running (its live line at the
+  /// bottom, as the last launch's copy drew them) so the attach that says it runs moves nothing;
+  /// `isWorking` stays false, so no Stop, clock or queue acts on it (Leo, 2026-11-24, on a revive:
+  /// "tons of layout shifts ... juts show the latest bit").
+  tailMidTurn?: true;
   /// The chat on screen was opened from acpmux's settled view of it (`settled-attach-v1`,
   /// cmuxterm-hq#9655): where that frame ends and the turn ends a fork can go through. The page tells
   /// the host once the frame is drawn (`pane.painted` with `settled: true`).
@@ -1879,7 +1919,9 @@ export const isLiveStep = (row: AcpmuxRow, prev: AcpmuxRow | undefined) =>
 /// `above`, the drawn row over `prev`, tells a received line under its own turn's "Working for" apart
 /// from one that opens its turn over that line (`headsIncomingTurn`).
 export const gridMark = (row: AcpmuxRow, prev: AcpmuxRow | undefined, above?: AcpmuxRow): number =>
-  (wokenUnderFooter(row, prev) && wokenGapLook() === "tail" ? MARK_STATUS : rowGridMark(row, prev)) |
+  ((wokenUnderFooter(row, prev) && wokenGapLook() === "tail") || noticeUnderFooter(row, prev)
+    ? MARK_STATUS
+    : rowGridMark(row, prev)) |
   (opensBackgroundTurn(row, prev) ? MARK_OPENS_TURN : 0) |
   (headsIncomingTurn(row, prev, above) ? MARK_HEADS_TURN : 0) |
   (topsIncomingTurn(row, prev) ? MARK_TOPS_TURN : 0);
@@ -1927,6 +1969,16 @@ const headsIncomingTurn = (row: AcpmuxRow, prev: AcpmuxRow | undefined, above?: 
 /// Whether `line` is the "Working for" / "Worked for" line of the turn `user` opened. O(1).
 const isOwnTurnLine = (line: AcpmuxRow | undefined, user: AcpmuxRow): boolean =>
   line !== undefined && isWorkedLine(line) && line.id === `${WORKED}-${user.id}`;
+/// Whether `row` is a notice line ("Background command finished", a task's end that woke the agent)
+/// right under the footer row of the turn before: it opens the turn it woke as a status line does,
+/// flush under the footer (transcriptGrid.ts), not a step row's run gap away. Another agent's
+/// message keeps its own gap (footer-to-received). O(1).
+const noticeUnderFooter = (row: AcpmuxRow, prev: AcpmuxRow | undefined): boolean =>
+  row.kind === "user" &&
+  !row.received &&
+  row.incoming?.kind === "notice" &&
+  prev !== undefined &&
+  rowMark(prev) === MARK_FOOTER_ROW;
 /// Whether `row` is the first tool row of a turn the agent ran on its own, right under the footer
 /// row of the turn before it: a background task's end woke the agent after that turn ended, and the
 /// task's line between them draws nothing (backgroundTurns.ts `drawsBackgroundLine`). O(1).
@@ -1938,7 +1990,7 @@ const wokenUnderFooter = (row: AcpmuxRow, prev: AcpmuxRow | undefined): boolean 
   rowMark(prev) === MARK_FOOTER_ROW;
 /// How that row stands under the footer (gallery `agent-pane.woken-turn-gap`, `<html data-woken-gap>`):
 /// `block`, shipped, the block gap any row under a footer stands; `turn`, the turn gap it stood
-/// before; `tail`, the 8 a status line under a footer stands, in the hidden line's place. Read only
+/// before; `tail`, flush, as a status line under a footer stands, in the hidden line's place. Read only
 /// for such a row, so a layout pass pays nothing for it.
 export function wokenGapLook(): "block" | "turn" | "tail" {
   const set = typeof document === "undefined" ? undefined : document.documentElement.dataset.wokenGap;
@@ -3357,6 +3409,7 @@ function textHeight(
   let measured = prepared.get(key);
   if (measured === undefined) {
     try {
+      ensureMeasureContext();
       measured = prepare(text, measureFont, { whiteSpace: "pre-wrap" });
       notePreparedText(text.length);
     } catch {
@@ -3844,6 +3897,7 @@ function preparedLines(
   let measured = prepared.get(key) as PreparedTextWithSegments | null | undefined;
   if (measured === undefined) {
     try {
+      ensureMeasureContext();
       measured = prepareWithSegments(text, font, {
         whiteSpace: "pre-wrap",
       });

@@ -166,20 +166,43 @@ public struct AgentHarnessChoice: Identifiable, Hashable, Sendable, Codable {
     }
 
     /// The effort levels `model` (nil: the agent's default model) takes: the model's own list,
-    /// else its effort option's; named as its chats name them.
+    /// else its effort option's; named as its chats name them. With neither, the start model
+    /// still takes the Mac's start effort (`start.effort`), so the effort the chat is set to is
+    /// named before the first send, also when `start.model` is absent (Leo, 2026-11-22: "it
+    /// shouldnt just show plain opus 5.5 if it's going to go to medium by default").
     public func efforts(model: String?) -> [AgentSettingChoice] {
         let listed = self.model(model ?? offeredDefaultModel)?.efforts ?? []
-        guard !listed.isEmpty else { return effortOption?.choices ?? [] }
+        guard !listed.isEmpty else {
+            if let options = effortOption?.choices, !options.isEmpty { return options }
+            guard let startEffort, startsOn(model) else { return [] }
+            return [AgentSettingChoice(id: startEffort, name: AgentSettingChoice.name(for: startEffort))]
+        }
         return listed.map { level in
             effortOption?.choices.first { $0.id == level } ?? AgentSettingChoice(id: level, name: AgentSettingChoice.name(for: level))
         }
     }
 
-    /// The level a chat on `model` starts at: the model's default, else the agent's start effort.
+    /// The level a chat on `model` starts at, among the levels it takes: on the start model the
+    /// Mac's start effort (`start.effort`: its saved pick, else the model's default), else the
+    /// model's default; on another model its default, else the start effort. Nil only when the
+    /// Mac named none of them for this model.
     public func defaultEffort(model: String?) -> String? {
-        let level = self.model(model ?? offeredDefaultModel)?.defaultEffort ?? startEffort
         let offered = efforts(model: model)
-        return offered.contains { $0.id == level } ? level : nil
+        let taken: (String?) -> String? = { level in
+            guard let level, offered.contains(where: { $0.id == level }) else { return nil }
+            return level
+        }
+        let own = self.model(model ?? offeredDefaultModel)?.defaultEffort
+        return startsOn(model) ? taken(startEffort) ?? taken(own) : taken(own) ?? taken(startEffort)
+    }
+
+    /// Whether `model` (nil: the agent's default) is the model a new chat starts on (acpmux
+    /// `start.model`, an alias naming its release); nil is, also when the Mac named no model
+    /// (a profile that passes its own model to the agent).
+    public func startsOn(_ model: String?) -> Bool {
+        guard let model else { return true }
+        guard let defaultModel else { return false }
+        return (self.model(model)?.id ?? model) == (self.model(defaultModel)?.id ?? defaultModel)
     }
 
     public var canStart: Bool { unavailableReason == nil }

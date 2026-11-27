@@ -1266,7 +1266,7 @@ impl Store {
         self.join_live(key, link, seq, vec![record]);
     }
 
-    /// A seq the link is not sent live (an agent request or answer, `server/mod.rs` `deliver`):
+    /// A seq the link is not sent live (an agent request or answer, `server::deliver`):
     /// the copy covers it as a page that leaves its kind out would, under the same rule as a
     /// record (next to what it covers, on the link a page joined), so a record the link lost is
     /// never passed over.
@@ -1616,10 +1616,11 @@ impl Store {
         let covered = self.copies.get(key).and_then(|c| c.head.generation);
         self.remove(key);
         let Some(covered) = covered else { return };
-        if self.evicted.len() >= EVICTED_KEYS && !self.evicted.contains_key(key) {
-            if let Some(old) = self.evicted.keys().next().cloned() {
-                self.evicted.remove(&old);
-            }
+        if self.evicted.len() >= EVICTED_KEYS
+            && !self.evicted.contains_key(key)
+            && let Some(old) = self.evicted.keys().next().cloned()
+        {
+            self.evicted.remove(&old);
         }
         self.evicted.insert(key.clone(), covered);
     }
