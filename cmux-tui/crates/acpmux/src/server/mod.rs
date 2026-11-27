@@ -77,12 +77,12 @@ mod compressed_link_tests;
 pub(crate) mod computer_use_relay;
 pub mod conn_auth;
 pub(crate) mod conn_handover;
-mod consent_grant;
 mod connection_loop;
 #[cfg(test)]
 #[path = "connection_token_tests.rs"]
 mod connection_token_tests;
 mod connections;
+mod consent_grant;
 pub(crate) mod controls;
 mod delivery;
 pub(crate) mod dual_requests;
