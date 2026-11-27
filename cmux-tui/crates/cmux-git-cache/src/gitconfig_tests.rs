@@ -24,3 +24,18 @@ fn remove_only_ours() {
     remove_include(&theirs);
     assert!(theirs.exists());
 }
+
+#[test]
+fn base_file_sits_where_downloads_read_it_and_goes_with_the_include() {
+    assert_eq!(base_path(Path::new(RUN_INCLUDE)), Path::new(cmux_transport_rewrite::BASE_FILE));
+    let dir = tempfile::tempdir().unwrap();
+    let include = dir.path().join("gitconfig");
+    write_include(&include, &include_text(7, "x")).unwrap();
+    write_include(&base_path(&include), &base_text(7)).unwrap();
+    assert_eq!(
+        cmux_transport_rewrite::read_base(&base_path(&include)).as_deref(),
+        Some("http://127.0.0.1:7")
+    );
+    remove_include(&include);
+    assert!(!include.exists() && !base_path(&include).exists());
+}
