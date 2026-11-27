@@ -774,13 +774,38 @@ SERVER_ERROR = re.compile(r"HTTP 5\d\d|Server Error", re.I)
 DISPATCH_WAITS = (15, 45)
 
 
+def probe_title(probe: Probe) -> str:
+    """The probe run's title (the workflow's run-name for a probe dispatch)."""
+    return f"{PROBE} {probe.suite} {probe.only or 'all'} at {probe.sha}"
+
+
+def probe_conclusion(verdicts: dict[str, tuple[str, str]], probe: Probe) -> str:
+    """A probe run's verdict: the job with the red job's name, else the worst of the suite's jobs
+    (the probe ran the whole suite when the red job had no manifest id); "" when it gave none."""
+    mine = {n: c for n, (s, c) in verdicts.items() if s == probe.suite}
+    return mine.get(probe.job) or ("failure" if "failure" in mine.values() else "success" if mine and all(c in ("success", "skipped") for c in mine.values()) else "")
+
+
+def known_verdict(runs: list[dict], probe: Probe, jobs_of) -> tuple[str, dict] | None:
+    """A finished probe run of the same title (suite, job, commit) from an earlier bisect, and its verdict, if it
+    gave one: a bisect the next batch starts again then reads it instead of running the same probe again (the
+    web-tests chain of 11-26 re-probed 95ef861, 1d3e443, a36597a, 2861d8b and 11d8c59 an hour after the first)."""
+    title = probe_title(probe)
+    for run in runs:
+        if (run.get("display_title") or "") == title and run.get("status") == "completed":
+            conclusion = probe_conclusion(jobs_of(run["id"])[0], probe)
+            if conclusion in ("success", "failure"):
+                return conclusion, run
+    return None
+
+
 def dispatch_probe(repo: str, branch: str, probe: Probe, api=None, sleep=time.sleep) -> None:
     """Dispatch one probe. A 5xx may still have started the run, so before each retry this looks for a probe
     run of the same title (the workflow's run-name) on the branch, and stops if one is there."""
     # DISPATCH_TOKEN: the revert job's GITHUB_TOKEN (actions: write), whose GH_TOKEN may be the App's, which has none.
     api = api or gh_api  # looked up per call, so a test's patch of gh_api reaches it
     token = os.environ.get("DISPATCH_TOKEN") or os.environ.get("GH_TOKEN", "")
-    title = f"{PROBE} {probe.suite} {probe.only or 'all'} at {probe.sha}"
+    title = probe_title(probe)
     for attempt, wait in enumerate((*DISPATCH_WAITS, None)):
         if attempt:
             listed = api(f"repos/{repo}/actions/workflows/{WORKFLOW}/runs?branch={branch}&event=workflow_dispatch&per_page=20")
@@ -943,8 +968,7 @@ def cmd_judge(args: argparse.Namespace) -> int:
         return 1
     # The probe ran one suite job (or the whole suite when the red job had no manifest id):
     # its verdict is the job with the red job's name, else the worst of the suite's jobs.
-    mine = {n: c for n, (s, c) in verdicts.items() if s == probe.suite}
-    conclusion = mine.get(probe.job) or ("failure" if "failure" in mine.values() else "success" if mine and all(c in ("success", "skipped") for c in mine.values()) else "")
+    conclusion = probe_conclusion(verdicts, probe)
     if state is not None:
         out.update(judge_pieces(args, probe, state, conclusion))
         write_outputs(args.github_output, out)
@@ -952,6 +976,17 @@ def cmd_judge(args: argparse.Namespace) -> int:
     head = probe.bad or probe.sha
     commits = first_parent_range(probe.good, head)
     step, value = next_step(probe, conclusion, commits)
+    try:
+        runs = list_runs(args.repo, args.branch) if step == "probe" else []
+    except RuntimeError:
+        runs = []
+    for _ in range(len(commits)):  # each known verdict narrows the range, so this ends
+        known = known_verdict(runs, value, jobs_of) if step == "probe" and isinstance(value, Probe) else None
+        if not known:
+            break
+        summary(args.summary, f"`{value.job}` was already {known[0]} at `{value.sha[:11]}` (probe run {known[1]['id']}); not probing it again.")
+        conclusion, probe = known[0], value
+        step, value = next_step(value, known[0], commits)
     if step in ("probe", "retry"):
         assert isinstance(value, Probe)
         summary(args.summary, f"`{probe.job}` was {conclusion or 'unfinished'} at `{probe.sha[:11]}`; next probe `{value.sha[:11]}` (good `{value.good[:11]}`, bad `{value.bad[:11]}`).")

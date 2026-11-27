@@ -781,3 +781,45 @@ class JudgeOriginUnreadableTest(unittest.TestCase):
     def test_an_origin_unreadable_past_the_retries_is_refused(self) -> None:
         code, sent = self.judge(pmb.MAX_PROBE_RETRIES)
         self.assertEqual((code, sent), (1, []))
+
+
+class KnownVerdictTest(unittest.TestCase):
+    commits = [c * 40 for c in "abcdefghi"]  # a good ... i bad
+
+    def judge(self, earlier: dict[str, str]):
+        """A probe at e (good a, bad i) failed; earlier finished probe runs gave the verdicts in earlier."""
+        a, e, i = "a" * 40, "e" * 40, "i" * 40
+        job = "web / Web tests (2/4)"
+        runs = [{"id": 100 + n, "status": "completed", "display_title": f"{pmb.PROBE} web web-tests at {sha * 40}"} for n, sha in enumerate(earlier)]
+        jobs = {100 + n: [{"name": job, "conclusion": c}] for n, c in enumerate(earlier.values())}
+        jobs[70] = [{"name": job, "conclusion": "failure"}]
+        args = Namespace(mode=pmb.PROBE, manifest=str(pmb.MANIFEST), repo="o/r", branch="feat-cmux-next", run_id="70",
+                         sha=e, suite="web", job=job, only="web-tests", probe_sha=e, good=a, bad=i, origin="60",
+                         tries="0", pieces="", dry_run=False, summary=None, github_output=None)
+        sent: list = []
+        out: dict = {}
+        with mock.patch.object(pmb, "run_jobs", lambda repo, rid: jobs.get(int(rid), [])), \
+                mock.patch.object(pmb, "gh_api", lambda *a, **k: {"id": 60}), \
+                mock.patch.object(pmb, "list_runs", return_value=runs), \
+                mock.patch.object(pmb, "probe_refusal", return_value=""), \
+                mock.patch.object(pmb, "suite_verdicts", lambda js, suites: {j["name"]: ("web", j["conclusion"]) for j in js}), \
+                mock.patch.object(pmb, "dispatch_probe", lambda repo, branch, probe: sent.append(probe)), \
+                mock.patch.object(pmb, "write_outputs", lambda path, values: out.update(values)), \
+                mock.patch.object(pmb, "first_parent_range", return_value=self.commits):
+            self.assertEqual(pmb.cmd_judge(args), 0)
+        return sent, out
+
+    def test_no_earlier_probe_dispatches_the_next_one(self) -> None:
+        sent, out = self.judge({})
+        self.assertEqual([p.sha for p in sent], ["c" * 40])  # b..e, its middle
+        self.assertEqual(out["culprit"], "")
+
+    def test_earlier_verdicts_are_read_instead_of_probed_again(self) -> None:
+        # e failed (this run); c passed and d failed earlier: d is the culprit with no new probe.
+        sent, out = self.judge({"c": "success", "d": "failure"})
+        self.assertEqual(sent, [])
+        self.assertEqual((out["culprit"], out["good"]), ("d" * 40, "c" * 40))
+
+    def test_an_earlier_probe_without_verdict_is_probed_again(self) -> None:
+        sent, _ = self.judge({"c": "cancelled"})
+        self.assertEqual([p.sha for p in sent], ["c" * 40])
