@@ -394,6 +394,14 @@ path = "tests/test_ci_homebrew_untrusted_input.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_ci_hot_verify_dispatch_wait_capped.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_ci_hot_verify_gallery_read_capped.py"
+lane = "linux-guard"
+
+[[test]]
 path = "tests/test_ci_hot_verify_mirror_seed.py"
 lane = "linux-guard"
 

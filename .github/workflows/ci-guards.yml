@@ -1663,6 +1663,26 @@ jobs:
         if: ${{ !cancelled() && matrix.group == 'ci' }}
         run: python3 tests/test_webviews_test_history.py
 
+      - name: Validate registered ci hot verify dispatch wait capped
+        if: ${{ !cancelled() && matrix.group == 'ci' }}
+        run: python3 tests/test_ci_hot_verify_dispatch_wait_capped.py
+
+      - name: Validate registered ci hot verify gallery read capped
+        if: ${{ !cancelled() && matrix.group == 'ci' }}
+        run: python3 tests/test_ci_hot_verify_gallery_read_capped.py
+
+      - name: Validate registered ios sim bundles
+        if: ${{ !cancelled() && matrix.group == 'ci' }}
+        run: python3 tests/test_ios_sim_bundles.py
+
+      - name: Validate registered nightly pr build
+        if: ${{ !cancelled() && matrix.group == 'ci' }}
+        run: python3 tests/test_nightly_pr_build.py
+
+      - name: Validate registered style guards level
+        if: ${{ !cancelled() && matrix.group == 'ci' }}
+        run: python3 tests/test_style_guards_level.py
+
       - name: Validate every workflow guard is wired
         if: ${{ !cancelled() && matrix.group == 'ci' }}
         run: python3 tests/test_ci_workflow_guards_are_wired.py

@@ -1,7 +1,7 @@
 # Newly wired guard merge verification
 
 PR #58134 adds executable guard steps relative to base
-`e2f5d9a8495bc97ce1243c179d6211d927790883`. A previously failing test becomes this PR's own red when the PR first wires it.
+`cbaebc15f638192bb82df2c3eaeee842be7b8d7c`. A previously failing test becomes this PR's own red when the PR first wires it.
 Registry validation alone does not execute these tests. Run the exact workflow
 steps below on the proposed merge head; retain the head SHA, terminal exit and
 results file with the PR's verification evidence. The command derives added steps from that base rather than maintaining a second list. Every added step must pass.
@@ -15,7 +15,7 @@ import subprocess
 from pathlib import Path
 import yaml
 
-base = "e2f5d9a8495bc97ce1243c179d6211d927790883"
+base = "cbaebc15f638192bb82df2c3eaeee842be7b8d7c"
 workflow = ".github/workflows/ci-guards.yml"
 receipt = Path("/tmp/58134-newly-wired-guards.json")
 
