@@ -294,7 +294,7 @@ jobs:
             [ "$base" != "$GITHUB_SHA" ] || base=unknown
             echo "a direct push (not a PR merge) inside a taken window: the checks run on ${GITHUB_SHA:0:12}, covering since ${base:0:12}"
             echo "### $KEY: direct push, runs on ${GITHUB_SHA:0:12}, covering since ${base}" >> "$GITHUB_STEP_SUMMARY"
-            printf '%s\n' "$base" > .base-coalesce/record
+            mkdir -p .base-coalesce && printf '%s\n' "$base" > .base-coalesce/record
             printf 'run=true\nbase=%s\nsave=true\nsave_window=false\n' "$base" >> "$GITHUB_OUTPUT"; exit 0
           fi
           round=0
