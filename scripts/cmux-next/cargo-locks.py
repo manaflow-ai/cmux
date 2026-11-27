@@ -282,30 +282,58 @@ def lock_packages(text: str) -> set[tuple[str, str]]:
     return set(LOCK_PACKAGE.findall(text))
 
 
+def lock_graph(text: str) -> dict[tuple[str, str], list[str]]:
+    """Each [[package]]'s (name, version) and its `dependencies` entries as cargo wrote them ("name",
+    "name version" or "name version (source)")."""
+    graph: dict[tuple[str, str], list[str]] = {}
+    for block in text.split("[[package]]")[1:]:
+        head = LOCK_PACKAGE.match("[[package]]" + block)
+        if not head:
+            continue
+        deps = re.search(r"^dependencies = \[(.*?)^\]", block, re.M | re.S)
+        graph[(head.group(1), head.group(2))] = re.findall(r'"([^"]+)"', deps.group(1)) if deps else []
+    return graph
+
+
 def orphans(repo: Path, root: str, env: dict[str, str], timeout: float) -> list[str]:
-    """`name version` of each package ROOT's lock lists that its resolve (`cargo metadata --locked --offline`, all
-    targets) does not: a lock entry for a crate no manifest names. Empty when cargo gives no resolve (a fake, a
-    failure, no time left): this only adds to cargo's own verdict."""
+    """`name version` of each package ROOT's lock lists that no workspace member reaches through the lock's own
+    dependency edges: a lock entry for a crate no manifest names. The members come from `cargo metadata --no-deps`
+    (offline, no download); the walk is the lock's, so an optional feature's crates (wasmtime behind acpmux's
+    `hot-modules`, which a default-features resolve leaves out) count as reached. Empty when cargo names no
+    members (a fake, a failure, no time left): this only adds to cargo's own verdict."""
     if timeout <= 1:
         return []
     out: list[str] = []
-    code, _ = cargo(["metadata", "--format-version", "1", "--locked", "--offline"], repo / root, env,
+    code, _ = cargo(["metadata", "--format-version", "1", "--no-deps", "--offline"], repo / root, env,
                     timeout=timeout, out=out)
     if code != 0 or not out or not out[0].strip():
         return []
     try:
         import json
-        resolved = {(p["name"], p["version"]) for p in json.loads(out[0]).get("packages", [])}
+        members = {(p["name"], p["version"]) for p in json.loads(out[0]).get("packages", [])}
     except (ValueError, KeyError, TypeError, AttributeError):
         return []
-    lock = repo / root / "Cargo.lock"
     try:
-        listed = lock_packages(lock.read_text(encoding="utf-8"))
+        graph = lock_graph((repo / root / "Cargo.lock").read_text(encoding="utf-8"))
     except OSError:
         return []
-    if not resolved:
+    if not members or not graph:
         return []
-    return sorted(f"{name} {version}" for name, version in listed - resolved)
+    by_name: dict[str, list[tuple[str, str]]] = {}
+    for key in graph:
+        by_name.setdefault(key[0], []).append(key)
+    seen: set[tuple[str, str]] = set()
+    todo = [key for key in members if key in graph]
+    while todo:
+        key = todo.pop()
+        if key in seen:
+            continue
+        seen.add(key)
+        for dep in graph[key]:
+            name, _, rest = dep.partition(" ")
+            version = rest.split(" ", 1)[0]
+            todo.extend(k for k in by_name.get(name, []) if not version or k[1] == version)
+    return sorted(f"{name} {version}" for name, version in set(graph) - seen)
 
 
 def label(root: str) -> str:
