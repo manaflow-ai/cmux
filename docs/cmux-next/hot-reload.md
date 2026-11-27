@@ -461,6 +461,23 @@ daemon's process and its client connections, but on the same box it is slower: 6
 in cmux-tui-core (dx replays cmux-tui-core's rustc, then rebuilds the program crate), after a 353 s
 first build. So the loop swaps instead.
 
+The loop's build is not slower than the dev loop's (RFD 0174 slice 5).
+`scripts/measure/rust-live-parity.py` builds the same `identify` edit on one box four ways. Each way
+has its own target directory and a warm-up build, and the builds alternate. The run was on a fleet
+Linux box at cmux#60320's head, 4 edits each:
+
+| Build | p50 | min | max |
+|---|---|---|---|
+| rust-live.py's own (its cargo args and environment, sccache when on PATH) | 29.8 s | 29.7 s | 48.8 s |
+| the same, no RUSTC_WRAPPER | 30.2 s | 29.9 s | 53.2 s |
+| the same, CARGO_INCREMENTAL=1 | 31.3 s | 29.8 s | 54.1 s |
+| rust-dev-loop.py's (its clean env, `-p cmux-tui -p acpmux --bins`) | 30.2 s | 29.9 s | 36.6 s |
+
+Every way compiled the same three crates: cmux-build-identity, cmux-tui-core and cmux-tui. No
+profile, feature, wrapper or incremental setting is behind the gap. The 11.75 s figure is not an
+edit to this crate. What's left is compiling cmux-tui-core itself (splitting the crate) and the
+19 s copy back from a build host.
+
 ### Editing while it runs: what survives
 
 `bun run hot-reload:proof` (in `webviews/`) checks this on the real agent pane with no app: it
