@@ -65,6 +65,8 @@ final class CloudService {
     /// The app's `cmux-tui` (the moves', the carrier's) and its daemon's state directory (the carrier's `CMUX_TUI_STATE_DIR`).
     @ObservationIgnored let binary: URL?
     @ObservationIgnored let tuiState: URL?
+    /// Each team's last good machine list, shown at once on a cold start (``CloudLastSeenMachines``).
+    @ObservationIgnored private(set) lazy var lastSeen = CloudLastSeenMachines(stateDirectory: tuiState)
     @ObservationIgnored let desktopStreams = CloudCarrierStreams() // The account's carriers (desktop dials, streams, serves); its end or Cloud turned off ends them.
     /// This Mac's `cmux link` across the session (cx-rtipa S3).
     @ObservationIgnored private let link: CloudLinkLifecycle
@@ -828,6 +830,7 @@ final class CloudService {
         // signed-out branch above, after auth.signOut).
         link.beginEnding()
         dropAllMachines()
+        lastSeen.forget() // the next person on this Mac never sees this account's machines
         await link.endLink(final: false)
         // Revoke the install while the Stack session still exists.
         if let stackUser = auth.user?.id {
