@@ -56,7 +56,7 @@ final class SidebarAppSections: SidebarAppSectionProvider {
 
     func title(for contribution: String) -> String? {
         if contribution == AppsTierSectionView.contribution { return AppsTierSectionView.title }
-        contribution == CloudTeamFeature.contribution ? CloudTeamStrings.sectionTitle : provider.title(for: contribution)
+        return contribution == CloudTeamFeature.contribution ? CloudTeamStrings.sectionTitle : provider.title(for: contribution)
     }
 
     func makeView(for contribution: String) -> NSView? {
