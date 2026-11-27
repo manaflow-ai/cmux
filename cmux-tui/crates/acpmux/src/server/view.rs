@@ -79,9 +79,13 @@ pub(super) fn attach(hub: &Hub, conn: &Conn, s: &crate::hub::Session, opts: SubO
 /// Whether presence may still change for `conn`; read under its subscriptions' lock, as every
 /// presence change of a connection is made. The connection's end is marked before
 /// `release_all` takes that lock, so a request still running then (an attach in flight) adds no
-/// entry that nothing would remove. A peer daemon's link never makes an entry ([`a_link`]).
+/// entry that nothing would remove. Authored teammate entries may also arrive over a peer link.
 fn open(conn: &Conn) -> bool {
     !a_link(conn) && !*conn.ended.borrow()
+}
+
+fn presence_open(conn: &Conn, author: Option<&crate::author::Author>) -> bool {
+    !*conn.ended.borrow() && (author.is_some() || !a_link(conn))
 }
 
 /// Whether `conn` is another daemon's link, which stands for none of its clients
@@ -200,16 +204,13 @@ pub(super) fn view(hub: &Hub, conn: &Conn, params: &Value) -> Result<Value, RpcE
         ),
     };
     let author = crate::author::author(params)?;
-    if author.is_some() && a_link(conn) {
-        return Err(crate::hub::presence::peer_unsupported());
-    }
     let mut subs = conn.subs.lock().unwrap_or_else(|e| e.into_inner());
     // A peer's chat of the same raw id is not this one: its visibility is the peer's to count.
     let sub = subs
         .get_mut(&s.id)
         .filter(|sub| !sub.remote)
         .ok_or_else(|| RpcError::invalid_params("attach to the session before _acpmux/view"))?;
-    if open(conn) {
+    if presence_open(conn, author.as_ref()) {
         hub.presence.view_with_cutover(
             &s.id,
             &conn.id,
@@ -266,11 +267,8 @@ pub(super) fn typing(hub: &Hub, conn: &Conn, params: &Value) -> Result<Value, Rp
         .and_then(Value::as_bool)
         .ok_or_else(|| RpcError::invalid_params("on must be true or false"))?;
     let author = crate::author::author(params)?;
-    if a_link(conn) {
-        return Err(crate::hub::presence::peer_unsupported());
-    }
     let subs = conn.subs.lock().unwrap_or_else(|e| e.into_inner());
-    if subs.get(&s.id).is_none_or(|opts| opts.remote) || !open(conn) {
+    if subs.get(&s.id).is_none_or(|opts| opts.remote) || !presence_open(conn, author.as_ref()) {
         return Err(RpcError::invalid_params("attach to the session before _acpmux/typing"));
     }
     hub.presence.typing(&s.id, &conn.id, &Who::of(author.as_ref()), on)?;

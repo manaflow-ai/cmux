@@ -1364,6 +1364,9 @@ impl Hub {
                         self.capture_peer_unsent((&peer, generation, link), id, seq);
                     }
                 }
+                PeerNotice::Notification { method: m, params, .. } if m == method::MUX_PRESENCE => {
+                    self.presence.publish_remote(&params, &peer);
+                }
                 PeerNotice::Notification { method: m, mut params, link } => {
                     let Some(id) =
                         params.get("sessionId").and_then(Value::as_str).map(str::to_owned)

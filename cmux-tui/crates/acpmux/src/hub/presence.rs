@@ -13,11 +13,10 @@
 //! `presence`. The hub never sets `self`: the client knows which id is its own. None of it is a
 //! log record, so it is never in `_acpmux/events`, an export or a restart.
 //!
-//! Only this daemon's own chats have presence. A peer daemon's link is one connection that
-//! carries all of that daemon's clients, so it can stand for none of them: it makes no entry
-//! (its attach and view still count for `unread`), its `_acpmux/typing` and authored
-//! `_acpmux/view` are refused `presence.peer_unsupported`, it hears no `_acpmux/presence`, and a
-//! chat that lives on a peer answers its attach with no participants (`server/peer_forward.rs`).
+//! A peer daemon's link carries authored entries for the teammates it represents. The link's
+//! owner entry is still absent (its attach and view count for `unread`), while authored
+//! `_acpmux/view` and `_acpmux/typing` are relayed and their presence notes are forwarded back to
+//! the daemon that opened the shared chat.
 //!
 //! Bounds: [`MAX_PEOPLE`] people besides the owner in one chat (a new one past it is refused
 //! `presence.full`); `_acpmux/typing` at most [`TYPING_PER_SECOND`] calls a second per connection
@@ -90,6 +89,10 @@ pub const ROOMS_FULL: &str = "presence.rooms_full";
 pub const FOLLOW_NOT_LIVE: &str = "presence.follow_not_live";
 /// `data.reason` of an `_acpmux/follow` that names the caller.
 pub const FOLLOW_SELF: &str = "presence.follow_self";
+
+/// Internal marker on a presence note relayed from a peer. It is removed before a local client
+/// receives the note and prevents the note from being sent back over the peer link.
+pub const REMOTE_MARKER: &str = "_acpmuxPeer";
 
 /// A room a client shows (RFD 0141 "Transport"): a chat, or a workspace row.
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
@@ -291,6 +294,16 @@ impl Presence {
     pub fn snapshot(&self, chat: &str) -> Value {
         let state = self.inner.state.lock_or_recover();
         note(chat, &state.participants(chat))
+    }
+
+    /// Broadcast a complete presence snapshot received from `peer` without adding it to this
+    /// daemon's local state. The marker keeps the snapshot from looping back over the link.
+    pub fn publish_remote(&self, note: &Value, peer: &str) {
+        let mut note = note.clone();
+        if let Some(object) = note.as_object_mut() {
+            object.insert(REMOTE_MARKER.into(), Value::String(peer.to_owned()));
+            let _ = self.inner.changes.send(Arc::new(note));
+        }
     }
 
     /// Local projection for a subscriber to this chat. The owner id is daemon-local.
@@ -833,6 +846,21 @@ mod tests {
         let others = elsewhere.lock_or_recover().clone();
         assert_eq!(others.len(), 2, "only its own rooms' snapshots: {others:?}");
         assert!(others.iter().all(|n| n["snapshot"] == true));
+    }
+
+    #[test]
+    fn a_remote_snapshot_is_broadcast_with_a_loop_guard_without_local_state() {
+        let presence = Presence::default();
+        let mut changes = presence.subscribe();
+        let note = json!({"sessionId": "remote-chat", "participants": [{"id": "tailnet:bob"}]});
+        presence.publish_remote(&note, "peer-box");
+        let relayed = changes.try_recv().expect("remote presence note");
+        assert_eq!(relayed["sessionId"], "remote-chat");
+        assert_eq!(relayed[REMOTE_MARKER], "peer-box");
+        assert_eq!(
+            presence.snapshot("remote-chat"),
+            json!({"sessionId": "remote-chat", "participants": []})
+        );
     }
 
     /// An empty set unsubscribes, a smaller one drops only the rooms it left out, a detach drops

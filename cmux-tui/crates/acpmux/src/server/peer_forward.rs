@@ -741,16 +741,12 @@ async fn forward_inner(
             }
             return Err(peer_feature_unsupported(&peer, m, &features));
         }
-        // Typing and an authored view are this daemon's own chats only (`hub/presence.rs`):
-        // forwarded, whatever the peer serves this link as, one entry there would stand for
-        // every client here.
+        // Authored view and typing belong to the person named by the caller. Forward them to the
+        // owner daemon so its presence fanout can relay the entry back to this daemon.
         if m == method::MUX_TYPING || (m == method::MUX_VIEW && crate::author::present(params)) {
-            // A person typing to the chat of a peer that is down still wakes it before they
-            // send (`ask_back`); the typing itself stays this daemon's own.
             if !peer.ready() {
                 wake_if_composing(&peer, m, params, conn.origin);
             }
-            return Err(crate::hub::presence::peer_unsupported());
         }
         // A read the session list's row answers (`ROW_WILL_DO`), while the link's rows are
         // current: its notices keep the row as current as the peer's answer would be, one round
@@ -1156,12 +1152,6 @@ async fn forward_inner(
         if matches!(m, method::MUX_ATTACH | method::MUX_EVENTS) && held(&result) == before {
             let on = (peer.name.as_str(), peer.generation, link, asked);
             hub.capture_peer_page(on, (&id, m == method::MUX_EVENTS), params, &result);
-        }
-        // This daemon does not carry a peer chat's presence (`hub/presence.rs`).
-        if m == method::MUX_ATTACH
-            && let Some(obj) = result.as_object_mut()
-        {
-            obj.insert("presence".into(), crate::hub::presence::none(&id));
         }
         if m == method::MUX_PERMISSION_GROUPS && result.is_object() {
             mac_group_read(&mut result, conn.is_person() && hub.person.macs.has_own());

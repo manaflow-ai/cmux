@@ -207,21 +207,26 @@ pub(super) fn start(
     })
 }
 
-/// `_acpmux/presence` for a chat of this daemon's that `conn` is attached to (not a peer's chat
-/// with the same raw id); never to a peer daemon's link, which does not carry presence
-/// (`hub/presence.rs`).
+/// `_acpmux/presence` for a chat `conn` is attached to. Local notes cross peer links; notes that
+/// already came from a peer stay on this daemon so they cannot loop.
 fn send_presence(conn: &Conn, note: &serde_json::Value) {
-    if conn.origin == super::Origin::Peer
-        || !conn.client_features.hears_any(&[crate::capabilities::CHAT_PRESENCE])
+    let remote = note.get(crate::hub::presence::REMOTE_MARKER).is_some();
+    if (conn.origin == super::Origin::Peer && remote)
+        || (conn.origin != super::Origin::Peer
+            && !conn.client_features.hears_any(&[crate::capabilities::CHAT_PRESENCE]))
     {
         return;
     }
     let attached = note
         .get("sessionId")
         .and_then(serde_json::Value::as_str)
-        .is_some_and(|chat| conn.sub_opts(chat).is_some_and(|opts| !opts.remote));
+        .is_some_and(|chat| conn.sub_opts(chat).is_some_and(|opts| opts.remote == remote));
     if attached {
-        conn.send(&Message::notification(crate::rpc::method::MUX_PRESENCE, note.clone()));
+        let mut note = note.clone();
+        if remote {
+            note.as_object_mut().map(|object| object.remove(crate::hub::presence::REMOTE_MARKER));
+        }
+        conn.send(&Message::notification(crate::rpc::method::MUX_PRESENCE, note));
     }
 }
 
