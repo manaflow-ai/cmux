@@ -89,6 +89,8 @@ public final class AgentPaneView: NSView {
     var remoteApprovalsNotice: AgentPaneNotice?
     /// "The Cloud chat ended" on a Mac tab whose Cloud chat went (``showCloudChatEnded(machine:promptBack:)``, cmux#55066).
     var cloudChatEndedNotice: AgentPaneNotice?
+    /// A credential refusal for this chat, with the Settings action supplied by the app.
+    var modelConnectionNotice: AgentPaneNotice?
     var remoteApprovals: AgentPaneRemoteApprovals?
     /// Why the notice says a peer of this Mac's daemon did not count this Mac's allow (peer-route
     /// approvals); nil for no notice or another one.

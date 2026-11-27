@@ -322,6 +322,10 @@ fn elapsed_ms(start: std::time::Instant) -> u64 {
 struct Timing {
     started: std::time::Instant,
     begin_ms: u64,
+    /// The source's begin answered: the chat frozen and its manifest (the log's tail) made.
+    begun_ms: u64,
+    /// The move's body made (the folder planned, a worktree's branch pushed) and sent.
+    sent_ms: u64,
     answer_ms: u64,
     /// The begin cut a running turn whose continuation moved with the chat (`continues`).
     carried: bool,
@@ -332,13 +336,15 @@ impl Timing {
     fn value(&self, commit_ms: u64) -> Value {
         let mut value = json!({
             "beginMs": self.begin_ms,
+            "begunMs": self.begun_ms,
+            "sentMs": self.sent_ms,
             "answerMs": self.answer_ms,
             "commitMs": commit_ms,
             "freezeMs": commit_ms.saturating_sub(self.begin_ms),
             "carriedRunningTurn": self.carried,
         });
         if let (Some(out), Some(target)) = (value.as_object_mut(), self.target.as_object()) {
-            for key in ["dialMs", "pages", "pageBytes", "pagesMs", "finishMs", "via"] {
+            for key in ["dialMs", "pages", "pageBytes", "pagesMs", "finishMs", "listedMs", "via"] {
                 if let Some(value) = target.get(key) {
                     out.insert(key.to_owned(), value.clone());
                 }
@@ -393,6 +399,7 @@ impl Moving<'_> {
             t::begin_move_live(src_end, &id, Some(to), t::TOOL_WAIT, staged).await?
         };
         let carried = begun.begin.get("continues").is_some_and(|c| !c.is_null());
+        let begun_ms = elapsed_ms(started);
         let made = async {
             // Read again now that the chat is frozen: it may have changed before the freeze.
             let checkout = checkout_unless_named(cwd, args, &Source::Here).await?;
@@ -434,6 +441,7 @@ impl Moving<'_> {
                 return Err(e);
             }
         };
+        let sent_ms = elapsed_ms(started);
         match src.request("_acpmux/transfer_hub", sent.clone()).await {
             Ok(answer) => {
                 let answer_ms = elapsed_ms(started);
@@ -452,7 +460,15 @@ impl Moving<'_> {
                 Ok((
                     sent,
                     answer,
-                    Timing { started, begin_ms, answer_ms, carried, target: target_timings },
+                    Timing {
+                        started,
+                        begin_ms,
+                        begun_ms,
+                        sent_ms,
+                        answer_ms,
+                        carried,
+                        target: target_timings,
+                    },
                 ))
             }
             Err(e) => {
@@ -523,6 +539,8 @@ mod tests {
         let timing = |carried| Timing {
             started: std::time::Instant::now(),
             begin_ms: 10,
+            begun_ms: 20,
+            sent_ms: 30,
             answer_ms: 50,
             carried,
             target: json!({"via": "circuit"}),
