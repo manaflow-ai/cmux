@@ -57,7 +57,8 @@ env:
 jobs:
   eval:
     if: github.repository_owner == 'manaflow-ai' && vars.CI_EVAL_STEP_GATEWAY != ''
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'glaeda-gateway-xcode-26.6' }} # frozen-label: CI_EVAL_STEP_GATEWAY (cmux#54437)
+    # The client waits on Linux; native work stays on the fleet worker.
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'cmux-linux' }}
     # The job's clock includes the wait for the pinned worker's exclusive lease, which ran 2.5 h on
     # 2026-11-22 and past the old 300 min on 2026-11-23 (run 45160093472, cancelled, nothing measured).
     # 720 min leaves that wait room beside the step's own 7200 s.
@@ -72,9 +73,15 @@ jobs:
           # here, no other blob. The measure worker checks the tree out itself.
           filter: blob:none
           sparse-checkout: |
+            .github/actions/fleet-client
             /scripts/measure/screen-stream-eval/
             /.gitmodules
           sparse-checkout-cone-mode: false
+
+      - uses: ./.github/actions/fleet-client
+        with:
+          controller: ${{ vars.CMUX_FLEET_CONTROLLER }}
+
       - name: the last daily run with results
         id: previous
         env:

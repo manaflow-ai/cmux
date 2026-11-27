@@ -35,9 +35,33 @@ jobs:
     name: Build the iPhone app and UI tests for the simulator
     if: github.repository_owner == 'manaflow-ai' && vars.CI_EVAL_STEP_GATEWAY != ''
     # The literal fallback never schedules: the job's if: skips outside manaflow-ai and when the variable is unset.
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'glaeda-gateway-xcode-26.6' }} # frozen-label: CI_EVAL_STEP_GATEWAY (cmux#54437)
+    # The client waits on Linux; native work stays on the fleet worker.
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'cmux-linux' }}
     timeout-minutes: 45  # the client waits up to 600 s queued plus 1800 s running
     steps:
+      - name: Checkout fleet client tooling
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+        with:
+          ref: ${{ github.workflow_sha }}
+          persist-credentials: false
+          submodules: false
+          fetch-depth: 1
+          sparse-checkout: |
+            .github/actions/fleet-client
+            scripts/ci/nightly-steps/ensure-gh.sh
+            scripts/ci/github-release-download.sh
+            .gitmodules
+          sparse-checkout-cone-mode: false
+
+      - uses: ./.github/actions/fleet-client
+        with:
+          controller: ${{ vars.CMUX_FLEET_CONTROLLER }}
+
+      - name: Ensure GitHub CLI
+        env:
+          GH_PIN_TOKEN: ${{ github.token }}
+        run: bash scripts/ci/nightly-steps/ensure-gh.sh
+
       - name: Resolve the commit
         id: ref
         env:

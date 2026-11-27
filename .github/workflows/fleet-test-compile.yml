@@ -236,12 +236,30 @@ jobs:
     name: fleet/test-compile fallback (advisory)
     needs: [plan, compile]
     if: ${{ needs.compile.outputs.verdict == 'none' && vars.CI_TEST_COMPILE_GATEWAY != '' }}
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'glaeda-gateway-xcode-26.6' }} # frozen-label: CI_TEST_COMPILE_GATEWAY (cmux#54437)
-    permissions: {}
+    # The client waits on Linux; native work stays on the fleet worker.
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'cmux-linux' }}
+    permissions:
+      contents: read
     # Longer than the client's queue (1200 s) plus run (3600 s) timeouts and its
     # report: a job timeout concludes as a failure, which would read as red.
     timeout-minutes: 90
     steps:
+      - name: Checkout fleet client tooling
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+        with:
+          ref: ${{ github.workflow_sha }}
+          persist-credentials: false
+          submodules: false
+          fetch-depth: 1
+          sparse-checkout: |
+            .github/actions/fleet-client
+            .gitmodules
+          sparse-checkout-cone-mode: false
+
+      - uses: ./.github/actions/fleet-client
+        with:
+          controller: ${{ vars.CMUX_FLEET_CONTROLLER }}
+
       - name: Say why this runs
         run: echo "::warning title=mac fallback::The Linux read of the controller's test-target compile gave no verdict; compiling through the gateway client."
       # The gateway checks nothing out: the pool fetches the merge commit itself.

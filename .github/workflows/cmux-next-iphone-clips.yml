@@ -82,7 +82,8 @@ jobs:
     name: Record on a fleet simulator
     needs: plan
     if: ${{ needs.plan.outputs.count != '' && needs.plan.outputs.count != '0' && vars.CI_EVAL_STEP_GATEWAY != '' }}
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'glaeda-gateway-xcode-26.6' }} # frozen-label: CI_EVAL_STEP_GATEWAY (cmux#54437)
+    # The client waits on Linux; native work stays on the fleet worker.
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'cmux-linux' }}
     timeout-minutes: 240
     permissions:
       contents: read
@@ -94,9 +95,15 @@ jobs:
           persist-credentials: false
           fetch-depth: 1
           sparse-checkout: |
+            .github/actions/fleet-client
             scripts/cmux-next/media/whats-new-clips.py
             .gitmodules
           sparse-checkout-cone-mode: false
+
+      - uses: ./.github/actions/fleet-client
+        with:
+          controller: ${{ vars.CMUX_FLEET_CONTROLLER }}
+
 
       - name: Record
         id: record

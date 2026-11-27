@@ -413,7 +413,8 @@ jobs:
     needs: plan
     # Its own gateway label only (see the top of this file); unset, this job is skipped.
     if: ${{ needs.plan.outputs.action == 'part' && needs.plan.outputs.part != '' && vars.CI_PERF_CRON_GATEWAY != '' }}
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'glaeda-gateway-xcode-26.6' }} # frozen-label: CI_PERF_CRON_GATEWAY (cmux#54437)
+    # The client waits on Linux; native work stays on the fleet worker.
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'cmux-linux' }}
     permissions:
       contents: read
     # The plan sizes both timeouts from the part's run_seconds (perf-cron.py part_minutes: fleet-check, the
@@ -427,9 +428,15 @@ jobs:
           submodules: false
           fetch-depth: 1
           sparse-checkout: |
+            .github/actions/fleet-client
             scripts/cmux-next/perf-cron.py
             .gitmodules
           sparse-checkout-cone-mode: false
+
+      - uses: ./.github/actions/fleet-client
+        with:
+          controller: ${{ vars.CMUX_FLEET_CONTROLLER }}
+
 
       - name: Run one part on its host when the fleet is idle
         id: part

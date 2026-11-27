@@ -39,11 +39,29 @@ jobs:
     name: fleet compile-check
     if: ${{ github.repository_owner == 'manaflow-ai' && github.ref == 'refs/heads/feat-cmux-next' && vars.CI_COMPILE_CHECK_GATEWAY != '' }}
     # The literal fallbacks never schedule: the job's if: skips outside manaflow-ai and when the variable is unset.
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'glaeda-gateway-xcode-26.6' }} # frozen-label: CI_COMPILE_CHECK_GATEWAY (cmux#54437)
+    # The client waits on Linux; native work stays on the fleet worker.
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'cmux-linux' }}
     permissions:
+      contents: read
       statuses: write
     timeout-minutes: 50  # the client waits up to 600 + 1200 s plus its own slack; the posts up to 2 x 30 s and 6 x 30 s, plus backoff (155 s, or up to 5 x 120 s when GitHub sends Retry-After)
     steps:
+      - name: Checkout fleet client tooling
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+        with:
+          ref: ${{ github.workflow_sha }}
+          persist-credentials: false
+          submodules: false
+          fetch-depth: 1
+          sparse-checkout: |
+            .github/actions/fleet-client
+            .gitmodules
+          sparse-checkout-cone-mode: false
+
+      - uses: ./.github/actions/fleet-client
+        with:
+          controller: ${{ vars.CMUX_FLEET_CONTROLLER }}
+
       # The gateway checks nothing out: the fleet fetches the commit itself.
       # Exit 0 is a pass, 1 a compile failure, anything else no verdict; only
       # a pass posts success, and the run fails whenever it is not a pass.
