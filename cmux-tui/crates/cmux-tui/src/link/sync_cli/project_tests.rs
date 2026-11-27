@@ -144,7 +144,7 @@ fn dial_uses_the_line_carrier_for_manifest_bytes() {
         writer.flush().unwrap();
     });
 
-    let (reader, answer) = dial(&socket, "chat-test", "/workspace", &manifest).unwrap();
+    let (reader, answer) = dial(&socket, "chat-test", "/workspace", &manifest, None).unwrap();
     assert!(ok(&answer));
     drop(reader);
     server.join().unwrap();
