@@ -1953,6 +1953,7 @@ jobs:
       browser_data_proven: ${{ steps.browser-data-proof.outcome == 'success' && 'true' || '' }}
     # Why: docs/ci/nightly-workflow-notes.md#note-38
     if: "!cancelled() && needs.decide.result == 'success' && needs.resolve-nightly-cmux-tui-client.result == 'success' && needs.decide.outputs.should_build == 'true' && (github.event_name != 'schedule' || github.event.schedule == '47 8 * * *') && needs.resolve-nightly-cmux-tui-client.outputs.already_published != 'true' && needs.resolve-nightly-cmux-tui-client.outputs.superseded != 'true' && needs.decide.outputs.continue_only != 'true' && needs.decide.outputs.one_job != 'true'"
+    # Why: docs/ci/nightly-workflow-notes/2026-11-27-builder-cache-context.md
     # Why: docs/ci/nightly-workflow-notes/2026-11-26-build-nightly-app-2.md
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || vars.CI_NIGHTLY_MINI != '' && vars.CI_NIGHTLY_MINI_BUILDER || github.ref == 'refs/heads/nightly-next' && (needs.pick-nightly-build-runner.outputs.attempt == github.run_attempt && (needs.pick-nightly-build-runner.outputs.trusted && fromJSON(needs.pick-nightly-build-runner.outputs.trusted) || needs.pick-nightly-build-runner.outputs.owned)) || github.repository == 'manaflow-ai/cmux' && github.run_attempt == 1 && needs.decide.outputs.fast_build != 'true' && (github.event_name == 'push' || github.event_name == 'schedule') && github.ref == 'refs/heads/main' && vars.CI_PR_POOL_OWNED == '1' && vars.CI_SEED_TRUSTED_POOL || vars.CI_NIGHTLY_ONLY_RUNNER || 'glaeda-nightly-only-m4pro' }}
     # nightly-next: env artifacts holds CMUX_STORE_SIGNING_KEY (store packages, "Build the web bundles").
@@ -3332,7 +3333,9 @@ jobs:
   report-nightly-shelf-red:
     name: report the nightly App Store shelf
     needs: [decide, resolve-nightly-cmux-tui-client, check-nightly-app-store-shelf]
-    if: "!cancelled() && needs.check-nightly-app-store-shelf.result == 'failure'"
+    # A cancelled (timed-out) shelf check is a red too: report it.
+    if: "!cancelled() && (needs.check-nightly-app-store-shelf.result == 'failure' || needs.check-nightly-app-store-shelf.result == 'cancelled')"
+    # issues: write, so the nightly-only route every nightly report job takes, never the PR-shared cmux-linux pool.
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.CI_NIGHTLY_MINI != '' && vars.CI_NIGHTLY_MINI || github.repository == 'manaflow-ai/cmux' && needs.decide.outputs.track == 'nightly-next' && github.run_attempt == 1 && vars.CI_NIGHTLY_ONLY_RUNNER == 'glaeda-nightly-only-m4pro' && vars.CI_NIGHTLY_ONLY_RUNNER || vars.CI_NIGHTLY_ONLY_RUNNER || 'glaeda-nightly-only-m4pro' }}
     timeout-minutes: 10
     permissions:
@@ -5653,6 +5656,8 @@ jobs:
         timeout-minutes: 10
         env:
           GITHUB_TOKEN: ${{ github.token }}
+          # Spent hour: download-run-artifact.py moves to a CI pool's token at once (run 45823496118).
+          GH_TOKEN_SPARES: ${{ secrets.CI_POOL_TOKEN_1 }} ${{ secrets.CI_POOL_TOKEN_2 }}
           VARIANT_PATTERN: ${{ steps.source.outputs.variant_pattern }}
         run: python3 .publish-tooling/scripts/ci/download-run-artifact.py --pattern "$VARIANT_PATTERN" --out nightly-out --connections 32
 
@@ -6316,6 +6321,8 @@ jobs:
         timeout-minutes: 10
         env:
           GITHUB_TOKEN: ${{ github.token }}
+          # Spent hour: download-run-artifact.py moves to a CI pool's token at once (run 45823496118).
+          GH_TOKEN_SPARES: ${{ secrets.CI_POOL_TOKEN_1 }} ${{ secrets.CI_POOL_TOKEN_2 }}
           DSYMS_ARTIFACT: ${{ steps.producer.outputs.artifact }}
           DSYMS_RUN: ${{ steps.producer.outputs.run }}
         run: python3 .publish-tooling/scripts/ci/download-run-artifact.py --artifact-id "$DSYMS_ARTIFACT" --run-id "$DSYMS_RUN" --out "$RUNNER_TEMP/published-dsyms/dSYMs" --connections 32
@@ -6578,6 +6585,8 @@ jobs:
         timeout-minutes: 10
         env:
           GITHUB_TOKEN: ${{ github.token }}
+          # Spent hour: download-run-artifact.py moves to a CI pool's token at once (run 45823496118).
+          GH_TOKEN_SPARES: ${{ secrets.CI_POOL_TOKEN_1 }} ${{ secrets.CI_POOL_TOKEN_2 }}
           SOURCE_RUN: ${{ needs.published-build.outputs.source_run || github.run_id }}
         run: python3 .publish-tooling/scripts/ci/download-run-artifact.py --name "cmux-nightly-variant-$NIGHTLY_VARIANT" --run-id "$SOURCE_RUN" --out nightly-delta/input --connections 32
 
@@ -7818,14 +7827,15 @@ jobs:
           set -euo pipefail
           gh api "repos/$GITHUB_REPOSITORY/actions/runs/$RUN/attempts/$ATTEMPT" > "$SOURCE_RUN_FILE"
           python3 scripts/ci/nightly_published_build.py check-source
+      # gh run download, not actions/download-artifact: its artifact list and zip reads go through the same wrapper.
       - name: Download its record
         if: steps.source.outputs.run != ''
-        uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
-        with:
-          run-id: ${{ steps.source.outputs.run }}
-          github-token: ${{ github.token }}
-          name: nightly-published-build-${{ steps.source.outputs.attempt }}
-          path: ${{ runner.temp }}/published-build
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RUN: ${{ steps.source.outputs.run }}
+          NAME: nightly-published-build-${{ steps.source.outputs.attempt }}
+          DEST: ${{ runner.temp }}/published-build
+        run: gh run download "$RUN" --repo "$GITHUB_REPOSITORY" --name "$NAME" --dir "$DEST"
       - name: Read the published build
         id: record
         env:
@@ -7866,7 +7876,18 @@ jobs:
       - *mint-dispatch-pools
       - *mint-dispatch-spare
       - *wait-through-github-api-rate-l
+      # A run that says published reads the live feeds first: an unmoved feed fails here, red, and a refused build
+      # (nightly-next-one reds a real refusal) asks for no post-publication run (2026-11-25, run 45607031207).
+      - name: Read the feed back before saying published
+        id: readback
+        env:
+          FEED_BASE: ${{ needs.published-build.outputs.feed_base }}
+          FEEDS: ${{ needs.published-build.outputs.feeds }}
+          BUILD: ${{ needs.published-build.outputs.publish_build }}
+          REFUSED: ${{ needs.published-build.outputs.publish_refused }}
+        run: python3 scripts/ci/nightly_published_feed_check.py --feed-base "$FEED_BASE" --feeds "$FEEDS" --build "$BUILD" --refused "$REFUSED"
       - name: Record the published build
+        if: steps.readback.outputs.published == 'true'
         env:
           RECORD_FILE: ${{ runner.temp }}/published-build/published-build.json
         run: |
@@ -7876,6 +7897,7 @@ jobs:
       # The tail run reads the record only from here (published-build), never from its input.
       - name: Upload the record
         id: upload-record
+        if: steps.readback.outputs.published == 'true'
         continue-on-error: true
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
@@ -7884,7 +7906,7 @@ jobs:
           if-no-files-found: error
           retention-days: 3
       - name: Upload the record (retry)
-        if: "!cancelled() && steps.upload-record.outcome == 'failure'"
+        if: "!cancelled() && steps.readback.outputs.published == 'true' && steps.upload-record.outcome == 'failure'"
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: nightly-published-build-${{ github.run_attempt }}
@@ -7893,7 +7915,9 @@ jobs:
           retention-days: 3
           overwrite: true
       - name: Ask for this build's post-publication run
+        if: steps.readback.outputs.published == 'true'
         # Why: docs/ci/nightly-workflow-notes/2026-11-26-dispatch-published-in-1.md
+        # A 422 "twirp error resource_exhausted" is GitHub failing to read the workflow file (45798252585): tried again like a 5xx.
         env: *dispatch-pools
         run: |
           set -uo pipefail
@@ -7902,7 +7926,7 @@ jobs:
             -f nightly_next_post_publish="$(cat "$RUNNER_TEMP/dispatch-input.json")" 2>"$RUNNER_TEMP/dispatch.err"; }
           ask && exit 0
           cat "$RUNNER_TEMP/dispatch.err" >&2
-          grep -q 'HTTP 5[0-9][0-9]' "$RUNNER_TEMP/dispatch.err" || exit 1
+          grep -qE 'HTTP 5[0-9][0-9]|twirp error resource_exhausted' "$RUNNER_TEMP/dispatch.err" || exit 1
           sleep 30
           n="$(gh run list --repo "$GITHUB_REPOSITORY" --workflow nightly.yml --event workflow_dispatch --branch "$GITHUB_REF_NAME" \
             --created ">=$started" --json displayTitle \
@@ -8264,6 +8288,20 @@ jobs:
           CHANNEL_APP_NAME: ${{ needs.published-build.outputs.app_name }}
         with:
           script: |
+            // A rate-limited request waits for its reset and goes again, as report-nightly-failure's do (run
+            // 45823496118 lost this close to one, 2026-11-26). 10 min of waits in all: this job holds a nightly Mac.
+            const deadline = Date.now() + 10 * 60 * 1000;
+            github.hook.wrap('request', async (request, options) => {
+              for (let attempt = 1; ; attempt += 1) {
+                try { return await request(options); } catch (error) {
+                  const h = (error.response && error.response.headers) || {};
+                  if (!((error.status === 403 || error.status === 429) && (h['x-ratelimit-remaining'] === '0' || h['retry-after'] !== undefined || /rate limit/i.test(String(error.message)))) || Date.now() >= deadline) throw error;
+                  const ms = Math.max(5000, Math.min(Number(h['retry-after']) * 1000 || Number(h['x-ratelimit-reset']) * 1000 - Date.now() + 2000 || 60000 * attempt, deadline - Date.now()));
+                  core.warning(`GitHub API rate limited (${error.status}) on ${options.method} ${options.url}; retrying in ${Math.round(ms / 1000)} s`);
+                  await new Promise((resolve) => setTimeout(resolve, ms));
+                }
+              }
+            });
             const { owner, repo } = context.repo;
             const runUrl = `${context.serverUrl}/${owner}/${repo}/actions/runs/${context.runId}`;
             const open = await github.rest.issues.listForRepo({ owner, repo, labels: `${process.env.CHANNEL_RELEASE_TAG}-failure`, state: 'open', per_page: 10 });
