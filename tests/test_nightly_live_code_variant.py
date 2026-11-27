@@ -26,7 +26,9 @@ LIVE = "scripts/ci/nightly-steps/app-build-live-code.sh"
 REAL = (RELEASE, LIVE, "scripts/live-code/lib/xcodebuild-args.sh", "Packages/macOS/CmuxNext/Package.swift",
         "scripts/cmux-next/lib/swift-size-opt.sh",
         # The SourcePackages preflight; with no .spm-cache in the tree it resolves nothing.
-        "scripts/ci/spm_artifact_preflight.py")
+        "scripts/ci/spm_artifact_preflight.py",
+        # Sourced before the preflight (#58915); with no proxy in git config its probe does nothing.
+        "scripts/ci/github-egress-direct.sh")
 VARIANT = ROOT / "scripts/ci/nightly-steps/app-build-live-code.sh"
 
 STUBS = {
@@ -120,6 +122,8 @@ class NightlyLiveCodeVariant(unittest.TestCase):
                 f'${{CMUX_LIVE_CODE_INTERPOSABLE_LIST:-none}}" >> "{builds}"\n')
             lib = tree / "scripts/live-code/lib/two-pass.sh"
             lib.parent.mkdir(parents=True)
+            # Sourced by the variant for its settings; the stubbed release build never calls it.
+            shutil.copy(ROOT / "scripts/live-code/lib/xcodebuild-args.sh", lib.parent / "xcodebuild-args.sh")
             lib.write_text('live_code_list() { echo sym > "$2/interposable.txt"; }\n'
                            f'live_code_check() {{ echo {{}} > "$2/cost.json"; return {check_status}; }}\n')
             out = Path(temp) / "out"
