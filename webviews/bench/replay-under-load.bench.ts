@@ -30,6 +30,8 @@
 //                           nodes: the floor of any main-thread painter) or worker (the real pane plus an
 //                           OffscreenCanvas painted from a dedicated Worker on its own socket and frame loop; frame_*
 //                           are then the worker's frames and react_frame_p95_ms the pane's, in the same run)
+//                           or native (the real pane with Experiments `nativeTranscript` on: the Rust transcript's
+//                           Worker, nativeTranscript/, paints the viewport; frame_* are its frames, as for worker)
 //   bun bench/replay-under-load.bench.ts [--log FILE] [--rate 40] [--seconds 60] [--warm 5] [--out FILE] [--profile]
 // Exit 0 with a reading (even a null frame p95, which says why), 1 when the page never attached or the run failed.
 /// <reference types="bun" />
@@ -70,10 +72,10 @@ const BUCKETS = 1000;
 const FLUSH_WAIT_MS = 6_000;
 if (
   ![RATE, SECONDS, WARM].every((n) => Number.isFinite(n) && n > 0) ||
-  !["react", "dom-floor", "worker"].includes(PAINTER)
+  !["react", "dom-floor", "worker", "native"].includes(PAINTER)
 ) {
   console.error(
-    "usage: bun bench/replay-under-load.bench.ts [--log FILE] [--rate 40] [--seconds 60] [--warm 5] [--out FILE] [--profile] [--trace FILE] [--painter react|dom-floor|worker]",
+    "usage: bun bench/replay-under-load.bench.ts [--log FILE] [--rate 40] [--seconds 60] [--warm 5] [--out FILE] [--profile] [--trace FILE] [--painter react|dom-floor|worker|native]",
   );
   process.exit(2);
 }
@@ -286,6 +288,20 @@ async function run(): Promise<Reading> {
       await cdp.send("Profiler.start");
     }
     const endpoint = `ws://127.0.0.1:${daemon.port}/`;
+    if (PAINTER === "native")
+      // The real pane with Experiments `nativeTranscript` on, as the app's push would set it the moment the
+      // pane installs its bridge (pane/paneSnapshot.ts): the Rust transcript's Worker paints the viewport.
+      await page.addInitScript(() => {
+        let bridge: { applyExperiments?: (value: unknown) => void } | undefined;
+        Object.defineProperty(window, "cmuxAcpmuxBridge", {
+          configurable: true,
+          get: () => bridge,
+          set: (value: typeof bridge) => {
+            bridge = value;
+            value?.applyExperiments?.({ nativeTranscript: true });
+          },
+        });
+      });
     if (PAINTER === "worker")
       await page.addInitScript(workerOverlay, {
         endpoint,
@@ -296,7 +312,8 @@ async function run(): Promise<Reading> {
       `&token=t&session=${encodeURIComponent(log.sessionId)}` +
       // A shipped build's scheme, as Leo's NIGHTLY names: the dev host's default `cmux-dev` turns on the dev-only
       // layout-motion audit (devMotionAudit.ts), which sampled every box each frame and was ~8% of this reading.
-      `&scheme=cmux`;
+      `&scheme=cmux` +
+      (PAINTER === "native" ? "&nativeTally=1" : "");
     const consoleTail: string[] = [];
     page.on("console", (m) => consoleTail.push(`${m.type()}: ${m.text()}`.slice(0, 300)));
     page.on("pageerror", (e) => consoleTail.push(`pageerror: ${e.message}`.slice(0, 300)));
@@ -309,7 +326,7 @@ async function run(): Promise<Reading> {
         `the pane never drew its transcript: ${String(error).split("\n")[0]}; page: ${JSON.stringify(body)}; console: ${consoleTail.slice(-8).join(" | ")}`,
       );
     }
-    const want = PAINTER === "worker" ? 2 : 1;
+    const want = PAINTER === "worker" || PAINTER === "native" ? 2 : 1;
     for (let tries = 0; sockets.size < want && tries < 600; tries++) await page.waitForTimeout(50);
     if (sockets.size < want) throw new Error(`${log.name}: the pane never attached`);
 
@@ -385,7 +402,7 @@ async function run(): Promise<Reading> {
       seconds: SECONDS,
       records: sent,
       painter: PAINTER,
-      ...(PAINTER === "worker" ? { react_frame_p95_ms: quantile(paneCounts, 0.95) } : {}),
+      ...(PAINTER === "worker" || PAINTER === "native" ? { react_frame_p95_ms: quantile(paneCounts, 0.95) } : {}),
       frames,
       frame_p50_ms: quantile(counts, 0.5),
       frame_p95_ms: enough ? quantile(counts, 0.95) : null,

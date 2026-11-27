@@ -741,6 +741,7 @@ import { ReadOnlyPromptCoachRow } from "./rows/PromptCoachRow";
 import { PROMPT_COACH } from "./conversation/promptCoach";
 import { PRESET_APPROVAL } from "./conversation/presetApproval";
 import { type ScrollAnchor, VirtualTranscript } from "./VirtualTranscript";
+import { NativeTranscript } from "./nativeTranscript/NativeTranscript";
 import { NO_ROWS, rowKind } from "./virtualTranscriptModel";
 import { turnEndedBetween, cachedSnapshot } from "./snapshotCache";
 import { shownChrome } from "./shownChrome";
@@ -2405,6 +2406,8 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
   const doneLines = useRef<DoneLineCache>(new Map());
   const childDoneLines = useRef<DoneLineCache>(new Map());
   const shownSessionId = snapshot.sessionId ?? snapshot.summary?.sessionId;
+  // The native transcript's socket (nativeTranscript/, Experiments `nativeTranscript`, default off).
+  const nativeLink = useCallback(() => directClient.current?.nativeLink(), []);
   // The turn as the composer hat reads it: the composer's Stop hysteresis (composer/turnPresence.ts),
   // so a turn that ends and the next that starts a few hundred ms later (a queued prompt, a steer, a
   // subagent's notice) never drops and redraws its running lines. Leo, 2026-11-24: "composer hat seems to be getting a lot of flickers recently. it
@@ -10116,6 +10119,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
                                                                 />
                                                               )}
                                                             </ChatFindScope>
+                                                            {!childRows && <NativeTranscript link={nativeLink} sessionId={shownSessionId} />}
                                                             <SelectionReplyChip />
                                                           </FailedSendsContext.Provider>
                                                         </StartedMentionsContext.Provider>

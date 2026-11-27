@@ -17069,6 +17069,14 @@ export class AcpmuxDirectClient {
   perf(params: Record<string, unknown>): Promise<unknown> {
     return this.request("_acpmux/perf", params);
   }
+  /// The daemon socket a second reader may dial for itself: the native transcript's Worker
+  /// (nativeTranscript/NativeTranscript.tsx), which reads the chat off the page's main thread. Only a
+  /// real socket has one; over the bridge the host owns the socket, and a browser device signs its own.
+  nativeLink(): { endpoint: string; protocols?: string[] } | undefined {
+    const { endpoint, token, transport, browserDevice } = this.host;
+    if (transport !== "acpmux-websocket" || !endpoint || browserDevice) return undefined;
+    return { endpoint, protocols: token ? tokenProtocols(token) : undefined };
+  }
   /// This machine's load and swap verdict (`_acpmux/host_overload`, host_overload.rs): acpmux reads
   /// the host and applies the thresholds; the pane only draws it (OverloadNotice.tsx).
   hostOverload(): Promise<unknown> {
