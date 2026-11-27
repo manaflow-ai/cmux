@@ -147,7 +147,7 @@ pub fn last_activity(folder: &Path) -> Option<u64> {
 }
 
 fn verdict(action: Action, reason: impl Into<String>) -> Verdict {
-    Verdict { action, reason: reason.into() }
+    Verdict { action, reason: reason.into(), idle_ms: None }
 }
 
 /// The verdict for an entry of `family` at `now_ms`: [`Action::Reclaim`]
