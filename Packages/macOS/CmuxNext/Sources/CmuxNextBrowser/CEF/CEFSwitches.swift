@@ -283,6 +283,8 @@ nonisolated struct CEFSwitches: Equatable, Sendable {
         // idle_cpu.py BENCH_CEF_SWITCHES). A shipped build has neither flag and reads none.
         #if DEBUG || CMUX_BENCH_HOOKS
         var extra = dev ? Self.extraSwitches(environment["CMUX_NEXT_CEF_EXTRA_SWITCHES"]) : []
+        // SCRATCH (task a136 measurement, never lands): the component updater off in every dev bench launch.
+        if dev && !extra.contains("disable-component-update") { extra.append("disable-component-update") }
         #else
         var extra: [String] = []
         #endif
