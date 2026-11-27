@@ -22,10 +22,8 @@ async fn close_1012_reports_restarting_retries_immediately_then_resumes_failure_
     let peer = Peer::new("restart-test", &url, None, None, tx);
     let running = tokio::spawn(peer.clone().run());
     let (first, _) = timeout(Duration::from_secs(5), listener.accept()).await.unwrap().unwrap();
-    let mut server = timeout(Duration::from_secs(5), tokio_tungstenite::accept_async(first))
-        .await
-        .unwrap()
-        .unwrap();
+    let mut server =
+        timeout(Duration::from_secs(5), acpmux::server::accept_ws(first)).await.unwrap().unwrap();
 
     // Close before answering initialize: no session-list/ready notices precede this outcome.
     let restarting_at = Instant::now();
