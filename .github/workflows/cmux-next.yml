@@ -53,7 +53,8 @@ on:
       - skills/cmux-browser/**
       - skills/cmux-computer-use/**
       - skills/cmux-customization/**
-      - skills/cmux-extension-author/**  # scripts/cmux-next/cmux-tui-tree-inputs.txt embeds the whole tree
+      # scripts/cmux-next/cmux-tui-tree-inputs.txt embeds the whole tree
+      - skills/cmux-extension-author/**
       - skills/cmux-live/**
       - skills/cmux-ui-preview/**
       - .xcode-version
@@ -1005,6 +1006,9 @@ jobs:
             && git rev-parse -q --verify HEAD >/dev/null 2>&1; then
             reuse=reused
             if ! git reset -q --hard || ! git clean -ffdxq; then reuse=fresh; fi
+            # `git sparse-checkout disable` (another job on this VM) moves sparsity into config.worktree, which
+            # overrides the core.sparseCheckout this step writes: keep .git/config the only config.
+            git config --unset-all extensions.worktreeConfig || true
           fi
           if [[ $reuse == fresh ]]; then
             find . -mindepth 1 -maxdepth 1 -exec rm -rf {} +
@@ -5560,8 +5564,9 @@ jobs:
   release-compile:
     environment: ${{ github.event_name != 'pull_request' && 'ci-build-cache-reader' || '' }}
     # Why: note-cheap-gate (a PR head's Release compile starts only after Linux cargo is not red, as macos-placement)
-    needs: [path_route, macos-placement, push-head-preflight, app-compile-fleet, release-compile-fast, pure-checks-coalesce, fast-tier-cargo]
-    if: ${{ (always() && !cancelled() && (github.event_name != 'pull_request' || needs.fast-tier-cargo.result == 'success' || needs.fast-tier-cargo.result == 'skipped') && needs.pure-checks-coalesce.outputs.run != 'false' && needs.path_route.outputs.native == 'true' && needs.push-head-preflight.outputs.current == 'true' && (needs.release-compile-fast.result == 'skipped' || needs.release-compile-fast.outputs.verdict == 'unavailable' || (needs.release-compile-fast.result == 'failure' || needs.release-compile-fast.result == 'success') && needs.release-compile-fast.outputs.verdict == '') && (github.event_name != 'pull_request' || github.event.pull_request.base.ref != 'feat-cmux-next' && contains(needs.path_route.outputs.labels, ',full-ci,') || github.event.pull_request.head.repo.full_name != github.repository && needs.path_route.outputs.cmuxnext_swift == 'true' || github.event.pull_request.head.repo.full_name == github.repository && needs.path_route.outputs.mac_release == 'true' && needs.app-compile-fleet.outputs.verdict != 'pass' && needs.app-compile-fleet.outputs.verdict != 'fail' && needs.app-compile-fleet.outputs.verdict != 'awaiting_land')) && !(github.event_name == 'pull_request' && github.event.pull_request.base.ref == 'feat-cmux-next' && (github.event.action == 'labeled' && !contains(fromJSON('["full-ci","ready-to-land"]'), github.event.label.name) || github.event.action == 'unlabeled')) }}
+    needs: [path_route, macos-placement, push-head-preflight, app-compile-fleet, release-compile-fast, pure-checks-coalesce, fast-tier-cargo, compile-status]
+    # Why: 2026-11-27-release-compile-pr-fleet-pass.md (undo: vars.CMUX_NEXT_PR_FLEET_PASS_SKIPS_MAC = '0')
+    if: ${{ (always() && !cancelled() && (github.event_name != 'pull_request' || needs.fast-tier-cargo.result == 'success' || needs.fast-tier-cargo.result == 'skipped') && needs.pure-checks-coalesce.outputs.run != 'false' && needs.path_route.outputs.native == 'true' && needs.push-head-preflight.outputs.current == 'true' && (needs.release-compile-fast.result == 'skipped' || needs.release-compile-fast.outputs.verdict == 'unavailable' || (needs.release-compile-fast.result == 'failure' || needs.release-compile-fast.result == 'success') && needs.release-compile-fast.outputs.verdict == '') && (github.event_name != 'pull_request' || github.event.pull_request.base.ref != 'feat-cmux-next' && contains(needs.path_route.outputs.labels, ',full-ci,') || github.event.pull_request.head.repo.full_name != github.repository && needs.path_route.outputs.cmuxnext_swift == 'true' || github.event.pull_request.head.repo.full_name == github.repository && needs.path_route.outputs.mac_release == 'true' && needs.app-compile-fleet.outputs.verdict != 'pass' && needs.app-compile-fleet.outputs.verdict != 'fail' && needs.app-compile-fleet.outputs.verdict != 'awaiting_land' && !(needs.compile-status.outputs.state == 'pass' && (vars.CMUX_NEXT_PR_FLEET_PASS_SKIPS_MAC || '1') != '0'))) && !(github.event_name == 'pull_request' && github.event.pull_request.base.ref == 'feat-cmux-next' && (github.event.action == 'labeled' && !contains(fromJSON('["full-ci","ready-to-land"]'), github.event.label.name) || github.event.action == 'unlabeled')) }}
     name: cmux-next Release compile (Xcode 26)
     # Why: note-6
     continue-on-error: false
