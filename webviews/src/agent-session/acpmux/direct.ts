@@ -6184,6 +6184,23 @@ export class AcpmuxDirectClient {
     return this.git("git.pullRequest", params);
   }
 
+  /// Rust reads the selected chat's PR and returns bounded prompt context. This does not send
+  /// a prompt or merge; the caller's explicit action supplies the former through chat.send.
+  async pullRequestAction(params: { url: string; headSha?: string; action: string }): Promise<unknown> {
+    const sessionId = this.selectedSessionId;
+    if (!sessionId) return Promise.reject(new Error(translate("error.notOpen")));
+    const generation = this.selectionGeneration;
+    const result = await this.request(
+      "_acpmux/pull_request_action",
+      { sessionId, ...params },
+      95_000,
+      () => generation === this.selectionGeneration && sessionId === this.selectedSessionId,
+    );
+    if (this.closed || generation !== this.selectionGeneration || sessionId !== this.selectedSessionId)
+      throw new Error(translate("error.notOpen"));
+    return result;
+  }
+
   /// acpmux serves no git methods: the native host runs them on the session host in the selected
   /// session's folder, and mock mode's in-page daemon answers them by session.
   /// One turn's repository changes: checkpoint `from` against checkpoint `to`.

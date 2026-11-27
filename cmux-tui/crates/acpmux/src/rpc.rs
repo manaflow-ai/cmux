@@ -837,6 +837,8 @@ pub mod method {
     pub const MUX_AGENT_HOME_RESOLVE: &str = "_acpmux/agent_home_resolve";
     /// The rewrite of a chat's prompt coach offer, made once (`server/prompt_coach.rs`).
     pub const MUX_PROMPT_COACH: &str = "_acpmux/prompt_coach";
+    /// Person-facing PR chip reads, scoped to the session's checked-out branch.
+    pub const MUX_PULL_REQUEST_ACTION: &str = "_acpmux/pull_request_action";
     pub const MUX_ASK: &str = "_acpmux/ask";
     /// A side session about a chat (`/btw`, `hub/btw.rs`): read-only, on a
     /// cheap model, sent the question; answers with its session id at once.

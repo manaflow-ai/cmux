@@ -536,4 +536,42 @@
 /* An icon that turns relevant (Changes after an edit, the globe once the chat names a page) is in its place from its first frame and fades in there. */
 .acpmux-header-tools[data-header-icons] .acpmux-header-tool-group-actions .acpmux-header-tool{transition:opacity var(--agent-motion-in,120ms) var(--acpmux-motion-ease,ease-out),color var(--acpmux-motion-hover,80ms) var(--acpmux-motion-ease,ease-out)}
 @starting-style{.acpmux-header-tools[data-header-icons] .acpmux-header-tool-group-actions .acpmux-header-tool{opacity:0}}
+.acpmux-pr-head {
+  display: block;
+  padding: 6px;
+  overflow-wrap: anywhere;
+  color: var(--agent-muted);
+  font-size: var(--text-detail);
+}
+.acpmux-pr-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  padding: 6px;
+}
+.acpmux-pr-actions button {
+  min-height: 24px;
+  max-width: 100%;
+  padding: 2px 10px;
+  border: 0;
+  border-radius: var(--ds-radius-control);
+  background: var(--agent-control, color-mix(in srgb, var(--agent-text) 10%, var(--agent-page-bg)));
+  color: var(--agent-text);
+  font: inherit;
+}
+.acpmux-pr-actions button:not(:disabled):hover {
+  background: var(--agent-control-hover, color-mix(in srgb, var(--agent-text) 14%, var(--agent-page-bg)));
+}
+.acpmux-pr-actions button:focus-visible {
+  outline: 2px solid var(--agent-accent);
+  outline-offset: 1px;
+}
+.acpmux-pr-actions button:disabled {
+  opacity: .6;
+}
+.acpmux-pr-action-error {
+  display: block;
+  padding: 6px;
+  overflow-wrap: anywhere;
+  color: var(--agent-status-failure);
 }
