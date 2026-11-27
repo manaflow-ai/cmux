@@ -12,8 +12,10 @@ its output is accepted only when every requested scenario has a shaped report, b
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import os
+import plistlib
 import subprocess
 import sys
 from pathlib import Path
@@ -36,7 +38,8 @@ def scenario_command(scenario: str, app: str, out: Path, idle_s: float, tabs: in
         report_dir = out / scenario
         return [sys.executable, "scripts/cmux-next/browser-idle-cost-live.py", "--app", app,
                 "--tabs", str(tabs), "--idle-s", str(idle_s), "--phases", "static,loading",
-                "--no-sample", "--out", str(report_dir)], report_dir / f"browser-idle-cost-{tabs}.json"
+                "--config", json.dumps({"appearance": {"statusIndicator": {"showPageLoading": True}}}),
+                "--workspace-cycle", "--no-sample", "--out", str(report_dir)], report_dir / f"browser-idle-cost-{tabs}.json"
     if scenario == "idle":
         report_dir = out / scenario
         return [sys.executable, "scripts/cmux-next/browser-idle-cost-live.py", "--app", app,
@@ -49,8 +52,8 @@ def scenario_command(scenario: str, app: str, out: Path, idle_s: float, tabs: in
     if scenario == "typing":
         args += ["--surfaces", "agentpane", "--phases", "idle,load"]
     elif scenario == "glass-blur":
-        # The typing harness's picture backdrop exercises the see-through glass/blur compositor path.
-        args += ["--surfaces", "home", "--phases", "idle", "--backdrops", "opaque,picture"]
+        args += ["--surfaces", "home", "--phases", "idle", "--backdrops",
+                 "blur-none,blur-frosted,blur-glass,blur-glassClear"]
     else:  # many-panes
         args += ["--surfaces", "terminal", "--phases", "idle", "--sessions", "stress"]
     return args, report
@@ -65,7 +68,9 @@ def extract_runs(scenario: str, report: dict[str, Any]) -> list[dict[str, Any]]:
             phase_name = phase.get("phase")
             row = {"scenario": scenario, "phase": phase_name,
                    "surface": "tab-strip" if scenario == "spinner" and phase_name == "loading" else "browser-tabs",
-                   "visibility": "background-loading-tab" if scenario == "spinner" and phase_name == "loading" else "shown",
+                   "visibility": "parked" if phase.get("workspace_state") == "parked" else
+                                 "background-loading-tab" if scenario == "spinner" and phase_name == "loading" else "shown",
+                   "workspace_state": phase.get("workspace_state", "shown"), "evidence": phase.get("evidence"),
                    "window_server_cpu_percent": phase.get("window_server_cpu_percent"),
                    "app_cpu_percent": (phase.get("classes", {}).get("app", {}) or {}).get("cpu_percent"),
                    "cef_gpu_cpu_percent": (phase.get("classes", {}).get("gpu", {}) or {}).get("cpu_percent"),
@@ -78,6 +83,8 @@ def extract_runs(scenario: str, report: dict[str, Any]) -> list[dict[str, Any]]:
         cpu = run.get("cpu_pct") or run.get("cpu_percent") or {}
         rows.append({"scenario": scenario, "phase": run.get("phase"), "session": run.get("session"),
                      "surface": run.get("surface"), "backdrop": run.get("backdrop"),
+                     "requested_appearance": run.get("requested_appearance"),
+                     "backdrop_readback": run.get("backdrop_readback"), "effective_material": run.get("effective_material"),
                      "window_server_cpu_percent": cpu.get("window_server"),
                      "app_cpu_percent": cpu.get("app"), "gpu": run.get("gpu")})
     return rows
@@ -111,9 +118,35 @@ def run_scenario(scenario: str, app: str, root: Path, idle_s: float, tabs: int, 
     return rows
 
 
+def provenance(app: str, source_sha: str | None) -> dict[str, Any]:
+    """Fingerprint the actual binary and probe files; caller-supplied source is explicitly a declaration."""
+    def digest(path):
+        value = hashlib.sha256()
+        with path.open("rb") as stream:
+            for block in iter(lambda: stream.read(1024 * 1024), b""):
+                value.update(block)
+        return value.hexdigest()
+
+    result = {"declared_app_source_sha": source_sha, "app": str(Path(app).resolve()),
+              "harness_sha256": {name: digest(_SCRIPT_DIR / name) for name in (
+                  "windowserver-bench.py", "browser-idle-cost-live.py", "typing-frame-bench.py",
+                  "windowserver_gpu.py", "windowserver_metrics.py")}}
+    try:
+        info_path = Path(app) / "Contents/Info.plist"
+        info = plistlib.loads(info_path.read_bytes())
+        executable = Path(app) / "Contents/MacOS" / info["CFBundleExecutable"]
+        result.update(executable=str(executable.resolve()), executable_sha256=digest(executable),
+                      info_plist_sha256=digest(info_path),
+                      bundle_version=info.get("CFBundleVersion"), bundle_id=info.get("CFBundleIdentifier"))
+    except (OSError, ValueError, KeyError) as error:
+        result["binary_provenance_error"] = str(error)
+    return result
+
+
 def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--app", required=True)
+    parser.add_argument("--app-source-sha", help="source commit declared by the binary's build receipt")
     parser.add_argument("--out", required=True)
     parser.add_argument("--json", required=True)
     parser.add_argument("--scenarios", default=",".join(SCENARIOS))
@@ -148,10 +181,12 @@ def main() -> int:
     failed = bool(failures or not rows)
     result = {"verdict": "failed" if failed else "passed", "harness_exit_code": int(failed),
               "schema": SCHEMA, "app": os.path.abspath(opts.app), "host": os.uname().nodename,
+              "provenance": provenance(opts.app, opts.app_source_sha),
               "scenarios": scenarios, "rounds": opts.rounds, "runs": rows, "failures": failures,
               "attribution": {"window_server_cpu": "process CPU delta from the WindowServer process",
                               "gpu": "whole-device IOAccelerator utilization; no per-process attribution is available",
-                              "spinner": "background loading tab in the shown workspace; parked-strip workspace-switch coverage is excluded"}}
+                              "spinner": "static/loading shown→parked→restored workspace cycle; retained mounted controller and pending request verified, native strip animation unexposed",
+                              "glass_blur": "requested none/frosted/glass/glassClear at opacity 0.85, native backdrop readback retained; effective material unexposed"}}
     Path(opts.json).write_text(json.dumps(result, indent=2) + "\n", encoding="utf-8")
     return 0 if opts.transport_envelope else int(failed)
 

@@ -2,6 +2,9 @@ from __future__ import annotations
 
 import ast
 import json
+import os
+import plistlib
+import subprocess
 import threading
 import sys
 import tempfile
@@ -31,6 +34,179 @@ def context() -> Context:
 
 
 class WindowServerTest(unittest.TestCase):
+    def production_functions(self, filename, names, namespace):
+        path = BENCH_DIR.parent / "cmux-next" / filename
+        tree = ast.parse(path.read_text())
+        body = [node for node in tree.body if isinstance(node, ast.FunctionDef) and node.name in names]
+        exec(compile(ast.Module(body=body, type_ignores=[]), str(path), "exec"), namespace)
+        return namespace
+
+    def test_retained_workspace_cycle_and_invalid_evidence(self) -> None:
+        focused = ["source"]
+        invalid = [None]
+
+        def rpc(method):
+            shown = focused[0] == "source"
+            if method == "debug.themes":
+                workspaces = [{"workspace": "source", "shown": shown}, {"workspace": "other", "shown": not shown}]
+                if invalid[0] == "evicted":
+                    workspaces = workspaces[1:]
+                if invalid[0] == "shown":
+                    workspaces[0]["shown"] = not shown
+                return {"windows": [{"window_number": 7, "workspaces": workspaces}]}
+            status = {"parked_workspaces": 1, "hibernated_workspaces": 0, "workspaces_hibernated_total": 0,
+                      "hibernation": {"pressure": "normal", "page_phases": {
+                          "front": "mountedVisible" if shown else "mountedHidden", "loading": "mountedHidden"}}}
+            if invalid[0] == "hibernated":
+                status["workspaces_hibernated_total"] = 1
+            if invalid[0] == "missing":
+                del status["parked_workspaces"]
+            if invalid[0] == "page":
+                status["hibernation"]["page_phases"]["front"] = "hibernated"
+            return status
+
+        switches = []
+
+        def switch(workspace):
+            switches.append(workspace)
+            focused[0] = workspace
+
+        namespace = self.production_functions("browser-idle-cost-live.py", {
+            "cycle_evidence", "measure_workspace_cycle"}, dict(
+                rpc=rpc, focused_workspace=lambda: "wrong" if invalid[0] == "focus" else focused[0],
+                never_lock=threading.Lock(), never_connections=set(),
+                select=SimpleNamespace(select=lambda *a: ([1] if invalid[0] == "request" else [], [], [])),
+                switch_workspace=switch, opts=SimpleNamespace(settle_s=0), time=Mock(),
+                measure=lambda pid, phase: {"phase": phase}))
+        rows = []
+        for phase in ("static", "loading"):
+            if phase == "loading":
+                namespace["never_connections"].add(object())
+            rows.extend(namespace["measure_workspace_cycle"](1, phase, "source", "other", "front",
+                                                            "loading" if phase == "loading" else None))
+        self.assertEqual(switches, ["source", "other", "source"] * 2)
+        self.assertEqual([row["workspace_state"] for row in rows], ["shown", "parked", "restored"] * 2)
+        self.assertEqual(rows[4]["evidence"]["before"]["mounted_workspaces"], {"source": False, "other": True})
+        normalized = _harness.extract_runs("spinner", {"phases": rows})
+        self.assertEqual(normalized[4]["visibility"], "parked")
+        self.assertEqual(normalized[4]["evidence"], rows[4]["evidence"])
+        for problem in ("evicted", "shown", "hibernated", "missing", "page", "request", "focus"):
+            with self.subTest(problem=problem):
+                invalid[0] = problem
+                with self.assertRaises(RuntimeError):
+                    namespace["cycle_evidence"]("source", "source", "other", "front", True, "loading")
+
+    def test_scenario_commands_and_material_readback(self) -> None:
+        spinner, _ = _harness.scenario_command("spinner", "test.app", Path("out"), 20, 5, 40)
+        self.assertIn("--workspace-cycle", spinner)
+        glass, _ = _harness.scenario_command("glass-blur", "test.app", Path("out"), 20, 5, 40)
+        self.assertEqual(glass[glass.index("--backdrops") + 1], "blur-none,blur-frosted,blur-glass,blur-glassClear")
+        path = BENCH_DIR.parent / "cmux-next/typing-frame-bench.py"
+        body = [node for node in ast.parse(path.read_text()).body if
+                (isinstance(node, ast.Assign) and any(isinstance(target, ast.Name) and target.id == "BACKDROPS"
+                                                     for target in node.targets)) or
+                (isinstance(node, ast.Expr) and isinstance(node.value, ast.Call) and
+                 isinstance(node.value.func, ast.Attribute) and isinstance(node.value.func.value, ast.Name) and
+                 node.value.func.value.id == "BACKDROPS")]
+        namespace = {}
+        exec(compile(ast.Module(body=body, type_ignores=[]), str(path), "exec"), namespace)
+        for material in ("none", "frosted", "glass", "glassClear"):
+            self.assertEqual(namespace["BACKDROPS"]["blur-" + material],
+                             {"background": "none", "backgroundOpacity": 0.85, "backgroundBlur": material})
+        backdrop = {"blending": "false", "glassOverlay": "", "glassTint": "#112233ff"}
+        namespace = self.production_functions("typing-frame-bench.py", {"backdrop_evidence"}, {
+            "rpc": lambda method: {"windows": [{"window_number": 7, "backdrop": backdrop}]}})
+        self.assertEqual(namespace["backdrop_evidence"]()[0]["backdrop"], backdrop)
+        backdrop["blending"] = "true"
+        with self.assertRaises(RuntimeError):
+            namespace["backdrop_evidence"]()
+
+    def test_app_provenance_hashes_actual_binary(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            app = Path(tmp) / "app"
+            (app / "Contents/MacOS").mkdir(parents=True)
+            (app / "Contents/Info.plist").write_bytes(plistlib.dumps({"CFBundleExecutable": "cmux"}))
+            executable = app / "Contents/MacOS/cmux"
+            executable.write_bytes(b"before")
+            before = _harness.provenance(str(app), "a" * 40)
+            executable.write_bytes(b"after")
+            after = _harness.provenance(str(app), "b" * 40)
+            self.assertNotEqual(before["executable_sha256"], after["executable_sha256"])
+            self.assertEqual(before["harness_sha256"], after["harness_sha256"])
+            self.assertEqual(after["declared_app_source_sha"], "b" * 40)
+
+    def test_wrapper_reuses_app_without_building(self) -> None:
+        wrapper = BENCH_DIR.parent / "measure/windowserver-cost.sh"
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            app, output = root / "existing app.app", root / "output"
+            app.mkdir()
+            for name, source in {
+                "git": '#!/bin/sh\nprintf "%s\\n" "$FAKE_ROOT"\n',
+                "python3": '#!/bin/sh\nprintf "%s\\n" "$@" > "$FAKE_ROOT/args"\nprintf "{}" > "$FAKE_ROOT/output/report.json"\n',
+            }.items():
+                path = root / name
+                path.write_text(source)
+                path.chmod(0o755)
+            command = ["bash", str(wrapper), f"--app={app}", f"--out={output}"]
+            env = {**os.environ, "FAKE_ROOT": tmp, "PATH": tmp + os.pathsep + os.environ["PATH"]}
+            rejected = subprocess.run(command, env=env, capture_output=True, text=True)
+            self.assertEqual(rejected.returncode, 2)
+            accepted = subprocess.run(command + ["--app-source-sha=" + "a" * 40], env=env, capture_output=True, text=True)
+            self.assertEqual(accepted.returncode, 0, accepted.stderr)
+            args = (root / "args").read_text().splitlines()
+            self.assertEqual(args[args.index("--app") + 1], str(app))
+            self.assertEqual(args[args.index("--app-source-sha") + 1], "a" * 40)
+
+    def test_pair_wrapper_validates_arms_and_preserves_receipts(self) -> None:
+        wrapper = BENCH_DIR.parent / "measure/windowserver-cost-pair.sh"
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            (root / "scripts/measure").mkdir(parents=True)
+            files = {
+                "git": '#!/bin/sh\nprintf "%s\\n" "$FAKE_ROOT"\n',
+                "scripts/measure/app-at-commit.sh": '''measure_remove_scratch() {
+python3 - "$1" <<'PY'
+import shutil, sys
+shutil.rmtree(sys.argv[1])
+PY
+}
+measure_app_at_commit() {
+echo "built exact source $1" >&2
+printf '%s\\n' "$3.app"
+}
+''',
+                "scripts/measure/windowserver-cost.sh": '''#!/usr/bin/env python3
+import json, os, pathlib, sys
+args = dict(item[2:].split("=", 1) for item in sys.argv[1:])
+failed = os.environ.get("FAIL_FIXED") and args["out"].endswith("fixed")
+report = {"verdict": "failed" if failed else "passed", "failures": [], "harness_exit_code": int(bool(failed)),
+          "provenance": {"declared_app_source_sha": args["app-source-sha"], "executable_sha256": "binary",
+                         "harness_sha256": {"probe": "identical"}}}
+(pathlib.Path(args["out"]) / "report.json").write_text(json.dumps(report))
+''',
+            }
+            for name, source in files.items():
+                path = root / name
+                path.write_text(source)
+                path.chmod(0o755)
+            env = {**os.environ, "FAKE_ROOT": tmp, "PATH": tmp + os.pathsep + os.environ["PATH"]}
+            command = ["bash", str(wrapper), "--baseline-ref=" + "a" * 40, "--fixed-ref=" + "b" * 40]
+            for extra in (["--unknown=yes"], ["--fixed-ref=short"]):
+                bad = subprocess.run(command + extra, env=env, capture_output=True, text=True)
+                self.assertEqual(bad.returncode, 2, bad.stderr)
+            for fail in (False, True):
+                output = root / ("failed" if fail else "passed")
+                run = subprocess.run(command + [f"--out={output}"],
+                                     env={**env, "FAIL_FIXED": "yes" if fail else ""}, capture_output=True, text=True)
+                self.assertEqual(run.returncode, int(fail), run.stderr)
+                self.assertEqual("WINDOWSERVER-PAIR-PASS" in run.stdout, not fail)
+                for arm, sha in (("baseline", "a" * 40), ("fixed", "b" * 40)):
+                    receipt = json.loads((output / arm / "build-receipt.json").read_text())
+                    self.assertEqual(receipt["declared_source_sha"], sha)
+                    self.assertIn(sha, (output / arm / "build.log").read_text())
+                    self.assertTrue((output / arm / "report.json").is_file())
+
     def test_registered(self) -> None:
         self.assertIs(load_all()["windowserver"], BENCH)
 

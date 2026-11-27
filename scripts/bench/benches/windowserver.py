@@ -41,7 +41,7 @@ class WindowServer(Bench):
         if unknown:
             raise BenchError(f"windowserver: unknown scenarios {unknown}; known: {','.join(SCENARIOS)}")
         args = [f"--scenarios={','.join(selected)}"]
-        for key in ("rounds", "idle_s", "tabs", "samples"):
+        for key in ("rounds", "idle_s", "tabs", "samples", "app", "app_source_sha"):
             value = ctx.arg(key)
             if value not in (None, ""):
                 args.append(f"--{key.replace('_', '-')}={value}")
@@ -76,7 +76,7 @@ class WindowServer(Bench):
                 ctx.notes.append(f"windowserver: ignored unknown scenario {scenario!r}")
                 continue
             labels = {"scenario": scenario, "round": run.get("round", "")}
-            for key in ("phase", "session", "surface", "backdrop", "visibility"):
+            for key in ("phase", "session", "surface", "backdrop", "visibility", "workspace_state"):
                 if run.get(key) not in (None, ""):
                     labels[key] = run[key]
             if labels.get("session") and "/" in str(labels["session"]):

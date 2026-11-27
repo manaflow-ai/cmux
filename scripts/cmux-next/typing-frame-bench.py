@@ -66,6 +66,7 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import load_modes  # noqa: E402
 from bench_launch import BenchApp, LaunchError, tag_of as bench_tag_of, tag_state_root  # noqa: E402
 from state_wait import wait_until, wait_stable  # noqa: E402
+from windowserver_metrics import parse_process_time
 from windowserver_gpu import GPUSampler  # noqa: E402
 
 HERE = os.path.dirname(os.path.abspath(__file__))
@@ -162,7 +163,8 @@ parser.add_argument("--ab", help="a tunable key (debug.tunables) to measure off 
 parser.add_argument("--backdrops", default="default",
                     help="comma list of window backdrops, one launch each: default (the bench's config), opaque "
                          "(Opacity 1), opacity85 (Opacity 0.85, no picture), picture (van-gogh-starry-night at Opacity "
-                         "0.85). Each run's session is SESSION/BACKDROP; every measure records the app's and "
+                         "0.85), blur-none/blur-frosted/blur-glass/blur-glassClear (explicit material at opacity 0.85). "
+                         "Each run's session is SESSION/BACKDROP; every measure records the app's and "
                          "WindowServer's CPU over its keys, which is where a see-through terminal's compositing costs")
 opts = parser.parse_args()
 OUT = os.path.abspath(opts.out)
@@ -1006,6 +1008,9 @@ def digest_sample(text):
 
 BACKDROPS = {"default": {}, "opaque": {"backgroundOpacity": 1}, "opacity85": {"backgroundOpacity": 0.85},
              "picture": {"background": "van-gogh-starry-night", "backgroundOpacity": 0.85}}
+BACKDROPS.update({"blur-" + material: {"background": "none", "backgroundOpacity": 0.85,
+                                      "backgroundBlur": material}
+                  for material in ("none", "frosted", "glass", "glassClear")})
 WINDOW_SERVER = None
 
 
@@ -1016,11 +1021,11 @@ def cpu_seconds(pid):
     out = subprocess.run(["ps", "-o", "cputime=", "-p", str(pid)], capture_output=True, text=True).stdout.strip()
     if not out:
         return None
-    parts = [float(x) for x in out.replace("-", ":").split(":")]
-    total = 0.0
-    for x in parts:
-        total = total * 60 + x
-    return total
+    try:
+        return parse_process_time(out)
+    except ValueError:
+        return None
+
 
 
 class SchedProbe(threading.Thread):
@@ -1087,9 +1092,23 @@ def window_server_pid():
     return int(out[0]) if out else None
 
 
+def backdrop_evidence():
+    windows = rpc("debug.themes").get("windows") or []
+    if not windows:
+        raise RuntimeError("native backdrop readback unavailable")
+    for window in windows:
+        backdrop = window.get("backdrop") or {}
+        if backdrop.get("blending") != "false" or backdrop.get("glassOverlay") != "":
+            raise RuntimeError("native backdrop is transitioning or its settled state is unverified")
+    return [{"window_number": window.get("window_number"), "backdrop": window["backdrop"]}
+            for window in windows]
+
+
 def measure(surface, phase, params, column, pid, streams=()):
     global WINDOW_SERVER
     WINDOW_SERVER = WINDOW_SERVER or window_server_pid()
+    appearance = BACKDROPS.get(SESSION.split("/", 1)[-1], {})
+    backdrop_before = backdrop_evidence() if "backgroundBlur" in appearance else None
     rpc("debug.hangs", {"clear": True})
     rpc("debug.timings", {"clear": True})
     rows_before = len(probe_rows())
@@ -1114,6 +1133,7 @@ def measure(surface, phase, params, column, pid, streams=()):
         rows, trips, verdicts = type_keys(opts.samples, params, column)
         cpu_end = (time.monotonic(), cpu_seconds(pid), cpu_seconds(WINDOW_SERVER))
     gpu = gpu_sampler.result
+    backdrop_after = backdrop_evidence() if "backgroundBlur" in appearance else None
     wall = cpu_end[0] - cpu_start[0]
     share = lambda i: (round(100.0 * (cpu_end[i] - cpu_start[i]) / wall, 1)
                        if wall > 0 and cpu_end[i] is not None and cpu_start[i] is not None else None)
@@ -1159,6 +1179,9 @@ def measure(surface, phase, params, column, pid, streams=()):
         "stream_replies": LOAD.get("stream_replies", [])[:4],
         "cpu_pct": {"app": share(1), "window_server": share(2), "seconds": round(wall, 2)},
         "gpu": gpu,
+        "requested_appearance": appearance,
+        "backdrop_readback": {"before": backdrop_before, "after": backdrop_after},
+        "effective_material": None,  # no existing debug report exposes the window backdrop's native material
     }
     if sampler:
         try:
