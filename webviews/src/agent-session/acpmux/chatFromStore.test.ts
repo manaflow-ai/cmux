@@ -105,7 +105,6 @@ test("a chat on the store: switch first, the hold, its rows, and its kept window
   }
   let snapshots = 0;
   let rows: Row[] = [];
-  let batch = 0;
   const client = await AcpmuxDirectClient.connect(
     { ...mockHost, sessionId: a },
     (snapshot) => {
@@ -117,9 +116,12 @@ test("a chat on the store: switch first, the hold, its rows, and its kept window
   );
   const direct = client as any;
   // As the host calls it: the document's receiver, which the client installed before its first open.
+  // Each batch under its own number, as AcpmuxChatRowsHost numbers them: since #47334 a batch under the
+  // number of the one last applied is the host's repeat of it, taken again and not applied.
+  let batch = 0;
   const feed = (changes: string[]) =>
     (globalThis as { cmuxChatRows?: { receive(event: unknown): void } }).cmuxChatRows!.receive({
-      batch: ++batch,
+      batch: (batch += 1),
       changes,
     });
   try {
