@@ -81,6 +81,19 @@ struct PageWebViewEngineNeutralTests {
         view.close()
     }
 
+    /// cmux#56141 follow-up: a hover card's picture of a Chromium page is scaled down by Chromium before it encodes it
+    /// (a clip with a scale), never a full retina viewport PNG. #56147 dropped the clip, and in a dev build every chat's
+    /// tab card showed its placeholder (opaque and see-through windows) where the clip pictured it.
+    @Test func aHoverPictureIsScaledDownBeforeChromiumEncodesIt() throws {
+        let params = PageWebView.pictureParams(viewSize: CGSize(width: 1100, height: 720), zoom: 1, maxPixelWidth: 640)
+        let clip = try #require(params["clip"] as? [String: any Sendable])
+        let scale = try #require(clip["scale"] as? Double)
+        #expect(abs(scale - 640.0 / 1100.0) < 0.001, "the picture is at most the width asked")
+        #expect(clip["width"] as? Double == 1100 && clip["height"] as? Double == 720, "the whole viewport")
+        #expect(params["format"] as? String == "png", "clear areas stay clear")
+        #expect(params["captureBeyondViewport"] == nil)
+    }
+
     @Test func aPictureOfTheChromiumPageIsItsScreenshot() async throws {
         defer { try? FileManager.default.removeItem(at: root) }
         let hosting = FakeChromiumHosting()
@@ -97,42 +110,6 @@ struct PageWebViewEngineNeutralTests {
         let snapshot = await view.snapshot()
         #expect(snapshot?.size == NSSize(width: 4, height: 3))
         view.close()
-    }
-
-    /// cmux#56141: a hover card's picture of a Chromium page (a chat, a Markdown page) asked Chromium for a scaled
-    /// `clip`, which makes it emulate another viewport for the capture: the page on screen was laid out and rastered
-    /// again and the whole chat flashed white for about a second on every hover. The capture is of the viewport as it
-    /// draws (no clip, no beyond-viewport), and the picture is scaled down here, alpha kept.
-    @Test func aHoverPictureNeverReLaysOutThePageOnScreen() async throws {
-        defer { try? FileManager.default.removeItem(at: root) }
-        let hosting = FakeChromiumHosting()
-        let (view, page) = try await started(hosting)
-        view.frame = NSRect(x: 0, y: 0, width: 400, height: 300)
-        let bitmap = try #require(NSBitmapImageRep(bitmapDataPlanes: nil, pixelsWide: 800, pixelsHigh: 600, bitsPerSample: 8,
-                                                   samplesPerPixel: 4, hasAlpha: true, isPlanar: false, colorSpaceName: .deviceRGB,
-                                                   bytesPerRow: 0, bitsPerPixel: 0))
-        let png = try #require(bitmap.representation(using: .png, properties: [:]))  // all clear
-        page.answer = { method, _ in method == "Page.captureScreenshot" ? #"{"data":"\#(png.base64EncodedString())"}"# : nil }
-        let picture = try #require(await view.picture(maxPixelWidth: 200))
-        #expect(picture.width == 200 && picture.height == 150, "scaled to the width asked, aspect kept")
-        #expect(picture.alphaInfo != .none && picture.alphaInfo != .noneSkipLast && picture.alphaInfo != .noneSkipFirst,
-                "the clear areas stay clear")
-        let shots = page.calls.filter { $0.method == "Page.captureScreenshot" }
-        #expect(shots.count == 1)
-        for shot in shots {
-            #expect(shot.params["clip"] == nil, "a clip makes Chromium emulate another viewport: the page on screen flashes")
-            #expect(shot.params["captureBeyondViewport"] == nil)
-            #expect(shot.params["format"] as? String == "png")
-        }
-        view.close()
-    }
-
-    /// The class of cmux#56141: no picture the app takes on its own (hover, leave, cover, quit) asks Chromium for a
-    /// clip or a beyond-viewport capture, either of which re-lays out the page on screen.
-    @Test func noPassivePictureAsksForAViewportEmulation() {
-        for params in [PageWebView.pictureParams, PageWebView.snapshotParams, PageWebView.clearAreaSnapshotParams] {
-            #expect(params["clip"] == nil && params["captureBeyondViewport"] == nil, "\(params.keys.sorted())")
-        }
     }
 
     @Test func anExtraMessageHandlerHearsTheChromiumPage() async throws {
