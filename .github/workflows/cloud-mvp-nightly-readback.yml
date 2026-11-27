@@ -11,10 +11,6 @@ name: Cloud MVP Nightly readback
 #   gh workflow run cloud-mvp-nightly-readback.yml --ref feat-cmux-next -f build=4592220755201
 
 on:
-  push:
-    branches: [feat-cmux-next]
-    paths:
-      - .github/workflows/cloud-mvp-nightly-readback.yml
   workflow_dispatch:
     inputs:
       build:
@@ -36,7 +32,7 @@ jobs:
     environment:
       name: cmux-next-cloud-journey
       deployment: false
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || fromJSON(vars.RUNNER_POOLS).macos_26 }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || contains(fromJSON('["blacksmith-6vcpu-macos-26","blacksmith-12vcpu-macos-26"]'), fromJSON(vars.RUNNER_POOLS || '{}').macos_26) && fromJSON(vars.RUNNER_POOLS || '{}').macos_26 || 'blacksmith-6vcpu-macos-26' }}
     timeout-minutes: 60
     steps:
       - name: Check the build input
