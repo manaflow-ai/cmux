@@ -594,11 +594,13 @@ pub async fn serve_owner(
         // starts only if it would end before the machine stops waiting, and an App token only
         // while the sign-in it was minted with is still lent.
         // A read is charged to its caller's budget first (`github_pool.rs`): the lane peer and
-        // the session that asked.
+        // the session that asked, against the pool its `gh` command spends (`pool_of`: the
+        // `--json` views are GraphQL).
         Ok(login) => match check_deadline(request.deadline_ms, crate::store::now_ms()) {
             Ok(()) if request.action == GithubAction::Read => {
                 let caller = format!("{peer}/{}", request.session_id.as_deref().unwrap_or("-"));
-                match crate::github_pool::admit(&caller, login).await {
+                let pool = crate::github_pool::pool_of(&gh_args(&request));
+                match crate::github_pool::admit(&caller, pool, login).await {
                     Ok(()) => execute(&request, login, app).await,
                     Err(e) => Err(e),
                 }
