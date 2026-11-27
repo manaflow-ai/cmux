@@ -11,10 +11,7 @@ set -uo pipefail
 base=${1:?usage: clippy-changed-fold.sh BASE}
 cd "$(git rev-parse --show-toplevel)"
 out=$(mktemp -d)
-for f in cmux-tui-clippy-changed.py test_cmux_tui_clippy_changed.py; do
-  git show "HEAD:.github/scripts/$f" > "$out/after-$f"
-  git show "$base:.github/scripts/$f" > "$out/before-$f"
-done
+for f in cmux-tui-clippy-changed.py test_cmux_tui_clippy_changed.py; do git show "HEAD:.github/scripts/$f" > "$out/after-$f"; done
 arm() {  # NAME TOUCH_FILE
   local name=$1 file=$2 log="$out/$1-$(basename "$(dirname "$(dirname "$2")")").log"
   for f in cmux-tui-clippy-changed.py test_cmux_tui_clippy_changed.py; do cp "$out/$name-$f" ".github/scripts/$f"; done
@@ -29,7 +26,10 @@ arm() {  # NAME TOUCH_FILE
     "$secs" "$(echo "$head" | grep -o 'in .*')" "$ws" "$(grep -E '^cargo clippy --all-targets.* [0-9]+$' "$log" | awk '{print $NF}')"
 }
 read -r -a files <<<"${TOUCH:-cmux-tui/crates/cmux-tui-core/src/lib.rs cmux-tui/crates/cmux-json/src/lib.rs}"
-arm after "${files[0]}" > /dev/null  # warm-up: both arms then start from the same fresh target
+arm after "${files[0]}" > /dev/null  # warm-up (it also fetches BASE): both arms then start from one fresh target
+for f in cmux-tui-clippy-changed.py test_cmux_tui_clippy_changed.py; do
+  git show "$base:.github/scripts/$f" > "$out/before-$f" || { echo "BASE $base is not in this checkout" >&2; exit 3; }
+done
 echo "warm-up done"
 for file in "${files[@]}"; do arm before "$file"; arm after "$file"; done
 git checkout -q -- .github/scripts
