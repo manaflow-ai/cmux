@@ -10,8 +10,13 @@ description = "The shared command-palette ranker (match tiers, typos, aliases, p
 [dependencies]
 serde = { workspace = true, features = ["derive"] }
 serde_json = { workspace = true }
+# Search All Windows' byte search (src/global_search.rs).
+memchr = { workspace = true }
 unicode-normalization = { workspace = true }
 unicode-general-category = "1.1"
+
+[dev-dependencies]
+proptest = { version = "1", default-features = false, features = ["std"] }
 
 [lints]
 workspace = true

@@ -19,6 +19,7 @@
 
 pub mod ffi;
 pub mod filter;
+pub mod global_search;
 mod rank;
 mod shortcut;
 mod text;

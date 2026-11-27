@@ -2683,6 +2683,8 @@ dependencies = [
 name = "cmux-palette-ranker"
 version = "0.1.0"
 dependencies = [
+ "memchr",
+ "proptest",
  "serde",
  "serde_json",
  "unicode-general-category",
