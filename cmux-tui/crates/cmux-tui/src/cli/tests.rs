@@ -6,6 +6,8 @@ mod action_argument_contract;
 #[cfg(unix)]
 mod action_surface_parity;
 #[cfg(unix)]
+mod cli_invoked_actions;
+#[cfg(unix)]
 mod cli_name_hints;
 
 fn strings(values: &[&str]) -> Vec<String> {

@@ -157,7 +157,7 @@ jobs:
     # Route this control-plane classifier to the 2-vCPU pool: it only reads the
     # sparse router checkout and emits two strings, so the general cmux-linux
     # pool's larger shared host adds no throughput.
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || fromJSON(vars.RUNNER_POOLS).linux_2 }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || 'cmux-linux' }}
     timeout-minutes: 5
     permissions:
       contents: read
@@ -195,11 +195,26 @@ jobs:
           mirror=/var/lib/cmux-git/cmux.git/objects
           [[ -d "$mirror" ]] || { echo "::error::no git mirror at $mirror on this pool VM"; exit 1; }
           cd "$GITHUB_WORKSPACE"
-          find . -mindepth 1 -maxdepth 1 -exec rm -rf {} +
-          git init -q .
-          echo "$mirror" > .git/objects/info/alternates
-          git config gc.auto 0
-          git remote add origin "https://github.com/$GITHUB_REPOSITORY"
+          # Reuse a .git this step made (borrows the mirror, no promisor or partial-clone filter): `git checkout` then
+          # writes only what changed since the last job on this VM, not the whole tree (~10.7 s of ~13 s, rnd rc-0e8e7c8b).
+          reuse=fresh
+          if [[ -d .git && "$(cat .git/objects/info/alternates 2>/dev/null)" == "$mirror" ]] \
+            && [[ -z "$(git config --get remote.origin.promisor || true)$(git config --get extensions.partialclone || true)$(git config --get remote.origin.partialclonefilter || true)" ]] \
+            && [[ "$(git config --get remote.origin.url || true)" == "https://github.com/$GITHUB_REPOSITORY" ]] \
+            && git rev-parse -q --verify HEAD >/dev/null 2>&1; then
+            reuse=reused
+            if ! git reset -q --hard || ! git clean -ffdxq; then reuse=fresh; fi
+            # `git sparse-checkout disable` (another job on this VM) moves sparsity into config.worktree, which
+            # overrides the core.sparseCheckout this step writes: keep .git/config the only config.
+            git config --unset-all extensions.worktreeConfig || true
+          fi
+          if [[ $reuse == fresh ]]; then
+            find . -mindepth 1 -maxdepth 1 -exec rm -rf {} +
+            git init -q .
+            echo "$mirror" > .git/objects/info/alternates
+            git config gc.auto 0
+            git remote add origin "https://github.com/$GITHUB_REPOSITORY"
+          fi
           auth=$(printf 'x-access-token:%s' "$TOKEN" | base64 -w0)
           # GitHub sends only keepalives while it builds a pack: abort a transfer under 1 B/s for 60 s (never
           # 1000 B/s), bound each try and try 3 times (handbook network-transfer-stalls-the-whole-job). The mirror holds
@@ -210,10 +225,15 @@ jobs:
             [[ $try -lt 3 ]] || { echo "::error::merge ref fetch failed on all 3 tries (240 s each) on runner ${RUNNER_NAME:-unknown}"; exit 1; }
             echo "::warning::merge ref fetch failed on try $try of 3, trying again"; sleep $((try == 1 ? 5 : 15))
           done
-          git config core.sparseCheckout true
-          printf '%s\n' "$SPARSE" > .git/info/sparse-checkout
-          git checkout -q --detach "$SHA"
-          echo "checked out $(git rev-parse HEAD) from the pool mirror"
+          if [[ -n "${SPARSE//[[:space:]]/}" ]]; then
+            git config core.sparseCheckout true
+            printf '%s\n' "$SPARSE" > .git/info/sparse-checkout
+          fi
+          # 8 parallel workers halve writing the ~69k-file tree (12.5 -> 6.2 s median, fresh .git or a sparse widen after a
+          # narrower job on this VM; rnd rc-c6f133b4).
+          git -c checkout.workers=8 checkout -q -f --detach "$SHA"
+          if [[ $reuse == reused ]]; then if [[ -n "${SPARSE//[[:space:]]/}" ]]; then git sparse-checkout reapply; else git sparse-checkout disable; fi; fi
+          echo "checked out $(git rev-parse HEAD) from the pool mirror workspace=$reuse"
       # A router failure leaves the output empty, and the checks run.
       - name: Route the pull request (scripts/ci/fast_check_route.py)
         id: route
@@ -236,7 +256,7 @@ jobs:
     if: ${{ ((github.event.action != 'ready_for_review') && (github.event_name == 'pull_request' && (github.base_ref != 'feat-cmux-next' || github.workflow == 'docs-only fallback'))) && (github.event_name != 'pull_request' || contains(github.event.pull_request.labels.*.name, 'full-ci') || (github.event.pull_request.draft == true && (vars.CI_DRAFT_CHEAP_TIER || '1') == '0') || (github.event.pull_request.draft != true && ((contains(github.event.pull_request.labels.*.name, 'ready-to-land') && vars.CI_LAND_FULL_PER_PR == '1') || github.event.pull_request.base.ref != 'feat-cmux-next' || github.event.pull_request.head.repo.full_name != github.repository || (vars.CI_LAND_TIER || '1') == '0'))) && !(github.event_name == 'pull_request' && github.event.pull_request.base.ref == 'feat-cmux-next' && (github.event.action == 'labeled' && !contains(fromJSON('["full-ci","ready-to-land"]'), github.event.label.name) || github.event.action == 'unlabeled')) }}
     # Security analysis is explicitly bounded to a 2-vCPU job (about 30 s of
     # offline checks); keep it off the larger shared cmux-linux pool.
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || fromJSON(vars.RUNNER_POOLS).linux_2 }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || 'cmux-linux' }}
     # Two 5-minute checkout attempts plus about a minute of guards.
     timeout-minutes: 16
     permissions:
@@ -1245,6 +1265,93 @@ jobs:
           ./scripts/cmux-next/generate-third-party-notices.sh --tui-source tree \
             --cargo-trees "$RUNNER_TEMP/cmux-notices-cargo-trees" --write-cargo-trees
 
+  # The App Store shelf on every pull request head that touches what puts a package on the shelf or changes what an
+  # install does (the inputs of ci/steps.toml's app-store-shelf step and .github/workflows/app-store-shelf.yml).
+  # cmux#46903 added the setting-backed `cmux/worktree-cleanup` entry, merged with the shelf check never run (its pr
+  # pipeline job was skipped by the land tier), and the nightly's App Store shelf job went red on it for hours
+  # (cmux#61127 fixed it; the nightly feed stood still). This runs the same script the nightly runs
+  # (scripts/ci/app-store-shelf-check.sh) at the pull request's own head, draft or ready
+  # (tests/test_head_tier.py KEEP_ON_EVERY_HEAD). A change that reaches no shelf input ends after a checkout and a diff.
+  app-store-shelf-pr:
+    needs: coalesce
+    name: cmux-next App Store shelf (every listing installs and shows something)
+    if: ${{ github.event_name == 'pull_request' && github.event.action != 'ready_for_review' && !cancelled() && needs.coalesce.outputs.run != 'false' && !(github.event.pull_request.base.ref == 'feat-cmux-next' && (github.event.action == 'labeled' && !contains(fromJSON('["full-ci","ready-to-land"]'), github.event.label.name) || github.event.action == 'unlabeled')) }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || 'cmux-linux' }}
+    timeout-minutes: 45
+    permissions:
+      contents: read
+    env:
+      GHOSTTY_ZIG_SOURCE: ghostty-next
+      CMUX_GHOSTTY_SRC: ""
+    steps:
+      - name: Remove a reused workspace left sparse or broken (self-hosted Linux)
+        working-directory: ${{ github.workspace }}
+        if: runner.os == 'Linux'
+        shell: bash
+        run: |
+          [ "${RUNNER_ENVIRONMENT:-}" = self-hosted ] && [ -e "$GITHUB_WORKSPACE/.git" ] || exit 0
+          cd "$GITHUB_WORKSPACE"
+          why=""
+          if [ "$(git config --get core.sparseCheckout 2>/dev/null)" = true ] || [ -e .git/info/sparse-checkout ]; then
+            why="sparse"
+          elif git ls-files -v 2>/dev/null | grep -q '^S'; then
+            why="skip-worktree entries"
+          elif ! git rev-parse --verify -q 'HEAD^{commit}' >/dev/null; then
+            why="HEAD does not resolve"
+          elif git for-each-ref --format='%(objectname)' 2>/dev/null | git cat-file --batch-check 2>/dev/null | grep -q ' missing$'; then
+            why="a ref names a missing object"
+          else
+            exit 0
+          fi
+          echo "reused workspace on ${RUNNER_NAME:-this runner}: $why; removing it so checkout starts clean"
+          find . -mindepth 1 -maxdepth 1 -exec rm -rf {} +
+
+      - name: Checkout
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+        with:
+          persist-credentials: false
+          submodules: false
+
+      - name: Changed shelf inputs
+        id: inputs
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+        run: |
+          set -euo pipefail
+          if [[ ! "$BASE_SHA" =~ ^[0-9a-f]{40}$ ]] || [[ "$BASE_SHA" =~ ^0+$ ]]; then
+            echo "run=true" >> "$GITHUB_OUTPUT"; exit 0
+          fi
+          git fetch --no-tags --depth=1 origin "$BASE_SHA"
+          changed="$(git diff --name-only "$BASE_SHA" HEAD)"
+          pattern='^\.github/workflows/app-store-shelf\.yml$|^first-party-apps/|^samples/apps/|^scripts/cmux-next/sync-app-runtime\.sh$|^scripts/cmux-next/store-package-sign\.py$|^scripts/ci/app-store-shelf-check\.sh$|^cmux-tui/crates/cmux-tui-core/src/apps/|^cmux-tui/crates/cmux-app-host/|^cmux-tui/crates/cmux-app-manifest/|^cmux-tui/crates/cmux-layout-reducer/src/sidebar_bridge|^cmux-tui/crates/cmux-tui/tests/cli/apps_store\.rs$'
+          if grep -qE "$pattern" <<<"$changed"; then echo "run=true" >> "$GITHUB_OUTPUT"; else echo "run=false" >> "$GITHUB_OUTPUT"; fi
+
+      - name: Install Linux build dependencies
+        if: steps.inputs.outputs.run == 'true'
+        run: |
+          if dpkg -s clang libclang-dev pkg-config >/dev/null 2>&1; then
+            echo "clang libclang-dev pkg-config: already installed"
+          else
+            sudo apt-get update
+            sudo apt-get install -y clang libclang-dev pkg-config
+          fi
+
+      - name: Init the ghostty-next submodule (libghostty-vt for cmux-tui-core)
+        if: steps.inputs.outputs.run == 'true'
+        run: bash scripts/ci/init-submodule.sh ghostty-next
+
+      - name: Install zig
+        if: steps.inputs.outputs.run == 'true'
+        run: ./scripts/install-zig-ci.sh
+
+      - name: Set up pinned cmux-tui Rust
+        if: steps.inputs.outputs.run == 'true'
+        uses: ./.github/actions/setup-cmux-tui-rust
+
+      - name: Every Discover listing installs and shows something
+        if: steps.inputs.outputs.run == 'true'
+        run: bash scripts/ci/app-store-shelf-check.sh
+
   # ios-placeholder-bounds (Leo, 2026-11-24): every placeholder the iOS app draws sits under
   # `.placeholderBound` and is listed with its bound in cmux-next-ios/design/placeholders.json.
   # The simulator half is cmux-next-ios/UITests/PlaceholderBoundUITests.swift. Its own job, not a tooling-tests
@@ -1254,10 +1361,16 @@ jobs:
   # the feat-cmux-next push's coalesced run (coalesce is skipped on a pull request; `!cancelled()` runs this anyway).
   # A draft's run already recorded its pass at the head, so `ready_for_review` does not run it again. Pure Python
   # on Linux, seconds of work.
+  # Runs where its verdict can change: a pull request whose diff reaches cmux-next-ios/, the check, its test or this
+  # workflow (workflow-start-lint's `ios_placeholder`, read off the depth-2 checkout it already takes). It ran on every
+  # pull request event, 27 s each, about 6,000 runs a day (ci_minutes 2026-11-27); a skipped check run is a pass for
+  # land-judge (REQUIRED_PASSING) and for GitHub's required checks, so its name still reports on every head. A push,
+  # an unread diff (the lint failed before its route step) and vars.IOS_PLACEHOLDER_BOUNDS_EVERY_HEAD == '1' run it
+  # as before. tests/test_cmux_next_guards_route.py.
   ios-placeholder-bounds:
-    needs: coalesce
+    needs: [coalesce, workflow-start-lint]
     name: ios-placeholder-bounds
-    if: ${{ github.event.action != 'ready_for_review' && !cancelled() && needs.coalesce.outputs.run != 'false' && !(github.event_name == 'pull_request' && github.event.pull_request.base.ref == 'feat-cmux-next' && (github.event.action == 'labeled' && !contains(fromJSON('["full-ci","ready-to-land"]'), github.event.label.name) || github.event.action == 'unlabeled')) }}
+    if: ${{ github.event.action != 'ready_for_review' && !cancelled() && needs.coalesce.outputs.run != 'false' && (needs.workflow-start-lint.outputs.ios_placeholder != 'false' || vars.IOS_PLACEHOLDER_BOUNDS_EVERY_HEAD == '1') && !(github.event_name == 'pull_request' && github.event.pull_request.base.ref == 'feat-cmux-next' && (github.event.action == 'labeled' && !contains(fromJSON('["full-ci","ready-to-land"]'), github.event.label.name) || github.event.action == 'unlabeled')) }}
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || 'cmux-linux' }}
     timeout-minutes: 10
     permissions:
@@ -1335,13 +1448,19 @@ jobs:
   # (scripts/ci/workflow_start_lint.py). It never waits on fast-check-route: a feat pull request without full-ci skips
   # that router, and a lint steered by its outputs would skip exactly the pull requests it guards (cmux#56527's first
   # head). A change that touches no workflow and not the lint ends after the checkout, at its own first step.
+  #
+  # A label other than full-ci or ready-to-land changes no file: that event's run judged a head the opened or
+  # synchronize run already judged, so it skips, as the jobs judging the head do (the label guard).
+  # Its route step also says whether the diff reaches ios-placeholder-bounds' inputs (outputs.ios_placeholder).
   workflow-start-lint:
     name: workflow start lint (a change that stops a workflow starting)
-    if: ${{ github.event.action != 'ready_for_review' }}
+    if: ${{ github.event.action != 'ready_for_review' && !(github.event_name == 'pull_request' && github.event.pull_request.base.ref == 'feat-cmux-next' && (github.event.action == 'labeled' && !contains(fromJSON('["full-ci","ready-to-land"]'), github.event.label.name) || github.event.action == 'unlabeled')) }}
+    outputs:
+      ios_placeholder: ${{ steps.touched.outputs.ios_placeholder }}
     # A fork pull request runs on a hosted runner. The local workflow lint is
     # a control-plane check, so own-branch runs use the 2-vCPU pool rather than
     # occupying a larger cmux-linux host.
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || fromJSON(vars.RUNNER_POOLS).linux_2 }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || 'cmux-linux' }}
     timeout-minutes: 10
     permissions:
       contents: read
@@ -1387,7 +1506,19 @@ jobs:
       - name: Does this change touch a workflow or the lint
         id: touched
         timeout-minutes: 1
+        env:
+          EVENT_NAME: ${{ github.event_name }}
         run: |
+          # ios-placeholder-bounds' inputs (scripts/ci/job-inputs-always.json): a pull request whose diff misses them
+          # skips that job; a push, or a diff git cannot read, runs it.
+          if [[ "$EVENT_NAME" != pull_request ]] || ! changed=$(git diff --name-only HEAD^1 HEAD); then
+            echo "ios_placeholder=true" >> "$GITHUB_OUTPUT"
+          elif grep -qE '^(cmux-next-ios/|scripts/ci/ios_placeholder_bounds\.py$|tests/test_ios_placeholder_bounds\.py$|\.github/workflows/cmux-next-guards\.yml$)' <<<"$changed"; then
+            echo "ios_placeholder=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "no iOS app, placeholder check or guards workflow file changed: ios-placeholder-bounds skips"
+            echo "ios_placeholder=false" >> "$GITHUB_OUTPUT"
+          fi
           if git diff --name-only HEAD^1 HEAD | grep -qE '^(\.github/|scripts/ci/install-actionlint\.sh$|scripts/ci/workflow_start_lint\.py$)'; then
             echo "run=true" >> "$GITHUB_OUTPUT"
           else
@@ -2011,6 +2142,11 @@ jobs:
         id: tt-app-crate-licenses
         if: ${{ !cancelled() && steps.setup-tooling-run.outputs.ran != 'true' && (steps.setup-tooling-route.outputs.tooling_all != 'false' || contains(steps.setup-tooling-route.outputs.tooling_steps, ' tt-app-crate-licenses ')) }}
         run: python3 tests/test_app_crate_licenses.py
+
+      - name: The bench coverage map lists every bench and risky path (docs/benches/coverage-map.md)
+        id: tt-bench-coverage-map
+        if: ${{ !cancelled() && steps.setup-tooling-run.outputs.ran != 'true' && (steps.setup-tooling-route.outputs.tooling_all != 'false' || contains(steps.setup-tooling-route.outputs.tooling_steps, ' tt-bench-coverage-map ')) }}
+        run: python3 -I tests/test_bench_coverage_map.py
 
       - name: The selector check's fleet step wrapper refuses other arguments (check-objc-selectors.sh)
         id: tt-objc-selectors-step
