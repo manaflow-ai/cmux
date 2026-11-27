@@ -89,7 +89,9 @@
 //! - an idle chat: as ONE turn of its own, at once for messages the person's own turn held back
 //!   ([`Inbox::held_by_person`]; FYIs alone are not held so, they wait for the flush as they
 //!   would have in that turn), else [`WAKE_DEBOUNCE_MS`] after the oldest message that may
-//!   wake it came (a burst is one turn). What may not wake it waits for its next turn, never a
+//!   wake it came (a burst is one turn), or [`WARM_HOLD_MS`] when every waking message is a
+//!   result that may wait for company ([`holds_wake`]: a report or a task's result, not from its
+//!   parent or delegator), so one turn carries it and what else comes meanwhile. What may not wake it waits for its next turn, never a
 //!   flush of its own (a cold prompt cache rewritten to carry FYIs), except a coordinator's held
 //!   status, which goes [`FLUSH_MS`] after it came (`inbox_page_rule.rs`). A message that may wake it: a blocker (a block or a question,
 //!   `prompt_class.rs`), a report of work it gave (a lane's report, a task's result), or an
@@ -168,6 +170,15 @@ const NOTICE_ID_PREFIX: &str = "inbox-notice-";
 pub const FIRST_WORK: &str = "firstWork";
 /// How long after the oldest waking message an idle chat is woken: a burst is one turn.
 pub const WAKE_DEBOUNCE_MS: u64 = 2_000;
+/// How long a warm idle chat holds a waking result it did not ask to steer by ([`holds_wake`]: a
+/// lane's report, a task's result, a land verdict), so whatever else comes meanwhile (another
+/// report, a background task's end, the person's prompt) goes in with it as ONE turn. Leo,
+/// 2026-11-26: "us not getting fucking swamped by our own fucking wake-ups, our own tool calls".
+/// One lane VM, 24 h: 1,459 `[inbox]` wake turns, 1,040 with no blocker, and 384 of those had
+/// another turn start within the next 5 minutes. It ends by the prompt cache's expiry
+/// (`cold_wake::cache_expires_at`), so the turn it starts still reads warm; a result's own
+/// deadline (15 minutes) is later still.
+pub const WARM_HOLD_MS: u64 = 5 * 60 * 1000;
 /// A notice the chat refused is tried again no sooner than this.
 pub const REFUSED_RETRY_MS: u64 = 30_000;
 /// How long a message that wakes no one waits in an idle chat, or FYIs alone wait for a running
@@ -1134,6 +1145,20 @@ fn wakes_as(
     }
 }
 
+/// Whether `item`, which wakes the idle chat of `meta` ([`wakes`]), may wait [`WARM_HOLD_MS`]
+/// for company instead of the 2 s burst window: a result (a report of work the chat gave, a
+/// task's result) that is not the chat's first work, did not wait for this machine, and is not
+/// from the session that started the chat or gave it work (that is the next step, and goes at
+/// once). A block, a question, a fire notice and a coordinator's page wake as before.
+fn holds_wake(meta: &SessionMeta, item: &Item) -> bool {
+    item.class == PromptClass::Result
+        && !item.fire
+        && item.verdict.is_none()
+        && !item.waited
+        && meta.turn_count > 0
+        && !controls(meta, item.from_session.as_deref())
+}
+
 /// Whether `item` steers into a running turn at once, bringing every new message with it: a
 /// blocker (a block or a question), or a message from the chat's parent or delegator, which
 /// directs the work the turn does, or a fire notice. Any other result waits [`STEER_COALESCE_MS`]
@@ -1933,6 +1958,11 @@ impl Hub {
                             // waited there too, so the hold lets go of them and they wait for the
                             // flush or the next notice.
                             let waking = new.iter().filter(|i| wakes(&meta, i)).map(|i| i.at).min();
+                            // Every waking message may wait for company (`WARM_HOLD_MS`).
+                            let holds = new
+                                .iter()
+                                .filter(|i| wakes(&meta, i))
+                                .all(|i| holds_wake(&meta, i));
                             // No flush sooner than a message's deadline (module docs, "Deadlines")
                             // in an idle chat off the coordinator list. Each flush was a
                             // turn of its own [`FLUSH_MS`] on, past a 5-minute prompt cache, so a
@@ -1966,6 +1996,17 @@ impl Hub {
                             if fyi_only {
                                 inbox.held_by_person = false;
                             }
+                            // Every waking message may wait for company (`WARM_HOLD_MS`): the
+                            // burst window grows from 2 s to 5 minutes, ending no later than the
+                            // prompt cache does (a hold never turns a warm wake into a cold one).
+                            let hold_end = |at: u64| {
+                                let end = at.saturating_add(WARM_HOLD_MS);
+                                let burst = at.saturating_add(WAKE_DEBOUNCE_MS);
+                                match super::cold_wake::cache_expires_at(&meta) {
+                                    Some(expires) => end.min(expires.max(burst)),
+                                    None => end,
+                                }
+                            };
                             let cold = if blocker || waking.is_none() {
                                 None
                             } else {
@@ -1975,7 +2016,12 @@ impl Hub {
                                 now
                             } else {
                                 waking.map_or(flush, |at| {
-                                    cold.unwrap_or(at.saturating_add(WAKE_DEBOUNCE_MS)).min(flush)
+                                    let burst = if holds {
+                                        hold_end(at)
+                                    } else {
+                                        at.saturating_add(WAKE_DEBOUNCE_MS)
+                                    };
+                                    cold.unwrap_or(burst).min(flush)
                                 })
                             };
                             let retry = match inbox.refused_at {
