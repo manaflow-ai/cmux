@@ -510,7 +510,14 @@ final class ShellWindow: NSWindow, FocusRouting, OverlayPlaneHosting, BrowserWin
 
     /// Every frame stays on the test screen in an agent screenshot launch, whichever path sets it
     /// (`WindowPlacement.containedOnTestScreen`), and is kept as given with no display (`constrainsToScreen`).
-    override func setFrame(_ frameRect: NSRect, display flag: Bool) { super.setFrame(WindowPlacement.containedOnTestScreen(frameRect), display: flag) }
+    /// The views that keep clear of the traffic lights re-check once, after the layout the frame change causes
+    /// (``WindowControlsAvoiders/batching(in:_:)``; a live resize's step lays out inside this call, not in
+    /// ``layoutIfNeeded()``): the main pane card's move re-checked them while the panes in it still had their old frames,
+    /// and Home's chat column laid out itself and its glass buttons at the old frame, then again at the new one (about
+    /// 2 ms of each corner drag step, 2026-11-27).
+    override func setFrame(_ frameRect: NSRect, display flag: Bool) {
+        windowControlsAvoiders.batching(in: self) { super.setFrame(WindowPlacement.containedOnTestScreen(frameRect), display: flag) }
+    }
     override func constrainFrameRect(_ frameRect: NSRect, to screen: NSScreen?) -> NSRect { WindowPlacement.constrainsToScreen ? super.constrainFrameRect(frameRect, to: screen) : frameRect }
 
     /// The traffic lights, found once (`StandardWindowButtons`, cx-8w027.25).
@@ -552,6 +559,7 @@ final class ShellWindow: NSWindow, FocusRouting, OverlayPlaneHosting, BrowserWin
     /// throws (2026-10-09 nightly crash). The overlay planes also re-read
     /// their home's place here, so a pane ring follows a pane that moved
     /// because an ancestor moved (sidebar width), not only its own layout.
+    /// The traffic-light avoiders asked to re-check in the pass do so once, at its end, as in ``setFrame(_:display:)``.
     override func layoutIfNeeded() {
         #if DEBUG || CMUX_BENCH_HOOKS
         let traced = DebugWindowTransition.shared.isActive && overlayLayer.layoutDepth == 0
@@ -560,7 +568,7 @@ final class ShellWindow: NSWindow, FocusRouting, OverlayPlaneHosting, BrowserWin
         #endif
         let layouts = LayoutPassGuard.shared.viewLayoutCalls // AppKit runs this pass before every display (each key): one that laid out no view moved no traffic light
         overlayLayer.windowWillLayout()
-        super.layoutIfNeeded()
+        windowControlsAvoiders.batching(in: self) { super.layoutIfNeeded() }
         // The outermost pass only, and before the overlay layer's own after-pass work, so an occluder change it causes joins that work.
         if overlayLayer.layoutDepth == 1 {
             (contentView as? WindowRootView)?.windowDidLayout(placesTrafficLights: !LayoutPassGuard.shared.isInstalled || LayoutPassGuard.shared.viewLayoutCalls != layouts)
