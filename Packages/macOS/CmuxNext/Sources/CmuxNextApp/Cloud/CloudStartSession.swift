@@ -44,12 +44,7 @@ struct CloudStartSession {
 
         /// The command that asks for this again, every word as the shell reads it back.
         var command: String {
-            var words = ["cmux cloud start-session"]
-            if let machineID { words.append("--target machine:" + CloudStartCore.shellQuoted(machineID)) } else { words.append("--name " + CloudStartCore.shellQuoted(name ?? "")) }
-            words.append("--agent " + agent + (model.map { " --model " + CloudStartCore.shellQuoted($0) } ?? ""))
-            if let cwd { words.append("--cwd " + CloudStartCore.shellQuoted(cwd)) }
-            if let fromFolder { words.append("--from-folder " + CloudStartCore.shellQuoted(fromFolder)) }
-            return words.joined(separator: " ")
+            CloudStartCore().launchCommand(.init(machineId: machineID, name: name, agent: agent, cwd: cwd, fromFolder: fromFolder, model: model))
         }
 
         func asked(machine: String) -> CloudStartSessionStrings.Asked {
@@ -192,19 +187,13 @@ struct CloudStartSession {
 
     /// The run's arguments, checked: `--agent` is a harness id, `--cwd` an absolute folder, `--from-folder` one on this Mac.
     static func request(_ invocation: ActionInvocation) throws -> Request {
-        let agent = invocation["agent"]?.stringValue?.trimmingCharacters(in: .whitespaces) ?? ""
-        let allowed = CharacterSet(charactersIn: "abcdefghijklmnopqrstuvwxyz0123456789._-")
-        guard !agent.isEmpty, agent.utf8.count <= 64, agent.unicodeScalars.allSatisfy(allowed.contains), let first = agent.first, first.isLetter || first.isNumber else {
-            throw ActionFailure(message: CloudStartSessionStrings.agentInvalid)
+        let checked = CloudStartCore().launchRun(agent: invocation["agent"]?.stringValue, cwd: invocation["cwd"]?.stringValue, name: invocation["name"]?.stringValue,
+                                                 model: invocation["model"]?.stringValue, machineId: invocation.target.flatMap { $0.kind == .machine ? $0.id : nil })
+        switch checked {
+        case .failure(let invalid): throw ActionFailure(message: invalid == .cwd ? CloudStartSessionStrings.cwdInvalid : CloudStartSessionStrings.agentInvalid)
+        case .success(let run): // the machine checks the model
+            return Request(machineID: run.machineId, name: run.name, agent: run.agent, cwd: run.cwd, fromFolder: try Self.fromFolder(invocation, cwd: run.cwd), model: run.model)
         }
-        var cwd = invocation["cwd"]?.stringValue?.trimmingCharacters(in: .whitespaces)
-        if cwd?.isEmpty == true { cwd = nil }
-        if let cwd, !cwd.hasPrefix("/") || cwd.utf8.count > 4096 || cwd.unicodeScalars.contains(where: { $0.properties.generalCategory == .control }) {
-            throw ActionFailure(message: CloudStartSessionStrings.cwdInvalid)
-        }
-        let machineID = invocation.target.flatMap { $0.kind == .machine ? $0.id : nil }
-        let name = invocation["name"]?.stringValue?.trimmingCharacters(in: .whitespaces)
-        return Request(machineID: machineID, name: name?.isEmpty == false ? name : nil, agent: agent, cwd: cwd, fromFolder: try Self.fromFolder(invocation, cwd: cwd), model: invocation["model"]?.stringValue.map { $0.trimmingCharacters(in: .whitespaces) }.flatMap { $0.isEmpty ? nil : $0 }) // the machine checks the model
     }
 
     /// Takes or creates the machine, connects, opens the chat's tab there and starts the session.
@@ -229,7 +218,7 @@ struct CloudStartSession {
         if let local = request.fromFolder, let refused = await services.cloud.move.refusedSource(local, home: NSHomeDirectory(), acpmuxHome: QuitAgents.environment(services)?.home.path, message: { Self.message($0, folder: local) }) { throw ActionFailure(message: refused) } // before any machine
         if let local = request.fromFolder, let cli = services.cloud.move.cli { do { _ = try await CloudMoveCLI(binary: cli).startChatSize(local: local) } catch let refusal as CloudMoveCLI.StartChatPreflightRefusal { throw ActionFailure(message: refusal.message) } } // past the copy's limits, or past the largest machine
         let steps = CloudStartSteps(logger: services.cloud.logger)
-        let gateway = services.cloud.gateway.onlineBeside(within: .seconds(10)) { [setup = services.cloud.setup, agent = request.agent, model = request.model] in await setup.choose(harness: agent, model: model, account: nil).servedWithoutMacGateway } // No login step: only the first turn needs this Mac's gateway, so it comes up beside the steps; a chat its connection or the organization's key serves waits for none
+        let gateway = services.cloud.gateway.onlineBeside(within: .seconds(10)) { [setup = services.cloud.setup, agent = request.agent, model = request.model] in await setup.choose(harness: agent, model: model, account: nil) } // No login step: only the first turn needs this Mac's gateway, so it comes up beside the steps; a chat its connection, the organization's key or another gateway of the person's serves waits for none (PersonalGateway.servedElsewhere)
         let (session, made) = try await machine(request, invocation, account: account, byPerson: byPerson, capCard: capCard, askedBy: askedBy)
         steps.done("machine") // the list read and the take, or the create's answer
         // A machine this run made is its alone until the session runs: a start that fails for good deletes it and says so (hq#11835 row 8), as the composer's start does (CloudStartChat+Machine).
@@ -385,16 +374,15 @@ struct CloudStartSession {
 
     /// The start's refusal in the run's words: the machine is up, its agent is not.
     static func startFailure(_ error: any Error, name: String, id: String, agent: String) -> String {
-        if let refusal = error as? AgentRemoteStartRefusal {
-            switch refusal.code {
-            case AgentRemoteStartRefusal.folderNeededCode, "agent_session.home_unconfirmed", "agent_session.above_home": return CloudStartSessionStrings.needsFolder(name, id: id, agent: agent)
-            case let code where CloudStartSessionStrings.namedRefusals.contains(code): return CloudStartSessionStrings.namedRefusal(code, name, id: id, agent: agent, agentName: refusal.agentName ?? agent.chiefHarnessName, expired: refusal.signInExpired, harness: refusal.harness ?? agent) // never "its agent didn't (agent_session.refused)" (hq#11225)
-            default:
-                return CloudStartSessionStrings.agentFailed(name, id: id, agent: agent, reason: CloudStartCore.reason(refusal.userMessage))
-            }
+        let refusal = error as? AgentRemoteStartRefusal
+        let message = refusal?.userMessage ?? (error as? AgentTabRefusal)?.message ?? (error as? ActionFailure)?.message ?? String(describing: error)
+        switch (CloudStartCore().launchFailure(code: refusal?.code, message: message, folderNeeded: AgentRemoteStartRefusal.folderNeededCode, named: CloudStartSessionStrings.namedRefusals), refusal) {
+        case (.needsFolder, _): return CloudStartSessionStrings.needsFolder(name, id: id, agent: agent)
+        case (.named(let code), let refusal?): // never "its agent didn't (agent_session.refused)" (hq#11225)
+            return CloudStartSessionStrings.namedRefusal(code, name, id: id, agent: agent, agentName: refusal.agentName ?? agent.chiefHarnessName, expired: refusal.signInExpired, harness: refusal.harness ?? agent)
+        case (.failed(let reason), _): return CloudStartSessionStrings.agentFailed(name, id: id, agent: agent, reason: reason)
+        case (.named, nil): return CloudStartSessionStrings.agentFailed(name, id: id, agent: agent, reason: CloudStartCore.reason(message))
         }
-        let reason = (error as? AgentTabRefusal)?.message ?? (error as? ActionFailure)?.message ?? String(describing: error)
-        return CloudStartSessionStrings.agentFailed(name, id: id, agent: agent, reason: CloudStartCore.reason(reason))
     }
 
     /// `body`, the start past its machine. A failure that strands the start (``CloudMoveCLI/StartChatPlan/strands(_:)``) on a

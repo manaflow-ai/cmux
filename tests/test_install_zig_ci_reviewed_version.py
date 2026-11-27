@@ -8,12 +8,15 @@ downloads anything."""
 from __future__ import annotations
 
 import json
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 import os
 from pathlib import Path
 import re
 import subprocess
 import tempfile
+import threading
 import unittest
+from unittest import mock
 
 ROOT = Path(__file__).resolve().parents[1]
 SCRIPT = ROOT / "scripts/install-zig-ci.sh"
@@ -51,13 +54,16 @@ def run(version: str, fake: str | None = None, fleet_tree: str | None = None) ->
             fake_zig(fleet_tools / f"zig-{version}", fleet_tree)
         # Only the fixture's Zig is a reuse candidate: a persistent runner keeps a patched Zig in /usr/local/bin
         # (guards run 44762407859, tooling-tests: 0.17.0 was reused and the run exited 0).
-        # Every download source is unreachable: a run that tries to download fails fast.
-        env = {**os.environ, "ZIG_REQUIRED": version, "PATH": f"{tmp / 'fake'}:{os.environ['PATH']}",
+        # The runner's installer options and persistent caches must not answer for the fixture.
+        # Clear the whole option namespace, including options added after this test. Both R2 defaults
+        # are explicitly off: under GITHUB_ACTIONS they otherwise bypass the unreachable mirrors.
+        env = {key: value for key, value in os.environ.items() if not key.startswith("ZIG_")}
+        env.update({"ZIG_REQUIRED": version, "PATH": f"{tmp / 'fake'}:{os.environ['PATH']}",
                "ZIG_INDEX_URL": UNREACHABLE, "ZIG_MIRROR_URL": UNREACHABLE, "ZIG_SECONDARY_MIRROR_URL": UNREACHABLE,
                "ZIG_TERTIARY_MIRROR_URL": UNREACHABLE, "ZIG_OFFICIAL_URL": UNREACHABLE,
                "ZIG_REUSE_CANDIDATES": "", "ZIG_DOWNLOAD_ATTEMPTS": "1", "ZIG_DOWNLOAD_RETRY_DELAY": "0", "ZIG_FORCE_LOCAL_INSTALL": "0",
-               "ZIG_FLEET_TOOLS_DIR": str(fleet_tools),
-               "RUNNER_TEMP": str(tmp / "runner"), "GITHUB_PATH": "", "GITHUB_ENV": ""}
+               "ZIG_FLEET_TOOLS_DIR": str(fleet_tools), "ZIG_TREE_R2_URL": "", "ZIG_TARBALL_R2_URL": "",
+               "RUNNER_TEMP": str(tmp / "runner"), "GITHUB_PATH": "", "GITHUB_ENV": ""})
         result = subprocess.run(["bash", str(SCRIPT)], cwd=ROOT, env=env, capture_output=True, text=True, timeout=60)
         if fleet_tree is not None:
             # The fleet's tree is never edited (a clone takes the std fix).
@@ -67,6 +73,39 @@ def run(version: str, fake: str | None = None, fleet_tree: str | None = None) ->
 
 
 class ReviewedZigVersionTest(unittest.TestCase):
+    def test_runner_tarball_bucket_cannot_answer_for_the_fixture(self) -> None:
+        requests = []
+
+        class Bucket(BaseHTTPRequestHandler):
+            def do_GET(self):
+                requests.append(self.path)
+                self.send_error(404)
+
+            do_HEAD = do_GET
+
+            def log_message(self, *args):
+                pass
+
+        with ThreadingHTTPServer(("127.0.0.1", 0), Bucket) as server:
+            worker = threading.Thread(target=server.serve_forever)
+            worker.start()
+            try:
+                url = f"http://127.0.0.1:{server.server_port}"
+                with mock.patch.dict(os.environ, {"GITHUB_ACTIONS": "true", "ZIG_TARBALL_R2_URL": url}):
+                    result = run("0.17.0")
+            finally:
+                server.shutdown()
+                worker.join()
+        self.assertNotEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertEqual(requests, [], "the fixture read the runner's tarball bucket")
+
+    def test_runner_installer_options_cannot_change_the_fixture(self) -> None:
+        with mock.patch.dict(os.environ, {"ZIG_PRINT_TREE_KEY": "1", "ZIG_PUBLISH_ENV": "RUNNER_ZIG"}):
+            result = run("0.17.0")
+        self.assertNotEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertIn("lacks the reviewed std/Io/Threaded.zig", result.stderr)
+        self.assertIn(UNREACHABLE, result.stderr)
+
     def test_the_reviewed_ci_versions_are_accepted(self) -> None:
         versions = [zig["ci_version"] for zig in json.loads(TOOLCHAINS.read_text())["zig"]]
         self.assertIn("0.17.0", versions)
@@ -76,7 +115,7 @@ class ReviewedZigVersionTest(unittest.TestCase):
                 if version in STD_PATCHED:
                     # Reviewed (no refusal), but the fake Zig has no patched std, so it
                     # is not reused: the run goes on to download a verified copy.
-                    self.assertNotEqual(result.returncode, 0)
+                    self.assertNotEqual(result.returncode, 0, result.stdout + result.stderr)
                     self.assertNotIn("not a reviewed Zig version", result.stderr)
                     self.assertIn("lacks the reviewed std/Io/Threaded.zig", result.stderr)
                     self.assertIn(UNREACHABLE, result.stderr)

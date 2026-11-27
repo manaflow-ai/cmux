@@ -3,8 +3,8 @@ import CmuxNextActions
 import CmuxNextAgentPane
 import CmuxNextCloud
 import CmuxNextCloudCredentials
-// Re-exported: every App file and `@testable import CmuxNextApp` test reads Cloud's start-session strings (CloudStartSessionStrings).
-@_exported import CmuxNextCloudUI
+// Re-exported: every App file and `@testable import CmuxNextApp` test reads Cloud's start-session strings (CloudStartSessionStrings) and the start's Rust calls (CloudStartCore launch/creation).
+@_exported import CmuxNextCloudStart; @_exported import CmuxNextCloudUI
 import CmuxNextCloudPlace; import CmuxNextControl // LaunchIdentity, for the acpmux home warm-home reads
 import CmuxNextDaemon
 import CmuxNextDesign
@@ -139,7 +139,7 @@ struct CloudStartChat {
         let start = try await start.sized(CloudStartPreflight.answer(origin.preflight, root: folder.root, cli: cli), local: folder.root) // before any machine or lease: the size its copy needs, or its refusal
         timeline?.mark("preflight")
         report(.init(name: "machine", folder: folderName))
-        let gateway = services.cloud.gateway.onlineBeside(within: .seconds(10)) { [setup = services.cloud.setup, harness = start.harness, model = start.model, account = start.account] in await setup.choose(harness: harness, model: model, account: account).servedWithoutMacGateway } // No login step (PersonalGateway): only the first prompt needs it, so it comes up beside the start; a chat its connection or the organization's key serves waits for none
+        let gateway = services.cloud.gateway.onlineBeside(within: .seconds(10)) { [setup = services.cloud.setup, harness = start.harness, model = start.model, account = start.account] in await setup.choose(harness: harness, model: model, account: account) } // No login step (PersonalGateway): only the first prompt needs it, so it comes up beside the start; a chat its connection, the organization's key or another gateway of the person's serves waits for none (PersonalGateway.servedElsewhere)
         // The machine, the pin and the keys are cmux-tui's (`cmux link start-chat`, +Machine).
         let account = origin.account
         let (machine, plan) = try await CloudSizeLocked.naming(start.size, bytes: start.folderBytes) { try await self.machine(for: start, account: account, workspace: origin.workspace, connection: origin.connection, cli: cli, invocation: invocation) {
@@ -151,7 +151,7 @@ struct CloudStartChat {
             // The account may have changed while the machine connected: copy nothing then.
             try Self.checkAccount(account, now: services.cloud.account, listCurrent: services.cloud.hasLoadedCurrentMachines)
             let size = AgentPaneCloudStart.sizeText(machine.machine.size) // Remote approvals run beside the copy, awaited before the chat opens.
-            let copy: Copied = try await RemoteApprovalPreparations.owned({ [services] in await services.cloud.restartWithApprovalsIfIdle(machine, .checkStatus) { account == services.cloud.account } }) {
+            let copy: Copied = try await RemoteApprovalPreparations.owned({ [services] in _ = await services.cloud.machineAPI.carryGitHubLogin(machine.machineID, if: CloudNewWorkspaceSetting.useMyGitHubLogin(services.settings)); return await services.cloud.restartWithApprovalsIfIdle(machine, .checkStatus) { account == services.cloud.account } }) {
                 report(.init(name: "folder", folder: folderName, machine: name, size: size))
                 guard await CloudMoveFolder.isFolder(folder.root) else { throw CloudMoveFolder.Gone() } // removed while the machine came up
                 // Each copy goes to a new folder of the send's own, under its account as its pin; a retry whose
@@ -295,7 +295,7 @@ struct CloudStartChat {
             try Self.checkAccount(account, now: services.cloud.account, listCurrent: services.cloud.hasLoadedCurrentMachines)
             // No harness login: remote approvals alone are prepared before the first prompt.
             try await RemoteApprovalPreparations.owned({ [services] in await services.cloud.restartWithApprovalsIfIdle(machine, .checkStatus) { account == services.cloud.account } }) {}
-            let cwd = try await start.cloneRepository(on: .init(api: services.cloud.machineAPI, machineID: machine.machineID), machineName: machine.machine.title, size: AgentPaneCloudStart.sizeText(machine.machine.size), report: report)
+            let cwd = try await start.cloneRepository(on: .init(api: services.cloud.machineAPI, machineID: machine.machineID), machineName: machine.machine.title, size: AgentPaneCloudStart.sizeText(machine.machine.size), gitHubLogin: .init(carry: await services.cloud.machineAPI.carryGitHubLogin(machine.machineID, if: CloudNewWorkspaceSetting.useMyGitHubLogin(services.settings))), report: report)
             try Self.checkAccount(account, now: services.cloud.account, listCurrent: services.cloud.hasLoadedCurrentMachines)
             report(.init(name: "opening", machine: machine.machine.title, size: AgentPaneCloudStart.sizeText(machine.machine.size),
                          start: .init(environmentId: plan.environmentId, setup: plan.setup)))
@@ -394,11 +394,15 @@ extension CloudStartSession {
 
     /// `--from-folder` as written (`..` resolves after its symlinks), checked before anything starts: absolute, no `--cwd`, never home or a credential folder (read through realpath when it exists). Any origin, as `cloudFileWrite` (which writes any file there) takes any.
     static func fromFolder(_ invocation: ActionInvocation, cwd: String?, home: String = NSHomeDirectory()) throws -> String? {
-        guard let text = invocation["fromFolder"]?.stringValue, !text.allSatisfy(\.isWhitespace) else { return nil }
-        guard cwd == nil else { throw ActionFailure(message: CloudStartSessionStrings.fromFolderWithCwd) }
-        guard text.utf8.count <= 4096, !text.unicodeScalars.contains(where: { $0.properties.generalCategory == .control }), let plain = CloudMoveFolder.normalized(text) else { throw ActionFailure(message: CloudStartSessionStrings.fromFolderInvalid) }
-        if let refusal = AgentPaneCloudFolderRefusal.written(realpath(text, nil).map { path in defer { free(path) }; return String(cString: path) } ?? plain, home: home) { throw ActionFailure(message: Self.message(refusal, folder: text)) }
-        return text.count > 1 && text.hasSuffix("/") ? String(text.dropLast()) : text
+        switch CloudStartCore().launchFolder(invocation["fromFolder"]?.stringValue, hasCwd: cwd != nil) {
+        case .none: return nil
+        case .withCwd: throw ActionFailure(message: CloudStartSessionStrings.fromFolderWithCwd)
+        case .check(let text, let folder):
+            guard let plain = CloudMoveFolder.normalized(text) else { throw ActionFailure(message: CloudStartSessionStrings.fromFolderInvalid) }
+            if let refusal = AgentPaneCloudFolderRefusal.written(realpath(text, nil).map { path in defer { free(path) }; return String(cString: path) } ?? plain, home: home) { throw ActionFailure(message: Self.message(refusal, folder: text)) }
+            return folder
+        case .invalid: throw ActionFailure(message: CloudStartSessionStrings.fromFolderInvalid)
+        }
     }
 
     static func requireOwned(_ session: CloudMachineSession) async throws { if await CloudMove.ownerAnswer(session).vmKind != "owner" { throw ActionFailure(message: CloudStartSessionStrings.fromFolderNotOwned(session.machine.title)) } }
