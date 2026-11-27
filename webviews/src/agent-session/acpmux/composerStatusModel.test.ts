@@ -201,3 +201,19 @@ describe("withPauseReason", () => {
     expect(withPauseReason([paused], "")).toEqual([paused]);
   });
 });
+
+test("restoring dot waits the host's quiet bound and cancels its wake on recovery", () => {
+  const host = { linkDown: true, restoring: { waitedMs: 4_000, at: 10_000 } };
+  const pending = hostRecoveryItem(host, 10_000).item!;
+  expect(statusDueAt(pending)).toBe(16_000);
+  expect(statusDueAt(hostRecoveryItem(host, 0).item!)).toBe(16_000);
+  expect(shown([pending], 15_999)).toEqual([]);
+  expect(shown([pending], 16_000)).toEqual([pending]);
+  expect(nextWake([statusDueAt(pending)], 10_000)).toBe(16_000);
+  const updated = hostRecoveryItem({ ...host, restoring: { waitedMs: 7_000, at: 13_000 } }, 13_000).item!;
+  expect(statusDueAt(updated)).toBe(16_000);
+  expect(hostRecoveryItem({ ...host, linkDown: false }, 14_000)).toEqual({});
+  const fresh = hostRecoveryItem({ linkDown: true, restoring: { waitedMs: 0, at: 20_000 } }, 20_000).item!;
+  expect(shown([fresh], 20_000)).toEqual([]);
+  expect(statusDueAt(fresh)).toBe(30_000);
+});
