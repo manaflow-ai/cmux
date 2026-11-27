@@ -14,7 +14,7 @@
 namespace cmux::raw {
 
 inline constexpr std::uint32_t kMuxProtocolVersion = 12U;
-inline constexpr std::string_view kProtocolIrSha256 = "e342a339aa30c59f6fac6583d84019a8e4c25aa69c79b72895fee983df768a12";
+inline constexpr std::string_view kProtocolIrSha256 = "587114f40cfc29220418a9a5e2d9de42cb392d6129c6d03054d0287dd2be69d2";
 
 struct ActivitySnapshot;
 struct ActivitySubscribeResult;
@@ -101,6 +101,7 @@ struct HostSizePolicy;
 struct HostSizePolicyRequest;
 struct Id;
 struct IdMapping;
+struct IdentifyRestore;
 struct IdentifyResult;
 struct IdsResult;
 struct JsonValue;
@@ -139,6 +140,7 @@ enum class PaneKind;
 struct PaneNeighborResult;
 struct PaneRef;
 struct PaneSurfaceResult;
+struct PhoneLinkOfferResult;
 struct PingResult;
 struct ProcessInfoResult;
 enum class ProgramStatusState;
@@ -513,6 +515,7 @@ struct NewTabRequest;
 struct NewWorkspaceRequest;
 struct NoteSizeActivityRequest;
 struct NotifyRequest;
+struct OfferLinkToPhoneRequest;
 struct PageCredentialRequest;
 struct PairingResponseRequest;
 struct PaneNeighborRequest;
@@ -707,6 +710,7 @@ struct PaneAddedEvent;
 struct PaneClosedEvent;
 struct ParticipantAvatarChangedEvent;
 struct PersonalChangedEvent;
+struct PhoneOpenLinkEvent;
 struct ProgramStatusChangedEvent;
 struct RenderDeltaEvent;
 struct RenderStateEvent;
@@ -3585,8 +3589,18 @@ struct IdMapping {
 
 struct IdentifyRequest {
     std::optional<bool> machine_metadata{};
+    std::optional<bool> restore_progress{};
     std::optional<bool> revisions{};
     friend bool operator==(const IdentifyRequest&, const IdentifyRequest&) = default;
+};
+
+struct IdentifyRestore {
+    std::optional<std::uint64_t> done{};
+    std::uint64_t elapsed_ms{};
+    std::uint64_t last_advance_ms{};
+    std::string phase{};
+    std::optional<std::uint64_t> total{};
+    friend bool operator==(const IdentifyRestore&, const IdentifyRestore&) = default;
 };
 
 struct MachinePlatform {
@@ -3620,6 +3634,7 @@ struct IdentifyResult {
     std::uint32_t pid{};
     std::uint32_t protocol{};
     std::string registry_id{};
+    std::optional<IdentifyRestore> restore{};
     Field<std::string> screen_device_id{};
     std::string session{};
     std::optional<std::string> session_id{};
@@ -4591,6 +4606,12 @@ struct NotifyResult {
     friend bool operator==(const NotifyResult&, const NotifyResult&) = default;
 };
 
+struct OfferLinkToPhoneRequest {
+    std::string terminal_id{};
+    std::string url{};
+    friend bool operator==(const OfferLinkToPhoneRequest&, const OfferLinkToPhoneRequest&) = default;
+};
+
 struct TerminalColors {
     std::optional<ColorHex> bg{};
     Field<ColorHex> cursor{};
@@ -4723,6 +4744,17 @@ struct PasteImageResult {
 struct PersonalChangedEvent {
     std::uint64_t personal_revision{};
     friend bool operator==(const PersonalChangedEvent&, const PersonalChangedEvent&) = default;
+};
+
+struct PhoneLinkOfferResult {
+    bool offered{};
+    friend bool operator==(const PhoneLinkOfferResult&, const PhoneLinkOfferResult&) = default;
+};
+
+struct PhoneOpenLinkEvent {
+    std::string terminal_id{};
+    std::string url{};
+    friend bool operator==(const PhoneOpenLinkEvent&, const PhoneOpenLinkEvent&) = default;
 };
 
 struct PinWorkspaceRequest {
@@ -5685,6 +5717,7 @@ struct ServerStatsRegistryLock {
 
 struct ServerStatsRequest {
     Field<std::vector<std::string>> include{};
+    std::optional<bool> restore_progress{};
     friend bool operator==(const ServerStatsRequest&, const ServerStatsRequest&) = default;
 };
 
@@ -7513,6 +7546,12 @@ struct Codec<IdMapping> {
 };
 
 template <>
+struct Codec<IdentifyRestore> {
+    static Result<Json> encode(const IdentifyRestore& value);
+    static Result<IdentifyRestore> decode(const Json& value);
+};
+
+template <>
 struct Codec<IdentifyResult> {
     static Result<Json> encode(const IdentifyResult& value);
     static Result<IdentifyResult> decode(const Json& value);
@@ -7738,6 +7777,12 @@ template <>
 struct Codec<PaneSurfaceResult> {
     static Result<Json> encode(const PaneSurfaceResult& value);
     static Result<PaneSurfaceResult> decode(const Json& value);
+};
+
+template <>
+struct Codec<PhoneLinkOfferResult> {
+    static Result<Json> encode(const PhoneLinkOfferResult& value);
+    static Result<PhoneLinkOfferResult> decode(const Json& value);
 };
 
 template <>
@@ -9985,6 +10030,12 @@ struct Codec<NotifyRequest> {
 };
 
 template <>
+struct Codec<OfferLinkToPhoneRequest> {
+    static Result<Json> encode(const OfferLinkToPhoneRequest& value);
+    static Result<OfferLinkToPhoneRequest> decode(const Json& value);
+};
+
+template <>
 struct Codec<PageCredentialRequest> {
     static Result<Json> encode(const PageCredentialRequest& value);
     static Result<PageCredentialRequest> decode(const Json& value);
@@ -11146,6 +11197,12 @@ template <>
 struct Codec<PersonalChangedEvent> {
     static Result<Json> encode(const PersonalChangedEvent& value);
     static Result<PersonalChangedEvent> decode(const Json& value);
+};
+
+template <>
+struct Codec<PhoneOpenLinkEvent> {
+    static Result<Json> encode(const PhoneOpenLinkEvent& value);
+    static Result<PhoneOpenLinkEvent> decode(const Json& value);
 };
 
 template <>

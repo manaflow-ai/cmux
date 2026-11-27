@@ -2517,6 +2517,50 @@ func TestGeneratedSchemaPresenceRoundTrips(t *testing.T) {
 		}
 		assertGeneratedFieldJSON(t, presentValue, "order", true, "[]")
 	})
+	t.Run("IdentifyRestore.Done", func(t *testing.T) {
+		var missing IdentifyRestore
+		if err := json.Unmarshal([]byte("{\"elapsed_ms\":1,\"last_advance_ms\":1,\"phase\":\"value\",\"total\":null}"), &missing); err == nil {
+			t.Fatal("missing required nullable field done decoded successfully")
+		}
+		var nullValue IdentifyRestore
+		if err := json.Unmarshal([]byte("{\"done\":null,\"elapsed_ms\":1,\"last_advance_ms\":1,\"phase\":\"value\",\"total\":null}"), &nullValue); err != nil {
+			t.Fatal(err)
+		}
+		if !nullValue.Done.IsSet() || !nullValue.Done.IsNull() {
+			t.Fatal("Done did not preserve required null")
+		}
+		assertGeneratedFieldJSON(t, nullValue, "done", true, "null")
+		var presentValue IdentifyRestore
+		if err := json.Unmarshal([]byte("{\"done\":1,\"elapsed_ms\":1,\"last_advance_ms\":1,\"phase\":\"value\",\"total\":null}"), &presentValue); err != nil {
+			t.Fatal(err)
+		}
+		if _, ok := presentValue.Done.Get(); !ok {
+			t.Fatal("Done did not preserve a required value")
+		}
+		assertGeneratedFieldJSON(t, presentValue, "done", true, "1")
+	})
+	t.Run("IdentifyRestore.Total", func(t *testing.T) {
+		var missing IdentifyRestore
+		if err := json.Unmarshal([]byte("{\"done\":null,\"elapsed_ms\":1,\"last_advance_ms\":1,\"phase\":\"value\"}"), &missing); err == nil {
+			t.Fatal("missing required nullable field total decoded successfully")
+		}
+		var nullValue IdentifyRestore
+		if err := json.Unmarshal([]byte("{\"done\":null,\"elapsed_ms\":1,\"last_advance_ms\":1,\"phase\":\"value\",\"total\":null}"), &nullValue); err != nil {
+			t.Fatal(err)
+		}
+		if !nullValue.Total.IsSet() || !nullValue.Total.IsNull() {
+			t.Fatal("Total did not preserve required null")
+		}
+		assertGeneratedFieldJSON(t, nullValue, "total", true, "null")
+		var presentValue IdentifyRestore
+		if err := json.Unmarshal([]byte("{\"done\":null,\"elapsed_ms\":1,\"last_advance_ms\":1,\"phase\":\"value\",\"total\":1}"), &presentValue); err != nil {
+			t.Fatal(err)
+		}
+		if _, ok := presentValue.Total.Get(); !ok {
+			t.Fatal("Total did not preserve a required value")
+		}
+		assertGeneratedFieldJSON(t, presentValue, "total", true, "1")
+	})
 	t.Run("IdentifyResult.APIRevision", func(t *testing.T) {
 		var missing IdentifyResult
 		if err := json.Unmarshal([]byte("{\"app\":\"cmux-tui\",\"daemon_handoff\":1,\"generation\":\"value\",\"pid\":1,\"protocol\":1,\"registry_id\":\"value\",\"session\":\"value\",\"terminal_revision\":1,\"version\":\"value\",\"workspace_revision\":1}"), &missing); err != nil {
@@ -3004,6 +3048,28 @@ func TestGeneratedSchemaPresenceRoundTrips(t *testing.T) {
 			t.Fatal("MinAPIVersion did not preserve a value")
 		}
 		assertGeneratedFieldJSON(t, presentValue, "min_api_version", true, "\"value\"")
+	})
+	t.Run("IdentifyResult.Restore", func(t *testing.T) {
+		var missing IdentifyResult
+		if err := json.Unmarshal([]byte("{\"app\":\"cmux-tui\",\"daemon_handoff\":1,\"generation\":\"value\",\"pid\":1,\"protocol\":1,\"registry_id\":\"value\",\"session\":\"value\",\"terminal_revision\":1,\"version\":\"value\",\"workspace_revision\":1}"), &missing); err != nil {
+			t.Fatal(err)
+		}
+		if missing.Restore != nil {
+			t.Fatal("Restore did not preserve absence")
+		}
+		assertGeneratedFieldJSON(t, missing, "restore", false, "")
+		var nullValue IdentifyResult
+		if err := json.Unmarshal([]byte("{\"app\":\"cmux-tui\",\"daemon_handoff\":1,\"generation\":\"value\",\"pid\":1,\"protocol\":1,\"registry_id\":\"value\",\"session\":\"value\",\"terminal_revision\":1,\"version\":\"value\",\"workspace_revision\":1,\"restore\":null}"), &nullValue); err == nil {
+			t.Fatal("non-nullable field restore accepted null")
+		}
+		var presentValue IdentifyResult
+		if err := json.Unmarshal([]byte("{\"app\":\"cmux-tui\",\"daemon_handoff\":1,\"generation\":\"value\",\"pid\":1,\"protocol\":1,\"registry_id\":\"value\",\"session\":\"value\",\"terminal_revision\":1,\"version\":\"value\",\"workspace_revision\":1,\"restore\":{\"done\":null,\"elapsed_ms\":1,\"last_advance_ms\":1,\"phase\":\"value\",\"total\":null}}"), &presentValue); err != nil {
+			t.Fatal(err)
+		}
+		if presentValue.Restore == nil {
+			t.Fatal("Restore lost its value")
+		}
+		assertGeneratedFieldJSON(t, presentValue, "restore", true, "{\"done\":null,\"elapsed_ms\":1,\"last_advance_ms\":1,\"phase\":\"value\",\"total\":null}")
 	})
 	t.Run("IdentifyResult.ScreenDeviceID", func(t *testing.T) {
 		var missing IdentifyResult
@@ -24443,6 +24509,28 @@ func TestGeneratedSchemaPresenceRoundTrips(t *testing.T) {
 		}
 		assertGeneratedFieldJSON(t, presentValue, "machine_metadata", true, "true")
 	})
+	t.Run("IdentifyRequest.RestoreProgress", func(t *testing.T) {
+		var missing IdentifyRequest
+		if err := json.Unmarshal([]byte("{}"), &missing); err != nil {
+			t.Fatal(err)
+		}
+		if missing.RestoreProgress != nil {
+			t.Fatal("RestoreProgress did not preserve absence")
+		}
+		assertGeneratedFieldJSON(t, missing, "restore_progress", false, "")
+		var nullValue IdentifyRequest
+		if err := json.Unmarshal([]byte("{\"restore_progress\":null}"), &nullValue); err == nil {
+			t.Fatal("non-nullable field restore_progress accepted null")
+		}
+		var presentValue IdentifyRequest
+		if err := json.Unmarshal([]byte("{\"restore_progress\":true}"), &presentValue); err != nil {
+			t.Fatal(err)
+		}
+		if presentValue.RestoreProgress == nil {
+			t.Fatal("RestoreProgress lost its value")
+		}
+		assertGeneratedFieldJSON(t, presentValue, "restore_progress", true, "true")
+	})
 	t.Run("IdentifyRequest.Revisions", func(t *testing.T) {
 		var missing IdentifyRequest
 		if err := json.Unmarshal([]byte("{}"), &missing); err != nil {
@@ -37137,6 +37225,28 @@ func TestGeneratedSchemaPresenceRoundTrips(t *testing.T) {
 		}
 		assertGeneratedFieldJSON(t, presentValue, "include", true, "[]")
 	})
+	t.Run("ServerStatsRequest.RestoreProgress", func(t *testing.T) {
+		var missing ServerStatsRequest
+		if err := json.Unmarshal([]byte("{}"), &missing); err != nil {
+			t.Fatal(err)
+		}
+		if missing.RestoreProgress != nil {
+			t.Fatal("RestoreProgress did not preserve absence")
+		}
+		assertGeneratedFieldJSON(t, missing, "restore_progress", false, "")
+		var nullValue ServerStatsRequest
+		if err := json.Unmarshal([]byte("{\"restore_progress\":null}"), &nullValue); err == nil {
+			t.Fatal("non-nullable field restore_progress accepted null")
+		}
+		var presentValue ServerStatsRequest
+		if err := json.Unmarshal([]byte("{\"restore_progress\":true}"), &presentValue); err != nil {
+			t.Fatal(err)
+		}
+		if presentValue.RestoreProgress == nil {
+			t.Fatal("RestoreProgress lost its value")
+		}
+		assertGeneratedFieldJSON(t, presentValue, "restore_progress", true, "true")
+	})
 	t.Run("ServerStatsOptions.Include", func(t *testing.T) {
 		var missing ServerStatsOptions
 		if err := json.Unmarshal([]byte("{}"), &missing); err != nil {
@@ -37162,6 +37272,28 @@ func TestGeneratedSchemaPresenceRoundTrips(t *testing.T) {
 			t.Fatal("Include did not preserve a value")
 		}
 		assertGeneratedFieldJSON(t, presentValue, "include", true, "[]")
+	})
+	t.Run("ServerStatsOptions.RestoreProgress", func(t *testing.T) {
+		var missing ServerStatsOptions
+		if err := json.Unmarshal([]byte("{}"), &missing); err != nil {
+			t.Fatal(err)
+		}
+		if missing.RestoreProgress != nil {
+			t.Fatal("RestoreProgress did not preserve absence")
+		}
+		assertGeneratedFieldJSON(t, missing, "restore_progress", false, "")
+		var nullValue ServerStatsOptions
+		if err := json.Unmarshal([]byte("{\"restore_progress\":null}"), &nullValue); err == nil {
+			t.Fatal("non-nullable field restore_progress accepted null")
+		}
+		var presentValue ServerStatsOptions
+		if err := json.Unmarshal([]byte("{\"restore_progress\":true}"), &presentValue); err != nil {
+			t.Fatal(err)
+		}
+		if presentValue.RestoreProgress == nil {
+			t.Fatal("RestoreProgress lost its value")
+		}
+		assertGeneratedFieldJSON(t, presentValue, "restore_progress", true, "true")
 	})
 	t.Run("SetClientInfoRequest.APIRevision", func(t *testing.T) {
 		var missing SetClientInfoRequest
@@ -50148,6 +50280,36 @@ func TestGeneratedRequiredFieldsRejectOmission(t *testing.T) {
 			t.Fatal("missing required field short_id decoded successfully")
 		}
 	})
+	t.Run("IdentifyRestore.Done", func(t *testing.T) {
+		var decoded IdentifyRestore
+		if err := json.Unmarshal([]byte("{\"elapsed_ms\":1,\"last_advance_ms\":1,\"phase\":\"value\",\"total\":null}"), &decoded); err == nil {
+			t.Fatal("missing required field done decoded successfully")
+		}
+	})
+	t.Run("IdentifyRestore.ElapsedMs", func(t *testing.T) {
+		var decoded IdentifyRestore
+		if err := json.Unmarshal([]byte("{\"done\":null,\"last_advance_ms\":1,\"phase\":\"value\",\"total\":null}"), &decoded); err == nil {
+			t.Fatal("missing required field elapsed_ms decoded successfully")
+		}
+	})
+	t.Run("IdentifyRestore.LastAdvanceMs", func(t *testing.T) {
+		var decoded IdentifyRestore
+		if err := json.Unmarshal([]byte("{\"done\":null,\"elapsed_ms\":1,\"phase\":\"value\",\"total\":null}"), &decoded); err == nil {
+			t.Fatal("missing required field last_advance_ms decoded successfully")
+		}
+	})
+	t.Run("IdentifyRestore.Phase", func(t *testing.T) {
+		var decoded IdentifyRestore
+		if err := json.Unmarshal([]byte("{\"done\":null,\"elapsed_ms\":1,\"last_advance_ms\":1,\"total\":null}"), &decoded); err == nil {
+			t.Fatal("missing required field phase decoded successfully")
+		}
+	})
+	t.Run("IdentifyRestore.Total", func(t *testing.T) {
+		var decoded IdentifyRestore
+		if err := json.Unmarshal([]byte("{\"done\":null,\"elapsed_ms\":1,\"last_advance_ms\":1,\"phase\":\"value\"}"), &decoded); err == nil {
+			t.Fatal("missing required field total decoded successfully")
+		}
+	})
 	t.Run("IdentifyResult.App", func(t *testing.T) {
 		var decoded IdentifyResult
 		if err := json.Unmarshal([]byte("{\"daemon_handoff\":1,\"generation\":\"value\",\"pid\":1,\"protocol\":1,\"registry_id\":\"value\",\"session\":\"value\",\"terminal_revision\":1,\"version\":\"value\",\"workspace_revision\":1}"), &decoded); err == nil {
@@ -50746,6 +50908,12 @@ func TestGeneratedRequiredFieldsRejectOmission(t *testing.T) {
 		var decoded PaneSurfaceResult
 		if err := json.Unmarshal([]byte("{}"), &decoded); err == nil {
 			t.Fatal("missing required field surface decoded successfully")
+		}
+	})
+	t.Run("PhoneLinkOfferResult.Offered", func(t *testing.T) {
+		var decoded PhoneLinkOfferResult
+		if err := json.Unmarshal([]byte("{}"), &decoded); err == nil {
+			t.Fatal("missing required field offered decoded successfully")
 		}
 	})
 	t.Run("PingResult.Ok", func(t *testing.T) {
@@ -55878,6 +56046,18 @@ func TestGeneratedRequiredFieldsRejectOmission(t *testing.T) {
 			t.Fatal("missing required field title decoded successfully")
 		}
 	})
+	t.Run("OfferLinkToPhoneRequest.TerminalID", func(t *testing.T) {
+		var decoded OfferLinkToPhoneRequest
+		if err := json.Unmarshal([]byte("{\"url\":\"value\"}"), &decoded); err == nil {
+			t.Fatal("missing required field terminal_id decoded successfully")
+		}
+	})
+	t.Run("OfferLinkToPhoneRequest.URL", func(t *testing.T) {
+		var decoded OfferLinkToPhoneRequest
+		if err := json.Unmarshal([]byte("{\"terminal_id\":\"value\"}"), &decoded); err == nil {
+			t.Fatal("missing required field url decoded successfully")
+		}
+	})
 	t.Run("PairingResponseRequest.Approve", func(t *testing.T) {
 		var decoded PairingResponseRequest
 		if err := json.Unmarshal([]byte("{\"request\":1}"), &decoded); err == nil {
@@ -57924,6 +58104,18 @@ func TestGeneratedRequiredFieldsRejectOmission(t *testing.T) {
 			t.Fatal("missing required field personal_revision decoded successfully")
 		}
 	})
+	t.Run("PhoneOpenLinkEvent.TerminalID", func(t *testing.T) {
+		var decoded PhoneOpenLinkEvent
+		if err := json.Unmarshal([]byte("{\"event\":\"phone-open-link\",\"url\":\"value\"}"), &decoded); err == nil {
+			t.Fatal("missing required field terminal_id decoded successfully")
+		}
+	})
+	t.Run("PhoneOpenLinkEvent.URL", func(t *testing.T) {
+		var decoded PhoneOpenLinkEvent
+		if err := json.Unmarshal([]byte("{\"event\":\"phone-open-link\",\"terminal_id\":\"value\"}"), &decoded); err == nil {
+			t.Fatal("missing required field url decoded successfully")
+		}
+	})
 	t.Run("ProgramStatusChangedEvent.ProgramStatus", func(t *testing.T) {
 		var decoded ProgramStatusChangedEvent
 		if err := json.Unmarshal([]byte("{\"surface\":1}"), &decoded); err == nil {
@@ -59937,6 +60129,24 @@ func TestGeneratedRequiredNonnullableFieldsRejectNull(t *testing.T) {
 			t.Fatal("required non-nullable field short_id accepted null")
 		}
 	})
+	t.Run("IdentifyRestore.ElapsedMs", func(t *testing.T) {
+		var decoded IdentifyRestore
+		if err := json.Unmarshal([]byte("{\"done\":null,\"elapsed_ms\":null,\"last_advance_ms\":1,\"phase\":\"value\",\"total\":null}"), &decoded); err == nil {
+			t.Fatal("required non-nullable field elapsed_ms accepted null")
+		}
+	})
+	t.Run("IdentifyRestore.LastAdvanceMs", func(t *testing.T) {
+		var decoded IdentifyRestore
+		if err := json.Unmarshal([]byte("{\"done\":null,\"elapsed_ms\":1,\"last_advance_ms\":null,\"phase\":\"value\",\"total\":null}"), &decoded); err == nil {
+			t.Fatal("required non-nullable field last_advance_ms accepted null")
+		}
+	})
+	t.Run("IdentifyRestore.Phase", func(t *testing.T) {
+		var decoded IdentifyRestore
+		if err := json.Unmarshal([]byte("{\"done\":null,\"elapsed_ms\":1,\"last_advance_ms\":1,\"phase\":null,\"total\":null}"), &decoded); err == nil {
+			t.Fatal("required non-nullable field phase accepted null")
+		}
+	})
 	t.Run("IdentifyResult.App", func(t *testing.T) {
 		var decoded IdentifyResult
 		if err := json.Unmarshal([]byte("{\"app\":null,\"daemon_handoff\":1,\"generation\":\"value\",\"pid\":1,\"protocol\":1,\"registry_id\":\"value\",\"session\":\"value\",\"terminal_revision\":1,\"version\":\"value\",\"workspace_revision\":1}"), &decoded); err == nil {
@@ -60481,6 +60691,12 @@ func TestGeneratedRequiredNonnullableFieldsRejectNull(t *testing.T) {
 		var decoded PaneSurfaceResult
 		if err := json.Unmarshal([]byte("{\"surface\":null}"), &decoded); err == nil {
 			t.Fatal("required non-nullable field surface accepted null")
+		}
+	})
+	t.Run("PhoneLinkOfferResult.Offered", func(t *testing.T) {
+		var decoded PhoneLinkOfferResult
+		if err := json.Unmarshal([]byte("{\"offered\":null}"), &decoded); err == nil {
+			t.Fatal("required non-nullable field offered accepted null")
 		}
 	})
 	t.Run("PingResult.Ok", func(t *testing.T) {
@@ -65007,6 +65223,18 @@ func TestGeneratedRequiredNonnullableFieldsRejectNull(t *testing.T) {
 			t.Fatal("required non-nullable field title accepted null")
 		}
 	})
+	t.Run("OfferLinkToPhoneRequest.TerminalID", func(t *testing.T) {
+		var decoded OfferLinkToPhoneRequest
+		if err := json.Unmarshal([]byte("{\"terminal_id\":null,\"url\":\"value\"}"), &decoded); err == nil {
+			t.Fatal("required non-nullable field terminal_id accepted null")
+		}
+	})
+	t.Run("OfferLinkToPhoneRequest.URL", func(t *testing.T) {
+		var decoded OfferLinkToPhoneRequest
+		if err := json.Unmarshal([]byte("{\"terminal_id\":\"value\",\"url\":null}"), &decoded); err == nil {
+			t.Fatal("required non-nullable field url accepted null")
+		}
+	})
 	t.Run("PairingResponseRequest.Approve", func(t *testing.T) {
 		var decoded PairingResponseRequest
 		if err := json.Unmarshal([]byte("{\"approve\":null,\"request\":1}"), &decoded); err == nil {
@@ -66823,6 +67051,18 @@ func TestGeneratedRequiredNonnullableFieldsRejectNull(t *testing.T) {
 		var decoded PersonalChangedEvent
 		if err := json.Unmarshal([]byte("{\"personal_revision\":null}"), &decoded); err == nil {
 			t.Fatal("required non-nullable field personal_revision accepted null")
+		}
+	})
+	t.Run("PhoneOpenLinkEvent.TerminalID", func(t *testing.T) {
+		var decoded PhoneOpenLinkEvent
+		if err := json.Unmarshal([]byte("{\"event\":\"phone-open-link\",\"terminal_id\":null,\"url\":\"value\"}"), &decoded); err == nil {
+			t.Fatal("required non-nullable field terminal_id accepted null")
+		}
+	})
+	t.Run("PhoneOpenLinkEvent.URL", func(t *testing.T) {
+		var decoded PhoneOpenLinkEvent
+		if err := json.Unmarshal([]byte("{\"event\":\"phone-open-link\",\"terminal_id\":\"value\",\"url\":null}"), &decoded); err == nil {
+			t.Fatal("required non-nullable field url accepted null")
 		}
 	})
 	t.Run("ProgramStatusChangedEvent.Surface", func(t *testing.T) {
@@ -69838,12 +70078,12 @@ func TestGeneratedConstrainedFieldsRejectUnknownValuesOnMarshal(t *testing.T) {
 }
 
 const (
-	generatedFieldShapeCount               = 1968
+	generatedFieldShapeCount               = 1974
 	generatedOptionalNullableFieldCount    = 1368
-	generatedRequiredNullableFieldCount    = 176
-	generatedOptionalNonnullableFieldCount = 424
-	generatedRequiredFieldCount            = 1652
-	generatedRequiredNonnullableFieldCount = 1476
+	generatedRequiredNullableFieldCount    = 178
+	generatedOptionalNonnullableFieldCount = 428
+	generatedRequiredFieldCount            = 1662
+	generatedRequiredNonnullableFieldCount = 1484
 	generatedConstrainedFieldCount         = 139
 	generatedEncodedConstrainedFieldCount  = 139
 )

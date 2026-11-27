@@ -347,6 +347,92 @@ class BindingErrorTests(unittest.TestCase):
         self.assert_refused("swap-pane", bindings=bindings)
 
 
+
+def mutation_document() -> dict[str, Any]:
+    """A write command carrying the four mutation identity fields."""
+    document = layout_document()
+    optional = lambda name: _field({"kind": "scalar", "name": name}, required=False, nullable=True)  # noqa: E731
+    document["commands"]["rename-pane"] = {
+        "authority": "control",
+        "since": 9,
+        "capability": None,
+        "request": {
+            "kind": "object",
+            "fields": {
+                "pane": _field(ID),
+                "title": optional("string"),
+                "index": _field({"kind": "scalar", "name": "uint64"}),
+                "origin": optional("string"),
+                "mutation_id": optional("string"),
+                "expected_generation": optional("uint64"),
+                "expected_revision": optional("uint64"),
+            },
+            "additional_properties": False,
+        },
+        "result": {"kind": "ref", "name": "EmptyResult"},
+        "stream": None,
+        "constraints": [],
+    }
+    return document
+
+
+def mutation_bindings(**fields: Any) -> dict[str, Any]:
+    bindings = layout_bindings()
+    bindings["families"]["Layout"]["requests"]["rename-pane"] = {
+        "name": "RenamePaneRequest",
+        "order": ["pane", "title", "index"],
+        "mutation": True,
+        "fields": fields or {"title": {"update": True}, "index": {"type": "Int"}},
+    }
+    return bindings
+
+
+class FieldOverrideTests(unittest.TestCase):
+    def source(self, **fields: Any) -> str:
+        return rendered(mutation_document(), mutation_bindings(**fields))["Layout/RenamePaneRequest.generated.swift"]
+
+    def test_mutation_folds_the_identity_fields_into_one_parameter_encoded_last(self) -> None:
+        source = self.source()
+        self.assertIn("public var mutation: MutationIdentity?", source)
+        self.assertNotIn("mutationID", source)
+        self.assertNotIn("case origin", source)
+        self.assertIn("try MutationFields(identity: mutation).encode(to: encoder)", source)
+        self.assertLess(source.index("forKey: .index"), source.index("MutationFields(identity"))
+
+    def test_update_is_a_field_update_always_encoded(self) -> None:
+        source = self.source()
+        self.assertIn("public var title: FieldUpdate<String>", source)
+        self.assertIn("title: FieldUpdate<String> = .unchanged", source)
+        self.assertIn("try container.encode(title, forKey: .title)", source)
+
+    def test_type_overrides_the_swift_type_and_keeps_the_wire_name(self) -> None:
+        source = self.source()
+        self.assertIn("public var index: Int", source)
+        self.assertIn("case index\n", source)
+
+    def test_optional_false_with_encode_always_makes_a_plain_property(self) -> None:
+        source = self.source(title={"optional": False, "encode": "always", "type": "String", "default": '""'})
+        self.assertIn("public var title: String", source)
+        self.assertIn('title: String = ""', source)
+        self.assertIn("try container.encode(title, forKey: .title)", source)
+
+    def test_bad_overrides_are_refused(self) -> None:
+        cases = {
+            "update on a required field": {"index": {"update": True}},
+            "unknown encode mode": {"title": {"encode": "sometimes"}},
+            "update with optional": {"title": {"update": True, "optional": True}},
+            "unknown key": {"title": {"colour": "red"}},
+            "empty default": {"title": {"default": ""}},
+        }
+        for label, fields in cases.items():
+            with self.subTest(label), self.assertRaises(BindingError):
+                rendered(mutation_document(), mutation_bindings(**fields))
+
+    def test_mutation_without_the_identity_fields_is_refused(self) -> None:
+        bindings = layout_bindings()
+        bindings["families"]["Layout"]["requests"]["swap-pane"]["mutation"] = True
+        with self.assertRaises(BindingError):
+            rendered(bindings=bindings)
 def read_bindings(objects: dict[str, Any]) -> dict[str, Any]:
     bindings = layout_bindings()
     bindings["families"]["Layout"]["objects"] = objects
@@ -387,6 +473,17 @@ class ReadTypeTests(unittest.TestCase):
             "zoomed = (((try? container.decodeIfPresent(Bool.self, forKey: .zoomed)) ?? nil)) ?? false", source)
         self.assertIn(
             "zoomedPane = ((try? container.decodeIfPresent(PaneID.self, forKey: .zoomedPane)) ?? nil)", source)
+
+    def test_a_decimal_uint64_string_reads_as_uint64_or_a_bare_number(self) -> None:
+        document = layout_document()
+        document["types"]["ZoomPaneResult"]["fields"]["revision"] = _field(
+            {"kind": "scalar", "name": "string"}, required=False, constraints=[{"format": "decimal uint64"}])
+        files = rendered(document, read_bindings({"ZoomState": {
+            "type": "ZoomPaneResult", "fields": {"revision": {"type": "UInt64", "default": "0"}}}}))
+        self.assertIn(
+            "revision = (((try? container.decodeIfPresent(String.self, forKey: .revision)) ?? nil)"
+            ".flatMap { UInt64($0) } ?? ((try? container.decodeIfPresent(UInt64.self, forKey: .revision)) ?? nil))"
+            " ?? 0", files["Layout/ZoomState.generated.swift"])
 
     def test_when_reads_a_field_only_under_its_condition(self) -> None:
         files = rendered(bindings=read_bindings({"ZoomState": {

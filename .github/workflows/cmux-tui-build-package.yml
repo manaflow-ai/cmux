@@ -366,7 +366,7 @@ jobs:
       - name: Checkout caller or requested ref
         id: checkout
         continue-on-error: true
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           ref: ${{ inputs.checkout_ref }}
           persist-credentials: false
@@ -383,7 +383,7 @@ jobs:
 
       - name: Retry checkout caller or requested ref after a stalled fetch
         if: steps.checkout.outcome == 'failure'
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           ref: ${{ inputs.checkout_ref }}
           persist-credentials: false
@@ -499,12 +499,51 @@ jobs:
       - name: Give the pane builder its pinned Bun
         run: scripts/cmux-next/private-bun.sh
 
+      # The React Compiler's output for the pane bundle (CMUX_VITE_TRANSFORM_CACHE,
+      # scripts/agent-pane/reactCompilerPlugin.mjs). The Babel pass was 51 of the 60 s this step took
+      # on the x86_64 thin leg (job 140256154463); with the cache filled, the pane bundle took 11 s.
+      # Entries are keyed by each file's exact source, so an old cache is never wrong, only partly
+      # used. A 6-hour bucket: a feat-cmux-next push saves at most one copy a bucket, and every run
+      # restores the newest one for its lockfile. Best effort: a miss is the cold build every run had.
+      - name: Key the pane's React Compiler cache
+        id: pane-compiler-cache
+        continue-on-error: true
+        shell: bash
+        env:
+          LOCK: ${{ hashFiles('webviews/bun.lock') }}
+        run: |
+          prefix="agent-pane-compiler-v1-$LOCK-"
+          echo "prefix=$prefix" >> "$GITHUB_OUTPUT"
+          echo "key=$prefix$(( $(date +%s) / 21600 ))" >> "$GITHUB_OUTPUT"
+          echo "dir=$RUNNER_TEMP/agent-pane-compiler" >> "$GITHUB_OUTPUT"
+
+      - name: Restore the pane's React Compiler cache
+        id: pane-compiler-cache-restore
+        if: ${{ steps.pane-compiler-cache.outputs.key != '' }}
+        continue-on-error: true
+        timeout-minutes: 3
+        uses: ./.github/actions/cache-restore
+        with:
+          path: ${{ steps.pane-compiler-cache.outputs.dir }}
+          key: ${{ steps.pane-compiler-cache.outputs.key }}
+          restore-keys: ${{ steps.pane-compiler-cache.outputs.prefix }}
+
       - name: Build the production pane into the daemon package
         shell: bash
+        env:
+          CMUX_VITE_TRANSFORM_CACHE: ${{ steps.pane-compiler-cache.outputs.dir }}
         run: |
           pane="$RUNNER_TEMP/acpmux-agent-pane"
           scripts/cmux-next/build-agent-pane-web.sh --out "$pane"
           echo "ACPMUX_BUNDLED_APP_ASSETS_DIR=$pane" >> "$GITHUB_ENV"
+
+      - name: Save the pane's React Compiler cache
+        if: ${{ steps.pane-compiler-cache.outputs.key != '' && steps.pane-compiler-cache-restore.outputs.cache-hit != 'true' && github.event_name == 'push' && github.ref == 'refs/heads/feat-cmux-next' }}
+        continue-on-error: true
+        uses: ./.github/actions/cache-save
+        with:
+          path: ${{ steps.pane-compiler-cache.outputs.dir }}
+          key: ${{ steps.pane-compiler-cache.outputs.key }}
 
       - name: Set up pinned Rust
         uses: ./.github/actions/setup-cmux-tui-rust
@@ -1370,10 +1409,18 @@ jobs:
 
       # What this leg built on top of the dependency entry, packed before the strip below removes it;
       # every run prints its size, feat-cmux-next pushes save it. Why: docs/ci/cmux-next-workflow-notes/2026-11-26-cargo-target-delta.md
+      # On an exact dependency hit nothing after the pack reads cmux-tui/target (the strip and the
+      # dependency save run only on a miss), so the build tree goes once the pack has hard-linked what
+      # it keeps: the leg holds the delta, not the delta plus every group's unpacked output, while the
+      # delta's archive is written. Job 140250090793 (x86_64 musl, pool) ran the VM's disk to zero in
+      # the save below and the runner died writing its _diag log; r2-cache.sh now also skips a save
+      # without room for its archive.
       - name: Pack the workspace delta
         id: r2-cargo-ws-pack
         if: ${{ success() && steps.r2-cargo-ws-apply.outcome == 'success' }}
         continue-on-error: true
+        env:
+          TARGET_HIT: ${{ steps.r2-cargo-target.outputs.cache-hit }}
         shell: bash
         run: |
           set -euo pipefail
@@ -1381,6 +1428,11 @@ jobs:
           scripts/ci/cargo-target-delta.sh pack cmux-tui/target "$RUNNER_TEMP/cargo-delta.stamp" \
             "$RUNNER_TEMP/cargo-delta-out" "${{ matrix.target }}" | tee -a "$GITHUB_STEP_SUMMARY"
           echo "cargo delta: pack took $((SECONDS - start)) s" | tee -a "$GITHUB_STEP_SUMMARY"
+          before="$(df -Pk . | awk 'NR == 2 { print $4 }')"
+          if [[ "$TARGET_HIT" == true ]]; then rm -rf cmux-tui/target; fi
+          after="$(df -Pk . | awk 'NR == 2 { print $4 }')"
+          echo "cargo delta: $((before >> 20)) -> $((after >> 20)) GiB free after the pack (target hit: ${TARGET_HIT:-false})" \
+            | tee -a "$GITHUB_STEP_SUMMARY"
 
       - name: Save the workspace delta to R2
         if: ${{ success() && steps.r2-cargo-ws-pack.outcome == 'success' && github.ref == 'refs/heads/feat-cmux-next' && github.event_name != 'pull_request' }}
@@ -1417,7 +1469,7 @@ jobs:
           du -sh cmux-tui/target "$REGISTRY" | tee -a "$GITHUB_STEP_SUMMARY"
 
       - name: Save the cargo build to R2
-        if: ${{ success() && steps.r2-cargo-strip.outcome == 'success' }}
+        if: ${{ success() && github.event_name != 'pull_request' && (github.ref == 'refs/heads/feat-cmux-next' || github.ref == 'refs/heads/main') && steps.r2-cargo-strip.outcome == 'success' }}
         timeout-minutes: 6
         continue-on-error: true
         uses: ./.github/actions/cache-save
@@ -1447,7 +1499,7 @@ jobs:
           key: ${{ steps.r2-zig-local-key.outputs.key }}
 
       - name: Save the cargo registry to R2
-        if: ${{ success() && steps.r2-cargo-strip.outcome == 'success' && steps.r2-cargo-registry.outputs.cache-hit != 'true' }}
+        if: ${{ success() && github.event_name != 'pull_request' && (github.ref == 'refs/heads/feat-cmux-next' || github.ref == 'refs/heads/main') && steps.r2-cargo-strip.outcome == 'success' && steps.r2-cargo-registry.outputs.cache-hit != 'true' }}
         timeout-minutes: 6
         continue-on-error: true
         uses: ./.github/actions/cache-save
@@ -1499,7 +1551,7 @@ jobs:
       - name: Checkout caller or requested ref
         id: checkout
         continue-on-error: true
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           ref: ${{ inputs.checkout_ref }}
           persist-credentials: false
@@ -1516,7 +1568,7 @@ jobs:
 
       - name: Retry checkout caller or requested ref after a stalled fetch
         if: steps.checkout.outcome == 'failure'
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           ref: ${{ inputs.checkout_ref }}
           persist-credentials: false
@@ -1628,7 +1680,7 @@ jobs:
       contents: read
     steps:
       - name: Checkout caller or requested ref
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           ref: ${{ inputs.checkout_ref }}
           persist-credentials: false
@@ -1674,7 +1726,7 @@ jobs:
       contents: read
     steps:
       - name: Checkout caller or requested ref
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           ref: ${{ inputs.checkout_ref }}
           persist-credentials: false
@@ -1755,21 +1807,22 @@ jobs:
   # added to build-windows would lengthen the Windows leg, which ends every
   # tree publication. Optional (continue-on-error): a failure leaves only this
   # artifact out, never the Windows daemon; the package job does not need it.
+  # Built on Linux like cross-build-windows (scripts/ci/windows-gnu-cross-build.sh: the
+  # same reviewed MinGW runtime, clang and lld), and its --version check runs under Wine
+  # (scripts/ci/wine-smoke.sh acpmux), so it takes no Windows runner.
   build-windows-acpmux:
-    name: build acpmux x86_64-pc-windows-gnu
+    name: build acpmux x86_64-pc-windows-gnu (Linux)
     if: inputs.include_windows && inputs.windows_acpmux
     continue-on-error: true
-    runs-on: ${{ inputs.windows_runner || github.repository_owner != 'manaflow-ai' && 'windows-2025' || vars.WINDOWS_RUNNER || (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-windows-2025' || fromJSON(vars.RUNNER_POOLS).windows) }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || 'cmux-linux' }}
     timeout-minutes: 60
-    env:
-      CARGO_TARGET_X86_64_PC_WINDOWS_GNU_RUSTFLAGS: -C link-arg=-fuse-ld=lld
     permissions:
       contents: read
     steps:
       - name: Checkout caller or requested ref
         id: checkout
         continue-on-error: true
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           ref: ${{ inputs.checkout_ref }}
           persist-credentials: false
@@ -1786,43 +1839,36 @@ jobs:
 
       - name: Retry checkout caller or requested ref after a stalled fetch
         if: steps.checkout.outcome == 'failure'
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           ref: ${{ inputs.checkout_ref }}
           persist-credentials: false
+
+      - name: Install clang, lld, llvm and 7-Zip
+        run: bash scripts/ci/apt-ensure.sh clang libclang-dev lld llvm pkg-config p7zip-full
 
       - name: Set up pinned Rust
         uses: ./.github/actions/setup-cmux-tui-rust
 
       - name: Install Rust target
-        shell: bash
-        run: |
-          rustup target add x86_64-pc-windows-gnu
-          printf '%s\n' 'C:\msys64\mingw64\bin' >> "$GITHUB_PATH"
+        run: rustup target add x86_64-pc-windows-gnu
 
-      - name: Verify LLVM GNU linker
-        shell: bash
-        run: ld.lld --version
+      - name: Cache the reviewed MinGW-Builds sysroot
+        uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
+        with:
+          path: ${{ runner.temp }}/cmux-windows-gnu-sysroot
+          key: cmux-windows-gnu-sysroot-${{ hashFiles('cmux-tui/dist/notices/package-notices.json', 'scripts/ci/windows-gnu-cross-build.sh') }}
 
-      # The same reviewed MinGW toolchain as cmux-tui.exe (build-windows).
-      - name: Verify the reviewed Windows runtime toolchain
-        shell: bash
-        run: python cmux-tui/dist/scripts/package_notices.py check-windows-toolchain
+      # The script checks the sysroot (check-windows-sysroot) and the binary (check-windows-binary).
+      - name: Build acpmux (Windows GNU, on Linux)
+        run: bash scripts/ci/windows-gnu-cross-build.sh build-acpmux dist
 
-      - name: Build acpmux (Windows GNU)
-        working-directory: cmux-tui
-        shell: bash
-        run: cargo build -p acpmux --bin acpmux --release --locked --target x86_64-pc-windows-gnu
-
-      - name: Verify acpmux starts
-        shell: bash
-        run: cmux-tui/target/x86_64-pc-windows-gnu/release/acpmux.exe --version
+      - name: Verify acpmux starts (Wine)
+        run: bash scripts/ci/wine-smoke.sh acpmux dist dist
 
       - name: Stage binary
-        shell: bash
         run: |
-          mkdir -p dist
-          cp "cmux-tui/target/x86_64-pc-windows-gnu/release/acpmux.exe" "dist/cmux-tui-acpmux-x86_64-pc-windows-gnu.exe"
+          mv dist/acpmux-x86_64-pc-windows-gnu.exe dist/cmux-tui-acpmux-x86_64-pc-windows-gnu.exe
           ls -la dist
 
       - name: Upload binary artifact
@@ -1856,7 +1902,7 @@ jobs:
       - name: Checkout caller or requested ref
         id: checkout
         continue-on-error: true
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           ref: ${{ inputs.checkout_ref }}
           persist-credentials: false
@@ -1873,7 +1919,7 @@ jobs:
 
       - name: Retry checkout caller or requested ref after a stalled fetch
         if: steps.checkout.outcome == 'failure'
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           ref: ${{ inputs.checkout_ref }}
           persist-credentials: false
@@ -2160,7 +2206,7 @@ jobs:
       PYPI_VERSION: ${{ inputs.pypi_version != '' && inputs.pypi_version || inputs.version }}
     steps:
       - name: Checkout caller or requested ref
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           ref: ${{ inputs.checkout_ref }}
           persist-credentials: false
@@ -2229,7 +2275,7 @@ jobs:
       attestations: write
     steps:
       - name: Checkout caller or requested ref
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           ref: ${{ inputs.checkout_ref }}
           persist-credentials: false
