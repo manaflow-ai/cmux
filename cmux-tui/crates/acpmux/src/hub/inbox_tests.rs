@@ -527,6 +527,9 @@ async fn inbox_accepts_a_new_notice_while_configuration_is_being_written() {
     let blocks = [json!({"type": "text", "text": "command finished"})];
     let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel();
     let mut accept = |notice| tx.send(notice).unwrap();
+    // A caller that reads the reply and stays connected: its send waits past the acceptance
+    // (one that reads nothing ends once delivered, `inbox.rs`).
+    let (_connected, reader) = tokio::sync::watch::channel(false);
     let prompt = hub.inbox_accept(
         &session,
         &blocks,
@@ -538,7 +541,7 @@ async fn inbox_accepts_a_new_notice_while_configuration_is_being_written() {
         None,
         false,
         false,
-        None,
+        Some(reader),
         &mut accept,
     );
     tokio::pin!(prompt);

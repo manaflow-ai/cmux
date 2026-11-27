@@ -109,8 +109,9 @@ fn send_with(
 /// as before.
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn a_message_that_waited_for_the_machine_wakes_the_idle_chat() {
-    let wait_for_turn = |hub: Arc<Hub>, s: Arc<Session>| async move {
-        while hub.work_coming(&s.id) {
+    // A turn after the `before` ones ran and the chat is idle again.
+    let turn_ran = |hub: Arc<Hub>, s: Arc<Session>, before: usize| async move {
+        while turns(&hub, &s).len() <= before || hub.work_coming(&s.id) {
             tokio::time::sleep(Duration::from_millis(20)).await;
         }
     };
@@ -124,19 +125,25 @@ async fn a_message_that_waited_for_the_machine_wakes_the_idle_chat() {
     // After, by the link: a peer's outbox sent it again once the machine was back
     // (`_meta.acpmux.resend` on a peer link, which `requests.rs` stamps): it wakes the chat, and
     // the held one goes in with it.
+    let before = turns(&hub, &s).len();
     let resent = json!({crate::prompt_provenance::WAITED: true});
     let (again, accepted) = send_with(&hub, &s, "s-other", "p-resent", resent);
     let accepted = tokio::time::timeout(WAIT, accepted).await.unwrap().unwrap();
     assert_eq!(accepted["inbox"], true, "{accepted}");
     assert!(accepted.get(crate::cli::output::HELD_IN_INBOX).is_none(), "{accepted}");
+    // Neither caller reads the reply, so each send ends once delivered (`inbox.rs`); the turn
+    // that carries them is read from the chat.
     let done = tokio::time::timeout(WAIT, again).await.unwrap().unwrap().unwrap();
-    assert_eq!(done["stopReason"], "end_turn", "its turn ran: {done}");
+    assert_eq!(done["_meta"]["acpmux"]["status"], "delivered", "{done}");
     let done = tokio::time::timeout(WAIT, held).await.unwrap().unwrap().unwrap();
-    assert_eq!(done["stopReason"], "end_turn", "the held one went in with it: {done}");
-    tokio::time::timeout(WAIT, wait_for_turn(hub.clone(), s.clone())).await.unwrap();
+    assert_eq!(done["_meta"]["acpmux"]["status"], "delivered", "{done}");
+    tokio::time::timeout(WAIT, turn_ran(hub.clone(), s.clone(), before))
+        .await
+        .expect("the resent message woke the chat, and the held one went in with it");
 
     // After, by the ssh carry: the far daemon's relay record names the carry
     // (`prompt_provenance::SSH_CARRY_RELAY`), and the message wakes the chat as it comes in.
+    let before = turns(&hub, &s).len();
     let carried = json!({crate::prompt_provenance::FROM_RELAY: {
         "by": crate::prompt_provenance::SSH_CARRY_RELAY, "machine": "vm-1", "session": "s-other"}});
     let (sent, accepted) = send_with(&hub, &s, "s-other", "p-carried", carried);
@@ -144,8 +151,10 @@ async fn a_message_that_waited_for_the_machine_wakes_the_idle_chat() {
     assert_eq!(accepted["inbox"], true, "{accepted}");
     assert!(accepted.get(crate::cli::output::HELD_IN_INBOX).is_none(), "{accepted}");
     let done = tokio::time::timeout(WAIT, sent).await.unwrap().unwrap().unwrap();
-    assert_eq!(done["stopReason"], "end_turn", "its turn ran: {done}");
-    tokio::time::timeout(WAIT, wait_for_turn(hub.clone(), s.clone())).await.unwrap();
+    assert_eq!(done["_meta"]["acpmux"]["status"], "delivered", "{done}");
+    tokio::time::timeout(WAIT, turn_ran(hub.clone(), s.clone(), before))
+        .await
+        .expect("the carried message woke the chat");
 
     // Another relay's message (the lane-gh broker's) did not wait: held as before.
     let broker = json!({crate::prompt_provenance::FROM_RELAY: {
