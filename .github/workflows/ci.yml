@@ -309,6 +309,9 @@ jobs:
           # carries that run; one with reds reruns only what was not green (head_tier.py's full-ci base merge carry
           # rule); 0 turns that off.
           CI_FULL_CI_BASE_MERGE_CARRY: ${{ vars.CI_FULL_CI_BASE_MERGE_CARRY || '1' }}
+          # ready-to-land added again to a head whose land tier and every check already passed there runs nothing
+          # and keeps cmux/land-tier success (head_tier.py's same-head land carry rule); 0 turns that off.
+          CI_SAME_HEAD_LAND_CARRY: ${{ vars.CI_SAME_HEAD_LAND_CARRY || '1' }}
           # Heavy jobs run only on the event that hands a head to land (head_tier.py's heavy-at-land rule); 0 turns that off.
           CI_HEAVY_AT_LAND: ${{ vars.CI_HEAVY_AT_LAND || '1' }}
           # The previous head's Actions runs (actions: read), for that rule.
