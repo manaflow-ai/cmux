@@ -1,8 +1,8 @@
 {
   "cmuxSetup": 1,
   "id": "manaflow-ai/t3code-profile",
-  "name": "Thread workspace, keys and motion",
-  "description": "The thread workspace look with every feature look's settings, the app's keyboard flows (Command-K palette, Command-J terminal, Command-D diff, Shift-Command-M/E/A composer chords) and its instant panels.",
+  "name": "T3 Code",
+  "description": "Like T3 Code.",
   "version": "1.0.0",
   "license": "MIT",
   "screenshots": [

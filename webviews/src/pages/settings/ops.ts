@@ -1374,6 +1374,8 @@ export type Look = {
   tagline: string;
   repo: string;
   tags: string[];
+  /** Two or three plain words that sum it up ("Dark", "Compact"); absent from older CLIs. */
+  traits?: string[];
   /** Its `stack` row when installed, else null. */
   installed: LookLayer | null;
 };

@@ -15,9 +15,11 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { useState } from "react";
 import { componentEntry } from "../../../gallery/format";
 import type { LookPreview, LooksGallery } from "../ops";
+import type { LookDescriptions } from "../lookDescriptions";
 import type { LooksLayout } from "./LooksGalleryCard";
 
 type State =
+  | "shipped"
   | "catalog"
   | "loading"
   | "missing"
@@ -28,7 +30,7 @@ type State =
   | "refused"
   | "empty"
   | "unavailable";
-type Props = { layout: LooksLayout; state: State; scheme: "light" | "dark" };
+type Props = { layout: LooksLayout; state: State; scheme: "light" | "dark"; descriptions?: LookDescriptions };
 
 const REFUSAL = "github.com/manaflow-ai/cmux-paper-look did not answer: the network is offline";
 
@@ -36,8 +38,9 @@ async function load() {
   const { installCatalog } = await import("../strings");
   installCatalog((await import("../generated/strings.json")).default);
   const { LooksGalleryView } = await import("./LooksGalleryCard");
-  const { mockConsentCard, mockLooks, mockStackedLooks, previewLook } = await import("../mockLooks");
+  const { mockConsentCard, mockLooks, mockShippedLooks, mockStackedLooks, previewLook } = await import("../mockLooks");
   const galleries: Record<State, LooksGallery | null> = {
+    shipped: mockShippedLooks(),
     catalog: mockLooks(),
     loading: mockLooks(),
     missing: mockLooks(),
@@ -58,7 +61,7 @@ async function load() {
       const found = previewLook(id, scheme, state === "missing" ? ["manaflow-ai/newtab-threads-look"] : []);
       return "dataUrl" in found ? found : null;
     };
-  return function LooksGalleryLayouts({ layout, state, scheme }: Props) {
+  return function LooksGalleryLayouts({ layout, state, scheme, descriptions }: Props) {
     // A client per capture: the tiles' preview reads start fresh, so `loading` stays waiting.
     const [client] = useState(() => new QueryClient({ defaultOptions: { queries: { retry: false } } }));
     const gallery = galleries[state];
@@ -68,6 +71,7 @@ async function load() {
           <LooksGalleryView
             gallery={gallery}
             layout={layout}
+            descriptions={descriptions}
             scheme={scheme}
             loadPreview={answer(state)}
             busy={state === "installing" ? consent.setup.id : null}
@@ -92,6 +96,7 @@ const LAYOUTS: Record<LooksLayout, string> = {
   list: "One compact row per look with a small preview",
 };
 const STATES: Record<State, string> = {
+  shipped: "the shipped catalog: Codex, Claude Code, T3 Code and Paper",
   catalog: "the catalog, nothing installed, every preview drawn",
   loading: "previews still on their way: each tile holds its frame, so nothing moves when they land",
   missing: "New Tab Threads' repo has no preview image",
@@ -116,6 +121,23 @@ for (const layout of Object.keys(LAYOUTS) as LooksLayout[]) {
     note: `${LAYOUTS[layout]}; the catalog in light: each tile asks for its light golden sample.`,
     props: { layout, state: "catalog", scheme: "light" },
   };
+}
+
+// Look Descriptions (`experiments.lookDescriptions`), Leo 2026-11-27: "im not a fan of the
+// descriptions on our themes and whatnot". Shipped: `phrase`, one short plain phrase under each name.
+// `name` lets the preview speak alone; `tagged` adds two or three traits ("Dark · Compact").
+const DESCRIPTIONS: Record<LookDescriptions, string> = {
+  phrase: "Shipped: one short plain phrase under each name",
+  name: "Name and preview only, no description",
+  tagged: "The phrase plus a two or three word tag line",
+};
+for (const descriptions of Object.keys(DESCRIPTIONS) as LookDescriptions[]) {
+  for (const scheme of ["dark", "light"] as const) {
+    variants[`descriptions-${descriptions}-${scheme}`] = {
+      note: `Look Descriptions: ${DESCRIPTIONS[descriptions]}; the shipped catalog in ${scheme}.`,
+      props: { layout: "grid", state: "shipped", scheme, descriptions },
+    };
+  }
 }
 
 export default componentEntry<Props>({

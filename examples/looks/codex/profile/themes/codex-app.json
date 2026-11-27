@@ -3,7 +3,7 @@
 // (manaflow-ai/cmux#45804); edit and save, the window repaints at once.
 {
   "name": "Codex app",
-  "description": "A gray sidebar beside a white page, near-black text, big round corners, no borders.",
+  "description": "Gray sidebar, white page, round corners.",
 
   "appearance.theme": "Builtin Light",
   "colors": { "background": "#ffffff", "foreground": "#0d0d0d", "selection": "#e3e3e3", "cursor": "#0d0d0d", "accent": "#777777" },

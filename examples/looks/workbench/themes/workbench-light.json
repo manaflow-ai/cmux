@@ -3,7 +3,7 @@
 // deeper (#2f6fd6) so it still marks focus on white.
 {
   "name": "Workbench Light",
-  "description": "A cool neutral light: off-white, a deeper sidebar, blue-gray ink, one calm blue.",
+  "description": "Off-white with a calm blue.",
 
   "appearance.theme": "Builtin Light",
   // The window, sidebar and pages take that theme too, over an App Theme of your own.

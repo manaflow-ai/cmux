@@ -6,7 +6,7 @@
 // step lighter at #1b1b1b, the ink white at about 81%), with the same 6% and 9% washes.
 {
   "name": "Folio Dark",
-  "description": "A document workspace, Dark: a near-black page, soft ink, a quiet tree sidebar, blue links.",
+  "description": "Dark pages with blue links.",
 
   // The terminal follows the page; the window, sidebar and pages take this theme.
   "appearance.theme": "Builtin Dark",

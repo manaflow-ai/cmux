@@ -4,7 +4,7 @@
 // motion is a quick, slightly bouncy spring. Its twin is Prism (Light).
 {
   "name": "Prism Dark",
-  "description": "Dark: a deep indigo space-tinted frame holding the rows, a borderless near-black card inset in it, periwinkle accent.",
+  "description": "Deep indigo frame, dark card.",
 
   "appearance.theme": "Builtin Dark",
   "appearance.appTheme": "followTerminal",
