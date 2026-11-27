@@ -255,6 +255,7 @@ jobs:
     permissions:
       contents: read
       actions: read
+      id-token: write
 
   tip-test-compile:
     needs: plan
