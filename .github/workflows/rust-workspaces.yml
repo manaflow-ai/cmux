@@ -507,9 +507,6 @@ jobs:
           echo "tier=$tier"
           echo "tier=$tier" >> "$GITHUB_OUTPUT"
 
-      - name: Test the workspace check
-        run: python3 .github/scripts/test_rust_workspaces.py
-
       - name: Every Cargo workspace is listed
         run: python3 .github/scripts/rust-workspaces.py check
 
@@ -540,6 +537,30 @@ jobs:
           fi
           echo "sha=$BASE_SHA" >> "$GITHUB_OUTPUT"
 
+      # What a pull request's own diff (its merge commit against the base above) gives the two checks below to read.
+      # Measured 11-27 12:1xZ on 20 ready-to-land heads (lane/hm-artifact-card, circuit-host, org-arch-row11): plan
+      # took 63-67 s of the 2.1-2.7 min verdict, 23-32 s of it the lock check and 6-9 s the checker's own tests, on
+      # heads that changed no manifest and no checker file. A lock goes stale only through a manifest, a lock, a
+      # .cargo config or a toolchain pin, so a diff with none of them cannot fail it; the checker's tests only
+      # through the checker. Pushes, the post-merge batch, dispatches, a missing base or an unreadable diff run both.
+      - name: What this pull request changes
+        id: diff
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          BASE_SHA: ${{ steps.base.outputs.sha }}
+        run: |
+          locks=true checker=true
+          if [[ "$EVENT_NAME" == pull_request && -n "$BASE_SHA" ]] && changed=$(git diff --name-only "$BASE_SHA" HEAD); then
+            grep -qE '(^|/)(Cargo\.toml|Cargo\.lock|rust-toolchain(\.toml)?)$|(^|/)\.cargo/' <<<"$changed" || locks=false
+            grep -qxE '\.github/(scripts/(rust-workspaces|test_rust_workspaces)\.py|rust-workspaces\.toml)' <<<"$changed" || checker=false
+          fi
+          echo "locks=$locks checker=$checker"
+          { echo "locks=$locks"; echo "checker=$checker"; } >> "$GITHUB_OUTPUT"
+
+      - name: Test the workspace check
+        if: ${{ steps.diff.outputs.checker != 'false' }}
+        run: python3 .github/scripts/test_rust_workspaces.py
+
       # Seconds, no build: each tracked Cargo.lock resolves from the registry index (cargo update --workspace
       # --locked). A manifest change in one workspace can leave another workspace's lock stale through a path
       # dependency; eb4f3eb1d94 (a direct push) did that to cmux-app-ffi, and every pull request went red on
@@ -552,11 +573,11 @@ jobs:
       # --deadline: the whole check ends inside this job's timeout-minutes, with room for the setup and the plan
       # after it, so a slow resolve is reported as unchecked instead of the job being cut (cmux#41742 review F2).
       - name: Set up pinned Rust (lock check)
-        if: ${{ steps.tier.outputs.tier != 'none' }}
+        if: ${{ steps.tier.outputs.tier != 'none' && steps.diff.outputs.locks != 'false' }}
         uses: ./.github/actions/setup-cmux-tui-rust
 
       - name: Every Cargo.lock matches its manifests
-        if: ${{ steps.tier.outputs.tier != 'none' }}
+        if: ${{ steps.tier.outputs.tier != 'none' && steps.diff.outputs.locks != 'false' }}
         env:
           BASE_SHA: ${{ steps.base.outputs.sha }}
         run: |
