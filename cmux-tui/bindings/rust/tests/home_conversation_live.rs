@@ -202,6 +202,7 @@ fn home_and_conversation_results_live_daemon() {
             agent_session: Optional::Missing,
             cols: Optional::Missing,
             conversation: Optional::Value(id.clone()),
+            dock: Optional::Missing,
             mutation_id: Optional::Value("live-tab".into()),
             origin: Optional::Value("sdk-live".into()),
             owner: Optional::Value("local".into()),
@@ -212,6 +213,7 @@ fn home_and_conversation_results_live_daemon() {
             rows: Optional::Missing,
             split: Optional::Missing,
             transaction: Optional::Missing,
+            width: Optional::Missing,
             workspace: Optional::Value(raw_home),
         })
         .unwrap();
