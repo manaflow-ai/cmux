@@ -333,8 +333,33 @@ pub fn record_paint(
     Ok(summary)
 }
 
-/// How long a paint summary waits for room in the phone's channel queue before it is dropped.
+/// How long an answer (a clock probe's or a paint summary's) waits for room in the
+/// phone's channel queue before it is dropped.
 pub const PAINT_ANSWER_WAIT: std::time::Duration = std::time::Duration::from_millis(250);
+
+/// What became of one answer to the phone.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Answered {
+    Sent,
+    /// The phone closed the channel.
+    Closed,
+    /// The phone's queue stayed full for the whole wait (a stalled link): dropped.
+    Full,
+}
+
+/// Awaits `send` for at most `wait`. Every answer on this channel is advisory (an
+/// offset sample or an overlay line), so a stalled phone costs one answer, never the
+/// read loop: the next probe or pan line is read either way.
+pub async fn answer_within<E>(
+    wait: std::time::Duration,
+    send: impl std::future::Future<Output = Result<(), E>>,
+) -> Answered {
+    match tokio::time::timeout(wait, send).await {
+        Ok(Ok(())) => Answered::Sent,
+        Ok(Err(_)) => Answered::Closed,
+        Err(_) => Answered::Full,
+    }
+}
 
 /// The `phone-frames` service: reads pan lines until the phone closes or [`MAX_PANS`] came.
 pub async fn serve(
@@ -369,8 +394,14 @@ pub async fn serve_on(
                         clocks += 1;
                         let t1 = cmux_mobile_link::frame::epoch_us() as f64 / 1000.0;
                         let answer = crate::paint_latency::clock_answer(t0, t1);
-                        if sender.send(bytes::Bytes::from(answer)).await.is_err() {
-                            return Ok(());
+                        let answer = sender.send(bytes::Bytes::from(answer));
+                        match answer_within(PAINT_ANSWER_WAIT, answer).await {
+                            Answered::Sent => {}
+                            Answered::Closed => return Ok(()),
+                            // The phone takes its offset from the probes that came back.
+                            Answered::Full => {
+                                tracing::info!(phone, "clock answer not sent: phone queue full")
+                            }
                         }
                     }
                     Some(Line::Clock(_)) => {}
@@ -382,7 +413,7 @@ pub async fn serve_on(
                         // keep reading the next probe or pan line, not wait on the phone.
                         Ok(summary) => {
                             let answer = sender.send(bytes::Bytes::from(summary.answer()));
-                            if tokio::time::timeout(PAINT_ANSWER_WAIT, answer).await.is_err() {
+                            if answer_within(PAINT_ANSWER_WAIT, answer).await == Answered::Full {
                                 tracing::info!(phone, "paint summary not sent: phone queue full");
                             }
                         }
@@ -417,6 +448,22 @@ mod tests {
             rtt_ms: None,
             painted: None,
         }
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn a_full_phone_queue_drops_the_answer_at_the_bound() {
+        let started = tokio::time::Instant::now();
+        let never = std::future::pending::<Result<(), ()>>();
+        assert_eq!(answer_within(PAINT_ANSWER_WAIT, never).await, Answered::Full);
+        assert_eq!(started.elapsed(), PAINT_ANSWER_WAIT);
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn a_sent_or_closed_answer_returns_at_once() {
+        let started = tokio::time::Instant::now();
+        assert_eq!(answer_within(PAINT_ANSWER_WAIT, async { Ok::<(), ()>(()) }).await, Answered::Sent);
+        assert_eq!(answer_within(PAINT_ANSWER_WAIT, async { Err::<(), ()>(()) }).await, Answered::Closed);
+        assert_eq!(started.elapsed(), std::time::Duration::ZERO);
     }
 
     #[test]
