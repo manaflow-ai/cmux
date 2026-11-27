@@ -40,8 +40,8 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - leg: marks
-            ref: 3b85dd5ae9bba973ecd94832d955d87ef4a03d71
+          - leg: fix
+            ref: f9479d65b983c0fd7afb703a6d3468df02821c82
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
