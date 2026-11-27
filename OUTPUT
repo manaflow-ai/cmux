@@ -1,0 +1,157 @@
+ci-step local-gcp-agent-lane-10.us-west1-c.c.manaflow-437420.internal-29925316-1-326245500f27: scripts/ci/package-test-lane.sh suite Packages/macOS/CmuxNext CmuxNextAppTests.GooeyTabsSettingTests,CmuxNextAppTests.CornerFlushSettingTests,CmuxNextAppTests.TitleAreaContrastTests at 3b9a6dadf79917b91cad0a993d68bd50e4edd4c2: exit 1
+==> same-tree cmux-tui: source=published fallback_seconds=0 total_seconds=13
+446 |     private func recordFailure(_ key: WorkspaceKey, _ error: Error) {
+456 |     private func finishPopulating(_ key: WorkspaceKey, succeeded: Bool, error: Error? = nil) {
+446 |     private func recordFailure(_ key: WorkspaceKey, _ error: Error) {
+456 |     private func finishPopulating(_ key: WorkspaceKey, succeeded: Bool, error: Error? = nil) {
+145 |     static func interrupted(_ error: Error) -> Bool {
+145 |     static func interrupted(_ error: Error) -> Bool {
+145 |     static func interrupted(_ error: Error) -> Bool {
+145 |     static func interrupted(_ error: Error) -> Bool {
+145 |     static func interrupted(_ error: Error) -> Bool {
+145 |     static func interrupted(_ error: Error) -> Bool {
+145 |     static func interrupted(_ error: Error) -> Bool {
+145 |     static func interrupted(_ error: Error) -> Bool {
+145 |     static func interrupted(_ error: Error) -> Bool {
+145 |     static func interrupted(_ error: Error) -> Bool {
+145 |     static func interrupted(_ error: Error) -> Bool {
+145 |     static func interrupted(_ error: Error) -> Bool {
+145 |     static func interrupted(_ error: Error) -> Bool {
+145 |     static func interrupted(_ error: Error) -> Bool {
+145 |     static func interrupted(_ error: Error) -> Bool {
+145 |     static func interrupted(_ error: Error) -> Bool {
+145 |     static func interrupted(_ error: Error) -> Bool {
+145 |     static func interrupted(_ error: Error) -> Bool {
+145 |     static func interrupted(_ error: Error) -> Bool {
+145 |     static func interrupted(_ error: Error) -> Bool {
+145 |     static func interrupted(_ error: Error) -> Bool {
+145 |     static func interrupted(_ error: Error) -> Bool {
+145 |     static func interrupted(_ error: Error) -> Bool {
+145 |     static func interrupted(_ error: Error) -> Bool {
+145 |     static func interrupted(_ error: Error) -> Bool {
+ 36 |     static func newWorkspaceFailed(_ name: String, _ error: Error) -> String {
+120 | private nonisolated func controlError(_ error: Error) -> ControlError {
+310 |     nonisolated static func message(for error: Error) -> String {
+82 |     private static func reason(_ error: any Error) -> String {
+82 |     private static func reason(_ error: any Error) -> String {
+82 |     private static func reason(_ error: any Error) -> String {
+82 |     private static func reason(_ error: any Error) -> String {
+82 |     private static func reason(_ error: any Error) -> String {
+82 |     private static func reason(_ error: any Error) -> String {
+82 |     private static func reason(_ error: any Error) -> String {
+82 |     private static func reason(_ error: any Error) -> String {
+82 |     private static func reason(_ error: any Error) -> String {
+82 |     private static func reason(_ error: any Error) -> String {
+82 |     private static func reason(_ error: any Error) -> String {
+82 |     private static func reason(_ error: any Error) -> String {
+82 |     private static func reason(_ error: any Error) -> String {
+82 |     private static func reason(_ error: any Error) -> String {
+82 |     private static func reason(_ error: any Error) -> String {
+82 |     private static func reason(_ error: any Error) -> String {
+82 |     private static func reason(_ error: any Error) -> String {
+82 |     private static func reason(_ error: any Error) -> String {
+82 |     private static func reason(_ error: any Error) -> String {
+82 |     private static func reason(_ error: any Error) -> String {
+82 |     private static func reason(_ error: any Error) -> String {
+82 |     private static func reason(_ error: any Error) -> String {
+82 |     private static func reason(_ error: any Error) -> String {
+82 |     private static func reason(_ error: any Error) -> String {
+82 |     private static func reason(_ error: any Error) -> String {
+ 36 |     static func newWorkspaceFailed(_ name: String, _ error: Error) -> String {
+ 36 |     static func newWorkspaceFailed(_ name: String, _ error: Error) -> String {
+ 36 |     static func newWorkspaceFailed(_ name: String, _ error: Error) -> String {
+ 36 |     static func newWorkspaceFailed(_ name: String, _ error: Error) -> String {
+ 36 |     static func newWorkspaceFailed(_ name: String, _ error: Error) -> String {
+ 36 |     static func newWorkspaceFailed(_ name: String, _ error: Error) -> String {
+ 36 |     static func newWorkspaceFailed(_ name: String, _ error: Error) -> String {
+ 36 |     static func newWorkspaceFailed(_ name: String, _ error: Error) -> String {
+ 36 |     static func newWorkspaceFailed(_ name: String, _ error: Error) -> String {
+ 36 |     static func newWorkspaceFailed(_ name: String, _ error: Error) -> String {
+ 36 |     static func newWorkspaceFailed(_ name: String, _ error: Error) -> String {
+ 36 |     static func newWorkspaceFailed(_ name: String, _ error: Error) -> String {
+ 36 |     static func newWorkspaceFailed(_ name: String, _ error: Error) -> String {
+ 36 |     static func newWorkspaceFailed(_ name: String, _ error: Error) -> String {
+ 36 |     static func newWorkspaceFailed(_ name: String, _ error: Error) -> String {
+ 36 |     static func newWorkspaceFailed(_ name: String, _ error: Error) -> String {
+ 36 |     static func newWorkspaceFailed(_ name: String, _ error: Error) -> String {
+ 36 |     static func newWorkspaceFailed(_ name: String, _ error: Error) -> String {
+ 36 |     static func newWorkspaceFailed(_ name: String, _ error: Error) -> String {
+ 36 |     static func newWorkspaceFailed(_ name: String, _ error: Error) -> String {
+ 36 |     static func newWorkspaceFailed(_ name: String, _ error: Error) -> String {
+ 36 |     static func newWorkspaceFailed(_ name: String, _ error: Error) -> String {
+ 36 |     static func newWorkspaceFailed(_ name: String, _ error: Error) -> String {
+ 36 |     static func newWorkspaceFailed(_ name: String, _ error: Error) -> String {
+120 | private nonisolated func controlError(_ error: Error) -> ControlError {
+310 |     nonisolated static func message(for error: Error) -> String {
+120 | private nonisolated func controlError(_ error: Error) -> ControlError {
+310 |     nonisolated static func message(for error: Error) -> String {
+120 | private nonisolated func controlError(_ error: Error) -> ControlError {
+310 |     nonisolated static func message(for error: Error) -> String {
+120 | private nonisolated func controlError(_ error: Error) -> ControlError {
+310 |     nonisolated static func message(for error: Error) -> String {
+120 | private nonisolated func controlError(_ error: Error) -> ControlError {
+310 |     nonisolated static func message(for error: Error) -> String {
+120 | private nonisolated func controlError(_ error: Error) -> ControlError {
+310 |     nonisolated static func message(for error: Error) -> String {
+120 | private nonisolated func controlError(_ error: Error) -> ControlError {
+310 |     nonisolated static func message(for error: Error) -> String {
+120 | private nonisolated func controlError(_ error: Error) -> ControlError {
+310 |     nonisolated static func message(for error: Error) -> String {
+120 | private nonisolated func controlError(_ error: Error) -> ControlError {
+310 |     nonisolated static func message(for error: Error) -> String {
+120 | private nonisolated func controlError(_ error: Error) -> ControlError {
+310 |     nonisolated static func message(for error: Error) -> String {
+120 | private nonisolated func controlError(_ error: Error) -> ControlError {
+310 |     nonisolated static func message(for error: Error) -> String {
+120 | private nonisolated func controlError(_ error: Error) -> ControlError {
+310 |     nonisolated static func message(for error: Error) -> String {
+120 | private nonisolated func controlError(_ error: Error) -> ControlError {
+310 |     nonisolated static func message(for error: Error) -> String {
+120 | private nonisolated func controlError(_ error: Error) -> ControlError {
+310 |     nonisolated static func message(for error: Error) -> String {
+120 | private nonisolated func controlError(_ error: Error) -> ControlError {
+310 |     nonisolated static func message(for error: Error) -> String {
+120 | private nonisolated func controlError(_ error: Error) -> ControlError {
+310 |     nonisolated static func message(for error: Error) -> String {
+120 | private nonisolated func controlError(_ error: Error) -> ControlError {
+310 |     nonisolated static func message(for error: Error) -> String {
+120 | private nonisolated func controlError(_ error: Error) -> ControlError {
+310 |     nonisolated static func message(for error: Error) -> String {
+120 | private nonisolated func controlError(_ error: Error) -> ControlError {
+310 |     nonisolated static func message(for error: Error) -> String {
+120 | private nonisolated func controlError(_ error: Error) -> ControlError {
+310 |     nonisolated static func message(for error: Error) -> String {
+120 | private nonisolated func controlError(_ error: Error) -> ControlError {
+310 |     nonisolated static func message(for error: Error) -> String {
+120 | private nonisolated func controlError(_ error: Error) -> ControlError {
+310 |     nonisolated static func message(for error: Error) -> String {
+120 | private nonisolated func controlError(_ error: Error) -> ControlError {
+310 |     nonisolated static func message(for error: Error) -> String {
+120 | private nonisolated func controlError(_ error: Error) -> ControlError {
+310 |     nonisolated static func message(for error: Error) -> String {
+	 Executed 0 tests, with 0 failures (0 unexpected) in 0.000 (0.000) seconds
+	 Executed 0 tests, with 0 failures (0 unexpected) in 0.000 (0.001) seconds
+✔ Test run with 7 tests in 1 suite passed after 0.055 seconds.
+	 Executed 0 tests, with 0 failures (0 unexpected) in 0.000 (0.000) seconds
+	 Executed 0 tests, with 0 failures (0 unexpected) in 0.000 (0.001) seconds
+✔ Test run with 5 tests in 1 suite passed after 0.044 seconds.
+	 Executed 0 tests, with 0 failures (0 unexpected) in 0.000 (0.000) seconds
+	 Executed 0 tests, with 0 failures (0 unexpected) in 0.000 (0.001) seconds
+✘ Test oneColorMovesTheShadeDividerAndTabTogether(isDark:) recorded an issue with 1 argument isDark → true at TitleAreaContrastTests.swift:211:13: Expectation failed: (Metrics.mainPaneChromeShade(isDark: isDark) → 0.07) == (0 → 0.0)
+✘ Test oneColorMovesTheShadeDividerAndTabTogether(isDark:) recorded an issue with 1 argument isDark → true at TitleAreaContrastTests.swift:212:13: Expectation failed: (Metrics.tabRowDividerStrength → 0.75) == (1 → 1.0)
+✘ Test oneColorMovesTheShadeDividerAndTabTogether(isDark:) recorded an issue with 1 argument isDark → true at TitleAreaContrastTests.swift:213:13: Expectation failed: (Palette.folderTabFill → sRGB IEC61966-2.1 colorspace 0.156863 0.172549 0.203922 1) == nil
+✘ Test oneColorMovesTheShadeDividerAndTabTogether(isDark:) recorded an issue with 1 argument isDark → false at TitleAreaContrastTests.swift:211:13: Expectation failed: (Metrics.mainPaneChromeShade(isDark: isDark) → 0.01125) == (0 → 0.0)
+✘ Test oneColorMovesTheShadeDividerAndTabTogether(isDark:) recorded an issue with 1 argument isDark → false at TitleAreaContrastTests.swift:212:13: Expectation failed: (Metrics.tabRowDividerStrength → 0.75) == (1 → 1.0)
+✘ Test oneColorMovesTheShadeDividerAndTabTogether(isDark:) recorded an issue with 1 argument isDark → false at TitleAreaContrastTests.swift:213:13: Expectation failed: (Palette.folderTabFill → sRGB IEC61966-2.1 colorspace 0.156863 0.172549 0.203922 1) == nil
+✘ Test oneColorMovesTheShadeDividerAndTabTogether(isDark:) with 2 test cases failed after 0.003 seconds with 6 issues.
+✘ Test oneColorKeepsAClearDividerFromTheSeparatorToken() recorded an issue at TitleAreaContrastTests.swift:236:33: Expectation failed: (Metrics.tabRowDividerStrength → 0.5) == (1 → 1.0)
+✘ Test oneColorKeepsAClearDividerFromTheSeparatorToken() recorded an issue at TitleAreaContrastTests.swift:238:13: Expectation failed: (Metrics.mainPaneChromeShade(isDark: true) == 0 → false) && (Metrics.mainPaneChromeShade(isDark: false) == 0 → <not evaluated>)
+✘ Test oneColorKeepsAClearDividerFromTheSeparatorToken() failed after 0.001 seconds with 2 issues.
+✘ Suite TitleAreaContrastTests failed after 0.060 seconds with 8 issues.
+✘ Test run with 14 tests in 1 suite failed after 0.061 seconds with 8 issues.
+::error title=Swift suite failed::CmuxNextAppTests.TitleAreaContrastTests in Packages/macOS/CmuxNext: failed (exit 1) after 4s
+CmuxNextAppTests.GooeyTabsSettingTests           passed                       22s
+CmuxNextAppTests.CornerFlushSettingTests         passed                        7s
+CmuxNextAppTests.TitleAreaContrastTests          failed (exit 1)               4s
+1 of 3 suites failed or gave no result.
+ci-step local-gcp-agent-lane-10.us-west1-c.c.manaflow-437420.internal-29925316-1-326245500f27 exited 1
