@@ -44,6 +44,16 @@ struct PaletteScopeChipFirstFrameTests {
         #expect(!Self.drawnChips(palette).isEmpty, "the pill was not in the panel when it was ordered front")
     }
 
+    /// Cmd-Shift-A (Search, "prob similar with other things like cmd shift A"): its chip is drawn in the open's turn.
+    @Test func cmdShiftADrawsTheSearchChipInThePanelsFirstFrame() throws {
+        let palette = Self.palette()
+        defer { palette.closeForTest() }
+        #expect(palette.registry.perform("search.chats"))
+        #expect(palette.isVisible)
+        try #require(!palette.model.fieldScopeChips.isEmpty, "the Search page has a scope chip to draw")
+        #expect(!Self.drawnChips(palette).isEmpty, "the Search pill was not in the panel when it was ordered front")
+    }
+
     /// Already open on another page: switching to the Workspaces scope draws its chip in the same turn too.
     @Test func switchingPagesWhileOpenDrawsTheChipInTheSameTurn() throws {
         let palette = Self.palette()
