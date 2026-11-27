@@ -203,9 +203,12 @@ export function createFrameBudget(chat: Element, clock?: Clock): FrameBudget {
     },
   };
   // The rest is a deadline that may run up to a heartbeat late: on the page's shared timer it rides a
-  // beat instead of waking a chat at rest by itself (slackTimers.ts).
+  // beat instead of waking a chat at rest by itself, and it runs on the beat that rests the page, since a
+  // page with no input and no frame loop has done no work to miss (slackTimers.ts).
   const timers = view ? slackTimersFor(view) : undefined;
-  const later = clock?.later ?? ((callback: () => void, ms: number) => timers?.later(callback, ms) ?? -1);
+  const later =
+    clock?.later ??
+    ((callback: () => void, ms: number) => timers?.later(callback, ms, undefined, { atRest: true }) ?? -1);
   const cancelLater = clock?.cancelLater ?? ((handle: number) => timers?.cancel(handle));
   const state = new FrameBudgetState();
   let handle: number | undefined;

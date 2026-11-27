@@ -17,7 +17,7 @@ import "./guest.css";
 import { type FormEvent, useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 import { AvatarContext } from "../../pages/home-channels/avatars";
 import { useAutoRetry } from "../acpmux/autoRetry";
-import { useLasting } from "../../ui/lasting";
+import { useQuietConnect, useLasting } from "../../ui/lasting";
 import { useT } from "../acpmux/i18n";
 import type { AcpmuxSnapshot } from "../acpmux/model";
 import type { GuestFeed } from "./GuestTranscript";
@@ -496,6 +496,10 @@ export function LiveChat({
   const [chat, setChat] = useState<GuestChat>({});
   const [people, setPeople] = useState<GuestParticipant[]>([]);
   const [connection, setConnection] = useState<GuestConnection>("connecting");
+  // Connecting and reconnecting heal on their own and offer nothing to do: the line waits out the
+  // shared bound (ui/lasting.ts `CONNECTION_QUIET_MS`, with Quiet Connections on), so a join or a blip that lands under it
+  // says nothing (Leo, 2026-11-14: "i also want all our connectivity stuff to shut up").
+  const linkDownLasting = useQuietConnect(connection !== "live");
   const [hasMore, setHasMore] = useState(false);
   const [expanded, setExpanded] = useState(() => new Set<string>());
   const socket = useRef<ShareSocket | undefined>(undefined);
@@ -687,7 +691,7 @@ export function LiveChat({
           )}
           {loadFailed
             ? stillLoading && <output className="guest-live__notice">{t("guest.live.stillLoading")}</output>
-            : connection !== "live" && (
+            : linkDownLasting && (
                 <output className="guest-live__notice">
                   {t(connection === "connecting" ? "guest.live.connecting" : "guest.live.reconnecting")}
                 </output>

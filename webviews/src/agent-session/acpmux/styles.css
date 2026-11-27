@@ -431,14 +431,16 @@
    gives up its floor, so the composer is the same size and in the same place loading as open: a second
    max-height here clamped a tall draft 32 px shorter (and 32 px lower) while the chat connected, and the
    stage's floor pushed the dock past the pane's bottom in a short pane (Leo, 2026-11-24: "we need to have
-   more things decoupled from posisble shifts"; test/agent-pane-composer-anchored-above.test.ts). */
-.acpmux-main[data-dock="float"]:has(>.acpmux-stage>.acpmux-unavailable[data-unavailable="connecting"])>.acpmux-dock{position:relative;flex:none}
-.acpmux-main[data-dock="float"]:has(>.acpmux-stage>.acpmux-unavailable[data-unavailable="connecting"])>.acpmux-stage{min-height:0}
+   more things decoupled from posisble shifts"; test/agent-pane-composer-anchored-above.test.ts).
+   `data-connecting` is set while the loading area is up (ChatUnavailableState.tsx `ConnectingArea`), not
+   a `:has()` over the pane, which restyled the whole pane for every node inserted under it. */
+.acpmux-main[data-dock="float"][data-connecting]>.acpmux-dock{position:relative;flex:none}
+.acpmux-main[data-dock="float"][data-connecting]>.acpmux-stage{min-height:0}
 /* Its notices (noticeSlotModel.ts DOCK_NOTICE) take none of that height: in flow they shrank the stage, so
    the spinner and its words moved up as one came (a reload's connect, PaneBoundary's Try again) and down as
    it went. They lie over the stage's empty foot instead, just above the stack (Leo, 2026-11-22: "that
    message should not shift layout"); test/agent-pane-chat-unavailable.test.ts measures it. */
-.acpmux-main[data-dock="float"]:has(>.acpmux-stage>.acpmux-unavailable[data-unavailable="connecting"])>.acpmux-dock>:is(.acpmux-host-line,.acpmux-host-line-group,.acpmux-host-error,.acpmux-switch-notice,.ui-notice,.acpmux-dictation-notice,.acpmux-managed-banner,.acpmux-composer-remote-note){position:absolute;left:0;right:0;bottom:100%;z-index:var(--layer-raised,1)}
+.acpmux-main[data-dock="float"][data-connecting]>.acpmux-dock>:is(.acpmux-host-line,.acpmux-host-line-group,.acpmux-host-error,.acpmux-switch-notice,.ui-notice,.acpmux-dictation-notice,.acpmux-managed-banner,.acpmux-composer-remote-note){position:absolute;left:0;right:0;bottom:100%;z-index:var(--layer-raised,1)}
 /* Equal upper/lower tracks keep the spinner centered. Its 28px square needs 40px while rotating.
    Copy stretches to its track instead of overflowing an intrinsically sized, centered grid item. */
 .acpmux-unavailable[data-unavailable="connecting"]{display:grid;grid-template-columns:minmax(0,1fr);grid-template-rows:minmax(0,1fr) 40px minmax(0,1fr);gap:8px;padding-bottom:0}
@@ -1253,3 +1255,7 @@ fieldset.acpmux-permission-card:focus:not(:focus-visible) {
 
 /* A built-in tool's full-color picture (toolMentions.ts `image`) in a menu row or a badge. */
 .acpmux-tool-image{display:block;flex:none;object-fit:contain}
+/* Extension context chips (composer/ExtensionChips.tsx): a quiet row over the prompt, drawn only when an installed extension offers one. */
+.acpmux-extension-chips{display:flex;flex-wrap:wrap;gap:var(--grid-half-step);padding:0 var(--grid-composer-inset) var(--grid-half-step)}
+.acpmux-extension-chip{border:1px solid var(--acpmux-composer-edge);border-radius:999px;background:transparent;color:var(--agent-muted);font:inherit;font-size:var(--text-detail);line-height:var(--text-detail--line-height);padding:0 var(--grid-gap);cursor:default}
+.acpmux-extension-chip:hover{color:var(--agent-text)}

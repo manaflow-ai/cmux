@@ -592,7 +592,11 @@ class WorkflowTests(unittest.TestCase):
                 resume = "nightly_next_unsigned_run != ''" in str(steps[i].get("if", ""))
                 # gh_app_token.sh installs first so this wrapper wraps it (tests/test_gh_app_token.py).
                 app_token = "gh_app_token.sh --install" in str(steps[i].get("run", ""))
-                self.assertTrue(steps[i].get("id") in ("reuse", "nightly-product") or resume or app_token, (name, steps[i].get("name")))
+                # ensure-gh.sh puts the gh this wrapper wraps on PATH, so it must come first; its one
+                # pinned release download sends the job token (GH_PIN_TOKEN, #58418: Macs 403 anonymous).
+                ensure_gh = steps[i].get("run") == "bash scripts/ci/nightly-steps/ensure-gh.sh"
+                self.assertTrue(steps[i].get("id") in ("reuse", "nightly-product") or resume or app_token or ensure_gh,
+                                (name, steps[i].get("name")))
 
     def test_no_new_publish_path_step_reads_github_on_the_shared_token_alone(self) -> None:
         new = [pair for pair in shared_token_only_steps(self.jobs) if pair not in SHARED_TOKEN_ONLY]

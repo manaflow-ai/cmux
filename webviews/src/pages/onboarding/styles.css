@@ -1676,7 +1676,7 @@ img.onb-make-tile-image {
   align-self: flex-end;
   width: 55%;
   height: calc(4 * var(--w-u));
-  border-radius: 4px;
+  border-radius: var(--ds-radius-sm);
   background: color-mix(in srgb, var(--ds-color-fg) 14%, transparent);
 }
 .onb-make-composer {
@@ -1684,7 +1684,7 @@ img.onb-make-tile-image {
   height: calc(5 * var(--w-u));
   margin-top: auto;
   border: 1px solid color-mix(in srgb, var(--ds-color-fg) 18%, transparent);
-  border-radius: 4px;
+  border-radius: var(--ds-radius-sm);
 }
 .onb-make-block {
   flex: none;

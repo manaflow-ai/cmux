@@ -36,6 +36,28 @@ Each one is in the Theme File list by name. Your own file with the same name win
 | `miku` | Miku teal on sea-green glass, a teal cursor and pink accents, five public-domain teal paintings through the day; shuffles your own pictures once you name their folder | `colors.cursor`, `appearance.background: "schedule"`, `appearance.backgroundSchedule`, `appearance.backgroundBlur: "glass"` |
 | `minimal-sessions` | Only the sidebar: one line per session, its status first, then its name; your colors stay | `sidebar.workspaceRow.statusPlacement: "leading"`, `appearance.statusIndicator.iconSet`, `sidebar.detailedStatusIcons`, every `sidebar.workspaceRow.*` element off but `working` and `progress` (the spinners), `sidebar.showColors: false` |
 
+## One look for light and dark
+
+Name a light and a dark terminal theme in `appearance.theme`, then give `colors` a `"light"` and a
+`"dark"` half. The plain colors paint both sides, and each half paints only its own side, over them:
+
+```jsonc
+{
+  "appearance.theme": "light:Rose Pine Dawn,dark:Rose Pine",
+  "colors": {
+    "accent": "#907aa9",                                  // both sides
+    "light": { "background": "#faf4ed", "foreground": "#575279" },
+    "dark": { "background": "#191724", "foreground": "#e0def4" }
+  }
+}
+```
+
+A half takes the same colors as `colors` (`background`, `foreground`, `cursor`, `selection`, `accent`,
+`0` to `15`, `palette`). With one theme for both appearances (`"appearance.theme": "Nord"`) there are
+no sides, so cmux drops the halves, names them, and applies the plain colors. A cmux from before
+this change drops `colors.light` and `colors.dark` the same way, naming each, and shows the plain
+colors on both sides, so keep the colors the two sides share outside the halves.
+
 ## What a theme file can and can't change
 
 A theme file is a pit of success: it can only set how cmux looks, never what it does.

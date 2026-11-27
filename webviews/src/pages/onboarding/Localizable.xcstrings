@@ -5663,27 +5663,132 @@
     "onboarding.computerUse.done.line": {
       "extractionState": "manual",
       "localizations": {
-        "en": {"stringUnit": {"state": "translated", "value": "Setup is complete. You can now ask agents to use apps on your Mac."}},
-        "ar": {"stringUnit": {"state": "translated", "value": "اكتمل الإعداد. يمكنك الآن أن تطلب من الوكلاء استخدام التطبيقات على جهاز Mac."}},
-        "bs": {"stringUnit": {"state": "translated", "value": "Postavljanje je završeno. Sada možete tražiti od agenata da koriste aplikacije na vašem Macu."}},
-        "da": {"stringUnit": {"state": "translated", "value": "Opsætningen er færdig. Nu kan du bede agenter om at bruge apps på din Mac."}},
-        "de": {"stringUnit": {"state": "translated", "value": "Die Einrichtung ist abgeschlossen. Du kannst Agents jetzt bitten, Apps auf deinem Mac zu nutzen."}},
-        "es": {"stringUnit": {"state": "translated", "value": "La configuración ha terminado. Ahora puedes pedir a los agentes que usen apps en tu Mac."}},
-        "fr": {"stringUnit": {"state": "translated", "value": "La configuration est terminée. Vous pouvez maintenant demander aux agents d’utiliser des apps sur votre Mac."}},
-        "it": {"stringUnit": {"state": "translated", "value": "La configurazione è completa. Ora puoi chiedere agli agenti di usare le app sul tuo Mac."}},
-        "ja": {"stringUnit": {"state": "translated", "value": "設定が完了しました。エージェントに Mac のアプリを使うよう頼めるようになりました。"}},
-        "km": {"stringUnit": {"state": "translated", "value": "ការរៀបចំបានបញ្ចប់។ ឥឡូវនេះ អ្នកអាចស្នើឱ្យភ្នាក់ងារប្រើកម្មវិធីនៅលើ Mac របស់អ្នក។"}},
-        "ko": {"stringUnit": {"state": "translated", "value": "설정이 완료되었습니다. 이제 에이전트에게 Mac의 앱을 사용하도록 요청할 수 있습니다."}},
-        "nb": {"stringUnit": {"state": "translated", "value": "Oppsettet er fullført. Nå kan du be agenter om å bruke apper på Mac-en din."}},
-        "pl": {"stringUnit": {"state": "translated", "value": "Konfiguracja zakończona. Teraz możesz prosić agentów o używanie aplikacji na Twoim Macu."}},
-        "pt-BR": {"stringUnit": {"state": "translated", "value": "A configuração foi concluída. Agora você pode pedir aos agentes que usem apps no seu Mac."}},
-        "ru": {"stringUnit": {"state": "translated", "value": "Настройка завершена. Теперь вы можете просить агентов работать в приложениях на вашем Mac."}},
-        "th": {"stringUnit": {"state": "translated", "value": "ตั้งค่าเสร็จแล้ว ตอนนี้คุณขอให้เอเจนต์ใช้แอปบน Mac ของคุณได้"}},
-        "tr": {"stringUnit": {"state": "translated", "value": "Kurulum tamamlandı. Artık ajanlardan Mac’inizdeki uygulamaları kullanmalarını isteyebilirsiniz."}},
-        "uk": {"stringUnit": {"state": "translated", "value": "Налаштування завершено. Тепер ви можете просити агентів працювати в застосунках на вашому Mac."}},
-        "vi": {"stringUnit": {"state": "translated", "value": "Đã thiết lập xong. Giờ bạn có thể yêu cầu tác tử dùng ứng dụng trên máy Mac của bạn."}},
-        "zh-Hans": {"stringUnit": {"state": "translated", "value": "设置已完成。现在你可以让代理使用 Mac 上的 App。"}},
-        "zh-Hant": {"stringUnit": {"state": "translated", "value": "設定已完成。現在你可以讓代理使用 Mac 上的 App。"}}
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Setup is complete. Agents can now use apps on your Mac."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "اكتمل الإعداد. يمكن للوكلاء الآن استخدام التطبيقات على جهاز Mac."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Postavljanje je završeno. Agenti sada mogu koristiti aplikacije na tvom Macu."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Opsætningen er færdig. Agenter kan nu bruge apps på din Mac."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Die Einrichtung ist abgeschlossen. Agents können jetzt Apps auf deinem Mac nutzen."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "La configuración está completa. Los agentes ya pueden usar apps en tu Mac."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "La configuration est terminée. Les agents peuvent désormais utiliser les apps de votre Mac."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Configurazione completata. Ora gli agenti possono usare le app sul tuo Mac."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "設定が完了しました。エージェントが Mac のアプリを使えるようになりました。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ការរៀបចំបានបញ្ចប់។ ភ្នាក់ងារអាចប្រើកម្មវិធីនៅលើ Mac របស់អ្នកឥឡូវនេះ។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "설정이 완료되었습니다. 이제 에이전트가 Mac의 앱을 사용할 수 있습니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Oppsettet er ferdig. Agenter kan nå bruke apper på Macen din."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Konfiguracja zakończona. Agenci mogą teraz używać aplikacji na Twoim Macu."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "A configuração foi concluída. Agentes já podem usar apps no seu Mac."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Настройка завершена. Теперь агенты могут пользоваться приложениями на вашем Mac."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ตั้งค่าเสร็จแล้ว ตอนนี้เอเจนต์ใช้แอปบน Mac ของคุณได้"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kurulum tamamlandı. Ajanlar artık Mac'inizdeki uygulamaları kullanabilir."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Налаштування завершено. Тепер агенти можуть користуватися застосунками на вашому Mac."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Đã thiết lập xong. Giờ tác tử có thể dùng ứng dụng trên Mac của bạn."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "设置完成。智能体现在可以使用你 Mac 上的应用了。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "設定完成。代理現在可以使用你 Mac 上的 App 了。"
+          }
+        }
       }
     },
     "onboarding.computerUse.screenshots.confirm": {
@@ -13913,6 +14018,923 @@
         }
       }
     },
+    "onboarding.makeItYours.chatFeel.label": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sending a Prompt"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "プロンプトの送信"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "إرسال موجه"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Slanje upita"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Afsendelse af prompt"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Prompt senden"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Al enviar un prompt"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Envoi d’un prompt"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Invio di un prompt"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ការផ្ញើប្រអប់បញ្ចូល"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "프롬프트 보내기"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Sende en prompt"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Wysyłanie promptu"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ao enviar um prompt"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Отправка запроса"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "การส่งพรอมต์"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "İstem Gönderme"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Надсилання запиту"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Gửi lời nhắc"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "发送提示"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "傳送提示"
+          }
+        }
+      }
+    },
+    "onboarding.makeItYours.chatFeel.instant": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Instant"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "すぐに表示"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "فوري"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Odmah"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Med det samme"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Sofort"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Al instante"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Instantané"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Immediato"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ភ្លាមៗ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "즉시"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Umiddelbart"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Od razu"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Instantâneo"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Сразу"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ทันที"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Anında"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Одразу"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Tức thì"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "立即"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "立即"
+          }
+        }
+      }
+    },
+    "onboarding.makeItYours.chatFeel.instant.line": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Your prompt appears at once."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "プロンプトがすぐに表示されます。"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "يظهر الموجه فورًا."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Vaš upit se pojavi odmah."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Din prompt vises med det samme."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Dein Prompt erscheint sofort."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Tu prompt aparece al instante."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Votre prompt apparaît aussitôt."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Il prompt appare subito."
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ប្រអប់បញ្ចូលរបស់អ្នកបង្ហាញភ្លាមៗ។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "프롬프트가 바로 나타납니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Prompten vises med en gang."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Prompt pojawia się od razu."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Seu prompt aparece na hora."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Запрос появляется сразу."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "พรอมต์ของคุณปรากฏทันที"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "İsteminiz hemen görünür."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Запит з’являється одразу."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Lời nhắc xuất hiện ngay."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "提示立即出现。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "提示立即出現。"
+          }
+        }
+      }
+    },
+    "onboarding.makeItYours.chatFeel.pop": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pop In"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ふわっと表示"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ظهور منبثق"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Iskoči"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Pop ind"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Einblenden"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Con rebote"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Apparition animée"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Con animazione"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "លោតចូល"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "톡 튀어나오기"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Sprett inn"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Z animacją"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Com animação"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "С анимацией"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "เด้งเข้ามา"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Canlı Giriş"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "З анімацією"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Bật vào"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "弹入"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "彈入"
+          }
+        }
+      }
+    },
+    "onboarding.makeItYours.chatFeel.pop.line": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Your prompt pops in and settles where it lands."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "プロンプトがふわっと現れ、その場に収まります。"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ينبثق الموجه ويستقر في مكانه."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Upit iskoči i smiri se na svom mjestu."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Din prompt popper ind og falder på plads."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Dein Prompt springt herein und kommt an seinem Platz zur Ruhe."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Tu prompt aparece con un rebote y se asienta en su sitio."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Votre prompt surgit puis se pose à sa place."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Il prompt compare con un piccolo balzo e si posa al suo posto."
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ប្រអប់បញ្ចូលលោតចូល ហើយនៅស្ងៀមកន្លែងវា។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "프롬프트가 톡 튀어나와 제자리에 자리 잡습니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Prompten spretter inn og legger seg på plass."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Prompt wskakuje i układa się na miejscu."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Seu prompt surge com um pulo e se acomoda no lugar."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Запрос появляется с анимацией и встаёт на место."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "พรอมต์เด้งเข้ามาแล้วอยู่ตรงที่ของมัน"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "İsteminiz canlı bir girişle gelir ve yerine oturur."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Запит з’являється з анімацією й стає на місце."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Lời nhắc bật vào rồi nằm yên đúng chỗ."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "提示弹入并停在原位。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "提示彈入並停在原位。"
+          }
+        }
+      }
+    },
+    "onboarding.makeItYours.chatFeel.top": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pinned"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "上に固定"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "مثبت"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Prikačeno"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Fastgjort"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Angeheftet"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Fijado"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Épinglé"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Fissato"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ខ្ទាស់"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "고정"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Festet"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Przypięty"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Fixado"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Закреплённый"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ปักหมุด"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Sabitlenmiş"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Закріплений"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ghim"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "置顶"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "置頂"
+          }
+        }
+      }
+    },
+    "onboarding.makeItYours.chatFeel.top.line": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Your prompt scrolls to the top, with room below for the reply."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "プロンプトが上端へスクロールし、その下に返信の余白ができます。"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "يُمرَّر الموجه إلى الأعلى، مع مساحة أسفله للرد."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Vaš upit ide na vrh, s prostorom ispod za odgovor."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Din prompt ruller til toppen med plads under til svaret."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Dein Prompt rückt nach oben, mit Platz darunter für die Antwort."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Tu prompt sube arriba, con espacio debajo para la respuesta."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Votre prompt monte en haut, avec de la place en dessous pour la réponse."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Il prompt scorre in alto, con spazio sotto per la risposta."
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "prompt របស់អ្នករំកិលទៅខាងលើ ដោយមានកន្លែងខាងក្រោមសម្រាប់ការឆ្លើយតប។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "프롬프트가 맨 위로 스크롤되고 아래에 답변 공간이 생깁니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Prompten din rulles til toppen, med plass under til svaret."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Prompt przewija się na górę, z miejscem poniżej na odpowiedź."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Seu prompt rola para o topo, com espaço abaixo para a resposta."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Запрос прокручивается наверх, а под ним остаётся место для ответа."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "prompt ของคุณเลื่อนขึ้นด้านบน โดยมีพื้นที่ด้านล่างสำหรับคำตอบ"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "İsteminiz en üste kayar, altında yanıt için yer kalır."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Запит прокручується вгору, а під ним лишається місце для відповіді."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Lời nhắc cuộn lên đầu, chừa chỗ bên dưới cho câu trả lời."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "提示滚动到顶部，下方留出空间给回复。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "提示捲動到頂部，下方留出空間給回覆。"
+          }
+        }
+      }
+    },
     "onboarding.makeItYours.density.label": {
       "comment": "Make cmux Yours: heading over the density choice (how tightly the interface is spaced).",
       "extractionState": "manual",
@@ -16821,127 +17843,127 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Opaque and calm. Banners only when cmux is in the background; agents ask first."
+            "value": "Opaque and calm. Banners only in the background; agents ask first."
           }
         },
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "مصمت وهادئ. لا إشعارات إلا عندما يكون cmux في الخلفية، والوكلاء يسألون أولًا."
+            "value": "معتم وهادئ. اللافتات في الخلفية فقط؛ والوكلاء يسألون أولًا."
           }
         },
         "bs": {
           "stringUnit": {
             "state": "translated",
-            "value": "Neprozirno i mirno. Obavijesti samo kad je cmux u pozadini; agenti prvo pitaju."
+            "value": "Neprozirno i mirno. Baneri samo u pozadini; agenti prvo pitaju."
           }
         },
         "da": {
           "stringUnit": {
             "state": "translated",
-            "value": "Uigennemsigtig og rolig. Bannere kun når cmux er i baggrunden; agenter spørger først."
+            "value": "Uigennemsigtig og rolig. Bannere kun i baggrunden; agenter spørger først."
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Deckend und ruhig. Banner nur, wenn cmux im Hintergrund ist; Agenten fragen zuerst."
+            "value": "Deckend und ruhig. Banner nur im Hintergrund; Agenten fragen zuerst."
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Opaco y tranquilo. Avisos solo con cmux en segundo plano; los agentes preguntan primero."
+            "value": "Opaco y tranquilo. Banners solo en segundo plano; los agentes preguntan primero."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Opaque et calme. Bannières seulement quand cmux est en arrière-plan ; les agents demandent d'abord."
+            "value": "Opaque et calme. Bannières seulement en arrière-plan ; les agents demandent d’abord."
           }
         },
         "it": {
           "stringUnit": {
             "state": "translated",
-            "value": "Opaco e calmo. Banner solo con cmux in secondo piano; gli agenti chiedono prima."
+            "value": "Opaco e calmo. Banner solo in background; gli agenti chiedono prima."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "不透明で落ち着いた見た目。通知はcmuxが背面のときだけ、エージェントはまず確認します。"
+            "value": "不透明で落ち着いた見た目。通知は背面のときだけ、エージェントはまず確認します。"
           }
         },
         "km": {
           "stringUnit": {
             "state": "translated",
-            "value": "មិនថ្លា និងស្ងប់។ ផ្ទាំងជូនដំណឹងតែពេល cmux នៅខាងក្រោយ ហើយភ្នាក់ងារសួរមុន។"
+            "value": "ស្រអាប់ និងស្ងប់។ បដាតែនៅផ្ទៃខាងក្រោយ; ភ្នាក់ងារសួរជាមុន។"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "불투명하고 차분하게. 배너는 cmux가 뒤에 있을 때만, 에이전트는 먼저 묻습니다."
+            "value": "불투명하고 차분하게. 배너는 백그라운드에서만, 에이전트는 먼저 묻습니다."
           }
         },
         "nb": {
           "stringUnit": {
             "state": "translated",
-            "value": "Ugjennomsiktig og rolig. Bannere bare når cmux er i bakgrunnen; agenter spør først."
+            "value": "Ugjennomsiktig og rolig. Bannere bare i bakgrunnen; agenter spør først."
           }
         },
         "pl": {
           "stringUnit": {
             "state": "translated",
-            "value": "Nieprzezroczysty i spokojny. Banery tylko, gdy cmux jest w tle; agenci najpierw pytają."
+            "value": "Nieprzezroczysty i spokojny. Banery tylko w tle; agenci pytają najpierw."
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "translated",
-            "value": "Opaco e calmo. Banners só com o cmux em segundo plano; os agentes perguntam antes."
+            "value": "Opaco e calmo. Banners só em segundo plano; agentes perguntam antes."
           }
         },
         "ru": {
           "stringUnit": {
             "state": "translated",
-            "value": "Непрозрачно и спокойно. Баннеры только когда cmux в фоне; агенты сначала спрашивают."
+            "value": "Непрозрачно и спокойно. Баннеры только в фоне; агенты сначала спрашивают."
           }
         },
         "th": {
           "stringUnit": {
             "state": "translated",
-            "value": "ทึบและสงบ แจ้งเตือนเฉพาะเมื่อ cmux อยู่เบื้องหลัง และเอเจนต์จะถามก่อน"
+            "value": "ทึบและสงบ แบนเนอร์เฉพาะตอนอยู่เบื้องหลัง เอเจนต์ถามก่อน"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Opak ve sakin. Bildirimler yalnızca cmux arka plandayken; ajanlar önce sorar."
+            "value": "Opak ve sakin. Afişler yalnızca arka planda; ajanlar önce sorar."
           }
         },
         "uk": {
           "stringUnit": {
             "state": "translated",
-            "value": "Непрозоро й спокійно. Банери лише коли cmux у фоні; агенти спершу питають."
+            "value": "Непрозоро й спокійно. Банери лише у фоні; агенти спершу питають."
           }
         },
         "vi": {
           "stringUnit": {
             "state": "translated",
-            "value": "Đặc và yên tĩnh. Chỉ báo khi cmux ở nền; agent hỏi trước."
+            "value": "Đục và yên tĩnh. Biểu ngữ chỉ khi ở nền; tác tử hỏi trước."
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "不透明且安静。只在 cmux 位于后台时显示横幅；智能体先询问。"
+            "value": "不透明且安静。仅在后台时显示横幅；智能体先询问。"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "不透明且安靜。只在 cmux 位於背景時顯示橫幅；代理先詢問。"
+            "value": "不透明且安靜。僅在背景時顯示橫幅；代理先詢問。"
           }
         }
       }
@@ -18790,6 +19812,1054 @@
           "stringUnit": {
             "state": "translated",
             "value": "代理無需詢問即可編輯檔案和執行命令。隨時可以停止。"
+          }
+        }
+      }
+    },
+    "onboarding.makeItYours.computerUse.label": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Computer Use"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "コンピュータの操作"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "استخدام الحاسوب"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Korištenje računara"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Computerbrug"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Computersteuerung"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Uso del ordenador"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Utilisation de l’ordinateur"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Uso del computer"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ការប្រើកុំព្យូទ័រ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "컴퓨터 사용"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Datamaskinbruk"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Używanie komputera"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Uso do computador"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Управление компьютером"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "การใช้คอมพิวเตอร์"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Bilgisayar Kullanımı"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Керування комп’ютером"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Sử dụng máy tính"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "电脑操控"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "電腦操控"
+          }
+        }
+      }
+    },
+    "onboarding.makeItYours.computerUse.fullAccess": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Full Access"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "フルアクセス"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "وصول كامل"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Pun pristup"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Fuld adgang"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Vollzugriff"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Acceso total"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Accès complet"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Accesso completo"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "សិទ្ធិពេញលេញ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "전체 접근"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Full tilgang"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Pełny dostęp"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Acesso total"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Полный доступ"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "สิทธิ์เต็ม"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Tam Erişim"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Повний доступ"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Toàn quyền"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "完全访问"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "完整存取"
+          }
+        }
+      }
+    },
+    "onboarding.makeItYours.computerUse.approvedApps": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Approved Apps"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "承認済みのアプリ"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "التطبيقات المعتمدة"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Odobrene aplikacije"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Godkendte apps"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Freigegebene Apps"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Apps aprobadas"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Apps approuvées"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "App approvate"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "កម្មវិធីដែលបានអនុម័ត"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "승인된 앱"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Godkjente apper"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Zatwierdzone aplikacje"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Apps aprovados"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Одобренные приложения"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "แอปที่อนุมัติ"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Onaylı Uygulamalar"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Схвалені застосунки"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ứng dụng đã duyệt"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "已批准的 App"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "已核准的 App"
+          }
+        }
+      }
+    },
+    "onboarding.makeItYours.computerUse.askEveryTime": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ask Every Time"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "毎回確認"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "السؤال في كل مرة"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Pitaj svaki put"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Spørg hver gang"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Jedes Mal fragen"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Preguntar siempre"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Demander à chaque fois"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Chiedi ogni volta"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "សួររាល់ពេល"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "매번 묻기"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Spør hver gang"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Pytaj za każdym razem"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Perguntar sempre"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Спрашивать каждый раз"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ถามทุกครั้ง"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Her Seferinde Sor"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Питати щоразу"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Hỏi mỗi lần"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "每次询问"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "每次詢問"
+          }
+        }
+      }
+    },
+    "onboarding.makeItYours.computerUse.lookOnly": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Look Only"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "表示のみ"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "العرض فقط"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Samo gledanje"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Kun se"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Nur ansehen"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Solo ver"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Lecture seule"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Solo visualizzazione"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "មើលតែប៉ុណ្ណោះ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "보기만"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Bare se"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Tylko podgląd"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Só ver"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Только просмотр"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ดูอย่างเดียว"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Yalnızca Görüntüle"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Лише перегляд"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Chỉ xem"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "仅查看"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "僅檢視"
+          }
+        }
+      }
+    },
+    "onboarding.makeItYours.computerUse.off": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Off"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "オフ"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "إيقاف"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Isključeno"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Fra"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Aus"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Desactivado"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Désactivé"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Disattivato"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "បិទ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "끔"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Av"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Wyłączone"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Desativado"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Выключено"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ปิด"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Kapalı"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Вимкнено"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Tắt"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "关闭"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "關閉"
+          }
+        }
+      }
+    },
+    "onboarding.makeItYours.finishSound": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Chime When an Agent Finishes"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "エージェントの完了時に音を鳴らす"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "تنبيه صوتي عند انتهاء الوكيل"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Zvuk kad agent završi"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Lyd, når en agent er færdig"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ton, wenn ein Agent fertig ist"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Sonido al terminar un agente"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Son à la fin d’un agent"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Suono quando un agente finisce"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "សំឡេងពេលភ្នាក់ងារបញ្ចប់"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "에이전트 완료 시 알림음"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Lyd når en agent er ferdig"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Dźwięk po zakończeniu pracy agenta"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Som quando um agente terminar"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Звук по завершении агента"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "เสียงเมื่อเอเจนต์ทำงานเสร็จ"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ajan Bitince Ses Çal"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Звук після завершення агента"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Phát âm khi tác tử hoàn tất"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "代理完成时提示音"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "代理完成時提示音"
+          }
+        }
+      }
+    },
+    "onboarding.makeItYours.finishSound.detail": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "A short sound in the chat when a reply is done."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "返信が終わるとチャットで短い音が鳴ります。"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "صوت قصير في الدردشة عند اكتمال الرد."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Kratak zvuk u razgovoru kad je odgovor gotov."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "En kort lyd i chatten, når et svar er færdigt."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ein kurzer Ton im Chat, wenn eine Antwort fertig ist."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Un sonido breve en el chat cuando termina una respuesta."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Un son bref dans la discussion quand une réponse est prête."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Un breve suono nella chat quando una risposta è pronta."
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "សំឡេងខ្លីក្នុងការជជែកពេលចម្លើយរួចរាល់។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "답변이 끝나면 채팅에서 짧은 소리가 납니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "En kort lyd i chatten når et svar er ferdig."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Krótki dźwięk w czacie, gdy odpowiedź jest gotowa."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Um som curto no chat quando uma resposta termina."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Короткий звук в чате, когда ответ готов."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "เสียงสั้นๆ ในแชตเมื่อคำตอบเสร็จ"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Yanıt bittiğinde sohbette kısa bir ses."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Короткий звук у чаті, коли відповідь готова."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Một âm ngắn trong cuộc trò chuyện khi trả lời xong."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "回复完成时在聊天中播放短促提示音。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "回覆完成時在聊天中播放短促提示音。"
           }
         }
       }

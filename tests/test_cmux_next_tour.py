@@ -887,6 +887,14 @@ class FixtureCropTests(unittest.TestCase):
         self.assertIn("not visible", self.tour.capture_fixture(self.app, self.path, self.config))
         self.assertFalse(self.path.exists())
 
+    def test_a_failed_command_step_names_its_reason(self) -> None:
+        # The job log prints `detail`; "exited 1" alone hid "no terminal is \"focused\"" (run 45880649238).
+        self.app.cli.return_value = subprocess.CompletedProcess([], 1, "", 'no terminal is "focused"\n')
+        result = self.tour.run_step(self.app, mock.Mock(), {"title": "Send", "cmux": ["terminal", "focused", "send"], "wait": 0},
+                                    1, self.path.parent)
+        self.assertEqual(result["status"], "failed")
+        self.assertEqual(result["detail"], 'exited 1 (no terminal is "focused")')
+
     def test_capture_failure_cannot_leave_a_passing_step(self) -> None:
         step = {"title": "menu", "capture": self.config, "wait": 0}
         with mock.patch.object(self.tour, "capture_fixture", return_value="no native menu overlay"):

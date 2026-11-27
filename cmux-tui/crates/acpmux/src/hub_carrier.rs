@@ -485,6 +485,13 @@ pub trait Tickets: Send + Sync + 'static {
     }
 }
 
+/// The relay discards arbitrary callback errors. Record the hub's safe diagnostic at the
+/// renewal site, where we also know whether it was asking to Register or Connect.
+fn log_ticket_renewal_failure(operation: &str, reason: &str) {
+    let reason = crate::mesh_http::ticket_failure_reason(reason);
+    tracing::warn!("hub carrier: {operation} ticket renewal failed: {reason}");
+}
+
 /// The longest wait between two register asks; the wait doubles from 1 s up to it.
 const REGISTER_WAIT_MAX: Duration = Duration::from_secs(60);
 
@@ -1314,7 +1321,20 @@ impl HubCarrier {
                 }
             };
             let asked = Instant::now();
-            let opened = mux.open(hello.clone(), early, self.timings.handshake).await;
+            // No early bytes: past `KEPT_HEDGE` of silence a fresh circuit races the old one
+            // (`hub_carrier_kept_hedge.rs`).
+            let opened = if early.is_empty() {
+                match self.open_or_replace(&mux, &slot, daemon, lane, path, hello.clone()).await {
+                    hedge::Hedged::Old(opened) => opened,
+                    hedge::Hedged::Replaced => continue,
+                    hedge::Hedged::Failed(e) => {
+                        mux.close().await;
+                        return KeptOpen::Failed(e);
+                    }
+                }
+            } else {
+                mux.open(hello.clone(), early, self.timings.handshake).await
+            };
             *report = DialReport {
                 kept: true,
                 circuit: None,
@@ -1693,7 +1713,11 @@ impl HubCarrier {
                 match first {
                     Some(ticket) => Ok(ticket.to_string()),
                     // The relay refused the ticket in hand (or wants another): a fresh one.
-                    None => tickets.connect_fresh(&peer).await.map(|a| placed::ticket_on(&a, &on)),
+                    None => tickets
+                        .connect_fresh(&peer)
+                        .await
+                        .inspect_err(|e| log_ticket_renewal_failure("Connect", e))
+                        .map(|a| placed::ticket_on(&a, &on)),
                 }
             }
         });
@@ -1916,7 +1940,10 @@ impl HubCarrier {
                     if let Some(ticket) = first {
                         return Ok(ticket.to_string());
                     }
-                    let answer = tickets.register().await?;
+                    let answer = tickets
+                        .register()
+                        .await
+                        .inspect_err(|e| log_ticket_renewal_failure("Register", e))?;
                     set_allowed(&allowed, &answer.peers);
                     set_peer_services(&services, &answer);
                     Ok::<_, String>(answer.ticket)
@@ -2896,6 +2923,8 @@ pub async fn start_configured(
         None if punch::enabled() => start_punch(&carrier, 0),
         None => None,
     };
+    // After the direct path is set, so a kept circuit that ran on it opens on it again.
+    saved::keep_across_restarts(&carrier, state_dir);
     Some(serving)
 }
 
@@ -3000,6 +3029,12 @@ pub mod direct;
 #[path = "hub_carrier_punch.rs"]
 pub mod punch;
 
+#[path = "hub_carrier_kept_saved.rs"]
+mod saved;
+
+#[path = "hub_carrier_kept_hedge.rs"]
+mod hedge;
+
 /// Which path a kept circuit runs on.
 #[derive(Clone, Copy, Debug)]
 pub(crate) enum Path {
@@ -3024,3 +3059,7 @@ mod services_tests;
 #[cfg(test)]
 #[path = "hub_carrier_silent_circuit_tests.rs"]
 mod silent_circuit_tests;
+
+#[cfg(test)]
+#[path = "hub_carrier_kept_hedge_tests.rs"]
+mod kept_hedge_tests;

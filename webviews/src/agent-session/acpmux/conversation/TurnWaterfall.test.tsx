@@ -243,7 +243,7 @@ test("the header's empty corner says the turn's total and its calls, in the axis
         />,
       ),
     ),
-  ).toBe("2 calls · 4.2s");
+  ).toBe("2 calls · 4s");
   expect(
     summary(
       renderToStaticMarkup(
@@ -296,7 +296,7 @@ test("the turn's time outside every call is a last Model row, so the rows add up
   );
   const model = markup.match(/<div [^>]*class="cv-waterfall__span is-model"[^>]*>(.*?)<\/div><span id=/)?.[1] ?? "";
   expect(model).toContain("Model, no tool running");
-  expect(model).toContain(">11.4s<");
+  expect(model).toContain(">11s<");
   // It comes after the call's row and is not a link to any call.
   expect(markup.indexOf("Read a.ts")).toBeLessThan(markup.indexOf("is-model"));
   expect(model).not.toContain("data-tool-id");
@@ -378,8 +378,10 @@ test("Leo's turn (551ms thinking, one 24.5s call, 1m 15s of model time) is plain
   expect(markup).not.toContain("cv-waterfall__axis");
   expect(markup).not.toContain("cv-waterfall__track");
   expect(markup).not.toContain("Model, no tool running");
-  expect(plainLines(markup)).toEqual(["Thinking 1m 16s", "Sent a message 24.5s"]);
-  expect(markup).toContain("1 call");
+  // Times read as the turn's "Worked for" does, and two lines end on the turn's Total with no
+  // total over them (Leo, 2026-11-25: "the 34s is weird to have on both").
+  expect(plainLines(markup)).toEqual(["Thinking 1m 15s", "Sent a message 24s", "Total 1m 40s"]);
+  expect(markup).not.toContain("cv-waterfall__head");
 });
 
 test("a busy turn of many visible calls and little model time still charts", () => {
@@ -407,7 +409,10 @@ test("a turn with no calls (only thinking and model time) is one Thinking line",
   expect(waterfallCharts(chart)).toBe(false);
   expect(waterfallLines(chart)).toEqual([{ ms: 30_000 }]);
   const markup = renderToStaticMarkup(<TurnWaterfall row={row} work={[thought]} />);
-  expect(plainLines(markup)).toEqual(["Thinking 30.0s"]);
+  // One line is the total: no Total line and no head repeating "30s".
+  expect(plainLines(markup)).toEqual(["Thinking 30s"]);
+  expect(markup).not.toContain("cv-waterfall__head");
+  expect(markup.match(/30s/g)).toHaveLength(1);
 });
 
 test("a turn of all model time around one call lists Thinking and the call, and its line opens the call", () => {
@@ -417,7 +422,7 @@ test("a turn of all model time around one call lists Thinking and the call, and 
       <TurnWaterfall row={row} work={[call("a", 30_000, 30_200)]} />
     </TurnActionsContext.Provider>,
   );
-  expect(plainLines(markup)).toEqual(["Thinking 59.8s", "Read a.ts 200ms"]);
+  expect(plainLines(markup)).toEqual(["Thinking 59s", "Read a.ts 200ms", "Total 1m"]);
   expect(markup).toMatch(/<button type="button" class="cv-waterfall__line is-link" data-tool-id="a"/);
   // Calls that fill the whole turn leave no Thinking line.
   const busy = waterfall({ at: 1_000, durationMs: 1_000 }, [call("b", 0, 1_000)]);

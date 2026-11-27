@@ -136,6 +136,18 @@ const isLock = Schema.is(Lock);
 const Coverage = Schema.Struct({ wanted: Schema.Number, applied: Schema.Number });
 const isCoverage = Schema.is(Coverage);
 
+/**
+ * Whether two journaled values are the same value, whatever order their keys are in. A resumed create reads its
+ * intent back through the Durable Object RPC decoded in the schema's field order, not the order the handler built it
+ * in, so comparing JSON.stringify output read the same intent as changed: on staging every retry of a create whose
+ * send timed out failed as "allocation intent changed" (an anonymous persistCreateIntent 503) until create_overdue.
+ */
+const canonical = (value: unknown): string => JSON.stringify(value, (_key, v: unknown) =>
+  v !== null && typeof v === "object" && !Array.isArray(v)
+    ? Object.fromEntries(Object.entries(v as Record<string, unknown>).filter(([, x]) => x !== undefined).sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0)))
+    : v);
+const sameValue = (a: unknown, b: unknown): boolean => canonical(a) === canonical(b);
+
 /** A stored value of the wrong shape (from an older version) reads as absent. */
 const checked = <T>(guard: (value: unknown) => value is T, value: unknown): T | undefined => (guard(value) ? value : undefined);
 
@@ -384,7 +396,7 @@ export class TenantLedger {
       const raw = await storage.get(storageKey), record = readRecord(raw);
       if (raw !== undefined && record === undefined) throw new Error("unrecognized idempotency record");
       if (record !== undefined && (record.generated !== undefined || record.expiresMs > nowMs || record.progress.phase === "creating" || record.progress.phase === "capturing" || record.progress.phase === "cancelled" || record.progress.phase === "pending")) {
-        if (record.fingerprint !== fingerprint || (record.clientFingerprint !== undefined && clientFingerprint !== undefined && record.clientFingerprint !== clientFingerprint) || (generated !== undefined && JSON.stringify(record.generated) !== JSON.stringify(generated))) return { state: "mismatch" };
+        if (record.fingerprint !== fingerprint || (record.clientFingerprint !== undefined && clientFingerprint !== undefined && record.clientFingerprint !== clientFingerprint) || (generated !== undefined && !sameValue(record.generated, generated))) return { state: "mismatch" };
         // Older pending records may already have sent a provider create without retaining its ID.
         // They cannot safely become a new allocation, even after their former TTL.
         if (record.progress.phase === "pending") return { state: "in_progress" };
@@ -417,22 +429,22 @@ export class TenantLedger {
       if (record === undefined) throw new Error("missing idempotency claim");
       if (record.progress.phase === "cancelled" || ((record.progress.phase === "creating" || record.progress.phase === "capturing") && record.progress.cancelRequested === true)) throw new Error("creation cancellation is fenced");
       if (record.progress.phase === "done" || record.progress.phase === "snapshotDone") {
-        if (JSON.stringify(record.progress) === JSON.stringify(progress)) return;
+        if (sameValue(record.progress, progress)) return;
         throw new Error("a completed idempotency record cannot change");
       }
       if (record.leaseUntilMs <= nowMs) throw new Error("idempotency claim expired");
       if (record.progress.phase === "creating") {
         const prior = record.progress;
-        if (progress.phase === "creating" && (progress.vmId !== prior.vmId || progress.reservationId !== prior.reservationId || progress.context !== prior.context || progress.createdBy !== prior.createdBy || progress.snapshotId !== prior.snapshotId || JSON.stringify(progress.dispatch) !== JSON.stringify(prior.dispatch) || progress.cancelRequested !== prior.cancelRequested || (prior.intent !== undefined && JSON.stringify(progress.intent) !== JSON.stringify(prior.intent)))) throw new Error("allocation intent changed");
+        if (progress.phase === "creating" && (progress.vmId !== prior.vmId || progress.reservationId !== prior.reservationId || progress.context !== prior.context || progress.createdBy !== prior.createdBy || progress.snapshotId !== prior.snapshotId || !sameValue(progress.dispatch, prior.dispatch) || progress.cancelRequested !== prior.cancelRequested || (prior.intent !== undefined && !sameValue(progress.intent, prior.intent)))) throw new Error("allocation intent changed");
         if (progress.phase !== "creating" && (progress.phase !== "done" || progress.vmId !== prior.vmId)) throw new Error("allocation intent cannot be replaced");
         if (progress.phase === "done") await storage.delete(`reserve:${prior.reservationId}`);
       }
       if (record.progress.phase === "capturing") {
         const prior = record.progress;
-        if (progress.phase === "capturing" ? JSON.stringify(progress) !== JSON.stringify(prior)
+        if (progress.phase === "capturing" ? !sameValue(progress, prior)
           : progress.phase !== "creating" || progress.vmId !== prior.vmId || progress.reservationId !== prior.reservationId
             || progress.snapshotId !== prior.snapshotId || progress.createdBy !== prior.createdBy
-            || JSON.stringify(progress.intent?.receipt) !== JSON.stringify(prior.receipt)) throw new Error("fork capture intent changed");
+            || !sameValue(progress.intent?.receipt, prior.receipt)) throw new Error("fork capture intent changed");
       }
       if (progress.phase === "capturing" && progress.receipt.id !== progress.vmId) throw new Error("fork destination identity changed");
       if (progress.phase === "creating" || progress.phase === "capturing") {

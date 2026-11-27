@@ -43,6 +43,7 @@ public nonisolated enum SidebarSectionsSetting {
         }
         result.minimalMode = ColumnLayoutSettings.choice(root, minimalModePath, fallback: minimalModeDefault, diagnostics: &diagnostics)
         result.sessionTree = flag(root, sessionTreePath, fallback: sessionTreeDefault, &diagnostics)
+        result.workspaceListApp = workspaceListApp(root, &diagnostics)
         result.showsTips = flag(root, tipsPath, fallback: tipsDefault, &diagnostics)
         SidebarNavigationSetting.parse(root, into: &result.navigation, diagnostics: &diagnostics)
         result.workspaceRow = WorkspaceRowSetting().parse(root, diagnostics: &diagnostics)
@@ -83,11 +84,24 @@ public nonisolated enum SidebarSectionsSetting {
         result.folderlessUngrouped = flag(root, folderlessUngroupedPath, fallback: folderlessUngroupedDefault, &diagnostics)
         result.density = ColumnLayoutSettings.choice(root, densityPath, fallback: densityDefault, diagnostics: &diagnostics)
         result.textSize = ColumnLayoutSettings.choice(root, textSizePath, fallback: textSizeDefault, diagnostics: &diagnostics)
+        result.profileMenuStyle = ColumnLayoutSettings.choice(root, profileMenuStylePath, fallback: profileMenuStyleDefault,
+                                                              diagnostics: &diagnostics)
         result.style = ColumnLayoutSettings.choice(root, stylePath, fallback: styleDefault, diagnostics: &diagnostics)
         result.showChats = flag(root, showChatsPath, fallback: showChatsDefault, &diagnostics)
         result.projection = SidebarProjectionCustomizationResolver.parse(root, diagnostics: &diagnostics)
         result.nav = SidebarNavResolver.parse(root, diagnostics: &diagnostics)
         return result
+    }
+
+    /// `sidebar.workspaceListApp`: an app id, or nil for the built-in list (absent, null or empty).
+    static func workspaceListApp(_ root: JSONValue, _ diagnostics: inout [SettingsDiagnostic]) -> String? {
+        guard let value = root.value(at: workspaceListAppPath) else { return nil }
+        if case .null = value { return nil }
+        guard let text = value.stringValue else {
+            diagnostics.append(SettingsDiagnostic(kind: .invalidValue, path: "sidebar.workspaceListApp", message: "expected an app id such as \"local/workspace-list\""))
+            return nil
+        }
+        return text.allSatisfy(\.isWhitespace) ? nil : text
     }
 
     private static func flag(_ root: JSONValue, _ path: [String], fallback: Bool, _ diagnostics: inout [SettingsDiagnostic]) -> Bool {

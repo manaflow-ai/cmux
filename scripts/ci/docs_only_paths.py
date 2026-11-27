@@ -293,11 +293,13 @@ jobs:
       missing: ${{{{ steps.plan.outputs.missing }}}}
     steps:
       - name: Checkout the planner
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           persist-credentials: false
-          # The merge commit's parent too: merge_commit_files lists the changed paths with git when the REST reads fail.
+          # The merge commit and its parents' trees: merge_files() and merge_commit_files() list the changed paths
+          # with git, no API call.
           fetch-depth: 2
+          filter: blob:none
           sparse-checkout: |
             scripts/ci/docs_only_paths.py
             scripts/ci/workflow_paths_cover_inputs.py
@@ -366,6 +368,28 @@ def plan_fallback(event: dict, calls: dict, files: list[str] | None, runs: list[
         # Each due workflow started on its own; call only one whose run of this event never started.
         return [name for name in due if name in dead and name not in started]
     return [name for name in due if name not in started]
+
+
+def merge_files(head_sha: str, root: Path = Path(".")) -> list[str] | None:
+    """The files the pull request's merge commit (the gate's checkout, fetch-depth 2) changes against its base parent,
+    or None when the checkout is not that commit's merge of HEAD_SHA (a stale or missing merge ref) or git fails.
+
+    No REST call: the gate's pulls/{n}/files and actions/runs reads answered 403 on every one of the 61 gates of
+    2026-11-24T09Z..11-25T09Z that called a workflow (the repository's GITHUB_TOKEN budget was spent), and each then
+    called every due workflow, so a `full-ci` label on a pull request of 17 to 26 files ran ci.yml twice for one head
+    (1.6k runner-minutes that day). The merge's own change is a subset of the pull request's three-dot diff (a merge
+    differs from its base parent only where the head side changed a file), so a code file here is a code file GitHub's
+    `paths:` saw; an all-docs list proves nothing and the caller reads the API as before.
+    """
+    def git(*args: str) -> str:
+        return subprocess.run(["git", "-C", str(root), *args], capture_output=True, text=True, check=True,
+                              timeout=60).stdout
+    try:
+        if git("rev-parse", "HEAD^2").strip() != head_sha:
+            return None
+        return [line for line in git("diff", "--no-renames", "--name-only", "HEAD^1", "HEAD").splitlines() if line]
+    except (OSError, subprocess.SubprocessError):
+        return None
 
 
 def _name(run: dict) -> str:
@@ -479,6 +503,15 @@ def fallback_main() -> int:
     runs: list[dict] | None = None
     since: float | None = None
     total = int(pr.get("changed_files") or 0)
+    if 0 < total <= PATHS_FILTER_LIMIT:
+        merged = merge_files(str((pr.get("head") or {}).get("sha") or ""))
+        if merged and not docs_only(merged):
+            # GitHub's filter saw every file and one is code: each due workflow started on its own (plan_fallback).
+            missing = plan_fallback(event, calls, merged, [], None)
+            print(f"changed files: {total} (from the merge commit, not docs-only); calling: {missing or 'none'}")
+            with open(os.environ["GITHUB_OUTPUT"], "a", encoding="utf-8") as out:
+                out.write(f"missing={json.dumps(missing, separators=(',', ':'))}\n")
+            return 0
     try:
         if 0 < total <= FILES_API_LIMIT:
             names: list[str] = []

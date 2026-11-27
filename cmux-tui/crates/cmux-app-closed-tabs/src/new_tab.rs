@@ -133,17 +133,15 @@ pub fn title(title: &str, url: Option<&str>, cwd: Option<&str>) -> String {
 /// The host drops any user info, port and IPv6 brackets; the path runs to the query or
 /// fragment and may be empty.
 pub fn host_and_path(url: &str) -> Option<(String, String)> {
-    let colon = url.find(':')?;
-    let scheme = &url[..colon];
+    let (scheme, after_colon) = url.split_once(':')?;
     let scheme_ok = scheme.chars().next().is_some_and(|c| c.is_ascii_alphabetic())
         && scheme.chars().all(|c| c.is_ascii_alphanumeric() || matches!(c, '+' | '-' | '.'));
     if !scheme_ok {
         return None;
     }
-    let rest = url[colon + 1..].strip_prefix("//")?;
+    let rest = after_colon.strip_prefix("//")?;
     let end = rest.find(['/', '?', '#']).unwrap_or(rest.len());
-    let authority = &rest[..end];
-    let after = &rest[end..];
+    let (authority, after) = rest.split_at_checked(end)?;
     let host_port = authority.rsplit_once('@').map_or(authority, |(_, host)| host);
     let host = if let Some(bracketed) = host_port.strip_prefix('[') {
         bracketed.split_once(']').map(|(host, _)| host)?
@@ -153,8 +151,8 @@ pub fn host_and_path(url: &str) -> Option<(String, String)> {
     if host.is_empty() {
         return None;
     }
-    let path_end = after.find(['?', '#']).unwrap_or(after.len());
-    Some((percent_decode(host), percent_decode(&after[..path_end])))
+    let path = after.split(['?', '#']).next().unwrap_or_default();
+    Some((percent_decode(host), percent_decode(path)))
 }
 
 /// `%XX` decoded; text that does not decode to UTF-8 stays as it was.
@@ -162,8 +160,8 @@ pub fn percent_decode(text: &str) -> String {
     let bytes = text.as_bytes();
     let mut out = Vec::with_capacity(bytes.len());
     let mut index = 0;
-    while index < bytes.len() {
-        if bytes[index] == b'%'
+    while let Some(&byte) = bytes.get(index) {
+        if byte == b'%'
             && let (Some(high), Some(low)) = (
                 bytes.get(index + 1).and_then(|b| (*b as char).to_digit(16)),
                 bytes.get(index + 2).and_then(|b| (*b as char).to_digit(16)),
@@ -173,7 +171,7 @@ pub fn percent_decode(text: &str) -> String {
             index += 3;
             continue;
         }
-        out.push(bytes[index]);
+        out.push(byte);
         index += 1;
     }
     String::from_utf8(out).unwrap_or_else(|_| text.to_owned())

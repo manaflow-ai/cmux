@@ -73,7 +73,8 @@ pub fn after_reply(item: &ClosedItem, reopened: &Reopened, pane_shown: bool) -> 
             AfterReply::ReopenWindow { window, refuse }
         }
         Kind::Tab if pane_shown && !reopened.tab_ids.is_empty() => {
-            AfterReply::SelectTab { tab: reopened.tab_ids[0].clone() }
+            // The guard keeps the list non-empty, so the default is never read.
+            AfterReply::SelectTab { tab: reopened.tab_ids.first().cloned().unwrap_or_default() }
         }
         Kind::Workspace => AfterReply::RevealWorkspace {
             workspace: reopened.workspace_id.clone(),
@@ -194,6 +195,10 @@ pub fn clear(machines: &[Machine], since_seconds: Option<f64>, installs: &[Strin
         .filter(|(_, machine)| machine.serves)
         .map(|(index, _)| index)
         .collect();
-    let empty_trash = serving.iter().copied().filter(|index| machines[*index].local).collect();
+    let empty_trash = serving
+        .iter()
+        .copied()
+        .filter(|index| machines.get(*index).is_some_and(|machine| machine.local))
+        .collect();
     Clear { since_ms: since, release_windows, machines: serving, empty_trash }
 }

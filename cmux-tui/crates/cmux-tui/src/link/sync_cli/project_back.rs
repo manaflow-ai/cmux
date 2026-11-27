@@ -410,8 +410,7 @@ fn diff_stage(
     let mut by_repo: BTreeMap<String, Vec<Change>> = BTreeMap::new();
     let mut add = |path: &str, file: Option<PathBuf>| {
         let Some(repo) = repository_of(manifest, path) else { return };
-        let inside =
-            if repo.is_empty() { path.to_owned() } else { path[repo.len() + 1..].to_owned() };
+        let inside = path_inside(&repo, path);
         by_repo.entry(repo).or_default().push(Change { path: path.to_owned(), inside, file });
     };
     for write in plan.writes.iter().filter(|w| w.kind == Kind::File) {
@@ -591,8 +590,7 @@ fn keep_ignored_home(
         .filter(|(path, _)| manifest.resolve(path).is_none());
     for (path, dir) in new_paths {
         let Some(repo) = repository_of(manifest, path) else { continue };
-        let inside =
-            if repo.is_empty() { path.to_owned() } else { path[repo.len() + 1..].to_owned() };
+        let inside = path_inside(&repo, path);
         // A folder is asked about through a name inside it: git checks a missing path's leading
         // folders as folders (so `target/` matches), never the missing path itself.
         by_repo.entry(repo).or_default().push(if dir {
@@ -634,14 +632,25 @@ fn keep_ignored_home(
     Ok(ignored)
 }
 
+/// `path` relative to repository folder `repo`, which `repository_of` found as a whole leading
+/// folder of it (`""` is the root).
+fn path_inside(repo: &str, path: &str) -> String {
+    if repo.is_empty() {
+        return path.to_owned();
+    }
+    path.strip_prefix(repo).and_then(|rest| rest.strip_prefix('/')).unwrap_or(path).to_owned()
+}
+
 /// The repository (its folder, empty for the top) whose working tree holds `path`, by the
 /// manifest's `.git` entries; None outside any.
 fn repository_of(manifest: &Manifest, path: &str) -> Option<String> {
     let parts: Vec<&str> = path.split('/').collect();
-    (0..parts.len()).rev().map(|end| parts[..end].join("/")).find(|folder| {
-        let dotgit = if folder.is_empty() { ".git".into() } else { format!("{folder}/.git") };
-        manifest.resolve(&dotgit).is_some()
-    })
+    (0..parts.len()).rev().filter_map(|end| parts.get(..end)).map(|folder| folder.join("/")).find(
+        |folder| {
+            let dotgit = if folder.is_empty() { ".git".into() } else { format!("{folder}/.git") };
+            manifest.resolve(&dotgit).is_some()
+        },
+    )
 }
 
 /// Whether repository `repo`'s HEAD, branch and index here are as the manifest listed them, so
@@ -711,12 +720,15 @@ fn apply(
     for write in plan.writes.iter().filter(|write| write.replaces == Some(Kind::File)) {
         expected.insert(write.path.clone(), expected_here(&root, &write.path)?);
     }
+    let expected_of = |path: &str| {
+        expected.get(path).with_context(|| format!("{path} was not checked before the change"))
+    };
     let mut transaction = Transaction::new(root_path, &staging.0)?;
     let mut staged_number = 0u64;
     let outcome = (|| -> anyhow::Result<()> {
         for delete in &plan.deletes {
             match delete.kind {
-                Kind::File => transaction.delete(&delete.path, &expected[&delete.path])?,
+                Kind::File => transaction.delete(&delete.path, expected_of(&delete.path)?)?,
                 Kind::Link => {
                     let text = manifest
                         .resolve(&delete.path)
@@ -741,7 +753,7 @@ fn apply(
                     transaction.remove_link(&write.path, &text)?;
                 }
                 Some(Kind::File) if write.kind != Kind::File => {
-                    transaction.delete(&write.path, &expected[&write.path])?;
+                    transaction.delete(&write.path, expected_of(&write.path)?)?;
                 }
                 Some(Kind::Dir) if write.kind != Kind::Dir => {
                     let (parent, name) = place::parent_of(&root, &write.path)?
@@ -762,8 +774,11 @@ fn apply(
                         &staged,
                         std::fs::Permissions::from_mode(local::permissions_of(write.mode)),
                     )?;
-                    let replaced =
-                        (write.replaces == Some(Kind::File)).then(|| &expected[&write.path]);
+                    let replaced = if write.replaces == Some(Kind::File) {
+                        Some(expected_of(&write.path)?)
+                    } else {
+                        None
+                    };
                     transaction.write(&write.path, &name, replaced)?;
                 }
                 Kind::Link => {
