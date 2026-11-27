@@ -3064,7 +3064,7 @@ jobs:
           name: cmux-nightly-remote-daemon-provenance
           path: ${{ runner.temp }}/cmuxd-remote.sigstore.json
           if-no-files-found: error
-          retention-days: 90
+          retention-days: 3
           overwrite: true
 
       - name: Store the daemon attestation (one try, no budget wait)
@@ -6868,9 +6868,8 @@ jobs:
           AWS_DEFAULT_REGION: auto
           R2_ENDPOINT: https://${{ secrets.NIGHTLY_NEXT_R2_ACCOUNT_ID }}.r2.cloudflarestorage.com
         run: |
-          s=scripts/ci/nightly-steps/next-pkg.sh
-          [ -f "$s" ] || { echo "next-pkg: the build ref predates $s; no package"; exit 0; }
-          bash "$s" "nightly-pkg/input/${CHANNEL_DMG_PREFIX}-${NIGHTLY_VARIANT}-${NIGHTLY_BUILD}.dmg" nightly-pkg/output
+          [ -f scripts/ci/nightly-steps/next-pkg.sh ] || { echo "next-pkg: the build ref predates scripts/ci/nightly-steps/next-pkg.sh; no package"; exit 0; }
+          bash scripts/ci/nightly-steps/next-pkg.sh "nightly-pkg/input/${CHANNEL_DMG_PREFIX}-${NIGHTLY_VARIANT}-${NIGHTLY_BUILD}.dmg" nightly-pkg/output
 
       - name: Cleanup keychain
         if: always()

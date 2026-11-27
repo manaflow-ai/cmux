@@ -117,7 +117,7 @@ jobs:
     name: CmuxMobileLinkFFI.xcframework (Mac, seed)
     needs: [key, fleet]
     if: ${{ !cancelled() && needs.key.outputs.key != '' && needs.key.outputs.hit != 'true' && needs.fleet.outputs.saved != 'true' }}
-    runs-on: ${{ fromJSON(vars.RUNNER_POOLS).macos_26 }}
+    runs-on: ${{ vars.CI_BLACKSMITH_MACOS != 'on' && vars.CI_SIDE_LANE_RUNNER || fromJSON(vars.RUNNER_POOLS).macos_26 }}
     timeout-minutes: 45
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2

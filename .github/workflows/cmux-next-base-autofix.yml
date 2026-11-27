@@ -1060,7 +1060,7 @@ jobs:
         with:
           name: base-autofix-own-exports
           path: ${{ runner.temp }}/base-autofix-own-exports.txt
-          retention-days: 14
+          retention-days: 3
           if-no-files-found: error
 
       # What changed since the last successful run decides the repairs: a run

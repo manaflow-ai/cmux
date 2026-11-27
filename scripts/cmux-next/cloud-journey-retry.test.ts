@@ -189,7 +189,8 @@ describe("every workflow reads a Stack pair its job can see", () => {
   const held: Record<string, string[]> = {
     "cmux-next-vm-image-dev": ["CMUX_DOGFOOD_STACK_EMAIL", "CMUX_DOGFOOD_STACK_PASSWORD", "CMUX_DOGFOOD_GUEST_STACK_EMAIL", "CMUX_DOGFOOD_GUEST_STACK_PASSWORD"],
     // CMUX_STAGING_STACK_*: the staging journey account, sealed here by cloud_capture_provision.py (target journey).
-    "cmux-next-cloud-journey": ["CMUX_DOGFOOD_STACK_EMAIL", "CMUX_DOGFOOD_STACK_PASSWORD", "CMUX_STAGING_STACK_EMAIL", "CMUX_STAGING_STACK_PASSWORD"],
+    "cmux-next-cloud-journey": ["CMUX_DOGFOOD_STACK_EMAIL", "CMUX_DOGFOOD_STACK_PASSWORD", "CMUX_STAGING_STACK_EMAIL", "CMUX_STAGING_STACK_PASSWORD", "CMUX_ACCOUNTS_PROBE_STACK_EMAIL", "CMUX_ACCOUNTS_PROBE_STACK_PASSWORD"],
+    // The Accounts NIGHTLY probe's account (accounts-nightly-probe.yml, #60284).
     // The development agent test account billing-e2e.yml reads (its header lists what the environment holds; #40356).
     "billing-e2e": ["CMUX_UITEST_STACK_EMAIL", "CMUX_UITEST_STACK_PASSWORD"],
   }

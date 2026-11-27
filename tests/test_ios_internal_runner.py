@@ -256,8 +256,8 @@ class ArchiveSource(unittest.TestCase):
         patterns = archive["env"]["ARCHIVE_PATHS"]
         self.assertIn('git sparse-checkout set --no-cone --stdin <<< "$ARCHIVE_PATHS"', cold)
         self.assertIn("--filter=blob:none", cold)
-        self.assertIn("http.lowSpeedLimit=1024", cold)
-        self.assertIn("http.lowSpeedTime=45", cold)
+        self.assertIn("http.lowSpeedLimit=1", cold)
+        self.assertIn("http.lowSpeedTime=60", cold)
         self.assertIn("for wait in 0 10 30 60 120", cold)
         self.assertIn("git checkout -q --force --detach \"$SHA\"", cold)
         with tempfile.TemporaryDirectory() as tmp:

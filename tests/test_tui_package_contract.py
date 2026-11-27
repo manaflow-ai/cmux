@@ -68,9 +68,13 @@ def host_npm_target() -> str:
     raise RuntimeError(f"unsupported test host: {system}-{machine}")
 
 
-def write_executable(path: Path, output: str = "cmux-tui 1.2.3") -> None:
+def write_executable(path: Path, output: str = "cmux-tui 1.2.3", autocloud_help: str = "") -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(f"#!/bin/sh\nprintf '%s\\n' '{output}'\n")
+    body = f"printf '%s\\n' '{output}'\n"
+    if autocloud_help:
+        # `cmux autocloud --help` ships in the binary (RFD 0139, #55901); the contract checks its text.
+        body = f"""if [ "$1" = autocloud ]; then printf '%s\\n' '{autocloud_help}'; exit 0; fi\n{body}"""
+    path.write_text(f"#!/bin/sh\n{body}")
     path.chmod(0o755)
 
 
@@ -228,6 +232,7 @@ def make_npm_packages(root: Path, tui_version_output: str | None = None) -> None
         write_executable(
             package / "bin/cmux-tui",
             tui_version_output or f"cmux {VERSION} ({BUILD_COMMIT}; {name})",
+            autocloud_help="cmux autocloud: An agent chat on any machine. Run cmux autocloud login first.",
         )
         write_executable(package / "bin/cmux-tui-hook", "cmux-tui-hook 1.2.3")
         write_executable(package / "bin/cmux-agent-screen-detection", "detector")
