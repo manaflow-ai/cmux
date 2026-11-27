@@ -14,7 +14,7 @@ fn the_setting_is_on_by_default_fails_closed_and_policy_only_tightens() {
     assert!(file_wants(&Settings::Parsed(json!({"sessions": {"sandbox": "false"}}))));
     assert!(!file_wants(&Settings::Parsed(json!({"sessions": {"sandbox": false}}))));
     assert!(!file_wants(&Settings::Parsed(json!({"sessions.sandbox": false}))));
-    // MDM or the team policy: a forced on beats the file's off; nothing turns it off.
+    // The managed-preference source: a forced on beats the file's off; nothing turns it off.
     assert!(enabled_by(true, false));
     assert!(enabled_by(false, true));
     assert!(!enabled_by(false, false));
@@ -203,6 +203,15 @@ fn claude_codes_own_sandbox_is_seen_from_any_settings_source() {
 }
 
 #[test]
+fn claude_sandbox_setting_precedence_is_managed_then_flag_then_files() {
+    assert!(super::choose_sandbox_setting(Some(true), Ok(Some(false)), [Some(false)]));
+    assert!(!super::choose_sandbox_setting(Some(false), Ok(Some(true)), [Some(true)]));
+    assert!(super::choose_sandbox_setting(None, Ok(Some(true)), [Some(false)]));
+    assert!(super::choose_sandbox_setting(None, Ok(None), [Some(true)]));
+    assert!(!super::choose_sandbox_setting(None, Err(()), [Some(true)]));
+}
+
+#[test]
 fn only_an_api_port_the_profile_lacks_is_added() {
     assert_eq!(extra_api_port("https://api.example.com:8443/v1"), Some(8443));
     assert_eq!(extra_api_port("http://user:pw@10.0.0.2:4000"), Some(4000));
@@ -237,6 +246,20 @@ fn an_added_folder_at_or_above_agent_home_is_never_a_write_root() {
     let env = BTreeMap::from([(String::from("HOME"), agent_home.display().to_string())]);
     let b = bound(&s(&["--add-dir", agent_home.to_str().unwrap()]), &cwd, &env).unwrap();
     assert!(!b.folders.iter().any(|d| home.starts_with(d) || agent_home.starts_with(d)));
+}
+
+#[test]
+fn relative_credential_config_paths_are_resolved_from_the_chat_folder() {
+    let t = tempfile::tempdir().unwrap();
+    let cwd = t.path().join("chat");
+    std::fs::create_dir_all(&cwd).unwrap();
+    let env = BTreeMap::from([
+        (String::from("GH_CONFIG_DIR"), String::from(".gh")),
+        (String::from("XDG_CONFIG_HOME"), String::from(".xdg")),
+    ]);
+    let b = bound(&[], &cwd, &env).unwrap();
+    assert_eq!(b.gh_config_dir, canonical(&cwd.join(".gh")));
+    assert_eq!(b.xdg_gh_config_dir, canonical(&cwd.join(".xdg/gh")));
 }
 
 #[test]

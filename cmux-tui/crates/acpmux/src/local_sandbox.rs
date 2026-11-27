@@ -18,8 +18,8 @@
 //!
 //! Off when:
 //! - `sessions.sandbox` is false in the cmux settings file. A file that cannot be
-//!   read keeps it on (fail closed). MDM or the team policy can force it on
-//!   managed-preference source; `_acpmux/chat_settings` reports that state but is
+//!   read keeps it on (fail closed). The managed-preference source (MDM on macOS)
+//!   can force it on; `_acpmux/chat_settings` reports that state but is
 //!   not trusted as an enforcement input, never off.
 //! - `/usr/bin/sandbox-exec` is missing: the agent runs as before, logged once.
 //! - Claude Code's own Bash sandbox is on (its settings' `sandbox.enabled`):
@@ -228,10 +228,10 @@ pub(crate) fn claude_sandbox_on(
     cwd: &Path,
     env: &BTreeMap<String, String>,
 ) -> bool {
-    let enabled = |value: &Value| value.pointer("/sandbox/enabled") == Some(&Value::Bool(true));
+    let sandbox_value = |value: &Value| value.pointer("/sandbox/enabled").and_then(Value::as_bool);
     let from_bytes = |bytes: &[u8]| {
         if let Ok(value) = serde_json::from_slice::<Value>(bytes) {
-            return value.pointer("/sandbox/enabled").and_then(Value::as_bool);
+            return sandbox_value(&value);
         }
         let Ok(value) = plist::Value::from_reader(std::io::Cursor::new(bytes)) else {
             return None;
@@ -253,15 +253,9 @@ pub(crate) fn claude_sandbox_on(
         .iter()
         .take_while(|arg| arg.as_str() != "--")
         .any(|arg| arg == "--settings" || arg.starts_with("--settings="));
-    if has_settings_flag {
-        return match crate::claude_cloud_auth::flag_settings(args, cwd) {
-            Ok(Some(settings)) => enabled(&Value::Object(settings)),
-            Ok(None) | Err(_) => false,
-        };
-    }
 
     let mut setting_sources = None;
-    let mut words = args.iter();
+    let mut words = args.iter().take_while(|arg| arg.as_str() != "--");
     while let Some(word) = words.next() {
         if word == "--setting-sources" {
             setting_sources = words.next().cloned();
@@ -276,38 +270,59 @@ pub(crate) fn claude_sandbox_on(
     };
 
     let claude = crate::agent_tools::project_mcp::Claude::of(env, cwd);
-    if source_enabled("enterprise") {
-        if let Some(value) = claude.managed.iter().find_map(|path| file(path)) {
-            return value;
+    let managed = source_enabled("enterprise")
+        .then(|| claude.managed.iter().find_map(|path| file(path)))
+        .flatten();
+    let flag = if has_settings_flag {
+        match crate::claude_cloud_auth::flag_settings(args, cwd) {
+            Ok(Some(settings)) => Ok(sandbox_value(&Value::Object(settings))),
+            Ok(None) => Ok(None),
+            Err(_) => Err(()),
         }
-    }
+    } else {
+        Ok(None)
+    };
     let project = cwd.join(".claude/settings.json");
     let local = cwd.join(".claude/settings.local.json");
+    let mut files = Vec::new();
     if source_enabled("local") {
-        if let Some(value) = file(&local) {
-            return value;
-        }
+        files.push(file(&local));
     }
     if source_enabled("project") {
-        if let Some(value) = file(&project) {
-            return value;
-        }
+        files.push(file(&project));
     }
     if source_enabled("user") {
-        if let Some(value) = claude
-            .settings
-            .iter()
-            .filter(|path| {
-                !claude.managed.iter().any(|managed| managed == *path)
-                    && *path != &project
-                    && *path != &local
-            })
-            .find_map(|path| file(path))
-        {
-            return value;
-        }
+        files.push(
+            claude
+                .settings
+                .iter()
+                .filter(|path| {
+                    !claude.managed.iter().any(|managed| managed == *path)
+                        && *path != &project
+                        && *path != &local
+                })
+                .find_map(|path| file(path)),
+        );
     }
-    false
+    choose_sandbox_setting(managed, flag, files)
+}
+
+/// Claude applies the managed value over the launch's last `--settings`, then over file sources.
+/// An unreadable explicit settings value keeps the outer sandbox on (fail closed).
+fn choose_sandbox_setting(
+    managed: Option<bool>,
+    flag: Result<Option<bool>, ()>,
+    files: impl IntoIterator<Item = Option<bool>>,
+) -> bool {
+    if let Some(value) = managed {
+        return value;
+    }
+    match flag {
+        Ok(Some(value)) => return value,
+        Err(()) => return false,
+        Ok(None) => {}
+    }
+    files.into_iter().flatten().next().unwrap_or(false)
 }
 
 /// The port of an `ANTHROPIC_BASE_URL` that the profile does not already open (443, 80, 22 or
