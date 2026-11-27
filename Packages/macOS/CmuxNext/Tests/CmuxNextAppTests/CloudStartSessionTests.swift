@@ -105,6 +105,19 @@ struct CloudStartSessionTests {
         #expect(none.model == nil)
     }
 
+    @Test func theRequestCarriesAnExplicitConnectionSeparatelyFromItsAccount() throws {
+        let request = try CloudStartSession.request(Self.invocation(target: "m-1", [
+            "agent": .string("codex"), "connection": .string("personal-1")
+        ]))
+        #expect(request.connection == "personal-1")
+        #expect(request.command.contains(" --connection personal-1"))
+        for invalid in ["", "has space", "$(id)", String(repeating: "a", count: 129)] {
+            #expect(throws: ActionFailure(message: "connection_invalid")) {
+                try CloudStartSession.request(Self.invocation(["agent": .string("codex"), "connection": .string(invalid)]))
+            }
+        }
+    }
+
     @Test(arguments: ["", "Claude Code", "-rf", "claude;rm", String(repeating: "a", count: 65)])
     func aBadAgentIsRefused(agent: String) {
         #expect(throws: ActionFailure(message: CloudStartSessionStrings.agentInvalid)) {

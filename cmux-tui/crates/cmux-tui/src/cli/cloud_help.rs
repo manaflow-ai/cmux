@@ -713,6 +713,7 @@ usage: cmux cloud start-chat [--prompt TEXT] [--agent AGENT] [--model MODEL]
                              [--effort EFFORT] [--mode MODE]
                              [--cwd DIR | --from-folder PATH [--allow-large] | --no-folder]
                              [--environment ENV]
+                             [--account ACCOUNT] [--connection CONNECTION]
                              [--name VM | --target vm:VM_ID]
                              [--wait] [--timeout SECONDS] [--make-room]
                              [--no-focus] [--json]
@@ -737,6 +738,9 @@ older name; both run the same start.
                      the harness offers), as the composer's effort picker
                      sets it; set before the first prompt
   --mode MODE        The permission mode it starts in (plan, acceptEdits, ...)
+  --account ACCOUNT  Start and send only while the app is signed in to this
+                     Cloud account scope (`user:ID|team:ID` or `user:ID|personal`)
+  --connection ID    The local Cloud model connection used by the agent launch
   --cwd DIR          A folder on the machine (default: a new one under ~/chats)
   --no-folder        The composer's No folder: a new folder of the chat's own
                      under ~/chats, nothing copied (also what no folder flag
@@ -757,9 +761,6 @@ older name; both run the same start.
                      once
   --environment ENV  Boot the new machine in this Cloud environment (its
                      env_ id or its name); not with --target
-  --account ACCOUNT  Start and send only while the app is signed in to this
-                     account (user:ID|team:ID or user:ID|personal), and only
-                     to a machine its list shows
   --wait             Wait for the turn to end and print the reply (no
                      prompt: the chat is ready, nothing to wait for)
   --timeout SECONDS  How long --wait waits (default 900)

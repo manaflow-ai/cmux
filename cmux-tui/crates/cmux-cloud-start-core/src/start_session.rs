@@ -51,6 +51,9 @@ pub struct Invocation {
     /// `--from-folder` once checked (``from_folder``).
     #[serde(default)]
     pub from_folder: Option<String>,
+    /// `--connection`: the local model connection this launch uses, independent of the account scope.
+    #[serde(default)]
+    pub connection: Option<String>,
 }
 
 /// A checked run.
@@ -68,6 +71,8 @@ pub struct Request {
     pub from_folder: Option<String>,
     #[serde(default)]
     pub model: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub connection: Option<String>,
 }
 
 /// Why a run's arguments are refused.
@@ -76,6 +81,15 @@ pub struct Request {
 pub enum Invalid {
     AgentInvalid,
     CwdInvalid,
+    ConnectionInvalid,
+}
+
+/// Whether `id` can name a connection (an `_acpmux/connections` id), as `CloudSetup.isConnectionID` reads it.
+fn connection_ok(id: &str) -> bool {
+    (1..=128).contains(&id.len())
+        && id
+            .bytes()
+            .all(|b| b.is_ascii_alphanumeric() || matches!(b, b'.' | b'-' | b'_' | b':' | b'@'))
 }
 
 fn agent_ok(agent: &str) -> bool {
@@ -100,6 +114,10 @@ pub fn request(invocation: &Invocation) -> Result<Request, Invalid> {
     {
         return Err(Invalid::CwdInvalid);
     }
+    let connection = trimmed(invocation.connection.as_deref());
+    if connection.as_deref().is_some_and(|id| !connection_ok(id)) {
+        return Err(Invalid::ConnectionInvalid);
+    }
     Ok(Request {
         machine_id: invocation.machine_id.clone(),
         name: trimmed(invocation.name.as_deref()),
@@ -107,6 +125,7 @@ pub fn request(invocation: &Invocation) -> Result<Request, Invalid> {
         cwd,
         from_folder: invocation.from_folder.clone(),
         model: trimmed(invocation.model.as_deref()),
+        connection,
     })
 }
 
@@ -129,6 +148,9 @@ pub fn command(request: &Request) -> String {
     }
     if let Some(folder) = &request.from_folder {
         words.push(format!("--from-folder {}", shell_quoted(folder)));
+    }
+    if let Some(connection) = &request.connection {
+        words.push(format!("--connection {}", shell_quoted(connection)));
     }
     words.join(" ")
 }

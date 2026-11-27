@@ -88,22 +88,24 @@ extension CloudStartCore {
         public var machineId, name: String?
         public var agent: String
         public var cwd, fromFolder, model: String?
+        /// `--connection`: the local model connection this launch uses, independent of the account scope.
+        public var connection: String?
 
-        public init(machineId: String?, name: String?, agent: String, cwd: String?, fromFolder: String?, model: String?) {
-            (self.machineId, self.name, self.agent, self.cwd, self.fromFolder, self.model) = (machineId, name, agent, cwd, fromFolder, model)
+        public init(machineId: String?, name: String?, agent: String, cwd: String?, fromFolder: String?, model: String?, connection: String?) {
+            (self.machineId, self.name, self.agent, self.cwd, self.fromFolder, self.model, self.connection) = (machineId, name, agent, cwd, fromFolder, model, connection)
         }
 
-        /// Which argument a run refused: `--agent` (also when the FFI does not answer) or `--cwd`.
-        public enum Invalid: Error, Equatable { case agent, cwd }
+        /// Which argument a run refused: `--agent` (also when the FFI does not answer), `--cwd` or `--connection`.
+        public enum Invalid: Error, Equatable { case agent, cwd, connection }
     }
 
-    /// The run's arguments, checked and trimmed: `--agent` a harness id, `--cwd` an absolute folder (the machine checks the model).
-    public func launchRun(agent: String?, cwd: String?, name: String?, model: String?, machineId: String?) -> Result<LaunchRun, LaunchRun.Invalid> {
-        struct Request: Encodable { var agent, cwd, name, model, machineId: String? }
+    /// The run's arguments, checked and trimmed: `--agent` a harness id, `--cwd` an absolute folder, `--connection` a connection id (the machine checks the model).
+    public func launchRun(agent: String?, cwd: String?, name: String?, model: String?, machineId: String?, connection: String?) -> Result<LaunchRun, LaunchRun.Invalid> {
+        struct Request: Encodable { var agent, cwd, name, model, machineId, connection: String? }
         struct Reply: Decodable { var request: LaunchRun?, invalid: String? }
-        let reply = call("cloud_launch_session_request", Request(agent: agent, cwd: cwd, name: name, model: model, machineId: machineId), as: Reply.self)
+        let reply = call("cloud_launch_session_request", Request(agent: agent, cwd: cwd, name: name, model: model, machineId: machineId, connection: connection), as: Reply.self)
         if let run = reply?.request { return .success(run) }
-        return .failure(reply?.invalid == "cwd_invalid" ? .cwd : .agent)
+        return .failure(reply?.invalid == "cwd_invalid" ? .cwd : reply?.invalid == "connection_invalid" ? .connection : .agent)
     }
 
     /// The command that asks for `run` again, every word as the shell reads it back.

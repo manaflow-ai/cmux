@@ -44,6 +44,25 @@ fn name_and_model_trim_to_none() {
 }
 
 #[test]
+fn connection_is_an_id_and_reads_back() {
+    let with = |id: &str| request(&Invocation { connection: Some(id.to_owned()), ..inv("codex") });
+    assert_eq!(with("  ").unwrap().connection, None);
+    assert_eq!(with(" conn_1:a@b.c-d ").unwrap().connection.as_deref(), Some("conn_1:a@b.c-d"));
+    for bad in ["a b", "x/y", "é", &"a".repeat(129)] {
+        assert_eq!(with(bad), Err(Invalid::ConnectionInvalid), "{bad:?}");
+    }
+    let run = with("c1").unwrap();
+    assert_eq!(
+        command(&run),
+        format!(
+            "cmux cloud start-session --name {} --agent codex --connection {}",
+            shell_quoted(""),
+            shell_quoted("c1")
+        )
+    );
+}
+
+#[test]
 fn command_reads_back() {
     let mut run =
         Request { name: Some("dev box".into()), agent: "claude".into(), ..Request::default() };

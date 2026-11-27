@@ -487,10 +487,12 @@ extension AgentPaneRequest {
         case "sandbox.run":
             // The task is the person's prompt (never logged); the server checks the agent by name.
             let agent = params?["agent"] as? String
+            let connection = params?["connection"] as? String
             if let task = params?["task"] as? String, !task.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
                task.count <= Self.maximumSandboxTask, agent.map({ !$0.isEmpty && $0.count <= 32 }) ?? true,
+               connection.map(CloudSetup.isConnectionID) ?? true,
                let key = params?["key"] as? String, UUID(uuidString: key) != nil {
-                self = .sandboxRun(task: task, agent: agent, key: key)
+                self = .sandboxRun(task: task, agent: agent, key: key, connection: connection)
             } else {
                 self = .unsupported(method)
             }
