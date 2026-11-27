@@ -117,3 +117,108 @@ fn a_spawn_gets_the_route_only_where_nothing_else_set_it() {
         "an empty value is none"
     );
 }
+
+/// Production cloud-chat-replies 2026-11-26: a "no" about the edge host was held a minute, so the
+/// restart meant to pick up a late route read the same "no". Only a "yes" is held that long now.
+#[test]
+fn a_no_about_the_route_is_held_only_briefly() {
+    let now = Instant::now();
+    let host = "coderouter.cmux.internal";
+    assert_eq!(Answer::new(host, now, Some(true)).until, now + ANSWER_REUSE);
+    assert_eq!(Answer::new(host, now, Some(false)).until, now + NO_REUSE);
+    assert_eq!(Answer::new(host, now, None).until, now + NO_ANSWER_REUSE);
+    assert!(NO_REUSE < ANSWER_REUSE && NO_ANSWER_REUSE < ANSWER_REUSE);
+}
+
+#[test]
+fn plane_hosts_names_each_host_once_or_none() {
+    let plane: BTreeMap<String, String> = [
+        ("ANTHROPIC_BASE_URL", "https://coderouter.cmux.internal"),
+        ("OPENAI_BASE_URL", "https://coderouter.cmux.internal/v1"),
+        ("CMUX_CODEROUTER_URL", "https://coderouter.cmux.internal"),
+    ]
+    .into_iter()
+    .map(|(k, v)| (k.to_owned(), v.to_owned()))
+    .collect();
+    assert_eq!(plane_hosts(&plane), vec!["coderouter.cmux.internal".to_owned()]);
+    assert!(plane_hosts(&BTreeMap::new()).is_empty());
+}
+
+#[test]
+fn only_a_young_machine_waits_for_its_route() {
+    assert_eq!(route_wait_for(Some(Duration::from_secs(30))), ROUTE_WAIT);
+    assert_eq!(route_wait_for(Some(YOUNG_MACHINE)), Duration::ZERO);
+    assert_eq!(route_wait_for(Some(Duration::from_secs(3600))), Duration::ZERO);
+    assert_eq!(route_wait_for(None), Duration::ZERO);
+}
+
+/// A route that resolves on the third round, inside the wait, arrives; one that never does is
+/// given up on once the wait is spent; a machine with no route never waits.
+#[test]
+fn a_late_route_arrives_within_the_wait() {
+    use std::cell::Cell;
+    let hosts = vec!["coderouter.cmux.internal".to_owned()];
+    let now = Cell::new(Duration::ZERO);
+    let asked = Cell::new(0);
+    let arrived = arrives_within(
+        &hosts,
+        ROUTE_WAIT,
+        |_| {
+            asked.set(asked.get() + 1);
+            asked.get() >= 3
+        },
+        |d| now.set(now.get() + d),
+        || now.get(),
+    );
+    assert!(arrived);
+    assert_eq!(asked.get(), 3);
+
+    let now = Cell::new(Duration::ZERO);
+    let asked = Cell::new(0);
+    let arrived = arrives_within(
+        &hosts,
+        ROUTE_WAIT,
+        |_| {
+            asked.set(asked.get() + 1);
+            false
+        },
+        |d| now.set(now.get() + d),
+        || now.get(),
+    );
+    assert!(!arrived);
+    assert!(now.get() >= ROUTE_WAIT && now.get() < ROUTE_WAIT + Duration::from_secs(3));
+    assert!(asked.get() > 1);
+
+    let slept = Cell::new(false);
+    assert!(!arrives_within(&[], ROUTE_WAIT, |_| true, |_| slept.set(true), || Duration::ZERO));
+    assert!(!slept.get());
+    // An old machine asks once.
+    let asked = Cell::new(0);
+    assert!(!arrives_within(
+        &hosts,
+        Duration::ZERO,
+        |_| {
+            asked.set(asked.get() + 1);
+            false
+        },
+        |_| {},
+        || Duration::ZERO
+    ));
+    assert_eq!(asked.get(), 1);
+}
+
+#[test]
+fn a_no_is_reused_for_a_burst_only_so_a_name_that_starts_resolving_routes_the_next_spawn() {
+    let now = Instant::now();
+    let no = Answer::new("coderouter.cmux.internal", now, Some(false));
+    assert_eq!(no.reused("coderouter.cmux.internal", now), Some(false));
+    // Production 2026-11-26 21:46 UTC: a "no" held for 60 s left every agent started after the
+    // edge's name began resolving without a route.
+    assert_eq!(no.reused("coderouter.cmux.internal", now + Duration::from_secs(3)), None);
+    let yes = Answer::new("coderouter.cmux.internal", now, Some(true));
+    assert_eq!(yes.reused("coderouter.cmux.internal", now + Duration::from_secs(59)), Some(true));
+    assert_eq!(yes.reused("other.internal", now), None);
+    let hung = Answer::new("coderouter.cmux.internal", now, None);
+    assert_eq!(hung.reused("coderouter.cmux.internal", now + Duration::from_secs(9)), Some(false));
+    assert_eq!(hung.reused("coderouter.cmux.internal", now + Duration::from_secs(11)), None);
+}

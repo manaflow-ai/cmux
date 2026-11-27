@@ -566,6 +566,9 @@ fn session_cfg(
         // On by default: the frame that shows an input's effect goes out at once instead of
         // waiting out the frame-rate interval. `--input-frame-now 0` turns it off.
         input_frame_now: opts.flag_or("input-frame-now", true),
+        // Off by default: `--ltr 1` offers LTR loss recovery where this host encodes with
+        // VideoToolbox; the session keeps it only when the viewer negotiates `video.ltr`.
+        ltr: cfg!(target_os = "macos") && opts.flag("ltr"),
         // Off by default: `--rtt-tail-probe 1` probes a lost newest frame after a round
         // trip instead of 250 ms (design D6), for measuring before it ships.
         rtt_tail_probe: opts.flag_or("rtt-tail-probe", false),
@@ -691,6 +694,12 @@ fn serve_session(
     // The cursor as metadata where this desktop reports it: the viewer draws one cursor.
     if show_cursor && crate::desktop::reports_cursor() {
         host_caps.push(cmux_rd_core::service::caps::CURSOR);
+    }
+    // LTR only when asked for (`--ltr 1`, default off) and where this host encodes with
+    // VideoToolbox, as `cmux-rd host` does; OpenH264 hosts and viewers without the cap keep
+    // IDR recovery.
+    if cfg!(target_os = "macos") && opts.flag("ltr") {
+        host_caps.push(cmux_rd_core::service::caps::LTR);
     }
     // Frames over one FEC block keep their parity, in interleaved blocks (design D6).
     host_caps.push(cmux_rd_core::service::caps::FEC_BLOCKS);

@@ -54,6 +54,12 @@ public struct TerminalConnectingView: View {
         case nothing
     }
 
+    /// Where a cover with no kept frame (the Mac's screen text or the skeleton) ends: the
+    /// composer's top as it rests (`rowsLift` above the view's bottom), never below it.
+    static func coverBottom(height: CGFloat, rowsLift: CGFloat?) -> CGFloat {
+        max(0, height - max(0, rowsLift ?? 0))
+    }
+
     static func content(hasLastFrame: Bool, showsPlaceholder: Bool, hasScreenText: Bool = false) -> Content {
         if hasLastFrame { return .lastFrame }
         // Only where the skeleton would be: a warm surface keeps its own live rows.
@@ -102,7 +108,15 @@ public struct TerminalConnectingView: View {
                 GeometryReader { proxy in
                     // Not dimmed: a grayed-out page reads as one that takes no input (Leo,
                     // 2026-11-24: "the entire thing is somehow grayed out").
-                    TerminalCardScreenText(text: screenText ?? "", topInset: topInset, width: proxy.size.width)
+                    // Ends at the composer's top, as the skeleton and a kept frame do: the Mac's
+                    // rows never run on under the composer bar (Aziz, 2026-11-26: "the loading
+                    // terminal placeholder shouldnt leak under the composer bar").
+                    let bottom = Self.coverBottom(height: proxy.size.height, rowsLift: rowsLift)
+                    TerminalCardScreenText(text: screenText ?? "", topInset: topInset, width: proxy.size.width,
+                                           visibleHeight: rowsLift == nil ? nil : bottom)
+                        .frame(width: proxy.size.width, height: bottom, alignment: .top)
+                        .clipped()
+                        .frame(width: proxy.size.width, height: proxy.size.height, alignment: .top)
                 }
                 .accessibilityHidden(true)
             case .skeleton:
@@ -228,7 +242,7 @@ struct TerminalSkeleton: View {
     var body: some View {
         GeometryReader { proxy in
             let pitch = Self.pitch
-            let bottom = max(0, proxy.size.height - (rowsLift ?? 0))
+            let bottom = TerminalConnectingView.coverBottom(height: proxy.size.height, rowsLift: rowsLift)
             // As many of the rows as fit between the top bar and the composer, newest last.
             let room = max(0, Int((bottom - topInset - 8) / pitch) - 1)
             let shown = Array(Self.rows.suffix(room))
