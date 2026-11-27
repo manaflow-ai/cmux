@@ -47,6 +47,7 @@ pub(super) fn handles(cmd: &Command) -> bool {
             | Command::Process(..)
             | Command::Gc { .. }
             | Command::Worktree(..)
+            | Command::Care(..)
             | Command::Fetch(..)
             | Command::Group(..)
             | Command::Account(..)
@@ -1334,6 +1335,7 @@ pub(super) async fn run(cmd: Command, json_out: bool, suppress_reads: bool) -> R
         #[cfg(not(unix))]
         Command::Gc { .. } => Err(anyhow::anyhow!("acpmux gc: not supported on this platform")),
         Command::Worktree(cmd) => crate::cli::worktree::run(cmd, json_out),
+        Command::Care(cmd) => crate::cli::care::run(cmd, json_out),
         Command::Fetch(args) => crate::cli::fetch::run(args, json_out).await,
         Command::Group(cmd) => crate::cli::group::run(cmd, json_out).await,
         Command::Account(cmd) => crate::cli::account::run(cmd, json_out).await,
