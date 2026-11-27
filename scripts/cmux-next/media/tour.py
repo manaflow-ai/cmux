@@ -1205,6 +1205,11 @@ def run_step(app: App, screen: Screen, step: dict[str, Any], index: int, shots: 
         if done.returncode != 0:
             result["status"] = "unavailable" if step.get("optional") else "failed"
             result["detail"] = f"exited {done.returncode}"
+            # The command's own last line ("no terminal is ...", "... can't be split") goes in the
+            # job log too, so a failed step reads without downloading the run's artifact.
+            last = next((line.strip() for line in reversed(output.splitlines()) if line.strip()), "")
+            if last:
+                result["detail"] += f" ({last[:200]})"
             if step.get("optional"):
                 result["detail"] += f" ({step['optional']})"
     rpc = step.get("rpc")

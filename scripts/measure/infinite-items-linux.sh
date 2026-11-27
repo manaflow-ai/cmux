@@ -33,6 +33,7 @@ repeat=1
 live=0
 live_counts=""
 freed=0
+cap_ab=""
 extra=()
 for arg in "$@"; do
   case "$arg" in
@@ -46,6 +47,7 @@ for arg in "$@"; do
     live=*) live="${arg#live=}" ;;
     live_counts=*) live_counts="${arg#live_counts=}" ;;
     freed=*) freed="${arg#freed=}" ;;
+    cap_ab=*) cap_ab="${arg#cap_ab=}" ;;
     page_counts=*) page_counts="${arg#page_counts=}" ;;
     --*) extra+=("$arg") ;;
     *) echo "infinite-items-linux.sh: unknown argument $arg" >&2; exit 2 ;;
@@ -182,6 +184,19 @@ elif [[ "$before" == ref:* ]]; then
 elif [ -n "$before" ]; then
   echo "infinite-items-linux.sh: unknown before=$before (own-exe, hosts, ref:REF)" >&2
   exit 2
+fi
+# cap_ab=N: ACPMUX_RESIDENT_CAP off against N, REPEAT times each, interleaved (off, N, off, N, ...) on this
+# runner with this build; each INFINITE line carries its arm and repeat (CAPAB arm=off|capN rI).
+if [[ -n "$cap_ab" ]]; then
+  for r in $(seq 1 "$repeat"); do
+    for arm in off "cap$cap_ab"; do
+      flag=(); [[ "$arm" == off ]] || flag=(--resident-cap "$cap_ab")
+      python3 scripts/measure/infinite-items.py --acpmux "$bin/acpmux" --tui "$bin/cmux-tui" \
+        --counts "$counts" --days "$days" ${flag[@]+"${flag[@]}"} ${extra[@]+"${extra[@]}"} 2>&1 \
+        | sed -u "s/^/CAPAB arm=$arm r$r /" || status=$?
+    done
+  done
+  exit "$status"
 fi
 python3 scripts/measure/infinite-items.py --acpmux "$bin/acpmux" --tui "$bin/cmux-tui" \
   --counts "$counts" --days "$days" --out "$out/infinite-items.json" ${extra[@]+"${extra[@]}"} || status=$?

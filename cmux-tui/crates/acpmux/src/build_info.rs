@@ -52,8 +52,8 @@ fn build_date(build: &str) -> Option<&str> {
     let date = build.rsplit(' ').next()?;
     let b = date.as_bytes();
     let shape = b.len() == 10
-        && b[4] == b'-'
-        && b[7] == b'-'
+        && b.get(4) == Some(&b'-')
+        && b.get(7) == Some(&b'-')
         && b.iter().enumerate().all(|(i, c)| i == 4 || i == 7 || c.is_ascii_digit());
     (shape && date.len() < build.len()).then_some(date)
 }

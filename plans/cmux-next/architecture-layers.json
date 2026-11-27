@@ -3,6 +3,7 @@
   "order": ["core", "service", "domain", "ui", "app"],
   "targets": {
     "CCmuxAppFFI": {"layer": "core"},
+    "CCmuxScreenshots": {"layer": "core"},
     "CmuxEgress": {"layer": "core"},
     "CmuxNextCompat": {"layer": "core"},
     "CmuxNextWakeups": {"layer": "core"},

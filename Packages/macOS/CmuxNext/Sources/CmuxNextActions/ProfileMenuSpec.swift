@@ -49,6 +49,9 @@ public nonisolated struct ProfileMenuSpec: Sendable {
     public var updates: Row
     /// Accounts…: the last row of the account row's submenu, under the teams.
     public var accounts: Row
+    /// Usage, under Settings in the account menu (`sidebar.profileMenu.style: "account"`): the usage page, as the
+    /// Claude Code app's account menu has one. Left out where the build has no usage to show.
+    public var usage: Row
     /// Help ›, above Sign Out: the Help menu's own rows.
     public var help: [ActionID]
 
@@ -70,6 +73,7 @@ public nonisolated struct ProfileMenuSpec: Sendable {
         settings = Row(action: "openSettings", title: nil, symbol: "gear")
         updates = Row(action: "palette.checkForUpdates", title: nil, symbol: "arrow.down.circle")
         accounts = Row(action: "accounts.show", title: nil, symbol: "person.crop.circle")
+        usage = Row(action: "chief.openUsage", title: Self.text("menu.profile.usage", "Usage"), symbol: "chart.bar")
         help = ["help.documentation", "palette.searchShortcuts", "updates.whatsNew", "sendFeedback"]
     }
 

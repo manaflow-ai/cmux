@@ -269,38 +269,22 @@ struct SidebarUniformRowSpacingTests {
         #expect(abs(w4.minY - w3.maxY - spacing) < 0.5)
     }
 
-    @Test(arguments: SidebarDensity.allCases) func thePinStartsOnAnUnpinnedRowsIconColumn(_ density: SidebarDensity) throws {
+    @Test(arguments: SidebarDensity.allCases) func aPinnedRowDrawsNoPinAndTakesAnUnpinnedRowsHeight(_ density: SidebarDensity) throws {
         let (saved, savedMotion) = (DesignSettings.shared.sidebarSections.density, Motion.reduceMotionOverride)
         (DesignSettings.shared.sidebarSections.density, Motion.reduceMotionOverride) = (density, true)
         defer { (DesignSettings.shared.sidebarSections.density, Motion.reduceMotionOverride) = (saved, savedMotion) }
         let h = Harness()
         defer { h.window.close() }
         let pinned = try h.pinnedRow(Self.pins[0])
-        // The harness's pins answer no workspace: a missing workspace keeps its pin (#38061), drawn under its stored
-        // name (one with no name draws nothing, #42372).
-        let ink = try #require(pinned.pinInkFrame, "the pinned workspace row draws no pin")
-        let pin = h.list.convert(ink, from: pinned)
+        // A pinned row leads as an unpinned one, with no pin (Leo 2026-11-23, ask c-b5d3e0efb6: "it puts a symbol at
+        // the left"), a missing workspace's too.
+        #expect(pinned.pinInkFrame == nil, "the pinned workspace row draws a pin")
         let pinnedFrame = h.inList(pinned)
         let unpinned = try h.workspaceRow("w3")
-        // An unpinned row's leading slot: its icon, or where its title starts without one.
-        let content = h.list.convert(unpinned.icon.frame, from: unpinned)
         let unpinnedFrame = h.inList(unpinned)
-        // The pin is a narrow mark: its ink centers on the line an unpinned row's icon centers on, as every row
-        // glyph centers in the optical glyph square from the row inset (#42431, fa6dfb62; the pinned-row and Home
-        // suites check the same line). Its ink starting on the column edge was the rule before #42431: it read
-        // 3.25 to 3.5 pt off since, the narrow pin centered in a wider square.
-        // w3 draws no icon: its slot is empty at the row inset, so the line is the inset plus half the square.
-        let pixel = 1 / max(1, h.window.backingScaleFactor)
-        let line = content.minX + SidebarStyle.rowGlyphOpticalSide / 2
-        #expect(abs(pin.midX - line) <= max(0.5, pixel),
-                "the pin's ink centers at \(pin.midX), the glyph square's center line is \(line)")
-        #expect(abs((pin.midY - pinnedFrame.midY) - (content.midY - unpinnedFrame.midY)) < 0.5,
-                "the pin sits \(pin.midY - pinnedFrame.midY) pt off its row's middle, an unpinned row's content \(content.midY - unpinnedFrame.midY) pt")
         // A pinned row takes the band's row: an unpinned row's height, except at Expanded, where it is Comfortable's
         // (Lawrence 2026-11-04, pinned rows were too short; 9353f4addd2).
         #expect(abs(pinnedFrame.height - SidebarRowTokens.current.band.rowHeight) < 0.01)
         if density != .expanded { #expect(abs(pinnedFrame.height - unpinnedFrame.height) < 0.01) }
-        // The pinned row's title still starts after its pin.
-        #expect(h.list.convert(pinned.titleFrame, from: pinned).minX >= pin.maxX)
     }
 }

@@ -117,6 +117,88 @@ public struct TerminalConnectingView: View {
     }
 }
 
+/// The bound on a terminal page's connecting cover. A page whose Mac's rows never came drew the
+/// skeleton's gray bars for good (Aziz's TestFlight build, 2026-11-25). Now the cover is a
+/// skeleton only for ``bound``: past it, or at once when the session gave up or the Mac is
+/// offline, the page says what is going on in words with Retry, and tries the attach again by
+/// itself after each of ``retryDelays`` (the last one repeating) while the cover is up.
+enum TerminalLoadWatch {
+    /// How long the skeleton shows before the page offers Retry.
+    static let bound: Duration = .seconds(8)
+    /// The waits between the page's own retries of the attach, the first after ``bound``.
+    static let retryDelays: [Duration] = [.seconds(8), .seconds(15), .seconds(30), .seconds(60)]
+
+    /// The wait before the page's `attempt`th own retry (0 is the first).
+    static func retryDelay(_ attempt: Int) -> Duration {
+        retryDelays[min(max(0, attempt), retryDelays.count - 1)]
+    }
+
+    /// What the cover draws.
+    enum Stage: Equatable {
+        /// The skeleton (or the Mac's screen text): the rows are on their way.
+        case loading
+        /// Retry, with failure details only when the connection has failed or is offline.
+        case stalled
+    }
+
+    static func stage(_ state: TerminalConnectionState, waited: Duration) -> Stage {
+        switch state {
+        case .attached:
+            return .loading
+        case .failed, .offline:
+            return .stalled
+        case .connecting, .reattaching:
+            guard waited >= bound else { return .loading }
+            return .stalled
+        }
+    }
+}
+
+/// The connecting cover past ``TerminalLoadWatch/bound``: what is going on and Retry, centered
+/// on the page, in place of the skeleton.
+struct TerminalLoadStalledPanel: View {
+    let state: TerminalConnectionState
+    let retry: @MainActor () async -> Void
+
+    /// Keep failure copy with the action that resolves it; an ongoing attach has no notice.
+    static func notice(_ state: TerminalConnectionState) -> (title: String, detail: String)? {
+        switch state {
+        case .failed:
+            return ("Can't reach this terminal", "Check that the Mac is on and cmux is open.")
+        case .offline:
+            return (state.quietLine ?? "Your Mac is offline", "The terminal opens when it is back.")
+        case .attached, .connecting, .reattaching:
+            return nil
+        }
+    }
+
+    var body: some View {
+        VStack(spacing: 12) {
+            Image(systemName: "terminal")
+                .font(.system(size: 28, weight: .regular))
+                .foregroundStyle(Color.white.opacity(0.6))
+                .accessibilityHidden(true)
+            if let notice = Self.notice(state) {
+                Text(verbatim: notice.title)
+                    .font(.headline)
+                    .foregroundStyle(Color.white)
+                    .multilineTextAlignment(.center)
+                Text(verbatim: notice.detail)
+                    .font(.subheadline)
+                    .foregroundStyle(Color.white.opacity(0.7))
+                    .multilineTextAlignment(.center)
+            }
+            RetryButton(action: retry)
+                .accessibilityIdentifier("terminal.connecting.retry")
+        }
+        .padding(.horizontal, 32)
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .accessibilityElement(children: .contain)
+        .accessibilityIdentifier("terminal.connecting.stalled")
+        .environment(\.colorScheme, .dark)
+    }
+}
+
 /// A terminal never opened on this phone, until its Mac's rows arrive: the shape of a
 /// terminal (SPEC 7.1), not a list of grey bars. Rows at the terminal's own line pitch, a
 /// prompt's `$` at each command line's start, output lines of uneven length, and the last

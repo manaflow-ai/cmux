@@ -47,6 +47,7 @@ import type {
   ModelsState,
   LibraryListing,
   HubState,
+  DeveloperTokensState,
   AutocloudState,
   DoctorReport,
   ConnectionsState,
@@ -84,6 +85,8 @@ export type SettingsPageVariant = VariantBase & {
   keys?: KeysState;
   /** Settings > Integrations fixture state; default the mock's (a waiting Stripe refund). */
   hub?: HubState;
+  /** Settings > Developer fixture state; default the mock's (two personal tokens). */
+  tokens?: DeveloperTokensState;
   /** Settings > Automations fixture state; default the mock's (three automations, one failed run). */
   autocloud?: AutocloudState;
   /** Settings > Connections fixture state; default the mock's (Linear and Sentry connected). */
@@ -328,6 +331,8 @@ export type MarkdownPageVariant = VariantBase & {
   files?: Record<string, string>;
   /** Opens find (the `find` page command, Cmd-F) with this query once the document shows. */
   find?: string;
+  /** The link to cmux stays down: every config read fails as the bridge does. */
+  disconnected?: boolean;
 };
 
 /** One file of a diff fixture: the text before (absent for a new file) and after (absent when deleted). */
@@ -514,8 +519,14 @@ export type KeybindingsPageVariant = VariantBase & {
 /** A React component with props, for components no page host draws on its own. */
 export type ComponentVariant<P> = VariantBase & {
   props: P;
+  /** Experiment arms the variant pins, by experiment id (experiments/experiment.ts), set before the
+   *  component loads: a variant about one arm's look keeps it when the default moves. */
+  experiments?: Record<string, string>;
   /** Gallery-only answers for the component's reply chip/preview host calls. */
   chipHost?: ChipHostFixture;
+  /** Experiment arms the variant pins, by experiment id (experiments/experiment.ts), set before the
+   *  component loads. */
+  experiments?: Record<string, string>;
 };
 
 /**

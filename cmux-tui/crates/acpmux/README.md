@@ -858,6 +858,8 @@ with an inline `OPENCODE_CONFIG_CONTENT` (provider `byo`, `@ai-sdk/openai-compat
 
 ## Picking a harness and a model: `-m HARNESS[/MODEL]`, `-p PRESET`
 
+In a NEXT chat, `/model astra-6.2 fast high` selects the matching model, service tier and reasoning effort together. To change only speed on an existing Codex chat, use `acpmux session set SESSION fast-mode=priority` for a model that offers the priority tier. The bridge reads service tiers from the session provider's catalog.
+
 One flag names what runs. Its head is a **family** (`claude`, `codex`, `opencode`, `pi`, `omp`,
 `prime`, `gemini`) or a **profile** (`claude-sr`, `claude-acp`); an optional model follows the
 first slash and keeps its own slashes. Nothing is inferred: a head that is neither family nor
@@ -1454,6 +1456,20 @@ returns once the message is on disk here, and the daemon delivers it when the pe
    from `send`, or none for the messages its chat sent. `cmux agent session inbox SESSION` ends with the messages that session sent and their
    state, and `cmux agent ls` ends with how many still wait (`outboxPending` in `_acpmux/status`).
    Delivered, held and failed deliveries are kept for a day.
+
+**One hop through a peer (`sendHop`).** A send to `HOST/NAME` where HOST is no peer of this
+daemon asks each connected peer (`_acpmux/send_hop {host}`, 3 s each) whether it peers HOST and
+takes hops, and hands the send to the first that does (its link to HOST up first). That peer queues
+it in its own outbox as a relayed message (`fromRelay {by: "acpmux-hop", machine, session}`), so the
+far chat names the true sender; the answer carries `via`. A daemon takes hops only with
+
+```json
+{"sendHop": true}
+```
+
+and only from a paired peer daemon, only to a host it peers itself, and a hop never hops again.
+With no route the refusal says so: `no session: HOST/NAME (...; tried a hop via: hub (does not peer
+the host))`, with `data.hop.tried`.
 
 **A relay for targets no peer reaches (`sendRelay`).** A host may have no peer that reaches the
 target, such as an agent VM that cannot dial back to the machine that drives it. A relay command,

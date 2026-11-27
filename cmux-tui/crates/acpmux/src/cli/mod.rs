@@ -44,6 +44,7 @@ pub mod harness_run;
 pub mod harness_secret;
 pub(crate) mod help_examples;
 pub(crate) mod hold_line;
+pub mod hook_register;
 pub mod host_agents;
 pub mod host_approvals;
 #[cfg(unix)]

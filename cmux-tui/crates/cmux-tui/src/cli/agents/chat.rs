@@ -274,8 +274,13 @@ pub(super) fn scoped_chat(global: &GlobalArgs, target: &str) -> Result<Chat, Cal
     };
     let workspace =
         info.pointer("/sessionEnv/CMUX_WORKSPACE_ID").and_then(Value::as_str).map(workspace_key);
-    let keys = session_workspace_keys(global)?;
-    if !workspace.as_ref().is_some_and(|key| keys.contains(key)) {
+    let snapshot = session_snapshot(global)?;
+    let in_workspace =
+        workspace.as_ref().is_some_and(|key| session_workspace_keys(&snapshot).contains(key));
+    // A chat that came here by a move (Bring Back Local, `cmux link agent move`) runs with no
+    // workspace in its env: the move's guard clears the env it brought (`transfer_guard.rs`), and
+    // the app shows it in a workspace it opened for it. Its tab there puts it in this session.
+    if !in_workspace && !shown_in_session(global, &snapshot, &chat) {
         return Err(not_run(
             "chat.out_of_scope",
             format!("chat {chat} does not run in a workspace of this cmux session"),
@@ -316,18 +321,69 @@ pub(super) fn workspace_key(value: &str) -> String {
     value.chars().filter(|ch| *ch != '-').flat_map(char::to_lowercase).collect()
 }
 
-/// The keys of this cmux session's workspaces (`extra.key`), from the
-/// session snapshot `agents_snapshot` reads.
-fn session_workspace_keys(global: &GlobalArgs) -> Result<HashSet<String>, CallFailure> {
-    let snapshot = mcp::agent_resource(global, super::snapshot_plan())
-        .map_err(|error| CallFailure { kind: FailureKind::NotRun, error, idempotency_key: None })?;
-    Ok(snapshot["workspaces"]
+/// This cmux session's snapshot (its workspaces and tabs), as `agents_snapshot` reads it from
+/// the daemon.
+fn session_snapshot(global: &GlobalArgs) -> Result<Value, CallFailure> {
+    mcp::agent_resource(global, super::snapshot_plan()).map_err(|error| CallFailure {
+        kind: FailureKind::NotRun,
+        error,
+        idempotency_key: None,
+    })
+}
+
+/// The keys of this cmux session's workspaces (`extra.key`), from its daemon snapshot.
+fn session_workspace_keys(snapshot: &Value) -> HashSet<String> {
+    snapshot["workspaces"]
         .as_array()
         .into_iter()
         .flatten()
         .filter_map(|workspace| workspace["extra"]["key"].as_str())
         .map(workspace_key)
-        .collect())
+        .collect()
+}
+
+/// Whether a tab of this cmux session shows chat `chat`: a workspace of the app's topology
+/// (`snapshot.get`) whose tabs show the chat (`agent_session`), and that workspace one of this
+/// session's (the daemon snapshot's, which holds only this session's workspaces). No app (CI, a
+/// headless agent): no tab shows it.
+fn shown_in_session(global: &GlobalArgs, snapshot: &Value, chat: &str) -> bool {
+    let Ok(app) =
+        mcp::agent_app(global, "snapshot.get", json!({}), super::super::app::READ_TIMEOUT, None)
+    else {
+        return false;
+    };
+    let Some(topology) = app.get("topology") else { return false };
+    shown_in_workspace(snapshot, topology, chat)
+}
+
+/// [`shown_in_session`]'s check on the two snapshots: the daemon's SNAPSHOT of this session and
+/// the app's TOPOLOGY.
+pub(super) fn shown_in_workspace(snapshot: &Value, topology: &Value, chat: &str) -> bool {
+    fn shows(value: &Value, chat: &str) -> bool {
+        match value {
+            Value::Object(object) => {
+                object
+                    .get("agent_session")
+                    .and_then(Value::as_str)
+                    .is_some_and(|session| session.strip_prefix("acp:").unwrap_or(session) == chat)
+                    || object.values().any(|child| shows(child, chat))
+            }
+            Value::Array(values) => values.iter().any(|value| shows(value, chat)),
+            _ => false,
+        }
+    }
+    let ours: HashSet<&str> = snapshot["workspaces"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .filter_map(|workspace| workspace["id"].as_str())
+        .collect();
+    topology["workspaces"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .filter(|workspace| workspace["id"].as_str().is_some_and(|id| ours.contains(id)))
+        .any(|workspace| shows(workspace, chat))
 }
 
 /// The caller's own chat: the acpmux session acpmux started it in.

@@ -36,6 +36,7 @@ import { newTabScreenActions } from "../newtab/screenActions";
 import { cloudSendAgent } from "../cloudModePick";
 import { cloudAgentPick } from "../cloudAgentPick";
 import { jumpSide } from "../jumpPlace";
+import type { ComposerPlace } from "../composerPlace.experiment";
 import { StyleSwitch } from "../newtab/StyleSwitch";
 import { screenTemplate, shownTemplate, pageStyle, pickNewTabStyle } from "../newtab/templates";
 import { newTabPageSubmit } from "../newtab/pageSubmit";
@@ -105,6 +106,7 @@ import { openOfferChat } from "../rows/rowActions";
 import { VirtualTranscript } from "../VirtualTranscript";
 import { LiveTreePill } from "../header/LiveTreePill";
 import { readFolderStatus } from "./hostBindings";
+import { chatMenuHasRows } from "./chatMenu";
 import { NewTabComposerChips } from "./ComposerChips";
 import type { AcpmuxSnapshot, paneHeader } from "../model";
 import type { AcpmuxDirectClient } from "../direct";
@@ -198,6 +200,7 @@ export type PaneBodyDeps = NewTabShown &
     summaryCard: ReturnType<typeof useSummaryCard>;
     previewBeside: boolean;
     jumpPlaceArm: "center" | "end" | "start" | "corner";
+    composerPlaceArm: ComposerPlace;
     trayHandle: TrayHandleSide;
     /** The hat-pill-place arm while the tucked hat's pill shows (jumpPlace.css), else undefined. */
     hatPill: HatPillPlace | undefined;
@@ -517,6 +520,7 @@ export function drawPaneBody({
   summaryCard,
   previewBeside,
   jumpPlaceArm,
+  composerPlaceArm,
   trayHandle,
   hatPill,
   chatMinimapBeside,
@@ -828,8 +832,15 @@ export function drawPaneBody({
           // The transcript runs the pane's height under the bottom stack (bottomStack.css) while the
           // stage shows it; a new chat's hero, a handoff review, the diff and the inspector keep it in flow.
           // An open chat's stack in flow is `flow`: its composer keeps the floating one's place
-          // (composerLocation.css), so it does not move as the stage over it switches.
-          data-dock={!reviewing && !freshView && !inspectorOpen ? "float" : !freshView ? "flow" : undefined}
+          // (composerLocation.css), so it does not move as the stage over it switches. The
+          // composer-place experiment's `outside` arm keeps it in flow there too.
+          data-dock={
+            !reviewing && !freshView && !inspectorOpen && composerPlaceArm === "over"
+              ? "float"
+              : !freshView
+                ? "flow"
+                : undefined
+          }
           data-summary={summaryCard.column ? "inline" : "popover"}
           data-cu-preview={previewBeside ? "" : undefined}
           // The jump stack's place and side (jumpPlace.css): the whole stack moves together.
@@ -1394,6 +1405,7 @@ export function drawPaneBody({
                       }}
                       nativeNeedsYou={{ items: needsYou.items, mode: needsYou.mode, actions: needsYou.actions }}
                       tabTools={!quick}
+                      menuHasRows={chatMenuHasRows(quick, snapshot.sessionId)}
                       pullRequestChip={!readOnlySubagent}
                       // A new chat's picked folder too: New Worktree names its branch before the first prompt.
                       folder={localCwd ?? (remoteChat ? undefined : startFolder)}

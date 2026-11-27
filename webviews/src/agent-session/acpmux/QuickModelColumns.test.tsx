@@ -903,6 +903,16 @@ test("Fast flips at once on the running model, before the session reports it", a
   expect(fastSwitch().querySelector("[data-on]")).not.toBeNull();
 });
 
+test("five Fast cycles on a running model missing from a nonempty catalog never pick another model", async () => {
+  const calls = await openMenu([{ ...claude, models: [model("claude", "Sonnet")] }, codex]);
+  for (let cycle = 0; cycle < 5; cycle++) {
+    await click(fastSwitch());
+    await click(fastSwitch());
+  }
+  expect(calls.fast).toEqual(Array.from({ length: 10 }, (_, i) => i % 2 === 0));
+  expect(calls.picks).toHaveLength(0);
+});
+
 test("Fast on another model holds it with Fast and no level the person did not pick", async () => {
   const calls = await openMenu();
   await click(tab("Codex"));

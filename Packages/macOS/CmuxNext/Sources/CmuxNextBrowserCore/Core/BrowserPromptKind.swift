@@ -30,6 +30,11 @@ public nonisolated enum BrowserPromptKind: Hashable, Sendable {
     /// the app named `app`? Answered `.allowOnce` (Open), `.allow` (Open,
     /// always for the site) or `.cancel`.
     case openExternalApp(app: String, scheme: String)
+    /// A page sent the tab to `scheme` with no gesture (a sign-in's return by
+    /// redirect or script, `BrowserExternalApps`) and no app on this Mac opens
+    /// it: told, not asked, so the flow never just stops (Safari's "can't open
+    /// the page" alert). Answered `.accept` (OK).
+    case noAppForScheme(scheme: String)
     /// Chromium's password manager asks to save (or, with `update`, to
     /// replace) the sign-in a person submitted (fork API 20). Answered
     /// `.accept` (Save / Update), `.deny` (never for the site) or `.cancel`

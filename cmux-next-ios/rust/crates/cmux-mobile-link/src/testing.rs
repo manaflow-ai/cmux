@@ -1019,6 +1019,18 @@ impl webrtc::turn::auth::AuthHandler for TestAuth {
     }
 }
 
+/// A host name [`TestTurn`]'s TLS certificate also names (beside `127.0.0.1`), for a test
+/// that dials it by name through its own resolver (`route_literals`).
+pub const TEST_TURN_HOST: &str = "turn.cmux.test";
+
+/// [`TestTurn::ice`] with `host` in place of `127.0.0.1`.
+pub fn ice_named(ice: &crate::api::IceServer, host: &str) -> crate::api::IceServer {
+    crate::api::IceServer {
+        urls: ice.urls.iter().map(|url| url.replace("127.0.0.1", host)).collect(),
+        ..ice.clone()
+    }
+}
+
 /// A TURN server on loopback for tests: UDP on one port, TLS (RFC 5766 over
 /// TLS, a self-signed certificate for 127.0.0.1) on another, and plain TCP
 /// on a third. Relayed addresses are `127.0.0.1` with ports in
@@ -1270,8 +1282,11 @@ impl TestTurn {
                 (chain, key, Arc::new(rustls::RootCertStore::empty()))
             }
             None => {
-                let certified =
-                    rcgen::generate_simple_self_signed(vec!["127.0.0.1".to_owned()]).expect("certificate");
+                let certified = rcgen::generate_simple_self_signed(vec![
+                    "127.0.0.1".to_owned(),
+                    TEST_TURN_HOST.to_owned(),
+                ])
+                .expect("certificate");
                 let mut roots = rustls::RootCertStore::empty();
                 roots.add(certified.cert.der().clone()).expect("root");
                 let key = rustls::pki_types::PrivateKeyDer::Pkcs8(

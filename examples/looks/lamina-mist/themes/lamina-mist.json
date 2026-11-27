@@ -6,7 +6,7 @@
 
   // Palette: layer color, ink, selection, accent.
   "appearance.theme": "Builtin Dark",
-  "colors": {"background": "#18202a", "foreground": "#eef3f9", "selection": "#2a4a63", "accent": "#4cc2ff"},
+  "colors": {"background": "#18202a", "foreground": "#eef3f9", "selection": "#477ca6", "accent": "#4cc2ff"},
   "appearance.appTheme": "followTerminal",
   "appearance.accent": "theme",
   "appearance.highlightColor": "#2a4a63",

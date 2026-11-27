@@ -201,10 +201,11 @@
 }
 
 /* Plain (a turn not worth a chart: one call, or mostly the model): each line its name and its
-   time, no axis and no bars. The head has no axis to share, so it is one column. */
-.cv-waterfall.is-plain .cv-waterfall__head {
-  grid-template-columns: minmax(0, 1fr);
-  padding-bottom: 4px;
+   time, no axis and no bars, and no head: two or more lines end on a Total line under a hairline. */
+.cv-waterfall__line.is-total {
+  margin-top: 4px;
+  border-top: 1px solid color-mix(in srgb, var(--cv-fg) 12%, transparent);
+  border-radius: 0;
 }
 
 .cv-waterfall__lines {

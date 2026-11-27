@@ -366,11 +366,19 @@ impl<'a, H: Http, S: DeviceStore> Vault<'a, H, S> {
             "label": self.label,
             "publicKey": b64::encode(key.public_bytes()),
         });
-        if snap.devices.is_empty() {
+        // The server's bootstrap (cmux-platform SealedVault.ts addDevice): a vault with no active device and no
+        // item takes its first device's own wrap at the NEXT epoch. A vault whose devices were all removed keeps
+        // its epoch, so that is not always 1 (vault-e2e.ts run 45703929549: "the first device's wrap is for epoch 2").
+        if !snap.devices.iter().any(|d| d.state == "active") && snap.items.is_empty() {
+            let epoch = snap.epoch + 1;
             let vk = VaultKey::generate()?;
-            let wrap = crypto::wrap_key(&vk, &self.vault.0, &id, key.public_bytes(), 1)?;
-            body["wrap"] =
-                json!({"epoch": 1, "enc": b64::encode(&wrap.enc), "ct": b64::encode(&wrap.ct)});
+            let wrap = crypto::wrap_key(&vk, &self.vault.0, &id, key.public_bytes(), epoch)?;
+            if let Some(fields) = body.as_object_mut() {
+                fields.insert(
+                    "wrap".to_owned(),
+                    json!({"epoch": epoch, "enc": b64::encode(&wrap.enc), "ct": b64::encode(&wrap.ct)}),
+                );
+            }
         }
         self.call("POST", &format!("{BASE}/devices"), Some(&id), Some(&body))?;
         self.status()

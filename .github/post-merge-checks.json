@@ -136,7 +136,7 @@
     },
     "cmux-next-base-linux.yml": {
       "kind": "check",
-      "why": "reruns the step table's linux job, which pr-pipeline.yml already runs on each pull request, on the base tip to name a red landing (#51391); report-only"
+      "why": "reruns the step table's linux and web-browser jobs, which pr-pipeline.yml already runs on each pull request, on the base tip to name a red landing (#51391) and give base_red_excuse.py their base verdicts; report-only"
     },
     "cmux-next-base-tier-kick.yml": {
       "kind": "publish",

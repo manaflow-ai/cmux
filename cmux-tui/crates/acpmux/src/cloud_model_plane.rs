@@ -169,23 +169,51 @@ fn origin_host(url: &str) -> &str {
 
 /// How long one spawn waits for the resolver before it starts without the route.
 const RESOLVE_WAIT: Duration = Duration::from_secs(5);
-/// How long an answer is reused, so a burst of spawns asks the resolver once.
+/// How long "it resolves" is reused, so a burst of spawns asks the resolver once.
 const ANSWER_REUSE: Duration = Duration::from_secs(60);
+/// How long "it does not resolve" is reused: a burst only. The edge's name can start resolving a
+/// moment after the machine binds (cmux-platform CloudCore.ts checkEdgeDns resets and kicks the
+/// guest's resolver then), and an agent started without the route keeps none for its whole life,
+/// so a "no" held for a minute signed out every agent started in that minute (production
+/// 2026-11-26 21:46 UTC, vm_c2229ccc0ebaabe2a575: both agents not edge-routed on a fresh create).
+const NO_REUSE: Duration = Duration::from_secs(2);
 /// How long "the resolver did not answer" is reused: a hung resolver costs one wait per burst of
 /// spawns, not one per spawn.
 const NO_ANSWER_REUSE: Duration = Duration::from_secs(10);
 
-/// Whether `host` resolves here, from a short cache. The lookup asks for the same target as
-/// `codex_cloud_auth::host_resolves`; this one is blocking (spawns fill their env synchronously),
-/// so it runs on its own thread and gives up after [`RESOLVE_WAIT`] (unreachable).
+/// One remembered resolver answer for one host.
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct Answer {
+    host: String,
+    until: Instant,
+    resolves: bool,
+}
+
+impl Answer {
+    /// `resolved`: the resolver's answer, `None` when it gave none within [`RESOLVE_WAIT`].
+    fn new(host: &str, now: Instant, resolved: Option<bool>) -> Self {
+        let (resolves, reuse) = match resolved {
+            Some(true) => (true, ANSWER_REUSE),
+            Some(false) => (false, NO_REUSE),
+            None => (false, NO_ANSWER_REUSE),
+        };
+        Answer { host: host.to_owned(), until: now + reuse, resolves }
+    }
+
+    /// The answer for `host` at `now`, while it is still reused.
+    fn reused(&self, host: &str, now: Instant) -> Option<bool> {
+        (self.host == host && now < self.until).then_some(self.resolves)
+    }
+}
+
+/// Whether `host` resolves here, from a short cache ([`Answer`]). The lookup asks for the same
+/// target as `codex_cloud_auth::host_resolves`; this one is blocking (spawns fill their env
+/// synchronously), so it runs on its own thread and gives up after [`RESOLVE_WAIT`] (unreachable).
 pub(crate) fn plane_host_resolves(host: &str) -> bool {
-    static CACHE: Mutex<Option<(String, Instant, bool)>> = Mutex::new(None);
+    static CACHE: Mutex<Option<Answer>> = Mutex::new(None);
     let cache = || CACHE.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
-    if let Some((cached, until, ok)) = cache().as_ref()
-        && cached == host
-        && Instant::now() < *until
-    {
-        return *ok;
+    if let Some(ok) = cache().as_ref().and_then(|answer| answer.reused(host, Instant::now())) {
+        return ok;
     }
     let target = crate::codex_cloud_auth::lookup_target(host.to_owned());
     let (tx, rx) = std::sync::mpsc::channel();
@@ -196,11 +224,9 @@ pub(crate) fn plane_host_resolves(host: &str) -> bool {
     if lookup.is_err() {
         return false;
     }
-    let (ok, reuse) = match rx.recv_timeout(RESOLVE_WAIT) {
-        Ok(ok) => (ok, ANSWER_REUSE),
-        Err(_) => (false, NO_ANSWER_REUSE),
-    };
-    *cache() = Some((host.to_owned(), Instant::now() + reuse, ok));
+    let answer = Answer::new(host, Instant::now(), rx.recv_timeout(RESOLVE_WAIT).ok());
+    let ok = answer.resolves;
+    *cache() = Some(answer);
     ok
 }
 

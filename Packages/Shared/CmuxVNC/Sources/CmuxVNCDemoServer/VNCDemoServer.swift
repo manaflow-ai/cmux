@@ -19,14 +19,17 @@ public final class VNCDemoServer: @unchecked Sendable {
         public var password: String?
         /// Animation steps per second (0 stops the bouncing tile).
         public var framesPerSecond: Int
+        /// Checks a password client's answer (cmux-vnc's DES); a password server needs them.
+        public var rules: VNCRules
 
         public init(width: Int = 1280, height: Int = 800, name: String = "cmux VNC demo", password: String? = nil,
-                    framesPerSecond: Int = 30) {
+                    framesPerSecond: Int = 30, rules: VNCRules = VNCRules()) {
             self.width = width
             self.height = height
             self.name = name
             self.password = password
             self.framesPerSecond = framesPerSecond
+            self.rules = rules
         }
     }
 
@@ -258,7 +261,7 @@ final class DemoConnection: @unchecked Sendable {
                 }
             case .auth:
                 guard let response = take(16) else { return }
-                let expected = DemoVNCAuth(password: configuration.password ?? "").response(challenge: challenge)
+                let expected = VNCPasswordResponse(password: configuration.password ?? "", challenge: challenge, rules: configuration.rules).bytes
                 guard response == expected else {
                     fail("Authentication failed")
                     return
@@ -440,15 +443,6 @@ struct ZRLEEncoder {
         }
         out.append(0)
         for pixel in tile { cpixel(pixel, into: &out) }
-    }
-}
-
-/// The server side of VNC password authentication (same DES as the client).
-struct DemoVNCAuth {
-    var password: String
-
-    func response(challenge: [UInt8]) -> [UInt8] {
-        VNCPasswordResponse(password: password, challenge: challenge).bytes
     }
 }
 

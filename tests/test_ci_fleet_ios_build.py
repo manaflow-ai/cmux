@@ -55,15 +55,19 @@ class Resp(io.BytesIO):
 class Route:
     """A fake route: answers are consumed in order per op; a download URL serves `archive`."""
 
-    def __init__(self, submit, statuses, archive=b""):
+    def __init__(self, submit, statuses, archive=b"", bearer="tok"):
         self.submit, self.statuses, self.archive = submit, list(statuses), archive
-        self.bodies = []
+        self.bodies, self.bearer = [], bearer
 
     def __call__(self, req, timeout=None):
         if req.full_url == "https://store.example/out.tgz":
             return Resp(self.archive)
         assert req.full_url == fib.ROUTE, req.full_url
-        assert req.get_header("Authorization") == "Bearer tok"
+        if req.get_header("Authorization") != f"Bearer {self.bearer}":
+            self.bodies.append("refused")
+            raise urllib.error.HTTPError(fib.ROUTE, 401, "x", {}, io.BytesIO(b"token refused: expired"))
+        # urllib's default agent gets HTTP 403 "error code: 1010" from the CDN (run 45898219170).
+        assert req.get_header("User-agent") == fib.USER_AGENT, req.get_header("User-agent")
         body = json.loads(req.data)
         self.bodies.append(body)
         ans = self.submit if body["op"] == "submit" else self.statuses.pop(0)
@@ -154,6 +158,30 @@ class FleetIOSBuild(unittest.TestCase):
         self.assertEqual(run(route, self.out), 2)
         self.assertFalse((self.out / "evil").exists())
 
+    def test_expired_token_is_minted_again(self):
+        # A job's OIDC token lives ~5 min; the poll got 401 "expired" at 344 s in run 45915442830.
+        route = Route({"job": "j1", "state": "queued"}, [{"state": "running"}, {"verdict": "fail", "reason": "x"}])
+        tokens = iter(["tok", "tok2"])
+        clock = Clock()
+
+        def sleep(s):
+            clock.sleep(s)
+            route.bearer = "tok2"  # past the first poll the first token has expired
+
+        rc = fib.run("ffi", self.out, 1500, 600, lambda: next(tokens), opener=route, clock=clock, sleep=sleep)
+        self.assertEqual(rc, 1)
+        self.assertEqual([b if b == "refused" else b["op"] for b in route.bodies],
+                         ["submit", "status", "refused", "status"])
+
+    def test_expired_token_without_a_minter_is_2(self):
+        route = Route({"job": "j1", "state": "queued"}, [{"state": "running"}], bearer="other")
+        self.assertEqual(run(route, self.out), 2)
+
+    def test_no_token_is_2(self):
+        clock = Clock()
+        self.assertEqual(fib.run("ffi", self.out, 1500, 600, lambda: None, opener=Route({}, []), clock=clock,
+                                 sleep=clock.sleep), 2)
+
     def test_no_token_without_id_token_permission(self):
         self.assertIsNone(fib.oidc_token(env={}))
 
@@ -189,6 +217,44 @@ class KitWorkflow(unittest.TestCase):
         self.assertNotIn("cmux-ci", build["run"])
         checkout = steps[0]["with"]
         self.assertIn("scripts/ci", checkout["sparse-checkout"])
+
+    def test_kit_sim_fleet_builds_on_linux_through_the_route(self):
+        job = self.jobs["kit-sim-fleet"]
+        self.assertEqual(job["runs-on"], "cmux-linux")
+        self.assertEqual(job["permissions"].get("id-token"), "write")
+        self.assertIn("CMUX_IOS_KIT_SIM_FLEET", job["if"])
+        build = next(s for s in job["steps"] if s.get("id") == "build")
+        self.assertIn("scripts/ci/fleet_ios_build.py --what kit-products", build["run"])
+        self.assertNotIn("cmux-ci", build["run"])
+        self.assertEqual(fib.OUTPUTS["kit-products"], fib.OUTPUTS["sim-products"][:2])
+
+    def test_the_mac_builds_the_simulator_tests_only_as_the_fallback(self):
+        steps = {s.get("id"): s for s in self.jobs["kit-tests"]["steps"] if s.get("id")}
+        self.assertIn("vars.CMUX_IOS_KIT_SIM_FLEET == 'on'", steps["sim-fleet"]["if"])
+        self.assertIn("kit-sim-fleet-products-", steps["sim-fleet"]["env"]["ARTIFACT"])
+        self.assertEqual(steps["sim-fleet"]["env"]["JOB"], self.jobs["kit-sim-fleet"]["name"])
+        self.assertIn("steps.sim-fleet.outputs.hit != 'true'", steps["sim-pack"]["if"])
+        self.assertEqual(steps["sim-fleet"]["run"].strip(), "bash scripts/ci/kit_sim_fleet.sh wait")
+        # The pool reads the fleet's artifact by its own name: no download, no second upload under the Mac's name.
+        self.assertNotIn("sim-fleet", steps["sim-upload"]["if"])
+        self.assertIn("steps.sim-products.outputs.name", steps["sim-linux-start"]["env"]["PRODUCTS"])
+        self.assertIn("steps.sim-products.outputs.ready", steps["sim-linux-start"]["if"])
+        self.assertIn("steps.sim-products.outputs.name", self.jobs["kit-tests"]["outputs"]["sim_products"])
+        pool = next(s for s in self.jobs["kit-sim-pool"]["steps"] if s.get("id") == "pool")
+        self.assertIn("needs.kit-tests.outputs.sim_products", pool["env"]["PRODUCTS"])
+
+    def test_a_shadow_job_never_fails_the_workflow(self):
+        steps = {s.get("id"): s for s in self.jobs["kit-sim-fleet"]["steps"] if s.get("id")}
+        for name in ("upload", "pool"):
+            self.assertTrue(steps[name].get("continue-on-error"), name)
+        self.assertIn("|| status=$?", steps["build"]["run"])
+        self.assertEqual(steps["pool"]["run"].strip(), "bash scripts/ci/kit_sim_fleet.sh pool")
+
+    def test_no_pool_step_reads_an_exit_after_a_bare_command(self):
+        # A step is bash -e: `cmd; status=$?` never reads a failure, and `grep -c || echo 0` prints "0\n0".
+        text = WORKFLOW.read_text()
+        self.assertNotRegex(text, r"\n\s*status=\$\?\n")
+        self.assertNotIn("|| echo 0)", text)
 
     def test_kit_tests_waits_without_the_gateway_variable(self):
         for step in self.jobs["kit-tests"]["steps"]:

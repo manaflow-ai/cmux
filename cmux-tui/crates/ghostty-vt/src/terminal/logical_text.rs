@@ -32,15 +32,11 @@ impl Terminal {
     /// Plain text of scrollback and screen (as [`Self::plain_text`]) with
     /// soft wraps joined.
     pub fn plain_text_unwrapped(&mut self) -> Result<String> {
-        let opts = sys::GhosttyFormatterTerminalOptions {
-            size: size_of::<sys::GhosttyFormatterTerminalOptions>(),
+        let opts = FormatterTerminalOptions {
             emit: sys::GHOSTTY_FORMATTER_FORMAT_PLAIN,
             unwrap: true,
             trim: true,
-            extra: sys::GhosttyFormatterTerminalExtra {
-                size: size_of::<sys::GhosttyFormatterTerminalExtra>(),
-                ..Default::default()
-            },
+            extra: FormatterTerminalExtra { ..Default::default() },
             selection: ptr::null(),
         };
         Ok(String::from_utf8_lossy(&self.format(opts)?).into_owned())

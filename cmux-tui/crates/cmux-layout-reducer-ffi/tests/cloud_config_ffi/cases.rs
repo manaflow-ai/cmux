@@ -61,6 +61,32 @@ fn the_configuration_is_made_from_the_runtime_selection() {
 }
 
 #[test]
+fn the_sign_in_screen_backend_label_answers_here() {
+    let (code, production) =
+        call(c"cloud_config_backend_label", &json!({"backend": {"kind": "production"}}));
+    assert_eq!(code, OK);
+    assert_eq!(production, json!({"kind": "production", "title": "cmux.com", "detail": null}));
+    let (_, development) = call(
+        c"cloud_config_backend_label",
+        &json!({"backend": {"kind": "development", "url": "https://dev-abc.cmux.dev"}}),
+    );
+    assert_eq!(
+        development,
+        json!({"kind": "development", "title": "Development backend", "detail": "dev-abc.cmux.dev"})
+    );
+    let (_, local) = call(
+        c"cloud_config_backend_label",
+        &json!({"backend": {"kind": "localOnly", "url": "http://localhost:3777"}}),
+    );
+    assert_eq!(
+        local,
+        json!({"kind": "local", "title": "Local backend", "detail": "localhost:3777"})
+    );
+    let (code, _) = call(c"cloud_config_backend_label", &json!({"backend": {"kind": "elsewhere"}}));
+    assert_eq!(code, ERR_INVALID);
+}
+
+#[test]
 fn the_install_token_lease_answers_here() {
     let (code, renew) = call(
         c"cloud_auth_install_token_lease",
@@ -92,7 +118,7 @@ fn launch_sign_in_and_identity_rules_answer_here() {
         launch["signIn"],
         json!({"devAuth": true, "autoLogin": true, "replacesSession": false, "memoryOnly": false})
     );
-    assert_eq!(launch["paths"][0], "/h/.config/cmux/dev-account");
+    assert_eq!(launch["paths"][0], cmux_cloud_config::auth::dev_account_path("/h"));
     let (_, login) = call(
         c"cloud_auth_launch_login",
         &json!({"signIn": launch["signIn"], "reads": {"environment": {}, "home": "/h", "files": {}}}),
@@ -212,7 +238,7 @@ fn launch_sign_in_and_identity_rules_answer_here() {
 fn auth_rules_answer_from_what_the_app_read() {
     let (_, paths) =
         call(c"cloud_auth_credential_paths", &json!({"environment": {}, "home": "/h"}));
-    assert_eq!(paths["paths"][0], "/h/.config/cmux/dev-account");
+    assert_eq!(paths["paths"][0], cmux_cloud_config::auth::dev_account_path("/h"));
     let (_, decision) =
         call(c"cloud_auth_credentials", &json!({"environment": {}, "home": "/h", "files": {}}));
     assert_eq!(decision, json!({"credentials": null, "refusal": {"kind": "noDeclaredAccount"}}));

@@ -166,6 +166,7 @@ public final class ChiefReplicaBackend: ConversationBackend, @unchecked Sendable
             do {
                 try await socket.send(.string(try ChiefCloudBackend.Core.text(frame)))
             } catch {
+                // retry-prompt-ok: a send the person made; the composer keeps it for them to send again
                 throw ConversationBackendError(code: -1, message: UserFacingError.message(error, fallback: "Couldn't send. Try again."))
             }
             let outcome: Outcome
@@ -224,6 +225,7 @@ public final class ChiefReplicaBackend: ConversationBackend, @unchecked Sendable
             defer {
                 task.cancel(with: .goingAway, reason: nil)
                 if socket === task { socket = nil }
+                // retry-prompt-ok: a send in flight when the socket dropped may have landed or not; resending it is the person's call
                 for (_, waiter) in waiting { waiter.resume(returning: .refused(String(localized: "The connection dropped; try again."))) }
                 waiting = [:]
             }

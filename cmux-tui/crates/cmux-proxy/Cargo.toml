@@ -1,0 +1,38 @@
+[package]
+name = "cmux-proxy"
+version = "0.1.0"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+description = "How cmux's own TCP and TLS connections leave a device: the system's proxy for each destination (manual, PAC or WPAD through CFNetwork on Apple platforms, the environment elsewhere), CONNECT and SOCKS5 tunnels, and TLS against the OS trust store. Shared by cmux-remote (Mac to Cloud) and cmux-mobile-link (the phone)."
+
+# Versions are written out, not `workspace = true`: cmux-next-ios/rust's workspace depends on this
+# crate by path too, and each workspace resolves the same ranges in its own lock file.
+[dependencies]
+base64 = "0.22"
+rustls = { version = "0.23", default-features = false, features = ["ring", "std", "tls12"] }
+# The OS trust store for the outer TLS: the Security framework on iOS and macOS (a company root an
+# MDM profile installed), the system's certificate bundle elsewhere.
+rustls-platform-verifier = "0.7"
+# PathKind is serialized in the link's telemetry (cmux-mobile-link link_stat).
+serde = { version = "1", features = ["derive"] }
+thiserror = "2"
+tokio = { version = "1", features = ["io-util", "net", "rt", "time"] }
+tokio-rustls = { version = "0.26", default-features = false, features = ["ring", "tls12"] }
+tracing = "0.1"
+url = "2"
+webpki-roots = "1"
+
+[target.'cfg(target_vendor = "apple")'.dependencies]
+# The system's proxy settings (manual, PAC, WPAD, MDM) through CFNetwork (src/apple.rs); already in
+# the graph through rustls-platform-verifier.
+core-foundation = "0.10"
+core-foundation-sys = "0.8"
+
+[dev-dependencies]
+rcgen = "0.14"
+tokio = { version = "1", features = ["io-util", "macros", "net", "rt", "rt-multi-thread", "time"] }
+
+[lints]
+workspace = true
