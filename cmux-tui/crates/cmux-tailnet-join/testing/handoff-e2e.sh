@@ -9,6 +9,11 @@
 # TCP connection to the node's Tailscale SSH port every 50 ms (0.25 s connect timeout), and with DURESS=1 each VM burns every
 # core (`yes`) during the moves.
 #
+# VAULT=1 is `cmux vm rm` then `cmux vm tailnet adopt`: the released state goes through "the vault"
+# (a file here, base64 with its sha256 checked on the way back, as the CLI does), the old VM is
+# deleted (container removed) and a new one takes its place, so every adopt is on a VM that never
+# held the node, and the node outlives each VM with no key.
+#
 # Rows: per move the gap measured on the machines (old holder stopped -> new holder Running), the gap
 # the laptop saw (last answer before -> first answer after), and that the name, address and node key
 # never changed and headscale still lists one cmux node. p50/p95/max at the end.
@@ -20,6 +25,7 @@ set -euo pipefail
 
 MOVES=${MOVES:-20}
 DURESS=${DURESS:-1}
+VAULT=${VAULT:-0}
 HERE=$(cd "$(dirname "$0")" && pwd)
 SCRIPTS=${SCRIPTS:-$HERE/../../../target/debug/examples/handoff_scripts}
 TS_IMAGE=tailscale/tailscale:v1.84.3
@@ -84,10 +90,11 @@ say "laptop and two VMs"
 $D run -d --label $LABEL --name che-laptop --hostname leo-laptop --init --cap-add NET_ADMIN --device /dev/net/tun \
   -e TS_AUTHKEY="$KEY_LAPTOP" -e TS_EXTRA_ARGS="--login-server=$LOGIN" -e TS_USERSPACE=false -e TS_HOSTNAME=leo-laptop \
   -e TS_STATE_DIR=/var/lib/tailscale $TS_IMAGE >/dev/null
-for vm in a b; do
-  $D run -d --label $LABEL --name che-vm-$vm --hostname vm-$vm --init --cap-add NET_ADMIN --device /dev/net/tun \
+new_vm() {
+  $D run -d --label $LABEL --name che-vm-$1 --hostname vm-$1 --init --cap-add NET_ADMIN --device /dev/net/tun \
     cmux-handoff-e2e-vm sleep infinity >/dev/null
-done
+}
+for vm in a b; do new_vm $vm; done
 
 vm() { local name=$1; shift; $D exec -i "che-vm-$name" bash -c "$*"; }
 
@@ -111,9 +118,10 @@ $D run -d --label $LABEL --name che-probe --network container:che-laptop cmux-ha
 for _ in $(seq 100); do $D logs che-probe 2>/dev/null | grep -c ' ok$' >/dev/null && break; sleep 0.2; done
 $D logs che-probe 2>/dev/null | grep -c ' ok$' >/dev/null || { echo "the laptop never reached the node" >&2; exit 1; }
 
+burn() { vm "$1" 'for i in $(seq $(nproc)); do (nice -n 0 yes >/dev/null &) ; done'; }
 if [ "$DURESS" = 1 ]; then
   say "duress: every core busy on both VMs"
-  for v in a b; do vm $v 'for i in $(seq $(nproc)); do (nice -n 0 yes >/dev/null &) ; done'; done
+  for v in a b; do burn $v; done
 fi
 
 PREPARE=$($SCRIPTS prepare); RELEASE=$($SCRIPTS release); ADOPT=$($SCRIPTS adopt)
@@ -129,7 +137,16 @@ for n in $(seq "$MOVES"); do
   released=$(vm $holder "$RELEASE")
   echo "$released" | grep -qx cmux-tailnet-released || { echo "move $n: release failed: $released" >&2; exit 1; }
   stopped=$(echo "$released" | sed -n 's/^cmux-tailnet-stopped-at //p')
-  echo "$released" | sed -n 's/^cmux-tailnet-state //p' | vm $target 'umask 077; cat >/run/cmux-tailnet/node.state'
+  if [ "$VAULT" = 1 ]; then
+    # Into the vault with its fingerprint; the old VM is deleted; back out, checked, to the new one.
+    echo "$released" | sed -n 's/^cmux-tailnet-state //p' | (umask 077; cat >"$WORK/vault.b64")
+    print=$(base64 -d <"$WORK/vault.b64" | sha256sum | cut -d' ' -f1)
+    $D rm -f che-vm-$holder >/dev/null
+    [ "$(base64 -d <"$WORK/vault.b64" | sha256sum | cut -d' ' -f1)" = "$print" ] || { echo "move $n: vault copy changed" >&2; exit 1; }
+    vm $target 'umask 077; cat >/run/cmux-tailnet/node.state' <"$WORK/vault.b64"
+  else
+    echo "$released" | sed -n 's/^cmux-tailnet-state //p' | vm $target 'umask 077; cat >/run/cmux-tailnet/node.state'
+  fi
   vm $target "$START" | grep -qx started
   answer=""
   for _ in $(seq 600); do
@@ -139,8 +156,14 @@ for n in $(seq "$MOVES"); do
   done
   head -n1 <<<"$answer" | grep -qx 'rc=0' || { echo "move $n: adopt failed: $answer" >&2; exit 1; }
   online=$(echo "$answer" | sed -n 's/^cmux-tailnet-online-at //p')
-  vm $holder "$FORGET" | grep -qx cmux-tailnet-forgot
-  vm $holder "test ! -e /var/lib/tailscale/tailscaled.state" || { echo "move $n: old copy left" >&2; exit 1; }
+  if [ "$VAULT" = 1 ]; then
+    # The deleted VM's replacement: a fresh machine that never held the node.
+    new_vm $holder
+    [ "$DURESS" = 1 ] && burn $holder
+  else
+    vm $holder "$FORGET" | grep -qx cmux-tailnet-forgot
+    vm $holder "test ! -e /var/lib/tailscale/tailscaled.state" || { echo "move $n: old copy left" >&2; exit 1; }
+  fi
   vm $target "test ! -e /run/cmux-tailnet/node.state" || { echo "move $n: staged state left" >&2; exit 1; }
   ident_now=$(ident $target)
   [ "$(cut -d' ' -f2,3 <<<"$ident_now")" = "$(cut -d' ' -f2,3 <<<"$IDENT0")" ] || { echo "move $n: identity changed: $ident_now vs $IDENT0" >&2; exit 1; }
@@ -166,6 +189,6 @@ stats() {
     p50=a[int((NR+1)*0.50)]; i=int(NR*0.95+0.999); if (i>NR) i=NR; p95=a[i];
     printf "%s: n=%d p50=%d p95=%d max=%d\n", k, NR, p50, p95, a[NR]}'
 }
-echo "duress=$DURESS moves=$MOVES identity=$(cut -d' ' -f1,2 <<<"$IDENT0") nodekey=$(cut -d' ' -f3 <<<"$IDENT0" | cut -c1-20)"
+echo "vault=$VAULT duress=$DURESS moves=$MOVES identity=$(cut -d' ' -f1,2 <<<"$IDENT0") nodekey=$(cut -d' ' -f3 <<<"$IDENT0" | cut -c1-20)"
 stats gap_ms
 stats laptop_gap_ms

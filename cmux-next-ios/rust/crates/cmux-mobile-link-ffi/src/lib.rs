@@ -2265,6 +2265,42 @@ pub async fn reset_warm_state() {
     cmux_mobile_link::dial::wireguard::dormant::forget_all();
 }
 
+/// What [`wait_for_network_return`] ended on (`cmux_mobile_link::net_return::Return`).
+#[derive(Debug, Clone, PartialEq, Eq, uniffi::Record)]
+pub struct NetworkReturn {
+    /// A probe got through after one that did not: the network is back; redial now.
+    pub back: bool,
+    /// The first probe got through: the network was not down (stop watching).
+    pub never_down: bool,
+    /// With `back`: from the first failed probe to the one that got through.
+    pub down_millis: u64,
+    pub probes: u32,
+}
+
+/// Probes the cmux service at `base_url` once a second (a TCP connect, each
+/// bounded under a second) until one gets through or `max_wait_millis`
+/// passes: the network-back signal when iOS reports no path change. The app
+/// runs it only while a link is down and the app is in front.
+#[uniffi::export]
+pub async fn wait_for_network_return(base_url: String, max_wait_millis: u64) -> NetworkReturn {
+    use cmux_mobile_link::net_return::{Return, wait_for_service};
+    let got =
+        on_runtime(async move { wait_for_service(&base_url, Duration::from_millis(max_wait_millis)).await })
+            .await;
+    match got {
+        Return::Back { down_for, probes } => NetworkReturn {
+            back: true,
+            never_down: false,
+            down_millis: u64::try_from(down_for.as_millis()).unwrap_or(u64::MAX),
+            probes,
+        },
+        Return::NeverDown => NetworkReturn { back: false, never_down: true, down_millis: 0, probes: 1 },
+        Return::StillDown { probes } => {
+            NetworkReturn { back: false, never_down: false, down_millis: 0, probes }
+        }
+    }
+}
+
 /// The dial's options for `request` (the service's ICE servers; none for a hub dial).
 fn dial_options(request: &ConnectRequest, ice_servers: Vec<IceServer>, timeline: &Timeline) -> DialOptions {
     DialOptions {
