@@ -73,12 +73,39 @@ export function readFrames(reply: unknown): TurnFrame[] {
   return [...byIndex.values()].sort((a, b) => a.index - b.index);
 }
 
+/// The screen a native-window preview streams through cmux-rd (the daemon's `screen`, decided in
+/// `turn_frames.rs` `screen_offer`): the hub device a viewer opens, and its name.
+export type LiveScreen = { device: string; name: string };
+
+/// A latest-since-seq reply: the newest frame, the seq to ask from next, and what the window shows
+/// (`surface`: `page`, `simulator` or `window`) with the screen to stream when the daemon offers one.
+export type Latest = { frame?: TurnFrame; seq: number; surface?: string; screen?: LiveScreen };
+
+const DEVICE = /^[A-Za-z0-9-]{1,128}$/;
+
+function readScreen(value: unknown): LiveScreen | undefined {
+  if (!value || typeof value !== "object") return undefined;
+  const { device, name } = value as { device?: unknown; name?: unknown };
+  if (typeof device !== "string" || !DEVICE.test(device)) return undefined;
+  return { device, name: typeof name === "string" ? name : "" };
+}
+
 /// The newest frame of a latest-since-seq reply and the seq to ask from next (the reply's own,
 /// else the one asked from).
-export function readLatest(reply: unknown, asked: number): { frame?: TurnFrame; seq: number } {
+export function readLatest(reply: unknown, asked: number): Latest {
   const frames = readFrames(reply);
-  const seq = reply && typeof reply === "object" ? num((reply as { seq?: unknown }).seq, asked) : asked;
-  return { frame: frames[frames.length - 1], seq };
+  const body = reply && typeof reply === "object" ? (reply as { seq?: unknown; surface?: unknown; screen?: unknown }) : {};
+  const seq = num(body.seq, asked);
+  const surface = typeof body.surface === "string" ? body.surface : undefined;
+  return { frame: frames[frames.length - 1], seq, surface, screen: readScreen(body.screen) };
+}
+
+/// `<scheme>://mac-screen?device=...&name=...`: the app's Mac Screen tab, cmux-rd's viewer, on
+/// `screen`. The scheme is the host's (links.ts), so a tagged build opens itself.
+export function screenLink(scheme: string, screen: LiveScreen): string {
+  const query = new URLSearchParams({ device: screen.device.toLowerCase() });
+  if (screen.name) query.set("name", screen.name);
+  return `${scheme}://mac-screen?${query.toString()}`;
 }
 
 export const turnFramesParams = (sessionId: string, turnId: string) => ({ sessionId, turnId });

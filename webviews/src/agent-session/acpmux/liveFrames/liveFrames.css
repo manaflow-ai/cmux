@@ -118,6 +118,30 @@
   max-height: 100%;
   object-fit: contain;
 }
+.acpmux-frames-dock__live {
+  position: absolute;
+  left: var(--ds-space-2);
+  bottom: var(--ds-space-2);
+  display: inline-flex;
+  align-items: center;
+  gap: var(--ds-space-1);
+  padding: var(--ds-space-1) var(--ds-space-2);
+  border-radius: var(--ds-radius-control);
+  background: color-mix(in srgb, var(--agent-page-bg) 80%, transparent);
+  color: var(--agent-text);
+  font: inherit;
+  font-size: 12px;
+  text-decoration: none;
+}
+.acpmux-frames-dock__live:hover {
+  background: color-mix(in srgb, var(--agent-page-bg) 94%, transparent);
+}
+.acpmux-frames-dock__live-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--agent-danger);
+}
 .acpmux-frames-dock__grip {
   position: absolute;
   margin: 0;

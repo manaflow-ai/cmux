@@ -6,6 +6,7 @@ import {
   readFrame,
   readFrames,
   readLatest,
+  screenLink,
   turnFramesParams,
 } from "./turnFrames";
 
@@ -52,6 +53,22 @@ test("readLatest returns the newest frame and the next seq", () => {
   expect(got.frame?.index).toBe(2);
   expect(got.seq).toBe(9);
   expect(readLatest({}, 4)).toEqual({ frame: undefined, seq: 4 });
+});
+
+test("readLatest carries the surface and the screen the daemon offers", () => {
+  const got = readLatest({ frames: [], seq: 3, surface: "window", screen: { device: "D47F-285E", name: "Studio Mac" } }, 1);
+  expect(got.surface).toBe("window");
+  expect(got.screen).toEqual({ device: "D47F-285E", name: "Studio Mac" });
+  // A device a link cannot carry, or none: frames only.
+  expect(readLatest({ surface: "window", screen: { device: "a&b=c" } }, 1).screen).toBeUndefined();
+  expect(readLatest({ surface: "page" }, 1).screen).toBeUndefined();
+});
+
+test("screenLink opens the Mac Screen tab in the host's scheme", () => {
+  expect(screenLink("cmux-nightly", { device: "D47F-285E", name: "Studio Mac" })).toBe(
+    "cmux-nightly://mac-screen?device=d47f-285e&name=Studio+Mac",
+  );
+  expect(screenLink("cmux", { device: "abc", name: "" })).toBe("cmux://mac-screen?device=abc");
 });
 
 test("request params", () => {
