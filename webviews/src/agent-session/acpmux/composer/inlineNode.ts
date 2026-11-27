@@ -27,11 +27,18 @@ import {
   inlineTokenSpans,
   unescapeTextMarks,
 } from "../attachments";
+import { intl } from "../../../ui/intl";
 
 export const INLINE_NODE = "inline_attachment";
 
 /// Where the composer draws each placed attachment: the element of its node, by id.
-export type InlineViews = { add(id: string, dom: HTMLElement): void; remove(id: string, dom: HTMLElement): void };
+export type InlineViews = {
+  add(id: string, dom: HTMLElement): void;
+  remove(id: string, dom: HTMLElement): void;
+  /// Whether the nodes are hidden: Settings' strip view (the default) draws the attachments in the
+  /// strip alone, so a node in the text is not there for the person's keys (`hiddenDelete`).
+  hidden?(): boolean;
+};
 
 /// Whether `id` is one of the composer's attachments, which the text's tokens are read against
 /// (attachments.ts inlineTokenSpans): the person's U+FFFC just before a word and an attachment's
@@ -366,7 +373,9 @@ export function inlinePlugin(views: InlineViews) {
               view.dispatch(view.state.tr.setSelection(TextSelection.create(view.state.doc, to)).scrollIntoView());
               return true;
             }
-            if (event.isComposing || event.metaKey || event.ctrlKey || event.altKey || event.shiftKey) return false;
+            if (event.isComposing || event.keyCode === 229) return false;
+            if (views.hidden?.() && hiddenDelete(view, event)) return true;
+            if (event.metaKey || event.ctrlKey || event.altKey || event.shiftKey) return false;
             const { selection } = view.state;
             if (!selection.empty || !(selection instanceof TextSelection)) return false;
             const backward = event.key === "Backspace";
@@ -385,6 +394,138 @@ export function inlinePlugin(views: InlineViews) {
         appendTransaction: (transactions, previous, state) => normalize(transactions, previous, state),
       }),
   );
+}
+
+/// The edge of the run of placed attachments' nodes next to `pos`, going back (`backward`) or forward
+/// in its text block: `pos` itself when no node is next to it. One resolve, then the block's children.
+function pastNodes(doc: ProseNode, pos: number, backward: boolean): number {
+  const $pos = doc.resolve(pos);
+  if ($pos.textOffset) return pos;
+  const { parent } = $pos;
+  let at = pos;
+  for (let index = backward ? $pos.index() - 1 : $pos.index(); index >= 0 && index < parent.childCount;) {
+    const child = parent.child(index);
+    if (child.type.name !== INLINE_NODE) break;
+    at += backward ? -child.nodeSize : child.nodeSize;
+    index += backward ? -1 : 1;
+  }
+  return at;
+}
+
+/// The length of the last (`backward`) or first character of `text` as the person sees it: an emoji,
+/// a flag or a letter with its accents is one. A long text is read only near the end the key reaches.
+function charLength(whole: string, backward: boolean): number {
+  const text = whole.length <= 4096 ? whole : backward ? whole.slice(-4096) : whole.slice(0, 4096);
+  const parts = Array.from(intl.Segmenter(undefined, { granularity: "grapheme" }).segment(text));
+  return (backward ? parts[parts.length - 1] : parts[0])?.segment.length ?? 1;
+}
+
+/// Which way a key deletes: Backspace and the Mac's Ctrl-H back, Delete and Ctrl-D forward; with
+/// whether Option or Command makes it a word or line delete.
+function deleteKey(view: EditorView, event: KeyboardEvent): { backward: boolean; wide: boolean } | undefined {
+  if (event.key === "Backspace" || event.key === "Delete")
+    return { backward: event.key === "Backspace", wide: event.altKey || event.metaKey || event.ctrlKey };
+  if (!event.ctrlKey || event.altKey || event.metaKey) return undefined;
+  if (!/Mac|iPhone|iPad/.test(view.dom.ownerDocument.defaultView?.navigator.platform ?? "")) return undefined;
+  return event.code === "KeyH"
+    ? { backward: true, wide: false }
+    : event.code === "KeyD"
+      ? { backward: false, wide: false }
+      : undefined;
+}
+
+/// Backspace and Delete while the nodes are hidden (Settings' strip view, the default): the strip
+/// alone shows the attachments, so the keys pass over their nodes as if they were not in the text,
+/// and only the strip's × or a whole-draft delete takes an attachment out. Before, the first
+/// Backspace after a paste (the caret right after its hidden node) took the picture out of the strip
+/// and left the letter it was pressed for. True: the key is done
+/// here (sometimes as nothing); false: the editor's as before.
+export function hiddenDelete(view: EditorView, event: KeyboardEvent): boolean {
+  const key = deleteKey(view, event);
+  if (!key) return false;
+  const { backward, wide } = key;
+  const { state } = view;
+  const { selection, doc } = state;
+  if (!(selection instanceof TextSelection)) return false;
+  if (!selection.empty) {
+    // A selection across hidden nodes: its text goes, the nodes stay where it was. The whole draft
+    // selected is the strip's too (ComposerBox `dropStrip`), and goes with it as before.
+    if (selection.from <= Selection.atStart(doc).from && selection.to >= Selection.atEnd(doc).to) return false;
+    return deleteKeeping(view, selection.from, selection.to);
+  }
+  const pos = selection.from;
+  // A word or line delete (Option, Command) is the browser's own: it would take a hidden node in its
+  // reach with the text, so where its range holds one, the text goes here and the nodes stay.
+  const reach = wide ? nativeReach(view, backward, event) : undefined;
+  if (reach !== undefined && reach !== pos) return deleteKeeping(view, Math.min(pos, reach), Math.max(pos, reach));
+  const edge = pastNodes(doc, pos, backward);
+  if (edge === pos) return false;
+  const $edge = doc.resolve(edge);
+  const beyond = backward ? $edge.nodeBefore : $edge.nodeAfter;
+  // Where the browser cannot say how far a word or line delete goes, it starts beyond the nodes.
+  if (beyond && wide) {
+    view.dispatch(state.tr.setSelection(TextSelection.create(doc, edge)));
+    return false;
+  }
+  if (beyond) {
+    const size = beyond.isText ? charLength(beyond.text ?? "", backward) : beyond.nodeSize;
+    view.dispatch(
+      (backward ? state.tr.delete(edge - size, edge) : state.tr.delete(edge, edge + size)).scrollIntoView(),
+    );
+    return true;
+  }
+  // Nothing beyond the nodes in this line. At the very start of the prompt, Backspace has nothing to
+  // take: the strip's attachments go only by their × (ComposerBox takes none back either).
+  if (backward && edge === Selection.atStart(doc).from) return true;
+  // At the very end, Delete has nothing to take.
+  if (!backward && edge === Selection.atEnd(doc).to) return true;
+  // A join with the line before or after, only from a plain top-level paragraph: elsewhere (a quote,
+  // a list) the key's own lift or join reads the caret where it was, so it does nothing here.
+  if ($edge.depth !== 1 || $edge.parent.type.name !== "paragraph") return true;
+  view.dispatch(state.tr.setSelection(TextSelection.create(doc, edge)));
+  return false;
+}
+
+/// Deletes `from`..`to` but its placed attachments' nodes, which go back where the range was. False,
+/// the key the editor's: no node in the range, or one that reaches code, where no attachment can
+/// stand.
+function deleteKeeping(view: EditorView, from: number, to: number): boolean {
+  const { state } = view;
+  const kept: ProseNode[] = [];
+  let code = false;
+  state.doc.nodesBetween(from, to, (node) => {
+    if (node.type.name === INLINE_NODE) kept.push(node);
+    if (node.isTextblock && node.type.spec.code) code = true;
+    return !code;
+  });
+  if (!kept.length || code) return false;
+  const tr = state.tr.setSelection(TextSelection.create(state.doc, from, to)).deleteSelection();
+  const near = Selection.near(tr.doc.resolve(tr.selection.from));
+  const lands = near.$from.parent;
+  if (!(near instanceof TextSelection) || !lands.inlineContent || lands.type.spec.code) return false;
+  tr.insert(near.from, Fragment.from(kept));
+  view.dispatch(tr.setSelection(TextSelection.create(tr.doc, near.from)).scrollIntoView());
+  return true;
+}
+
+/// Where the browser's own word (Option, Ctrl) or line (Command) delete from the caret would end, as
+/// a document position: the DOM selection is extended that way, read and put back. Undefined where
+/// the browser cannot say (no `Selection.modify`).
+function nativeReach(view: EditorView, backward: boolean, event: KeyboardEvent): number | undefined {
+  const selection = view.dom.ownerDocument.getSelection();
+  if (!selection?.anchorNode || !selection.focusNode || typeof selection.modify !== "function") return undefined;
+  const { anchorNode, anchorOffset, focusNode, focusOffset } = selection;
+  let reach: number | undefined;
+  try {
+    selection.modify("extend", backward ? "backward" : "forward", event.metaKey ? "lineboundary" : "word");
+    if (selection.focusNode && view.dom.contains(selection.focusNode))
+      reach = view.posAtDOM(selection.focusNode, selection.focusOffset);
+  } catch {
+    reach = undefined;
+  } finally {
+    selection.setBaseAndExtent(anchorNode, anchorOffset, focusNode, focusOffset);
+  }
+  return reach;
 }
 
 /// Places attachments `ids` at the selection, the caret after them; false where they cannot go (a
