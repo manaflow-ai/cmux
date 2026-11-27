@@ -283,13 +283,14 @@ def lock_packages(text: str) -> set[tuple[str, str]]:
 
 
 def orphans(repo: Path, root: str, env: dict[str, str], timeout: float) -> list[str]:
-    """`name version` of each package ROOT's lock lists that its resolve (`cargo metadata --locked --offline`, all
-    targets) does not: a lock entry for a crate no manifest names. Empty when cargo gives no resolve (a fake, a
+    """`name version` of each package ROOT's lock lists that its resolve (`cargo metadata --all-features --locked
+    --offline`, all targets and features: the lock keeps an optional dependency no default feature turns on) does
+    not: a lock entry for a crate no manifest names. Empty when cargo gives no resolve (a fake, a
     failure, no time left): this only adds to cargo's own verdict."""
     if timeout <= 1:
         return []
     out: list[str] = []
-    code, _ = cargo(["metadata", "--format-version", "1", "--locked", "--offline"], repo / root, env,
+    code, _ = cargo(["metadata", "--format-version", "1", "--all-features", "--locked", "--offline"], repo / root, env,
                     timeout=timeout, out=out)
     if code != 0 or not out or not out[0].strip():
         return []
