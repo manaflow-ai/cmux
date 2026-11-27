@@ -35,13 +35,13 @@ fn repo(text: &str) -> SetupSource {
 fn the_compiled_catalog_reads_and_lists_the_looks() {
     let catalog = catalog().unwrap();
     let ids: Vec<&str> = catalog.looks.iter().map(|look| look.id.as_str()).collect();
-    // Leo, 2026-11-27: "well i thought we wanted to have the chatgpt/codex
-    // ones as our options", "we need to have the t3 code one which is indeed
-    // \"studio\"" and "we need to have at least SOMETHING you root for". The
-    // other looks stay installable by name; the gallery lists these four.
-    let profiles = ["codex", "claude-code", "t3code"];
+    // Leo, 2026-11-27: "we need to have at least SOMETHING you root for" and
+    // "and obv dont call it t3 code and whatnot". The gallery lists four looks
+    // under names of our own; the other looks stay installable by name.
+    let profiles = ["codex", "claude-code"];
     let mut want: Vec<String> =
         profiles.iter().map(|app| format!("manaflow-ai/{app}-profile")).collect();
+    want.push("manaflow-ai/studio-look".to_owned());
     want.push("manaflow-ai/paper-look".to_owned());
     assert_eq!(ids, want);
     assert!(catalog.looks.iter().all(|look| !look.tagline.is_empty()));
@@ -52,6 +52,9 @@ fn the_compiled_catalog_reads_and_lists_the_looks() {
         assert!(super::plain_phrase(&look.tagline), "{}: {:?}", look.id, look.tagline);
         assert!((2..=3).contains(&look.traits.len()), "{}: traits {:?}", look.id, look.traits);
     }
+    let names: Vec<&str> = catalog.looks.iter().map(|look| look.name.as_str()).collect();
+    assert_eq!(names, ["Pebble", "Kiln", "Studio", "Paper"]);
+    assert_eq!(catalog.looks[2].repo, "github.com/manaflow-ai/cmux-studio-look");
     assert_eq!(catalog.looks[3].repo, "github.com/manaflow-ai/cmux-paper-look");
     // The app looks are folders of cmux itself, on the branch that carries them.
     for (look, app) in catalog.looks.iter().zip(profiles) {
@@ -174,7 +177,7 @@ fn the_gallery_merges_the_receipts_in_order_with_off_and_other_setups() {
     assert_eq!(installed("manaflow-ai/paper-look").as_ref(), Some(&gallery.stack[1]));
     assert_eq!(installed("manaflow-ai/codex-profile").as_ref(), Some(&gallery.stack[2]));
     assert_eq!(installed("manaflow-ai/claude-code-profile").as_ref(), Some(&gallery.stack[3]));
-    assert_eq!(installed("manaflow-ai/t3code-profile"), None);
+    assert_eq!(installed("manaflow-ai/studio-look"), None);
     let value = serde_json::to_value(&gallery).unwrap();
     assert_eq!(value["looks"][3]["installed"]["on"], json!(false));
     assert_eq!(value["looks"][3]["installed"]["position"], json!(2));
