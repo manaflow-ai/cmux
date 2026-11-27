@@ -23,8 +23,9 @@ use serde_json::{Value, json};
 
 use super::GlobalArgs;
 
-/// Each short verb and the app's Cloud verb it runs.
-const VERBS: &[(&str, &str)] = &[
+/// Each short verb and the app's Cloud verb it runs (`cli_invoked_actions` checks each is a
+/// CLI action of the catalog).
+pub(super) const VERBS: &[(&str, &str)] = &[
     ("ls", "list-machines"),
     ("list", "list-machines"),
     ("status", "machine-status"),
