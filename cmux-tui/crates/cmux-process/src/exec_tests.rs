@@ -147,12 +147,15 @@ fn exec_inheriting_keeps_pid_lock_and_listener() {
         return;
     }
     let dir = std::path::PathBuf::from(std::env::var_os(DIR).unwrap());
+    // This isolated child owns its cwd. A short relative socket address also works when
+    // the agent's TMPDIR is already longer than the Unix sockaddr path limit.
+    std::env::set_current_dir(&dir).unwrap();
     if stage == "before" {
         let lock = File::create(dir.join("lock")).unwrap();
         // SAFETY: lock is this test's live file, and flock takes no pointer.
         assert_eq!(unsafe { libc::flock(lock.as_raw_fd(), libc::LOCK_EX | libc::LOCK_NB) }, 0);
-        let listener = UnixListener::bind(dir.join("socket")).unwrap();
-        let mut queued = UnixStream::connect(dir.join("socket")).unwrap();
+        let listener = UnixListener::bind("socket").unwrap();
+        let mut queued = UnixStream::connect("socket").unwrap();
         queued.write_all(b"queued before exec").unwrap();
         let unrelated = File::open("/dev/null").unwrap();
         // Above the harness's ordinary descriptors, so one reopened after exec cannot mask a leak.
