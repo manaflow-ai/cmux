@@ -1210,7 +1210,7 @@ jobs:
     env:
       # As seed-derived-data.yml: the macOS 15 pool's own Xcode, else the lane's.
       CMUX_CI_XCODE_APP: ${{ endsWith(matrix.pool, 'vcpu-macos-15') && vars.CMUX_CI_XCODE_APP_MACOS_15 || vars.CMUX_CI_XCODE_APP_PR || vars.CMUX_CI_XCODE_APP_MACOS_15 }}
-      CMUX_CI_REQUIRED_MACOS_SDK_MAJOR: "26"
+      CMUX_CI_REQUIRED_MACOS_SDK_MAJOR: ${{ contains((endsWith(matrix.pool, 'vcpu-macos-15') && vars.CMUX_CI_XCODE_APP_MACOS_15 || vars.CMUX_CI_XCODE_APP_PR || vars.CMUX_CI_XCODE_APP_MACOS_15), 'Xcode_27') && '27' || '26' }}
       CMUX_SKIP_ZIG_BUILD: "1"
     steps:
       - name: Clear stale git locks (self-hosted reused workspace)
@@ -2146,7 +2146,7 @@ jobs:
 
       - name: Download unsigned nightly app
         if: steps.signing-inputs-parallel.outputs.app_ok != 'true'
-        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
         with:
           name: cmux-nightly-unsigned-app
           path: nightly-inputs/app
@@ -2160,7 +2160,7 @@ jobs:
 
       - name: Download universal Ghostty CLI helper
         if: steps.signing-inputs-parallel.outputs.helper_ok != 'true'
-        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
         with:
           name: cmux-nightly-ghostty-cli-helper
           path: nightly-inputs/ghostty
@@ -3210,7 +3210,7 @@ jobs:
           fi
 
       - name: Download nightly variant artifacts
-        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
         with:
           pattern: cmux-nightly-variant-*
           path: nightly-out
@@ -3218,7 +3218,7 @@ jobs:
 
       # Publish only the bytes that verify-signed-nightly launched.
       - name: Download tested DMG digests
-        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
         with:
           pattern: cmux-nightly-tested-*
           path: tested
