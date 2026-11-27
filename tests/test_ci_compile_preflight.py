@@ -197,11 +197,23 @@ class NeverSkipped(unittest.TestCase):
         self.assertNotRegex(block, r"^    if:", "a job-level if: would report the check skipped")
         self.assertIn("name: web bundle build", block)
         self.assertIn("compile_preflight.py web-build", block)
-        self.assertIn("compile_preflight.py web-touched . HEAD^1 HEAD", block)
+        self.assertIn('compile_preflight.py web-touched "$WEB_SOURCE_ROOT" HEAD^1 HEAD', block)
         self.assertIn("fetch-depth: 2", block)
 
 
 class SharedWebArtifact(unittest.TestCase):
+    def test_an_older_source_tree_keeps_current_transport_helpers(self) -> None:
+        import yaml
+        document = yaml.safe_load(CALLEE.read_text())
+        steps = document["jobs"]["web"]["steps"]
+        checkouts = [step for step in steps if step.get("uses", "").startswith("actions/checkout@")]
+        self.assertEqual(len(checkouts), 2)
+        self.assertNotIn("ref", checkouts[0]["with"])
+        self.assertEqual(checkouts[1]["with"]["path"], "web-source")
+        self.assertEqual(checkouts[1]["with"]["ref"], "${{ inputs.source_ref }}")
+        build = next(step for step in steps if step.get("name") == "Build the web bundles (the build NIGHTLY runs)")
+        self.assertIn('scripts/ci/compile_preflight.py web-build "$WEB_SOURCE_ROOT"', build["run"])
+
     def test_manifest_accepts_copy_and_rejects_wrong_key_changed_missing_or_extra_bytes(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
