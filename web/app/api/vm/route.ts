@@ -100,9 +100,10 @@ import { publishVmOps, vmSyncReplaceOp } from "../../../services/vms/presencePub
 
 
 // Provisioning can run minutes; without an explicit budget the platform
-// default killed it mid-provision. 960 s leaves a create answered "in
-// progress" (routeDeadline.ts, 25 s) its full 15-minute provider deadline plus
-// failure bookkeeping, well below the 20-minute stuck-provisioning alert. The
+// default killed it mid-provision. 960 s fits a create's full 15-minute
+// provider deadline plus failure bookkeeping, answered inline for the Mac app
+// and CLI or "in progress" at 25 s for a shorter stated budget
+// (routeDeadline.ts), well below the 20-minute stuck-provisioning alert. The
 // plan allows more (app/v1/responses/route.ts uses 1800).
 export const maxDuration = 960;
 const VM_CREATE_ADMISSION_BUDGET_MS = 200;
