@@ -84,38 +84,57 @@ fn up_find(from: &Path, names: &[&str]) -> Option<PathBuf> {
     }
 }
 
-fn package_name(manifest: &Path) -> Option<String> {
-    let doc: toml::Value = std::fs::read_to_string(manifest).ok()?.parse().ok()?;
-    doc.get("package")?.get("name")?.as_str().map(str::to_owned)
+fn read_manifest(manifest: &Path) -> Option<toml::Value> {
+    std::fs::read_to_string(manifest).ok()?.parse().ok()
 }
 
-fn rust_edition(dir: &Path) -> String {
-    let mut current = Some(dir);
-    while let Some(root) = current {
-        let manifest = root.join("Cargo.toml");
-        if let Ok(text) = std::fs::read_to_string(&manifest) {
-            if let Ok(doc) = text.parse::<toml::Value>() {
-                if let Some(edition) = doc
-                    .get("package")
-                    .and_then(|package| package.get("edition"))
-                    .and_then(toml::Value::as_str)
-                    .filter(|edition| *edition != "workspace")
-                {
-                    return edition.to_owned();
-                }
-                if let Some(edition) = doc
-                    .get("workspace")
-                    .and_then(|workspace| workspace.get("package"))
-                    .and_then(|package| package.get("edition"))
-                    .and_then(toml::Value::as_str)
-                {
-                    return edition.to_owned();
-                }
-            }
-        }
-        current = root.parent();
+fn package_name(manifest: &Path) -> Option<String> {
+    read_manifest(manifest)?.get("package")?.get("name")?.as_str().map(str::to_owned)
+}
+
+fn workspace_manifest(dir: &Path, manifest: &toml::Value) -> Option<toml::Value> {
+    if manifest.get("workspace").is_some() {
+        return Some(manifest.clone());
     }
-    "2021".to_owned()
+    if let Some(path) = manifest
+        .get("package")
+        .and_then(|package| package.get("workspace"))
+        .and_then(toml::Value::as_str)
+    {
+        return read_manifest(&dir.join(path).join("Cargo.toml"));
+    }
+    for ancestor in dir.ancestors().skip(1) {
+        let candidate = ancestor.join("Cargo.toml");
+        if let Some(root) = read_manifest(&candidate)
+            && root.get("workspace").is_some()
+        {
+            return Some(root);
+        }
+    }
+    None
+}
+
+fn cargo_edition(file: &Path) -> Option<String> {
+    let dir = up_find(file, &["Cargo.toml"])?;
+    let manifest = read_manifest(&dir.join("Cargo.toml"))?;
+    let package = manifest.get("package");
+    let edition = package.and_then(|package| package.get("edition"));
+    if let Some(value) = edition.and_then(toml::Value::as_str) {
+        return Some(value.to_owned());
+    }
+    if edition.and_then(|value| value.get("workspace")).and_then(toml::Value::as_bool) == Some(true)
+        || package.is_none()
+    {
+        return workspace_manifest(&dir, &manifest).and_then(|root| {
+            root.get("workspace")
+                .and_then(|workspace| workspace.get("package"))
+                .and_then(|package| package.get("edition"))
+                .and_then(toml::Value::as_str)
+                .map(str::to_owned)
+        });
+    }
+    // Cargo's default for a package with no edition field.
+    Some("2015".to_owned())
 }
 
 /// The checks `files` (absolute paths) call for, each once.
@@ -250,7 +269,7 @@ pub(crate) fn enabled_by(env: Option<&str>, doc: Option<&Value>) -> bool {
         .unwrap_or(true)
 }
 
-fn enabled() -> bool {
+pub(crate) fn enabled() -> bool {
     let env = std::env::var(ENV_OFF).ok();
     if env.as_deref() == Some("0") {
         return false;
@@ -337,12 +356,12 @@ fn local_tool(dir: &Path, name: &str) -> Option<PathBuf> {
 }
 
 /// Syntax errors of `files` only: the fast fallback for a crate whose full check ran out of time.
-async fn rustfmt_syntax(files: &[PathBuf], edition: &str) -> Option<Ran> {
+async fn rustfmt_syntax(files: &[PathBuf]) -> Option<Ran> {
     let mut text = String::new();
     for f in files {
-        let r =
-            run_cmd(parent(f), "rustfmt", &["--check", "--edition", edition, &f.to_string_lossy()])
-                .await?;
+        let edition = cargo_edition(f).unwrap_or_else(|| "2021".to_owned());
+        let path = f.to_string_lossy();
+        let r = run_cmd(parent(f), "rustfmt", &["--check", "--edition", &edition, &path]).await?;
         text.push_str(&r.text);
     }
     Some(Ran { text, slow: false })
@@ -364,15 +383,14 @@ async fn run_check(
             };
             if full.slow {
                 slow_scopes.insert(check.key());
-                let edition = rust_edition(dir);
-                let r = rustfmt_syntax(files, &edition).await?;
+                let r = rustfmt_syntax(files).await?;
                 let lines = error_lines(&Check::Rustfmt { file: PathBuf::new() }, &r.text);
                 return Some(Outcome { lines, slow: true });
             }
             (full, check.clone())
         }
         Check::Rustfmt { file } => {
-            let edition = rust_edition(parent(file));
+            let edition = cargo_edition(file).unwrap_or_else(|| "2021".to_owned());
             (
                 run_cmd(parent(file), "rustfmt", &["--check", "--edition", &edition, &s(file)])
                     .await?,

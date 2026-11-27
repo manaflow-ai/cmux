@@ -218,7 +218,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             services.registry.logBindingProblems()
             logger.info("unbound catalog actions: \(services.registry.unboundActionIDs().count)")
         }
-        firstFrame.whenOpen { [weak services] in services?.startPostFrameFeeds(); LaunchTypeProbe(environment: ProcessInfo.processInfo.environment) { DebugTimings.markLaunch($0) }?.type() } // launch-ready type=1
+        LaunchTypeProbe.armChat(environment: ProcessInfo.processInfo.environment, listen: AgentPaneLaunchTimings.shared.listen) { DebugTimings.markLaunch($0) }; firstFrame.whenOpen { [weak services] in services?.startPostFrameFeeds(); LaunchTypeProbe(environment: ProcessInfo.processInfo.environment) { DebugTimings.markLaunch($0) }?.type() } // launch-ready type=1; launch_tti_check.py's chat rounds
         // Before the first window opens (restoreWhenLoaded opens one at once).
         launchReads.shell.content.contentReady = services.launchReveal.whenContentReady // swap over stage 0 once regions show content
         services.windows.onPresent = { [weak services, shell = launchReads.shell] controller in
@@ -445,10 +445,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         services.bookmarks.follow(settings)
         services.apps.start()
         Task {
-            await settings.waitForLoad(atLeast: 1); await launchSettle.settled(within: .seconds(4)) // control socket: after the first frames (cx-z9kz0)
-            Task { [daemon = services.daemon] in await daemon.untilLive(); await settings.runLaunchMigrations(marker: .standard) } // legacy NEXT keys and stored defaults: written by the daemon once it is live; the control socket does not wait
+            Task { [daemon = services.daemon] in await settings.waitForLoad(atLeast: 1); await daemon.untilLive(); await settings.runLaunchMigrations(marker: .standard) } // legacy NEXT keys and stored defaults: written by the daemon once it is live; the control socket does not wait
             do {
-                try control.start(registry: registry, settings: settings, launch: environment.launch, services: services)
+                try await control.start(registry: registry, settings: settings, launch: environment.launch, services: services, afterFirstFrame: { [firstFrame] in await firstFrame.opened() })
                 control.registerCloudMethods(services)
                 control.registerAccountsMethods(services)
                 control.registerBillingMethods(services)
