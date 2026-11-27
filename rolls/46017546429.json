@@ -1,0 +1,162 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/46017546429",
+  "recorded_at": "2026-11-27T15:00:31Z",
+  "reason": "cmux-tui b75b74ccf357 changes the image's cmux-tui (pinned 7788b32b071b)",
+  "dry_run": false,
+  "cmux_tui": "b75b74ccf357c5872b24c89f86694fa660587d2b",
+  "fixes": [
+    {
+      "sha": "84e6b9bfcf791416a53489d160cea81822661bcf",
+      "mergedAt": "2026-11-27T13:56:33Z",
+      "subject": "cmux-projection: hill climbing the transport and compression knobs (zstd level, read-ahead) on the projection-scale harness (#61078)"
+    },
+    {
+      "sha": "dd19a6ecf137d9eda210f3fbc6aa430171f39ffd",
+      "mergedAt": "2026-11-27T13:50:03Z",
+      "subject": "Rust: retry transient failures instead of telling people to try again (#56203)"
+    },
+    {
+      "sha": "06c69d97a2423b1f029cb539de079a0bce63cd9f",
+      "mergedAt": "2026-11-27T13:47:43Z",
+      "subject": "acpmux search: gate the matcher before flatten and the per-byte fold (#61679)"
+    },
+    {
+      "sha": "fb5d4207ec60b0c4d6511e7ae37bd830cfb92015",
+      "mergedAt": "2026-11-27T13:46:10Z",
+      "subject": "acpmux: a hub move may land in a VM host's home, home itself included (#56181)"
+    },
+    {
+      "sha": "4eb31d34c9b923d4a240985846f3c01bd79d04bc",
+      "mergedAt": "2026-11-27T13:45:37Z",
+      "subject": "acpmux: background-task watcher waits on lock closes (inotify) instead of a 1 s probe (#61408)"
+    },
+    {
+      "sha": "d8efdc96861130d04c092324d466fcdd873bfb61",
+      "mergedAt": "2026-11-27T13:45:08Z",
+      "subject": "One reading of an upstream 529/503/429 for acpmux and OptChat's Chief (#58405)"
+    },
+    {
+      "sha": "4c357870eb6054cf50f2f34735daa4d75fa37dbd",
+      "mergedAt": "2026-11-27T13:38:37Z",
+      "subject": "cmux vm tailnet keep/adopt: your vault keeps your tailnet node (RFD 0169) (#57502)"
+    },
+    {
+      "sha": "e8fc9bf91cab14816509cc9226285913b3015f5f",
+      "mergedAt": "2026-11-27T13:37:48Z",
+      "subject": "machine list: its three side reads run at once (#47025)"
+    },
+    {
+      "sha": "e8efb259a2d0780991a7f504284d4c4938231f70",
+      "mergedAt": "2026-11-27T13:37:02Z",
+      "subject": "cmux-next: delete the dead ClosingPanes Swift and its Rust rules (#57221)"
+    },
+    {
+      "sha": "5dcadfb342baafde34373f0b5072dddcb429eb81",
+      "mergedAt": "2026-11-27T13:34:44Z",
+      "subject": "cmux-host: gate carried GitHub login on Unix (#61783)"
+    },
+    {
+      "sha": "d13bce1fed3bfec7ad1c1c2d1ae2618f5bfbb720",
+      "mergedAt": "2026-11-27T13:25:54Z",
+      "subject": "fix(setups): make terminal-first open terminal tabs (#60084)"
+    },
+    {
+      "sha": "ef2a9021026f01f788073403d52f43a3ad25edbf",
+      "mergedAt": "2026-11-27T13:25:29Z",
+      "subject": "Agent chat: measure composer key to painted frame in production (#51596)"
+    },
+    {
+      "sha": "8d5195f768658c5d0fcec8d165be43643f5b832c",
+      "mergedAt": "2026-11-27T13:24:16Z",
+      "subject": "acpmux: harness magic dirRules shows a directory's AGENTS.md on first touch (RFD 0158 §12) (#59653)"
+    },
+    {
+      "sha": "11db1d8762cef0a75a0894d9a6726b94d150fc68",
+      "mergedAt": "2026-11-27T13:22:14Z",
+      "subject": "cmux-computer-use: drop unneeded super:: qualification (clippy unused-qualifications) (#61749)"
+    },
+    {
+      "sha": "8c2de44b877d6f4ae1b2effcaf6c3bc22f115312",
+      "mergedAt": "2026-11-27T13:21:42Z",
+      "subject": "cmux CLI: a terminal's stale pre-move CMUX_SOCKET_PATH reaches the moved NIGHTLY (#60924)"
+    },
+    {
+      "sha": "1ee8222c373770f6f48f32b66ebbfb7feb973414",
+      "mergedAt": "2026-11-27T13:18:27Z",
+      "subject": "cmux-nat-probe: measure NAT traversal on real host pairs (#56698)"
+    },
+    {
+      "sha": "a6358c21fce72f895c64340ec8972ea57573d907",
+      "mergedAt": "2026-11-27T13:18:04Z",
+      "subject": "cmux-layout-reducer: WindowRegistry rules in Rust over registry_apply (swift-out step A) (#57754)"
+    },
+    {
+      "sha": "77214fc346eb5407210cfc11c208889ac4eae6ed",
+      "mergedAt": "2026-11-27T13:17:47Z",
+      "subject": "WIP: automatic checkpoint (SessionEnd) (#60499)"
+    },
+    {
+      "sha": "05fbe1894fa11c96b74e7e6b73a636164a5bdb39",
+      "mergedAt": "2026-11-27T13:15:32Z",
+      "subject": "Test: a daemon killed mid-turn posts the turn's finish once (#61432)"
+    },
+    {
+      "sha": "db7d5225dcb5996dadb97a552bd3da7e2adf135a",
+      "mergedAt": "2026-11-27T13:15:09Z",
+      "subject": "acpmux: held pipes outlive the far daemon restarting (pipe host) and `machine pipe` (#56271)"
+    },
+    {
+      "sha": "f47a5a1de24a4af2c79533180de25cb8dd60598c",
+      "mergedAt": "2026-11-27T13:10:48Z",
+      "subject": "cli: vm new opens the new machine with new-terminal-on-machine; test every CLI-run action name (#58525)"
+    },
+    {
+      "sha": "7d02c95c0e47a36a9959689c8094e2c76d61baed",
+      "mergedAt": "2026-11-27T13:08:04Z",
+      "subject": "cmux-config: settings schema export, surface plan and batch schema.rows in Rust (#57280)"
+    },
+    {
+      "sha": "eeeb81694ce06415a28997515784f788bdb38d90",
+      "mergedAt": "2026-11-27T13:08:01Z",
+      "subject": "acpmux: fix base-red tests at their cause, run durable_watch_lifecycle in CI (#61428)"
+    },
+    {
+      "sha": "6d71111454d26448cede2f8555bc8f15d8e48953",
+      "mergedAt": "2026-11-27T13:07:42Z",
+      "subject": "app-ffi: keep proc-macros unstripped under Xcode 27 strip (#61499)"
+    },
+    {
+      "sha": "4529c0a7cd13abc57e065ec1e54541eb4343bfce",
+      "mergedAt": "2026-11-27T13:07:20Z",
+      "subject": "CAPY-3 acpmux: preserve staged changes during carried moves (#47623)"
+    },
+    {
+      "sha": "640eeab4f99bfad179af928db4b76b9bd5e954ae",
+      "mergedAt": "2026-11-27T13:06:26Z",
+      "subject": "acpmux: opening PEER/NAME dials PEER when no row of NAME is known yet (#60107)"
+    },
+    {
+      "sha": "606f78d2cab865ada6047e4362dcc41542e8537e",
+      "mergedAt": "2026-11-27T13:01:00Z",
+      "subject": "cmux vault on iPhone: Settings > Cloud > Vault, sealing to machines the phone starts (stacked on #56890) (#56920)"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "passed",
+    "bake_job": "success",
+    "done_at": "2026-11-27T15:00:31Z",
+    "snapshot_id": "sh-41a2114b5deb4bedb954349e6b1c831c",
+    "detail": "smoke.ts --clones 5 --agent-probe --resize-probe (CI run 46017546429): 34 checks passed"
+  },
+  "promotion": {
+    "result": "pushed",
+    "job": "success",
+    "commit": "d70b93da9cb529c54b5858aa4121899ffc5c54eb",
+    "image": "cloud-native-auto-b75b74cc-46017546429-1",
+    "revision": "ci-46017546429-1",
+    "at": "2026-11-27T15:00:31Z"
+  },
+  "rolled_back": false
+}
