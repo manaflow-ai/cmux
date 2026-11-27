@@ -29,6 +29,7 @@ import type { NewTabStartFailure } from "../newtab/StartFailure";
 import type { NewTabScreenActions } from "../newtab/NewTabScreen";
 import { LazyNewTabPage, LazyNewTabScreen } from "../newtab/lazyNewTab";
 import { HistoryScreen } from "../lazyScreens";
+import { openCloudEnvironment } from "../cloudEnvironment";
 import { NewTabAppSlot } from "../newtab/NewTabAppSlot";
 import { NewTabClock } from "../newtab/NewTabClock";
 import { historyPages } from "../queue/historyPages";
@@ -988,6 +989,9 @@ export function drawPaneBody({
                                   onDismiss={dismissCloudFailure}
                                   onSwitchTeam={switchTeamAndRetry}
                                   onOpenNewCloudChat={openNewCloudChatForStart}
+                                  onOpenEnvironment={({ environmentId, repository, section }) =>
+                                    openCloudEnvironment({ environmentId, repo: repository, section })
+                                  }
                                   {...cloudTooBigActions}
                                   onSetUp={setUpCloud}
                                   onSetUpDismiss={dismissCloudSetUp}
@@ -1645,6 +1649,9 @@ export function drawPaneBody({
                     onDismiss={dismissCloudFailure}
                     onSwitchTeam={switchTeamAndRetry}
                     onOpenNewCloudChat={openNewCloudChatForStart}
+                    onOpenEnvironment={({ environmentId, repository, section }) =>
+                      openCloudEnvironment({ environmentId, repo: repository, section })
+                    }
                     {...cloudTooBigActions}
                     onSetUp={setUpCloud}
                     onSetUpDismiss={dismissCloudSetUp}
