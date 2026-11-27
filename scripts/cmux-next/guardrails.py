@@ -3150,9 +3150,9 @@ def owner_route(repo: Path, ranges: list, listing=None, coordinator: str | None 
             continue
         try:
             owners = parse_owners(owners_text(blobs(repo, owner_specs(own.base, own.head)), own.base, own.head) or "")
-        except (Exception, SystemExit):
+            names = owner_route_files(repo, own)
+        except (Exception, SystemExit):  # an unreadable head (a range the push could not name) routes nothing
             continue
-        names = owner_route_files(repo, own)
         for area, cell, doc, files in owner_hits(names, owners):
             prev = hits.get(area)
             hits[area] = (cell, doc, sorted(set(files) | set(prev[2] if prev else [])), own.head)
