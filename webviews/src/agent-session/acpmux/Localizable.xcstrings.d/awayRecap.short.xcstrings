@@ -2,133 +2,133 @@
   "sourceLanguage" : "en",
   "strings" : {
     "awayRecap.short" : {
-      "comment" : "Agent pane: the session recap line's lead-in after the ※ mark, as Claude Code's terminal recap (\"※ recap: The goal is ...\"); lowercase, a colon follows it",
+      "comment" : "Agent pane: the session recap line's lead-in after the ※ mark, as Claude Code's terminal recap (\"※ recap: The goal is ...\"); lowercase, with the colon as the language writes it (full-width in Chinese and Japanese, spaced in French)",
       "extractionState" : "manual",
       "localizations" : {
         "ar" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "ملخص"
+            "value" : "ملخص:"
           }
         },
         "bs" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "sažetak"
+            "value" : "sažetak:"
           }
         },
         "da" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "opsummering"
+            "value" : "opsummering:"
           }
         },
         "de" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Zusammenfassung"
+            "value" : "Zusammenfassung:"
           }
         },
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "recap"
+            "value" : "recap:"
           }
         },
         "es" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "resumen"
+            "value" : "resumen:"
           }
         },
         "fr" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "récap"
+            "value" : "récap :"
           }
         },
         "it" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "riepilogo"
+            "value" : "riepilogo:"
           }
         },
         "ja" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "まとめ"
+            "value" : "まとめ："
           }
         },
         "km" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "សង្ខេប"
+            "value" : "សង្ខេប:"
           }
         },
         "ko" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "요약"
+            "value" : "요약:"
           }
         },
         "nb" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "sammendrag"
+            "value" : "sammendrag:"
           }
         },
         "pl" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "podsumowanie"
+            "value" : "podsumowanie:"
           }
         },
         "pt-BR" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "resumo"
+            "value" : "resumo:"
           }
         },
         "ru" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "сводка"
+            "value" : "сводка:"
           }
         },
         "th" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "สรุป"
+            "value" : "สรุป:"
           }
         },
         "tr" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "özet"
+            "value" : "özet:"
           }
         },
         "uk" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "підсумок"
+            "value" : "підсумок:"
           }
         },
         "vi" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "tóm tắt"
+            "value" : "tóm tắt:"
           }
         },
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "回顾"
+            "value" : "回顾："
           }
         },
         "zh-Hant" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "回顧"
+            "value" : "回顧："
           }
         }
       }

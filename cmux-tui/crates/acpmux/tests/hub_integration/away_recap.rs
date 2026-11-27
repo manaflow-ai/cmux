@@ -355,6 +355,57 @@ async fn a_chat_on_another_harness_gets_the_small_models_recap() {
     assert_eq!(recaps[0]["text"], SMALL);
 }
 
+/// A recap ask that panics lets the chat go: the next turns' recap is still asked for and shown
+/// (#41950's review: `Away::asking` was cleared only on the ask's normal return).
+#[tokio::test]
+async fn a_recap_ask_that_panics_does_not_stop_the_next_one() {
+    let (hub, mut c) = setup(PermissionPolicy::ApproveAll).await;
+    let clock = acpmux::clock::ManualClock::new();
+    hub.set_clock(clock.clone());
+    hub.set_idle_child(None);
+    let asked = Arc::new(std::sync::Mutex::new(Vec::new()));
+    let kept = asked.clone();
+    hub.set_recap_writer(Some(Arc::new(move |prompt: String| {
+        let first = {
+            let mut kept = kept.lock().unwrap();
+            kept.push(prompt);
+            kept.len() == 1
+        };
+        assert!(!first, "the first recap ask panics");
+        Some(SMALL.to_owned())
+    })));
+    let s = c.request(method::SESSION_NEW, json!({"cwd": cwd(), "mcpServers": []})).await.unwrap();
+    let id = s["sessionId"].as_str().unwrap().to_owned();
+    let view = |visible: bool| json!({"sessionId": id, "visible": visible});
+    let prompt = |n: usize| json!({"sessionId": id, "prompt": [{"type": "text", "text": format!("step {n}")}]});
+    c.request("_acpmux/view", view(true)).await.unwrap();
+    for n in 0..3 {
+        c.request(method::SESSION_PROMPT, prompt(n)).await.unwrap();
+    }
+    c.request("_acpmux/view", view(false)).await.unwrap();
+    clock.advance(Duration::from_secs(3 * 60));
+    written(&asked, 1).await;
+    c.request("_acpmux/view", view(true)).await.unwrap();
+    for n in 3..6 {
+        c.request(method::SESSION_PROMPT, prompt(n)).await.unwrap();
+    }
+    c.request("_acpmux/view", view(false)).await.unwrap();
+    clock.advance(Duration::from_secs(3 * 60));
+    written(&asked, 2).await;
+    assert_eq!(asked.lock().unwrap().len(), 2, "asked again after the panic");
+    clock.advance(Duration::from_secs(2 * 60));
+    c.request("_acpmux/view", view(true)).await.unwrap();
+    let recaps: Vec<Value> = hub
+        .events(&id, 0, 10_000)
+        .unwrap()
+        .iter()
+        .filter(|e| e.dir == "mux" && e.kind == "recap")
+        .map(|e| e.msg.clone())
+        .collect();
+    assert_eq!(recaps.len(), 1, "{recaps:?}");
+    assert_eq!(recaps[0]["text"], SMALL);
+}
+
 /// Another connection to `hub`, introduced with `hello` (`initialize` params).
 async fn connect_as(hub: &Arc<Hub>, hello: Value) -> TestClient {
     let (in_tx, in_rx) = mpsc::channel(64);

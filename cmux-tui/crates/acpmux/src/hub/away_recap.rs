@@ -132,6 +132,16 @@ pub(crate) struct Away {
     person_turn: bool,
 }
 
+/// A running recap request of a chat (`Away::asking`), let go however `ask_recap` ends: answered,
+/// panicked, or its task dropped mid-call. Otherwise the chat would never be asked again.
+struct Asking<'a>(&'a Session);
+
+impl Drop for Asking<'_> {
+    fn drop(&mut self) {
+        self.0.away.lock().unwrap_or_else(|e| e.into_inner()).asking = false;
+    }
+}
+
 /// The saved `sessionRecap` (`chat-settings.json`), on when there is none.
 pub(super) fn saved_setting() -> bool {
     crate::chats::ChatSettings::load(&crate::config::home().join("chat-settings.json"))
@@ -566,13 +576,13 @@ impl Hub {
             away.asked_at_turns = Some(turns);
             away.person_turn = false;
         }
+        let _asking = Asking(session);
         let text = match child {
             Some(child) => Self::claude_recap(session, &child).await,
             None => self.fallback_recap(session).await,
         };
         let now_turns = session.meta.lock().unwrap_or_else(|e| e.into_inner()).turn_count;
         let mut away = session.away.lock().unwrap_or_else(|e| e.into_inner());
-        away.asking = false;
         // A turn that began while it was asked makes it stale.
         if let Some(text) = text.filter(|_| now_turns == turns && away.left_at.is_some()) {
             away.ready = Some((text, turns));
