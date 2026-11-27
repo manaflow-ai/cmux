@@ -243,6 +243,7 @@
         "scripts/cmux-next/build-agent-pane-web.sh",
         "scripts/ci/test_reds.py",
         "scripts/ci/ensure-system-chrome.sh",
+        "scripts/ci/pin-browser-test-font.sh",
         ".github/actions/playwright-apt-cache/**",
         ".github/workflows/gallery-health.yml",
         "schemas/gallery/**",
