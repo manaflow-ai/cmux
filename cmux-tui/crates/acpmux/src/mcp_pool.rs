@@ -160,14 +160,14 @@ pub fn listening() -> bool {
 
 fn bind(path: &Path) -> Result<UnixListener> {
     if let Some(dir) = path.parent() {
-        std::fs::create_dir_all(dir).with_context(|| format!("create {}", dir.display()))?;
+        crate::home_fs::create_dirs(dir).with_context(|| format!("create {}", dir.display()))?;
     }
     // The daemon before this one (an app update) let it go; a shim of its chats connects here
     // again.
-    let _ = std::fs::remove_file(path);
+    let _ = crate::home_fs::remove_file(path);
     let listener = UnixListener::bind(path)?;
     use std::os::unix::fs::PermissionsExt;
-    std::fs::set_permissions(path, std::fs::Permissions::from_mode(0o600))?;
+    crate::home_fs::set_permissions(path, std::fs::Permissions::from_mode(0o600))?;
     Ok(listener)
 }
 
@@ -263,7 +263,7 @@ fn ensure_server(sh: &Arc<Shared>, st: &mut State, scope: &cmux_scope::Scope) ->
     let mut command = cmux_process::Command::new(&spec.command);
     command
         .args(&spec.args)
-        .envs(spec.env.iter().map(|(k, v)| (k, v)))
+        .envs(spec.env.iter())
         .stdin(cmux_process::Stdio::piped())
         .stdout(cmux_process::Stdio::piped())
         .stderr(cmux_process::Stdio::piped());

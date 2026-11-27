@@ -117,7 +117,10 @@ extension AgentTabStore {
                                  attentionTabs: services.attentionTabs,
                                  daemons: services.acpmuxDaemons, updates: services.daemonUpdates, peerApprover: services.peerApprover)
         CloudFrontedChats.wire(tabs, services: services); tabs.onRemoteChatStarted = { [weak services] host, session, cwd, harness in // the Cloud chats Mac tabs show in place first (cmux#47677)
-            guard let services, services.cloud.movedChats.started(host: host, session: session, remoteChat: cwd, harness: harness) else { return }
+            guard let services else { return }
+            // A moved chat's cards, and with `cloud.addFolderLive` every Cloud chat's (CloudAccessAsks).
+            let moved = services.cloud.movedChats.started(host: host, session: session, remoteChat: cwd, harness: harness)
+            guard moved || CloudUploads.addFolderIsOn(services) else { return }
             services.cloud.accessAsks.start(services: services)
         }
         tabs.cloudRepositoryLocal = { [weak services] in
@@ -472,6 +475,10 @@ extension AgentTabStore {
             if host.cloudMachineID != nil, services.cloudTurnRewindHost.offered {
                 host.cloudTurnRewind = { [weak services] session in await services?.cloudTurnRewindHost.rows(chat: key.key, session: session) ?? [] }
             }
+            // Sources > Add Folder (`cloud.addFolderLive`, on by default; the click checks it again).
+            host.cloudFolderAdd = host.cloudMachineID != nil && CloudUploads.addFolderIsOn(services)
+            // A Cloud chat shown again (a restored tab) gets its access cards too.
+            if host.cloudFolderAdd { services.cloud.accessAsks.start(services: services) }
             // A Cloud machine (the app's own record, never the guest's) starts a chat or asks folder
             // trust only on the Cloud API's owner answer on the link the call goes over, checked as
             // it is sent, through any daemon (the app link's own answer).
@@ -614,7 +621,7 @@ extension AgentTabStore {
             return tabs.openToolScoped?(tabs.tabKey(chat), kind, cwd) ?? false
         }
         tabs.runAttach = { [weak tabs] key, request in
-            guard let tabs, let runAttachScoped = tabs.runAttachScoped else { throw AgentPaneHostError.daemonStopped }
+            guard let tabs, let runAttachScoped = tabs.runAttachScoped else { throw AgentPaneHostError.timedOut }
             try await runAttachScoped(tabs.tabKey(key), request)
         }
         tabs.gitLink = { [weak tabs] key in tabs.flatMap { $0.gitLinkScoped?($0.tabKey(key)) } }
@@ -685,5 +692,9 @@ extension AgentTabStore {
             tryAnotherApproach = nil
         }
         cloudTurnRewind = services.cloudTurnRewindHost
+        cloudFolderAdd = { [weak services] chat, session in
+            guard let services else { throw CancellationError() }
+            return try await CloudUploads.addFolder(tab: chat, session: session, services: services)
+        }
     }
 }

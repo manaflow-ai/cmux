@@ -11,6 +11,7 @@ dependencies = [
  "acpmux-client",
  "acpmux-core",
  "acpmux-hot",
+ "acpmux-list-types",
  "aho-corasick",
  "anyhow",
  "arc-swap",
@@ -54,6 +55,7 @@ dependencies = [
  "cmux-host-budget",
  "cmux-hub-host",
  "cmux-image-linear",
+ "cmux-intent",
  "cmux-journal",
  "cmux-json",
  "cmux-link",
@@ -63,6 +65,7 @@ dependencies = [
  "cmux-netwatch",
  "cmux-palette-ranker",
  "cmux-panic-log",
+ "cmux-pool-pod",
  "cmux-presence",
  "cmux-process",
  "cmux-relay",
@@ -85,13 +88,18 @@ dependencies = [
  "cmux-tailnet-front",
  "cmux-tailnet-join",
  "cmux-tailnet-local",
+ "cmux-team-messaging",
  "cmux-transport",
+ "cmux-transport-rewrite",
  "cmux-tui-hooks",
  "cmux-tui-platform",
+ "cmux-tui-util",
  "cmux-unix-socket",
+ "cmux-upstream-error",
  "cmux-usage-patterns",
  "cmux-usage-share",
  "cmux-vault-egress",
+ "cmux-wallpaper",
  "cmux-wg",
  "cmux-worktree-care",
  "dhat",
@@ -103,8 +111,10 @@ dependencies = [
  "getrandom 0.3.4",
  "glob",
  "hpke",
+ "ignore",
  "imbl",
  "inotify",
+ "jpeg-encoder",
  "jsonschema",
  "libc",
  "memchr",
@@ -184,6 +194,7 @@ version = "1.0.0"
 dependencies = [
  "acpmux-book",
  "acpmux-client",
+ "acpmux-list-types",
  "arc-swap",
  "cmux-scope",
  "libc",
@@ -239,6 +250,7 @@ dependencies = [
  "acpmux",
  "anyhow",
  "base64",
+ "chrono",
  "cmux-bounded",
  "cmux-json",
  "cmux-scope",
@@ -248,6 +260,7 @@ dependencies = [
  "libc",
  "pulldown-cmark",
  "ratatui",
+ "regex",
  "serde_json",
  "syntect",
  "tokio",
@@ -1327,6 +1340,14 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "0c9ea0ac24bc397ab3c98583a3c9ba74fa56b09a4449bbe172b9b1ddb016027a"
 
 [[package]]
+name = "cmux-acpmux-remote-wire"
+version = "0.1.0"
+dependencies = [
+ "serde",
+ "serde_json",
+]
+
+[[package]]
 name = "cmux-action-catalog"
 version = "0.1.0"
 dependencies = [
@@ -1569,6 +1590,30 @@ dependencies = [
 ]
 
 [[package]]
+name = "cmux-browser-rules"
+version = "0.1.0"
+dependencies = [
+ "serde",
+ "serde_json",
+]
+
+[[package]]
+name = "cmux-browser-sync"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "base64",
+ "getrandom 0.3.4",
+ "reqwest",
+ "ring",
+ "serde",
+ "serde_json",
+ "tokio",
+ "x25519-dalek",
+ "zeroize",
+]
+
+[[package]]
 name = "cmux-build-identity"
 version = "0.1.0"
 dependencies = [
@@ -1598,15 +1643,32 @@ dependencies = [
 ]
 
 [[package]]
+name = "cmux-bytes"
+version = "0.1.0"
+dependencies = [
+ "base64",
+ "blake3",
+ "cmux-cas",
+ "flate2",
+ "libc",
+ "zstd",
+]
+
+[[package]]
 name = "cmux-cas"
 version = "0.1.0"
 dependencies = [
  "base64",
  "blake3",
+ "cmux-process",
  "cmux-signed-envelope",
+ "flate2",
+ "libc",
  "ring",
  "serde",
  "serde_json",
+ "sha2 0.10.9",
+ "tar",
  "tempfile",
  "zstd",
 ]
@@ -1619,6 +1681,16 @@ dependencies = [
  "serde",
  "serde_json",
  "tempfile",
+]
+
+[[package]]
+name = "cmux-chat-markdown"
+version = "0.1.0"
+dependencies = [
+ "serde_json",
+ "unicode-general-category",
+ "unicode-normalization",
+ "unicode-segmentation",
 ]
 
 [[package]]
@@ -1703,6 +1775,7 @@ name = "cmux-cloud-config"
 version = "0.1.0"
 dependencies = [
  "base64",
+ "cmux-cloud-environment",
  "serde",
  "serde_json",
  "sha2 0.10.9",
@@ -1876,10 +1949,13 @@ name = "cmux-config"
 version = "0.1.0"
 dependencies = [
  "base64",
+ "chrono",
+ "chrono-tz",
  "cmux-app-host",
  "cmux-embed",
  "cmux-json",
  "cmux-layout-reducer",
+ "cmux-message-preview",
  "cmux-theme-tokens",
  "core-foundation 0.10.1",
  "core-foundation-sys",
@@ -1891,6 +1967,7 @@ dependencies = [
  "serde_json",
  "sha2 0.10.9",
  "unicode-segmentation",
+ "url",
  "uuid",
 ]
 
@@ -1915,6 +1992,13 @@ dependencies = [
  "serde",
  "serde_json",
  "tempfile",
+]
+
+[[package]]
+name = "cmux-critpath"
+version = "0.1.0"
+dependencies = [
+ "serde_json",
 ]
 
 [[package]]
@@ -1949,6 +2033,7 @@ dependencies = [
 name = "cmux-daemon-client"
 version = "0.1.0"
 dependencies = [
+ "acpmux-list-types",
  "base64",
  "cmux-local-auth",
  "cmux-sdk",
@@ -2057,6 +2142,17 @@ dependencies = [
  "rustls-native-certs",
  "sha2 0.10.9",
  "windows",
+]
+
+[[package]]
+name = "cmux-error-journal"
+version = "0.1.0"
+dependencies = [
+ "regex",
+ "serde",
+ "serde_json",
+ "unicode-general-category",
+ "unicode-segmentation",
 ]
 
 [[package]]
@@ -2171,8 +2267,10 @@ dependencies = [
  "axum",
  "base64",
  "bytes",
+ "cmux-egress",
  "cmux-process",
  "cmux-scope",
+ "cmux-transport-rewrite",
  "flate2",
  "futures-util",
  "hex",
@@ -2226,6 +2324,29 @@ dependencies = [
 ]
 
 [[package]]
+name = "cmux-home-rules"
+version = "0.1.0"
+dependencies = [
+ "serde",
+ "serde_json",
+]
+
+[[package]]
+name = "cmux-hop-relay"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "base64",
+ "cmux-scope",
+ "cmux-transport",
+ "getrandom 0.3.4",
+ "hmac",
+ "serde_json",
+ "sha2 0.10.9",
+ "tokio",
+]
+
+[[package]]
 name = "cmux-host"
 version = "0.1.0"
 dependencies = [
@@ -2242,6 +2363,7 @@ dependencies = [
  "cmux-server-core",
  "cmux-signed-envelope",
  "cmux-supervise-core",
+ "cmux-tui-util",
  "cmux-unix-socket",
  "flate2",
  "libc",
@@ -2277,6 +2399,7 @@ version = "0.1.0"
 dependencies = [
  "cmux-file-lock",
  "cmux-process",
+ "cmux-rd-proto",
  "hpke",
  "libc",
  "p256",
@@ -2307,6 +2430,15 @@ dependencies = [
 name = "cmux-install-check"
 version = "0.1.0"
 dependencies = [
+ "serde",
+ "serde_json",
+]
+
+[[package]]
+name = "cmux-intent"
+version = "0.1.0"
+dependencies = [
+ "clap",
  "serde",
  "serde_json",
 ]
@@ -2357,6 +2489,13 @@ name = "cmux-launch-image"
 version = "0.1.0"
 
 [[package]]
+name = "cmux-launch-preread"
+version = "0.1.0"
+dependencies = [
+ "libc",
+]
+
+[[package]]
 name = "cmux-layout-reducer"
 version = "0.1.0"
 dependencies = [
@@ -2405,6 +2544,7 @@ name = "cmux-local-url"
 version = "0.1.0"
 dependencies = [
  "regex-automata",
+ "url",
 ]
 
 [[package]]
@@ -2424,6 +2564,7 @@ version = "0.1.0"
 dependencies = [
  "serde",
  "serde_json",
+ "unicode-segmentation",
 ]
 
 [[package]]
@@ -2444,7 +2585,10 @@ name = "cmux-mobile-core"
 version = "0.1.0"
 dependencies = [
  "cmux-cloud-wire",
+ "cmux-relay-snapshot",
  "cmux-terminal-sizing",
+ "p256",
+ "rand_core 0.6.4",
  "serde_json",
 ]
 
@@ -2452,9 +2596,19 @@ dependencies = [
 name = "cmux-mobile-ffi"
 version = "0.1.0"
 dependencies = [
+ "cmux-conversation",
  "cmux-mobile-core",
+ "cmux-rd-screen",
  "serde_json",
  "uniffi",
+]
+
+[[package]]
+name = "cmux-mobile-host-core"
+version = "0.1.0"
+dependencies = [
+ "serde",
+ "serde_json",
 ]
 
 [[package]]
@@ -2477,11 +2631,39 @@ dependencies = [
 ]
 
 [[package]]
+name = "cmux-nat-probe"
+version = "0.1.0"
+dependencies = [
+ "cmux-process",
+ "serde",
+ "serde_json",
+]
+
+[[package]]
 name = "cmux-netwatch"
 version = "0.1.0"
 dependencies = [
  "libc",
  "tokio",
+]
+
+[[package]]
+name = "cmux-no-checkout"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "async-trait",
+ "base64",
+ "cmux-egress",
+ "cmux-no-checkout",
+ "cmux-process",
+ "cmux-scope",
+ "reqwest",
+ "serde",
+ "serde_json",
+ "tempfile",
+ "tokio",
+ "zeroize",
 ]
 
 [[package]]
@@ -2548,6 +2730,13 @@ dependencies = [
 ]
 
 [[package]]
+name = "cmux-phone-page"
+version = "0.1.0"
+dependencies = [
+ "serde_json",
+]
+
+[[package]]
 name = "cmux-pool-pod"
 version = "0.1.0"
 dependencies = [
@@ -2597,9 +2786,29 @@ dependencies = [
  "sha1",
  "sha1collisiondetection",
  "sha2 0.10.9",
+ "tar",
  "tempfile",
  "tokio",
  "zstd",
+]
+
+[[package]]
+name = "cmux-proxy"
+version = "0.1.0"
+dependencies = [
+ "base64",
+ "core-foundation 0.10.1",
+ "core-foundation-sys",
+ "rcgen",
+ "rustls",
+ "rustls-platform-verifier",
+ "serde",
+ "thiserror 2.0.21",
+ "tokio",
+ "tokio-rustls",
+ "tracing",
+ "url",
+ "webpki-roots",
 ]
 
 [[package]]
@@ -2619,6 +2828,8 @@ version = "0.1.0"
 dependencies = [
  "cmux-rd-proto",
  "proptest",
+ "serde",
+ "serde_json",
 ]
 
 [[package]]
@@ -2682,6 +2893,25 @@ dependencies = [
 ]
 
 [[package]]
+name = "cmux-rd-screen"
+version = "0.1.0"
+dependencies = [
+ "base64",
+ "p256",
+ "serde",
+ "serde_json",
+]
+
+[[package]]
+name = "cmux-rd-screen-ffi"
+version = "0.1.0"
+dependencies = [
+ "cmux-rd-screen",
+ "cmux-vnc",
+ "serde_json",
+]
+
+[[package]]
 name = "cmux-redact"
 version = "0.1.0"
 dependencies = [
@@ -2728,6 +2958,7 @@ dependencies = [
  "axum",
  "base64",
  "bytes",
+ "cmux-braid-carrier",
  "cmux-braid-path",
  "cmux-braid-session",
  "cmux-build-identity",
@@ -2736,6 +2967,8 @@ dependencies = [
  "cmux-json",
  "cmux-link",
  "cmux-netwatch",
+ "cmux-process",
+ "cmux-proxy",
  "cmux-pty",
  "cmux-relay",
  "cmux-remote-protocol",
@@ -2799,6 +3032,19 @@ dependencies = [
 ]
 
 [[package]]
+name = "cmux-remote-web"
+version = "0.1.0"
+dependencies = [
+ "cmux-remote-protocol",
+ "getrandom 0.2.17",
+ "getrandom 0.3.4",
+ "serde",
+ "serde_json",
+ "snow",
+ "wasm-bindgen",
+]
+
+[[package]]
 name = "cmux-repro"
 version = "0.1.0"
 dependencies = [
@@ -2815,6 +3061,14 @@ dependencies = [
  "tokio",
  "tokio-util",
  "tracing",
+]
+
+[[package]]
+name = "cmux-screenshots"
+version = "0.1.0"
+dependencies = [
+ "serde_json",
+ "unicode-normalization",
 ]
 
 [[package]]
@@ -2842,6 +3096,7 @@ dependencies = [
  "cmux-json",
  "cmux-link",
  "cmux-server-core",
+ "cmux-tui-util",
  "flate2",
  "futures-util",
  "getrandom 0.3.4",
@@ -2919,6 +3174,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "cmux-shotdiff"
+version = "1.0.0"
+dependencies = [
+ "png",
+ "serde",
+ "serde_json",
+ "sha2 0.10.9",
+]
+
+[[package]]
 name = "cmux-sidebar"
 version = "1.0.0"
 dependencies = [
@@ -2927,6 +3192,13 @@ dependencies = [
  "crossterm",
  "ratatui",
  "serde_json",
+]
+
+[[package]]
+name = "cmux-sign-clone-sweep"
+version = "0.1.0"
+dependencies = [
+ "libc",
 ]
 
 [[package]]
@@ -3201,6 +3473,10 @@ dependencies = [
 ]
 
 [[package]]
+name = "cmux-transport-rewrite"
+version = "0.1.0"
+
+[[package]]
 name = "cmux-tui"
 version = "1.0.0"
 dependencies = [
@@ -3226,6 +3502,8 @@ dependencies = [
  "cmux-browser-host",
  "cmux-build-identity",
  "cmux-build-space",
+ "cmux-bytes",
+ "cmux-cas",
  "cmux-chat-index",
  "cmux-cloud-api",
  "cmux-cloud-client",
@@ -3253,15 +3531,19 @@ dependencies = [
  "cmux-host",
  "cmux-host-budget",
  "cmux-install-check",
+ "cmux-intent",
  "cmux-json",
  "cmux-layout-reducer",
  "cmux-lifeline",
  "cmux-link",
  "cmux-migrate",
+ "cmux-no-checkout",
  "cmux-palette-ranker",
  "cmux-panic-log",
+ "cmux-phone-page",
  "cmux-process",
  "cmux-projection",
+ "cmux-proxy",
  "cmux-pty",
  "cmux-rd-host",
  "cmux-rd-link",
@@ -3274,9 +3556,11 @@ dependencies = [
  "cmux-sdk",
  "cmux-server",
  "cmux-server-core",
+ "cmux-sign-clone-sweep",
  "cmux-signed-bundle",
  "cmux-stack-auth",
  "cmux-sync",
+ "cmux-tag-cache",
  "cmux-tailnet-join",
  "cmux-terminal-client",
  "cmux-theme-pack",
@@ -3290,6 +3574,7 @@ dependencies = [
  "cmux-tui-test-modules",
  "cmux-unix-socket",
  "cmux-usage-patterns",
+ "cmux-vault-e2e",
  "cmux-vm",
  "cmux-vm-pool",
  "cmux-vnc",
@@ -3307,6 +3592,7 @@ dependencies = [
  "ghostty-vt",
  "ghostty-vt-sys",
  "glob",
+ "ignore",
  "libc",
  "notify",
  "parking_lot",
@@ -3343,6 +3629,7 @@ dependencies = [
  "windows-sys 0.61.2",
  "x25519-dalek",
  "zeroize",
+ "zstd",
 ]
 
 [[package]]
@@ -3363,7 +3650,12 @@ dependencies = [
  "base64",
  "cmux-cloud-environment",
  "cmux-cloud-wire",
+ "cmux-egress",
  "cmux-json",
+ "cmux-relay-snapshot",
+ "hex",
+ "p256",
+ "rand_core 0.6.4",
  "serde",
  "serde_json",
  "url",
@@ -3435,8 +3727,10 @@ dependencies = [
  "cmux-terminal-iface",
  "cmux-terminal-sizing",
  "cmux-theme-tokens",
+ "cmux-transport-rewrite",
  "cmux-tui-cdp",
  "cmux-tui-cloud-conversations",
+ "cmux-tui-core",
  "cmux-tui-image-paste",
  "cmux-tui-platform",
  "cmux-tui-remote-access",
@@ -3583,6 +3877,7 @@ dependencies = [
  "libc",
  "rusqlite",
  "serde_json",
+ "tokio",
 ]
 
 [[package]]
@@ -3592,6 +3887,18 @@ dependencies = [
  "libc",
  "tempfile",
 ]
+
+[[package]]
+name = "cmux-update-prewarm-core"
+version = "0.1.0"
+dependencies = [
+ "serde",
+ "serde_json",
+]
+
+[[package]]
+name = "cmux-upstream-error"
+version = "0.1.0"
 
 [[package]]
 name = "cmux-url-input"
@@ -3622,6 +3929,21 @@ dependencies = [
  "sha2 0.10.9",
  "tempfile",
  "tokio",
+]
+
+[[package]]
+name = "cmux-vault-e2e"
+version = "0.1.0"
+dependencies = [
+ "base64",
+ "chacha20poly1305",
+ "getrandom 0.3.4",
+ "hpke",
+ "rand_core 0.9.5",
+ "serde",
+ "serde_json",
+ "sha2 0.10.9",
+ "zeroize",
 ]
 
 [[package]]
@@ -3697,13 +4019,38 @@ dependencies = [
 ]
 
 [[package]]
+name = "cmux-vmd"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "async-trait",
+ "axum",
+ "base64",
+ "chrono",
+ "cmux-process",
+ "cmux-scope",
+ "cmux-tui-machine-protocol",
+ "libc",
+ "reqwest",
+ "rustls",
+ "serde",
+ "serde_json",
+ "sha2 0.10.9",
+ "tokio",
+ "uuid",
+]
+
+[[package]]
 name = "cmux-vnc"
 version = "0.1.0"
 dependencies = [
  "aes",
+ "base64",
  "flate2",
  "getrandom 0.3.4",
  "num-bigint",
+ "serde",
+ "serde_json",
 ]
 
 [[package]]
@@ -3711,6 +4058,8 @@ name = "cmux-wallpaper"
 version = "0.1.0"
 dependencies = [
  "naga",
+ "schemars 1.2.2",
+ "serde",
  "serde_json",
 ]
 
@@ -3793,6 +4142,7 @@ version = "0.1.0"
 dependencies = [
  "serde",
  "serde_json",
+ "unicode-segmentation",
  "uuid",
 ]
 
@@ -3800,11 +4150,13 @@ dependencies = [
 name = "cmux-worktree-care"
 version = "0.1.0"
 dependencies = [
+ "cmux-cas",
  "cmux-file-lock",
  "cmux-git",
  "libc",
  "serde",
  "serde_json",
+ "tempfile",
 ]
 
 [[package]]
@@ -5191,6 +5543,7 @@ name = "ghostty-vt-sys"
 version = "0.1.0"
 dependencies = [
  "bindgen",
+ "cmux-transport-rewrite",
 ]
 
 [[package]]
@@ -6184,6 +6537,12 @@ dependencies = [
  "getrandom 0.4.3",
  "libc",
 ]
+
+[[package]]
+name = "jpeg-encoder"
+version = "0.6.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "b454d911ac55068f53495488d8ccd0646eaa540c033a28ee15b07838afafb01f"
 
 [[package]]
 name = "js-sys"

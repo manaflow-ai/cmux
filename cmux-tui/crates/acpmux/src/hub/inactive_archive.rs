@@ -126,7 +126,8 @@ impl Hub {
             if has_tag(m, ARCHIVED_TAG, now) {
                 return Err("archived");
             }
-            if KEPT_TAGS.iter().any(|tag| has_tag(m, tag, now)) {
+            // Pinned in the person's list (`_acpmux/pin`) keeps it as the `pinned` tag does.
+            if m.pinned || KEPT_TAGS.iter().any(|tag| has_tag(m, tag, now)) {
                 return Err("kept");
             }
             if m.updated_at > cutoff {
@@ -143,13 +144,28 @@ impl Hub {
     /// Whether anything runs or waits in `session`, as the idle reaper reads it
     /// (`idle.rs` `idle_eligible`), whatever its status.
     pub(super) fn archive_held(&self, session: &Session) -> bool {
+        self.archive_held_with(session, false)
+    }
+
+    /// [`Self::archive_held`]; `cold` reads the background processes from the table this daemon
+    /// holds, never from the chat's log: a cold chat's log is in its archive, and a read of it
+    /// brings it back. A chat is archived only with no process running (`coldable`), and
+    /// nothing runs in one afterwards.
+    pub(super) fn archive_held_with(&self, session: &Session, cold: bool) -> bool {
+        let processes = || {
+            if cold {
+                self.running_processes_read(session) > 0
+            } else {
+                self.any_process_running(session)
+            }
+        };
         session.turn().is_some()
             || session.harness_turn.load(Ordering::SeqCst)
             || session.asks_in_flight.load(Ordering::SeqCst) > 0
             || self.secrets.waiting_in(&session.id)
             || session.queued() > 0
             || !session.pending_permissions().is_empty()
-            || self.any_process_running(session)
+            || processes()
             || session.subagents.lock().unwrap_or_else(|e| e.into_inner()).background_running() > 0
             || session.agent_requests.load(Ordering::SeqCst) > 0
             || self.continuation_pending(session)

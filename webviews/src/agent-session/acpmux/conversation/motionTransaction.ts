@@ -31,7 +31,7 @@
 import { MOTION_MS } from "../../../motion/scale.generated";
 import { experimentArm } from "../../../experiments/experiment";
 import { compoundMotion } from "./compoundMotion.experiment";
-import { foldMotion, foldMs } from "./fold";
+import { cssTimeMs, foldMotion, foldMs } from "./fold";
 import { setEffectKeyframes } from "./keyframeKinds";
 
 /// Under this share of the plan left, a move starts a new plan instead of scaling the rest (the scale
@@ -51,6 +51,8 @@ export type MotionPlan = {
   start: number;
   /// How long it plays, ms.
   duration: number;
+  /// Its curve (CSS easing); the fold's when unset.
+  easing?: string;
 };
 
 /// What the plan becomes when `delta` px of layout shift lands at `now`, while `plan` plays with
@@ -110,6 +112,19 @@ const keyframeStyle = ({
 
 const transactions = new WeakMap<HTMLElement, ThreadTransaction>();
 
+/// SEND-RISE (composerStates.css). Leo, 2026-11-22, after the send pop: "the chat transcript above
+/// doesn't quite smoothly account for things." With the pop on, a send's held shift (a tall prompt's
+/// composer collapse and its rows) plays on the pop's clock and curve, so the rows above and the
+/// collapsing field rest with the bubble; on the fold's 180 ms clock they rested at 283 ms while the
+/// bubble popped on for 450 ms. With the pop off: undefined, the fold's clock as before.
+function sendRise(thread: HTMLElement): { ms: number; easing: string | undefined } | undefined {
+  if (!thread.closest('[data-send-pop]:not([data-send-pop="none"])')) return undefined;
+  const style = getComputedStyle(thread);
+  const ms = cssTimeMs(style.getPropertyValue("--agent-motion-send-rise"));
+  if (!(ms !== undefined && ms > 0)) return undefined;
+  return { ms, easing: style.getPropertyValue("--agent-ease-send-rise").trim() || undefined };
+}
+
 /// The thread's one transaction (made on first use, weakly held with the element).
 export function threadTransaction(thread: HTMLElement): ThreadTransaction {
   let tx = transactions.get(thread);
@@ -124,6 +139,8 @@ function makeTransaction(thread: HTMLElement): ThreadTransaction {
   const holds = new Map<string, number>();
   /// The shift held while a hold is open, px: drawn still at `held` from layout.
   let held = 0;
+  /// The open hold is a send's: its shift plays on the rise's clock when the pop is on (`sendRise`).
+  let sending = false;
   /// Where the thread was drawn as the hold began (its box's top), px.
   let holdTop = 0;
   let moved: string[] = [];
@@ -172,7 +189,7 @@ function makeTransaction(thread: HTMLElement): ThreadTransaction {
   };
   /// The hold ended with nothing for the rows to move (a queued send whose row never came): each rider
   /// plays the rest of its way on its own over `ms`, on the plan's curve, instead of landing in a frame.
-  const glideRiders = (ms: number) => {
+  const glideRiders = (ms: number, easing?: string) => {
     const gliding = riders;
     riders = [];
     for (const { animation, share } of gliding) {
@@ -189,7 +206,7 @@ function makeTransaction(thread: HTMLElement): ThreadTransaction {
       for (const key of Object.keys(last))
         from[key] = drawnStyle.getPropertyValue(key.replace(/[A-Z]/g, (c) => `-${c.toLowerCase()}`));
       setEffectKeyframes(effect, [from, last]);
-      effect.updateTiming({ duration: ms, easing: foldMotion.easing(thread) });
+      effect.updateTiming({ duration: ms, easing: easing ?? foldMotion.easing(thread) });
       animation.currentTime = 0;
       animation.play();
     }
@@ -236,7 +253,7 @@ function makeTransaction(thread: HTMLElement): ThreadTransaction {
     drawn = paused(
       [{ translate: `0 ${plan.amount}px` }, { translate: "0 0" }],
       plan.duration,
-      foldMotion.easing(thread),
+      plan.easing ?? foldMotion.easing(thread),
     );
     // At its time before the riders read the offset it starts them from (a joined plan began earlier).
     drawn.currentTime = Math.min(plan.duration, Math.max(0, now() - plan.start));
@@ -246,6 +263,7 @@ function makeTransaction(thread: HTMLElement): ThreadTransaction {
   };
   const play = () => {
     const ms = foldMs(thread);
+    const rise = sending && ms > 0 ? sendRise(thread) : undefined;
     if (holds.size > 0) {
       drawHeld();
       return;
@@ -253,11 +271,15 @@ function makeTransaction(thread: HTMLElement): ThreadTransaction {
     if (Math.abs(held) >= MOVE_FLOOR) {
       // The hold's whole shift, joined with what still plays (rows already drawn off by it).
       const rest = planOffset(plan, progress());
-      plan = ms > 0 ? { amount: held + rest, start: now(), duration: ms } : undefined;
+      plan =
+        ms > 0
+          ? { amount: held + rest, start: now(), duration: rise?.ms ?? ms, ...(rise && { easing: rise.easing }) }
+          : undefined;
     }
     held = 0;
+    sending = false;
     if (!plan || !(plan.duration > 0)) {
-      glideRiders(ms);
+      glideRiders(rise?.ms ?? ms, rise?.easing);
       finish();
       return;
     }
@@ -301,6 +323,7 @@ function makeTransaction(thread: HTMLElement): ThreadTransaction {
       if (!(foldMs(thread) > 0)) return;
       const start = holds.size === 0;
       holds.set(source, clock() + boundMs);
+      if (source === "send") sending = true;
       if (start) {
         // The rows stop where they are drawn: what still plays becomes part of the held shift.
         held += planOffset(plan, progress());
@@ -351,6 +374,7 @@ function makeTransaction(thread: HTMLElement): ThreadTransaction {
     cancel() {
       holds.clear();
       held = 0;
+      sending = false;
       plan = undefined;
       moved = [];
       clear();
