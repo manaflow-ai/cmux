@@ -56,8 +56,8 @@ pub use shared_value::{SharedRows, SharedText, SharedValue};
 mod session_records;
 pub use session_records::{
     ApprovedPlan, AwayRecap, CapacityFallback, EventRecord, ForkBefore, ForkRequest, ForkStart,
-    LastReturn, NewestWindow, SessionStatus, TerminalDriver, TerminalInput, TripwireItem, TripwireState, WaitReason,
-    WatchedTurn, Watching,
+    LastReturn, NewestWindow, SessionStatus, TerminalDriver, TerminalInput, TripwireItem,
+    TripwireState, WaitReason, WatchedTurn, Watching,
 };
 
 mod session_meta;

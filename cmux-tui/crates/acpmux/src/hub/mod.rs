@@ -436,7 +436,6 @@ mod team_directory;
 pub use team_directory::{TeamView, view_of_book};
 mod team_information;
 mod team_sent;
-pub(crate) mod tripwires;
 mod terminal_input;
 #[cfg(test)]
 mod time_breakdown_restore_tests;
@@ -469,6 +468,7 @@ mod transfer_watch;
 mod translator_queue_tests;
 #[cfg(all(test, unix))]
 mod trigger_quiet_tests;
+pub(crate) mod tripwires;
 mod trust_wait;
 mod turn_attestation;
 pub(crate) mod turn_cap;

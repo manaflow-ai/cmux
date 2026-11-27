@@ -26,11 +26,14 @@ afterAll(() => {
 
 function nextSnapshot(wakes: Array<() => void>, deadline: number): Promise<void> {
   return new Promise((resolve, reject) => {
-    const timeout = setTimeout(() => {
-      const index = wakes.indexOf(wake);
-      if (index >= 0) wakes.splice(index, 1);
-      reject(new Error("tripwire snapshot deadline exceeded"));
-    }, Math.max(0, deadline - Date.now()));
+    const timeout = setTimeout(
+      () => {
+        const index = wakes.indexOf(wake);
+        if (index >= 0) wakes.splice(index, 1);
+        reject(new Error("tripwire snapshot deadline exceeded"));
+      },
+      Math.max(0, deadline - Date.now()),
+    );
     const wake = () => {
       clearTimeout(timeout);
       resolve();
@@ -113,7 +116,10 @@ test("the header fixture draws all three states without changing the manifest", 
   expect(html).toContain("Session expires");
 });
 
-type Snapshot = { summary?: { tripwires?: TripwireState }; rows: Array<{ kind?: string; turnId?: string; tripwires?: TripwireState }> };
+type Snapshot = {
+  summary?: { tripwires?: TripwireState };
+  rows: Array<{ kind?: string; turnId?: string; tripwires?: TripwireState }>;
+};
 
 async function replayTurn(fixture: TripwireState, nextTurn?: TripwireState): Promise<Snapshot> {
   const { AcpmuxDirectClient } = await import("../direct");
@@ -162,21 +168,34 @@ async function replayTurn(fixture: TripwireState, nextTurn?: TripwireState): Pro
 }
 
 test("mock daemon replay carries each fixture into both the header summary and its turn recap", async () => {
-  for (const fixture of [state(21, green, "tripwire-green"), state(22, red, "tripwire-red"), state(23, neverRun, "tripwire-never")]) {
+  for (const fixture of [
+    state(21, green, "tripwire-green"),
+    state(22, red, "tripwire-red"),
+    state(23, neverRun, "tripwire-never"),
+  ]) {
     const snapshot = await replayTurn(fixture);
     expect(snapshot.summary?.tripwires?.items.map((item) => item.verdict)).toEqual(
       fixture.items.map((item) => item.verdict),
     );
     const summary = snapshot.rows.find((row) => row.kind === "turnSummary" && row.turnId === fixture.turnId);
-    expect(summary?.tripwires?.items.map((item) => item.verdict)).toEqual(
-      fixture.items.map((item) => item.verdict),
-    );
+    expect(summary?.tripwires?.items.map((item) => item.verdict)).toEqual(fixture.items.map((item) => item.verdict));
     const recap = renderToStaticMarkup(
-      <NextStepCard ask={{ tag: "wrap_up", question: "", options: [], rest: "", recap: "Checks recorded.", tripwires: summary!.tripwires!.items }} />,
+      <NextStepCard
+        ask={{
+          tag: "wrap_up",
+          question: "",
+          options: [],
+          rest: "",
+          recap: "Checks recorded.",
+          tripwires: summary!.tripwires!.items,
+        }}
+      />,
     );
     expect(recap).toContain("Checks recorded.");
     expect(recap.match(/data-tripwire-verdict=/g)?.length).toBe(fixture.items.length);
-    expect(recap).toContain(`data-tripwire-unresolved="${fixture.items.filter((item) => item.verdict !== "backed").length}"`);
+    expect(recap).toContain(
+      `data-tripwire-unresolved="${fixture.items.filter((item) => item.verdict !== "backed").length}"`,
+    );
   }
 });
 

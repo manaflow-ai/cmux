@@ -1122,7 +1122,12 @@ impl Hub {
             }
         }
         extras.push(("commandsRunning", json!(work.commands)));
-        extras.push(("tripwires", m.tripwires.clone().map_or(Value::Null, |state| serde_json::to_value(state).unwrap_or(Value::Null))));
+        extras.push((
+            "tripwires",
+            m.tripwires
+                .clone()
+                .map_or(Value::Null, |state| serde_json::to_value(state).unwrap_or(Value::Null)),
+        ));
 
         // The build its live agent host runs, and whether it differs from this daemon's: a
         // host that has not hibernated since an update (`views/host_build.rs`).

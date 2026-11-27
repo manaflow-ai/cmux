@@ -1827,7 +1827,6 @@ impl Hub {
         }
         result
     }
-
 }
 
 /// Clears `Session::ending` once `finish_turn` leaves, however it leaves, and wakes a shutdown

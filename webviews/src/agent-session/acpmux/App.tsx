@@ -11245,7 +11245,6 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
       working={snapshot.isWorking === true}
       onOpen={openImage}
     />
-
   );
   const pane = drawPaneBody({
     showTripwireCall: showCall,

@@ -203,7 +203,6 @@ mod reply_size_tests;
 mod request_admission_tests;
 mod requests;
 mod review_queue;
-mod tripwires;
 mod routes;
 mod run_elsewhere;
 mod secrets;
@@ -254,6 +253,7 @@ mod team;
 mod team_directory;
 mod trigger_authority;
 mod trigger_chat;
+mod tripwires;
 pub(crate) mod trust_gate;
 // What one change costs the watchers at 100, 1,000 and 3,000 sessions (manual).
 #[cfg(unix)]

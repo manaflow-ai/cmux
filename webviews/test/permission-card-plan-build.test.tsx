@@ -143,7 +143,9 @@ test.each(["compare", "tripwires"] as const)("the plan menu selects %s exactly o
   expect(items().map((item) => item.dataset.value)).toEqual(["here", "worktree", "tripwires", "compare"]);
   expect(items()[3]!.textContent).toContain("Claude and Codex");
   await act(async () => {
-    items().find((item) => item.dataset.value === target)!.dispatchEvent(new dom.window.MouseEvent("click", { bubbles: true }));
+    items()
+      .find((item) => item.dataset.value === target)!
+      .dispatchEvent(new dom.window.MouseEvent("click", { bubbles: true }));
   });
   expect(built).toEqual([target]);
   expect(answered).toEqual([]);
