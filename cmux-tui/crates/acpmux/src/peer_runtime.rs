@@ -763,7 +763,7 @@ impl Peer {
         self: &Arc<Self>,
         id: Value,
         params: Value,
-        slot: tokio::sync::OwnedSemaphorePermit,
+        slot: crate::github_broker::OwnerPermit,
         link: u64,
     ) {
         let me = self.clone();
@@ -791,7 +791,7 @@ impl Peer {
             let reply = tokio::select! {
                 reply = crate::github_broker::serve_owner(&me.name, params, app) => reply,
                 () = &mut revoked => {
-                    let Err(e) = crate::github_broker::admit_owner(&me.name, false, &me.github_slots) else {
+                    let Err(e) = crate::github_broker::admit_owner(&me.name, false, &me.github_slots, &Value::Null) else {
                         return;
                     };
                     Err(e)
