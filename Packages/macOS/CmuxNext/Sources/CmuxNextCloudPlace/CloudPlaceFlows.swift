@@ -401,8 +401,19 @@ public final class CloudPlaceFlows {
             if let keep = answer["keep"] { place["keep"] = keep }
         }
         if let start = start(of: session) { place["start"] = start }
+        if let status = computerStatus(session: session, place: place) { place["status"] = status }
         // main-actor-ok: this one chat's header place; the order is read: AgentPaneHeaderState compares placeData bytes.
         return try? JSONSerialization.data(withJSONObject: place, options: [.sortedKeys])
+    }
+
+    /// The chat's one `ComputerStatus` (RFD 0080's status line and popover rows), as Rust folds `place`'s `at`, `move` and
+    /// `start` (`cloud_computer_status_live`); nil when Rust answers nothing.
+    func computerStatus(session: String, place: [String: Any]) -> Any? {
+        var facts: [String: Any] = ["session": session]
+        for key in ["at", "move", "start"] { if let value = place[key] { facts[key] = value } }
+        guard JSONSerialization.isValidJSONObject(facts), let request = try? JSONSerialization.data(withJSONObject: facts),
+              let reply = core("cloud_computer_status_live", request) else { return nil }
+        return try? JSONSerialization.jsonObject(with: reply)
     }
 
     /// What Rust needs to say whether the header's cloud control is blocked or every slot is held (`priority::ControlFacts`).

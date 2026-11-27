@@ -251,6 +251,18 @@
     },
     {
       "kind": "request",
+      "name": "_acpmux/trace/spans",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
+      "name": "_acpmux/trace/status",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
       "name": "_acpmux/callers",
       "params": true,
       "result": true
@@ -383,6 +395,16 @@
       },
       "result": {
         "$ref": "#/types/RoomsResult"
+      }
+    },
+    {
+      "kind": "request",
+      "name": "_acpmux/follow",
+      "params": {
+        "$ref": "#/types/FollowParams"
+      },
+      "result": {
+        "$ref": "#/types/FollowResult"
       }
     },
     {
@@ -4637,6 +4659,42 @@
         }
       ]
     },
+    "FollowParams": {
+      "additionalProperties": false,
+      "description": "`_acpmux/follow` (RFD 0141 phase 3): follow the person `target` (an id live in a chat on this\ndaemon, never the caller's own), or nobody (`null`). The caller's rooms hear it as the\nrecord's `following`. Refusals: `presence.follow_not_live`, `presence.follow_self`.",
+      "properties": {
+        "_meta": {
+          "anyOf": [
+            {
+              "$ref": "#/types/AuthorMeta"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "target": {
+          "default": null,
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
+      "type": "object"
+    },
+    "FollowResult": {
+      "description": "`_acpmux/follow`'s answer: whom the caller follows now.",
+      "properties": {
+        "following": {
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
+      "type": "object"
+    },
     "FooterFact": {
       "description": "One piece of the footer's quiet metadata.",
       "properties": {
@@ -6701,6 +6759,9 @@
         },
         "answers": {
           "description": "A question's answers, by question."
+        },
+        "forkCheckpoint": {
+          "description": "Fork first (fork_risky.rs): the copy the app made before allowing, `{machine, fork, forkMs}`."
         },
         "optionId": {
           "description": "The option chosen; absent cancels the request.",
