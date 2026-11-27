@@ -922,6 +922,7 @@ try {
         timeDeltas: number[];
       };
     };
+    if (process.env.RAWPROF) fs.writeFileSync(process.env.RAWPROF, JSON.stringify(profile));
     const mapper = sourceMapper(out);
     const byId = new Map(profile.nodes.map((node) => [node.id, node]));
     const self = new Map<string, number>();
