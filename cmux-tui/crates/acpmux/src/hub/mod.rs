@@ -44,6 +44,8 @@ mod auto_give;
 // What Auto mode asks of a chat (`auto_session/`): its work, its record, its freeze.
 mod auto_hold;
 pub(crate) mod auto_resume;
+// Chats settle on their own: a merged or closed pull request, or idle days.
+pub(crate) mod auto_settle;
 mod away_recap;
 mod background_cause;
 pub mod background_turn;
@@ -95,6 +97,7 @@ mod digest;
 pub(crate) mod dispatch;
 mod drafts;
 // RFD 0002 steps 1 and 2: nothing consumes the rung until step 3's row field.
+mod acp_version;
 #[cfg_attr(not(test), allow(dead_code))]
 mod earned_access;
 #[cfg_attr(not(test), allow(dead_code))]

@@ -419,7 +419,7 @@ pub(super) const ENGLISH: AppControlMessages = AppControlMessages {
         unhealthy: "unhealthy: a check failed",
     },
     launch_times: LaunchTimesMessages {
-        usage: "usage: cmux app launch-times [--limit <n>] [--file <path>] [--phases]\nThe app's last launches (at most 50), oldest first: build, commit, pre-main ms (process start to main),\nmain ms (main to the first window frame), first window frame ms, Home's first page ms, whether Home\nshowed by its page or its deadline, ms to the window taking keys (Home's message field), ms to the first\nshell output, whether the launch had no saved snapshot to show, whether the updater pre-warmed the build,\nand whether it was the build's first launch. --phases adds a line under each launch with its phases (ms since\nprocess start, in order, each with its step from the one before). Read from\n~/Library/Application Support/<bundle id>/launch-times.jsonl; the app need not run.",
+        usage: "usage: cmux app launch-times [--limit <n>] [--file <path>] [--phases]\nThe app's last launches (at most 50), oldest first: build, commit, pre-main ms (process start to main),\nmain ms (main to the first window frame), first window frame ms, Home's first page ms, Home's reveal ms,\nwhether Home showed by its page or its deadline, ms to the window taking keys (Home's message field), ms to\nthe first shell output, whether the launch had no saved snapshot to show, whether the updater pre-warmed the\nbuild, and whether it was the build's first launch. --phases adds a line under each launch with its phases\n(ms since process start, in order, each with its step from the one before). Read from\n~/Library/Application Support/<bundle id>/launch-times.jsonl; the app need not run.",
         no_app: "no cmux app around this CLI: run the CLI bundled in the app, or set CMUX_BUNDLE_ID",
         empty: "no launches recorded yet in {path}",
         unreadable: "cannot read {path}: {error}",
@@ -683,7 +683,7 @@ pub(super) const JAPANESE: AppControlMessages = AppControlMessages {
         unhealthy: "異常: 失敗した確認があります",
     },
     launch_times: LaunchTimesMessages {
-        usage: "使い方: cmux app launch-times [--limit <n>] [--file <パス>] [--phases]\nアプリの直近の起動 (最大 50 件) を古い順に表示します: ビルド、コミット、main までの ms (プロセス開始から main)、\nmain から最初のウィンドウフレームまでの ms、最初のウィンドウフレームの ms、Home の最初のページの ms、\nHome がページと期限のどちらで表示されたか、\nウィンドウがキー入力を受け付けるまで (Home のメッセージ欄) の ms、最初のシェル出力までの ms、保存されたスナップショットがなかったか、\nアップデーターがそのビルドを事前起動したか、そのビルドの初回起動か。\n--phases を付けると、各起動の下にその起動フェーズ (プロセス開始からの ms、発生順、直前からの差分付き) を 1 行で表示します。\n~/Library/Application Support/<バンドル ID>/launch-times.jsonl から読み取ります。アプリが動作している必要はありません。",
+        usage: "使い方: cmux app launch-times [--limit <n>] [--file <パス>] [--phases]\nアプリの直近の起動 (最大 50 件) を古い順に表示します: ビルド、コミット、main までの ms (プロセス開始から main)、\nmain から最初のウィンドウフレームまでの ms、最初のウィンドウフレームの ms、Home の最初のページの ms、\nHome の表示の ms、Home がページと期限のどちらで表示されたか、\nウィンドウがキー入力を受け付けるまで (Home のメッセージ欄) の ms、最初のシェル出力までの ms、保存されたスナップショットがなかったか、\nアップデーターがそのビルドを事前起動したか、そのビルドの初回起動か。\n--phases を付けると、各起動の下にその起動フェーズ (プロセス開始からの ms、発生順、直前からの差分付き) を 1 行で表示します。\n~/Library/Application Support/<バンドル ID>/launch-times.jsonl から読み取ります。アプリが動作している必要はありません。",
         no_app: "この CLI の周りに cmux アプリがありません。アプリ同梱の CLI を実行するか、CMUX_BUNDLE_ID を設定してください",
         empty: "{path} にはまだ起動の記録がありません",
         unreadable: "{path} を読み取れません: {error}",

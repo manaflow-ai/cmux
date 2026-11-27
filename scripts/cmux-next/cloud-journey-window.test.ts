@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { CHAT_START_SIZE, COLD_CREATE_SIZE, COLD_CREATE_STEP, createWithRoom, DEFAULT_SIZE_STEP, defaultSizeProblem, sizeReadingProblem, JOURNEY_ONLY_STEPS, publicError, publicMachineFacts, spareFields, spareNotice } from "./cloud-journey";
+import { CHAT_START_SIZE, COLD_CREATE_SIZE, COLD_CREATE_STEP, createWithRoom, DEFAULT_SIZE_STEP, defaultSizeProblem, defaultSizeVerdict, sizeReadingProblem, JOURNEY_ONLY_STEPS, publicError, publicMachineFacts, spareFields, spareNotice } from "./cloud-journey";
 import { runJourney } from "./cloud-journey-fake";
 
 const journeyOnly = (name: string) => (JOURNEY_ONLY_STEPS as readonly string[]).includes(name);
@@ -44,6 +44,30 @@ describe("a new machine at the default size is recorded at 2 vCPU / 4096 MB / 20
     const step = steps.find((s) => s.step === DEFAULT_SIZE_STEP);
     expect(step?.status).toBe("fail");
     expect(step?.detail).toContain("4/16384/65536");
+  });
+
+  // cmux-vm.yml run 45916791099 (roll 3bd974c4): the guest's 2 s pegged-CPU report (cmux#59118) let AutoSize grow the
+  // machine to xl under the agent's start, and the read after the reply rolled back every staging deploy.
+  test("a machine AutoSize grew after it ran at the default size passes, and names the grow", () => {
+    const { steps } = runJourney({ spare: "report", exec: "ok", grownSize: { cpu: 16, memory_mb: 32768, disk_mb: 131072 } });
+    const step = steps.find((s) => s.step === DEFAULT_SIZE_STEP);
+    expect(step?.status).toBe("pass");
+    expect(step?.detail).toContain("size 2/4096/20480 when it first ran");
+    expect(step?.detail).toContain("16/32768/131072 after the reply (AutoSize grew it");
+  });
+
+  test("the verdict judges the size it first ran at", () => {
+    const xl = { cpu: 16, memory_mb: 32768, disk_mb: 131072 };
+    expect(defaultSizeVerdict(CHAT_START_SIZE, xl).problem).toBeNull();
+    expect(defaultSizeVerdict(CHAT_START_SIZE, CHAT_START_SIZE)).toEqual({ problem: null, detail: "size 2/4096/20480 when it first ran" });
+    // A create that ran oversized stays red, whatever it reads later.
+    expect(defaultSizeVerdict(xl, xl).problem).toContain("16/32768/131072");
+    expect(defaultSizeVerdict({ cpu: 4, memory_mb: 8192, disk_mb: 32768 }, xl).problem).toContain("4/8192/32768");
+    // No size on the running read: the later read is judged, as before.
+    expect(defaultSizeVerdict(undefined, xl).problem).toContain("16/32768/131072");
+    expect(defaultSizeVerdict(null, CHAT_START_SIZE).problem).toBeNull();
+    // Smaller than it ran on any axis is no grow.
+    expect(defaultSizeVerdict(CHAT_START_SIZE, { cpu: 16, memory_mb: 2048, disk_mb: 131072 }).problem).toContain("no grow");
   });
 });
 

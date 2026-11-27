@@ -61,9 +61,11 @@ mod space;
 mod try_cmd;
 mod version;
 pub(super) mod wait;
+mod web_cas;
 mod web_pieces;
 pub(super) use try_cmd::cu_upgrade;
 pub(crate) use try_cmd::spawn_daemon_updates;
+pub(super) use web_cas::USAGE as WEB_CAS_USAGE;
 pub(super) use web_pieces::USAGE as WEB_PIECES_USAGE;
 
 /// Scopes that belong to the app, whatever follows.
@@ -244,6 +246,8 @@ pub(super) enum AppCommand {
     /// `cmux app web-pieces check|status`: what each web piece of a web update serves, from the
     /// signed switch file (app/web_pieces.rs).
     WebPieces(web_pieces::Command),
+    /// `cmux app web-cas fetch`: a web update by cas/1 Range GETs (app/web_cas.rs).
+    WebCas(web_cas::Command),
 }
 
 /// Whether `args` (after the global options) is the classic `cmux identify`,
@@ -369,6 +373,7 @@ pub(super) fn parse(args: &[String]) -> Result<Option<AppCommand>, UsageError> {
         ("app", Some("launch-times")) => launch_times::parse(rest)?,
         ("app", Some("health")) => health::parse(rest)?,
         ("app", Some("web-pieces")) => web_pieces::parse(rest)?,
+        ("app", Some("web-cas")) => web_cas::parse(rest)?,
         ("app", Some("chat")) if rest.get(1).is_some_and(|verb| verb == "perf") => {
             chat_perf::parse(rest)?
         }
@@ -983,6 +988,7 @@ fn run_command(global: &GlobalArgs, command: AppCommand) -> Ran {
         AppCommand::Phone { device, then } => {
             return Ran::Done(phone::run(global, device.as_deref(), then));
         }
+        AppCommand::WebCas(command) => return Ran::Done(web_cas::run(global, command)),
         _ => {}
     }
     let mut stream = match connect_command(global) {
@@ -1139,6 +1145,7 @@ fn call(global: &GlobalArgs, stream: &mut UnixStream, command: AppCommand) -> Ra
         AppCommand::Phone { device, then } => {
             return Ran::Done(phone::run(global, device.as_deref(), &then));
         }
+        AppCommand::WebCas(command) => return Ran::Done(web_cas::run(global, &command)),
         AppCommand::Open { requests, stop_on_failure } => {
             let mut status = 0;
             for request in requests {
@@ -1205,6 +1212,12 @@ fn call(global: &GlobalArgs, stream: &mut UnixStream, command: AppCommand) -> Ra
     {
         eprintln!("{note}");
     }
+    // `tab new-mac-screen` answers with the tab it opened: the Screen Sharing tabs before the run,
+    // so the new one is the one that was not there (mac_screen_view).
+    let mac_screens_before = super::mac_screen_view::opens_tab(method, &params)
+        .then(|| super::mac_screen_view::request_state(stream, None).ok())
+        .flatten()
+        .map(|state| super::mac_screen_view::keys(&state));
     let response = match wait::request(global, stream, method, &params, timeout)
         .and_then(|response| join_change(global, stream, method, &params, timeout, response))
     {
@@ -1225,6 +1238,14 @@ fn call(global: &GlobalArgs, stream: &mut UnixStream, command: AppCommand) -> Ra
                 None => None,
             }
             .unwrap_or(result);
+            let mut value = value;
+            if let Some(before) = &mac_screens_before
+                && let Ok(after) = super::mac_screen_view::request_state(stream, None)
+            {
+                let device = params.pointer("/args/device").and_then(Value::as_str);
+                let row = super::mac_screen_view::opened_row(before, &after, device);
+                super::mac_screen_view::with_opened(&mut value, row);
+            }
             warn_unstable_handles(method, &value, global.output);
             open_created(global, stream, &params, &value);
             if global.output == OutputMode::Human
