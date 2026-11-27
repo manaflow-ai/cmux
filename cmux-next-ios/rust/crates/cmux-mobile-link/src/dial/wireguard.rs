@@ -3351,9 +3351,9 @@ pub(super) fn dial_wireguard<'a>(
                         let ip: Ipv4Addr = overlay_ip
                             .parse()
                             .map_err(|_| DialError::Unexpected("wg-resp overlayIP is not IPv4".into()))?;
-                        agreed = super::input_lane_agreed(options, &lanes);
                         liveness_agreed = lanes.iter().any(|lane| lane == crate::link::LIVENESS_LANE);
                         reliable = super::reliable_agreed(options, &lanes);
+                        agreed = super::input_lane_agreed(options, &lanes) && !reliable;
                         let class_lanes = class_offer().agreed(&lanes);
                         classes_agreed = class_lanes.classes;
                         screen_agreed = class_lanes.screen;
@@ -3636,8 +3636,8 @@ impl Dialer for WireGuardDialer {
             else {
                 return Err(DialError::Unexpected("expected wg-init".into()));
             };
-            let agreed = super::input_lane_agreed(options, &lanes);
             let reliable = super::reliable_agreed(options, &lanes);
+            let agreed = super::input_lane_agreed(options, &lanes) && !reliable;
             let video_wanted = options.video_lane && super::video_lane_listed(&lanes);
             let webrtc_media_wanted =
                 video_wanted && options.webrtc_media && super::webrtc_media_listed(&lanes);
@@ -3766,8 +3766,12 @@ impl Dialer for WireGuardDialer {
                         endpoints,
                         overlay_ip: own_ip.to_string(),
                         lanes: {
-                            let mut lanes =
-                                super::offered_lanes(options, media.is_some(), webrtc_media_wanted);
+                            let mut lanes = super::answered_lanes(
+                                options,
+                                media.is_some(),
+                                webrtc_media_wanted,
+                                reliable,
+                            );
                             if liveness.is_some() {
                                 lanes.push(crate::link::LIVENESS_LANE.to_owned());
                                 lanes.extend(class_lanes.lanes());

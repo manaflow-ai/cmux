@@ -576,8 +576,8 @@ impl Dialer for WebRtcDialer {
                         match event {
                         SessionEvent::Signal(envelope) => match envelope.payload {
                             SignalPayload::WebrtcAnswer { sdp, lanes } => {
-                                agreed = super::input_lane_agreed(options, &lanes);
                                 reliable = super::reliable_agreed(options, &lanes);
+                                agreed = super::input_lane_agreed(options, &lanes) && !reliable;
                                 video_agreed = super::video_lane_listed(&lanes);
                                 answered = true;
                                 timeline.mark("answer_received");
@@ -621,8 +621,8 @@ impl Dialer for WebRtcDialer {
             let SignalPayload::WebrtcOffer { sdp, lanes, .. } = first.payload else {
                 return Err(DialError::Unexpected("expected webrtc-offer".into()));
             };
-            let agreed = super::input_lane_agreed(options, &lanes);
             let reliable = super::reliable_agreed(options, &lanes);
+            let agreed = super::input_lane_agreed(options, &lanes) && !reliable;
             // The media lane: the phone offered it and its SDP has the video
             // m-line. The sending track must exist before the offer applies.
             let video = options.video_lane && super::video_lane_listed(&lanes) && sdp.contains("m=video");
@@ -668,7 +668,7 @@ impl Dialer for WebRtcDialer {
                     &first.session_id,
                     SignalPayload::WebrtcAnswer {
                         sdp: answer.sdp,
-                        lanes: super::offered_lanes(options, sending.is_some(), false),
+                        lanes: super::answered_lanes(options, sending.is_some(), false, reliable),
                     },
                 )
                 .map_err(|e| DialError::Signaling(e.to_string()))?;

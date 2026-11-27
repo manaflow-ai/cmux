@@ -563,6 +563,23 @@ pub(crate) fn offered_lanes(options: &DialOptions, video: bool, webrtc_media: bo
     lanes
 }
 
+/// Lanes an answer advertises after both sides have negotiated reliability.
+/// Reliable links carry input on their main carrier, so omit the legacy
+/// second stream. The initial phone offer still includes `input` so an older
+/// Mac can keep using that lane when reliability is not mutually supported.
+pub(crate) fn answered_lanes(
+    options: &DialOptions,
+    video: bool,
+    webrtc_media: bool,
+    reliable: bool,
+) -> Vec<String> {
+    let mut lanes = offered_lanes(options, video, webrtc_media);
+    if reliable {
+        lanes.retain(|lane| lane != crate::link::INPUT_LANE);
+    }
+    lanes
+}
+
 /// Whether both sides speak the reliable link.
 pub(crate) fn reliable_agreed(options: &DialOptions, peer_lanes: &[String]) -> bool {
     options.reliable && peer_lanes.iter().any(|lane| lane == crate::RELIABLE_LANE)
