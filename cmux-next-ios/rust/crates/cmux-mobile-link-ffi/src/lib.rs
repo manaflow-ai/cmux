@@ -51,9 +51,11 @@ mod terminal_chat;
 mod terminal_fit;
 mod terminal_prediction;
 mod terminal_projection;
+mod vault;
 mod vnc;
 mod window_layout;
 mod workspace_arrangement;
+mod workspace_creation;
 mod workspace_groups;
 mod workspace_moves;
 mod workspace_row_actions;
@@ -213,6 +215,9 @@ impl From<cmux_mobile_link::LinkPath> for LinkPath {
             cmux_mobile_link::LinkPath::Direct => Self::Direct,
             cmux_mobile_link::LinkPath::Turn => Self::Turn,
             cmux_mobile_link::LinkPath::TurnTls => Self::TurnTls,
+            // Hop is an internal relay path. Keep the FFI enum ABI stable
+            // until the generated Swift bindings can add a dedicated case.
+            cmux_mobile_link::LinkPath::Hop => Self::Turn,
             cmux_mobile_link::LinkPath::HttpsRelay => Self::HttpsRelay,
             cmux_mobile_link::LinkPath::NoPath => Self::NoPath,
         }
@@ -2260,6 +2265,42 @@ pub async fn reset_warm_state() {
     cmux_mobile_link::dial::wireguard::dormant::forget_all();
 }
 
+/// What [`wait_for_network_return`] ended on (`cmux_mobile_link::net_return::Return`).
+#[derive(Debug, Clone, PartialEq, Eq, uniffi::Record)]
+pub struct NetworkReturn {
+    /// A probe got through after one that did not: the network is back; redial now.
+    pub back: bool,
+    /// The first probe got through: the network was not down (stop watching).
+    pub never_down: bool,
+    /// With `back`: from the first failed probe to the one that got through.
+    pub down_millis: u64,
+    pub probes: u32,
+}
+
+/// Probes the cmux service at `base_url` once a second (a TCP connect, each
+/// bounded under a second) until one gets through or `max_wait_millis`
+/// passes: the network-back signal when iOS reports no path change. The app
+/// runs it only while a link is down and the app is in front.
+#[uniffi::export]
+pub async fn wait_for_network_return(base_url: String, max_wait_millis: u64) -> NetworkReturn {
+    use cmux_mobile_link::net_return::{Return, wait_for_service};
+    let got =
+        on_runtime(async move { wait_for_service(&base_url, Duration::from_millis(max_wait_millis)).await })
+            .await;
+    match got {
+        Return::Back { down_for, probes } => NetworkReturn {
+            back: true,
+            never_down: false,
+            down_millis: u64::try_from(down_for.as_millis()).unwrap_or(u64::MAX),
+            probes,
+        },
+        Return::NeverDown => NetworkReturn { back: false, never_down: true, down_millis: 0, probes: 1 },
+        Return::StillDown { probes } => {
+            NetworkReturn { back: false, never_down: false, down_millis: 0, probes }
+        }
+    }
+}
+
 /// The dial's options for `request` (the service's ICE servers; none for a hub dial).
 fn dial_options(request: &ConnectRequest, ice_servers: Vec<IceServer>, timeline: &Timeline) -> DialOptions {
     DialOptions {
@@ -2429,6 +2470,15 @@ async fn dial_service(
             // that forgot it): redial on a fresh one, once.
             timeline.mark("signaling_stale");
             pool.evict(&socket).await;
+            let mut options = options;
+            if request.transport == Transport::WireGuard
+                && !options.block_udp
+                && options.ice_servers.iter().any(|server| server.hop_config().is_some())
+            {
+                let api = ApiClient::with_http(&key.base_url, &request.token, pool.http.clone())
+                    .with_build_space(key.build_space.clone());
+                api.renew_hop_tickets(&mut options.ice_servers, ICE_BUDGET).await;
+            }
             redial_after(pool, &key, request, &options, timeline).await
         }
         Err(Attempt::Failed(error)) => Err(fail(pool, &socket, error).await),

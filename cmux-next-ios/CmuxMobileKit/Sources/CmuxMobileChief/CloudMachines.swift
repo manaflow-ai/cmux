@@ -404,11 +404,11 @@ public final class CloudMachinesModel {
         let trimmed = name.trimmingCharacters(in: .whitespacesAndNewlines)
         if !trimmed.isEmpty { params["name"] = String(trimmed.prefix(80)) }
         if let fromSnapshot { params["from_snapshot"] = fromSnapshot }
-        await act("new") { try await $0.mutate("cloud.machine.create", params: params, key: "create-\(self.newKey())") }
+        await act("new", startsMachine: true) { try await $0.mutate("cloud.machine.create", params: params, key: "create-\(self.newKey())") }
     }
 
     public func start(_ machine: CloudMachine) async {
-        await act(machine.id, optimistic: { $0.status = .starting }) {
+        await act(machine.id, startsMachine: true, optimistic: { $0.status = .starting }) {
             try await $0.mutate("cloud.machine.start", params: ["machine": machine.id], key: "start-\(machine.id)-\(self.newKey())")
         }
     }
@@ -474,7 +474,7 @@ public final class CloudMachinesModel {
 
     /// A new machine booted from a ready snapshot or archive.
     public func restore(_ snapshot: CloudMachineSnapshot) async {
-        await act(snapshot.id) { try await $0.mutate("cloud.snapshot.restore", params: ["snapshot": snapshot.id], key: "restore-\(snapshot.id)-\(self.newKey())") }
+        await act(snapshot.id, startsMachine: true) { try await $0.mutate("cloud.snapshot.restore", params: ["snapshot": snapshot.id], key: "restore-\(snapshot.id)-\(self.newKey())") }
     }
 
     public func deleteSnapshot(_ snapshot: CloudMachineSnapshot) async {
@@ -487,7 +487,8 @@ public final class CloudMachinesModel {
 
     /// Runs one op: the change shows at once (`optimistic`), the list is read again after, and a
     /// refusal puts the row back and says why. An approval the service holds is a note, not a failure.
-    private func act(_ id: String, watchesSnapshots: Bool = false, optimistic: ((inout CloudMachine) -> Void)? = nil, rollback: (() -> Void)? = nil,
+    /// `startsMachine`: the op starts or makes a machine, so the vault seals it its values once it lands.
+    private func act(_ id: String, watchesSnapshots: Bool = false, startsMachine: Bool = false, optimistic: ((inout CloudMachine) -> Void)? = nil, rollback: (() -> Void)? = nil,
                      _ work: @MainActor (AccountCloud) async throws -> Data) async {
         guard busyID == nil, let account = account() else {
             rollback?()
@@ -512,6 +513,7 @@ public final class CloudMachinesModel {
                 if let index = machines.firstIndex(where: { $0.id == answered.id }) { machines[index] = answered } else { machines.append(answered) }
             }
             busyID = nil
+            if startsMachine { VaultTriggers.machineStarted() }
             await load()
         } catch is CancellationError {
             restore()
