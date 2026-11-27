@@ -42,10 +42,12 @@ import Testing
     }
 
     /// The window reports a first responder change to the focus model (`ShellWindow.reportResponder`), so a message box
-    /// that takes the keyboard moves the model to a text field, and terminal shortcuts stop applying. While the report
-    /// is held (an edit's teardown, `endEditing(for:)`), the model still names the terminal: then the box's keyboard
-    /// alone (`typingOutsideFocusedTerminal`) keeps the edit keys from the terminal. Both must leave Cmd-V, Cmd-C and
-    /// Cmd-A to the box.
+    /// that takes the keyboard moves the model to a text field, and terminal shortcuts stop applying. The fact
+    /// (`typingOutsideFocusedTerminal`) covers a model that lags the responder and still names the terminal (#52840). The
+    /// test keeps the model there by holding the window's report (`holdingResponderReports`, the seam `endEditing(for:)`
+    /// and `makeFirstResponder` use); the app decides no key inside a hold, so this stands in for any route that leaves
+    /// the model behind. Both states must leave Cmd-V, Cmd-C and Cmd-A to the box (Cmd-A has no default binding; its
+    /// checks guard a future one).
     @Test func aMessageBoxWithTheKeyboardKeepsCmdVFromTheNamedTerminal() throws {
         let (services, controller, window, box) = try Self.harness()
         defer { for controller in services.windows.controllers { controller.window?.close() }; AppHarnessWindows.closeThoseThisTestOpened() }
@@ -59,6 +61,13 @@ import Testing
         #expect(router.keyContext(for: controller.focus.state, facts: beforeFacts).bits.contains(.terminalFocused))
         #expect(router.candidate(for: control[0].event, focus: controller.focus.state, facts: beforeFacts)?.id.rawValue == "terminalPaste")
         #expect(router.candidate(for: control[1].event, focus: controller.focus.state, facts: beforeFacts)?.id.rawValue == "terminalCopy")
+        // Dispatched, the control's Cmd-V runs the terminal's Paste and the router keeps it (a no-op here: the harness
+        // has no terminal view): the landing checks below can fail in this harness.
+        let pasteToTerminal = control[0].event
+        let keptByRouter = router.dispatchingSynthetic(pasteToTerminal) { router.interceptKeyDown(pasteToTerminal, in: window) }
+        let ranForTerminal = router.lastInterception?.action.rawValue
+        #expect(keptByRouter, "the router left the terminal's Cmd-V to AppKit")
+        #expect(ranForTerminal == "terminalPaste", "the terminal's Cmd-V ran \(ranForTerminal ?? "-")")
 
         // A click put the caret in the message box while the window held its responder report: the model still
         // names the terminal.
