@@ -39,13 +39,18 @@ echo "head (phone link): $(git -C "$head" rev-parse HEAD)"
 # The source SHA, role, compiler and platform are part of the key. Do not cache a
 # dirty tracked tree: it is not the source the receipt names.
 build_role() {
-  local tree=$1 role=$2 sha compiler key cached bin
+  local tree=$1 role=$2 sha compiler key cached bin cache_lock
   local bins=() args=()
   sha=$(git -C "$tree" rev-parse HEAD)
   git -C "$tree" diff --quiet HEAD -- || { echo "::error::dirty pair source $tree"; return 1; }
   compiler=$(cd "$tree/cmux-next-ios/rust" && rustc -vV)
   key=$(printf '%s\n' "pair-binaries-v1" "$sha" "$role" "$compiler" "$(uname -sm)" | sha256sum | cut -d' ' -f1)
   cached="${SKEW_BINARY_CACHE_DIR:-$work/binary-cache}/$key"
+  mkdir -p "$(dirname "$cached")"
+  # A cache restore/build may overlap another invocation. All readers and writers
+  # hold this source lock; incomplete interrupted writes are rebuilt under it.
+  exec {cache_lock}>"$cached.lock"
+  flock "$cache_lock"
   if [[ "$role" == host ]]; then
     bins=(cmux-mobile-host cmux-mobile-stub-tui)
   else
@@ -66,6 +71,7 @@ build_role() {
     echo "binary cache miss: $role $sha"
   fi
   for bin in "${bins[@]}"; do cp "$cached/$bin" "$work/bin/$bin"; done
+  exec {cache_lock}>&-
 }
 build_role "$old" host
 build_role "$head" dial
@@ -93,29 +99,7 @@ fi
 status=0
 bash "$(dirname "${BASH_SOURCE[0]}")/timeout.sh" 120 "$work/bin/cmux-mobile-dial" --base-url "$url" --token-file "$work/token" --team t1 --mac mac1 \
   --transport webrtc --transport wireguard --bytes 1 --pings 1 --daemon > "$work/dial.out" 2> "$work/dial.err" || status=$?
-if ! python3 -I - "$work/dial.out" "$status" <<'EOF'
-import json, sys
-path, status = sys.argv[1], int(sys.argv[2])
-want, bad, seen = {"webrtc", "wireguard"}, [], set()
-for line in open(path):
-    line = line.strip()
-    if not line.startswith("{"):
-        continue
-    row = json.loads(line)
-    t = row.get("transport")
-    seen.add(t)
-    answers = [json.loads(a) for a in (row.get("daemon") or "").splitlines() if a.strip()]
-    identify = next((a for a in answers if a.get("id") == 1), None)
-    if not (identify and identify.get("ok")):
-        bad.append(f"{t}: daemon identify did not answer ok: {row.get('daemon') or row.get('error')}")
-    else:
-        print(f"ok {t}: path {row.get('path')}, link up in {row.get('connect_ms')} ms, identify ok")
-for t in sorted(want - seen):
-    bad.append(f"{t}: no link (dial exit {status})")
-for b in bad:
-    print(f"::error::{b}")
-sys.exit(1 if bad else 0)
-EOF
+if ! python3 -I "$(dirname "${BASH_SOURCE[0]}")/mobile_pair_result.py" "$work/dial.out" "$status"
 then
   echo "--- dial stderr"; tail -40 "$work/dial.err"
   echo "--- old host log"; tail -60 "$work/host.log"

@@ -168,7 +168,7 @@ class PhonePairRequiredGate(unittest.TestCase):
         }
         for key in sorted(values, key=len, reverse=True):
             expression = expression.replace(key, repr(values[key]))
-        expression = re.sub(r"'[^']*'|\\b(true|false)\\b",
+        expression = re.sub(r"'[^']*'|\b(true|false)\b",
                             lambda m: m[0] if m[1] is None else str(m[1] == "true"), expression)
         expression = expression.replace("&&", " and ").replace("||", " or ")
         expression = re.sub(r"!(?!=)", " not ", expression)
@@ -189,6 +189,21 @@ class PhonePairRequiredGate(unittest.TestCase):
         # A passing pair does not invent a verdict for tier-skipped fast gates.
         self.assertEqual(self.verdict(GATES="skipped", PAIR_RESULT="success")[0], "pending")
         self.assertEqual(self.verdict(GATES="skipped", PAIR_RESULT="failure")[0], "failure")
+
+
+    def test_pair_receipts_fail_closed_after_successful_identify(self):
+        module = load(ROOT / "scripts/ci/mobile_pair_result.py")
+        rows = [{"transport": t, "daemon": json.dumps({"id": 1, "ok": True})}
+                for t in ("webrtc", "wireguard")]
+        encode = lambda: [json.dumps(row) for row in rows]
+        self.assertFalse(module.validate(encode(), 0))
+        self.assertTrue(module.validate(encode(), 1))
+        rows[1]["error"] = "handshake failed after identify"
+        self.assertTrue(module.validate(encode(), 0))
+        rows[1].pop("error")
+        self.assertTrue(module.validate(encode()[:1], 0))
+        self.assertTrue(module.validate(encode() + [encode()[0]], 0))
+        self.assertTrue(module.validate(["{bad json"], 0))
 
     def test_swift_pairing_projection_and_transport_paths_route(self):
         sys.path.insert(0, str(ROOT / "scripts/ci"))
@@ -448,6 +463,14 @@ class WorkflowShape(unittest.TestCase):
                 self.assertIn('"$(git rev-parse "HEAD:$file")" != "$(git rev-parse "HEAD^1:$file")"', body)
                 self.assertIn("python3 -I scripts/ci/fast_check_route.py route --workflow "
                               ".github/workflows/cmux-next-fast-gates.yml", body)
+                continue
+            if step.get("id") == "pair-route":
+                # Inline code reads the base manifest as data; never imports PR code.
+                body = step["run"]
+                self.assertIn("python3 -I - <<'PY'", body)
+                self.assertIn("json.loads(git('show', f'{base}:{manifest}'))", body)
+                self.assertNotIn("python3 -I scripts/", body)
+                self.assertEqual(step["env"]["BASE"], "${{ steps.resolve.outputs.base }}")
                 continue
             if step.get("id", "").startswith("receipt-"):
                 continue  # the base's verifier, copied out of git (test_receipt_steps_run_only_the_base_verifier)

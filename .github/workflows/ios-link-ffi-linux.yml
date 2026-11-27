@@ -78,7 +78,7 @@ jobs:
   # host the published NEXT nightly was built from, over every transport, and the daemon
   # channel must answer. Leo, 11-27: "i mean we cant connect to phone anyways right now lol".
   pair-skew:
-    name: iPhone link vs NIGHTLY Mac host
+    name: phone and Mac supported shipped window
     if: ${{ toJSON(inputs.pair_skew) != 'false' }}
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || 'cmux-linux' }}
     timeout-minutes: 40
@@ -104,35 +104,47 @@ jobs:
           curl -fsSL https://sh.rustup.rs | sh -s -- -y --profile minimal --default-toolchain none
           echo "$HOME/.cargo/bin" >> "$GITHUB_PATH"
 
-      - name: The commit the NEXT nightly was built from
-        id: nightly
+      - name: Resolve the last three published builds of each app
+        id: shipped
+        env:
+          GH_TOKEN: ${{ github.token }}
         run: |
-          # The feed scripts/ci/protocol_skew_check.py reads (NIGHTLY_FEED there).
-          sha=$(curl -fsSL --retry 3 https://files-next.cmux.com/nightly-next/appcast-arm64.xml \
-            | grep -oE '<cmux:sourceCommit[^>]*>[[:space:]]*[0-9a-f]{40}' | grep -oE '[0-9a-f]{40}' | head -1)
-          [[ -n "$sha" ]] || { echo "::error::no sourceCommit in the nightly feed"; exit 1; }
-          echo "NIGHTLY sourceCommit $sha"
-          echo "sha=$sha" >> "$GITHUB_OUTPUT"
+          python3 scripts/ci/mobile_pair_shipped_window.py refresh --registry scripts/ci/mobile_pair_shipped_window.json --count 3 --output "$RUNNER_TEMP/pair-shipped.json"
+          python3 scripts/ci/mobile_pair_shipped_window.py resolve --registry "$RUNNER_TEMP/pair-shipped.json" --count 3 --github-output "$GITHUB_OUTPUT" > "$RUNNER_TEMP/pair-window.json"
 
-      - name: Checkout the nightly's tree
-        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+      - name: Restore immutable shipped-source binaries
+        id: binaries
+        uses: actions/cache/restore@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
         with:
-          ref: ${{ steps.nightly.outputs.sha }}
-          path: .nightly-tree
-          persist-credentials: false
+          path: ${{ runner.temp }}/pair-binaries
+          key: phone-pair-binaries-v1-${{ runner.os }}-${{ runner.arch }}-${{ steps.shipped.outputs.fingerprint }}-${{ hashFiles('cmux-next-ios/rust/rust-toolchain.toml') }}
 
-      # Run both directions: a phone built from this PR against the shipped NIGHTLY host,
-      # and a phone from NIGHTLY against this PR's host. One direction alone misses a host-only
-      # handshake change. The shared target keeps the second build within the 40-minute bound.
-      - name: Dial both cross-commit directions
+      - name: Cache Rust dependencies
+        uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+        with:
+          workspaces: cmux-next-ios/rust -> ${{ runner.temp }}/pair-skew-target
+          shared-key: phone-pair-skew-v1
+          cache-bin: false
+
+      # Serial source pairs reuse the PR's two executables and the dependency target.
+      # The immutable binary cache builds each shipped source/role at most once per window.
+      - name: Dial both directions across the supported shipped window
         env:
           SKEW_LOG_DIR: ${{ runner.temp }}/pair-skew-logs
+          SKEW_BINARY_CACHE_DIR: ${{ runner.temp }}/pair-binaries
           CARGO_TARGET_DIR: ${{ runner.temp }}/pair-skew-target
         run: |
           git config --global --add safe.directory '*'
           mkdir -p "$CARGO_TARGET_DIR" "$SKEW_LOG_DIR"
-          SKEW_LOG_DIR="$SKEW_LOG_DIR/nightly-host" scripts/ci/mobile-pair-skew.sh .nightly-tree .
-          SKEW_LOG_DIR="$SKEW_LOG_DIR/pr-host" scripts/ci/mobile-pair-skew.sh . .nightly-tree
+          cp "$RUNNER_TEMP/pair-window.json" "$SKEW_LOG_DIR/window.json"
+          python3 scripts/ci/mobile_pair_matrix.py "$RUNNER_TEMP/pair-window.json"
+
+      - name: Cache the verified immutable binaries
+        if: ${{ success() && steps.binaries.outputs.cache-hit != 'true' }}
+        uses: actions/cache/save@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
+        with:
+          path: ${{ runner.temp }}/pair-binaries
+          key: ${{ steps.binaries.outputs.cache-primary-key }}
 
       - name: Upload the pair logs
         if: always()
