@@ -430,6 +430,14 @@ pub enum Command {
         #[arg(trailing_var_arg = true, allow_hyphen_values = true, required = true)]
         command: Vec<String>,
     },
+    /// A `gh run view` log, served from or kept in this machine's shared cache of finished CI
+    /// logs (harness magic `sharedCache`, `ci_log_cache.rs`); the Bash hook puts it before `gh`.
+    #[command(name = "ci-log-cache", hide = true)]
+    CiLogCache {
+        /// The `gh` command, after `--`.
+        #[arg(trailing_var_arg = true, allow_hyphen_values = true, required = true)]
+        command: Vec<String>,
+    },
     /// Execute one authenticated Cloud trigger operation from a JSON stdin envelope.
     #[command(name = "trigger-chat", hide = true)]
     TriggerChat {

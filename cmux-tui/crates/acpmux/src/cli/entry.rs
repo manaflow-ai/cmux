@@ -689,6 +689,11 @@ async fn async_main(parsed: Parsed) -> Result<()> {
                 Err(e) => errors::exit_with(&e, cli.json),
             }
         }
+        // A CI log through the shared cache (`ci_log_cache.rs`): no daemon.
+        Some(Command::CiLogCache { command }) => {
+            // crash-allow: the agent's shell reads gh's own exit code, as if it ran here
+            std::process::exit(crate::ci_log_cache::main(&command))
+        }
         // No daemon: what this binary serves (`capabilities.rs`).
         Some(Command::SubForkJob) => match crate::placement::sub_fork_run::job_main().await {
             Ok(()) => Ok(()),

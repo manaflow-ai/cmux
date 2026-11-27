@@ -84,7 +84,7 @@ pub(crate) fn enabled_list(
 /// feature itself decided. Without them on the stamp the scorecard has no on-against-off row for
 /// context surgery (RFD 0149) or dedupe (RFD 0147): their counters appear only on the turns that
 /// masked or stubbed something, and a turn with the feature on that did nothing looked like off.
-pub(crate) const OPT_IN: &[&str] = &["surgery", "dedupe"];
+pub(crate) const OPT_IN: &[&str] = &["surgery", "dedupe", "sharedCache"];
 
 /// Whether an [`OPT_IN`] feature is on for `doc` and `env`.
 fn opt_in_enabled(
@@ -96,6 +96,9 @@ fn opt_in_enabled(
         "surgery" => super::surgery::enabled_with(doc, env(super::surgery::KILL_ENV).as_deref()),
         "dedupe" => {
             crate::claude_stdio::dedupe_enabled_with(doc, env(&env_key("dedupe")).as_deref())
+        }
+        "sharedCache" => {
+            crate::ci_log_cache::enabled_with(doc, env(crate::ci_log_cache::KILL_ENV).as_deref())
         }
         _ => false,
     }
