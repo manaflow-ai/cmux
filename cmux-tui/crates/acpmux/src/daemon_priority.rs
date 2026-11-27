@@ -10,7 +10,7 @@
 //! | Knob | Linux | macOS |
 //! |---|---|---|
 //! | nice | asks [`DAEMON_NICE`], then 0 when it inherited a positive one ([`raise`], before the runtime starts its threads, so they inherit it); refused without `CAP_SYS_NICE` or an `RLIMIT_NICE` that allows it | the same ask; refused without root |
-//! | cgroup CPU weight | `CPUWeight=` in `acpmux.service` (`cli/hosts.rs`): ten times its `app.slice` siblings; only where the user manager has the `cpu` controller | not applicable |
+//! | cgroup CPU weight | `CPUWeight=` in `acpmux.service` (`cli/hosts.rs`): ten times its `app.slice` siblings; only where the user manager has the `cpu` controller. A unit acpmux did not write asks for it at start ([`raise_weight_at_runtime`], `systemctl --user set-property --runtime`) | not applicable |
 //! | cgroup I/O weight | `IOWeight=` in the unit; only where the user manager has the `io` controller (stock systemd delegates `cpu memory pids`) | not applicable |
 //! | OOM order | `oom_rank.rs` (unchanged) | not applicable |
 //! | thread QoS | not applicable | every runtime thread and the main thread at `QOS_CLASS_USER_INITIATED` ([`thread_start`]); launchd starts the job at `ProcessType` `Interactive` |
@@ -119,6 +119,37 @@ pub fn weight_knob(file: Option<&str>, controller: &'static str) -> Knob {
     }
 }
 
+/// The unit the daemon runs as when the user manager started it.
+const UNIT: &str = "acpmux.service";
+/// `CPUWeight=` and `IOWeight=` in `cli/hosts.rs`'s `SYSTEMD_UNIT`.
+pub const UNIT_WEIGHT: u32 = 1000;
+/// How long the daemon's start waits on the user manager for [`UNIT_WEIGHT`].
+const SET_PROPERTY_BOUND: std::time::Duration = std::time::Duration::from_secs(2);
+
+/// Whether the daemon asks the user manager for [`UNIT_WEIGHT`] at start: it runs in
+/// `acpmux.service` and its cgroup reads below it. A unit acpmux did not write (an enroll tool's,
+/// a hand-written one) has no `CPUWeight=`, and `hosts::unit_refresh` replaces only its own old
+/// texts, so before this such a daemon ran at systemd's 100 beside every `app.slice` sibling
+/// (a GCP lane VM and a Freestyle slot, 2026-11-25: `cpu.weight took 100`).
+pub fn raise_weight_at_runtime(cgroup: &str, cpu_weight: Option<&str>) -> bool {
+    let in_unit = cgroup.rsplit('/').next() == Some(UNIT);
+    let below =
+        cpu_weight.and_then(|w| w.trim().parse::<u32>().ok()).is_some_and(|w| w < UNIT_WEIGHT);
+    in_unit && below
+}
+
+/// The cpu.weight knob after asking for [`UNIT_WEIGHT`]: what it reads now, and from what.
+pub fn raised_knob(before: Option<&str>, after: Option<&str>) -> Knob {
+    let before = before.map(str::trim).unwrap_or("?");
+    match after.map(str::trim) {
+        Some(now) if now == UNIT_WEIGHT.to_string() => {
+            Knob::Took(format!("{now} (raised from {before} at runtime)"))
+        }
+        Some(now) => Knob::Refused(format!("kept {now}: set-property did not take")),
+        None => Knob::Refused(format!("kept {before}: systemctl set-property failed")),
+    }
+}
+
 static NICE: OnceLock<Knob> = OnceLock::new();
 
 /// Whether `args` (without the program name) start the daemon: `daemon` or `daemon run`.
@@ -192,6 +223,26 @@ mod imp {
 
     pub(super) fn thread_start() {}
 
+    /// `systemctl --user set-property --runtime acpmux.service CPUWeight=… IOWeight=…`, within
+    /// [`super::SET_PROPERTY_BOUND`]: the user manager applies it to the running cgroup, restarts
+    /// nothing and keeps it until the user manager stops (a reboot), so each start asks again.
+    fn set_unit_weight() -> bool {
+        let weight = super::UNIT_WEIGHT;
+        let Ok(mut child) = cmux_process::Command::new("systemctl")
+            .args(["--user", "set-property", "--runtime", super::UNIT])
+            .arg(format!("CPUWeight={weight}"))
+            .arg(format!("IOWeight={weight}"))
+            .stdin(cmux_process::Stdio::null())
+            .stdout(cmux_process::Stdio::null())
+            .stderr(cmux_process::Stdio::null())
+            .spawn()
+        else {
+            return false;
+        };
+        // Past the bound the `Child` drops here and ends with it.
+        matches!(child.wait_timeout(super::SET_PROPERTY_BOUND), Ok(Some(status)) if status.success())
+    }
+
     /// The unified hierarchy's path of this process (`0::/user.slice/…`).
     fn own_cgroup() -> Option<String> {
         let text = std::fs::read_to_string("/proc/self/cgroup").ok()?;
@@ -204,8 +255,14 @@ mod imp {
         };
         let read =
             |file: &str| std::fs::read_to_string(format!("/sys/fs/cgroup{path}/{file}")).ok();
+        let before = read("cpu.weight");
+        let mut cpu = super::weight_knob(before.as_deref(), "cpu");
+        if super::raise_weight_at_runtime(&path, before.as_deref()) {
+            let after = set_unit_weight().then(|| read("cpu.weight")).flatten();
+            cpu = super::raised_knob(before.as_deref(), after.as_deref());
+        }
         vec![
-            ("cpu.weight", super::weight_knob(read("cpu.weight").as_deref(), "cpu")),
+            ("cpu.weight", cpu),
             ("io.weight", super::weight_knob(read("io.weight").as_deref(), "io")),
             ("cgroup", Knob::Took(path)),
         ]
@@ -259,68 +316,5 @@ mod imp {
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    fn os(args: &[&str]) -> Vec<std::ffi::OsString> {
-        args.iter().map(std::ffi::OsString::from).collect()
-    }
-
-    #[test]
-    fn the_daemon_asks_below_default_and_back_to_default_from_an_agents_nice() {
-        assert_eq!(nice_steps(0), vec![DAEMON_NICE]);
-        // A daemon a CLI under an agent started inherited +5: at least back to the default.
-        assert_eq!(nice_steps(5), vec![DAEMON_NICE, 0]);
-        assert!(nice_steps(DAEMON_NICE).is_empty());
-        assert!(nice_steps(-10).is_empty());
-    }
-
-    #[test]
-    fn a_refused_nice_keeps_the_daemon_and_says_why() {
-        assert_eq!(lower_nice(0, |_| true), Knob::Took("-5".into()));
-        assert_eq!(lower_nice(5, |s| s == 0), Knob::Took("0 (wanted -5)".into()));
-        let refused = lower_nice(5, |_| false);
-        assert_eq!(
-            refused,
-            Knob::Refused(
-                "inherited nice 5 from caller, kept: lowering needs CAP_SYS_NICE or RLIMIT_NICE \
-                 (ulimit -e)"
-                    .into()
-            )
-        );
-        let mut asked = Vec::new();
-        lower_nice(-10, |s| {
-            asked.push(s);
-            true
-        });
-        assert!(asked.is_empty(), "never raises a nice it was given");
-    }
-
-    #[test]
-    fn the_report_is_one_line_with_every_knob() {
-        let report = Report {
-            knobs: vec![
-                ("nice", lower_nice(0, |_| false)),
-                ("cpu.weight", weight_knob(Some("1000\n"), "cpu")),
-                ("io.weight", weight_knob(None, "io")),
-            ],
-        };
-        let line = report.line();
-        assert!(!line.contains('\n'));
-        assert_eq!(
-            line,
-            "daemon priority: nice refused, kept 0: lowering needs CAP_SYS_NICE or RLIMIT_NICE \
-             (ulimit -e); cpu.weight took 1000; io.weight n/a (no io controller in this cgroup)"
-        );
-    }
-
-    #[test]
-    fn only_daemon_run_is_the_daemon() {
-        assert!(is_daemon_run(&os(&["daemon"])));
-        assert!(is_daemon_run(&os(&["daemon", "run", "--take-over"])));
-        assert!(is_daemon_run(&os(&["--json", "daemon", "run"])));
-        assert!(!is_daemon_run(&os(&["daemon", "status"])));
-        assert!(!is_daemon_run(&os(&["ls"])));
-        assert!(!is_daemon_run(&os(&[])));
-    }
-}
+#[path = "daemon_priority_tests.rs"]
+mod tests;
