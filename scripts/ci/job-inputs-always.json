@@ -1125,6 +1125,14 @@
       }
     },
     ".github/workflows/pr-router.yml": {
+      "ios-gate": {
+        "why": "the always-present required iOS gate consumes changed-path routing and final iOS/proof and simulated connection verdicts; unrelated paths use ios-gate-unrelated instead",
+        "suggested_inputs": []
+      },
+      "ios-gate-unrelated": {
+        "why": "the always-present required iOS gate passes unrelated paths immediately after routing, without waiting for build or test jobs",
+        "suggested_inputs": []
+      },
       "fast-gates": {
         "why": "a pr-router caller: route starts it (scripts/ci/pr_router.json cmux-next-fast-gates.yml) on every head it starts anything for, as the workflow's own pull_request trigger did: next-autoland and merge_hold read its cmux-next/fast-gates status at every head; its jobs' own `if:`s keep their tier and path rules (fast-check-route)",
         "suggested_inputs": [

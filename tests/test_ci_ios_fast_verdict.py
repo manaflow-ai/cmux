@@ -453,6 +453,14 @@ class RequiredGateTest(unittest.TestCase):
         self.assertTrue(self.gate.plan(["transport/protocol/wire.rs"], manifest)["pair"])
         self.assertFalse(self.gate.plan(["transport/doc.md"], manifest)["pair"])
 
+    def test_gate_uses_full_fast_verdict_path_predicate(self):
+        from unittest.mock import patch
+        # Host screen-sharing inputs need not belong to the app's linked package closure.
+        for path in ("cmux-tui/crates/cmux-rd-host/src/main.rs", "host/new-screen-source.rs"):
+            with self.subTest(path=path), patch.object(fv, "affects", return_value=True) as affects:
+                self.assertTrue(self.gate.plan([path])["ios"])
+                affects.assert_called_once_with([path])
+
     def test_explicit_matrix_assertion_failure_is_red_even_when_wrapper_succeeds(self):
         self.assertEqual(self.gate.verdict(True, True, "success", "success", "failure")[0], "failure")
 
@@ -511,6 +519,43 @@ class RequiredGateTest(unittest.TestCase):
         proof_step = next(s for s in jobs["ios-fast-status"]["steps"] if s.get("id") == "verdict")
         self.assertLess(proof_step["run"].index("proof_record.py gate"),
                         proof_step["run"].index('echo "state=$state"'))
+
+    def test_carried_ios_routes_an_actual_verdict_at_this_head(self):
+        import head_tier
+        import pr_router
+        event = LandAffectedRouteTest().event()
+        paths = [KIT + "Package.swift"]
+        for decided, carried in ((("cheap", head_tier.CARRY_REASON), None),
+                                 (("none", head_tier.FULL_CARRY_REASON), None),
+                                 (("full", head_tier.RERUN_REASON), {"pr-pipeline.yml"})):
+            with self.subTest(decided=decided, carried=carried):
+                start, _ = pr_router.route(event, pr_router.load_manifest(), paths,
+                                           decided=decided, carried=carried)
+                self.assertIn("pr-pipeline.yml", start)
+                self.assertEqual(pr_router.ios_status(event, paths, start, "success")[0], "pending")
+                self.assertEqual(self.gate.verdict(True, False, "success", "skipped")[0], "error")
+                self.assertEqual(self.gate.verdict(True, False, "success", "success")[0], "success")
+
+    def test_unsupported_ios_status_contexts_cannot_pass_from_a_skipped_job(self):
+        import pr_router
+        factory = RouterStatusTest()
+        paths = [KIT + "Package.swift"]
+        for event in (factory.event(draft=True), factory.event(base="main"), factory.event(fork=True)):
+            state, _ = pr_router.ios_status(event, paths, [], "")
+            self.assertEqual(state, "")
+            self.assertEqual(self.gate.verdict(True, False, state, "skipped")[0], "error")
+
+    def test_carried_pairing_head_starts_matrix_output_producer(self):
+        import head_tier
+        import pr_router
+        event = LandAffectedRouteTest().event()
+        for path in ("cmux-next-ios/rust/crates/cmux-mobile-link-ffi/src/lib.rs",
+                     KIT + "Sources/CmuxMobileLinkFFI/Link.swift"):
+            for decided in (("cheap", head_tier.CARRY_REASON), ("none", head_tier.FULL_CARRY_REASON)):
+                with self.subTest(path=path, decided=decided):
+                    self.assertTrue(self.gate.plan([path])["pair"])
+                    start, _ = pr_router.route(event, pr_router.load_manifest(), [path], decided=decided)
+                    self.assertIn("cmux-next-fast-gates.yml", start)
 
 
     def test_exactly_one_canonical_name_for_every_route_and_cancellation_state(self):

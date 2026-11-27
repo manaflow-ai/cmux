@@ -25,7 +25,9 @@ def plan(paths: list[str] | None, manifest: dict | None = None) -> dict[str, boo
     if paths is None:
         return {"ios": True, "pair": True}
     try:
-        ios = ios_app_package_paths.affects(paths) or any(p in ios_fast_verdict.SELF for p in paths)
+        # Include every fast-verdict input, including host-side screen-sharing paths outside
+        # the app's package closure. A new fast-verdict input must never get a gate no-op.
+        ios = ios_fast_verdict.affects(paths)
         manifest = manifest if manifest is not None else json.loads((HERE / "pr_router.json").read_text())
         route = manifest["callees"]["ios-link-ffi-linux.yml"]
         pair = all(any(filters.admits("paths", route[key], p) for p in paths)

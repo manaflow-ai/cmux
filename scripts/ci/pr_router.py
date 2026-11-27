@@ -255,6 +255,14 @@ def route(event: dict, callees: dict, files: list[str] | None,
             start.append(name)
             why[name] = f"label '{added}' added"
             continue
+        if (name == IOS_VERDICT_CALLEE and head_tier.land_rule_applies(event) and ios_verdict_on()
+                and (head_tier.carried((tier, tier_reason)) or head_tier.full_carried((tier, tier_reason))
+                     or name in (carried or set())) and ios_touched(files)):
+            # The land carry proves an earlier pipeline, not this head's final iOS/proof verdict.
+            # Re-run the small iOS verdict; carried table jobs keep their existing reuse decisions.
+            start.append(name)
+            why[name] = "iOS gate: carried pipeline must produce this head's final iOS/proof verdict"
+            continue
         if tier == "none":
             why[name] = tier_reason
             continue
@@ -315,6 +323,12 @@ def route(event: dict, callees: dict, files: list[str] | None,
             continue
         start.append(name)
         why[name] = "a changed file reaches it"
+    if head_tier.land_rule_applies(event) and (head_tier.carried((tier, tier_reason))
+            or head_tier.full_carried((tier, tier_reason)) or carried):
+        import ios_gate
+        if ios_gate.plan(files)["pair"] and "cmux-next-fast-gates.yml" not in start:
+            start.append("cmux-next-fast-gates.yml")
+            why["cmux-next-fast-gates.yml"] = "iOS gate: version-skew assertions require this head's pair verdict"
     return start, why
 
 

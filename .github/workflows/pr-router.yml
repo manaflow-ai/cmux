@@ -685,7 +685,8 @@ jobs:
   ios-gate:
     name: ${{ needs.route.result == 'skipped' && !cancelled() && 'iOS gate metadata (ignored)' || needs.route.result == 'success' && needs.route.outputs.ios_gate_ios == 'false' && needs.route.outputs.ios_gate_pair == 'false' && 'iOS gate result (not applicable)' || 'cmux/ios-gate' }}
     needs: [route, ios-fast-status, fast-gates]
-    # Waiting is the Actions DAG, not a runner polling. Run even on cancel so missing execution is red.
+    # Waiting is the Actions DAG, not a runner polling. Affected or unknown paths run even on cancel
+    # so missing execution is red; unrelated paths need no dependent execution.
     # workflow-job-bounds.json records this required-check exception. Ignored metadata/label events
     # skip route deliberately; they use no canonical name and cannot replace a previous head verdict.
     if: ${{ always() && (needs.route.result != 'skipped' || cancelled()) && !(needs.route.result == 'success' && needs.route.outputs.ios_gate_ios == 'false' && needs.route.outputs.ios_gate_pair == 'false') }}
