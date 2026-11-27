@@ -7,6 +7,15 @@ export function offersAcpmuxRestart(error: unknown): boolean {
   return !!details && typeof details === "object" && (details as { restartAcpmux?: unknown }).restartAcpmux === true;
 }
 
+// Catch-all host errors carry retryable=false because no layer classified them. During a relaunch
+// they are recoverable and should stay quiet until the normal error deadline.
+const UNCLASSIFIED_HOST_CODES = new Set(["cmux.page.failed", "native.failed"]);
+
+export function hostFailureUnclassified(error: unknown): boolean {
+  const code = (error as { code?: unknown } | null)?.code;
+  return typeof code === "string" && UNCLASSIFIED_HOST_CODES.has(code);
+}
+
 /// A host-owned update handoff or a lost transport is still recovering. A definite host refusal
 /// (missing binary, stopped daemon, unsupported machine, untrusted folder) keeps its instructions.
 /// Older bridges may omit retryability on socket failures; only errors without an owned code fall
@@ -25,6 +34,7 @@ export function hostIsReconnecting(error: unknown): boolean {
   // acpmux marks a refusal a retry clears (`data.retryable`; direct.ts keeps `data` on the error).
   if (fields?.data?.retryable === true) return true;
   if (fields?.code === "native.not_connected" || fields?.code === "native.timed_out") return true;
+  if (hostFailureUnclassified(error)) return true;
   if (typeof fields?.retryable === "boolean") return fields.retryable;
   if (typeof fields?.code === "string") return false;
   return fields?.code === undefined;

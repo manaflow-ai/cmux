@@ -71,6 +71,8 @@ mod link;
 #[path = "session_move_preflight.rs"]
 mod preflight;
 use link::SLOW_COPY;
+#[path = "session_move_files.rs"]
+mod files;
 #[path = "session_move_snapshot.rs"]
 pub(crate) mod snapshot;
 #[path = "session_move_target_ask.rs"]
@@ -505,9 +507,11 @@ pub(super) async fn run(args: MoveArgs, json_out: bool) -> Result<()> {
         if args.carry_changes {
             bail!("--carry-changes does not go through the team hub yet: commit, or --leave-dirty");
         }
-        Some(hub::resolve(&src, &args.host).await.with_context(|| {
-            format!(
-                "{} is neither an ssh peer of this daemon nor a machine the team hub lists",
+        // The hub's own reason goes in the message: "not listed" and "not read yet" need
+        // different next steps, and `{}` of a context shows only the outer line.
+        Some(hub::resolve(&src, &args.host).await.map_err(|e| {
+            anyhow!(
+                "{} is neither an ssh peer of this daemon nor a machine the team hub lists ({e:#})",
                 args.host
             )
         })?)
@@ -1105,6 +1109,7 @@ async fn prepare(
     let mut carry = None;
     let mut at = None;
     let mut bundle = None;
+    let mut packed: Option<Vec<u8>> = None;
     // The commit the target's folder is made at, whether the folder has uncommitted work, and
     // its checkout's top folder on the source.
     let mut base: Option<(String, bool, PathBuf)> = None;
@@ -1120,6 +1125,29 @@ async fn prepare(
         record.set("bundled", json!(true));
         base = Some((read.0.clone(), *dirty, c.top.clone()));
         bundle = Some(read);
+    }
+    if let (Folder::Plain { .. }, None, None) = (&folder, &checkout, &args.cwd) {
+        // Not in a git checkout, and the folder is not named on the target: its files go too
+        // (never the home folder itself).
+        if cwd != home {
+            let read = tokio::task::spawn_blocking({
+                let (dir, ssh) = (cwd.to_path_buf(), source.ssh().map(str::to_owned));
+                move || files::pack_folder(ssh.as_deref(), &dir)
+            })
+            .await??;
+            match read {
+                files::Packed::Files(bytes) => {
+                    record.set("filesCopied", json!(bytes.len()));
+                    packed = Some(bytes);
+                }
+                files::Packed::TooBig(n) => bail!(
+                    "{} is {n} bytes packed, over the {} a move carries: pass --cwd to run the chat in a folder that is already there, or send the folder with `cmux link seed`",
+                    cwd.display(),
+                    files::MAX_BYTES
+                ),
+                files::Packed::Missing => {}
+            }
+        }
     }
     if let (Folder::Worktree { branch, dirty, snapshot, .. }, Some(c)) = (&folder, &checkout) {
         // A shared branch (main, master, origin's HEAD) is never pushed: its HEAD goes under a ref
@@ -1179,6 +1207,9 @@ async fn prepare(
         let (host, folder) = (target.ssh.clone(), folder.clone());
         let pin = at.as_ref().map(|(r, c, _)| (r.clone(), c.clone()));
         move || match (&folder, bundle) {
+            (Folder::Plain { cwd }, None) if packed.is_some() => {
+                files::unpack_folder(&host, cwd, packed.as_deref().unwrap_or_default())
+            }
             (Folder::Bundle { top, branch, subdir, .. }, Some((commit, bytes))) => {
                 unbundle_folder(&host, top, branch, subdir, &commit, &bytes)
             }
