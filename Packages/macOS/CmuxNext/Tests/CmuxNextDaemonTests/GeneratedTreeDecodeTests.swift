@@ -4,7 +4,7 @@ import Testing
 
 @Suite struct GeneratedTreeDecodeTests {
     private func workspace(_ fields: String) throws -> WorkspaceSnapshot {
-        try JSONDecoder().decode(WorkspaceSnapshot.self, from: Data("{\"id\":\"ws_1\"\(fields)}".utf8))
+        try JSONDecoder().decode(WorkspaceSnapshot.self, from: Data("{\"id\":1\(fields)}".utf8))
     }
 
     @Test func keepAwakeSurvivesTheGeneratedSnapshot() throws {
@@ -23,7 +23,7 @@ import Testing
     }
 
     @Test func missingPaneStateStillDecodesAsAnEmptyPane() throws {
-        let pane = try JSONDecoder().decode(PaneSnapshot.self, from: Data(#"{"id":"pane_1","dead":true}"#.utf8))
+        let pane = try JSONDecoder().decode(PaneSnapshot.self, from: Data(#"{"id":1,"dead":true}"#.utf8))
         #expect(pane.tabs.isEmpty)
         #expect(pane.tabGroups.isEmpty)
         #expect(pane.activeTab == 0)
