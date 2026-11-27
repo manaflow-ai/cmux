@@ -41,10 +41,11 @@ pub(crate) const FILE_BODY_LIMIT: usize = 4 * 1024 * 1024;
 /// reply limit).
 pub(crate) const BODY_LIMIT: usize = 8 * 1024 * 1024;
 
+/// The query pairs of one artifacts call.
+type QueryPairs = Vec<(&'static str, String)>;
+
 /// The route and query `args` name, or the refusal of a param that is not one.
-pub(crate) fn query(
-    args: &Map<String, Value>,
-) -> Result<(&'static str, Vec<(&'static str, String)>), Failure> {
+pub(crate) fn query(args: &Map<String, Value>) -> Result<(&'static str, QueryPairs), Failure> {
     let invalid = |message: String| {
         Failure::http(400, Some("artifacts.invalid_params".to_owned()), Some(message))
     };
@@ -110,16 +111,15 @@ pub(crate) async fn read(http: &Http, args: &Map<String, Value>) -> Result<Value
     let limit = if route == "file" { FILE_BODY_LIMIT } else { BODY_LIMIT };
     let (reply, size) =
         http.send_counted(http.url(&segments, &query), TIMEOUT, &path, limit).await?;
-    let mut answer = json!({
-        "status": reply.status,
-        "content_type": reply.content_type,
-        "commit": reply.commit,
-        "size": size,
-    });
+    let mut answer = Map::new();
+    answer.insert("status".to_owned(), json!(reply.status));
+    answer.insert("content_type".to_owned(), json!(reply.content_type));
+    answer.insert("commit".to_owned(), json!(reply.commit));
+    answer.insert("size".to_owned(), json!(size));
     if size <= limit {
-        answer["body_base64"] = json!(BASE64.encode(&reply.body));
+        answer.insert("body_base64".to_owned(), json!(BASE64.encode(&reply.body)));
     }
-    Ok(answer)
+    Ok(Value::Object(answer))
 }
 
 #[cfg(test)]
