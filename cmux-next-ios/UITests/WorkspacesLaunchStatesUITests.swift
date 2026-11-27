@@ -38,6 +38,37 @@ final class WorkspacesLaunchStatesUITests: XCTestCase {
         attach(app, "first-launch")
     }
 
+    /// cmux#57410: a Mac that answered with no workspaces shows "No workspaces" and keeps it
+    /// while its link drops and redials (every 0.7 s here); the placeholders never come back.
+    @MainActor
+    func testAnEmptyMacStaysNoWorkspacesThroughRedials() {
+        let app = launch("retry-empty-mac-redial")
+        defer { app.terminate() }
+        let empty = app.descendants(matching: .any)["workspaces.empty.all"]
+        XCTAssertTrue(empty.waitForExistence(timeout: 30), "an empty Mac's empty state\n\(app.debugDescription)")
+        XCTAssertTrue(text(app, containing: "No workspaces").exists, "says so\n\(app.debugDescription)")
+        let loading = app.descendants(matching: .any)["workspaces.loading"]
+        // About a dozen redials: never the placeholders, always the empty state.
+        let until = Date().addingTimeInterval(8)
+        while Date() < until {
+            XCTAssertFalse(loading.exists, "placeholders over an empty Mac\n\(app.debugDescription)")
+            XCTAssertTrue(empty.exists, "the empty state stays\n\(app.debugDescription)")
+            usleep(250_000)
+        }
+        attach(app, "empty-mac-redial")
+    }
+
+    /// Before its first answer the same Mac draws the labelled placeholder rows, not an empty claim.
+    @MainActor
+    func testAnEmptyMacLoadsUntilItAnswers() {
+        let app = launch("retry-empty-mac-first-load")
+        defer { app.terminate() }
+        XCTAssertTrue(app.descendants(matching: .any)["workspaces.loading"].waitForExistence(timeout: 30),
+                      "placeholders before the Mac answers\n\(app.debugDescription)")
+        XCTAssertFalse(app.descendants(matching: .any)["workspaces.empty.all"].exists, "no empty claim before the answer")
+        attach(app, "empty-mac-first-load")
+    }
+
     @MainActor
     func testFirstLaunchOfflineSaysItWaits() {
         let app = launch("retry-first-launch-offline")
