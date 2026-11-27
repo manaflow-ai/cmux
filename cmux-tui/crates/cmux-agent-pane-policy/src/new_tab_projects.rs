@@ -5,6 +5,24 @@
 use serde_json::{Value, json};
 use std::collections::{HashMap, HashSet};
 
+fn path(cwd: &str) -> &str {
+    let trimmed = cwd.trim_end_matches('/');
+    if trimmed.is_empty() && cwd.starts_with('/') { "/" } else { trimmed }
+}
+
+pub(super) fn is_home(cwd: &str) -> bool {
+    let parts: Vec<_> = cwd.split('/').filter(|s| !s.is_empty()).collect();
+    parts.len() == 2 && matches!(parts[0], "Users" | "home")
+}
+
+fn agent_home(cwd: &str) -> bool {
+    cwd.split_once("/Library/Application Support/").is_some_and(|(_, rest)| {
+        rest == "cmux/agent-home" || rest.starts_with("cmux/agent-home/") ||
+            rest.strip_prefix("cmux-next/builds/").and_then(|s| s.split_once('/'))
+                .is_some_and(|(_, rest)| rest == "agent-home" || rest.starts_with("agent-home/"))
+    })
+}
+
 pub fn snapshot(request: &Value) -> Value {
     let warm: Value =
         request["warm"].as_str().and_then(|s| serde_json::from_str(s).ok()).unwrap_or(Value::Null);
@@ -12,13 +30,14 @@ pub fn snapshot(request: &Value) -> Value {
         request["seed"].as_str().and_then(|s| serde_json::from_str(s).ok()).unwrap_or_default();
     let mut rows = Vec::new();
     let mut seen = HashSet::new();
-    let mut recency: HashMap<String, i64> = HashMap::new();
+    let mut recency: HashMap<String, (i64, usize)> = HashMap::new();
     let mut add = |cwd: &str| {
-        let cwd = cwd.trim_end_matches('/');
-        if cwd.is_empty() || cwd.contains("/agent-home/") || !seen.insert(cwd.to_owned()) {
+        let cwd = path(cwd);
+        if cwd.is_empty() || agent_home(cwd) || !seen.insert(cwd.to_owned()) {
             return;
         }
-        let mut row = json!({"cwd": cwd, "label": cwd.rsplit('/').next().unwrap_or(cwd)});
+        let label = if is_home(cwd) { "~" } else if cwd == "/" { "/" } else { cwd.rsplit('/').next().unwrap_or(cwd) };
+        let mut row = json!({"cwd": cwd, "label": label});
         if request["repos"][cwd].is_object() {
             row["repo"] = request["repos"][cwd].clone();
         }
@@ -30,7 +49,7 @@ pub fn snapshot(request: &Value) -> Value {
         }
     }
     if let Some(sessions) = warm["sessions"].as_array() {
-        for session in sessions {
+        for (index, session) in sessions.iter().enumerate() {
             if ["startedBy", "spawnedBy"]
                 .iter()
                 .any(|key| session[key].as_str().is_some_and(|s| !s.is_empty()))
@@ -39,6 +58,8 @@ pub fn snapshot(request: &Value) -> Value {
                     .any(|key| session[key].as_bool() == Some(true))
                 || session["peer"].as_str().is_some_and(|s| !s.is_empty())
                 || session["hostKind"].as_str().is_some_and(|s| s != "local")
+                || session["archived"].as_bool() == Some(true)
+                || session["side"].as_bool() == Some(true)
             {
                 continue;
             }
@@ -48,10 +69,11 @@ pub fn snapshot(request: &Value) -> Value {
                     .as_i64()
                     .or_else(|| session["updatedAt"].as_i64())
                     .unwrap_or(0);
-                recency
-                    .entry(cwd.trim_end_matches('/').to_owned())
-                    .and_modify(|old| *old = (*old).max(at))
-                    .or_insert(at);
+                if cwd != "~" && path(cwd) != "/" {
+                    recency.entry(path(cwd).to_owned())
+                        .and_modify(|old| { if at > old.0 { *old = (at, index); } })
+                        .or_insert((at, index));
+                }
             }
         }
     }
@@ -59,10 +81,13 @@ pub fn snapshot(request: &Value) -> Value {
         add(cwd);
     }
     rows.sort_by_key(|row| {
-        std::cmp::Reverse(recency.get(row["cwd"].as_str().unwrap()).copied().unwrap_or(0))
+        let recent = recency.get(row["cwd"].as_str().unwrap_or_default());
+        (recent.is_none(), std::cmp::Reverse(recent.map_or(0, |r| r.0)), recent.map_or(usize::MAX, |r| r.1))
     });
-    let mut remaining: HashMap<String, Value> =
-        rows.iter().map(|row| (row["cwd"].as_str().unwrap().to_owned(), row.clone())).collect();
+    let mut remaining: HashMap<String, Value> = rows
+        .iter()
+        .map(|row| (row["cwd"].as_str().unwrap_or_default().to_owned(), row.clone()))
+        .collect();
     let mut ordered = Vec::new();
     for row in seed {
         if let Some(cwd) = row["cwd"].as_str() {
@@ -74,11 +99,12 @@ pub fn snapshot(request: &Value) -> Value {
         }
     }
     for row in rows {
-        if remaining.remove(row["cwd"].as_str().unwrap()).is_some() {
+        if remaining.remove(row["cwd"].as_str().unwrap_or_default()).is_some() {
             ordered.push(row);
         }
     }
-    json!({"rows": serde_json::to_string(&ordered).expect("project rows serialize")})
+    super::new_tab_project_groups::freeze(&mut ordered, request["cwd"].as_str());
+    json!({"rows": serde_json::to_string(&ordered).ok()})
 }
 
 #[cfg(test)]
@@ -103,9 +129,39 @@ mod tests {
     #[test]
     fn appended_rows_keep_positions_on_subsequent_refresh() {
         let first = snapshot(&json!({"projects":["/a","/b"]}))["rows"].clone();
-        let second = snapshot(&json!({"projects":["/a","/b","/c","/d"],"seed":first}))["rows"].clone();
+        let second =
+            snapshot(&json!({"projects":["/a","/b","/c","/d"],"seed":first}))["rows"].clone();
         let refreshed = rows(json!({"projects":["/d","/c","/b","/a"],"seed":second}));
-        assert_eq!(refreshed.iter().map(|row| row["cwd"].as_str().unwrap()).collect::<Vec<_>>(), ["/a","/b","/c","/d"]);
+        assert_eq!(
+            refreshed.iter().map(|row| row["cwd"].as_str().unwrap()).collect::<Vec<_>>(),
+            ["/a", "/b", "/c", "/d"]
+        );
+    }
+    #[test]
+    fn labels_hidden_sessions_and_equal_recency_match_existing_picker() {
+        let result = rows(json!({"projects":["/","/Users/me","/a","/b","/unused"],
+          "warm":r#"{"sessions":[{"cwd":"/b","activityAt":20},{"cwd":"/a","activityAt":20},{"cwd":"/archived","archived":true,"activityAt":30},{"cwd":"/aside","side":true,"activityAt":30},{"cwd":"/unused","archived":true,"activityAt":40}]}"#}));
+        assert_eq!(result.iter().map(|r| r["cwd"].as_str().unwrap()).collect::<Vec<_>>(), ["/b","/a","/","/Users/me","/unused"]);
+        assert_eq!(result[2]["label"], "/");
+        assert_eq!(result[3]["label"], "~");
+        assert_eq!(result[3]["displayGroup"]["hidden"], true);
+    }
+    #[test]
+    fn late_repository_cannot_merge_or_rename_seed_groups() {
+        let initial = rows(json!({"projects":["/Users/me/Projects/cmux","/Users/me/checkouts/cmux/lane","/notes"]}));
+        let seed = serde_json::to_string(&initial).unwrap();
+        let settled = rows(json!({"projects":["/Users/me/Projects/cmux","/Users/me/checkouts/cmux/lane","/notes","/new/cmux"],"seed":seed,
+            "repos":{"/new/cmux":{"root":"/new/cmux","name":"cmux","github":"manaflow-ai/cmux"}}}));
+        for (before, after) in initial.iter().zip(&settled) { assert_eq!(before["displayGroup"], after["displayGroup"]); }
+        assert_ne!(settled[0]["displayGroup"]["key"], settled[3]["displayGroup"]["key"]);
+    }
+    #[test]
+    fn appended_main_checkout_cannot_replace_existing_group_lead() {
+        let repo = json!({"root":"/main","name":"repo","github":"org/repo"});
+        let first = rows(json!({"projects":["/lane"],"repos":{"/lane":repo}}));
+        let result = rows(json!({"projects":["/lane","/main"],"repos":{"/lane":repo,"/main":repo},"seed":serde_json::to_string(&first).unwrap()}));
+        assert_eq!(result[0]["displayGroup"]["lead"], "/lane");
+        assert_eq!(result[1]["displayGroup"]["lead"], "/lane");
     }
     #[test]
     fn next_opening_uses_new_recency_and_metadata() {
@@ -118,7 +174,7 @@ mod tests {
     fn removals_duplicates_and_foreign_chats() {
         let result = rows(
             json!({"projects":["/a/","/a","/c"],"seed":r#"[{"cwd":"/gone","label":"gone"},{"cwd":"/a","label":"a"}]"#,
-          "warm":r#"{"sessions":[{"cwd":"/remote","hostKind":"ssh"},{"cwd":"/child","spawnedBy":"agent"},{"cwd":"/private/agent-home/abc"}]}"#}),
+          "warm":r#"{"sessions":[{"cwd":"/remote","hostKind":"ssh"},{"cwd":"/child","spawnedBy":"agent"},{"cwd":"/Users/me/Library/Application Support/cmux/agent-home/abc"}]}"#}),
         );
         assert_eq!(
             result.iter().map(|r| r["cwd"].as_str().unwrap()).collect::<Vec<_>>(),

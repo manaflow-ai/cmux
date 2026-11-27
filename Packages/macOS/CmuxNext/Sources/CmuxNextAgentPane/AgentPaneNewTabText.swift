@@ -47,7 +47,7 @@ extension AgentPaneNewTab {
     /// part takes it.
     nonisolated var ownTree: [String: Any]? {
         var page = self
-        (page.hotkeys, page.projects, page.projectRows, page.layout, page.lastPicks, page.warm) = ([:], [], nil, nil, nil, nil)
+        (page.hotkeys, page.projects, page.layout, page.lastPicks, page.warm) = ([:], [], nil, nil, nil)
         page.omnibar = AgentPaneOmnibar(tabs: omnibar.tabs)
         guard let data = try? JSONEncoder().encode(page),
               var tree = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any] else { return nil }
@@ -69,6 +69,9 @@ extension AgentPaneNewTab {
     /// The parts kept. More than one, because the app's pages have a few at one time: a key's context before
     /// the palette's actions are listed and after, and a parked spare's context with an empty bar.
     static let capacity = 4
+
+    var cachedProjects: [String] = []
+    var cachedProjectRepos: [String: Any] = [:]
 
     public private(set) var encodes = 0
     private var kept: [(part: AgentPaneNewTabShared, text: String, generation: Int)] = []

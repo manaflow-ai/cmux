@@ -593,11 +593,10 @@ public final class AgentPaneModel {
         guard var page = newTab else { return nil }
         if page.draft == nil { page.draft = newChatLeftoverDraft?() }
         page.start = startFolders.local(of: self)
-        if page.projectRows == nil {
-            let local = page.startsRemote != true
+        if page.projectRows == nil, page.startsRemote != true {
             page.projectRows = AgentPaneProjectSnapshot.rows(
-                projects: local ? AgentPaneProjectSnapshot.cachedProjects + page.projects : page.projects,
-                repos: local ? AgentPaneProjectSnapshot.cachedRepos : [:], warm: page.warm, cwd: page.cwd)
+                projects: newTabText.cachedProjects + page.projects,
+                repos: newTabText.cachedProjectRepos, warm: page.warm, cwd: page.cwd)
             newTab?.projectRows = page.projectRows
         }
         return page
@@ -846,15 +845,16 @@ public final class AgentPaneModel {
         case .listProjects(let query):
             guard let onListProjects else { return Self.unsupported("project.list") }
             // Each folder's repository, so the pickers fold worktrees under their repository.
+            let opening = newTab?.inputToken
             let projects = await onListProjects(query)
             let repos = await AgentPaneProjectRepoReader.replies(for: projects)
             let page = newTabForPage
             if query == nil {
-                AgentPaneProjectSnapshot.cachedProjects = projects
-                AgentPaneProjectSnapshot.cachedRepos = repos
+                newTabText.cachedProjects = projects
+                newTabText.cachedProjectRepos = repos
             }
             var reply: [String: Any] = ["projects": projects, "repos": repos]
-            if query == nil, let page {
+            if query == nil, !remoteChat, newTab?.inputToken == opening, let page, page.startsRemote != true {
                 let rows = AgentPaneProjectSnapshot.rows(projects: projects, repos: repos,
                     warm: page.warm, cwd: page.cwd, seed: page.projectRows)
                 newTab?.projectRows = rows
