@@ -51,9 +51,11 @@ mod terminal_chat;
 mod terminal_fit;
 mod terminal_prediction;
 mod terminal_projection;
+mod vault;
 mod vnc;
 mod window_layout;
 mod workspace_arrangement;
+mod workspace_creation;
 mod workspace_groups;
 mod workspace_moves;
 mod workspace_row_actions;
@@ -213,6 +215,9 @@ impl From<cmux_mobile_link::LinkPath> for LinkPath {
             cmux_mobile_link::LinkPath::Direct => Self::Direct,
             cmux_mobile_link::LinkPath::Turn => Self::Turn,
             cmux_mobile_link::LinkPath::TurnTls => Self::TurnTls,
+            // Hop is an internal relay path. Keep the FFI enum ABI stable
+            // until the generated Swift bindings can add a dedicated case.
+            cmux_mobile_link::LinkPath::Hop => Self::Turn,
             cmux_mobile_link::LinkPath::HttpsRelay => Self::HttpsRelay,
             cmux_mobile_link::LinkPath::NoPath => Self::NoPath,
         }
@@ -2429,6 +2434,15 @@ async fn dial_service(
             // that forgot it): redial on a fresh one, once.
             timeline.mark("signaling_stale");
             pool.evict(&socket).await;
+            let mut options = options;
+            if request.transport == Transport::WireGuard
+                && !options.block_udp
+                && options.ice_servers.iter().any(|server| server.hop_config().is_some())
+            {
+                let api = ApiClient::with_http(&key.base_url, &request.token, pool.http.clone())
+                    .with_build_space(key.build_space.clone());
+                api.renew_hop_tickets(&mut options.ice_servers, ICE_BUDGET).await;
+            }
             redial_after(pool, &key, request, &options, timeline).await
         }
         Err(Attempt::Failed(error)) => Err(fail(pool, &socket, error).await),

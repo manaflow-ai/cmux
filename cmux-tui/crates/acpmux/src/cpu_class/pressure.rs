@@ -5,7 +5,9 @@
 //! priority and stuff so it took like 87 minutes to do things... and then even when his cpu went
 //! down to 80% the background priority stayed... we ought to have more dynamic stuff").
 //!
-//! - [`Sampler`] reads the contention about every [`TICK`] on its own thread: how late a
+//! - [`Sampler`] reads the contention about every [`TICK`] on its own thread, and only while
+//!   some live session is `dynamic` ([`Sampler::want`]); otherwise the thread waits and wakes
+//!   nothing (its bursts woke an idle daemon about 12 times a second): how late a
 //!   user-interactive thread wakes from a 10 ms sleep (the GUI's main thread runs at that QoS, so
 //!   this is what its frames see; the p90 of a 200 ms burst) and the share of all CPUs busy
 //!   (`host_statistics64` HOST_CPU_LOAD_INFO). The app's own frame times do not reach the daemon,
@@ -244,6 +246,9 @@ pub fn busy_between(before: [u32; 4], after: [u32; 4]) -> Option<f64> {
 pub struct Sampler;
 
 static LAST: std::sync::Mutex<Option<(Sample, u64)>> = std::sync::Mutex::new(None);
+/// Whether some live session is `dynamic`, so the thread samples; its condvar wakes the thread.
+static WANTED: std::sync::Mutex<bool> = std::sync::Mutex::new(false);
+static WANTED_CHANGED: std::sync::Condvar = std::sync::Condvar::new();
 
 impl Sampler {
     /// Starts the thread once (macOS; elsewhere nothing reads, and no thread starts). False
@@ -256,6 +261,28 @@ impl Sampler {
             }
             std::thread::Builder::new().name("acpmux-cpu-pressure".into()).spawn(imp::run).is_ok()
         })
+    }
+
+    /// Samples while `on`; otherwise the thread waits after its current burst, with no timer.
+    pub fn want(on: bool) {
+        let mut wanted = WANTED.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+        if *wanted != on {
+            *wanted = on;
+            WANTED_CHANGED.notify_all();
+        }
+    }
+
+    pub fn wanted() -> bool {
+        *WANTED.lock().unwrap_or_else(std::sync::PoisonError::into_inner)
+    }
+
+    /// Blocks the sampler thread until it is wanted.
+    #[cfg_attr(not(target_os = "macos"), allow(dead_code))]
+    fn wait_until_wanted() {
+        let wanted = WANTED.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+        let _wanted = WANTED_CHANGED
+            .wait_while(wanted, |on| !*on)
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
     }
 
     /// The last sample, None when there is none or it is older than [`STALE_MS`].
@@ -304,8 +331,16 @@ mod imp {
         unsafe {
             libc::pthread_set_qos_class_self_np(libc::qos_class_t::QOS_CLASS_USER_INTERACTIVE, 0);
         }
-        let mut before = host_ticks();
+        let mut before = None;
         loop {
+            if !Sampler::wanted() {
+                // A busy share read across the wait would describe the wait, not now.
+                Sampler::wait_until_wanted();
+                before = None;
+            }
+            if before.is_none() {
+                before = host_ticks();
+            }
             let start = Instant::now();
             let mut late = Vec::with_capacity(24);
             while start.elapsed() < BURST {
