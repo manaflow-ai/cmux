@@ -59,26 +59,19 @@ type Send = (events: FlickerEvent[]) => void;
 export const LONG_FRAME_MS = 100;
 /// How long after the last DOM change frames are still timed.
 const WATCH_MS = 1000;
-const FLUSH_MS = 1000;
 /// The most events held between flushes; older ones are dropped and counted.
 const MAX_HELD = 64;
 
 export class FlickerLog {
   private held: FlickerEvent[] = [];
   private dropped = 0;
-  private timer: ReturnType<typeof setTimeout> | undefined;
   /// A flush waits for the end of the recording task (`soon`).
   private queued = false;
-  /// When the last batch went out (`now`'s clock).
-  private sentAt = -Infinity;
   private mounts = 0;
 
   constructor(
     private readonly send: Send,
     private readonly now: () => number = Date.now,
-    // Called through a closure: Chromium refuses `setTimeout` called as this object's method.
-    private readonly schedule: (run: () => void, ms: number) => ReturnType<typeof setTimeout> = (run, ms) =>
-      setTimeout(run, ms),
     private readonly soon: (run: () => void) => void = (run) => queueMicrotask(run),
   ) {}
 
@@ -89,16 +82,12 @@ export class FlickerLog {
     }
     const at = this.now();
     this.held.push({ ...fields, kind, at });
-    if (this.timer !== undefined || this.queued) return;
-    // A batch a second at most, sent at the end of the task that recorded it when the last one went out over a
-    // second ago: a page at rest arms no timer for the records a change left (a chat switch's mount and frames
-    // records woke the pane at rest a second later, bench/chat-switch.bench.ts idle_wakeups). Only a record
-    // within a second of the last batch waits, for the rest of that second.
-    const wait = this.sentAt + FLUSH_MS - at;
-    if (wait > 0) {
-      this.timer = this.schedule(() => this.flush(), wait);
-      return;
-    }
+    if (this.queued) return;
+    // The batch goes out at the end of the task that recorded it, which is awake already: the log never arms a
+    // timer. A throttle timer (a batch a second at most) woke a chat at rest after a switch: the switch's long
+    // frame reached the PerformanceObserver ~280 ms later, inside the second, and armed one
+    // (bench/chat-switch.bench.ts idle_wakeups, read-ahead arm 1 -> 0). Records come a few a second at most (a
+    // `frames` event covers WINDOW_MS), so one post per recording task costs no more than the timer did.
     this.queued = true;
     this.soon(() => {
       this.queued = false;
@@ -113,14 +102,11 @@ export class FlickerLog {
   }
 
   flush(): void {
-    if (this.timer !== undefined) clearTimeout(this.timer);
-    this.timer = undefined;
     if (!this.held.length) return;
     const events = this.held;
     if (this.dropped) events[0] = { ...events[0]!, dropped: this.dropped };
     this.held = [];
     this.dropped = 0;
-    this.sentAt = this.now();
     this.send(events);
   }
 }
