@@ -183,6 +183,8 @@ jobs:
             echo "workspace repository seeded with the runner's git mirror ($m)" ||
             { rm -rf "$GITHUB_WORKSPACE/.git"; echo "mirror seed failed: actions/checkout clones from github.com"; }
       - name: Checkout the base branch's scripts
+        # Bounded, so a stalled clone leaves the (again) clone its time (see `check the pull request`).
+        timeout-minutes: 2
         id: checkout
         continue-on-error: true
         uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
@@ -404,7 +406,8 @@ jobs:
     name: check the pull request
     if: ${{ (github.event_name == 'workflow_dispatch' && github.repository == 'manaflow-ai/cmux' && github.ref == 'refs/heads/feat-cmux-next' && inputs.look_result == '') && (github.event_name != 'pull_request' || contains(github.event.pull_request.labels.*.name, 'full-ci') || (github.event.pull_request.draft == true && (vars.CI_DRAFT_CHEAP_TIER || '1') == '0') || (github.event.pull_request.draft != true && ((contains(github.event.pull_request.labels.*.name, 'ready-to-land') && vars.CI_LAND_FULL_PER_PR == '1') || github.event.pull_request.base.ref != 'feat-cmux-next' || github.event.pull_request.head.repo.full_name != github.repository || (vars.CI_LAND_TIER || '1') == '0'))) && !(github.event_name == 'pull_request' && github.event.pull_request.base.ref == 'feat-cmux-next' && (github.event.action == 'labeled' && !contains(fromJSON('["full-ci","ready-to-land"]'), github.event.label.name) || github.event.action == 'unlabeled')) }}
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || 'cmux-linux' }}
-    timeout-minutes: 5
+    # 2 for a stalled checkout, 2 for its (again), the read and its rate-limit waits.
+    timeout-minutes: 8
     permissions:
       contents: read
       pull-requests: read
@@ -425,6 +428,9 @@ jobs:
         if: runner.environment == 'self-hosted'
         run: *seed-pool-mirror
       - name: Checkout the pull request check
+        # Bounded so a stalled clone leaves time for the (again) clone below: unbounded, it used the whole job
+        # (run 46050959640, 2026-11-27: `check the pull request` hung here to its 5 min and the merge look was lost).
+        timeout-minutes: 2
         id: checkout
         continue-on-error: true
         uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
@@ -609,6 +615,8 @@ jobs:
         if: runner.environment == 'self-hosted'
         run: *seed-pool-mirror
       - name: Checkout the pull request head (trees only)
+        # Bounded, so a stalled clone leaves the (again) clone its time (see `check the pull request`).
+        timeout-minutes: 2
         id: checkout
         continue-on-error: true
         uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
@@ -771,6 +779,8 @@ jobs:
         if: runner.environment == 'self-hosted'
         run: *seed-pool-mirror
       - name: Checkout the publisher
+        # Bounded, so a stalled clone leaves the (again) clone its time (see `check the pull request`).
+        timeout-minutes: 2
         if: ${{ !startsWith(runner.name, 'cmux-runner-pool-') }}
         id: checkout
         continue-on-error: true
@@ -946,6 +956,13 @@ jobs:
             exit 0
           fi
           [[ "$rc" == 0 ]] || exit "$rc"
+          # The worker found nothing to look at (e.g. the nightly already contains the merge): no comment, and no
+          # needs_build output, so the publish steps below (needs_build == 'false') skip.
+          if nothing="$(python3 -c 'import json,sys; d=json.load(open(sys.argv[1])); print(d.get("reason") or ""); sys.exit(0 if d.get("nothing") else 1)' "$RUNNER_TEMP/stage.out")"; then
+            echo "nothing=true" >> "$GITHUB_OUTPUT"
+            echo "hot verify: the worker found nothing to look at ($nothing); no comment" | tee -a "$GITHUB_STEP_SUMMARY"
+            exit 0
+          fi
           if python3 -c 'import json,sys; sys.exit(0 if json.load(open(sys.argv[1]))["needs_build"] else 1)' "$RUNNER_TEMP/stage.out"; then
             echo "needs_build=true" >> "$GITHUB_OUTPUT"
             echo "hot verify: the worker's plan against the nightly says this change needs a build; no comment (the build path covers it)" | tee -a "$GITHUB_STEP_SUMMARY"
