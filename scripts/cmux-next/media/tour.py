@@ -711,6 +711,9 @@ class Recorder(threading.Thread):
         self.step = 0
         self.frames: list[dict[str, Any]] = []
         self.error: str | None = None
+        # The window's frames stopped for good while the tour ran (the app quit or closed its window):
+        # {"step", "time", "reason"} of the first failed capture after the last frame, None while frames come.
+        self.ended: dict[str, Any] | None = None
         self.stopping = threading.Event()
         self.lock = threading.Lock()
         self.interval = frame_interval(screen.mode)
@@ -735,7 +738,10 @@ class Recorder(threading.Thread):
                     break
                 if problem:
                     self.error = problem
+                    if self.frames and self.ended is None:
+                        self.ended = {"step": self.step, "time": round(started - self.started, 3), "reason": problem}
                 else:
+                    self.ended = None
                     self.frames.append({"file": f"frames/{path.name}", "step": self.step,
                                         "time": started - self.started})
             self.stopping.wait(max(0.0, self.interval - (time.monotonic() - started)))
@@ -1404,6 +1410,9 @@ def run_tour(app_path: Path, tour: dict[str, Any], out: Path, session: Session, 
         app.stop()
         if recorder.error and not manifest["frames"]:
             manifest.setdefault("frames_error", recorder.error)
+        if recorder.ended and manifest["frames"]:
+            # whats-new-clips.py shows a clip whose window went away (a before whose ⌘Q quits) ending on it.
+            manifest["frames_ended"] = recorder.ended
         manifest["capture_rect"] = screen.rect
         if not screen.app:
             manifest["capture_window"] = screen.window_id
