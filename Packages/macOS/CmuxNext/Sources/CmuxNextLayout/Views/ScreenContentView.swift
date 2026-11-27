@@ -146,7 +146,13 @@ final class ScreenContentView: NSView {
         guard changed, reconciledScale != nil else { return }
         // A hidden screen (another of the workspace's screens shows) lays out once, when it shows:
         // each live-resize tick re-ran its full geometry, pane and divider reconcile.
-        if isHidden { needsReconcileOnShow = true } else { reconcileAndScroll(keepsMotion: hasMotion && window?.inLiveResize != true) }
+        if isHidden {
+            needsReconcileOnShow = true
+        } else {
+            reconcileAndScroll(keepsMotion: hasMotion && window?.inLiveResize != true)
+            // A sidebar toggle's slide resizes the screen: its first frame, or a move of a transition settling.
+            noteTimedResize()
+        }
     }
 
     /// Resized while hidden: reconcile when it shows.
@@ -240,10 +246,8 @@ final class ScreenContentView: NSView {
         // A plain right split is timed (`right_split_open`) from the key press or click in this turn to the commit that
         // shows it begin: the picture's, or the held snap's that shows the live panes.
         let split = tiledChange ? rightSplit(to: layout, zoomed: zoomed, canvas: canvas) : nil
-        if split != nil, let timing = context.frameTiming {
-            timing.arm(.rightSplitOpen)
-            timing.input()
-        }
+        // Every other split, close, zoom and unzoom is timed the same way (`ScreenContentView+FrameTiming`).
+        timeChange(to: layout, tiledChange: tiledChange, rightSplit: split != nil, zooming: zooming, unzooming: unzooming)
         if tiledChange { frameInput.showsSplit = split != nil }
         let snapshot = DesignSettings.shared.splitSnapshotOpen && !context.reduceMotion ? split : nil
         // The picture is the split's motion: the panes' own commit motion does not run under it.
