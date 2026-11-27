@@ -172,6 +172,17 @@ jobs:
           key: bun-web-shared-v1-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('web/bun.lock', 'webviews/bun.lock', 'cmux-tui/frontends/web/bun.lock', 'scripts/react-doctor/bun.lock', 'agent-chat/bun.lock', 'backend/bun.lock') }}
           restore-keys: bun-web-shared-v1-${{ runner.os }}-${{ runner.arch }}-
 
+      # Seconds after the install, before the 2-3 min build: oxc-parser (the parser the build runs) reads every module
+      # and fails on any name bound twice in one scope, and on an import a top-level declaration names again. The step
+      # above reads import lists alone, so `import { a }` beside `const a`, or `const a` beside `let a`, passed it
+      # (paneSends, #51093 after #61160, 2026-11-27). The install is the build script's own (no-op there after this).
+      - name: Fast fail - no webviews module binds a name twice
+        if: steps.touched.outputs.web == 'true' && steps.web-bundle-r2.outputs.cache-hit != 'true' && steps.web-bundle-cache.outputs.cache-hit != 'true'
+        working-directory: webviews
+        run: |
+          bun install --frozen-lockfile >/dev/null
+          node scripts/check-duplicate-bindings.mjs
+
       - name: Build the web bundles (the build NIGHTLY runs)
         if: steps.touched.outputs.web == 'true' && steps.web-bundle-r2.outputs.cache-hit != 'true' && steps.web-bundle-cache.outputs.cache-hit != 'true'
         run: python3 -I scripts/ci/compile_preflight.py web-build . "$GITHUB_WORKSPACE/web-bundles-out"

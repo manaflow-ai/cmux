@@ -173,6 +173,13 @@ class LiveBase(unittest.TestCase):
         self.assertLess(dup, install, "the parse check runs before any install")
         self.assertLess(block.index("name: Fast fail"), block.index("name: Source key"))
 
+    def test_every_module_is_parsed_for_a_twice_bound_name_before_the_build(self) -> None:
+        block = job_block(CALLEE.read_text(), "web")
+        parse = block.index("node scripts/check-duplicate-bindings.mjs")
+        self.assertLess(block.index("name: Setup Node"), parse)
+        self.assertLess(block.index("name: Restore the webviews Bun package cache"), parse)
+        self.assertLess(parse, block.index("compile_preflight.py web-build"), "the parse fails before the build")
+
 
 class NeverSkipped(unittest.TestCase):
     def test_router_calls_it_on_every_tier(self) -> None:
