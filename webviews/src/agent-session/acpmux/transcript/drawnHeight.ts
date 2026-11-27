@@ -66,10 +66,14 @@ export function drawnHeightOf(node: HTMLElement): number | undefined {
   return height > 0 || node.getClientRects().length > 0 ? height : undefined;
 }
 
-/// Whether a drawn row is collapsing to nothing (a read "New since you looked" line shrinking on the
-/// motion step, SinceDivider.tsx): the layout shrinks its gaps with it (model.ts `collapsingHeight`).
+/// Whether a drawn row is collapsing to nothing: the layout shrinks its gaps with it (model.ts
+/// `collapsingHeight`). The row frame itself carries the mark. O(1): the subtree scan this was
+/// (`querySelector("[data-row-collapsing]")` over every element of the row) ran once per measured row
+/// in the commit, 32 ms per 30 s of the React commit on an 8 vCPU runner under 4x-cores load (goal
+/// visible-frame-p95-under-load, run 46009794254), and found nothing: no element sets the mark since
+/// SinceDivider.tsx went.
 export function collapsingRow(node: HTMLElement): boolean {
-  return node.querySelector("[data-row-collapsing]") !== null;
+  return node.hasAttribute("data-row-collapsing");
 }
 
 /// Each drawn row's height by id (conversation/layeredMap.ts).

@@ -67,7 +67,8 @@ import { perfReporter } from "../perfReporter";
 import { frameTally } from "../conversation/frameTally";
 import { reconciledProject } from "../newtab/startHint";
 import { streamingRow, streamingRowBlocked } from "../streamingRow";
-import { liveToolOutput, toolOutputOnly } from "../liveToolOutput";
+import { liveToolOutput, toolOutputOnly, redrawWhy } from "../liveToolOutput";
+import { drawsNothingNew } from "./drawsNothingNew";
 import { liveThought, thoughtOnly } from "../liveThought";
 import { changeHidden } from "../drawnRows";
 import { callOnly, liveCallLine, setLiveLine } from "../liveCallLine";
@@ -390,6 +391,10 @@ export type PaneSnapshotArgs = {
   /// The draw (liveThought.ts `redraw`) of the snapshot the pane set last.
   thoughtEpoch: React.RefObject<number>;
   pendingPaneDraw: PendingPaneDraw;
+  /// Whether something shown reads the snapshot's raw `connection` (the emit's reason, not the
+  /// link): the Inspector, or a workflow agent's transcript, which refreshes on it. While one does,
+  /// a snapshot that only names a new reason still draws (`drawsNothingNew`).
+  readsEmitReasonRef: React.RefObject<boolean>;
   snapshotRef: React.RefObject<AcpmuxSnapshot | undefined>;
   /// The chrome the page drew before its attach answered, kept until then (shownChrome.ts).
   chrome: ShownChrome;
@@ -551,6 +556,7 @@ export function paneSnapshotEffect({
   toolOutputEpoch,
   thoughtEpoch,
   pendingPaneDraw,
+  readsEmitReasonRef,
   snapshotRef,
   chrome,
   firstShown,
@@ -1376,6 +1382,13 @@ export function paneSnapshotEffect({
           // running turn's closed fold, and those that still redraw the pane (drawnRows.ts).
           const hiddenChange = acpmuxPerf.enabled && received !== undefined && changeHidden(received, next);
           if (hiddenChange) acpmuxPerf.render("record:row-hidden");
+          // Nothing the pane draws moved: the client emitted for a record that changed no row and no
+          // field, only `connection`, the reason it emitted (a task note, a process update, a
+          // subagent's progress that moved nothing shown). Each was a whole-pane draw.
+          if (drawn && received && !readsEmitReasonRef.current && drawsNothingNew(received, next)) {
+            liveCallLine.follow(received, next);
+            return;
+          }
           const at = drawn ? streamedOnly(drawn, next) : -1;
           if (drawn && at >= 0) {
             streamingRow.set(next.rows[at]!, drawn.rows[at]!);
@@ -1422,6 +1435,8 @@ export function paneSnapshotEffect({
             return;
           }
           if (hiddenChange) acpmuxPerf.render("pane:row-hidden");
+          if (acpmuxPerf.enabled)
+            acpmuxPerf.render(`redraw:${redrawWhy(received, next, pendingPaneDraw.pending, streamingRowBlocked())}`);
           redrawPane(next, false);
         },
         () => {

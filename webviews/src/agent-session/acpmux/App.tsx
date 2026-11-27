@@ -3202,6 +3202,11 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
     }
   }
   const [inspectorOpen, setInspectorOpen] = useState(false);
+  // The Inspector shows the snapshot's raw `connection`, and a workflow agent's transcript refreshes
+  // on it: while either is shown, a snapshot that only names a new emit reason still draws
+  // (pane/drawsNothingNew.ts).
+  const readsEmitReasonRef = useRef(false);
+  readsEmitReasonRef.current = inspectorOpen || (workflowLabsEnabled && workflowRequest !== undefined);
   // Jump to latest shows over the stage's foot (VirtualTranscript): the bottom toast deck stands above
   // it while it does (toastLayer.css), so a toast never covers the button or takes its clicks. Written
   // straight onto the pane's main element, never pane state: the button comes and goes as the reader
@@ -8226,6 +8231,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
       toolOutputEpoch,
       thoughtEpoch,
       pendingPaneDraw,
+      readsEmitReasonRef,
       snapshotRef,
       chrome,
       firstShown,
