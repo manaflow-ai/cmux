@@ -27,6 +27,7 @@ import {
 const storageOf = (store: DurableObjectStorage | DurableObjectTransaction): LedgerStorage => ({
   get: (key) => store.get(key), put: (key, value) => store.put(key, value),
   delete: (key) => store.delete(key), list: (options) => store.list(options),
+  getMany: (keys) => store.get([...keys]), deleteMany: (keys) => store.delete([...keys]),
   transaction: (run) => "transaction" in store ? store.transaction((tx) => run(storageOf(tx))) : run(storageOf(store)),
 });
 
