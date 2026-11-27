@@ -119,7 +119,14 @@ fn counters(m: &Value) -> String {
     let Some(o) = m["harnessMagic"].as_object().filter(|o| !o.is_empty()) else {
         return String::new();
     };
-    let list: Vec<String> = o.iter().map(|(k, v)| format!("{k}={v}")).collect();
+    let mut list: Vec<String> = o.iter().map(|(k, v)| format!("{k}={v}")).collect();
+    // RFD 0160's hit rate: attached files the turns then read or edited, over those attached.
+    if let (Some(hits), Some(files)) = (
+        o.get("prefetch.hits").and_then(Value::as_f64),
+        o.get("prefetch.files").and_then(Value::as_f64).filter(|f| *f > 0.0),
+    ) {
+        list.push(format!("prefetch.hitRate={:.2}", hits / files));
+    }
     format!("  harnessMagic: {}\n", list.join(" "))
 }
 
@@ -311,71 +318,5 @@ fn no_churn(answer: &Value) -> Result<()> {
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn no_churn_fails_on_either_churn_counter() {
-        let card = |hm: Value| json!({"totals": {"harnessMagic": hm}});
-        assert!(
-            no_churn(&card(json!({"cacheAlarm.observed": 9, "cacheAlarm.declared": 2}))).is_ok()
-        );
-        assert!(no_churn(&json!({})).is_ok());
-        let e = no_churn(&card(json!({"cacheAlarm.collapses": 1, "cacheAlarm.callChurn": 2})));
-        assert!(e.unwrap_err().to_string().contains("3 prefix churn"));
-    }
-
-    #[test]
-    fn params_name_the_range_and_the_steer_window() {
-        let args = ScorecardArgs {
-            since: Some("2d".into()),
-            by: "feature".into(),
-            steer_window: Some(30),
-            limit: 5,
-            home: None,
-            assert_no_churn: false,
-            cmd: None,
-        };
-        let p = params(&args, 10 * 86_400_000).unwrap();
-        assert_eq!(p["since"], 8 * 86_400_000u64);
-        assert_eq!(p["steerWindowS"], 30);
-        assert!(params(&ScorecardArgs { by: "colour".into(), ..args }, 0).is_err());
-    }
-
-    #[test]
-    fn text_says_when_no_feature_ran() {
-        let args = ScorecardArgs { by: "feature".into(), ..ScorecardArgs::default() };
-        let a = json!({"since": 1, "until": 2, "steerWindowS": 60,
-            "totals": {"turns": 3, "sessions": 1, "steeringRate": 0.5, "ttfu": {}, "firstModel": {}},
-            "byFeature": {}});
-        let t = text(&args, &a);
-        assert!(t.contains("every turn is the baseline"), "{t}");
-        assert!(t.contains("0.500"), "{t}");
-    }
-
-    #[test]
-    fn scorecard_replay_text_names_each_violation() {
-        let a = json!({"sessions": [{"session": "abc", "harness": "claude", "calls": 3, "inits": 1,
-            "violations": [{"invariant": 5, "name": "cacheAgrees", "seq": 9, "detail": "collapsed"}]}],
-            "missing": ["nope"], "violations": 1, "notYet": [{"invariant": 1}, {"invariant": 3}]});
-        let t = replay_text(&a);
-        assert!(t.contains("invariant 5 cacheAgrees at seq 9: collapsed"), "{t}");
-        assert!(t.contains("nope: no such session"), "{t}");
-        assert!(t.contains("1, 3 not yet"), "{t}");
-        let all = json!({"sessions": [], "missing": [], "violations": 0, "notYet": [],
-            "checked": [{"invariant": 1}, {"invariant": 2}, {"invariant": 3}, {"invariant": 4},
-                {"invariant": 5}]});
-        let t = replay_text(&all);
-        assert!(t.contains("invariants 1, 2, 3, 4, 5 checked\n"), "{t}");
-        assert!(!t.contains("not yet"), "{t}");
-    }
-
-    #[test]
-    fn scorecard_replay_text_preserves_unicode_session_prefix() {
-        let answer = json!({"sessions": [{"session": "abcdefghijké-more", "harness": "claude",
-            "calls": 0, "inits": 0, "violations": []}], "missing": [], "violations": 0,
-            "notYet": []});
-        let text = replay_text(&answer);
-        assert!(text.starts_with("abcdefghijké claude"), "{text}");
-    }
-}
+#[path = "scorecard_tests.rs"]
+mod tests;

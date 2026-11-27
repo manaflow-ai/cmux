@@ -13,7 +13,10 @@
 #   3. its generated page strings are fresh (gen-strings --check, on the commit
 #      requested; a stale one is passed over for an older green one). Since
 #      #21946 the tables are build output: a commit that no longer tracks them
-#      passes when they generate (no translation missing).
+#      passes when they generate (no translation missing), and
+#   4. its web bundles built green: cmux-next.yml's web-bundles job published
+#      them under the commit's source key (web_bundles_green() below; a commit
+#      whose key an earlier green build published counts).
 # Both finish asynchronously, so each side asks when its half completes:
 #
 #   --sha <sha> --release-compile-green
@@ -53,6 +56,7 @@
 # CMUX_NIGHTLY_NEXT_MAX_REFUSED (default 5) unpromotable candidates passed over
 # (precheck refusals are not counted); NIGHTLY_NEXT_PRECHECK=0 turns the precheck off;
 # CMUX_NIGHTLY_NEXT_PRECHECK_DEPTH (default 30) ancestors it reads;
+# NIGHTLY_NEXT_WEB_BUNDLES=0 turns the web bundles check off (not counted either);
 # NIGHTLY_NEXT_PROMOTE=1 dispatches the promotion. Only main's 30-minute
 # nightly-next-tick.yml sets it: every promotion starts a full nightly build, and
 # when each landing promoted, six ran at once (2026-10-28). Without it the script
@@ -108,8 +112,12 @@ cleanup_strings() {
   fi
 }
 trap cleanup_strings EXIT
+# strings_fresh leaves the checkout it read in candidate_root for the web bundles check
+# (web_bundles_green), which removes it: one worktree a candidate, not two.
+candidate_root=""
 strings_fresh() { # <sha>
   local root="$repo_root" rc=0
+  candidate_root=""
   if [[ "$1" != "$head" ]]; then
     cleanup_strings
     strings_tmp="$(mktemp -d "${TMPDIR:-/tmp}/nightly-next-strings.XXXXXX")"
@@ -120,12 +128,11 @@ strings_fresh() { # <sha>
     fi
     root="$strings_tmp/wt"
   fi
+  candidate_root="$root"
   if [[ ! -f "$root/webviews/scripts/pages/gen-strings.mjs" ]]; then
-    [[ "$1" == "$head" ]] || cleanup_strings
     return 0
   fi
   if ! command -v node >/dev/null 2>&1; then
-    [[ "$1" == "$head" ]] || cleanup_strings
     # No node proves nothing about the strings: the run that promotes
     # (NIGHTLY_NEXT_PROMOTE=1) fails instead of requesting unchecked strings.
     if [[ "${NIGHTLY_NEXT_PROMOTE:-}" == 1 ]]; then
@@ -140,8 +147,72 @@ strings_fresh() { # <sha>
   else
     (cd "$root/webviews" && node scripts/pages/gen-strings.mjs) || rc=$?
   fi
-  [[ "$1" == "$head" ]] || cleanup_strings
   return "$rc"
+}
+
+# A commit whose web bundles do not build fails the nightly at "Build the web bundles (cmux-next)"
+# about an hour in, after its Release compile passed: nightly-next runs 45897378989 (ce8f2f00),
+# 45902437067 (eb4f2565), 45907763450 (0b7f5de6) and 45914099065 (b5edcfb5) on 2026-11-26 died there
+# on base web reds (a SetupCard import, a duplicate layoutGeometry import; fixed by #59786), each one
+# a nightly the train lost. The precheck reads only the Release compile, so every candidate also
+# needs its web bundles built green: cmux-next.yml's web-bundles job (cmux-next web bundles
+# (source-keyed cache)) publishes them to R2 under their source key only when they built, on a
+# feat-cmux-next push, and the nightly restores them from there by the same key. So the object
+# under the candidate's key is the verdict, read with no GitHub call: there = built green (by this
+# commit's push or by any earlier commit with the same web inputs: a cache hit counts), missing
+# (404) = not built green yet, and the walk passes over it, uncounted like a precheck refusal, to
+# an older commit whose bundles are there. A read that gets no answer, or a key that cannot be
+# computed, promotes as before with a warning (the feed must not stop on a cache outage).
+# NIGHTLY_NEXT_WEB_BUNDLES=0 turns it off. In the tick (GH_TICK_CACHE) a key found green is not
+# read again; any other answer is read again on the next call.
+web_bundles_objects="${CMUX_NIGHTLY_NEXT_WEB_BUNDLES_URL:-https://ci-cache-next.cmux.com/v1/any/objects}"
+web_bundles_reason=""
+# web_bundles_green <sha> <root>: 0 = built green (or unknown, or off), 1 = not built green. Sets
+# web_bundles_reason. <root> is a checkout of <sha>.
+web_bundles_green() { # <sha> <root>
+  web_bundles_reason=""
+  [[ "${NIGHTLY_NEXT_WEB_BUNDLES:-1}" != 0 ]] || { web_bundles_reason="the web bundles check is off (NIGHTLY_NEXT_WEB_BUNDLES=0)"; return 0; }
+  local root="$2" key ext code tick="" any_down=""
+  if [[ -z "$root" || ! -f "$root/scripts/cmux-next/web-bundle-key.py" ]]; then
+    web_bundles_reason="it has no scripts/cmux-next/web-bundle-key.py, so its web bundles are not checked"
+    return 0
+  fi
+  # The workflows key with the declared toolchain (web-bundle-key.py's defaults), never this runner's.
+  if ! key="$(cd "$root" && env -u CMUX_WEB_BUN_VERSION -u CMUX_WEB_NODE_VERSION \
+      python3 scripts/cmux-next/web-bundle-key.py . --source 2>/dev/null)" || [[ ! "$key" =~ ^[0-9a-f]{64}$ ]]; then
+    echo "::warning title=nightly-next web bundles::could not compute the web bundle key of ${1:0:12}; promoting it with its web bundles unchecked" >&2
+    web_bundles_reason="its web bundle key could not be computed, so its web bundles are not checked"
+    return 0
+  fi
+  if [[ -n "${GH_TICK_CACHE:-}" ]]; then
+    tick="$GH_TICK_CACHE/web-bundles"
+    mkdir -p "$tick" 2>/dev/null || tick=""
+  fi
+  if [[ -n "$tick" && -e "$tick/$key" ]]; then
+    web_bundles_reason="its web bundles (key ${key:0:12}) are built green"
+    return 0
+  fi
+  # r2-cache.sh saves .tar.zst when the saving runner has zstd, else .tar.gz.
+  for ext in tar.zst tar.gz; do
+    code="$(curl -sS -o /dev/null -I -w '%{http_code}' --connect-timeout 10 --max-time 20 \
+      "${web_bundles_objects%/}/cmux-next-web-bundles-v1-$key.$ext" 2>/dev/null)" || code="${code:-000}"
+    case "$code" in
+      200)
+        [[ -z "$tick" ]] || : > "$tick/$key"
+        web_bundles_reason="its web bundles (key ${key:0:12}) are built green"
+        return 0 ;;
+      404) ;;
+      *) any_down=1
+         echo "nightly-next web bundles: the read for ${1:0:12} ($ext) answered HTTP $code" >&2 ;;
+    esac
+  done
+  if [[ -n "$any_down" ]]; then
+    echo "::warning title=nightly-next web bundles::the web bundle store did not answer for ${1:0:12}; promoting it with its web bundles unchecked" >&2
+    web_bundles_reason="the web bundle store did not answer, so its web bundles are not checked"
+    return 0
+  fi
+  web_bundles_reason="no web bundles are published for its key ${key:0:12} (cmux-next.yml's web-bundles job has not built them green)"
+  return 1
 }
 
 # The commit nightly-next points at now, when it is in this checkout's history
@@ -466,11 +537,21 @@ request() { # <sha>
   echo "precheck ${1:0:12}: $precheck_reason"
   local strings_rc=0
   strings_fresh "$1" || strings_rc=$?
-  (( strings_rc != 2 )) || return 2
+  if (( strings_rc == 2 )); then cleanup_strings; return 2; fi
   if (( strings_rc != 0 )); then
+    cleanup_strings
     echo "not promoting ${1:0:12}: its generated page strings are stale (node webviews/scripts/pages/gen-strings.mjs --check); an older or later commit with fresh strings is promoted"
     return 1
   fi
+  local web_rc=0
+  web_bundles_green "$1" "$candidate_root" || web_rc=$?
+  cleanup_strings
+  if (( web_rc != 0 )); then
+    echo "not promoting ${1:0:12}: $web_bundles_reason; an older commit whose web bundles built is promoted, and the next tick asks again"
+    precheck_refused=1
+    return 1
+  fi
+  echo "web bundles ${1:0:12}: $web_bundles_reason"
   # Main's promote guard requires the tree-commit marker (the same check), so
   # a commit without one is not requested: the backfill marks it. A tip whose
   # tree is still building (request_tree_pending) is the exception main's

@@ -13,7 +13,18 @@
 // like, shrinks the thing, the circle into the Thinking... portion afterwards which is cute"), and
 // when an ask opens under a line already drawn, the dot grows in the same way (Leo, 2026-11-08: "I
 // mostly just meant the yellow circle thing. I thought that was cute").
-import { type RefObject, useContext, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
+import {
+  type RefObject,
+  useContext,
+  useEffect,
+  useLayoutEffect,
+  useMemo,
+  useReducer,
+  useRef,
+  useState,
+  useSyncExternalStore,
+} from "react";
+import { motionMode } from "../../../ui/motion/motionMode";
 import { experimentArm } from "../../../experiments/experiment";
 import { useT } from "../i18n";
 import { agentStartLook } from "./agentStart.experiment";
@@ -41,7 +52,7 @@ import { verbLeads } from "./toolVerbModel";
 import { statusVerbAt, statusVerbLabels, useStatusVerbConfig } from "../statusVerbs";
 import { thinkingVerb, ThinkingVerbsContext } from "./thinkingVerbs";
 import type { AcpmuxCompaction, AcpmuxTurnRetry } from "../model";
-import { retryBusy, retryParts, retryShown, SILENT_MS, WRITING_MS, liveLead } from "./thinkingModel";
+import { retryParts, SILENT_MS, WRITING_MS, liveLead, retryBusy, retryShown } from "./thinkingModel";
 import { useConnectionQuietFrom } from "../../../ui/lasting";
 import { CACHE_EXPIRY_REASON } from "./cacheCompaction";
 import type { LiveLinePulse } from "./liveLinePulse";
@@ -150,6 +161,104 @@ type Roll = {
   /// What followed the words when they rolled out: their time and counts ("1m · 1.7K tokens").
   tail?: string;
 };
+
+/// What the line says, from its props: a change of any of these rolls the line (`useRoll`). Its
+/// clocks, counts and pulse are not here; they go on under whichever words it shows.
+const SAYS = [
+  "starting",
+  "doing",
+  "doingAt",
+  "doingShell",
+  "sendTo",
+  "sendSession",
+  "draft",
+  "done",
+  "call",
+  "doneMs",
+  "liveState",
+  "liveAgents",
+  "liveAgentNames",
+  "liveCompaction",
+  "command",
+  "retry",
+] as const satisfies readonly (keyof ThinkingProps)[];
+type Says = Pick<ThinkingProps, (typeof SAYS)[number]>;
+type ThinkingProps = NonNullable<Parameters<typeof ThinkingLine>[0]>;
+
+/// The least time one set of words stays on the line before the next replaces it, in full motion.
+/// A turn that sends messages in quick succession flips the line from "Thinking" to "Sending message
+/// to X", to a call and back many times a second; each flip rolled at once, so the line flickered
+/// (Leo, 2026-11-25: "the sending messages in rapid succession is really bad looking. it's just your
+/// tool call/thinking glimmer text rapidly flickering up with very bad/nonexistent fade-in fade-out").
+/// Words that change sooner wait for the dwell's end and roll once to the latest; words that come
+/// back to what the line shows before then roll nothing. Three rolls (80 ms each) at most a second.
+export const LINE_DWELL_MS = 320;
+
+function saysKey(props: ThinkingProps): string {
+  return JSON.stringify([
+    props.starting ?? false,
+    props.doing,
+    props.doingShell ?? false,
+    props.sendTo,
+    props.sendSession,
+    props.draft ?? false,
+    props.done ?? false,
+    props.call,
+    props.liveState,
+    props.liveAgents ?? 0,
+    props.liveAgentNames,
+    props.command ?? false,
+    props.retry !== undefined,
+  ]);
+}
+
+function rollsNothing(says: Says): boolean {
+  return (says.starting ?? false) || says.retry !== undefined;
+}
+
+function pickSays(props: ThinkingProps): Says {
+  const says: Partial<Record<keyof Says, unknown>> = {};
+  for (const name of SAYS) says[name] = props[name];
+  return says as Says;
+}
+
+/// The line's words held for `LINE_DWELL_MS` since they last changed (one timeout per held change,
+/// cleared by the next; no loop). The timeout firing ends the dwell whatever the clock reads, so a
+/// clock that stands still (a frozen `now`) never holds the words for good. Reduced or no motion shows
+/// each change at once: nothing rolls there.
+function useLineDwell(props: ThinkingProps): ThinkingProps {
+  const key = saysKey(props);
+  const clock = props.now ?? Date.now;
+  // A wake since the shown words were set means their dwell ran out.
+  const [woken, wake] = useReducer((n: number) => n + 1, 0);
+  const [shown, setShown] = useState(() => ({ key, at: clock(), says: pickSays(props), woken }));
+  let hold = false;
+  if (shown.key !== key) {
+    const at = clock();
+    hold =
+      // Only words that roll into words wait: a start look or a retry, and the words back after one, show at once.
+      !rollsNothing(props) &&
+      !rollsNothing(shown.says) &&
+      at - shown.at < LINE_DWELL_MS &&
+      woken === shown.woken &&
+      motionMode() === "full" &&
+      // The line as it was before the dwell, for the gallery's before frames (agent-pane.status-swap `rapid-send-before`).
+      document.documentElement.dataset.liveDwell !== "off";
+    if (!hold) setShown({ key, at, says: pickSays(props), woken });
+  }
+  const since = shown.at;
+  useEffect(() => {
+    if (!hold) return undefined;
+    const id = setTimeout(wake, Math.max(0, LINE_DWELL_MS - (clock() - since)));
+    return () => clearTimeout(id);
+  }, [hold, since, woken, clock]);
+  return hold ? { ...props, ...shown.says } : props;
+}
+
+/// A running turn's live line (`ThinkingLine`), its words held a moment so quick changes never flash.
+export function Thinking(props: ThinkingProps = {}) {
+  return <ThinkingLine {...useLineDwell(props)} />;
+}
 
 /// The live line rolls its words when they change (Leo, 2026-11-05, on another app's status line:
 /// "this is quite good too how it animates the changing text!!! we need to have that!!! for
@@ -470,7 +579,7 @@ function LiveWords({
 /// on the person alike.
 export const SHIMMER_CLASS = "is-shimmer";
 
-export function Thinking({
+function ThinkingLine({
   starting = false,
   since,
   now = Date.now,

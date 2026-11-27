@@ -5,8 +5,11 @@ on a missing artifact, a failed job, a repeated API failure and the time bound; 
 and a failed test as a verdict instead of ending the step (review of cmux#59111)."""
 from __future__ import annotations
 
+import http.server
 import io
 import os
+import socket
+import threading
 import subprocess
 import tarfile
 import tempfile
@@ -165,6 +168,48 @@ class Pool(unittest.TestCase):
         self.assertEqual(done.returncode, 0, done.stderr)
         self.assertEqual((out["verdict"], out["cases"]), ("none", "0"))
         self.assertIn("exit 2, 0 test cases", (self.fake.dir / "summary").read_text())
+
+
+class Reach(unittest.TestCase):
+    """`cmux-linux` is also served by GCP pool runners off the tailnet (run 45912028627 timed out there): the job
+    asks first and hands the submit to an owned Mac on a no, instead of reading the timeout as a verdict."""
+
+    def setUp(self):
+        self.fake = Fake()
+        self.addCleanup(self.fake.tmp.cleanup)
+
+    def test_a_controller_that_answers_is_reached(self):
+        class Manifest(http.server.BaseHTTPRequestHandler):
+            def do_GET(self):
+                code = 200 if self.path == "/v1/client/manifest" else 404
+                self.send_response(code)
+                self.end_headers()
+                self.wfile.write(b'{"files": {}}')
+
+            def log_message(self, *args):
+                pass
+
+        server = http.server.HTTPServer(("127.0.0.1", 0), Manifest)
+        threading.Thread(target=server.serve_forever, daemon=True).start()
+        self.addCleanup(server.shutdown)
+        done, out = self.fake.run("reach", CONTROLLER=f"http://127.0.0.1:{server.server_port}")
+        self.assertEqual(done.returncode, 0, done.stderr)
+        self.assertEqual(out, {"reach": "yes"})
+
+    def test_no_route_is_a_no_and_never_ends_the_step(self):
+        with socket.socket() as sock:  # a port nothing listens on: refused, as an off-tailnet route times out
+            sock.bind(("127.0.0.1", 0))
+            port = sock.getsockname()[1]
+        done, out = self.fake.run("reach", CONTROLLER=f"http://127.0.0.1:{port}", REACH_TIMEOUT="1",
+                                  RUNNER_NAME="cmux-runner-pool-s1a-0001-1")
+        self.assertEqual(done.returncode, 0, done.stderr)
+        self.assertEqual(out, {"reach": "no"})
+        self.assertIn("no route to the controller from cmux-runner-pool-s1a-0001-1", done.stdout)
+        self.assertIn("owned Mac", done.stdout)
+
+    def test_no_controller_variable_is_a_no(self):
+        done, out = self.fake.run("reach", CONTROLLER="")
+        self.assertEqual((done.returncode, out), (0, {"reach": "no"}))
 
 
 if __name__ == "__main__":

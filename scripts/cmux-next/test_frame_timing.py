@@ -7,9 +7,12 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import frame_timing as ft  # noqa: E402
 
 
-def line(ms, transition="divider_drag", event=True):
-    return json.dumps({"transition": transition, "ms": ms, "commit_ms": ms - 1, "input_ts": 1.0, "first_frame_ts": 1.0 + ms / 1000,
-                       "event": event, "build": "1", "at_ms": 0})
+def line(ms, transition="divider_drag", event=True, path=None):
+    row = {"transition": transition, "ms": ms, "commit_ms": ms - 1, "input_ts": 1.0, "first_frame_ts": 1.0 + ms / 1000,
+           "event": event, "build": "1", "at_ms": 0}
+    if path:
+        row["path"] = path
+    return json.dumps(row)
 
 
 class ReaderTests(unittest.TestCase):
@@ -44,6 +47,12 @@ class ReaderTests(unittest.TestCase):
         self.assertEqual(list(ft.summarize(rows, transition="divider_drag")), ["divider_drag"])
         newest = ft.summarize(rows, transition="divider_drag", last=5)["divider_drag"]
         self.assertEqual((newest["count"], newest["p95_ms"]), (5, 10))
+
+    def test_a_path_splits_a_transition_and_the_filter_keeps_both(self):
+        rows, _ = ft.read_lines([line(40, "right_split_open", path="live")] * 3 + [line(5, "right_split_open", path="snapshot")] * 3)
+        stats = ft.summarize(rows, transition="right_split_open")
+        self.assertEqual(sorted(stats), ["right_split_open/live", "right_split_open/snapshot"])
+        self.assertEqual((stats["right_split_open/live"]["p50_ms"], stats["right_split_open/snapshot"]["p50_ms"]), (40, 5))
 
     def test_work_lines_get_each_counters_mean_and_max_per_drag(self):
         work = [json.dumps({"transition": "divider_drag_work", "ms": 400, "moves": 30, "fence_joined": j, "detaches": 0,

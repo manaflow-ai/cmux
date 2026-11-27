@@ -165,7 +165,10 @@
 #           instead of ~150 MB), upload-random (random bytes, as a video's, not a
 #           sparse file), upload-relay (the phone's link relay only),
 #           upload-block-udp (the phone's link with UDP blocked), upload-wait=S
-#           (seconds to wait for the probe's result, 60-3600, default 300).
+#           (seconds to wait for the probe's result, 60-3600, default 300),
+#           reconnect-drops=10,60 (FlowSuite's reconnect-after-drop: the Mac app and
+#           its hostd freeze for each drop; the phone must reattach within 30 s
+#           with no tap; reconnect-after-drop.mp4 records the phone).
 #   listperf
 #           build, plus the list frame-rate rig (ListStressRig,
 #           verify/listperf/): each case launches the Demo app with
@@ -393,7 +396,11 @@ if [[ "$mode" == pair-e2e && $# -gt 1 ]]; then
       upload-random) pair_upload+=(--upload-random) ;;
       upload-relay) pair_upload+=(--upload-relay-only) ;;
       upload-block-udp) pair_upload+=(--upload-block-udp) ;;
-      *) echo "cmux-next-ios-sim.sh: pair-e2e takes upload-mb=N, upload-wait=S, upload-random, upload-relay and upload-block-udp, got '$word'" >&2; exit 2 ;;
+      reconnect-drops=*)
+        n="${word#reconnect-drops=}"
+        [[ "$n" =~ ^[1-9][0-9]{0,2}(,[1-9][0-9]{0,2}){0,3}$ ]] || { echo "cmux-next-ios-sim.sh: reconnect-drops= wants up to 4 comma-separated seconds (1-999), got '$n'" >&2; exit 2; }
+        pair_upload+=(--reconnect-drops "$n") ;;
+      *) echo "cmux-next-ios-sim.sh: pair-e2e takes upload-mb=N, upload-wait=S, upload-random, upload-relay, upload-block-udp and reconnect-drops=S,S, got '$word'" >&2; exit 2 ;;
     esac
   done
 fi
@@ -1270,6 +1277,12 @@ keep_test_logs() {
   local log=$1 bundle=$2 name=$3
   cp "$log" "$out/$name-test.log" 2>/dev/null || true
   xcrun xcresulttool get log --type console --path "$bundle" > "$out/$name-console.txt" 2> "$out/$name-console-error.txt" || true
+  # A bench test's own result lines go in the step log: a failed step uploads no
+  # artifact, and a run that missed its bound in one cell (heavy duress) is the
+  # number most worth reading (2026-11-26: an idle+heavy attach run on cmux9
+  # failed under heavy and left nothing readable for 4 h of queue and build).
+  grep -hoE 'attach first frame( median \(warm\))?: .*' "$log" "$out/$name-console.txt" 2>/dev/null |
+    awk '!seen[$0]++' | head -80 | sed "s/^/- $name: /" | tee -a "$summary" || true
   xcrun xcresulttool get test-results tests --path "$bundle" --compact > "$out/$name-tests.json" 2>/dev/null || true
   # XCTAttachments (UI tests' keepAlways screenshots) as files, with the
   # manifest.json that maps each one to its test.
