@@ -6734,6 +6734,10 @@
         "ty": "boolean",
         "nullable": true
       },
+      "/hold": {
+        "ty": "boolean",
+        "nullable": true
+      },
       "/kinds": {
         "ty": "untagged_union|string|array",
         "nullable": true

@@ -109,6 +109,12 @@ public final class LiveFeed: FeedActions {
             break
         case .sessionsLoaded(let sessions):
             hydrate(sessions)
+        case .sessionsChanged(let followed):
+            // A follow: only these chats changed since the list was current. Their finished turns
+            // join the Feed, and their asks answered elsewhere resolve; every other card stands.
+            let changed = Array(followed.changed.values)
+            resolveAnswered(among: changed)
+            hydrate(changed)
         }
     }
 
@@ -138,6 +144,15 @@ public final class LiveFeed: FeedActions {
         fullReplies = fullReplies.filter { shown.contains($0.key) }
         for (item, session) in turns.prefix(Self.fullReplyReads) where shown.contains(item.id) {
             readFullReply(of: item, sessionID: session.id, turnID: session.lastTurnID, through: session.lastSeq)
+        }
+    }
+
+    /// Resolves the asks of `sessions` the Mac no longer has (answered on the Mac or elsewhere).
+    func resolveAnswered(among sessions: [AcpmuxSession]) {
+        for session in sessions where session.pendingPermissions == 0 {
+            guard let asks = openAsks.removeValue(forKey: session.id) else { continue }
+            for id in asks { askKinds[id] = nil }
+            for id in asks { store.resolveElsewhere(id, text: "Answered") }
         }
     }
 
@@ -182,15 +197,29 @@ public final class LiveFeed: FeedActions {
 
     // MARK: FeedActions
 
-    /// Pull to refresh: re-runs `_acpmux/watch` for the Mac's sessions, adds
-    /// any finished turns the Feed missed, resolves asks the Mac no longer
-    /// has, and reads each waiting session's open asks again.
+    /// Pull to refresh: asks the Mac for the chats changed since the hub's list cursor
+    /// (``AcpmuxHub/followList(timeout:)``), adds their finished turns the Feed missed, resolves
+    /// asks the Mac no longer has, and reads the changed waiting chats' open asks. Its cost is the
+    /// changes: it used to read the whole list again (30-38 MB from a Mac with 10,000 chats). A Mac
+    /// whose acpmux cannot follow, or a hub that does not hold the whole list yet, is read whole
+    /// as before.
     public func refresh() async throws {
         await terminal?.refresh()
         guard let hub else { throw AcpmuxConnection.RPCError(code: 0, message: "Not connected to your Mac", reason: nil) }
-        let sessions = try await hub.wholeList("_acpmux/watch", ["enabled": .bool(true)], timeout: .seconds(20)).compactMap(AcpmuxSession.init)
+        let sessions: [AcpmuxSession]
+        let byID: [String: AcpmuxSession]
+        if let followed = try await hub.followList(timeout: .seconds(20)) {
+            // The changed chats, and any waiting chat whose ask this Feed does not hold (a card
+            // answered from a notification, or an ask missed): a scan on the phone, no list read.
+            sessions = Array(followed.changed.values) + hub.sessions.values.filter {
+                $0.pendingPermissions > 0 && openAsks[$0.id] == nil && followed.changed[$0.id] == nil
+            }
+            byID = hub.sessions
+        } else {
+            sessions = try await hub.wholeList("_acpmux/watch", ["enabled": .bool(true)], timeout: .seconds(20)).compactMap(AcpmuxSession.init)
+            byID = Dictionary(sessions.map { ($0.id, $0) }, uniquingKeysWith: { _, last in last })
+        }
         hydrate(sessions)
-        let byID = Dictionary(sessions.map { ($0.id, $0) }, uniquingKeysWith: { _, last in last })
         for (sessionID, asks) in openAsks where (byID[sessionID]?.pendingPermissions ?? 0) == 0 {
             openAsks[sessionID] = nil
             for id in asks { askKinds[id] = nil }
