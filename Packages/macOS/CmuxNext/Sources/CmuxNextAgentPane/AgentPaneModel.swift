@@ -593,11 +593,10 @@ public final class AgentPaneModel {
         guard var page = newTab else { return nil }
         if page.draft == nil { page.draft = newChatLeftoverDraft?() }
         page.start = startFolders.local(of: self)
-        if page.projectRows == nil {
-            let local = page.startsRemote != true
+        if page.projectRows == nil, page.startsRemote != true {
             page.projectRows = AgentPaneProjectSnapshot.rows(
-                projects: local ? AgentPaneProjectSnapshot.cachedProjects + page.projects : page.projects,
-                repos: local ? AgentPaneProjectSnapshot.cachedRepos : [:], warm: page.warm, cwd: page.cwd)
+                projects: AgentPaneProjectSnapshot.cachedProjects + page.projects,
+                repos: AgentPaneProjectSnapshot.cachedRepos, warm: page.warm, cwd: page.cwd)
             newTab?.projectRows = page.projectRows
         }
         return page
