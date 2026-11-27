@@ -50,12 +50,6 @@ def feed(*items: tuple, channel: dict | None = None, source: dict | None = None)
             f"<channel>{body}</channel></rss>")
 
 
-def add_delta(text: str, build: int, delta_from: int, url: str = BASE) -> str:
-    enclosure = (f'<enclosure url="{url}/cmux-nightly-next-macos-arm64-{build}-{delta_from}.delta" '
-                 f'sparkle:version="{build}" sparkle:deltaFrom="{delta_from}" length="1"/>')
-    return text.replace("</item>", f"<sparkle:deltas>{enclosure}</sparkle:deltas></item>", 1)
-
-
 class SignatureTests(unittest.TestCase):
     """The DMG's EdDSA signature, written beside it so an app can check a build the feed dropped."""
 
@@ -168,50 +162,69 @@ class FeedWriteCase(unittest.TestCase):
 
 
 class WriteFeedTests(FeedWriteCase):
-    def test_same_build_revision_unions_deltas_from_the_live_item(self) -> None:
-        live = add_delta(feed((300, "live", 1), source={300: "a" * 40}), 300, 299).encode()
-        self.path.write_text(add_delta(feed((300, "candidate", 1)), 300, 200), encoding="utf-8")
-        written: list[tuple[bytes, list[str]]] = []
+    def test_changed_snapshot_returns_the_winner_without_uploading(self) -> None:
+        original = feed((200, "original", 1), source={200: "a" * 40}).encode()
+        winner = feed((200, "winner", 1), source={200: "b" * 40}).encode()
+        snapshot = Path(self.dir.name) / "snapshot.xml"
+        snapshot.write_bytes(original)
+        with mock.patch.object(r2, "read_live", return_value=winner), mock.patch.object(r2.subprocess, "run") as put:
+            self.assertEqual(r2.main(["write-feed", "--feed", str(self.path), "--same-build",
+                                      "--expected-feed", str(snapshot)]), r2.CONFLICT)
+        put.assert_not_called()
+        self.assertEqual(snapshot.read_bytes(), winner)
 
-        def fake_run(args, *rest, **kwargs):
-            written.append((self.path.read_bytes(), args))
-            return subprocess.CompletedProcess(args, 0)
+    def test_republish_rebuilds_a_lost_cas_from_the_winners_snapshot(self) -> None:
+        root = Path(self.dir.name)
+        tools = root / ".publish-tooling/scripts/ci"
+        tools.mkdir(parents=True)
+        inputs = root / "nightly-deltas"
+        inputs.mkdir()
+        build = 200
+        def fixture(previous: int, url: str, old_url: str) -> str:
+            text = feed((300, "newest", 1), (build, old_url, 1), source={300: "a" * 40, build: "b" * 40})
+            close = text.rindex("</item>")
+            delta = (f'<sparkle:deltas><enclosure url="{url}" sparkle:deltaFrom="{previous}"'
+                     ' length="1"/></sparkle:deltas>')
+            return text[:close] + delta + text[close:]
 
-        with mock.patch.object(r2, "read_live", return_value=live), \
-                mock.patch.object(r2.subprocess, "run", fake_run):
-            self.assertEqual(r2.write_feed(self.path, str(self.output), same_build=True), 0)
-        payload = written[0][0]
-        self.assertIn(b'sparkle:deltaFrom="299"', payload)
-        self.assertIn(b'sparkle:deltaFrom="200"', payload)
-        self.assertIn(b'url="live"', payload)
-        self.assertIn(b">" + b"a" * 40 + b"<", payload)
-        self.assertEqual(hashlib.sha256(live).hexdigest(),
-                         written[0][1][written[0][1].index("--replace-sha256") + 1])
+        (root / "before").write_text(fixture(198, GH + "unserved.delta", "first-full"))
+        (root / "winner").write_text(fixture(199, BASE + "/winner.delta", "winner-full"))
+        (inputs / "appcast-arm64.xml").write_text(fixture(100, BASE + "/generated.delta", "candidate-full"))
+        (inputs / "generated.delta").touch()
+        # Feed reads and object uploads use local files. Run the real shell
+        # step, merge, rewrite, prune and write-feed on every attempt.
+        curl = root / "curl"
+        curl.write_text('#!/bin/sh\nwhile [ "$1" != "-o" ]; do shift; done\ncp before "$2"\n')
+        curl.chmod(0o755)
+        (tools / "nightly-next-guard.py").touch()
+        (tools / "nightly_next_delta_check.py").write_text(
+            "import runpy, sys\nfrom pathlib import Path\n"
+            "if sys.argv[1] == 'check': sys.exit(0)\n"
+            f"runpy.run_path({str(ROOT / 'scripts/ci/nightly_next_delta_check.py')!r}, run_name='__main__')\n")
+        (tools / SCRIPT.name).write_text(
+            "import hashlib, runpy, subprocess, sys\nfrom pathlib import Path\n"
+            f"r2 = runpy.run_path({str(SCRIPT)!r})['main']\ng = r2.__globals__\n"
+            "g.update(guard_key=lambda key: None, public_length=lambda *a, **kw: None, upload=lambda files: 0)\n"
+            "def read(key): return Path('winner' if Path('put1').exists() else 'before').read_bytes()\n"
+            "def put(args):\n"
+            "    first = not Path('put1').exists()\n"
+            "    assert args[args.index('--replace-sha256')+1] == hashlib.sha256(read(None)).hexdigest()\n"
+            "    Path('put1' if first else 'put2').write_bytes(Path(args[args.index('--file')+1]).read_bytes())\n"
+            "    return subprocess.CompletedProcess(args, 3 if first else 0)\n"
+            "g['read_live'] = read\ng['subprocess'].run = put\nsys.exit(r2(sys.argv[1:]))\n")
+        env = {**os.environ, "PATH": str(root) + os.pathsep + os.environ["PATH"],
+               "CHANNEL_FEED_BASE": BASE, "NIGHTLY_BUILD": str(build), "DELTAS_ONLY_WHILE_NEWEST": ""}
+        step = ROOT / "scripts/ci/nightly-steps/republish-deltas-upload-next-appcasts.sh"
+        subprocess.run(["bash", str(step)], cwd=root, env=env, check=True, capture_output=True)
+        for attempt in ("put1", "put2"):
+            payload = (root / attempt).read_bytes()
+            self.assertIn(b'generated.delta', payload)
+            self.assertNotIn(b'unserved.delta', payload)
+            self.assertEqual(r2.item_source(payload, 300), "a" * 40)
+            self.assertEqual(r2.item_source(payload, build), "b" * 40)
+        self.assertIn(b'winner.delta', payload)
+        self.assertIn(b'winner-full', payload)
 
-    def test_same_build_revision_unions_deltas_again_after_a_lost_cas(self) -> None:
-        first_live = add_delta(feed((300, "live", 1), source={300: "a" * 40}), 300, 299).encode()
-        second_live = add_delta(feed((300, "racer", 1), source={300: "b" * 40}), 300, 198).encode()
-        self.path.write_text(add_delta(feed((300, "candidate", 1)), 300, 200), encoding="utf-8")
-        written: list[tuple[bytes, list[str]]] = []
-
-        def fake_run(args, *rest, **kwargs):
-            written.append((self.path.read_bytes(), args))
-            return subprocess.CompletedProcess(args, r2.CONFLICT if len(written) == 1 else 0)
-
-        with mock.patch.object(r2, "read_live", side_effect=[first_live, second_live]), \
-                mock.patch.object(r2.subprocess, "run", fake_run):
-            self.assertEqual(r2.write_feed(self.path, str(self.output), same_build=True), 0)
-        self.assertEqual(len(written), 2)
-        self.assertIn(b'sparkle:deltaFrom="299"', written[0][0])
-        self.assertIn(b'sparkle:deltaFrom="200"', written[0][0])
-        self.assertIn(b'sparkle:deltaFrom="198"', written[1][0])
-        self.assertIn(b'sparkle:deltaFrom="200"', written[1][0])
-        self.assertIn(b'url="racer"', written[1][0])
-        self.assertIn(b">" + b"b" * 40 + b"<", written[1][0])
-        for _payload, args, live_bytes in ((written[0][0], written[0][1], first_live),
-                                           (written[1][0], written[1][1], second_live)):
-            self.assertEqual(hashlib.sha256(live_bytes).hexdigest(),
-                             args[args.index("--replace-sha256") + 1])
     def test_a_newer_live_feed_is_left_alone(self) -> None:
         live = feed((300, "x", 1)).encode()
         self.assertEqual(self.run_with([live], []), 0)

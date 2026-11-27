@@ -20,12 +20,15 @@ follow-up job that never holds the feed.
       Points every enclosure <github-prefix><N> in F at <public-base>/<N>.
       --if-public rewrites only names the public base serves at the enclosure's
       length (the delta republish, which may carry older GitHub-only builds).
-  write-feed --feed F [--same-build]
+  write-feed --feed F [--same-build [--expected-feed SNAPSHOT]]
       Replaces <prefix><basename F> only while the live feed's newest build is
       below this feed's newest build, with If-Match on the bytes it read, so two
       runs never move the feed back (a lost race re-reads and decides again).
       --same-build (the delta republish): only while the live feed's newest
-      build is this feed's. Either way the feed written keeps the live feed's
+      build is this feed's. With --expected-feed the revision must have been
+      prepared from those exact live bytes. On conflict, writes the latest bytes
+      to SNAPSHOT and exits 3 so the caller can prepare the revision again.
+      Either way the feed written keeps the live feed's
       newest earlier builds until it holds KEEP_BUILDS (2) builds, so a pull
       (nightly-next-rollback.yml) always has a published build to fall back
       to: every build on the live feed passed the publish gate, and a pulled
@@ -71,9 +74,6 @@ ITEM = re.compile(rb"[ \t]*<item>.*?</item>[ \t]*\n?", re.S)
 ITEM_VERSION = re.compile(rb"<sparkle:version>\s*(\d+)\s*</sparkle:version>")
 ITEM_SOURCE = re.compile(rb"<cmux:sourceCommit(?:\s+[^>]*)?>\s*([0-9a-f]{7,40})\s*</cmux:sourceCommit>", re.I)
 ITEM_CHANNEL = re.compile(rb"<sparkle:channel>\s*([^<]*?)\s*</sparkle:channel>")
-DELTA_BLOCK = re.compile(rb"(\s*<sparkle:deltas>)(.*?)(\s*</sparkle:deltas>)", re.S)
-DELTA_ENCLOSURE = re.compile(rb"\s*<enclosure\b[^>]*?/>", re.S)
-DELTA_FROM = re.compile(rb'sparkle:deltaFrom="(\d+)"')
 NIGHTLY_CHANNELS = (None, b"cmux-next")  # what a Nightly-ring app is offered (untagged or cmux-next)
 _sleep = time.sleep
 
@@ -273,40 +273,6 @@ def item_source(xml: bytes, build: int) -> str | None:
         source = ITEM_SOURCE.search(match.group(0))
         return source.group(1).decode("ascii").lower() if source else None
     return None
-
-
-def merge_live_deltas(live: bytes, generated: bytes, build: int) -> bytes:
-    """Add generated deltas to the live item for BUILD without rewriting live bytes.
-
-    The delta job has several independent writers. A writer that loses its CAS must
-    retain every delta the winning writer published while it was preparing its own
-    feed, so the next upload is the union of both items' deltaFrom values.
-    """
-    live_items = [(match, value) for match, value in item_builds(live) if value == build]
-    generated_items = [(match, value) for match, value in item_builds(generated) if value == build]
-    if len(live_items) != 1:
-        return generated
-    if len(generated_items) != 1:
-        return live
-    live_match, _ = live_items[0]
-    generated_match, _ = generated_items[0]
-    live_item = live_match.group(0)
-    generated_item = generated_match.group(0)
-    have = set(DELTA_FROM.findall(live_item))
-    block = DELTA_BLOCK.search(generated_item)
-    new = DELTA_ENCLOSURE.findall(block.group(2)) if block else []
-    new = [enclosure for enclosure in new
-           if (delta_from := DELTA_FROM.search(enclosure)) and delta_from.group(1) not in have]
-    if not new:
-        return live
-    existing = DELTA_BLOCK.search(live_item)
-    if existing:
-        merged_item = live_item[:existing.end(2)] + b"".join(new) + live_item[existing.end(2):]
-    else:
-        close = live_item.rindex(b"</item>")
-        merged_item = (live_item[:close] + b'    <sparkle:deltas>' + b"".join(new)
-                       + b"\n            </sparkle:deltas>\n        " + live_item[close:])
-    return live[:live_match.start()] + merged_item + live[live_match.end():]
 
 
 def add_source(xml: bytes, source_sha: str) -> bytes:
@@ -560,12 +526,13 @@ def read_live(key: str) -> bytes | None:
 
 
 def write_feed(feed: Path, github_output: str | None, same_build: bool = False, attempts: int = 5,
-               source_sha: str | None = None) -> int:
+               source_sha: str | None = None, expected_feed: Path | None = None) -> int:
     key = env("NIGHTLY_NEXT_R2_PREFIX") + feed.name
     guard_key(key)
     original = bind_feed_prefixes(feed.read_bytes())
     if source_sha:
         original = add_source(original, source_sha.lower())
+    expected = expected_feed.read_bytes() if expected_feed is not None else None
     ours = newest_build(original)
     for _ in range(attempts):
         live = read_live(key)
@@ -573,6 +540,11 @@ def write_feed(feed: Path, github_output: str | None, same_build: bool = False, 
             print(f"{feed.name}: no live feed to revise; left as it is")
             return 0
         if live is not None:
+            if expected_feed is not None and live != expected:
+                # The prepared revision includes metadata, ring state and pruned
+                # enclosures from a different read. Rebuild it from this one.
+                expected_feed.write_bytes(live)
+                return CONFLICT
             theirs = newest_build(live)
             if not same_build and theirs == ours and source_sha:
                 live_source = item_source(live, theirs) or signed_notes_source(theirs) or compiled_artifact_source(theirs)
@@ -608,14 +580,11 @@ def write_feed(feed: Path, github_output: str | None, same_build: bool = False, 
                             out.write("feed_written=false\npublication_refused=true\n")
                     return 0
             mode = ["--replace-sha256", hashlib.sha256(live).hexdigest(), "--conflict-exit-code", str(CONFLICT)]
-            generated = original
-            if same_build:
-                generated = merge_live_deltas(live, original, ours)
-            merged = keep_earlier_builds(generated, live)
+            merged = keep_earlier_builds(original, live)
             # Delta artifacts predate the source marker added by the initial CAS.
             # Keep the live item's provenance when revising that exact build.
             if same_build:
-                live_source = item_source(live, ours) or item_source(merged, ours) or item_source(original, ours)
+                live_source = item_source(live, ours) or item_source(merged, ours)
                 if live_source:
                     merged = add_source(merged, live_source)
             merged = bind_feed_prefixes(merged)
@@ -664,6 +633,7 @@ def main(argv: list[str]) -> int:
     wf.add_argument("--feed", type=Path, required=True)
     wf.add_argument("--github-output")
     wf.add_argument("--same-build", action="store_true")
+    wf.add_argument("--expected-feed", type=Path, help="snapshot used to prepare a same-build revision")
     wf.add_argument("--source-sha", help="full source commit for this feed's newest item")
     args = parser.parse_args(argv)
     if args.command == "upload":
@@ -677,7 +647,10 @@ def main(argv: list[str]) -> int:
     if not args.source_sha and not args.same_build:
         parser.error("write-feed needs --source-sha (a new build) or --same-build (a revision that keeps the live "
                      "item's source); a feed item without cmux:sourceCommit strands every commit reader")
-    return write_feed(args.feed, args.github_output, args.same_build, source_sha=args.source_sha)
+    if args.expected_feed is not None and not args.same_build:
+        parser.error("--expected-feed requires --same-build")
+    return write_feed(args.feed, args.github_output, args.same_build, source_sha=args.source_sha,
+                      expected_feed=args.expected_feed)
 
 
 if __name__ == "__main__":
