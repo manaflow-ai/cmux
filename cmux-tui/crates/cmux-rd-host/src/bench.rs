@@ -12,6 +12,7 @@
 //! frames it received.
 
 use crate::args::Opts;
+use crate::bench_rx::RxThread;
 use crate::clock::{now_ns, Rng};
 use crate::fdwait::wait_readable;
 use crate::marker;
@@ -55,7 +56,8 @@ enum ViewerIo {
     Socket {
         tcp: TcpStream,
         reader: FrameReader,
-        udp: Option<(UdpSocket, SocketAddr)>,
+        /// The UDP carrier: the viewer sends on the socket; its own thread reads it.
+        udp: Option<(UdpSocket, SocketAddr, RxThread)>,
     },
     #[cfg(feature = "link")]
     Link(LinkIo),
@@ -112,14 +114,16 @@ fn link_line(
 /// One control record or datagram that arrived.
 enum Arrived {
     Control(Vec<u8>),
-    Datagram(Vec<u8>),
+    /// A datagram and its arrival (protocol clock, ns): the kernel's receive time on the UDP
+    /// carrier (bench_rx.rs), the read time on the others.
+    Datagram(Vec<u8>, u64),
     Closed(String),
 }
 
 impl ViewerIo {
     fn send_datagram(&mut self, d: &[u8]) -> io::Result<()> {
         match self {
-            Self::Socket { udp: Some((sock, host)), .. } => sock.send_to(d, *host).map(|_| ()),
+            Self::Socket { udp: Some((sock, host, _)), .. } => sock.send_to(d, *host).map(|_| ()),
             Self::Socket { tcp, .. } => write_frame(tcp, FRAME_DATAGRAM, d),
             #[cfg(feature = "link")]
             Self::Link(link) => {
@@ -144,8 +148,8 @@ impl ViewerIo {
         match self {
             Self::Socket { tcp, udp, .. } => {
                 let mut fds = vec![tcp.as_raw_fd()];
-                if let Some((s, _)) = udp {
-                    fds.push(s.as_raw_fd());
+                if let Some((_, _, rx)) = udp {
+                    fds.push(rx.wake_fd());
                 }
                 fds
             }
@@ -162,20 +166,13 @@ impl ViewerIo {
                 }
                 while let Some((ty, payload)) = reader.next()? {
                     match ty {
-                        FRAME_DATAGRAM => out.push(Arrived::Datagram(payload)),
+                        FRAME_DATAGRAM => out.push(Arrived::Datagram(payload, now_ns())),
                         FRAME_CONTROL => out.push(Arrived::Control(payload)),
                         _ => {}
                     }
                 }
-                if let Some((sock, _)) = udp {
-                    let mut buf = vec![0u8; 65536];
-                    loop {
-                        match sock.recv_from(&mut buf) {
-                            Ok((n, _)) => out.push(Arrived::Datagram(buf[..n].to_vec())),
-                            Err(e) if e.kind() == io::ErrorKind::WouldBlock => break,
-                            Err(e) => return Err(e.into()),
-                        }
-                    }
+                if let Some((_, _, rx)) = udp {
+                    rx.drain(|d, at| out.push(Arrived::Datagram(d, at)))?;
                 }
             }
             #[cfg(feature = "link")]
@@ -188,7 +185,7 @@ impl ViewerIo {
                     }
                     match event {
                         NetEvent::Endpoint(EndpointEvent::Link(Event::Datagram(d))) => {
-                            out.push(Arrived::Datagram(d))
+                            out.push(Arrived::Datagram(d, now_ns()))
                         }
                         NetEvent::Endpoint(EndpointEvent::Link(Event::Control(r))) => {
                             out.push(Arrived::Control(r))
@@ -362,11 +359,15 @@ impl Viewer {
     /// times each from its last shard's arrival to its release.
     fn on_frames(&mut self, frames: Vec<CompleteFrame>, now: u64) {
         for frame in frames {
+            // When the datagram that completed it arrived.
+            let complete_ns = frame.last_shard_us * 1000;
             if let Some((_, last)) = self.last_rx.iter().find(|(f, _)| *f == frame.frame) {
                 self.shard_to_release_ms.push(now.saturating_sub(*last) as f64 / 1e6);
             }
             let stream = self.video_stream;
-            self.ledger.on_released(stream, frame.frame, frame.last_shard_us, frame.released_us);
+            // Reassembly released it at its last shard's arrival; it reached the decoder `now`.
+            let released_us = frame.released_us.max(now / 1000);
+            self.ledger.on_released(stream, frame.frame, frame.last_shard_us, released_us);
             self.released_since_feedback = true;
             self.frames += 1;
             if let Some(file) = self.record.as_mut() {
@@ -401,7 +402,13 @@ impl Viewer {
                         let (origin, shrink) = (self.marker_origin, self.marker_scale);
                         let read = picture
                             .with_luma(|y, stride| read_marker(scale, y, stride, origin, shrink));
-                        self.saw_marker(read, frame.frame, frame.body.t_capture_us, now, t1);
+                        self.saw_marker(
+                            read,
+                            frame.frame,
+                            frame.body.t_capture_us,
+                            complete_ns,
+                            t1,
+                        );
                         if self.want_snapshot {
                             self.newest_picture = Some(picture);
                         }
@@ -442,7 +449,13 @@ impl Viewer {
                             self.marker_origin,
                             self.marker_scale,
                         );
-                        self.saw_marker(read, frame.frame, frame.body.t_capture_us, now, t1);
+                        self.saw_marker(
+                            read,
+                            frame.frame,
+                            frame.body.t_capture_us,
+                            complete_ns,
+                            t1,
+                        );
                     }
                     Ok(false) => {}
                     Err(_) => self.decode_errors += 1,
@@ -530,12 +543,13 @@ impl Viewer {
                     }
                 }
             };
-            self.saw_marker(read, frame.frame, frame.body.t_capture_us, now, t1);
+            self.saw_marker(read, frame.frame, frame.body.t_capture_us, complete_ns, t1);
         }
     }
 
-    fn on_datagram(&mut self, d: &[u8]) {
-        let now = now_ns();
+    /// One datagram that arrived at `now` (protocol clock, ns): its arrival, not this call's
+    /// time, goes to the ledger, the media feedback, reassembly and the clock estimate.
+    fn on_datagram(&mut self, d: &[u8], now: u64) {
         let Ok((h, payload)) = DatagramHeader::decode(d) else { return };
         match h.kind {
             DatagramKind::Video | DatagramKind::Fec => {
@@ -561,7 +575,8 @@ impl Viewer {
                     self.last_rx.push_back((h.frame, now));
                 }
                 let frames = self.reassembler.push(&h, payload, now / 1000);
-                self.on_frames(frames, now);
+                // Released to the decoder now, after any frame decoded since this one arrived.
+                self.on_frames(frames, now_ns());
             }
             // An ultra capacity probe: only its arrival goes back, in the media feedback.
             DatagramKind::Probe => {
@@ -626,8 +641,8 @@ impl Viewer {
         self.io.receive(&mut arrived)?;
         for item in arrived {
             let payload = match item {
-                Arrived::Datagram(d) => {
-                    self.on_datagram(&d);
+                Arrived::Datagram(d, at) => {
+                    self.on_datagram(&d, at);
                     continue;
                 }
                 Arrived::Closed(reason) => {
@@ -1032,13 +1047,13 @@ pub fn run(opts: &Opts) -> Res<()> {
             let s = UdpSocket::bind("0.0.0.0:0")?;
             s.set_nonblocking(true)?;
             crate::wire::grow_udp_buffers(&s);
-            Some((s, addr))
+            Some(s)
         } else {
             None
         };
         let udp_port = udp
             .as_ref()
-            .map(|(s, _)| -> io::Result<u16> {
+            .map(|s| -> io::Result<u16> {
                 if eval_relay {
                     // Teach the local relay our actual endpoint before Hello. The relay
                     // consumes this empty probe; advertise its port for downstream media.
@@ -1049,6 +1064,14 @@ pub fn run(opts: &Opts) -> Res<()> {
                 }
             })
             .transpose()?;
+        // The receive thread starts after the relay probe, which went out on this socket.
+        let udp = match udp {
+            Some(s) => {
+                let rx = RxThread::start(&s)?;
+                Some((s, addr, rx))
+            }
+            None => None,
+        };
         (ViewerIo::Socket { tcp, reader: FrameReader::default(), udp }, udp_port)
     };
     let mut v = Viewer {
