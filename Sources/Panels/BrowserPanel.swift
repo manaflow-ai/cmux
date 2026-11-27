@@ -7746,6 +7746,26 @@ extension BrowserPanel {
         }
     }
 
+    /// Use Selection for Find (Cmd+E): opens the find bar with the page's
+    /// current selection as the needle, replacing any query already in it.
+    /// Returns false, leaving find untouched, when nothing is selected or a
+    /// diff viewer page owns find.
+    @discardableResult
+    func useSelectionForFind() async -> Bool {
+        guard !isDiffViewerFindOwner,
+              case .snapshot(let snapshot) = await readSurfaceSelection(),
+              snapshot.hasSelection else { return false }
+        let needle = snapshot.text.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !needle.isEmpty else { return false }
+        if let searchState {
+            searchState.needle = needle
+        } else {
+            lastSearchNeedle = needle
+        }
+        presentNativeFindBar()
+        return true
+    }
+
     func findNext() {
         performDiffViewerFindActionOrFallback(.next) { [weak self] in
             self?.performNativeFindNext()

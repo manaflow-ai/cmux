@@ -959,6 +959,9 @@ class TabManager: ObservableObject {
 
     var canUseSelectionForFind: Bool {
         selectedTerminalPanel?.hasSelection() == true ||
+            // The page selection is only readable asynchronously, so a focused
+            // browser keeps the item enabled and beeps when nothing is selected.
+            focusedBrowserPanel.map { !$0.isDiffViewerFindOwner } == true ||
             focusedTextFilePreviewPanel?.canUseSelectionForFind == true
     }
 
@@ -1012,6 +1015,12 @@ class TabManager: ObservableObject {
 #endif
             NotificationCenter.default.post(name: .ghosttySearchFocus, object: panel.surface)
             _ = panel.performBindingAction("search_selection")
+            return
+        }
+        if let browserPanel = focusedBrowserPanel {
+            Task { @MainActor in
+                if !(await browserPanel.useSelectionForFind()) { NSSound.beep() }
+            }
             return
         }
         focusedTextFilePreviewPanel?.useSelectionForFind()
