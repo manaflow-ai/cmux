@@ -19,6 +19,7 @@ import { activity, chat, row, user, tool } from "../../../gallery/fixtures/acpmu
 import { minutesAgo, recentRun } from "../../../gallery/clock";
 import type { PlayContext } from "../../../gallery/play";
 import { SUBAGENTS, type Subagent } from "./subagentFold";
+import { RUNNING_TRAY_LIST_LINE } from "./subagentSelectors";
 import { PLUS_PICKER } from "../composerSelectors";
 import { trayFoldHeadLook } from "./trayFoldHead.experiment";
 
@@ -243,7 +244,7 @@ export default agentPaneEntry({
         );
         if (groups.join() !== "agents,commands") throw new Error(`groups drawn: ${groups.join()}`);
         if (!ctx.document.querySelector('.acpmux-agent-line__count[data-count="2"]')) throw new Error("no ×2 line");
-        await ctx.hover({ selector: ".acpmux-running-tray__list .acpmux-agent-line" });
+        await ctx.hover({ selector: RUNNING_TRAY_LIST_LINE });
       },
       snapshot: crowd,
       experiments: { "subagent-tray-fold-head": "groups" },
@@ -263,7 +264,7 @@ export default agentPaneEntry({
         await ctx.click({ selector: ".acpmux-running-tray__head" });
         await ctx.waitFor(() => ctx.document.querySelector(".acpmux-running-tray__group"));
         if (!ctx.document.querySelector('.acpmux-agent-line__count[data-count="2"]')) throw new Error("no ×2 line");
-        await ctx.hover({ selector: ".acpmux-running-tray__list .acpmux-agent-line" });
+        await ctx.hover({ selector: RUNNING_TRAY_LIST_LINE });
       },
       snapshot: crowd,
       experiments: { "subagent-tray-fold-head": "line" },

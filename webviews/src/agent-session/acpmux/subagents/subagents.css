@@ -3039,8 +3039,8 @@ button.cv-subagent > :last-child {
 .acpmux-running-tray__group {
   list-style: none;
   padding: var(--ds-space-1) var(--acpmux-tray-inset) 0;
-  font-size: var(--ds-type-detail-size, 12px);
-  line-height: var(--ds-type-detail-line, 16px);
+  font-size: var(--text-detail);
+  line-height: var(--text-detail--line-height);
   color: var(--agent-muted);
   user-select: none;
 }
