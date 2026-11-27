@@ -32,7 +32,7 @@ it("a resumed create journals the same intent it read back through native RPC", 
   const prior = claim.progress;
   // What the retry's beforeSend journals: the prior's own fields, unchanged.
   const resumed = await Effect.runPromise(Effect.either(limits.advance(tenant, "cloud-create:x", { phase: "creating", vmId: prior.vmId, reservationId: prior.reservationId, context: prior.context, createdBy: prior.createdBy, ...(prior.intent === undefined ? {} : { intent: prior.intent }), ...(prior.dispatch === undefined ? {} : { dispatch: prior.dispatch }) })));
-  expect(resumed._tag === "Left" ? String((resumed.left as { cause?: unknown }).cause) : "ok").toBe("ok");
+  expect(resumed._tag === "Left" ? resumed.left : "ok").toBe("ok");
   // A real change is still refused.
   const changed = await Effect.runPromise(Effect.either(limits.advance(tenant, "cloud-create:x", { ...prior, intent: { ...intent, floors: { vcpus: 8 } } })));
   expect(changed._tag).toBe("Left");
