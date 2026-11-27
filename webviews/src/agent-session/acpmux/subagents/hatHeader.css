@@ -255,3 +255,8 @@
   align-self: center;
   height: var(--acpmux-tray-head-height);
 }
+/* The trailing deck's empty slots keep their room and take no pointer. */
+.acpmux-hat-deck__mark[data-blank] {
+  pointer-events: none;
+  visibility: hidden;
+}
