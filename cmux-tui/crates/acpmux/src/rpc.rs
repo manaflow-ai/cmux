@@ -746,6 +746,12 @@ pub mod method {
     /// The chat menu's Archive (`archived: true`) or Unarchive of one session:
     /// the `archived` tag, valued with when (milliseconds), set or removed.
     pub const MUX_ARCHIVE: &str = "_acpmux/archive";
+    /// A deleted chat back inside its grace (`hub/soft_delete.rs`): `{sessionId}` (its id, or
+    /// its name) -> its summary with `undeleted: true`.
+    pub const MUX_UNDELETE: &str = "_acpmux/undelete";
+    /// The deleted chats inside their grace (`hub/soft_delete.rs`): `{}` -> `{sessions:
+    /// [{sessionId, name, title, deletedAt, restorableUntil}]}`.
+    pub const MUX_DELETED: &str = "_acpmux/deleted";
     /// New side chat: tags the fork `sessionId` as a side chat of `chat` (the
     /// `side` tag, valued with that session), which keeps it off the lists.
     pub const MUX_SIDE: &str = "_acpmux/side";
@@ -774,6 +780,9 @@ pub mod method {
     /// per settled pull request, steering rate, time to the first useful result, by feature;
     /// the local unix socket only, like `MUX_STATS`.
     pub const MUX_SCORECARD: &str = "_acpmux/scorecard";
+    /// Replays recorded session logs against RFD 0161's cache-prefix invariants with no model
+    /// call (`scorecard_replay.rs`); local only, like `MUX_SCORECARD`.
+    pub const MUX_SCORECARD_REPLAY: &str = "_acpmux/scorecard_replay";
     /// What turns cost, per session, workspace, repository, pull request, day, person, vendor,
     /// model and account (`hub/ledger`); the local unix socket and the local app only.
     pub const MUX_LEDGER: &str = "_acpmux/ledger";
@@ -1074,6 +1083,9 @@ pub mod method {
     pub const MUX_GOAL_SET: &str = "_acpmux/goal/set";
     pub const MUX_GOAL_UPDATE: &str = "_acpmux/goal/update";
     pub const MUX_GOAL_GET: &str = "_acpmux/goal/get";
+    /// A chat's packed history read back: an outline, a range's digest or one record by seq
+    /// (`server/history.rs`, `hub/compaction_outline.rs`).
+    pub const MUX_HISTORY_READ: &str = "_acpmux/history/read";
     /// Context surgery (`hub/surgery.rs`): mask a Claude chat's old tool output and resume it
     /// on the masked copy, with no model call.
     pub const MUX_SURGERY: &str = "_acpmux/surgery";
@@ -1102,6 +1114,10 @@ pub mod method {
     /// Offload old cold-archived chats to cloud history (`hub/cloud_offload.rs`): `{dryRun?,
     /// olderThanDays?}` -> the chats offloaded, or those a pass would offload.
     pub const MUX_HISTORY_OFFLOAD: &str = "_acpmux/history_offload";
+    /// One lifecycle pass now (`hub/session_lifecycle.rs`): `{dryRun?}` -> `{archived, offloaded,
+    /// bytesBefore, bytesAfter, bytesFreed, chats, skipped}`; or `{restore: ID}` -> `{sessionId,
+    /// unarchived, rehydrated}`, the chat back in the lists and its log on this disk.
+    pub const MUX_LIFECYCLE: &str = "_acpmux/lifecycle";
     /// Read-only cloud copies of Claude's and Codex's transcripts (`hub/transcript_offload.rs`):
     /// `{dryRun?, olderThanDays?, restoreAll?}` -> the pass's report, or `{restored}`.
     pub const MUX_TRANSCRIPT_OFFLOAD: &str = "_acpmux/transcript_offload";
