@@ -156,6 +156,31 @@ test("a person's row is one button for their role, with Remove its own button be
   expect(calls).toEqual(["role @sam talk"]);
 });
 
+test("Can drive is offered to named people and never to General access", async () => {
+  const calls: string[] = [];
+  const container = await render(calls);
+  const person = container.querySelector<HTMLElement>(".share-dialog__people li:nth-child(2)")!;
+  const row = person.querySelector<HTMLButtonElement>(".share-dialog__person-pick")!;
+  await act(async () => row.click());
+  await settle();
+  const drive = [...document.querySelectorAll<HTMLElement>('[role="menuitemradio"]')].find((item) =>
+    item.textContent?.includes(translate("share.role.drive")),
+  );
+  expect(drive?.textContent).toContain(translate("share.role.driveDetail"));
+  await act(async () => drive!.click());
+  await settle();
+  expect(calls).toEqual(["role @sam drive"]);
+
+  const general = container.querySelector<HTMLButtonElement>(".share-dialog__general")!;
+  await act(async () => general.click());
+  await settle();
+  expect(
+    [...document.querySelectorAll<HTMLElement>('[role="menuitemradio"]')].some((item) =>
+      item.textContent?.includes(translate("share.role.drive")),
+    ),
+  ).toBe(false);
+});
+
 // An invite nobody opened yet says so under the name; one in the chat now says that instead.
 test("a pending invitee's row says they haven't opened it yet", async () => {
   const container = installDom();
