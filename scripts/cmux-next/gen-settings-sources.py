@@ -889,7 +889,14 @@ def section_swift(section, data):
         pieces.append(("list", joined_var_swift(section, data), None, []))
     # The type of each list body: the section type while it stays under MAX_TYPE_LINES, then
     # <type>2, <type>3... (a list the section type forwards). Joins stay on the section type.
-    home, used, index = {}, 0, 0
+    # The section type's own lines count first: its parser constants (a row without a swift_owner puts them in an
+    # `extension <type>` block) and its joins, so the lists only fill what is left (agent-pane-display's 232 lines of
+    # constants took AgentPaneDisplaySettingsSchema to 1029, 2026-11-27).
+    used = sum(line_count(block) + 1 for block in constant_blocks if block[0] == "extension %s {" % section["type"])
+    used += sum(line_count(piece[1]) + 1 for piece in pieces if isinstance(piece, tuple) and piece[0] == "join")
+    used += sum(line_count(piece[1]) + 3 for piece in pieces
+                if isinstance(piece, tuple) and piece[0] == "list" and not piece[2])
+    home, index = {}, 0
     for piece in pieces:
         if isinstance(piece, tuple) and piece[0] in ("list", "part") and piece[2]:
             size = line_count(piece[1]) + 3

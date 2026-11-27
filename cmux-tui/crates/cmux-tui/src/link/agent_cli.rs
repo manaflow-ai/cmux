@@ -396,6 +396,8 @@ pub(super) fn run(args: &[String]) -> i32 {
     let env = std::env::var("ACPMUX_MOVE_HISTORY_LATER").ok();
     args.history_later = history_later::turns(args.history_later, env.as_deref());
     let mut clock = Clock::new();
+    // Each daemon's `identify` is read once for the whole move (`machine_gate::Memo`).
+    let _memo = super::machine_gate::Memo::open();
     match move_chat(&args, &mut clock) {
         Ok(moved) => {
             let mut line = json!({"ok": true, "session_id": moved.session_id,
@@ -685,6 +687,7 @@ fn fresh(
         Some(tab) => json!({"tab": tab, "interrupt": interrupt}),
         None => json!({"surface": args.surface, "interrupt": interrupt}),
     };
+    params.set("checks_shares", json!(true));
     if args.ask_first {
         params.set("ask_first", json!(true));
     }
@@ -1117,6 +1120,22 @@ fn up_to_finish(
         let mut failed = Failed::new("agent_session.host_unverified", error);
         failed.side = Some("target");
         return Err(failed);
+    }
+    use cmux_tui_core::server::agent_transfer::{
+        AGENT_TRANSFER_SHARES_CAPABILITY, SHARE_MANIFEST_FIELD,
+    };
+    if manifest.get(SHARE_MANIFEST_FIELD).is_some() {
+        let identity = target.call("identify", json!({}), CALL_TIMEOUT).map_err(target_failed)?;
+        if !super::machine_gate::served(&identity)
+            .is_some_and(|capabilities| capabilities.contains(&AGENT_TRANSFER_SHARES_CAPABILITY))
+        {
+            let mut failed = Failed::new(
+                "agent_transfer.shares_unsupported",
+                "update the receiving machine to move a shared chat",
+            );
+            failed.side = Some("target");
+            return Err(failed);
+        }
     }
     let manifest = &taken_by_target(args, manifest, &record.transfer_id);
     let mut params = json!({"manifest": manifest, "cwd": args.cwd});
