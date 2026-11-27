@@ -144,18 +144,33 @@ export function AgentMessageRow({
   // the line's one control, so focus inside the closing card (a reply's editor) is never dropped.
   const toggleRef = useRef<HTMLButtonElement>(null);
   // A first line squeezed under room for an ellipsis and a letter is a sliver beside the chevron
-  // (Leo, 2026-11-27: "these chevrons are too close"): it goes, still laid out so the line's widths
-  // stay, and comes back with room.
+  // (Leo, 2026-11-27: "these chevrons are too close dont we have any guidelines for these yet?"):
+  // it goes, and the toggle reads as an empty one, so the chevron comes back to its words. Gone, it
+  // has no width to watch, so the line's width says when it has room again: the room it had when it
+  // went plus what the line has grown since. The line's width never follows the preview's, so the
+  // two never chase each other.
   const previewRef = useRef<HTMLSpanElement>(null);
   useLayoutEffect(() => {
     const preview = previewRef.current;
-    if (!preview || typeof ResizeObserver === "undefined") return;
+    const line = preview?.closest<HTMLElement>(".cv-agentmsg__line");
+    if (!preview || !line || typeof ResizeObserver === "undefined") return;
+    let goneAt: { line: number; room: number } | null = null;
     const fit = () => {
-      preview.toggleAttribute("data-squeezed", preview.clientWidth < MIN_PREVIEW_PX && preview.scrollWidth > 0);
+      if (goneAt) {
+        if (line.clientWidth - goneAt.line + goneAt.room < MIN_PREVIEW_PX) return;
+        goneAt = null;
+        preview.removeAttribute("data-squeezed");
+      }
+      const room = preview.clientWidth;
+      if (room < MIN_PREVIEW_PX && preview.textContent?.trim()) {
+        goneAt = { line: line.clientWidth, room };
+        preview.setAttribute("data-squeezed", "");
+      }
     };
+    preview.removeAttribute("data-squeezed");
     fit();
     const observer = new ResizeObserver(fit);
-    observer.observe(preview);
+    observer.observe(line);
     return () => observer.disconnect();
   });
   const closeToToggle = (event?: unknown) => {
