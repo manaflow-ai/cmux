@@ -68,17 +68,17 @@ pub(super) fn room(
     let staying = || queue.iter().filter(|q| !replaces(q));
     let replaced = (queue.len() - staying().count()) as u64;
     let queued = others.saturating_sub(replaced).max(staying().count() as u64);
-    if let Some(max) = limits.prompts {
-        if queued >= max {
-            return Err(full(
-                "queue.full",
-                format!(
-                    "this chat's queue is full: {queued} prompts wait and the limit is {max} \
-                     (queueMaxPrompts); send it again once some have run, or remove some"
-                ),
-                json!({"limit": max, "queued": queued}),
-            ));
-        }
+    if let Some(max) = limits.prompts
+        && queued >= max
+    {
+        return Err(full(
+            "queue.full",
+            format!(
+                "this chat's queue is full: {queued} prompts wait and the limit is {max} \
+                 (queueMaxPrompts); send it again once some have run, or remove some"
+            ),
+            json!({"limit": max, "queued": queued}),
+        ));
     }
     let Some(max) = limits.bytes else { return Ok(()) };
     let held = staying().map(|q| run_bytes(&q.run)).sum::<u64>().saturating_add(taken);
