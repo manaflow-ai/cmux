@@ -127,6 +127,10 @@ caller, or gives a listed one a caller without `--update` is refused; an export 
 (Packages/macOS/CmuxNext/app-ffi-pin.json) lacks is a note until the re-pin. It runs only when the push changes a
 header, the baseline, the checker or a Swift line naming a cmux_/acpmux_ function: a push that only moves the pin
 (the re-pin bot's, or one by hand) is not judged. The fast gates' --advisory pass warns.
+Also on every local run: "Panic ratchet allow reasons" (panic_allow_reasons): CI's Rust panic ratchet's own source scan
+(rust_panic_ratchet.py allow_without_reason) over the cmux-tui crate and binding files the push changes, at HEAD: an
+allow of the ratchet's lints without `reason =` (or an expect of them) is refused, a base one in a touched file too,
+as CI refuses it; the counting half of that ratchet needs a clippy build and stays CI's.
 Also on every local run, the same way: "Crash ratchet" (crash_ratchet_findings): the Rust classes of CI's crash
 ratchet (crash_ratchet.py: unwrap, expect, panic!/unreachable!/todo!/unimplemented!, process::exit/abort, outside
 test code), judged per crate over the files the push changes: a crate whose count rises in those files is refused
@@ -1813,6 +1817,52 @@ def crash_allow_unreviewed(repo: Path, base: str, head: str) -> list[str]:
             f"{f' and {len(allow) - 3} more' if len(allow) > 3 else ''} to {CRASH_ALLOWLIST} without a "
             "`Crash-allow-OK: <reviewer or review id>` trailer"
             for sha, subject, trailer, allow, _ in crash_raises(repo, base, head) if allow and trailer is None]
+
+
+PANIC_ALLOW_CHECK = "Panic ratchet allow reasons (rust_panic_ratchet.py: an allow of its lints says reason = \"...\")"
+PANIC_RATCHET_SCRIPT = SCRIPTS + "/rust_panic_ratchet.py"
+PANIC_ALLOW_SCOPES = ("cmux-tui/crates/", "cmux-tui/bindings/")
+PANIC_ALLOW_HINT = ("Panic ratchet allow reasons: give each listed `#[allow(clippy::<lint>)]` its "
+                    "`reason = \"why it cannot panic\"` (and use allow, not expect, for these lints). CI's Rust panic "
+                    "ratchet fails a reasonless allow in any file the change touches, the base's own included.")
+
+
+def panic_allow_reasons(repo: Path, base: str, head: str, trusted_scripts: Path | None = None) -> list[str]:
+    """The reasonless (or `expect`) allows of the panic ratchet's lints in the Rust files the push changes, as CI's
+    Rust panic ratchet (rust_panic_ratchet.py allow_without_reason, its own code) reports them at HEAD.
+
+    That half of the ratchet reads source text only, while its counting half needs a cmux-tui clippy build, so CI was
+    the first to say it: in a 2026-11-26 sample of 83 merged cmux PRs, 3 of 35 that took past an hour made a later
+    commit only to add a reason (#47140, #55721, #54225). CI fails such an allow in any file the change touches, a
+    base allow too (#56273 spared only untouched files), so this does as well: the push's own files are the change's.
+    """
+    names = git(repo, "diff", "--name-only", "--no-renames", "--diff-filter=d", "-z", base, head, "--",
+                *PANIC_ALLOW_SCOPES).decode("utf-8", "surrogateescape").split("\0")
+    rust = [p for p in names if p.endswith(".rs")]
+    if not rust:
+        return []
+    script = check_script(repo, head, PANIC_RATCHET_SCRIPT, trusted_scripts, base)
+    if script is None:
+        return []  # a commit older than the ratchet
+    with tempfile.TemporaryDirectory(prefix="cmux-panic-allow-") as tmp:
+        root = absolute(Path(tmp))
+        check = root / "rust_panic_ratchet.py"
+        check.write_bytes(script)
+        spec = importlib.util.spec_from_file_location("cmux_panic_allow_" + hashlib.sha256(script).hexdigest()[:12],
+                                                      check)
+        module = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(module)
+        if not hasattr(module, "allow_without_reason"):
+            return []  # an older ratchet without the scan
+        tree = root / "tree"
+        for path in rust:
+            blob = blob_at(repo, head, path)
+            if blob is None:
+                continue
+            target = tree / path
+            target.parent.mkdir(parents=True, exist_ok=True)
+            target.write_bytes(blob)
+        return list(module.allow_without_reason(str(tree)))
 
 
 STALE_INSTALL = "the installed hook is older than the checks this push needs: rerun scripts/install-git-hooks.sh"
@@ -3679,6 +3729,12 @@ def gate(repo: Path, base: str, head: str, only: set[str] | None, timings: bool,
         rewritten = xcstrings_rewrites(repo, base, head, trusted_scripts)
         if rewritten:
             reserved.append((XCSTRINGS_CHECK, rewritten))
+    # Local only, like the Cargo.lock check: CI's Rust panic ratchet stays the backstop. Source text only, the
+    # changed Rust files at HEAD, milliseconds.
+    if (highlights_layer if only is None else "panic-allow" in only) and restrict is None and want(PANIC_ALLOW_CHECK):
+        reasonless = panic_allow_reasons(repo, base, head, trusted_scripts)
+        if reasonless:
+            reserved.append((PANIC_ALLOW_CHECK, reasonless))
     if (only is None or "crash-allow" in only) and want(CRASH_ALLOW_CHECK):
         unreviewed = crash_allow_unreviewed(repo, base, head)
         if unreviewed:
@@ -4486,7 +4542,7 @@ def _main(argv: list[str] | None = None) -> int:
                                             "finding on a commit outside it (on the base) is a warning that names the "
                                             "commit and the owner file; one inside it is an error")
     parser.add_argument("--only", help="comma list of layers: scanners,ast-grep,swiftformat,rustfmt,swiftlint,reserved,ui-font,conflicts,"
-                                       "cargo-lock,sidebar,crash-allow,crash-ratchet,freeze,highlights,pictures,workflows,"
+                                       "cargo-lock,sidebar,crash-allow,crash-ratchet,panic-allow,freeze,highlights,pictures,workflows,"
                                        "single-host-fallbacks,redefinitions,port-drift,new-crate-versions,"
                                        "settings-export-keys,main-twin,job-bounds,reusable-perms,generated-files,generated-fresh,xcstrings")
     parser.add_argument("--timings", action="store_true")
@@ -4688,6 +4744,8 @@ def _main(argv: list[str] | None = None) -> int:
         print(FALLBACKS_HINT)
     if any(name == CRASH_RATCHET_CHECK for name, _ in found_any):
         print(CRASH_RATCHET_HINT)
+    if any(name == PANIC_ALLOW_CHECK for name, _ in found_any):
+        print(PANIC_ALLOW_HINT)
     if any(name == WORKFLOW_CHECK for name, _ in found_any):
         print(WORKFLOW_HINT)
     if any(name == REDEFINITION_CHECK for name, _ in found_any):

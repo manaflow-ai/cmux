@@ -101,6 +101,9 @@
   "cmux_tui::carrier::tunnel": {
    "test": "cmux-tui/crates/cmux-tui/src/carrier/tunnel_tests.rs::the_tunnel_read_carries_only_its_signed_proof"
   },
+  "cmux_tui::cli::api_tokens": {
+   "test": "cmux-tui/crates/cmux-tui/src/cli/api_tokens_tests.rs::seeded_secrets_ride_only_in_their_headers"
+  },
   "cmux_tui::cli::app::web_pieces": {
    "todo": true
   },
@@ -124,6 +127,9 @@
   },
   "cmux_tui::cli::customize::pr": {
    "todo": true
+  },
+  "cmux_tui::cli::device_login": {
+   "test": "cmux-tui/crates/cmux-tui/src/cli/device_login_tests.rs::seeded_secrets_ride_only_in_their_headers"
   },
   "cmux_tui::cli::ext::share": {
    "todo": true

@@ -458,6 +458,10 @@ pub(super) fn release_refused(
         (None, Some(name)) => release(runner, name, deadline, false),
         (None, None) => return outcome,
     };
+    // An absent machine was never deleted; preserve the original refusal and its retry.
+    if released.gone && released.machine_id.is_none() {
+        return outcome;
+    }
     let next = if released.gone {
         "The new machine was deleted because its agent could not start.".to_owned()
     } else {
