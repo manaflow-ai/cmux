@@ -5,14 +5,3 @@
 /// feature for now that we can revisit later". Settings, the palette's setting toggle and `cmux settings set` write it.
 public nonisolated enum LoneChatTabSetting {
 }
-
-nonisolated extension LoneChatTabSetting {
-    /// A missing key is the default with no diagnostic; a bad value is the default plus a diagnostic.
-    static func parse(_ root: JSONValue) -> (Bool, SettingsDiagnostic?) {
-        guard let value = root.value(at: configPath) else { return (fallback, nil) }
-        guard let enabled = value.boolValue else {
-            return (fallback, SettingsDiagnostic(kind: .invalidValue, path: "tabs.hideLoneChatTab", message: "expected true or false"))
-        }
-        return (enabled, nil)
-    }
-}

@@ -2,12 +2,4 @@
 /// browser toolbar (plans/cmux-next/bookmarks.md). Off by default. `configPath` and `fallback`
 /// come from schemas/settings/source/browser.json (SettingsSchema+Browser.generated.swift).
 public nonisolated enum BookmarksBarSetting {
-    /// Absent is off; a value that is not a bool is off plus a diagnostic.
-    static func parse(_ root: JSONValue) -> (Bool, SettingsDiagnostic?) {
-        guard let value = root.value(at: configPath) else { return (fallback, nil) }
-        guard let shown = value.boolValue else {
-            return (fallback, SettingsDiagnostic(kind: .invalidValue, path: "browser.showBookmarksBar", message: "expected true or false"))
-        }
-        return (shown, nil)
-    }
 }

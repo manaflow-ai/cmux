@@ -8,13 +8,4 @@
 /// `configPath` and `fallback` come from schemas/settings/source/browser.json (SettingsSchema+Browser.generated.swift).
 public nonisolated struct BrowserCookieBannerSetting: Sendable {
     public init() {}
-
-    /// Absent is on; a value that is not a bool is on plus a diagnostic.
-    static func parse(_ root: JSONValue) -> (Bool, SettingsDiagnostic?) {
-        guard let value = root.value(at: configPath) else { return (fallback, nil) }
-        guard let shown = value.boolValue else {
-            return (fallback, SettingsDiagnostic(kind: .invalidValue, path: "browser.import.cookieBanner", message: "expected true or false"))
-        }
-        return (shown, nil)
-    }
 }
