@@ -156,5 +156,23 @@ class RateLimitWait(unittest.TestCase):
         self.assertEqual((rc, grades, sleeps), (0, ["app-token"], []))
 
 
+class RealMarker(unittest.TestCase):
+    """The step's `sed` reads the reset from the marker line risk_tier.py really prints (cmux#61052 job 140401581683)."""
+
+    LINE = ('risk-evidence.rate-limited {"endpoint": "repos/manaflow-ai/cmux/issues/61052/comments?per_page=100", '
+            '"graded": false, "reset": 1795769471, "status": 403}')
+
+    def test_sed_reads_the_real_markers_reset(self) -> None:
+        script = grade_step()["run"]
+        sed = next(line.strip() for line in script.splitlines() if line.strip().startswith("sed -n"))
+        expr = sed.split("'")[1]
+        root = Path(tempfile.mkdtemp(prefix="risk-tier-marker-"))
+        self.addCleanup(shutil.rmtree, root, ignore_errors=True)
+        log = root / "grade.log"
+        log.write_text("risk-tier: reading\n" + self.LINE + "\n")
+        done = subprocess.run(["sed", "-n", expr, str(log)], capture_output=True, text=True, check=True)
+        self.assertEqual(done.stdout.strip(), "1795769471")
+
+
 if __name__ == "__main__":
     unittest.main()
