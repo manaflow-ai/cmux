@@ -106,9 +106,12 @@ struct AcpmuxPaneSettleMapsTests {
                        "answers": ["q1": "A"], "annotations": NSNull()],
         ]
         let box = AgentPaneTransport.FrameBox(frame)
-        #expect(box.withParam("annotations", { $0 == nil }))
-        #expect(box.withParam("revision", { ($0 as? NSNumber)?.uint64Value }) == 4)
-        #expect(box.withParam("answers", { value in (value as? [String: String])?["q1"] }) == "A")
+        let annotationsIsNil = box.withParam("annotations", { $0 == nil })
+        let revision = box.withParam("revision", { ($0 as? NSNumber)?.uint64Value })
+        let answer = box.withParam("answers", { value in (value as? [String: String])?["q1"] })
+        #expect(annotationsIsNil)
+        #expect(revision == 4)
+        #expect(answer == "A")
         let promptId = box.withFrame { object -> String? in
             guard var params = object["params"] as? [String: Any] else { return nil }
             params["_meta"] = ["acpmux": ["promptId": "pid"]]
