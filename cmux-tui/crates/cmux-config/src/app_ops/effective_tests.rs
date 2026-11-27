@@ -292,3 +292,70 @@ fn other_ops_are_not_this_areas() {
     assert!(call("jsonc.parse", &json!({})).is_none());
     assert!(call("theme.overlay", &json!({})).is_none());
 }
+
+#[test]
+fn personal_github_login_requires_user_consent_in_both_mergers() {
+    use crate::managed::{ManagedPreferences, PERSONAL_GITHUB_LOGIN as KEY, TeamPolicyLayer};
+
+    // Exercise the app operation and the native settings owner with the same policy input.
+    let check = |file: Value, managed: Value, team: Value, expected: Option<bool>, lock: Value| {
+        let app = merged(file.clone(), managed.clone(), team.clone());
+        let native = crate::EffectiveSettings::merge(
+            &file,
+            &ManagedPreferences {
+                forced: members(&managed, "forced").unwrap(),
+                recommended: members(&managed, "recommended").unwrap(),
+            },
+            &TeamPolicyLayer {
+                team_name: "T".into(),
+                defaults: members(&team, "defaults").unwrap(),
+                enforced: members(&team, "enforced").unwrap(),
+                ..Default::default()
+            },
+            Schema::embedded(),
+        );
+        for root in [&app["root"], &native.root] {
+            assert_eq!(root.pointer("/cloud/useMyGitHubLogin").and_then(Value::as_bool), expected);
+        }
+        assert_eq!(app["managedKeys"][KEY], lock);
+        assert_eq!(
+            native.managed_keys.get(KEY).map(|source| source.wire_name()),
+            if lock == "device" {
+                Some("mdm")
+            } else if lock.is_object() {
+                Some("team")
+            } else {
+                None
+            }
+        );
+    };
+    let file = json!({"cloud": {"useMyGitHubLogin": true}});
+    for grant in [json!(true), json!("true"), Value::Null] {
+        let on = json!({(KEY): grant});
+        let device = json!({"forced": on, "recommended": on});
+        let team = json!({"teamName": "T", "defaults": on, "enforced": on});
+        check(json!({}), device.clone(), team.clone(), None, Value::Null);
+        check(file.clone(), device, team, Some(true), Value::Null);
+    }
+    check(
+        file.clone(),
+        json!({"forced": {(KEY): true}}),
+        json!({"teamName": "T", "enforced": {(KEY): false}}),
+        Some(false),
+        json!({"team": "T"}),
+    );
+    check(
+        file,
+        json!({"forced": {(KEY): false}}),
+        json!({"enforced": {(KEY): true}}),
+        Some(false),
+        json!("device"),
+    );
+    check(
+        json!({}),
+        json!({"forced": {"cloud": {"useMyGitHubLogin": true}}}),
+        json!({}),
+        None,
+        Value::Null,
+    );
+}
