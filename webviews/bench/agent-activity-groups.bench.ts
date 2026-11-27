@@ -3,7 +3,7 @@
 // so a snapshot carries new session objects and must project again; a local action (select, scrub,
 // layout) and a frame event re-render with the same sessions, names, connections and filter, so they
 // reuse the last projection. Two arms, each timing one render's `groups` ask:
-//   snapshot: the state came from a fresh host snapshot (new objects), the projection is rebuilt;
+//   snapshot: the state came from a fresh host snapshot (new objects): the reducer plus the projection;
 //   local:    the state is the same objects (a select, scrub, layout action or frame event).
 //   bun bench/agent-activity-groups.bench.ts [rounds=9] [renders=200]
 import { groups, initialActivityState, reduceActivity, type ActivitySession } from "../src/agent-activity/model";
@@ -39,7 +39,11 @@ function stateOf(size: number) {
     const sessions = Array.from({ length: size }, (_, i) => i)
       .filter((i) => i % MACHINES === machine)
       .map(session);
-    state = reduceActivity(state, { type: "sessions", machine: `m${machine}`, sessions });
+    state = reduceActivity(state, {
+      type: "sessions",
+      machine: `m${machine}`,
+      sessions,
+    });
   }
   return state;
 }
@@ -52,14 +56,15 @@ for (const size of SIZES) {
   const localRounds: number[] = [];
   for (let round = 0; round < ROUNDS + 1; round += 1) {
     const base = stateOf(size);
-    // The host's snapshots arrive deserialized: new objects each time (built before the clock).
-    const snapshots = Array.from({ length: RENDERS }, () => {
-      const wire = JSON.parse(JSON.stringify({ sessionsByMachine: base.sessionsByMachine }));
-      return reduceActivity(base, { type: "snapshot", state: wire });
-    });
+    // The host's snapshots arrive deserialized: new objects each time (parsed before the clock). The
+    // clock covers what the page does with one: the reducer folds it into the state, then the render asks
+    // for `groups`.
+    const wires = Array.from({ length: RENDERS }, () =>
+      JSON.parse(JSON.stringify({ sessionsByMachine: base.sessionsByMachine })),
+    );
     let seen = 0;
     let started = performance.now();
-    for (const state of snapshots) seen += groups(state).length;
+    for (const wire of wires) seen += groups(reduceActivity(base, { type: "snapshot", state: wire })).length;
     const snapshotMs = (performance.now() - started) / RENDERS;
     started = performance.now();
     for (let render = 0; render < RENDERS; render += 1) {
@@ -79,5 +84,10 @@ for (const size of SIZES) {
     ["snapshot", median(snapshotRounds)],
     ["local", median(localRounds)],
   ] as const)
-    perfRow({ name: `agent_activity.groups.${arm}.${size}`, p50: value, p95: value, target: TARGET_MS.frameWork });
+    perfRow({
+      name: `agent_activity.groups.${arm}.${size}`,
+      p50: value,
+      p95: value,
+      target: TARGET_MS.frameWork,
+    });
 }

@@ -59,7 +59,6 @@ import Testing
         let pinned = try #require(block.region.itemViews[Self.pin], "no pinned row")
         pinned.layoutSubtreeIfNeeded()
         let pinnedFill = Self.inSidebar(pinned.pill.frame, from: pinned, sidebar)
-        let pinInk = Self.inSidebar(try #require(pinned.pinInkFrame, "the pinned row draws no pin"), from: pinned, sidebar)
 
         let row = try #require(sidebar.list.rowViews[.workspace(Self.busy)] as? WorkspaceRowView, "no workspace row")
         row.layoutSubtreeIfNeeded()
@@ -79,10 +78,8 @@ import Testing
                     "\(density): \(name)'s highlight is \(left) pt from the sidebar's left edge, \(right) pt from its right")
         }
         let trailing = rowFill.maxX - mark.midX - SidebarStyle.statusGlyphSize / 2
-        // The pin centers in the row glyph's optical square (`SidebarStyle.rowGlyphOptics`), as every leading glyph:
-        // that square's leading edge is the inset, not the narrower pin ink's.
-        let pinSquareX = pinInk.midX - SidebarStyle.rowGlyphOpticalSide / 2
-        for (name, leading) in [("the pin's glyph square", pinSquareX - pinnedFill.minX), ("a text-only title", titleX - rowFill.minX)] {
+        // A pinned row leads with no pin (Leo 2026-11-23, ask c-b5d3e0efb6), as the workspace row does.
+        for (name, leading) in [("a text-only title", titleX - rowFill.minX)] {
             #expect(abs(leading - trailing) <= Self.tolerance,
                     "\(density): \(name) starts \(leading) pt inside its highlight, a status-glyph box on the trailing column ends \(trailing) pt before the highlight's end")
         }
