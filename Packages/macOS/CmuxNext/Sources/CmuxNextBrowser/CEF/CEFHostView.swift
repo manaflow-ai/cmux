@@ -535,7 +535,7 @@ final class CEFTabContentView: NSView, PaneMotionSettling, PaneResizeGestureFoll
         layoutAfterResizePending = true
         layoutAfterResizeSize = bounds.size
         layoutAfterResizeGeneration = layoutInvalidationGeneration
-        MainDelivery().later { [weak self] in
+        AfterFrameCommit().run { [weak self] in
             self?.layoutAfterResizePending = false
         }
     }
