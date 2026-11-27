@@ -127,6 +127,26 @@ import Testing
         #expect(demo.clip.layer.mask === mask, "the drag's end left the rows without their mask")
     }
 
+    /// The window's own live resize pauses a fade even when the pane heard of the resize before the host's own
+    /// `viewWillStartLiveResize` (the cmux layout tells pane contents from its root, an ancestor, first), and its end
+    /// puts the mask back (PR 59620 review).
+    @Test func aWindowLiveResizeHeardFirstAsAPaneResizeStillPausesTheFade() throws {
+        let (window, container, view) = home()
+        defer { window.close() }
+        let demo = try #require(view.controller.demo)
+        let host = view.controller.host
+        view.setTopFadeStyle(.softMask)
+        container.layoutSubtreeIfNeeded()
+        let mask = try #require(demo.clip.layer.mask, "fixture: the rows have no mask")
+        view.followPaneResize(true)
+        try #require(demo.clip.layer.mask === mask, "fixture: a pane resize alone took the fade off")
+        host.viewWillStartLiveResize()
+        #expect(demo.clip.layer.mask == nil, "the window's live resize kept the fading mask on")
+        host.viewDidEndLiveResize()
+        view.followPaneResize(false)
+        #expect(demo.clip.layer.mask === mask, "the resize's end left the rows without their mask")
+    }
+
     /// A mask that fades nothing clips nothing the pane's bounds do not: the drag still takes it off (the render server
     /// then draws no offscreen pass at each width), and its end puts it back.
     @Test func aPaneDragTakesOffAMaskThatFadesNothing() throws {
