@@ -765,18 +765,76 @@ def gh_json(*args: str):
 # a lander then had to override by hand. So a rate limit waits for the budget once, when it comes back inside
 # RATE_LIMIT_WAIT_SECONDS, and otherwise ends the check ungraded and green with the reason (pr_mode's
 # RateLimited path below): the next event on the pull request grades it again.
-GH_RATE_LIMITED = re.compile(r"rate limit|secondary rate|abuse detection", re.I)
+GH_RATE_LIMIT_STATUSES = frozenset((403, 429))
 # The longest this job waits, in all, for GitHub's API budget to come back (the job's timeout is 8 minutes).
 RATE_LIMIT_WAIT_SECONDS = 90
 # A secondary limit names no reset time; GitHub asks a client to wait at least a minute.
 SECONDARY_WAIT_SECONDS = 60
-# The off switch: set to 1 and a rate limit turns the check red again, as before 2026-11-23.
-RATE_LIMIT_FAILS_ENV = "RISK_TIER_RATE_LIMIT_FAILS"
 _rate_waited = 0.0
 
 
 class RateLimited(subprocess.CalledProcessError):
     """A gh call GitHub refused for budget, past the wait: not a verdict on the pull request."""
+
+    def __init__(self, returncode, cmd, *, output=None, stderr=None, endpoint="", status=None, reset=None):
+        super().__init__(returncode, cmd, output=output, stderr=stderr)
+        self.endpoint = endpoint
+        self.status = status
+        self.reset = reset
+
+
+def _gh_api_endpoint(args: list[str]) -> str:
+    """The endpoint argument of a gh api command, for the fixed marker and no raw response text."""
+    options_with_values = {"-H", "--header", "-f", "--raw-field", "-F", "--field", "--input", "--jq",
+                           "--template", "-X", "--method"}
+    skip_value = False
+    for arg in args[2:]:
+        if skip_value:
+            skip_value = False
+            continue
+        if arg in options_with_values:
+            skip_value = True
+            continue
+        if arg.startswith("-"):
+            continue
+        return arg
+    return "gh api"
+
+
+def _http_response(stdout: str) -> tuple[str, int | None, dict[str, str]]:
+    """Split gh api --include output into body, final status and lower-case headers."""
+    starts = list(re.finditer(r"(?m)^HTTP/\S+\s+(\d{3})\b[^\r\n]*\r?\n", stdout))
+    if not starts:
+        return stdout, None, {}
+    start = starts[-1]
+    boundary = re.search(r"\r?\n\r?\n", stdout[start.end():])
+    if boundary is None:
+        return stdout, int(start.group(1)), {}
+    header_text = stdout[start.end():start.end() + boundary.start()]
+    body = stdout[start.end() + boundary.end():]
+    headers: dict[str, str] = {}
+    for line in header_text.splitlines():
+        key, sep, value = line.partition(":")
+        if sep:
+            headers[key.strip().lower()] = value.strip()
+    return body, int(start.group(1)), headers
+
+
+def _quota_reset(headers: dict[str, str]) -> tuple[float | None, float | None]:
+    """Return (absolute reset epoch for the marker, wait seconds for this process)."""
+    if (raw := headers.get("x-ratelimit-reset")) is not None:
+        try:
+            reset = float(raw)
+            return reset, max(0.0, reset - time.time())
+        except ValueError:
+            pass
+    if (raw := headers.get("retry-after")) is not None:
+        try:
+            wait = max(0.0, float(raw))
+            return time.time() + wait, wait
+        except ValueError:
+            pass
+    return None, None
 
 
 def rate_limit_reset_in(why: str) -> float | None:
@@ -793,20 +851,23 @@ def rate_limit_reset_in(why: str) -> float | None:
 
 
 def gh_run(args: list[str], attempts: int = 3) -> str:
-    """stdout of a gh call, retried so one transient API error doesn't turn the check red. A rate limit waits for
-    the budget once when it returns inside what is left of RATE_LIMIT_WAIT_SECONDS, then raises RateLimited. A
-    failure that ends the retries names itself on stderr: the exception alone says only "exit status 1"."""
+    """Return a gh call's body, retrying transient errors and classifying only structured API quota responses."""
     global _rate_waited
     limited_once = False
     for attempt in range(attempts):
-        done = subprocess.run(args, capture_output=True, text=True)
+        api = len(args) > 1 and args[1] == "api"
+        command = [args[0], args[1], "-i", *args[2:]] if api and "-i" not in args[2:] else args
+        done = subprocess.run(command, capture_output=True, text=True)
+        body, status, headers = _http_response(done.stdout) if api else (done.stdout, None, {})
         if done.returncode == 0:
-            return done.stdout
-        why = (done.stderr or done.stdout or "").strip()
-        limited = bool(GH_RATE_LIMITED.search(why))
+            return body
+        why = (done.stderr or body or "").strip()
+        reset, structured_wait = _quota_reset(headers)
+        limited = (status in GH_RATE_LIMIT_STATUSES and
+                   (headers.get("x-ratelimit-remaining") == "0" or "retry-after" in headers))
         if limited and not limited_once and attempt < attempts - 1:
             limited_once = True
-            wait = rate_limit_reset_in(why)
+            wait = structured_wait if structured_wait is not None else rate_limit_reset_in(why)
             if wait is not None and _rate_waited + wait <= RATE_LIMIT_WAIT_SECONDS:
                 print(f"{shlex.join(args)}: GitHub rate limit; waiting {wait:.0f}s for the budget",
                       file=sys.stderr, flush=True)
@@ -817,15 +878,16 @@ def gh_run(args: list[str], attempts: int = 3) -> str:
             print(f"{shlex.join(args)} exited {done.returncode}"
                   f"{' (GitHub rate limit: not a verdict on this pull request)' if limited else ''}"
                   f"{chr(10) + why if why else ''}", file=sys.stderr, flush=True)
-            error = RateLimited if limited else subprocess.CalledProcessError
-            raise error(done.returncode, args, output=done.stdout, stderr=done.stderr)
+            if limited:
+                raise RateLimited(done.returncode, args, output=body, stderr=done.stderr,
+                                  endpoint=_gh_api_endpoint(args), status=status, reset=reset)
+            raise subprocess.CalledProcessError(done.returncode, args, output=body, stderr=done.stderr)
         time.sleep(2 * (attempt + 1))
     return ""
 
 
 def ungraded(args: argparse.Namespace, error: RateLimited) -> int:
-    """pr_mode's end when GitHub's budget ran out: no tier, no label change, nothing holds, and the reason on the
-    log and the summary. The lander still reads the review verdict at the head itself."""
+    """End on a red, ungraded result with a fixed marker the base-red consumer can safely rerun."""
     why = (error.stderr or error.output or "").strip().splitlines()
     report = "\n".join([
         "## Risk tier: ungraded", "",
@@ -833,14 +895,16 @@ def ungraded(args: argparse.Namespace, error: RateLimited) -> int:
         f"{': ' + printable(why[0]) if why else ''}.",
         "That is not a verdict on this pull request. The next push, edit or label regrades it, or rerun this job.",
         "", "Policy: docs/ci/risk-tiers.md"])
+    marker = {"endpoint": error.endpoint, "graded": False, "reset": error.reset, "status": error.status}
+    print("risk-evidence.rate-limited " + json.dumps(marker, sort_keys=True, separators=(",", ":")))
     print(report)
     print("::warning::risk evidence: ungraded, GitHub rate limit (not a verdict on this pull request)")
     if args.summary:
         Path(args.summary).open("a").write(report + "\n")
     if args.github_output:
         with Path(args.github_output).open("a") as out:
-            out.write("tier=ungraded\nlabel=\nready=true\nsignoff_unread=false\ntakes_back=false\ntakes_back_fix=\n")
-    return 0
+            out.write("tier=ungraded\nlabel=\nready=false\nsignoff_unread=false\ntakes_back=false\ntakes_back_fix=\n")
+    return 1
 
 
 PER_PAGE = 100
@@ -1476,8 +1540,6 @@ def main(argv: list[str] | None = None) -> int:
     try:
         return pr_mode(args)
     except RateLimited as error:
-        if os.environ.get(RATE_LIMIT_FAILS_ENV) == "1":
-            raise
         return ungraded(args, error)
 
 

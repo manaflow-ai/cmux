@@ -7498,6 +7498,14 @@ RERUN_ASK = re.compile(r"\bre-run this check(?:[.;]|$)", re.I)
 # error line beside it, or a failing test, keeps the comparison.
 GITHUB_QUOTA = re.compile(r"\bAPI rate limit exceeded\b|\bsecondary rate limit\b", re.I)
 
+# risk-tier.yml is a pull_request_target job from main. Its classifier runs from the PR base and emits this marker
+# only after a structured GitHub 403/429 quota response. Text that merely mentions a rate limit is deliberately not
+# enough for this job: a real takeback warning or any other failure must remain a red verdict.
+RISK_EVIDENCE_JOB = "risk evidence"
+RISK_EVIDENCE_STEP = "Grade the pull request"
+RISK_EVIDENCE_MARKER = re.compile(r"^risk-evidence\.rate-limited (?P<body>\{.*\})$")
+RISK_EVIDENCE_ENDPOINT = re.compile(r"^repos/[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+/(?:pulls|compare|issues|commits)(?:/|\?|$)")
+
 # The published-tree hand-off re-runs other commits' runs. Its own quota-only failure is a retryable gate state,
 # not a red in the pull request. The hand-off emits this live annotation without installation or request IDs.
 TREE_HANDOFF_JOB = "re-run the runs that deferred to the published tree"
@@ -7556,6 +7564,56 @@ def tree_handoff_quota_only(job: dict, log: str) -> str | None:
     if len(errors) != 1 or not (match := TREE_HANDOFF_QUOTA.fullmatch(errors[0].rstrip())):
         return None
     return (f"run {match.group('run')}; job {job.get('id')}; no attempt before {match.group('retry')}")
+
+
+def risk_evidence_quota_only(job: dict, log: str, *, step_names) -> str | None:
+    """The one trusted risk-evidence quota marker, placed in the classifier's failed step."""
+    if str(job.get("name") or "") != RISK_EVIDENCE_JOB:
+        return None
+    steps = [step for step in job.get("steps") or [] if step.get("conclusion") != "skipped"]
+    if all(isinstance(step.get("number"), int) for step in steps):
+        steps.sort(key=lambda step: step["number"])
+    failed = [str(step.get("name") or "") for step in steps if step.get("conclusion") == "failure"]
+    if failed != [RISK_EVIDENCE_STEP]:
+        return None
+    owned = step_owners(job, log, step_names=step_names)
+    if any(status == AMBIGUOUS for _, _, status in owned):
+        return None
+    target = next((index for index, step in enumerate(steps) if str(step.get("name") or "") == RISK_EVIDENCE_STEP), None)
+    markers: list[dict] = []
+    all_lines: list[str] = []
+    for raw, index, _status in owned:
+        texts = lines_of(raw)
+        if not texts:
+            continue
+        text = texts[0]
+        all_lines.append(text)
+        match = RISK_EVIDENCE_MARKER.fullmatch(text)
+        if match is None:
+            continue
+        if index != target:
+            return None
+        try:
+            marker = json.loads(match.group("body"))
+        except (TypeError, ValueError):
+            return None
+        if isinstance(marker, dict):
+            markers.append(marker)
+    if len(markers) != 1 or any("takes back" in line.lower() or "takeback" in line.lower() for line in all_lines):
+        return None
+    marker = markers[0]
+    if (set(marker) != {"endpoint", "status", "reset", "graded"} or marker.get("graded") is not False
+            or not isinstance(marker.get("status"), int) or isinstance(marker.get("status"), bool)
+            or marker["status"] not in (403, 429) or not isinstance(marker.get("endpoint"), str)
+            or not RISK_EVIDENCE_ENDPOINT.fullmatch(marker["endpoint"])
+            or not isinstance(marker.get("reset"), (int, float)) or isinstance(marker.get("reset"), bool)
+            or marker["reset"] < 0):
+        return None
+    if any(line.startswith("##[error]") and not line.startswith("##[error]Process completed with exit code")
+           for line in all_lines):
+        return None
+    when = datetime.fromtimestamp(float(marker["reset"]), timezone.utc).strftime("%H:%MZ")
+    return f"risk evidence API quota at {marker['endpoint']} (HTTP {marker['status']}); rerun after {when}"
 
 
 def asks_only_rerun(view: "FailedView | Unplaced") -> str | None:
@@ -9559,6 +9617,8 @@ def read_head(repo: str, base: str, sha: str, name: str, job: dict, github, run_
     if name == TREE_HANDOFF_JOB and (said := tree_handoff_quota_only(job, head_log)) is not None:
         raise JobRateLimited(f"'{name}' reported only its repo installation API quota refusal ({said}); rerun the job "
                              "after that boundary")
+    if name == RISK_EVIDENCE_JOB and (said := risk_evidence_quota_only(job, head_log, step_names=names)) is not None:
+        raise JobRateLimited(f"'{name}' reported only its structured API quota refusal ({said})")
     if name == GENERATED_VERDICT_JOB and (said := generated_no_verdict(head_log)) is not None:
         raise Refused(f"'{name}' gave no generated files verdict ({said[:300]}); "
                       "re-run its prerequisite and this dependent job together")
@@ -10192,8 +10252,11 @@ def judge(repo: str, base: str, sha: str, runs: list[int], github, *, checks: li
                 base_workflow, base_name = caller, caller_name
         # A quota-only red with no red base verdict to share is Infra (github_quota_only); a red base verdict keeps
         # its comparison below, which may excuse it as the base's.
-        quota = ((github_quota_only(view) if view is not UNPLACED else unplaced_quota_only(got.unplaced))
-                 if base_run is None or base_job.get("conclusion") != "failure" else None)
+        # risk evidence has its own structured marker and exact-step trust boundary above. Its old text-only quota
+        # path would excuse a real takeback or a spoofed log line, so generic quota matching never applies to it.
+        quota = (None if name == RISK_EVIDENCE_JOB else
+                 ((github_quota_only(view) if view is not UNPLACED else unplaced_quota_only(got.unplaced))
+                  if base_run is None or base_job.get("conclusion") != "failure" else None))
         if quota is not None:
             raise infra(name, job, f"its failed steps printed only GitHub's API rate-limit refusal {quota[:300]!r}")
         if base_run is None:
