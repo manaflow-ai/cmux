@@ -25,12 +25,13 @@ mod stream;
 /// ([`ServiceOptions::snapshot_backoff`]).
 pub use cmux_cloud_wire::SnapshotBackoff;
 pub use contract::{
-    CLOUD_INBOX_OP_KINDS, CLOUD_OP_KINDS, InboxOpRequest, OpRequest, Target, valid_conversation_id,
+    AppKvRow, AppKvWrite, CLOUD_INBOX_OP_KINDS, CLOUD_OP_KINDS, InboxOpRequest, OpRequest, Target,
+    appkv_list_page, appkv_op_body, valid_conversation_id,
 };
 pub use error::CloudError;
 pub use host_replica::{
     CLOUD_HOST_REPLICA_CAPABILITY, HostOpRefusal, HostReplica, HostReplicaOptions,
-    HostReplicaParams, HostSource, valid_host_id,
+    HostReplicaParams, HostSource, ReplicaSeal, valid_host_id,
 };
 pub use service::{
     CloudBackend, CloudConversations, CloudWire, ConnectError, EventSink, HttpReply,
@@ -54,5 +55,5 @@ pub const CLOUD_ATTACHMENTS_CAPABILITY: &str = "cloud-attachments-v1";
 /// only, no Authorization header) and `cloud-selfhost-info`.
 pub const CLOUD_SELFHOST_CAPABILITY: &str = "cloud-selfhost-v1";
 
-#[cfg(feature = "test-support")]
+#[cfg(any(test, feature = "test-support"))]
 pub mod testing;

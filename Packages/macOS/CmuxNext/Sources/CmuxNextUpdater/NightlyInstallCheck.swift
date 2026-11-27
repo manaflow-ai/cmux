@@ -244,17 +244,17 @@ nonisolated extension UpdaterStrings {
     static var installCheckStayedTitle: String { text("updater.installCheck.stayed.title", "This update cannot open chats") }
     static func installCheckNoPassingBuild(_ build: String, _ reason: String) -> String {
         format("updater.installCheck.noPassingBuild",
-               "Build %1$@ could not open chats (%2$@) and no earlier build that could is kept, so cmux stayed on it; reinstall the previous NIGHTLY in Settings > Updates.",
+               "Build %1$@ could not open chats (%2$@) and no earlier working build is kept; reinstall the previous NIGHTLY in Settings > Updates.",
                build, reason)
     }
     static func installCheckStoreUnreadable(_ build: String, _ reason: String) -> String {
         format("updater.installCheck.storeUnreadable",
-               "Build %1$@ could not open chats (%2$@) and the earlier builds kept cannot read your data, so cmux stayed on it; reinstall the previous NIGHTLY in Settings > Updates.",
+               "Build %1$@ could not open chats (%2$@) and the earlier builds kept cannot read your data; reinstall the previous NIGHTLY in Settings > Updates.",
                build, reason)
     }
     static func installCheckRollbackFailed(_ build: String, _ reason: String, _ target: String, _ failure: String) -> String {
         format("updater.installCheck.rollbackFailed",
-               "Build %1$@ could not open chats (%2$@) and going back to build %3$@ failed (%4$@); reinstall the previous NIGHTLY in Settings > Updates.",
+               "Build %1$@ could not open chats (%2$@); going back to %3$@ failed (%4$@). Reinstall the previous NIGHTLY in Settings > Updates.",
                build, reason, target, failure)
     }
     /// The failure a held rollback shows when the app ended before saying one.

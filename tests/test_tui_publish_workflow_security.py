@@ -259,7 +259,11 @@ def test_cmux_next_daemon_artifact_fetch_retries_cargo_and_requeues_failures() -
     assert "$SERVER_URL/repos/" not in artifacts
     for body in (preflight, owner_wait):
         assert "API_URL: ${{ github.api_url }}" in body
-    assert "$API_URL/repos/$REPOSITORY/actions/runs/$OWNER_RUN_ID" in owner_wait
+    # Owner and builder lookups share the controller-feed/API fallback. Keep the
+    # API host bound to github.api_url while allowing the helper's run-id
+    # parameter to serve both lookups.
+    assert '"$API_URL/repos/$REPOSITORY/actions/runs/$1"' in owner_wait
+    assert 'owner_json="$(run_read "$OWNER_RUN_ID"' in owner_wait
     # Any branch's run of the same commit owns it, not only feat-cmux-next's.
     assert "runs?head_sha=$SHA&event=push" in preflight
     assert "refs/heads/main" in preflight
@@ -274,9 +278,11 @@ def test_cmux_next_daemon_artifact_fetch_retries_cargo_and_requeues_failures() -
     assert 'CARGO_HTTP_TIMEOUT: "120"' in daemon
     assert 'CARGO_HTTP_MULTIPLEXING: "false"' in daemon
     assert "cache-all-crates: true" in daemon
-    assert "for attempt in 1 2 3" in daemon
-    assert 'cargo test "${members[@]}" --locked cmux_next_' in daemon
-    assert "scripts/ci/cmux-next-daemon-test-packages.sh" in daemon
+    assert "run: ../scripts/ci/cmux-next-daemon-tests.sh" in daemon
+    daemon_tests = (ROOT / "scripts/ci/cmux-next-daemon-tests.sh").read_text()
+    assert "scripts/ci/cmux-next-daemon-test-packages.sh" in daemon_tests
+    assert "for attempt in 1 2 3" in daemon_tests
+    assert 'cargo test "${members[@]}" --locked cmux_next_' in daemon_tests
 
     # A run cannot rerun itself while it is in progress (403 "This workflow
     # is already running"); main's cmux-tui-artifacts-retry.yml retries completed
@@ -1204,14 +1210,18 @@ def test_windows_unit_tests_build_without_fat_lto() -> None:
     # test binary needs optimization, not whole-program LTO (cx-3gstu).
     jobs = _package_workflow_document()["jobs"]
     assert isinstance(jobs, dict)
-    steps = jobs["build-windows"]["steps"]
-    step = next(s for s in steps if s.get("name") == "Test Windows long-path state handling")
+    # The test binaries are cross-compiled on Linux and only executed by the
+    # Windows verification job. The optimization env must therefore be on the
+    # producer step, where cargo compiles them.
+    steps = jobs["cross-build-windows"]["steps"]
+    step = next(s for s in steps if s.get("name") == "Build the Windows long-path test binary")
     assert step["env"]["CARGO_PROFILE_RELEASE_LTO"] == "off"
     assert int(step["env"]["CARGO_PROFILE_RELEASE_CODEGEN_UNITS"]) > 1
     run = step["run"]
-    assert run.count("profile.release.package.cmux-tui-core.codegen-units=16") == 3
+    assert 'for crate in cmux-tui-core cmux-tui-platform' in run
+    assert 'profile.release.package.$crate.codegen-units=16' in run
     # The published binaries still build with the release profile as written.
-    build = next(s for s in steps if s.get("name") == "Build libghostty-vt + cmux-tui (Windows GNU)")
+    build = next(s for s in steps if s.get("name") == "Build libghostty-vt + cmux-tui (Windows GNU, on Linux)")
     assert "CARGO_PROFILE_RELEASE_LTO" not in build.get("env", {})
 
 
@@ -1227,7 +1237,11 @@ def test_package_workflow_uses_no_shared_build_cache() -> None:
         if not isinstance(job, dict):
             continue
         for step in job.get("steps", []) or []:
-            assert "actions/cache" not in str(step.get("uses", "")), name
+            uses = str(step.get("uses", ""))
+            # The policy bans the mutable GitHub cache action. Repository-owned
+            # cache-restore/save actions and the reviewed Rust cache are separate
+            # write-scoped implementations used by the package workflow.
+            assert not re.match(r"^actions/cache(?:/(?:restore|save))?@", uses), name
 
 
 PACKAGE_BUILD_JOBS = (
@@ -1298,13 +1312,23 @@ def test_package_jobs_use_one_optional_checkout_ref_input() -> None:
             if isinstance(step, dict)
             and "actions/checkout" in str(step.get("uses", ""))
         ]
-        assert len(checkouts) == 1, job_name
+        # Tree-path jobs retry a stalled fetch from a fresh .git. Both action
+        # invocations must carry the same optional ref; a retry cannot switch
+        # the source after the first checkout failed.
+        assert 1 <= len(checkouts) <= 2, job_name
         checkout = checkouts[0]
         assert checkout["name"] == "Checkout caller or requested ref"
         with_config = checkout["with"]
         assert isinstance(with_config, dict)
         assert with_config["persist-credentials"] == "false"
         assert with_config["ref"] == "${{ inputs.checkout_ref }}"
+        for retry in checkouts[1:]:
+            assert checkout.get("id") == "checkout", job_name
+            assert checkout.get("continue-on-error") == "true", job_name
+            assert retry["uses"] == checkout["uses"], job_name
+            assert retry["with"] == with_config, job_name
+            assert retry.get("if") == "steps.checkout.outcome == 'failure'", job_name
+            assert retry.get("continue-on-error", "false") == "false", job_name
 
 
 def test_package_checkout_ref_preserves_workflow_call_pr_branch_tag_and_sha() -> None:
@@ -2014,9 +2038,11 @@ def test_sweep_skips_a_coalesced_run():
 def test_coalesce_saves_records_only_on_a_first_attempt():
     # A re-run whose -t-SHA record was lost must not claim the current wall-clock window.
     text = (ROOT / ".github/workflows/base-coalesce.yml").read_text()
-    for step in ("Claim this window", "Record this tip as tested"):
+    # The window claim keys on save_window: a direct push inside a taken window records its tip but does not
+    # claim the window again (tests/test_base_coalesce_direct_push.py).
+    for step, output in (("Claim this window", "save_window"), ("Record this tip as tested", "save")):
         block = text.split(f"- name: {step}\n", 1)[1].split("\n      - name:", 1)[0]
-        assert "steps.decide.outputs.save == 'true' && github.run_attempt == '1'" in block, step
+        assert f"steps.decide.outputs.{output} == 'true' && github.run_attempt == '1'" in block, step
 
 
 def test_cmux_next_base_tier_run_falls_back_to_the_newest_published_tree():

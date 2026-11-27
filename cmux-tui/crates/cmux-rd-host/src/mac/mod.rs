@@ -76,7 +76,8 @@ pub struct MacFrames {
 
 /// Starts the display's capture and opens both halves of the session's desktop.
 /// `cursor_metadata`: capture without the cursor and report it through `Desktop::cursor`.
-pub fn open(cfg: &SessionCfg, cursor_metadata: bool) -> Res<Halves> {
+/// `ltr`: the viewer negotiated long-term references, so the encoder turns them on.
+pub fn open(cfg: &SessionCfg, cursor_metadata: bool, ltr: bool) -> Res<Halves> {
     if cfg.codec != "videotoolbox" {
         return Err(format!(
             "codec {} is not available on a macOS host (it encodes captured surfaces with videotoolbox)",
@@ -88,12 +89,13 @@ pub fn open(cfg: &SessionCfg, cursor_metadata: bool) -> Res<Halves> {
     // The cursor is in the pictures unless the viewer draws it or asked for none at all.
     let in_pictures = !cursor_metadata && cfg.show_cursor;
     let make_encoder = move |(width, height): (u32, u32)| -> Res<VideoToolbox> {
-        let mut encoder = VideoToolbox::new(
+        let mut encoder = VideoToolbox::with_ltr(
             width,
             height,
             encoder_fps(width, height, cfg.max_fps),
             cfg.start_kbps,
             cfg.profile == "baseline",
+            ltr,
         )?;
         // The session's profile and the encoder's resources now, not on the first frame: an
         // ultra session would otherwise rebuild the encoder inside the session's first keyframe.
@@ -239,6 +241,18 @@ impl FrameSource for MacFrames {
 
     fn set_bitrate(&mut self, kbps: u32) {
         SurfaceEncoder::set_bitrate(&mut self.encoder, kbps);
+    }
+
+    fn set_acknowledged_ltr_tokens(&mut self, tokens: &[u64]) {
+        self.encoder.set_acknowledged_ltr_tokens(tokens);
+    }
+
+    fn set_force_ltr_refresh(&mut self, refresh: bool) {
+        self.encoder.set_force_ltr_refresh(refresh);
+    }
+
+    fn ltr_token(&self) -> Option<u64> {
+        self.encoder.ltr_token()
     }
 
     fn set_profile(&mut self, profile: EncodeProfile, refine: bool) {
