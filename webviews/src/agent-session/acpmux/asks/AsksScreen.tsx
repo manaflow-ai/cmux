@@ -116,9 +116,7 @@ function AskRow({
       </span>
       <div className="ask-body">
         <div className="ask-line">
-          <span className="ask-text" title={ask.text}>
-            {askLine(ask)}
-          </span>
+          <span className="ask-text">{askLine(ask)}</span>
           <span className="ask-state" data-status={ask.status}>
             {t(`asks.status.${ask.status}`)}
           </span>
@@ -129,23 +127,11 @@ function AskRow({
           )}
         </div>
         <div className="ask-sub">
-          <button
-            type="button"
-            className="ask-chat"
-            title={t("asks.openChat")}
-            onClick={() => openSession(ask.sessionId)}
-          >
+          <button type="button" className="ask-chat" onClick={() => openSession(ask.sessionId)}>
             {chat}
           </button>
           {ask.prs.map((pr) => (
-            <button
-              key={pr.url}
-              type="button"
-              className="ask-pr"
-              data-state={pr.state}
-              title={`${pr.repo ?? pr.url} ${t(`asks.pr.${pr.state}`)}`}
-              onClick={() => openUrl(pr.url)}
-            >
+            <button key={pr.url} type="button" className="ask-pr" data-state={pr.state} onClick={() => openUrl(pr.url)}>
               {prLabel(pr)}
               <span className="ask-pr-state">{t(`asks.pr.${pr.state}`)}</span>
             </button>
