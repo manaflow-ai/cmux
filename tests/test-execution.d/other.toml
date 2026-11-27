@@ -529,6 +529,10 @@ lane = "manual"
 reason = "No workflow step runs it (lane derived by --write). Run it yourself: python3 tests/test_mac_tiers.py"
 
 [[test]]
+path = "tests/test_machine_channel_cargo_seed_due.py"
+lane = "linux-guard"
+
+[[test]]
 path = "tests/test_machine_join_e2e_workflow.py"
 lane = "linux-guard"
 

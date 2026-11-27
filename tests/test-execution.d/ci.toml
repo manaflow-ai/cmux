@@ -6,6 +6,10 @@ path = "tests/test_ci_acpmux_job_home.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_ci_acpmux_tests_full_ci_own_paths.py"
+lane = "linux-guard"
+
+[[test]]
 path = "tests/test_ci_actionlint_covers_every_workflow.py"
 lane = "linux-guard"
 
@@ -971,6 +975,10 @@ path = "tests/test_ci_rust_targets_installed_first.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_ci_rust_workspaces_land_head.py"
+lane = "linux-guard"
+
+[[test]]
 path = "tests/test_ci_same_repo_linux_owned_first.py"
 lane = "linux-guard"
 
@@ -985,6 +993,10 @@ reason = "Lawrence 2026-10-23: no new CI tests (lifted 2026-11-18). Checks that 
 
 [[test]]
 path = "tests/test_ci_select_package_tests.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_ci_self_edit_sweep.py"
 lane = "linux-guard"
 
 [[test]]
@@ -1145,6 +1157,10 @@ lane = "linux-guard"
 
 [[test]]
 path = "tests/test_ci_tui_routes_avoid_nightly_label.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_ci_tui_spec_sims_post_merge.py"
 lane = "linux-guard"
 
 [[test]]

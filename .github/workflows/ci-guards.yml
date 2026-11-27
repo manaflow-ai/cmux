@@ -1591,6 +1591,30 @@ jobs:
         if: ${{ !cancelled() && matrix.group == 'ci' }}
         run: python3 tests/test_ci_acpmux_job_home.py
 
+      - name: Validate acpmux full-ci own-path routing
+        if: ${{ !cancelled() && matrix.group == 'ci' }}
+        run: python3 tests/test_ci_acpmux_tests_full_ci_own_paths.py
+
+      - name: Validate Rust workspace coverage on the landing head
+        if: ${{ !cancelled() && matrix.group == 'ci' }}
+        run: python3 tests/test_ci_rust_workspaces_land_head.py
+
+      - name: Validate workflow self-edit sweep routing
+        if: ${{ !cancelled() && matrix.group == 'ci' }}
+        run: python3 tests/test_ci_self_edit_sweep.py
+
+      - name: Validate TUI simulations run after merge
+        if: ${{ !cancelled() && matrix.group == 'ci' }}
+        run: python3 tests/test_ci_tui_spec_sims_post_merge.py
+
+      - name: Validate machine-channel Cargo seed freshness
+        if: ${{ !cancelled() && matrix.group == 'ci' }}
+        run: python3 tests/test_machine_channel_cargo_seed_due.py
+
+      - name: Validate web green-marker input keys
+        if: ${{ !cancelled() && matrix.group == 'ci' }}
+        run: python3 tests/test_web_green_marker.py
+
       - name: Validate signing secrets are read only in protected environments
         if: ${{ !cancelled() && matrix.group == 'ci' }}
         run: python3 tests/test_ci_signing_secrets_need_release_environment.py
