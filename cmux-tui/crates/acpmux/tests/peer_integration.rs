@@ -144,8 +144,81 @@ async fn listen_with_peer_token(b: Arc<Hub>, tag: &str) -> (u16, String) {
     (port, token)
 }
 
+async fn incoming_presence_peer(tag: &str) -> (Arc<Hub>, String, String) {
+    let b = hub(config(PermissionPolicy::Ask)).await;
+    let (port, peer_token) = listen_with_peer_token(b.clone(), tag).await;
+    let mut cb = client(b.clone()).await;
+    cb.call("_acpmux/live", json!({"live": true})).await.unwrap();
+    let first = cb
+        .call(method::SESSION_NEW, json!({"cwd": std::env::temp_dir(), "mcpServers": [], "_meta": {"acpmux": {"name": format!("{tag}-one")}}}))
+        .await.unwrap()["sessionId"].as_str().unwrap().to_owned();
+    let second = cb
+        .call(method::SESSION_NEW, json!({"cwd": std::env::temp_dir(), "mcpServers": [], "_meta": {"acpmux": {"name": format!("{tag}-two")}}}))
+        .await.unwrap()["sessionId"].as_str().unwrap().to_owned();
+    let a = hub(config(PermissionPolicy::Ask)).await;
+    a.add_peer("b", &format!("ws://127.0.0.1:{port}"), Some("tok".into()), Some(peer_token), true)
+        .await
+        .unwrap();
+    (a, first, second)
+}
+
+fn authored_view(chat: &str, token: &str, author: &Value) -> Value {
+    json!({"sessionId": chat, "visible": true, "_meta": {"acpmux": {"presenceClient": token, "author": author}}})
+}
+
 fn free_port() -> u16 {
     std::net::TcpListener::bind("127.0.0.1:0").unwrap().local_addr().unwrap().port()
+}
+
+#[tokio::test]
+async fn incoming_presence_token_cannot_cross_chats() {
+    let (a, first, second) = incoming_presence_peer("presence-token-binding").await;
+    let peer = a.peer_by_name("b").unwrap();
+    let author = json!({"id": "tailnet:canonical-ana", "name": "Ana"});
+    let token = "00000000-0000-0000-0000-000000000001";
+    peer.request(method::MUX_ATTACH, json!({"sessionId": first, "visible": false, "limit": 0}))
+        .await
+        .unwrap();
+    peer.request(method::MUX_VIEW, authored_view(&first, token, &author)).await.unwrap();
+    peer.request(method::MUX_ATTACH, json!({"sessionId": second, "visible": false, "limit": 0}))
+        .await
+        .unwrap();
+    let reused = peer.request(method::MUX_VIEW, authored_view(&second, token, &author)).await;
+    assert_eq!(reused.unwrap_err().message, "presence client belongs to another chat");
+}
+
+#[tokio::test]
+async fn incoming_presence_tokens_are_removed_on_detach() {
+    let (a, first, second) = incoming_presence_peer("presence-token-detach").await;
+    let peer = a.peer_by_name("b").unwrap();
+    let author = json!({"id": "tailnet:detach-ana", "name": "Ana"});
+    let token = "00000000-0000-0000-0000-000000000002";
+    peer.request(method::MUX_ATTACH, json!({"sessionId": first, "visible": false, "limit": 0}))
+        .await
+        .unwrap();
+    peer.request(method::MUX_VIEW, authored_view(&first, token, &author)).await.unwrap();
+    peer.request(method::MUX_DETACH, json!({"sessionId": first})).await.unwrap();
+    peer.request(method::MUX_ATTACH, json!({"sessionId": second, "visible": false, "limit": 0}))
+        .await
+        .unwrap();
+    peer.request(method::MUX_VIEW, authored_view(&second, token, &author)).await.unwrap();
+}
+
+#[tokio::test]
+async fn incoming_presence_tokens_are_capped_at_1024() {
+    let (a, first, _) = incoming_presence_peer("presence-token-cap").await;
+    let peer = a.peer_by_name("b").unwrap();
+    peer.request(method::MUX_ATTACH, json!({"sessionId": first, "visible": false, "limit": 0}))
+        .await
+        .unwrap();
+    let author = json!({"id": "tailnet:cap-ana", "name": "Ana"});
+    for i in 1..=1024 {
+        let token = format!("00000000-0000-0000-0000-{i:012x}");
+        peer.request(method::MUX_VIEW, authored_view(&first, &token, &author)).await.unwrap();
+    }
+    let token = "00000000-0000-0000-0000-000000001025";
+    let refused = peer.request(method::MUX_VIEW, authored_view(&first, token, &author)).await;
+    assert_eq!(refused.unwrap_err().message, "too many presence clients on peer link");
 }
 
 #[tokio::test]
@@ -585,6 +658,96 @@ async fn peer_presence_recovers_unchanged_participants_after_reconnect() {
     .expect("peer reconnects");
     // No client on B changed presence after the initial view.
     assert_eq!(b.presence.snapshot(sid)["participants"][0]["id"], "tailnet:stable-ana");
+}
+
+/// Presence authored on B is relayed to A and restored after the peer link
+/// reconnects. The view remains visible even though the only request between
+/// the view and the flap is a typing on/off pair.
+#[tokio::test]
+async fn authored_peer_view_survives_reconnect_without_new_client_input() {
+    let a = hub(config(PermissionPolicy::Ask)).await;
+    let mut ca = client(a.clone()).await;
+    let session = ca
+        .call(
+            method::SESSION_NEW,
+            json!({
+                "cwd": std::env::temp_dir(), "mcpServers": [],
+                "_meta": {"acpmux": {"name": "outgoing-presence"}}
+            }),
+        )
+        .await
+        .unwrap();
+    let sid = session["sessionId"].as_str().unwrap().to_owned();
+    ca.call("_acpmux/live", json!({"live": true})).await.unwrap();
+    ca.call(method::MUX_ATTACH, json!({"sessionId": sid, "visible": false})).await.unwrap();
+
+    let (port, token) = listen_with_peer_token(a.clone(), "presence-outgoing-reconnect").await;
+    let (relay, flap) = one_flap_relay(port, Duration::ZERO).await;
+    let b = hub(config(PermissionPolicy::Ask)).await;
+    b.add_peer("a", &format!("ws://127.0.0.1:{relay}"), Some("tok".into()), Some(token), true)
+        .await
+        .unwrap();
+    let mut cb = client(b.clone()).await;
+    cb.call("_acpmux/live", json!({"live": true})).await.unwrap();
+    cb.call(
+        method::MUX_ATTACH,
+        json!({"session": "a/outgoing-presence", "limit": 0, "visible": false}),
+    )
+    .await
+    .unwrap();
+
+    // B's app authors presence on A's chat through the peer link. A's client
+    // is the observer, so the test exercises both the outgoing and replay
+    // paths rather than a local-only presence update.
+    let author = json!({"id": "tailnet:outgoing-ana", "name": "Ana"});
+    cb.call(
+        method::MUX_VIEW,
+        json!({
+            "sessionId": "a/outgoing-presence", "visible": true,
+            "_meta": {"acpmux": {"author": author}}
+        }),
+    )
+    .await
+    .unwrap();
+    cb.call(
+        "_acpmux/typing",
+        json!({"sessionId": "a/outgoing-presence", "on": true, "_meta": {"acpmux": {"author": author}}}),
+    )
+    .await
+    .unwrap();
+    cb.call(
+        "_acpmux/typing",
+        json!({"sessionId": "a/outgoing-presence", "on": false, "_meta": {"acpmux": {"author": author}}}),
+    )
+    .await
+    .unwrap();
+    let stable = ca
+        .wait(method::MUX_PRESENCE, |p| {
+            p["participants"].as_array().is_some_and(|people| {
+                people.iter().any(|person| {
+                    person["id"] == "tailnet:outgoing-ana"
+                        && person["viewing"] == true
+                        && person["typing"] == false
+                })
+            })
+        })
+        .await;
+    assert_eq!(stable["participants"].as_array().unwrap().len(), 1, "{stable}");
+
+    flap.send(()).unwrap();
+    ca.wait(method::MUX_PRESENCE, |p| p["participants"] == json!([])).await;
+    let restored = ca
+        .wait(method::MUX_PRESENCE, |p| {
+            p["participants"].as_array().is_some_and(|people| {
+                people.iter().any(|person| {
+                    person["id"] == "tailnet:outgoing-ana"
+                        && person["viewing"] == true
+                        && person["typing"] == false
+                })
+            })
+        })
+        .await;
+    assert_eq!(restored["participants"].as_array().unwrap().len(), 1, "{restored}");
 }
 
 /// Identical raw ids from different peers never mix their presence in a local client.
