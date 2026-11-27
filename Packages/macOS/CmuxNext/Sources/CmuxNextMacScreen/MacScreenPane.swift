@@ -307,7 +307,9 @@ public final class MacScreenPane {
                 }
                 model.hub?.streamStalled(session.isStalled)
                 // A device hub stream that could not start, or dropped: the hub hears it too.
-                if case .failed = session.phase, model.hub?.phase.streamingScope != nil { model.hub?.streamFailed() }
+                if case let .failed(message, _) = session.phase, model.hub?.phase.streamingScope != nil {
+                    model.hub?.streamFailed(stage: session.connectStage.name, message: message)
+                }
                 view.needsLayout = true
                 handlers.keyboardChanged()
                 observePhase(session)

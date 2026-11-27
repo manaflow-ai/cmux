@@ -22,8 +22,10 @@ head's tree by scripts/ci/cargo_test_verdict.py's crate_inputs (the same graph t
 It never trades a test for speed. Every job runs when:
 
   - the event is not a pull request (a push to feat-cmux-next is the safety net: it runs everything), or the pull
-    request carries the full-ci label (with --full-ci-follows-graph, the label runs every job the change can affect,
-    the pull_request_skip ones too, and no job whose inputs it leaves as they are at the base);
+    request carries the full-ci label and changes more than CI and tooling files (scripts/ci/tooling_only.py: a
+    tooling-only change under full-ci routes by the graph like any other, so a job whose inputs it never touches
+    is skipped; with --full-ci-follows-graph, the label runs every job the change can affect, the
+    pull_request_skip ones too, and no job whose inputs it leaves as they are at the base);
   - there is no usable base, or git cannot list the change, or the graph cannot be read;
   - the change touches this router, its map, or what it reads the graph with (SELF);
   - a changed path under cmux-tui/ is in no Cargo package, is no job's input, and is not a Markdown file: a path
@@ -55,6 +57,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import cargo_test_verdict  # noqa: E402
 import git_tree  # noqa: E402
+import tooling_only  # noqa: E402
 
 ROOT = Path(__file__).resolve().parents[2]
 MAP = "scripts/ci/affected-jobs.json"
@@ -64,6 +67,7 @@ SELF = (
     MAP, "scripts/ci/affected_jobs.py", "scripts/ci/cargo_test_verdict.py", "scripts/ci/git_tree.py",
     "scripts/ci/affected_jobs_replay.py", "tests/test_ci_affected_jobs.py",
     "scripts/ci/tree_result.py", ".github/actions/tree-result/action.yml", "tests/test_ci_tree_result.py",
+    "scripts/ci/tooling_only.py",
 )
 FULL_LABEL = "full-ci"
 # The only base whose pull requests skip pull_request_skip jobs: its push runs them. A pull request into any other
@@ -254,7 +258,7 @@ def route(tree: git_tree.GitTree | None, changed: list[str] | None, *, event: st
 
     if event != "pull_request":
         return everything(f"a {event} runs every job (the safety net)")
-    if FULL_LABEL in (labels or []) and not full_ci_follows_graph:
+    if FULL_LABEL in (labels or []) and not full_ci_follows_graph and not tooling_only.tooling_only(changed):
         return everything(f"the {FULL_LABEL} label")
     if changed is None or tree is None:
         return everything("no usable base: the change cannot be listed")
@@ -358,10 +362,11 @@ def gate(root: Path, changed: list[str] | None, workflow: str, *, event: str = "
          full_ci_follows_graph: bool = False) -> tuple[bool, str]:
     """Whether the change needs the crate graph at all (`route` and `check` on a full checkout), and why. A pull
     request whose every changed path is outside gate_globs needs neither: every routed job of WORKFLOW is false and
-    `check` reads the same files as at the base (the feat-cmux-next push still runs both). Everything else (a push, the full-ci label, an unlistable change) needs it."""
+    `check` reads the same files as at the base (the feat-cmux-next push still runs both). Everything else (a push, the full-ci label on a change
+    that is not tooling-only, an unlistable change) needs it."""
     if event != "pull_request":
         return True, f"a {event} reads the graph"
-    if FULL_LABEL in (labels or []) and not full_ci_follows_graph:
+    if FULL_LABEL in (labels or []) and not full_ci_follows_graph and not tooling_only.tooling_only(changed):
         return True, f"the {FULL_LABEL} label"
     if changed is None:
         return True, "no usable base: the change cannot be listed"

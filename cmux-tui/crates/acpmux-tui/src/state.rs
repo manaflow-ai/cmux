@@ -136,7 +136,17 @@ pub enum PickTarget {
 }
 
 pub enum AppMsg {
-    DraftFailed,
+    /// A draft's start failed or ran past its deadline (`start_wait.rs`): its images go back.
+    DraftFailed {
+        draft: u64,
+        images: Vec<PromptImage>,
+    },
+    /// A draft's start lost its daemon connection: run it again on the next one.
+    StartLost {
+        draft: u64,
+        text: String,
+        images: Vec<PromptImage>,
+    },
     /// A chat's durable draft as `_acpmux/draft_get` answered (`composer_draft.rs`).
     DraftRead {
         id: String,

@@ -69,11 +69,10 @@ struct CloudWorkerMachineFilesTests {
 
     private static let origin = URL(string: "https://machines.standin.invalid") ?? URL(fileURLWithPath: "/dev/null")
 
-    private func worker() -> CloudAPIClient {
+    private func worker() -> CloudDaemon {
         let sessionConfiguration = URLSessionConfiguration.ephemeral
         sessionConfiguration.protocolClasses = [WorkerAPI.self]
-        return CloudAPIClient.workerMachines(baseURL: Self.origin, accessToken: { "session-access" }, teamID: { "team_cmux" },
-                                             session: URLSession(configuration: sessionConfiguration))
+        return CloudDaemon.workerMachines(baseURL: Self.origin, accessToken: { "session-access" }, teamID: { "team_cmux" })
     }
 
     /// The daemon calls a fake `cmux cloud api` saw: each request's JSON.
@@ -85,9 +84,9 @@ struct CloudWorkerMachineFilesTests {
     }
 
     /// A Worker machines client whose daemon answers each `machine.io` op as the route would.
-    private func daemonWorker(_ seen: Seen) -> CloudAPIClient {
+    private func daemonWorker(_ seen: Seen) -> CloudDaemon {
         var api = worker()
-        api.daemon.daemonCall = { input, _ in
+        api.daemonCall = { input, _ in
             let request = (try? JSONSerialization.jsonObject(with: input)) as? [String: Any] ?? [:]
             let args = request["args"] as? [String: Any] ?? [:]
             seen.inputs.withLock { $0.append(input) }
@@ -144,8 +143,7 @@ struct CloudWorkerMachineFilesTests {
                                                        process: [:], isDebugBuild: true)
         let sessionConfiguration = URLSessionConfiguration.ephemeral
         sessionConfiguration.protocolClasses = [WorkerAPI.self]
-        let api = CloudAPIClient(configuration: configuration, tokens: { ("access", "refresh") }, teamID: { "team-1" },
-                                 session: URLSession(configuration: sessionConfiguration))
+        let api = CloudDaemon(configuration: configuration, tokens: { ("access", "refresh") }, teamID: { "team-1" })
         await #expect(throws: CloudAPIError.http(status: 501, code: "machine.unsupported", message: nil)) {
             _ = try await api.exec("m1", command: "true")
         }

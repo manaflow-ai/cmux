@@ -8,7 +8,7 @@ legacy-identity requirement is a dispatch-time variable.
 
 - check-nightly-webviews runs the gating webview checks on the exact build commit beside the app build, and
   publish-nightly's Final publication gate refuses a build without them green (scripts/ci/nightly_publish_guard.py
-  webview-verdict).
+  webview-verdict) when NIGHTLY_COMPONENT_GATES is block; otherwise it publishes with a "Nightly stale part" warning.
 - .github/nightly-known-bad.json, read live from feat-cmux-next, holds a build whose commit contains a listed bad
   commit without its fix, in publish-nightly, before anything is uploaded.
   Held is not failed; an unreadable list publishes with a warning.

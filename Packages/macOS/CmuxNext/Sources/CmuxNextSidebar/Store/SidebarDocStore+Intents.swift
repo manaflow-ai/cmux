@@ -1,6 +1,24 @@
 import Foundation
 
 extension SidebarDocStore {
+    /// Resolve the destination against the window the pointer saw, before it takes the group's members.
+    package func groupPlacement(_ group: GroupID, at position: DropPosition, model: SidebarModel) -> (@MainActor () -> Void)? {
+        let moving = [item(group: group)]
+        guard let anchored = model.docDrag?.anchoredTarget(position, moving: moving, model: model) else { return nil }
+        let adopt: [[String: Any]] = anchored.adopt.map { ["op": "adopt", "refs": [$0]] }
+        return { self.moveWithAdopts(moving, to: anchored.target, title: Self.moveTitle, adopt: adopt, undoable: true) }
+    }
+
+    private func moveWithAdopts(_ moving: [String], to target: SidebarDocTarget, title: String,
+                                adopt: [[String: Any]], undoable: Bool) {
+        // main-actor-ok: one SidebarDocTarget (section, parent, before, after, index), fixed size.
+        guard !adopt.isEmpty || !undoable, let to = try? JSONSerialization.jsonObject(with: JSONEncoder().encode(target)) else {
+            return move(moving, to: target, title: title)
+        }
+        let stamps = Self.roomOps(moving: moving, into: target.section, room: newItemRoom(), records: settledRecords)
+        send(ops: adopt + [["op": "move", "items": moving, "to": to]] + stamps, title: title, undoable: undoable)
+    }
+
     /// Sends a move intent as one document move (sidebar-v2 S4): a list
     /// reorder or group move (`DropPosition`, counted without the moved
     /// items, becomes an anchor next to a sibling the person saw), a band
@@ -23,12 +41,7 @@ extension SidebarDocStore {
             }
         }
         func move(_ moving: [String], to target: SidebarDocTarget, title: String) {
-            // main-actor-ok: one SidebarDocTarget (section, parent, before, after, index), fixed size.
-            guard !adopt.isEmpty || !undoable, let to = try? JSONSerialization.jsonObject(with: JSONEncoder().encode(target)) else {
-                return self.move(moving, to: target, title: title)
-            }
-            let stamps = Self.roomOps(moving: moving, into: target.section, room: newItemRoom(), records: settledRecords)
-            send(ops: adopt + [["op": "move", "items": moving, "to": to]] + stamps, title: title, undoable: undoable)
+            moveWithAdopts(moving, to: target, title: title, adopt: adopt, undoable: undoable)
         }
         // The acting window's space as its state has it: Space > New Group switches the window first, and the model
         // hears of the switch a turn later.

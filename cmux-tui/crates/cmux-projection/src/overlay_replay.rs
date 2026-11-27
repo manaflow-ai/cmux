@@ -244,7 +244,7 @@ impl Overlay {
 
     /// Fetches `batch` (the files no other thread fetches now) and caches what lands; false when
     /// the Mac was away.
-    fn replay_batch(&self, mut batch: Vec<u32>, report: &mut ReplayReport) -> bool {
+    pub(super) fn replay_batch(&self, mut batch: Vec<u32>, report: &mut ReplayReport) -> bool {
         let mut claim = Claim { overlay: self, keys: Vec::new() };
         {
             let mut inflight = self.inflight.lock().unwrap_or_else(PoisonError::into_inner);
