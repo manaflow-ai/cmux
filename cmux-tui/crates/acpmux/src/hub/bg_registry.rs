@@ -20,17 +20,31 @@
 //! A workflow's machine task (a stable id with its claim, `bg_start_with_id`) shows in its
 //! workflow's card and panel, never as a row.
 
-use super::processes::daemon_process;
+use super::processes::{Process, ProcessTable, daemon_process};
 use super::*;
 use crate::bg_run::{self, Record};
 use std::path::Path;
 
-/// One publish at a time: a row's upsert and its `process_update` append go together, so a start,
-/// a watch, a listing and a kill that publish one task at once log its states in the order the
-/// table took them (a later `running` after its `exited` showed it running again). Publishes are
-/// rare (a task's start and end), so one lock for the process serves.
-// test-hook-allow: holds no hook; it only orders publishes, and a test's publishes are its own rows
-static PUBLISH: StdMutex<()> = StdMutex::new(());
+/// One publish at a time per chat: a row's change, its `process_update` append and the change put
+/// in the table go together, so a start, a watch, a listing and a kill that publish one task at
+/// once log its states in the order they were decided (a later `running` after its `exited`
+/// showed it running again). Per chat, so one chat's slow log write never holds another's. An
+/// entry lives while a publish holds it, and the map drops the ones none holds.
+// test-hook-allow: holds no hook; it only orders a chat's publishes, keyed by the chat's id
+static PUBLISH: std::sync::LazyLock<StdMutex<HashMap<String, std::sync::Weak<StdMutex<()>>>>> =
+    std::sync::LazyLock::new(Default::default);
+
+/// Chat `session_id`'s publish lock ([`PUBLISH`]).
+fn publish_lock(session_id: &str) -> Arc<StdMutex<()>> {
+    let mut locks = PUBLISH.lock().unwrap_or_else(|e| e.into_inner());
+    if let Some(lock) = locks.get(session_id).and_then(std::sync::Weak::upgrade) {
+        return lock;
+    }
+    locks.retain(|_, held| held.strong_count() > 0);
+    let lock = Arc::new(StdMutex::new(()));
+    locks.insert(session_id.to_owned(), Arc::downgrade(&lock));
+    lock
+}
 
 impl Hub {
     /// Logs task `record`'s row of chat `session` as its folder says now, when it changed.
@@ -45,10 +59,23 @@ impl Hub {
 
     fn bg_publish_view(&self, session: &Session, view: &Value) {
         let Some(process) = daemon_process(session, view) else { return };
-        let _one = PUBLISH.lock().unwrap_or_else(|e| e.into_inner());
-        let changed = self.process_table(session).daemon_upsert(process);
-        if let Some(process) = changed {
-            self.append(session, "mux", "process_update", json!({"process": process}));
+        self.bg_log(session, |table| table.daemon_change(process));
+    }
+
+    /// Logs the daemon row change `change` decides from chat `session`'s table, and puts it in the
+    /// table only once the log took it: a record the log refused (its backlog full, a failed write)
+    /// reaches no client, so the table must not say it either, or the next look would find nothing
+    /// to change and the row would stay as no client heard it. The table is read in before the
+    /// chat's publish lock, so a first read of a long log never holds a publish.
+    fn bg_log(&self, session: &Session, change: impl FnOnce(&ProcessTable) -> Option<Process>) {
+        drop(self.process_table(session));
+        let lock = publish_lock(&session.id);
+        let _one = lock.lock().unwrap_or_else(|e| e.into_inner());
+        let Some(process) = change(&self.process_table(session)) else { return };
+        let msg = json!({"process": process});
+        let (_, stored) = self.append_logged(session, "mux", "process_update", msg, None);
+        if stored {
+            self.process_table(session).daemon_apply(process);
         }
     }
 
@@ -66,16 +93,37 @@ impl Hub {
         }
     }
 
-    /// Every row of chat `session` that says a daemon task runs, checked against its folder: one
-    /// that ended (while no daemon ran, or unseen) is logged ended; one whose record is surely gone
-    /// (a purge, another generation) is `lost`. Cheap at rest: no live row, no read; else one look
-    /// at the folder's cache and one record read per live row.
+    /// Chat `session`'s rows checked against its folder before a listing answers:
+    /// - a task that runs with no row (a start whose row a history reload undid before its log
+    ///   took it, a launch whose record read failed, a task from before this daemon's rows) gets
+    ///   one;
+    /// - a row that says a task runs: one that ended (while no daemon ran, or unseen) is logged
+    ///   ended, and one whose record is surely gone (a purge, another generation) is `lost`.
+    ///
+    /// Cheap at rest: one look at the folder's cache, a lock probe per task with no end written,
+    /// and a record read per live row.
     pub(super) fn bg_reconcile(&self, session: &Session) {
+        let dir = self.bg_dir(session);
+        let running = self.bg_running_tasks(session);
+        if !running.is_empty() {
+            let missing: Vec<String> = {
+                let table = self.process_table(session);
+                running
+                    .into_iter()
+                    .map(|(id, _)| id)
+                    .filter(|id| table.daemon_row_missing(&format!("{}/{id}", session.id)))
+                    .collect()
+            };
+            for id in missing {
+                if let Some(record) = bg_run::read_record(&dir, &id) {
+                    self.bg_publish(session, &dir, &record);
+                }
+            }
+        }
         let live = self.process_table(session).daemon_live();
         if live.is_empty() {
             return;
         }
-        let dir = self.bg_dir(session);
         let folder = self.bg_records(&dir);
         for (row, task) in live {
             // The record itself, not the folder's look: a look that failed to list (too many open
@@ -84,25 +132,37 @@ impl Hub {
                 let view = fresh_view(&dir, &record, folder.segments(&task));
                 self.bg_publish_view(session, &view);
             } else if surely_gone(&dir, &task) {
-                let _one = PUBLISH.lock().unwrap_or_else(|e| e.into_inner());
-                let lost = self.process_table(session).daemon_lost(&row, now_ms());
-                if let Some(process) = lost {
-                    self.append(session, "mux", "process_update", json!({"process": process}));
-                }
+                self.bg_log(session, |table| table.daemon_lost(&row, now_ms()));
             }
             // Else unreadable now (a read that failed): the next listing looks again.
         }
     }
 
+    /// A wait of chat `session` moved here (`server/bg_rearm.rs`) runs again as a new task: the
+    /// row of the task it was, `from`, ends and gives its call to the new one.
+    pub(crate) fn bg_moved(&self, session: &Session, from: &str) {
+        let row = format!("{}/{from}", session.id);
+        self.bg_log(session, |table| table.daemon_moved_change(&row));
+    }
+
     /// `_acpmux/process/kill` of a daemon task: its runner stops it, as the person's stop does
-    /// (`bg_stop`), and its row says so. One its folder no longer holds is `lost`.
+    /// (`bg_stop`), and its row says so. One its folder no longer holds is `lost`. A task still
+    /// running after the stop (its stop could not be sent, or its runner outlived the wait) is a
+    /// refusal, never a quiet success.
     pub(super) async fn bg_kill(
         &self,
         session: &Arc<Session>,
         task: &str,
     ) -> Result<Value, RpcError> {
         match self.bg_stop(session, task).await {
-            Ok(view) => self.bg_publish_view(session, &view),
+            Ok(view) => {
+                self.bg_publish_view(session, &view);
+                if view.get("state").and_then(Value::as_str) == Some("running") {
+                    return Err(RpcError::internal(format!(
+                        "background task {task} did not stop; it still runs"
+                    )));
+                }
+            }
             Err(e) if e.code == RpcError::not_found("").code => self.bg_reconcile(session),
             Err(e) => return Err(e),
         }

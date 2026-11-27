@@ -506,7 +506,7 @@ impl Hub {
         )
         .await
         {
-            Ok(cmd) => Some(cmd),
+            Ok((cmd, _)) => Some(cmd),
             Err(e) => {
                 tracing::debug!("no title command for {harness}: {e}");
                 None
