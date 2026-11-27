@@ -646,6 +646,11 @@ lane = "manual"
 reason = "No workflow step runs it (lane derived by --write). Run it yourself: python3 tests/test_payload_advisories.py"
 
 [[test]]
+path = "tests/test_perf_10x_idle_args.py"
+lane = "manual"
+reason = "No workflow step runs it (lane derived by --write). Run it yourself: python3 tests/test_perf_10x_idle_args.py"
+
+[[test]]
 path = "tests/test_pinned_files_mirror.py"
 lane = "linux-guard"
 
