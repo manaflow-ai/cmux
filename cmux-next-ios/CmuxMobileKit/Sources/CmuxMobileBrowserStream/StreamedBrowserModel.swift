@@ -1027,6 +1027,14 @@ public final class StreamedBrowserModel: BrowserTabState {
               mustDeliver: kind != "move")
     }
 
+    #if DEBUG
+    /// One key press and release (a latency probe's input): `code` a DOM code such as "KeyA".
+    public func debugPress(_ code: String, key: String, text: String) {
+        input(wire.key(code, key: key, text: text, down: true))
+        input(wire.key(code, key: key, down: false))
+    }
+    #endif
+
     /// Home or Lock on a simulator.
     public func pressButton(_ button: String) {
         input(wire.button(button))

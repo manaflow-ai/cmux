@@ -1,5 +1,6 @@
 // DEBUG builds only: no pairing-link viewer or latency probe ships in Release or Production.
 #if DEBUG && os(iOS)
+import CmuxMobileBrowserStream
 import CmuxScreenKit
 import CmuxScreenKitUI
 import Foundation
@@ -42,8 +43,7 @@ public struct ScreenSharingLinkRoot: View {
     private func start() async {
         guard session == nil, let link = Self.environment["CMUX_MOBILE_SS_LINK"].flatMap(URL.init(string:)),
               let pairing = VNCPairing(link: link) else { return }
-        let marker = Self.environment["CMUX_MOBILE_SS_MARKER"]?.split(separator: ",").compactMap { Double($0) }
-        let probe = marker.flatMap { $0.count == 2 ? ScreenPresentProbe(cellFraction: $0[0], originY: $0[1]) : nil }
+        let probe = Self.probe(Self.environment["CMUX_MOBILE_SS_MARKER"])
         let session = ScreenSession(title: pairing.name, pairing: pairing)
         session.vncRules = ScreenSharingVNCRules.rules
         // Before the viewer exists: the probe watches its video view from when it is made.
@@ -54,9 +54,33 @@ public struct ScreenSharingLinkRoot: View {
         guard let probe else { return }
         let input = Self.environment["CMUX_MOBILE_SS_INPUT"] ?? "click"
         let samples = Int(Self.environment["CMUX_MOBILE_SS_SAMPLES"] ?? "") ?? 200
-        let report = await LatencyRun(session: session, probe: probe, input: input, samples: samples,
+        let report = await LatencyRun(webRTC: session, probe: probe, input: input, samples: samples,
                                       connectStart: connectStart).run()
         Self.write(report)
+    }
+
+    /// The `cmux.rd/1` viewer (`MacScreenRdView`, a hub device's Mac or Linux share host): with
+    /// `CMUX_MOBILE_SS_MARKER` set, the first rd model this process opens runs the same latency
+    /// run and writes the same `iphonesim:` line, timed at the `BrowserVideoDecoder`'s enqueue to
+    /// its `DisplayImmediately` layer. Called before the model connects.
+    static func measureRd(_ model: StreamedBrowserModel) {
+        guard !rdMeasured, let probe = probe(environment["CMUX_MOBILE_SS_MARKER"]) else { return }
+        rdMeasured = true
+        model.decoder.debugEnqueued = { probe.enqueued($0) }
+        let input = environment["CMUX_MOBILE_SS_INPUT"] ?? "click"
+        let samples = Int(environment["CMUX_MOBILE_SS_SAMPLES"] ?? "") ?? 200
+        let connectStart = CACurrentMediaTime()
+        Task { @MainActor in
+            write(await LatencyRun(rd: model, probe: probe, input: input, samples: samples, connectStart: connectStart).run())
+        }
+    }
+
+    @MainActor private static var rdMeasured = false
+
+    /// `CELL_FRACTION,ORIGIN_Y`.
+    static func probe(_ marker: String?) -> ScreenPresentProbe? {
+        guard let values = marker?.split(separator: ",").compactMap({ Double($0) }), values.count == 2 else { return nil }
+        return ScreenPresentProbe(cellFraction: values[0], originY: values[1])
     }
 
     private static func write(_ report: [String: Any]) {
@@ -68,14 +92,86 @@ public struct ScreenSharingLinkRoot: View {
     }
 }
 
-/// One latency run on a connected session (see `ScreenSharingLinkRoot`).
+/// One latency run on a connected stream (see `ScreenSharingLinkRoot`): the WebRTC session or
+/// the `cmux.rd/1` model, each with its own input and stats.
 @MainActor
 private struct LatencyRun {
-    let session: ScreenSession
     let probe: ScreenPresentProbe
     let input: String
     let samples: Int
     let connectStart: CFTimeInterval
+    let engine: @MainActor () -> String
+    /// Points the click at the marker's click pad, `pad` in 0...1 of the frame.
+    let aim: @MainActor (_ pad: CGPoint) async -> Void
+    let send: @MainActor () -> Void
+    /// Called before the first input; its closure, after the last, adds the stream's stats.
+    let stats: @MainActor () async -> @MainActor (_ seconds: Double) async -> [String: Any]
+
+    init(webRTC session: ScreenSession, probe: ScreenPresentProbe, input: String, samples: Int,
+         connectStart: CFTimeInterval) {
+        self.probe = probe
+        self.input = input
+        self.samples = samples
+        self.connectStart = connectStart
+        engine = { "webrtc (cmux-next-ios ScreenSessionView, ScreenVideoView/\(probe.rendererName ?? "unknown renderer")) in the iOS Simulator" }
+        aim = { pad in
+            // The viewer lays out the frame size from the video's (bounded: 5 s).
+            for _ in 0 ..< 50 where session.frameSize.width <= 0 { try? await Task.sleep(for: .milliseconds(100)) }
+            let frame = session.frameSize
+            session.movePointer(to: CGPoint(x: pad.x * frame.width, y: pad.y * frame.height))
+        }
+        send = input == "key" ? { session.tap(VNCKeysym(character: "a")) } : { session.click() }
+        stats = {
+            let before = await session.stream?.videoStats()
+            return { seconds in
+                var report: [String: Any] = [:]
+                guard let before, let after = await session.stream?.videoStats(), seconds > 0 else { return report }
+                report["frames_per_s"] = (after.framesDecoded - before.framesDecoded) / seconds
+                report["mbit_per_s"] = (after.bytesReceived - before.bytesReceived) * 8 / seconds / 1e6
+                report["decode_ms_mean"] = after.framesDecoded > before.framesDecoded
+                    ? (after.totalDecodeTime - before.totalDecodeTime) / (after.framesDecoded - before.framesDecoded) * 1000 : -1
+                report["rtt_ms"] = after.rttMs ?? -1
+                report["jitter_buffer_ms"] = after.jitterBufferMs ?? -1
+                report["codec"] = after.codec ?? "?"
+                report["decoder"] = after.decoder ?? "?"
+                report["packets_lost"] = after.packetsLost - before.packetsLost
+                report["frames_dropped"] = after.framesDropped - before.framesDropped
+                return report
+            }
+        }
+    }
+
+    init(rd model: StreamedBrowserModel, probe: ScreenPresentProbe, input: String, samples: Int,
+         connectStart: CFTimeInterval) {
+        self.probe = probe
+        self.input = input
+        self.samples = samples
+        self.connectStart = connectStart
+        engine = { "cmux.rd/1 (cmux-next-ios MacScreenRdView, BrowserVideoDecoder/AVSampleBufferDisplayLayer) in the iOS Simulator" }
+        let pad = Box()
+        aim = { pad.point = $0 }
+        send = input == "key" ? { model.debugPress("KeyA", key: "a", text: "a") } : {
+            model.touch("down", at: pad.point)
+            model.touch("up", at: pad.point)
+        }
+        stats = {
+            let frames = model.meter.frames
+            return { seconds in
+                let meter = model.meter
+                var report: [String: Any] = [
+                    "frames_per_s": seconds > 0 ? Double(meter.frames - min(frames, meter.frames)) / seconds : -1,
+                    "mbit_per_s": Double(meter.kbps) / 1000,
+                    "decode_ms_mean": meter.decodeMillis,
+                    "carrier": meter.carrier,
+                    "decoder": "VideoToolbox",
+                ]
+                if let latency = meter.latencyMillis { report["host_to_decoded_ms_p50"] = latency }
+                return report
+            }
+        }
+    }
+
+    @MainActor private final class Box { var point = CGPoint.zero }
 
     func run() async -> [String: Any] {
         // The first decoded marker (bounded: 30 s, the simulator's first connect included).
@@ -86,15 +182,11 @@ private struct LatencyRun {
         let firstMarkerMs = (CACurrentMediaTime() - connectStart) * 1000
         let size = probe.frameSize
         if input == "click" {
-            // The viewer lays out the frame size from the video's (bounded: 5 s).
-            for _ in 0 ..< 50 where session.frameSize.width <= 0 { try? await Task.sleep(for: .milliseconds(100)) }
-            // The marker's click pad (cells 20 to 23, never read), in the session's frame coordinates.
-            let frame = session.frameSize
-            let x = 22 * probe.cellFraction
-            let y = probe.originY + 0.5 * probe.cellFraction * size.width / max(size.height, 1)
-            session.movePointer(to: CGPoint(x: x * frame.width, y: y * frame.height))
+            // The marker's click pad (cells 20 to 23, never read).
+            await aim(CGPoint(x: 22 * probe.cellFraction,
+                              y: probe.originY + 0.5 * probe.cellFraction * size.width / max(size.height, 1)))
         }
-        let before = await session.stream?.videoStats()
+        let finish = await stats()
         let started = CACurrentMediaTime()
         var decoded: [Double] = [], presented: [Double] = [], gap: [Double] = []
         var lost = 0, decodedNotPresented = 0
@@ -102,11 +194,7 @@ private struct LatencyRun {
             guard let current = probe.value else { break }
             probe.reset()
             let sent = CACurrentMediaTime()
-            if input == "key" {
-                session.tap(VNCKeysym(character: "a"))
-            } else {
-                session.click()
-            }
+            send()
             let timeout = Task { @MainActor [probe] () -> Bool in
                 // The rd bench's loss deadline; a cancelled timer must not end the next wait.
                 guard (try? await Task.sleep(for: .seconds(1))) != nil else { return false }
@@ -131,9 +219,8 @@ private struct LatencyRun {
             try? await Task.sleep(for: .milliseconds(Int.random(in: 40 ... 160))) // the rd bench's gap
         }
         let seconds = CACurrentMediaTime() - started
-        let after = await session.stream?.videoStats()
         var report: [String: Any] = [
-            "engine": "webrtc (cmux-next-ios ScreenSessionView, ScreenVideoView/\(probe.rendererName ?? "unknown renderer")) in the iOS Simulator",
+            "engine": engine(),
             "input": input,
             "g2g_ms": Self.percentiles(presented),
             "decoded_g2g_ms": Self.percentiles(decoded),
@@ -144,18 +231,7 @@ private struct LatencyRun {
             "connect_to_first_marker_ms": firstMarkerMs,
             "frame": ["width": size.width, "height": size.height],
         ]
-        if let before, let after, seconds > 0 {
-            report["frames_per_s"] = (after.framesDecoded - before.framesDecoded) / seconds
-            report["mbit_per_s"] = (after.bytesReceived - before.bytesReceived) * 8 / seconds / 1e6
-            report["decode_ms_mean"] = after.framesDecoded > before.framesDecoded
-                ? (after.totalDecodeTime - before.totalDecodeTime) / (after.framesDecoded - before.framesDecoded) * 1000 : -1
-            report["rtt_ms"] = after.rttMs ?? -1
-            report["jitter_buffer_ms"] = after.jitterBufferMs ?? -1
-            report["codec"] = after.codec ?? "?"
-            report["decoder"] = after.decoder ?? "?"
-            report["packets_lost"] = after.packetsLost - before.packetsLost
-            report["frames_dropped"] = after.framesDropped - before.framesDropped
-        }
+        report.merge(await finish(seconds)) { _, new in new }
         return report
     }
 

@@ -399,7 +399,8 @@ public final class ScreenSharingService {
         shareListed(listed)
         guard let pending = pendingSelection else { return }
         pendingSelection = nil
-        if let mac = listed.first(where: { $0.id.lowercased() == pending.hostID.lowercased() }) {
+        if let mac = Self.linked(pending.hostID, in: listed) {
+            relink(pending.hostID, to: mac)
             select(mac, scope: pending.scope)
         } else {
             alert = ScreenSharingMacAlert(hostID: pending.hostID, hostName: pending.hostName, refusal: .notFound,
@@ -435,20 +436,38 @@ public final class ScreenSharingService {
     public func open(deviceID id: String, name: String?, scope: SessionScope, display: String? = nil) {
         let id = id.lowercased()
         linkRd = (id, MacScreenRdTarget(displayID: display.flatMap { UInt32($0) }, control: scope == .full))
-        let listedName = (discovery == .listed ? macs : preferences.lastMacs(for: configuration.accountID))
-            .first { $0.id.lowercased() == id }?.name
+        let listedName = Self.linked(id, in: discovery == .listed ? macs : preferences.lastMacs(for: configuration.accountID))?.name
         let hostName = listedName ?? name ?? String(localized: "That Mac")
         guard discovery == .listed else {
             leaveUnshownRequest()
             pendingSelection = PendingSelection(hostID: id, hostName: hostName, scope: scope)
             return
         }
-        if let mac = macs.first(where: { $0.id.lowercased() == id }) {
+        if let mac = Self.linked(id, in: macs) {
+            relink(id, to: mac)
             select(mac, scope: scope)
         } else {
             leaveUnshownRequest()
             alert = ScreenSharingMacAlert(hostID: id, hostName: hostName, refusal: .notFound, requested: scope)
         }
+    }
+
+    /// The device a screen link names: its id, any case. DEBUG builds also take its name (any
+    /// case): a test that started a host knows the name it gave it, not the id the hub made.
+    nonisolated static func linked(_ text: String, in devices: [HubDevice]) -> HubDevice? {
+        let text = text.lowercased()
+        if let device = devices.first(where: { $0.id.lowercased() == text }) { return device }
+        #if DEBUG
+        return devices.first { $0.name.lowercased() == text }
+        #else
+        return nil
+        #endif
+    }
+
+    /// The link named `text` resolved to `mac`: its `cmux.rd/1` session goes with the Mac's id.
+    private func relink(_ text: String, to mac: HubDevice) {
+        guard let link = linkRd, link.hostID == text.lowercased() else { return }
+        linkRd = (mac.id.lowercased(), link.target)
     }
 
     /// An alert's action for the listed Mac `id` (a Mac gone from the list since does nothing).
