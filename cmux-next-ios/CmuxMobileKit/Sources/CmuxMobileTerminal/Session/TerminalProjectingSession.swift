@@ -175,6 +175,12 @@ public final class TerminalProjectingSession: TerminalSession {
     /// A pan's frame times go to the Mac the same way under a projection (`phone-frames`).
     public func reportScrollFrames(_ pan: TerminalPanFrames) { inner.reportScrollFrames(pan) }
     public func discardHeldInput() { inner.discardHeldInput() }
+    public func beginAttachmentSubmission(onExpire: @escaping @MainActor () -> Void) -> UUID {
+        inner.beginAttachmentSubmission(onExpire: onExpire)
+    }
+    @discardableResult public func endAttachmentSubmission(_ id: UUID) -> Bool {
+        inner.endAttachmentSubmission(id)
+    }
 
     public func noteReaderRowsFromEnd(_ rows: Int) {
         projection.setReaderRowsFromEnd(rows: UInt32(clamping: max(0, rows)))

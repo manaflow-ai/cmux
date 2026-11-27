@@ -270,6 +270,13 @@ extension LinkError: LocalizedError {
     /// Its raw message is a diagnostic; a person reads only the fixed, calm copy below, which
     /// says what to do (Leo 2026-11-21: no "didn't answer in time").
     public var isTimeout: Bool { ["timeout", "reply_timeout", "write_timeout"].contains(code) }
+    /// The link is coming back on its own (a timeout, a dropped or not-yet-open link): nothing
+    /// for a person to do or read. A call that failed this way waits for the link and goes again
+    /// (Leo 2026-11-22: "i dont wanna see reconnecting to the Mac in a toast, i want it to just
+    /// connect").
+    public var isTransient: Bool {
+        isTimeout || ["closed", "offline", "eof", "transport", "signaling"].contains(code)
+    }
     /// A status line's fragment for a timeout: the connection is being re-established.
     public static let timeoutReason = "reconnecting to the Mac"
     /// A failure state's sentence for a timeout that outlasted the quiet retries.

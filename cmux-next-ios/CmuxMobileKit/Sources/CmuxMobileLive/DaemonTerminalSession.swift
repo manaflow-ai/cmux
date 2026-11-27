@@ -250,6 +250,9 @@ public final class DaemonTerminalSession: TerminalSession {
     /// daemon applies it.
     private var pasteNotSent: [Int: (notSent: @MainActor () -> Void, maybeSent: @MainActor () -> Void)] = [:]
     private var nextPaste = 0
+    /// File transfers can resume indefinitely; their pending terminal commands cannot.
+    /// These registrations share the typed-input expiry policy without queueing any bytes.
+    private var attachmentSubmissions: [UUID: (detachedAt: TimeInterval?, expire: @MainActor () -> Void)] = [:]
     #if canImport(CmuxMobileLinkFFI)
     /// The composer's Sends until the Mac answers them (Rust, `cmux-composer-send`). Each is one
     /// keyed `send` (the draft and its Return), made at the tap; every attempt, on any channel
@@ -423,7 +426,11 @@ public final class DaemonTerminalSession: TerminalSession {
     private var pendingSize: (columns: Int, rows: Int)?
     /// The grid last asked for, put back after a reattach.
     private var lastSize: (columns: Int, rows: Int)?
-    private var attached = false
+    private var attached = false {
+        didSet {
+            if oldValue && !attached { markAttachmentSubmissionsDetached() }
+        }
+    }
     private var attaching = false
     /// A ``reconnect()`` came while an attach ran (the link was served meanwhile): the attach
     /// that is out may have looked for the link before it came, so one that ends waiting for the
@@ -637,13 +644,45 @@ public final class DaemonTerminalSession: TerminalSession {
     /// says "not sent" (they chose it). A held composer send comes back to the composer.
     /// Typing goes on queueing for the attach. A no-op while attached.
     public func discardHeldInput() {
-        guard !attached, !input.isEmpty else { return }
+        guard !attached, !input.isEmpty || !attachmentSubmissions.isEmpty else { return }
+        expireAttachmentSubmissions()
         let bytes = input.reduce(0) { $0 + ($1.typed ? $1.bytes.count : 0) }
         let pastes = input.compactMap(\.paste)
         input.removeAll()
         log.notice("surface \(self.surface, privacy: .public): \(bytes, privacy: .public) held typed bytes discarded by the person")
         pastes.forEach(pasteWasNotSent)
         reportHeldInput()
+    }
+
+    public func beginAttachmentSubmission(onExpire: @escaping @MainActor () -> Void) -> UUID {
+        let id = UUID()
+        attachmentSubmissions[id] = (attached ? nil : now(), onExpire)
+        if !attached {
+            scheduleInputExpiry(after: gaveUp || refusingInput || ended ? 0
+                : (macOffline ? Self.inputHoldLimit : Self.inputHoldCeiling))
+        }
+        return id
+    }
+
+    @discardableResult public func endAttachmentSubmission(_ id: UUID) -> Bool {
+        expireInput()
+        return attachmentSubmissions.removeValue(forKey: id) != nil
+    }
+
+    private func markAttachmentSubmissionsDetached() {
+        guard !attachmentSubmissions.isEmpty else { return }
+        let detachedAt = now()
+        for id in Array(attachmentSubmissions.keys) where attachmentSubmissions[id]?.detachedAt == nil {
+            attachmentSubmissions[id]?.detachedAt = detachedAt
+        }
+        scheduleInputExpiry(after: macOffline ? Self.inputHoldLimit : Self.inputHoldCeiling)
+    }
+
+    private func expireAttachmentSubmissions(detachedOnly: Bool = true) {
+        let expired = attachmentSubmissions.filter { !detachedOnly || $0.value.detachedAt != nil }
+        // Remove first: callbacks may release their registration or cancel another send.
+        for id in expired.keys { attachmentSubmissions.removeValue(forKey: id) }
+        for submission in expired.values { submission.expire() }
     }
 
     /// Checks the held keys against the hold (``expireInput()``) after `delay`.
@@ -686,7 +725,9 @@ public final class DaemonTerminalSession: TerminalSession {
     private func expireInput() {
         heldKeysRecheck?.cancel()
         heldKeysRecheck = nil
+        if ended || refusingInput { expireAttachmentSubmissions(detachedOnly: false) }
         let typedAt = input.filter(\.detached).map(\.at)
+            + attachmentSubmissions.values.compactMap(\.detachedAt)
         let progressAge = linkProgress?.lastProgressAge()
         let offline = macOffline ? offlineSince : nil
         guard let reason = Self.heldInputExpiry(typedAt: typedAt, now: now(), gaveUp: gaveUp,
@@ -740,6 +781,7 @@ public final class DaemonTerminalSession: TerminalSession {
 
     /// Drops every queued key, refuses input until the next attach, and tells the screen.
     private func dropDetachedInput(reason: String) {
+        expireAttachmentSubmissions()
         let bytes = input.reduce(0) { $0 + ($1.typed ? $1.bytes.count : 0) }
         let pastes = input.compactMap(\.paste)
         input.removeAll()
@@ -813,6 +855,7 @@ public final class DaemonTerminalSession: TerminalSession {
     }
 
     public func stop() {
+        expireAttachmentSubmissions(detachedOnly: false)
         gaveUpRetry?.cancel()
         gaveUpRetry = nil
         streamPosition = nil
@@ -932,6 +975,7 @@ public final class DaemonTerminalSession: TerminalSession {
     private func terminalGone(exitCode: Int? = nil, exited: Bool = false) {
         guard handler != nil, !ended else { return }
         ended = true
+        expireAttachmentSubmissions(detachedOnly: false)
         attached = false
         log.notice("surface \(self.surface, privacy: .public): terminal \(self.terminalID ?? "-", privacy: .public) is no longer on the Mac (exited=\(exited, privacy: .public))")
         if let client { self.client = nil; Task { await client.close() } }
@@ -1696,6 +1740,7 @@ public final class DaemonTerminalSession: TerminalSession {
             // the screen hears `.attached`, which forgets a held composer send.
             expireInput()
             attached = true
+            for id in Array(attachmentSubmissions.keys) { attachmentSubmissions[id]?.detachedAt = nil }
             settleReclaimHold()
             refusingInput = false
             everAttached = true
@@ -2113,6 +2158,7 @@ public final class DaemonTerminalSession: TerminalSession {
     private func ended(reason: String?) {
         guard handler != nil, !ended else { return }
         ended = true
+        expireAttachmentSubmissions(detachedOnly: false)
         emitText("\r\n\u{1B}[2m[Detached\(reason.map { ": \($0)" } ?? "")]\u{1B}[0m\r\n")
         handler?(.exited(code: 0))
         attached = false

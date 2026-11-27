@@ -36,11 +36,7 @@ public final class TerminalModel {
             uploaderDirectory = nil
             uploader = nil
             for index in attachments.indices {
-                if let id = attachments[index].uploadID {
-                    (attachments[index].uploadSender ?? attachmentSender)?.cancel(id)
-                }
-                attachments[index].uploadID = nil
-                attachments[index].uploadSender = nil
+                attachments[index].discardUpload(fallback: attachmentSender)
             }
             attachmentSender = nil
         }
@@ -123,12 +119,20 @@ public final class TerminalModel {
     /// Sends one attachment to the Mac and returns its path there (the
     /// link's `upload` service). Nil hides the attachment menu: without a
     /// Mac to receive them there is nothing honest to attach.
-
-    public var uploader: (@MainActor (_ payload: LinkUpload.Payload, _ name: String) async throws -> String)? {
+    ///
+    /// Not observed: the terminal page sets it on every SwiftUI pass (`page(for:in:context:)`),
+    /// and a closure is never equal to the last one, so an observed write there invalidated the
+    /// body that wrote it (its `didSet` read it back) and the pass never ended (LaunchTTIUITests
+    /// terminal input, "main thread busy for 30.0s", from #55155). Views read `hasUploader`.
+    @ObservationIgnored public var uploader: (@MainActor (_ payload: LinkUpload.Payload, _ name: String) async throws -> String)? {
         didSet {
+            let has = uploader != nil
+            if hasUploader != has { hasUploader = has }
             syncAttachmentUploads()
         }
     }
+    /// Whether `uploader` is set: the observed half, written only when it changes.
+    public private(set) var hasUploader = false
     /// The Mac folder captured with `uploader`. A terminal upload must not reuse
     /// a pre-transfer after the shell changes directory.
     @ObservationIgnored private var uploaderDirectory: String?
@@ -143,7 +147,7 @@ public final class TerminalModel {
     /// The composer shows its `+` menu: a Mac can receive attachments, or
     /// the DEBUG mock stands in for one so layout captures match live (SPEC M4).
     var attachmentsAvailable: Bool {
-        if uploader != nil || attachmentSender != nil { return true }
+        if hasUploader || attachmentSender != nil { return true }
         #if DEBUG
         return session is MockTerminalSession
         #else
@@ -180,6 +184,7 @@ public final class TerminalModel {
     public internal(set) var composerNotice: String?
     private struct PendingSend {
         let attachmentIDs: Set<ComposerAttachment.ID>
+        let submissionID: UUID
         let task: Task<Void, Never>
     }
     private var pendingSend: PendingSend?
@@ -1019,8 +1024,9 @@ public final class TerminalModel {
         for index in attachments.indices {
             let owner = attachments[index].uploadSender ?? sender
             let state = attachments[index].uploadID.flatMap { owner.progress($0)?.stage }
-            if attachments[index].uploadID == nil || state == .failed || state == .cancelled {
-                if let old = attachments[index].uploadID { owner.cancel(old) }
+            if attachments[index].uploadID == nil || state == .failed || state == .cancelled
+                || attachments[index].uploadDestination != sender.uploadDestination {
+                attachments[index].discardUpload(fallback: owner)
                 attachments[index].startUpload(via: sender)
             }
         }
@@ -1040,7 +1046,11 @@ public final class TerminalModel {
     ) {
         let order = attachments.map(\.id)
         let ids = Set(order)
+        let draft = composerText
         attachmentError = nil
+        let submissionID = session.beginAttachmentSubmission { [weak self] in
+            self?.expireAttachmentSubmission()
+        }
         let task = Task { [weak self] in
             var paths: [String] = []
             // New picks append. Removing an original tile cancels this task before the tray can shift.
@@ -1051,31 +1061,62 @@ public final class TerminalModel {
                     paths.append(try await path(attachment))
                 } catch {
                     guard let self, !Task.isCancelled else { return }
-                    self.pendingSend = nil
+                    self.releaseAttachmentSubmission()
                     self.attachmentPrestager.cancelClaimed()
                     self.attachmentError = "Couldn't send \(attachment.name): \(Self.message(error))"
                     return
                 }
             }
             guard let self, !Task.isCancelled else { return }
-            self.finishAttachmentSend(paths: paths, ids: ids, pressReturn: pressReturn)
+            self.finishAttachmentSend(paths: paths, ids: ids, draft: draft, pressReturn: pressReturn)
         }
-        pendingSend = PendingSend(attachmentIDs: ids, task: task)
+        pendingSend = PendingSend(attachmentIDs: ids, submissionID: submissionID, task: task)
     }
 
-    private func finishAttachmentSend(paths: [String], ids: Set<ComposerAttachment.ID>, pressReturn: Bool) {
+    /// Ends only the pending terminal command. Pick-time transfers can keep resuming.
+    private func releaseAttachmentSubmission() {
+        guard let pending = pendingSend else { return }
+        pendingSend = nil
+        pending.task.cancel()
+        _ = session.endAttachmentSubmission(pending.submissionID)
+    }
+
+    private func expireAttachmentSubmission() {
+        releaseAttachmentSubmission()
+        attachmentPrestager.cancelClaimed()
+        composerNotice = TerminalConnectionState.composerSendNotSentNotice
+    }
+
+    private func finishAttachmentSend(paths: [String], ids: Set<ComposerAttachment.ID>, draft: String, pressReturn: Bool) {
+        guard let pending = pendingSend,
+              session.endAttachmentSubmission(pending.submissionID), pendingSend != nil else {
+            expireAttachmentSubmission()
+            return
+        }
+        // The directory may change while the last upload finishes. Never submit an old workspace's paths.
+        if let sender = attachmentSender,
+           attachments.contains(where: { ids.contains($0.id) && $0.uploadDestination != sender.uploadDestination }) {
+            expireAttachmentSubmission()
+            return
+        }
         pendingSend = nil
         attachmentPrestager.releaseClaimed()
-        let draft = composerText
         let submit = ComposerSubmit(attachmentPaths: paths, text: draft, pressReturn: pressReturn)
         if pressReturn { controller?.noteSent(draft) }
+        composerSendRefused = false
+        composerSending = true
         let viaDaemon = sendThroughSession(
             submit,
             notSent: { [weak self] in self?.composerSendNotSent(draft) },
             maybeSent: { [weak self] in self?.composerSendMaybeSent(draft) }
         )
+        composerSending = false
         if !viaDaemon { controller?.surface.perform(submit) }
-        composerText = ""
+        guard !composerSendRefused else { return }
+        if composerText == draft { putComposerText("") }
+        for index in attachments.indices where ids.contains(attachments[index].id) {
+            attachments[index].discardUpload(fallback: attachmentSender, cancel: false)
+        }
         attachments.removeAll { ids.contains($0.id) }
         syncAttachmentUploads()
     }
@@ -1084,16 +1125,13 @@ public final class TerminalModel {
     /// Stop active transfers in this send until the person explicitly retries.
     public func cancelSend() {
         guard let pendingSend else { return }
-        pendingSend.task.cancel()
-        self.pendingSend = nil
+        releaseAttachmentSubmission()
         attachmentPrestager.cancelClaimed()
         for index in attachments.indices where pendingSend.attachmentIDs.contains(attachments[index].id) {
             guard let id = attachments[index].uploadID,
                   let sender = attachments[index].uploadSender ?? attachmentSender,
                   sender.progress(id)?.stage != .done else { continue }
-            sender.cancel(id)
-            attachments[index].uploadID = nil
-            attachments[index].uploadSender = nil
+            attachments[index].discardUpload(fallback: sender)
         }
         attachmentError = nil
     }
@@ -1161,8 +1199,7 @@ public final class TerminalModel {
 
     func adoptAttachments(from previous: TerminalModel) {
         guard attachments.isEmpty, self !== previous else { return }
-        previous.pendingSend?.task.cancel()
-        previous.pendingSend = nil
+        previous.releaseAttachmentSubmission()
         previous.attachmentPrestager.cancelAll()
         attachments = previous.attachments
         previous.attachments.removeAll()
@@ -1194,14 +1231,12 @@ public final class TerminalModel {
     func removeAttachment(_ id: ComposerAttachment.ID) {
         guard let index = attachments.firstIndex(where: { $0.id == id }) else { return }
         pendingPicks.removeValue(forKey: id)?.task?.cancel()
-        let removed = attachments.remove(at: index)
+        var removed = attachments.remove(at: index)
         let wasPending = pendingSend?.attachmentIDs.contains(id) == true
-        let sender = removed.uploadSender ?? attachmentSender
-        if let uploadID = removed.uploadID { sender?.cancel(uploadID) }
+        removed.discardUpload(fallback: attachmentSender)
         if wasPending {
             // Invalidate the path list. Other tiles still in the tray keep their pick-time transfers.
-            pendingSend?.task.cancel()
-            pendingSend = nil
+            releaseAttachmentSubmission()
             attachmentPrestager.cancelClaimed()
             attachmentError = nil
         }
@@ -1460,10 +1495,23 @@ public struct ComposerAttachment: Identifiable, Sendable {
     public var uploadID: String?
     /// A rebuilt terminal has a new sender. An export still belongs to the sender that started it.
     var uploadSender: (any TerminalAttachmentSending)?
+    var uploadDestination: AttachmentDestination?
 
     @MainActor mutating func startUpload(via sender: any TerminalAttachmentSending) {
+        let destination = sender.uploadDestination
         uploadID = sender.start(self)
         uploadSender = uploadID == nil ? nil : sender
+        uploadDestination = uploadID == nil ? nil : destination
+    }
+
+    @MainActor mutating func discardUpload(fallback: (any TerminalAttachmentSending)?, cancel: Bool = true) {
+        if let id = uploadID, let sender = uploadSender ?? fallback {
+            if cancel { sender.cancel(id) }
+            sender.forget(id)
+        }
+        uploadID = nil
+        uploadSender = nil
+        uploadDestination = nil
     }
     /// Photos is still copying it out (a tile shows at once; removable meanwhile).
     public var isLoading: Bool

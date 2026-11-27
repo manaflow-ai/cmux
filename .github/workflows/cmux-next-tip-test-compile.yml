@@ -75,7 +75,7 @@ jobs:
       base: ${{ steps.plan.outputs.base }}
     steps:
       - name: Checkout the pushed commit
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           ref: ${{ inputs.sha || '' }}
           persist-credentials: false
@@ -128,8 +128,9 @@ jobs:
     name: tip test-compile (fleet, background)
     needs: plan
     if: ${{ (inputs.only == '' || inputs.only == 'compile-fleet' || inputs.only == 'compile') && (needs.plan.outputs.needed == 'true' && (vars.CI_TIP_TEST_COMPILE_GATEWAY != '' || vars.CI_COMPILE_CHECK_GATEWAY != '')) }}
-    # One gateway runner at most (the concurrency group); its own label when set.
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'glaeda-gateway-xcode-26.6' }} # frozen-label: CI_TIP_TEST_COMPILE_GATEWAY/CI_COMPILE_CHECK_GATEWAY (cmux#54437)
+    # One gateway runner at most (the concurrency group). It only runs the fleet client and waits; the compile runs
+    # on a fleet Mac, so the gateway is Linux (tests/test_ci_gateway_jobs_on_linux.py).
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'cmux-linux' }}
     permissions:
       contents: read
       actions: read
@@ -140,7 +141,7 @@ jobs:
       report: ${{ steps.compile.outputs.report }}
     steps:
       - name: Checkout the script
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           persist-credentials: false
           submodules: false
@@ -148,8 +149,13 @@ jobs:
           fetch-depth: 1
           sparse-checkout: |
             scripts/ci/tip-test-compile.sh
+            .github/actions/fleet-client
             .gitmodules
           sparse-checkout-cone-mode: false
+
+      - uses: ./.github/actions/fleet-client
+        with:
+          controller: ${{ vars.CMUX_FLEET_CONTROLLER }}
 
       - name: Compile the planned test targets on a fleet Mac
         id: compile

@@ -1121,7 +1121,9 @@ extension LiveCoordinator {
                 sourcedSessions[key] = (tabID: used.tabID, macID: used.macID, session: bound, provisional: false)
                 continue
             }
-            chatSessionChanged(id: used.tabID, macID: used.macID)
+            let listedSession = tree.agentTabs[used.tabID]?.session
+            chatSessionChanged(id: used.tabID, macID: used.macID,
+                               carryWaiting: !(used.session != nil && listedSession != nil && used.session != listedSession))
         }
         store.replaceWorkspaces(macID: macID, with: tree.workspaces)
         store.handleMacData(.received(count: tree.workspaces.count), macID: macID)

@@ -3111,8 +3111,48 @@ async fn send_upload_ack(sender: &ChannelSender, received: u64) {
     let _ = sender.send(Bytes::from(format!("{{\"ack\":{received}}}\n"))).await;
 }
 
+struct UploadPartsDirStream(*mut libc::DIR);
+
+impl Drop for UploadPartsDirStream {
+    fn drop(&mut self) {
+        if !self.0.is_null() {
+            // SAFETY: fdopendir transfers ownership of this descriptor to the
+            // DIR stream, which remains valid until this guard is dropped.
+            unsafe { libc::closedir(self.0) };
+        }
+    }
+}
+
 fn cleanup_stale_upload_parts(folder: &Path) {
-    let Ok(entries) = std::fs::read_dir(folder) else { return };
+    let Ok(directory) = std::fs::OpenOptions::new()
+        .read(true)
+        .custom_flags(libc::O_DIRECTORY | libc::O_NOFOLLOW | libc::O_NONBLOCK)
+        .open(folder)
+    else {
+        return;
+    };
+    cleanup_stale_upload_parts_fd(&directory);
+}
+
+fn cleanup_stale_upload_parts_fd(directory: &std::fs::File) {
+    use std::ffi::CStr;
+    use std::os::fd::{AsRawFd, FromRawFd};
+
+    // Keep the verified directory open for the complete scan and cleanup.  A
+    // pathname read followed by remove_file(path) can be redirected by a
+    // concurrent rename or symlink replacement, including outside the upload
+    // folder.  Enumerate through a duplicate descriptor and unlink relative
+    // to the original descriptor instead.
+    let directory_fd = directory.as_raw_fd();
+    let duplicate = unsafe { libc::dup(directory_fd) };
+    if duplicate == -1 {
+        return;
+    }
+    let stream = UploadPartsDirStream(unsafe { libc::fdopendir(duplicate) });
+    if stream.0.is_null() {
+        unsafe { libc::close(duplicate) };
+        return;
+    }
     let stale = |meta: &std::fs::Metadata| {
         meta.is_file()
             && meta
@@ -3121,27 +3161,39 @@ fn cleanup_stale_upload_parts(folder: &Path) {
                 .and_then(|t| t.elapsed().ok())
                 .is_some_and(|age| age > UPLOAD_PART_MAX_AGE)
     };
-    for entry in entries.flatten() {
-        let name = entry.file_name();
-        let bytes = name.as_encoded_bytes();
-        if !bytes.strip_prefix(b".").is_some_and(|rest| rest.ends_with(b".part") || rest.ends_with(b".done"))
-        {
-            continue;
-        }
-        let path = entry.path();
-        if !entry.metadata().is_ok_and(|meta| stale(&meta)) {
-            continue;
-        }
-        // Recheck under the writer's lock. A retry may have reopened the part during the scan.
-        let Ok(file) = std::fs::OpenOptions::new()
-            .write(true)
-            .custom_flags(libc::O_NOFOLLOW | libc::O_NONBLOCK)
-            .open(&path)
-        else {
-            continue;
-        };
-        if file.try_lock().is_ok() && file.metadata().is_ok_and(|meta| stale(&meta) && meta.nlink() == 1) {
-            let _ = std::fs::remove_file(path);
+    unsafe {
+        // Process each name while the descriptor remains open instead of
+        // retaining an unbounded list for large staging directories.
+        loop {
+            let entry = libc::readdir(stream.0);
+            if entry.is_null() {
+                break;
+            }
+            let bytes = CStr::from_ptr((*entry).d_name.as_ptr()).to_bytes();
+            if bytes == b"."
+                || bytes == b".."
+                || !bytes
+                    .strip_prefix(b".")
+                    .is_some_and(|rest| rest.ends_with(b".part") || rest.ends_with(b".done"))
+            {
+                continue;
+            }
+            let Ok(name) = std::ffi::CString::new(bytes) else { continue };
+            let fd = libc::openat(
+                directory_fd,
+                name.as_ptr(),
+                libc::O_WRONLY | libc::O_NOFOLLOW | libc::O_NONBLOCK,
+            );
+            if fd == -1 {
+                continue;
+            }
+            // SAFETY: `fd` is the owned descriptor returned by openat.
+            let file = std::fs::File::from_raw_fd(fd);
+            // Recheck under the writer's lock. A retry may have reopened the part during the scan.
+            if file.try_lock().is_ok() && file.metadata().is_ok_and(|meta| stale(&meta) && meta.nlink() == 1)
+            {
+                let _ = libc::unlinkat(directory_fd, name.as_ptr(), 0);
+            }
         }
     }
 }
@@ -3230,6 +3282,53 @@ mod tests {
         let alias = workspace.path().join(format!(".parts-{:x}", Sha256::digest(b"phone-b")));
         std::os::unix::fs::symlink(&first, &alias).unwrap();
         assert!(upload_parts_dir(workspace.path(), "phone-b").is_err());
+    }
+
+    #[test]
+    fn stale_cleanup_does_not_follow_file_symlinks() {
+        let workspace = tempfile::tempdir().unwrap();
+        let folder = workspace.path().join("parts");
+        let outside = workspace.path().join("outside.part");
+        std::fs::create_dir(&folder).unwrap();
+        std::fs::write(&outside, b"keep").unwrap();
+        std::os::unix::fs::symlink(&outside, folder.join(".stale.part")).unwrap();
+
+        cleanup_stale_upload_parts(&folder);
+
+        assert!(outside.exists());
+        assert!(folder.join(".stale.part").exists());
+    }
+
+    #[test]
+    fn stale_cleanup_keeps_descriptor_when_folder_path_is_replaced() {
+        use std::os::unix::fs::symlink;
+
+        let workspace = tempfile::tempdir().unwrap();
+        let folder = workspace.path().join("parts");
+        let moved = workspace.path().join("parts-moved");
+        let outside = workspace.path().join("outside");
+        std::fs::create_dir(&folder).unwrap();
+        std::fs::create_dir(&outside).unwrap();
+        let stale = folder.join(".old.part");
+        let victim = outside.join(".victim.part");
+        std::fs::write(&stale, b"old").unwrap();
+        std::fs::write(&victim, b"keep").unwrap();
+        let old = std::time::SystemTime::now() - UPLOAD_PART_MAX_AGE - Duration::from_secs(1);
+        std::fs::File::open(&stale).unwrap().set_modified(old).unwrap();
+        std::fs::File::open(&victim).unwrap().set_modified(old).unwrap();
+
+        let directory = std::fs::OpenOptions::new()
+            .read(true)
+            .custom_flags(libc::O_DIRECTORY | libc::O_NOFOLLOW | libc::O_NONBLOCK)
+            .open(&folder)
+            .unwrap();
+        std::fs::rename(&folder, &moved).unwrap();
+        symlink(&outside, &folder).unwrap();
+
+        cleanup_stale_upload_parts_fd(&directory);
+
+        assert!(!moved.join(".old.part").exists());
+        assert!(victim.exists(), "cleanup must not follow a replaced folder path");
     }
 
     /// The query is the bytes hostd always sent, its capability names now from the registry.
