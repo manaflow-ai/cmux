@@ -434,6 +434,7 @@ pub mod subsession_settings;
 pub mod subsession_worktree;
 pub mod suggestion_gate;
 pub(crate) mod supervise;
+pub mod supervisor;
 pub mod surge_triage;
 pub mod tailnet;
 pub mod tailnet_carrier;
