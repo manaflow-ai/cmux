@@ -16,11 +16,9 @@ tmp=$(mktemp -d)
 git_fixture_trap_exit 'rm -rf "$tmp"'
 repo="$tmp/repo"
 pkg="$repo/Packages/macOS/Fake"
-mkdir -p "$repo/scripts/ci/package-test-lane" "$repo/scripts/cmux-next" "$pkg" "$tmp/bin"
-cp "$ROOT/scripts/ci/package-test-lane.sh" "$ROOT"/scripts/ci/*.py \
-  "$ROOT/scripts/ci/swift-test-debug-info.sh" "$ROOT/scripts/ci/swiftpm-binary-module-guard.sh" \
-  "$ROOT/scripts/ci/github-egress-direct.sh" "$repo/scripts/ci/"
-cp "$ROOT/scripts/ci/package-test-lane/swift_suite_outcomes.py" "$repo/scripts/ci/package-test-lane/"
+mkdir -p "$repo/scripts/ci" "$repo/scripts/cmux-next" "$pkg" "$tmp/bin"
+# The lane and everything under scripts/ci it sources, imports or runs by path (see package-test-lane-sdkroot.test.sh).
+cp -R "$ROOT/scripts/ci/." "$repo/scripts/ci/"
 cp "$ROOT/scripts/cmux-next/stale-pcm-retry-needed.sh" "$repo/scripts/cmux-next/"
 printf '// swift-tools-version:5.9\nimport PackageDescription\nlet package = Package(name: "Fake")\n' > "$pkg/Package.swift"
 git_fixture_init "$repo" && git -C "$repo" -c user.email=t@t -c user.name=t commit -q --allow-empty -m init
