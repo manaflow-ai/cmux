@@ -229,8 +229,7 @@ def main(argv: list[str] | None = None) -> int:
             ratchet_inputs_changed = True
     if paths is None or ratchet_inputs_changed or any(path in WHOLE_WORKSPACE for path in paths):
         if args.panic_ratchet:
-            return panic_ratchet(repo, ["--workspace"], True, "the whole cmux-tui workspace", args.panic_ratchet, compare,
-                                 libs)
+            return panic_ratchet(repo, ["--workspace"], True, "the whole cmux-tui workspace", args.panic_ratchet, compare)
         command = ["cargo", "clippy", "--locked", "--keep-going", "--workspace", *args_for_lint]
         scope = "the whole cmux-tui workspace"
     else:
@@ -247,7 +246,7 @@ def main(argv: list[str] | None = None) -> int:
         packages = [arg for name in selected for arg in ("-p", name)]
         if args.panic_ratchet:
             return panic_ratchet(repo, packages, any(name in libs for name in selected), ", ".join(selected),
-                                 args.panic_ratchet, compare, libs)
+                                 args.panic_ratchet, compare)
         command = ["cargo", "clippy", "--locked", "--keep-going", *packages, *args_for_lint]
         scope = ", ".join(selected)
     print(f"cmux-tui-clippy-changed: linting {scope}", flush=True)
@@ -503,26 +502,7 @@ def name_base_reds(repo: Path, base: str, red_files: list[str]) -> None:
             Path(verdict).write_text("base red\n", encoding="utf-8")
 
 
-RED_CRATE = re.compile(r"^  ([A-Za-z0-9_.-]+): clippy::[a-z_]+ [0-9]+ > ")
-
-
-def still_red(ratchet_out: str, packages: list[str], libs: set[str] | None) -> tuple[list[str], bool] | None:
-    """The `-p` arguments and lib flag for the crates the ratchet's --untouched-is-base pass still names red, or
-    None (lint every selected package at the base, as before) when it names none, names a crate the run did not
-    select, or the caller did not say which packages have a library."""
-    if libs is None:
-        return None
-    crates = sorted({m.group(1) for line in ratchet_out.splitlines() if (m := RED_CRATE.match(line))})
-    if not crates:
-        return None
-    selected = set(packages[1::2]) if packages and packages[0] == "-p" else None
-    if selected is not None and not set(crates) <= selected:
-        return None
-    return [arg for crate in crates for arg in ("-p", crate)], any(crate in libs for crate in crates)
-
-
-def panic_ratchet(repo: Path, packages: list[str], has_lib: bool, scope: str, out: Path, compare: str = "",
-                  libs: set[str] | None = None) -> int:
+def panic_ratchet(repo: Path, packages: list[str], has_lib: bool, scope: str, out: Path, compare: str = "") -> int:
     """Lint the production targets of `packages` with the ratchet's flags into `out`, then let
     the ratchet judge them. Cargo refuses `--lib` when no selected package has a library.
     With `compare` (a base commit) a HEAD the baseline already passes is green as it stands:
@@ -581,28 +561,17 @@ def panic_ratchet(repo: Path, packages: list[str], has_lib: bool, scope: str, ou
             return 0
         base_out = out.with_name(out.name + ".base")
         head = fmt_changed.git(repo, "rev-parse", "HEAD").strip()
-        # Only the crates still red after the untouched pass read the base run, so the base lints just those
-        # (their dependents are never judged against it). Before, it linted every selected package again:
-        # 1.5-2.8 min in 9 of 40 sampled clippy-changed steps (2026-11-27), mostly dependents such as cmux-tui
-        # that a change to acpmux reaches but whose counts the base run never excused. The final judge keeps
-        # --untouched-is-base, so a crate the base run now leaves out is judged as the untouched pass judged it.
-        base_command = command
-        base_scope = scope
-        red = still_red(untouched.stdout, packages, libs)
-        if red is not None:
-            red_packages, red_has_lib = red
-            targets = ["--lib", "--bins"] if red_has_lib else ["--bins"]
-            base_command = ["cargo", "clippy", "--locked", *red_packages, *targets, "--message-format=json", "--",
-                            *flags, *CAP_LINTS]
-            base_scope = ", ".join(red_packages[1::2])
-            judge += ["--untouched-is-base", "--diff-base", compare]
-        print(f"cmux-tui-clippy-changed: HEAD is over the baseline; panic ratchet on {base_scope} at the base {compare}",
+        # Keep the same Cargo package and target selection on both revisions. Dependents unify features
+        # of the red crate: narrowing the base to that crate can hide existing lint sites. PR #56762
+        # measured 816 acpmux indexing_slicing hits on both revisions with nine packages, but only 788
+        # on the base with acpmux alone. The green-HEAD and untouched-only shortcuts above still apply.
+        print(f"cmux-tui-clippy-changed: HEAD is over the baseline; panic ratchet on {scope} at the base {compare}",
               flush=True)
-        print(" ".join(base_command), flush=True)
+        print(" ".join(command), flush=True)
         fmt_changed.git(repo, "checkout", "--quiet", "--detach", compare)
         try:
             with base_out.open("w", encoding="utf-8") as handle:
-                subprocess.run(base_command, cwd=repo / ROOT, stdout=handle)
+                subprocess.run(command, cwd=repo / ROOT, stdout=handle)
         finally:
             fmt_changed.git(repo, "checkout", "--quiet", "--detach", head)
         judge += ["--base-clippy-json", str(base_out)]
