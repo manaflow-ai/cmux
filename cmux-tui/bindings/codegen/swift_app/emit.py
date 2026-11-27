@@ -81,6 +81,7 @@ _TOP_KEYS = frozenset({"$comment", "sources_root", "ids", "types", "flatten", "f
 _FAMILY_KEYS = frozenset({"$comment", "enums", "requests", "objects"})
 _ENUM_KEYS = frozenset({"doc"})
 _REQUEST_KEYS = frozenset({
+    "allow_unadvertised_capability",
     "name", "doc", "order", "fields", "response", "response_order", "response_fields", "protocol", "mutation", "flatten", "omit",
 })
 _FIELD_KEYS = frozenset({"name", "type", "doc", "default", "optional", "encode", "encode_when", "update"})
