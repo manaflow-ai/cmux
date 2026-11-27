@@ -474,3 +474,36 @@ test("an ask made at the start is not used once another chat was shown: the send
     run.chat.close();
   }
 });
+
+// Leo, 2026-11-25: "when you press enter, the stuff should just start playing. we dont need to
+// wait/get blocked by anything on rendering". The bubble draws before the app answers the ask, in
+// the send's own task, and the send under the named turn draws over that same row: one bubble,
+// one row id, from the Enter to the echo.
+test("the bubble draws before the hand-off turn ask answers, and stays the same row once named", async () => {
+  const prompts: Record<string, unknown>[] = [];
+  const chat = await client(prompts);
+  const rows = (chat as unknown as { rows: Map<string, { kind: string; version: number }> }).rows;
+  let answer: (turn: number) => void = () => undefined;
+  chat.handoffTurn = () => new Promise<number>((resolve) => (answer = resolve));
+  const sent = chat.send("paint now", [], "p-20");
+  // Synchronously, before any await of the ask: drawn in the Enter's frame.
+  expect(rows.has("local-p-20")).toBe(true);
+  for (let i = 0; i < 5; i++) await new Promise((resolve) => setTimeout(resolve, 0));
+  expect(prompts).toEqual([]);
+  answer(7);
+  await sent;
+  expect(promptIdOf(prompts[0])).toBe("handoff-7-p-20");
+  const users = [...rows.entries()].filter(([, row]) => row.kind === "user").map(([id]) => id);
+  expect(users).toEqual(["local-p-20"]);
+});
+
+test("a refused send drops the bubble drawn ahead of the ask: the composer keeps the prompt", async () => {
+  const prompts: Record<string, unknown>[] = [];
+  const chat = await client(prompts, 1);
+  const rows = (chat as unknown as { rows: Map<string, unknown> }).rows;
+  chat.handoffTurn = async () => 8;
+  const sent = chat.send("refused", [], "p-21", () => undefined);
+  expect(rows.has("local-p-21")).toBe(true);
+  await sent.catch(() => undefined);
+  expect(rows.has("local-p-21")).toBe(false);
+});

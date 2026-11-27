@@ -59,6 +59,23 @@ from safe_log import safe_print  # noqa: E402  (a line in a cleanup path never s
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import claude_login_cache  # noqa: E402
+
+
+# A shipped build refuses `cmux app call` (app.call_debug_only): its sign-in is read from `cloud list-machines`,
+# as cloud-chat-proof.py does (run 45882299909 waited 300 s on `auth.status` from NIGHTLY and failed).
+SHIPPED_APP_IDS = {"com.cmuxterm.app.nightly"}
+
+
+def shipped_app(app: str | None) -> bool:
+    """Whether --app is a shipped build (its bundle id), whose socket takes no `app call`."""
+    if not app:
+        return False
+    try:
+        import plistlib
+        with open(Path(app) / "Contents/Info.plist", "rb") as handle:
+            return plistlib.load(handle).get("CFBundleIdentifier") in SHIPPED_APP_IDS
+    except (OSError, ValueError):
+        return False
 from app_launch_env import launch_env  # noqa: E402
 
 AGENTS = ("claude", "codex")
@@ -714,6 +731,7 @@ class Matrix:
             steps.append(("app identify", ("app", "identify", "--json"), 240,
                           lambda v: bool(v.get("pid")) and v.get("app_bundle_path") == app_path))
             origin = (args.expected_api_origin or "").rstrip("/")
+        if args.app and not shipped_app(args.app):
             steps.append(("auth.status", ("app", "call", "auth.status", "--json"), 300,
                           lambda v: v.get("signed_in") is True and v.get("cloud_environment") == args.cloud_backend
                           and str(v.get("backend", "")).rstrip("/") == origin))
@@ -726,12 +744,17 @@ class Matrix:
                 code, out, err = self.cmux(*words, timeout=30)
                 value = self.parsed(out) if code == 0 else {}
                 if code == 0 and ready(value):
-                    status = value if name == "auth.status" else status
+                    if name == "auth.status":
+                        status = value
+                    elif name == "cloud list-machines" and not status:
+                        # A shipped app's own sign-in ({signed_in, user_id, team_id}: CloudHandlers.listAccount)
+                        # names the user and team the login cache is scoped to, as `auth.status` does.
+                        status = value.get("account") if isinstance(value.get("account"), dict) else {}
                     break
                 last = clean(self.error(out, err).get("message") or err or json.dumps(
                     {k: value.get(k) for k in ("signed_in", "backend", "cloud_environment", "loaded") if k in value}), 300)
                 if time.monotonic() >= deadline:
-                    if name == "cloud list-machines":
+                    if name == "cloud list-machines" and not shipped_app(args.app):
                         last += self.list_why()
                     return f"the app is not ready: {name} after {limit} s ({last})"
                 time.sleep(3)
