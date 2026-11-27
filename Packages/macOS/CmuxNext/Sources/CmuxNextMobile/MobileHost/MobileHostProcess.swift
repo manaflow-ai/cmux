@@ -114,13 +114,23 @@ public final class MobileHostProcess: Sendable {
         process?.terminate()
     }
 
-    /// The log file opened for appending, created with mode 0600 and
-    /// started over once it passes 1 MB.
+    /// The log file opened for appending, created with mode 0600. Once it
+    /// passes 1 MB it moves to `<name>.1` (replacing the older one) and a
+    /// new file starts, so a restart keeps at least the last 1 MB of
+    /// history: a phone's failed connect before an update or relaunch stays
+    /// readable (2026-11-27: the 19:07Z NIGHTLY update deleted the log that
+    /// held a 15:3xZ failed phone connect, leaving no receipt).
     static func logHandle(_ url: URL?) -> FileHandle? {
         guard let url else { return nil }
         let path = url.path
         let size = (try? FileManager.default.attributesOfItem(atPath: path)[.size] as? NSNumber)?.intValue ?? 0
-        if size > 1 << 20 { try? FileManager.default.removeItem(atPath: path) }
+        if size > 1 << 20 {
+            let previous = URL(fileURLWithPath: path + ".1")
+            try? FileManager.checked.removeItem(at: previous)
+            if (try? FileManager.checked.moveItem(at: url, to: previous)) == nil {
+                try? FileManager.checked.removeItem(at: url)
+            }
+        }
         if !FileManager.default.fileExists(atPath: path) {
             FileManager.default.createFile(atPath: path, contents: nil, attributes: [.posixPermissions: 0o600])
         }
