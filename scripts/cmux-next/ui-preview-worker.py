@@ -549,6 +549,7 @@ class Worker:
         self.send_template = send
         self.publish_template = publish
         self.host = host or socket.gethostname().split(".")[0]
+        self.started_at = dt.datetime.now(dt.timezone.utc)  # before warm: replayed() measures from the takeover
         self.receipts_path = self.state / f"ui-preview-{self.host}.json"
         self.swift_lock = threading.Lock()  # the shell's tree and .build
         self.fetch_lock = threading.Lock()  # the clone's fetches (a prefetch and a look's fetch of one head)
@@ -1297,13 +1298,22 @@ def tailnet_address() -> str | None:
 
 FOLLOW_WAIT_S = 20  # the broker's long-poll bound (UI_PREVIEW_WAIT_MAX_S)
 FOLLOW_RETRY_S = 10  # after a failed call
+# A request pushed longer than this before the worker started is the previous lease holder's (replayed): the lease's
+# ttl_s 60 and probe_s 10 (leo-workspace machines/role-leases.json ui-preview-web), role_lease's STOP_S 15 and
+# RESTART_S 5.
+TAKEOVER_S = 90
 
 
 def lane_gh_call(tool: str, args: dict, timeout: float, repo: str | None = None) -> dict:
-    """One `lane-gh call TOOL [REPO] JSON` through the broker: the answer's data (status 200), or LookError."""
+    """One `lane-gh call TOOL [REPO] JSON` through the broker: the answer's data (status 200), or LookError. With a
+    REPO the JSON goes on stdin (`lane-gh call TOOL REPO -`): one argv string holds at most 128 KiB on Linux
+    (MAX_ARG_STRLEN), and the census copy state_put carries runs to PUBLISH_MAX, so in argv every publish of a
+    receipts file past 128 KiB failed with E2BIG and the host's census copy stood still for hours. A tool with no
+    repo (ui_preview_requests) takes its few bytes in argv: lane-gh reads stdin only in the REPO form."""
+    body = json.dumps(args)
+    argv = ["lane-gh", "call", tool, repo, "-"] if repo else ["lane-gh", "call", tool, body]
     try:
-        done = subprocess.run(["lane-gh", "call", tool, *([repo] if repo else []), json.dumps(args)],
-                              capture_output=True, text=True, timeout=timeout)
+        done = subprocess.run(argv, input=body if repo else None, capture_output=True, text=True, timeout=timeout)
     except (subprocess.TimeoutExpired, OSError) as err:
         raise LookError(f"lane-gh call {tool}: {err}") from None
     if done.returncode != 0:
@@ -1352,9 +1362,27 @@ def drain(worker: "Worker", jobs: "queue.Queue", once: bool = False) -> None:
             return
 
 
+def replayed(worker: "Worker", req: dict) -> bool:
+    """Whether REQ was pushed while another worker held the role: more than TAKEOVER_S before this one started.
+
+    The role runs on two hosts under a lease (leo-workspace tools/role_lease.py) and DIR/follow-seq is each host's
+    own, so the host that takes the lease over resumes from the seq it held when it last led and the broker answers
+    every request pushed since: 2026-11-27 the second host took over at 01:18:28 and posted ten pushes the first had
+    already handled, one of them 1,000 s after its push, and NOW keeps the later posted_at of a key, so a replay
+    also turns a covered 25 s post into a 1,000 s one. A request pushed more than TAKEOVER_S before this worker
+    started was its predecessor's to post, which had longer than the whole 60 s goal to do it; within TAKEOVER_S it
+    may have been in flight when the predecessor stopped (the lease's TTL plus its probe, role_lease's stop and
+    restart), so it is taken. A replayed request gets no receipt here: the poster's receipt, or the trigger's
+    posted_at null one, stands."""
+    pushed = parse_ts(req.get("pushed_at"))
+    since = getattr(worker, "started_at", None)
+    return pushed is not None and since is not None and (since - pushed).total_seconds() > TAKEOVER_S
+
+
 def follow_once(worker: "Worker", jobs: "queue.Queue", after: int | None, call=lane_gh_call) -> int:
     """One long-poll of the broker's push trigger: queues each request this worker takes and returns the seq to ask
-    after next. AFTER None (a first start): the broker's newest, taking nothing (no backlog)."""
+    after next. AFTER None (a first start): the broker's newest, taking nothing (no backlog). A request pushed
+    before this worker took the role over is its predecessor's (replayed)."""
     answer = call("ui_preview_requests", {"after": after or 0, "wait": 0 if after is None else FOLLOW_WAIT_S},
                   FOLLOW_WAIT_S + 60)
     newest = answer.get("seq") if isinstance(answer.get("seq"), int) else 0
@@ -1368,6 +1396,10 @@ def follow_once(worker: "Worker", jobs: "queue.Queue", after: int | None, call=l
             req = check_request(raw)
         except LookError as err:
             log(f"follow: request {seq} not taken: {err}")
+            continue
+        if replayed(worker, req):
+            log(f"follow: request {seq} {req['head_sha'][:12]} pushed {req.get('pushed_at')}, before this worker "
+                f"took the role: its predecessor's, not posted again")
             continue
         planned = plan(req["ui_files"])
         if not worker.swift_on and not planned["web"] and not skip_reason(planned):

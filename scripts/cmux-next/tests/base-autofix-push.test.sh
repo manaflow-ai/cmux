@@ -627,4 +627,25 @@ for baseline in scripts/lint-namespace-types-baseline.txt scripts/lint-ios-packa
   [[ "$(remote_show Packages/a/A.swift)" == "public enum A {}" ]] || fail "a namespace rewrite landed past a $baseline move"
 done
 
+# A daemon ABI surface follows SDK inputs, not unrelated Rust formatting inputs.
+setup_daemon_surface() {
+  setup
+  surface=cmux-tui/spec/api-compat.surface.json
+  lane_push "$surface" old
+  (cd "$tmp/bot" && git reset -q --hard origin/feat && git fetch -q origin feat && git reset -q --hard FETCH_HEAD)
+  base="$(git -C "$tmp/bot" rev-parse HEAD)"
+  (cd "$tmp/bot" && echo repaired > "$surface" && git commit -q -am "chore(next): base autofix")
+}
+setup_daemon_surface
+lane_push cmux-tui/crates/unrelated/src/lib.rs '// unrelated formatting input'
+run > "$tmp/out" 2>&1 || fail "daemon surface must land past unrelated Rust changes: $(cat "$tmp/out")"
+[[ "$(remote_show "$surface")" == repaired ]] || fail "daemon surface repair did not land"
+for input in cmux-tui/spec/sdk-schema.json cmux-tui/spec/api-compat.json \
+  cmux-tui/spec/api-compat-fixtures.json cmux-tui/crates/cmux-api-compat/src/coverage.rs; do
+  setup_daemon_surface
+  lane_push "$input" changed
+  if run > "$tmp/out" 2>&1; then fail "daemon surface landed after input $input changed"; fi
+  [[ "$(remote_show "$surface")" == old ]] || fail "daemon surface was written from stale $input"
+done
+
 echo "PASS: base autofix lands its repair on a moved feat-cmux-next; files whose inputs moved or that a newer commit wrote wait; the settings exports are regenerated on the newest tip, or land as progress"

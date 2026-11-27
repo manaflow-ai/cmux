@@ -23,7 +23,6 @@ ACTION = ROOT / ".github" / "actions" / "fleet-client" / "action.yml"
 LINUX = "${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'cmux-linux' }}"
 
 GATEWAY_MAC = frozenset({
-    "chief-evals.yml#fleet-ab",
     "cmux-next-head-compile.yml#compile",
     "cmux-next-ios-energy-nightly.yml#bench",
     "cmux-next-ios-keyboard-motion.yml#bench",
@@ -40,6 +39,7 @@ GATEWAY_MAC = frozenset({
 })
 
 MOVED = {
+    "chief-evals.yml#fleet-ab": "scripts/measure/chief-evals.sh",
     "cmux-next-tip-test-compile.yml#compile-fleet": "scripts/ci/tip-test-compile.sh",
     "cmux-next-fast-tier-batch.yml#swift-fleet": "CMUX_CI_CLIENT",
 }
