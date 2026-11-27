@@ -1,7 +1,7 @@
 // followGlide.ts: a followed reply's new line eases in within the live line's room, and nothing
 // else glides. The live browser behaviour is in test/streaming-text-frames.test.ts.
 import { expect, test } from "bun:test";
-import { MOTION_EASE_SEND, MOTION_MS, MOTION_SEND_MS } from "../../../motion/scale.generated";
+import { MOTION_EASE_SEND, MOTION_MS, MOTION_SEND_MS, MOTION_SETTLE } from "../../../motion/scale.generated";
 import type { AcpmuxRow, ConversationLayout } from "../model";
 import { createFollowGlide, followRoom } from "./followGlide";
 
@@ -35,12 +35,13 @@ test("the room is the quiet live line under the reply, and nothing else", () => 
 });
 
 /// A thread whose `animate` records each glide; `progress` is what the glide in flight reports.
-function thread(motion: { reduce?: boolean; off?: boolean; token?: string } = {}) {
+function thread(motion: { reduce?: boolean; off?: boolean; token?: string; tokens?: Record<string, string> } = {}) {
   const glides: { keyframes: Keyframe[]; options: KeyframeAnimationOptions; cancelled: boolean }[] = [];
+  const animations: Animation[] = [];
   let progress = 0;
   const view = {
     matchMedia: () => ({ matches: motion.reduce === true }),
-    getComputedStyle: () => ({ getPropertyValue: () => motion.token ?? "" }),
+    getComputedStyle: () => ({ getPropertyValue: (name: string) => motion.tokens?.[name] ?? motion.token ?? "" }),
   };
   const node = {
     ownerDocument: { defaultView: view, documentElement: { dataset: motion.off ? { agentMotion: "off" } : {} } },
@@ -48,14 +49,16 @@ function thread(motion: { reduce?: boolean; off?: boolean; token?: string } = {}
     animate(keyframes: Keyframe[], options: KeyframeAnimationOptions) {
       const glide = { keyframes, options, cancelled: false };
       glides.push(glide);
-      return {
+      const animation = {
         effect: { getComputedTiming: () => ({ progress }) },
         cancel: () => (glide.cancelled = true),
         onfinish: null,
       } as unknown as Animation;
+      animations.push(animation);
+      return animation;
     },
   } as unknown as HTMLElement;
-  return { node, glides, at: (value: number) => (progress = value) };
+  return { node, glides, animations, at: (value: number) => (progress = value) };
 }
 
 test("a rise eases from where the reader saw the rows, at most the room, on the standard step", () => {
@@ -155,4 +158,84 @@ test("a send glides nothing with motion off, for a fall, or without a thread", (
   expect(glide.sent(node, -10)).toBe(0);
   expect(glide.sent(null, 64)).toBe(0);
   expect(glides).toHaveLength(0);
+});
+
+test("an opted-in top send sweeps on the move token's large step, independent of the ordinary send clock", () => {
+  const { node, glides } = thread({
+    tokens: { "--agent-motion-move": `${MOTION_MS.standard * 2}ms`, "--agent-motion-send": "0ms" },
+  });
+  const glide = createFollowGlide();
+  expect(glide.sent(node, 300)).toBe(0);
+  expect(glide.sweeping()).toBe(false);
+  expect(glide.swept(node, 300)).toBe(300);
+  expect(glide.sweeping()).toBe(true);
+  expect(glides).toHaveLength(1);
+  expect(glides[0]!.keyframes).toEqual([{ translate: "0 300px" }, { translate: "0 0" }]);
+  expect(glides[0]!.options.duration).toBe(MOTION_MS.large * 2);
+  expect(glides[0]!.options.easing).toBe(MOTION_SETTLE);
+  glide.fit(0);
+  glide.stop(true);
+  expect(glides[0]!.cancelled).toBe(false);
+  expect(glide.sweeping()).toBe(true);
+  glide.stop();
+  expect(glides[0]!.cancelled).toBe(true);
+  expect(glide.outstanding()).toBe(0);
+  expect(glide.sweeping()).toBe(false);
+});
+
+test("reply growth continues a sweep from its drawn position and a stale finish cannot cancel its successor", () => {
+  const { node, glides, animations, at } = thread();
+  const glide = createFollowGlide();
+  expect(glide.swept(node, 300)).toBe(300);
+  expect(glides[0]!.options.duration).toBe(MOTION_MS.large);
+  at(0.5);
+  expect(glide.rise(node, 20, 4)).toBe(170);
+  expect(glides[0]!.cancelled).toBe(true);
+  expect(glides[1]!.options.duration).toBe(MOTION_MS.large);
+  expect(glides[1]!.options.easing).toBe(MOTION_SETTLE);
+  at(0);
+  animations[0]!.onfinish?.call(animations[0]!, {} as AnimationPlaybackEvent);
+  expect(glide.outstanding()).toBe(170);
+  glide.stop(true);
+  expect(glides[1]!.cancelled).toBe(false);
+  animations[1]!.onfinish?.call(animations[1]!, {} as AnimationPlaybackEvent);
+  expect(glide.outstanding()).toBe(0);
+  expect(glide.sweeping()).toBe(false);
+  expect(glide.rise(node, 20, 4)).toBe(4);
+  glide.stop(true);
+  expect(glides[2]!.cancelled).toBe(true);
+});
+
+test("an ordinary send replaces a sweep and does not inherit its preservation or clock", () => {
+  const { node, glides, at } = thread({ token: `${MOTION_MS.standard}ms` });
+  const glide = createFollowGlide();
+  glide.swept(node, 300);
+  at(0.5);
+  expect(glide.sent(node, 20)).toBe(170);
+  expect(glide.sweeping()).toBe(false);
+  expect(glides[0]!.cancelled).toBe(true);
+  expect(glides[1]!.options.duration).toBe(MOTION_MS.standard);
+  expect(glides[1]!.options.easing).toBe(MOTION_EASE_SEND);
+  glide.stop(true);
+  expect(glides[1]!.cancelled).toBe(true);
+});
+
+test("a sweep respects reduced motion and motion off, including a change while it plays", () => {
+  for (const motion of [{ reduce: true }, { off: true }, { token: "0ms" }]) {
+    const { node, glides } = thread(motion);
+    expect(createFollowGlide().swept(node, 300)).toBe(0);
+    expect(glides).toHaveLength(0);
+  }
+  const motion = { reduce: false };
+  const { node, glides } = thread(motion);
+  const glide = createFollowGlide();
+  expect(glide.swept(null, 300)).toBe(0);
+  expect(glide.swept(node, -20)).toBe(0);
+  expect(glides).toHaveLength(0);
+  glide.swept(node, 300);
+  motion.reduce = true;
+  expect(glide.swept(node, 20)).toBe(0);
+  expect(glides[0]!.cancelled).toBe(true);
+  expect(glide.outstanding()).toBe(0);
+  expect(glide.sweeping()).toBe(false);
 });

@@ -4,6 +4,7 @@
   "description": "Read replies in an 800 pt column with collapsed tool activity and a compact harness label.",
   "settings": {
     "agentPane.display.presentation": "transcript",
+    "agentPane.display.sendScrollsToTop": true,
     "agentPane.display.transcriptView": "normal",
     "agentPane.display.font.size": 14,
     "agentPane.display.width": 800,

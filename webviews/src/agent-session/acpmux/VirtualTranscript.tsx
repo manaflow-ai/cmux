@@ -1515,8 +1515,8 @@ function TranscriptView({
     followChase.current?.resume();
     tailGlide.current?.resume();
   }, []);
-  const stopFollowMotion = useCallback(() => {
-    followGlide.current?.stop();
+  const stopFollowMotion = useCallback((keepSweep = false) => {
+    followGlide.current?.stop(keepSweep);
     followChase.current?.stop();
     tailGlide.current?.stop();
     chaseAnchor.current = undefined;
@@ -3172,6 +3172,8 @@ function TranscriptView({
   /// Until when rows that come move the followed view on a send's glide (`followGlide.sent`): the
   /// sent prompt's row and its reply's first rows can land a commit or two after the send itself.
   const sendRiseUntil = useRef(Number.NEGATIVE_INFINITY);
+  // A sent prompt sweeps only once; user input, a resize or a fold cancels without replay.
+  const sweptPrompt = useRef<string | undefined>(undefined);
   /// Until when rows that come join the send's own rise on the bubble's clock (`followChase` `sent`):
   /// the send motion's length. A row landing later in `sendRiseUntil` (a delayed thinking or tool
   /// row) arrives on the arrival step instead of starting the send curve over after the bubble rested.
@@ -4310,6 +4312,10 @@ function TranscriptView({
   // The last pass's rows (its layout effect writes them), read once for this pass.
   const placedRows = previousRows.current;
   const keptAt = following && !sessionSwitched ? newestPromptIndex(rows) : -1;
+  const sendTopPrompt =
+    sendScrollsToTop && keptAt >= 0 && sentPromptIdsForRender.has(rows[keptAt]!.id)
+      ? rows[keptAt]!.id
+      : undefined;
   const promptTail = () =>
     measured.layout.totalHeight - (keptAt >= 0 ? layoutGeometry(measured.layout).topAt(keptAt) : 0) + tailGap;
   const under = roomUnder({
@@ -4338,10 +4344,7 @@ function TranscriptView({
     // Opt-in (Leo, cmux#56827: "sent message scrolls to top"): a prompt this view sent sits at the view's
     // top, THREAD_TOP under it, with the room under it the reply fills. A chat opened on an old prompt keeps
     // its end as before: only a prompt sent here (`sentPromptIds`) is put at the top.
-    sendTop:
-      sendScrollsToTop && keptAt >= 0 && sentPromptIdsForRender.has(rows[keptAt]!.id)
-        ? () => height - promptTail() - THREAD_TOP
-        : undefined,
+    sendTop: sendTopPrompt !== undefined ? () => height - promptTail() - THREAD_TOP : undefined,
     foldRoom,
     newerRoom,
     dragged: draggedHeight,
@@ -4870,6 +4873,7 @@ function TranscriptView({
       // Already cleared as the switch rendered (`sentPromptIdsForRender`): only a set left asks a render.
       if (sentPromptIds.size !== 0) setSentPromptIds(new Set());
       sentBeforeOpen.current = false;
+      sweptPrompt.current = undefined;
       sendRiseUntil.current = Number.NEGATIVE_INFINITY;
       sendClockUntil.current = Number.NEGATIVE_INFINITY;
       previousLayout.current = null;
@@ -5189,11 +5193,27 @@ function TranscriptView({
         // drawn: it moves the rows on its own frames, so nothing chases or glides with it (a chase
         // that drew the thread back by the swap, then by the fold's own steps, moved the rows twice).
         const turnEnding = turnEndCapture.current !== undefined || Boolean(thread.current?.hasAttribute(TURN_END_ATTR));
+        // Top placement owns one whole-thread sweep, including the default steady follow arm.
+        // The shared room model still places the prompt; this only eases that offset's rise.
+        const freshSweep = sendTopPrompt !== undefined && sweptPrompt.current !== sendTopPrompt;
+        const wantsSweep = freshSweep || Boolean(followGlide.current?.sweeping());
+        const sweepSafe =
+          sendTopPrompt !== undefined &&
+          !caughtUp && !jumping && !bottomStacking && !resizing && !heightFoldPlaying() && !turnEnding;
+        const sweeping = wantsSweep && sweepSafe;
+        if (sweeping) {
+          stopFollowMotion(true);
+          if (rose > 0.5) followGlide.current?.swept(thread.current, rose);
+          if (rose > 0.5 || sends === seenSends.current) sweptPrompt.current = sendTopPrompt;
+        } else if (wantsSweep) {
+          followGlide.current?.stop();
+          sweptPrompt.current = sendTopPrompt;
+        }
         // Every arm but `eased`: whatever moved the rows in view in this pass (a line, rows that came,
         // the composer's room) is one move of one chase (followChase.ts). A disclosure's fold and
         // the bottom stack's fold move the thread on their own frames, and Jump to latest rides on
         // its own: those end it.
-        if (chasing) {
+        if (chasing && !sweeping) {
           // Those move the rows between passes on their own frames (the jump's ride, a fold, a
           // rewrap): it ends, and nothing is noted, so the first pass after them measures no move
           // from a row they moved (that drew the thread back by the ride's last step, under the card).
@@ -5395,7 +5415,7 @@ function TranscriptView({
         // ago whose rows land now): the rows that came lift the thread on the send's glide, the
         // prompt rising out from behind the composer, instead of the view jumping a row in a frame.
         const sendRows = (sends !== seenSends.current || now < sendRiseUntil.current) && rows.length > oldRows.length;
-        if (chasing) {
+        if (chasing || sweeping) {
           // Moved above.
         } else if (
           sendRows &&
@@ -5517,7 +5537,12 @@ function TranscriptView({
         // On a 0 send clock (the product's) the thread is in place at once, whichever commit the
         // prompt came in (review of #41550): no glide and no chase.
         const sentHere = sentBeforeOpen.current || sends !== seenSends.current;
-        if (sentHere && at < 0 && node.scrollTop - before > 0.5 && sendRiseMs(node) > 0) {
+        const sweepOpen = sentHere && at < 0 && sendTopPrompt !== undefined && !switched;
+        if (sweepOpen) {
+          stopFollowMotion(true);
+          followGlide.current?.swept(thread.current, node.scrollTop - before);
+          sweptPrompt.current = sendTopPrompt;
+        } else if (sentHere && at < 0 && node.scrollTop - before > 0.5 && sendRiseMs(node) > 0) {
           // On the send motion, one clock with the bubble's entrance, while that motion plays.
           const sentClock = sends !== seenSends.current || performance.now() < sendClockUntil.current;
           if (chasing)
@@ -5539,7 +5564,7 @@ function TranscriptView({
         didOpenAtLatest.current = true;
         // The rows in view as the chat opens: the first move after it chases from them, once
         // something new comes after the open (`chaseOpenTail`); a send in this commit already is.
-        if (chasing && top >= latest - 1) {
+        if (chasing && !sweepOpen && top >= latest - 1) {
           const tail = rows.at(-1);
           chaseOpenTail.current = tail && !sentHere ? { id: tail.id, version: tail.version } : undefined;
           chaseFollow(node, layout, rows);
@@ -6341,7 +6366,16 @@ function TranscriptView({
       // On the product's 0 send clock the move to the new end is the send's own and lands in this
       // pass with its rows: chasing it drew the thread back by the whole rise (176 px) and brought it
       // home over 10 frames after the rows had landed (motion contract (c), `latest send`).
-      if (chasing) {
+      const sweepSend =
+        fromLatest && sendTopPrompt !== undefined &&
+        (sweptPrompt.current !== sendTopPrompt || followGlide.current?.sweeping());
+      if (sweepSend) {
+        stopFollowMotion(true);
+        if (top - before > 0.5) {
+          followGlide.current?.swept(thread.current, top - before);
+          sweptPrompt.current = sendTopPrompt;
+        }
+      } else if (chasing) {
         // With the send pop on, the rise has the pop's clock (SEND-RISE, followChase.ts `sendRiseMs`): the
         // rows above rise into the bubble's room on its curve instead of jumping there in this frame.
         if (fromLatest && !(sendRiseMs(node) > 0)) {
