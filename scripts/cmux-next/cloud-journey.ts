@@ -148,6 +148,29 @@ export function defaultSizeProblem(size: { cpu?: unknown; memory_mb?: unknown; d
   const want = `${CHAT_START_SIZE.cpu}/${CHAT_START_SIZE.memory_mb}/${CHAT_START_SIZE.disk_mb}`;
   return read === want ? null : `cloud.machine.get size ${read}, not the default ${want} (cpu/memory_mb/disk_mb)`;
 }
+type SizeRow = { cpu?: unknown; memory_mb?: unknown; disk_mb?: unknown } | null | undefined;
+const sizeText = (size: SizeRow) => `${size?.cpu ?? "?"}/${size?.memory_mb ?? "?"}/${size?.disk_mb ?? "?"}`;
+/**
+ * The DEFAULT_SIZE_STEP verdict: the create's size is the one cloud.machine.get read when the machine first ran
+ * (`atRunning`, before any agent turn), never the one read after the reply (`now`). AutoSize (cmux-platform
+ * CloudDO.pressCloudGrow, RFD 0133) grows a machine whose guest reports `cpu: pegged`, and since cmux#59118 the guest
+ * reports a pegged CPU within 2 s, so an agent start on 2 vCPUs grew the journey's machine to xl (16/32768/131072)
+ * before this step read it (cmux-vm.yml run 45916791099, roll 3bd974c4): every staging deploy rolled back on a size
+ * the create never had. A later size at least as big on every axis is AutoSize's and is named in the detail; a
+ * smaller one, or a running read with no size, is judged as before. Null and the detail, or the problem.
+ */
+export function defaultSizeVerdict(atRunning: SizeRow, now: SizeRow): { problem: string | null; detail: string } {
+  const created = atRunning?.cpu === undefined ? now : atRunning;
+  const problem = defaultSizeProblem(created);
+  const n = (v: unknown) => (typeof v === "number" ? v : Number.NaN);
+  const grew = created !== now && sizeText(now) !== sizeText(created)
+    && n(now?.cpu) >= n(created?.cpu) && n(now?.memory_mb) >= n(created?.memory_mb) && n(now?.disk_mb) >= n(created?.disk_mb);
+  if (problem === null && created !== now && sizeText(now) !== sizeText(created) && !grew) {
+    return { problem: `${defaultSizeProblem(now)}; it ran at ${sizeText(created)} (a size below the create's is no grow)`, detail: "" };
+  }
+  const later = grew ? `; ${sizeText(now)} after the reply (AutoSize grew it, cmux-platform pressCloudGrow)` : "";
+  return { problem: problem === null ? null : `${problem}${later}`, detail: `size ${sizeText(created)} when it first ran${later}` };
+}
 /**
  * The "cold create" cell's size: the catalog's md (4 vCPU / 8 GiB / 32 GiB). The Scaler makes spares at the chat start
  * size only and gives one only to a create asking exactly that (cmux-platform Scaler requestShape), so a create at md
@@ -5749,14 +5772,15 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
       // drill at all (run 45896711769 kill-src: staging recorded 4/8192/32768 for a default create, the move never ran).
       // A new machine made at the default size is recorded at it: 2 vCPU / 4096 MB / 20480 MB, the size the platform
       // keeps spares at. Read after the create answered and the machine ran (event order); the read has its own deadline.
+      // Judged on the size it first ran at (defaultSizeVerdict): by now AutoSize may have grown it under the agent's start.
       if (!reuse) await J.step(DEFAULT_SIZE_STEP, async () => {
         const m = await Promise.race([
           api.read("cloud.machine.get", { machine: created.id }),
           new Promise<never>((_, reject) => setTimeout(() => reject(new Error("cloud.machine.get: no answer in 30 s")), 30_000).unref?.()),
         ]);
-        const why = defaultSizeProblem(m?.size);
-        if (why) throw new Error(why);
-        return { value: null, detail: `${created.id} size ${m.size.cpu}/${m.size.memory_mb}/${m.size.disk_mb}` };
+        const verdict = defaultSizeVerdict(bound?.size, m?.size);
+        if (verdict.problem) throw new Error(verdict.problem);
+        return { value: null, detail: `${created.id} ${verdict.detail}` };
       }).catch(() => undefined);
       await J.step("first exec", async () => {
         // The machine's real size, measured on it (cpu, memory and root disk), beside what the platform recorded (the
