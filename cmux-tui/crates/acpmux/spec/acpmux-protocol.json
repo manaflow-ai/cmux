@@ -1163,6 +1163,12 @@
     },
     {
       "kind": "request",
+      "name": "_acpmux/running_replica",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
       "name": "_acpmux/transcript_offload",
       "params": true,
       "result": true

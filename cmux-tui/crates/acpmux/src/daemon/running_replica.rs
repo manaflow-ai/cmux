@@ -153,19 +153,25 @@ pub(crate) async fn request(hub: Arc<Hub>, params: Value) -> Result<Value> {
             let _operation = OPERATION.lock().await;
             let pair = required(&params, "pair")?.to_string();
             let cwd = PathBuf::from(required(&params, "cwd")?);
+            let name = params.get("name").and_then(Value::as_str).map(str::to_owned);
             if !cwd.is_absolute() || !cwd.is_dir() {
                 bail!("cwd must be an existing absolute directory restored separately from the machine snapshot");
             }
-            let (temp, bundle, receipt) = tokio::task::spawn_blocking(move || -> Result<_> {
-                let cloud = cloud(&state, true)?;
-                let temp = tempfile::tempdir()?;
-                let bundle = temp.path().join("bundle");
-                let receipt = replica::recover(&pair, &bundle, &cloud)?;
-                Ok((temp, bundle, receipt))
-            }).await??;
-            let recovered = hub.recover_running_replica(&bundle, &cwd, params.get("name").and_then(Value::as_str)).await?;
-            drop(temp);
-            Ok(json!({"recovered": recovered, "receipt": receipt}))
+            // Finish importing after native files are placed even if the caller disconnects.
+            // The task keeps both the scratch directory and operation guard until completion.
+            tokio::spawn(async move {
+                let _operation = _operation;
+                let (temp, bundle, receipt) = tokio::task::spawn_blocking(move || -> Result<_> {
+                    let cloud = cloud(&state, true)?;
+                    let temp = tempfile::tempdir()?;
+                    let bundle = temp.path().join("bundle");
+                    let receipt = replica::recover(&pair, &bundle, &cloud)?;
+                    Ok((temp, bundle, receipt))
+                }).await??;
+                let recovered = hub.recover_running_replica(&bundle, &cwd, name.as_deref()).await?;
+                drop(temp);
+                Ok(json!({"recovered": recovered, "receipt": receipt}))
+            }).await?
         }
         _ => bail!("action must be status, address, checkpoint, or recover"),
     }
