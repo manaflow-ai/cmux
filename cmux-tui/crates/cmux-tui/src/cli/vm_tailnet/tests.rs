@@ -3,6 +3,7 @@ use std::time::Duration;
 
 use cmux_cloud_start_core::machine_bootstrap::ExecAnswer;
 
+use super::vault::NodeVault;
 use super::*;
 
 fn no_mint(_: &MintSource, _: &MintSpec, _: bool) -> Result<Secret, String> {
@@ -169,6 +170,54 @@ fn a_move_stops_the_old_holder_first_hands_the_state_0600_and_forgets_it() {
 }
 
 #[test]
+fn adopt_is_refused_while_another_vm_holds_the_lease() {
+    let store = kept("leo-cmux", "c3RhdGU=");
+    held(&store, "vm_a", 4);
+    let mut vm = fake(vec![]);
+    let error = vault::adopt(&mut vm, &store, "vm_b", false, Duration::from_secs(60)).unwrap_err();
+    assert!(error.contains("vm_a holds your tailnet node"), "{error}");
+    assert!(error.contains("cmux vm tailnet move vm_a vm_b"), "{error}");
+    assert!(vm.commands.is_empty() && vm.writes.is_empty(), "nothing reaches the VM");
+    assert_eq!(store.lease().unwrap().holder.as_deref(), Some("vm_a"));
+}
+
+#[test]
+fn take_over_moves_the_lease_at_the_epoch_it_read() {
+    let store = kept("leo-cmux", "c3RhdGU=");
+    held(&store, "vm_a", 4);
+    let mut vm = fake(vec![
+        said("prepared\n"),
+        said("started\n"),
+        said(&format!("rc=0\ncmux-tailnet-online-at 1800\ncmux-tailnet-joined {NODE_JSON}\n")),
+    ]);
+    vault::adopt(&mut vm, &store, "vm_b", true, Duration::from_secs(60)).unwrap();
+    assert_eq!(store.lease().unwrap(), vault::Lease { holder: Some("vm_b".into()), epoch: 5 });
+    // A move takes it over from FROM only; a third VM's lease stands.
+    assert_eq!(vault::hold(&store, "vm_c", Some("vm_b"), false).unwrap().epoch, 6);
+    assert!(vault::hold(&store, "vm_d", Some("vm_b"), false).is_err());
+    // The holder claiming again changes nothing.
+    assert_eq!(vault::hold(&store, "vm_c", None, false).unwrap().epoch, 6);
+}
+
+#[test]
+fn a_failed_adopt_gives_the_lease_back() {
+    let store = kept("leo-cmux", "c3RhdGU=");
+    let mut vm = fake(vec![said("not prepared\n")]);
+    assert!(vault::adopt(&mut vm, &store, "vm_b", false, Duration::from_secs(60)).is_err());
+    assert_eq!(store.lease().unwrap(), vault::Lease { holder: None, epoch: 2 });
+}
+
+#[test]
+fn the_lease_answer_reads_a_free_node_and_refuses_junk() {
+    let free = vault::parse_lease(&json!({"holder": null, "epoch": 3, "updatedAt": 1})).unwrap();
+    assert_eq!(free, vault::Lease { holder: None, epoch: 3 });
+    let taken = vault::parse_lease(&json!({"holder": "vm_a", "epoch": 4})).unwrap();
+    assert_eq!(taken.holder.as_deref(), Some("vm_a"));
+    assert!(vault::parse_lease(&json!({"holder": "vm_a"})).is_err());
+    assert!(vault::parse_lease(&json!({"holder": 7, "epoch": 1})).is_err());
+}
+
+#[test]
 fn a_failed_adopt_restarts_the_node_on_the_old_holder() {
     let mut from = fake(vec![
         said("cmux-tailnet-state c3RhdGU=\ncmux-tailnet-released\n"),
@@ -330,6 +379,8 @@ struct FakeVault {
     node: RefCell<Option<(String, String)>>,
     revision: RefCell<u64>,
     refuse_put: bool,
+    refuse_lease: bool,
+    lease: RefCell<vault::Lease>,
 }
 
 impl vault::NodeVault for FakeVault {
@@ -354,6 +405,40 @@ impl vault::NodeVault for FakeVault {
         *self.node.borrow_mut() = None;
         Ok(())
     }
+    fn lease(&self) -> Result<vault::Lease, String> {
+        if self.refuse_lease {
+            return Err("your vault is unreachable (offline)".to_owned());
+        }
+        Ok(self.lease.borrow().clone())
+    }
+    // The platform's rules (cmux-platform#2167): compare-and-set on the epoch.
+    fn claim(&self, holder: &str, if_epoch: Option<u64>) -> Result<vault::Lease, String> {
+        let mut lease = self.lease.borrow_mut();
+        match lease.holder.as_deref() {
+            Some(h) if h == holder => {}
+            Some(_) if if_epoch != Some(lease.epoch) => return Err("conflict".to_owned()),
+            None if if_epoch.is_some_and(|e| e != lease.epoch) => {
+                return Err("conflict".to_owned());
+            }
+            _ => *lease = vault::Lease { holder: Some(holder.to_owned()), epoch: lease.epoch + 1 },
+        }
+        Ok(lease.clone())
+    }
+    fn release(&self, holder: &str, epoch: u64) -> Result<(), String> {
+        let mut lease = self.lease.borrow_mut();
+        match lease.holder.as_deref() {
+            None => Ok(()),
+            Some(h) if h == holder && lease.epoch == epoch => {
+                *lease = vault::Lease { holder: None, epoch: lease.epoch + 1 };
+                Ok(())
+            }
+            Some(_) => Err("conflict".to_owned()),
+        }
+    }
+}
+
+fn held(store: &FakeVault, holder: &str, epoch: u64) {
+    *store.lease.borrow_mut() = vault::Lease { holder: Some(holder.to_owned()), epoch };
 }
 
 fn kept(name: &str, state: &str) -> FakeVault {
@@ -361,6 +446,8 @@ fn kept(name: &str, state: &str) -> FakeVault {
         node: RefCell::new(Some((name.to_owned(), state.to_owned()))),
         revision: RefCell::new(7),
         refuse_put: false,
+        refuse_lease: false,
+        lease: RefCell::new(vault::Lease { holder: None, epoch: 0 }),
     }
 }
 
@@ -418,7 +505,8 @@ fn adopt_brings_the_vaults_node_up_with_no_key() {
         said("started\n"),
         said(&format!("rc=0\ncmux-tailnet-online-at 1800\ncmux-tailnet-joined {NODE_JSON}\n")),
     ]);
-    let (node, name) = vault::adopt(&mut vm, &store, Duration::from_secs(60)).unwrap();
+    let (node, name) =
+        vault::adopt(&mut vm, &store, "vm_b", false, Duration::from_secs(60)).unwrap();
     assert_eq!(name, "leo-cmux");
     assert_eq!(node["dnsName"], "leo-cmux.tail1.ts.net");
     assert_eq!(node["revision"], 7);
@@ -432,7 +520,9 @@ fn adopt_brings_the_vaults_node_up_with_no_key() {
 #[test]
 fn adopt_with_an_empty_vault_changes_nothing() {
     let mut vm = fake(vec![]);
-    let error = vault::adopt(&mut vm, &FakeVault::default(), Duration::from_secs(60)).unwrap_err();
+    let error =
+        vault::adopt(&mut vm, &FakeVault::default(), "vm_b", false, Duration::from_secs(60))
+            .unwrap_err();
     assert!(error.contains("keeps no tailnet node"), "{error}");
     assert!(vm.commands.is_empty() && vm.writes.is_empty());
 }
@@ -447,8 +537,9 @@ fn adopt_refuses_a_second_holder() {
     let words = |t: &str| t.split_whitespace().map(str::to_owned).collect::<Vec<_>>();
     assert_eq!(
         parse_adopt(&words("vm_b --timeout 9")).unwrap(),
-        ("vm_b".to_owned(), Duration::from_secs(9))
+        ("vm_b".to_owned(), false, Duration::from_secs(9))
     );
+    assert!(parse_adopt(&words("--take-over vm_b")).unwrap().1);
     assert!(parse_adopt(&words("vm_a vm_b")).is_err());
     assert!(parse_adopt(&words("")).is_err());
 }
@@ -460,7 +551,9 @@ fn rm_hands_the_node_to_the_vault_then_deletes_the_vms_copy() {
         said("cmux-tailnet-forgot\n"),
     ]);
     let store = FakeVault::default();
-    assert_eq!(vault::release_to_vault(&mut vm, &store, "leo-cmux").unwrap(), 1);
+    held(&store, "vm_a", 3);
+    assert_eq!(vault::release_to_vault(&mut vm, &store, "vm_a", "leo-cmux").unwrap(), 1);
+    assert_eq!(store.lease().unwrap(), vault::Lease { holder: None, epoch: 4 }, "lease let go");
     assert!(vm.commands[0].contains("pkill -x tailscaled"));
     assert!(vm.commands[1].contains("cmux-tailnet-forgot"));
     assert_eq!(store.node.borrow().as_ref().unwrap().1, "c3RhdGU=");
@@ -473,7 +566,9 @@ fn rm_restarts_the_node_when_the_vault_does_not_take_it() {
         said("cmux-tailnet-restored\n"),
     ]);
     let store = FakeVault { refuse_put: true, ..FakeVault::default() };
-    let error = vault::release_to_vault(&mut vm, &store, "leo-cmux").unwrap_err();
+    held(&store, "vm_a", 3);
+    let error = vault::release_to_vault(&mut vm, &store, "vm_a", "leo-cmux").unwrap_err();
+    assert_eq!(store.lease().unwrap().holder.as_deref(), Some("vm_a"), "still up there");
     assert!(error.contains("running on the VM again"), "{error}");
     assert!(!vm.commands.iter().any(|c| c.contains("cmux-tailnet-forgot")));
 }
@@ -493,8 +588,89 @@ fn a_join_never_overwrites_another_kept_node() {
 #[test]
 fn leave_drops_only_the_signed_out_node_from_the_vault() {
     let store = kept("leo-cmux", "c3RhdGU=");
-    assert_eq!(drop_if_kept(&store, "other"), None);
+    held(&store, "vm_b", 2);
+    assert_eq!(drop_if_kept(&store, "vm_a", "other"), None);
     assert!(store.node.borrow().is_some());
-    assert_eq!(drop_if_kept(&store, "leo-cmux"), None);
+    assert_eq!(store.lease().unwrap().holder.as_deref(), Some("vm_b"), "not vm_a's lease");
+    assert_eq!(drop_if_kept(&store, "vm_b", "leo-cmux"), None);
     assert!(store.node.borrow().is_none());
+    assert_eq!(store.lease().unwrap().holder, None);
+}
+
+// MARK: A resumed VM checks the holder lease (RFD 0169)
+
+const NODE: &str = "leo-cmux.tail1.ts.net";
+
+fn resumed(
+    store: Result<Option<&dyn vault::NodeVault>, &String>,
+) -> (Option<String>, bool, Vec<String>) {
+    let mut vm = fake(vec![said("cmux-tailnet-stood-down\n")]);
+    let (note, stood_down) = settle_resumed(store, "vm_a", NODE, |_| vault::stand_down(&mut vm));
+    (note, stood_down, vm.commands)
+}
+
+#[test]
+fn a_resumed_holder_keeps_its_node() {
+    let store = kept("leo-cmux", "c3RhdGU=");
+    held(&store, "vm_a", 3);
+    let (note, stood_down, commands) = resumed(Ok(Some(&store)));
+    assert_eq!((note, stood_down), (None, false));
+    assert!(commands.is_empty(), "the holder is not touched");
+    assert_eq!(*store.lease.borrow(), vault::Lease { holder: Some("vm_a".to_owned()), epoch: 3 });
+}
+
+#[test]
+fn a_resumed_vm_stops_the_node_another_vm_now_holds() {
+    let store = kept("leo-cmux", "c3RhdGU=");
+    held(&store, "vm_b", 4);
+    let (note, stood_down, commands) = resumed(Ok(Some(&store)));
+    assert!(stood_down);
+    assert!(note.unwrap().starts_with("vm_b holds your tailnet node now"));
+    assert_eq!(commands, vec![cmux_tailnet_join::handoff::stand_down_command()]);
+    assert_eq!(*store.lease.borrow(), vault::Lease { holder: Some("vm_b".to_owned()), epoch: 4 });
+    assert!(store.node.borrow().is_some(), "the vault keeps the node the holder runs");
+}
+
+#[test]
+fn a_resumed_vm_with_no_lease_or_no_sign_in_is_unchanged() {
+    let free = kept("leo-cmux", "c3RhdGU=");
+    for store in [Ok(Some(&free as &dyn vault::NodeVault)), Ok(None)] {
+        let (note, stood_down, commands) = resumed(store);
+        assert_eq!((note, stood_down), (None, false));
+        assert!(commands.is_empty());
+    }
+}
+
+#[test]
+fn a_resumed_vm_is_unchanged_when_the_vault_keeps_another_node() {
+    let store = kept("other-box", "c3RhdGU=");
+    held(&store, "vm_b", 4);
+    let (note, stood_down, commands) = resumed(Ok(Some(&store)));
+    assert_eq!((note, stood_down), (None, false));
+    assert!(commands.is_empty());
+}
+
+#[test]
+fn a_failed_lease_check_only_warns_and_the_resume_stands() {
+    let store = FakeVault { refuse_lease: true, ..kept("leo-cmux", "c3RhdGU=") };
+    let (note, stood_down, commands) = resumed(Ok(Some(&store)));
+    assert!(!stood_down);
+    assert!(
+        note.unwrap().starts_with("could not check your vault's tailnet lease after resuming vm_a")
+    );
+    assert!(commands.is_empty());
+    let signed_out = "no device credential".to_owned();
+    let (note, stood_down, _) = resumed(Err(&signed_out));
+    assert!(!stood_down && note.unwrap().contains("no device credential"));
+}
+
+#[test]
+fn a_resumed_vm_that_will_not_stop_keeps_its_record_and_says_so() {
+    let store = kept("leo-cmux", "c3RhdGU=");
+    held(&store, "vm_b", 4);
+    let (note, stood_down) = settle_resumed(Ok(Some(&store)), "vm_a", NODE, |_| {
+        Err("exit 3: tailscaled did not stop".to_owned())
+    });
+    assert!(!stood_down);
+    assert!(note.unwrap().contains("did not stop (exit 3: tailscaled did not stop)"));
 }

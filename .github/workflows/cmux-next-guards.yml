@@ -225,10 +225,14 @@ jobs:
             [[ $try -lt 3 ]] || { echo "::error::merge ref fetch failed on all 3 tries (240 s each) on runner ${RUNNER_NAME:-unknown}"; exit 1; }
             echo "::warning::merge ref fetch failed on try $try of 3, trying again"; sleep $((try == 1 ? 5 : 15))
           done
-          git config core.sparseCheckout true
-          printf '%s\n' "$SPARSE" > .git/info/sparse-checkout
-          git checkout -q -f --detach "$SHA"
-          [[ $reuse == fresh ]] || git sparse-checkout reapply
+          if [[ -n "${SPARSE//[[:space:]]/}" ]]; then
+            git config core.sparseCheckout true
+            printf '%s\n' "$SPARSE" > .git/info/sparse-checkout
+          fi
+          # 8 parallel workers halve writing the ~69k-file tree (12.5 -> 6.2 s median, fresh .git or a sparse widen after a
+          # narrower job on this VM; rnd rc-c6f133b4).
+          git -c checkout.workers=8 checkout -q -f --detach "$SHA"
+          if [[ $reuse == reused ]]; then if [[ -n "${SPARSE//[[:space:]]/}" ]]; then git sparse-checkout reapply; else git sparse-checkout disable; fi; fi
           echo "checked out $(git rev-parse HEAD) from the pool mirror workspace=$reuse"
       # A router failure leaves the output empty, and the checks run.
       - name: Route the pull request (scripts/ci/fast_check_route.py)
@@ -2138,6 +2142,11 @@ jobs:
         id: tt-app-crate-licenses
         if: ${{ !cancelled() && steps.setup-tooling-run.outputs.ran != 'true' && (steps.setup-tooling-route.outputs.tooling_all != 'false' || contains(steps.setup-tooling-route.outputs.tooling_steps, ' tt-app-crate-licenses ')) }}
         run: python3 tests/test_app_crate_licenses.py
+
+      - name: The bench coverage map lists every bench and risky path (docs/benches/coverage-map.md)
+        id: tt-bench-coverage-map
+        if: ${{ !cancelled() && steps.setup-tooling-run.outputs.ran != 'true' && (steps.setup-tooling-route.outputs.tooling_all != 'false' || contains(steps.setup-tooling-route.outputs.tooling_steps, ' tt-bench-coverage-map ')) }}
+        run: python3 -I tests/test_bench_coverage_map.py
 
       - name: The selector check's fleet step wrapper refuses other arguments (check-objc-selectors.sh)
         id: tt-objc-selectors-step
