@@ -92,7 +92,7 @@ public final class MacScreenHubViewer {
         _ = MacScreenRules.rdHub("rd_hub_viewer_open", ["id": rdID, "device_id": deviceID])
     }
 
-    deinit { _ = MacScreenRules.rdHub("rd_hub_viewer_close", ["id": rdID]) }
+    nonisolated deinit { _ = MacScreenRules.rdHub("rd_hub_viewer_close", ["id": rdID]) }
 
     /// The session's signaling for `ticket`: the Session DO socket signed by
     /// this device, the ticket's cmux relay and the user's relays.

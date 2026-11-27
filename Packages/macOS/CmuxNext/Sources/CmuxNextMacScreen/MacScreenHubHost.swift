@@ -78,7 +78,7 @@ public final class MacScreenHubHost {
         self.share = share
     }
 
-    deinit { _ = MacScreenRules.rdHub("rd_hub_host_close", ["host": rdID]) }
+    nonisolated deinit { _ = MacScreenRules.rdHub("rd_hub_host_close", ["host": rdID]) }
 
     /// Whether this Mac allows Mac Screen (the hub's record of this device).
     public var isSharing: Bool { hub()?.thisDevice?.macScreenShared ?? false }
