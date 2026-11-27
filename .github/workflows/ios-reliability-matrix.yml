@@ -286,7 +286,7 @@ jobs:
     needs: [runner]
     name: phone cells (iOS simulator)
     # An owned simulator mini from the runner job, Blacksmith macOS 26 on a re-run or a fork.
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-6vcpu-macos-26' || fromJSON(github.run_attempt > 1 && needs.runner.outputs.retry_runs_on || needs.runner.outputs.runs_on) }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-6vcpu-macos-26' || fromJSON(github.run_attempt > 1 && contains(fromJSON('["github-actions[bot]","cmux-bot[bot]"]'), github.triggering_actor) && needs.runner.outputs.retry_runs_on || needs.runner.outputs.runs_on) }}
     # 60 for the cells, plus room for the nightly's TickHarness run.
     timeout-minutes: 75
     env:
