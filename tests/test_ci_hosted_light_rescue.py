@@ -1548,7 +1548,6 @@ class Backlog(unittest.TestCase):
         self.assertIn("CI_HOSTED_LIGHT_RESCUE_DISABLED", job_["if"])
         self.assertEqual(job_["permissions"], {"actions": "write", "contents": "read", "pull-requests": "read"})
         self.assertNotIn("ubuntu-24.04\",", job_["runs-on"])  # never queues behind the hosted backlog it drains
-        # By full ref since #56905 (a bare "main" made checkout fetch every feat-cmux-next-* branch).
         [checkout] = [s for s in job_["steps"] if s.get("with", {}).get("ref") == "refs/heads/main"]
         self.assertFalse(checkout["with"]["persist-credentials"])
         [step] = [s for s in job_["steps"] if "hosted_light_rescue.py" in str(s.get("run", ""))]

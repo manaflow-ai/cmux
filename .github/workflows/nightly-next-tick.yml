@@ -137,8 +137,8 @@ jobs:
         if: steps.tooling.outcome == 'failure'
         uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         timeout-minutes: 4
+        # The same inputs as the first try, written out: actionlint refuses a YAML alias for with.
         with:
-          # The first try's inputs, written out: actionlint reads a YAML alias as no mapping.
           persist-credentials: false
           ref: ${{ github.sha }}
           path: .tick-tooling
@@ -502,8 +502,8 @@ jobs:
       - if: steps.tooling.outcome == 'failure'
         uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         timeout-minutes: 4
+        # The same inputs as the first try, written out: actionlint refuses a YAML alias for with.
         with:
-          # The first try's inputs, written out: actionlint reads a YAML alias as no mapping.
           persist-credentials: false
           ref: ${{ github.sha }}
           path: .tick-tooling

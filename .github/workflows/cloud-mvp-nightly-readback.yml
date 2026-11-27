@@ -23,7 +23,7 @@ permissions:
   contents: read
 
 concurrency:
-  group: cloud-mvp-nightly-readback
+  group: cloud-mvp-nightly-readback-${{ inputs.build || github.run_id }}
   cancel-in-progress: false
 
 jobs:

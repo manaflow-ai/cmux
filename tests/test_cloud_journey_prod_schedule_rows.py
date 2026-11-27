@@ -19,7 +19,9 @@ SELECTED = (
 )
 WANT = {
     "17 * * * *": {("claude", "stub")},
-    "47 */6 * * *": {("claude", "real"), ("codex", "real")},
+    "47 */6 * * *": {("claude", "real")},
+    # Codex real off the canary's :47 (2026-11-27): the two at once took one warm spare and one of them created cold.
+    "29 */6 * * *": {("codex", "real")},
     "47 1-5,7-11,13-17,19-23 * * *": {("claude", "real")},
     "7,22,37,52 * * * *": {("codex", "stub")},
 }

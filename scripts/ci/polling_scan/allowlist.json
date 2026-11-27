@@ -73,7 +73,7 @@
     {
       "path": "scripts/ci/gh-spare",
       "match": "while :; do",
-      "reason": "Not a wait on CI state: a failure report's gh call is retried only while every token is rate limited, sleeping to the earliest reset GET /rate_limit reports (free), bounded by GH_SPARE_WAIT_SECONDS (default 1800 s) in all, then it fails with an ::error annotation; any other refusal returns at once. Added by #55872 (runs 45548650589 and 45551813915 lost their failure report to an exhausted token). Runs in CI, where glaeda-gh does not exist."
+      "reason": "Not a wait on a result: gh-spare retries one gh call GitHub refused for the rate limit, on the job token and each spare App token in turn, then sleeps until the earliest reset GitHub names (read from /rate_limit, which is free) and tries once more, bounded by its wait budget, then fails the step. Runs in CI, where glaeda-gh does not exist."
     }
   ]
 }
