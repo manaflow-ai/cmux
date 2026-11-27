@@ -181,8 +181,8 @@ nonisolated extension AcpmuxPaneMethods {
             return groups.count == 8 && groups.allSatisfy(validHextet)
         }
         guard compressed.count == 2 else { return false }
-        let left = compressed[0].split(separator: ":", omittingEmptySubsequences: false)
-        let right = compressed[1].split(separator: ":", omittingEmptySubsequences: false)
+        let left = compressed[0].isEmpty ? [] : compressed[0].split(separator: ":", omittingEmptySubsequences: false)
+        let right = compressed[1].isEmpty ? [] : compressed[1].split(separator: ":", omittingEmptySubsequences: false)
         guard !left.contains(where: { $0.isEmpty }) && !right.contains(where: { $0.isEmpty }),
               left.allSatisfy(validHextet), right.allSatisfy(validHextet) else { return false }
         return left.count + right.count < 8
