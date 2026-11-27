@@ -20,6 +20,8 @@ export interface ShareDialogProps {
   view: ShareView;
   /** Why the last step did not finish; null when it did. */
   status?: string | null;
+  /// A result that is not a refusal ("…changed to Can send"): the status line, muted.
+  notice?: string | null;
   /** A step runs: the controls that start one wait. */
   busy?: boolean;
   onInvite(account: string, role: ShareRole): void;
@@ -36,6 +38,7 @@ export function ShareDialogBody({
   chat,
   view,
   status = null,
+  notice = null,
   busy = false,
   onInvite,
   onRole,
@@ -86,8 +89,10 @@ export function ShareDialogBody({
           {t("share.invite")}
         </Button>
       </form>
-      <p className="share-dialog__status" role={status ? "alert" : undefined}>
-        {status ?? ""}
+      {/* One fixed line under the field: a refusal or a result when there is one, else what "Can
+          send" means (each message waits for the owner), so the label stays short. */}
+      <p className="share-dialog__status" role={status ? "alert" : undefined} data-hint={status ? undefined : ""}>
+        {status ?? notice ?? (role === "talk" ? t("share.role.talkHint") : "")}
       </p>
       <section className="share-dialog__section" aria-label={t("share.peopleWithAccess")}>
         <h3 className="share-dialog__heading">{t("share.peopleWithAccess")}</h3>
@@ -174,12 +179,25 @@ function PersonRow({
         <Face person={person(row.account)} size={28} />
         <span className="share-dialog__who">
           <span className="share-dialog__name">{row.account}</span>
-          {row.joined && <span className="share-dialog__hint">{t("share.inChatNow")}</span>}
+          {row.joined ? (
+            <span className="share-dialog__hint">{t("share.inChatNow")}</span>
+          ) : (
+            row.opened === false && <span className="share-dialog__hint">{t("share.notJoined")}</span>
+          )}
         </span>
         <span className="share-dialog__role-value">{roles.find((role) => role.value === row.role)?.label}</span>
       </RowPicker>
-      <Button variant="ghost" danger disabled={busy} onClick={() => onRemove(row.account)}>
-        {t("share.remove")}
+      {/* Narrow, the word gives way to an x (share.css); the label always names whom it removes. */}
+      <Button
+        className="share-dialog__remove"
+        variant="ghost"
+        danger
+        disabled={busy}
+        aria-label={t("share.removeWho", { account: row.account })}
+        onClick={() => onRemove(row.account)}
+      >
+        <Icon name="action.close" className="share-dialog__remove-mark" />
+        <span className="share-dialog__remove-word">{t("share.remove")}</span>
       </Button>
     </li>
   );

@@ -986,6 +986,7 @@ mod tests {
     use super::*;
 
     fn recordings() -> Inputs {
+        // affected-reads: cmux-tui webviews/test/fixtures/chat-sim/replay-lane-session.ndjson
         // affected-reads: cmux-tui/crates/cmux-agent-cli-render/tests/fixtures/claude-code-2.1.310/pty.jsonl webviews/test/fixtures/chat-sim/replay-lane-session.ndjson
         let repo = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../..");
         Inputs::load_repo(&repo).expect("the PTY and chat fixtures (a full checkout)")
