@@ -1898,7 +1898,10 @@ class WebBrowserStepsTest(unittest.TestCase):
             + [p + "x.ts" for p in web_subareas.AGENT_PANE_PREFIXES + web_subareas.REACT_PREFIXES]
             + ["schemas/settings/x.json", "release-notes/next/highlights/x.md", "web/data/model-catalog/snapshot.json"],
         }
-        for name, subarea in self.STEPS.items():
+        # chat_flow is agent_pane less the acpmux build (web_subareas.classify_paths); the loop skips what it leaves out.
+        samples["chat_flow"] = samples["agent_pane"] + [p + "x.sh" for p in web_subareas.CHAT_FLOW_PREFIXES]
+        # chat-flow-shift-budget is not a ci-web.yml job, but its globs cover its subarea the same way.
+        for name, subarea in {**self.STEPS, "chat-flow-shift-budget": "chat_flow"}.items():
             self.assertEqual(steps[name].job, "web-browser")
             for path in samples[subarea] + sorted(web_subareas.ALL_SUBAREA_INPUTS):
                 if not getattr(web_subareas.classify_paths([path], ROOT), subarea):
