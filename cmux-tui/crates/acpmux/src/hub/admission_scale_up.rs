@@ -787,7 +787,7 @@ mod tests {
         settle(&scale).await;
         // Repeated last-slot creates after the run ended, within the cooldown, ask nothing.
         for s in 1..5 {
-            let later = now + Duration::from_secs(s * 30);
+            let later = now + COOLDOWN * s / 5;
             assert_eq!(scale.trigger(&owner, one_plan(), later), Trigger::Cooling);
         }
         assert_eq!(calls.load(Ordering::SeqCst), 1, "one machine for the whole burst");
