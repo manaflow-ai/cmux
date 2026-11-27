@@ -12,9 +12,12 @@
 #     --arg=tools-only=1 --artifact artifacts/screen-stream-eval/tools.tar.gz (no console needed).
 # Output: SCREEN-STREAM-EVAL lines, the summary table, artifacts/screen-stream-eval/results.json,
 # and probe.json (schema cmux.screen-share-fast/1) for the screen-share-fast goal board.
-# (also each target's raw files and the host and viewer frames under that folder). No gate: it
-# reports, and exits non-zero only when it could not measure at all (3: no grant; 4: no target ran;
-# 5: no target measured a window).
+# (also each target's raw files and the host and viewer frames under that folder). No budget gate:
+# it reports, and exits non-zero when it could not measure at all (3: no grant; 4: no target ran;
+# 5: no target measured a window) or when a requested target did not bring a number it owes (6:
+# its scene did not start, its OCR calibration did not hold, its encoder skips or budget bits per
+# pixel are missing; eval.py OWED). Then the last line names each such target and field, and
+# results.json is still written.
 set -uo pipefail
 targets="rd,webrtc" samples=200 repeats=3 rig="" lan="" viewer_of="" peer_token="" input_frame_now=0 ltr=0 prebuilt="" tools_only=0 scene_marker=0
 presented_observer=0 presented_pid="" presented_window="" presented_marker_origin="" presented_cell_size="" presented_input_point="" presented_display=main presented_timeout_ms=1000 presented_seed=1
@@ -587,6 +590,11 @@ PY
     continue
   fi
 
+  # What the target owes every run (its `caps` owes-* lines; eval.py OWED), written before the build
+  # so a target whose build, host or scene fails still owes them and the run ends red, naming them.
+  caps=$(bash "$script" caps 2>/dev/null || true)
+  sed -n 's/^owes-//p' <<<"$caps" >"$dir/owes"
+
   echo "SCREEN-STREAM-EVAL-STAGE $name build"
   if ! bash "$script" build >"$dir/build.log" 2>&1; then
     tail -40 "$dir/build.log"
@@ -601,7 +609,6 @@ PY
   # answers `caps` with nothing or an error and runs both stages. latency-only (iphone-sim: its
   # viewer has no passive window yet) is the other way round: latency, and no window or OCR repeats.
   window_only=0 latency_only=0
-  caps=$(bash "$script" caps 2>/dev/null || true)
   if grep -qx window-only <<<"$caps"; then
     window_only=1
     : >"$dir/window-only"
@@ -755,6 +762,28 @@ PY
           "$dir/ocr-calibration-$rep.json" >"$dir/ocr-$rep.json" 2>/dev/null ||
           printf '{"cer":null,"comparison_ready":false,"reason":"OCR calibration failed"}\n' >"$dir/ocr-$rep.json"
       fi
+    elif [[ ("$name" == rd-ladder || "$name" == rd-ladder-1000) && -n "${EVAL_SCENE_NONCE:-}" &&
+      -s "$dir/source-scene-$rep.json" && -s "$dir/host-$rep.png" && -s "$dir/viewer-frame-$rep" ]]; then
+      # The ladder's decoded frame is the host display at the stream size, not the screenshot's:
+      # read the shared marker at the scene's geometry in both images, require this repeat's nonce
+      # and the stream size, and crop each to the text (rd_marker_calibration.py). Else not ready.
+      rm -f "$dir/ocr-$rep.json"
+      if crops=$(python3 -I "$here/rd_marker_calibration.py" calibrate "$dir/source-scene-$rep.json" "$EVAL_SCENE_NONCE" \
+        "$dir/host-$rep.png" "$dir/viewer-frame-$rep" "$dir/ocr-calibration-$rep.json" "$EVAL_STATE/ocr-viewer-$rep.ppm" \
+        2>"$EVAL_STATE/ocr-calibration-$rep.err"); then
+        read -r host_crop viewer_crop <<<"$crops"
+        IFS=, read -r cx cy cw ch <<<"$host_crop"
+        if sips --cropOffset "$cy" "$cx" --cropToHeightWidth "$ch" "$cw" "$dir/host-$rep.png" \
+          --out "$EVAL_STATE/ocr-host-$rep.png" >/dev/null 2>&1; then
+          "$EVAL_BIN/screen-eval-ocr" "$EVAL_STATE/ocr-host-$rep.png" "$EVAL_STATE/ocr-viewer-$rep.ppm" "$dir/truth.txt" \
+            >"$dir/ocr-$rep.json" || err "ocr $rep failed"
+        else
+          err "ocr $rep: could not crop the host image"
+        fi
+      fi
+      # The receipt says not ready, and why, for every refusal above.
+      python3 -I "$here/rd_marker_calibration.py" receipt "$dir/ocr-$rep.json" "$dir/ocr-calibration-$rep.json" ||
+        err "ocr $rep: rd marker calibration receipt failed"
     elif [[ -n "${EVAL_SCENE_NONCE:-}" ]]; then
       # The common marker reserves a region above the text. Full-window OCR
       # would include it and Apple chrome; calibrated pixel crops are required.
@@ -782,8 +811,12 @@ PY
 done
 
 [[ -n "$lan" ]] && python3 -I "$here/peer.py" done "$work/peer"
+# owed: each requested target's owed numbers (eval.py OWED) that did not come back, one line each
+# and a last line naming every target and field; results.json stays written either way.
+owed() { python3 -I "$here/eval.py" owed "$out/results.json"; }
 if [[ $ran == 0 ]]; then
   finish "no target built"
+  owed
   exit 4
 fi
 finish
@@ -791,5 +824,10 @@ finish
 # diff against. Apple transport kbps, decoded FPS and first-frame latency can be
 # unavailable; its OCR or sampled-change evidence still counts when the target
 # itself completed successfully. A latency-only target (iphone-sim) counts by its latency.
-python3 -I -c 'import json, sys; t = json.load(open(sys.argv[1]))["targets"].values(); measured = lambda x: x.get("ok") and (any(v is not None for v in (x.get("kbps") or {}).values()) or any(v is not None for v in (x.get("fps") or {}).values()) or any(v is not None for v in (x.get("sampled_fps") or {}).values()) or (x.get("extra") or {}).get("first_frame_ms") is not None or (x.get("ocr") or {}).get("cer") is not None or any(((x.get("latency") or {}).get(k) or {}).get("p50_ms") is not None for k in ("key", "pointer"))); sys.exit(0 if any(measured(x) for x in t) else 5)' "$out/results.json" || exit 5
+python3 -I -c 'import json, sys; t = json.load(open(sys.argv[1]))["targets"].values(); measured = lambda x: x.get("ok") and (any(v is not None for v in (x.get("kbps") or {}).values()) or any(v is not None for v in (x.get("fps") or {}).values()) or any(v is not None for v in (x.get("sampled_fps") or {}).values()) or (x.get("extra") or {}).get("first_frame_ms") is not None or (x.get("ocr") or {}).get("cer") is not None or any(((x.get("latency") or {}).get(k) or {}).get("p50_ms") is not None for k in ("key", "pointer"))); sys.exit(0 if any(measured(x) for x in t) else 5)' "$out/results.json"
+measured=$?
+owed
+owed_rc=$?
+[[ $measured == 0 ]] || exit 5
+[[ $owed_rc == 0 ]] || exit 6
 exit 0
