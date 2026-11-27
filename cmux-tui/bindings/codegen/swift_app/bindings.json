@@ -2732,8 +2732,10 @@
         },
         "list-terminal-commands": {
           "name": "ListTerminalCommandsRequest",
+          "allow_unadvertised_capability": "terminal-command-history-v1",
           "doc": [
-            "`list-terminal-commands`: reads unexpired terminal commands after an optional id."
+            "`list-terminal-commands`: reads unexpired terminal commands after an optional id.",
+            "Legacy daemons served this without advertising terminal-command-history-v1; preserve the app's ungated read."
           ],
           "order": [
             "after_id",

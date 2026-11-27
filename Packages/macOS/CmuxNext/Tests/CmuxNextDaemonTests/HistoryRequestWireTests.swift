@@ -45,7 +45,7 @@ struct HistoryRequestWireTests {
     }
 
     @Test func listResponsePreservesRowsNullsAndRefreshVersion() throws {
-        let wire = #"{"id":7,"ok":true,"data":{"commands":[{"id":"18446744073709551615","terminal_id":"term-test","command":"echo test","cwd":"/tmp","exit_code":-1,"started_at_ms":"9007199254740993","duration_ms":"18446744073709551615"},{"id":"2","terminal_id":"term-test","command":"running","cwd":null,"exit_code":null,"started_at_ms":"1","duration_ms":null}],"truncated":true,"deletions":"9007199254740993","registry_id":"registry-test","retention_days":30}}"#
+        let wire = #"{"id":7,"ok":true,"data":{"commands":[{"id":"18446744073709551615","terminal_id":"term-test","command":"echo test","cwd":"/tmp","exit_code":-1,"started_at_ms":"9007199254740993","duration_ms":"18446744073709551615"},{"id":"2","terminal_id":"term-test","command":null,"cwd":null,"exit_code":null,"started_at_ms":"1","duration_ms":"0"}],"truncated":true,"deletions":"9007199254740993","registry_id":"registry-test","retention_days":30}}"#
         let response = try WireCoding.decodeResponse(ListTerminalCommandsRequest.Response.self, from: Data(wire.utf8))
         #expect(response.truncated)
         #expect(response.version == "registry-test/9007199254740993")
@@ -62,7 +62,8 @@ struct HistoryRequestWireTests {
         let running = try #require(response.commands.last)
         #expect(running.cwd == nil)
         #expect(running.exitCode == nil)
-        #expect(running.durationMs == nil)
+        #expect(running.command == nil)
+        #expect(running.durationMs == "0")
     }
 
     @Test func settingsAndDeleteResponsesDecodeThroughTheEnvelope() throws {

@@ -31,4 +31,18 @@ struct HistoryRequestPreflightTests {
         try SetTerminalCommandHistoryRequest.requireServed(by:
             DaemonIdentity(capabilities: ["terminal-command-history-v1"], generation: "history-test"))
     }
+
+    @Test(arguments: ["approval_required", "operator_stop", "remote_denied"])
+    func deleteRefusalsRetainTheirCodeAndDoNotBecomeRetryable(code: String) throws {
+        let wire = #"{"id":7,"ok":false,"error":"delete refused","error_code":"\#(code)","retryable":false}"#
+        let envelope = try WireCoding.decoder().decode(LineTransport.Envelope.self, from: Data(wire.utf8))
+        #expect(envelope.ok == false)
+        #expect(envelope.errorCode == code)
+        #expect(envelope.retryable == false)
+        let refusal = DaemonError.command(cmd: DeleteTerminalCommandsRequest.command,
+            message: try #require(envelope.error), code: envelope.errorCode,
+            details: envelope.errorDetails, retryable: envelope.retryable)
+        #expect(!refusal.isLostConnection)
+        #expect(!refusal.isMissedDeadline)
+    }
 }
