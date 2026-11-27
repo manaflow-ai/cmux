@@ -1,5 +1,4 @@
 import CmuxNextCompat
-import CryptoKit
 public import Foundation
 
 /// The web updates kept on disk (plans/cmux-next/web-ota.md), under the app's Application Support
@@ -134,17 +133,12 @@ nonisolated public struct WebUpdateStore: Sendable {
         }
     }
 
+    /// The archive's size and SHA-256 (Rust's `web_updates.archive_digest`), refused past
+    /// ``WebUpdatePointer/maximumSize``.
     static func sizeAndDigest(of file: URL) throws(WebUpdateRefusal) -> (Int, String) {
-        guard let handle = try? FileHandle(forReadingFrom: file) else { throw .integrity("unreadable archive") }
-        defer { try? handle.close() }
-        var hash = SHA256()
-        var size = 0
-        while let chunk = try? handle.read(upToCount: 1 << 20), !chunk.isEmpty {
-            size += chunk.count
-            guard size <= WebUpdatePointer.maximumSize else { throw .integrity("archive too large") }
-            hash.update(data: chunk)
-        }
-        return (size, WebUpdateTree.hex(hash.finalize()))
+        let reply = UpdaterRust.call("web_updates.archive_digest", ["file": file.path]) as? [String: Any]
+        if let size = reply?["size"] as? Int, let digest = reply?["sha256"] as? String { return (size, digest) }
+        throw WebUpdateRefusal(rust: reply?["refusal"])
     }
 
     /// `tar -xzf` into `folder`. The archive's digest was checked against the signed pointer first.
