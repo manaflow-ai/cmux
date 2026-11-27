@@ -76,7 +76,6 @@ import Testing
         #expect(frame(#"{"t":"voided","reason":"second_redemption"}"#) == .voided(reason: "second_redemption"))
         #expect(frame(#"{"t":"later"}"#) == nil)
         #expect(frame("not json") == nil)
-        #expect(PairInviteFrame.protocols(secret: "abc") == ["cmux.pair-invite.v1", "watch.abc"])
     }
 
     @Test func theSocketsCloseReadsAsExpiredOrLost() {

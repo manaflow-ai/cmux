@@ -29,20 +29,16 @@ public struct CloudCLICall: Sendable {
         return Data(line)
     }
 
-    /// A long-running `cmux` call that answers in lines (`cmux cloud pair-invite-watch`): the arguments, the request
-    /// on stdin, the child's environment (nil: the app's), and each stdout line as it comes. Returns when the child
-    /// exits; cancelling the caller ends the child.
+    /// A long-running `cmux` call answering in lines: arguments, stdin, environment (nil: the app's), each stdout line.
     public typealias Lines = @Sendable (_ arguments: [String], _ stdin: Data, _ environment: [String: String]?,
                                         _ line: @escaping @Sendable (Data) -> Void) async -> Void
 
-    /// ``Lines`` on this build's `cmux`, bounded by `timeout`. A build with no `cmux` answers no line.
+    /// ``Lines`` on this build's `cmux`, bounded by `timeout`; cancelling the caller ends the child.
     public func lines(timeout: Duration) -> Lines {
         { [cli] arguments, stdin, environment, line in
             guard let binary = await cli.resolve() else { return }
             _ = try? await ProcessRunner.run(executable: binary, arguments: arguments, environment: environment, stdin: stdin,
-                                             timeout: timeout, stdoutLine: { text in
-                                                 if !text.isEmpty { line(Data(text.utf8)) }
-                                             }, clock: ContinuousClock())
+                                             timeout: timeout, stdoutLine: { if !$0.isEmpty { line(Data($0.utf8)) } }, clock: ContinuousClock())
         }
     }
 
