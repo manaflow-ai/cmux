@@ -1300,6 +1300,50 @@ class ClockOverPeerTcp(unittest.TestCase):
         me = self.orchestrator(types.SimpleNamespace(), types.SimpleNamespace(via="reach"))
         self.assertFalse(me.clock_over_peer())
 
+class RigMarkerWait(unittest.TestCase):
+    """The rig's `marker` reply (wait_marker): an empty marker.log says how the marker ended."""
+
+    class Proc:
+        def __init__(self, code):
+            self.code = code
+
+        def poll(self):
+            return self.code
+
+    def log_with(self, text):
+        d = tempfile.mkdtemp()
+        path = os.path.join(d, "marker.log")
+        with open(path, "w") as f:
+            f.write(text)
+        return path
+
+    def test_origin_click_point_and_geometry(self):
+        log = self.log_with("marker: starting pid 7\nmarker-origin 0,50 click-at 704,66\n"
+                            "marker: stream width 3840.0 px, cell 32.0 pt, display (1920.0, 1080.0)\n")
+        reply = vs.wait_marker(self.Proc(None), log, seconds=1)
+        self.assertEqual(reply["origin"], [0, 50])
+        self.assertEqual(reply["at"], [704, 66])
+        self.assertIn("stream width", reply["geometry"])
+
+    def test_a_silent_trap_reads_as_the_signal_not_nothing(self):
+        log = self.log_with("")
+        start = vs.time.time()
+        reply = vs.wait_marker(self.Proc(-5), log, seconds=10)
+        self.assertLess(vs.time.time() - start, 1, "a dead marker is not waited out")
+        self.assertFalse(reply["ok"])
+        self.assertIn("killed by SIGTRAP", reply["error"])
+        self.assertEqual(reply["exit"], -5)
+
+    def test_a_refusal_keeps_its_last_line(self):
+        log = self.log_with("marker: no display (NSScreen.screens is empty: ...)\n")
+        reply = vs.wait_marker(self.Proc(3), log, seconds=10)
+        self.assertIn("exit 3", reply["error"])
+        self.assertIn("no display", reply["log"])
+
+    def test_a_hang_says_still_running(self):
+        log = self.log_with("marker: starting pid 7\n")
+        reply = vs.wait_marker(self.Proc(None), log, seconds=0.1, step=0.02)
+        self.assertIn("still running after 0.1 s", reply["error"])
 
 class LocalnetProbe(unittest.TestCase):
     """macOS Local Network privacy refuses a launchd step's UDP to the LAN at once (Errno 65); the
