@@ -239,6 +239,44 @@ import Testing
         #expect(FocusSpyShim.granted == [57], "the kept ask was granted more than once")
     }
 
+    /// The window can get the keys back through one of its page windows, never becoming key itself: Cmd-` back to a
+    /// window whose page window had the keys makes that page window key, a child of the cmux window. The hold counts a
+    /// key child as its window having the keys (a page window of the same cmux window, the Cmd-N case), so the ask that
+    /// waited while another window was key is granted then, once.
+    @Test func anAskHeldWhileAnotherWindowIsKeyIsGrantedWhenAPageWindowOfItsWindowBecomesKey() throws {
+        let (runtime, root) = try FocusSpyShim.runtime()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let (tab, _) = try createdTab(runtime, browser: 61)
+        let window = Self.offScreenWindow(runtime)
+        let other = ShownWindow(contentRect: NSRect(x: 0, y: 0, width: 400, height: 300), styleMask: .borderless, backing: .buffered, defer: true)
+        let child = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 200, height: 150), styleMask: .borderless, backing: .buffered, defer: true)
+        defer {
+            window.removeChildWindow(child)
+            child.closeAfterTest()
+            window.closeAfterTest()
+            other.closeAfterTest()
+        }
+        window.addChildWindow(child, ordered: .above) // another page's window in the same cmux window
+        let keys = KeyRecorder(key: other)
+        tab.keyWindows = keys.seam
+        try #require(window.contentView).addSubview(tab.contentView)
+        Self.endTurn()
+
+        tab.setFocused(true)
+        Self.endTurn()
+        window.onScreen = true // on screen, still behind the key window
+        Self.endTurn()
+        #expect(FocusSpyShim.granted.isEmpty, "the page took focus while another window had the keys")
+
+        Self.becomeKey(child, keys, runtime)
+        Self.endTurn()
+        #expect(FocusSpyShim.granted == [61], "its window got the keys through a page window of it, and the page that waited got no grant")
+        Self.becomeKey(other, keys, runtime)
+        Self.becomeKey(child, keys, runtime)
+        Self.endTurn()
+        #expect(FocusSpyShim.granted == [61], "the kept ask was granted more than once")
+    }
+
     /// The other order: the window becomes key while it is still off screen (AppKit reports the key change first). The
     /// ask waits on, and is granted once, when the window comes on screen.
     @Test func aWindowKeyBeforeItIsOnScreenGetsItsGrantWhenItIs() throws {
