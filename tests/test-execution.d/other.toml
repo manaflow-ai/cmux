@@ -884,6 +884,10 @@ path = "tests/test_runs_on_labels.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_rust_live_fetch_stream.py"
+lane = "linux-guard"
+
+[[test]]
 path = "tests/test_rust_live_app_handoff.py"
 lane = "manual"
 reason = "Run by the lane that changes rust-live.py (kept manual under the 2026-10-23 no-new-CI rule, since lifted): python3 tests/test_rust_live_app_handoff.py; needs only python3 and sleep."

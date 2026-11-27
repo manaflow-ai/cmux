@@ -528,6 +528,48 @@ class Builder:
         folder = "debug" if PROFILE == "dev" else PROFILE
         return f"{self.target}/{folder}" if self.target else folder
 
+    def stream_codec(self) -> tuple[str, str] | None:
+        """How the pull streams the stripped binary: (pack on the build host, unpack here), or None for rsync.
+
+        A one-line edit moves most of the debug binary, so rsync's delta sends nearly all of it, through one
+        zlib thread on each end. A multi-threaded compressor piped over the kept ssh connection sends about the
+        same bytes for a fraction of the CPU (scripts/measure/rust-live-fetch.py). zstd when both ends have it;
+        else gzip, which every Mac has (pigz on the host when it has it). CMUX_RUST_LIVE_FETCH=rsync keeps rsync.
+        """
+        if hasattr(self, "_codec"):
+            return self._codec
+        self._codec = None
+        if (os.environ.get("CMUX_RUST_LIVE_FETCH") or "stream") != "rsync":
+            probe = run(["ssh", *ssh_options(self.state), self.host,
+                         "for t in zstd pigz gzip; do command -v $t >/dev/null && echo $t; done"])
+            remote = set(probe.stdout.split()) if probe.returncode == 0 else set()
+            if "zstd" in remote and shutil.which("zstd"):
+                self._codec = ("zstd -q -T0 -1 -c", "zstd -q -dc")
+            elif remote & {"pigz", "gzip"} and shutil.which("gzip"):
+                self._codec = (("pigz" if "pigz" in remote else "gzip") + " -1 -c", "gzip -dc")
+        return self._codec
+
+    def pull_stream(self, codec: tuple[str, str], strip: str, remote_file: str, staged: Path) -> bool:
+        """Strip and pack on the build host and unpack into staged, in one ssh; False (logged): use rsync."""
+        pack, unpack = codec
+        partial = staged.with_name(staged.name + ".partial")
+        with open(partial, "wb") as out:
+            ssh = subprocess.Popen(["ssh", *ssh_options(self.state), self.host,
+                                    f"{{ {strip}; }} && {pack} {shlex.quote(remote_file)}"],
+                                   stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+            local = subprocess.run(shlex.split(unpack), stdin=ssh.stdout, stdout=out, stderr=subprocess.PIPE)
+            ssh.stdout.close()
+            err = ssh.stderr.read().decode(errors="replace").strip()
+            ssh.wait()
+        if ssh.returncode != 0 or local.returncode != 0:
+            partial.unlink(missing_ok=True)
+            log(f"stream from {self.host} ({pack.split()[0]}) failed, using rsync: "
+                f"{err or local.stderr.decode(errors='replace').strip()}")
+            self._codec = None
+            return False
+        os.replace(partial, staged)
+        return True
+
     def fetch(self, daemons: list[str], generation: Path) -> dict[str, Path]:
         """Copy each built daemon into its own folder for this build."""
         generation.mkdir(parents=True, exist_ok=True)
@@ -542,13 +584,17 @@ class Builder:
                 # 2026-11-05), and rsync then sends only what changed against the last build here.
                 strip = (f"objcopy --strip-debug {built_file} {built_file}.live 2>/dev/null"
                          f" || strip -S -o {built_file}.live {built_file}")
-                result = run(["ssh", *ssh_options(self.state), self.host, strip])
-                if result.returncode != 0:
-                    raise RuntimeError(f"strip on {self.host}: {result.stderr.strip()}")
-                source = f"{self.host}:{built_file}.live"
-                result = run(["rsync", "-z", "-e", rsh, source, str(staged)])
-                if result.returncode != 0:
-                    raise RuntimeError(f"rsync from {self.host}: {result.stderr.strip()}")
+                codec = self.stream_codec()
+                if codec and self.pull_stream(codec, strip, f"{built_file}.live", staged):
+                    pass
+                else:
+                    result = run(["ssh", *ssh_options(self.state), self.host, strip])
+                    if result.returncode != 0:
+                        raise RuntimeError(f"strip on {self.host}: {result.stderr.strip()}")
+                    source = f"{self.host}:{built_file}.live"
+                    result = run(["rsync", "-z", "-e", rsh, source, str(staged)])
+                    if result.returncode != 0:
+                        raise RuntimeError(f"rsync from {self.host}: {result.stderr.strip()}")
             else:
                 target = self.tree / "cmux-tui" / (os.environ.get("CARGO_TARGET_DIR") or "target")
                 staged = target / self.out_dir() / binary
