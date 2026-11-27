@@ -104,6 +104,8 @@ pub struct Report {
     pub errors: Vec<String>,
     /// Files the never-delete list was read from that could not be.
     pub never_delete_problems: Vec<String>,
+    /// What the pass's walks and reads cost.
+    pub cost: crate::walk_memo::Cost,
 }
 
 /// The cheap half of a tick: look at the volume, record the sample, and
@@ -248,7 +250,15 @@ fn wanted(config: &Config, family: &str) -> bool {
 /// Runs one pass under the budget.
 pub fn run(config: &Config, look: Option<&Look>) -> Result<Report, String> {
     let started = std::time::Instant::now();
-    let report = run_inner(config, look)?;
+    // What the last passes measured stands in for walking it all again (`walk_memo`).
+    crate::walk_memo::open(&config.store.dir);
+    let _ = crate::walk_memo::take_cost();
+    let report = run_inner(config, look);
+    if let Err(error) = crate::walk_memo::close(now_ms()) {
+        eprintln!("care: could not keep the walk memo: {error}");
+    }
+    let mut report = report?;
+    report.cost = crate::walk_memo::take_cost();
     // A whole pass is what `status` shows next; a filtered one is not the machine's picture.
     if config.only_families.is_empty() && config.pass.only.is_empty() {
         let took = u64::try_from(started.elapsed().as_millis()).unwrap_or(u64::MAX);
@@ -445,6 +455,7 @@ fn run_inner(config: &Config, look: Option<&Look>) -> Result<Report, String> {
         stopped_at_budget: stopped,
         errors,
         never_delete_problems: never_problems,
+        cost: crate::walk_memo::Cost::default(),
     })
 }
 
@@ -720,6 +731,56 @@ mod tests {
         assert!(report.worktrees.items.is_empty(), "{:?}", report.worktrees.items);
         assert!(report.worktrees.expired.is_empty());
         assert!(linked.exists());
+        let _ = std::fs::remove_dir_all(&home);
+    }
+
+    /// Every family but DerivedData off: a whole pass that reads only the scratch home.
+    fn whole(home: &Path) -> Config {
+        let mut config = config(home, false);
+        config.only_families = Vec::new();
+        config.off = caches::families(&caches::Layout {
+            home,
+            worktree_roots: &[],
+            clone_roots: &[],
+        })
+        .iter()
+        .map(|f| f.name.to_string())
+        .filter(|name| name != "xcode-derived-data")
+        .collect();
+        config
+    }
+
+    #[test]
+    fn a_whole_pass_is_what_status_reads_back_without_walking() {
+        let home = scratch("care-status");
+        project(&home, "Old-abc", 30);
+        let config = whole(&home);
+        assert!(status(&home, &config.store, &Default::default()).unwrap().last.is_none());
+        let report = run(&config, None).unwrap();
+        assert!(report.reclaimable >= 8192);
+        assert_eq!(report.cost.sizes_walked, 1);
+
+        let _ = crate::walk_memo::take_cost();
+        let shown = status(&home, &config.store, &Default::default()).unwrap();
+        let last = shown.last.expect("the pass was recorded");
+        assert_eq!(last.reclaimable(), report.reclaimable);
+        assert!(last.families().iter().any(|f| f.name == "xcode-derived-data" && f.reclaimable >= 8192));
+        assert_eq!(crate::walk_memo::take_cost(), crate::walk_memo::Cost::default());
+
+        // The next pass measures nothing again: the memo answers.
+        let again = run(&config, None).unwrap();
+        assert_eq!(again.reclaimable, report.reclaimable);
+        assert_eq!((again.cost.sizes_walked, again.cost.sizes_reused, again.cost.stats), (0, 1, 0));
+        let _ = std::fs::remove_dir_all(&home);
+    }
+
+    #[test]
+    fn a_filtered_pass_is_not_recorded_for_status() {
+        let home = scratch("care-status-filtered");
+        project(&home, "Old-abc", 30);
+        let config = config(&home, false);
+        run(&config, None).unwrap();
+        assert!(last_pass(&config.store).is_none());
         let _ = std::fs::remove_dir_all(&home);
     }
 }

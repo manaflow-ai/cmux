@@ -77,8 +77,10 @@ pub fn sizes(root: &Path, parts: &[PathBuf], deadline: Instant) -> Sizes {
             break;
         }
         let Ok(entries) = std::fs::read_dir(&dir) else { continue };
+        crate::walk_memo::count(|c| c.dirs += 1);
         for entry in entries.flatten() {
             let path = entry.path();
+            crate::walk_memo::count(|c| c.stats += 1);
             let Ok(meta) = std::fs::symlink_metadata(&path) else { continue };
             let bytes = allocated(&meta);
             let owner = match &owner {
@@ -98,6 +100,13 @@ pub fn sizes(root: &Path, parts: &[PathBuf], deadline: Instant) -> Sizes {
         }
     }
     sizes
+}
+
+/// `sizes`, answered from the pass's walk memo when it stands
+/// (`walk_memo`): a pass measures again only what outlived its time to
+/// live, within its walk budget.
+pub fn sizes_memo(root: &Path, parts: &[PathBuf], deadline: Instant) -> Sizes {
+    crate::walk_memo::sizes(root, parts, crate::inventory::now_ms(), || sizes(root, parts, deadline))
 }
 
 #[cfg(unix)]
