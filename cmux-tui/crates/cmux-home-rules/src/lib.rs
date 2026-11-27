@@ -37,4 +37,4 @@ pub mod mapping;
 pub mod ops;
 pub mod welcome;
 
-pub use ops::{OpError, call};
+pub use ops::{OpError, call, call_json};

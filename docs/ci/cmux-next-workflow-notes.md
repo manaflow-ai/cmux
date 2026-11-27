@@ -3219,7 +3219,7 @@ land-judge had no verdict to read: job 131984422217 (run 43454315926) and job 13
 (test_cmux_next_prepush_gate.py 693 and 720 s, 238 s on Blacksmith); job 132013731059 (run
 43462746656) waited 8 min 5 s in the hook for the canonical root token (the hook costs `checks`
 as a compile) and ran out in "UI font". A job the placement put on a mini gets 35 minutes; every
-other route keeps 15.
+other route keeps 20 (2026-11-27: `cmux-next-workflow-notes/2026-11-27-checks-timeout-20.md`).
 
 ## note-350
 
