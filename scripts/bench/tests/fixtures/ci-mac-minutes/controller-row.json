@@ -1,0 +1,18 @@
+{
+  "at": "2026-11-26T03:06:40Z",
+  "repo": "manaflow-ai/cmux",
+  "workflow": "backend-migrations",
+  "workflow_path": ".github/workflows/backend-migrations.yml",
+  "schema": 2,
+  "seg": "pr",
+  "job": "backend migrations applied",
+  "id": 139662725838,
+  "attempt": 1,
+  "conclusion": "success",
+  "runner": "other",
+  "runner_name": "cmux-oneshot-w1a-0120-9186",
+  "run": 45745319727,
+  "queue": 318,
+  "seconds": 9,
+  "branch": "lane/settings-pinned-plan-strings"
+}
