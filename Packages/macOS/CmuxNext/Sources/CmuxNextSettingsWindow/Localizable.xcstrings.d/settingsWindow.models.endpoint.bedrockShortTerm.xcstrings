@@ -1,0 +1,137 @@
+{
+  "sourceLanguage" : "en",
+  "strings" : {
+    "settingsWindow.models.endpoint.bedrockShortTerm" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "This key expires within 12 hours. Create a long-term key to keep the connection."
+          }
+        },
+        "ar" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "تنتهي صلاحية هذا المفتاح خلال 12 ساعة. أنشئ مفتاحًا طويل الأمد للاحتفاظ بالاتصال."
+          }
+        },
+        "bs" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Ovaj ključ ističe u roku od 12 sati. Kreirajte dugoročni ključ da zadržite vezu."
+          }
+        },
+        "da" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Nøglen udløber inden for 12 timer. Opret en langtidsnøgle for at beholde forbindelsen."
+          }
+        },
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Dieser Schlüssel läuft innerhalb von 12 Stunden ab. Erstelle einen langfristigen Schlüssel, um die Verbindung zu behalten."
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Esta clave caduca en un máximo de 12 horas. Crea una clave de larga duración para conservar la conexión."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Cette clé expire dans les 12 heures. Créez une clé à longue durée pour conserver la connexion."
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Questa chiave scade entro 12 ore. Crea una chiave a lungo termine per mantenere la connessione."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "このキーは12時間以内に期限切れになります。接続を維持するには長期キーを作成してください。"
+          }
+        },
+        "km" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "សោនេះផុតកំណត់ក្នុងរយៈពេល 12 ម៉ោង។ បង្កើតសោរយៈពេលវែងដើម្បីរក្សាការតភ្ជាប់។"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "이 키는 12시간 이내에 만료됩니다. 연결을 유지하려면 장기 키를 만드세요."
+          }
+        },
+        "nb" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Nøkkelen utløper innen 12 timer. Opprett en langtidsnøkkel for å beholde tilkoblingen."
+          }
+        },
+        "pl" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Ten klucz wygasa w ciągu 12 godzin. Utwórz klucz długoterminowy, aby zachować połączenie."
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Esta chave expira em até 12 horas. Crie uma chave de longa duração para manter a conexão."
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Срок действия ключа истечёт в течение 12 часов. Чтобы сохранить подключение, создайте долгосрочный ключ."
+          }
+        },
+        "th" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "คีย์นี้หมดอายุภายใน 12 ชั่วโมง สร้างคีย์ระยะยาวเพื่อคงการเชื่อมต่อ"
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Bu anahtarın süresi 12 saat içinde dolacak. Bağlantıyı korumak için uzun süreli bir anahtar oluşturun."
+          }
+        },
+        "uk" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Термін дії ключа спливає протягом 12 годин. Створіть довгостроковий ключ, щоб зберегти підключення."
+          }
+        },
+        "vi" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Khóa này hết hạn trong vòng 12 giờ. Tạo khóa dài hạn để giữ kết nối."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "此密钥将在 12 小时内过期。请创建长期密钥以保留连接。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "此金鑰將在 12 小時內到期。請建立長期金鑰以保留連線。"
+          }
+        }
+      }
+    }
+  },
+  "version" : "1.0"
+}
