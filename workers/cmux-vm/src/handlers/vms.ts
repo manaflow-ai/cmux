@@ -13,6 +13,7 @@
  */
 import { HttpApiBuilder } from "@effect/platform";
 import { creationResult, issueCreation } from "./generated-creation.ts";
+import { cancelCreationAs, continueCancellation } from "./creation-cancellation.ts";
 import { scopedCreationKey, scopedForkSnapshotKey } from "../auth/idempotency-key.ts";
 import { acquireForkSnapshot } from "./fork-capture.ts";
 import { cleanupForkSnapshot } from "./fork-snapshot-cleanup.ts";
@@ -296,7 +297,10 @@ const createRecordedTimed = <C, S, M>(
           ...(proofs.network === undefined ? {} : { initialNetwork: vmNetworkEvidenceOf(proofs.network).receipt }),
         }, probe, floors: spec.size ?? {}, createdAt: createdAt.toISOString() };
         return limits.advance(caller.value.tenantId, attempt.key, { phase: "creating", vmId: cmuxId, reservationId: proofs.mayCreate.reservationId, context, createdBy, intent, ...(dispatch === undefined ? {} : { dispatch }), ...(attempt.snapshotId === undefined ? {} : { snapshotId: attempt.snapshotId }) }).pipe(
-          Effect.mapError(() => new UpstreamError({ operation: "persistCreateIntent", status: null })),
+          // Name the ledger's refusal (claim expired, intent changed, reservation expired, ...): an anonymous
+          // "persistCreateIntent (no response)" 503 left staging creates retrying blind until create_overdue.
+          Effect.tapError((e) => Effect.logWarning("create_intent_refused", { vmId: cmuxId, reason: createIntentRefusal(e) })),
+          Effect.mapError((e) => new UpstreamError({ operation: `persistCreateIntent: ${createIntentRefusal(e)}`, status: null })),
         );
       },
     };
@@ -448,7 +452,31 @@ const reclaimGoneCiVms = <C>(caller: Named<C, Principal>, scope: KeyHasScope<C, 
     for (const gone of page.results) {
       if (Option.isSome(gone)) yield* deleteVmById(gone.value);
     }
+    yield* reclaimStaleCiCreations(caller, scope, caller.value.maxRunSeconds);
   });
+
+/**
+ * A CI create whose request died after its send began (the job timed out or was cancelled mid-create) keeps its
+ * retained quota slot: no row lists it, the job never retries its key, and a retained slot never lapses. Every later
+ * create of the team was refused 429 while listing no VM (cmux-vm.yml smoke-production from 2026-11-23 12:27Z).
+ * Once such a create is older than the principal's run cap plus the send grace, the job that made it is over, so
+ * the principal's own next create cancels it through the ordinary verified cancellation (exact-slug lookup, delete,
+ * tombstone, settle). Best effort: what cannot be settled now is left for the next create.
+ */
+const reclaimStaleCiCreations = <C>(caller: Named<C, Principal>, scope: KeyHasScope<C, "vm:write">, maxRunSeconds: number) =>
+  Effect.gen(function* () {
+    const limits = yield* TenantLimits;
+    const now = yield* Clock.currentTimeMillis;
+    const stale = (yield* limits.retainedCreations(caller.value.tenantId, actorRef(caller.value.actor), 8))
+      .filter((slot) => now - slot.startedMs >= maxRunSeconds * 1000 + CREATE_SEND_GRACE_MS);
+    for (const slot of stale) {
+      const key = { scoped: slot.key };
+      yield* (slot.cancelRequested ? continueCancellation(caller, scope, key) : cancelCreationAs(caller, scope, key)).pipe(
+        Effect.tap((status) => Effect.logInfo("reclaimed a stale CI creation").pipe(Effect.annotateLogs({ vmId: slot.vmId, state: status.state }))),
+        Effect.catchAll((error) => Effect.logWarning("stale CI creation not reclaimed yet").pipe(Effect.annotateLogs({ vmId: slot.vmId, error: String(error) }))),
+      );
+    }
+  }).pipe(Effect.catchAll((error) => Effect.logWarning("stale CI creations not listed").pipe(Effect.annotateLogs({ error: String(error) }))));
 
 /**
  * The mesh a create asked to join (`meshId`), proven as attachMeshVm proves it: the mesh experiment is on for the
@@ -988,3 +1016,10 @@ export const vmsHandlers = HttpApiBuilder.group(CmuxVmApi, "vms", (handlers) =>
     )
     .handle("deleteVm", ({ path }) => deleteVmById(path.vmId))
 );
+
+/** The ledger's reason for refusing a create-intent write, from LimitsUnavailable's cause. */
+const createIntentRefusal = (e: { readonly cause: unknown }): string => {
+  const cause = e.cause;
+  const text = cause instanceof Error ? cause.message : typeof cause === "string" ? cause : "unknown";
+  return text.replace(/[^a-z0-9 .:_-]/gi, "").slice(0, 80) || "unknown";
+};

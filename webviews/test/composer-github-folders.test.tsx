@@ -384,6 +384,134 @@ test("install completion and window refocus refresh the repository status", asyn
   }
 });
 
+test("Connect remembers the typed repository and picks it once GitHub shares it (Leo 2026-11-25)", async () => {
+  const gh = host({ "github.status": status("not_connected"), "github.connect": { opened: true } });
+  const { root, picked } = await renderTray({}, gh.store);
+  try {
+    await openFolderMenu();
+    await openSources();
+    await press(gitHubRow());
+    await type("acme/web");
+    await press(option("Connect to GitHub")!);
+    // GitHub's page opens for the wanted repository's owner.
+    expect(gh.calls.at(-1)).toEqual(["github.connect", { repo: "acme/web" }]);
+    gh.answers["github.status"] = ready;
+    gh.answers["github.repos.list"] = installed;
+    await act(async () => dom.window.dispatchEvent(new dom.window.Event("cmux-github-changed")));
+    await settle();
+    await settle();
+    expect(picked).toContainEqual(["github:acme/web", undefined]);
+  } finally {
+    await act(async () => root.unmount());
+  }
+});
+
+test("a repository still not shared after Connect says how to add it", async () => {
+  const gh = host({ "github.status": status("not_connected"), "github.connect": { opened: true } });
+  const { root, picked } = await renderTray({}, gh.store);
+  try {
+    await openFolderMenu();
+    await openSources();
+    await press(gitHubRow());
+    await type("acme/billing");
+    await press(option("Connect to GitHub")!);
+    gh.answers["github.status"] = ready;
+    gh.answers["github.repos.list"] = installed;
+    await act(async () => dom.window.dispatchEvent(new dom.window.Event("cmux-github-changed")));
+    await settle();
+    await settle();
+    expect(picked).toEqual([]);
+    await key("Escape");
+    await press(gitHubRow());
+    expect(message()).toBe("acme/billing isn’t shared with cmux yet. Add it on GitHub with the option above.");
+  } finally {
+    await act(async () => root.unmount());
+  }
+});
+
+test("a typed owner/name the app can't see says how to add it", async () => {
+  const gh = host({ "github.status": ready, "github.repos.list": installed });
+  const { root } = await renderTray({}, gh.store);
+  try {
+    await openFolderMenu();
+    await openSources();
+    await press(gitHubRow());
+    await type("acme/billing");
+    expect(message()).toBe("acme/billing isn’t shared with cmux yet. Add it on GitHub with the option above.");
+  } finally {
+    await act(async () => root.unmount());
+  }
+});
+
+test("pending approval says what happens next", async () => {
+  const gh = host({ "github.status": status("not_connected", { pending_approval: true }) });
+  const { root } = await renderTray({}, gh.store);
+  try {
+    await openFolderMenu();
+    await openSources();
+    await press(gitHubRow());
+    expect(message()).toBe(
+      "An organization owner needs to approve cmux. Once they do, your repositories show up here.",
+    );
+  } finally {
+    await act(async () => root.unmount());
+  }
+});
+
+test("the app's own GitHub panel and finishing show in the step, no click needed (Leo 2026-11-25)", async () => {
+  const gh = host({ "github.status": status("not_connected", { progress: "on_github" }) });
+  const { root } = await renderTray({}, gh.store);
+  try {
+    await openFolderMenu();
+    await openSources();
+    expect(githubStatus()).toBe("On GitHub…");
+    await press(gitHubRow());
+    expect(message()).toBe("Finish on GitHub in the open panel. Your repositories show up here on their own.");
+    expect(option("Connect to GitHub")).toBeUndefined();
+    gh.answers["github.status"] = status("not_connected", { progress: "finishing" });
+    await act(async () => dom.window.dispatchEvent(new dom.window.Event("cmux-github-changed")));
+    await settle();
+    expect(message()).toBe("Finishing the connection…");
+    gh.answers["github.status"] = status("ready", { repos_scope: "selected", progress: "connected", account: "acme" });
+    gh.answers["github.repos.list"] = installed;
+    await act(async () => dom.window.dispatchEvent(new dom.window.Event("cmux-github-changed")));
+    await settle();
+    expect(option("acme/api")).toBeDefined();
+    expect(message()).toBe("Connected to acme.");
+  } finally {
+    await act(async () => root.unmount());
+  }
+});
+
+test("Add organization opens GitHub's account chooser from the repository list", async () => {
+  const gh = host({ "github.status": ready, "github.repos.list": installed, "github.connect": { opened: true } });
+  const { root } = await renderTray({}, gh.store);
+  try {
+    await openFolderMenu();
+    await openSources();
+    await press(gitHubRow());
+    await press(option("Add organization…")!);
+    expect(gh.calls.at(-1)).toEqual(["github.connect", { add_account: true }]);
+  } finally {
+    await act(async () => root.unmount());
+  }
+});
+
+test("Add organization stays out of a typed search", async () => {
+  const gh = host({ "github.status": ready, "github.repos.list": installed });
+  const { root } = await renderTray({}, gh.store);
+  try {
+    await openFolderMenu();
+    await openSources();
+    await press(gitHubRow());
+    expect(option("Add organization…")).toBeDefined();
+    await type("api");
+    expect(option("Add organization…")).toBeUndefined();
+  } finally {
+    await act(async () => root.unmount());
+  }
+});
+
 test.each([
   [{ code: "github.unavailable" }, "Offline", "Couldn't load repositories"],
   [{ code: "github.rate_limited" }, "Busy", "GitHub is busy"],
@@ -905,6 +1033,15 @@ test("a clone that finishes after leaving its step cannot replace a newer folder
   } finally {
     await act(async () => root.unmount());
   }
+});
+
+test("GitHub parser reads where the app's own connect stands and ignores what it doesn't know", () => {
+  expect(githubStatusFromReply(status("not_connected", { progress: "on_github" })).progress).toBe("on_github");
+  const connected = githubStatusFromReply({ ...ready, progress: "connected", account: " acme " });
+  expect([connected.progress, connected.account]).toEqual(["connected", "acme"]);
+  const idle = githubStatusFromReply({ ...ready, progress: "idle", account: null });
+  expect([idle.progress, idle.account]).toEqual([undefined, undefined]);
+  expect("progress" in githubStatusFromReply({ ...ready, progress: "idle" })).toBe(false);
 });
 
 test("GitHub parser ignores an approval field on a ready connection", () => {

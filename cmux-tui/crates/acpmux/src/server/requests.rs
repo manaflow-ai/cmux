@@ -21,6 +21,7 @@ use prompt_sender::{app_pane_unproven, owner_terminal};
 mod presets;
 mod queued;
 mod session_open;
+mod signature;
 pub use session_open::FEATURE as SESSION_RESUME_FEATURE;
 #[cfg(test)]
 #[path = "requests/hold_attach_tests.rs"]
@@ -38,6 +39,9 @@ mod settled_attach;
 #[cfg(test)]
 #[path = "requests/settled_attach_tests.rs"]
 mod settled_attach_tests;
+#[cfg(test)]
+#[path = "requests/sub_session_start_tests.rs"]
+mod sub_session_start_tests;
 mod successor;
 mod time_breakdown_gate;
 pub(super) use time_breakdown_gate::without as without_time_breakdown;
@@ -979,6 +983,17 @@ fn route_bare_key(hub: &Arc<Hub>, m: &str, params: &mut Value) -> Result<(), Rpc
     Ok(())
 }
 
+/// Whether a `session/new` starts a sub-session: it names a parent, or omits one
+/// and comes from an agent's own session (`ParentAsk::Caller` resolves to it).
+fn starts_sub_session(ask: Option<crate::hub::lineage::ParentAsk>, agent_caller: bool) -> bool {
+    use crate::hub::lineage::ParentAsk;
+    match ask {
+        Some(ParentAsk::Named(_)) => true,
+        Some(ParentAsk::Caller) => agent_caller,
+        Some(ParentAsk::Root) | None => false,
+    }
+}
+
 /// `session/new` on the peer `peer_name` (`_meta.acpmux.peer`), for a caller's
 /// own `peer` and for a create admission placed there (`hub/admission_redirect.rs`).
 async fn new_on_peer(
@@ -1020,6 +1035,16 @@ async fn new_on_peer(
     }
     if super::trust_gate::gated(conn.origin, params) && !peer.supports_trust_gate() {
         return Err(super::trust_gate::peer_unsupported(&peer.name));
+    }
+    // A provisioned VM holds one parent session (`hub/agent_vm.rs`): a second
+    // parent-less start there is refused. A sub-session start names its parent,
+    // or omits it and an agent caller's own session is its parent (`lineage.rs`).
+    let asks_parent = starts_sub_session(
+        crate::hub::lineage::parent_ask(mux_meta(params)).ok(),
+        conn.caller().filter(|_| !conn.is_person()).is_some(),
+    );
+    if let Some(refusal) = hub.one_parent_check(&peer, asks_parent) {
+        return Err(refusal);
     }
     let mut p = params.clone();
     super::peer_forward::strip_new_meta(&mut p);
@@ -1068,6 +1093,12 @@ async fn new_on_peer(
         hub.log_unattended_start(approved, &peer.name, conn.caller(), id);
     }
     if let Some(id) = result.get("sessionId").and_then(Value::as_str) {
+        // Findable by name at once, before the peer's own list or notice says so.
+        let name = result
+            .pointer("/_meta/acpmux/name")
+            .or_else(|| mux_meta(params).and_then(|m| m.get("name")))
+            .and_then(Value::as_str);
+        hub.note_created_remote(&peer.name, id, name);
         view::subscribe_remote(hub, conn, id, None);
         peer.mark_attached(id);
     }
@@ -1291,7 +1322,7 @@ pub(super) async fn handle_request(
     // was in the receiver's log 186 s after it arrived). A refusal after this is its own line.
     let crossing = cross_host_prompt(conn.origin, m, &params);
     if let Some(fields) = &crossing {
-        crate::xhost_audit::record("received", fields.clone());
+        crate::xhost_audit::record_queued("received", fields.clone());
     }
     let mut reply = if verdict == crate::hub::person::PersonVerdict::PeerOnly {
         // The check saw a peer's prompt: only the peer decides it. If the
@@ -1313,7 +1344,7 @@ pub(super) async fn handle_request(
     if let (Some(mut fields), Err(e)) = (crossing, &reply) {
         // Never the error's text, which may quote the message: its code only.
         fields.set("error", json!(e.code));
-        crate::xhost_audit::record("refused", fields);
+        crate::xhost_audit::record_queued("refused", fields);
     }
     reply
 }
@@ -1438,15 +1469,14 @@ async fn dispatch_request_with_identity(
             let peer = hub
                 .peer_by_name(name)
                 .ok_or_else(|| RpcError::not_found(format!("no peer {name:?}")))?;
-            if !peer.ready() {
-                return Err(peer.unreachable_error());
-            }
-            let mut answer =
-                tokio::time::timeout(std::time::Duration::from_secs(5), peer.request(m, json!({})))
-                    .await
-                    .map_err(|_| {
-                        RpcError::internal(format!("peer {name:?} did not report harnesses in 5 s"))
-                    })??;
+            let mut answer = tokio::time::timeout(
+                std::time::Duration::from_secs(5),
+                super::peer_targeted::request(&peer, m, json!({})),
+            )
+            .await
+            .map_err(|_| {
+                RpcError::internal(format!("peer {name:?} did not report harnesses in 5 s"))
+            })??;
             answer
                 .as_object_mut()
                 .ok_or_else(|| RpcError::internal("peer did not report a harness object"))?
@@ -1988,6 +2018,8 @@ async fn dispatch_request_with_identity(
                 require_asking: crate::hub::require_asking::asked(meta),
                 credential,
                 create_key,
+                placed_by: pick("placedBy")
+                    .filter(|p| p == crate::autocloud_enroll::PLACED_BY_AUTOCLOUD),
             };
             let s = match &admitted {
                 Some(admitted) => {
@@ -2115,10 +2147,17 @@ async fn dispatch_request_with_identity(
                 == crate::hub::Control::Web;
             // The uploads this prompt names as its own (`attach::blocks_for` uploaded them for it
             // alone): a refusal before the session sees it deletes them, so none is left behind.
+            // Take ownership only after the lookup finishes in time. A retry after a timeout
+            // can still name these uploads even if the background lookup finishes later.
             let mut owned = crate::attach::OwnedUploads(if web {
                 Vec::new()
             } else {
-                crate::prompt_uploads::owned(&s.id, &blocks).await
+                tokio::time::timeout_at(
+                    admission.answer_due(),
+                    crate::prompt_uploads::owned(&s.id, &blocks),
+                )
+                .await
+                .map_err(|_| crate::hub::auto_resume::retry_turn::busy())?
             });
             crate::prompt_context::apply(mux_meta(&params), web, &mut blocks)?;
             // An `@computer-use` / `@browser-use` the person wrote gets acpmux's fixed note for the
@@ -2268,9 +2307,11 @@ async fn dispatch_request_with_identity(
                     let via = mux_meta(&params).and_then(|m| m.get("via")).and_then(Value::as_str);
                     let p = crate::prompt_provenance::forwarded_by_peer(p, via);
                     // Its outbox sent it again: it waited for this machine to come back, and
-                    // the chat wakes for it (`prompt_provenance::waited`).
-                    let resend = mux_meta(&params).and_then(|m| m.get("resend"));
-                    if conn.auth.peer_daemon() && resend == Some(&Value::Bool(true)) {
+                    // the chat wakes for it (`prompt_provenance::waited`). A mesh relay's first
+                    // lease is `resend` for its prompt id only, and did not wait.
+                    if conn.auth.peer_daemon()
+                        && crate::prompt_provenance::resend_waited(mux_meta(&params))
+                    {
                         crate::prompt_provenance::mark_waited(p)
                     } else {
                         p
@@ -2523,7 +2564,8 @@ async fn dispatch_request_with_identity(
                         supersede_set,
                         flag("steerOnly") == Some(true),
                         given_provenance,
-                    ),
+                    )
+                    && !crate::hub::inbox::watch_wake(&params),
             };
             // An unverified prompt names no other sender: its activity is counted as an
             // unnamed prompt's was (`prompt_provenance::is_unverified`).
@@ -2822,6 +2864,12 @@ async fn dispatch_request_with_identity(
             let reply = cmux_tailnet_front::PlacementReply::from(&applied);
             serde_json::to_value(reply).map_err(|e| RpcError::internal(e.to_string()))
         }
+        // `listCounts`: only what `acpmux ls --json` reads (`Hub::list_counts`), without the full
+        // status's budgeted host, disk and agent reads. A daemon before it sends the full status,
+        // which holds the same fields.
+        method::MUX_STATUS if params.get(crate::rpc::LIST_COUNTS) == Some(&Value::Bool(true)) => {
+            Ok(hub.list_counts())
+        }
         method::MUX_STATUS => Ok(hub.status().await),
         // The felt-latency histograms (`cmux-felt`): names and numbers only, but this machine's
         // own clients only, like the perf watch beside it.
@@ -2975,6 +3023,9 @@ async fn dispatch_request_with_identity(
         "_acpmux/host_health" => Ok(super::peer_status::host_health(hub, conn.origin).await),
         "_acpmux/peer_status" => super::peer_status::peer_status(hub, conn.origin, &params).await,
         super::vm_host::METHOD => super::vm_host::handle(hub, conn, &params).await,
+        super::autocloud_enroll::METHOD => {
+            super::autocloud_enroll::handle(hub, conn, &params).await
+        }
         super::host_notice::METHOD => super::host_notice::handle(hub, conn, &params).await,
         // This daemon's copy of a peer session's events (`hub/peer_snapshot.rs`): transcripts
         // this machine's clients read, so for the app and the unix socket only.
@@ -3275,6 +3326,8 @@ async fn dispatch_request_with_identity(
         }
         // Read-only and the same for every origin, like `_acpmux/schema`.
         method::MUX_PROTOCOL => Ok(crate::protocol::served().clone()),
+        // A pure function of the ids asked, the same for every origin (`requests/signature.rs`).
+        method::SESSION_SIGNATURE => signature::handle(params),
         method::MUX_HISTORY => {
             let s = hub.resolve(session_key(&params)?)?;
             let limit = params.get("limit").and_then(Value::as_u64).unwrap_or(20) as usize;
@@ -3426,6 +3479,9 @@ async fn dispatch_request_with_identity(
         }
         method::MUX_HARNESS_ENABLE => {
             super::harness_enable::handle(hub, conn.origin, &params).await
+        }
+        method::MUX_HARNESS_DISABLE => {
+            super::harness_enable::disable(hub, conn.origin, &params).await
         }
         name if super::agent_login::METHODS.contains(&name) => {
             super::agent_login::handle(hub, conn, name, &params).await
@@ -3910,6 +3966,8 @@ async fn dispatch_request_with_identity(
             }
             Ok(done)
         }
+        method::MUX_ROOMS => view::rooms(hub, conn, &params),
+        method::MUX_FOLLOW => view::follow(hub, conn, &params),
         method::MUX_TYPING => {
             let done = view::typing(hub, conn, &params)?;
             // A person typing into a hibernated chat wakes its agent now (`hub/idle.rs`).
@@ -4141,6 +4199,7 @@ async fn dispatch_request_with_identity(
             hub.queue_edit(&s, &params, control, gated, device.as_deref()).await
         }
         m if queued::handles(m) => queued::handle(hub, conn, m, &params).await,
+        method::MUX_SEND_HOP => heap(|| super::send_hop::serve(hub, conn, &params)).await,
         method::MUX_SEND_QUEUE | method::MUX_SEND_STATUS => {
             heap(|| super::outbox::handle(hub, conn, m, &params)).await
         }
@@ -4348,8 +4407,12 @@ async fn dispatch_request_with_identity(
                 (Some(side), Origin::Local, crate::sender_harness::SocketPeer::Pid(asker)) => {
                     let side = std::path::PathBuf::from(side);
                     let home = crate::config::home();
+                    let conns = params
+                        .get(crate::daemon::listener_handover::PARAM_CONNS)
+                        .and_then(Value::as_bool)
+                        == Some(true);
                     match tokio::task::spawn_blocking(move || {
-                        crate::daemon::listener_handover::hand(&home, &side, asker)
+                        crate::daemon::listener_handover::hand(&home, &side, asker, conns)
                     })
                     .await
                     {
