@@ -108,6 +108,13 @@ pub(crate) fn checked(list: &Value) -> Result<Vec<Value>, RpcError> {
         let Some(id) = id else {
             return Err(RpcError::invalid_params("each attachment needs a string id"));
         };
+        for field in CONTENTS {
+            if chip.get(field).is_some_and(|value| !value.is_null() && !value.is_string()) {
+                return Err(RpcError::invalid_params(format!(
+                    "attachment {id:?} has invalid {field} contents"
+                )));
+            }
+        }
         if !chip.is_object() || !seen.insert(id) {
             return Err(RpcError::invalid_params(format!("attachment {id:?} is not one chip")));
         }

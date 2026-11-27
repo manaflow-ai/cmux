@@ -274,6 +274,9 @@ async fn a_refused_draft_attachments_write_keeps_what_was_kept() {
     keep(&hub, &s).await;
     let bad = json!([{"id": "x"}, {"id": "x"}]);
     assert!(checked(&bad).is_err(), "an id twice");
+    assert!(checked(&json!([{"id": "img-1", "data": false}])).is_err());
+    assert!(checked(&json!([{"id": "paste-3", "text": {}}])).is_err());
+    assert!(checked(&json!([{"id": "img-1", "data": null}])).is_ok());
     assert!(checked(&json!([{"name": "no id"}])).is_err());
     assert!(checked(&json!({"id": "x"})).is_err(), "not a list");
     *s.moving.lock().unwrap() = Some("t1".into());
