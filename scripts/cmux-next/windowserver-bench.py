@@ -14,11 +14,13 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
+import math
 import os
 import plistlib
 import subprocess
 import sys
 from pathlib import Path
+from collections import Counter
 from typing import Any
 
 # Keep the sibling sampler import working when this file is loaded by the bench
@@ -85,8 +87,53 @@ def extract_runs(scenario: str, report: dict[str, Any]) -> list[dict[str, Any]]:
                      "surface": run.get("surface"), "backdrop": run.get("backdrop"),
                      "requested_appearance": run.get("requested_appearance"),
                      "backdrop_readback": run.get("backdrop_readback"), "effective_material": run.get("effective_material"),
+                     "frame_timing": run.get("frame_timing"), "streams": run.get("streams"),
                      "window_server_cpu_percent": cpu.get("window_server"),
                      "app_cpu_percent": cpu.get("app"), "gpu": run.get("gpu")})
+    return rows
+
+
+def validate_report(scenario: str, report: dict[str, Any], samples: int) -> list[dict[str, Any]]:
+    """A child can exit zero after catching a surface failure; require every requested cell exactly once."""
+    for field in ("launch_failures", "surface_failures", "failures", "ab_problems", "error", "skipped"):
+        if report.get(field):
+            raise RuntimeError(f"{scenario}: probe reported {field}: {report[field]}")
+    browser = scenario in ("idle", "spinner")
+    raw = report.get("phases" if browser else "runs")
+    if not isinstance(raw, list) or any(not isinstance(row, dict) for row in raw):
+        raise RuntimeError(f"{scenario}: malformed measured rows")
+    if browser:
+        expected = ([("static", "shown")] if scenario == "idle" else
+                    [(phase, state) for phase in ("static", "loading") for state in ("shown", "parked", "restored")])
+        actual = [(row.get("phase"), row.get("workspace_state", "shown")) for row in raw]
+    else:
+        expected = {"typing": [("agentpane", phase, "light") for phase in ("idle", "load")],
+                    "glass-blur": [("home", "idle", "light/blur-" + material)
+                                   for material in ("none", "frosted", "glass", "glassClear")],
+                    "many-panes": [("terminal", "idle", "stress")]}[scenario]
+        actual = [(row.get("surface"), row.get("phase"), row.get("session")) for row in raw]
+    if Counter(actual) != Counter(expected):
+        raise RuntimeError(f"{scenario}: incomplete or unexpected coverage; expected {expected}, got {actual}")
+    for row in raw:
+        if (row.get("error") or row.get("skipped") or row.get("mode_missing") or
+                row.get("complete") is False or row.get("status") in ("failed", "skipped")):
+            raise RuntimeError(f"{scenario}: invalid or skipped measurement: {row}")
+        if not browser:
+            if row.get("keys") != samples or row.get("measured") != samples:
+                raise RuntimeError(f"{scenario}: requested {samples} keys were not fully measured")
+            if scenario == "typing":
+                if row.get("complete") is not True or (row.get("clear") or {}).get("verified") is not True:
+                    raise RuntimeError("typing: key integrity or composer reset was not verified")
+                if row["phase"] == "load" and not any(
+                        isinstance(count, (int, float)) and count > 0 for count in row.get("streams") or []):
+                    raise RuntimeError("typing: requested background stream never ran")
+                # frame_timing.valid concerns listener->frame comparisons only. Mock load is
+                # intentional here; retain that caveat but do not treat it as missing CPU/GPU.
+    rows = extract_runs(scenario, report)
+    for row in rows:
+        value = row.get("window_server_cpu_percent")
+        if isinstance(value, bool) or not isinstance(value, (int, float)) or not math.isfinite(value) or value < 0:
+            raise RuntimeError(f"{scenario}: invalid WindowServer CPU for a measured phase")
     return rows
 
 
@@ -110,12 +157,7 @@ def run_scenario(scenario: str, app: str, root: Path, idle_s: float, tabs: int, 
         raise RuntimeError(f"{scenario}: missing or invalid report {report_path}: {error}") from error
     if not isinstance(report, dict):
         raise RuntimeError(f"{scenario}: report is not an object")
-    rows = extract_runs(scenario, report)
-    if not rows:
-        raise RuntimeError(f"{scenario}: report contained no measured rows")
-    if any(row.get("window_server_cpu_percent") is None for row in rows):
-        raise RuntimeError(f"{scenario}: report omitted WindowServer CPU for a measured phase")
-    return rows
+    return validate_report(scenario, report, samples)
 
 
 def provenance(app: str, source_sha: str | None) -> dict[str, Any]:
@@ -185,6 +227,7 @@ def main() -> int:
               "scenarios": scenarios, "rounds": opts.rounds, "runs": rows, "failures": failures,
               "attribution": {"window_server_cpu": "process CPU delta from the WindowServer process",
                               "gpu": "whole-device IOAccelerator utilization; no per-process attribution is available",
+                              "typing": "idle/load type the requested keys; load uses verified mock stream calls, not real ACP transport; frame-start timing caveats are retained",
                               "spinner": "static/loading shown→parked→restored workspace cycle; retained mounted controller and pending request verified, native strip animation unexposed",
                               "glass_blur": "requested none/frosted/glass/glassClear at opacity 0.85, native backdrop readback retained; effective material unexposed"}}
     Path(opts.json).write_text(json.dumps(result, indent=2) + "\n", encoding="utf-8")

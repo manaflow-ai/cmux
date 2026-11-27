@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import ast
+import copy
 import json
 import os
 import plistlib
@@ -34,6 +35,70 @@ def context() -> Context:
 
 
 class WindowServerTest(unittest.TestCase):
+    def scenario_fixture(self, scenario):
+        if scenario in ("idle", "spinner"):
+            phases = [("static", "shown")] if scenario == "idle" else [
+                (phase, state) for phase in ("static", "loading") for state in ("shown", "parked", "restored")]
+            return {"phases": [{"phase": phase, "workspace_state": state, "window_server_cpu_percent": 1.0}
+                               for phase, state in phases]}
+        cells = {"typing": [("agentpane", phase, "light") for phase in ("idle", "load")],
+                 "glass-blur": [("home", "idle", "light/blur-" + mode)
+                                for mode in ("none", "frosted", "glass", "glassClear")],
+                 "many-panes": [("terminal", "idle", "stress")]}[scenario]
+        return {"runs": [{"surface": surface, "phase": phase, "session": session, "keys": 40, "measured": 40,
+                          "complete": True, "clear": {"verified": True}, "streams": [1] if phase == "load" else [],
+                          "cpu_pct": {"window_server": 1.0}} for surface, phase, session in cells]}
+
+    def test_requires_complete_scenario_matrix(self):
+        for scenario in _harness.SCENARIOS:
+            report = self.scenario_fixture(scenario)
+            key = "phases" if scenario in ("idle", "spinner") else "runs"
+            rows = report[key]
+            self.assertEqual(len(_harness.validate_report(scenario, report, 40)), len(rows))
+            for index in range(len(rows)):
+                with self.subTest(scenario=scenario, missing=index):
+                    partial = copy.deepcopy(report)
+                    partial[key].pop(index)
+                    with self.assertRaisesRegex(RuntimeError, "coverage"):
+                        _harness.validate_report(scenario, partial, 40)
+            duplicate = copy.deepcopy(report)
+            duplicate[key].append(rows[0])
+            with self.assertRaisesRegex(RuntimeError, "coverage"):
+                _harness.validate_report(scenario, duplicate, 40)
+
+    def test_rejects_invalid_rows_and_child_failures(self):
+        for field in ("launch_failures", "surface_failures", "failures", "error", "skipped"):
+            report = self.scenario_fixture("glass-blur")
+            report[field] = ["failure"]
+            with self.subTest(field=field), self.assertRaises(RuntimeError):
+                _harness.validate_report("glass-blur", report, 40)
+        for change in ({"complete": False}, {"error": "lost focus"}, {"skipped": True}, {"measured": 39},
+                       {"keys": 39}, {"clear": {"verified": False}}, {"streams": []},
+                       {"mode_missing": ["stream"]}, {"cpu_pct": {"window_server": float("nan")}}):
+            report = self.scenario_fixture("typing")
+            report["runs"][1].update(change)
+            with self.subTest(change=change), self.assertRaises(RuntimeError):
+                _harness.validate_report("typing", report, 40)
+        report = self.scenario_fixture("typing")
+        report["runs"][1]["frame_timing"] = {"valid": False, "load_source": "mock_stream"}
+        self.assertEqual(_harness.validate_report("typing", report, 40)[1]["frame_timing"],
+                         report["runs"][1]["frame_timing"])
+
+    def test_zero_exit_partial_child_is_rejected_in_production(self):
+        for scenario in ("glass-blur", "typing", "spinner"):
+            with self.subTest(scenario=scenario), tempfile.TemporaryDirectory() as tmp:
+                root = Path(tmp)
+                _, report_path = _harness.scenario_command(scenario, "fake.app", root, 20, 5, 40)
+                report_path.parent.mkdir(parents=True, exist_ok=True)
+                report = self.scenario_fixture(scenario)
+                key = "phases" if scenario == "spinner" else "runs"
+                report[key].pop()
+                report_path.write_text(json.dumps(report))
+                process = Mock(stdout=[], wait=Mock(return_value=0))
+                with patch.object(_harness.subprocess, "Popen", return_value=process), self.assertRaisesRegex(
+                        RuntimeError, "coverage"):
+                    _harness.run_scenario(scenario, "fake.app", root, 20, 5, 40)
+
     def production_functions(self, filename, names, namespace):
         path = BENCH_DIR.parent / "cmux-next" / filename
         tree = ast.parse(path.read_text())

@@ -1520,6 +1520,9 @@ def run_session(session, phases=None, backdrop="default"):
                             SURFACES[surface](phase, app.pid)
                         except Exception as error:  # one surface failing must not hide the others
                             note(f"{session} {surface}.{phase}: failed: {error!r}")
+                            results.setdefault("surface_failures", []).append(
+                                {"session": SESSION, "surface": surface, "phase": phase, "round": ROUND,
+                                 "error": repr(error)})
                         if opts.ab:
                             arm = LAUNCH_ARM if launch_arm_key() else ARM
                             for row in results["runs"][first:]:
