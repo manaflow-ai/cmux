@@ -1314,7 +1314,20 @@ impl HubCarrier {
                 }
             };
             let asked = Instant::now();
-            let opened = mux.open(hello.clone(), early, self.timings.handshake).await;
+            // No early bytes: past `KEPT_HEDGE` of silence a fresh circuit races the old one
+            // (`hub_carrier_kept_hedge.rs`).
+            let opened = if early.is_empty() {
+                match self.open_or_replace(&mux, &slot, daemon, lane, path, hello.clone()).await {
+                    hedge::Hedged::Old(opened) => opened,
+                    hedge::Hedged::Replaced => continue,
+                    hedge::Hedged::Failed(e) => {
+                        mux.close().await;
+                        return KeptOpen::Failed(e);
+                    }
+                }
+            } else {
+                mux.open(hello.clone(), early, self.timings.handshake).await
+            };
             *report = DialReport {
                 kept: true,
                 circuit: None,
@@ -2896,6 +2909,8 @@ pub async fn start_configured(
         None if punch::enabled() => start_punch(&carrier, 0),
         None => None,
     };
+    // After the direct path is set, so a kept circuit that ran on it opens on it again.
+    saved::keep_across_restarts(&carrier, state_dir);
     Some(serving)
 }
 
@@ -3000,6 +3015,12 @@ pub mod direct;
 #[path = "hub_carrier_punch.rs"]
 pub mod punch;
 
+#[path = "hub_carrier_kept_saved.rs"]
+mod saved;
+
+#[path = "hub_carrier_kept_hedge.rs"]
+mod hedge;
+
 /// Which path a kept circuit runs on.
 #[derive(Clone, Copy, Debug)]
 pub(crate) enum Path {
@@ -3024,3 +3045,7 @@ mod services_tests;
 #[cfg(test)]
 #[path = "hub_carrier_silent_circuit_tests.rs"]
 mod silent_circuit_tests;
+
+#[cfg(test)]
+#[path = "hub_carrier_kept_hedge_tests.rs"]
+mod kept_hedge_tests;
