@@ -33,15 +33,27 @@ struct HistoryRequestPreflightTests {
     }
 
     @Test(arguments: ["approval_required", "operator_stop", "remote_denied"])
-    func deleteRefusalsRetainTheirCodeAndDoNotBecomeRetryable(code: String) throws {
-        let wire = #"{"id":7,"ok":false,"error":"delete refused","error_code":"\#(code)","retryable":false}"#
-        let envelope = try WireCoding.decoder().decode(LineTransport.Envelope.self, from: Data(wire.utf8))
-        #expect(envelope.ok == false)
-        #expect(envelope.errorCode == code)
-        #expect(envelope.retryable == false)
-        let refusal = DaemonError.command(cmd: DeleteTerminalCommandsRequest.command,
-            message: try #require(envelope.error), code: envelope.errorCode,
-            details: envelope.errorDetails, retryable: envelope.retryable)
+    func deleteRefusalsReachTheCallerWithoutBecomingRetryable(code: String) async throws {
+        let daemon = try DribblingDaemon()
+        defer { daemon.stop() }
+        let transport = try LineTransport(path: daemon.path)
+        defer { transport.close() }
+        transport.start(onEvent: { _, _, _ in }, onClose: { _ in })
+        let reply = Task {
+            try await transport.request(cmd: DeleteTerminalCommandsRequest.command, timeout: .seconds(15)) { id in
+                try WireCoding.encodeRequest(DeleteTerminalCommandsRequest(.ids(["1"])), id: id)
+            }
+        }
+        let id = try #require(await daemon.firstRequest())
+        let wire = #"{"id":\#(id),"ok":false,"error":"delete refused","error_code":"\#(code)","retryable":false}"#
+        daemon.send(Data(wire.utf8) + Data([0x0A]), slices: 1, every: .zero)
+        let result = await reply.result
+        guard case .failure(let failure) = result, let refusal = failure as? DaemonError else {
+            Issue.record("a refused delete must fail the request: \(result)")
+            return
+        }
+        #expect(refusal == .command(cmd: DeleteTerminalCommandsRequest.command,
+            message: "delete refused", code: code, details: nil, retryable: false))
         #expect(!refusal.isLostConnection)
         #expect(!refusal.isMissedDeadline)
     }
