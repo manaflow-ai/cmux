@@ -32,6 +32,11 @@
 //! env: `LEGS_TRIALS` (3), `LEGS_PROFILES` (`rtt-400,lossy-3`), `LEGS_PATHS` (`direct,relay`),
 //! `LEGS_LOADS` (`idle,duress`). Prints one `LEGS-ROW` line per trial and one `LEGS-CELL {json}`
 //! per cell (the median of its trials' p50 and p95 per leg).
+//!
+//! `shown` is the headline: daemon write of redraw `i` to the first phone paint whose screen shows
+//! redraw `i` or a newer one, on any path. With `CMUX_MOBILE_VIEWPORT_SYNC=1` (cmux#50638, off by
+//! default: hostd's gate and the phone's) the screen goes as newest-wins datagrams and only
+//! `shown` (and `paint`) apply; the stream legs need the stream's own redraw lines.
 
 use std::hint::black_box;
 use std::net::SocketAddr;
@@ -137,43 +142,63 @@ fn fake_daemon(dir: &std::path::Path, written: Arc<Mutex<Arc<Written>>>) {
         while let Ok((stream, _)) = listener.accept().await {
             let written = Arc::clone(&written);
             tokio::spawn(async move {
-                let (read, mut write) = stream.into_split();
+                let (read, write) = stream.into_split();
+                let write = Arc::new(tokio::sync::Mutex::new(write));
                 let mut lines = BufReader::new(read).lines();
-                let Ok(Some(line)) = lines.next_line().await else { return };
-                let request: serde_json::Value = serde_json::from_str(&line).unwrap();
-                let answer = json!({"id": request["id"], "ok": true, "data": {}});
-                if write.write_all(format!("{answer}\n").as_bytes()).await.is_err() {
-                    return;
-                }
-                // Keep reading so the splice's writes never block.
-                tokio::spawn(async move { while let Ok(Some(_)) = lines.next_line().await {} });
-                let surface = request["surface"].clone();
-                if request["mode"] == "agent" {
-                    let mut tick = tokio::time::interval(AGENT_EVERY);
-                    for n in 0.. {
-                        tick.tick().await;
-                        let event =
-                            json!({"event": "output", "surface": surface, "data": b64(&agent_chunk(n))});
-                        if write.write_all(format!("{event}\n").as_bytes()).await.is_err() {
-                            return;
-                        }
-                    }
-                    return;
-                }
-                let written = Arc::clone(&written.lock().unwrap());
-                let mut tick = tokio::time::interval(EVERY);
-                tick.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Burst);
-                for i in 0..REDRAWS {
-                    tick.tick().await;
-                    let event = json!({"event": "output", "surface": surface, "i": i, "data": b64(&scrolled_screen(i))});
-                    let bytes = format!("{event}\n");
-                    written.0[i].store(epoch_us(), Ordering::Relaxed);
-                    if write.write_all(bytes.as_bytes()).await.is_err() {
+                // Every request answered `ok`; only `attach-surface` starts a stream. hostd's own
+                // connections (the workspace cache's queries) get answers and nothing else.
+                while let Ok(Some(line)) = lines.next_line().await {
+                    let Ok(request) = serde_json::from_str::<serde_json::Value>(&line) else { continue };
+                    let answer = json!({"id": request["id"], "ok": true, "data": {}});
+                    if write.lock().await.write_all(format!("{answer}\n").as_bytes()).await.is_err() {
                         return;
                     }
+                    if request["cmd"] != "attach-surface" {
+                        continue;
+                    }
+                    let surface = request["surface"].clone();
+                    let write = Arc::clone(&write);
+                    if request["mode"] == "agent" {
+                        tokio::spawn(async move {
+                            let mut tick = tokio::time::interval(AGENT_EVERY);
+                            for n in 0.. {
+                                tick.tick().await;
+                                let event = json!({"event": "output", "surface": surface, "data": b64(&agent_chunk(n))});
+                                if write
+                                    .lock()
+                                    .await
+                                    .write_all(format!("{event}\n").as_bytes())
+                                    .await
+                                    .is_err()
+                                {
+                                    return;
+                                }
+                            }
+                        });
+                        continue;
+                    }
+                    let written = Arc::clone(&written.lock().unwrap());
+                    tokio::spawn(async move {
+                        // The attach's state first (cmux-tui `vt-state`): a blank screen at the grid,
+                        // what a viewport sync primes its model from.
+                        let state = json!({"event": "vt-state", "surface": surface, "cols": COLS, "rows": ROWS,
+                            "data": b64(b"\x1b[H\x1b[2J")});
+                        if write.lock().await.write_all(format!("{state}\n").as_bytes()).await.is_err() {
+                            return;
+                        }
+                        let mut tick = tokio::time::interval(EVERY);
+                        tick.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Burst);
+                        for i in 0..REDRAWS {
+                            tick.tick().await;
+                            let event = json!({"event": "output", "surface": surface, "i": i, "data": b64(&scrolled_screen(i))});
+                            let bytes = format!("{event}\n");
+                            written.0[i].store(epoch_us(), Ordering::Relaxed);
+                            if write.lock().await.write_all(bytes.as_bytes()).await.is_err() {
+                                return;
+                            }
+                        }
+                    });
                 }
-                // Hold the socket open until the splice goes.
-                let _ = tokio::time::timeout(BOUND, std::future::pending::<()>()).await;
             });
         }
     });
@@ -239,7 +264,9 @@ impl Rig {
             chief_socket: None,
             browser: cmux_mobile_host::browser::BrowserConfig::new(None, 1),
             surface: cmux_mobile_host::surface::SurfaceConfig::new(None, 1),
-            viewport_sync: None,
+            // The flag under test: viewport sync (cmux#50638), hostd's own gate.
+            viewport_sync: cmux_mobile_host::viewport_sync::enabled()
+                .then(cmux_mobile_host::viewport_sync::SelectorConfig::default),
         });
         let signaling = FakeSignaling::start(FakeOptions::default()).await;
         let mac_id = uuid::Uuid::new_v4().to_string();
@@ -264,6 +291,11 @@ impl Rig {
                         return;
                     };
                     let mut services = tokio::task::JoinSet::new();
+                    // As host.rs: the link's overlay datagram hub, when it rides WireGuard.
+                    let hub = connected
+                        .overlay
+                        .clone()
+                        .map(|overlay| Arc::new(cmux_mobile_host::viewport_link::LinkHub::new(overlay)));
                     while let Some(incoming) = connected.link.accept().await {
                         services.spawn(serve(
                             Arc::clone(&config),
@@ -274,7 +306,7 @@ impl Rig {
                                 session_exposure: None,
                                 route: None,
                                 path: Some(connected.path.clone()),
-                                viewport: None,
+                                viewport: hub.clone(),
                             },
                             Arc::new(LinkAuth::default()),
                             incoming,
@@ -356,14 +388,23 @@ struct Legs {
     decode: Vec<f64>,
     paint: Vec<f64>,
     total: Vec<f64>,
+    shown: Vec<f64>,
 }
 
-const LEG_NAMES: [&str; 6] = ["daemon", "mac", "wire", "decode", "paint", "total"];
+const LEG_NAMES: [&str; 7] = ["daemon", "mac", "wire", "decode", "paint", "total", "shown"];
 
 impl Legs {
-    fn columns(&self) -> [&Vec<f64>; 6] {
-        [&self.daemon, &self.mac, &self.wire, &self.decode, &self.paint, &self.total]
+    fn columns(&self) -> [&Vec<f64>; 7] {
+        [&self.daemon, &self.mac, &self.wire, &self.decode, &self.paint, &self.total, &self.shown]
     }
+}
+
+/// The redraw the phone's screen shows: its top row's line number (`scrolled_screen`).
+fn screen_redraw(projection: &cmux_terminal_projection::Projection) -> Option<usize> {
+    let term = projection.terminal();
+    let row = term.screen_rows().first()?;
+    let text: String = row.cells.iter().take(8).map(|cell| term.cell_text(*cell)).collect();
+    text.split('|').next()?.trim().parse().ok()
 }
 
 fn pct(values: &[f64], p: f64) -> f64 {
@@ -406,8 +447,16 @@ async fn trial(rig: &Rig, duress: bool) -> (Legs, u64) {
         tokio::time::sleep(Duration::from_millis(500)).await;
     }
 
-    let mut terminal = link.open("daemon", json!({"pseq": true})).await.expect("open terminal channel");
-    terminal
+    // The phone's viewport sync, gated as in the app (`CMUX_MOBILE_VIEWPORT_SYNC`).
+    let phone_viewport = cmux_mobile_link::viewport::PhoneViewport::new(
+        connected.overlay.as_ref(),
+        cmux_mobile_link::viewport::enabled(),
+    );
+    let mut args = json!({});
+    phone_viewport.merge_daemon_args(&mut args);
+    let (terminal_tx, terminal_rx) = link.open("daemon", args).await.expect("open terminal channel").split();
+    let mut terminal = phone_viewport.wrap(terminal_rx);
+    terminal_tx
         .send(Bytes::from(format!(
             "{}\n",
             json!({"id": 1, "cmd": "attach-surface", "surface": 1, "mode": "scroll"})
@@ -421,11 +470,14 @@ async fn trial(rig: &Rig, duress: bool) -> (Legs, u64) {
     );
     projection.set_viewport(COLS, ROWS);
 
-    // (i, pseq, rx, decoded, painted), epoch ms.
+    // (i, pseq, rx, decoded, painted), epoch ms: the stream's own redraws.
     let mut seen: Vec<(usize, u64, f64, f64, f64)> = Vec::with_capacity(REDRAWS);
+    // When the phone's screen first showed redraw i or a newer one, epoch ms: any path (a
+    // viewport sync sends the newest state, not every redraw).
+    let mut shown: Vec<Option<f64>> = vec![None; REDRAWS];
     let mut pending = Vec::new();
     let deadline = Instant::now() + BOUND;
-    while seen.len() < REDRAWS {
+    while shown[REDRAWS - 1].is_none() {
         let event = tokio::time::timeout_at(deadline, terminal.recv()).await.expect("every redraw in bound");
         let Some(ChannelEvent::Data(bytes)) = event else {
             panic!("terminal channel closed after {}", seen.len())
@@ -435,16 +487,22 @@ async fn trial(rig: &Rig, duress: bool) -> (Legs, u64) {
         while let Some(end) = pending.iter().position(|b| *b == b'\n') {
             let line: Vec<u8> = pending.drain(..=end).collect();
             let value: serde_json::Value = serde_json::from_slice(&line).expect("a JSON line");
-            if value["event"] != "output" {
+            if value["event"] != "output" || value["surface"] != 1 {
                 continue;
             }
-            let (Some(i), Some(seq)) = (value["i"].as_u64(), value["pseq"].as_u64()) else { continue };
             let vt =
                 base64::engine::general_purpose::STANDARD.decode(value["data"].as_str().unwrap()).unwrap();
             let decoded = epoch_us() as f64 / 1000.0;
             black_box(projection.feed(&vt, true));
             let painted = epoch_us() as f64 / 1000.0;
-            seen.push((i as usize, seq, rx, decoded, painted));
+            if let Some(top) = screen_redraw(&projection) {
+                for slot in shown.iter_mut().take((top + 1).min(REDRAWS)) {
+                    slot.get_or_insert(painted);
+                }
+            }
+            if let (Some(i), Some(seq)) = (value["i"].as_u64(), value["pseq"].as_u64()) {
+                seen.push((i as usize, seq, rx, decoded, painted));
+            }
         }
     }
     let wire_bytes = WIRE_BYTES.load(Ordering::Relaxed) - wire_before;
@@ -461,7 +519,15 @@ async fn trial(rig: &Rig, duress: bool) -> (Legs, u64) {
         legs.paint.push(painted - decoded);
         legs.total.push(painted - daemon);
     }
-    terminal.close("done", "trial over").await;
+    for (i, at) in shown.iter().enumerate() {
+        let wrote = written.0[i].load(Ordering::Relaxed);
+        if let Some(at) = at
+            && wrote > 0
+        {
+            legs.shown.push(at - wrote as f64 / 1000.0);
+        }
+    }
+    terminal_tx.close("done", "trial over").await;
     link.close("trial over");
     if let Some(task) = agent_task {
         task.abort();
@@ -489,7 +555,7 @@ fn median(mut v: Vec<f64>) -> f64 {
 #[ignore = "a measurement (a few minutes): --release --ignored --nocapture"]
 async fn mac_scroll_to_phone_paint_legs() {
     let trials: usize = std::env::var("LEGS_TRIALS").ok().and_then(|v| v.parse().ok()).unwrap_or(3);
-    let flag = std::env::var("CMUX_LINK_SCREEN_FIRST").unwrap_or_default();
+    let flag = std::env::var(cmux_mobile_link::viewport::ENV).unwrap_or_default();
     for path_name in env_list("LEGS_PATHS", "direct,relay") {
         let path = if path_name == "relay" { Path::Relay } else { Path::Direct };
         for profile_name in env_list("LEGS_PROFILES", "rtt-400,lossy-3") {
@@ -517,9 +583,9 @@ async fn mac_scroll_to_phone_paint_legs() {
                     }
                     println!(
                         "LEGS-ROW {path_name} {profile_name} {load} trial {t} n {}:{row} | wire bytes {wire_bytes} | flag {flag:?}",
-                        legs.total.len()
+                        legs.shown.len()
                     );
-                    assert!(legs.total.len() >= REDRAWS * 9 / 10, "most redraws joined");
+                    assert!(legs.shown.len() >= REDRAWS * 9 / 10, "most redraws shown");
                 }
                 let mut cell = serde_json::Map::new();
                 for (k, name) in LEG_NAMES.iter().enumerate() {
