@@ -22,6 +22,7 @@ members = [
     "crates/cmux-terminal-host-protocol",
     "crates/acpmux-tui",
     "crates/cmux-egress",
+    "crates/cmux-proxy",
     "crates/acpmux-core",
     "crates/acpmux-client",
     "crates/acpmux-list-types",
@@ -60,6 +61,7 @@ members = [
     "crates/cmux-browser-host",
     "crates/cmux-git",
     "crates/cmux-git-cache",
+    "crates/cmux-transport-rewrite",
     "crates/cmux-worktree-care",
     "crates/cmux-conductor-import",
     "crates/cmux-migrate",
@@ -107,6 +109,7 @@ members = [
     "crates/cmux-holder",
     "crates/cmux-launch-preread",
     "crates/cmux-flow-trace",
+    "crates/cmux-critpath",
     "crates/cmux-holder-v3",
     "crates/cmux-process",
     "crates/cmux-hub-host",
@@ -188,6 +191,7 @@ members = [
     "crates/cmux-daemon-launch-core",
     "crates/cmux-update-prewarm-core",
     "crates/cmux-health-core",
+    "crates/cmux-sign-clone-sweep",
     "crates/cmux-launch-image",
     "crates/cmux-pane-pictures",
     "crates/cmux-chat-markdown",
@@ -259,6 +263,7 @@ default-members = [
     "crates/cmux-browser-host",
     "crates/cmux-git",
     "crates/cmux-git-cache",
+    "crates/cmux-transport-rewrite",
     "crates/cmux-worktree-care",
     "crates/cmux-conductor-import",
     "crates/cmux-migrate",
@@ -366,6 +371,7 @@ default-members = [
     "crates/cmux-daemon-launch-core",
     "crates/cmux-update-prewarm-core",
     "crates/cmux-health-core",
+    "crates/cmux-sign-clone-sweep",
     "crates/cmux-launch-image",
     "crates/cmux-pane-pictures",
     "crates/cmux-chat-markdown",
@@ -443,6 +449,7 @@ await_holding_refcell_ref = "deny"
 
 [workspace.dependencies]
 cmux-egress = { path = "crates/cmux-egress" }
+cmux-proxy = { path = "crates/cmux-proxy" }
 chrono = "0.4"
 chrono-tz = "0.10"
 cmux-coderouter = { path = "crates/cmux-coderouter" }
@@ -456,6 +463,7 @@ ghostty-vt = { path = "crates/ghostty-vt" }
 cmux-tui-core = { path = "crates/cmux-tui-core" }
 cmux-git = { path = "crates/cmux-git" }
 cmux-git-cache = { path = "crates/cmux-git-cache" }
+cmux-transport-rewrite = { path = "crates/cmux-transport-rewrite" }
 cmux-supervise-core = { path = "crates/cmux-supervise-core" }
 cmux-file-lock = { path = "crates/cmux-file-lock" }
 cmux-tag-cache = { path = "crates/cmux-tag-cache" }
