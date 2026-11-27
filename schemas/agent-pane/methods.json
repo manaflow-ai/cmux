@@ -16,8 +16,8 @@
     "_acpmux/inbox_threads": "direct.ts inboxThreads (the chat.inbox.threads action, App.tsx) sends {sessionId}; not in AcpmuxPaneMethods.requests, so the app relay refuses it."
   },
   "methods": {
-    "initialize": {"params": ["protocolVersion", "clientInfo", "clientCapabilities", "_meta"], "acpmux": ["peerRowBatches"], "frames": "initialize-params.json"},
-    "session/new": {"params": ["cwd", "mcpServers", "additionalDirectories", "_meta"], "acpmux": ["harness", "adopt", "peer", "noProject", "model", "restricted"], "frames": "session-new-params.json"},
+    "initialize": {"params": ["protocolVersion", "clientInfo", "clientCapabilities", "_meta"], "acpmux": ["peerRowBatches", "chunkDeltas", "sessionChangedDelta"], "frames": "initialize-params.json"},
+    "session/new": {"params": ["cwd", "mcpServers", "additionalDirectories", "_meta"], "acpmux": ["harness", "adopt", "peer", "noProject", "model", "restricted", "autoPlace"], "frames": "session-new-params.json"},
     "chat.fix_from_link": {"params": ["url", "cwd", "harness", "model", "_meta"]},
     "chat.fix_from_link.prepare": {"params": ["url", "cwd", "harness", "model"]},
     "session/prompt": {"params": ["sessionId", "prompt", "_meta"], "acpmux": ["promptId", "steer", "interrupt", "context", "surface", "inlineParts", "promptSuggestion"]},
@@ -94,6 +94,10 @@
     "_acpmux/archive": {"params": ["sessionId", "archived"]},
     "_acpmux/cold_archive": {"params": ["sessionId", "archived"]},
     "_acpmux/prompt_coach": {"params": ["sessionId", "coachId"]},
+    "_acpmux/customize_run": {"params": ["run", "_meta"]},
+    "_acpmux/auto_session/set": {"params": ["sessionId", "auto", "keepInCloud"]},
+    "_acpmux/auto_session/leftover": {"params": ["sessionId", "action"]},
+    "_acpmux/auto_session/transcript": {"params": ["sessionId", "after", "version"]},
     "_acpmux/run_elsewhere/plan": {"params": ["sessionId", "command"]},
     "_acpmux/run_elsewhere/start": {"params": ["sessionId", "command", "peer", "digest", "sendSecrets"]},
     "_acpmux/bg/output": {"params": ["sessionId", "id", "fromByte", "maxBytes"]},
