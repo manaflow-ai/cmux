@@ -67,6 +67,21 @@ struct HubScreen {
     /// The hub's `macScreenShared`: the screen host turned sharing on (a Linux one does as it
     /// joins).
     shared: bool,
+    /// The hub's `lastSeenAt`, else `createdAt`: which of two equal records is newer.
+    seen: Option<f64>,
+}
+
+impl HubScreen {
+    /// Whether `self` is the better record of one machine: the app's own rule
+    /// (`cmux_cloud_config::device_list`'s `better`): online, then sharing, then seen last. So
+    /// `peers` and `macScreen.open --device <name>` name the same record.
+    fn better(&self, other: &Self) -> bool {
+        let rank = |s: &Self| (s.online, s.shared);
+        if rank(self) != rank(other) {
+            return rank(self) > rank(other);
+        }
+        self.seen.unwrap_or(f64::MIN) > other.seen.unwrap_or(f64::MIN)
+    }
 }
 
 /// The name a hub record and a mesh host have in common: the first DNS label, lowercased (the
@@ -200,6 +215,9 @@ impl Shared {
                         platform: platform.clone(),
                         online: flag("online").unwrap_or(false),
                         shared: flag("macScreenShared").unwrap_or(false),
+                        seen: ["lastSeenAt", "createdAt"]
+                            .iter()
+                            .find_map(|k| device.get(*k).and_then(Value::as_f64)),
                     });
                 }
                 map.insert(id, platform);
@@ -211,8 +229,8 @@ impl Shared {
 
     /// What the device hub says of the screen of machine `host` (a mesh host, `peers`'
     /// `deviceHub`): `{"listed": false}` when no record has its name, else the platform and
-    /// whether its screen host shares (a record online first, then one sharing). None before
-    /// the hub's device list was read: nothing is known.
+    /// whether its screen host shares (a record online first, then one sharing, then the one
+    /// seen last, as the app picks). None before the hub's device list was read: nothing is known.
     pub(crate) fn device_hub_of(&self, host: &str) -> Option<Value> {
         let screens = lock(&self.screens);
         let key = host_key(host);
@@ -220,7 +238,10 @@ impl Shared {
             .as_ref()?
             .iter()
             .filter(|s| !key.is_empty() && host_key(&s.name) == key)
-            .max_by_key(|s| (s.online, s.shared));
+            .fold(None::<&HubScreen>, |best, s| match best {
+                Some(b) if !s.better(b) => Some(b),
+                _ => Some(s),
+            });
         Some(match best {
             Some(s) => json!({"listed": true, "id": s.id, "platform": s.platform,
                 "online": s.online, "screenShared": s.shared}),
@@ -287,15 +308,49 @@ pub(crate) fn device_hub_of(host: &str) -> Option<Value> {
 }
 
 /// `share-host status` in this daemon: the running host's, or why it does not run.
+/// A status that says the join keeps the host from running is read against the join now: when the
+/// machine has joined since, the daemon's check runs at once and the answer says it starts.
 pub(crate) fn status_now() -> Value {
     if let Some(shared) = RUNNING.get() {
         return shared.status_json();
     }
-    if let Some(status) = lock(&LINUX).clone() {
+    let status = match lock(&LINUX).clone() {
+        Some(status) => status,
+        None => {
+            let why = lock(&NOT_RUNNING).clone();
+            not_running_json(why.as_ref(), cfg!(any(target_os = "macos", target_os = "linux")))
+        }
+    };
+    let mut status = refreshed(status, || super::joined().is_ok());
+    // The helper's own grant reading holds whether or not this machine joined yet, so `cmux
+    // remote-host grants` reads the helper's grants, not the app's, before the host runs.
+    if let Some(fields) = status.as_object_mut() {
+        fields
+            .entry("helper")
+            .or_insert_with(|| super::helper::status_json(&crate::config::home()));
+    }
+    status
+}
+
+/// `status`, or, when it says the host does not run for want of a join and the machine is joined
+/// now (`joined_now`, asked only then), that the host starts: the join check is woken
+/// ([`super::recheck`]) so it does.
+pub(crate) fn refreshed(status: Value, joined_now: impl FnOnce() -> bool) -> Value {
+    let state = status.get("state").and_then(Value::as_str).unwrap_or_default();
+    let running = status.get("running").and_then(Value::as_bool).unwrap_or(false);
+    if !super::joined_since(state, running, joined_now) {
         return status;
     }
-    let why = lock(&NOT_RUNNING).clone();
-    not_running_json(why.as_ref(), cfg!(any(target_os = "macos", target_os = "linux")))
+    super::recheck();
+    let mut status = status;
+    if let Some(fields) = status.as_object_mut() {
+        fields.insert("state".into(), json!("starting"));
+        fields.insert(
+            "detail".into(),
+            json!("this machine joined since the daemon last looked; the share host starts now"),
+        );
+    }
+    status
 }
 
 /// The status of a share host that does not run, and why. `supported`: this daemon's system has

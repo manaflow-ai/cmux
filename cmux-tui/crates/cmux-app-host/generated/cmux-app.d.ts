@@ -11,6 +11,9 @@ declare namespace Cmux {
   type AgentMessageUnsendResult = { outcome: Cmux.AgentMessageUnsendOutcome; outcomes: Array<{ recipient: string; outcome: Cmux.AgentMessageUnsendOutcome; error?: { reason: string; message: string; acpmux_reason?: string } }>; message: Cmux.AgentMessageSnapshot }
   type AgentSnapshot = { id: string /* agent_… */; session_id: string /* session_… */; terminal_id: string /* terminal_… */; state: Cmux.AgentState; source: "hook" | "socket" | "detected" | "plugin"; updated_at_ms: string; source_session: string | null; extra?: Record<string, Cmux.JsonValue> }
   type AgentState = "working" | "blocked" | "idle" | "done" | "unknown"
+  type AppKvApp = string
+  type AppKvKey = string
+  type AppKvRow = { app: string; key: string; value: string; revision: unknown; updated_ms: unknown }
   type Automation = { id: Cmux.AutomationId; owner: Cmux.TeamId; name: string; description: string; enabled: boolean; version: number; triggers: Array<Cmux.Trigger>; body: Cmux.Body; target: Cmux.TargetPolicy; concurrency: Cmux.Concurrency; budget: Cmux.Budget; created_by: Cmux.UserId; created_at: number; updated_at: number; next_run_at: number | null; sharing?: Cmux.Sharing; editors?: Array<Cmux.UserId>; catch_up?: Cmux.CatchUp; home?: "cloud"; epoch?: number; last_slot?: number | null; handoff?: Cmux.Handoff; origin?: { handoff: string; from: string; source_id: string } }
   type AutomationAuditEntry = { n: number; at: number; actor: string; op: string; automation: Cmux.AutomationId; summary: string }
   type AutomationId = string
@@ -44,7 +47,7 @@ declare namespace Cmux {
   type CatchUp = "latest" | "all" | "none"
   type CellPixelsResult = { width_px: number; height_px: number; resized_terminals: Array<string /* terminal_… */>; failures: Record<string, string> }
   type ChatState = "working" | "input" | "idle" | "failed" | "lost"
-  type ChatSummary = { id: string; title: string; harness: string | null; state: Cmux.ChatState; unread: boolean; unread_turns: number; pinned: boolean; ci_failing: boolean | null; machine: string | null; cwd: string | null; project: string | null; workspace: string /* workspace_… */ | null; parent: string | null; step: string | null; error: string | null; since_ms: string | null; updated_ms: string | null; created_ms: string | null; pull_requests: Array<string>; preview?: string | null }
+  type ChatSummary = { id: string; title: string; harness: string | null; state: Cmux.ChatState; unread: boolean; unread_turns: number; pinned: boolean; ci_failing: boolean | null; machine: string | null; cwd: string | null; project: string | null; workspace: string /* workspace_… */ | null; parent: string | null; step: string | null; error: string | null; since_ms: string | null; updated_ms: string | null; created_ms: string | null; pull_requests: Array<string>; branch: string | null; preview?: string | null }
   type ChiefAvatarImage = { sha256: string; media_type: "image/gif" | "image/jpeg" | "image/png" | "image/webp"; bytes: number; data: string }
   type ChiefAvatarPage = { chief: string; avatar: Cmux.ChiefAvatarImage | null }
   type ChiefAvatarRef = { sha256: string; media_type: "image/gif" | "image/jpeg" | "image/png" | "image/webp"; bytes: number }
@@ -108,7 +111,7 @@ declare namespace Cmux {
   type CloudSurgePreview = { count: number; ttl_seconds: number; provider: string | null; available: boolean; reason: string; estimated_cost_usd: unknown | null }
   type CloudSurgeReceipt = { count: number; ttl_seconds: number; slots: Array<Cmux.CloudSurgeSlot> }
   type CloudSurgeSlot = { index: number; status: "created" | "queued" | "refused"; machine_id: Cmux.MachineId | null; provider: string | null; reason: string; retryable: boolean }
-  type CloudUsageCurrent = { period: string; as_of: number; metered_since: number | null; vcpu_seconds: unknown; memory_gib_seconds: unknown; stored_gib_seconds: unknown; usd: { vcpu: unknown; memory: unknown; stored: unknown; total: unknown }; gaps: Array<string>; payment_method: { attached: boolean; brand?: string | null; last4?: string | null }; stripe_mode: "test" | "live" }
+  type CloudUsageCurrent = { period: string; as_of: number; metered_since: number | null; vcpu_seconds: unknown; memory_gib_seconds: unknown; stored_gib_seconds: unknown; usd: { vcpu: unknown; memory: unknown; stored: unknown; total: unknown }; rates?: { vcpu_hour_usd: unknown; memory_gib_hour_usd: unknown; stored_gib_month_usd: unknown }; gaps: Array<string>; payment_method: { attached: boolean; brand?: string | null; last4?: string | null }; stripe_mode: "test" | "live" }
   type CloudVmNetwork = { tenant: Cmux.NativeTenantId; mesh: Cmux.NativeMeshId; ipv4_cidr: string; ipv4: string | null }
   type CloudVmNetworkPolicyView = { schema_version: 2; machine: Cmux.MachineId; host: Cmux.HostId; epoch: number; receiver_generation: string | null; user: Cmux.UserId; install: Cmux.InstallId; team: Cmux.TeamId; origin: string; tenant: Cmux.NativeTenantId; mesh: Cmux.NativeMeshId; vm: string; ipv4: string | null; wg_public_key: Cmux.WgPublicKey; install_public_key: string; authority_version: string; checked_at: number; expires_at: number; admit_until?: number; acl_version: number; policy_digest: string; peers: Array<Cmux.CloudVmReceiverPeer> }
   type CloudVmReceiverPeer = { host: Cmux.HostId; user: Cmux.UserId; install: Cmux.InstallId; device: Cmux.NativeDeviceId; wg_public_key: Cmux.WgPublicKey; install_public_key: string; authority_version: string; services: Array<"daemon" | "ssh" | "desktop"> }
@@ -214,7 +217,7 @@ declare namespace Cmux {
   type GitPushResult = { root: string; remote: string; branch: string; upstream: string; pushed_commit: string; previous_remote_commit?: string; created_upstream: boolean; up_to_date: boolean }
   type GitReviewPostResult = { url: string; posted: number; in_body: number; cleared: Array<string> }
   type GitReviewStartResult = { root: string; branch: string; url: string; repo: string; number: number; title: string; head: string; base: string; diff: string; setup: Cmux.GitWorktreeSetupStart; reused: boolean }
-  type GitStatusResult = { root: string; branch?: string; detached: boolean; head?: string; upstream?: string; github_repo?: string; base?: string; ahead: number; behind: number; worktree?: Cmux.GitStatusWorktree }
+  type GitStatusResult = { root: string; branch?: string; detached: boolean; head?: string; upstream?: string; github_repo?: string; base?: string; ahead: number; behind: number; worktree?: Cmux.GitStatusWorktree; in_progress?: "merge" | "rebase" | "cherry-pick" | "revert" }
   type GitStatusWorktree = { main_root: string }
   type GitWorktreeApplyResult = { main_root: string; files: Array<string> }
   type GitWorktreeCreateResult = { root: string; branch: string; base: string; base_commit: string; main_root?: string; setup: Cmux.GitWorktreeSetupStart }
@@ -233,7 +236,7 @@ declare namespace Cmux {
   type GroupWorkspaceId = string
   type Handoff = { id: string; to: string; epoch: number; at: number }
   type HistoryEntriesListResult = { entries: Array<Cmux.HistoryEntry>; revision: string; pending_kinds?: Array<Cmux.HistoryKind> }
-  type HistoryEntry = { id: string; kind: Cmux.HistoryKind; at_ms: string; title: string; detail?: string; machine?: string; workspace?: string; available: boolean; current?: boolean; running?: boolean; url?: string; profile?: string; closed_kind?: "terminal_tab" | "browser_tab" | "conversation_tab" | "screen" | "workspace"; cwd?: string; command?: string; exit_code?: number; session_id?: string; provider?: string; window?: string; location?: Cmux.HistoryTrailLocation }
+  type HistoryEntry = { id: string; kind: Cmux.HistoryKind; at_ms: string; title: string; detail?: string; machine?: string; workspace?: string; available: boolean; current?: boolean; running?: boolean; url?: string; profile?: string; closed_kind?: "terminal_tab" | "browser_tab" | "conversation_tab" | "screen" | "workspace"; cwd?: string; command?: string; exit_code?: number; session_id?: string; actor?: "person" | "agent"; provider?: string; window?: string; location?: Cmux.HistoryTrailLocation }
   type HistoryKind = "page" | "location" | "closed" | "command" | "agent"
   type HistoryPurgeResult = { purged: number }
   type HistoryRange = "hour" | "today" | "week" | "month" | "all"
@@ -646,6 +649,14 @@ interface CmuxGlobal {
     /** `agents.open` (mutation, scope `agents:write`, owner `app:cmux/agents`): Open the Agent CLIs pane. */
     open: CmuxOp<Record<string, never>, unknown>
   }
+  appkv: {
+    /** `appkv.delete` (mutation, scope `appkv:write`): Delete one key of an app's synced storage (storage:synced). Deleting a missing key succeeds. */
+    delete: CmuxOp<{ app: Cmux.AppKvApp; key: Cmux.AppKvKey; expected_revision?: string }, Cmux.MutationResult<{ app: string; key: string; existed: boolean }>>
+    /** `appkv.list` (read, scope `appkv:read`): Page every row of your synced app storage in revision order (a stream snapshot carries only the newest 1000). */
+    list: CmuxOp<{ after_revision?: number; limit?: number }, { rows: Array<Cmux.AppKvRow>; next_after_revision: unknown | null; revision: string }>
+    /** `appkv.set` (mutation, scope `appkv:write`): Set one key of an app's synced storage (storage:synced) to a JSON value (at most 64 KiB; 4 MiB per app). The last write wins. */
+    set: CmuxOp<{ app: Cmux.AppKvApp; key: Cmux.AppKvKey; value: string; expected_revision?: string }, Cmux.MutationResult<Cmux.AppKvRow>>
+  }
   automation: {
     audit: {
       /** `automation.audit.list` (read, scope `automation:read`): The team's automation audit log, oldest first: who created, changed, ran, paused, deleted or moved which automation. Admins and owners read every entry; other members the entries of automations they may view. Never a body or a secret. */
@@ -921,8 +932,8 @@ interface CmuxGlobal {
       get: CmuxOp<Record<string, never>, Cmux.CloudPlan>
     }
     port: {
-      /** `cloud.port.forward` (mutation, scope `cloud:write`, owner `app:cmux/cloud`): Forward a port of the machine's localhost to 127.0.0.1 and a random port on this Mac, through the machine's link (a paused machine is started first). One forward per machine and port: a second call returns the same localPort. When the link goes down the forward goes down and nothing queues; call forward again for a new one. Never replayed from the idempotency ledger. */
-      forward: CmuxOp<{ machine: string; port: number }, { machine: string; port: number; host: "127.0.0.1"; localPort: number; generation: number; state: "up" | "down"; reason?: string | null }>
+      /** `cloud.port.forward` (mutation, scope `cloud:write`, owner `app:cmux/cloud`): Forward a port of the machine's localhost to 127.0.0.1 and a random port on this Mac, through the machine's link (a paused machine is started first). The optional scheme (http by default, or https for a self-signed HTTPS service) is returned with a loopback url. One forward per machine and port: repeated calls reuse the live forward and return its original localPort and scheme, even if a different scheme is requested. When the link goes down the forward goes down and nothing queues; call forward again for a new one. Never replayed from the idempotency ledger. */
+      forward: CmuxOp<{ machine: string; port: number; scheme?: "http" | "https" }, { machine: string; port: number; host: "127.0.0.1"; localPort: number; scheme: "http" | "https"; url: string; generation: number; state: "up" | "down"; reason?: string | null }>
       /** `cloud.port.list` (read, scope `cloud:read`, owner `app:cmux/cloud`): List this Mac's port forwards to Cloud machines, up or down. It does not list the machine's listening ports (no route for that). */
       list: CmuxOp<{ machine?: string }, { forwards: Array<{ machine: string; port: number; host: "127.0.0.1"; localPort: number; generation: number; state: "up" | "down"; reason?: string | null }> }>
     }
@@ -1620,7 +1631,7 @@ interface CmuxGlobal {
   }
   settings: {
     /** `settings.get` (read, scope `settings:read`) */
-    get: CmuxOp<{ machine?: string; session?: string; key?: string; path?: Array<string> }, Cmux.JsonValue>
+    get: CmuxOp<{ machine?: string; session?: string; project?: string; key?: string; path?: Array<string> }, Cmux.JsonValue>
     /** `settings.history` (read, scope `settings:read`) */
     history: CmuxOp<{ machine?: string; session?: string }, Cmux.SettingsHistory>
     /** `settings.list` (read, scope `settings:read`) */
@@ -2009,6 +2020,8 @@ interface CmuxGlobal {
   timer: { after(ms: number, fn: () => void): number; every(ms: number, fn: () => void): number; clear(id: number): void }
   /** Time zones. The sandbox has no Intl and `toLocaleString` ignores `timeZone`: `zone(name, at?)` gives an IANA zone's offset (minutes east of UTC) and short name at `at` (epoch ms, default now). An unknown name throws CmuxError `zone.unknown`. Local time is `new Date(utcMs + offsetMinutes * 60000)` read with the getUTC* methods. */
   time: { zone(name: string, at?: number): { zone: string; offsetMinutes: number; abbreviation: string } }
+  /** Scene state that survives a hot reload: a signal (same key, same signal) whose value cmux keeps while the app's host restarts for `cmux ext dev`, a local reload or a regrant, so scroll offsets, the focused field, expanded rows and small values come back. Starts at the kept value, else `initial`. Values must be JSON; at most 256 keys and 64 KiB in all (over that, a warn log and the last kept values stay). Memory only: a crash, an uninstall, an idle stop or a daemon restart drops it. Use `cmux.storage` for what must outlive those. */
+  state<T>(key: string, initial: T): [CmuxSignal<T>, (next: T | ((prev: T) => T)) => void]
   app: { readonly id: string; readonly version: string; readonly apiVersion: string; readonly locale: string; settings: { (): Record<string, unknown>; set(values: Record<string, unknown>): Promise<unknown> }; context(): CmuxAppContext; openPane<T = unknown>(args?: Record<string, unknown>, options?: CmuxCallOptions): Promise<CmuxPaneResult<T>> }
   /** The current user-gesture token, else null. On a command's ctx.cmux: the invocation's token while the command runs. On the global: the event token, only inside a user event handler before its first await; pass it as options.gesture later. */
   gesture(): string | null

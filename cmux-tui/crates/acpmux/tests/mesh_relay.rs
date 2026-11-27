@@ -448,6 +448,30 @@ async fn delivered_provenance(local: &mut Client, session: &str, prompt_id: &str
     panic!("{prompt_id} never reached {session}");
 }
 
+/// A relayed message's first lease did not wait for this machine: the relay marks it `resend` for
+/// its prompt id alone, and before that mark counted as waited, so every relayed FYI woke its
+/// idle chat (`prompt_provenance::resend_waited`). A lease after the first did wait and still
+/// wakes it.
+#[tokio::test]
+async fn only_a_relayed_message_leased_again_waited() {
+    let hub = hub();
+    let mut local = Client::local(&hub);
+    let session = local.new_session("dep-land").await;
+    let fake = Arc::new(FakeHub::default());
+    let relay = MeshRelay::start(&hub, fake.clone(), Arc::new(RefuseControl), quick());
+    fake.lease(message("msg-first", "dep-land", Kind::Prompt));
+    fake.until("the first ack", |s| !s.acked("msg-first").is_empty()).await;
+    let first = delivered_provenance(&mut local, &session, "msg-first").await;
+    assert!(first.get(acpmux::prompt_provenance::WAITED).is_none(), "{first}");
+    let mut again = message("msg-again", "dep-land", Kind::Prompt);
+    again.attempt = 2;
+    fake.lease(again);
+    fake.until("the second ack", |s| !s.acked("msg-again").is_empty()).await;
+    let again = delivered_provenance(&mut local, &session, "msg-again").await;
+    assert_eq!(again[acpmux::prompt_provenance::WAITED], true, "{again}");
+    relay.stop().await;
+}
+
 /// A message no session sent (the lane-gh broker's `acpmux send`, a shell outside acpmux) names
 /// the machine the hub proved, verified: it read "a session on HOST (self-declared,
 /// unauthenticated)" though the hub had authenticated HOST's daemon, and every receiver asked the
@@ -490,6 +514,52 @@ async fn a_relayed_message_no_session_sent_names_the_machine_the_hub_proved_as_v
     relay.stop().await;
 }
 
+/// The turn count of `session` once no turn runs and it has reached `at_least`, or what it read
+/// last after 30 s.
+async fn settled_turns(local: &mut Client, session: &str, at_least: u64) -> Value {
+    let mut info = Value::Null;
+    for _ in 0..600 {
+        info = local.call("_acpmux/info", json!({"sessionId": session})).await;
+        let idle = info.pointer("/result/turn").is_none_or(Value::is_null);
+        let count = info.pointer("/result/turnCount").and_then(Value::as_u64).unwrap_or(0);
+        if idle && count >= at_least {
+            break;
+        }
+        tokio::time::sleep(Duration::from_millis(50)).await;
+    }
+    info
+}
+
+/// A plain send that names no sender (a shell's or a probe's `acpmux send HOST/ID` to a chat a
+/// hub move took there) runs a turn in the idle chat, as a peer link's plain prompt does. It
+/// filed as an unclassed agent's FYI, which since #58035 no first lease wakes, so the chat never
+/// answered (the offload round-trip probe's "no reply with the probe word within 90 s").
+#[tokio::test]
+async fn a_relayed_send_that_names_no_sender_runs_in_an_idle_chat() {
+    let hub = hub();
+    let mut local = Client::local(&hub);
+    let session = local.new_session("dep-land").await;
+    let fake = Arc::new(FakeHub::default());
+    let relay = MeshRelay::start(&hub, fake.clone(), Arc::new(RefuseControl), quick());
+    let mut seed = message("msg-seed", "dep-land", Kind::Prompt);
+    seed.body = "[question]\n\nseed the chat".into();
+    fake.lease(seed);
+    fake.until("the seed's ack", |s| !s.acked("msg-seed").is_empty()).await;
+    let info = settled_turns(&mut local, &session, 1).await;
+    assert_eq!(info.pointer("/result/turnCount"), Some(&json!(1)), "{info}");
+    let mut bare = message("msg-bare", "dep-land", Kind::Prompt);
+    bare.from.name = None;
+    bare.body = "offload probe count msg-000001".into();
+    fake.lease(bare);
+    fake.until("the ack", |s| !s.acked("msg-bare").is_empty()).await;
+    assert_eq!(fake.with(|s| s.acked("msg-bare")), vec![Ack::delivered("msg-bare", None)]);
+    let info = settled_turns(&mut local, &session, 2).await;
+    assert_eq!(info.pointer("/result/turnCount"), Some(&json!(2)), "never ran: {info}");
+    let p = delivered_provenance(&mut local, &session, "msg-bare").await;
+    assert_eq!(p["fromName"], "gcp-lane", "{p}");
+    relay.stop().await;
+}
+
 /// A send from no session (a relay on this machine's unix socket) carries its relay record to the
 /// hub, so the receiving machine can name the session it came from; a proven session's send
 /// carries none, whatever it wrote.
@@ -515,9 +585,15 @@ async fn a_send_through_the_hub_from_no_session_carries_its_relay_record() {
         handle: None,
         former_names: Vec::new(),
         roles: Vec::new(),
+        updated_at: None,
     };
     fake.with(|s| {
-        s.heartbeats.push(Heartbeat { host: "b".into(), sessions: vec![row], leaving: false })
+        s.heartbeats.push(Heartbeat {
+            host: "b".into(),
+            sessions: vec![row],
+            leaving: false,
+            health: None,
+        })
     });
     let _ = a.mesh.set(fake.clone());
     let relayed = |id: &str| {
@@ -1103,6 +1179,7 @@ async fn mesh_controls_start_and_stop_through_shared_sender_and_replay_success()
             host: "worker".into(),
             sessions: hub.mesh_rows().await,
             leaving: false,
+            health: None,
         })
         .await
         .unwrap();
@@ -1471,9 +1548,15 @@ async fn a_send_through_the_hub_names_its_proven_session_not_a_claimed_one() {
         handle: None,
         former_names: Vec::new(),
         roles: Vec::new(),
+        updated_at: None,
     };
     fake.with(|s| {
-        s.heartbeats.push(Heartbeat { host: "b".into(), sessions: vec![row], leaving: false })
+        s.heartbeats.push(Heartbeat {
+            host: "b".into(),
+            sessions: vec![row],
+            leaving: false,
+            health: None,
+        })
     });
     let _ = a.mesh.set(fake.clone());
     let mut as_lane = Client::local(&a);
@@ -1516,9 +1599,15 @@ async fn the_sender_of_a_direct_send_through_the_hub_reads_its_status_and_no_oth
         handle: None,
         former_names: Vec::new(),
         roles: Vec::new(),
+        updated_at: None,
     };
     fake.with(|s| {
-        s.heartbeats.push(Heartbeat { host: "b".into(), sessions: vec![row], leaving: false })
+        s.heartbeats.push(Heartbeat {
+            host: "b".into(),
+            sessions: vec![row],
+            leaving: false,
+            health: None,
+        })
     });
     let _ = a.mesh.set(fake.clone());
     let proven = |session: &str| {
@@ -1580,9 +1669,15 @@ async fn a_send_through_the_hub_carries_its_sender_claim() {
         handle: None,
         former_names: Vec::new(),
         roles: Vec::new(),
+        updated_at: None,
     };
     fake.with(|s| {
-        s.heartbeats.push(Heartbeat { host: "b".into(), sessions: vec![row], leaving: false })
+        s.heartbeats.push(Heartbeat {
+            host: "b".into(),
+            sessions: vec![row],
+            leaving: false,
+            health: None,
+        })
     });
     let _ = a.mesh.set(fake.clone());
     let mut client = Client::local(&a);

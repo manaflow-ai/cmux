@@ -52,6 +52,15 @@ pub struct Checkout {
     refs: Repository,
 }
 
+/// Where a checkout's git directories put it ([`Checkout::layout`]).
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct Layout {
+    /// The main checkout, when this one is a linked worktree.
+    pub main_checkout: Option<PathBuf>,
+    /// The merge, rebase, cherry-pick or revert that stopped partway here.
+    pub in_progress: Option<&'static str>,
+}
+
 impl Checkout {
     /// The checkout `directory` is in.
     pub fn open(directory: &Path) -> Result<Self, OpenError> {
@@ -82,9 +91,14 @@ impl Checkout {
         self.refs.base_branch()
     }
 
-    /// The main checkout of a linked worktree ([`Repository::main_checkout`]).
-    pub fn main_checkout(&self) -> Option<PathBuf> {
-        self.refs.main_checkout()
+    /// The main checkout of a linked worktree and the operation in progress
+    /// in this checkout ([`crate::in_progress`]), from one `rev-parse` run.
+    pub fn layout(&self) -> Layout {
+        let Some((common, own)) = self.refs.git_folders() else { return Layout::default() };
+        Layout {
+            main_checkout: crate::main_checkout_of(&common, &own),
+            in_progress: crate::in_progress(&own),
+        }
     }
 
     /// The GitHub `owner/name` of `remote`'s URL (`remote.<remote>.url`),

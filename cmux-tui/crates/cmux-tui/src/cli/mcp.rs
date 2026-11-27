@@ -58,6 +58,7 @@ mod tool_list;
 mod transport;
 mod upstream;
 mod upstream_listing;
+mod usage_insights_tool;
 mod v2_tools;
 mod video_tools;
 mod watch;
@@ -1301,6 +1302,9 @@ impl<B: Backend> Server<B> {
             return Ok(result);
         }
         if let Some(result) = device_tools::call(name, &arguments) {
+            return Ok(result);
+        }
+        if let Some(result) = usage_insights_tool::call(name, &arguments) {
             return Ok(result);
         }
         if let Some(result) = token_tools::call(name, &arguments) {
