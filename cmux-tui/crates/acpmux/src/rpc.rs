@@ -878,6 +878,9 @@ pub mod method {
     pub const MUX_MEDIA_OPEN: &str = "_acpmux/media_open";
     pub const MUX_MEDIA_RANGE: &str = "_acpmux/media_range";
     pub const MUX_SHUTDOWN: &str = "_acpmux/shutdown";
+    /// Hold this daemon's systemd watchdog until the machine resumes: the platform asks it just
+    /// before it pauses the VM (`daemon/watchdog.rs`). This machine's own clients only.
+    pub const MUX_WATCHDOG_HOLD: &str = "_acpmux/watchdog_hold";
     /// A `dhat-heap` build writes its heap profile now and answers its bytes (`heap_profile.rs`);
     /// bench only, `available: false` in every other build.
     pub const MUX_HEAP_PROFILE: &str = "_acpmux/heap_profile";
@@ -1081,6 +1084,11 @@ pub mod method {
     pub const MUX_BG_LIST: &str = "_acpmux/bg/list";
     pub const MUX_BG_OUTPUT: &str = "_acpmux/bg/output";
     pub const MUX_BG_STOP: &str = "_acpmux/bg/stop";
+    /// A session move's wait handoff (`server/bg_rearm.rs`, `rearm.rs`), versioned:
+    /// `{version: 1, sessionId, waits: [Wait]}` starts each wait again here with its remaining
+    /// deadline, `{version: 1, sessionId, release: [id]}` stops those of the chat's tasks that are
+    /// re-armable waits. The person and a peer reach it; it is forwarded to the chat's host.
+    pub const MUX_BG_REARM: &str = "_acpmux/bg/rearm";
     /// "Run on a bigger machine" (`server/run_elsewhere.rs`): what a chat's command would send
     /// to a connected machine, and its start there as a background task of the chat.
     pub const MUX_RUN_ELSEWHERE_PLAN: &str = "_acpmux/run_elsewhere/plan";
