@@ -218,8 +218,6 @@ def rewrite_expr(expr: str) -> str | None:
     # that came before it (a push-only nightly arm) still comes first and one after it still comes after.
     kept, picked, fork_at = [], False, None
     for term in terms:
-        if term == OVERFLOW:
-            continue  # the overflow switch: re-added before the label, so a rerun does not move or double it
         if LABEL_ARM.match(term) and not TRIGGER.search(term) and FORK_TEST not in term:
             kept.append(term)  # a conditioned arm already on the label (PR control, push roots): keeps its place
         elif PICKER.search(term):
@@ -234,7 +232,7 @@ def rewrite_expr(expr: str) -> str | None:
     if not picked:
         return None
     kept.insert(fork_at, FORK_PR)
-    return "${{ " + " || ".join([OWNER_GUARD, *kept, OVERFLOW, f"'{LABEL}'"]) + " }}"
+    return "${{ " + " || ".join([OWNER_GUARD, *kept, f"'{LABEL}'"]) + " }}"
 
 
 def rewrite_mixed(expr: str) -> str:
