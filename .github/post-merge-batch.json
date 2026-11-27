@@ -671,6 +671,18 @@
         "acpmux-protocol-ir": "acpmux protocol IR is current",
         "remote-web-wasm": "cmux remote web wasm"
       }
+    },
+    "ghosttykit-release-check": {
+      "workflow": "ghosttykit-release-check.yml",
+      "paths": [
+        "ghostty",
+        "scripts/download-prebuilt-ghosttykit.sh",
+        "scripts/validate-xcframework-archive.py",
+        "scripts/ghosttykit-checksums.txt",
+        "tests/test_ci_ghosttykit_release_check.sh",
+        ".github/workflows/ghosttykit-release-check.yml"
+      ],
+      "jobs": {"verify": "GhosttyKit release check"}
     }
   }
 }

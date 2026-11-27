@@ -130,10 +130,13 @@ impl Hub {
             meta.created_by.as_ref(),
             session.person.load(std::sync::atomic::Ordering::SeqCst),
         );
-        let profile = &crate::subrouter_priority::profile_with(
-            profile,
-            self.subrouter_priority(session, &meta, for_person),
-        );
+        // A lane started while a coordinator waits on it asks at the coordinator's class
+        // (`wait_edges.rs`).
+        // fleet-only-ok: the existing priority module's own value; it is sent only through a gateway (`via_gateway`), so a person's own login sends nothing
+        let own = self.subrouter_priority(session, &meta, for_person);
+        let priority = self.inherit_priority(session, own);
+        // fleet-only-ok: the existing priority module's own value; it is sent only through a gateway (`via_gateway`), so a person's own login sends nothing
+        let profile = &crate::subrouter_priority::profile_with(profile, priority);
         let tap = self.session_tap(session);
         let is_claude = profile.kind == crate::config::HarnessKind::ClaudeStdio;
         let mut existing_sid = session.meta().agent_session_id.clone();
@@ -262,7 +265,9 @@ impl Hub {
             let mut plan = plan;
             plan.args.extend(super::additional_dirs::claude_args(&meta));
             // Its stop condition, at every start (a resume or respawn too: `stop_condition.rs`).
-            plan.args.extend(super::stop_condition::claude_args(&meta));
+            if !super::spawn::launch_requires_claude_machine_login(&meta) {
+                plan.args.extend(super::stop_condition::claude_args(&meta));
+            }
             // A restricted chat's folder settings and MCP servers stay off (`restricted.rs`).
             plan.args.extend(super::restricted::claude_args(&meta));
             let (plan, mut profile) = self.remote_chain_plan(session, profile, plan).await?;
@@ -404,7 +409,16 @@ impl Hub {
                 // `initialize` ("agent process closed (grok): Authentication required"): typed
                 // the same as a `session/new` auth_required, so the start names it (hq#11225).
                 let mut e = Self::explain_start_failure(session, e).await;
-                crate::recovery::start_sign_in(&mut e, &meta.harness);
+                if !session
+                    .credential
+                    .lock()
+                    .unwrap_or_else(|p| p.into_inner())
+                    .as_ref()
+                    .and_then(crate::agent_credentials::AgentCredential::key_provider)
+                    .is_some_and(|provider| crate::recovery::start_connection_key(&mut e, provider))
+                {
+                    crate::recovery::start_sign_in(&mut e, &meta.harness);
+                }
                 return Err(e);
             }
         };
@@ -609,7 +623,18 @@ impl Hub {
                     // An agent with no sign-in answers with ACP's auth_required: typed, so the
                     // start names the agent and its sign-in, not a bare refusal (hq#11225).
                     let mut e = Self::explain_start_failure(session, e).await;
-                    crate::recovery::start_sign_in(&mut e, &meta.harness);
+                    if !session
+                        .credential
+                        .lock()
+                        .unwrap_or_else(|p| p.into_inner())
+                        .as_ref()
+                        .and_then(crate::agent_credentials::AgentCredential::key_provider)
+                        .is_some_and(|provider| {
+                            crate::recovery::start_connection_key(&mut e, provider)
+                        })
+                    {
+                        crate::recovery::start_sign_in(&mut e, &meta.harness);
+                    }
                     return Err(e);
                 }
             };
