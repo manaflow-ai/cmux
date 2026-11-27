@@ -227,7 +227,7 @@ test("with the engine's long frames, a change at rest costs two frames, and summ
 // Chromium refuses a `setTimeout` called with another receiver ("Illegal invocation"). The log's
 // default timer is called as its own method, so it must not be the bare function: in Chromium the
 // first record threw, and the transcript's mount record then broke the pane's first draw.
-test("the default timer runs with the global receiver, as Chromium requires", async () => {
+test("the log arms no timer: a batch goes out at the end of its task (#60925)", async () => {
   const real = globalThis.setTimeout;
   const receivers: unknown[] = [];
   const strict = function (this: unknown, run: () => void, ms?: number) {
@@ -243,11 +243,11 @@ test("the default timer runs with the global receiver, as Chromium requires", as
     log.flush();
     // The batch at the end of that task has run.
     await Promise.resolve();
-    // A record within a second of that batch waits on the default timer.
+    // A record within a second of that batch goes out at the end of its own task, not on a timer.
     expect(() => log.transcriptMounted()).not.toThrow();
-    log.flush();
+    await Promise.resolve();
     expect(sent).toHaveLength(2);
-    expect(receivers).toHaveLength(1);
+    expect(receivers).toHaveLength(0);
   } finally {
     globalThis.setTimeout = real;
   }
