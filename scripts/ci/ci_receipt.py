@@ -567,7 +567,8 @@ def merge_worktree(repo: Path, remote: str, head: str, into: Path) -> str:
     sys.path.insert(0, str(repo / "scripts" / "ci"))
     import cmux_next_fast_gates as gates  # noqa: PLC0415
 
-    ref = "refs/ci-receipt/base"
+    # Per worktree: lanes on one VM share the object store, and a shared ref here races ("cannot lock ref").
+    ref = "refs/worktree/ci-receipt/base"
     shallow = git(repo, "rev-parse", "--is-shallow-repository").stdout.strip() == "true"
     depth = [f"--depth={gates.FETCH_DEPTH}", gates.DEEPEN_FILTER] if shallow else []
     git(repo, "fetch", "--no-tags", "--quiet", *depth, remote, f"+refs/heads/{BRANCH}:{ref}")
