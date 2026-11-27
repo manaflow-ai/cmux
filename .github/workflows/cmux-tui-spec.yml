@@ -116,8 +116,16 @@ on:
       - "web/services/vms/drivers/linuxRelease.ts"
       - "web/app/globals.css"
       - "schemas/settings/file-keys.json"
+      - "schemas/sidebar-hover-card-rules/vectors.json"
       - "schemas/sidebar-item-info/vectors.json"
       - "schemas/sidebar-drag-geometry/vectors.json"
+      - "schemas/settings/source/notifications.json"
+      - "schemas/settings/source/page-layout.json"
+      - "docs/mdm/cmux-example.mobileconfig"
+      - "docs/mdm/com.manaflow.cmux.intune.plist"
+      - "docs/mdm/com.manaflow.cmux.json"
+      - "docs/mdm/com.manaflow.cmux.plist"
+      - "docs/mdm/managed-preferences.md"
   pull_request:
     types: [opened, synchronize, reopened, ready_for_review, labeled]
   workflow_call:
@@ -897,7 +905,7 @@ jobs:
           suites=(--locked -p acpmux -p acpmux-book -p acpmux-build-id -p acpmux-client -p acpmux-core
             -p acpmux-list-types --lib --test hub_integration --test ffi --test v2_client
             --test v2_gate_home --test v2_chat_recorded_stream --test permission_matrix
-            --test daemon_list_order_start --no-fail-fast)
+            --test daemon_list_order_start --test durable_watch_lifecycle --no-fail-fast)
           # The two concurrent runs below: every package with the libraries, every package with the
           # integration test targets (tests/test_cargo_test_verdict.py reads `suites` itself).
           pkgs=() targets=()
@@ -1395,6 +1403,20 @@ jobs:
           persist-credentials: false
           ref: ${{ inputs.sha || '' }}
 
+      - name: Merge the head onto the live base
+        if: ${{ github.event_name == 'pull_request' }}
+        env:
+          GIT_AUTH_TOKEN: ${{ github.token }}
+          BASE_REF: ${{ github.event.pull_request.base.ref }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+        run: |
+          # An inline step, not a local action: a stale merge commit may predate both.
+          if grep -qs merge-live-base scripts/ci/compile_preflight.py; then
+            python3 -I scripts/ci/compile_preflight.py merge-live-base . "$BASE_REF" "$PR_NUMBER"
+          else
+            echo "this checkout predates scripts/ci/compile_preflight.py merge-live-base; keeping GitHub's merge commit"
+          fi
+
       - name: Test the changed-package rustfmt check
         run: python3 .github/scripts/test_cmux_tui_fmt_changed.py
 
@@ -1536,6 +1558,20 @@ jobs:
         with:
           persist-credentials: false
           ref: ${{ inputs.sha || '' }}
+
+      - name: Merge the head onto the live base
+        if: ${{ github.event_name == 'pull_request' }}
+        env:
+          GIT_AUTH_TOKEN: ${{ github.token }}
+          BASE_REF: ${{ github.event.pull_request.base.ref }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+        run: |
+          # An inline step, not a local action: a stale merge commit may predate both.
+          if grep -qs merge-live-base scripts/ci/compile_preflight.py; then
+            python3 -I scripts/ci/compile_preflight.py merge-live-base . "$BASE_REF" "$PR_NUMBER"
+          else
+            echo "this checkout predates scripts/ci/compile_preflight.py merge-live-base; keeping GitHub's merge commit"
+          fi
 
       - name: Test the changed-package clippy check
         run: python3 .github/scripts/test_cmux_tui_clippy_changed.py

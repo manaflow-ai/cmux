@@ -198,6 +198,7 @@ pub mod terminal_autocompact;
 #[cfg(unix)]
 pub use joined_model_plane::install_github_source;
 pub mod chat_secrets;
+pub mod exit_record;
 /// Hot paths for the instruction-count bench (`benches/icount.rs`); not an API.
 #[doc(hidden)]
 pub mod icount;
@@ -456,6 +457,7 @@ pub mod turn_attestation;
 pub(crate) mod turn_errors;
 pub(crate) mod uniichat_endpoint;
 pub(crate) mod unread_records;
+pub mod update_inventory;
 pub mod usage_insights;
 pub mod usage_stats;
 pub mod user_settings;
