@@ -119,6 +119,7 @@ on:
       - "schemas/sidebar-hover-card-rules/vectors.json"
       - "schemas/sidebar-item-info/vectors.json"
       - "schemas/sidebar-drag-geometry/vectors.json"
+      - "schemas/sidebar-region-layout/vectors.json"
       - "schemas/settings/source/notifications.json"
       - "schemas/settings/source/page-layout.json"
       - "docs/mdm/cmux-example.mobileconfig"
@@ -136,6 +137,10 @@ on:
         default: ""
       only:
         description: Run only this job id (a bisect probe); empty runs every job.
+        type: string
+        default: ""
+      base:
+        description: "clippy job only: the commit the window starts at (the post-merge plan's base: the last judged batch's head, or a probe's known-good commit); empty lints the whole workspace"
         type: string
         default: ""
     # Base-side callers (post-merge batch, feat-cmux-next pushes) pass the R2 write secrets so base-comparison
@@ -282,6 +287,9 @@ jobs:
             && git rev-parse -q --verify HEAD >/dev/null 2>&1; then
             reuse=reused
             if ! git reset -q --hard || ! git clean -ffdxq; then reuse=fresh; fi
+            # `git sparse-checkout disable` (another job on this VM) moves sparsity into config.worktree, which
+            # overrides the core.sparseCheckout this step writes: keep .git/config the only config.
+            git config --unset-all extensions.worktreeConfig || true
           fi
           if [[ $reuse == fresh ]]; then
             find . -mindepth 1 -maxdepth 1 -exec rm -rf {} +
@@ -305,8 +313,11 @@ jobs:
             git config core.sparseCheckout true
             printf '%s\n' "$SPARSE" > .git/info/sparse-checkout
           fi
-          git checkout -q -f --detach "$SHA"
-          [[ $reuse == fresh ]] || git sparse-checkout reapply
+          # 8 parallel workers halve writing the ~69k-file tree (12.5 -> 6.2 s median, fresh .git or a sparse widen after a
+          # narrower job on this VM; rnd rc-c6f133b4).
+          git -c checkout.workers=8 checkout -q -f --detach "$SHA"
+          # SPARSE may be empty: `reapply` exits 128 outside a sparse checkout; `disable` widens a reused sparse .git.
+          if [[ $reuse == reused ]]; then if [[ -n "${SPARSE//[[:space:]]/}" ]]; then git sparse-checkout reapply; else git sparse-checkout disable; fi; fi
           echo "checked out $(git rev-parse HEAD) from the pool mirror workspace=$reuse"
 
       # head_tier.py, the router's own tier decision (pr-router.yml, ci.yml's changes job), with the same switches.
@@ -325,7 +336,8 @@ jobs:
           # A full-ci or ready-to-land label on a head that only merges the base onto a head whose land tier ran
           # carries that run (head_tier.py's full-ci base merge carry rule); 0 turns that off.
           CI_FULL_CI_BASE_MERGE_CARRY: ${{ vars.CI_FULL_CI_BASE_MERGE_CARRY || '1' }}
-          CI_HEAVY_AT_LAND: ${{ vars.CI_HEAVY_AT_LAND || '0' }}
+          # Heavy jobs run only on the event that hands a head to land (head_tier.py's heavy-at-land rule); 0 turns that off.
+          CI_HEAVY_AT_LAND: ${{ vars.CI_HEAVY_AT_LAND || '1' }}
           GH_TOKEN: ${{ github.token }}
         run: |
           if [ ! -f scripts/ci/head_tier.py ]; then exit 0; fi
@@ -920,7 +932,7 @@ jobs:
           suites=(--locked -p acpmux -p acpmux-book -p acpmux-build-id -p acpmux-client -p acpmux-core
             -p acpmux-list-types --lib --test hub_integration --test ffi --test v2_client
             --test v2_gate_home --test v2_chat_recorded_stream --test permission_matrix
-            --test daemon_list_order_start --test durable_watch_lifecycle --no-fail-fast)
+            --test daemon_list_order_start --test durable_watch_lifecycle --test transfer_cli --no-fail-fast)
           # The two concurrent runs below: every package with the libraries, every package with the
           # integration test targets (tests/test_cargo_test_verdict.py reads `suites` itself).
           pkgs=() targets=()
@@ -1541,8 +1553,9 @@ jobs:
   # So #23163 and #23372 landed clippy reds in cmux-tui/crates/cmux-tui/tests/ and broke
   # base clippy for everyone. This lints, with --all-targets, each
   # cmux-tui workspace package the change touches and each member depending on one
-  # (the whole workspace when the
-  # workspace manifest, lockfile, clippy config or toolchain pin changes). Only compile
+  # (a lockfile or workspace manifest change counts for the members it reaches; the whole
+  # workspace when another workspace table, the clippy config or toolchain pin changes,
+  # or there is no base; a post-merge call passes its plan's base). Only compile
   # errors fail it: lints run under --cap-lints warn and become ::warning annotations and a
   # step-summary list, fixed forward (Leo, 2026-11-20: "WHY IS LINT EVEN STOPPING SHIT
   # INSTEAD OF JUST BEING OOPS"). The panic ratchet step below still fails on a new panic
@@ -1615,6 +1628,8 @@ jobs:
         id: base
         env:
           EVENT_NAME: ${{ github.event_name }}
+          # A post-merge call (its event is the batch's workflow_dispatch) passes its plan's base: without it every
+          # call linted the whole workspace (225 members, 11.6 and 15.8 min in jobs 140465633373 and 140499897736).
           BASE_SHA: ${{ github.event_name == 'push' && github.event.before || github.event_name == 'workflow_dispatch' && inputs.base || '' }}
         run: |
           if [[ "$EVENT_NAME" == pull_request ]]; then
