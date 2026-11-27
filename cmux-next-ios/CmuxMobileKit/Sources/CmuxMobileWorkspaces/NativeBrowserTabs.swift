@@ -274,7 +274,7 @@ public final class NativeBrowserTabs {
             // Back on the phone after mirroring: the page follows the Mac, keeping
             // the phone's own history behind it.
             model.clearProblem()
-            if let start, model.url != start { model.load(start) }
+            if let start, model.url != start || PhoneReach(start) == .privateNetwork { model.load(start) }
             return model
         }
         return makeModel(key: key, url: start)
