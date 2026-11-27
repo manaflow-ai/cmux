@@ -284,10 +284,11 @@ impl Pane {
             return false;
         };
         let parts: Vec<&str> = rest.split('/').filter(|p| !p.is_empty()).collect();
-        if parts.is_empty() || parts.len() - 1 > source.rule.depth {
+        let Some((_, folders)) = parts.split_last() else { return false };
+        if folders.len() > source.rule.depth {
             return false;
         }
-        parts[..parts.len() - 1].iter().enumerate().all(|(level, name)| {
+        folders.iter().enumerate().all(|(level, name)| {
             let entry = Entry {
                 kind: EntryKind::Folder,
                 hidden: false,
