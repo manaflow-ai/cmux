@@ -110,15 +110,8 @@ extension WebUpdates {
         return nil
     }
 
-    /// Whether `view` shows on screen now: in a window that is visible and not fully covered
-    /// (`occlusionState`, which also reads a minimized window, another Space and a hidden app as out
-    /// of sight), with no hidden view above it and some of it inside its window.
-    static func inSight(_ view: NSView) -> Bool {
-        guard let window = view.window, window.isVisible, window.occlusionState.contains(.visible),
-              !view.isHiddenOrHasHiddenAncestor else { return false }
-        let shown = view.convert(view.bounds, to: nil).intersection(window.contentView?.frame ?? .zero)
-        return !shown.isNull && shown.width > 1 && shown.height > 1
-    }
+    /// Whether `view` shows on screen now (``WebSwapSight/inSight(_:)``, shared with the web-dev swaps).
+    static func inSight(_ view: NSView) -> Bool { WebSwapSight.inSight(view) }
 
     /// What modal the app has open: a modal window, a sheet, a menu or drag being tracked.
     static func appBlocked() -> String? {

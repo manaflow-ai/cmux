@@ -1,0 +1,137 @@
+{
+  "sourceLanguage" : "en",
+  "strings" : {
+    "settings.experiments.compactionThresholdInsight.help" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "ar" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "اعرض متى ضغط Claude سياق المحادثة تلقائيًا وكيفية تقليل السياق بين الأدوار."
+          }
+        },
+        "bs" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Prikaži kada je Claude automatski sažeo razgovor i kako smanjiti kontekst između poteza."
+          }
+        },
+        "da" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Vis, hvornår Claude automatisk komprimerede en samtale, og hvordan du mindsker konteksten mellem svar."
+          }
+        },
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Zeigt, wann Claude einen Chat automatisch komprimiert hat und wie sich der Kontext zwischen Antworten verkleinern lässt."
+          }
+        },
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Show when Claude automatically compacted a chat and how to lower the context it carries between turns."
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Muestra cuándo Claude compactó un chat automáticamente y cómo reducir el contexto entre turnos."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Affiche quand Claude a compacté une conversation automatiquement et comment réduire le contexte entre les tours."
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Mostra quando Claude ha compattato automaticamente una chat e come ridurre il contesto tra i turni."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Claude がチャットを自動圧縮したタイミングと、次のターンに引き継ぐコンテキストを減らす方法を表示します。"
+          }
+        },
+        "km" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "បង្ហាញពេលដែល Claude បង្រួមការជជែកដោយស្វ័យប្រវត្តិ និងវិធីកាត់បន្ថយបរិបទរវាងវេន។"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Claude가 대화를 자동으로 압축한 시점과 다음 턴으로 넘기는 컨텍스트를 줄이는 방법을 표시합니다."
+          }
+        },
+        "nb" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Vis når Claude komprimerte en samtale automatisk, og hvordan du reduserer konteksten mellom svar."
+          }
+        },
+        "pl" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Pokazuje, kiedy Claude automatycznie skompresował rozmowę i jak zmniejszyć kontekst między turami."
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Mostra quando o Claude compactou uma conversa automaticamente e como reduzir o contexto entre turnos."
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Показывает, когда Claude автоматически сжал чат и как уменьшить контекст между ходами."
+          }
+        },
+        "th" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "แสดงว่า Claude ย่อแชตโดยอัตโนมัติเมื่อใดและวิธีลดบริบทที่ส่งต่อระหว่างรอบ"
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Claude’un sohbeti ne zaman otomatik olarak sıkıştırdığını ve turlar arasında taşınan bağlamı nasıl azaltacağınızı gösterir."
+          }
+        },
+        "uk" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Показує, коли Claude автоматично стиснув чат і як зменшити контекст між ходами."
+          }
+        },
+        "vi" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Hiển thị thời điểm Claude tự động nén cuộc trò chuyện và cách giảm ngữ cảnh giữa các lượt."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "显示 Claude 何时自动压缩了对话，以及如何减少传递到下一轮的上下文。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "顯示 Claude 何時自動壓縮了對話，以及如何減少傳到下一輪的上下文。"
+          }
+        }
+      }
+    }
+  },
+  "version" : "1.0"
+}
