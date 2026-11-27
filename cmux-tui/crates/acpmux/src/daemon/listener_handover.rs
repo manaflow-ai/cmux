@@ -18,6 +18,9 @@
 //!    now), and leaves the socket file in place, since the new daemon serves that same socket.
 //! 4. A connect in between waits in the kernel's queue, which the new daemon's copy keeps open,
 //!    and is accepted once the new daemon holds the lock and serves ([`take_received`]).
+//! 5. The connections the old daemon had accepted that hold no state go the same way, on the
+//!    same side socket, late in its stop ([`hand_connections`],
+//!    `server/conn_handover.rs`): their clients read no end of file and redial nothing.
 
 use std::io;
 use std::os::fd::{AsFd, AsRawFd, BorrowedFd, OwnedFd};
@@ -31,6 +34,15 @@ use std::time::{Duration, Instant};
 pub(crate) const PARAM: &str = "handListeners";
 /// The answer's key: the listeners the old daemon sent, in order.
 pub(crate) const ANSWER: &str = "listenersHanded";
+/// The `_acpmux/shutdown` key by which the asking start says it also takes the accepted
+/// connections that hold no state (`server/conn_handover.rs`), on the same side socket after
+/// the listeners. A start from before this never sends it, and the old daemon then keeps none.
+pub(crate) const PARAM_CONNS: &str = "handConnections";
+/// A moved connection's payload.
+const CONN: &[u8; 4] = b"conn";
+/// How long the new daemon waits for the old one's connections after it serves.
+// timeout: an old daemon that never closes its side; the connections it kept end with it.
+const CONNS_WITHIN: Duration = Duration::from_secs(10);
 /// The side socket's file name prefix, in the home.
 const SIDE_PREFIX: &str = "handover-";
 /// Each message's payload: which listener its descriptor is.
@@ -46,12 +58,16 @@ static OFFERED: Mutex<Option<(OwnedFd, Option<OwnedFd>)>> = Mutex::new(None);
 static HANDED_TO: AtomicU32 = AtomicU32::new(0);
 /// The listeners this start received from the daemon it took over from.
 static RECEIVED: Mutex<Option<Received>> = Mutex::new(None);
+/// The side socket to the daemon that takes over, kept to send it the connections.
+static SUCCESSOR: Mutex<Option<UnixStream>> = Mutex::new(None);
 
 /// Listeners received from the old daemon.
 #[derive(Debug, Default)]
 pub(crate) struct Received {
     pub unix: Option<std::os::unix::net::UnixListener>,
     pub ws: Option<std::net::TcpListener>,
+    /// The side socket, on which the old daemon sends its plain connections before it ends.
+    pub conns: Option<UnixStream>,
 }
 
 /// Keep copies of the listeners this daemon serves, to hand to a successor.
@@ -87,7 +103,12 @@ fn alive(pid: u32) -> bool {
 /// The old daemon's side: send copies of its listeners to the side socket at `path`, which must
 /// be in `home`, named as [`Side::open`] names it, and listened on by `asker` (the pid of the unix
 /// socket peer that asked). The kinds sent, in order.
-pub(crate) fn hand(home: &Path, path: &Path, asker: u32) -> Result<Vec<&'static str>, String> {
+pub(crate) fn hand(
+    home: &Path,
+    path: &Path,
+    asker: u32,
+    conns: bool,
+) -> Result<Vec<&'static str>, String> {
     let name = path.file_name().and_then(|n| n.to_str()).unwrap_or_default();
     if path.parent() != Some(home) || !name.starts_with(SIDE_PREFIX) || !name.ends_with(".sock") {
         return Err(format!("{} is not a handover socket of this home", path.display()));
@@ -111,7 +132,61 @@ pub(crate) fn hand(home: &Path, path: &Path, asker: u32) -> Result<Vec<&'static 
         sent.push("ws");
     }
     HANDED_TO.store(asker, Ordering::SeqCst);
+    if conns {
+        *SUCCESSOR.lock().unwrap_or_else(std::sync::PoisonError::into_inner) = Some(stream);
+    }
     Ok(sent)
+}
+
+/// Whether the daemon that takes over asked for this one's plain connections too.
+pub(crate) fn takes_connections() -> bool {
+    handed_to_live()
+        && SUCCESSOR.lock().unwrap_or_else(std::sync::PoisonError::into_inner).is_some()
+}
+
+/// The old daemon's side, at its stop: send the parked connections to the daemon that takes
+/// over, and close the side socket, which tells it there are no more. How many went.
+pub(crate) async fn hand_connections(parked: crate::server::conn_handover::Parked) -> usize {
+    let Some(stream) = SUCCESSOR.lock().unwrap_or_else(std::sync::PoisonError::into_inner).take()
+    else {
+        return 0;
+    };
+    // A few bytes each into the side socket's buffer, bounded by its write timeout.
+    crate::server::conn_handover::hand(parked, |fd| {
+        cmux_unix_socket::descriptor::send(&stream, CONN, fd.as_raw_fd())
+    })
+    .await
+}
+
+/// The new daemon's side, once it serves: read the connections the old daemon sends on `side`
+/// until it closes it, and give each to `serve`. A thread of its own, so a daemon that stops
+/// meanwhile never waits for it.
+pub(crate) fn receive_connections(
+    side: UnixStream,
+    serve: impl Fn(tokio::net::UnixStream) + Send + 'static,
+) {
+    let runtime = tokio::runtime::Handle::current();
+    let _ = std::thread::Builder::new().name("conn-handover".into()).spawn(move || {
+        let _ = side.set_read_timeout(Some(CONNS_WITHIN));
+        let mut served = 0usize;
+        while let Ok((kind, Some(fd))) = cmux_unix_socket::descriptor::receive(&side, 4) {
+            if kind.as_slice() != CONN {
+                continue;
+            }
+            let stream = UnixStream::from(fd);
+            if stream.set_nonblocking(true).is_err() {
+                continue;
+            }
+            let _entered = runtime.enter();
+            if let Ok(stream) = tokio::net::UnixStream::from_std(stream) {
+                serve(stream);
+                served += 1;
+            }
+        }
+        if served > 0 {
+            tracing::info!(served, "serving connections the previous daemon handed over");
+        }
+    });
 }
 
 /// The pid of the process at the other end of `stream`.
@@ -234,6 +309,7 @@ impl Side {
                 received.ws = Some(std::net::TcpListener::from(fd));
             }
         }
+        received.conns = Some(stream);
         Ok(received)
     }
 }
@@ -259,35 +335,5 @@ pub(crate) fn serves_path(listener: &UnixListener, socket: &Path) -> bool {
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    /// One process stands in for both daemons: the listeners it offers come back through the side
-    /// socket as the same sockets (a connect to the original path is accepted by the copy).
-    #[test]
-    fn listeners_go_through_the_side_socket() {
-        let dir = cmux_unix_socket::short_test_dir("lho");
-        let home = dir.path().to_path_buf();
-        let sock = home.join("a.sock");
-        let unix = UnixListener::bind(&sock).unwrap();
-        let tcp = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
-        let port = tcp.local_addr().unwrap();
-        offer(unix.as_fd(), Some(tcp.as_fd()));
-        let side = Side::open(&home).unwrap();
-        let path = side.path().to_path_buf();
-        assert!(hand(&home, &home.join("elsewhere.sock"), std::process::id()).is_err());
-        let sent = hand(&home, &path, std::process::id()).unwrap();
-        assert_eq!(sent, ["unix", "ws"]);
-        side.receive(&["unix".into(), "ws".into()], Some(std::process::id()));
-        assert!(!path.exists(), "the side socket is removed once used");
-        let got = take_received();
-        drop((unix, tcp));
-        let got_unix = got.unix.unwrap();
-        assert!(serves_path(&got_unix, &sock));
-        let _c = UnixStream::connect(&sock).unwrap();
-        got_unix.accept().unwrap();
-        let _t = std::net::TcpStream::connect(port).unwrap();
-        got.ws.unwrap().accept().unwrap();
-        HANDED_TO.store(0, Ordering::SeqCst);
-    }
-}
+#[path = "listener_handover_tests.rs"]
+mod tests;
