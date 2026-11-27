@@ -37,6 +37,7 @@ It never fails the job:
 
 from __future__ import annotations
 
+import json
 import os
 import sys
 import time
@@ -158,9 +159,10 @@ def main(env: Mapping[str, str] = os.environ,
     else:
         line = f"archive runner: {fallback or ' + '.join(FLEET_XCODE)} ({why}; {fallback_why}), attempt {attempt}"
     print(line)
+    fallback_output = json.dumps([fallback] if fallback else list(FLEET_XCODE), separators=(",", ":"))
     if env.get("GITHUB_OUTPUT"):
         with open(env["GITHUB_OUTPUT"], "a", encoding="utf-8") as handle:
-            handle.write(f"dedicated={dedicated}\nattempt={attempt}\nfallback={fallback}\n")
+            handle.write(f"dedicated={dedicated}\nattempt={attempt}\nfallback={fallback_output}\n")
     if env.get("GITHUB_STEP_SUMMARY"):
         with open(env["GITHUB_STEP_SUMMARY"], "a", encoding="utf-8") as handle:
             handle.write(f"- {line}\n")
