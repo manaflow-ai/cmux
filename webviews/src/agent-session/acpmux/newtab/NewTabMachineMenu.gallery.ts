@@ -8,6 +8,8 @@
 import { agentPaneEntry } from "../../../gallery/format";
 import type { PlayContext } from "../../../gallery/play";
 import { CWD, noChat } from "../../../gallery/fixtures/acpmux";
+import { minutesAgo } from "../../../gallery/clock";
+import { cloudLastSeenLook } from "../cloudLastSeen.experiment";
 
 const newTab = (fields: Record<string, unknown> = {}) => ({
   newTab: {
@@ -40,6 +42,41 @@ const openWhere = async (ctx: PlayContext) => {
 };
 
 const signedIn = { "cloudMachine.list": { signedIn: true, loaded: true, machines: [] } };
+/// A cold start with the control plane slow or down: the app answers with the list it kept from the
+/// last launch (`complete: false`), last answered by the server 4 minutes before the gallery clock.
+const lastSeen = {
+  "cloudMachine.list": {
+    signedIn: true,
+    loaded: true,
+    complete: false,
+    lastSeenAt: minutesAgo(4),
+    machines: [
+      { id: "m-dev", name: "dev box", stage: "ready" },
+      { id: "m-build", name: "build box", stage: "paused" },
+      { id: "m-eval", name: "eval box", stage: "paused" },
+    ],
+  },
+};
+
+const KEPT_ROWS = ".acpmux-env-popover.acpmux-env-machines [data-last-seen], .acpmux-env-last-seen-banner";
+
+/// Machines… (the Where control's right-click menu): every machine, the account's Cloud ones included.
+const openMachines = async (ctx: PlayContext) => {
+  await ready(ctx);
+  await ctx.contextMenu({ selector: WHERE });
+  await ctx.click({ role: "menuitem", name: "Machines…" });
+  await ctx.waitFor(() => ctx.document.querySelector(KEPT_ROWS));
+};
+
+/// One variant per look of the kept list's Cloud rows (cloudLastSeen.experiment.ts), Leo's pick.
+const lastSeenVariant = (look: "dimmed-header" | "row-note" | "banner", note: string) => ({
+  note,
+  ready: newTab(),
+  snapshot: noChat([], { listedSessions: true }),
+  native: lastSeen,
+  experiments: { [cloudLastSeenLook.id]: look },
+  play: openMachines,
+});
 const signedOut = { "cloudMachine.list": { signedIn: false, loaded: true, machines: [] } };
 
 export default agentPaneEntry({
@@ -50,6 +87,7 @@ export default agentPaneEntry({
   covers: [
     "agent-session/acpmux/newtab/NewTabScreen.tsx#NewTabScreen",
     "agent-session/acpmux/EnvironmentPicker.tsx#EnvironmentPicker",
+    "agent-session/acpmux/cloudMachines.ts#useCloudLastSeenAt",
   ],
   variants: {
     closed: {
@@ -89,6 +127,18 @@ export default agentPaneEntry({
       nativeDelayMs: { "cloudMachine.list": 1500 },
       play: openWhere,
     },
+    "last-seen-dimmed-header": lastSeenVariant(
+      "dimmed-header",
+      "Machines… on a cold start before the fresh Cloud list: the kept Cloud rows dimmed under one caption, Last seen 4 min ago.",
+    ),
+    "last-seen-row-note": lastSeenVariant(
+      "row-note",
+      "Machines… on a cold start before the fresh Cloud list: rows at normal weight, each one's stage reads last seen 4 min ago.",
+    ),
+    "last-seen-banner": lastSeenVariant(
+      "banner",
+      "Machines… on a cold start before the fresh Cloud list: rows unchanged, a Can't reach cmux Cloud notice with Retry over them.",
+    ),
     permissions: {
       note: "The permission button under the box, clicked: its mode menu opens.",
       ready: newTab(),

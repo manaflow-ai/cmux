@@ -38437,6 +38437,15 @@
           "session": "required"
         },
         "fields": {
+          "project": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "string",
+              "min_length": 1
+            },
+            "description": "An absolute folder: answer for new chats started there, with {source: managed|project|user|default, project: {folder, file, value, per_project, ignored, problem}}. The project is the nearest folder at or above it (below home) holding .cmux/cmux-next.json; acpmux applies its per-project keys once the folder is trusted."
+          },
           "key": {
             "required": false,
             "type": {
@@ -38588,6 +38597,15 @@
           "session": "required"
         },
         "fields": {
+          "project": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "string",
+              "min_length": 1
+            },
+            "description": "An absolute folder: remove the key from its .cmux/cmux-next.json instead of the user's file."
+          },
           "key": {
             "required": false,
             "type": {
@@ -38952,6 +38970,15 @@
           "session": "required"
         },
         "fields": {
+          "project": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "string",
+              "min_length": 1
+            },
+            "description": "An absolute folder: write the key to its .cmux/cmux-next.json (the project layer, over the user's file and under managed values) instead of the user's file. Only per-project keys (agents.promptCache); a managed key is settings.managed."
+          },
           "key": {
             "required": false,
             "type": {
