@@ -302,6 +302,14 @@ public final class CloudPlaceFlows {
         return object["state"] as? String
     }
 
+    /// The session's last move as Rust's reducer drew it (its `View`: `state`, `step`, `elapsedMs` and `steps`, each finished
+    /// step's ms), a landed one too: a settled card leaves only the header, not this. Nil with no move kept. `cloud.place.get`
+    /// answers it, for the move journey probe's per-step times (`move_stages_ms`), which no move action's answer carries.
+    public func moveView(of session: String) -> Any? {
+        // main-actor-ok: one chat's move reducer state, a fixed-shape object of a few hundred bytes (its view).
+        views[session].flatMap { try? JSONSerialization.jsonObject(with: $0) }
+    }
+
     /// Drops the session's flow and view (a Live move's card goes once the chat shows it).
     public func clear(_ session: String) {
         flows[session] = nil

@@ -525,9 +525,8 @@ public final class LiveCoordinator {
         for session in sessions.values { session.link.send(.networkChanged) }
     }
 
-    /// Presence down at least this long before its return redials the links
-    /// (`PresenceListener.outageMin`, which macOS test builds can see).
-    static let presenceOutageMin: Duration = PresenceListener.outageMin
+    /// Presence down at least this long before its return redials the links.
+    static let presenceOutageMin = PresenceTiming.outageMin
 
     // MARK: Warm start
 
