@@ -1,9 +1,9 @@
-import { and, count, eq, gte, inArray, isNull, isNotNull, lt, sql } from "drizzle-orm";
+import { and, count, desc, eq, gte, inArray, isNull, isNotNull, lt, or, sql } from "drizzle-orm";
 import { randomUUID } from "node:crypto";
 import { after } from "next/server";
 import { POSTHOG_HOST, POSTHOG_PROJECT_KEY } from "../analytics/iosEventPolicy";
 import { cloudDb } from "../../db/client";
-import { cloudVmAlertStates, cloudVmLeases, cloudVms, cloudVmUsageEvents } from "../../db/schema";
+import { cloudVmAlertStates, cloudVmHealthSnapshots, cloudVmLeases, cloudVms, cloudVmUsageEvents } from "../../db/schema";
 import { sendAlert, type AlertFetch, type AlertInput, type AlertResult } from "./alerts";
 import { reportError } from "./report";
 import { readFreestyleTlsRuleUsage, tlsRuleCapacityAlert, TLS_RULE_CAPACITY_ALERT_KEY, type TlsRuleUsage } from "./providerRuleCapacity";
@@ -14,6 +14,7 @@ const VM_ALERT_REMINDER_WINDOW_MS = 24 * 60 * 60 * 1_000;
 const VM_ALERT_DELIVERY_LEASE_MS = 5 * 60 * 1_000;
 const VM_ALERT_SAMPLE_LIMIT = 25;
 const VM_HEALTH_STALE_MS = 5 * 60 * 1_000;
+const VM_HEALTH_EVIDENCE_MAX_AGE_MS = 2 * VM_HEALTH_STALE_MS;
 // The cron runs every five minutes. A daily bucket gives operators a reminder
 // without creating a new PostHog event for every tick of a persistent outage.
 const DROPPED_ALERT_DEDUPE_WINDOW_MS = 24 * 60 * 60 * 1_000;
@@ -86,7 +87,7 @@ export async function runVmAlertChecks(options: {
   const createFailures = await countCreateFailures(db, createFailureSince);
   const stuckProvisioning = await listStuckProvisioningVms(db, stuckProvisioningBefore);
   const expiredLeases = await listExpiredUnrevokedLeases(db, now);
-  const unhealthy = await listUnhealthyVms(db, new Date(now.getTime() - healthStaleMs));
+  const unhealthy = await listUnhealthyVms(db, new Date(now.getTime() - healthStaleMs), now);
   const tlsRuleCapacity = await checkTlsRuleCapacity(options.readTlsRuleUsage, env, alertStateStore, now);
 
   const triggeredAlerts: AlertInput[] = [];
@@ -411,19 +412,22 @@ async function listExpiredUnrevokedLeases(
 async function listUnhealthyVms(
   db: ReturnType<typeof cloudDb>,
   before: Date,
+  now: Date,
 ): Promise<{
   readonly count: number;
   readonly samples: Array<{ readonly id: string; readonly updatedAt: Date }>;
 }> {
+  const evidence = await recentHungEvidence(db, now);
+  if (!evidence) return { count: 0, samples: [] };
   const stale = and(
     eq(cloudVms.status, "running"),
-    // Only classify rows that have reported at least once. A legacy image
-    // without the reporter is unknown rather than silently treated as dead;
-    // new images and the stats route establish this heartbeat on first use.
-    sql`(${cloudVms.providerMetadata}->'cmuxResourceUsage'->>'providerVmId') = ${cloudVms.providerVmId}`,
     sql`CASE WHEN ((${cloudVms.providerMetadata}->'cmuxResourceUsage'->>'receivedAt') ~ '^[0-9]+$')
       THEN ((${cloudVms.providerMetadata}->'cmuxResourceUsage'->>'receivedAt')::double precision)
       ELSE NULL END < ${before.getTime()}`,
+    or(
+      inArray(cloudVms.id, evidence.cloudVmIds),
+      inArray(cloudVms.providerVmId, evidence.providerVmIds),
+    ),
   );
   // Count and sample in one statement so an alert never reports a count from
   // one database snapshot alongside IDs from another.
@@ -440,6 +444,48 @@ async function listUnhealthyVms(
     count: Number(rows[0]?.total ?? 0),
     samples: rows.map(({ id, updatedAt }) => ({ id, updatedAt })),
   };
+}
+
+type HungEvidence = {
+  readonly cloudVmIds: readonly string[];
+  readonly providerVmIds: readonly string[];
+};
+
+/**
+ * A stale reporter sample is diagnostic only. Critical classification needs a
+ * recent, complete control-path sweep that independently observed the guest
+ * as hung. Incomplete or old snapshots are deliberately inconclusive.
+ */
+async function recentHungEvidence(
+  db: ReturnType<typeof cloudDb>,
+  now: Date,
+): Promise<HungEvidence | null> {
+  const [snapshot] = await db
+    .select({ createdAt: cloudVmHealthSnapshots.createdAt, report: cloudVmHealthSnapshots.report })
+    .from(cloudVmHealthSnapshots)
+    .orderBy(desc(cloudVmHealthSnapshots.createdAt))
+    .limit(1);
+  if (!snapshot || snapshot.createdAt.getTime() > now.getTime()
+    || now.getTime() - snapshot.createdAt.getTime() > VM_HEALTH_EVIDENCE_MAX_AGE_MS) return null;
+  if (!snapshot.report || typeof snapshot.report !== "object") return null;
+  const report = snapshot.report as {
+    readonly coverage?: { readonly inventoryComplete?: unknown; readonly skippedBudget?: unknown };
+    readonly errors?: unknown;
+    readonly hung?: unknown;
+  };
+  if (report.coverage?.inventoryComplete !== true || report.coverage.skippedBudget !== 0
+    || !Array.isArray(report.errors) || report.errors.length > 0 || !Array.isArray(report.hung)) return null;
+  const cloudVmIds = new Set<string>();
+  const providerVmIds = new Set<string>();
+  for (const entry of report.hung) {
+    if (!entry || typeof entry !== "object") continue;
+    const hung = entry as { readonly vmId?: unknown; readonly owner?: { readonly cloudVmId?: unknown } | null };
+    if (typeof hung.vmId === "string" && hung.vmId.length > 0) providerVmIds.add(hung.vmId);
+    if (typeof hung.owner?.cloudVmId === "string" && hung.owner.cloudVmId.length > 0) cloudVmIds.add(hung.owner.cloudVmId);
+  }
+  return cloudVmIds.size > 0 || providerVmIds.size > 0
+    ? { cloudVmIds: [...cloudVmIds], providerVmIds: [...providerVmIds] }
+    : null;
 }
 
 function healthAlerts(

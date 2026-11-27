@@ -30,7 +30,7 @@ afterAll(async () => {
 describe("VM alert checks", () => {
   dbTest("detects create failures, stuck provisioning VMs, and expired unrevoked leases", async () => {
     if (!sql) throw new Error("test database not initialized");
-    await sql`truncate cloud_vm_alert_states, cloud_vm_billing_grants, cloud_vm_usage_events, cloud_vm_leases, cloud_vms restart identity cascade`;
+    await sql`truncate cloud_vm_alert_states, cloud_vm_health_snapshots, cloud_vm_billing_grants, cloud_vm_usage_events, cloud_vm_leases, cloud_vms restart identity cascade`;
 
     const now = new Date("2026-07-04T12:00:00.000Z");
     const [stuckVm] = await sql<{ id: string }[]>`
@@ -163,7 +163,7 @@ describe("VM alert checks", () => {
 
   dbTest("retries a failed Slack delivery after the durable delivery lease expires", async () => {
     if (!sql) throw new Error("test database not initialized");
-    await sql`truncate cloud_vm_alert_states, cloud_vm_billing_grants, cloud_vm_usage_events, cloud_vm_leases, cloud_vms restart identity cascade`;
+    await sql`truncate cloud_vm_alert_states, cloud_vm_health_snapshots, cloud_vm_billing_grants, cloud_vm_usage_events, cloud_vm_leases, cloud_vms restart identity cascade`;
     const now = new Date("2026-07-04T12:00:00.000Z");
     const [vm] = await sql<{ id: string }[]>`
       insert into cloud_vms (
@@ -202,9 +202,9 @@ describe("VM alert checks", () => {
 
   dbTest("alerts when a running VM's guest health heartbeat is stale", async () => {
     if (!sql) throw new Error("test database not initialized");
-    await sql`truncate cloud_vm_alert_states, cloud_vm_billing_grants, cloud_vm_usage_events, cloud_vm_leases, cloud_vms restart identity cascade`;
+    await sql`truncate cloud_vm_alert_states, cloud_vm_health_snapshots, cloud_vm_billing_grants, cloud_vm_usage_events, cloud_vm_leases, cloud_vms restart identity cascade`;
     const now = new Date("2026-07-04T12:00:00.000Z");
-    await sql`
+    const [healthVm] = await sql<{ id: string }[]>`
       insert into cloud_vms (
         user_id, billing_team_id, billing_plan_id, provider, provider_vm_id, image_id, status, provider_metadata, updated_at
       )
@@ -214,6 +214,7 @@ describe("VM alert checks", () => {
           'providerVmId', 'provider-health', 'receivedAt', ${now.getTime() - 6 * 60 * 1000}::bigint
         )), ${new Date(now.getTime() - 6 * 60 * 1000)}
       )
+      returning id
     `;
     // A stopped allocation, missing heartbeat, foreign sample, malformed
     // timestamp, and current heartbeat do not establish a frozen running guest.
@@ -231,6 +232,29 @@ describe("VM alert checks", () => {
       `;
     }
     const alerts: AlertInput[] = [];
+    const withoutEvidence = await runVmAlertChecks({
+      db: cloudDb(),
+      now,
+      env: { CMUX_VM_ALERT_HEALTH_STALE_MS: String(5 * 60 * 1000) },
+      sendAlert: async (input): Promise<AlertResult> => {
+        alerts.push(input);
+        return { sent: true, configured: true, status: 200 };
+      },
+    });
+    expect(withoutEvidence.health).toEqual({ triggered: false, count: 0 });
+    expect(alerts).toHaveLength(0);
+    await sql`
+      insert into cloud_vm_health_snapshots (attention_needed, report, created_at)
+      values (
+        true,
+        ${sql.json({
+          coverage: { inventoryComplete: true, skippedBudget: 0 },
+          errors: [],
+          hung: [{ vmId: "provider-health", owner: { cloudVmId: healthVm!.id } }],
+        })},
+        ${now}
+      )
+    `;
     const summary = await runVmAlertChecks({
       db: cloudDb(),
       now,
@@ -247,7 +271,7 @@ describe("VM alert checks", () => {
 
   dbTest("does not page the create-failure spike for reconciliation housekeeping", async () => {
     if (!sql) throw new Error("test database not initialized");
-    await sql`truncate cloud_vm_alert_states, cloud_vm_billing_grants, cloud_vm_usage_events, cloud_vm_leases, cloud_vms restart identity cascade`;
+    await sql`truncate cloud_vm_alert_states, cloud_vm_health_snapshots, cloud_vm_billing_grants, cloud_vm_usage_events, cloud_vm_leases, cloud_vms restart identity cascade`;
     const now = new Date("2026-07-04T12:00:00.000Z");
     const [vm] = await sql<{ id: string }[]>`
       insert into cloud_vms (
