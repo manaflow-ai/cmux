@@ -424,6 +424,24 @@
           },
           "description": "At most 4 per app; the shell shows a few and puts the rest in the overflow menu."
         },
+        "wallpapers": {
+          "type": "array",
+          "maxItems": 16,
+          "uniqueItems": true,
+          "description": "Live wallpapers (plans/cmux-next/live-wallpapers.md): each a folder in the package with wallpaper.json and its WGSL program, checked by cmux-wallpaper's validator. Needs no capability: a wallpaper gets only the Frame uniform.",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "path"
+            ],
+            "properties": {
+              "path": {
+                "$ref": "#/$defs/path"
+              }
+            }
+          }
+        },
         "menus": {
           "type": "array",
           "maxItems": 16,

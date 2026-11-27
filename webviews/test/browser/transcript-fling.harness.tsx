@@ -30,7 +30,6 @@ import "../../src/agent-session/acpmux/composerLocation.css";
 import "../../src/agent-session/acpmux/composerAttachments.css";
 import "../../src/agent-session/acpmux/markdownField.css";
 import "../../src/agent-session/acpmux/modelPicker.css";
-import "../../src/agent-session/acpmux/keys.css";
 import "../../src/agent-session/acpmux/newtab/screen.css";
 import "../../src/agent-session/acpmux/newtab/history.css";
 import "../../src/agent-session/acpmux/threadMinimap/threadMinimap.css";

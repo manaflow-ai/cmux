@@ -30,11 +30,11 @@ final class SidebarAppSections: SidebarAppSectionProvider {
         provider.release(contribution)
     }
 
-    /// Unmounts every app section and widget of this window on the supervisor.
-    func releaseAll() {
-        teamView = nil
-        provider.releaseAll()
-    }
+    /// Unmounts every app section, widget and workspace list of this window on the supervisor.
+    func releaseAll() { teamView = nil; provider.releaseAll() }
+
+    /// This window's own workspace list (`cmux.sidebar/1`, opt-in; the built-in list otherwise).
+    var workspaceList: WorkspaceList? { provider.workspaceList }
 
     var onContentChange: (() -> Void)? {
         get { provider.onContentChange }

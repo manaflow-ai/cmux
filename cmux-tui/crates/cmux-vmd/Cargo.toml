@@ -1,0 +1,32 @@
+[package]
+name = "cmux-vmd"
+version = "0.1.0"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+description = "Self-hosted Firecracker microVM host daemon behind MachineProvider (AutoCloud tier B)"
+
+[lints]
+workspace = true
+
+[dependencies]
+anyhow.workspace = true
+async-trait.workspace = true
+axum.workspace = true
+base64.workspace = true
+chrono.workspace = true
+cmux-process.workspace = true
+cmux-scope.workspace = true
+cmux-tui-machine-protocol.workspace = true
+libc.workspace = true
+reqwest.workspace = true
+rustls.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+sha2.workspace = true
+tokio.workspace = true
+uuid.workspace = true
+
+[dev-dependencies]
+tokio.workspace = true
