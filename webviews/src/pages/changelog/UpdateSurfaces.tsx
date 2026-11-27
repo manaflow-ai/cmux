@@ -48,6 +48,7 @@ import { changeItems, distinctSummary, mergedView, readableChanges, readableUpda
 import type { Strings } from "../shared/i18n";
 import type { ReleaseNotes } from "./types";
 import type {
+  BuildPullRequests,
   UpdateHighlightItem,
   UpdateHighlightMedia,
   UpdateHighlights,
@@ -708,6 +709,7 @@ export function UpdateReadyHighlights({
   actions,
   briefLayout = "stacked",
   layout = "two-line",
+  pullRequestsOpen = false,
 }: {
   data: UpdateHighlights;
   /** The notes of every build after the running version up to the staged one, newest first: the
@@ -717,8 +719,13 @@ export function UpdateReadyHighlights({
   actions: UpdateSurfaceActions;
   briefLayout?: BriefLayout;
   layout?: ReadyLayout;
+  /** "What's in this build" starts open (gallery stills); the popover starts with it closed. */
+  pullRequestsOpen?: boolean;
 }) {
   const titleId = useId();
+  const pullRequests = data.pullRequests ? (
+    <BuildPullRequestList list={data.pullRequests} strings={strings} open={pullRequestsOpen} />
+  ) : null;
   const scroller = useRef<HTMLElement | null>(null);
   // One callback for both scrollers: the brief popover's section and the list's div.
   const scrollerRef = (element: HTMLElement | null) => {
@@ -783,6 +790,7 @@ export function UpdateReadyHighlights({
         {data.moreCount > 0 && (
           <div className="wn-pop-more">{strings.format("updates.card.more", String(data.moreCount))}</div>
         )}
+        {pullRequests}
       </section>
     );
   }
@@ -831,6 +839,7 @@ export function UpdateReadyHighlights({
             )}
           </div>
         )}
+        {pullRequests}
       </div>
       <div className="wn-pop-foot">
         {!rest && data.moreCount > 0 && (
@@ -842,6 +851,42 @@ export function UpdateReadyHighlights({
         </button>
       </div>
     </section>
+  );
+}
+
+/** "What's in this build" (Leo 2026-11-26: "hm do we display which prs go into which nightly maybe
+ * that'd be useful per thing?"): a closed disclosure under the changes; open, the span's pull
+ * requests by area, each its linked title and #number, then its author, and the internal count. */
+function BuildPullRequestList({ list, strings, open }: { list: BuildPullRequests; strings: Strings; open: boolean }) {
+  const count = list.groups.reduce((sum, group) => sum + group.items.length, 0);
+  if (count === 0) return null;
+  return (
+    <details className="wn-pop-prs" open={open || undefined}>
+      <summary>
+        {strings.t("updates.popover.prs.title")}
+        <span className="wn-pop-prs-count"> · {count}</span>
+      </summary>
+      {list.groups.map((group) => (
+        <section key={group.area ?? ""} className="wn-pop-rest-group" aria-label={group.area ?? undefined}>
+          <h4>{group.area || strings.t("updates.popover.prs.other")}</h4>
+          <ul>
+            {group.items.map((item) => (
+              <li key={item.pr} className="wn-pop-row">
+                <span className="wn-pop-text">
+                  <span className="wn-pop-item">
+                    <ChangePullRequest pr={item.url} title={item.title} />
+                  </span>
+                  {item.author && <span className="wn-pop-line"> {item.author}</span>}
+                </span>
+              </li>
+            ))}
+          </ul>
+        </section>
+      ))}
+      {list.internalCount > 0 && (
+        <div className="wn-pop-more">{strings.format("updates.popover.prs.internal", String(list.internalCount))}</div>
+      )}
+    </details>
   );
 }
 

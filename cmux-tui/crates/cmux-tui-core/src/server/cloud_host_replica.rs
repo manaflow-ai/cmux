@@ -88,8 +88,15 @@ fn replica(mux: &Mux, client: u64) -> anyhow::Result<&HostReplica> {
 pub(super) fn set(mux: &Mux, client: u64, params: HostReplicaSetParams) -> anyhow::Result<Value> {
     let HostReplicaSetParams { api_base_url, install_token, expires_at, client_version, host_name } =
         params;
-    let lease =
-        HostReplicaParams { api_base_url, install_token, expires_at, client_version, host_name };
+    // The command surface has no seal yet (RFD 0163 row 7, slice 1): off.
+    let lease = HostReplicaParams {
+        api_base_url,
+        install_token,
+        expires_at,
+        client_version,
+        host_name,
+        seal: None,
+    };
     Ok(replica(mux, client)?.set_lease(lease)?)
 }
 

@@ -22,8 +22,12 @@ const BYTES_PER_MS: usize = 16 << 10;
 const CALLERS: usize = 16;
 const CALLS_PER_CALLER: usize = 4;
 /// What an agent's tool call may wait under a flood: the bulk window at link speed plus room
-/// for this machine's load.
-const CALL_P99_BUDGET: Duration = Duration::from_millis(250);
+/// for this machine's load. Held at the 95th percentile, the fourth slowest of the 64 calls: the
+/// 99th of 64 is the slowest one, so one stall of the test's threads failed it (CI run
+/// 45641669048, in the whole parallel suite: p50 16 ms, one call 291 ms). Calls queued behind the
+/// replays wait for most of their 1.5 s, the median with them, so a lane that lost its priority
+/// still fails it.
+const CALL_P95_BUDGET: Duration = Duration::from_millis(250);
 
 fn hub() -> Arc<Hub> {
     let mut cfg: Config = serde_json::from_value(json!({})).unwrap();
@@ -152,22 +156,22 @@ async fn flood_interactive_tool_calls_answer_while_replays_hold_the_link() {
         replayed += 1;
     }
     waits.sort();
-    let (p50, p99) = (percentile(&waits, 50), percentile(&waits, 99));
+    let (p50, p95) = (percentile(&waits, 50), percentile(&waits, 95));
     eprintln!(
         "flood_interactive: {} tool calls from {CALLERS} callers under {REPLAYS} replays \
-         ({} MiB at {} MiB/s): p50 {} ms, p99 {} ms, max {} ms",
+         ({} MiB at {} MiB/s): p50 {} ms, p95 {} ms, max {} ms",
         waits.len(),
         read >> 20,
         BYTES_PER_MS >> 10,
         p50.as_millis(),
-        p99.as_millis(),
+        p95.as_millis(),
         waits.last().unwrap().as_millis(),
     );
     assert!(
-        p99 <= CALL_P99_BUDGET,
-        "tool calls waited behind the bulk replays: p50 {} ms, p99 {} ms",
+        p95 <= CALL_P95_BUDGET,
+        "tool calls waited behind the bulk replays: p50 {} ms, p95 {} ms",
         p50.as_millis(),
-        p99.as_millis()
+        p95.as_millis()
     );
     drop((tx, conn, scope));
 }
