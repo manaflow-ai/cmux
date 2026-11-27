@@ -258,6 +258,7 @@
         "schemas/surface-roles/surface-roles.json",
         "schemas/composer-status/peek-pin.json",
         "examples/gallery/gallery.json",
+        "examples/setups/**",
         "Packages/macOS/CmuxNext/Sources/CmuxNextPages/PageDescriptor.swift",
         "design/icons/neko-candidates/**",
         "first-party-apps/*/preview/**",
