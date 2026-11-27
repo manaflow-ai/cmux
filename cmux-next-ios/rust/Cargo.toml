@@ -35,6 +35,7 @@ cmux-output-paint = { path = "../../cmux-tui/crates/cmux-output-paint" }
 # The per-stream seq/ack/replay core of the reliable link (pure; no runtime).
 cmux-remote-protocol = { path = "../../cmux-tui/crates/cmux-remote-protocol" }
 cmux-wg = { path = "../../cmux-tui/crates/cmux-wg" }
+cmux-vnc = { path = "../../cmux-tui/crates/cmux-vnc" }
 # The relay's sealed snapshot and delta envelopes (RFD 0142 R2, R9): the phone opens, the Mac seals.
 cmux-relay-snapshot = { path = "../../cmux-tui/crates/cmux-relay-snapshot" }
 cmux-fault = { path = "../../cmux-tui/crates/cmux-fault" }
@@ -45,6 +46,9 @@ cmux-composer-send = { path = "../../cmux-tui/crates/cmux-composer-send" }
 # Where the person was (workspace, chat or terminal, scroll anchor, selection), opened again on launch.
 cmux-mobile-last-place = { path = "../../cmux-tui/crates/cmux-mobile-last-place" }
 cmux-transport = { path = "../../cmux-tui/crates/cmux-transport" }
+# The system proxy (PAC included), CONNECT and SOCKS5 tunnels and the OS trust store, shared with
+# cmux-remote (cmux-mobile-link re-exports it as `egress`).
+cmux-proxy = { path = "../../cmux-tui/crates/cmux-proxy" }
 # Braid carriers (RFD 0164 B7): the kinds a dial ranks its rungs by, and the trait it opens them through.
 cmux-braid-carrier = { path = "../../cmux-tui/crates/cmux-braid-carrier" }
 # cmux.rd/1 + cmux.rb/1 (streamed browser tabs, verify/browser-stream.md).
@@ -67,6 +71,8 @@ cmux-window-rules = { path = "../../cmux-tui/crates/cmux-window-rules" }
 cmux-message-preview = { path = "../../cmux-tui/crates/cmux-message-preview" }
 # Wake on intent (cmux-mobile-link-ffi cloud_wake.rs): the Mac's wake hint rules, one ledger per app process.
 cmux-cloud-handlers = { path = "../../cmux-tui/crates/cmux-cloud-handlers" }
+# The screen stream's rules (cmux-mobile-link-ffi screen.rs: `screen_json`), the ones the Mac asks.
+cmux-rd-screen = { path = "../../cmux-tui/crates/cmux-rd-screen" }
 # Share a Mac from the phone: cmux.share-approval.v1, the approval the target Mac's acpmux admits.
 cmux-share-approval = { path = "../../cmux-tui/crates/cmux-share-approval" }
 # The egress gate (docs/privacy.md): every HTTP client and WebSocket connect the phone and the Mac bridge make.

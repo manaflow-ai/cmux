@@ -1,6 +1,6 @@
-//! C ABI of the screen viewer core (`Packages/Shared/CmuxScreenKit/Sources/CCmuxScreenKit/include/cmux_screen_kit.h`), behind the `c-abi` feature: the Mac's
+//! C ABI of the screen viewer core (`include/cmux_screen_kit.h`), behind the `c-abi` feature: the Mac's
 //! app library exports it through cmux-rd-ffi, iOS's through
-//! cmux-mobile-link-ffi (cmux-next-ios/rust, via cmux-rd-ffi). Stateful parts are opaque handles (no threads, panics
+//! cmux-mobile-ffi. Stateful parts are opaque handles (no threads, panics
 //! caught, a panic poisons only that handle); math is plain values.
 //! Strings are UTF-8 pointer and length; nothing here keeps a caller's pointer.
 
@@ -758,9 +758,7 @@ mod tests {
 
     #[test]
     fn the_header_declares_exactly_the_exported_functions() {
-        let header = include_str!(
-            "../../../../../Packages/Shared/CmuxScreenKit/Sources/CCmuxScreenKit/include/cmux_screen_kit.h"
-        );
+        let header = include_str!("../../include/cmux_screen_kit.h");
         let declared: std::collections::BTreeSet<&str> = header
             .lines()
             .filter(|l| !l.trim_start().starts_with('#') && !l.trim_start().starts_with('/'))

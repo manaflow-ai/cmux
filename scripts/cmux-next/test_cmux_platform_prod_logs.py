@@ -23,6 +23,7 @@ VM = "vm_0000aaaa1111bbbb2222"
 TEAM = "team_0000aaaa1111bbbb2222"
 PROD = "cmux-platform-production"
 STAGING = "cmux-platform-staging"
+DEV = "cmux-platform-development"
 VM_PROD = "cmux-vm-production"
 VM_STAGING = "cmux-vm-staging"
 LISTED = "cloud platform edge"
@@ -92,8 +93,8 @@ class WorkflowTests(unittest.TestCase):
         self.assertRegex(on, r"(?m)^      service:\n(?:        .*\n)*?        type: choice\n")
         options = re.search(r"(?m)^        options: \[([^\]]*)\]$", on)
         self.assertIsNotNone(options)
-        self.assertEqual({o.strip() for o in options.group(1).split(",")}, {PROD, STAGING, VM_PROD, VM_STAGING})
-        self.assertEqual(set(logs.SERVICES), {PROD, STAGING, VM_PROD, VM_STAGING})
+        self.assertEqual({o.strip() for o in options.group(1).split(",")}, {PROD, STAGING, DEV, VM_PROD, VM_STAGING})
+        self.assertEqual(set(logs.SERVICES), {PROD, STAGING, DEV, VM_PROD, VM_STAGING})
 
     def test_id_and_needles_are_required_and_never_in_step_env(self):
         on = self.block("on")
@@ -215,6 +216,32 @@ class GuardTests(unittest.TestCase):
         self.assertEqual(by_op["startVm"]["log"]["status"], "none")
         text = json.dumps(rows) + out
         for leak in (VM, logs.base.tag(VM), "hunter2"):
+            self.assertNotIn(leak, text)
+
+    def test_cmux_vm_window_keeps_a_vm_create_lines_phases_and_drops_its_ids(self):
+        # cmux-vm handlers/vms.ts vmCreateLine via lib/timing.ts logTimedEvent: a JSON line keyed `event`, not `msg`.
+        slow = event({"event": "vm_create", "vmId": VM, "ok": False, "recovered": False, "enteredAt": 1795721451000,
+                      "preMs": 3, "recoverMs": None, "createMs": 120004, "recoverAfterMs": 1532, "resizeMs": None,
+                      "meshAtCreate": True, "meshId": "mesh_hunter2", "meshJoined": False, "memberMs": None,
+                      "providerTotalMs": 121536, "providerTimingsMs": {"create": 120004, "hunter2 " + VM: 5},
+                      "imageVariant": None, "totalMs": 121540})
+        other = event({"event": "vm_other", "vmId": VM})
+        path = event_file({"service": VM_PROD, "id": "window", "needles": "vm_create"})
+        try:
+            code, out, query, upload = run_main(["--from", "2026-11-26T19:30:30Z", "--from-event", path],
+                                                response={"result": {"events": {"events": [slow, other]}}})
+        finally:
+            os.unlink(path)
+        self.assertEqual(code, 0)
+        _, header, rows = upload.call_args.args
+        self.assertEqual(header["logs_dropped_unlisted"], 1)
+        (row,) = rows
+        self.assertEqual(row["log"], {"event": "vm_create", "ok": False, "recovered": False, "meshAtCreate": True,
+                                      "meshJoined": False, "preMs": 3, "createMs": 120004, "recoverAfterMs": 1532,
+                                      "providerTotalMs": 121536, "totalMs": 121540,
+                                      "providerTimingsMs": {"create": 120004}})
+        text = json.dumps(rows) + out
+        for leak in (VM, logs.base.tag(VM), "hunter2", "1795721451000"):
             self.assertNotIn(leak, text)
 
     def test_cmux_vm_refuses_an_id_scoped_read(self):
@@ -363,6 +390,34 @@ class ProjectionTests(unittest.TestCase):
                                               "mode": kept, "lacks": True, "shared": False})
                 self.assertNotIn(TEAM, json.dumps(row))
 
+    def test_the_edge_dns_check_keeps_outcome_exit_and_why_but_no_upstream(self):
+        # Production 2026-11-26 21:46Z: a fresh create's agents had no edge route and this line was dropped unlisted (hq#30520).
+        row = logs.line(event({"msg": "cloud.machine.edge_dns", "team": TEAM, "machine": VM, "why": "bind",
+                               "outcome": "kicked", "exit": 0, "dns_upstream": "10.0.0.2,", "ms": 4210}))
+        self.assertEqual(row["log"], {"msg": "cloud.machine.edge_dns", "team": logs.base.tag(TEAM),
+                                      "machine": logs.base.tag(VM), "outcome": "kicked", "ms": 4210,
+                                      "exit": 0, "why": "bind"})
+        odd = logs.line(event({"msg": "cloud.machine.edge_dns", "machine": VM, "why": "free text", "exit": True,
+                               "outcome": "unresolved"}))
+        self.assertNotIn("why", odd["log"])
+        self.assertNotIn("exit", odd["log"])
+        self.assertNotIn("10.0.0.2", json.dumps(row))
+
+    def test_a_spare_claim_keeps_its_skip_reasons_steps_and_path(self):
+        # Production 2026-11-26 16:09Z: a claim saw one spare and created, and the row read only `spares: 1` (hq#29939).
+        row = logs.line(event({"msg": "machines.spare.claim", "team": TEAM, "spares": 1,
+                               "skipped": {"warming": 1, "lost_generation": 2, "Bad Key": 3, "paused": "x",
+                                           "vm_0123456789abcdef": 1},
+                               "ms": {"leases": 4, "total": 95, "nested": {"x": 1}},
+                               "path": "created", "fallback": "all_skipped", "behind": 0}))
+        self.assertEqual(row["log"], {"msg": "machines.spare.claim", "team": logs.base.tag(TEAM), "spares": 1,
+                                      "path": "created", "fallback": "all_skipped", "behind": 0,
+                                      "skipped": {"lost_generation": 2, logs.base.tag("vm_0123456789abcdef"): 1,
+                                                  "warming": 1},
+                                      "ms": {"leases": 4, "total": 95}})
+        self.assertNotIn(TEAM, json.dumps(row))
+        self.assertNotIn("vm_0123456789abcdef", json.dumps(row))
+
     def test_a_cut_off_submit_answer_keeps_its_op_and_wait(self):
         # cmux-platform retro r2b92b756: a start that ran out its 25 s answer wait was retried silently, so only this
         # line counts how often an op outlives its request.
@@ -370,6 +425,41 @@ class ProjectionTests(unittest.TestCase):
         self.assertEqual(row["log"], {"msg": "cloud.submit.cut_off", "machine": logs.base.tag("vm_cutoff"),
                                       "op": "start", "ms": 25001})
         self.assertNotIn("vm_cutoff", json.dumps(row))
+
+    def test_a_behind_ledger_wake_keeps_how_long_it_was_paused(self):
+        # cmux-platform CloudDO reconcileWokenPaused: how soon after its pause an inbound wake landed tells a client's
+        # redial (seconds) from a person's return (hours), the census's inbound_soon share.
+        row = logs.line(event({"msg": "cloud.machine.woken_behind_ledger", "team": TEAM, "machine": VM,
+                               "paused_for_ms": 4200}))
+        self.assertEqual(row["log"]["paused_for_ms"], 4200)
+        self.assertNotIn(VM, json.dumps(row))
+
+    def test_a_work_machine_line_keeps_its_size_policy_and_why(self):
+        # RFD agent-work-placement (cmux-platform#2099 start size, #2108 turn_end pause): worker-log-read.yml gets 403
+        # on production, so only this persisted read can count work VMs by size and pause policy before and after.
+        row = logs.line(event({"msg": "cloud.work_machine.started", "pause_policy": "turn_end", "team": TEAM,
+                               "machine": VM, "work": "vm_work1", "cpu": 8, "memory_mb": 16384, "ms": 2100}))
+        self.assertEqual(row["log"], {"msg": "cloud.work_machine.started", "team": logs.base.tag(TEAM),
+                                      "machine": logs.base.tag(VM), "work": logs.base.tag("vm_work1"), "cpu": 8,
+                                      "memory_mb": 16384, "ms": 2100, "pause_policy": "turn_end"})
+        for why, kept in (("budget", "budget"), ("said hunter2 here", "other")):
+            with self.subTest(why=why):
+                row = logs.line(event({"msg": "cloud.work_machine.skipped", "team": TEAM, "why": why}))
+                self.assertEqual(row["log"]["why"], kept)
+        row = logs.line(event({"msg": "cloud.work_machine.started", "pause_policy": "made_up"}))
+        self.assertEqual(row["log"]["pause_policy"], "other")
+        for leak in (TEAM, VM, "vm_work1", "hunter2"):
+            self.assertNotIn(leak, json.dumps(row))
+
+    def test_a_window_counts_work_machines_with_no_id(self):
+        events = [event({"msg": "cloud.work_machine.started", "pause_policy": "turn_end", "team": TEAM,
+                         "machine": VM, "work": "vm_work1", "cpu": 8, "memory_mb": 16384})] * 2
+        head, rows = logs.window_totals(events, ["cloud.work_machine.started"])
+        self.assertEqual([r["log"] for r in rows], [{"msg": "cloud.work_machine.started", "cpu": 8,
+                                                     "memory_mb": 16384, "pause_policy": "turn_end"}])
+        self.assertEqual(rows[0]["n"], 2)
+        for leak in (TEAM, VM, "vm_work1", logs.base.tag("vm_work1")):
+            self.assertNotIn(leak, json.dumps(rows))
 
     def test_the_msg_allowlist_is_exact_constant_ids(self):
         self.assertIn(LISTED, logs.PLATFORM_MSGS)

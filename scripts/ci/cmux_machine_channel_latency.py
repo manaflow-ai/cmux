@@ -79,7 +79,7 @@ def pointed_runs(since: datetime) -> dict[str, tuple]:
     """head sha -> (point job completed, workflow, run id, built here) for feat-cmux-next pushes since `since`."""
     out: dict[str, tuple] = {}
     for wf_id, wf in workflow_ids().items():
-        for page in range(1, 11):
+        for page in range(1, 41):  # about 130 push runs an hour: a day's window needs more than 10 pages
             runs = api(f"actions/workflows/{wf_id}/runs?branch={BRANCH}&event=push&per_page=100&page={page}").get(
                 "workflow_runs", [])
             for run in runs:
@@ -127,7 +127,16 @@ def main(argv: list[str]) -> int:
     ap.add_argument("--skip", type=int, default=0, help="leave out the newest K (their channel may not have moved yet)")
     ap.add_argument("--json", action="store_true")
     args = ap.parse_args(argv)
-    commits = api(f"commits?sha={BRANCH}&per_page={min(args.recent + args.skip, 100)}")
+    # Page the commits: feat-cmux-next takes about 130 merges an hour (2026-11-26), so one page of 100 reaches back
+    # less than an hour, shorter than a channel cycle, and nearly every row read "not pointed".
+    want = args.recent + args.skip
+    commits: list[dict] = []
+    for page in range(1, want // 100 + 2):
+        got = api(f"commits?sha={BRANCH}&per_page=100&page={page}")
+        commits += got
+        if len(got) < 100 or len(commits) >= want:
+            break
+    commits = commits[:want]
     since = min(ts(c["commit"]["committer"]["date"]) for c in commits)
     rows = measure(commits, pointed_runs(since))[args.skip:]
     if args.json:
