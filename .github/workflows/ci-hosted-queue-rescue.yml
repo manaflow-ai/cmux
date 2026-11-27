@@ -115,7 +115,7 @@ jobs:
       - name: Rerun only a no-runner hosted queue timeout
         env:
           GH_TOKEN: ${{ steps.cmux-bot-token.outputs.token || github.token }}
-          READ_TOKEN: ${{ steps.cmux-bot-token.outputs.token || steps.glaeda-token.outputs.token }}
+          READ_TOKEN: ${{ steps.glaeda-token.outputs.token || steps.cmux-bot-token.outputs.token }}
           GH_REPO: ${{ github.repository }}
           RUN_ID: ${{ github.event.workflow_run.id }}
           EVENT_ATTEMPT: ${{ github.event.workflow_run.run_attempt }}
