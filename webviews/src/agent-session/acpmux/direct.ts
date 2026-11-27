@@ -14058,6 +14058,12 @@ export class AcpmuxDirectClient {
     await this.request("_acpmux/archive", { sessionId, archived });
     return sessionId;
   }
+  /// Unsettle chat `sessionId` (a settle toast's Undo, the home's Settled shelf): Unarchive by id,
+  /// which drops acpmux's `settled` reason too (hub/auto_settle.rs). The app's relay takes it only
+  /// for a chat in the pane's scope (AcpmuxPaneMethods `sessionScoped`) and refuses any other.
+  async unsettle(sessionId: string): Promise<void> {
+    await this.request("_acpmux/archive", { sessionId, archived: false });
+  }
   /// Compress Chat (`archived`) puts chat `sessionId`'s log in acpmux's cold archive, where the
   /// lists draw it from its preview alone; Decompress Chat brings the log back (acpmux
   /// `hub/cold_archive.rs`; opening the chat does too). acpmux answers the chat's summary, which
