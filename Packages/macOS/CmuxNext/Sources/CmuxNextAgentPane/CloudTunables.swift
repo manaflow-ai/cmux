@@ -4,6 +4,7 @@ import CmuxNextPages
 /// Debug Settings of Cloud machines. Release and RC never activate the store, so they keep the
 /// defaults.
 public nonisolated struct CloudTunables {
+    public nonisolated init() {}
     /// A connected Cloud machine whose cmux-tui is older than the app's (or that the app refused)
     /// is updated to the app's own pinned build through the shared `DaemonUpdatePolicy` (which
     /// `agent.updatePeers` also turns off), also while an agent works there: it picks up where it
