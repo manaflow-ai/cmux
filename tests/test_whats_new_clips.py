@@ -980,8 +980,19 @@ class IPhoneClipTests(unittest.TestCase):
         }
         for words, bad in cases.items():
             self.assertTrue(any(words in p for p in clips.spec_problems(bad)), words)
-        # A Mac spec has no iPhone environment.
-        self.assertTrue(any("iPhone spec" in p for p in clips.spec_problems({**SPEC, "env": {"CMUX_MOBILE_X": "1"}})))
+        # A Mac spec has no iPhone environment or appearance.
+        self.assertTrue(any("CMUX_NEXT_" in p for p in clips.spec_problems({**SPEC, "env": {"CMUX_MOBILE_X": "1"}})))
+        self.assertTrue(any("iPhone spec" in p for p in clips.spec_problems({**SPEC, "appearance": "sepia"})))
+
+    def test_a_mac_spec_env_is_the_apps_launch_knobs_and_reaches_the_tour_and_capture(self):
+        # A first-run scene needs a fixture classic cmux folder; tour.py's `env` carries CMUX_NEXT_* knobs.
+        env = {"CMUX_NEXT_CLASSIC_MIGRATION": "1", "CMUX_NEXT_CLASSIC_IMPORT_DIR": "{repo}/tests/fixtures/x"}
+        spec = {**SPEC, "env": env}
+        self.assertEqual(clips.spec_problems(spec), [])
+        for bad in ({"HOME": "/tmp"}, {"CMUX_NEXT_X": 1}, ["CMUX_NEXT_X"]):
+            self.assertTrue(any("CMUX_NEXT_" in p for p in clips.spec_problems({**SPEC, "env": bad})), bad)
+        self.assertEqual(clips.tour_from_spec(spec, "x")["env"], env)
+        self.assertEqual(clips.capture_state(spec)["env"], env)
 
     def test_the_fleet_capture_refuses_an_iphone_spec_and_names_the_simulator_step(self):
         with tempfile.TemporaryDirectory() as tmp:
