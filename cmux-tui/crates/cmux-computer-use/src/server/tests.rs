@@ -412,16 +412,15 @@ fn a_detached_session_is_tracked_and_an_attached_one_is_not() {
     assert!(!lock(&shared.detached).contains("cli"));
 }
 
-/// Cache a click, then queue its session's expiry behind a blocked lane.
+/// Show an element, then queue its session's expiry behind a blocked lane.
 /// Dropping the release sender also unblocks it if a test assertion fails.
-fn queue_expiry_after_cached_click(
+fn queue_expiry_after_shown_element(
     f: &Fixture,
     client: &mut Client,
-) -> (Value, std::sync::mpsc::Sender<()>) {
+) -> (String, std::sync::mpsc::Sender<()>) {
     f.gate.release();
-    client.call(1, "cli", "click", json!({"window_id": "1", "element_id": "e1"}), Some("once"));
-    let answer = client.recv();
-    assert_eq!(answer["result"]["is_error"], false, "{answer}");
+    client.call(1, "cli", "get_ui_tree", json!({"window_id": "1"}), None);
+    let element = id_of(&client.recv(), "button");
     let shared = &f.server.as_ref().unwrap().shared;
     let (release, blocked) = std::sync::mpsc::channel();
     let (entered, started) = std::sync::mpsc::channel();
@@ -438,40 +437,53 @@ fn queue_expiry_after_cached_click(
     client.call(2, "other", "list_windows", json!({}), None);
     assert_eq!(client.recv()["id"], 2);
     assert!(!lock(&shared.detached).contains("cli"));
-    (answer["result"].clone(), release)
+    (element, release)
 }
 
 #[test]
-fn a_fresh_call_cancels_queued_expiry_and_preserves_retry_deduplication() {
+fn a_fresh_call_cancels_queued_expiry_and_preserves_shown_ids() {
     let f = fixture("drefresh", None);
     let mut client = Client::connect(&f.path);
-    let (original, release) = queue_expiry_after_cached_click(&f, &mut client);
-    client.call(3, "cli", "click", json!({"window_id": "1", "element_id": "e1"}), Some("once"));
+    let (element, release) = queue_expiry_after_shown_element(&f, &mut client);
+    client.call(
+        3,
+        "cli",
+        "click",
+        json!({"window_id": "1", "element_id": element}),
+        Some("after-expiry"),
+    );
     // Status is handled synchronously on the same connection: its reply
-    // proves the retry was admitted while expiry was still queued.
+    // proves the click was admitted while expiry was still queued.
     client.send(&json!({"id": 4, "method": "status"}));
     assert_eq!(client.recv()["id"], 4);
     release.send(()).unwrap();
     let answer = client.recv();
     assert_eq!(answer["id"], 3);
-    assert_eq!(answer["result"], original);
+    assert_eq!(answer["result"]["is_error"], false, "{answer}");
     assert_eq!(f.desktop.events().iter().filter(|e| matches!(e, Event::Click { .. })).count(), 1);
 }
 
 #[test]
-fn attaching_cancels_queued_expiry_and_preserves_retry_deduplication() {
+fn attaching_cancels_queued_expiry_and_preserves_shown_ids() {
     let f = fixture("dattach", None);
     let mut client = Client::connect(&f.path);
-    let (original, release) = queue_expiry_after_cached_click(&f, &mut client);
+    let (element, release) = queue_expiry_after_shown_element(&f, &mut client);
     client.send(&json!({"id": 3, "method": "session/attach", "session": "cli"}));
     assert_eq!(client.recv()["id"], 3);
     let (finished, expiry_ran) = std::sync::mpsc::channel();
     f.server.as_ref().unwrap().shared.lanes.submit("cli", move || finished.send(()).unwrap());
     release.send(()).unwrap();
-    // Wait for the queued expiry before the retry: that retry must not be
+    // Wait for the queued expiry before the click: that click must not be
     // what invalidates the ticket in this test of attachment alone.
     expiry_ran.recv_timeout(Duration::from_secs(10)).unwrap();
-    client.call(4, "cli", "click", json!({"window_id": "1", "element_id": "e1"}), Some("once"));
-    assert_eq!(client.recv()["result"], original);
+    client.call(
+        4,
+        "cli",
+        "click",
+        json!({"window_id": "1", "element_id": element}),
+        Some("after-expiry"),
+    );
+    let answer = client.recv();
+    assert_eq!(answer["result"]["is_error"], false, "{answer}");
     assert_eq!(f.desktop.events().iter().filter(|e| matches!(e, Event::Click { .. })).count(), 1);
 }
