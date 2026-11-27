@@ -605,17 +605,26 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let path = dir.path().join("phone-frames.jsonl");
         let (_links, phone, sender, receiver) = stalled_phone().await;
-        // A clock probe (its answer cannot go out), then a pan line, then the phone closes.
+        let served = {
+            let path = path.clone();
+            tokio::spawn(async move { serve("phone-frames-stalled", &path, &sender, receiver).await })
+        };
+        // A clock probe (its answer cannot go out), then a pan line. The phone stays open: a
+        // close would end the blocked answer as `Closed`, not show the loop moving past it.
+        let started = tokio::time::Instant::now();
         phone.send(br#"{"kind":"clock","t0":1000.0}"#.to_vec()).await.unwrap();
         let pan = br#"{"kind":"scrollback","expected_ms":16.67,"intervals_ms":[16.6,16.7,16.7,16.6]}"#;
         phone.send(pan.to_vec()).await.unwrap();
-        phone.close("done", "test").await;
-        let started = tokio::time::Instant::now();
-        let served = serve("phone-frames-stalled", &path, &sender, receiver).await;
-        assert!(served.is_ok(), "{served:?}");
+        while !path.exists() {
+            assert!(started.elapsed() <= PAINT_ANSWER_WAIT * 2, "the pan after the probe was not recorded");
+            tokio::time::sleep(std::time::Duration::from_millis(5)).await;
+        }
         // One dropped answer's wait, not a wait on the phone.
-        assert!(started.elapsed() <= PAINT_ANSWER_WAIT * 2, "{:?}", started.elapsed());
-        let text = std::fs::read_to_string(&path).expect("the pan after the probe was recorded");
+        assert!(started.elapsed() >= PAINT_ANSWER_WAIT, "{:?}", started.elapsed());
+        let text = std::fs::read_to_string(&path).unwrap();
         assert_eq!(text.lines().count(), 1, "{text}");
+        phone.close("done", "test").await;
+        let served = tokio::time::timeout(PAINT_ANSWER_WAIT, served).await.expect("serve ends on close");
+        assert!(served.unwrap().is_ok());
     }
 }
