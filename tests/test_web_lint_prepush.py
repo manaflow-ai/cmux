@@ -980,7 +980,15 @@ class WebLintPrePushTests(unittest.TestCase):
     def test_new_only_charges_a_red_with_nothing_to_compare(self):
         # A check that fails on the base and here but prints no finding (nothing, or only a run's totals) explains
         # nothing; matching two empty lists must not pass it off as the base's red.
-        for name, prints in (("empty", ""), ("only noise", "echo 'Found 0 errors and 0 warnings in 1 files'")):
+        timings = (
+            "[PLUGIN_TIMINGS] JavaScript callbacks ran for 1.2s of this 3.8s build (31%).\n"
+            "The slowest callbacks, timed inside each callback (the wait before a callback starts is excluded, "
+            "the time it awaits is included):\n"
+            "  - plugin externalize-deps resolveId (31%, 1.2s, 63 calls)\n"
+            "See https://rolldown.rs/reference/InputOptions.checks#bundlertimings for more details.\n"
+        )
+        for name, prints in (("empty", ""), ("only noise", "echo 'Found 0 errors and 0 warnings in 1 files'"),
+                             ("only plugin timings", f"cat <<'TIMINGS'\n{timings}TIMINGS")):
             with self.subTest(output=name):
                 self.write("webviews/check-lanes.sh",
                            f"#!/bin/sh\nif grep -rl 'SILENT_RED' src >/dev/null 2>&1; then {prints}\nexit 1; fi\n")
