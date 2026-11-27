@@ -46,6 +46,14 @@ const REFRESH_CALL = /\n {2}performReactRefresh\(\)\n\}, 16\)/;
 /// message task (never throttled as a DOM timer is), after which REFRESHED_EVENT fires. Undefined
 /// when the runtime no longer reads as expected (then it is served as it is).
 export function refreshRuntimeWithoutTimer(code: string): string | undefined {
+  // refreshNow runs before this post plugin. Preserve its microtask batching and add only the
+  // timing mark; matching the original debounce alone would silently lose refresh measurements.
+  if (code.includes("cmux (webviews/dev-server/refreshNow.ts)") && code.includes("\n  performReactRefresh()")) {
+    return code.replace(
+      "\n  performReactRefresh()",
+      `\n  performReactRefresh()\n  window.dispatchEvent(new Event(${JSON.stringify(REFRESHED_EVENT)}))`,
+    );
+  }
   if (!DEBOUNCE.test(code) || !REFRESH_CALL.test(code)) return undefined;
   return code
     .replace(
