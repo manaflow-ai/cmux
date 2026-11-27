@@ -361,6 +361,7 @@ test "every generated optional non-null field rejects explicit null" {
     try expectExplicitNullRejected(protocol.Tree, "pane_revision");
     try expectExplicitNullRejected(protocol.Tree, "registry_id");
     try expectExplicitNullRejected(protocol.Tree, "removed");
+    try expectExplicitNullRejected(protocol.Tree, "saved_tab_groups");
     try expectExplicitNullRejected(protocol.Tree, "seq");
     try expectExplicitNullRejected(protocol.Tree, "terminal_revision");
     try expectExplicitNullRejected(protocol.Tree, "total");
@@ -381,6 +382,7 @@ test "every generated optional non-null field rejects explicit null" {
     try expectExplicitNullRejected(protocol.Workspace, "short_id");
     try expectExplicitNullRejected(protocol.Workspace, "unread_count");
     try expectExplicitNullRejected(protocol.WorkspaceFirstTabBrowser, "activate");
+    try expectExplicitNullRejected(protocol.WorkspaceGroup, "pinned");
     try expectExplicitNullRejected(protocol.WorkspaceMutationResult, "changed");
     try expectExplicitNullRejected(protocol.WorkspaceMutationResult, "closed_ids");
     try expectExplicitNullRejected(protocol.WorkspaceMutationResult, "first_tab");

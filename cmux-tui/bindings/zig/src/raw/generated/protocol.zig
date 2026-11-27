@@ -7,7 +7,7 @@ const client_runtime = @import("../client.zig");
 
 pub const schema_version: u16 = 2;
 pub const mux_protocol: u16 = 12;
-pub const ir_sha256 = "29ad0bf578951617eae19a038a8790285ea123676fb858658fae26250b554a8c";
+pub const ir_sha256 = "2d49bc388a33c7dfebbdfaf6baa961f2332441e14d73cfe86ed2025e1857f318";
 
 pub const ActivitySnapshot = struct {
     attached_clients: u32,
@@ -3757,6 +3757,8 @@ pub const Tree = struct {
     pane_revision: ?u64 = null,
     registry_id: ?[]const u8 = null,
     removed: ?[]const Id = null,
+    /// Legacy inline saved groups accepted by tree readers; current daemons provide these through list-saved-tab-groups.
+    saved_tab_groups: ?[]const SavedTabGroupRecord = null,
     seq: ?u64 = null,
     terminal_revision: ?u64 = null,
     total: ?u64 = null,
@@ -3777,6 +3779,7 @@ pub const Tree = struct {
         "pane_revision",
         "registry_id",
         "removed",
+        "saved_tab_groups",
         "seq",
         "terminal_revision",
         "total",
@@ -3947,9 +3950,21 @@ pub const WorkspaceFirstTab = union(enum) {
 pub const WorkspaceGroup = struct {
     collapsed: bool,
     color: wire.Nullable([]const u8),
+    /// workspace-group-icon-v1: the group's icon (one emoji, an SF Symbol name or a stored image), in list-personal's groups.
+    icon: wire.Field([]const u8) = .absent,
     id: []const u8,
     index: u64,
     name: []const u8,
+    /// workspace-group-pin-v1: a pinned group stays as an empty saved group when its workspaces close, in list-personal's groups.
+    pinned: ?bool = null,
+    /// profiles-v1: the room of a personal group, in list-personal's groups; list-workspaces leaves it out.
+    profile: wire.Field([]const u8) = .absent,
+    /// personal-mixed-order-v1: the personal workspace index the group shows right before, in list-personal's groups; null after every loose workspace.
+    top_index: wire.Field(u64) = .absent,
+
+    pub const cmux_wire_optional_nonnull_fields = [_][]const u8{
+        "pinned",
+    };
 };
 
 pub const WorkspaceMutationResult = struct {

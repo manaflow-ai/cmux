@@ -442,6 +442,27 @@ def read_bindings(objects: dict[str, Any]) -> dict[str, Any]:
 class ReadTypeTests(unittest.TestCase):
     """`objects`: result and snapshot types the app decodes, generated from schema objects or command results."""
 
+    def test_union_snapshot_keeps_variant_fields_and_common_required_identity(self) -> None:
+        document = layout_document()
+        document["types"]["DeadState"] = {
+            "kind": "object", "fields": {"pane": _field(ID),
+                "dead": _field({"kind": "literal", "value": True})}, "additional_properties": False}
+        document["types"]["PaneState"] = {"kind": "untagged_union", "variants": [
+            {"kind": "ref", "name": "ZoomPaneResult"}, {"kind": "ref", "name": "DeadState"}]}
+        binding = {"type": "PaneState", "flatten_union": True,
+                   "fields": {"dead": {"type": "Bool", "default": "false"}}}
+        source = rendered(document, read_bindings({"State": binding}))["Layout/State.generated.swift"]
+        self.assertIn("public var pane: PaneID\n", source)
+        self.assertIn("public var zoomed: Bool?\n", source)
+        self.assertIn("public var dead: Bool\n", source)
+        self.assertIn("dead = try container.decodeIfPresent(Bool.self, forKey: .dead) ?? false", source)
+        with self.subTest("encoding a flattened union is refused"), self.assertRaises(BindingError):
+            rendered(document, read_bindings({"State": {**binding, "conformances": ["Codable"]}}))
+        document["types"]["DeadState"]["fields"]["pane"]["type"] = {"kind": "scalar", "name": "string"}
+        with self.subTest("incompatible common fields are refused"), self.assertRaisesRegex(
+                BindingError, "incompatible field types"):
+            rendered(document, read_bindings({"State": binding}))
+
     def test_a_schema_object_becomes_a_decodable_struct_with_init_and_wire_keys(self) -> None:
         files = rendered(bindings=read_bindings({"ZoomState": {"type": "ZoomPaneResult", "doc": ["Zoom."]}}))
         source = files["Layout/ZoomState.generated.swift"]
@@ -473,6 +494,17 @@ class ReadTypeTests(unittest.TestCase):
             "zoomed = (((try? container.decodeIfPresent(Bool.self, forKey: .zoomed)) ?? nil)) ?? false", source)
         self.assertIn(
             "zoomedPane = ((try? container.decodeIfPresent(PaneID.self, forKey: .zoomedPane)) ?? nil)", source)
+
+    def test_a_decimal_uint64_string_reads_as_uint64_or_a_bare_number(self) -> None:
+        document = layout_document()
+        document["types"]["ZoomPaneResult"]["fields"]["revision"] = _field(
+            {"kind": "scalar", "name": "string"}, required=False, constraints=[{"format": "decimal uint64"}])
+        files = rendered(document, read_bindings({"ZoomState": {
+            "type": "ZoomPaneResult", "fields": {"revision": {"type": "UInt64", "default": "0"}}}}))
+        self.assertIn(
+            "revision = (((try? container.decodeIfPresent(String.self, forKey: .revision)) ?? nil)"
+            ".flatMap { UInt64($0) } ?? ((try? container.decodeIfPresent(UInt64.self, forKey: .revision)) ?? nil))"
+            " ?? 0", files["Layout/ZoomState.generated.swift"])
 
     def test_when_reads_a_field_only_under_its_condition(self) -> None:
         files = rendered(bindings=read_bindings({"ZoomState": {

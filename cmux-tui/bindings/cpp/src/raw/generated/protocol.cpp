@@ -17957,6 +17957,11 @@ Result<Json> Codec<Tree>::encode(const Tree& value) {
         if (!encoded) return std::move(encoded).error();
         object.emplace("removed", std::move(encoded).value());
     }
+    if (value.saved_tab_groups) {
+        auto encoded = encode_value(*value.saved_tab_groups);
+        if (!encoded) return std::move(encoded).error();
+        object.emplace("saved_tab_groups", std::move(encoded).value());
+    }
     if (value.seq) {
         auto encoded = encode_value(*value.seq);
         if (!encoded) return std::move(encoded).error();
@@ -18062,6 +18067,12 @@ Result<Tree> Codec<Tree>::decode(const Json& value) {
         auto decoded = decode_value<std::vector<Id>>(*field_removed);
         if (!decoded) return std::move(decoded).error();
         result.removed = std::move(decoded).value();
+    }
+    const Json* field_saved_tab_groups = value.find("saved_tab_groups");
+    if (field_saved_tab_groups) {
+        auto decoded = decode_value<std::vector<SavedTabGroupRecord>>(*field_saved_tab_groups);
+        if (!decoded) return std::move(decoded).error();
+        result.saved_tab_groups = std::move(decoded).value();
     }
     const Json* field_seq = value.find("seq");
     if (field_seq) {
@@ -18607,6 +18618,11 @@ Result<Json> Codec<WorkspaceGroup>::encode(const WorkspaceGroup& value) {
     } else {
         object.emplace("color", Json(nullptr));
     }
+    if (!value.icon.is_absent()) {
+        auto encoded = encode_value(value.icon);
+        if (!encoded) return std::move(encoded).error();
+        object.emplace("icon", std::move(encoded).value());
+    }
     auto encoded_id = encode_value(value.id);
     if (!encoded_id) return std::move(encoded_id).error();
     object.emplace("id", std::move(encoded_id).value());
@@ -18616,6 +18632,21 @@ Result<Json> Codec<WorkspaceGroup>::encode(const WorkspaceGroup& value) {
     auto encoded_name = encode_value(value.name);
     if (!encoded_name) return std::move(encoded_name).error();
     object.emplace("name", std::move(encoded_name).value());
+    if (value.pinned) {
+        auto encoded = encode_value(*value.pinned);
+        if (!encoded) return std::move(encoded).error();
+        object.emplace("pinned", std::move(encoded).value());
+    }
+    if (!value.profile.is_absent()) {
+        auto encoded = encode_value(value.profile);
+        if (!encoded) return std::move(encoded).error();
+        object.emplace("profile", std::move(encoded).value());
+    }
+    if (!value.top_index.is_absent()) {
+        auto encoded = encode_value(value.top_index);
+        if (!encoded) return std::move(encoded).error();
+        object.emplace("top_index", std::move(encoded).value());
+    }
     return Json(std::move(object));
 }
 
@@ -18645,6 +18676,16 @@ Result<WorkspaceGroup> Codec<WorkspaceGroup>::decode(const Json& value) {
             result.color = std::move(decoded).value();
         }
     }
+    const Json* field_icon = value.find("icon");
+    if (field_icon) {
+        if (field_icon->is_null()) {
+            result.icon = Field<std::string>::null();
+        } else {
+            auto decoded = decode_value<std::string>(*field_icon);
+            if (!decoded) return std::move(decoded).error();
+            result.icon = Field<std::string>(std::move(decoded).value());
+        }
+    }
     const Json* field_id = value.find("id");
     if (!field_id) {
         return make_error(ErrorCode::decode, "missing required field 'id'");
@@ -18671,6 +18712,32 @@ Result<WorkspaceGroup> Codec<WorkspaceGroup>::decode(const Json& value) {
         auto decoded = decode_value<std::string>(*field_name);
         if (!decoded) return std::move(decoded).error();
         result.name = std::move(decoded).value();
+    }
+    const Json* field_pinned = value.find("pinned");
+    if (field_pinned) {
+        auto decoded = decode_value<bool>(*field_pinned);
+        if (!decoded) return std::move(decoded).error();
+        result.pinned = std::move(decoded).value();
+    }
+    const Json* field_profile = value.find("profile");
+    if (field_profile) {
+        if (field_profile->is_null()) {
+            result.profile = Field<std::string>::null();
+        } else {
+            auto decoded = decode_value<std::string>(*field_profile);
+            if (!decoded) return std::move(decoded).error();
+            result.profile = Field<std::string>(std::move(decoded).value());
+        }
+    }
+    const Json* field_top_index = value.find("top_index");
+    if (field_top_index) {
+        if (field_top_index->is_null()) {
+            result.top_index = Field<std::uint64_t>::null();
+        } else {
+            auto decoded = decode_value<std::uint64_t>(*field_top_index);
+            if (!decoded) return std::move(decoded).error();
+            result.top_index = Field<std::uint64_t>(std::move(decoded).value());
+        }
     }
     return result;
 }

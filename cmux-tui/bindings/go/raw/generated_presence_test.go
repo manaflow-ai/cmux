@@ -10481,6 +10481,28 @@ func TestGeneratedSchemaPresenceRoundTrips(t *testing.T) {
 		}
 		assertGeneratedFieldJSON(t, presentValue, "removed", true, "[]")
 	})
+	t.Run("Tree.SavedTabGroups", func(t *testing.T) {
+		var missing Tree
+		if err := json.Unmarshal([]byte("{\"workspaces\":[]}"), &missing); err != nil {
+			t.Fatal(err)
+		}
+		if missing.SavedTabGroups != nil {
+			t.Fatal("SavedTabGroups did not preserve absence")
+		}
+		assertGeneratedFieldJSON(t, missing, "saved_tab_groups", false, "")
+		var nullValue Tree
+		if err := json.Unmarshal([]byte("{\"workspaces\":[],\"saved_tab_groups\":null}"), &nullValue); err == nil {
+			t.Fatal("non-nullable field saved_tab_groups accepted null")
+		}
+		var presentValue Tree
+		if err := json.Unmarshal([]byte("{\"workspaces\":[],\"saved_tab_groups\":[]}"), &presentValue); err != nil {
+			t.Fatal(err)
+		}
+		if presentValue.SavedTabGroups == nil {
+			t.Fatal("SavedTabGroups lost its value")
+		}
+		assertGeneratedFieldJSON(t, presentValue, "saved_tab_groups", true, "[]")
+	})
 	t.Run("Tree.Seq", func(t *testing.T) {
 		var missing Tree
 		if err := json.Unmarshal([]byte("{\"workspaces\":[]}"), &missing); err != nil {
@@ -11280,6 +11302,106 @@ func TestGeneratedSchemaPresenceRoundTrips(t *testing.T) {
 			t.Fatal("Color did not preserve a required value")
 		}
 		assertGeneratedFieldJSON(t, presentValue, "color", true, "\"value\"")
+	})
+	t.Run("WorkspaceGroup.Icon", func(t *testing.T) {
+		var missing WorkspaceGroup
+		if err := json.Unmarshal([]byte("{\"collapsed\":true,\"color\":null,\"id\":\"value\",\"index\":1,\"name\":\"value\"}"), &missing); err != nil {
+			t.Fatal(err)
+		}
+		if !missing.Icon.IsAbsent() {
+			t.Fatal("Icon did not preserve absence")
+		}
+		assertGeneratedFieldJSON(t, missing, "icon", false, "")
+		var nullValue WorkspaceGroup
+		if err := json.Unmarshal([]byte("{\"collapsed\":true,\"color\":null,\"id\":\"value\",\"index\":1,\"name\":\"value\",\"icon\":null}"), &nullValue); err != nil {
+			t.Fatal(err)
+		}
+		if !nullValue.Icon.IsNull() {
+			t.Fatal("Icon did not preserve null")
+		}
+		assertGeneratedFieldJSON(t, nullValue, "icon", true, "null")
+		var presentValue WorkspaceGroup
+		if err := json.Unmarshal([]byte("{\"collapsed\":true,\"color\":null,\"id\":\"value\",\"index\":1,\"name\":\"value\",\"icon\":\"value\"}"), &presentValue); err != nil {
+			t.Fatal(err)
+		}
+		if _, ok := presentValue.Icon.Get(); !ok {
+			t.Fatal("Icon did not preserve a value")
+		}
+		assertGeneratedFieldJSON(t, presentValue, "icon", true, "\"value\"")
+	})
+	t.Run("WorkspaceGroup.Pinned", func(t *testing.T) {
+		var missing WorkspaceGroup
+		if err := json.Unmarshal([]byte("{\"collapsed\":true,\"color\":null,\"id\":\"value\",\"index\":1,\"name\":\"value\"}"), &missing); err != nil {
+			t.Fatal(err)
+		}
+		if missing.Pinned != nil {
+			t.Fatal("Pinned did not preserve absence")
+		}
+		assertGeneratedFieldJSON(t, missing, "pinned", false, "")
+		var nullValue WorkspaceGroup
+		if err := json.Unmarshal([]byte("{\"collapsed\":true,\"color\":null,\"id\":\"value\",\"index\":1,\"name\":\"value\",\"pinned\":null}"), &nullValue); err == nil {
+			t.Fatal("non-nullable field pinned accepted null")
+		}
+		var presentValue WorkspaceGroup
+		if err := json.Unmarshal([]byte("{\"collapsed\":true,\"color\":null,\"id\":\"value\",\"index\":1,\"name\":\"value\",\"pinned\":true}"), &presentValue); err != nil {
+			t.Fatal(err)
+		}
+		if presentValue.Pinned == nil {
+			t.Fatal("Pinned lost its value")
+		}
+		assertGeneratedFieldJSON(t, presentValue, "pinned", true, "true")
+	})
+	t.Run("WorkspaceGroup.Profile", func(t *testing.T) {
+		var missing WorkspaceGroup
+		if err := json.Unmarshal([]byte("{\"collapsed\":true,\"color\":null,\"id\":\"value\",\"index\":1,\"name\":\"value\"}"), &missing); err != nil {
+			t.Fatal(err)
+		}
+		if !missing.Profile.IsAbsent() {
+			t.Fatal("Profile did not preserve absence")
+		}
+		assertGeneratedFieldJSON(t, missing, "profile", false, "")
+		var nullValue WorkspaceGroup
+		if err := json.Unmarshal([]byte("{\"collapsed\":true,\"color\":null,\"id\":\"value\",\"index\":1,\"name\":\"value\",\"profile\":null}"), &nullValue); err != nil {
+			t.Fatal(err)
+		}
+		if !nullValue.Profile.IsNull() {
+			t.Fatal("Profile did not preserve null")
+		}
+		assertGeneratedFieldJSON(t, nullValue, "profile", true, "null")
+		var presentValue WorkspaceGroup
+		if err := json.Unmarshal([]byte("{\"collapsed\":true,\"color\":null,\"id\":\"value\",\"index\":1,\"name\":\"value\",\"profile\":\"value\"}"), &presentValue); err != nil {
+			t.Fatal(err)
+		}
+		if _, ok := presentValue.Profile.Get(); !ok {
+			t.Fatal("Profile did not preserve a value")
+		}
+		assertGeneratedFieldJSON(t, presentValue, "profile", true, "\"value\"")
+	})
+	t.Run("WorkspaceGroup.TopIndex", func(t *testing.T) {
+		var missing WorkspaceGroup
+		if err := json.Unmarshal([]byte("{\"collapsed\":true,\"color\":null,\"id\":\"value\",\"index\":1,\"name\":\"value\"}"), &missing); err != nil {
+			t.Fatal(err)
+		}
+		if !missing.TopIndex.IsAbsent() {
+			t.Fatal("TopIndex did not preserve absence")
+		}
+		assertGeneratedFieldJSON(t, missing, "top_index", false, "")
+		var nullValue WorkspaceGroup
+		if err := json.Unmarshal([]byte("{\"collapsed\":true,\"color\":null,\"id\":\"value\",\"index\":1,\"name\":\"value\",\"top_index\":null}"), &nullValue); err != nil {
+			t.Fatal(err)
+		}
+		if !nullValue.TopIndex.IsNull() {
+			t.Fatal("TopIndex did not preserve null")
+		}
+		assertGeneratedFieldJSON(t, nullValue, "top_index", true, "null")
+		var presentValue WorkspaceGroup
+		if err := json.Unmarshal([]byte("{\"collapsed\":true,\"color\":null,\"id\":\"value\",\"index\":1,\"name\":\"value\",\"top_index\":1}"), &presentValue); err != nil {
+			t.Fatal(err)
+		}
+		if _, ok := presentValue.TopIndex.Get(); !ok {
+			t.Fatal("TopIndex did not preserve a value")
+		}
+		assertGeneratedFieldJSON(t, presentValue, "top_index", true, "1")
 	})
 	t.Run("WorkspaceMutationResult.Changed", func(t *testing.T) {
 		var missing WorkspaceMutationResult
@@ -70000,10 +70122,10 @@ func TestGeneratedConstrainedFieldsRejectUnknownValuesOnMarshal(t *testing.T) {
 }
 
 const (
-	generatedFieldShapeCount               = 1971
-	generatedOptionalNullableFieldCount    = 1365
+	generatedFieldShapeCount               = 1976
+	generatedOptionalNullableFieldCount    = 1368
 	generatedRequiredNullableFieldCount    = 178
-	generatedOptionalNonnullableFieldCount = 428
+	generatedOptionalNonnullableFieldCount = 430
 	generatedRequiredFieldCount            = 1662
 	generatedRequiredNonnullableFieldCount = 1484
 	generatedConstrainedFieldCount         = 139

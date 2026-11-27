@@ -18840,19 +18840,21 @@ type Tree struct {
 	// The sidebar workspace groups.
 	Groups *[]WorkspaceGroup `json:"groups,omitempty"`
 	// How many lines the connection had written when the tree was read: a later line may carry a change the tree lacks.
-	LinesWrittenBeforeRead *uint64     `json:"lines_written_before_read,omitempty"`
-	Next                   *uint64     `json:"next,omitempty"`
-	Order                  *[]ID       `json:"order,omitempty"`
-	PaneRevision           *uint64     `json:"pane_revision,omitempty"`
-	RegistryID             *string     `json:"registry_id,omitempty"`
-	Removed                *[]ID       `json:"removed,omitempty"`
-	Seq                    *uint64     `json:"seq,omitempty"`
-	TerminalRevision       *uint64     `json:"terminal_revision,omitempty"`
-	Total                  *uint64     `json:"total,omitempty"`
-	TreeRevision           *string     `json:"tree_revision,omitempty"`
-	Unchanged              *bool       `json:"unchanged,omitempty"`
-	WorkspaceRevision      *uint64     `json:"workspace_revision,omitempty"`
-	Workspaces             []Workspace `json:"workspaces"`
+	LinesWrittenBeforeRead *uint64 `json:"lines_written_before_read,omitempty"`
+	Next                   *uint64 `json:"next,omitempty"`
+	Order                  *[]ID   `json:"order,omitempty"`
+	PaneRevision           *uint64 `json:"pane_revision,omitempty"`
+	RegistryID             *string `json:"registry_id,omitempty"`
+	Removed                *[]ID   `json:"removed,omitempty"`
+	// Legacy inline saved groups accepted by tree readers; current daemons provide these through list-saved-tab-groups.
+	SavedTabGroups    *[]SavedTabGroupRecord `json:"saved_tab_groups,omitempty"`
+	Seq               *uint64                `json:"seq,omitempty"`
+	TerminalRevision  *uint64                `json:"terminal_revision,omitempty"`
+	Total             *uint64                `json:"total,omitempty"`
+	TreeRevision      *string                `json:"tree_revision,omitempty"`
+	Unchanged         *bool                  `json:"unchanged,omitempty"`
+	WorkspaceRevision *uint64                `json:"workspace_revision,omitempty"`
+	Workspaces        []Workspace            `json:"workspaces"`
 }
 
 func (value *Tree) UnmarshalJSON(data []byte) error {
@@ -18860,24 +18862,25 @@ func (value *Tree) UnmarshalJSON(data []byte) error {
 		return fmt.Errorf("decode Tree: expected object")
 	}
 	var fields struct {
-		Changed                optionalNonNullJSON[[]Workspace]      `json:"changed"`
-		Delta                  optionalNonNullJSON[bool]             `json:"delta"`
-		Epoch                  optionalNonNullJSON[string]           `json:"epoch"`
-		Generation             optionalNonNullJSON[string]           `json:"generation"`
-		Groups                 optionalNonNullJSON[[]WorkspaceGroup] `json:"groups"`
-		LinesWrittenBeforeRead optionalNonNullJSON[uint64]           `json:"lines_written_before_read"`
-		Next                   optionalNonNullJSON[uint64]           `json:"next"`
-		Order                  optionalNonNullJSON[[]ID]             `json:"order"`
-		PaneRevision           optionalNonNullJSON[uint64]           `json:"pane_revision"`
-		RegistryID             optionalNonNullJSON[string]           `json:"registry_id"`
-		Removed                optionalNonNullJSON[[]ID]             `json:"removed"`
-		Seq                    optionalNonNullJSON[uint64]           `json:"seq"`
-		TerminalRevision       optionalNonNullJSON[uint64]           `json:"terminal_revision"`
-		Total                  optionalNonNullJSON[uint64]           `json:"total"`
-		TreeRevision           optionalNonNullJSON[string]           `json:"tree_revision"`
-		Unchanged              optionalNonNullJSON[bool]             `json:"unchanged"`
-		WorkspaceRevision      optionalNonNullJSON[uint64]           `json:"workspace_revision"`
-		Workspaces             *[]Workspace                          `json:"workspaces"`
+		Changed                optionalNonNullJSON[[]Workspace]           `json:"changed"`
+		Delta                  optionalNonNullJSON[bool]                  `json:"delta"`
+		Epoch                  optionalNonNullJSON[string]                `json:"epoch"`
+		Generation             optionalNonNullJSON[string]                `json:"generation"`
+		Groups                 optionalNonNullJSON[[]WorkspaceGroup]      `json:"groups"`
+		LinesWrittenBeforeRead optionalNonNullJSON[uint64]                `json:"lines_written_before_read"`
+		Next                   optionalNonNullJSON[uint64]                `json:"next"`
+		Order                  optionalNonNullJSON[[]ID]                  `json:"order"`
+		PaneRevision           optionalNonNullJSON[uint64]                `json:"pane_revision"`
+		RegistryID             optionalNonNullJSON[string]                `json:"registry_id"`
+		Removed                optionalNonNullJSON[[]ID]                  `json:"removed"`
+		SavedTabGroups         optionalNonNullJSON[[]SavedTabGroupRecord] `json:"saved_tab_groups"`
+		Seq                    optionalNonNullJSON[uint64]                `json:"seq"`
+		TerminalRevision       optionalNonNullJSON[uint64]                `json:"terminal_revision"`
+		Total                  optionalNonNullJSON[uint64]                `json:"total"`
+		TreeRevision           optionalNonNullJSON[string]                `json:"tree_revision"`
+		Unchanged              optionalNonNullJSON[bool]                  `json:"unchanged"`
+		WorkspaceRevision      optionalNonNullJSON[uint64]                `json:"workspace_revision"`
+		Workspaces             *[]Workspace                               `json:"workspaces"`
 	}
 	if err := json.Unmarshal(data, &fields); err != nil {
 		return fmt.Errorf("decode Tree: %w", err)
@@ -18949,6 +18952,12 @@ func (value *Tree) UnmarshalJSON(data []byte) error {
 	}
 	if fields.Removed.set {
 		decoded.Removed = &fields.Removed.value
+	}
+	if fields.SavedTabGroups.null {
+		return fmt.Errorf("decode Tree: non-nullable field saved_tab_groups is null")
+	}
+	if fields.SavedTabGroups.set {
+		decoded.SavedTabGroups = &fields.SavedTabGroups.value
 	}
 	if fields.Seq.null {
 		return fmt.Errorf("decode Tree: non-nullable field seq is null")
@@ -19763,9 +19772,17 @@ func (value WorkspaceFirstTab) AsBrowser() (WorkspaceFirstTabBrowser, bool) {
 type WorkspaceGroup struct {
 	Collapsed bool                     `json:"collapsed"`
 	Color     RequiredNullable[string] `json:"-"`
-	ID        string                   `json:"id"`
-	Index     uint64                   `json:"index"`
-	Name      string                   `json:"name"`
+	// workspace-group-icon-v1: the group's icon (one emoji, an SF Symbol name or a stored image), in list-personal's groups.
+	Icon  Presence[string] `json:"-"`
+	ID    string           `json:"id"`
+	Index uint64           `json:"index"`
+	Name  string           `json:"name"`
+	// workspace-group-pin-v1: a pinned group stays as an empty saved group when its workspaces close, in list-personal's groups.
+	Pinned *bool `json:"pinned,omitempty"`
+	// profiles-v1: the room of a personal group, in list-personal's groups; list-workspaces leaves it out.
+	Profile Presence[string] `json:"-"`
+	// personal-mixed-order-v1: the personal workspace index the group shows right before, in list-personal's groups; null after every loose workspace.
+	TopIndex Presence[uint64] `json:"-"`
 }
 
 func (value WorkspaceGroup) MarshalJSON() ([]byte, error) {
@@ -19791,6 +19808,42 @@ func (value WorkspaceGroup) MarshalJSON() ([]byte, error) {
 		}
 		object["color"] = encodedField
 	}
+	if value.Icon.IsAbsent() {
+		delete(object, "icon")
+	} else if value.Icon.IsNull() {
+		object["icon"] = json.RawMessage("null")
+	} else {
+		fieldValue, _ := value.Icon.Get()
+		encodedField, err := json.Marshal(fieldValue)
+		if err != nil {
+			return nil, fmt.Errorf("encode WorkspaceGroup.Icon: %w", err)
+		}
+		object["icon"] = encodedField
+	}
+	if value.Profile.IsAbsent() {
+		delete(object, "profile")
+	} else if value.Profile.IsNull() {
+		object["profile"] = json.RawMessage("null")
+	} else {
+		fieldValue, _ := value.Profile.Get()
+		encodedField, err := json.Marshal(fieldValue)
+		if err != nil {
+			return nil, fmt.Errorf("encode WorkspaceGroup.Profile: %w", err)
+		}
+		object["profile"] = encodedField
+	}
+	if value.TopIndex.IsAbsent() {
+		delete(object, "top_index")
+	} else if value.TopIndex.IsNull() {
+		object["top_index"] = json.RawMessage("null")
+	} else {
+		fieldValue, _ := value.TopIndex.Get()
+		encodedField, err := json.Marshal(fieldValue)
+		if err != nil {
+			return nil, fmt.Errorf("encode WorkspaceGroup.TopIndex: %w", err)
+		}
+		object["top_index"] = encodedField
+	}
 	return json.Marshal(object)
 }
 
@@ -19799,11 +19852,15 @@ func (value *WorkspaceGroup) UnmarshalJSON(data []byte) error {
 		return fmt.Errorf("decode WorkspaceGroup: expected object")
 	}
 	var fields struct {
-		Collapsed *bool                    `json:"collapsed"`
-		Color     RequiredNullable[string] `json:"color"`
-		ID        *string                  `json:"id"`
-		Index     *uint64                  `json:"index"`
-		Name      *string                  `json:"name"`
+		Collapsed *bool                     `json:"collapsed"`
+		Color     RequiredNullable[string]  `json:"color"`
+		Icon      Presence[string]          `json:"icon"`
+		ID        *string                   `json:"id"`
+		Index     *uint64                   `json:"index"`
+		Name      *string                   `json:"name"`
+		Pinned    optionalNonNullJSON[bool] `json:"pinned"`
+		Profile   Presence[string]          `json:"profile"`
+		TopIndex  Presence[uint64]          `json:"top_index"`
 	}
 	if err := json.Unmarshal(data, &fields); err != nil {
 		return fmt.Errorf("decode WorkspaceGroup: %w", err)
@@ -19818,6 +19875,7 @@ func (value *WorkspaceGroup) UnmarshalJSON(data []byte) error {
 		return fmt.Errorf("decode WorkspaceGroup: required field color is missing")
 	}
 	decoded.Color = fields.Color
+	decoded.Icon = fields.Icon
 	if fields.ID == nil {
 		return fmt.Errorf("decode WorkspaceGroup: required field id is missing or null")
 	}
@@ -19830,6 +19888,14 @@ func (value *WorkspaceGroup) UnmarshalJSON(data []byte) error {
 		return fmt.Errorf("decode WorkspaceGroup: required field name is missing or null")
 	}
 	decoded.Name = *fields.Name
+	if fields.Pinned.null {
+		return fmt.Errorf("decode WorkspaceGroup: non-nullable field pinned is null")
+	}
+	if fields.Pinned.set {
+		decoded.Pinned = &fields.Pinned.value
+	}
+	decoded.Profile = fields.Profile
+	decoded.TopIndex = fields.TopIndex
 	*value = WorkspaceGroup(decoded)
 	return nil
 }

@@ -4,7 +4,7 @@
 
 export const SDK_SCHEMA_VERSION = 2 as const;
 export const MUX_PROTOCOL_VERSION = 12 as const;
-export const SDK_IR_SHA256 = "29ad0bf578951617eae19a038a8790285ea123676fb858658fae26250b554a8c" as const;
+export const SDK_IR_SHA256 = "2d49bc388a33c7dfebbdfaf6baa961f2332441e14d73cfe86ed2025e1857f318" as const;
 export const PROTOCOL = {
   "id_type": "uint64",
   "javascript_id_policy": "All protocol identifiers are uint64 JSON numbers. JavaScript and TypeScript SDKs must decode them losslessly as bigint (or validated decimal strings at their public boundary), and must not expose IEEE-754 number ids. Pairing request ids, revisions, timestamps, frame sequences, and reservation ids follow the same rule.",
@@ -17002,6 +17002,18 @@ export const TYPE_SCHEMAS: Readonly<Record<string, TypeSchema>> = {
           "kind": "array"
         }
       },
+      "saved_tab_groups": {
+        "description": "Legacy inline saved groups accepted by tree readers; current daemons provide these through list-saved-tab-groups.",
+        "nullable": false,
+        "presence": "optional",
+        "type": {
+          "items": {
+            "kind": "ref",
+            "name": "SavedTabGroupRecord"
+          },
+          "kind": "array"
+        }
+      },
       "seq": {
         "capability": "workspace-list-delta-v1",
         "constraints": [
@@ -17575,6 +17587,16 @@ export const TYPE_SCHEMAS: Readonly<Record<string, TypeSchema>> = {
           "name": "string"
         }
       },
+      "icon": {
+        "description": "workspace-group-icon-v1: the group's icon (one emoji, an SF Symbol name or a stored image), in list-personal's groups.",
+        "nullable": true,
+        "presence": "optional",
+        "since": 12,
+        "type": {
+          "kind": "scalar",
+          "name": "string"
+        }
+      },
       "id": {
         "nullable": false,
         "presence": "required",
@@ -17597,6 +17619,36 @@ export const TYPE_SCHEMAS: Readonly<Record<string, TypeSchema>> = {
         "type": {
           "kind": "scalar",
           "name": "string"
+        }
+      },
+      "pinned": {
+        "description": "workspace-group-pin-v1: a pinned group stays as an empty saved group when its workspaces close, in list-personal's groups.",
+        "nullable": false,
+        "presence": "optional",
+        "since": 12,
+        "type": {
+          "kind": "scalar",
+          "name": "boolean"
+        }
+      },
+      "profile": {
+        "description": "profiles-v1: the room of a personal group, in list-personal's groups; list-workspaces leaves it out.",
+        "nullable": true,
+        "presence": "optional",
+        "since": 12,
+        "type": {
+          "kind": "scalar",
+          "name": "string"
+        }
+      },
+      "top_index": {
+        "description": "personal-mixed-order-v1: the personal workspace index the group shows right before, in list-personal's groups; null after every loose workspace.",
+        "nullable": true,
+        "presence": "optional",
+        "since": 12,
+        "type": {
+          "kind": "scalar",
+          "name": "uint64"
         }
       }
     },
