@@ -470,7 +470,7 @@ mod trigger_quiet_tests;
 mod trust_wait;
 mod turn_attestation;
 pub(crate) mod turn_cap;
-pub(crate) mod turn_cost;
+mod turn_cost;
 pub(crate) mod turn_frames;
 mod turn_git;
 mod turn_retry;
