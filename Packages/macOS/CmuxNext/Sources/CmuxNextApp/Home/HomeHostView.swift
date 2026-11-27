@@ -143,6 +143,11 @@ final class HomeHostView: NSView, PaneCommitMotionPicture {
         }
         // A link pressed and moved: dragged into the layout's drop zones, a split or a pane opens it (LinkDragSession).
         transcript.onDragLink = { [weak services] url, point in services?.linkDrags.begin(url, screenPoint: point) ?? false }
+        // Sign in on a signed-out Chief's card: Claude's own login in a terminal tab, typed and run
+        // (`accounts.reauthenticate`, AIProvider.reauthPlan), never "open a terminal" in words.
+        transcript.onChiefSignIn = { agent in
+            _ = registry.perform("accounts.reauthenticate", invocation: ActionInvocation(arguments: ["provider": .string(agent)], origin: .user))
+        }
         // Forward… on a bubble: Send To… with its text (the palette asks where).
         transcript.onForward = { text in
             _ = registry.perform("home.sendSelectionTo", invocation: ActionInvocation(arguments: ["text": .string(text)], origin: .user))

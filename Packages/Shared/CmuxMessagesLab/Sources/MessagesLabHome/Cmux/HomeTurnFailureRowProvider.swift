@@ -2,13 +2,14 @@ import AppKit
 import CmuxHomeRender
 
 /// A failed Chief turn's card in the Home transcript (``HomeTurnFailure``): the plain-words
-/// sentence, then Retry (the Chief answers the person's message again), Copy error and Details,
+/// sentence, then Sign in (a signed-out agent: its own login in a terminal tab, run for the person),
+/// Retry (the Chief answers the person's message again), Copy error and Details,
 /// which opens the raw failure line under them. Drawn into the row bitmap like the approval card.
 final class HomeTurnFailureRowProvider: TranscriptCustomRowProvider {
     static let kind = "cmux.turnFailure"
 
     /// The card's buttons.
-    enum Action: String, Codable, Sendable { case retry, copy, details }
+    enum Action: String, Codable, Sendable { case signIn, retry, copy, details }
 
     /// The view's own state of one card (``HomeProjection`` keeps it per message).
     struct Local: Codable, Equatable, Sendable {
@@ -16,6 +17,9 @@ final class HomeTurnFailureRowProvider: TranscriptCustomRowProvider {
         var copied = false
         /// The Chief can answer again: a person's message comes before the card and retry is wired.
         var retry = false
+        /// The agent is signed out and the host can run its sign-in: Sign in shows first, so a person
+        /// never has to open a terminal and type `claude auth login` (P0 walk 2026-11-26, defect 2).
+        var signIn = false
     }
 
     struct Payload: Codable, Equatable {
@@ -57,6 +61,7 @@ final class HomeTurnFailureRowProvider: TranscriptCustomRowProvider {
 
     static func titles(_ p: Payload) -> [(Action, String)] {
         var titles: [(Action, String)] = []
+        if p.local.signIn { titles.append((.signIn, CmuxStrings.turnFailureSignIn)) }
         // retry-prompt-ok: re-runs a failed model turn (a paid request)
         if p.local.retry { titles.append((.retry, CmuxStrings.turnFailureRetry)) }
         titles.append((.copy, p.local.copied ? CmuxStrings.turnFailureCopied : CmuxStrings.turnFailureCopy))

@@ -107,7 +107,7 @@ fn a_rejected_env_api_key_says_to_remove_it() {
     let text =
         compose(&agent, &agent, Some("/bin/zsh"), "Failed to authenticate. API Error: 401", false);
     assert!(text.contains("remove ANTHROPIC_API_KEY from ~/.zshrc"), "{text}");
-    assert!(!text.contains("Run `claude auth login`"), "{text}");
+    assert!(!text.contains("Click Sign in"), "{text}");
 
     // Review of #25950: a route's key (with its endpoint) is not the person's to remove.
     let routed = Found { endpoint: Some("router.example:443".to_owned()), ..agent };
@@ -125,7 +125,7 @@ fn a_rejected_env_api_key_says_to_remove_it() {
 fn a_subscription_route_without_a_key_keeps_login_advice() {
     let agent = Found::default();
     let text = compose(&agent, &agent, None, "Not logged in", true);
-    assert!(text.contains("Run `claude auth login`"), "{text}");
+    assert!(text.contains("Click Sign in (or run `claude auth login` in a terminal)"), "{text}");
     assert!(!text.contains("selected model route"), "{text}");
 }
 

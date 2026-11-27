@@ -39,7 +39,7 @@ import Testing
         ("(turn failed on codex (fallback for claude): Internal error)", "The model service had a problem."),
         ("(turn failed: acp handshake: unexpected frame 0x1f)", "The Chief's reply failed."),
         // A fresh Mac with no Claude sign-in: acpmux's words, cut before Claude's "Not logged in" (persona walk, 2026-11-25).
-        ("(turn failed on claude: Claude is not signed in here. This agent found no sign-in (Claude home ~/.claude). Your terminal has no Claude sign-in either. Run `claude auth login` in a terminal, or set ANTHROPIC_API_KEY (or ANTHR)", "The Chief's agent is signed out."),
+        ("(turn failed on claude: Claude is not signed in here. This agent found no sign-in (Claude home ~/.claude). Your terminal has no Claude sign-in either. Click Sign in (or run `claude auth login` in a terminal), or set ANTHROPIC_API_KEY (or ANTHR)", "The Chief's agent is signed out."),
     ])
     func aFailedTurnIsAPlainWordsCardNotTheRawLine(text: String, title: String) async throws {
         let rig = try await HomeChatRig(history: 1)
@@ -96,7 +96,7 @@ import Testing
         rig.view.projection.refresh()
         rig.frame()
         let (card, ref) = try #require(payload(try shown(key, in: rig)))
-        #expect(card.local == .init(open: false, copied: false, retry: true))
+        #expect(card.local == .init(open: false, copied: false, retry: true, signIn: false))
         #expect(HomeTurnFailureRowProvider.titles(card).map(\.1) == ["Retry", "Copy error", "Details"])
         let closed = HomeTurnFailureRowProvider.layout(card, width: 400).size.height
 
@@ -125,5 +125,34 @@ import Testing
         let (card, _) = try #require(payload(try shown(key, in: rig)))
         #expect(!card.local.retry)
         #expect(HomeTurnFailureRowProvider.titles(card).map(\.1) == ["Copy error", "Details"])
+    }
+
+    /// A signed-out Chief's card offers Sign in, which runs the agent's own login in a terminal tab
+    /// (the host's `accounts.reauthenticate`), so a person never has to type `claude auth login`
+    /// themselves (P0 walk 2026-11-26, defect 2). Other failures, and a host with no sign-in, offer none.
+    @Test func aSignedOutChiefsCardOffersSignInThatSignsInItsAgent() async throws {
+        let rig = try await HomeChatRig(history: 1)
+        defer { rig.stop() }
+        var signedIn: [String] = []
+        rig.view.onChiefSignIn = { signedIn.append($0) }
+        let signedOut = IdempotencyKey("turn-failure-\(UUID().uuidString)")
+        #expect(await rig.post("(turn failed on claude: Claude is not signed in here. This agent found no sign-in.)", key: signedOut))
+        let network = IdempotencyKey("turn-failure-\(UUID().uuidString)")
+        #expect(await rig.post("(turn failed on claude: fetch failed)", key: network))
+        rig.view.projection.refresh()
+        rig.frame()
+        let (card, ref) = try #require(payload(try shown(signedOut, in: rig)))
+        #expect(card.local.signIn)
+        #expect(HomeTurnFailureRowProvider.titles(card).map(\.1).first == "Sign in")
+        let (other, _) = try #require(payload(try shown(network, in: rig)))
+        #expect(!other.local.signIn, "only a sign-in failure offers Sign in")
+        rig.view.projection.turnFailureAction(ref, .signIn)
+        #expect(signedIn == ["claude"])
+        #expect(HomeTurnFailure.agent("turn failed on codex (fallback for claude): unauthorized") == "codex")
+        #expect(HomeTurnFailure.agent("turn failed: unauthorized") == "claude")
+
+        rig.view.onChiefSignIn = nil
+        rig.frame()
+        #expect(try #require(payload(try shown(signedOut, in: rig))).0.local.signIn == false, "no host sign-in, no button")
     }
 }

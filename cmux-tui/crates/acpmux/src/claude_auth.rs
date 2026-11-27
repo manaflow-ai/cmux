@@ -564,6 +564,9 @@ fn compose(
     let api_key = agent.env_keys.iter().any(|k| k == "ANTHROPIC_API_KEY");
     // Each fix names `claude auth login`, never `claude /login`: the REPL asks to trust the
     // folder before it signs in, and on a fresh home that dialog stops a scripted sign-in.
+    // A sign-in fix leads with the click: every app chat shows Sign in beside this text (the
+    // Chief's card, the agent chat's Sign in again), which runs that command in a terminal tab, so
+    // a person who never used a terminal is not sent to one (P0 walk 2026-11-26, defect 2).
     let fix = if routed && api_key {
         "Replace the credential in the selected model route, or select another route, then start a new chat."
             .to_owned()
@@ -576,7 +579,7 @@ fn compose(
             rc_file(shell)
         )
     } else if agent.signed_in() {
-        "Run `claude auth login` in a terminal, or check that key, then send the message again."
+        "Click Sign in (or run `claude auth login` in a terminal), or check that key, then send the message again."
             .to_owned()
     } else if terminal.signed_in() && agent.home != terminal.home {
         format!(
@@ -602,7 +605,7 @@ fn compose(
         )
     } else {
         format!(
-            "Run `claude auth login` in a terminal, or set ANTHROPIC_API_KEY (or ANTHROPIC_BASE_URL with ANTHROPIC_AUTH_TOKEN) in {} and open a new terminal, then send the message again.",
+            "Click Sign in (or run `claude auth login` in a terminal), or set ANTHROPIC_API_KEY (or ANTHROPIC_BASE_URL with ANTHROPIC_AUTH_TOKEN) in {} and open a new terminal, then send the message again.",
             rc_file(shell)
         )
     };

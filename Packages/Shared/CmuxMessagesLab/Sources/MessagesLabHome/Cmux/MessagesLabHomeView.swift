@@ -239,6 +239,13 @@ public final class MessagesLabHomeView: NSView {
         set { projection.onChiefRetry = newValue }
     }
 
+    /// Sign in on a signed-out Chief's failed-turn card: the app runs the agent's own login in a
+    /// terminal tab (`accounts.reauthenticate`). Unset: the card has no Sign in.
+    public var onChiefSignIn: ((String) -> Void)? {
+        get { projection.onChiefSignIn }
+        set { projection.onChiefSignIn = newValue }
+    }
+
     /// The stop button's tooltip while the Chief works; nil: "Stop".
     public var stopToolTip: String? {
         get { controller.stopToolTip }
