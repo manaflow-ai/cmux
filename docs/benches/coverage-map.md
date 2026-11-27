@@ -90,8 +90,10 @@ as a gate. `stress` has a dispatch-only compare workflow (`cmux-next-stress-benc
 | `chief-latency` | Chief | 15 asks | no |
 | `ci-vm-idle` | CI | 24 h inventory | no |
 | `claude-vs-acpmux` | acpmux daemon | real model | no |
+| `cloud-first-byte` | cloud | Cloud Git active | no |
 | `cloud-turn` | cloud | real relay | no |
 | `coord-sim` | acpmux daemon | several coordinator chats | no |
+| `coordinator-cpu` | agent chat | long history, 20 ticking subagents | no |
 | `daemon-latency` | acpmux daemon | commits | no |
 | `desktop-link` | iOS link | n/a | no |
 | `dev-loop` | dev loop | n/a | no |
@@ -156,6 +158,7 @@ whether it fails on a number.
 | `AgentPaneBridgeHopBench` | `Packages/macOS/CmuxNext/Tests/CmuxNextAgentPaneTests/AgentPaneBridgeHopBench.swift` | `CMUX_PANE_TRANSPORT_BENCH` | no |
 | `AgentPaneTransportBench` | `Packages/macOS/CmuxNext/Tests/CmuxNextAgentPaneTests/AgentPaneTransportBench.swift` | `CMUX_PANE_TRANSPORT_BENCH` | no |
 | `AgentPaneTransportBenchParse` | `Packages/macOS/CmuxNext/Tests/CmuxNextAgentPaneTests/AgentPaneTransportBenchParse.swift` | `CMUX_PANE_TRANSPORT_BENCH` | no |
+| `AnimationFrameBenchUITests` | `cmux-next-ios/UITests/AnimationFrameBenchUITests.swift` | UI test plan | no |
 | `BrowserChromeMemoryBench` | `Packages/macOS/CmuxNext/Tests/CmuxNextBrowserTests/BrowserChromeMemoryBench.swift` | none | no |
 | `BrowserChromeSwitchBench` | `Packages/macOS/CmuxNext/Tests/CmuxNextBrowserTests/BrowserChromeSwitchBench.swift` | none | one render per switch |
 | `ChiefFaceFlushBenchTests` | pending lane/main-thread-sync-bridge (CmuxNextAppTests) | none | one flush under 250 ms at 1,104 rows × 5 Chiefs, 160 KB |
@@ -183,6 +186,7 @@ whether it fails on a number.
 | `RemoteDecodeRangeBenchTests` | `Packages/macOS/CmuxNext/Tests/CmuxNextRemoteViewTests/RemoteDecodeRangeBenchTests.swift` | `CMUX_RD_DECODE_BENCH` | no |
 | `ResumeLiveBenchTests` | `cmux-next-ios/CmuxMobileKit/Tests/CmuxMobileLiveTests/ReconnectChainTimingTests.swift` | `CMUX_RESUME_LIVE_BENCH` | yes |
 | `ResumeMatrixBenchTests` | `cmux-next-ios/CmuxMobileKit/Tests/CmuxMobileLiveTests/ReconnectChainTimingTests.swift` | `CMUX_RESUME_LIVE_BENCH` | no |
+| `ResumeStagesBenchTests` | `cmux-next-ios/CmuxMobileKit/Tests/CmuxMobileLiveTests/ReconnectChainTimingTests.swift` | `CMUX_RESUME_LIVE_BENCH` | no |
 | `RotateBenchUITests` | `cmux-next-ios/UITests/RotateBenchUITests.swift` | UI test plan | no |
 | `SentryScrubCostBench` | `Packages/Shared/CmuxSentryTelemetry/Tests/CmuxSentryScrubbingTests/SentryScrubCostBench.swift` | `CMUX_SENTRY_SCRUB_BENCH` | no |
 | `SidebarHoverCardRetargetBenchTests` | `Packages/macOS/CmuxNext/Tests/CmuxNextAppTests/SidebarHoverCardRetargetBenchTests.swift` | `CMUX_HOVER_RETARGET_BENCH` | p95 under 8 ms scaled |
@@ -256,6 +260,9 @@ and gates nothing. The rest run in the perf cron's web UI suite or by hand.
 | `webviews/bench/streaming-text-frames.bench.ts` | streaming | no |
 | `webviews/bench/live-turn-rows.bench.ts` | streaming | no |
 | `webviews/bench/delta-renders.bench.ts` | streaming | no |
+| `webviews/bench/inline-text-hasmarks.bench.ts` | inline text model | no |
+| `webviews/bench/subsession-reply-height.bench.ts` | sub-session card heights | no |
+| `webviews/bench/terminal-history-offscreen.bench.ts` | terminal history viewer | no |
 | `webviews/bench/tool-call-burst.bench.ts` | streaming | no |
 | `webviews/bench/turn-end-fold-timing.bench.ts` | streaming | no |
 | `webviews/bench/hidden-stream-heap.bench.ts` | memory | no |
