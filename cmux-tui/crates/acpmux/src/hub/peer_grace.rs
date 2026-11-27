@@ -91,16 +91,27 @@ impl Hub {
         for _ in 0..NOTICE_SHARDS {
             let (tx, shard_rx) = mpsc::channel(SHARD_QUEUE);
             shards.push(tx);
-            workers.push(crate::supervise::once(
-                "peer notice shard",
-                &self.fatal,
-                Self::peer_notice_shard(
-                    Arc::downgrade(&self),
-                    shard_rx,
-                    grace.clone(),
-                    self.peer_notices_stop.subscribe(),
-                ),
-            ));
+            let shard = Self::peer_notice_shard(
+                Arc::downgrade(&self),
+                shard_rx,
+                grace.clone(),
+                self.peer_notices_stop.subscribe(),
+            );
+            // Each shard on its own blocking-pool thread, driven with the runtime's handle (what
+            // it spawns still runs on the workers): a shard waits on the rows writer lock, a std
+            // mutex every peer's shard takes, and on a worker that wait parked the worker. Ten
+            // hosts' shards in a 2000-session fan-out round held up to ten of the daemon's
+            // workers there while the client's 2000 prompts waited to be read
+            // (sessions-2000-attached: fan-out p95 418 ms at 2000, 76 ms at 50).
+            let runtime = tokio::runtime::Handle::current();
+            workers.push(crate::supervise::once("peer notice shard", &self.fatal, async move {
+                let run = tokio::task::spawn_blocking(move || runtime.block_on(shard));
+                if let Err(e) = run.await
+                    && e.is_panic()
+                {
+                    std::panic::resume_unwind(e.into_panic());
+                }
+            }));
         }
         // When the put-off cache saves are due: armed by a save put off (`peer_cache_kick`),
         // cleared once nothing is dirty. No timer while no cache waits for a save: an idle daemon
