@@ -448,7 +448,8 @@ def test_lint_is_one_required_job_and_os_matrix_only_runs_behavior_tests() -> No
     assert set(row) == {"os", "runner"} and row["os"] == "linux", row
     # Every label the runner can resolve to is Blacksmith Linux, whatever LINUX_RUNNER holds: a fleet
     # Linux label or the overflow switch's hosted ubuntu-24.04, which the 32vcpu guard keeps out.
-    variables = {"LINUX_RUNNER": linux_runner_values()}
+    # The overflow switch (vars.CI_OVERFLOW_LINUX, scripts/ci/one_linux_label.py) is unset or a Blacksmith Linux label.
+    variables = {"LINUX_RUNNER": linux_runner_values(), "CI_OVERFLOW_LINUX": {"", "blacksmith-4vcpu-ubuntu-2404"}}
     assert disallowed_labels(row["runner"], variables=variables) == {}, row
     # Same OS matrix; only lint honors a LINUX_RUNNER override.
     oses = lambda job: [row["os"] for row in job["strategy"]["matrix"]["include"]]
@@ -633,6 +634,33 @@ def main() -> int:
         print("error: no tests found", file=sys.stderr)
         return 1
     return 1 if failed else 0
+
+
+def test_the_windows_filter_runs_the_windows_job_alone() -> None:
+    """A Windows change's tests (the cmux-process job trees, #59060 and #59099)
+    ran only in full mode, the whole cross-platform gate with its Mac groups, so
+    they merged untested on Windows. test_filter windows runs the Windows job
+    alone: no Mac runner, no Linux tests, and the gate requires only it."""
+    workflow = yaml.safe_load(WORKFLOW.read_text(encoding="utf-8"))
+    jobs = workflow["jobs"]
+    assert jobs["test-windows"]["if"] == "inputs.mode == 'full' || inputs.test_filter == 'windows'"
+    for name in ("macos", "test"):
+        assert jobs[name]["if"] == "inputs.mode == 'full' || inputs.test_filter != 'windows'", name
+
+    # The skipped Mac and Linux jobs do not fail it; the Windows job does.
+    skipped = {"MACOS_RESULT": "skipped", "TEST_RESULT": "skipped"}
+    code, output = _run_gate(TEST_FILTER="windows", **skipped)
+    assert code == 0, output
+    code, output = _run_gate(TEST_FILTER="windows", WINDOWS_TEST_RESULT="failure", **skipped)
+    assert code == 1 and "Windows Rust tests" in output, output
+    # Any other filter still requires the Mac and Linux tests and not Windows.
+    code, output = _run_gate(MACOS_RESULT="skipped")
+    assert code == 1 and "macOS lint and tests" in output, output
+    code, output = _run_gate(WINDOWS_TEST_RESULT="skipped")
+    assert code == 0, output
+    # Full mode requires all three.
+    code, output = _run_gate(MODE="full", TEST_FILTER="", WINDOWS_TEST_RESULT="failure")
+    assert code == 1 and "Windows Rust tests" in output, output
 
 
 if __name__ == "__main__":

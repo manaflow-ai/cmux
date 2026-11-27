@@ -922,6 +922,25 @@ jobs:
           # The report reads this: a suite that failed with no failed test
           # in its result (a crash, a build-for-testing mismatch) blocks.
           echo "{\"family\":\"$family\",\"exit\":$code}" > "$RESULTS/$family.status.json"
+          # What rendered these stills, kept beside the goldens seed-goldens files under their input key
+          # (cmux-shotdiff key). Not *.json: the report reads every review-gate-* JSON.
+          python3 -I - "$udid" "$family" > "$RESULTS/$family.renderer" <<'FACTS' || true
+          import json, subprocess, sys
+          def out(*cmd):
+              try:
+                  return subprocess.run(cmd, capture_output=True, text=True, timeout=60).stdout.strip()
+              except Exception:
+                  return ""
+          udid, family = sys.argv[1], sys.argv[2]
+          device = {}
+          for runtime, devices in json.loads(out("xcrun", "simctl", "list", "devices", "-j") or "{}").get("devices", {}).items():
+              for d in devices:
+                  if d.get("udid") == udid:
+                      device = {"runtime": runtime, "name": d.get("name"), "type": d.get("deviceTypeIdentifier")}
+          print(json.dumps({"family": family, "xcode": out("xcodebuild", "-version").replace("\n", " "),
+                            "macos": out("sw_vers", "-productVersion"), "arch": out("uname", "-m"),
+                            "appearance": "dark" if family == "ipad" else "light", "simulator": device}))
+          FACTS
           xcrun xcresulttool get test-results tests --path "$RESULTS/$family.xcresult" > "$RESULTS/$family.json" || true
           mkdir -p "$RESULTS/screens/$family"
           xcrun xcresulttool export attachments --path "$RESULTS/$family.xcresult" --output-path "$RESULTS/screens/$family" >/dev/null 2>&1 || true
@@ -963,6 +982,7 @@ jobs:
           name: ios-gate-stills-${{ env.LANE }}-${{ matrix.family }}
           path: |
             ${{ env.RESULTS }}/*.status.json
+            ${{ env.RESULTS }}/*.renderer
             ${{ env.RESULTS }}/screens
           if-no-files-found: warn
           retention-days: 3
@@ -1126,6 +1146,149 @@ jobs:
           backend: r2
           path: ${{ runner.temp }}/link-ffi/framework
           key: ios-link-ffi-xcframework-${{ steps.staged.outputs.key }}
+
+  # Files each leg's stills as the Mac golden of their inputs (B9 mac-golden-cache). `cmux-shotdiff key`
+  # hashes every file .github/golden-inputs.json names for the ios-gate family at the gated commit; the
+  # stills go into a cmux-shotdiff golden store saved to R2 as golden-ios-gate-<variant>-<key> (namespace
+  # `goldens`, scripts/ci/r2-cache.sh). Any runner restores that store without credentials and judges its
+  # own render against it with .github/actions/shotdiff, so a Linux render of unchanged inputs needs no
+  # Mac. It renders nothing: it keeps what the legs already rendered. The first render of a key stays the
+  # golden; a later one is checked against it, and the summary says whether the Mac render repeats.
+  # Advisory, push runs only.
+  seed-goldens:
+    needs: [plan, reviewer-path]
+    if: ${{ !cancelled() && github.event_name == 'push' && github.ref == 'refs/heads/feat-cmux-next' && needs.plan.result == 'success' }}
+    continue-on-error: true
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.CI_OVERFLOW_LINUX || 'cmux-linux' }}
+    timeout-minutes: 20
+    environment: ${{ github.ref == 'refs/heads/feat-cmux-next' && 'next-cache-writer' || '' }}
+    env:
+      CI_CACHE_R2_BUCKET: cmux-ci-cache-next
+      CI_CACHE_R2_PUBLIC_URL: https://ci-cache-next.cmux.com
+      CI_CACHE_R2_NAMESPACE: goldens
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          ref: ${{ needs.plan.outputs.gate_sha }}
+          persist-credentials: false
+          # The key reads git trees only, which a sparse checkout still has; cmux-tui builds the binary.
+          sparse-checkout: |
+            .github/
+            scripts/ci/r2-cache.sh
+            scripts/ci/lan_cache_fetch.py
+            scripts/ci/ios_gate_screen_diff.py
+            scripts/ci/deadline_http.py
+            cmux-tui/
+          sparse-checkout-cone-mode: false
+      - name: Fetch the legs' stills
+        continue-on-error: true
+        uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
+        with:
+          pattern: ios-gate-stills-${{ needs.plan.outputs.lane }}-*
+          path: ${{ runner.temp }}/stills
+          merge-multiple: true
+      - name: Any passing walk?
+        id: walks
+        env:
+          STILLS: ${{ runner.temp }}/stills
+        run: |
+          set -uo pipefail
+          passed=""
+          for family in iphone ipad duo; do
+            # Only a walk that passed is a golden; a failed one may have stopped halfway.
+            if python3 -I -c 'import json, sys; sys.exit(json.load(open(sys.argv[1])).get("exit") != 0)' \
+                "$STILLS/$family.status.json" 2>/dev/null && compgen -G "$STILLS/screens/$family/*.png" >/dev/null; then
+              passed="$passed $family"
+            else
+              echo "$family: no passing walk in this run; nothing filed"
+            fi
+          done
+          echo "families=${passed# }" >> "$GITHUB_OUTPUT"
+      - name: Name the stills as the screen diff does
+        if: ${{ steps.walks.outputs.families != '' }}
+        env:
+          STILLS: ${{ runner.temp }}/stills
+          HEADS: ${{ runner.temp }}/heads
+          FAMILIES: ${{ steps.walks.outputs.families }}
+        # Exported attachments carry a fresh UUID in their file name; a golden needs the name the screen
+        # diff matches by (ios_gate_screen_diff.load_screens), in cmux-shotdiff's name alphabet.
+        run: |
+          set -euo pipefail
+          python3 -I - <<'NAMES'
+          import os, re, shutil, sys
+          from pathlib import Path
+          sys.path.insert(0, "scripts/ci")
+          from ios_gate_screen_diff import load_screens
+          for family in os.environ["FAMILIES"].split():
+              out = Path(os.environ["HEADS"]) / family
+              out.mkdir(parents=True, exist_ok=True)
+              screens = load_screens(Path(os.environ["STILLS"]) / "screens" / family)
+              for name, path in screens.items():
+                  shutil.copyfile(path, out / (re.sub(r"[^A-Za-z0-9._@+-]", "_", name.replace("#", "@")) + ".png"))
+              print(f"{family}: {len(screens)} stills")
+          NAMES
+      - name: Set up pinned Rust
+        if: ${{ steps.walks.outputs.families != '' }}
+        uses: ./.github/actions/setup-cmux-tui-rust
+      - name: Build cmux-shotdiff
+        if: ${{ steps.walks.outputs.families != '' }}
+        working-directory: cmux-tui
+        run: |
+          set -euo pipefail
+          timeout 900 cargo build --locked --release -p cmux-shotdiff --bin cmux-shotdiff
+          echo "CMUX_SHOTDIFF=$PWD/target/release/cmux-shotdiff" >> "$GITHUB_ENV"
+      - name: File them under their input key
+        if: ${{ steps.walks.outputs.families != '' }}
+        env:
+          AWS_ACCESS_KEY_ID: ${{ secrets.CI_CACHE_R2_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.CI_CACHE_R2_SECRET_ACCESS_KEY }}
+          CI_CACHE_R2_ENDPOINT: ${{ format('https://{0}.r2.cloudflarestorage.com', secrets.CI_CACHE_R2_ACCOUNT_ID) }}
+          STILLS: ${{ runner.temp }}/stills
+          HEADS: ${{ runner.temp }}/heads
+          WORK: ${{ runner.temp }}/goldens
+          FAMILIES: ${{ steps.walks.outputs.families }}
+          GATE_SHA: ${{ needs.plan.outputs.gate_sha }}
+        run: |
+          set -uo pipefail
+          {
+            echo "### Mac goldens by input key (ios-gate)"
+            echo
+            echo "| variant | key | files | outcome |"
+            echo "|---|---|---|---|"
+          } >> "$GITHUB_STEP_SUMMARY"
+          for family in $FAMILIES; do
+            keyjson="$("$CMUX_SHOTDIFF" key --inputs .github/golden-inputs.json --family ios-gate \
+              --variant "$family" --rev "$GATE_SHA")" || { echo "::warning::$family: no input key"; continue; }
+            key="$(jq -r .key <<<"$keyjson")"
+            files="$(jq -r .files <<<"$keyjson")"
+            name="golden-ios-gate-$family-$key"
+            store="$WORK/$family"
+            mkdir -p "$store"
+            if scripts/ci/r2-cache.sh restore "$store" "$name" >/dev/null 2>&1 && [[ -f "$store/goldens.json" ]]; then
+              # First render wins: check this one against it instead of replacing it.
+              if "$CMUX_SHOTDIFF" batch --store "$store" --heads "$HEADS/$family" \
+                  --out "$WORK/$family-check" --title "ios-gate $family: this render against the filed golden" \
+                  --summary "$GITHUB_STEP_SUMMARY"; then
+                outcome="already filed; this render matches"
+              else
+                outcome="already filed; this render differs (report in the summary)"
+              fi
+            else
+              rm -rf "$store" && mkdir -p "$store"
+              if ! "$CMUX_SHOTDIFF" bless --store "$store" --dir "$HEADS/$family" >/dev/null; then
+                echo "::warning::$family: stills not blessed"; continue
+              fi
+              cp "$STILLS/$family.renderer" "$store/renderer.json" 2>/dev/null || true
+              jq -n --argjson key "$keyjson" --arg sha "$GATE_SHA" --arg run "$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID" \
+                '{key: $key, gate_sha: $sha, run: $run}' > "$store/source.json"
+              if scripts/ci/r2-cache.sh save "$store" "$name"; then
+                outcome="filed ($(jq '.goldens | length' "$store/goldens.json") stills)"
+              else
+                outcome="not filed (save failed)"; echo "::warning::$family: goldens not saved"
+              fi
+            fi
+            echo "| $family | \`${key:0:12}\` | $files | $outcome |" >> "$GITHUB_STEP_SUMMARY"
+          done
 
   report:
     needs: [plan, lint, reviewer-path, asc-validate]

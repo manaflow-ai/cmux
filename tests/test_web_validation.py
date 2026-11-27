@@ -219,7 +219,13 @@ class WebValidationTests(unittest.TestCase):
                 block = workflow[start:] if next_job < 0 else workflow[start:next_job]
                 self.assertIn("uses: actions/cache@", block)
                 self.assertIn("path: ~/.bun/install/cache", block)
-                self.assertIn(f"hashFiles('{lockfile}')", block)
+                # One shared key for every Bun job (bun-web-shared-v1): the runners share one
+                # ~/.bun/install/cache, so per-workflow keys stored the same 1.17 GB folder four
+                # times and pushed the repo's Actions cache past its 10 GB cap.
+                self.assertIn("key: bun-web-shared-v1-", block)
+                key_hash = re.search(r"key: bun-web-shared-v1-.*hashFiles\(([^)]*)\)", block)
+                self.assertIsNotNone(key_hash)
+                self.assertIn(f"'{lockfile}'", key_hash.group(1))
 
     def test_webviews_tests_run_on_a_runner_that_starts_jobs_at_widths_that_fit_it(self):
         """`bun test` in webviews grows memory across the suite: on the 4 vCPU runner
@@ -239,7 +245,7 @@ class WebValidationTests(unittest.TestCase):
         self.assertNotIn("vars.LINUX_RUNNER", runs_on)
         self.assertNotIn("linux_16", runs_on)
         # Own-branch Linux jobs take the one cmux-linux label since #48644; linux_4 was the pool before it.
-        self.assertTrue(runs_on.endswith(("|| fromJSON(vars.RUNNER_POOLS).linux_4 }}", "|| vars.CI_OVERFLOW_LINUX || 'cmux-linux' }}")), runs_on)
+        self.assertTrue(runs_on.endswith(("|| fromJSON(vars.RUNNER_POOLS).linux_4 }}", "|| 'cmux-linux' }}")), runs_on)
         sized_for = int(re.search(r'^          CMUX_WEB_TEST_SIZED_FOR_VCPU: "(\d+)"$', block, re.MULTILINE).group(1))
         sizes = re.findall(r"'blacksmith-(\d+)vcpu-ubuntu-2404'|RUNNER_POOLS\)\.linux_(\d+)", runs_on)
         for vcpu in (int(a or b) for a, b in sizes):
