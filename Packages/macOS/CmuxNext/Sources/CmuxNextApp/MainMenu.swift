@@ -80,6 +80,7 @@ enum MainMenu {
             "reopenClosedWorkspace", "reopenClosedBrowserPanel", "home.stopAllAgents",
         ],
         .view: [
+            "splitRight", "splitDown",
             "browserBack", "browserForward", "browserReload", "browserStop", "browserHardReload",
             "browserZoomIn", "browserZoomOut", "browserZoomReset", "toggleSidebar",
             "appearance.customize",
