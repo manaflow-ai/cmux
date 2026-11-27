@@ -7,7 +7,7 @@
 // the URL without its `?t=`, keeps one whose start is after the file's invalidation) or reads its
 // cached result, so the module is still transformed once per save.
 // scripts/measure/dev-loop/web_swap.sh measures it; its bound already counts transform as waiting on
-// the file event only.
+// the file event only. `CMUX_TRANSFORM_ON_CHANGE=off` leaves the transform to the page's request (an A/B).
 import type { EnvironmentModuleNode, Plugin } from "vite-plus";
 
 /** The modules of one save worth transforming before the page asks: JS a page has loaded (it has an
@@ -32,6 +32,7 @@ export function transformOnChange(): Plugin {
       order: "pre",
       handler({ type, modules }) {
         if (type !== "update" || this.environment.name !== "client") return;
+        if (process.env.CMUX_TRANSFORM_ON_CHANGE === "off") return;
         const environment = this.environment as unknown as {
           transformRequest(url: string): Promise<unknown>;
         };
