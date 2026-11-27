@@ -30,6 +30,12 @@
 //! | `browser_rules_automation_call_deadline` | `{what, timeoutMs}` | `{milliseconds, message}` |
 //! | `browser_rules_automation_tab_place` | a `tabs.open` call's params | `{workspace, terminal}` |
 //! | `browser_rules_automation_frame_tree` | `{root}` | the frames, parents first |
+//! | `browser_rules_automation_console_event` | `{body}` | `{name, payload}`, or null |
+//! | `browser_rules_automation_dialog_describe` | `{prompt}` | `{type, message, defaultValue}`, or null |
+//! | `browser_rules_automation_dialog_respond` | `{params, held?, resolved?}` | `{answer}` or `{error: {code, message}}` |
+//! | `browser_rules_automation_cookie_backup_key_read` | `{status, length?}` | `{found}` or `{error}` |
+//! | `browser_rules_automation_cookie_backup_key_add` | `{status}` | `{step}` or `{error}` |
+//! | `browser_rules_automation_cookie_backup_key_file` | `{length?}` | a bool |
 //!
 //! `browser_rules_automation_driver_params` reads each of `reads` (`{key, read, default?}`, `read`
 //! one of `has`, `string`, `optionalString`, `number`, `optionalNumber`, `bool`, `strings`,
@@ -44,7 +50,7 @@ use crate::load_waits::{
     self, LoadState, LoadWaits, NavigationEvent, Reach, Resolution, Ticket, WaitError,
 };
 use crate::ops::OpError;
-use crate::{cookie_backups as backups, cookies, driver, frames, tab_watcher};
+use crate::{cookie_backups as backups, cookies, driver, frames, page_events, tab_watcher};
 use serde::Deserialize;
 use serde::de::DeserializeOwned;
 use serde_json::{Value, json};
@@ -234,6 +240,40 @@ struct DeadlineRequest {
 }
 
 #[derive(Deserialize)]
+struct BodyRequest {
+    #[serde(default)]
+    body: Value,
+}
+
+#[derive(Deserialize)]
+struct PromptRequest {
+    prompt: page_events::PromptKind,
+}
+
+#[derive(Deserialize)]
+struct RespondRequest {
+    #[serde(default)]
+    params: Value,
+    #[serde(default)]
+    held: Option<page_events::PromptKind>,
+    #[serde(default)]
+    resolved: bool,
+}
+
+#[derive(Deserialize)]
+struct StatusRequest {
+    status: i32,
+    #[serde(default)]
+    length: Option<usize>,
+}
+
+#[derive(Deserialize)]
+struct LengthRequest {
+    #[serde(default)]
+    length: Option<usize>,
+}
+
+#[derive(Deserialize)]
 struct FrameTreeRequest {
     #[serde(default)]
     root: Option<frames::FrameNode>,
@@ -418,6 +458,33 @@ fn run(name: &str, request: Value) -> Result<Value, OpError> {
         "frame_tree" => {
             let FrameTreeRequest { root } = parse(request)?;
             Ok(encode(&root.map(|root| frames::flatten(&root)).unwrap_or_default()))
+        }
+        "console_event" => {
+            let BodyRequest { body } = parse(request)?;
+            Ok(encode(&page_events::console_event(&body)))
+        }
+        "dialog_describe" => {
+            let PromptRequest { prompt } = parse(request)?;
+            Ok(encode(&page_events::describe(&prompt)))
+        }
+        "dialog_respond" => {
+            let RespondRequest { params, held, resolved } = parse(request)?;
+            Ok(match page_events::respond(&params, held.as_ref().map(|kind| (kind, resolved))) {
+                Ok(answer) => json!({ "answer": answer }),
+                Err(failure) => json!({ "error": failure }),
+            })
+        }
+        "cookie_backup_key_read" => {
+            let StatusRequest { status, length } = parse(request)?;
+            Ok(result(page_events::key_read(status, length), "found"))
+        }
+        "cookie_backup_key_add" => {
+            let StatusRequest { status, .. } = parse(request)?;
+            Ok(result(page_events::key_add(status), "step"))
+        }
+        "cookie_backup_key_file" => {
+            let LengthRequest { length } = parse(request)?;
+            Ok(json!(page_events::key_file_usable(length)))
         }
         other => Err(OpError::UnknownOp(format!("browser_rules_automation_{other}"))),
     }
