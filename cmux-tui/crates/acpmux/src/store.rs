@@ -754,7 +754,7 @@ pub(crate) use log_line::PARSED_LINES;
 
 use log_line::{
     first_seq, for_each_line_rev, for_each_line_rev_between, for_each_line_rev_from, offset_of_seq,
-    parse_record, record_dir, record_kind, record_seq,
+    parse_record, record_dir, record_kind, record_seq, start_of_seq,
 };
 
 pub fn open(config: &StoreConfig, root: &Path) -> Result<Box<dyn Store>> {
@@ -2116,15 +2116,25 @@ impl LocalStore {
         // The segment that holds `after + 1`, found from the segments' kept first seqs: the read
         // opens only the segments it reads (`store/segment_starts.rs`).
         let start = self.segment_starts.start(id, &segments, after)?;
-        for (_, path) in segments.get(start..).unwrap_or_default() {
-            let mut reader =
-                BufReader::with_capacity(256 * 1024, cold_segments::open_segment(path)?);
+        for (n, (_, path)) in segments.get(start..).unwrap_or_default().iter().enumerate() {
+            let mut file = cold_segments::open_segment(path)?;
+            // The segment that holds `after + 1` is read from a line at or before it, found by a
+            // search, not from its start: a read near the log's end (a settled attach's records
+            // since its view) cost the whole segment being written (`log_line::start_of_seq`).
+            // A cold segment is read from its start, as before.
+            if n == 0 && after > 0 && file.local().is_some() {
+                let from = start_of_seq(&mut file, after.saturating_add(1))?;
+                std::io::Seek::seek(&mut file, std::io::SeekFrom::Start(from))?;
+            }
+            let mut reader = BufReader::with_capacity(256 * 1024, file);
             loop {
                 line.clear();
                 if reader.read_until(b'\n', &mut line)? == 0 {
                     break;
                 }
                 crate::perf_watch::LogPass::line(&mut pass, line.len());
+                #[cfg(test)]
+                FORWARD_READ_BYTES.with(|n| n.set(n.get() + line.len() as u64));
                 if line.iter().all(u8::is_ascii_whitespace) {
                     continue;
                 }
@@ -2148,6 +2158,12 @@ impl LocalStore {
         }
         Ok(())
     }
+}
+
+#[cfg(test)]
+thread_local! {
+    /// Tests only: the bytes of the lines this thread's forward reads (`scan_lines`) read.
+    pub(crate) static FORWARD_READ_BYTES: std::cell::Cell<u64> = const { std::cell::Cell::new(0) };
 }
 
 #[cfg(all(test, unix))]

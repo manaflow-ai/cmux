@@ -6040,6 +6040,18 @@ export class AcpmuxDirectClient {
     return this.request("_acpmux/draft_set", { sessionId, text });
   }
 
+  /// The session's unsent chips as acpmux keeps them, in order with their contents
+  /// (`{sessionId, draft, attachments}`); an older daemon answers no `attachments`.
+  readDraftAttachments(sessionId: string): Promise<unknown> {
+    return this.request("_acpmux/draft_get", { sessionId, attachments: true });
+  }
+
+  /// Keeps the session's unsent chips in acpmux (`[]` forgets them). A chip named without its
+  /// contents keeps the ones acpmux holds for its id; answers `{held}`. An older daemon refuses it.
+  writeDraftAttachments(sessionId: string, attachments: unknown[]): Promise<unknown> {
+    return this.request("_acpmux/draft_set", { sessionId, attachments });
+  }
+
   /// The session's prompt bookmarks (`{bookmarks: [seq...]}`), kept in acpmux (threadMinimap/bookmarks.ts).
   readBookmarks(sessionId: string): Promise<unknown> {
     return this.request("_acpmux/bookmark_get", { sessionId });
