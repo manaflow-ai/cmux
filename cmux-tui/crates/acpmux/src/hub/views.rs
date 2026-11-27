@@ -1095,7 +1095,7 @@ impl Hub {
         extras.push(("heldMessages", super::native_messaging::held_messages(session)));
         // Its inbox's held-message deadlines (`inbox.rs`, "Deadlines"): NOW counts a session with
         // a message past its deadline red, from this field in one `ls` call.
-        let (overdue, due_at) = super::inbox::deadline_row(session);
+        let (overdue, due_at) = super::inbox::deadline_row(session, &m);
         extras.push(("inboxOverdue", json!(overdue)));
         extras.push(("inboxDueAt", json!(due_at)));
         // How many open sub-sessions below it wait on the person, and since when (`asks_below.rs`).

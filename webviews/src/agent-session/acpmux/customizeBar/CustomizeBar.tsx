@@ -1,6 +1,7 @@
 import { useId, useState, type FormEvent } from "react";
 import { ChevronDown } from "../conversation/icons";
 import { useT, type StringKey } from "../i18n";
+import { Button } from "../../../ui/Button";
 import { profileName, type CustomizeBarState, type CustomizePart, type CustomizeVerb } from "./customizeBarModel";
 import "./CustomizeBar.css";
 
@@ -105,39 +106,38 @@ export function CustomizeBar({
           if (event.key === "Escape") setNaming(false);
         }}
       />
-      <button type="submit" className="ui-button" data-variant="primary" disabled={!name || busy}>
+      <Button type="submit" variant="solid" size="sm" disabled={!name || busy}>
         {t("customizeBar.saveConfirm")}
-      </button>
+      </Button>
     </form>
   ) : null;
   const buttons = (
     <div className="acpmux-customize-bar-actions">
       {previewing && (
         <>
-          <button
-            type="button"
-            className="ui-button"
-            data-variant="primary"
+          <Button
+            variant="solid"
+            size="sm"
             disabled={busy || !state.canApply}
             title={state.canApply ? undefined : t("customizeBar.problems")}
             onClick={() => run("apply", state.wish.slice(0, 200).replace(/\n/g, " ") || undefined)}
           >
             {t("customizeBar.apply")}
-          </button>
-          <button type="button" className="ui-button" disabled={busy} onClick={() => run("discard")}>
+          </Button>
+          <Button variant="ghost" size="sm" disabled={busy} onClick={() => run("discard")}>
             {t("customizeBar.discard")}
-          </button>
+          </Button>
         </>
       )}
       {!previewing && (
-        <button type="button" className="ui-button" disabled={busy} onClick={() => run("rollback")}>
+        <Button variant="ghost" size="sm" disabled={busy} onClick={() => run("rollback")}>
           {t("customizeBar.undo")}
-        </button>
+        </Button>
       )}
       {!naming && (
-        <button type="button" className="ui-button" disabled={busy} onClick={() => setNaming(true)}>
+        <Button variant="ghost" size="sm" disabled={busy} onClick={() => setNaming(true)}>
           {t("customizeBar.save")}
-        </button>
+        </Button>
       )}
     </div>
   );
