@@ -39,7 +39,7 @@ Subcommands: fetch-state, plan, fleet-check, run-part, part-cleanup, run-linux-p
 replay-results (see each --help). Tests: scripts/cmux-next/tests/test_perf_cron.py (decisions) and test_perf_cron_io.py (GitHub, git, the
 fleet client and multi-tick runs, faked) (run them yourself; no CI job runs them).
 """
-import argparse, collections, copy, datetime, hashlib, importlib.util, io, json, os, random, re, shutil, subprocess, sys, tempfile, time
+import argparse, collections, concurrent.futures, copy, datetime, hashlib, importlib.util, io, json, os, random, re, shutil, subprocess, sys, tempfile, time
 import urllib.error, urllib.parse, urllib.request, zipfile
 
 HERE = os.path.dirname(os.path.abspath(__file__))
@@ -116,6 +116,10 @@ PART_QUEUE_SECONDS = 300    # a part that does not start at once gives its place
 CANDIDATE_DEPTH = 600
 # What one plan's tree lookups (tree_published) may take together, inside the plan step's `timeout 600`.
 TREE_LOOKUP_SECONDS = 300
+# Tree lookups in flight at once (tree_ready): each is two key computations and two HTTPS reads, about 15 s on the
+# plan's runner, so one at a time the budget covered 7 commits (run 45986071929, 2026-11-27 10:56Z) while the newest
+# published tree was 68 commits back.
+TREE_LOOKUP_PARALLEL = 8
 # feat-cmux-next gets ~400 first-parent commits a day and a tip measurement takes 3 h or more, so a newer tip
 # always exists: while a regression range can be bisected, a tip measurement starts at most once per TIP_EVERY_HOURS
 # and the ticks in between go to the bisect.
@@ -335,6 +339,15 @@ PARTS = [
     # 1000-turn chat, with 12 other chats open and offline (scripts/measure/snappy-bench.py; chat_snappy.<duress>.*).
     {"name": "chat-snappy", "args": [*MEASURE, "--config=bench", "--suite=chat-snappy"],
      "artifact": "artifacts/split-spring/report.json", "kind": "budgets", "needs": "chat-snappy", "run_seconds": 1800},
+    # Goal hot-swap-fast: a webview .tsx save to the first changed frame of the focused pane, the unfocused pane and a
+    # hidden tab's show, on the dev server, with every other region's draft kept (scripts/measure/graceful-swap-cron.py
+    # over graceful-swap-fleet.py's latency series, no films; hot_swap.mac.<surface>.p95_ms, bars 150/300/100 ms, plus
+    # drafts_lost and transient_frames). Before it, NOW's hot_swap_mac_*_p95_ms came only from a hand-run capture,
+    # import and publish (the unfocused row read null 2026-11-24 to 11-27). goal_rows: a run that stored no p95 row
+    # (an invalid swap) leaves the part due. A bench build plus 2 series of 20 saves: 45 minutes.
+    {"name": "hot-swap", "args": [*MEASURE, "--config=bench", "--suite=graceful-swap"],
+     "artifact": "artifacts/split-spring/report.json", "kind": "budgets", "needs": "graceful-swap",
+     "goal": "hot-swap-fast", "goal_rows": r"hot_swap\.mac\.[a-z_]+\.p95_ms@", "run_seconds": 2700},
     # The diff-viewer budgets that left ci-web.yml (scripts/benchmark-diff-viewer.sh), on Linux.
     {"name": "diff-viewer", "where": "linux", "kind": "diff", "needs": "diff-viewer"},
     # The shared web UI perf harness (webviews/bench/web-ui-suite.ts): the web UI benches' PERF_ROW lines, on Linux.
@@ -472,7 +485,7 @@ ROW_PARTS = [
     (r"^terminal\.throughput\.", "throughput"), (r"^typing\.", "typing-load"),
     (r"^terminal\.throughput\.", "throughput"), (r"^cef_resize\.", "cef-resize"), (r"^terminal\.scroll\.", "terminal-scroll"),
     (r"^power_user\.native\.", "power-user-native"), (r"^power\.", "power"),
-    (r"^chat_size\.", "chat-size"), (r"^chat_snappy\.", "chat-snappy"),
+    (r"^chat_size\.", "chat-size"), (r"^chat_snappy\.", "chat-snappy"), (r"^hot_swap\.", "hot-swap"),
     (r"^terminal\.key_to_echo\.", "typing"),
     (r"^diff\.", "diff-viewer"), (r"^webui\.update_one\.", "web-ui-scale"),
     (r"^webui\.state_growth\.", "web-ui-growth"),
@@ -1555,6 +1568,12 @@ def last_tip_build_failed(state):
     return bool(entry.get("build_failed")) or "build_failed" in (entry.get("failed_why") or {}).values()
 
 
+def tree_waiting(cur):
+    """The tip measurement in flight's Mac parts wait for its commit's cmux-tui tree (wait_for_tree) (pure)."""
+    return (isinstance(cur, dict) and cur.get("kind") == "tip" and not cur.get("superseded")
+            and not cur.get("tree_seen") and bool(cur.get("tree_wait_since")) and needs_mac(cur))
+
+
 def build_never_ran(cur):
     """The tip in flight's build part failed before it ran anything of the commit (BUILD_NEVER_RAN_RE) (pure)."""
     build = (cur.get("parts") or {}).get("build") if isinstance(cur, dict) else None
@@ -1621,6 +1640,22 @@ def supersede_for_unread(state, t, newest, supported_parts):
             cur["parts_todo"] = []
             cur.pop("host_asked_since", None)
             end_yield(cur, t)
+        return why
+    if tree_waiting(cur) and newest and newest != cur["sha"]:
+        # Its tree may never be published: the tree publisher coalesces a window of pushes into one build of the
+        # newest, so a commit picked before that build has no tree of its own, ever. Without this its Mac parts waited
+        # the whole TREE_WAIT_HOURS and the measurement ended with none (tip e6896269634a, 2026-11-27: picked at
+        # 04:54:55Z with no newer tree; the window's build published 56b23b70562d, merged 3 s later, at 05:42Z, and
+        # the Mac sat idle to 06:55Z, 285 h after the last finished measurement). A newer commit whose tree is
+        # published (plan) takes the Mac now; the Linux parts end too, as for a failed build (above): it runs them.
+        why = f"no published cmux-tui tree of {cur['sha'][:12]}; {newest[:12]} is newer and has one"
+        cur["superseded"] = {"by": newest, "why": why, "at": iso(t)}
+        for name in list(cur["parts_todo"]):
+            cur["parts"][name] = {"state": "superseded", "reason": why}
+        cur["parts_todo"] = []
+        cur.pop("tree_wait_since", None)
+        cur.pop("host_asked_since", None)
+        end_yield(cur, t)
         return why
     missing = unread_missing(state, cur)
     if not missing or not newest:
@@ -2097,7 +2132,8 @@ def decide(state, t, candidate, bisect, supported_parts, github_busy, measurable
     (start_yield; record_part ends it), not the measurement's active time. tree_ready(sha): the commit's cmux-tui
     tree is published; a tip whose tree is not runs only its Linux parts until it is (wait_for_tree). newest: the newest
     measurable commit with a published tree, given while the tip in flight lacks a part that never produced a reading
-    (unread_missing); its Mac parts then end so the next tip measures that part first (supersede_for_unread).
+    (unread_missing), whose build failed, or whose tree is unpublished (tree_waiting); its Mac parts then end so the
+    next tip measures it first (supersede_for_unread).
     idle_hosts: the measure hosts the controller called idle (controller_idle_hosts), or None; a new tip pins only to
     one of them (tip_pin_host). A bisect step keeps its host: its rows are judged only there."""
     drop_dead_measurement(state, t, measurable)
@@ -2805,7 +2841,7 @@ def supported_parts_at(sha):
                                    capture_output=True, text=True, timeout=PATH_CHECK_TIMEOUT_S).stdout
             ok = "--suite=launch" in text and '"--fresh-copy"' in bench and '"--ready-mark"' in bench
         elif need in ("perf-gate", "launch", "memory-agents", "relaunch", "wake", "power", "chat-size", "cef-resize",
-                      "chat-snappy"):
+                      "chat-snappy", "graceful-swap"):
             text = subprocess.run(["git", "-C", ROOT, "show", f"{sha}:scripts/cmux-next/split-spring-terminal.py"],
                                   capture_output=True, text=True, timeout=PATH_CHECK_TIMEOUT_S).stdout
             ok = f"--suite={need}" in text
@@ -2980,9 +3016,37 @@ def fleet_runs(sha, tip_version):
     return tip_version is not None and measure_version(sha) == tip_version
 
 
+# The plan's checkout is a 300-commit partial clone. A git read of a commit or object past it fetches that object
+# from the remote, one fetch per call: the walk's is_ancestor(sha, last tip) against a tip 584 commits back took 48 s
+# for the first commit and 1-2 s for each next one, inside the tree lookup budget (run 45986071929). Its answer was
+# always False there anyway (the fetched commit has no path to the checkout). The ancestry reads stay local.
+NO_LAZY_FETCH_ENV = {**os.environ, "GIT_NO_LAZY_FETCH": "1", "GIT_TERMINAL_PROMPT": "0"}
+
+
 def is_ancestor(a, b):
-    return subprocess.run(["git", "-C", ROOT, "merge-base", "--is-ancestor", "--end-of-options", a, b],
-                          capture_output=True).returncode == 0
+    """a is an ancestor of b in the checkout; False when either is not in it (never fetched) or git takes past
+    PATH_CHECK_TIMEOUT_S."""
+    try:
+        return subprocess.run(["git", "-C", ROOT, "merge-base", "--is-ancestor", "--end-of-options", a, b],
+                              capture_output=True, env=NO_LAZY_FETCH_ENV, timeout=PATH_CHECK_TIMEOUT_S).returncode == 0
+    except subprocess.TimeoutExpired:
+        return False
+
+
+def first_parent_since(tip, stop, depth):
+    """(commits, reached): tip's newest `depth` first-parent commits newer than stop (stop and its ancestors left out),
+    in one git call, and whether the list ends at stop. A stop the checkout lacks (older than its depth) leaves the
+    whole list, reached False: every commit in it is newer than a commit past the checkout."""
+    if stop:
+        try:
+            out = subprocess.run(["git", "-C", ROOT, "rev-list", "--first-parent", f"-n{depth}", tip, f"^{stop}", "--"],
+                                 capture_output=True, text=True, env=NO_LAZY_FETCH_ENV, timeout=120)
+        except subprocess.TimeoutExpired:
+            out = None
+        if out is not None and out.returncode == 0:
+            commits = out.stdout.split()
+            return commits, len(commits) < depth
+    return git("rev-list", "--first-parent", f"-n{depth}", tip).split(), False
 
 
 ON_BRANCH_KEEP = 300  # commits the state remembers as verified on the branch (each later tick asks GitHub for none)
@@ -4049,7 +4113,9 @@ def plan(o):
     # Past it a commit reads as unpublished, which every caller already handles (the next tick looks again).
     tree_deadline = time.monotonic() + TREE_LOOKUP_SECONDS
 
-    def tree_ready(sha):
+    def tree_ready(sha, ahead=()):
+        """Whether sha's tree is published. ahead: the commits the caller reads next, looked up with it,
+        TREE_LOOKUP_PARALLEL at once."""
         if sha not in trees:
             if time.monotonic() >= tree_deadline:
                 if not trees.get("_spent"):
@@ -4057,31 +4123,38 @@ def plan(o):
                     print(f"perf-cron: tree lookups used this plan's {TREE_LOOKUP_SECONDS} s; later commits read as "
                           "unpublished this tick")
                 return False
+            batch = [sha] + [s for s in ahead if s not in trees and s != sha][:TREE_LOOKUP_PARALLEL - 1]
             started = time.monotonic()
-            trees[sha] = tree_published(sha, tree_deadline)
+            if len(batch) == 1:
+                trees[sha] = tree_published(sha, tree_deadline)
+            else:
+                with concurrent.futures.ThreadPoolExecutor(len(batch)) as pool:
+                    for s, ok in zip(batch, pool.map(lambda s: tree_published(s, tree_deadline), batch)):
+                        trees[s] = ok
             if time.monotonic() - started > 30:
-                print(f"perf-cron: the tree lookup of {sha[:12]} took {round(time.monotonic() - started)} s")
+                print(f"perf-cron: the tree lookup of {sha[:12]}{f' and {len(batch) - 1} more' if len(batch) > 1 else ''} "
+                      f"took {round(time.monotonic() - started)} s")
         return trees[sha]
     if not state.get("current"):
-        walked, reached_last = 0, True
-        for sha in git("rev-list", "--first-parent", f"-n{CANDIDATE_DEPTH}", tip).split():
-            if sha == last_sha or (last_sha and is_ancestor(sha, last_sha)):
+        walked = 0
+        commits, reached_last = first_parent_since(tip, last_sha, CANDIDATE_DEPTH)
+        for i, sha in enumerate(commits):
+            if sha == last_sha:  # first_parent_since left out its ancestors; a git without ^stop still ends here
+                reached_last = True
                 break
             if not fleet_runs(sha, tip_version):
                 print(f"perf-cron: {sha[:12]} has another {MEASURE_SCRIPT} measurement version than the tip's ({tip_version})")
                 break
             newest = newest or sha
-            if tree_ready(sha):
+            if tree_ready(sha, commits[i + 1:]):
                 candidate = sha
                 break
             walked += 1
             if trees.get("_spent"):
-                reached_last = False  # the rest read as unpublished this tick: no is_ancestor call for each of them
+                reached_last = False  # the rest read as unpublished this tick
                 break
             if walked <= 3 or walked % 50 == 0:
                 print(f"perf-cron: {sha[:12]} has no published cmux-tui tree yet; trying its parent ({walked} so far)")
-        else:
-            reached_last = False
         if not candidate and newest:
             # Only the Mac parts need the tree: the Linux parts measure the newest commit now (wait_for_tree).
             candidate = newest
@@ -4127,13 +4200,16 @@ def plan(o):
                 break
     newest = None
     gone_by = state.get("current") or {}
-    if not no_mac and (unread_missing(state, gone_by) or build_failed_tip(gone_by)):
-        # A part that never produced a reading (unread_parts) and that the tip in flight predates, or a tip whose app
-        # build failed (build_failed_tip): the newest commit that can run it on the fleet (supersede_for_unread).
-        for sha in git("rev-list", "--first-parent", f"-n{CANDIDATE_DEPTH}", tip).split():
-            if sha == gone_by["sha"] or is_ancestor(sha, gone_by["sha"]) or not fleet_runs(sha, tip_version):
+    if not no_mac and (unread_missing(state, gone_by) or build_failed_tip(gone_by)
+                       or (tree_waiting(gone_by) and not tree_ready(gone_by["sha"]))):
+        # A part that never produced a reading (unread_parts) and that the tip in flight predates, a tip whose app
+        # build failed (build_failed_tip), or one whose Mac parts wait for a tree still unpublished (tree_waiting):
+        # the newest commit that can run it on the fleet (supersede_for_unread).
+        later, _ = first_parent_since(tip, gone_by["sha"], CANDIDATE_DEPTH)
+        for i, sha in enumerate(later):
+            if sha == gone_by["sha"] or not fleet_runs(sha, tip_version):
                 break
-            if tree_ready(sha):
+            if tree_ready(sha, later[i + 1:]):
                 newest = sha
                 break
     busy, busy_known = None, False
