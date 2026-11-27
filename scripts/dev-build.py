@@ -36,6 +36,8 @@ Never the person's own cmux: only processes naming a `cmux DEV <tag>.app` bundle
 from __future__ import annotations
 
 import argparse
+import contextlib
+import fcntl
 import json
 import os
 import re
@@ -54,7 +56,16 @@ CLAIMS_DIR = Path(os.environ.get("CMUX_DEV_BUILD_CLAIMS_DIR")
                   or Path.home() / ".local/state/cmux/dev-builds")
 # A chat that has done nothing for this long is done with its build (issue 63351). Chats are
 # rarely closed: an agent's chat sits idle after its last turn, so "closed" alone kept builds for days.
-IDLE_HOURS = float(os.environ.get("CMUX_DEV_BUILD_IDLE_HOURS") or 12)
+def _idle_hours(value: Optional[str]) -> float:
+    """CMUX_DEV_BUILD_IDLE_HOURS: at least 1 hour; unset or unreadable is 12."""
+    try:
+        hours = float(value) if value else 12.0
+    except ValueError:
+        return 12.0
+    return hours if hours >= 1 else 12.0
+
+
+IDLE_HOURS = _idle_hours(os.environ.get("CMUX_DEV_BUILD_IDLE_HOURS"))
 # The chat states that mean the chat is between turns with nothing waiting on the person.
 QUIET_STATES = {"idle", "ready"}
 SESSION_IN_ENV = re.compile(r"(?:^| )ACPMUX_SESSION_ID=([0-9A-Za-z_-]+)(?= |$)")
@@ -103,6 +114,15 @@ def snapshot() -> List[Process]:
         return subprocess.run(["/bin/ps", "-axww", "-o", columns], check=True,
                               stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, text=True).stdout
     return parse_ps(ps("pid=,ppid=,command="), ps("pid=,comm="))
+
+
+def parse_etime(text: str) -> Optional[float]:
+    """Seconds in a `ps` elapsed time, `[[dd-]hh:]mm:ss`, or None."""
+    match = re.fullmatch(r"(?:(\d+)-)?(?:(\d+):)?(\d+):(\d+)", text.strip())
+    if not match:
+        return None
+    days, hours, minutes, seconds = (int(g) if g else 0 for g in match.groups())
+    return float(((days * 24 + hours) * 60 + minutes) * 60 + seconds)
 
 
 def valid_tag(tag: str) -> bool:
@@ -181,6 +201,15 @@ class System:
         except (OSError, subprocess.TimeoutExpired):
             return ""
 
+    def age_seconds(self, pid: int) -> Optional[float]:
+        """How long the process has run (`ps -o etime=`: [[dd-]hh:]mm:ss), or None."""
+        try:
+            text = subprocess.run(["/bin/ps", "-o", "etime=", "-p", str(pid)], stdout=subprocess.PIPE,
+                                  stderr=subprocess.DEVNULL, text=True, timeout=10).stdout.strip()
+        except (OSError, subprocess.TimeoutExpired):
+            return None
+        return parse_etime(text)
+
     def signal(self, pid: int, sig: int) -> None:
         try:
             os.kill(pid, sig)
@@ -205,13 +234,19 @@ class System:
         return left
 
 
-def stop(tag: str, system: System, dry_run: bool = False, log: Callable[[str], None] = print) -> List[Process]:
-    """Quits the tag's app, then ends its tree. Returns the processes still running after."""
+def stop(tag: str, system: System, dry_run: bool = False, log: Callable[[str], None] = print,
+         expected_apps: Optional[List[int]] = None) -> List[Process]:
+    """Quits the tag's app, then ends its tree. Returns the processes still running after. With
+    `expected_apps` (the sweep's), an app instance the caller did not judge (one launched since)
+    leaves the tag alone."""
     if not valid_tag(tag):
         raise SystemExit(f"dev-build: refusing tag {tag!r}")
     own = {os.getpid(), os.getppid()}
     processes = system.snapshot()
     apps = app_pids(tag, processes)
+    if expected_apps is not None and not set(apps) <= set(expected_apps):
+        log(f"{tag}: a new instance of the app started; leaving its processes")
+        return []
     if dry_run:
         for process in tree(tag, processes, own):
             log(f"would end {process.pid} {process.command[:160]}")
@@ -277,16 +312,25 @@ def launch_session(env: str) -> Optional[str]:
     return found[-1] if found else None
 
 
-def owner(tag: str, processes: List[Process], system: Optional["System"] = None) -> Optional[dict]:
-    """The chat that owns the tag: its claim, else the chat that launched the running app."""
+def owner(tag: str, processes: List[Process], system: Optional["System"] = None,
+          states: Optional[Dict[str, object]] = None) -> Optional[dict]:
+    """The chat that owns the tag: its claim, else the chat that launched the running app. A
+    launch environment counts only when acpmux lists the chat it names: a shell that inherited a
+    stale ACPMUX_SESSION_ID (a terminal under an agent, another daemon's chat) owns nothing."""
     claimed = read_claim(tag)
-    if claimed is not None or system is None:
+    if claimed is not None or system is None or not states:
         return claimed
     for pid in app_pids(tag, processes):
         session = launch_session(system.launch_env(pid))
-        if session:
+        if session and session in states:
             return {"tag": tag, "session": session, "source": "launch"}
     return None
+
+
+# The `acpmux ls --json` fields that mean a chat between turns still has work coming: something
+# running, a queued message, a scheduled wake, a child chat working below it, a question waiting.
+BUSY_FIELDS = ("bgTasksRunning", "commandsRunning", "subagentsRunning", "pendingPermissions",
+               "queued", "inboxDueAt", "workingBelow", "subsessionsWaiting")
 
 
 def chat_row(row: dict) -> dict:
@@ -294,7 +338,7 @@ def chat_row(row: dict) -> dict:
     turn = row.get("lastTurn") if isinstance(row.get("lastTurn"), dict) else {}
     stamps = [v for v in (turn.get("endedAt"), row.get("updatedAt"), row.get("createdAt"))
               if isinstance(v, (int, float)) and v > 0]
-    busy = any(row.get(k) for k in ("bgTasksRunning", "commandsRunning", "subagentsRunning", "pendingPermissions"))
+    busy = any(row.get(k) for k in BUSY_FIELDS)
     return {"state": row.get("state") or "", "quietSinceMs": max(stamps) if stamps else None, "busy": bool(busy)}
 
 
@@ -315,12 +359,23 @@ def acpmux_states() -> Optional[Dict[str, dict]]:
     return {row.get("sessionId"): chat_row(row) for row in rows if isinstance(row, dict) and row.get("sessionId")}
 
 
+def app_age_hours(tag: str, processes: List[Process], system: Optional["System"]) -> Optional[float]:
+    """How long the tag's app has run (its youngest instance), or None when unknown."""
+    if system is None:
+        return None
+    ages = [system.age_seconds(pid) for pid in app_pids(tag, processes)]
+    ages = [a for a in ages if a is not None]
+    return min(ages) / 3600 if ages else None
+
+
 def verdict(tag: str, processes: List[Process], states: Optional[Dict[str, object]],
-            system: Optional["System"] = None, now: Optional[float] = None) -> str:
+            system: Optional["System"] = None, now: Optional[float] = None,
+            chat: Optional[dict] = None) -> str:
     """Why a tag is idle (`idle: …`) or kept (`keep: …`)."""
     if not app_pids(tag, processes):
         return "idle: app not running, helpers left"
-    chat = owner(tag, processes, system)
+    if chat is None:
+        chat = owner(tag, processes, system, states)
     if chat is None:
         return "keep: app running, no chat owns it"
     session = chat["session"]
@@ -328,6 +383,11 @@ def verdict(tag: str, processes: List[Process], states: Optional[Dict[str, objec
         return "keep: app running, acpmux not reachable"
     row = states.get(session)
     if row is None:
+        # A chat this daemon does not list may live on another daemon or have moved machines:
+        # gone counts only once the app has also run past the idle limit.
+        age = app_age_hours(tag, processes, system)
+        if system is not None and (age is None or age < IDLE_HOURS):
+            return f"keep: its chat {session} is not listed here, app younger than {IDLE_HOURS:g}h"
         return f"idle: its chat {session} is gone"
     if isinstance(row, str):
         row = {"state": row, "quietSinceMs": None, "busy": False}
@@ -342,6 +402,66 @@ def verdict(tag: str, processes: List[Process], states: Optional[Dict[str, objec
     return f"keep: its chat {session} is {state}"
 
 
+@contextlib.contextmanager
+def sweep_lock():
+    """One sweep at a time per user: parallel reloads each start one, and two sweeps on one tag
+    would turn the app's quit into a force exit. Yields False when another sweep holds it."""
+    CLAIMS_DIR.mkdir(parents=True, exist_ok=True)
+    with open(CLAIMS_DIR / "sweep.lock", "a") as handle:
+        try:
+            fcntl.flock(handle, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        except OSError:
+            yield False
+            return
+        try:
+            yield True
+        finally:
+            fcntl.flock(handle, fcntl.LOCK_UN)
+
+
+def sweep(system: "System", spare: Iterable[str], dry_run: bool, states_fn: Callable[[], Optional[Dict[str, dict]]],
+          log: Callable[[str], None] = print) -> bool:
+    """`stop --all-idle`: every idle tag but `spare`. Each idle tag is judged again on a fresh
+    snapshot and fresh chat states right before it is stopped, and only the app instances that
+    judgment saw are quit. Returns False when a process survived."""
+    ok = True
+    spared = set(spare)
+    with sweep_lock() as held:
+        if not held:
+            log("another dev-build sweep is running; leaving it to that one")
+            return True
+        processes, states = system.snapshot(), states_fn()
+        for tag in sorted(tags_in(processes) - spared):
+            why = verdict(tag, processes, states, system)
+            if why.startswith("idle"):
+                processes, states = system.snapshot(), states_fn()
+                why = verdict(tag, processes, states, system)
+            log(f"{tag}: {why}")
+            if why.startswith("idle"):
+                survivors = stop(tag, system, dry_run=dry_run, log=log, expected_apps=app_pids(tag, processes))
+                ok = ok and not survivors
+    return ok
+
+
+def detach(argv: List[str]) -> int:
+    """Run this script again with `argv` in its own session (out of the caller's process group,
+    so a caller's timeout cannot stop it between an app's quit and its helpers), logging to
+    CLAIMS_DIR/sweep.log, and return at once."""
+    CLAIMS_DIR.mkdir(parents=True, exist_ok=True)
+    log_path = CLAIMS_DIR / "sweep.log"
+    try:
+        if log_path.stat().st_size > 1 << 20:
+            log_path.replace(log_path.with_suffix(".log.1"))
+    except OSError:
+        pass
+    with open(log_path, "a") as out:
+        out.write(f"--- {time.strftime('%Y-%m-%dT%H:%M:%S')} {' '.join(argv)}\n")
+        out.flush()
+        subprocess.Popen([sys.executable, "-I", str(Path(__file__).resolve()), *argv], stdin=subprocess.DEVNULL,
+                         stdout=out, stderr=subprocess.STDOUT, start_new_session=True)
+    return 0
+
+
 def main(argv: Optional[List[str]] = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     sub = parser.add_subparsers(dest="command", required=True)
@@ -354,11 +474,20 @@ def main(argv: Optional[List[str]] = None) -> int:
     stopping.add_argument("--dry-run", action="store_true")
     stopping.add_argument("--except", dest="spare", action="append", default=[],
                           help="with --all-idle: a tag to leave alone (the one being launched)")
+    stopping.add_argument("--detach", action="store_true",
+                          help="with --all-idle: run in the background, logging to the claims folder's sweep.log")
     claiming = sub.add_parser("claim")
     claiming.add_argument("--tag", required=True)
     claiming.add_argument("--session", default=os.environ.get("ACPMUX_SESSION_ID", ""))
     claiming.add_argument("--quiet", action="store_true")
     args = parser.parse_args(argv)
+    if args.command == "stop" and args.tag and (args.spare or args.detach):
+        parser.error("--except and --detach go with --all-idle")
+    if args.command == "stop" and args.detach:
+        rest = ["stop", "--all-idle", *(["--dry-run"] if args.dry_run else [])]
+        for tag in args.spare:
+            rest += ["--except", tag]
+        return detach(rest)
     system = System()
 
     if args.command == "claim":
@@ -374,15 +503,16 @@ def main(argv: Optional[List[str]] = None) -> int:
             print(f"claimed {args.tag} for {args.session} ({path})")
         return 0
 
-    processes = system.snapshot()
     if args.command == "list":
+        processes = system.snapshot()
         states = acpmux_states()
         rows = []
         for tag in sorted(tags_in(processes)):
-            chat = owner(tag, processes, system) or {}
+            chat = owner(tag, processes, system, states)
             rows.append({"tag": tag, "app": app_pids(tag, processes),
                          "processes": len(tree(tag, processes, {os.getpid()})),
-                         "chat": chat.get("session"), "verdict": verdict(tag, processes, states, system)})
+                         "chat": (chat or {}).get("session"),
+                         "verdict": verdict(tag, processes, states, system, chat=chat)})
         if args.json:
             print(json.dumps(rows, indent=2))
         else:
@@ -396,15 +526,7 @@ def main(argv: Optional[List[str]] = None) -> int:
             print(f"still running: {process.pid} {process.command[:160]}", file=sys.stderr)
         return 1 if survivors else 0
 
-    states = acpmux_states()
-    failed = False
-    for tag in sorted(tags_in(processes) - set(args.spare)):
-        why = verdict(tag, processes, states, system)
-        print(f"{tag}: {why}")
-        if why.startswith("idle"):
-            survivors = stop(tag, system, dry_run=args.dry_run)
-            failed = failed or bool(survivors)
-    return 1 if failed else 0
+    return 0 if sweep(system, args.spare, args.dry_run, acpmux_states) else 1
 
 
 if __name__ == "__main__":

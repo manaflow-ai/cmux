@@ -2488,11 +2488,11 @@ if [[ "$LAUNCH" -eq 1 ]]; then
   fi
   # Every launch also ends the other tags nobody uses any more: an app whose chat closed or has
   # been idle for CMUX_DEV_BUILD_IDLE_HOURS, or helpers whose app is gone (issue 63351: nothing
-  # ran the sweep, and a Mac kept a 42-hour-idle chat's build and its 83 processes). Detached and
-  # in the background, so the launch never waits on it. CMUX_DEV_BUILD_SWEEP=0 skips it.
+  # ran the sweep, and a Mac kept a 42-hour-idle chat's build and its 83 processes). --detach runs
+  # it in its own session and returns at once (log: ~/.local/state/cmux/dev-builds/sweep.log), so
+  # the launch never waits on it. CMUX_DEV_BUILD_SWEEP=0 skips it.
   if [[ -n "${TAG_SLUG:-}" && "${CMUX_DEV_BUILD_SWEEP:-1}" != 0 ]]; then
-    nohup python3 "$SCRIPT_DIR/dev-build.py" stop --all-idle --except "$TAG_SLUG" \
-      >>"${TMPDIR:-/tmp}/cmux-dev-build-sweep.log" 2>&1 </dev/null &
+    python3 "$SCRIPT_DIR/dev-build.py" stop --all-idle --except "$TAG_SLUG" --detach </dev/null || true
   fi
   if [[ -z "$TAG" ]]; then
     # Non-tag mode: kill any running instance (across any DerivedData path) to avoid socket conflicts.
