@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import subprocess
 import sys
 import tempfile
@@ -21,6 +22,8 @@ import yaml
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "scripts" / "ci"))
 import ios_fast_verdict as fv  # noqa: E402
+sys.path.insert(0, str(ROOT / "tests"))
+import test_ci_edit_events_start_no_runner as gh_expr  # noqa: E402  (its GitHub expression evaluator)
 
 KIT = "cmux-next-ios/CmuxMobileKit/"
 
@@ -313,6 +316,11 @@ class WorkflowTest(unittest.TestCase):
         self.assertIn("--device-family iphone", pick["run"])
         self.assertEqual(runner["runs-on"], self.jobs["ios-runner"]["runs-on"])
 
+    def test_a_skipped_caller_need_never_skips_the_picker(self) -> None:
+        # pr-router.yml's pipeline needs fast-gates, which skips on a landing head; the implicit success() reads the
+        # caller's needs too, so without !cancelled() the picker skipped and cmux/ios-fast stayed pending (cmux#57755).
+        self.assertTrue(self.jobs["ios-fast-runner"]["if"].startswith("${{ !cancelled() && "))
+
     def test_the_mac_job_runs_the_plan_warm(self) -> None:
         job = self.jobs["ios-fast"]
         self.assertEqual(job["name"], "ios fast verdict")
@@ -351,6 +359,60 @@ class WorkflowTest(unittest.TestCase):
         self.assertIn("scripts/ci/ios_fast_verdict.py", router["route"]["steps"][0]["with"]["sparse-checkout"])
         post = next(s for s in router["route"]["steps"] if s.get("name") == "Post the iOS fast verdict status")
         self.assertIn("ios_fast_verdict.py status", post["run"])
+
+    def test_an_unset_switch_runs_the_picker(self) -> None:
+        # GitHub compares null to '0' as numbers, 0 == 0: the bare comparison skipped the picker
+        # with the variable unset, so a landing head's pipeline skipped whole and `cmux/ios-fast` stayed pending
+        # (cmux#57010, run 45957942340). Only the switch's own '0' turns it off.
+        cond = gh_expr.condition(self.jobs["ios-fast-runner"]["if"])
+        for value, runs in ((None, True), ("", True), ("1", True), ("0", False)):
+            with self.subTest(value=value):
+                self.assertIs(gh_expr.truthy(gh_expr.evaluate(cond, {"vars": {"CI_IOS_FAST_VERDICT": value}}, {"cancelled": False})), runs)
+
+    def test_a_pending_the_route_started_is_always_answered(self) -> None:
+        # The route posted pending because it started pr-pipeline.yml: a skipped pipeline (red fast gates, or a job
+        # if that skipped it whole) still gets an error post, never a silent pending. One the route did not start
+        # stays pending for the land handoff's run.
+        router = yaml.safe_load((ROOT / ".github/workflows/pr-router.yml").read_text())["jobs"]
+        cond = gh_expr.condition(router["ios-fast-status"]["if"])
+        same = {"full_name": "o/r"}
+
+        def runs(pipeline: str, start: list[str]) -> bool:
+            context = {"needs": {"route": {"outputs": {"ios_status": "pending", "start": json.dumps(start)}},
+                                 "pipeline": {"result": pipeline}},
+                       "github": {"repository": "o/r", "event": {"pull_request": {"head": {"repo": same}}}}}
+            return gh_expr.truthy(gh_expr.evaluate(cond, context, {"cancelled": False}))
+
+        self.assertTrue(runs("skipped", ["pr-pipeline.yml"]))
+        self.assertTrue(runs("success", ["pr-pipeline.yml"]))
+        self.assertFalse(runs("skipped", ["cmux-next-fast-gates.yml"]))
+        post = next(s for s in router["ios-fast-status"]["steps"] if s.get("name") == "Post the verdict")
+        self.assertEqual(post["env"]["PIPELINE"], "${{ needs.pipeline.result }}")
+        out = subprocess.run(["bash", "-c", post["run"].replace("python3 -I scripts/ci/ios_fast_verdict.py status",
+                                                                "echo")],
+                             env={"PATH": os.environ["PATH"], "PIPELINE": "skipped", "RUN": "", "VERDICT": "",
+                                  "NEED_PROOF": "true"}, capture_output=True, text=True, check=True).stdout
+        self.assertTrue(out.startswith("error No verdict: the pr pipeline did not start"), out)
+        self.assertLessEqual(len(out.split(" ", 1)[1].strip()), 140)
+
+    # Bare `vars.NAME == '0'` / `!= '0'` reads an unset variable as '0' (null coerces to 0). These predate the guard;
+    # each one's unset behavior is its effective default today, so a fix there is a default change for its owner.
+    BARE_ZERO_SWITCHES = frozenset({
+        "CI_FAST_TIER_CARGO_BOT_READ",
+        "CI_FAST_TIER_PR_SCOPE",
+        "CI_REACT_SHARD_RECEIPT",
+        "CI_SKIP_WHILE_BASE_RED",
+        "CMUX_NEXT_LANGUAGE_PACKS",
+        "CMUX_NEXT_TOOL_PACKS",
+        "FIXIT_HANDOFF",
+        "IOS_BASE_BISECT",
+    })
+
+    def test_no_new_switch_reads_unset_as_zero(self) -> None:
+        bare = re.compile(r"(?<!format\('\{0\}', )\bvars\.([A-Z0-9_]+) *(?:!=|==) *'0'")
+        found = {m.group(1) for f in (ROOT / ".github/workflows").glob("*.y*ml") for m in bare.finditer(f.read_text())}
+        self.assertEqual(found - self.BARE_ZERO_SWITCHES, set(),
+                         "use format('{0}', vars.NAME) != '0' (or (vars.NAME || '1') == '0'): unset reads as '0'")
 
     def test_the_runner_script_parses(self) -> None:
         subprocess.run(["bash", "-n", str(ROOT / "scripts/ci/ios_fast_verdict.sh")], check=True)
