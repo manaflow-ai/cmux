@@ -13053,6 +13053,12 @@
         "ty": "json"
       }
     },
+    "request:_acpmux/heap_profile": {
+      "/*untyped*": {
+        "ty": "json",
+        "nullable": true
+      }
+    },
     "request:_acpmux/here": {
       "/includeSync": {
         "ty": "boolean"
@@ -33922,6 +33928,12 @@
       }
     },
     "response:_acpmux/harnesses": {
+      "/data/*untyped*": {
+        "ty": "json",
+        "nullable": true
+      }
+    },
+    "response:_acpmux/heap_profile": {
       "/data/*untyped*": {
         "ty": "json",
         "nullable": true

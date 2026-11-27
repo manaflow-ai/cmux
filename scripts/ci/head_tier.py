@@ -544,8 +544,13 @@ def tier(event_name: str, event: dict, switch: str = "1", facts: dict | None = N
     if pr.get("draft") is True:
         return "cheap", "draft pull request: the full tier runs when it is marked ready for review (or with full-ci)"
     if land_on and not landing:
-        return "cheap", (f"not handed off to land yet: the full tier runs when `{LAND_LABEL}` is added (land-judge "
-                         f"adds it when asked to land) or with full-ci; {LAND_STATUS} stays pending until then")
+        # Name what really gives this head the full tier: with CI_LAND_FULL_PER_PR off, `ready-to-land` lands on the
+        # affected tier below (the hourly base run), so only full-ci runs the full tier on the pull request itself.
+        when = (f"`{LAND_LABEL}` is added (land-judge adds it when asked to land) or with {FULL_CI}"
+                if (land_full_switch or "0").strip() == "1" else
+                f"{FULL_CI} is added (`{LAND_LABEL}` lands on the affected tier: the full tier runs hourly on "
+                f"{LAND_BASE}'s head)")
+        return "cheap", f"not handed off to land yet: the full tier runs when {when}; {LAND_STATUS} stays pending until then"
     if landing and land_on and (land_full_switch or "0").strip() != "1":
         return "cheap", (f"{LAND_AFFECTED_REASON}: the full tier runs once an hour on {LAND_BASE}'s head "
                          f"(cmux-next-hourly-full-tier.yml); {FULL_CI} gives this head the full tier, and "
