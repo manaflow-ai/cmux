@@ -1163,6 +1163,49 @@ class ShardHelper(unittest.TestCase):
         self.run_helper("record", str(temp / "lines"), str(temp / "out.json"))
         self.assertEqual(json.loads((temp / "out.json").read_text()), {"test/a.test.ts": 12, "test/b.test.ts": 3})
 
+    def test_record_skips_a_failed_first_run(self):
+        """A file that fails at once took 0 s; recording that halved its weight each run (772 files at 0 s on 11-27)."""
+        temp = pathlib.Path(self.enterContext(tempfile.TemporaryDirectory()))
+        (temp / "lines").write_text("0 FAIL test/broken.test.ts\n9 PASS test/broken.test.ts\n"
+                                    "7 PASS test/a.test.ts\n120 TIMEOUT test/hang.test.ts\n5 test/old.test.ts\n")
+        self.run_helper("record", str(temp / "lines"), str(temp / "out.json"))
+        self.assertEqual(json.loads((temp / "out.json").read_text()),
+                         {"test/a.test.ts": 7, "test/hang.test.ts": 120, "test/old.test.ts": 5})
+
+    def test_zero_second_files_spread_over_the_shards(self):
+        """A 0 s file grew no shard, so all of them went to one (run 45937345076: 1452 files on shard 2)."""
+        temp = pathlib.Path(self.enterContext(tempfile.TemporaryDirectory()))
+        files = [f"test/z{index:02}.test.ts" for index in range(40)]
+        (temp / "files").write_bytes(b"".join(name.encode() + b"\0" for name in files))
+        (temp / "serial").write_bytes(b"")
+        (temp / "d.json").write_text(json.dumps({name: 0 for name in files}))
+        counts = []
+        for shard in (1, 2, 3, 4):
+            out = self.run_helper("assign", str(temp / "files"), str(temp / "serial"), str(temp / "d.json"),
+                                  str(shard), "4", "1,1,1").stdout
+            counts.append(len([item for item in out.split("\0") if item]))
+        self.assertEqual(counts, [10, 10, 10, 10])
+
+    def test_dev_server_files_recorded_at_a_second_weigh_as_their_plausible_siblings(self):
+        """406 of 481 dev-server files held 1 s or less on 11-27 (the rest: median 19 s). At 1 s each the
+        split thought them free beside a long plain file and left that shard none; at their siblings'
+        20 s they cost as much there as anywhere."""
+        temp = pathlib.Path(self.enterContext(tempfile.TemporaryDirectory()))
+        plain = [f"test/p{index}.test.ts" for index in range(4)]
+        dev = [f"test/dev{index:02}.test.ts" for index in range(24)]
+        durations = dict(zip(plain, (60, 30, 30, 30)))
+        durations.update({name: (20 if index < 3 else 1) for index, name in enumerate(dev)})
+        (temp / "files").write_bytes(b"".join(name.encode() + b"\0" for name in plain + dev))
+        (temp / "serial").write_bytes(b"".join(name.encode() + b"\0" for name in dev))
+        (temp / "d.json").write_text(json.dumps(durations))
+        counts = []
+        for shard in (1, 2, 3, 4):
+            out = self.run_helper("assign", str(temp / "files"), str(temp / "serial"), str(temp / "d.json"),
+                                  str(shard), "4", "1,1,1").stdout
+            counts.append(len([item for item in out.split("\0") if "/dev" in item]))
+        self.assertEqual(sum(counts), 24)
+        self.assertGreaterEqual(min(counts), 4, counts)  # it was [0, 8, 8, 8]
+
     def test_the_split_weighs_dev_server_and_alone_files_by_how_few_run_at_once(self):
         """Seventeen dev-server files of 8 s on one config: one warms alone (8 s), sixteen share the
         8-wide pool (16 s), 24 s in all; an alone file of 24 s is as much. A seconds-sum split would
