@@ -82,6 +82,7 @@ mod connection_loop;
 #[path = "connection_token_tests.rs"]
 mod connection_token_tests;
 mod connections;
+mod consent_grant;
 pub(crate) mod controls;
 mod delivery;
 pub(crate) mod dual_requests;
@@ -183,7 +184,8 @@ mod pending;
 #[path = "person_prove_tests.rs"]
 mod person_prove_tests;
 mod place;
-mod place_set;
+mod place_pending;
+pub(crate) mod place_set;
 mod plan_build;
 mod processes;
 mod project_new;
