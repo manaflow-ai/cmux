@@ -948,6 +948,10 @@ pub struct Socket<'a> {
     syn_data_hold: Duration,
     /// cmux patch: until when this connect's SYN waits for that write.
     syn_hold_until: Option<Instant>,
+    /// cmux patch: the peer acknowledged this connect's SYN data on a segment
+    /// that reached us before its SYN|ACK. The SYN goes again at once, and
+    /// bare: the peer has the data.
+    syn_data_taken: bool,
 }
 
 const DEFAULT_MSS: usize = 536;
@@ -1060,6 +1064,7 @@ impl<'a> Socket<'a> {
             syn_data_in: false,
             syn_data_acked: false,
             syn_data_hold: Duration::ZERO,
+            syn_data_taken: false,
             syn_hold_until: None,
         }
     }
@@ -2104,6 +2109,7 @@ impl<'a> Socket<'a> {
         self.syn_data_in = false;
         self.syn_data_acked = false;
         self.syn_hold_until = None;
+        self.syn_data_taken = false;
         self.ack_delay_timer = AckDelayTimer::Idle;
         self.challenge_ack_timer = Instant::from_secs(0);
 
@@ -2858,7 +2864,7 @@ impl<'a> Socket<'a> {
                 // cmux patch: with data on our SYN the SYN|ACK acknowledges the
                 // SYN alone (a peer that ignored the data) or some or all of it.
                 let acceptable = if self.syn_data {
-                    ack_number >= self.local_seq_no + 1 && ack_number <= self.remote_last_seq
+                    ack_number >= self.local_seq_no + 1 && ack_number <= self.send_max()
                 } else {
                     ack_number == self.local_seq_no + 1
                 };
@@ -2878,12 +2884,24 @@ impl<'a> Socket<'a> {
                 // servers, or a defense against reordering. Either way, if Linux
                 // does it, we do too.
                 // cmux patch: or one acknowledging data on our SYN: a reply the
-                // peer sent after its SYN|ACK, overtaking it. It comes again.
-                if ack_number == self.local_seq_no + 1
-                    || (self.syn_data
-                        && ack_number > self.local_seq_no + 1
-                        && ack_number <= self.remote_last_seq)
+                // peer sent after its SYN|ACK, which was lost or is behind it.
+                // The reply comes again. Our SYN goes again now, once and
+                // bare, rather than at our RTO: a peer that lost its SYN|ACK
+                // resends it, and the replies behind it, on our SYN.
+                if self.syn_data
+                    && ack_number > self.local_seq_no + 1
+                    && ack_number <= self.send_max()
                 {
+                    if !core::mem::replace(&mut self.syn_data_taken, true) {
+                        net_debug!("SYN data acknowledged before the SYN|ACK, resending the SYN");
+                        let send_max = self.send_max();
+                        self.remote_last_seq = self.local_seq_no;
+                        self.keep_send_max(send_max);
+                        self.rtte.on_retransmit();
+                    }
+                    return None;
+                }
+                if ack_number == self.local_seq_no + 1 {
                     net_debug!(
                         "expecting a SYN|ACK, received an ACK with the right ack_number, ignoring."
                     );
@@ -2898,6 +2916,17 @@ impl<'a> Socket<'a> {
             // Anything else in the SYN-SENT state is invalid.
             (State::SynSent, _, _) => {
                 net_debug!("expecting a SYN|ACK");
+                return None;
+            }
+            // cmux patch: the peer sent its SYN again, so our SYN|ACK did not
+            // reach it, nor did the replies behind it (`set_syn_data`). They
+            // go again now rather than at our RTO.
+            (State::SynReceived, TcpControl::Syn, None) if self.syn_data_acked() => {
+                net_debug!("SYN again after SYN data, resending the SYN|ACK");
+                let send_max = self.send_max();
+                self.remote_last_seq = self.local_seq_no;
+                self.keep_send_max(send_max);
+                self.rtte.on_retransmit();
                 return None;
             }
             // Every packet after the initial SYN must be an acknowledgement.
@@ -4066,7 +4095,7 @@ impl<'a> Socket<'a> {
                     repr.sack_permitted = true;
                     // cmux patch: data written before the SYN rides on it, up
                     // to a segment less the SYN's options (`set_syn_data`).
-                    if self.syn_data && !self.tx_buffer.is_empty() {
+                    if self.syn_data && !self.syn_data_taken && !self.tx_buffer.is_empty() {
                         let local_mss =
                             self.capped_mss(cx.ip_mtu() - ip_repr.header_len() - TCP_HEADER_LEN);
                         // Both ends sit on the same tunnel, so its MTU, not
@@ -5258,6 +5287,74 @@ mod test {
         assert!(server.socket.tx_buffer.is_empty());
         // Nothing was sent twice.
         assert_eq!(client.socket.remote_last_seq, LOCAL_SEQ + 1 + 5);
+    }
+
+    /// The next segment `from` sends, lost on the way.
+    fn lose(from: &mut TestSocket) -> Option<(TcpControl, Vec<u8>)> {
+        let mut out = None;
+        let _ = from.socket.dispatch(&mut from.cx, |_, _, (_, tcp)| {
+            out = Some((tcp.control, tcp.payload.to_vec()));
+            Ok::<(), ()>(())
+        });
+        out
+    }
+
+    #[test]
+    fn test_syn_data_lost_syn_ack_is_resent_on_the_reply_not_the_rto() {
+        let (mut client, mut server) = syn_data_pair(true);
+        assert_eq!(client.socket.send_slice(b"hello"), Ok(5));
+        hop(&mut client, &mut server).unwrap();
+        // The SYN|ACK is lost; the reply behind it arrives.
+        assert_eq!(lose(&mut server).unwrap().0, TcpControl::Syn);
+        assert_eq!(drain(&mut server), b"hello".to_vec());
+        assert_eq!(server.socket.send_slice(b"world"), Ok(5));
+        let reply = hop(&mut server, &mut client).unwrap();
+        assert_eq!(reply.1, b"world".to_vec());
+        assert_eq!(client.socket.state(), State::SynSent);
+        // With no clock moving (no RTO), the client sends its SYN again,
+        // bare, and the server its SYN|ACK and the reply.
+        let syn = hop(&mut client, &mut server).unwrap();
+        assert_eq!(syn, (TcpControl::Syn, vec![]));
+        let syn_ack = hop(&mut server, &mut client).unwrap();
+        assert_eq!(syn_ack.0, TcpControl::Syn);
+        assert_eq!(client.socket.state(), State::Established);
+        assert!(client.socket.tx_buffer.is_empty());
+        for _ in 0..8 {
+            hop(&mut server, &mut client);
+            hop(&mut client, &mut server);
+        }
+        assert_eq!(server.socket.state(), State::Established);
+        // Each byte once, each way.
+        assert_eq!(drain(&mut client), b"world".to_vec());
+        assert_eq!(drain(&mut server), b"");
+        assert!(server.socket.tx_buffer.is_empty());
+        assert_eq!(client.socket.local_seq_no, LOCAL_SEQ + 1 + 5);
+    }
+
+    #[test]
+    fn test_syn_data_resent_syn_draws_the_syn_ack_again() {
+        let (mut client, mut server) = syn_data_pair(true);
+        assert_eq!(client.socket.send_slice(b"hello"), Ok(5));
+        hop(&mut client, &mut server).unwrap();
+        // The SYN|ACK and the reply are both lost.
+        lose(&mut server).unwrap();
+        assert_eq!(server.socket.send_slice(b"world"), Ok(5));
+        assert_eq!(lose(&mut server).unwrap().1, b"world".to_vec());
+        // The client's RTO resends its SYN, data and all; the server answers
+        // at once, not at its own RTO.
+        client.cx.set_now(client.cx.now() + Duration::from_secs(4));
+        let syn = hop(&mut client, &mut server).unwrap();
+        assert_eq!(syn, (TcpControl::Syn, b"hello".to_vec()));
+        let syn_ack = hop(&mut server, &mut client).unwrap();
+        assert_eq!(syn_ack.0, TcpControl::Syn);
+        assert_eq!(client.socket.state(), State::Established);
+        for _ in 0..8 {
+            hop(&mut server, &mut client);
+            hop(&mut client, &mut server);
+        }
+        assert_eq!(server.socket.state(), State::Established);
+        assert_eq!(drain(&mut client), b"world".to_vec());
+        assert_eq!(drain(&mut server), b"hello".to_vec());
     }
 
     #[test]
