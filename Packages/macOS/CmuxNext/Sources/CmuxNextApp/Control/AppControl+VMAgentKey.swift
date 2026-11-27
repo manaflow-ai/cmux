@@ -70,15 +70,12 @@ extension AppControl {
 
     // The mint's rules are Rust's (cmux-cloud-config agent_key, the same ones `cmux vm token
     // create` links), asked over the app FFI's JSON channel: the body and its limits, the VM API
-    // for the backend, and how the answer reads. The app only does the HTTP call.
+    // for the backend, and how the answer reads. cmux-cloud-api makes the call.
 
     nonisolated struct VMAgentKeyPlan: Decodable, Sendable {
-        var url: String
         var baseUrl: String
         var body: JSONValue
-        var timeoutSeconds: Int
-
-        }
+    }
 
     nonisolated struct VMAgentKeyRefusal: Decodable, Sendable {
         var code: String
