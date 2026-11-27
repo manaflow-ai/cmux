@@ -115,7 +115,11 @@ import UIKit
         model.ingest(.connection(.attached))
         model.ingest(.connection(.reattaching(mac: "Mac Studio")))
         #expect(model.connectionLine == nil)
-        try await Task.sleep(for: .milliseconds(300))
+        // Wait for the gate itself, bounded, not a fixed sleep: a loaded main actor ran the
+        // 60 ms gate past a 300 ms sleep on CI.
+        let deadline = ContinuousClock.now + .seconds(5)
+        while !model.quietStatus.isShown, ContinuousClock.now < deadline { try await Task.sleep(for: .milliseconds(20)) }
+        #expect(model.quietStatus.isShown)
         #expect(model.connectionLine == nil, "a reattach says nothing, however long (Leo 2026-11-22)")
         // Retries keep the first instant; a failure after them reads plainly.
         model.ingest(.connection(.failed(message: "daemon channel closed")))
