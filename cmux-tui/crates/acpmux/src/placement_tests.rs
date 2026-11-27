@@ -793,6 +793,19 @@ fn the_pick_order_is_under_then_headroom_then_unread_then_full() {
 }
 
 #[test]
+fn a_hub_only_host_with_a_pushed_reading_is_weighed_not_unknown() {
+    // The row `mesh_book_hosts` builds from the address book: via the hub, health pushed.
+    let row = json!({"name": "big", "connected": true, "state": "connected", "via": "hub",
+        "health": health(40.0, 12, 1.0, 300.0, 1), "healthAt": 1});
+    let cand = Candidate::peer(&row).unwrap();
+    assert!(cand.via_hub);
+    let v = place(&[cand], Some(&registry()), Work::Agent);
+    let why = host(&v, "big")["why"].as_str().unwrap_or_default().to_owned();
+    assert!(!why.contains("resources unknown"), "{why}");
+    assert_eq!(v["pick"], "big", "{v:#}");
+}
+
+#[test]
 fn role_holders_fold_into_machine_roles() {
     let mut reg = json!({
         "machines": {"mac": {"roles": ["ci-runner"]}, "air": {}, "other": {"roles": ["x"]}},

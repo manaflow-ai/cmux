@@ -28,7 +28,7 @@ import sys
 from pathlib import Path
 
 PR_SUBJECT = re.compile(r"\(#(\d+)\)\s*$")
-IDENT = re.compile(r"(?:[Ii]dentifier|[Dd]uplicate identifier|redeclare(?: block-scoped variable)?|[Cc]annot redeclare)\s+'([^']+)'")
+IDENT = re.compile(r"(?:[Ii]dentifier|[Dd]uplicate identifier|redeclare(?: block-scoped variable)?|[Cc]annot redeclare)\s+['`]([^'`]+)['`]")
 
 
 def git(repo: Path, *args: str) -> str:
@@ -84,8 +84,9 @@ def main(argv: list[str]) -> int:
             who = blame(args.repo_dir, args.sha, path, number)
             if who and (pr := pull(who[1])) is not None and all(pr != seen[0] for seen in found):
                 found.append((pr, who[0], number, who[1]))
-    # The later landing is the one that made the merged tree red: the newest commit by order on the branch.
-    found.sort(key=lambda item: int(git(args.repo_dir, "log", "-1", "--format=%ct", item[1]).strip() or 0))
+    # The later landing is the one that made the merged tree red: the newest commit in the branch's history.
+    order = {c: n for n, c in enumerate(git(args.repo_dir, "rev-list", args.sha).split())}  # 0 is the newest
+    found.sort(key=lambda item: -order.get(item[1], len(order)))
     culprit = found[-1] if found else None
     values = {
         "pr": str(culprit[0]) if culprit else "",

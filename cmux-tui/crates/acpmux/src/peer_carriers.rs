@@ -715,6 +715,8 @@ impl Peer {
             let host = host.trim_start_matches('[').trim_end_matches(']').to_owned();
             let tls = req.uri().scheme_str() == Some("wss");
             let port = req.uri().port_u16().unwrap_or(if tls { 443 } else { 80 });
+            // A peer the person configured: a host they name.
+            cmux_egress::allow_named(&host);
             let tcp =
                 crate::happy_dial::connect_tcp(&host, port).await.map_err(|e| DialError::io(&e))?;
             // A peer forwards the pane's prompts and their images: the listener's limits.

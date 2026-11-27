@@ -123,13 +123,6 @@ jobs:
           fi
           exit "$rc"
 
-      - name: Name the pull requests behind the red
-        id: culprit
-        if: ${{ failure() && steps.run.outputs.result == 'failure' }}
-        run: |
-          python3 -I scripts/ci/web_bundle_culprit.py --failure "$RUNNER_TEMP/web-bundle-matrix/failure.tsv" \
-            --sha "$(git rev-parse HEAD)" --repo-dir . --github-output "$GITHUB_OUTPUT" --summary "$GITHUB_STEP_SUMMARY"
-
       - name: Keep the matrix logs
         if: always()
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
@@ -138,8 +131,6 @@ jobs:
           path: ${{ runner.temp }}/web-bundle-matrix/logs
           if-no-files-found: ignore
           retention-days: 3
-
-    # The culprit outputs ride on the job's own outputs below.
 
   report:
     needs: matrix

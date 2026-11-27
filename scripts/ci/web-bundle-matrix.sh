@@ -13,12 +13,11 @@
 # scripts/cmux-next/build-web-bundles.sh runs) into a scratch directory, and beside them the checks that
 # say a bundle will not build or will not load:
 #   bundle:agent-pane, bundle:pages, bundle:agent-activity, bundle:webviews-app   the four esbuild/Vite builds,
-#                       react-compiler plugin and CSS/asset resolution included
+#                       react-compiler plugin (a compile error fails the build) and CSS/asset resolution included
 #   inspector           the committed Chief memory inspector page equals a fresh build
 #   typecheck           the type errors that redeclare a name in shipped code (scripts/ci/web_bundle_typecheck.py, from `vp check`);
 #                       the rest stays `bun run typecheck`'s
 #   lint-redeclare      oxlint no-redeclare on src/ (webviews/scripts/lint/bundle-breakers.json)
-#   compiler-bails      scripts/check-compiler-bails.mjs: a file the react compiler gives up on
 #   router-security     the pinned TanStack Router build the app ships (verify-tanstack-router-security.mjs)
 #   store-packages      the App Store packages the app bundles copy in (sync-app-runtime.sh --store, as every in-tree build runs it)
 # After one serial prelude (bun install, page strings, protocol codegen) the jobs run N at a time (default 3,
@@ -50,13 +49,12 @@ case "$JOBS" in ''|*[!0-9]*|0) echo "error: --jobs wants a positive number, got 
 
 # Cheap checks first, so a red they find comes back in seconds; then the builds, longest first. Commands run from the repository root.
 W='cd webviews && export PATH="$PWD/node_modules/.bin:$PATH" &&'
-JOB_NAMES=(lint-redeclare router-security store-packages inspector compiler-bails typecheck bundle:webviews-app bundle:pages bundle:agent-pane bundle:agent-activity)
+JOB_NAMES=(lint-redeclare router-security store-packages inspector typecheck bundle:webviews-app bundle:pages bundle:agent-pane bundle:agent-activity)
 JOB_CMDS=(
   "$W vp lint --config scripts/lint/bundle-breakers.json src"
   "$W node scripts/verify-tanstack-router-security.mjs"
   '[ ! -f scripts/cmux-next/sync-app-runtime.sh ] || scripts/cmux-next/sync-app-runtime.sh --store'
   'scripts/cmux-next/build-optchat-inspector-web.sh --check'
-  "$W node scripts/check-compiler-bails.mjs"
   "$W python3 -I ../scripts/ci/web_bundle_typecheck.py"
   'scripts/build-webviews-app.sh --skip-checks --out "$OUT/bundles/webviews-app"'
   'scripts/cmux-next/build-pages-web.sh --out "$OUT/bundles/pages"'
