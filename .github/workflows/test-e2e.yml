@@ -472,7 +472,9 @@ jobs:
       xcode_app: ${{ env.CMUX_CI_XCODE_APP }}
     env:
       TEST_REF: ${{ needs.resolve-ref.outputs.sha }}
-      CMUX_CI_MAX_MACOS_SDK_MAJOR: "26"
+      # The cap follows the pin below: CMUX_CI_XCODE_APP_PR names Xcode 27.2
+      # (SDK 27) since 2026-11-27, and a fixed "26" refused that pin.
+      CMUX_CI_MAX_MACOS_SDK_MAJOR: ${{ contains((contains(needs.runner.outputs.label, 'macos-26') || startsWith(needs.runner.outputs.label, 'glaeda-')) && vars.CMUX_CI_XCODE_APP_PR || '', 'Xcode_27') && '27' || '26' }}
       # The DerivedData seed key hashes `xcodebuild -version`, and
       # seed-derived-data.yml builds seeds on the macOS 26 pull-request pool
       # with CMUX_CI_XCODE_APP_PR. On a macOS 26 runner take that pin so a seed
@@ -1262,7 +1264,7 @@ jobs:
     runs-on: ${{ needs.runner.outputs.picked_attempt == github.run_attempt && needs.runner.outputs.label || needs.runner.outputs.retry_label }}
     timeout-minutes: ${{ fromJSON(inputs.job_timeout || '45') }}
     env:
-      CMUX_CI_MAX_MACOS_SDK_MAJOR: "26"
+      CMUX_CI_MAX_MACOS_SDK_MAJOR: ${{ contains(needs.build.outputs.xcode_app, 'Xcode_27') && '27' || '26' }}
       # The build job's pin, so this job selects the Xcode that linked the
       # product it runs. The app-host test environment is set by the
       # e2e-run-tests action wherever the tests run.
