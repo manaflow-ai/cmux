@@ -168,6 +168,24 @@ LINUX_SIZE = re.compile(r"^blacksmith-(\d+)vcpu-(ubuntu-\d+(?:-arm)?)$")
 # sweeps about as often, so a label that is still dead is marked again before its mark expires,
 # and one that recovered is used again within half an hour (or at once when it starts a job).
 DEAD_TTL = dt.timedelta(minutes=30)
+# Proof by kind (proof_problem()): a label is judged by what can show it alive. A persistent label (its runners stand
+# registered: the owned GCP pool, PERSISTENT_LINUX_POOL_LABELS) needs a runner online; a per-job label (one runner
+# registers per queued job and leaves after it: Freestyle, the owned Mac fleet Linux VMs) lists no idle runner, so
+# only a start shows it alive; a Blacksmith label has the vendor's signal (the probe, label_evidence()). A pool moves
+# onto a per-job label only after a start there within PER_JOB_PROOF, and after a full mark on it expires only after a
+# start later than the mark, waiting at most PROOF_WAIT_CAP before it tries the label again. At 13:27Z on 2026-11-26
+# the full mark on cmux-freestyle-linux-x64 from 12:51Z expired on schedule and linux, linux_2 and linux_8 moved
+# back onto it with nothing showing it had room: the coordinator's FIRE read RUNNER_POOLS.linux "set to
+# cmux-freestyle-linux-x64". Coordinator's decision, 2026-11-26: "Proof depends on the label's kind: online runners
+# for persistent labels, a start seen recently for per-job labels like Freestyle and the owned VMs, and the vendor's
+# signal for Blacksmith."
+PER_JOB_PROOF = dt.timedelta(minutes=30)
+PROOF_WAIT_CAP = dt.timedelta(hours=2)
+# Per-job owned label -> the newest start seen there (the janitor's `label_started`, kept across passes).
+LAST_START_KEY = "_last_start"
+# Per-job owned label -> the time a start must come after before a pool moves onto it (its expired mark, or when a
+# move onto it was first refused); dropped once a start comes or PROOF_WAIT_CAP passes.
+PROOF_WAIT_KEY = "_proof_wait"
 # Probe health older than this is from a run that did not finish; it decides nothing.
 HEALTH_MAX_AGE = dt.timedelta(minutes=25)
 # A janitor snapshot older than this (or undated, or from the future) decides nothing: the age the
@@ -219,6 +237,16 @@ OWNED_FREESTYLE_LINUX = frozenset(pr_runner_pool.OWNED_FREESTYLE_LINUX)
 def owned_freestyle(label: object) -> bool:
     """The Freestyle Linux rung's label (OWNED_FREESTYLE_LINUX)."""
     return isinstance(label, str) and label in OWNED_FREESTYLE_LINUX
+
+
+def per_job(label: object) -> bool:
+    """An owned label whose runners register one per queued job (Freestyle, the owned Mac fleet Linux VMs)."""
+    return owned_ephemeral(label) or owned_freestyle(label)
+
+
+def persistent(label: object) -> bool:
+    """An owned label whose runners stand registered, so its online count shows whether it can take a job."""
+    return owned_gcp(label) or label in PERSISTENT_LINUX_POOL_LABELS
 
 
 def owned_lead(label: object) -> bool:
@@ -438,6 +466,16 @@ def parse_value(raw: str | None, pools: Mapping[str, Mapping[str, Any]]) -> tupl
                            "dropped")
         if good:
             clean[SERVED_KEY] = dict(sorted(good.items()))
+    for key in (LAST_START_KEY, PROOF_WAIT_KEY):
+        record = value.get(key)
+        if record is None:
+            continue
+        good = {label: since for label, since in (record.items() if isinstance(record, dict) else ())
+                if per_job(label) and parse_time(since) is not None}
+        if not isinstance(record, dict) or len(good) != len(record):
+            dropped.append(f"{VARIABLE}.{key} holds entries that are not per-job owned label -> zoned time; dropped")
+        if good:
+            clean[key] = dict(sorted(good.items()))
     homes = value.get(RAW_HOME_KEY)
     if homes is not None:
         good = {name: {"home": entry["home"], "to": entry["to"]}
@@ -852,6 +890,30 @@ def recently_started(snapshot: Mapping[str, Any], *, now: dt.datetime) -> set[st
     return found
 
 
+def owned_readings(snapshot: Mapping[str, Any] | None, *, now: dt.datetime
+                   ) -> tuple[dict[str, dt.datetime] | None, dict[str, int] | None]:
+    """(starts, online) from a fresh janitor snapshot: the newest start on each per-job owned label, and the online
+    runners on each persistent label (queue_janitor.attach_owned_idle()). None for a reading the snapshot cannot
+    give (stale, undated, an older janitor, an unread roster): no evidence, so nothing is refused on it."""
+    generated = parse_time(snapshot.get("generated_at")) if isinstance(snapshot, Mapping) else None
+    if generated is None or not (dt.timedelta(minutes=-1) <= now - generated <= SNAPSHOT_MAX_AGE):
+        return None, None
+    starts: dict[str, dt.datetime] | None = None
+    raw = snapshot.get(LABEL_STARTED_KEY)
+    if isinstance(raw, Mapping):
+        starts = {}
+        for label, when in raw.items():
+            moment = parse_time(when)
+            if per_job(label) and moment is not None and moment <= now + dt.timedelta(minutes=1):
+                starts[str(label)] = moment
+    online: dict[str, int] | None = None
+    for label, load in (snapshot.get("pools") or {}).items():
+        count = load.get("online") if isinstance(load, Mapping) else None
+        if persistent(label) and isinstance(count, int) and not isinstance(count, bool) and count >= 0:
+            online = {**(online or {}), str(label): count}
+    return starts, online
+
+
 def unproven(label: str, served: Mapping[str, Any]) -> bool:
     """An owned Mac fleet Linux VM label (OWNED_EPHEMERAL_LINUX) no runner has been seen taking a job on.
 
@@ -866,14 +928,33 @@ def unproven(label: str, served: Mapping[str, Any]) -> bool:
     return owned_ephemeral(label) and label not in served
 
 
+def proof_problem(label: str, *, last: Mapping[str, str], waits: Mapping[str, str], now: dt.datetime) -> str | None:
+    """Why per-job `label` has not shown it can take a job, "capped" once its wait reached PROOF_WAIT_CAP, else None.
+
+    Its proof is a start later than both PER_JOB_PROOF ago and its wait's time (an expired full mark: a full label
+    still starts jobs, so only a start after the mark shows room)."""
+    seen = parse_time(last.get(label))
+    since = parse_time(waits.get(label))
+    after = now - PER_JOB_PROOF if since is None else max(now - PER_JOB_PROOF, since)
+    if seen is not None and seen > after:
+        return None
+    if since is not None and now - since >= PROOF_WAIT_CAP:
+        return "capped"
+    return f"has started nothing since {iso(after)}"
+
+
 def reconcile(current: Mapping[str, Any], pools: Mapping[str, Mapping[str, Any]], *,
               dead_now: Iterable[str], served_now: Iterable[str], now: dt.datetime,
-              covered: Iterable[str] | None = None) -> tuple[dict[str, Any], list[str]]:
+              covered: Iterable[str] | None = None, starts_now: Mapping[str, dt.datetime] | None = None,
+              online: Mapping[str, int] | None = None) -> tuple[dict[str, Any], list[str]]:
     """The next RUNNER_POOLS value and a line per change. `current` is parse_value()'s output.
 
-    `covered` (evidence_covers()) names the labels whose marks may expire; None lets every mark expire."""
+    `covered` (evidence_covers()) names the labels whose marks may expire; None lets every mark expire.
+    `starts_now` and `online` are owned_readings(): with them a pool's label must show proof of its kind
+    (PER_JOB_PROOF); None for either is no evidence of that kind, and nothing is refused on it."""
     lines: list[str] = []
     marks: dict[str, str] = {}
+    expired: dict[str, str] = {}
     known_now = None if covered is None else set(covered)
     for label, since in (current.get(DEAD_KEY) or {}).items():
         seen = parse_time(since)
@@ -885,6 +966,8 @@ def reconcile(current: Mapping[str, Any], pools: Mapping[str, Mapping[str, Any]]
             lines.append(f"{label}: dead mark past {DEAD_TTL} kept; no fresh evidence about it this pass")
         else:
             lines.append(f"{label}: dead mark expired; it may take jobs again")
+            if seen is not None:
+                expired[label] = since
     for label in sorted(set(served_now)):
         if marks.pop(label, None):
             lines.append(f"{label}: started a job; it takes jobs again")
@@ -899,11 +982,52 @@ def reconcile(current: Mapping[str, Any], pools: Mapping[str, Mapping[str, Any]]
         if owned_ephemeral(label) and label in known and label not in served:
             served[label] = iso(now)
             lines.append(f"{label}: an owned Linux VM runner took a job; the pools may lead with it")
-    skipped = set(marks) | {label for label in known if unproven(label, served)}
+    last = {label: since for label, since in (current.get(LAST_START_KEY) or {}).items()
+            if label in known and per_job(label)}
+    fresh_starts = dict(starts_now or {})
+    if starts_now is None:
+        # No snapshot reading: a start the probe evidence saw (served_now) is dated now.
+        fresh_starts = {label: now for label in served_now}
+    for label, moment in fresh_starts.items():
+        before = parse_time(last.get(label))
+        if label in known and per_job(label) and (before is None or moment > before):
+            last[label] = iso(moment)
+    waits = {label: since for label, since in (current.get(PROOF_WAIT_KEY) or {}).items()
+             if label in known and per_job(label) and label not in marks}
+    if starts_now is not None:
+        for label, since in expired.items():
+            if per_job(label) and label in known:
+                waits[label] = since
+    offline = {label for label in known if persistent(label) and online is not None and online.get(label) == 0
+               and label not in served_now}
+    skipped = set(marks) | offline | {label for label in known if unproven(label, served)}
+    in_use = {current.get(name) for name in pools}
+    tried: set[str] = set()
+
+    def needs_proof(name: str, label: str) -> bool:
+        """Whether moving pools.<name> onto per-job `label` waits for a start (proof_problem())."""
+        if starts_now is None or not per_job(label) or current.get(name) == label or label in in_use:
+            return False
+        problem = proof_problem(label, last=last, waits=waits, now=now)
+        if problem is None:
+            waits.pop(label, None)
+            return False
+        if problem == "capped":
+            if label not in tried:
+                lines.append(f"{label}: no start seen since {waits[label]}, {PROOF_WAIT_CAP} ago; trying it again")
+                tried.add(label)
+            return False
+        waits.setdefault(label, iso(now))
+        lines.append(f"pools.{name}: {label} (runners register per job) {problem}; passed over")
+        return True
+
     value: dict[str, Any] = {}
     for name, spec in sorted(pools.items()):
         candidates = members(spec)
-        chosen = next((label for label in candidates if label not in skipped), None)
+        for label in candidates:
+            if label in offline and current.get(name) == label:
+                lines.append(f"pools.{name}: {label} has no runner online; passed over")
+        chosen = next((label for label in candidates if label not in skipped and not needs_proof(name, label)), None)
         if candidates and unproven(candidates[0], served) and current.get(name) == candidates[0]:
             lines.append(f"pools.{name}: no runner has ever taken a job on {candidates[0]}; passed over")
         if chosen is None:
@@ -917,6 +1041,15 @@ def reconcile(current: Mapping[str, Any], pools: Mapping[str, Mapping[str, Any]]
     value[DEAD_KEY] = dict(sorted(marks.items()))
     if served:
         value[SERVED_KEY] = dict(sorted(served.items()))
+    for label in tried:
+        waits.pop(label, None)
+    if starts_now is not None:
+        waits = {label: since for label, since in waits.items()
+                 if proof_problem(label, last=last, waits=waits, now=now) is not None}
+    if last:
+        value[LAST_START_KEY] = dict(sorted(last.items()))
+    if waits:
+        value[PROOF_WAIT_KEY] = dict(sorted(waits.items()))
     comparable = {key: current.get(key) for key in value}
     if comparable != value or UPDATED_KEY not in current:
         value[UPDATED_KEY] = iso(now)
@@ -1031,8 +1164,10 @@ def main(argv: Sequence[str] | None = None, env: Mapping[str, str] | None = None
     dead, started, notes = label_evidence(health, snapshot, now=now)
     for note in notes:
         print(note)
+    starts_now, online = owned_readings(snapshot, now=now)
     value, lines = reconcile(current, pools, dead_now=dead, served_now=started, now=now,
-                             covered=evidence_covers(health, snapshot, pools, now=now))
+                             covered=evidence_covers(health, snapshot, pools, now=now),
+                             starts_now=starts_now, online=online)
     # The mirrored and raw-label variables and the switch's record, read live: the switch step just before this
     # one may have moved them, so the job-start values could undo its failover.
     live, record, readable = _live(switch, env)

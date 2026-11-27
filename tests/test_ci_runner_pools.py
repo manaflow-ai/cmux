@@ -841,6 +841,113 @@ class Reconcile(unittest.TestCase):
         self.assertEqual(lines, [])
 
 
+class ProofByKind(unittest.TestCase):
+    """Coordinator's decision, 2026-11-26: "Proof depends on the label's kind: online runners for persistent labels,
+    a start seen recently for per-job labels like Freestyle and the owned VMs, and the vendor's signal for
+    Blacksmith." """
+
+    FREESTYLE = "cmux-freestyle-linux-x64"
+    GCP = "cmux-fleet-linux-x64"
+    MARK = dt.datetime(2026, 11, 26, 12, 51, 1, tzinfo=dt.timezone.utc)
+
+    def snapshot(self, now, *, starts, pools=None):
+        snapshot = copy.deepcopy(RECORDED)
+        snapshot["generated_at"] = runner_pools.iso(now - dt.timedelta(minutes=2))
+        snapshot["pools"][self.FREESTYLE] = {"queued": 0, "running": 0, "reserved_queued": 0,
+                                             "oldest_queued_minutes": 0}
+        snapshot["pools"][self.GCP] = {"queued": 0, "running": 300, "reserved_queued": 0, "oldest_queued_minutes": 0,
+                                       "online": 400, "busy": 300, "idle": 100}
+        snapshot["pools"].update(pools or {})
+        snapshot["label_started"] = {label: runner_pools.iso(when) for label, when in starts.items()}
+        return snapshot
+
+    def step(self, current, now, snapshot):
+        pools = runner_pools.load_pools()
+        dead, started, _ = runner_pools.label_evidence(None, snapshot, now=now)
+        starts_now, online = runner_pools.owned_readings(snapshot, now=now)
+        value, lines = runner_pools.reconcile(
+            runner_pools.parse_value(runner_pools.render(current), pools)[0], pools, dead_now=dead,
+            served_now=started, now=now, covered=runner_pools.evidence_covers(None, snapshot, pools, now=now),
+            starts_now=starts_now, online=online)
+        return value, lines
+
+    def test_an_expired_full_mark_on_a_per_job_label_waits_for_a_start_after_the_mark(self) -> None:
+        # 2026-11-26: the full mark on Freestyle from 12:51:01Z expired at 13:27Z with its queue drained, and linux,
+        # linux_2 and linux_8 moved back onto it ("dead mark expired; it may take jobs again") with no start there
+        # since the mark. They now stay on the GCP label until a start after the mark, or for at most 2 hours.
+        fresh, _ = runner_pools.reconcile({}, runner_pools.load_pools(), dead_now=(), served_now=(), now=self.MARK)
+        current = {**fresh, **{name: self.GCP for name in FREESTYLE_LED},
+                   runner_pools.DEAD_KEY: {self.FREESTYLE: runner_pools.iso(self.MARK)}}
+        expiry = dt.datetime(2026, 11, 26, 13, 27, 2, tzinfo=dt.timezone.utc)
+        before_mark = {self.FREESTYLE: self.MARK - dt.timedelta(minutes=1), self.GCP: expiry - dt.timedelta(minutes=1)}
+        value, lines = self.step(current, expiry, self.snapshot(expiry, starts=before_mark))
+        self.assertIn(f"{self.FREESTYLE}: dead mark expired; it may take jobs again", lines)
+        for name in FREESTYLE_LED:
+            self.assertEqual(value[name], self.GCP, name)
+        self.assertEqual(value[runner_pools.PROOF_WAIT_KEY], {self.FREESTYLE: runner_pools.iso(self.MARK)})
+        self.assertNotIn(self.FREESTYLE, value[runner_pools.DEAD_KEY])
+        # A pass later with still no start: still passed over, the wait unchanged.
+        later = expiry + dt.timedelta(minutes=10)
+        held, _ = self.step(value, later, self.snapshot(later, starts=before_mark))
+        self.assertEqual(held["linux"], self.GCP)
+        self.assertEqual(held[runner_pools.PROOF_WAIT_KEY], {self.FREESTYLE: runner_pools.iso(self.MARK)})
+        # A start after the mark (a canary, a straggler) proves room: the pools lead with Freestyle again.
+        started = later + dt.timedelta(minutes=5)
+        proven, _ = self.step(held, started, self.snapshot(started, starts={
+            **before_mark, self.FREESTYLE: started - dt.timedelta(minutes=1)}))
+        for name in FREESTYLE_LED:
+            self.assertEqual(proven[name], self.FREESTYLE, name)
+        self.assertNotIn(runner_pools.PROOF_WAIT_KEY, proven)
+        # With no start at all, the wait ends 2 hours after the mark and the pools try Freestyle again.
+        capped_at = self.MARK + runner_pools.PROOF_WAIT_CAP + dt.timedelta(minutes=1)
+        retried, lines = self.step(held, capped_at, self.snapshot(capped_at, starts=before_mark))
+        for name in FREESTYLE_LED:
+            self.assertEqual(retried[name], self.FREESTYLE, name)
+        self.assertNotIn(runner_pools.PROOF_WAIT_KEY, retried)
+        self.assertTrue(any("trying it again" in line for line in lines), lines)
+
+    def test_a_pool_moves_onto_a_per_job_label_only_after_a_recent_start(self) -> None:
+        now = dt.datetime(2026, 11, 26, 14, 0, tzinfo=dt.timezone.utc)
+        current = {"linux": self.GCP, runner_pools.DEAD_KEY: {}}
+        stale = {self.FREESTYLE: now - dt.timedelta(minutes=45)}
+        value, lines = self.step(current, now, self.snapshot(now, starts=stale))
+        self.assertEqual(value["linux"], self.GCP)
+        self.assertTrue(any(line.startswith(f"pools.linux: {self.FREESTYLE} (runners register per job)")
+                            for line in lines), lines)
+        fresh = {self.FREESTYLE: now - dt.timedelta(minutes=10)}
+        value, _ = self.step(current, now, self.snapshot(now, starts=fresh))
+        self.assertEqual(value["linux"], self.FREESTYLE)
+        # A pool already on the label stays: an idle per-job label starts nothing, and the stall rule judges it.
+        kept, _ = self.step({"linux": self.FREESTYLE, runner_pools.DEAD_KEY: {}}, now, self.snapshot(now, starts=stale))
+        self.assertEqual(kept["linux"], self.FREESTYLE)
+        # Without a snapshot reading nothing is refused on a guess.
+        guessed, _ = runner_pools.reconcile(current, runner_pools.load_pools(), dead_now=(), served_now=(), now=now)
+        self.assertEqual(guessed["linux"], self.FREESTYLE)
+
+    def test_a_persistent_label_with_no_runner_online_is_refused(self) -> None:
+        # The dead-label test: a persistent label the roster shows with 0 runners online takes no pool.
+        now = dt.datetime(2026, 11, 26, 14, 0, tzinfo=dt.timezone.utc)
+        empty = {self.GCP: {"queued": 0, "running": 0, "reserved_queued": 0, "oldest_queued_minutes": 0,
+                            "online": 0, "busy": 0, "idle": 0}}
+        current = {name: self.GCP for name in GCP_LED}
+        current[runner_pools.DEAD_KEY] = {}
+        value, lines = self.step(current, now, self.snapshot(now, starts={}, pools=empty))
+        self.assertEqual(value["linux_16"], "blacksmith-16vcpu-ubuntu-2404")
+        self.assertEqual(value["linux_32"], "blacksmith-32vcpu-ubuntu-2404")
+        self.assertIn(f"pools.linux_16: {self.GCP} has no runner online; passed over", lines)
+        # Runners online again: the pools come back.
+        back, _ = self.step(value, now, self.snapshot(now, starts={}))
+        self.assertEqual(back["linux_16"], self.GCP)
+        # A start there in the last few minutes outweighs a zero count (a roster read that missed its group).
+        recent = {self.GCP: now - dt.timedelta(minutes=3)}
+        kept, _ = self.step(current, now, self.snapshot(now, starts=recent, pools=empty))
+        self.assertEqual(kept["linux_16"], self.GCP)
+        # An unread roster (no online count) refuses nothing.
+        unread = {self.GCP: {"queued": 0, "running": 0, "reserved_queued": 0, "oldest_queued_minutes": 0}}
+        kept, _ = self.step(current, now, self.snapshot(now, starts={}, pools=unread))
+        self.assertEqual(kept["linux_16"], self.GCP)
+
+
 class NeverHosted(unittest.TestCase):
     def test_a_non_hosted_pool_never_resolves_to_a_hosted_label(self) -> None:
         # Hosted runners are not in the declared set: whatever is dead, a pool not marked hosted
