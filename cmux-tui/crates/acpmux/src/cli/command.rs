@@ -7,7 +7,7 @@ pub use crate::cli::command_harness::{CodexRuntimeCmd, HarnessCmd, SecretCmd};
 pub use crate::cli::command_host::{PeerCmd, TicketCmd};
 pub use crate::cli::command_new::NewArgs;
 pub use crate::cli::command_session::{
-    InboxArgs, InboxCmd, ListenCmd, SendNotice, SendRelay, SendThread, SessionCmd,
+    AutoSettleMode, InboxArgs, InboxCmd, ListenCmd, SendNotice, SendRelay, SendThread, SessionCmd,
     SessionInboxOpts, SessionInboxTarget,
 };
 pub use crate::cli::task::BriefsCmd;
@@ -748,14 +748,14 @@ pub enum Command {
     #[command(subcommand, name = "machine", aliases = aliases::MACHINE)]
     Host(PeerCmd),
     /// Bring your own harness: list, add, doctor and reload harness profile
-    /// files (~/.config/cmux/harnesses/<id>.toml). Also `cmux harness …`.
+    /// files (~/.config/cmux-next/harnesses/<id>.toml). Also `cmux harness …`.
     #[command(subcommand)]
     Harness(HarnessCmd),
     /// Forum rules: announce one, list the current ones, ack one.
     #[command(subcommand)]
     Forum(crate::cli::forum::ForumCmd),
-    /// The fleet memory mount (~/.cmux/memory): sync, put, get, ls, history, status, and link a
-    /// harness's memory folder into it.
+    /// The memory mount shared by your machines (~/.cmux/memory): sync, put, get, ls, history,
+    /// status, and link a harness's memory folder into it.
     #[command(subcommand)]
     Memory(crate::cli::memory::MemoryCmd),
     /// Bridge Claude Desktop, Codex Desktop and ChatGPT Desktop to each other and to cmux sessions:
@@ -797,6 +797,10 @@ pub enum Command {
     /// archives.
     #[command(subcommand, aliases = aliases::WORKTREE)]
     Worktree(crate::cli::worktree::WorktreeCmd),
+    /// Keep this machine's disk under budget: status, clean, why, tick (the headless pass a
+    /// timer runs), install-timer. `cmux care ...` is the same.
+    #[command(subcommand)]
+    Care(crate::cli::care::CareCmd),
     /// Download one large file over parallel range requests (16 by default), for a path where
     /// one stream is slow (a Cloud VM's IPv4 from GitHub). Follows redirects; checks the length
     /// and, with --sha256, the hash before the file appears at -o.
@@ -895,6 +899,8 @@ pub enum Command {
         #[arg(long)]
         ttl: Option<u64>,
     },
+    #[command(hide = true)]
+    UnsettleCmd { session: String },
     #[command(hide = true)]
     SessionSearch(crate::cli::session_search::SearchArgs),
     #[command(hide = true)]
@@ -1559,6 +1565,13 @@ pub struct HistoryDeleteArgs {
     /// fails is kept.
     #[arg(long)]
     pub export: Option<PathBuf>,
+    /// List Recently deleted: the deleted chats that can still be restored, and when each is
+    /// purged.
+    #[arg(long, conflicts_with_all = ["dry_run", "older_than_days", "export", "restore"])]
+    pub deleted: bool,
+    /// Restore a deleted chat (by id or name) before it is purged: back in the lists as it was.
+    #[arg(long, value_name = "CHAT", conflicts_with_all = ["dry_run", "older_than_days", "export"])]
+    pub restore: Option<String>,
 }
 
 #[derive(Args, Clone, Debug)]
@@ -1678,6 +1691,35 @@ pub fn flatten(c: Command) -> Command {
             SessionCmd::Tag { session, assignments, remove, ttl } => {
                 Command::TagCmd { session, assignments, remove, ttl }
             }
+            // The tags `hub/auto_settle.rs` reads: archived with a reason, and the override.
+            SessionCmd::Settle { session } => Command::TagCmd {
+                session,
+                assignments: vec![
+                    format!("archived={}", crate::store::now_ms()),
+                    format!(
+                        "{}={}",
+                        crate::hub::auto_settle::SETTLED_TAG,
+                        crate::hub::auto_settle::Reason::Manual.as_str()
+                    ),
+                ],
+                remove: vec!["unsettled".into()],
+                ttl: None,
+            },
+            SessionCmd::Unsettle { session } => Command::UnsettleCmd { session },
+            SessionCmd::AutoSettle { session, mode } => match mode {
+                AutoSettleMode::Never => Command::TagCmd {
+                    session,
+                    assignments: vec!["autoSettle=never".into()],
+                    remove: vec![],
+                    ttl: None,
+                },
+                AutoSettleMode::Follow => Command::TagCmd {
+                    session,
+                    assignments: vec![],
+                    remove: vec!["autoSettle".into()],
+                    ttl: None,
+                },
+            },
             SessionCmd::Limits { session, max, clear } => {
                 Command::LimitsCmd { session, max, clear }
             }

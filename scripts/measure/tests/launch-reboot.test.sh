@@ -136,6 +136,23 @@ grep -qE '^LB-LAUNCH arm=read reboot=3 s_since_login=1[2-9][0-9] request_to_star
 grep -q '^probe open .* B 6 term$' "$calls" || die "read: no measured launch"
 [[ "$(grep -c '^LB-RESIDENT reboot=3 arm=read t=prelaunch .* resident_pct=25.0 resident_pages=10 pages=40$' <<<"$out")" == 3 ]] || die "read: prelaunch residency: $out"
 
+# Production-reader arm: runs exactly the bundle's helper, retains its report, measures the whole process.
+reader="$LB_ROOT/copy/cmux NEXT.app/Contents/Resources/bin/cmux-launch-preread"
+mkdir -p "$(dirname "$reader")"
+printf '#!/usr/bin/env bash\necho "preread $*" >>"%s"\necho '\''{"bytes":15000,"stop":"done"}'\''\n' "$calls" >"$reader"
+chmod +x "$reader"
+: >"$calls"
+out="$(FAKE_BOOT=$(($(date +%s) - 120)) bash "$script" phase=after arm=preread reboot=3)" || die "preread failed: $out"
+grep -q '^preread $' "$calls" || die "preread: helper did not run with default caps"
+grep -q '^LB-PREREAD .* wall_ms=120 cpu_ms=60 maxrss=1179648$' <<<"$out" || die "preread: cost row: $out"
+grep -q '^LB-PREREAD-REPORT .* {"bytes":15000,"stop":"done"}$' <<<"$out" || die "preread: missing JSON: $out"
+grep -q '^LB-READ ' <<<"$out" && die "preread: also ran uncapped cat"
+chmod -x "$reader"
+: >"$calls"
+set +e; out="$(FAKE_BOOT=$(($(date +%s) - 120)) bash "$script" phase=after arm=preread reboot=3)"; rc=$?; set -e
+[[ $rc == 3 && "$out" == *"no bundled cmux-launch-preread"* ]] || die "preread: absent reader accepted: $out"
+grep -q '^probe open' "$calls" && die "preread: launched after missing reader"
+
 # After, arm=noread: login from loginwindow's age (1 min 30 s), settle falls back to window + 6 s.
 out="$(FAKE_BOOT=$(($(date +%s) - 200)) FAKE_LOGIN_ETIME=01:30 FAKE_NO_USABLE=1 bash "$script" phase=after arm=noread reboot=4)" || die "noread failed: $out"
 grep -qE '^LB-LOGIN reboot=4 arm=noread source=loginwindow s_since_login=9[0-4] s_since_boot=20[0-4] login_after_boot_s=11[0-4] s_since_dock=120$' <<<"$out" \

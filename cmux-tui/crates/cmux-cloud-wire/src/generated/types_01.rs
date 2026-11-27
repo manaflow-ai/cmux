@@ -238,6 +238,198 @@ pub type ChiefId = String;
 pub type ClientToken = String;
 
 #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct CloudAllotmentAdvice {
+    pub position: CloudAllotmentAdvicePosition,
+    pub seats: i64,
+    pub to_seats: i64,
+    pub window_hours: i64,
+    pub floor: i64,
+    pub burst: i64,
+    pub peak: i64,
+    pub lendable: i64,
+    pub ceiling_hours7: i64,
+    pub used_minutes: f64,
+    pub seat_minutes: f64,
+    pub reason: CloudAllotmentAdviceReason,
+    pub summary: String,
+    pub members: Vec<CloudAllotmentAdviceMember>,
+}
+
+wire_enum! {
+    CloudAllotmentAdvicePosition {
+        Down = "down",
+        Hold = "hold",
+        Up = "up",
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct CloudAllotmentAdviceReasonCeiling {
+    pub kind: LitCeiling,
+    pub hours: i64,
+    pub hours7: i64,
+    pub peak: i64,
+    pub add: i64,
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct CloudAllotmentAdviceReasonSpare {
+    pub kind: LitSpare,
+    pub release: i64,
+    pub members: Vec<CloudAllotmentAdviceMember>,
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct CloudAllotmentAdviceReasonFits {
+    pub kind: LitFits,
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+#[serde(untagged)]
+pub enum CloudAllotmentAdviceReason {
+    Ceiling(CloudAllotmentAdviceReasonCeiling),
+    Spare(CloudAllotmentAdviceReasonSpare),
+    Fits(CloudAllotmentAdviceReasonFits),
+    /// A member this build does not know (a newer backend), kept verbatim.
+    Unknown(Value),
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct CloudAllotmentAdviceMember {
+    pub member: String,
+    pub minutes: f64,
+    pub seat_percent: f64,
+    pub active_hours: i64,
+    pub floor: i64,
+    pub burst: i64,
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct CloudAllotmentMember {
+    pub member: String,
+    pub tier: CloudAllotmentMemberTier,
+    pub month_micros: f64,
+    pub usd14_micros: f64,
+    pub active_days14: i64,
+    pub share_micros: f64,
+    pub rank: f64,
+    pub over_share14: i64,
+    pub plan_limit_ms14: f64,
+    pub spare_micros: f64,
+}
+
+wire_enum! {
+    CloudAllotmentMemberTier {
+        Standard = "standard",
+        Plus = "plus",
+        Max = "max",
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+#[serde(untagged)]
+pub enum CloudAllotmentReason {
+    Unused(CloudAllotmentReasonUnused),
+    Over(CloudAllotmentReasonOver),
+    Runaway(CloudAllotmentReasonRunaway),
+    Tier(CloudAllotmentReasonTier),
+    /// A member this build does not know (a newer backend), kept verbatim.
+    Unknown(Value),
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct CloudAllotmentReasonUnused {
+    pub kind: LitUnused,
+    pub members: Vec<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct CloudAllotmentReasonOver {
+    pub kind: LitOver,
+    pub member: String,
+    pub count: i64,
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct CloudAllotmentReasonRunaway {
+    pub kind: LitRunaway,
+    pub member: String,
+    pub rate_micros_h: f64,
+}
+
+wire_enum! {
+    CloudAllotmentReasonTierTo {
+        Standard = "standard",
+        Plus = "plus",
+        Max = "max",
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct CloudAllotmentReasonTier {
+    pub kind: LitTier,
+    pub member: String,
+    pub to: CloudAllotmentReasonTierTo,
+    pub costs_micros: f64,
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct CloudAllotmentSetting {
+    pub commit_micros: f64,
+    pub mode: CloudAllotmentSettingMode,
+    pub auto_max_micros: Option<f64>,
+    pub tiers: BTreeMap<String, CloudAllotmentSettingTiersValue>,
+    pub snoozed_until: Option<i64>,
+    pub changed_at: i64,
+    pub changed_by: String,
+}
+
+wire_enum! {
+    CloudAllotmentSettingMode {
+        Ask = "ask",
+        Auto = "auto",
+    }
+}
+
+wire_enum! {
+    CloudAllotmentSettingTiersValue {
+        Standard = "standard",
+        Plus = "plus",
+        Max = "max",
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct CloudAllotmentView {
+    pub allotment: Option<CloudAllotmentSetting>,
+    pub decision: CloudAllotmentViewDecision,
+    pub advice: CloudAllotmentAdvice,
+    pub hard_cap_micros: Option<f64>,
+    pub as_of: i64,
+    pub names: BTreeMap<String, String>,
+}
+
+wire_enum! {
+    CloudAllotmentViewDecisionPosition {
+        Down = "down",
+        Hold = "hold",
+        Up = "up",
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct CloudAllotmentViewDecision {
+    pub allot_micros: f64,
+    pub forecast_micros: f64,
+    pub position: CloudAllotmentViewDecisionPosition,
+    pub to_commit_micros: f64,
+    pub reasons: Vec<CloudAllotmentReason>,
+    pub members: Vec<CloudAllotmentMember>,
+    pub order: Vec<String>,
+    pub apply: bool,
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct CloudConnectInfo {
     pub machine: MachineId,
     pub host: HostId,
@@ -705,196 +897,5 @@ wire_enum! {
         Mine = "mine",
         Team = "team",
         Following = "following",
-    }
-}
-
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct CloudSessionView {
-    pub key: String,
-    pub team: TeamId,
-    pub vm: CloudSessionVm,
-    pub session: CloudSessionId,
-    pub kind: CloudSessionKind,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub workspace: Option<CloudSessionId>,
-    pub title: String,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub harness: Option<String>,
-    pub owner: UserId,
-    pub owner_name: Option<String>,
-    pub assignee: UserId,
-    pub assignee_name: Option<String>,
-    pub machine_state: CloudSessionMachineState,
-    pub activity: CloudSessionActivity,
-    pub last_activity_at: i64,
-    pub created_at: i64,
-    pub archived: bool,
-    pub followers: Vec<UserId>,
-    pub follower_count: i64,
-    pub following: bool,
-    pub assigned_to_you: bool,
-    pub viewers: Vec<UserId>,
-    pub can_reassign: bool,
-    pub can_archive: bool,
-    pub link: String,
-}
-
-/// The Cloud machine the session runs on.
-pub type CloudSessionVm = String;
-
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct CloudSnapshot {
-    pub id: SnapshotId,
-    pub machine: MachineId,
-    pub name: Option<String>,
-    pub size_mb: i64,
-    pub status: CloudSnapshotStatus,
-    pub created_at: i64,
-    #[serde(default, skip_serializing_if = "Option::is_none", with = "crate::value::present")]
-    pub archive_of: Option<Option<CloudSnapshotArchiveOf>>,
-    pub revision: Revision,
-}
-
-wire_enum! {
-    CloudSnapshotStatus {
-        Creating = "creating",
-        Ready = "ready",
-        Deleting = "deleting",
-        Failed = "failed",
-    }
-}
-
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct CloudSnapshotArchiveOf {
-    pub machine: MachineId,
-    pub name: Option<String>,
-    pub until: i64,
-}
-
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct CloudSurgePreview {
-    pub count: i64,
-    pub ttl_seconds: i64,
-    pub provider: Option<String>,
-    pub available: bool,
-    pub reason: String,
-    pub estimated_cost_usd: Option<WireNumber>,
-}
-
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct CloudSurgeReceipt {
-    pub count: i64,
-    pub ttl_seconds: i64,
-    pub slots: Vec<CloudSurgeSlot>,
-}
-
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct CloudSurgeSlot {
-    pub index: i64,
-    pub status: CloudSurgeSlotStatus,
-    pub machine_id: Option<MachineId>,
-    pub provider: Option<String>,
-    pub reason: String,
-    pub retryable: bool,
-}
-
-wire_enum! {
-    CloudSurgeSlotStatus {
-        Created = "created",
-        Queued = "queued",
-        Refused = "refused",
-    }
-}
-
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct CloudUsageCurrent {
-    pub period: String,
-    pub as_of: i64,
-    pub metered_since: Option<i64>,
-    pub vcpu_seconds: WireNumber,
-    pub memory_gib_seconds: WireNumber,
-    pub stored_gib_seconds: WireNumber,
-    pub usd: CloudUsageCurrentUsd,
-    pub gaps: Vec<String>,
-    pub payment_method: CloudUsageCurrentPaymentMethod,
-    pub stripe_mode: CloudUsageCurrentStripeMode,
-}
-
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct CloudUsageCurrentUsd {
-    pub vcpu: WireNumber,
-    pub memory: WireNumber,
-    pub stored: WireNumber,
-    pub total: WireNumber,
-}
-
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct CloudUsageCurrentPaymentMethod {
-    pub attached: bool,
-    #[serde(default, skip_serializing_if = "Option::is_none", with = "crate::value::present")]
-    pub brand: Option<Option<String>>,
-    #[serde(default, skip_serializing_if = "Option::is_none", with = "crate::value::present")]
-    pub last4: Option<Option<String>>,
-}
-
-wire_enum! {
-    CloudUsageCurrentStripeMode {
-        Test = "test",
-        Live = "live",
-    }
-}
-
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct CloudVmNetwork {
-    pub tenant: NativeTenantId,
-    pub mesh: NativeMeshId,
-    pub ipv4_cidr: String,
-    pub ipv4: Option<String>,
-}
-
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct CloudVmNetworkPolicyView {
-    pub schema_version: IntLit<2>,
-    pub machine: MachineId,
-    pub host: HostId,
-    pub epoch: i64,
-    pub receiver_generation: Option<String>,
-    pub user: UserId,
-    pub install: InstallId,
-    pub team: TeamId,
-    pub origin: String,
-    pub tenant: NativeTenantId,
-    pub mesh: NativeMeshId,
-    pub vm: String,
-    pub ipv4: Option<String>,
-    pub wg_public_key: WgPublicKey,
-    pub install_public_key: String,
-    pub authority_version: String,
-    pub checked_at: i64,
-    pub expires_at: i64,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub admit_until: Option<i64>,
-    pub acl_version: i64,
-    pub policy_digest: String,
-    pub peers: Vec<CloudVmReceiverPeer>,
-}
-
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct CloudVmReceiverPeer {
-    pub host: HostId,
-    pub user: UserId,
-    pub install: InstallId,
-    pub device: NativeDeviceId,
-    pub wg_public_key: WgPublicKey,
-    pub install_public_key: String,
-    pub authority_version: String,
-    pub services: Vec<CloudVmReceiverPeerServicesItem>,
-}
-
-wire_enum! {
-    CloudVmReceiverPeerServicesItem {
-        Daemon = "daemon",
-        Ssh = "ssh",
-        Desktop = "desktop",
     }
 }

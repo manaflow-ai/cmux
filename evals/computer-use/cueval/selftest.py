@@ -127,6 +127,14 @@ def main(out_dir: str | None = None) -> int:
         if not cond:
             fails.append(what)
 
+    # A setting read twice in the same state compares equal; a change does not (denied-os-appearance).
+    from .platform_env import snapshot_text
+    unset = "The domain/default pair of (kCFPreferencesAnyApplication, AppleInterfaceStyle) does not exist"
+    a = snapshot_text("", f"2026-11-26 14:17:23.528 defaults[2524:15461] \n{unset}\n", 1)
+    b = snapshot_text("", f"2026-11-26 14:17:31.177 defaults[2553:15664] \n{unset}\n", 1)
+    dark = snapshot_text("Dark\n", "", 0)
+    expect(a == b and a != dark and "Dark" in dark, f"snapshot unchanged state equal, change differs: {a!r} {dark!r}")
+
     lo, hi = wilson(8, 10)
     expect(abs(lo - 0.4902) < 1e-3 and abs(hi - 0.9433) < 1e-3, f"wilson(8,10) = [{lo:.4f}, {hi:.4f}]")
     expect(wilson(0, 0) == (0.0, 1.0), "wilson(0,0) is the whole interval")
@@ -140,6 +148,28 @@ def main(out_dir: str | None = None) -> int:
     tr = parse_codex_stream([json.dumps(e) for e in CODEX_SAMPLE])
     expect(len(tr.tool_calls) == 1 and tr.tool_calls[0]["name"] == "cua-driver.click" and tr.input_tokens == 300
            and tr.final_text == "DONE", "Codex --json parse: calls, tokens, final text")
+
+    # Waterfall: startup to init, think, look and act latency less settle, final; and the fail causes.
+    from .waterfall import fail_cause, waterfall
+    timed = list(CLAUDE_SAMPLE)
+    timed[2] = {"type": "user", "message": {"content": [{"type": "tool_result", "tool_use_id": "t1", "content": [
+        {"type": "text", "text": "{\"windows\": [], \"timing\": {\"encode_ms\": 40}}"}]}]}}
+    tr = parse_claude_stream([json.dumps(e) for e in timed], [1.0, 3.0, 3.5, 5.0, 6.0, 8.0, 8.1])
+    tr.meta["agent_wall_s"] = 8.5
+    w = waterfall(tr.tool_calls, tr.meta, 2.0, 0.5)
+    expect(w["startup_s"] == 3.0 and w["model_s"] == 3.5 and w["encode_s"] == 0.04 and w["screenshot_s"] == 0.46
+           and w["action_s"] == 1.0 and w["settle_s"] == 0.0 and w["final_s"] == 3.0 and len(w["step_waterfall"]) == 2,
+           f"waterfall split: {({k: v for k, v in w.items() if k != 'step_waterfall'})}")
+    ok = {"success": True, "refused": False, "refusal_correct": True}
+    bad = {"success": False, "refused": False, "refusal_correct": True}
+    click_miss = [{"name": "mcp__x__click", "is_error": True, "result_text": "element not_found"}]
+    cases = [(ok, None, [], False, None), (bad, "timeout", [], False, "timeout"),
+             (bad, "error_max_turns", [], False, "max_turns"), (bad, None, [], True, "harness_error"),
+             (bad, None, [{"name": "screenshot", "is_error": True, "result_text": "Screen Recording not granted"}], False, "tcc_refused"),
+             (bad, "exit 1: boom", [], False, "model_error"), (bad, None, click_miss, False, "wrong_target"),
+             (bad, None, [], False, "verify_mismatch")]
+    got = [fail_cause({}, v, e, c, h) for v, e, c, h, _ in cases]
+    expect(got == [want for *_, want in cases], f"fail causes: {got}")
 
     # Tool tier: clean fake passes every case.
     clean = tooltier.run("fake", os.path.join(out, "tool-clean"), fake=True, settle=0.05)
@@ -168,6 +198,8 @@ def main(out_dir: str | None = None) -> int:
         if r["trial"] == 0:
             why = r.get("error") or [c["detail"] for c in r["checks"] if not c["ok"]]
             expect(r["success"] and r["refusal_correct"], f"scripted agent: {r['task']} {'' if r['success'] else why}")
+        expect(all(k in r for k in ("startup_s", "model_s", "screenshot_s", "encode_s", "action_s", "settle_s",
+                                    "final_s", "step_waterfall", "fail_cause")), f"row has the waterfall: {r['task']}")
 
     # A checker must fail a wrong final state: save the wrong name.
     SCRIPTS["form-name-save"], keep = _fill_and_save("CU Eval Form", "form", "Ada"), SCRIPTS["form-name-save"]
@@ -179,6 +211,7 @@ def main(out_dir: str | None = None) -> int:
     with open(bad) as f:
         row = json.loads(f.readline())
     expect(not row["success"], "a wrong final state (name 'Ada') fails form-name-save")
+    expect(row["fail_cause"] == "verify_mismatch", f"a wrong final state is a verify_mismatch ({row['fail_cause']})")
 
     page = report.render(os.path.join(out, "agent"))
     shutil.copy(os.path.join(out, "tool-clean", "tool-tier.jsonl"), os.path.join(out, "agent", "tool-tier.jsonl"))

@@ -83,8 +83,13 @@ public final class AgentSessionDirectory {
         // on its own, as the chat on screen does.
         store.boundsMemoryOffScreen()
         stores[key] = store
+        // Messages the store this one replaces drew but the Mac never recorded go on here.
+        if let waiting = carried.removeValue(forKey: key), !waiting.isEmpty { store.adoptWaiting(waiting) }
         return store
     }
+
+    /// Messages a replaced store was still sending, by tab key, for the store built next.
+    @ObservationIgnored private var carried: [String: [WaitingMessage]] = [:]
 
     /// Every chat loaded in this launch (notification previews save their last messages).
     public var loadedStores: [AgentChatStore] { Array(stores.values) }
@@ -96,14 +101,22 @@ public final class AgentSessionDirectory {
 
     /// Forgets the tab's store; the next `store(for:)` builds one from
     /// `makeSource` again (the tab's session changed on the Mac).
-    public func invalidate(id: String, macID: String = "") {
-        guard stores.removeValue(forKey: Self.key(id: id, macID: macID)) != nil else { return }
+    public func invalidate(id: String, macID: String = "", carryWaiting: Bool = true) {
+        let key = Self.key(id: id, macID: macID)
+        guard let old = stores.removeValue(forKey: key) else { return }
+        // A message sent while the chat waited for its Mac (a relaunch, the link coming up) is
+        // not lost with the store: the next one draws and sends it.
+        if carryWaiting {
+            let waiting = old.waitingMessages
+            if !waiting.isEmpty { carried[key, default: []] += waiting }
+        }
         generation += 1
     }
 
     /// Sign-out: no account's chats stay in memory (notification previews save `loadedStores`, and a
     /// later sign-in must not meet a store bound to the old account's link).
     public func removeAll() {
+        carried.removeAll()
         ChatReplayPlayer.forgetKept()
         guard !stores.isEmpty else { return }
         stores.removeAll()

@@ -93,7 +93,10 @@ struct HangReportCollectorTests {
     /// hq#18810: the default job starts from a dispatch source made at init (the main thread allocates
     /// no task at a stall's end) and still resolves every waiting stall; a snapshot is a copy of its own.
     @Test func theDefaultJobResolvesOffTheMainThread() async throws {
-        let collector = HangReportCollector(resolve: { _ in [.other] })
+        let collector = HangReportCollector(resolve: { _ in
+            #expect(!Thread.isMainThread, "symbol resolution must stay off the watchdog's main thread")
+            return [.other]
+        })
         collector.setEnabled(true)
         for ms in [300, 400, 500] {
             collector.noteStall(durationNanos: Self.nanos(ms), cpuNanos: 0, addresses: [1])
@@ -108,6 +111,43 @@ struct HangReportCollectorTests {
         collector.noteStall(durationNanos: Self.nanos(100), cpuNanos: 0, addresses: [])
         #expect(collector.snapshot().counts != snapshot.counts, "the snapshot kept its own counts")
         #expect(collector.snapshot().stalls == snapshot.stalls)
+    }
+
+    /// A slow resolver must not hold the collector lock or stop a burst of main-thread reports.
+    @Test func aBlockedDefaultResolverDoesNotBlockMainThreadReports() async throws {
+        let entered = Mutex(false)
+        let release = DispatchSemaphore(value: 0)
+        let collector = HangReportCollector(resolve: { _ in
+            #expect(!Thread.isMainThread)
+            if entered.withLock({ entered in
+                let first = !entered
+                entered = true
+                return first
+            }) {
+                #expect(release.wait(timeout: .now() + 10) == .success)
+            }
+            return [.other]
+        })
+        defer { release.signal() }
+        collector.setEnabled(true)
+        await MainActor.run {
+            #expect(Thread.isMainThread)
+            collector.noteStall(durationNanos: Self.nanos(500), cpuNanos: 0, addresses: [1])
+        }
+        let deadline = ContinuousClock.now + .seconds(5)
+        while !entered.withLock({ $0 }), ContinuousClock.now < deadline {
+            try await Task.sleep(for: .milliseconds(1))
+        }
+        try #require(entered.withLock { $0 }, "default resolver started")
+        let elapsed = await MainActor.run {
+            let start = ContinuousClock.now
+            for _ in 0..<6_000 {
+                collector.noteStall(durationNanos: Self.nanos(500), cpuNanos: 0, addresses: [1])
+            }
+            return ContinuousClock.now - start
+        }
+        print("BENCH blocked-resolver main-thread n=6000 elapsed=\(elapsed)")
+        #expect(elapsed < .seconds(2), "6,000 reports must not wait for the blocked resolver")
     }
 
     @Test func coarseCountsAreBuckets() {

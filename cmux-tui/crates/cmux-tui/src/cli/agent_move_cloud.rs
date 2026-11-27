@@ -436,17 +436,27 @@ pub(super) fn run_if_routed(global: &GlobalArgs, ask: &Ask<'_>) -> Option<i32> {
         return Some(print(global, &answer, true));
     }
     let mut moved = Vec::new();
-    for (route, mut described) in routes.iter().zip(described) {
+    for (index, (route, mut described)) in routes.iter().zip(described).enumerate() {
+        let key = match route_key(global, routes.len(), index) {
+            Ok(key) => key,
+            Err(error) => return Some(super::wire::print_local_error(&error, global.output, 1)),
+        };
+        let mut route_global = global.clone();
+        route_global.idempotency_key = Some(key);
         let started = Instant::now();
-        let ran = super::cloud_start_chat::app_step(global, &action_words(route));
+        let ran = super::cloud_start_chat::app_step(&route_global, &action_words(route));
         let app_ms = started.elapsed().as_millis() as u64;
-        if let Err(error) = &ran
-            && !still_running(error)
-        {
-            return Some(super::wire::print_local_error(error, global.output, 1));
+        if let Err(error) = &ran {
+            if has_not_run(error) || !still_running(error) {
+                return Some(super::wire::print_local_error(error, global.output, 1));
+            }
         }
-        if let Err(refusal) = arrive(global, route) {
-            return Some(fail(global, &refusal));
+        match arrive(&route_global, route) {
+            Ok(()) => {}
+            Err(ArriveFailure::App(error)) => {
+                return Some(super::wire::print_local_error(&error, global.output, 1));
+            }
+            Err(ArriveFailure::Refusal(refusal)) => return Some(fail(global, &refusal)),
         }
         if ask.timings {
             let total = started.elapsed().as_millis() as u64;
@@ -468,12 +478,48 @@ pub(super) fn run_if_routed(global: &GlobalArgs, ask: &Ask<'_>) -> Option<i32> {
 /// Whether the app's answer is a move that goes on past the run's wait (the app bounds a waited
 /// run at 40 s; a move takes longer), not a refusal.
 fn still_running(error: &Value) -> bool {
+    if has_not_run(error) {
+        return false;
+    }
     let code = error.get("code").and_then(Value::as_str).unwrap_or_default();
     code.contains("timeout") || code.contains("outcome_unknown") || code.contains("deadline")
 }
 
+fn has_not_run(error: &Value) -> bool {
+    error.pointer("/data/not_run") == Some(&Value::Bool(true))
+}
+
+/// A key scoped to one route. A caller key is retained for one move and suffixed when several
+/// routes share it so their action fingerprints cannot conflict.
+fn route_key(global: &GlobalArgs, route_count: usize, index: usize) -> Result<String, Value> {
+    if let Some(key) = &global.idempotency_key {
+        return Ok(if route_count == 1 { key.clone() } else { format!("{key}-route-{index}") });
+    }
+    super::wire::random_idempotency_key()
+        .map_err(|error| json!({"code": "app.transport", "message": error.to_string()}))
+}
+
+enum ArriveFailure {
+    Refusal(Refusal),
+    App(Value),
+}
+
+fn unknown_join_only(error: &Value) -> bool {
+    error.get("code").and_then(Value::as_str) == Some("invalid_params")
+        && error
+            .get("message")
+            .and_then(Value::as_str)
+            .is_some_and(|message| message.contains("join_only") || message.contains("join-only"))
+}
+
+fn join_keeps_waiting(error: &Value) -> bool {
+    still_running(error)
+        || error.get("code").and_then(Value::as_str) == Some("idempotency_unknown")
+        || unknown_join_only(error)
+}
+
 /// Waits until the app shows the chat where its route takes it.
-fn arrive(global: &GlobalArgs, route: &Route) -> Result<(), Refusal> {
+fn arrive(global: &GlobalArgs, route: &Route) -> Result<(), ArriveFailure> {
     let (session, want) = match route {
         Route::Acpmux => return Ok(()),
         Route::Cloud { session, machine, .. } => (session, Some(machine.id.as_str())),
@@ -487,8 +533,13 @@ fn arrive(global: &GlobalArgs, route: &Route) -> Result<(), Refusal> {
         {
             return Ok(());
         }
+        match super::cloud_start_chat::app_step_with_options(global, &action_words(route), true) {
+            Ok(_) => {}
+            Err(error) if join_keeps_waiting(&error) => {}
+            Err(error) => return Err(ArriveFailure::App(error)),
+        }
         if Instant::now() >= deadline {
-            return Err(refuse(
+            return Err(ArriveFailure::Refusal(refuse(
                 "move.not_arrived",
                 format!(
                     "the app did not show {session} where it went within {} minutes; its move may \
@@ -496,7 +547,7 @@ fn arrive(global: &GlobalArgs, route: &Route) -> Result<(), Refusal> {
                      command again",
                     ARRIVE_DEADLINE.as_secs() / 60
                 ),
-            ));
+            )));
         }
         std::thread::sleep(ARRIVE_PAUSE);
     }
