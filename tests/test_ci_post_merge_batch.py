@@ -438,6 +438,8 @@ class WiringTest(unittest.TestCase):
                              {"sha": "${{ needs.plan.outputs.sha }}", "only": "${{ needs.plan.outputs.only }}"}, key)
             for k, v in job["with"].items():
                 self.assertEqual(v, f"${{{{ needs.plan.outputs.{k} }}}}", f"{key}: {k}")
+            if key == "gallery-health":
+                self.assertEqual(job["with"]["base"], "${{ needs.plan.outputs.base }}")
             self.assertNotIn("name", job, f"{key}: the caller job's name must be the suite key")
         self.assertEqual(set(jobs["judge"]["needs"]), {"plan", *self.suites})
 

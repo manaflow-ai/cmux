@@ -1075,7 +1075,7 @@ jobs:
       # Same-repository pull requests only; any error fails open and the shard runs in full. A push always runs.
       - name: Key this shard's same-input receipt
         id: receipt-key
-        if: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && vars.CI_REACT_SHARD_RECEIPT != '0' }}
+        if: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && (vars.CI_REACT_SHARD_RECEIPT || '1') != '0' }}
         continue-on-error: true
         env:
           RECEIPT_SHARD: ${{ matrix.shard }}
