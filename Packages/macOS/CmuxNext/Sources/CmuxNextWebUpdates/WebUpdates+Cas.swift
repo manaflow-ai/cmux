@@ -67,12 +67,8 @@ extension WebUpdates {
     /// Returns once the link stops allowing `request`, or when cancelled.
     nonisolated static func linkLost(_ request: WebUpdater.CasRequest) async {
         #if canImport(Network)
-        let (paths, sink) = AsyncStream.makeStream(of: NWPath.self, bufferingPolicy: .bufferingNewest(1))
-        let monitor = NWPathMonitor()
-        monitor.pathUpdateHandler = { sink.yield($0) }
-        monitor.start(queue: DispatchQueue(label: "cmux.web-cas.link"))
-        defer { monitor.cancel() }
-        for await path in paths where !allows(path, request) { return }
+        // The monitor's own sequence: a cancel ends it (as PathMonitorChromiumRuntimeNetwork's wait).
+        for await path in NWPathMonitor() where !allows(path, request) { return }
         #else
         for await _ in AsyncStream<Never>(Never.self, { _ in }) {}
         #endif
