@@ -6,8 +6,8 @@
 //!
 //! Three parts:
 //! - Progress: the holder writes `daemon.beat` (its pid, its phase, the wall time) when it takes the
-//!   lock and when its socket is bound ([`Phase::Starting`]), then every [`BEAT_EVERY`] from its
-//!   own accept loop ([`Phase::Serving`]) while that loop is polled and accepts without failing. A
+//!   lock, when its socket is bound and at each start step ([`Phase::Starting`], [`step`]), then
+//!   every [`BEAT_EVERY`] from its own accept loop ([`Phase::Serving`]) while that loop is polled and accepts without failing. A
 //!   wedged runtime, an accept loop that never started, or one stuck on a failing `accept` (EMFILE)
 //!   stops the beat; a busy daemon does not.
 //! - Replace: the one standing waiter ([`stand`]) replaces the holder only when both its own probes
@@ -30,26 +30,28 @@ use std::time::Duration;
 
 use serde_json::{Value, json};
 
-/// How long a holder that served may neither accept nor beat before it is replaced. The Linux
-/// watchdog's limit (`daemon/watchdog.rs` LIMIT): a hung daemon is restarted within three minutes
-/// there too. Its accept loop beats every [`BEAT_EVERY`]; at load 60 a tokio task waits seconds,
-/// not minutes, so 18 missed beats in a row is a hang, not load.
+/// How long a holder that served may neither answer a probe nor beat before it is replaced: about
+/// 15 s, seven missed beats in a row. Progress is the accept loop's beat: the loop's own interval
+/// ([`BEAT_EVERY`]) fired, so the runtime polls it, and it accepted or did not fail. A busy daemon
+/// still beats (handling runs on other tasks); at load 60 a runnable tokio worker waits tens to
+/// hundreds of milliseconds for a core, not seconds, so 15 s with no beat and no answer is a hang.
 // timeout: hazard is a holder whose accept loop stopped; fallback is the SIGTERM-then-SIGKILL replace.
-pub(crate) const SERVING_STALL: Duration = Duration::from_secs(180);
+pub(crate) const SERVING_STALL: Duration = Duration::from_secs(15);
 
-/// The same for a holder that never served (still starting, or an older build that writes no
-/// beat): the watchdog's startup grace (`daemon/watchdog.rs` STARTUP_GRACE). A start that replays
-/// a large journal on a loaded Mac takes a minute or two, never ten.
+/// The same for a holder that has not served yet (or an older build that writes no beat): its
+/// start beats at each step between the lock and the accept loop ([`step`]), so this bounds one
+/// step. The longest is the journal open (`store::open`), seconds on a large home; two minutes
+/// leaves a loaded Mac a wide margin and still ends an 8- or 29-minute silent holder.
 // timeout: hazard is a start hung between its bind and its accept loop; fallback is the replace.
-pub(crate) const STARTING_STALL: Duration = Duration::from_secs(600);
+pub(crate) const STARTING_STALL: Duration = Duration::from_secs(120);
 
-/// How often a serving daemon's accept loop writes its beat.
-pub(crate) const BEAT_EVERY: Duration = Duration::from_secs(10);
+/// How often a serving daemon's accept loop writes its beat (a rename of a few bytes, unsynced).
+pub(crate) const BEAT_EVERY: Duration = Duration::from_secs(2);
 
 /// One probe of the holder's socket: connect, hello and `_acpmux/status`. A connect into a queue
 /// nobody accepts from waits forever without it (the client's hello has no limit).
 // timeout: hazard is a socket whose queue is never accepted; fallback is the next probe.
-pub(crate) const PROBE_BOUND: Duration = Duration::from_secs(20);
+pub(crate) const PROBE_BOUND: Duration = Duration::from_secs(5);
 
 /// How long a SIGTERM'd holder has to let go of its lock before SIGKILL. Its own stop is bounded
 /// at a few seconds (`stop_watchdog.rs`); this leaves room for a loaded machine.
@@ -122,6 +124,13 @@ pub(crate) fn beat_path(home: &Path) -> PathBuf {
 pub(crate) fn arm(home: &Path) {
     let _ = BEAT_FILE.set(beat_path(home));
     beat(Phase::Starting);
+}
+
+/// One startup step between the lock and the accept loop is done: a starting beat and a log line,
+/// so a holder is never silent while it starts.
+pub(crate) fn step(name: &str) {
+    beat(Phase::Starting);
+    tracing::debug!("daemon start: {name} done");
 }
 
 /// Writes this daemon's beat; nothing in a process that holds no home ([`arm`]).
