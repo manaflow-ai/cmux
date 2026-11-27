@@ -178,7 +178,7 @@ pub(super) fn claude_transcript_now(
         if let Some(last) = &last {
             for key in ["timestamp", "cwd", "version", "gitBranch", "userType", "entrypoint"] {
                 if let Some(v) = last.get(key) {
-                    line[key] = v.clone();
+                    line.set(key, v.clone());
                 }
             }
         }

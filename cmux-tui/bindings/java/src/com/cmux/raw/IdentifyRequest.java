@@ -13,16 +13,19 @@ import java.util.Objects;
 /** Immutable identify request. Protocol v5; authority: control. */
 public final class IdentifyRequest implements WireValue {
     private final Field<Boolean> machineMetadata;
+    private final Field<Boolean> restoreProgress;
     private final Field<Boolean> revisions;
 
     private IdentifyRequest(Builder builder) {
         this.machineMetadata = builder.machineMetadata;
+        this.restoreProgress = builder.restoreProgress;
         this.revisions = builder.revisions;
     }
 
     public static Builder builder() { return new Builder(); }
 
     public Field<Boolean> machineMetadata() { return machineMetadata; }
+    public Field<Boolean> restoreProgress() { return restoreProgress; }
     public Field<Boolean> revisions() { return revisions; }
 
     public static IdentifyRequest fromWire(Object value) {
@@ -31,6 +34,10 @@ public final class IdentifyRequest implements WireValue {
         Object rawMachineMetadata = Wire.optional(object, "machine_metadata");
         if (!Wire.isMissing(rawMachineMetadata)) {
             builder.machineMetadata(Wire.bool(rawMachineMetadata, "IdentifyRequest.machine_metadata"));
+        }
+        Object rawRestoreProgress = Wire.optional(object, "restore_progress");
+        if (!Wire.isMissing(rawRestoreProgress)) {
+            builder.restoreProgress(Wire.bool(rawRestoreProgress, "IdentifyRequest.restore_progress"));
         }
         Object rawRevisions = Wire.optional(object, "revisions");
         if (!Wire.isMissing(rawRevisions)) {
@@ -43,6 +50,7 @@ public final class IdentifyRequest implements WireValue {
     public Map<String, Object> toWire() {
         LinkedHashMap<String, Object> object = new LinkedHashMap<>();
         Wire.put(object, "machine_metadata", machineMetadata);
+        Wire.put(object, "restore_progress", restoreProgress);
         Wire.put(object, "revisions", revisions);
         return Collections.unmodifiableMap(object);
     }
@@ -50,21 +58,26 @@ public final class IdentifyRequest implements WireValue {
     @Override
     public boolean equals(Object other) {
         if (!(other instanceof IdentifyRequest that)) return false;
-        return Objects.equals(machineMetadata, that.machineMetadata) && Objects.equals(revisions, that.revisions);
+        return Objects.equals(machineMetadata, that.machineMetadata) && Objects.equals(restoreProgress, that.restoreProgress) && Objects.equals(revisions, that.revisions);
     }
 
     @Override
-    public int hashCode() { return Objects.hash(machineMetadata, revisions); }
+    public int hashCode() { return Objects.hash(machineMetadata, restoreProgress, revisions); }
 
     @Override
     public String toString() { return "IdentifyRequest" + toWire(); }
 
     public static final class Builder {
         private Field<Boolean> machineMetadata = Field.omitted();
+        private Field<Boolean> restoreProgress = Field.omitted();
         private Field<Boolean> revisions = Field.omitted();
 
         public Builder machineMetadata(Boolean value) {
             this.machineMetadata = Field.of(value);
+            return this;
+        }
+        public Builder restoreProgress(Boolean value) {
+            this.restoreProgress = Field.of(value);
             return this;
         }
         public Builder revisions(Boolean value) {

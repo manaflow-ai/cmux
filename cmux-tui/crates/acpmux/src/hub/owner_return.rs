@@ -24,6 +24,17 @@ use cmux_host_budget::owner_return::{
 };
 use std::collections::{HashMap, HashSet};
 
+/// The signal that pauses a placed agent's process group, and the one that continues it.
+/// Unix only; elsewhere `signal_placed` sends nothing, so the values are never used.
+#[cfg(unix)]
+const PAUSE: i32 = libc::SIGSTOP;
+#[cfg(unix)]
+const CONTINUE: i32 = libc::SIGCONT;
+#[cfg(not(unix))]
+const PAUSE: i32 = 0;
+#[cfg(not(unix))]
+const CONTINUE: i32 = 0;
+
 /// How often the timer looks: the owner's return should free the machine within seconds.
 pub(crate) const TICK: std::time::Duration = std::time::Duration::from_secs(2);
 
@@ -80,13 +91,13 @@ impl Returner {
         for action in &plan.actions {
             match action {
                 Action::Pause { id } => {
-                    if hub.signal_placed(id, libc::SIGSTOP).await {
+                    if hub.signal_placed(id, PAUSE).await {
                         self.paused.insert(id.clone());
                         tracing::info!(session = %id, "autoCloud: paused a placed turn for the owner");
                     }
                 }
                 Action::Resume { id } => {
-                    hub.signal_placed(id, libc::SIGCONT).await;
+                    hub.signal_placed(id, CONTINUE).await;
                     self.paused.remove(id);
                     tracing::info!(session = %id, "autoCloud: resumed a paused placed session");
                 }
@@ -127,7 +138,7 @@ impl Hub {
         // A daemon restart may have left a placed agent stopped: continue each one.
         for s in self.live_session_handles() {
             if s.read_meta(|m| m.placed_by.is_some()) {
-                self.signal_placed(&s.id, libc::SIGCONT).await;
+                self.signal_placed(&s.id, CONTINUE).await;
             }
         }
         let weak = Arc::downgrade(self);
@@ -164,6 +175,7 @@ impl Hub {
     }
 
     /// Sends `signal` to a session's agent's process group; false when it has no live agent.
+    #[cfg(unix)]
     async fn signal_placed(&self, id: &str, signal: i32) -> bool {
         let Some(session) = self.session_get(id) else { return false };
         let child = session.child.lock().await.clone();
@@ -171,6 +183,12 @@ impl Hub {
             Some(agent) => agent.signal_harness_group(signal).await,
             None => false,
         }
+    }
+
+    /// No process groups to stop off Unix: a placed session is never paused there, only moved.
+    #[cfg(not(unix))]
+    async fn signal_placed(&self, _id: &str, _signal: i32) -> bool {
+        false
     }
 
     /// The note, the move and the log line for one placed session leaving for its owner.

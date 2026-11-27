@@ -233,7 +233,87 @@ export class StepLog {
     this.log(`ok [${label}] ${secs.toFixed(1)}s :: ${r.stdout.trim().split("\n").slice(-3).join(" | ")}`);
     return r.stdout;
   }
+
+  /**
+   * A step that may outlast one exec call: the guest runs it detached under `timeout`, writing its output and status
+   * into `dir`, and short execs poll for the status. One exec-await held open for minutes fails two ways (rolls
+   * 45779971043: status 124 at the 300 s exec cap; 45829777164 and 45883186922: the client's TimeoutError after its
+   * background-request poll went unanswered), so a poll that errors or times out is tried again until the budget is
+   * spent. The guest's own `timeout` ends the command at budgetMs (status 124, "step X failed"); a step that took more
+   * than half its budget logs SLOW_STEP so the workflow can warn before the bound is reached.
+   */
+  async detachedStep(
+    vm: Vm, label: string, command: string,
+    options: { dir: string; budgetMs: number; pollMs?: number; sleep?: (ms: number) => Promise<unknown>; now?: () => number },
+  ): Promise<string> {
+    const shellCheck = guestShellProblems(command);
+    for (const s of shellCheck.suspect) this.log(`WARN [${label}] ${s}`);
+    if (shellCheck.refused.length > 0) {
+      this.log(`STEP FAILED [${label}] before it ran: the guest's /bin/sh refuses it:\n${shellCheck.refused.join("\n")}`);
+      throw new Error(`step ${label} failed: not /bin/sh`);
+    }
+    const now = options.now ?? Date.now;
+    const wait = options.sleep ?? sleep;
+    const pollMs = options.pollMs ?? DETACHED_POLL_MS;
+    const { dir } = options;
+    const budgetSecs = Math.ceil(options.budgetMs / 1000);
+    const script = Buffer.from(command).toString("base64");
+    const t0 = now();
+    const start = await run(vm, [
+      `mkdir -p ${dir}`,
+      `rm -f ${dir}/status ${dir}/out ${dir}/err`,
+      `printf %s ${script} | base64 -d > ${dir}/cmd.sh`,
+      `{ nohup setsid sh -c 'timeout -k 10 ${budgetSecs} sh ${dir}/cmd.sh > ${dir}/out 2> ${dir}/err; echo $? > ${dir}/status' > /dev/null 2>&1 < /dev/null & }`,
+      "echo started",
+    ].join(" && "), DETACHED_CALL_MS);
+    if (start.code !== 0 || !start.stdout.includes("started")) {
+      this.log(`STEP FAILED [${label}] did not start: status=${start.code} ${start.stderr.slice(-3000)}`);
+      throw new Error(`step ${label} failed: did not start`);
+    }
+    // The guest ends the command at the budget; the grace covers its kill, the status write and a slow poll.
+    const deadline = t0 + options.budgetMs + DETACHED_GRACE_MS;
+    let pollError: unknown;
+    for (;;) {
+      await wait(pollMs);
+      let status = "";
+      try {
+        status = (await run(vm, `cat ${dir}/status 2>/dev/null || true`, DETACHED_CALL_MS)).stdout.trim();
+        pollError = undefined;
+      } catch (error) {
+        pollError = error;
+      }
+      if (status !== "") {
+        const r = await run(vm, `cat ${dir}/out; echo ${DETACHED_STDERR_MARK}; tail -c 3000 ${dir}/err`, DETACHED_CALL_MS);
+        const [stdout, stderr = ""] = r.stdout.split(`${DETACHED_STDERR_MARK}\n`);
+        const code = Number(status);
+        const secs = (now() - t0) / 1000;
+        this.steps.push({ label, secs });
+        appendFileSync(this.logFile, `--- [${label}] status=${code} ${secs.toFixed(1)}s (detached, budget ${budgetSecs}s)\n${stdout}\n--- stderr\n${stderr}\n`);
+        if (code !== 0) {
+          const why = code === 124 || code === 137 ? ` (its ${budgetSecs} s budget ran out)` : "";
+          this.log(`STEP FAILED [${label}] status=${code}${why} (${secs.toFixed(1)}s)\nstdout: ${stdout.slice(-3000)}\nstderr: ${stderr.slice(-3000)}`);
+          throw new Error(`step ${label} failed`);
+        }
+        if (secs * 1000 > options.budgetMs / 2) this.log(`SLOW_STEP [${label}] ${secs.toFixed(1)}s of its ${budgetSecs}s budget`);
+        this.log(`ok [${label}] ${secs.toFixed(1)}s :: ${stdout.trim().split("\n").slice(-3).join(" | ")}`);
+        return stdout;
+      }
+      if (now() > deadline) {
+        // Polls that answered without a status mean the guest lost the command; polls that kept failing are the
+        // provider's, and go to the caller as that error (inventory.ts retries a cut or timed-out connection).
+        if (pollError !== undefined) throw pollError;
+        this.log(`STEP FAILED [${label}] no status after ${((now() - t0) / 1000).toFixed(1)}s (budget ${budgetSecs}s)`);
+        throw new Error(`step ${label} failed: no status`);
+      }
+    }
+  }
 }
+
+/** One poll or start call of a detached step: short, so a provider blip costs one poll, not the step. */
+export const DETACHED_CALL_MS = 30_000;
+export const DETACHED_POLL_MS = 10_000;
+export const DETACHED_GRACE_MS = 60_000;
+const DETACHED_STDERR_MARK = "--cmux-detached-stderr--";
 
 export function argValue(name: string, argv = process.argv): string | undefined {
   const index = argv.indexOf(name);

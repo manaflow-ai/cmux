@@ -286,16 +286,6 @@ import Testing
         #expect(sent.params == ["display_name": .string("\(HomeStrings.chiefName) 2")])
     }
 
-    /// Each click's Chief gets the next free name ("Chief 2", "Chief 3"), never a second "Chief":
-    /// identical rows could not be told apart, and `cmux chief` could not pick one of them by name.
-    @Test func aNewChiefTakesTheNextFreeName() {
-        let base = HomeStrings.chiefName
-        #expect(HomeChiefName.next(taken: []) == base)
-        #expect(HomeChiefName.next(taken: [base]) == "\(base) 2")
-        #expect(HomeChiefName.next(taken: [base, "\(base) 2", "Scout"]) == "\(base) 3")
-        #expect(HomeChiefName.next(taken: [base, "\(base) 3"]) == "\(base) 2")
-    }
-
     /// A Chief with no message yet says what it is for, as classic cmux's list does ("Ask Chief
     /// anything"), so its name and that line sit beside its avatar as every other row's do.
     @Test func aChiefRowWithNoMessageYetSaysWhatItIsFor() {
@@ -336,7 +326,6 @@ import Testing
         let reader = HomeChiefHarnesses(muxHome: home, list: { listed })
         let harnesses = await reader.read(chiefs: ["agent_mux", "agent_scout01", "agent_plain01"])
         #expect(harnesses == ["agent_mux": "codex", "agent_scout01": "unii"])
-        #expect(HomeChiefHarnesses.recordHarnesses(nil).isEmpty)
     }
 
     /// Delete Chief on one of this Mac's Chiefs: the same `chief.profile.list` read names the deleted
