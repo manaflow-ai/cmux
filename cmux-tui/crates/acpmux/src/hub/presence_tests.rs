@@ -4,6 +4,93 @@ fn ana() -> Who {
     Who { id: "tailnet:ana".to_owned(), name: "Ana".to_owned() }
 }
 
+#[test]
+fn remote_presence_recovers_after_a_burst_and_releases_its_cache() {
+    let presence = Presence::default();
+    let held = presence.watch_remote("peer", "chat");
+    let second = presence.watch_remote("peer", "chat");
+    let other = presence.watch_remote("other", "chat");
+    assert!(Arc::ptr_eq(&held, &second));
+    let mut changes = presence.subscribe();
+    let active = json!({"sessionId": "chat", "participants": [{"id": "ana", "typing": true}]});
+    held.seed(&active, 0);
+    presence.publish_remote(&none("chat"), "peer");
+    for _ in 0..CHANGES_BUFFER * 2 {
+        presence.publish_remote(&active, "other");
+    }
+    assert!(matches!(changes.try_recv(), Err(broadcast::error::TryRecvError::Lagged(_))));
+    // An attach response that arrived late must not undo the newer withdrawal.
+    held.seed(&active, 0);
+    assert_eq!(held.snapshot().unwrap()["participants"], json!([]));
+    assert_eq!(other.snapshot().unwrap()["participants"][0]["id"], "ana");
+    presence.clear_remote("other");
+    assert_eq!(other.snapshot().unwrap()["participants"], json!([]));
+    drop(held);
+    assert_eq!(presence.inner.remote.lock_or_recover().len(), 2);
+    drop(second);
+    drop(other);
+    assert!(presence.inner.remote.lock_or_recover().is_empty());
+}
+
+#[test]
+fn remote_presence_reconnect_baseline_preserves_newer_updates() {
+    let presence = Presence::default();
+    let held = presence.watch_remote("peer", "chat");
+    let active = json!({"sessionId": "chat", "participants": [{"id": "ana"}],
+        BASELINE_MARKER: true});
+    let before_reset = held.revision();
+    presence.reset_remote("peer");
+    assert!(held.revision() > before_reset);
+    held.seed(&active, before_reset);
+    assert_eq!(held.snapshot().unwrap()["participants"], json!([]));
+    presence.publish_remote_baseline(&active, "peer");
+    let restored = held.snapshot().unwrap();
+    assert_eq!(restored["participants"][0]["id"], "ana");
+    assert!(restored.get(BASELINE_MARKER).is_none());
+
+    presence.reset_remote("peer");
+    presence.publish_remote(&none("chat"), "peer");
+    presence.publish_remote_baseline(&active, "peer");
+    assert_eq!(held.snapshot().unwrap()["participants"], json!([]));
+
+    presence.reset_remote("peer");
+    held.seed(&none("chat"), held.revision());
+    assert_eq!(held.snapshot().unwrap()["participants"], json!([]));
+    presence.publish_remote_baseline(&active, "peer");
+    assert_eq!(held.snapshot().unwrap()["participants"][0]["id"], "ana");
+}
+
+#[test]
+fn live_opt_in_only_changes_shared_snapshots() {
+    let presence = Presence::default();
+    presence.view("chat", "client", &Who::of(None), true).unwrap();
+    let local = presence.snapshot("chat");
+    assert!(!presence.is_live());
+    assert_eq!(presence.shared_snapshot("chat"), none("chat"));
+    let mut changes = presence.subscribe_live();
+    assert!(!presence.set_live(true));
+    assert!(changes.has_changed().unwrap());
+    assert!(*changes.borrow_and_update());
+    assert_eq!(presence.shared_snapshot("chat"), local);
+    assert!(presence.set_live(false));
+    assert!(changes.has_changed().unwrap());
+    assert_eq!(presence.shared_snapshot("chat"), none("chat"));
+    assert_eq!(presence.snapshot("chat"), local);
+}
+
+#[test]
+fn live_off_epoch_survives_coalesced_off_on() {
+    let presence = Presence::default();
+    let mut off = presence.subscribe_off();
+    presence.set_live(true);
+    presence.set_live(false);
+    presence.set_live(true);
+    assert!(presence.is_live());
+    assert!(off.has_changed().unwrap());
+    assert_eq!(*off.borrow_and_update(), 1);
+    assert_eq!(presence.off_epoch(), 1);
+}
+
 fn typing(presence: &Presence) -> Option<bool> {
     let note = presence.snapshot("c");
     note["participants"].as_array()?.first().map(|p| p["typing"] == true)
@@ -153,6 +240,21 @@ fn a_change_fans_out_to_that_rooms_subscribers_only() {
     let others = elsewhere.lock_or_recover().clone();
     assert_eq!(others.len(), 2, "only its own rooms' snapshots: {others:?}");
     assert!(others.iter().all(|n| n["snapshot"] == true));
+}
+
+#[test]
+fn a_remote_snapshot_is_broadcast_with_a_loop_guard_without_local_state() {
+    let presence = Presence::default();
+    let mut changes = presence.subscribe();
+    let note = json!({"sessionId": "remote-chat", "participants": [{"id": "tailnet:bob"}]});
+    presence.publish_remote(&note, "peer-box");
+    let relayed = changes.try_recv().expect("remote presence note");
+    assert_eq!(relayed["sessionId"], "remote-chat");
+    assert_eq!(relayed[REMOTE_MARKER], "peer-box");
+    assert_eq!(
+        presence.snapshot("remote-chat"),
+        json!({"sessionId": "remote-chat", "participants": []})
+    );
 }
 
 /// An empty set unsubscribes, a smaller one drops only the rooms it left out, a detach drops

@@ -1084,6 +1084,11 @@ pub mod method {
     pub const MUX_BG_LIST: &str = "_acpmux/bg/list";
     pub const MUX_BG_OUTPUT: &str = "_acpmux/bg/output";
     pub const MUX_BG_STOP: &str = "_acpmux/bg/stop";
+    /// A session move's wait handoff (`server/bg_rearm.rs`, `rearm.rs`), versioned:
+    /// `{version: 1, sessionId, waits: [Wait]}` starts each wait again here with its remaining
+    /// deadline, `{version: 1, sessionId, release: [id]}` stops those of the chat's tasks that are
+    /// re-armable waits. The person and a peer reach it; it is forwarded to the chat's host.
+    pub const MUX_BG_REARM: &str = "_acpmux/bg/rearm";
     /// "Run on a bigger machine" (`server/run_elsewhere.rs`): what a chat's command would send
     /// to a connected machine, and its start there as a background task of the chat.
     pub const MUX_RUN_ELSEWHERE_PLAN: &str = "_acpmux/run_elsewhere/plan";

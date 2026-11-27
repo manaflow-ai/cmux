@@ -26,6 +26,25 @@ fn remote_outer_command_scrubs_loader_env() {
 
 use super::*;
 
+/// `agents.envExclude` (agent_env.rs) removes its names from the agent's whole env, the
+/// profile's and the inherited ones, last; acpmux's own session wiring and the marker stay out.
+#[test]
+fn env_exclude_removes_names_last_but_keeps_acpmux_wiring() {
+    let p = serde_json::from_value(serde_json::json!({
+        "argv": ["/usr/bin/true"],
+        "env": {"SECRET_TOKEN": "x", "SECRET_OTHER": "y", "KEEP": "1", "PATH": "/usr/bin",
+            (crate::agent_env::EXCLUDE_MARKER): "SECRET_*,HOME,ACPMUX_*"}
+    }))
+    .unwrap();
+    let cmd = harness_command("t", &p, &std::env::temp_dir(), None, Some(("s1", "n1"))).unwrap();
+    let env = command_env(&cmd);
+    let has = |k: &str| env.iter().any(|(n, _)| n == k);
+    assert!(!has("SECRET_TOKEN") && !has("SECRET_OTHER") && !has("HOME"));
+    assert!(has("KEEP"));
+    assert!(has("ACPMUX_SESSION_ID") && has("ACPMUX_SOCKET"));
+    assert!(!has(crate::agent_env::EXCLUDE_MARKER));
+}
+
 /// A daemon started by a bounded command holds its `CMUX_DEADLINE`: an agent it starts
 /// must not, or the fleet's orphan reaper ends the agent once the bound passes.
 #[test]

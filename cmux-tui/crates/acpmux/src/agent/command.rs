@@ -209,6 +209,11 @@ fn build_harness_command(
     let sr2_person = env.remove(crate::sr2_priority::PERSON_ENV).as_deref() == Some("1");
     // OpenCode asked to ask (`opencode_ask.rs`): its config is set below.
     let opencode_ask = env.remove(crate::opencode_ask::MARKER).is_some();
+    // The person's `agents.envExclude` (agent_env.rs): removed last, below.
+    let env_exclude = env
+        .remove(crate::agent_env::EXCLUDE_MARKER)
+        .map(|marker| crate::agent_env::patterns(&marker))
+        .unwrap_or_default();
     // The caller token and its socket are acpmux's own (`hub/person.rs` (a)):
     // this env is layered after `caller_env`, so a profile, preset or
     // request value would replace them.
@@ -360,6 +365,21 @@ fn build_harness_command(
     cmd.env_remove("CMUX_HARNESS_SESSION_STORE_DIR");
     let launch =
         crate::harness_limits::launch_args(codex_launch, args, session.map(|_| (cwd, &env)));
+    // `agents.sandbox.network` `allow` (agent_sandbox.rs): a chat's Codex sandbox reaches the
+    // network. A remote chain's launch runs only what its plan checked.
+    let launch = if codex_launch && session.is_some() && !remote_environment {
+        let home = env.get("CODEX_HOME").map(std::path::PathBuf::from);
+        crate::agent_sandbox::codex_args(crate::agent_sandbox::Sandbox::current(), launch, || {
+            crate::harness_limits::codex_sets(
+                args,
+                cwd,
+                home,
+                crate::agent_sandbox::CODEX_NETWORK_KEY,
+            )
+        })
+    } else {
+        launch
+    };
     // A remote chain's sandboxed launch runs only what its plan checked: no hook.
     let codex = (!remote_environment && codex_launch).then(|| (program.clone(), launch.clone()));
     let (launch, codex) = match codex {
@@ -507,6 +527,15 @@ fn build_harness_command(
     #[cfg(target_os = "linux")]
     if remote_environment {
         crate::linux_sandbox::scrub_loader_env(&mut cmd);
+    }
+    // `agents.envExclude`, last: whoever set a name (the daemon, the login shell, a profile,
+    // `agents.env`, acpmux above), the agent never gets it; acpmux's session wiring stays.
+    if !env_exclude.is_empty() {
+        for (key, _) in command_env_with(&cmd, !remote_environment) {
+            if crate::agent_env::excluded(&key, &env_exclude) {
+                cmd.env_remove(&key);
+            }
+        }
     }
     // The hosted and direct translators take the hook home from this launch. Only the
     // selected local plugin enables its callbacks, regardless of inherited or profile env.
