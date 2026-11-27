@@ -12,14 +12,18 @@ mkdir -p "$tmp/bin"
 cat > "$tmp/bin/gh" <<'EOF'
 #!/usr/bin/env bash
 printf '%s\n' "$*" >> "$GH_STUB_LOG"
-[[ -n "${GH_STUB_FAIL:-}" ]] && exit 1
+if [[ -n "${GH_STUB_FAIL:-}" && "${GH_TOKEN:-}" != "${GH_STUB_GOOD_TOKEN:-unset}" ]]; then
+  echo "gh: API rate limit exceeded for installation ID 1 (HTTP 403)" >&2
+  exit 1
+fi
 # The caller's --jq turns the runs into id, status, conclusion, title rows; the stub serves them as such.
 cat "$GH_STUB_ROWS"
 EOF
 chmod +x "$tmp/bin/gh"
 export PATH="$tmp/bin:$PATH" GH_STUB_LOG="$tmp/gh.log" GH_STUB_ROWS="$tmp/rows"
 export GITHUB_REPOSITORY=o/r GITHUB_EVENT_NAME=push GITHUB_RUN_ATTEMPT=1 BASE_AUTOFIX_WINDOW_NOW=1800000000
-unset NEXT_BASE_AUTOFIX_WINDOW_MINUTES GH_STUB_FAIL
+unset NEXT_BASE_AUTOFIX_WINDOW_MINUTES GH_STUB_FAIL GH_STUB_GOOD_TOKEN GH_TOKEN_FALLBACK
+export GH_TOKEN=repo-token
 
 rows() { printf '%s\n' "$@" | tr '|' '\037' > "$tmp/rows"; }
 decide() { : > "$tmp/gh.log"; bash "$script" 500 feat-cmux-next; }
@@ -60,6 +64,14 @@ NEXT_BASE_AUTOFIX_WINDOW_MINUTES=abc expect true "window off"
 GITHUB_EVENT_NAME=workflow_dispatch expect true "event workflow_dispatch"
 GITHUB_RUN_ATTEMPT=2 expect true "re-run"
 [[ ! -s "$tmp/gh.log" ]] || fail "a re-run read GitHub: $(cat "$tmp/gh.log")"
+
+# 4b. An unreadable list names gh's error; a fallback token (GH_TOKEN_FALLBACK) reads it instead and holds the run,
+#     and a fallback that fails too still runs, naming both errors.
+GH_STUB_FAIL=1 expect true "runs unreadable (fail open): gh: API rate limit exceeded for installation ID 1 (HTTP 403)"
+GH_STUB_FAIL=1 GH_STUB_GOOD_TOKEN=app-token GH_TOKEN_FALLBACK=app-token expect false "run 499 ended success"
+GH_STUB_FAIL=1 GH_STUB_GOOD_TOKEN=other GH_TOKEN_FALLBACK=app-token expect true "fallback token: gh: API rate limit"
+out="$(GH_STUB_FAIL=1 decide)"
+[[ "$(grep -c '^why=' <<<"$out")" == 1 && "$(wc -l <<<"$out")" == 2 ]] || fail "the error spills past one why line: $out"
 
 # 5. The window is the variable's: 30 minutes asks from now - 30 min.
 rows

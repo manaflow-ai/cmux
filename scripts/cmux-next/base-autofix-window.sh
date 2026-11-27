@@ -13,7 +13,12 @@
 #
 #   base-autofix-window.sh RUN_ID [BRANCH]
 # Env: GH_TOKEN (actions: read), GITHUB_REPOSITORY, GITHUB_EVENT_NAME, GITHUB_RUN_ATTEMPT,
-#      NEXT_BASE_AUTOFIX_WINDOW_MINUTES; BASE_AUTOFIX_WINDOW_NOW (epoch seconds, tests only).
+#      NEXT_BASE_AUTOFIX_WINDOW_MINUTES; GH_TOKEN_FALLBACK (optional, actions: read: the one read is tried
+#      again with it when GH_TOKEN's fails); BASE_AUTOFIX_WINDOW_NOW (epoch seconds, tests only).
+#
+# A read that fails says why (gh's own first error line): on 2026-11-26 17-24Z all 27 push runs that repaired
+# had passed this gate as "runs unreadable (fail open)", about 30 runner-hours where the window allows three
+# runs, and the log could not say whether GitHub refused the repository's shared GITHUB_TOKEN quota (403).
 set -uo pipefail
 
 run_id="${1:?usage: base-autofix-window.sh RUN_ID [BRANCH]}"
@@ -44,11 +49,24 @@ since="$(date -u -d "@$((now - window * 60))" +%Y-%m-%dT%H:%M:%SZ 2>/dev/null)" 
 }
 
 # One read: this workflow's push runs on BRANCH created within the window, newest first.
-rows="$(gh api "repos/$repo/actions/workflows/cmux-next-base-autofix.yml/runs?branch=$branch&event=push&created=%3E%3D$since&per_page=100" \
-  --jq '.workflow_runs[] | [.id, .status, (.conclusion // ""), .display_title] | map(tostring) | join("\u001f")' 2>/dev/null)" || {
-  say true "runs unreadable (fail open)"
-  exit 0
+err="$(mktemp)"
+trap 'rm -f "$err"' EXIT
+read_runs() {
+  gh api "repos/$repo/actions/workflows/cmux-next-base-autofix.yml/runs?branch=$branch&event=push&created=%3E%3D$since&per_page=100" \
+    --jq '.workflow_runs[] | [.id, .status, (.conclusion // ""), .display_title] | map(tostring) | join("\u001f")' 2>"$err"
 }
+# gh's first error line, on one line for $GITHUB_OUTPUT.
+first_error() { head -n 3 "$err" | tr -s '\r\n\t' '   ' | sed 's/ *$//' | cut -c1-200; }
+if ! rows="$(read_runs)"; then
+  why="$(first_error)"
+  if [[ -n "${GH_TOKEN_FALLBACK:-}" ]] && rows="$(GH_TOKEN="$GH_TOKEN_FALLBACK" read_runs)"; then
+    echo "base-autofix-window: GH_TOKEN's read failed (${why:-no message}); the fallback token read the runs" >&2
+  else
+    [[ -z "${GH_TOKEN_FALLBACK:-}" ]] || why="${why:-no message}; fallback token: $(first_error)"
+    say true "runs unreadable (fail open): ${why:-no message}"
+    exit 0
+  fi
+fi
 
 # Fields split on the unit separator: a tab is whitespace to read, so an empty conclusion would vanish.
 while IFS=$'\x1f' read -r id status conclusion title; do

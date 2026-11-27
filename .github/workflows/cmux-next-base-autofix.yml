@@ -184,10 +184,24 @@ jobs:
             /.gitmodules
           sparse-checkout-cone-mode: false
 
+      - name: Mint a read token with its own quota
+        id: window-token
+        # Off until vars.CI_BASE_AUTOFIX_WINDOW_APP_TOKEN is 1. When GITHUB_TOKEN's runs read fails (11-26 17-24Z:
+        # every repairing run passed as "runs unreadable"), the window reads them again with this app token.
+        if: vars.CI_BASE_AUTOFIX_WINDOW_APP_TOKEN == '1' && vars.GLAEDA_ROUTE_APP_ID != ''
+        continue-on-error: true
+        timeout-minutes: 1
+        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
+        with:
+          app-id: ${{ vars.GLAEDA_ROUTE_APP_ID }}
+          private-key: ${{ secrets.GLAEDA_ROUTE_APP_KEY }}
+          permission-actions: read
+
       - name: Repair now, or hold for the window
         id: window
         env:
           GH_TOKEN: ${{ github.token }}
+          GH_TOKEN_FALLBACK: ${{ steps.window-token.outputs.token }}
           NEXT_BASE_AUTOFIX_WINDOW_MINUTES: ${{ vars.NEXT_BASE_AUTOFIX_WINDOW_MINUTES }}
         run: bash scripts/cmux-next/base-autofix-window.sh "$GITHUB_RUN_ID" "$GITHUB_REF_NAME" | tee -a "$GITHUB_OUTPUT" "$GITHUB_STEP_SUMMARY"
 
