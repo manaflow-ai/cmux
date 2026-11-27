@@ -110,6 +110,8 @@ class WindowServer(Bench):
         attribution = report.get("attribution")
         if isinstance(attribution, dict) and attribution.get("spinner"):
             ctx.notes.append(f"spinner coverage: {attribution['spinner']}")
+        if report.get("verdict") == "failed" or report.get("failures") or report.get("harness_exit_code", 0):
+            raise BenchError(f"windowserver: scenario validation failed; partial measurements retained in {path}")
         if not measured:
             raise BenchError(f"windowserver: {path} contained no measured rows")
 

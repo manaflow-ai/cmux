@@ -1,10 +1,14 @@
 from __future__ import annotations
 
+import ast
 import json
+import threading
 import sys
 import tempfile
 import unittest
 from pathlib import Path
+from types import SimpleNamespace
+from unittest.mock import Mock, patch
 
 BENCH_DIR = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(BENCH_DIR))
@@ -18,6 +22,7 @@ _spec = spec_from_file_location("windowserver_harness", BENCH_DIR.parent / "cmux
 assert _spec and _spec.loader
 _harness = module_from_spec(_spec)
 _spec.loader.exec_module(_harness)
+import windowserver_gpu as gpu_module  # noqa: E402
 
 
 def context() -> Context:
@@ -82,6 +87,113 @@ class WindowServerTest(unittest.TestCase):
         self.assertEqual(rows[("window_server_cpu", "spinner")]["value"], 4.25)
         self.assertEqual(rows[("gpu_device_utilization", "spinner")]["value"], 8.5)
         self.assertTrue(any("GPU counters unavailable" in note for note in ctx.notes))
+
+    def test_agentpane_production_path_samples_gpu_and_cleans_up(self) -> None:
+        # Execute the production function without the script's CLI/app startup.
+        path = BENCH_DIR.parent / "cmux-next" / "typing-frame-bench.py"
+        tree = ast.parse(path.read_text())
+        functions = [node for node in tree.body if isinstance(node, ast.FunctionDef)
+                     and node.name in ("measure_agentpane", "cpu_share")]
+        code = compile(ast.Module(body=functions, type_ignores=[]), str(path), "exec")
+        for fail in (False, True):
+            with self.subTest(exception=fail):
+                sampled = threading.Event()
+                samplers = []
+
+                def sample():
+                    sampled.set()
+                    return {"Device Utilization %": 12.0}
+
+                def sampler():
+                    instance = gpu_module.GPUSampler()
+                    samplers.append(instance)
+                    return instance
+
+                def cpu_seconds(pid):
+                    self.assertTrue(sampled.wait(2), "GPU sampling never started in agentpane")
+                    return 1.0
+
+                def rpc(method, params=None, **kwargs):
+                    params = params or {}
+                    if method == "debug.focus":
+                        return {"app_active": True}
+                    if params.get("action") == "reset_typing" and fail:
+                        raise RuntimeError("injected RPC failure")
+                    if params.get("action") == "typing_stats":
+                        return {"keys": 10, "composer_text": ""}
+                    return {}
+
+                namespace = dict(
+                    GPUSampler=sampler, WINDOW_SERVER=2, SESSION="test", MODE=None, LOAD={},
+                    opts=SimpleNamespace(launch="open", chat_agent="mock", prefill=0, sample=False,
+                                         samples=1, interval=0.01, json=None),
+                    foreground_activation=lambda: {}, rpc=rpc, wait=lambda fn, *a, **k: fn(),
+                    draw_on_input_frames=lambda: None, launch_switch_once=lambda: (True, None),
+                    cpu_seconds=cpu_seconds, time=Mock(monotonic=Mock(side_effect=range(100)),
+                                                       time=Mock(return_value=1.0)),
+                    agent_expected_text=lambda n: "a", SchedProbe=Mock(),
+                    agent_typing_verdict=lambda *a: {"observed_keys": 1, "complete": True, "text_exact": True},
+                    frame_metrics=lambda value: {}, pct=lambda value: {},
+                    frame_timing_validity=lambda *a: {}, results={"runs": []}, note=Mock())
+                exec(code, namespace)
+                with patch.object(gpu_module, "read_gpu_stats", side_effect=sample):
+                    if fail:
+                        with self.assertRaisesRegex(RuntimeError, "injected RPC failure"):
+                            namespace["measure_agentpane"]("idle", 1, "pane")
+                    else:
+                        entry = namespace["measure_agentpane"]("idle", 1, "pane")
+                        self.assertEqual(entry["gpu"]["device_utilization_percent"], 12.0)
+                        normalized = _harness.extract_runs("typing", {"runs": [entry]})[0]
+                        self.assertEqual(normalized["gpu"], entry["gpu"])
+                        self.assertEqual(normalized["window_server_cpu_percent"], 0.0)
+                self.assertEqual(len(samplers), 1)
+                self.assertFalse(samplers[0].is_alive())
+                self.assertTrue(samplers[0].stop_event.is_set())
+
+    def test_sampler_finish_waits_for_inflight_read_and_discards_it(self) -> None:
+        entered, release, finished = threading.Event(), threading.Event(), threading.Event()
+
+        def read():
+            entered.set()
+            release.wait(2)
+            return {"Device Utilization %": 99.0}
+
+        sampler = gpu_module.GPUSampler()
+        self.assertEqual(sampler.interval, 1.0)
+        with patch.object(gpu_module, "read_gpu_stats", side_effect=read):
+            sampler.start()
+            self.assertTrue(entered.wait(2))
+            worker = threading.Thread(target=lambda: (sampler.finish(), finished.set()))
+            worker.start()
+            try:
+                self.assertTrue(sampler.stop_event.wait(2))
+                self.assertFalse(finished.is_set())
+            finally:
+                release.set()
+                worker.join(2)
+                sampler.join(2)
+        self.assertTrue(finished.is_set())
+        self.assertFalse(sampler.is_alive())
+        self.assertEqual(sampler.samples, [])
+
+    def test_partial_failure_transports_report_but_fails_ingestion(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            report_path = Path(tmp) / "report.json"
+            argv = ["bench", "--app", "/fake.app", "--out", tmp, "--json", str(report_path),
+                    "--scenarios", "idle,typing", "--transport-envelope"]
+            good = [{"scenario": "idle", "window_server_cpu_percent": 2.0}]
+            with patch.object(sys, "argv", argv), patch.object(
+                    _harness, "run_scenario", side_effect=[good, RuntimeError("typing failed")]):
+                self.assertEqual(_harness.main(), 0)
+            report = json.loads(report_path.read_text())
+            self.assertEqual(report["verdict"], "failed")
+            self.assertEqual(report["harness_exit_code"], 1)
+            self.assertEqual(report["failures"][0]["scenario"], "typing")
+            self.assertEqual(len(report["runs"]), 1)
+            ctx = context()
+            with self.assertRaisesRegex(BenchError, "scenario validation failed"):
+                BENCH.ingest(ctx, report_path)
+            self.assertTrue(ctx.rows, "partial measurements should survive ingestion failure")
 
     def test_bad_schema_raises(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
