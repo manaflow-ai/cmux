@@ -223,6 +223,13 @@ struct DemoDriver {
             shell.tab = .workspaces
             await pause(1.0)
             if let ws = shell.store.workspace(id: "ws-cmux") { shell.workspacesPath = [ws] }
+        case "ws-chat-idle":
+            // The workspace's agent chat tab, as the app shows it, and nothing scripted after
+            // (SwipeBackWholePageUITests).
+            shell.store.requestOpen(tabID: "t-claude", in: "ws-cmux")
+            shell.tab = .workspaces
+            await pause(1.0)
+            if let ws = shell.store.workspace(id: "ws-cmux") { shell.workspacesPath = [ws] }
         case "ws-terminal-reattach":
             // The zsh tab, attached, then its link drops and stays down past the
             // quiet bound (`QuietStatusGate.threshold`): a reattach that is not a
@@ -235,6 +242,34 @@ struct DemoDriver {
             guard let model = shell.terminalTabs.model(forTabID: "t-zsh") else { return }
             model.demoConnection(.reattaching(mac: "Demo Mac"))
             model.reconnect = { [weak model] in model?.demoConnection(.attached) }
+        case "ws-terminal-outage":
+            // Leo, 2026-11-23: the "Keys typed while your Mac was unreachable were not
+            // sent." banner "shows up even when you didnt type into the terminal... it
+            // even layout shifts". The zsh tab, attached; the link drops and the
+            // session drops input the person never saw typed (keys in flight when the
+            // link fell); the link comes back. Then a composer send during a second
+            // drop that never reaches the Mac: its text comes back to the composer.
+            // TerminalUnsentKeysUITests: no notice row and no composer movement.
+            shell.store.requestOpen(tabID: "t-zsh", in: "ws-cmux")
+            shell.tab = .workspaces
+            await pause(1.0)
+            if let ws = shell.store.workspace(id: "ws-cmux") { shell.workspacesPath = [ws] }
+            await pause(3.0)
+            guard let model = shell.terminalTabs.model(forTabID: "t-zsh") else { return }
+            model.demoConnection(.reattaching(mac: "Demo Mac"))
+            await pause(1.5)
+            model.demoInputDropped(bytes: 3)
+            await pause(1.5)
+            model.demoConnection(.attached)
+            await pause(2.0)
+            model.demoConnection(.reattaching(mac: "Demo Mac"))
+            await pause(0.5)
+            model.demoFillComposer("make test", attachments: false)
+            model.send()
+            await pause(1.5)
+            model.demoInputDropped(bytes: 9)
+            await pause(1.5)
+            model.demoConnection(.attached)
         case "ws-terminal-composer":
             // The zsh tab with a draft in the composer, for gallery captures
             // of its states: CMUX_MOBILE_DEMO_COMPOSER=short (one line),
