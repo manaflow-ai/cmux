@@ -45,6 +45,7 @@
 
 pub(crate) mod command_sampler;
 pub(crate) mod command_shadow;
+pub mod exec_router;
 pub(crate) mod move_targets;
 pub mod reach;
 pub mod run_vm;
