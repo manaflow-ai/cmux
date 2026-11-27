@@ -61,6 +61,7 @@ public final class AgentPaneNewTabPrefetch {
             guard valid(), frames.generation == generation,
                   view.effectiveAppearance.bestMatch(from: [.aqua, .darkAqua]) == appearance else {
                 self.cancel()
+                parking.fit(to: full)
                 invalidated()
                 return
             }
