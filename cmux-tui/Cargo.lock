@@ -4313,6 +4313,18 @@ dependencies = [
 ]
 
 [[package]]
+name = "crabgrind"
+version = "0.6.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "54036bb8d52f1ad7f0a1e89d234073355e9d91d03b09ba59136a1e06e8cbbb34"
+dependencies = [
+ "cc",
+ "object 0.39.1",
+ "pkg-config",
+ "rustversion",
+]
+
+[[package]]
 name = "cranelift-assembler-x64"
 version = "0.135.8"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -5532,6 +5544,7 @@ name = "ghostty-vt"
 version = "0.1.0"
 dependencies = [
  "base64",
+ "crabgrind",
  "ghostty-vt-sys",
  "memchr",
  "png",

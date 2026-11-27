@@ -388,17 +388,17 @@ def landing_gates(config: dict, files: list[str] | None, table: Path | None = No
     gates = nightly_gates(config, files, table) if nightly_gate_on() else []
     reasons = [f"nightly gate: runs only {', '.join(gates)}"] if gates else []
     if "linux" in config.get("table_jobs", []):
-        name = "phone-speed-icount"
-        try:
-            step = ci_steps.load(table or ci_steps.TABLE).steps.get(name)
-            phone = step is not None and step.job == "linux" and ci_steps.routed(step, files)
-        except Exception:  # noqa: BLE001
-            # Let the runner report a broken table, rather than silently losing this required detector.
-            phone = True
-        if phone:
-            if name not in gates:
-                gates.append(name)
-            reasons.append(f"phone speed gate: runs only {name}")
+        for name in ("phone-speed-icount", "phone-default-speed-icount"):
+            try:
+                step = ci_steps.load(table or ci_steps.TABLE).steps.get(name)
+                phone = step is not None and step.job == "linux" and ci_steps.routed(step, files)
+            except Exception:  # noqa: BLE001
+                # Let the runner report a broken table, rather than silently losing this required detector.
+                phone = True
+            if phone:
+                if name not in gates:
+                    gates.append(name)
+                reasons.append(f"phone speed gate: runs only {name}")
     return gates, "; ".join(reasons)
 
 

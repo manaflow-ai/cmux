@@ -2121,7 +2121,9 @@ jobs:
     # cut the same way: the feat-cmux-next channel stayed at 7d439038
     # (cmuxterm-hq#20161). 90 holds a cold compile; cargo test has its own bound
     # below, so a cut test step still leaves time to save what it compiled.
-    timeout-minutes: 90
+    # The narrow default-grid cache seed has a separate 30-minute ceiling;
+    # preserve the original room for publishing the compiled target afterward.
+    timeout-minutes: 120
     # A feat-cmux-next push saves this job's cargo build to the CI cache bucket for ci/steps.toml's
     # cmux-next-daemon-tests and agent-pane-real-acpmux steps (scripts/ci/cmux-tui-test-target.sh); only
     # next-cache-writer holds the write credentials, and its deployment branches are feat-cmux-next only.
@@ -2399,6 +2401,17 @@ jobs:
           acpmux="$(PATH="$PATH:$HOME/.local/bin:$HOME/.cargo/bin:/opt/homebrew/bin:/usr/local/bin" command -v acpmux || true)"
           [[ -z "$acpmux" ]] || env -u ACPMUX_SOCKET ACPMUX_HOME="$home" "$acpmux" daemon shutdown --end-agents || true
           rm -rf "$home"
+
+      # Seed the exact narrow workspace example the phone PR gate consumes. The
+      # daemon test's package union may have a different native fingerprint.
+      # This invocation pins its CPU/profile/features internally and saves both
+      # fingerprints in the same existing target archive; it never rebaselines.
+      - name: Seed and check default-grid instruction detector
+        if: ${{ !cancelled() && runner.os == 'Linux' && github.event_name == 'push' && github.ref == 'refs/heads/feat-cmux-next' && steps.current.outputs.stale != 'true' && steps.marked.outputs.marked != 'true' }}
+        timeout-minutes: 30
+        env:
+          CI_STEP_RESULTS: "off"
+        run: python3 ci/run run --job linux --only phone-default-speed-icount
 
       # A feat-cmux-next push only, after a red test too (the compile is still good), before
       # rust-cache's post step prunes the workspace crates: at most one save a 4-hour window.

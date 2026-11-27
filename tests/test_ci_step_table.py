@@ -102,7 +102,7 @@ class NightlyGateTest(unittest.TestCase):
         # Cargo.lock reaches the iOS FFI too: the ios fast verdict starts the pipeline and the reason names both.
         self.assertIn("nightly gate", why["pr-pipeline.yml"])
         self.assertEqual(jobs, ["linux"])
-        self.assertEqual(only, ["rust-notices", "phone-speed-icount"])
+        self.assertEqual(only, ["rust-notices", "phone-speed-icount", "phone-default-speed-icount"])
         start, why, (jobs, only) = self.landing(["scripts/cmux-next/generate-third-party-notices.sh"])
         self.assertIn("nightly gate: runs only rust-notices", why["pr-pipeline.yml"])
         self.assertEqual((jobs, only), (["linux"], ["rust-notices"]))
@@ -137,8 +137,20 @@ class NightlyGateTest(unittest.TestCase):
                 self.assertIn("pr-pipeline.yml", start)
                 self.assertIn("phone speed gate", why["pr-pipeline.yml"])
                 self.assertEqual(jobs, ["linux"])
-                expected = ["rust-notices", "phone-speed-icount"] if path.endswith("Cargo.lock") else ["phone-speed-icount"]
+                expected = ["rust-notices", "phone-speed-icount", "phone-default-speed-icount"] if path.endswith("Cargo.lock") else ["phone-speed-icount"]
                 self.assertEqual(only, expected)
+
+    def test_default_grid_speed_routes_real_core_and_harness_before_landing(self) -> None:
+        for path in ("ghostty-next", "cmux-tui/crates/ghostty-vt/src/render.rs",
+                     "cmux-tui/crates/ghostty-vt-sys/build.rs",
+                     "cmux-tui/crates/cmux-transport-rewrite/src/lib.rs",
+                     "cmux-tui/crates/ghostty-vt/examples/phone_default_speed.rs"):
+            with self.subTest(path=path), mock.patch.dict(os.environ, {
+                "CI_NIGHTLY_GATE_ON_LAND": "0", "CI_IOS_FAST_VERDICT": "0"
+            }):
+                start, _, (jobs, only) = self.landing([path])
+                self.assertIn("pr-pipeline.yml", start)
+                self.assertEqual((jobs, only), (["linux"], ["phone-default-speed-icount"]))
 
     def test_phone_speed_does_not_depend_on_the_nightly_mirror_switch(self) -> None:
         with mock.patch.dict(os.environ, {"CI_NIGHTLY_GATE_ON_LAND": "0", "CI_IOS_FAST_VERDICT": "0"}):
