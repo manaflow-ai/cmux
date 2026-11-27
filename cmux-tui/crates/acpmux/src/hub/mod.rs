@@ -497,7 +497,7 @@ pub mod vm_host;
 mod wait_reason_tests;
 mod warm;
 mod watch;
-mod watch_events;
+pub(crate) mod watch_events;
 pub(crate) mod watches;
 mod web_control;
 mod web_token;
