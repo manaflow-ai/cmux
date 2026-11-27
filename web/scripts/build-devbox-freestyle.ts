@@ -303,10 +303,12 @@ const pins = devboxAgentPins();
  * login either). Fails if the pane shows anything ble.sh or bash complained
  * about, the Ubuntu legal text, or (on the second run, once caches are seeded)
  * the tput-cache notice, and requires the cmux prompt. Runs as the work user
- * so nothing it creates is root-owned.
+ * so nothing it creates is root-owned. Polls the pane for the prompt (up to
+ * 20 s) instead of a fixed sleep: rebakes 45928043172 and 45937353738 read an
+ * empty pane after a fixed 3 s while ble.sh was still loading.
  */
 const interactiveShellProbe = (run: number): string =>
-  `sudo -n -u ${WORK_USER} env -i HOME=${WORK_HOME} USER=${WORK_USER} TERM=xterm-256color PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin bash -c 'tmux -L probe${run} new-session -d -s login -x 120 -y 30 && sleep 3 && pane="$(tmux -L probe${run} capture-pane -pt login)"; tmux -L probe${run} kill-server 2>/dev/null; printf "%s\\n" "$pane" | grep -iE "ble\\.sh|bleopt|ble-face|denied|not found|WARRANTY${run > 1 ? "|updating tput" : ""}" && { printf "%s\\n" "$pane"; exit 1; }; printf "%s\\n" "$pane" | grep -q "λ" || { printf "%s\\n" "$pane"; echo "no cmux prompt"; exit 1; }'`;
+  `sudo -n -u ${WORK_USER} env -i HOME=${WORK_HOME} USER=${WORK_USER} TERM=xterm-256color PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin bash -c 'tmux -L probe${run} new-session -d -s login -x 120 -y 30 || exit 1; t=0; while :; do sleep 0.5; t=$((t+1)); pane="$(tmux -L probe${run} capture-pane -pt login)"; printf "%s\\n" "$pane" | grep -q "λ" && break; [ $t -ge 40 ] && break; done; tmux -L probe${run} kill-server 2>/dev/null; printf "%s\\n" "$pane" | grep -iE "ble\\.sh|bleopt|ble-face|denied|not found|WARRANTY${run > 1 ? "|updating tput" : ""}" && { printf "%s\\n" "$pane"; exit 1; }; printf "%s\\n" "$pane" | grep -q "λ" || { printf "%s\\n" "$pane"; echo "no cmux prompt"; exit 1; }'`;
 
 try {
   // TSC offsets can change across resized memory snapshots. Use the

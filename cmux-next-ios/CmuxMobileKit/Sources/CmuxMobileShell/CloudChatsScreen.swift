@@ -47,6 +47,8 @@ private struct CloudDirectoryList: View {
     @Environment(\.dismiss) private var dismiss
     @State private var directories: [String: [CloudChatMachine]]
     @State private var selectedLocation: CloudChatLocation?
+    /// New Task's chat was started: going back and opening the machine again starts no second one.
+    @State private var taskStarted = false
     @State private var failed = false
     @State private var refresh = 0
     /// A failed directory read is read again on its own (no Retry): the spinner stays, and the
@@ -136,7 +138,8 @@ private struct CloudDirectoryList: View {
                                         macName: name, preferredSession: scope.attention?.sessionID,
                                         cachedList: shell.auth.lastKnownList(screen: "cloud-chat-sessions", teamID: scope.team,
                                             context: [location.macID, location.machine.teamID, location.machine.machineID]),
-                                        firstPrompt: task?.location == location ? task?.prompt : nil)
+                                        firstPrompt: !taskStarted && task?.location == location ? task?.prompt : nil,
+                                        onFirstStarted: { taskStarted = true })
             }
             .modifier(AutoChatsHost(auto: auto, enabled: showsAuto, refresh: refresh) { openCloudMachines() })
             .task(id: Refresh(live: shell.live.map(ObjectIdentifier.init), revision: refresh)) {
@@ -329,6 +332,10 @@ private struct CloudMachineChatsScreen: View {
     @State private var startedFirst = false
     /// The started chat the first message waits on: the machine lists a new chat after it answers.
     @State private var unsentFirst: String?
+    /// The first message, kept once its chat started (the list then passes no `firstPrompt`).
+    @State private var unsentPrompt: String?
+    /// Tells the list New Task's chat started, so opening this machine again starts no second chat.
+    private let onFirstStarted: () -> Void
     @Environment(\.scenePhase) private var scenePhase
     @State private var relay: CloudChatRelay?
     @State private var selectedSession: String?
@@ -357,7 +364,8 @@ private struct CloudMachineChatsScreen: View {
     @State private var page: CloudChatList.CachedPage?
 
     init(live: LiveCoordinator?, macID: String, machine: CloudChatMachine, macName: String,
-         preferredSession: String?, cachedList: LastKnownList?, firstPrompt: String? = nil) {
+         preferredSession: String?, cachedList: LastKnownList?, firstPrompt: String? = nil,
+         onFirstStarted: @escaping () -> Void = {}) {
         self.live = live
         self.macID = macID
         self.machine = machine
@@ -365,6 +373,7 @@ private struct CloudMachineChatsScreen: View {
         self.preferredSession = preferredSession
         self.cachedList = cachedList
         self.firstPrompt = firstPrompt
+        self.onFirstStarted = onFirstStarted
         _page = State(initialValue: cachedList?.read(CloudChatList.CachedPage.self))
     }
 
@@ -553,7 +562,9 @@ private struct CloudMachineChatsScreen: View {
             do {
                 let session = try await relay.startChat()
                 startedFirst = true
+                unsentPrompt = firstPrompt
                 unsentFirst = session
+                onFirstStarted()
                 sendFirst()
                 selectedSession = session
             } catch {
@@ -565,9 +576,10 @@ private struct CloudMachineChatsScreen: View {
 
     /// Sends the first message once the started chat is listed.
     private func sendFirst() {
-        guard let session = unsentFirst, let firstPrompt, let store = relay?.store(sessionID: session) else { return }
+        guard let session = unsentFirst, let prompt = unsentPrompt, let store = relay?.store(sessionID: session) else { return }
         unsentFirst = nil
-        store.send(prompt: firstPrompt)
+        unsentPrompt = nil
+        store.send(prompt: prompt)
     }
 
     private func newChatTapped() {

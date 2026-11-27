@@ -29,8 +29,8 @@ pub(super) fn parse(
     // `--project DIR`: the project layer of DIR (`<project>/.cmux/cmux-next.json`,
     // cmux_config::project) instead of the user's file.
     let project = match flags.take("project") {
-        Some(_) if !matches!(verb.as_str(), "get" | "set" | "reset" | "unset") => {
-            return Err(UsageError::new("--project goes with get, set, reset and unset"));
+        Some(_) if !matches!(verb.as_str(), "get" | "explain" | "set" | "reset" | "unset") => {
+            return Err(UsageError::new("--project goes with get, explain, set, reset and unset"));
         }
         Some(folder) => Some(project_folder(&folder)?),
         None => None,
@@ -68,6 +68,12 @@ pub(super) fn parse(
         }
         ("get", [key]) => {
             request(ResourceOperation::SettingsGet, &selectors, flags, key_params(key))
+        }
+        // `explain KEY`: each layer's value, which won, and the last write that touched it.
+        ("explain", [key]) => {
+            let mut params = key_params(key);
+            params.insert("explain".into(), Value::Bool(true));
+            request(ResourceOperation::SettingsGet, &selectors, flags, params)
         }
         ("set", [key, value]) => {
             let value =

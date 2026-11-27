@@ -2846,6 +2846,51 @@ fn cp_needs_exactly_one_absolute_remote_path() {
 }
 
 #[test]
+fn cp_one_remote_error_shows_a_runnable_example() {
+    let error = exec_cp::parse_cp_args(&words(&["box", "./a", "./b"])).unwrap_err().to_string();
+    assert_eq!(error, catalog().remote_client.cp_one_remote);
+    // The examples use the parser's real shape: ROUTE, then SRC and DST with one remote:PATH.
+    assert!(
+        error.contains("`cmux remote cp box ./build.tar remote:/srv/app/build.tar`"),
+        "{error}"
+    );
+    assert!(error.contains("`cmux remote cp box remote:/var/log/app.log ./`"), "{error}");
+    for example in ["box ./build.tar remote:/srv/app/build.tar", "box remote:/var/log/app.log ./"] {
+        let parsed = exec_cp::parse_cp_args(&words(&example.split(' ').collect::<Vec<_>>()));
+        assert!(parsed.is_ok(), "{example}");
+    }
+}
+
+#[test]
+fn cp_missing_file_says_which_side_and_path() {
+    let missing = cmux_remote_protocol::RpcError::new(
+        "not-found",
+        "resolve tmp/erg/nope.txt: No such file or directory (os error 2)",
+    );
+    let host = exec_cp::route_host("ssh://leo@box:22");
+    assert_eq!(host, "box");
+    let said = exec_cp::remote_path_error(missing, &host, "/tmp/erg/nope.txt").to_string();
+    assert_eq!(said, catalog().remote_client.cp_remote_not_found("box", "/tmp/erg/nope.txt"));
+    assert!(said.contains("box") && said.contains("/tmp/erg/nope.txt"), "{said}");
+    assert!(!said.contains("os error"), "{said}");
+
+    // Other refusals keep the daemon's own words.
+    let denied = cmux_remote_protocol::RpcError::new("permission-denied", "open x: denied");
+    let said = exec_cp::remote_path_error(denied, &host, "/x").to_string();
+    assert!(said.contains("open x: denied"), "{said}");
+
+    // A route without a host names the route, never its credentials.
+    assert_eq!(exec_cp::route_host("unix:///run/cmux.sock"), "unix:///run/cmux.sock");
+
+    let scratch = tempfile::tempdir().unwrap();
+    let local = scratch.path().join("nope.txt");
+    let said = exec_cp::local_source_metadata(&local).unwrap_err().to_string();
+    let local_name = local.display().to_string();
+    assert_eq!(said, catalog().remote_client.cp_local_not_found(&local_name));
+    assert!(said.contains(&local_name) && !said.contains("os error"), "{said}");
+}
+
+#[test]
 fn exec_exit_status_maps_code_signal_and_unknown() {
     assert_eq!(exec_cp::exit_status_code(Some(0), None), 0);
     assert_eq!(exec_cp::exit_status_code(Some(3), None), 3);
