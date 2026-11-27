@@ -214,7 +214,8 @@ import Testing
         let screen = try #require(viewer.screen)
         let reattach = Reattachments()
         viewer.reattachSession = { _, id in
-            await reattach.record(id)
+            let enteredAt = ContinuousClock.now
+            await reattach.record(id, enteredAt: enteredAt)
             return self.ticket(id, scope: .full)
         }
         let droppedAt = ContinuousClock.now
@@ -223,8 +224,11 @@ import Testing
         #expect(viewer.screen === screen)
         let id = await reattach.wait()
         #expect(id == "s7")
+        let observedAt = ContinuousClock.now
+        let enteredAt = try #require(reattach.lastEnteredAt)
+        print("reattach first drop: drop_to_entry=\(enteredAt - droppedAt) entry_to_observer=\(observedAt - enteredAt)")
         // The first try goes at once: the drop is already known (conn-quiet, 2026-11-14).
-        #expect(ContinuousClock.now - droppedAt < .milliseconds(500))
+        #expect(observedAt - droppedAt < .milliseconds(500))
         #expect(viewer.phase == .streaming(sessionID: "s7", scope: .full))
         #expect(viewer.screen === screen)
         #expect(ends.calls.isEmpty)
@@ -303,13 +307,17 @@ import Testing
             service.route(.sessionTicket(ticket("s9", scope: .full)))
             let reattach = Reattachments()
             viewer.reattachSession = { _, id in
-                await reattach.record(id)
+                let enteredAt = ContinuousClock.now
+                await reattach.record(id, enteredAt: enteredAt)
                 return self.ticket(id, scope: .full)
             }
             let droppedAt = ContinuousClock.now
             viewer.streamDropped("s9")
             _ = await reattach.wait()
-            let elapsed = ContinuousClock.now - droppedAt
+            let observedAt = ContinuousClock.now
+            let enteredAt = try #require(reattach.lastEnteredAt)
+            let elapsed = observedAt - droppedAt
+            print("reattach sample \(samples.count): drop_to_entry=\(enteredAt - droppedAt) entry_to_observer=\(observedAt - enteredAt)")
             samples.append(Double(elapsed.components.seconds) * 1000 + Double(elapsed.components.attoseconds) / 1e15)
             viewer.close(reason: .viewerDisconnected)
         }
@@ -560,8 +568,10 @@ import Testing
 @MainActor final class Reattachments {
     private var ids: [String] = []
     private var waiters: [CheckedContinuation<String, Never>] = []
+    private(set) var lastEnteredAt: ContinuousClock.Instant?
 
-    func record(_ id: String) {
+    func record(_ id: String, enteredAt: ContinuousClock.Instant? = nil) {
+        lastEnteredAt = enteredAt
         if let waiter = waiters.first {
             waiters.removeFirst()
             waiter.resume(returning: id)
