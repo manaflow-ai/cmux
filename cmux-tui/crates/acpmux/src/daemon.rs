@@ -241,6 +241,8 @@ pub async fn run(opts: DaemonOptions, exit_tasks: &cmux_scope::Scope) -> Result<
     stop_watchdog::reset();
     // The start of every startup phase in `daemon status` is timed from (`gauges.rs`).
     let gauges = crate::gauges::global();
+    // Memory stall as PSI from reclaim counters, warm by the time `machine load` asks (RFD 0182 B1).
+    crate::host_pressure::mem_stall::start_global();
     crate::cli::cloud_join::retain_own_machine_consent_requirement()?;
     // The CLI restores default SIGPIPE so `acpmux ls | head` ends quietly. A
     // daemon must not die when its launcher or a client goes away mid-write:
@@ -296,15 +298,19 @@ pub async fn run(opts: DaemonOptions, exit_tasks: &cmux_scope::Scope) -> Result<
     // Before the store, the sockets and any agent: launchd's soft limit is 256.
     #[cfg(unix)]
     open_file_limit::raise();
-    let mut config = Config::load()?;
-    // config.json holds the dashboard token: owner-only, also when another
-    // tool wrote it with the umask's mode and the daemon never saves it.
-    narrow_to_owner(&Config::path());
-    config.dev_origins = dev_origins;
-    crate::login_env::set_extra_allow(config.login_env_allow.clone());
-    if opts.memory {
-        config.store.mode = crate::config::StoreMode::Memory;
-    }
+    let load_config = || -> Result<Config> {
+        let mut config = Config::load()?;
+        // config.json holds the dashboard token: owner-only, also when another
+        // tool wrote it with the umask's mode and the daemon never saves it.
+        narrow_to_owner(&Config::path());
+        config.dev_origins = dev_origins.clone();
+        crate::login_env::set_extra_allow(config.login_env_allow.clone());
+        if opts.memory {
+            config.store.mode = crate::config::StoreMode::Memory;
+        }
+        Ok(config)
+    };
+    let config = load_config()?;
     if config.harnesses.is_empty() && !login_env {
         tracing::warn!(
             "no harnesses configured; add {{\"harnesses\":{{\"codex\":{{\"argv\":[\"codex-acp\"]}}}}}} to {}",
@@ -325,7 +331,7 @@ pub async fn run(opts: DaemonOptions, exit_tasks: &cmux_scope::Scope) -> Result<
     handover::reclaim_from_dev(&lock, &socket_path(), &home()).await;
     // None: another daemon answers for this home and its ready line went out; nothing to do.
     let lock_wait = async {
-        match acquire_daemon_lock(&lock, opts.take_over).await {
+        match acquire_daemon_lock(&lock, opts.take_over, opts.ready_fd.is_none()).await {
             Ok(lock) => Ok(Some(lock)),
             Err(e) => {
                 // A take-over start whose home a daemon of its own build already serves: nothing to
@@ -371,6 +377,11 @@ pub async fn run(opts: DaemonOptions, exit_tasks: &cmux_scope::Scope) -> Result<
             return Ok(());
         }
     };
+    // config.json again, now that this daemon holds the home: the lock wait has no limit (launchd's
+    // start waits for the app's daemon for as long as the app runs), and the copy read before it
+    // could carry a token rotated since or settings changed since, which the listener would serve
+    // and the token write below would save over the newer file.
+    let mut config = load_config()?;
     // The home and lock this daemon holds, read as soon as it holds them: one replaced during
     // the startup below is then a loss, never the watch's baseline (`daemon/home_watch.rs`).
     let owned_home = home_watch::Owned::now(&[&home(), &lock]);
@@ -873,6 +884,12 @@ pub async fn run(opts: DaemonOptions, exit_tasks: &cmux_scope::Scope) -> Result<
     // Idle chats off this machine while it stays over budget: only with `autoEvacuate.enabled`
     // (off by default); off runs no timer (`hub/auto_evacuate.rs`).
     hub.start_auto_evacuate().await;
+    // A dead lane on a peer tells the session here that started it, once per death
+    // (`hub/lane_death_watch.rs`); off with ACPMUX_LANE_DEATH_WATCH=0.
+    hub.start_lane_death_watch();
+    // Placed work yields when the owner comes back: only on a machine enrolled in AutoCloud
+    // (off by default); off runs no timer (`hub/owner_return.rs`).
+    hub.start_owner_return().await;
     // `dynamic` sessions yield the CPU only while the Mac is contended (`hub/cpu_pressure.rs`);
     // ACPMUX_CPU_PRESSURE=off keeps every one at normal class.
     hub.start_cpu_pressure();
@@ -961,6 +978,15 @@ pub async fn run(opts: DaemonOptions, exit_tasks: &cmux_scope::Scope) -> Result<
     #[cfg(unix)]
     let unix =
         tokio::spawn(socket_rebind::serve(hub.clone(), unix_listener, rebound_rx, v2.clone()));
+    // The connections the previous daemon had accepted and handed over (`server/conn_handover.rs`):
+    // served as the ones accepted above.
+    #[cfg(unix)]
+    if let Some(side) = handed.conns {
+        let (hub, v2) = (hub.clone(), v2.clone());
+        listener_handover::receive_connections(side, move |stream| {
+            crate::server::serve_accepted(hub.clone(), stream, v2.clone());
+        });
+    }
     #[cfg(not(unix))]
     let unix = tokio::spawn(crate::server::serve_unix(hub.clone(), unix_listener));
     let local_app_file = local_app.as_ref().map(|a| a.path().to_owned());
@@ -1206,6 +1232,10 @@ pub async fn run(opts: DaemonOptions, exit_tasks: &cmux_scope::Scope) -> Result<
                         let _packs = hub.pack_as_it_grows_worker();
                         // Archives inactive chats when set (`hub/inactive_archive.rs`).
                         hub.inactive_archive_worker();
+                        // Every chat's held messages, once every log is read: a deadline wake the
+                        // restart lost is armed again, and what no turn can take expires back to
+                        // its sender (`hub/inbox_deadline.rs`).
+                        let _deadlines = hub.inbox_deadline_worker();
                     });
                 }
                 // A chat a machine's Full-access setting moved out of its policy's mode goes back:
@@ -1539,6 +1569,16 @@ pub async fn run(opts: DaemonOptions, exit_tasks: &cmux_scope::Scope) -> Result<
         }
     };
     let sessions_took = sessions_started.elapsed();
+    // A take-over that asked for them gets the connections that hold no state
+    // (`server/conn_handover.rs`): their readers stop, what each already read is answered, and
+    // their sockets go to the next daemon, where a request sent from now on is answered. Before
+    // the drain, which refuses whatever a connection reads after it.
+    #[cfg(unix)]
+    if listener_handover::takes_connections() {
+        let parked = crate::server::conn_handover::park();
+        let moved = listener_handover::hand_connections(parked).await;
+        tracing::info!(moved, "handed the connections that hold no state to the next daemon");
+    }
     // The requests still in flight are answered as restarting before the close cancels their
     // connections, within a bound inside the deadline (`server/shutdown_drain.rs`).
     crate::server::shutdown_drain::drain_in_flight(&hub, cleanup_deadline).await;

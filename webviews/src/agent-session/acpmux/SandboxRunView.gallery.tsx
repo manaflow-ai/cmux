@@ -25,7 +25,7 @@ export default componentEntry<ComponentProps<typeof SandboxRunView>>({
       props: { run: { task, state: "running" } },
     },
     "running-unchecked": {
-      note: "A running run whose newest read didn't answer: it stays shown, says so, and offers Check again.",
+      note: "A running run whose newest read didn't answer: it stays shown and reads again on its own; once that has lasted, one quiet Still checking line, no button.",
       props: { run: { task, state: "running" }, unread: true, onCheckAgain: () => undefined },
     },
     succeeded: {
@@ -78,6 +78,10 @@ export default componentEntry<ComponentProps<typeof SandboxRunView>>({
           },
         },
       },
+    },
+    "uncertain-checking": {
+      note: "A failure that may hide a live Run whose read didn't answer: its words, then the quiet Still checking line once the reads have kept failing; no Check again button.",
+      props: { run: { task, state: "failed", code: "http_500" }, unread: true, onCheckAgain: () => undefined },
     },
     refused: {
       note: "The server has not enabled sandboxes for this account: a readable refusal, no VM started.",
