@@ -14,7 +14,6 @@ use std::collections::HashMap;
 use std::collections::hash_map::Entry;
 use std::fs::File;
 use std::io::Read as _;
-use std::os::unix::fs::MetadataExt as _;
 use std::path::{Path, PathBuf};
 use std::sync::{Mutex, PoisonError, mpsc};
 
@@ -119,6 +118,22 @@ fn as_u64(n: usize) -> u64 {
 
 fn add(total: &mut u64, n: u64) {
     *total = total.saturating_add(n);
+}
+
+/// Return the platform's stable file identity and allocated-byte count when available.
+///
+/// Unix exposes inode and block counts through `MetadataExt`; Windows does not expose
+/// those fields in `std::fs::Metadata`, so the portable fallback counts apparent bytes
+/// for each file and skips hardlink de-duplication.
+#[cfg(unix)]
+fn allocation(meta: &std::fs::Metadata) -> (Option<(u64, u64)>, u64) {
+    use std::os::unix::fs::MetadataExt as _;
+    (Some((meta.dev(), meta.ino())), meta.blocks().saturating_mul(512))
+}
+
+#[cfg(not(unix))]
+fn allocation(meta: &std::fs::Metadata) -> (Option<(u64, u64)>, u64) {
+    (None, meta.len())
 }
 
 fn walk(root: &Path, out: &mut dyn FnMut(PathBuf, std::fs::Metadata)) {
