@@ -428,6 +428,14 @@ const expandTray = (placement: "composer" | "after-latest") => async (ctx: PlayC
     throw new Error("opening the tray on the composer covered the running turn's live line");
 };
 
+/** Opens the hat placed after the latest message and checks which way its list went (hatOpens.ts). */
+const expectOpens = (want: "down" | "up") => async (ctx: PlayContext) => {
+  await expandTray("after-latest")(ctx);
+  const tray = ctx.document.querySelector<HTMLElement>(".acpmux-running-tray")!;
+  const got = tray.dataset.opens === "up" ? "up" : "down";
+  if (got !== want) throw new Error(`the open hat went ${got}, toward less room; expected ${want}`);
+};
+
 /** A chat that runs well past the pane, with one background command still running: the hat heads it
  *  folded to one line (Leo, 2026-11-08, on expanding and folding such a hat: "there's, like, some
  *  elements in between and then things don't balance out"). */
@@ -919,6 +927,30 @@ export default pinKindsHead(
         theme: { subagentTrayPlacement: "after-latest-message" },
         snapshot: panel(3, 2, EARLIER),
         play: expandTray("after-latest"),
+      },
+      "opens-room-below": {
+        experiments: CARD_HEAD,
+        note: "The hat after the latest message opens toward free space (Leo, 2026-11-27, standup on CMUX-863; hatOpens.ts). A short chat leaves room under it: the list opens under the header, as before.",
+        height: 520,
+        theme: { subagentTrayPlacement: "after-latest-message" },
+        snapshot: panel(1, 2),
+        play: expectOpens("down"),
+      },
+      "opens-no-room-below": {
+        experiments: CARD_HEAD,
+        note: "A long chat at its end: the pane's bottom edge is right under the hat, so the list opens upward from the header, which keeps its place.",
+        height: 420,
+        theme: { subagentTrayPlacement: "after-latest-message" },
+        snapshot: panel(3, 2, EARLIER),
+        play: expectOpens("up"),
+      },
+      "opens-tight-both-ways": {
+        experiments: CARD_HEAD,
+        note: "A short pane with no room either way: the list goes to the larger side and scrolls there.",
+        height: 260,
+        theme: { subagentTrayPlacement: "after-latest-message" },
+        snapshot: panel(3, 2, EARLIER),
+        play: expectOpens("up"),
       },
       "after-latest-message": {
         experiments: CARD_HEAD,

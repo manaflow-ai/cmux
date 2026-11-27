@@ -62,6 +62,7 @@
 // (conversation/fold.ts), a line that joins it rises in, and its header's words tick. What runs
 // turns the shared spinner, never a breathing dot.
 import { HatChevron } from "./HatChevron";
+import { type HatOpens, hatOpens, roomAround } from "./hatOpens";
 import {
   type CSSProperties,
   type FocusEvent,
@@ -822,6 +823,18 @@ export const SubagentTray = memo(function SubagentTray({
   // own opaque backing, at the composer's row height (Leo, 2026-11-27: "add the opaque backing to it
   // again with proper size"). #56287 had dropped it for a bare line.
   const carded = items.length > 0 || surface !== "none";
+  // Placed after the latest message, the open hat goes toward free space (hatOpens.ts): up from its
+  // header when the pane's edge leaves no room for the list under it. Read once as it opens, before
+  // paint, so it never turns mid-fold.
+  const [opens, setOpens] = useState<HatOpens>("down");
+  useLayoutEffect(() => {
+    const node = trayNode.current;
+    const head = node?.querySelector<HTMLElement>(".acpmux-running-tray__head");
+    if (!open || placement !== "after-latest-message" || !node || !head) return setOpens("down");
+    const list = node.querySelector<HTMLElement>(".acpmux-running-tray__list");
+    // Before the fold has drawn its list, the list's cap stands in for it: five rows (subagents.css).
+    setOpens(hatOpens({ ...roomAround(head), list: list?.scrollHeight || 5 * head.offsetHeight }));
+  }, [open, placement]);
   // The `line` arm: Esc tucks the open list back to its line, focus back on the line.
   const onKeyDown = (event: ReactKeyboardEvent<HTMLElement>) => {
     if (!lineHead || !open || !headed || event.key !== "Escape" || event.defaultPrevented) return;
@@ -841,6 +854,7 @@ export const SubagentTray = memo(function SubagentTray({
       aria-label={t("summary.subagents")}
       data-open={open || undefined}
       data-placement={placement}
+      data-opens={opens === "up" ? "up" : undefined}
       data-look={look}
       data-row={row}
       // Nothing runs: the ended lines sit quietly over the composer in the settled surface, joined to
