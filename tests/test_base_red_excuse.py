@@ -18467,7 +18467,11 @@ class GuardJobsFollowTheWorkflows(unittest.TestCase):
             "shotdiff.yml",
             # Measurements of a product build on pull requests, not gates: iOS first connect on a hosted runner
             # (#57443) and the pause-policy A/B on staging (#54833).
-            "ios-launch-tti-hosted.yml", "pause-ab.yml"),
+            "ios-launch-tti-hosted.yml", "pause-ab.yml",
+            # cmux-cas's W1 replay of the published web bundles (reports, does not gate), as cas-replay.yml.
+            "cmux-cas-replay.yml",
+            # The pool build path (#60943): `cargo check` of the app FFI workspace; a red is that product code's.
+            "pool-build-path.yml"),
         "bots, labels, receipts, comments and policy reads of the pull request or GitHub, not of the tree": (
             "classic-frozen-guard.yml", "labels-sync.yml",
             "merge-freeze.yml", "pr-body-checks.yml", "cmux-next-pr-autofix-closed-cancel.yml", "cmux-next-pr-autofix.yml",
