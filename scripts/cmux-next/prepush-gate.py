@@ -768,9 +768,11 @@ def changed_files(repo: Path, base: str, head: str) -> list[str]:
 
 
 def ratchet_row_files(repo: Path, base: str, head: str) -> list[str]:
-    """Files whose RATCHET_BASELINES row the push adds or changes, present at both revs. The trees hold only changed
-    files, so a row added for an untouched file (a base red's fix: a reviewed row for sites already on base) read 0
-    sites against its row and was refused as "fewer than the baseline" (#37531, fast gates on the merge)."""
+    """Files named by every RATCHET_BASELINES row, present at both revs.
+
+    The sparse scanner trees must include all listed files: the state-roots and classic-ids checks report a stale row
+    when a file is absent, even when the source file itself is unchanged. Restricting this context to rows changed by
+    the push made every scanner run falsely report the untouched baseline as deleted."""
     # Two batch reads, not a `git show` a file: each cost about 0.5 s on a Linux workstation's cmux mirror (2026-11-21: 11 s).
     try:
         blobs = git_batch.cat_file(repo, [f"{rev}:{SCRIPTS}/{name}" for name in RATCHET_BASELINES for rev in (base, head)])
@@ -780,8 +782,8 @@ def ratchet_row_files(repo: Path, base: str, head: str) -> list[str]:
     for name, (keys, count) in RATCHET_BASELINES.items():
         rows = [_ratchet_rows(blob.decode(errors="replace"), keys, count) if blob else {}
                 for blob in (blobs[f"{rev}:{SCRIPTS}/{name}"] for rev in (base, head))]
-        files.update(key[0] for key in rows[0].keys() | rows[1].keys() if rows[0].get(key) != rows[1].get(key))
-    files = {p for p in files if p.startswith(CHANGED_SCOPES)}
+        files.update(key[0] for key in rows[0].keys() | rows[1].keys())
+    files = {p for p in files if p.startswith(CHANGED_SCOPES + ("Packages/macOS/", "scripts/cmux-next/"))}
     try:
         present = git_batch.cat_file(repo, [f"{rev}:{p}" for p in sorted(files) for rev in (base, head)])
     except git_batch.GitError as error:
