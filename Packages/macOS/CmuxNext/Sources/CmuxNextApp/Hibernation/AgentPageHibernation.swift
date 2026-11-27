@@ -148,10 +148,7 @@ final class AgentPageHibernation: HiddenChatPagesHost {
     func pageIsUntouchedNewTab(_ key: String) -> Bool {
         guard let tabs = store() else { return false }
         let scoped = scopedKey(key, in: tabs)
-        guard let view = tabs.existingView(scoped.key, machine: scoped.machine),
-              let page = view.model.newTab, !view.model.userTouched, !view.model.remoteChat,
-              page.draft?.isEmpty != false, view.model.sessionId == nil, tabs.sessions[scoped] == nil,
-              !view.model.shell.hasRuns, !view.showsCrashNotice,
+        guard let view = tabs.existingView(scoped.key, machine: scoped.machine), view.isUntouchedNewTab, tabs.sessions[scoped] == nil,
               let (record, _) = tabs.record(for: tabs.resolvedKey(scoped)), record.session == nil,
               tabs.hostKind(record, listedHere: true) == .local,
               tabs.daemon(for: tabs.resolvedKey(scoped))?.isLocal != false else { return false }

@@ -29,11 +29,14 @@ struct TabGroupPage: View {
             .background(theme.colors.bg.color.ignoresSafeArea())
             .overlay(alignment: .bottom) { PageToast(source: source) }
             // Ungrouped, closed or moved to another workspace on the Mac: nothing left to act on.
-            .onChange(of: members.isEmpty) { _, empty in if empty { dismiss() } }
+            // Not while the Mac's link is down or coming back (its list returns in pieces): the
+            // page goes only when the group stays empty on a connected Mac (`groupStaysGone`).
+            .task(id: members.isEmpty ? (source.macLinkUp ? 2 : 1) : 0) {
+                if await source.groupStaysGone(groupID) { dismiss() }
+            }
             .alert("Rename Tab Group", isPresented: $renaming) {
                 TextField(group?.name.isEmpty == false ? group?.name ?? "Name" : "Name", text: $name)
-                    // Names are code-like: no autocorrect, no capitals (full verify D5).
-                    .autocorrectionDisabled()
+                    // Names are code-like: no capitals (full verify D5); autocorrect stays on, as on every GUI field (Leo, 2026-11-23).
                     .textInputAutocapitalization(.never)
                     .accessibilityIdentifier("tabGroup.rename.field")
                 Button("Cancel", role: .cancel) {}

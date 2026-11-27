@@ -1,6 +1,7 @@
 #if os(iOS)
 import CmuxMobileBilling
 import CmuxMobileSupport
+import CmuxSpinner
 import SwiftUI
 import StoreKit
 
@@ -11,6 +12,11 @@ import StoreKit
 /// When the server reports the account is not eligible (it pays on the web or
 /// through a team, or this build's purchases would grant no plan), the screen
 /// explains why and shows no purchase button and no link to web billing.
+///
+/// In an app whose App Store record has no subscriptions
+/// (``BillingModel/offersPurchases`` false, cmux INTERNAL today) it shows the
+/// current plan read-only: no offers, prices, Restore Purchases, Manage
+/// Subscription or subscription terms, and no text about buying.
 ///
 /// HIG: In-app purchase, and Lists and tables (inset-grouped sections).
 ///
@@ -90,8 +96,17 @@ public struct MobilePlansView: View {
                 )
                 .accessibilityIdentifier("BillingCurrentPlan")
             } footer: {
-                if let sourceText = sourceText(account.currentPlan.source) {
-                    Text(sourceText)
+                let sourceText = sourceText(account.currentPlan.source)
+                if billing.paymentPastDue || sourceText != nil {
+                    VStack(alignment: .leading, spacing: 6) {
+                        if billing.paymentPastDue {
+                            PaymentPastDueNotice()
+                                .accessibilityIdentifier("BillingPaymentPastDue")
+                        }
+                        if let sourceText {
+                            Text(sourceText)
+                        }
+                    }
                 }
             }
         }
@@ -103,7 +118,7 @@ public struct MobilePlansView: View {
         case .idle, .loading:
             Section {
                 HStack(spacing: 12) {
-                    ProgressView()
+                    CmuxSpinner()
                     Text(L10n.string("mobile.billing.loading", defaultValue: "Loading plans"))
                         .foregroundStyle(.secondary)
                 }
@@ -119,13 +134,23 @@ public struct MobilePlansView: View {
             }
             .accessibilityIdentifier("BillingLoadFailed")
         case .loaded(let account):
-            if account.eligible {
+            if !billing.offersPurchases {
+                // Read-only: the current plan section above is the whole screen.
+                EmptyView()
+            } else if account.eligible {
                 offersSection(account)
             } else {
                 Section {
                     Text(ineligibleText(account.reason))
                         .fixedSize(horizontal: false, vertical: true)
                         .accessibilityIdentifier("BillingIneligible")
+                }
+                // Nothing is on sale here, but the plans are still listed.
+                // visible-only: at most 3 distinct plan ids (Go, Pro, Max); a plan id is its own stable identity.
+                ForEach(account.catalogPlanIDs, id: \.self) { planID in
+                    Section {
+                        MobilePlanCatalogRow(planID: planID, isCurrent: planID == account.currentPlan.planID)
+                    }
                 }
             }
         }
@@ -145,7 +170,7 @@ public struct MobilePlansView: View {
                 .accessibilityIdentifier("BillingOffersUnavailable")
             } else {
                 Section {
-                    ProgressView()
+                    CmuxSpinner()
                 }
                 .accessibilityIdentifier("BillingOffersLoading")
             }
@@ -211,7 +236,7 @@ public struct MobilePlansView: View {
             Section {
                 HStack(spacing: 12) {
                     if billing.purchase.isPurchasing || billing.restore == .restoring {
-                        ProgressView()
+                        CmuxSpinner()
                     }
                     Text(message)
                         .fixedSize(horizontal: false, vertical: true)
@@ -223,7 +248,7 @@ public struct MobilePlansView: View {
 
     @ViewBuilder
     private var actionsSection: some View {
-        if let account = billing.account.account {
+        if billing.offersPurchases, let account = billing.account.account {
             Section {
                 Button(L10n.string("mobile.billing.restore", defaultValue: "Restore Purchases")) {
                     Task { await billing.restorePurchases() }
@@ -256,7 +281,14 @@ public struct MobilePlansView: View {
         }
     }
 
+    @ViewBuilder
     private var legalSection: some View {
+        if billing.offersPurchases {
+            legalLinks
+        }
+    }
+
+    private var legalLinks: some View {
         Section {
             Link(L10n.string("mobile.billing.terms", defaultValue: "Terms of Use"), destination: Self.termsURL)
             Link(L10n.string("mobile.billing.privacy", defaultValue: "Privacy Policy"), destination: Self.privacyURL)

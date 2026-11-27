@@ -4,7 +4,11 @@ use super::*;
 use std::collections::VecDeque;
 
 /// The most origins the index admits: a window carries every origin record.
+/// Measured: about 300 bytes a record (an id of at most 256 bytes, its seq, state and time) in
+/// every list window: 77 KB a window at 256.
 pub const MAX_ORIGINS: usize = 256;
+/// The most rows one origin holds while its writer is away.
+/// Measured: a row summary is at most MAX_SUMMARY_BYTES (2 KiB): 32 MiB an origin.
 const MAX_HELD_ROWS: usize = 16_384;
 static REFUSED_HELD_ROWS: AtomicU64 = AtomicU64::new(0);
 
@@ -309,6 +313,7 @@ impl HubWriter {
         self.admit_origin(id)?;
         self.persist_origin(&record)?;
         let wire = Origin { id: id.into(), state, since, extra: None };
+        self.hold_history(current.seq(), record.seq);
         self.publish_folder_origin(current.apply_origin(record.seq, record.clone()), wire.clone());
         self.record_history(ListItem::Origin { seq: record.seq, origin: wire.clone() });
         self.publish_origin(record.seq, wire);

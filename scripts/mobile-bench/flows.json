@@ -1,0 +1,22 @@
+{
+  "about": "The flows compare-mobile measures, the same for every app (cmux, Claude, Codex and the other chat apps in cmux-design-references). Each flow is one clip that starts idle, gets one stimulus, and ends settled. `stimulus` is the input the driver sends; `response` is the first frame the measure counts as the app answering; `region` is where the answer shows (fractions of the screen: top, bottom), used to find the response and the moving edge whose curve is fitted. A driver writes meta.json next to clip.mp4 (see README.md); measure.py reads both.",
+  "version": 1,
+  "flows": [
+    {"id": "cold-launch-to-typing", "title": "Cold launch to typing", "stimulus": "launch the app from killed", "response": "first frame of the app's own UI", "settle": "the composer is focused and the caret shows", "region": [0.0, 1.0], "edge": null},
+    {"id": "new-chat", "title": "New chat", "stimulus": "tap the new-chat button", "response": "first frame the screen changes", "settle": "the empty chat is still", "region": [0.0, 1.0], "edge": null},
+    {"id": "send-to-first-token", "title": "Send to first token", "stimulus": "tap send on a one-line prompt", "response": "first assistant text in the transcript", "settle": "the first token is drawn (the clip may end before the answer does)", "region": [0.1, 0.85], "edge": null, "response_after_stimulus_change": true},
+    {"id": "stream-long-answer", "title": "Streaming a long answer", "stimulus": "send a prompt with a long answer", "response": "first assistant text", "settle": "streaming ends", "region": [0.1, 0.85], "edge": null, "streaming": true},
+    {"id": "scroll-fling", "title": "Fling a long chat", "stimulus": "one fast upward swipe on a long transcript", "response": "first frame the transcript moves", "settle": "the transcript stops", "region": [0.1, 0.85], "edge": "content"},
+    {"id": "scroll-to-bottom", "title": "Scroll to bottom", "stimulus": "tap the jump-to-bottom button", "response": "first frame the transcript moves", "settle": "the last message rests above the composer", "region": [0.1, 0.85], "edge": "content"},
+    {"id": "keyboard-show", "title": "Keyboard shows", "stimulus": "tap the composer", "response": "first frame the composer moves", "settle": "keyboard and composer stop", "region": [0.4, 1.0], "edge": "rising"},
+    {"id": "keyboard-hide", "title": "Keyboard hides", "stimulus": "swipe the transcript down, or tap outside", "response": "first frame the composer moves", "settle": "keyboard gone, composer at rest", "region": [0.4, 1.0], "edge": "falling"},
+    {"id": "composer-grow", "title": "Composer grows", "stimulus": "type past the first line, then several lines", "response": "first frame the composer grows", "settle": "the composer stops growing", "region": [0.3, 1.0], "edge": "rising"},
+    {"id": "attach-image", "title": "Attach an image", "stimulus": "tap attach, pick the first photo", "response": "first frame a picker or sheet appears", "settle": "the thumbnail rests in the composer", "region": [0.0, 1.0], "edge": "rising"},
+    {"id": "switch-chat", "title": "Switch chats", "stimulus": "pick another chat from history", "response": "first frame the screen changes", "settle": "the other chat's transcript is still", "region": [0.0, 1.0], "edge": null},
+    {"id": "sidebar-open", "title": "Sidebar or history opens", "stimulus": "tap the sidebar or history button", "response": "first frame the sidebar moves", "settle": "the sidebar rests open", "region": [0.0, 1.0], "edge": "horizontal"},
+    {"id": "voice-start", "title": "Voice mode starts", "stimulus": "tap the voice button", "response": "first frame the screen changes", "settle": "the voice UI is still or idles in its loop", "region": [0.0, 1.0], "edge": null},
+    {"id": "settings-open", "title": "Settings opens", "stimulus": "open settings", "response": "first frame the screen changes", "settle": "settings rests open", "region": [0.0, 1.0], "edge": "rising"},
+    {"id": "rotate", "title": "Rotate the phone", "stimulus": "turn the device to landscape (XCUIDevice orientation), then back", "response": "first frame the layout moves", "settle": "the layout stops in the new orientation", "region": [0.0, 1.0], "edge": null},
+    {"id": "offline-error", "title": "Offline error", "stimulus": "send with the network off", "response": "first frame the app shows it failed or is offline", "settle": "the error rests", "region": [0.0, 1.0], "edge": null, "response_after_stimulus_change": true}
+  ]
+}

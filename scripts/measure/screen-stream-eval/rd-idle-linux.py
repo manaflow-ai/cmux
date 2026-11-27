@@ -207,10 +207,16 @@ def measure_workload(binary: Path, commit: str, workload: str, scratch: Path, se
     blinker = None
     try:
         procs.append(spawn(["Xvfb", display, "-screen", "0", "1920x1080x24", "-nolisten", "tcp"]))
-        time.sleep(1.5)
+        x_error = netem.wait_x(display, procs[-1], 20)
+        if x_error:
+            row["error"] = x_error
+            return row
         app = "motion" if workload == "motion" else "idle"
         procs.append(spawn([str(binary), "testapp", "--display", display, "--workload", app]))
-        time.sleep(1.5)
+        x_error = netem.wait_x(display, procs[-1], 20, window=True)
+        if x_error:
+            row["error"] = x_error
+            return row
         if workload == "blink":
             blinker = Blinker(display)
         token = scratch / "token"
@@ -234,10 +240,10 @@ def measure_workload(binary: Path, commit: str, workload: str, scratch: Path, se
         deadline = time.time() + 20
         while time.time() < deadline and timing.stat().st_size == 0 and bench.poll() is None:
             time.sleep(0.05)
-        time.sleep(GUARD_S)
+        time.sleep(GUARD_S)  # sleep-ok: the guard: the first GUARD_S s after the first frame are left out of the sample
         t0, c0, f0 = time.monotonic(), cpu_ticks(stat.read_text()), timing.stat().st_size
         window = max(seconds - GUARD_S - 1, 1)
-        time.sleep(window)
+        time.sleep(window)  # sleep-ok: the fixed CPU and frame sampling window
         t1, c1, f1 = time.monotonic(), cpu_ticks(stat.read_text()), timing.stat().st_size
         try:
             out, err = bench.communicate(timeout=seconds + 60)

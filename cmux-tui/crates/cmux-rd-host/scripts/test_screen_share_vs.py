@@ -1,5 +1,6 @@
 """Unit tests for screen-share-vs.py: the budget table, compare, the motion frame score and the
-Apple (RFB) leg's focus click, click mode and stall handling, with fakes (no Mac, no network).
+Apple (RFB) leg's focus click, click mode and stall handling, and the --app-viewer presented leg,
+with fakes (no Mac, no network).
 
   python3 -m unittest cmux-tui/crates/cmux-rd-host/scripts/test_screen_share_vs.py
 """
@@ -10,6 +11,7 @@ import importlib.util
 import io
 import json
 import os
+import shlex
 import socket
 import sys
 import tempfile
@@ -47,7 +49,7 @@ class BudgetTable(unittest.TestCase):
                             {"g2g": [20.0, 30.0, 40.0]}, label="after", rev="abc")
         rows = rows_named(b)
         self.assertEqual([r["row"] for r in b["rows"]],
-                         ["Input", "Screen", "Capture", "Encode", "Send", "Network", "Reassembly",
+                         ["Input", "Screen", "Capture", " Gate wait", " Readback", "Encode", "Send", "Network", "Reassembly",
                           "Decode", "Present", "Total"])
         self.assertEqual(rows["Input"]["cmux"]["source"], "up + inject")
         self.assertEqual(sorted([rows["Input"]["cmux"]["p50"], rows["Input"]["cmux"]["p95"]]), [1.5, 3.5])
@@ -91,6 +93,29 @@ class BudgetTable(unittest.TestCase):
         self.assertEqual(rows["Input"]["cmux"]["p50"], 2.0)
         self.assertIn("null", rows["Present"]["cmux"])
         self.assertEqual(rows["Total"]["cmux"]["to"], "decoded")  # no presented_us: not the ledger
+
+    def test_run_stage_ledger_fills_rows_no_sample_ledger_does(self):
+        def summary(frames, reassembly_p95):
+            return {"schema": vs.LEDGER_SCHEMA, "clock": "host monotonic", "frames": frames,
+                    "stages": [
+                        {"stage": "Reassembly", "n": frames, "p50_ms": 1.234, "p95_ms": reassembly_p95},
+                        {"stage": "Input", "n": 0, "p50_ms": None, "p95_ms": None},
+                        {"stage": "Total", "n": frames, "p50_ms": 30.0, "p95_ms": 40.0}]}
+        b = vs.build_budget({"rows": [breakdown_row()],
+                             "summaries": [summary(50, 9.0), summary(400, 5.5), {"schema": "other"}]},
+                            None)
+        rows = rows_named(b)
+        cell = rows["Reassembly"]["cmux"]
+        self.assertEqual((cell["source"], cell["n"], cell["p50"], cell["p95"], cell["trials"]),
+                         ("ledger", 400, 1.23, 5.5, 2))
+        # A stage the summary did not measure keeps the breakdown; Total is never the summary's.
+        self.assertEqual(rows["Input"]["cmux"]["source"], "up + inject")
+        self.assertEqual(rows["Total"]["cmux"]["source"], "total")
+        # A per-sample ledger, when there is one, still wins.
+        b = vs.build_budget({"rows": [breakdown_row()], "ledgers": [{"Reassembly": 0.5}],
+                             "summaries": [summary(400, 5.5)]}, None)
+        self.assertEqual(rows_named(b)["Reassembly"]["cmux"]["p50"], 0.5)
+        self.assertNotIn("trials", rows_named(b)["Reassembly"]["cmux"])
 
     def test_skipped_stacks_say_why(self):
         b = vs.build_budget(None, {"skipped": "skipped: no --vnc-user"})
@@ -238,6 +263,17 @@ class FrameScore(unittest.TestCase):
         log = "marker: x\nmotion-geometry " + json.dumps(GEO) + "\nmarker-origin 0,50 click-at 704,66\n"
         self.assertEqual(vs.motion_geometry(log), GEO)
         self.assertIsNone(vs.motion_geometry("marker-origin 0,50\n"))
+
+    def test_click_and_scroll_aim_at_the_marker_pad(self):
+        # Without --at the bench clicks 960,600, off the marker, and every click/scroll trial is lost.
+        at = vs.marker_click_at("marker-origin 0,50 click-at 704,66")
+        self.assertEqual(at, [704, 66])
+        self.assertIsNone(vs.marker_click_at("marker-origin 0,50"))
+        self.assertIsNone(vs.marker_click_at("marker: stream width 1920 px"))
+        for kind in ("click", "scroll"):
+            self.assertEqual(vs.bench_input(kind, 30, at), f"--input {kind} --samples 30 --at 704,66")
+        self.assertEqual(vs.bench_input("key", 30, at), "--input key --samples 30")
+        self.assertEqual(vs.bench_input("click", 30, None), "--input click --samples 30")
 
 
 FAKE_VNC = '''
@@ -418,6 +454,740 @@ class RfbLeg(unittest.TestCase):
             a.close()
             b.close()
 
+
+class TailnetHostIpTests(unittest.TestCase):
+    def test_only_cgnat_addresses_count_as_tailnet(self):
+        self.assertTrue(vs.tailnet("100.64.0.1"))
+        self.assertTrue(vs.tailnet("100.127.255.254"))
+        self.assertFalse(vs.tailnet("100.128.0.1"))
+        self.assertFalse(vs.tailnet("172.20.21.250"))
+        self.assertFalse(vs.tailnet("cmux20"))
+
+    def clock_failure(self, host_ip):
+        import queue
+        import types
+        srv = types.SimpleNamespace(lines=queue.Queue(), terminate=lambda: None)
+        srv.lines.put('{"listening": 4000}')
+
+        def fail(cmd, timeout=120):
+            raise RuntimeError("viewer: clock-probe: exit 1: no clock replies")
+        me = types.SimpleNamespace(
+            a=types.SimpleNamespace(host="mac-a", host_ip=host_ip, clock_count=5),
+            py="python3", me="screen-share-vs.py",
+            host=types.SimpleNamespace(popen=lambda cmd: srv),
+            viewer=types.SimpleNamespace(run=fail), CLOCK_TRIES=2)
+        me.clock_over_peer = lambda: False
+        me.clock_once = lambda: vs.Orchestrator.clock_once(me)
+        with self.assertRaises(RuntimeError) as cm, contextlib.redirect_stderr(io.StringIO()):
+            vs.Orchestrator.clock(me)
+        return str(cm.exception)
+
+    def test_a_clock_failure_on_a_tailnet_host_ip_names_the_cause(self):
+        msg = self.clock_failure("100.101.102.103")
+        self.assertIn("no clock replies", msg)
+        self.assertIn("LAN address", msg)
+
+    def test_a_clock_failure_on_a_lan_host_ip_is_left_as_is(self):
+        self.assertNotIn("LAN address", self.clock_failure("172.20.21.250"))
+
+
+class BudgetInputTests(unittest.TestCase):
+    def test_budget_names_the_input_kind_and_pair(self):
+        b = vs.build_budget({"rows": [breakdown_row()]}, None, cmux_input="scroll", host="mac-a", viewer="mac-b")
+        self.assertEqual((b["input"], b["host"], b["viewer"]), ("scroll", "mac-a", "mac-b"))
+
+    def test_budget_input_defaults_to_key(self):
+        self.assertEqual(vs.build_budget({"rows": [breakdown_row()]}, None)["input"], "key")
+
+    def test_budget_names_the_encode_profile(self):
+        b = vs.build_budget({"rows": [breakdown_row()]}, None, encode_profile="ultra")
+        self.assertEqual(b["encode_profile"], "ultra")
+        self.assertIsNone(vs.build_budget({"rows": [breakdown_row()]}, None)["encode_profile"])
+
+
+class FakeRelay(vs.SpoolRemote):
+    """A SpoolRemote whose relay is a local shell: each run is one `reach` call's command,
+    refused with "nothing was run" for the first FAILS calls."""
+
+    def __init__(self, fails=0):
+        super().__init__("fake-mac")
+        self.calls, self.fails = [], fails
+
+    def argv(self, cmd):
+        self.calls.append(cmd)
+        if self.fails:
+            self.fails -= 1
+            return ["sh", "-c", "echo 'reach: refused: nothing was run' >&2; exit 4"]
+        return ["sh", "-c", cmd]
+
+
+class SpoolTests(unittest.TestCase):
+    def setUp(self):
+        self.tmp = tempfile.mkdtemp()
+        self.sleep = vs.time.sleep
+        vs.time.sleep = lambda s: None
+
+    def tearDown(self):
+        vs.time.sleep = self.sleep
+
+    def test_put_chunks_under_the_relay_command_limit(self):
+        relay = FakeRelay()
+        src = os.path.join(self.tmp, "blob")
+        with open(src, "wb") as f:
+            f.write(os.urandom(100_000))  # random: gzip cannot shrink it below several chunks
+        dst = os.path.join(self.tmp, "out", "blob")
+        relay.put(src, dst)
+        with open(src, "rb") as a, open(dst, "rb") as b:
+            self.assertEqual(a.read(), b.read())
+        self.assertGreater(len(relay.calls), 4)
+        self.assertTrue(all(len(c.encode()) <= 16384 for c in relay.calls), "a call over the relay's 16 KiB")
+
+    def test_run_retries_a_refusal_that_ran_nothing(self):
+        relay = FakeRelay(fails=2)
+        self.assertEqual(relay.run("printf ok"), "ok")
+        self.assertEqual(len(relay.calls), 3)
+
+    def test_run_does_not_retry_a_command_that_failed(self):
+        relay = FakeRelay()
+        with self.assertRaises(RuntimeError):
+            relay.run("exit 3")
+        self.assertEqual(len(relay.calls), 1)
+
+    def test_popen_feeds_stdin_and_reads_lines_to_exit(self):
+        if not os.path.exists("/usr/bin/python3"):
+            self.skipTest("the runner is started with /usr/bin/python3")
+        relay = FakeRelay()
+        p = relay.popen("read a; echo got:$a; echo second")
+        p.stdin.write("hello\n")
+        p.stdin.flush()
+        p.stdin.close()
+        self.assertEqual(p.wait(timeout=30), 0)
+        lines = []
+        while True:
+            line = p.lines.get(timeout=5)
+            if line is None:
+                break
+            lines.append(line)
+        self.assertEqual(lines, ["got:hello\n", "second\n"])
+
+APP = "/Users/u/ss-ultra/cmux DEV ssultra54ea.app"
+
+
+def run_argv(*extra):
+    return ["run", "--host", "cmux20", "--viewer", "cmux17", "--host-ip", "10.0.0.20", *extra]
+
+
+class AppViewerArgs(unittest.TestCase):
+    def test_flags_reach_the_run_namespace(self):
+        a = vs.build_parser().parse_args(run_argv(
+            "--app-viewer", APP, "--app-viewer-env", "CMUX_AUTH_CREDENTIALS_FILE=/tmp/c.json",
+            "--app-host-app", "/Applications/cmux DEV host.app", "--presented-input", "click",
+            "--encode-profile", "ultra", "--max-fps", "120"))
+        self.assertEqual(a.app_viewer, APP)
+        self.assertEqual(a.app_viewer_env, ["CMUX_AUTH_CREDENTIALS_FILE=/tmp/c.json"])
+        self.assertEqual(a.app_host_app, "/Applications/cmux DEV host.app")
+        self.assertEqual(a.presented_input, "click")
+        self.assertEqual(a.app_viewer_frame, "0,0,1500,950")
+        self.assertFalse(a.app_viewer_background)
+        self.assertIs(a.fn, vs.cmd_run)
+
+    def test_defaults_keep_the_old_presented_leg(self):
+        a = vs.build_parser().parse_args(run_argv())
+        self.assertIsNone(a.app_viewer)
+        self.assertEqual(a.presented_input, "key")
+
+    def test_env_takes_only_cmux_variables(self):
+        with contextlib.redirect_stderr(io.StringIO()), self.assertRaises(SystemExit):
+            vs.build_parser().parse_args(run_argv("--app-viewer", APP, "--app-viewer-env", "PATH=/x"))
+
+    def test_app_subcommand_parses(self):
+        a = vs.build_parser().parse_args(["app", "rpc", "debug.device_hub", '{"action": "state"}',
+                                          "--app", APP])
+        self.assertEqual((a.action, a.method, a.params, a.fn), ("rpc", "debug.device_hub",
+                                                                '{"action": "state"}', vs.cmd_app))
+
+    def test_app_viewer_needs_marker_locate_and_no_presented_pid(self):
+        with tempfile.TemporaryDirectory() as tools:
+            a = vs.build_parser().parse_args(run_argv("--app-viewer", APP, "--tools", tools))
+            with self.assertRaises(SystemExit) as e:
+                vs.Orchestrator(a)
+            self.assertIn("screen-eval-marker-locate", str(e.exception))
+            open(os.path.join(tools, "screen-eval-marker-locate"), "w").close()
+            a = vs.build_parser().parse_args(run_argv("--app-viewer", APP, "--tools", tools,
+                                                      "--presented-pid", "7"))
+            with self.assertRaises(SystemExit):
+                vs.Orchestrator(a)
+
+
+class AppViewerHelpers(unittest.TestCase):
+    def test_socket_paths_follow_control_socket_path(self):
+        self.assertEqual(vs.app_socket_paths("com.cmuxterm.app.debug.ssultra54ea", "/Users/u"),
+                         ["/Users/u/.local/state/cmux/cmux-debug-ssultra54ea.sock",
+                          "/tmp/cmux-debug-ssultra54ea.sock"])
+        self.assertEqual(vs.app_socket_paths("com.cmuxterm.app.nightly", "/Users/u"),
+                         ["/Users/u/.local/state/cmux/cmux-nightly.sock", "/tmp/cmux-nightly.sock"])
+        self.assertEqual(vs.app_socket_paths("com.cmuxterm.app.debug.SS Ultra_1", "/Users/u")[1],
+                         "/tmp/cmux-debug-ss-ultra-1.sock")
+        self.assertEqual(vs.app_socket_paths("com.cmuxterm.app", "/Users/u"),
+                         ["/Users/u/.local/state/cmux/cmux.sock"])
+        long_home = "/Users/" + "u" * 90
+        self.assertEqual(vs.app_socket_paths("com.cmuxterm.app.debug.x", long_home),
+                         ["/tmp/cmux-debug-x.sock"])
+
+    def test_app_call_speaks_the_control_socket(self):
+        import threading
+        with tempfile.TemporaryDirectory() as d:
+            path = os.path.join(d, "s.sock")
+            srv = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+            srv.bind(path)
+            srv.listen(1)
+            got = []
+
+            def serve():
+                conn, _ = srv.accept()
+                got.append(json.loads(conn.makefile().readline()))
+                conn.sendall(b'{"id":1,"ok":true,"result":{"tabs":[]}}\n')
+                conn.close()
+
+            t = threading.Thread(target=serve)
+            t.start()
+            try:
+                out = vs.app_call([os.path.join(d, "missing.sock"), path], "debug.mac_screen",
+                                  {"action": "state"}, timeout=5)
+            finally:
+                t.join(5)
+                srv.close()
+        self.assertEqual(out, {"tabs": []})
+        self.assertEqual(got, [{"id": 1, "method": "debug.mac_screen", "params": {"action": "state"}}])
+        self.assertIn("error", vs.app_call(["/nonexistent.sock"], "x"))
+
+    def launch_release(self, has_state):
+        # A NIGHTLY answers system.ping but not debug.mac_screen.
+        calls = []
+
+        def fake_call(paths, method, params=None, timeout=60):
+            calls.append(method)
+            if method == "debug.mac_screen" or (method == "mac_screen.state" and not has_state):
+                return {"error": {"code": "method_not_found", "message": method}}
+            return {"pong": True} if method == "system.ping" else {"tabs": []}
+
+        orig, vs.app_call = vs.app_call, fake_call
+        orig_id, vs.app_bundle_id = vs.app_bundle_id, lambda app: "com.cmuxterm.app.nightly"
+        try:
+            with tempfile.TemporaryDirectory() as d:
+                a = vs.build_parser().parse_args(["app", "launch", "--app", os.path.join(d, "cmux NIGHTLY.app")])
+                out = io.StringIO()
+                with contextlib.redirect_stdout(out):
+                    vs.cmd_app(a)
+        finally:
+            vs.app_call, vs.app_bundle_id = orig, orig_id
+        return json.loads(out.getvalue().strip().splitlines()[-1]), calls
+
+    def test_launch_takes_a_release_app_and_says_so(self):
+        got, calls = self.launch_release(True)
+        self.assertTrue(got["release"] and got["reused"])
+        self.assertNotIn("error", got)
+        self.assertEqual(calls, ["system.ping", "debug.mac_screen", "mac_screen.state"])
+
+    def test_launch_refuses_a_release_app_without_the_state_read(self):
+        got, _ = self.launch_release(False)
+        self.assertIn("is a Release build without mac_screen.state", got["error"])
+
+    def test_locate_output(self):
+        self.assertEqual(vs.parse_locate("origin 812,402 cell 32 at 868,418\n"), ("812,402", 32, "868,418"))
+        self.assertIsNone(vs.parse_locate("no marker\n"))
+
+    def test_ledger_is_the_newest_logged_line(self):
+        def line(msg):
+            return json.dumps({"eventMessage": msg})
+        led = {"schema": vs.LEDGER_SCHEMA, "stages": [{"stage": "Present", "n": 4, "p50_ms": 7, "p95_ms": 9}]}
+        text = "\n".join([line("other"), line("stage ledger: " + json.dumps({"schema": "old"})),
+                          "not json", line("stage ledger: " + json.dumps(led))])
+        self.assertEqual(vs.app_ledger_from_log(text), (led, 2))
+        self.assertEqual(vs.app_ledger_from_log(""), (None, 0))
+
+
+class FakeMac:
+    """A Remote whose `screen-share-vs.py app ...` and observe calls answer like the app would."""
+
+    def __init__(self, name, answer):
+        self.name, self.answer, self.calls = name, answer, []
+
+    def run(self, cmd, timeout=120, stdin=None):
+        self.calls.append(cmd)
+        return json.dumps(self.answer(cmd)) + "\n" if not cmd.startswith("scutil") else "cmux20\n"
+
+
+class AppViewerRun(unittest.TestCase):
+    def orchestrator(self, tools, *extra):
+        open(os.path.join(tools, "screen-eval-marker-locate"), "w").close()
+        a = vs.build_parser().parse_args(run_argv(
+            "--app-viewer", APP, "--tools", tools, "--encode-profile", "ultra", "--root", "/r", *extra))
+        return vs.Orchestrator(a)
+
+    def viewer_answer(self, opened, observe=None):
+        led = {"schema": vs.LEDGER_SCHEMA, "stages": [{"stage": "Present", "n": 5, "p50_ms": 6.0, "p95_ms": 8.0}]}
+        row = {"tab": "t1", "phase": "connected", "has_frame": True, "window_pid": 4242,
+               "window_id": 99, "session_scope": "full", "hub_session": "s1", "transport": "rd_wg",
+               "path": "direct", "window_on_primary_display": True,
+               "decode_ms": {"count": 120, "p50": 2.1, "p95": 3.0, "max": 4.0},
+               "glass_ms": {"count": 120, "p50": 9.4, "p95": 14.0, "max": 20.0},
+               "decode_present_ms": {"count": 120, "p50": 11.5, "p95": 16.5, "max": 22.0},
+               "frame_interval_ms": None}
+
+        def answer(cmd):
+            argv = shlex.split(cmd)
+            if argv[1:3] == ["observe", "--pid"] or argv[0].endswith("cmux-rd"):
+                return observe or {"complete": True, "samples_us": [40000, 50000, 60000], "p50_ms": 50.0}
+            self.assertEqual(argv[2:4][0], "app")
+            action, app = argv[3], argv[argv.index("--app") + 1]
+            self.assertEqual(app, APP)
+            vs.build_parser().parse_args(argv[2:])  # what the Mac's copy would parse
+            if action == "launch":
+                return {"socket": "/tmp/s", "reused": False, "encode_profile_applied": True}
+            if action == "locate":
+                return {"origin": "812,402", "cell": 32, "at": "868,418"}
+            if action == "ledger":
+                return {"ledger": led, "lines": 2}
+            method, params = argv[4], json.loads(argv[5])
+            if method == "debug.device_hub" and params["action"] == "state":
+                return {"signed_in": True, "this_device": "V", "devices": [
+                    {"id": "H", "name": "cmux20", "online": True, "shared": True}]}
+            if method == "debug.device_hub" and params["action"] == "connect":
+                opened.append(params)
+                return {"ok": True}
+            if method == "mac_screen.state":
+                # Every build's read: the pane timings come from here, not debug.mac_screen.
+                self.assertEqual(params, {"tab": "t1"})
+                return {"tabs": [{k: row[k] for k in ("tab", "phase") + vs.APP_TIMING_FIELDS if k in row}]}
+            if method == "debug.mac_screen":
+                dev = {k: v for k, v in row.items() if k not in vs.APP_TIMING_FIELDS}
+                if "tab" in params:
+                    return {"tabs": [dev]}
+                return {"tabs": [dev] if opened else []}
+            return {}
+        return answer
+
+    def run_leg(self, o, opened, **kw):
+        o.viewer = FakeMac("cmux17", self.viewer_answer(opened, **kw))
+        o.host = FakeMac("cmux20", lambda cmd: {"pending_requests": [{"id": "s1"}], "this_device": "H"})
+        rigs = []
+        o.rig = lambda req, timeout=30: rigs.append(req["cmd"]) or {"ok": True}
+        sleeps = []
+        orig = vs.time.sleep
+        vs.time.sleep = sleeps.append
+        try:
+            with contextlib.redirect_stdout(io.StringIO()):
+                return o.run_presented(), rigs
+        finally:
+            vs.time.sleep = orig
+
+    def test_app_mode_fills_observe_and_labels_the_source(self):
+        with tempfile.TemporaryDirectory() as tools:
+            o = self.orchestrator(tools, "--presented-input", "click")
+            opened = []
+            ms, rigs = self.run_leg(o, opened)
+        self.assertEqual(ms, [40.0, 50.0, 60.0])
+        self.assertEqual(opened, [{"action": "connect", "device": "H", "scope": "full"}])
+        self.assertEqual(rigs, ["marker", "stop"])
+        observe = [c for c in o.viewer.calls if " observe " in c][0]
+        argv = shlex.split(observe)
+        for flag, want in (("--pid", "4242"), ("--window", "99"), ("--input", "click"),
+                           ("--cell-size", "32"), ("--marker-origin", "812,402"), ("--at", "868,418")):
+            self.assertEqual(argv[argv.index(flag) + 1], want, flag)
+        launch = shlex.split([c for c in o.viewer.calls if " app launch " in c][0])
+        self.assertEqual(launch[launch.index("--encode-profile") + 1], "ultra")
+        self.assertNotIn("--background", launch)
+        self.assertTrue(any('"quitEndSessions"' in c for c in o.viewer.calls))  # it launched it
+        self.assertTrue(any('"end"' in c for c in o.viewer.calls))
+        src = o.presented_source
+        self.assertEqual((src["kind"], src["pid"], src["window"], src["transport"]), ("app-viewer", 4242, 99, "rd_wg"))
+        self.assertTrue(src["encode_profile_applied"])
+        b = vs.build_budget({"rows": [breakdown_row()] * 3, "presented": ms,
+                             "presented_source": src, "app_ledger": o.app_ledger,
+                             "app_timings": o.app_timings}, None)
+        total = rows_named(b)["Total"]["cmux"]
+        self.assertEqual((total["to"], total["via"], total["p50"]), ("presented", "app-viewer", 50.0))
+        self.assertEqual(b["presented_source"]["kind"], "app-viewer")
+        self.assertEqual(b["app_ledger"]["stages"]["Present"]["p50"], 6.0)
+        text = "\n".join(vs.format_budget(b))
+        self.assertIn("presented via app-viewer", text)
+        self.assertIn("app viewer ledger: Present 6/8 (n 5)", text)
+        self.assertEqual(b["app_timings"]["decode_present_ms"]["p50"], 11.5)
+        self.assertNotIn("frame_interval_ms", b["app_timings"])  # null on the pane: left out
+        self.assertNotIn("short_window", b["app_timings"])
+        self.assertIn("app viewer timings p50/p95: decode 2.1/3 (n 120), glass 9.4/14 (n 120), "
+                      "decode_present 11.5/16.5 (n 120)", text)
+
+    def release_viewer(self, opened, window=True):
+        """A NIGHTLY viewer: no debug.*; mac_screen.state carries the hub and the window fields."""
+        dev = self.viewer_answer(opened)
+        row = {"tab": "t1", "phase": "connected", "has_frame": True, "window_pid": 4242, "window_id": 99,
+               "session_scope": "full", "hub_session": "s1", "transport": "rd_wg", "path": "direct",
+               "window_on_primary_display": True,
+               "decode_present_ms": {"count": 120, "p50": 11.5, "p95": 16.5, "max": 22.0}}
+        if not window:
+            del row["window_id"]
+
+        def answer(cmd):
+            argv = shlex.split(cmd)
+            if argv[2:3] == ["app"] and argv[3] == "launch":
+                return {"socket": "/tmp/s", "reused": False, "release": True}
+            if argv[2:3] == ["app"] and argv[3] == "rpc":
+                method, params = argv[4], json.loads(argv[5])
+                if method.startswith("debug."):
+                    return {"error": {"code": "method_not_found", "message": method}}
+                if method == "action.run" and params.get("action") == "macScreen.open":
+                    opened.append(params)
+                    return {"status": "done"}
+                if method == "mac_screen.state":
+                    hub = {"running": True, "registered": True, "this_device": "V", "devices": [
+                        {"id": "H", "name": "cmux20", "online": True, "shared": True, "this": False}]}
+                    return {"tabs": [row] if opened else [], "hub": hub}
+            return dev(cmd)
+        return answer
+
+    def test_a_release_viewer_opens_through_macscreen_open(self):
+        with tempfile.TemporaryDirectory() as tools:
+            o = self.orchestrator(tools)
+            opened = []
+            o.viewer = FakeMac("cmux17", self.release_viewer(opened))
+            o.host = FakeMac("cmux20", lambda cmd: {})
+            o.rig = lambda req, timeout=30: {"ok": True}
+            orig, vs.time.sleep = vs.time.sleep, lambda s: None
+            try:
+                with contextlib.redirect_stdout(io.StringIO()):
+                    ms = o.run_presented()
+            finally:
+                vs.time.sleep = orig
+        self.assertEqual(ms, [40.0, 50.0, 60.0])
+        self.assertEqual(opened, [{"action": "macScreen.open", "origin": "cli",
+                                   "args": {"device": "H", "scope": "full", "autoconnect": True}}])
+        self.assertFalse(any("debug.device_hub" in c and '"end"' in c for c in o.viewer.calls))
+        self.assertEqual((o.presented_source["pid"], o.presented_source["window"]), (4242, 99))
+        self.assertEqual(o.app_timings["decode_present_ms"]["p50"], 11.5)
+
+    def test_a_release_viewer_without_window_fields_says_so(self):
+        with tempfile.TemporaryDirectory() as tools:
+            o = self.orchestrator(tools, "--timeout", "1")
+            o.viewer = FakeMac("cmux17", self.release_viewer([], window=False))
+            o.host = FakeMac("cmux20", lambda cmd: {})
+            o.rig = lambda req, timeout=30: {"ok": True}
+            orig, vs.time.sleep = vs.time.sleep, lambda s: None
+            try:
+                with contextlib.redirect_stdout(io.StringIO()):
+                    self.assertIsNone(o.run_presented())
+            finally:
+                vs.time.sleep = orig
+        self.assertIn("no window_id", o.presented_source["null"])
+
+    def test_host_app_approves_and_names_the_device(self):
+        with tempfile.TemporaryDirectory() as tools:
+            o = self.orchestrator(tools, "--app-host-app", "/Applications/cmux DEV host.app")
+            opened = []
+            self.run_leg(o, opened)
+        self.assertTrue(any('"always_full"' in c for c in o.host.calls))
+        self.assertFalse(any(c.startswith("scutil") for c in o.host.calls))
+
+    def test_an_incomplete_observe_leaves_total_at_decode(self):
+        with tempfile.TemporaryDirectory() as tools:
+            o = self.orchestrator(tools)
+            ms, _ = self.run_leg(o, [], observe={"complete": False, "error": "pane obscured"})
+        self.assertIsNone(ms)
+        b = vs.build_budget({"rows": [breakdown_row()] * 3, "presented": ms,
+                             "presented_source": o.presented_source}, None)
+        self.assertEqual(rows_named(b)["Total"]["cmux"]["to"], "decoded")
+        self.assertEqual(b["presented_source"]["kind"], "app-viewer")
+        self.assertIn("null", b["presented_source"])
+
+
+class PresentedSourceLabel(unittest.TestCase):
+    def test_flags_source_and_no_source(self):
+        src = vs.presented_source("presented-flags", pid=1, window=2)
+        b = vs.build_budget({"rows": [breakdown_row()], "presented": [50.0], "presented_source": src}, None)
+        self.assertEqual(rows_named(b)["Total"]["cmux"]["via"], "presented-flags")
+        b = vs.build_budget({"rows": [breakdown_row()]}, None)
+        self.assertIn("null", b["presented_source"])
+        self.assertNotIn("via", rows_named(b)["Total"]["cmux"])
+        self.assertIn("null", b["app_ledger"])
+        self.assertIn("null", b["app_timings"])
+        with self.assertRaises(ValueError):
+            vs.presented_source("bogus")
+
+
+class ClockRetryTest(unittest.TestCase):
+    def runner(self, outcomes):
+        o = vs.Orchestrator.__new__(vs.Orchestrator)
+        calls = []
+
+        def once():
+            calls.append(1)
+            r = outcomes[len(calls) - 1]
+            if isinstance(r, Exception):
+                raise r
+            return r
+        o.clock_once = once
+        return o, calls
+
+    def test_a_slow_start_is_retried(self):
+        o, calls = self.runner([RuntimeError("clock-serve on cmux20 did not start: None"), {"offset_ns": 5}])
+        with contextlib.redirect_stderr(io.StringIO()):
+            self.assertEqual(o.clock(), {"offset_ns": 5})
+        self.assertEqual(len(calls), 2)
+
+    def test_every_try_failing_names_each_error(self):
+        o, calls = self.runner([RuntimeError("a"), TimeoutError("b"), ValueError("c")])
+        with contextlib.redirect_stderr(io.StringIO()), self.assertRaises(RuntimeError) as e:
+            o.clock()
+        self.assertEqual(len(calls), vs.Orchestrator.CLOCK_TRIES)
+        self.assertIn("RuntimeError: a | TimeoutError: b | ValueError: c", str(e.exception))
+
+
+class HostTestLossTest(unittest.TestCase):
+    def orchestrator(self, pct):
+        o = vs.Orchestrator.__new__(vs.Orchestrator)
+        o.host_test_loss = pct
+        o.host_args, o.viewer_args, o.host_argv, o.out = [], [], [], None
+        o.root = "/r"
+        o.a = argparse.Namespace(synthetic_size=None, synthetic_scene=None, link_bind=None)
+        return o
+
+    def test_the_value_is_checked(self):
+        self.assertEqual(vs.test_loss_pct(1.0), "1")
+        self.assertEqual(vs.test_loss_pct("0.5"), "0.5")
+        for bad in (0, -1, 100.5, "x"):
+            with self.assertRaises(ValueError):
+                vs.test_loss_pct(bad)
+
+    def test_the_flag_parses(self):
+        a = vs.build_parser().parse_args(run_argv("--host-test-loss", "1"))
+        self.assertEqual(a.host_test_loss, 1.0)
+        self.assertIsNone(vs.build_parser().parse_args(run_argv()).host_test_loss)
+
+    def test_synthetic_serve_sets_the_env(self):
+        self.assertIn("CMUX_RD_TEST_LOSS_PCT=1 ", self.orchestrator("1").synthetic_serve("fps"))
+        self.assertNotIn("CMUX_RD_TEST_LOSS_PCT", self.orchestrator(None).synthetic_serve("fps"))
+
+    def test_rows_record_it_only_when_set(self):
+        for pct, want in (("1", {"host_test_loss_pct": 1.0}), (None, {})):
+            o = self.orchestrator(pct)
+            with contextlib.redirect_stdout(io.StringIO()) as out:
+                o.log({"mode": "fps"})
+            row = json.loads(out.getvalue())
+            self.assertEqual({k: v for k, v in row.items() if k == "host_test_loss_pct"}, want)
+
+
+class RemoteRunStdin(unittest.TestCase):
+    """Remote.run with no input gives the remote command /dev/null, not the orchestrator's stdin."""
+
+    def test_no_input_reads_dev_null(self):
+        r = vs.Remote("here", "local")
+        r_fd, w_fd = os.pipe()  # an open stdin that never ends: inherited, `cat` would block
+        saved = os.dup(0)
+        try:
+            os.dup2(r_fd, 0)
+            self.assertEqual(r.run("cat; echo done", timeout=10), "done\n")
+        finally:
+            os.dup2(saved, 0)
+            for fd in (saved, r_fd, w_fd):
+                os.close(fd)
+
+    def test_input_is_still_passed(self):
+        self.assertEqual(vs.Remote("here", "local").run("cat", timeout=10, stdin="hi"), "hi")
+
+
+class PeerRoute(unittest.TestCase):
+    """--via peer: the orchestrating Mac drives the other Mac of a pair job through its peer-serve."""
+
+    def setUp(self):
+        self.tmp = tempfile.mkdtemp()
+        self.token = "ab" * 32
+        self.token_file = os.path.join(self.tmp, "token")
+        with open(self.token_file, "w") as f:
+            f.write(self.token + "\n")
+        with socket.socket() as s:
+            s.bind(("127.0.0.1", 0))
+            self.port = s.getsockname()[1]
+        args = argparse.Namespace(bind="127.0.0.1", port=self.port, token_file=self.token_file, hold_s=60)
+        self.server = vs.threading.Thread(target=vs.cmd_peer_serve, args=(args,), daemon=True)
+        with contextlib.redirect_stdout(io.StringIO()):
+            self.server.start()
+            vs.time.sleep(0.3)
+        self.url = f"http://127.0.0.1:{self.port}"
+
+    def tearDown(self):
+        vs.PeerRemote("mac", self.url, self.token).done()
+        self.server.join(10)
+
+    def test_run_returns_stdout_and_passes_stdin(self):
+        r = vs.PeerRemote("mac", self.url, self.token)
+        self.assertEqual(r.run("echo hi"), "hi\n")
+        self.assertEqual(r.run("cat", stdin="in"), "in")
+
+    def test_a_failed_command_raises_with_its_status(self):
+        with self.assertRaisesRegex(RuntimeError, "exit 3"):
+            vs.PeerRemote("mac", self.url, self.token).run("echo no >&2; exit 3")
+
+    def test_a_wrong_token_is_refused(self):
+        with self.assertRaisesRegex(RuntimeError, "HTTP 403"):
+            vs.PeerRemote("mac", self.url, "cd" * 32).run("echo hi")
+
+    def test_put_and_popen_go_through_it(self):
+        r = vs.PeerRemote("mac", self.url, self.token)
+        src = os.path.join(self.tmp, "blob")
+        with open(src, "wb") as f:
+            f.write(os.urandom(300_000))
+        dst = os.path.join(self.tmp, "out", "blob")
+        r.put(src, dst)
+        with open(src, "rb") as a, open(dst, "rb") as b:
+            self.assertEqual(a.read(), b.read())
+        if not os.path.exists("/usr/bin/python3"):
+            return
+        p = r.popen("read a; echo got:$a")
+        p.stdin.write("x\n")
+        p.stdin.close()
+        self.assertEqual(p.wait(timeout=30), 0)
+        self.assertEqual(p.lines.get(timeout=5), "got:x\n")
+
+    def test_clients_private_and_pinned(self):
+        self.assertTrue(vs.peer_client_ok("172.20.21.5", None))
+        self.assertTrue(vs.peer_client_ok("127.0.0.1", None))
+        self.assertFalse(vs.peer_client_ok("8.8.8.8", None))
+        self.assertFalse(vs.peer_client_ok("172.20.21.6", "172.20.21.5"))
+        self.assertTrue(vs.peer_client_ok("172.20.21.5", "172.20.21.5"))
+
+    def test_local_mac_runs_here_and_the_other_end_over_peer(self):
+        args = vs.build_parser().parse_args(run_argv("--via", "peer", "--local-mac", "cmux17",
+                                                     "--peer-url", self.url, "--peer-token-file", self.token_file))
+        o = vs.Orchestrator(args)
+        self.assertEqual((type(o.viewer), o.viewer.via), (vs.Remote, "local"))
+        self.assertIsInstance(o.host, vs.PeerRemote)
+
+    def test_peer_needs_its_url_and_token(self):
+        args = vs.build_parser().parse_args(run_argv("--via", "peer"))
+        with self.assertRaises(SystemExit):
+            vs.Orchestrator(args)
+
+
+class LocalMac(unittest.TestCase):
+    """--local-mac NAME: that end runs here, the other end over --via (a job on one Mac of the pair)."""
+
+    def orchestrator(self, *extra):
+        a = vs.build_parser().parse_args(["run", "--host", "cmux20", "--viewer", "cmux17", "--host-ip", "10.0.0.2",
+                                          "--via", "ssh", *extra])
+        return vs.Orchestrator(a)
+
+    def test_host_local_viewer_over_ssh(self):
+        o = self.orchestrator("--local-mac", "cmux20")
+        self.assertEqual(o.host.argv("true"), ["/bin/bash", "-c", "true"])
+        self.assertEqual(o.viewer.argv("true"), ["ssh", "-o", "BatchMode=yes", "cmux17", "true"])
+
+    def test_without_it_both_over_via(self):
+        o = self.orchestrator()
+        self.assertEqual(o.host.argv("true")[0], "ssh")
+        self.assertEqual(o.viewer.argv("true")[0], "ssh")
+
+
+class ClockProbeDeadline(unittest.TestCase):
+    """A clock probe at a silent-but-for-one-reply peer stops at --max-seconds, not after count misses."""
+
+    def test_probe_stops_at_its_deadline(self):
+        import threading
+        import time
+        srv = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        srv.bind(("127.0.0.1", 0))
+        port = srv.getsockname()[1]
+
+        def answer_once():  # one reply, then a lossy link drops everything
+            data, peer = srv.recvfrom(64)
+            srv.sendto(data[:8] + (0).to_bytes(8, "big"), peer)
+        t = threading.Thread(target=answer_once, daemon=True)
+        t.start()
+        args = argparse.Namespace(addr=f"127.0.0.1:{port}", count=200, gap_ms=0, max_seconds=1.5)
+        out = io.StringIO()
+        t0 = time.time()
+        try:
+            with contextlib.redirect_stdout(out):
+                vs.cmd_clock_probe(args)
+        finally:
+            srv.close()
+        self.assertLess(time.time() - t0, 3.0)
+        self.assertEqual(json.loads(out.getvalue())["replies"], 1)
+
+
+
+class ClockOverPeerTcp(unittest.TestCase):
+    """A fleet pair job's clock: clock-serve --tcp on the viewer, the probe from the host, over the
+    path the host's peer-serve calls use (2026-11-27: the UDP probe from the viewer got Errno 65 to
+    the host's LAN address and no answer over the tailnet)."""
+
+    def test_tcp_serve_and_probe_round_trip_on_loopback(self):
+        import subprocess
+        import time
+        here = os.path.dirname(os.path.abspath(__file__))
+        srv = subprocess.Popen([sys.executable, "-I", os.path.join(here, "screen-share-vs.py"), "clock-serve",
+                                "--tcp", "--bind", "127.0.0.1", "--port", "0", "--seconds", "20"],
+                               stdin=subprocess.PIPE, stdout=subprocess.PIPE, text=True)
+        try:
+            port = json.loads(srv.stdout.readline())["listening"]
+            args = argparse.Namespace(addr=f"127.0.0.1:{port}", count=20, gap_ms=0, max_seconds=5, tcp=True)
+            out = io.StringIO()
+            with contextlib.redirect_stdout(out):
+                vs.cmd_clock_probe(args)
+            r = json.loads(out.getvalue())
+            self.assertEqual(r["replies"], 20)
+            # One Mac, one monotonic clock: the offset is about zero.
+            self.assertLess(abs(r["offset_ns"]), 50_000_000)
+        finally:
+            srv.stdin.close()
+            srv.wait(10)
+
+    def test_a_tcp_probe_with_nothing_listening_says_so(self):
+        s = socket.socket()
+        s.bind(("127.0.0.1", 0))
+        port = s.getsockname()[1]
+        s.close()
+        args = argparse.Namespace(addr=f"127.0.0.1:{port}", count=5, gap_ms=0, max_seconds=2, tcp=True)
+        out = io.StringIO()
+        with self.assertRaises(SystemExit), contextlib.redirect_stdout(out):
+            vs.cmd_clock_probe(args)
+        self.assertIn("clock connect", out.getvalue())
+
+    def orchestrator(self, viewer, host):
+        import types
+        me = types.SimpleNamespace(a=types.SimpleNamespace(viewer="cmux20", host="mini", host_ip="172.20.21.199",
+                                                           clock_count=5),
+                                   py="python3", me="screen-share-vs.py", viewer=viewer, host=host)
+        me.clock_over_peer = lambda: vs.Orchestrator.clock_over_peer(me)
+        me.clock_once_tcp = lambda: vs.Orchestrator.clock_once_tcp(me)
+        return me
+
+    def test_a_pair_job_probes_the_viewer_over_tcp_and_flips_the_sign(self):
+        import queue
+        import types
+        srv = types.SimpleNamespace(lines=queue.Queue(), terminate=lambda: None)
+        srv.lines.put('{"listening": 4555, "tcp": true}')
+        viewer = vs.PeerRemote.__new__(vs.PeerRemote)
+        viewer.url, viewer.name = "http://172.20.21.250:4181", "cmux20"
+        seen = {}
+        viewer.popen = lambda cmd: seen.setdefault("serve", cmd) and srv
+
+        def host_run(cmd, timeout=120):
+            seen["probe"] = cmd
+            return '{"offset_ns": 7000, "rtt_min_ms": 0.4, "replies": 5}\n'
+        host = types.SimpleNamespace(via="local", run=host_run)
+        me = self.orchestrator(viewer, host)
+        self.assertTrue(me.clock_over_peer())
+        r = vs.Orchestrator.clock_once(me)
+        self.assertIn("clock-serve --tcp --bind 172.20.21.250", seen["serve"])
+        self.assertIn("clock-probe --tcp --addr 172.20.21.250:4555", seen["probe"])
+        self.assertEqual(r["offset_ns"], -7000)
+        self.assertEqual(r["path"], "tcp host->viewer")
+
+    def test_a_non_pair_run_keeps_the_udp_probe(self):
+        import types
+        me = self.orchestrator(types.SimpleNamespace(), types.SimpleNamespace(via="reach"))
+        self.assertFalse(me.clock_over_peer())
 
 if __name__ == "__main__":
     unittest.main()

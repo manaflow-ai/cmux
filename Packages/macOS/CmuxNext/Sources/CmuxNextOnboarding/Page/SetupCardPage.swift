@@ -3,12 +3,13 @@ public import AppKit
 public import CmuxNextPages
 public import CmuxNextSettings
 import CmuxNextCompat
+import CmuxNextDesign
 import Foundation
 import WebKit
 public import Observation
 
 extension PageDescriptor {
-    /// Home's Set Up cmux card (webviews/src/pages/setup-card, the React card home-messages/cards/setup), shown
+    /// Home's Set Up cmux card (webviews/src/pages/setup-card), shown
     /// in the native Home's Chief chat (``SetupCardHost``).
     public static let setupCard = PageDescriptor(
         id: "cmux.setup-card", resource: "setup-card", namespaces: [SetupCardPageProvider.prefix],
@@ -33,28 +34,24 @@ public struct SetupCardEnvironment {
     public var openAgents: @MainActor () -> Void
     /// Whether VoiceOver runs now.
     public var screenReader: @MainActor () -> Bool
-    /// Whether this Mac has chats from other agents to bring in (the memory offer's read).
-    public var historySources: @MainActor () async -> Bool
-    /// Shows Bring your history (the person's click); false when it did not show.
-    public var importHistory: @MainActor () -> Bool
-    /// The cmux Tools question (`agents.cmuxMcp` and `cmux setup mcp`'s report); nil: the card has no such row.
-    public var agentTools: (any AgentToolsSource)?
+    /// The Text Size and Density row's reads and writer; nil: the card has no such row.
+    public var look: SetupCardLook?
+    /// What the account row's Sign In signs in to ("Signs in to cmux.com"), the line under it; nil shows none.
+    public var signInBackend: String?
 
     public init(account: @escaping @MainActor () -> (signedIn: Bool, email: String?), signInAccount: @escaping @MainActor () -> Void,
                 cliState: @escaping @MainActor () async -> String, installCLI: @escaping @MainActor (_ replacing: Bool) async -> Void,
                 openAgents: @escaping @MainActor () -> Void,
                 screenReader: @escaping @MainActor () -> Bool = { NSWorkspace.shared.isVoiceOverEnabled },
-                historySources: @escaping @MainActor () async -> Bool, importHistory: @escaping @MainActor () -> Bool,
-                agentTools: (any AgentToolsSource)? = nil) {
+                look: SetupCardLook? = nil, signInBackend: String? = nil) {
         self.account = account
         self.signInAccount = signInAccount
         self.cliState = cliState
         self.installCLI = installCLI
         self.openAgents = openAgents
         self.screenReader = screenReader
-        self.historySources = historySources
-        self.importHistory = importHistory
-        self.agentTools = agentTools
+        self.look = look
+        self.signInBackend = signInBackend
     }
 }
 
@@ -122,8 +119,6 @@ public final class SetupCardPageProvider: PageProvider {
 
     @ObservationIgnored private let setup: FirstRunSetup
     @ObservationIgnored let agents: AgentsStepModel
-    /// The cmux Tools row: whether cmux may add its MCP server to the person's coding agents.
-    @ObservationIgnored let tools: AgentToolsStepModel
     @ObservationIgnored private let environment: SetupCardEnvironment
     /// The card's Chief form (first-run findings rows 1 and 4): only the agent Chief answers through, under a title
     /// that says Chief needs it (setupModel.ts `forChief`). Hide puts it away for this launch, and it never ends
@@ -131,9 +126,6 @@ public final class SetupCardPageProvider: PageProvider {
     @ObservationIgnored let forChief: Bool
     /// The `cmux` a new login shell runs, read at start, on focus and after an install; nil before the first read.
     private(set) var cli: String?
-    /// Whether this Mac has chats to bring in; nil before the one read.
-    private(set) var history: Bool?
-    @ObservationIgnored private var historyRead: Task<Void, Never>?
     @ObservationIgnored var onSize: ((CGFloat) -> Void)?
     @ObservationIgnored private var spentGesture: TimeInterval?
     @ObservationIgnored private var cliRead: Task<Void, Never>?
@@ -145,23 +137,13 @@ public final class SetupCardPageProvider: PageProvider {
         self.setup = setup
         self.agents = setup.agents(source: agents)
         self.environment = environment
-        tools = AgentToolsStepModel(source: environment.agentTools)
-        tools.start()
         self.agents.start()
         readCLI()
-        // task-owner: one read of the chat sources at start; stop() cancels it.
-        historyRead = Task { [weak self, environment] in
-            let found = await environment.historySources()
-            guard let self, !Task.isCancelled else { return }
-            history = found
-        }
     }
 
     /// The card's own reads end; the shared agents model (``FirstRunSetup/agents(source:)``) and its install go on.
     func stop() {
-        tools.stop()
         cliRead?.cancel()
-        historyRead?.cancel()
     }
 
     private func readCLI() {
@@ -192,27 +174,14 @@ public final class SetupCardPageProvider: PageProvider {
         let account = environment.account()
         var wire: [String: JSONValue] = ["signedIn": .bool(account.signedIn)]
         if account.signedIn, let email = account.email { wire["email"] = .string(email) }
-        return ["agents": .array(rows), "tools": toolsRow, "history": history == true ? ["done": .bool(setup.historyDone)] : .null,
+        // Signed out: what the row's Sign In signs in to ("Signs in to cmux.com"), the line under it.
+        if !account.signedIn, let backend = environment.signInBackend { wire["signInBackend"] = .string(backend) }
+        return ["agents": .array(rows),
                 "account": .object(wire), "cli": .string(cliInstalling ? "installing" : cli ?? "missing"), "classic": .null,
-                "forChief": .bool(forChief)]
+                "forChief": .bool(forChief), "look": forChief ? .null : environment.look?.wire ?? .null]
     }
 
-    /// The cmux Tools row (setupModel.ts `SetupState.tools`): shown while the question is open, or once
-    /// the person answered it on this card; null when nobody can be asked (no source, no coding agent
-    /// found) or it was answered elsewhere before.
-    var toolsRow: JSONValue {
-        guard environment.agentTools != nil, tools.loaded, !tools.agents.isEmpty, tools.choice == .ask || tools.answered else { return .null }
-        return ["agents": .array(tools.agents.map { .string($0.name) }), "choice": .string(tools.choice.rawValue),
-                "applying": .bool(tools.applying)]
-    }
-
-    /// The cmux Tools row is done: answered, or not shown (read, and nothing to ask).
-    var toolsDone: Bool {
-        environment.agentTools == nil || (tools.loaded && (tools.agents.isEmpty || tools.choice != .ask))
-    }
-
-    /// Every row is done: an agent signed in, the chat history answered (when found: never before the read of
-    /// the chat sources returned, so a slow read cannot lose the row), the account signed in, this app's `cmux` on PATH.
+    /// Every row is done: an agent signed in, the account signed in, this app's `cmux` on PATH.
     var allDone: Bool {
         if forChief { return agents.agents.contains { $0.id == FirstRunSetup.chiefAgentID && agents.countsAsSignedIn($0) } }
         return agents.agents.contains { Self.agentIDs.contains($0.id) && agents.countsAsSignedIn($0) } && rowsBesideAgentsDone
@@ -220,7 +189,7 @@ public final class SetupCardPageProvider: PageProvider {
 
     /// The rows besides the agents' are done (``allDone``).
     var rowsBesideAgentsDone: Bool {
-        (history == false || setup.historyDone) && toolsDone && environment.account().signedIn && cli == "installed"
+        environment.account().signedIn && cli == "installed"
     }
 
     public func call(_ op: String, params: JSONValue, context: PageCallContext) async throws -> JSONValue {
@@ -271,11 +240,21 @@ public final class SetupCardPageProvider: PageProvider {
         case "signInAgent" where Self.agentIDs.contains(id): agents.signIn(id)
         case "confirmAgent" where Self.agentIDs.contains(id): agents.confirmLogin(id)
         case "signInAccount": environment.signInAccount()
-        case "importHistory": if environment.importHistory() { setup.historyAnswered() }
-        case "declineHistory": setup.historyAnswered()
-        // cmux Tools: Turn On answers yes, Not Now answers no; neither writes an agent's own config.
-        case "addTools" where toolsRow != .null: tools.add()
-        case "declineTools" where toolsRow != .null: tools.decline()
+        // Text Size and Density: only sizes the setting takes and the built-in densities, written as Settings writes them.
+        case "setTextSize":
+            guard let look = environment.look, !forChief else { throw PageError.invalidParams("no text size row") }
+            let points = action["points"] ?? .null
+            if points != .null {
+                guard let value = points.doubleValue, InterfaceSizeSetting.range.contains(value), value == value.rounded() else {
+                    throw PageError.invalidParams("a text size from \(Int(InterfaceSizeSetting.range.lowerBound)) to \(Int(InterfaceSizeSetting.range.upperBound)) points")
+                }
+            }
+            // Default removes the key (Optional.none), never writes JSON null: JSONValue takes a nil literal too.
+            write(look, InterfaceSizeSetting.configPath, points == .null ? Optional<JSONValue>.none : points)
+        case "setDensity":
+            guard let look = environment.look, !forChief else { throw PageError.invalidParams("no density row") }
+            guard let id = action["id"]?.stringValue, DensityPreset(rawValue: id) != nil else { throw PageError.invalidParams("unknown density") }
+            write(look, DensitySetting.configPath, .string(id))
         case "installCLI":
             // Only the row's own offer: Install when missing, Replace for another cmux app's CLI; never over a
             // `cmux` that is no cmux app's.
@@ -294,6 +273,12 @@ public final class SetupCardPageProvider: PageProvider {
             }
         default: throw PageError.invalidParams("unknown setup action")
         }
+    }
+
+    /// One write the person asked for; a refusal (a managed key) leaves the row as the app draws it.
+    private func write(_ look: SetupCardLook, _ path: [String], _ value: JSONValue?) {
+        // task-owner: one settings write per click; it ends with the write.
+        Task { try? await look.write(path, value) }
     }
 
     private struct Snapshot: Sendable, Equatable {

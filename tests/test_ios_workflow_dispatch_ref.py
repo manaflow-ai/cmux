@@ -60,7 +60,9 @@ class IOSWorkflowDispatchRefTests(unittest.TestCase):
         cells = workflow_jobs.runs_on_cells(detect)
         self.assertTrue(cells, "detect-ios-changes: runs-on reads a matrix value nothing resolves, or is missing")
         for runs_on in cells:
-            self.assertIn("LINUX_RUNNER", runs_on)
+            # A Linux label by literal (#56554 dropped vars.CI_FORK_LINUX_RUNNER): the pool, or hosted for forks.
+            self.assertIn("cmux-linux", runs_on)
+            self.assertNotIn("macos", runs_on)
         selector = next(step for step in detect["steps"] if step.get("id") == "families")
         self.assertEqual(selector["env"]["DEVICE_FAMILY"], "${{ inputs.device_family }}")
         self.assertEqual(
@@ -135,14 +137,15 @@ class IOSWorkflowDispatchRefTests(unittest.TestCase):
         resolved_ref = f"ref: {resolved_sha}"
 
         self.assertNotIn("ref: ${{ inputs.ref || github.ref", workflow)
-        for job in ("package-conventions-lint", "mobile-core-package", "ios-simulator-build"):
+        for job in ("package-conventions-lint", "mobile-core-linux", "ios-simulator-build"):
             with self.subTest(job=job):
                 self.assertIn(resolved_ref, job_block(job))
 
-        # The routing jobs check out the workflow revision itself; every other
-        # checkout, including the retry after a failed seeded checkout, is
-        # pinned to the one resolved commit SHA.
-        routing = {"runner", "detect-ios-changes"}
+        # The routing jobs check out the workflow revision itself (full-carry:
+        # the base's scripts/ci, for head_tier.py); every other checkout,
+        # including the retry after a failed seeded checkout, is pinned to the
+        # one resolved commit SHA.
+        routing = {"runner", "detect-ios-changes", "full-carry"}
         jobs = yaml.safe_load(workflow)["jobs"]
         pinned = 0
         for name, job in jobs.items():
@@ -182,6 +185,12 @@ def job_admitted(jobs, name, results, outputs, inputs, *, cancelled=False):
     success = all(results.get(ancestor) == "success" for ancestor in ancestors(name))
     expression = jobs[name].get("if", "${{ success() }}").strip()
     expression = expression.removeprefix("${{").removesuffix("}}").strip()
+    # The draft-tier term (scripts/ci/head_tier.py) is true off pull_request events.
+    # So is the land-tier term (draft or ready-to-land) that wraps it on newer heads.
+    expression = re.sub(r"\(github\.event_name != 'pull_request' \|\| .*?CI_LAND_TIER \|\| '1'\) == '0'\)\)\)", "True", expression, flags=re.S)
+    expression = re.sub(r"\(github\.event_name != 'pull_request' \|\| .*?CI_DRAFT_CHEAP_TIER \|\| '1'\) == '0'\)", "True", expression)
+    # The label-churn skip (scripts/ci/label_churn_gate.py style) is false off pull_request events, so its negation holds.
+    expression = re.sub(r"\s*&&\s*!\(github\.event_name == 'pull_request' && github\.event\.pull_request\.base\.ref == .*?github\.event\.label\.name\)\)\s*$", "", expression, flags=re.S)
     has_status_function = re.search(r"\b(?:success|failure|cancelled|always)\s*\(", expression)
     if not has_status_function and (cancelled or not success):
         return False
@@ -220,31 +229,33 @@ class IOSNativeLintAdmissionTests(unittest.TestCase):
         self.jobs = yaml.safe_load(WORKFLOW.read_text())["jobs"]
 
     def admitted(self, job, *, lint="success", should_lint="true", should_run="true",
-                 detect="success", producer="success", package="", test_filter="",
+                 should_build="true", detect="success", producer="success", package="", test_filter="",
                  cancelled=False, event_name="workflow_dispatch", runner="success"):
         return job_admitted(
             self.jobs, job,
             {"runner": runner, "detect-ios-changes": detect, "package-conventions-lint": lint,
              "ios-simulator-build": producer},
-            {"detect-ios-changes": {"should_lint": should_lint, "should_run": should_run}},
+            {"detect-ios-changes": {"should_lint": should_lint, "should_run": should_run,
+                                    "should_build": should_build}},
             {"swift_package": package, "test_filter": test_filter, "event_name": event_name},
             cancelled=cancelled,
         )
 
     def test_native_work_waits_for_lint_and_rejects_unsuccessful_lint(self):
-        for job in ("mobile-core-package", "ios-simulator-build"):
+        # The Linux package job holds no Mac, so it does not wait on lint; ios-tests gates on both.
+        for job in ("ios-simulator-build",):
             for lint in ("pending", "in_progress", "failure", "cancelled", "skipped"):
                 with self.subTest(job=job, lint=lint):
                     self.assertFalse(self.admitted(job, lint=lint))
 
     def test_success_and_legitimately_unselected_lint_admit_native_work(self):
-        for job in ("mobile-core-package", "ios-simulator-build"):
+        for job in ("mobile-core-linux", "ios-simulator-build"):
             with self.subTest(job=job):
                 self.assertTrue(self.admitted(job))
                 self.assertTrue(self.admitted(job, lint="skipped", should_lint="false"))
 
     def test_no_native_work_for_unselected_failed_or_cancelled_detection(self):
-        for job in ("mobile-core-package", "ios-simulator-build"):
+        for job in ("mobile-core-linux", "ios-simulator-build"):
             with self.subTest(job=job):
                 self.assertFalse(self.admitted(job, should_run="false"))
                 self.assertFalse(self.admitted(job, cancelled=True))
@@ -263,14 +274,18 @@ class IOSNativeLintAdmissionTests(unittest.TestCase):
                 with self.subTest(lint=lint, package=package, test_filter=test_filter):
                     actual = tuple(self.admitted(job, lint=lint, should_lint=should_lint,
                                                  package=package, test_filter=test_filter)
-                                   for job in ("mobile-core-package", "ios-simulator-build"))
+                                   for job in ("mobile-core-linux", "ios-simulator-build"))
                     self.assertEqual(actual, expected)
-        self.assertTrue(self.admitted("mobile-core-package", event_name="pull_request",
-                                      test_filter="ignored-on-pr"))
+
+    def test_a_package_change_outside_the_app_skips_only_the_simulator_build(self):
+        # scripts/ci/ios_simulator_inputs.py: should_build=false omits the Xcode
+        # app build; the package lane still runs.
+        self.assertTrue(self.admitted("mobile-core-linux", should_build="false"))
+        self.assertFalse(self.admitted("ios-simulator-build", should_build="false"))
 
     def test_no_native_work_without_a_picked_pool(self):
         # runs-on reads the runner job's JSON; without it there is no pool.
-        for job in ("mobile-core-package", "ios-simulator-build"):
+        for job in ("ios-simulator-build",):
             for runner in ("pending", "failure", "cancelled", "skipped"):
                 with self.subTest(job=job, runner=runner):
                     self.assertFalse(self.admitted(job, runner=runner))
@@ -327,29 +342,44 @@ class IOSChangeDetectionTests(unittest.TestCase):
 
         step = next(step for step in yaml.safe_load(WORKFLOW.read_text())["jobs"]["detect-ios-changes"]["steps"]
                     if step.get("id") == "detect")
-        script = step["run"].replace("${{ github.event_name }}", "pull_request")
+        script = (step["run"].replace("${{ github.event_name }}", "pull_request")
+                  .replace("${{ contains(github.event.pull_request.labels.*.name, 'full-ci') }}", "false")
+                  .replace("python3 scripts/ci/ios_simulator_inputs.py",
+                           f"python3 {ROOT / 'scripts/ci/ios_simulator_inputs.py'}"))
+        self.assertNotIn("${{", script)
         output = temp / "out"
         output.write_text("")
         done = subprocess.run(["bash", "-c", script], cwd=work, capture_output=True, text=True,
-                              env={**os.environ, "BASE_SHA": base, "HEAD_SHA": head_sha or head, "GITHUB_OUTPUT": str(output),
+                              env={**os.environ, "BASE_SHA": base, "HEAD_SHA": head_sha or head, "GITHUB_OUTPUT": str(output), "RUNNER_TEMP": str(temp),
                                    "GIT_CONFIG_GLOBAL": os.devnull})
         self.assertEqual(done.returncode, 0, done.stdout + done.stderr)
         return dict(line.split("=", 1) for line in output.read_text().splitlines())
 
     def test_an_ios_change_runs_tests_and_lint(self) -> None:
-        self.assertEqual(self.detect({"ios/App.swift": "x\n"}), {"should_run": "true", "should_lint": "true"})
+        self.assertEqual(self.detect({"ios/App.swift": "x\n"}),
+                         {"should_run": "true", "should_build": "true", "should_lint": "true"})
 
     def test_a_package_change_runs_only_the_lint(self) -> None:
         self.assertEqual(self.detect({"Packages/macOS/Foo.swift": "x\n"}),
-                         {"should_run": "false", "should_lint": "true"})
+                         {"should_run": "false", "should_build": "false", "should_lint": "true"})
+
+    def test_a_package_resource_change_runs_neither_lint_nor_tests(self) -> None:
+        # The conventions lint scans only .swift files.
+        self.assertEqual(self.detect({"Packages/macOS/Foo/Resources/a.json": "x\n"}),
+                         {"should_run": "false", "should_build": "false", "should_lint": "false"})
+
+    def test_the_pool_pick_waits_for_routing_and_skips_without_ios_files(self) -> None:
+        runner = yaml.safe_load(WORKFLOW.read_text(encoding="utf-8"))["jobs"]["runner"]
+        self.assertEqual(runner["needs"], "detect-ios-changes")
+        self.assertIn("needs.detect-ios-changes.outputs.should_run == 'true'", runner["if"])
 
     def test_a_base_only_ios_change_is_not_the_pull_requests(self) -> None:
         self.assertEqual(self.detect({"docs/note.md": "x\n"}, base_files={"ios/Base.swift": "x\n"}),
-                         {"should_run": "false", "should_lint": "false"})
+                         {"should_run": "false", "should_build": "false", "should_lint": "false"})
 
     def test_a_checkout_that_is_not_the_pull_requests_merge_runs_everything(self) -> None:
         self.assertEqual(self.detect({"docs/note.md": "x\n"}, head_sha="0" * 40),
-                         {"should_run": "true", "should_lint": "true"})
+                         {"should_run": "true", "should_build": "true", "should_lint": "true"})
 
 
 if __name__ == "__main__":

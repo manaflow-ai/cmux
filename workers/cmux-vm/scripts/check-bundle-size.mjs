@@ -17,7 +17,15 @@ import { gzipSync } from "node:zlib";
 // was added.
 // The upstream server-timing tally with its body-read timing (src/upstream/timing.ts) measured 454.1 KiB; no
 // dependency was added.
-const BUDGET_GZIP_BYTES = 455 * 1024; // 298 KiB at S1
+// A long exec as a provider background request (src/upstream/live-background.ts) measured 455.7 KiB (454.8 KiB
+// before); no dependency was added.
+// An image's large snapshot and a create with no provider read first add about 1.6 KiB on top of that (456.0 KiB
+// over 454.4 KiB when measured alone in CI); no dependency was added.
+// Dated API versions (src/api-version.ts, the Cmux-Api-Version pin) measured 460.6 KiB in CI; no dependency was
+// added.
+// Whole-tree search and the paused-read replica Durable Object (src/replica/, RFD 0144 piece 2) measured 469.2 KiB
+// locally; no dependency was added.
+const BUDGET_GZIP_BYTES = 472 * 1024; // 298 KiB at S1
 const dir = process.argv[2] ?? "dist";
 
 const files = readdirSync(dir, { recursive: true })

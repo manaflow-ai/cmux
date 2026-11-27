@@ -20,6 +20,9 @@ sys.path.insert(0, str(ROOT / "scripts" / "ci"))
 
 import ci_receipt  # noqa: E402
 
+sys.path.insert(0, str(ROOT / "tests"))
+import git_fixture_env  # noqa: E402
+
 REPO = "manaflow-ai/cmux"
 CANONICAL = "python3 scripts/ci/ci_receipt.py produce fast-gates"
 HEAD = "a" * 40
@@ -80,6 +83,9 @@ class FakeGitHub:
         self.files = files or []
         self.jobs = jobs if jobs is not None else [{"id": JOB_ID, "name": "checks", "conclusion": "success"}]
         self.calls: list[str] = []
+        self.pr_commits: list[str] = [HEAD]
+        self.listed: list[dict] = [run_record()]
+        self.commit_dates: dict[str, str] = {}
 
     def __call__(self, path: str) -> bytes:
         self.calls.append(path)
@@ -89,18 +95,25 @@ class FakeGitHub:
             return json.dumps({"jobs": self.jobs}).encode()
         if path == f"repos/{REPO}/actions/jobs/{JOB_ID}/logs":
             return self.log.encode()
+        if path.startswith(f"repos/{REPO}/pulls/"):
+            return json.dumps([{"sha": sha, "commit": {"committer": {"date": self.commit_dates.get(sha, "2026-11-19T07:00:00Z")}}}
+                               for sha in self.pr_commits]).encode()
+        if path.startswith(f"repos/{REPO}/actions/workflows/fast-checks.yml/runs?"):
+            page = int(path.split("&page=", 1)[1].split("&", 1)[0])
+            return json.dumps({"workflow_runs": self.listed[(page - 1) * 100:page * 100]}).encode()
         if path.startswith(f"repos/{REPO}/compare/"):
             return json.dumps({"status": self.compare, "files": [{"filename": f} for f in self.files]}).encode()
         raise ci_receipt.Rejected(f"GitHub answered 404 for {path}")
 
 
 def verify(fake: FakeGitHub, *, job: str = "fast-gates", body: str | None = None, base: str = BASE,
-           merge_tree: str = MERGE_TREE, audit_percent: int = 0, workspaces: Path | None = None) -> dict:
+           merge_tree: str = MERGE_TREE, audit_percent: int = 0, workspaces: Path | None = None,
+           pr: int | None = None) -> dict:
     with tempfile.NamedTemporaryFile("w", suffix=".md", delete=False) as handle:
         handle.write(body if body is not None else
                      f"Change.\n\nCI-Receipt: {job} https://github.com/{REPO}/actions/runs/{RUN}\n")
     args = SimpleNamespace(job=job, repo=REPO, head=HEAD, base=base, head_tree=HEAD_TREE, merge_tree=merge_tree,
-                           body_file=handle.name, audit_percent=audit_percent, workspaces=workspaces)
+                           body_file=handle.name, audit_percent=audit_percent, workspaces=workspaces, pr=pr)
     try:
         return ci_receipt.verify(args, fetch=fake)
     finally:
@@ -125,6 +138,77 @@ class Verify(unittest.TestCase):
         result = verify(fake, body="No receipt here. CI-Receipt: rust-workspaces 123")
         self.assertRejected(result, "no CI-Receipt: fast-gates line")
         self.assertEqual(fake.calls, [])
+
+    def test_discovery_finds_the_run_with_no_pointer(self):
+        # A lane ran the canonical command with `cmux-ci test` and wrote no CI-Receipt line.
+        fake = FakeGitHub()
+        result = verify(fake, body="No pointer.", pr=7)
+        self.assertEqual(result["valid"], "true", result["reason"])
+        self.assertTrue(result["run_url"].endswith(RUN))
+
+    def test_discovery_reads_a_run_of_an_earlier_commit_of_the_same_tree(self):
+        # The run tested the PR's first commit; the head is a later commit (same tree: check_run holds the tree).
+        earlier = "9" * 40
+        title = f"Fast checks {SOURCE} tests {REPO}@{earlier}"
+        fake = FakeGitHub(log=log_text(head=earlier), run=run_record(display_title=title))
+        fake.pr_commits = [earlier, HEAD]
+        fake.listed = [run_record(display_title=title)]
+        result = verify(fake, body="", pr=7)
+        self.assertEqual(result["valid"], "true", result["reason"])
+
+    def test_discovery_still_holds_the_run_to_every_check(self):
+        for fake, fragment in (
+            (FakeGitHub(log=log_text(command="echo ok")), "not fast-gates's canonical"),
+            (FakeGitHub(log=log_text(source_tree="1" * 40)), "FAST_CHECKS_RECEIPT"),
+            (FakeGitHub(log=log_text(tree="2" * 40)), "merge tree"),
+            (FakeGitHub(run=run_record(head_branch="other")), "dispatch on main"),
+        ):
+            with self.subTest(fragment=fragment):
+                self.assertRejected(verify(fake, body="", pr=7), fragment)
+
+    def test_discovery_ignores_runs_that_test_no_commit_of_the_pull_request(self):
+        fake = FakeGitHub()
+        fake.listed = [run_record(display_title=f"Fast checks {SOURCE} tests {REPO}@{'8' * 40}"),
+                       run_record(display_title=f"Fast checks {SOURCE} tests other/repo@{HEAD}"),
+                       run_record(display_title="Fast checks " + SOURCE)]
+        self.assertRejected(verify(fake, body="", pr=7), "no passing Fast checks run")
+
+    def test_discovery_reads_only_the_runs_since_the_oldest_commit(self):
+        # On 2026-11-21 main held about 1,240 passing receipt dispatches from two days, so every search read all five
+        # pages (about 240 GITHUB_TOKEN calls an hour from this job alone). A run cannot test a commit made after it
+        # started, so the search starts at the pull request's oldest commit (less a margin for clock skew).
+        import datetime
+        older = "7" * 40
+        fake = FakeGitHub()
+        fake.pr_commits = [older, HEAD]
+        fake.commit_dates = {older: "2026-11-21T23:40:00Z", HEAD: "2026-11-22T00:10:00Z"}
+        fake.listed = [run_record(display_title=f"Fast checks {SOURCE} tests {REPO}@{'8' * 40}")] * 99 + [run_record()]
+        found = ci_receipt.discover(fake, REPO, 7, HEAD, now=datetime.datetime(2026, 11, 22, 1, 0, tzinfo=datetime.timezone.utc))
+        self.assertEqual(found, [RUN])
+        (listing,) = [c for c in fake.calls if "workflows/fast-checks.yml/runs" in c][:1]
+        self.assertIn("created=%3E%3D2026-11-21T23:10:00Z", listing)
+        self.assertNotIn("created=%3E%3D2026-11-20", listing)
+
+    def test_discovery_without_commit_dates_keeps_the_two_day_window(self):
+        import datetime
+        fake = FakeGitHub()
+        fake.commit_dates = {HEAD: "not a date"}
+        ci_receipt.discover(fake, REPO, 7, HEAD, now=datetime.datetime(2026, 11, 22, 1, 0, tzinfo=datetime.timezone.utc))
+        listing = [c for c in fake.calls if "workflows/fast-checks.yml/runs" in c][0]
+        self.assertIn("created=%3E%3D2026-11-20", listing)
+
+    def test_a_pointer_beats_discovery(self):
+        fake = FakeGitHub()
+        self.assertEqual(verify(fake, pr=7)["valid"], "true")
+        self.assertFalse([c for c in fake.calls if "workflows/fast-checks.yml/runs" in c])
+
+    def test_discovery_search_failure_runs_everything(self):
+        class Down(FakeGitHub):
+            def __call__(self, path):
+                if "workflows/fast-checks.yml/runs" in path:
+                    raise ci_receipt.Rejected("GitHub answered 502")
+                return super().__call__(path)
+        self.assertRejected(verify(Down(), body="", pr=7), "the search for a run failed")
 
     def test_forged_receipt_from_an_echo_command(self):
         # The receipt lines are printed by a command that is not the canonical one.
@@ -237,7 +321,7 @@ class Verify(unittest.TestCase):
         self.assertEqual(run(["webviews/src/App.tsx", "docs/x.md"])["valid"], "true")
         self.assertEqual(run(["webviews/src/App.tsx"])["base"], OLD_BASE)
         for changed in ("cmux-tui/crates/acpmux/src/lib.rs", "webviews/native/build.rs", "Cargo.lock",
-                        "coderouter/README.md", "ghostty-next", ".github/rust-workspaces.toml",
+                        "Native/DiffSidecar/README.md", "ghostty-next", ".github/rust-workspaces.toml",
                         "cmux-tui/rust-toolchain.toml", ".github/actions/setup-cmux-tui-rust/action.yml"):
             with self.subTest(changed=changed):
                 self.assertRejected(run(["docs/x.md", changed]), "changed Rust inputs")
@@ -275,7 +359,7 @@ class Produce(unittest.TestCase):
 
         def git(*args: str) -> str:
             return subprocess.run(["git", "-C", str(repo), "-c", "user.name=t", "-c", "user.email=t@t", *args],
-                                  check=True, capture_output=True, text=True).stdout.strip()
+                                  check=True, capture_output=True, text=True, env=git_fixture_env.fixture_env()).stdout.strip()
 
         git("init", "-q", "-b", ci_receipt.BRANCH)
         (repo / "a").write_text("1")
@@ -394,6 +478,123 @@ class RustSummary(unittest.TestCase):
                                         RECEIPT_AUDIT="true", RECEIPT_RUN=self.RUN_URL, RECEIPT_PRODUCER="octo")
         self.assertNotIn("verified reuse", out + summary)
         self.assertIn("CI receipt audit", out)
+
+
+def lane_receipt(**overrides) -> dict:
+    receipt = {"schema": "ci-receipt/v1", "check": "fast-gates", "repo": REPO, "head": HEAD, "head_tree": HEAD_TREE,
+               "base": BASE, "tree": MERGE_TREE, "tree_kind": "lane-merge", "producer": "lane:fs-agent-lane-9",
+               "command_sha256": __import__("hashlib").sha256(CANONICAL.encode()).hexdigest(), "exit": 0,
+               "sig": "c2ln", "shadow": False}
+    receipt.update(overrides)
+    return receipt
+
+
+def lane_verify(receipts, *, fake: FakeGitHub | None = None, base: str = BASE, audit_percent: int = 0,
+                body: str = "Change.\n", pr: int | None = None) -> tuple[dict, list[dict]]:
+    asked: list[dict] = []
+
+    def ask(payload):
+        asked.append(payload)
+        if isinstance(receipts, Exception):
+            raise receipts
+        return {"receipts": receipts}
+    with tempfile.NamedTemporaryFile("w", suffix=".md", delete=False) as handle:
+        handle.write(body)
+    args = SimpleNamespace(job="fast-gates", repo=REPO, head=HEAD, base=base, head_tree=HEAD_TREE,
+                           merge_tree=MERGE_TREE, body_file=handle.name, audit_percent=audit_percent, workspaces=None,
+                           pr=pr, lane=True)
+    try:
+        return ci_receipt.verify(args, fetch=fake or FakeGitHub(), lane_ask_fn=ask), asked
+    finally:
+        Path(handle.name).unlink()
+
+
+class LaneReceipts(unittest.TestCase):
+    """A lane's own pass, signed by the controller and asked for by head tree (Leo, 2026-11-25: "what other
+    fundamental cuts can we make? let's do them")."""
+
+    def test_a_lane_receipt_on_the_same_base_counts_with_no_pointer(self):
+        result, asked = lane_verify([lane_receipt()])
+        self.assertEqual(result["valid"], "true", result["reason"])
+        self.assertEqual(result["producer"], "lane:fs-agent-lane-9")
+        self.assertEqual(result["base"], BASE)
+        self.assertEqual(asked, [{"op": "lookup", "check": "fast-gates", "head_tree": HEAD_TREE}])
+
+    def test_same_base_needs_the_same_merge_tree(self):
+        result, _ = lane_verify([lane_receipt(tree="9" * 40)])
+        self.assertEqual(result["valid"], "false")
+        self.assertIn("not this run's", result["reason"])
+
+    def test_an_older_base_counts_only_as_an_ancestor(self):
+        self.assertEqual(lane_verify([lane_receipt(base=OLD_BASE)])[0]["valid"], "true")
+        result, _ = lane_verify([lane_receipt(base=OLD_BASE)], fake=FakeGitHub(compare="diverged"))
+        self.assertEqual(result["valid"], "false")
+        self.assertIn("not an ancestor", result["reason"])
+
+    def test_another_command_repo_tree_or_producer_is_refused(self):
+        for bad in ({"command_sha256": "0" * 64}, {"repo": "x/y"}, {"head_tree": "1" * 40},
+                    {"producer": "actions:x"}, {"check": "rust-workspaces"}, {"base": "short"}):
+            result, _ = lane_verify([lane_receipt(**bad)])
+            self.assertEqual(result["valid"], "false", bad)
+
+    def test_the_first_covering_receipt_wins(self):
+        result, _ = lane_verify([lane_receipt(tree="9" * 40, producer="lane:a"), lane_receipt(producer="lane:b")])
+        self.assertEqual((result["valid"], result["producer"]), ("true", "lane:b"))
+
+    def test_a_producer_in_shadow_is_always_audited(self):
+        result, _ = lane_verify([lane_receipt(shadow=True)])
+        self.assertEqual((result["valid"], result["audit"]), ("true", "true"))
+        self.assertIn("shadow", result["reason"])
+
+    def test_audit_samples_lane_receipts_too(self):
+        self.assertEqual(lane_verify([lane_receipt()], audit_percent=100)[0]["audit"], "true")
+        self.assertEqual(lane_verify([lane_receipt()], audit_percent=0)[0]["audit"], "false")
+
+    def test_no_lane_receipt_or_a_down_controller_runs_the_gates(self):
+        result, _ = lane_verify([])
+        self.assertEqual(result["valid"], "false")
+        self.assertIn("no lane receipt", result["reason"])
+        result, _ = lane_verify(ci_receipt.Rejected("the controller did not answer: timeout"))
+        self.assertEqual(result["valid"], "false")
+        self.assertIn("did not answer", result["reason"])
+
+    def test_without_a_lane_receipt_discovery_still_runs(self):
+        result, _ = lane_verify([], pr=5)
+        self.assertEqual(result["valid"], "true", result["reason"])  # FakeGitHub's run is a real receipt
+        self.assertFalse(result["producer"].startswith("lane:"))
+
+
+class LaneRecord(unittest.TestCase):
+    def test_records_on_a_lane_and_never_inside_actions(self):
+        args = SimpleNamespace(job="fast-gates", record=True)
+        self.assertTrue(ci_receipt.lane_records(args, env={}))
+        self.assertFalse(ci_receipt.lane_records(args, env={"GITHUB_ACTIONS": "true"}))
+        self.assertFalse(ci_receipt.lane_records(SimpleNamespace(job="fast-gates", record=False), env={}))
+        self.assertFalse(ci_receipt.lane_records(SimpleNamespace(job="rust-workspaces", record=True), env={}))
+
+    def test_record_posts_the_pass_and_a_refusal_is_exit_zero(self):
+        import json as j  # noqa: PLC0415
+        sent = []
+
+        def post(url, data):
+            sent.append((url, j.loads(data)))
+            return 200, j.dumps({"recorded": True, "receipt": {"producer": "lane:x"}}).encode()
+        code = ci_receipt.record_lane("fast-gates", head=HEAD, head_tree=HEAD_TREE, base=BASE, merge_tree=MERGE_TREE,
+                                      seconds=12.0, post=post, env={"CMUX_CI_CONTROLLER": "http://c:1/"})
+        self.assertEqual(code, 0)
+        url, body = sent[0]
+        self.assertEqual(url, "http://c:1/v1/ci/lane-receipt")
+        self.assertEqual((body["command"], body["exit"], body["head_tree"], body["merge_tree"]),
+                         (CANONICAL, 0, HEAD_TREE, MERGE_TREE))
+        self.assertNotIn("producer", body)  # the controller names it from the tailnet
+        self.assertEqual(ci_receipt.record_lane("fast-gates", head=HEAD, head_tree=HEAD_TREE, base=BASE,
+                                                merge_tree=MERGE_TREE, seconds=1, post=lambda u, d: (403, b"no"),
+                                                env={}), 0)
+
+        def down(u, d):
+            raise OSError("unreachable")
+        self.assertEqual(ci_receipt.record_lane("fast-gates", head=HEAD, head_tree=HEAD_TREE, base=BASE,
+                                                merge_tree=MERGE_TREE, seconds=1, post=down, env={}), 0)
 
 
 if __name__ == "__main__":

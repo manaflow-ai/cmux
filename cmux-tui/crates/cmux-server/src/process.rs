@@ -20,6 +20,8 @@ pub struct Cmd {
     pub program: PathBuf,
     pub args: Vec<OsString>,
     pub env: Vec<(String, OsString)>,
+    /// Variables of this process the command must not get.
+    pub env_remove: Vec<String>,
     pub stdin: Option<Vec<u8>>,
     pub cwd: Option<PathBuf>,
 }
@@ -45,6 +47,11 @@ impl Cmd {
 
     pub fn env(mut self, key: &str, value: impl Into<OsString>) -> Cmd {
         self.env.push((key.to_owned(), value.into()));
+        self
+    }
+
+    pub fn env_remove(mut self, key: &str) -> Cmd {
+        self.env_remove.push(key.to_owned());
         self
     }
 
@@ -123,6 +130,9 @@ impl Runner for SystemRunner {
         command.args(&cmd.args);
         // The re-exec loop guard belongs to this process only.
         command.env_remove(cmux_server_core::reexec::GUARD_ENV);
+        for k in &cmd.env_remove {
+            command.env_remove(k);
+        }
         for (k, v) in &cmd.env {
             command.env(k, v);
         }
@@ -162,6 +172,17 @@ pub struct RecordingRunner {
     rules: Mutex<VecDeque<(String, Output)>>,
     /// Answers that stay: used after the one-time rules.
     always: Mutex<Vec<(String, Output)>>,
+    /// Code that runs when a matching command runs (a test's race).
+    hooks: Mutex<Vec<Hook>>,
+}
+
+/// [`RecordingRunner::on_run`]'s code, run before the command's answer.
+struct Hook(String, Box<dyn Fn() + Send + Sync>);
+
+impl std::fmt::Debug for Hook {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_tuple("Hook").field(&self.0).finish_non_exhaustive()
+    }
 }
 
 impl RecordingRunner {
@@ -187,6 +208,16 @@ impl RecordingRunner {
             .push((needle.to_owned(), output));
     }
 
+    /// Runs `hook` each time a command whose display contains `needle`
+    /// runs, before its answer: what changes on the machine while that
+    /// command runs.
+    pub fn on_run(&self, needle: &str, hook: impl Fn() + Send + Sync + 'static) {
+        self.hooks
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .push(Hook(needle.to_owned(), Box::new(hook)));
+    }
+
     pub fn commands(&self) -> Vec<Cmd> {
         self.log.lock().unwrap_or_else(PoisonError::into_inner).clone()
     }
@@ -201,6 +232,11 @@ impl Runner for RecordingRunner {
     fn run(&self, cmd: &Cmd) -> std::io::Result<Output> {
         self.log.lock().unwrap_or_else(PoisonError::into_inner).push(cmd.clone());
         let line = cmd.display();
+        for Hook(needle, hook) in self.hooks.lock().unwrap_or_else(PoisonError::into_inner).iter() {
+            if line.contains(needle.as_str()) {
+                hook();
+            }
+        }
         let mut rules = self.rules.lock().unwrap_or_else(PoisonError::into_inner);
         if let Some(pos) = rules.iter().position(|(needle, _)| line.contains(needle.as_str()))
             && let Some((_, output)) = rules.remove(pos)

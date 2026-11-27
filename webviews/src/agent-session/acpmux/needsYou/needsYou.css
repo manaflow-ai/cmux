@@ -433,7 +433,7 @@
   height: var(--ds-control-primary);
   padding: 0 var(--ds-space-3);
   border-radius: var(--ds-radius-popup);
-  color: var(--acpmux-needs-you-mark);
+  color: var(--acpmux-needs-you-ink);
   font-family: var(--font-ui);
   font-size: var(--text-control);
   font-weight: var(--weight-regular);
@@ -586,7 +586,6 @@
 .acpmux-needs-you-answer[data-answer-key] {
   grid-template-columns: 14px minmax(0, 1fr) auto;
 }
-.acpmux-needs-you-answer .acpmux-keycap {
+.acpmux-needs-you-answer .ui-key-hint {
   margin: 0;
-  color: var(--agent-muted);
 }

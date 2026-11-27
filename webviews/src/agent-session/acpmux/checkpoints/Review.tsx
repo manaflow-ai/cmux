@@ -3,6 +3,7 @@ import { useScrollEdges } from "../../../ui/scrollEdges";
 import type { Checkpoint, CheckpointList } from "./protocol";
 import type { CheckpointStrings } from "./strings";
 import "./styles.css";
+import { intl } from "../../../ui/intl";
 
 /** The checked list is the Create intent. All receipts and omissions come from the Git owner. */
 export function CheckpointReview({
@@ -59,11 +60,11 @@ export function CheckpointReview({
     if (code === "over_limit" || code === "too_large" || code === "file_too_large") return s.tooLarge;
     return s.unavailableFile;
   };
-  const count = (value: number) => new Intl.NumberFormat().format(value);
+  const count = (value: number) => intl.NumberFormat().format(value);
   const date = (value: string) => {
     const timestamp = new Date(value);
     return Number.isFinite(timestamp.getTime())
-      ? new Intl.DateTimeFormat(undefined, { dateStyle: "medium", timeStyle: "short" }).format(timestamp)
+      ? intl.DateTimeFormat(undefined, { dateStyle: "medium", timeStyle: "short" }).format(timestamp)
       : s.unavailable;
   };
   const pins = record?.pins ?? [];
@@ -204,6 +205,7 @@ export function CheckpointReview({
       {busy && <output>{busy === "creating" ? s.creating : busy === "recovering" ? s.recovering : s.loading}</output>}
       {pending && !busy && onRetry && (
         <button type="button" onClick={onRetry}>
+          {/* retry-prompt-ok: sends a saved create, keep or release again, a write to the repository's checkpoints. */}
           {s.retry}
         </button>
       )}

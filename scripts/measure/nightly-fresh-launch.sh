@@ -16,6 +16,10 @@
 #   arms=extra   also the pre-warm arms and the unified log around each fresh launch (nightly-fresh-launch.py --arms)
 #   arms=prewarm also only the pre-warm arms (PREWARM_ARMS)
 #   arms=adhoc   also a new copy re-signed ad hoc (ADHOC_ARMS): does a dmg=build app's first launch cost what the DMG's does
+#   arms=update  only the update path's launch (UPDATE_ARMS: prewarm-update-moved, what the nightly dogfood reads as
+#                app_update_launch_ms), none of the base arms
+#   arms=premain also the PREMAIN_ARMS (a new copy warmed one way each) and a log stream of every launch: what a
+#                new copy's pre-main is made of (NFL-PREMAIN, NFL-PREMAIN-LOG and NFL-VERIFY lines)
 # Prints NFL-FACT, NFL-LAUNCH, NFL-MARKS and NFL-MEDIAN lines; keeps report.json in report.tgz.
 set -uo pipefail
 
@@ -29,7 +33,7 @@ main() {
     case "$arg" in
       dmg=nightly|dmg=build|dmg=https://*) dmg="${arg#dmg=}" ;;
       rounds=*) rounds="${arg#rounds=}" ;;
-      arms=base|arms=extra|arms=prewarm|arms=adhoc) arms="${arg#arms=}" ;;
+      arms=base|arms=extra|arms=prewarm|arms=adhoc|arms=premain|arms=update) arms="${arg#arms=}" ;;
       base=*) base="${arg#base=}" ;;
       config=bench|config=release) config="${arg#config=}" ;;
       *) echo "unknown argument: $arg" >&2; exit 2 ;;
@@ -73,6 +77,7 @@ main() {
 build_dmg() {
   local out="$1" name="$2" config="$3" app configuration=(--release)
   [[ "$config" == bench ]] && configuration=(--config bench)
+  [[ "$config" == debug ]] && configuration=(--config debug) # launch-ready.sh layout=movequit: DEBUG's debug.* commands
   for sub in ghostty ghostty-next; do
     git submodule update --init --depth 1 "$sub" >>"$out/build-$name.log" 2>&1 || { echo "NFL submodule $sub failed" >&2; return 3; }
   done

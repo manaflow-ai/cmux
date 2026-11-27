@@ -12,7 +12,8 @@ import Foundation
 /// - `state` (default): status, connection, plan, this device, devices
 ///   (id, name, platform, online, shared, fingerprint), permissions of this
 ///   Mac and of the hosts read so far, pending requests (id, viewer, scope),
-///   session tickets (id, role, scope, peer), this Mac's hub session and
+///   session tickets (id, role, scope, peer), this Mac's sharing state
+///   (on, off, turned_off, needs_grant), this Mac's hub session and
 ///   menu bar title, the prompt's request, relays (id, name, enabled,
 ///   priority, has_secret), audit count, last error, and each device tab's
 ///   phase and View Only.
@@ -225,7 +226,7 @@ extension MacScreenPages {
                 ["session": .string($0.sessionId), "role": .string($0.role.rawValue), "scope": .string($0.scope.rawValue),
                  "peer": .string($0.peer.id), "ice_servers": .number(Double($0.ice.count))]
             }),
-            "sharing": .bool(hubHost.isSharing), "host_session": session,
+            "sharing": .bool(hubHost.isSharing), "sharing_state": .string(hubHost.sharingState.rawValue), "host_session": session,
             "indicator": hubHost.indicatorTitle.map(JSONValue.string) ?? .null,
             "prompt": approval.current.map { .string($0.id) } ?? .null,
             "relays": .array(hub.relays.map { ["id": .string($0.id), "name": .string($0.name), "enabled": .bool($0.enabled),

@@ -1,0 +1,137 @@
+{
+  "sourceLanguage" : "en",
+  "strings" : {
+    "densityOverlay.differenceBounds" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Differences from x %1$lld to %2$lld, y %3$lld to %4$lld px"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "差分の範囲: x %1$lld〜%2$lld、y %3$lld〜%4$lld px"
+          }
+        },
+        "ar" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "الاختلافات من x %1$lld إلى %2$lld، ومن y %3$lld إلى %4$lld بكسل"
+          }
+        },
+        "bs" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Razlike od x %1$lld do %2$lld, y %3$lld do %4$lld px"
+          }
+        },
+        "da" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Forskelle fra x %1$lld til %2$lld, y %3$lld til %4$lld px"
+          }
+        },
+        "de" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Abweichungen von x %1$lld bis %2$lld, y %3$lld bis %4$lld px"
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Diferencias de x %1$lld a %2$lld, y %3$lld a %4$lld px"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Différences de x %1$lld à %2$lld, y %3$lld à %4$lld px"
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Differenze da x %1$lld a %2$lld, y %3$lld a %4$lld px"
+          }
+        },
+        "km" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "ភាពខុសគ្នាពី x %1$lld ដល់ %2$lld, y %3$lld ដល់ %4$lld px"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "차이: x %1$lld~%2$lld, y %3$lld~%4$lld px"
+          }
+        },
+        "nb" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Forskjeller fra x %1$lld til %2$lld, y %3$lld til %4$lld px"
+          }
+        },
+        "pl" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Różnice od x %1$lld do %2$lld, y %3$lld do %4$lld px"
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Diferenças de x %1$lld a %2$lld, y %3$lld a %4$lld px"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Отличия: x от %1$lld до %2$lld, y от %3$lld до %4$lld пикс."
+          }
+        },
+        "th" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "ความต่างจาก x %1$lld ถึง %2$lld, y %3$lld ถึง %4$lld px"
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Farklar x %1$lld ile %2$lld, y %3$lld ile %4$lld px arasında"
+          }
+        },
+        "uk" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Відмінності: x від %1$lld до %2$lld, y від %3$lld до %4$lld пікс."
+          }
+        },
+        "vi" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Khác biệt từ x %1$lld đến %2$lld, y %3$lld đến %4$lld px"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "差异范围：x %1$lld 到 %2$lld，y %3$lld 到 %4$lld 像素"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "差異範圍：x %1$lld 到 %2$lld，y %3$lld 到 %4$lld 像素"
+          }
+        }
+      }
+    }
+  },
+  "version" : "1.0"
+}

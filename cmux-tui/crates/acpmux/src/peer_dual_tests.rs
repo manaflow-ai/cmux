@@ -123,6 +123,11 @@ async fn rig() -> Rig {
 
 /// [`rig`], with the Url path presenting the peer token (`url_token`) or not.
 async fn rig_with(url_token: bool) -> Rig {
+    rig_doubting_in(url_token, 4_000).await
+}
+
+/// [`rig_with`], with the link's last pong `link_pong_age` ms ago.
+async fn rig_doubting_in(url_token: bool, link_pong_age: u64) -> Rig {
     let (tx, notices) = mpsc::channel(1024);
     let mut peer = Peer::new("p", "ws://127.0.0.1:9", None, None, tx);
     // The link's own pings stay out of the way: its path's doubt is set by hand.
@@ -131,7 +136,7 @@ async fn rig_with(url_token: bool) -> Rig {
     timings.handshake = Duration::from_secs(600);
     let now = crate::store::now_ms();
     let mut paths = Paths::new(&[Via::Link, Via::Url]);
-    paths.pong(Via::Link, 3 * MS, now - 4_000);
+    paths.pong(Via::Link, 3 * MS, now - link_pong_age);
     paths.pong(Via::Url, 10 * MS, now);
     *peer.paths.lock().unwrap() = Some(paths);
     peer.features.lock().unwrap().push(crate::server::dual_requests::FEATURE.to_owned());
@@ -206,6 +211,24 @@ async fn a_path_in_doubt_sends_on_both_and_each_event_reaches_the_hub_once() {
     assert_eq!(delivered(&mut rig.notices, 1).await, vec![10], "no event twice");
     assert_eq!(*rig.peer.cursors.lock().unwrap().get("s1").unwrap(), 10);
     assert_eq!(rig.peer.dual_stats().repeats.load(Ordering::Relaxed), 5);
+}
+
+/// Dual send starts the moment the link's path falls in doubt, not at the probe's next
+/// `DOUBT_CHECK` tick: a failover's first fresh frame waited up to that whole tick (500 ms).
+#[tokio::test]
+async fn dual_send_starts_when_the_doubt_does_not_at_the_next_check() {
+    let ahead = 250;
+    let age = crate::peer_paths::DOUBT_AFTER.as_millis() as u64 - ahead;
+    let rig = rig_doubting_in(true, age).await;
+    let doubt_at =
+        rig.peer.with_paths(|paths| paths.doubt_at(Via::Link)).expect("the link answered");
+    let started = tokio::time::Instant::now();
+    while rig.peer.dual_via().is_none() {
+        assert!(started.elapsed() < WAIT, "a shadow starts");
+        tokio::time::sleep(Duration::from_millis(5)).await;
+    }
+    let late = crate::store::now_ms().saturating_sub(doubt_at);
+    assert!(late < 100, "dual send started {late} ms after the doubt (a check tick is 500 ms)");
 }
 
 #[tokio::test]
@@ -1170,4 +1193,25 @@ async fn a_shadow_does_not_end_before_its_pending_cancel_is_written() {
     assert!(heard, "the shadow's copy ran on: its cancel was never written");
     tokio::task::yield_now().await;
     assert!(peer.shadow_done(&mut run), "once its cancel is written, the shadow may end");
+}
+
+/// A chat whose shadow attaches make no progress is attached again after the same doubling
+/// wait, at most the Transient budget's times in a row: past it the chat leaves the retries,
+/// and this shadow attaches it no more.
+#[test]
+fn chat_reattach_stops_at_the_transient_bound() {
+    use acpmux_list_types::resume::{Decision, ResumeErrorClass};
+    let mut retry = std::collections::HashMap::new();
+    let now = tokio::time::Instant::now();
+    let bound = ResumeErrorClass::Transient.policy().attempts;
+    for tries in 0..bound {
+        let decision = dual::schedule_retry(&mut retry, "s1", now);
+        assert!(matches!(decision, Decision::Act { attempt, .. } if attempt == tries + 1));
+        let (at, _) = retry.get("s1").copied().expect("scheduled");
+        let wait = Duration::from_millis(250).saturating_mul(1 << tries.min(5));
+        assert_eq!(at, now + wait.min(Duration::from_secs(5)), "the wait is unchanged");
+    }
+    let decision = dual::schedule_retry(&mut retry, "s1", now);
+    assert_eq!(decision, Decision::Surface { class: ResumeErrorClass::Transient, attempts: bound });
+    assert!(retry.is_empty(), "the chat waits for the next link");
 }

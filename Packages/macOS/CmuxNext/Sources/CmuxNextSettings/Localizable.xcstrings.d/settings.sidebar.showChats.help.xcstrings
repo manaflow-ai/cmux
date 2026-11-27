@@ -1,0 +1,137 @@
+{
+  "sourceLanguage" : "en",
+  "strings" : {
+    "settings.sidebar.showChats.help" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "ar" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "تعرض صفحة علامة التبويب الجديدة كل محادثات الوكلاء على هذا الكمبيوتر، لا الأخيرة فقط."
+          }
+        },
+        "bs" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Nova kartica prikazuje svaki razgovor s agentom na ovom računaru, ne samo nedavne."
+          }
+        },
+        "da" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Ny fane viser alle agentchats på denne computer, ikke kun de seneste."
+          }
+        },
+        "de" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "„Neuer Tab“ listet jeden Agent-Chat auf diesem Computer auf, nicht nur die letzten."
+          }
+        },
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "New Tab lists every agent chat on this computer, not only recent ones."
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Nueva pestaña muestra todos los chats de agentes de este ordenador, no solo los recientes."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Nouvel onglet liste tous les chats d’agents de cet ordinateur, pas seulement les récents."
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Nuova scheda elenca tutte le chat degli agenti su questo computer, non solo le recenti."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "新規タブに、最近のものだけでなく、このコンピュータのすべてのエージェントチャットを表示します。"
+          }
+        },
+        "km" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "ផ្ទាំងថ្មីបង្ហាញការជជែកភ្នាក់ងារទាំងអស់នៅលើកុំព្យូទ័រនេះ មិនមែនតែការជជែកថ្មីៗទេ។"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "새 탭에 최근 채팅뿐 아니라 이 컴퓨터의 모든 에이전트 채팅을 나열합니다."
+          }
+        },
+        "nb" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Ny fane viser alle agentchatter på denne datamaskinen, ikke bare de siste."
+          }
+        },
+        "pl" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Nowa karta pokazuje wszystkie czaty agentów na tym komputerze, nie tylko ostatnie."
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Nova aba lista todos os chats de agentes deste computador, não só os recentes."
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Новая вкладка показывает все чаты агентов на этом компьютере, а не только недавние."
+          }
+        },
+        "th" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "แท็บใหม่แสดงแชทเอเจนต์ทั้งหมดในคอมพิวเตอร์เครื่องนี้ ไม่ใช่เฉพาะแชทล่าสุด"
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Yeni Sekme yalnızca son sohbetleri değil, bu bilgisayardaki tüm ajan sohbetlerini listeler."
+          }
+        },
+        "uk" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Нова вкладка показує всі чати агентів на цьому комп’ютері, а не лише нещодавні."
+          }
+        },
+        "vi" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Thẻ mới liệt kê mọi cuộc trò chuyện với tác nhân trên máy tính này, không chỉ các cuộc gần đây."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "新标签页列出这台电脑上的所有代理聊天，而不只是最近的。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "新分頁會列出這台電腦上所有的代理聊天，而不只是最近的。"
+          }
+        }
+      }
+    }
+  },
+  "version" : "1.0"
+}

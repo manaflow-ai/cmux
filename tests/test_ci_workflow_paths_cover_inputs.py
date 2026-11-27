@@ -34,13 +34,10 @@ _git_fixture_spec.loader.exec_module(git_fixture_env)
 
 # (workflow, event) -> why its filter deliberately leaves out inputs of the tests it runs. Each needs a reason; an
 # entry with no gap left behind it fails.
-EXEMPT: dict[tuple[str, str], str] = {
-    (".github/workflows/cmux-next.yml", "push"): (
-        "a feat-cmux-next push starts every tier, the Mac compiles included, so its push list stays the product "
-        "list (#21504); pull requests admit every CI input and the router picks the tier "
-        "(tests/test_ci_workflow_path_filter_parity.py PULL_REQUEST_ONLY_PATTERNS)"
-    ),
-}
+# cmux-next.yml's push list no longer stays the product list (#21504): a pull request skips its checks and fast
+# tier (cargo) jobs (scripts/ci/affected-jobs.json pull_request_skip), so its push starts on every path its pull
+# request does, and no push gap is left to excuse.
+EXEMPT: dict[tuple[str, str], str] = {}
 
 # (workflow, input) -> why the "read" is a path the test names as data, not a file it opens. Each needs a reason; an
 # entry with no gap left behind it fails.

@@ -4,7 +4,7 @@ import Foundation
 /// Versions, build numbers and URLs are format arguments.
 nonisolated enum UpdaterStrings {
     static func text(_ key: StaticString, _ value: String.LocalizationValue) -> String {
-        String(localized: key, defaultValue: value, bundle: .module)
+        String(localized: key, defaultValue: value, bundle: .localizedModule)
     }
 
     static func format(_ key: StaticString, _ value: String.LocalizationValue, _ arguments: any CVarArg...) -> String {
@@ -31,11 +31,13 @@ nonisolated enum UpdaterStrings {
     }
     // An install that left the old build running (``UpdateInstallFailure``)
     static var installFailedTitle: String { text("updater.installFailed.title", "Update Didn't Install") }
+    // retry-prompt-ok: installs the update again: downloads and replaces the app's binaries
     static var tryAgain: String { text("updater.card.tryAgain", "Try Again") }
     static var installFailedTranslocatedShort: String {
         text("updater.installFailed.translocated.short", "cmux runs from a read-only copy")
     }
     static var installFailedTranslocated: String {
+        // retry-prompt-ok: an update install that replaces binaries; moving cmux is the person's step
         text("updater.installFailed.translocated", "cmux can't update itself from a read-only copy. Move cmux to Applications, open it from there, and try again.")
     }
     static var installFailedFolderShort: String { text("updater.installFailed.folder.short", "cmux can't replace itself here") }
@@ -44,10 +46,12 @@ nonisolated enum UpdaterStrings {
     }
     static var installFailedSpaceShort: String { text("updater.installFailed.space.short", "Not enough free disk space") }
     static var installFailedSpace: String {
+        // retry-prompt-ok: an update install that replaces binaries; freeing space is the person's step
         text("updater.installFailed.space", "There wasn't enough free disk space to install the update. Free some space and try again, or download the update manually.")
     }
     static var installFailedUnknownShort: String { text("updater.installFailed.unknown.short", "The installer kept this version") }
     static var installFailedUnknown: String {
+        // retry-prompt-ok: an update install that replaces binaries and relaunches
         text("updater.installFailed.unknown", "The installer kept this version of cmux and gave no reason. Try again, or download the update manually.")
     }
     static var managed: String { text("updater.title.managed", "Updates Are Managed") }
@@ -93,6 +97,26 @@ nonisolated enum UpdaterStrings {
     static var rollbackStoresUnknown: String {
         text("updater.rollback.storesUnknown", "cmux can't tell whether the previous version reads your data, so it didn't roll back.")
     }
+    static var rollbackNothingOlder: String {
+        text("updater.rollback.nothingOlder", "This Mac keeps no build older than the one running.")
+    }
+    static func rollbackRelaunchFailed(_ version: String) -> String {
+        format("updater.rollback.relaunchFailed", "cmux %@ is in place, but cmux could not reopen itself. Quit cmux and open it again to finish.", version)
+    }
+    // Go back (the Updated card, the menu, the progress on the notice card)
+    static func versionFrom(_ version: String, _ day: String) -> String {
+        format("updater.goBack.versionFrom", "%1$@ from %2$@", version, day)
+    }
+    static func goBackTitle(_ label: String) -> String { format("updater.goBack.title", "Go Back to %@", label) }
+    static var revertChecking: String { text("updater.goBack.checking", "Checking the kept build…") }
+    static var revertFinding: String { text("updater.goBack.finding", "Finding the previous build…") }
+    static var revertDownloading: String { text("updater.goBack.downloading", "Downloading…") }
+    static var revertVerifying: String { text("updater.goBack.verifying", "Checking the signature…") }
+    static var revertSwapping: String { text("updater.goBack.swapping", "Putting it in place…") }
+    static var revertRestarting: String { text("updater.goBack.restarting", "Restarting…") }
+    static var revertFailed: String { text("updater.goBack.failed", "Could Not Go Back") }
+    static func revertGoingBack(_ label: String) -> String { format("updater.goBack.going", "Going Back to %@", label) }
+    static var revertGoingBackPlain: String { text("updater.goBack.goingPlain", "Going Back to the Previous Build") }
 
     // Test feed
     static var testFeedRefused: String {
@@ -124,12 +148,17 @@ nonisolated enum UpdaterStrings {
         case .sheet: text("updater.held.sheet", "The update waits to restart while a sheet is open. Restart to Update installs it now.")
         case .menu: text("updater.held.menu", "The update waits to restart while a menu is open. Restart to Update installs it now.")
         case .composing: text("updater.held.composing", "The update waits to restart while you compose text. Restart to Update installs it now.")
-        case .notIdle: text("updater.held.notIdle", "The update installs once cmux has been idle for a while. Restart to Update installs it now.")
-        case .agentWorking: text("updater.held.agentWorking", "The update waits to restart while an agent is working. Restart to Update installs it now.")
+        case .notIdle: text("updater.held.notIdle", "The update waits until cmux is idle. Restart to Update installs now.")
         case .unsentDraft: text("updater.held.unsentDraft", "The update waits to restart while a message is unsent. Restart to Update installs it now.")
         case .unknown: text("updater.held.unknown", "The update waits until cmux can tell no agent is working. Restart to Update installs it now.")
+        case .backoff: text("updater.held.backoff", "The update will try to restart again in a little while. Restart to Update installs it now.")
         }
     }
+    // Settings > Updates' App Update card: when this build arrived and when the next check runs.
+    static var settingsLastUpdated: String { text("updater.settings.lastUpdated", "Last Updated") }
+    static var settingsNextCheck: String { text("updater.settings.nextCheck", "Next Check") }
+    static var settingsNextCheckSoon: String { text("updater.settings.nextCheckSoon", "Soon") }
+    static var settingsNextCheckOff: String { text("updater.settings.nextCheckOff", "Automatic checks are off") }
     static var keepsRunning: String { text("updater.card.keepsRunning", "Your terminals and agents keep running.") }
     static var whatsChanged: String { text("updater.card.whatsChanged", "What's changed") }
     static func moreChanges(_ count: Int) -> String {
@@ -156,6 +185,19 @@ nonisolated enum UpdaterStrings {
     }
     static func requiresMacOS(_ version: String, _ required: String, _ system: String) -> String {
         format("updater.detail.requiresMacOS", "cmux %@ requires macOS %@ or later. This Mac runs macOS %@, so it stays on the current version.", version, required, system)
+    }
+    // Update Status (`updates.status`): the palette's toast and the CLI answer's `line`.
+    static func statusNothingStaged(_ running: String) -> String {
+        format("updater.status.nothingStaged", "cmux %@ is running. No update is staged.", running)
+    }
+    static func statusReady(_ running: String, _ staged: String) -> String {
+        format("updater.status.ready", "cmux %1$@ is running. %2$@ is staged and installs on relaunch.", running, staged)
+    }
+    static func statusHeld(_ running: String, _ staged: String, _ reason: String) -> String {
+        format("updater.status.held", "cmux %1$@ is running. %2$@ is staged; the relaunch waits: %3$@.", running, staged, reason)
+    }
+    static func statusInstalling(_ running: String) -> String {
+        format("updater.status.installing", "cmux %@ is running. The update is installing.", running)
     }
     static var readyDetail: String { text("updater.detail.ready", "Relaunch to finish. Terminals keep running.") }
     // The update notice card (Lawrence 2026-10-09)
@@ -184,6 +226,7 @@ nonisolated enum UpdaterStrings {
     static func installStalledDetail(minutes: Int) -> String {
         format("updater.notice.stalledDetail", "cmux waited %lld min for the installer. Your windows are back. Details shows the update log.", minutes)
     }
+    // retry-prompt-ok: an update check that leads to a download and install; the scheduled check also runs again by itself
     static var checkFailedDetail: String { text("updater.notice.checkFailedDetail", "Check your connection and try again.") }
     static var noticeDismiss: String { text("updater.notice.dismiss", "Dismiss") }
     // Short notice titles; the version goes in the detail line.
@@ -208,6 +251,7 @@ nonisolated enum UpdaterStrings {
     static var install: String { text("updater.button.install", "Install and Relaunch") }
     static var later: String { text("updater.button.later", "Later") }
     static var cancel: String { text("updater.button.cancel", "Cancel") }
+    // retry-prompt-ok: an update check, download or install: downloads and replaces binaries
     static var retry: String { text("updater.button.retry", "Try Again") }
     static var done: String { text("updater.button.done", "Done") }
     static var relaunch: String { text("updater.button.relaunch", "Relaunch") }

@@ -50,7 +50,7 @@ push through, with a loud `!!! COMPILE TRAILER NOT CHECKED` line that names the 
 FAIL_OPEN_LOG. Before it fails open on a silent controller it reads the job record an earlier push of this clone got
 from the controller (JOB_CACHE: a finished job and its receipts do not change), so a push refused once is not let
 through later because the controller was slow (PL-instant c4a98974c65..8a9d03d646e, 2026-10-24). It is local only
-(the pre-push gate's guardrails path), never a CI gate.
+(the pre-push gate's guardrails path), not a CI gate.
 """
 from __future__ import annotations
 

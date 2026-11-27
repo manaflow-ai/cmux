@@ -1,16 +1,18 @@
 #!/usr/bin/env bash
 # SPDX-License-Identifier: GPL-3.0-or-later
 # The Screen Recording and Accessibility grants of a signed cmux NEXT app belong to one holder: its
-# Screen Sharing helper ("<app> Screen Sharing.app", plans/cmux-next/screen-sharing-helper.md). macOS
+# Screen Sharing helper ("<app> Helper.app", executable cmux-screen-sharing, plans/cmux-next/screen-sharing-helper.md). macOS
 # keeps a grant under the holder's bundle id and designated requirement, so a build that changes
 # either, or ships a second holder, asks the person again. This fails such a build before it ships.
 #
 #   scripts/ci/check-screen-share-identity.sh <signed app>
 #
-# Checks: exactly one helper in Contents/Library; its bundle id is "<app id>.screen-sharing" (and,
-# for a channel pinned below, that exact id); its designated requirement names that id and the app's
-# Developer ID team, with no cdhash (an ad-hoc signature's requirement is its cdhash, which every
-# build changes); and no second holder (cmux Computer Use.app, com.cmuxterm.cua) beside it.
+# Checks: exactly one helper in Contents/Library, named "<app> Helper.app" (a legacy "<app> Screen
+# Sharing.app", the name before 2026-11-22, counts as a helper but fails: the stamp renames it); its
+# bundle id is "<app id>.screen-sharing" (and, for a channel pinned below, that exact id); its
+# designated requirement names that id and the app's Developer ID team, with no cdhash
+# (an ad-hoc signature's requirement is its cdhash, which every build changes); and no second
+# holder (cmux Computer Use.app, com.cmuxterm.cua) beside it.
 # The team is the app's own (pinned to the shipped team for a pinned channel). sign-cmux-bundle.sh
 # runs it on every Developer ID signing; check-signed-app.sh again on the signed NIGHTLY.
 # CMUX_PLISTBUDDY and CMUX_CODESIGN_TOOL stand in for the tools in
@@ -40,20 +42,40 @@ fail() { echo "error: $*" >&2; exit 1; }
 app_id="$("$PLISTBUDDY" -c "Print :CFBundleIdentifier" "$APP_PATH/Contents/Info.plist")"
 
 helpers=()
+for helper in "$APP_PATH/Contents/Library/"*" Helper.app"; do
+  # Another bundle may end in " Helper.app"; the helper is the one with its executable.
+  [[ -e "$helper/Contents/MacOS/cmux-screen-sharing" ]] && helpers+=("$helper")
+done
 for helper in "$APP_PATH/Contents/Library/"*" Screen Sharing.app"; do
   [[ -d "$helper" ]] && helpers+=("$helper")
 done
+other="$APP_PATH/Contents/Library/cmux Computer Use.app"
+[[ ! -e "$other" ]] || fail "$other ships beside the Screen Sharing helper: a second Screen Recording holder asks the person twice"
+
 # Without a helper the app asks for Screen Recording itself (MacScreenShareHost.requestInApp): the
-# app becomes a second holder, and granting it needs the app to relaunch.
+# app becomes a second holder, and granting it needs the app to relaunch. A nightly that explicitly
+# enables component decoupling may carry no helper; regular signed builds and NIGHTLY_COMPONENT_GATES=block
+# keep the identity hold.
+if [[ ${#helpers[@]} -eq 0 ]]; then
+  if [[ ${NIGHTLY_COMPONENT_GATES+x} ]] && [[ "$NIGHTLY_COMPONENT_GATES" != block ]]; then
+    echo "::warning title=Nightly stale part::cmux-screen-sharing: this nightly carries no Screen Sharing helper"
+    exit 0
+  fi
+  fail "$APP_PATH holds 0 Screen Sharing helpers, not 1"
+fi
 [[ ${#helpers[@]} -eq 1 ]] || fail "$APP_PATH holds ${#helpers[@]} Screen Sharing helpers, not 1"
 helper="${helpers[0]}"
-
-other="$APP_PATH/Contents/Library/cmux Computer Use.app"
-[[ ! -e "$other" ]] || fail "$other ships beside $(basename "$helper"): a second Screen Recording holder asks the person twice"
+[[ "$helper" == *" Helper.app" ]] \
+  || fail "$(basename "$helper") has the name from before the rename; bundle-screen-sharing-helper.sh --stamp names it '<app> Helper.app'"
 
 helper_id="$("$PLISTBUDDY" -c "Print :CFBundleIdentifier" "$helper/Contents/Info.plist")"
-[[ "$helper_id" == "$app_id.screen-sharing" ]] \
-  || fail "$(basename "$helper") is $helper_id, not $app_id.screen-sharing"
+# One helper id per channel: every DEV build shares one (bundle-screen-sharing-helper.sh helper_id_for).
+case "$app_id" in
+  com.cmuxterm.app.debug|com.cmuxterm.app.debug.*) expected_helper_id=com.cmuxterm.app.debug.screen-sharing ;;
+  *) expected_helper_id="$app_id.screen-sharing" ;;
+esac
+[[ "$helper_id" == "$expected_helper_id" ]] \
+  || fail "$(basename "$helper") is $helper_id, not $expected_helper_id"
 pinned="$(pinned_helper_id "$app_id")"
 [[ -z "$pinned" || "$helper_id" == "$pinned" ]] \
   || fail "$app_id's helper is $helper_id; its grants live under $pinned (pinned in $0)"

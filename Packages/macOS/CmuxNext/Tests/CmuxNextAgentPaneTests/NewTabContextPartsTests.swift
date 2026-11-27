@@ -20,6 +20,7 @@ struct NewTabContextPartsTests {
             tabs: [tab], workspaces: [.init(id: "workspace", name: "Workspace", detail: "detail")],
             folders: ["/folder"], projects: ["/project"], actions: [action], commands: ["ls"],
             history: [.init(url: "https://example.com", title: "Example", icon: icon)],
+            bookmarks: [.init(url: "https://swift.org", title: "Swift", icon: icon)],
             uses: ["workspace:workspace": 1.5], profiles: [.init(id: "profile", name: "Profile", color: "#336699")])
         let picks = AgentPaneLastPicks(
             global: .init(harness: "harness", model: "model"),
@@ -33,6 +34,9 @@ struct NewTabContextPartsTests {
         page.draft = "draft"
         page.app = "app"
         page.startedProject = "/project"
+        page.cloudStartedProject = "manaflow-ai/cmux"
+        page.clock = AgentPaneNewTabClock(font: "system", weight: "regular", color: "primary", date: true)
+        page.startsRemote = true
         page.inputToken = "input-token"
         page.focusesField = true
         page.openTabs = [tab]
@@ -141,11 +145,13 @@ struct NewTabContextPartsTests {
                 for key in round % 2 == 0 ? keys : keys.reversed() { session[key] = "\(key)-\(index)" }
                 return session
             }
-            var warm: [String: Any] = [:]
-            warm.reserveCapacity(round % 2 == 0 ? 2 : 32)
-            warm["sessions"] = sessions
-            warm["device"] = "device"
-            return ["method": "newTab.warm", "params": ["warm": warm]]
+            // The page posts its own JSON text (newtab/warmSnapshot.ts), and the host keeps it as it is: one list's
+            // posts are one text whatever order the page's dictionaries give their keys in, because the page's
+            // `JSON.stringify` of one list is one text. Its sessions here are encoded with sorted keys, as the
+            // page's one serializer gives one order.
+            let warm: [String: Any] = ["sessions": sessions, "device": "device"]
+            let data = try! JSONSerialization.data(withJSONObject: warm, options: [.sortedKeys])
+            return ["method": "newTab.warm", "params": ["warm": String(decoding: data, as: UTF8.self)]]
         }
         var texts = Set<String>()
         for round in 0..<8 {
