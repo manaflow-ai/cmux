@@ -212,7 +212,8 @@ mod tests {
     #[test]
     fn opt_in_features_are_stamped_only_when_switched_on() {
         // RFD 0149's read-back: a turn with surgery on must say so even when it masked nothing.
-        let default: Vec<String> = FEATURES.iter().map(|f| (*f).to_owned()).collect();
+        let default: Vec<String> =
+            FEATURES.iter().filter(|f| !DEFAULT_OFF.contains(f)).map(|f| (*f).to_owned()).collect();
         assert_eq!(enabled_all(None, &no_env), default);
         let on = json!({"agents": {"harnessMagic": {
             "surgery": {"enabled": true}, "dedupe": {"enabled": true}}}});
