@@ -7,14 +7,4 @@
 /// generated from schemas/settings/source/terminal.json.
 public nonisolated struct TerminalPredictiveEchoSetting {
     public nonisolated init() {}
-
-    /// A missing key is the default with no diagnostic; a bad value is the
-    /// default plus a diagnostic.
-    static func parse(_ root: JSONValue) -> (Bool, SettingsDiagnostic?) {
-        guard let value = root.value(at: configPath) else { return (fallback, nil) }
-        guard case .bool(let enabled) = value else {
-            return (fallback, SettingsDiagnostic(kind: .invalidValue, path: "terminal.predictiveLocalEcho", message: "expected true or false"))
-        }
-        return (enabled, nil)
-    }
 }
