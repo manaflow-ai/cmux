@@ -48,6 +48,10 @@ on:
         description: "The one job id to run (a bisect probe): health. Empty: every job."
         type: string
         default: ""
+      job:
+        description: "The red job a bisect probe judges, by its full name ('gallery-health / health (8)'): only that matrix leg renders, at the same split. Empty, or a name with no leg: every leg."
+        type: string
+        default: ""
       base:
         description: "The commit the red states are judged against (the post-merge batch's last judged batch head, or a bisect probe's known-good commit): a state red there too is a standing red, listed by name and not failed. Empty: no base, every red state fails."
         type: string
@@ -343,6 +347,13 @@ jobs:
           EVENT: ${{ github.event_name }}
           PUSH_FULL_SHARDS: ${{ vars.GALLERY_HEALTH_PUSH_FULL_SHARDS || '2' }}
           RUN_NUMBER: ${{ github.run_number }}
+          # A bisect probe of one red leg renders that leg alone (2026-11-27, Leo: "de facto, im asking for 99% fewer
+          # minutes of ci time, period."): its judge reads only the red job's verdict (post_merge_batch.py
+          # probe_verdict), yet every probe rendered all 22 legs, ~21 runner-minutes each, ~440 a probe. health.ts
+          # splits by state (shardStates), so leg N holds the same states at the probe's commit as at the batch's
+          # while the split is the same. The repository variable GALLERY_HEALTH_PROBE_ALL_LEGS=1 renders every leg again.
+          PROBE_JOB: ${{ inputs.job }}
+          PROBE_ALL_LEGS: ${{ vars.GALLERY_HEALTH_PROBE_ALL_LEGS }}
         run: |
           set -euo pipefail
           cd webviews
@@ -360,7 +371,11 @@ jobs:
           echo "split=$shards" >> "$GITHUB_OUTPUT"
           echo "$cases cases to render: $shards shard(s) of at most $MAX_CASES_PER_SHARD (at most $MAX_SHARDS shards)"
           slice=${PUSH_FULL_SHARDS:-all}
-          if [ "${EVENT:-}" = push ] && [ "$ALL" = true ] && [[ "$slice" =~ ^[0-9]+$ ]] && [ "$slice" -gt 0 ] \
+          leg=$(sed -n 's/.*[ /]health (\([0-9][0-9]*\))$/\1/p' <<<"${PROBE_JOB:-}")
+          if [ -n "$leg" ] && [ "${PROBE_ALL_LEGS:-}" != 1 ] && [ "$leg" -lt "$shards" ]; then
+            echo "shards=[$leg]" >> "$GITHUB_OUTPUT"
+            echo "a bisect probe of '$PROBE_JOB': leg $leg of the $shards alone (GALLERY_HEALTH_PROBE_ALL_LEGS=1 renders every leg)"
+          elif [ "${EVENT:-}" = push ] && [ "$ALL" = true ] && [[ "$slice" =~ ^[0-9]+$ ]] && [ "$slice" -gt 0 ] \
               && [ "$slice" -lt "$shards" ]; then
             # Consecutive runs take consecutive slices, wrapping, so ceil(shards / slice) full-render pushes cover all.
             start=$(( (${RUN_NUMBER:-0} * slice) % shards ))
