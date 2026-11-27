@@ -1430,7 +1430,7 @@ jobs:
           du -sh cmux-tui/target "$REGISTRY" | tee -a "$GITHUB_STEP_SUMMARY"
 
       - name: Save the cargo build to R2
-        if: ${{ success() && steps.r2-cargo-strip.outcome == 'success' }}
+        if: ${{ success() && github.event_name != 'pull_request' && (github.ref == 'refs/heads/feat-cmux-next' || github.ref == 'refs/heads/main') && steps.r2-cargo-strip.outcome == 'success' }}
         timeout-minutes: 6
         continue-on-error: true
         uses: ./.github/actions/cache-save
@@ -1460,7 +1460,7 @@ jobs:
           key: ${{ steps.r2-zig-local-key.outputs.key }}
 
       - name: Save the cargo registry to R2
-        if: ${{ success() && steps.r2-cargo-strip.outcome == 'success' && steps.r2-cargo-registry.outputs.cache-hit != 'true' }}
+        if: ${{ success() && github.event_name != 'pull_request' && (github.ref == 'refs/heads/feat-cmux-next' || github.ref == 'refs/heads/main') && steps.r2-cargo-strip.outcome == 'success' && steps.r2-cargo-registry.outputs.cache-hit != 'true' }}
         timeout-minutes: 6
         continue-on-error: true
         uses: ./.github/actions/cache-save
@@ -1542,7 +1542,9 @@ jobs:
 
       - name: Resolve Ghostty Zig version
         id: ghostty-zig-version
-        run: echo "version=$(GHOSTTY_ZIG_SOURCE=ghostty-next bash ./scripts/ghostty-zig-version.sh)" >> "$GITHUB_OUTPUT"
+        run: |
+          version="$(GHOSTTY_ZIG_SOURCE=ghostty-next bash ./scripts/ghostty-zig-version.sh)"
+          echo "version=$version" >> "$GITHUB_OUTPUT"
 
       - name: Install zig
         uses: mlugg/setup-zig@8d6198c65fb0feaa111df26e6b467fea8345e46f # v2.0.5
