@@ -1,0 +1,245 @@
+name: Vercel env apply
+
+# Sets one or two non-secret env vars on a Vercel project's production target (cmux-staging by default,
+# or cmux, which serves cmux.com), then rebuilds the commit that is live there, so the site keeps its
+# commit and picks up the new values. The new deployment is promoted only once READY; for cmux, cmux.com
+# must answer 200 afterwards or the previous production deployment is promoted back at once.
+# It uses the repo's VERCEL_TOKEN, so no person's Vercel login is needed. Values are workflow inputs and
+# show in the run's event payload: use it only for non-secret values (URLs, issuer names, flags).
+# Secret production values stay on cmuxterm-hq's scripts/prod-env-apply.sh.
+#
+#   gh workflow run vercel-staging-env-apply.yml --repo manaflow-ai/cmux --ref main [-f project=cmux] \
+#     -f name1=NAME -f value1=VALUE [-f name2=NAME -f value2=VALUE]
+
+on:
+  workflow_dispatch:
+    inputs:
+      project:
+        description: "Vercel project: cmux-staging, or cmux (cmux.com)"
+        type: choice
+        options: [cmux-staging, cmux]
+        default: cmux-staging
+      name1:
+        description: "env var name"
+        required: true
+      value1:
+        description: "its value (not a secret)"
+        required: true
+      name2:
+        description: "optional second env var name"
+        required: false
+        default: ""
+      value2:
+        description: "its value (not a secret)"
+        required: false
+        default: ""
+
+permissions:
+  contents: read
+
+concurrency:
+  group: vercel-env-apply-${{ inputs.project }}
+  cancel-in-progress: false
+
+env:
+  # Temporary REST budget attribution: one gh-call line per GitHub API call (scripts/ci/api_call_log/env.sh, fetched at a fixed commit when the checkout has no copy).
+  BASH_ENV: '$({ w="${GITHUB_WORKSPACE:-/nonexistent}/scripts/ci/api_call_log/env.sh"; t="${RUNNER_TEMP:-/nonexistent}/api-call-log-src"; if [ -f "$w" ]; then echo "$w"; elif [ -n "${RUNNER_TEMP:-}" ]; then if [ ! -f "$t/env.sh" ] && [ ! -e "$t.tried" ] && { [ "${RUNNER_OS:-}" = Linux ] || [ "${RUNNER_OS:-}" = macOS ]; } && [ "$(date -u +%Y%m%d%H)" -lt 2026112300 ]; then : > "$t.tried"; mkdir -p "$t.part" && for x in env.sh gh sitecustomize.py isolated.py; do curl -fsSL --max-time 5 -o "$t.part/$x" "https://raw.githubusercontent.com/manaflow-ai/cmux/27647ffd3ae838c63be28ca3e5883dcd68c34518/scripts/ci/api_call_log/$x" || break; done; [ -s "$t.part/isolated.py" ] && mv "$t.part" "$t"; fi; if [ -f "$t/env.sh" ]; then echo "$t/env.sh"; else echo unset BASH_ENV > "$t.off.sh" && echo "$t.off.sh"; fi; fi; } 2>/dev/null)'
+
+jobs:
+  apply:
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'blacksmith-4vcpu-ubuntu-2404' }}
+    timeout-minutes: 30
+    steps:
+      - name: Set the env vars on ${{ inputs.project }} and redeploy its live commit
+        env:
+          PROJECT: ${{ inputs.project }}
+          VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+          VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
+          NAME1: ${{ inputs.name1 }}
+          VALUE1: ${{ inputs.value1 }}
+          NAME2: ${{ inputs.name2 }}
+          VALUE2: ${{ inputs.value2 }}
+        shell: python3 {0}
+        run: |
+          import json, os, re, sys, time, urllib.error, urllib.parse, urllib.request
+
+          PROJECT = os.environ.get("PROJECT") or "cmux-staging"
+          SITES = {"cmux": "https://cmux.com"}
+          if PROJECT not in ("cmux-staging", "cmux"):
+              sys.exit(f"unknown project {PROJECT!r}")
+          token, team = os.environ["VERCEL_TOKEN"], os.environ.get("VERCEL_ORG_ID", "")
+          if not token:
+              sys.exit("VERCEL_TOKEN is empty")
+
+          def api(path, method="GET", body=None):
+              sep = "&" if "?" in path else "?"
+              url = f"https://api.vercel.com{path}" + (f"{sep}teamId={team}" if team else "")
+              data = json.dumps(body).encode() if body is not None else None
+              req = urllib.request.Request(url, data=data, method=method, headers={
+                  "Authorization": f"Bearer {token}", "Content-Type": "application/json"})
+              try:
+                  with urllib.request.urlopen(req, timeout=60) as r:
+                      return json.load(r)
+              except urllib.error.HTTPError as e:
+                  detail = e.read().decode(errors="replace")[:400]
+                  sys.exit(f"{method} {path.split('?')[0]}: HTTP {e.code}: {detail}")
+
+          wanted = []
+          for n, v in (("NAME1", "VALUE1"), ("NAME2", "VALUE2")):
+              name, value = os.environ.get(n, "").strip(), os.environ.get(v, "")
+              if not name:
+                  continue
+              if not re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*", name):
+                  sys.exit(f"bad env var name {name!r}")
+              if not value:
+                  sys.exit(f"{name}: empty value")
+              wanted.append((name, value))
+          if not wanted:
+              sys.exit("no env var given")
+
+          project = api(f"/v9/projects/{PROJECT}")
+          pid = project["id"]
+          print(f"project {PROJECT} ({pid})")
+
+          # A production build still running would land after ours; refuse before writing anything.
+          running = api(f"/v6/deployments?projectId={pid}&target=production&state=BUILDING,QUEUED,INITIALIZING&limit=20")
+          if running.get("deployments"):
+              sys.exit("a production build is still running: "
+                       + " ".join(d.get("url", "") for d in running["deployments"]) + "; run this again after it is live")
+
+          envs = api(f"/v9/projects/{pid}/env").get("envs", [])
+          for name, value in wanted:
+              entries = []
+              for e in envs:
+                  t = e.get("target") or []
+                  t = [t] if isinstance(t, str) else t
+                  if e.get("key") == name and "production" in t and not e.get("gitBranch"):
+                      entries.append((e, t))
+              if len(entries) > 1:
+                  sys.exit(f"{name} has {len(entries)} production entries; fix them in the dashboard first")
+              if entries:
+                  e, t = entries[0]
+                  if "development" in t:
+                      sys.exit(f"{name} is one entry for targets {t}; split it in the dashboard first")
+                  api(f"/v9/projects/{pid}/env/{e['id']}", "PATCH", {"value": value})
+                  print(f"updated {name} (targets {','.join(t)})")
+              else:
+                  api(f"/v10/projects/{pid}/env", "POST",
+                      {"key": name, "value": value, "type": "encrypted", "target": ["production"]})
+                  print(f"created {name} (production)")
+
+          # Redeploy what is live in production now, so staging keeps its commit.
+          live = (api(f"/v9/projects/{pid}").get("targets") or {}).get("production") or {}
+          if not live.get("id"):
+              ready = api(f"/v6/deployments?projectId={pid}&target=production&state=READY&limit=1")["deployments"]
+              if not ready:
+                  sys.exit("no live production deployment to redeploy")
+              live = {"id": ready[0]["uid"], "url": ready[0]["url"]}
+          def say_why(dep_id, d):
+              # Vercel's reason fields and the build log's last lines (an ignoreCommand skip ends there).
+              for k in ("readyStateReason", "errorCode", "errorMessage"):
+                  if d.get(k):
+                      print(f"  {k}: {d[k]}")
+              try:
+                  events = api(f"/v3/deployments/{dep_id}/events?limit=-1&builds=1")
+              except SystemExit as e:
+                  print(f"  build log unreadable: {e}")
+                  return
+              lines = [(e.get("payload") or {}).get("text") or e.get("text") or "" for e in (events or [])]
+              print("  build log, last lines:")
+              for line in [l for l in lines if l][-30:]:
+                  print("    " + line)
+
+          def redeploy(extra):
+              body = {"name": PROJECT, "deploymentId": live["id"], "target": "production",
+                      "meta": {"action": "redeploy"}, **extra}
+              body = {k: v for k, v in body.items() if v is not None}
+              new = api("/v13/deployments?forceNew=1", "POST", body)
+              print(f"new deployment https://{new.get('url')} ({new['id']})")
+              deadline = time.time() + 25 * 60
+              while True:
+                  d = api(f"/v13/deployments/{new['id']}")
+                  state = d.get("readyState") or d.get("status")
+                  if state in ("READY", "ERROR", "CANCELED"):
+                      if state != "READY":
+                          print(f"new deployment is {state}")
+                          say_why(new["id"], d)
+                      return state, new["id"], new.get("url")
+                  if time.time() > deadline:
+                      sys.exit(f"new deployment still {state} after 25 min")
+                  time.sleep(10)
+
+          print(f"redeploying {live.get('url')} ({live['id']})")
+          state, new_id, new_url = redeploy({})
+          if state == "CANCELED":
+              # web/vercel.json's ignoreCommand skips a build with no web change since the branch's last deployment
+              # (VERCEL_GIT_PREVIOUS_SHA), and a redeploy has none. A deployment of the same commit under a branch
+              # name with no deployments has no previous SHA, so the ignore step builds it (actions run 45041469204:
+              # projectSettings.commandForIgnoringBuildStep does not override vercel.json).
+              ld = api(f"/v13/deployments/{live['id']}")
+              meta = ld.get("meta") or {}
+              sha = meta.get("githubCommitSha") or (ld.get("gitSource") or {}).get("sha")
+              repo_id = meta.get("githubRepoId") or (ld.get("gitSource") or {}).get("repoId")
+              if not sha or not repo_id:
+                  sys.exit("the live deployment names no git commit or repo id; cannot rebuild it")
+              ref = f"vercel-env-redeploy/{sha[:12]}"
+              print(f"cancelled; deploying commit {sha} as ref {ref} so the ignored build step builds it")
+              state, new_id, new_url = redeploy({"deploymentId": None, "meta": None, "gitSource": {
+                  "type": "github", "repoId": repo_id, "ref": ref, "sha": sha}})
+          if state != "READY":
+              sys.exit(f"redeploy ended {state}; the env change is saved but not live")
+          print(f"new deployment READY: https://{new_url}")
+
+          def serving():
+              return ((api(f"/v9/projects/{pid}").get("targets") or {}).get("production") or {}).get("id")
+
+          def promote(dep_id):
+              api(f"/v10/projects/{pid}/promote/{dep_id}", "POST", {})
+              for _ in range(30):
+                  if serving() == dep_id:
+                      return True
+                  time.sleep(10)
+              return False
+
+          for _ in range(12):
+              cur = serving()
+              if cur == new_id:
+                  break
+              time.sleep(10)
+          if cur != new_id:
+              print(f"production still serves {cur}; promoting READY deployment {new_id}")
+              if not promote(new_id):
+                  sys.exit(f"promote of {new_id} did not take; production serves {serving()}")
+          print(f"production now serves the new deployment {new_id}")
+
+          site = SITES.get(PROJECT)
+          if site:
+              codes = []
+              for path in ("/", "/pricing"):
+                  code = 0
+                  for _ in range(6):
+                      try:
+                          with urllib.request.urlopen(urllib.request.Request(site + path, headers={
+                                  "User-Agent": "cmux-vercel-env-apply"}), timeout=30) as r:
+                              code = r.status
+                      except urllib.error.HTTPError as e:
+                          code = e.code
+                      except Exception as e:
+                          print(f"  {site}{path}: {e}")
+                      if code == 200:
+                          break
+                      time.sleep(10)
+                  print(f"{site}{path}: HTTP {code}")
+                  codes.append(code)
+              if any(c != 200 for c in codes):
+                  print(f"regression; promoting the previous production deployment {live['id']} back")
+                  back = promote(live["id"])
+                  sys.exit(f"rolled back to {live['id']}: {'done' if back else 'NOT confirmed, check now'}")
+
+          envs = api(f"/v9/projects/{pid}/env").get("envs", [])
+          present = {e.get("key") for e in envs
+                     if "production" in ([e["target"]] if isinstance(e.get("target"), str) else (e.get("target") or []))}
+          for name, _ in wanted:
+              print(f"read back: {name} {'present' if name in present else 'MISSING'} on production")
+              if name not in present:
+                  sys.exit(1)

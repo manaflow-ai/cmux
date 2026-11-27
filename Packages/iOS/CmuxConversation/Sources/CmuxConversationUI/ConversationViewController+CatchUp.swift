@@ -93,6 +93,7 @@ extension ConversationViewController {
     private func setCatchUpVisible(_ visible: Bool) {
         guard catchUpButton.isHidden == visible else { return }
         catchUpButton.isHidden = false
+<<<<<<< HEAD
         // motion: allow crossfade, the Reduce Motion form
         UIView.animate(withDuration: 0.25, delay: 0, options: [.beginFromCurrentState, .allowUserInteraction]) {
             self.catchUpButton.alpha = visible ? 1 : 0
@@ -107,6 +108,14 @@ extension ConversationViewController {
         UIView.animate(withDuration: 0.25, delay: 0, options: [.beginFromCurrentState, .allowUserInteraction]) {
             self.catchUpButton.transform = visible ? .identity : CGAffineTransform(scaleX: 0.6, y: 0.6)
         }
+=======
+        UIView.animate(withDuration: 0.25, delay: 0, options: [.beginFromCurrentState, .allowUserInteraction]) {
+            self.catchUpButton.alpha = visible ? 1 : 0
+            self.catchUpButton.transform = visible ? .identity : CGAffineTransform(scaleX: 0.6, y: 0.6)
+        } completion: { _ in
+            if self.catchUpButton.alpha == 0 { self.catchUpButton.isHidden = true }
+        }
+>>>>>>> origin/main
         if visible {
             catchUpButton.transform = CGAffineTransform(scaleX: 0.6, y: 0.6)
             UIView.animate(withDuration: 0.35, delay: 0, usingSpringWithDamping: 0.7, initialSpringVelocity: 0, options: [.beginFromCurrentState, .allowUserInteraction]) {
@@ -117,7 +126,11 @@ extension ConversationViewController {
 
     @objc private func catchUpTapped() {
         catchUpButton.isEnabled = false
+<<<<<<< HEAD
         ConversationHaptics.impact(.light)
+=======
+        UIImpactFeedbackGenerator(style: .light).impactOccurred()
+>>>>>>> origin/main
         Task { [weak self] in
             guard let self else { return }
             let rowID = await self.store.loadCatchUpTarget()
@@ -137,7 +150,11 @@ extension ConversationViewController {
         let y = min(max(-top, frame.minY - top - 8), bottomOffset.y)
         store.dismissCatchUp()
         setCatchUpVisible(false)
+<<<<<<< HEAD
         collectionView.setContentOffset(CGPoint(x: 0, y: y), animated: !UIView.reducesMotion)
+=======
+        collectionView.setContentOffset(CGPoint(x: 0, y: y), animated: true)
+>>>>>>> origin/main
     }
 
     /// Lab hook: the catch-up arrow's state, `visible` / `hidden`.

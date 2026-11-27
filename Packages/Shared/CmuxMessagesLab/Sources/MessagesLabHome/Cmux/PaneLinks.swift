@@ -1,5 +1,8 @@
 import AppKit
+<<<<<<< HEAD
 import CmuxHomeCore
+=======
+>>>>>>> origin/main
 
 /// cmux: what a click on a bubble's link opens. Every destination is re-checked at click
 /// time with `MarkdownLinkPolicy` (only http, https and mailto, plus a host's extra
@@ -20,10 +23,14 @@ extension ChatController {
     /// The link under `p` in its bubble, or nil when the point is on no link.
     func linkTarget(_ hit: MessagesWindowView.Hit, at p: CGPoint) -> PaneLinkTarget? {
         let local = CGPoint(x: p.x - hit.body.minX - Fixture.bubblePadX, y: p.y - hit.body.minY - Fixture.bubblePadY)
+<<<<<<< HEAD
         // A markdown layout is body-local (its frags already sit at the padding,
         // MarkdownLayout.swift); a TextLayout is text-local.
         let bodyLocal = CGPoint(x: p.x - hit.body.minX, y: p.y - hit.body.minY)
         if let md = hit.row.markdown, let s = md.link(at: bodyLocal) { return .text(MarkdownLinkPolicy.url(s)) }
+=======
+        if let md = hit.row.markdown, let s = md.link(at: local) { return .text(MarkdownLinkPolicy.url(s)) }
+>>>>>>> origin/main
         if let tl = hit.row.text, let s = tl.link(at: local) { return .text(MarkdownLinkPolicy.url(s)) }
         if case let .link(url, _, _, _, _) = hit.row.part { return .card(url, MarkdownLinkPolicy.url(url)) }
         return nil
@@ -33,6 +40,7 @@ extension ChatController {
     /// opens nothing). A card tap is the one time a received card may fetch its preview
     /// (HomeLinkPreviews).
     func openLink(_ hit: MessagesWindowView.Hit, at p: CGPoint) -> Bool {
+<<<<<<< HEAD
         openLink(linkTarget(hit, at: p), ref: hit.row.ref)
     }
 
@@ -51,6 +59,14 @@ extension ChatController {
             if let url, url.isCmuxAppLink || url.isHomePathLink { onAppLink?(url) } else if let url { onOpenLink(url, other) }
         case let .card(raw, url)?:
             if let url { intents?.linkTapped(ref, url: raw); onOpenLink(url, other) }
+=======
+        switch linkTarget(hit, at: p) {
+        case let .text(url)?:
+            // An app link (a Chief subagent) goes to the host, never to the system.
+            if let url, url.isChiefSubagentLink { onAppLink?(url) } else if let url { NSWorkspace.shared.open(url) }
+        case let .card(raw, url)?:
+            if let url { intents?.linkTapped(hit.row.ref, url: raw); NSWorkspace.shared.open(url) }
+>>>>>>> origin/main
         case nil:
             return false
         }
@@ -67,6 +83,7 @@ extension ChatController {
         }
     }
 }
+<<<<<<< HEAD
 
 extension ChatController {
     /// The link chip under `p` (host coordinates) and its pill on that line, or nil (the host's
@@ -84,3 +101,5 @@ extension ChatController {
         return HomeLinkChipHit(url: url, kind: span.kind, rect: HomeLinkChip.pillRect(span, origin: origin))
     }
 }
+=======
+>>>>>>> origin/main

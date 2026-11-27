@@ -224,6 +224,7 @@ enum SidebarDraw {
             draw(l, x: r.midX - lw / 2, baseline: r.midY + cap / 2, g)
         case let .image(path):
             g.saveGState()
+<<<<<<< HEAD
             let url = path.hasPrefix("file:") ? URL(string: path) : assetDirectory?.appendingPathComponent(path)
             if let url, let src = CGImageSourceCreateWithURL(url as CFURL, nil), let img = CGImageSourceCreateImageAtIndex(src, 0, nil) {
                 // cmux: a picture with clear edges (the Chief's pet) is fitted by what it draws: centred and grown to the
@@ -234,13 +235,29 @@ enum SidebarDraw {
                 g.draw(img, in: fit.rect)
             } else {
                 g.addEllipse(in: r); g.clip()
+=======
+            g.addEllipse(in: r); g.clip()
+            let url = path.hasPrefix("file:") ? URL(string: path) : assetDirectory?.appendingPathComponent(path)
+            if let url, let src = CGImageSourceCreateWithURL(url as CFURL, nil), let img = CGImageSourceCreateImageAtIndex(src, 0, nil) {
+                g.translateBy(x: r.minX, y: r.maxY); g.scaleBy(x: 1, y: -1)
+                g.draw(img, in: CGRect(origin: .zero, size: r.size))
+            } else {
+>>>>>>> origin/main
                 g.setFillColor(p.monogramBottom); g.fill(r)
             }
             g.restoreGState()
         case let .emoji(e):
             g.setFillColor(p.groupDisc)
             g.fillEllipse(in: r)
+<<<<<<< HEAD
             emoji(e, in: r, g) // cmux: centered by its drawn box, one share of the disc
+=======
+            let font = emojiFont(r.width * 0.5) // held, not made per draw (cx-qpqs)
+            let l = line(e, font, CGColor(gray: 0, alpha: 1))
+            var asc: CGFloat = 0, desc: CGFloat = 0
+            let lw = CGFloat(CTLineGetTypographicBounds(l, &asc, &desc, nil))
+            draw(l, x: r.midX - lw / 2, baseline: r.midY + (asc - desc) / 2, g)
+>>>>>>> origin/main
         case let .group(members):
             g.setFillColor(p.groupDisc)
             g.fillEllipse(in: r)
@@ -263,6 +280,7 @@ enum SidebarDraw {
         }
     }
 
+<<<<<<< HEAD
     /// cmux: an emoji avatar's drawn box (its glyph image bounds) spans this share of the disc's
     /// diameter at every size, so the pinned tile and the row draw one avatar.
     static let emojiShare: CGFloat = 0.6
@@ -290,6 +308,8 @@ enum SidebarDraw {
         return CTLineGetBoundsWithOptions(l, [])
     }
 
+=======
+>>>>>>> origin/main
     // MARK: Row
 
     /// The row's parts, each its own layer: the avatar (shared avatar bitmap) and the unread
@@ -432,8 +452,12 @@ enum SidebarDraw {
     /// The avatar's rect in a tile (tile coordinates).
     static func tileAvatar(_ m: SidebarMetrics) -> CGRect {
         let d = m.pinAvatar
+<<<<<<< HEAD
         let y = m.compact ? ((m.tileHeight - d) / 2).rounded() : SidebarMetrics.pinTopPad // cmux: centred in a compact row
         return CGRect(x: ((m.tileWidth - d) / 2).rounded(), y: y, width: d, height: d)
+=======
+        return CGRect(x: ((m.tileWidth - d) / 2).rounded(), y: m.compact ? SidebarMetrics.pinTopPad / 2 : SidebarMetrics.pinTopPad, width: d, height: d)
+>>>>>>> origin/main
     }
 
     /// A pinned tile is layers: the avatar (one bitmap at the largest pin size, scaled), the
@@ -450,10 +474,15 @@ enum SidebarDraw {
         return (n, b)
     }
     /// The width a tile name bitmap is drawn for: 0 when the name fits (natural width), else the room.
+<<<<<<< HEAD
     /// `unread`: the room leaves space for the dot before the name (`tileLabel`).
     static func tileNameKeyWidth(natural: CGFloat, tileWidth: CGFloat, unread: Bool = false) -> CGFloat {
         let room = tileWidth - 8 - (unread ? tileDotDiameter + tileDotGap : 0)
         return natural <= room ? 0 : room.rounded(.down)
+=======
+    static func tileNameKeyWidth(natural: CGFloat, tileWidth: CGFloat) -> CGFloat {
+        natural <= tileWidth - 8 ? 0 : (tileWidth - 8).rounded(.down)
+>>>>>>> origin/main
     }
     /// The width a bubble is drawn for: 0 when the preview fits on one line, else the bubble's room.
     static func tileBubbleKeyWidth(natural: CGFloat, tileWidth: CGFloat) -> CGFloat {
@@ -462,7 +491,11 @@ enum SidebarDraw {
     /// The name, 16 pt tall, baseline 11 pt; `keyWidth` 0: natural width.
     static func tileNameImage(_ c: ConversationSummary, emphasized: Bool, keyWidth: CGFloat, ctx: SidebarRenderContext) -> CGImage? { // nil when the bitmap cannot be allocated
         let p = ctx.palette
+<<<<<<< HEAD
         let color = emphasized ? p.selectedText : p.pinName // cmux: pinName (Home's neutral selection)
+=======
+        let color = emphasized ? p.selectedText : p.name
+>>>>>>> origin/main
         let full = line(tileName(c), pinNameFont, color)
         let l = keyWidth > 0 ? truncated(full, keyWidth, pinNameFont, color) : full
         let w = max(1, width(l).rounded(.up))
@@ -515,6 +548,7 @@ enum SidebarDraw {
         return CGRect(x: (c.x - d / 2).rounded(), y: (c.y - d / 2).rounded(), width: d, height: d)
     }
 
+<<<<<<< HEAD
     /// The pinned tile's unread dot: the row dot's size, this far before the name.
     static let tileDotDiameter: CGFloat = SidebarMetrics.dotDiameter
     static let tileDotGap: CGFloat = 4
@@ -536,6 +570,18 @@ enum SidebarDraw {
         return (name, CGRect(x: x0, y: (y + 7 - d / 2).rounded(), width: d, height: d))
     }
 
+=======
+    /// The 12 pt unread dot on the tile's leading edge, left of the avatar, and below the bubble
+    /// (`bubble`, nil: none) so a wide bubble never covers it (cmux-next's rule, 2026-10-08).
+    static func tileUnreadDot(_ m: SidebarMetrics, bubble: CGRect?) -> CGRect {
+        let d: CGFloat = 12
+        let ar = tileAvatar(m)
+        let cx = max(d / 2 + 1, ar.minX - d / 2 - 1)
+        var cy = ar.midY - ar.height * 0.25
+        if let bubble { cy = max(cy, bubble.maxY + d / 2 + 3) }
+        return CGRect(x: cx - d / 2, y: cy - d / 2, width: d, height: d)
+    }
+>>>>>>> origin/main
 }
 
 /// The list's motion (render-server animations only; no main-thread frames). Start values are the
@@ -689,7 +735,11 @@ final class SidebarTypingLayer: CALayer {
         for d in lit { d.backgroundColor = p.typingDot; d.contentsScale = scale }
     }
     /// The dots pulse (tests: every lit dot has its animation, or the still phase is set).
+<<<<<<< HEAD
     var isPulsing: Bool { stillPhase != nil || lit.allSatisfy { $0.animation(forKey: "pulse") != nil } }
+=======
+    var isPulsing: Bool { Self.stillPhase != nil || lit.allSatisfy { $0.animation(forKey: "pulse") != nil } }
+>>>>>>> origin/main
     /// Still scenes: the dots stand at this phase of the pulse (0-1) instead of animating (nil: animate).
     static var stillPhase: Double?
     private static func level(_ i: Int, phase t: Double) -> Double {
@@ -699,6 +749,7 @@ final class SidebarTypingLayer: CALayer {
     }
     /// Starts the pulse once. Phase-locked to whole periods of the media clock, so every bubble
     /// in the list pulses in step and a row that scrolls back in does not restart its cycle.
+<<<<<<< HEAD
     /// cmux: the still phase, also the first dot's peak under Reduce Motion (cx-sya4n: nothing loops).
     /// cmux (msg 20105): the list's motion is off, so the dots stand still at the first dot's peak.
     var still = false
@@ -707,6 +758,11 @@ final class SidebarTypingLayer: CALayer {
         if let ph = stillPhase {
             // cmux: a running pulse stops when Reduce Motion turns on (cx-sya4n).
             for (i, d) in lit.enumerated() { d.removeAnimation(forKey: "pulse"); d.opacity = Float(Self.level(i, phase: ph)) }
+=======
+    func animate() {
+        if let ph = Self.stillPhase {
+            for (i, d) in lit.enumerated() { d.opacity = Float(Self.level(i, phase: ph)) }
+>>>>>>> origin/main
             return
         }
         let begin = (CACurrentMediaTime() / Self.period).rounded(.down) * Self.period
@@ -767,6 +823,7 @@ final class SidebarTextCache {
     }
     func removeAll() { lock.lock(); map.removeAll(); order.removeAll(); lock.unlock() }
 }
+<<<<<<< HEAD
 
 /// cmux: where to draw a picture in a `size` box (y up, as the avatar's flipped-back context draws it). A picture with
 /// clear edges is centred on its opaque pixels and grown until they span `fill` of the box (at most 3 times); one that
@@ -803,3 +860,5 @@ func pictureFit(_ img: CGImage, size: CGSize, fill: CGFloat = 0.84) -> (rect: CG
     let cx = (x0 + x1) / 2 * w, cy = (1 - (top0 + top1) / 2) * h
     return (CGRect(x: (size.width / 2 - cx).rounded(), y: (size.height / 2 - cy).rounded(), width: w, height: h), true)
 }
+=======
+>>>>>>> origin/main

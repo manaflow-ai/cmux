@@ -21,7 +21,10 @@ two cannot drift apart.
 
 from __future__ import annotations
 
+<<<<<<< HEAD
 import datetime as dt
+=======
+>>>>>>> origin/main
 import json
 import re
 from functools import cache
@@ -114,6 +117,12 @@ def _owned_pattern() -> re.Pattern[str]:
 
 
 POOL_ORDER_VARIABLE = "CI_PR_POOL_ORDER"
+# A MACOS_RUNNER_* variable may name an owned pull request Mac pool: the guard's owned shape
+# (glaeda-std-xcode-26.6), its GUI pool (glaeda-gui-std-xcode-26.6) or the iOS simulator pool (glaeda-ios-sim).
+# Never a runner name (glaeda-runner-*), a side lane's or the trusted pool's label: those stay refused. Every job
+# that reads one of these on a pull request keeps forks off it with its own guard (head.repo.full_name).
+MACOS_RUNNER_PREFIX = "MACOS_RUNNER_"
+OWNED_MAC_LABEL = re.compile(r"glaeda-(aws-)?(gui-)?(xl|std|light)-xcode-[0-9]+(\.[0-9]+)*|glaeda-ios-sim")
 
 
 def pool_order_reason(order: str) -> str | None:
@@ -203,6 +212,7 @@ def side_lane_labels_reason(value: str) -> str | None:
     return None
 
 
+<<<<<<< HEAD
 NIGHTLY_NEXT_BUILD_VARIABLE = "CI_NIGHTLY_NEXT_BUILD_RUNNER"
 
 
@@ -306,6 +316,8 @@ def aws_side_reason(label: str) -> str | None:
     return f"is retired (the {AWS_SIDE_PREFIX}* pools have no runners); delete the variable"
 
 
+=======
+>>>>>>> origin/main
 TRUSTED_POOL_VARIABLE = "CI_SEED_TRUSTED_POOL"
 TRUSTED_POOL_PREFIX = "glaeda-trusted-"
 
@@ -331,6 +343,29 @@ def trusted_pool_reason(label: str) -> str | None:
             f"({TRUSTED_POOL_PREFIX}<class>-xcode-<version>)")
 
 
+NIGHTLY_SLOT_VARIABLE = "CI_NIGHTLY_NEXT_BUILD_RUNNER"
+NIGHTLY_SLOT_PREFIX = "glaeda-nightly-"
+
+
+def nightly_slot_reason(label: str) -> str | None:
+    """Why CI_NIGHTLY_NEXT_BUILD_RUNNER is not allowed, or None when it is fine.
+
+    The nightly slot: glaeda's one runner per mini whose hook admits only nightly jobs, labelled
+    glaeda-nightly-<class>-xcode-<version>. nightly.yml's decide and the scheduled nightly-next canary and
+    launch smoke take it whole as runs-on behind a startsWith('glaeda-nightly-') bound, and their failure jobs
+    hold Actions and issues write tokens, so any other owned or self-hosted label is refused here. Empty is
+    fine (those jobs take Blacksmith).
+    """
+    if not label:
+        return None
+    if label.startswith(NIGHTLY_SLOT_PREFIX) and _owned_pattern().fullmatch(
+        "glaeda-" + label[len(NIGHTLY_SLOT_PREFIX):]
+    ):
+        return None
+    return (f"`{label}` is not a nightly slot label "
+            f"({NIGHTLY_SLOT_PREFIX}<class>-xcode-<version>)")
+
+
 NIGHTLY_RUNNER_VARIABLE = "CI_NIGHTLY_TRUSTED_RUNNER"
 # glaeda-cmux-runner's runner_label(): the static label only the runner
 # registered under that name carries (lowercase, [a-z0-9._-]).
@@ -351,6 +386,16 @@ def nightly_runner_reason(label: str) -> str | None:
     if not label or RUNNER_NAME_LABEL.fullmatch(label):
         return None
     return f"`{label}` is not a runner name label (glaeda-runner-<runner name>, lowercase)"
+
+
+# A GitHub-hosted macOS image (macos-15, macos-latest, macos-15-intel, ...). No
+# runner variable may hold one: a variable routes around the workflow guard
+# (tests/test_ci_no_github_hosted_macos.py). Leo, 2026-10-27: "THE GITHUB
+# HOSTED MACS / ARE THE SLOWEST THINGS / THEY PREVIOUSLY WREN'T EVEN UNDER
+# CONSIDERATINO".
+HOSTED_MACOS_LABEL = re.compile(
+    r"(?<![a-z0-9_.-])macos-(?:latest|[0-9]+)(?:-(?:intel|large|xlarge|arm64))?(?![a-z0-9_.-])"
+)
 
 
 def forbidden_reason(label: str) -> str | None:
@@ -375,9 +420,12 @@ def forbidden_reason(label: str) -> str | None:
         )
     if selfhosted.search(remainder):
         return "targets a self-hosted runner directly"
+    if HOSTED_MACOS_LABEL.search(label.lower()):
+        return "names a GitHub-hosted Mac; route owned first, then Blacksmith"
     return None
 
 
+<<<<<<< HEAD
 # Runner variables the nightly, promote and DEV paths read
 # (tests/test_ci_nightly_no_hosted_mac.py keeps this complete). They never hold
 # a GitHub-hosted Mac. Leo, 2026-10-27: "THE GITHUB HOSTED MACS / ARE THE
@@ -493,6 +541,13 @@ def runner_pools_reason(value: str) -> str | None:
         if reason is not None:
             return reason
     return None
+=======
+# The classic nightly's one-mini switch (Lawrence, 2026-11-04: nightlies build on a single Mac mini): each may
+# name only its cmux15 label, which no other runner carries (cmuxterm-hq build-fleet/nightly_mini_policy_test.py).
+CLASSIC_NIGHTLY_MINI_VARIABLES = {
+    "CI_CLASSIC_NIGHTLY_MINI": "glaeda-nightly-mini",
+}
+>>>>>>> origin/main
 
 
 def drifted_runner_variables(
@@ -522,6 +577,7 @@ def drifted_runner_variables(
             continue
         if name == POOL_ORDER_VARIABLE:
             reason = pool_order_reason(value.strip())
+<<<<<<< HEAD
         elif name == "CI_NIGHTLY_ONLY_RUNNER":
             reason = (None if value.strip() in ("", "glaeda-nightly-only-m4pro") else
                       "must name the enrolled all-nightly reservation or be unset")
@@ -535,10 +591,18 @@ def drifted_runner_variables(
         elif name == "CI_NIGHTLY_MINI_BUILDER":
             reason = (None if value.strip() in ("", "glaeda-nightly-mini-builder") else
                       "must name the one nightly mini's warm builder label (glaeda-nightly-mini-builder) or be unset")
+=======
+        elif name in CLASSIC_NIGHTLY_MINI_VARIABLES:
+            # The classic one-mini nightly (tests/test_classic_nightly_one_mini.py): only cmux15's own label.
+            label = CLASSIC_NIGHTLY_MINI_VARIABLES[name]
+            reason = (None if value.strip() in ("", label) else
+                      f"must name the one nightly mini's label ({label}) or be unset")
+>>>>>>> origin/main
         elif name in SIDE_LANE_VARIABLES:
             reason = side_lane_reason(value.strip())
         elif name == SIDE_LANE_LABELS_VARIABLE:
             reason = side_lane_labels_reason(value)
+<<<<<<< HEAD
         elif name == NIGHTLY_NEXT_BUILD_VARIABLE:
             reason = nightly_next_build_reason(value.strip())
         elif name in (NIGHTLY_SIGNING_POOL_VARIABLE, "CI_NIGHTLY_SIGN_RUNNER"):
@@ -555,9 +619,21 @@ def drifted_runner_variables(
         elif name in (TRUSTED_POOL_VARIABLE, "CI_NIGHTLY_NEXT_TRUSTED_POOL"):
             reason = trusted_pool_reason(value.strip())
         elif name in (NIGHTLY_RUNNER_VARIABLE, "CI_NIGHTLY_NEXT_TRUSTED_RUNNER", "CI_IOS_INTERNAL_RUNNER"):
+=======
+        elif name in (TRUSTED_POOL_VARIABLE, "CI_NIGHTLY_NEXT_TRUSTED_POOL"):
+            reason = trusted_pool_reason(value.strip())
+        elif name == NIGHTLY_SLOT_VARIABLE:
+            reason = nightly_slot_reason(value.strip())
+        elif name in (NIGHTLY_RUNNER_VARIABLE, "CI_NIGHTLY_NEXT_TRUSTED_RUNNER"):
+>>>>>>> origin/main
             reason = nightly_runner_reason(value.strip())
         elif "RUNNER" not in name:
             continue
+        elif name.startswith(MACOS_RUNNER_PREFIX) and OWNED_MAC_LABEL.fullmatch(value.strip()):
+            # Owned Macs first is the settled routing (Leo, 2026-11-19: Linux first, then owned Macs; the cloud
+            # is an overflow switch nothing depends on). A signing job's variable is still held to an ephemeral
+            # label by check_repo_variables.py (signing_runner_variables.allowed_value).
+            reason = None
         else:
             reason = forbidden_reason(value.strip())
         if reason is not None:

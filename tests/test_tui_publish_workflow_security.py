@@ -538,6 +538,157 @@ def test_typescript_sdk_publisher_cannot_publish_the_cli_package() -> None:
     assert "https://www.npmjs.com/package/cmux" in tui
 
 
+<<<<<<< HEAD
+=======
+def test_npm_bootstrap_preserves_the_first_stable_version() -> None:
+    bootstrap = workflow("sdk-bootstrap-npm.yml")
+    publish = workflow_job(bootstrap, "publish")
+    sdk_ci = workflow("cmux-tui-sdks.yml")
+    releasing = (
+        ROOT / "cmux-tui" / "bindings" / "RELEASING.md"
+    ).read_text()
+
+    assert workflow_triggers(bootstrap) == {
+        "repository_dispatch": {"types": ["sdk-bootstrap-npm"]}
+    }
+    for job in ("build", "preflight", "verify"):
+        block = workflow_job(bootstrap, job)
+        assert (
+            "runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || "
+            "vars.CI_OVERFLOW_LINUX || 'cmux-linux' }}" in block
+        )
+    assert (
+        "runs-on: ubuntu-latest # github-hosted-required: npm provenance publishing"
+        in publish
+    )
+    assert "id-token: write" in bootstrap
+    assert "NPM_BOOTSTRAP_TOKEN" in bootstrap
+    assert 'BOOTSTRAP_VERSION: "0.0.0-bootstrap.0"' in bootstrap
+    assert "npm test" in bootstrap
+    assert "npm pack --pack-destination" in bootstrap
+    assert "CMUX_NPM_PACKAGE" in bootstrap
+    assert 'npm publish "$(realpath "${packages[0]}")"' in bootstrap
+    assert "--tag bootstrap" in bootstrap
+    assert "--provenance" in bootstrap
+    assert "--access public" in bootstrap
+    assert sdk_ci.count('".github/workflows/sdk-bootstrap-npm.yml"') == 2
+    assert "sdk-bootstrap-npm.yml" in releasing
+    assert "0.0.0-bootstrap.0" in releasing
+    assert "first `cmux-sdk` release interactively" not in releasing
+
+
+def test_pypi_bootstrap_reserves_the_project_before_release_tags() -> None:
+    bootstrap = workflow("sdk-bootstrap-pypi.yml")
+    sdk_ci = workflow("cmux-tui-sdks.yml")
+    release = workflow("sdk-release-cut.yml")
+    releasing = (
+        ROOT / "cmux-tui" / "bindings" / "RELEASING.md"
+    ).read_text()
+
+    assert workflow_triggers(bootstrap) == {
+        "repository_dispatch": {"types": ["sdk-bootstrap-pypi"]}
+    }
+    assert "runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.CI_OVERFLOW_LINUX || 'cmux-linux' }}" in bootstrap
+    assert "id-token: write" in bootstrap
+    assert "name: pypi-bootstrap" in bootstrap
+    assert "PYPI_BOOTSTRAP_TOKEN" not in bootstrap
+    assert 'BOOTSTRAP_VERSION: "0.0.0a0"' in bootstrap
+    assert "build==1.3.0" in bootstrap
+    assert "setuptools==80.9.0" in bootstrap
+    assert "wheel==0.45.1" in bootstrap
+    assert "python3 -m build --no-isolation --sdist --wheel" in bootstrap
+    assert "CMUX_PYTHON_DIST_DIR" in bootstrap
+    assert "gh-action-pypi-publish@cef221092ed1bacb1cc03d23a2d87d1d172e277b" in bootstrap
+    assert "skip-existing: true" in bootstrap
+    assert "pypi-attestations==0.0.29" in bootstrap
+    assert "pypi-attestations verify pypi" in bootstrap
+    assert "--owner lawrencecchen" in bootstrap
+    assert sdk_ci.count('".github/workflows/sdk-bootstrap-pypi.yml"') == 2
+    assert "sdk-bootstrap-pypi.yml" in releasing
+    assert "0.0.0a0" in releasing
+
+    publish = workflow_job(bootstrap, "publish")
+    publisher = "gh-action-pypi-publish@cef221092ed1bacb1cc03d23a2d87d1d172e277b"
+    assert '[[ "$GITHUB_REPOSITORY" == "manaflow-ai/cmux" ]]' in publish
+    assert '[[ "$GITHUB_REF" == "refs/heads/main" ]]' in publish
+    assert "git ls-remote" in publish
+    assert '[[ "$main_sha" == "$GITHUB_SHA" ]]' in publish
+    assert publish.index("git ls-remote") < publish.index(publisher)
+
+    registry = workflow_job(release, "registry-preflight")
+    cut_tags = release.index("  cut-tags:")
+    ownership = release.index("Verify the PyPI ownership bootstrap")
+    assert ownership < cut_tags
+    assert "pypi-attestations==0.0.29" in registry
+    assert "0.0.0a0" in registry
+    assert "pypi-attestations verify pypi" in registry
+    assert "--owner lawrencecchen" in registry
+
+
+def test_crates_bootstrap_preserves_the_first_stable_version() -> None:
+    bootstrap = workflow("sdk-bootstrap-crates.yml")
+    sdk_ci = workflow("cmux-tui-sdks.yml")
+    releasing = (
+        ROOT / "cmux-tui" / "bindings" / "RELEASING.md"
+    ).read_text()
+    manifests = {
+        name: tomllib.loads(
+            (
+                ROOT
+                / "cmux-tui"
+                / "bindings"
+                / "bootstrap"
+                / source
+                / "Cargo.toml"
+            ).read_text()
+        )
+        for name, source in (
+            ("cmux-sdk", "rust-sdk"),
+            ("cmux-sidebar", "rust-sidebar"),
+        )
+    }
+
+    assert workflow_triggers(bootstrap) == {
+        "repository_dispatch": {"types": ["sdk-bootstrap-crates"]}
+    }
+    assert "runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.CI_OVERFLOW_LINUX || 'cmux-linux' }}" in bootstrap
+    assert 'RUST_TOOLCHAIN: "1.95.0"' in bootstrap
+    assert 'BOOTSTRAP_VERSION: "0.0.0-bootstrap.0"' in bootstrap
+    assert "CARGO_BOOTSTRAP_TOKEN" in bootstrap
+    assert "cargo test --manifest-path" in bootstrap
+    assert "cargo package --manifest-path" in bootstrap
+    assert bootstrap.count("reconcile_registry_artifact.py check") == 2
+    assert bootstrap.count("verify_crates_ownership.py") == 2
+    assert bootstrap.count("--bootstrap-ownership-only") == 2
+    assert "--retry-missing-project" in bootstrap
+    assert "--allow-missing-project" not in bootstrap
+    assert 'cmp "$BOOTSTRAP_ARTIFACT" "$REPACKED_ARTIFACT"' in bootstrap
+    assert "cargo publish" in bootstrap
+    for name, manifest in manifests.items():
+        assert manifest["package"]["name"] == name
+        assert manifest["package"]["version"] == "0.0.0-bootstrap.0"
+        assert "dependencies" not in manifest
+        assert manifest["workspace"] == {}
+    assert "cmux-sdk-bootstrap-crate" in bootstrap
+    assert "cmux-sidebar-bootstrap-crate" in bootstrap
+    assert "client_payload.package" not in bootstrap
+    assert bootstrap.count("max-parallel: 1") == 2
+    assert sdk_ci.count('".github/workflows/sdk-bootstrap-crates.yml"') == 2
+    assert "sdk-bootstrap-crates.yml" in releasing
+    assert "0.0.0-bootstrap.0" in releasing
+    assert "publish `cmux-sidebar` interactively once" not in releasing
+    bootstrap_probe = bootstrap.split(
+        "- name: Inspect the crates.io bootstrap state",
+        1,
+    )[1].split("\n      - name:", 1)[0]
+    assert "--user-agent" in bootstrap_probe
+    assert "https://github.com/manaflow-ai/cmux" in bootstrap_probe
+    assert "--retry-delay 1" in bootstrap_probe
+    assert "sleep 1" in bootstrap_probe
+    assert bootstrap.count("sleep 1") >= 3
+
+
+>>>>>>> origin/main
 def test_registry_setup_disables_long_lived_publish_credentials() -> None:
     releasing = (
         ROOT / "cmux-tui" / "bindings" / "RELEASING.md"
@@ -571,6 +722,486 @@ def test_python_sdk_publisher_cannot_publish_the_cli_package() -> None:
     assert "https://pypi.org/p/cmux" in tui
 
 
+<<<<<<< HEAD
+=======
+def test_sdk_release_cut_preflights_then_owns_the_selected_publishers() -> None:
+    release = workflow("sdk-release-cut.yml")
+    validation = workflow_job(release, "validate-release")
+
+    assert workflow_triggers(release) == {
+        "repository_dispatch": {"types": ["sdk-release-cut"]}
+    }
+    assert 'sdk_tag="cmux-sdk-v$VERSION"' in release
+    assert 'go_tag="cmux-tui/bindings/go/v$VERSION"' in release
+    assert 'git push --atomic "$release_repository"' in release
+    assert '"refs/tags/$SDK_TAG"' in release
+    assert '"refs/tags/$GO_TAG"' in release
+    preflights = {
+        "rust": "crates",
+        "go": "go",
+        "typescript": "npm",
+        "python": "python",
+    }
+    tag_push = release.index('git push --atomic "$release_repository"')
+    for job, publisher in preflights.items():
+        assert f"{job}-preflight:" in release
+        assert f"uses: ./.github/workflows/sdk-publish-{publisher}.yml" in release
+        assert release.index(f"{job}-preflight:") < tag_push
+    assert 'existing_sha="$(git rev-parse' in release
+    assert '"$existing_sha" != "$GITHUB_SHA"' in release
+    assert "validate_release_version.py" in release
+    assert "--require-newer-than-tags" not in validation
+    assert "--require-latest-tag" in validation
+    assert "sdk_existing_sha" in validation
+    assert "go_existing_sha" in validation
+    assert "existing coordinated SDK tags must both name $GITHUB_SHA" in validation
+    assert "git tag --list 'cmux-sdk-v*'" in release
+    assert "check-spec-inventory.py" in validation
+    assert "codegen/generate.py --check" in validation
+    surface_gate = validation.index("check-spec-inventory.py")
+    assert validation.index('[[ "$GITHUB_REF" == "refs/heads/main" ]]') < surface_gate
+    assert validation.index('[[ "$GITHUB_SHA" == "$main_sha" ]]') < surface_gate
+    for language in ("rust", "go", "typescript", "python"):
+        assert f"--language {language}" in validation
+    assert "gh workflow run sdk-publish-" not in release
+    assert "verify-go-tag:" in release
+    assert release.index("verify-go-tag:") > tag_push
+    for job, publisher in (
+        ("publish-crate-sdk", "crates"),
+        ("publish-crate-sidebar", "crates"),
+        ("publish-npm", "npm"),
+        ("publish-python-wheel", "python"),
+        ("publish-python-sdist", "python"),
+    ):
+        assert f"{job}:" in release
+        block = workflow_job(release, job)
+        assert f"uses: ./.github/workflows/sdk-publish-{publisher}.yml" not in block
+        assert "verify-go-tag" in block
+        assert "Require the coordinated release source" in block
+        assert "--require-latest-tag" in block
+    assert "if: always()" in release
+    for result in (
+        "VALIDATE_RESULT",
+        "RUST_PREFLIGHT_RESULT",
+        "GO_PREFLIGHT_RESULT",
+        "TYPESCRIPT_PREFLIGHT_RESULT",
+        "PYTHON_PREFLIGHT_RESULT",
+        "REGISTRY_PREFLIGHT_RESULT",
+        "REVALIDATE_TAGS_RESULT",
+        "CUT_TAGS_RESULT",
+        "CRATE_SDK_RESULT",
+        "CRATE_SIDEBAR_RESULT",
+        "GO_TAG_RESULT",
+        "NPM_RESULT",
+        "PYTHON_WHEEL_RESULT",
+        "PYTHON_SDIST_RESULT",
+        "STABLE_PROVENANCE_RESULT",
+    ):
+        assert result in release
+    assert "sdk-publish-java.yml" not in release
+
+
+def test_privileged_sdk_workflows_use_external_release_authority() -> None:
+    release = workflow("sdk-release-cut.yml")
+    crates_bootstrap = workflow("sdk-bootstrap-crates.yml")
+    npm_bootstrap = workflow("sdk-bootstrap-npm.yml")
+    pypi_bootstrap = workflow("sdk-bootstrap-pypi.yml")
+    releasing = (
+        ROOT / "cmux-tui" / "bindings" / "RELEASING.md"
+    ).read_text()
+
+    for text, event_type in (
+        (release, "sdk-release-cut"),
+        (crates_bootstrap, "sdk-bootstrap-crates"),
+        (npm_bootstrap, "sdk-bootstrap-npm"),
+        (pypi_bootstrap, "sdk-bootstrap-pypi"),
+    ):
+        assert workflow_triggers(text) == {
+            "repository_dispatch": {"types": [event_type]}
+        }
+        assert "github.event.client_payload" in text
+
+    revalidate_tags = workflow_job(release, "revalidate-tags")
+    cut_tags = workflow_job(release, "cut-tags")
+    assert "    permissions:\n      contents: write" not in cut_tags
+    assert "    permissions: {}" in cut_tags
+    assert "name: sdk-release" in revalidate_tags
+    assert "name: sdk-release-credentials" in cut_tags
+    assert (
+        "actions/create-github-app-token@"
+        "bcd2ba49218906704ab6c1aa796996da409d3eb1"
+    ) in cut_tags
+    assert "client-id: ${{ vars.SDK_RELEASE_APP_CLIENT_ID }}" in cut_tags
+    assert (
+        "private-key: ${{ secrets.SDK_RELEASE_APP_PRIVATE_KEY }}"
+        in cut_tags
+    )
+    assert "permission-contents: write" in cut_tags
+    assert (
+        "RELEASE_TOKEN: ${{ steps.release_app_token.outputs.token }}"
+        in cut_tags
+    )
+
+    for phrase in (
+        "protected branches only",
+        "prevent self-review",
+        "disable administrator bypass",
+        "crates-bootstrap",
+        "sdk-release-credentials",
+        "SDK release GitHub App",
+        "refs/tags/cmux-sdk-v*",
+        "refs/tags/cmux-tui/bindings/go/v*",
+    ):
+        assert phrase in releasing
+
+
+def test_registry_state_is_validated_before_irreversible_tags() -> None:
+    release = workflow("sdk-release-cut.yml")
+    registry = workflow_job(release, "registry-preflight")
+    revalidate_tags = workflow_job(release, "revalidate-tags")
+
+    for prerequisite in (
+        "rust-preflight",
+        "typescript-preflight",
+        "python-preflight",
+    ):
+        assert prerequisite in registry
+    for artifact in ("cmux-rust-sdk-crate", "cmux-rust-sidebar-crate"):
+        assert f"name: {artifact}" in registry
+    assert (
+        "artifact-ids: ${{ needs.typescript-preflight.outputs.artifact_id }}"
+        in registry
+    )
+    assert (
+        "artifact-ids: ${{ needs.python-preflight.outputs.artifact_id }}"
+        in registry
+    )
+    assert registry.count("reconcile_registry_artifact.py check") == 5
+    assert "id-token: write" not in registry
+    assert "registry-preflight" in revalidate_tags
+    assert release.index("registry-preflight:") < release.index("revalidate-tags:")
+    assert release.index("revalidate-tags:") < release.index("cut-tags:")
+
+
+def test_registry_state_is_revalidated_after_release_approval() -> None:
+    release = workflow("sdk-release-cut.yml")
+    revalidate_tags = workflow_job(release, "revalidate-tags")
+    cut_tags = workflow_job(release, "cut-tags")
+    verifier = (
+        ROOT
+        / "cmux-tui"
+        / "bindings"
+        / "verify_release_registry_state.sh"
+    ).read_text()
+
+    assert "actions: read" in revalidate_tags
+    assert "name: sdk-release" in revalidate_tags
+    for artifact in ("cmux-rust-sdk-crate", "cmux-rust-sidebar-crate"):
+        assert f"name: {artifact}" in revalidate_tags
+    assert (
+        "artifact-ids: ${{ needs.typescript-preflight.outputs.artifact_id }}"
+        in revalidate_tags
+    )
+    assert (
+        "artifact-ids: ${{ needs.python-preflight.outputs.artifact_id }}"
+        in revalidate_tags
+    )
+    assert revalidate_tags.count("verify_release_registry_state.sh") == 1
+    assert 'validated-rust-sdk/cmux-sdk-$version.crate' in verifier
+    assert "validated-client" not in verifier
+    assert "remote_state_sha256" in revalidate_tags
+    assert "revalidate-tags" in cut_tags
+    assert "verify_release_registry_state.sh" not in cut_tags
+    assert verifier.count("reconcile_registry_artifact.py check") == 5
+    assert verifier.count("sleep 1") >= 2
+    assert "verify_crates_ownership.py" in verifier
+    assert "verify_npm_provenance.py" in verifier
+    assert "verify_pypi_provenance.py" in verifier
+    assert verifier.count('--expected-commit "$expected_commit"') == 2
+    assert "--expected-ref refs/heads/main" in verifier
+
+
+def test_release_app_token_is_scoped_to_the_atomic_push() -> None:
+    release = workflow("sdk-release-cut.yml")
+    revalidate_tags = workflow_job(release, "revalidate-tags")
+    cut_tags = workflow_job(release, "cut-tags")
+
+    assert "SDK_RELEASE_APP_PRIVATE_KEY" not in revalidate_tags
+    assert "actions/create-github-app-token@" not in revalidate_tags
+    # It holds the release App key: it names one Blacksmith Linux size, the one its LINUX_RUNNER
+    # selector resolved to, so no variable can move it (test_ci_fork_runner_routing.py).
+    assert "runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'blacksmith-4vcpu-ubuntu-2404' }}" in cut_tags
+    assert "actions/checkout@" not in cut_tags
+    assert "actions/download-artifact@" not in cut_tags
+    assert "actions/setup-node@" not in cut_tags
+    assert "actions/setup-python@" not in cut_tags
+    assert cut_tags.count("uses:") == 1
+    assert cut_tags.count("${{ secrets.") == 1
+    prepare = cut_tags.index("Verify fresh release authority and prepare tags")
+    mint = cut_tags.rindex("actions/create-github-app-token@")
+    push = cut_tags.rindex('git push --atomic "$release_repository"')
+    assert prepare < mint < push
+    assert "token: ${{ steps.release_app_token.outputs.token }}" not in cut_tags
+    assert "verify_release_registry_state.sh" not in cut_tags
+    assert "python3 " not in cut_tags
+    assert "npm " not in cut_tags
+    assert "cargo " not in cut_tags
+    assert "REMOTE_STATE_SHA256" in cut_tags
+
+    push_step = cut_tags.split(
+        "- name: Push protected release tags", 1
+    )[1].split("\n      - name:", 1)[0]
+    assert (
+        "RELEASE_TOKEN: ${{ steps.release_app_token.outputs.token }}"
+        in push_step
+    )
+    assert "GIT_CONFIG_COUNT=1" in push_step
+    assert "GIT_CONFIG_VALUE_0" in push_step
+    assert "verify_release_registry_state.sh" not in push_step
+    assert "git rev-parse" not in push_step
+    assert "python3 " not in push_step
+    assert "npm " not in push_step
+
+
+def test_stable_registry_provenance_gates_recovery_and_completion() -> None:
+    release = workflow("sdk-release-cut.yml")
+    registry = workflow_job(release, "registry-preflight")
+    stable = workflow_job(release, "verify-stable-provenance")
+    summary = workflow_job(release, "summarize")
+
+    assert "id: registry_state" in registry
+    for output in ("npm", "python_wheel", "python_sdist"):
+        assert f"--github-output-name {output}" in registry
+    before_tags = release.index("Verify any existing stable provenance")
+    assert before_tags < release.index("  cut-tags:")
+    assert "--publisher github-actions" in registry
+    assert "--dist-tag latest" in registry
+    assert "--workflow .github/workflows/sdk-release-cut.yml" in registry
+    assert "--workflow sdk-release-cut.yml" in registry
+    assert "--environment pypi" in registry
+    assert registry.count('--expected-commit "$GITHUB_SHA"') == 2
+    assert "--expected-ref refs/heads/main" in registry
+
+    for dependency in (
+        "typescript-preflight",
+        "python-preflight",
+        "publish-npm",
+        "publish-python-wheel",
+        "publish-python-sdist",
+    ):
+        assert dependency in stable
+    assert (
+        "artifact-ids: ${{ needs.typescript-preflight.outputs.artifact_id }}"
+        in stable
+    )
+    assert (
+        "artifact-ids: ${{ needs.python-preflight.outputs.artifact_id }}"
+        in stable
+    )
+    assert "verify_npm_provenance.py" in stable
+    assert "verify_pypi_provenance.py" in stable
+    assert "publish-crate-sdk" in stable
+    assert "publish-crate-sidebar" in stable
+    assert "verify_crates_ownership.py" in stable
+    assert "--package cmux-sdk" in stable
+    assert "--package cmux-sidebar" in stable
+    assert "--publisher github-actions" in stable
+    assert "--dist-tag latest" in stable
+    assert "--workflow .github/workflows/sdk-release-cut.yml" in stable
+    assert "--workflow sdk-release-cut.yml" in stable
+    assert "--environment pypi" in stable
+    assert stable.count('--expected-commit "$GITHUB_SHA"') == 2
+    assert "--expected-ref refs/heads/main" in stable
+    assert "verify-stable-provenance" in summary
+    assert "STABLE_PROVENANCE_RESULT" in summary
+
+
+def test_tag_cut_revalidates_release_order_after_its_final_fetch() -> None:
+    release = workflow("sdk-release-cut.yml")
+    revalidate_tags = workflow_job(release, "revalidate-tags")
+    cut_tags = workflow_job(release, "cut-tags")
+
+    fetch = revalidate_tags.rindex("git fetch --force origin main --tags")
+    tag_list = revalidate_tags.index("git tag --list 'cmux-sdk-v*'", fetch)
+    revalidate = revalidate_tags.index("--require-latest-tag", tag_list)
+    snapshot = revalidate_tags.index("remote_state_sha256", revalidate)
+    compare = cut_tags.index('[[ "$remote_state_sha256" == "$REMOTE_STATE_SHA256" ]]')
+    create = cut_tags.index('ensure_tag "$SDK_TAG"', compare)
+    push = cut_tags.index('git push --atomic "$release_repository"', create)
+    assert fetch < tag_list < revalidate < snapshot
+    assert compare < create < push
+
+
+def test_tag_cut_retry_requires_fresh_authority_or_safe_poststate() -> None:
+    release = workflow("sdk-release-cut.yml")
+    revalidate_tags = workflow_job(release, "revalidate-tags")
+    cut_tags = workflow_job(release, "cut-tags")
+    releasing = (
+        ROOT / "cmux-tui" / "bindings" / "RELEASING.md"
+    ).read_text()
+
+    for output in (
+        "authorization_run_id",
+        "authorization_run_attempt",
+        "authorized_at",
+        "remote_state_sha256",
+        "remote_tag_state_sha256",
+    ):
+        assert output in revalidate_tags
+        assert output.upper() in cut_tags
+    assert '[[ "$AUTHORIZATION_RUN_ID" == "$GITHUB_RUN_ID" ]]' in cut_tags
+    assert (
+        '[[ "$AUTHORIZATION_RUN_ATTEMPT" == "$GITHUB_RUN_ATTEMPT" ]]'
+        in cut_tags
+    )
+    assert "authorization_age" in cut_tags
+    assert "authorization_age <= 900" in cut_tags
+    assert "normalized_tag_state_sha256" in cut_tags
+    assert "verify_release_commit_on_main" in cut_tags
+    assert "remote_release_state=published" in cut_tags
+    assert "both coordinated tags already name the release commit" in cut_tags
+    assert "id: prepare" in cut_tags
+    assert cut_tags.count(
+        "if: steps.prepare.outputs.tags_exist != 'true'"
+    ) == 2
+    assert "**Re-run all jobs**" in releasing
+    assert "release commit remains an ancestor" in releasing
+
+
+def test_revalidation_snapshot_excludes_current_coordinated_tags() -> None:
+    release = workflow("sdk-release-cut.yml")
+    revalidate_tags = workflow_job(release, "revalidate-tags")
+    snapshot_start = revalidate_tags.index('remote_tag_state="$(')
+    snapshot_end = revalidate_tags.index(
+        'remote_tag_state_sha256="$(',
+        snapshot_start,
+    )
+    snapshot = revalidate_tags[snapshot_start:snapshot_end]
+
+    assert 'sdk_ref="refs/tags/$SDK_TAG"' in revalidate_tags
+    assert 'go_ref="refs/tags/$GO_TAG"' in revalidate_tags
+    for ref in ("sdk_ref", "sdk_peeled_ref", "go_ref", "go_peeled_ref"):
+        assert f'-v {ref}="${ref}"' in snapshot
+        assert f"$2 != {ref}" in snapshot
+
+
+def test_tag_cut_retry_behavior_accepts_tags_after_main_advances() -> None:
+    document = yaml.safe_load(workflow("sdk-release-cut.yml"))
+    prepare_script = next(
+        step["run"]
+        for step in document["jobs"]["cut-tags"]["steps"]
+        if step.get("id") == "prepare"
+    )
+
+    def git(*arguments: str, cwd: Path) -> str:
+        return subprocess.run(
+            ("git", *arguments),
+            cwd=cwd,
+            check=True,
+            text=True,
+            capture_output=True,
+        ).stdout.strip()
+
+    with tempfile.TemporaryDirectory(prefix="cmux-sdk-tag-retry-") as raw:
+        temporary = Path(raw)
+        source = temporary / "source"
+        remote = temporary / "remote.git"
+        source.mkdir()
+        git("init", "-b", "main", cwd=source)
+        git("config", "user.name", "cmux release test", cwd=source)
+        git("config", "user.email", "release-test@cmux.dev", cwd=source)
+        git("commit", "--allow-empty", "-m", "release", cwd=source)
+        release_sha = git("rev-parse", "HEAD", cwd=source)
+        git("init", "--bare", str(remote), cwd=temporary)
+        git("remote", "add", "origin", str(remote), cwd=source)
+        git("push", "origin", "main", cwd=source)
+
+        prestate = f"{release_sha}\trefs/heads/main\n"
+        prestate_sha256 = hashlib.sha256(prestate.encode()).hexdigest()
+        pretag_state_sha256 = hashlib.sha256(b"\n").hexdigest()
+
+        def prepare(attempt: int) -> tuple[subprocess.CompletedProcess[str], str, Path]:
+            run_root = temporary / f"run-{attempt}"
+            run_root.mkdir()
+            output_path = run_root / "output"
+            output_path.touch()
+            environment = os.environ.copy()
+            environment.update(
+                {
+                    "AUTHORIZATION_RUN_ATTEMPT": "1",
+                    "AUTHORIZATION_RUN_ID": "123456789",
+                    "AUTHORIZED_AT": str(int(time.time()) - 3600),
+                    "CONFIRM_PUBLISH": "true",
+                    "DISPATCH_VERSION": "1.0.1",
+                    "GITHUB_OUTPUT": str(output_path),
+                    "GITHUB_REF": "refs/heads/main",
+                    "GITHUB_REPOSITORY": "manaflow-ai/cmux",
+                    "GITHUB_RUN_ATTEMPT": "2",
+                    "GITHUB_RUN_ID": "123456789",
+                    "GITHUB_SHA": release_sha,
+                    "GO_TAG": "cmux-tui/bindings/go/v1.0.1",
+                    "REMOTE_STATE_SHA256": prestate_sha256,
+                    "REMOTE_TAG_STATE_SHA256": pretag_state_sha256,
+                    "RUNNER_TEMP": str(run_root),
+                    "SDK_TAG": "cmux-sdk-v1.0.1",
+                    "VERSION": "1.0.1",
+                    "GIT_CONFIG_COUNT": "1",
+                    "GIT_CONFIG_KEY_0": f"url.{remote.as_uri()}.insteadOf",
+                    "GIT_CONFIG_VALUE_0": "https://github.com/manaflow-ai/cmux.git",
+                }
+            )
+            git_fixture_env.without_auto_maintenance(environment)
+            result = subprocess.run(
+                ("bash",),
+                input=prepare_script,
+                env=environment,
+                check=False,
+                text=True,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.STDOUT,
+            )
+            return result, output_path.read_text(), run_root
+
+        stale, stale_output, stale_root = prepare(1)
+        assert stale.returncode != 0
+        assert "release authorization is stale" in stale.stdout
+        assert stale_output == ""
+        assert not (stale_root / "cmux-sdk-release").exists()
+
+        for tag, message in (
+            ("cmux-sdk-v1.0.1", "cmux SDK 1.0.1"),
+            ("cmux-tui/bindings/go/v1.0.1", "cmux Go SDK 1.0.1"),
+        ):
+            git("tag", "-a", tag, "-m", message, cwd=source)
+            git("push", "origin", f"refs/tags/{tag}", cwd=source)
+
+        git("commit", "--allow-empty", "-m", "advance main", cwd=source)
+        git("push", "origin", "main", cwd=source)
+
+        recovered, recovered_output, recovered_root = prepare(2)
+        assert recovered.returncode == 0, recovered.stdout
+        assert "both coordinated tags already name the release commit" in recovered.stdout
+        assert recovered_output == "tags_exist=true\n"
+        assert not (recovered_root / "cmux-sdk-release").exists()
+
+        git("tag", "-a", "cmux-sdk-v0.9.9", "-m", "unrelated release", cwd=source)
+        git("push", "origin", "refs/tags/cmux-sdk-v0.9.9", cwd=source)
+        changed_tags, changed_tags_output, _ = prepare(3)
+        assert changed_tags.returncode != 0
+        assert "remote release tags changed" in changed_tags.stdout
+        assert changed_tags_output == ""
+
+        git("push", "origin", ":refs/tags/cmux-sdk-v0.9.9", cwd=source)
+        git("checkout", "--orphan", "rewritten-main", cwd=source)
+        git("commit", "--allow-empty", "-m", "rewrite main", cwd=source)
+        git("push", "--force", "origin", "HEAD:main", cwd=source)
+        rewritten, rewritten_output, _ = prepare(4)
+        assert rewritten.returncode != 0
+        assert "is no longer on protected main" in rewritten.stdout
+        assert rewritten_output == ""
+
+
+>>>>>>> origin/main
 def test_go_publisher_uses_the_nested_module_semver_tag() -> None:
     go = workflow("sdk-publish-go.yml")
     java = workflow("sdk-publish-java.yml")
@@ -965,9 +1596,12 @@ def test_stable_release_builds_and_tests_once_before_dispatching_publishers() ->
     assert 'if [[ "${GITHUB_REF_TYPE:-}" != "tag" ]]' in release
     assert "Stable artifacts require a cmux-tui-vX.Y.Z tag ref." in release
     assert "needs: build-package" in release
-    assert 'gh workflow run tui-publish-npm.yml --repo "$GITHUB_REPOSITORY" --ref "$TAG"' in release
-    assert 'gh workflow run tui-publish-pypi.yml --repo "$GITHUB_REPOSITORY" --ref "$TAG"' in release
-    assert '-f artifact_run_id="$ARTIFACT_RUN_ID"' in release
+    assert 'repos/$GITHUB_REPOSITORY/actions/workflows/$workflow/dispatches' in release
+    assert '-f ref="$TAG"' in release
+    assert 'dispatch_publisher tui-publish-npm.yml "npm"' in release
+    assert 'dispatch_publisher tui-publish-pypi.yml "PyPI"' in release
+    assert release.count('-f "inputs[artifact_run_id]=$ARTIFACT_RUN_ID"') == 2
+    assert '-f "inputs[confirm_tui_cmux]=true"' in release
 
     for name in ("tui-publish-npm.yml", "tui-publish-pypi.yml"):
         assert "workflow_call:" not in workflow(name)

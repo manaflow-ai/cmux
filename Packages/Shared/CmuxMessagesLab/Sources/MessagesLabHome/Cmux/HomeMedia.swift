@@ -11,6 +11,7 @@ import UniformTypeIdentifiers
 /// win (my sends: the prepared copy and poster); otherwise the bytes come
 /// from the store (`HomeStoreBinding.fetchAttachment`, lane 16's variants:
 /// `.thumbnail` for images, `.poster` for video, never the video itself).
+<<<<<<< HEAD
 /// Rows are sized from the part's pixel size before any picture arrives, and
 /// the picture is at least the bubble's pixel width so `Sizing` keeps that
 /// size; a part without a pixel size (a video the Chief attached) takes its
@@ -26,6 +27,13 @@ import UniformTypeIdentifiers
 /// cannot be had at all is `unavailable` (the row draws a file card).
 @MainActor
 final class HomeMedia {
+=======
+/// Nothing here changes layout: rows are sized from the part's pixel size
+/// before any picture arrives, and the picture is at least the bubble's
+/// pixel width so `Sizing` keeps that size.
+@MainActor
+final class HomeMedia: @unchecked Sendable {
+>>>>>>> origin/main
     typealias Fetch = @Sendable (AttachmentRef, AttachmentVariant) async throws -> URL
 
     /// Where the pictures are written (one folder per process).
@@ -38,6 +46,7 @@ final class HomeMedia {
 
     private var ready: [String: String] = [:]
     private var jobs: [String: Task<Void, Never>] = [:]
+<<<<<<< HEAD
     /// Hashes whose picture cannot be had: every try failed (`unavailableAsset`).
     private var failed: Set<String> = []
     /// The waits between tries of one picture (tests shorten them); one try more than waits.
@@ -55,6 +64,13 @@ final class HomeMedia {
         if failed.contains(hash) { return Self.unavailableAsset }
         return ready.value(for: hash) // // crash program: dictionary read
     }
+=======
+    private var failed: Set<String> = []
+    private var locals: [String: LocalAttachmentFiles] = [:]
+
+    /// The `file:` asset of a hash's picture, nil until it is ready.
+    func asset(_ hash: String) -> String? { ready.value(for: hash) } // // crash program: dictionary read
+>>>>>>> origin/main
 
     /// Local files of my own attachment (a draft or a send in flight).
     func useLocal(_ files: LocalAttachmentFiles, for hash: String) {
@@ -83,6 +99,7 @@ final class HomeMedia {
         guard local != nil || fetch != nil else { return }
         let maxPixel = Self.maxPixel(ref)
         let target = Self.directory.appendingPathComponent(hash.replacingOccurrences(of: "/", with: "_"))
+<<<<<<< HEAD
         let delays = retryDelays
         jobs[hash] = Task { [weak self] in
             var file: URL?
@@ -101,6 +118,14 @@ final class HomeMedia {
                 self.failed.insert(hash)
             }
             // Either way the rows showing it change: its picture, or a file card in place of the empty box.
+=======
+        jobs[hash] = Task { [weak self] in
+            let file = await Self.load(ref, isVideo: kind == "video", local: local, fetch: fetch, maxPixel: maxPixel, to: target)
+            guard let self else { return }
+            self.jobs[hash] = nil
+            guard let file else { self.failed.insert(hash); return }
+            self.ready.updateValue(file.absoluteString, forKey: hash) // // crash program: dictionary write
+>>>>>>> origin/main
             self.onReady(hash)
         }
     }
@@ -139,6 +164,7 @@ final class HomeMedia {
             if let image { return await write(image, to: target) }
         }
         guard let fetch else { return nil }
+<<<<<<< HEAD
         if isVideo {
             // The stored poster, else the first frame of the video itself (a sender that stores no
             // poster, as the Chief: the bubble was a blank box with a play button).
@@ -150,6 +176,10 @@ final class HomeMedia {
             return await write(image, to: target)
         }
         guard let url = try? await fetch(ref, .thumbnail(maxPixel: maxPixel)), let image = await decode(url, maxPixel: maxPixel) else { return nil }
+=======
+        let url = isVideo ? try? await fetch(ref, .poster) : try? await fetch(ref, .thumbnail(maxPixel: maxPixel))
+        guard let url, let image = await decode(url, maxPixel: maxPixel) else { return nil }
+>>>>>>> origin/main
         return await write(image, to: target)
     }
 
@@ -167,10 +197,15 @@ final class HomeMedia {
     }
 
     private nonisolated static func videoFrame(_ url: URL, maxPixel: Int) async -> CGImage? {
+<<<<<<< HEAD
         // The cache file may have no extension (a fetched original): the type comes from the bytes.
         let generator = AVAssetImageGenerator(asset: AVURLAsset(url: url))
         generator.appliesPreferredTrackTransform = true
         generator.requestedTimeToleranceAfter = CMTime(value: 1, timescale: 10)
+=======
+        let generator = AVAssetImageGenerator(asset: AVURLAsset(url: url))
+        generator.appliesPreferredTrackTransform = true
+>>>>>>> origin/main
         generator.maximumSize = CGSize(width: maxPixel, height: maxPixel)
         return try? await generator.image(at: .zero).image
     }

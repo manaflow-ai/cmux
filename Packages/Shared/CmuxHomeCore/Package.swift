@@ -1,8 +1,11 @@
 // swift-tools-version: 6.0
 
 import PackageDescription
+<<<<<<< HEAD
 import Foundation
 
+=======
+>>>>>>> origin/main
 
 // Platform-neutral Home client core: the conversation model (same shapes as the
 // conversation owner's wire contract), the HomeSource protocol every backend
@@ -19,20 +22,29 @@ let package = Package(
         .library(name: "CmuxHomeCore", targets: ["CmuxHomeCore"]),
     ],
     dependencies: [
+<<<<<<< HEAD
         .package(path: "../CmuxEgress"),
         // Agent questions (plans/cmux-next/agent-questions.md): the `question` part's model.
         .package(path: "../CmuxAgentQuestion"),
         // The cloud build space a dev build's requests carry (`CMUXBuildSpace`, `X-Cmux-Build-Space`).
         .package(path: "../CMUXAuthCore"),
+=======
+        // Agent questions (plans/cmux-next/agent-questions.md): the `question` part's model.
+        .package(path: "../CmuxAgentQuestion"),
+>>>>>>> origin/main
     ],
     targets: [
         .target(
             name: "CmuxHomeCore",
+<<<<<<< HEAD
             dependencies: [ // sorted: scripts/cmux-next/check-package-dependency-lists.py
                 .product(name: "CMUXAuthCore", package: "CMUXAuthCore"),
                 .product(name: "CmuxAgentQuestion", package: "CmuxAgentQuestion"),
                 .product(name: "CmuxEgress", package: "CmuxEgress"),
             ],
+=======
+            dependencies: [.product(name: "CmuxAgentQuestion", package: "CmuxAgentQuestion")],
+>>>>>>> origin/main
             swiftSettings: [.swiftLanguageMode(.v6)]
         ),
         // One condition-polling wait for every suite (no per-suite yield loops).
@@ -43,6 +55,7 @@ let package = Package(
         ),
         .testTarget(
             name: "CmuxHomeCoreTests",
+<<<<<<< HEAD
             dependencies: [ // sorted: scripts/cmux-next/check-package-dependency-lists.py
                 "CmuxHomeCore",
                 "CmuxHomeCoreTestSupport",
@@ -51,10 +64,14 @@ let package = Package(
             ],
             // MessagePreviewTests reads it by path, as the Rust port's tests do: not a bundle resource.
             exclude: ["MessagePreviewCases.json"],
+=======
+            dependencies: ["CmuxHomeCore", "CmuxHomeCoreTestSupport"],
+>>>>>>> origin/main
             swiftSettings: [.swiftLanguageMode(.v6)]
         ),
     ]
 )
+<<<<<<< HEAD
 
 #if os(Linux)
 // CryptoKit is Apple-only: a build for Linux takes the same API from swift-crypto (`import Crypto`). Only
@@ -68,3 +85,5 @@ if ProcessInfo.processInfo.environment["CMUX_SWIFTPM_TARGET_LINUX"] == "1" {
     }
 }
 #endif
+=======
+>>>>>>> origin/main

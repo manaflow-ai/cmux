@@ -12,9 +12,17 @@
 // on it writes the file. This writes it from the backend, over the provider's
 // exec, right after create.
 //
+<<<<<<< ours
 // - The kind is the reflection route's (vmKind.ts resolveVmGuestKind): `owner`
 //   when owner_team_id is the creator's user id, `team` for every real team.
 //   A row with no billing owner gets nothing.
+=======
+// - The kind comes from the row's durable billing scope: `owner` when
+//   owner_team_id is the creator's user id (vmKind.ts vmIsOnPersonalAccount),
+//   `team` for every real team, even one whose only member is the creator
+//   (membership is not a revocation receipt, so the create never writes
+//   `owner` from it). A row with no billing owner gets nothing.
+>>>>>>> theirs
 // - Only when no record exists (a symlink or a directory under that name
 //   counts as one), so whatever wrote first stands. An image whose sync runs
 //   bakes `team` and corrects it itself, so on it this does nothing.
@@ -33,7 +41,11 @@ import * as Schedule from "effect/Schedule";
 import { shellQuote } from "./drivers/cmuxTuiDaemon";
 import type { VmProviderGatewayShape } from "./providerGateway";
 import type { CloudVmRow, VmRepositoryShape } from "./repository";
+<<<<<<< ours
 import { resolveVmGuestKind, type VmGuestKind } from "./vmKind";
+=======
+import { vmIsOnPersonalAccount, type VmGuestKind } from "./vmKind";
+>>>>>>> theirs
 
 /** The guest directory that holds the marker (root-owned on every image). */
 export const GUEST_VM_KIND_DIRECTORY = "/etc/cmux";
@@ -81,7 +93,12 @@ export function guestVmKindToRecord(row: GuestVmKindRow): VmGuestKind | null {
   // Only the cmux devbox image (Freestyle) reads the marker this way; GCP Labs
   // machines keep their own bootstrap and stay off until it writes one.
   if (row.provider !== "freestyle" || !row.providerVmId || row.status !== "running") return null;
+<<<<<<< ours
   return resolveVmGuestKind(row);
+=======
+  if (vmIsOnPersonalAccount(row)) return "owner";
+  return row.ownerTeamId.trim() ? "team" : null;
+>>>>>>> theirs
 }
 
 /** Whether `current` is still the machine `created` was, with the same kind to record. */

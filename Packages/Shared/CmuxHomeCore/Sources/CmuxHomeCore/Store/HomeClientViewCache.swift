@@ -2,6 +2,7 @@ import Foundation
 
 /// Owns the client view state the Home cache keeps (drafts and scroll
 /// anchors: never synced, never sent) and the coalesced writes of the
+<<<<<<< HEAD
 /// `HomeCache`. HomeStore owns one; the owner state that goes into each
 /// write (mirror, intent log, me) comes from `ownerState`.
 ///
@@ -14,10 +15,15 @@ import Foundation
 /// (speed-of-sound-DESIGN.md 3.5). A write costs the main actor only the
 /// copy-on-write copies of a `HomeCacheState`; the `HomeCache` actor encodes
 /// it and rewrites only the files that changed.
+=======
+/// `HomeCache` snapshot. HomeStore owns one; the owner state that goes into
+/// each snapshot (mirror, intent log, me) comes from `ownerSnapshot`.
+>>>>>>> origin/main
 @MainActor
 final class HomeClientViewCache {
     /// The client's durable copy, nil for none.
     let cache: HomeCache?
+<<<<<<< HEAD
     /// How long writes are coalesced (zero hands each change to the cache actor at once: tests).
     let writeDelay: Duration
     private let clock: any Clock<Duration>
@@ -43,6 +49,18 @@ final class HomeClientViewCache {
     private let writer = UUID()
     /// A coalesced write is waiting for its delay.
     var hasPendingWrite: Bool { pendingWrite != nil }
+=======
+    /// How long writes are coalesced (zero writes at once: tests).
+    let writeDelay: Duration
+    private let clock: any Clock<Duration>
+    /// The owner's state as the mirror has it, without the client's own state.
+    var ownerSnapshot: @MainActor () -> HomeCacheSnapshot = { HomeCacheSnapshot() }
+
+    private(set) var drafts: [ConversationID: String] = [:]
+    private(set) var scrollAnchors: [ConversationID: HomeScrollAnchor] = [:]
+    private var pendingWrite: Task<Void, Never>?
+    private var writesSuppressed = false
+>>>>>>> origin/main
 
     init(cache: HomeCache?, writeDelay: Duration, clock: any Clock<Duration>) {
         self.cache = cache
@@ -58,6 +76,7 @@ final class HomeClientViewCache {
         scheduleWrite()
     }
 
+<<<<<<< HEAD
     /// Keeps the compose field's attachments; none clears them.
     func setDraftAttachments(_ attachments: [HomeCachedDraftAttachment], for id: ConversationID) {
         let value: [HomeCachedDraftAttachment]? = attachments.isEmpty ? nil : attachments
@@ -66,6 +85,8 @@ final class HomeClientViewCache {
         scheduleWrite()
     }
 
+=======
+>>>>>>> origin/main
     /// Where the reader is; nil when at the bottom.
     func setScrollAnchor(_ anchor: HomeScrollAnchor?, for id: ConversationID) {
         guard scrollAnchors[id] != anchor else { return }
@@ -73,6 +94,7 @@ final class HomeClientViewCache {
         scheduleWrite()
     }
 
+<<<<<<< HEAD
     /// Keeps the Chief conversation Home shows; the same one is no change.
     func setChief(_ id: ConversationID?) {
         guard chief != id else { return }
@@ -80,12 +102,15 @@ final class HomeClientViewCache {
         scheduleWrite()
     }
 
+=======
+>>>>>>> origin/main
     /// Runs `body` (a restore) with writes suppressed, after taking the
     /// snapshot's client state.
     func restore(_ snapshot: HomeCacheSnapshot, _ body: () -> Void) {
         writesSuppressed = true
         defer { writesSuppressed = false }
         drafts = snapshot.drafts
+<<<<<<< HEAD
         draftAttachments = snapshot.draftAttachments ?? [:]
         scrollAnchors = snapshot.scroll
         chief = snapshot.chief
@@ -163,5 +188,39 @@ final class HomeClientViewCache {
         state.chief = chief
         sequence &+= 1
         return (state, sequence)
+=======
+        scrollAnchors = snapshot.scroll
+        body()
+    }
+
+    /// Writes the cache soon (coalesced), or at once with no delay.
+    func scheduleWrite() {
+        guard cache != nil, !writesSuppressed else { return }
+        guard writeDelay > .zero else { return write() }
+        guard pendingWrite == nil else { return }
+        let clock = clock
+        let delay = writeDelay
+        // task-owner: one coalesced cache write; cancelled by flush, which writes at once
+        pendingWrite = Task { [weak self] in
+            do { try await clock.sleep(for: delay) } catch { return }
+            self?.pendingWrite = nil
+            self?.write()
+        }
+    }
+
+    /// Writes the coalesced batch now (app quit, stop).
+    func flush() {
+        pendingWrite?.cancel()
+        pendingWrite = nil
+        write()
+    }
+
+    private func write() {
+        guard let cache else { return }
+        var snapshot = ownerSnapshot()
+        snapshot.drafts = drafts
+        snapshot.scroll = scrollAnchors
+        try? cache.save(snapshot)
+>>>>>>> origin/main
     }
 }

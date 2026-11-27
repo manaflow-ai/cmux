@@ -102,6 +102,13 @@ PAID_OVERFLOW_GATE_PREFIX = re.compile(
 GATE_EXEMPT_REPORTING_READS = {
     ("ci-health-report.yml", "CMUX_CI_RUNNER_VARIABLES"):
         "reports each runner variable's value; gating would report empty",
+<<<<<<< HEAD
+=======
+    ("ci-repo-variables.yml", "CMUX_CI_RUNNER_VARIABLES"):
+        "validates each runner variable's value; gating would validate empty",
+    ("ci-repo-variables.yml", "CMUX_CI_RUNS_ON_VARIABLES"):
+        "checks each runs-on variable's value for one machine; gating would check empty",
+>>>>>>> origin/main
     ("ci-cloud-overflow-probe.yml", "CMUX_CI_RUNNER_VARIABLES"):
         "the overflow switch records each value to put back; gating would record empty",
 }
@@ -163,6 +170,7 @@ def default_chain_reaches_literal(text: str, end: int) -> bool:
         rest = rest[chained.end():]
 
 
+<<<<<<< HEAD
 JOB_KEY = re.compile(r"^  [A-Za-z0-9_-]+:\s*(?:#.*)?$")
 
 
@@ -275,6 +283,12 @@ def gated_on_every_read(condition: str, reads: list[re.Match], expression: str =
 # Leo, 2026-10-28: "I hate pins." An unset RUNNER_POOLS makes fromJSON() fail the run at once (a red run,
 # not a job queued on a label nobody serves). A fork pull request, which gets no repository variables,
 # never reaches the read: the fork pull request branch in front of it names its own label. Same rule as main's.
+=======
+# The one routing source (scripts/ci/runner_pools.py): RUNNER_POOLS has no literal fallback on purpose.
+# Leo, 2026-10-28: "I hate pins." An unset RUNNER_POOLS makes fromJSON() fail the run at once (a red run,
+# not a job queued on a label nobody serves). A fork pull request, which gets no repository variables,
+# never reaches the read: the fork pull request branch in front of it names its own label.
+>>>>>>> origin/main
 FORK_PULL_REQUEST_BRANCH = re.compile(
     r"github\.event_name == 'pull_request' && github\.event\.pull_request\.head\.repo\.full_name"
     r" != github\.repository(?: && !contains\(fromJSON\([\w.]+\), github\.event\.pull_request\.head\.repo\.full_name\))?"
@@ -282,6 +296,7 @@ FORK_PULL_REQUEST_BRANCH = re.compile(
 )
 
 
+<<<<<<< HEAD
 # The owned-mini member a Blacksmith backlog switches on (2026-11-01): unset, the chain goes on to the
 # RUNNER_POOLS read right after it, so it needs no literal of its own.
 POOL_MEMBER_BEFORE_POOL = re.compile(r"CI_LINUX_GATE_OWNED_RUNNER \|\| fromJSON\(vars\.RUNNER_POOLS\)\.")
@@ -292,33 +307,44 @@ def pool_read_after_fork_branch(expression: str, read: re.Match) -> bool:
     member read directly before that pool read."""
     if read.group(1) == "CI_LINUX_GATE_OWNED_RUNNER" and POOL_MEMBER_BEFORE_POOL.match(expression, read.start(1)):
         return FORK_PULL_REQUEST_BRANCH.search(expression[: read.start()]) is not None
+=======
+def pool_read_after_fork_branch(expression: str, read: re.Match) -> bool:
+    """`fromJSON(vars.RUNNER_POOLS).<pool>` with the fork pull request branch before it."""
+>>>>>>> origin/main
     if read.group(1) != "RUNNER_POOLS" or not expression[: read.start()].endswith("fromJSON("):
         return False
     return FORK_PULL_REQUEST_BRANCH.search(expression[: read.start()]) is not None
 
 
+<<<<<<< HEAD
 # `(<fork pull request> && '<label>' || fromJSON(vars.RUNNER_POOLS).<pool>)`: the label, for a fork's run.
 FORK_WRAP = re.compile(
     r"\(github\.event_name == 'pull_request' && github\.event\.pull_request\.head\.repo\.full_name"
     r" != github\.repository && ('[^']+') \|\| fromJSON\(vars\.RUNNER_POOLS\)\.[a-z0-9_]+\)")
 
 
+=======
+>>>>>>> origin/main
 # The side lane's capability array read (tests/test_ci_side_lane_capability_labels.py). With its array unset it is
 # vars.CI_SIDE_LANE_RUNNER, so for an unset variable it falls back exactly as that one read does.
 SIDE_LANE_LABELS_READ = ("(vars.CI_SIDE_LANE_LABELS != '' && fromJSON(vars.CI_SIDE_LANE_LABELS) || "
                          "vars.CI_SIDE_LANE_RUNNER)")
 
 
+<<<<<<< HEAD
 def fork_view(text: str) -> str:
     return FORK_WRAP.sub(r"\1", text.replace(SIDE_LANE_LABELS_READ, "vars.CI_SIDE_LANE_RUNNER"))
 
 
+=======
+>>>>>>> origin/main
 def check_runs_on(path: Path, errors: list[str]) -> None:
     lines = path.read_text(encoding="utf-8").splitlines()
     for number, line in enumerate(lines, start=1):
         matched = RUNS_ON.match(line)
         if matched is None:
             continue
+<<<<<<< HEAD
         # A fork pull request takes each fork-wrapped pool read's label (runs_on_labels.FORK_WRAPPED_POOL_READ).
         expression = fork_view(matched.group(1))
         line = fork_view(line)
@@ -336,16 +362,27 @@ def check_runs_on(path: Path, errors: list[str]) -> None:
         reads = [read for read in VARS_REFERENCE.finditer(expression)
                  if read.group(1) != "RUNNER_POOLS"
                  and not re.match(r"\s*(?:==|!=)", expression[read.end():])]
+=======
+        expression = matched.group(1).replace(SIDE_LANE_LABELS_READ, "vars.CI_SIDE_LANE_RUNNER")
+        reads = list(VARS_REFERENCE.finditer(expression))
+>>>>>>> origin/main
         if not reads:
             continue
         if all(pool_read_after_fork_branch(expression, read) for read in reads):
             continue
         if any(default_chain_reaches_literal(expression, read.end()) for read in reads):
             continue
+<<<<<<< HEAD
         if gated_on_every_read(job_if(lines, number - 1), reads, expression):
             continue
         # A last top-level `|| 'label'` is the fallback of the whole expression
         # (build-nightly-app: trusted tuple || hosted 'macos-26').
+=======
+        if all(pool_read_after_fork_branch(expression, read) for read in reads):
+            continue
+        # A last top-level `|| 'label'` is the fallback of the whole expression
+        # (build-nightly-app: trusted tuple || 'blacksmith-12vcpu-macos-26').
+>>>>>>> origin/main
         if re.search(r"\|\|\s*'[^']+'\s*\}\}\s*(#.*)?$", line):
             continue
         errors.append(
@@ -466,6 +503,7 @@ def self_test_gate_matcher(errors: list[str]) -> None:
                 )
 
 
+<<<<<<< HEAD
 def self_test_runs_on_gate(errors: list[str]) -> None:
     """A job-level `vars.X != ''` conjunct for every read (or one disjunction over a pure `||` chain) excuses a bare runs-on."""
     import tempfile
@@ -510,6 +548,11 @@ def self_test_runs_on_gate(errors: list[str]) -> None:
 def self_test_pool_reads(errors: list[str]) -> None:
     fork = ("github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != "
             "github.repository && 'blacksmith-4vcpu-ubuntu-2404' || ")
+=======
+def self_test_pool_reads(errors: list[str]) -> None:
+    fork = ("github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != "
+            "github.repository && 'ubuntu-24.04' || ")
+>>>>>>> origin/main
     good = "${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || " + fork + "fromJSON(vars.RUNNER_POOLS).linux }}"
     bad = "${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || fromJSON(vars.RUNNER_POOLS).linux }}"
     for text, expected in ((good, True), (bad, False)):
@@ -525,7 +568,10 @@ def main() -> int:
         print(f"no workflows found under {WORKFLOWS}", file=sys.stderr)
         return 1
     self_test_gate_matcher(errors)
+<<<<<<< HEAD
     self_test_runs_on_gate(errors)
+=======
+>>>>>>> origin/main
     self_test_pool_reads(errors)
     for path in files:
         check_runs_on(path, errors)

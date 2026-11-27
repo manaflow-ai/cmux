@@ -205,6 +205,14 @@ def _read_existing_object(
         with _open_signed_request(get, timeout=120) as response:
             existing = response.read()
     actual_digest = hashlib.sha256(existing).hexdigest()
+    if actual_digest != expected_digest and args.keep_existing:
+        # Several valid encodings exist for one subject (a Sigstore bundle is
+        # signed afresh on every run): the first published bytes stay.
+        print(
+            f"Kept the published object: s3://{args.bucket}/{args.key} "
+            f"(published={actual_digest}, this run={expected_digest})"
+        )
+        return True
     if actual_digest != expected_digest:
         raise ImmutableConflict(
             f"immutable R2 object already exists with a different SHA-256: "
@@ -230,6 +238,7 @@ def main() -> int:
         help="Refuse to overwrite an immutable object; accept an identical existing object",
     )
     parser.add_argument(
+<<<<<<< HEAD
         "--conflict-exit-code",
         type=int,
         help="With --write-once: exit with this code, with no immutable-r2-conflict annotation, when the "
@@ -242,6 +251,14 @@ def main() -> int:
         help="Overwrite the object only while its bytes have this SHA-256 (the copy the caller planned "
              "from), with If-Match on its ETag. A changed object is not written: exit "
              "--conflict-exit-code (default 1).",
+=======
+        "--keep-existing",
+        action="store_true",
+        help=(
+            "With --write-once, keep an existing object even when its bytes differ, and never write over it "
+            "(for an object any of several byte strings satisfies, such as a re-signed attestation bundle)"
+        ),
+>>>>>>> origin/main
     )
     parser.add_argument("--dry-run-json", action="store_true", help="Print the signed request instead of uploading")
     parser.add_argument(
@@ -252,12 +269,17 @@ def main() -> int:
              "earlier publication (run 40637082673).",
     )
     args = parser.parse_args()
+<<<<<<< HEAD
     if args.download_to:
         return _download(args)
     if not args.file or not args.cache_control:
         parser.error("--file and --cache-control are required for an upload")
     if args.replace_sha256 and args.write_once:
         parser.error("--replace-sha256 and --write-once are exclusive")
+=======
+    if args.keep_existing and not args.write_once:
+        parser.error("--keep-existing needs --write-once")
+>>>>>>> origin/main
     if not args.content_type:
         content_type, encoding = mimetypes.guess_type(args.file)
         # A compressed file is not the unencoded type returned by guess_type.
@@ -467,7 +489,9 @@ def _report_upload_error(args: argparse.Namespace, error: BaseException, amz_dat
     try:
         raise error
     except urllib.error.HTTPError as error:
-        if args.write_once and error.code == 412:
+        # 412: the object exists; 409: R2 refused a concurrent write to the key.
+        # Either way the bytes now there decide, as for an existing object.
+        if args.write_once and error.code in (409, 412):
             try:
                 if _read_existing_object(
                     args,

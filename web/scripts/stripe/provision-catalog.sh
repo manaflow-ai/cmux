@@ -544,10 +544,16 @@ ensure_product_description() {
   echo "Set description for ${product_id}." >&2
 }
 ensure_product_description "$plus_product_id" "1 Cloud VM total, including paused machines. Choose 2, 4, or 8 vCPUs with 4, 8, or 16 GiB RAM. Disk up to 128 GiB. No monthly hour cap. Community support."
+<<<<<<< HEAD
 ensure_product_description "$pro_product_id" "Cloud VMs with no count cap, each up to 16 GB RAM and 8 vCPUs, metered beyond the included usage, plus the cmux iOS app."
 ensure_product_description "$max_product_id" "Everything in Pro, with Cloud VMs up to 64 GB RAM and 32 vCPUs each, metered beyond the included usage."
 ensure_product_description "$team_product_id" "Cloud VMs with no count cap for everyone on the team, metered beyond the included usage, with the team's spending cap as the stop, plus the cmux iOS app and priority support."
 ensure_product_description "$cloud_intro_product_id" "cmux Cloud: \$1 pass, 30 days, does not renew"
+=======
+ensure_product_description "$pro_product_id" "Up to 5 Cloud VMs sharing 20 vCPUs and 40 GB RAM, plus the cmux iOS app."
+ensure_product_description "$max_product_id" "Everything in Pro, with up to 5 Cloud VMs sharing 80 vCPUs and 160 GB RAM."
+ensure_product_description "$team_product_id" "Up to 5 Cloud VMs per paid seat, sharing 20 vCPUs and 40 GB RAM per paid seat across the team, plus the cmux iOS app and priority support."
+>>>>>>> origin/main
 
 # Current catalog (web/services/billing/plans.ts). Stripe Price amounts are
 # immutable, so each price change mints a new lookup key carrying the amount.

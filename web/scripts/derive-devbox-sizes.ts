@@ -33,7 +33,12 @@ import {
 } from "../services/vms/images/sizes";
 import { CMUX_TUI_SESSION, cmuxTuiRunCommand } from "../services/vms/drivers/cmuxTuiDaemon";
 import { DEVBOX_HOSTNAME } from "../services/vms/images/identity";
+<<<<<<< ours
 import { isFreestyleOverload, isFreestyleTransient, retryFreestyleOverload, argValue, cmuxTuiWebsocketSmokeCommand, devboxParkDaemonCommand, devboxPrepareTemplateTerminalCommand, devboxSettleBeforeSnapshotCommand, devboxSnapshotClockCommand, devboxWaitForDaemonCommand, hasFlag } from "./devbox-image-common";
+=======
+import { ciVmTags, throwawayVmOptions } from "./cloud-vm/ci-leftovers";
+import { argValue, cmuxTuiWebsocketSmokeCommand, devboxParkDaemonCommand, devboxPrepareTemplateTerminalCommand, devboxSettleBeforeSnapshotCommand, devboxSnapshotClockCommand, devboxWaitForDaemonCommand, hasFlag } from "./devbox-image-common";
+>>>>>>> theirs
 
 const apiKey = process.env.FREESTYLE_API_KEY;
 const stackToken = process.env.FREESTYLE_STACK_ACCESS_TOKEN;
@@ -124,7 +129,14 @@ async function assignSlug(snapshotId: string, slug: string): Promise<string | nu
 const result: Record<string, { imageId: string; slug: string | null; size: VmImageSize; measured: unknown }> = {};
 
 // The master's own shape, so a size it already has is recorded without a copy.
+<<<<<<< ours
 const probe = await retryFreestyleOverload("size probe", () => fs.vms.create({ snapshotId: master, displayName: `${slugPrefix} size-probe`, firewall: FIREWALL }));
+=======
+// Probe and check machines are throwaway (idle pause, deadline, CI tag); the
+// resize machine becomes a snapshot, so it carries only the CI tag, which lets
+// a cancelled run's always() step find it (cloud-vm/ci-leftovers.ts).
+const probe = await fs.vms.create({ snapshotId: master, displayName: `${slugPrefix} size-probe`, firewall: FIREWALL, ...throwawayVmOptions() });
+>>>>>>> theirs
 let masterShape: Awaited<ReturnType<typeof measure>>;
 try {
   masterShape = await measure(probe.vm);
@@ -165,7 +177,11 @@ async function deriveSize(name: VmImageSizeName, startBudgetMs?: number): Promis
       if (masterShape.cpu > size.cpu || masterShape.memoryMb > size.memoryMb) {
         throw new Error(`${name}: master (${masterShape.cpu} vCPU, ${masterShape.memoryMb} MiB) is larger than the target; resize is grow-only, bake on a smaller base`);
       }
+<<<<<<< ours
       const { vm } = await retryFreestyleOverload(`${name} derive`, () => fs.vms.create({ snapshotId: master, displayName: `${slugPrefix} derive ${name}`, firewall: FIREWALL }), startBudgetMs);
+=======
+      const { vm } = await fs.vms.create({ snapshotId: master, displayName: `${slugPrefix} derive ${name}`, firewall: FIREWALL, ...ciVmTags() });
+>>>>>>> theirs
       try {
         const clock = await sh(vm, devboxSnapshotClockCommand);
         if (clock.code !== 0) throw new Error(`${name}: snapshot clock is unavailable`);
@@ -199,6 +215,9 @@ async function deriveSize(name: VmImageSizeName, startBudgetMs?: number): Promis
         const settled = await sh(vm, devboxSettleBeforeSnapshotCommand(), 60_000);
         if (settled.code !== 0) throw new Error(`${name}: pre-snapshot settle failed: ${settled.out.slice(-300)}`);
         const snap = await vm.snapshot({ displayName: `cmux devbox ${slug} (${size.cpu} vCPU · ${size.memoryMb} MiB · ${size.storageMb} MiB)` });
+        // Before anything else can fail: the CI cleanup reads this line to find
+        // a snapshot that never got its slug (cloud-vm/ci-leftovers.ts --ledger).
+        if (snap.snapshotId) console.log(`SNAPSHOT_TAKEN ${snap.snapshotId}`);
         if (!snap.snapshotId) throw new Error(`${name}: snapshot response carried no id`);
         imageId = snap.snapshotId;
       } finally {
@@ -207,7 +226,11 @@ async function deriveSize(name: VmImageSizeName, startBudgetMs?: number): Promis
     }
 
     // Boot the derived snapshot itself: the shape must survive the round trip.
+<<<<<<< ours
     const check = await retryFreestyleOverload(`${name} verify`, () => fs.vms.create({ snapshotId: imageId, displayName: `${slugPrefix} verify ${name}`, firewall: FIREWALL }), startBudgetMs);
+=======
+    const check = await fs.vms.create({ snapshotId: imageId, displayName: `${slugPrefix} verify ${name}`, firewall: FIREWALL, ...throwawayVmOptions() });
+>>>>>>> theirs
     let measured: Awaited<ReturnType<typeof measure>>;
     try {
       // The daemon is the last thing to come up on a resumed snapshot, so

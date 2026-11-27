@@ -115,11 +115,15 @@ CI_CONTROL_PLANE_ONLY = frozenset({
     "scripts/ci/build_graph_health.py",
     "scripts/ci/cleanup-stale-runs.py",
     "scripts/ci/cmux_workload_profile.py",
+<<<<<<< HEAD
     # The portable guard runner and its regression suite execute only in the
     # Linux guard jobs. They are CI control-plane inputs, not native product
     # inputs, so changing either must not admit macOS compile work.
     "scripts/ci/run_ci_guards.py",
     "tests/test_ci_run_guards.py",
+=======
+    "scripts/ci/delivery_workflows.py",
+>>>>>>> origin/main
     "scripts/ci/notify-indexnow.py",
     "scripts/ci/queue_janitor.py",
     "scripts/ci/r2-canary-cloudflare.py",
@@ -175,6 +179,7 @@ CI_MACOS_TEST_PRODUCT_INPUTS = frozenset({
 # Areas only gate ci.yml and the reusable workflows it calls. A helper no job in
 # that tree can execute cannot change what a pull request's lanes do.
 _LOCAL_WORKFLOW_CALL_RE = re.compile(r"""uses:\s*["']?\./(\.github/workflows/[A-Za-z0-9_.-]+\.ya?ml)""")
+<<<<<<< HEAD
 # Text nothing executes: prose, and captured CI logs (#41545's base_red_excuse
 # fixtures quote a run that printed tests/test_cmux_next_route.py, which made
 # every helper that test names route to every area).
@@ -226,6 +231,22 @@ _NON_RUNNING_FILES = frozenset({
     ".github/warm-sources.json",
     ".github/workflow-job-bounds.json",
 })
+=======
+_DOCUMENTATION_SUFFIXES = (".md", ".mdx", ".txt")
+# Data tables that name helpers only to describe them; nothing executes them.
+# .github/warm-sources.json lists which helper wires each warm source for
+# tests/test_ci_warm_sources.py, which runs in the Linux guards.
+_DESCRIPTIVE_TABLES = frozenset({".github/warm-sources.json"})
+
+
+def _is_data_fixture(path: str) -> bool:
+    """A JSON file under a tests/fixtures/ directory: recorded input data.
+
+    web/tests/fixtures/vercel-ignore-replay.json (cmux#50036) lists changed
+    paths, helpers among them; a fixture is read by its test, never executed.
+    """
+    return path.endswith(".json") and "/fixtures/" in f"/{path}" and "tests/" in path
+>>>>>>> origin/main
 
 
 def routed_workflows(root: Path) -> Optional[frozenset[str]]:
@@ -897,7 +918,13 @@ def ci_helper_areas(
             role = referrer_role(referrer)
             if role in ("workflow", "documentation", "data"):
                 continue
+<<<<<<< HEAD
             if role in ("script", "action") or referrer.startswith(".github/actions/"):
+=======
+            if referrer == ".gitattributes" or referrer in _DESCRIPTIVE_TABLES or _is_data_fixture(referrer):
+                continue
+            if referrer.startswith(("scripts/", ".github/actions/")):
+>>>>>>> origin/main
                 try:
                     text = (root / referrer).read_text(encoding="utf-8", errors="replace")
                 except OSError:
@@ -1672,6 +1699,8 @@ def is_macos_neutral(
     if path in {
         ".coderabbit.yaml",
         ".greptile/rules.md",
+        ".greptile/files.json",
+        ".cursor/BUGBOT.md",
         ".github/review-bot-rules/user-facing-errors.md",
     }:
         return True
@@ -1703,6 +1732,7 @@ def is_macos_neutral(
     # macOS-relevant.
     if path in {
         "STYLE.md",
+        "REVIEW.md",
         "CONTRIBUTING.md",
         ".github/pull_request_template.md",
     }:

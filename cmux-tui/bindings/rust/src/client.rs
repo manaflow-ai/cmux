@@ -1099,8 +1099,15 @@ mod tests {
     #[cfg(feature = "socket-path-hash")]
     #[test]
     fn implicit_hashed_socket_falls_back_to_the_legacy_session_socket() {
+<<<<<<< HEAD
         // The probe also scans the root's cmux-tui-<uid>. A short root, so the
         // hashed path fits sun_path as every product-chosen hashed path does.
+=======
+        // The probe scans at most 256 entries of /tmp/cmux-tui-<uid>, which a
+        // shared runner fills, then the root's own cmux-tui-<uid>. A short
+        // private root keeps this socket in the second, and the hashed path
+        // inside sun_path.
+>>>>>>> origin/main
         let root = crate::test_roots::TempRoot::short();
         let id = NEXT_TEST_SOCKET.fetch_add(1, AtomicOrdering::Relaxed);
         let session = format!("rf{}-{id}", std::process::id());

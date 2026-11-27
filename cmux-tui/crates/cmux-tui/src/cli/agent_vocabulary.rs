@@ -1,3 +1,4 @@
+<<<<<<< ours
 //! One name per agent harness and per record source in what the CLI prints.
 //!
 //! The same Claude Code agent used to show as `claude-code` from its OSC 7501
@@ -5,6 +6,14 @@
 //! plugin's records said `detected` in older journals and `plugin` now.
 //! Output always uses the canonical words below. The old words stay accepted
 //! as input (`--harness claude-code`, a record that still says `detected`).
+=======
+//! One name per agent harness in what the CLI prints.
+//!
+//! The same Claude Code agent used to show as `claude-code` from its OSC 7501
+//! program status and as `claude` from its hooks. Output always uses the
+//! canonical words below. The old words stay accepted as input
+//! (`--harness claude-code`).
+>>>>>>> theirs
 //!
 //! | canonical | accepted aliases |
 //! | --- | --- |
@@ -13,10 +22,13 @@
 //! | `opencode` | `open-code`, `open_code` |
 //! | `gemini` | `gemini-cli`, `gemini_cli` |
 //! | `amp` | `ampcode`, `amp-code` |
+<<<<<<< ours
 //! | `antigravity` | `agy` |
 //!
 //! Sources: `hook`, `plugin` (alias `detected`), `socket` and
 //! `program_status` (OSC 7501; alias `status`, `osc7501`).
+=======
+>>>>>>> theirs
 
 /// The canonical harness name for `raw` (any case, any alias above);
 /// unknown harnesses keep their own name, in lower case.
@@ -28,12 +40,16 @@ pub(in crate::cli) fn harness_name(raw: &str) -> String {
         "opencode" | "open-code" | "open_code" => "opencode",
         "gemini" | "gemini-cli" | "gemini_cli" => "gemini",
         "amp" | "ampcode" | "amp-code" => "amp",
+<<<<<<< ours
         "antigravity" | "agy" => "antigravity",
+=======
+>>>>>>> theirs
         _ => return lower,
     };
     canonical.to_owned()
 }
 
+<<<<<<< ours
 /// The canonical source name for `raw`: `detected` is the plugin's old
 /// word, `status`/`osc7501` the program status's.
 pub(in crate::cli) fn source_name(raw: &str) -> String {
@@ -47,3 +63,23 @@ pub(in crate::cli) fn source_name(raw: &str) -> String {
 #[cfg(test)]
 #[path = "agent_vocabulary_tests.rs"]
 mod tests;
+=======
+#[cfg(test)]
+mod tests {
+    use super::harness_name;
+
+    #[test]
+    fn w3h_vocabulary_has_one_name_per_harness() {
+        for alias in ["claude", "claude-code", "claude_code", "Claude Code", "CLAUDE-CODE"] {
+            assert_eq!(harness_name(alias), "claude", "{alias}");
+        }
+        for alias in ["codex", "codex-cli", "openai-codex"] {
+            assert_eq!(harness_name(alias), "codex", "{alias}");
+        }
+        assert_eq!(harness_name("open-code"), "opencode");
+        assert_eq!(harness_name("gemini-cli"), "gemini");
+        assert_eq!(harness_name("ampcode"), "amp");
+        assert_eq!(harness_name("Pi"), "pi");
+    }
+}
+>>>>>>> theirs

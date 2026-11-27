@@ -126,14 +126,20 @@ extension MacMessageRowView {
     func setInkRevealed(_ revealed: Bool) {
         guard let ink = inkLayer, revealed != isInkRevealed else { return }
         isInkRevealed = revealed
+<<<<<<< HEAD
         // motion: allow crossfade, the Reduce Motion form
+=======
+>>>>>>> origin/main
         let fade = CABasicAnimation(keyPath: "opacity")
         fade.fromValue = ink.presentation()?.opacity ?? ink.opacity
         fade.toValue = revealed ? 0 : 1
         fade.duration = revealed ? 0.3 : 0.6
         ink.opacity = revealed ? 0 : 1
         ink.add(fade, forKey: "reveal")
+<<<<<<< HEAD
         // motion: allow crossfade, the Reduce Motion form
+=======
+>>>>>>> origin/main
         NSAnimationContext.runAnimationGroup { context in
             context.duration = fade.duration
             textLabel.animator().alphaValue = revealed ? 1 : 0
@@ -365,12 +371,16 @@ extension MacConversationViewController: MacEffectReplayHandling {
 
     /// Slam's impact jolts the visible rows away from the bubble.
     func shakeNeighbors(of source: MacMessageRowView?) {
+<<<<<<< HEAD
         // Reduce Motion: no jolt (the haptic still marks the impact).
         guard let source else { return }
         guard !NSView.reducesMotion else {
             NSHapticFeedbackManager.defaultPerformer.perform(.levelChange, performanceTime: .now)
             return
         }
+=======
+        guard let source else { return }
+>>>>>>> origin/main
         let sourceY = source.convert(source.bounds, to: tableView).midY
         let visible = tableView.rows(in: tableView.visibleRect)
         for index in visible.location..<(visible.location + visible.length) {

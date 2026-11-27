@@ -1,10 +1,19 @@
 //! Attach streams in the reaper: an attached terminal is not counted toward
+<<<<<<< ours
 //! the grace cap, and the reap close re-checks attach streams under its locks.
+=======
+//! the grace cap, and the reap close re-checks attach streams under its locks
+//! (port of feat #39574).
+>>>>>>> theirs
 
 use super::*;
 
 /// The closed terminals past [`MAX_TERMINALS_IN_REAP_GRACE`], longest closed first: each holds a
+<<<<<<< ours
 /// PTY for its grace, and a burst of closes must not hold the machine's PTYs (STATUS 7998). An
+=======
+/// PTY for its grace, and a burst of closes must not hold the machine's PTYs (feat STATUS 7998). An
+>>>>>>> theirs
 /// attached terminal is neither counted nor picked: the reaper cannot end it, so counting it ended
 /// a detached terminal inside its grace, and picking it tried it again on every pass.
 pub(super) fn over_grace_cap(
@@ -55,6 +64,7 @@ impl Mux {
             .collect()
     }
 
+<<<<<<< ours
     /// Those of `terminals` (host ids) a client holds an attach stream on.
     pub(super) fn attached_among<'a>(
         &self,
@@ -82,6 +92,8 @@ impl Mux {
             .collect()
     }
 
+=======
+>>>>>>> theirs
     /// A client holds an attach stream on the terminal view `view`. The
     /// client registry's lock is a leaf: it may be taken under the registry
     /// and state locks, as the reap close does.

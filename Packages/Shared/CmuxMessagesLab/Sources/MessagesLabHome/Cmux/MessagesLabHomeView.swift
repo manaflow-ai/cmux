@@ -11,6 +11,7 @@ import CmuxHomeRender
 public final class MessagesLabHomeView: NSView {
     let controller: ChatController
     let projection: HomeProjection
+<<<<<<< HEAD
     /// The app supplies its existing person-input classifier; an unconfigured view grants nothing.
     public var isPersonApprovalEvent: (NSEvent) -> Bool {
         get { projection.isPersonApprovalEvent }
@@ -29,10 +30,14 @@ public final class MessagesLabHomeView: NSView {
     private var appliedPalette = -1
     /// The strings bundle this view's text was last drawn with (useStrings).
     private var appliedStrings = ObjectIdentifier(MessagesLabLocalization.bundle)
+=======
+    private var warmed = false
+>>>>>>> origin/main
 
     /// - Parameters:
     ///   - store: the app's HomeStore (one per daemon session; the view never creates one).
     ///   - wake: the engine clock's one-shot timer (CmuxNext: DemandTimer).
+<<<<<<< HEAD
     ///   - diagrams: draws ```` ```mermaid ```` fences as diagram bubbles (CmuxNext: the
     ///     JavaScriptCore Ondine renderer); nil keeps them as text.
     ///   - replies: how an agent's running reply shows: ``HomeReplyDisplay/wholeMessages`` (default:
@@ -73,6 +78,21 @@ public final class MessagesLabHomeView: NSView {
     /// DEBUG drive `swipe_trail`: the last played swipe's events, each as the swipe took or passed it.
     var debugSwipeTrail: [String] = []
 
+=======
+    public init(store: HomeStore, conversation: ConversationID, me: ParticipantID, wake: any ChatWakeScheduler) {
+        MessagesLabHomeView.liveFormatting()
+        HomeMarkdownPolicy.install()
+        controller = ChatController(wake: wake)
+        // Link cards fetch their preview (title, image) for links the user or an agent sent (README).
+        projection = HomeProjection(store: store, conversation: conversation, me: me, controller: controller,
+                                    linkPreviews: HomeLinkPreviews())
+        super.init(frame: .zero)
+        wantsLayer = true
+        addSubview(controller.host)
+        projection.start()
+    }
+
+>>>>>>> origin/main
     @available(*, unavailable)
     required init?(coder: NSCoder) { nil }
 
@@ -100,6 +120,7 @@ public final class MessagesLabHomeView: NSView {
         controller.host.refreshWindowPlaceIfMoved()
     }
 
+<<<<<<< HEAD
     /// cmux: the Chief chat's zoom (Agent Chat Zoom, `agentPane.zoom`; Cmd-= / Cmd-- / Cmd-0 on Home). The
     /// transcript keeps MessagesLab's metrics: it is laid out at this view's size over the zoom and this view's
     /// bounds draw it magnified, as NSScrollView magnification does, so its text, bubbles and field grow together
@@ -146,6 +167,11 @@ public final class MessagesLabHomeView: NSView {
             compose.textView.view.setSpellCheckingEnabled(composerSpellCheckingEnabled)
             appliedComposerSpellChecking = composerSpellCheckingEnabled
         }
+=======
+    public override func layout() {
+        super.layout()
+        if controller.host.frame != bounds { controller.host.frame = bounds }
+>>>>>>> origin/main
         if !warmed, window != nil, controller.demo != nil {
             warmed = true
             // MessagesLab warms the first send's one-time costs at idle after
@@ -162,18 +188,22 @@ public final class MessagesLabHomeView: NSView {
         set { projection.notice = newValue }
     }
 
+<<<<<<< HEAD
     /// The Chief's live plan for the plan cards' state pills and owner links (the host copies its
     /// ``ChiefPlanBoard`` here whenever it changes).
     public static func publish(plan: ChiefPlan) {
         HomePlanRowProvider.plan = plan
     }
 
+=======
+>>>>>>> origin/main
     /// H17: offline the user can type; tapbacks are off and a send waits as "sending".
     public var isSendEnabled: Bool {
         get { projection.isSendEnabled }
         set { projection.isSendEnabled = newValue }
     }
 
+<<<<<<< HEAD
     /// Whether the native composer opts into the system spell checker. The host owns this
     /// preference; the default is off so opening Home never changes the user's typing behavior.
     public var composerSpellCheckingEnabled = false {
@@ -200,18 +230,32 @@ public final class MessagesLabHomeView: NSView {
         }
     }
 
+=======
+>>>>>>> origin/main
     /// The Chief works: the compose bar offers Stop (the button, Esc, Cmd-.).
     public var isWorking: Bool {
         get { controller.isWorking }
         set { controller.isWorking = newValue }
     }
 
+<<<<<<< HEAD
+=======
+    /// cmux-classic: a typing indicator that goes away leaves at once, with no fade-out ghost
+    /// (MessagesLab fades it as Messages does; the Chief's ended turns and approval waits must not
+    /// leave a faint bubble under the card or the last reply).
+    public var typingLeavesAtOnce: Bool {
+        get { controller.typingLeavesAtOnce }
+        set { controller.typingLeavesAtOnce = newValue }
+    }
+
+>>>>>>> origin/main
     /// The host's shared stop action.
     public var onStop: (() -> Void)? {
         get { controller.onStop }
         set { controller.onStop = newValue }
     }
 
+<<<<<<< HEAD
     /// Runs after the daemon accepts a Chief stop, when the stop button
     /// becomes Continue.
     public var onContinue: (() -> Void)? {
@@ -245,12 +289,15 @@ public final class MessagesLabHomeView: NSView {
         set { controller.stopToolTip = newValue }
     }
 
+=======
+>>>>>>> origin/main
     /// The window is key and visible (read cursor).
     public var isVisibleToUser: Bool {
         get { projection.isVisibleToUser }
         set { projection.isVisibleToUser = newValue }
     }
 
+<<<<<<< HEAD
     /// The theme's palette (the key window's: every Home window draws its
     /// bubbles with it in both key states, MessagesLab 806ef0c / macOS 27), with
     /// this chat's Chat Colors. Each view draws with its own palette
@@ -317,12 +364,47 @@ public final class MessagesLabHomeView: NSView {
     var composerPlaceholder: String? { controller.demo?.compose.textView.view.accessibilityLabel() }
 
     /// cmux: a click on a cmux app link in agent text (`URL.isCmuxAppLink`); the host
+=======
+    /// The theme's palettes for the key and the non-key window. One theme
+    /// per app: the palette is process-wide (`Fixture.theme`).
+    /// `measuredAccent`: the theme names no accent, so sent bubbles keep
+    /// MessagesLab's measured blue and gradient.
+    public func applyTheme(active: HomePalette, inactive: HomePalette, measuredAccent: Bool = false) {
+        let theme = FixtureTheme(active: active, inactive: inactive, measuredAccent: measuredAccent)
+        defer {
+            // Per view: a second Home tab finds the process-wide theme set.
+            controller.host.headerBackdrop.setTint(Fixture.background)
+            // cmux: the window background is per view too; a view made after the
+            // process-wide theme was set would keep the one it was made with.
+            controller.demo?.backgroundColor = Fixture.background
+            controller.host.fieldChrome.applyTheme(light: theme.active.isLight, symbol: theme.active.incomingText)
+            controller.host.fieldChrome.applyGlassTint(FieldChrome.glassTint(light: theme.active.isLight, background: theme.active.background))
+            controller.host.paneHeader.light = theme.active.isLight
+        }
+        // Link cards follow a light theme (MessagesLab 02519e9: Messages' light card, #E9E9EB).
+        if let demo = controller.demo { demo.setLightAppearance(theme.active.isLight) } else { Fixture.lightAppearance = theme.active.isLight }
+        guard Fixture.theme != theme else { return }
+        Fixture.theme = theme
+        RowBitmaps.shared.removeAll()
+        if let demo = controller.demo {
+            let inactiveNow = Fixture.inactive
+            demo.setInactive(!inactiveNow)
+            demo.setInactive(inactiveNow)
+            demo.backgroundColor = Fixture.background
+            // The placeholder, waveform and chips are drawn once with the palette.
+            demo.compose.rescale()
+        }
+    }
+
+    /// cmux: a click on a Chief subagent's link in agent text (`URL.isChiefSubagentLink`); the host
+>>>>>>> origin/main
     /// opens it in the app (`link.open`). Nil: the link opens nothing.
     public var onAppLink: ((URL) -> Void)? {
         get { controller.onAppLink }
         set { controller.onAppLink = newValue }
     }
 
+<<<<<<< HEAD
     /// cmux: a click on an agent's pill in an agents row: the host opens that agent (the agent's id, `a12`,
     /// and the pill's frame in window coordinates, for a card over it). Nil: a click on the row opens and
     /// closes its messages.
@@ -392,11 +474,16 @@ public final class MessagesLabHomeView: NSView {
 
     /// A click (or Space/Return with the keyboard) on the header's name
     /// pill: cmux shows the Chief's settings popover under it.
+=======
+    /// A click (or Space/Return with the keyboard) on the header's name
+    /// pill: cmux shows the Chief's settings sidebar there.
+>>>>>>> origin/main
     public var onNamePill: () -> Void {
         get { controller.host.paneHeader.onContact }
         set { controller.host.paneHeader.onContact = newValue }
     }
 
+<<<<<<< HEAD
     /// The header's name pill: the view a popover from it anchors to.
     public var namePill: NSView { controller.host.paneHeader.pill }
     /// The header views a click on which runs ``onNamePill``: the pill and the avatar.
@@ -469,6 +556,8 @@ public final class MessagesLabHomeView: NSView {
     }
     #endif
 
+=======
+>>>>>>> origin/main
     /// The header avatar's text (one or two characters, an emoji); nil
     /// shows the conversation's initials.
     public var avatarText: String? {
@@ -476,6 +565,7 @@ public final class MessagesLabHomeView: NSView {
         set { projection.initialsOverride = newValue }
     }
 
+<<<<<<< HEAD
     /// The letters the header's monogram shows: ``avatarText``, else the monogram of the header's name.
     public var shownInitials: String { controller.host.paneHeader.initials }
 
@@ -485,6 +575,8 @@ public final class MessagesLabHomeView: NSView {
         set { projection.titleOverride = newValue }
     }
 
+=======
+>>>>>>> origin/main
     /// The header avatar's picture, drawn over `avatarText` and the
     /// initials; nil shows those.
     public var avatarPicture: NSImage? {
@@ -492,6 +584,7 @@ public final class MessagesLabHomeView: NSView {
         set { projection.pictureOverride = newValue }
     }
 
+<<<<<<< HEAD
     /// A sender's chosen avatar beside a group's bubbles (``setSenderAvatars(_:)``).
     public enum SenderAvatar: Hashable, Sendable {
         /// A picture file.
@@ -511,12 +604,15 @@ public final class MessagesLabHomeView: NSView {
         }
     }
 
+=======
+>>>>>>> origin/main
     /// The name pill's VoiceOver help (what a click on it does).
     public func setNamePillHelp(_ help: String) {
         controller.host.paneHeader.pill.setAccessibilityHelp(help)
         controller.host.paneHeader.pill.refusesFirstResponder = false
     }
 
+<<<<<<< HEAD
     /// The field's text view (the pane's primary input).
     public var primaryInput: NSView { controller.demo?.compose.textView.view ?? self }
 
@@ -601,6 +697,17 @@ public final class MessagesLabHomeView: NSView {
         window.makeFirstResponder(field)
     }
 
+=======
+    /// cmux: the name pill's hover tooltip (which brain answers); nil
+    /// shows its accessibility label, as before.
+    public func setNamePillToolTip(_ toolTip: String?) {
+        controller.host.paneHeader.pillToolTip = toolTip
+    }
+
+    /// The field's text view (the pane's primary input).
+    public var primaryInput: NSView { controller.demo?.compose.textView.view ?? self }
+
+>>>>>>> origin/main
     /// Puts text in the field (first-run suggestions).
     public func setDraft(_ text: String) {
         guard controller.store != nil else { return }
@@ -617,10 +724,21 @@ public final class MessagesLabHomeView: NSView {
         get { projection.onRowsChange }
         set { projection.onRowsChange = newValue }
     }
+<<<<<<< HEAD
+=======
+    /// cmux-classic: an approval card waits for the user's answer (the header shows "Waiting for
+    /// you", the field "Allow or deny above to continue"); the host's sidebar can say so too.
+    public var isWaitingForApproval: Bool { projection.isWaitingForApproval }
+    public var onWaitingForApprovalChange: (Bool) -> Void {
+        get { projection.onWaitingForApprovalChange }
+        set { projection.onWaitingForApprovalChange = newValue }
+    }
+>>>>>>> origin/main
     public var onRefusal: (HomeIntent, HomeRejection) -> Void {
         get { projection.onRefusal }
         set { projection.onRefusal = newValue }
     }
+<<<<<<< HEAD
 
     /// Forward… in a bubble's context menu: the host routes the bubble's text to another chat
     /// (cmux-next's `home.sendSelectionTo`); nil leaves Forward… out of the menu.
@@ -658,6 +776,35 @@ public final class MessagesLabHomeView: NSView {
     /// The localized title of a bubble's Forward… row.
     public static var forwardMenuTitle: String { CmuxStrings.forward }
 
+=======
+    /// cmux-classic: a Chief Cloud result card's Open Workspace: the host opens machine
+    /// workspace `workspace` (`ws_…`) of `machine` as a local workspace.
+    public var onOpenCloudWorkspace: (_ machine: String, _ workspace: String) -> Void {
+        get { projection.onOpenCloudWorkspace }
+        set { projection.onOpenCloudWorkspace = newValue }
+    }
+    /// cmux-classic: a Chief Cloud result card's Open Desktop: the host opens the
+    /// machine's interactive display in cmux for inspection or control.
+    public var onOpenCloudDesktop: (_ machine: String) -> Void {
+        get { projection.onOpenCloudDesktop }
+        set { projection.onOpenCloudDesktop = newValue }
+    }
+
+    /// cmux-classic: a failed turn's Try Again: run the last message again, then call the
+    /// completion with whether that started (ChiefNoticeRows.swift).
+    public var onRetryLastTurn: (_ completion: @escaping (Bool) -> Void) -> Void {
+        get { projection.onRetryLastTurn }
+        set { projection.onRetryLastTurn = newValue }
+    }
+
+    /// cmux-classic: a saved note's Undo: forget the note `fact`, then call the completion with
+    /// whether it was forgotten (ChiefNoticeRows.swift).
+    public var onUndoMemory: (_ fact: String, _ completion: @escaping (Bool) -> Void) -> Void {
+        get { projection.onUndoMemory }
+        set { projection.onUndoMemory = newValue }
+    }
+
+>>>>>>> origin/main
     // MARK: Attachments (lane 16)
 
     /// The "+" button (the host's file picker).
@@ -665,6 +812,7 @@ public final class MessagesLabHomeView: NSView {
         get { projection.onPickAttachments }
         set { projection.onPickAttachments = newValue }
     }
+<<<<<<< HEAD
     /// The "+" button's menu (the host builds and shows it at `anchor`, the button). Nil: the "+"
     /// opens ``onPickAttachments`` at once.
     public var onPlusMenu: ((_ anchor: NSView) -> Void)? {
@@ -677,10 +825,15 @@ public final class MessagesLabHomeView: NSView {
     /// - Parameter text: The text to insert.
     public func insertIntoPrimaryInput(_ text: String) { controller.insertIntoCompose(text) }
     /// A paste in the field: true when the host's intake took the pasteboard.
+=======
+    /// A paste in the field or a drop on the pane: true when the host's
+    /// intake took the pasteboard.
+>>>>>>> origin/main
     public var onAttachmentPasteboard: (NSPasteboard) -> Bool {
         get { projection.onAttachmentPasteboard }
         set { projection.onAttachmentPasteboard = newValue }
     }
+<<<<<<< HEAD
     /// The words a paste the intake took carries beside its attachments (nil: none): the
     /// field inserts them at the caret.
     public var attachmentPasteText: (NSPasteboard) -> String? {
@@ -688,10 +841,14 @@ public final class MessagesLabHomeView: NSView {
         set { projection.onAttachmentPasteText = newValue }
     }
     /// Whether a paste would be taken (types only).
+=======
+    /// While dragging (types only): whether a drop would be taken.
+>>>>>>> origin/main
     public var acceptsAttachmentDrag: (NSPasteboard) -> Bool {
         get { projection.acceptsAttachmentDrag }
         set { projection.acceptsAttachmentDrag = newValue }
     }
+<<<<<<< HEAD
     /// A drop on the field: true when the host's intake took the drag's pasteboard
     /// (nil: as a paste). A drop on the rest of the pane reaches the host's own view.
     public var onAttachmentDrop: ((NSPasteboard) -> Bool)? {
@@ -708,6 +865,8 @@ public final class MessagesLabHomeView: NSView {
         get { projection.onAttachmentDropTarget }
         set { projection.onAttachmentDropTarget = newValue }
     }
+=======
+>>>>>>> origin/main
     /// The store refused a send's attachment before logging it; the text
     /// and attachments are back in the field.
     public var onAttachmentRefusal: (HomeAttachmentError) -> Void {
@@ -719,12 +878,15 @@ public final class MessagesLabHomeView: NSView {
         get { projection.onDraftTextChange }
         set { projection.onDraftTextChange = newValue }
     }
+<<<<<<< HEAD
     /// The ids of the field's chips (``draftAttachmentIDs``), in order, each time they change: a
     /// chip added or removed, or the draft sent.
     public var onDraftAttachmentsChange: ([String]) -> Void {
         get { projection.onDraftAttachmentsChange }
         set { projection.onDraftAttachmentsChange = newValue }
     }
+=======
+>>>>>>> origin/main
     /// Cancel Upload in a bubble's menu (`HomeStoreBinding.cancelSend`).
     public var onCancelSend: (IdempotencyKey) -> Bool {
         get { projection.onCancelSend }
@@ -748,6 +910,7 @@ public final class MessagesLabHomeView: NSView {
 
     /// The field's attachments, in the order they arrived.
     public var draftAttachments: [LocalAttachment] { projection.draftAttachments }
+<<<<<<< HEAD
     /// The field's chips' ids, in the order of `draftAttachments`: a chip's content hash, or
     /// `hash#N` for another copy of the same picture (each paste is its own chip, #50984).
     public var draftAttachmentIDs: [String] { projection.draftAttachmentIDs }
@@ -755,6 +918,10 @@ public final class MessagesLabHomeView: NSView {
 
     /// Takes chip `id` out of the field: its content hash, or `hash#N` for another copy of it.
     public func removeDraftAttachment(_ id: String) { projection.removeDraft(id) }
+=======
+
+    public func removeDraftAttachment(_ hash: String) { projection.removeDraft(hash) }
+>>>>>>> origin/main
 
     /// The field's text.
     public var draftText: String { controller.store?.state.ui.draft.text ?? "" }
@@ -764,6 +931,7 @@ public final class MessagesLabHomeView: NSView {
     @discardableResult
     public func sendDraft() -> String? { projection.send() }
 
+<<<<<<< HEAD
     /// Automation (DEBUG socket): a love tapback on the newest incoming (or,
     /// with `mine`, my newest) message through the picker's path (`ChatIntents.react`).
     public func debugTapbackNewestIncoming(mine: Bool = false) -> Bool {
@@ -1016,11 +1184,19 @@ public final class MessagesLabHomeView: NSView {
     public func debugScroll(by dy: CGFloat) {
         guard let demo = controller.demo else { return }
         controller.host.scrollView.scroll(toModelOffset: demo.collection.contentOffset.y + dy)
+=======
+
+    /// `y` within `min ... max` (`min` when the range is empty or not finite). Pure, for tests.
+    static func clampedScrollOffset(_ y: CGFloat, min lo: CGFloat, max hi: CGFloat) -> CGFloat {
+        guard y.isFinite, lo.isFinite, hi.isFinite else { return lo.isFinite ? lo : 0 }
+        return Swift.min(Swift.max(y, lo), Swift.max(lo, hi))
+>>>>>>> origin/main
     }
 
     /// Returns when every bubble picture asked for so far is ready (tests).
     public func mediaSettled() async { await projection.media.settled() }
 
+<<<<<<< HEAD
     /// The top of the area under the header (the first-run panel's top); with no header
     /// (``setBareTop()``), the rows' top. In this view's frame (zoomed) points.
     public var headerHeight: CGFloat { (controller.host.bareTop ? controller.host.bareRowsTop : Fixture.headerHeight) * zoom }
@@ -1031,6 +1207,12 @@ public final class MessagesLabHomeView: NSView {
     }
     /// The field's top in this view's frame (zoomed) points (the first-run panel's bottom).
     public var fieldTop: CGFloat { controller.demo.map { $0.fieldTop * zoom } ?? frame.height }
+=======
+    /// The top of the area under the header (the first-run panel's top).
+    public var headerHeight: CGFloat { Fixture.headerHeight }
+    /// The field's top in this view (the first-run panel's bottom).
+    public var fieldTop: CGFloat { controller.demo?.fieldTop ?? bounds.height }
+>>>>>>> origin/main
 
     /// Nothing animates and no wake-up is pending (tests, the harness).
     public var isIdle: Bool { controller.isIdle }

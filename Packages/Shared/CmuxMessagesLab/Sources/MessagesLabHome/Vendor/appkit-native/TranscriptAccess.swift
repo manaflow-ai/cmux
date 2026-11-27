@@ -11,12 +11,16 @@ import AppKit
 /// One message: role, sender, text and time.
 final class MessageAccessibilityElement: NSAccessibilityElement {
     let messageID: ID
+<<<<<<< HEAD
     /// cmux: its links' elements by link index, reused (Cmux/TranscriptLinkAccess.swift).
     var cmuxLinks: [Int: TranscriptLinkElement] = [:]
+=======
+>>>>>>> origin/main
     init(messageID: ID) { self.messageID = messageID; super.init() }
 }
 
 extension NativeStrings {
+<<<<<<< HEAD
     static var messagesList: String { String(localized: "ax.messages", defaultValue: "Messages", table: "AppKitNative", bundle: MessagesLabLocalization.bundle) }
     static var messageRole: String { String(localized: "ax.message.role", defaultValue: "message", table: "AppKitNative", bundle: MessagesLabLocalization.bundle) }
     /// "Attachment: %@"
@@ -24,6 +28,15 @@ extension NativeStrings {
     static var you: String { String(localized: "ax.you", defaultValue: "You", table: "AppKitNative", bundle: MessagesLabLocalization.bundle) }
     /// sender, text, time
     static var messageFormat: String { String(localized: "ax.message.format", defaultValue: "%1$@, %2$@, %3$@", table: "AppKitNative", bundle: MessagesLabLocalization.bundle) }
+=======
+    static var messagesList: String { String(localized: "ax.messages", defaultValue: "Messages", table: "AppKitNative", bundle: .module) }
+    static var messageRole: String { String(localized: "ax.message.role", defaultValue: "message", table: "AppKitNative", bundle: .module) }
+    /// "Attachment: %@"
+    static var attachmentFormat: String { String(localized: "ax.attachment", defaultValue: "Attachment: %@", table: "AppKitNative", bundle: .module) }
+    static var you: String { String(localized: "ax.you", defaultValue: "You", table: "AppKitNative", bundle: .module) }
+    /// sender, text, time
+    static var messageFormat: String { String(localized: "ax.message.format", defaultValue: "%1$@, %2$@, %3$@", table: "AppKitNative", bundle: .module) }
+>>>>>>> origin/main
 }
 
 extension ChatController {
@@ -36,7 +49,11 @@ extension ChatController {
         for case let cell as RowCell in demo.collection.visibleCells where !cell.isHidden {
             guard let spec = cell.spec, case let .part(p) = spec.kind else { continue }
             let body = cell.convert(RowDraw.bodyRect(spec), to: demo)
+<<<<<<< HEAD
             guard body.maxY > demo.visibleTop, body.minY < demo.anchorY + 20 else { continue }
+=======
+            guard body.maxY > Fixture.headerHeight, body.minY < demo.anchorY + 20 else { continue }
+>>>>>>> origin/main
             let id = p.ref.messageId
             let t = p.text?.text ?? Self.describe(p.part)
             if let e = by[id] { by[id] = (e.0.union(body), e.1 + [(p.ref.partIndex, t)]) } else { by[id] = (body, [(p.ref.partIndex, t)]); order.append(id) }
@@ -67,7 +84,10 @@ extension ChatController {
         // elements are kept, one per message id and reused. AX clients hold them between calls; an
         // element made on every call was freed before a client read it (the AX dump's list was empty).
         let visible = visibleMessages()
+<<<<<<< HEAD
         let linkRows = accessibilityLinkRows() // cmux: links as AXLink children (Cmux/TranscriptLinkAccess.swift)
+=======
+>>>>>>> origin/main
         let keep = Set(visible.map(\.id))
         selection.axElements = selection.axElements.filter { keep.contains($0.key) }
         return visible.map { m in
@@ -87,10 +107,13 @@ extension ChatController {
             e.setAccessibilityParent(parent)
             let inWindow = host.convert(m.frame, to: nil)
             e.setAccessibilityFrame(window.convertToScreen(inWindow))
+<<<<<<< HEAD
             // cmux: each visible link is a child (role link, press opens it as a click); the element is an
             // accessibility element explicitly, so a client that skips ignored elements reads it.
             e.setAccessibilityElement(true)
             e.setAccessibilityChildren(accessibilityLinkElements(linkRows[m.id] ?? [], of: e, window: window))
+=======
+>>>>>>> origin/main
             return e
         }
     }
@@ -109,16 +132,25 @@ extension TranscriptDocumentView {
 /// A text position in the transcript: a row (by key) and a UTF-16 offset.
 struct TextPosition: Equatable { var key: String; var offset: Int }
 
+<<<<<<< HEAD
 /// Drag-to-select across rows. The selection is (row key, offset) pairs; each
 /// selected row draws its own part of the highlight in its cell
 /// (RowCell.selectionHighlight), so the highlight moves with its row's motions,
 /// recomputed when the transcript scrolls or changes.
+=======
+/// Drag-to-select across rows. The highlight is a shape layer over the rows,
+/// recomputed when the transcript moves or changes.
+>>>>>>> origin/main
 final class TranscriptSelection {
     /// cmux: MessagesLab 30495be: the transcript's accessibility elements, one per visible message id.
     var axElements: [ID: MessageAccessibilityElement] = [:]
     unowned let controller: ChatController
+<<<<<<< HEAD
     // cmux: the fill (MessagesLab's screen blend of P3 (2.6, 37.7, 85), Messages' dark highlight) is per row now,
     // from the surface under it: SelectionHighlightStyle.
+=======
+    let layer = CAShapeLayer()
+>>>>>>> origin/main
     private(set) var anchor: TextPosition?
     private(set) var focus: TextPosition?
     private var downPoint: CGPoint?
@@ -126,6 +158,7 @@ final class TranscriptSelection {
 
     init(controller: ChatController) {
         self.controller = controller
+<<<<<<< HEAD
     }
 
     /// cmux: rows renamed in place (old key -> new key: a stream's final message took its rows,
@@ -134,6 +167,14 @@ final class TranscriptSelection {
         if let a = anchor, let b = map[a.key] { anchor?.key = b }
         if let f = focus, let b = map[f.key] { focus?.key = b }
         if let k = selectedKey, let b = map[k] { selectedKey = b }
+=======
+        // Screen blend of P3 (2.6, 37.7, 85): over the incoming bubble (59, 59, 61) it gives
+        // Messages' highlight (61, 88, 126) and over its text (225) the selected text
+        // (225, 229, 235) (lossless still selected-text.png).
+        layer.fillColor = Fixture.p3(2.6, 37.7, 85).cgColor
+        layer.actions = ["path": NSNull(), "position": NSNull(), "bounds": NSNull()]
+        layer.compositingFilter = "screenBlendMode"
+>>>>>>> origin/main
     }
 
     var isEmpty: Bool { anchor == nil || anchor == focus }
@@ -204,11 +245,18 @@ final class TranscriptSelection {
         for case let cell as RowCell in demo.collection.visibleCells where !cell.isHidden {
             guard let spec = cell.spec, spec.key == key, case let .part(p) = spec.kind else { continue }
             // cmux: MessagesLab 2281879's selection outline (this file stays at bd65bbf): the drawn balloon.
+<<<<<<< HEAD
             // cmux: the shared bubble outline (BubblePath.balloon), moved from the cell into the demo view.
             let frame = RowDraw.bodyRect(spec)
             let origin = cell.convert(frame.origin, to: demo)
             var move = CGAffineTransform(translationX: origin.x - frame.minX, y: origin.y - frame.minY)
             return BubblePath.balloon(frame: frame, row: p).cgPath.copy(using: &move)
+=======
+            let frame = RowDraw.bodyRect(spec)
+            let body = cell.convert(RowDraw.balloon(frame, row: p), to: demo)
+            return BubblePath.make(body: body, outgoing: p.outgoing, tail: p.tail, cornersOf: frame.size,
+                                   circularEnds: RowDraw.circularEnds(p)).cgPath  // cmux: MessagesLab 267d218's ends
+>>>>>>> origin/main
         }
         return nil
     }
@@ -247,8 +295,16 @@ final class TranscriptSelection {
     /// when the point is not on text.
     @discardableResult
     func selectWord(at p: CGPoint) -> Bool {
+<<<<<<< HEAD
         guard let pos = position(at: p), let g = geometry(key: pos.key), g.length > 0 else { return false }
         let r = g.wordRange(at: min(pos.offset, g.length - 1))
+=======
+        guard let pos = position(at: p), let demo = controller.demo, let i = demo.model.index[pos.key],
+              case let .part(row)? = demo.model.rows[checked: i]?.spec.kind, let tl = row.text else { return false } // cmux: checked
+        let str = NSAttributedString(string: tl.text)
+        guard str.length > 0 else { return false }
+        let r = str.doubleClick(at: min(pos.offset, str.length - 1))
+>>>>>>> origin/main
         anchor = TextPosition(key: pos.key, offset: r.location)
         focus = TextPosition(key: pos.key, offset: NSMaxRange(r))
         downPoint = nil
@@ -256,6 +312,7 @@ final class TranscriptSelection {
         return true
     }
 
+<<<<<<< HEAD
     /// The drawn text geometry of a row (cmux: the layout the row DRAWS with). A markdown
     /// row's `text` is a one-line proxy of its display string, measured as one line as wide
     /// as the whole string: hit-testing and highlighting through it put the highlight past
@@ -297,6 +354,17 @@ final class TranscriptSelection {
         guard let demo = controller.demo else { return [] }
         return textCells().map { ($0.index, $0.key, $0.geometry, $0.cell.convert(RowDraw.bodyRect($0.spec), to: demo)) }
             .sorted { $0.0 < $1.0 }
+=======
+    /// Rows with text, in transcript order (model index).
+    private func textRows() -> [(index: Int, key: String, row: PartRow, body: CGRect)] {
+        guard let demo = controller.demo else { return [] }
+        var out: [(Int, String, PartRow, CGRect)] = []
+        for case let cell as RowCell in demo.collection.visibleCells where !cell.isHidden {
+            guard let spec = cell.spec, case let .part(p) = spec.kind, p.text != nil, let i = demo.model.index[spec.key] else { continue }
+            out.append((i, spec.key, p, cell.convert(RowDraw.bodyRect(spec), to: demo)))
+        }
+        return out.sorted { $0.0 < $1.0 }
+>>>>>>> origin/main
     }
 
     /// The text position nearest to a point (window content coordinates).
@@ -309,6 +377,7 @@ final class TranscriptSelection {
             let db = p.y < b.body.minY ? b.body.minY - p.y : max(0, p.y - b.body.maxY)
             return da < db
         }!
+<<<<<<< HEAD
         return Self.position(at: p, body: r.body, key: r.key, geometry: r.geometry)
     }
 
@@ -318,6 +387,25 @@ final class TranscriptSelection {
         if p.y > body.maxY { return TextPosition(key: key, offset: g.length) }
         let local = CGPoint(x: p.x - body.minX, y: p.y - body.minY)
         return TextPosition(key: key, offset: max(0, min(g.offset(at: local), g.length)))
+=======
+        guard let tl = r.row.text else { return nil }
+        if p.y < r.body.minY { return TextPosition(key: r.key, offset: 0) }
+        if p.y > r.body.maxY { return TextPosition(key: r.key, offset: (tl.text as NSString).length) }
+        let x = p.x - r.body.minX - Fixture.bubblePadX, y = p.y - r.body.minY - Fixture.bubblePadY
+        let i = min(tl.lines.count - 1, max(0, CrashGuard.int(floor(y / Fixture.lineHeight), in: CrashGuard.countRange))) // cmux: no trap on NaN
+        // cmux: a text with no lines (i == -1 trapped) is at its start.
+        guard let lineRange = tl.lines[checked: i]?.range, let line = ctLine(tl, i) else { return TextPosition(key: r.key, offset: 0) }
+        let idx = CTLineGetStringIndexForPosition(line, CGPoint(x: max(0, x), y: 0))
+        let off = idx == kCFNotFound ? lineRange.location : lineRange.location + idx
+        return TextPosition(key: r.key, offset: min(off, NSMaxRange(lineRange)))
+    }
+
+    private func ctLine(_ tl: TextLayout, _ i: Int) -> CTLine? { // cmux: nil for a line outside the text
+        guard let range = tl.lines[checked: i]?.range else { return nil }
+        let attr = tl.attributed(color: .white, linkColor: .white)
+        guard NSMaxRange(range) <= attr.length else { return nil } // cmux: lines measured for another text
+        return CTLineCreateWithAttributedString(attr.attributedSubstring(from: range))
+>>>>>>> origin/main
     }
 
     /// Selected (row key, range) pairs in order, over the loaded rows.
@@ -328,6 +416,7 @@ final class TranscriptSelection {
         let lo = min(ia, fi), hi = max(ia, fi)
         var out: [(String, NSRange, String)] = []
         for i in lo...hi {
+<<<<<<< HEAD
             guard let spec = demo.model.rows[checked: i]?.spec, let g = Self.geometry(spec) else { continue } // cmux: checked
             let key = spec.key
             let len = g.length
@@ -336,12 +425,23 @@ final class TranscriptSelection {
             guard to > from else { continue }
             let r = NSRange(location: from, length: to - from)
             out.append((key, r, g.substring(r)))
+=======
+            guard let spec = demo.model.rows[checked: i]?.spec, case let .part(p) = spec.kind, let tl = p.text else { continue } // cmux: checked
+            let key = spec.key
+            let len = (tl.text as NSString).length
+            let from = key == s.key ? s.offset : 0
+            let to = key == e.key ? e.offset : len
+            guard to > from else { continue }
+            let r = NSRange(location: from, length: to - from)
+            out.append((key, r, (tl.text as NSString).substring(with: r)))
+>>>>>>> origin/main
         }
         return out
     }
 
     var selectedText: String { selectedRanges().map(\.text).joined(separator: "\n") }
 
+<<<<<<< HEAD
     /// The selected range of one row (nil: none of it is selected), without walking the others.
     private func selectedRange(key: String, index i: Int, geometry g: RowTextGeometry) -> NSRange? {
         guard let demo = controller.demo, let a = anchor, let f = focus, a != f,
@@ -396,6 +496,32 @@ final class TranscriptSelection {
         for rect in Self.highlightRects(sel, body: RowDraw.bodyRect(spec), geometry: g, visible: visible) { path.addRect(rect) }
         cell.setSelectionHighlight(path.isEmpty ? nil : path, style: Self.highlightStyle(spec, palette: demo.palette)) // cmux
     }
+=======
+    /// Rebuild the highlight for the rows on screen.
+    func refresh() {
+        let path = CGMutablePath()
+        let ranges = Dictionary(selectedRanges().map { ($0.key, $0.range) }, uniquingKeysWith: { a, _ in a })
+        if !ranges.isEmpty {
+            for r in textRows() {
+                guard let sel = ranges[r.key], let tl = r.row.text else { continue }
+                for (i, line) in tl.lines.enumerated() {
+                    let inter = NSIntersectionRange(sel, line.range)
+                    let empty = line.range.length == 0 && NSLocationInRange(line.range.location, sel)
+                    guard inter.length > 0 || empty else { continue }
+                    guard let ct = ctLine(tl, i) else { continue } // cmux: a line from another text draws nothing
+                    let x0 = CTLineGetOffsetForStringIndex(ct, inter.location - line.range.location, nil)
+                    let x1 = inter.length > 0 ? CTLineGetOffsetForStringIndex(ct, NSMaxRange(inter) - line.range.location, nil) : x0 + 4
+                    path.addRect(CGRect(x: r.body.minX + Fixture.bubblePadX + x0, y: r.body.minY + Fixture.bubblePadY + CGFloat(i) * Fixture.lineHeight,
+                                        width: max(2, x1 - x0), height: Fixture.lineHeight))
+                }
+            }
+        }
+        CATransaction.begin(); CATransaction.setDisableActions(true)
+        layer.path = path.isEmpty ? nil : path
+        if let l = current { l.path = selectedBubblePath() }
+        CATransaction.commit()
+    }
+>>>>>>> origin/main
 }
 
 extension TranscriptDocumentView: NSMenuItemValidation {

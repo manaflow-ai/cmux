@@ -15,12 +15,17 @@ on:
       - scripts/import-apple-developer-id-intermediates.sh
       - scripts/apple-developer-id-certs/**
       - tests/test_signing_keychain_real_import.sh
+<<<<<<< HEAD
       - tests/test_derive_sparkle_public_key.sh
       - scripts/derive_sparkle_public_key.swift
       - tests/test_bash32_parse_guard.sh
       - scripts/*.sh
       - scripts/cmux-next/*.sh
       - .github/workflows/nightly.yml
+=======
+      - scripts/derive_sparkle_public_key.swift
+      - tests/test_derive_sparkle_public_key.sh
+>>>>>>> origin/main
       - .github/workflows/signing-keychain-macos.yml
   pull_request:
     types: [opened, synchronize, reopened, ready_for_review, labeled]
@@ -31,12 +36,17 @@ on:
       - scripts/import-apple-developer-id-intermediates.sh
       - scripts/apple-developer-id-certs/**
       - tests/test_signing_keychain_real_import.sh
+<<<<<<< HEAD
       - tests/test_derive_sparkle_public_key.sh
       - scripts/derive_sparkle_public_key.swift
       - tests/test_bash32_parse_guard.sh
       - scripts/*.sh
       - scripts/cmux-next/*.sh
       - .github/workflows/nightly.yml
+=======
+      - scripts/derive_sparkle_public_key.swift
+      - tests/test_derive_sparkle_public_key.sh
+>>>>>>> origin/main
       - .github/workflows/signing-keychain-macos.yml
   workflow_dispatch:
 
@@ -105,9 +115,13 @@ jobs:
 
   real-import:
     name: Real keychain import (throwaway identity)
+<<<<<<< HEAD
     needs: real-import-plan
     if: ${{ (github.event_name != 'pull_request' || contains(github.event.pull_request.labels.*.name, 'full-ci') || (github.event.pull_request.draft == true && (vars.CI_DRAFT_CHEAP_TIER || '1') == '0') || (github.event.pull_request.draft != true && ((contains(github.event.pull_request.labels.*.name, 'ready-to-land') && vars.CI_LAND_FULL_PER_PR == '1') || github.event.pull_request.base.ref != 'feat-cmux-next' || github.event.pull_request.head.repo.full_name != github.repository || (vars.CI_LAND_TIER || '1') == '0'))) && (needs.real-import-plan.outputs.run == 'true') && !(github.event_name == 'pull_request' && github.event.pull_request.base.ref == 'feat-cmux-next' && (github.event.action == 'labeled' && !contains(fromJSON('["full-ci","ready-to-land"]'), github.event.label.name) || github.event.action == 'unlabeled')) }}
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-6vcpu-macos-26' || (vars.CI_BLACKSMITH_MACOS != 'on' && (vars.CI_SIDE_LANE_LABELS != '' && fromJSON(vars.CI_SIDE_LANE_LABELS) || vars.CI_SIDE_LANE_RUNNER) || fromJSON(vars.RUNNER_POOLS).macos_26)) }}
+=======
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || contains(fromJSON('["blacksmith-6vcpu-macos-26","blacksmith-12vcpu-macos-26"]'), fromJSON(vars.RUNNER_POOLS || '{}').macos_26) && fromJSON(vars.RUNNER_POOLS || '{}').macos_26 || 'blacksmith-6vcpu-macos-26' }}
+>>>>>>> origin/main
     timeout-minutes: 10
     permissions:
       contents: read

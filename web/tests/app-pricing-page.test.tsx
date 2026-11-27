@@ -102,6 +102,54 @@ describe("app pricing page", () => {
     ).rejects.toMatchObject({ href: "/pricing" });
   });
 
+  test("a signed-out app is sent to the app's own sign-in before any plan button shows", async () => {
+    stackConfigured = true;
+    for (const user of [null, { id: "anon", isAnonymous: true, primaryEmail: null }]) {
+      currentUser = user;
+      const thrown = await renderSettled(AppPricingPage({
+        searchParams: Promise.resolve({ cmux_app: "1", cmux_scheme: "cmux-dev-test", appearance: "dark" }),
+      })).then(() => null, (error: unknown) => error);
+      const href = (thrown as { href?: unknown } | null)?.href;
+      expect(typeof href).toBe("string");
+      const nativeSignIn = new URL(href as string, "https://cmux.test");
+      expect(nativeSignIn.pathname).toBe("/handler/native-sign-in");
+      const afterSignIn = new URL(nativeSignIn.searchParams.get("after_auth_return_to")!, "https://cmux.test");
+      expect(afterSignIn.searchParams.get("native_app_return_to")).toBe("cmux-dev-test://auth-callback");
+      expect(afterSignIn.searchParams.get("web_return_to")).toBe(
+        "/app-pricing?cmux_app=1&cmux_scheme=cmux-dev-test&appearance=dark",
+      );
+    }
+  });
+
+  test("a signed-in app and the App Store page are not sent to sign-in", async () => {
+    stackConfigured = true;
+    currentUser = proUser;
+    const signedIn = await renderSettled(AppPricingPage({
+      searchParams: Promise.resolve({ cmux_app: "1", cmux_scheme: "cmux-dev-test" }),
+    }));
+    expect(signedIn).toContain("Get Max");
+    currentUser = null;
+    const appStore = await renderSettled(AppPricingPage({
+      searchParams: Promise.resolve({ cmux_app: "1", cmux_distribution: "appstore" }),
+    }));
+    expect(appStore).toContain("$50");
+    expect(redirect).not.toHaveBeenCalled();
+  });
+
+  test("an account lookup failure keeps the page instead of sending it to sign-in", async () => {
+    stackConfigured = true;
+    getUser.mockImplementation(async () => { throw new Error("sign-in service down"); });
+    try {
+      const html = await renderSettled(AppPricingPage({
+        searchParams: Promise.resolve({ cmux_app: "1", cmux_scheme: "cmux-dev-test" }),
+      }));
+      expect(html).toContain("$50");
+      expect(redirect).not.toHaveBeenCalled();
+    } finally {
+      getUser.mockImplementation(async () => currentUser);
+    }
+  });
+
   test("renders embedded pricing with checkout links carrying the validated scheme", async () => {
     const element = await AppPricingPage({
       searchParams: Promise.resolve({
@@ -115,7 +163,7 @@ describe("app pricing page", () => {
     expect(html).toContain("plan%253Dpro");
     expect(html).toContain("plan%253Dteam");
     expect(html).toContain("plan%253Dmax");
-    expect(html).toMatch(/plan=max[^"]*interval=year/);
+    expect(html).toMatch(/plan=max[^"]*interval=month/);
     expect(html).toContain("/mo");
     expect(html).toContain("/user/mo");
     expect(html).toContain("$50");
@@ -262,7 +310,7 @@ describe("app pricing page", () => {
     expect(html).toContain('href="/enterprise?cmux_external_browser=1"');
   });
 
-  test("defaults the Pro card to yearly billing", async () => {
+  test("defaults the Pro card to monthly billing", async () => {
     const element = await AppPricingPage({
       searchParams: Promise.resolve({
         cmux_app: "1",
@@ -271,9 +319,10 @@ describe("app pricing page", () => {
     });
     const html = (await renderSettled(element));
 
-    expect(html).not.toMatch(/billed yearly, save/);
-    expect(html).toContain("$40");
-    expect(html).toMatch(/interval(=|%3D|%253D)year/);
+    expect(html).toMatch(/>\$50</);
+    expect(html).not.toMatch(/>\$40</);
+    expect(html).toMatch(/plan%253Dpro[^"]*interval%253Dmonth/);
+    expect(html).not.toMatch(/plan%253Dpro[^"]*interval%253Dyear/);
     expect(html).not.toMatch(/plan%253D(go|team)[^"]*interval%253Dyear/);
   });
 

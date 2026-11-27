@@ -1,0 +1,93 @@
+name: cmux skill contracts
+
+on:
+  pull_request:
+    paths:
+      - "skills/cmux-browser/**"
+      - "skills/cmux-capture/**"
+      - "skills/cmux-settings/**"
+      - "web/data/cmux.schema.json"
+      - "Sources/CmuxSettingsJSONPathSupport.swift"
+      - "tests/test_cmux_settings_supported_paths.py"
+      - ".agents/skills"
+      - ".claude/skills/**"
+      - "skills.sh"
+      - "scripts/validate-cmux-browser-skill.py"
+      - "tests/test_cmux_browser_skill.py"
+      - "tests/test_cmux_capture_skill.py"
+      - "CLI/CMUXCLI+Record.swift"
+      - "CLI/CMUXCLI+Screenshot.swift"
+      - "CLI/CMUXCLI+TaskHelp.swift"
+      - "Sources/WindowRecordingSession.swift"
+      - "Sources/TerminalController+WindowRecording.swift"
+      - "Sources/TerminalController+WindowScreenshotMethod.swift"
+      - "Packages/macOS/CmuxFoundation/Sources/CmuxFoundation/WindowCapture/WindowScreenshotRequest.swift"
+      - "Packages/macOS/CmuxFoundation/Sources/CmuxFoundation/WindowRecording/WindowRecordingRequest.swift"
+      - "tests/test_cmux_settings_jsonc.py"
+      - "tests/test_cmux_settings_transactions.py"
+      - ".github/workflows/cmux-skill-contract.yml"
+  push:
+    branches: [main]
+    paths:
+      - "skills/cmux-browser/**"
+      - "skills/cmux-capture/**"
+      - "skills/cmux-settings/**"
+      - "web/data/cmux.schema.json"
+      - "Sources/CmuxSettingsJSONPathSupport.swift"
+      - "tests/test_cmux_settings_supported_paths.py"
+      - ".agents/skills"
+      - ".claude/skills/**"
+      - "skills.sh"
+      - "scripts/validate-cmux-browser-skill.py"
+      - "tests/test_cmux_browser_skill.py"
+      - "tests/test_cmux_capture_skill.py"
+      - "CLI/CMUXCLI+Record.swift"
+      - "CLI/CMUXCLI+Screenshot.swift"
+      - "CLI/CMUXCLI+TaskHelp.swift"
+      - "Sources/WindowRecordingSession.swift"
+      - "Sources/TerminalController+WindowRecording.swift"
+      - "Sources/TerminalController+WindowScreenshotMethod.swift"
+      - "Packages/macOS/CmuxFoundation/Sources/CmuxFoundation/WindowCapture/WindowScreenshotRequest.swift"
+      - "Packages/macOS/CmuxFoundation/Sources/CmuxFoundation/WindowRecording/WindowRecordingRequest.swift"
+      - "tests/test_cmux_settings_jsonc.py"
+      - "tests/test_cmux_settings_transactions.py"
+      - ".github/workflows/cmux-skill-contract.yml"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: cmux-skill-contract-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  # Temporary REST budget attribution: one gh-call line per GitHub API call (scripts/ci/api_call_log/env.sh, fetched at a fixed commit when the checkout has no copy).
+  BASH_ENV: '$({ w="${GITHUB_WORKSPACE:-/nonexistent}/scripts/ci/api_call_log/env.sh"; t="${RUNNER_TEMP:-/nonexistent}/api-call-log-src"; if [ -f "$w" ]; then echo "$w"; elif [ -n "${RUNNER_TEMP:-}" ]; then if [ ! -f "$t/env.sh" ] && [ ! -e "$t.tried" ] && { [ "${RUNNER_OS:-}" = Linux ] || [ "${RUNNER_OS:-}" = macOS ]; } && [ "$(date -u +%Y%m%d%H)" -lt 2026112300 ]; then : > "$t.tried"; mkdir -p "$t.part" && for x in env.sh gh sitecustomize.py isolated.py; do curl -fsSL --max-time 5 -o "$t.part/$x" "https://raw.githubusercontent.com/manaflow-ai/cmux/27647ffd3ae838c63be28ca3e5883dcd68c34518/scripts/ci/api_call_log/$x" || break; done; [ -s "$t.part/isolated.py" ] && mv "$t.part" "$t"; fi; if [ -f "$t/env.sh" ]; then echo "$t/env.sh"; else echo unset BASH_ENV > "$t.off.sh" && echo "$t.off.sh"; fi; fi; } 2>/dev/null)'
+
+jobs:
+  browser-skill:
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || vars.CI_OVERFLOW_LINUX || 'cmux-linux' }}
+    timeout-minutes: 5
+    steps:
+      - name: Checkout
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+        with:
+          persist-credentials: false
+
+      - name: Validate browser skill documentation contract
+        run: python3 scripts/validate-cmux-browser-skill.py --no-cli
+
+      - name: Exercise browser skill regression guard
+        run: python3 tests/test_cmux_browser_skill.py
+
+      - name: Exercise capture skill regression guard
+        run: python3 tests/test_cmux_capture_skill.py
+
+      - name: Exercise settings JSONC mutation regressions
+        run: python3 tests/test_cmux_settings_jsonc.py
+
+      - name: Exercise settings transaction regressions
+        run: python3 tests/test_cmux_settings_transactions.py
+
+      - name: Exercise settings skill path validation
+        run: python3 tests/test_cmux_settings_supported_paths.py

@@ -1,9 +1,13 @@
 import CmuxConversationGeometry
+<<<<<<< HEAD
 #if canImport(CoreGraphics)
 import CoreGraphics
 #else
 import Foundation
 #endif
+=======
+import CoreGraphics
+>>>>>>> origin/main
 import Testing
 
 /// iPhone 17 Pro portrait: 874 pt tall, 34 pt home-indicator inset, a 335 pt

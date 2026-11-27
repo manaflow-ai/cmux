@@ -1,14 +1,21 @@
 import AppKit
+<<<<<<< HEAD
+=======
+import CmuxAgentQuestion
+>>>>>>> origin/main
 import CmuxHomeRender
 
 /// Where the vendored ChatController sends the user's changes in cmux. The
 /// projection store is a mirror of HomeStore (the single writer), so a send
 /// or a tapback is an intent, never a local transcript edit.
 protocol ChatIntents: AnyObject {
+<<<<<<< HEAD
     /// The user opened, drilled or closed a thread view (a permalink waiting for its message stops waiting).
     func threadMovedByUser()
     /// The message's permalink (`<scheme>://conversation/<c>/message/<m>`), nil when it has none yet.
     func messageLink(_ id: ID) -> String?
+=======
+>>>>>>> origin/main
     /// Return in the field: send the draft (the adapter dispatches `.send` on
     /// the projection at once, so the morph starts, and gives the draft to
     /// HomeStore, which delivers it or queues it while offline).
@@ -20,14 +27,18 @@ protocol ChatIntents: AnyObject {
     func react(_ ref: PartRef, _ kind: Reaction.Kind)
     /// Tapbacks are offered (false offline: H17).
     var canReact: Bool { get }
+<<<<<<< HEAD
     /// False for read-only run messages that have no conversation-message identity.
     func canInteract(with message: ID) -> Bool
+=======
+>>>>>>> origin/main
     /// The owner can take a reply (MessagesLab's `.reply`: swipe-to-reply,
     /// Reply in the menu, "N Replies" opens the thread view); the reply is a
     /// send with the open thread's root.
     var canReply: Bool { get }
     /// The "+" button: the host's file picker.
     func pickAttachments()
+<<<<<<< HEAD
     /// A click on the "+" button (`anchor`): the host's + menu, or its file picker when it has none.
     func plusClicked(anchor: NSView)
     /// A paste in the field or a drop: true when the host's attachment
@@ -54,6 +65,13 @@ protocol ChatIntents: AnyObject {
     /// A click on the status line (the Chief's "working on" line): `rect` is its text in `view`'s
     /// coordinates, where the turn's details open.
     func statusLineClicked(_ rect: CGRect, in view: NSView)
+=======
+    /// A paste in the field or a drop: true when the host's attachment
+    /// intake took the pasteboard (files and pictures, Home's type rule).
+    func takeAttachments(from pasteboard: NSPasteboard) -> Bool
+    /// While dragging: whether a drop would be taken (types only).
+    func acceptsAttachments(from pasteboard: NSPasteboard) -> Bool
+>>>>>>> origin/main
     /// The field's text changed (the host clears its notice).
     func draftChanged()
     /// A link card was clicked (it opens too): a domain-only card may fetch its preview now.
@@ -61,6 +79,7 @@ protocol ChatIntents: AnyObject {
     /// My send can be cancelled (an upload, or a failed send): Cancel Upload.
     func canCancelSend(_ message: ID) -> Bool
     func cancelSend(_ message: ID)
+<<<<<<< HEAD
     /// My send is "Not Delivered": Try Again and Delete are offered.
     func canRetrySend(_ message: ID) -> Bool
     /// Try Again: the send goes again (`HomeStore.retry`).
@@ -87,10 +106,15 @@ protocol ChatIntents: AnyObject {
     /// The attachment's local copy, named like the attachment (fetched when needed); nil when it
     /// cannot be read here. The host's menu rows (Open With, Reveal) run on it.
     func attachmentFile(_ message: ID, _ attachment: ID) async -> URL?
+=======
+    /// Open an attachment's bytes in the app the system picks (the context menu).
+    func openAttachment(_ message: ID, _ attachment: ID)
+>>>>>>> origin/main
     /// A click on a video bubble: play or pause it in place.
     func toggleVideo(_ ref: PartRef, _ attachment: ID)
     /// The inline playback state of a video part (the menu's Play or Pause).
     func videoState(_ ref: PartRef) -> HomeVideoState
+<<<<<<< HEAD
     /// A double-click on a video bubble, its expand button or View Larger: the video opens in
     /// the large viewer over the pane (the user, 2026-10-30), from where the bubble was.
     func openVideo(_ ref: PartRef, _ attachment: ID)
@@ -101,12 +125,15 @@ protocol ChatIntents: AnyObject {
     func agentRowClicked(_ message: ID) -> Bool
     /// What a click on the row of message `message` opens when it is a Feed row; nil for every other row.
     func feedRowURL(_ message: ID) -> URL?
+=======
+>>>>>>> origin/main
     /// The transcript moved (user scroll, pin): paging and read cursor.
     func scrolled()
     /// The rows read a new window place (RowCell.windowPlace: the pane moved by a fraction of a point or
     /// resized) and may have moved their content onto other device pixels (RowCell.snapRow, MessagesLab
     /// c1457e5): what the host draws over a row follows it.
     func rowsPlaced()
+<<<<<<< HEAD
 }
 
 extension ChatIntents {
@@ -127,6 +154,44 @@ extension ChatIntents {
     /// Hosts without a Chief control path do not expose turn retry.
     func canRetryChiefTurn(_ message: ID) -> Bool { false }
     func retryChiefTurn(_ message: ID) {}
+=======
+    /// cmux-classic: an approval card's option (a click, Return or Esc on the card or in the empty
+    /// field; `always`: "Always Allow", the owner saves the command's rule first). The answer goes to
+    /// the owner; `completion(false)` when it was refused.
+    func answerApproval(_ ref: PartRef, choice: String, always: Bool, completion: @escaping (Bool) -> Void)
+    /// cmux-classic: the newest pending approval card in the transcript (the field's Return and Esc,
+    /// its placeholder).
+    func newestPendingApproval() -> (ref: PartRef, approval: ChiefRows.Approval)?
+    /// cmux-classic: a question card's answer (QuestionCardRow). The answer goes to the owner;
+    /// `completion(false)` when it was refused.
+    func answerQuestion(_ ref: PartRef, answer: AgentQuestionAnswer, completion: @escaping (Bool) -> Void)
+    /// cmux-classic: a Cloud result card's Open Workspace (ChiefCloudRows): the host opens the
+    /// machine workspace as a local workspace (`cmux vm workspace open`).
+    func openCloudWorkspace(machine: String, workspace: String)
+    /// cmux-classic: a Cloud result card's Open Desktop: the host projects the machine's
+    /// live display into cmux (`cmux vm desktop`) so the user can inspect or operate it.
+    func openCloudDesktop(machine: String)
+    /// cmux-classic: a Cloud result card's Stop Machine (ChiefCloudRows): the user asks the Chief to
+    /// stop `machine` (`name` is how the card shows it); the Chief's `cmux vm pause` then asks with an
+    /// approval card. `completion(false)` when the request was not sent.
+    func stopCloudMachine(machine: String, name: String, completion: @escaping (Bool) -> Void)
+    /// cmux-classic: a failed turn's Try Again (ChiefNoticeRows.swift): the owner runs the last
+    /// message again; `completion(false)` when it did not (a turn runs, nothing to resend).
+    func retryLastTurn(completion: @escaping (Bool) -> Void)
+    /// cmux-classic: a saved note's Undo (ChiefNoticeRows.swift): the host forgets the note `fact`.
+    func undoMemory(fact: String, completion: @escaping (Bool) -> Void)
+}
+
+extension ChatIntents {
+    func answerApproval(_ ref: PartRef, choice: String, always: Bool, completion: @escaping (Bool) -> Void) { completion(false) }
+    func newestPendingApproval() -> (ref: PartRef, approval: ChiefRows.Approval)? { nil }
+    func answerQuestion(_ ref: PartRef, answer: AgentQuestionAnswer, completion: @escaping (Bool) -> Void) { completion(false) }
+    func openCloudWorkspace(machine: String, workspace: String) {}
+    func openCloudDesktop(machine: String) {}
+    func stopCloudMachine(machine: String, name: String, completion: @escaping (Bool) -> Void) { completion(false) }
+    func retryLastTurn(completion: @escaping (Bool) -> Void) { completion(false) }
+    func undoMemory(fact: String, completion: @escaping (Bool) -> Void) { completion(false) }
+>>>>>>> origin/main
 }
 
 /// One-shot wake-ups for the controller's engine clock (scheduled actions,
@@ -137,6 +202,7 @@ public protocol ChatWakeScheduler: AnyObject {
     func schedule(after seconds: Double, _ action: @escaping @MainActor @Sendable () -> Void)
     func cancel()
 }
+<<<<<<< HEAD
 
 extension ChatIntents {
     /// No + menu (test hosts): the "+" opens the file picker, as before.
@@ -155,3 +221,5 @@ extension ChatIntents {
     /// Hosts without bytes of their own send the attachment's model: it can always come back.
     func canRestoreDraftAttachment(_ id: ID) -> Bool { true }
 }
+=======
+>>>>>>> origin/main

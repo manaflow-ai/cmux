@@ -939,6 +939,7 @@ impl WorkspaceRegistry {
         self.resource_patch_failures_remaining.set(failures);
     }
 
+<<<<<<< ours
     /// Makes the next `failures` topology snapshot reads fail (tests).
     #[cfg(test)]
     pub(crate) fn fail_next_topology_snapshots_for_test(&self, failures: u64) {
@@ -961,6 +962,29 @@ impl WorkspaceRegistry {
             .unwrap();
     }
 
+=======
+    /// Makes the next `failures` topology snapshot reads fail (tests).
+    #[cfg(test)]
+    pub(crate) fn fail_next_topology_snapshots_for_test(&self, failures: u64) {
+        self.topology_snapshot_failures_remaining.set(failures);
+    }
+
+    /// Makes every later effect outcome commit fail inside SQLite, as a full
+    /// disk or an I/O error does, while intent and indeterminate marks still
+    /// commit.
+    #[cfg(test)]
+    pub(crate) fn reject_resource_effect_commits_for_test(&self) {
+        self.connection
+            .execute_batch(
+                "CREATE TEMP TRIGGER reject_resource_effect_commit
+                 BEFORE UPDATE OF state ON resource_effect_receipts
+                 WHEN NEW.state = 'committed'
+                 BEGIN SELECT RAISE(ABORT, 'injected outcome commit failure'); END;",
+            )
+            .unwrap();
+    }
+
+>>>>>>> theirs
     /// Commit every durable side of a topology close before the mux detaches
     /// the corresponding live surfaces. Legacy workspace and terminal event
     /// streams advance in this same transaction as the public tombstones and

@@ -141,6 +141,7 @@ members = [
     "crates/chatmux-relay",
     "crates/cmux-tui-machine-agent-protocol",
     "crates/cmux-tui-machine-protocol",
+    "crates/cmux-test-exec",
     "crates/cmux-tui",
     "crates/cmux-tui/tests/it/modules",
     "crates/cmux-wg",
@@ -324,6 +325,7 @@ default-members = [
     "crates/chatmux-relay",
     "crates/cmux-tui-machine-agent-protocol",
     "crates/cmux-tui-machine-protocol",
+    "crates/cmux-test-exec",
     "crates/cmux-tui",
     "crates/cmux-wg",
     "crates/cmux-wg-tun",
@@ -534,6 +536,7 @@ cmux-signed-bundle = { path = "crates/cmux-signed-bundle" }
 cmux-scope = { path = "crates/cmux-scope" }
 cmux-flow-trace = { path = "crates/cmux-flow-trace" }
 cmux-felt = { path = "crates/cmux-felt" }
+cmux-test-exec = { path = "crates/cmux-test-exec" }
 cmux-remote-protocol = { path = "crates/cmux-remote-protocol" }
 cmux-braid-session = { path = "crates/cmux-braid-session" }
 cmux-conversation = { path = "crates/cmux-conversation" }
@@ -679,10 +682,17 @@ hyper-util = { version = "0.1", features = ["service", "tokio"] }
 # the cross-platform fs-event backend for the fs_watch stream family.
 ignore = "0.4"
 notify = "8"
+<<<<<<< ours
 # platform-verifier: iroh-relay verifies relay TLS against the OS trust store
 # (Apple Security.framework, Windows, Linux native roots), not its compiled-in
 # webpki list, which still trusted the leaked emSign (eMudhra) roots (#25452).
 iroh = { version = "1.0.3", default-features = false, features = ["fast-apple-datapath", "portmapper", "tls-ring", "platform-verifier"] }
+=======
+# platform-verifier: iroh-relay verifies relay TLS against the OS trust store,
+# not its compiled-in webpki list, which still trusted the leaked emSign
+# (eMudhra) roots (manaflow-ai/cmux#25452).
+iroh = { version = "1.0.3", default-features = false, features = ["fast-apple-datapath", "portmapper", "tls-ring", "platform-verifier"] }
+>>>>>>> theirs
 subtle = "2.6.1"
 parking_lot = "0.12"
 # One-load published snapshots (cmux-tui-core `published.rs`, R-DAEMON-STATE); already in the tree through iroh-dns.
@@ -832,6 +842,7 @@ codegen-units = 16
 # code, full for dependencies (ratatui/crossterm do the heavy lifting).
 [profile.dev]
 opt-level = 1
+<<<<<<< ours
 # opt-level 1 with many codegen units turns on rustc's crate-local ThinLTO,
 # which reruns over every codegen unit of the edited crate: 5.3 s of a 9.8 s
 # cmux-tui rebuild after a one-line edit (-Z time-passes, crate-split lane 3).
@@ -842,9 +853,18 @@ lto = "off"
 # cold, with cold builds 360 s -> 251 s). Use `debug = true` locally to step
 # through locals in a debugger.
 debug = "line-tables-only"
+=======
+# Line tables keep file:line in panics, backtraces and profiles; full DWARF made
+# each worktree's target about twice the size (feat-cmux-next #22193, Huge Blue
+# 10-19: 11 GB -> 5.4 GB cold, cold builds 360 s -> 251 s). `[profile.test]`
+# inherits these settings, so test and dev builds keep sharing dependency
+# artifacts. Use `debug = true` locally to step through locals in a debugger.
+debug = "line-tables-only"
+>>>>>>> theirs
 
 [profile.dev.package."*"]
 opt-level = 3
+<<<<<<< ours
 debug = false
 
 # acpmux's own code does not make its tests faster when optimized (rbx,
@@ -860,3 +880,6 @@ opt-level = 0
 # Rex parity bench (tests/rex_parity_bench.rs) measure it optimized.
 [profile.dev.package.cmux-api-compat]
 opt-level = 3
+=======
+debug = false
+>>>>>>> theirs

@@ -12,6 +12,7 @@ extension HomeStore {
         viewCache.setDraft(text, for: id)
     }
 
+<<<<<<< HEAD
     /// The attachments left in a conversation's compose field, in order;
     /// one whose bytes left the blob cache is skipped.
     public func draftAttachments(for id: ConversationID) -> [LocalAttachment] {
@@ -24,6 +25,8 @@ extension HomeStore {
         viewCache.setDraftAttachments(attachments.map(HomeCachedDraftAttachment.init), for: id)
     }
 
+=======
+>>>>>>> origin/main
     public func scrollAnchor(for id: ConversationID) -> HomeScrollAnchor? { viewCache.scrollAnchors[id] }
 
     /// Where the reader is; nil when at the bottom.
@@ -31,6 +34,7 @@ extension HomeStore {
         viewCache.setScrollAnchor(anchor, for: id)
     }
 
+<<<<<<< HEAD
     /// The Chief conversation Home showed last, as the cache has it (nil: none yet, or a cache
     /// from before it was kept).
     public var cachedChief: ConversationID? { viewCache.chief }
@@ -68,11 +72,21 @@ extension HomeStore {
     func restoreCache() {
         guard !cacheRestored else { return }
         cacheRestored = true
+=======
+    /// Writes the coalesced cache batch now (app quit), without stopping.
+    public func flushCache() {
+        viewCache.flush()
+    }
+
+    /// Shows what the cache holds before the owner answers.
+    func restoreCache() {
+>>>>>>> origin/main
         guard let snapshot = cache?.load() else { return }
         viewCache.restore(snapshot) {
             mirror.seed(snapshot)
             seeded = Set(mirror.conversations.keys)
             me = mirror.me
+<<<<<<< HEAD
             // A draft's files are this client's own, like a prepare's: the prune keeps them, and
             // they count as used now for a store on the same directory that does not hold them.
             for cached in viewCache.draftAttachments.values.joined() {
@@ -80,12 +94,15 @@ extension HomeStore {
                 localFiles[attachment.ref.hash] = attachment.files
                 for url in cached.urls { AttachmentMedia.touch(url.deletingLastPathComponent()) }
             }
+=======
+>>>>>>> origin/main
             for send in snapshot.sends { log.restore(send.intent, failed: send.failed) }
             rebuildRows()
             for id in Set(snapshot.windows.keys).union(snapshot.sends.map(\.conversation)) { bumpTranscript(id) }
         }
     }
 
+<<<<<<< HEAD
     /// Called on every write to the mirror or the log: schedules a cache write only when what the
     /// cache holds of them moved (O(1): two counters), so an owner event that changes nothing
     /// cached (typing, a connection change, an owner recovery) wakes nothing and builds no snapshot.
@@ -111,15 +128,38 @@ extension HomeStore {
 
     /// `Caches/cmux-home-blobs`: the app's Home attachment folder. Only the store that owns it names it
     /// (`HomeService.homeStore`), since a store prunes its folder down to its own drafts' and sends' blobs.
+=======
+    /// Writes the cache soon (coalesced), or at once with no delay.
+    func scheduleCacheWrite() {
+        viewCache.scheduleWrite()
+    }
+
+    /// The owner's state as the mirror has it (the view cache adds the client's own state).
+    func ownerCacheSnapshot() -> HomeCacheSnapshot {
+        var snapshot = HomeCacheSnapshot()
+        snapshot.me = me ?? mirror.me
+        snapshot.conversations = mirror.conversations.values.sorted { $0.id.rawValue < $1.id.rawValue }
+        snapshot.windows = mirror.windows.compactMapValues { window in
+            window.messages.isEmpty ? nil : Array(window.messages.suffix(HomeCache.windowLimit))
+        }
+        snapshot.sends = log.entries.compactMap(HomeCachedSend.init)
+        return snapshot
+    }
+
+    /// `Caches/cmux-home-blobs`.
+>>>>>>> origin/main
     public nonisolated static var defaultBlobCacheDirectory: URL {
         let caches = FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask).first
             ?? FileManager.default.temporaryDirectory
         return caches.appendingPathComponent("cmux-home-blobs", isDirectory: true)
     }
+<<<<<<< HEAD
 
     /// A temporary folder of this store's own: the folder of a store that names none (tests, fixtures), so its
     /// prune never reaches the app's folder, whose blobs it does not keep.
     public nonisolated static func ownBlobCacheDirectory() -> URL {
         FileManager.default.temporaryDirectory.appendingPathComponent("cmux-home-blobs-\(UUID().uuidString)", isDirectory: true)
     }
+=======
+>>>>>>> origin/main
 }

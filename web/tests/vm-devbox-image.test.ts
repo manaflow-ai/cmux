@@ -27,6 +27,7 @@ import {
   CMUX_TUI_STATE_MAX_BYTES,
   agentPinDrift,
   devboxAgentPins,
+<<<<<<< ours
   devboxAgentDesktopInstallCommand,
   devboxAgentDesktopSha256,
   devboxAgentDesktopUrl,
@@ -36,6 +37,12 @@ import {
   devboxBubblewrapSha256,
   devboxBubblewrapUrl,
   devboxBubblewrapVersion,
+=======
+  devboxBubblewrapInstallCommand,
+  devboxBubblewrapSha256,
+  devboxBubblewrapUrl,
+  devboxBubblewrapVersion,
+>>>>>>> theirs
   devboxCuaDriverVersion,
   devboxGhosttyVersion,
   devboxWaitForDaemonCommand,

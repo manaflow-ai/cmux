@@ -37,7 +37,32 @@ Put it in your running cmux and use it (screenshot, video, click) before compile
 
 ## CI, review and merge
 
+<<<<<<< HEAD
 Into `feat-cmux-next` merge your own PR pinned (`gh pr merge N --squash --match-head-commit <sha>`) once it adds no red; review runs beside. Into `main`: a review SHIP at the head. Never `--admin`. Tests go beside the code's tests; a new PR job gets a router map entry (`scripts/ci/job_inputs.py fix` marks a missed one runs-always). [CI coverage](skills/cmux-testing/references/pr-ci-coverage.md), [landing](docs/ci/landing.md).
+=======
+- Commit the failing behavioral regression before its fix; record the same
+  focused command's red and green results ([testing policy](skills/cmux-testing/SKILL.md#reproduce-and-repair)).
+  A bug-fix PR body names that command, its failure on the base and its pass on the head,
+  then an `### Observed / Not run` section: what you ran and saw, then what you only read
+  or didn't run. `gh-merge-green` warns when a fix PR lacks it; it does not block.
+- Check executed tests on the current SHA; green skipped jobs do not establish coverage.
+  Add `full-ci` only for a user-requested or agreed broad validation plan,
+  naming the extra lanes and why ([CI coverage](skills/cmux-testing/references/pr-ci-coverage.md)).
+- Keep branches current locally with `scripts/merge-main.sh`; follow
+  [the merge-main guide](docs/ci/merge-main.md) and never force-push over its merge.
+- `gh pr merge` saying "base branch policy prohibits the merge" means the token lacks the `workflow`
+  scope or GitHub timed out, not a rule: run `gh auth refresh -h github.com -s workflow`, or merge with
+  `gh api -X PUT repos/OWNER/REPO/pulls/N/merge -f merge_method=squash -f sha=SHA`, which names the cause. Never `--admin`.
+- Before opening a PR and before merging, check it against [REVIEW.md](REVIEW.md) (draft),
+  the mistakes our review history keeps catching.
+- A PR merges when an independent [review subagent](skills/cmux-review/SKILL.md) passes its
+  head and it causes no red of its own; base reds, flakes and pending checks don't hold it, and
+  no person approves it. Merge with `gh-merge-green`; [merge freezes](docs/ci/merge-freeze.md)
+  still hold. A stuck, irrelevant or known red check is not a reason to stop: waive it with
+  `--override "<reason>"`, which posts the reason on the PR ([exact-head merging](docs/ci-runners.md#exact-head-merging)).
+  First pass, dogfood, red base and receipts: [dogfood and merge](skills/cmux-review/references/dogfood-and-merge.md).
+  Notify with `cmux notify` when a socket is available.
+>>>>>>> origin/main
 
 ## Settings on every surface
 

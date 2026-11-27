@@ -561,7 +561,12 @@ assert ident["data"]["protocol"] == expected_protocol(), ident
 print("identify ok:", ident["data"])
 
 ws0 = initial_tree[0]
+<<<<<<< HEAD
 # Default names follow the daemon's workspace-N sequence (PR 12227).
+=======
+# Default names follow the daemon's workspace-N sequence
+# (Mux::default_workspace_name), as on feat.
+>>>>>>> origin/main
 assert ws0["name"] == "workspace-1", ws0
 screen0 = active_screen(ws0)
 panes = screen0["panes"]

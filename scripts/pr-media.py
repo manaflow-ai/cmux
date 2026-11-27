@@ -33,6 +33,7 @@ Every file goes through the shared privacy check (scripts/ci/pr_media_privacy.py
 before the first upload, the gif made from an mp4 included: a capture that
 shows a private machine or account name is refused, in any pull request, and
 nothing is uploaded; the message names the name's category and how to fix it.
+<<<<<<< HEAD
 `put_file()` runs the same check on each file for the tools that import it
 (scripts/cmux-next/media/publish.py and reel.py check their whole batch first).
 A refusal is never retried. In GitHub Actions the check refuses unless the
@@ -48,12 +49,24 @@ through `gh api graphql` instead (ApiBranch), never a `contents/` read.
 `--comment` uses `gh` too. `--dry-run` resolves the whole plan and prints it
 without running either; it still runs the privacy check on the files as given
 (no gif yet).
+=======
+`put_file()` runs the same check on each file for the tools that import it.
+In GitHub Actions the check refuses unless the step runs inside
+.github/actions/pr-media-publish, the one publishing step: it brings the
+pr-media environment's private-terms list and an OCR tool, so a CI writer
+never falls back to the built-in patterns with its images unread.
+
+Conversion needs ffmpeg. Everything else needs `gh` with push access to the
+repository. `--dry-run` resolves the whole plan and prints it without running
+either; it still runs the privacy check on the files as given (no gif yet).
+>>>>>>> origin/main
 """
 
 from __future__ import annotations
 
 import argparse
 import base64
+<<<<<<< HEAD
 import contextlib
 import fcntl
 import importlib.util
@@ -62,6 +75,11 @@ import math
 import os
 import random
 import re
+=======
+import importlib.util
+import json
+import os
+>>>>>>> origin/main
 import shutil
 import subprocess
 import sys
@@ -120,19 +138,25 @@ class MediaError(Exception):
     """A problem worth a one-line message rather than a traceback."""
 
 
+<<<<<<< HEAD
 class MediaConflict(MediaError):
     """A path the caller's EXPECT named changed on the branch before the write: another upload got there first."""
 
 
+=======
+>>>>>>> origin/main
 class PrivacyError(MediaError):
     """The privacy check refused the files or could not run; a retry gets the same answer."""
 
 
+<<<<<<< HEAD
 class GitTransportError(MediaError):
     """git could not reach or authenticate to the remote (or timed out). GitHub's GraphQL API may still answer
     the same question, so the module-level reads and writes fall back to ApiBranch on this error alone."""
 
 
+=======
+>>>>>>> origin/main
 # The one privacy check shared by every pr-media writer; it lives in scripts/ci.
 PRIVACY_MODULE = Path(__file__).resolve().parent / "ci" / "pr_media_privacy.py"
 _privacy = None
@@ -156,7 +180,11 @@ def privacy_module():
 
 # In GitHub Actions every pr-media write goes through this composite action. It
 # gives the check the pr-media environment's private-terms list and an OCR tool
+<<<<<<< HEAD
 # (tesseract on Linux, Vision on macOS) and sets PUBLISH_GATE for its command.
+=======
+# (tesseract on Linux, Vision on macOS) and sets PUBLISH_GATE for its publisher.
+>>>>>>> origin/main
 PUBLISH_ACTION = ".github/actions/pr-media-publish"
 PUBLISH_GATE = "PR_MEDIA_PUBLISH_GATE"
 
@@ -1006,6 +1034,7 @@ def put_files(repo: str, branch: str, files: dict[str, Path], message: str, chec
 
 
 def put_file(repo: str, branch: str, path: str, local: Path, message: str,
+<<<<<<< HEAD
              runner=None, checked: bool = False, store: MediaBranch | None = None) -> None:
     """One file, for the tools that import this (scripts/cmux-next/media/publish.py, reel.py).
 
@@ -1013,6 +1042,40 @@ def put_file(repo: str, branch: str, path: str, local: Path, message: str,
     sent it with the PUT): re-posting a pull request's tour media or a nightly reel overwrites the last copy.
     "Without --force nothing is replaced" is the CLI's rule (main()), not this function's."""
     put_files(repo, branch, {path: local}, message, checked=checked, store=store)
+=======
+             runner=None, checked: bool = False) -> None:
+    """Write one file to the branch through the contents API.
+
+    The file goes through the privacy check first unless the caller already
+    checked it (`checked=True`, as main() does for its whole batch).
+
+    The body goes in on stdin: a base64 megabyte does not fit in an argument
+    list, and `gh api -f` would put it there.
+
+    A rejected write is retried once with a freshly read sha, because two
+    sessions uploading to this branch at the same time is normal and the loser
+    of that race should not lose its clip.
+    """
+    if not checked:
+        check_privacy([(path, local)], repo)
+    content = base64.b64encode(local.read_bytes()).decode("ascii")
+    sha = existing_sha(repo, branch, path, runner=runner)
+    for attempt in (1, 2):
+        body: dict[str, str] = {"message": message, "branch": branch, "content": content}
+        if sha:
+            body["sha"] = sha
+        done = (runner or subprocess.run)(
+            ["gh", "api", "--method", "PUT", contents_path(repo, path), "--input", "-"],
+            input=json.dumps(body), capture_output=True, text=True,
+        )
+        if done.returncode == 0:
+            return
+        said = (done.stderr or done.stdout).strip()
+        if attempt == 1 and looks_like_a_conflict(said):
+            sha = existing_sha(repo, branch, path, runner=runner)
+            continue
+        raise MediaError(f"upload of {path} failed: {said}")
+>>>>>>> origin/main
 
 
 def require_branch(repo: str, branch: str, store: MediaBranch | None = None) -> None:
@@ -1158,6 +1221,7 @@ def main(argv: list[str] | None = None, runner=None) -> int:
                     "Rename the file, or pass --force to replace it."
                 )
 
+<<<<<<< HEAD
             for target, sha in sorted(replacing.items()):
                 print(f"replacing {target} (blob {sha})")
             # One commit for the whole batch: every file lands, or none does.
@@ -1169,6 +1233,16 @@ def main(argv: list[str] | None = None, runner=None) -> int:
                       expect=None if args.force else dict.fromkeys(targets))
             for upload, _ in ready:
                 print(f"uploaded {remote_path(args.pr, upload.name)}")
+=======
+            for upload, path in ready:
+                target = remote_path(args.pr, upload.name)
+                if target in replacing:
+                    print(f"replacing {target} (blob {replacing[target]})")
+                put_file(args.repo, args.branch, target, path,
+                         f"PR {args.pr} media {upload.name}", runner=runner, checked=True)
+                uploaded.append(upload)
+                print(f"uploaded {target}")
+>>>>>>> origin/main
 
         body = markdown(uploads, args.pr, args.repo, args.branch)
         # Printed before the comment is attempted: a refused comment must not

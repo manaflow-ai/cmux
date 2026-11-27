@@ -598,7 +598,9 @@ html { scroll-behavior: smooth; }
     return true;
   }
 
-  function cmuxLocalImageURL(value) {
+  // The host bumps `revision` on each Refresh. WebKit caches images by URL,
+  // so a new URL makes it ask the host's image handler for the file again.
+  function cmuxLocalImageURL(value, revision) {
     var raw = String(value || '').trim();
     if (!isRelativeLocalImagePath(raw)) {
       return null;
@@ -607,21 +609,32 @@ html { scroll-behavior: smooth; }
     try {
       var parsed = new URL(raw, document.baseURI || window.location.href);
       if ((parsed.protocol || '').toLowerCase() !== 'file:') { return null; }
-      return 'cmux-local-image://image?url=' + encodeURIComponent(parsed.href);
+      var url = 'cmux-local-image://image?url=' + encodeURIComponent(parsed.href);
+      return revision > 0 ? url + '&rev=' + revision : url;
     } catch (e) {
       return null;
     }
   }
 
-  function rewriteLocalImageSources() {
+  function rewriteLocalImageSources(revision) {
     contentEl.querySelectorAll('img[src]').forEach(function(img) {
       var raw = img.getAttribute('src') || '';
-      var rewritten = cmuxLocalImageURL(raw);
+      var rewritten = cmuxLocalImageURL(raw, revision);
       if (!rewritten) { return; }
       img.setAttribute('data-cmux-original-src', raw);
       img.setAttribute('src', rewritten);
     });
   }
+
+  // Refresh calls this after image files may have changed on disk. Swapping
+  // src in place keeps each old image on screen until its new copy loads, and
+  // leaves the rest of the page (scroll, open details, diagrams) as it was.
+  window.__cmuxReloadLocalImages = function(revision) {
+    contentEl.querySelectorAll('img[data-cmux-original-src]').forEach(function(img) {
+      var rewritten = cmuxLocalImageURL(img.getAttribute('data-cmux-original-src'), revision);
+      if (rewritten) { img.setAttribute('src', rewritten); }
+    });
+  };
 
   var remoteImageAllowedURLs = Object.create(null);
 
@@ -1834,7 +1847,7 @@ html { scroll-behavior: smooth; }
     openMarkdownCandidate(rawPath);
   }, true);
 
-  window.__cmuxRenderMarkdown = function(md) {
+  window.__cmuxRenderMarkdown = function(md, localImageRevision) {
     try {
       headingSlugCounts = Object.create(null);
       var documentParts = extractFrontmatter(md || '');
@@ -1849,7 +1862,7 @@ html { scroll-behavior: smooth; }
       if (didReplaceContent) {
         contentEl.replaceChildren(fragment);
       }
-      rewriteLocalImageSources();
+      rewriteLocalImageSources(localImageRevision);
       rewriteRemoteImageSources();
       postProcessSpecialBlocks();
       if (didReplaceContent) {

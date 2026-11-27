@@ -34,6 +34,7 @@ public struct IdempotencyKey: RawRepresentable, Hashable, Sendable, Codable, Cus
     public init(_ rawValue: String) { self.rawValue = rawValue }
     public var description: String { rawValue }
 
+<<<<<<< HEAD
     /// Who of the Chief's team wrote a message whose `client_msg_id` this is:
     /// `voice:<name>:<rest>` (optchat-chief `voice.rs`), e.g. `desk` for the
     /// front desk. Nil for every other key.
@@ -46,6 +47,8 @@ public struct IdempotencyKey: RawRepresentable, Hashable, Sendable, Codable, Cus
         return !name.isEmpty && allowed ? String(name) : nil
     }
 
+=======
+>>>>>>> origin/main
     /// A fresh random key (`cmk_` + 26 lowercase base32 characters).
     public static func make() -> IdempotencyKey {
         var generator = SystemRandomNumberGenerator()

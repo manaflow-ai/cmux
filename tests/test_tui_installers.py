@@ -32,8 +32,13 @@ def run_unix_installer(
     script: str | None = None,
 ) -> tuple[subprocess.CompletedProcess[str], Path, list[str]]:
     """`binary`, when given, is published and served as the verified build.
+<<<<<<< HEAD
     `script`, when given, goes to `sh -s` on stdin (as `curl | sh` and the
     ssh:// install send it) instead of the installer file."""
+=======
+    `script`, when given, goes to `sh -s` on stdin (as `curl | sh` sends
+    it) instead of the installer file."""
+>>>>>>> origin/main
     if binary is not None:
         payload = binary
     fake_bin = tmp_path / "fake-bin"
@@ -106,6 +111,7 @@ esac
         capture_output=True,
         **({"input": script} if script is not None else {"stdin": subprocess.DEVNULL}),
         text=True,
+        **({"input": script} if script is not None else {"stdin": subprocess.DEVNULL}),
     )
     downloaded = downloads.read_text().splitlines() if downloads.exists() else []
     return result, install_root / "bin/cmux", downloaded
@@ -187,6 +193,7 @@ def test_unix_installer_rejects_wrong_commit_binary_checksum() -> None:
         assert not installed.exists()
 
 
+<<<<<<< HEAD
 # A cmux that records how it was run, one line per run in each log: its
 # arguments, its stdin, and whether CMUX_JOIN_TICKET reached its environment.
 RECORDING_CMUX = b"""#!/bin/sh
@@ -195,6 +202,13 @@ printf '%s\\n' "$(cat)" >>"$FIXTURES/cmux-stdin"
 printf '%s\\n' "${CMUX_JOIN_TICKET-unset}" >>"$FIXTURES/cmux-env"
 """
 TICKET = "cmxt1.eyJ2IjoxfQ"
+=======
+# cmux server (`--server`): the service step after the verified install.
+# A cmux that records how it was run, one line per run: its arguments.
+RECORDING_CMUX = b"""#!/bin/sh
+printf '%s\\n' "$*" >>"$FIXTURES/cmux-runs"
+"""
+>>>>>>> origin/main
 
 
 def runs(directory: Path, log: str = "cmux-runs") -> list[str]:
@@ -202,6 +216,7 @@ def runs(directory: Path, log: str = "cmux-runs") -> list[str]:
     return path.read_text().splitlines() if path.exists() else []
 
 
+<<<<<<< HEAD
 def test_unix_installer_joins_with_a_pasted_ticket() -> None:
     # `sh -s -- <ticket>`, `--join <ticket>` and CMUX_JOIN_TICKET all join,
     # with --serve unless CMUX_HOST already turned hosting on, and pass
@@ -278,6 +293,101 @@ def test_unix_installer_fails_when_the_join_fails() -> None:
         assert result.returncode == 1
         assert installed.exists()
         assert "did not join" in result.stderr
+=======
+NIGHTLY = "c" * 40
+FEED = f"""<?xml version="1.0"?><rss xmlns:cmux="https://cmux.com/xml-namespaces/cmux"><channel>
+<item><cmux:sourceCommit xmlns:cmux="https://cmux.com/xml-namespaces/cmux">{NIGHTLY}</cmux:sourceCommit></item>
+<item><cmux:sourceCommit>{"d" * 40}</cmux:sourceCommit></item>
+</channel></rss>
+"""
+
+
+def test_unix_installer_server_installs_the_nightly_build_then_the_service() -> None:
+    # No base URL and no --commit: --server reads the current NIGHTLY commit
+    # from the first cmux:sourceCommit of the feed, installs that published
+    # build (checksum-verified), then runs `cmux server install`.
+    with tempfile.TemporaryDirectory() as directory:
+        tmp = Path(directory)
+        (tmp / "feed.xml").write_text(FEED)
+        result, installed, downloads = run_unix_installer(
+            tmp, "", args=["--server"], binary=RECORDING_CMUX,
+            env={"CMUX_DOWNLOAD_BASE_URL": ""},
+        )
+        assert result.returncode == 0, result.stderr
+        assert installed.read_bytes() == RECORDING_CMUX
+        assert downloads[0].endswith("appcast-arm64.xml")
+        assert downloads[1] == f"https://files.cmux.com/cmux-tui/{NIGHTLY}/manifest.json"
+        assert downloads[2] == f"https://files.cmux.com/cmux-tui/{NIGHTLY}/cmux-tui-aarch64-apple-darwin"
+        assert runs(tmp) == ["server install"]
+
+
+def test_unix_installer_server_takes_a_pinned_commit() -> None:
+    with tempfile.TemporaryDirectory() as directory:
+        tmp = Path(directory)
+        result, _, downloads = run_unix_installer(
+            tmp, "", args=["--commit", COMMIT, "--server"], binary=RECORDING_CMUX,
+            env={"CMUX_DOWNLOAD_BASE_URL": ""},
+        )
+        assert result.returncode == 0, result.stderr
+        assert downloads[0] == f"https://files.cmux.com/cmux-tui/{COMMIT}/manifest.json"
+        assert not any("appcast" in url for url in downloads)
+        assert runs(tmp) == ["server install"]
+
+
+def test_unix_installer_without_server_runs_no_service_step() -> None:
+    with tempfile.TemporaryDirectory() as directory:
+        tmp = Path(directory)
+        result, _, _ = run_unix_installer(
+            tmp, "https://fixtures.invalid/cmux-tui/latest", binary=RECORDING_CMUX,
+        )
+        assert result.returncode == 0, result.stderr
+        assert runs(tmp) == []
+
+
+def test_unix_installer_server_failure_names_the_command_to_rerun() -> None:
+    failing = RECORDING_CMUX + b"exit 4\n"
+    with tempfile.TemporaryDirectory() as directory:
+        tmp = Path(directory)
+        result, installed, _ = run_unix_installer(
+            tmp, f"https://fixtures.invalid/cmux-tui/{COMMIT}", args=["--server"], binary=failing,
+        )
+        assert result.returncode == 1
+        assert installed.exists()
+        assert f"then run: {installed} server install" in result.stderr
+
+
+def test_unix_installer_rejects_bad_commits_and_unreadable_feeds() -> None:
+    for args in (["--commit", "abc"], ["--commit", "G" * 40], ["--commit"], ["--commit=../x"]):
+        with tempfile.TemporaryDirectory() as directory:
+            result, installed, downloads = run_unix_installer(
+                Path(directory), "", args=args, env={"CMUX_DOWNLOAD_BASE_URL": ""},
+            )
+            assert result.returncode == 2, (args, result.stderr)
+            assert not installed.exists()
+            assert downloads == []
+    with tempfile.TemporaryDirectory() as directory:
+        result, installed, downloads = run_unix_installer(
+            Path(directory), "", args=["--server"], env={"CMUX_DOWNLOAD_BASE_URL": ""},
+        )
+        assert result.returncode == 1
+        assert "--commit <sha>" in result.stderr
+        assert not installed.exists()
+        assert len(downloads) == 1
+
+
+def test_unix_installer_dry_run_changes_nothing() -> None:
+    with tempfile.TemporaryDirectory() as directory:
+        tmp = Path(directory)
+        result, installed, downloads = run_unix_installer(
+            tmp, f"https://fixtures.invalid/cmux-tui/{COMMIT}", args=["--server", "--dry-run"],
+            binary=RECORDING_CMUX,
+        )
+        assert result.returncode == 0, result.stderr
+        assert "Would run:" in result.stdout and "server install" in result.stdout
+        assert not installed.exists()
+        assert downloads == []
+        assert runs(tmp) == []
+>>>>>>> origin/main
 
 
 if __name__ == "__main__":
@@ -288,6 +398,7 @@ if __name__ == "__main__":
     test_unix_installer_preserves_overrides_and_trims_trailing_slashes()
     test_unix_installer_rejects_missing_or_invalid_commit_before_binary_download()
     test_unix_installer_rejects_wrong_commit_binary_checksum()
+<<<<<<< HEAD
     test_unix_installer_joins_with_a_pasted_ticket()
     test_unix_installer_refuses_an_unknown_argument_before_downloading()
     test_unix_installer_fails_when_the_join_fails()
@@ -390,6 +501,17 @@ def test_unix_installer_dry_run_changes_nothing() -> None:
         assert runs(tmp) == []
 
 
+=======
+    test_unix_installer_server_installs_the_nightly_build_then_the_service()
+    test_unix_installer_server_takes_a_pinned_commit()
+    test_unix_installer_without_server_runs_no_service_step()
+    test_unix_installer_server_failure_names_the_command_to_rerun()
+    test_unix_installer_rejects_bad_commits_and_unreadable_feeds()
+    test_unix_installer_dry_run_changes_nothing()
+    print("cmux-tui installer tests passed")
+
+
+>>>>>>> origin/main
 def test_unix_installer_cut_short_runs_nothing() -> None:
     # A download cut short (curl | sh, or the ssh:// install's stdin) must
     # run no line of the script: no download, no install, no service.

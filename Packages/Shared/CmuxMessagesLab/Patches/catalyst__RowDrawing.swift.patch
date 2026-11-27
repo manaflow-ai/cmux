@@ -1,5 +1,6 @@
 --- a/Sources/MessagesLabHome/Vendor/catalyst/RowDrawing.swift
 +++ b/Sources/MessagesLabHome/Vendor/catalyst/RowDrawing.swift
+<<<<<<< HEAD
 @@ -21,17 +21,26 @@
  
      /// Horizontal span that needs pixels (cell bitmaps stay small).
@@ -72,12 +73,16 @@
          default: return false
          }
 @@ -196,9 +202,9 @@
+=======
+@@ -196,9 +196,11 @@
+>>>>>>> origin/main
              }
          case let .notice(s):
              // As the unsent notice below (ask 9, HostHooks.swift).
 -            let f = HomeFonts.system(ofSize: 11) // HomeFonts (cx-qpqs)
 -            let w = TextDraw.width(s, font: f)
 -            TextDraw.line(s, font: f, color: Fixture.secondaryText, x: m.centerX + 0.1 - w / 2, baseline: top + 12, in: ctx)
+<<<<<<< HEAD
 +            // cmux: at the typing bubble's left edge, the row above it (Layout), not centered.
 +            // cmux: one row per line, each cut to the column (HomeNoticeRows; one line draws as upstream's).
 +            HomeNoticeRows.draw(s, x: noticeLeft(spec), baseline: top + 12, maxWidth: m.receiptRight - noticeLeft(spec), in: ctx)
@@ -208,6 +213,18 @@
 -            if !p.failed { drawSaveButton(ctx, body: body, outgoing: p.outgoing) }
 +            // cmux: no save button drawn beside the picture: it did nothing when clicked and sat at a different x for
 +            // every width (user 2026-11-16). Save As… is on hover (HomeMediaSaveHover) and in the menu.
+=======
++            // cmux-classic: Home's status line ("Waiting for you") in its own font and ink (HomeStatusLine), at the
++            // incoming bubbles' left edge under the approval card it speaks for, its capitals 6 pt under the card
++            // (Layout's 4 pt gap plus 2 pt).
++            let f = HomeStatusLine.font
++            TextDraw.line(s, font: f, color: HomeStatusLine.ink, x: Fixture.labelLeft, baseline: top + 2 + ceil(f.capHeight), in: ctx)
+         case let .unsent(outgoing):
+             let s = outgoing ? Strings.unsentMine : Strings.unsentTheirs
+             let f = HomeFonts.system(ofSize: 11) // HomeFonts (cx-qpqs)
+@@ -433,7 +435,7 @@
+             if !p.failed { drawSaveButton(ctx, body: body, outgoing: p.outgoing) }
+>>>>>>> origin/main
          case "voiceMemo":
              fillBubble(ctx, shape, outgoing: p.outgoing, windowY: windowY)
 -            let fg: UIColor = p.outgoing ? .white : Fixture.incomingText
@@ -215,18 +232,25 @@
              fg.setFill()
              UIBezierPath(ovalIn: CGRect(x: body.minX + 8, y: body.midY - 11, width: 22, height: 22)).fill()
              let tri = UIBezierPath()
+<<<<<<< HEAD
 @@ -455,8 +482,10 @@
              TextDraw.line(d, font: HomeFonts.monospacedDigit(ofSize: 11, weight: .regular), color: fg, x: body.maxX - 36, // HomeFonts (cx-qpqs)
                            baseline: body.midY + 4, in: ctx)
          default:
 +            // cmux: a file is a neutral card with its type's icon and kind (HomeFileCard, #26395).
 +            if HomeFileCard.isCard(a) { HomeFileCard.draw(ctx, a, shape: shape, body: body); return }
+=======
+@@ -455,7 +457,7 @@
+                           baseline: body.midY + 4, in: ctx)
+         default:
+>>>>>>> origin/main
              fillBubble(ctx, shape, outgoing: p.outgoing, windowY: windowY)
 -            let fg: UIColor = p.outgoing ? .white : Fixture.incomingText
 +            let fg: UIColor = p.outgoing ? Fixture.outgoingText : Fixture.incomingText  // cmux: themed (white by default)
              let icon = CGRect(x: body.minX + 10, y: body.minY + 10, width: 28, height: 36)
              if a.kind == "contact" {
                  UIColor(white: 0.55, alpha: 1).setFill()
+<<<<<<< HEAD
 @@ -547,137 +576,141 @@
          TextDraw.line(sub, font: HomeFonts.system(ofSize: 11), color: fg.withAlphaComponent(0.6), x: x, baseline: body.minY + 58.5, in: ctx) // HomeFonts (cx-qpqs)
      }
@@ -653,3 +677,5 @@
 -    static let outgoingStroke = Fixture.p3(44, 77, 121)
 -    static let outgoingText = Fixture.p3(48, 102, 203)
  }
+=======
+>>>>>>> origin/main

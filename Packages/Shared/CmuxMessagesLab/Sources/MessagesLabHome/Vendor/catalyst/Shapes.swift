@@ -62,6 +62,7 @@ enum BubblePath {
 }
 
 extension BubblePath {
+<<<<<<< HEAD
     /// cmux: the one outline of a part's bubble in its frame `frame` (Lawrence 2026-10-20: "generally bubbles
     /// should reuse code better"). Every bubble variant takes this path and changes only its fill or stroke:
     /// the bubble's own fill (`BubbleView.drawBubble`), the outgoing gradient mask, the pressed highlight, the
@@ -78,6 +79,8 @@ extension BubblePath {
 }
 
 extension BubblePath {
+=======
+>>>>>>> origin/main
     /// The tail in "outgoing" space, relative to the body's (maxX, maxY): the
     /// caller mirrors it for an incoming bubble. Fitted to real Messages
     /// (the lossless screenshots references/real-messages/state-*.png, 2x;
@@ -289,7 +292,11 @@ enum TextDraw {
             attr.addAttribute(.underlineStyle, value: NSUnderlineStyle.single.rawValue, range: NSRange(range, in: s))
         }
         if let l = link, let range = s.range(of: l) {
+<<<<<<< HEAD
             attr.addAttributes([.foregroundColor: Fixture.incomingLink, // cmux: themed link tint
+=======
+            attr.addAttributes([.foregroundColor: UIColor(red: 0.27, green: 0.55, blue: 1, alpha: 1),
+>>>>>>> origin/main
                                 .underlineStyle: NSUnderlineStyle.single.rawValue], range: NSRange(range, in: s))
         }
         let line = CTLineCreateWithAttributedString(attr)

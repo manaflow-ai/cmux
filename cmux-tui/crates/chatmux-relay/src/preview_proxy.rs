@@ -1101,8 +1101,303 @@ fn inject_into_html(html: &[u8], capability: &str) -> Vec<u8> {
 }
 
 #[cfg(test)]
+<<<<<<< ours
 #[path = "preview_access_tests.rs"]
 mod access_tests;
+=======
+mod tests {
+    use super::*;
+    use futures_util::{SinkExt as _, StreamExt as _};
+    use serde_json::Value;
+    use std::io;
+    use std::time::Duration;
+    use tokio::io::{AsyncReadExt as _, AsyncWriteExt as _};
+    use tokio_tungstenite::tungstenite::Message;
+
+    #[test]
+    fn duplicate_request_ids_replace_order_entry() {
+        let ring = ConsoleRing::new();
+        ring.remember_request("same".to_owned(), "GET".to_owned(), "https://first".to_owned());
+        ring.remember_request("other".to_owned(), "POST".to_owned(), "https://other".to_owned());
+        ring.remember_request("same".to_owned(), "PUT".to_owned(), "https://latest".to_owned());
+
+        let mut inner = ring.inner.lock().expect("ring lock");
+        assert_eq!(inner.pending_order, VecDeque::from(["other".to_owned(), "same".to_owned()]));
+        assert_eq!(inner.pending.len(), 2);
+        assert_eq!(
+            inner.pending.remove("same"),
+            Some(("PUT".to_owned(), "https://latest".to_owned()))
+        );
+    }
+
+    /// Tiny dev-server double: "/" is HTML with a head, "/body-only" has no
+    /// head, "/plain" is not HTML, "/opt-out" answers with the no-inject
+    /// response header.
+    async fn spawn_target() -> u16 {
+        let listener = tokio::net::TcpListener::bind(("127.0.0.1", 0)).await.expect("target bind");
+        let port = listener.local_addr().expect("target addr").port();
+        tokio::spawn(async move {
+            loop {
+                let Ok((stream, _)) = listener.accept().await else { break };
+                tokio::spawn(async move {
+                    let io = hyper_util::rt::TokioIo::new(stream);
+                    let service = hyper::service::service_fn(|request| async move {
+                        if request.uri().path() == "/oversized" {
+                            let mut response = hyper::Response::new(full_body(vec![
+                                b'x';
+                                PREVIEW_HTML_BODY_MAX_BYTES
+                                    + 1
+                            ]));
+                            response.headers_mut().insert(
+                                hyper::header::CONTENT_TYPE,
+                                hyper::header::HeaderValue::from_static("text/html"),
+                            );
+                            return Ok::<_, std::convert::Infallible>(response);
+                        }
+                        let (body, content_type, opt_out) = match request.uri().path() {
+                            "/body-only" => ("<body><p>hi</p></body>", "text/html", false),
+                            "/plain" => ("no tags here", "text/plain", false),
+                            "/opt-out" => {
+                                ("<html><head></head><body></body></html>", "text/html", true)
+                            }
+                            _ => (
+                                "<html><head><title>t</title></head><body></body></html>",
+                                "text/html; charset=utf-8",
+                                false,
+                            ),
+                        };
+                        let mut response =
+                            hyper::Response::new(full_body(body.as_bytes().to_vec()));
+                        response.headers_mut().insert(
+                            hyper::header::CONTENT_TYPE,
+                            hyper::header::HeaderValue::from_str(content_type).expect("ct"),
+                        );
+                        if opt_out {
+                            response.headers_mut().insert(
+                                NO_INJECT_HEADER,
+                                hyper::header::HeaderValue::from_static("1"),
+                            );
+                        }
+                        Ok::<_, std::convert::Infallible>(response)
+                    });
+                    let _ = hyper::server::conn::http1::Builder::new()
+                        .serve_connection(io, service)
+                        .await;
+                });
+            }
+        });
+        port
+    }
+
+    async fn spawn_upgrade_target() -> u16 {
+        let listener = tokio::net::TcpListener::bind(("127.0.0.1", 0)).await.expect("target bind");
+        let port = listener.local_addr().expect("target addr").port();
+        tokio::spawn(async move {
+            loop {
+                let Ok((stream, _)) = listener.accept().await else { break };
+                tokio::spawn(async move {
+                    let io = hyper_util::rt::TokioIo::new(stream);
+                    let service = hyper::service::service_fn(|request| async move {
+                        let on_upgrade = hyper::upgrade::on(request);
+                        let response = hyper::Response::builder()
+                            .status(hyper::StatusCode::SWITCHING_PROTOCOLS)
+                            .header(hyper::header::UPGRADE, "websocket")
+                            .header(hyper::header::CONNECTION, "Upgrade")
+                            .body(full_body(Vec::new()))
+                            .expect("upgrade response");
+                        tokio::spawn(async move {
+                            if let Ok(upgraded) = on_upgrade.await {
+                                let _ = tokio::time::sleep(Duration::from_secs(30)).await;
+                                drop(upgraded);
+                            }
+                        });
+                        Ok::<_, std::convert::Infallible>(response)
+                    });
+                    let _ = hyper::server::conn::http1::Builder::new()
+                        .serve_connection(io, service)
+                        .with_upgrades()
+                        .await;
+                });
+            }
+        });
+        port
+    }
+
+    async fn open_proxy(registry: &PreviewRegistry, target_port: u16) -> u16 {
+        open_proxy_credentials(registry, target_port).await.0
+    }
+
+    async fn open_proxy_credentials(registry: &PreviewRegistry, target_port: u16) -> (u16, String) {
+        match registry.open(i64::from(target_port)).await.expect("preview_open") {
+            wire::WorkspaceResultBody::PreviewOpen(result) => {
+                (u16::try_from(result.proxy_port).expect("port range"), result.capability)
+            }
+            other => panic!("wrong body: {other:?}"),
+        }
+    }
+
+    async fn http_get(
+        port: u16,
+        path: &str,
+        headers: &[(&str, &str)],
+    ) -> (reqwest::StatusCode, reqwest::header::HeaderMap, String) {
+        // reqwest's rustls-no-provider build needs the process default
+        // provider, exactly like main() installs it.
+        let _ = rustls::crypto::ring::default_provider().install_default();
+        let client = reqwest::Client::new();
+        let mut request = client.get(format!("http://127.0.0.1:{port}{path}"));
+        for (name, value) in headers {
+            request = request.header(*name, *value);
+        }
+        let response = request.send().await.expect("http response");
+        let status = response.status();
+        let headers = response.headers().clone();
+        (status, headers, response.text().await.expect("body"))
+    }
+
+    async fn open_upgrade(port: u16, key: &str) -> tokio::net::TcpStream {
+        let mut stream = tokio::net::TcpStream::connect(("127.0.0.1", port))
+            .await
+            .expect("connect preview proxy");
+        let request = format!(
+            "GET /hmr HTTP/1.1\r\nHost: localhost\r\nConnection: Upgrade\r\nUpgrade: websocket\r\nSec-WebSocket-Key: {key}\r\nSec-WebSocket-Version: 13\r\n\r\n"
+        );
+        stream.write_all(request.as_bytes()).await.expect("write upgrade request");
+        let mut response = Vec::new();
+        let mut chunk = [0_u8; 512];
+        loop {
+            let read = tokio::time::timeout(Duration::from_secs(2), stream.read(&mut chunk))
+                .await
+                .expect("upgrade response timeout")
+                .expect("read upgrade response");
+            assert!(read > 0, "upgrade response ended before headers");
+            response.extend_from_slice(&chunk[..read]);
+            if response.windows(4).any(|window| window == b"\r\n\r\n") {
+                break;
+            }
+            assert!(response.len() < 8192, "upgrade response headers too large");
+        }
+        assert!(response.starts_with(b"HTTP/1.1 101"), "upgrade response: {response:?}");
+        stream
+    }
+
+    #[tokio::test]
+    async fn injects_into_html_and_honors_the_opt_outs() {
+        let registry = PreviewRegistry::new();
+        let target = spawn_target().await;
+        let (proxy, capability) = open_proxy_credentials(&registry, target).await;
+        let (status, _, body) = http_get(proxy, "/", &[]).await;
+        assert_eq!(status, 200);
+        let tag_at =
+            body.find("<script src=\"/__chatmux__/target.js?capability=").expect("tag injected");
+        assert!(body[tag_at..].contains(&format!("capability={capability}")));
+        let head_at = body.find("</head>").expect("head kept");
+        assert!(tag_at < head_at, "before </head>");
+
+        let (_, _, body) = http_get(proxy, "/body-only", &[]).await;
+        let tag_at =
+            body.find("<script src=\"/__chatmux__/target.js?capability=").expect("tag injected");
+        assert!(body[..tag_at].contains("<body>"), "after the <body> tag");
+
+        let (_, _, body) = http_get(proxy, "/plain", &[]).await;
+        assert!(!body.contains("/__chatmux__/target.js?capability="), "non-HTML passes through");
+
+        let (_, _, body) = http_get(proxy, "/opt-out", &[]).await;
+        assert!(!body.contains("/__chatmux__/target.js?capability="), "response header opts out");
+
+        let (status, _, body) = http_get(proxy, "/oversized", &[]).await;
+        assert_eq!(status, 502);
+        assert!(body.contains("target HTML response exceeds"));
+
+        let (_, _, body) = http_get(proxy, "/", &[(NO_INJECT_HEADER, "1")]).await;
+        assert!(!body.contains("/__chatmux__/target.js?capability="), "request header opts out");
+
+        // Reuse: the same target port keeps its proxy port.
+        let (reused_proxy, reused_capability) = open_proxy_credentials(&registry, target).await;
+        assert_eq!(reused_proxy, proxy);
+        assert_eq!(reused_capability, capability);
+        registry.shutdown().await;
+        // shutdown awaited each listener task, so its listener is closed. A
+        // connect to the old port proves nothing: a parallel test may bind
+        // the freed port (this assertion failed that way on a Linux runner).
+        assert!(registry.proxies.lock().await.is_empty(), "shutdown drops every proxy");
+    }
+
+    #[tokio::test]
+    async fn rejects_preview_connections_after_the_active_connection_cap() {
+        let registry = PreviewRegistry::new();
+        let target = spawn_target().await;
+        let proxy = open_proxy(&registry, target).await;
+        let mut held = Vec::with_capacity(PREVIEW_PROXY_CONNECTION_CAP);
+        for _ in 0..PREVIEW_PROXY_CONNECTION_CAP {
+            let mut stream = tokio::net::TcpStream::connect(("127.0.0.1", proxy))
+                .await
+                .expect("connect preview proxy");
+            stream
+                .write_all(b"GET / HTTP/1.1\r\nHost: localhost\r\n")
+                .await
+                .expect("hold preview request open");
+            held.push(stream);
+        }
+        tokio::task::yield_now().await;
+
+        let mut rejected = tokio::net::TcpStream::connect(("127.0.0.1", proxy))
+            .await
+            .expect("connect over-cap preview client");
+        rejected
+            .write_all(b"GET / HTTP/1.1\r\nHost: localhost\r\n\r\n")
+            .await
+            .expect("write over-cap preview request");
+        let mut response = [0_u8; 1];
+        let read = tokio::time::timeout(Duration::from_secs(1), rejected.read(&mut response))
+            .await
+            .expect("over-cap preview client did not close");
+        match read {
+            Ok(0) => {}
+            Err(error) => assert!(matches!(
+                error.kind(),
+                io::ErrorKind::ConnectionReset | io::ErrorKind::UnexpectedEof
+            )),
+            Ok(bytes) => panic!("over-cap preview client received {bytes} bytes"),
+        }
+        drop(held);
+        registry.shutdown().await;
+    }
+
+    #[tokio::test]
+    async fn rejects_upgrades_after_the_copy_task_cap() {
+        let registry = PreviewRegistry::new();
+        let target = spawn_upgrade_target().await;
+        let proxy = open_proxy(&registry, target).await;
+        let mut held = Vec::with_capacity(PREVIEW_PROXY_UPGRADE_CAP);
+        for index in 0..PREVIEW_PROXY_UPGRADE_CAP {
+            held.push(open_upgrade(proxy, &format!("dGhlIHNhbXBsZSA{index:02}")).await);
+        }
+
+        let mut over_cap = tokio::net::TcpStream::connect(("127.0.0.1", proxy))
+            .await
+            .expect("connect over-cap upgrade");
+        over_cap
+            .write_all(
+                b"GET /hmr HTTP/1.1\r\nHost: localhost\r\nConnection: Upgrade\r\nUpgrade: websocket\r\nSec-WebSocket-Key: dGhlIHNhbXBsZSA2NA==\r\nSec-WebSocket-Version: 13\r\n\r\n",
+            )
+            .await
+            .expect("write over-cap upgrade");
+        let mut response = [0_u8; 512];
+        let bytes = tokio::time::timeout(Duration::from_secs(2), over_cap.read(&mut response))
+            .await
+            .expect("over-cap response timeout")
+            .expect("read over-cap response");
+        assert!(
+            std::str::from_utf8(&response[..bytes])
+                .expect("response utf8")
+                .starts_with("HTTP/1.1 503")
+        );
+
+        drop(held);
+        registry.shutdown().await;
+    }
+>>>>>>> theirs
 
 #[cfg(test)]
 #[path = "preview_proxy_tests.rs"]

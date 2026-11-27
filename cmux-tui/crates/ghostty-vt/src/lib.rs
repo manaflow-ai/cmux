@@ -25,8 +25,12 @@ mod kitty;
 mod kitty_replay;
 mod mouse;
 mod render;
+<<<<<<< ours
 mod screen_text;
 mod snapshot;
+=======
+mod screen_text;
+>>>>>>> theirs
 mod terminal;
 
 /// Raw bindings, re-exported for key/mode constants.
@@ -55,6 +59,7 @@ pub use snapshot::{
     snapshot_digest_input, snapshot_envelope_version, snapshot_ready_len, snapshot_records,
     snapshot_version, tag as snapshot_tag,
 };
+pub use screen_text::{ScreenRowText, ScreenSearch, ScreenTextCell};
 pub use terminal::{
     Callbacks, ClearHistoryOutcome, ClipboardLocation, ClipboardReadFn, ClipboardReadRequest,
     CommandOutput, HistoryPage, HistoryPages, HistorySnapshot, KittyGraphicsLimits,

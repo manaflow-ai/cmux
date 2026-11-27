@@ -3,7 +3,11 @@ import Foundation
 /// Per-conversation state the conversation list owns, as Messages keeps it:
 /// pinned (with a position among pins), alerts hidden, manually marked
 /// unread, and deleted (recoverable, so the conversation still exists).
+<<<<<<< HEAD
 public struct ConversationListState: Sendable, Hashable, Codable {
+=======
+public struct ConversationListState: Sendable, Hashable {
+>>>>>>> origin/main
     public var pinned: Bool
     /// Position among pinned conversations, ascending. Nil when not pinned.
     public var pinOrder: Int?

@@ -28,6 +28,7 @@ public struct ConversationContact: Sendable, Hashable, Identifiable {
     public var initials: String
     public var colorHex: String
     public var handles: [ConversationContactHandle]
+<<<<<<< HEAD
     /// The line under the name in the list under To:, in the secondary
     /// color, instead of the first handle ("Chief · Main · Cloud"). Nil:
     /// Messages' handle line.
@@ -39,12 +40,19 @@ public struct ConversationContact: Sendable, Hashable, Identifiable {
     public init(id: String, name: String, initials: String, colorHex: String, handles: [ConversationContactHandle],
                 detail: String? = nil, tintsWithService: Bool = false) {
         self.tintsWithService = tintsWithService
+=======
+
+    public init(id: String, name: String, initials: String, colorHex: String, handles: [ConversationContactHandle]) {
+>>>>>>> origin/main
         self.id = id
         self.name = name
         self.initials = initials
         self.colorHex = colorHex
         self.handles = handles
+<<<<<<< HEAD
         self.detail = detail
+=======
+>>>>>>> origin/main
     }
 
     /// The service a message to this contact uses: iMessage when any handle has it.

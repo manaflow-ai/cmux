@@ -2,7 +2,7 @@ import { expect, test } from "bun:test";
 import { VmCreateFailedError, VmProviderOperationError } from "../services/vms/errors";
 import { ProviderCreateCleanupError } from "../services/vms/drivers/providerCreateCleanup";
 import { GuestCliInstallError } from "../services/vms/drivers/freestyleGuestCli";
-import { ProviderError } from "../services/vms/drivers/types";
+import { ProviderError, ProviderReadDeadlineError } from "../services/vms/drivers/types";
 import { vmWorkflowErrorResponse } from "../services/vms/routeHelpers";
 import { locales } from "../i18n/routing";
 
@@ -54,4 +54,12 @@ test("pending cleanup keeps its non-retryable response when guest install also f
   expect(body.error).toBe("vm_cloud_create_cleanup_pending");
   expect(body.retryable).toBe(false);
   expect(JSON.stringify(body)).not.toContain("guest_exit");
+});
+
+test("pending cleanup outranks the readiness failure it wraps", async () => {
+  const original = new VmProviderOperationError({ provider: "freestyle", operation: "create", cause:
+    new ProviderCreateCleanupError("private-provider-id", new ProviderReadDeadlineError("freestyle", "announce", 10_000), new Error("private delete output")),
+  });
+  const body = await (await vmWorkflowErrorResponse(original, { locale: "en" }))!.json();
+  expect(body.error).toBe("vm_cloud_create_cleanup_pending");
 });

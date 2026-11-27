@@ -28,7 +28,10 @@ on:
       - "cmux-tui/scripts/verify-pypi-tui-upload.sh"
       - ".github/actions/setup-cmux-tui-rust/**"
       - ".github/actions/runner-cargo-home/**"
+<<<<<<< HEAD
       - ".github/actions/zig-global-cache/**"
+=======
+>>>>>>> origin/main
       - ".github/workflows/cmux-tui-artifacts.yml"
       - ".github/workflows/cmux-tui-build-package.yml"
       - "scripts/cmux-next/cmux-tui-build-profiles.json"
@@ -218,7 +221,10 @@ on:
       - "cmux-tui/scripts/verify-pypi-tui-upload.sh"
       - ".github/actions/setup-cmux-tui-rust/**"
       - ".github/actions/runner-cargo-home/**"
+<<<<<<< HEAD
       - ".github/actions/zig-global-cache/**"
+=======
+>>>>>>> origin/main
       - ".github/workflows/cmux-tui-artifacts.yml"
       - ".github/workflows/cmux-tui-build-package.yml"
       - "scripts/cmux-next/cmux-tui-build-profiles.json"
@@ -410,20 +416,27 @@ env:
   # Warnings never fail a pull request's compile (Leo, 2026-11-19); pushes, dispatches, nightly and release
   # keep them errors. scripts/ci/warnings_policy.py.
   CI_WARNINGS: ${{ github.event_name == 'pull_request' && 'soft' || 'deny' }}
+<<<<<<< HEAD
   # libghostty-vt always builds from the ghostty-next gitlink: an empty
   # value overrides any runner-level CMUX_GHOSTTY_SRC (build.rs treats it
   # as unset).
   CMUX_GHOSTTY_SRC: ""
+=======
+>>>>>>> origin/main
   # Temporary REST budget attribution: one gh-call line per GitHub API call (scripts/ci/api_call_log/env.sh, fetched at a fixed commit when the checkout has no copy).
   BASH_ENV: '$({ w="${GITHUB_WORKSPACE:-/nonexistent}/scripts/ci/api_call_log/env.sh"; t="${RUNNER_TEMP:-/nonexistent}/api-call-log-src"; if [ -f "$w" ]; then echo "$w"; elif [ -n "${RUNNER_TEMP:-}" ]; then if [ ! -f "$t/env.sh" ] && [ ! -e "$t.tried" ] && { [ "${RUNNER_OS:-}" = Linux ] || [ "${RUNNER_OS:-}" = macOS ]; } && [ "$(date -u +%Y%m%d%H)" -lt 2026112300 ]; then : > "$t.tried"; mkdir -p "$t.part" && for x in env.sh gh sitecustomize.py isolated.py; do curl -fsSL --max-time 5 -o "$t.part/$x" "https://raw.githubusercontent.com/manaflow-ai/cmux/27647ffd3ae838c63be28ca3e5883dcd68c34518/scripts/ci/api_call_log/$x" || break; done; [ -s "$t.part/isolated.py" ] && mv "$t.part" "$t"; fi; if [ -f "$t/env.sh" ]; then echo "$t/env.sh"; else echo unset BASH_ENV > "$t.off.sh" && echo "$t.off.sh"; fi; fi; } 2>/dev/null)'
 
 jobs:
   contract:
     name: protocol contract
+<<<<<<< HEAD
     # Tier A of the merged pull request replay (scripts/ci/affected-jobs.json pull_request_skip): a pull request
     # into feat-cmux-next skips it unless labeled full-ci; the feat-cmux-next push runs it.
     if: ${{ (github.event_name != 'pull_request' || github.event.pull_request.draft != true || contains(github.event.pull_request.labels.*.name, 'full-ci') || (vars.CI_DRAFT_CHEAP_TIER || '1') == '0') && ((github.event_name != 'pull_request' || !startsWith(github.event.pull_request.base.ref, 'feat-cmux-next') || contains(github.event.pull_request.labels.*.name, 'full-ci'))) }}
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || 'cmux-linux' }}
+=======
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || vars.CI_OVERFLOW_LINUX || 'cmux-linux' }}
+>>>>>>> origin/main
     timeout-minutes: 8
     outputs:
       sdk_inputs: ${{ steps.sdk-inputs.outputs.changed }}
@@ -586,10 +599,15 @@ jobs:
   packages:
     name: ${{ matrix.language }} package
     needs: contract
+<<<<<<< HEAD
     # Tier A of the merged pull request replay (scripts/ci/affected-jobs.json pull_request_skip): a pull request
     # into feat-cmux-next skips it unless labeled full-ci; the post-merge batch runs it.
     if: ${{ (github.event_name != 'pull_request' || github.event.pull_request.draft != true || contains(github.event.pull_request.labels.*.name, 'full-ci') || (vars.CI_DRAFT_CHEAP_TIER || '1') == '0') && ((inputs.only == '' || inputs.only == 'packages') && ((needs.contract.outputs.sdk_inputs == 'true') && (github.event_name != 'pull_request' || !startsWith(github.event.pull_request.base.ref, 'feat-cmux-next') || contains(github.event.pull_request.labels.*.name, 'full-ci')))) }}
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || 'cmux-linux' }}
+=======
+    if: ${{ needs.contract.outputs.sdk_inputs == 'true' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || vars.CI_OVERFLOW_LINUX || 'cmux-linux' }}
+>>>>>>> origin/main
     timeout-minutes: 25
     strategy:
       fail-fast: false
@@ -649,11 +667,16 @@ jobs:
         uses: ./.github/actions/setup-cmux-tui-rust
 
       # Keep cargo's registry and cmux-tui/target for the Rust SDK leg between runs.
+<<<<<<< HEAD
       # Only feat-cmux-next saves, as in rust-msrv.
+=======
+      # Only main saves, as in rust-msrv.
+>>>>>>> origin/main
       - name: Cache cargo build
         if: matrix.language == 'rust'
         uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
         with:
+<<<<<<< HEAD
           # The lockfile and toolchain name the entry: with the environment hash off, a bare key never changed, so the first save
           # was restored forever and its stale third-party crates rebuilt on every run (ci-min-per-pr-1500, 2026-11-25).
           key: ${{ hashFiles('cmux-tui/rust-toolchain.toml', 'cmux-tui/Cargo.lock', '.cargo/config.toml') }}
@@ -662,6 +685,11 @@ jobs:
           cache-bin: false
           workspaces: cmux-tui -> target
           save-if: ${{ github.ref == 'refs/heads/feat-cmux-next' }}
+=======
+          cache-bin: false
+          workspaces: cmux-tui -> target
+          save-if: ${{ github.ref == 'refs/heads/main' }}
+>>>>>>> origin/main
 
       - name: Set up Go
         if: matrix.language == 'go'
@@ -669,6 +697,29 @@ jobs:
         with:
           go-version: "1.22.12"
           cache: false
+<<<<<<< HEAD
+=======
+
+      - name: Cache the Go modules and build cache
+        if: ${{ (matrix.language == 'go') && (github.event_name != 'pull_request' && github.event_name != 'pull_request_target' && github.event_name != 'merge_group' && contains(fromJSON('["refs/heads/main","refs/heads/feat-cmux-next","refs/heads/nightly-next"]'), github.ref)) }}
+        continue-on-error: true
+        uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
+        with:
+          path: |
+            ~/go/pkg/mod
+            ~/.cache/go-build
+          key: go-1.22.12-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('cmux-tui/bindings/go/go.mod') }}
+
+      - name: Cache the Go modules and build cache (restore only off base branches)
+        if: ${{ (matrix.language == 'go') && !(github.event_name != 'pull_request' && github.event_name != 'pull_request_target' && github.event_name != 'merge_group' && contains(fromJSON('["refs/heads/main","refs/heads/feat-cmux-next","refs/heads/nightly-next"]'), github.ref)) }}
+        continue-on-error: true
+        uses: actions/cache/restore@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
+        with:
+          path: |
+            ~/go/pkg/mod
+            ~/.cache/go-build
+          key: go-1.22.12-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('cmux-tui/bindings/go/go.mod') }}
+>>>>>>> origin/main
 
       - name: Cache the Go modules and build cache
         if: ${{ (matrix.language == 'go') && (github.event_name != 'pull_request' && github.event_name != 'pull_request_target' && github.event_name != 'merge_group' && contains(fromJSON('["refs/heads/main","refs/heads/feat-cmux-next","refs/heads/nightly-next"]'), github.ref)) }}
@@ -694,6 +745,7 @@ jobs:
       # JAVA_HOME_17_X64 is unset there; setup-java provisions Temurin 17 on any runner.
       - name: Set up JDK 17
         if: matrix.language == 'java'
+<<<<<<< HEAD
         uses: actions/setup-java@de7274f081f381c8f8158605e0321c36c376e2e6 # v6.0.1
         with:
           distribution: temurin
@@ -709,6 +761,18 @@ jobs:
           if [ "${#missing[@]}" -gt 0 ]; then
             sudo apt-get update
             sudo apt-get install -y "${missing[@]}"
+=======
+        uses: ./.github/actions/setup-jdk17
+
+      # The persistent cmux-linux pool does not ship CMake; hosted images do.
+      - name: Select Clang C++20
+        if: matrix.language == 'cpp'
+        run: |
+          set -euo pipefail
+          if ! command -v cmake >/dev/null 2>&1; then
+            sudo apt-get -o DPkg::Lock::Timeout=120 update
+            sudo DEBIAN_FRONTEND=noninteractive apt-get -o DPkg::Lock::Timeout=120 install -y --no-install-recommends cmake
+>>>>>>> origin/main
           fi
           clang++ --version
           cmake --version
@@ -717,6 +781,7 @@ jobs:
         if: matrix.language == 'zig'
         uses: mlugg/setup-zig@8d6198c65fb0feaa111df26e6b467fea8345e46f # v2.0.5
         with:
+          use-cache: ${{ (github.event_name != 'pull_request' && github.event_name != 'pull_request_target' && github.event_name != 'merge_group' && contains(fromJSON('["refs/heads/main","refs/heads/feat-cmux-next","refs/heads/nightly-next"]'), github.ref)) }}
           version: 0.15.2
           # Its own cache saves a new entry per run; zig-global-cache keys it stably.
           use-cache: false
@@ -769,12 +834,12 @@ jobs:
         working-directory: cmux-tui
         run: |
           cargo fmt -p cmux-sdk -p cmux-sidebar -- --check
-          cargo test \
+          ../scripts/ci/cargo-test-deadline.sh \
             -p cmux-sdk \
             -p cmux-sidebar \
             --all-targets \
             --locked
-          cargo test \
+          ../scripts/ci/cargo-test-deadline.sh \
             -p cmux-sdk \
             -p cmux-sidebar \
             --doc \
@@ -839,10 +904,15 @@ jobs:
   consumers:
     name: ${{ matrix.language }} consumer
     needs: contract
+<<<<<<< HEAD
     # Tier A of the merged pull request replay (scripts/ci/affected-jobs.json pull_request_skip): a pull request
     # into feat-cmux-next skips it unless labeled full-ci; the post-merge batch runs it.
     if: ${{ (github.event_name != 'pull_request' || github.event.pull_request.draft != true || contains(github.event.pull_request.labels.*.name, 'full-ci') || (vars.CI_DRAFT_CHEAP_TIER || '1') == '0') && ((inputs.only == '' || inputs.only == 'consumers') && ((needs.contract.outputs.sdk_inputs == 'true') && (github.event_name != 'pull_request' || !startsWith(github.event.pull_request.base.ref, 'feat-cmux-next') || contains(github.event.pull_request.labels.*.name, 'full-ci')))) }}
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || 'cmux-linux' }}
+=======
+    if: ${{ needs.contract.outputs.sdk_inputs == 'true' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || vars.CI_OVERFLOW_LINUX || 'cmux-linux' }}
+>>>>>>> origin/main
     timeout-minutes: 25
     strategy:
       fail-fast: false
@@ -907,16 +977,23 @@ jobs:
         if: matrix.language == 'rust'
         uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
         with:
+<<<<<<< HEAD
           # The lockfile and toolchain name the entry: with the environment hash off, a bare key never changed, so the first save
           # was restored forever and its stale third-party crates rebuilt on every run (ci-min-per-pr-1500, 2026-11-25).
           key: ${{ hashFiles('cmux-tui/rust-toolchain.toml', 'cmux-tui/bindings/examples/rust-agent-dashboard/Cargo.lock', 'cmux-tui/bindings/examples/rust-sidebar-monitor/Cargo.lock', 'cmux-tui/bindings/examples/rust-sidebar-monitor/rust-toolchain.toml', '.cargo/config.toml') }}
           # Why: docs/ci/cmux-next-workflow-notes.md#note-210 (pool runners keep different leftover toolchains)
           add-rust-environment-hash-key: false
+=======
+>>>>>>> origin/main
           cache-bin: false
           workspaces: |
             cmux-tui/bindings/examples/rust-agent-dashboard -> target
             cmux-tui/bindings/examples/rust-sidebar-monitor -> target
+<<<<<<< HEAD
           save-if: ${{ github.ref == 'refs/heads/feat-cmux-next' }}
+=======
+          save-if: ${{ github.ref == 'refs/heads/main' }}
+>>>>>>> origin/main
 
       - name: Set up Go
         if: matrix.language == 'go'
@@ -924,6 +1001,29 @@ jobs:
         with:
           go-version: "1.22.12"
           cache: false
+<<<<<<< HEAD
+=======
+
+      - name: Cache the Go modules and build cache
+        if: ${{ (matrix.language == 'go') && (github.event_name != 'pull_request' && github.event_name != 'pull_request_target' && github.event_name != 'merge_group' && contains(fromJSON('["refs/heads/main","refs/heads/feat-cmux-next","refs/heads/nightly-next"]'), github.ref)) }}
+        continue-on-error: true
+        uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
+        with:
+          path: |
+            ~/go/pkg/mod
+            ~/.cache/go-build
+          key: go-1.22.12-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('cmux-tui/bindings/go/go.mod', 'cmux-tui/bindings/examples/go-terminal-bot/go.mod') }}
+
+      - name: Cache the Go modules and build cache (restore only off base branches)
+        if: ${{ (matrix.language == 'go') && !(github.event_name != 'pull_request' && github.event_name != 'pull_request_target' && github.event_name != 'merge_group' && contains(fromJSON('["refs/heads/main","refs/heads/feat-cmux-next","refs/heads/nightly-next"]'), github.ref)) }}
+        continue-on-error: true
+        uses: actions/cache/restore@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
+        with:
+          path: |
+            ~/go/pkg/mod
+            ~/.cache/go-build
+          key: go-1.22.12-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('cmux-tui/bindings/go/go.mod', 'cmux-tui/bindings/examples/go-terminal-bot/go.mod') }}
+>>>>>>> origin/main
 
       - name: Cache the Go modules and build cache
         if: ${{ (matrix.language == 'go') && (github.event_name != 'pull_request' && github.event_name != 'pull_request_target' && github.event_name != 'merge_group' && contains(fromJSON('["refs/heads/main","refs/heads/feat-cmux-next","refs/heads/nightly-next"]'), github.ref)) }}
@@ -949,6 +1049,7 @@ jobs:
       # JAVA_HOME_17_X64 is unset there; setup-java provisions Temurin 17 on any runner.
       - name: Set up JDK 17
         if: matrix.language == 'java'
+<<<<<<< HEAD
         uses: actions/setup-java@de7274f081f381c8f8158605e0321c36c376e2e6 # v6.0.1
         with:
           distribution: temurin
@@ -964,6 +1065,18 @@ jobs:
           if [ "${#missing[@]}" -gt 0 ]; then
             sudo apt-get update
             sudo apt-get install -y "${missing[@]}"
+=======
+        uses: ./.github/actions/setup-jdk17
+
+      # The persistent cmux-linux pool does not ship CMake; hosted images do.
+      - name: Select Clang C++20
+        if: matrix.language == 'cpp'
+        run: |
+          set -euo pipefail
+          if ! command -v cmake >/dev/null 2>&1; then
+            sudo apt-get -o DPkg::Lock::Timeout=120 update
+            sudo DEBIAN_FRONTEND=noninteractive apt-get -o DPkg::Lock::Timeout=120 install -y --no-install-recommends cmake
+>>>>>>> origin/main
           fi
           clang++ --version
           cmake --version
@@ -972,6 +1085,7 @@ jobs:
         if: matrix.language == 'zig'
         uses: mlugg/setup-zig@8d6198c65fb0feaa111df26e6b467fea8345e46f # v2.0.5
         with:
+          use-cache: ${{ (github.event_name != 'pull_request' && github.event_name != 'pull_request_target' && github.event_name != 'merge_group' && contains(fromJSON('["refs/heads/main","refs/heads/feat-cmux-next","refs/heads/nightly-next"]'), github.ref)) }}
           version: 0.15.2
           # Its own cache saves a new entry per run; zig-global-cache keys it stably.
           use-cache: false
@@ -1003,7 +1117,7 @@ jobs:
       - name: Test Rust resource consumers
         if: matrix.language == 'rust'
         run: |
-          cargo test \
+          scripts/ci/cargo-test-deadline.sh \
             --manifest-path cmux-tui/bindings/examples/rust-agent-dashboard/Cargo.toml \
             --locked
           python3 "$GITHUB_WORKSPACE/scripts/ci/warnings_policy.py" run -- cargo clippy \
@@ -1011,7 +1125,7 @@ jobs:
             --locked \
             --all-targets \
             -- -D warnings
-          cargo test \
+          scripts/ci/cargo-test-deadline.sh \
             --manifest-path cmux-tui/bindings/examples/rust-sidebar-monitor/Cargo.toml \
             --locked \
             --all-targets
@@ -1071,10 +1185,15 @@ jobs:
   rust-msrv:
     name: Rust SDK MSRV (1.88)
     needs: contract
+<<<<<<< HEAD
     # Tier A of the merged pull request replay (scripts/ci/affected-jobs.json pull_request_skip): a pull request
     # into feat-cmux-next skips it unless labeled full-ci; the post-merge batch runs it.
     if: ${{ (github.event_name != 'pull_request' || github.event.pull_request.draft != true || contains(github.event.pull_request.labels.*.name, 'full-ci') || (vars.CI_DRAFT_CHEAP_TIER || '1') == '0') && ((inputs.only == '' || inputs.only == 'rust-msrv') && ((needs.contract.outputs.sdk_inputs == 'true') && (github.event_name != 'pull_request' || !startsWith(github.event.pull_request.base.ref, 'feat-cmux-next') || contains(github.event.pull_request.labels.*.name, 'full-ci')))) }}
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || 'cmux-linux' }}
+=======
+    if: ${{ needs.contract.outputs.sdk_inputs == 'true' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || vars.CI_OVERFLOW_LINUX || 'cmux-linux' }}
+>>>>>>> origin/main
     timeout-minutes: 25
     steps:
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
@@ -1082,8 +1201,13 @@ jobs:
           persist-credentials: false
           ref: ${{ inputs.sha || '' }}
 
+<<<<<<< HEAD
       # The reused fleet image (LINUX_RUNNER) may lack rustup or keep it off PATH;
       # provision it as setup-cmux-tui-rust does.
+=======
+      # The persistent cmux-linux pool may not ship rustup, or may keep it in
+      # ~/.cargo/bin off PATH; provision it like setup-cmux-tui-rust does.
+>>>>>>> origin/main
       - name: Install Rust 1.88 MSRV toolchain
         run: |
           set -euo pipefail
@@ -1102,22 +1226,34 @@ jobs:
       # Keep cargo's registry and the four target dirs (the cmux-tui workspace that
       # holds the SDK crates, and the three example workspaces) between runs. The
       # job's own key, with the toolchain in it, so 1.88 artifacts never mix with
+<<<<<<< HEAD
       # the pinned toolchain's. Only feat-cmux-next saves: a pull request restores what its
+=======
+      # the pinned toolchain's. Only main saves: a pull request restores what its
+>>>>>>> origin/main
       # base (and main, the default branch) saved, and a branch's own save never
       # comes back, so it would only push useful entries out of the cache store.
       - name: Cache cargo build
         uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
         with:
+<<<<<<< HEAD
           # Why: docs/ci/cmux-next-workflow-notes.md#note-210 (pool runners keep different leftover toolchains)
           add-rust-environment-hash-key: false
+=======
+>>>>>>> origin/main
           cache-bin: false
           workspaces: |
             cmux-tui -> target
             cmux-tui/bindings/examples/rust-agent-screen-detection -> target
             cmux-tui/bindings/examples/rust-agent-dashboard -> target
             cmux-tui/bindings/examples/rust-sidebar-monitor -> target
+<<<<<<< HEAD
           key: rust-1.88.0-${{ hashFiles('cmux-tui/rust-toolchain.toml', 'cmux-tui/Cargo.lock', 'cmux-tui/bindings/examples/rust-agent-screen-detection/Cargo.lock', 'cmux-tui/bindings/examples/rust-agent-dashboard/Cargo.lock', 'cmux-tui/bindings/examples/rust-sidebar-monitor/Cargo.lock', '.cargo/config.toml') }}
           save-if: ${{ github.ref == 'refs/heads/feat-cmux-next' }}
+=======
+          key: rust-1.88.0
+          save-if: ${{ github.ref == 'refs/heads/main' }}
+>>>>>>> origin/main
 
       - name: Test public Rust SDK crates and examples on MSRV
         run: |
@@ -1143,6 +1279,7 @@ jobs:
       GHOSTTY_ZIG_SOURCE: ghostty-next
     name: seven-language live conformance
     needs: contract
+<<<<<<< HEAD
     # By the crate graph (the contract job's graph step); a failed or skipped router never skips it.
     # Tier A (scripts/ci/affected-jobs.json pull_request_skip), as contract is: a pull request into
     # feat-cmux-next skips it unless labeled full-ci, and the feat-cmux-next push runs it. Without the clause
@@ -1153,6 +1290,9 @@ jobs:
     # workspace manifests) or carries full-ci; every post-merge batch the graph reaches runs it.
     if: ${{ ((github.event_name != 'pull_request' || github.event.pull_request.draft != true || contains(github.event.pull_request.labels.*.name, 'full-ci') || (vars.CI_DRAFT_CHEAP_TIER || '1') == '0') && ((inputs.only == '' || inputs.only == 'conformance') && (!cancelled() && (github.event_name != 'pull_request' || !startsWith(github.event.pull_request.base.ref, 'feat-cmux-next') || contains(github.event.pull_request.labels.*.name, 'full-ci')) && (github.event_name != 'pull_request' || needs.contract.outputs.sdk_inputs != 'false' || contains(github.event.pull_request.labels.*.name, 'full-ci')) && (needs.contract.result != 'success' || needs.contract.outputs.conformance != 'false')))) && (github.event_name != 'pull_request' || needs.contract.result == 'success' || needs.contract.result == 'skipped') }}
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || 'cmux-linux' }}
+=======
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || vars.CI_OVERFLOW_LINUX || 'cmux-linux' }}
+>>>>>>> origin/main
     timeout-minutes: 45
     steps:
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
@@ -1180,6 +1320,7 @@ jobs:
       - name: Install Linux build dependencies
         if: ${{ steps.tree.outputs.hit != 'true' }}
         run: |
+<<<<<<< HEAD
           # Skip apt when the runner image already has these (tests/test_ci_apt_skips_baked_packages.py).
           if dpkg -s clang libclang-dev pkg-config cmake >/dev/null 2>&1; then
             echo "clang libclang-dev pkg-config cmake: already installed"
@@ -1187,6 +1328,10 @@ jobs:
             sudo apt-get update
             sudo apt-get install -y clang libclang-dev pkg-config cmake
           fi
+=======
+          sudo apt-get -o DPkg::Lock::Timeout=120 update
+          sudo DEBIAN_FRONTEND=noninteractive apt-get -o DPkg::Lock::Timeout=120 install -y clang cmake libclang-dev pkg-config
+>>>>>>> origin/main
 
       - name: Set up Python
         if: ${{ steps.tree.outputs.hit != 'true' }}
@@ -1204,10 +1349,17 @@ jobs:
         if: ${{ steps.tree.outputs.hit != 'true' }}
         uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
         with:
+<<<<<<< HEAD
           node-version: "22.23.4"
 
       - name: Cache the npm cache
         if: ${{ (steps.tree.outputs.hit != 'true') && (github.event_name != 'pull_request' && github.event_name != 'pull_request_target' && github.event_name != 'merge_group' && contains(fromJSON('["refs/heads/main","refs/heads/feat-cmux-next","refs/heads/nightly-next"]'), github.ref)) }}
+=======
+          node-version: "20.19.5"
+
+      - name: Cache the npm cache
+        if: ${{ (github.event_name != 'pull_request' && github.event_name != 'pull_request_target' && github.event_name != 'merge_group' && contains(fromJSON('["refs/heads/main","refs/heads/feat-cmux-next","refs/heads/nightly-next"]'), github.ref)) }}
+>>>>>>> origin/main
         continue-on-error: true
         uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
         with:
@@ -1216,7 +1368,11 @@ jobs:
           key: npm-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('cmux-tui/bindings/typescript/package-lock.json') }}
 
       - name: Cache the npm cache (restore only off base branches)
+<<<<<<< HEAD
         if: ${{ (steps.tree.outputs.hit != 'true') && !(github.event_name != 'pull_request' && github.event_name != 'pull_request_target' && github.event_name != 'merge_group' && contains(fromJSON('["refs/heads/main","refs/heads/feat-cmux-next","refs/heads/nightly-next"]'), github.ref)) }}
+=======
+        if: ${{ !(github.event_name != 'pull_request' && github.event_name != 'pull_request_target' && github.event_name != 'merge_group' && contains(fromJSON('["refs/heads/main","refs/heads/feat-cmux-next","refs/heads/nightly-next"]'), github.ref)) }}
+>>>>>>> origin/main
         continue-on-error: true
         uses: actions/cache/restore@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
         with:
@@ -1234,6 +1390,7 @@ jobs:
         with:
           go-version: "1.22.12"
           cache: false
+<<<<<<< HEAD
 
       - name: Cache the Go modules and build cache
         if: ${{ (steps.tree.outputs.hit != 'true') && (github.event_name != 'pull_request' && github.event_name != 'pull_request_target' && github.event_name != 'merge_group' && contains(fromJSON('["refs/heads/main","refs/heads/feat-cmux-next","refs/heads/nightly-next"]'), github.ref)) }}
@@ -1272,17 +1429,47 @@ jobs:
           version="$(bash ./scripts/ghostty-zig-version.sh)"
           [[ -n "$version" ]]
           echo "version=$version" >> "$GITHUB_OUTPUT"
+=======
+
+      - name: Cache the Go modules and build cache
+        if: ${{ (github.event_name != 'pull_request' && github.event_name != 'pull_request_target' && github.event_name != 'merge_group' && contains(fromJSON('["refs/heads/main","refs/heads/feat-cmux-next","refs/heads/nightly-next"]'), github.ref)) }}
+        continue-on-error: true
+        uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
+        with:
+          path: |
+            ~/go/pkg/mod
+            ~/.cache/go-build
+          key: go-1.22.12-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('cmux-tui/bindings/go/go.mod') }}
+
+      - name: Cache the Go modules and build cache (restore only off base branches)
+        if: ${{ !(github.event_name != 'pull_request' && github.event_name != 'pull_request_target' && github.event_name != 'merge_group' && contains(fromJSON('["refs/heads/main","refs/heads/feat-cmux-next","refs/heads/nightly-next"]'), github.ref)) }}
+        continue-on-error: true
+        uses: actions/cache/restore@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
+        with:
+          path: |
+            ~/go/pkg/mod
+            ~/.cache/go-build
+          key: go-1.22.12-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('cmux-tui/bindings/go/go.mod') }}
+
+      - name: Select JDK 17
+        uses: ./.github/actions/setup-jdk17
+>>>>>>> origin/main
 
       - name: Set up Zig for Ghostty
         if: ${{ steps.tree.outputs.hit != 'true' }}
         uses: mlugg/setup-zig@8d6198c65fb0feaa111df26e6b467fea8345e46f # v2.0.5
         with:
+<<<<<<< HEAD
           version: ${{ steps.ghostty-zig-version.outputs.version }}
           # Its own cache saves a new entry per run; zig-global-cache keys it stably.
           use-cache: false
       - name: Restore the Zig global cache (feat-cmux-next pushes save it)
         if: ${{ steps.tree.outputs.hit != 'true' }}
         uses: ./.github/actions/zig-global-cache
+=======
+          use-cache: ${{ (github.event_name != 'pull_request' && github.event_name != 'pull_request_target' && github.event_name != 'merge_group' && contains(fromJSON('["refs/heads/main","refs/heads/feat-cmux-next","refs/heads/nightly-next"]'), github.ref)) }}
+          version: 0.16.0
+>>>>>>> origin/main
 
       - name: Install TypeScript adapter build tools
         if: ${{ steps.tree.outputs.hit != 'true' }}
@@ -1349,6 +1536,7 @@ jobs:
         if: ${{ steps.tree.outputs.hit != 'true' }}
         uses: mlugg/setup-zig@8d6198c65fb0feaa111df26e6b467fea8345e46f # v2.0.5
         with:
+          use-cache: ${{ (github.event_name != 'pull_request' && github.event_name != 'pull_request_target' && github.event_name != 'merge_group' && contains(fromJSON('["refs/heads/main","refs/heads/feat-cmux-next","refs/heads/nightly-next"]'), github.ref)) }}
           version: 0.15.2
           # Its own cache saves a new entry per run; zig-global-cache keys it stably.
           use-cache: false

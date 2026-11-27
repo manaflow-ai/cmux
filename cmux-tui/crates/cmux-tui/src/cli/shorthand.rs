@@ -175,12 +175,16 @@ pub(super) fn normalize(args: &[String], surface: Surface) -> Result<Vec<String>
             } else {
                 flag.to_string()
             });
+<<<<<<< ours
             if inline.is_none()
                 && !super::command::flag_takes_no_value(
                     flag.trim_start_matches("--"),
                     args.get(index + 1).map(String::as_str),
                 )
             {
+=======
+            if inline.is_none() && super::command::flag_takes_value(flag.trim_start_matches("--")) {
+>>>>>>> theirs
                 index += 1;
                 options.push(args.get(index).cloned().ok_or_else(|| error(arg))?);
             }
@@ -341,7 +345,7 @@ fn instance_action<'a>(scope: &str, action: &'a str) -> &'a str {
     }
 }
 
-fn child(parent: &str, candidate: &str) -> bool {
+pub(super) fn child(parent: &str, candidate: &str) -> bool {
     matches!(
         (parent, candidate),
         ("workspace", "screen")

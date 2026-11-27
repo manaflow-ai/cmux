@@ -330,6 +330,7 @@ final class TiledBody {
             return
         }
         guard folded else { bandRect = .zero; return }
+<<<<<<< HEAD
         let headH = CGFloat(LongTextFold.headLines) * lh, tailH = CGFloat(LongTextFold.tailLines) * lh
         // cmux: clips end at their line slots. A tile holds 16 lines, so the head's last tile also
         // draws the hidden 41st line and the tail's first tile the line before the tail: 4 pt past
@@ -338,6 +339,13 @@ final class TiledBody {
         headClip.frame = CGRect(x: body.minX, y: body.minY, width: body.width, height: textTop + headH - body.minY)
         let tailTop = textTop + headH + LongTextFold.bandHeight
         tailClip.frame = CGRect(x: body.minX, y: tailTop, width: body.width, height: body.maxY - tailTop)
+=======
+        let headH = CGFloat(LongTextFold.headLines) * lh
+        // Clips reach 4 pt past their line slots (descenders), never into the other region's text.
+        headClip.frame = CGRect(x: body.minX, y: body.minY, width: body.width, height: textTop + headH + 4 - body.minY)
+        let tailTop = textTop + headH + LongTextFold.bandHeight
+        tailClip.frame = CGRect(x: body.minX, y: tailTop - 4, width: body.width, height: body.maxY - (tailTop - 4))
+>>>>>>> origin/main
         bandRect = CGRect(x: body.minX, y: textTop + headH, width: body.width, height: LongTextFold.bandHeight)
         band.frame = bandRect
         drawBand(LongTextFold.label(layout.index.hardLines), p, scale: s)
@@ -361,7 +369,11 @@ final class TiledBody {
         if let img = TiledBody.bandImages[key] { band.contentsScale = s; band.contents = img; return }
         defer { if let raw = band.contents, CFGetTypeID(raw as AnyObject) == CGImage.typeID { TiledBody.bandImages[key] = unsafeDowncast(raw as AnyObject, to: CGImage.self); if TiledBody.bandImages.count > 64 { TiledBody.bandImages.removeAll() } } }
         let font = HomeFonts.system(ofSize: Fixture.bodyFont.pointSize, weight: .semibold)
+<<<<<<< HEAD
         let color = p.outgoing ? Fixture.outgoingText : Fixture.incomingLink // cmux: themed link tint
+=======
+        let color = p.outgoing ? Fixture.outgoingText : UIColor(red: 0.27, green: 0.55, blue: 1, alpha: 1)
+>>>>>>> origin/main
         let rule = (p.outgoing ? Fixture.outgoingText : Fixture.incomingText).withAlphaComponent(0.25)
         Reclaimer.release(band.contents)
         band.contentsScale = s
@@ -394,7 +406,11 @@ final class TiledBody {
         }
 
         let s = cell.renderScale, palette = Fixture.paletteGeneration
+<<<<<<< HEAD
         let hint = LongTextLayout.TileHint(outgoing: row.outgoing, width: body.width, scale: s, palette: palette, box: PaletteScope.current)
+=======
+        let hint = LongTextLayout.TileHint(outgoing: row.outgoing, width: body.width, scale: s, palette: palette)
+>>>>>>> origin/main
         if layout.tileHint.map({ $0.outgoing != hint.outgoing || $0.width != hint.width || $0.scale != hint.scale || $0.palette != hint.palette }) ?? true {
             layout.tileHint = hint
         }
@@ -402,8 +418,13 @@ final class TiledBody {
         // the first 40 lines, and the last 40 lines moved up under the band (both clipped).
         var segments: [(lines: Range<Int>, shift: CGFloat, parent: CALayer)] = [(0..<total, 0, container)]
         if folded {
+<<<<<<< HEAD
             let tailFirst = LongTextFold.tailFirst(total) // cmux: never above total
             segments = [(LongTextFold.head(total), 0, headClip),
+=======
+            let tailFirst = max(LongTextFold.headLines, total - LongTextFold.tailLines)
+            segments = [(0..<min(total, LongTextFold.headLines), 0, headClip),
+>>>>>>> origin/main
                         (tailFirst..<total, CGFloat(LongTextFold.headLines - tailFirst) * lh + LongTextFold.bandHeight, tailClip)]
         }
         var wanted: [(TileCache.Key, CGRect, Bool, Int, CALayer)] = []
@@ -508,6 +529,7 @@ final class TiledBody {
     }
 
     private func enqueue(_ k: TileCache.Key, layout: LongTextLayout, block: Int, width: CGFloat, visible: Bool) {
+<<<<<<< HEAD
         // cmux: the cell's palette goes with the job (a task local does not follow the queue).
         let box = PaletteScope.current
         let op = BlockOperation()
@@ -522,6 +544,17 @@ final class TiledBody {
                 // A tile of an older palette is dropped; the key holds the scale (a view at another scale asks for its own).
                 // cmux: the key holds the view's palette too; only an appearance or colour space change drops it.
                 guard Fixture.generationIsLive(k.palette) else { return }
+=======
+        let op = BlockOperation()
+        op.queuePriority = visible ? .veryHigh : .normal
+        op.addExecutionBlock { [weak op, weak self] in
+            guard let op, !op.isCancelled else { return }
+            let img = TiledBubble.render(layout.blockLayout(block), chunk: k.chunk, outgoing: k.outgoing, width: width, scale: k.scale)
+            DispatchQueue.main.async { [weak self] in
+                TiledStats.tilesAsync += 1
+                // A tile of an older palette is dropped; the key holds the scale (a view at another scale asks for its own).
+                guard k.palette == Fixture.paletteGeneration else { return }
+>>>>>>> origin/main
                 if let img { TileCache.shared.put(k, img) } // an unallocated tile stays blank
                 guard let self else { return }
                 self.pending.removeValue(forKey: k)

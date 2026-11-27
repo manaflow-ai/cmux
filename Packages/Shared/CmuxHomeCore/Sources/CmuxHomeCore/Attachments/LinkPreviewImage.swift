@@ -1,3 +1,4 @@
+<<<<<<< HEAD
 #if canImport(CoreGraphics)
 import CoreGraphics
 #endif
@@ -8,6 +9,13 @@ import ImageIO
 
 extension AttachmentMedia {
 #if canImport(ImageIO)
+=======
+import CoreGraphics
+import Foundation
+import ImageIO
+
+extension AttachmentMedia {
+>>>>>>> origin/main
     /// A link preview's picture as the owner takes it (`link_preview.image`:
     /// JPEG or WebP, at most `previewMaxBytes`): a JPEG at most
     /// `previewMaxPixel` on its long edge, smaller and at lower quality until
@@ -43,11 +51,14 @@ extension AttachmentMedia {
         return context.makeImage()
     }
 
+<<<<<<< HEAD
 #else
     /// No ImageIO (the Linux package lane): no picture is read.
     static func linkPreviewJPEG(of url: URL) -> (data: Data, width: Int, height: Int)? { nil }
 #endif
 
+=======
+>>>>>>> origin/main
     /// The picture in the blob cache as an image attachment of its own
     /// (`link-preview.jpg`, no preview or poster: it is already small).
     static func prepareLinkPreviewImage(fileURL: URL, root: URL) throws -> LocalAttachment {

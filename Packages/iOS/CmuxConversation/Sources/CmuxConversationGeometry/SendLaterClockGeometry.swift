@@ -1,8 +1,12 @@
+<<<<<<< HEAD
 #if canImport(CoreGraphics)
 import CoreGraphics
 #else
 import Foundation
 #endif
+=======
+import CoreGraphics
+>>>>>>> origin/main
 import Foundation
 
 /// The Send Later clock, from ChatKit's `clock-sendlater.ca` (shared by iOS
@@ -69,7 +73,10 @@ public enum SendLaterClockGeometry {
         )
     }
 
+<<<<<<< HEAD
     #if canImport(CoreGraphics)  // CGPath: Apple only (the Linux CI package build skips it)
+=======
+>>>>>>> origin/main
     /// The whole clock as one path (circle minus both hands), for static
     /// icons. Animated clocks draw the hands as layers instead.
     public static func path(diameter: CGFloat, date: Date, calendar: Calendar = .current, origin: CGPoint = .zero) -> CGPath {
@@ -83,7 +90,10 @@ public enum SendLaterClockGeometry {
         }
         return circle.subtracting(hands[0].union(hands[1]))
     }
+<<<<<<< HEAD
     #endif
+=======
+>>>>>>> origin/main
 
     /// Dashed ring around the clock in the + menu and Mac send menu icons
     /// (`send-menu-send-later-glass`): 12 dashes on a ring at ~0.43 of the

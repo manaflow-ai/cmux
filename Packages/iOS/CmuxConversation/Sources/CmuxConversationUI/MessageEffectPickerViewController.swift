@@ -72,7 +72,11 @@ final class MessageEffectPickerViewController: UIViewController, UIScrollViewDel
         view.accessibilityViewIsModal = true
         backdrop.contentMode = .scaleToFill
         view.addSubview(backdrop)
+<<<<<<< HEAD
         backdropWash.backgroundColor = UIColor.resolving {
+=======
+        backdropWash.backgroundColor = UIColor {
+>>>>>>> origin/main
             let backdrop = EffectPickerBackdrop(dark: $0.userInterfaceStyle == .dark)
             return UIColor(white: backdrop.washWhite, alpha: backdrop.washAlpha)
         }
@@ -124,13 +128,21 @@ final class MessageEffectPickerViewController: UIViewController, UIScrollViewDel
         view.addSubview(pageControl)
 
         let outgoing = MessageCellLayout.attributedBody(text.string, outgoing: true)
+<<<<<<< HEAD
         stage.configure(side: .trailing, tail: true, fill: ConversationTheme.sentFill, text: outgoing, bubbleFrame: .zero, textFrame: .zero)
+=======
+        stage.configure(side: .trailing, tail: true, fill: ConversationTheme.outgoingBubble, text: outgoing, bubbleFrame: .zero, textFrame: .zero)
+>>>>>>> origin/main
         stage.label.numberOfLines = Self.previewLineLimit
         stage.label.lineBreakMode = .byTruncatingTail
         view.addSubview(stage)
 
         // Plus-lighter gray 72 (40 in dark mode): white over the light blur.
+<<<<<<< HEAD
         track.backgroundColor = UIColor.resolving { UIColor(white: ($0.userInterfaceStyle == .dark ? 40 : 72) / 255, alpha: 1) }
+=======
+        track.backgroundColor = UIColor { UIColor(white: ($0.userInterfaceStyle == .dark ? 40 : 72) / 255, alpha: 1) }
+>>>>>>> origin/main
         track.layer.compositingFilter = "plusL"
         track.layer.cornerRadius = EffectPickerGeometry.trackCornerRadius
         track.layer.cornerCurve = .continuous
@@ -195,7 +207,11 @@ final class MessageEffectPickerViewController: UIViewController, UIScrollViewDel
     private var margin: CGFloat { view.directionalLayoutMargins.trailing }
     /// Messages' ink for the title and the effects' names: gray 90, or white
     /// at 80% in dark mode.
+<<<<<<< HEAD
     static let secondaryInk = UIColor.resolving { $0.userInterfaceStyle == .dark ? UIColor(white: 1, alpha: 0.8) : UIColor(white: 90 / 255, alpha: 1) }
+=======
+    static let secondaryInk = UIColor { $0.userInterfaceStyle == .dark ? UIColor(white: 1, alpha: 0.8) : UIColor(white: 90 / 255, alpha: 1) }
+>>>>>>> origin/main
 
     /// Everything hangs off the send button where the long press found it.
     private var geometry: EffectPickerGeometry {
@@ -264,7 +280,11 @@ final class MessageEffectPickerViewController: UIViewController, UIScrollViewDel
             height: frame.height - 2 * t.bubbleVerticalPadding
         )
         stage.layer.anchorPoint = CGPoint(x: 0.5, y: 0.5)
+<<<<<<< HEAD
         stage.configure(side: .trailing, tail: true, fill: t.sentFill, text: stage.label.attributedText ?? text, bubbleFrame: frame, textFrame: textFrame)
+=======
+        stage.configure(side: .trailing, tail: true, fill: t.outgoingBubble, text: stage.label.attributedText ?? text, bubbleFrame: frame, textFrame: textFrame)
+>>>>>>> origin/main
         if stage.ink != nil { stage.setInk(true, outgoing: true) }
     }
 
@@ -281,7 +301,11 @@ final class MessageEffectPickerViewController: UIViewController, UIScrollViewDel
     func select(_ effect: ConversationMessageEffect) {
         let changed = selectedBubbleEffect != effect
         selectedBubbleEffect = effect
+<<<<<<< HEAD
         ConversationHaptics.selectionChanged()
+=======
+        UISelectionFeedbackGenerator().selectionChanged()
+>>>>>>> origin/main
         for row in rows { row.setSelected(row.effect == effect) }
         view.setNeedsLayout()
         stage.layer.removeAnimation(forKey: "messageEffect")
@@ -296,7 +320,11 @@ final class MessageEffectPickerViewController: UIViewController, UIScrollViewDel
             }
         }
         guard changed else { play(); return }
+<<<<<<< HEAD
         UIView.animateUnlessReduceMotion(withDuration: reduceMotion ? 0 : 0.32, delay: 0, usingSpringWithDamping: 0.86, initialSpringVelocity: 0, options: [.beginFromCurrentState, .allowUserInteraction]) {
+=======
+        UIView.animate(withDuration: reduceMotion ? 0 : 0.32, delay: 0, usingSpringWithDamping: 0.86, initialSpringVelocity: 0, options: [.beginFromCurrentState, .allowUserInteraction]) {
+>>>>>>> origin/main
             self.placeStage(target)
             self.view.setNeedsLayout()
             self.view.layoutIfNeeded()
@@ -320,6 +348,7 @@ final class MessageEffectPickerViewController: UIViewController, UIScrollViewDel
         pager.isHidden = !isScreen
         pageControl.isHidden = !isScreen
         screenSendButton.isHidden = !isScreen
+<<<<<<< HEAD
         // The stage moves to its slot (at once under Reduce Motion); the
         // screen preview crossfades.
         UIView.animateUnlessReduceMotion(withDuration: 0.25) {
@@ -328,6 +357,11 @@ final class MessageEffectPickerViewController: UIViewController, UIScrollViewDel
         // motion: allow crossfade, the Reduce Motion form
         UIView.animate(withDuration: 0.25) {
             self.screenPreview.alpha = isScreen ? 1 : 0
+=======
+        UIView.animate(withDuration: 0.25) {
+            self.screenPreview.alpha = isScreen ? 1 : 0
+            self.placeStage(self.slotFrame(for: isScreen ? nil : self.selectedBubbleEffect))
+>>>>>>> origin/main
         }
         if isScreen {
             playScreenPreview()
@@ -339,8 +373,11 @@ final class MessageEffectPickerViewController: UIViewController, UIScrollViewDel
     }
 
     private func scrollToPage(_ page: Int, animated: Bool) {
+<<<<<<< HEAD
         // Under Reduce Motion the page lands at once.
         let animated = animated && !UIView.reducesMotion
+=======
+>>>>>>> origin/main
         pager.setContentOffset(CGPoint(x: CGFloat(page) * pager.bounds.width, y: 0), animated: animated)
         if !animated { pageSettled() }
     }
@@ -353,7 +390,11 @@ final class MessageEffectPickerViewController: UIViewController, UIScrollViewDel
         guard page != screenPage || !screenPreview.isPlaying else { return }
         screenPage = max(0, min(page, ConversationMessageEffect.screenEffects.count - 1))
         pageControl.currentPage = screenPage
+<<<<<<< HEAD
         ConversationHaptics.selectionChanged()
+=======
+        UISelectionFeedbackGenerator().selectionChanged()
+>>>>>>> origin/main
         playScreenPreview()
     }
 
@@ -372,7 +413,11 @@ final class MessageEffectPickerViewController: UIViewController, UIScrollViewDel
     private func bubbleCopy() -> UIView {
         let copy = MessageBubbleStage()
         let frame = homeBubbleFrame
+<<<<<<< HEAD
         copy.configure(side: .trailing, tail: true, fill: ConversationTheme.sentFill, text: stage.label.attributedText ?? text, bubbleFrame: frame, textFrame: stage.label.frame.offsetBy(dx: frame.minX, dy: frame.minY))
+=======
+        copy.configure(side: .trailing, tail: true, fill: ConversationTheme.outgoingBubble, text: stage.label.attributedText ?? text, bubbleFrame: frame, textFrame: stage.label.frame.offsetBy(dx: frame.minX, dy: frame.minY))
+>>>>>>> origin/main
         copy.label.numberOfLines = Self.previewLineLimit
         return copy
     }
@@ -381,7 +426,11 @@ final class MessageEffectPickerViewController: UIViewController, UIScrollViewDel
 
     private func send(_ effect: ConversationMessageEffect) {
         previewGeneration += 1
+<<<<<<< HEAD
         ConversationHaptics.impact(.light)
+=======
+        UIImpactFeedbackGenerator(style: .light).impactOccurred()
+>>>>>>> origin/main
         onSend?(effect)
     }
 
@@ -487,7 +536,11 @@ private final class EffectRow {
         labelButton.setTitle(name.localizedUppercase, for: .normal)
         labelButton.alpha = selected == false ? 0.4 : 1
         let selected = selected == true
+<<<<<<< HEAD
         UIView.animateUnlessReduceMotion(withDuration: 0.2) { self.dot.isSelectedForSend = selected }
+=======
+        UIView.animate(withDuration: 0.2) { self.dot.isSelectedForSend = selected }
+>>>>>>> origin/main
         dot.accessibilityLabel = selected
             ? String(format: String(localized: "conversation.effect.sendWithNamed", defaultValue: "Send with %@", bundle: .module), effect.localizedName)
             : effect.localizedName
@@ -506,10 +559,17 @@ final class EffectSendButton: UIButton {
         super.init(frame: frame)
         // Gray 153 on the white track; in dark mode Messages adds gray 51 to
         // the track (plus-lighter), about white at 22% over it.
+<<<<<<< HEAD
         dotView.backgroundColor = UIColor.resolving { $0.userInterfaceStyle == .dark ? UIColor(white: 1, alpha: 0.22) : UIColor(white: 153 / 255, alpha: 1) }
         dotView.isUserInteractionEnabled = false
         addSubview(dotView)
         pill.backgroundColor = ConversationTheme.sentFill
+=======
+        dotView.backgroundColor = UIColor { $0.userInterfaceStyle == .dark ? UIColor(white: 1, alpha: 0.22) : UIColor(white: 153 / 255, alpha: 1) }
+        dotView.isUserInteractionEnabled = false
+        addSubview(dotView)
+        pill.backgroundColor = ConversationTheme.outgoingBubble
+>>>>>>> origin/main
         pill.layer.cornerCurve = .continuous
         pill.isUserInteractionEnabled = false
         addSubview(pill)

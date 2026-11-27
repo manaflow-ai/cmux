@@ -13,6 +13,7 @@ name: nightly-next verdict
 # of this repository whose `canary <build>` job succeeded. `fail` and
 # `skipped` never make a build a base, so they are written as given.
 #
+<<<<<<< HEAD
 # Release rings (scripts/ci/nightly_next_ring.py): with repository variable
 # NIGHTLY_NEXT_DEV_RING=on, nightly.yml publishes each new build as
 # cmux-next-dev (Dev only). After writing a verdict, this run sets every feed
@@ -20,6 +21,8 @@ name: nightly-next verdict
 # to cmux-next (Nightly, and every build from before rings). With the variable
 # off, every item goes back to cmux-next.
 #
+=======
+>>>>>>> origin/main
 # Run it on branch nightly-next; release-next, which holds the feed's R2
 # token, deploys only to that branch. GitHub registers a dispatch workflow
 # only from the default branch, so this file is on main too; a run there
@@ -49,6 +52,7 @@ concurrency:
 env:
   # Temporary REST budget attribution: one gh-call line per GitHub API call (scripts/ci/api_call_log/env.sh, fetched at a fixed commit when the checkout has no copy).
   BASH_ENV: '$({ w="${GITHUB_WORKSPACE:-/nonexistent}/scripts/ci/api_call_log/env.sh"; t="${RUNNER_TEMP:-/nonexistent}/api-call-log-src"; if [ -f "$w" ]; then echo "$w"; elif [ -n "${RUNNER_TEMP:-}" ]; then if [ ! -f "$t/env.sh" ] && [ ! -e "$t.tried" ] && { [ "${RUNNER_OS:-}" = Linux ] || [ "${RUNNER_OS:-}" = macOS ]; } && [ "$(date -u +%Y%m%d%H)" -lt 2026112300 ]; then : > "$t.tried"; mkdir -p "$t.part" && for x in env.sh gh sitecustomize.py isolated.py; do curl -fsSL --max-time 5 -o "$t.part/$x" "https://raw.githubusercontent.com/manaflow-ai/cmux/27647ffd3ae838c63be28ca3e5883dcd68c34518/scripts/ci/api_call_log/$x" || break; done; [ -s "$t.part/isolated.py" ] && mv "$t.part" "$t"; fi; if [ -f "$t/env.sh" ]; then echo "$t/env.sh"; else echo unset BASH_ENV > "$t.off.sh" && echo "$t.off.sh"; fi; fi; } 2>/dev/null)'
+<<<<<<< HEAD
   # The verdicts' folder (nightly.yml NIGHTLY_NEXT_VERDICTS_BASE), where the app
   # reads them (UpdaterService.channelFolder); nightly-next-guard.py checks every
   # write against these values.
@@ -59,6 +63,10 @@ env:
   # The track's one feed (nightly.yml NIGHTLY_NEXT_FEED_BASE): cmux NIGHTLY.
   NIGHTLY_NEXT_LEGACY_FEED_BASE: https://files-next.cmux.com/nightly-next
   NIGHTLY_NEXT_LEGACY_R2_PREFIX: nightly-next/
+=======
+  NIGHTLY_NEXT_R2_BUCKET: cmux-nightly-next
+  NIGHTLY_NEXT_R2_PREFIX: nightly-next/next/
+>>>>>>> origin/main
 
 jobs:
   write:
@@ -68,7 +76,11 @@ jobs:
       actions: read
       contents: read
     # A literal ephemeral label: this job holds the feed's write token.
+<<<<<<< HEAD
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.run_attempt == 1 && 'cmux-gcp-nightly-jit-x64' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || 'cmux-linux' }}
+=======
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'blacksmith-4vcpu-ubuntu-2404' }}
+>>>>>>> origin/main
     timeout-minutes: 5
     steps:
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
@@ -76,6 +88,7 @@ jobs:
           persist-credentials: false
           sparse-checkout: |
             scripts/ci/nightly_next_train.py
+<<<<<<< HEAD
             scripts/ci/nightly_next_canary_latency.py
             scripts/ci/nightly_next_artifact_check.py
             scripts/ci/nightly_next_fix_forward.py
@@ -83,6 +96,11 @@ jobs:
             scripts/ci/nightly_next_ring.py
             scripts/ci/upload-r2-object.py
             .gitmodules
+=======
+            scripts/ci/nightly_next_fix_forward.py
+            scripts/ci/nightly-next-guard.py
+            scripts/ci/upload-r2-object.py
+>>>>>>> origin/main
           sparse-checkout-cone-mode: false
 
       - name: Check the verdict and write the document
@@ -97,6 +115,7 @@ jobs:
           python3 scripts/ci/nightly_next_train.py verdict-check \
             --repo "$GITHUB_REPOSITORY" --build "$BUILD" --verdict "$VERDICT" \
             --canary-run "$CANARY_RUN" --out "verdict.json"
+<<<<<<< HEAD
           echo "attempt=$(jq -r '.canaryAttempt // empty' verdict.json)" >> "$GITHUB_OUTPUT"
           echo "key=${NIGHTLY_NEXT_R2_PREFIX}verdicts/${BUILD}.json" >> "$GITHUB_OUTPUT"
 
@@ -118,6 +137,10 @@ jobs:
           FELT: ${{ runner.temp }}/felt-${{ github.run_id }}-${{ github.run_attempt }}/canary-latency.json
         run: python3 -I scripts/ci/nightly_next_canary_latency.py attach --verdict verdict.json --report "$FELT"
 
+=======
+          echo "key=${NIGHTLY_NEXT_R2_PREFIX}verdicts/${BUILD}.json" >> "$GITHUB_OUTPUT"
+
+>>>>>>> origin/main
       - name: Upload the verdict
         env:
           AWS_ACCESS_KEY_ID: ${{ secrets.NIGHTLY_NEXT_R2_ACCESS_KEY_ID }}
@@ -135,6 +158,7 @@ jobs:
             --key "$KEY" \
             --content-type "application/json" \
             --cache-control "no-cache, no-store, must-revalidate"
+<<<<<<< HEAD
           # The same document beside the cmux NIGHTLY feed: an app reads
           # verdicts next to its own feed (Channels card, Go Back).
           legacy_key="${NIGHTLY_NEXT_LEGACY_R2_PREFIX}verdicts/${KEY##*/}"
@@ -147,6 +171,8 @@ jobs:
             --content-type "application/json" \
             --cache-control "no-cache, no-store, must-revalidate" \
             || echo "::warning::the verdict was not copied beside the old feed ($legacy_key)"
+=======
+>>>>>>> origin/main
           {
             echo "### nightly-next verdict"
             echo
@@ -154,6 +180,7 @@ jobs:
             cat verdict.json
             echo '```'
           } >> "$GITHUB_STEP_SUMMARY"
+<<<<<<< HEAD
 
       # Promotion: the feed's channels follow the verdicts. The track's one feed is
       # the cmux NIGHTLY feed (nightly.yml NIGHTLY_NEXT_FEED_BASE; hq#7156); the
@@ -198,3 +225,5 @@ jobs:
           fi
           [ "$status" = 0 ] || exit "$status"
           echo "Release rings ($DEV_RING): wrote the old feed's channels $summary" >> "$GITHUB_STEP_SUMMARY"
+=======
+>>>>>>> origin/main

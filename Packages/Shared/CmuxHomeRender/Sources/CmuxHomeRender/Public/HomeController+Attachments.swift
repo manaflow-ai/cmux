@@ -53,7 +53,11 @@ extension HomeController {
     /// The pending send `intent` as `HomeStore.send` arguments when it
     /// carries attachments whose local files this controller holds.
     func attachmentSend(_ intent: HomeIntent) -> (conversation: ConversationID, text: String, attachments: [LocalAttachment])? {
+<<<<<<< HEAD
         guard case .sendMessage(let conversation, let parts, _, _) = intent.op else { return nil }
+=======
+        guard case .sendMessage(let conversation, let parts, _) = intent.op else { return nil }
+>>>>>>> origin/main
         var attachments: [LocalAttachment] = []
         var text = ""
         for part in parts {

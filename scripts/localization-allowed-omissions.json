@@ -317,6 +317,37 @@
       "es": "vCPU is an invariant resource unit symbol; placeholders and the separator are identical in this locale."
     }
   },
+<<<<<<< ours
+=======
+  "cli.socketControlStatus.command": {
+    "source": "socket-status [--json]",
+    "identityLocales": {
+      "ar": "Command-line syntax is invariant across locales; the translated catalog entry is still required.",
+      "bs": "Command-line syntax is invariant across locales; the translated catalog entry is still required.",
+      "da": "Command-line syntax is invariant across locales; the translated catalog entry is still required.",
+      "de": "Command-line syntax is invariant across locales; the translated catalog entry is still required.",
+      "es": "Command-line syntax is invariant across locales; the translated catalog entry is still required.",
+      "fr": "Command-line syntax is invariant across locales; the translated catalog entry is still required.",
+      "it": "Command-line syntax is invariant across locales; the translated catalog entry is still required.",
+      "ja": "Command-line syntax is invariant across locales; the translated catalog entry is still required.",
+      "km": "Command-line syntax is invariant across locales; the translated catalog entry is still required.",
+      "ko": "Command-line syntax is invariant across locales; the translated catalog entry is still required.",
+      "nb": "Command-line syntax is invariant across locales; the translated catalog entry is still required.",
+      "pl": "Command-line syntax is invariant across locales; the translated catalog entry is still required.",
+      "pt-BR": "Command-line syntax is invariant across locales; the translated catalog entry is still required.",
+      "ru": "Command-line syntax is invariant across locales; the translated catalog entry is still required.",
+      "th": "Command-line syntax is invariant across locales; the translated catalog entry is still required.",
+      "tr": "Command-line syntax is invariant across locales; the translated catalog entry is still required.",
+      "uk": "Command-line syntax is invariant across locales; the translated catalog entry is still required.",
+      "zh-Hans": "Command-line syntax is invariant across locales; the translated catalog entry is still required.",
+      "zh-Hant": "Command-line syntax is invariant across locales; the translated catalog entry is still required."
+    }
+  },
+  "cli.surface.newDisplay.usage": {
+    "class": "syntax",
+    "source": "cmux surface new-display --machine <cloud-id> [--workspace <id|ref|index>] [--no-open] [--focus|--no-focus] [--json]"
+  },
+>>>>>>> theirs
   "CFBundleDisplayName": {
     "source": "cmux Cloud Tunnel",
     "class": "brand"
@@ -1966,9 +1997,9 @@
     "class": "brand",
     "source": "cmux BETA"
   },
-  "mobile.pairing.target.demo": {
+  "mobile.pairing.target.classic": {
     "class": "brand",
-    "source": "cmux DEMO"
+    "source": "cmux CLASSIC"
   },
   "mobile.pairing.target.dev": {
     "class": "brand",
@@ -4019,7 +4050,7 @@
     "class": "brand"
   },
   "pricing.native.plan.go": {
-    "source": "Go",
+    "source": "Plus",
     "class": "brand"
   },
   "pricing.native.max.price": {
@@ -4027,7 +4058,7 @@
     "class": "format"
   },
   "pricing.native.go.price": {
-    "source": "$10",
+    "source": "$15",
     "class": "format"
   },
   "cloud.ports.title": {
@@ -8340,54 +8371,127 @@
       }
     }
   },
+<<<<<<< ours
   "backdrop.shader.koi": {
     "source": "Koi",
+=======
+  "sidebar.account.teamWithGoPlan": {
+    "source": "%1$@ · Plus",
+>>>>>>> theirs
     "identityLocales": {
+<<<<<<< ours
       "bs": {
         "reason": "Koi is a name (a loanword) kept in Latin letters.",
+=======
+      "de": {
+        "reason": "The Plus product name, account placeholder, and punctuation are invariant across locales.",
+>>>>>>> theirs
         "values": [
+<<<<<<< ours
           "Koi"
+=======
+          "%1$@ · Plus"
+>>>>>>> theirs
         ]
       },
+<<<<<<< ours
       "da": {
         "reason": "Koi is a name (a loanword) kept in Latin letters.",
+=======
+      "fr": {
+        "reason": "The Plus product name, account placeholder, and punctuation are invariant across locales.",
+>>>>>>> theirs
         "values": [
+<<<<<<< ours
           "Koi"
+=======
+          "%1$@ · Plus"
+>>>>>>> theirs
         ]
       },
+<<<<<<< ours
       "de": {
         "reason": "Koi is a name (a loanword) kept in Latin letters.",
+=======
+      "ar": {
+        "reason": "The Plus product name, account placeholder, and punctuation are invariant across locales.",
+>>>>>>> theirs
         "values": [
+<<<<<<< ours
           "Koi"
+=======
+          "%1$@ · Plus"
+>>>>>>> theirs
         ]
       },
       "es": {
+<<<<<<< ours
         "reason": "Koi is a name (a loanword) kept in Latin letters.",
+=======
+        "reason": "The Plus product name, account placeholder, and punctuation are invariant across locales.",
+>>>>>>> theirs
         "values": [
+<<<<<<< ours
           "Koi"
+=======
+          "%1$@ · Plus"
+>>>>>>> theirs
         ]
       },
+<<<<<<< ours
       "it": {
         "reason": "Koi is a name (a loanword) kept in Latin letters.",
+=======
+      "zh-Hant": {
+        "reason": "The Plus product name, account placeholder, and punctuation are invariant across locales.",
+>>>>>>> theirs
         "values": [
+<<<<<<< ours
           "Koi"
+=======
+          "%1$@ · Plus"
+>>>>>>> theirs
         ]
       },
+<<<<<<< ours
       "nb": {
         "reason": "Koi is a name (a loanword) kept in Latin letters.",
+=======
+      "zh-Hans": {
+        "reason": "The Plus product name, account placeholder, and punctuation are invariant across locales.",
+>>>>>>> theirs
         "values": [
+<<<<<<< ours
           "Koi"
+=======
+          "%1$@ · Plus"
+>>>>>>> theirs
         ]
       },
+<<<<<<< ours
       "pt-BR": {
         "reason": "Koi is a name (a loanword) kept in Latin letters.",
+=======
+      "ko": {
+        "reason": "The Plus product name, account placeholder, and punctuation are invariant across locales.",
+>>>>>>> theirs
         "values": [
+<<<<<<< ours
           "Koi"
+=======
+          "%1$@ · Plus"
+>>>>>>> theirs
         ]
       },
+<<<<<<< ours
       "tr": {
         "reason": "Koi is a name (a loanword) kept in Latin letters.",
+=======
+      "ja": {
+        "reason": "The Plus product name, account placeholder, and punctuation are invariant across locales.",
+>>>>>>> theirs
         "values": [
+<<<<<<< ours
           "Koi"
         ]
       }
@@ -8484,8 +8588,164 @@
         "reason": "Workflow is the term GitHub Actions uses in this language.",
         "values": [
           "Workflow"
+=======
+          "%1$@ · Plus"
+>>>>>>> theirs
         ]
       }
+    }
+  },
+  "menu.view.chief": {
+    "source": "Chief",
+    "identityLocales": {
+      "de": "Chief is the product name of the Home agent and stays invariant across locales; the translated entry is still required.",
+      "fr": "Chief is the product name of the Home agent and stays invariant across locales; the translated entry is still required.",
+      "ar": "Chief is the product name of the Home agent and stays invariant across locales; the translated entry is still required.",
+      "es": "Chief is the product name of the Home agent and stays invariant across locales; the translated entry is still required.",
+      "zh-Hant": "Chief is the product name of the Home agent and stays invariant across locales; the translated entry is still required.",
+      "zh-Hans": "Chief is the product name of the Home agent and stays invariant across locales; the translated entry is still required.",
+      "ko": "Chief is the product name of the Home agent and stays invariant across locales; the translated entry is still required.",
+      "ja": "Chief is the product name of the Home agent and stays invariant across locales; the translated entry is still required."
+    }
+  },
+  "command.openChief.subtitle": {
+    "source": "Chief",
+    "identityLocales": {
+      "de": "Chief is the product name of the Home agent and stays invariant across locales; the translated entry is still required.",
+      "fr": "Chief is the product name of the Home agent and stays invariant across locales; the translated entry is still required.",
+      "ar": "Chief is the product name of the Home agent and stays invariant across locales; the translated entry is still required.",
+      "es": "Chief is the product name of the Home agent and stays invariant across locales; the translated entry is still required.",
+      "zh-Hant": "Chief is the product name of the Home agent and stays invariant across locales; the translated entry is still required.",
+      "zh-Hans": "Chief is the product name of the Home agent and stays invariant across locales; the translated entry is still required.",
+      "ko": "Chief is the product name of the Home agent and stays invariant across locales; the translated entry is still required.",
+      "ja": "Chief is the product name of the Home agent and stays invariant across locales; the translated entry is still required."
+    }
+  },
+  "settings.automation.chief": {
+    "source": "Chief",
+    "identityLocales": {
+      "de": "Chief is the product name of the Home agent and stays invariant across locales; the translated entry is still required.",
+      "fr": "Chief is the product name of the Home agent and stays invariant across locales; the translated entry is still required.",
+      "ar": "Chief is the product name of the Home agent and stays invariant across locales; the translated entry is still required.",
+      "es": "Chief is the product name of the Home agent and stays invariant across locales; the translated entry is still required.",
+      "zh-Hant": "Chief is the product name of the Home agent and stays invariant across locales; the translated entry is still required.",
+      "zh-Hans": "Chief is the product name of the Home agent and stays invariant across locales; the translated entry is still required.",
+      "ko": "Chief is the product name of the Home agent and stays invariant across locales; the translated entry is still required.",
+      "ja": "Chief is the product name of the Home agent and stays invariant across locales; the translated entry is still required."
+    }
+  },
+  "settings.automation.chief.harness.claude": {
+    "source": "Claude Code",
+    "identityLocales": {
+      "de": "Agent product names are invariant brand names; the translated entry is still required.",
+      "fr": "Agent product names are invariant brand names; the translated entry is still required.",
+      "ar": "Agent product names are invariant brand names; the translated entry is still required.",
+      "es": "Agent product names are invariant brand names; the translated entry is still required.",
+      "zh-Hant": "Agent product names are invariant brand names; the translated entry is still required.",
+      "zh-Hans": "Agent product names are invariant brand names; the translated entry is still required.",
+      "ko": "Agent product names are invariant brand names; the translated entry is still required.",
+      "ja": "Agent product names are invariant brand names; the translated entry is still required."
+    }
+  },
+  "settings.automation.chief.harness.codex": {
+    "source": "Codex",
+    "identityLocales": {
+      "de": "Agent product names are invariant brand names; the translated entry is still required.",
+      "fr": "Agent product names are invariant brand names; the translated entry is still required.",
+      "ar": "Agent product names are invariant brand names; the translated entry is still required.",
+      "es": "Agent product names are invariant brand names; the translated entry is still required.",
+      "zh-Hant": "Agent product names are invariant brand names; the translated entry is still required.",
+      "zh-Hans": "Agent product names are invariant brand names; the translated entry is still required.",
+      "ko": "Agent product names are invariant brand names; the translated entry is still required.",
+      "ja": "Agent product names are invariant brand names; the translated entry is still required."
+    }
+  },
+  "attachment.kind.document": {
+    "source": "Document",
+    "identityLocales": {
+      "fr": "Established UI or technical term with the same spelling in this locale; a translated entry is still required."
+    }
+  },
+  "attachment.kind.image": {
+    "source": "Image",
+    "identityLocales": {
+      "fr": "Established UI or technical term with the same spelling in this locale; a translated entry is still required."
+    }
+  },
+  "attachment.kind.video": {
+    "source": "Video",
+    "identityLocales": {
+      "de": "Established UI or technical term with the same spelling in this locale; a translated entry is still required."
+    }
+  },
+  "ax.attachment.video": {
+    "source": "Video, %@",
+    "identityLocales": {
+      "de": "Established UI or technical term with the same spelling in this locale; a translated entry is still required."
+    }
+  },
+  "ax.compose": {
+    "source": "Message",
+    "identityLocales": {
+      "fr": "Established UI or technical term with the same spelling in this locale; a translated entry is still required."
+    }
+  },
+  "compose.placeholder": {
+    "source": "Message",
+    "identityLocales": {
+      "fr": "Established UI or technical term with the same spelling in this locale; a translated entry is still required."
+    }
+  },
+  "ax.message.role": {
+    "source": "message",
+    "identityLocales": {
+      "fr": "Established UI or technical term with the same spelling in this locale; a translated entry is still required."
+    }
+  },
+  "ax.messages": {
+    "source": "Messages",
+    "identityLocales": {
+      "fr": "Established UI or technical term with the same spelling in this locale; a translated entry is still required."
+    }
+  },
+  "compose.emoji": {
+    "source": "Emoji",
+    "identityLocales": {
+      "de": "Established UI or technical term with the same spelling in this locale; a translated entry is still required.",
+      "fr": "Established UI or technical term with the same spelling in this locale; a translated entry is still required.",
+      "es": "Established UI or technical term with the same spelling in this locale; a translated entry is still required."
+    }
+  },
+  "preview.photo": {
+    "source": "Photo",
+    "identityLocales": {
+      "fr": "Established UI or technical term with the same spelling in this locale; a translated entry is still required."
+    }
+  },
+  "preview.video": {
+    "source": "Video",
+    "identityLocales": {
+      "de": "Established UI or technical term with the same spelling in this locale; a translated entry is still required."
+    }
+  },
+  "ax.attachment.file": {
+    "class": "format",
+    "source": "%1$@, %2$@, %3$@"
+  },
+  "ax.message.format": {
+    "class": "format",
+    "source": "%1$@, %2$@, %3$@"
+  },
+  "ax.attachment.photo": {
+    "source": "Photo, %@",
+    "identityLocales": {
+      "fr": "Established UI or technical term with the same spelling in this locale; a translated entry is still required."
+    }
+  },
+  "chief.firstRun.suggestions": {
+    "source": "Suggestions",
+    "identityLocales": {
+      "fr": "Suggestions is the standard French noun for this label and shares the English spelling."
     }
   }
 }

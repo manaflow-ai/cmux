@@ -6,6 +6,8 @@ set -euo pipefail
 ROOT_DIR="$(cd "$(dirname "$0")/.." && pwd)"
 PICK="$ROOT_DIR/scripts/ci/nightly-sparkle-key.sh"
 WORKFLOW="$ROOT_DIR/.github/workflows/nightly.yml"
+# The published nightly's Sparkle deltas: auto-resume-nightly-notarization.yml generate-deltas.
+DELTAS="$ROOT_DIR/.github/workflows/auto-resume-nightly-notarization.yml"
 
 expect() {
   # expect <want> <selector> <channel> [nightly-key]
@@ -47,6 +49,7 @@ if grep -Eq '^ +SPARKLE_PRIVATE_KEY: \$\{\{ secrets\.' "$WORKFLOW"; then
   echo "FAIL: nightly.yml passes SPARKLE_PRIVATE_KEY directly; use scripts/ci/nightly-sparkle-key.sh"
   exit 1
 fi
+<<<<<<< HEAD
 # Run blocks moved into scripts/ci/nightly-steps (#25879, #26196) still count:
 # only the scripts nightly.yml actually runs, and each one that signs must use it.
 step_scripts=()
@@ -67,12 +70,19 @@ done
 helper_calls="$(cat "$WORKFLOW" "${step_scripts[@]}" \
   | grep -cE 'SPARKLE_PRIVATE_KEY="\$\((bash "\$TOOLS/|\./)scripts/ci/nightly-sparkle-key\.sh"?\)"')"
 if [ "$helper_calls" -lt 3 ]; then
+=======
+if [ "$(grep -c 'SPARKLE_PRIVATE_KEY="$(./scripts/ci/nightly-sparkle-key.sh)"' "$WORKFLOW")" -lt 2 ]; then
+>>>>>>> origin/main
   echo "FAIL: nightly.yml must derive the embedded key and sign every appcast through the helper"
   exit 1
 fi
 
+<<<<<<< HEAD
 DELTAS="$ROOT_DIR/scripts/ci/generate-nightly-deltas.sh"
 if ! grep -Fq 'scripts/ci/generate-nightly-deltas.sh' "$WORKFLOW" || ! grep -Fq 'drop-previous-nightlies-with-other-sparkle-key.sh" "$previous" "$SPARKLE_PUBLIC_KEY"' "$DELTAS"; then
+=======
+if ! grep -Fq 'drop-previous-nightlies-with-other-sparkle-key.sh' "$DELTAS" || ! grep -Fq 'nightly-delta/previous "$SPARKLE_PUBLIC_KEY"' "$DELTAS"; then
+>>>>>>> origin/main
   echo "FAIL: the post-publication delta step must drop previous nightlies signed for another key before building deltas"
   exit 1
 fi

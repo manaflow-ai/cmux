@@ -7,6 +7,7 @@ import sys
 from pathlib import Path
 
 
+SWIFT_RUNTIME_DIAGNOSTIC = "swift runtime: "
 ANSI = re.compile(r"\x1b\[[0-?]*[ -/]*[@-~]")
 # The summary's symbol is ✔, ✘ or ━ in a terminal, an SF Symbol (Private Use plane) where those draw.
 SWIFT_SUMMARY = re.compile(
@@ -115,6 +116,12 @@ def discovery_filters(output: str) -> list[str]:
     for line in output.splitlines():
         identifier = line.strip()
         if not identifier:
+            continue
+        if identifier.startswith(SWIFT_RUNTIME_DIAGNOSTIC):
+            # The Swift runtime writes its own diagnostics into the listing,
+            # e.g. "backtrace-on-crash is not supported for privileged
+            # executables." when SWIFT_BACKTRACE=enable=yes meets a setugid
+            # process. They name no test.
             continue
         if not re.fullmatch(r"[A-Za-z_][A-Za-z_0-9]*\..+", identifier):
             raise ValueError(f"unrecognized Swift test discovery record: {identifier!r}")

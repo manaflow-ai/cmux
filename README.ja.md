@@ -383,7 +383,11 @@ tmuxは任意のターミナル内で動くターミナルマルチプレクサ�
 
 ### cmuxをどうやって支援できますか？
 
+<<<<<<< HEAD
 cmuxは無料でオープンソースであり、今後もそうあり続けます。
+=======
+cmuxは無料でオープンソースであり、今後もそうあり続けます。開発を後押しし、cmux AI、iOSアプリ、Cloud VMsなど次に来るものへの早期アクセスを得たい方は、[cmux Pro](https://cmux.com/api/billing/checkout?plan=pro)をご覧ください。
+>>>>>>> origin/main
 
 ### 機能リクエストがある、またはバグを見つけました？
 
@@ -422,6 +426,15 @@ cmuxは無料でオープンソースであり、今後もそうあり続けま�
   <img src="./docs/assets/wechat-community-qr.jpg" alt="cmuxコミュニティに参加するためのWeChat QRコード" width="240" />
 </p>
 
+<<<<<<< HEAD
+=======
+## cmux Pro
+
+cmuxは無料でオープンソースであり、今後もそうあり続けます。開発をサポートし、次に来る機能への早期アクセスを得たい方へ：
+
+**[cmux Proを入手](https://cmux.com/api/billing/checkout?plan=pro)**
+
+>>>>>>> origin/main
 ## ライセンス
 
 cmuxは[GPL-3.0-or-later](LICENSE)の下でオープンソースです。cmuxのサーバーソフトウェア（`web/`、Cloudflare Worker、および[LICENSE](LICENSE)に記載されたリレーサービス）は、代わりに[Business Source License 1.1](web/LICENSE)で提供されます。非本番用途での閲覧・改変・実行は可能ですが、本番利用やセルフホスティングには商用ライセンスが必要です。

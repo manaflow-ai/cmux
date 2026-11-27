@@ -32,7 +32,11 @@ SPEC.loader.exec_module(MODULE)
 
 # The real privacy check reads this machine's names and may compile the OCR
 # tool; tests that do not exercise it get a no-op, and PrivacyTests a stubbed one.
+<<<<<<< HEAD
 REAL_CHECK_PRIVACY = getattr(MODULE, "check_privacy", None)
+=======
+REAL_CHECK_PRIVACY = MODULE.check_privacy
+>>>>>>> origin/main
 MODULE.check_privacy = lambda items, repo, **options: None
 
 PNG = b"\x89PNG\r\n\x1a\n" + b"0" * 32
@@ -1285,8 +1289,13 @@ class PrivacyTests(unittest.TestCase):
         self.addCleanup(temporary.cleanup)
         self.scratch = temporary.name
         # A CI step inside .github/actions/pr-media-publish (PR_MEDIA_PUBLISH_GATE).
+<<<<<<< HEAD
         self.env = git_fixture_env.fixture_env({"HOME": self.scratch, "GITHUB_ACTIONS": "true", "PR_MEDIA_PRIVATE_TERMS": '["glow-box"]',
                     "PR_MEDIA_AGENT_AUTHORS": "bot-a", "PR_MEDIA_PUBLISH_GATE": "1"})
+=======
+        self.env = {"HOME": self.scratch, "GITHUB_ACTIONS": "true", "PR_MEDIA_PRIVATE_TERMS": '["glow-box"]',
+                    "PR_MEDIA_AGENT_AUTHORS": "bot-a", "PR_MEDIA_PUBLISH_GATE": "1"}
+>>>>>>> origin/main
         self.authors = {7: "bot-a", 8: "teammate"}
         self.ocr_calls = []
         self.lookups = []
@@ -1309,10 +1318,13 @@ class PrivacyTests(unittest.TestCase):
         original = MODULE.check_privacy
         MODULE.check_privacy = check
         self.addCleanup(setattr, MODULE, "check_privacy", original)
+<<<<<<< HEAD
         self.origin = Origin(self)
 
     def landed(self):
         return sorted(path for path in self.origin.files() if path != "README.md")
+=======
+>>>>>>> origin/main
 
     def run_main(self, argv, runner=None):
         with contextlib.redirect_stdout(io.StringIO()) as out, \
@@ -1326,7 +1338,11 @@ class PrivacyTests(unittest.TestCase):
         gh = FakeGh()
         code, out, err = self.run_main(["--pr", "7", str(clean), str(leak)], runner=gh)
         self.assertEqual(code, 1)
+<<<<<<< HEAD
         self.assertEqual(self.landed(), [])
+=======
+        self.assertFalse(gh.puts)
+>>>>>>> origin/main
         self.assertIn("7/02-leak.png", err)
         self.assertIn("refused", err)
         self.assertNotIn("cmux7s", out + err)
@@ -1336,7 +1352,11 @@ class PrivacyTests(unittest.TestCase):
         gh = FakeGh()
         code, _, _ = self.run_main(["--pr", "7", str(clean)], runner=gh)
         self.assertEqual(code, 0)
+<<<<<<< HEAD
         self.assertEqual(self.landed(), ["7/shot.png"])
+=======
+        self.assertEqual(sorted(gh.puts), ["7/shot.png"])
+>>>>>>> origin/main
         self.assertEqual(self.ocr_calls, ["shot.png"])
 
     def test_a_teammates_capture_with_a_private_name_is_refused_and_names_only_its_category(self):
@@ -1346,7 +1366,11 @@ class PrivacyTests(unittest.TestCase):
         gh = FakeGh()
         code, out, err = self.run_main(["--pr", "8", str(clean), str(frame)], runner=gh)
         self.assertEqual(code, 1)
+<<<<<<< HEAD
         self.assertEqual(self.landed(), [])
+=======
+        self.assertFalse(gh.puts)
+>>>>>>> origin/main
         self.assertIn("8/02-frame.png shows a personal machine or account name; refused", err)
         self.assertIn("then recapture", err)
         self.assertNotIn("glow", (out + err).replace(self.scratch, ""))
@@ -1357,7 +1381,11 @@ class PrivacyTests(unittest.TestCase):
         gh = FakeGh()
         code, out, err = self.run_main(["--pr", "8", str(leak)], runner=gh)
         self.assertEqual(code, 1)
+<<<<<<< HEAD
         self.assertEqual(self.landed(), [])
+=======
+        self.assertFalse(gh.puts)
+>>>>>>> origin/main
         self.assertIn("fleet Mac mini name", err)
         self.assertIn("fleet shell prompt", err)
         self.assertNotIn("cmux7s", out + err)
@@ -1369,14 +1397,22 @@ class PrivacyTests(unittest.TestCase):
         def runner(argv, **kwargs):
             if argv[0] == "ffmpeg":
                 Path(argv[-1]).write_bytes(GIF + b"LEAK")
+<<<<<<< HEAD
                 return SimpleNamespace(returncode=0, stdout="", stderr="")
+=======
+                return gh.reply(0, "")
+>>>>>>> origin/main
             return gh(argv, **kwargs)
 
         with mock.patch.object(MODULE.shutil, "which", return_value="/usr/bin/ffmpeg"):
             code, _, err = self.run_main(["--pr", "7", str(clip)], runner=runner)
         self.assertEqual(code, 1)
         self.assertIn("7/drag.gif", err)
+<<<<<<< HEAD
         self.assertEqual(self.landed(), [])
+=======
+        self.assertFalse(gh.puts)
+>>>>>>> origin/main
 
     def test_a_dry_run_checks_the_files_it_was_given(self):
         leak = written(self.scratch, "shot.png", PNG + b"LEAK")
@@ -1397,12 +1433,20 @@ class PrivacyTests(unittest.TestCase):
         self.assertIn("8/shot.png", err)
 
     def test_off_ci_a_hit_is_refused_too(self):
+<<<<<<< HEAD
         self.env = git_fixture_env.fixture_env({"HOME": self.scratch, "PR_MEDIA_PRIVATE_TERMS": '["glow-box"]'})
+=======
+        self.env = {"HOME": self.scratch, "PR_MEDIA_PRIVATE_TERMS": '["glow-box"]'}
+>>>>>>> origin/main
         frame = written(self.scratch, "shot.png", PNG + b"TERM")
         gh = FakeGh()
         code, _, err = self.run_main(["--pr", "8", str(frame)], runner=gh)
         self.assertEqual(code, 1)
+<<<<<<< HEAD
         self.assertEqual(self.landed(), [])
+=======
+        self.assertFalse(gh.puts)
+>>>>>>> origin/main
         self.assertIn("personal machine or account name", err)
 
     def test_a_refusal_is_a_privacy_error_so_callers_never_retry_it(self):
@@ -1416,6 +1460,7 @@ class PrivacyTests(unittest.TestCase):
         gh = FakeGh()
         with contextlib.redirect_stderr(io.StringIO()), self.assertRaises(MODULE.MediaError):
             MODULE.put_file("o/r", "pr-media", "nightly-next/reel/shot.png", leak, "msg", runner=gh)
+<<<<<<< HEAD
         self.assertEqual(self.landed(), [])
         MODULE.put_file("o/r", "pr-media", "nightly-next/reel/shot.png", leak, "msg", runner=gh, checked=True)
         self.assertEqual(self.landed(), ["nightly-next/reel/shot.png"])
@@ -1429,6 +1474,11 @@ class PrivacyTests(unittest.TestCase):
                 self.assertRaises(MODULE.PrivacyError):
             MODULE.put_file("o/r", "pr-media", "7/shot.png", leak, "msg")
         slept.assert_not_called()
+=======
+        self.assertFalse(gh.puts)
+        MODULE.put_file("o/r", "pr-media", "nightly-next/reel/shot.png", leak, "msg", runner=gh, checked=True)
+        self.assertEqual(list(gh.puts), ["nightly-next/reel/shot.png"])
+>>>>>>> origin/main
 
     def test_a_checkout_without_the_privacy_check_refuses_to_upload(self):
         shot = written(self.scratch, "shot.png", PNG)

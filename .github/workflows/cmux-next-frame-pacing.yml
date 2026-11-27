@@ -26,9 +26,15 @@ name: cmux-next frame pacing
 # into feat-cmux-next that touch the measured paths.
 
 on:
+<<<<<<< HEAD
   # No schedule (Lawrence 2026-10-23: nothing perf-related slows a nightly or a dev build): the perf cron
   # (cmux-next-perf-budgets.yml) starts this at most once in 24 h, only when no nightly or dev build waits
   # for a Mac; cmux-next-motion-golden.yml starts golden-only runs for labeled pull requests.
+=======
+  # No schedule (Lawrence 2026-10-23: nothing perf-related slows a nightly or a dev build): feat-cmux-next's
+  # perf cron (cmux-next-perf-budgets.yml) starts this at most once in 24 h, only when no nightly or dev build
+  # waits for a Mac. This copy on main is kept so GitHub can dispatch the workflow.
+>>>>>>> origin/main
   workflow_dispatch:
     inputs:
       ref:
@@ -63,9 +69,14 @@ env:
   BASH_ENV: '$({ w="${GITHUB_WORKSPACE:-/nonexistent}/scripts/ci/api_call_log/env.sh"; t="${RUNNER_TEMP:-/nonexistent}/api-call-log-src"; if [ -f "$w" ]; then echo "$w"; elif [ -n "${RUNNER_TEMP:-}" ]; then if [ ! -f "$t/env.sh" ] && [ ! -e "$t.tried" ] && { [ "${RUNNER_OS:-}" = Linux ] || [ "${RUNNER_OS:-}" = macOS ]; } && [ "$(date -u +%Y%m%d%H)" -lt 2026112300 ]; then : > "$t.tried"; mkdir -p "$t.part" && for x in env.sh gh sitecustomize.py isolated.py; do curl -fsSL --max-time 5 -o "$t.part/$x" "https://raw.githubusercontent.com/manaflow-ai/cmux/27647ffd3ae838c63be28ca3e5883dcd68c34518/scripts/ci/api_call_log/$x" || break; done; [ -s "$t.part/isolated.py" ] && mv "$t.part" "$t"; fi; if [ -f "$t/env.sh" ]; then echo "$t/env.sh"; else echo unset BASH_ENV > "$t.off.sh" && echo "$t.off.sh"; fi; fi; } 2>/dev/null)'
   SUITES: ${{ inputs.suites || 'fling,golden' }}
 
+env:
+  # Temporary REST budget attribution: one gh-call line per GitHub API call (scripts/ci/api_call_log/env.sh, fetched at a fixed commit when the checkout has no copy).
+  BASH_ENV: '$({ w="${GITHUB_WORKSPACE:-/nonexistent}/scripts/ci/api_call_log/env.sh"; t="${RUNNER_TEMP:-/nonexistent}/api-call-log-src"; if [ -f "$w" ]; then echo "$w"; elif [ -n "${RUNNER_TEMP:-}" ]; then if [ ! -f "$t/env.sh" ] && [ ! -e "$t.tried" ] && { [ "${RUNNER_OS:-}" = Linux ] || [ "${RUNNER_OS:-}" = macOS ]; } && [ "$(date -u +%Y%m%d%H)" -lt 2026112300 ]; then : > "$t.tried"; mkdir -p "$t.part" && for x in env.sh gh sitecustomize.py isolated.py; do curl -fsSL --max-time 5 -o "$t.part/$x" "https://raw.githubusercontent.com/manaflow-ai/cmux/27647ffd3ae838c63be28ca3e5883dcd68c34518/scripts/ci/api_call_log/$x" || break; done; [ -s "$t.part/isolated.py" ] && mv "$t.part" "$t"; fi; if [ -f "$t/env.sh" ]; then echo "$t/env.sh"; else echo unset BASH_ENV > "$t.off.sh" && echo "$t.off.sh"; fi; fi; } 2>/dev/null)'
+
 jobs:
   resolve-ref:
     if: github.repository == 'manaflow-ai/cmux'
+<<<<<<< HEAD
     uses: ./.github/workflows/resolve-dispatch-ref.yml
     with:
       ref: ${{ inputs.ref || 'feat-cmux-next' }}
@@ -76,6 +87,9 @@ jobs:
       deployment: false
     needs: resolve-ref
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || 'cmux-linux' }}
+=======
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.CI_OVERFLOW_LINUX || 'cmux-linux' }}
+>>>>>>> origin/main
     timeout-minutes: 5
     outputs:
       run: ${{ steps.decide.outputs.run }}

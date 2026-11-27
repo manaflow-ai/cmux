@@ -25,6 +25,7 @@ extension HomeStore {
             return running
         }
         guard mirror.windows[id] == nil else { return Task {} }
+<<<<<<< HEAD
         // Switching back: the transcript it showed draws now, and the read below lays what the
         // owner holds over it (``HomeMirror/restoreKept(_:)``).
         // With nothing kept, the newest message the inbox names draws now (the one a notification
@@ -33,6 +34,9 @@ extension HomeStore {
             mirror.beginLoadingWithNewest(id)
             if mirror.windows[id]?.messages.isEmpty == false { bumpTranscript(id) }
         }
+=======
+        mirror.beginLoading(id)
+>>>>>>> origin/main
         return load(id)
     }
 
@@ -43,9 +47,12 @@ extension HomeStore {
     /// subscription, an archived conversation shown only while open).
     public func close(_ id: ConversationID) {
         guard pager.close(id) else { return }
+<<<<<<< HEAD
         agentMessageReads.removeValue(forKey: id)?.cancel()
         agentMessageRefreshes.remove(id)
         agentMessages[id] = nil
+=======
+>>>>>>> origin/main
         mirror.endTranscript(id)
         bumpTranscript(id)
         source.close(id)
@@ -59,10 +66,14 @@ extension HomeStore {
         // The window may have been replaced during the await; a page that no
         // longer joins it is dropped (the next scroll asks again).
         guard mirror.windows[id]?.firstSeq == first else { return }
+<<<<<<< HEAD
         if mirror.prepend(older, to: id, reachedStart: older.count < Self.pageSize) {
             bumpTranscript(id)
             requestAgentMessages(id)
         }
+=======
+        if mirror.prepend(older, to: id, reachedStart: older.count < Self.pageSize) { bumpTranscript(id) }
+>>>>>>> origin/main
     }
 
     /// The conversation's transcript read, or the one already running.
@@ -120,16 +131,20 @@ extension HomeStore {
             bumpTranscript(id)
             settle()
             rebuildRows()
+<<<<<<< HEAD
             // A view joins mid-run: the owner's live text so far (`run.live`).
             if outcome == .applied {
                 requestLive(id)
                 requestAgentMessages(id)
             }
+=======
+>>>>>>> origin/main
             if outcome == .applied { return }
             gaps += 1
         }
     }
 }
+<<<<<<< HEAD
 
 extension HomeStore {
     /// A message permalink as the conversation's owner resolves it (nil: no resolver, or a failure).
@@ -140,3 +155,5 @@ extension HomeStore {
     /// The seq of the oldest loaded message of `id` (nil: nothing loaded).
     public func oldestLoadedSeq(in id: ConversationID) -> Seq? { mirror.windows[id]?.firstSeq }
 }
+=======
+>>>>>>> origin/main

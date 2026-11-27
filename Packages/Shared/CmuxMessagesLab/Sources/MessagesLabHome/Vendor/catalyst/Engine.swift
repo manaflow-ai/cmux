@@ -19,6 +19,7 @@ struct ConversationUIState: Equatable {
     var openThread: PartRef?
     /// The host's quiet status line under the transcript (HostHooks.swift, ask 9; `.setNotice`); nil: no line.
     var notice: String?
+<<<<<<< HEAD
     /// The host's thread option (ThreadHost.swift); `.messages` unless the host sets `.tree`
     /// (`Store.setThreadMode`).
     var threadMode: ThreadMode = .messages
@@ -28,11 +29,14 @@ struct ConversationUIState: Equatable {
     /// The host's streaming bubbles (HostHooks.swift, ask 11; `.streamBegin` ... `.streamEnd`), in begin order.
     /// Empty by default: no row, no change.
     var streams: [StreamBubble] = []
+=======
+>>>>>>> origin/main
     /// `offset`: points scrolled up from the bottom (0 when pinned).
     var scroll = Scroll()
     struct Scroll: Equatable { var pinnedToBottom = true; var offset: CGFloat = 0 }
 }
 
+<<<<<<< HEAD
 /// The host's id of one streaming bubble (ask 11; cmux: the reply's turn key). Any string; it never names a message.
 typealias StreamID = String
 
@@ -81,6 +85,8 @@ struct StreamBubble: Equatable {
     }
 }
 
+=======
+>>>>>>> origin/main
 struct AppState: Equatable {
     /// `conversation.messages` holds the loaded window of the source:
     /// messages [windowStart, windowStart + count) of `total`.
@@ -103,17 +109,23 @@ enum Action {
     case react(PartRef, Reaction.Kind, by: ID? = nil)
     case reply(PartRef)
     case closeThread
+<<<<<<< HEAD
     /// Open the thread view at a path: the root first, then the drilled replies outermost first
     /// (`ThreadMode.tree`; in `.messages` only the root counts). `Action.openThread(path:)`.
     case openThreadPath([PartRef])
+=======
+>>>>>>> origin/main
     case edit(ID, String)
     case unsend(ID)
     /// Delete… in the menu: the message leaves this device's transcript (no row stays).
     case delete(ID)
     case attach(Attachment)
+<<<<<<< HEAD
     /// cmux: an attachment enters the field's text at a UTF-16 offset (the caret), as in
     /// Messages and Notes (Draft+InlineMarks.swift); `.attach` puts it at the end.
     case attachAt(Attachment, Int?)
+=======
+>>>>>>> origin/main
     case removeDraftAttachment(ID)
     case typing(ID, Bool)
     case receive(Message)
@@ -140,6 +152,7 @@ enum Action {
     /// A hosted row's new payload (CustomRows.swift): the part is replaced in place and
     /// written through; a height change animates like any row change.
     case setCustomPart(ID, Int, CustomPart)
+<<<<<<< HEAD
     /// cmux: attachment parts' bytes arrived or their uploads moved
     /// (HomeStore); each replaces the part with the same attachment id in its message, no motion.
     /// One action for every change of a refresh: one commit re-derives the rows once (it was one
@@ -156,11 +169,19 @@ enum Action {
     /// cmux: the participants and whether the transcript names other senders' runs, again (an
     /// agent that sent through its owner's CLI appeared: HomeAgentSender); the rows are derived again.
     case cmuxSetSenders([Participant], group: Bool)
+=======
+    /// cmux: an attachment part's bytes arrived or its upload moved
+    /// (HomeStore); replaces the part with the same attachment id, no motion.
+    case cmuxSetAttachment(ID, Attachment)
+    /// cmux: the host's notice changed (nil clears it); the rows are derived again.
+    case cmuxNotice(String?)
+>>>>>>> origin/main
     /// Hosted rows of these messages measure again (no state change). `animated` false: an
     /// estimate correction (no motion; the first visible row keeps its place).
     case remeasureCustom([ID], animated: Bool)
     /// The host's status line under the transcript (ask 9): its text, nil to take it away (HostHooks.swift).
     case setNotice(String?)
+<<<<<<< HEAD
     /// Ask 11 (HostHooks.swift): a streaming bubble from `sender`. With no text yet it shows as the typing
     /// indicator; a stream id that is already live changes nothing.
     case streamBegin(StreamID, sender: ID, format: MessageFormat? = nil)
@@ -181,24 +202,35 @@ extension Action {
     /// A permalink path (ThreadHost.swift): message ids, the thread root first, then the drilled
     /// replies outermost first. The host dispatches it (cmux: a link to a nested reply).
     static func openThread(path: [ID]) -> Action { .openThreadPath(path.map { PartRef(messageId: $0, partIndex: 0) }) }
+=======
+>>>>>>> origin/main
 }
 
 enum Reducer {
     /// Whether `.send` takes DRAFT: text other than white space, or an attachment. Return on any
     /// other draft does nothing (`Store.apply` drops the rejected send; the hosts do not dispatch it).
     static func canSend(_ d: Draft) -> Bool {
+<<<<<<< HEAD
         !d.attachments.isEmpty || !d.plainText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty  // cmux: marks are not text
     }
     /// Pure state transition. `now` stamps new records; `newID` names them.
     static func reduce(_ s: inout AppState, _ action: Action, now: Date, newID: () -> ID) -> Message? {
         // cmux: formatted only by an action that stamps a record: a draft key formatted a date every key.
         lazy var stamp = Instant.format(now)
+=======
+        !d.attachments.isEmpty || !d.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+    }
+    /// Pure state transition. `now` stamps new records; `newID` names them.
+    static func reduce(_ s: inout AppState, _ action: Action, now: Date, newID: () -> ID) -> Message? {
+        let stamp = Instant.format(now)
+>>>>>>> origin/main
         switch action {
         case let .setDraft(text):
             s.ui.draft.text = text
         case .send:
             let d = s.ui.draft
             guard canSend(d) else { return nil }
+<<<<<<< HEAD
             // cmux: the text and the attachments in the field's order (Draft+InlineMarks.swift)
             let parts = d.pieces.flatMap { piece -> [Part] in
                 switch piece {
@@ -210,6 +242,13 @@ enum Reducer {
                             replyTo: d.replyTo ?? s.ui.openThread, status: .sending, edits: nil, retractedAt: nil, reactions: [])
             // Tree mode: a reply in a drilled branch answers the branch's message (nil: the root).
             if s.ui.threadMode == .tree, let root = s.ui.openThread, m.replyTo == root { m.parent = s.ui.threadPath.last }
+=======
+            let text = d.text.trimmingCharacters(in: .whitespacesAndNewlines)
+            var parts = d.attachments.map { Part.attachment($0) }
+            if !text.isEmpty { parts += TextParts.parts(for: text) }
+            let m = Message(id: newID(), senderId: s.me, sentAt: stamp, parts: parts,
+                            replyTo: d.replyTo ?? s.ui.openThread, status: .sending, edits: nil, retractedAt: nil, reactions: [])
+>>>>>>> origin/main
             s.conversation.messages.append(m)
             s.total += 1
             s.ui.draft = Draft(text: "", attachments: [], replyTo: nil)
@@ -234,6 +273,7 @@ enum Reducer {
             let root = s.message(ref.messageId)?.replyTo ?? ref      // replies store the root
             s.ui.openThread = root
             s.ui.draft.replyTo = root
+<<<<<<< HEAD
             // Tree mode: the replied message stays the parent. The view opens its branch (the
             // path from the root down to it), and a reply sent there answers it (`.send`).
             s.ui.threadPath = s.ui.threadMode == .tree ? ThreadTree.path(to: ref, root: root, in: s.conversation.messages) : []
@@ -258,6 +298,11 @@ enum Reducer {
             } else {
                 s.ui.threadPath = []
             }
+=======
+        case .closeThread:
+            s.ui.openThread = nil
+            s.ui.draft.replyTo = nil
+>>>>>>> origin/main
         case let .edit(id, text):
             // checked reads and an in-place update; an edit that yields no part changes nothing (no trap).
             guard let i = s.conversation.messages.firstIndex(where: { $0.id == id }),
@@ -272,6 +317,7 @@ enum Reducer {
         case let .unsend(id):
             guard let i = s.conversation.messages.firstIndex(where: { $0.id == id }) else { break }
             s.conversation.messages.update(at: i) { $0.parts = []; $0.reactions = []; $0.retractedAt = stamp } // checked
+<<<<<<< HEAD
             // Tree mode: an unsent drilled reply closes back to its parent's branch.
             if let k = s.ui.threadPath.firstIndex(where: { $0.messageId == id }) { s.ui.threadPath = Array(s.ui.threadPath.prefix(k)) }
         case let .delete(id):
@@ -286,6 +332,16 @@ enum Reducer {
             s.ui.draft.insert(a, at: offset)
         case let .removeDraftAttachment(id):
             s.ui.draft.remove(id)  // cmux: with its mark
+=======
+        case let .delete(id):
+            guard let i = s.conversation.messages.firstIndex(where: { $0.id == id }) else { break }
+            s.conversation.messages.update(at: i) { $0.deletedAt = stamp; $0.reactions = [] } // checked
+            if s.ui.openThread?.messageId == id { s.ui.openThread = nil }
+        case let .attach(a):
+            s.ui.draft.attachments.append(a)
+        case let .removeDraftAttachment(id):
+            s.ui.draft.attachments.removeAll { $0.id == id }
+>>>>>>> origin/main
         case let .typing(who, on):
             s.ui.typing.removeAll { $0 == who }
             if on { s.ui.typing.append(who) }
@@ -337,6 +393,7 @@ enum Reducer {
             break
         case let .setNotice(text):
             s.ui.notice = text
+<<<<<<< HEAD
         case let .cmuxSetAttachments(updates):  // cmux
             for (id, a) in updates {
                 // Every part under the id: a picture sent twice has two parts of one id (#50984).
@@ -377,6 +434,15 @@ enum Reducer {
                 if s.atNewest { s.conversation.messages.append(m) }
                 s.total += 1
             }
+=======
+        case let .cmuxSetAttachment(id, a):  // cmux
+            guard let i = s.conversation.messages.firstIndex(where: { $0.id == id }),
+                  let pi = s.conversation.messages[checked: i]?.parts.firstIndex(where: { if case let .attachment(x) = $0 { return x.id == a.id }; return false })
+            else { break } // cmux: checked
+            s.conversation.messages.update(at: i) { $0.parts.update(at: pi) { $0 = .attachment(a) } }
+        case let .cmuxNotice(text):  // cmux
+            s.ui.cmuxNotice = text
+>>>>>>> origin/main
         }
         return nil
     }
@@ -468,7 +534,11 @@ extension Reducer {
         switch action {
         case .send:
             if let sent { w.append(sent) }
+<<<<<<< HEAD
         case let .receive(m), let .streamEnd(_, m?):
+=======
+        case let .receive(m):
+>>>>>>> origin/main
             w.append(s.message(m.id) ?? m)
         case let .react(ref, _, _):
             if let m = s.message(ref.messageId) { w.update(m) }
@@ -485,8 +555,13 @@ extension Reducer {
     }
 }
 
+<<<<<<< HEAD
 /// Link-preview metadata for a URL (`LinkPreviews.swift` implements it with the guarded HTML and
 /// image fetcher). `done` runs on the main thread once per request.
+=======
+/// Link-preview metadata for a URL (LinkPreviews.swift implements it with
+/// LinkPresentation). `done` runs on the main thread once per request.
+>>>>>>> origin/main
 struct LinkMetadata: Hashable { var title: String?; var site: String?; var image: String? }
 protocol LinkPreviewFetching: AnyObject {
     /// `done(nil)`: no metadata (failure, timeout): the caller shows the domain card.
@@ -529,6 +604,7 @@ final class Store {
 
     func date(at t: Double) -> Date { baseDate.addingTimeInterval(t) }
 
+<<<<<<< HEAD
     /// The host's thread option (ThreadHost.swift). Set it before the first view shows the
     /// conversation; standalone MessagesLab keeps `.messages`.
     func setThreadMode(_ mode: ThreadMode) {
@@ -536,6 +612,8 @@ final class Store {
         if mode == .messages { state.ui.threadPath = [] }
     }
 
+=======
+>>>>>>> origin/main
     func dispatch(_ action: Action) { apply(action, at: now) }
 
     /// Apply a user action at `t` ahead of the jobs that fall due by then: they fire at the
@@ -601,6 +679,7 @@ final class Store {
         // window ran the field's send flash and started the send morph again on my last message.
         // Messages shows nothing for it.
         if case .send = action, sent == nil { return }
+<<<<<<< HEAD
         // A stream's final message that was already loaded (ask 11) was written when it came: it is not appended again.
         let loadedFinal: Bool = { if case let .streamEnd(_, m?) = action { return old.message(m.id) != nil }; return false }()
         if let writer, !loadedFinal { Reducer.writeThrough(action, sent: sent, state: state, to: writer) }
@@ -612,6 +691,12 @@ final class Store {
             if case let .streamEnd(_, m?) = action { return m }
             return nil
         }()
+=======
+        if let writer { Reducer.writeThrough(action, sent: sent, state: state, to: writer) }
+        onChange?(action, t, old, state)
+        if let sent { responder?.didSend(sent, self) }
+        let fresh: Message? = { if let sent { return sent }; if case let .receive(m) = action { return m }; return nil }()
+>>>>>>> origin/main
         for p in fresh?.parts ?? [] {
             guard case let .link(url, title, site, image, _) = p, image == nil, title == nil || title == site else { continue }
             let host = URL(string: url).map(TextParts.host) ?? url
@@ -740,7 +825,11 @@ final class DefaultResponder: Responder {
     }
 
     /// The decision for one answer, shared by its beats.
+<<<<<<< HEAD
     private final class Decision { var made = false; var root: PartRef?; var parent: PartRef?; var dropped = false }
+=======
+    private final class Decision { var made = false; var root: PartRef?; var dropped = false }
+>>>>>>> origin/main
 
     private func schedulePickup(_ store: Store, after delay: Double) {
         pickupGen += 1
@@ -812,11 +901,17 @@ final class DefaultResponder: Responder {
                 return
             }
             d.root = threadRoot(for: a.target, store.state)
+<<<<<<< HEAD
             d.parent = treeParent(for: a.target, root: d.root, store.state)
         }
         var m = Message(id: store.makeID("reply"), senderId: who, sentAt: Instant.format(store.date(at: store.now)),
                         parts: beat.parts, replyTo: d.root, status: nil, edits: nil, retractedAt: nil, reactions: [])
         m.parent = d.parent
+=======
+        }
+        let m = Message(id: store.makeID("reply"), senderId: who, sentAt: Instant.format(store.date(at: store.now)),
+                        parts: beat.parts, replyTo: d.root, status: nil, edits: nil, retractedAt: nil, reactions: [])
+>>>>>>> origin/main
         log.append((m.id, false, false))
         store.dispatch(.receive(m))
         events.append(.sent(id: m.id, answering: a.target.id, thread: d.root, at: store.now))
@@ -835,6 +930,7 @@ final class DefaultResponder: Responder {
         return PartRef(messageId: target.id, partIndex: part)
     }
 
+<<<<<<< HEAD
     /// `ThreadMode.tree`: an answer to a message inside a thread answers that message (its parent),
     /// not only the thread. nil in `.messages` mode and for an answer to the root.
     private func treeParent(for target: Message, root: PartRef?, _ s: AppState) -> PartRef? {
@@ -842,6 +938,8 @@ final class DefaultResponder: Responder {
         return PartRef(messageId: target.id, partIndex: target.parts.firstIndex { $0.plainText != nil } ?? 0)
     }
 
+=======
+>>>>>>> origin/main
     // MARK: What to say
 
     static func isFiller(_ m: Message) -> Bool {

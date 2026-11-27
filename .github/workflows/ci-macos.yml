@@ -124,15 +124,29 @@ on:
         required: false
         default: ""
         type: string
+      # The controller's per-run grant (scripts/ci/mac_grants.py, simple_pool_picker.grant_outputs()):
+      # JSON labels every macOS job of a same-repository pull request takes before any pool label, with
+      # every pool input empty, or "" (scripts/ci/mac-grants.json off, or any other run).
+      pr_grant:
+        required: false
+        default: ""
+        type: string
     secrets:
       # The org's manaflow-glaeda-route App key (read-only on runners), for
       # admission-placement's and late-placement's live read of the runners. Optional: without it
       # the jobs keep their run-start placement.
       GLAEDA_ROUTE_APP_KEY:
         required: false
+<<<<<<< HEAD
       # No CMUX_CEF_R2_* key: compile admission runs on owned Macs and reads
       # the Chromium engine without one (its "Decide whether admission embeds
       # the Chromium engine" step; tests/test_ci_fork_runner_routing.py).
+=======
+      # The cmux-bot App key: the same reads spread onto its installation when it has
+      # more budget left (.github/actions/app-token-spread). Optional, like the one above.
+      CMUX_BOT_APP_KEY:
+        required: false
+>>>>>>> origin/main
 
 permissions:
   contents: read
@@ -143,9 +157,29 @@ env:
   # Temporary REST budget attribution: one gh-call line per GitHub API call (scripts/ci/api_call_log/env.sh, fetched at a fixed commit when the checkout has no copy).
   BASH_ENV: '$({ w="${GITHUB_WORKSPACE:-/nonexistent}/scripts/ci/api_call_log/env.sh"; t="${RUNNER_TEMP:-/nonexistent}/api-call-log-src"; if [ -f "$w" ]; then echo "$w"; elif [ -n "${RUNNER_TEMP:-}" ]; then if [ ! -f "$t/env.sh" ] && [ ! -e "$t.tried" ] && { [ "${RUNNER_OS:-}" = Linux ] || [ "${RUNNER_OS:-}" = macOS ]; } && [ "$(date -u +%Y%m%d%H)" -lt 2026112300 ]; then : > "$t.tried"; mkdir -p "$t.part" && for x in env.sh gh sitecustomize.py isolated.py; do curl -fsSL --max-time 5 -o "$t.part/$x" "https://raw.githubusercontent.com/manaflow-ai/cmux/27647ffd3ae838c63be28ca3e5883dcd68c34518/scripts/ci/api_call_log/$x" || break; done; [ -s "$t.part/isolated.py" ] && mv "$t.part" "$t"; fi; if [ -f "$t/env.sh" ]; then echo "$t/env.sh"; else echo unset BASH_ENV > "$t.off.sh" && echo "$t.off.sh"; fi; fi; } 2>/dev/null)'
   CI_CACHE_R2_PUBLIC_URL: ${{ vars.CI_CACHE_R2_PUBLIC_URL || 'https://ci-cache.cmux.com' }}
+<<<<<<< HEAD
   # Warnings never fail a pull request's compile (Leo, 2026-11-19): the Swift warning budget only warns there;
   # merge queues, pushes, nightly and release keep it an error. scripts/ci/warnings_policy.py.
   CI_WARNINGS: ${{ github.event_name == 'pull_request' && 'soft' || 'deny' }}
+=======
+  # Warnings never fail a pull request's compile (Leo, 2026-11-19): the Swift warning budget and the package
+  # lane's -warnings-as-errors only warn there; merge queues, pushes, nightly and release keep them errors.
+  # scripts/ci/warnings_policy.py.
+  CI_WARNINGS: ${{ github.event_name == 'pull_request' && 'soft' || 'deny' }}
+  # Which schemes the producer builds, and the profile the product's identity
+  # records. A purely CLI-routed change only feeds cli-product-tests, which
+  # needs the cmux-cli product and its test bundle -- not the app, and not the
+  # app-host or numeric-locale bundles.
+  #
+  # macOS routing keeps the full product while anything needs it: the app-host
+  # shards consume it, and admission is also the check that proves the app
+  # itself still compiles. Once an earlier run has admitted these inputs and
+  # no app-host shard is routed, a CLI route only needs the cli product.
+  # Producer and consumer must agree here, so it is declared once for every job
+  # -- a consumer recomputing a different profile's identity simply declines
+  # the artifact, which would silently cost a compile instead of reusing one.
+  CMUX_PRODUCT_PROFILE: ${{ inputs.macos == 'true' && (inputs.full_suite == 'true' || inputs.unit_suite == 'true' || inputs.compile_admitted != 'true') && 'app-host' || 'cli' }}
+>>>>>>> origin/main
 
 jobs:
   admission-placement:
@@ -162,8 +196,13 @@ jobs:
     # Picking here rather than in `changes` leaves other runs' late-placement
     # no gap to take the pinned runner first. Any failure outputs "" and
     # admission keeps pr_admission_runner on attempt 1, its label after.
+<<<<<<< HEAD
     if: ${{ github.repository_owner == 'manaflow-ai' && (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository || github.event_name == 'workflow_dispatch') && vars.CI_OWNED_SPREAD == '1' && vars.GLAEDA_ROUTE_APP_ID != '' && startsWith(inputs.pr_root_runner, 'glaeda-root-') && contains(inputs.pr_owned_jobs, ' admission ') && inputs.macos == 'true' && (inputs.compile_admitted != 'true' || inputs.full_suite == 'true') }}
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || 'cmux-linux' }}
+=======
+    if: ${{ github.repository_owner == 'manaflow-ai' && (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository || github.event_name == 'workflow_dispatch') && vars.CI_OWNED_SPREAD == '1' && vars.GLAEDA_ROUTE_APP_ID != '' && (startsWith(inputs.pr_root_runner, 'glaeda-root-') || startsWith(inputs.pr_root_runner, 'glaeda-aws-root-')) && contains(inputs.pr_owned_jobs, ' admission ') && (inputs.macos == 'true' || inputs.cli == 'true') && (inputs.compile_admitted != 'true' || inputs.full_suite == 'true' || inputs.cli == 'true') }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && !contains(fromJSON(inputs.owned_head_repos), github.event.pull_request.head.repo.full_name) && 'ubuntu-24.04' || 'blacksmith-4vcpu-ubuntu-2404' }}
+>>>>>>> origin/main
     timeout-minutes: 3
     permissions:
       contents: read
@@ -183,14 +222,27 @@ jobs:
           ref: ${{ github.event.pull_request.base.sha || github.sha }}
           sparse-checkout: scripts/ci
           persist-credentials: false
+      - name: Check out the App token spread action
+        # Why: .github/actions/app-token-spread (mint on both Apps, spend the fuller one).
+        continue-on-error: true
+        timeout-minutes: 1
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+        with:
+          ref: ${{ github.sha }}
+          path: .app-token-spread
+          sparse-checkout: .github/actions/app-token-spread
+          persist-credentials: false
+
       - name: Mint the owned-pool routing token
         id: route-token
         continue-on-error: true
         timeout-minutes: 1
-        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
+        uses: ./.app-token-spread/.github/actions/app-token-spread
         with:
-          app-id: ${{ vars.GLAEDA_ROUTE_APP_ID }}
-          private-key: ${{ secrets.GLAEDA_ROUTE_APP_KEY }}
+          route-app-id: ${{ vars.GLAEDA_ROUTE_APP_ID }}
+          route-private-key: ${{ secrets.GLAEDA_ROUTE_APP_KEY }}
+          bot-app-id: ${{ vars.CMUX_BOT_APP_ID }}
+          bot-private-key: ${{ secrets.CMUX_BOT_APP_KEY }}
           permission-administration: read
           permission-organization-self-hosted-runners: read
           # On a re-run, the jobs of the attempt before (admission_placement.failed_members()).
@@ -200,10 +252,12 @@ jobs:
         if: steps.route-token.outcome == 'failure'
         continue-on-error: true
         timeout-minutes: 1
-        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
+        uses: ./.app-token-spread/.github/actions/app-token-spread
         with:
-          app-id: ${{ vars.GLAEDA_ROUTE_APP_ID }}
-          private-key: ${{ secrets.GLAEDA_ROUTE_APP_KEY }}
+          route-app-id: ${{ vars.GLAEDA_ROUTE_APP_ID }}
+          route-private-key: ${{ secrets.GLAEDA_ROUTE_APP_KEY }}
+          bot-app-id: ${{ vars.CMUX_BOT_APP_ID }}
+          bot-private-key: ${{ secrets.CMUX_BOT_APP_KEY }}
           permission-administration: read
       - name: Place compile admission
         id: place
@@ -240,8 +294,15 @@ jobs:
     # (github-actions[bot] or cmux-bot[bot]) from
     # attempt 3 on (the rescue moving a job stuck or refused on attempt 2)
     # takes pr_retry_runner.
+<<<<<<< HEAD
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && !contains(fromJSON(inputs.owned_head_repos), github.event.pull_request.head.repo.full_name) && (startsWith(inputs.pr_runner, 'blacksmith-') && inputs.pr_runner || 'blacksmith-6vcpu-macos-15') || (github.event_name == 'pull_request' || github.event_name == 'workflow_dispatch') && ((github.run_attempt > 2 && (contains(fromJSON('["github-actions[bot]","cmux-bot[bot]"]'), github.triggering_actor) || github.event_name != 'pull_request') || !contains(inputs.pr_owned_jobs, ' admission ')) && (github.run_attempt == 1 && !contains(inputs.pr_owned_jobs, ' admission ') && inputs.pr_admission_runner && fromJSON(inputs.pr_admission_runner) || inputs.pr_retry_runner) || needs.admission-placement.outputs.attempt == github.run_attempt && needs.admission-placement.outputs.runner && fromJSON(needs.admission-placement.outputs.runner) || github.run_attempt == 1 && inputs.pr_admission_runner && fromJSON(inputs.pr_admission_runner) || inputs.pr_root_runner || inputs.pr_runner || vars.MACOS_RUNNER_PR || fromJSON(vars.RUNNER_POOLS).macos_15) || vars.CI_PAID_MACOS_OVERFLOW == '1' && vars.MACOS_RUNNER_15 || fromJSON(vars.RUNNER_POOLS).macos_15) }}
     timeout-minutes: 75
+=======
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && !contains(fromJSON(inputs.owned_head_repos), github.event.pull_request.head.repo.full_name) && (startsWith(inputs.pr_runner, 'blacksmith-') && inputs.pr_runner || 'blacksmith-6vcpu-macos-15') || github.event_name == 'pull_request' && inputs.pr_grant != '' && fromJSON(inputs.pr_grant) || (github.event_name == 'pull_request' || github.event_name == 'workflow_dispatch') && ((github.run_attempt > 2 && (github.triggering_actor == 'github-actions[bot]' || github.event_name != 'pull_request') || !contains(inputs.pr_owned_jobs, ' admission ')) && (github.run_attempt == 1 && !contains(inputs.pr_owned_jobs, ' admission ') && inputs.pr_admission_runner && fromJSON(inputs.pr_admission_runner) || inputs.pr_retry_runner) || needs.admission-placement.outputs.attempt == github.run_attempt && needs.admission-placement.outputs.runner && fromJSON(needs.admission-placement.outputs.runner) || github.run_attempt == 1 && inputs.pr_admission_runner && fromJSON(inputs.pr_admission_runner) || inputs.pr_root_runner || inputs.pr_runner || vars.CI_BLACKSMITH_MACOS != 'on' && (github.run_attempt <= 2 || github.triggering_actor != 'github-actions[bot]') && vars.CI_SIDE_LANE_RUNNER || vars.MACOS_RUNNER_PR || 'blacksmith-6vcpu-macos-15') || vars.CI_PAID_MACOS_OVERFLOW == '1' && vars.MACOS_RUNNER_15 || 'blacksmith-6vcpu-macos-15') }}
+    # A changed-suites run adds its tests after the compile: the same
+    # 30-minute batch ceiling the separate worker had.
+    timeout-minutes: ${{ inputs.unit_in_admission == 'true' && 105 || 75 }}
+>>>>>>> origin/main
     permissions:
       contents: read
       actions: read
@@ -277,7 +338,22 @@ jobs:
       # The macOS runner guard still requires it to track runs-on. A warm
       # admission (pr_admission_runner) names its first label, the root label:
       # the consumers need a root runner, not this one.
+<<<<<<< HEAD
       CMUX_PRODUCT_RUNNER: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && !contains(fromJSON(inputs.owned_head_repos), github.event.pull_request.head.repo.full_name) && (startsWith(inputs.pr_runner, 'blacksmith-') && inputs.pr_runner || 'blacksmith-6vcpu-macos-15') || (github.event_name == 'pull_request' || github.event_name == 'workflow_dispatch') && ((github.run_attempt > 2 && (contains(fromJSON('["github-actions[bot]","cmux-bot[bot]"]'), github.triggering_actor) || github.event_name != 'pull_request') || !contains(inputs.pr_owned_jobs, ' admission ')) && (github.run_attempt == 1 && !contains(inputs.pr_owned_jobs, ' admission ') && inputs.pr_admission_runner && fromJSON(inputs.pr_admission_runner)[0] || inputs.pr_retry_runner) || needs.admission-placement.outputs.attempt == github.run_attempt && needs.admission-placement.outputs.runner && fromJSON(needs.admission-placement.outputs.runner)[0] || github.run_attempt == 1 && inputs.pr_admission_runner && fromJSON(inputs.pr_admission_runner)[0] || inputs.pr_root_runner || inputs.pr_runner || vars.MACOS_RUNNER_PR || fromJSON(vars.RUNNER_POOLS).macos_15) || vars.CI_PAID_MACOS_OVERFLOW == '1' && vars.MACOS_RUNNER_15 || fromJSON(vars.RUNNER_POOLS).macos_15) }}
+=======
+      CMUX_PRODUCT_RUNNER: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && !contains(fromJSON(inputs.owned_head_repos), github.event.pull_request.head.repo.full_name) && (startsWith(inputs.pr_runner, 'blacksmith-') && inputs.pr_runner || 'blacksmith-6vcpu-macos-15') || github.event_name == 'pull_request' && inputs.pr_grant != '' && fromJSON(inputs.pr_grant)[0] || (github.event_name == 'pull_request' || github.event_name == 'workflow_dispatch') && ((github.run_attempt > 2 && (github.triggering_actor == 'github-actions[bot]' || github.event_name != 'pull_request') || !contains(inputs.pr_owned_jobs, ' admission ')) && (github.run_attempt == 1 && !contains(inputs.pr_owned_jobs, ' admission ') && inputs.pr_admission_runner && fromJSON(inputs.pr_admission_runner)[0] || inputs.pr_retry_runner) || needs.admission-placement.outputs.attempt == github.run_attempt && needs.admission-placement.outputs.runner && fromJSON(needs.admission-placement.outputs.runner)[0] || github.run_attempt == 1 && inputs.pr_admission_runner && fromJSON(inputs.pr_admission_runner)[0] || inputs.pr_root_runner || inputs.pr_runner || vars.CI_BLACKSMITH_MACOS != 'on' && (github.run_attempt <= 2 || github.triggering_actor != 'github-actions[bot]') && vars.CI_SIDE_LANE_RUNNER || vars.MACOS_RUNNER_PR || 'blacksmith-6vcpu-macos-15') || vars.CI_PAID_MACOS_OVERFLOW == '1' && vars.MACOS_RUNNER_15 || 'blacksmith-6vcpu-macos-15') }}
+      # What the changed-suites steps at the end of this job read, with the
+      # values `app-host unit tests` gives its changed-suites worker, shard 8.
+      # The compile reads none of them: it runs plain xcodebuild and bakes the
+      # isolation condition in itself, and SWIFT_BACKTRACE only changes how a
+      # crashing Swift process reports. product_input_identity.py keeps them
+      # out of the product recipe.
+      CMUX_CI_APP_HOST_ISOLATION_REQUIRED: "1"
+      CMUX_APP_HOST_SHARD: "8"
+      CMUX_APP_HOST_UNIT_SELECTORS: ${{ inputs.unit_selectors }}
+      CMUX_APP_HOST_CAPTURE_XCRESULTS: "1"
+      CMUX_UNIT_TEST_TIMEOUT_SECONDS: "1800"
+>>>>>>> origin/main
       CMUX_XCODEBUILD_NONINTERACTIVE_IDLE_TIMEOUT_SECONDS: "1200"
       CMUX_XCODEBUILD_NONINTERACTIVE_RESTART_BUDGET: "2"
       SWIFT_BACKTRACE: "interactive=no,timeout=0s,symbolicate=off,color=no"
@@ -489,6 +565,18 @@ jobs:
 
       - name: Install Rust
         run: ./scripts/install-rust-ci.sh
+
+      # The app's build phase clones the pinned cmux-cua source into this
+      # Mac's cache when the pin is missing, with no token: build settings
+      # carry no secrets (compile-app-host-test-product.sh). GitHub answers
+      # anonymous fetches from these Macs' shared address with 403 and
+      # 429 under load, and main's run 45760337662 failed compile admission
+      # on that clone. Fetch it here with the run's token; a warm cache makes
+      # no network call.
+      - name: Fetch the pinned cmux-cua source
+        env:
+          CMUX_CUA_GIT_TOKEN: ${{ github.token }}
+        run: ./scripts/build-cmux-cua.sh --source-only
 
       - name: Identify reusable compiled products
         id: product-key
@@ -1409,8 +1497,13 @@ jobs:
     # Pull requests only: main's full-suite dispatch already runs on the owned
     needs:
       - macos-compile-admission
+<<<<<<< HEAD
     if: ${{ !cancelled() && needs.macos-compile-admission.result == 'success' && github.repository_owner == 'manaflow-ai' && github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && vars.CI_PR_POOL_OWNED == '1' && vars.GLAEDA_ROUTE_APP_ID != '' && (github.run_attempt <= 2 || !contains(fromJSON('["github-actions[bot]","cmux-bot[bot]"]'), github.triggering_actor)) }}
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || 'cmux-linux' }}
+=======
+    if: ${{ !cancelled() && needs.macos-compile-admission.result == 'success' && github.repository_owner == 'manaflow-ai' && github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && vars.CI_PR_POOL_OWNED == '1' && vars.GLAEDA_ROUTE_APP_ID != '' && (github.run_attempt <= 2 || github.triggering_actor != 'github-actions[bot]') }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && !contains(fromJSON(inputs.owned_head_repos), github.event.pull_request.head.repo.full_name) && 'ubuntu-24.04' || 'blacksmith-4vcpu-ubuntu-2404' }}
+>>>>>>> origin/main
     timeout-minutes: 3
     permissions:
       contents: read
@@ -1434,14 +1527,32 @@ jobs:
           ref: ${{ github.event.pull_request.base.sha }}
           sparse-checkout: scripts/ci
           persist-credentials: false
-      - name: Mint the owned-pool routing token
-        id: route-token
+      - name: Check out the App token spread action
+        # Why: .github/actions/app-token-spread (mint on both Apps, spend the fuller one).
+        if: ${{ inputs.pr_grant == '' }}
         continue-on-error: true
         timeout-minutes: 1
-        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
-          app-id: ${{ vars.GLAEDA_ROUTE_APP_ID }}
-          private-key: ${{ secrets.GLAEDA_ROUTE_APP_KEY }}
+          ref: ${{ github.sha }}
+          path: .app-token-spread
+          sparse-checkout: .github/actions/app-token-spread
+          persist-credentials: false
+
+      - name: Mint the owned-pool routing token
+        id: route-token
+        # A Mac grant (inputs.pr_grant, scripts/ci/mac-grants.json) already names every job's runner:
+        # nothing to place, so runners stays {} and attempt "". A step `if`, not the job's, keeps
+        # the job's condition the one test_ci_gate_absent_signal.py walks.
+        if: ${{ inputs.pr_grant == '' }}
+        continue-on-error: true
+        timeout-minutes: 1
+        uses: ./.app-token-spread/.github/actions/app-token-spread
+        with:
+          route-app-id: ${{ vars.GLAEDA_ROUTE_APP_ID }}
+          route-private-key: ${{ secrets.GLAEDA_ROUTE_APP_KEY }}
+          bot-app-id: ${{ vars.CMUX_BOT_APP_ID }}
+          bot-private-key: ${{ secrets.CMUX_BOT_APP_KEY }}
           permission-administration: read
           permission-organization-self-hosted-runners: read
           # The gui and Blacksmith backlogs: the jobs of in-flight CI runs (late_placement.gui_backlog()).
@@ -1451,13 +1562,16 @@ jobs:
         if: steps.route-token.outcome == 'failure'
         continue-on-error: true
         timeout-minutes: 1
-        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
+        uses: ./.app-token-spread/.github/actions/app-token-spread
         with:
-          app-id: ${{ vars.GLAEDA_ROUTE_APP_ID }}
-          private-key: ${{ secrets.GLAEDA_ROUTE_APP_KEY }}
+          route-app-id: ${{ vars.GLAEDA_ROUTE_APP_ID }}
+          route-private-key: ${{ secrets.GLAEDA_ROUTE_APP_KEY }}
+          bot-app-id: ${{ vars.CMUX_BOT_APP_ID }}
+          bot-private-key: ${{ secrets.CMUX_BOT_APP_KEY }}
           permission-administration: read
       - name: Place the jobs after admission
         id: place
+        if: ${{ inputs.pr_grant == '' }}
         continue-on-error: true
         timeout-minutes: 1
         env:
@@ -1507,6 +1621,975 @@ jobs:
           if-no-files-found: error
           retention-days: 1
 
+<<<<<<< HEAD
+=======
+  app-host-unit-tests:
+    permissions:
+      contents: read
+      actions: read
+      id-token: write
+    needs:
+      - macos-compile-admission
+      - late-placement
+    # !cancelled() disables the implicit success() gate, which GitHub evaluates
+    # over the transitive needs chain: linux-preflight runs behind routed linux
+    # jobs that legitimately skip (web/go/agent-session paths), and that
+    # transitive skip otherwise marks every macOS job skipped even when
+    # linux-preflight itself succeeds. Require the direct needs explicitly.
+    # A changed-suites run that compile admission ran itself
+    # (inputs.unit_in_admission) needs no worker here, unless admission could
+    # not take its Mac's gui token (outputs.unit_tested false).
+    if: ${{ !cancelled() && needs.macos-compile-admission.result == 'success' && inputs.macos == 'true' && (inputs.full_suite == 'true' || inputs.unit_suite == 'true') && (inputs.unit_in_admission != 'true' || needs.macos-compile-admission.outputs.unit_tested == 'false') }}
+    name: ${{ inputs.unit_selectors != '' && 'app-host unit tests (changed suites)' || format('app-host unit tests ({0}/7)', matrix.shard) }}
+    # Every consumer runs on compile admission's pool and pins its Xcode,
+    # both read from the admission's outputs. The shards run test-without-building
+    # against the admission's cmuxTests bundle, which only loads under the
+    # Xcode that linked it: a bundle linked by Xcode 26.6 (macos-26) imports
+    # Testing.framework symbols Xcode 26.3 (macos-15) does not ship, and dies
+    # in dlopen before running a test. Striping the shards over pools with
+    # different Xcodes (#14097) did exactly that once MACOS_RUNNER_PR moved
+    # compile admission to macOS 26. To spread shards over providers again,
+    # every pool involved must carry the admission's exact Xcode; the
+    # restore step refuses an older one with both versions named.
+    # When compile admission ran on an owned pool, a shard the picker did not
+    # place there (no machine left, or CI_PR_POOL_OWNED_GUI=0), and
+    # github-actions[bot]'s re-run from attempt 3 on, take pr_retry_runner:
+    # Blacksmith on the lane's Xcode, which is the Xcode the owned label
+    # names. A shard late-placement placed in this attempt takes the label
+    # it chose, and a re-run of failed shards its owned label (the gui label
+    # on a pool with one). Otherwise a full suite's shards take pr_shard_runner when the picker found another pool on admission's
+    # Xcode with more room, and admission's own pool when it is empty. A
+    # placed shard takes the admission's runner, which is pr_root_runner
+    # when the pool has one.
+    runs-on: ${{ needs.late-placement.outputs.attempt == github.run_attempt && fromJSON(needs.late-placement.outputs.runners || '{}')[format('shard-{0}', matrix.shard)] || github.event_name == 'pull_request' && inputs.pr_grant != '' && fromJSON(inputs.pr_grant) || (github.run_attempt > 2 && (github.triggering_actor == 'github-actions[bot]' || github.event_name != 'pull_request') || !contains(inputs.pr_owned_jobs, format(' shard-{0} ', matrix.shard))) && inputs.pr_retry_runner || inputs.pr_shard_runner || inputs.pr_gui_runner || needs.macos-compile-admission.outputs.runner }}
+    # The 2026-09-25..30 mini sample has p99 31.5m and max 54.8m. Keep
+    # margin for slow hosts and setup, but do not let a stalled shard consume
+    # the old 75-minute ceiling after its 1,800-second test watchdog fires.
+    timeout-minutes: 60
+    strategy:
+      # A pull request wants every shard's failures in one run. A merge group
+      # only needs a verdict, and the first failure already is one.
+      fail-fast: ${{ github.event_name == 'merge_group' }}
+      matrix:
+        # Each row is a consumer. The rows are JSON because a static include
+        # row always becomes a job, and a changed-suites run
+        # (inputs.unit_selectors) must drop the seven numbered consumers for
+        # one worker. That worker is shard 8, which matches none of the
+        # numbered shards below that own a strict step, so it executes only
+        # its own batch. No row names a pool: see runs-on above.
+        include: >-
+          ${{ fromJSON(inputs.unit_selectors != '' && '[
+          {"shard": 8}
+          ]' || '[
+          {"shard": 1},
+          {"shard": 2},
+          {"shard": 3},
+          {"shard": 4},
+          {"shard": 5},
+          {"shard": 6},
+          {"shard": 7}
+          ]') }}
+    env:
+      CMUX_NODE_PRODUCT_CACHE_ROOT: ${{ vars.CMUX_NODE_PRODUCT_CACHE_ROOT }}
+      CMUX_NODE_PRODUCT_CACHE_MAX_BYTES: ${{ vars.CMUX_NODE_PRODUCT_CACHE_MAX_BYTES }}
+      CMUX_NODE_PRODUCT_CACHE_WAIT_SECONDS: ${{ vars.CMUX_NODE_PRODUCT_CACHE_WAIT_SECONDS }}
+      CMUX_ARTIFACT_PEER_URLS: ${{ vars.CMUX_ARTIFACT_PEER_URLS }}
+      CMUX_ARTIFACT_PEER_TOKEN_FILE: ${{ vars.CMUX_ARTIFACT_PEER_TOKEN_FILE }}
+      # This independent job-level marker makes every app-host wrapper fail
+      # closed if a setup step or environment handoff loses either redirect.
+      CMUX_CI_APP_HOST_ISOLATION_REQUIRED: "1"
+      CMUX_APP_HOST_SHARD: ${{ matrix.shard }}
+      CMUX_APP_HOST_UNIT_SELECTORS: ${{ inputs.unit_selectors }}
+      CMUX_APP_HOST_CAPTURE_XCRESULTS: "1"
+      # The admission's own pin, so the shards select the Xcode that linked
+      # the product they run.
+      CMUX_CI_XCODE_APP: ${{ needs.macos-compile-admission.outputs.xcode_app }}
+      CMUX_CI_REQUIRED_MACOS_SDK_MAJOR: "26"
+      CMUX_SKIP_ZIG_BUILD: "1"
+      # Strict groups share workers with the broad batches, so each worker
+      # that runs one reserves that group's measured wall time (median step
+      # time over 24 hours of runs, setup steps included) when the batches
+      # are packed. No group may exceed a worker's share, or its worker gets
+      # no batch: global search and Cloud ordering (about 30 and 70 seconds)
+      # share worker 7, agent notification semantics (about 85 with its node
+      # and Bun setup) has worker 4.
+      CMUX_APP_HOST_AGENT_NOTIFICATION_SHARD: "4"
+      CMUX_APP_HOST_FOCUSED_REGRESSION_B_SHARD: "5"
+      CMUX_APP_HOST_FOCUSED_REGRESSION_SHARD: "6"
+      CMUX_APP_HOST_GLOBAL_SEARCH_SHARD: "7"
+      CMUX_APP_HOST_CLOUD_ORDERING_SHARD: "7"
+      CMUX_APP_HOST_RESERVED_WALL_SECONDS: "4=85 5=140 6=128 7=99"
+      # Four-way packing now exceeds the app-host's memory budget as the suite
+      # grows: a shard can crash around 1,000 UI tests and poison the remaining
+      # selectors. Seven workers of two batches each keep a batch near one
+      # and a half minutes of measured work; allow focused gates and one
+      # app-host restart headroom.
+      CMUX_UNIT_TEST_TIMEOUT_SECONDS: "1800"
+      # The broad shard can spend several minutes in XCTest's post-suite
+      # teardown while native UI processes drain. Allow that quiet period
+      # within the job's 75-minute cap instead of restarting a healthy batch.
+      CMUX_XCODEBUILD_NONINTERACTIVE_IDLE_TIMEOUT_SECONDS: "1200"
+      # A crashed app host is relaunched by xcodebuild, which resumes the run
+      # and can crash again indefinitely, so neither the idle timeout above nor
+      # the 75-minute job cap ends a crash loop early. A healthy shard restarts
+      # zero times and the wall-clock budget above allows one, so aborting on
+      # the third restart leaves that headroom untouched while bounding the
+      # loop. Wall clock cannot make this call: the measured 7.55-minute median
+      # of the step and the 40-plus-minute crash-looping shards are not
+      # separable by a duration threshold with any safe margin.
+      # https://github.com/manaflow-ai/cmux/issues/13707
+      CMUX_XCODEBUILD_NONINTERACTIVE_RESTART_BUDGET: "2"
+      # XCTest app-host crashes can leave xcodebuild waiting in Swift's crash
+      # backtracer until the job timeout. Keep crash handling non-interactive
+      # and cheap so xcodebuild can restart/finish the suite.
+      SWIFT_BACKTRACE: "interactive=no,timeout=0s,symbolicate=off,color=no"
+      CMUX_XCODEBUILD_NONINTERACTIVE_POST_TEST_TIMEOUT_SECONDS: "45"
+    steps:
+      # Runs before checkout so a misrouted shard never checks out the PR.
+      # The self-hosted fleet also carries a macos-26 label, so a macos-*
+      # request must prove it landed on GitHub-hosted capacity.
+      - name: Verify GitHub-hosted route
+        env:
+          RUNNER_ENVIRONMENT: ${{ runner.environment }}
+          REQUESTED_RUNNER: ${{ needs.late-placement.outputs.attempt == github.run_attempt && fromJSON(needs.late-placement.outputs.runners || '{}')[format('shard-{0}', matrix.shard)] || github.event_name == 'pull_request' && inputs.pr_grant != '' && inputs.pr_grant || (github.run_attempt > 2 && (github.triggering_actor == 'github-actions[bot]' || github.event_name != 'pull_request') || !contains(inputs.pr_owned_jobs, format(' shard-{0} ', matrix.shard))) && inputs.pr_retry_runner || inputs.pr_shard_runner || inputs.pr_gui_runner || needs.macos-compile-admission.outputs.runner }}
+          RUNNER_CONTEXT_NAME: ${{ runner.name }}
+        run: |
+          set -euo pipefail
+          case "$REQUESTED_RUNNER" in
+            macos-*)
+              if [ "$RUNNER_ENVIRONMENT" != "github-hosted" ]; then
+                echo "::error::$REQUESTED_RUNNER resolved outside GitHub-hosted capacity: $RUNNER_CONTEXT_NAME"
+                exit 1
+              fi
+              ;;
+          esac
+
+      # Start from main's git objects, so checkout fetches only what changed
+      # since then instead of the whole tree and its submodules
+      # (scripts/ci/git-seed.sh). The script is read at this commit over HTTPS
+      # because nothing is checked out yet. A miss leaves the workspace empty
+      # and checkout clones as before.
+      - name: Restore git object seed
+        continue-on-error: true
+        timeout-minutes: 3
+        run: |
+          set -euo pipefail
+          script="$RUNNER_TEMP/git-seed.sh"
+          curl --fail --silent --show-error --location --connect-timeout 10 --max-time 30 \
+            -o "$script" "https://raw.githubusercontent.com/$GITHUB_REPOSITORY/$GITHUB_SHA/scripts/ci/git-seed.sh"
+          bash "$script" restore "$GITHUB_WORKSPACE"
+
+      - name: Clear stale git locks (self-hosted reused workspace)
+        shell: bash
+        run: |
+          # Self-hosted macOS runners reuse the workspace. A job cancelled or
+          # killed mid-checkout can leave a stale .git/modules/*/index.lock that
+          # fails every later submodule checkout (e.g. ghostty). Clear them first.
+          ws="${GITHUB_WORKSPACE:-$PWD}"
+          rm -f "$ws/.git/index.lock" 2>/dev/null || true
+          if [ -d "$ws/.git/modules" ]; then
+            find "$ws/.git/modules" -type f -name "*.lock" -delete 2>/dev/null || true
+          fi
+
+      - name: Checkout
+        id: checkout
+        continue-on-error: true
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+        with:
+          persist-credentials: false
+
+      # A seeded repository that checkout cannot use (a submodule moved to
+      # another URL) must not fail the retry the same way.
+      - name: Discard the git object seed after a failed checkout
+        if: steps.checkout.outcome == 'failure'
+        run: rm -rf "$GITHUB_WORKSPACE/.git"
+
+      # WarpBuild can lose GitHub DNS on an otherwise healthy runner. Retry the
+      # checkout once only after that action fails; healthy jobs still perform
+      # one checkout, and a second failure remains a hard failure with evidence.
+      - name: Retry checkout after transient network failure
+        id: checkout-retry
+        if: steps.checkout.outcome == 'failure'
+        continue-on-error: true
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+        with:
+          persist-credentials: false
+
+      - name: Diagnose checkout network failure
+        if: steps.checkout.outcome == 'failure' && steps.checkout-retry.outcome == 'failure'
+        timeout-minutes: 1
+        run: |
+          set -u
+
+          # Keep provider/network evidence in the job log without failing the original
+          # operation. These commands are intentionally read-only and emit no tokens.
+          echo "== network diagnostics (runner=${RUNNER_NAME:-unknown}) ==" >&2
+          if command -v scutil >/dev/null 2>&1; then
+            scutil --dns 2>&1 || true
+          fi
+          if command -v route >/dev/null 2>&1; then
+            route -n get default 2>&1 || true
+          fi
+          if command -v ifconfig >/dev/null 2>&1; then
+            ifconfig 2>&1 || true
+          fi
+          if command -v dscacheutil >/dev/null 2>&1; then
+            dscacheutil -q host -a name github.com 2>&1 || true
+          fi
+          if command -v curl >/dev/null 2>&1; then
+            curl --connect-timeout 5 --max-time 10 --silent --show-error --head https://github.com/ 2>&1 || true
+          fi
+          echo "== end network diagnostics ==" >&2
+          exit 1
+
+      - name: Select Xcode
+        run: |
+          set -euo pipefail
+          ./scripts/select-ci-xcode.sh
+
+      - name: Prepare isolated DerivedData
+        run: |
+          set -euo pipefail
+          DERIVED_DATA_PATH="$RUNNER_TEMP/cmux-derived-data-tests-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}-shard-${{ matrix.shard }}"
+          rm -rf "$DERIVED_DATA_PATH"
+          mkdir -p "$DERIVED_DATA_PATH"
+          echo "CMUX_DERIVED_DATA_PATH=$DERIVED_DATA_PATH" >> "$GITHUB_ENV"
+
+      - name: Try node-local compiled product cache
+        id: node-products
+        continue-on-error: true
+        env:
+          ARTIFACT_ID: ${{ needs.macos-compile-admission.outputs.artifact_id }}
+          ARTIFACT_PROVIDER_DIGEST: ${{ needs.macos-compile-admission.outputs.artifact_digest }}
+          EXPECTED_SHA256: ${{ needs.macos-compile-admission.outputs.sha256 }}
+          CMUX_PRODUCT_CONTRACT: ${{ needs.macos-compile-admission.outputs.product_contract }}
+          CMUX_PRODUCT_SOURCE_REVISION: ${{ needs.macos-compile-admission.outputs.source_revision }}
+          CMUX_PRODUCT_PRODUCER_RUN_ID: ${{ needs.macos-compile-admission.outputs.producer_run_id }}
+          CMUX_PRODUCT_PRODUCER_RUN_ATTEMPT: ${{ needs.macos-compile-admission.outputs.producer_run_attempt }}
+          CMUX_NODE_PRODUCT_CACHE_FALLBACK_SOURCE: ${{ vars.CMUX_ARTIFACT_PEER_URLS != '' && 'peer' || (vars.CI_ARTIFACT_R2_URL != '' && 'r2' || 'github') }}
+        run: python3 scripts/ci/node_product_cache.py acquire "$RUNNER_TEMP/app-host-products"
+
+      - name: Try trusted fleet peer artifact source
+        id: peer-products
+        if: steps.node-products.outputs.hit != 'true'
+        continue-on-error: true
+        env:
+          ARTIFACT_ID: ${{ needs.macos-compile-admission.outputs.artifact_id }}
+          ARTIFACT_PROVIDER_DIGEST: ${{ needs.macos-compile-admission.outputs.artifact_digest }}
+          EXPECTED_SHA256: ${{ needs.macos-compile-admission.outputs.sha256 }}
+          CMUX_PRODUCT_CONTRACT: ${{ needs.macos-compile-admission.outputs.product_contract }}
+          CMUX_PRODUCT_SOURCE_REVISION: ${{ needs.macos-compile-admission.outputs.source_revision }}
+          CMUX_PRODUCT_PRODUCER_RUN_ID: ${{ needs.macos-compile-admission.outputs.producer_run_id }}
+          CMUX_PRODUCT_PRODUCER_RUN_ATTEMPT: ${{ needs.macos-compile-admission.outputs.producer_run_attempt }}
+        run: python3 scripts/ci/peer_product_source.py fetch "$RUNNER_TEMP/app-host-products"
+
+      - name: Restore selective app-host product layers
+        id: restore-layers
+        if: steps.node-products.outputs.hit != 'true' && steps.peer-products.outputs.hit != 'true' && needs.macos-compile-admission.outputs.layer_index_artifact_id != ''
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ github.token }}
+          CMUX_RUN_HEAD_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+          CMUX_APP_HOST_LAYER_PROFILE: app-host-tests
+          LAYER_INDEX_ID: ${{ needs.macos-compile-admission.outputs.layer_index_artifact_id }}
+          LAYER_INDEX_DIGEST: ${{ needs.macos-compile-admission.outputs.layer_index_digest }}
+        run: |
+          python3 scripts/ci/app_host_layer_transport.py restore             "${CMUX_DERIVED_DATA_PATH}-layers"             --index-id "$LAYER_INDEX_ID"             --index-digest "$LAYER_INDEX_DIGEST"
+
+      # R2 is an optional remote broker. With no configured endpoint, a peer
+      # miss falls straight through to the canonical GitHub artifact.
+      - name: Try shared R2 artifact transport
+        id: r2-products
+        if: steps.node-products.outputs.hit != 'true' && steps.peer-products.outputs.hit != 'true' && steps.restore-layers.outputs.hit != 'true' && vars.CI_ARTIFACT_R2_URL != ''
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ github.token }}
+          CI_ARTIFACT_R2_URL: ${{ vars.CI_ARTIFACT_R2_URL }}
+          ARTIFACT_ID: ${{ needs.macos-compile-admission.outputs.artifact_id }}
+          ARTIFACT_PROVIDER_DIGEST: ${{ needs.macos-compile-admission.outputs.artifact_digest }}
+        run: python3 scripts/ci/restore-r2-artifact.py
+
+      # Same exact-ID GitHub artifact, read over parallel range requests. The
+      # single-stream download-artifact path sustained ~2 MB/s on Blacksmith
+      # macOS (7-10 min per consumer); it stays below as the fallback.
+      - name: Try parallel GitHub artifact transport
+        id: parallel-products
+        if: steps.node-products.outputs.hit != 'true' && steps.peer-products.outputs.hit != 'true' && steps.restore-layers.outputs.hit != 'true' && steps.r2-products.outputs.hit != 'true'
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ github.token }}
+          ARTIFACT_ID: ${{ needs.macos-compile-admission.outputs.artifact_id }}
+          ARTIFACT_PROVIDER_DIGEST: ${{ needs.macos-compile-admission.outputs.artifact_digest }}
+        run: python3 scripts/ci/parallel_artifact_download.py
+
+      - name: Download compiled app-host test product
+        if: steps.node-products.outputs.hit != 'true' && steps.peer-products.outputs.hit != 'true' && steps.restore-layers.outputs.hit != 'true' && steps.r2-products.outputs.hit != 'true' && steps.parallel-products.outputs.hit != 'true'
+        # The ranged transport has a six-minute deadline; cap the single-stream
+        # fallback after the observed 25–50 minute slow-download outliers.
+        timeout-minutes: 15
+        uses: ./.github/actions/download-test-product
+        with:
+          artifact-id: ${{ needs.macos-compile-admission.outputs.artifact_id }}
+          path: ${{ runner.temp }}/app-host-products
+
+      # On an owned Mac every GUI job shares the one console session, so the
+      # tests need glaeda's gui token. glaeda's hook gives this job none at
+      # job start (class gui-step), so the product fetch above leaves the
+      # console to other GUI jobs; the token is taken here before the tests
+      # start and held until the job ends, through the console
+      # session cleanup. An older hook gave the token at job start, so
+      # take-gui returns 0 at once; one without take-gui exits 2 and still
+      # gave it at job start. Blacksmith has no helper.
+      - name: Take this Mac's gui token
+        run: |
+          set -uo pipefail
+          helper=/Users/Shared/cmux-build-fleet/bin/glaeda-canonical-root
+          [ -x "$helper" ] || exit 0
+          status=0
+          "$helper" take-gui --wait 1800 || status=$?
+          case "$status" in
+            0|2) ;;
+            *)
+              echo "::error::Could not take this Mac's gui token for the app-host tests (take-gui exited $status)."
+              exit 1
+              ;;
+          esac
+
+      - name: Restore compiled app-host test product
+        id: restore-products
+        env:
+          ARTIFACT_ID: ${{ needs.macos-compile-admission.outputs.artifact_id }}
+          ARTIFACT_PROVIDER_DIGEST: ${{ needs.macos-compile-admission.outputs.artifact_digest }}
+          EXPECTED_SHA256: ${{ needs.macos-compile-admission.outputs.sha256 }}
+          CMUX_PRODUCT_CONTRACT: ${{ needs.macos-compile-admission.outputs.product_contract }}
+          CMUX_PRODUCT_SOURCE_REVISION: ${{ needs.macos-compile-admission.outputs.source_revision }}
+          CMUX_PRODUCT_PRODUCER_RUN_ID: ${{ needs.macos-compile-admission.outputs.producer_run_id }}
+          CMUX_PRODUCT_PRODUCER_RUN_ATTEMPT: ${{ needs.macos-compile-admission.outputs.producer_run_attempt }}
+          CMUX_LAYER_RESTORED: ${{ steps.restore-layers.outputs.hit }}
+          CMUX_NODE_PRODUCT_CACHE_HIT: ${{ steps.node-products.outputs.hit }}
+          CMUX_NODE_PRODUCT_CACHE_LOOKUP_SECONDS: ${{ steps.node-products.outputs.lookup_seconds }}
+          CMUX_PEER_PRODUCT_HIT: ${{ steps.peer-products.outputs.hit }}
+          CMUX_PEER_PRODUCT_SOURCE: ${{ steps.peer-products.outputs.source }}
+          CMUX_PEER_PRODUCT_LOOKUP_SECONDS: ${{ steps.peer-products.outputs.lookup_seconds }}
+          CMUX_PEER_PRODUCT_TRANSFER_SECONDS: ${{ steps.peer-products.outputs.transfer_seconds }}
+          CMUX_PEER_PRODUCT_BYTES: ${{ steps.peer-products.outputs.bytes_transferred }}
+          CMUX_R2_PRODUCT_HIT: ${{ steps.r2-products.outputs.hit }}
+          CMUX_PARALLEL_PRODUCT_HIT: ${{ steps.parallel-products.outputs.hit }}
+          CMUX_PARALLEL_PRODUCT_TRANSFER_SECONDS: ${{ steps.parallel-products.outputs.transfer_seconds }}
+          CMUX_ARTIFACT_R2_RESULT: ${{ steps.r2-products.outputs.r2_result }}
+        run: scripts/ci/restore-app-host-test-product.sh
+
+      - name: Finalize node-local compiled product cache
+        if: always()
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ github.token }}
+          ARTIFACT_ID: ${{ needs.macos-compile-admission.outputs.artifact_id }}
+          ARTIFACT_PROVIDER_DIGEST: ${{ needs.macos-compile-admission.outputs.artifact_digest }}
+          EXPECTED_SHA256: ${{ needs.macos-compile-admission.outputs.sha256 }}
+          CMUX_PRODUCT_CONTRACT: ${{ needs.macos-compile-admission.outputs.product_contract }}
+          CMUX_PRODUCT_SOURCE_REVISION: ${{ needs.macos-compile-admission.outputs.source_revision }}
+          CMUX_PRODUCT_PRODUCER_RUN_ID: ${{ needs.macos-compile-admission.outputs.producer_run_id }}
+          CMUX_PRODUCT_PRODUCER_RUN_ATTEMPT: ${{ needs.macos-compile-admission.outputs.producer_run_attempt }}
+          CMUX_NODE_PRODUCT_CACHE_TOKEN: ${{ steps.node-products.outputs.token }}
+          CMUX_NODE_PRODUCT_CACHE_LEASE: ${{ steps.node-products.outputs.lease }}
+          CMUX_NODE_PRODUCT_SOURCE_CLASS: ${{ steps.peer-products.outputs.hit == 'true' && (steps.peer-products.outputs.source == 'lan' && 'lan' || 'peer') || (steps.r2-products.outputs.hit == 'true' && 'r2' || 'github') }}
+          CMUX_PRODUCT_RESTORE_SUCCEEDED: ${{ steps.restore-products.outcome == 'success' && steps.restore-layers.outputs.hit != 'true' }}
+        run: python3 scripts/ci/node_product_cache.py finalize "$RUNNER_TEMP/app-host-products/app-host-products.tar.gz"
+
+      - name: Prepare isolated app-host home
+        id: prepare-app-host-home
+        run: scripts/ci/prepare-app-host-home.sh
+
+      - name: Enumerate built app-host tests
+        run: scripts/ci/enumerate-app-host-tests.sh
+
+      - name: Upload built app-host test inventory
+        if: ${{ matrix.shard == 1 || inputs.unit_selectors != '' }}
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: cmux-app-host-test-inventory-${{ github.run_id }}-${{ github.run_attempt }}
+          path: |
+            ${{ runner.temp }}/cmux-app-host-test-enumeration.json
+            ${{ runner.temp }}/cmux-app-host-test-inventory.json
+            ${{ runner.temp }}/cmux-app-host-test-enumeration.log
+          if-no-files-found: error
+          retention-days: 14
+
+      - name: Enable XCTest automation mode
+        run: scripts/ci/enable-xctest-automation-mode.sh
+
+      - name: Run My Devices regressions
+        if: ${{ (matrix.shard == fromJSON(env.CMUX_APP_HOST_FOCUSED_REGRESSION_SHARD) || contains(inputs.unit_strict_steps, '|Run My Devices regressions|')) }}
+        env:
+          CMUX_APP_HOST_XCODEBUILD_ATTEMPTS: "1"
+        run: |
+          # The broad app-host suite tolerates ordinary assertion failures.
+          # Gate every My Devices suite directly on xcodebuild's exit status,
+          # with no retry that could hide a lifecycle timeout or host crash.
+          # Like the other focused steps, reuse the admission-produced test
+          # product instead of compiling the app again.
+          set -euo pipefail
+          scripts/ci/run-in-console-session.sh \
+            scripts/ci/run-app-host-xcodebuild.sh \
+            -xctestrun "$CMUX_APP_HOST_XCTESTRUN" \
+            -destination "platform=macOS" \
+            -parallel-testing-enabled NO \
+            -test-timeouts-enabled YES \
+            -default-test-execution-time-allowance 120 \
+            -maximum-test-execution-time-allowance 120 \
+            CMUX_SKIP_ZIG_BUILD=1 \
+            -only-testing:cmuxTests/DeviceDirectoryLifecycleTests \
+            -only-testing:cmuxTests/DeviceDirectoryMergeTests \
+            -only-testing:cmuxTests/DeviceLinkReconnectPolicyTests \
+            -only-testing:cmuxTests/DevicePresenceWireTests \
+            -only-testing:cmuxTests/DeviceRegistryClientTests \
+            -only-testing:cmuxTests/DeviceRouteSelectorTests \
+            -only-testing:cmuxTests/DeviceTerminalMirrorTests \
+            -only-testing:cmuxTests/DeviceWorkspaceProjectionTests \
+            -only-testing:cmuxTests/DevicesCloudTreeBuilderTests \
+            -only-testing:cmuxTests/DevicesSidebarModeTests \
+            -only-testing:cmuxTests/SurfaceMachineIDDeviceEncodingTests \
+            test-without-building
+
+      - name: Run Copy Mode scrollback regression
+        if: ${{ (matrix.shard == fromJSON(env.CMUX_APP_HOST_FOCUSED_REGRESSION_SHARD) || contains(inputs.unit_strict_steps, '|Run Copy Mode scrollback regression|')) }}
+        run: |
+          # Verify wheel and paging ownership independently against the pinned
+          # Ghostty runtime. Keep the output file-backed so detached app-host
+          # descendants cannot hold the CI capture pipe open.
+          set -euo pipefail
+          test_log="$RUNNER_TEMP/cmux-copy-mode-scrollback.txt"
+          bash scripts/ci/run-and-capture.sh "$test_log" \
+            scripts/ci/run-in-console-session.sh \
+            scripts/ci/run-app-host-xcodebuild.sh \
+            -xctestrun "$CMUX_APP_HOST_XCTESTRUN" \
+            -destination "platform=macOS" \
+            CMUX_SKIP_ZIG_BUILD=1 \
+            -only-testing:cmuxTests/GhosttyCopyModeScrollbackTests \
+            test-without-building
+          scripts/ci/require_selected_test_execution.sh \
+            "$test_log" cmuxTests/GhosttyCopyModeScrollbackTests
+
+      - name: Run five-tab renderer memory regression
+        # The test skips itself without CMUX_RENDERER_MEMORY_REGRESSION=1, so a
+        # changed-suites run of GhosttySurfaceOverlayTests has to run this step
+        # too, or the edited test passes as "skipped" (choose_ci_suite.py).
+        if: ${{ (matrix.shard == fromJSON(env.CMUX_APP_HOST_FOCUSED_REGRESSION_SHARD) || contains(inputs.unit_strict_steps, '|Run five-tab renderer memory regression|')) }}
+        run: |
+          # Use a dedicated app-host process so task_vm_info deltas only compare
+          # one versus five real Ghostty renderers in this workload. The focused
+          # invocation also makes footprint assertion failures non-tolerant.
+          set -euo pipefail
+          CMUX_RENDERER_MEMORY_REGRESSION=1 \
+            scripts/ci/run-in-console-session.sh \
+            scripts/ci/run-app-host-xcodebuild.sh \
+            -xctestrun "$CMUX_APP_HOST_XCTESTRUN" \
+            -destination "platform=macOS" \
+            CMUX_SKIP_ZIG_BUILD=1 \
+            -only-testing:cmuxTests/GhosttySurfaceOverlayTests/testFiveTabRendererFootprintReturnsToOneRendererTargetAcrossHideRevealCycles \
+            test-without-building
+
+      - name: Run Pi Feed ownership regressions
+        if: ${{ (matrix.shard == fromJSON(env.CMUX_APP_HOST_FOCUSED_REGRESSION_SHARD) || contains(inputs.unit_strict_steps, '|Run Pi Feed ownership regressions|')) }}
+        run: |
+          # Swift Testing assertion failures are tolerated in the full sharded
+          # app-host suite. Keep Feed ingestion and ownership on a non-tolerant
+          # focused invocation so valid Pi Feed targets cannot silently regress.
+          set -euo pipefail
+          # Each suite mutates process-global app/store state. Give every suite
+          # a fresh app-host process so Swift Testing cannot interleave them.
+          for suite in \
+            FeedCoordinatorTests \
+            PiFeedOwnershipTests \
+            PiFeedDockOwnershipTests
+          do
+            scripts/ci/run-in-console-session.sh \
+              scripts/ci/run-app-host-xcodebuild.sh \
+              -xctestrun "$CMUX_APP_HOST_XCTESTRUN" \
+              -destination "platform=macOS" \
+              CMUX_SKIP_ZIG_BUILD=1 \
+              -only-testing:"cmuxTests/$suite" \
+              test-without-building
+          done
+
+      - name: Run remote tmux mirror detach and placement regressions
+        id: remote-tmux-mirror
+        if: ${{ (matrix.shard == fromJSON(env.CMUX_APP_HOST_FOCUSED_REGRESSION_SHARD) || contains(inputs.unit_strict_steps, '|Run remote tmux mirror detach and placement regressions|')) }}
+        run: |
+          # Closing a mirrored workspace must never kill the remote tmux session,
+          # and --new-window must consolidate mirrors moved across source windows.
+          # Keep these destructive/topology regressions outside the tolerant full
+          # suite so an ordinary assertion failure cannot be accepted as expected.
+          # The placement case creates three native windows and several
+          # Ghostty-backed panels. Run the close and placement suites in separate
+          # app-host processes so renderer teardown from one topology workload
+          # cannot crash the next before its assertions execute.
+          #
+          # A crash remains a shard failure. A passing rerun cannot erase tests
+          # completed before the crash, so wrapper retries are limited to
+          # failures that occur before test execution begins.
+          set -euo pipefail
+          rm -f -- "$RUNNER_TEMP"/cmux-remote-tmux-mirror-*.txt
+          for suite in \
+            RemoteTmuxMirrorCloseDetachTests \
+            RemoteTmuxMirrorFocusPolicyTests \
+            RemoteTmuxMirrorDedicatedPlacementTests
+          do
+            suite_output="$RUNNER_TEMP/cmux-remote-tmux-mirror-${suite}-attempt-1.txt"
+            bash scripts/ci/run-and-capture.sh "$suite_output" \
+              scripts/ci/run-in-console-session.sh \
+              env "CMUX_TAG=remote-tmux-${suite}" \
+              scripts/ci/run-app-host-xcodebuild.sh \
+              -xctestrun "$CMUX_APP_HOST_XCTESTRUN" \
+              -destination "platform=macOS" \
+              CMUX_SKIP_ZIG_BUILD=1 \
+              -test-timeouts-enabled YES \
+              -default-test-execution-time-allowance 180 \
+              -maximum-test-execution-time-allowance 180 \
+              -only-testing:"cmuxTests/$suite" \
+              test-without-building
+            scripts/ci/require_selected_test_execution.sh "$suite_output" "cmuxTests/$suite"
+          done
+
+      - name: Collect RemoteTmuxMirror crash diagnostics
+        id: collect-mirror-diagnostics
+        if: ${{ failure() && steps.remote-tmux-mirror.outcome == 'failure' }}
+        continue-on-error: true
+        shell: bash
+        run: |
+          set -u
+          diagnostics="$RUNNER_TEMP/cmux-remote-tmux-mirror-diagnostics"
+          rm -rf -- "$diagnostics"
+          mkdir -p "$diagnostics"
+
+          # XCTest runs with an isolated HOME. Preserve its reports before the
+          # always-running app-host cleanup removes that home.
+          if [ -n "${CMUX_APP_HOST_HOME:-}" ]; then
+            # The console account owns the isolated home on runners where the
+            # GitHub agent is a different user. Validate the published identity
+            # before using its resolved path, then fall back to passwordless
+            # sudo only for this exact authenticated run scope.
+            ci_script_dir="${GITHUB_WORKSPACE:-$PWD}/scripts/ci"
+            # shellcheck source=scripts/ci/app-host-isolation.sh
+            source "$ci_script_dir/app-host-isolation.sh"
+            if cmux_validate_published_app_host_identity_values; then
+              crash_reports="$CMUX_RESOLVED_APP_HOST_HOME/.local/state/cmux/crash"
+              reports_present=0
+              if [ -d "$crash_reports" ] \
+                || sudo -n test -d "$crash_reports" 2>/dev/null; then
+                reports_present=1
+              fi
+              if [ "$reports_present" -eq 1 ]; then
+                copied=0
+                if cp -R "$crash_reports" "$diagnostics/crash-reports" 2>/dev/null; then
+                  copied=1
+                elif sudo -n true 2>/dev/null; then
+                  rm -rf -- "$diagnostics/crash-reports"
+                  if sudo -n cp -R "$crash_reports" "$diagnostics/crash-reports" \
+                    && sudo -n chown -R "$(id -u):$(id -g)" "$diagnostics/crash-reports"; then
+                    copied=1
+                  fi
+                fi
+                if [ "$copied" -ne 1 ]; then
+                  echo "::warning::unable to read isolated app-host crash reports" >&2
+                fi
+              fi
+            else
+              echo "::warning::app-host identity validation failed; crash reports not collected" >&2
+            fi
+          fi
+
+          shopt -s nullglob
+          suite_logs=("$RUNNER_TEMP"/cmux-remote-tmux-mirror-*.txt)
+          if [ "${#suite_logs[@]}" -gt 0 ]; then
+            cp "${suite_logs[@]}" "$diagnostics/" || true
+          fi
+
+          find "$diagnostics" -type f -print || true
+
+      - name: Upload RemoteTmuxMirror crash diagnostics
+        id: upload-mirror-diagnostics
+        if: ${{ failure() && steps.remote-tmux-mirror.outcome == 'failure' }}
+        continue-on-error: true
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: cmux-remote-tmux-mirror-diagnostics-${{ matrix.shard }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/cmux-remote-tmux-mirror-diagnostics
+          if-no-files-found: ignore
+          retention-days: 7
+
+      - name: Run focused browser regressions
+        if: ${{ (matrix.shard == fromJSON(env.CMUX_APP_HOST_FOCUSED_REGRESSION_B_SHARD) || contains(inputs.unit_strict_steps, '|Run focused browser regressions|')) }}
+        run: |
+          # Focused gates for https://github.com/manaflow-ai/cmux/issues/7380 and #8054.
+          # The tolerant full-suite step can crash-skip late suites (see #5888
+          # note above), so these regressions get non-tolerant focused
+          # invocations. Both suites create portal-owned AppKit/WebKit windows
+          # and touch process-wide window/portal registries; keep each in a
+          # fresh app-host process so Swift Testing cannot interleave them.
+          set -euo pipefail
+          for suite in \
+            BrowserOmnibarSuggestionClickRoutingTests \
+            BrowserPanelViewIdentityTests
+          do
+            scripts/ci/run-in-console-session.sh \
+              scripts/ci/run-app-host-xcodebuild.sh \
+              -xctestrun "$CMUX_APP_HOST_XCTESTRUN" \
+              -destination "platform=macOS" \
+              CMUX_SKIP_ZIG_BUILD=1 \
+              -only-testing:"cmuxTests/$suite" \
+              test-without-building
+          done
+
+      - name: Run remote tmux mirror active-pane regression
+        if: ${{ (matrix.shard == fromJSON(env.CMUX_APP_HOST_FOCUSED_REGRESSION_B_SHARD) || contains(inputs.unit_strict_steps, '|Run remote tmux mirror active-pane regression|')) }}
+        run: |
+          # Focused gates for https://github.com/manaflow-ai/cmux/issues/7372.
+          # The tolerant full-suite step can crash-skip late suites (see #5888
+          # note above), so the seed and immediate-update paths get a
+          # non-tolerant invocation.
+          set -euo pipefail
+          scripts/ci/run-in-console-session.sh \
+            scripts/ci/run-app-host-xcodebuild.sh \
+            -xctestrun "$CMUX_APP_HOST_XCTESTRUN" \
+            -destination "platform=macOS" \
+            CMUX_SKIP_ZIG_BUILD=1 \
+            -only-testing:cmuxTests/RemoteTmuxWindowMirrorFocusSeedTests \
+            test-without-building
+
+      - name: Run remote tmux mirror layout identity regression
+        if: ${{ (matrix.shard == fromJSON(env.CMUX_APP_HOST_FOCUSED_REGRESSION_B_SHARD) || contains(inputs.unit_strict_steps, '|Run remote tmux mirror layout identity regression|')) }}
+        run: |
+          # The tolerant full-suite step may accept expected failures or stop
+          # after an app-host crash. Keep #7833's identity suite non-tolerant
+          # so a missing incremental-reconcile regression cannot pass the shard.
+          set -euo pipefail
+          scripts/ci/run-in-console-session.sh \
+            scripts/ci/run-app-host-xcodebuild.sh \
+            -xctestrun "$CMUX_APP_HOST_XCTESTRUN" \
+            -destination "platform=macOS" \
+            CMUX_SKIP_ZIG_BUILD=1 \
+            -only-testing:cmuxTests/RemoteTmuxMirrorLayoutIdentityTests \
+            test-without-building
+
+      - name: Run socket ACL reload regression
+        if: ${{ (matrix.shard == fromJSON(env.CMUX_APP_HOST_FOCUSED_REGRESSION_B_SHARD) || contains(inputs.unit_strict_steps, '|Run socket ACL reload regression|')) }}
+        run: |
+          # The tolerant full-suite step can accept assertion failures or
+          # crash-skip late suites. Keep #7984's live reload and denial tests
+          # non-tolerant so a snapshotted socket ACL cannot pass the shard.
+          set -euo pipefail
+          scripts/ci/run-in-console-session.sh \
+            scripts/ci/run-app-host-xcodebuild.sh \
+            -xctestrun "$CMUX_APP_HOST_XCTESTRUN" \
+            -destination "platform=macOS" \
+            CMUX_SKIP_ZIG_BUILD=1 \
+            -only-testing:cmuxTests/SocketACLReloadRegressionTests \
+            test-without-building
+
+      - name: Run settings file-store no-op persistence regression
+        if: ${{ (matrix.shard == fromJSON(env.CMUX_APP_HOST_FOCUSED_REGRESSION_B_SHARD) || contains(inputs.unit_strict_steps, '|Run settings file-store no-op persistence regression|')) }}
+        run: |
+          # The broad app-host suite tolerates expected failures and can stop
+          # after an app-host crash. Keep the settings persistence regression
+          # non-tolerant so a no-op UserDefaults write cannot pass the shard.
+          set -euo pipefail
+          scripts/ci/run-in-console-session.sh \
+            scripts/ci/run-app-host-xcodebuild.sh \
+            -xctestrun "$CMUX_APP_HOST_XCTESTRUN" \
+            -destination "platform=macOS" \
+            CMUX_SKIP_ZIG_BUILD=1 \
+            -only-testing:cmuxTests/KeyboardShortcutSettingsFileStoreNoOpPersistenceTests \
+            test-without-building
+
+      - name: Run issue 8373 sidebar convergence regression
+        if: ${{ (matrix.shard == fromJSON(env.CMUX_APP_HOST_FOCUSED_REGRESSION_B_SHARD) || contains(inputs.unit_strict_steps, '|Run issue 8373 sidebar convergence regression|')) }}
+        timeout-minutes: 5
+        run: |
+          # The broad app-host suite tolerates Swift Testing assertion failures.
+          # Keep #8373's real NSHostingView/LazyVStack workload non-tolerant and
+          # require its bounded identity/snapshot/memory evidence line.
+          set -euo pipefail
+          test_log="$RUNNER_TEMP/cmux-issue-8373-sidebar.txt"
+          bash scripts/ci/run-and-capture.sh "$test_log" \
+            scripts/ci/run-in-console-session.sh \
+            env CMUX_TAG=issue-8373-sidebar \
+            scripts/ci/run-app-host-xcodebuild.sh \
+            -xctestrun "$CMUX_APP_HOST_XCTESTRUN" \
+            -destination "platform=macOS" \
+            -parallel-testing-enabled NO \
+            CMUX_SKIP_ZIG_BUILD=1 \
+            -test-timeouts-enabled YES \
+            -default-test-execution-time-allowance 180 \
+            -maximum-test-execution-time-allowance 180 \
+            -only-testing:cmuxTests/SidebarIssue8373StressTests \
+            test-without-building
+          scripts/ci/require_selected_test_execution.sh \
+            "$test_log" cmuxTests/SidebarIssue8373StressTests
+          grep -F "ISSUE_8373_STRESS " "$test_log"
+
+      - name: Run sidebar workspace-switch layout regression
+        if: ${{ (matrix.shard == fromJSON(env.CMUX_APP_HOST_FOCUSED_REGRESSION_B_SHARD) || contains(inputs.unit_strict_steps, '|Run sidebar workspace-switch layout regression|')) }}
+        run: |
+          # The tolerant full-suite step can accept Swift Testing assertion
+          # failures when XCTest reports "0 unexpected". Keep #9612's real
+          # window-switch workload non-tolerant so NSHostingView layout
+          # reentry cannot silently return.
+          set -euo pipefail
+          scripts/ci/run-in-console-session.sh \
+            scripts/ci/run-app-host-xcodebuild.sh \
+            -xctestrun "$CMUX_APP_HOST_XCTESTRUN" \
+            -destination "platform=macOS" \
+            CMUX_SKIP_ZIG_BUILD=1 \
+            -only-testing:cmuxTests/SidebarWorkspaceSwitchLayoutFaultTests \
+            test-without-building
+
+      - name: Run terminal portal visibility regressions
+        if: ${{ (matrix.shard == fromJSON(env.CMUX_APP_HOST_FOCUSED_REGRESSION_B_SHARD) || contains(inputs.unit_strict_steps, '|Run terminal portal visibility regressions|')) }}
+        run: |
+          # These tests mutate the process-wide terminal portal registry and
+          # include Swift Testing assertions that the tolerant broad shard can
+          # otherwise classify as expected. Give them a dedicated app host.
+          set -euo pipefail
+          scripts/ci/run-in-console-session.sh \
+            scripts/ci/run-app-host-xcodebuild.sh \
+            -xctestrun "$CMUX_APP_HOST_XCTESTRUN" \
+            -destination "platform=macOS" \
+            CMUX_SKIP_ZIG_BUILD=1 \
+            -only-testing:cmuxTests/GhosttyTerminalViewVisibilityPolicyTests \
+            test-without-building
+
+      # The notification semantics step resolves `node` and runs after an
+      # earlier failure, so both node steps must run after one too. Skipped,
+      # they turned an earlier focused-regression failure into a second
+      # `command -v node` failure on minis whose runner PATH has no node.
+      - name: Ensure node for app-host wrapper regressions
+        id: detect-node
+        if: ${{ !cancelled() && (matrix.shard == fromJSON(env.CMUX_APP_HOST_AGENT_NOTIFICATION_SHARD) || contains(inputs.unit_strict_steps, '|Run agent notification semantics|')) }}
+        run: |
+          set -euo pipefail
+          # App-host wrapper regressions, including OpenCode and Claude hooks,
+          # execute JavaScript through `node`. A self-hosted macOS 15 runner image
+          # shipped without node on the runner PATH (2026-07-10), which failed
+          # every branch. Reuse an image-provided node when present; otherwise
+          # install one below before the unit-test batches start.
+          for candidate in "$(command -v node || true)" /opt/homebrew/bin/node /usr/local/bin/node; do
+            if [ -n "$candidate" ] && [ -x "$candidate" ]; then
+              dirname "$candidate" >> "$GITHUB_PATH"
+              "$candidate" --version
+              echo "found=true" >> "$GITHUB_OUTPUT"
+              exit 0
+            fi
+          done
+          echo "no node runtime in the runner image; installing via setup-node"
+          echo "found=false" >> "$GITHUB_OUTPUT"
+
+      - name: Install node (runner image has none)
+        if: ${{ !cancelled() && ((matrix.shard == fromJSON(env.CMUX_APP_HOST_AGENT_NOTIFICATION_SHARD) || contains(inputs.unit_strict_steps, '|Run agent notification semantics|')) && steps.detect-node.outputs.found == 'false') }}
+        uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
+        with:
+          node-version: "20"
+
+      - name: Run Ghostty numeric locale tests
+        if: ${{ (matrix.shard == fromJSON(env.CMUX_APP_HOST_FOCUSED_REGRESSION_B_SHARD) || contains(inputs.unit_strict_steps, '|Run Ghostty numeric locale tests|')) }}
+        run: |
+          # LC_NUMERIC is process-global. Keep these tests in their own app-host
+          # invocation and disable Xcode's parallel test execution for it.
+          set -euo pipefail
+          scripts/ci/run-in-console-session.sh \
+            scripts/ci/run-app-host-xcodebuild.sh \
+            -xctestrun "$CMUX_NUMERIC_LOCALE_XCTESTRUN" \
+            -destination "platform=macOS" \
+            -only-testing:cmuxTests/GhosttyNumericLocaleTests \
+            -parallel-testing-enabled NO \
+            CMUX_SKIP_ZIG_BUILD=1 \
+            test-without-building
+
+      - name: Run global search shortcut regressions
+        if: ${{ (matrix.shard == fromJSON(env.CMUX_APP_HOST_GLOBAL_SEARCH_SHARD) || contains(inputs.unit_strict_steps, '|Run global search shortcut regressions|')) }}
+        timeout-minutes: 40
+        run: |
+          # This serialized container owns global shortcut settings. Keep its
+          # mutations out of unrelated UI suites' retained window graphs; it
+          # exceeded thirteen minutes in a shared app host. Run the whole
+          # container in its own non-tolerant app host, including every nested
+          # test, as a plain `xcodebuild test-without-building` gate like every
+          # other focused gate. The compile admission job has already produced
+          # the test bundle, so this shard only spends time running tests.
+          set -euo pipefail
+          test_log="$RUNNER_TEMP/cmux-global-search-shortcuts.txt"
+          bash scripts/ci/run-and-capture.sh "$test_log" \
+            scripts/ci/run-in-console-session.sh \
+            env CMUX_TAG=global-search-shortcuts \
+            scripts/ci/run-app-host-xcodebuild.sh \
+            -xctestrun "$CMUX_APP_HOST_XCTESTRUN" \
+            -destination "platform=macOS" \
+            CMUX_SKIP_ZIG_BUILD=1 \
+            -test-timeouts-enabled YES \
+            -default-test-execution-time-allowance 300 \
+            -maximum-test-execution-time-allowance 300 \
+            -only-testing:cmuxTests/GlobalSearchShortcutBehaviorTests \
+            test-without-building
+          scripts/ci/require_selected_test_execution.sh \
+            "$test_log" cmuxTests/GlobalSearchShortcutBehaviorTests
+
+      - name: Run Cloud machine ordering acceptance
+        if: ${{ !cancelled() && steps.prepare-app-host-home.outcome == 'success' && (matrix.shard == fromJSON(env.CMUX_APP_HOST_CLOUD_ORDERING_SHARD) || contains(inputs.unit_strict_steps, '|Run Cloud machine ordering acceptance|')) }}
+        timeout-minutes: 10
+        run: |
+          # Separate invocations prove each selector executed tests; a healthy
+          # suite cannot mask a miswired or accidentally empty selector.
+          set -euo pipefail
+          for suite in CloudMachineDragSourceTests CloudMachineOrderingTests \
+            CloudOperationRecorderTests CloudReadRequestCoordinatorTests \
+            VMClientReadCoalescingTests; do
+            test_log="$RUNNER_TEMP/cmux-cloud-ordering-${suite}.txt"
+            bash scripts/ci/run-and-capture.sh "$test_log" \
+              scripts/ci/run-in-console-session.sh \
+              env "CMUX_TAG=cloud-ordering-${suite}" \
+              scripts/ci/run-app-host-xcodebuild.sh \
+              -xctestrun "$CMUX_APP_HOST_XCTESTRUN" \
+              -destination "platform=macOS" \
+              CMUX_SKIP_ZIG_BUILD=1 \
+              -test-timeouts-enabled YES \
+              -default-test-execution-time-allowance 60 \
+              -maximum-test-execution-time-allowance 60 \
+              -only-testing:"cmuxTests/$suite" \
+              test-without-building
+            scripts/ci/require_selected_test_execution.sh "$test_log" "cmuxTests/$suite"
+          done
+
+      - name: Run unit tests
+        run: scripts/ci/run-app-host-unit-batches.sh
+
+      # The notification semantics step below resolves `bun`, so Bun is set up
+      # on its shard. It runs after an earlier failure for the same reason
+      # that step does.
+      - name: Set up Bun for Pi extension dispatch regression
+        if: ${{ !cancelled() && (matrix.shard == fromJSON(env.CMUX_APP_HOST_AGENT_NOTIFICATION_SHARD) || contains(inputs.unit_strict_steps, '|Run agent notification semantics|')) }}
+        uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
+        with:
+          no-cache: ${{ !(github.event_name != 'pull_request' && github.event_name != 'pull_request_target' && github.event_name != 'merge_group' && contains(fromJSON('["refs/heads/main","refs/heads/feat-cmux-next","refs/heads/nightly-next"]'), github.ref)) }}
+          bun-version: "1.3.6"
+
+      # Like Cloud machine ordering acceptance, this gate overrides the
+      # implicit success() so a failure in the broad unit batches cannot skip
+      # it. Skipped, it hid a missing Bun setup in 7 of 12 main runs.
+      - name: Run agent notification semantics
+        if: ${{ !cancelled() && steps.prepare-app-host-home.outcome == 'success' && (matrix.shard == fromJSON(env.CMUX_APP_HOST_AGENT_NOTIFICATION_SHARD) || contains(inputs.unit_strict_steps, '|Run agent notification semantics|')) }}
+        run: |
+          set -euo pipefail
+          # Reuse compile admission's product instead of rebuilding the app in
+          # agent-notification-tests.yml. Keep each suite in a fresh host and
+          # require positive execution, outside the tolerant broad batches.
+          command -v node
+          bun_path="$(command -v bun)"
+          bun_install="$(dirname "$(dirname "$bun_path")")"
+          for suite in \
+            AgentNotificationRegressionTests \
+            AgentJournalLifecycleCenterTests \
+            FeedWaiterRegistryTests \
+            ClaudeBackgroundWorkNotifyTests \
+            OpenCodeHookRegressionTests
+          do
+            test_log="$RUNNER_TEMP/cmux-notification-${suite}.txt"
+            bash scripts/ci/run-and-capture.sh "$test_log" \
+              scripts/ci/run-in-console-session.sh \
+              env "TEST_RUNNER_PATH=$PATH" "TEST_RUNNER_BUN_INSTALL=$bun_install" \
+                "CMUX_TAG=notification-${suite}" \
+              scripts/ci/run-app-host-xcodebuild.sh \
+              -xctestrun "$CMUX_APP_HOST_XCTESTRUN" \
+              -destination "platform=macOS" \
+              CMUX_SKIP_ZIG_BUILD=1 \
+              -test-timeouts-enabled YES \
+              -default-test-execution-time-allowance 180 \
+              -maximum-test-execution-time-allowance 180 \
+              -only-testing:"cmuxTests/$suite" \
+              test-without-building
+            scripts/ci/require_selected_test_execution.sh "$test_log" "cmuxTests/$suite"
+          done
+
+      - name: Collect app-host failure diagnostics
+        id: collect-app-host-diagnostics
+        if: ${{ failure() || cancelled() }}
+        continue-on-error: true
+        shell: bash
+        run: scripts/ci/collect-app-host-diagnostics.sh
+
+      - name: Upload app-host failure diagnostics
+        id: upload-app-host-diagnostics
+        if: ${{ failure() || cancelled() }}
+        continue-on-error: true
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: cmux-app-host-diagnostics-shard-${{ env.CMUX_APP_HOST_SHARD }}-run-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/cmux-app-host-diagnostics-shard-${{ env.CMUX_APP_HOST_SHARD }}-run-${{ github.run_attempt }}
+          if-no-files-found: warn
+          retention-days: 7
+
+      - name: Report evidence collection outcomes
+        if: ${{ always() }}
+        env:
+          EVIDENCE_OUTCOMES: >-
+            collect-mirror-diagnostics=${{ steps.collect-mirror-diagnostics.outcome }}
+            upload-mirror-diagnostics=${{ steps.upload-mirror-diagnostics.outcome }}
+            collect-app-host-diagnostics=${{ steps.collect-app-host-diagnostics.outcome }}
+            upload-app-host-diagnostics=${{ steps.upload-app-host-diagnostics.outcome }}
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import os
+
+          rows = []
+          for entry in os.environ["EVIDENCE_OUTCOMES"].split():
+              label, _, outcome = entry.partition("=")
+              # An empty outcome means the step never ran, which is the same
+              # thing as skipped for this purpose.
+              rows.append((label, outcome or "skipped"))
+
+          # A green job skips every evidence step by design, so stay silent
+          # rather than adding a section to every summary in the repository.
+          if any(outcome != "skipped" for _, outcome in rows):
+              summary = os.environ.get("GITHUB_STEP_SUMMARY")
+              if summary:
+                  with open(summary, "a", encoding="utf-8") as handle:
+                      handle.write("### Evidence collection\n\n")
+                      for label, outcome in rows:
+                          handle.write(f"- {label}: `{outcome}`\n")
+                      handle.write("\n")
+
+          # Annotations go to stdout, where the runner reads them, and surface
+          # at the top of the run instead of inside a step nobody opens.
+          for label, outcome in rows:
+              if outcome == "failure":
+                  print(
+                      f"::warning title=Evidence not captured::{label} failed, "
+                      "so its evidence does not exist for this job"
+                  )
+          PY
+
+      - name: Clean up isolated app-host home
+        if: ${{ always() }}
+        env:
+          CMUX_APP_HOST_PREPARATION_OUTCOME: ${{ steps.prepare-app-host-home.outcome }}
+        run: |
+          # Checkout may have failed before these scripts existed. Once setup
+          # starts, even partial or cancelled preparation still needs cleanup.
+          case "$CMUX_APP_HOST_PREPARATION_OUTCOME" in
+            skipped|"")
+              echo "App-host preparation did not start; no isolated home to clean."
+              ;;
+            success|failure|cancelled)
+              scripts/ci/run-in-console-session.sh scripts/ci/cleanup-app-host-home.sh
+              ;;
+            *)
+              echo "::error::Unexpected app-host preparation outcome: $CMUX_APP_HOST_PREPARATION_OUTCOME"
+              exit 1
+              ;;
+          esac
+
+>>>>>>> origin/main
   cli-product-tests:
     permissions:
       contents: read
@@ -1519,6 +2602,7 @@ jobs:
     # !cancelled(): the implicit success()
     # gate would count a legitimately skipped linux job in the transitive needs
     # chain as a reason to skip every macOS job.
+<<<<<<< HEAD
     if: ${{ !cancelled() && needs.macos-compile-admission.result == 'success' && inputs.macos == 'true' && inputs.full_suite == 'true' }}
     # The job keeps its cli-product-tests id and cli-product placement key
     # (pr_runner_pool.py, late_placement.py); the Swift CLI and its XCTest
@@ -1531,6 +2615,19 @@ jobs:
     # on the root label it waited 240 s behind another job's token and was
     # refused.
     runs-on: ${{ needs.late-placement.outputs.attempt == github.run_attempt && fromJSON(needs.late-placement.outputs.runners || '{}')['cli-product'] || (github.run_attempt > 2 && (contains(fromJSON('["github-actions[bot]","cmux-bot[bot]"]'), github.triggering_actor) || github.event_name != 'pull_request') || !contains(inputs.pr_owned_jobs, ' cli-product ')) && inputs.pr_retry_runner || inputs.pr_gui_runner || needs.macos-compile-admission.outputs.runner }}
+=======
+    if: ${{ !cancelled() && needs.macos-compile-admission.result == 'success' && (inputs.cli == 'true' || (inputs.macos == 'true' && inputs.full_suite == 'true')) }}
+    name: CLI product tests
+    # cmuxCLITests has no app host, so it needs no GUI console session. It
+    # still needs the compiled product, so it reuses macos-compile-admission's artifact like the app-host shards do,
+    # on the pool and Xcode that built it: the test bundle only loads under
+    # the Xcode that linked it. On an owned-pool run it may take
+    # pr_retry_runner instead, as the shards do. glaeda runs its XCTest under
+    # the mini's one gui token (one testmanagerd), so like the shards it takes
+    # pr_gui_runner where there is one: on the root label it waited 240 s
+    # behind a shard's token and was refused.
+    runs-on: ${{ needs.late-placement.outputs.attempt == github.run_attempt && fromJSON(needs.late-placement.outputs.runners || '{}')['cli-product'] || github.event_name == 'pull_request' && inputs.pr_grant != '' && fromJSON(inputs.pr_grant) || (github.run_attempt > 2 && (github.triggering_actor == 'github-actions[bot]' || github.event_name != 'pull_request') || !contains(inputs.pr_owned_jobs, ' cli-product ')) && inputs.pr_retry_runner || inputs.pr_gui_runner || needs.macos-compile-admission.outputs.runner }}
+>>>>>>> origin/main
     timeout-minutes: 40
     env:
       CMUX_NODE_PRODUCT_CACHE_ROOT: ${{ vars.CMUX_NODE_PRODUCT_CACHE_ROOT }}
@@ -1546,7 +2643,11 @@ jobs:
       - name: Verify GitHub-hosted route
         env:
           RUNNER_ENVIRONMENT: ${{ runner.environment }}
+<<<<<<< HEAD
           REQUESTED_RUNNER: ${{ needs.late-placement.outputs.attempt == github.run_attempt && fromJSON(needs.late-placement.outputs.runners || '{}')['cli-product'] || (github.run_attempt > 2 && (contains(fromJSON('["github-actions[bot]","cmux-bot[bot]"]'), github.triggering_actor) || github.event_name != 'pull_request') || !contains(inputs.pr_owned_jobs, ' cli-product ')) && inputs.pr_retry_runner || inputs.pr_gui_runner || needs.macos-compile-admission.outputs.runner }}
+=======
+          REQUESTED_RUNNER: ${{ needs.late-placement.outputs.attempt == github.run_attempt && fromJSON(needs.late-placement.outputs.runners || '{}')['cli-product'] || github.event_name == 'pull_request' && inputs.pr_grant != '' && inputs.pr_grant || (github.run_attempt > 2 && (github.triggering_actor == 'github-actions[bot]' || github.event_name != 'pull_request') || !contains(inputs.pr_owned_jobs, ' cli-product ')) && inputs.pr_retry_runner || inputs.pr_gui_runner || needs.macos-compile-admission.outputs.runner }}
+>>>>>>> origin/main
           RUNNER_CONTEXT_NAME: ${{ runner.name }}
         run: |
           set -euo pipefail
@@ -1748,8 +2849,13 @@ jobs:
         if: ${{ !cancelled() }}
         uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
         with:
+<<<<<<< HEAD
           no-cache: ${{ !startsWith(github.workspace, '/home/runner/work/') || !(github.event_name != 'pull_request' && github.event_name != 'pull_request_target' && github.event_name != 'merge_group' && contains(fromJSON('["refs/heads/main","refs/heads/feat-cmux-next","refs/heads/nightly-next"]'), github.ref)) }}
           bun-version: "1.4.4"
+=======
+          no-cache: ${{ !(github.event_name != 'pull_request' && github.event_name != 'pull_request_target' && github.event_name != 'merge_group' && contains(fromJSON('["refs/heads/main","refs/heads/feat-cmux-next","refs/heads/nightly-next"]'), github.ref)) }}
+          bun-version: "1.3.6"
+>>>>>>> origin/main
 
       - name: Install pinned nushell (shell-integration tests)
         if: ${{ !cancelled() }}
@@ -1810,7 +2916,330 @@ jobs:
             CMUX_BASH_NEW_BIN="$BASH_NEW_BIN" \
             python3 tests/test_issue_11257_prompt_command_export.py
 
+<<<<<<< HEAD
       - name: Run shell and no-socket regressions
+=======
+      - name: Run terminal creation interactive-shell CLI regression
+        if: ${{ !cancelled() }}
+        run: CMUX_CLI_BIN="$CMUX_CLI_PATH" python3 tests/test_cli_creation_initial_command.py
+
+      - name: Upload CLI product test log
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: cli-product-tests-log-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/cmux-cli-product-tests.log
+          if-no-files-found: ignore
+          retention-days: 7
+
+  cli-regressions:
+    permissions:
+      contents: read
+      actions: read
+      # The R2 artifact transport mints an OIDC token for its broker.
+      id-token: write
+    needs:
+      - macos-compile-admission
+      - late-placement
+    # Targeted CLI routing consumes the shared compiled product even when prior
+    # compile admission exists; it does not enable the app-host/full-suite lanes.
+    # Same !cancelled() reasoning as app-host-unit-tests: the implicit success()
+    # gate would count a legitimately skipped linux job in the transitive needs
+    # chain as a reason to skip every macOS job.
+    if: ${{ !cancelled() && needs.macos-compile-admission.result == 'success' && (inputs.cli == 'true' || (inputs.macos == 'true' && inputs.full_suite == 'true')) }}
+    name: CLI regressions (${{ matrix.shard }}/3)
+    # The shell and CLI no-socket regressions (scripts/ci/run_python_test_lane.py
+    # lanes macos-shell, macos-cli-no-socket, macos-shell-fish,
+    # macos-cli-no-socket-post-fish) against compile admission's CLI, in three
+    # shards. Each shard runs its tests one at a time on its own machine (see
+    # CMUX_CLI_REGRESSION_JOBS), so the lanes take a third of the time without
+    # sharing a host's CPU between tests. They run no XCTest, so unlike
+    # cli-product-tests they hold no gui token: on an owned pool they take the
+    # root label, which has a runner per root, not the one gui runner per mini.
+    runs-on: ${{ needs.late-placement.outputs.attempt == github.run_attempt && fromJSON(needs.late-placement.outputs.runners || '{}')[format('cli-regressions-{0}', matrix.shard)] || github.event_name == 'pull_request' && inputs.pr_grant != '' && fromJSON(inputs.pr_grant) || (github.run_attempt > 2 && (github.triggering_actor == 'github-actions[bot]' || github.event_name != 'pull_request') || !contains(inputs.pr_owned_jobs, format(' cli-regressions-{0} ', matrix.shard))) && inputs.pr_retry_runner || inputs.pr_root_runner || needs.macos-compile-admission.outputs.runner }}
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [1, 2, 3]
+    timeout-minutes: 30
+    env:
+      CMUX_NODE_PRODUCT_CACHE_ROOT: ${{ vars.CMUX_NODE_PRODUCT_CACHE_ROOT }}
+      CMUX_NODE_PRODUCT_CACHE_MAX_BYTES: ${{ vars.CMUX_NODE_PRODUCT_CACHE_MAX_BYTES }}
+      CMUX_NODE_PRODUCT_CACHE_WAIT_SECONDS: ${{ vars.CMUX_NODE_PRODUCT_CACHE_WAIT_SECONDS }}
+      CMUX_ARTIFACT_PEER_URLS: ${{ vars.CMUX_ARTIFACT_PEER_URLS }}
+      CMUX_ARTIFACT_PEER_TOKEN_FILE: ${{ vars.CMUX_ARTIFACT_PEER_TOKEN_FILE }}
+      CMUX_CI_XCODE_APP: ${{ needs.macos-compile-admission.outputs.xcode_app }}
+      CMUX_CI_REQUIRED_MACOS_SDK_MAJOR: "26"
+      CMUX_SKIP_ZIG_BUILD: "1"
+      SWIFT_BACKTRACE: "interactive=no,timeout=0s,symbolicate=off,color=no"
+    steps:
+      - name: Verify GitHub-hosted route
+        env:
+          RUNNER_ENVIRONMENT: ${{ runner.environment }}
+          REQUESTED_RUNNER: ${{ needs.late-placement.outputs.attempt == github.run_attempt && fromJSON(needs.late-placement.outputs.runners || '{}')[format('cli-regressions-{0}', matrix.shard)] || github.event_name == 'pull_request' && inputs.pr_grant != '' && inputs.pr_grant || (github.run_attempt > 2 && (github.triggering_actor == 'github-actions[bot]' || github.event_name != 'pull_request') || !contains(inputs.pr_owned_jobs, format(' cli-regressions-{0} ', matrix.shard))) && inputs.pr_retry_runner || inputs.pr_root_runner || needs.macos-compile-admission.outputs.runner }}
+          RUNNER_CONTEXT_NAME: ${{ runner.name }}
+        run: |
+          set -euo pipefail
+          case "$REQUESTED_RUNNER" in
+            macos-*)
+              if [ "$RUNNER_ENVIRONMENT" != "github-hosted" ]; then
+                echo "::error::$REQUESTED_RUNNER resolved outside GitHub-hosted capacity: $RUNNER_CONTEXT_NAME"
+                exit 1
+              fi
+              ;;
+          esac
+
+      # Start from main's git objects, so checkout fetches only what changed
+      # since then instead of the whole tree and its submodules
+      # (scripts/ci/git-seed.sh). The script is read at this commit over HTTPS
+      # because nothing is checked out yet. A miss leaves the workspace empty
+      # and checkout clones as before.
+      - name: Restore git object seed
+        continue-on-error: true
+        timeout-minutes: 3
+        run: |
+          set -euo pipefail
+          script="$RUNNER_TEMP/git-seed.sh"
+          curl --fail --silent --show-error --location --connect-timeout 10 --max-time 30 \
+            -o "$script" "https://raw.githubusercontent.com/$GITHUB_REPOSITORY/$GITHUB_SHA/scripts/ci/git-seed.sh"
+          bash "$script" restore "$GITHUB_WORKSPACE"
+
+      - name: Clear stale git locks (self-hosted reused workspace)
+        shell: bash
+        run: |
+          ws="${GITHUB_WORKSPACE:-$PWD}"
+          rm -f "$ws/.git/index.lock" 2>/dev/null || true
+          if [ -d "$ws/.git/modules" ]; then
+            find "$ws/.git/modules" -type f -name "*.lock" -delete 2>/dev/null || true
+          fi
+
+      # No submodules: this lane never compiles Ghostty or the app, it only
+      # loads an already-built bundle and spawns the already-built CLI.
+      - name: Checkout
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+        with:
+          persist-credentials: false
+
+      - name: Select Xcode
+        run: |
+          set -euo pipefail
+          ./scripts/select-ci-xcode.sh
+
+      - name: Prepare isolated DerivedData
+        run: |
+          set -euo pipefail
+          DERIVED_DATA_PATH="$RUNNER_TEMP/cmux-derived-data-cli-tests-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
+          rm -rf "$DERIVED_DATA_PATH"
+          mkdir -p "$DERIVED_DATA_PATH"
+          echo "CMUX_DERIVED_DATA_PATH=$DERIVED_DATA_PATH" >> "$GITHUB_ENV"
+
+      - name: Try node-local compiled product cache
+        id: node-products
+        continue-on-error: true
+        env:
+          ARTIFACT_ID: ${{ needs.macos-compile-admission.outputs.artifact_id }}
+          ARTIFACT_PROVIDER_DIGEST: ${{ needs.macos-compile-admission.outputs.artifact_digest }}
+          EXPECTED_SHA256: ${{ needs.macos-compile-admission.outputs.sha256 }}
+          CMUX_PRODUCT_CONTRACT: ${{ needs.macos-compile-admission.outputs.product_contract }}
+          CMUX_PRODUCT_SOURCE_REVISION: ${{ needs.macos-compile-admission.outputs.source_revision }}
+          CMUX_PRODUCT_PRODUCER_RUN_ID: ${{ needs.macos-compile-admission.outputs.producer_run_id }}
+          CMUX_PRODUCT_PRODUCER_RUN_ATTEMPT: ${{ needs.macos-compile-admission.outputs.producer_run_attempt }}
+          CMUX_NODE_PRODUCT_CACHE_FALLBACK_SOURCE: ${{ vars.CMUX_ARTIFACT_PEER_URLS != '' && 'peer' || (vars.CI_ARTIFACT_R2_URL != '' && 'r2' || 'github') }}
+        run: python3 scripts/ci/node_product_cache.py acquire "$RUNNER_TEMP/app-host-products"
+
+      - name: Try trusted fleet peer artifact source
+        id: peer-products
+        if: steps.node-products.outputs.hit != 'true'
+        continue-on-error: true
+        env:
+          ARTIFACT_ID: ${{ needs.macos-compile-admission.outputs.artifact_id }}
+          ARTIFACT_PROVIDER_DIGEST: ${{ needs.macos-compile-admission.outputs.artifact_digest }}
+          EXPECTED_SHA256: ${{ needs.macos-compile-admission.outputs.sha256 }}
+          CMUX_PRODUCT_CONTRACT: ${{ needs.macos-compile-admission.outputs.product_contract }}
+          CMUX_PRODUCT_SOURCE_REVISION: ${{ needs.macos-compile-admission.outputs.source_revision }}
+          CMUX_PRODUCT_PRODUCER_RUN_ID: ${{ needs.macos-compile-admission.outputs.producer_run_id }}
+          CMUX_PRODUCT_PRODUCER_RUN_ATTEMPT: ${{ needs.macos-compile-admission.outputs.producer_run_attempt }}
+        run: python3 scripts/ci/peer_product_source.py fetch "$RUNNER_TEMP/app-host-products"
+
+      # R2 is an optional remote broker. With no configured endpoint, a peer
+      # miss falls straight through to the canonical GitHub artifact.
+      - name: Try shared R2 artifact transport
+        id: r2-products
+        if: steps.node-products.outputs.hit != 'true' && steps.peer-products.outputs.hit != 'true' && vars.CI_ARTIFACT_R2_URL != ''
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ github.token }}
+          CI_ARTIFACT_R2_URL: ${{ vars.CI_ARTIFACT_R2_URL }}
+          ARTIFACT_ID: ${{ needs.macos-compile-admission.outputs.artifact_id }}
+          ARTIFACT_PROVIDER_DIGEST: ${{ needs.macos-compile-admission.outputs.artifact_digest }}
+        run: python3 scripts/ci/restore-r2-artifact.py
+
+      # Same exact-ID GitHub artifact over parallel range requests; the
+      # single-stream download below stays as the fallback.
+      - name: Try parallel GitHub artifact transport
+        id: parallel-products
+        if: steps.node-products.outputs.hit != 'true' && steps.peer-products.outputs.hit != 'true' && steps.r2-products.outputs.hit != 'true'
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ github.token }}
+          ARTIFACT_ID: ${{ needs.macos-compile-admission.outputs.artifact_id }}
+          ARTIFACT_PROVIDER_DIGEST: ${{ needs.macos-compile-admission.outputs.artifact_digest }}
+        run: python3 scripts/ci/parallel_artifact_download.py
+
+      - name: Download compiled test product
+        if: steps.node-products.outputs.hit != 'true' && steps.peer-products.outputs.hit != 'true' && steps.r2-products.outputs.hit != 'true' && steps.parallel-products.outputs.hit != 'true'
+        # Keep a dead or crawling fallback from consuming the whole job.
+        timeout-minutes: 15
+        uses: ./.github/actions/download-test-product
+        with:
+          artifact-id: ${{ needs.macos-compile-admission.outputs.artifact_id }}
+          path: ${{ runner.temp }}/app-host-products
+
+      - name: Restore compiled test product
+        id: restore-products
+        env:
+          ARTIFACT_ID: ${{ needs.macos-compile-admission.outputs.artifact_id }}
+          ARTIFACT_PROVIDER_DIGEST: ${{ needs.macos-compile-admission.outputs.artifact_digest }}
+          EXPECTED_SHA256: ${{ needs.macos-compile-admission.outputs.sha256 }}
+          CMUX_PRODUCT_CONTRACT: ${{ needs.macos-compile-admission.outputs.product_contract }}
+          CMUX_PRODUCT_SOURCE_REVISION: ${{ needs.macos-compile-admission.outputs.source_revision }}
+          CMUX_PRODUCT_PRODUCER_RUN_ID: ${{ needs.macos-compile-admission.outputs.producer_run_id }}
+          CMUX_PRODUCT_PRODUCER_RUN_ATTEMPT: ${{ needs.macos-compile-admission.outputs.producer_run_attempt }}
+          CMUX_NODE_PRODUCT_CACHE_HIT: ${{ steps.node-products.outputs.hit }}
+          CMUX_NODE_PRODUCT_CACHE_LOOKUP_SECONDS: ${{ steps.node-products.outputs.lookup_seconds }}
+          CMUX_PEER_PRODUCT_HIT: ${{ steps.peer-products.outputs.hit }}
+          CMUX_PEER_PRODUCT_SOURCE: ${{ steps.peer-products.outputs.source }}
+          CMUX_PEER_PRODUCT_LOOKUP_SECONDS: ${{ steps.peer-products.outputs.lookup_seconds }}
+          CMUX_PEER_PRODUCT_TRANSFER_SECONDS: ${{ steps.peer-products.outputs.transfer_seconds }}
+          CMUX_PEER_PRODUCT_BYTES: ${{ steps.peer-products.outputs.bytes_transferred }}
+          CMUX_R2_PRODUCT_HIT: ${{ steps.r2-products.outputs.hit }}
+          CMUX_PARALLEL_PRODUCT_HIT: ${{ steps.parallel-products.outputs.hit }}
+          CMUX_PARALLEL_PRODUCT_TRANSFER_SECONDS: ${{ steps.parallel-products.outputs.transfer_seconds }}
+          CMUX_ARTIFACT_R2_RESULT: ${{ steps.r2-products.outputs.r2_result }}
+        run: scripts/ci/restore-app-host-test-product.sh
+
+      - name: Finalize node-local compiled product cache
+        if: always()
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ github.token }}
+          ARTIFACT_ID: ${{ needs.macos-compile-admission.outputs.artifact_id }}
+          ARTIFACT_PROVIDER_DIGEST: ${{ needs.macos-compile-admission.outputs.artifact_digest }}
+          EXPECTED_SHA256: ${{ needs.macos-compile-admission.outputs.sha256 }}
+          CMUX_PRODUCT_CONTRACT: ${{ needs.macos-compile-admission.outputs.product_contract }}
+          CMUX_PRODUCT_SOURCE_REVISION: ${{ needs.macos-compile-admission.outputs.source_revision }}
+          CMUX_PRODUCT_PRODUCER_RUN_ID: ${{ needs.macos-compile-admission.outputs.producer_run_id }}
+          CMUX_PRODUCT_PRODUCER_RUN_ATTEMPT: ${{ needs.macos-compile-admission.outputs.producer_run_attempt }}
+          CMUX_NODE_PRODUCT_CACHE_TOKEN: ${{ steps.node-products.outputs.token }}
+          CMUX_NODE_PRODUCT_CACHE_LEASE: ${{ steps.node-products.outputs.lease }}
+          CMUX_NODE_PRODUCT_SOURCE_CLASS: ${{ steps.peer-products.outputs.hit == 'true' && (steps.peer-products.outputs.source == 'lan' && 'lan' || 'peer') || (steps.r2-products.outputs.hit == 'true' && 'r2' || 'github') }}
+          CMUX_PRODUCT_RESTORE_SUCCEEDED: ${{ steps.restore-products.outcome == 'success' }}
+        run: python3 scripts/ci/node_product_cache.py finalize "$RUNNER_TEMP/app-host-products/app-host-products.tar.gz"
+
+      - name: Resolve the CLI under test
+        run: |
+          set -euo pipefail
+          products="$CMUX_DERIVED_DATA_PATH/Build/Products/Debug"
+          cli="$products/cmux"
+          if [ ! -x "$cli" ]; then
+            cli="$(find "$products" -path "*.app/Contents/Resources/bin/cmux" -perm -111 -print -quit)"
+          fi
+          if [ -z "${cli:-}" ] || [ ! -x "$cli" ]; then
+            echo "::error::no cmux CLI in the restored product" >&2
+            exit 1
+          fi
+          # The standalone CLI finds bundled resources beside its executable,
+          # as it does inside the app's Resources. Without this it falls back
+          # to its compile-time #filePath, which a consumer runner lacks.
+          for resource in opencode-plugin.js opencode-tui-plugin.js; do
+            if [ ! -e "$(dirname "$cli")/$resource" ]; then
+              cp "Resources/$resource" "$(dirname "$cli")/$resource"
+            fi
+          done
+          echo "CMUX_CLI_PATH=$cli" >> "$GITHUB_ENV"
+          echo "Testing $cli"
+
+      - name: Isolate HOME
+        run: |
+          set -euo pipefail
+          cli_home="$RUNNER_TEMP/cmux-cli-tests-home"
+          rm -rf "$cli_home"
+          mkdir -p "$cli_home/.config"
+          echo "CMUX_CLI_TESTS_HOME=$cli_home" >> "$GITHUB_ENV"
+
+      - name: Ensure node for the CLI no-socket regressions
+        id: detect-node
+        if: ${{ !cancelled() }}
+        run: |
+          set -euo pipefail
+          for candidate in "$(command -v node || true)" /opt/homebrew/bin/node /usr/local/bin/node; do
+            if [ -n "$candidate" ] && [ -x "$candidate" ]; then
+              dirname "$candidate" >> "$GITHUB_PATH"
+              "$candidate" --version
+              echo "found=true" >> "$GITHUB_OUTPUT"
+              exit 0
+            fi
+          done
+          echo "no node runtime in the runner image; installing via setup-node"
+          echo "found=false" >> "$GITHUB_OUTPUT"
+
+      - name: Install node (runner image has none)
+        if: ${{ !cancelled() && steps.detect-node.outputs.found == 'false' }}
+        uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
+        with:
+          node-version: "20"
+
+      - name: Set up Bun for Pi extension dispatch regression
+        if: ${{ !cancelled() }}
+        uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
+        with:
+          no-cache: ${{ !(github.event_name != 'pull_request' && github.event_name != 'pull_request_target' && github.event_name != 'merge_group' && contains(fromJSON('["refs/heads/main","refs/heads/feat-cmux-next","refs/heads/nightly-next"]'), github.ref)) }}
+          bun-version: "1.3.6"
+
+      - name: Install pinned nushell (shell-integration tests)
+        if: ${{ !cancelled() }}
+        run: |
+          set -euo pipefail
+
+          # tests/test_nushell_*.py drive the bundled nushell shell
+          # integration through a real `nu`. Pin the release binary (no brew:
+          # deterministic, fast, checksum-verified) and match the version the
+          # integration was verified against.
+          NU_VERSION="0.113.1"
+          case "$(uname -m)" in
+            arm64|aarch64)
+              NU_ARCH="aarch64-apple-darwin"
+              NU_SHA256="458aa21674221b2e8adbd784f9ba8113288b78f3c352465cef37b114ff3dffd5"
+              ;;
+            x86_64)
+              NU_ARCH="x86_64-apple-darwin"
+              NU_SHA256="18ec6448cd8562b4f94ba24bace6164c5d8b8d634c8105751ec45e17d34549b2"
+              ;;
+            *)
+              echo "unsupported runner arch for pinned nushell: $(uname -m)" >&2
+              exit 1
+              ;;
+          esac
+
+          NU_DIR="$RUNNER_TEMP/cmux-nushell"
+          mkdir -p "$NU_DIR"
+          curl -fsSL --retry 3 -o "$NU_DIR/nu.tar.gz" \
+            "https://github.com/nushell/nushell/releases/download/${NU_VERSION}/nu-${NU_VERSION}-${NU_ARCH}.tar.gz"
+          echo "$NU_SHA256  $NU_DIR/nu.tar.gz" | shasum -a 256 -c -
+          tar -xzf "$NU_DIR/nu.tar.gz" -C "$NU_DIR" --strip-components=1
+          test -x "$NU_DIR/nu"
+          "$NU_DIR/nu" --version
+          echo "$NU_DIR" >> "$GITHUB_PATH"
+
+      # This job's checkout skips submodules. The bash prompt and CLI
+      # no-socket regressions read Ghostty's shell integration from
+      # ghostty/src, so fetch only that submodule.
+      - name: Check out the ghostty submodule for shell regressions
+        if: ${{ !cancelled() }}
+        run: git submodule update --init --depth 1 ghostty
+
+      - name: Run shell and CLI no-socket regressions (shard ${{ matrix.shard }}/3)
+>>>>>>> origin/main
         if: ${{ !cancelled() }}
         env:
           # Owned Macs share their host with other runner slots. These tests
@@ -1893,7 +3322,11 @@ jobs:
     # capacity ledger fits the light class; that mini checks out the commit
     # itself and streams the log and exit code back. PACKAGE_TESTS_VIA_STEP
     # below restates the runs-on branch for the steps.
+<<<<<<< HEAD
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-15' || (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && !contains(fromJSON(inputs.owned_head_repos), github.event.pull_request.head.repo.full_name) && 'blacksmith-6vcpu-macos-15' || github.event_name == 'pull_request' && !(inputs.full_suite == 'true' && inputs.release_build == 'true') && vars.CI_SWIFT_PACKAGE_TESTS_STEP_GATEWAY || (github.event_name == 'pull_request' && contains(fromJSON(inputs.owned_head_repos), github.event.pull_request.head.repo.full_name) && (github.run_attempt <= 2 || !contains(fromJSON('["github-actions[bot]","cmux-bot[bot]"]'), github.triggering_actor)) || github.event_name == 'workflow_dispatch' && github.run_attempt <= 2) && contains(inputs.pr_owned_jobs, ' swift-package ') && (inputs.pr_side_runner || inputs.pr_runner) || vars.CI_PAID_MACOS_OVERFLOW == '1' && vars.MACOS_RUNNER_DUAL_XCODE || fromJSON(vars.RUNNER_POOLS).macos_15) }}
+=======
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-15' || (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && !contains(fromJSON(inputs.owned_head_repos), github.event.pull_request.head.repo.full_name) && 'blacksmith-6vcpu-macos-15' || github.event_name == 'pull_request' && !(inputs.full_suite == 'true' && inputs.release_build == 'true') && vars.CI_SWIFT_PACKAGE_TESTS_STEP_GATEWAY || github.event_name == 'pull_request' && !(inputs.full_suite == 'true' && inputs.release_build == 'true') && inputs.pr_grant != '' && fromJSON(inputs.pr_grant) || (github.event_name == 'pull_request' && contains(fromJSON(inputs.owned_head_repos), github.event.pull_request.head.repo.full_name) && (github.run_attempt <= 2 || github.triggering_actor != 'github-actions[bot]') || github.event_name == 'workflow_dispatch' && github.run_attempt <= 2) && contains(inputs.pr_owned_jobs, ' swift-package ') && (inputs.pr_side_runner || inputs.pr_runner) || vars.CI_PAID_MACOS_OVERFLOW == '1' && vars.MACOS_RUNNER_DUAL_XCODE || 'blacksmith-6vcpu-macos-15') }}
+>>>>>>> origin/main
     timeout-minutes: 60
     # actions: read lets the select step find the packages earlier runs of
     # this branch passed (scripts/ci/reuse_package_results.py).
@@ -2212,6 +3645,7 @@ jobs:
             --script scripts/ci/package-test-lane.sh --ref "$GITHUB_SHA" \
             --arg=run --arg="--event=$EVENT_NAME" --arg="--full-suite=$FULL_SUITE" \
             --env "CMUX_CI_XCODE_APP=$STEP_XCODE_APP" \
+            --env "CI_WARNINGS=$CI_WARNINGS" \
             --env CMUX_CI_REQUIRED_MACOS_SDK_MAJOR=26 | tee "$lane_log" || status=$?
           # The fleet step has no GITHUB_OUTPUT; its fingerprint receipt comes
           # back as one line of the streamed log.
@@ -2281,14 +3715,416 @@ jobs:
           name: swift-package-tests-crash-reports-${{ github.run_id }}-${{ github.run_attempt }}
           path: ${{ runner.temp }}/package-test-crash-reports
           if-no-files-found: ignore
+<<<<<<< HEAD
           retention-days: 3
+=======
+          retention-days: 7
+
+  tests-build-and-lag:
+    permissions:
+      contents: read
+      actions: read
+      id-token: write
+    needs:
+      - macos-compile-admission
+      - late-placement
+    # !cancelled() disables the implicit success() gate, which GitHub evaluates
+    # over the transitive needs chain: linux-preflight runs behind routed linux
+    # jobs that legitimately skip (web/go/agent-session paths), and that
+    # transitive skip otherwise marks every macOS job skipped even when
+    # linux-preflight itself succeeds. Require the direct needs explicitly.
+    if: ${{ !cancelled() && needs.macos-compile-admission.result == 'success' && inputs.macos == 'true' && inputs.full_suite == 'true' }}
+    # Reuse compile admission's app and UI test products; this runner only
+    # performs display and runtime verification. Its route and Xcode pin
+    # restate compile admission's (the test bundles only load under the Xcode
+    # that linked them), except that paid overflow may move non-PR display
+    # work to MACOS_RUNNER_DISPLAY under the same macOS 15 pin. Main's
+    # full-suite dispatch follows admission onto the pull-request pool and
+    # Xcode. The product consumer guard in the CI change-area tests fails when
+    # the two drift.
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && !contains(fromJSON(inputs.owned_head_repos), github.event.pull_request.head.repo.full_name) && (startsWith(inputs.pr_runner, 'blacksmith-') && inputs.pr_runner || 'blacksmith-6vcpu-macos-15') || needs.late-placement.outputs.attempt == github.run_attempt && fromJSON(needs.late-placement.outputs.runners || '{}')['lag'] || github.event_name == 'pull_request' && inputs.pr_grant != '' && fromJSON(inputs.pr_grant) || (github.event_name == 'pull_request' || github.event_name == 'workflow_dispatch') && ((github.run_attempt > 2 && (github.triggering_actor == 'github-actions[bot]' || github.event_name != 'pull_request') || !contains(inputs.pr_owned_jobs, ' lag ')) && inputs.pr_retry_runner || inputs.pr_gui_runner || inputs.pr_root_runner || inputs.pr_runner || vars.CI_BLACKSMITH_MACOS != 'on' && (github.run_attempt <= 2 || github.triggering_actor != 'github-actions[bot]') && vars.CI_SIDE_LANE_RUNNER || vars.MACOS_RUNNER_PR || 'blacksmith-6vcpu-macos-15') || vars.CI_PAID_MACOS_OVERFLOW == '1' && vars.MACOS_RUNNER_DISPLAY || 'blacksmith-6vcpu-macos-15') }}
+    timeout-minutes: 75
+    env:
+      CMUX_NODE_PRODUCT_CACHE_ROOT: ${{ vars.CMUX_NODE_PRODUCT_CACHE_ROOT }}
+      CMUX_NODE_PRODUCT_CACHE_MAX_BYTES: ${{ vars.CMUX_NODE_PRODUCT_CACHE_MAX_BYTES }}
+      CMUX_NODE_PRODUCT_CACHE_WAIT_SECONDS: ${{ vars.CMUX_NODE_PRODUCT_CACHE_WAIT_SECONDS }}
+      CMUX_ARTIFACT_PEER_URLS: ${{ vars.CMUX_ARTIFACT_PEER_URLS }}
+      CMUX_ARTIFACT_PEER_TOKEN_FILE: ${{ vars.CMUX_ARTIFACT_PEER_TOKEN_FILE }}
+      CMUX_CI_XCODE_APP: ${{ (github.event_name == 'pull_request' || github.event_name == 'workflow_dispatch') && (inputs.pr_xcode_app || (github.event_name != 'pull_request' || contains(fromJSON(inputs.owned_head_repos), github.event.pull_request.head.repo.full_name)) && vars.CMUX_CI_XCODE_APP_PR || vars.CMUX_CI_XCODE_APP_MACOS_15) || vars.CMUX_CI_XCODE_APP_MACOS_15 }}
+      CMUX_CI_REQUIRED_MACOS_SDK_MAJOR: "26"
+    steps:
+      - name: Validate display runner identity
+        env:
+          REQUESTED_RUNNER: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && !contains(fromJSON(inputs.owned_head_repos), github.event.pull_request.head.repo.full_name) && (startsWith(inputs.pr_runner, 'blacksmith-') && inputs.pr_runner || 'blacksmith-6vcpu-macos-15') || needs.late-placement.outputs.attempt == github.run_attempt && fromJSON(needs.late-placement.outputs.runners || '{}')['lag'] || github.event_name == 'pull_request' && inputs.pr_grant != '' && inputs.pr_grant || (github.event_name == 'pull_request' || github.event_name == 'workflow_dispatch') && ((github.run_attempt > 2 && (github.triggering_actor == 'github-actions[bot]' || github.event_name != 'pull_request') || !contains(inputs.pr_owned_jobs, ' lag ')) && inputs.pr_retry_runner || inputs.pr_gui_runner || inputs.pr_root_runner || inputs.pr_runner || vars.CI_BLACKSMITH_MACOS != 'on' && (github.run_attempt <= 2 || github.triggering_actor != 'github-actions[bot]') && vars.CI_SIDE_LANE_RUNNER || vars.MACOS_RUNNER_PR || 'blacksmith-6vcpu-macos-15') || vars.CI_PAID_MACOS_OVERFLOW == '1' && vars.MACOS_RUNNER_DISPLAY || 'blacksmith-6vcpu-macos-15') }}
+          RUNNER_CONTEXT_NAME: ${{ runner.name }}
+        run: |
+          set -euo pipefail
+          echo "Requested runner: $REQUESTED_RUNNER"
+          case "$REQUESTED_RUNNER" in
+            depot-*)
+              case "$RUNNER_CONTEXT_NAME" in
+                depot-*)
+                  echo "Resolved runner matches depot-*? yes"
+                  ;;
+                *)
+                  echo "Resolved runner matches depot-*? no"
+                  echo "::error::$REQUESTED_RUNNER resolved outside Depot. Remove $REQUESTED_RUNNER from non-Depot self-hosted runners or choose a different runner."
+                  exit 1
+                  ;;
+              esac
+              ;;
+            *)
+              echo "Display runner is not Depot; skipping Depot identity guard"
+              ;;
+          esac
+
+      # Start from main's git objects, so checkout fetches only what changed
+      # since then instead of the whole tree and its submodules
+      # (scripts/ci/git-seed.sh). The script is read at this commit over HTTPS
+      # because nothing is checked out yet. A miss leaves the workspace empty
+      # and checkout clones as before.
+      - name: Restore git object seed
+        continue-on-error: true
+        timeout-minutes: 3
+        run: |
+          set -euo pipefail
+          script="$RUNNER_TEMP/git-seed.sh"
+          curl --fail --silent --show-error --location --connect-timeout 10 --max-time 30 \
+            -o "$script" "https://raw.githubusercontent.com/$GITHUB_REPOSITORY/$GITHUB_SHA/scripts/ci/git-seed.sh"
+          bash "$script" restore "$GITHUB_WORKSPACE"
+
+      - name: Clear stale git locks (self-hosted reused workspace)
+        shell: bash
+        run: |
+          # Self-hosted macOS runners reuse the workspace. A job cancelled or
+          # killed mid-checkout can leave a stale .git/modules/*/index.lock that
+          # fails every later submodule checkout (e.g. ghostty). Clear them first.
+          ws="${GITHUB_WORKSPACE:-$PWD}"
+          rm -f "$ws/.git/index.lock" 2>/dev/null || true
+          if [ -d "$ws/.git/modules" ]; then
+            find "$ws/.git/modules" -type f -name "*.lock" -delete 2>/dev/null || true
+          fi
+
+      - name: Checkout
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+
+      - name: Select Xcode
+        run: |
+          set -euo pipefail
+          ./scripts/select-ci-xcode.sh
+
+      - name: Prepare isolated DerivedData
+        run: |
+          set -euo pipefail
+          DERIVED_DATA_PATH="$RUNNER_TEMP/cmux-deriveddata-tests-build-and-lag"
+          rm -rf "$DERIVED_DATA_PATH"
+          mkdir -p "$DERIVED_DATA_PATH"
+          echo "CMUX_DERIVED_DATA_PATH=$DERIVED_DATA_PATH" >> "$GITHUB_ENV"
+
+      - name: Try node-local compiled product cache
+        id: node-products
+        continue-on-error: true
+        env:
+          ARTIFACT_ID: ${{ needs.macos-compile-admission.outputs.artifact_id }}
+          ARTIFACT_PROVIDER_DIGEST: ${{ needs.macos-compile-admission.outputs.artifact_digest }}
+          EXPECTED_SHA256: ${{ needs.macos-compile-admission.outputs.sha256 }}
+          CMUX_PRODUCT_CONTRACT: ${{ needs.macos-compile-admission.outputs.product_contract }}
+          CMUX_PRODUCT_SOURCE_REVISION: ${{ needs.macos-compile-admission.outputs.source_revision }}
+          CMUX_PRODUCT_PRODUCER_RUN_ID: ${{ needs.macos-compile-admission.outputs.producer_run_id }}
+          CMUX_PRODUCT_PRODUCER_RUN_ATTEMPT: ${{ needs.macos-compile-admission.outputs.producer_run_attempt }}
+          CMUX_NODE_PRODUCT_CACHE_FALLBACK_SOURCE: ${{ vars.CMUX_ARTIFACT_PEER_URLS != '' && 'peer' || (vars.CI_ARTIFACT_R2_URL != '' && 'r2' || 'github') }}
+        run: python3 scripts/ci/node_product_cache.py acquire "$RUNNER_TEMP/app-host-products"
+
+      - name: Try trusted fleet peer artifact source
+        id: peer-products
+        if: steps.node-products.outputs.hit != 'true'
+        continue-on-error: true
+        env:
+          ARTIFACT_ID: ${{ needs.macos-compile-admission.outputs.artifact_id }}
+          ARTIFACT_PROVIDER_DIGEST: ${{ needs.macos-compile-admission.outputs.artifact_digest }}
+          EXPECTED_SHA256: ${{ needs.macos-compile-admission.outputs.sha256 }}
+          CMUX_PRODUCT_CONTRACT: ${{ needs.macos-compile-admission.outputs.product_contract }}
+          CMUX_PRODUCT_SOURCE_REVISION: ${{ needs.macos-compile-admission.outputs.source_revision }}
+          CMUX_PRODUCT_PRODUCER_RUN_ID: ${{ needs.macos-compile-admission.outputs.producer_run_id }}
+          CMUX_PRODUCT_PRODUCER_RUN_ATTEMPT: ${{ needs.macos-compile-admission.outputs.producer_run_attempt }}
+        run: python3 scripts/ci/peer_product_source.py fetch "$RUNNER_TEMP/app-host-products"
+
+      - name: Restore selective app-host product layers
+        id: restore-layers
+        if: steps.node-products.outputs.hit != 'true' && steps.peer-products.outputs.hit != 'true' && needs.macos-compile-admission.outputs.layer_index_artifact_id != ''
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ github.token }}
+          CMUX_RUN_HEAD_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+          CMUX_APP_HOST_LAYER_PROFILE: app-host-tests
+          LAYER_INDEX_ID: ${{ needs.macos-compile-admission.outputs.layer_index_artifact_id }}
+          LAYER_INDEX_DIGEST: ${{ needs.macos-compile-admission.outputs.layer_index_digest }}
+        run: |
+          python3 scripts/ci/app_host_layer_transport.py restore             "${CMUX_DERIVED_DATA_PATH}-layers"             --index-id "$LAYER_INDEX_ID"             --index-digest "$LAYER_INDEX_DIGEST"
+
+      # R2 is an optional remote broker. With no configured endpoint, a peer
+      # miss falls straight through to the canonical GitHub artifact.
+      - name: Try shared R2 artifact transport
+        id: r2-products
+        if: steps.node-products.outputs.hit != 'true' && steps.peer-products.outputs.hit != 'true' && steps.restore-layers.outputs.hit != 'true' && vars.CI_ARTIFACT_R2_URL != ''
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ github.token }}
+          CI_ARTIFACT_R2_URL: ${{ vars.CI_ARTIFACT_R2_URL }}
+          ARTIFACT_ID: ${{ needs.macos-compile-admission.outputs.artifact_id }}
+          ARTIFACT_PROVIDER_DIGEST: ${{ needs.macos-compile-admission.outputs.artifact_digest }}
+        run: python3 scripts/ci/restore-r2-artifact.py
+
+      # Same exact-ID GitHub artifact, read over parallel range requests. The
+      # single-stream download-artifact path sustained ~2 MB/s on Blacksmith
+      # macOS (7-10 min per consumer); it stays below as the fallback.
+      - name: Try parallel GitHub artifact transport
+        id: parallel-products
+        if: steps.node-products.outputs.hit != 'true' && steps.peer-products.outputs.hit != 'true' && steps.restore-layers.outputs.hit != 'true' && steps.r2-products.outputs.hit != 'true'
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ github.token }}
+          ARTIFACT_ID: ${{ needs.macos-compile-admission.outputs.artifact_id }}
+          ARTIFACT_PROVIDER_DIGEST: ${{ needs.macos-compile-admission.outputs.artifact_digest }}
+        run: python3 scripts/ci/parallel_artifact_download.py
+
+      - name: Download compiled app-host test product
+        if: steps.node-products.outputs.hit != 'true' && steps.peer-products.outputs.hit != 'true' && steps.restore-layers.outputs.hit != 'true' && steps.r2-products.outputs.hit != 'true' && steps.parallel-products.outputs.hit != 'true'
+        # Keep a dead or crawling fallback from consuming the whole job.
+        timeout-minutes: 15
+        uses: ./.github/actions/download-test-product
+        with:
+          artifact-id: ${{ needs.macos-compile-admission.outputs.artifact_id }}
+          path: ${{ runner.temp }}/app-host-products
+
+      - name: Restore compiled app-host test product
+        id: restore-products
+        env:
+          ARTIFACT_ID: ${{ needs.macos-compile-admission.outputs.artifact_id }}
+          ARTIFACT_PROVIDER_DIGEST: ${{ needs.macos-compile-admission.outputs.artifact_digest }}
+          EXPECTED_SHA256: ${{ needs.macos-compile-admission.outputs.sha256 }}
+          CMUX_PRODUCT_CONTRACT: ${{ needs.macos-compile-admission.outputs.product_contract }}
+          CMUX_PRODUCT_SOURCE_REVISION: ${{ needs.macos-compile-admission.outputs.source_revision }}
+          CMUX_PRODUCT_PRODUCER_RUN_ID: ${{ needs.macos-compile-admission.outputs.producer_run_id }}
+          CMUX_PRODUCT_PRODUCER_RUN_ATTEMPT: ${{ needs.macos-compile-admission.outputs.producer_run_attempt }}
+          CMUX_LAYER_RESTORED: ${{ steps.restore-layers.outputs.hit }}
+          CMUX_NODE_PRODUCT_CACHE_HIT: ${{ steps.node-products.outputs.hit }}
+          CMUX_NODE_PRODUCT_CACHE_LOOKUP_SECONDS: ${{ steps.node-products.outputs.lookup_seconds }}
+          CMUX_PEER_PRODUCT_HIT: ${{ steps.peer-products.outputs.hit }}
+          CMUX_PEER_PRODUCT_SOURCE: ${{ steps.peer-products.outputs.source }}
+          CMUX_PEER_PRODUCT_LOOKUP_SECONDS: ${{ steps.peer-products.outputs.lookup_seconds }}
+          CMUX_PEER_PRODUCT_TRANSFER_SECONDS: ${{ steps.peer-products.outputs.transfer_seconds }}
+          CMUX_PEER_PRODUCT_BYTES: ${{ steps.peer-products.outputs.bytes_transferred }}
+          CMUX_R2_PRODUCT_HIT: ${{ steps.r2-products.outputs.hit }}
+          CMUX_PARALLEL_PRODUCT_HIT: ${{ steps.parallel-products.outputs.hit }}
+          CMUX_PARALLEL_PRODUCT_TRANSFER_SECONDS: ${{ steps.parallel-products.outputs.transfer_seconds }}
+          CMUX_ARTIFACT_R2_RESULT: ${{ steps.r2-products.outputs.r2_result }}
+        run: scripts/ci/restore-app-host-test-product.sh
+
+      - name: Finalize node-local compiled product cache
+        if: always()
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ github.token }}
+          ARTIFACT_ID: ${{ needs.macos-compile-admission.outputs.artifact_id }}
+          ARTIFACT_PROVIDER_DIGEST: ${{ needs.macos-compile-admission.outputs.artifact_digest }}
+          EXPECTED_SHA256: ${{ needs.macos-compile-admission.outputs.sha256 }}
+          CMUX_PRODUCT_CONTRACT: ${{ needs.macos-compile-admission.outputs.product_contract }}
+          CMUX_PRODUCT_SOURCE_REVISION: ${{ needs.macos-compile-admission.outputs.source_revision }}
+          CMUX_PRODUCT_PRODUCER_RUN_ID: ${{ needs.macos-compile-admission.outputs.producer_run_id }}
+          CMUX_PRODUCT_PRODUCER_RUN_ATTEMPT: ${{ needs.macos-compile-admission.outputs.producer_run_attempt }}
+          CMUX_NODE_PRODUCT_CACHE_TOKEN: ${{ steps.node-products.outputs.token }}
+          CMUX_NODE_PRODUCT_CACHE_LEASE: ${{ steps.node-products.outputs.lease }}
+          CMUX_NODE_PRODUCT_SOURCE_CLASS: ${{ steps.peer-products.outputs.hit == 'true' && (steps.peer-products.outputs.source == 'lan' && 'lan' || 'peer') || (steps.r2-products.outputs.hit == 'true' && 'r2' || 'github') }}
+          CMUX_PRODUCT_RESTORE_SUCCEEDED: ${{ steps.restore-products.outcome == 'success' && steps.restore-layers.outputs.hit != 'true' }}
+        run: python3 scripts/ci/node_product_cache.py finalize "$RUNNER_TEMP/app-host-products/app-host-products.tar.gz"
+
+      - name: Run display UI regressions
+        run: scripts/ci/run-display-ui-regressions.sh
+
+      - name: Create virtual display
+        run: |
+          set -euo pipefail
+          HELPER_PATH="$RUNNER_TEMP/create-virtual-display"
+          VDISPLAY_READY="$RUNNER_TEMP/cmux-build-lag-vdisplay.ready"
+          VDISPLAY_ID_PATH="$RUNNER_TEMP/cmux-build-lag-vdisplay.id"
+          VDISPLAY_LOG="$RUNNER_TEMP/cmux-build-lag-vdisplay.log"
+          VDISPLAY_PID=""
+
+          clang -framework Foundation -framework CoreGraphics \
+            -o "$HELPER_PATH" scripts/create-virtual-display.m
+
+          cleanup_display_attempt() {
+            if [ -n "${VDISPLAY_PID:-}" ]; then
+              kill "$VDISPLAY_PID" >/dev/null 2>&1 || true
+              for _ in $(seq 1 50); do
+                kill -0 "$VDISPLAY_PID" >/dev/null 2>&1 || break
+                sleep 0.1
+              done
+              if kill -0 "$VDISPLAY_PID" >/dev/null 2>&1; then
+                kill -9 "$VDISPLAY_PID" >/dev/null 2>&1 || true
+                wait "$VDISPLAY_PID" >/dev/null 2>&1 || true
+              fi
+              VDISPLAY_PID=""
+            fi
+            scripts/ci/virtual-display-lock.sh reap-strays || true
+            scripts/ci/virtual-display-lock.sh release || true
+          }
+
+          for attempt in 1 2 3; do
+            rm -f "$VDISPLAY_READY" "$VDISPLAY_ID_PATH" "$VDISPLAY_LOG"
+            LOCK_ENV="$(scripts/ci/virtual-display-lock.sh acquire)"
+            eval "$LOCK_ENV"
+            export CMUX_VDISPLAY_LOCK_DIR CMUX_VDISPLAY_LOCK_TOKEN
+            {
+              echo "CMUX_VDISPLAY_LOCK_DIR=$CMUX_VDISPLAY_LOCK_DIR"
+              echo "CMUX_VDISPLAY_LOCK_TOKEN=$CMUX_VDISPLAY_LOCK_TOKEN"
+            } >> "$GITHUB_ENV"
+
+            # Now that we hold the lock, reap any leaked display helper so a
+            # CGVirtualDisplay orphaned by a crashed/cancelled job cannot block
+            # this create on persistent self-hosted runners.
+            scripts/ci/virtual-display-lock.sh reap-strays || true
+
+            "$HELPER_PATH" \
+              --ready-path "$VDISPLAY_READY" \
+              --display-id-path "$VDISPLAY_ID_PATH" \
+              >"$VDISPLAY_LOG" 2>&1 &
+            VDISPLAY_PID=$!
+            scripts/ci/virtual-display-lock.sh set-owner "$VDISPLAY_PID"
+
+            {
+              echo "VDISPLAY_PID=$VDISPLAY_PID"
+              echo "VDISPLAY_HELPER_PATH=$HELPER_PATH"
+              echo "VDISPLAY_READY=$VDISPLAY_READY"
+              echo "VDISPLAY_ID_PATH=$VDISPLAY_ID_PATH"
+              echo "VDISPLAY_LOG=$VDISPLAY_LOG"
+            } >> "$GITHUB_ENV"
+
+            for _ in $(seq 1 100); do
+              if [ -s "$VDISPLAY_READY" ] && [ -s "$VDISPLAY_ID_PATH" ]; then
+                break
+              fi
+              if ! kill -0 "$VDISPLAY_PID" 2>/dev/null; then
+                echo "Virtual display helper exited before readiness on attempt $attempt" >&2
+                cat "$VDISPLAY_LOG" >&2 || true
+                break
+              fi
+              sleep 0.1
+            done
+
+            if [ -s "$VDISPLAY_READY" ] && [ -s "$VDISPLAY_ID_PATH" ]; then
+              echo "Virtual display ready: $(tr -d '\n' < "$VDISPLAY_ID_PATH")"
+              cat "$VDISPLAY_LOG"
+              exit 0
+            fi
+
+            echo "Virtual display not ready on attempt $attempt" >&2
+            cat "$VDISPLAY_LOG" >&2 || true
+            cleanup_display_attempt
+            if [ "$attempt" -eq 3 ]; then
+              echo "Failed to create virtual display after 3 attempts" >&2
+              exit 1
+            fi
+            sleep 5
+          done
+
+      - name: Run CoreAnimation main-thread startup regression
+        run: |
+          set -euo pipefail
+          APP="$(
+            find "$CMUX_DERIVED_DATA_PATH" -path "*/Build/Products/Debug/cmux DEV.app" -exec stat -f '%m %N' {} \; \
+              | sort -nr \
+              | head -1 \
+              | cut -d' ' -f2-
+          )"
+          if [ -z "${APP:-}" ] || [ ! -d "$APP" ]; then
+            echo "cmux DEV.app not found in DerivedData" >&2
+            exit 1
+          fi
+
+          CMUX_ALLOW_UNTAGGED_CA_REGRESSION=1 \
+          CMUX_CA_ASSERT_HOLD_SECONDS=15 \
+          CMUX_TAG="ci-ca-main-thread" \
+          ./scripts/verify-main-thread-ca-transactions.sh "$APP"
+
+      - name: Run workspace churn typing-lag regression
+        run: |
+          set -euo pipefail
+
+          APP="$(find "$CMUX_DERIVED_DATA_PATH" -path "*/Build/Products/Debug/cmux DEV.app" -print -quit)"
+          if [ -z "${APP:-}" ] || [ ! -d "$APP" ]; then
+            echo "cmux DEV.app not found in DerivedData" >&2
+            exit 1
+          fi
+
+          TAG="ci-lag"
+          SOCK="/tmp/cmux-debug-${TAG}.sock"
+          BUNDLE_ID="$(
+            /usr/libexec/PlistBuddy -c 'Print :CFBundleIdentifier' "$APP/Contents/Info.plist" 2>/dev/null \
+              || echo 'com.cmuxterm.app.debug'
+          )"
+
+          pkill -x "cmux DEV" || true
+          rm -f "$SOCK" "/tmp/cmux-${TAG}.sock" || true
+          defaults write "$BUNDLE_ID" socketControlMode -string full >/dev/null 2>&1 || true
+
+          # The relocated Debug app's first rpath is the producer's absolute
+          # DerivedData, which on an owned Mac is this host's own compile slot
+          # at another revision; bind the restored frameworks instead.
+          PRODUCTS="$(dirname "$APP")"
+          DYLD_FRAMEWORK_PATH="$PRODUCTS:$PRODUCTS/PackageFrameworks" \
+            CMUX_TAG="$TAG" CMUX_SOCKET_PATH="$SOCK" CMUX_UI_TEST_MODE=1 "$APP/Contents/MacOS/cmux DEV" >/tmp/cmux-ci-lag.log 2>&1 &
+          APP_PID=$!
+          trap 'kill "$APP_PID" >/dev/null 2>&1 || true' EXIT
+
+          for _ in {1..240}; do
+            [ -S "$SOCK" ] && break
+            sleep 0.25
+          done
+          [ -S "$SOCK" ] || { echo "Socket not ready at $SOCK" >&2; exit 1; }
+
+          CMUX_SOCKET_PATH="$SOCK" \
+          CMUX_LAG_MAX_P95_RATIO=1.70 \
+          CMUX_LAG_MAX_AVG_RATIO=1.70 \
+          CMUX_LAG_MIN_BASELINE_P95_MS_FOR_RATIO=6.0 \
+          CMUX_LAG_MIN_BASELINE_AVG_MS_FOR_RATIO=4.0 \
+          CMUX_LAG_MAX_P95_DELTA_MS=20.0 \
+          CMUX_LAG_MAX_AVG_DELTA_MS=12.0 \
+          CMUX_LAG_MAX_CHURN_P95_MS=35 \
+          CMUX_LAG_KEY_EVENTS=180 \
+          python3 tests/test_workspace_churn_up_arrow_lag.py
+
+      - name: Cleanup virtual display
+        if: always()
+        run: |
+          set -euo pipefail
+          if [ -n "${VDISPLAY_PID:-}" ]; then
+            kill "$VDISPLAY_PID" >/dev/null 2>&1 || true
+            for _ in $(seq 1 50); do
+              kill -0 "$VDISPLAY_PID" >/dev/null 2>&1 || break
+              sleep 0.1
+            done
+            if kill -0 "$VDISPLAY_PID" >/dev/null 2>&1; then
+              kill -9 "$VDISPLAY_PID" >/dev/null 2>&1 || true
+              wait "$VDISPLAY_PID" >/dev/null 2>&1 || true
+            fi
+          fi
+          scripts/ci/virtual-display-lock.sh reap-strays || true
+          scripts/ci/virtual-display-lock.sh release || true
+          rm -f "${VDISPLAY_HELPER_PATH:-}" "${VDISPLAY_READY:-}" "${VDISPLAY_ID_PATH:-}" "${VDISPLAY_LOG:-}"
+>>>>>>> origin/main
 
   release-admission:
     needs:
       - swift-package-tests
       - macos-compile-admission
     if: ${{ !cancelled() && needs.swift-package-tests.result == 'success' && needs.macos-compile-admission.result == 'success' && inputs.release_build == 'true' && inputs.full_suite == 'true' }}
+<<<<<<< HEAD
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || 'cmux-linux' }}
+=======
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && !contains(fromJSON(inputs.owned_head_repos), github.event.pull_request.head.repo.full_name) && 'ubuntu-24.04' || vars.CI_OVERFLOW_LINUX || 'cmux-linux' }}
+>>>>>>> origin/main
     timeout-minutes: 20
     steps:
       - name: Wait for routed Linux preflight
@@ -2379,7 +4215,11 @@ jobs:
     # gives it the light pool's side runners,
     # and swift-package-tests (the only lane ci.yml hands the light label
     # through pr_side_runner) never shares a run with it.
+<<<<<<< HEAD
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && !contains(fromJSON(inputs.owned_head_repos), github.event.pull_request.head.repo.full_name) && 'blacksmith-6vcpu-macos-26' || (github.event_name == 'pull_request' && contains(fromJSON(inputs.owned_head_repos), github.event.pull_request.head.repo.full_name) && (github.run_attempt <= 2 || !contains(fromJSON('["github-actions[bot]","cmux-bot[bot]"]'), github.triggering_actor)) || github.event_name == 'workflow_dispatch' && github.run_attempt <= 2) && contains(inputs.pr_owned_jobs, ' release-build ') && (inputs.pr_side_runner || inputs.pr_runner) || (vars.CI_BLACKSMITH_MACOS != 'on' && vars.CI_SIDE_LANE_RUNNER || vars.MACOS_RUNNER_26 || fromJSON(vars.RUNNER_POOLS).macos_26)) }}
+=======
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && !contains(fromJSON(inputs.owned_head_repos), github.event.pull_request.head.repo.full_name) && 'blacksmith-6vcpu-macos-26' || github.event_name == 'pull_request' && inputs.pr_grant != '' && fromJSON(inputs.pr_grant) || (github.event_name == 'pull_request' && contains(fromJSON(inputs.owned_head_repos), github.event.pull_request.head.repo.full_name) && (github.run_attempt <= 2 || github.triggering_actor != 'github-actions[bot]') || github.event_name == 'workflow_dispatch' && github.run_attempt <= 2) && contains(inputs.pr_owned_jobs, ' release-build ') && (inputs.pr_side_runner || inputs.pr_runner) || contains(fromJSON('["pull_request","workflow_dispatch"]'), github.event_name) && vars.CI_BLACKSMITH_MACOS != 'on' && (github.run_attempt <= 2 || github.triggering_actor != 'github-actions[bot]') && vars.CI_SIDE_LANE_RUNNER || vars.MACOS_RUNNER_26 || 'blacksmith-6vcpu-macos-26') }}
+>>>>>>> origin/main
     timeout-minutes: 60
     permissions:
       actions: read
@@ -2390,7 +4230,11 @@ jobs:
       CMUX_CI_XCODE_APP: ${{ (github.event_name == 'pull_request' && contains(fromJSON(inputs.owned_head_repos), github.event.pull_request.head.repo.full_name) && (github.run_attempt <= 2 || !contains(fromJSON('["github-actions[bot]","cmux-bot[bot]"]'), github.triggering_actor)) || github.event_name == 'workflow_dispatch' && github.run_attempt <= 2) && contains(inputs.pr_owned_jobs, ' release-build ') && (inputs.pr_side_runner || inputs.pr_runner) && (inputs.pr_xcode_app || vars.CMUX_CI_XCODE_APP_PR) || vars.CMUX_CI_XCODE_APP_MACOS_26 }}
       CMUX_CI_REQUIRED_MACOS_SDK_MAJOR: "26"
       CMUX_SKIP_ZIG_BUILD: "1"
+<<<<<<< HEAD
       CMUX_PRODUCT_RUNNER: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && !contains(fromJSON(inputs.owned_head_repos), github.event.pull_request.head.repo.full_name) && 'blacksmith-6vcpu-macos-26' || (github.event_name == 'pull_request' && contains(fromJSON(inputs.owned_head_repos), github.event.pull_request.head.repo.full_name) && (github.run_attempt <= 2 || !contains(fromJSON('["github-actions[bot]","cmux-bot[bot]"]'), github.triggering_actor)) || github.event_name == 'workflow_dispatch' && github.run_attempt <= 2) && contains(inputs.pr_owned_jobs, ' release-build ') && (inputs.pr_side_runner || inputs.pr_runner) || (vars.CI_BLACKSMITH_MACOS != 'on' && vars.CI_SIDE_LANE_RUNNER || vars.MACOS_RUNNER_26 || fromJSON(vars.RUNNER_POOLS).macos_26)) }}
+=======
+      CMUX_PRODUCT_RUNNER: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && !contains(fromJSON(inputs.owned_head_repos), github.event.pull_request.head.repo.full_name) && 'blacksmith-6vcpu-macos-26' || github.event_name == 'pull_request' && inputs.pr_grant != '' && fromJSON(inputs.pr_grant)[0] || (github.event_name == 'pull_request' && contains(fromJSON(inputs.owned_head_repos), github.event.pull_request.head.repo.full_name) && (github.run_attempt <= 2 || github.triggering_actor != 'github-actions[bot]') || github.event_name == 'workflow_dispatch' && github.run_attempt <= 2) && contains(inputs.pr_owned_jobs, ' release-build ') && (inputs.pr_side_runner || inputs.pr_runner) || contains(fromJSON('["pull_request","workflow_dispatch"]'), github.event_name) && vars.CI_BLACKSMITH_MACOS != 'on' && (github.run_attempt <= 2 || github.triggering_actor != 'github-actions[bot]') && vars.CI_SIDE_LANE_RUNNER || vars.MACOS_RUNNER_26 || 'blacksmith-6vcpu-macos-26') }}
+>>>>>>> origin/main
       CMUX_RELEASE_SOURCE_REVISION: ${{ github.event.pull_request.head.sha || github.sha }}
     steps:
       - name: Clear stale git locks (self-hosted reused workspace)
@@ -2424,6 +4268,27 @@ jobs:
       - name: Install Rust
         run: ./scripts/install-rust-ci.sh
 
+<<<<<<< HEAD
+=======
+      # The app's build phase clones the pinned cmux-cua source into this
+      # Mac's cache when the pin is missing, with no token: build settings
+      # carry no secrets (compile-app-host-test-product.sh). GitHub answers
+      # anonymous fetches from these Macs' shared address with 403 and
+      # 429 under load, and main's run 45760337662 failed compile admission
+      # on that clone. Fetch it here with the run's token; a warm cache makes
+      # no network call.
+      - name: Fetch the pinned cmux-cua source
+        env:
+          CMUX_CUA_GIT_TOKEN: ${{ github.token }}
+        run: ./scripts/build-cmux-cua.sh --source-only
+
+      - name: Set up Go for the Cloud tunnel extension
+        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version: '1.26.x'
+          cache: false
+
+>>>>>>> origin/main
       - name: Validate cmux-tui client installation
         run: /bin/bash ./tests/test_install_cmux_tui_client.sh
 
@@ -2803,8 +4668,18 @@ jobs:
 
   macos-status:
     name: macOS status
+    # The placement jobs are here only so the gate verdict can read the `if:`
+    # of the jobs that need them. They are best effort (a 3-minute timeout or
+    # a lost runner can end them cancelled or failed), so the verdict step
+    # names them --context-only and never judges their own result.
     needs:
+      - admission-placement
       - macos-compile-admission
+<<<<<<< HEAD
+=======
+      - late-placement
+      - app-host-unit-tests
+>>>>>>> origin/main
       - cli-product-tests
       - swift-package-tests
       - release-admission
@@ -2812,9 +4687,42 @@ jobs:
     # A cancelled run already has its terminal outcome; avoid spending a
     # Blacksmith runner on the status rollup.
     if: ${{ !cancelled() }}
+<<<<<<< HEAD
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || 'cmux-linux' }}
+=======
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && !contains(fromJSON(inputs.owned_head_repos), github.event.pull_request.head.repo.full_name) && 'ubuntu-24.04' || vars.CI_OVERFLOW_LINUX || 'cmux-linux' }}
+>>>>>>> origin/main
     timeout-minutes: 5
     steps:
+      # An absent signal must never read green. The steps below allow a
+      # `skipped` need, which is right only when that job's routing turned it
+      # off. This asks each skipped job's own `if:` whether it was selected,
+      # with the same needs, variables, inputs and event fields that decided
+      # it, and fails when a selected job never ran (scripts/ci/gate_verdict.py;
+      # tests/test_ci_gate_absent_signal.py walks the needs graph).
+      - name: Check out the gate verdict
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+        with:
+          persist-credentials: false
+          sparse-checkout: |
+            scripts/ci/gate_verdict.py
+            .github/workflows/ci-macos.yml
+          sparse-checkout-cone-mode: false
+
+      - name: Every selected job reported
+        env:
+          GATE_NEEDS: ${{ toJSON(needs) }}
+          GATE_VARS: ${{ toJSON(vars) }}
+          GATE_INPUTS: ${{ toJSON(inputs) }}
+          GATE_GITHUB: >-
+            {"event_name": ${{ toJSON(github.event_name) }},
+            "repository": ${{ toJSON(github.repository) }},
+            "repository_owner": ${{ toJSON(github.repository_owner) }},
+            "run_attempt": ${{ toJSON(github.run_attempt) }},
+            "triggering_actor": ${{ toJSON(github.triggering_actor) }},
+            "event": {"pull_request": {"head": {"repo": {"full_name": ${{ toJSON(github.event.pull_request.head.repo.full_name) }}}}}}}
+        run: python3 scripts/ci/gate_verdict.py --workflow .github/workflows/ci-macos.yml --gate macos-status --context-only admission-placement,late-placement
+
       # Compile-avoidance shadow (RFC #15391, Work 3). The package lane
       # classifies the pull request's package edits; when every edited
       # package kept its interface and the package tests passed, the app

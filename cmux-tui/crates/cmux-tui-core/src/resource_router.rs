@@ -23,6 +23,7 @@ mod revision_conflict;
 mod session;
 pub(crate) mod theme_scheme;
 mod topology;
+<<<<<<< ours
 mod wait_text;
 pub(crate) use wait_text::WaitText;
 
@@ -33,6 +34,13 @@ pub(crate) use owner::requires_connection_context;
 use owner::{OperationOwner, operation_owner};
 pub(crate) use revision_conflict::is_revision_conflict;
 use revision_conflict::revision_conflict_values;
+=======
+mod wait_text;
+
+#[cfg(test)]
+mod screen_focus_tests;
+pub(crate) use wait_text::WaitText;
+>>>>>>> theirs
 
 use std::collections::{HashMap, HashSet};
 use std::sync::{Arc, OnceLock};

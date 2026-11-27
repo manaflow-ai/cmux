@@ -1,0 +1,105 @@
+# Leo, 2026-11-22: "don't we just... point sr2 at it?"
+#
+# Gives a Cloud test account's team (the Stack user cloud-claude-matrix or cloud-chief-turn-proof signs in as) one shared
+# (visibility=team) Claude account in its backend's coderouter (cmux.com or cmux-staging.vercel.app), so a machine's chatmux-token call
+# through coderouter.cmux.internal has an upstream. Without one, the matrix sr2 row gets coderouter's 403
+# "No Claude upstream account is configured for this team or shared with this caller" (run 45053704158).
+# The token comes from this environment's CLAUDE_CODE_OAUTH_TOKEN (or ANTHROPIC_API_KEY); it is sent to
+# coderouter only and never printed. Idempotent: a team that already has a shared Claude account is left as is.
+name: Coderouter team Claude account
+
+on:
+  workflow_dispatch:
+    inputs:
+      backend:
+        description: "prod (cmux.com; the matrix's test account) or staging (cmux-staging.vercel.app; the Chief turn proof's test account)"
+        type: choice
+        options: [prod, staging]
+        default: prod
+      kind:
+        description: "anthropic_oauth (CLAUDE_CODE_OAUTH_TOKEN) or anthropic_api_key (ANTHROPIC_API_KEY)"
+        type: choice
+        options: [anthropic_oauth, anthropic_api_key]
+        default: anthropic_oauth
+
+permissions:
+  contents: read
+
+concurrency:
+  group: coderouter-team-claude-account
+  cancel-in-progress: false
+
+jobs:
+  add:
+    if: github.repository_owner == 'manaflow-ai' && github.ref == 'refs/heads/main'
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'blacksmith-4vcpu-ubuntu-2404' }}
+    timeout-minutes: 10
+    # The environment whose test account makes the machines: cloud-claude-matrix's (prod), cloud-chief-turn-proof's (staging).
+    environment: ${{ inputs.backend == 'staging' && 'cmux-next-vm-image-dev' || 'cmux-next-cloud-journey' }}
+    steps:
+      - name: Add the shared Claude account to the test account's team
+        env:
+          STACK_EMAIL: ${{ secrets.CMUX_DOGFOOD_STACK_EMAIL }}
+          STACK_PASSWORD: ${{ secrets.CMUX_DOGFOOD_STACK_PASSWORD }}
+          CLAUDE_CODE_OAUTH_TOKEN: ${{ secrets.CMUX_JOURNEY_CLAUDE_CODE_OAUTH_TOKEN || secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          KIND: ${{ inputs.kind }}
+          BACKEND: ${{ inputs.backend }}
+        shell: python3 -I {0}
+        run: |
+          import json, os, sys, urllib.error, urllib.request
+
+          STACK = "https://api.stack-auth.com"
+          # Stack projects from scripts/cmux-next/cloud-journey.ts STACK (staging signs in to the dev project).
+          BACKENDS = {
+              "prod": ("https://cmux.com", "9790718f-14cd-4f7e-824d-eaf527a82b82", ""),
+              "staging": ("https://cmux-staging.vercel.app", "454ecd03-1db2-4050-845e-4ce5b0cd9895", "pck_xb63160bwe9699vtxfzfj6emmxpafg5mkjrtp6ehzxv5g"),
+          }
+          ORIGIN, PROJECT, CLIENT_KEY = BACKENDS[os.environ.get("BACKEND") or "prod"]
+          STACK_HEADERS = {"x-stack-access-type": "client", "x-stack-project-id": PROJECT,
+                           **({"x-stack-publishable-client-key": CLIENT_KEY} if CLIENT_KEY else {})}
+
+          def call(method, url, body=None, headers=None):
+              data = json.dumps(body).encode() if body is not None else None
+              req = urllib.request.Request(url, data=data, method=method, headers={"content-type": "application/json", **(headers or {})})
+              try:
+                  with urllib.request.urlopen(req, timeout=60) as r:
+                      return r.status, json.loads(r.read() or b"{}")
+              except urllib.error.HTTPError as e:
+                  try:
+                      return e.code, json.loads(e.read() or b"{}")
+                  except ValueError:
+                      return e.code, {}
+
+          status, signed = call("POST", f"{STACK}/api/v1/auth/password/sign-in",
+              {"email": os.environ["STACK_EMAIL"], "password": os.environ["STACK_PASSWORD"]},
+              STACK_HEADERS)
+          if status != 200 or not signed.get("access_token"):
+              sys.exit(f"Stack sign-in: HTTP {status} {signed.get('code', '')}")
+          team = signed["user_id"]  # a machine token's team_id is its owner, the Stack user (CoderouterEdge.ts)
+          auth = {"authorization": f"Bearer {signed['access_token']}", "x-stack-refresh-token": signed["refresh_token"], "x-cmux-team-id": team}
+          print(f"{ORIGIN} team {team}")
+
+          status, listed = call("GET", f"{ORIGIN}/api/coderouter/claude-upstream?teamId={team}", headers=auth)
+          if status != 200:
+              sys.exit(f"list Claude accounts: HTTP {status} {listed.get('error', '')}")
+          shared = [a for a in listed.get("accounts", []) if a.get("visibility") == "team"]
+          for a in listed.get("accounts", []):
+              print(f"existing: {a.get('id')} {a.get('kind')} {a.get('visibility')} {a.get('label', '')}")
+          if shared:
+              print("the team already has a shared Claude account; nothing to add")
+              sys.exit(0)
+
+          kind = os.environ.get("KIND") or "anthropic_oauth"
+          body = {"kind": kind, "label": f"Cloud test account ({os.environ.get('BACKEND') or 'prod'})", "visibility": "team"}
+          if kind == "anthropic_oauth":
+              body["token"] = os.environ["CLAUDE_CODE_OAUTH_TOKEN"].strip()
+          else:
+              body["apiKey"] = os.environ["ANTHROPIC_API_KEY"].strip()
+          if not (body.get("token") or body.get("apiKey")):
+              sys.exit(f"{kind}: its secret is empty in this environment")
+          status, added = call("POST", f"{ORIGIN}/api/coderouter/claude-upstream?teamId={team}", body, auth)
+          if status not in (200, 201):
+              sys.exit(f"add Claude account: HTTP {status} {added.get('error', '')}")
+          account = added.get("account") or added
+          print(f"added: {account.get('id')} {account.get('kind')} {account.get('visibility')}")

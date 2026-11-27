@@ -1,0 +1,14 @@
+#!/bin/sh
+# Run the contributor's global prepare-commit-msg, which this clone's own
+# core.hooksPath would otherwise hide (for example one that adds an
+# Agent-Session trailer to agent commits, manaflow-ai/cmuxterm-hq#2555).
+# Never blocks a commit. CMUX_GLOBAL_HOOK_ACTIVE stops the loop when that
+# global hook in turn runs this clone's hooks.
+[ -z "${CMUX_GLOBAL_HOOK_ACTIVE:-}" ] || exit 0
+dir=$(git config --global --includes --get core.hooksPath 2>/dev/null) || exit 0
+case $dir in "~/"*) dir="$HOME/${dir#\~/}" ;; esac
+hook="$dir/prepare-commit-msg"
+[ -f "$hook" ] && [ -x "$hook" ] || exit 0
+[ "$(cd "$dir" 2>/dev/null && pwd -P)" = "$(cd "$(dirname "$0")" && pwd -P)" ] && exit 0
+CMUX_GLOBAL_HOOK_ACTIVE=1 "$hook" "$@" || :
+exit 0

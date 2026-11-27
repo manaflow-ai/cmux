@@ -17,7 +17,11 @@ public enum ConversationConnectionState: Sendable, Equatable {
 
 /// What changed, so the transcript can anchor scrolling correctly.
 public enum ConversationStoreChange: Sendable, Equatable {
+<<<<<<< HEAD
     /// The whole window was replaced (first load, trimming old history).
+=======
+    /// The whole window was replaced (first load, lagged rebase).
+>>>>>>> origin/main
     case reset
     /// Older history was inserted above everything loaded.
     case prepended
@@ -56,6 +60,7 @@ public final class ConversationStore {
     public private(set) var hasLoadedNewest = false
     public private(set) var typingParticipantIDs: [String] = []
     public private(set) var connection: ConversationConnectionState = .connecting
+<<<<<<< HEAD
     /// The connection has been down for ``connectionQuietDelay`` or more: a header may say so.
     /// Under it nothing is said, so a blip or the reconnect after the app comes back stays
     /// silent over the kept rows (Leo, 2026-11-16: "it said "Not connected" at the top but i
@@ -64,6 +69,8 @@ public final class ConversationStore {
     /// How long a drop stays unsaid; the iPhone's one connection quiet bound (`QuietStatusGate.threshold`).
     public var connectionQuietDelay: Duration = .seconds(10)
     private var connectionNoticeTask: Task<Void, Never>?
+=======
+>>>>>>> origin/main
     /// Everything from others at or below this seq has been read.
     public private(set) var lastReadSeq = 0
     /// Messages from others after `lastReadSeq` (including ones above the loaded window).
@@ -89,6 +96,7 @@ public final class ConversationStore {
         set { primaryObserver = newValue }
     }
     private var primaryObserver: (@MainActor (ConversationStoreChange) -> Void)?
+<<<<<<< HEAD
     private var observers: [(id: Int, observe: @MainActor (ConversationStoreChange) -> Void)] = []
     private var nextObserverID = 0
 
@@ -128,11 +136,22 @@ public final class ConversationStore {
         guard primaryOwner === owner else { return }
         primaryOwner = nil
         primaryObserver = nil
+=======
+    private var observers: [@MainActor (ConversationStoreChange) -> Void] = []
+
+    /// Additional listeners (a sidebar preview, a window title) beside `onChange`.
+    public func addObserver(_ observer: @escaping @MainActor (ConversationStoreChange) -> Void) {
+        observers.append(observer)
+>>>>>>> origin/main
     }
 
     func notify(_ change: ConversationStoreChange) {
         primaryObserver?(change)
+<<<<<<< HEAD
         for observer in observers { observer.observe(change) }
+=======
+        for observer in observers { observer(change) }
+>>>>>>> origin/main
     }
 
     // MARK: Transcript journal
@@ -168,6 +187,7 @@ public final class ConversationStore {
         transcriptRevision &+= 1
         if transcriptJournal.count == Self.transcriptJournalLimit { transcriptJournal.removeFirst() }
         transcriptJournal.append((transcriptRevision, max(0, index)))
+<<<<<<< HEAD
         scheduleTranscriptSave()
     }
 
@@ -254,6 +274,8 @@ public final class ConversationStore {
         guard let transcriptCache, let transcriptCacheKey, hasLoadedNewest else { return }
         transcriptCache.save(transcriptCacheKey, info: info, meID: meID, messages: messages,
                              deleted: deletedMessageIDs, reachedStart: older == .exhausted)
+=======
+>>>>>>> origin/main
     }
 
     /// Runs `body`, a change to `messages` that leaves every message before
@@ -286,6 +308,7 @@ public final class ConversationStore {
     let makeClientMessageID: @Sendable () -> String
 
     private var lastEventSeq = 0
+<<<<<<< HEAD
     var indexByID: ConversationMessagePositions = [:]
     private var eventTask: Task<Void, Never>?
     private var olderTask: Task<Void, Never>?
@@ -293,6 +316,11 @@ public final class ConversationStore {
     /// the pager or `loadThrough`) carries what the server had then, below the
     /// window recovery refreshes, so its reply is dropped and asked for again.
     private var olderGeneration = 0
+=======
+    var indexByID: [String: Int] = [:]
+    private var eventTask: Task<Void, Never>?
+    private var olderTask: Task<Void, Never>?
+>>>>>>> origin/main
     private var newestTask: Task<Void, Never>?
     private var typingExpiry: [String: Task<Void, Never>] = [:]
     private var olderWanted = false
@@ -302,6 +330,7 @@ public final class ConversationStore {
     private var localTyping = false
     private var localTypingTask: Task<Void, Never>?
     private var bufferedLive: [ConversationMessage] = []
+<<<<<<< HEAD
     /// While a reconnect recovers: each kept row as history last gave it (the
     /// window at reconnect, plus older pages that land meanwhile). A row whose
     /// current value still equals it takes the recovered revision; one a live
@@ -315,6 +344,8 @@ public final class ConversationStore {
     /// poll that differs from it by the time history lands came live and is
     /// newer than the page.
     private var recoveryPollBaseline: [String: ConversationPoll]?
+=======
+>>>>>>> origin/main
     /// Bumps on every list state change so a stale reply or rollback never
     /// overwrites a newer state.
     private var listStateGeneration = 0
@@ -377,6 +408,7 @@ public final class ConversationStore {
         newestTask?.cancel()
         localTypingTask?.cancel()
         typingExpiry.values.forEach { $0.cancel() }
+<<<<<<< HEAD
         connectionNoticeTask?.cancel()
         backend.close()
     }
@@ -402,6 +434,11 @@ public final class ConversationStore {
         connectionNoticeDue = false
     }
 
+=======
+        backend.close()
+    }
+
+>>>>>>> origin/main
     public var me: ConversationParticipant? { meID.flatMap { info?.participant($0) } }
 
     public func message(id: String) -> ConversationMessage? {
@@ -428,7 +465,10 @@ public final class ConversationStore {
             if self.info?.background != previousBackground { notify(.background) }
             self.meID = meID
             connection = .connected
+<<<<<<< HEAD
             endConnectionNotice()
+=======
+>>>>>>> origin/main
             // Unconfirmed reads from the dropped session may never have
             // arrived; the read state that follows hello is authoritative.
             pendingReadSeq = 0
@@ -455,7 +495,10 @@ public final class ConversationStore {
             removeScheduledRow(id: id, clientMessageID: clientMessageID)
         case .disconnected:
             connection = .reconnecting
+<<<<<<< HEAD
             armConnectionNotice()
+=======
+>>>>>>> origin/main
             notify(.connection)
         case let .readState(state):
             serverRead = state
@@ -496,6 +539,7 @@ public final class ConversationStore {
         // page that contains it will carry its current state.
         if indexByID[incoming.id] == nil, let seq = incoming.seq,
            let oldest = messages.first(where: { $0.seq != nil })?.seq, seq < oldest {
+<<<<<<< HEAD
             // While a reconnect recovers, the window itself may be stale: a
             // reset backend restarts its sequence below it. Hold the row and
             // judge it against the recovered window instead.
@@ -505,6 +549,10 @@ public final class ConversationStore {
         if recoveryBaseline?[incoming.id] == nil, recoveryBaseline != nil {
             liveDuringRecovery.insert(incoming.id)
         }
+=======
+            return
+        }
+>>>>>>> origin/main
         let isNew = upsert(incoming)
         if isNew {
             sortAndReindexAfterAppend()
@@ -545,10 +593,14 @@ public final class ConversationStore {
             }
         }
         if let index = indexByID[incoming.id] {
+<<<<<<< HEAD
             changingMessages(from: index) {
                 messages[index] = merged(existing: messages[index], incoming: incoming)
                 relayerPendingEdit(at: index)
             }
+=======
+            changingMessages(from: index) { messages[index] = merged(existing: messages[index], incoming: incoming) }
+>>>>>>> origin/main
             return false
         }
         if let clientID = incoming.clientMessageID,
@@ -735,6 +787,7 @@ public final class ConversationStore {
 
     private func loadNewest(rebase: Bool) {
         newestTask?.cancel()
+<<<<<<< HEAD
         // A reconnect keeps the loaded window visible. Remember its values so
         // a history reply cannot overwrite a live update or local edit that
         // lands while the missing pages are being fetched.
@@ -757,11 +810,14 @@ public final class ConversationStore {
             case .idle, .exhausted: break
             }
         }
+=======
+>>>>>>> origin/main
         newestTask = Task { [weak self] in
             var attempt = 0
             while !Task.isCancelled {
                 guard let self else { return }
                 do {
+<<<<<<< HEAD
                     var page = try await self.backend.history(beforeSeq: nil, limit: self.pageSize)
                     try Task.checkCancellation()
                     var pages = [page]
@@ -789,6 +845,12 @@ public final class ConversationStore {
                     return
                 } catch {
                     guard !Task.isCancelled else { return }
+=======
+                    let page = try await self.backend.history(beforeSeq: nil, limit: self.pageSize)
+                    self.applyNewest(page, rebase: rebase)
+                    return
+                } catch {
+>>>>>>> origin/main
                     attempt += 1
                     try? await self.clock.sleep(for: Self.backoff(attempt))
                 }
@@ -796,6 +858,7 @@ public final class ConversationStore {
         }
     }
 
+<<<<<<< HEAD
     private func applyNewest(_ pages: [ConversationHistoryPage], retained: [String: ConversationMessage]?) {
         guard let newest = pages.first else { return }
         var inserted: [String] = []
@@ -944,13 +1007,37 @@ public final class ConversationStore {
     /// The lowest server sequence in the loaded window, if any.
     private var oldestLoadedSeq: Int? { messages.compactMap(\.seq).min() }
 
+=======
+    private func applyNewest(_ page: ConversationHistoryPage, rebase: Bool) {
+        if rebase || !hasLoadedNewest {
+            let pending = messages.filter { $0.seq == nil }
+            messages = []
+            indexByID = [:]
+            for message in page.messages { upsert(message) }
+            for message in pending { upsert(message) }
+            sortAndReindex()
+        }
+        hasLoadedNewest = true
+        let buffered = bufferedLive
+        bufferedLive = []
+        for message in buffered { ingestBuffered(message) }
+        older = page.hasMore ? .idle : .exhausted
+        notify(.reset)
+        refreshReadState()
+        if olderWanted { loadOlder() }
+    }
+
+>>>>>>> origin/main
     /// Requests the page above the oldest loaded message. Safe to call on
     /// every scroll tick; it coalesces and retries with backoff on failure.
     public func loadOlder() {
         olderWanted = true
+<<<<<<< HEAD
         // No server page yet (no network, or still connecting) but kept rows on screen: the
         // reader scrolls the history stored on this device.
         if !hasLoadedNewest, isShowingKeptTranscript { return loadOlderKept() }
+=======
+>>>>>>> origin/main
         guard hasLoadedNewest else { return }
         switch older {
         case .loading, .retrying, .exhausted: return
@@ -963,23 +1050,35 @@ public final class ConversationStore {
         }
         older = .loading
         notify(.older)
+<<<<<<< HEAD
         let generation = olderGeneration
+=======
+>>>>>>> origin/main
         olderTask = Task { [weak self] in
             var attempt = 0
             while !Task.isCancelled {
                 guard let self else { return }
                 do {
                     let page = try await self.backend.history(beforeSeq: oldestSeq, limit: self.pageSize)
+<<<<<<< HEAD
                     guard self.olderGeneration == generation else { return }
                     self.applyOlder(page, expectedOldest: oldestSeq)
                     return
                 } catch {
                     guard self.olderGeneration == generation else { return }
+=======
+                    self.applyOlder(page, expectedOldest: oldestSeq)
+                    return
+                } catch {
+>>>>>>> origin/main
                     attempt += 1
                     self.older = .retrying(attempt: attempt)
                     self.notify(.older)
                     try? await self.clock.sleep(for: Self.backoff(attempt))
+<<<<<<< HEAD
                     guard self.olderGeneration == generation else { return }
+=======
+>>>>>>> origin/main
                     guard self.olderWanted else {
                         self.older = .idle
                         self.notify(.older)
@@ -990,6 +1089,7 @@ public final class ConversationStore {
         }
     }
 
+<<<<<<< HEAD
     /// Pages the kept rows shown before the server's newest page from the device's history.
     /// When that page lands it replaces them (`applyNewest`'s first load), and the pager
     /// belongs to the server again.
@@ -1017,6 +1117,8 @@ public final class ConversationStore {
         }
     }
 
+=======
+>>>>>>> origin/main
     /// The reader left the top region; a failed fetch stops retrying.
     public func olderNoLongerWanted() {
         olderWanted = false
@@ -1024,6 +1126,7 @@ public final class ConversationStore {
 
     private func applyOlder(_ page: ConversationHistoryPage, expectedOldest: Int) {
         olderWanted = false
+<<<<<<< HEAD
         var olderMessages: [ConversationMessage] = []
         for message in page.messages where indexByID[message.id] == nil && !deletedMessageIDs.contains(message.id) {
             guard let seq = message.seq, seq < expectedOldest else { continue }
@@ -1089,6 +1192,18 @@ public final class ConversationStore {
             found.append(index)
         }
         return found
+=======
+        var inserted = false
+        for message in page.messages where indexByID[message.id] == nil && !deletedMessageIDs.contains(message.id) {
+            guard let seq = message.seq, seq < expectedOldest else { continue }
+            messages.append(message)
+            inserted = true
+        }
+        if inserted { sortAndReindex() }
+        older = page.hasMore ? .idle : .exhausted
+        notify(.prepended)
+        refreshReadState()
+>>>>>>> origin/main
     }
 
     // MARK: Window bound
@@ -1252,7 +1367,10 @@ public final class ConversationStore {
               let clientID = message.clientMessageID,
               let index = indexByID[message.id] else { return }
         messages[index].delivery = .sending
+<<<<<<< HEAD
         messages[index].uploadProgress = nil
+=======
+>>>>>>> origin/main
         // Try Again is a send made now: the row leaves its failed place for
         // the bottom, with the other sends in flight.
         messages[index].sentAt = Date()
@@ -1292,7 +1410,10 @@ public final class ConversationStore {
             if let clientID = message.clientMessageID { deletedClientIDs.insert(clientID) }
             failedAnchorSeq[message.id] = nil
             unsendOriginals[message.id] = nil
+<<<<<<< HEAD
             pendingEdits[message.id] = nil
+=======
+>>>>>>> origin/main
         }
         messages.removeAll { rowIDs.contains($0.rowID) }
         sortAndReindex()
@@ -1315,6 +1436,7 @@ public final class ConversationStore {
             guard let self else { return }
             do {
                 var attachmentIDs: [String] = []
+<<<<<<< HEAD
                 // The row's "Uploading N%" counts every attachment's bytes, in send order.
                 let total = (audio?.data.count ?? 0) + images.reduce(0) { $0 + $1.data.count } + files.reduce(0) { $0 + $1.data.count }
                 var done = 0
@@ -1337,6 +1459,18 @@ public final class ConversationStore {
                         try await self.backend.uploadFile(file.data, info: file.info)
                     }
                     done += file.data.count
+=======
+                if let audio {
+                    let uploaded = try await self.backend.uploadAudio(audio.data, mimeType: audio.mimeType, info: audio.info)
+                    attachmentIDs.append(uploaded.id)
+                }
+                for image in images {
+                    let uploaded = try await self.backend.uploadImage(image.data, mimeType: image.mimeType)
+                    attachmentIDs.append(uploaded.id)
+                }
+                for file in files {
+                    let uploaded = try await self.backend.uploadFile(file.data, info: file.info)
+>>>>>>> origin/main
                     attachmentIDs.append(uploaded.id)
                 }
                 guard let current = self.message(id: "local:\(clientID)") ?? self.messages.first(where: { $0.clientMessageID == clientID }) else { return }
@@ -1365,6 +1499,7 @@ public final class ConversationStore {
         }
     }
 
+<<<<<<< HEAD
     /// Runs one attachment's upload with ``ConversationUploadProgress`` bound to the sending row:
     /// the attachment's `bytes` start at `from` of the send's `total`.
     private func uploading(_ clientID: String, from start: Int, bytes: Int, of total: Int,
@@ -1394,6 +1529,12 @@ public final class ConversationStore {
             messages[index].delivery = .failed(reason)
             messages[index].uploadProgress = nil
         }
+=======
+    private func markFailed(clientID: String, reason: String) {
+        guard let index = messages.firstIndex(where: { $0.clientMessageID == clientID }),
+              messages[index].seq == nil else { return }
+        changingMessages(from: index) { messages[index].delivery = .failed(reason) }
+>>>>>>> origin/main
         failedAnchorSeq[messages[index].id] = messages.last { $0.seq != nil }?.seq ?? 0
         notify(.live(insertedRowIDs: [], sentByMe: true))
     }
@@ -1565,6 +1706,7 @@ public final class ConversationStore {
         guard !trimmed.isEmpty, let index = indexByID[messageID],
               messages[index].text != trimmed || messages[index].textRuns != runs,
               canEdit(messages[index]) else { return }
+<<<<<<< HEAD
         nextEditToken += 1
         let token = nextEditToken
         // A second edit before the first is confirmed keeps the server copy
@@ -1575,11 +1717,22 @@ public final class ConversationStore {
             base: pendingEdits[messageID]?.base ?? messages[index]
         )
         changingMessages(from: index) { layerPendingEdit(at: index) }
+=======
+        let original = messages[index]
+        changingMessages(from: index) {
+            messages[index].text = trimmed
+            messages[index].textRuns = runs
+            messages[index].mentions = ConversationMentionEditing.surviving(original.mentions, oldText: original.text, newText: trimmed)
+            messages[index].editedAt = Date()
+            messages[index].editCount += 1
+        }
+>>>>>>> origin/main
         notify(.live(insertedRowIDs: [], sentByMe: false))
         Task { [weak self] in
             guard let self else { return }
             do {
                 let updated = try await self.backend.edit(messageID: messageID, text: trimmed, textRuns: runs)
+<<<<<<< HEAD
                 if self.pendingEdits[messageID]?.token == token { self.pendingEdits[messageID] = nil }
                 self.upsert(updated)
             } catch {
@@ -1597,6 +1750,12 @@ public final class ConversationStore {
                     self.messages[index].editedAt = base.editedAt
                     self.messages[index].editCount = base.editCount
                 }
+=======
+                self.upsert(updated)
+            } catch {
+                guard let index = self.indexByID[messageID] else { return }
+                self.messages[index] = original
+>>>>>>> origin/main
             }
             self.notify(.live(insertedRowIDs: [], sentByMe: true))
         }
@@ -1610,6 +1769,7 @@ public final class ConversationStore {
             && now.timeIntervalSince(message.sentAt) < Self.undoSendWindow
     }
 
+<<<<<<< HEAD
     /// My edits the backend has not confirmed: the intent, and the server's
     /// copy under it (updated as server copies land), which a refusal restores.
     private struct PendingEdit {
@@ -1650,6 +1810,8 @@ public final class ConversationStore {
         messages[index].editCount = max(pending.editCount, base.editCount + 1)
     }
 
+=======
+>>>>>>> origin/main
     /// The pre-unsend message, kept until the backend confirms (and after a
     /// refusal, so Try Again can resend the retraction).
     private var unsendOriginals: [String: ConversationMessage] = [:]
@@ -1824,11 +1986,15 @@ public final class ConversationStore {
             if oldest <= target || older == .exhausted { return true }
             older = .loading
             notify(.older)
+<<<<<<< HEAD
             let generation = olderGeneration
+=======
+>>>>>>> origin/main
             do {
                 // A few messages of context above the target, as Messages shows.
                 let limit = min(200, max(pageSize, oldest - target + 8))
                 let page = try await backend.history(beforeSeq: oldest, limit: limit)
+<<<<<<< HEAD
                 // Asked before a lagged reconnect: stale below the recovered
                 // window. Drop it and ask again from the current window.
                 guard olderGeneration == generation else { continue }
@@ -1836,6 +2002,11 @@ public final class ConversationStore {
                 attempt = 0
             } catch {
                 guard olderGeneration == generation else { continue }
+=======
+                applyOlder(page, expectedOldest: oldest)
+                attempt = 0
+            } catch {
+>>>>>>> origin/main
                 attempt += 1
                 older = .idle
                 notify(.older)
@@ -2205,6 +2376,7 @@ extension ConversationStore {
         messages[index].poll = overlaid(server, messageID: messageID)
     }
 }
+<<<<<<< HEAD
 
 /// Where each message sits in `ConversationStore.messages`, by id. An older
 /// page goes in front of the loaded window, so every loaded position moves
@@ -2233,3 +2405,5 @@ struct ConversationMessagePositions: ExpressibleByDictionaryLiteral {
         base += count
     }
 }
+=======
+>>>>>>> origin/main

@@ -31,6 +31,7 @@ pub(crate) const AGENT_ROSTER_REDUCER_ID: &str = "agent_roster";
 /// Version 2 added the agent adapter id to roster entries. Version 3
 /// added screen-detected events and hook/screen/socket arbitration. Version 5
 /// adds durable plugin-exit fences so late observations cannot resurrect rows.
+<<<<<<< ours
 /// Version 6 folds hook events through the same per-terminal session fence as
 /// the hook projector, so a late event from an ended or superseded session
 /// cannot change a later session's roster state. The bump re-folds from the
@@ -48,6 +49,15 @@ pub(crate) const AGENT_ROSTER_REDUCER_VERSION: u32 = 9;
 /// let a late event from an ended session bring its row back while the
 /// rebuild runs.
 const AGENT_ROSTER_MIGRATES_FROM: u32 = 6;
+=======
+/// Version 7 keeps each terminal's last screen observation, so a hook
+/// `blocked` row clears when the screen shows its dialog gone; the re-fold
+/// clears rows that stayed blocked after a dialog was dismissed with Esc. (6
+/// is skipped so 7 means this fold on main and on feat-cmux-next, where 6 is
+/// the hook session fence.) Version 8 ties that record to the plugin child
+/// that saw it, so a restarted plugin cannot clear a block.
+pub(crate) const AGENT_ROSTER_REDUCER_VERSION: u32 = 8;
+>>>>>>> theirs
 /// Stable envelope used by userland agent plugins. The producer id is the
 /// plugin identity; the payload id must match it before the event is folded.
 pub(crate) const AGENT_PLUGIN_FORMAT: &str = "cmux.agent-plugin.v1";
@@ -634,6 +644,27 @@ pub(crate) struct AgentRoster {
     /// a turn running to the turn now open ([`Self::screen_ends_hook_row`]).
     #[serde(default)]
     hook_turn_started_at: HashMap<String, HookTurnStart>,
+    /// The last plugin screen observation per terminal public id
+    /// ([`ScreenEvidence`]).
+    #[serde(default)]
+    screen_evidence: HashMap<String, ScreenEvidence>,
+    /// Per terminal public id: the session of the last applied hook event and
+    /// the latest hook start among its applied events, so an event journaled
+    /// out of send order does not set the state
+    /// (`crate::agent_hooks::hook_event_is_reordered`). One small record per
+    /// terminal that ran a hook agent; it stays after the session ends so a
+    /// late event of that session cannot bring the row back.
+    #[serde(default)]
+    hook_order: HashMap<String, HookOrder>,
+}
+
+/// See [`AgentRoster::hook_order`]. The stamp is flattened, so a snapshot
+/// from before the monotonic stamp (`session`, `observed_at_ms`) still reads.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+struct HookOrder {
+    session: Option<String>,
+    #[serde(flatten)]
+    stamp: crate::agent_hooks::HookOrderStamp,
 }
 
 impl AgentRoster {
@@ -736,6 +767,7 @@ impl AgentRoster {
             return Vec::new();
         }
         let Some(terminal_id) = event.terminal_id() else { return Vec::new() };
+<<<<<<< ours
         // The screen proves that no dialog is up any more ([`Self::screen_clears_hook_blocker`]).
         let mut screen_cleared_blocker = false;
         // What the screen proves about a turn's end or an exit ([`Self::screen_ends_hook_row`]).
@@ -843,6 +875,16 @@ impl AgentRoster {
                 observed_at_ms,
             ) else {
                 return Vec::new();
+=======
+        // The screen proves that no dialog is up any more ([`Self::screen_clears_hook_blocker`]).
+        let mut screen_cleared_blocker = false;
+        let (state, source, producer, producer_generation, session, agent, updated_at_ms) = if event
+            .plugin_event()
+        {
+            let Some(event_name) = event.plugin_event_name() else { return Vec::new() };
+            let Some(state) = event.normalized("state").and_then(agent_state_from_str) else {
+                return Vec::new();
+>>>>>>> theirs
             };
             let next = HookFence::next(
                 current,
@@ -881,6 +923,58 @@ impl AgentRoster {
             let agent = event.adapter_id().map(str::to_string);
             (state, AgentSource::Hook, None, None, None, agent, event.committed_at_ms)
         };
+            if event_name != "state.changed" && event_name != "session.ended" {
+                return Vec::new();
+            }
+            let updated_at_ms = event.plugin_observed_at_ms().unwrap_or(event.committed_at_ms);
+            let generation =
+                event.normalized("plugin_generation").and_then(|value| value.parse::<u64>().ok());
+            let producer_generation = generation.map(|value| value.to_string());
+            let session = event.normalized("source_session").map(str::to_string);
+            let agent = event.adapter_id().map(str::to_string);
+            let state = if event_name == "session.ended" { AgentState::Done } else { state };
+            let saw_blocker_go =
+                self.note_screen_evidence(terminal_id, event.producer_id, generation, state);
+            screen_cleared_blocker =
+                saw_blocker_go || (state == AgentState::Idle && event.plugin_visible_idle());
+            (
+                state,
+                AgentSource::Plugin,
+                Some(event.producer_id.to_string()),
+                producer_generation,
+                session,
+                agent,
+                updated_at_ms,
+            )
+        } else if event.adapter_id() == Some(SOCKET_REPORT_ADAPTER) {
+            // Socket echo: explicit state and timestamp carried in the
+            // payload, so the roster mirrors the direct projection
+            // commit exactly. The reporter does not know the agent type.
+            let Some(state) = event.normalized("state").and_then(agent_state_from_str) else {
+                return Vec::new();
+            };
+            let source = event
+                .normalized("source")
+                .and_then(agent_source_from_str)
+                .unwrap_or(AgentSource::Socket);
+            let updated_at_ms =
+                event.normalized_u64("updated_at_ms").unwrap_or(event.committed_at_ms);
+            let session = event.normalized("source_session").map(str::to_string);
+            (state, source, None, None, session, None, updated_at_ms)
+        } else if event.native_event() == Some(LEGACY_SCREEN_DETECT_NATIVE_EVENT) {
+            // Screen detection: the daemon parsed the terminal tail.
+            // Explicit state like the socket echo, but the adapter is
+            // the detected agent and the source is `detected`.
+            let Some(state) = event.normalized("state").and_then(agent_state_from_str) else {
+                return Vec::new();
+            };
+            let agent = event.adapter_id().map(str::to_string);
+            (state, AgentSource::Detected, None, None, None, agent, event.committed_at_ms)
+        } else {
+            let Some(state) = state_for_hook_kind(event.kind) else { return Vec::new() };
+            let agent = event.adapter_id().map(str::to_string);
+            (state, AgentSource::Hook, None, None, None, agent, event.committed_at_ms)
+        };
         // Source arbitration: hook > screen > socket per terminal. Hook
         // events always win. Screen detection may not overwrite an entry a
         // live hook owns (fresher than STALE_HOOK_MS), and its exit removal
@@ -891,16 +985,34 @@ impl AgentRoster {
         let mut screen_ended_hook_row = false;
         match source {
             AgentSource::Hook => {
+                let session = event.normalized("agent_session_id");
+                let stamp = crate::agent_hooks::HookOrderStamp::of(event.payload);
+                let last_order = self
+                    .hook_order
+                    .get(terminal_id)
+                    .filter(|order| order.session.as_deref() == session)
+                    .map(|order| &order.stamp);
+                if crate::agent_hooks::hook_event_is_reordered(event.kind, &stamp, last_order) {
+                    return Vec::new();
+                }
+                let order = stamp.applied_over(last_order);
                 if let Some(existing) = self.entries.get(terminal_id)
                     && existing.agent_source() == AgentSource::Hook
                     && !timestamp_is_current(existing.updated_at_ms, updated_at_ms)
                 {
                     return Vec::new();
                 }
+                if !order.is_empty() {
+                    self.hook_order.insert(
+                        terminal_id.to_string(),
+                        HookOrder { session: session.map(str::to_owned), stamp: order },
+                    );
+                }
             }
             AgentSource::Plugin => {
                 if let Some(existing) = self.entries.get(terminal_id) {
                     let existing_source = existing.agent_source();
+<<<<<<< ours
                     // The dialog a hook announced is gone from the screen,
                     // and no hook will say so: the screen's state wins.
                     let dialog_gone = existing_source == AgentSource::Hook
@@ -922,6 +1034,18 @@ impl AgentRoster {
                         && !dialog_gone
                         && !screen_ended_hook_row
                     {
+=======
+                    // The dialog a hook announced is gone from the screen,
+                    // and no hook will say so: the screen's state wins.
+                    let dialog_gone = existing_source == AgentSource::Hook
+                        && Self::screen_clears_hook_blocker(
+                            existing,
+                            screen_cleared_blocker,
+                            state,
+                            updated_at_ms,
+                        );
+                    if existing_source == AgentSource::Hook && !dialog_gone {
+>>>>>>> theirs
                         // The producer observation is the evidence clock. A
                         // delayed append must not turn an old screen read
                         // into fresh evidence just because the journal
@@ -1102,12 +1226,18 @@ impl AgentRoster {
     /// tombstoned). Terminal lifecycle does not flow through `agent.*`
     /// events yet, so the host retires entries explicitly.
     pub(crate) fn retire_terminal(&mut self, terminal_id: &str) -> bool {
+<<<<<<< ours
         let entry = self.entries.remove(terminal_id).is_some();
         let fence = self.hook_fences.remove(terminal_id).is_some();
         let evidence = self.screen_evidence.remove(terminal_id).is_some();
         let program = self.program_status_evidence.remove(terminal_id).is_some();
         let turn = self.hook_turn_started_at.remove(terminal_id).is_some();
         entry || fence || evidence || program || turn
+=======
+        let entry = self.entries.remove(terminal_id).is_some();
+        let evidence = self.screen_evidence.remove(terminal_id).is_some();
+        entry || evidence
+>>>>>>> theirs
     }
 
     fn record_plugin_exit_fence(
@@ -1181,6 +1311,9 @@ impl AgentRoster {
         {
             return None;
         }
+        if !roster.screen_evidence.values().all(ScreenEvidence::valid) {
+            return None;
+        }
         if !roster.plugin_exit_fences.iter().all(|(plugin_id, fence)| {
             plugin_id != AGENT_HOOK_PRODUCER_ID
                 && valid_component(plugin_id)
@@ -1228,6 +1361,7 @@ fn valid_decimal_generation(value: &str) -> bool {
         && value.parse::<u64>().is_ok()
 }
 
+<<<<<<< ours
 #[path = "journal_reducers_screen_evidence.rs"]
 mod screen_evidence;
 use screen_evidence::{HookTurnStart, ScreenEvidence, ScreenNote};
@@ -1235,6 +1369,108 @@ use screen_evidence::{HookTurnStart, ScreenEvidence, ScreenNote};
 mod program_status;
 use program_status::ProgramStatusEvidence;
 pub(crate) use program_status::{PROGRAM_STATUS_NATIVE_EVENT, is_program_status_evidence};
+=======
+#[path = "journal_reducers_screen_evidence.rs"]
+mod screen_evidence;
+use screen_evidence::ScreenEvidence;
+
+#[cfg(test)]
+#[path = "journal_reducers_blocker_tests.rs"]
+mod blocker_tests;
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use serde_json::json;
+
+    fn hook_event<'a>(
+        sequence: u64,
+        kind: &'a str,
+        subjects: &'a [JournalSubject],
+        payload: &'a Value,
+    ) -> RosterEvent<'a> {
+        RosterEvent {
+            producer_id: AGENT_HOOK_PRODUCER_ID,
+            kind,
+            subjects,
+            payload,
+            committed_at_ms: 1_000 + sequence,
+        }
+    }
+
+    fn terminal_subject(id: &str) -> Vec<JournalSubject> {
+        vec![JournalSubject { kind: "terminal".into(), id: id.into() }]
+    }
+
+    #[test]
+    fn lifecycle_kinds_fold_into_roster_states() {
+        let subjects = terminal_subject("term_a");
+        let payload = json!({});
+        let mut roster = AgentRoster::default();
+
+        roster.apply(&hook_event(1, "agent.session.started", &subjects, &payload));
+        assert_eq!(roster.entries["term_a"].state, "idle");
+        assert_eq!(roster.entries["term_a"].agent, None, "payload without adapter has no agent");
+
+        roster.apply(&hook_event(2, "agent.turn.started", &subjects, &payload));
+        assert_eq!(roster.entries["term_a"].state, "working");
+
+        roster.apply(&hook_event(3, "agent.approval.requested", &subjects, &payload));
+        assert_eq!(roster.entries["term_a"].state, "blocked");
+
+        // Child events carry no top-level transition.
+        let deltas = roster.apply(&hook_event(4, "agent.child.spawned", &subjects, &payload));
+        assert!(deltas.is_empty());
+        assert_eq!(roster.entries["term_a"].state, "blocked");
+
+        let deltas = roster.apply(&hook_event(5, "agent.session.ended", &subjects, &payload));
+        assert_eq!(
+            deltas,
+            vec![RosterDelta::Remove { terminal_id: "term_a".into(), source: AgentSource::Hook }]
+        );
+        assert!(roster.entries.is_empty());
+    }
+
+    #[test]
+    fn socket_echo_carries_explicit_state_and_loses_to_hook_entries() {
+        let subjects = terminal_subject("term_a");
+        let socket_payload = json!({
+            "adapter": {"id": SOCKET_REPORT_ADAPTER, "version": 1},
+            "normalized": {"state": "working", "source": "socket", "source_session": "probe"},
+        });
+        let mut roster = AgentRoster::default();
+
+        roster.apply(&hook_event(1, "agent.state.changed", &subjects, &socket_payload));
+        let entry = &roster.entries["term_a"];
+        assert_eq!(entry.state, "working");
+        assert_eq!(entry.source, "socket");
+        assert_eq!(entry.session.as_deref(), Some("probe"));
+        assert_eq!(entry.agent, None);
+
+        // A hook event takes the terminal over and names the agent...
+        let hook_payload = json!({"adapter": {"id": "claude", "version": 1}});
+        roster.apply(&hook_event(2, "agent.turn.started", &subjects, &hook_payload));
+        assert_eq!(roster.entries["term_a"].source, "hook");
+        assert_eq!(roster.entries["term_a"].agent.as_deref(), Some("claude"));
+
+        // ...and later socket reports cannot downgrade it.
+        let deltas =
+            roster.apply(&hook_event(3, "agent.state.changed", &subjects, &socket_payload));
+        assert!(deltas.is_empty());
+        assert_eq!(roster.entries["term_a"].source, "hook");
+    }
+
+    #[test]
+    fn folds_are_idempotent_per_state_and_deterministic_across_replays() {
+        let subjects = terminal_subject("term_a");
+        let payload = json!({});
+        let events = [
+            "agent.session.started",
+            "agent.turn.started",
+            "agent.turn.started",
+            "agent.turn.completed",
+        ];
+>>>>>>> theirs
 
 #[cfg(test)]
 #[path = "journal_reducers_blocker_tests.rs"]

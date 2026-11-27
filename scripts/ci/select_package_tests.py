@@ -58,6 +58,7 @@ GLOBAL_INPUTS = (
     "scripts/cmux-next/compile-string-catalogs.sh",
     "scripts/cmux-next/pin-cmux-tui.sh",
     "scripts/ci/verify-binary-archs.sh",
+    "scripts/ci/warnings_policy.py",
     "scripts/download-prebuilt-ghosttykit.sh",
     "scripts/install-rust-ci.sh",
     "scripts/install-zig-ci.sh",

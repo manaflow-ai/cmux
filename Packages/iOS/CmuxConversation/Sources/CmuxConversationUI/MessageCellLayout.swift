@@ -1,7 +1,10 @@
 #if canImport(UIKit)
 import CmuxConversationCore
 import CmuxConversationGeometry
+<<<<<<< HEAD
 import os
+=======
+>>>>>>> origin/main
 import UIKit
 
 /// Precomputed frames for one message row, in cell coordinates. Computing
@@ -38,6 +41,7 @@ struct MessageCellLayout {
     var senderNameFrame: CGRect?
     var quoteFrame: CGRect?
     var quoteTextFrame: CGRect?
+<<<<<<< HEAD
     /// "N Replies" under the quote (the quoted message's thread).
     var quoteRepliesFrame: CGRect? = nil
     /// The reply line (`ConversationReplyThread`). On a reply that joins
@@ -47,6 +51,9 @@ struct MessageCellLayout {
     /// The line runs on to the row's bottom, toward the next reply of its block.
     var threadRunsBelow = false
     var threadPath: CGPath? { thread?.path }
+=======
+    var threadPath: CGPath?
+>>>>>>> origin/main
     var imageFrames: [CGRect]
     /// Bubble outline including the tail area.
     var bubbleFrame: CGRect?
@@ -98,7 +105,11 @@ final class MessageLayoutCache {
     }
 
     private var cache: [String: (Key, MessageCellLayout)] = [:]
+<<<<<<< HEAD
     private var attributed: [String: (ConversationBubbleInputs, NSAttributedString)] = [:]
+=======
+    private var attributed: [String: (String, [ConversationMention], [ConversationTextRun], NSAttributedString)] = [:]
+>>>>>>> origin/main
 
     func layout(for model: MessageRowModel, width: CGFloat, margin: CGFloat) -> MessageCellLayout {
         let key = Key(model: model, width: width, margin: margin)
@@ -112,17 +123,28 @@ final class MessageLayoutCache {
 
     func attributedText(for model: MessageRowModel) -> NSAttributedString {
         let cacheKey = model.rowID + (model.isOutgoing ? "o" : "i")
+<<<<<<< HEAD
         let inputs = Self.attributedInputs(model)
         if let (cachedInputs, value) = attributed[cacheKey], cachedInputs == inputs {
             return value
         }
         let value = MessageCellLayout.attributedBody(inputs)
         attributed[cacheKey] = (inputs, value)
+=======
+        let (body, mentions, runs) = Self.attributedInputs(model)
+        if let (text, cachedMentions, cachedRuns, value) = attributed[cacheKey], text == body,
+           cachedMentions == mentions, cachedRuns == runs {
+            return value
+        }
+        let value = MessageCellLayout.attributedBody(body, outgoing: model.isOutgoing, mentions: mentions, meID: model.meID, runs: runs)
+        attributed[cacheKey] = (body, mentions, runs, value)
+>>>>>>> origin/main
         return value
     }
 
     /// What a bubble's attributed text is built from. Audio bubbles show the
     /// transcript; a link card takes its URL out of the text bubble, so
+<<<<<<< HEAD
     /// mentions, formatting and links (ranges over the whole `text`) are
     /// re-based onto what the bubble shows.
     nonisolated static func attributedInputs(_ model: MessageRowModel) -> ConversationBubbleInputs {
@@ -130,6 +152,16 @@ final class MessageLayoutCache {
             return ConversationBubbleInputs(text: model.message.bodyText, outgoing: model.isOutgoing, meID: model.meID)
         }
         return ConversationBubbleInputs(message: model.message, outgoing: model.isOutgoing, meID: model.meID, linkSplit: model.linkSplit)
+=======
+    /// mentions and formatting (ranges over the whole `text`) are re-based
+    /// onto what the bubble shows.
+    nonisolated static func attributedInputs(_ model: MessageRowModel) -> (String, [ConversationMention], [ConversationTextRun]) {
+        let isAudio = model.message.audioAttachment != nil
+        let body = isAudio ? model.message.bodyText : model.bodyText
+        let mentions = isAudio ? [] : model.linkSplit.map { $0.bodyMentions(model.message.mentions) } ?? model.message.mentions
+        let runs = isAudio ? [] : model.linkSplit.map { $0.bodyRuns(model.message.textRuns) } ?? model.message.textRuns
+        return (body, mentions, runs)
+>>>>>>> origin/main
     }
 
     // MARK: Measuring ahead
@@ -160,7 +192,12 @@ final class MessageLayoutCache {
     /// for any thread. Run it inside the transcript's traits
     /// (`performAsCurrent`) so text styles resolve to the same fonts.
     nonisolated static func measure(_ model: MessageRowModel, width: CGFloat, margin: CGFloat) -> Measured {
+<<<<<<< HEAD
         let text = MessageCellLayout.attributedBody(attributedInputs(model))
+=======
+        let (body, mentions, runs) = attributedInputs(model)
+        let text = MessageCellLayout.attributedBody(body, outgoing: model.isOutgoing, mentions: mentions, meID: model.meID, runs: runs)
+>>>>>>> origin/main
         let layout = MessageCellLayout.compute(model: model, width: width, margin: margin, text: text)
         return Measured(model: model, layout: layout, text: text)
     }
@@ -172,7 +209,12 @@ final class MessageLayoutCache {
             let key = Key(model: model, width: width, margin: margin)
             if let (cachedKey, _) = cache[model.rowID], cachedKey == key { continue }
             cache[model.rowID] = (key, item.layout)
+<<<<<<< HEAD
             attributed[model.rowID + (model.isOutgoing ? "o" : "i")] = (Self.attributedInputs(model), item.text)
+=======
+            let (body, mentions, runs) = Self.attributedInputs(model)
+            attributed[model.rowID + (model.isOutgoing ? "o" : "i")] = (body, mentions, runs, item.text)
+>>>>>>> origin/main
         }
     }
 
@@ -199,17 +241,25 @@ final class BubbleTextCache: @unchecked Sendable {
     static let shared = BubbleTextCache()
 
     /// Everything `MessageCellLayout.attributedBody` builds from; the font
+<<<<<<< HEAD
     /// carries the text size, `textColor` the host's Chat Colors (nil: Messages').
+=======
+    /// carries the text size.
+>>>>>>> origin/main
     struct Key: Hashable {
         var text: String
         var outgoing: Bool
         var mentions: [ConversationMention]
         var meID: String?
         var runs: [ConversationTextRun]
+<<<<<<< HEAD
         var links: [ConversationTextLink] = []
         var tables: [ConversationTextTable] = []
         var font: UIFont
         var textColor: ConversationColor?
+=======
+        var font: UIFont
+>>>>>>> origin/main
     }
 
     private struct SizeKey: Hashable {
@@ -265,16 +315,21 @@ extension NSAttributedString.Key {
 }
 
 extension MessageCellLayout {
+<<<<<<< HEAD
     /// A bubble's text from its inputs (cached in `BubbleTextCache`).
     static func attributedBody(_ inputs: ConversationBubbleInputs) -> NSAttributedString {
         attributedBody(inputs.text, outgoing: inputs.outgoing, mentions: inputs.mentions, meID: inputs.meID, runs: inputs.runs, links: inputs.links, tables: inputs.tables)
     }
+=======
+    nonisolated(unsafe) static let linkDetector = try? NSDataDetector(types: ConversationDataDetection.types)
+>>>>>>> origin/main
 
     static func attributedBody(
         _ text: String,
         outgoing: Bool,
         mentions: [ConversationMention] = [],
         meID: String? = nil,
+<<<<<<< HEAD
         runs: [ConversationTextRun] = [],
         links: [ConversationTextLink] = [],
         tables: [ConversationTextTable] = []
@@ -293,10 +348,18 @@ extension MessageCellLayout {
         )
         let result = buildAttributedBody(text, outgoing: outgoing, textColor: chosen, mentions: mentions, meID: meID, runs: runs, links: links, tables: tables)
         bubbleTextSignposter.endInterval("BubbleTextBuild", signpost)
+=======
+        runs: [ConversationTextRun] = []
+    ) -> NSAttributedString {
+        let key = BubbleTextCache.Key(text: text, outgoing: outgoing, mentions: mentions, meID: meID, runs: runs, font: ConversationTheme.bubbleFont)
+        if let cached = BubbleTextCache.shared.text(for: key) { return cached }
+        let result = buildAttributedBody(text, outgoing: outgoing, mentions: mentions, meID: meID, runs: runs)
+>>>>>>> origin/main
         BubbleTextCache.shared.store(result, for: key)
         return result
     }
 
+<<<<<<< HEAD
     /// Bubble text builds (cache misses), for Instruments and `log stream --signpost`.
     private static let bubbleTextSignposter = OSSignposter(subsystem: "com.cmux.conversation", category: "BubbleText")
 
@@ -304,6 +367,12 @@ extension MessageCellLayout {
     /// DataDetectorsUI does (see `ConversationDataDetection.underlineAlpha`).
     private static func detectedUnderlineColor(textColor: UIColor) -> UIColor {
         UIColor.resolving { traits in
+=======
+    /// A detected item's underline: the text color, lightened as
+    /// DataDetectorsUI does (see `ConversationDataDetection.underlineAlpha`).
+    private static func detectedUnderlineColor(textColor: UIColor) -> UIColor {
+        UIColor { traits in
+>>>>>>> origin/main
             let color = textColor.resolvedColor(with: traits)
             var hue: CGFloat = 0, saturation: CGFloat = 0, brightness: CGFloat = 0, alpha: CGFloat = 0
             color.getHue(&hue, saturation: &saturation, brightness: &brightness, alpha: &alpha)
@@ -315,6 +384,7 @@ extension MessageCellLayout {
     private static func buildAttributedBody(
         _ text: String,
         outgoing: Bool,
+<<<<<<< HEAD
         textColor chosen: ConversationColor?,
         mentions: [ConversationMention],
         meID: String?,
@@ -323,6 +393,13 @@ extension MessageCellLayout {
         tables: [ConversationTextTable] = []
     ) -> NSAttributedString {
         let textColor = chosen.map(UIColor.init(conversation:)) ?? (outgoing ? ConversationTheme.outgoingText : ConversationTheme.incomingText)
+=======
+        mentions: [ConversationMention],
+        meID: String?,
+        runs: [ConversationTextRun]
+    ) -> NSAttributedString {
+        let textColor = outgoing ? ConversationTheme.outgoingText : ConversationTheme.incomingText
+>>>>>>> origin/main
         let result = NSMutableAttributedString(string: text, attributes: [
             .font: ConversationTheme.bubbleFont,
             .foregroundColor: textColor,
@@ -334,6 +411,7 @@ extension MessageCellLayout {
             ConversationRichTextStyler.applyDisplayAttributes(to: result, baseFont: ConversationTheme.bubbleFont, lineHeight: ConversationTheme.bubbleFont.lineHeight)
         }
         let range = NSRange(text.startIndex..., in: text)
+<<<<<<< HEAD
         for item in ConversationDataDetection.items(in: text) where NSMaxRange(item.range) <= NSMaxRange(range) {
             result.addAttribute(.underlineStyle, value: NSUnderlineStyle.single.rawValue, range: item.range)
             result.addAttribute(.underlineColor, value: detectedUnderlineColor(textColor: textColor), range: item.range)
@@ -348,6 +426,15 @@ extension MessageCellLayout {
         ConversationMentionStyle.apply(to: result, mentions: mentions, meID: meID, outgoing: outgoing, font: ConversationTheme.bubbleFont)
         // Markdown tables: cells under their headers (measured in the fonts set above).
         if !tables.isEmpty { ConversationTableLayout.apply(tables, to: result, font: ConversationTheme.bubbleFont) }
+=======
+        linkDetector?.enumerateMatches(in: text, range: range) { match, _, _ in
+            guard let match else { return }
+            result.addAttribute(.underlineStyle, value: NSUnderlineStyle.single.rawValue, range: match.range)
+            result.addAttribute(.underlineColor, value: detectedUnderlineColor(textColor: textColor), range: match.range)
+            if let url = ConversationDataDetection.actionURL(for: match) { result.addAttribute(.conversationLink, value: url, range: match.range) }
+        }
+        ConversationMentionStyle.apply(to: result, mentions: mentions, meID: meID, outgoing: outgoing, font: ConversationTheme.bubbleFont)
+>>>>>>> origin/main
         return result
     }
 
@@ -368,6 +455,7 @@ extension MessageCellLayout {
         return (value * scale).rounded() / scale
     }
 
+<<<<<<< HEAD
     /// How far the quote's tail drops below it: the quote draws the bubble
     /// outline with its corner radius capped to half its body.
     static func quoteTailDrop(quoteHeight: CGFloat, quoteBodyWidth: CGFloat) -> CGFloat {
@@ -406,6 +494,8 @@ extension MessageCellLayout {
     /// 27.0; the 2026-10-30 device screenshot read 3 pt for a quote of mine).
     static let repliesToOtherSideReply: CGFloat = 10
 
+=======
+>>>>>>> origin/main
     static func measure(_ text: NSAttributedString, maxWidth: CGFloat) -> CGSize {
         let rect = text.boundingRect(
             with: CGSize(width: maxWidth, height: .greatestFiniteMagnitude),
@@ -446,6 +536,7 @@ extension MessageCellLayout {
                 : CGRect(x: incomingBodyLeading - t.tailWidth, y: y, width: w + t.tailWidth, height: h)
         }
 
+<<<<<<< HEAD
         // The reply line runs in its own column at the transcript's leading
         // edge (a group's avatar column), whichever side the bubbles are on.
         let column = model.isGroup ? margin + t.avatarSize / 2 : margin + ConversationReplyThread.columnInset
@@ -467,12 +558,26 @@ extension MessageCellLayout {
             let bodyWidth = min(maxBubbleWidth, max(Self.quoteMinimumWidth, size.width + 2 * inset))
             let h = pixelRound(Self.quoteHeight * quoteFont.pointSize / 11)
             // The quote sits on the original sender's side.
+=======
+        var y: CGFloat = 0
+        var quoteFrame: CGRect?
+        var quoteTextFrame: CGRect?
+        if let quote = model.replyQuote {
+            let quoteFont = t.quoteFont
+            let quoteString = NSAttributedString(string: quote.text, attributes: [.font: quoteFont])
+            let size = measure(quoteString, maxWidth: maxBubbleWidth - 24)
+            let textHeight = min(size.height, ceil(quoteFont.lineHeight * 2))
+            let bodyWidth = min(maxBubbleWidth, size.width + 24)
+            let h = textHeight + 14
+            // The quote sits on the original sender's side, outline only.
+>>>>>>> origin/main
             let quoteLeading = margin + (model.isGroup ? t.avatarSize + t.avatarGap : 0)
             let frame = quote.isOutgoing
                 ? CGRect(x: width - margin - bodyWidth, y: y, width: bodyWidth + t.tailWidth, height: h)
                 : CGRect(x: quoteLeading - t.tailWidth, y: y, width: bodyWidth + t.tailWidth, height: h)
             quoteFrame = frame
             let bodyMinX = quote.isOutgoing ? frame.minX : frame.minX + t.tailWidth
+<<<<<<< HEAD
             quoteTextFrame = CGRect(x: bodyMinX + inset, y: y + (h - textHeight) / 2, width: bodyWidth - 2 * inset, height: textHeight)
             y += h
             // "N Replies" belongs to the quoted message: Messages shows it under
@@ -489,6 +594,10 @@ extension MessageCellLayout {
             } else {
                 y += sameSide ? Self.quoteToSameSideReply : Self.quoteToOtherSideReply
             }
+=======
+            quoteTextFrame = CGRect(x: bodyMinX + 12, y: y + 7, width: bodyWidth - 24, height: textHeight)
+            y += h + t.transcriptSpace(ConversationTranscriptMetrics.smallSpace)
+>>>>>>> origin/main
         }
 
         var senderNameFrame: CGRect?
@@ -682,6 +791,7 @@ extension MessageCellLayout {
             y += t.footerGap + footerHeight
         }
 
+<<<<<<< HEAD
         var thread: ConversationReplyThread?
         let pieces = imageFrames + fileFrames + [bubbleFrame, emojiFrame, audioFrame, linkCardFrame].compactMap { $0 }
         let replyTop = pieces.min { $0.minY < $1.minY } ?? primary
@@ -714,6 +824,24 @@ extension MessageCellLayout {
             )
             joined.top = .cap(y: 0)
             thread = joined
+=======
+        var threadPath: CGPath?
+        if let quoteFrame, let quote = model.replyQuote {
+            // A thread line on the leading side joins the quote to the reply.
+            let x = margin + t.avatarSize / 2
+            let path = UIBezierPath()
+            let quoteBodyLeading = quote.isOutgoing ? quoteFrame.minX : quoteFrame.minX + t.tailWidth
+            path.move(to: CGPoint(x: min(quoteBodyLeading - 4, x + 14), y: quoteFrame.midY))
+            path.addQuadCurve(to: CGPoint(x: x, y: quoteFrame.midY + 14), controlPoint: CGPoint(x: x, y: quoteFrame.midY))
+            if model.isOutgoing || !model.reservesAvatarColumn {
+                let endY = max(quoteFrame.midY + 28, primary.midY)
+                path.addLine(to: CGPoint(x: x, y: endY - 14))
+                path.addQuadCurve(to: CGPoint(x: x + 14, y: endY), controlPoint: CGPoint(x: x, y: endY))
+            } else {
+                path.addLine(to: CGPoint(x: x, y: max(quoteFrame.midY + 16, (avatarFrame?.minY ?? primary.maxY) - 6)))
+            }
+            threadPath = path.cgPath
+>>>>>>> origin/main
         }
 
         var content = imageFrames.reduce(bubbleFrame ?? emojiFrame ?? .null) { $0.union($1) }
@@ -730,6 +858,7 @@ extension MessageCellLayout {
             y = max(y, tailBottom)
             content.size.height += t.tailDrop
         }
+<<<<<<< HEAD
         // A reply on the trailing side with more of its block below: the line
         // passes beside it to the next reply instead of turning in (Messages).
         var threadRunsBelow = false
@@ -737,16 +866,22 @@ extension MessageCellLayout {
             thread?.bottom = .cap(y: y)
             threadRunsBelow = true
         }
+=======
+>>>>>>> origin/main
 
         return MessageCellLayout(
             height: y,
             senderNameFrame: senderNameFrame,
             quoteFrame: quoteFrame,
             quoteTextFrame: quoteTextFrame,
+<<<<<<< HEAD
             quoteRepliesFrame: quoteRepliesFrame,
             thread: thread,
             threadArrival: thread == nil ? nil : model.replyThread?.arrival,
             threadRunsBelow: threadRunsBelow,
+=======
+            threadPath: threadPath,
+>>>>>>> origin/main
             imageFrames: imageFrames,
             bubbleFrame: bubbleFrame,
             textFrame: textFrame,

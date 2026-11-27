@@ -1,8 +1,12 @@
+<<<<<<< HEAD
 #if canImport(CoreGraphics)
 import CoreGraphics
 #else
 import Foundation
 #endif
+=======
+import CoreGraphics
+>>>>>>> origin/main
 import Foundation
 
 /// The composer's "+" menu (ChatKit's send menu popover), as iOS 26.5 and

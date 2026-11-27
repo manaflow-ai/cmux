@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+<<<<<<< HEAD
 """Policy tests for scripts/ci/shed_superseded_runs.py over fixture runs (no network)."""
 
 from __future__ import annotations
@@ -7,20 +8,33 @@ import contextlib
 import datetime as dt
 import io
 import os
+=======
+"""Policy tests for scripts/ci/shed_superseded_runs.py over fixture runs (no network): the base autofix carrier kept by main's sweep."""
+
+from __future__ import annotations
+
+import datetime as dt
+>>>>>>> origin/main
 import sys
 import unittest
 from pathlib import Path
 
+<<<<<<< HEAD
 import yaml
 
 
 ROOT = Path(__file__).resolve().parents[1]
 SCRIPT = ROOT / "scripts/ci/shed_superseded_runs.py"
 WORKFLOW = ROOT / ".github/workflows/ci-shed-superseded-runs.yml"
+=======
+ROOT = Path(__file__).resolve().parents[1]
+SCRIPT = ROOT / "scripts/ci/shed_superseded_runs.py"
+>>>>>>> origin/main
 if str(SCRIPT.parent) not in sys.path:
     sys.path.insert(0, str(SCRIPT.parent))
 import shed_superseded_runs as shed  # noqa: E402
 
+<<<<<<< HEAD
 REPO = "manaflow-ai/cmux"
 TIPS = {"feature": "tip", "feat-cmux-next": "base", "release/1.2": "rel"}
 _ids = iter(range(1000, 100000))
@@ -125,6 +139,8 @@ def job(status="queued", **over):
     return {"status": status, "runner_id": None, "runner_name": None, "steps": [], **over}
 
 
+=======
+>>>>>>> origin/main
 class BaseAutofixCarrierTests(unittest.TestCase):
     """2026-11-24: cmux-next base autofix completed no run for 15 hours. Its run on a pushed commit waits up to 45
     minutes for that push's exports, then queues "action exports (Mac)"; by then base has moved, the run has nothing
@@ -168,6 +184,7 @@ class BaseAutofixCarrierTests(unittest.TestCase):
         self.assertEqual(self.why(self.carrier(head_branch="feature", status="queued")), "superseded")
 
 
+<<<<<<< HEAD
 class UnstartedTests(unittest.TestCase):
     def test_only_a_run_with_nothing_running_or_claimed_is_unstarted(self):
         self.assertTrue(shed.unstarted([job("completed"), job()]))
@@ -347,5 +364,7 @@ class SweepTests(unittest.TestCase):
         self.assertEqual(out.count("kept: a job started since the first read"), 2)
 
 
+=======
+>>>>>>> origin/main
 if __name__ == "__main__":
     unittest.main()

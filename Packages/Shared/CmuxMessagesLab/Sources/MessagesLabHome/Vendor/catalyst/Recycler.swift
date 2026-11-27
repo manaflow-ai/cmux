@@ -68,11 +68,14 @@ final class RowRecycler: UIScrollView, TranscriptList {
 
     var visibleCells: [UICollectionViewCell] { Array(visible.values) }
 
+<<<<<<< HEAD
     /// Ask 11: rows whose keys changed (a streaming bubble's rows renamed to the final message's) keep their cells.
     func renameKeys(_ renamed: [(String, String)]) {
         for (a, b) in renamed { if let c = visible.removeValue(forKey: a) { visible.updateValue(c, forKey: b) } }
     }
 
+=======
+>>>>>>> origin/main
     func indexPath(for cell: UICollectionViewCell) -> IndexPath? {
         index.value(for: ObjectIdentifier(cell)).map { /* dictionary read */ IndexPath(item: $0, section: 0) }
     }

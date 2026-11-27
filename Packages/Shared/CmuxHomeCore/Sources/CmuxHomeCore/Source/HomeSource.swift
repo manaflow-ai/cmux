@@ -46,6 +46,7 @@ public enum HomeEvent: Hashable, Sendable {
     case intentsRevoked(Set<IdempotencyKey>)
     /// Ephemeral, never stored.
     case typing(ConversationID, ParticipantID, on: Bool)
+<<<<<<< HEAD
     /// Who has the conversation open now, the whole set (the owner's presence; ephemeral, never
     /// stored): an empty set is nobody.
     case presence(ConversationID, viewing: Set<ParticipantID>)
@@ -55,6 +56,11 @@ public enum HomeEvent: Hashable, Sendable {
     /// A Chief's live run frame (`chief-live-v1`, ephemeral, never stored):
     /// the reply's text so far and the run's "working on" line.
     case live(HomeLiveEvent)
+=======
+    /// An agent's running reply (ephemeral, never stored): Home grows it in
+    /// the agent's bubble until the reply is posted.
+    case draft(HomeDraftUpdate)
+>>>>>>> origin/main
 }
 
 /// One search hit over Home messages.
@@ -121,7 +127,12 @@ public protocol HomeSource: Sendable {
     /// the conversation's blob storage under `file.ref.hash`. Idempotent by
     /// hash: a blob the conversation already holds succeeds without sending
     /// the bytes again. Files over `HomeAttachmentPolicy.streamMaxBytes` use
+<<<<<<< HEAD
     /// bounded multipart pieces and a final commit before returning.
+=======
+    /// the owner's presigned PUT and its commit call before returning; a 412
+    /// on a retried presigned PUT means the first attempt landed, so commit.
+>>>>>>> origin/main
     /// A video with `ref.poster` declares it in the intent and PUTs the poster
     /// to the answer's `poster_upload` before the video's PUT or commit (the
     /// owner answers 409 `attachment.poster_missing` until then). An image
@@ -149,6 +160,7 @@ public protocol HomeSource: Sendable {
     /// Whether the owner of `conversation` takes `link_preview` parts. A
     /// sender sends plain text to an owner that does not (an older daemon).
     func acceptsLinkPreviews(in conversation: ConversationID) async -> Bool
+<<<<<<< HEAD
 
     /// Persisted agent messages, including finished runs; unsupported owners return none.
     func agentRuns(of conversation: ConversationID, window: HomeAgentRunWindow) async -> [HomeAgentRun]
@@ -197,6 +209,14 @@ extension HomeSource {
         nil
     }
 
+=======
+}
+
+extension HomeSource {
+    /// Sources that keep no per-transcript state ignore it.
+    public func close(_ conversation: ConversationID) {}
+
+>>>>>>> origin/main
     /// Default: no link preview parts (send plain text).
     public func acceptsLinkPreviews(in conversation: ConversationID) async -> Bool { false }
 

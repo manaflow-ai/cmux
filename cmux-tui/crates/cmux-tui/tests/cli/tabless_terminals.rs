@@ -1,3 +1,4 @@
+<<<<<<< ours
 //! Hidden running shells (bench round 4, friction 1). `agent start`, `pane
 //! move` into a new pane or screen, and `workspace close --remove-worktree`
 //! each left a running shell with no tab: not in the TUI, not in `pane
@@ -7,6 +8,15 @@
 //! removed. This daemon runs with no reaper (`--headless` without
 //! `--terminal-reap-grace-seconds`), so a terminal these commands leave stays
 //! until the session ends: the count right after each command is the leak.
+=======
+//! Hidden running shells (bench round 4, friction 1; port of feat W5-O).
+//! `pane move` into a new pane or a new screen left a running shell with no
+//! tab: not in the TUI, not in `pane list`, only in `terminal list` with
+//! `tab_ids: []`. The command opens a shell tab only to hold the new pane, so
+//! it must end that shell before it returns. Main's owner has no reaper, so a
+//! terminal the command leaves stays until the session ends: the count right
+//! after each command is the leak.
+>>>>>>> theirs
 #![cfg(unix)]
 
 use serde_json::Value;
@@ -16,6 +26,7 @@ use super::*;
 /// How long a closed terminal may take to stop being listed as running.
 const SETTLE: Duration = Duration::from_secs(10);
 
+<<<<<<< ours
 fn git(dir: &std::path::Path, args: &[&str]) {
     let output = Command::new("git")
         .arg("-C")
@@ -34,6 +45,11 @@ fn git(dir: &std::path::Path, args: &[&str]) {
 /// `cmux --json <args>` against `server`; the JSON result of a success.
 fn run(server: &HeadlessServer, args: &[&str]) -> Value {
     let output = Command::new(bin())
+=======
+/// `cmux --json <args>` against `server`; the JSON result of a success.
+fn run(server: &HeadlessServer, args: &[&str]) -> Value {
+    let output = cmux_command()
+>>>>>>> theirs
         .args(["--json", "--socket"])
         .arg(&server.socket)
         .args(args)
@@ -46,17 +62,29 @@ fn run(server: &HeadlessServer, args: &[&str]) -> Value {
     json_output(&output)
 }
 
+<<<<<<< ours
 /// The running terminals `terminal list` shows with no tab.
 fn tabless(server: &HeadlessServer) -> Vec<Value> {
+=======
+/// The running terminals `terminal list` shows, split into (with a tab,
+/// with no tab).
+fn running(server: &HeadlessServer) -> (Vec<Value>, Vec<Value>) {
+>>>>>>> theirs
     let listed = run(server, &["terminal", "list"]);
     listed
         .as_array()
         .unwrap_or_else(|| panic!("terminal list is not an array: {listed}"))
         .iter()
+<<<<<<< ours
         .filter(|terminal| terminal["tab_ids"].as_array().is_none_or(Vec::is_empty))
         .filter(|terminal| terminal["lifecycle"] != "exited")
         .cloned()
         .collect()
+=======
+        .filter(|terminal| terminal["lifecycle"] != "exited")
+        .cloned()
+        .partition(|terminal| terminal["tab_ids"].as_array().is_some_and(|tabs| !tabs.is_empty()))
+>>>>>>> theirs
 }
 
 /// No running terminal is left without a tab after `step` (an ended one may
@@ -64,7 +92,11 @@ fn tabless(server: &HeadlessServer) -> Vec<Value> {
 fn assert_no_tabless(server: &HeadlessServer, step: &str) {
     let deadline = Instant::now() + SETTLE;
     loop {
+<<<<<<< ours
         let left = tabless(server);
+=======
+        let (_, left) = running(server);
+>>>>>>> theirs
         if left.is_empty() {
             return;
         }
@@ -78,16 +110,25 @@ fn assert_no_tabless(server: &HeadlessServer, step: &str) {
     }
 }
 
+<<<<<<< ours
 fn text(value: &Value, pointer: &str) -> String {
     value
         .pointer(pointer)
         .and_then(Value::as_str)
         .unwrap_or_else(|| panic!("no {pointer} in {value}"))
+=======
+fn text(value: &Value, pointers: &[&str]) -> String {
+    pointers
+        .iter()
+        .find_map(|pointer| value.pointer(pointer).and_then(Value::as_str))
+        .unwrap_or_else(|| panic!("no {pointers:?} in {value}"))
+>>>>>>> theirs
         .to_owned()
 }
 
 #[test]
 fn w5o_placeholder_shells_end_with_the_command_that_opened_them() {
+<<<<<<< ours
     let root = unique_temp_dir("tabless");
     let home = root.join("home");
     let repo = root.join("project");
@@ -114,6 +155,48 @@ fn w5o_placeholder_shells_end_with_the_command_that_opened_them() {
     let alpha_pane = text(&alpha, "/pane_id");
 
     // A split opens a shell tab in the new pane before the agent's tab.
+=======
+    let server = HeadlessServer::start("tabless");
+    assert_no_tabless(&server, "the new daemon");
+
+    // Two panes, each with its own shell: the shells the moves keep.
+    let created = run(&server, &["workspace", "create", "--name", "tabless"]);
+    let first = text(&created, &["/value/pane_id", "/pane_id"]);
+    let split = run(&server, &["pane", &first, "split", "--right"]);
+    let second = text(&split, &["/value/pane_id", "/pane_id"]);
+    assert_no_tabless(&server, "workspace create and pane split");
+
+    // A move into a split: the split opens with a shell tab.
+    let moved = run(&server, &["pane", &second, "move", "--to-pane", &first, "--split", "down"]);
+    assert_no_tabless(&server, "pane move --to-pane --split down");
+    let moved_pane = text(&moved, &["/destination/pane", "/value/destination/pane"]);
+
+    // A move to a new screen: the screen opens with a shell tab.
+    run(&server, &["pane", &moved_pane, "move", "--new-screen", "--name", "moved"]);
+    assert_no_tabless(&server, "pane move --new-screen");
+
+    // Only the placeholders ended: both panes' own shells still run, in tabs.
+    let (placed, _) = running(&server);
+    assert_eq!(placed.len(), 2, "a pane's own shell ended with a placeholder: {placed:?}");
+}
+
+/// `agent start` (port of feat W3-H, with W5-O's rule): the shell a new
+/// workspace or a split opens with ends with `terminal close`, so no running
+/// terminal is left without a tab, and the agents' own terminals still run.
+#[test]
+fn w3h_agent_start_ends_its_placeholder_shells() {
+    let server = HeadlessServer::start("agentstart");
+    assert_no_tabless(&server, "the new daemon");
+
+    // No pane given: a new workspace (empty session) or a split of the
+    // focused pane, each opened with a placeholder shell.
+    let alpha =
+        run(&server, &["agent", "start", "alpha", "--cmd", "sleep 300", "--no-wait", "--no-focus"]);
+    assert_no_tabless(&server, "agent start alpha");
+
+    // A split of a named pane.
+    let pane = text(&alpha, &["/pane_id", "/value/pane_id"]);
+>>>>>>> theirs
     let beta = run(
         &server,
         &[
@@ -121,14 +204,23 @@ fn w5o_placeholder_shells_end_with_the_command_that_opened_them() {
             "start",
             "beta",
             "--cmd",
+<<<<<<< ours
             "sleep 600",
             "--no-wait",
             "--pane",
             &alpha_pane,
+=======
+            "sleep 300",
+            "--no-wait",
+            "--no-focus",
+            "--pane",
+            &pane,
+>>>>>>> theirs
             "--split",
             "down",
         ],
     );
+<<<<<<< ours
     assert_no_tabless(&server, "agent start beta --split down");
     let beta_pane = text(&beta, "/pane_id");
 
@@ -324,4 +416,17 @@ fn w5o_worktree_close_guards_the_ends_whatever_identify_lists() {
 
     drop(server);
     let _ = fs::remove_dir_all(root);
+=======
+    assert_no_tabless(&server, "agent start beta --pane --split down");
+
+    let (placed, _) = running(&server);
+    let ids: Vec<&str> = placed.iter().filter_map(|terminal| terminal["id"].as_str()).collect();
+    for agent in [&alpha, &beta] {
+        let terminal = text(agent, &["/terminal_id", "/value/terminal_id"]);
+        assert!(
+            ids.contains(&terminal.as_str()),
+            "the agent's terminal {terminal} ended: {placed:?}"
+        );
+    }
+>>>>>>> theirs
 }

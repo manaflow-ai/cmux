@@ -75,6 +75,7 @@ pub(crate) fn run(args: &[OsString]) -> i32 {
     126
 }
 
+<<<<<<< ours
 /// `args` with the config overrides an agent chat's Codex starts with
 /// (`acpmux::harness_limits::codex_args`: thread and depth limits, the plan tool, the configured
 /// model), each only where the launch or Codex's own config leaves it unset (Leo 2026-11-24: "in
@@ -99,11 +100,14 @@ fn with_chat_config(args: Vec<OsString>) -> Vec<OsString> {
         .collect()
 }
 
+=======
+>>>>>>> theirs
 fn current_executable() -> anyhow::Result<PathBuf> {
     let executable = std::env::current_exe().context("resolve the cmux-tui executable")?;
     Ok(executable.canonicalize().unwrap_or(executable))
 }
 
+<<<<<<< ours
 /// `codex` is the real Codex this launch runs, and `child_path` its `PATH`: the person's own
 /// `cmux` entry is what that Codex answers (`acpmux::codex_cmux_entry::resolve`).
 fn prepare_hooks(
@@ -117,6 +121,15 @@ fn prepare_hooks(
         return Ok(None);
     }
     let Some((socket, Some(terminal))) = crate::hook_helper::session_route("codex") else {
+=======
+fn prepare_hooks(args: &[OsString]) -> anyhow::Result<Option<Vec<OsString>>> {
+    // A tool command of a Codex session in the shared daemon has the
+    // daemon's inherited environment, which names some other terminal.
+    if cmux_tui_core::platform::descends_from_codex_app_server_daemon() {
+        return Ok(None);
+    }
+    let Some((socket, Some(terminal))) = crate::hook_helper::session_route() else {
+>>>>>>> theirs
         return Ok(None);
     };
     if !fs::metadata(&socket).is_ok_and(|metadata| metadata.file_type().is_socket()) {

@@ -1,4 +1,7 @@
+<<<<<<< HEAD
 #if canImport(QuartzCore)  // Core Animation: Apple only (the Linux CI package build skips this file)
+=======
+>>>>>>> origin/main
 import CmuxConversationCore
 import QuartzCore
 #if canImport(UIKit)
@@ -242,6 +245,7 @@ public final class ConversationTextEffectLayer: CALayer {
     private var signature: (text: NSAttributedString, size: CGSize, origin: CGPoint, scale: CGFloat, animated: Bool)?
     /// Above this many characters in one run, words move instead of letters.
     public var maximumGlyphUnits = 80
+<<<<<<< HEAD
     /// Glyphs not yet in the shared cache render away from the main thread
     /// and show when ready, instead of in the update that asks for them.
     /// Each glyph draws the whole string with only itself inked, so a long
@@ -254,6 +258,8 @@ public final class ConversationTextEffectLayer: CALayer {
     /// Bumps on every update and clear, so a render that finishes after the
     /// layer moved on to other text is dropped.
     private var updateGeneration = 0
+=======
+>>>>>>> origin/main
 
     public override init() {
         super.init()
@@ -287,11 +293,14 @@ public final class ConversationTextEffectLayer: CALayer {
     /// `textSize` with line fragment padding 0) and starts their loop.
     /// `seed` keys explode/jitter randomness. Re-calls with the same input keep
     /// the running animation.
+<<<<<<< HEAD
     /// `animated` is the Reduce Motion gate: every host passes
     /// `!UIAccessibility.isReduceMotionEnabled` (iOS) or
     /// `!NSWorkspace.shared.accessibilityDisplayShouldReduceMotion` (macOS),
     /// and with it false no loop is built or added;
     /// the glyphs sit still in their laid-out place.
+=======
+>>>>>>> origin/main
     /// With `cacheToken`, the rendered glyphs come from (and go to) a cache
     /// shared with `prepare`; see there for what the token must name.
     public func update(text: NSAttributedString, textSize: CGSize, textOrigin: CGPoint = .zero, scale: CGFloat, animated: Bool, seed: UInt64, restart: Bool = false, cacheToken: String? = nil) {
@@ -300,16 +309,22 @@ public final class ConversationTextEffectLayer: CALayer {
             return
         }
         signature = (NSAttributedString(attributedString: text), textSize, textOrigin, scale, animated)
+<<<<<<< HEAD
         updateGeneration &+= 1
+=======
+>>>>>>> origin/main
         orientTopLeft()
         sublayers?.forEach { $0.removeFromSuperlayer() }
         guard ConversationRichTextStyler.hasEffects(text), textSize.width > 0 else { return }
         let rendering: Rendering
         if let cacheToken, maximumGlyphUnits == Self.defaultMaximumGlyphUnits {
+<<<<<<< HEAD
             if rendersOffMainThread, Self.cachedRendering(text: text, textSize: textSize, scale: scale, cacheToken: cacheToken) == nil {
                 renderAhead(text: text, textSize: textSize, textOrigin: textOrigin, scale: scale, animated: animated, seed: seed, cacheToken: cacheToken)
                 return
             }
+=======
+>>>>>>> origin/main
             guard let prepared = Self.prepare(text: text, textSize: textSize, scale: scale, cacheToken: cacheToken) else { return }
             rendering = prepared
         } else {
@@ -325,6 +340,7 @@ public final class ConversationTextEffectLayer: CALayer {
             }
             rendering = Rendering(glyphs: glyphs)
         }
+<<<<<<< HEAD
         install(rendering, textOrigin: textOrigin, scale: scale, animated: animated, seed: seed)
     }
 
@@ -352,6 +368,8 @@ public final class ConversationTextEffectLayer: CALayer {
     /// Adds a sublayer per glyph and starts the loops (none when `animated`
     /// is false, the Reduce Motion form).
     private func install(_ rendering: Rendering, textOrigin: CGPoint, scale: CGFloat, animated: Bool, seed: UInt64) {
+=======
+>>>>>>> origin/main
         let begin = CACurrentMediaTime()
         let loops = animated ? rendering.animations(seed: seed) : []
         for (index, item) in rendering.glyphs.enumerated() {
@@ -370,7 +388,10 @@ public final class ConversationTextEffectLayer: CALayer {
 
     public func clear() {
         signature = nil
+<<<<<<< HEAD
         updateGeneration &+= 1
+=======
+>>>>>>> origin/main
         sublayers?.forEach { $0.removeFromSuperlayer() }
     }
 
@@ -508,6 +529,7 @@ public final class ConversationTextEffectLayer: CALayer {
         return group
     }
 }
+<<<<<<< HEAD
 
 /// A background effect render's input and the layer waiting for it. The
 /// string is a private copy nothing mutates; the layer is only touched back
@@ -522,3 +544,5 @@ private final class EffectRenderJob: @unchecked Sendable {
     }
 }
 #endif
+=======
+>>>>>>> origin/main

@@ -1,3 +1,4 @@
+<<<<<<< HEAD
 #if canImport(AVFoundation)
 import AVFoundation
 #endif
@@ -16,14 +17,27 @@ import CmuxHomeCoreTestSupport
 #if canImport(UniformTypeIdentifiers)
 import UniformTypeIdentifiers
 #endif
+=======
+import AVFoundation
+import CoreGraphics
+import Foundation
+import ImageIO
+import os
+import Testing
+import CmuxHomeCoreTestSupport
+import UniformTypeIdentifiers
+>>>>>>> origin/main
 @testable import CmuxHomeCore
 
 // Regression tests for the second attachment review.
 
 // MARK: Fixtures
 
+<<<<<<< HEAD
 #if canImport(ImageIO) && canImport(AVFoundation)
 // Real media, read and written by ImageIO and AVFoundation: Apple platforms only.
+=======
+>>>>>>> origin/main
 /// Location found anywhere in a movie: asset or track metadata items, or a
 /// timed metadata track.
 struct MovieLocation: Equatable {
@@ -157,6 +171,35 @@ func makeJPEGWithXMPLocation() throws -> Data {
     return data as Data
 }
 
+<<<<<<< HEAD
+=======
+/// A 1x1 lossless WebP (with an alpha channel) whose EXIF holds a GPS
+/// position. ImageIO reads WebP but cannot write it, so the EXIF block is
+/// taken from a JPEG and wrapped in RIFF chunks by hand.
+func makeWebPWithLocation(orientation: Int = 6) throws -> Data {
+    let jpeg = [UInt8](try makeJPEGWithLocation(width: 4, height: 4, orientation: orientation))
+    var index = 2
+    var tiff: [UInt8] = []
+    while index + 4 < jpeg.count {
+        let length = Int(jpeg[index + 2]) << 8 | Int(jpeg[index + 3])
+        if jpeg[index + 1] == 0xE1, jpeg[(index + 4)..<(index + 10)].elementsEqual(Array("Exif\0\0".utf8)) {
+            tiff = Array(jpeg[(index + 10)..<(index + 2 + length)])
+            break
+        }
+        index += 2 + length
+    }
+    #expect(!tiff.isEmpty)
+    func le32(_ value: Int) -> [UInt8] { (0..<4).map { UInt8(value >> (8 * $0) & 0xff) } }
+    func chunk(_ tag: String, _ payload: [UInt8]) -> [UInt8] {
+        Array(tag.utf8) + le32(payload.count) + payload + (payload.count % 2 == 1 ? [0] : [])
+    }
+    let vp8l: [UInt8] = [0x2f, 0x00, 0x00, 0x00, 0x10, 0x07, 0x10, 0x11, 0x11, 0x88, 0x88, 0xfe, 0x07]
+    let vp8x: [UInt8] = [0x18, 0, 0, 0, 0, 0, 0, 0, 0, 0] // alpha + EXIF, 1x1 canvas
+    let body = Array("WEBP".utf8) + chunk("VP8X", vp8x) + chunk("VP8L", vp8l) + chunk("EXIF", tiff)
+    return Data(Array("RIFF".utf8) + le32(body.count) + body)
+}
+
+>>>>>>> origin/main
 /// A `width` x `height` PNG whose left half is fully transparent.
 func makeTransparentPNG(width: Int, height: Int) throws -> Data {
     let context = try #require(CGContext(data: nil, width: width, height: height, bitsPerComponent: 8, bytesPerRow: 0,
@@ -186,6 +229,7 @@ func minimumAlpha(_ url: URL) throws -> UInt8 {
     }
     return stride(from: 3, to: pixels.count, by: 4).map { pixels[$0] }.min() ?? 255
 }
+<<<<<<< HEAD
 #endif
 
 /// A 1x1 lossless WebP (with an alpha channel) whose EXIF holds a GPS
@@ -238,11 +282,16 @@ func exifWithLocation(orientation: Int) -> [UInt8] {
 }
 #endif
 
+=======
+>>>>>>> origin/main
 
 // MARK: Preparation
 
 @Suite(.timeLimit(.minutes(3))) struct AttachmentRoundTwoPreparationTests {
+<<<<<<< HEAD
 #if canImport(ImageIO) && canImport(AVFoundation)
+=======
+>>>>>>> origin/main
     /// Finding 2 (Lawrence's decision): an image with transparency gets no
     /// preview (a JPEG would turn the transparent areas black, and the
     /// owner keeps the first preview for good); readers load the original.
@@ -268,9 +317,13 @@ func exifWithLocation(orientation: Int) -> [UInt8] {
                                                        typeIdentifier: UTType.jpeg.identifier)
         #expect(opaque.ref.preview != nil)
     }
+<<<<<<< HEAD
 #endif
 
 #if canImport(ImageIO) && canImport(AVFoundation)
+=======
+
+>>>>>>> origin/main
     /// Finding 3: location an M4A carries is removed like a video's.
     @MainActor @Test func audioLocationIsStrippedUnlessKept() async throws {
         let root = try temporaryDirectory()
@@ -285,7 +338,11 @@ func exifWithLocation(orientation: Int) -> [UInt8] {
         #expect(stripped.ref.name == "memo.m4a")
         #expect(stripped.ref.hash == sha256Hex(try Data(contentsOf: stripped.fileURL)))
         let duration = try #require(stripped.ref.durationMs)
+<<<<<<< HEAD
         #expect(abs(duration - 1000) <= 100)
+=======
+        #expect((900...1100).contains(duration), "the one-second fixture encodes to about 1000 ms")
+>>>>>>> origin/main
 
         let pasted = try await store.prepareAttachment(data: try Data(contentsOf: audio), typeIdentifier: UTType.mpeg4Audio.identifier)
         #expect(try await movieLocation(pasted.fileURL) == MovieLocation())
@@ -293,9 +350,13 @@ func exifWithLocation(orientation: Int) -> [UInt8] {
         let kept = try await store.prepareAttachment(fileURL: audio, keepLocation: true)
         #expect(kept.ref.hash == sha256Hex(try Data(contentsOf: audio)))
     }
+<<<<<<< HEAD
 #endif
 
 #if canImport(ImageIO) && canImport(AVFoundation)
+=======
+
+>>>>>>> origin/main
     /// Finding 3: track-level location items, a timed metadata track of
     /// positions, and a place name without coordinates are all removed.
     @MainActor @Test func movieTrackTimedAndNamedLocationsAreStripped() async throws {
@@ -325,9 +386,13 @@ func exifWithLocation(orientation: Int) -> [UInt8] {
         let kept = try await store.prepareAttachment(fileURL: timed, keepLocation: true)
         #expect(kept.ref.hash == sha256Hex(try Data(contentsOf: timed)))
     }
+<<<<<<< HEAD
 #endif
 
 #if canImport(ImageIO) && canImport(AVFoundation)
+=======
+
+>>>>>>> origin/main
     /// Finding 3: a photo whose location is IPTC text or XMP (no EXIF GPS
     /// dictionary) is stripped too; other metadata and orientation stay.
     @MainActor @Test func photoIPTCAndXMPLocationsAreStripped() async throws {
@@ -356,9 +421,13 @@ func exifWithLocation(orientation: Int) -> [UInt8] {
         let kept = try await store.prepareAttachment(data: iptc, typeIdentifier: UTType.jpeg.identifier, keepLocation: true)
         #expect(kept.ref.hash == sha256Hex(iptc))
     }
+<<<<<<< HEAD
 #endif
 
 #if canImport(ImageIO) && canImport(AVFoundation)
+=======
+
+>>>>>>> origin/main
     /// Finding 4: ImageIO cannot write WebP, so a WebP with GPS is
     /// converted (PNG, since it has alpha) without its location instead of
     /// being refused.
@@ -389,7 +458,10 @@ func exifWithLocation(orientation: Int) -> [UInt8] {
         #expect(kept.ref.mimeType == "image/webp")
         #expect(kept.ref.hash == sha256Hex(webp))
     }
+<<<<<<< HEAD
 #endif
+=======
+>>>>>>> origin/main
 
     /// Finding 10: the owner trims names with JS `trim()`, which also
     /// removes U+FEFF; a name of only that character is blank.
@@ -462,6 +534,7 @@ func exifWithLocation(orientation: Int) -> [UInt8] {
         for _ in 0..<200_000 where fm.fileExists(atPath: stale.path) { await Task.yield() }
         #expect(!fm.fileExists(atPath: stale.path))
     }
+<<<<<<< HEAD
 
     /// A store that names no folder (every test's, a fixture's) gets a temporary one of its own, never the app's
     /// `Caches/cmux-home-blobs`: its prune keeps none of that folder's blobs, so a test run would delete the
@@ -497,6 +570,8 @@ func exifWithLocation(orientation: Int) -> [UInt8] {
         for _ in 0..<1_000 { await Task.yield() }
         #expect(fm.fileExists(atPath: stale.path))
     }
+=======
+>>>>>>> origin/main
 }
 
 // MARK: Sending
@@ -609,7 +684,10 @@ func exifWithLocation(orientation: Int) -> [UInt8] {
         #expect(photoSeq < textSeq)
     }
 
+<<<<<<< HEAD
 #if canImport(ImageIO) && canImport(AVFoundation)
+=======
+>>>>>>> origin/main
     /// Finding 7: the owner kept another device's poster, so the pending
     /// row's part names a poster hash this client does not have; the row
     /// is not committed, so the source cannot fetch it either. The local
@@ -642,7 +720,10 @@ func exifWithLocation(orientation: Int) -> [UInt8] {
         send.cancel()
         store.stop()
     }
+<<<<<<< HEAD
 #endif
+=======
+>>>>>>> origin/main
 
     /// Finding 8: `stop()` (sign-out) cancels uploads in flight.
     @Test func stopCancelsUploadsInFlight() async throws {

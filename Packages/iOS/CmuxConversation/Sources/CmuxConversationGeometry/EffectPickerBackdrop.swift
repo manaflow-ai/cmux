@@ -1,8 +1,12 @@
+<<<<<<< HEAD
 #if canImport(CoreGraphics)
 import CoreGraphics
 #else
 import Foundation
 #endif
+=======
+import CoreGraphics
+>>>>>>> origin/main
 
 /// Messages' Send with effect backdrop. ChatKit's `CKEffectPickerStandardView`
 /// layers a linear-light tint (`tint`) under a radius-64 Gaussian backdrop

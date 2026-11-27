@@ -1,15 +1,21 @@
 public import Foundation
+<<<<<<< HEAD
 #if canImport(ImageIO)
 import ImageIO
 #endif
 #if canImport(UniformTypeIdentifiers)
 import UniformTypeIdentifiers
 #endif
+=======
+import ImageIO
+import UniformTypeIdentifiers
+>>>>>>> origin/main
 
 /// The owner's attachment rules (home-messaging.md 10.1), checked on the
 /// client before any upload so a refused file never leaves the device.
 public struct HomeAttachmentPolicy {
     public init() {}
+<<<<<<< HEAD
     /// Up to this size a source streams the bytes through the owner's
     /// Worker; larger files use bounded multipart pieces through the Worker.
     public static let streamMaxBytes = 32_000_000
@@ -33,6 +39,15 @@ public struct HomeAttachmentPolicy {
         } while start < items.count
         return groups
     }
+=======
+    /// Per file, every type (decimal megabytes, like the owner).
+    public static let maxBytes = 100_000_000
+    /// Up to this size a source streams the bytes through the owner's
+    /// Worker; larger files go to a presigned PUT followed by a commit call.
+    public static let streamMaxBytes = 32_000_000
+    /// At most this many parts per message (attachments plus text).
+    public static let maxParts = 16
+>>>>>>> origin/main
     /// A video's poster: at most this size, one of `posterTypes`.
     public static let posterMaxBytes = 2_000_000
     public static let posterTypes: Set<String> = ["image/jpeg", "image/webp"]
@@ -42,6 +57,7 @@ public struct HomeAttachmentPolicy {
     public static let previewMaxBytes = 512_000
     public static let previewMaxPixel = 1024
 
+<<<<<<< HEAD
     /// The type of a file with no type of its own on the list: any bytes
     /// that do not read as UTF-8 text (a database, a binary, an archive).
     public static let genericFileType = "application/octet-stream"
@@ -54,6 +70,13 @@ public struct HomeAttachmentPolicy {
         "image/jpeg": .photo, "image/png": .photo, "image/gif": .photo, "image/webp": .photo, "image/heic": .photo,
         "application/pdf": .file, "text/plain": .file, "text/markdown": .file, "text/csv": .file,
         "application/json": .file, "application/zip": .file, genericFileType: .file,
+=======
+    /// The allow list: mime type -> inbox preview kind. SVG, HTML and XML are never on it.
+    public static let allowedTypes: [String: AttachmentPreview.Kind] = [
+        "image/jpeg": .photo, "image/png": .photo, "image/gif": .photo, "image/webp": .photo, "image/heic": .photo,
+        "application/pdf": .file, "text/plain": .file, "text/markdown": .file, "text/csv": .file,
+        "application/json": .file, "application/zip": .file,
+>>>>>>> origin/main
         "video/mp4": .video, "video/quicktime": .video,
         "audio/mp4": .audio, "audio/mpeg": .audio, "audio/aac": .audio, "audio/wav": .audio,
     ]
@@ -83,10 +106,16 @@ public struct HomeAttachmentPolicy {
     /// Valid `duration_ms` of a part (24 hours); other values are left out.
     public static let durationRange = 0...86_400_000
 
+<<<<<<< HEAD
     /// Extensions of files that run or render when opened (executables,
     /// installers, scripts, active documents). They attach like any file, but
     /// opening one shows it in Finder (``revealsInsteadOfOpening(name:)``).
     static let activeExtensions: Set<String> = [
+=======
+    /// Extensions the owner refuses whatever the declared type (executables,
+    /// installers, scripts, active documents).
+    static let deniedExtensions: Set<String> = [
+>>>>>>> origin/main
         "exe", "dll", "msi", "msp", "msix", "appx", "bat", "cmd", "com", "scr", "pif", "cpl", "msc", "hta", "gadget", "lnk",
         "reg", "inf", "ps1", "psm1", "vbs", "vbe", "js", "jse", "mjs", "cjs", "wsf", "wsh", "jar", "class",
         "app", "dmg", "pkg", "mpkg", "command", "workflow", "action", "scpt", "applescript", "terminal", "tool", "kext", "dylib",
@@ -120,6 +149,7 @@ public struct HomeAttachmentPolicy {
             && !name.unicodeScalars.allSatisfy(jsTrimmed.contains) && name != "." && name != ".."
     }
 
+<<<<<<< HEAD
     /// True when opening a received file with this name could run or render
     /// it (a script, an installer, HTML): the client shows it in Finder
     /// instead of opening it.
@@ -148,6 +178,12 @@ public struct HomeAttachmentPolicy {
     /// when they read as text, else ``genericFileType``.
     static func sniffedMimeType(_ prefix: Data, complete: Bool) -> String {
         looksLikeText(prefix, complete: complete) ? "text/plain" : genericFileType
+=======
+    /// True when the owner refuses the name's extension.
+    public static func isDeniedName(_ name: String) -> Bool {
+        guard let dot = name.lastIndex(of: ".") else { return false }
+        return deniedExtensions.contains(name[name.index(after: dot)...].lowercased())
+>>>>>>> origin/main
     }
 
     /// A file's own name made valid: forbidden characters become `_`, a
@@ -186,13 +222,18 @@ public struct HomeAttachmentPolicy {
         case send(mimeType: String)
         /// An image the owner refuses but ImageIO reads: converted to PNG or JPEG.
         case convert
+<<<<<<< HEAD
         /// No listed type: `text/plain` when the bytes read as text, else
         /// ``genericFileType`` (``sniffedMimeType(_:complete:)``).
         case sniff
+=======
+        case refuse
+>>>>>>> origin/main
     }
 
     /// The decision for in-memory input of `type`
     /// (`prepareAttachment(data:typeIdentifier:)`): the type's own mime
+<<<<<<< HEAD
     /// type when it is one of the owner's (an M4A type may prefer the .mp4
     /// extension), else its extension's; an image type ImageIO reads (by
     /// conformance) is converted; anything else is sniffed.
@@ -205,28 +246,53 @@ public struct HomeAttachmentPolicy {
         if allowedTypes[mime] != nil, mime != genericFileType { return .send(mimeType: mime) }
         if type.conforms(to: .image), convertibleImageTypes.contains(where: { type.conforms(to: $0) }) { return .convert }
         return .sniff
+=======
+    /// type when the owner allows it (an M4A type may prefer the .mp4
+    /// extension), else its extension's; an image type ImageIO reads (by
+    /// conformance) is converted; a denied extension is refused.
+    static func decision(for type: UTType) -> InputDecision {
+        let fileExtension = type.preferredFilenameExtension ?? ""
+        if !fileExtension.isEmpty, isDeniedName("attachment.\(fileExtension)") { return .refuse }
+        let typeMime = canonicalMimeType(type.preferredMIMEType ?? "application/octet-stream")
+        let mime = allowedTypes[typeMime] != nil || fileExtension.isEmpty
+            ? typeMime
+            : AttachmentMedia.mimeType(forExtension: fileExtension)
+        if allowedTypes[mime] != nil { return .send(mimeType: mime) }
+        if type.conforms(to: .image), convertibleImageTypes.contains(where: { type.conforms(to: $0) }) { return .convert }
+        return .refuse
+>>>>>>> origin/main
     }
 
     /// The decision for a file (`prepareAttachment(fileURL:)`): the
     /// extension's owner mime type, else the decision for its UTType.
     static func decision(forFileExtension fileExtension: String) -> InputDecision {
         let ext = fileExtension.lowercased()
+<<<<<<< HEAD
         if let known = extensionTypes[ext] { return .send(mimeType: known) }
         guard !ext.isEmpty, let type = UTType(filenameExtension: ext) else { return .sniff }
+=======
+        if isDeniedName("attachment.\(ext)") { return .refuse }
+        if let known = extensionTypes[ext] { return .send(mimeType: known) }
+        guard !ext.isEmpty, let type = UTType(filenameExtension: ext) else { return .refuse }
+>>>>>>> origin/main
         return decision(for: type)
     }
 
     /// Image types ImageIO reads that the owner refuses (TIFF, HEIF, BMP,
     /// camera RAW): prepare converts them.
     static let convertibleImageTypes: [UTType] = {
+<<<<<<< HEAD
         #if !canImport(ImageIO)
         return [] // no ImageIO (the Linux package lane): nothing converts
         #else
+=======
+>>>>>>> origin/main
         let readable = (CGImageSourceCopyTypeIdentifiers() as? [String]) ?? []
         return readable.compactMap(UTType.init).filter { type in
             guard type.conforms(to: .image) else { return false }
             let mime = canonicalMimeType(type.preferredMIMEType ?? "")
             let ext = type.preferredFilenameExtension ?? ""
+<<<<<<< HEAD
             return allowedTypes[mime] == nil && (ext.isEmpty || !revealsInsteadOfOpening(name: "attachment.\(ext)"))
         }
         #endif
@@ -239,11 +305,26 @@ public struct HomeAttachmentPolicy {
         var identifiers = Set(convertibleImageTypes.map(\.identifier))
         for ext in extensionTypes.keys {
             guard let type = UTType(filenameExtension: ext) else { continue }
+=======
+            return allowedTypes[mime] == nil && (ext.isEmpty || !isDeniedName("attachment.\(ext)"))
+        }
+    }()
+
+    /// UTType identifiers `prepareAttachment` takes after conversion: the
+    /// allow list's types and the image types it converts. A composer
+    /// checks drops and pastes with `accepts(typeIdentifier:)`, which also
+    /// takes types that conform to a converted image type.
+    public static let acceptedInputTypes: Set<String> = {
+        var identifiers = Set(convertibleImageTypes.map(\.identifier))
+        for ext in extensionTypes.keys {
+            guard let type = UTType(filenameExtension: ext), decision(for: type) != .refuse else { continue }
+>>>>>>> origin/main
             identifiers.insert(type.identifier)
         }
         return identifiers
     }()
 
+<<<<<<< HEAD
     /// True when `prepareAttachment(data:typeIdentifier:)` takes input of
     /// this type: every type does (unlisted ones go as text or a generic
     /// file); empty input is checked separately.
@@ -256,6 +337,20 @@ public struct HomeAttachmentPolicy {
     /// True when `url` names a folder or a package on disk.
     static func isFolder(_ url: URL) -> Bool {
         (try? url.resourceValues(forKeys: [.isDirectoryKey]).isDirectory) == true
+=======
+    /// True exactly when `prepareAttachment(data:typeIdentifier:)` takes
+    /// input of this type (it may still refuse bytes that are not what the
+    /// type says, or a file over the size limit).
+    public static func accepts(typeIdentifier: String) -> Bool {
+        guard let type = UTType(typeIdentifier) else { return false }
+        return decision(for: type) != .refuse
+    }
+
+    /// True exactly when `prepareAttachment(fileURL:)` takes a file with
+    /// this URL's extension (same caveats).
+    public static func accepts(fileURL: URL) -> Bool {
+        decision(forFileExtension: fileURL.pathExtension) != .refuse
+>>>>>>> origin/main
     }
 
     /// The owner's spelling of a mime type (lowercased, aliases folded).
@@ -267,15 +362,23 @@ public struct HomeAttachmentPolicy {
     /// Throws `HomeAttachmentError` when the owner would refuse the file.
     public static func check(mimeType: String, byteCount: Int, name: String) throws {
         guard isValidName(name) else { throw HomeAttachmentError.invalidName(name: name) }
+<<<<<<< HEAD
         guard allowedTypes[canonicalMimeType(mimeType)] != nil else {
             throw HomeAttachmentError.typeRefused(mimeType: mimeType, name: name)
         }
+=======
+        guard allowedTypes[canonicalMimeType(mimeType)] != nil, !isDeniedName(name) else {
+            throw HomeAttachmentError.typeRefused(mimeType: mimeType, name: name)
+        }
+        guard byteCount <= maxBytes else { throw HomeAttachmentError.tooLarge(byteCount: byteCount, limit: maxBytes) }
+>>>>>>> origin/main
         guard byteCount > 0 else { throw HomeAttachmentError.empty(name: name) }
     }
 }
 
 /// Why the client refused an attachment before uploading it.
 public enum HomeAttachmentError: Error, Hashable, Sendable {
+<<<<<<< HEAD
     /// A part whose mime type is not one of the owner's (images, PDF, plain
     /// text, Markdown, CSV, JSON, ZIP, MP4, MOV, M4A, MP3, AAC, WAV, or
     /// ``HomeAttachmentPolicy/genericFileType``). Prepared files never get
@@ -286,6 +389,17 @@ public enum HomeAttachmentError: Error, Hashable, Sendable {
     /// Over 255 characters, blank, `.` or `..`, or holding a control
     /// character or a path separator.
     case invalidName(name: String)
+=======
+    /// Not on the allow list (images, PDF, plain text, Markdown, CSV, JSON,
+    /// ZIP, MP4, MOV, M4A, MP3, AAC, WAV), or an extension the owner refuses
+    /// (scripts, executables, HTML, SVG).
+    case typeRefused(mimeType: String, name: String)
+    /// Over 255 characters, blank, `.` or `..`, or holding a control
+    /// character or a path separator.
+    case invalidName(name: String)
+    /// Over `HomeAttachmentPolicy.maxBytes`.
+    case tooLarge(byteCount: Int, limit: Int)
+>>>>>>> origin/main
     /// A file with no bytes.
     case empty(name: String)
     /// More than `HomeAttachmentPolicy.maxParts` parts in one message.

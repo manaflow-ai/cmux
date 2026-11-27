@@ -24,12 +24,21 @@ self-hosted-runner:
     - blacksmith-16vcpu-ubuntu-2404
     - blacksmith-4vcpu-windows-2025
     - blacksmith-32vcpu-ubuntu-2404
+<<<<<<< HEAD
     - cmux-fleet-linux-x64
     # One-job JIT VMs that cmuxterm-hq gha-runners makes for CI repair jobs only
     # (runner_pool.py REPAIR_JIT_LABEL, JIT_POOLS in its README); the other
     # cmux-gcp-*-jit-x64 labels appear only inside expressions, which
     # actionlint does not check.
     - cmux-gcp-repair-jit-x64
+=======
+    # The persistent Linux runner pool every same-repository Linux job names
+    # (cmuxterm-hq decisions/junctions.md, 2026-11-20).
+    - cmux-linux
+    # The shared Mac runners (Xcode 26.6) every own-branch job that needs only
+    # a plain Mac names, behind vars.CI_OVERFLOW_MAC.
+    - cmux-mac
+>>>>>>> origin/main
     - warp-ubuntu-latest-x64-4x
     # GitHub-hosted, not self-hosted (1.7.12 knows this label; the entry stays
     # for older local actionlint builds). actionlint 1.7.7 shipped a fixed list of
@@ -38,6 +47,9 @@ self-hosted-runner:
     # `compat-tests (macos-15-intel, ...)` job was served by "GitHub Actions
     # 1000200229", the same kind of runner name as the macos-14 job beside it.
     - macos-15-intel
+    # GitHub-hosted macOS 26 (actionlint 1.7.7 predates it; 1.7.12 knows it).
+    # Nightly signing, notarization and fallback builds run there.
+    - macos-26
 
 paths:
   .github/workflows/test-ios.yml:

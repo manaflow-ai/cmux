@@ -333,7 +333,9 @@ def source_identity(expected_commit: str | None, expected_tree: str | None) -> d
         "--ignore-submodules=dirty",
     )
     if untracked:
-        raise ProfileError("checkout has non-ignored source changes")
+        lines = untracked.splitlines()
+        shown = "; ".join(lines[:10]) + (f"; and {len(lines) - 10} more" if len(lines) > 10 else "")
+        raise ProfileError(f"checkout has non-ignored source changes: {shown}")
     submodules = git_text("submodule", "status", "--recursive")
     for line in submodules.splitlines():
         if not line:

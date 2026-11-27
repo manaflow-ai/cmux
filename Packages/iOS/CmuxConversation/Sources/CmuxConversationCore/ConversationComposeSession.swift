@@ -9,8 +9,11 @@ public final class ConversationComposeSession {
     public enum Change: Sendable, Equatable {
         case recipients
         case suggestions
+<<<<<<< HEAD
         /// ``rows`` changed.
         case rows
+=======
+>>>>>>> origin/main
         case sending
     }
 
@@ -18,6 +21,7 @@ public final class ConversationComposeSession {
     public private(set) var draft = ConversationRecipientDraft()
     /// Autocomplete rows for `draft.query`, newest query only.
     public private(set) var suggestions: [ConversationContact] = []
+<<<<<<< HEAD
     /// The rows under To: (``ConversationComposeListing``): the listing's
     /// sections while nobody is chosen and nothing is typed, else the
     /// suggestions with the listing's actions among them. Without a listing,
@@ -27,6 +31,8 @@ public final class ConversationComposeSession {
     public weak var listing: (any ConversationComposeListing)? {
         didSet { refreshRows() }
     }
+=======
+>>>>>>> origin/main
     public private(set) var isSending = false
     public var onChange: (@MainActor (Change) -> Void)?
     public var suggestionLimit = 20
@@ -45,7 +51,10 @@ public final class ConversationComposeSession {
         draft.setText(text)
         onChange?(.recipients)
         search()
+<<<<<<< HEAD
         refreshRows()
+=======
+>>>>>>> origin/main
     }
 
     /// Picks an autocomplete row (or a contact from the + picker).
@@ -53,7 +62,10 @@ public final class ConversationComposeSession {
         draft.add(contact)
         clearSuggestions()
         onChange?(.recipients)
+<<<<<<< HEAD
         refreshRows()
+=======
+>>>>>>> origin/main
     }
 
     /// Return in the To: field. With suggestions showing, Return takes the
@@ -67,7 +79,10 @@ public final class ConversationComposeSession {
         guard let recipient = draft.commitText() else { return }
         clearSuggestions()
         onChange?(.recipients)
+<<<<<<< HEAD
         refreshRows()
+=======
+>>>>>>> origin/main
         guard let handle = recipient.handle else { return }
         Task { [weak self, directory] in
             let lookup: ConversationHandleLookup
@@ -92,7 +107,10 @@ public final class ConversationComposeSession {
     public func remove(_ id: String) {
         draft.remove(id)
         onChange?(.recipients)
+<<<<<<< HEAD
         refreshRows()
+=======
+>>>>>>> origin/main
     }
 
     /// Backspace; true when a token was selected or deleted.
@@ -100,7 +118,10 @@ public final class ConversationComposeSession {
     public func backspace() -> Bool {
         guard draft.backspace() else { return false }
         onChange?(.recipients)
+<<<<<<< HEAD
         refreshRows()
+=======
+>>>>>>> origin/main
         return true
     }
 
@@ -130,6 +151,7 @@ public final class ConversationComposeSession {
             guard let self, !Task.isCancelled, generation == self.searchGeneration else { return }
             self.suggestions = found
             self.onChange?(.suggestions)
+<<<<<<< HEAD
             self.refreshRows()
         }
     }
@@ -155,6 +177,11 @@ public final class ConversationComposeSession {
         onChange?(.rows)
     }
 
+=======
+        }
+    }
+
+>>>>>>> origin/main
     // MARK: First send
 
     /// Resolves the recipients to a conversation. Typed text left in the To:
@@ -196,6 +223,7 @@ public struct ConversationComposeImage: Sendable, Hashable {
 public struct ConversationComposeMessage: Sendable, Hashable {
     public var text: String
     public var images: [ConversationComposeImage]
+<<<<<<< HEAD
     /// A recording made in New Message's composer: sent after the text and images, alone,
     /// as Messages sends audio (``ConversationStore/sendAudio(data:info:replyToID:)``).
     public var audio: ConversationComposeAudio?
@@ -227,12 +255,22 @@ public struct ConversationComposeAudio: Sendable, Hashable, Codable {
         self.data = data
         self.info = info
     }
+=======
+
+    public init(text: String, images: [ConversationComposeImage] = []) {
+        self.text = text
+        self.images = images
+    }
+
+    public var isEmpty: Bool { text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty && images.isEmpty }
+>>>>>>> origin/main
 }
 
 extension ConversationStore {
     /// Sends `message` as soon as the session is connected: the first message
     /// of a conversation New Message just opened.
     public func sendWhenConnected(_ message: ConversationComposeMessage) {
+<<<<<<< HEAD
         // A kept transcript gives the store a sender before it connects: wait for the connection.
         if meID != nil, connection == .connected {
             deliver(message)
@@ -256,4 +294,18 @@ extension ConversationStore {
         }
         if let audio = message.audio { sendAudio(data: audio.data, info: audio.info) }
     }
+=======
+        let images = message.images.map { (data: $0.data, width: $0.width, height: $0.height, mimeType: $0.mimeType) }
+        if meID != nil {
+            send(text: message.text, images: images)
+            return
+        }
+        var sent = false
+        addObserver { [weak self] change in
+            guard !sent, change == .connection, let self, self.meID != nil else { return }
+            sent = true
+            self.send(text: message.text, images: images)
+        }
+    }
+>>>>>>> origin/main
 }

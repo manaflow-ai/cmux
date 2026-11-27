@@ -50,12 +50,17 @@ EXEMPT = {
     ("remote-daemon.yml", "remote-daemon-macos-tests"): "Go only; no Xcode",
     ("nightly-next-launch-smoke.yml", "smoke"):
         "launches the published nightly-next DMG; builds nothing, no Xcode",
+<<<<<<< HEAD
+=======
+    ("ci.yml", "claude-wrapper"): "shell wrapper tests only; no Xcode",
+>>>>>>> origin/main
     ("cmux-tui.yml", "lint"): "Rust only; no Xcode",
     ("cmux-rd-windows.yml", "live-macos-viewer"):
         "Rust only (the cmux-rd bench, VideoToolbox through the image's SDK); no Swift or xcodebuild",
     ("gateway-e2e.yml", "mac"): "runs the published cmux CLI and Bun against the inference gateway; builds nothing, no Xcode",
     ("machine-vault-e2e.yml", "e2e"): "runs the published cmux CLI and a disposable user's join; builds nothing, no Xcode",
     ("cmux-tui.yml", "test"): "Rust only; no Xcode",
+<<<<<<< HEAD
     ("cmux-next-daemon-macos-shadow.yml", "cmux-next-daemon-macos-shadow"):
         "Rust only; no Xcode (the macOS-only daemon tests, a non-blocking shadow "
         "of the Linux promotion gate)",
@@ -67,6 +72,8 @@ EXEMPT = {
         "Zig and Python only: Zig fetch lists and the source archive, and link "
         "sets read from the pinned xcframework; the CLI helper fetch list must "
         "come from the macOS 15 image's SDK 15 default, like the release helper",
+=======
+>>>>>>> origin/main
     ("cmux-tui-build-package.yml", "build"):
         "Rust release binaries linked against the runner's default macOS SDK, "
         "as the nightly and release callers always have; pinning it would "

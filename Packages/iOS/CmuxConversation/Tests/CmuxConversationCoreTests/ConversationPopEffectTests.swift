@@ -1,3 +1,4 @@
+<<<<<<< HEAD
 #if canImport(QuartzCore)  // ConversationPopEffect is Core Animation: Apple only
 import CmuxConversationGeometry
 #if canImport(CoreGraphics)
@@ -5,6 +6,10 @@ import CoreGraphics
 #else
 import Foundation
 #endif
+=======
+import CmuxConversationGeometry
+import CoreGraphics
+>>>>>>> origin/main
 import Testing
 
 @Suite struct ConversationPopEffectTests {
@@ -33,4 +38,7 @@ import Testing
         #expect(ConversationPopEffect.pieces(for: .zero, seed: 1).isEmpty)
     }
 }
+<<<<<<< HEAD
 #endif
+=======
+>>>>>>> origin/main

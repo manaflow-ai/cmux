@@ -81,11 +81,14 @@ BILLING_PATHS = (
     "Packages/Shared/CMUXMobileCore/Sources/CMUXMobileCore/Wire.swift",
     "ios/Config/cmux-dev.storekit",
     "ios/cmuxPackage/Sources/cmuxFeature/MobileBillingComposition.swift",
+<<<<<<< HEAD
     "Packages/iOS/CmuxStoreBilling/Package.swift",
     "cmux-next-ios/CmuxMobileKit/Sources/CmuxMobileShell/BillingDemo.swift",
     "cmux-next-ios/CmuxMobileKit/Sources/CmuxMobileBilling/Purchase.swift",
     "cmux-next-ios/CmuxMobileKit/Tests/BillingStoreKitTests/PurchaseTests.swift",
     "cmux-next-ios/App/Billing.storekit",
+=======
+>>>>>>> origin/main
 )
 NOT_BILLING = (
     "web/app/api/vm/route.ts",
@@ -93,7 +96,10 @@ NOT_BILLING = (
     "web/db/client.ts",
     "web/tests/vm-route-auth.test.ts",
     "web/app/api/cron/vm-idle/route.ts",
+<<<<<<< HEAD
     "cmux-next-ios/CmuxMobileKit/Sources/CmuxMobileShell/ShellModel.swift",
+=======
+>>>>>>> origin/main
     "Sources/AppDelegate.swift",
     "docs/billing.md",
 )
@@ -120,12 +126,18 @@ BILLING_TEST_NAMES = (
 def workflow_pull_request_paths() -> list[str]:
     lines = WORKFLOW.read_text(encoding="utf-8").splitlines()
     start = lines.index("  pull_request:")
+<<<<<<< HEAD
     if lines[start + 1].startswith("    types: "):  # the land tier's trigger types (tests/test_head_tier.py)
         start += 1
     assert lines[start + 1] == "    branches: [feat-cmux-next]", "billing.yml must target feat-cmux-next"
     assert lines[start + 2] == "    paths:", "billing.yml pull_request must list paths after branches"
     paths = []
     for line in lines[start + 3:]:
+=======
+    assert lines[start + 1] == "    paths:", "billing.yml pull_request must start with a paths list"
+    paths = []
+    for line in lines[start + 2:]:
+>>>>>>> origin/main
         match = re.fullmatch(r'      - "([^"]+)"', line)
         if not match:
             break
@@ -155,6 +167,7 @@ class WorkflowFilter(unittest.TestCase):
 
 class Routing(unittest.TestCase):
     def test_web_change_runs_web_only(self) -> None:
+<<<<<<< HEAD
         self.assertEqual(lane.classify(["web/services/billing/stripe.ts"]),
                          {"web": True, "ios": False, "storekit": False})
 
@@ -167,6 +180,13 @@ class Routing(unittest.TestCase):
                      "cmux-next-ios/App/Billing.storekit"):
             with self.subTest(path=path):
                 self.assertEqual(lane.classify([path]), {"web": False, "ios": False, "storekit": True})
+=======
+        self.assertEqual(lane.classify(["web/services/billing/stripe.ts"]), {"web": True, "ios": False})
+
+    def test_ios_change_runs_ios_only(self) -> None:
+        areas = lane.classify(["Packages/iOS/CmuxMobileBilling/Sources/CmuxMobileBilling/BillingModel.swift"])
+        self.assertEqual(areas, {"web": False, "ios": True})
+>>>>>>> origin/main
 
     def test_lane_change_runs_everything(self) -> None:
         for path in lane.LANE_PATTERNS:
@@ -192,6 +212,17 @@ class Routing(unittest.TestCase):
                 self.assertEqual(outputs["web"], "true")
                 self.assertEqual(outputs["ios"], "true")
 
+<<<<<<< HEAD
+=======
+    def test_nightly_and_dispatch_run_everything(self) -> None:
+        # billing-nightly.yml calls this workflow on a schedule: the event is
+        # the caller's, and main's last commit must not narrow the suite.
+        for event in ("schedule", "workflow_dispatch"):
+            with self.subTest(event=event):
+                outputs = self.route_outputs(event, ["web/unrelated.ts"])
+                self.assertEqual((outputs["web"], outputs["ios"]), ("true", "true"))
+
+>>>>>>> origin/main
     def test_route_narrows_a_billing_diff(self) -> None:
         outputs = self.route_outputs("pull_request", ["web/services/billing/stripe.ts"])
         self.assertEqual((outputs["web"], outputs["ios"]), ("true", "false"))
@@ -204,6 +235,7 @@ class Routing(unittest.TestCase):
         self.assertEqual(set(lane.classify(list(NOT_BILLING)).values()), {False})
 
 
+<<<<<<< HEAD
 class StoreKitSlot(unittest.TestCase):
     def setUp(self) -> None:
         self.dir = tempfile.TemporaryDirectory()
@@ -251,6 +283,8 @@ class StoreKitSlot(unittest.TestCase):
         self.assertEqual(lane.storekit_target(self.root), ("project", "cmux-next-ios"))
 
 
+=======
+>>>>>>> origin/main
 def jobs_text() -> dict[str, str]:
     """billing.yml's jobs by id, as raw text blocks."""
     text = WORKFLOW.read_text(encoding="utf-8")
@@ -268,11 +302,16 @@ def jobs_text() -> dict[str, str]:
 
 
 class Wiring(unittest.TestCase):
+<<<<<<< HEAD
     """The two jobs, their routes and the script agree with each other."""
+=======
+    """The jobs, their routes and the verdict agree with each other and the script."""
+>>>>>>> origin/main
 
     def setUp(self) -> None:
         self.jobs = jobs_text()
 
+<<<<<<< HEAD
     def test_two_jobs(self) -> None:
         # Two jobs only: every job a pull request starts costs a runner.
         self.assertEqual(set(self.jobs), {"billing", "ios-billing"})
@@ -322,6 +361,34 @@ class Wiring(unittest.TestCase):
         self.assertLess(loop.index("swift-linux-packages.txt"), loop.index("swift test --package-path"))
         listed = Path(__file__).resolve().parents[1] / "scripts/ci/swift-linux-packages.txt"
         self.assertIn("Packages/iOS/CmuxMobileBilling ", listed.read_text(encoding="utf-8"))
+=======
+    def test_verdict_needs_every_job(self) -> None:
+        needs = re.search(r"^    needs: \[([^\]]*)\]", self.jobs["billing"], re.MULTILINE)
+        self.assertIsNotNone(needs)
+        self.assertEqual({n.strip() for n in needs.group(1).split(",")}, set(self.jobs) - {"billing"})
+
+    def test_route_outputs_match_the_script(self) -> None:
+        outputs = set(re.findall(r"^      ([a-z_]+): \$\{\{ steps\.route\.outputs\.\1 \}\}",
+                                 self.jobs["changes"], re.MULTILINE))
+        self.assertEqual(outputs, set(lane.classify([]).keys()))
+
+    def test_each_job_runs_on_its_route_and_the_verdict_knows_it(self) -> None:
+        routes = dict(re.findall(r'"([a-z-]+)": "\$\{\{ needs\.changes\.outputs\.([a-z_]+) \}\}"',
+                                 self.jobs["billing"]))
+        for job, block in self.jobs.items():
+            if job in ("changes", "billing"):
+                continue
+            with self.subTest(job=job):
+                condition = re.search(r"^    if: \$\{\{ needs\.changes\.outputs\.([a-z_]+) == 'true' \}\}",
+                                      block, re.MULTILINE)
+                self.assertIsNotNone(condition, f"{job} must run only on its billing-changes route")
+                self.assertEqual(routes.get(job), condition.group(1))
+
+    def test_web_jobs_run_the_selected_tests(self) -> None:
+        self.assertIn("billing_lane.py web-tests >", self.jobs["web-billing"])
+        self.assertIn("billing_lane.py web-tests --db >", self.jobs["web-billing-db"])
+        self.assertIn("run-db-behavior-tests.sh", self.jobs["web-billing-db"])
+>>>>>>> origin/main
 
 
 class Selection(unittest.TestCase):

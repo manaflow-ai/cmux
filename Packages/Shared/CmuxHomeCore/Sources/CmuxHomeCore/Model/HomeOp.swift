@@ -7,9 +7,13 @@ public enum HomeOp: Hashable, Sendable {
     /// `message.send`. The key is the message's client id. `threadRoot` set:
     /// a reply in that message's thread (both owners carry it as `reply_to`
     /// part 0 of the root, so the root must be in the same conversation).
+<<<<<<< HEAD
     /// `parent` set (with `threadRoot`): the reply answers that message of the thread, at any
     /// depth (the daemon's `reply_to`, conversation-tree-v1); nil: it answers the root.
     case sendMessage(conversation: ConversationID, parts: [MessagePart], threadRoot: MessageID? = nil, parent: MessageID? = nil)
+=======
+    case sendMessage(conversation: ConversationID, parts: [MessagePart], threadRoot: MessageID? = nil)
+>>>>>>> origin/main
     /// `message.edit`: the user's own message gets new parts (`editedAt` set).
     case editMessage(message: MessageID, conversation: ConversationID, parts: [MessagePart])
     /// `message.retract`: the user's own message is unsent (`retractedAt` set, parts cleared).
@@ -17,10 +21,14 @@ public enum HomeOp: Hashable, Sendable {
     /// `read_cursor.set` for the signed-in user.
     case setReadCursor(conversation: ConversationID, seq: Seq)
     /// `conversation.create`: a group with these participants (humans and Chiefs).
+<<<<<<< HEAD
     /// `invites`: email or phone addresses the owner invites into the new
     /// group (`invite.create` each, keyed from the intent), so one New Message
     /// with people and addresses starts one group; they show as invited.
     case createGroup(title: String, participants: [ParticipantID], invites: [ContactAddress] = [])
+=======
+    case createGroup(title: String, participants: [ParticipantID])
+>>>>>>> origin/main
     /// `mux.create`: a new subchief owned by the signed-in user, with its DM.
     case createChief(name: String)
     /// Opens (or creates on the owner) the DM with a person reached by email
@@ -45,6 +53,7 @@ public enum HomeOp: Hashable, Sendable {
     /// My typing state. Ephemeral: never stored by the owner and never in the
     /// intent log (the store sends it directly; nothing to settle).
     case setTyping(conversation: ConversationID, on: Bool)
+<<<<<<< HEAD
     /// `title.set`: a group's new name (any member may set it). An empty title goes back to the
     /// members' names. A DM or a Chief conversation has no name to change (`kind_forbids`).
     case renameConversation(conversation: ConversationID, title: String)
@@ -63,22 +72,31 @@ public enum HomeOp: Hashable, Sendable {
     /// `thread.update` (conversation-thread-objects-v1): a thread root's title, status or owner. nil leaves a
     /// field as it is; an empty title or owner clears it. At least one field.
     case updateThread(conversation: ConversationID, root: MessageID, title: String? = nil, status: ThreadInfo.Status? = nil, owner: String? = nil)
+=======
+>>>>>>> origin/main
 
     /// The stream this op writes. Its result's `rev` is a revision of this stream.
     public var stream: HomeStream {
         switch self {
+<<<<<<< HEAD
         case .sendMessage(let conversation, _, _, _),
+=======
+        case .sendMessage(let conversation, _, _),
+>>>>>>> origin/main
              .editMessage(_, let conversation, _),
              .retractMessage(_, let conversation),
              .setReadCursor(let conversation, _),
              .addReaction(_, let conversation, _, _),
              .removeReaction(_, let conversation, _, _),
              .answerQuestion(_, let conversation, _, _),
+<<<<<<< HEAD
              .updateThread(let conversation, _, _, _, _),
              .renameConversation(let conversation, _),
              .addParticipants(let conversation, _),
              .removeParticipant(let conversation, _),
              .setChiefReplies(let conversation, _),
+=======
+>>>>>>> origin/main
              .setTyping(let conversation, _):
             .conversation(conversation)
         case .setPinned, .setMuted, .createGroup, .createChief, .startConversation, .invite, .openDirect:
@@ -89,7 +107,11 @@ public enum HomeOp: Hashable, Sendable {
     /// The conversation this op writes, when it targets one.
     public var conversation: ConversationID? {
         switch self {
+<<<<<<< HEAD
         case .sendMessage(let conversation, _, _, _),
+=======
+        case .sendMessage(let conversation, _, _),
+>>>>>>> origin/main
              .editMessage(_, let conversation, _),
              .retractMessage(_, let conversation),
              .setReadCursor(let conversation, _),
@@ -98,11 +120,14 @@ public enum HomeOp: Hashable, Sendable {
              .addReaction(_, let conversation, _, _),
              .removeReaction(_, let conversation, _, _),
              .answerQuestion(_, let conversation, _, _),
+<<<<<<< HEAD
              .updateThread(let conversation, _, _, _, _),
              .renameConversation(let conversation, _),
              .addParticipants(let conversation, _),
              .removeParticipant(let conversation, _),
              .setChiefReplies(let conversation, _),
+=======
+>>>>>>> origin/main
              .setTyping(let conversation, _):
             conversation
         case .createGroup, .createChief, .startConversation, .invite, .openDirect:

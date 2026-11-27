@@ -223,7 +223,10 @@ final class ConversationPhotoViewerController: UIViewController, UIScrollViewDel
 
     @objc private func tapped() {
         chromeHidden.toggle()
+<<<<<<< HEAD
         // motion: allow crossfade, the Reduce Motion form
+=======
+>>>>>>> origin/main
         UIView.animate(withDuration: 0.25) {
             self.backdrop.backgroundColor = self.chromeHidden ? .black : .systemBackground
             for view in self.chromeViews { view.alpha = self.chromeHidden ? 0 : 1 }
@@ -233,11 +236,19 @@ final class ConversationPhotoViewerController: UIViewController, UIScrollViewDel
 
     @objc private func doubleTapped(_ tap: UITapGestureRecognizer) {
         if isZoomed {
+<<<<<<< HEAD
             scrollView.setZoomScale(scrollView.minimumZoomScale, animated: !UIView.reducesMotion)
         } else {
             let point = tap.location(in: imageView)
             let size = CGSize(width: scrollView.bounds.width / 2.5, height: scrollView.bounds.height / 2.5)
             scrollView.zoom(to: CGRect(x: point.x - size.width / 2, y: point.y - size.height / 2, width: size.width, height: size.height), animated: !UIView.reducesMotion)
+=======
+            scrollView.setZoomScale(scrollView.minimumZoomScale, animated: true)
+        } else {
+            let point = tap.location(in: imageView)
+            let size = CGSize(width: scrollView.bounds.width / 2.5, height: scrollView.bounds.height / 2.5)
+            scrollView.zoom(to: CGRect(x: point.x - size.width / 2, y: point.y - size.height / 2, width: size.width, height: size.height), animated: true)
+>>>>>>> origin/main
         }
     }
 
@@ -275,7 +286,11 @@ final class ConversationPhotoViewerController: UIViewController, UIScrollViewDel
                 dismiss(animated: true)
             } else {
                 let start = dragStart
+<<<<<<< HEAD
                 UIView.animateUnlessReduceMotion(withDuration: 0.35, delay: 0, usingSpringWithDamping: 0.9, initialSpringVelocity: 0) {
+=======
+                UIView.animate(withDuration: 0.35, delay: 0, usingSpringWithDamping: 0.9, initialSpringVelocity: 0) {
+>>>>>>> origin/main
                     if let start { self.imageView.center = start }
                     self.imageView.transform = .identity
                     self.presentationProgress = 1
@@ -338,11 +353,16 @@ final class ConversationPhotoZoomTransition: NSObject, UIViewControllerTransitio
 
     private var omega: Double { presenting ? ConversationPhotoFlight.openOmega : ConversationPhotoFlight.closeOmega }
 
+<<<<<<< HEAD
     /// Reduce Motion: no flight; the viewer crossfades in or out over the transcript.
     private static let reducedMotionDuration: TimeInterval = 0.25
 
     func transitionDuration(using transitionContext: (any UIViewControllerContextTransitioning)?) -> TimeInterval {
         UIView.reducesMotion ? Self.reducedMotionDuration : ConversationPhotoFlight.settleTime(omega: omega)
+=======
+    func transitionDuration(using transitionContext: (any UIViewControllerContextTransitioning)?) -> TimeInterval {
+        ConversationPhotoFlight.settleTime(omega: omega)
+>>>>>>> origin/main
     }
 
     func animateTransition(using context: any UIViewControllerContextTransitioning) {
@@ -358,10 +378,13 @@ final class ConversationPhotoZoomTransition: NSObject, UIViewControllerTransitio
             context.completeTransition(!context.transitionWasCancelled)
             return
         }
+<<<<<<< HEAD
         if UIView.reducesMotion {
             crossfade(viewer, sourceView: sourceView, context: context)
             return
         }
+=======
+>>>>>>> origin/main
         let bubbleFrame = sourceView.convert(sourceView.bounds, to: container)
         let photoFrame = viewer.photoView.convert(viewer.photoView.bounds, to: container)
         let flight = ConversationPhotoFlightView(image: viewer.photoView.image, side: source.side, tailed: source.tailed)
@@ -400,6 +423,7 @@ final class ConversationPhotoZoomTransition: NSObject, UIViewControllerTransitio
         }
         driver.start()
     }
+<<<<<<< HEAD
 
     /// The Reduce Motion form of the zoom: the photo stays in its bubble and
     /// the viewer fades in or out over the transcript. A photo dragged out
@@ -421,6 +445,8 @@ final class ConversationPhotoZoomTransition: NSObject, UIViewControllerTransitio
             context.completeTransition(!cancelled)
         }
     }
+=======
+>>>>>>> origin/main
 }
 
 /// The flying photo: aspect-fills its frame, clipped to a bubble outline

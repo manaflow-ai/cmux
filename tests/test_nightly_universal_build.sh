@@ -25,17 +25,19 @@ if ! awk '
   /^      - name: Build (universal nightly app|nightly app) \(Release\)/ { in_universal=1; next }
   in_universal && /^      - name:/ { in_universal=0 }
   in_universal && /-destination '\''generic\/platform=macOS'\''/ { saw_universal_destination=1 }
-  in_universal && (/ARCHS="arm64 x86_64"/ || /archs="arm64 x86_64"/) { saw_universal_archs=1 }
+  # Nightly ships arm64 only; Intel and universal ship from the stable release.
+  in_universal && (/ARCHS="arm64"/ || /archs="arm64"/) { saw_universal_archs=1 }
+  in_universal && /x86_64/ { saw_intel=1 }
   in_universal && (/ONLY_ACTIVE_ARCH=NO/ || /only_active="NO"/) { saw_universal_only_active_arch=1 }
   in_universal && /-quiet/ { saw_quiet=1 }
   in_universal && /COMPILATION_CACHE_ENABLE_CACHING=YES/ { saw_compilation_cache=1 }
   in_universal && /COMPILER_INDEX_STORE_ENABLE=NO/ { saw_index_disabled=1 }
   in_universal && /-showBuildTimingSummary/ { saw_timing_summary=1 }
   END {
-    exit !(saw_universal_destination && saw_universal_archs && saw_universal_only_active_arch && !saw_quiet && saw_compilation_cache && saw_index_disabled && saw_timing_summary)
+    exit !(saw_universal_destination && saw_universal_archs && !saw_intel && saw_universal_only_active_arch && !saw_quiet && saw_compilation_cache && saw_index_disabled && saw_timing_summary)
   }
 ' "$WORKFLOW_FILE"; then
-  echo "FAIL: nightly workflow must build the universal app with visible timing output, compilation caching, and no index store"
+  echo "FAIL: nightly workflow must build the arm64-only app with visible timing output, compilation caching, and no index store"
   exit 1
 fi
 
@@ -88,8 +90,8 @@ if ! grep -Fq 'cron: "17 */6 * * *"' "$WORKFLOW_FILE"; then
   exit 1
 fi
 
-if ! grep -Fq 'cron: "47 8 * * *"' "$WORKFLOW_FILE"; then
-  echo "FAIL: nightly workflow must publish once daily at 08:47 UTC"
+if ! grep -Fq 'cron: "2,17,32,47 * * * *"' "$WORKFLOW_FILE"; then
+  echo "FAIL: nightly workflow must publish main on the 15-minute tick"
   exit 1
 fi
 
@@ -98,9 +100,9 @@ if ! awk '
   in_push && /^  [a-zA-Z0-9_-]+:/ { in_push=0 }
   in_push && /^    branches:/ { saw_branches=1 }
   in_push && /^      - main$/ { saw_main=1 }
-  END { exit !(saw_branches && saw_main) }
+  END { exit !(saw_branches && !saw_main) }
 ' "$WORKFLOW_FILE"; then
-  echo "FAIL: every push to main must trigger a Nightly publication attempt"
+  echo "FAIL: a push to main must start no Nightly run; the 15-minute tick publishes main"
   exit 1
 fi
 
@@ -112,6 +114,7 @@ fi
 if ! awk '
   /^  decide:/ { in_decide=1; next }
   in_decide && /^  [a-zA-Z0-9_-]+:/ { in_decide=0 }
+<<<<<<< HEAD
   # Nightlies run only on our own Mac minis (Lawrence, 2026-10-30; tests/test_nightly_owned_minis_only.py):
   # the secret-free decide gate takes the owned nightly-only pool, never Blacksmith or a Linux pool.
   in_decide && /^    runs-on: .*vars\.CI_NIGHTLY_ONLY_RUNNER \|\| .glaeda-nightly-only-m4pro./ { saw_runner_override=1 }
@@ -119,6 +122,12 @@ if ! awk '
   END { exit !(saw_runner_override && !saw_off_mini) }
 ' "$WORKFLOW_FILE"; then
   echo "FAIL: the short nightly decide gate must take the owned nightly-only Mac pool, never Blacksmith or a Linux pool"
+=======
+  in_decide && /blacksmith-2vcpu-ubuntu-2404/ { saw_runner_override=1 }
+  END { exit !saw_runner_override }
+' "$WORKFLOW_FILE"; then
+  echo "FAIL: the short nightly decide gate must use the trusted fast-check fallback"
+>>>>>>> origin/main
   exit 1
 fi
 
@@ -128,13 +137,18 @@ if ! awk '
   in_download && /id: signing-inputs-parallel/ { saw_id=1 }
   in_download && /download-run-artifact.py/ { downloads++ }
   in_download && /--name cmux-nightly-unsigned-app --out nightly-inputs\/app/ { saw_app_download=1 }
-  in_download && /--connections 64/ { saw_app_connections=1 }
+  in_download && /--connections 16 / { saw_app_connections=1 }
+  in_download && /timeout-minutes: (1[0-5]|[1-9])$/ { saw_step_cap=1 }
   in_download && /app_ok=/ { saw_app_output=1 }
   in_download && /daemon_ok=/ { saw_daemon_output=1 }
   in_download && /helper_ok=/ { saw_helper_output=1 }
+<<<<<<< HEAD
   END { exit !(saw_id && downloads >= 3 && saw_app_download && saw_app_connections && saw_app_output && saw_daemon_output && saw_helper_output) }
+=======
+  END { exit !(saw_id && saw_step_cap && downloads == 3 && saw_app_download && saw_app_connections && saw_app_output && saw_daemon_output && saw_helper_output) }
+>>>>>>> origin/main
 ' "$WORKFLOW_FILE"; then
-  echo "FAIL: nightly signers must fetch all inputs concurrently and give the large app artifact 64 ranged connections"
+  echo "FAIL: nightly signers must fetch all inputs concurrently and give the large app artifact 16 ranged connections, with the step time capped"
   exit 1
 fi
 
@@ -185,9 +199,13 @@ if grep -Fq 'github.rest.repos.getBranch' "$WORKFLOW_FILE"; then
   exit 1
 fi
 
+<<<<<<< HEAD
 # Nightlies only on our own Mac minis (tests/test_nightly_owned_minis_only.py): the owned nightly-only pool,
 # or the one nightly mini while vars.CI_NIGHTLY_MINI is set (tests/test_nightly_one_mini.py).
 if ! awk -v refresh_runner="runs-on: \${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || vars.CI_NIGHTLY_MINI != '' && vars.CI_NIGHTLY_MINI || vars.CI_NIGHTLY_ONLY_RUNNER || 'glaeda-nightly-only-m4pro' }}" '
+=======
+if ! awk -v refresh_runner="runs-on: \${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || contains(fromJSON('[\"blacksmith-6vcpu-macos-26\",\"blacksmith-12vcpu-macos-26\"]'), fromJSON(vars.RUNNER_POOLS || '{}').macos_26) && fromJSON(vars.RUNNER_POOLS || '{}').macos_26 || 'blacksmith-6vcpu-macos-26' }}" '
+>>>>>>> origin/main
   /^  refresh-compilation-cache:/ { in_refresh=1; next }
   in_refresh && /^  [a-zA-Z0-9_-]+:/ { in_refresh=0 }
   # 90 with one-mini mode off; the mode adds room for the glaeda capacity wait (tests/test_nightly_mini_gate_timeouts.py).
@@ -202,7 +220,7 @@ if ! awk -v refresh_runner="runs-on: \${{ github.repository_owner != 'manaflow-a
   in_refresh && /uses: (actions\/cache\/restore@|\.\/\.github\/actions\/cache-restore$)/ { saw_restore_action=1 }
   in_refresh && /id: compilation-cache-restore/ { saw_restore_id=1 }
   in_refresh && /^      - name: Save Xcode compilation cache/ { saw_cache=1 }
-  in_refresh && /^      - name: Refresh universal nightly compilation cache/ { saw_refresh=1 }
+  in_refresh && /^      - name: Refresh nightly compilation cache \(arm64\)/ { saw_refresh=1 }
   in_refresh && /if: steps\.compilation-cache-restore\.outputs\.cache-hit != '\''true'\''/ { saw_change_gate=1 }
   in_refresh && /-showBuildTimingSummary/ { saw_timing_summary=1 }
   in_refresh && /-quiet/ { saw_quiet=1 }
@@ -212,8 +230,8 @@ if ! awk -v refresh_runner="runs-on: \${{ github.repository_owner != 'manaflow-a
   exit 1
 fi
 
-if ! grep -Fq "if: needs.decide.outputs.should_build == 'true' && (github.event_name != 'schedule' || github.event.schedule == '47 8 * * *')" "$WORKFLOW_FILE"; then
-  echo "FAIL: manual runs and the daily publish schedule must sign, notarize, and publish Nightly"
+if ! grep -Fq "if: needs.decide.outputs.should_build == 'true' && (github.event_name != 'schedule' || github.event.schedule == '2,17,32,47 * * * *' || github.event.schedule == '5 8 * * *')" "$WORKFLOW_FILE"; then
+  echo "FAIL: manual runs, the 15-minute tick and the daily 08:05 backstop must sign, notarize, and publish Nightly"
   exit 1
 fi
 
@@ -282,20 +300,32 @@ if ! awk '
   exit 1
 fi
 
+<<<<<<< HEAD
 if ! awk -v helper_runner="runs-on: \${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || vars.CI_NIGHTLY_MINI != '' && vars.CI_NIGHTLY_MINI || github.repository == 'manaflow-ai/cmux' && needs.decide.outputs.track == 'nightly-next' && github.run_attempt == 1 && vars.CI_NIGHTLY_ONLY_RUNNER == 'glaeda-nightly-only-m4pro' && vars.CI_NIGHTLY_ONLY_RUNNER || github.ref == 'refs/heads/nightly-next' && (needs.pick-nightly-build-runner.outputs.attempt == github.run_attempt && needs.pick-nightly-build-runner.outputs.helper != needs.pick-nightly-build-runner.outputs.dedicated && needs.pick-nightly-build-runner.outputs.helper) || github.repository == 'manaflow-ai/cmux' && github.run_attempt == 1 && (github.event_name == 'push' || github.event_name == 'schedule') && vars.CI_PR_POOL_OWNED == '1' && github.ref == 'refs/heads/main' && vars.CI_SEED_TRUSTED_POOL || vars.CI_NIGHTLY_NEXT_BUILD_RUNNER || 'glaeda-nightly-std-xcode-26.6' }}" \
        '
+=======
+if ! awk -v helper_runner="runs-on: \${{ github.repository_owner != 'manaflow-ai' && 'macos-15' || contains(fromJSON('[\"blacksmith-6vcpu-macos-15\"]'), fromJSON(vars.RUNNER_POOLS || '{}').macos_15) && fromJSON(vars.RUNNER_POOLS || '{}').macos_15 || 'blacksmith-6vcpu-macos-15' }}" \
+       -v app_runner="runs-on: \${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || needs.decide.outputs.fast_build != 'true' && github.run_attempt == 1 && (github.event_name == 'push' || github.event_name == 'schedule') && github.ref == 'refs/heads/main' && vars.CI_PR_POOL_OWNED == '1' && vars.CI_SEED_TRUSTED_POOL != '' && vars.CI_NIGHTLY_TRUSTED_RUNNER != '' && needs.pick-nightly-app-runner.outputs.trusted != 'false' && fromJSON(format('[\"{0}\", \"{1}\"]', vars.CI_SEED_TRUSTED_POOL, vars.CI_NIGHTLY_TRUSTED_RUNNER)) || needs.pick-nightly-app-runner.outputs.cloud || 'blacksmith-6vcpu-macos-26' }}" '
+>>>>>>> origin/main
   /^  build-nightly-ghostty-cli-helper:/ { job="helper"; next }
   /^  build-nightly-app:/ { job="app"; next }
   /^  prepare-nightly-variant-primary:/ { job="publish"; next }
   /^  build-sign-notarize-nightly:/ { job="publish"; next }
   /^  [a-zA-Z0-9_-]+:/ { job="" }
+<<<<<<< HEAD
   # The helper builds on owned macOS 26 (Zig 0.16.0, SDK 26; on nightly-next the
   # owned pick of the picker, never the dedicated builder), then the owned nightly
   # slot; never Blacksmith, Linux, macOS 15 or a GitHub-hosted Mac (nightlies run
   # only on our own Mac minis). Match the whole expression.
+=======
+  # Every nightly helper build takes Blacksmith macOS 15 (its SDK 15 Xcode),
+  # never a GitHub-hosted Mac. Match the whole expression.
+>>>>>>> origin/main
   job == "helper" && index($0, helper_runner) { saw_helper_runner=1 }
-  job == "helper" && /build-ghostty-cli-helper\.sh --universal/ { saw_build=1 }
-  job == "helper" && /lipo .* -verify_arch arm64 x86_64/ { saw_arch_assert=1 }
+  # Nightly ships arm64 only; the universal helper is a stable-release build.
+  job == "helper" && /build-ghostty-cli-helper\.sh --target aarch64-macos/ { saw_build=1 }
+  job == "helper" && /build-ghostty-cli-helper\.sh --universal/ { saw_universal_build=1 }
+  job == "helper" && /lipo .* -verify_arch arm64$/ { saw_arch_assert=1 }
   job == "helper" && /name: cmux-nightly-ghostty-cli-helper/ { saw_helper_artifact=1 }
   job == "app" && /CMUX_CI_XCODE_APP_MACOS_26/ { saw_app_xcode=1 }
   job == "app" && /select-ci-xcode\.sh/ { saw_app_selection=1 }
@@ -310,7 +340,11 @@ if ! awk -v helper_runner="runs-on: \${{ github.repository_owner != 'manaflow-ai
   job == "publish" && /path: nightly-inputs\/app/ { saw_app_download_path=1 }
   job == "publish" && /tar (--warning=no-unknown-keyword )?-C "\$products" -xzf nightly-inputs\/app\/cmux-nightly-unsigned\.tar\.gz/ { saw_app_restore=1 }
   job == "publish" && /^      - name: Upload dSYMs to Sentry/ { saw_publish_dsym_upload=1 }
+<<<<<<< HEAD
   END { exit !(saw_helper_runner && saw_build && saw_arch_assert && saw_helper_artifact && saw_app_xcode && saw_app_selection && saw_app_artifact && saw_app_only_archive && saw_app_dsym_upload && saw_publish_needs_helper && saw_publish_needs_app && saw_publish_xcode && saw_publish_selection && saw_app_download && saw_app_download_path && saw_app_restore && !saw_publish_dsym_upload) }
+=======
+  END { exit !(saw_helper_runner && saw_build && !saw_universal_build && saw_arch_assert && saw_helper_artifact && saw_app_runner && saw_app_xcode && saw_app_selection && saw_app_artifact && saw_app_only_archive && saw_app_dsym_upload && saw_publish_needs_helper && saw_publish_needs_app && saw_publish_xcode && saw_publish_selection && saw_app_download && saw_app_download_path && saw_app_restore && !saw_publish_dsym_upload) }
+>>>>>>> origin/main
 ' "$WORKFLOW_FILE"; then
   echo "FAIL: nightly must build and hand off the macOS 26 helper and Xcode 26.5 app before publishing"
   exit 1
@@ -373,20 +407,31 @@ if ! grep -Fq "bundleId: 'com.cmuxterm.app.nightly'," "$WORKFLOW_FILE" || ! grep
   exit 1
 fi
 
-if ! grep -Fq 'cp appcast.xml appcast-universal.xml' "$WORKFLOW_FILE"; then
-  echo "FAIL: nightly workflow must keep the compatibility appcast-universal.xml feed"
-  exit 1
-fi
+# Nightly is arm64 only. The x86_64, universal and legacy feeds and the
+# x86_64, universal and plain download aliases are frozen at the last build
+# that had them, so neither publish path may write them: an Intel Mac reads only
+# appcast-x86_64.xml and must never be offered an arm64 build.
+for frozen_file in "$WORKFLOW_FILE" "$ROOT_DIR/.github/workflows/auto-resume-nightly-notarization.yml"; do
+  for frozen in 'appcast-x86_64.xml' 'appcast-universal.xml' 'nightly-out/appcast.xml' 'cp appcast.xml' \
+      'PREFIX}-x86_64.dmg' 'PREFIX}-universal.dmg' 'PREFIX}.dmg' 'x86_64-${NIGHTLY_BUILD}.dmg' 'universal-${NIGHTLY_BUILD}.dmg'; do
+    if grep -v '^ *#' "$frozen_file" | grep -v '^ *- Intel and universal' | grep -Fq -- "$frozen"; then
+      echo "FAIL: $(basename "$frozen_file") must not publish or assemble the frozen nightly asset $frozen"
+      exit 1
+    fi
+  done
+done
 
 if ! grep -Fq './scripts/sparkle_generate_appcast.sh "$NIGHTLY_DMG_IMMUTABLE" "$CHANNEL_RELEASE_TAG" "$NIGHTLY_APPCAST"' "$WORKFLOW_FILE"; then
   echo "FAIL: nightly workflow must generate one appcast per variant"
   exit 1
 fi
-if ! awk '
+# The published nightly's Sparkle deltas come later, from auto-resume-nightly-notarization.yml
+# (generate-deltas, republish-deltas), so the first appcasts stay full-only.
+if awk '
   /^  build-sign-notarize-nightly:/ { job="sign"; next }
-  /^  generate-nightly-deltas:/ { job="delta"; next }
   /^  [a-zA-Z0-9_-]+:/ { job="" }
   job == "sign" && /SPARKLE_PREVIOUS_ARCHIVES_DIR|SPARKLE_MAXIMUM_DELTAS/ { initial_delta=1 }
+<<<<<<< HEAD
   job == "delta" && /scripts\/ci\/generate-nightly-deltas\.sh/ { saw_deltas=1 }
   job == "delta" && /name: cmux-nightly-deltas-\$\{\{ matrix\.variant \}\}/ { saw_artifact=1 }
   END { exit !(saw_deltas && saw_artifact && !initial_delta) }
@@ -426,6 +471,11 @@ if ! awk '
   END { exit !(saw_publish_need && saw_matrix && saw_delta_need && saw_guard && !saw_branch_read && saw_build_cmp && saw_build_env && saw_republish && saw_r2) }
 ' "$WORKFLOW_FILE"; then
   echo "FAIL: post-publication delta generation must be matrixed, stale-guarded, and republished to GitHub and R2"
+=======
+  END { exit !initial_delta }
+' "$WORKFLOW_FILE"; then
+  echo "FAIL: initial appcasts must be full-only; delta generation runs after publication"
+>>>>>>> origin/main
   exit 1
 fi
 
@@ -471,6 +521,7 @@ if ! awk '
   exit 1
 fi
 
+<<<<<<< HEAD
 if ! awk '
   /^      - name: Assemble legacy nightly names/ { in_legacy=1; next }
   in_legacy && /^      - name:/ { in_legacy=0 }
@@ -485,8 +536,18 @@ fi
 # NIGHTLY and nightly-next ship arm64 only (tests/test_nightly_next_arm64_only.py); only RC keeps all three.
 if ! grep -Fq "const variants = fastBuild || track !== 'rc' ? ['arm64'] : ['arm64', 'x86_64', 'universal'];" "$WORKFLOW_FILE"; then
   echo "FAIL: only the RC channel builds the Intel and universal variants; NIGHTLY and nightly-next are arm64 only (Leo, 2026-11-25)"
+=======
+if ! grep -Fq "const variants = ['arm64'];" "$WORKFLOW_FILE"; then
+  echo "FAIL: nightly must build arm64 only; Intel and universal ship from the stable release"
+>>>>>>> origin/main
   exit 1
 fi
+for frozen_matrix in 'variant: [arm64, x86_64, universal]' 'for variant in arm64 x86_64'; do
+  if grep -Fq -- "$frozen_matrix" "$ROOT_DIR/.github/workflows/auto-resume-nightly-notarization.yml"; then
+    echo "FAIL: the nightly notarization continuation must wait for and publish arm64 only"
+    exit 1
+  fi
+done
 
 if ! grep -Fq 'description: Build one arm64 dogfood DMG without Intel or Sparkle delta work' "$WORKFLOW_FILE"; then
   echo "FAIL: workflow dispatch must expose the fast arm64 dogfood build"
@@ -543,6 +604,7 @@ if grep -Eq 'smoke-launch|smoke-signed-app-cli|smoke-dmg' "$WORKFLOW_FILE"; then
   exit 1
 fi
 
+<<<<<<< HEAD
 # Published nightly-next waits for Apple in the job for 20m (main and RC 40m),
 # so one stalled submission never holds the next build: Accepted builds are stapled and published by this run,
 # and a wait that runs out hands the exact submission to the next nightly-next
@@ -581,6 +643,204 @@ done
 # The signing job installs no Bun (main #37f07fec trimmed its setup).
 if awk '/^  build-sign-notarize-nightly:/ { j=1; next } /^  [A-Za-z0-9_-]+:/ { j=0 } j && /setup-bun@/ { f=1 } END { exit !f }' "$WORKFLOW_FILE"; then
   echo "FAIL: the nightly signing job must not set up Bun"
+=======
+workflow = open(sys.argv[1], encoding="utf-8").read()
+
+sign_job = re.search(
+    r"^  build-sign-notarize-nightly:\n(.*?)(?=^  [A-Za-z0-9_-]+:)",
+    workflow,
+    re.MULTILINE | re.DOTALL,
+).group(1)
+assert "setup-bun@" not in sign_job
+assert "actions/setup-node@" in sign_job
+
+def step(name):
+    match = re.search(
+        rf"^      - name: {re.escape(name)}\n(.*?)(?=^      - name:|^  [A-Za-z0-9_-]+:)",
+        workflow,
+        re.MULTILINE | re.DOTALL,
+    )
+    assert match, f"missing workflow step: {name}"
+    return match.group(1)
+
+helper = step("Start Computer Use helper notarization")
+assert "if: needs.decide.outputs.fast_build != 'true'" in helper
+
+codesign = step("Codesign apps")
+assert 'if [ "$NIGHTLY_FAST_BUILD" = "true" ]' in codesign
+assert "sign_mode=all" in codesign
+assert "sign_mode=all-except-computer-use" in codesign
+
+# Fast dogfood keeps both smokes; they run in the secret-free verify job.
+smoke = step("Smoke launch signed app")
+cli_smoke = step("Smoke bundled CLI against the signed app")
+assert "if:" not in smoke and "if:" not in cli_smoke
+
+notarize = step("Notarize app ticket through final DMG")
+assert "if: needs.decide.outputs.fast_build != 'true'" in notarize
+assert "id: notarize-nightly" in notarize
+
+recovery = step("Upload pending notarization recovery artifact")
+prepare_recovery = step("Prepare pending notarization recovery artifact")
+assert "steps.notarize-nightly.outputs.submission_pending == 'true'" in prepare_recovery
+assert "submission_id" in prepare_recovery and "dmg_sha256" in prepare_recovery
+assert "always() && steps.prepare-notarization-recovery.outcome == 'success'" in recovery
+assert "cmux-nightly-notarization-recovery-staging/*" in recovery
+assert "CHANNEL_APP_PATH" in prepare_recovery
+assert "NIGHTLY_DMG_RELEASE" in prepare_recovery
+assert ".notarization.state" in prepare_recovery
+assert ".notarization.log" in prepare_recovery
+assert "computer-use-helper" in prepare_recovery
+assert "helper_state_path" in prepare_recovery
+assert "recovery-staging" in prepare_recovery
+assert "cmux-nightly-notarization-recovery-app.tar.gz" in prepare_recovery
+assert "if-no-files-found: error" in recovery
+assert "compression-level: 0" in recovery
+metadata = step("Upload notarization polling metadata")
+assert "steps.prepare-notarization-recovery.outcome == 'success'" in metadata
+assert "-notarization-metadata-" in metadata
+assert "cmux-nightly-notarization-metadata-staging/*" in metadata
+assert "tar.gz" not in metadata and "NIGHTLY_DMG_RELEASE }}\n" not in metadata
+assert "retention-days: 14" in metadata
+
+notarize_timeout = re.search(
+    r"^      - name: Notarize app ticket through final DMG\n(.*?)(?=^      - name:)",
+    workflow,
+    re.MULTILINE | re.DOTALL,
+)
+assert notarize_timeout, "missing notarization step"
+assert "timeout-minutes: ${{ needs.decide.outputs.should_publish == 'true' && 90 || 140 }}" in notarize_timeout.group(1)
+assert "timeout-minutes: 50" not in notarize_timeout.group(1)
+assert "CMUX_NOTARY_SUBMIT_ONLY: ${{ needs.decide.outputs.should_publish }}" in notarize_timeout.group(1)
+assert "CMUX_DEFER_GATEKEEPER_ASSESSMENT: ${{ needs.decide.outputs.should_publish }}" in notarize_timeout.group(1)
+assert "CMUX_NOTARY_WAIT_TIMEOUT" not in notarize_timeout.group(1)
+
+fast_package = step("Package signed fast dogfood DMG")
+assert "if: needs.decide.outputs.fast_build == 'true'" in fast_package
+assert 'CMUX_SKIP_NOTARIZATION: "true"' in fast_package
+assert "NIGHTLY_DMG_IMMUTABLE" in fast_package
+
+syspolicy = step("Gate distribution with syspolicy_check")
+assert "if: needs.decide.outputs.fast_build != 'true' && needs.decide.outputs.should_publish != 'true'" in syspolicy
+
+resume = Path(sys.argv[1]).with_name("resume-nightly-notarization.yml").read_text(encoding="utf-8")
+assert "workflow_dispatch:" in resume
+assert "gh run download \"$artifact_run_id\"" in resume
+assert "ARTIFACT_RUN_ID" in resume
+assert "Verify trusted source workflow run" in resume
+assert "SOURCE_HEAD_SHA" in resume
+assert "resolve-notarization-recovery.py" in resume
+assert "--extract-app" in resume
+# The manual resume continues a recovered DMG through the stapled-app wrapper,
+# which calls scripts/ci/resume-nightly-notarization.sh.
+assert "scripts/ci/resume-stapled-app-notarization.sh" in resume
+resume_script = (Path(sys.argv[1]).parents[2] / "scripts/ci/resume-nightly-notarization.sh").read_text(encoding="utf-8")
+assert "verify_computer_use_helper" in resume_script
+assert "standalone_helper" in resume_script
+assert "notarytool submit" not in resume_script
+assert "LOG_STATUS" in resume_script and "LOG_EXIT" in resume_script
+assert "run_with_timeout.py" in resume_script
+assert "CMUX_NOTARY_LOG_TIMEOUT_SECONDS" in resume_script
+assert "SYSPOLICY_TOOL" in resume_script
+assert "refusing to staple or publish" in resume_script
+resolver = (Path(sys.argv[1]).parents[2] / "scripts/ci/resolve-notarization-recovery.py").read_text(encoding="utf-8")
+assert "SHA-256 mismatch" in resolver and "submission_id" in resolver
+assert "immutable_path" in resolver and "release_tag" in resolver and "variant" in resolver
+auto = Path(sys.argv[1]).with_name("auto-resume-nightly-notarization.yml").read_text(encoding="utf-8")
+assert "resume-helper-notarization.sh" in auto
+assert "Install recovered DMG packaging tools" in auto
+assert "Import signing certificate for recovered DMG" in auto
+assert "Prepare outer DMG recovery after bounded wait" in auto
+assert "runner.temp" not in auto.split("  wait-and-staple:", 1)[1].split("  poll-outer:", 1)[0]
+assert 'outer_state="$RUNNER_TEMP/cmux-outer-dmg-notarization.state"' in auto
+assert "poll-outer:" in auto and "staple-outer:" in auto
+assert "outer-notarization-metadata-" in auto
+assert "fromJSON(needs.poll-outer.outputs.outer_variants)" in auto
+generate_deltas = re.search(
+    r"^  generate-deltas:\n(.*?)(?=^  republish-deltas:)",
+    auto,
+    re.MULTILINE | re.DOTALL,
+)
+assert generate_deltas, "missing continuation delta job"
+for key in (
+    "NIGHTLY_SPARKLE_KEY: ${{ vars.NIGHTLY_SPARKLE_KEY }}",
+    "SHARED_SPARKLE_PRIVATE_KEY: ${{ secrets.SPARKLE_PRIVATE_KEY }}",
+    "NIGHTLY_SPARKLE_PRIVATE_KEY: ${{ secrets.NIGHTLY_SPARKLE_PRIVATE_KEY }}",
+):
+    assert key in generate_deltas.group(1), f"continuation delta job must provide {key}"
+assert "workflow_run:" in auto
+assert "workflow_dispatch:" in auto
+assert "source_run_id:" in auto and "source_run_attempt:" in auto
+assert "poll:" in auto
+assert "poll-notary-submission.py" in auto
+assert "runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.run_attempt == 1 && 'cmux-gcp-nightly-jit-x64' || 'blacksmith-4vcpu-ubuntu-2404' }}" in auto
+assert "sleep 300" in auto
+assert "exact recovery artifacts for manual continuation" in auto
+assert "needs.poll.outputs.all_accepted == 'true'" in auto
+assert "CMUX_OUTER_NOTARY_WAIT_TIMEOUT=25m" in auto
+assert "CMUX_STAPLED_APP_NOTARY_WAIT_TIMEOUT=40m" in auto
+# A recovered DMG gets the DMG around its stapled app as an outer submission.
+assert "./scripts/ci/resume-stapled-app-notarization.sh" in auto
+assert "steps.prepare-outer.outputs.prepared == 'true'" in auto
+assert "scripts/ci/stage-outer-notarization-recovery.py" in auto and "--require-stapled-app" in auto
+assert "stapled-app-notarization-recovery-" in auto
+# A pending stapled-app DMG is polled until Accepted or its 6 h fallback.
+assert "./scripts/ci/poll-outer-notarizations.sh" in auto
+assert "poll-stapled:" in auto and "staple-stapled:" in auto
+assert "fromJSON(needs.poll-stapled.outputs.outer_variants)" in auto
+assert "needs.staple-stapled.result == 'success'" in auto
+assert "--stapled-app-fallback" in auto and "--stapled-app-fallback" in resume
+poller = (Path(sys.argv[1]).parents[2] / "scripts/ci/poll-outer-notarizations.sh").read_text(encoding="utf-8")
+assert "stapled_submitted_at" in poller and "CMUX_STAPLED_APP_FALLBACK_SECONDS:-21600" in poller
+smoke = (Path(sys.argv[1]).parents[2] / "scripts/ci/smoke-dmg.sh").read_text(encoding="utf-8")
+assert '"$XCRUN_TOOL" stapler validate "$APP"' in smoke and "--stapled-app-fallback)" in smoke
+# The fallback record the wrapper writes is the one the verify jobs read.
+assert '"$DMG_IMMUTABLE.stapled-app-fallback"' in (Path(sys.argv[1]).parents[2] / "scripts/ci/resume-stapled-app-notarization.sh").read_text(encoding="utf-8")
+assert 'verified/$immutable.stapled-app-fallback' in auto and '"$dmg.stapled-app-fallback"' in resume
+assert "scripts/ci/stage-outer-notarization-recovery.py" in resume and "steps.prepare-outer.outputs.prepared == 'true'" in resume
+assert "./scripts/ci/resume-stapled-app-notarization.sh" in resume
+stapled = (Path(sys.argv[1]).parents[2] / "scripts/ci/resume-stapled-app-notarization.sh").read_text(encoding="utf-8")
+assert "CMUX_RESUME_APP_ONLY=true" in stapled and "CMUX_NOTARY_SUBMIT_ONLY=true" in stapled
+assert "stapled_app=true" in stapled
+assert "STATE_STAPLED_APP" in resume_script and "RESUME_APP_ONLY" in resume_script
+assert "wait-and-staple:" in auto
+# Nightly is arm64 only; Intel and universal ship from the stable release.
+assert "matrix:" in auto and "variant: [arm64]" in auto and "[arm64, x86_64, universal]" not in auto
+assert "needs.wait-and-staple.result == 'success'" in auto
+assert "CMUX_NOTARY_WAIT_TIMEOUT=2m" in auto
+assert "publish-release-assets.py" in auto
+assert "--replace-feeds" in auto
+assert "resolve-notarization-recovery.py" in auto
+assert "Reject stale continuation before publication" in auto
+assert "fetch-depth: 0" in auto
+assert "cmux-published-build" in auto
+assert "final_dmg_sha256" in auto
+# nightly-next continues on its own track (tests/test_nightly_resume_tracks.py).
+assert 'if branch == "nightly-next":' in auto and "nightly-next-continues-on-its-own-track" in auto
+assert "eligible=false" in auto and "source-branch-is-not-published" in auto
+assert "published: ${{ steps.publication-result.outputs.published }}" in auto
+assert "needs.publish.outputs.published == 'true'" in auto
+# The continuation closes only failures its commit includes (scripts/ci/nightly_failure_issue.mjs).
+assert "await incident.close({" in auto and "sha: process.env.SOURCE_HEAD_SHA" in auto
+assert "if (!(issue.body || '').toLowerCase().includes(process.env.SOURCE_HEAD_SHA.toLowerCase())) continue;" not in auto
+assert "--draft=false" in auto
+assert "prune_nightly_release_assets.py" in auto
+assert "cmux-${{ needs.decide.outputs.channel }}-notarization-recovery-" in workflow
+assert "reason=no-published-recovery-artifacts" in auto
+assert '"should_publish": "${{ needs.decide.outputs.should_publish }}" == "true"' in workflow
+assert "Verify immutable remote daemon assets" in auto
+assert "accepted recovery manifests disagree on build number" in auto
+assert 'cp "verified/$IMMUTABLE_NAME" "verified/$ALIAS_NAME"' not in auto
+assert "duplicate DMG alias" in auto
+assert 'cp "$dir/$immutable" "nightly-out/${DMG_PREFIX}-${variant}.dmg"' in auto
+assert 'cp "$dir/${DMG_PREFIX}-${variant}.dmg"' not in auto
+assert "  generate-deltas:" in auto
+assert "  republish-deltas:" in auto
+assert "fetch-previous-nightly-dmgs.py" in auto
+PY
+then
+  echo "FAIL: fast dogfood must skip notarization and distribution policy only after retaining signing and smoke"
+>>>>>>> origin/main
   exit 1
 fi
 
@@ -755,19 +1015,24 @@ for expected in \
   fi
 done
 
+# The close is auto-resume-nightly-notarization.yml's publish, which publishes the nightly.
 if ! awk '
   /^  report-nightly-failure:/ { job="report"; next }
-  /^  close-nightly-failure-issue:/ { job="close"; next }
   /^  [a-zA-Z0-9_-]+:/ { job="" }
   job == "report" && /contains\(needs\.\*\.result, .failure.\)/ { saw_report_gate=1 }
   job == "report" && /issues: write/ { saw_report_perm=1 }
+<<<<<<< HEAD
   job == "report" && /\$\{process\.env\.CHANNEL_RELEASE_TAG\}-failure/ { saw_report_label=1 }
   # The result of publish-nightly, carried by published-build (another run on nightly-next).
   job == "close" && /needs\.published-build\.outputs\.publish_result == .success./ { saw_close_gate=1 }
   job == "close" && /state: .closed./ { saw_close=1 }
   END { exit !(saw_report_gate && saw_report_perm && saw_report_label && saw_close_gate && saw_close) }
+=======
+  job == "report" && /incident\.report\(/ { saw_report_label=1 }
+  END { exit !(saw_report_gate && saw_report_perm && saw_report_label) }
+>>>>>>> origin/main
 ' "$WORKFLOW_FILE"; then
-  echo "FAIL: a failing main nightly must open a nightly-failure issue and a successful publish must close it"
+  echo "FAIL: a failing main nightly must open a nightly-failure issue"
   exit 1
 fi
 
@@ -881,8 +1146,12 @@ for expected in \
   'nightly-publication-marker.py' \
   'release metadata already records the exact' \
   'published, tag marker stale' \
+<<<<<<< HEAD
   "needs.publish-nightly.outputs.tag_status == 'stale'" \
   "needs.published-build.outputs.publish_tag_status == 'updated'"; do
+=======
+  "needs.publish-nightly.outputs.tag_status == 'stale'"; do
+>>>>>>> origin/main
   if ! grep -Fqi "$expected" "$WORKFLOW_FILE"; then
     echo "FAIL: nightly publication recovery contract is missing: $expected"
     exit 1
@@ -894,6 +1163,7 @@ if ! awk '
   in_publish && /^      - name:/ { in_publish=0 }
   in_publish && /if: needs\.decide\.outputs\.should_publish == '\''true'\''/ { saw_publish_if=1 }
   in_publish && /publish-release-assets\.py/ { saw_publisher=1 }
+<<<<<<< HEAD
   # Main publishes every variant, four aliases and the four feeds decide lists;
   # nightly-next publishes arm64 only (tests/test_nightly_next_arm64_only.py).
   in_publish && /variants=\(arm64 x86_64 universal\)/ { saw_all_variants=1 }
@@ -903,6 +1173,18 @@ if ! awk '
   END { exit !(saw_publish_if && saw_publisher && saw_all_variants && saw_immutable_variants && saw_four_aliases && saw_feeds) }
 ' "$WORKFLOW_FILE" || ! grep -Fq ": ['appcast-arm64.xml', 'appcast-x86_64.xml', 'appcast-universal.xml', 'appcast.xml'];" "$WORKFLOW_FILE"; then
   echo "FAIL: nightly publication must verify every architecture and publish all aliases before the four feeds"
+=======
+  in_publish && /--immutable .*arm64-.*NIGHTLY_BUILD/ { saw_immutable_arm=1 }
+  in_publish && /--immutable .*x86_64-.*NIGHTLY_BUILD/ { saw_immutable_intel=1 }
+  in_publish && /--immutable .*universal-.*NIGHTLY_BUILD/ { saw_immutable_universal=1 }
+  in_publish && /--alias .*CHANNEL_DMG_PREFIX.*\.dmg/ { alias_count++ }
+  in_publish && /--feed nightly-out\/appcast/ { feed_count++ }
+  # Nightly is arm64 only: one immutable DMG, one alias, one feed. The x86_64,
+  # universal and legacy assets stay frozen at their last build.
+  END { exit !(saw_publish_if && saw_publisher && saw_immutable_arm && !saw_immutable_intel && !saw_immutable_universal && alias_count == 1 && feed_count == 1) }
+' "$WORKFLOW_FILE"; then
+  echo "FAIL: nightly publication must publish the arm64 DMG, alias and feed only, leaving the frozen Intel and universal assets alone"
+>>>>>>> origin/main
   exit 1
 fi
 
@@ -912,7 +1194,7 @@ fi
 # never reaches the helper, signing, notarization, dSYM upload, or publication,
 # and cold_cache (skip the compilation cache restore) is only honoured there.
 for expected in \
-  'description: Measure the unsigned universal build only. Never builds the helper, signs, notarizes, uploads dSYMs, or publishes.' \
+  'description: Measure the unsigned arm64 nightly build only. Never builds the helper, signs, notarizes, uploads dSYMs, or publishes.' \
   'description: Skip the Xcode compilation cache restore so the measurement run is a cache miss. Only honoured with build_only.' \
   "const buildOnly = process.env.BUILD_ONLY === 'true';" \
   "const coldCache = buildOnly && process.env.COLD_CACHE === 'true';" \
@@ -939,6 +1221,7 @@ job_if() {
     in_job && /^    if: / { print; exit }
   ' "$WORKFLOW_FILE"
 }
+<<<<<<< HEAD
 PUBLISH_SCHEDULE="(github.event_name != 'schedule' || github.event.schedule == '47 8 * * *')"
 # A resolved build commit that is already published builds nothing.
 NOT_PUBLISHED="needs.resolve-nightly-cmux-tui-client.outputs.already_published != 'true'"
@@ -972,6 +1255,14 @@ if [ "$(job_if build-nightly-app)" != "    if: $APP_NEEDS_OK && needs.decide.out
   || [ "$(job_if resolve-nightly-cmux-tui-client)" != "    if: needs.decide.outputs.should_build == 'true' && $PUBLISH_SCHEDULE" ] \
   || [ "    if: $APP_NEEDS_OK && needs.decide.outputs.should_build == 'true' && $PUBLISH_SCHEDULE && $NOT_PUBLISHED && $NOT_SUPERSEDED && $NOT_CONTINUE && $NOT_ONE_JOB\"" != "$(job_if build-nightly-app)" ] \
   || [ "$(job_if publish-nightly)" != "    if: \"always() && !cancelled() && needs.decide.result == 'success' && needs.decide.outputs.should_build == 'true' && needs.decide.outputs.fast_build != 'true' && needs.decide.outputs.build_only != 'true' && $PUBLISH_SCHEDULE && $NOT_PUBLISHED && needs.decide.outputs.no_publish != 'true' && ((needs.build-sign-notarize-nightly.result == 'success' && needs.build-sign-notarize-nightly.outputs.notary_pending != 'true' && needs.verify-signed-nightly.result == 'success' && needs.verify-final-dmg-nightly.result == 'success') || (needs.recover-nightly-next-notarization.outputs.accepted == 'true' && needs.verify-recovered-nightly-next.result == 'success') || needs.republish-nightly-next.result == 'success')\"" ]; then
+=======
+PUBLISH_SCHEDULE="(github.event_name != 'schedule' || github.event.schedule == '2,17,32,47 * * * *' || github.event.schedule == '5 8 * * *')"
+if [ "$(job_if build-nightly-app)" != "    if: \"!cancelled() && needs.decide.result == 'success' && needs.decide.outputs.should_build == 'true' && $PUBLISH_SCHEDULE\"" ] \
+  || [ "$(job_if build-nightly-ghostty-cli-helper)" != "    if: needs.decide.outputs.should_build == 'true' && $PUBLISH_SCHEDULE && needs.decide.outputs.build_only != 'true'" ] \
+  || [ "$(job_if build-sign-notarize-nightly)" != "    if: \"!cancelled() && needs.decide.result == 'success' && needs.build-nightly-app.result == 'success' && needs.prepare-nightly-variant.result == 'success' && needs.decide.outputs.should_build == 'true' && $PUBLISH_SCHEDULE && needs.decide.outputs.build_only != 'true'\"" ] \
+  || [ "$(job_if resolve-nightly-cmux-tui-client)" != "$(job_if build-nightly-ghostty-cli-helper)" ] \
+  || [ "$(job_if publish-nightly)" != "    if: needs.decide.outputs.should_build == 'true' && needs.decide.outputs.fast_build != 'true' && needs.decide.outputs.build_only != 'true' && needs.decide.outputs.should_publish != 'true' && $PUBLISH_SCHEDULE" ]; then
+>>>>>>> origin/main
   echo "FAIL: build_only must be a conjunctive exclusion on the helper, signing, and publication jobs, and must not gate the unsigned app build"
   exit 1
 fi
@@ -1014,6 +1305,7 @@ if ! grep -Fq "github.event.inputs.build_only == 'true' && format('nightly-measu
   exit 1
 fi
 
+<<<<<<< HEAD
 # nightly-next keeps its own concurrency group. A group shared with main let
 # every main push replace the pending nightly-next run (run 37579667979 was
 # cancelled before any job by main push run 37580645859), so the lower-frequency
@@ -1026,6 +1318,14 @@ if grep -Fq "github.ref_name == 'nightly-next') && 'nightly-shared'" "$WORKFLOW_
 fi
 if ! grep -Fq 'python3 scripts/ci/nightly_version.py check-build --build "$build" "${feeds[@]}"' "$WORKFLOW_FILE"; then
   echo "FAIL: nightly-next must keep the cross-feed build floor check"
+=======
+# Every push run builds in its own group, so a newer tip never waits behind
+# (or is replaced while waiting behind) a running build. Sparkle ordering is
+# kept at publication: release-publish-<tag> serializes the writers and the
+# publish step refuses a source older than the published one.
+if ! grep -Fq "github.event_name == 'push' && format('push-{0}', github.run_id)" "$WORKFLOW_FILE"; then
+  echo "FAIL: each nightly push run must build in its own concurrency group"
+>>>>>>> origin/main
   exit 1
 fi
 
@@ -1063,6 +1363,7 @@ for cache_workflow in "$WORKFLOW_FILE"; do
   fi
 done
 
+<<<<<<< HEAD
 # cx-x7hwx: the cmux NIGHTLY-identity old feed follows the newest cmux NEXT
 # build, whichever run published it. #20518 hands a build still in Apple's
 # queue to recovery, so a later run (or a continue-only run) publishes it; the
@@ -1450,3 +1751,6 @@ if [ -n "$notary_guard" ]; then
 fi
 
 echo "PASS: nightly workflow builds once and thins per architecture"
+=======
+echo "PASS: nightly workflow builds arm64 once and leaves the frozen Intel and universal tracks alone"
+>>>>>>> origin/main

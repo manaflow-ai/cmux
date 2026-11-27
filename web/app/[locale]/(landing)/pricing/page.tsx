@@ -370,7 +370,7 @@ function PricingContent({
         name={t("pro.name")}
         surface="public_pricing"
         monthlyOnly={isGo}
-        initialInterval={query.interval === "month" ? "month" : "year"}
+        initialInterval={query.interval === "year" ? "year" : "month"}
         labels={proAnnualLabelSet}
         checkoutHrefs={proCheckoutHrefs}
         requiresSignIn={!pending && !snapshot.authenticated}
@@ -399,7 +399,7 @@ function PricingContent({
         pricing={MAX_PRICING_USD}
         surface="public_pricing"
         monthlyOnly={false}
-        initialInterval={query.interval === "month" ? "month" : "year"}
+        initialInterval={query.interval === "year" ? "year" : "month"}
         labels={proAnnualLabelSet}
         checkoutHrefs={{
           month: withCheckoutInterval(maxCheckoutHref, "month"),

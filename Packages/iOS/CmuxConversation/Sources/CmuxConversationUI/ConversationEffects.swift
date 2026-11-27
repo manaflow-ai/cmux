@@ -236,7 +236,10 @@ final class InvisibleInkView: UIView {
     /// The finger lifted: the ink drifts back after a delay.
     func scheduleRecover() {
         guard isRevealed else { return }
+<<<<<<< HEAD
         // motion: allow timer, a constant-opacity animation that only times the recover delay
+=======
+>>>>>>> origin/main
         let fade = CABasicAnimation(keyPath: "opacity")
         fade.fromValue = 1
         fade.toValue = 1
@@ -266,7 +269,10 @@ final class InvisibleInkView: UIView {
         isRevealed = false
         if animated, let covered {
             // Particles return over the text while it fades.
+<<<<<<< HEAD
             // motion: allow crossfade, the Reduce Motion form
+=======
+>>>>>>> origin/main
             UIView.animate(withDuration: 0.6, delay: 0, options: [.allowUserInteraction]) {
                 covered.alpha = 0
             } completion: { [weak self] _ in
@@ -280,7 +286,10 @@ final class InvisibleInkView: UIView {
             if let bubblePath { full.addPath(bubblePath) } else { full.addRect(bounds) }
             emitterMask.path = full
             CATransaction.commit()
+<<<<<<< HEAD
             // motion: allow crossfade, the Reduce Motion form
+=======
+>>>>>>> origin/main
             let fadeIn = CABasicAnimation(keyPath: "opacity")
             fadeIn.fromValue = 0
             fadeIn.toValue = 1

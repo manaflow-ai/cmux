@@ -44,6 +44,7 @@ import {
   type VmCapabilities,
   type EnsureProviderNetworkOptions,
   vmCapabilitiesFor,
+  type ResumeOptions,
 } from "./drivers";
 import { VM_PROVIDER_CREATE_TIMEOUT_MS } from "./operationTimeouts";
 import { VmOperationUnsupportedError, VmProviderOperationError } from "./errors";
@@ -79,10 +80,17 @@ export type VmProviderGatewayShape = {
     vmId: string,
     options: { readonly timeoutMs: number },
   ) => Effect.Effect<VmControlProbe, VmProviderOperationError>;
+<<<<<<< ours
   readonly getStatus?: (provider: ProviderId, vmId: string, credential?: ProviderCredential) => Effect.Effect<VMStatus, VmProviderOperationError>;
   readonly getPauseState?: (provider: ProviderId, vmId: string, credential?: ProviderCredential) => Effect.Effect<VmPauseState | null, VmProviderOperationError>;
   readonly resume?: (provider: ProviderId, vmId: string, credential?: ProviderCredential) => Effect.Effect<VMHandle, VmProviderOperationError>;
   readonly pause?: (provider: ProviderId, vmId: string, credential?: ProviderCredential) => Effect.Effect<void, VmProviderOperationError>;
+=======
+  readonly getStatus?: (provider: ProviderId, vmId: string) => Effect.Effect<VMStatus, VmProviderOperationError>;
+  readonly getPauseState?: (provider: ProviderId, vmId: string) => Effect.Effect<VmPauseState | null, VmProviderOperationError>;
+  readonly resume?: (provider: ProviderId, vmId: string, options?: ResumeOptions) => Effect.Effect<VMHandle, VmProviderOperationError>;
+  readonly pause?: (provider: ProviderId, vmId: string) => Effect.Effect<void, VmProviderOperationError>;
+>>>>>>> theirs
   readonly setRuntimeBudget?: (provider: ProviderId, vmId: string, remainingSeconds: number | null) => Effect.Effect<void, VmProviderOperationError>;
   readonly snapshot?: (
     provider: ProviderId,
@@ -355,10 +363,17 @@ export const VmProviderGatewayLive = Layer.succeed(VmProviderGateway, {
       const driver = getProvider(provider);
       return driver.getPauseState ? await driver.getPauseState(vmId, credential) : null;
     }),
+<<<<<<< ours
   resume: (provider, vmId, credential) =>
     providerEffect(provider, "resume", () => getProvider(provider).resume(vmId, credential)),
   pause: (provider, vmId, credential) =>
     providerEffect(provider, "pause", () => getProvider(provider).pause(vmId, credential)),
+=======
+  resume: (provider, vmId, options) =>
+    providerEffect(provider, "resume", () => getProvider(provider).resume(vmId, options)),
+  pause: (provider, vmId) =>
+    providerEffect(provider, "pause", () => getProvider(provider).pause(vmId)),
+>>>>>>> theirs
   setRuntimeBudget: (provider, vmId, remainingSeconds) => providerEffect(provider, "setRuntimeBudget", async () => {
     const driver = getProvider(provider);
     if (!driver.setRuntimeBudget) throw new Error("Provider runtime caps are unavailable");

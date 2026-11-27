@@ -3,7 +3,11 @@
 //! while copy mode is active.
 
 use cmux_tui_core::Rect;
+<<<<<<< ours
 use ghostty_vt::{CellWidth, RenderRow};
+=======
+use ghostty_vt::{Cell as VtCell, CellWidth};
+>>>>>>> theirs
 use ratatui::Frame;
 use ratatui::buffer::Buffer;
 use ratatui::style::{Color, Modifier, Style};
@@ -19,7 +23,11 @@ pub(super) fn paint_overlay(
     frame: &mut Frame,
     live: Rect,
     source_x: u16,
+<<<<<<< ours
     rows: &[RenderRow],
+=======
+    rows: &[Vec<VtCell>],
+>>>>>>> theirs
     theme: &Theme,
     overlay: &CopyOverlay,
 ) {

@@ -31,7 +31,11 @@ jobs:
   prune:
     name: Prune obsolete pull request media
     if: ${{ github.repository_owner == 'manaflow-ai' && github.ref == 'refs/heads/main' }}
+<<<<<<< HEAD
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || 'cmux-linux' }}
+=======
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.CI_OVERFLOW_LINUX || 'cmux-linux' }}
+>>>>>>> origin/main
     timeout-minutes: 15
     permissions:
       contents: write

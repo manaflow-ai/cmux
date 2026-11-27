@@ -6,6 +6,7 @@
 //! - `--pane SEL`: a new tab in that pane.
 //! - `--pane SEL --split DIR`, or `--split DIR` alone: split that pane.
 //! - A session with no pane yet (a daemon no client opened): a new workspace
+<<<<<<< ours
 //!   named after the agent, whose first shell tab the agent's tab replaces.
 //!
 //! A split takes the new pane's width only from the pane it splits: every
@@ -22,11 +23,23 @@
 //! NAME`), so its name, argv and harness session stay on record after it
 //! exits. A split (or a new workspace) first opens a shell tab, whose shell
 //! ends once the agent's tab runs there ([`end_placeholder`]).
+=======
+//!   named after the agent, whose first shell ends once the agent's tab runs.
+//!
+//! The agent runs in a tab of its own (`pane run --on-exit keep --name
+//! NAME`), so its name, argv and harness session stay on record after it
+//! exits. A split first opens a shell tab in the new pane; that shell ends
+//! (`end_placeholder`) once the agent's tab runs there.
+>>>>>>> theirs
 
 use serde_json::{Value, json};
 
 use super::super::agent_names::{self, Found};
+<<<<<<< ours
 use super::super::terminal_talk::send::{self, Daemon};
+=======
+use super::daemon::{self, Daemon};
+>>>>>>> theirs
 use super::{Failure, plan};
 
 /// A new tab in a pane, or a new pane next to it.
@@ -85,6 +98,7 @@ impl Created {
     }
 }
 
+<<<<<<< ours
 /// The shell tab a new pane or workspace opened with, which holds the pane
 /// until the agent's tab runs there.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -127,6 +141,8 @@ pub(in crate::cli) fn end_placeholder<D: Daemon + ?Sized>(daemon: &D, placeholde
     }
 }
 
+=======
+>>>>>>> theirs
 fn list<'a>(snapshot: &'a Value, key: &str) -> &'a [Value] {
     snapshot[key].as_array().map(Vec::as_slice).unwrap_or_default()
 }
@@ -170,9 +186,15 @@ pub(in crate::cli) fn focused_pane(snapshot: &Value) -> Option<String> {
 }
 
 /// For a session with no pane: creates a workspace named `name` and returns
+<<<<<<< ours
 /// its pane and the shell tab it opened with (end it with
 /// [`end_placeholder`] once the agent's tab runs). `None` when the session
 /// has a pane.
+=======
+/// its pane and the shell it opened with (end it with `end_placeholder`
+/// once the agent's tab runs). `None` when the session has a pane. Main's `workspace create` takes
+/// no folder; the agent's own tab gets `--cwd` (`pane run`).
+>>>>>>> theirs
 ///
 /// The ids come from the create receipt, else from the pane of the receipt's
 /// workspace, never from focus: another `agent start` may create (and focus)
@@ -181,11 +203,15 @@ pub(in crate::cli) fn empty_session_pane<D: Daemon + ?Sized>(
     daemon: &D,
     snapshot: &Value,
     name: &str,
+<<<<<<< ours
     cwd: Option<&str>,
+=======
+>>>>>>> theirs
 ) -> Result<Option<(String, Option<Placeholder>)>, Failure> {
     if !list(snapshot, "panes").is_empty() {
         return Ok(None);
     }
+<<<<<<< ours
     let mut words = vec!["workspace", "create", "--name", name];
     if let Some(cwd) = cwd {
         words.extend(["--cwd", cwd]);
@@ -194,6 +220,12 @@ pub(in crate::cli) fn empty_session_pane<D: Daemon + ?Sized>(
     if let Ok(created) = Created::from_result(&result) {
         let shell = Placeholder::of(&created);
         return Ok(Some((created.pane, Some(shell))));
+=======
+    let result = daemon.request(None, plan(&["workspace", "create", "--name", name])?)?;
+    if let Ok(created) = Created::from_result(&result) {
+        let placeholder = Placeholder::of(&created);
+        return Ok(Some((created.pane, Some(placeholder))));
+>>>>>>> theirs
     }
     let workspace = ["/value/workspace_id", "/path/workspace_id", "/workspace_id", "/id"]
         .into_iter()
@@ -208,7 +240,11 @@ pub(in crate::cli) fn empty_session_pane<D: Daemon + ?Sized>(
                 1,
             )
         })?;
+<<<<<<< ours
     let snapshot = send::snapshot(daemon, None)?;
+=======
+    let snapshot = daemon::snapshot(daemon)?;
+>>>>>>> theirs
     let pane = pane_of_workspace(&snapshot, &workspace).ok_or_else(|| {
         not_found(&workspace, format!("the new workspace {workspace} has no pane"))
     })?;
@@ -217,11 +253,18 @@ pub(in crate::cli) fn empty_session_pane<D: Daemon + ?Sized>(
         .find(|tab| tab["pane_id"] == pane.as_str())
         .and_then(|tab| {
             Some(Placeholder {
+<<<<<<< ours
                 tab: tab.get("id")?.as_str()?.to_owned(),
                 terminal: tab
                     .get("content_id")
                     .and_then(Value::as_str)
                     .filter(|id| id.starts_with("term_"))
+=======
+                tab: tab["id"].as_str()?.to_owned(),
+                terminal: tab["content_id"]
+                    .as_str()
+                    .filter(|content| content.starts_with("term_"))
+>>>>>>> theirs
                     .map(str::to_owned),
             })
         });
@@ -247,6 +290,61 @@ fn pane_of_workspace(snapshot: &Value, workspace: &str) -> Option<String> {
         .map(str::to_owned)
 }
 
+<<<<<<< ours
+=======
+/// The shell tab a new pane or workspace started with, and its terminal.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(in crate::cli) struct Placeholder {
+    /// The shell's tab.
+    pub tab: String,
+    /// Its terminal, when the session reported it.
+    pub terminal: Option<String>,
+}
+
+impl Placeholder {
+    fn of(created: &Created) -> Self {
+        Self { tab: created.tab.clone(), terminal: Some(created.terminal.clone()) }
+    }
+
+    /// The shell tab a split or `screen create` result names (`tab_id`,
+    /// `terminal_id`).
+    pub(in crate::cli) fn from_path(path: &Value) -> Self {
+        Self {
+            tab: path.get("tab_id").and_then(Value::as_str).unwrap_or_default().to_owned(),
+            terminal: path.get("terminal_id").and_then(Value::as_str).map(str::to_owned),
+        }
+    }
+
+    /// The command that ends it: `terminal <t> close` ends the shell and its
+    /// tab. Without a terminal id it is `tab <t> close`; an owner whose
+    /// reaper runs (`terminal-reaper-active-v1`) then ends the shell after
+    /// its grace.
+    pub(in crate::cli) fn end_command(&self) -> [&str; 3] {
+        match &self.terminal {
+            Some(terminal) => ["terminal", terminal.as_str(), "close"],
+            None => ["tab", self.tab.as_str(), "close"],
+        }
+    }
+}
+
+/// Ends a placeholder shell and so its tab (`terminal <t> close`), as `pane
+/// move` does: closing only its tab would leave the shell running without a
+/// tab. Without a terminal id, or when the session refuses the terminal
+/// close, the tab closes; an owner whose reaper runs then ends the shell
+/// after its grace, and without a reaper it stays until the session ends. A
+/// shell that stays is harmless to the agent, so a failure is ignored.
+pub(in crate::cli) fn end_placeholder<D: Daemon + ?Sized>(daemon: &D, placeholder: &Placeholder) {
+    let ended =
+        plan(&placeholder.end_command()).is_ok_and(|close| daemon.request(None, close).is_ok());
+    if !ended
+        && placeholder.terminal.is_some()
+        && let Ok(close) = plan(&["tab", placeholder.tab.as_str(), "close"])
+    {
+        let _ = daemon.request(None, close);
+    }
+}
+
+>>>>>>> theirs
 fn not_found(selector: &str, message: String) -> Failure {
     Failure::local("selector.not_found", message, json!({"pane": selector}), 1)
 }
@@ -316,7 +414,11 @@ pub(in crate::cli) fn target_pane(
 
 /// Opens the agent's tab: splits `pane` first for [`Placement::Split`],
 /// runs `argv` there as a named tab that keeps its terminal after exit,
+<<<<<<< ours
 /// and ends the split's shell ([`end_placeholder`]).
+=======
+/// and ends the split's placeholder shell (`end_placeholder`).
+>>>>>>> theirs
 pub(in crate::cli) fn open<D: Daemon + ?Sized>(
     daemon: &D,
     pane: &str,
@@ -325,7 +427,11 @@ pub(in crate::cli) fn open<D: Daemon + ?Sized>(
     cwd: Option<&str>,
     argv: &[String],
 ) -> Result<Created, Failure> {
+<<<<<<< ours
     let (target, shell_tab) = match placement {
+=======
+    let (target, placeholder) = match placement {
+>>>>>>> theirs
         Placement::Split(direction) => {
             let flag = format!("--{direction}");
             let mut words = vec!["pane", pane, "split", flag.as_str()];
@@ -333,8 +439,13 @@ pub(in crate::cli) fn open<D: Daemon + ?Sized>(
                 words.extend(["--cwd", cwd]);
             }
             let split = Created::from_result(&daemon.request(None, plan(&words)?)?)?;
+<<<<<<< ours
             balance(daemon, split.screen.as_deref(), &split.pane);
             (split.pane.clone(), Some(Placeholder::of(&split)))
+=======
+            let placeholder = Placeholder::of(&split);
+            (split.pane, Some(placeholder))
+>>>>>>> theirs
         }
         Placement::Tab => (pane.to_owned(), None),
     };
@@ -353,9 +464,14 @@ pub(in crate::cli) fn open<D: Daemon + ?Sized>(
     let created = match ran {
         Ok(created) => created,
         Err(failure) => {
+<<<<<<< ours
             // Leave no shell pane, and no shell, behind a failed start: the
             // shell's end takes its tab, and the pane with its last tab.
             if let Some(shell) = &shell_tab {
+=======
+            // Leave no empty shell pane behind a failed start.
+            if let Some(shell) = &placeholder {
+>>>>>>> theirs
                 end_placeholder(daemon, shell);
                 if let Ok(close) = plan(&["pane", target.as_str(), "close"]) {
                     let _ = daemon.request(None, close);
@@ -364,11 +480,16 @@ pub(in crate::cli) fn open<D: Daemon + ?Sized>(
             return Err(failure);
         }
     };
+<<<<<<< ours
     if let Some(shell) = &shell_tab {
+=======
+    if let Some(shell) = &placeholder {
+>>>>>>> theirs
         end_placeholder(daemon, shell);
     }
     Ok(created)
 }
+<<<<<<< ours
 
 /// Evens the agent panes of the new `pane`'s row ([`row_ratios`]) by
 /// setting the ratios of the splits that change.
@@ -558,3 +679,5 @@ fn path_to<'a>(node: &'a Value, pane: &str, path: &mut Vec<&'a Value>) -> bool {
         _ => false,
     }
 }
+=======
+>>>>>>> theirs

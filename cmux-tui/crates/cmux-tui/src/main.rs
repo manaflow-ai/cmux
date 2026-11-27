@@ -12,6 +12,7 @@ use cmux_json::JsonSet as _;
 mod acp;
 #[cfg(unix)]
 mod agent_browser_provider;
+<<<<<<< ours
 #[cfg(unix)]
 mod agent_computer_use;
 #[cfg(unix)]
@@ -24,12 +25,22 @@ mod agent_session_context;
 mod agent_start_host;
 #[cfg(unix)]
 mod agent_terminal_identity;
+=======
+mod agent_hook_install;
+#[cfg(unix)]
+mod agent_session_context;
+>>>>>>> theirs
 mod app;
+<<<<<<< ours
 #[cfg(unix)]
 mod app_identity;
 mod attention;
+=======
+mod attention;
+>>>>>>> theirs
 mod browser_input;
 #[cfg(unix)]
+<<<<<<< ours
 mod build_adopt;
 #[cfg(unix)]
 mod carrier;
@@ -37,6 +48,10 @@ mod classic_hooks;
 #[cfg(unix)]
 mod claude_plugin;
 #[cfg(unix)]
+=======
+mod claude_plugin;
+#[cfg(unix)]
+>>>>>>> theirs
 mod claude_wrapper;
 mod cli;
 mod client_log;
@@ -104,6 +119,8 @@ mod machine_provider_client;
 #[cfg(unix)]
 mod machine_provider_runtime;
 mod machine_runtime;
+#[cfg(unix)]
+mod own_build_helpers;
 mod plugin_manager;
 mod process_diagnostics;
 #[cfg(target_os = "linux")]
@@ -136,10 +153,15 @@ mod devices;
 mod owner_start;
 mod remote_host;
 #[cfg(unix)]
+mod remote_doctor;
+#[cfg(unix)]
 mod remote_runtime;
+#[cfg(unix)]
+mod remote_trust;
 mod session;
 mod sidebar_files;
 mod sidebar_projection;
+<<<<<<< ours
 mod sidebar_status;
 #[cfg(unix)]
 mod staged_update;
@@ -162,6 +184,9 @@ mod startup_env;
 mod test_exec;
 #[cfg(test)]
 mod test_wait;
+=======
+mod sidebar_status;
+>>>>>>> theirs
 mod ui;
 mod update_notice;
 mod usage_patterns_cli;
@@ -683,6 +708,7 @@ struct Args {
     agent_browser_provider: bool,
     owner_host_fg: Option<cmux_tui_core::Rgb>,
     owner_host_bg: Option<cmux_tui_core::Rgb>,
+<<<<<<< ours
     /// Private launch contract of `local_owner`: readiness and install key pipes.
     owner_ready_fd: Option<i32>,
     owner_install_key_fd: Option<i32>,
@@ -690,6 +716,11 @@ struct Args {
     /// `--freeing-idle-seconds`: the idle freeing timer on with this idle time (the bench).
     freeing_idle: Option<std::time::Duration>,
     exit_with_pid: Option<local_owner::ExitWith>,
+=======
+    /// `--terminal-reap-grace-seconds`: the owner ends a terminal that has had
+    /// no tab for this long. `None`: the owner reaps no terminal.
+    terminal_reap_grace: Option<std::time::Duration>,
+>>>>>>> theirs
 }
 
 #[derive(Clone, PartialEq, Eq)]
@@ -799,11 +830,15 @@ fn parse_args_result(args: impl IntoIterator<Item = String>) -> Result<Args, Str
         agent_browser_provider: false,
         owner_host_fg: None,
         owner_host_bg: None,
+<<<<<<< ours
         owner_ready_fd: None,
         owner_install_key_fd: None,
         terminal_reap_grace: None,
         freeing_idle: None,
         exit_with_pid: None,
+=======
+        terminal_reap_grace: None,
+>>>>>>> theirs
     };
     let mut args = args.into_iter().peekable();
     while let Some(arg) = args.next() {
@@ -982,6 +1017,21 @@ fn parse_args_result(args: impl IntoIterator<Item = String>) -> Result<Args, Str
                 );
                 out.remote = true;
             }
+            "--terminal-reap-grace-seconds" => {
+                let value = args
+                    .next()
+                    .ok_or_else(|| "--terminal-reap-grace-seconds needs a value".to_string())?;
+                let seconds = value
+                    .parse::<u64>()
+                    .map_err(|_| "--terminal-reap-grace-seconds must be an integer".to_string())?;
+                let grace = cmux_tui_core::validate_terminal_reap_grace(
+                    std::time::Duration::from_secs(seconds),
+                )
+                .map_err(|error| error.to_string())?;
+                if out.terminal_reap_grace.replace(grace).is_some() {
+                    return Err("--terminal-reap-grace-seconds may be supplied only once".into());
+                }
+            }
             "--remote-resume-lease-seconds" => {
                 let value = args
                     .next()
@@ -1092,10 +1142,15 @@ fn parse_args_result(args: impl IntoIterator<Item = String>) -> Result<Args, Str
             // adapter instead of starting an unrelated Chrome process.
             "--agent-browser-provider" => out.agent_browser_provider = true,
             "-h" | "--help" => {
+<<<<<<< ours
                 print!("{}", if out.attach { localization::attach_help() } else { usage() });
+=======
+                print!("{}", cli::with_program_name(&usage(), &cli::program_name()));
+>>>>>>> theirs
                 client_log::exit(0);
             }
             "-V" | "--version" => {
+<<<<<<< ours
                 if args.peek().is_some_and(|next| next == "--json") {
                     println!("{}", version_report_json());
                 } else {
@@ -1108,6 +1163,9 @@ fn parse_args_result(args: impl IntoIterator<Item = String>) -> Result<Args, Str
                         version_report::version_lines(&version_string(), app_commit.as_deref())
                     );
                 }
+=======
+                println!("{} {}", cli::program_name(), version_string());
+>>>>>>> theirs
                 client_log::exit(0);
             }
             other => return Err(format!("unknown argument {other:?}")),
@@ -1315,6 +1373,70 @@ fn schema_socket_owner(
         return SchemaSocketOwner::Unverified;
     };
     SchemaSocketOwner::Matching { pid, generation: generation.to_string() }
+}
+
+/// A Cloud machine's daemon clears a dead predecessor's leftover lifecycle
+/// evidence as the operator acknowledgements would, when no predecessor
+/// socket answers. This process owns the session (its registry lease and the
+/// bound session socket). A refusal leaves the evidence for the start to
+/// report.
+#[cfg(unix)]
+fn recover_cloud_remote_state(
+    session: &str,
+    state_dir: Option<&std::path::Path>,
+    link_socket: Option<&std::path::Path>,
+    admin_socket: Option<&std::path::Path>,
+) {
+    match remote_runtime::recover_inactive_daemon_state(
+        session,
+        state_dir,
+        link_socket,
+        admin_socket,
+    ) {
+        Ok(actions) => {
+            for action in actions {
+                crate::client_log::stderr_log!("startup", "cmux-tui: SELF-RECOVERY: {action}");
+            }
+        }
+        Err(error) => crate::client_log::stderr_log!(
+            "startup",
+            "cmux-tui: remote daemon state left as found: {error:#}"
+        ),
+    }
+}
+
+/// A Cloud daemon's registry open failed. When the failure is damage the
+/// registry recovery handles (`cmux_tui_core::recover_registry_after_failed_open`:
+/// more interrupted creations than a start settles, settled in place; or a
+/// file SQLite confirms damaged, moved to `registry-recovery/<unix ms>/`), the
+/// open runs once more. Any other failure, or a refused recovery, returns the
+/// original error.
+fn reopen_after_registry_damage(
+    error: anyhow::Error,
+    session: &str,
+    root: &Path,
+    reopen: impl FnOnce() -> anyhow::Result<Arc<Mux>>,
+) -> anyhow::Result<Arc<Mux>> {
+    match cmux_tui_core::recover_registry_after_failed_open(root, session, &error) {
+        None => Err(error),
+        Some(Ok((damage, recovery))) => {
+            crate::client_log::stderr_log!(
+                "startup",
+                "cmux-tui: SELF-RECOVERY: workspace registry of session {session:?} could not be \
+                 opened ({}); {recovery}",
+                damage.reason()
+            );
+            reopen()
+        }
+        Some(Err(quarantine)) => {
+            crate::client_log::stderr_log!(
+                "startup",
+                "cmux-tui: workspace registry of session {session:?} could not be opened and was \
+                 left in place: {quarantine:#}"
+            );
+            Err(error)
+        }
+    }
 }
 
 fn workspace_schema_startup_error(
@@ -1620,7 +1742,22 @@ fn rewrite_server_start(args: &mut Vec<String>) {
     }
 }
 
+<<<<<<< ours
 pub(crate) const STARTUP_VALUE_OPTIONS: &[&str] = &[
+=======
+const STARTUP_SWITCH_OPTIONS: &[&str] = &[
+    "--ephemeral",
+    "--cloud",
+    "--headless",
+    "--ws-insecure-bind",
+    "--remote",
+    "--remote-ws-insecure-bind",
+    "--remote-ws-trusted-carrier",
+    "--iroh",
+];
+
+const STARTUP_VALUE_OPTIONS: &[&str] = &[
+>>>>>>> theirs
     "--socket",
     "--session",
     "--machine",
@@ -1641,9 +1778,13 @@ pub(crate) const STARTUP_VALUE_OPTIONS: &[&str] = &[
     "--remote-link-socket",
     "--remote-admin-socket",
     "--remote-resume-lease-seconds",
+<<<<<<< ours
     "--remote-local-socket",
     "--terminal-reap-grace-seconds",
     "--freeing-idle-seconds",
+=======
+    "--terminal-reap-grace-seconds",
+>>>>>>> theirs
     "--relay",
     "--relay-slot",
     "--relay-ticket",
@@ -1737,6 +1878,7 @@ fn is_cli_invocation(args: &[String]) -> bool {
         }
         match value {
             "--json" | "--jsonl" | "--quiet" => index += 1,
+<<<<<<< ours
             "--ephemeral"
             | "--cloud"
             | "--headless"
@@ -1746,6 +1888,9 @@ fn is_cli_invocation(args: &[String]) -> bool {
             | "--remote-ws-insecure-bind"
             | "--remote-ws-trusted-carrier"
             | "--iroh" => index += 1,
+=======
+            value if STARTUP_SWITCH_OPTIONS.contains(&value) => index += 1,
+>>>>>>> theirs
             "-h" | "--help" | "help" => return true,
             "attach" => return false,
             value if cli::is_public_scope(value) => return true,
@@ -2709,6 +2854,7 @@ fn run_server(
     if args.agent_browser_provider {
         agent_browser_provider::configure_surface_options(&mut surface_options)?;
     }
+<<<<<<< ours
     // `claude` and `codex` resolve to shims that add the session's agent
     // hooks (even under launchers with their own settings and config
     // directory), and the hooks run this build's helper. Codex runs its hooks
@@ -2716,12 +2862,24 @@ fn run_server(
     // its shim routes them. All three are this build's own, never the copies
     // another install on this machine wrote.
     cmux_tui_core::startup_timings::process_mark("process.pane_options");
+=======
+    // `claude` and `codex` resolve to shims that add the session's agent
+    // hooks (even under launchers with their own settings and config
+    // directory), and the hooks run this build's helper. Codex runs its hooks
+    // in a shared daemon that cannot see the terminal's environment, so only
+    // its shim routes them. All three are this build's own, never the copies
+    // another install on this machine wrote.
+>>>>>>> theirs
     #[cfg(unix)]
+<<<<<<< ours
     own_build_helpers::configure_pane(&mut surface_options);
     cmux_tui_core::startup_timings::process_mark("process.build_helpers");
     // The app's bundled `cmux` (the app starts the daemon with it) stays
     // first after the shim on a caller PATH (`terminal_spawn_options`).
     surface_options.bundled_cli = cmux_tui_core::daemon_env::bundled_cli_from_process_env();
+=======
+    own_build_helpers::configure_pane(&mut surface_options);
+>>>>>>> theirs
 
     let state_root = if args.ephemeral {
         None
@@ -2767,6 +2925,17 @@ fn run_server(
             .serve_restoring()?;
     startup_timings.lap("socket.bind");
     local_owner::debug_slow_restore();
+    // A Cloud machine's daemon (the trusted-carrier listener only the boot
+    // supervisor starts) has no person to repair a registry no start can
+    // open: it does that itself, once, below. Every other session fails as
+    // before and leaves the choice to its person.
+    #[cfg(unix)]
+    let cloud_self_recovery =
+        args.remote && (args.remote_ws_trusted_carrier || remote_ws_trusted_carrier_from_env());
+    #[cfg(not(unix))]
+    let cloud_self_recovery = false;
+    let registry_self_recovery = cloud_self_recovery && provider_workspace_authority.is_none();
+    let retry_surface_options = registry_self_recovery.then(|| surface_options.clone());
     let mux =
         match (state_root.as_deref(), provider_workspace_authority, provider_management_pending) {
             (Some(root), Some(authority), false) => Mux::open_persistent_provider_managed(
@@ -2796,6 +2965,7 @@ fn run_server(
             (_, Some(_), true) => {
                 unreachable!("conflicting provider authority inputs rejected above")
             }
+<<<<<<< ours
         };
     let mux = match mux {
         Ok(mux) => mux,
@@ -2816,6 +2986,29 @@ fn run_server(
         Some(open) => startup_timings.absorb(open, "open.other"),
         None => startup_timings.lap("open.in_memory"),
     }
+=======
+        };
+    let mux = match (mux, state_root.as_deref(), retry_surface_options) {
+        (Err(error), Some(root), Some(surface_options)) => {
+            reopen_after_registry_damage(error, &args.session, root, || {
+                if provider_management_pending {
+                    Mux::open_persistent_provider_managed_pending(
+                        args.session.clone(),
+                        surface_options,
+                        root,
+                        new_mux_generation()?,
+                    )
+                } else {
+                    Mux::open_persistent(args.session.clone(), surface_options, root)
+                }
+            })
+        }
+        (mux, _, _) => mux,
+    }
+    .map_err(|error| {
+        workspace_schema_startup_error(error, &args.session, &socket_path, state_root.as_deref())
+    })?;
+>>>>>>> theirs
     // Cloud's trusted-carrier daemon owns the initial session shape. It creates
     // workspace-1 with one terminal before accepting clients, and the
     // idempotent Session bootstrap preserves existing names and sessions.
@@ -2863,6 +3056,7 @@ fn run_server(
                 start_local_owner_event_loop(&mux)
             }
         });
+<<<<<<< ours
     // `identify` answers from the attach below: announce the reaper first.
     if let Some(idle) = args.freeing_idle {
         mux.set_freeing_idle_override(idle);
@@ -2880,9 +3074,57 @@ fn run_server(
     let _link_entry = link_startup
         .start_entry(args.link_entry, &mux, &socket_path)
         .inspect_err(|_| mux.shutdown())?;
+=======
+    // The socket answers `identify` as soon as it is bound. The reaper
+    // thread starts before the bind, held: `identify` lists
+    // `terminal-reaper-active-v1` from the bind, the thread runs its first
+    // pass only once this owner holds the session (released below), and a
+    // failed bind or later startup step drops it, which ends the thread and
+    // the advertisement.
+    let held_terminal_reaper = match args.terminal_reap_grace {
+        Some(grace) => match mux.set_terminal_reap_grace(grace).and_then(|()| {
+            cmux_tui_core::prepare_terminal_reaper(&mux).map_err(anyhow::Error::from)
+        }) {
+            Ok(held) => Some(held),
+            Err(error) => {
+                crate::client_log::stderr_log!(
+                    "startup",
+                    "cmux-tui: unplaced terminal reaper unavailable: {error}"
+                );
+                None
+            }
+        },
+        None => None,
+    };
+    let pending_server = match cmux_tui_core::server::serve_paused(mux.clone(), args.socket.clone())
+    {
+        Ok(server) => server,
+        Err(error) => {
+            mux.shutdown();
+            return Err(error);
+        }
+    };
+    // Tests: hold the startup between the bind and the rest, so a test can
+    // identify while the owner starts (`restart_host_leak.rs`).
+    #[cfg(debug_assertions)]
+    if let Some(delay) = std::env::var("CMUX_TUI_TEST_STARTUP_DELAY_AFTER_BIND_MS")
+        .ok()
+        .and_then(|value| value.parse::<u64>().ok())
+    {
+        std::thread::sleep(std::time::Duration::from_millis(delay.min(10_000)));
+    }
+>>>>>>> theirs
 
     #[cfg(unix)]
     let remote_runtime = if args.remote {
+        if trusted_carrier {
+            recover_cloud_remote_state(
+                &args.session,
+                args.remote_state_dir.as_deref(),
+                args.remote_link_socket.as_deref(),
+                args.remote_admin_socket.as_deref(),
+            );
+        }
         let runtime = match remote_runtime::start_daemon_runtime(
             socket_path.clone(),
             remote_runtime::DaemonRuntimeOptions {
@@ -2995,6 +3237,7 @@ fn run_server(
     mux.start_journal_plugin(served_socket.clone());
     let mut served_mux_cleanup = ServedMuxCleanup::new(mux.clone(), served_socket);
     #[cfg(unix)]
+<<<<<<< ours
     cloud_conversations_backend::install(&mux);
     #[cfg(unix)]
     cmux_tui_core::server::set_link_share_app_scheme(&mux, share_room::app_scheme().as_deref());
@@ -3022,6 +3265,14 @@ fn run_server(
     } else {
         None
     };
+=======
+    let machine_usage_poller = coderouter_usage::start_poller(Arc::downgrade(&mux));
+    // Ends terminals that have had no tab placement for the reap grace
+    // period (`terminal-reaper-active-v1`). Only an owner started with
+    // `--terminal-reap-grace-seconds` reaps; without it a closed tab's
+    // terminal runs until `terminal close` or the end of the session.
+    let terminal_reaper = held_terminal_reaper.map(cmux_tui_core::HeldTerminalReaper::release);
+>>>>>>> theirs
     // Closes terminals whose idle-close policy (`set-terminal-idle-policy`)
     // has elapsed with no attached view.
     let idle_terminal_reaper = match cmux_tui_core::start_idle_terminal_reaper(
@@ -3118,11 +3369,20 @@ fn run_server(
     if let Some(reaper) = idle_terminal_reaper {
         reaper.stop();
     }
+<<<<<<< ours
     if let Some(reaper) = terminal_reaper {
         reaper.stop();
     }
     if let Some(writer) = launch_snapshot_writer {
         writer.stop();
+=======
+    if let Some(reaper) = terminal_reaper {
+        reaper.stop();
+    }
+    #[cfg(unix)]
+    if let Some(poller) = machine_usage_poller {
+        poller.stop();
+>>>>>>> theirs
     }
     #[cfg(unix)]
     let remote_shutdown = remote_runtime.map(|runtime| runtime.shutdown()).transpose();
@@ -3775,7 +4035,16 @@ fn run_tui_once(
 }
 
 fn usage_exit(msg: &str) -> ! {
+<<<<<<< ours
     crate::client_log::stderr_log!("startup", "{BIN}: {msg}\n\n{}", usage());
+=======
+    let program = cli::program_name();
+    crate::client_log::stderr_log!(
+        "startup",
+        "{program}: {msg}\n\n{}",
+        cli::with_program_name(&usage(), &program)
+    );
+>>>>>>> theirs
     client_log::exit(2);
 }
 

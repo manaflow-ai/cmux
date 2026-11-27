@@ -3,7 +3,11 @@ use cmux_tui_core::{Node, SurfaceKind};
 
 use crate::session::tree::{PaneView, ScreenView, TabNotificationView, TabView, WorkspaceView};
 
+<<<<<<< ours
 fn tab(surface: SurfaceId, title: &str, unread: bool, branch: Option<&str>) -> TabView {
+=======
+fn tab(surface: SurfaceId, title: &str, unread: bool) -> TabView {
+>>>>>>> theirs
     TabView {
         surface,
         public_id: None,
@@ -21,9 +25,12 @@ fn tab(surface: SurfaceId, title: &str, unread: bool, branch: Option<&str>) -> T
             level: "info",
             sequence: surface,
         }),
+<<<<<<< ours
         program_status: None,
         attention: None,
         git_branch: branch.map(str::to_string),
+=======
+>>>>>>> theirs
     }
 }
 
@@ -76,14 +83,21 @@ fn tree() -> TreeView {
                 1,
                 "api",
                 vec![
+<<<<<<< ours
                     tab(11, "✳ Fix login", true, Some("fix-login")),
                     tab(12, "⠂ Write tests", false, None),
                     tab(13, "zsh", false, None),
+=======
+                    tab(11, "✳ Fix login", true),
+                    tab(12, "⠂ Write tests", false),
+                    tab(13, "zsh", false),
+>>>>>>> theirs
                 ],
             ),
             workspace(
                 2,
                 "web",
+<<<<<<< ours
                 vec![
                     tab(21, "Review", true, None),
                     tab(22, "", false, None),
@@ -91,6 +105,11 @@ fn tree() -> TreeView {
                 ],
             ),
             workspace(3, "docs", vec![tab(31, "zsh", false, Some("main"))]),
+=======
+                vec![tab(21, "Review", true), tab(22, "", false), tab(23, "old", false)],
+            ),
+            workspace(3, "docs", vec![tab(31, "zsh", false)]),
+>>>>>>> theirs
         ],
         1,
         Some(1),
@@ -163,10 +182,18 @@ fn agents_section_is_an_attention_queue_across_workspaces() {
 }
 
 #[test]
+<<<<<<< ours
 fn workspace_second_line_leads_with_the_git_branch() {
     let status = SidebarStatus::build(&tree(), &[]);
     assert_eq!(status.workspace(0).unwrap().subtitle, "fix-login · Fix login");
     assert_eq!(status.workspace(1).unwrap().subtitle, "Review");
     assert_eq!(status.workspace(2).unwrap().subtitle, "main · zsh");
+=======
+fn workspace_second_line_is_the_active_pane_title() {
+    let status = SidebarStatus::build(&tree(), &[]);
+    assert_eq!(status.workspace(0).unwrap().subtitle, "Fix login");
+    assert_eq!(status.workspace(1).unwrap().subtitle, "Review");
+    assert_eq!(status.workspace(2).unwrap().subtitle, "zsh");
+>>>>>>> theirs
     assert!(status.agents().is_empty());
 }

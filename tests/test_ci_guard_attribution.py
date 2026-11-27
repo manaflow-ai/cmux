@@ -335,6 +335,7 @@ class Comments(unittest.TestCase):
 
 
 class Robustness(unittest.TestCase):
+<<<<<<< HEAD
     def test_commit_pull_lookup_paginates(self) -> None:
         gh = ga.GitHub("manaflow-ai/cmux", "token")
         first_page = [{"number": index} for index in range(ga.API_PAGE_SIZE)]
@@ -358,6 +359,28 @@ class Robustness(unittest.TestCase):
         gh.get = lambda path: full_page  # type: ignore[method-assign]
         with self.assertRaisesRegex(RuntimeError, "more than 1000 pull requests"):
             gh.commit_pulls("b" * 40)
+=======
+    def test_a_rate_limited_read_token_does_not_fall_back_to_the_workflow_token(self) -> None:
+        gh = ga.GitHub("manaflow-ai/cmux", "workflow", read_token="app")
+        used = []
+
+        def request(method, path, body, text, token):
+            used.append(token)
+            if token == "app" and "limited" in path:
+                raise RuntimeError(f"GET {path}: HTTP 403 {{\"message\":\"API rate limit exceeded for installation\"}}")
+            if token == "app":
+                raise RuntimeError(f"GET {path}: HTTP 403 {{\"message\":\"Resource not accessible by integration\"}}")
+            return {}
+
+        gh._request = request  # type: ignore[method-assign]
+        with self.assertRaises(RuntimeError):
+            gh.request("GET", "repos/manaflow-ai/cmux/limited")
+        self.assertEqual(used, ["app"])
+        used.clear()
+        # A permission refusal still falls back.
+        self.assertEqual(gh.request("GET", "repos/manaflow-ai/cmux/pulls"), {})
+        self.assertEqual(used, ["app", "workflow"])
+>>>>>>> origin/main
 
     def test_jobs_paginate_the_exact_workflow_attempt(self) -> None:
         gh = ga.GitHub("manaflow-ai/cmux", "token")

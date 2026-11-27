@@ -1,7 +1,11 @@
 import Foundation
 
 /// A person (or agent) taking part in a conversation.
+<<<<<<< HEAD
 public struct ConversationParticipant: Sendable, Hashable, Codable, Identifiable {
+=======
+public struct ConversationParticipant: Sendable, Hashable, Identifiable {
+>>>>>>> origin/main
     public let id: String
     public var name: String
     public var initials: String
@@ -25,12 +29,20 @@ public struct ConversationParticipant: Sendable, Hashable, Codable, Identifiable
     }
 }
 
+<<<<<<< HEAD
 public enum ConversationKind: String, Sendable, Hashable, Codable {
+=======
+public enum ConversationKind: String, Sendable, Hashable {
+>>>>>>> origin/main
     case group
     case direct
 }
 
+<<<<<<< HEAD
 public struct ConversationInfo: Sendable, Hashable, Codable {
+=======
+public struct ConversationInfo: Sendable, Hashable {
+>>>>>>> origin/main
     public let id: String
     public var title: String
     public var kind: ConversationKind
@@ -40,10 +52,13 @@ public struct ConversationInfo: Sendable, Hashable, Codable {
     /// The shared conversation background (iOS 26 / macOS 26). Nil is none.
     public var background: ConversationBackground?
 
+<<<<<<< HEAD
     /// A kept transcript (`ConversationTranscriptSnapshot`) leaves the background out: the
     /// server's hello brings it, and a photo's bytes do not belong in the cache.
     private enum CodingKeys: String, CodingKey { case id, title, kind, participants, listState }
 
+=======
+>>>>>>> origin/main
     public init(
         id: String,
         title: String,
@@ -67,7 +82,11 @@ public struct ConversationInfo: Sendable, Hashable, Codable {
 
 /// An iMessage tapback: one of the six classics, or (iOS 18+) any single
 /// emoji picked through "Add custom emoji reaction".
+<<<<<<< HEAD
 public enum ConversationReaction: Sendable, Hashable, Codable, CaseIterable, RawRepresentable {
+=======
+public enum ConversationReaction: Sendable, Hashable, CaseIterable, RawRepresentable {
+>>>>>>> origin/main
     case heart
     case thumbsup
     case thumbsdown
@@ -124,7 +143,11 @@ public enum ConversationReaction: Sendable, Hashable, Codable, CaseIterable, Raw
     }
 }
 
+<<<<<<< HEAD
 public struct ConversationReactionMark: Sendable, Hashable, Codable {
+=======
+public struct ConversationReactionMark: Sendable, Hashable {
+>>>>>>> origin/main
     public var participantID: String
     public var reaction: ConversationReaction
 
@@ -134,8 +157,13 @@ public struct ConversationReactionMark: Sendable, Hashable, Codable {
     }
 }
 
+<<<<<<< HEAD
 public struct ConversationAttachment: Sendable, Hashable, Codable, Identifiable {
     public enum Kind: String, Sendable, Hashable, Codable {
+=======
+public struct ConversationAttachment: Sendable, Hashable, Identifiable {
+    public enum Kind: String, Sendable, Hashable {
+>>>>>>> origin/main
         case image
         case audio
         /// Any other file (a document, archive, text...). See `ConversationFileInfo`.
@@ -173,7 +201,11 @@ public struct ConversationAttachment: Sendable, Hashable, Codable, Identifiable 
 }
 
 /// An audio message's recording details, as Messages shows them in the bubble.
+<<<<<<< HEAD
 public struct ConversationAudioInfo: Sendable, Hashable, Codable {
+=======
+public struct ConversationAudioInfo: Sendable, Hashable {
+>>>>>>> origin/main
     public var duration: TimeInterval
     /// Peak levels in 0...1, evenly spaced over the recording.
     public var waveform: [Float]
@@ -218,7 +250,11 @@ extension ConversationMessage {
 
 /// Messages "send with effect". Bubble effects animate the message's own
 /// bubble; screen effects play a full-screen animation over the transcript.
+<<<<<<< HEAD
 public enum ConversationMessageEffect: String, Sendable, Hashable, Codable, CaseIterable {
+=======
+public enum ConversationMessageEffect: String, Sendable, Hashable, CaseIterable {
+>>>>>>> origin/main
     case slam
     case loud
     case gentle
@@ -256,7 +292,11 @@ public enum ConversationMessageEffect: String, Sendable, Hashable, Codable, Case
 }
 
 /// Delivery of a message I sent. Messages from others carry no delivery.
+<<<<<<< HEAD
 public enum ConversationDelivery: Sendable, Hashable, Codable {
+=======
+public enum ConversationDelivery: Sendable, Hashable {
+>>>>>>> origin/main
     case sending
     case sent
     case delivered
@@ -269,7 +309,11 @@ public enum ConversationDelivery: Sendable, Hashable, Codable {
     }
 }
 
+<<<<<<< HEAD
 public struct ConversationMessage: Sendable, Hashable, Codable, Identifiable {
+=======
+public struct ConversationMessage: Sendable, Hashable, Identifiable {
+>>>>>>> origin/main
     /// Server id, or `local:<clientMessageID>` before the server acknowledged.
     public var id: String
     /// Server order key. Nil until acknowledged.
@@ -293,11 +337,14 @@ public struct ConversationMessage: Sendable, Hashable, Codable, Identifiable {
     public var mentions: [ConversationMention]
     /// Formatting and animated text effects over `text`. Empty when plain.
     public var textRuns: [ConversationTextRun]
+<<<<<<< HEAD
     /// Markdown links over `text` (an agent's `[label](url)`, label kept).
     public var links: [ConversationTextLink]
     /// Markdown tables over `text` (an agent's pipe table, rewritten as rows
     /// of tab-separated cells by ``ConversationMarkdownTables``).
     @ConversationEmptyWhenMissing public var tables: [ConversationTextTable]
+=======
+>>>>>>> origin/main
     /// Rich link card for the URL that opens or ends `text`, if any.
     public var linkPreview: ConversationLinkPreview?
     /// "Send with effect"; nil for a plain message.
@@ -317,6 +364,7 @@ public struct ConversationMessage: Sendable, Hashable, Codable, Identifiable {
     public var deliveredQuietly: Bool
     /// I tapped Notify Anyway for this quietly delivered message.
     public var notifiedAnyway: Bool
+<<<<<<< HEAD
     /// The one line a reply's quote shows when `text` is not it: an agent's
     /// Markdown as its words ("Table: Before / After", "2 images"), made where the
     /// Markdown is read. Nil when the quote is `text`.
@@ -325,6 +373,8 @@ public struct ConversationMessage: Sendable, Hashable, Codable, Identifiable {
     /// (0...1), while ``ConversationUploadProgress`` reports it. Nil when
     /// nothing reported (a text send, or a backend without progress).
     public var uploadProgress: Double?
+=======
+>>>>>>> origin/main
 
     public init(
         id: String,
@@ -343,8 +393,11 @@ public struct ConversationMessage: Sendable, Hashable, Codable, Identifiable {
         delivery: ConversationDelivery? = nil,
         mentions: [ConversationMention] = [],
         textRuns: [ConversationTextRun] = [],
+<<<<<<< HEAD
         links: [ConversationTextLink] = [],
         tables: [ConversationTextTable] = [],
+=======
+>>>>>>> origin/main
         linkPreview: ConversationLinkPreview? = nil,
         effect: ConversationMessageEffect? = nil,
         unsendFailed: Bool = false,
@@ -352,8 +405,12 @@ public struct ConversationMessage: Sendable, Hashable, Codable, Identifiable {
         scheduledAt: Date? = nil,
         systemEvent: ConversationSystemEvent? = nil,
         deliveredQuietly: Bool = false,
+<<<<<<< HEAD
         notifiedAnyway: Bool = false,
         previewText: String? = nil
+=======
+        notifiedAnyway: Bool = false
+>>>>>>> origin/main
     ) {
         self.id = id
         self.seq = seq
@@ -371,8 +428,11 @@ public struct ConversationMessage: Sendable, Hashable, Codable, Identifiable {
         self.delivery = delivery
         self.mentions = mentions
         self.textRuns = textRuns
+<<<<<<< HEAD
         self.links = links
         self.tables = tables
+=======
+>>>>>>> origin/main
         self.linkPreview = linkPreview
         self.effect = effect
         self.unsendFailed = unsendFailed
@@ -381,6 +441,7 @@ public struct ConversationMessage: Sendable, Hashable, Codable, Identifiable {
         self.systemEvent = systemEvent
         self.deliveredQuietly = deliveredQuietly
         self.notifiedAnyway = notifiedAnyway
+<<<<<<< HEAD
         self.previewText = previewText
     }
 
@@ -388,6 +449,10 @@ public struct ConversationMessage: Sendable, Hashable, Codable, Identifiable {
     /// else `text`.
     public var quoteText: String { previewText ?? text }
 
+=======
+    }
+
+>>>>>>> origin/main
     /// A Send Later message still waiting on the server (or failed to send).
     public var isScheduled: Bool { scheduledAt != nil && seq == nil }
 
@@ -450,7 +515,11 @@ public struct ConversationOutgoingDraft: Sendable {
 // MARK: - Polls
 
 /// One choice of a poll. Anyone in the conversation may add choices.
+<<<<<<< HEAD
 public struct ConversationPollOption: Sendable, Hashable, Codable, Identifiable {
+=======
+public struct ConversationPollOption: Sendable, Hashable, Identifiable {
+>>>>>>> origin/main
     public let id: String
     public var text: String
     /// Who added the choice; nil for the creator's original choices.
@@ -466,7 +535,11 @@ public struct ConversationPollOption: Sendable, Hashable, Codable, Identifiable 
 /// One participant's vote for one choice. Messages polls are multi-select:
 /// a participant may vote for any number of choices, and tapping a choice
 /// again takes that vote back.
+<<<<<<< HEAD
 public struct ConversationPollVote: Sendable, Hashable, Codable {
+=======
+public struct ConversationPollVote: Sendable, Hashable {
+>>>>>>> origin/main
     public var participantID: String
     public var optionID: String
     public var votedAt: Date?
@@ -478,7 +551,11 @@ public struct ConversationPollVote: Sendable, Hashable, Codable {
     }
 }
 
+<<<<<<< HEAD
 public struct ConversationPoll: Sendable, Hashable, Codable {
+=======
+public struct ConversationPoll: Sendable, Hashable {
+>>>>>>> origin/main
     public var question: String
     public var options: [ConversationPollOption]
     public var votes: [ConversationPollVote]

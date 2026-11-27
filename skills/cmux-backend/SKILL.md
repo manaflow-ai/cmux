@@ -78,7 +78,11 @@ scripts/cmux-next/cloud-dev-stack.sh down --tag <task-slug>          # when you 
 
 ## Secrets
 
+<<<<<<< HEAD
 Cloud VM build, test, and local dev scripts read provider secrets from `~/.secrets/cmux.env`: `FREESTYLE_API_KEY` and the other `FREESTYLE_*` vars `web/scripts/build-devbox-freestyle.ts` needs when building the devbox snapshot.
+=======
+Cloud VM build, test, and local dev scripts read provider secrets from `~/.secrets/cmux.env`: `FREESTYLE_API_KEY`, which `web/scripts/build-devbox-freestyle.ts` needs to build the devbox image.
+>>>>>>> origin/main
 
 ```bash
 set -a

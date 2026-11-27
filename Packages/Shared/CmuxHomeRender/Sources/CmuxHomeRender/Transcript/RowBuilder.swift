@@ -13,9 +13,12 @@ struct RowContext {
     var othersTyping: Bool
     /// Display names by participant; with `showsNames` (a group
     /// conversation) the first bubble of another sender's run is labeled.
+<<<<<<< HEAD
     /// A run in a voice of the Chief's team (`IdempotencyKey.voice`) is
     /// labeled with the voice in any conversation, and the sender's own
     /// run right after it with the sender's name.
+=======
+>>>>>>> origin/main
     var names: [ParticipantID: String] = [:]
     var showsNames = false
 }
@@ -51,7 +54,11 @@ final class RowBuilder {
             let outgoing = item.author == ctx.me
             var gap: CGFloat
             if let p = prev, item.createdAt.timeIntervalSince(p.createdAt) <= Self.separatorGap {
+<<<<<<< HEAD
                 if Self.sameSender(p, item), item.createdAt.timeIntervalSince(p.createdAt) < Self.groupGap {
+=======
+                if p.author == item.author, item.createdAt.timeIntervalSince(p.createdAt) < Self.groupGap {
+>>>>>>> origin/main
                     gap = 3
                 } else if p.author != item.author {
                     gap = 32
@@ -63,10 +70,15 @@ final class RowBuilder {
                 rows.append(RowSpec(key: "sep:\(item.key.rawValue)", kind: separator, gap: prev == nil ? 12 : 0, height: 35.5))
                 gap = 0
             }
+<<<<<<< HEAD
             let startsRun = prev.map { !Self.sameSender($0, item) || item.createdAt.timeIntervalSince($0.createdAt) >= Self.groupGap } ?? true
             let afterVoice = prev.map { $0.author == item.author && Self.voice($0) != nil } ?? false
             let label = Self.voice(item).map(HomeStrings.voice) ?? (ctx.showsNames || afterVoice ? ctx.names[item.author] : nil)
             if !outgoing, startsRun, !item.isRetracted, let name = label, !name.isEmpty {
+=======
+            let startsRun = prev.map { $0.author != item.author || item.createdAt.timeIntervalSince($0.createdAt) >= Self.groupGap } ?? true
+            if ctx.showsNames, !outgoing, startsRun, !item.isRetracted, let name = ctx.names[item.author], !name.isEmpty {
+>>>>>>> origin/main
                 rows.append(RowSpec(key: "name:\(item.key.rawValue)", kind: .senderName(name), gap: gap, height: 14))
                 gap = 1
             }
@@ -76,7 +88,11 @@ final class RowBuilder {
                 continue
             }
             let lastOfGroup = next.map {
+<<<<<<< HEAD
                 !Self.sameSender($0, item) || $0.createdAt.timeIntervalSince(item.createdAt) >= Self.groupGap || $0.isRetracted
+=======
+                $0.author != item.author || $0.createdAt.timeIntervalSince(item.createdAt) >= Self.groupGap || $0.isRetracted
+>>>>>>> origin/main
             } ?? true
             let failed = if case .notDelivered = item.delivery { true } else { false }
             let parts = item.parts.enumerated().filter { Self.shows($0.element) }
@@ -105,6 +121,7 @@ final class RowBuilder {
         return rows
     }
 
+<<<<<<< HEAD
     /// One author in one voice: a front desk receipt and the Chief's reply are two runs.
     static func sameSender(_ a: TranscriptItem, _ b: TranscriptItem) -> Bool {
         a.author == b.author && voice(a) == voice(b)
@@ -116,6 +133,8 @@ final class RowBuilder {
         item.author.rawValue.hasPrefix("agent_") ? item.key.voice : nil
     }
 
+=======
+>>>>>>> origin/main
     /// Attachments always show; other parts when they have text.
     static func shows(_ part: MessagePart) -> Bool {
         if case .attachment = part { return true }

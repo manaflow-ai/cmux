@@ -36,6 +36,15 @@ const HANDOFF_WAIT: Duration = Duration::from_secs(5);
 /// process must report an unconfirmed handoff before that instead of being
 /// killed; the detached child keeps trying to deliver the event regardless.
 const CODEX_SESSION_END_HANDOFF_WAIT: Duration = Duration::from_secs(2);
+/// Claude Code kills a command hook at its `timeout` (5 s,
+/// agent_hook_install.rs `COMMAND_HOOK_TIMEOUT_SECONDS`). A `SessionStart`
+/// hook sends the event and then writes the terminal claim, whose roster read
+/// (terminal_agent.rs) must end inside this budget from the hook's start.
+const CLAUDE_HOOK_BUDGET: Duration = Duration::from_millis(4500);
+/// The wait for a Claude `SessionStart` handoff: past the child's own
+/// `SOCKET_TIMEOUT`, so its deadline stays authoritative, and inside
+/// `CLAUDE_HOOK_BUDGET`, so the claim is still written.
+const CLAUDE_SESSION_START_HANDOFF_WAIT: Duration = Duration::from_millis(4250);
 /// Hidden mode: the detached child on platforms without `fork`. The request id
 /// arrives as the first stdin line and the encoded request follows.
 const DETACHED_MODE_ARG: &str = "__detached-append";
@@ -104,6 +113,7 @@ pub(crate) fn run_with_payload(
 }
 
 fn run(args: Args, exe_prefix: &[&str]) -> anyhow::Result<()> {
+<<<<<<< ours
     run_reading(args, exe_prefix, || read_native_payload(io::stdin().lock()))
 }
 
@@ -198,8 +208,26 @@ fn run_after_ready(args: &Args, exe_prefix: &[&str], native: Value) -> anyhow::R
     }
     if inherited_route_is_untrusted(&args.source, |name| env::var_os(name)) {
         inbox::print_nothing(inbox);
+=======
+    let started = Instant::now();
+    // Orders this agent's events in the daemon (cmux_tui_core::stamp_agent_hook_observed_at).
+    let started_at_ms = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .ok()
+        .and_then(|since| u64::try_from(since.as_millis()).ok());
+    // The order key the daemon prefers: this machine's monotonic clock.
+    let started_clock = cmux_tui_core::hook_monotonic_now();
+    // Read once, before any decision: a Claude hook stands down by the
+    // payload's `session_id` (plugin_copy.rs).
+    let payload = read_payload_bytes(io::stdin().lock())?;
+    let session = if args.source == "claude" { payload_session_id(&payload) } else { None };
+    let session = session.as_deref();
+    let getenv = |name: &str| env::var_os(name);
+    if plugin_copy::stands_down(&args.source, &args.native_event, session, getenv) {
+>>>>>>> theirs
         return Ok(());
     }
+<<<<<<< ours
     let (socket, terminal) = match session_route(&args.source) {
         Some(route) => route,
         None => {
@@ -216,13 +244,75 @@ fn run_after_ready(args: &Args, exe_prefix: &[&str], native: Value) -> anyhow::R
     // Read before the journal event redacts it; it travels beside the event, never inside it.
     let live = cmux_tui_core::agent_hook_live_fields(&args.source, &args.native_event, &native);
     let mut ingress = cmux_tui_core::agent_hook_journal_ingress(
+=======
+    let context = session_context::applies(&args.source, &args.native_event, getenv);
+    let route = deliver(
+        &args,
+        exe_prefix,
+        &payload,
+        session,
+        started,
+        started_at_ms,
+        started_clock.as_ref(),
+    )?;
+    if context {
+        // After the handoff: the read connects from a helper thread, which
+        // must not exist when the detached child forks.
+        let (socket, terminal) = route.unzip();
+        // Inside cmux-tui (`exe_prefix` re-enters it) this executable is the
+        // build's CLI; the standalone helper is not.
+        let cli = (!exe_prefix.is_empty())
+            .then(env::current_exe)
+            .and_then(Result::ok)
+            .map(|path| path.canonicalize().unwrap_or(path));
+        session_context::print(socket.as_deref(), terminal.flatten().as_deref(), cli.as_deref());
+    }
+    Ok(())
+}
+
+/// Hands the event to the session journal; the route it used, `None` when
+/// this hook posts nothing.
+fn deliver(
+    args: &Args,
+    exe_prefix: &[&str],
+    payload: &[u8],
+    session: Option<&str>,
+    started: Instant,
+    started_at_ms: Option<u64>,
+    started_clock: Option<&(String, u64)>,
+) -> anyhow::Result<Option<(PathBuf, Option<String>)>> {
+    if shadowed_by_grok(&args.source, env::var_os("GROK_HOOK_EVENT").as_deref()) {
+        return Ok(None);
+    }
+    if inherited_route_is_untrusted(&args.source, |name| env::var_os(name)) {
+        return Ok(None);
+    }
+    let Some((socket, terminal)) = session_route() else { return Ok(None) };
+    // The route's terminal: also a tmux route, whose environment names none
+    // (plugin_copy.rs).
+    if plugin_copy::claimed_elsewhere(&args.source, terminal.as_deref(), session, |name| {
+        env::var_os(name)
+    }) {
+        return Ok(None);
+    }
+    let native = read_native_payload(payload)?;
+    let start_source = native.get("source").and_then(Value::as_str).map(str::to_owned);
+    let mut ingress = cmux_tui_core::agent_hook_journal_ingress(
+>>>>>>> theirs
         &args.source,
         &args.native_event,
         terminal.as_deref(),
         native,
     )?;
     cmux_tui_core::stamp_agent_hook_observed_now(&mut ingress);
+    if let Some(observed_at_ms) = started_at_ms {
+        cmux_tui_core::stamp_agent_hook_observed_at(&mut ingress, observed_at_ms);
+    }
+    if let Some(clock) = started_clock {
+        cmux_tui_core::stamp_agent_hook_monotonic(&mut ingress, clock);
+    }
     let event = serde_json::to_value(ingress)?;
+<<<<<<< ours
     let (request_id, encoded) = encode_request(event, live)?;
     // The handoff takes no more than the time left: past it the agent has
     // its answer, and the child delivers the event anyway.
@@ -230,6 +320,22 @@ fn run_after_ready(args: &Args, exe_prefix: &[&str], native: Value) -> anyhow::R
         .min(answer_deadline::within(HANDOFF_WAIT).saturating_duration_since(Instant::now()));
     match detach::append_detached(&socket, &request_id, &encoded, handoff, exe_prefix)? {
         Handoff::Sent => {}
+=======
+    let (request_id, encoded) = encode_request(event)?;
+    let budget_end = started + CLAUDE_HOOK_BUDGET;
+    let handoff = if args.source == "claude" && args.native_event == "SessionStart" {
+        claude_start_handoff_wait(budget_end, Instant::now())
+    } else {
+        handoff_wait(&args.source, &args.native_event)
+    };
+    let sent = detach::append_detached(&socket, &request_id, &encoded, handoff, exe_prefix);
+    // Whatever the send did: a Claude that starts while the daemon is down
+    // still claims its terminal (its roster read then fails, so it counts as
+    // the terminal's agent).
+    claim_unless_nested(args, &socket, terminal.as_deref(), session, start_source, budget_end);
+    match sent? {
+        Handoff::Sent => Ok(Some((socket, terminal))),
+>>>>>>> theirs
         Handoff::ChildExited => bail!("hook child gave up before writing the journal request"),
         Handoff::TimedOut => {
             bail!("journal request handoff was not confirmed within {} ms", handoff.as_millis())
@@ -252,6 +358,7 @@ fn run_after_ready(args: &Args, exe_prefix: &[&str], native: Value) -> anyhow::R
     Ok(())
 }
 
+<<<<<<< ours
 /// Set to `launch` by a hook command that carries its own route (the Codex
 /// wrapper's per-launch hooks), as opposed to one inherited from a process
 /// environment.
@@ -323,6 +430,79 @@ mod session_banner;
 #[path = "cmux-tui-hook/session_context.rs"]
 pub(crate) mod session_context;
 
+=======
+/// After a Claude `SessionStart` handoff, sent or not: claims the route's
+/// terminal for this session (plugin_copy.rs), unless the terminal already
+/// has another agent (terminal_agent.rs). Runs after the handoff, so it never
+/// delays the event, and its read starts no thread before the detached child
+/// forks. The read ends by `budget_end`.
+fn claim_unless_nested(
+    args: &Args,
+    socket: &Path,
+    terminal: Option<&str>,
+    session: Option<&str>,
+    start_source: Option<String>,
+    budget_end: Instant,
+) {
+    if args.source != "claude" || args.native_event != "SessionStart" {
+        return;
+    }
+    let start_source = start_source.as_deref();
+    if (terminal_agent::Run { socket, terminal, session, start_source, budget_end }).is_nested() {
+        return;
+    }
+    plugin_copy::claim_terminal(&args.source, &args.native_event, terminal, session, |name| {
+        env::var_os(name)
+    });
+}
+
+/// Whether a Claude in `terminal` with `session` (its `SessionStart` from
+/// `start_source`) is not the terminal's agent but one it started: its
+/// environment claims the terminal for another session (plugin_copy.rs), or
+/// the terminal has another agent (terminal_agent.rs). The
+/// `agent session-context` hook then adds no context.
+#[allow(
+    dead_code,
+    reason = "only cmux-tui's `agent session-context` calls it; the standalone helper builds this file too"
+)]
+pub(crate) fn claude_is_nested(
+    socket: &Path,
+    terminal: Option<&str>,
+    session: Option<&str>,
+    start_source: Option<&str>,
+) -> bool {
+    plugin_copy::claimed_elsewhere("claude", terminal, session, |name| env::var_os(name))
+        || terminal_agent::Run {
+            socket,
+            terminal,
+            session,
+            start_source,
+            budget_end: Instant::now() + terminal_agent::DEADLINE,
+        }
+        .is_nested()
+}
+
+/// Set to `launch` by a hook command that carries its own route (the Codex
+/// wrapper's per-launch hooks), as opposed to one inherited from a process
+/// environment.
+pub(crate) const HOOK_ROUTE_ENV: &str = "CMUX_TUI_HOOK_ROUTE";
+
+/// Codex 0.162 runs hooks in a shared app-server daemon that keeps the
+/// environment of whichever shell started it. An installed hook there would
+/// read that shell's `CMUX_TUI_*` (or `TMUX`) values and post every Codex
+/// session's events, from any terminal or none, to that one cmux terminal, so
+/// it posts nothing. The wrapper's hooks name their own terminal and still
+/// route.
+fn inherited_route_is_untrusted(
+    source: &str,
+    getenv: impl Fn(&str) -> Option<std::ffi::OsString>,
+) -> bool {
+    source == "codex"
+        && getenv(HOOK_ROUTE_ENV).is_none_or(|value| value != "launch")
+        && cmux_tui_core::platform::descends_from_codex_app_server_daemon()
+}
+
+>>>>>>> theirs
 /// The session socket and terminal that receive this event: the terminal's
 /// own `CMUX_TUI_*` values; for an agent that clears its hooks' environment
 /// (Muse Code), the values of the agent process the hook runs under; or, for
@@ -444,11 +624,40 @@ fn settle_detached_child(mut child: DetachedChildGuard, reader: std::thread::Joi
     }
 }
 
+/// Where the agent runs, for the model at session start.
+#[path = "cmux-tui-hook/session_context.rs"]
+pub(crate) mod session_context;
+
+/// The Claude Code plugin's copy of the hooks, beside an installed copy.
+#[path = "cmux-tui-hook/plugin_copy.rs"]
+pub(crate) mod plugin_copy;
+
+/// Which Claude in a terminal is the terminal's agent.
+#[path = "cmux-tui-hook/terminal_agent.rs"]
+mod terminal_agent;
+
+/// The wait for a Claude `SessionStart` handoff made at `now`, for a hook
+/// whose time budget ends at `budget_end`: `CLAUDE_SESSION_START_HANDOFF_WAIT`,
+/// cut to the time left, so a slow start (payload read, tmux route) never
+/// pushes the hook past its budget. The child keeps its own deadline.
+fn claude_start_handoff_wait(budget_end: Instant, now: Instant) -> Duration {
+    CLAUDE_SESSION_START_HANDOFF_WAIT.min(budget_end.saturating_duration_since(now))
+}
+
 fn handoff_wait(source: &str, native_event: &str) -> Duration {
+<<<<<<< ours
     // Codex SessionStart also reads the session context after the handoff
     // (session_context.rs, 1.5 s), all inside the 5 s hook timeout.
     if source == "codex" && matches!(native_event, "SessionEnd" | "SessionStart") {
+=======
+    // Codex SessionStart also reads the session context after the handoff
+    // (session_context.rs, 1.5 s), all inside the 5 s hook timeout. Claude
+    // SessionStart then writes the claim (`CLAUDE_HOOK_BUDGET`).
+    if source == "codex" && matches!(native_event, "SessionEnd" | "SessionStart") {
+>>>>>>> theirs
         CODEX_SESSION_END_HANDOFF_WAIT
+    } else if source == "claude" && native_event == "SessionStart" {
+        CLAUDE_SESSION_START_HANDOFF_WAIT
     } else {
         HANDOFF_WAIT
     }
@@ -512,6 +721,24 @@ fn shadowed_by_grok(source: &str, grok_hook_event: Option<&std::ffi::OsStr>) -> 
     matches!(source, "claude" | "cursor") && grok_hook_event.is_some_and(|value| !value.is_empty())
 }
 
+<<<<<<< ours
+=======
+/// The hook's stdin, up to one byte past the payload bound (so
+/// [`read_native_payload`] can refuse an oversized payload). Reading it all
+/// also keeps the provider's write from failing on a closed pipe.
+fn read_payload_bytes(reader: impl Read) -> io::Result<Vec<u8>> {
+    let mut bytes = Vec::new();
+    reader.take(MAX_NATIVE_PAYLOAD_BYTES + 1).read_to_end(&mut bytes)?;
+    Ok(bytes)
+}
+
+/// The `session_id` of a JSON hook payload, if it names one.
+fn payload_session_id(payload: &[u8]) -> Option<String> {
+    let value: Value = serde_json::from_slice(payload).ok()?;
+    value.get("session_id").and_then(Value::as_str).map(str::to_owned)
+}
+
+>>>>>>> theirs
 fn parse_args(args: impl IntoIterator<Item = String>) -> anyhow::Result<Args> {
     let mut values = args.into_iter();
     let source = values.next().context("agent source is required")?;
@@ -570,6 +797,239 @@ fn encode_request(
     Ok((request_id, encoded))
 }
 
+<<<<<<< ours
+=======
+/// Sends the request and waits for the journal receipt, retrying until
+/// `SOCKET_TIMEOUT`. `on_sent` runs each time the full request has been
+/// written to the server, so the parent can stop waiting for ordering.
+fn append_with_receipt(
+    socket: &Path,
+    request_id: &str,
+    encoded: &[u8],
+    on_sent: &dyn Fn(),
+) -> anyhow::Result<()> {
+    retry_until(SOCKET_TIMEOUT, |deadline| {
+        append_once(socket, encoded, request_id, deadline, on_sent)
+    })
+}
+
+#[derive(Debug)]
+enum AppendAttemptError {
+    Retryable(anyhow::Error),
+    Fatal(anyhow::Error),
+}
+
+fn retry_until<T>(
+    timeout: Duration,
+    mut attempt: impl FnMut(Instant) -> Result<T, AppendAttemptError>,
+) -> anyhow::Result<T> {
+    let deadline = Instant::now() + timeout;
+    let mut last_error = None;
+    loop {
+        let remaining = deadline.saturating_duration_since(Instant::now());
+        if remaining.is_zero() {
+            let error = last_error.unwrap_or_else(|| anyhow!("journal append timed out"));
+            return Err(error).context(format!(
+                "journal append was not acknowledged within {} ms",
+                timeout.as_millis()
+            ));
+        }
+        match attempt(deadline) {
+            Ok(value) => return Ok(value),
+            Err(AppendAttemptError::Fatal(error)) => return Err(error),
+            Err(AppendAttemptError::Retryable(error)) => {
+                last_error = Some(error);
+                // Admission reopens as short-lived clients finish. Yielding lets
+                // the server make progress without adding a timer to hook paths.
+                std::thread::yield_now();
+            }
+        }
+    }
+}
+
+fn append_once(
+    socket: &Path,
+    encoded: &[u8],
+    request_id: &str,
+    deadline: Instant,
+    on_sent: &dyn Fn(),
+) -> Result<(), AppendAttemptError> {
+    let mut stream = connect_before(socket, deadline)?;
+    // Bound the receipt read now, while the peer is surely still connected:
+    // once a server has answered and closed, macOS refuses SO_RCVTIMEO with
+    // EINVAL although the answer is still readable.
+    stream
+        .set_read_timeout(Some(remaining_before(deadline)?))
+        .map_err(|error| AppendAttemptError::Retryable(error.into()))?;
+    write_before(&mut *stream, encoded, deadline)?;
+    on_sent();
+    let response = read_before(stream, deadline)?;
+    let response: Value = serde_json::from_slice(&response)
+        .map_err(|error| AppendAttemptError::Fatal(error.into()))?;
+    if response.get("protocol").and_then(Value::as_str) != Some("cmux.protocol/2")
+        || response.get("type").and_then(Value::as_str) != Some("response")
+    {
+        return Err(AppendAttemptError::Fatal(anyhow!(
+            "journal append returned an invalid response envelope"
+        )));
+    }
+    if response.get("id").and_then(Value::as_str) != Some(request_id) {
+        return Err(AppendAttemptError::Fatal(anyhow!(
+            "journal append returned a mismatched request id"
+        )));
+    }
+    if response.get("ok").and_then(Value::as_bool) != Some(true) {
+        let error = response
+            .get("error")
+            .and_then(|error| error.get("message"))
+            .and_then(Value::as_str)
+            .unwrap_or("journal append failed");
+        let error = anyhow!(error.to_owned());
+        return Err(
+            if response
+                .get("error")
+                .and_then(|error| error.get("retryable"))
+                .and_then(Value::as_bool)
+                == Some(true)
+            {
+                AppendAttemptError::Retryable(error)
+            } else {
+                AppendAttemptError::Fatal(error)
+            },
+        );
+    }
+    Ok(())
+}
+
+fn remaining_before(deadline: Instant) -> Result<Duration, AppendAttemptError> {
+    let remaining = deadline.saturating_duration_since(Instant::now());
+    if remaining.is_zero() {
+        Err(AppendAttemptError::Retryable(anyhow!("journal append deadline expired")))
+    } else {
+        Ok(remaining)
+    }
+}
+
+fn connect_before(
+    socket: &Path,
+    deadline: Instant,
+) -> Result<Box<dyn transport::Stream>, AppendAttemptError> {
+    let remaining = remaining_before(deadline)?;
+    let socket = socket.to_path_buf();
+    let display = socket.display().to_string();
+    let (sender, receiver) = std::sync::mpsc::sync_channel(1);
+    let connector = std::thread::Builder::new()
+        .name("journal-hook-connect".into())
+        .spawn(move || {
+            let _ = sender.send(transport::connect(&socket));
+        })
+        .map_err(|error| AppendAttemptError::Retryable(error.into()))?;
+    let result = match receiver.recv_timeout(remaining) {
+        Ok(result) => {
+            let _ = connector.join();
+            result
+        }
+        Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => {
+            let _ = connector.join();
+            return Err(AppendAttemptError::Retryable(anyhow!(
+                "journal socket connector stopped without a result"
+            )));
+        }
+        Err(std::sync::mpsc::RecvTimeoutError::Timeout) => {
+            // This helper is a short-lived process. Dropping the join handle is
+            // safe here because retry_until immediately reaches the same final
+            // deadline and main exits, which terminates the blocked connector.
+            drop(connector);
+            return Err(AppendAttemptError::Retryable(anyhow!("connect to {display} timed out")));
+        }
+    };
+    result.map_err(|error| {
+        let transient = matches!(
+            error.kind(),
+            io::ErrorKind::Interrupted | io::ErrorKind::WouldBlock | io::ErrorKind::TimedOut
+        );
+        let error = anyhow!(error).context(format!("connect to {display}"));
+        if transient {
+            AppendAttemptError::Retryable(error)
+        } else {
+            // No listener means this terminal is no longer attached to a live
+            // cmux-tui. Retrying a stale path only delays synchronous providers.
+            AppendAttemptError::Fatal(error)
+        }
+    })
+}
+
+fn write_before(
+    stream: &mut dyn transport::Stream,
+    encoded: &[u8],
+    deadline: Instant,
+) -> Result<(), AppendAttemptError> {
+    let mut offset = 0;
+    while offset < encoded.len() {
+        stream
+            .set_write_timeout(Some(remaining_before(deadline)?))
+            .map_err(|error| AppendAttemptError::Retryable(error.into()))?;
+        match stream.write(&encoded[offset..]) {
+            Ok(0) => {
+                return Err(AppendAttemptError::Retryable(
+                    io::Error::from(io::ErrorKind::WriteZero).into(),
+                ));
+            }
+            Ok(written) => offset += written,
+            Err(error) if error.kind() == io::ErrorKind::Interrupted => {}
+            Err(error) => return Err(AppendAttemptError::Retryable(error.into())),
+        }
+    }
+    loop {
+        // The request is fully written. A fast server may already have
+        // answered and closed, which makes macOS refuse the option; the
+        // timeout set for the writes still bounds the flush.
+        let _ = stream.set_write_timeout(Some(remaining_before(deadline)?));
+        match stream.flush() {
+            Ok(()) => return Ok(()),
+            Err(error) if error.kind() == io::ErrorKind::Interrupted => {}
+            Err(error) => return Err(AppendAttemptError::Retryable(error.into())),
+        }
+    }
+}
+
+fn read_before(
+    stream: Box<dyn transport::Stream>,
+    deadline: Instant,
+) -> Result<Vec<u8>, AppendAttemptError> {
+    let mut reader = BufReader::new(stream);
+    let mut response = Vec::new();
+    loop {
+        // Shrink the bound toward the deadline. A refusal means the server
+        // already closed (macOS EINVAL), so the read cannot block; the
+        // timeout set before the request was written still applies.
+        let _ = reader.get_ref().set_read_timeout(Some(remaining_before(deadline)?));
+        let available =
+            reader.fill_buf().map_err(|error| AppendAttemptError::Retryable(error.into()))?;
+        if available.is_empty() {
+            return Err(AppendAttemptError::Retryable(anyhow!(
+                "journal append closed without a complete response"
+            )));
+        }
+        let consumed = available
+            .iter()
+            .position(|byte| *byte == b'\n')
+            .map_or(available.len(), |newline| newline + 1);
+        if response.len().saturating_add(consumed) > MAX_RESPONSE_BYTES {
+            return Err(AppendAttemptError::Fatal(anyhow!(
+                "journal append response exceeds 16 MiB"
+            )));
+        }
+        let complete = available[consumed - 1] == b'\n';
+        response.extend_from_slice(&available[..consumed]);
+        reader.consume(consumed);
+        if complete {
+            return Ok(response);
+        }
+    }
+}
+
+>>>>>>> theirs
 #[cfg(any())]
 mod detach {
     use std::io;
@@ -850,5 +1310,215 @@ fn random_identifiers() -> anyhow::Result<(String, String)> {
 }
 
 #[cfg(test)]
+<<<<<<< ours
 #[path = "cmux-tui-hook/tests.rs"]
 mod tests;
+=======
+mod tests {
+    use super::*;
+
+    /// A server may answer and close before the hook child reads. macOS then
+    /// refuses `setsockopt(SO_RCVTIMEO)` with EINVAL although the receipt is
+    /// still readable; treating that as a failed attempt re-sent the event,
+    /// so the journal received it twice and out of order.
+    #[cfg(unix)]
+    #[test]
+    fn codex_hook_receipt_from_a_server_that_already_closed_is_still_read() {
+        let (client, mut server) = std::os::unix::net::UnixStream::pair().unwrap();
+        server.write_all(b"{\"type\":\"response\"}\n").unwrap();
+        drop(server);
+        let deadline = Instant::now() + Duration::from_secs(2);
+        match read_before(Box::new(client), deadline) {
+            Ok(response) => assert_eq!(response, b"{\"type\":\"response\"}\n"),
+            Err(AppendAttemptError::Retryable(error) | AppendAttemptError::Fatal(error)) => {
+                panic!("the written receipt was not read: {error:#}")
+            }
+        }
+    }
+
+    fn cmux_environ(pid: u32) -> Option<std::collections::HashMap<String, String>> {
+        let environment = |terminal: &str| {
+            Some(
+                [("CMUX_TUI_SOCKET", "/run/cmux.sock"), ("CMUX_TUI_TERMINAL_ID", terminal)]
+                    .map(|(key, value)| (key.to_owned(), value.to_owned()))
+                    .into(),
+            )
+        };
+        match pid {
+            10 => environment("term_other_window"),
+            11 => environment("term_shows_pane"),
+            12 => environment("term_recent"),
+            // A plain SSH client: no cmux-tui terminal.
+            13 => Some([("SSH_TTY".to_owned(), "/dev/pts/3".to_owned())].into()),
+            _ => None,
+        }
+    }
+
+    #[test]
+    fn tmux_route_prefers_the_client_showing_the_pane() {
+        let clients = "10\t500\t$1\t\t@2\n11\t100\t$1\t\t@1\n12\t900\t$7\t\t@9\n";
+        let route = tmux_route::select("$1\t\t@1\n", clients, cmux_environ).unwrap();
+        assert_eq!(route.terminal, "term_shows_pane");
+        assert_eq!(route.socket, PathBuf::from("/run/cmux.sock"));
+    }
+
+    #[test]
+    fn tmux_route_falls_back_to_the_most_recent_client_of_the_session_group() {
+        // Client 13 shows the pane but is a plain SSH client; 12 attaches a
+        // grouped session and is newer than 10.
+        let clients = "13\t999\t$1\tgrp\t@1\n10\t500\t$1\tgrp\t@2\n12\t900\t$7\tgrp\t@9\n";
+        let route = tmux_route::select("$1\tgrp\t@1", clients, cmux_environ).unwrap();
+        assert_eq!(route.terminal, "term_recent");
+    }
+
+    #[test]
+    fn tmux_route_ignores_other_sessions_and_non_cmux_clients() {
+        let clients = "12\t900\t$7\t\t@9\n13\t999\t$1\t\t@1\n";
+        assert_eq!(tmux_route::select("$1\t\t@1", clients, cmux_environ), None);
+        assert_eq!(tmux_route::select("", clients, cmux_environ), None);
+        assert_eq!(tmux_route::select("$1\t\t@1", "garbage\n1\t0\t$1\t\t@1\n", cmux_environ), None);
+    }
+
+    #[test]
+    fn codex_session_end_handoff_stays_below_the_codex_hook_cap() {
+        assert!(handoff_wait("codex", "SessionEnd") < Duration::from_secs(3));
+        // The session context read (session_context.rs) still fits in 5 s.
+        assert!(handoff_wait("codex", "SessionStart") < Duration::from_secs(3));
+        assert!(handoff_wait("codex", "Stop") > SOCKET_TIMEOUT);
+        assert!(handoff_wait("claude", "SessionEnd") > SOCKET_TIMEOUT);
+        // The Claude claim (terminal_agent.rs) is still written inside 5 s.
+        assert!(handoff_wait("claude", "SessionStart") > SOCKET_TIMEOUT);
+        assert!(handoff_wait("claude", "SessionStart") < CLAUDE_HOOK_BUDGET);
+    }
+
+    #[test]
+    fn any_launcher_w5n3_cap_start_handoff_ends_inside_the_hook_budget() {
+        let now = Instant::now();
+        // A fresh hook: the full wait, past the child's own deadline.
+        let fresh = claude_start_handoff_wait(now + CLAUDE_HOOK_BUDGET, now);
+        assert_eq!(fresh, CLAUDE_SESSION_START_HANDOFF_WAIT);
+        // A slow start (payload, tmux route): the wait ends with the budget.
+        let late = claude_start_handoff_wait(now + Duration::from_secs(1), now);
+        assert_eq!(late, Duration::from_secs(1));
+        assert_eq!(claude_start_handoff_wait(now, now), Duration::ZERO);
+    }
+
+    #[test]
+    fn parses_short_positional_source_and_event() {
+        assert_eq!(
+            parse_args(["codex", "Stop"].map(str::to_owned)).unwrap(),
+            Args { source: "codex".into(), native_event: "Stop".into() }
+        );
+    }
+
+    #[test]
+    fn grok_compatibility_events_are_deduplicated_inside_the_helper() {
+        use std::ffi::OsStr;
+
+        assert!(shadowed_by_grok("claude", Some(OsStr::new("Stop"))));
+        assert!(shadowed_by_grok("cursor", Some(OsStr::new("stop"))));
+        assert!(!shadowed_by_grok("codex", Some(OsStr::new("Stop"))));
+        assert!(!shadowed_by_grok("claude", None));
+    }
+
+    #[test]
+    fn invalid_utf8_is_retained_as_base64() {
+        let native = read_native_payload(&[0xff, 0x00][..]).unwrap();
+        assert_eq!(native, json!({"encoding":"base64","data":"/wA="}));
+    }
+
+    #[test]
+    fn bounded_detached_request_id_preserves_uuid_and_payload() {
+        use std::io::Cursor;
+
+        let request_id = "550e8400-e29b-41d4-a716-446655440000";
+        let mut reader =
+            BufReader::new(Cursor::new(format!("{request_id}\n{{\"event\":\"Stop\"}}")));
+        assert_eq!(read_detached_request_id(&mut reader).unwrap(), request_id);
+
+        let mut payload = Vec::new();
+        reader.read_to_end(&mut payload).unwrap();
+        assert_eq!(payload, br#"{"event":"Stop"}"#);
+    }
+
+    #[test]
+    fn bounded_detached_request_id_accepts_maximum_length_with_crlf() {
+        use std::io::Cursor;
+
+        let request_id = "x".repeat(MAX_REQUEST_ID_BYTES);
+        let mut input = request_id.as_bytes().to_vec();
+        input.extend_from_slice(b"\r\n{}");
+        let mut reader = BufReader::new(Cursor::new(input));
+        assert_eq!(read_detached_request_id(&mut reader).unwrap(), request_id);
+
+        let mut payload = Vec::new();
+        reader.read_to_end(&mut payload).unwrap();
+        assert_eq!(payload, b"{}");
+    }
+
+    #[test]
+    fn bounded_detached_request_id_rejects_an_unterminated_line() {
+        use std::io::Cursor;
+
+        let mut reader = BufReader::new(Cursor::new(b"550e8400-e29b-41d4-a716-446655440000"));
+        let error = read_detached_request_id(&mut reader).unwrap_err();
+        assert_eq!(error.to_string(), "detached request id is missing newline delimiter");
+    }
+
+    #[test]
+    fn bounded_detached_request_id_rejects_an_oversized_line() {
+        use std::io::Cursor;
+
+        let mut input = vec![b'x'; MAX_REQUEST_ID_BYTES + 1];
+        input.push(b'\n');
+        let mut reader = BufReader::new(Cursor::new(input));
+        let error = read_detached_request_id(&mut reader).unwrap_err();
+        assert_eq!(
+            error.to_string(),
+            format!("detached request id exceeds {MAX_REQUEST_ID_BYTES} bytes")
+        );
+    }
+
+    #[test]
+    fn retries_transient_admission_loss_within_one_bounded_receipt_window() {
+        let mut attempts = 0;
+        retry_until(Duration::from_millis(100), |_| {
+            attempts += 1;
+            if attempts < 3 {
+                Err(AppendAttemptError::Retryable(anyhow!("connection dropped")))
+            } else {
+                Ok(())
+            }
+        })
+        .unwrap();
+        assert_eq!(attempts, 3);
+    }
+
+    #[test]
+    fn does_not_retry_a_durable_rejection() {
+        let mut attempts = 0;
+        let error = retry_until(Duration::from_millis(100), |_| {
+            attempts += 1;
+            Err::<(), _>(AppendAttemptError::Fatal(anyhow!("invalid event")))
+        })
+        .unwrap_err();
+        assert_eq!(attempts, 1);
+        assert_eq!(error.to_string(), "invalid event");
+    }
+
+    #[test]
+    fn missing_session_socket_is_immediately_inactive() {
+        let root = tempfile::tempdir().unwrap();
+        let socket = root.path().join("missing.sock");
+        let result = append_once(
+            &socket,
+            b"{}\n",
+            "request_missing_socket",
+            Instant::now() + Duration::from_millis(100),
+            &|| {},
+        );
+
+        assert!(matches!(result, Err(AppendAttemptError::Fatal(_))));
+    }
+}
+>>>>>>> theirs

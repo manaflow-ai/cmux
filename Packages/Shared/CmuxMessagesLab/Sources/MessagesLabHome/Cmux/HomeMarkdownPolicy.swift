@@ -17,6 +17,7 @@ enum HomeMarkdownPolicy {
         set { done.withLock { $0 = newValue } }
     }
 
+<<<<<<< HEAD
     /// MessagesLab f79bdbe: springs.json is this package's resource (Bundle.main has none), as
     /// MessagesLabLocalization.bundle; set before the first motion (install() here, the harness).
     static func installSprings() { Springs.bundle = .module }
@@ -24,15 +25,26 @@ enum HomeMarkdownPolicy {
     /// Thread safe (the sidebar preview may run off the main thread).
     static func install() {
         installSprings()  // every Home entry calls install() before its first view (ChatController.init too)
+=======
+    /// Thread safe (the sidebar preview may run off the main thread).
+    static func install() {
+>>>>>>> origin/main
         // Set inside the lock: a second caller returns only once the policy is in place.
         done.withLock { was in
             guard !was else { return }
             was = true
+<<<<<<< HEAD
             // Only http, https and mailto become links, and the app's own links
             // (URL.isCmuxAppLink: a workspace, pane, tab, chat or Chief subagent; URL.isHomePathLink:
             // an absolute path), which a click hands to the app, never to the system.
             MarkdownLinkPolicy.extraSchemes = []
             MarkdownLinkPolicy.extraRule = { $0.isCmuxAppLink || $0.isHomePathLink }
+=======
+            // Only http, https and mailto become links, and one app form: a Chief
+            // subagent's link (URL.isChiefSubagentLink), which a click hands to the app.
+            MarkdownLinkPolicy.extraSchemes = []
+            MarkdownLinkPolicy.extraRule = { $0.isChiefSubagentLink }
+>>>>>>> origin/main
             MarkdownImages.provider = images
         }
     }
@@ -59,6 +71,7 @@ extension URL {
     }
 }
 
+<<<<<<< HEAD
 /// cmux: every app link Home renders and a click hands to the host's `onAppLink` (the app's
 /// `link.open`), never to the system: a Chief subagent's link (``isChiefSubagentLink``), or
 /// `cmux://workspace/ws_<32 hex>`, `pane/pane_<32 hex>`, `tab/tab_<32 hex>`, `settings/<path>` (one of
@@ -109,6 +122,8 @@ extension URL {
     }
 }
 
+=======
+>>>>>>> origin/main
 /// The only images Markdown may show in Home: attachment pictures that Home
 /// already wrote (HomeMedia's folder, one file per content hash). A remote
 /// URL, any other file and a missing file give no image (the text "[Image:
@@ -135,6 +150,7 @@ final class HomeMarkdownImages: MarkdownImageProvider {
         return image
     }
 }
+<<<<<<< HEAD
 
 /// cmux: a path an agent wrote, as Home links it (`file:///Users/me/a.md`): an absolute local
 /// path, no host other than `localhost`, no user, port, query or fragment. A click hands it to
@@ -149,3 +165,5 @@ extension URL {
         return path.hasPrefix("/")
     }
 }
+=======
+>>>>>>> origin/main

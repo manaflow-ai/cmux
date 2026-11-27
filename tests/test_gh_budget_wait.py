@@ -1,24 +1,40 @@
 #!/usr/bin/env python3
 """scripts/ci/gh_budget_wait.sh: a rate-limited gh call waits for the reset and tries again.
 
+<<<<<<< HEAD
 The nightly's publish path calls gh on the shared installation budget; when another workflow
 had spent it, a finished nightly failed on its next call (2026-10-26, run 40298250989). These
 tests drive the wrapper against a fake gh, and check that nightly.yml installs it before the
 gh calls of every job on the publish path, with room in timeout-minutes for the hour it may wait.
+=======
+nightly-next-tick.yml (which runs from main) lost promotions to "API rate limit exceeded for
+installation" (2026-10-26, run 40325957281). These tests drive the wrapper against a fake gh
+and check that the tick installs this workflow commit's copy before its gh calls, with room
+in timeout-minutes for the hour it may wait. feat-cmux-next's nightly.yml uses the same script.
+>>>>>>> origin/main
 """
 
 from __future__ import annotations
 
+<<<<<<< HEAD
 import json
 import os
 import re
 import stat
 import subprocess
 import sys
+=======
+import os
+import re
+import shutil
+import stat
+import subprocess
+>>>>>>> origin/main
 import tempfile
 import unittest
 from pathlib import Path
 
+<<<<<<< HEAD
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import workflow_jobs  # noqa: E402
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "scripts" / "ci"))
@@ -27,12 +43,21 @@ import gh_expressions  # noqa: E402  (finds each ${{ }}: a regex cuts at a }} in
 ROOT = Path(__file__).resolve().parents[1]
 SCRIPT = ROOT / "scripts" / "ci" / "gh_budget_wait.sh"
 NIGHTLY = ROOT / ".github" / "workflows" / "nightly.yml"
+=======
+ROOT = Path(__file__).resolve().parents[1]
+SCRIPT = ROOT / "scripts" / "ci" / "gh_budget_wait.sh"
+JS = ROOT / "scripts" / "ci" / "gh_budget_wait.cjs"
+JS_TEST = ROOT / "tests" / "gh_budget_wait_cjs_test.cjs"
+TICK = ROOT / ".github" / "workflows" / "nightly-next-tick.yml"
+AUTO_RESUME = ROOT / ".github" / "workflows" / "auto-resume-nightly-notarization.yml"
+>>>>>>> origin/main
 
 # The fake gh: `api rate_limit` reports an exhausted core budget that reset a moment ago (so a
 # wait is the secondary-limit backoff, capped by GH_BUDGET_WAIT_MAX_SECONDS); any other call fails for
 # the rate limit while REFUSALS has calls left, then prints its arguments and stdin.
 FAKE_GH = r"""#!/bin/bash
 state="$FAKE_STATE"
+<<<<<<< HEAD
 # `api -i PROBE`: the next planned answer in $state/probes, one per line as STATUS|HEADER;HEADER|BODY,
 # printed as gh prints a response with its headers (and failing for a status that is not 2xx);
 # a 404 once the plan is spent.
@@ -56,6 +81,18 @@ if [ "$1 $2" = "api rate_limit" ]; then
 fi
 # A call on the spare token (GH_TOKEN equal to $SPARE) has its own limit: never refused.
 if [ -n "${SPARE:-}" ] && [ "${GH_TOKEN:-}" = "$SPARE" ]; then echo "spare call $*" >> "$state/log"; echo "ok $*"; exit 0; fi
+=======
+if [ "$1 $2 $3" = "api --include rate_limit" ]; then
+  printf 'HTTP/2.0 200 OK\r\nX-Ratelimit-Limit: 5000\r\nX-Ratelimit-Remaining: 4321\r\nX-Ratelimit-Resource: core\r\n\r\n{"resources":{"core":{"limit":5000,"remaining":4321}}}\n'
+  exit 0
+fi
+if [ "$1 $2" = "api rate_limit" ]; then
+  echo "rate_limit" >> "$state/log"
+  if [ "${4:-}" = ".resources.core.remaining" ]; then echo "${CORE_LEFT:-5000}";
+  elif [ -n "${RESET_IN:-}" ]; then echo $(($(date +%s) + RESET_IN)); else echo 0; fi
+  exit 0
+fi
+>>>>>>> origin/main
 echo "call $*" >> "$state/log"
 left="$(cat "$state/refusals" 2>/dev/null || echo 0)"
 if [ "$left" -gt 0 ]; then
@@ -129,6 +166,7 @@ class WrapperTests(unittest.TestCase):
         self.assertEqual(result.returncode, 0, result)
         self.assertEqual(result.stdout, "ok release upload v1 a.dmg\n")
         self.assertIn("::notice title=GitHub API budget::gh release upload was refused", result.stderr)
+<<<<<<< HEAD
         self.assertNotIn("rate limit exceeded", result.stderr)
         self.assertEqual(h.calls(), ["call release upload v1 a.dmg", "rate_limit", "call release upload v1 a.dmg"])
         self.assertEqual(h.waited(), 1)
@@ -148,6 +186,22 @@ class WrapperTests(unittest.TestCase):
         h = self.harness(refusals=1, GH_BUDGET_WAIT_MAX_SECONDS="1",
                     FAKE_ERROR='{"message": "You have exceeded a secondary rate limit"}')
         self.assertEqual(h.gh("api", "x").returncode, 0)
+=======
+        # Only the notices name it: the refused call's own error is not passed on.
+        self.assertFalse([line for line in result.stderr.splitlines()
+                          if "rate limit exceeded" in line and not line.startswith("::notice")])
+        self.assertEqual(h.calls(), ["call release upload v1 a.dmg", "rate_limit", "call release upload v1 a.dmg"])
+        self.assertEqual(h.waited(), 1)
+
+    def test_a_secondary_limit_in_the_json_body_counts(self) -> None:
+        h = self.harness(refusals=1, GH_BUDGET_WAIT_MAX_SECONDS="1",
+                    FAKE_ERROR='{"message": "You have exceeded a secondary rate limit"}')
+        result = h.gh("api", "x")
+        self.assertEqual(result.returncode, 0, result)
+        self.assertEqual(result.stdout, "ok api x\n")
+        self.assertEqual(h.calls().count("call api x"), 2)  # refused once, then sent again
+        self.assertEqual(h.waited(), 1)
+>>>>>>> origin/main
 
     def test_a_caller_reading_stderr_with_stdout_gets_only_the_data(self) -> None:
         # nightly-next-legacy-requirement.sh and -recovery-lineage.sh compare `$(gh api ... 2>&1)` exactly.
@@ -171,6 +225,7 @@ class WrapperTests(unittest.TestCase):
         self.assertEqual((h.state / "slept").read_text().split(), ["60", "120", "240", "300", "300"])
         self.assertEqual(h.waited(), 1020)
 
+<<<<<<< HEAD
     def test_a_refusal_moves_to_the_spare_token_at_once(self) -> None:
         # Run 43797999732's image roll dispatch: "HTTP 403: API rate limit exceeded for installation" on
         # github.token, whose budget every workflow shares; the cmux-bot App's token has its own.
@@ -266,6 +321,30 @@ class WrapperTests(unittest.TestCase):
         self.assertEqual(h.gh("workflow", "run", "x.yml").returncode, 1)
         self.assertEqual(h.calls(), ["call workflow run x.yml"])
 
+=======
+    def test_the_first_refusal_names_the_limiter(self) -> None:
+        h = self.harness(refusals=1, GH_BUDGET_WAIT_MAX_SECONDS="2",
+                         FAKE_ERROR="gh: API rate limit exceeded for installation. request ID AA9E:1")
+        result = h.gh("api", "repos/o/r/actions/runs")
+        self.assertEqual(result.returncode, 0, result)
+        (h.state / "refusals").write_text("1")
+        h.gh("api", "x")  # refused again (the job's wait is spent): not logged twice
+        log = (h.runner_temp / "gh-budget-wait" / "waits.log").read_text()
+        self.assertIn("refused: gh api repos/o/r/actions/runs: gh: API rate limit exceeded for installation. request ID AA9E:1", log)
+        self.assertIn("X-Ratelimit-Remaining: 4321", log)
+        self.assertIn("X-Ratelimit-Resource: core", log)
+        self.assertEqual(log.count("refused:"), 1)  # once per job
+        self.assertIn("::notice title=GitHub API refusal::", result.stderr)
+
+    def test_a_429_counts(self) -> None:
+        h = self.harness(refusals=1, GH_BUDGET_WAIT_MAX_SECONDS="1", FAKE_ERROR="HTTP 429: Too Many Requests")
+        result = h.gh("api", "x")
+        self.assertEqual(result.returncode, 0, result)
+        self.assertEqual(result.stdout, "ok api x\n")
+        self.assertEqual(h.calls().count("call api x"), 2)
+        self.assertEqual(h.waited(), 1)
+
+>>>>>>> origin/main
     def test_another_failure_is_not_retried(self) -> None:
         h = self.harness(FAKE_FAIL="HTTP 404: Not Found")
         result = h.gh("api", "repos/o/r/releases/tags/v9")
@@ -342,6 +421,7 @@ class WrapperTests(unittest.TestCase):
         self.assertIn("12 calls left, under 200", result.stderr)
         self.assertEqual(h.waited(), 1)
 
+<<<<<<< HEAD
     def test_backoff_waits_by_try_and_never_fails(self) -> None:
         # An action's call (the attestation) is refused outside gh; --backoff TRY waits as a refused gh call's try would.
         h = self.harness(GH_BUDGET_WAIT_MAX_SECONDS="900")
@@ -445,6 +525,78 @@ class WrapperTests(unittest.TestCase):
         # A later backoff in the same job has nothing left to wait, and still exits 0.
         self.backoff_probe(h, "2")
         self.assertEqual(self.slept(h), ["100"])
+=======
+    def test_a_server_error_is_retried_with_a_short_backoff(self) -> None:
+        # 2026-11-20, cmux NEXT Stable tick job 136340624244: "HTTP 500: Failed to run workflow dispatch".
+        h = self.harness(refusals=2, GH_BUDGET_WAIT_MAX_SECONDS="3600",
+                         FAKE_ERROR="HTTP 500: Failed to run workflow dispatch (https://api.github.com/x)")
+        fake_sleep = Path(h.env["PATH"].split(":")[0]) / "sleep"
+        fake_sleep.write_text('#!/bin/bash\necho "$1" >> "$FAKE_STATE/slept"\n')
+        fake_sleep.chmod(0o755)
+        result = h.gh("workflow", "run", "stable-next.yml")
+        self.assertEqual(result.returncode, 0, result)
+        self.assertEqual(result.stdout, "ok workflow run stable-next.yml\n")
+        self.assertEqual((h.state / "slept").read_text().split(), ["10", "20"])
+        self.assertNotIn("rate_limit", h.calls())  # a 5xx reads no budget
+        self.assertIn("got a GitHub server error", result.stderr)
+
+    def test_server_errors_are_bounded_and_fail_loud(self) -> None:
+        h = self.harness(refusals=9, GH_BUDGET_WAIT_MAX_SECONDS="3600", GH_BUDGET_WAIT_5XX_ATTEMPTS="3",
+                         FAKE_ERROR="HTTP 502: Bad Gateway")
+        fake_sleep = Path(h.env["PATH"].split(":")[0]) / "sleep"
+        fake_sleep.write_text("#!/bin/bash\n")
+        fake_sleep.chmod(0o755)
+        result = h.gh("api", "x")
+        self.assertEqual(result.returncode, 1)
+        self.assertEqual(h.calls().count("call api x"), 3)
+        self.assertIn("HTTP 502", result.stderr)
+        self.assertIn("::error title=GitHub API::gh api x got a GitHub server error on all 3 tries; failing", result.stderr)
+
+    def test_a_reset_past_the_cap_fails_at_once_and_loud(self) -> None:
+        # Waiting part of the way to a reset gains nothing: the next try is refused the same.
+        h = self.harness(refusals=1, GH_BUDGET_WAIT_MAX_SECONDS="900", RESET_IN="3000")
+        fake_sleep = Path(h.env["PATH"].split(":")[0]) / "sleep"
+        fake_sleep.write_text("#!/bin/bash\n")
+        fake_sleep.chmod(0o755)
+        result = h.gh("api", "repos/o/r/contents/x")
+        self.assertEqual(result.returncode, 1)
+        self.assertEqual(h.calls().count("call api repos/o/r/contents/x"), 1)
+        self.assertEqual(h.waited(), 0)
+        self.assertIn("past this job's 900s left to wait", result.stderr)
+        self.assertIn("::error title=GitHub API::", result.stderr)
+
+    def test_a_reset_within_the_cap_is_waited_for(self) -> None:
+        h = self.harness(refusals=1, GH_BUDGET_WAIT_MAX_SECONDS="900", RESET_IN="100")
+        fake_sleep = Path(h.env["PATH"].split(":")[0]) / "sleep"
+        fake_sleep.write_text('#!/bin/bash\necho "$1" >> "$FAKE_STATE/slept"\n')
+        fake_sleep.chmod(0o755)
+        result = h.gh("api", "x")
+        self.assertEqual(result.returncode, 0, result)
+        slept = int((h.state / "slept").read_text())
+        self.assertTrue(100 <= slept <= 106, slept)
+
+    def test_a_loud_failure_with_merged_streams_goes_to_the_summary(self) -> None:
+        # billing-nightly.yml's storekit step reads `$(gh api ... 2>&1)`: no annotation in its data.
+        h = self.harness(refusals=1, GH_BUDGET_WAIT_MAX_SECONDS="900", RESET_IN="3000")
+        fake_sleep = Path(h.env["PATH"].split(":")[0]) / "sleep"
+        fake_sleep.write_text("#!/bin/bash\n")
+        fake_sleep.chmod(0o755)
+        summary = h.runner_temp / "summary.md"
+        h.env["GITHUB_STEP_SUMMARY"] = str(summary)
+        out = subprocess.run(["bash", "-c", f'x="$("{h.shim}" api x 2>&1)"; printf "%s" "$x"'],
+                             env=h.env, capture_output=True, text=True, timeout=30)
+        self.assertNotIn("::error", out.stdout)
+        self.assertIn("GitHub API: gh api x was refused", summary.read_text())
+
+    def test_install_hands_github_script_the_octokit_half(self) -> None:
+        h = self.harness()
+        github_env = h.runner_temp / "github_env"
+        h.env["GITHUB_ENV"] = str(github_env)
+        subprocess.run(["bash", str(SCRIPT), "--install"], env=h.env, capture_output=True, text=True, check=True)
+        line = github_env.read_text().strip()
+        self.assertEqual(line, f"GH_BUDGET_WAIT_JS={h.runner_temp}/gh-budget-wait/gh_budget_wait.cjs")
+        self.assertEqual(Path(line.split("=", 1)[1]).read_text(), JS.read_text())
+>>>>>>> origin/main
 
     def test_install_without_gh_is_a_warning(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
@@ -455,6 +607,7 @@ class WrapperTests(unittest.TestCase):
             self.assertFalse(os.path.exists(f"{tmp}/p"))
 
 
+<<<<<<< HEAD
 # Jobs on the nightly publish path whose gh calls go through the wrapper.
 PUBLISH_PATH = (
     "resolve-nightly-cmux-tui-client", "prepare-nightly-variant-primary", "prepare-nightly-variant",
@@ -726,6 +879,130 @@ class WorkflowTests(unittest.TestCase):
             probe = next(s for s in self.jobs[name]["steps"] if s.get("id") == "reuse")["run"]
             self.assertIn('if ! count="$(gh api', probe, name)
             self.assertIn("count=0", probe, name)
+=======
+class OctokitTests(unittest.TestCase):
+    """gh_budget_wait.cjs, the github-script half, driven by node against a fake octokit."""
+
+    def test_the_octokit_hook(self) -> None:
+        node = shutil.which("node")
+        if not node:
+            self.skipTest("node is not installed")
+        result = subprocess.run([node, str(JS_TEST)], capture_output=True, text=True, timeout=60)
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertIn("ok ", result.stdout)
+
+
+class TickTests(unittest.TestCase):
+    def test_the_tick_installs_this_workflow_s_wrapper_before_its_gh_calls(self) -> None:
+        import yaml
+        job = yaml.safe_load(TICK.read_text(encoding="utf-8"))["jobs"]["request"]
+        steps = job["steps"]
+        names = [s.get("name") for s in steps]
+        tooling = steps[names.index("Checkout the gh rate-limit wait")]
+        self.assertEqual(tooling["with"]["ref"], "${{ github.sha }}")
+        self.assertEqual(tooling["with"]["path"], ".tick-tooling")
+        self.assertNotIn("sparse-checkout", tooling["with"])  # the whole tooling tree, no promisor fetch
+        install = names.index("Wait through GitHub API rate limits in this job's gh calls")
+        self.assertEqual(steps[install]["run"].strip(), "bash .tick-tooling/scripts/ci/gh_budget_wait.sh --install")
+        for i, step in enumerate(steps):
+            if "GH_TOKEN" in step.get("env", {}):
+                self.assertGreater(i, install, step.get("name"))
+        # The request step's waits are capped below its own bound, and the job outlasts that
+        # bound plus the rest of the tick (15 minutes): a tick holds the one tick group for
+        # minutes, not the hour of waits it once could (2026-11-26, the feed stood 3 hours).
+        request = steps[names.index("Request nightly-next promotion on main")]
+        self.assertLessEqual(int(request["env"]["GH_BUDGET_WAIT_MAX_SECONDS"]), int(request["timeout-minutes"]) * 60 // 2)
+        self.assertGreaterEqual(int(job["timeout-minutes"]), 15 + int(request["timeout-minutes"]))
+
+
+class AutoResumeTests(unittest.TestCase):
+    """auto-resume-nightly-notarization.yml publishes a finished, signed nightly with main's publisher."""
+
+    def test_publish_jobs_wait_through_rate_limits(self) -> None:
+        import yaml
+        doc = yaml.safe_load(AUTO_RESUME.read_text(encoding="utf-8"))
+        for name in ("publish", "republish-deltas"):
+            job = doc["jobs"][name]
+            # A whole core window: a 1800 s cap gave up 40 s before the reset (11-25, run 45690985851).
+            self.assertEqual(job["env"]["CMUX_RELEASE_RATE_LIMIT_SECONDS"], "3600", name)
+            steps = job["steps"]
+            runs = [step.get("run", "") for step in steps]
+            install = runs.index("bash scripts/ci/gh_budget_wait.sh --install")
+            # The release App wrapper goes on PATH first (the budget wait wraps it), right after the
+            # App token is minted, right after the checkout that brings both scripts.
+            self.assertEqual(runs[install - 1], "bash scripts/ci/gh_app_token.sh --install", name)
+            app_env = steps[install - 1]["env"]
+            self.assertEqual(app_env["GH_APP_TOKEN"], "${{ steps.gh-app-token.outputs.token }}", name)
+            self.assertEqual(app_env["GH_FALLBACK_TOKEN"], "${{ github.token }}", name)
+            mint = steps[install - 2]
+            self.assertEqual(mint.get("id"), "gh-app-token", name)
+            self.assertTrue(mint.get("uses", "").startswith("actions/create-github-app-token@"), name)
+            self.assertTrue(mint.get("continue-on-error"), name)  # a failed mint falls back to github.token
+            self.assertTrue(steps[install - 3].get("uses", "").startswith("actions/checkout@"), name)
+            publisher = next(i for i, run in enumerate(runs) if "publish-release-assets.py" in run)
+            self.assertLess(install, publisher, name)
+            # Every publisher call spends the release App's quota first, not the shared github.token's.
+            for step in steps:
+                if "publish-release-assets.py" in step.get("run", ""):
+                    self.assertEqual(step["env"].get("GH_APP_TOKEN"), "${{ steps.gh-app-token.outputs.token }}",
+                                     f"{name}: {step.get('name')}")
+            # No step timeout shorter than the publisher's 30 minutes plus the wrapper's hour.
+            self.assertGreaterEqual(int(steps[publisher].get("timeout-minutes", 360)), 30, name)
+            self.assertGreaterEqual(int(job.get("timeout-minutes", 360)), 120, name)
+
+
+class PinnedAssetPublishTests(unittest.TestCase):
+    """The cmux-next pinned-asset publish workflows wait through rate limits.
+
+    Run 43888568476 (2026-11-16) of cmux-next-cua-helper-dev-sign.yml died in
+    its first gh read with "API rate limit exceeded for installation", so a
+    fix that needed a rebuilt cmux Remote could not even start.
+    """
+
+    GH_CALL = re.compile(r"(^|[\s;(|&`$!])gh\s")
+    # Each job's timeout before the wrapper; the wrapper may add an hour.
+    JOBS = {
+        "cmux-next-cua-helper-dev-sign.yml": {"sdk": 10, "pin-pr": 10},
+        "cmux-next-cef-publish.yml": {"resolve": 10, "publish": 45},
+        "cmux-next-remote-browser-host-publish.yml": {"resolve": 5, "publish": 15},
+    }
+
+    def uses_gh(self, step: dict) -> bool:
+        return "run" in step and (
+            bool(self.GH_CALL.search(step["run"])) or "GH_TOKEN" in (step.get("env") or {})
+        )
+
+    def test_every_job_with_a_gh_call_installs_the_wrapper_first(self) -> None:
+        import yaml
+        for workflow, budgets in self.JOBS.items():
+            doc = yaml.safe_load((ROOT / ".github" / "workflows" / workflow).read_text(encoding="utf-8"))
+            using = {name for name, job in doc["jobs"].items() if any(self.uses_gh(s) for s in job.get("steps", []))}
+            self.assertEqual(using, set(budgets), workflow)
+            for name, before in budgets.items():
+                where = f"{workflow}:{name}"
+                job = doc["jobs"][name]
+                steps = job["steps"]
+                runs = [step.get("run", "").strip() for step in steps]
+                install = runs.index("bash .gh-budget-tooling/scripts/ci/gh_budget_wait.sh --install")
+                tooling = steps[install - 1]
+                self.assertTrue(tooling.get("uses", "").startswith("actions/checkout@"), where)
+                self.assertEqual(tooling["with"]["ref"], "${{ github.sha }}", where)
+                self.assertEqual(tooling["with"]["path"], ".gh-budget-tooling", where)
+                self.assertEqual(tooling["with"]["persist-credentials"], False, where)
+                self.assertIn("scripts/ci/gh_budget_wait.sh", tooling["with"]["sparse-checkout"].split(), where)
+                first = min(i for i, step in enumerate(steps) if self.uses_gh(step))
+                self.assertLess(install, first, where)
+                self.assertGreaterEqual(int(job["timeout-minutes"]), before + 60, where)
+
+    def test_the_best_effort_approval_notice_does_not_wait(self) -> None:
+        # Its failed read only skips a notice, and the steps after it wait for
+        # the same budget anyway: one refused try, not up to the job's hour.
+        import yaml
+        doc = yaml.safe_load((ROOT / ".github" / "workflows" / "cmux-next-cua-helper-dev-sign.yml").read_text(encoding="utf-8"))
+        step = next(s for s in doc["jobs"]["sdk"]["steps"] if s.get("name") == "Name runs still waiting for a publish approval")
+        self.assertIn("|| exit 0", step["run"])
+        self.assertEqual(step["env"].get("GH_BUDGET_WAIT_ATTEMPTS"), "1")
+>>>>>>> origin/main
 
 
 if __name__ == "__main__":

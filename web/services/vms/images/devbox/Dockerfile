@@ -32,7 +32,7 @@ FROM ubuntu:24.04
 # Cache-buster: bump the date to force remote builders past stale layer
 # caches (a remote builder served stale layers for chatmux on 2026-08-21 and
 # 2026-08-25). Also the image version /etc/cmux/image-stamp carries.
-ENV CMUX_IMAGE_EPOCH=2026-10-14-r1
+ENV CMUX_IMAGE_EPOCH=2026-10-28-r1
 
 ENV LANG=C.UTF-8 \
     DEBIAN_FRONTEND=noninteractive
@@ -80,8 +80,11 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 # Muse needs a current bubblewrap; Ubuntu 24.04 ships 0.9.0. Build the
 # checksum-pinned upstream release, and divert /usr/bin/bwrap so a later apt
 # install cannot replace it. Keep /usr/bin/bwrap for Ubuntu's AppArmor profile.
+<<<<<<< HEAD
 # Codex's Linux sandbox uses this bwrap instead of warning on every launch that
 # it is falling back to its bundled copy.
+=======
+>>>>>>> origin/main
 # build-devbox-freestyle.ts reads these pins and replays this install command.
 ARG CMUX_IMAGE_BUBBLEWRAP_URL=https://github.com/containers/bubblewrap/releases/download/v0.13.1/bubblewrap-0.13.1.tar.xz
 ARG CMUX_IMAGE_BUBBLEWRAP_SHA256=0e85c8702248b8dd64144f594147553650cdd0e4c951690345faace79c217c4d

@@ -77,6 +77,7 @@ fn workspace_unread_color(
         .map(|(_, color)| color)
 }
 
+<<<<<<< ours
 /// The oldest attention mark's reason in a workspace (`cmux attention
 /// request`), shown as the row's subtitle so the person reads why.
 fn workspace_attention_reason(ws: &crate::session::WorkspaceView) -> Option<&str> {
@@ -222,6 +223,141 @@ fn draw_agents_section(
     hits
 }
 
+=======
+/// The glyph and color of an agent status, the same on workspace rows, the
+/// agents section and tab chips.
+pub(super) fn status_indicator(
+    theme: &crate::config::Theme,
+    dim: Color,
+    status: AgentStatus,
+) -> rail::Indicator {
+    let color = match status {
+        AgentStatus::Blocked => theme.notification_error,
+        AgentStatus::Done => theme.notification_info,
+        AgentStatus::Working => theme.notification_warning,
+        AgentStatus::Idle | AgentStatus::Unknown => dim,
+    };
+    rail::Indicator { symbol: crate::sidebar_status::status_glyph(status), color }
+}
+
+/// A workspace row's mark: its agents' rolled-up status when an agent works,
+/// waits or finished unseen; else the unread dot; else an idle agent's ring.
+fn workspace_indicator(
+    app: &App,
+    ws: &crate::session::WorkspaceView,
+    status: Option<AgentStatus>,
+) -> Option<rail::Indicator> {
+    let theme = &app.config.theme;
+    let dim = app.chrome.sidebar_dim_fg;
+    match status {
+        Some(status @ (AgentStatus::Blocked | AgentStatus::Done | AgentStatus::Working)) => {
+            Some(status_indicator(theme, dim, status))
+        }
+        status => workspace_unread_color(theme, ws)
+            .map(rail::Indicator::dot)
+            .or_else(|| status.map(|status| status_indicator(theme, dim, status))),
+    }
+}
+
+/// Split the workspace rail: the agents section takes the bottom rows (a
+/// header and one entry per agent, at most half the rail) when there are
+/// agents and the rail is tall enough to keep its workspaces usable.
+pub(crate) fn agents_section_split(
+    area: Rect,
+    agents: usize,
+    row_height: usize,
+) -> (Rect, Option<Rect>) {
+    if agents == 0 || area.height < 8 {
+        return (area, None);
+    }
+    let wanted = 1 + agents.saturating_mul(row_height.max(1));
+    let cap = (usize::from(area.height) / 2).max(1 + row_height.max(1));
+    let height = wanted.min(cap) as u16;
+    let rail = Rect { height: area.height - height, ..area };
+    let section = Rect { y: area.y + area.height - height, height, ..area };
+    (rail, Some(section))
+}
+
+/// The agents section: every agent across workspaces, most urgent first
+/// (`blocked`, `done`, `working`, `idle`). A click or Enter focuses the
+/// agent's tab.
+fn draw_agents_section(
+    app: &mut App,
+    frame: &mut Frame,
+    section: Rect,
+    palette: rail::RailPalette,
+    metrics: rail::RailMetrics,
+) -> Vec<(Rect, Hit)> {
+    let messages = &localization::catalog().sidebar;
+    let height = metrics.height.max(1);
+    let metrics = rail::RailMetrics { height, stride: height };
+    let active_surface = app.active_surface();
+    let focused = app.workspace_sidebar_focused();
+    let selected_surface = match app.workspace_rail_selection {
+        WorkspaceRailSelection::Agent(surface) if focused => Some(surface),
+        _ => None,
+    };
+    let theme = app.config.theme;
+    let dim = app.chrome.sidebar_dim_fg;
+    let rows = app.sidebar_status.agents();
+    let selected = selected_surface
+        .and_then(|surface| rows.iter().position(|row| row.surface == surface))
+        .filter(|_| app.workspace_rail_follow_selection)
+        .map(|index| rail::RowSpan::new(index * metrics.stride, metrics.height));
+    let mut footer_scroll = 0;
+    let viewport = rail::viewport(
+        section,
+        rows.len() * metrics.stride,
+        0,
+        &mut app.agent_section_scroll,
+        &mut footer_scroll,
+        selected,
+        None,
+    );
+    let content_width = section.width.saturating_sub(1);
+    let buf = frame.buffer_mut();
+    for x in section.x..section.x + content_width {
+        buf[(x, section.y)].set_symbol("─").set_style(palette.dim);
+    }
+    if content_width > 4 {
+        let label_width = usize::from(content_width - 3);
+        buf[(section.x + 1, section.y)].set_symbol(" ").set_style(palette.dim);
+        let (end, _) =
+            buf.set_stringn(section.x + 2, section.y, messages.agents, label_width, palette.dim);
+        if end < section.x + content_width {
+            buf[(end, section.y)].set_symbol(" ").set_style(palette.dim);
+        }
+    }
+    let mut hits = Vec::with_capacity(rows.len() * height);
+    for (index, row) in rows.iter().enumerate() {
+        let Some(y) = viewport.body_y(rail::RowSpan::new(index * metrics.stride, height)) else {
+            continue;
+        };
+        let active = active_surface == Some(row.surface);
+        rail::entry(
+            frame,
+            section,
+            y,
+            rail::Entry {
+                name: &row.label,
+                subtitle: &row.detail,
+                highlighted: active || selected_surface == Some(row.surface),
+                active,
+                indicator: Some(status_indicator(&theme, dim, row.status)),
+                dimmed: false,
+            },
+            palette,
+            metrics,
+        );
+        let hit = Hit::AgentRow { surface: row.surface, target: row.target };
+        for line in 0..height as u16 {
+            hits.push((rail::row(section, y + line), hit));
+        }
+    }
+    hits
+}
+
+>>>>>>> theirs
 pub fn draw(app: &mut App, frame: &mut Frame) -> Option<(u16, u16)> {
     // Set again below only when the workspace rows are drawn.
     app.workspace_drop_geometry = None;
@@ -743,6 +879,7 @@ fn draw_workspaces(app: &mut App, frame: &mut Frame) {
             && app.workspace_rail_selection == WorkspaceRailSelection::Workspace
             && i == app.sidebar_workspace_selection;
         let highlighted = active || focused_selection;
+<<<<<<< ours
         // Built with the tree on the last layout frame; a frame drawn
         // before the first one shows the bare name. An agent's attention
         // request replaces the second line while it is open.
@@ -751,6 +888,12 @@ fn draw_workspaces(app: &mut App, frame: &mut Frame) {
         let subtitle = attention
             .as_deref()
             .unwrap_or_else(|| status.map_or("", |status| status.subtitle.as_str()));
+=======
+        // Built with the tree on the last layout frame; a frame drawn
+        // before the first one shows the bare name.
+        let status = app.sidebar_status.workspace(i).filter(|status| status.id == ws.id);
+        let subtitle = status.map_or("", |status| status.subtitle.as_str());
+>>>>>>> theirs
         let label = app.workspace_button_label(i, &ws.name);
         rail::entry(
             frame,

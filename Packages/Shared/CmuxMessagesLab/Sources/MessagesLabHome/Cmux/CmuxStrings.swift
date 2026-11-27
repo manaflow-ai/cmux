@@ -1,10 +1,14 @@
+<<<<<<< HEAD
 import CmuxHomeCore
+=======
+>>>>>>> origin/main
 import Foundation
 
 /// cmux's own transcript strings (Resources/CmuxHome.xcstrings, every app
 /// language), for the few places a vendored file says something MessagesLab
 /// does not (marked `cmux:` there).
 enum CmuxStrings {
+<<<<<<< HEAD
     // MARK: The status line's turn details (HomeTurnStatusPopover)
 
     static var turnTitle: String {
@@ -112,10 +116,18 @@ enum CmuxStrings {
     }
     static var mayNotHaveBeenDelivered: String {
         String(localized: "label.mayNotHaveBeenDelivered", defaultValue: "May Not Have Been Delivered", table: "CmuxHome", bundle: MessagesLabLocalization.bundle)
+=======
+    static var notDelivered: String {
+        String(localized: "label.notDelivered", defaultValue: "Not Delivered", table: "CmuxHome", bundle: .module)
+    }
+    static var mayNotHaveBeenDelivered: String {
+        String(localized: "label.mayNotHaveBeenDelivered", defaultValue: "May Not Have Been Delivered", table: "CmuxHome", bundle: .module)
+>>>>>>> origin/main
     }
 
     /// Under the field while a send waits for the owner to name its conversation (cx-ebm.55).
     static var waitingForChief: String {
+<<<<<<< HEAD
         String(localized: "home.send.waitingForChief", defaultValue: "Waiting for the Chief to connect…", table: "CmuxHome", bundle: MessagesLabLocalization.bundle)
     }
     static var waitingToConnect: String {
@@ -124,16 +136,31 @@ enum CmuxStrings {
     /// Home moved the typed text from the cache's Chief conversation to the live Chief.
     static var chiefRestarted: String {
         String(localized: "home.send.chiefRestarted", defaultValue: "The Chief restarted. Press Return to send.", table: "CmuxHome", bundle: MessagesLabLocalization.bundle)
+=======
+        String(localized: "home.send.waitingForChief", defaultValue: "Waiting for the Chief to connect…", table: "CmuxHome", bundle: .module)
+    }
+    static var waitingToConnect: String {
+        String(localized: "home.send.waitingToConnect", defaultValue: "Waiting to connect…", table: "CmuxHome", bundle: .module)
+    }
+    /// Home moved the typed text from the cache's Chief conversation to the live Chief.
+    static var chiefRestarted: String {
+        String(localized: "home.send.chiefRestarted", defaultValue: "The Chief restarted. Press Return to send.", table: "CmuxHome", bundle: .module)
+>>>>>>> origin/main
     }
 
     /// A reply's thread root is not delivered yet (my send still going): the thread view closes.
     static var threadRootNotReady: String {
         String(localized: "home.thread.rootNotReady", defaultValue: "You can reply in this thread once its first message is delivered.",
+<<<<<<< HEAD
                table: "CmuxHome", bundle: MessagesLabLocalization.bundle)
+=======
+               table: "CmuxHome", bundle: .module)
+>>>>>>> origin/main
     }
 
     /// The context menu item that cancels my send while it uploads or after it failed.
     static var cancelUpload: String {
+<<<<<<< HEAD
         String(localized: "home.menu.cancelUpload", defaultValue: "Cancel Upload", table: "CmuxHome", bundle: MessagesLabLocalization.bundle)
     }
 
@@ -197,6 +224,15 @@ enum CmuxStrings {
     }
     static var openInDefaultApp: String {
         String(localized: "home.menu.openInDefaultApp", defaultValue: "Open in Default App", table: "CmuxHome", bundle: MessagesLabLocalization.bundle)
+=======
+        String(localized: "home.menu.cancelUpload", defaultValue: "Cancel Upload", table: "CmuxHome", bundle: .module)
+    }
+
+    static var playVideo: String { String(localized: "home.video.play", defaultValue: "Play Video", table: "CmuxHome", bundle: .module) }
+    static var pauseVideo: String { String(localized: "home.video.pause", defaultValue: "Pause Video", table: "CmuxHome", bundle: .module) }
+    static var openInDefaultApp: String {
+        String(localized: "home.menu.openInDefaultApp", defaultValue: "Open in Default App", table: "CmuxHome", bundle: .module)
+>>>>>>> origin/main
     }
 
     /// The reason HomeMapping gives a failed send that reached the owner and
@@ -208,6 +244,7 @@ enum CmuxStrings {
         if case .failed(let reason) = status, reason == mayHaveBeenDeliveredReason { return mayNotHaveBeenDelivered }
         return notDelivered
     }
+<<<<<<< HEAD
 
     // MARK: The Chief's plan card (HomeTableRowProvider.swift)
 
@@ -329,4 +366,6 @@ enum CmuxStrings {
     static var scrollerScrollUp: String {
         String(localized: "home.scroller.scrollUp", defaultValue: "Scroll Up", table: "CmuxHome", bundle: MessagesLabLocalization.bundle)
     }
+=======
+>>>>>>> origin/main
 }

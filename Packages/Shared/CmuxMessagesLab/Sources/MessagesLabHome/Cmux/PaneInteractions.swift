@@ -42,6 +42,7 @@ final class PressHold {
 
 /// The dim under the tapback picker (measured: every colour x0.46-0.51,
 /// reached in about 0.17 s, ease-out); a click on it closes the picker.
+<<<<<<< HEAD
 ///
 /// The pressed bubble stays bright (real Messages lifts it): the dim has a hole in the
 /// bubble's shape, so the real row shows through, upright and in its place. (A bitmap
@@ -64,6 +65,17 @@ final class PickerDimView: NSView {
         shade.actions = ["path": NSNull(), "bounds": NSNull(), "position": NSNull()]
         layer?.addSublayer(shade)
         placeShade()
+=======
+final class PickerDimView: NSView {
+    static let opacity: Float = 0.52
+    var onClick: (() -> Void)?
+
+    override init(frame: NSRect) {
+        super.init(frame: frame)
+        autoresizingMask = [.width, .height]
+        wantsLayer = true
+        layer?.backgroundColor = NSColor.black.cgColor
+>>>>>>> origin/main
         layer?.opacity = Self.opacity
         let fade = CABasicAnimation(keyPath: "opacity")
         fade.fromValue = 0
@@ -75,6 +87,7 @@ final class PickerDimView: NSView {
 
     required init?(coder: NSCoder) { nil }
 
+<<<<<<< HEAD
     /// Flipped as the host is, so the hole's host coordinates are this layer's (as MenuHighlight's
     /// path in the host's layer).
     override var isFlipped: Bool { true }
@@ -92,6 +105,8 @@ final class PickerDimView: NSView {
         shade.path = path
     }
 
+=======
+>>>>>>> origin/main
     override func mouseDown(with event: NSEvent) { onClick?() }
 }
 

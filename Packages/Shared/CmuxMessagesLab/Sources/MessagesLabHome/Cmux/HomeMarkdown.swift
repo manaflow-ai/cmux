@@ -8,6 +8,7 @@ import Foundation
 /// monospaced), `#` headings (bold), `-`/`*`/`+` bullets (`•`), numbered
 /// items (kept), and inline `**bold**`/`__bold__`, `*italic*`/`_italic_`,
 /// `~~strike~~`, `` `code` ``, `[label](url)` and `<url>`. Only http, https
+<<<<<<< HEAD
 /// and mailto URLs, a cmux app link (URL.isCmuxAppLink) and a path
 /// (URL.isHomePathLink) become links; another scheme shows its label as text.
 /// Bare paths, cmux ids and web URLs in plain text (or a whole code span)
@@ -62,10 +63,28 @@ enum HomeMarkdown {
             if trimmed.hasPrefix("```") || trimmed.hasPrefix("~~~") {
                 inFence.toggle()
                 return
+=======
+/// and mailto URLs, and a Chief subagent link (URL.isChiefSubagentLink), become links;
+/// another scheme shows its label as text.
+/// Anything else (HTML, tables, images) stays as written. Offsets are UTF-16,
+/// like MessagesLab's runs.
+enum HomeMarkdown {
+    static func render(_ source: String) -> (text: String, runs: [TextRun]) {
+        var out = Output()
+        var inFence = false
+        var first = true
+        for raw in source.split(separator: "\n", omittingEmptySubsequences: false) {
+            let line = String(raw)
+            let trimmed = line.trimmingCharacters(in: .whitespaces)
+            if trimmed.hasPrefix("```") || trimmed.hasPrefix("~~~") {
+                inFence.toggle()
+                continue
+>>>>>>> origin/main
             }
             if !first { out.append("\n", []) }
             first = false
             if inFence {
+<<<<<<< HEAD
                 out.append(String(raw), raw.isEmpty ? [] : ["code"])
                 return
             }
@@ -94,6 +113,28 @@ enum HomeMarkdown {
             out.append(String(indent), [])
             Inline.parse(Array(body), into: &out, styles: [], link: nil)
         }
+=======
+                out.append(line, line.isEmpty ? [] : ["code"])
+                continue
+            }
+            let indent = line.prefix { $0 == " " || $0 == "\t" }
+            let body = Substring(line.dropFirst(indent.count))
+            let pad = String(repeating: "   ", count: min(4, indent.count / 2))
+            if let (level, rest) = heading(body), level > 0 {
+                Inline.parse(Array(rest), into: &out, styles: ["bold"], link: nil)
+            } else if let rest = bullet(body) {
+                out.append(pad + "• ", [])
+                Inline.parse(Array(rest), into: &out, styles: [], link: nil)
+            } else if let (number, rest) = numbered(body) {
+                out.append(pad + number + " ", [])
+                Inline.parse(Array(rest), into: &out, styles: [], link: nil)
+            } else {
+                out.append(String(indent), [])
+                Inline.parse(Array(body), into: &out, styles: [], link: nil)
+            }
+        }
+        return (out.text, out.runs)
+>>>>>>> origin/main
     }
 
     private static func heading(_ s: Substring) -> (Int, Substring)? {
@@ -123,6 +164,7 @@ enum HomeMarkdown {
         var text = ""
         var runs: [TextRun] = []
         private var length = 0
+<<<<<<< HEAD
         /// Whether chip links (HomeLinkChip) show as chips.
         var chips = false
 
@@ -138,6 +180,11 @@ enum HomeMarkdown {
         }
 
         private mutating func appendRun(_ s: String, _ styles: [String], link: String?) {
+=======
+
+        mutating func append(_ s: String, _ styles: [String], link: String? = nil) {
+            guard !s.isEmpty else { return }
+>>>>>>> origin/main
             let n = (s as NSString).length
             if !styles.isEmpty || link != nil {
                 if let last = runs.last, last.start + last.length == length, last.style == (styles.isEmpty ? nil : styles), last.link == link {
@@ -149,6 +196,7 @@ enum HomeMarkdown {
             text += s
             length += n
         }
+<<<<<<< HEAD
 
         /// Tags the first run appended since `first` runs as a picture's start (``HomeMarkdown/imageMark``).
         mutating func markPicture(from first: Int) {
@@ -170,17 +218,23 @@ enum HomeMarkdown {
             text += line.text
             length += line.length
         }
+=======
+>>>>>>> origin/main
     }
 
     enum Inline {
         static func parse(_ c: [Character], into out: inout Output, styles: [String], link: String?) {
             var i = 0
             var plain = ""
+<<<<<<< HEAD
             // Plain text outside a link links its bare paths, cmux ids and web URLs (HomeAutoLinks).
             func flush() {
                 if link == nil { out.appendLinkingBare(plain, styles) } else { out.append(plain, styles, link: link) }
                 plain = ""
             }
+=======
+            func flush() { out.append(plain, styles, link: link); plain = "" }
+>>>>>>> origin/main
             // Crash program: checked reads and clamped slices (agent text is external input).
             while i < c.count, let ch = c[checked: i] {
                 if ch == "\\", i + 1 < c.count, let next = c[checked: i + 1], next.isASCII, next.isPunctuation || next.isSymbol {
@@ -192,15 +246,20 @@ enum HomeMarkdown {
                         var code = String(c.slice(i + ticks, close))
                         if code.count > 2, code.first == " ", code.last == " " { code = String(code.dropFirst().dropLast()) }
                         flush()
+<<<<<<< HEAD
                         // A code span that is one whole path or cmux id (`~/a.md`) links to it.
                         let whole = link == nil ? HomeMarkdown.autoLinks(in: code).first.flatMap {
                             $0.range == NSRange(location: 0, length: (code as NSString).length) ? $0 : nil
                         } : nil
                         out.append(whole?.label ?? code, add("code", to: styles), link: link ?? whole?.link)
+=======
+                        out.append(code, add("code", to: styles), link: link)
+>>>>>>> origin/main
                         i = close + ticks; continue
                     }
                     plain += String(repeating: "`", count: ticks); i += ticks; continue
                 }
+<<<<<<< HEAD
                 // `![alt](source)`: a picture inside text shows its alt text (its file name without one), never the
                 // "!", a link when the source is one; tagged so a preview leaves it out and counts it (HomeQuotePreview).
                 if ch == "!", i + 1 < c.count, c[checked: i + 1] == "[", let (label, url, end) = linkAt(c, i + 1) {
@@ -216,6 +275,8 @@ enum HomeMarkdown {
                     out.markPicture(from: first)
                     i = end; continue
                 }
+=======
+>>>>>>> origin/main
                 if ch == "[", link == nil, let (label, url, end) = linkAt(c, i) {
                     flush()
                     parse(label, into: &out, styles: styles, link: safe(url))
@@ -308,10 +369,16 @@ enum HomeMarkdown {
             return (Array(c.slice(i + 1, j)), url, k + 1)
         }
 
+<<<<<<< HEAD
         /// The one link rule (MarkdownLinkPolicy: http, https, mailto, and Home's app forms,
         /// a cmux app link, URL.isCmuxAppLink, or a path, URL.isHomePathLink), so this renderer
         /// and MessagesLab's agree. A destination written as a path (`/Users/…`, `~/…`) or a bare
         /// cmux id becomes its link first (HomeMarkdown.destination).
         private static func safe(_ url: String) -> String? { HomeMarkdown.destination(url) }
+=======
+        /// The one link rule (MarkdownLinkPolicy: http, https, mailto, and Home's app form,
+        /// a Chief subagent link, URL.isChiefSubagentLink), so this renderer and MessagesLab's agree.
+        private static func safe(_ url: String) -> String? { MarkdownLinkPolicy.sanitize(url) }
+>>>>>>> origin/main
     }
 }

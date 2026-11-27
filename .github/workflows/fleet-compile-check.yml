@@ -4,6 +4,7 @@ run-name: fleet compile-check ${{ inputs.sha }}
 
 # Compile-check the app at one exact commit on the build fleet and post the
 # verdict as the commit status fleet/compile-check on that commit.
+<<<<<<< HEAD
 # What a pass proves, and what the status text says: the app executable's Swift
 # sources (86 of CmuxNext's 88 production targets) compile against the macOS
 # SDK and link, in Debug, with the swift.org toolchain. It is not the Xcode
@@ -13,6 +14,15 @@ run-name: fleet compile-check ${{ inputs.sha }}
 # It does not stand in for the Release compile: the landing gate (cmuxterm-hq
 # tools/agent-guards/require-cmux-guards.py) and next-autoland wait for a green
 # "cmux-next Release compile (Xcode 26)" on the exact head.
+=======
+# scripts/ci/merge_compile_guard.py accepts a success here in place of a
+# queued "cmux-next Release compile (Xcode 26)" (#22845 sat queued over an
+# hour after its fleet pass, with 60 minis offline). It trusts the status only
+# when it links a finished, green run of this file dispatched from
+# feat-cmux-next (its commit on that branch) and titled with the full sha; a
+# status a token posts itself, or a run of a copy of this file on another
+# branch or a tag, does not count. It never overrides a red Release compile.
+>>>>>>> origin/main
 #
 #   gh workflow run fleet-compile-check.yml --ref feat-cmux-next -f sha=<full head sha>
 
@@ -39,10 +49,17 @@ jobs:
     name: fleet compile-check
     if: ${{ github.repository_owner == 'manaflow-ai' && github.ref == 'refs/heads/feat-cmux-next' && vars.CI_COMPILE_CHECK_GATEWAY != '' }}
     # The literal fallbacks never schedule: the job's if: skips outside manaflow-ai and when the variable is unset.
+<<<<<<< HEAD
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'glaeda-gateway-xcode-26.6' }} # frozen-label: CI_COMPILE_CHECK_GATEWAY (cmux#54437)
     permissions:
       statuses: write
     timeout-minutes: 50  # the client waits up to 600 + 1200 s plus its own slack; the posts up to 2 x 30 s and 6 x 30 s, plus backoff (155 s, or up to 5 x 120 s when GitHub sends Retry-After)
+=======
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.CI_COMPILE_CHECK_GATEWAY || vars.CI_OVERFLOW_LINUX || 'cmux-linux' }}
+    permissions:
+      statuses: write
+    timeout-minutes: 35  # the client waits up to 600 + 1200 s plus its own slack
+>>>>>>> origin/main
     steps:
       # The gateway checks nothing out: the fleet fetches the commit itself.
       # Exit 0 is a pass, 1 a compile failure, anything else no verdict; only
@@ -60,6 +77,7 @@ jobs:
             echo "::error title=fleet compile-check::sha must be a full 40-character lowercase commit sha, got '$SHA'"
             exit 1
           fi
+<<<<<<< HEAD
           # Every value is fixed text, the checked sha, the runner name or GitHub's run URL: none needs JSON escaping.
           # GitHub answers 403 (a secondary rate limit on content creation, as 09:34-09:38Z on 2026-10-21 when every
           # run here failed before cmux-ci started), 429 or 5xx under load: retry with backoff, honoring
@@ -114,4 +132,21 @@ jobs:
             0) verdict success "App executable compiled (Debug, swift.org toolchain, build fleet); not the Xcode Release compile" || exit 1 ;;
             1) verdict failure "The app executable did not compile (Debug, swift.org toolchain, build fleet)"; exit 1 ;;
             *) verdict error "No build-fleet verdict (exit $status)"; exit "$status" ;;
+=======
+          # Every value is fixed text, the checked sha or GitHub's run URL: none needs JSON escaping.
+          post() {
+            curl -fsS -X POST -H "Authorization: Bearer $GH_TOKEN" -H "Accept: application/vnd.github+json" \
+              "$API/statuses/$SHA" >/dev/null \
+              -d "$(printf '{"state":"%s","description":"%s","target_url":"%s","context":"%s"}' \
+                "$1" "$2" "$RUN_URL" "$CONTEXT")"
+          }
+          post pending "Compiling the app on the build fleet" || exit 1
+          status=0
+          "${CMUX_CI_CLIENT:-$HOME/.local/bin/cmux-ci}" compile-check --ref "$SHA" --app \
+            --timeout 1200 --queue-timeout 600 || status=$?
+          case "$status" in
+            0) post success "cmux-ci compile-check --app passed on this commit" || exit 1 ;;
+            1) post failure "The app did not compile on the build fleet"; exit 1 ;;
+            *) post error "No build-fleet verdict (exit $status)"; exit "$status" ;;
+>>>>>>> origin/main
           esac

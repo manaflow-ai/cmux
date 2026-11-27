@@ -24,6 +24,7 @@ enum ComposeMetrics {
     static let tokenHorizontalPadding: CGFloat = 5
     static let tokenGap: CGFloat = 2
     static let textMinWidth: CGFloat = 60
+<<<<<<< HEAD
     /// The existing conversation's transcript starts this far under the To: capsule.
     static let existingGap: CGFloat = 8
 
@@ -39,6 +40,8 @@ enum ComposeMetrics {
     static let pillFill = UIColor.resolving { $0.userInterfaceStyle == .dark
         ? UIColor(red: 0x4F / 255, green: 0x4F / 255, blue: 0x51 / 255, alpha: 1)
         : UIColor(red: 0xE9 / 255, green: 0xE9 / 255, blue: 0xE9 / 255, alpha: 1) }
+=======
+>>>>>>> origin/main
 }
 
 /// A recipient token: the name in the service color (blue iMessage, green
@@ -86,15 +89,24 @@ final class ComposeRecipientTokenView: UIControl {
 
     private func update() {
         let tint = Self.color(for: recipient.state)
+<<<<<<< HEAD
         let pill = ComposeMetrics.iOS27
         fill.backgroundColor = isTokenSelected ? tint : ComposeMetrics.pillFill
         // iOS 27: every token is a pill; iOS 26: only a selected one fills.
         fill.isHidden = !(isTokenSelected || pill)
+=======
+        fill.backgroundColor = tint
+        fill.isHidden = !isTokenSelected
+>>>>>>> origin/main
         let name = recipient.name
         let text = NSMutableAttributedString(string: name, attributes: [
             .font: ComposeMetrics.fieldFont, .foregroundColor: isTokenSelected ? UIColor.white : tint,
         ])
+<<<<<<< HEAD
         if showsComma && !isTokenSelected && !pill {
+=======
+        if showsComma && !isTokenSelected {
+>>>>>>> origin/main
             text.append(NSAttributedString(string: ",", attributes: [.font: ComposeMetrics.fieldFont, .foregroundColor: UIColor.secondaryLabel]))
         }
         label.attributedText = text
@@ -113,16 +125,26 @@ final class ComposeRecipientTokenView: UIControl {
 
     override var intrinsicContentSize: CGSize {
         let size = label.attributedText?.size() ?? .zero
+<<<<<<< HEAD
         return CGSize(width: ceil(size.width) + 2 * padding, height: ComposeMetrics.tokenHeight)
     }
 
     private var padding: CGFloat { ComposeMetrics.iOS27 ? ComposeMetrics.pillPadding : ComposeMetrics.tokenHorizontalPadding }
 
+=======
+        return CGSize(width: ceil(size.width) + 2 * ComposeMetrics.tokenHorizontalPadding, height: ComposeMetrics.tokenHeight)
+    }
+
+>>>>>>> origin/main
     override func layoutSubviews() {
         super.layoutSubviews()
         fill.frame = bounds
         fill.layer.cornerRadius = bounds.height / 2
+<<<<<<< HEAD
         label.frame = bounds.insetBy(dx: padding, dy: 0)
+=======
+        label.frame = bounds.insetBy(dx: ComposeMetrics.tokenHorizontalPadding, dy: 0)
+>>>>>>> origin/main
     }
 }
 
@@ -318,9 +340,12 @@ final class ComposeRecipientField: UIView, UITextFieldDelegate, UIGestureRecogni
         let toSize = toLabel.intrinsicContentSize
         toLabel.frame = CGRect(x: m.toLeading, y: lineCenter(0) - toSize.height / 2, width: toSize.width, height: toSize.height)
         let start = m.toLeading + toSize.width + m.toGap - m.tokenHorizontalPadding
+<<<<<<< HEAD
         // iOS 27: the first pill starts where "To:" ends (measured: label 30..50.7, pill at 50.7);
         // wrapped lines start at the text column (58.7). Text after the tokens keeps its place.
         let pillStart = m.iOS27 ? m.toLeading + toSize.width : start
+=======
+>>>>>>> origin/main
         if isCollapsed {
             let x = start + m.tokenHorizontalPadding
             summary.frame = CGRect(x: x, y: lineCenter(0) - 10, width: width - x - m.toLeading, height: 20)
@@ -328,11 +353,19 @@ final class ComposeRecipientField: UIView, UITextFieldDelegate, UIGestureRecogni
             return m.fieldMinHeight
         }
         let right = width - m.addTrailing - m.addSize.width - 6
+<<<<<<< HEAD
         var x = pillStart
         var line = 0
         for token in tokens {
             let size = token.intrinsicContentSize
             if x + size.width > right, x > (line == 0 ? pillStart : start) {
+=======
+        var x = start
+        var line = 0
+        for token in tokens {
+            let size = token.intrinsicContentSize
+            if x + size.width > right, x > start {
+>>>>>>> origin/main
                 line += 1
                 x = start
             }

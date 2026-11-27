@@ -112,6 +112,7 @@ pub(crate) mod presentation_store;
 mod public_fold;
 pub(crate) use public_fold::volatile_fields;
 mod public_projection_store;
+<<<<<<< ours
 mod receipt_env;
 pub(crate) mod registry_connection;
 mod root_identity;
@@ -141,7 +142,13 @@ pub(crate) mod screen_store;
 pub(crate) mod session_journal;
 pub mod synth;
 pub(crate) mod terminal_archive_store;
+=======
+mod resource_store;
+mod session_journal;
+mod startup_recovery;
+>>>>>>> theirs
 mod terminal_exit_store;
+<<<<<<< ours
 mod terminal_keep_store;
 mod terminal_resource_close_store;
 pub(crate) mod terminal_state_end;
@@ -156,6 +163,11 @@ pub use crate::state::tab_state_store::TabAttentionRecord;
 pub(crate) use effect_store::{
     EffectCommitFinish, EffectCommitIntent, EffectCommitReceipt, ResourceWorkspaceClose,
 };
+=======
+mod terminal_unplaced_store;
+
+pub(crate) use effect_store::ResourceWorkspaceClose;
+>>>>>>> theirs
 pub use effect_store::{
     ResourceCreationPreparation, ResourceCreationRecovery, ResourceEffectOutcome,
     ResourceEffectPreparation,
@@ -215,8 +227,14 @@ use resource_store::{
     apply_resource_patch, complete_terminal_close_patch, create_resource_schema,
     initialize_resource_mutation_retention, migrate_resource_agent_projections,
     migrate_resource_browser_metadata, migrate_resource_mutations_to_session_scope,
+<<<<<<< ours
     migrate_resource_tabs_to_multiview, repair_resources_at_open,
     resource_tabs_needs_multiview_normalization, validate_resource_invariants,
+=======
+    migrate_resource_tabs_to_multiview, repair_dangling_terminal_resources,
+    resource_tabs_needs_multiview_normalization, restate_legacy_pending_panes,
+    validate_resource_invariants,
+>>>>>>> theirs
 };
 pub(crate) use resource_store::{
     load_live_terminal_resource_ids, load_resource_topology_scoped, load_session_panes,
@@ -238,6 +256,11 @@ use session_journal::{
 pub(crate) use session_journal::{SessionJournalReader, unix_epoch_ms};
 pub(crate) use terminal_snapshot_read::load_terminal_rows;
 pub(crate) use topology_close_store::TopologyCloseCommit;
+pub use startup_recovery::{
+    RegistryIntegrityFailure, RegistryRecovery, RegistryStartupDamage,
+    UnrecoverableInterruptedCreations, quarantine_session_registry,
+    recover_registry_after_failed_open, registry_startup_damage,
+};
 
 // Schema 9 shipped independently on the journal and multiview development
 // branches. Schema 10 shipped the journal extensions. Version 11 is the first
@@ -904,7 +927,13 @@ pub struct WorkspaceRegistry {
     resource_projection_stats: std::sync::Arc<crate::diagnostics::ResourceProjectionStats>,
     #[cfg(test)]
     resource_patch_failures_remaining: Cell<u64>,
+<<<<<<< ours
     /// How many next topology snapshot reads fail (tests).
+=======
+    /// How many next topology snapshot reads fail (tests).
+    #[cfg(test)]
+    topology_snapshot_failures_remaining: Cell<u64>,
+>>>>>>> theirs
     #[cfg(test)]
     topology_snapshot_failures_remaining: Cell<u64>,
     pub(crate) lease: Option<SessionLease>,
@@ -1089,9 +1118,1855 @@ impl WorkspaceRegistry {
         Ok(())
     }
 
+<<<<<<< ours
     /// The client whose idle stop raised the fence, while it is raised.
     pub(crate) fn idle_stop_fence_owner(&self) -> Option<u64> {
         self.idle_stop_fence
+=======
+    fn add_manifest_bytes(&mut self, path: &Path, bytes: usize) -> anyhow::Result<()> {
+        self.manifest_bytes = self.manifest_bytes.saturating_add(bytes);
+        if self.manifest_bytes > MAX_RESET_CONFIRMATION_FINGERPRINT_MANIFEST_BYTES {
+            return Err(reset_confirmation_scan_limit_error("manifest bytes", path));
+        }
+        Ok(())
+    }
+
+    fn check_queued_child(&self, queued_children: usize, path: &Path) -> anyhow::Result<()> {
+        if self.entries.saturating_add(queued_children).saturating_add(1)
+            > MAX_RESET_CONFIRMATION_FINGERPRINT_ENTRIES
+        {
+            return Err(reset_confirmation_scan_limit_error("paths", path));
+        }
+        Ok(())
+    }
+
+    fn add_file_bytes(&mut self, path: &Path, bytes: u64) -> anyhow::Result<()> {
+        self.bytes = self.bytes.saturating_add(bytes);
+        if self.bytes > MAX_RESET_CONFIRMATION_FINGERPRINT_BYTES {
+            return Err(reset_confirmation_scan_limit_error("bytes", path));
+        }
+        Ok(())
+    }
+}
+
+fn reset_confirmation_scan_limit_error(unit: &str, path: &Path) -> anyhow::Error {
+    let limit = match unit {
+        "paths" => MAX_RESET_CONFIRMATION_FINGERPRINT_ENTRIES.to_string(),
+        "bytes" => MAX_RESET_CONFIRMATION_FINGERPRINT_BYTES.to_string(),
+        "manifest bytes" => MAX_RESET_CONFIRMATION_FINGERPRINT_MANIFEST_BYTES.to_string(),
+        _ => "configured".to_string(),
+    };
+    anyhow::anyhow!(
+        "reset confirmation scan exceeds {limit} {unit}; scoped state is too large to reset safely: {}",
+        path.display()
+    )
+}
+
+fn collect_reset_path_fingerprints(
+    path: &Path,
+    relative_path: &Path,
+    ignored_root_child: Option<&str>,
+    stable_root_identity: bool,
+    root_device: Option<u64>,
+    budget: &mut ResetFingerprintBudget,
+    entries: &mut Vec<String>,
+) -> anyhow::Result<()> {
+    let metadata = match fs::symlink_metadata(path) {
+        Ok(metadata) => metadata,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+            push_reset_manifest_entry(
+                entries,
+                format!("{}=missing", reset_manifest_path_key(relative_path)),
+                budget,
+                path,
+            )?;
+            return Ok(());
+        }
+        Err(error) => {
+            return Err(error).with_context(|| format!("inspect reset path {}", path.display()));
+        }
+    };
+    let current_device = reset_metadata_device(&metadata);
+    let root_device = root_device.or(current_device);
+    ensure_reset_device_boundary(path, root_device, current_device)?;
+    budget.add_entry(path)?;
+    let entry = format!(
+        "{}={}",
+        reset_manifest_path_key(relative_path),
+        reset_path_fingerprint(
+            path,
+            &metadata,
+            budget,
+            stable_root_identity && relative_path == Path::new("."),
+        )?
+    );
+    push_reset_manifest_entry(entries, entry, budget, path)?;
+    if !metadata.file_type().is_dir() {
+        return Ok(());
+    }
+    let mut child_paths = Vec::new();
+    for entry in
+        fs::read_dir(path).with_context(|| format!("read reset path {}", path.display()))?
+    {
+        let child_path = entry?.path();
+        let child_name = child_path.file_name().ok_or_else(|| {
+            anyhow::anyhow!("reset path has no file name: {}", child_path.display())
+        })?;
+        if relative_path == Path::new(".")
+            && ignored_root_child.is_some_and(|ignored| child_name == std::ffi::OsStr::new(ignored))
+        {
+            continue;
+        }
+        budget.check_queued_child(child_paths.len(), &child_path)?;
+        child_paths.push(child_path);
+    }
+    child_paths.sort();
+    for child_path in child_paths {
+        let child_name = child_path.file_name().ok_or_else(|| {
+            anyhow::anyhow!("reset path has no file name: {}", child_path.display())
+        })?;
+        collect_reset_path_fingerprints(
+            &child_path,
+            &relative_path.join(Path::new(child_name)),
+            ignored_root_child,
+            stable_root_identity,
+            root_device,
+            budget,
+            entries,
+        )?;
+    }
+    Ok(())
+}
+
+fn push_reset_manifest_entry(
+    entries: &mut Vec<String>,
+    entry: String,
+    budget: &mut ResetFingerprintBudget,
+    path: &Path,
+) -> anyhow::Result<()> {
+    budget.add_manifest_bytes(path, entry.len())?;
+    entries.push(entry);
+    Ok(())
+}
+
+fn ensure_reset_device_boundary(
+    path: &Path,
+    root_device: Option<u64>,
+    current_device: Option<u64>,
+) -> anyhow::Result<()> {
+    if let (Some(root_device), Some(current_device)) = (root_device, current_device)
+        && current_device != root_device
+    {
+        anyhow::bail!("reset path crosses filesystem boundary: {}", path.display());
+    }
+    Ok(())
+}
+
+#[cfg(unix)]
+fn reset_metadata_device(metadata: &fs::Metadata) -> Option<u64> {
+    use std::os::unix::fs::MetadataExt;
+
+    Some(metadata.dev())
+}
+
+fn reset_root_device(root: &Path) -> anyhow::Result<Option<u64>> {
+    let metadata = fs::metadata(root)
+        .with_context(|| format!("inspect workspace state root {}", root.display()))?;
+    Ok(reset_metadata_device(&metadata))
+}
+
+#[cfg(not(unix))]
+fn reset_metadata_device(_metadata: &fs::Metadata) -> Option<u64> {
+    None
+}
+
+#[cfg(unix)]
+fn remove_reset_dir_all(
+    path: &Path,
+    label: &str,
+    fingerprint_label: &str,
+    expected_fingerprint: &str,
+) -> anyhow::Result<()> {
+    use std::os::unix::fs::{MetadataExt, OpenOptionsExt};
+
+    let mut budget = ResetFingerprintBudget::default();
+    let manifest = reset_dir_manifest(fingerprint_label, path, &mut budget)?;
+    if manifest.fingerprint != expected_fingerprint {
+        anyhow::bail!("reset path changed during reset: {}", path.display());
+    }
+    #[cfg(test)]
+    {
+        let mut injected_file = RESET_DELETE_AFTER_MANIFEST_FILE.lock().unwrap();
+        if injected_file.as_ref().is_some_and(|(target, _)| target == path) {
+            let (_, file_path) = injected_file.take().unwrap();
+            fs::write(&file_path, b"late")
+                .with_context(|| format!("write injected reset file {}", file_path.display()))?;
+        }
+    }
+    let directory = OpenOptions::new()
+        .read(true)
+        .custom_flags(libc::O_CLOEXEC | libc::O_DIRECTORY | libc::O_NOFOLLOW)
+        .open(path)
+        .with_context(|| format!("open {label} {}", path.display()))?;
+    let metadata =
+        directory.metadata().with_context(|| format!("inspect {label} {}", path.display()))?;
+    if !metadata.file_type().is_dir() {
+        anyhow::bail!("{label} is not a directory: {}", path.display());
+    }
+    let root_device = metadata.dev();
+    let root_inode = metadata.ino();
+    remove_reset_dir_children_from_handle(
+        &directory,
+        path,
+        Path::new("."),
+        label,
+        root_device,
+        &manifest.entries,
+        reset_ignored_root_child(fingerprint_label),
+    )?;
+    let current = fs::symlink_metadata(path)
+        .with_context(|| format!("inspect {label} {}", path.display()))?;
+    if !current.file_type().is_dir() || current.dev() != root_device || current.ino() != root_inode
+    {
+        anyhow::bail!("reset path changed during reset: {}", path.display());
+    }
+    fs::remove_dir(path).with_context(|| format!("remove {label} {}", path.display()))
+}
+
+#[cfg(unix)]
+fn remove_reset_dir_children_from_handle(
+    directory: &File,
+    display_path: &Path,
+    relative_path: &Path,
+    label: &str,
+    root_device: u64,
+    expected_entries: &HashSet<String>,
+    ignored_root_child: Option<&str>,
+) -> anyhow::Result<()> {
+    use std::os::fd::AsRawFd;
+    use std::os::unix::fs::MetadataExt;
+
+    let mut children = reset_dir_child_names(directory, display_path, label)?;
+    children.sort();
+
+    for child_name in children {
+        let child_display = display_path.join(&child_name);
+        let child_relative = relative_path.join(&child_name);
+        let child_stat = match reset_child_stat(directory.as_raw_fd(), &child_name, &child_display)
+        {
+            Ok(child_stat) => child_stat,
+            Err(error)
+                if error
+                    .downcast_ref::<std::io::Error>()
+                    .is_some_and(|error| error.kind() == std::io::ErrorKind::NotFound) =>
+            {
+                continue;
+            }
+            Err(error) => return Err(error),
+        };
+        let child_device = reset_stat_device(&child_stat);
+        ensure_reset_device_boundary(&child_display, Some(root_device), Some(child_device))?;
+        ensure_reset_manifest_entry(
+            directory.as_raw_fd(),
+            &child_name,
+            &child_relative,
+            &child_display,
+            &child_stat,
+            expected_entries,
+            ignored_root_child,
+        )?;
+        #[cfg(test)]
+        inject_reset_delete_child_replacement(&child_display)?;
+        let staged_child = stage_reset_child_for_deletion(
+            directory.as_raw_fd(),
+            &child_name,
+            &child_display,
+            &child_stat,
+        )?;
+        if let Err(error) = ensure_reset_manifest_entry(
+            directory.as_raw_fd(),
+            &staged_child.name,
+            &child_relative,
+            &staged_child.display_path,
+            &staged_child.stat,
+            expected_entries,
+            ignored_root_child,
+        ) {
+            return Err(restore_changed_reset_child(
+                directory.as_raw_fd(),
+                &staged_child.name,
+                &child_name,
+                &staged_child.display_path,
+                &child_display,
+                error,
+            ));
+        }
+        if reset_stat_is_dir(&staged_child.stat) {
+            let child_directory = open_reset_child_dir(
+                directory.as_raw_fd(),
+                &staged_child.name,
+                &staged_child.display_path,
+            )?;
+            let opened = child_directory.metadata().with_context(|| {
+                format!("inspect {label} {}", staged_child.display_path.display())
+            })?;
+            if !opened.file_type().is_dir()
+                || opened.dev() != reset_stat_device(&staged_child.stat)
+                || opened.ino() != reset_stat_inode(&staged_child.stat)
+            {
+                anyhow::bail!(
+                    "reset path changed during reset: {}",
+                    staged_child.display_path.display()
+                );
+            }
+            remove_reset_dir_children_from_handle(
+                &child_directory,
+                &staged_child.display_path,
+                &child_relative,
+                label,
+                root_device,
+                expected_entries,
+                ignored_root_child,
+            )?;
+            let current = reset_child_stat(
+                directory.as_raw_fd(),
+                &staged_child.name,
+                &staged_child.display_path,
+            )?;
+            if !reset_stat_is_dir(&current)
+                || reset_stat_device(&current) != reset_stat_device(&staged_child.stat)
+                || reset_stat_inode(&current) != reset_stat_inode(&staged_child.stat)
+            {
+                anyhow::bail!(
+                    "reset path changed during reset: {}",
+                    staged_child.display_path.display()
+                );
+            }
+            reset_unlink_child(
+                directory.as_raw_fd(),
+                &staged_child.name,
+                &staged_child.display_path,
+                libc::AT_REMOVEDIR,
+            )?;
+        } else {
+            reset_unlink_child(
+                directory.as_raw_fd(),
+                &staged_child.name,
+                &staged_child.display_path,
+                0,
+            )?;
+        }
+    }
+    let remaining = reset_dir_child_names(directory, display_path, label)?;
+    if !remaining.is_empty() {
+        anyhow::bail!("reset path changed during reset: {}", display_path.display());
+    }
+    Ok(())
+}
+
+#[cfg(all(unix, test))]
+fn inject_reset_delete_child_replacement(path: &Path) -> anyhow::Result<()> {
+    let mut replacement = RESET_DELETE_AFTER_CHILD_VERIFY_FILE.lock().unwrap();
+    if replacement.as_ref() != Some(&path.to_path_buf()) {
+        return Ok(());
+    }
+    *replacement = None;
+    fs::remove_file(path)
+        .with_context(|| format!("remove injected reset file {}", path.display()))?;
+    fs::write(path, b"replacement")
+        .with_context(|| format!("write injected reset file {}", path.display()))?;
+    Ok(())
+}
+
+#[cfg(test)]
+fn inject_reset_recreated_session_dir_after_staging(path: &Path) -> anyhow::Result<()> {
+    let mut injected = RESET_RECREATE_SESSION_DIR_AFTER_STAGING.lock().unwrap();
+    let Some(session_dir) = injected.take() else {
+        return Ok(());
+    };
+    if session_dir != path {
+        *injected = Some(session_dir);
+        return Ok(());
+    }
+    fs::create_dir_all(&session_dir)
+        .with_context(|| format!("recreate injected session dir {}", session_dir.display()))?;
+    fs::write(session_dir.join(SESSION_WRITER_LOCK_FILE), b"recreated")
+        .with_context(|| format!("write injected session lock {}", session_dir.display()))?;
+    fs::write(session_dir.join("recreated-sidecar"), b"new")
+        .with_context(|| format!("write injected session sidecar {}", session_dir.display()))?;
+    Ok(())
+}
+
+#[cfg(unix)]
+struct ResetStagedChild {
+    name: std::ffi::OsString,
+    display_path: PathBuf,
+    stat: libc::stat,
+}
+
+#[cfg(unix)]
+fn stage_reset_child_for_deletion(
+    parent_fd: std::os::fd::RawFd,
+    name: &std::ffi::OsStr,
+    display_path: &Path,
+    expected: &libc::stat,
+) -> anyhow::Result<ResetStagedChild> {
+    for _ in 0..16 {
+        let private_name =
+            std::ffi::OsString::from(format!(".reset-delete-{}.entry", try_new_uuid_v4()?));
+        let private_display = display_path.with_file_name(&private_name);
+        match reset_rename_child_exclusive(
+            parent_fd,
+            name,
+            &private_name,
+            display_path,
+            &private_display,
+        ) {
+            Ok(()) => {
+                let stat = reset_child_stat(parent_fd, &private_name, &private_display)?;
+                if reset_stat_device(&stat) != reset_stat_device(expected)
+                    || reset_stat_inode(&stat) != reset_stat_inode(expected)
+                    || reset_stat_kind(&stat) != reset_stat_kind(expected)
+                {
+                    let error = anyhow::anyhow!(
+                        "reset path changed during reset: {}",
+                        display_path.display()
+                    );
+                    return Err(restore_changed_reset_child(
+                        parent_fd,
+                        &private_name,
+                        name,
+                        &private_display,
+                        display_path,
+                        error,
+                    ));
+                }
+                return Ok(ResetStagedChild {
+                    name: private_name,
+                    display_path: private_display,
+                    stat,
+                });
+            }
+            Err(error)
+                if error
+                    .downcast_ref::<std::io::Error>()
+                    .is_some_and(|error| error.kind() == std::io::ErrorKind::AlreadyExists) =>
+            {
+                continue;
+            }
+            Err(error) => return Err(error),
+        }
+    }
+    anyhow::bail!("could not allocate private reset path for {}", display_path.display())
+}
+
+#[cfg(unix)]
+fn restore_changed_reset_child(
+    parent_fd: std::os::fd::RawFd,
+    private_name: &std::ffi::OsStr,
+    original_name: &std::ffi::OsStr,
+    private_display: &Path,
+    original_display: &Path,
+    verification_error: anyhow::Error,
+) -> anyhow::Error {
+    match reset_rename_child_exclusive(
+        parent_fd,
+        private_name,
+        original_name,
+        private_display,
+        original_display,
+    ) {
+        Ok(()) => verification_error,
+        Err(restore_error) => anyhow::anyhow!(
+            "{verification_error:#}; failed to restore changed reset path {}: {restore_error:#}",
+            original_display.display()
+        ),
+    }
+}
+
+#[cfg(unix)]
+fn ensure_reset_manifest_entry(
+    parent_fd: std::os::fd::RawFd,
+    name: &std::ffi::OsStr,
+    relative_path: &Path,
+    display_path: &Path,
+    stat: &libc::stat,
+    expected_entries: &HashSet<String>,
+    ignored_root_child: Option<&str>,
+) -> anyhow::Result<()> {
+    if let Some(ignored) = ignored_root_child
+        && relative_path == Path::new(".").join(ignored)
+    {
+        return Ok(());
+    }
+    let mut budget = ResetFingerprintBudget::default();
+    let entry = reset_child_fingerprint_entry(
+        parent_fd,
+        name,
+        relative_path,
+        display_path,
+        stat,
+        &mut budget,
+    )?;
+    if expected_entries.contains(&entry) {
+        return Ok(());
+    }
+    anyhow::bail!("reset path changed during reset: {}", display_path.display());
+}
+
+#[cfg(unix)]
+fn reset_child_fingerprint_entry(
+    parent_fd: std::os::fd::RawFd,
+    name: &std::ffi::OsStr,
+    relative_path: &Path,
+    display_path: &Path,
+    stat: &libc::stat,
+    budget: &mut ResetFingerprintBudget,
+) -> anyhow::Result<String> {
+    let mut fingerprint = reset_stat_metadata_fingerprint(stat);
+    if reset_stat_is_file(stat) {
+        fingerprint.push_str(";sha256=");
+        fingerprint.push_str(&reset_child_file_content_sha256(
+            parent_fd,
+            name,
+            display_path,
+            stat,
+            budget,
+        )?);
+    }
+    Ok(format!("{}={fingerprint}", reset_manifest_path_key(relative_path)))
+}
+
+#[cfg(unix)]
+fn reset_child_file_content_sha256(
+    parent_fd: std::os::fd::RawFd,
+    name: &std::ffi::OsStr,
+    display_path: &Path,
+    expected: &libc::stat,
+    budget: &mut ResetFingerprintBudget,
+) -> anyhow::Result<String> {
+    let mut file = open_reset_child_file(parent_fd, name, display_path)?;
+    let opened = file
+        .metadata()
+        .with_context(|| format!("inspect reset file {}", display_path.display()))?;
+    if reset_metadata_fingerprint(&opened) != reset_stat_metadata_fingerprint(expected) {
+        anyhow::bail!("reset path changed during fingerprint: {}", display_path.display());
+    }
+    let mut hash = Sha256::new();
+    let mut buffer = [0_u8; 8192];
+    loop {
+        let read = file.read(&mut buffer).with_context(|| {
+            format!("read reset file for fingerprint {}", display_path.display())
+        })?;
+        if read == 0 {
+            break;
+        }
+        budget.add_file_bytes(display_path, read as u64)?;
+        hash.update(&buffer[..read]);
+    }
+    let current = reset_child_stat(parent_fd, name, display_path)?;
+    if reset_stat_metadata_fingerprint(&current) != reset_stat_metadata_fingerprint(expected) {
+        anyhow::bail!("reset path changed during fingerprint: {}", display_path.display());
+    }
+    Ok(hex_sha256(hash.finalize().into()))
+}
+
+#[cfg(unix)]
+struct ResetDirStream(*mut libc::DIR);
+
+#[cfg(unix)]
+impl Drop for ResetDirStream {
+    fn drop(&mut self) {
+        // SAFETY: fdopendir returned this DIR pointer and ownership belongs to this guard.
+        unsafe {
+            libc::closedir(self.0);
+        }
+    }
+}
+
+#[cfg(unix)]
+fn reset_dir_child_names(
+    directory: &File,
+    display_path: &Path,
+    label: &str,
+) -> anyhow::Result<Vec<std::ffi::OsString>> {
+    use std::os::fd::AsRawFd;
+    use std::os::unix::ffi::OsStrExt;
+
+    // SAFETY: dup only duplicates this valid directory file descriptor.
+    let duplicate = unsafe { libc::dup(directory.as_raw_fd()) };
+    if duplicate < 0 {
+        return Err(std::io::Error::last_os_error())
+            .with_context(|| format!("read {label} {}", display_path.display()));
+    }
+    // SAFETY: fdopendir takes ownership of the duplicated descriptor on success.
+    let raw_stream = unsafe { libc::fdopendir(duplicate) };
+    if raw_stream.is_null() {
+        let error = std::io::Error::last_os_error();
+        // SAFETY: fdopendir did not take ownership when it failed.
+        unsafe {
+            libc::close(duplicate);
+        }
+        return Err(error).with_context(|| format!("read {label} {}", display_path.display()));
+    }
+    let stream = ResetDirStream(raw_stream);
+    // fdopendir takes a duplicated descriptor, but dup shares the directory
+    // cursor with the original file description. Rewind every scan so repeated
+    // safety passes cannot inherit an end-of-directory cursor.
+    // SAFETY: stream owns a valid DIR pointer.
+    unsafe {
+        libc::rewinddir(stream.0);
+    }
+    let mut names = Vec::new();
+    loop {
+        set_reset_readdir_errno(0);
+        // SAFETY: stream owns a valid DIR pointer for the duration of this loop.
+        let entry = unsafe { libc::readdir(stream.0) };
+        if entry.is_null() {
+            let errno = reset_readdir_errno();
+            if errno == 0 {
+                break;
+            }
+            return Err(std::io::Error::from_raw_os_error(errno))
+                .with_context(|| format!("read {label} {}", display_path.display()));
+        }
+        // SAFETY: d_name is a nul-terminated C string for a live dirent.
+        let name = unsafe { std::ffi::CStr::from_ptr((*entry).d_name.as_ptr()) };
+        let name = name.to_bytes();
+        if name == b"." || name == b".." {
+            continue;
+        }
+        names.push(std::ffi::OsStr::from_bytes(name).to_os_string());
+    }
+    Ok(names)
+}
+
+#[cfg(any(target_os = "linux", target_os = "android"))]
+fn set_reset_readdir_errno(value: libc::c_int) {
+    // SAFETY: libc returns this thread's writable errno location.
+    unsafe { *libc::__errno_location() = value };
+}
+
+#[cfg(any(target_os = "linux", target_os = "android"))]
+fn reset_readdir_errno() -> libc::c_int {
+    // SAFETY: libc returns this thread's readable errno location.
+    unsafe { *libc::__errno_location() }
+}
+
+#[cfg(any(target_vendor = "apple", target_os = "freebsd", target_os = "dragonfly"))]
+fn set_reset_readdir_errno(value: libc::c_int) {
+    // SAFETY: libc returns this thread's writable errno location.
+    unsafe { *libc::__error() = value };
+}
+
+#[cfg(any(target_vendor = "apple", target_os = "freebsd", target_os = "dragonfly"))]
+fn reset_readdir_errno() -> libc::c_int {
+    // SAFETY: libc returns this thread's readable errno location.
+    unsafe { *libc::__error() }
+}
+
+#[cfg(any(target_os = "netbsd", target_os = "openbsd"))]
+fn set_reset_readdir_errno(value: libc::c_int) {
+    // SAFETY: libc returns this thread's writable errno location.
+    unsafe { *libc::__errno() = value };
+}
+
+#[cfg(any(target_os = "netbsd", target_os = "openbsd"))]
+fn reset_readdir_errno() -> libc::c_int {
+    // SAFETY: libc returns this thread's readable errno location.
+    unsafe { *libc::__errno() }
+}
+
+#[cfg(any(target_os = "solaris", target_os = "illumos"))]
+fn set_reset_readdir_errno(value: libc::c_int) {
+    // SAFETY: libc returns this thread's writable errno location.
+    unsafe { *libc::___errno() = value };
+}
+
+#[cfg(any(target_os = "solaris", target_os = "illumos"))]
+fn reset_readdir_errno() -> libc::c_int {
+    // SAFETY: libc returns this thread's readable errno location.
+    unsafe { *libc::___errno() }
+}
+
+#[cfg(all(
+    unix,
+    not(any(
+        target_os = "linux",
+        target_os = "android",
+        target_vendor = "apple",
+        target_os = "freebsd",
+        target_os = "dragonfly",
+        target_os = "netbsd",
+        target_os = "openbsd",
+        target_os = "solaris",
+        target_os = "illumos"
+    ))
+))]
+fn set_reset_readdir_errno(_value: libc::c_int) {}
+
+#[cfg(all(
+    unix,
+    not(any(
+        target_os = "linux",
+        target_os = "android",
+        target_vendor = "apple",
+        target_os = "freebsd",
+        target_os = "dragonfly",
+        target_os = "netbsd",
+        target_os = "openbsd",
+        target_os = "solaris",
+        target_os = "illumos"
+    ))
+))]
+fn reset_readdir_errno() -> libc::c_int {
+    0
+}
+
+#[cfg(unix)]
+fn open_reset_child_file(
+    parent_fd: std::os::fd::RawFd,
+    name: &std::ffi::OsStr,
+    display_path: &Path,
+) -> anyhow::Result<File> {
+    use std::os::fd::FromRawFd;
+
+    let name = reset_child_c_string(name, display_path)?;
+    loop {
+        // SAFETY: openat reads a nul-terminated child name relative to a valid parent directory fd.
+        let fd = unsafe {
+            libc::openat(
+                parent_fd,
+                name.as_ptr(),
+                libc::O_RDONLY | libc::O_CLOEXEC | libc::O_NOFOLLOW,
+            )
+        };
+        if fd >= 0 {
+            // SAFETY: openat returned a new owned file descriptor.
+            return Ok(unsafe { File::from_raw_fd(fd) });
+        }
+        let error = std::io::Error::last_os_error();
+        if error.kind() == std::io::ErrorKind::Interrupted {
+            continue;
+        }
+        return Err(error).with_context(|| format!("open reset file {}", display_path.display()));
+    }
+}
+
+#[cfg(unix)]
+fn open_reset_child_dir(
+    parent_fd: std::os::fd::RawFd,
+    name: &std::ffi::OsStr,
+    display_path: &Path,
+) -> anyhow::Result<File> {
+    use std::os::fd::FromRawFd;
+
+    let name = reset_child_c_string(name, display_path)?;
+    loop {
+        // SAFETY: openat reads a nul-terminated child name relative to a valid parent directory fd.
+        let fd = unsafe {
+            libc::openat(
+                parent_fd,
+                name.as_ptr(),
+                libc::O_RDONLY | libc::O_CLOEXEC | libc::O_DIRECTORY | libc::O_NOFOLLOW,
+            )
+        };
+        if fd >= 0 {
+            // SAFETY: openat returned a new owned file descriptor.
+            return Ok(unsafe { File::from_raw_fd(fd) });
+        }
+        let error = std::io::Error::last_os_error();
+        if error.kind() == std::io::ErrorKind::Interrupted {
+            continue;
+        }
+        return Err(error).with_context(|| format!("open reset dir {}", display_path.display()));
+    }
+}
+
+#[cfg(unix)]
+fn reset_child_stat(
+    parent_fd: std::os::fd::RawFd,
+    name: &std::ffi::OsStr,
+    display_path: &Path,
+) -> anyhow::Result<libc::stat> {
+    let name = reset_child_c_string(name, display_path)?;
+    loop {
+        let mut stat = std::mem::MaybeUninit::<libc::stat>::uninit();
+        // SAFETY: fstatat writes to stat and reads a nul-terminated child name relative to parent_fd.
+        let result = unsafe {
+            libc::fstatat(parent_fd, name.as_ptr(), stat.as_mut_ptr(), libc::AT_SYMLINK_NOFOLLOW)
+        };
+        if result == 0 {
+            // SAFETY: fstatat initialized stat on success.
+            return Ok(unsafe { stat.assume_init() });
+        }
+        let error = std::io::Error::last_os_error();
+        if error.kind() == std::io::ErrorKind::Interrupted {
+            continue;
+        }
+        return Err(error)
+            .with_context(|| format!("inspect reset path {}", display_path.display()));
+    }
+}
+
+#[cfg(unix)]
+fn reset_unlink_child(
+    parent_fd: std::os::fd::RawFd,
+    name: &std::ffi::OsStr,
+    display_path: &Path,
+    flags: i32,
+) -> anyhow::Result<()> {
+    let name = reset_child_c_string(name, display_path)?;
+    loop {
+        // SAFETY: unlinkat reads a nul-terminated child name relative to a valid parent directory fd.
+        let result = unsafe { libc::unlinkat(parent_fd, name.as_ptr(), flags) };
+        if result == 0 {
+            return Ok(());
+        }
+        let error = std::io::Error::last_os_error();
+        if error.kind() == std::io::ErrorKind::Interrupted {
+            continue;
+        }
+        return Err(error).with_context(|| format!("remove reset path {}", display_path.display()));
+    }
+}
+
+#[cfg(any(target_os = "ios", target_os = "macos"))]
+fn reset_rename_child_exclusive(
+    parent_fd: std::os::fd::RawFd,
+    from: &std::ffi::OsStr,
+    to: &std::ffi::OsStr,
+    from_display: &Path,
+    to_display: &Path,
+) -> anyhow::Result<()> {
+    let from = reset_child_c_string(from, from_display)?;
+    let to = reset_child_c_string(to, to_display)?;
+    loop {
+        // SAFETY: renameatx_np reads nul-terminated names relative to a valid parent directory fd.
+        let result = unsafe {
+            libc::renameatx_np(parent_fd, from.as_ptr(), parent_fd, to.as_ptr(), libc::RENAME_EXCL)
+        };
+        if result == 0 {
+            return Ok(());
+        }
+        let error = std::io::Error::last_os_error();
+        if error.kind() == std::io::ErrorKind::Interrupted {
+            continue;
+        }
+        return Err(error).with_context(|| {
+            format!(
+                "move reset path {} to private path {}",
+                from_display.display(),
+                to_display.display()
+            )
+        });
+    }
+}
+
+#[cfg(any(target_os = "linux", target_os = "android"))]
+fn reset_rename_child_exclusive(
+    parent_fd: std::os::fd::RawFd,
+    from: &std::ffi::OsStr,
+    to: &std::ffi::OsStr,
+    from_display: &Path,
+    to_display: &Path,
+) -> anyhow::Result<()> {
+    let from = reset_child_c_string(from, from_display)?;
+    let to = reset_child_c_string(to, to_display)?;
+    loop {
+        // SAFETY: renameat2 reads nul-terminated names relative to a valid parent directory fd.
+        let result = unsafe {
+            libc::syscall(
+                libc::SYS_renameat2,
+                parent_fd,
+                from.as_ptr(),
+                parent_fd,
+                to.as_ptr(),
+                libc::RENAME_NOREPLACE,
+            )
+        };
+        if result == 0 {
+            return Ok(());
+        }
+        let error = std::io::Error::last_os_error();
+        if error.kind() == std::io::ErrorKind::Interrupted {
+            continue;
+        }
+        return Err(error).with_context(|| {
+            format!(
+                "move reset path {} to private path {}",
+                from_display.display(),
+                to_display.display()
+            )
+        });
+    }
+}
+
+#[cfg(all(
+    unix,
+    not(any(target_os = "ios", target_os = "macos", target_os = "linux", target_os = "android"))
+))]
+fn reset_rename_child_exclusive(
+    _parent_fd: std::os::fd::RawFd,
+    _from: &std::ffi::OsStr,
+    _to: &std::ffi::OsStr,
+    from_display: &Path,
+    _to_display: &Path,
+) -> anyhow::Result<()> {
+    unsupported_checked_reset_deletion(from_display, "saved state")
+}
+
+#[cfg(unix)]
+fn reset_child_c_string(
+    name: &std::ffi::OsStr,
+    display_path: &Path,
+) -> anyhow::Result<std::ffi::CString> {
+    use std::os::unix::ffi::OsStrExt;
+
+    std::ffi::CString::new(name.as_bytes())
+        .with_context(|| format!("reset path has an invalid file name: {}", display_path.display()))
+}
+
+#[cfg(unix)]
+fn reset_stat_is_dir(stat: &libc::stat) -> bool {
+    stat.st_mode & libc::S_IFMT == libc::S_IFDIR
+}
+
+#[cfg(unix)]
+fn reset_stat_is_file(stat: &libc::stat) -> bool {
+    stat.st_mode & libc::S_IFMT == libc::S_IFREG
+}
+
+#[cfg(unix)]
+fn reset_stat_kind(stat: &libc::stat) -> libc::mode_t {
+    stat.st_mode & libc::S_IFMT
+}
+
+#[cfg(unix)]
+fn reset_stat_metadata_fingerprint(stat: &libc::stat) -> String {
+    let kind = if reset_stat_is_dir(stat) {
+        "dir"
+    } else if reset_stat_is_file(stat) {
+        "file"
+    } else if stat.st_mode & libc::S_IFMT == libc::S_IFLNK {
+        "symlink"
+    } else {
+        "other"
+    };
+    format!(
+        "{kind}:dev={},ino={},mode={},len={},mtime={}.{}",
+        reset_stat_device(stat),
+        reset_stat_inode(stat),
+        stat.st_mode,
+        stat.st_size,
+        reset_stat_mtime_seconds(stat),
+        reset_stat_mtime_nanoseconds(stat)
+    )
+}
+
+#[cfg(all(unix, not(any(target_vendor = "apple", target_os = "aix", target_os = "hurd"))))]
+fn reset_stat_mtime_seconds(stat: &libc::stat) -> i64 {
+    stat.st_mtime
+}
+
+#[cfg(any(target_os = "aix", target_os = "hurd"))]
+fn reset_stat_mtime_seconds(stat: &libc::stat) -> i64 {
+    stat.st_mtim.tv_sec
+}
+
+#[cfg(all(unix, target_vendor = "apple"))]
+fn reset_stat_mtime_seconds(stat: &libc::stat) -> i64 {
+    // Rust libc exposes Darwin's st_mtimespec through these stable aliases.
+    stat.st_mtime
+}
+
+#[cfg(all(unix, not(any(target_vendor = "apple", target_os = "aix", target_os = "hurd"))))]
+fn reset_stat_mtime_nanoseconds(stat: &libc::stat) -> i64 {
+    stat.st_mtime_nsec
+}
+
+#[cfg(any(target_os = "aix", target_os = "hurd"))]
+fn reset_stat_mtime_nanoseconds(stat: &libc::stat) -> i64 {
+    stat.st_mtim.tv_nsec
+}
+
+#[cfg(all(unix, target_vendor = "apple"))]
+fn reset_stat_mtime_nanoseconds(stat: &libc::stat) -> i64 {
+    // Rust libc exposes Darwin's st_mtimespec through these stable aliases.
+    stat.st_mtime_nsec
+}
+
+#[cfg(unix)]
+fn reset_stat_device(stat: &libc::stat) -> u64 {
+    #[cfg(any(target_os = "linux", target_os = "android"))]
+    {
+        stat.st_dev
+    }
+    #[cfg(not(any(target_os = "linux", target_os = "android")))]
+    {
+        stat.st_dev as u64
+    }
+}
+
+#[cfg(unix)]
+fn reset_stat_inode(stat: &libc::stat) -> u64 {
+    stat.st_ino
+}
+
+#[cfg(not(unix))]
+fn remove_reset_dir_all(
+    path: &Path,
+    label: &str,
+    _fingerprint_label: &str,
+    _expected_fingerprint: &str,
+) -> anyhow::Result<()> {
+    unsupported_checked_reset_deletion(path, label)
+}
+
+fn ensure_checked_reset_deletion_supported(root: &Path) -> anyhow::Result<()> {
+    #[cfg(test)]
+    {
+        let mut unsupported_root = RESET_UNSUPPORTED_CHECKED_DELETION_ROOT.lock().unwrap();
+        if unsupported_root.as_deref() == Some(root) {
+            *unsupported_root = None;
+            return unsupported_checked_reset_deletion(root, "saved state");
+        }
+    }
+    #[cfg(any(target_os = "ios", target_os = "macos", target_os = "linux", target_os = "android"))]
+    {
+        let _ = root;
+        Ok(())
+    }
+    #[cfg(not(any(
+        target_os = "ios",
+        target_os = "macos",
+        target_os = "linux",
+        target_os = "android"
+    )))]
+    {
+        unsupported_checked_reset_deletion(root, "saved state")
+    }
+}
+
+#[cfg(any(
+    test,
+    not(any(target_os = "ios", target_os = "macos", target_os = "linux", target_os = "android"))
+))]
+fn unsupported_checked_reset_deletion(path: &Path, label: &str) -> anyhow::Result<()> {
+    anyhow::bail!(
+        "safe saved-state reset is not supported on this platform because cmux cannot verify {label} during deletion: {}",
+        path.display()
+    )
+}
+
+fn reset_path_fingerprint(
+    path: &Path,
+    metadata: &fs::Metadata,
+    budget: &mut ResetFingerprintBudget,
+    stable_directory_identity: bool,
+) -> anyhow::Result<String> {
+    let mut fingerprint = if stable_directory_identity && metadata.file_type().is_dir() {
+        reset_stable_directory_identity_fingerprint(metadata)
+    } else {
+        reset_metadata_fingerprint(metadata)
+    };
+    if metadata.file_type().is_file() {
+        fingerprint.push_str(";sha256=");
+        fingerprint.push_str(&reset_file_content_sha256(path, metadata, budget)?);
+    }
+    Ok(fingerprint)
+}
+
+#[cfg(unix)]
+fn reset_stable_directory_identity_fingerprint(metadata: &fs::Metadata) -> String {
+    use std::os::unix::fs::MetadataExt;
+
+    format!("dir:dev={},ino={},uid={}", metadata.dev(), metadata.ino(), metadata.uid())
+}
+
+#[cfg(not(unix))]
+fn reset_stable_directory_identity_fingerprint(metadata: &fs::Metadata) -> String {
+    reset_metadata_fingerprint(metadata)
+}
+
+fn reset_metadata_fingerprint(metadata: &fs::Metadata) -> String {
+    let kind = if metadata.file_type().is_dir() {
+        "dir"
+    } else if metadata.file_type().is_file() {
+        "file"
+    } else if metadata.file_type().is_symlink() {
+        "symlink"
+    } else {
+        "other"
+    };
+    format!("{kind}:{}", metadata_identity(metadata))
+}
+
+fn reset_file_content_sha256(
+    path: &Path,
+    expected: &fs::Metadata,
+    budget: &mut ResetFingerprintBudget,
+) -> anyhow::Result<String> {
+    let mut file = open_reset_fingerprint_file(path)
+        .with_context(|| format!("open reset file {}", path.display()))?;
+    let opened =
+        file.metadata().with_context(|| format!("inspect reset file {}", path.display()))?;
+    if reset_metadata_fingerprint(&opened) != reset_metadata_fingerprint(expected) {
+        anyhow::bail!("reset path changed during fingerprint: {}", path.display());
+    }
+    let mut hash = Sha256::new();
+    let mut buffer = [0_u8; 8192];
+    loop {
+        let read = file
+            .read(&mut buffer)
+            .with_context(|| format!("read reset file for fingerprint {}", path.display()))?;
+        if read == 0 {
+            break;
+        }
+        budget.add_file_bytes(path, read as u64)?;
+        hash.update(&buffer[..read]);
+    }
+    let current = fs::symlink_metadata(path)
+        .with_context(|| format!("inspect reset file {}", path.display()))?;
+    if reset_metadata_fingerprint(&current) != reset_metadata_fingerprint(expected) {
+        anyhow::bail!("reset path changed during fingerprint: {}", path.display());
+    }
+    Ok(hex_sha256(hash.finalize().into()))
+}
+
+#[cfg(unix)]
+fn open_reset_fingerprint_file(path: &Path) -> std::io::Result<File> {
+    use std::os::unix::fs::OpenOptionsExt;
+
+    OpenOptions::new().read(true).custom_flags(libc::O_CLOEXEC | libc::O_NOFOLLOW).open(path)
+}
+
+#[cfg(not(unix))]
+fn open_reset_fingerprint_file(path: &Path) -> std::io::Result<File> {
+    File::open(path)
+}
+
+#[cfg(unix)]
+fn metadata_identity(metadata: &fs::Metadata) -> String {
+    use std::os::unix::fs::MetadataExt;
+
+    format!(
+        "dev={},ino={},mode={},len={},mtime={}.{}",
+        metadata.dev(),
+        metadata.ino(),
+        metadata.mode(),
+        metadata.len(),
+        metadata.mtime(),
+        metadata.mtime_nsec()
+    )
+}
+
+#[cfg(not(unix))]
+fn metadata_identity(metadata: &fs::Metadata) -> String {
+    let modified = metadata
+        .modified()
+        .ok()
+        .and_then(|time| time.duration_since(std::time::UNIX_EPOCH).ok())
+        .map(|duration| format!("{}.{}", duration.as_secs(), duration.subsec_nanos()))
+        .unwrap_or_else(|| "unknown".into());
+    format!(
+        "readonly={},len={},modified={modified}",
+        metadata.permissions().readonly(),
+        metadata.len()
+    )
+}
+
+fn sqlite_filesystem_path(path: &Path) -> anyhow::Result<Cow<'_, Path>> {
+    #[cfg(windows)]
+    {
+        let parent =
+            path.parent().ok_or_else(|| anyhow::anyhow!("workspace state path has no parent"))?;
+        let file_name = path
+            .file_name()
+            .ok_or_else(|| anyhow::anyhow!("workspace state path has no file name"))?;
+        let parent = fs::canonicalize(parent).context("resolve workspace state directory")?;
+        Ok(Cow::Owned(parent.join(file_name)))
+    }
+    #[cfg(not(windows))]
+    {
+        Ok(Cow::Borrowed(path))
+    }
+}
+
+fn open_registry_database_with_flags(path: &Path, flags: OpenFlags) -> anyhow::Result<Connection> {
+    let path = sqlite_filesystem_path(path)?;
+    #[cfg(windows)]
+    {
+        Ok(Connection::open_with_flags_and_vfs(path.as_ref(), flags, "win32-longpath")?)
+    }
+    #[cfg(not(windows))]
+    {
+        Ok(Connection::open_with_flags(path.as_ref(), flags)?)
+    }
+}
+
+fn open_registry_database(path: &Path) -> anyhow::Result<Connection> {
+    open_registry_database_with_flags(path, OpenFlags::default())
+}
+
+fn open_registry_database_read_only(path: &Path) -> anyhow::Result<Connection> {
+    open_registry_database_with_flags(path, OpenFlags::SQLITE_OPEN_READ_ONLY)
+}
+
+impl std::fmt::Debug for WorkspaceRegistry {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("WorkspaceRegistry")
+            .field("registry_id", &self.registry_id)
+            .field("generation", &self.generation)
+            .field("session_name", &self.session_name)
+            .finish_non_exhaustive()
+    }
+}
+
+impl WorkspaceRegistry {
+    pub fn in_memory(session_name: &str) -> anyhow::Result<Self> {
+        let connection = Connection::open_in_memory()?;
+        Self::initialize(
+            connection,
+            session_name.to_string(),
+            MachinePublicId::random()?,
+            ResourceEffectPepper::random()?,
+            None,
+            None,
+            None,
+        )
+    }
+
+    pub fn open(root: &Path, session_name: &str) -> anyhow::Result<Self> {
+        let root = platform::normalize_filesystem_path(root.to_path_buf());
+        // Keep short roots in their existing spelling while giving all
+        // root-level files the same long-path handling as their descendants.
+        let session_dir =
+            platform::normalize_filesystem_path(root.join(session_storage_component(session_name)));
+        // Normalize the complete database path. The state root can be below
+        // the legacy MAX_PATH threshold while its session and database
+        // descendants exceed it.
+        let db_path =
+            platform::normalize_filesystem_path(session_dir.join(WORKSPACE_REGISTRY_FILE));
+        if db_path.is_file()
+            && let Some(error) = preflight_unsupported_schema(&db_path)
+        {
+            return Err(error.into());
+        }
+        let session_guard = acquire_session_guard(&root, session_name)?;
+        let machine_id = load_or_create_machine_id(&root)?;
+        let resource_effect_pepper = load_or_create_resource_effect_pepper(&root)?;
+        fs::create_dir_all(&session_dir).with_context(|| {
+            format!("create workspace state directory {}", session_dir.display())
+        })?;
+        platform::restrict_directory(&session_dir)?;
+        if db_path.is_file()
+            && let Some(error) = preflight_unsupported_schema(&db_path)
+        {
+            return Err(error.into());
+        }
+        let session_lock =
+            platform::normalize_filesystem_path(session_dir.join(SESSION_WRITER_LOCK_FILE));
+        let lease = SessionLease::acquire(&session_lock)?;
+        let connection = open_registry_database(&db_path)
+            .with_context(|| format!("open workspace registry {}", db_path.display()))?;
+        platform::restrict_file(&db_path)?;
+        Self::initialize(
+            connection,
+            session_name.to_string(),
+            machine_id,
+            resource_effect_pepper,
+            Some(session_guard),
+            Some(lease),
+            Some(db_path),
+        )
+    }
+
+    fn initialize(
+        connection: Connection,
+        session_name: String,
+        machine_id: MachinePublicId,
+        resource_effect_pepper: ResourceEffectPepper,
+        session_guard: Option<SessionLease>,
+        lease: Option<SessionLease>,
+        database_path: Option<PathBuf>,
+    ) -> anyhow::Result<Self> {
+        connection.busy_timeout(std::time::Duration::from_secs(5))?;
+        let fresh_database = connection.query_row(
+            "SELECT COUNT(*) = 0 FROM sqlite_master WHERE type = 'table'",
+            [],
+            |row| row.get::<_, bool>(0),
+        )?;
+        if fresh_database {
+            connection.execute_batch("PRAGMA auto_vacuum=INCREMENTAL;")?;
+        }
+        connection.execute_batch(
+            "PRAGMA foreign_keys=ON;
+             PRAGMA journal_mode=WAL;
+             PRAGMA synchronous=FULL;
+             PRAGMA fullfsync=ON;
+             PRAGMA wal_autocheckpoint=1000;
+             CREATE TABLE IF NOT EXISTS meta (
+               key TEXT PRIMARY KEY NOT NULL,
+               value TEXT NOT NULL
+             );",
+        )?;
+
+        let stored_schema = meta_value(&connection, "schema_version")?;
+        let stored_schema = stored_schema
+            .as_deref()
+            .map(str::parse::<i64>)
+            .transpose()
+            .context("workspace registry schema is invalid")?;
+        // Existing registries may carry the pre-multiview terminal-to-workspace
+        // foreign key even when a development build already stamped the
+        // current schema number. Revalidate and normalize every existing DB.
+        let migrate_existing_registry = stored_schema.is_some();
+        if migrate_existing_registry {
+            connection.execute_batch("PRAGMA foreign_keys=OFF;")?;
+        }
+        let cleanup_pending =
+            match meta_value(&connection, RESOURCE_EFFECT_PEPPER_CLEANUP_META_KEY)?.as_deref() {
+                None => false,
+                Some("1") => true,
+                Some(_) => anyhow::bail!("resource receipt pepper cleanup state is invalid"),
+            };
+        let needs_sensitive_receipt_cleanup = cleanup_pending
+            || stored_schema.is_some_and(|schema| schema < RESOURCE_EFFECT_PEPPER_SCHEMA_VERSION);
+        if needs_sensitive_receipt_cleanup {
+            connection.execute_batch("PRAGMA secure_delete=ON;")?;
+        }
+        let resource_effect_pepper_id = resource_effect_pepper.identifier();
+        match stored_schema {
+            Some(value) if value > SCHEMA_VERSION => {
+                return Err(UnsupportedWorkspaceRegistrySchema {
+                    found: value,
+                    newest_supported: SCHEMA_VERSION,
+                    registry_id: meta_value(&connection, "registry_id")?,
+                    database_path,
+                }
+                .into());
+            }
+            Some(value) if value == SCHEMA_VERSION => {
+                let tx = connection.unchecked_transaction()?;
+                create_workspace_schema(&tx)?;
+                create_terminal_schema(&tx)?;
+                create_resource_schema(&tx)?;
+                create_resource_effect_schema(&tx)?;
+                create_session_journal_schema(&tx)?;
+                tx.execute(
+                    "INSERT OR IGNORE INTO meta(key, value) VALUES('terminal_revision', '0')",
+                    [],
+                )?;
+                tx.execute(
+                    "INSERT OR IGNORE INTO meta(key, value) VALUES('resource_revision', '0')",
+                    [],
+                )?;
+                ensure_session_public_id(&tx)?;
+                backfill_workspace_public_ids(&tx)?;
+                require_resource_effect_pepper_id(&tx, &resource_effect_pepper_id)?;
+                tx.commit()?;
+            }
+            Some(9..=14) => {
+                let tx = connection.unchecked_transaction()?;
+                create_workspace_schema(&tx)?;
+                create_terminal_schema(&tx)?;
+                create_resource_schema(&tx)?;
+                create_resource_effect_schema(&tx)?;
+                normalize_journal_multiview_schema(&tx)?;
+                terminal_exit_store::migrate_legacy_terminal_exit_receipts(&tx)?;
+                tx.execute(
+                    "UPDATE meta SET value = ?1 WHERE key = 'schema_version'",
+                    [SCHEMA_VERSION.to_string()],
+                )?;
+                tx.commit()?;
+            }
+            Some(8) => {
+                let tx = connection.unchecked_transaction()?;
+                create_workspace_schema(&tx)?;
+                create_terminal_schema(&tx)?;
+                create_resource_schema(&tx)?;
+                create_resource_effect_schema(&tx)?;
+                tx.execute(
+                    "INSERT OR IGNORE INTO meta(key, value) VALUES('terminal_revision', '0')",
+                    [],
+                )?;
+                tx.execute(
+                    "INSERT OR IGNORE INTO meta(key, value) VALUES('resource_revision', '0')",
+                    [],
+                )?;
+                ensure_session_public_id(&tx)?;
+                backfill_workspace_public_ids(&tx)?;
+                migrate_resource_agent_projections(&tx)?;
+                normalize_journal_multiview_schema(&tx)?;
+                terminal_exit_store::migrate_legacy_terminal_exit_receipts(&tx)?;
+                require_resource_effect_pepper_id(&tx, &resource_effect_pepper_id)?;
+                tx.execute(
+                    "UPDATE meta SET value = ?1 WHERE key = 'schema_version'",
+                    [SCHEMA_VERSION.to_string()],
+                )?;
+                tx.commit()?;
+            }
+            Some(6) => {
+                let tx = connection.unchecked_transaction()?;
+                create_workspace_schema(&tx)?;
+                create_terminal_schema(&tx)?;
+                create_resource_schema(&tx)?;
+                create_resource_effect_schema(&tx)?;
+                tx.execute(
+                    "INSERT OR IGNORE INTO meta(key, value) VALUES('terminal_revision', '0')",
+                    [],
+                )?;
+                tx.execute(
+                    "INSERT OR IGNORE INTO meta(key, value) VALUES('resource_revision', '0')",
+                    [],
+                )?;
+                ensure_session_public_id(&tx)?;
+                backfill_workspace_public_ids(&tx)?;
+                migrate_resource_agent_projections(&tx)?;
+                normalize_journal_multiview_schema(&tx)?;
+                terminal_exit_store::migrate_legacy_terminal_exit_receipts(&tx)?;
+                migrate_resource_effect_pepper(&tx, &resource_effect_pepper_id)?;
+                tx.commit()?;
+            }
+            Some(7) => {
+                let tx = connection.unchecked_transaction()?;
+                create_workspace_schema(&tx)?;
+                create_terminal_schema(&tx)?;
+                create_resource_schema(&tx)?;
+                create_resource_effect_schema(&tx)?;
+                tx.execute(
+                    "INSERT OR IGNORE INTO meta(key, value) VALUES('terminal_revision', '0')",
+                    [],
+                )?;
+                tx.execute(
+                    "INSERT OR IGNORE INTO meta(key, value) VALUES('resource_revision', '0')",
+                    [],
+                )?;
+                ensure_session_public_id(&tx)?;
+                backfill_workspace_public_ids(&tx)?;
+                migrate_resource_agent_projections(&tx)?;
+                normalize_journal_multiview_schema(&tx)?;
+                terminal_exit_store::migrate_legacy_terminal_exit_receipts(&tx)?;
+                require_resource_effect_pepper_id(&tx, &resource_effect_pepper_id)?;
+                tx.execute(
+                    "UPDATE meta SET value = ?1 WHERE key = 'schema_version'",
+                    [SCHEMA_VERSION.to_string()],
+                )?;
+                tx.commit()?;
+            }
+            Some(5) => {
+                let tx = connection.unchecked_transaction()?;
+                create_workspace_schema(&tx)?;
+                create_terminal_schema(&tx)?;
+                create_resource_schema(&tx)?;
+                create_resource_effect_schema(&tx)?;
+                ensure_session_public_id(&tx)?;
+                migrate_resource_agent_projections(&tx)?;
+                normalize_journal_multiview_schema(&tx)?;
+                terminal_exit_store::migrate_legacy_terminal_exit_receipts(&tx)?;
+                migrate_resource_effect_pepper(&tx, &resource_effect_pepper_id)?;
+                tx.commit()?;
+            }
+            Some(4) => {
+                let tx = connection.unchecked_transaction()?;
+                create_workspace_schema(&tx)?;
+                create_terminal_schema(&tx)?;
+                create_resource_schema(&tx)?;
+                create_resource_effect_schema(&tx)?;
+                migrate_resource_browser_metadata(&tx)?;
+                ensure_session_public_id(&tx)?;
+                migrate_resource_agent_projections(&tx)?;
+                normalize_journal_multiview_schema(&tx)?;
+                terminal_exit_store::migrate_legacy_terminal_exit_receipts(&tx)?;
+                migrate_resource_effect_pepper(&tx, &resource_effect_pepper_id)?;
+                tx.commit()?;
+            }
+            Some(3) => {
+                let tx = connection.unchecked_transaction()?;
+                create_workspace_schema(&tx)?;
+                create_terminal_schema(&tx)?;
+                create_resource_schema(&tx)?;
+                migrate_resource_mutations_to_session_scope(&tx)?;
+                migrate_resource_browser_metadata(&tx)?;
+                create_resource_effect_schema(&tx)?;
+                ensure_session_public_id(&tx)?;
+                migrate_resource_agent_projections(&tx)?;
+                normalize_journal_multiview_schema(&tx)?;
+                terminal_exit_store::migrate_legacy_terminal_exit_receipts(&tx)?;
+                migrate_resource_effect_pepper(&tx, &resource_effect_pepper_id)?;
+                tx.commit()?;
+            }
+            Some(1 | 2) => {
+                let tx = connection.unchecked_transaction()?;
+                create_workspace_schema(&tx)?;
+                create_terminal_schema(&tx)?;
+                create_resource_schema(&tx)?;
+                create_resource_effect_schema(&tx)?;
+                migrate_resource_browser_metadata(&tx)?;
+                tx.execute(
+                    "INSERT OR IGNORE INTO meta(key, value) VALUES('terminal_revision', '0')",
+                    [],
+                )?;
+                tx.execute(
+                    "INSERT OR IGNORE INTO meta(key, value) VALUES('resource_revision', '0')",
+                    [],
+                )?;
+                ensure_session_public_id(&tx)?;
+                backfill_workspace_public_ids(&tx)?;
+                migrate_resource_agent_projections(&tx)?;
+                normalize_journal_multiview_schema(&tx)?;
+                terminal_exit_store::migrate_legacy_terminal_exit_receipts(&tx)?;
+                migrate_resource_effect_pepper(&tx, &resource_effect_pepper_id)?;
+                tx.commit()?;
+            }
+            Some(value) => {
+                anyhow::bail!(
+                    "unsupported workspace registry schema {value}; expected 1 through {SCHEMA_VERSION}"
+                );
+            }
+            None => {
+                let tx = connection.unchecked_transaction()?;
+                create_workspace_schema(&tx)?;
+                create_terminal_schema(&tx)?;
+                create_resource_schema(&tx)?;
+                create_session_journal_schema(&tx)?;
+                tx.execute(
+                    "INSERT INTO meta(key, value) VALUES('schema_version', ?1)",
+                    [SCHEMA_VERSION.to_string()],
+                )?;
+                tx.execute("INSERT INTO meta(key, value) VALUES('revision', '0')", [])?;
+                tx.execute("INSERT INTO meta(key, value) VALUES('terminal_revision', '0')", [])?;
+                tx.execute("INSERT INTO meta(key, value) VALUES('resource_revision', '0')", [])?;
+                tx.execute(
+                    "INSERT INTO meta(key, value) VALUES('session_name', ?1)",
+                    [&session_name],
+                )?;
+                tx.execute(
+                    "INSERT INTO meta(key, value) VALUES('registry_id', ?1)",
+                    [try_new_uuid_v4()?],
+                )?;
+                tx.execute(
+                    "INSERT INTO meta(key, value) VALUES(?1, ?2)",
+                    params![RESOURCE_EFFECT_PEPPER_META_KEY, resource_effect_pepper_id],
+                )?;
+                ensure_session_public_id(&tx)?;
+                tx.commit()?;
+            }
+        }
+        if migrate_existing_registry && resource_tabs_needs_multiview_normalization(&connection)? {
+            let tx = connection.unchecked_transaction()?;
+            migrate_resource_tabs_to_multiview(&tx)?;
+            tx.commit()?;
+        }
+        {
+            let tx = connection.unchecked_transaction()?;
+            resource_store::migrate_tab_name_authority(&tx)?;
+            tx.commit()?;
+        }
+        if terminal_hosts_has_workspace_foreign_key(&connection)? {
+            let tx = connection.unchecked_transaction()?;
+            migrate_terminal_hosts_to_session_ownership(&tx)?;
+            tx.commit()?;
+        }
+        // Probe the actual table shape instead of the stamped schema number:
+        // the column ships without a version bump so older builds keep opening
+        // this registry (they omit the column on writes and the durable
+        // default applies).
+        if !terminal_hosts_has_on_exit_column(&connection)? {
+            let tx = connection.unchecked_transaction()?;
+            migrate_terminal_hosts_add_on_exit(&tx)?;
+            tx.commit()?;
+        }
+        if migrate_existing_registry {
+            connection.execute_batch("PRAGMA foreign_keys=ON;")?;
+            let violation = connection
+                .query_row(
+                    "SELECT \"table\", rowid, parent, fkid
+                     FROM pragma_foreign_key_check
+                     LIMIT 1",
+                    [],
+                    |row| {
+                        Ok((
+                            row.get::<_, String>(0)?,
+                            row.get::<_, Option<i64>>(1)?,
+                            row.get::<_, String>(2)?,
+                            row.get::<_, i64>(3)?,
+                        ))
+                    },
+                )
+                .optional()?;
+            if violation.is_some() {
+                anyhow::bail!(
+                    "saved session data could not be loaded; start a new session or restore this session from a backup"
+                );
+            }
+        }
+        if needs_sensitive_receipt_cleanup {
+            checkpoint_and_truncate_wal(&connection)?;
+            connection.execute_batch("VACUUM;")?;
+            checkpoint_and_truncate_wal(&connection)?;
+            let tx = connection.unchecked_transaction()?;
+            tx.execute(
+                "DELETE FROM meta WHERE key = ?1",
+                [RESOURCE_EFFECT_PEPPER_CLEANUP_META_KEY],
+            )?;
+            tx.commit()?;
+        }
+        // Existing registries are migrated by the background journal
+        // maintenance worker. VACUUM can rewrite a large cloud registry, so
+        // startup only stamps fresh databases that already use incremental
+        // auto-vacuum and leaves legacy conversion for availability work after
+        // the mux is serving.
+        if fresh_database {
+            mark_journal_auto_vacuum_migrated(&connection)?;
+        }
+        {
+            let tx = connection.unchecked_transaction()?;
+            create_session_journal_schema(&tx)?;
+            create_resource_effect_schema(&tx)?;
+            create_journal_extensions_schema(&tx)?;
+            recover_resource_effects(&tx)?;
+            initialize_resource_input_receipt_retention(&tx)?;
+            initialize_resource_mutation_retention(&tx)?;
+            repair_dangling_terminal_resources(&tx)?;
+            restate_legacy_pending_panes(&tx)?;
+            tx.commit()?;
+        }
+        let stored_name = required_meta(&connection, "session_name")?;
+        if stored_name != session_name {
+            anyhow::bail!(
+                "workspace registry belongs to session {stored_name:?}, not {session_name:?}"
+            );
+        }
+        let registry_id = required_meta(&connection, "registry_id")?;
+        validate_identifier("registry id", &registry_id)?;
+        let session_id = SessionPublicId::parse(required_meta(&connection, "session_public_id")?)?;
+        check_registry_integrity(&connection)?;
+        {
+            let tx = connection.unchecked_transaction()?;
+            initialize_compatibility_active_workspace(&tx)?;
+            validate_resource_invariants(&tx)?;
+            tx.commit()?;
+        }
+        Ok(Self {
+            connection,
+            database_path,
+            registry_id,
+            generation: try_new_uuid_v4()?,
+            session_name,
+            machine_id,
+            session_id,
+            resource_effect_pepper,
+            #[cfg(test)]
+            resource_patch_failures_remaining: Cell::new(0),
+            #[cfg(test)]
+            topology_snapshot_failures_remaining: Cell::new(0),
+            #[cfg(test)]
+            journal_before_commit: None,
+            #[cfg(test)]
+            journal_after_commit_admission: None,
+            _session_guard: session_guard,
+            _lease: lease,
+        })
+    }
+
+    pub(crate) fn session_journal_database_path(&self) -> Option<PathBuf> {
+        self.database_path.clone()
+    }
+
+    pub(crate) fn resource_input_receipt_hmac(
+        &self,
+        idempotency_key: &str,
+        operation: &str,
+        canonical_fields: &[u8],
+    ) -> [u8; 32] {
+        self.resource_effect_pepper.input_receipt_hmac(idempotency_key, operation, canonical_fields)
+    }
+
+    pub fn snapshot(&self) -> anyhow::Result<RegistrySnapshot> {
+        let revision = current_revision(&self.connection)?;
+        let resource_revision = current_resource_revision(&self.connection)?;
+        let max_numeric_id = self.connection.query_row(
+            "SELECT COALESCE(MAX(numeric_id), 0) FROM workspaces",
+            [],
+            |row| row.get::<_, i64>(0),
+        )?;
+        let next_numeric_id = u64::try_from(max_numeric_id)
+            .context("stored workspace id is negative")?
+            .checked_add(1)
+            .ok_or_else(|| anyhow::anyhow!("workspace id space exhausted"))?;
+        let mut statement = self.connection.prepare(
+            "SELECT w.numeric_id, w.workspace_key, w.name, w.group_key, rw.public_id
+             FROM workspaces w
+             JOIN resource_workspaces rw ON rw.workspace_key = w.workspace_key
+             WHERE w.tombstoned = 0 AND rw.deleted_revision IS NULL
+             ORDER BY w.position ASC",
+        )?;
+        let workspaces = statement
+            .query_map([], |row| {
+                let id: i64 = row.get(0)?;
+                Ok((id, row.get(1)?, row.get(2)?, row.get(3)?, row.get(4)?))
+            })?
+            .map(|row| {
+                let (id, key, name, group_key, public_id): (i64, String, String, String, String) =
+                    row?;
+                Ok::<RegistryWorkspace, anyhow::Error>(RegistryWorkspace {
+                    id: u64::try_from(id).context("stored workspace id is negative")?,
+                    public_id: WorkspacePublicId::parse(public_id)?,
+                    key,
+                    name,
+                    group_key,
+                })
+            })
+            .collect::<Result<Vec<_>, _>>()?;
+        Ok(RegistrySnapshot {
+            registry_id: self.registry_id.clone(),
+            generation: self.generation.clone(),
+            revision,
+            resource_revision,
+            session_id: self.session_id.clone(),
+            next_numeric_id,
+            workspaces,
+        })
+    }
+
+    /// Read the resource cursor without materializing the workspace graph.
+    pub(crate) fn resource_revision(&self) -> anyhow::Result<u64> {
+        current_resource_revision(&self.connection)
+    }
+
+    /// Internal workspaces staged by an interrupted correlated creation.
+    ///
+    /// These rows are intentionally absent from the public resource tables
+    /// until the recovered effect can publish its complete topology in one
+    /// revision. The daemon rehydrates them only during startup so terminal
+    /// host adoption can finish that transaction.
+    pub(crate) fn interrupted_resource_workspaces(
+        &self,
+    ) -> anyhow::Result<Vec<(usize, RegistryWorkspace)>> {
+        let mut statement = self.connection.prepare(
+            "SELECT w.position, w.numeric_id, w.workspace_key, w.name, w.group_key,
+                    json_extract(
+                      creation.intent_json,
+                      '$.workspace_reservation.workspace_public_id'
+                    )
+             FROM workspaces w
+             JOIN resource_creation_receipts creation
+               ON json_extract(
+                    creation.intent_json,
+                    '$.workspace_reservation.workspace_key'
+                  ) = w.workspace_key
+             LEFT JOIN resource_workspaces rw
+               ON rw.workspace_key = w.workspace_key AND rw.deleted_revision IS NULL
+             WHERE w.tombstoned = 0
+               AND rw.public_id IS NULL
+               AND creation.execution_kind = 'effect'
+               AND creation.state = 'executing'
+             ORDER BY w.position ASC, creation.correlation_key ASC",
+        )?;
+        statement
+            .query_map([], |row| {
+                Ok((
+                    row.get::<_, i64>(0)?,
+                    row.get::<_, i64>(1)?,
+                    row.get::<_, String>(2)?,
+                    row.get::<_, String>(3)?,
+                    row.get::<_, String>(4)?,
+                    row.get::<_, Option<String>>(5)?,
+                ))
+            })?
+            .map(|row| {
+                let (position, id, key, name, group_key, public_id) = row?;
+                let public_id = public_id.with_context(|| {
+                    format!("interrupted workspace {key} omitted its reserved public id")
+                })?;
+                Ok((
+                    usize::try_from(position).context("staged workspace position is negative")?,
+                    RegistryWorkspace {
+                        id: u64::try_from(id).context("staged workspace id is negative")?,
+                        public_id: WorkspacePublicId::parse(public_id)?,
+                        key,
+                        name,
+                        group_key,
+                    },
+                ))
+            })
+            .collect()
+    }
+
+    pub fn registry_id(&self) -> &str {
+        &self.registry_id
+    }
+
+    pub fn generation(&self) -> &str {
+        &self.generation
+    }
+
+    pub fn session_id(&self) -> &SessionPublicId {
+        &self.session_id
+    }
+
+    pub fn machine_id(&self) -> &MachinePublicId {
+        &self.machine_id
+    }
+
+    /// The current terminal registry revision alone. Lookups that only need to
+    /// stamp their answer read this instead of materializing every terminal
+    /// row while holding the registry lock.
+    pub fn terminal_revision(&self) -> anyhow::Result<u64> {
+        current_terminal_revision(&self.connection)
+    }
+
+    /// Returns the canonical, non-tombstoned terminal placement projection.
+    /// Runtime surface ids and renderer process ids are intentionally absent.
+    pub fn terminal_snapshot(&self) -> anyhow::Result<TerminalRegistrySnapshot> {
+        let revision = current_terminal_revision(&self.connection)?;
+        let mut statement = self.connection.prepare(
+            "SELECT terminal_id, workspace_key, incarnation, lifecycle,
+                    launch_spec_json, exit_json, on_exit
+             FROM terminal_hosts
+             WHERE lifecycle != 'tombstoned'
+             ORDER BY created_revision ASC, terminal_id ASC",
+        )?;
+        let rows = statement.query_map([], |row| {
+            Ok((
+                row.get::<_, String>(0)?,
+                row.get::<_, String>(1)?,
+                row.get::<_, Option<String>>(2)?,
+                row.get::<_, String>(3)?,
+                row.get::<_, String>(4)?,
+                row.get::<_, Option<String>>(5)?,
+                row.get::<_, String>(6)?,
+            ))
+        })?;
+        let terminals =
+            rows.map(|row| terminal_from_stored(row?)).collect::<anyhow::Result<Vec<_>>>()?;
+        Ok(TerminalRegistrySnapshot {
+            registry_id: self.registry_id.clone(),
+            generation: self.generation.clone(),
+            revision,
+            terminals,
+        })
+    }
+
+    /// Includes tombstones and is intended for reconciliation and idempotent
+    /// close handling, not frontend materialization.
+    pub fn terminal_record(&self, terminal_id: &str) -> anyhow::Result<Option<RegistryTerminal>> {
+        validate_terminal_identity("terminal id", terminal_id)?;
+        read_terminal(&self.connection, terminal_id)
+    }
+
+    pub fn replay_terminal(
+        &self,
+        mutation: &WorkspaceMutation,
+        fingerprint: &Value,
+    ) -> anyhow::Result<Option<TerminalRegistryCommit>> {
+        validate_identifier("mutation id", &mutation.id)?;
+        validate_identifier("mutation origin", &mutation.origin)?;
+        let fingerprint = canonical_json(fingerprint)?;
+        terminal_replay(&self.connection, mutation, &fingerprint)
+>>>>>>> theirs
     }
 
     /// Commits one terminal state transition and its event in a single SQLite
@@ -1607,7 +3482,694 @@ impl WorkspaceRegistry {
             ],
         )?;
         tx.commit()?;
+<<<<<<< ours
         Ok(ProjectionCommit { projection: stored, replayed: unchanged, recorded: true })
+=======
+        Ok(ProjectionCommit { projection: stored, replayed: false })
+    }
+}
+
+fn mark_journal_auto_vacuum_migrated(connection: &Connection) -> anyhow::Result<()> {
+    connection.execute(
+        "INSERT INTO meta(key, value) VALUES(?1, '1')
+         ON CONFLICT(key) DO UPDATE SET value = excluded.value",
+        [JOURNAL_AUTO_VACUUM_META_KEY],
+    )?;
+    Ok(())
+}
+
+/// Convert registries created before journal maintenance to incremental
+/// auto-vacuum once. SQLite applies the auto-vacuum mode change during VACUUM;
+/// the marker keeps reopening an existing registry from repeating that work.
+fn migrate_journal_auto_vacuum(connection: &Connection) -> anyhow::Result<bool> {
+    if meta_value(connection, JOURNAL_AUTO_VACUUM_META_KEY)?.is_some() {
+        return Ok(false);
+    }
+    let auto_vacuum = connection.query_row("PRAGMA auto_vacuum", [], |row| row.get::<_, i64>(0))?;
+    if auto_vacuum != 2 {
+        eprintln!("cmux-tui: migrating session journal to incremental auto-vacuum");
+        connection.execute_batch("PRAGMA auto_vacuum=INCREMENTAL; VACUUM;")?;
+    }
+    mark_journal_auto_vacuum_migrated(connection)?;
+    Ok(auto_vacuum != 2)
+}
+
+fn require_resource_effect_pepper_id(
+    transaction: &Transaction<'_>,
+    expected: &str,
+) -> anyhow::Result<()> {
+    let stored = transaction
+        .query_row(
+            "SELECT value FROM meta WHERE key = ?1",
+            [RESOURCE_EFFECT_PEPPER_META_KEY],
+            |row| row.get::<_, String>(0),
+        )
+        .optional()?;
+    anyhow::ensure!(
+        stored.as_deref() == Some(expected),
+        "resource receipt pepper does not match this registry"
+    );
+    Ok(())
+}
+
+fn migrate_resource_effect_pepper(
+    transaction: &Transaction<'_>,
+    identifier: &str,
+) -> anyhow::Result<()> {
+    transaction.execute(
+        "INSERT INTO meta(key, value) VALUES(?1, '1')
+         ON CONFLICT(key) DO UPDATE SET value = excluded.value",
+        [RESOURCE_EFFECT_PEPPER_CLEANUP_META_KEY],
+    )?;
+    delete_legacy_sensitive_effect_receipts(transaction)?;
+    transaction.execute(
+        "INSERT INTO meta(key, value) VALUES(?1, ?2)
+         ON CONFLICT(key) DO UPDATE SET value = excluded.value",
+        params![RESOURCE_EFFECT_PEPPER_META_KEY, identifier],
+    )?;
+    transaction.execute(
+        "UPDATE meta SET value = ?1 WHERE key = 'schema_version'",
+        [SCHEMA_VERSION.to_string()],
+    )?;
+    Ok(())
+}
+
+/// Converge the two development schemas which independently used version 9.
+///
+/// The pre-multiview table has a table-level UNIQUE constraint on
+/// `resource_tabs.content_id`; SQLite exposes that constraint as an index with
+/// origin `u`. The multiview browser-only partial index has origin `c`, so the
+/// distinction survives formatting and index names.
+fn normalize_journal_multiview_schema(transaction: &Transaction<'_>) -> anyhow::Result<()> {
+    let legacy_content_identity = {
+        let mut indexes = transaction.prepare("PRAGMA index_list(resource_tabs)")?;
+        let indexes = indexes
+            .query_map([], |row| Ok((row.get::<_, String>(1)?, row.get::<_, String>(3)?)))?
+            .collect::<Result<Vec<_>, _>>()?;
+        let mut found = false;
+        for (name, origin) in indexes {
+            if origin != "u" {
+                continue;
+            }
+            let mut columns = transaction.prepare("SELECT name FROM pragma_index_info(?1)")?;
+            let columns = columns
+                .query_map([name], |row| row.get::<_, String>(0))?
+                .collect::<Result<Vec<_>, _>>()?;
+            if columns == ["content_id"] {
+                found = true;
+                break;
+            }
+        }
+        found
+    };
+    if legacy_content_identity {
+        migrate_resource_tabs_to_multiview(transaction)?;
+    }
+    migrate_resource_events_to_session_journal(transaction)?;
+    create_journal_extensions_schema(transaction)?;
+    migrate_resource_api_frontend_projection_envelopes(transaction)?;
+    Ok(())
+}
+
+fn migrate_resource_api_frontend_projection_envelopes(
+    transaction: &Transaction<'_>,
+) -> anyhow::Result<()> {
+    let rows = {
+        let mut statement = transaction.prepare(
+            "SELECT subject_key, schema_version, payload
+             FROM frontend_projections
+             WHERE frontend = 'resource-api' AND scope = 'session'
+             ORDER BY subject_key",
+        )?;
+        statement
+            .query_map([], |row| {
+                Ok((row.get::<_, String>(0)?, row.get::<_, i64>(1)?, row.get::<_, String>(2)?))
+            })?
+            .collect::<Result<Vec<_>, _>>()?
+    };
+    for (subject_key, schema_version, payload) in rows {
+        FrontendProjectionPublicId::parse(subject_key.clone())?;
+        if schema_version == i64::from(RESOURCE_API_FRONTEND_PROJECTION_SCHEMA_VERSION) {
+            continue;
+        }
+        anyhow::ensure!(
+            schema_version == 1,
+            "resource API frontend projection {subject_key} has unsupported schema version {schema_version}"
+        );
+        let projection: Value = serde_json::from_str(&payload).with_context(|| {
+            format!("resource API frontend projection {subject_key} contains invalid JSON")
+        })?;
+        let envelope = serde_json::json!({
+            "frontend_id":"legacy-resource-api",
+            "window_id":subject_key,
+            "generation":"legacy-schema-13",
+            "projection":projection,
+        });
+        let payload = canonical_json(&envelope)?;
+        anyhow::ensure!(
+            payload.len() <= MAX_PROJECTION_BYTES,
+            "migrated resource API frontend projection exceeds {MAX_PROJECTION_BYTES} bytes"
+        );
+        transaction.execute(
+            "UPDATE frontend_projections
+             SET schema_version = ?1, payload = ?2
+             WHERE frontend = 'resource-api' AND scope = 'session' AND subject_key = ?3",
+            params![
+                i64::from(RESOURCE_API_FRONTEND_PROJECTION_SCHEMA_VERSION),
+                payload,
+                subject_key,
+            ],
+        )?;
+    }
+    Ok(())
+}
+
+/// Tables that hold journal history rather than registry state. They grow
+/// with every terminal output chunk (millions of rows, gigabytes on a
+/// long-lived machine) and are append-only or sealed archives whose records
+/// are validated when they are read, so the open-time check skips them.
+const JOURNAL_HISTORY_TABLES: [&str; 7] = [
+    "session_journal",
+    "journal_subject_index",
+    "journal_event_index",
+    "journal_segments",
+    "journal_checkpoints",
+    "journal_content_blobs",
+    "journal_segment_kinds",
+];
+
+/// Structural check of the registry state on open. An unscoped quick_check
+/// reads every page of the file, so its cost tracked total journal history;
+/// checking each state table and its indexes keeps startup proportional to
+/// the registry, not to how much output its terminals ever printed.
+fn check_registry_integrity(connection: &Connection) -> anyhow::Result<()> {
+    let tables = {
+        let mut statement = connection.prepare(
+            "SELECT name FROM sqlite_master
+             WHERE type = 'table' AND name NOT LIKE 'sqlite\\_%' ESCAPE '\\'
+             ORDER BY name",
+        )?;
+        statement.query_map([], |row| row.get::<_, String>(0))?.collect::<Result<Vec<_>, _>>()?
+    };
+    for table in tables.iter().filter(|table| !JOURNAL_HISTORY_TABLES.contains(&table.as_str())) {
+        let pragma = format!("PRAGMA quick_check('{}')", table.replace('\'', "''"));
+        let result: String = connection.query_row(&pragma, [], |row| row.get(0))?;
+        if result != "ok" {
+            return Err(RegistryIntegrityFailure { report: result }.into());
+        }
+    }
+    // History is validated incrementally when replayed. Touch only each
+    // table's newest indexed row during open so a corrupt tail page is caught
+    // without turning startup back into a full-journal scan.
+    for (table, order) in [
+        ("session_journal", "sequence"),
+        ("journal_subject_index", "sequence"),
+        ("journal_event_index", "sequence"),
+        ("journal_segments", "end_sequence"),
+        ("journal_checkpoints", "source_sequence"),
+        ("journal_content_blobs", "created_at_ms"),
+    ] {
+        let query = format!("SELECT 1 FROM {table} ORDER BY {order} DESC LIMIT 1");
+        let _: Option<i64> = connection.query_row(&query, [], |row| row.get(0)).optional()?;
+    }
+    Ok(())
+}
+
+fn checkpoint_and_truncate_wal(connection: &Connection) -> anyhow::Result<()> {
+    let (busy, _, _): (i64, i64, i64) =
+        connection.query_row("PRAGMA wal_checkpoint(TRUNCATE)", [], |row| {
+            Ok((row.get(0)?, row.get(1)?, row.get(2)?))
+        })?;
+    anyhow::ensure!(busy == 0, "resource receipt cleanup could not truncate the SQLite WAL");
+    Ok(())
+}
+
+fn create_workspace_schema(transaction: &Transaction<'_>) -> anyhow::Result<()> {
+    transaction.execute_batch(
+        "CREATE TABLE IF NOT EXISTS workspaces (
+           workspace_key TEXT PRIMARY KEY NOT NULL,
+           numeric_id INTEGER UNIQUE NOT NULL,
+           name TEXT NOT NULL,
+           group_key TEXT NOT NULL,
+           position INTEGER,
+           tombstoned INTEGER NOT NULL DEFAULT 0 CHECK(tombstoned IN (0,1)),
+           created_revision INTEGER NOT NULL,
+           updated_revision INTEGER NOT NULL,
+           deleted_revision INTEGER
+         );
+         CREATE UNIQUE INDEX IF NOT EXISTS live_workspace_position
+           ON workspaces(position) WHERE tombstoned = 0;
+         CREATE TABLE IF NOT EXISTS mutations (
+           origin TEXT NOT NULL,
+           mutation_id TEXT NOT NULL,
+           fingerprint TEXT NOT NULL,
+           result_json TEXT NOT NULL,
+           committed_revision INTEGER NOT NULL,
+           PRIMARY KEY(origin, mutation_id)
+         );
+         CREATE TABLE IF NOT EXISTS workspace_events (
+           revision INTEGER PRIMARY KEY NOT NULL,
+           kind TEXT NOT NULL,
+           workspace_key TEXT NOT NULL,
+           origin TEXT NOT NULL,
+           mutation_id TEXT NOT NULL,
+           result_json TEXT NOT NULL
+         );
+         CREATE TABLE IF NOT EXISTS frontend_projections (
+           frontend TEXT NOT NULL,
+           scope TEXT NOT NULL,
+           subject_key TEXT NOT NULL,
+           schema_version INTEGER NOT NULL,
+           projection_revision INTEGER NOT NULL,
+           payload TEXT NOT NULL,
+           PRIMARY KEY(frontend, scope, subject_key)
+         );
+         CREATE TABLE IF NOT EXISTS projection_mutations (
+           origin TEXT NOT NULL,
+           mutation_id TEXT NOT NULL,
+           fingerprint TEXT NOT NULL,
+           result_json TEXT NOT NULL,
+           PRIMARY KEY(origin, mutation_id)
+         );",
+    )?;
+    Ok(())
+}
+
+fn create_terminal_schema(transaction: &Transaction<'_>) -> anyhow::Result<()> {
+    let legacy_exists: bool = transaction.query_row(
+        "SELECT EXISTS(
+           SELECT 1 FROM sqlite_master
+           WHERE type = 'table' AND name = 'terminal_placements'
+         )",
+        [],
+        |row| row.get(0),
+    )?;
+    let hosts_exist: bool = transaction.query_row(
+        "SELECT EXISTS(
+           SELECT 1 FROM sqlite_master
+           WHERE type = 'table' AND name = 'terminal_hosts'
+         )",
+        [],
+        |row| row.get(0),
+    )?;
+    anyhow::ensure!(
+        !(legacy_exists && hosts_exist),
+        "workspace registry contains both legacy terminal placements and terminal hosts"
+    );
+    if legacy_exists {
+        transaction.execute_batch("ALTER TABLE terminal_placements RENAME TO terminal_hosts;")?;
+    }
+    transaction.execute_batch(
+        "CREATE TABLE IF NOT EXISTS terminal_hosts (
+           terminal_id TEXT PRIMARY KEY NOT NULL,
+           workspace_key TEXT NOT NULL,
+           incarnation TEXT,
+           lifecycle TEXT NOT NULL CHECK(
+             lifecycle IN ('launching','adopting','running','exited','tombstoned')
+           ),
+           launch_spec_json TEXT NOT NULL,
+           exit_json TEXT,
+           on_exit TEXT NOT NULL DEFAULT 'close' CHECK(on_exit IN ('close','keep')),
+           created_revision INTEGER NOT NULL,
+           updated_revision INTEGER NOT NULL,
+           deleted_revision INTEGER
+         );
+         CREATE UNIQUE INDEX IF NOT EXISTS terminal_incarnation
+           ON terminal_hosts(incarnation) WHERE incarnation IS NOT NULL;
+         CREATE INDEX IF NOT EXISTS live_terminals_by_workspace
+           ON terminal_hosts(workspace_key, updated_revision)
+           WHERE lifecycle != 'tombstoned';
+         CREATE TABLE IF NOT EXISTS terminal_mutations (
+           origin TEXT NOT NULL,
+           mutation_id TEXT NOT NULL,
+           fingerprint TEXT NOT NULL,
+           result_json TEXT NOT NULL,
+           committed_revision INTEGER NOT NULL,
+           PRIMARY KEY(origin, mutation_id)
+         );
+         CREATE TABLE IF NOT EXISTS terminal_events (
+           revision INTEGER PRIMARY KEY NOT NULL,
+           kind TEXT NOT NULL,
+           terminal_id TEXT NOT NULL,
+           workspace_key TEXT NOT NULL,
+           origin TEXT NOT NULL,
+           mutation_id TEXT NOT NULL,
+           result_json TEXT NOT NULL
+         );
+         CREATE INDEX IF NOT EXISTS terminal_events_by_terminal
+           ON terminal_events(terminal_id, revision);",
+    )?;
+    idle_policy_store::create_terminal_idle_policy_schema(transaction)?;
+    terminal_unplaced_store::create_terminal_unplaced_schema(transaction)?;
+    Ok(())
+}
+
+fn terminal_hosts_has_workspace_foreign_key(connection: &Connection) -> anyhow::Result<bool> {
+    let mut statement = connection.prepare("PRAGMA foreign_key_list(terminal_hosts)")?;
+    let mut rows = statement.query([])?;
+    while let Some(row) = rows.next()? {
+        let table = row.get::<_, String>(2)?;
+        let from = row.get::<_, String>(3)?;
+        if table == "workspaces" && from == "workspace_key" {
+            return Ok(true);
+        }
+    }
+    Ok(false)
+}
+
+fn terminal_hosts_has_on_exit_column(connection: &Connection) -> anyhow::Result<bool> {
+    let mut statement = connection.prepare("PRAGMA table_info(terminal_hosts)")?;
+    let mut rows = statement.query([])?;
+    while let Some(row) = rows.next()? {
+        if row.get::<_, String>(1)? == "on_exit" {
+            return Ok(true);
+        }
+    }
+    Ok(false)
+}
+
+/// Add the per-terminal exit policy to registries created before the column
+/// existed. Every pre-existing terminal keeps today's close-on-exit behavior.
+fn migrate_terminal_hosts_add_on_exit(transaction: &Transaction<'_>) -> anyhow::Result<()> {
+    transaction.execute_batch(
+        "ALTER TABLE terminal_hosts ADD COLUMN on_exit TEXT NOT NULL DEFAULT 'close'
+           CHECK(on_exit IN ('close','keep'));",
+    )?;
+    Ok(())
+}
+
+/// Remove the legacy ownership edge from terminals to workspaces. The
+/// workspace key remains useful placement history, but terminal lifetime is
+/// session-owned and therefore survives removal of every view.
+fn migrate_terminal_hosts_to_session_ownership(
+    transaction: &Transaction<'_>,
+) -> anyhow::Result<()> {
+    transaction.execute_batch(
+        "DROP INDEX IF EXISTS terminal_incarnation;
+         DROP INDEX IF EXISTS live_terminals_by_workspace;
+         CREATE TABLE terminal_hosts_session_owned (
+           terminal_id TEXT PRIMARY KEY NOT NULL,
+           workspace_key TEXT NOT NULL,
+           incarnation TEXT,
+           lifecycle TEXT NOT NULL CHECK(
+             lifecycle IN ('launching','adopting','running','exited','tombstoned')
+           ),
+           launch_spec_json TEXT NOT NULL,
+           exit_json TEXT,
+           created_revision INTEGER NOT NULL,
+           updated_revision INTEGER NOT NULL,
+           deleted_revision INTEGER
+         );
+         INSERT INTO terminal_hosts_session_owned(
+           terminal_id, workspace_key, incarnation, lifecycle, launch_spec_json,
+           exit_json, created_revision, updated_revision, deleted_revision
+         )
+         SELECT terminal_id, workspace_key, incarnation, lifecycle, launch_spec_json,
+                exit_json, created_revision, updated_revision, deleted_revision
+         FROM terminal_hosts;
+         DROP TABLE terminal_hosts;
+         ALTER TABLE terminal_hosts_session_owned RENAME TO terminal_hosts;
+         CREATE UNIQUE INDEX terminal_incarnation
+           ON terminal_hosts(incarnation) WHERE incarnation IS NOT NULL;
+         CREATE INDEX live_terminals_by_workspace
+           ON terminal_hosts(workspace_key, updated_revision)
+           WHERE lifecycle != 'tombstoned';",
+    )?;
+    Ok(())
+}
+
+fn ensure_session_public_id(transaction: &Transaction<'_>) -> anyhow::Result<SessionPublicId> {
+    let stored = transaction
+        .query_row("SELECT value FROM meta WHERE key = 'session_public_id'", [], |row| {
+            row.get::<_, String>(0)
+        })
+        .optional()?;
+    if let Some(stored) = stored {
+        return Ok(SessionPublicId::parse(stored)?);
+    }
+    let session_id = SessionPublicId::random()?;
+    transaction.execute(
+        "INSERT INTO meta(key, value) VALUES('session_public_id', ?1)",
+        [session_id.as_str()],
+    )?;
+    Ok(session_id)
+}
+
+fn backfill_workspace_public_ids(transaction: &Transaction<'_>) -> anyhow::Result<()> {
+    let rows = {
+        let mut statement = transaction.prepare(
+            "SELECT workspace_key, created_revision, updated_revision, deleted_revision
+             FROM workspaces
+             WHERE workspace_key NOT IN (SELECT workspace_key FROM resource_workspaces)
+               AND NOT EXISTS (
+                 SELECT 1
+                 FROM resource_creation_receipts creation
+                 WHERE creation.execution_kind = 'effect'
+                   AND creation.state = 'executing'
+                   AND json_extract(
+                         creation.intent_json,
+                         '$.workspace_reservation.workspace_key'
+                       ) = workspaces.workspace_key
+               )
+             ORDER BY created_revision ASC, workspace_key ASC",
+        )?;
+        statement
+            .query_map([], |row| {
+                Ok((
+                    row.get::<_, String>(0)?,
+                    row.get::<_, i64>(1)?,
+                    row.get::<_, i64>(2)?,
+                    row.get::<_, Option<i64>>(3)?,
+                ))
+            })?
+            .collect::<Result<Vec<_>, _>>()?
+    };
+    for (workspace_key, created_revision, updated_revision, deleted_revision) in rows {
+        let public_id = WorkspacePublicId::random()?;
+        transaction.execute(
+            "INSERT INTO resource_identities(
+               public_id, kind, created_revision, updated_revision, deleted_revision
+             ) VALUES(?1, 'workspace', ?2, ?3, ?4)",
+            params![public_id.as_str(), created_revision, updated_revision, deleted_revision],
+        )?;
+        transaction.execute(
+            "INSERT INTO resource_workspaces(
+               public_id, workspace_key, active_screen_id,
+               created_revision, updated_revision, deleted_revision
+             ) VALUES(?1, ?2, NULL, ?3, ?4, ?5)",
+            params![
+                public_id.as_str(),
+                workspace_key,
+                created_revision,
+                updated_revision,
+                deleted_revision
+            ],
+        )?;
+    }
+    Ok(())
+}
+
+/// Seed the shared compatibility default after legacy workspace backfill.
+///
+/// Frontends keep their actual focus in client-local state. The registry still
+/// exposes one default for legacy commands and initial placement, and older
+/// registries can have live public workspaces without that metadata. Preserve
+/// any stored value so invariant validation still rejects dangling selections.
+fn initialize_compatibility_active_workspace(transaction: &Transaction<'_>) -> anyhow::Result<()> {
+    if meta_value(transaction, "active_workspace_id")?.is_some() {
+        return Ok(());
+    }
+    let active_workspace = transaction
+        .query_row(
+            "SELECT rw.public_id
+             FROM workspaces w
+             JOIN resource_workspaces rw ON rw.workspace_key = w.workspace_key
+             WHERE w.tombstoned = 0 AND rw.deleted_revision IS NULL
+             ORDER BY w.position ASC, w.workspace_key ASC
+             LIMIT 1",
+            [],
+            |row| row.get::<_, String>(0),
+        )
+        .optional()?;
+    if let Some(active_workspace) = active_workspace {
+        transaction.execute(
+            "INSERT INTO meta(key, value) VALUES('active_workspace_id', ?1)",
+            [active_workspace],
+        )?;
+    }
+    Ok(())
+}
+
+fn upsert_workspace_resource(
+    transaction: &Transaction<'_>,
+    workspace: &RegistryWorkspace,
+    revision: i64,
+) -> anyhow::Result<()> {
+    if transaction
+        .query_row(
+            "SELECT tombstoned FROM workspaces WHERE workspace_key = ?1",
+            [&workspace.key],
+            |row| row.get::<_, i64>(0),
+        )
+        .optional()?
+        == Some(1)
+    {
+        anyhow::bail!("tombstoned workspace key cannot be reused: {}", workspace.key);
+    }
+    if let Some((stored_id, deleted_revision)) = transaction
+        .query_row(
+            "SELECT public_id, deleted_revision
+             FROM resource_workspaces WHERE workspace_key = ?1",
+            [&workspace.key],
+            |row| Ok((row.get::<_, String>(0)?, row.get::<_, Option<i64>>(1)?)),
+        )
+        .optional()?
+    {
+        if stored_id != workspace.public_id.as_str() {
+            anyhow::bail!(
+                "workspace key {} is already bound to public id {}",
+                workspace.key,
+                stored_id
+            );
+        }
+        if deleted_revision.is_some() {
+            anyhow::bail!("tombstoned workspace id cannot be reused: {}", workspace.public_id);
+        }
+    }
+    if let Some((stored_key, deleted_revision)) = transaction
+        .query_row(
+            "SELECT workspace_key, deleted_revision
+             FROM resource_workspaces WHERE public_id = ?1",
+            [workspace.public_id.as_str()],
+            |row| Ok((row.get::<_, String>(0)?, row.get::<_, Option<i64>>(1)?)),
+        )
+        .optional()?
+    {
+        if stored_key != workspace.key {
+            anyhow::bail!(
+                "workspace public id {} is already bound to key {}",
+                workspace.public_id,
+                stored_key
+            );
+        }
+        if deleted_revision.is_some() {
+            anyhow::bail!("tombstoned workspace id cannot be reused: {}", workspace.public_id);
+        }
+    }
+    if let Some((kind, deleted_revision)) = transaction
+        .query_row(
+            "SELECT kind, deleted_revision FROM resource_identities WHERE public_id = ?1",
+            [workspace.public_id.as_str()],
+            |row| Ok((row.get::<_, String>(0)?, row.get::<_, Option<i64>>(1)?)),
+        )
+        .optional()?
+    {
+        if kind != "workspace" {
+            anyhow::bail!("public id {} has resource kind {kind}", workspace.public_id);
+        }
+        if deleted_revision.is_some() {
+            anyhow::bail!("tombstoned workspace id cannot be reused: {}", workspace.public_id);
+        }
+    }
+    transaction.execute(
+        "INSERT INTO resource_identities(
+           public_id, kind, created_revision, updated_revision, deleted_revision
+         ) VALUES(?1, 'workspace', ?2, ?2, NULL)
+         ON CONFLICT(public_id) DO UPDATE SET
+           updated_revision=excluded.updated_revision",
+        params![workspace.public_id.as_str(), revision],
+    )?;
+    transaction.execute(
+        "INSERT INTO resource_workspaces(
+           public_id, workspace_key, active_screen_id,
+           created_revision, updated_revision, deleted_revision
+         ) VALUES(?1, ?2, NULL, ?3, ?3, NULL)
+         ON CONFLICT(public_id) DO UPDATE SET
+           updated_revision=excluded.updated_revision",
+        params![workspace.public_id.as_str(), workspace.key, revision],
+    )?;
+    Ok(())
+}
+
+fn normalized_workspace_resource_deltas(
+    session_id: &SessionPublicId,
+    workspaces: &[RegistryWorkspace],
+    active_workspace: Option<&str>,
+    before: &ResourceTopologySnapshot,
+) -> anyhow::Result<Value> {
+    let mut deltas = workspaces
+        .iter()
+        .enumerate()
+        .map(|(index, workspace)| {
+            Ok(serde_json::json!({
+                "kind":"upsert",
+                "sequence":index,
+                "resource":"workspace",
+                "id":workspace.public_id,
+                "value":{
+                    "id":workspace.public_id,
+                    "session_id":session_id,
+                    "name":workspace.name,
+                    "index":u32::try_from(index)
+                        .context("workspace index exceeds public uint32 range")?,
+                    "focused":active_workspace == Some(workspace.public_id.as_str()),
+                },
+            }))
+        })
+        .collect::<anyhow::Result<Vec<_>>>()?;
+    let live_workspaces =
+        workspaces.iter().map(|workspace| workspace.public_id.clone()).collect::<HashSet<_>>();
+    let removed_workspaces = before
+        .active_screens
+        .iter()
+        .filter(|(workspace, _)| !live_workspaces.contains(workspace))
+        .map(|(workspace, _)| workspace.clone())
+        .collect::<Vec<_>>();
+    let removed_workspace_ids = removed_workspaces.iter().cloned().collect::<HashSet<_>>();
+    let removed_screens = before
+        .screens
+        .iter()
+        .filter(|screen| removed_workspace_ids.contains(&screen.workspace_id))
+        .map(|screen| screen.public_id.clone())
+        .collect::<Vec<_>>();
+    let removed_screen_ids = removed_screens.iter().cloned().collect::<HashSet<_>>();
+    let removed_panes = before
+        .panes
+        .iter()
+        .filter(|pane| removed_screen_ids.contains(&pane.screen_id))
+        .map(|pane| pane.public_id.clone())
+        .collect::<Vec<_>>();
+    let removed_pane_ids = removed_panes.iter().cloned().collect::<HashSet<_>>();
+    let removed_tabs = before
+        .tabs
+        .iter()
+        .filter(|tab| removed_pane_ids.contains(&tab.pane_id))
+        .collect::<Vec<_>>();
+    let mut push_delete = |resource: &str, id: &str| {
+        let sequence = deltas.len();
+        deltas.push(serde_json::json!({
+            "kind":"delete",
+            "sequence":sequence,
+            "resource":resource,
+            "id":id,
+        }));
+    };
+    for tab in &removed_tabs {
+        match &tab.content_id {
+            ContentPublicId::Terminal(id) => push_delete("terminal", id.as_str()),
+            ContentPublicId::Browser(id) => push_delete("browser", id.as_str()),
+        }
+        push_delete("tab", tab.public_id.as_str());
+    }
+    for pane in &removed_panes {
+        push_delete("pane", pane.as_str());
+    }
+    for screen in &removed_screens {
+        push_delete("screen", screen.as_str());
+    }
+    for workspace in &removed_workspaces {
+        push_delete("workspace", workspace.as_str());
+>>>>>>> theirs
     }
 }
 

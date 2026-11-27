@@ -126,7 +126,7 @@ const irohMinterUrl = z.string().url().superRefine((value, context) => {
     });
   }
 });
-const publicationAuthOrigin = z.string().url().superRefine((value, context) => {
+const bareHttpsOrigin = (name: string) => z.string().url().superRefine((value, context) => {
   let parsed: URL | null = null;
   try {
     parsed = new URL(value);
@@ -146,10 +146,15 @@ const publicationAuthOrigin = z.string().url().superRefine((value, context) => {
     context.addIssue({
       code: z.ZodIssueCode.custom,
       message:
-        "CMUX_VM_PUBLICATION_AUTH_ORIGIN must be a bare https:// origin with no path, query, or credentials",
+        `${name} must be a bare https:// origin with no path, query, or credentials`,
     });
   }
 });
+const publicationAuthOrigin = bareHttpsOrigin("CMUX_VM_PUBLICATION_AUTH_ORIGIN");
+const publicationForwardAuthOrigin = z.preprocess(
+  (value) => typeof value === "string" && value.trim() === "" ? undefined : value,
+  bareHttpsOrigin("CMUX_VM_PUBLICATION_FORWARD_AUTH_ORIGIN").optional(),
+);
 const irohBindingLimit = z.string().regex(/^[1-9][0-9]{0,3}$/).superRefine((value, context) => {
   if (Number(value) > 4_096) {
     context.addIssue({
@@ -302,11 +307,23 @@ export const env = createEnv({
     STRIPE_PRO_YEARLY_480_PRICE_ID: z.string().min(1).optional(),
     STRIPE_MAX_MONTHLY_200_PRICE_ID: z.string().min(1).optional(),
     STRIPE_MAX_YEARLY_1920_PRICE_ID: z.string().min(1).optional(),
+<<<<<<< ours
     STRIPE_STARTER_MONTHLY_20_PRICE_ID: retiredEnvValue(
       "STRIPE_STARTER_MONTHLY_20_PRICE_ID",
       "STRIPE_STARTER_MONTHLY_15_PRICE_ID",
     ),
     STRIPE_STARTER_MONTHLY_15_PRICE_ID: z.string().min(1).optional(),
+=======
+    STRIPE_STARTER_MONTHLY_20_PRICE_ID: retiredEnvValue(
+      "STRIPE_STARTER_MONTHLY_20_PRICE_ID",
+      "STRIPE_STARTER_MONTHLY_15_PRICE_ID",
+    ),
+    STRIPE_STARTER_MONTHLY_15_PRICE_ID: z.string().min(1).optional(),
+    // cmux NEXT Cloud plans. Unset means that plan is not for sale yet.
+    STRIPE_PRICE_NEXT_PLUS_MONTHLY: z.string().min(1).optional(),
+    STRIPE_PRICE_NEXT_PRO_MONTHLY: z.string().min(1).optional(),
+    STRIPE_PRICE_NEXT_MAX_MONTHLY: z.string().min(1).optional(),
+>>>>>>> theirs
     // Optional pin for the Pro <-> Max portal configuration; otherwise the
     // configuration is found by its metadata (see services/billing/stripe.ts).
     STRIPE_PERSONAL_PLAN_SWITCH_PORTAL_CONFIGURATION_ID: z.string().min(1).optional(),
@@ -350,6 +367,10 @@ export const env = createEnv({
     // pushed to Freestyle as the account-wide forward-auth target. It is never
     // derived from a request; protected publications fail closed without it.
     CMUX_VM_PUBLICATION_AUTH_ORIGIN: publicationAuthOrigin.optional(),
+    // Optional origin Freestyle calls for forward-auth when it differs from
+    // the sign-in origin, e.g. a tunnel to a development stack the edge can't
+    // reach. Unset in production: the auth origin serves both.
+    CMUX_VM_PUBLICATION_FORWARD_AUTH_ORIGIN: publicationForwardAuthOrigin.optional(),
     // Zone generated Cloud VM publication hostnames are minted under
     // (<random>.<zone>). The CMUX Freestyle account must own it: verify the
     // zone, CNAME `*` to the Freestyle edge, delegate `_acme-challenge`, and
@@ -370,6 +391,8 @@ export const env = createEnv({
     // Hosted coderouter and Subrouter have no plan, permission, or team
     // allow-list gate: team membership is the only access requirement.
     CRON_SECRET: z.string().min(1).optional(),
+    // Bearer token for the Billing nightly's read of /api/cron/apple-notifications/health.
+    APPLE_NOTIFICATIONS_HEALTH_TOKEN: z.string().min(1).optional(),
     CMUX_ALERTS_SLACK_WEBHOOK_URL: z.string().url().optional(),
     // Preserve the legacy VM alert range. The VM consumers already apply
     // their compatibility fallback for zero and unsafe values.
@@ -550,8 +573,16 @@ export const env = createEnv({
     STRIPE_PRO_YEARLY_480_PRICE_ID: trimEnv(process.env.STRIPE_PRO_YEARLY_480_PRICE_ID),
     STRIPE_MAX_MONTHLY_200_PRICE_ID: trimEnv(process.env.STRIPE_MAX_MONTHLY_200_PRICE_ID),
     STRIPE_MAX_YEARLY_1920_PRICE_ID: trimEnv(process.env.STRIPE_MAX_YEARLY_1920_PRICE_ID),
+<<<<<<< ours
     STRIPE_STARTER_MONTHLY_20_PRICE_ID: trimEnv(process.env.STRIPE_STARTER_MONTHLY_20_PRICE_ID),
     STRIPE_STARTER_MONTHLY_15_PRICE_ID: trimEnv(process.env.STRIPE_STARTER_MONTHLY_15_PRICE_ID),
+=======
+    STRIPE_STARTER_MONTHLY_20_PRICE_ID: trimEnv(process.env.STRIPE_STARTER_MONTHLY_20_PRICE_ID),
+    STRIPE_STARTER_MONTHLY_15_PRICE_ID: trimEnv(process.env.STRIPE_STARTER_MONTHLY_15_PRICE_ID),
+    STRIPE_PRICE_NEXT_PLUS_MONTHLY: trimEnv(process.env.STRIPE_PRICE_NEXT_PLUS_MONTHLY) || undefined,
+    STRIPE_PRICE_NEXT_PRO_MONTHLY: trimEnv(process.env.STRIPE_PRICE_NEXT_PRO_MONTHLY) || undefined,
+    STRIPE_PRICE_NEXT_MAX_MONTHLY: trimEnv(process.env.STRIPE_PRICE_NEXT_MAX_MONTHLY) || undefined,
+>>>>>>> theirs
     STRIPE_PERSONAL_PLAN_SWITCH_PORTAL_CONFIGURATION_ID: trimEnv(
       process.env.STRIPE_PERSONAL_PLAN_SWITCH_PORTAL_CONFIGURATION_ID,
     ),
@@ -584,6 +615,10 @@ export const env = createEnv({
     CMUX_VM_PUBLICATION_AUTH_ORIGIN: trimEnv(
       process.env.CMUX_VM_PUBLICATION_AUTH_ORIGIN,
     ),
+    // Blank (as in .env.example) means unset, not an invalid origin.
+    CMUX_VM_PUBLICATION_FORWARD_AUTH_ORIGIN: trimEnv(
+      process.env.CMUX_VM_PUBLICATION_FORWARD_AUTH_ORIGIN,
+    ) || undefined,
     CMUX_VM_PUBLICATION_GENERATED_DOMAIN: trimEnv(
       process.env.CMUX_VM_PUBLICATION_GENERATED_DOMAIN,
     ),
@@ -591,6 +626,7 @@ export const env = createEnv({
       process.env.CMUX_VM_PUBLICATION_SIGN_IN_RATE_LIMIT_ID,
     ),
     CRON_SECRET: trimEnv(process.env.CRON_SECRET),
+    APPLE_NOTIFICATIONS_HEALTH_TOKEN: trimEnv(process.env.APPLE_NOTIFICATIONS_HEALTH_TOKEN),
     CMUX_ALERTS_SLACK_WEBHOOK_URL: trimEnv(process.env.CMUX_ALERTS_SLACK_WEBHOOK_URL),
     CMUX_VM_ALERT_CREATE_FAILURES_15M: trimEnv(process.env.CMUX_VM_ALERT_CREATE_FAILURES_15M),
     CMUX_VM_ALERT_EXPIRED_LEASES: trimEnv(process.env.CMUX_VM_ALERT_EXPIRED_LEASES),

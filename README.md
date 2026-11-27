@@ -416,7 +416,11 @@ macOS only, for now. cmux is a native Swift + AppKit app.
 
 ### Is there an iOS app?
 
+<<<<<<< HEAD
 Yes, in beta. Pair your iPhone with your Mac from the Mobile Connect window and attach to your terminals from your phone, with optional forwarding of terminal notifications. It ships on TestFlight as cmux BETA. See the [iOS docs](https://cmux.com/docs/ios).
+=======
+Yes, in beta. Pair your iPhone with your Mac from the Mobile Connect window and attach to your terminals from your phone, with optional forwarding of terminal notifications. It ships on TestFlight as cmux BETA. Early access is included with [cmux Pro](https://cmux.com/api/billing/checkout?plan=pro). See the [iOS docs](https://cmux.com/docs/ios).
+>>>>>>> origin/main
 
 ### What coding agents does cmux work with?
 
@@ -476,7 +480,11 @@ Yes, cmux is free to use. The source code is available on [GitHub](https://githu
 
 ### How can I support cmux?
 
+<<<<<<< HEAD
 cmux is free and open source, and always will be.
+=======
+cmux is free and open source, and always will be. If you want to back development and get early access to what's next, including cmux AI, the iOS app, and Cloud VMs, check out [cmux Pro](https://cmux.com/api/billing/checkout?plan=pro).
+>>>>>>> origin/main
 
 ### I have a feature request or found a bug?
 
@@ -525,6 +533,15 @@ Ways to get involved:
   <img src="./docs/assets/wechat-community-qr.jpg" alt="WeChat QR code to join the cmux community" width="240" />
 </p>
 
+<<<<<<< HEAD
+=======
+## cmux Pro
+
+cmux is free, open source, and always will be. If you'd like to support development and get early access to what's coming next:
+
+**[Get cmux Pro](https://cmux.com/api/billing/checkout?plan=pro)**
+
+>>>>>>> origin/main
 ## Install
 
 ### DMG (recommended)

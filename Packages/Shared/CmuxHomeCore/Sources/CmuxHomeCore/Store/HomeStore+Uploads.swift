@@ -74,7 +74,10 @@ extension HomeStore {
                 log.setUploading(key, false)
                 log.fail(key, failure)
                 leaveSendQueue(key)
+<<<<<<< HEAD
                 holdSendChain(after: key)
+=======
+>>>>>>> origin/main
                 afterLogChange(entry.intent.op)
                 throw failure
             }
@@ -190,16 +193,23 @@ extension HomeStore {
         job.reachedOwner = false
         uploads[newKey] = job
         log.rekey(key, to: newKey)
+<<<<<<< HEAD
         for index in sendChains.indices {
             if let at = sendChains[index].firstIndex(of: key) { sendChains[index][at] = newKey }
         }
+=======
+>>>>>>> origin/main
     }
 
     /// The op with each attachment part's mime type, byte count and poster
     /// (and each link preview picture's mime type and byte count) taken from
     /// the owner's stored ref for its hash.
     static func adopting(_ stored: [String: AttachmentRef], in op: HomeOp) -> HomeOp {
+<<<<<<< HEAD
         guard case .sendMessage(let conversation, let parts, let threadRoot, let parent) = op else { return op }
+=======
+        guard case .sendMessage(let conversation, let parts, let threadRoot) = op else { return op }
+>>>>>>> origin/main
         let adopted = parts.map { part -> MessagePart in
             switch part {
             case .attachment(var ref):
@@ -218,7 +228,11 @@ extension HomeStore {
                 return part
             }
         }
+<<<<<<< HEAD
         return .sendMessage(conversation: conversation, parts: adopted, threadRoot: threadRoot, parent: parent)
+=======
+        return .sendMessage(conversation: conversation, parts: adopted, threadRoot: threadRoot)
+>>>>>>> origin/main
     }
 
     /// Uploads, at most `uploadConcurrency` at once, every attachment of the
@@ -304,6 +318,7 @@ extension HomeStore {
         if error is CancellationError { return .indeterminate }
         return .invalid("attachment_upload_failed")
     }
+<<<<<<< HEAD
 
     // MARK: Send chains
 
@@ -363,6 +378,8 @@ extension HomeStore {
             waitForReconnect(head)
         }
     }
+=======
+>>>>>>> origin/main
 }
 
 /// What one upload child of `uploadMissing` hands back: a named struct, not a

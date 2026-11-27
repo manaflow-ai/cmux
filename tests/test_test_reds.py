@@ -2,12 +2,17 @@
 crash or a cut-short run is never the base's."""
 import importlib.util
 import json
+<<<<<<< HEAD
 import os
 import random
 import subprocess
 import sys
 import tempfile
 from collections import Counter
+=======
+import subprocess
+import sys
+>>>>>>> origin/main
 import unittest
 from pathlib import Path
 
@@ -22,6 +27,7 @@ FIXTURES = ROOT / "tests/fixtures/test_reds"
 # results, the crash and the job's error lines.
 HEAD_26346 = FIXTURES / "26346-head-run-40620080851.log"
 BASE_26346 = FIXTURES / "26346-base-run-40626248565.log"
+<<<<<<< HEAD
 # `bun test` reds, trimmed to the bun run: fast checks run 41057297193 (job 124067944438, feat-cmux-next ad6de25e,
 # chat-unavailable.test.ts run from the repo root, 3 fails) and run 41056184399 (job 124064196820, a pasteWall
 # toBeLessThan fail), as the job logs print them. Run 41060421706 printed bun's raw output for throwaway tests: a
@@ -30,6 +36,8 @@ BUN_CHAT_UNAVAILABLE = FIXTURES / "bun-chat-unavailable-run-41057297193.log"
 BUN_PASTE_WALL = FIXTURES / "bun-paste-wall-run-41056184399.log"
 BUN_RAW = FIXTURES / "bun-raw-run-41060421706.log"
 BUN_RAW_KILLED = FIXTURES / "bun-raw-killed-run-41060421706.log"
+=======
+>>>>>>> origin/main
 
 
 def log(*lines):
@@ -40,6 +48,7 @@ def failed(name):
     return f"✘ Test {name} recorded an issue at X.swift:1:2: Expectation failed"
 
 
+<<<<<<< HEAD
 def failed_suite(name):
     return f"✘ Suite {name} recorded an issue at {name}.swift:12:13: Issue recorded"
 
@@ -51,6 +60,9 @@ def step(script):
     """The runner's echo of a `run:` step, as a job log shows it before the step's output."""
     return [f"##[group]Run {script}", script, "shell: /usr/bin/bash -e {0}", "env:", "  GITHUB_REPO_NAME: o/r",
             "##[endgroup]"]
+=======
+SUMMARY = "✔ Test run with 40 tests in 3 suites passed after 1.0 seconds."
+>>>>>>> origin/main
 ABORT = ("error: Process '/x/swiftpm-testing-helper --test-bundle-path /x/CmuxNextPackageTests.xctest' exited with "
          "unexpected signal code 6")
 
@@ -74,6 +86,7 @@ class Replay26346(unittest.TestCase):
         self.assertIn("crashed (signal 6)", json.loads(done.stdout)["reasons"][0])
 
 
+<<<<<<< HEAD
 def objc_line(path="Sources/A.swift", line=12, member="viewDidMove", cls="NSView", sel="viewDidMove"):
     return (f"objc-selectors: {path}:{line}: super.{member} ({cls} call:{sel}/0): probe needed; "
             "run scripts/cmux-next/check-objc-selectors.py --probe --write on a Mac and commit table.json")
@@ -281,6 +294,9 @@ class PerTest(unittest.TestCase):
                 self.assertEqual(reds.read(shared).crashes, [])
 
 
+=======
+class PerTest(unittest.TestCase):
+>>>>>>> origin/main
     def test_the_same_test_failing_on_both_sides_is_a_base_red(self):
         verdict = reds.classify(log(failed("a()"), SUMMARY), log(failed("a()"), failed("b()"), SUMMARY))
         self.assertFalse(verdict.own, verdict.reasons)
@@ -302,6 +318,7 @@ class PerTest(unittest.TestCase):
         new = log(shared, '✘ Test "Another" recorded an issue at X.swift:3:4: Expectation failed', SUMMARY)
         self.assertIn('"Another"', reds.classify(new, log(shared, SUMMARY)).reasons[0])
 
+<<<<<<< HEAD
     def test_two_suites_same_display_name_are_not_one_test(self):
         # A `@Test("...")` name prints with no suite, and suites interleave (three were open at once in
         # tests/fixtures/test_reds/26346-head-run-40620080851.log), so the suite cannot be read from the
@@ -370,6 +387,8 @@ class PerTest(unittest.TestCase):
         both = log('✘ Test "shows the plan" failed after 0.1 seconds with 1 issue.', SUMMARY)
         self.assertFalse(reds.classify(both, both).own)
 
+=======
+>>>>>>> origin/main
     def test_a_crash_on_both_sides_is_still_the_heads_own(self):
         both = log(failed("a()"), ABORT, "*** Terminating app due to uncaught exception 'NSInternalInconsistencyException'")
         verdict = reds.classify(both, both)
@@ -447,6 +466,7 @@ class PerTest(unittest.TestCase):
                 self.assertTrue(reds.classify(log(line), log(line), "cmux-next swift test").own)
         self.assertTrue(reds.classify("  \n", log(failed("a()")), "cmux-next swift test").own)
 
+<<<<<<< HEAD
     def test_a_harness_heading_that_names_a_crash_is_not_one_but_the_crash_under_it_is(self):
         # cmuxterm-hq#7285, run 42053582212: fresh_home_launch_smoke.py's heading above a launch over its budget.
         heading = "--- the app's errors in the system log (an uncaught exception or assertion names itself here)"
@@ -477,11 +497,14 @@ class PerTest(unittest.TestCase):
         # A bun file result (`FAIL file`, no ` > `) is not read as a vitest name.
         self.assertEqual(reds.failed_names(["FAIL test/a.test.ts 1.2s"]), set())
 
+=======
+>>>>>>> origin/main
     def test_a_whole_unittest_run_and_a_known_issue_run_end_are_whole(self):
         self.assertEqual(reds.read(log("test_a (mod.T.test_a) ... ok", "Ran 1 test in 0.001s", "OK")).truncated, [])
         self.assertEqual(reds.read(log("◇ Test run started.", "━ Test run with 1 test in 1 suite passed after 0.1 "
                                        "seconds with 1 known issue.")).truncated, [])
 
+<<<<<<< HEAD
     def test_a_test_that_passed_with_a_known_issue_finished(self):
         # cmux-next daemon tests, run 40705037968: aRunCutOffMidwayFinishesWithoutDuplicates passed with a
         # known issue ("━ Test ... passed ... with 1 known issue") and was read as started and never finished.
@@ -510,6 +533,8 @@ class PerTest(unittest.TestCase):
         named_run = log("◇ Test run started.", "◇ Test run() started.", "✔ Test run with 1 test in 1 suite passed after 0.1 seconds.")
         self.assertIn("1 test(s) started and never finished: run", reds.read(named_run).truncated)
 
+=======
+>>>>>>> origin/main
     def test_the_bundle_runners_exited_line_is_a_crash_after_a_shared_failure(self):
         crash = log("◇ Test run started.", failed("a()"), "✘ Test a() failed after 0.1 seconds with 1 issue.",
                     "error: Exited with unexpected signal code 6")
@@ -536,6 +561,7 @@ class PerTest(unittest.TestCase):
                 self.assertTrue(verdict.own)
                 self.assertIn(f"signal {signal}", verdict.reasons[0])
 
+<<<<<<< HEAD
     def test_a_kill_inside_a_step_that_passed_is_not_a_crash(self):
         # cmuxterm-hq run 41195277420, Fleet tests (job 124520995516): scripts/test-reload-cloud-terminate-app.sh kills
         # the children it starts and passes; a later step's unittest fails the same way on the base. The step's
@@ -573,6 +599,8 @@ class PerTest(unittest.TestCase):
                 self.assertTrue(verdict.own)
                 self.assertIn("crashed", verdict.reasons[0])
 
+=======
+>>>>>>> origin/main
     def test_a_tools_error_line_is_not_a_unittest_run(self):
         pip = log("ERROR: Could not find a version that satisfies the requirement foo")
         self.assertFalse(reds.read(pip).ran)
@@ -654,6 +682,7 @@ class PerTest(unittest.TestCase):
                 self.assertTrue(reds.classify(log(line), log(line), "cmux-next swift test").own)
 
 
+<<<<<<< HEAD
 def health(fresh=(), known=(), slow=(), **extra):
     """A shard's health.json (scripts/gallery-matrix/health.ts): its broken states and its states over budget."""
     return json.dumps({"fresh": [{"state": s, "reason": r} for s, r in fresh],
@@ -1386,6 +1415,8 @@ class GalleryHealth(unittest.TestCase):
             self.assertEqual(run("--base", str(base)).returncode, 1)
 
 
+=======
+>>>>>>> origin/main
 class Demangle(unittest.TestCase):
     def test_a_word_substituted_test_name(self):
         self.assertEqual(reds.demangle_test("$s16CmuxNextAppTests015HomeTypeToFocusD0V05aPaneh19ShortcutFromAnotherI21"
@@ -1400,6 +1431,7 @@ class Demangle(unittest.TestCase):
         self.assertIsNone(reds.demangle_test("$s12CmuxNextHome0C12FirstRunViewC12applySpacing"))
 
 
+<<<<<<< HEAD
 
 def web_job(*files, summary=True):
     """A webview test job log (run-webviews-tests.sh): each file is (name, [(test, error, line) or (test, None)])."""
@@ -2697,3 +2729,7 @@ class UnittestOutputQuotingADiagnosticIsNotACrash(unittest.TestCase):
     def test_a_signal_exit_after_named_failures_still_crashes(self):
         found = reds.read(self.QUOTE + self.FAILS.replace("exit code 1", "exit code 139"))
         self.assertTrue(found.crashes)
+=======
+if __name__ == "__main__":
+    unittest.main()
+>>>>>>> origin/main

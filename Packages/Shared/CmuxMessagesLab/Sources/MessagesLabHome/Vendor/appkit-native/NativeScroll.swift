@@ -36,8 +36,11 @@ class TranscriptScrollView: NSScrollView, UIScrollViewDelegate {
     private(set) var liveScrolling = false
     /// Counts for the bench (clip-to-model and model-to-clip syncs).
     static var clipSyncs = 0, modelSyncs = 0
+<<<<<<< HEAD
     /// cmux: the clip origin the model last set or took from a move: a bounds notice at this origin is no move.
     private var knownOrigin: CGFloat?
+=======
+>>>>>>> origin/main
 
     override init(frame: NSRect) {
         super.init(frame: frame)
@@ -75,6 +78,7 @@ class TranscriptScrollView: NSScrollView, UIScrollViewDelegate {
     /// The shared window view's transcript list (a layer-only scroll view).
     var collection: UIScrollView? { demo?.collection }
 
+<<<<<<< HEAD
     /// cmux: a wheel or trackpad event over the transcript: true when the open thread view took it.
     /// While a thread or reply view is open, every wheel is the view's (it scrolls when taller than its
     /// space, MessagesWindowView.scrollThread) and the dimmed transcript under it never moves; with no
@@ -105,6 +109,8 @@ class TranscriptScrollView: NSScrollView, UIScrollViewDelegate {
         return frameView.hitTest(e.locationInWindow)?.isDescendant(of: self) ?? false
     }
 
+=======
+>>>>>>> origin/main
     func attach(_ demo: MessagesWindowView) {
         self.demo = demo
         // The window view stays the list's delegate through this bridge.
@@ -164,12 +170,16 @@ class TranscriptScrollView: NSScrollView, UIScrollViewDelegate {
         if PacingLog.shared.isOn { logClip() }
         pinContent()
         guard applyingModel == 0, let demo, let cv = collection else { return }
+<<<<<<< HEAD
         // cmux: the clip where the model left it is no move, even when the model's offset is past the document's
         // end (AppKit stopped the clip there in a resize, before the window view laid out at the new size).
         let origin = clip.bounds.origin.y
         guard origin != knownOrigin else { return }
         knownOrigin = origin
         let y = origin - shift
+=======
+        let y = clip.bounds.origin.y - shift
+>>>>>>> origin/main
         guard y != cv.contentOffset.y else { return }
         TranscriptScrollView.clipSyncs += 1
         applyingClip = true
@@ -315,6 +325,7 @@ class TranscriptScrollView: NSScrollView, UIScrollViewDelegate {
         if document.frame != f { document.frame = f }
         applyingModel -= 1
         pushOffset()
+<<<<<<< HEAD
         knownOrigin = clip.bounds.origin.y // cmux
     }
 
@@ -325,10 +336,15 @@ class TranscriptScrollView: NSScrollView, UIScrollViewDelegate {
     /// display; HomeKeyTranscriptSyncTests).
     private var pushed: (target: CGFloat, origin: CGFloat, document: CGFloat, clip: CGFloat)?
 
+=======
+    }
+
+>>>>>>> origin/main
     private func pushOffset() {
         guard let cv = collection else { return }
         let y = cv.contentOffset.y + shift
         guard clip.bounds.origin.y != y else { return }
+<<<<<<< HEAD
         if let p = pushed, p.target == y, p.origin == clip.bounds.origin.y, p.document == document.frame.height,
            p.clip == clip.bounds.height { return }
         TranscriptScrollView.modelSyncs += 1
@@ -336,6 +352,11 @@ class TranscriptScrollView: NSScrollView, UIScrollViewDelegate {
         clip.setBoundsOrigin(NSPoint(x: 0, y: y))
         knownOrigin = clip.bounds.origin.y // cmux: AppKit can stop it short of `y`
         pushed = (y, clip.bounds.origin.y, document.frame.height, clip.bounds.height)
+=======
+        TranscriptScrollView.modelSyncs += 1
+        applyingModel += 1
+        clip.setBoundsOrigin(NSPoint(x: 0, y: y))
+>>>>>>> origin/main
         reflectScrolledClipView(clip)
         pinContent()
         applyingModel -= 1
@@ -467,9 +488,12 @@ class TranscriptScrollView: NSScrollView, UIScrollViewDelegate {
     /// following click (or a scroll) shows first are ready when it comes.
     private func prerenderPage(beyond dir: Int) {
         guard RowBitmaps.prerenderEnabled, let r = collection as? RowRecycler else { return }
+<<<<<<< HEAD
         PaletteScope.with(PaletteScope.palette(of: r)) { prerenderPage(r, beyond: dir) } // cmux: in its view's palette
     }
     private func prerenderPage(_ r: RowRecycler, beyond dir: Int) {
+=======
+>>>>>>> origin/main
         let b = r.bounds, h = b.height
         let rect = dir > 0 ? CGRect(x: b.minX, y: b.maxY, width: b.width, height: h) : CGRect(x: b.minX, y: b.minY - h, width: b.width, height: h)
         let n = r.layout.model.count
@@ -531,6 +555,7 @@ class TranscriptScrollView: NSScrollView, UIScrollViewDelegate {
         if !tiling { tiling = true; syncFromModel(); tiling = false }
     }
 
+<<<<<<< HEAD
     /// cmux: runs `change`, a geometry change of the host (Home's zoom: its bounds scale), as the model's. AppKit
     /// realigns the clip view to the new pixel grid inside it, and a realignment is not the reader's scroll: in a
     /// window shrunk on screen it met a clip held 13.5 pt short of the bottom by the document's old end, and
@@ -543,6 +568,8 @@ class TranscriptScrollView: NSScrollView, UIScrollViewDelegate {
         syncFromModel()
     }
 
+=======
+>>>>>>> origin/main
     override func tile() {
         // AppKit keeps the visible content in place when the automatic inset
         // changes (it moves the clip view); the shared model's offset (pinned
@@ -595,6 +622,7 @@ final class TranscriptDocumentView: NSView {
         window?.firstResponder?.keyDown(with: event)
     }
     private func hostPoint(_ e: NSEvent) -> CGPoint { controller?.host.convert(e.locationInWindow, from: nil) ?? .zero }
+<<<<<<< HEAD
     override func mouseDown(with event: NSEvent) {
         PaletteScope.claimProcess(PaletteScope.palette(of: self)) // cmux: the chat clicked in gives the process palette
         controller?.mouseDown(at: hostPoint(event), event)
@@ -602,6 +630,12 @@ final class TranscriptDocumentView: NSView {
     override func mouseDragged(with event: NSEvent) { controller?.mouseDragged(at: hostPoint(event), event) }
     override func mouseUp(with event: NSEvent) { controller?.mouseUp(at: hostPoint(event), event) }
     override func menu(for event: NSEvent) -> NSMenu? { NSMenu.systemFree(controller?.menu(at: hostPoint(event))) }
+=======
+    override func mouseDown(with event: NSEvent) { controller?.mouseDown(at: hostPoint(event), event) }
+    override func mouseDragged(with event: NSEvent) { controller?.mouseDragged(at: hostPoint(event), event) }
+    override func mouseUp(with event: NSEvent) { controller?.mouseUp(at: hostPoint(event), event) }
+    override func menu(for event: NSEvent) -> NSMenu? { controller?.menu(at: hostPoint(event)) }
+>>>>>>> origin/main
 }
 
 /// The overlay scroller over a paged history: knob position and length come
@@ -630,6 +664,7 @@ final class SequenceScroller: NSScroller {
         get { super.knobProportion }
         set { super.knobProportion = fixed?.proportion ?? newValue }
     }
+<<<<<<< HEAD
     /// cmux: AppKit's arrow and page parts of this scroller are buttons with only a subrole, which
     /// an accessibility client that reads names meets as unnamed controls (goal a11y-baseline:
     /// the four after Home's Unread Messages filter). Named here; a part reads its attributes
@@ -653,6 +688,8 @@ final class SequenceScroller: NSScroller {
         }
         return children
     }
+=======
+>>>>>>> origin/main
     /// AppKit invalidates its own knob rect when the value changes; the drawn bar sits up to
     /// `knobBottomInset` (plus pixel rounding) above it and spans the expanded width, so every
     /// invalidation covers the scroller's full width and 2 pt more at each end. (Without it a

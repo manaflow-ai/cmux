@@ -4,8 +4,13 @@ import Foundation
 /// row ("Lawrence Chen named the conversation “cmux”."). It rides on a
 /// `ConversationMessage` (seq, paging and dedupe stay the same); the
 /// message's `senderID` is who made the change.
+<<<<<<< HEAD
 public struct ConversationSystemEvent: Sendable, Hashable, Codable {
     public enum Kind: String, Sendable, Hashable, Codable, CaseIterable {
+=======
+public struct ConversationSystemEvent: Sendable, Hashable {
+    public enum Kind: String, Sendable, Hashable, CaseIterable {
+>>>>>>> origin/main
         /// `name` is the new conversation name.
         case named
         case removedName

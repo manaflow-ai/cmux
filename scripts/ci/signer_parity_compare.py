@@ -24,6 +24,7 @@ and every symlink target is payload, and one differing byte fails the compare
 The signature report lists, for every Mach-O slice, which CodeDirectory fields
 and signature blobs differ between A and B, and for every CodeResources which
 entries differ; those differences are reported, not failed.
+<<<<<<< HEAD
 
 STRICT MODE (--strict) fails on every difference except the signing time:
   - the CMS SignedData must have the same certificates, signer identifier,
@@ -49,6 +50,8 @@ STRICT MODE (--strict) fails on every difference except the signing time:
 An item that differs only by framing, or by hashes of such items, is labelled
 framing only in the report; it still fails.
 The report ends with `strict parity: PASS` or `strict parity: FAIL (<n> differences)`.
+=======
+>>>>>>> origin/main
 """
 from __future__ import annotations
 
@@ -57,7 +60,10 @@ import hashlib
 import json
 import os
 import plistlib
+<<<<<<< HEAD
 import re
+=======
+>>>>>>> origin/main
 import stat
 import struct
 import sys
@@ -130,6 +136,7 @@ def signature_range(macho: bytes, residue_source: bytes | None = None):
     """(dataoff, datasize) of LC_CODE_SIGNATURE, or None when there is none.
     Raises ValueError when it points outside the slice or its blob is not a
     complete embedded-signature superblob."""
+<<<<<<< HEAD
     ncmds, sizeofcmds = struct.unpack("<II", macho[16:24])
     if 32 + sizeofcmds > len(macho) or ncmds * 8 > sizeofcmds:
         raise ValueError("malformed Mach-O: the load commands do not fit the file")
@@ -138,6 +145,12 @@ def signature_range(macho: bytes, residue_source: bytes | None = None):
         cmd, size = struct.unpack("<II", macho[off:off + 8])
         if size < 8 or off + size > 32 + sizeofcmds:
             raise ValueError("malformed Mach-O: a load command smaller than its header, or past the load commands")
+=======
+    ncmds = struct.unpack("<I", macho[16:20])[0]
+    off = 32
+    for _ in range(ncmds):
+        cmd, size = struct.unpack("<II", macho[off:off + 8])
+>>>>>>> origin/main
         if cmd == LC_CODE_SIGNATURE:
             dataoff, datasize = struct.unpack("<II", macho[off + 8:off + 16])
             if datasize < 12 or dataoff + datasize > len(macho):
@@ -188,6 +201,7 @@ RESIDUE: list = []  # sizes of input-signature residue accepted for the current 
 def code_signature_command(macho: bytes):
     """(dataoff, datasize) of LC_CODE_SIGNATURE as written, unchecked; describe()
     checks it with signature_range() before payload() or blobs() reads it."""
+<<<<<<< HEAD
     ncmds, sizeofcmds = struct.unpack("<II", macho[16:24])
     if 32 + sizeofcmds > len(macho) or ncmds * 8 > sizeofcmds:
         raise ValueError("malformed Mach-O: the load commands do not fit the file")
@@ -196,6 +210,12 @@ def code_signature_command(macho: bytes):
         cmd, size = struct.unpack("<II", macho[off:off + 8])
         if size < 8 or off + size > 32 + sizeofcmds:
             raise ValueError("malformed Mach-O: a load command smaller than its header, or past the load commands")
+=======
+    ncmds = struct.unpack("<I", macho[16:20])[0]
+    off = 32
+    for _ in range(ncmds):
+        cmd, size = struct.unpack("<II", macho[off:off + 8])
+>>>>>>> origin/main
         if cmd == LC_CODE_SIGNATURE:
             return struct.unpack("<II", macho[off + 8:off + 16])
         off += size
@@ -208,6 +228,7 @@ def payload(macho: bytes) -> bytes:
     out = bytearray(macho[:sig[0]] if sig else macho)
     # Bytes after the signature blob (none in a well-formed file) stay payload.
     trailer = macho[sig[0] + sig[1]:] if sig else b""
+<<<<<<< HEAD
     ncmds, sizeofcmds = struct.unpack("<II", macho[16:24])
     if 32 + sizeofcmds > len(macho) or ncmds * 8 > sizeofcmds:
         raise ValueError("malformed Mach-O: the load commands do not fit the file")
@@ -216,6 +237,12 @@ def payload(macho: bytes) -> bytes:
         cmd, size = struct.unpack("<II", macho[off:off + 8])
         if size < 8 or off + size > 32 + sizeofcmds:
             raise ValueError("malformed Mach-O: a load command smaller than its header, or past the load commands")
+=======
+    ncmds = struct.unpack("<I", macho[16:20])[0]
+    off = 32
+    for _ in range(ncmds):
+        cmd, size = struct.unpack("<II", macho[off:off + 8])
+>>>>>>> origin/main
         if cmd == LC_SEGMENT_64 and macho[off + 8:off + 24].rstrip(b"\0") == b"__LINKEDIT":
             out[off + 32:off + 40] = bytes(8)  # vmsize
             out[off + 48:off + 56] = bytes(8)  # filesize
@@ -418,8 +445,18 @@ def describe(root: str, rel: str, path: str, input_root: str | None = None) -> d
     return record
 
 
+<<<<<<< HEAD
 def code_resources_diff_values(pa, pb) -> list:
     """code_resources_diff() over two parsed property lists."""
+=======
+def code_resources_diff(a: str, b: str) -> list:
+    with open(a, "rb") as fa, open(b, "rb") as fb:
+        ra, rb = fa.read(), fb.read()
+    try:
+        pa, pb = plistlib.loads(ra), plistlib.loads(rb)
+    except Exception:  # not a plist: only its bytes can be compared
+        return [] if ra == rb else ["not a property list; bytes differ"]
+>>>>>>> origin/main
     if not isinstance(pa, dict) or not isinstance(pb, dict):
         return [] if pa == pb else ["differs"]
     out = []
@@ -430,15 +467,26 @@ def code_resources_diff_values(pa, pb) -> list:
         if not isinstance(sa, dict) or not isinstance(sb, dict):
             out.append(f"{section}: differs")
             continue
+<<<<<<< HEAD
         for key in sorted(k for k in set(sa) | set(sb) if sa.get(k) != sb.get(k)):
             va, vb = sa.get(key), sb.get(key)
             if isinstance(va, dict) and isinstance(vb, dict):
                 out.append(f"{section}/{key}: {', '.join(sorted(k for k in set(va) | set(vb) if va.get(k) != vb.get(k)))}")
+=======
+        for key in sorted(set(sa) | set(sb)):
+            if sa.get(key) == sb.get(key):
+                continue
+            va, vb = sa.get(key), sb.get(key)
+            if isinstance(va, dict) and isinstance(vb, dict):
+                fields = sorted(k for k in set(va) | set(vb) if va.get(k) != vb.get(k))
+                out.append(f"{section}/{key}: {', '.join(fields)}")
+>>>>>>> origin/main
             else:
                 out.append(f"{section}/{key}: {'only A' if vb is None else 'only B' if va is None else 'differs'}")
     return out
 
 
+<<<<<<< HEAD
 def code_resources_diff(a: str, b: str) -> list:
     with open(a, "rb") as fa, open(b, "rb") as fb:
         ra, rb = fa.read(), fb.read()
@@ -1392,12 +1440,16 @@ def main() -> int:
 
 
 def parse_args():
+=======
+def main() -> int:
+>>>>>>> origin/main
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("a")
     parser.add_argument("b")
     parser.add_argument("out")
     parser.add_argument("--labels", default="A,B")
     parser.add_argument("--report")
+<<<<<<< HEAD
     parser.add_argument("--strict", action="store_true", help="also fail on every signature difference "
                         "except the signing time (see STRICT MODE above)")
     parser.add_argument("--input", help="the unsigned app both were signed from: bytes past a new signature "
@@ -1409,6 +1461,14 @@ def compare(args) -> int:
     la, lb = args.labels.split(",", 1)
     ta, tb = walk(args.a), walk(args.b)
     failures, records, signatures, resources, machos = [], [], {}, {}, {}
+=======
+    parser.add_argument("--input", help="the unsigned app both were signed from: bytes past a new signature "
+                        "superblob are accepted only when they are this input's bytes at the same offset")
+    args = parser.parse_args()
+    la, lb = args.labels.split(",", 1)
+    ta, tb = walk(args.a), walk(args.b)
+    failures, records, signatures, resources = [], [], {}, {}
+>>>>>>> origin/main
     counts = {"paths": 0, "macho": 0, "equal": 0, "slices": 0, "identical_slices": 0, "only_cms_differs": 0}
     for rel in sorted(set(ta) | set(tb)):
         counts["paths"] += 1
@@ -1434,9 +1494,12 @@ def compare(args) -> int:
             counts["equal"] += 1
         if pa is not None and pb is not None and not diff and ra.get("signed") and rb.get("signed"):
             counts["macho"] += 1
+<<<<<<< HEAD
             if args.strict:
                 with open(ta[rel], "rb") as fa, open(tb[rel], "rb") as fb:
                     machos[rel] = (pa, pb, fa.read(), fb.read())
+=======
+>>>>>>> origin/main
             sig = {arch: signature_diff(x, y) for (arch, x), (_, y) in zip(pa, pb)}
             counts["slices"] += len(sig)
             counts["identical_slices"] += sum(1 for d in sig.values() if not d)
@@ -1460,9 +1523,12 @@ def compare(args) -> int:
             resources[rel] = diff
     result = {"labels": [la, lb], "counts": counts, "payload_failures": failures,
               "signature_differences": signatures, "code_resources_differences": resources, "records": records}
+<<<<<<< HEAD
     if args.strict:
         strict_lines, strict_count, verdicts = strict_compare(args.a, args.b, machos, (la, lb), failures)
         result["strict"] = {"differences": strict_count, "verdicts": verdicts}
+=======
+>>>>>>> origin/main
     with open(args.out, "w", encoding="utf-8") as handle:
         json.dump(result, handle, indent=1, sort_keys=True)
     lines = [f"Payload compare {la} vs {lb}: {counts['paths']} paths outside _CodeSignature, "
@@ -1490,14 +1556,21 @@ def compare(args) -> int:
     lines.append(f"CodeResources with differing entries: {len(resources)}")
     for rel, diff in sorted(resources.items()):
         lines.append(f"  {rel}: {len(diff)} entries, e.g. {diff[0]}")
+<<<<<<< HEAD
     if args.strict:
         lines += strict_lines
+=======
+>>>>>>> origin/main
     text = "\n".join(lines)
     print(text)
     if args.report:
         with open(args.report, "w", encoding="utf-8") as handle:
             handle.write(text + "\n")
+<<<<<<< HEAD
     return 1 if failures or (args.strict and strict_count) else 0
+=======
+    return 1 if failures else 0
+>>>>>>> origin/main
 
 
 if __name__ == "__main__":

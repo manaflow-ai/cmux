@@ -1,5 +1,8 @@
+<<<<<<< HEAD
 public import Foundation
 
+=======
+>>>>>>> origin/main
 /// A question an agent asks a person, independent of the harness that asked.
 ///
 /// One `AgentQuestion` holds one ask: one to four items (Claude Code asks up
@@ -14,12 +17,25 @@ public struct AgentQuestion: Hashable, Sendable, Codable, Identifiable {
     public var source: Source
     public var items: [Item]
     public var state: State
+<<<<<<< HEAD
 
     public init(id: String, source: Source, items: [Item], state: State = .pending) {
+=======
+    /// The label of the card's primary button ("Create"), when the asker
+    /// names one; nil shows the renderer's own ("Submit"). Optional on the
+    /// wire (`submit_label` in a conversation part).
+    public var submitLabel: String?
+
+    public init(id: String, source: Source, items: [Item], state: State = .pending, submitLabel: String? = nil) {
+>>>>>>> origin/main
         self.id = id
         self.source = source
         self.items = items
         self.state = state
+<<<<<<< HEAD
+=======
+        self.submitLabel = submitLabel
+>>>>>>> origin/main
     }
 
     /// The first item's prompt, for notifications, previews and search.
@@ -108,11 +124,17 @@ extension AgentQuestion {
     }
 
     /// Content shown beside the options while one is highlighted (a code
+<<<<<<< HEAD
     /// sample, a layout sketch, a diff). `html` is a fragment with inline
     /// styles (Claude Code launched with `CLAUDE_CODE_QUESTION_PREVIEW_FORMAT=html`,
     /// acpmux `hub/questions.rs`); a card that cannot frame it shows its text.
     public struct Preview: Hashable, Sendable, Codable {
         public enum Format: String, Hashable, Sendable, Codable { case markdown, monospace, html }
+=======
+    /// sample, a layout sketch, a diff).
+    public struct Preview: Hashable, Sendable, Codable {
+        public enum Format: String, Hashable, Sendable, Codable { case markdown, monospace }
+>>>>>>> origin/main
         public var text: String
         public var format: Format
 

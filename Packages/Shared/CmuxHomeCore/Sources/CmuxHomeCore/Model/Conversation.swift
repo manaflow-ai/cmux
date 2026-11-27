@@ -33,6 +33,7 @@ public struct ConversationSummary: Hashable, Sendable, Codable, Identifiable {
     public var previewAttachments: AttachmentPreview?
     /// Unread messages that mention the user (the inbox owner's `mentions`).
     public var mentionCount: Int
+<<<<<<< HEAD
     /// The kind the owner declared (`group`, `dm`, `chief`), when it says. A group stays a group
     /// when it shrinks to one other person; nil derives the kind from the participants.
     public var declaredKind: Kind?
@@ -47,6 +48,8 @@ public struct ConversationSummary: Hashable, Sendable, Codable, Identifiable {
     public var channelChief: ParticipantID?
     /// The conversation is a channel (a group with its own scoped Chief).
     public var isChannel: Bool { channelChief != nil }
+=======
+>>>>>>> origin/main
 
     public init(
         id: ConversationID,
@@ -63,11 +66,15 @@ public struct ConversationSummary: Hashable, Sendable, Codable, Identifiable {
         pinRank: Int? = nil,
         muted: Bool = false,
         previewAttachments: AttachmentPreview? = nil,
+<<<<<<< HEAD
         mentionCount: Int = 0,
         declaredKind: Kind? = nil,
         memberCount: Int? = nil,
         chiefReplies: ChiefReplyPolicy? = nil,
         channelChief: ParticipantID? = nil
+=======
+        mentionCount: Int = 0
+>>>>>>> origin/main
     ) {
         self.id = id
         self.owner = owner
@@ -84,6 +91,7 @@ public struct ConversationSummary: Hashable, Sendable, Codable, Identifiable {
         self.muted = muted
         self.previewAttachments = previewAttachments
         self.mentionCount = mentionCount
+<<<<<<< HEAD
         self.declaredKind = declaredKind
         self.memberCount = memberCount
         self.chiefReplies = chiefReplies
@@ -91,6 +99,11 @@ public struct ConversationSummary: Hashable, Sendable, Codable, Identifiable {
     }
 
     public enum Kind: String, Hashable, Sendable, Codable {
+=======
+    }
+
+    public enum Kind: Hashable, Sendable {
+>>>>>>> origin/main
         /// A one-to-one conversation with one of my Chiefs.
         case chief
         /// One other human.
@@ -99,11 +112,16 @@ public struct ConversationSummary: Hashable, Sendable, Codable, Identifiable {
         case group
     }
 
+<<<<<<< HEAD
     /// Classifies from the participants other than `me`. A Chief's conversation its owner shared
     /// with teammates stays the owner's Chief line; a teammate sees it as a group.
     public func kind(me: ParticipantID) -> Kind {
         if declaredKind == .group { return .group }
         if declaredKind == .chief, isMyChiefLine(me: me) { return .chief }
+=======
+    /// Classifies from the participants other than `me`.
+    public func kind(me: ParticipantID) -> Kind {
+>>>>>>> origin/main
         let others = participants.filter { $0.id != me }
         if others.count == 1, let other = others.first {
             return other.isChief ? .chief : .direct
@@ -111,6 +129,7 @@ public struct ConversationSummary: Hashable, Sendable, Codable, Identifiable {
         return .group
     }
 
+<<<<<<< HEAD
     /// A Chief's own conversation whose Chief is mine (the owner may share it with teammates).
     public func isMyChiefLine(me: ParticipantID) -> Bool {
         declaredKind == .chief && participants.contains { $0.isChief && $0.ownerUser == me }
@@ -142,6 +161,14 @@ public struct ConversationSummary: Hashable, Sendable, Codable, Identifiable {
         default: return names.dropLast().joined(separator: ", ") + ", and " + names[names.count - 1]
         }
         #endif
+=======
+    /// The title a list row shows: the explicit title, else the other
+    /// participants' names.
+    public func displayTitle(me: ParticipantID) -> String {
+        if !title.isEmpty { return title }
+        let names = participants.filter { $0.id != me }.map(\.displayName)
+        return names.isEmpty ? "" : ListFormatter.localizedString(byJoining: names)
+>>>>>>> origin/main
     }
 
     /// Messages after my read cursor, without my own: my newest message

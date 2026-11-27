@@ -15,6 +15,14 @@ name: Auto mode journey (staging, Mac -> Cloud -> Mac)
 # the pair cloud-rd-link-readback.yml reads) on this throwaway runner; nobody else's setting changes. The run's
 # machine and its `cli` install are removed by the journey and again in an always() step. Nothing gates on it.
 #
+<<<<<<< HEAD
+=======
+# This copy on main only lets workflow_dispatch find the workflow: a dispatch at ref feat-cmux-next runs
+# feat-cmux-next's copy, which holds the journey. Its job never ran on main (it was gated to
+# refs/heads/feat-cmux-next), so main keeps no runner, secret or build here, and main's workflow guards see nothing
+# to route. Edit the journey in feat-cmux-next's copy.
+#
+>>>>>>> origin/main
 # Lane VMs dispatch it through the lane broker's `auto_journey` action (cmuxterm-hq lane-gh-broker); the broker
 # checks only the input's shape, this job holds the rest: feat-cmux-next only, a `ref` that is on it, staging only.
 on:
@@ -38,6 +46,7 @@ env:
 
 jobs:
   journey:
+<<<<<<< HEAD
     if: github.ref == 'refs/heads/feat-cmux-next'
     # Holds the stack pair: an ephemeral macOS VM from the declared pool, as cloud-rd-link-readback.yml.
     environment:
@@ -187,3 +196,15 @@ jobs:
           if [ ! -s "$OUT/owned.json" ]; then echo "no owned.json: the run made nothing"; exit 0; fi
           if ! command -v bun >/dev/null 2>&1; then echo "::warning::no bun: the journey's own cleanup is the only one"; exit 0; fi
           bun scripts/cmux-next/auto-journey.ts --backend staging --cleanup "$OUT"
+=======
+    name: journey (dispatch at feat-cmux-next)
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || contains(fromJSON('["blacksmith-4vcpu-ubuntu-2404","blacksmith-8vcpu-ubuntu-2404","blacksmith-16vcpu-ubuntu-2404","blacksmith-32vcpu-ubuntu-2404"]'), vars.LINUX_RUNNER) && vars.LINUX_RUNNER || vars.CI_OVERFLOW_LINUX || 'cmux-linux' }}
+    timeout-minutes: 2
+    steps:
+      - name: Refuse a dispatch at any ref but feat-cmux-next
+        env:
+          REF: ${{ github.ref }}
+        run: |
+          echo "::error::auto-journey runs from feat-cmux-next's copy: dispatch it with --ref feat-cmux-next (got $REF)"
+          exit 1
+>>>>>>> origin/main

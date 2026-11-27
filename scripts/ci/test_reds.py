@@ -19,6 +19,7 @@ red was other tests. A job-level comparison hid a real crash. So:
    or a summary counts fewer tests than ran) is the head's own red: an unreadable red fails closed.
 4. No base log, or one that names no failing test while the head's does, excuses nothing.
 
+<<<<<<< HEAD
 It reads Swift Testing, XCTest, xcodebuild and xcresult, cargo test, unittest, pytest and `bun test` output (a bun
 failure is `FILE > TEST`; a bun run that printed no closing ` N pass` / ` N fail` counts after its last result was cut
 short). It reads only what the steps printed, never the runner's echo of a step's script (echoed).
@@ -43,10 +44,17 @@ head's own. gallery-health.yml replays a pull request's red states on the base i
     test_reds.py gallery --head HEAD/health.json --base BASE/health.json [--base ...] [--annotate] [--json]
 
 with the same exit codes (`--entries` and `--states` exit 1 when the head's red is its own whatever the base shows).
+=======
+    test_reds.py classify --head HEAD.log [--base BASE.log] [--job NAME] [--base-name feat-cmux-next] [--json]
+
+prints one line per reason and exits 0 when the job's red is the base's, 1 when it is the head's own and 2 when
+the log names no failing test, crash or cut-short run (not a test red: the caller judges it as before).
+>>>>>>> origin/main
 """
 from __future__ import annotations
 
 import argparse
+<<<<<<< HEAD
 import copy
 import importlib.util
 import json
@@ -75,12 +83,23 @@ LINE_BOUNDARIES = "\n\r\v\f\x1c\x1d\x1e\x85\u2028\u2029"
 # ST removed on its own, so no escape spans a line: its title text stays, never a failure line goes. A CSI's bytes
 # (0x20-0x7E) hold no boundary.
 ANSI = re.compile(r"\x1b(?:\[[0-?]*[ -/]*[@-~]|\][^\x07\x1b" + LINE_BOUNDARIES + r"]*(?:\x07|\x1b\\)?|\\)|\x07")
+=======
+import json
+import re
+import sys
+from pathlib import Path
+
+# Each line of `gh run view --log` or of the job-logs endpoint starts with its time.
+STAMP = re.compile(r"^(?:[^\t]*\t[^\t]*\t)?﻿?\d{4}-\d\d-\d\dT[\d:.]+Z ?")
+ANSI = re.compile(r"\x1b\[[0-9;]*[A-Za-z]")
+>>>>>>> origin/main
 
 FAILED = (
     # Swift Testing: `name()`, or a display name (`@Test("A capped plan …")` prints `✘ Test "A capped plan …"`).
     re.compile(r"✘ Test (\"[^\"\n]*\"|.+?\)) (?:recorded an issue|failed)"),
     re.compile(r"Test Case '-\[(\S+ \S+)\]' failed"),  # XCTest
     re.compile(r"^test (\S+) \.\.\. FAILED$"),  # cargo test
+<<<<<<< HEAD
     # unittest, with a subTest's message and parameters kept (`FAIL: test_x (mod.C.test_x) [msg] (path='a.py')`):
     # a lint that reports each offender as its own subTest is one red per offender, so a new offender inside a test
     # the base already fails is a new failing item, never "the same red" (hq excuse-key-drops-identity, 2026-11-22).
@@ -121,6 +140,11 @@ ECHO_START = re.compile(r"^(?:﻿)?##\[group\]Run ")
 ECHO_SETTINGS = re.compile(r"^(?:shell: \S.*|with:|env:)$")
 ECHO_VALUE = re.compile(r"^  \S")
 GROUP_EDGE = re.compile(r"^##\[(?:group|endgroup)\]")
+=======
+    re.compile(r"^(?:FAIL|ERROR): (\S+ \([^)]+\))"),  # unittest
+    re.compile(r"^FAILED (\S+::\S+)"),  # pytest
+)
+>>>>>>> origin/main
 # A line that says the job ran tests at all.
 RAN = re.compile(r"[◇✔✘] (?:Test|Suite) |Test Case '-\[|Test Suite '|^test \S+ \.\.\. |^running \d+ tests?$|"
                  r"^Ran \d+ tests? in |^=+ (?:test session starts|FAILURES)|Executed \d+ tests?")
@@ -145,6 +169,7 @@ CRASH_AT_START = re.compile(r"^(?:##\[error\]|::error[^:]*::)?(?:error: )?(?:\S+
 SHELL_SIGNAL = re.compile(r"^(?:\S+: line \d+: +)?\d+ +(Killed|Terminated|Hangup|Interrupt|Quit|User defined signal \d)"
                           r"(?::? \d+)? +\S")
 SHELL_SIGNAL_NUMBERS = {"Killed": "9", "Terminated": "15", "Hangup": "1", "Interrupt": "2", "Quit": "3"}
+<<<<<<< HEAD
 # Such a report is a signal someone sent (a test that kills its own children, `timeout`), not a fault. It is a crash
 # only in a step that failed or never finished: a step that printed no error and was followed by the next step passed,
 # so a kill inside it is that test's own doing, not the job's red (2026-10-31: cmuxterm-hq's
@@ -156,6 +181,8 @@ STEP_ERROR = re.compile(r"^(?:##\[error\]|::error)")
 # A 128 + signal status is still an abnormal end; a complete summary cannot excuse it as a base red.
 # Match the runner annotation, never a test name or an assertion quoting the diagnostic.
 PROCESS_EXIT = re.compile(r"^(?:##\[error\]|::error[^:]*::)\s*Process completed with exit code (\d{1,3})\.?$")
+=======
+>>>>>>> origin/main
 # A signal or Mach exception named by a tool, the runtime or a crash report: a crash unless a test's own line
 # quotes it.
 SIGNALED = re.compile(r"(?:exited|terminated|killed|died) (?:with|by|on) (?:unexpected )?signal\b|\(signal: \d+|"
@@ -165,6 +192,7 @@ HELPER_KILLED = re.compile(r"Process '[^']+' exited with unexpected signal code 
                            r"^(?:##\[error\])?error: exited with unexpected signal code \d+", re.I)
 # A test's own result and progress lines carry assertion text and arguments, never a runtime diagnostic.
 TEST_LINE = re.compile(r"^[◇✔✘↪] (?:Test|Suite) |^Test Case '-\[")
+<<<<<<< HEAD
 # vitest's header above a test's own console output (`stderr | test/x.test.ts > <describe> > <test>`), up to the blank
 # line that closes it: what the code under test logged, never a runtime diagnostic. cmux backend run 43060098319
 # (2026-11-11): a test's JSON log line `"error":"claude exited on signal 9: "` (a fake runner it stops on purpose) read
@@ -181,10 +209,13 @@ WORKERD_UNCAUGHT = re.compile(r"^uncaught exception; (?:source|exception) = ")
 # 42053582212). Only that harness's known headings are exempt; any other line, `--- ` or not, still counts.
 HEADING = re.compile(r"^--- (?:the app's errors in the system log \(an uncaught exception or assertion names itself "
                      r"here\)|app output \(last \d+ lines\))$")
+=======
+>>>>>>> origin/main
 XCTEST_RESTART = re.compile(r"(?:Restarting after unexpected exit, crash, or test timeout in|"
                             r"Test Case '-\[)(\S+)[ .](\w+)\]?'? crashed|"
                             r"Restarting after unexpected exit, crash, or test timeout in (\S+?)\.(\w+)\(\)")
 # What the CI wrapper or GitHub prints when a run's results are cut short: an error line, never test output.
+<<<<<<< HEAD
 # Each word below is the wrapper's own word, so it is read as a word and never as part of a longer token: `\b` alone
 # let a file name carry it, and any annotation naming such a file called the job cut short. 2026-11-22,
 # cmuxterm-hq eb73df0c's 'go vet + go test' (job 137452468531) was refused as cut short because actions/checkout
@@ -205,11 +236,21 @@ TRUNCATED = re.compile(r"^(?:##\[error\]|::error[^:]*::)\s*(?:no \"Test run with
 # package-test-lane.sh suite: a suite the lane named whose tests did not run (all skipped, or skipped for a missing
 # same-tree cmux-tui) is no result: never a base red, whatever the base shows.
 NO_RESULT = re.compile(r"^(?:##\[error\]|::error[^:]*::)\s*.*\brequired tests did not run\b")
+=======
+TRUNCATED = re.compile(r"^(?:##\[error\]|::error[^:]*::)\s*(?:no \"Test run with\" summary line|"
+                       r"swift test ended early|reported fewer tests than it ran|swift test stuck|.*\bnever finished\b|"
+                       r"The job running on runner .* has exceeded the maximum execution time|"
+                       r"The operation was canceled|.*\blog (?:is|was) truncated|"
+                       # the hang watchdog (hung_test_watchdog.py) and run_with_timeout.py
+                       r".*\b(?:timed out after|made no progress|stopped by SIG[A-Z]+|stalled|[Hh]ung test|"
+                       r"[Cc]ancelled test|[Tt]imeout))|^This log was truncated", re.I)
+>>>>>>> origin/main
 # scripts/ci/run-webviews-tests.sh: one `START file` and one `PASS|FAIL|TIMEOUT file ...` line per Bun test file.
 # A TIMEOUT is a file the wrapper killed at its hard limit: cut short. Bun's own panic is a crash.
 BUN_STARTED = re.compile(r"^START (\S+\.[cm]?[jt]sx?) \(hard limit")
 BUN_RESULT = re.compile(r"^(PASS|FAIL|TIMEOUT) (\S+\.[cm]?[jt]sx?)(?: |$)")
 BUN_PANIC = re.compile(r"^(?:panic\((?:main thread|thread \d+)\)|oh no: Bun has crashed)")
+<<<<<<< HEAD
 # The shell self-test keeps a Swift crash report and its `signal 5` fixture in source lines.
 SWIFT_TEST_SUMMARY_FIXTURE = re.compile(r"swift-test-summary\.test\.sh:\d+:")
 # `bun test` itself (a raw run, or a file's log inside run-webviews-tests.sh): a header per file (`::group::FILE:` in
@@ -233,11 +274,14 @@ BUN_TIMED_OUT = re.compile(r"^\s*\^ this test timed out after (\d+)ms")
 BUN_UNHANDLED = re.compile(r"^# Unhandled error between tests")
 BUN_RECAP = re.compile(r"^\d+ tests? failed:$")
 BUN_COUNT = re.compile(r"^\s*\d+ fail$")
+=======
+>>>>>>> origin/main
 RUN_STARTED = re.compile(r"^◇ Test run started\.")
 RUN_ENDED = re.compile(r"^[✔✘━] Test run with \d+ tests?")
 RUN_COUNT = re.compile(r"^[✔✘━] Test run with (\d{1,9}) tests?")
 # A unittest run (verbose `name (module.Class...) ... ok` lines, or a FAIL/ERROR block) ends with `Ran N tests`.
 UNITTEST_LINE = re.compile(r"^(?:FAIL|ERROR): \w+ \([\w.]+\)|^\w+ \([\w.]+\)(?: \.\.\.|$)")
+<<<<<<< HEAD
 UNITTEST_PENDING = re.compile(r"^\w+ \([\w.]+\) \.\.\. (?!\s*(?:ok|FAIL|ERROR|skipped\b.*|expected failure|unexpected success)\s*$)")
 UNITTEST_VERDICT = re.compile(r"(?: \.\.\. |^\s+)?(?:ok|FAIL|ERROR|skipped\b.*|expected failure|unexpected success)\s*$")
 XC_SUITE_STARTED = re.compile(r"^\s*Test Suite '.+' started at ")
@@ -258,6 +302,16 @@ def spliced_pass(name: str, text: str) -> bool:
     return re.search(rf"✔ Test {re.escape(name)}(?!\w*\()", text) is not None
 
 
+=======
+XC_SUITE_STARTED = re.compile(r"^\s*Test Suite '.+' started at ")
+XC_SUITE_ENDED = re.compile(r"^\s*Test Suite '.+' (?:passed|failed) at ")
+SUITE_STARTED = re.compile(r"^◇ Suite (.+?) started\.")
+SUITE_ENDED = re.compile(r"^[✔✘] Suite (.+?) (?:passed|failed)\b")
+# Swift Testing's start line, for naming the test a crash stack runs.
+STARTED = re.compile(r"◇ Test (?:case passing .+? to )?(\w+)\((.*?)\) started\.")
+# A test's end (Swift Testing; a case of a parameterized test ends with its test), and XCTest's start and end.
+FINISHED = re.compile(r"[✔✘] Test (\w+)\(.*?\)(?: with \d+ test cases?)? (?:passed|failed)\b")
+>>>>>>> origin/main
 XC_STARTED = re.compile(r"Test Case '-\[(\S+ \S+)\]' started")
 XC_FINISHED = re.compile(r"Test Case '-\[(\S+ \S+)\]' (?:passed|failed|skipped)")
 CARGO_RUNNING = re.compile(r"^running \d+ tests?$")
@@ -269,12 +323,18 @@ LETTERS = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ"
 # Plain classes, not dataclasses: consumers load this file with exec or importlib without registering it in
 # sys.modules, where a dataclass's string annotations cannot be resolved.
 class Result:
+<<<<<<< HEAD
     """What one job log says about its tests: ran, failed (names), messages (a failed name's error, where the log
     prints one), crashes ("<who> crashed (signal N)") and truncated (why the per-test results are incomplete)."""
+=======
+    """What one job log says about its tests: ran, failed (names), crashes ("<who> crashed (signal N)") and
+    truncated (why the per-test results are incomplete)."""
+>>>>>>> origin/main
 
     def __init__(self):
         self.ran = False
         self.failed: set = set()
+<<<<<<< HEAD
         self.passed: set = set()
         self.messages: dict = {}
         # A display-named failure's issue files (ISSUE_SITE): {'"a name"': {"ATests.swift"}}. Empty for a test
@@ -292,6 +352,10 @@ class Result:
         # (step, attempt, kind, what) of each record read_bun kept: every bun failure and unnamed marker carries the step
         # (its index among the steps read) and the attempt there that made it, so no reader can mix two of them up.
         self.records: list = []
+=======
+        self.crashes: list = []
+        self.truncated: list = []
+>>>>>>> origin/main
 
 
 class Verdict:
@@ -302,6 +366,7 @@ class Verdict:
         self.own, self.reasons, self.shared = own, reasons, list(shared)
 
 
+<<<<<<< HEAD
 def echoed(lines: list[str]) -> set[int]:
     """The indexes of LINES (one per line of the log, timestamps and colours removed) that are the runner's echo of a
     step (ECHO_START): its source, never its output."""
@@ -375,12 +440,16 @@ def plain(log: str) -> str:
 
 def log_lines(log: str) -> list[str]:
     """Every line of a job log with its timestamp and colours removed, the runner's step echoes included."""
+=======
+def lines_of(log: str) -> list[str]:
+>>>>>>> origin/main
     # Swift Testing prefixes some event lines with a zero-width space (U+200B) when another writer's output
     # shares the stream ("\u200b✔ Suite \"x\" passed"); left in, the anchored suite patterns miss the line and
     # a suite that passed reads as never finished (https://github.com/manaflow-ai/cmux/pull/35296).
     return [STAMP.sub("", ANSI.sub("", line)).lstrip("\u200b").rstrip() for line in log.splitlines()]
 
 
+<<<<<<< HEAD
 def lines_of(log: str) -> list[str]:
     """What the job's steps printed: log_lines without the runner's echo of each step's script (echoed)."""
     lines = log_lines(log)
@@ -806,6 +875,8 @@ def issue_sites(lines: list[str]) -> dict:
     return found
 
 
+=======
+>>>>>>> origin/main
 def _words(text: str, words: list[str]) -> None:
     """Swift's mangling words of a literal identifier part: runs that start at a non-digit and end before an
     uppercase letter that follows a non-uppercase one, or at `_`; two characters or more."""
@@ -914,6 +985,7 @@ def signal_of(text: str) -> str | None:
     return None
 
 
+<<<<<<< HEAD
 def bun_diagnostic(said: list, where: str = "") -> str:
     """A bun failure's error, compared across runs: its whole assertion block (the `error:` line and the Expected /
     Received lines under it) as printed, but for the checkout's path and spacing, and the test file's line it failed at.
@@ -1167,10 +1239,15 @@ def read(log: str | None, bun: bool = True) -> Result:
 
 def parse_log(log: str | None, bun: bool = True) -> Result:
     """read(), uncached."""
+=======
+def read(log: str | None) -> Result:
+    """The tests a job log ran, failed and crashed, and whether its per-test results are whole."""
+>>>>>>> origin/main
     result = Result()
     if log is None or not log.strip():
         result.truncated.append("its log could not be read" if log is None else "its log is empty")
         return result
+<<<<<<< HEAD
     # The lines once, filtered at the source (step_lines): no echo, no TAP marker, and LINES holds nothing a step that
     # passed printed. Every reader below reads LINES alone (#41244's review F1 at 0a9fdca7: read_bun was handed every
     # line before the passing-step filter, so a passing step's `(fail)` and ` 2 fail` called the whole job cut short,
@@ -1180,11 +1257,15 @@ def parse_log(log: str | None, bun: bool = True) -> Result:
                 for passing, section in step_sections(log)]
     shown = [(passing, text) for passing, section in sections for text in section]
     lines = [text for passing, text in shown if not passing]
+=======
+    lines = lines_of(log)
+>>>>>>> origin/main
     started = {m.group(1) for text in lines for m in [STARTED.search(text)] if m}
     stack: list[str] = []
     signals: list[str] = []
     named: list[str] = []
     crashed = False
+<<<<<<< HEAD
     console = False  # inside a vitest console block (VITEST_CONSOLE)
     unit_output = False  # inside a unittest -v test's own output (its `name (mod.Cls.name) ... ` line has no verdict yet)
     for passing, text in shown:
@@ -1209,10 +1290,24 @@ def parse_log(log: str | None, bun: bool = True) -> Result:
         quoted = unit_output and (text[:1].isspace() or bool(UNITTEST_PENDING.match(text)))
         if BUN_PANIC.match(text):
             crashed = True
+=======
+    for text in lines:
+        if RAN.search(text) or UNITTEST_LINE.match(text) or BUN_STARTED.match(text) or BUN_RESULT.match(text):
+            result.ran = True
+        if (match := BUN_RESULT.match(text)) and match.group(1) == "TIMEOUT":
+            result.truncated.append(f"{match.group(2)} timed out (killed at the wrapper's hard limit)")
+        if BUN_PANIC.match(text):
+            crashed = True
+        for pattern in FAILED:
+            if match := pattern.search(text):
+                result.failed.add(match.group(1))
+                result.ran = True
+>>>>>>> origin/main
         if match := XCTEST_RESTART.search(text):
             groups = [g for g in match.groups() if g]
             named.append(".".join(groups[:2]))
             crashed = True
+<<<<<<< HEAD
         exited = PROCESS_EXIT.match(text)
         signal_exit = int(exited.group(1)) - 128 if exited else 0
         if 1 <= signal_exit <= 64:
@@ -1223,12 +1318,17 @@ def parse_log(log: str | None, bun: bool = True) -> Result:
             (CRASH.search(text) or (not quoted and (CRASH_AT_START.search(text) or SIGNALED.search(text))))
             and not TEST_LINE.search(text) and not HEADING.match(text)
             and not console and not WORKERD_UNCAUGHT.match(text))
+=======
+        runtime = HELPER_KILLED.search(text) or SHELL_SIGNAL.search(text) or (
+            (CRASH.search(text) or CRASH_AT_START.search(text) or SIGNALED.search(text)) and not TEST_LINE.search(text))
+>>>>>>> origin/main
         if runtime:
             crashed = True
             if number := signal_of(text):
                 signals.append(number)
         if crashed and ("$s" in text or re.match(r"^\s*\d+\s+\S+\s+0x[0-9a-f]+ ", text)):
             stack.append(text)
+<<<<<<< HEAD
     for text in lines:
         if SWIFT_TEST_SUMMARY_FIXTURE.search(text):
             continue
@@ -1251,6 +1351,12 @@ def parse_log(log: str | None, bun: bool = True) -> Result:
         if unfinished and "✔ Test " in text and not FINISHED.search(text) and not RUN_ENDED.search(text):
             if fits := [name for name in unfinished if spliced_pass(name, text)]:
                 unfinished.discard(max(fits, key=len))
+=======
+        if TRUNCATED.search(text):
+            why = re.sub(r"^##\[error\]|^::error[^:]*::", "", text).strip()
+            result.truncated.append(why[:200])
+    unfinished = started - {m.group(1) for text in lines for m in [FINISHED.search(text)] if m}
+>>>>>>> origin/main
     unfinished |= ({m.group(1) for text in lines for m in [XC_STARTED.search(text)] if m}
                    - {m.group(1) for text in lines for m in [XC_FINISHED.search(text)] if m})
     if unfinished:
@@ -1283,6 +1389,7 @@ def parse_log(log: str | None, bun: bool = True) -> Result:
     running = sum(1 for text in lines if CARGO_RUNNING.match(text))
     if running > sum(1 for text in lines if text.startswith("test result: ")):
         result.truncated.append("a cargo test binary printed no `test result:` line")
+<<<<<<< HEAD
     if bun:
         read_bun(lines, result, [section for passing, section in sections if not passing])
     # A failure no parser names (unnamed_failures), read here, in the reading every consumer goes through (classify,
@@ -1290,6 +1397,8 @@ def parse_log(log: str | None, bun: bool = True) -> Result:
     result.unnamed = runner_unnamed(real) + result.unnamed
     if result.unnamed:
         result.truncated.append(unnamed_why(result.unnamed))
+=======
+>>>>>>> origin/main
     if crashed:
         who = named or crashed_tests(stack, started) or ["the test process"]
         signal = f"signal {signals[0]}" if signals else "no signal named"
@@ -1297,6 +1406,7 @@ def parse_log(log: str | None, bun: bool = True) -> Result:
     return result
 
 
+<<<<<<< HEAD
 # A job the runner went away under (2026-11-03: cmux#33162's `web / react-apps-base-check (3)`, job 126154996598, on a
 # Blacksmith runner): GitHub fails it about 10 minutes later with this failure annotation, keeps no log (its logs
 # endpoint answers BlobNotFound) and leaves the step it was in "in_progress". Its red is the infrastructure's, not a
@@ -1446,12 +1556,15 @@ def lost_runner(job, annotations=(), log=None):
     return None
 
 
+=======
+>>>>>>> origin/main
 def is_test_red(found: Result, job: str = "") -> bool:
     """Whether this classifier owns the job's red: its log shows tests running, or the job is a test job by name.
     A compile or lint job that prints `Fatal error:` keeps the caller's own comparison."""
     return found.ran or bool(re.search(r"\btests?\b", job, re.I))
 
 
+<<<<<<< HEAD
 TAP_GROUP = "TAP final named results"
 TAP_MARKER = "tap-test/v1 "
 
@@ -1665,6 +1778,9 @@ def flaky_failures(head_log: str | None, job: str, workflow: str, state: dict | 
 
 def classify(head_log: str | None, base_log: str | None, job: str = "", base: str = "the base",
              *, flake_state: dict | None = None, workflow: str = "") -> Verdict | None:
+=======
+def classify(head_log: str | None, base_log: str | None, job: str = "", base: str = "the base") -> Verdict | None:
+>>>>>>> origin/main
     """The head job's red judged per test against the base job's log; None when the head's log names no failing
     test, crash or cut-short run (a lint or compile red: the caller judges it as before)."""
     head = read(head_log)
@@ -1678,6 +1794,7 @@ def classify(head_log: str | None, base_log: str | None, job: str = "", base: st
     reasons = list(head.crashes)
     if head.truncated:
         reasons.append(f"{job or 'the job'}: per-test results are not whole ({head.truncated[0]})")
+<<<<<<< HEAD
     base_result = read(base_log) if base_log is not None else Result()
     seen = base_result.failed
     flaky = flaky_failures(head_log, job, workflow, flake_state) if not (head.crashes or head.truncated) else {}
@@ -2306,6 +2423,15 @@ def gallery_main(args) -> int:
         else:
             print(f"base red: every red state is red the same way on {args.base_name}: " + "; ".join(verdict.shared)[:600])
     return 2 if verdict is None else (1 if verdict.own else 0)
+=======
+    seen = read(base_log).failed if base_log is not None else set()
+    new = sorted(head.failed - seen)
+    if base_log is None and head.failed:
+        reasons.append(f"no {base} log to compare {len(head.failed)} failing test(s) with")
+    elif new:
+        reasons.append(f"{len(new)} failing test(s) pass or do not run on {base}: {'; '.join(new)[:600]}")
+    return Verdict(bool(reasons), reasons, sorted(head.failed & seen))
+>>>>>>> origin/main
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -2316,6 +2442,7 @@ def main(argv: list[str] | None = None) -> int:
     one.add_argument("--base", type=Path)
     one.add_argument("--job", default="")
     one.add_argument("--base-name", default="the base")
+<<<<<<< HEAD
     one.add_argument("--workflow", default="", help="workflow name, for the measured base-flake supplement")
     one.add_argument("--flake-state", help="tap-tests/v1 JSON; default: public reconciler snapshot, or TAP_TESTS_STATE")
     one.add_argument("--json", action="store_true")
@@ -2358,6 +2485,13 @@ def main(argv: list[str] | None = None) -> int:
     base = args.base.read_text(errors="replace") if args.base else None
     verdict = classify(head, base, args.job, args.base_name, workflow=args.workflow,
                        flake_state=load_flake_state(args.flake_state, fetch=bool(args.workflow)))
+=======
+    one.add_argument("--json", action="store_true")
+    args = parser.parse_args(argv)
+    head = args.head.read_text(errors="replace")
+    base = args.base.read_text(errors="replace") if args.base else None
+    verdict = classify(head, base, args.job, args.base_name)
+>>>>>>> origin/main
     if args.json:
         print(json.dumps(None if verdict is None else
                          {"own": verdict.own, "reasons": verdict.reasons, "shared": verdict.shared}))

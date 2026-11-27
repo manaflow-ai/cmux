@@ -18,11 +18,15 @@ correct with R2's conditional requests instead.
         Unconditional: R2 does not document conditional DELETE.
 
     r2_cas.py lock --key KEY --owner ID --ttl SECONDS --wait SECONDS
+<<<<<<< HEAD
                    [--renew-every SECONDS --max-hold SECONDS --pid-file FILE]
+=======
+>>>>>>> origin/main
         Takes the lease at KEY: creates it only while absent, or replaces a
         released or expired lease only while it still holds the bytes read.
         Expiry is judged on R2's clock (the response Date against the lease's
         Last-Modified), never a runner's, so runners' clock skew cannot end a
+<<<<<<< HEAD
         live lease early, and by the TTL stored in the lease record (its
         writer's), never the waiter's; a record without one is given
         LEGACY_TTL. A transient R2 error (a dropped connection, a
@@ -35,16 +39,25 @@ correct with R2's conditional requests instead.
         heartbeat stops when the lease is no longer this attempt's, when the
         job's Runner.Worker exits, after --max-hold seconds, or on unlock; and
         the runner's job-end orphan cleanup ends it with the job.
+=======
+        live lease early. Exits 3 when the wait runs out.
+>>>>>>> origin/main
 
     r2_cas.py holds --key KEY --owner ID
         Exits 0 while ID holds the lease, 3 when it does not.
 
+<<<<<<< HEAD
     r2_cas.py unlock --key KEY --owner ID [--pid-file FILE]
         Stops the heartbeat in FILE, then marks the lease released (a
         conditional PUT; R2 does not document conditional DELETE) while it
         still names ID and holds the bytes read. Exits 0 when it released the
         lease and 4 when there was nothing to release (absent, released, or
         another owner's).
+=======
+    r2_cas.py unlock --key KEY --owner ID
+        Marks the lease released (a conditional PUT; R2 does not document
+        conditional DELETE) while it still names ID and holds the bytes read.
+>>>>>>> origin/main
 
 Every call reads AWS_ACCESS_KEY_ID, AWS_SECRET_ACCESS_KEY, R2_ENDPOINT and
 R2_BUCKET from the environment.
@@ -55,6 +68,7 @@ from __future__ import annotations
 import argparse
 import datetime as dt
 import email.utils
+<<<<<<< HEAD
 import http.client
 import importlib.util
 import json
@@ -62,6 +76,11 @@ import os
 import secrets
 import signal
 import subprocess
+=======
+import importlib.util
+import json
+import os
+>>>>>>> origin/main
 import sys
 import time
 import urllib.error
@@ -72,11 +91,14 @@ r2 = importlib.util.module_from_spec(_spec)
 _spec.loader.exec_module(r2)
 
 CONFLICT = 3
+<<<<<<< HEAD
 NOTHING_TO_RELEASE = 4
 POLL = 10
 # A lease record without its own "ttl" (#32275's format: no heartbeat) was written
 # with the longest TTL any writer then passed (publish-nightly's 180-minute timeout).
 LEGACY_TTL = 10800
+=======
+>>>>>>> origin/main
 
 
 def _target(key: str, cache_control: str = "no-cache", content_type: str = "application/octet-stream") -> argparse.Namespace:
@@ -145,6 +167,7 @@ def _lease(body: bytes) -> dict:
 
 
 def _store(key: str, lease: dict, etag: str | None) -> bool:
+<<<<<<< HEAD
     # A fresh nonce in every write: R2's ETag follows the bytes, so each renewal
     # changes it and a waiter that read the lease as expired cannot then take it.
     body = json.dumps({**lease, "nonce": time.time_ns()}).encode()
@@ -201,11 +224,28 @@ def lock(key: str, owner: str, ttl: int, wait: int, clock=time.monotonic, sleep=
         if clock() >= deadline:
             return False
         sleep(POLL)
+=======
+    return put(key, json.dumps(lease).encode(), etag=etag, cache_control="no-store", content_type="application/json")
+
+
+def lock(key: str, owner: str, ttl: int, wait: int, clock=time.monotonic, sleep=time.sleep) -> bool:
+    deadline = clock() + wait
+    while True:
+        etag, body, age = read(key)
+        lease = _lease(body)
+        free = etag is None or lease.get("released") or age > ttl
+        if free and _store(key, {"owner": owner}, etag):
+            return True
+        if clock() >= deadline:
+            return False
+        sleep(10)
+>>>>>>> origin/main
 
 
 def holds(key: str, owner: str) -> bool:
     etag, body, _ = read(key)
     lease = _lease(body)
+<<<<<<< HEAD
     return etag is not None and _mine(lease, owner, None)
 
 
@@ -313,6 +353,17 @@ def unlock(key: str, owner: str) -> bool:
         return True
     # Lost a race with this job's own heartbeat (a new ETag); read again.
     return unlock(key, owner)
+=======
+    return etag is not None and lease.get("owner") == owner and not lease.get("released")
+
+
+def unlock(key: str, owner: str) -> bool:
+    etag, body, _ = read(key)
+    lease = _lease(body)
+    if etag is None or lease.get("owner") != owner or lease.get("released"):
+        return False
+    return _store(key, {"owner": owner, "released": True}, etag)
+>>>>>>> origin/main
 
 
 def main(argv: list[str]) -> int:
@@ -336,6 +387,7 @@ def main(argv: list[str]) -> int:
     lk.add_argument("--owner", required=True)
     lk.add_argument("--ttl", type=int, required=True)
     lk.add_argument("--wait", type=int, required=True)
+<<<<<<< HEAD
     lk.add_argument("--renew-every", type=int)
     lk.add_argument("--max-hold", type=int)
     lk.add_argument("--pid-file")
@@ -346,13 +398,18 @@ def main(argv: list[str]) -> int:
     hb.add_argument("--every", type=int, required=True)
     hb.add_argument("--max-hold", type=int, required=True)
     hb.add_argument("--worker", type=int)
+=======
+>>>>>>> origin/main
     hd = sub.add_parser("holds")
     hd.add_argument("--key", required=True)
     hd.add_argument("--owner", required=True)
     ul = sub.add_parser("unlock")
     ul.add_argument("--key", required=True)
     ul.add_argument("--owner", required=True)
+<<<<<<< HEAD
     ul.add_argument("--pid-file")
+=======
+>>>>>>> origin/main
     args = parser.parse_args(argv)
 
     if args.command == "get":
@@ -368,6 +425,7 @@ def main(argv: list[str]) -> int:
         delete(args.key)
         return 0
     if args.command == "lock":
+<<<<<<< HEAD
         renewing = args.renew_every is not None
         if renewing and not (args.max_hold and args.pid_file):
             parser.error("--renew-every needs --max-hold and --pid-file")
@@ -391,6 +449,13 @@ def main(argv: list[str]) -> int:
     if args.pid_file:
         stop_heartbeat(args.pid_file)
     return 0 if unlock(args.key, args.owner) else NOTHING_TO_RELEASE
+=======
+        return 0 if lock(args.key, args.owner, args.ttl, args.wait) else CONFLICT
+    if args.command == "holds":
+        return 0 if holds(args.key, args.owner) else CONFLICT
+    unlock(args.key, args.owner)
+    return 0
+>>>>>>> origin/main
 
 
 if __name__ == "__main__":

@@ -18,6 +18,7 @@ import {
   unique,
   uniqueIndex,
   uuid,
+  date,
 } from "drizzle-orm/pg-core";
 
 export const vmProvider = pgEnum("vm_provider", ["freestyle", "gcp"]);
@@ -1299,6 +1300,29 @@ export const cloudVmSessions = pgTable(
     index("cloud_vm_sessions_user_status_updated_idx")
       .on(table.userId, table.status, table.updatedAt),
     index("cloud_vm_sessions_vm_updated_idx").on(table.vmId, table.updatedAt),
+  ],
+);
+
+/**
+ * Teammates who may start app chats on a team Cloud machine besides its
+ * creator (Leo, 2026-10-31: "we can't simply block always"). The machine's
+ * creator or a team admin writes a row through /api/vm/[id]/chat-grants; the
+ * attach endpoint answers `vmKind: owner` to a granted caller still on the
+ * machine's team (services/vms/vmKind.ts). A grant goes with its machine.
+ */
+export const cloudVmChatGrants = pgTable(
+  "cloud_vm_chat_grants",
+  {
+    vmId: uuid("vm_id")
+      .notNull()
+      .references(() => cloudVms.id, { onDelete: "cascade" }),
+    userId: text("user_id").notNull(),
+    /** Who shared it: the machine's creator or a team admin. */
+    grantedBy: text("granted_by").notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    uniqueIndex("cloud_vm_chat_grants_vm_user_unique").on(table.vmId, table.userId),
   ],
 );
 
@@ -2656,6 +2680,8 @@ export const stackIdentitySnapshots = pgTable(
         displayName: string | null;
         billingPlanId: string | null;
         billingSeats: number | null;
+        /** Optional: rows written before team deals existed omit it. */
+        entitlementOverride?: unknown;
       }[]>()
       .notNull()
       .default(sql`'[]'::jsonb`),
@@ -3005,6 +3031,22 @@ export const appleSubscriptions = pgTable("apple_subscriptions", {
   revokedAt: timestamp("revoked_at", { withTimezone: true }),
   revocationReason: integer("revocation_reason"),
   stateSignedAt: timestamp("state_signed_at", { withTimezone: true }).notNull(),
+  /**
+   * When the cron last got an answer from the App Store Server API for this
+   * subscription (renewal re-check or lapse check). Not a state write, so it
+   * never moves `updated_at`.
+   */
+  appleCheckedAt: timestamp("apple_checked_at", { withTimezone: true }),
+  /**
+   * The higher plan of the period still running when Apple's early renewal
+   * into a lower plan was written (a downgrade charged up to a day before the
+   * period ends). It grants until `carried_until` unless
+   * `carried_transaction_id` was refunded; the cron re-derives the plan once
+   * it ends and clears these.
+   */
+  carriedPlanId: text("carried_plan_id"),
+  carriedUntil: timestamp("carried_until", { withTimezone: true }),
+  carriedTransactionId: text("carried_transaction_id"),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
 }, (table) => [
@@ -3059,6 +3101,12 @@ export const appleNotifications = pgTable("apple_notifications", {
   receivedAt: timestamp("received_at", { withTimezone: true }).notNull().defaultNow(),
   processedAt: timestamp("processed_at", { withTimezone: true }),
   error: text("error"),
+  /** Failed applications so far; each one pushes `next_attempt_at` out exponentially. */
+  attemptCount: integer("attempt_count").notNull().default(0),
+  /** The retry job skips the row until then (null: due now). */
+  nextAttemptAt: timestamp("next_attempt_at", { withTimezone: true }),
+  /** Set after the last allowed attempt failed; the retry job stops and alerts. */
+  deadLetteredAt: timestamp("dead_lettered_at", { withTimezone: true }),
 }, (table) => [
   index("apple_notifications_original_transaction_id_idx").on(table.originalTransactionId),
   index("apple_notifications_pending_idx")
@@ -3183,4 +3231,52 @@ export const hexclaveWebhookInboxState = pgTable("hexclave_webhook_inbox_state",
   reportedDeadLettered: integer("reported_dead_lettered").notNull().default(0),
 }, (table) => [
   check("hexclave_webhook_inbox_state_singleton", sql`${table.id} = 1`),
+]);
+
+/**
+ * Where the App Store Server Notifications backfill (Get Notification
+ * History) resumes, per bundle and environment. A window runs from
+ * `window_start_at` to `window_end_at`; `pagination_token` is set while it is
+ * only partly read. Once it is read to the end, `next_start_at` moves to its
+ * end and the token clears.
+ */
+export const appleNotificationHistoryCursors = pgTable("apple_notification_history_cursors", {
+  bundleId: text("bundle_id").notNull(),
+  environment: text("environment").notNull(),
+  nextStartAt: timestamp("next_start_at", { withTimezone: true }).notNull(),
+  windowStartAt: timestamp("window_start_at", { withTimezone: true }),
+  windowEndAt: timestamp("window_end_at", { withTimezone: true }),
+  paginationToken: text("pagination_token"),
+  /** Consecutive runs stopped by a retryable verification failure on the current page. */
+  retryableRuns: integer("retryable_runs").notNull().default(0),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+}, (table) => [
+  primaryKey({ columns: [table.bundleId, table.environment] }),
+]);
+
+/**
+ * Opt-in hang reports from cmux NEXT Nightly (schema 2, see
+ * `app/api/hang-reports`). Anonymous: `install_id` is a random per-Mac UUID
+ * the client rotates every 30 days. No IP address, account or user agent is
+ * stored. `received_day` is the server's UTC day and carries the per-install
+ * daily cap. Rows are deleted after 90 days by `/api/cron/hang-reports-retention`.
+ */
+export const hangReports = pgTable("hang_reports", {
+  reportId: uuid("report_id").primaryKey(),
+  installId: uuid("install_id").notNull(),
+  receivedDay: date("received_day", { mode: "string" }).notNull(),
+  receivedAt: timestamp("received_at", { withTimezone: true }).notNull().defaultNow(),
+  appVersion: text("app_version"),
+  appBuild: text("app_build"),
+  channel: text("channel"),
+  osVersion: text("os_version"),
+  arch: text("arch"),
+  chip: text("chip"),
+  cores: integer("cores"),
+  memoryGb: integer("memory_gb"),
+  counts: jsonb("counts").$type<Record<string, string>>(),
+  payload: jsonb("payload").$type<Record<string, unknown>>().notNull(),
+}, (table) => [
+  index("hang_reports_install_day_idx").on(table.installId, table.receivedDay),
+  index("hang_reports_received_at_idx").on(table.receivedAt),
 ]);

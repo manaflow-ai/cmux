@@ -16,7 +16,10 @@ extension HomeStore {
             log.acknowledge(intent.key, rev: result.rev)
             uploads[intent.key] = nil
             leaveSendQueue(intent.key)
+<<<<<<< HEAD
             advanceSendChain(committed: intent.key)
+=======
+>>>>>>> origin/main
             settle()
             afterLogChange(intent.op)
             return result
@@ -50,7 +53,10 @@ extension HomeStore {
                 cancelBackoff(intent.key)
                 endOfflineDeadline(intent.key)
                 leaveSendQueue(intent.key)
+<<<<<<< HEAD
                 holdSendChain(after: intent.key)
+=======
+>>>>>>> origin/main
                 if case .sendMessage = intent.op {
                     log.fail(intent.key, rejection)
                 } else {
@@ -84,7 +90,11 @@ extension HomeStore {
                 let next = self.pendingResends.removeFirst()
                 // Cancelled or dropped since it was queued.
                 guard self.log.entries.contains(where: { $0.intent.key == next.key }) else { continue }
+<<<<<<< HEAD
                 if case .sendMessage(let conversation, _, _, _) = next.op {
+=======
+                if case .sendMessage(let conversation, _, _) = next.op {
+>>>>>>> origin/main
                     await self.waitForTurn(next.key, in: conversation)
                     guard self.log.entries.contains(where: { $0.intent.key == next.key }), !self.stopped else { continue }
                 }
@@ -105,24 +115,30 @@ extension HomeStore {
             let wasOnline = connection == .online
             connection = state
             if state != .online {
+<<<<<<< HEAD
                 // Typing is the owner's ephemeral state: a typing-off sent while this client is not
                 // connected never comes, so nothing kept from before stays on screen as dots under a
                 // finished reply. Dots come back with the owner's next typing frame or a live run.
                 typing.removeAll()
                 // Presence is the owner's too: it comes again with the owner's next presence frame.
                 viewing.removeAll()
+=======
+>>>>>>> origin/main
                 log.markDisconnected()
                 pendingResends.removeAll()
                 cancelBackoffs()
             }
             if state == .online, !wasOnline {
                 backoffAttempts.removeAll()
+<<<<<<< HEAD
                 // Typing went with the connection: a turn still running shows its dots again from the
                 // owner's live runs (`typists(in:)`), read again for every conversation on screen or
                 // with a run this client kept (a run that ended meanwhile leaves the snapshot).
                 for id in Set(pager.viewers.keys).union(live.keys).sorted(by: { $0.rawValue < $1.rawValue }) { requestLive(id) }
                 // Completed report records do not advance the conversation revision or live snapshot.
                 for id in pager.viewers.keys { requestAgentMessages(id) }
+=======
+>>>>>>> origin/main
                 enqueueResends(log.takeResends())
                 resumeInterruptedUploads()
                 for stream in mirror.stale { scheduleRefetch(stream) }
@@ -131,7 +147,10 @@ extension HomeStore {
         case .ownerRecovered:
             // Offline intents wait for the reconnect, which resends them anyway.
             guard isOnline else { return }
+<<<<<<< HEAD
             for id in pager.viewers.keys { requestAgentMessages(id) }
+=======
+>>>>>>> origin/main
             enqueueResends(log.takeResends())
             resumeInterruptedUploads()
             for stream in mirror.stale { scheduleRefetch(stream) }
@@ -142,14 +161,18 @@ extension HomeStore {
             for op in log.revoke(keys) {
                 if let id = op.conversation { bumpTranscript(id) }
             }
+<<<<<<< HEAD
             // Their uploads, queue places and turn waits go with them, and a split send goes on
             // past a revoked message (`advanceSendChains`).
             dropOrphanUploadJobs()
+=======
+>>>>>>> origin/main
             rebuildRows()
         case .typing(let id, let who, let on):
             var set = typing[id] ?? []
             if on { set.insert(who) } else { set.remove(who) }
             typing[id] = set.isEmpty ? nil : set
+<<<<<<< HEAD
             if !on, draftBook.typingOff(id, who) { publishLive(id) }
             rebuildRows()
         case .presence(let id, let people):
@@ -158,6 +181,12 @@ extension HomeStore {
             if draftBook.apply(update) { publishLive(update.conversation) }
         case .live(let event):
             applyLive(event)
+=======
+            if !on, draftBook.typingOff(id, who) { drafts = draftBook.live }
+            rebuildRows()
+        case .draft(let update):
+            if draftBook.apply(update) { drafts = draftBook.live }
+>>>>>>> origin/main
         default:
             // A new post ends its author's typing: the owner sends no typing-off after a post (home-inbox-v1).
             // An update of a known message (edit, retraction, reaction, answer) keeps it.
@@ -167,11 +196,14 @@ extension HomeStore {
                 typing[message.conversation]?.remove(message.author)
                 if typing[message.conversation]?.isEmpty == true { typing[message.conversation] = nil }
             }
+<<<<<<< HEAD
             // Only a new post can be a live run's reply (an edit, retraction or reaction of a known message is not).
             let newPost: Bool = if case .message(let message, _) = event {
                 message.editedAt == nil && message.retractedAt == nil
                     && mirror.message(clientID: message.clientMessageID, in: message.conversation) == nil
             } else { false }
+=======
+>>>>>>> origin/main
             let outcome = mirror.apply(event)
             switch event {
             case .inbox(let snapshot): confirm(snapshot.conversations.map(\.id))
@@ -191,6 +223,7 @@ extension HomeStore {
                 dropOrphanUploadJobs()
             case .message(let message, _):
                 // The posted reply ends its draft in the same change.
+<<<<<<< HEAD
                 let draftEnded = draftBook.posted(message)
                 let runEnded = newPost && liveBook.posted(message)
                 if draftEnded || runEnded { publishLive(message.conversation) }
@@ -202,6 +235,12 @@ extension HomeStore {
                 // while paging older history). Hydrate the agent-message projection
                 // for the expanded window just as a snapshot read does.
                 requestAgentMessages(page.conversation.id)
+=======
+                if draftBook.posted(message) { drafts = draftBook.live }
+                bumpTranscript(message.conversation)
+            case .conversationPage(let page):
+                bumpTranscript(page.conversation.id)
+>>>>>>> origin/main
             default:
                 break
             }

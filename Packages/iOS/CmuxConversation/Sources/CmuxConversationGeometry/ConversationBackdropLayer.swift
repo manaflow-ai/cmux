@@ -1,3 +1,4 @@
+<<<<<<< HEAD
 #if canImport(QuartzCore)  // Core Animation: Apple only (the Linux CI package build skips this file)
 import CmuxConversationCore
 #if canImport(CoreGraphics)
@@ -5,6 +6,10 @@ import CoreGraphics
 #else
 import Foundation
 #endif
+=======
+import CmuxConversationCore
+import CoreGraphics
+>>>>>>> origin/main
 import Foundation
 import QuartzCore
 
@@ -23,11 +28,17 @@ public final class ConversationBackdropLayer: CALayer {
     /// The decoded photo of a `.photo` background.
     public private(set) var image: CGImage?
 
+<<<<<<< HEAD
     /// Reduce Motion: dynamic backgrounds hold one still frame. Their loops
     /// are not added at all (`addLoopUnlessReduceMotion`), so turning it on or
     /// off rebuilds the same seeded layout with or without them.
     public var isMotionPaused = false {
         didSet { if isMotionPaused != oldValue { rebuild() } }
+=======
+    /// Reduce Motion: dynamic backgrounds hold one still frame.
+    public var isMotionPaused = false {
+        didSet { if isMotionPaused != oldValue { applyMotion() } }
+>>>>>>> origin/main
     }
 
     /// Increase Contrast: pushes the background away from the transcript's
@@ -64,7 +75,10 @@ public final class ConversationBackdropLayer: CALayer {
         self.image = image
         guard !sameLook else { return }
         if animated, superlayer != nil {
+<<<<<<< HEAD
             // motion: allow crossfade, the Reduce Motion form
+=======
+>>>>>>> origin/main
             let fade = CATransition()
             fade.type = .fade
             fade.duration = 0.35
@@ -169,7 +183,11 @@ public final class ConversationBackdropLayer: CALayer {
             drift.duration = Double(travel / (6 + 14 * depth)) // points per second
             drift.repeatCount = .infinity
             drift.timeOffset = drift.duration * Double(random(0...1))
+<<<<<<< HEAD
             addLoopUnlessReduceMotion(drift, to: cloud, forKey: "drift")
+=======
+            cloud.add(drift, forKey: "drift")
+>>>>>>> origin/main
             content.addSublayer(cloud)
         }
     }
@@ -206,7 +224,11 @@ public final class ConversationBackdropLayer: CALayer {
             roll.duration = Double(7 + 3 * index)
             roll.repeatCount = .infinity
             roll.timeOffset = roll.duration * Double(random(0...1))
+<<<<<<< HEAD
             addLoopUnlessReduceMotion(roll, to: wave, forKey: "roll")
+=======
+            wave.add(roll, forKey: "roll")
+>>>>>>> origin/main
             let swell = CABasicAnimation(keyPath: "position.y")
             swell.fromValue = height / 2 - amplitude
             swell.toValue = height / 2 + amplitude
@@ -214,7 +236,11 @@ public final class ConversationBackdropLayer: CALayer {
             swell.autoreverses = true
             swell.repeatCount = .infinity
             swell.timingFunction = CAMediaTimingFunction(name: .easeInEaseOut)
+<<<<<<< HEAD
             addLoopUnlessReduceMotion(swell, to: wave, forKey: "swell")
+=======
+            wave.add(swell, forKey: "swell")
+>>>>>>> origin/main
             content.addSublayer(wave)
         }
     }
@@ -250,7 +276,11 @@ public final class ConversationBackdropLayer: CALayer {
             sway.repeatCount = .infinity
             sway.timingFunction = CAMediaTimingFunction(name: .easeInEaseOut)
             sway.timeOffset = sway.duration * Double(random(0...1))
+<<<<<<< HEAD
             addLoopUnlessReduceMotion(sway, to: ribbon, forKey: "sway")
+=======
+            ribbon.add(sway, forKey: "sway")
+>>>>>>> origin/main
             let drift = CABasicAnimation(keyPath: "position.x")
             drift.fromValue = ribbon.position.x - width * 0.12
             drift.toValue = ribbon.position.x + width * 0.12
@@ -259,7 +289,11 @@ public final class ConversationBackdropLayer: CALayer {
             drift.repeatCount = .infinity
             drift.timingFunction = CAMediaTimingFunction(name: .easeInEaseOut)
             drift.timeOffset = drift.duration * Double(random(0...1))
+<<<<<<< HEAD
             addLoopUnlessReduceMotion(drift, to: ribbon, forKey: "drift")
+=======
+            ribbon.add(drift, forKey: "drift")
+>>>>>>> origin/main
             let breathe = CABasicAnimation(keyPath: "opacity")
             breathe.fromValue = 0.35
             breathe.toValue = 1
@@ -267,7 +301,11 @@ public final class ConversationBackdropLayer: CALayer {
             breathe.autoreverses = true
             breathe.repeatCount = .infinity
             breathe.timeOffset = breathe.duration * Double(random(0...1))
+<<<<<<< HEAD
             addLoopUnlessReduceMotion(breathe, to: ribbon, forKey: "breathe")
+=======
+            ribbon.add(breathe, forKey: "breathe")
+>>>>>>> origin/main
             content.addSublayer(ribbon)
         }
         // A few stars above the glow.
@@ -310,12 +348,17 @@ public final class ConversationBackdropLayer: CALayer {
             flicker.autoreverses = true
             flicker.repeatCount = .infinity
             flicker.timeOffset = flicker.duration * Double(random(0...2))
+<<<<<<< HEAD
             addLoopUnlessReduceMotion(flicker, to: dot, forKey: "twinkle")
+=======
+            dot.add(flicker, forKey: "twinkle")
+>>>>>>> origin/main
             field.addSublayer(dot)
         }
         content.addSublayer(field)
     }
 
+<<<<<<< HEAD
     /// Adds a decorative loop (drift, swell, sway, breathe, twinkle) unless
     /// Reduce Motion is on, when the layer keeps its static model values.
     /// The animation is built either way, so the seeded random draws, and
@@ -325,6 +368,8 @@ public final class ConversationBackdropLayer: CALayer {
         layer.add(loop, forKey: key)
     }
 
+=======
+>>>>>>> origin/main
     private func seed(for kind: String) -> UInt64 {
         var hash: UInt64 = 1469598103934665603
         for byte in ((background?.id ?? "") + kind).utf8 {
@@ -411,4 +456,7 @@ struct SeededGenerator: RandomNumberGenerator {
         return z ^ (z >> 31)
     }
 }
+<<<<<<< HEAD
 #endif
+=======
+>>>>>>> origin/main

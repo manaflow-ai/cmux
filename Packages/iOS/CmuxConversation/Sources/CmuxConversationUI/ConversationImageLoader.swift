@@ -40,8 +40,12 @@ final class ConversationImageLoader {
             guard let data, let image = UIImage(data: data) else { return nil }
             let scale = pixelWidth / max(image.size.width * image.scale, 1)
             let target = CGSize(width: image.size.width * min(1, scale), height: image.size.height * min(1, scale))
+<<<<<<< HEAD
             let thumbnail = await image.byPreparingThumbnail(ofSize: target) ?? image
             return Self.displayReady(thumbnail)
+=======
+            return await image.byPreparingThumbnail(ofSize: target) ?? image
+>>>>>>> origin/main
         }
         inFlight[key] = task
         let image = await task.value
@@ -84,6 +88,7 @@ final class ConversationImageLoader {
         }.value
     }
 
+<<<<<<< HEAD
     /// The image in Core Animation's own bitmap format (8-bit BGRA, sRGB).
     /// A decoded PNG or a prepared thumbnail can stay in its file's byte
     /// order (RGBX); Core Animation then converts it on the main thread when
@@ -102,6 +107,8 @@ final class ConversationImageLoader {
         }
     }
 
+=======
+>>>>>>> origin/main
     private func key(_ attachment: ConversationAttachment, _ pixelWidth: CGFloat) -> String {
         "\(attachment.id)@\(Int(pixelWidth))"
     }

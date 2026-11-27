@@ -410,8 +410,11 @@
   "commands": {
     "control": [
       "ack-tab-notifications",
+<<<<<<< HEAD
       "add-screens-to-screen-group",
       "add-tabs-to-tab-group",
+=======
+>>>>>>> origin/main
       "apply-layout",
       "bind-conversation-tab-session",
       "cancel-creating-input",

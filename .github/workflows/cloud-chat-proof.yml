@@ -1,3 +1,4 @@
+<<<<<<< HEAD
 name: Cloud chat proof (staging and production, tagged DEV app)
 run-name: ${{ inputs.signin_pubkey != '' && format('DEV sign-in session {0}', inputs.request_id) || inputs.flow == 'share-two-accounts' && 'Two-account chat sharing (staging)' || inputs.flow == 'github-pr-app' && format('GitHub main path recording (staging, {0}){1}', inputs.build, inputs.request_id != '' && format(' {0}', inputs.request_id) || '') || inputs.cleanup_machine != '' && format('Cloud machine cleanup ({0})', inputs.cleanup_machine) || inputs.paused_capture && format('Cloud paused price capture (staging, {0}){1}', inputs.build, inputs.request_id != '' && format(' {0}', inputs.request_id) || '') || inputs.matrix && format('{0}Cloud workspace matrix ({1}, {2}){3}', inputs.projection_kinds && 'Projection ' || '', inputs.build, inputs.agent, inputs.request_id != '' && format(' {0}', inputs.request_id) || '') || format('Cloud chat proof ({0}, {1}{2}){3}', inputs.build, inputs.agent, inputs.empty_folder && ', from an empty folder' || inputs.from_folder && ', from a folder' || '', inputs.request_id != '' && format(' {0}', inputs.request_id) || '') }}
 
@@ -58,13 +59,30 @@ run-name: ${{ inputs.signin_pubkey != '' && format('DEV sign-in session {0}', in
 # Claude login for the run, stored as the app stores one and removed at the end) and --login pass (the start copies
 # that login to its own machine: install-cached on build=tagged, after the consent on build=published). --login none
 # copied nothing and left Claude signed out on a team the gateway does not serve (run 42940662878). Claude chats only.
+=======
+name: Cloud chat proof (staging, tagged DEV app)
+
+# The implementation lives on feat-cmux-next. GitHub dispatches only a
+# workflow the default branch registers, so this inert copy lets lanes run:
+#
+#   gh workflow run cloud-chat-proof.yml -R manaflow-ai/cmux --ref feat-cmux-next
+#
+# A dispatch runs the file at --ref, so feat-cmux-next's inputs and jobs win;
+# these inputs only mirror them for the Actions form.
+>>>>>>> origin/main
 on:
   workflow_dispatch:
     inputs:
       prompt:
+<<<<<<< HEAD
         description: Extra context for the Cloud chat; the browser proof is always required
         required: false
         default: "After the browser proof, mention the result in one short sentence."
+=======
+        description: The prompt the Cloud chat gets
+        required: false
+        default: "Reply with one short sentence that names the planet you are on."
+>>>>>>> origin/main
         type: string
       agent:
         description: The harness the chat starts (claude or codex)
@@ -72,6 +90,7 @@ on:
         default: claude
         type: choice
         options: [claude, codex]
+<<<<<<< HEAD
       build:
         description: tagged (a reload.sh build of this commit) or published (the signed NEXT DEV release)
         required: false
@@ -148,12 +167,17 @@ permissions:
 concurrency:
   group: cloud-chat-proof-${{ github.run_id }}
   cancel-in-progress: false
+=======
+
+permissions: {}
+>>>>>>> origin/main
 
 env:
   # Temporary REST budget attribution: one gh-call line per GitHub API call (scripts/ci/api_call_log/env.sh, fetched at a fixed commit when the checkout has no copy).
   BASH_ENV: '$({ w="${GITHUB_WORKSPACE:-/nonexistent}/scripts/ci/api_call_log/env.sh"; t="${RUNNER_TEMP:-/nonexistent}/api-call-log-src"; if [ -f "$w" ]; then echo "$w"; elif [ -n "${RUNNER_TEMP:-}" ]; then if [ ! -f "$t/env.sh" ] && [ ! -e "$t.tried" ] && { [ "${RUNNER_OS:-}" = Linux ] || [ "${RUNNER_OS:-}" = macOS ]; } && [ "$(date -u +%Y%m%d%H)" -lt 2026112300 ]; then : > "$t.tried"; mkdir -p "$t.part" && for x in env.sh gh sitecustomize.py isolated.py; do curl -fsSL --max-time 5 -o "$t.part/$x" "https://raw.githubusercontent.com/manaflow-ai/cmux/27647ffd3ae838c63be28ca3e5883dcd68c34518/scripts/ci/api_call_log/$x" || break; done; [ -s "$t.part/isolated.py" ] && mv "$t.part" "$t"; fi; if [ -f "$t/env.sh" ]; then echo "$t/env.sh"; else echo unset BASH_ENV > "$t.off.sh" && echo "$t.off.sh"; fi; fi; } 2>/dev/null)'
 
 jobs:
+<<<<<<< HEAD
   signin:
     if: github.ref == 'refs/heads/feat-cmux-next' && inputs.signin_pubkey != '' && inputs.signin_backend != 'production'
     # Holds the stack pair: an ephemeral Blacksmith Linux runner, never an owned pool (cloud-newlink-e2e.yml).
@@ -1290,3 +1314,9 @@ jobs:
           if [ "$STAGING" != success ]; then echo "::error::the staging proof did not pass ($STAGING)"; exit 1; fi
           if [ -n "$CLEANUP_MACHINE" ] || [ "$PAUSED_CAPTURE" = true ] || [ "$FLOW" = github-pr-app ]; then exit 0; fi
           if [ "$PROD" != success ]; then echo "::error::the production proof did not pass ($PROD)"; exit 1; fi
+=======
+  registration:
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.CI_OVERFLOW_LINUX || 'cmux-linux' }}
+    steps:
+      - run: echo "The Cloud chat proof is implemented on feat-cmux-next; dispatch it with --ref feat-cmux-next"
+>>>>>>> origin/main

@@ -45,6 +45,7 @@ INVOKED_PATH = re.compile(r"(?:\./)?(tests(?:_v2)?/[A-Za-z0-9_.-]+\.(?:py|sh))")
 # an allowlist that can be appended to without argument is the failure mode
 # this test exists to prevent.
 UNWIRED: set[str] = {
+<<<<<<< HEAD
     # Red on feat-cmux-next at 2026-11-23 when #49253 wired the other guards: it expects the Linux jobs' runs-on not
     # to reach cmux-linux, which #49544 and #48188 made the PR-gate Linux label. Exit: update the test to the
     # cmux-linux route, then wire it into ci-guards.yml's ci group.
@@ -327,6 +328,12 @@ UNWIRED: set[str] = {
     # and curl in nightly.yml's nightly- next-one job has its own bound and the ones that fail it retry (nightly run
     # 44232805509). Run it by hand after changing a fetch or download there. Exit: as above.
     "tests/test_nightly_next_network_bounds.py",
+=======
+    # lane = "manual" in tests/test-execution.toml (no new CI tests, CLAUDE.md). It pins
+    # scripts/install-axe-ci.sh's sha256 refusal and reads ios-e2e.yml and iroh-release-gate.yml only to check they
+    # call that script, not the Homebrew tap. Run it by hand when any of them changes. Exit: when a workflow runs it.
+    "tests/test_install_axe_ci.py",
+>>>>>>> origin/main
 }
 
 

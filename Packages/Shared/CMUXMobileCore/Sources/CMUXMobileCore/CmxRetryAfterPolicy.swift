@@ -1,6 +1,10 @@
 public import Foundation
 #if canImport(FoundationNetworking)
+<<<<<<< HEAD
 public import FoundationNetworking
+=======
+import FoundationNetworking
+>>>>>>> origin/main
 #endif
 
 /// Shared interpretation of HTTP `Retry-After` for every automatic client

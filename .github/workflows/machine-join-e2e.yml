@@ -1,5 +1,6 @@
 name: Machine join E2E (development)
 
+<<<<<<< HEAD
 # One bounded end-to-end run of the one-line machine join against the DEVELOPMENT
 # platform (https://cmux-platform-development.debussy.workers.dev) only, on an
 # ephemeral Blacksmith VM: mint a join token, pipe it to `acpmux host join` on
@@ -38,6 +39,15 @@ name: Machine join E2E (development)
 # cmux-rd) installs it from the feat-cmux-next channel. The host's
 # ~/.local/bin/cmux-rd must then be a regular file with the channel's sha256,
 # and the share must pass as above. The viewer still uses the run's build.
+=======
+# The implementation lives on feat-cmux-next. GitHub dispatches only a
+# workflow the default branch registers, so this inert copy lets lanes run:
+#
+#   gh workflow run machine-join-e2e.yml -R manaflow-ai/cmux --ref feat-cmux-next
+#
+# A dispatch runs the file at --ref, so feat-cmux-next's inputs and jobs win;
+# these inputs only mirror them for the Actions form.
+>>>>>>> origin/main
 on:
   workflow_dispatch:
     inputs:
@@ -74,14 +84,19 @@ on:
           - build
           - channel
 
+<<<<<<< HEAD
 permissions:
   contents: read
+=======
+permissions: {}
+>>>>>>> origin/main
 
 env:
   # Temporary REST budget attribution: one gh-call line per GitHub API call (scripts/ci/api_call_log/env.sh, fetched at a fixed commit when the checkout has no copy).
   BASH_ENV: '$({ w="${GITHUB_WORKSPACE:-/nonexistent}/scripts/ci/api_call_log/env.sh"; t="${RUNNER_TEMP:-/nonexistent}/api-call-log-src"; if [ -f "$w" ]; then echo "$w"; elif [ -n "${RUNNER_TEMP:-}" ]; then if [ ! -f "$t/env.sh" ] && [ ! -e "$t.tried" ] && { [ "${RUNNER_OS:-}" = Linux ] || [ "${RUNNER_OS:-}" = macOS ]; } && [ "$(date -u +%Y%m%d%H)" -lt 2026112300 ]; then : > "$t.tried"; mkdir -p "$t.part" && for x in env.sh gh sitecustomize.py isolated.py; do curl -fsSL --max-time 5 -o "$t.part/$x" "https://raw.githubusercontent.com/manaflow-ai/cmux/27647ffd3ae838c63be28ca3e5883dcd68c34518/scripts/ci/api_call_log/$x" || break; done; [ -s "$t.part/isolated.py" ] && mv "$t.part" "$t"; fi; if [ -f "$t/env.sh" ]; then echo "$t/env.sh"; else echo unset BASH_ENV > "$t.off.sh" && echo "$t.off.sh"; fi; fi; } 2>/dev/null)'
 
 jobs:
+<<<<<<< HEAD
   e2e:
     if: github.ref == 'refs/heads/feat-cmux-next'
     # A secret-reading dispatch job runs in an environment (tests/test_supplychain_security.py). This
@@ -526,3 +541,9 @@ jobs:
             echo "::error::the disposable user $JOIN_USER is still present"
             exit 1
           fi
+=======
+  registration:
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.CI_OVERFLOW_LINUX || 'cmux-linux' }}
+    steps:
+      - run: echo "Machine join E2E is implemented on feat-cmux-next; dispatch it with --ref feat-cmux-next"
+>>>>>>> origin/main

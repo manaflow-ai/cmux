@@ -33,14 +33,18 @@ public final class HomeStore {
     public private(set) var confirmed: Set<ConversationID> = []
     /// Conversations the cache seeded at launch.
     @ObservationIgnored var seeded: Set<ConversationID> = []
+<<<<<<< HEAD
     /// The cache was read into the mirror (once per store).
     @ObservationIgnored var cacheRestored = false
     /// This launch named its Chief (``rememberChief(_:)``): ``launchChief`` is nil from then on.
     var chiefDecided = false
+=======
+>>>>>>> origin/main
     /// Conversations that got the text typed in a gone cache-only one, until their view says so.
     @ObservationIgnored var carriedDrafts: Set<ConversationID> = []
     public internal(set) var me: Participant?
     public internal(set) var typing: [ConversationID: Set<ParticipantID>] = [:]
+<<<<<<< HEAD
     /// Who has each conversation open (``HomeEvent/presence(_:viewing:)``), cleared with the
     /// connection as typing is; a conversation nobody has open has no entry.
     public internal(set) var viewing: [ConversationID: Set<ParticipantID>] = [:]
@@ -104,6 +108,16 @@ public final class HomeStore {
     @ObservationIgnored private var eventTask: Task<Void, Never>?
     /// Reads the owner's ``HomeSource/agentStarts()`` into ``agentsStarted(_:)`` while the store runs.
     @ObservationIgnored private var agentStartTask: Task<Void, Never>?
+=======
+    /// The running agent reply of each conversation, while it is written.
+    public internal(set) var drafts: [ConversationID: HomeTurnDraft] = [:]
+    @ObservationIgnored var draftBook = HomeDraftBook()
+
+    @ObservationIgnored public let source: any HomeSource
+    @ObservationIgnored var mirror = HomeMirror()
+    @ObservationIgnored var log = IntentLog()
+    @ObservationIgnored private var eventTask: Task<Void, Never>?
+>>>>>>> origin/main
     @ObservationIgnored var resendTask: Task<Void, Never>?
     @ObservationIgnored var pendingResends: [HomeIntent] = []
     @ObservationIgnored var refetching: Set<HomeStream> = []
@@ -115,10 +129,17 @@ public final class HomeStore {
     /// Where prepared attachments live (`<root>/<hash>/data.<ext>`).
     @ObservationIgnored public let blobCacheDirectory: URL
     /// Every attachment this client prepared, by hash (stays after the echo).
+<<<<<<< HEAD
     @ObservationIgnored var localFiles: [String: LocalAttachmentFiles] = [:] { didSet { transcriptCache.removeAll() } }
     /// Sends with attachments, from the first upload until the owner
     /// commits them (kept after a refusal, so a retry can upload again).
     @ObservationIgnored var uploads: [IdempotencyKey: UploadJob] = [:] { didSet { transcriptCache.removeAll() } }
+=======
+    @ObservationIgnored var localFiles: [String: LocalAttachmentFiles] = [:]
+    /// Sends with attachments, from the first upload until the owner
+    /// commits them (kept after a refusal, so a retry can upload again).
+    @ObservationIgnored var uploads: [IdempotencyKey: UploadJob] = [:]
+>>>>>>> origin/main
 
     /// Sends the owner has not decided yet, per conversation, in the order
     /// the user made them. A send goes to the owner only when it is first:
@@ -126,11 +147,14 @@ public final class HomeStore {
     /// cancelled or failed its upload. So a text sent while a photo uploads
     /// waits for the photo, and the owner commits them in that order.
     @ObservationIgnored var sendQueue: [ConversationID: [IdempotencyKey]] = [:]
+<<<<<<< HEAD
     /// The messages one send became past the owner's parts per message
     /// (`send(conversation:parts:uploads:)`), each chain in order, its head
     /// the one going now. A later one goes only once the one before it
     /// committed or left the log; a failure holds the rest until its retry.
     @ObservationIgnored var sendChains: [[IdempotencyKey]] = []
+=======
+>>>>>>> origin/main
     @ObservationIgnored var turnWaiters: [IdempotencyKey: CheckedContinuation<Void, Never>] = [:]
     /// Delayed resends (and upload passes) of sends that got no answer
     /// while the connection stayed up, and how many each has had.
@@ -148,8 +172,11 @@ public final class HomeStore {
     /// for a running pass, and a pass skips while a prepare runs, so a
     /// prune never deletes a blob a prepare is reusing.
     @ObservationIgnored private var pruneLoop: Task<Void, Never>?
+<<<<<<< HEAD
     /// Whether `start` runs the prune loop (``init(source:blobCacheDirectory:clock:cache:cacheWriteDelay:prunesBlobCache:)``).
     @ObservationIgnored private let prunesBlobCache: Bool
+=======
+>>>>>>> origin/main
     @ObservationIgnored var pruning: Task<Void, Never>?
     @ObservationIgnored var preparing = 0
 
@@ -211,6 +238,7 @@ public final class HomeStore {
     /// Drafts, scroll anchors and the coalesced cache writes.
     @ObservationIgnored let viewCache: HomeClientViewCache
 
+<<<<<<< HEAD
     /// - Parameter blobCacheDirectory: The attachment folder; by default one of its own (``ownBlobCacheDirectory()``).
     ///   The app's Home store passes its folder in the app's Caches (``defaultBlobCacheDirectory``).
     /// - Parameter prunesBlobCache: Whether this store prunes `blobCacheDirectory` at `start` and while it runs. A
@@ -222,11 +250,21 @@ public final class HomeStore {
                 cacheWriteDelay: Duration = .milliseconds(250), prunesBlobCache: Bool = true) {
         self.source = source
         self.prunesBlobCache = prunesBlobCache
+=======
+    public init(source: any HomeSource, blobCacheDirectory: URL = HomeStore.defaultBlobCacheDirectory,
+                clock: any Clock<Duration> = ContinuousClock(), cache: HomeCache? = nil,
+                cacheWriteDelay: Duration = .milliseconds(250)) {
+        self.source = source
+>>>>>>> origin/main
         self.blobCacheDirectory = blobCacheDirectory
         self.clock = clock
         self.cache = cache
         self.viewCache = HomeClientViewCache(cache: cache, writeDelay: cacheWriteDelay, clock: clock)
+<<<<<<< HEAD
         viewCache.ownerState = { [weak self] in self?.ownerCacheState() ?? HomeCacheState() }
+=======
+        viewCache.ownerSnapshot = { [weak self] in self?.ownerCacheSnapshot() ?? HomeCacheSnapshot() }
+>>>>>>> origin/main
     }
 
     /// Starts consuming owner events. Idempotent.
@@ -235,6 +273,7 @@ public final class HomeStore {
         restoreCache()
         let clock = self.clock
         let interval = Self.blobCachePruneInterval
+<<<<<<< HEAD
         if prunesBlobCache {
             pruneLoop = Task { [weak self] in
                 while !Task.isCancelled {
@@ -242,6 +281,13 @@ public final class HomeStore {
                     await self?.pruneBlobCache()
                     do { try await clock.sleep(for: interval) } catch { return }
                 }
+=======
+        pruneLoop = Task { [weak self] in
+            while !Task.isCancelled {
+                guard self != nil else { return }
+                await self?.pruneBlobCache()
+                do { try await clock.sleep(for: interval) } catch { return }
+>>>>>>> origin/main
             }
         }
         let source = self.source
@@ -252,6 +298,7 @@ public final class HomeStore {
                 self.handle(event)
             }
         }
+<<<<<<< HEAD
         // task-owner: one consumer of the owner's agent starts, cancelled by stop()
         agentStartTask = Task { [weak self] in
             for await starts in await source.agentStarts() {
@@ -273,6 +320,16 @@ public final class HomeStore {
         eventTask = nil
         agentStartTask?.cancel()
         agentStartTask = nil
+=======
+    }
+
+    /// Ends this store (sign-out, account switch). Every later op is refused.
+    public func stop() {
+        viewCache.flush()
+        stopped = true
+        eventTask?.cancel()
+        eventTask = nil
+>>>>>>> origin/main
         resendTask?.cancel()
         resendTask = nil
         pruneLoop?.cancel()
@@ -313,6 +370,7 @@ public final class HomeStore {
 
     public func transcript(for id: ConversationID) -> [TranscriptItem] {
         guard let me = me?.id else { return [] }
+<<<<<<< HEAD
         let version = transcriptVersion[id, default: 0]
         if let cached = transcriptCache[id], cached.version == version, cached.me == me { return cached.items }
         var items = (mirror.windows[id] ?? TranscriptWindow()).items(pending: log.sends(in: id), me: me)
@@ -334,6 +392,11 @@ public final class HomeStore {
     /// (plans/cmux-next/home-chat-pipeline-DESIGN.md). The one value a view draws.
     public func timeline(for id: ConversationID) -> HomeTimeline {
         HomeTimeline(items: transcript(for: id), streams: streams(in: id))
+=======
+        let items = (mirror.windows[id] ?? TranscriptWindow()).items(pending: log.sends(in: id), me: me)
+        guard !localFiles.isEmpty else { return items }
+        return items.map(decorated)
+>>>>>>> origin/main
     }
 
     /// Adds local files and upload progress to a row with attachment parts.
@@ -348,6 +411,7 @@ public final class HomeStore {
         return item
     }
 
+<<<<<<< HEAD
     /// The first page of the conversation's transcript is still being read for an open (``beginOpen(_:)``).
     ///
     /// Events committed meanwhile are buffered into the window, so a view may already show some of
@@ -356,6 +420,8 @@ public final class HomeStore {
         pager.runningLoad(id) != nil
     }
 
+=======
+>>>>>>> origin/main
     public func hasOlderMessages(in id: ConversationID) -> Bool {
         guard let window = mirror.windows[id] else { return false }
         return !window.reachedStart
@@ -380,12 +446,19 @@ public final class HomeStore {
             let keys = Set(log.entries.map(\.intent.key))
             for key in Array(offlineDeadlines.keys) where !keys.contains(key) { endOfflineDeadline(key) }
         }
+<<<<<<< HEAD
         guard !uploads.isEmpty || !sendQueue.isEmpty || !sendChains.isEmpty else { return }
+=======
+        guard !uploads.isEmpty || !sendQueue.isEmpty else { return }
+>>>>>>> origin/main
         let keys = Set(log.entries.map(\.intent.key))
         for key in uploads.keys where !keys.contains(key) { uploads[key] = nil }
         for conversation in Array(sendQueue.keys) { removeFromSendQueue(conversation) { !keys.contains($0) } }
         for key in Array(turnWaiters.keys) where !keys.contains(key) { turnWaiters.removeValue(forKey: key)?.resume() }
+<<<<<<< HEAD
         advanceSendChains(present: keys)
+=======
+>>>>>>> origin/main
     }
 
     func afterLogChange(_ op: HomeOp) {
@@ -395,8 +468,13 @@ public final class HomeStore {
     }
 
     func bumpTranscript(_ id: ConversationID) {
+<<<<<<< HEAD
         transcriptCache[id] = nil
         transcriptVersion[id, default: 0] += 1
+=======
+        transcriptVersion[id, default: 0] += 1
+        scheduleCacheWrite()
+>>>>>>> origin/main
     }
 
     struct UploadJob {
@@ -423,11 +501,17 @@ public final class HomeStore {
         var uploadedAfterSweep = false
     }
 
+<<<<<<< HEAD
     /// Rows from the mirror, the log and who types. Equal rows are not assigned: an assignment
     /// notifies every observer of `rows` even when nothing changed. Rows are not in the client
     /// cache, so a rebuild writes nothing (the mirror and the log schedule their own writes).
     func rebuildRows() {
         let next = mirror.inboxRows(log: log, typing: Set(typing.keys), tools: toolRuns)
         if next != rows { rows = next }
+=======
+    func rebuildRows() {
+        rows = mirror.inboxRows(log: log, typing: Set(typing.keys))
+        scheduleCacheWrite()
+>>>>>>> origin/main
     }
 }

@@ -63,11 +63,16 @@ extension ConversationViewController {
             }
             return "ok"
         case "longpress", "doubletap":
+<<<<<<< HEAD
             // A simulated hold lands in the middle of the visible message text.
+=======
+            // The long-press menu or the double-tap tapback bar on a message.
+>>>>>>> origin/main
             guard let message = labMessage(matching: argument),
                   let indexPath = indexPath(for: message.rowID),
                   let cell = collectionView.cellForItem(at: indexPath) as? MessageCell,
                   let model = cell.model else { return "error no row" }
+<<<<<<< HEAD
             if verb == "longpress", let label = cell.selectableLabel {
                 let middle = CGPoint(x: label.bounds.midX, y: label.bounds.midY)
                 beginTextSelection(rowID: model.rowID, at: label.convert(middle, to: collectionView))
@@ -75,6 +80,9 @@ extension ConversationViewController {
             } else {
                 presentActions(for: model, cell: cell, mode: verb == "longpress" ? .menu : .tapbacks)
             }
+=======
+            presentActions(for: model, cell: cell, mode: verb == "longpress" ? .menu : .tapbacks)
+>>>>>>> origin/main
             return "ok"
         case "notunsent":
             // Taps the newest "(!) Not Unsent" notice.
@@ -83,6 +91,7 @@ extension ConversationViewController {
             }).first else { return "error no failed notice" }
             presentNotUnsent(messageID: notice.messageID)
             return "ok"
+<<<<<<< HEAD
         case "info":
             // The header's name tap: the details page.
             openInfo()
@@ -91,6 +100,8 @@ extension ConversationViewController {
             // A tap on a details switch: `hideAlerts` or `readReceipts`.
             guard let details = detailsController else { return "error details closed" }
             return details.infoPage.labTapSwitch(argument)
+=======
+>>>>>>> origin/main
         case "notifyanyway":
             // The Notify Anyway button under a quietly delivered message.
             guard let message = store.notifyAnywayMessage else { return "error nothing to notify" }
@@ -120,6 +131,7 @@ extension ConversationViewController {
         case "endtextselect":
             endTextSelection()
             return "ok"
+<<<<<<< HEAD
         case "replyselection":
             // The selection menu's Reply with Selection, optionally over
             // `location,length` of the bubble's text first.
@@ -143,6 +155,8 @@ extension ConversationViewController {
                 }
             }
             return "size=\(textSize?.rawValue ?? "system") body=\(ConversationTheme.bubbleFont.pointSize)"
+=======
+>>>>>>> origin/main
         case "forward":
             guard isSelecting, !selectedRowIDs.isEmpty else { return "error nothing selected" }
             forwardSelection()

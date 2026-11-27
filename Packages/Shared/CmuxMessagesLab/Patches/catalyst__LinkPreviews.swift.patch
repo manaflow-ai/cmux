@@ -1,5 +1,6 @@
 --- a/Sources/MessagesLabHome/Vendor/catalyst/LinkPreviews.swift
 +++ b/Sources/MessagesLabHome/Vendor/catalyst/LinkPreviews.swift
+<<<<<<< HEAD
 @@ -4,22 +4,19 @@
  import AppKit
  #endif
@@ -33,6 +34,9 @@
      static let shared = LinkPreviews()
      var timeout: TimeInterval = 8
 @@ -28,7 +25,10 @@
+=======
+@@ -28,7 +28,10 @@
+>>>>>>> origin/main
      /// Fetches running now (tests).
      var inFlight: Int { waiting.count }
      private let dir: URL = {
@@ -44,6 +48,7 @@
          try? FileManager.default.createDirectory(at: d, withIntermediateDirectories: true)
          return d
      }()
+<<<<<<< HEAD
 @@ -56,7 +56,6 @@
          dispatchPrecondition(condition: .onQueue(.main))
          if let hit = cache[url] {
@@ -180,3 +185,5 @@
      private func save() {
          var out: [String: Saved] = [:]
          for (k, v) in cache {
+=======
+>>>>>>> origin/main

@@ -30,6 +30,7 @@ struct CustomPart: Codable, Hashable {
         self.version = version
         self.payload = payload
     }
+<<<<<<< HEAD
     /// JSON of `value` as the payload, its keys sorted: one value is one payload, byte for byte.
     init<T: Encodable>(kind: String, version: Int, value: T) throws {
         // cmux (a1317, 2026-11-21): a plain JSONEncoder's object key order is not fixed, so two cards of one table
@@ -37,6 +38,11 @@ struct CustomPart: Codable, Hashable {
         let encoder = JSONEncoder()
         encoder.outputFormatting = .sortedKeys
         self.init(kind: kind, version: version, payload: try encoder.encode(value))
+=======
+    /// JSON of `value` as the payload.
+    init<T: Encodable>(kind: String, version: Int, value: T) throws {
+        self.init(kind: kind, version: version, payload: try JSONEncoder().encode(value))
+>>>>>>> origin/main
     }
     /// The payload decoded as JSON of `T` (nil: other bytes).
     func decode<T: Decodable>(_ type: T.Type) -> T? { try? JSONDecoder().decode(type, from: payload) }
@@ -114,6 +120,7 @@ protocol TranscriptCustomRowProvider: AnyObject {
     func handleKey(_ key: CustomRowKey, view: CustomRowPlatformView, part: CustomPart, context: CustomRowContext) -> Bool
     /// Copy, VoiceOver and preview text (nil: "[kind]").
     func plainText(_ part: CustomPart) -> String?
+<<<<<<< HEAD
     /// The provider draws the row into its row bitmap (`drawRow`), with no live view: a host
     /// without a live-view host (cmux Home: an agent run card). Rows measure with the provider
     /// then even where live views are off. Default false.
@@ -135,6 +142,8 @@ struct CustomRowDrawContext {
     var isDark: Bool
     /// A thread view copy (the elevated palette).
     var elevated: Bool
+=======
+>>>>>>> origin/main
 }
 
 extension TranscriptCustomRowProvider {
@@ -144,6 +153,7 @@ extension TranscriptCustomRowProvider {
     func prepareForReuse(_ view: CustomRowPlatformView) {}
     func handleKey(_ key: CustomRowKey, view: CustomRowPlatformView, part: CustomPart, context: CustomRowContext) -> Bool { false }
     func plainText(_ part: CustomPart) -> String? { nil }
+<<<<<<< HEAD
     var drawsRow: Bool { false }
     func drawRow(_ part: CustomPart, in ctx: CGContext, rect: CGRect, context: CustomRowDrawContext) {}
     func tapped(_ part: CustomPart, ref: PartRef) -> Bool { false }
@@ -184,6 +194,8 @@ final class DrawnRowProvider: TranscriptCustomRowProvider {
     func drawRow(_ part: CustomPart, in ctx: CGContext, rect: CGRect, context: CustomRowDrawContext) { draw(part, ctx, rect, context) }
     func plainText(_ part: CustomPart) -> String? { text(part) }
     func tapped(_ part: CustomPart, ref: PartRef) -> Bool { tap?(part, ref) ?? false }
+=======
+>>>>>>> origin/main
 }
 
 /// The live-view side, implemented by a host (appkit-native CustomRowsHost). The shared
@@ -217,6 +229,7 @@ enum CustomRows {
     static func unregister(_ kind: String) { lock.lock(); providers[kind] = nil; lock.unlock(); cache.clear() }
     static func provider(_ kind: String) -> TranscriptCustomRowProvider? { lock.lock(); defer { lock.unlock() }; return providers[kind] }
 
+<<<<<<< HEAD
     /// The provider when its live view is shown here, or when it draws the row itself (`drawsRow`).
     static func live(_ c: CustomPart) -> TranscriptCustomRowProvider? {
         guard let p = provider(c.kind) else { return nil }
@@ -227,6 +240,10 @@ enum CustomRows {
         guard liveViews, let p = provider(c.kind), !p.drawsRow else { return nil }
         return p
     }
+=======
+    /// The provider when its live view is shown here.
+    static func live(_ c: CustomPart) -> TranscriptCustomRowProvider? { liveViews ? provider(c.kind) : nil }
+>>>>>>> origin/main
 
     static func plainText(_ c: CustomPart) -> String { provider(c.kind)?.plainText(c) ?? "[\(c.kind)]" }
 
@@ -248,11 +265,17 @@ enum CustomRows {
     /// Outgoing bubbles take the window gradient layer (RowDraw.needsFill).
     static func needsFill(_ c: CustomPart, outgoing: Bool) -> Bool { outgoing && layout(c, outgoing: outgoing) != .fullWidth }
 
+<<<<<<< HEAD
     /// cmux: `indent`: how far the row's frame sits right of the leading edge (a group's avatar column); a full width
     /// row runs from there to the trailing edge (`HomeChatColumn.wideWidth`).
     static func maxWidth(_ c: CustomPart, width: CGFloat, indent: CGFloat = 0) -> CGFloat {
         let m = Metrics(width: width)
         if let p = live(c), p.layout(for: c) == .fullWidth { return HomeChatColumn(width: width, indent: indent).wideWidth }
+=======
+    static func maxWidth(_ c: CustomPart, width: CGFloat) -> CGFloat {
+        let m = Metrics(width: width)
+        if let p = live(c), p.layout(for: c) == .fullWidth { return m.rightEdge - Fixture.leftEdge }
+>>>>>>> origin/main
         return m.maxTextWidth + 2 * Fixture.bubblePadX
     }
 
@@ -260,16 +283,27 @@ enum CustomRows {
 
     /// (size, text layout of the fallback bubble, estimated). Thread safe.
     /// `id` nil: not cached (a part outside a message).
+<<<<<<< HEAD
     static func measure(_ c: CustomPart, message id: ID?, part pi: Int, width: CGFloat, indent: CGFloat = 0) -> (CGSize, TextLayout?, Bool) {
+=======
+    static func measure(_ c: CustomPart, message id: ID?, part pi: Int, width: CGFloat) -> (CGSize, TextLayout?, Bool) {
+>>>>>>> origin/main
         guard let p = live(c) else {
             // The stub: a text bubble with the plain text (no live view here).
             let (s, tl) = Sizing.size(of: .text(plainText(c), runs: []), width: width)
             return (s, tl, false)
         }
+<<<<<<< HEAD
         let maxW = maxWidth(c, width: width, indent: indent)
         let full = p.layout(for: c) == .fullWidth
         func fit(_ s: CGSize) -> CGSize { CGSize(width: full ? maxW : min(maxW, max(1, s.width.rounded())), height: max(1, s.height.rounded())) }
         let k = id.map { MeasureKey(id: $0, part: pi, version: c.version, width: width, indent: indent, generation: cache.generation($0)) }
+=======
+        let maxW = maxWidth(c, width: width)
+        let full = p.layout(for: c) == .fullWidth
+        func fit(_ s: CGSize) -> CGSize { CGSize(width: full ? maxW : min(maxW, max(1, s.width.rounded())), height: max(1, s.height.rounded())) }
+        let k = id.map { MeasureKey(id: $0, part: pi, version: c.version, width: width, generation: cache.generation($0)) }
+>>>>>>> origin/main
         if let k, let s = cache.get(k) { return (s, nil, false) }
         if !p.measuresOffMain && !Thread.isMainThread { mayEstimate = true; return (fit(p.estimate(c, maxWidth: maxW)), nil, true) }
         let s = fit(p.measure(c, maxWidth: maxW))
@@ -282,7 +316,11 @@ enum CustomRows {
     /// The next measure of `id`'s custom parts runs again (heightDidChange).
     static func invalidate(_ id: ID) { cache.bump(id) }
 
+<<<<<<< HEAD
     struct MeasureKey: Hashable { var id: ID; var part: Int; var version: Int; var width: CGFloat; var indent: CGFloat = 0; var generation: Int }
+=======
+    struct MeasureKey: Hashable { var id: ID; var part: Int; var version: Int; var width: CGFloat; var generation: Int }
+>>>>>>> origin/main
     static let cache = MeasureStore()
     final class MeasureStore: @unchecked Sendable {
         private let lock = NSLock()
@@ -311,6 +349,7 @@ enum CustomRows {
             if let tl = p.text { PartRenderer.drawText(ctx, tl, in: body, outgoing: p.outgoing) }
             return
         }
+<<<<<<< HEAD
         guard let prov = live(c) else { return }
         let full = layout(c, outgoing: p.outgoing) == .fullWidth
         if !full { BubbleView.drawBubble(ctx, body: body, lines: [], outgoing: p.outgoing, tail: p.tail, windowY: windowY) }
@@ -323,6 +362,10 @@ enum CustomRows {
         ctx.saveGState()
         prov.drawRow(c, in: ctx, rect: body, context: CustomRowDrawContext(outgoing: p.outgoing, isDark: !Fixture.lightAppearance, elevated: elevated))
         ctx.restoreGState()
+=======
+        guard layout(c, outgoing: p.outgoing) != .fullWidth else { return }
+        BubbleView.drawBubble(ctx, body: body, lines: [], outgoing: p.outgoing, tail: p.tail, windowY: windowY)
+>>>>>>> origin/main
     }
 
     /// The hosted view's rect in row (cell) coordinates.

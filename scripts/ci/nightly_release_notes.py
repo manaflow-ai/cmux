@@ -15,6 +15,15 @@ from xml.dom import minidom
 
 MARKER = re.compile(r"<!--\s*cmux-published-sha:\s*([0-9a-f]{40})\s*-->", re.I)
 SPARKLE = "http://www.andymatuschak.org/xml-namespaces/sparkle"
+<<<<<<< HEAD
+=======
+COMMIT_BATCH = 4
+PR_LIMIT = 5
+LABEL_LIMIT = 20
+MAX_PAGES = 50
+FILE_LIMIT = 30
+TRANSIENT = re.compile(r"HTTP 5\d\d|timed? ?out|timeout", re.I)
+>>>>>>> origin/main
 REPAIR = "https://github.com/manaflow-ai/cmuxterm-hq/blob/main/REPAIR.md"
 # Pages of merged PRs read before giving up (newest update first). The pages
 # carry only what picks the range's PRs; the details (labels, files) are read
@@ -48,12 +57,23 @@ class GitHub:
 
     @staticmethod
     def request(args: list[str]) -> dict:
+<<<<<<< HEAD
         for attempt in range(3):
             try:
                 result = subprocess.run(["gh", "api", *args], capture_output=True, text=True, timeout=90)
             except subprocess.TimeoutExpired:
                 result = None
             if result is not None and not result.returncode:
+=======
+        # GitHub answers a heavy GraphQL batch with a transient 5xx now and
+        # then; retry those with backoff. Other failures stop immediately.
+        for attempt in range(4):
+            try:
+                result = subprocess.run(["gh", "api", *args], capture_output=True, text=True, timeout=60)
+            except subprocess.TimeoutExpired:
+                result = subprocess.CompletedProcess(args, 1, "", "timeout")
+            if not result.returncode or not TRANSIENT.search(result.stderr) or attempt == 3:
+>>>>>>> origin/main
                 break
             transient = result is None or not CLIENT_ERROR.search(result.stderr or "")
             if not transient:
@@ -110,6 +130,7 @@ def collect_prs(github: GitHub, base: str, head: str, branch: str) -> list[dict]
         raise RuntimeError("GitHub compare returned no base commit date; retry metadata generation")
     cutoff = datetime.fromisoformat(base_date.replace("Z", "+00:00")) - UPDATED_SLACK
     prs = {}
+<<<<<<< HEAD
     cursor = None
     for _ in range(MERGED_PR_PAGES):
         after = f", after: {json.dumps(cursor)}" if cursor else ""
@@ -150,6 +171,72 @@ def pr_details(github: GitHub, repository: str, numbers: list[int]) -> list[dict
                 raise RuntimeError(f"GitHub returned no details for merged PR #{number}; retry metadata generation")
             details.append(pr)
     return details
+=======
+    # Keep each query small (was 10 commits x 10 PRs x 100 labels x 100 files,
+    # which timed out in run 45858610960). Larger lists are paged, never cut:
+    # a commit's PRs and a PR's labels page with `after:`; a PR whose files
+    # exceed FILE_LIMIT counts as product (see infrastructure()).
+    pr_fields = (f"pageInfo {{ hasNextPage endCursor }} nodes {{ number title url mergedAt baseRefName mergeCommit {{ oid }} "
+                 f"labels(first: {LABEL_LIMIT}) {{ pageInfo {{ hasNextPage endCursor }} nodes {{ name }} }} "
+                 f"files(first: {FILE_LIMIT}) {{ totalCount nodes {{ path }} }} }}")
+
+    def commit_query(alias: str, sha: str, cursor: str | None = None) -> str:
+        after = f", after: {json.dumps(cursor)}" if cursor else ""
+        return (f'{alias}: object(oid: "{sha}") {{ ... on Commit {{ associatedPullRequests(first: {PR_LIMIT}{after}) '
+                f"{{ {pr_fields} }} }} }}")
+
+    def read(fields: str) -> dict:
+        return github.graphql("query { " + repository + " { " + fields + " } }")
+
+    def associated_prs(obj: dict, sha: str) -> list[dict]:
+        nodes = []
+        for _ in range(MAX_PAGES):
+            associated = obj["associatedPullRequests"]
+            nodes += associated["nodes"]
+            if not associated["pageInfo"]["hasNextPage"]:
+                return nodes
+            cursor = associated["pageInfo"].get("endCursor")
+            if not cursor:
+                raise RuntimeError("GitHub associated PR pagination returned no cursor; retry metadata generation")
+            obj = read(commit_query("c0", sha, cursor))["c0"]
+            if obj is None:
+                raise RuntimeError("GitHub could not resolve a compared commit; retry metadata generation")
+        raise RuntimeError("A commit has too many associated PRs; inspect its associations before retrying")
+
+    def complete_labels(pr: dict) -> None:
+        """category() needs the call labels wherever they sit in the list."""
+        labels = pr.get("labels") or {}
+        for _ in range(MAX_PAGES):
+            info = labels.get("pageInfo") or {}
+            if not info.get("hasNextPage") or any(CALL_LABEL(x["name"]) for x in labels.get("nodes", [])):
+                return
+            cursor = info.get("endCursor")
+            if not cursor:
+                raise RuntimeError("GitHub label pagination returned no cursor; retry metadata generation")
+            page = read(f'pr: pullRequest(number: {int(pr["number"])}) {{ labels(first: {LABEL_LIMIT}, after: {json.dumps(cursor)}) '
+                        "{ pageInfo { hasNextPage endCursor } nodes { name } } }")["pr"]["labels"]
+            labels = {"pageInfo": page["pageInfo"], "nodes": labels.get("nodes", []) + page["nodes"]}
+            pr["labels"] = labels
+        raise RuntimeError("A PR has too many labels; inspect its labels before retrying")
+
+    for offset in range(0, len(commits), COMMIT_BATCH):
+        batch = commits[offset:offset + COMMIT_BATCH]
+        result = read(" ".join(commit_query(f"c{index}", sha) for index, sha in enumerate(batch)))
+        for index, sha in enumerate(batch):
+            obj = result.get(f"c{index}")
+            if obj is None:
+                raise RuntimeError("GitHub could not resolve a compared commit; retry metadata generation")
+            for pr in associated_prs(obj, sha):
+                merged = pr.get("mergeCommit") or {}
+                # An RC branch is cut from main and gets picks, so its notes
+                # include PRs merged to main in the compared range.
+                bases = {branch, "main"} if branch.startswith("rc/") else {branch}
+                if pr["mergedAt"] and pr["baseRefName"] in bases and merged.get("oid") in members:
+                    if pr["number"] not in prs:
+                        complete_labels(pr)
+                    prs[pr["number"]] = pr
+    return list(prs.values())
+>>>>>>> origin/main
 
 
 def infrastructure(pr: dict) -> bool:
@@ -162,6 +249,10 @@ def infrastructure(pr: dict) -> bool:
         return False
     return all(p.startswith((".github/", "docs/", "tests/", "cmuxTests/", "cmuxUITests/", "scripts/ci/"))
                or p.endswith((".md", ".mdx")) or "/Tests/" in p for p in paths)
+
+
+def CALL_LABEL(name: str) -> bool:
+    return name.lower().replace("-", " ") in {"default call", "needs a call"}
 
 
 def category(pr: dict) -> str:
@@ -215,6 +306,7 @@ def summarize(prs: list[dict], repo: str, base: str | None, head: str, limit: in
     return "\n".join(lines), plain
 
 
+<<<<<<< HEAD
 def metadata_fallback(repo: str, base: str | None, head: str) -> tuple[str, str]:
     """Notes for a build whose PR metadata GitHub would not serve."""
     if base:
@@ -240,6 +332,19 @@ def update_appcasts(directory: Path, build: str, summary: str, feeds: tuple[str,
     expected = set(feeds)
     found = sorted(directory.glob("appcast*.xml"))
     if {feed.name for feed in found} != expected:
+=======
+ALL_FEEDS = ("appcast-arm64.xml", "appcast-x86_64.xml", "appcast-universal.xml", "appcast.xml")
+
+
+def update_appcasts(directory: Path, build: str, summary: str, feeds_expected: tuple[str, ...] = ALL_FEEDS) -> None:
+    """Writes the build's item's <description> in exactly the feeds this track publishes (`feeds_expected`).
+
+    The nightly publishes appcast-arm64.xml alone since #57110 (Intel and universal ship from the stable release), so
+    its callers pass --feeds appcast-arm64.xml; a feed missing or extra still fails before any is written."""
+    expected = set(feeds_expected)
+    feeds = sorted(directory.glob("appcast*.xml"))
+    if {feed.name for feed in feeds} != expected:
+>>>>>>> origin/main
         raise RuntimeError(f"Expected exactly the published appcasts ({', '.join(sorted(expected))}) before generating notes; download the complete signed variant artifacts")
     # Build all replacements before writing, so a missing current item fails cleanly.
     replacements = []
@@ -285,8 +390,11 @@ def main() -> int:
     parser.add_argument("--appcasts", type=Path, required=True)
     parser.add_argument("--build", required=True)
     parser.add_argument("--feeds", nargs="+", default=list(ALL_FEEDS), help="the appcasts this track publishes")
+<<<<<<< HEAD
     parser.add_argument("--base", default="", help="the previous published commit, from the live feed; the release "
                         "body's cmux-published-sha marker when empty (a run's tail writes it after the feed)")
+=======
+>>>>>>> origin/main
     args = parser.parse_args()
     if not re.fullmatch(r"[\w.-]+/[\w.-]+", args.repo) or not re.fullmatch(r"[0-9a-f]{40}", args.head):
         raise ValueError("Expected owner/repo and a full built SHA")

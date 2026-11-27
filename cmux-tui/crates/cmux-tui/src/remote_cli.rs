@@ -115,6 +115,7 @@ fn run_inner(
     usage: &str,
     load_config: impl FnOnce() -> crate::config::StartupConfigSnapshot,
 ) -> anyhow::Result<()> {
+<<<<<<< ours
     let rest = args.get(1..).unwrap_or_default();
     if remote_help_requested(rest) {
         let help = remote_help(args.first().map(String::as_str));
@@ -135,9 +136,15 @@ fn run_inner(
             },
             _ => print!("{help}"),
         }
+=======
+    if remote_help_requested(&args[1..]) {
+        let help = remote_help(args.first().map(String::as_str));
+        print!("{}", crate::cli::with_program_name(help, &crate::cli::program_name()));
+>>>>>>> theirs
         return Ok(());
     }
     match args.first().map(String::as_str) {
+<<<<<<< ours
         Some("connect") => run_connect(rest, None, load_config),
         Some("ssh") => run_ssh(rest, load_config),
         Some("forward") => run_forward(rest),
@@ -157,11 +164,29 @@ fn run_inner(
         Some("remote-update-need") => run_update_need(rest),
         Some("install-self") => run_install_self(rest),
         Some("wg") => run_wg(rest),
+=======
+        Some("connect") => run_connect(&args[1..], None, load_config),
+        Some("ssh") => run_ssh(&args[1..], load_config),
+        Some("forward") => run_forward(&args[1..]),
+        Some("browser-proxy") => run_browser_proxy(&args[1..]),
+        Some("rpc") => run_rpc(&args[1..]),
+        Some("enroll") => run_enroll(&args[1..], load_config),
+        Some("known-daemons") => run_known_daemons(&args[1..]),
+        Some("remote-probe") => run_probe(&args[1..]),
+        Some("remote-link") => run_remote_link(&args[1..]),
+        Some("remote-sidecar") => run_remote_sidecar(&args[1..]),
+        Some("remote-stop") => run_remote_stop(&args[1..]),
+        Some("remote-doctor") => crate::remote_doctor::run(&args[1..]),
+        Some("remote-trust") => crate::remote_trust::run(&args[1..]),
+        Some("install-self") => run_install_self(&args[1..]),
+        Some("wg") => run_wg(&args[1..]),
+>>>>>>> theirs
         Some("remote") => Err(anyhow!(catalog().remote_client.remote_lifecycle_help)),
         _ => Err(anyhow!("unknown remote command\n\n{usage}")),
     }
 }
 
+<<<<<<< ours
 /// Options of the remote commands that take the next word as their value, so a
 /// scan for `--help` (and `exec`/`cp`, which pass connect options through)
 /// never reads a value as an option.
@@ -215,6 +240,60 @@ const REMOTE_VALUE_OPTIONS: &[&str] = &[
     "--env",
     "--timeout-seconds",
 ];
+=======
+fn remote_help_requested(args: &[String]) -> bool {
+    const VALUE_OPTIONS: &[&str] = &[
+        "--invite-file",
+        "--daemon",
+        "--lanes",
+        "--reconnect-attempts",
+        "--reconnect-initial-ms",
+        "--reconnect-max-ms",
+        "--reconnect-attempt-timeout-ms",
+        "--reconnect-jitter",
+        "--heartbeat-interval-ms",
+        "--heartbeat-timeout-ms",
+        "--connect-timeout-seconds",
+        "--device-name",
+        "--state-dir",
+        "--local-socket",
+        "--relay-route",
+        "--relay-slot",
+        "--relay-ticket-file",
+        "--relay-ticket-command",
+        "--relay-ticket-command-arg",
+        "--iroh-relay",
+        "--iroh-address",
+        "--iroh-path",
+        "--session",
+        "--ssh-binary",
+        "--remote-binary",
+        "--remote-state-dir",
+        "--agent-hooks",
+        "--wireguard-config",
+        "--wireguard-hub",
+        "--ssh-arg",
+        "--workspace-root",
+        "--host",
+        "--port",
+        "--listen",
+        "--scheme",
+        "--request",
+        "--ttl",
+        "--advertise",
+        "--admin-socket",
+        "--link-socket",
+        "--mux-socket",
+        "--destination",
+        "--user",
+        "--timeout-seconds",
+        "--tier",
+        "--folder",
+        "--agent",
+        "--expires-in-hours",
+        "--limit",
+    ];
+>>>>>>> theirs
 
 fn remote_help_requested(args: &[String]) -> bool {
     let mut index = 0;
@@ -274,6 +353,8 @@ fn remote_help(command: Option<&str>) -> &'static str {
         Some("remote-link") => client.remote_link_help,
         Some("remote-stop") => catalog().remote.remote_stop_help,
         Some("remote-update-need") => catalog().remote.remote_update_need_help,
+        Some("remote-doctor") => client.remote_doctor_help,
+        Some("remote-trust") => catalog().peer_trust.help,
         Some("install-self") => client.install_self_help,
         Some("wg") => client.wg_hub_help,
         Some("remote") => client.remote_lifecycle_help,

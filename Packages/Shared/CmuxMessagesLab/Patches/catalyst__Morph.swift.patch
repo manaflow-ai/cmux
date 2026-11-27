@@ -1,5 +1,6 @@
 --- a/Sources/MessagesLabHome/Vendor/catalyst/Morph.swift
 +++ b/Sources/MessagesLabHome/Vendor/catalyst/Morph.swift
+<<<<<<< HEAD
 @@ -135,7 +135,7 @@
              tail.bounds = CGRect(x: -w1, y: 0, width: w1, height: h1)
              bubble.addSublayer(tail)
@@ -68,6 +69,9 @@
      }
      private static func preparedImages(_ tl: TextLayout, _ size: CGSize, scale: CGFloat) -> (CGImage?, CGImage?)? {
 @@ -450,6 +470,8 @@
+=======
+@@ -449,6 +449,8 @@
+>>>>>>> origin/main
      /// The outgoing gradient's colour at a window y (pt).
      static func blue(atWindowY y: CGFloat) -> UIColor {
          let px = y * 2

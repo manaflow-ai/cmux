@@ -272,7 +272,7 @@ class WiringTests(unittest.TestCase):
         declared = set(resolver.load_map(REAL_MAP)["capabilities"])
         used = set()
         for chunk in text.split(marker)[1:]:
-            used.add(chunk.split()[0].strip("}").strip())
+            used.add(chunk.split()[0].strip("})").strip())
         self.assertTrue(used)
         self.assertEqual(used - declared, set())
 
@@ -340,6 +340,7 @@ class TheResolverStartsAnywhere(unittest.TestCase):
 
         workflow = Path(__file__).resolve().parents[1] / ".github/workflows/resolve-runners.yml"
         jobs = yaml.safe_load(workflow.read_text(encoding="utf-8"))["jobs"]
+<<<<<<< HEAD
         # A fork takes GitHub-hosted Linux first. In manaflow-ai a same-repository
         # event's attempt 1 takes the owned persistent pool (cmux-linux); a fork
         # pull request and every attempt 2+ take the CI_TRUSTED_RUNNER selector,
@@ -355,6 +356,17 @@ class TheResolverStartsAnywhere(unittest.TestCase):
                     ['${{ github.repository_owner != \'manaflow-ai\' && \'ubuntu-24.04\' || github.run_attempt == 1 '
                      '&& !(github.event_name == \'pull_request\' && github.event.pull_request.head.repo.full_name '
                      '!= github.repository) && \'cmux-linux\' || ' + trusted + ' }}'],
+=======
+        # A fork takes GitHub-hosted Linux first; manaflow-ai runs on
+        # Blacksmith (the label the CI_TRUSTED_RUNNER selector resolved to,
+        # written out), so a GitHub billing block cannot stop the graph this
+        # job starts.
+        for name, job in jobs.items():
+            with self.subTest(job=name):
+                self.assertEqual(
+                    job["runs-on"],
+                    "${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'blacksmith-4vcpu-ubuntu-2404' }}",
+>>>>>>> origin/main
                 )
 
     def test_the_resolver_takes_owned_runners_first_and_blacksmith_only_as_overflow(self):

@@ -28,7 +28,10 @@ beside the code it covers.
 
 from __future__ import annotations
 
+<<<<<<< HEAD
 import ast
+=======
+>>>>>>> origin/main
 import functools
 import json
 import os
@@ -46,10 +49,14 @@ KEYCHAIN_READ = re.compile(r"find-generic-password|SecItemCopyMatching|keyring\.
 # A kill whose PIDs a lookup supplies on the same command: `kill $(pgrep ...)`, `pgrep ... | xargs kill`.
 PKILL_LOOKUP = re.compile(r"(?<![\w-])kill\b[^\n;|&]*\$\(\s*(?:pgrep|pidof)\b"
                           r"|(?<![\w-])(?:pgrep|pidof)\b[^\n;]*\|\s*xargs\b[^\n;|]*\bkill\b")
+<<<<<<< HEAD
 # `pkill [-SIG] -P PID` signals only the children of a PID the script holds: the
 # rule's own advice (HOW["pkill"]), so it is not a kill by name.
 PKILL_PARENT_ONLY = r"(?!(?:\s+-(?:[A-Z]+|\d+))*\s+-P\b)"
 PKILL = re.compile(r"(?<![\w-])(?:pkill(?![\w-])" + PKILL_PARENT_ONLY + r"|killall(?![\w-]))|" + PKILL_LOOKUP.pattern)
+=======
+PKILL = re.compile(r"(?<![\w-])(?:pkill|killall)(?![\w-])|" + PKILL_LOOKUP.pattern)
+>>>>>>> origin/main
 # big-red, big_red, BIG_RED, bigred, Big Red; not prose like "a big red build".
 BIG_RED = re.compile(r"(?<![A-Za-z0-9])(?:(?i:big[-_]?red)|Big Red|BIG RED)(?![A-Za-z0-9])")
 
@@ -105,6 +112,7 @@ FLEET_SUDO_NAMERS: set[str] = set()
 
 
 def keychain_lines(text: str) -> int:
+<<<<<<< HEAD
     """Secret reads and unknown forms; exact literal service-attributes argv reads no password."""
     matches = list(KEYCHAIN_READ.finditer(text))
     if not matches:
@@ -150,6 +158,10 @@ def keychain_lines(text: str) -> int:
             ignored.append((offset(first[1]), offset(first[1], True)))
     return sum(not any(start <= match.start() and match.end() <= end for start, end in ignored)
                for match in matches)
+=======
+    """Keychain reads, whatever service they name."""
+    return len(KEYCHAIN_READ.findall(text))
+>>>>>>> origin/main
 
 
 def reads_fleet_sudo(text: str) -> bool:
@@ -268,6 +280,7 @@ def grown(base: dict, allow: dict, rule: str) -> list[str]:
     """Entries added or raised since the base allowlist whose reason is not "safe:": debt only shrinks."""
     out = []
     old = base.get(rule, {})
+<<<<<<< HEAD
 
     def debt_in_dir(entries: dict, folder: str) -> int:
         return sum(e.get("count", 0) for k, e in entries.items()
@@ -280,6 +293,10 @@ def grown(base: dict, allow: dict, rule: str) -> list[str]:
         if rel.endswith(("_tests.rs", "/tests.rs")) and \
                 debt_in_dir(allow[rule], os.path.dirname(rel)) <= debt_in_dir(old, os.path.dirname(rel)):
             continue
+=======
+    for rel, entry in sorted(allow.get(rule, {}).items()):
+        was = old.get(rel, {}).get("count", 0)
+>>>>>>> origin/main
         if entry.get("count", 0) > was and not str(entry.get("reason", "")).startswith("safe:"):
             out.append(f"{rel}: allowlist {was} -> {entry.get('count')} since the base: debt only shrinks "
                        f"(a genuinely safe new use gets a reason starting with \"safe:\" that says why)")
@@ -355,6 +372,7 @@ class Patterns(unittest.TestCase):
         self.assertTrue(reads_fleet_sudo('KEYCHAIN_SERVICE = "manaflow-fleet-sudo"\nrun(["security", "find-generic-password"])'))
         self.assertFalse(reads_fleet_sudo('KEYCHAIN_SERVICE = "cmuxterm-circleci"\nrun(["security", "find-generic-password"])'))
 
+<<<<<<< HEAD
     def test_attributes_only_keychain_probe_is_not_a_secret_read(self):
         vector = '["/usr/bin/security", "find-generic-password", "-s", namespace + ".device-hub"]'
         for source in ('subprocess.run(' + vector + ', capture_output=True)',
@@ -372,6 +390,8 @@ class Patterns(unittest.TestCase):
                        'subprocess.run(' + vector + ')\nkeyring.get_password("service", "account")'):
             self.assertEqual(keychain_lines(source), 1, source)
 
+=======
+>>>>>>> origin/main
     def test_pkill_catches_kills_by_name(self):
         for line in ('pkill -f "cmux DEV"', "killall Dock", "sudo pkill -x tccd",
                      'subprocess.run(["/usr/bin/pkill", "-9", "x"])', 'exec.Command("pkill", "-f", tag)'):
@@ -387,9 +407,12 @@ class Patterns(unittest.TestCase):
                      'while read -r pid; do\n  kill "$pid"\ndone < <(pgrep -f foo)'):
             self.assertGreaterEqual(pkill_lines(text), 1, text)
         self.assertEqual(pkill_lines('w="$(pgrep -P "$pid" | head -1)"\nkill -TERM "$w"'), 0)
+<<<<<<< HEAD
         for line in ('pkill -TERM -P "$worker" 2>/dev/null', 'pkill -P $$', "pkill -9 -P 4242"):
             self.assertEqual(pkill_lines(line), 0, line)
         self.assertEqual(pkill_lines('pkill -TERM -f "lane worker"'), 1)
+=======
+>>>>>>> origin/main
         for line in ("kill -TERM -- -$pgid", "pkill_guard_test", "nx-pkill-shim", "skill", 'kill "$(cat pidfile)"',
                      "pgrep -f x >/dev/null && echo running"):
             self.assertEqual(pkill_lines(line), 0, line)

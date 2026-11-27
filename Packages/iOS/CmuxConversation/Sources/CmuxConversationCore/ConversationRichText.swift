@@ -1,7 +1,11 @@
 import Foundation
 
 /// iMessage text formatting (Bold, Italic, Underline, Strikethrough).
+<<<<<<< HEAD
 public struct ConversationTextStyle: OptionSet, Sendable, Hashable, Codable {
+=======
+public struct ConversationTextStyle: OptionSet, Sendable, Hashable {
+>>>>>>> origin/main
     public let rawValue: Int
     public init(rawValue: Int) { self.rawValue = rawValue }
 
@@ -25,7 +29,11 @@ public struct ConversationTextStyle: OptionSet, Sendable, Hashable, Codable {
 }
 
 /// iMessage animated text effects, in Messages' palette order.
+<<<<<<< HEAD
 public enum ConversationTextEffect: String, Sendable, Hashable, Codable, CaseIterable {
+=======
+public enum ConversationTextEffect: String, Sendable, Hashable, CaseIterable {
+>>>>>>> origin/main
     case big
     case small
     case shake
@@ -38,7 +46,11 @@ public enum ConversationTextEffect: String, Sendable, Hashable, Codable, CaseIte
 
 /// One formatted span of a message's text. `location` and `length` count
 /// UTF-16 code units, so they are `NSRange`s into the text.
+<<<<<<< HEAD
 public struct ConversationTextRun: Sendable, Hashable, Codable {
+=======
+public struct ConversationTextRun: Sendable, Hashable {
+>>>>>>> origin/main
     public var location: Int
     public var length: Int
     public var style: ConversationTextStyle

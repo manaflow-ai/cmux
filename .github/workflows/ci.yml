@@ -98,6 +98,8 @@ permissions:
   contents: read
 
 env:
+  # Temporary REST budget attribution: one gh-call line per GitHub API call (scripts/ci/api_call_log/env.sh, fetched at a fixed commit when the checkout has no copy).
+  BASH_ENV: '$({ w="${GITHUB_WORKSPACE:-/nonexistent}/scripts/ci/api_call_log/env.sh"; t="${RUNNER_TEMP:-/nonexistent}/api-call-log-src"; if [ -f "$w" ]; then echo "$w"; elif [ -n "${RUNNER_TEMP:-}" ]; then if [ ! -f "$t/env.sh" ] && [ ! -e "$t.tried" ] && { [ "${RUNNER_OS:-}" = Linux ] || [ "${RUNNER_OS:-}" = macOS ]; } && [ "$(date -u +%Y%m%d%H)" -lt 2026112300 ]; then : > "$t.tried"; mkdir -p "$t.part" && for x in env.sh gh sitecustomize.py isolated.py; do curl -fsSL --max-time 5 -o "$t.part/$x" "https://raw.githubusercontent.com/manaflow-ai/cmux/27647ffd3ae838c63be28ca3e5883dcd68c34518/scripts/ci/api_call_log/$x" || break; done; [ -s "$t.part/isolated.py" ] && mv "$t.part" "$t"; fi; if [ -f "$t/env.sh" ]; then echo "$t/env.sh"; else echo unset BASH_ENV > "$t.off.sh" && echo "$t.off.sh"; fi; fi; } 2>/dev/null)'
   # Fork pull requests do not receive repository variables; the public read
   # URL is not a secret, so default it rather than run every fork build cold.
   CI_CACHE_R2_PUBLIC_URL: ${{ vars.CI_CACHE_R2_PUBLIC_URL || 'https://ci-cache.cmux.com' }}
@@ -110,10 +112,20 @@ env:
 concurrency:
   # Adding dev-build gets its own group, so a later label event cannot replace
   # the pending run that asks for the dogfood build.
+<<<<<<< HEAD
   # A label event into feat-cmux-next for a label nothing here reads gets a
   # group of its own, so it neither waits behind the running run nor replaces a
   # pending one; every job but ci-status skips, and the run ends in seconds.
   group: ${{ github.workflow }}-${{ github.ref }}${{ github.event.action == 'labeled' && github.event.label.name == 'dev-build' && '-dev-build' || '' }}${{ github.event_name == 'pull_request' && github.event.pull_request.base.ref == 'feat-cmux-next' && (github.event.action == 'labeled' && !contains(fromJSON('["full-ci","dev-build","ready-to-land"]'), github.event.label.name) || github.event.action == 'unlabeled') && format('-label-{0}', github.run_id) || '' }}
+=======
+  # A dispatch (main's full suite, ci-main-full-suite.yml) gets a group of its
+  # own too. GitHub keeps one pending run per group and cancels it when a newer
+  # one queues, even with cancel-in-progress off, so two gates that each missed
+  # the other's still-pending run cancelled main's full suite before it started
+  # a job: 45844217549, 45845203890 and 45845498645 on 2026-11-26, and no full
+  # run finished from 11:15Z on.
+  group: ${{ github.workflow }}-${{ github.ref }}${{ github.event.action == 'labeled' && github.event.label.name == 'dev-build' && '-dev-build' || '' }}${{ github.event_name == 'workflow_dispatch' && format('-dispatch-{0}', github.run_id) || '' }}
+>>>>>>> origin/main
   # A label-only rerun can escalate the same head to full-ci. Let the current
   # compile finish and publish its app-host product so the queued run can reuse
   # it instead of throwing away a long compile and starting from zero.
@@ -121,6 +133,7 @@ concurrency:
 
 jobs:
   changes:
+<<<<<<< HEAD
     # Into feat-cmux-next, skip a label event for a label no job here reads
     # (risk:*, ...): the labels this workflow reacts to are full-ci, dev-build
     # and ready-to-land (the land tier, scripts/ci/head_tier.py). Every job but ci-status carries the same guard
@@ -133,6 +146,9 @@ jobs:
     # their Blacksmith branch. It took GitHub-hosted Ubuntu on attempt 1 until 2026-11-18, when hosted runners
     # left it queued for hours (cmux#45735). Measured: 11 s of work, 5 min timeout.
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || 'cmux-linux' }}
+=======
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || 'blacksmith-4vcpu-ubuntu-2404' }}
+>>>>>>> origin/main
     timeout-minutes: 5
     outputs:
       # true for a pull request on the cmux NEXT line, stacked ones included
@@ -217,6 +233,10 @@ jobs:
       # JSON tiers of root runner names warm for this run (merge base first,
       # then this pull request), for ci-macos.yml's admission-placement.
       macos_pr_admission_warm: ${{ steps.macos-pool.outputs.admission_warm }}
+      # scripts/ci/mac-grants.json on, a same-repository pull request: the controller's per-run grant,
+      # JSON labels (`["cmux-mac","xcode-<version>"]`) every Mac job reads first, and
+      # every pool output above is empty (simple_pool_picker.grant_outputs()). Otherwise "".
+      macos_pr_grant: ${{ steps.macos-pool.outputs.grant }}
     permissions:
       actions: read
       # The delta step reads the ci-status check run of the last green head.
@@ -577,9 +597,13 @@ jobs:
               rm -rf "$trusted_root"
               mkdir -p "$trusted_root"
               trusted_ok=true
+              # Every file the router reads: package-test-lane.sh holds the
+              # package lane's PACKAGES list. Without it a router-policy PR
+              # that also edits a package skipped that package's tests.
               for trusted_path in \
                 scripts/ci/detect_ci_change_areas.py \
                 scripts/ci/select_package_tests.py \
+                scripts/ci/package-test-lane.sh \
                 scripts/ci/workloads/ci-guard.sh \
                 .github/workflows/ci.yml \
                 .github/workflows/ci-guards.yml \
@@ -845,6 +869,46 @@ jobs:
             --event-path "$GITHUB_EVENT_PATH" \
             --github-output "$GITHUB_OUTPUT"
 
+<<<<<<< HEAD
+=======
+      - name: Record coverage fingerprint
+        id: coverage-fingerprint
+        env:
+          SOURCE_SHA: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.sha || github.sha }}
+          SOURCE_REF: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.ref || github.ref_name }}
+          CACHE_BACKEND: ${{ inputs.cache_backend != 'default' && inputs.cache_backend || vars.CI_CACHE_BACKEND || 'r2' }}
+          RELEASE_ARCHS: ${{ inputs.release_archs != 'default' && inputs.release_archs || vars.CI_RELEASE_BUILD_ARCHS || 'universal' }}
+          COVERAGE_POLICY: ${{ steps.suite.outputs.full_suite == 'true' && 'full' || 'compile-only' }}
+        run: |
+          set -euo pipefail
+          fingerprint="v1;sha=$SOURCE_SHA;ref=$SOURCE_REF;cache=$CACHE_BACKEND;release=$RELEASE_ARCHS;coverage=$COVERAGE_POLICY"
+          echo "fingerprint=$fingerprint" >> "$GITHUB_OUTPUT"
+
+      # The manual-dispatch guard reads this step from the completed `changes`
+      # job. Keeping the marker here avoids a second Linux runner while
+      # retaining a concrete, status-bearing coverage signal.
+      - name: Mark full-suite coverage
+        if: ${{ steps.suite.outputs.full_suite == 'true' }}
+        run: echo "full-suite coverage selected"
+
+      - name: Mint the cmux-bot read token
+        # Every run reads on cmux-bot's installation budget, so per-PR reads
+        # stop draining the build controller's routing App (5067688 read 0
+        # remaining at 02:17Z and 10:32Z on 2026-11-25 with the controller
+        # itself at 234 calls/h; an even/odd run-id split only cut it to
+        # ~9.5k/h on 2026-11-26).
+        id: route-token-bot
+        if: ((github.event_name == 'pull_request' && (github.event.pull_request.head.repo.full_name == github.repository || contains(fromJSON(env.CI_OWNED_HEAD_REPOS), github.event.pull_request.head.repo.full_name)) || github.event_name == 'workflow_dispatch') && vars.CI_PR_POOL_OWNED == '1' && vars.CMUX_BOT_APP_ID != '') && vars.CMUX_BOT_APP_ID != ''
+        continue-on-error: true
+        timeout-minutes: 1
+        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
+        with:
+          app-id: ${{ vars.CMUX_BOT_APP_ID }}
+          private-key: ${{ secrets.CMUX_BOT_APP_KEY }}
+          permission-administration: read
+          permission-organization-self-hosted-runners: read
+
+>>>>>>> origin/main
       - name: Mint the owned-pool routing token
         id: route-token
         # The org's manaflow-glaeda-route App, read-only on runners, so the
@@ -856,30 +920,51 @@ jobs:
         # yet, the App not installed, or the App without that organization
         # permission) leaves the token empty, and the choice falls back to the
         # janitor snapshot and CI_OWNED_POOL_SLOTS.
-        if: (github.event_name == 'pull_request' && (github.event.pull_request.head.repo.full_name == github.repository || contains(fromJSON(env.CI_OWNED_HEAD_REPOS), github.event.pull_request.head.repo.full_name)) || github.event_name == 'workflow_dispatch') && vars.CI_PR_POOL_OWNED == '1' && vars.GLAEDA_ROUTE_APP_ID != ''
+        if: ((github.event_name == 'pull_request' && (github.event.pull_request.head.repo.full_name == github.repository || contains(fromJSON(env.CI_OWNED_HEAD_REPOS), github.event.pull_request.head.repo.full_name)) || github.event_name == 'workflow_dispatch') && vars.CI_PR_POOL_OWNED == '1' && vars.GLAEDA_ROUTE_APP_ID != '') && steps.route-token-bot.outputs.token == ''
+        continue-on-error: true
+        timeout-minutes: 1
+        uses: ./.github/actions/app-token-spread
+        with:
+          route-app-id: ${{ vars.GLAEDA_ROUTE_APP_ID }}
+          route-private-key: ${{ secrets.GLAEDA_ROUTE_APP_KEY }}
+          bot-app-id: ${{ vars.CMUX_BOT_APP_ID }}
+          bot-private-key: ${{ secrets.CMUX_BOT_APP_KEY }}
+          permission-administration: read
+          permission-organization-self-hosted-runners: read
+
+      - name: Mint the cmux-bot read token
+        # Every run reads on cmux-bot's installation budget, so per-PR reads
+        # stop draining the build controller's routing App (5067688 read 0
+        # remaining at 02:17Z and 10:32Z on 2026-11-25 with the controller
+        # itself at 234 calls/h; an even/odd run-id split only cut it to
+        # ~9.5k/h on 2026-11-26).
+        id: route-token-repo-bot
+        if: (steps.route-token.outcome == 'failure') && vars.CMUX_BOT_APP_ID != ''
         continue-on-error: true
         timeout-minutes: 1
         uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
         with:
-          app-id: ${{ vars.GLAEDA_ROUTE_APP_ID }}
-          private-key: ${{ secrets.GLAEDA_ROUTE_APP_KEY }}
+          app-id: ${{ vars.CMUX_BOT_APP_ID }}
+          private-key: ${{ secrets.CMUX_BOT_APP_KEY }}
           permission-administration: read
-          permission-organization-self-hosted-runners: read
 
       - name: Mint the routing token without the org permission
         id: route-token-repo
         # The mint is all or nothing: an App not yet granted the organization
         # self-hosted runners permission gets no token above. This one asks
         # for the repository permission alone, as before.
-        if: steps.route-token.outcome == 'failure'
+        if: (steps.route-token.outcome == 'failure') && steps.route-token-repo-bot.outputs.token == ''
         continue-on-error: true
         timeout-minutes: 1
-        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
+        uses: ./.github/actions/app-token-spread
         with:
-          app-id: ${{ vars.GLAEDA_ROUTE_APP_ID }}
-          private-key: ${{ secrets.GLAEDA_ROUTE_APP_KEY }}
+          route-app-id: ${{ vars.GLAEDA_ROUTE_APP_ID }}
+          route-private-key: ${{ secrets.GLAEDA_ROUTE_APP_KEY }}
+          bot-app-id: ${{ vars.CMUX_BOT_APP_ID }}
+          bot-private-key: ${{ secrets.CMUX_BOT_APP_KEY }}
           permission-administration: read
 
+<<<<<<< HEAD
       # The janitor's pool snapshot as a feat-cmux-next push job last read it (this ref's newest entry, else the
       # base or default branch's): the placement step reuses a copy read under 5 minutes ago instead of two
       # GITHUB_TOKEN artifact calls, from the hour the promote gates share (scripts/ci/pr_runner_pool.py
@@ -893,6 +978,22 @@ jobs:
           key: cmux-pool-snapshot-newest
           restore-keys: |
             cmux-pool-snapshot-
+=======
+      # The glaeda-route App installation's budget around the reads below (a free
+      # rate_limit read): the installation is shared, so the delta between `before`
+      # and `after` is this step's reads plus whatever else ran meanwhile.
+      - name: Log the glaeda-route App budget before
+        if: ${{ ((steps.route-token-bot.outputs.token || steps.route-token.outputs.token) || (steps.route-token-repo-bot.outputs.token || steps.route-token-repo.outputs.token)) != '' }}
+        continue-on-error: true
+        timeout-minutes: 1
+        env:
+          GH_TOKEN: ${{ (steps.route-token-bot.outputs.token || steps.route-token.outputs.token) || (steps.route-token-repo-bot.outputs.token || steps.route-token-repo.outputs.token) }}
+          PROBE: ${{ github.workflow }}/changes-route/before
+        run: >-
+          gh api rate_limit --jq
+          '"app-budget \(env.PROBE) used=\(.resources.core.used) reset=\(.resources.core.reset) at=\(now | floor)"'
+
+>>>>>>> origin/main
       - name: Choose the pull request macOS pool
         id: macos-pool
         # Fail-safe: any error leaves the outputs empty, which is today's route.
@@ -910,8 +1011,10 @@ jobs:
           MACOS_RUNNER_PR: ${{ vars.MACOS_RUNNER_PR }}
           DEFAULT_RUNNER: ${{ vars.MACOS_RUNNER_PR }}
           # Empty unless the step above minted it: idle owned runners, live.
-          ROUTE_TOKEN: ${{ steps.route-token.outputs.token || steps.route-token-repo.outputs.token }}
+          ROUTE_TOKEN: ${{ (steps.route-token-bot.outputs.token || steps.route-token.outputs.token) || (steps.route-token-repo-bot.outputs.token || steps.route-token-repo.outputs.token) }}
           CI_PR_POOL_OVERFLOW: ${{ vars.CI_PR_POOL_OVERFLOW }}
+          # The Blacksmith macOS switch: not `on`, an owned pick names no Blacksmith retry_runner.
+          CI_BLACKSMITH_MACOS: ${{ vars.CI_BLACKSMITH_MACOS }}
           POOL_ORDER: ${{ vars.CI_PR_POOL_ORDER }}
           POOL_MAX_QUEUED: ${{ vars.CI_PR_POOL_MAX_QUEUED }}
           POOL_QUEUE_ROUNDS: ${{ vars.CI_PR_POOL_QUEUE_ROUNDS }}
@@ -953,6 +1056,17 @@ jobs:
         with:
           path: ${{ runner.temp }}/cmux-pool-snapshot
           key: cmux-pool-snapshot-${{ steps.pool-snapshot-fetched.outputs.fetched }}
+
+      - name: Log the glaeda-route App budget after
+        if: ${{ !cancelled() && ((steps.route-token-bot.outputs.token || steps.route-token.outputs.token) || (steps.route-token-repo-bot.outputs.token || steps.route-token-repo.outputs.token)) != '' }}
+        continue-on-error: true
+        timeout-minutes: 1
+        env:
+          GH_TOKEN: ${{ (steps.route-token-bot.outputs.token || steps.route-token.outputs.token) || (steps.route-token-repo-bot.outputs.token || steps.route-token-repo.outputs.token) }}
+          PROBE: ${{ github.workflow }}/changes-route/after
+        run: >-
+          gh api rate_limit --jq
+          '"app-budget \(env.PROBE) used=\(.resources.core.used) reset=\(.resources.core.reset) at=\(now | floor)"'
 
       # A job queued on a persistent pool (owned Macs) waits for it however long
       # it stays busy. ci-owned-pool-rescue.yml's sweeper, running from main,
@@ -1179,6 +1293,7 @@ jobs:
           retention-days: 7
           overwrite: true
 
+<<<<<<< HEAD
       # compile_admitted only matters while the macOS route is on. next-route
       # turns it off for every feat-cmux-next pull request, so the lookup's
       # runs listing and per-run jobs reads would answer nothing there.
@@ -1188,21 +1303,75 @@ jobs:
       - name: Mint the glaeda read token
         id: admitted-read-token
         if: ${{ (steps.inputs.outputs.fingerprint != '' && steps.suite.outputs.full_suite == 'false' && steps.unchanged_inputs.outputs.compile_admitted != 'true' && steps.next-route.outputs.macos != 'false') && vars.GLAEDA_ROUTE_APP_ID != '' && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) }}
+=======
+      # Reads go through the manaflow-glaeda-route App's own budget, not the GITHUB_TOKEN
+      # budget every workflow shares (it ran out on 2026-10-25 and the nightly publish
+      # failed). No key (a fork) or a failed mint leaves it empty: GITHUB_TOKEN reads.
+      - name: Mint the cmux-bot read token
+        # Every run reads on cmux-bot's installation budget, so per-PR reads
+        # stop draining the build controller's routing App (5067688 read 0
+        # remaining at 02:17Z and 10:32Z on 2026-11-25 with the controller
+        # itself at 234 calls/h; an even/odd run-id split only cut it to
+        # ~9.5k/h on 2026-11-26).
+        id: admitted-read-token-bot
+        if: ((steps.inputs.outputs.fingerprint != '' && steps.suite.outputs.full_suite == 'false' && (steps.suite.outputs.unit_suite != 'true' || steps.suite.outputs.unit_canary == 'true') && steps.unchanged_inputs.outputs.compile_admitted != 'true') && vars.CMUX_BOT_APP_ID != '' && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository)) && vars.CMUX_BOT_APP_ID != ''
+>>>>>>> origin/main
         continue-on-error: true
         timeout-minutes: 1
         uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
         with:
+<<<<<<< HEAD
           app-id: ${{ vars.GLAEDA_ROUTE_APP_ID }}
           private-key: ${{ secrets.GLAEDA_ROUTE_APP_KEY }}
           permission-actions: read
           permission-pull-requests: read
+=======
+          app-id: ${{ vars.CMUX_BOT_APP_ID }}
+          private-key: ${{ secrets.CMUX_BOT_APP_KEY }}
+          permission-actions: read
+          permission-pull-requests: read
+          skip-token-revoke: true
+
+      - name: Mint the glaeda read token
+        id: admitted-read-token
+        if: ((steps.inputs.outputs.fingerprint != '' && steps.suite.outputs.full_suite == 'false' && (steps.suite.outputs.unit_suite != 'true' || steps.suite.outputs.unit_canary == 'true') && steps.unchanged_inputs.outputs.compile_admitted != 'true') && vars.GLAEDA_ROUTE_APP_ID != '' && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository)) && steps.admitted-read-token-bot.outputs.token == ''
+        continue-on-error: true
+        timeout-minutes: 1
+        uses: ./.github/actions/app-token-spread
+        with:
+          route-app-id: ${{ vars.GLAEDA_ROUTE_APP_ID }}
+          route-private-key: ${{ secrets.GLAEDA_ROUTE_APP_KEY }}
+          bot-app-id: ${{ vars.CMUX_BOT_APP_ID }}
+          bot-private-key: ${{ secrets.CMUX_BOT_APP_KEY }}
+          permission-actions: read
+          permission-pull-requests: read
+          skip-token-revoke: true
+
+      # The glaeda-route App installation's budget around the reads below (a free
+      # rate_limit read): the installation is shared, so the delta between `before`
+      # and `after` is this step's reads plus whatever else ran meanwhile.
+      - name: Log the glaeda-route App budget before
+        if: ${{ ((steps.admitted-read-token-bot.outputs.token || steps.admitted-read-token.outputs.token)) != '' }}
+        continue-on-error: true
+        timeout-minutes: 1
+        env:
+          GH_TOKEN: ${{ (steps.admitted-read-token-bot.outputs.token || steps.admitted-read-token.outputs.token) }}
+          PROBE: ${{ github.workflow }}/changes-admitted/before
+        run: >-
+          gh api rate_limit --jq
+          '"app-budget \(env.PROBE) used=\(.resources.core.used) reset=\(.resources.core.reset) at=\(now | floor)"'
+>>>>>>> origin/main
 
       - name: Look for an earlier run that compiled these inputs
         id: admitted
         continue-on-error: true
         if: ${{ steps.inputs.outputs.fingerprint != '' && steps.suite.outputs.full_suite == 'false' && steps.unchanged_inputs.outputs.compile_admitted != 'true' && steps.next-route.outputs.macos != 'false' }}
         env:
+<<<<<<< HEAD
           GH_TOKEN: ${{ steps.admitted-read-token.outputs.token || github.token }}
+=======
+          GH_TOKEN: ${{ (steps.admitted-read-token-bot.outputs.token || steps.admitted-read-token.outputs.token) || github.token }}
+>>>>>>> origin/main
           BRANCH: ${{ github.head_ref }}
           FINGERPRINT: ${{ steps.inputs.outputs.fingerprint }}
         run: |
@@ -1210,23 +1379,65 @@ jobs:
           python3 scripts/ci/find_admitted_build.py --repository "$GITHUB_REPOSITORY" --branch "$BRANCH" \
             --fingerprint "$FINGERPRINT" --current-run-id "$GITHUB_RUN_ID" --github-output "$GITHUB_OUTPUT"
 
+<<<<<<< HEAD
+=======
+      - name: Log the glaeda-route App budget after
+        if: ${{ !cancelled() && ((steps.admitted-read-token-bot.outputs.token || steps.admitted-read-token.outputs.token)) != '' }}
+        continue-on-error: true
+        timeout-minutes: 1
+        env:
+          GH_TOKEN: ${{ (steps.admitted-read-token-bot.outputs.token || steps.admitted-read-token.outputs.token) }}
+          PROBE: ${{ github.workflow }}/changes-admitted/after
+        run: >-
+          gh api rate_limit --jq
+          '"app-budget \(env.PROBE) used=\(.resources.core.used) reset=\(.resources.core.reset) at=\(now | floor)"'
+
+      # Route the report-only reverse impact job from a trusted base helper.
+      # A missing base helper or changed-path list fails open, so this optional
+      # report can never suppress required test routing.
+      - name: Route reverse test impact report
+        id: reverse-impact
+        run: |
+          set -euo pipefail
+          route="$RUNNER_TEMP/reverse_test_impact_route.py"
+          base="$(git rev-parse -q --verify 'HEAD^1' || true)"
+          if [ -z "$base" ] || ! git show "$base:scripts/ci/reverse_test_impact_route.py" > "$route"; then
+            echo "Trusted reverse-impact router unavailable; keeping the report enabled."
+            echo "reverse_test_impact=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          python3 "$route" \
+            --files-from /tmp/cmux-ci-changed-files.txt \
+            --github-output "$GITHUB_OUTPUT"
+
+>>>>>>> origin/main
   fast-guards:
     name: CI fast guards
     # Keep the authoritative fast guard in this DAG. It starts beside routing
     # and static checks, so macOS admission can depend on its real result
+<<<<<<< HEAD
     # without a second runner polling another workflow. A pull request into
     # feat-cmux-next skips it, as it skips `guards` (cmux-next has its own lanes).
     if: ${{ (github.event_name != 'pull_request' || !startsWith(github.event.pull_request.base.ref, 'feat-cmux-next')) && !(github.event_name == 'pull_request' && github.event.pull_request.base.ref == 'feat-cmux-next' && (github.event.action == 'labeled' && !contains(fromJSON('["full-ci","dev-build","ready-to-land"]'), github.event.label.name) || github.event.action == 'unlabeled')) }}
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || 'cmux-linux' }}
     timeout-minutes: 5
+=======
+    # without a second runner polling another workflow.
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || vars.CI_OVERFLOW_LINUX || 'cmux-linux' }}
+    # On the shared cmux-linux pool its 187 steps take 4.5 to 5 min (main, 2026-11-21: 4:30, 4:33, 5:00); 5 min
+    # cancelled it mid-run (cmux job 136948316380). 10 min leaves room without hiding a real hang for long.
+    timeout-minutes: 10
+>>>>>>> origin/main
     permissions:
       contents: read
     steps:
       - name: Checkout
         uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
+          fetch-depth: 2
           persist-credentials: false
 
+<<<<<<< HEAD
       - name: Which line this pull request is on
         # The if above misses a stacked cmux NEXT pull request (scripts/ci/next_line.sh).
         id: line
@@ -1235,19 +1446,129 @@ jobs:
           BASE_REF: ${{ github.event.pull_request.base.ref }}
           BASE_SHA: ${{ github.event.pull_request.base.sha }}
         run: echo "next_line=$(scripts/ci/next_line.sh "$EVENT_NAME" "$BASE_REF" "$BASE_SHA")" >> "$GITHUB_OUTPUT"
+=======
+      - name: Flag deleted or weakened tests
+        env:
+          TEST_INTEGRITY_BASE_SHA: ${{ github.event.pull_request.base.sha || github.event.merge_group.base_sha || github.event.before || '' }}
+        run: |
+          set -euo pipefail
+          base="${TEST_INTEGRITY_BASE_SHA:-HEAD^1}"
+          if ! git cat-file -e "$base^{commit}" 2>/dev/null; then
+            git fetch --no-tags --depth=1 origin "$base"
+          fi
+          # Run the base copy so a PR cannot edit its own guard to hide a test deletion.
+          if git cat-file -e "$base:scripts/ci/test_integrity.py" 2>/dev/null; then
+            git show "$base:scripts/ci/test_integrity.py" > "$RUNNER_TEMP/test_integrity.py"
+            python3 "$RUNNER_TEMP/test_integrity.py" --base "$base"
+          else
+            echo "test-integrity: base predates this guard; no comparison yet"
+          fi
+>>>>>>> origin/main
 
       - name: Run the fast guard tests
         if: steps.line.outputs.next_line != 'true'
         env:
           CMUX_GUARDS_BASE_SHA: ${{ github.event.pull_request.base.sha || github.event.merge_group.base_sha || github.event.before || '' }}
         run: scripts/ci/guards-local.sh --no-stamp --jobs 8
+<<<<<<< HEAD
+=======
+
+  # Report only. choose_ci_suite.py in `changes` already adds the suites
+  # reverse_test_impact.py names to the changed-suites run; this job records
+  # the full answer, what was considered and what it would cost, in the step
+  # summary and a 14-day artifact so its recall can be measured against later
+  # failures on main. It is its own job so it never
+  # delays routing: nothing needs it, ci-status does not wait for it, it has
+  # no outputs, and it cannot fail the run (continue-on-error at job level).
+  #
+  # Like the trusted router in `changes`, the selector and everything it
+  # imports come from the merge commit's first parent, into a directory of
+  # their own, so a pull request cannot change what is reported about it and
+  # a new scripts/ci/ file cannot shadow an import. The pull request's tree is
+  # only read as text. Until the selector is on the base there is nothing to
+  # report.
+  reverse-test-impact:
+    name: Reverse test impact (report only)
+    needs: [changes]
+    if: ${{ github.event_name == 'pull_request' && needs.changes.result == 'success' && needs.changes.outputs.reverse_test_impact == 'true' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || vars.CI_OVERFLOW_LINUX || 'cmux-linux' }}
+    timeout-minutes: 5
+    continue-on-error: true
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+        with:
+          # The merge commit and its first parent, the trusted base.
+          fetch-depth: 2
+          persist-credentials: false
+
+      - name: Report reverse test impact (report only)
+        continue-on-error: true
+        run: |
+          set -uo pipefail
+          out="$RUNNER_TEMP/reverse-test-impact"
+          rm -rf "$out"
+          mkdir -p "$out/trusted"
+          base="$(git rev-parse -q --verify 'HEAD^1' || true)"
+          if [ -z "$base" ]; then
+            echo "No base revision in this checkout; nothing to report."
+            exit 0
+          fi
+          # A file, not a pipe into grep -q: an early grep exit would SIGPIPE
+          # git on a large diff and pipefail would read that as no match.
+          git diff --no-renames --name-only "$base" HEAD > "$out/names" || true
+          if ! grep -qE '^(Sources/|CLI/|Packages/(macOS|Shared)/[^/]+/Sources/)' "$out/names"; then
+            echo "No app source changes; nothing to report."
+            exit 0
+          fi
+          if ! git archive "$base" -- \
+            scripts/ci/reverse_test_impact.py \
+            scripts/ci/choose_ci_suite.py \
+            scripts/ci/cmux_unit_test_shard.py \
+            scripts/ci/test_impact.py \
+            scripts/ci/ui_tests_dispatch.py \
+            scripts/ci/cmux-unit-test-timings.json \
+            | tar -x -C "$out/trusted" 2>/dev/null; then
+            echo "The base revision has no reverse test impact selector; nothing to report."
+            exit 0
+          fi
+          trusted="$out/trusted"
+          diff_args=(--diff-from "$out/app.diff")
+          if ! git diff --no-renames -U0 "$base" HEAD -- Sources Packages/macOS Packages/Shared CLI > "$out/app.diff"; then
+            # The selector records "diff unavailable" rather than guessing.
+            diff_args=()
+          fi
+          python3 -I "$trusted/scripts/ci/reverse_test_impact.py" \
+            --root "$GITHUB_WORKSPACE" \
+            ${diff_args[@]+"${diff_args[@]}"} \
+            --output "$out/report.json" \
+            --summary "$GITHUB_STEP_SUMMARY" \
+            || echo "::warning::Reverse test impact report failed; routing is unchanged."
+          exit 0
+
+      - name: Upload the reverse test impact report
+        continue-on-error: true
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: reverse-test-impact-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/reverse-test-impact/report.json
+          if-no-files-found: ignore
+          retention-days: 14
+
+>>>>>>> origin/main
   static-preflight:
     name: Fast static checks
     if: ${{ (github.event_name != 'pull_request' || !startsWith(github.event.pull_request.base.ref, 'feat-cmux-next')) && !(github.event_name == 'pull_request' && github.event.pull_request.base.ref == 'feat-cmux-next' && (github.event.action == 'labeled' && !contains(fromJSON('["full-ci","dev-build","ready-to-land"]'), github.event.label.name) || github.event.action == 'unlabeled')) }}
     # No package installs, submodules or app build: reject malformed inputs
     # before starting macOS and the other Linux stages. Guards and web run
     # beside it, because the macOS gate waits for them.
+<<<<<<< HEAD
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || 'cmux-linux' }}
+=======
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || vars.CI_OVERFLOW_LINUX || 'cmux-linux' }}
+>>>>>>> origin/main
     timeout-minutes: 5
     permissions:
       contents: read
@@ -1300,10 +1621,14 @@ jobs:
     permissions:
       contents: read
     # Check the pinned framework before using a Mac, and on provenance changes.
+<<<<<<< HEAD
     # The Linux runner pool (RUNNER_POOLS, kept on a live member by runner_pools.py), never one size: on
     # 2026-10-31 this job sat 41 minutes on blacksmith-4vcpu-ubuntu-2404 (run 41158893861) while the
     # 16 and 32 vCPU sizes started jobs.
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || 'cmux-linux' }}
+=======
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || vars.CI_OVERFLOW_LINUX || 'cmux-linux' }}
+>>>>>>> origin/main
     timeout-minutes: 20
     steps:
       - name: Checkout repository
@@ -1355,6 +1680,7 @@ jobs:
       pr_retry_runner: ${{ needs.changes.outputs.macos_pr_retry_runner }}
       pr_owned_jobs: ${{ needs.changes.outputs.macos_pr_owned_jobs }}
       pr_side_runner: ${{ contains(needs.changes.outputs.macos_pr_light_side_jobs, ' remote-daemon ') && needs.changes.outputs.macos_pr_light_side_runner || needs.changes.outputs.macos_pr_side_runner }}
+      pr_grant: ${{ needs.changes.outputs.macos_pr_grant }}
       native_tests: ${{ needs.changes.outputs.remote_daemon_native == 'true' || contains(github.event.pull_request.labels.*.name, 'full-ci') }}
 
   web:
@@ -1375,6 +1701,65 @@ jobs:
       macos: ${{ needs.changes.outputs.macos }}
       agent_session_web: ${{ needs.changes.outputs.agent_session_web }}
 
+<<<<<<< HEAD
+=======
+  claude-wrapper:
+    name: Claude wrapper regressions
+    needs: [changes, static-preflight]
+    if: ${{ !cancelled() && needs.changes.result == 'success' && needs.static-preflight.result == 'success' && (needs.changes.outputs.claude_wrapper == 'true' || (needs.changes.outputs.macos == 'true' && needs.changes.outputs.full_suite == 'true')) }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && !contains(fromJSON(needs.changes.outputs.owned_head_repos), github.event.pull_request.head.repo.full_name) && (startsWith(needs.changes.outputs.macos_pr_runner, 'blacksmith-') && needs.changes.outputs.macos_pr_runner || 'blacksmith-6vcpu-macos-15') || github.event_name == 'pull_request' && needs.changes.outputs.macos_pr_grant != '' && fromJSON(needs.changes.outputs.macos_pr_grant) || github.event_name == 'pull_request' && (github.run_attempt > 2 && github.triggering_actor == 'github-actions[bot]' || !contains(needs.changes.outputs.macos_pr_owned_jobs, ' claude-wrapper ')) && needs.changes.outputs.macos_pr_retry_runner || github.event_name == 'pull_request' && ((contains(needs.changes.outputs.macos_pr_light_side_jobs, ' claude-wrapper ') && needs.changes.outputs.macos_pr_light_side_runner || needs.changes.outputs.macos_pr_side_runner) || needs.changes.outputs.macos_pr_runner || vars.CI_BLACKSMITH_MACOS != 'on' && (github.run_attempt <= 2 || github.triggering_actor != 'github-actions[bot]') && (vars.CI_SIDE_LANE_LABELS != '' && fromJSON(vars.CI_SIDE_LANE_LABELS) || vars.CI_SIDE_LANE_RUNNER) || vars.MACOS_RUNNER_PR || 'blacksmith-6vcpu-macos-15') || github.event_name == 'workflow_dispatch' && github.run_attempt <= 2 && contains(needs.changes.outputs.macos_pr_owned_jobs, ' claude-wrapper ') && (needs.changes.outputs.macos_pr_side_runner || needs.changes.outputs.macos_pr_runner) || github.event_name == 'workflow_dispatch' && vars.CI_BLACKSMITH_MACOS != 'on' && (github.run_attempt <= 2 || github.triggering_actor != 'github-actions[bot]') && (vars.CI_SIDE_LANE_LABELS != '' && fromJSON(vars.CI_SIDE_LANE_LABELS) || vars.CI_SIDE_LANE_RUNNER) || vars.CI_PAID_MACOS_OVERFLOW == '1' && vars.MACOS_RUNNER_15 || 'blacksmith-6vcpu-macos-15') }}
+    # Normally 1-2 minutes, but it spawns hundreds of short bash, perl and node
+    # processes, so a mini saturated by a compile beside it stretches it:
+    # 120-527 s at a mean load of 36-100 on 14 cores (glaeda-cmux-jobs.jsonl,
+    # 2026-09-25). 15 minutes keeps that from failing a required check; the
+    # glaeda listener gate keeps new jobs off saturated minis.
+    timeout-minutes: 15
+    steps:
+      - name: Checkout wrapper and test inputs
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+        with:
+          persist-credentials: false
+          # The lane reads only these: about 750 files instead of the whole
+          # 17,000-file tree, which took this Mac about 30 s to check out.
+          sparse-checkout: |
+            Resources/bin
+            scripts/ci
+            skills/cmux-cua
+            tests
+      - name: Find an existing Node runtime
+        id: node
+        run: |
+          python3 - <<'PYTHON'
+          import os
+          import sys
+          from pathlib import Path
+          if sys.version_info < (3, 9):
+              raise SystemExit("Claude wrapper tests require Python 3.9 or newer")
+          print(sys.version)
+          sys.path.insert(0, "tests")
+          from node_runtime import ensure_node_on_path
+          node = ensure_node_on_path()
+          with open(os.environ["GITHUB_OUTPUT"], "a") as output:
+              output.write(f"available={'true' if node else 'false'}\n")
+          if node:
+              with open(os.environ["GITHUB_PATH"], "a") as path:
+                  path.write(str(Path(node).parent) + "\n")
+          PYTHON
+      - name: Install Node only when the runner has none
+        if: ${{ steps.node.outputs.available != 'true' }}
+        uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
+        with:
+          node-version: "20"
+
+      - name: Run standalone Claude wrapper regressions
+        run: |
+          set -euo pipefail
+          # Missing Node must fail this required lane, never produce the
+          # legacy test script's successful SKIP result.
+          node --version
+          python3 scripts/ci/run_python_test_lane.py --lane macos-claude-wrapper
+
+>>>>>>> origin/main
   # macOS compile admission starts as soon as `changes` and the static stage
   # pass, beside the fast Linux-only jobs instead of behind them. Over 75 gated
   # pull request runs (2026-09-24) those jobs finished a median 99 s (p90
@@ -1405,8 +1790,13 @@ jobs:
       - browser
       - guards
       - web
+<<<<<<< HEAD
     if: ${{ (!cancelled() && github.event_name == 'pull_request' && needs.changes.result == 'success' && needs.static-preflight.result == 'success' && needs.changes.outputs.macos != 'false' && (needs.changes.outputs.full_suite == 'true' || needs.changes.outputs.compile_admitted != 'true')) && !(github.event_name == 'pull_request' && github.event.pull_request.base.ref == 'feat-cmux-next' && (github.event.action == 'labeled' && !contains(fromJSON('["full-ci","dev-build","ready-to-land"]'), github.event.label.name) || github.event.action == 'unlabeled')) }}
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || 'cmux-linux' }}
+=======
+    if: ${{ !cancelled() && github.event_name == 'pull_request' && needs.changes.result == 'success' && needs.static-preflight.result == 'success' && (needs.changes.outputs.macos != 'false' || needs.changes.outputs.cli == 'true') && (needs.changes.outputs.full_suite == 'true' || needs.changes.outputs.cli == 'true' || needs.changes.outputs.compile_admitted != 'true') }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || vars.CI_OVERFLOW_LINUX || 'cmux-linux' }}
+>>>>>>> origin/main
     timeout-minutes: 5
     permissions: {}
     steps:
@@ -1467,6 +1857,15 @@ jobs:
       owned_head_repos: ${{ needs.changes.outputs.owned_head_repos }}
       pr_side_runner: ${{ contains(needs.changes.outputs.macos_pr_light_side_jobs, ' swift-package ') && needs.changes.outputs.macos_pr_light_side_runner || needs.changes.outputs.macos_pr_side_runner }}
       pr_gui_runner: ${{ needs.changes.outputs.macos_pr_gui_runner }}
+<<<<<<< HEAD
+=======
+      pr_grant: ${{ needs.changes.outputs.macos_pr_grant }}
+    # ci-macos.yml's admission-placement and late-placement read the runners with it.
+    secrets:
+      GLAEDA_ROUTE_APP_KEY: ${{ secrets.GLAEDA_ROUTE_APP_KEY }}
+      CMUX_BOT_APP_KEY: ${{ secrets.CMUX_BOT_APP_KEY }}
+
+>>>>>>> origin/main
   linux-preflight:
     name: linux-preflight
     # Retain the Linux verdict in the required final statuses. It no longer
@@ -1482,8 +1881,13 @@ jobs:
     # This replaces the old unconditional `if: ${{ always() }}`: if the change
     # router explicitly says macOS is irrelevant, skip the runner allocation.
     # Missing/invalid route output fails open by running the preflight.
+<<<<<<< HEAD
     if: ${{ ((!cancelled() && (github.event_name != 'pull_request' || !startsWith(github.event.pull_request.base.ref, 'feat-cmux-next')) && needs.changes.outputs.next_line != 'true' && needs.changes.outputs.macos != 'false') && !(github.event_name == 'pull_request' && github.event.pull_request.base.ref == 'feat-cmux-next' && (github.event.action == 'labeled' && !contains(fromJSON('["full-ci","dev-build","ready-to-land"]'), github.event.label.name) || github.event.action == 'unlabeled'))) && (github.event_name != 'pull_request' || needs.changes.result == 'success' || needs.changes.result == 'skipped') }}
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || 'cmux-linux' }}
+=======
+    if: ${{ !cancelled() && needs.changes.outputs.macos != 'false' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || vars.CI_OVERFLOW_LINUX || 'cmux-linux' }}
+>>>>>>> origin/main
     timeout-minutes: 5
     steps:
       - name: Check routed Linux results
@@ -1578,6 +1982,129 @@ jobs:
               print(f"{name}: {data['result']}")
           PY
 
+<<<<<<< HEAD
+=======
+  suite-coverage:
+    timeout-minutes: 5
+    # Compile admission builds the test bundle and stops, so a pull request
+    # that edits cmuxTests/ and skips the full suite runs none of the code it
+    # changed. The policy that allows the skip is written for a merge queue
+    # that no longer gates main, so refuse the run here instead of reporting
+    # green on a diff nothing observed. A cmuxTests/ diff selects
+    # `app-host unit tests` by itself (choose_ci_suite.py), so it never lands
+    # here. A cmuxUITests/ diff runs the classes it changed in `ui-tests`. What
+    # lands here is a cmuxUITests/ change that maps to no test class (a helper),
+    # or a diff that could not be read: "no-full-ci" records that skipping it
+    # is deliberate, and for an unread diff "full-ci" runs everything.
+    needs:
+      - changes
+    if: ${{ !cancelled() && needs.changes.result == 'success' && needs.changes.outputs.coverage_gap == 'true' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || vars.CI_OVERFLOW_LINUX || 'cmux-linux' }}
+    steps:
+      - name: Require the suite that judges this diff
+        run: |
+          echo "This pull request changes cmuxUITests/ outside any test class (a" >&2
+          echo "helper every class may use), more classes than one focused run takes," >&2
+          echo "or its diff could not be read, so nothing observed it. (A changed UI" >&2
+          echo "test class runs in 'ui-tests', and a cmuxTests/ change runs 'app-host" >&2
+          echo "unit tests', automatically.)" >&2
+          echo >&2
+          echo "Run the affected UI tests with scripts/run-e2e.sh and add the" >&2
+          echo "'no-full-ci' label to record it, or add 'full-ci' when the diff" >&2
+          echo "could not be read." >&2
+          exit 1
+
+  # The UI test classes a pull request changes, run once on its head through
+  # test-e2e.yml: no pull request job executes cmuxUITests/ otherwise. A diff
+  # that touches what the UI fuzzer's checked-in repros exercise (the sidebar,
+  # splits and panes, the main window's size, the fuzzer) also asks for
+  # cmuxUITests/FuzzRegressions, which replays them against the same app
+  # (choose_ci_suite.fuzz_regression_selectors).
+  #
+  # The test run
+  # adopts the app-host product this run compiles for the merge, waiting for
+  # it, so this costs a test run, not a second compile, and routes to an owned
+  # Mac (e2e_runner_pool.py). It waits for the admission gate: the gate holds
+  # the compile it adopts, so the gate must not wait for it, and a fast Linux
+  # failure spends no test run. A run that reuses an earlier compile skips the
+  # gate, and still runs the classes, once static preflight passes: the
+  # dispatch adopts that compile by its product key.
+  #
+  # Dispatching takes actions: write, which no job in this file holds: a
+  # pull_request run takes this file from the pull request. This job validates
+  # the selectors and uploads them as a request; ci-ui-tests.yml, which always
+  # runs from the default branch and which the build controller dispatches when
+  # this job starts (it matches the job name `ui-tests`: keep this id and add
+  # no `name:`), picks the request up, runs main's dispatcher on it, and
+  # cancels the dispatched run if this run ends first. This job then
+  # reports that run's verdict, so the result stays on the pull request and
+  # under ci-status. A fork's request is refused here: ci-ui-tests.yml serves
+  # only same-repository pull requests, so a maintainer runs its classes with
+  # scripts/run-e2e.sh and adds 'no-full-ci'. scripts/ci/ui_tests_dispatch.py
+  # has both halves.
+  ui-tests:
+    needs:
+      - changes
+      - static-preflight
+      - macos-admission-gate
+    # The route/controller lane is disabled while its infra cancellation bug is
+    # repaired. Re-enable with the repository variable CI_UI_TESTS_ENABLED=1;
+    # selectors still keep dispatches limited to UI-touching diffs.
+    if: ${{ vars.CI_UI_TESTS_ENABLED == '1' && !cancelled() && needs.changes.result == 'success' && needs.static-preflight.result == 'success' && (needs.macos-admission-gate.result == 'success' || needs.macos-admission-gate.result == 'skipped' && needs.changes.outputs.compile_admitted == 'true') && needs.changes.outputs.ui_selectors != '' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || vars.CI_OVERFLOW_LINUX || 'cmux-linux' }}
+    # A compile wait of up to 50 minutes, then the tests.
+    timeout-minutes: 150
+    permissions:
+      contents: read
+      actions: read
+    steps:
+      - name: Refuse a fork
+        if: github.event.pull_request.head.repo.full_name != github.repository
+        env:
+          SELECTORS: ${{ needs.changes.outputs.ui_selectors }}
+        run: |
+          echo "::error::This fork pull request changes UI test classes ($SELECTORS), which only a same-repository dispatch can run. A maintainer runs scripts/run-e2e.sh on its head and adds the 'no-full-ci' label."
+          exit 1
+
+      - name: Checkout the request script
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+        with:
+          persist-credentials: false
+          sparse-checkout: scripts/ci/ui_tests_dispatch.py
+          sparse-checkout-cone-mode: false
+
+      # Each selector must be cmuxUITests/<Class>[/<method>];
+      # ci-ui-tests.yml validates the request again before it dispatches.
+      - name: Validate the UI test selectors
+        env:
+          SELECTORS: ${{ needs.changes.outputs.ui_selectors }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          MERGE_SHA: ${{ github.sha }}
+        run: python3 scripts/ci/ui_tests_dispatch.py request --out "$RUNNER_TEMP/request.json"
+
+      - name: Request the UI test run
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          # ci-ui-tests.yml waits for this name (ui_tests_dispatch.request_artifact()).
+          name: ui-tests-request-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/request.json
+          if-no-files-found: error
+          retention-days: 1
+
+      - name: Wait for the UI test run
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPOSITORY: ${{ github.repository }}
+          RUN_ID: ${{ github.run_id }}
+          RUN_ATTEMPT: ${{ github.run_attempt }}
+          DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
+          # Only to find the test run and print what it is doing each minute.
+          SELECTORS: ${{ needs.changes.outputs.ui_selectors }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          MERGE_SHA: ${{ github.sha }}
+        run: python3 scripts/ci/ui_tests_dispatch.py await-verdict
+
+>>>>>>> origin/main
   dogfood-build:
     # Build one exact app pull-request head for trusted org members and hand
     # the ZIP to the default-branch publisher. That publisher writes the
@@ -1660,6 +2187,7 @@ jobs:
       - macos
     # A cancelled run already has its terminal outcome; the required status
     # remains cancelled and does not need a post-cancel rollup.
+<<<<<<< HEAD
     # It runs on a foreign label event too (the guard on the other jobs): a
     # skipped ci-status newer than a red or pending one would read as passing to
     # a newest-by-name merge gate. A pull request into feat-cmux-next skips it:
@@ -1669,11 +2197,44 @@ jobs:
     # nothing, since no ci-status of that base was ever red.
     if: ${{ !cancelled() && !(github.event_name == 'pull_request' && github.event.pull_request.base.ref == 'feat-cmux-next') }}
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || 'cmux-linux' }}
+=======
+    if: ${{ !cancelled() }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || vars.CI_OVERFLOW_LINUX || 'cmux-linux' }}
+>>>>>>> origin/main
     # These verdict steps read `needs` and decide. Their siblings are bounded
     # at 5 to 20 minutes; this job was inheriting the six-hour default, as the
     # required check every pull request waits on.
     timeout-minutes: 5
     steps:
+      # An absent signal must never read green. The steps below allow a
+      # `skipped` need, which is right only when that job's routing turned it
+      # off. This asks each skipped job's own `if:` whether it was selected,
+      # with the same needs, variables, inputs and event fields that decided
+      # it, and fails when a selected job never ran (scripts/ci/gate_verdict.py;
+      # tests/test_ci_gate_absent_signal.py walks the needs graph).
+      - name: Check out the gate verdict
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+        with:
+          persist-credentials: false
+          sparse-checkout: |
+            scripts/ci/gate_verdict.py
+            .github/workflows/ci.yml
+          sparse-checkout-cone-mode: false
+
+      - name: Every selected job reported
+        env:
+          GATE_NEEDS: ${{ toJSON(needs) }}
+          GATE_VARS: ${{ toJSON(vars) }}
+          GATE_INPUTS: ${{ toJSON(inputs) }}
+          GATE_GITHUB: >-
+            {"event_name": ${{ toJSON(github.event_name) }},
+            "repository": ${{ toJSON(github.repository) }},
+            "repository_owner": ${{ toJSON(github.repository_owner) }},
+            "run_attempt": ${{ toJSON(github.run_attempt) }},
+            "triggering_actor": ${{ toJSON(github.triggering_actor) }},
+            "event": {"pull_request": {"head": {"repo": {"full_name": ${{ toJSON(github.event.pull_request.head.repo.full_name) }}}}}}}
+        run: python3 scripts/ci/gate_verdict.py --workflow .github/workflows/ci.yml --gate ci-status
+
       - name: Check platform workflow routing
         env:
           PLATFORM_NEEDS: ${{ toJSON(needs) }}
@@ -1832,8 +2393,13 @@ jobs:
       - linux-preflight
       - macos-admission-gate
       - macos
+<<<<<<< HEAD
     if: ${{ (!cancelled() && (github.event_name != 'pull_request' || !startsWith(github.event.pull_request.base.ref, 'feat-cmux-next')) && needs.changes.outputs.next_line != 'true') && !(github.event_name == 'pull_request' && github.event.pull_request.base.ref == 'feat-cmux-next' && (github.event.action == 'labeled' && !contains(fromJSON('["full-ci","dev-build","ready-to-land"]'), github.event.label.name) || github.event.action == 'unlabeled')) }}
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || 'cmux-linux' }}
+=======
+    if: ${{ !cancelled() }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || vars.CI_OVERFLOW_LINUX || 'cmux-linux' }}
+>>>>>>> origin/main
     timeout-minutes: 5
     continue-on-error: true
     permissions:

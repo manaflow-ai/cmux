@@ -1,4 +1,7 @@
+<<<<<<< HEAD
 import CmuxEgress
+=======
+>>>>>>> origin/main
 import Foundation
 import Darwin
 
@@ -221,7 +224,11 @@ final class GuardedFetcher: NSObject, URLSessionDataDelegate {
         c.timeoutIntervalForRequest = timeout
         c.timeoutIntervalForResource = timeout
         c.httpMaximumConnectionsPerHost = 2
+<<<<<<< HEAD
         return CmuxEgress.session(site: "MessagesLabHome.LinkGuard", configuration: c, delegate: self, delegateQueue: queue)
+=======
+        return URLSession(configuration: c, delegate: self, delegateQueue: queue)
+>>>>>>> origin/main
     }()
 
     /// Checks the URL (resolution included), then GETs it. `done` runs on the

@@ -1,8 +1,12 @@
+<<<<<<< HEAD
 #if canImport(CoreGraphics)
 import CoreGraphics
 #else
 import Foundation
 #endif
+=======
+import CoreGraphics
+>>>>>>> origin/main
 
 /// "Send with effect" as Messages lays it out (CKEffectPickerStandardView,
 /// identical on iOS 26.5 and 27.0): everything hangs off the send button

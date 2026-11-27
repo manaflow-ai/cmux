@@ -1,8 +1,12 @@
+<<<<<<< HEAD
 #if canImport(CoreGraphics)
 import CoreGraphics
 #else
 import Foundation
 #endif
+=======
+import CoreGraphics
+>>>>>>> origin/main
 import Foundation
 
 /// Messages' reply motion, read from ChatKit on iOS 26.5 and 27.0 (the two

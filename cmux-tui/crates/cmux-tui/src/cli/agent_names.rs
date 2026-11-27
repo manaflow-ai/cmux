@@ -1,11 +1,16 @@
 //! Agent names and unique tab names as selectors.
 //!
 //! `cmux agent start alpha` runs the agent in a tab named `alpha`. That tab
+<<<<<<< ours
 //! name is the agent's name: `cmux terminal alpha send …`, `cmux tab alpha
+=======
+//! name is the agent's name: `cmux terminal alpha write …`, `cmux tab alpha
+>>>>>>> theirs
 //! focus`, `cmux pane alpha split` and `--terminal alpha` (or `--tab`,
 //! `--pane`) take it wherever a terminal, tab or pane selector goes. Any
 //! other tab name that is unique in the session works the same way.
 //!
+<<<<<<< ours
 //! Before the CLI parses a command, [`rewrite_args`] asks the daemon to
 //! resolve each selector word that is not an id, `current`/`caller`/`focused`
 //! or a command word (also a subcommand word of the parser, like `group` in
@@ -22,13 +27,39 @@
 //! [`resolve`] is the same tab-name rule over a `session.snapshot`, for the
 //! commands that already read one (`agent start --pane`, `agent resume`,
 //! `terminal … send`).
+=======
+//! Before the CLI parses a command, [`rewrite_args`] looks a selector word
+//! that is not an id, `current`/`caller`/`focused` or a command word (a word
+//! of an action path such as `write`, or a subcommand word of the parser) up
+//! in one `session.snapshot`:
+//!
+//! 1. a tab with that name whose terminal runs (with an agent or not);
+//! 2. else a tab with that name whose terminal exited (kept by
+//!    `--on-exit keep`, so `terminal alpha resume` finds it).
+//!
+//! The first step with exactly one tab wins; two or more there is
+//! `selector.ambiguous` with the tab ids (an agent tab and a shell tab with
+//! one name too, as in the daemon's tab-name scope). A name only fills a gap: when a
+//! name matches, the daemon's own selector rules (the current scope,
+//! terminal titles, names under a parent) are asked first, and a word they
+//! find stays as it is. So a selector that resolved before resolves to the
+//! same object. A terminal title and a pane's own name also win over a tab
+//! name.
+>>>>>>> theirs
 
 use std::collections::HashMap;
 
 use cmux_tui_core::resource::ResourceOperation;
+<<<<<<< ours
 use serde_json::Value;
 
 use super::command::WireOperation;
+=======
+use serde_json::{Value, json};
+
+use super::agent_start::daemon::{self as agent_daemon, CliDaemon};
+use super::command::{CommandPlan, WireOperation};
+>>>>>>> theirs
 
 /// Agent name grammar: a lowercase letter, then up to 31 lowercase letters,
 /// digits, `-` or `_`.
@@ -76,6 +107,10 @@ pub(in crate::cli) fn valid_agent_name(name: &str) -> Result<(), String> {
     }
     if KEYWORDS.contains(&name)
         || matches!(name, "start" | "resume")
+<<<<<<< ours
+=======
+        || super::command::is_action_word(name)
+>>>>>>> theirs
         || cmux_tui_core::resource::is_reserved_selector_token(name)
         || [Scope::Terminal, Scope::Tab, Scope::Pane]
             .into_iter()
@@ -131,7 +166,11 @@ pub(in crate::cli) fn places_named(snapshot: &Value, name: &str) -> Vec<Place> {
                 terminal: terminal["id"].as_str()?.to_owned(),
                 tab: tab["id"].as_str()?.to_owned(),
                 pane: tab["pane_id"].as_str()?.to_owned(),
+<<<<<<< ours
                 live: super::terminal_lifecycle::is_live(terminal),
+=======
+                live: terminal["lifecycle"] != "exited",
+>>>>>>> theirs
             })
         })
         .collect()
@@ -194,6 +233,17 @@ impl Scope {
             Self::Pane => ResourceOperation::PaneGet,
         }
     }
+<<<<<<< ours
+=======
+
+    fn id(self, place: &Place) -> &str {
+        match self {
+            Self::Terminal => &place.terminal,
+            Self::Tab => &place.tab,
+            Self::Pane => &place.pane,
+        }
+    }
+>>>>>>> theirs
 }
 
 /// One selector word that may be a name: the command word after the scope,
@@ -210,9 +260,14 @@ pub(in crate::cli) struct Target {
     pub inline: bool,
 }
 
+<<<<<<< ours
 /// The word as a selector to resolve; `None` for a full id, a keyword or a
 /// command word. A unique id prefix (`term_3f0a`) and a bare or host id are
 /// resolved too, so a flag that needs the full id gets it.
+=======
+/// The word as a name to look up; `None` for an id, an id prefix, a
+/// keyword or a command word.
+>>>>>>> theirs
 fn candidate(word: &str) -> Option<&str> {
     if let Some(name) = word.strip_prefix("name:") {
         return (!name.is_empty()).then_some(name);
@@ -221,7 +276,11 @@ fn candidate(word: &str) -> Option<&str> {
         || word.starts_with('-')
         || KEYWORDS.contains(&word)
         || cmux_tui_core::resource::is_reserved_selector_token(word)
+<<<<<<< ours
         || (looks_like_id(word) && cmux_tui_core::resource::id_prefix_parts(word).is_none())
+=======
+        || looks_like_id(word)
+>>>>>>> theirs
     {
         return None;
     }
@@ -238,8 +297,13 @@ fn is_subcommand(scope: Scope, word: &str) -> bool {
     }
     let words = [scope.word().to_owned(), word.to_owned(), "show".to_owned()];
     !matches!(
+<<<<<<< ours
         super::command::parse(&words, super::Surface::current()),
         Ok(super::command::CommandPlan::Protocol(plan))
+=======
+        super::command::parse(&words),
+        Ok(CommandPlan::Protocol(plan))
+>>>>>>> theirs
             if matches!(&plan.operation, WireOperation::Typed(operation) if *operation == scope.get())
     )
 }
@@ -269,9 +333,13 @@ pub(in crate::cli) fn targets(words: &[String]) -> Vec<Target> {
             Some((name, value)) => (name, Some(value)),
             None => (flag, None),
         };
+<<<<<<< ours
         if inline.is_none()
             && super::command::flag_takes_no_value(name, words.get(index + 1).map(String::as_str))
         {
+=======
+        if !super::command::flag_takes_value(name) {
+>>>>>>> theirs
             continue;
         }
         let (value_index, value) = match inline {
@@ -329,6 +397,7 @@ pub(in crate::cli) fn replace(words: &mut [String], target: &Target, id: &str) {
     };
 }
 
+<<<<<<< ours
 /// The command `words` with each target's word replaced by the id that
 /// `resolve` gives for it; `Ok(None)` when nothing changes. `resolve` is the
 /// daemon's one selector resolver (W5-P): `Ok(Some(id))` for the object the
@@ -346,10 +415,62 @@ pub(in crate::cli) fn rewrite_words(
             replace(&mut rewritten, &target, &id);
             changed = true;
         }
+=======
+/// The id `target` selects in `snapshot` by name: `Ok(None)` for a word that
+/// stays as it is, `Err` with the error for an ambiguous name. Whether a
+/// terminal title or a pane name wins is the daemon's call
+/// ([`rewrite_words`] asks it): it matches them only under the current tab
+/// or screen, so a title elsewhere in the session does not hide the name.
+pub(in crate::cli) fn lookup(snapshot: &Value, target: &Target) -> Result<Option<String>, Value> {
+    let Some(name) = candidate(&target.word) else { return Ok(None) };
+    match resolve(snapshot, name) {
+        Found::One(place) => Ok(Some(target.scope.id(&place).to_owned())),
+        Found::Missing => Ok(None),
+        Found::Ambiguous(tabs) => Err(json!({
+            "code": "selector.ambiguous",
+            "message": format!(
+                "{} tabs are named {name:?}; name one by its id ({})",
+                tabs.len(),
+                tabs.join(", ")
+            ),
+            "details": {"name": name, "candidates": tabs},
+            "retryable": false,
+        })),
+    }
+}
+
+/// The command `words` with each name replaced by its id; `Ok(None)` when
+/// nothing changes. `found_by_selector_rules` tells whether the daemon's own
+/// selector rules (the current scope, terminal titles, names under a parent)
+/// already find a target's word: such a word stays, so a selector that
+/// resolved before resolves to the same object. It is asked only for a word
+/// that a name matches, and never for a flag value of `agent` or
+/// `notification`: those flags take a `term_` id only, so a name there
+/// always becomes its id.
+pub(in crate::cli) fn rewrite_words(
+    words: &[String],
+    snapshot: &Value,
+    found_by_selector_rules: &mut dyn FnMut(&Target) -> bool,
+) -> Result<Option<Vec<String>>, Value> {
+    let mut rewritten = words.to_vec();
+    let mut changed = false;
+    let ids_only = words
+        .first()
+        .is_some_and(|scope| matches!(super::canonical_scope(scope), "agent" | "notification"));
+    for target in targets(words) {
+        let Some(id) = lookup(snapshot, &target).transpose() else { continue };
+        if !(ids_only && target.flag.is_some()) && found_by_selector_rules(&target) {
+            continue;
+        }
+        let id = id?;
+        replace(&mut rewritten, &target, &id);
+        changed = true;
+>>>>>>> theirs
     }
     Ok(changed.then_some(rewritten))
 }
 
+<<<<<<< ours
 /// The id the daemon resolves `target`'s word to, read as
 /// `<scope> <word> show` from this caller: the same rules as every other
 /// command (W5-P's one resolver), so `terminal alpha`, `--terminal alpha`
@@ -408,6 +529,34 @@ pub(in crate::cli) fn rewrite_args(args: &[String]) -> Result<Option<Vec<String>
     }
     let mut resolve = |target: &Target| daemon_resolves(&global, target);
     let rewritten = match rewrite_words(&words, &mut resolve) {
+=======
+/// Whether the daemon resolves `target`'s word with its own selector rules
+/// (as `<scope> <word> show` from this caller). Only `selector.not_found`
+/// counts as "not found": any other answer, or no answer, keeps the word.
+fn daemon_finds(global: &super::GlobalArgs, target: &Target) -> bool {
+    let words = [target.scope.word().to_owned(), target.word.clone(), "show".to_owned()];
+    let Ok(CommandPlan::Protocol(plan)) = super::command::parse(&words) else {
+        return true;
+    };
+    !matches!(
+        super::wire::fetch(global, plan),
+        Err(error) if error.get("code").is_some_and(|code| code == "selector.not_found")
+    )
+}
+
+/// `args` with each agent or unique tab name replaced by its id;
+/// `Ok(None)` when nothing changed (or the session could not be read),
+/// `Err(exit code)` after printing an ambiguous-name error.
+pub(in crate::cli) fn rewrite_args(args: &[String]) -> Result<Option<Vec<String>>, i32> {
+    let Ok((global, words)) = super::parse_globals(args) else { return Ok(None) };
+    if super::has_help_option(&words) || targets(&words).is_empty() {
+        return Ok(None);
+    }
+    let backend = CliDaemon { global: global.clone() };
+    let Ok(snapshot) = agent_daemon::snapshot(&backend) else { return Ok(None) };
+    let mut probe = |target: &Target| daemon_finds(&global, target);
+    let rewritten = match rewrite_words(&words, &snapshot, &mut probe) {
+>>>>>>> theirs
         Ok(Some(rewritten)) => rewritten,
         Ok(None) => return Ok(None),
         Err(error) => return Err(super::wire::print_local_error(&error, global.output, 1)),

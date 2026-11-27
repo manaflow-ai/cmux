@@ -1,5 +1,6 @@
 name: first-user journey (web)
 
+<<<<<<< HEAD
 # The first-user journey matrix for cmux NEXT's webviews (webviews/scripts/first-user-journey/run.mjs):
 # every harness the model picker lists, in four states (not installed, signed out, signed in with a spent
 # plan, signed in and working), clicked through against the mock daemon, with a "no busted state" verdict
@@ -14,6 +15,14 @@ name: first-user journey (web)
 # dispatches this file on feat-cmux-next once a night unless a run is already pending; a person or the
 # quality report starts it the same way (`gh workflow run first-user-journey-web.yml --ref feat-cmux-next`).
 
+=======
+# Registration only. The real first-user journey matrix lives on feat-cmux-next. GitHub resolves a
+# workflow by file name only when the file exists on the default branch, so without this file the
+# dispatch from first-user-journey-web-dispatch.yml 404s. A dispatch with ref feat-cmux-next runs
+# feat-cmux-next's own first-user-journey-web.yml, never this one. This copy has no schedule,
+# pull_request or push trigger, so it never runs on main by itself, and a dispatch on main does nothing.
+# The inputs mirror feat-cmux-next's so a dispatch's inputs validate wherever GitHub checks them.
+>>>>>>> origin/main
 on:
   workflow_dispatch:
     inputs:
@@ -22,18 +31,23 @@ on:
         required: false
         default: ""
 
+<<<<<<< HEAD
 permissions:
   contents: read
 
 concurrency:
   group: first-user-journey-web-${{ github.ref }}
   cancel-in-progress: false
+=======
+permissions: {}
+>>>>>>> origin/main
 
 env:
   # Temporary REST budget attribution: one gh-call line per GitHub API call (scripts/ci/api_call_log/env.sh, fetched at a fixed commit when the checkout has no copy).
   BASH_ENV: '$({ w="${GITHUB_WORKSPACE:-/nonexistent}/scripts/ci/api_call_log/env.sh"; t="${RUNNER_TEMP:-/nonexistent}/api-call-log-src"; if [ -f "$w" ]; then echo "$w"; elif [ -n "${RUNNER_TEMP:-}" ]; then if [ ! -f "$t/env.sh" ] && [ ! -e "$t.tried" ] && { [ "${RUNNER_OS:-}" = Linux ] || [ "${RUNNER_OS:-}" = macOS ]; } && [ "$(date -u +%Y%m%d%H)" -lt 2026112300 ]; then : > "$t.tried"; mkdir -p "$t.part" && for x in env.sh gh sitecustomize.py isolated.py; do curl -fsSL --max-time 5 -o "$t.part/$x" "https://raw.githubusercontent.com/manaflow-ai/cmux/27647ffd3ae838c63be28ca3e5883dcd68c34518/scripts/ci/api_call_log/$x" || break; done; [ -s "$t.part/isolated.py" ] && mv "$t.part" "$t"; fi; if [ -f "$t/env.sh" ]; then echo "$t/env.sh"; else echo unset BASH_ENV > "$t.off.sh" && echo "$t.off.sh"; fi; fi; } 2>/dev/null)'
 
 jobs:
+<<<<<<< HEAD
   journey:
     if: github.repository == 'manaflow-ai/cmux'
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || 'cmux-linux' }}
@@ -132,3 +146,12 @@ jobs:
           retention-days: 3
           if-no-files-found: warn
           overwrite: true
+=======
+  registration:
+    if: github.ref != 'refs/heads/main'
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.CI_OVERFLOW_LINUX || 'cmux-linux' }}
+    timeout-minutes: 1
+    steps:
+      - name: Nothing to do outside feat-cmux-next
+        run: echo "the first-user journey runs from feat-cmux-next's first-user-journey-web.yml"
+>>>>>>> origin/main

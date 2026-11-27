@@ -8,6 +8,7 @@ import AppKit
 /// Strings of the AppKit shell (menus, buttons); the transcript's strings come
 /// from the catalyst catalog.
 enum NativeStrings {
+<<<<<<< HEAD
     static var attach: String { String(localized: "compose.attach", defaultValue: "Add Attachment", table: "AppKitNative", bundle: MessagesLabLocalization.bundle) }
     static var emoji: String { String(localized: "compose.emoji", defaultValue: "Emoji", table: "AppKitNative", bundle: MessagesLabLocalization.bundle) }
     /// cmux: the round button while the Chief works (Esc and Cmd-. do the same).
@@ -15,6 +16,15 @@ enum NativeStrings {
     static var video: String { String(localized: "header.video", defaultValue: "FaceTime Video", table: "AppKitNative", bundle: MessagesLabLocalization.bundle) }
     /// The name pill: "Contact details for %@".
     static var contactFormat: String { String(localized: "header.contact", defaultValue: "Contact details for %@", table: "AppKitNative", bundle: MessagesLabLocalization.bundle) }
+=======
+    static var attach: String { String(localized: "compose.attach", defaultValue: "Add Attachment", table: "AppKitNative", bundle: .module) }
+    static var emoji: String { String(localized: "compose.emoji", defaultValue: "Emoji", table: "AppKitNative", bundle: .module) }
+    /// cmux: the round button while the Chief works (Esc and Cmd-. do the same).
+    static var stop: String { String(localized: "compose.stop", defaultValue: "Stop", table: "AppKitNative", bundle: .module) }
+    static var video: String { String(localized: "header.video", defaultValue: "FaceTime Video", table: "AppKitNative", bundle: .module) }
+    /// The name pill: "Contact details for %@".
+    static var contactFormat: String { String(localized: "header.contact", defaultValue: "Contact details for %@", table: "AppKitNative", bundle: .module) }
+>>>>>>> origin/main
 }
 
 extension MessagesWindowView {
@@ -33,7 +43,11 @@ extension MessagesWindowView {
         let st = store.state
         let loaded = max(1, st.conversation.messages.count)
         let estimated = model.total * CGFloat(max(st.total, loaded)) / CGFloat(loaded)
+<<<<<<< HEAD
         return min(1, max(0.02, (anchorY - visibleTop) / max(1, estimated)))
+=======
+        return min(1, max(0.02, (anchorY - Fixture.headerHeight) / max(1, estimated)))
+>>>>>>> origin/main
     }
 }
 

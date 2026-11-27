@@ -25,6 +25,17 @@
 # gh_budget_wait.sh's per-job ledger and total (GH_BUDGET_WAIT_MAX_SECONDS, default 3600), so
 # the two wrappers together wait at most that long; gh_budget_wait.sh, installed after this,
 # wraps this one and still waits for a core reset. Runs on macOS's bash 3.2.
+<<<<<<< HEAD
+=======
+#
+#   gh_app_token.sh --install --reads-only
+#                               The same, except that only a call that reads goes out as the App
+#                               (a `gh api` GET, a GraphQL query, `gh run|workflow|pr|issue|release
+#                               list|view`, or `gh run|release download`); every other call, writes and anything this cannot tell,
+#                               runs once with github.token as before, untouched by this wrapper. For a
+#                               job whose writes must stay github.token's and whose reads should
+#                               spend another actor's budget (nightly-next-tick.yml's unstick job).
+>>>>>>> origin/main
 
 REAL_GH=gh # --install writes the real gh's path here
 
@@ -52,6 +63,11 @@ note() {
 }
 
 if [ "${1:-}" = "--install" ]; then
+<<<<<<< HEAD
+=======
+  reads_only=""
+  [ "${2:-}" != "--reads-only" ] || reads_only=1
+>>>>>>> origin/main
   real="$(command -v gh 2>/dev/null || true)"
   if [ -z "${GH_APP_TOKEN:-}" ] || [ -z "${GH_FALLBACK_TOKEN:-}" ]; then
     echo "::warning title=GitHub API token::no release App token (the mint failed or the job has no App credentials); gh calls in this job use github.token"
@@ -64,10 +80,22 @@ if [ "${1:-}" = "--install" ]; then
   mkdir -p "$dir/bin"
   (umask 077 && printf '%s' "$GH_APP_TOKEN" >"$dir/token")
   printf '%s' "$GH_FALLBACK_TOKEN" | digest >"$dir/fallback.sha256"
+<<<<<<< HEAD
   sed "s|^REAL_GH=gh |REAL_GH='$real' |" "$0" >"$dir/bin/gh"
   chmod +x "$dir/bin/gh"
   echo "$dir/bin" >>"$GITHUB_PATH"
   echo "gh calls made with github.token in this job go out as the release App first (real gh: $real)"
+=======
+  if [ -n "$reads_only" ]; then : >"$dir/reads-only"; else rm -f "$dir/reads-only"; fi
+  sed "s|^REAL_GH=gh |REAL_GH='$real' |" "$0" >"$dir/bin/gh"
+  chmod +x "$dir/bin/gh"
+  echo "$dir/bin" >>"$GITHUB_PATH"
+  if [ -n "$reads_only" ]; then
+    echo "gh reads made with github.token in this job go out as the App first; writes stay github.token's (real gh: $real)"
+  else
+    echo "gh calls made with github.token in this job go out as the release App first (real gh: $real)"
+  fi
+>>>>>>> origin/main
   exit 0
 fi
 
@@ -77,6 +105,50 @@ if [ ! -s "$dir/token" ] || [ -z "$caller" ] ||
   exec "$REAL_GH" "$@"
 fi
 
+<<<<<<< HEAD
+=======
+# Whether a call only reads (--reads-only): `gh api` with no method but GET and no request
+# fields (gh sends a call with fields as POST), a GraphQL request whose query is on the command
+# line with no mutation (one read from a file or stdin, `@file` or `--input`, counts as a write),
+# or a list or view subcommand (and `gh run download` / `gh release download`, which only read
+# artifacts and assets). Anything else counts as a write.
+reads_only_call() {
+  local method="" fields="" graphql="" mutation="" next=""
+  case "${1:-}" in
+    api) ;;
+    run) case "${2:-}" in list | view | download) return 0 ;; esac; return 1 ;;
+    workflow) case "${2:-}" in list | view) return 0 ;; esac; return 1 ;;
+    release) case "${2:-}" in list | view | download) return 0 ;; esac; return 1 ;;
+    pr | issue) case "${2:-}" in list | view) return 0 ;; esac; return 1 ;;
+    *) return 1 ;;
+  esac
+  shift
+  for arg in "$@"; do
+    case "$arg" in *mutation* | *=@* | --input | --input=*) mutation=1 ;; esac
+    if [ "$next" = method ]; then method="$arg"; next=""; continue; fi
+    if [ "$next" = value ]; then next=""; continue; fi
+    case "$arg" in
+      -X | --method) next=method ;;
+      --method=*) method="${arg#--method=}" ;;
+      -X*) method="${arg#-X}" ;;
+      -f | -F | --field | --raw-field | --input) fields=1; next=value ;;
+      --field=* | --raw-field=* | --input=* | -f?* | -F?*) fields=1 ;;
+      -H | --header | -q | --jq | -t | --template | --hostname | --cache | -p | --preview) next=value ;;
+      graphql | /graphql) graphql=1 ;;
+    esac
+  done
+  if [ -n "$graphql" ]; then [ -z "$mutation" ]; return; fi
+  case "$method" in
+    "") [ -z "$fields" ] ;;
+    GET | get) return 0 ;;
+    *) return 1 ;;
+  esac
+}
+if [ -e "$dir/reads-only" ] && ! reads_only_call "$@"; then
+  exec "$REAL_GH" "$@"
+fi
+
+>>>>>>> origin/main
 # The call's API area: `gh api repos/O/R/<area>/...` gives <area>, another subcommand its name
 # (`gh release ...` gives release). The release App holds Contents and Workflows write and
 # Variables read only, so an area it is refused ("Resource not accessible by integration", e.g.

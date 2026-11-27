@@ -51,11 +51,15 @@ mod presence;
 pub mod raw;
 mod raw_support;
 mod resource;
+<<<<<<< HEAD
 pub mod session_list_sync;
 mod socket_hash;
 mod socket_paths;
 // Used by the hashed-socket tests only.
 #[cfg(all(test, unix, feature = "socket-path-hash"))]
+=======
+#[cfg(all(test, unix))]
+>>>>>>> origin/main
 mod test_roots;
 mod topology;
 

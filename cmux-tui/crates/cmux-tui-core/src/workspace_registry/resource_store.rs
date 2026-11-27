@@ -217,8 +217,13 @@ pub(crate) fn create_resource_schema(transaction: &Transaction<'_>) -> anyhow::R
            agent_session_id TEXT NOT NULL,
            applied_sequence INTEGER NOT NULL CHECK(applied_sequence >= 0),
            ended INTEGER NOT NULL CHECK(ended IN (0, 1)),
+<<<<<<< ours
            committed_revision INTEGER NOT NULL CHECK(committed_revision >= 0),
            ended_at_ms INTEGER CHECK(ended_at_ms IS NULL OR ended_at_ms >= 0)
+=======
+           committed_revision INTEGER NOT NULL CHECK(committed_revision >= 0),
+           hook_order TEXT CHECK(hook_order IS NULL OR json_valid(hook_order))
+>>>>>>> theirs
          );
          CREATE TABLE IF NOT EXISTS resource_agent_hook_apply_cursor (
            id INTEGER PRIMARY KEY CHECK(id = 1),
@@ -316,6 +321,21 @@ pub(crate) fn create_resource_schema(transaction: &Transaction<'_>) -> anyhow::R
                WHERE json_extract(value, '$.kind') = 'terminal' LIMIT 1
              )
              WHERE terminal_id IS NULL",
+            [],
+        )?;
+    }
+    let has_hook_order = transaction
+        .prepare("PRAGMA table_info(resource_agent_hook_state)")?
+        .query_map([], |row| row.get::<_, String>(1))?
+        .collect::<Result<Vec<_>, _>>()?
+        .iter()
+        .any(|column| column == "hook_order");
+    if !has_hook_order {
+        // Rows from before this column order by journal sequence until the
+        // session's next stamped hook event.
+        transaction.execute(
+            "ALTER TABLE resource_agent_hook_state ADD COLUMN hook_order TEXT
+               CHECK(hook_order IS NULL OR json_valid(hook_order))",
             [],
         )?;
     }
@@ -477,6 +497,9 @@ pub(crate) struct AgentHookProjectionState {
     /// Observed time of the session's latest end, the hook fence's
     /// incarnation boundary.
     pub ended_at_ms: Option<u64>,
+    /// The latest hook stamp of the session, so the hook order holds across
+    /// a session restart (`resource_agent_hook_state.hook_order`, JSON).
+    pub order: crate::agent_hooks::HookOrderStamp,
 }
 
 pub(crate) fn migrate_resource_agent_projections(
@@ -985,7 +1008,204 @@ impl WorkspaceRegistry {
         validate_identifier("mutation origin", &mutation.origin)?;
         validate_identifier("resource operation", operation)?;
         let fingerprint = canonical_json(fingerprint)?;
+<<<<<<< ours
         resource_patch_replay(&self.connection.get(), mutation, operation, &fingerprint)
+=======
+        resource_patch_replay(&self.connection, mutation, operation, &fingerprint)
+    }
+
+    #[cfg(test)]
+    pub(crate) fn commit_agent_projection(
+        &mut self,
+        mutation: &WorkspaceMutation,
+        fingerprint: &Value,
+        expected_revision: Option<u64>,
+        terminal_id: &TerminalPublicId,
+        result: &Value,
+        deltas: &Value,
+    ) -> anyhow::Result<ResourcePatchCommit> {
+        self.commit_agent_projection_with_hook_state(
+            mutation,
+            fingerprint,
+            expected_revision,
+            terminal_id,
+            result,
+            deltas,
+            None,
+            None,
+        )
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    pub(crate) fn commit_agent_projection_with_hook_state(
+        &mut self,
+        mutation: &WorkspaceMutation,
+        fingerprint: &Value,
+        expected_revision: Option<u64>,
+        terminal_id: &TerminalPublicId,
+        result: &Value,
+        deltas: &Value,
+        hook_state: Option<&AgentHookProjectionState>,
+        journal_sequence: Option<u64>,
+    ) -> anyhow::Result<ResourcePatchCommit> {
+        const OPERATION: &str = "agent.report";
+        validate_identifier("mutation id", &mutation.id)?;
+        validate_identifier("mutation origin", &mutation.origin)?;
+        anyhow::ensure!(
+            result.get("terminal_id").and_then(Value::as_str) == Some(terminal_id.as_str()),
+            "agent projection terminal does not match {terminal_id}"
+        );
+        let socket_report = fingerprint.get("source").and_then(Value::as_str) == Some("socket");
+        let fingerprint = canonical_json(fingerprint)?;
+        let result_json = canonical_json(result)?;
+        let tx = self.connection.transaction()?;
+        if let Some(replayed) = resource_patch_replay(&tx, mutation, OPERATION, &fingerprint)? {
+            if let Some(sequence) = journal_sequence {
+                advance_agent_hook_apply_cursor_transaction(&tx, sequence)?;
+                tx.commit()?;
+            }
+            return Ok(replayed);
+        }
+        let terminal_is_live = tx
+            .query_row(
+                "SELECT 1 FROM resource_terminals
+                 WHERE public_id = ?1 AND deleted_revision IS NULL",
+                [terminal_id.as_str()],
+                |_| Ok(()),
+            )
+            .optional()?
+            .is_some();
+        anyhow::ensure!(terminal_is_live, "unknown terminal {terminal_id}");
+        let previous_revision = transaction_resource_revision(&tx)?;
+        if let Some(expected) = expected_revision
+            && expected != previous_revision
+        {
+            anyhow::bail!(
+                "resource revision conflict: expected {expected}, current {previous_revision}"
+            );
+        }
+        // Socket reporters are observers, not a freshness clock. A second
+        // client can report the same effective state while the first report
+        // is still current. Record the new mutation key at the existing
+        // revision, then return it as a replay-equivalent no-op so this path
+        // does not churn resource events or roster recency. Hook and plugin
+        // projections keep their timestamp semantics for arbitration.
+        if socket_report && hook_state.is_none() && journal_sequence.is_none() {
+            let existing = tx
+                .query_row(
+                    "SELECT result_json FROM resource_agent_projections
+                     WHERE terminal_id = ?1",
+                    [terminal_id.as_str()],
+                    |row| row.get::<_, String>(0),
+                )
+                .optional()?;
+            if let Some(existing_json) = existing {
+                let existing_value: Value = serde_json::from_str(&existing_json)
+                    .context("stored agent projection is not valid JSON")?;
+                if same_agent_projection_ignoring_timestamp(&existing_value, result)? {
+                    let stored_result_json = canonical_json(&existing_value)?;
+                    tx.execute(
+                        "INSERT INTO resource_mutations(
+                           origin, idempotency_key, operation, fingerprint, result_json,
+                           committed_revision
+                         ) VALUES(?1, ?2, ?3, ?4, ?5, ?6)",
+                        params![
+                            mutation.origin,
+                            mutation.id,
+                            OPERATION,
+                            fingerprint,
+                            stored_result_json,
+                            i64::try_from(previous_revision)
+                                .context("resource revision exceeds SQLite range")?,
+                        ],
+                    )?;
+                    prune_resource_mutations(&tx)?;
+                    tx.commit()?;
+                    return Ok(ResourcePatchCommit {
+                        revision: previous_revision,
+                        result: existing_value,
+                        replayed: true,
+                    });
+                }
+            }
+        }
+        let revision = previous_revision
+            .checked_add(1)
+            .ok_or_else(|| anyhow::anyhow!("resource revision exhausted"))?;
+        let sqlite_revision =
+            i64::try_from(revision).context("resource revision exceeds SQLite range")?;
+        tx.execute(
+            "INSERT INTO resource_agent_projections(
+               terminal_id, result_json, committed_revision
+             ) VALUES(?1, ?2, ?3)
+             ON CONFLICT(terminal_id) DO UPDATE SET
+               result_json = excluded.result_json,
+               committed_revision = excluded.committed_revision",
+            params![terminal_id.as_str(), result_json, sqlite_revision],
+        )?;
+        if let Some(hook_state) = hook_state {
+            let applied_sequence = i64::try_from(hook_state.applied_sequence)
+                .context("agent hook sequence exceeds SQLite range")?;
+            let hook_order = (!hook_state.order.is_empty())
+                .then(|| serde_json::to_string(&hook_state.order))
+                .transpose()
+                .context("agent hook order")?;
+            tx.execute(
+                "INSERT INTO resource_agent_hook_state(
+                   terminal_id, agent_session_id, applied_sequence, ended, committed_revision,
+                   hook_order
+                 ) VALUES(?1, ?2, ?3, ?4, ?5, ?6)
+                 ON CONFLICT(terminal_id) DO UPDATE SET
+                   agent_session_id = excluded.agent_session_id,
+                   applied_sequence = excluded.applied_sequence,
+                   ended = excluded.ended,
+                   committed_revision = excluded.committed_revision,
+                   hook_order = excluded.hook_order",
+                params![
+                    terminal_id.as_str(),
+                    hook_state.agent_session_id,
+                    applied_sequence,
+                    hook_state.ended,
+                    sqlite_revision,
+                    hook_order,
+                ],
+            )?;
+        }
+        tx.execute(
+            "UPDATE meta SET value = ?1 WHERE key = 'resource_revision'",
+            [revision.to_string()],
+        )?;
+        tx.execute(
+            "INSERT INTO resource_mutations(
+               origin, idempotency_key, operation, fingerprint, result_json, committed_revision
+             ) VALUES(?1, ?2, ?3, ?4, ?5, ?6)",
+            params![
+                mutation.origin,
+                mutation.id,
+                OPERATION,
+                fingerprint,
+                result_json,
+                sqlite_revision,
+            ],
+        )?;
+        append_resource_journal_record(
+            &tx,
+            revision,
+            previous_revision,
+            &mutation.origin,
+            &mutation.id,
+            OPERATION,
+            None,
+            result,
+            deltas,
+        )?;
+        prune_resource_mutations(&tx)?;
+        if let Some(sequence) = journal_sequence {
+            advance_agent_hook_apply_cursor_transaction(&tx, sequence)?;
+        }
+        tx.commit()?;
+        Ok(ResourcePatchCommit { revision, result: result.clone(), replayed: false })
+>>>>>>> theirs
     }
 
     /// Record that `client_id` has read `acknowledged` notifications and
@@ -1229,6 +1449,26 @@ impl WorkspaceRegistry {
             .map_err(Into::into)
     }
 
+    /// Tests: hide (or restore) a terminal's resource row, so the terminal
+    /// looks like one from before resource ids and closes through the legacy
+    /// path (`Mux::close_terminal_guarded` without a resource id).
+    #[cfg(test)]
+    pub(crate) fn set_terminal_resource_hidden_for_test(
+        &self,
+        terminal_id: &str,
+        hidden: bool,
+    ) -> anyhow::Result<()> {
+        let sql = if hidden {
+            "UPDATE resource_terminals SET deleted_revision = updated_revision,
+             lifecycle = 'tombstoned' WHERE terminal_id = ?1"
+        } else {
+            "UPDATE resource_terminals SET deleted_revision = NULL, lifecycle = 'active'
+             WHERE terminal_id = ?1"
+        };
+        anyhow::ensure!(self.connection.execute(sql, [terminal_id])? == 1, "no resource row");
+        Ok(())
+    }
+
     /// Return every live public terminal-to-host identity in one deterministic
     /// bulk read instead of resolving each terminal with a separate query.
     pub fn live_terminal_resource_ids(&self) -> anyhow::Result<Vec<(String, TerminalPublicId)>> {
@@ -1287,6 +1527,7 @@ impl WorkspaceRegistry {
     }
 
     pub fn resource_topology_snapshot(&self) -> anyhow::Result<ResourceTopologySnapshot> {
+<<<<<<< ours
         #[cfg(test)]
         if self.topology_snapshot_failures_remaining.get() > 0 {
             self.topology_snapshot_failures_remaining
@@ -1298,6 +1539,15 @@ impl WorkspaceRegistry {
             self.session_id.clone(),
             self.generation.clone(),
         )
+=======
+        #[cfg(test)]
+        if self.topology_snapshot_failures_remaining.get() > 0 {
+            self.topology_snapshot_failures_remaining
+                .set(self.topology_snapshot_failures_remaining.get() - 1);
+            anyhow::bail!("injected topology snapshot failure");
+        }
+        load_resource_topology(&self.connection, self.session_id.clone(), self.generation.clone())
+>>>>>>> theirs
     }
 
     #[allow(clippy::too_many_arguments)]
@@ -2207,6 +2457,7 @@ pub(crate) fn complete_terminal_close_patch(
 
 /// Repair terminal rows left live by older close implementations. This is a
 /// load-time migration for the durable invariant: a terminal resource is live
+<<<<<<< ours
 /// only while both its host and identity ledger are live, and a live tab shows
 /// only live content. The repair therefore also retires every tab that still
 /// shows a repaired terminal (as any terminal close does), compacts the
@@ -2218,6 +2469,16 @@ pub(crate) fn complete_terminal_close_patch(
 /// pane (its layout lists the pane's tabs and active tab), so an event-feed
 /// client converges without waiting for the next full topology projection.
 pub(crate) fn repair_dangling_terminal_resources(
+=======
+/// only while both its host and identity ledger are live, and a live tab shows
+/// only live content. The repair therefore also retires every tab that still
+/// shows a repaired terminal (as any terminal close does), compacts the
+/// remaining tab positions of those panes, and selects a surviving tab where
+/// the retired tab was active. It advances the resource revision and emits a
+/// resource journal batch so revision-based consumers observe the tombstones
+/// after restart.
+pub(super) fn repair_dangling_terminal_resources(
+>>>>>>> theirs
     transaction: &Transaction<'_>,
 ) -> anyhow::Result<()> {
     let current_revision = current_resource_revision(transaction)?;
@@ -2244,6 +2505,7 @@ pub(crate) fn repair_dangling_terminal_resources(
         .ok_or_else(|| anyhow::anyhow!("resource revision exhausted during terminal repair"))?;
     let sqlite_revision = i64::try_from(repair_revision)
         .context("resource repair revision exceeds SQLite integer range")?;
+<<<<<<< ours
     // Live tabs that show a repaired terminal, with their pane and position.
     let mut retired_tabs = Vec::new();
     for public_id in &dangling {
@@ -2271,7 +2533,37 @@ pub(crate) fn repair_dangling_terminal_resources(
                 "sequence": sequence,
                 "resource": resource,
                 "id": public_id,
+=======
+    // Live tabs that show a repaired terminal, with their pane and position.
+    let mut retired_tabs = Vec::new();
+    for public_id in &dangling {
+        let mut statement = transaction.prepare(
+            "SELECT public_id, pane_id, position FROM resource_tabs
+             WHERE content_kind = 'terminal' AND content_id = ?1
+               AND deleted_revision IS NULL
+             ORDER BY pane_id ASC, position ASC",
+        )?;
+        let rows = statement
+            .query_map([public_id], |row| {
+                Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?, row.get::<_, i64>(2)?))
+            })?
+            .collect::<Result<Vec<_>, _>>()?;
+        retired_tabs.extend(rows);
+    }
+    let mut changes: Vec<Value> = dangling
+        .iter()
+        .map(|public_id| ("terminal", public_id))
+        .chain(retired_tabs.iter().map(|(tab_id, _, _)| ("tab", tab_id)))
+        .enumerate()
+        .map(|(sequence, (resource, public_id))| {
+            json!({
+                "kind": "delete",
+                "sequence": sequence,
+                "resource": resource,
+                "id": public_id,
+>>>>>>> theirs
             })
+<<<<<<< ours
         })
         .collect::<Vec<_>>();
 
@@ -2326,6 +2618,61 @@ pub(crate) fn repair_dangling_terminal_resources(
             )?;
         }
     }
+=======
+        })
+        .collect();
+
+    // Retire the views first: this also clears an active-tab selection that
+    // points at a retired tab.
+    let mut affected_panes: std::collections::BTreeMap<&str, i64> =
+        std::collections::BTreeMap::new();
+    for (tab_id, pane_id, position) in &retired_tabs {
+        tombstone_resource_tab_row(transaction, tab_id, sqlite_revision)?;
+        affected_panes
+            .entry(pane_id.as_str())
+            .and_modify(|first| *first = (*first).min(*position))
+            .or_insert(*position);
+    }
+    let affected_pane_ids = affected_panes.keys().map(|id| (*id).to_string()).collect::<Vec<_>>();
+    for (pane_id, first_retired_position) in affected_panes {
+        let survivors = {
+            let mut statement = transaction.prepare(
+                "SELECT public_id FROM resource_tabs
+                 WHERE pane_id = ?1 AND deleted_revision IS NULL
+                 ORDER BY position ASC",
+            )?;
+            statement
+                .query_map([pane_id], |row| row.get::<_, String>(0))?
+                .collect::<Result<Vec<_>, _>>()?
+        };
+        for (position, tab_id) in survivors.iter().enumerate() {
+            transaction.execute(
+                "UPDATE resource_tabs
+                 SET position = ?1, updated_revision = ?2
+                 WHERE public_id = ?3 AND deleted_revision IS NULL AND position != ?1",
+                params![
+                    i64::try_from(position).context("tab position exceeds SQLite range")?,
+                    sqlite_revision,
+                    tab_id,
+                ],
+            )?;
+        }
+        // Select the tab that took the retired tab's place (or the new last
+        // tab) when the pane lost its active tab and still has tabs.
+        let replacement = usize::try_from(first_retired_position)
+            .ok()
+            .map(|position| position.min(survivors.len().saturating_sub(1)))
+            .and_then(|position| survivors.get(position));
+        if let Some(replacement) = replacement {
+            transaction.execute(
+                "UPDATE resource_panes
+                 SET active_tab_id = ?1, updated_revision = ?2
+                 WHERE public_id = ?3 AND active_tab_id IS NULL AND deleted_revision IS NULL",
+                params![replacement, sqlite_revision, pane_id],
+            )?;
+        }
+    }
+>>>>>>> theirs
 
     for public_id in &dangling {
         transaction.execute(
@@ -2341,6 +2688,9 @@ pub(crate) fn repair_dangling_terminal_resources(
             params![sqlite_revision, public_id],
         )?;
     }
+    // The restatement reads the rows after every repair write, and goes in the
+    // repair batch, so no revision publishes the deletes without it.
+    restate_repaired_panes(transaction, &affected_pane_ids, &mut changes)?;
     transaction.execute(
         "UPDATE meta SET value = ?1 WHERE key = 'resource_revision'",
         [repair_revision.to_string()],
@@ -2355,15 +2705,70 @@ pub(crate) fn repair_dangling_terminal_resources(
         &format!("terminal-close-repair-{repair_revision}"),
         "terminal.close.repair",
         None,
+<<<<<<< ours
         &json!({
             "repaired_terminals": dangling,
             "retired_tabs": retired_tabs.iter().map(|(tab_id, _, _)| tab_id).collect::<Vec<_>>(),
         }),
         &changes,
+=======
+        &json!({
+            "repaired_terminals": dangling,
+            "retired_tabs": retired_tabs.iter().map(|(tab_id, _, _)| tab_id).collect::<Vec<_>>(),
+        }),
+        &Value::Array(changes),
     )?;
     Ok(())
 }
 
+/// Meta key of the two-commit restatement shape (#38839): the panes a startup
+/// repair changed and had not restated yet. That shape is gone; a database
+/// that crashed between its two commits can still hold the key.
+const LEGACY_PENDING_RESTATE_META_KEY: &str = "startup_repair_restate_panes";
+
+/// Publishes the restatement that a crashed two-commit startup repair left
+/// pending, and removes its meta key, in `transaction`.
+///
+/// The restatement is one batch at the next revision: an upsert for each
+/// live tab of the listed panes and for each screen that holds them, read
+/// from the current rows. Panes that no longer exist are skipped; when none
+/// is left, only the key is removed.
+pub(super) fn restate_legacy_pending_panes(transaction: &Transaction<'_>) -> anyhow::Result<()> {
+    let Some(value) = meta_value(transaction, LEGACY_PENDING_RESTATE_META_KEY)? else {
+        return Ok(());
+    };
+    transaction.execute("DELETE FROM meta WHERE key = ?1", [LEGACY_PENDING_RESTATE_META_KEY])?;
+    // A value this build cannot read restates nothing; the key still goes.
+    let pane_ids = serde_json::from_str::<Vec<String>>(&value).unwrap_or_default();
+    let mut changes = Vec::new();
+    restate_repaired_panes(transaction, &pane_ids, &mut changes)?;
+    if changes.is_empty() {
+        return Ok(());
+    }
+    let current_revision = current_resource_revision(transaction)?;
+    let revision = current_revision.checked_add(1).ok_or_else(|| {
+        anyhow::anyhow!("resource revision exhausted during a pending repair restatement")
+    })?;
+    transaction.execute(
+        "UPDATE meta SET value = ?1 WHERE key = 'resource_revision'",
+        [revision.to_string()],
+    )?;
+    append_resource_journal_record(
+        transaction,
+        revision,
+        current_revision,
+        "cmux-startup-repair",
+        &format!("terminal-close-repair-restate-{revision}"),
+        "terminal.close.repair",
+        None,
+        &json!({ "restated_panes": pane_ids }),
+        &Value::Array(changes),
+>>>>>>> theirs
+    )?;
+    Ok(())
+}
+
+<<<<<<< ours
 /// Append upserts for the surviving tabs of `pane_ids` and for the screens
 /// that hold those panes, read back from the repaired rows. Values use the
 /// same public representation as the session snapshot.
@@ -2418,6 +2823,268 @@ fn restate_repaired_panes(
 }
 
 fn apply_effective_resource_patch(
+=======
+/// Appends to `changes` one upsert for each live tab of `pane_ids` and one for
+/// each screen that holds them, read from the rows in `transaction`.
+///
+/// The repair runs this after it retires the tabs, so the restatement goes in
+/// the same batch as the deletes: a client that follows the event feed never
+/// sees the old index and focus of a surviving tab, or the old screen layout,
+/// at the repair revision.
+fn restate_repaired_panes(
+    transaction: &Transaction<'_>,
+    pane_ids: &[String],
+    changes: &mut Vec<Value>,
+) -> anyhow::Result<()> {
+    if pane_ids.is_empty() {
+        return Ok(());
+    }
+    let session_id = SessionPublicId::parse(required_meta(transaction, "session_public_id")?)?;
+    let topology = load_resource_topology(transaction, session_id, String::new())?;
+    let tabs_by_pane = crate::resource_screen::tabs_by_pane(&topology.tabs);
+    let panes_by_id = crate::resource_screen::panes_by_id(&topology.panes);
+    let mut screen_ids = HashSet::new();
+    for pane in
+        topology.panes.iter().filter(|pane| pane_ids.iter().any(|id| id == pane.public_id.as_str()))
+    {
+        screen_ids.insert(&pane.screen_id);
+        for tab in tabs_by_pane.get(&pane.public_id).into_iter().flatten() {
+            let sequence = changes.len();
+            changes.push(json!({
+                "kind": "upsert",
+                "sequence": sequence,
+                "resource": "tab",
+                "id": tab.public_id,
+                "value": tab.public_value(pane.active_tab.as_ref() == Some(&tab.public_id)),
+            }));
+        }
+    }
+    for screen in topology.screens.iter().filter(|screen| screen_ids.contains(&screen.public_id)) {
+        let value = crate::resource_screen::public_screen_value(
+            &topology,
+            screen,
+            &tabs_by_pane,
+            &panes_by_id,
+        )?;
+        let sequence = changes.len();
+        changes.push(json!({
+            "kind": "upsert",
+            "sequence": sequence,
+            "resource": "screen",
+            "id": screen.public_id,
+            "value": value,
+        }));
+    }
+    Ok(())
+}
+
+/// Reads the live resource topology through `connection`, which can be an
+/// open transaction, so a writer can build public values from its own
+/// uncommitted rows.
+fn load_resource_topology(
+    connection: &Connection,
+    session_id: SessionPublicId,
+    generation: String,
+) -> anyhow::Result<ResourceTopologySnapshot> {
+    let revision = current_resource_revision(connection)?;
+    let active_workspace =
+        meta_value(connection, "active_workspace_id")?.map(WorkspacePublicId::parse).transpose()?;
+    let active_screens = {
+        let mut statement = connection.prepare(
+            "SELECT public_id, active_screen_id
+             FROM resource_workspaces
+             WHERE deleted_revision IS NULL
+             ORDER BY created_revision ASC, public_id ASC",
+        )?;
+        statement
+            .query_map([], |row| Ok((row.get::<_, String>(0)?, row.get::<_, Option<String>>(1)?)))?
+            .map(|row| {
+                let (workspace, screen) = row?;
+                Ok((
+                    WorkspacePublicId::parse(workspace)?,
+                    screen.map(ScreenPublicId::parse).transpose()?,
+                ))
+            })
+            .collect::<anyhow::Result<Vec<_>>>()?
+    };
+    let screens = {
+        let mut statement = connection.prepare(
+            "SELECT public_id, workspace_id, position, name, layout_json,
+                    active_pane_id, zoomed_pane_id, auto_layout_json, viewport_json
+             FROM resource_screens
+             WHERE deleted_revision IS NULL
+             ORDER BY workspace_id ASC, position ASC",
+        )?;
+        statement
+            .query_map([], |row| {
+                Ok((
+                    row.get::<_, String>(0)?,
+                    row.get::<_, String>(1)?,
+                    row.get::<_, i64>(2)?,
+                    row.get::<_, Option<String>>(3)?,
+                    row.get::<_, String>(4)?,
+                    row.get::<_, String>(5)?,
+                    row.get::<_, Option<String>>(6)?,
+                    row.get::<_, Option<String>>(7)?,
+                    row.get::<_, String>(8)?,
+                ))
+            })?
+            .map(|row| {
+                let (
+                    public_id,
+                    workspace_id,
+                    position,
+                    name,
+                    layout,
+                    active_pane,
+                    zoomed_pane,
+                    auto_layout,
+                    viewport,
+                ) = row?;
+                Ok(RegistryScreen {
+                    public_id: ScreenPublicId::parse(public_id)?,
+                    workspace_id: WorkspacePublicId::parse(workspace_id)?,
+                    position: usize::try_from(position)
+                        .context("stored screen position is negative")?,
+                    name,
+                    layout: serde_json::from_str(&layout)?,
+                    active_pane: PanePublicId::parse(active_pane)?,
+                    zoomed_pane: zoomed_pane.map(PanePublicId::parse).transpose()?,
+                    auto_layout: auto_layout
+                        .map(|value| serde_json::from_str(&value))
+                        .transpose()?,
+                    viewport: serde_json::from_str(&viewport)?,
+                })
+            })
+            .collect::<anyhow::Result<Vec<_>>>()?
+    };
+    let panes = {
+        let mut statement = connection.prepare(
+            "SELECT public_id, screen_id, name, active_tab_id, creation_ordinal
+             FROM resource_panes
+             WHERE deleted_revision IS NULL
+             ORDER BY screen_id ASC, creation_ordinal ASC, public_id ASC",
+        )?;
+        statement
+            .query_map([], |row| {
+                Ok((
+                    row.get::<_, String>(0)?,
+                    row.get::<_, String>(1)?,
+                    row.get::<_, Option<String>>(2)?,
+                    row.get::<_, Option<String>>(3)?,
+                    row.get::<_, i64>(4)?,
+                ))
+            })?
+            .map(|row| {
+                let (public_id, screen_id, name, active_tab, creation_ordinal) = row?;
+                Ok(RegistryPane {
+                    public_id: PanePublicId::parse(public_id)?,
+                    screen_id: ScreenPublicId::parse(screen_id)?,
+                    name,
+                    active_tab: active_tab.map(TabPublicId::parse).transpose()?,
+                    creation_ordinal: u64::try_from(creation_ordinal)
+                        .context("stored pane creation ordinal is negative")?,
+                })
+            })
+            .collect::<anyhow::Result<Vec<_>>>()?
+    };
+    let tabs = {
+        let mut statement = connection.prepare(
+            "SELECT t.public_id, t.pane_id, t.position, t.content_kind,
+                    t.content_id, t.name, b.url, rt.terminal_id, t.name_source, t.name_revision
+             FROM resource_tabs t
+             LEFT JOIN resource_browsers b ON b.public_id = t.content_id
+             LEFT JOIN resource_terminals rt ON rt.public_id = t.content_id
+             WHERE t.deleted_revision IS NULL
+             ORDER BY t.pane_id ASC, t.position ASC",
+        )?;
+        statement
+            .query_map([], |row| {
+                Ok((
+                    row.get::<_, String>(0)?,
+                    row.get::<_, String>(1)?,
+                    row.get::<_, i64>(2)?,
+                    row.get::<_, String>(3)?,
+                    row.get::<_, String>(4)?,
+                    row.get::<_, Option<String>>(5)?,
+                    row.get::<_, Option<String>>(6)?,
+                    row.get::<_, Option<String>>(7)?,
+                    row.get::<_, String>(8)?,
+                    row.get::<_, i64>(9)?,
+                ))
+            })?
+            .map(|row| {
+                let (
+                    public_id,
+                    pane_id,
+                    position,
+                    kind,
+                    content_id,
+                    name,
+                    browser_url,
+                    terminal_id,
+                    name_source,
+                    name_revision,
+                ) = row?;
+                let content_id = match kind.as_str() {
+                    "terminal" => ContentPublicId::Terminal(TerminalPublicId::parse(content_id)?),
+                    "browser" => ContentPublicId::Browser(BrowserPublicId::parse(content_id)?),
+                    _ => anyhow::bail!("stored tab has invalid content kind {kind:?}"),
+                };
+                Ok(RegistryTab {
+                    public_id: TabPublicId::parse(public_id)?,
+                    pane_id: PanePublicId::parse(pane_id)?,
+                    position: usize::try_from(position)
+                        .context("stored tab position is negative")?,
+                    content_id,
+                    name,
+                    name_source: serde_json::from_value(json!(name_source))?,
+                    name_revision: u64::try_from(name_revision)
+                        .context("negative name revision")?,
+                    browser_url,
+                    terminal_id,
+                })
+            })
+            .collect::<anyhow::Result<Vec<_>>>()?
+    };
+    let browsers = {
+        let mut statement = connection.prepare(
+            "SELECT public_id, url, metadata_json
+             FROM resource_browsers
+             WHERE deleted_revision IS NULL
+             ORDER BY public_id ASC",
+        )?;
+        statement
+            .query_map([], |row| {
+                Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?, row.get::<_, String>(2)?))
+            })?
+            .map(|row| {
+                let (public_id, url, metadata) = row?;
+                let browser: RegistryBrowser = serde_json::from_str(&metadata)
+                    .with_context(|| format!("invalid metadata for browser {public_id}"))?;
+                validate_registry_browser(&browser)?;
+                if browser.public_id.as_str() != public_id || browser.url != url {
+                    anyhow::bail!("browser {public_id} metadata does not match its indexed fields");
+                }
+                Ok(browser)
+            })
+            .collect::<anyhow::Result<Vec<_>>>()?
+    };
+    Ok(ResourceTopologySnapshot {
+        session_id,
+        generation,
+        revision,
+        active_workspace,
+        active_screens,
+        screens,
+        panes,
+        tabs,
+        browsers,
+    })
+}
+
+pub(super) fn apply_resource_patch(
+>>>>>>> theirs
     transaction: &Transaction<'_>,
     patch: &ResourcePatch,
     revision: i64,

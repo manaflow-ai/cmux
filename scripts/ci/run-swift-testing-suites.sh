@@ -231,6 +231,7 @@ case "$(cd "$package_path" && pwd -P)" in
 esac
 # Keep process-global test state inside one suite. Some packages otherwise
 # finish every assertion but leave the aggregate Swift Testing runner waiting.
+<<<<<<< HEAD
 # A warm fleet slot keeps .build between steps; name the commit it last built,
 # so a long "warm" build shows how far the tree moved since.
 built_ref_file="$package_path/.build/.cmux-ci-built-ref"
@@ -257,6 +258,13 @@ fi
 [ ! -d "$package_path/.build" ] || git rev-parse HEAD > "$built_ref_file" 2>/dev/null || true
 rm -f "$package_path/.build/.cmux-ci-unverified"
 phase filters
+=======
+# package-test-lane.sh exports SWIFT_BACKTRACE=enable=yes for crash stacks.
+# Listing runs no test, and on a runner where the process is privileged
+# (issetugid) the runtime prints "swift runtime: backtrace-on-crash is not
+# supported for privileged executables." into the listing. Keep it out.
+SWIFT_BACKTRACE=enable=no swift test list --package-path "$package_path" > "$evidence_dir/discovered-tests.txt"
+>>>>>>> origin/main
 python3 "$script_dir/require_swift_test_execution.py" \
   --list-filters "$evidence_dir/discovered-tests.txt" > "$evidence_dir/filters.txt"
 bin_path=""

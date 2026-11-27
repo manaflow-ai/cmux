@@ -34,9 +34,9 @@ const DOWNLOAD_BUTTON_SOURCE = fileURLToPath(
 );
 
 describe("Windows and Linux downloads", () => {
-  test("publishes Linux without leaking the private product repository", () => {
-    expect(DOWNLOAD_PLATFORMS).toEqual(["linux"]);
-    expect(WAITLIST_PLATFORMS).toEqual(["android", "windows"]);
+  test("keeps Linux and Windows waitlist-only without leaking the private product repository", () => {
+    expect(DOWNLOAD_PLATFORMS).toEqual([]);
+    expect(WAITLIST_PLATFORMS).toEqual(["linux", "android", "windows"]);
 
     expect(PLATFORM_DOWNLOADS.windows.primary.url).toBe(
       "/api/download/browser-nightly/windows-x64/installer",
@@ -141,6 +141,7 @@ describe("Windows and Linux downloads", () => {
     }
   });
 
+<<<<<<< ours
   test("publishes Linux and keeps unavailable Windows out of the sitemap", () => {
     // The page's own path in each locale, not any path ending the same way
     // (the cmux-next docs page /docs/nightly/next/browser).
@@ -152,6 +153,24 @@ describe("Windows and Linux downloads", () => {
     expect(entriesFor(BROWSER_NIGHTLY_PAGE)).toHaveLength(locales.length);
     expect(entriesFor("/windows")).toEqual([]);
     expect(entriesFor("/linux")).toHaveLength(locales.length);
+=======
+  test("keeps waitlist-only Linux and Windows out of the sitemap", () => {
+    expect(
+      sitemap().filter((entry) =>
+        new URL(entry.url).pathname.endsWith(BROWSER_NIGHTLY_PAGE),
+      ),
+    ).toHaveLength(locales.length);
+    expect(
+      sitemap().filter((entry) =>
+        new URL(entry.url).pathname.endsWith("/windows"),
+      ),
+    ).toEqual([]);
+    expect(
+      sitemap().filter((entry) =>
+        new URL(entry.url).pathname.endsWith("/linux"),
+      ),
+    ).toEqual([]);
+>>>>>>> theirs
   });
 
   test("makes Browser downloads discoverable without enabling unsigned platforms", async () => {

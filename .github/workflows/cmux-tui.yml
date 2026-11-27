@@ -36,6 +36,7 @@ permissions:
 env:
   # Temporary REST budget attribution: one gh-call line per GitHub API call (scripts/ci/api_call_log/env.sh, fetched at a fixed commit when the checkout has no copy).
   BASH_ENV: '$({ w="${GITHUB_WORKSPACE:-/nonexistent}/scripts/ci/api_call_log/env.sh"; t="${RUNNER_TEMP:-/nonexistent}/api-call-log-src"; if [ -f "$w" ]; then echo "$w"; elif [ -n "${RUNNER_TEMP:-}" ]; then if [ ! -f "$t/env.sh" ] && [ ! -e "$t.tried" ] && { [ "${RUNNER_OS:-}" = Linux ] || [ "${RUNNER_OS:-}" = macOS ]; } && [ "$(date -u +%Y%m%d%H)" -lt 2026112300 ]; then : > "$t.tried"; mkdir -p "$t.part" && for x in env.sh gh sitecustomize.py isolated.py; do curl -fsSL --max-time 5 -o "$t.part/$x" "https://raw.githubusercontent.com/manaflow-ai/cmux/27647ffd3ae838c63be28ca3e5883dcd68c34518/scripts/ci/api_call_log/$x" || break; done; [ -s "$t.part/isolated.py" ] && mv "$t.part" "$t"; fi; if [ -f "$t/env.sh" ]; then echo "$t/env.sh"; else echo unset BASH_ENV > "$t.off.sh" && echo "$t.off.sh"; fi; fi; } 2>/dev/null)'
+<<<<<<< HEAD
   # libghostty-vt always builds from the ghostty-next gitlink: an empty
   # value overrides any runner-level CMUX_GHOSTTY_SRC (build.rs treats it
   # as unset).
@@ -45,11 +46,17 @@ env:
   # 2026-10-19). clippy -D warnings stays blocking: it is also this gate's
   # all-targets compile check. Set to `fail` to make the style guards block again.
   CMUX_NEXT_STYLE_GUARDS: warn
+=======
+>>>>>>> origin/main
 
 jobs:
   validate-inputs:
     name: validate exact commit request
+<<<<<<< HEAD
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || 'cmux-linux' }}
+=======
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || vars.CI_OVERFLOW_LINUX || 'cmux-linux' }}
+>>>>>>> origin/main
     timeout-minutes: 5
     steps:
       - name: Validate dispatch inputs
@@ -97,7 +104,11 @@ jobs:
       GHOSTTY_ZIG_SOURCE: ghostty-next
     name: Rust MSRV (1.91)
     needs: validate-inputs
+<<<<<<< HEAD
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || 'cmux-linux' }}
+=======
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || vars.CI_OVERFLOW_LINUX || 'cmux-linux' }}
+>>>>>>> origin/main
     timeout-minutes: 30
     steps:
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
@@ -130,11 +141,20 @@ jobs:
       # cmux-tui runs are dispatch-only. A 502/504 at deps.files.ghostty.org failed
       # every Linux job on 2026-11-08; the fetch's curl seed and retries carry a short
       # outage. On Blacksmith, only this job restored a dispatch save in a later run
+<<<<<<< HEAD
       # (main run 42482435964), so only it saves there; elsewhere a job saves only on an
       # owned mini, whose GitHub store restores per branch.
       - name: Fetch the ghostty-next Zig packages (cached, deadlined, retried)
         uses: ./.github/actions/ghostty-zig-packages
         with:
+=======
+      # (run 42482435964), so only it saves there; elsewhere a job saves only on an
+      # owned mini, whose GitHub store restores per branch.
+      - name: Fetch the Ghostty Zig packages (cached, deadlined, retried)
+        uses: ./.github/actions/ghostty-zig-packages
+        with:
+          source: ghostty
+>>>>>>> origin/main
           save-on-dispatch: "true"
 
       - name: Install Rust 1.91
@@ -151,6 +171,7 @@ jobs:
       - name: Cache cargo build
         uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
         with:
+<<<<<<< HEAD
           # Why: docs/ci/cmux-next-workflow-notes.md#note-210 (pool runners keep different leftover toolchains)
           add-rust-environment-hash-key: false
           cache-bin: false
@@ -159,6 +180,14 @@ jobs:
           save-if: ${{ github.ref == 'refs/heads/feat-cmux-next' }}
           workspaces: cmux-tui -> target
           key: rust-1.91.0-${{ hashFiles('cmux-tui/rust-toolchain.toml', 'cmux-tui/Cargo.lock', '.cargo/config.toml') }}
+=======
+          cache-bin: false
+          # Only main dispatches save: a dispatch on another branch never restores
+          # its own save, so it would only push useful entries out of the cache store.
+          save-if: ${{ github.ref == 'refs/heads/main' }}
+          workspaces: cmux-tui -> target
+          key: rust-1.91.0
+>>>>>>> origin/main
 
       - name: cargo check with MSRV
         working-directory: cmux-tui
@@ -167,7 +196,11 @@ jobs:
   web-frontend:
     needs: validate-inputs
     if: inputs.mode == 'full'
+<<<<<<< HEAD
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || 'cmux-linux' }}
+=======
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || vars.CI_OVERFLOW_LINUX || 'cmux-linux' }}
+>>>>>>> origin/main
     timeout-minutes: 10
     steps:
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
@@ -280,7 +313,10 @@ jobs:
     name: lint (${{ matrix.os }})
     needs: validate-inputs
     runs-on: ${{ matrix.runner }}
-    timeout-minutes: 40
+    # macOS 70, not 40: the limit counts glaeda's job-started hook, which waits
+    # in "Set up runner" for the mini's canonical root token. Runs 42712581504
+    # and 42687069230 (2026-11-09) waited 22-25 min there and hit 40 min mid-tests.
+    timeout-minutes: ${{ matrix.os == 'macos' && 70 || 40 }}
     strategy:
       fail-fast: false
       matrix:
@@ -290,7 +326,11 @@ jobs:
             # fork path on the public 4-vCPU fallback, while trusted repository
             # runs use the available 32-vCPU Blacksmith lane. Honor a repository
             # override only when it names another 32-vCPU lane.
+<<<<<<< HEAD
             runner: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || 'cmux-linux' }}
+=======
+            runner: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || contains(vars.LINUX_RUNNER, '32vcpu') && vars.LINUX_RUNNER || 'blacksmith-32vcpu-ubuntu-2404' }}
+>>>>>>> origin/main
     steps:
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
@@ -359,9 +399,16 @@ jobs:
       - name: Install zig
         run: ./scripts/install-zig-ci.sh
 
+<<<<<<< HEAD
       - name: Fetch the ghostty-next Zig packages (cached, deadlined, retried)
         uses: ./.github/actions/ghostty-zig-packages
         with:
+=======
+      - name: Fetch the Ghostty Zig packages (cached, deadlined, retried)
+        uses: ./.github/actions/ghostty-zig-packages
+        with:
+          source: ghostty
+>>>>>>> origin/main
           save-on-dispatch: ${{ contains(runner.name, '-glaeda') }}
 
       - name: Set up pinned Rust
@@ -376,9 +423,12 @@ jobs:
         uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
         with:
           save-if: ${{ github.event_name != 'pull_request' && github.event_name != 'pull_request_target' && github.event_name != 'merge_group' && contains(fromJSON('["refs/heads/main","refs/heads/feat-cmux-next","refs/heads/nightly-next"]'), github.ref) }}
+<<<<<<< HEAD
           # Why: docs/ci/cmux-next-workflow-notes.md#note-210 (pool runners keep different leftover toolchains)
           add-rust-environment-hash-key: false
           cache-bin: false
+=======
+>>>>>>> origin/main
           workspaces: cmux-tui -> target
           # One Linux key lets lint and test reuse each other's compiled crates.
           shared-key: cmux-tui-${{ matrix.os }}-${{ hashFiles('cmux-tui/rust-toolchain.toml', 'cmux-tui/Cargo.lock', '.cargo/config.toml') }}
@@ -424,7 +474,10 @@ jobs:
           fi
           echo "ghostty-vt-sys refused the empty source as expected"
 
+      # Formatting is host-independent: a focused run checks it on Linux only,
+      # so the macOS row is clippy alone.
       - name: cargo fmt
+        if: inputs.mode == 'full' || matrix.os != 'macos'
         id: rustfmt-check
         working-directory: cmux-tui
         run: |
@@ -518,7 +571,11 @@ jobs:
     name: valgrind-leak-check (startup)
     needs: validate-inputs
     if: inputs.mode == 'full'
+<<<<<<< HEAD
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || 'cmux-linux' }}
+=======
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || vars.CI_OVERFLOW_LINUX || 'cmux-linux' }}
+>>>>>>> origin/main
     # Full behavior stays in the normal macOS and Linux suites. Valgrind owns
     # the bounded startup parsers and terminal replay state only.
     timeout-minutes: 40
@@ -550,9 +607,16 @@ jobs:
       - name: Install zig
         run: ./scripts/install-zig-ci.sh
 
+<<<<<<< HEAD
       - name: Fetch the ghostty-next Zig packages (cached, deadlined, retried)
         uses: ./.github/actions/ghostty-zig-packages
         with:
+=======
+      - name: Fetch the Ghostty Zig packages (cached, deadlined, retried)
+        uses: ./.github/actions/ghostty-zig-packages
+        with:
+          source: ghostty
+>>>>>>> origin/main
           save-on-dispatch: ${{ contains(runner.name, '-glaeda') }}
 
       - name: Set up pinned Rust
@@ -565,6 +629,7 @@ jobs:
       - name: Cache cargo build
         uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
         with:
+<<<<<<< HEAD
           # The lockfile and toolchain name the entry: with the environment hash off, a bare key never changed, so the first save
           # was restored forever and its stale third-party crates rebuilt on every run (ci-min-per-pr-1500, 2026-11-25).
           key: ${{ hashFiles('cmux-tui/rust-toolchain.toml', 'cmux-tui/Cargo.lock', '.cargo/config.toml') }}
@@ -572,6 +637,9 @@ jobs:
           # Why: docs/ci/cmux-next-workflow-notes.md#note-210 (pool runners keep different leftover toolchains)
           add-rust-environment-hash-key: false
           cache-bin: false
+=======
+          save-if: ${{ github.event_name != 'pull_request' && github.event_name != 'pull_request_target' && github.event_name != 'merge_group' && contains(fromJSON('["refs/heads/main","refs/heads/feat-cmux-next","refs/heads/nightly-next"]'), github.ref) }}
+>>>>>>> origin/main
           workspaces: cmux-tui -> target
 
       - name: Build test binaries
@@ -740,7 +808,11 @@ jobs:
     name: valgrind-leak-check
     if: ${{ !cancelled() && inputs.mode == 'full' }}
     needs: valgrind-leak-check-shard
+<<<<<<< HEAD
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || 'cmux-linux' }}
+=======
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || vars.CI_OVERFLOW_LINUX || 'cmux-linux' }}
+>>>>>>> origin/main
     timeout-minutes: 2
     steps:
       - name: Require every Valgrind shard
@@ -1123,6 +1195,7 @@ jobs:
     # test_filter windows runs the Windows job alone (every Windows test is cfg(windows)).
     if: inputs.mode == 'full' || inputs.test_filter != 'windows'
     runs-on: ${{ matrix.runner }}
+<<<<<<< HEAD
     outputs:
       # Runnable tests the focused filter selected on Linux (one matrix row, so
       # one value); hosted-verification reads it.
@@ -1138,12 +1211,28 @@ jobs:
     # cancelled job never saves (its post step is skipped), so the next run
     # compiles cold.
     timeout-minutes: 90
+=======
+    # macOS 70, not 40: the limit counts glaeda's job-started hook, which waits
+    # in "Set up runner" for the mini's canonical root token. Runs 42712581504
+    # and 42687069230 (2026-11-09) waited 22-25 min there and hit 40 min mid-tests.
+    timeout-minutes: ${{ matrix.os == 'macos' && 70 || 40 }}
+    # The runnable tests the focused filter selected on each host. Each leg sets
+    # only its own key, so neither leg overwrites the other's count in the
+    # matrix's combined outputs; hosted-verification reads both.
+    outputs:
+      focused_selected_linux: ${{ steps.focused.outputs.selected_linux }}
+      focused_selected_macos: ${{ steps.focused.outputs.selected_macos }}
+>>>>>>> origin/main
     strategy:
       fail-fast: false
       matrix:
         include:
           - os: linux
+<<<<<<< HEAD
             runner: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || 'cmux-linux' }}
+=======
+            runner: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+>>>>>>> origin/main
     steps:
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
@@ -1178,9 +1267,16 @@ jobs:
       - name: Install zig
         run: ./scripts/install-zig-ci.sh
 
+<<<<<<< HEAD
       - name: Fetch the ghostty-next Zig packages (cached, deadlined, retried)
         uses: ./.github/actions/ghostty-zig-packages
         with:
+=======
+      - name: Fetch the Ghostty Zig packages (cached, deadlined, retried)
+        uses: ./.github/actions/ghostty-zig-packages
+        with:
+          source: ghostty
+>>>>>>> origin/main
           save-on-dispatch: ${{ contains(runner.name, '-glaeda') }}
 
       - name: Ghostty VT cursor replay checks
@@ -1209,7 +1305,24 @@ jobs:
           add-rust-environment-hash-key: false
           cache-bin: false
           workspaces: cmux-tui -> target
+<<<<<<< HEAD
           shared-key: cmux-tui-${{ matrix.os }}-${{ hashFiles('cmux-tui/rust-toolchain.toml', 'cmux-tui/Cargo.lock', '.cargo/config.toml') }}
+=======
+          # Share the workspace target cache across trusted branches. Cargo's
+          # fingerprints still invalidate changed crates. Only main saves this
+          # key; PRs restore the default-branch cache and cannot seed one for
+          # another PR.
+          shared-key: cmux-tui-${{ matrix.os }}
+          # Workspace crate outputs are only restored for the exact workspace
+          # source tree; Cargo's environment hash alone does not include .rs
+          # contents.
+          key: cmux-tui-source-${{ hashFiles('cmux-tui/**/*.rs', 'cmux-tui/**/Cargo.toml', 'cmux-tui/Cargo.lock') }}
+          cache-all-crates: true
+          cache-workspace-crates: true
+          # Only main dispatches save: a dispatch on another branch never restores
+          # its own save, so it would only push useful entries out of the cache store.
+          save-if: ${{ github.ref == 'refs/heads/main' }}
+>>>>>>> origin/main
 
       - name: Report cargo cache hit rate
         if: always()
@@ -1229,23 +1342,37 @@ jobs:
             echo "- hit rate: \`${hit_rate}%\`"
           } >> "$GITHUB_STEP_SUMMARY"
 
+      # In focused mode the macOS row runs only its setup and the filtered tests
+      # (cargo test, below); full mode runs every step. Before, every focused
+      # dispatch also ran these fixed steps and held a shared Mac runner for
+      # them while about 100 jobs queued for the pool (2026-11-09). The focused
+      # journal sentinels run on Linux; full mode runs their macOS tests in the
+      # workspace suite.
       - name: Test isolated TUI test-runner policy
+        if: inputs.mode == 'full' || matrix.os != 'macos'
         run: python3 .github/scripts/test_run_cmux_tui_core_tests_isolated.py
 
+<<<<<<< HEAD
       # No `cargo fmt --check` here: lint (linux) gates formatting (and uploads
       # the patch). Here a format-only diff ended the job before any test ran.
+=======
+      # No cargo fmt here: lint checks formatting once, so a format diff does
+      # not stop the tests (as on feat-cmux-next, #17095).
+>>>>>>> origin/main
       - name: userland agent plugin package tests
+        if: inputs.mode == 'full' || matrix.os != 'macos'
         working-directory: cmux-tui
         # The reference plugin is an independent Cargo workspace, so the
         # daemon workspace test does not compile it. Keep this explicit check
         # in both hosted OS lanes.
-        run: cargo test --manifest-path bindings/examples/rust-agent-screen-detection/Cargo.toml --locked
+        run: ../scripts/ci/cargo-test-deadline.sh --manifest-path bindings/examples/rust-agent-screen-detection/Cargo.toml --locked
 
 
       - name: focused Linux journal process-fence test
         if: inputs.mode == 'focused' && inputs.test_filter != 'optchat_chief' && runner.os == 'Linux'
         working-directory: cmux-tui
         run: >-
+<<<<<<< HEAD
           ../scripts/ci/cargo-test-selected.sh -p cmux-tui-core --lib
           journal_hooks::tests::unix_hook_tree_kills_a_descendant_that_created_a_new_session
           -- --exact
@@ -1260,10 +1387,22 @@ jobs:
         working-directory: cmux-tui
         run: >-
           ../scripts/ci/cargo-test-selected.sh -p cmux-tui-core --lib
+=======
+          ../scripts/ci/cargo-test-deadline.sh -p cmux-tui-core --lib
+          journal_hooks::tests::unix_hook_tree_kills_a_descendant_that_created_a_new_session
+          -- --exact
+
+      - name: focused journal writer shutdown test
+        if: inputs.mode == 'focused' && runner.os == 'Linux'
+        working-directory: cmux-tui
+        run: >-
+          ../scripts/ci/cargo-test-deadline.sh -p cmux-tui-core --lib
+>>>>>>> origin/main
           journal_ingress::tests::shutdown_returns_when_an_admitted_commit_stays_blocked
           -- --exact
 
       - name: focused final journal ownership tests
+<<<<<<< HEAD
         if: inputs.mode == 'focused' && inputs.test_filter != 'optchat_chief'
         working-directory: cmux-tui
         run: |
@@ -1274,16 +1413,33 @@ jobs:
             journal_checkpoint::tests::replaying_an_old_producer_put_keeps_the_current_validator \
             -- --exact
           ../scripts/ci/cargo-test-selected.sh -p cmux-tui-core --test browser_runtime \
+=======
+        if: inputs.mode == 'focused' && runner.os == 'Linux'
+        working-directory: cmux-tui
+        run: |
+          ../scripts/ci/cargo-test-deadline.sh -p cmux-tui-core --lib \
+            journal_ingress::tests::shutdown_closes_admission_while_a_terminal_producer_waits_for_space \
+            -- --exact
+          ../scripts/ci/cargo-test-deadline.sh -p cmux-tui-core --lib \
+            journal_checkpoint::tests::replaying_an_old_producer_put_keeps_the_current_validator \
+            -- --exact
+          ../scripts/ci/cargo-test-deadline.sh -p cmux-tui-core --test browser_runtime \
+>>>>>>> origin/main
             socket_browser_attach_streams_frames_input_and_cell_pixels \
             -- --exact
 
       - name: cargo test
         id: focused
         working-directory: cmux-tui
+        # Every test run here goes through scripts/ci/cargo-test-deadline.sh: a
+        # test that runs past 180 s is named and ended, so the job does not wait
+        # for its timeout (runs 42712581504, 42687069230). The --list and
+        # --no-run calls run no test and stay plain cargo test.
         env:
           CARGO_BUILD_JOBS: ${{ matrix.os == 'linux' && '32' || '6' }}
           MODE: ${{ inputs.mode }}
           TEST_FILTER: ${{ inputs.test_filter }}
+<<<<<<< HEAD
           # macOS-only tests compile to nothing here. The focused script reports its
           # count (outputs.selected); hosted verification fails the run when no host ran a test.
           CMUX_TUI_FOCUSED_ALLOW_NONE_ON_HOST: "1"
@@ -1293,12 +1449,30 @@ jobs:
             # Process-heavy CLI tests can exceed the runner's child-process
             # limit on the smaller macOS and Windows matrix runners, and
             # timing-bound tests flake at 32 threads on Linux.
+=======
+          HOST_OS: ${{ matrix.os }}
+        shell: bash
+        run: |
+          if [[ "$MODE" == "full" ]]; then
+            # The trusted Linux lane has 32 vCPUs, so let independent test
+            # processes and the Cargo build use that capacity. The macOS
+            # fallback keeps its conservative test parallelism.
+            test_threads=2
+            if [[ "$RUNNER_OS" == "Linux" ]]; then
+              test_threads=32
+            fi
+>>>>>>> origin/main
             # One run shows every red: --no-fail-fast runs every workspace test
             # binary, each group below runs even after a red group, and the step
             # fails at the end with the first red status.
             workspace_status=0
+<<<<<<< HEAD
             cargo test --workspace --exclude cmux-tui-core --locked --no-fail-fast -- --test-threads=2 \
               || workspace_status=$?
+=======
+            ../scripts/ci/cargo-test-deadline.sh --workspace --exclude cmux-tui-core --locked --no-fail-fast \
+              -- --test-threads="$test_threads" || workspace_status=$?
+>>>>>>> origin/main
             mkdir -p target
             core_status=0
             if cargo test -p cmux-tui-core --locked --no-run --message-format=json \
@@ -1310,7 +1484,11 @@ jobs:
               core_status=$?
             fi
             doc_status=0
+<<<<<<< HEAD
             cargo test -p cmux-tui-core --doc --locked || doc_status=$?
+=======
+            ../scripts/ci/cargo-test-deadline.sh -p cmux-tui-core --doc --locked || doc_status=$?
+>>>>>>> origin/main
             for status in "$workspace_status" "$core_status" "$doc_status"; do
               if [[ "$status" -ne 0 ]]; then
                 exit "$status"
@@ -1318,6 +1496,7 @@ jobs:
             done
             exit 0
           fi
+<<<<<<< HEAD
           # optchat_chief selects the optchat-chief job (its own Cargo workspace), no cmux-tui test.
           if [[ "$TEST_FILTER" == "optchat_chief" ]]; then
             echo "test_filter optchat_chief: the optchat-chief job runs those tests"
@@ -1325,6 +1504,40 @@ jobs:
           fi
           # The same script runs the filter on macOS (`macos` job), cx-jcfoz.
           ../scripts/ci/cmux-tui-focused-test.sh "$TEST_FILTER"
+=======
+          if [[ "$TEST_FILTER" == "chatmux_relay" || "$TEST_FILTER" == "chatmux-relay" ]]; then
+            # Cargo test names do not include their package name. Keep this
+            # explicit selector so focused verification can exercise the
+            # relay crate instead of silently selecting zero tests.
+            ../scripts/ci/cargo-test-deadline.sh -p chatmux-relay --locked --no-fail-fast
+            exit 0
+          fi
+          cargo test --workspace --locked "$TEST_FILTER" -- --list \
+            | tee "$RUNNER_TEMP/cmux-tui-focused-tests.txt"
+          normal_names="$RUNNER_TEMP/cmux-tui-focused-normal.txt"
+          grep -E ': test$' "$RUNNER_TEMP/cmux-tui-focused-tests.txt" | sort > "$normal_names" || true
+          ignored_names="$RUNNER_TEMP/cmux-tui-focused-ignored.txt"
+          ignored_listing="$RUNNER_TEMP/cmux-tui-focused-ignored-list.txt"
+          cargo test --workspace --locked "$TEST_FILTER" -- --list --ignored > "$ignored_listing"
+          grep -E ': test$' "$ignored_listing" | sort > "$ignored_names" || [[ "$?" -eq 1 ]]
+          runnable_names="$RUNNER_TEMP/cmux-tui-focused-runnable.txt"
+          comm -23 "$normal_names" "$ignored_names" > "$runnable_names" || true
+          if [[ ! -s "$runnable_names" && -s "$ignored_names" ]]; then
+            echo "::error::test_filter '$TEST_FILTER' matches only ignored tests" >&2
+            exit 1
+          fi
+          # Host-only tests (Linux-only files, macOS-only tests) compile to
+          # nothing on the other host, so a host with no matching test passes.
+          # hosted-verification fails the run when both hosts selected none.
+          selected="$(grep -c . "$runnable_names" || true)"
+          echo "selected_${HOST_OS}=${selected:-0}" >> "$GITHUB_OUTPUT"
+          if [[ ! -s "$normal_names" ]]; then
+            echo "::notice::test_filter '$TEST_FILTER' selects no Rust test on this host; hosted verification fails the run only if the other host selects none too"
+            exit 0
+          fi
+          # A filter can select tests in several binaries; run them all.
+          ../scripts/ci/cargo-test-deadline.sh --workspace --locked --no-fail-fast "$TEST_FILTER"
+>>>>>>> origin/main
 
       - name: Optional Iroh route and auth tests
         # Runs after a red `cargo test` step too, so one run shows every red,
@@ -1337,7 +1550,11 @@ jobs:
             remote_cli::tests::iroh_route_candidates_keep_query_hints_isolated \
             remote_runtime::tests::route_auth_capability_is_derived_from_the_local_provider_registry
           do
+<<<<<<< HEAD
             cargo test --locked -p cmux-tui --lib --features iroh-transport \
+=======
+            ../scripts/ci/cargo-test-deadline.sh --locked -p cmux-tui --bin cmux-tui --features iroh-transport \
+>>>>>>> origin/main
               "$test_name" -- --exact --color never | tee "$RUNNER_TEMP/iroh-feature-test.log"
             grep -Fq 'test result: ok. 1 passed;' "$RUNNER_TEMP/iroh-feature-test.log"
           done
@@ -1350,7 +1567,7 @@ jobs:
         # Single-threaded: crossterm's colored tests mutate process env vars
         # (COLORTERM/NO_COLOR) and race each other under parallel test
         # threads, flaking test_parse_ansi_fg/bg intermittently.
-        run: cargo test --manifest-path vendor/crossterm/Cargo.toml --lib -- --test-threads=1
+        run: ../scripts/ci/cargo-test-deadline.sh --manifest-path vendor/crossterm/Cargo.toml --lib -- --test-threads=1
 
       - name: smoltcp patch tests
         # Runs after a red `cargo test` step too, so one run shows every red,
@@ -1434,6 +1651,7 @@ jobs:
       - name: Cache cargo build
         uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
         with:
+<<<<<<< HEAD
           # The lockfile and toolchain name the entry: with the environment hash off, a bare key never changed, so the first save
           # was restored forever and its stale third-party crates rebuilt on every run (ci-min-per-pr-1500, 2026-11-25).
           key: ${{ hashFiles('cmux-tui/rust-toolchain.toml', 'cmux-tui/Cargo.lock', '.cargo/config.toml') }}
@@ -1443,6 +1661,12 @@ jobs:
           # Only feat-cmux-next dispatches save: a dispatch on another branch never restores
           # its own save, so it would only push useful entries out of the cache store.
           save-if: ${{ github.ref == 'refs/heads/feat-cmux-next' }}
+=======
+          cache-bin: false
+          # Only main dispatches save: a dispatch on another branch never restores
+          # its own save, so it would only push useful entries out of the cache store.
+          save-if: ${{ github.ref == 'refs/heads/main' }}
+>>>>>>> origin/main
           workspaces: cmux-tui -> target
 
       - name: Verify LLVM GNU linker
@@ -1454,7 +1678,11 @@ jobs:
         shell: bash
         run: |
           unset CMUX_GHOSTTY_SRC
+<<<<<<< HEAD
           ../scripts/ci/cargo-test-selected.sh -p cmux-tui-platform --lib --locked \
+=======
+          ../scripts/ci/cargo-test-deadline.sh -p cmux-tui-core --lib --locked \
+>>>>>>> origin/main
             --target x86_64-pc-windows-gnu \
             platform::tests:: -- --test-threads=1
           # Windows process data: reads only processes in this daemon's
@@ -1591,9 +1819,15 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
+        # Linux only, as on feat-cmux-next: no Playwright, Puppeteer or downloaded Chromium on
+        # Mac runners (Lawrence, 2026-11-02); the old Mac lane ran on a self-hosted fleet Mac.
         include:
           - os: linux
+<<<<<<< HEAD
             runner: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || 'cmux-linux' }}
+=======
+            runner: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+>>>>>>> origin/main
     steps:
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
@@ -1619,19 +1853,28 @@ jobs:
         working-directory: web
         run: bun install --frozen-lockfile
 
+<<<<<<< HEAD
       - name: Cache Playwright's apt packages
         uses: ./.github/actions/playwright-apt-cache
         with:
           engines: chromium
 
+=======
+>>>>>>> origin/main
       - name: Install system Chrome and chrome-headless-shell (Linux)
         if: runner.os == 'Linux'
         working-directory: web
         run: bash "$(git rev-parse --show-toplevel)/scripts/ci/ensure-system-chrome.sh"
 
+<<<<<<< HEAD
       # The step above installs no Playwright Chromium (a0c428bee: system Chrome only, CVE-2026-118306).
       # Use the chrome-headless-shell it fetched (the engine Playwright's headless launches use), else
       # the system Chrome it checked.
+=======
+      # The step above installs no Playwright Chromium (system Chrome only, CVE-2026-118306).
+      # Use the chrome-headless-shell it fetched (the engine Playwright's headless launches use),
+      # else the system Chrome it checked.
+>>>>>>> origin/main
       - name: Resolve Chromium executable
         id: chromium
         shell: bash
@@ -1652,6 +1895,7 @@ jobs:
       # Keep cargo's registry and cmux-tui/target between runs, as test and lint do.
       # Its own job key: test's shared key holds the whole workspace build, and the
       # first save under a key wins, so a small CDP-only save there would starve test.
+<<<<<<< HEAD
       - name: Cache cargo build
         uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
         with:
@@ -1665,10 +1909,24 @@ jobs:
           # its own save, so it would only push useful entries out of the cache store.
           save-if: ${{ github.ref == 'refs/heads/feat-cmux-next' }}
           workspaces: cmux-tui -> target
+=======
+      # cache-bin: false keeps an owned mini's own ~/.cargo/bin (rust-cache's save
+      # cleanup deletes what was there at restore).
+      - name: Cache cargo build
+        uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+        with:
+          cache-bin: false
+          workspaces: cmux-tui -> target
+          # Only main dispatches save: a dispatch on another branch never restores
+          # its own save, so it would only push useful entries out of the cache store.
+          save-if: ${{ github.ref == 'refs/heads/main' }}
+>>>>>>> origin/main
 
       - name: Run configured Chrome CDP smoke
         working-directory: cmux-tui
         env:
+          # One browser launch and page load: give it more than the 180 s default.
+          CMUX_TEST_DEADLINE_SECONDS: "600"
           CMUX_MUX_BROWSER_TEST: "1"
           CMUX_MUX_BROWSER_TEST_CHROME: ${{ steps.chromium.outputs.path }}
         shell: bash
@@ -1682,7 +1940,7 @@ jobs:
             echo "::error::chrome_smoke_requires_configured_browser selected no exact test" >&2
             exit 1
           }
-          cargo test -p cmux-tui-cdp --test chrome_smoke --locked -- \
+          ../scripts/ci/cargo-test-deadline.sh -p cmux-tui-cdp --test chrome_smoke --locked -- \
             --ignored --exact chrome_smoke_requires_configured_browser
 
       - name: Run browser host Chromium driver test
@@ -1708,7 +1966,11 @@ jobs:
       GHOSTTY_ZIG_SOURCE: ghostty-next
     needs: validate-inputs
     if: inputs.mode == 'full'
+<<<<<<< HEAD
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || 'cmux-linux' }}
+=======
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || vars.CI_OVERFLOW_LINUX || 'cmux-linux' }}
+>>>>>>> origin/main
     timeout-minutes: 40
     steps:
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
@@ -1754,9 +2016,16 @@ jobs:
       - name: Install zig
         run: ./scripts/install-zig-ci.sh
 
+<<<<<<< HEAD
       - name: Fetch the ghostty-next Zig packages (cached, deadlined, retried)
         uses: ./.github/actions/ghostty-zig-packages
         with:
+=======
+      - name: Fetch the Ghostty Zig packages (cached, deadlined, retried)
+        uses: ./.github/actions/ghostty-zig-packages
+        with:
+          source: ghostty
+>>>>>>> origin/main
           save-on-dispatch: ${{ contains(runner.name, '-glaeda') }}
 
       - name: Set up pinned Rust
@@ -1771,9 +2040,13 @@ jobs:
           java-version: "17"
 
       - name: Java version
+<<<<<<< HEAD
         run: |
           java -version
           javac -version
+=======
+        uses: ./.github/actions/setup-jdk17
+>>>>>>> origin/main
 
       - name: Build cmux-tui server
         working-directory: cmux-tui
@@ -1849,6 +2122,7 @@ jobs:
       darwin_builder: ${{ inputs.mode == 'full' && 'mac' || 'linux' }}
       build_agent_plugin: ${{ inputs.mode == 'full' }}
       verify_linux_arm64: ${{ inputs.mode == 'full' }}
+<<<<<<< HEAD
       # The macOS builds go straight to Blacksmith macOS 15 on every attempt.
       # Never the minis' side label: there they queued behind the side lane
       # until the run was cancelled (#20612), and the light side label takes
@@ -1859,6 +2133,16 @@ jobs:
       macos_retry_runner: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || fromJSON(vars.RUNNER_POOLS).macos_15 }}
       linux_runner: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || 'cmux-linux' }}
       windows_runner: ${{ github.repository_owner != 'manaflow-ai' && 'windows-2025' || vars.WINDOWS_RUNNER || fromJSON(vars.RUNNER_POOLS).windows }}
+=======
+      # The macOS builds take the minis' side label on attempt 1, like this
+      # workflow's other macOS jobs; ci-owned-pool-rescue.yml re-runs one left
+      # queued or refused there, and attempt 2 takes macos_retry_runner (the
+      # matrix plan-build made on attempt 1 is reused by that re-run).
+      macos_runner: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || vars.CI_PR_POOL_OWNED == '1' && contains(fromJSON('["pull_request","push","schedule","workflow_dispatch"]'), github.event_name) && github.run_attempt == 1 && vars.CI_SIDE_LANE_RUNNER || 'blacksmith-6vcpu-macos-15' }}
+      macos_retry_runner: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || contains(fromJSON('["blacksmith-6vcpu-macos-15"]'), fromJSON(vars.RUNNER_POOLS || '{}').macos_15) && fromJSON(vars.RUNNER_POOLS || '{}').macos_15 || 'blacksmith-6vcpu-macos-15' }}
+      linux_runner: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+      windows_runner: ${{ github.repository_owner != 'manaflow-ai' && 'windows-2025' || vars.WINDOWS_RUNNER || 'blacksmith-4vcpu-windows-2025' }}
+>>>>>>> origin/main
       checkout_ref: ${{ inputs.commit }}
 
   hosted-verification:
@@ -1878,7 +2162,11 @@ jobs:
       - cdp-browser-smoke
       - bindings-e2e
       - build-artifacts
+<<<<<<< HEAD
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || 'cmux-linux' }}
+=======
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || vars.CI_OVERFLOW_LINUX || 'cmux-linux' }}
+>>>>>>> origin/main
     timeout-minutes: 5
     env:
       MODE: ${{ inputs.mode }}
@@ -1894,6 +2182,9 @@ jobs:
       GO_PANE_RESULT: ${{ needs.go-pane.result }}
       VALGRIND_RESULT: ${{ needs.valgrind-leak-check.result }}
       TEST_RESULT: ${{ needs.test.result }}
+      TEST_FILTER: ${{ inputs.test_filter }}
+      LINUX_FOCUSED_SELECTED: ${{ needs.test.outputs.focused_selected_linux }}
+      MACOS_FOCUSED_SELECTED: ${{ needs.test.outputs.focused_selected_macos }}
       WINDOWS_TEST_RESULT: ${{ needs.test-windows.result }}
       CDP_BROWSER_RESULT: ${{ needs.cdp-browser-smoke.result }}
       BINDINGS_RESULT: ${{ needs.bindings-e2e.result }}
@@ -1944,6 +2235,7 @@ jobs:
             require_success "Chrome CDP smoke" "$CDP_BROWSER_RESULT"
             require_success "binding end-to-end tests" "$BINDINGS_RESULT"
           fi
+<<<<<<< HEAD
           # Each host lets a filter that selects no test there pass (host-only test
           # files), so the verdict on a filter that selects nothing anywhere is here.
           # An empty count (a skipped step, the chatmux_relay selector) is not 0.
@@ -1952,3 +2244,32 @@ jobs:
             failed=1
           fi
           exit "$failed"
+=======
+          # Each host lets a filter that selects no test there pass (host-only
+          # tests), so the verdict on a filter that selects nothing anywhere is
+          # here. An empty count is never read as 0. The reserved chatmux_relay
+          # selector runs a package without a listing, so it reports no count;
+          # any other focused filter must have a count from each host, so a
+          # broken output wiring cannot let a typo filter pass.
+          if [[ "$MODE" == "focused" ]]; then
+            linux_count="${LINUX_FOCUSED_SELECTED:-}"
+            macos_count="${MACOS_FOCUSED_SELECTED:-}"
+            echo "focused tests selected: linux=${linux_count} macos=${macos_count}"
+            if [[ "$TEST_FILTER" != "chatmux_relay" && "$TEST_FILTER" != "chatmux-relay" ]]; then
+              if [[ -z "$linux_count" || -z "$macos_count" ]]; then
+                echo "::error::the test job reported no focused test count (linux='${linux_count}' macos='${macos_count}'); check the test job's outputs" >&2
+                exit 1
+              fi
+              if [[ "$linux_count" == "0" && "$macos_count" == "0" ]]; then
+                echo "::error::test_filter '$TEST_FILTER' selected no Rust tests on Linux or macOS" >&2
+                exit 1
+              fi
+              if [[ "$linux_count" == "0" ]]; then
+                echo "::warning::test_filter '$TEST_FILTER' selected no Rust test on Linux; macOS ran $macos_count"
+              fi
+              if [[ "$macos_count" == "0" ]]; then
+                echo "::warning::test_filter '$TEST_FILTER' selected no Rust test on macOS; Linux ran $linux_count"
+              fi
+            fi
+          fi
+>>>>>>> origin/main

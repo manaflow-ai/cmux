@@ -35,26 +35,46 @@ const SCRIPTS: &[Script] = &[
         path: "zsh/.zshenv",
         contents: include_str!("../../../../ghostty-next/src/shell-integration/zsh/.zshenv"),
     },
+<<<<<<< ours
     // The cmux-tui additions run after the user's startup files: zsh's
     // integration body runs from `.zshenv` and registers a precmd hook, and
     // the bash script sources the startup files before its own setup.
+=======
+    // The cmux-tui additions run after the user's startup files: zsh's
+    // integration body runs from `.zshenv` and registers a preexec hook, and
+    // the bash script sources the startup files before its own setup.
+>>>>>>> theirs
     Script {
         path: "zsh/ghostty-integration",
+<<<<<<< ours
         contents: concat!(
             include_str!("../../../../ghostty-next/src/shell-integration/zsh/ghostty-integration"),
             include_str!("shell_integration/agent-shims.zsh"),
             include_str!("shell_integration/shell-state.zsh"),
             include_str!("shell_integration/incognito-history.zsh"),
         ),
+=======
+        contents: concat!(
+            include_str!("../../../../ghostty/src/shell-integration/zsh/ghostty-integration"),
+            include_str!("shell_integration/agent-shims.zsh"),
+        ),
+>>>>>>> theirs
     },
     Script {
         path: "bash/ghostty.bash",
+<<<<<<< ours
         contents: concat!(
             include_str!("../../../../ghostty-next/src/shell-integration/bash/ghostty.bash"),
             include_str!("shell_integration/agent-shims.bash"),
             include_str!("shell_integration/shell-state.bash"),
             include_str!("shell_integration/incognito-history.bash"),
         ),
+=======
+        contents: concat!(
+            include_str!("../../../../ghostty/src/shell-integration/bash/ghostty.bash"),
+            include_str!("shell_integration/agent-shims.bash"),
+        ),
+>>>>>>> theirs
     },
     Script {
         path: "bash/bash-preexec.sh",
@@ -68,6 +88,7 @@ const SCRIPTS: &[Script] = &[
             "../../../../ghostty-next/src/shell-integration/fish/vendor_conf.d/ghostty-shell-integration.fish"
         ),
     },
+<<<<<<< ours
     // Ghostty's fish script ends with `exit`, so the cmux-tui addition is its
     // own vendor file; fish reads every `vendor_conf.d` file at startup.
     Script {
@@ -78,8 +99,17 @@ const SCRIPTS: &[Script] = &[
         path: "fish/vendor_conf.d/cmux-tui-incognito-history.fish",
         contents: include_str!("shell_integration/cmux-tui-incognito-history.fish"),
     },
+=======
+    // Ghostty's fish script ends with `exit`, so the cmux-tui addition is its
+    // own vendor file; fish reads every `vendor_conf.d` file at startup.
+    Script {
+        path: "fish/vendor_conf.d/cmux-tui-agent-shims.fish",
+        contents: include_str!("shell_integration/cmux-tui-agent-shims.fish"),
+    },
+>>>>>>> theirs
 ];
 
+<<<<<<< ours
 /// The directory holding cmux-tui's `codex` and `claude` shims. Integrated
 /// shells move it back to the front of PATH after the user's startup files
 /// (and before each command), so a startup file that prepends the directory
@@ -105,6 +135,14 @@ pub(crate) fn keep_no_history(env: &mut Vec<(String, String)>) {
     env.push((INCOGNITO_ENV.into(), "1".into()));
 }
 
+=======
+/// The directory holding cmux-tui's `codex` and `claude` shims. Integrated
+/// shells move it back to the front of PATH after the user's startup files
+/// (and before each command), so a startup file that prepends the directory
+/// of the real agent cannot bypass the shim and its per-terminal hooks.
+pub const AGENT_SHIMS_ENV: &str = "CMUX_TUI_AGENT_SHIMS";
+
+>>>>>>> theirs
 /// Opt-out: `CMUX_TUI_SHELL_INTEGRATION=none` launches shells unmodified.
 const OPT_OUT_ENV: &str = "CMUX_TUI_SHELL_INTEGRATION";
 

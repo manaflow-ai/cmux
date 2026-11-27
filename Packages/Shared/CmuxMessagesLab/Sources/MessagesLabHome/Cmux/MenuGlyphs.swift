@@ -11,12 +11,17 @@ import AppKit
 /// work; menu bench profile). The glyphs do not depend on the appearance (fixed colours).
 enum MenuGlyphs {
     private static var cache: [Reaction.Kind: NSImage] = [:]
+<<<<<<< HEAD
     static func image(_ kind: Reaction.Kind) -> NSImage { image(kind, art: messagesArt) }
     /// cmux: `art` gives a kind's Messages art: read here on main by default; `warm()` passes the art it
     /// read off the main thread.
     private static func image(_ kind: Reaction.Kind, art artOf: (Reaction.Kind) -> NSImage?) -> NSImage {
         if let i = cache[kind] { return i }
         let messages = artOf(kind)  // cmux: once for both scales
+=======
+    static func image(_ kind: Reaction.Kind) -> NSImage {
+        if let i = cache[kind] { return i }
+>>>>>>> origin/main
         let side = TapbackPickerView.glyphSize
         let img = NSImage(size: NSSize(width: side, height: side))
         for scale in [2, 1] {
@@ -29,7 +34,11 @@ enum MenuGlyphs {
             NSGraphicsContext.saveGraphicsState()
             NSGraphicsContext.current = NSGraphicsContext(cgContext: ctx, flipped: true)
             let box = CGRect(x: 0, y: 0, width: side, height: side)
+<<<<<<< HEAD
             if let art = messages {
+=======
+            if let art = messagesArt(kind) {
+>>>>>>> origin/main
                 art.draw(in: scaled(box, Self.artScale), from: .zero, operation: .sourceOver, fraction: 1, respectFlipped: true, hints: nil)
             } else if case let .emoji(e) = kind {
                 PartRenderer.drawEmoji(e, in: box, ctx: ctx, scale: Self.emojiScale)
@@ -50,6 +59,7 @@ enum MenuGlyphs {
                                          "laugh": "haha-ENG_114", "emphasize": "exclamation_103", "question": "question_080"]
     private static let messagesBundle = Bundle(path: "/System/Applications/Messages.app")
     static func messagesArt(_ kind: Reaction.Kind) -> NSImage? {
+<<<<<<< HEAD
         messagesArtName(kind).flatMap { messagesBundle?.image(forResource: $0) }
     }
     /// cmux: the asset name of a kind's Messages art, or nil when it keeps the drawn glyph.
@@ -76,6 +86,15 @@ enum MenuGlyphs {
     }
     /// The palette's last cell (Messages, macOS 27): the filled grinning face of the compose
     /// bar's emoji button (`FieldChrome.emojiGlyph`, the public `face.smiling.inverse`), white.
+=======
+        guard case let .tapback(t) = kind, let name = messagesAssets[t] else { return nil }
+        // HA HA is the English art; another language keeps the drawn glyph.
+        if t == "laugh", Locale.preferredLanguages.first.map({ !$0.hasPrefix("en") }) ?? false { return nil }
+        return messagesBundle?.image(forResource: name)
+    }
+    /// The palette's last cell (Messages, macOS 27): the filled grinning face of the compose
+    /// bar's emoji button (private `emoji.face.grinning`), white; else the public symbol.
+>>>>>>> origin/main
     /// MessagesLab 7518134: made once per appearance (it was made at every open, inside the menu's open on main).
     private static var pickerGlyphs: [String: NSImage] = [:]
     static func emojiPickerGlyph() -> NSImage {
@@ -107,6 +126,7 @@ enum MenuGlyphs {
     /// MessagesLab 7518134 (ChatController.warmUp, and after a display move): the six tapbacks, the
     /// recent emoji and the picker glyph. Images only.
     static func warm() {
+<<<<<<< HEAD
         RecentEmoji.list.prefix(5).forEach { _ = image(.emoji($0)) }
         _ = emojiPickerGlyph()
         // cmux: the tapbacks once their art is read off the main thread; a menu that opens first draws
@@ -117,6 +137,11 @@ enum MenuGlyphs {
             let tapbackArt: [String: NSImage] = await loadArt()
             tapbacks.forEach { _ = image($0) { kind in messagesArtName(kind).flatMap { tapbackArt[$0] } } }
         }
+=======
+        TapbackGlyph.all.forEach { _ = image(.tapback($0)) }
+        RecentEmoji.list.prefix(5).forEach { _ = image(.emoji($0)) }
+        _ = emojiPickerGlyph()
+>>>>>>> origin/main
     }
 }
 
@@ -150,9 +175,16 @@ final class MenuAction: NSMenuItem {
     static func icon(_ symbol: String) -> NSImage? {
         let key = "\(symbol)|\(NSApp.effectiveAppearance.bestMatch(from: [.darkAqua, .aqua])?.rawValue ?? "")"
         if let i = icons[key] { return i }
+<<<<<<< HEAD
         // Public symbols only: a configured variant of a CoreGlyphsPrivate symbol aborts AppKit on
         // macOS 27.3 (see `FieldChrome.emojiGlyph`).
         guard let glyph = NSImage(systemSymbolName: symbol, accessibilityDescription: nil) else { return nil }
+=======
+        // A private symbol (Messages' Attach Sticker icon `sticker.badge.plus`) comes from
+        // CoreGlyphsPrivate, as the compose bar's `emoji.face.grinning`.
+        guard let glyph = NSImage(systemSymbolName: symbol, accessibilityDescription: nil)
+            ?? Bundle(path: "/System/Library/CoreServices/CoreGlyphsPrivate.bundle")?.image(forResource: symbol) else { return nil }
+>>>>>>> origin/main
         let font = NSFont.menuFont(ofSize: 0)
         let cfg = NSImage.SymbolConfiguration(pointSize: Self.iconPointSize, weight: .medium)
         let sym = glyph.withSymbolConfiguration(cfg) ?? glyph
@@ -161,7 +193,11 @@ final class MenuAction: NSMenuItem {
         let icon = NSImage(size: box, flipped: false) { r in
             let s = sym.size
             let y = (r.height - s.height) / 2
+<<<<<<< HEAD
             // A wide icon starts at the title start, as in Messages, not left of it.
+=======
+            // A wide icon (sticker.badge.plus) starts at the title start, as in Messages, not left of it.
+>>>>>>> origin/main
             sym.draw(in: CGRect(x: max(0, Self.iconCenterX - s.width / 2), y: y, width: s.width, height: s.height))
             NSColor.labelColor.set()
             CGRect(x: 0, y: 0, width: r.width, height: r.height).fill(using: .sourceAtop)
@@ -181,8 +217,15 @@ final class MenuAction: NSMenuItem {
     @objc private func fire() { run() }
 }
 
+<<<<<<< HEAD
 /// Attach Sticker's icon: the public `face.smiling` (Messages draws its private `sticker.badge.plus`,
 /// which cmux must not load: see `FieldChrome.emojiGlyph`).
 enum MenuSymbols {
     static let attachSticker = "face.smiling"
+=======
+/// Attach Sticker's icon: Messages' private `sticker.badge.plus` when the system has it.
+enum MenuSymbols {
+    static let attachSticker: String = Bundle(path: "/System/Library/CoreServices/CoreGlyphsPrivate.bundle")?
+        .image(forResource: "sticker.badge.plus") != nil ? "sticker.badge.plus" : "face.smiling"
+>>>>>>> origin/main
 }

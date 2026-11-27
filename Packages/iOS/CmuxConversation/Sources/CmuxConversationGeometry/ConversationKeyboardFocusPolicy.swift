@@ -20,26 +20,36 @@ public enum ConversationKeyboardFocusPolicy {
         public var sceneIsForegroundActive: Bool
         /// A rotation or resize can hide and reshow the keyboard (iOS 27).
         public var isTransitioningSize: Bool
+<<<<<<< HEAD
         /// The scene left the foreground (app switcher, Control Center, a
         /// notification, the background) since the keyboard last showed.
         /// UIKit may post the hide for that trip late, once the scene is
         /// active again; the field stays focused and UIKit reshows the keyboard.
         public var sceneLeftSinceKeyboardShown: Bool
+=======
+>>>>>>> origin/main
 
         public init(
             composerIsFirstResponder: Bool,
             keyboardGuideAtRest: Bool,
             hardwareKeyboardAttached: Bool,
             sceneIsForegroundActive: Bool,
+<<<<<<< HEAD
             isTransitioningSize: Bool,
             sceneLeftSinceKeyboardShown: Bool = false
+=======
+            isTransitioningSize: Bool
+>>>>>>> origin/main
         ) {
             self.composerIsFirstResponder = composerIsFirstResponder
             self.keyboardGuideAtRest = keyboardGuideAtRest
             self.hardwareKeyboardAttached = hardwareKeyboardAttached
             self.sceneIsForegroundActive = sceneIsForegroundActive
             self.isTransitioningSize = isTransitioningSize
+<<<<<<< HEAD
             self.sceneLeftSinceKeyboardShown = sceneLeftSinceKeyboardShown
+=======
+>>>>>>> origin/main
         }
     }
 
@@ -50,7 +60,10 @@ public enum ConversationKeyboardFocusPolicy {
             && !state.hardwareKeyboardAttached
             && state.sceneIsForegroundActive
             && !state.isTransitioningSize
+<<<<<<< HEAD
             && !state.sceneLeftSinceKeyboardShown
+=======
+>>>>>>> origin/main
     }
 
     /// Send with effect leaves the field focused: Messages shows the picker

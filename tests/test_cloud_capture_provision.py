@@ -48,15 +48,22 @@ def open_sealed(value_b64, pk, sk):
 class FakeStack:
     """The Stack REST endpoints the script uses, recording each request."""
 
+<<<<<<< HEAD
     def __init__(self, users=(), sign_in_ok=True, memberships=()):
         self.users = {u["id"]: dict(u) for u in users}
         self.sign_in_ok = sign_in_ok
         self.memberships = set(memberships)  # (team id, user id)
+=======
+    def __init__(self, users=(), sign_in_ok=True):
+        self.users = {u["id"]: dict(u) for u in users}
+        self.sign_in_ok = sign_in_ok
+>>>>>>> origin/main
         self.requests = []
 
     def __call__(self, method, url, headers, body, timeout=None):
         path = url.removeprefix(provision.STACK_API)
         self.requests.append((method, path, headers, body))
+<<<<<<< HEAD
         if method == "GET" and path.startswith("/teams?user_id="):
             user = provision.urllib.parse.unquote(path.split("=", 1)[1])
             return 200, {}, {"items": [{"id": t} for t, u in sorted(self.memberships) if u == user]}
@@ -67,6 +74,8 @@ class FakeStack:
                     return 409, {"x-stack-known-error": "TEAM_MEMBERSHIP_ALREADY_EXISTS"}, None
                 self.memberships.add((team, user))
                 return 201, {}, {}
+=======
+>>>>>>> origin/main
         if path.startswith("/users?"):
             return 200, {}, {"items": list(self.users.values())}
         if method == "POST" and path == "/users":
@@ -87,8 +96,13 @@ class FakeStack:
         raise AssertionError(f"unexpected {method} {path}")
 
 
+<<<<<<< HEAD
 def stack(fake, project=provision.STAGING_PROJECT_ID):
     return provision.Stack(project, "server-key", "client-key", transport=fake, expected_project=project)
+=======
+def stack(fake):
+    return provision.Stack(provision.STAGING_PROJECT_ID, "server-key", "client-key", transport=fake)
+>>>>>>> origin/main
 
 
 @unittest.skipIf(SODIUM is None, "libsodium is not installed")
@@ -126,14 +140,22 @@ class Provision(unittest.TestCase):
         key, pk, sk = keypair()
         target = provision.TARGETS["journey"]
         with tempfile.TemporaryDirectory() as tmp:
+<<<<<<< HEAD
             out = Path(tmp) / "bundles"
             action = provision.provision(stack(fake), out, log=lambda _: None, lib=SODIUM, key_id="42", key=key,
                                          make_password=lambda: PASSWORD, target=target)
             bundles = [json.loads(path.read_text()) for path in sorted(out.glob("bundle-*.json"))]
+=======
+            out = Path(tmp) / "bundle.json"
+            action = provision.provision(stack(fake), out, log=lambda _: None, lib=SODIUM, key_id="42", key=key,
+                                         make_password=lambda: PASSWORD, target=target)
+            bundle = json.loads(out.read_text())
+>>>>>>> origin/main
         self.assertEqual(action, "created")
         self.assertEqual(fake.users["user-1"]["password"], "capture-password")  # the capture account is untouched
         created = [r for r in fake.requests if r[0] == "POST" and r[1] == "/users"]
         self.assertEqual(created[0][3]["primary_email"], "cmux-cloud-capture-journey@manaflow.dev")
+<<<<<<< HEAD
         self.assertEqual(len(bundles), 2)
         by_environment = {bundle["environment"]: bundle for bundle in bundles}
         self.assertEqual(set(by_environment), {"cmux-next-vm-image-dev", "cmux-next-cloud-journey"})
@@ -335,6 +357,13 @@ class Provision(unittest.TestCase):
             self.assertEqual(sorted(bundle["secrets"]), secrets)
             self.assertEqual(open_sealed(bundle["secrets"][secrets[1]], pk, sk), PASSWORD)
             self.assertIn("manaflow-ai/cmux-platform repository secrets", logs[-1])
+=======
+        self.assertEqual(bundle["repo"], "manaflow-ai/cmux")
+        self.assertEqual(bundle["environment"], "cmux-next-vm-image-dev")
+        self.assertEqual(sorted(bundle["secrets"]), ["CMUX_DOGFOOD_STACK_EMAIL", "CMUX_DOGFOOD_STACK_PASSWORD"])
+        self.assertEqual(open_sealed(bundle["secrets"]["CMUX_DOGFOOD_STACK_PASSWORD"], pk, sk), PASSWORD)
+        self.assertTrue(provision.GRANT_ONLY_EMAIL.fullmatch(target.email))
+>>>>>>> origin/main
 
     def test_an_existing_account_is_rotated_keeping_other_metadata(self):
         fake = FakeStack([{"id": "user-1", "primary_email": provision.EMAIL.upper(), "password": "old",
@@ -363,6 +392,7 @@ class Provision(unittest.TestCase):
             stack(FakeStack(users)).find(provision.EMAIL)
 
 
+<<<<<<< HEAD
 COMPANY_TEAM = "d13acd51-c77d-438a-9610-5369455e2a2f"
 
 
@@ -741,6 +771,8 @@ class ProbeTeams(unittest.TestCase):
             self.assertIn("inputs.probe_teams == 0", guard, name)
 
 
+=======
+>>>>>>> origin/main
 class GrantOnly(unittest.TestCase):
     OWNER = "cmux-cloud-capture-owner3@manaflow.dev"
 
@@ -791,6 +823,7 @@ class GrantOnly(unittest.TestCase):
 class Guards(unittest.TestCase):
     def test_another_stack_project_is_refused_before_any_request(self):
         fake = FakeStack()
+<<<<<<< HEAD
         with self.assertRaisesRegex(provision.ProvisionError, "not the target's project"):
             provision.Stack("some-production-project", "server-key", "client-key", transport=fake)
         self.assertEqual(fake.requests, [])
@@ -823,6 +856,12 @@ class Guards(unittest.TestCase):
                                              "cmux-cloud-capture-prod@manaflow.dev"]), 1)
         grant.assert_not_called()
 
+=======
+        with self.assertRaisesRegex(provision.ProvisionError, "not the staging project"):
+            provision.Stack("some-production-project", "server-key", "client-key", transport=fake)
+        self.assertEqual(fake.requests, [])
+
+>>>>>>> origin/main
     def test_stack_errors_name_the_status_never_the_body(self):
         def transport(method, url, headers, body, timeout=None):
             return 500, {"x-stack-known-error": "SOMETHING"}, {"secret": "body-detail"}
@@ -881,6 +920,7 @@ class Put(unittest.TestCase):
         self.assertEqual(calls[1][:5], ["gh", "api", "-X", "PUT", "repos/o/r/environments/env/secrets/A_SECRET"])
         self.assertIn("key_id=42", calls[1])
 
+<<<<<<< HEAD
     def test_a_directory_put_reads_and_stores_every_bundle(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
@@ -909,6 +949,8 @@ class Put(unittest.TestCase):
             with self.assertRaisesRegex(sealed_secrets.SealError, "environment is not valid"):
                 sealed_secrets.read_bundle(path)
 
+=======
+>>>>>>> origin/main
     def test_a_bundle_with_a_short_value_is_not_a_sealed_box(self):
         with tempfile.TemporaryDirectory() as tmp:
             path = Path(tmp) / "b.json"

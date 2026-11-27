@@ -52,9 +52,13 @@ import {
   DEVBOX_MACHINE_HEALTH_RESUME_COMMAND,
   devboxAgentDesktopVersion,
   devboxAgentPins,
+<<<<<<< ours
   devboxBubblewrapCheckCommand,
   devboxMachineHealthRearmProblems,
   devboxMachineHealthResumeProblems,
+=======
+  devboxBubblewrapCheckCommand,
+>>>>>>> theirs
   devboxDir,
   devboxGhosttyVersion,
   devboxIdentityCheckCommand,
@@ -92,6 +96,7 @@ const MACHINE_HEALTH_FAILURE_CONTEXT_COMMAND = [
   "echo loadavg: $(cat /proc/loadavg)",
   "echo psi-io: $(tr '\\n' ' ' < /proc/pressure/io 2>/dev/null)",
 ].join("; ");
+import { throwawayVmOptions } from "./cloud-vm/ci-leftovers";
 
 const pins = devboxAgentPins();
 const shaOf = (name: string): string => sha256File(path.join(devboxDir, name));
@@ -135,10 +140,15 @@ const CHECKS: readonly string[] = [
   "cua-driver --version",
   `test "$(agent-desktop --version)" = "agent-desktop ${devboxAgentDesktopVersion()}" && echo agent-desktop-pinned`,
   "ffmpeg -version | head -1 && command -v Xvfb && command -v xdpyinfo && command -v xdotool",
+<<<<<<< ours
   // Media and dev tools people's chats reach for (Leo, 2026-11-25: "ffprobe isn't installed"): each one runs.
   "ffprobe -hide_banner -version | head -1 && convert -version | head -1 && identify -version >/dev/null && pdfinfo -v 2>&1 | grep -i poppler && command -v pdftotext && command -v pdftoppm && git lfs version && sqlite3 --version && unzip -v | head -1 && zip -v | sed -n 2p && echo media-dev-tools-ok",
   // Prove the current upstream binary is selected and can sandbox as cmux.
   devboxBubblewrapCheckCommand(),
+=======
+  // Prove the current upstream binary is selected and can sandbox as cmux.
+  devboxBubblewrapCheckCommand(),
+>>>>>>> theirs
   // Baked files are byte-identical to this checkout.
   ...FILE_PIN_CHECKS,
   // Devshell: ble.sh installed, bashrc chained, tmux pinned to bash, seed
@@ -468,7 +478,13 @@ if (provider === "freestyle") {
     };
   };
   const t0 = Date.now();
+<<<<<<< ours
   const { vm, vmId } = await retryFreestyleOverload("vm start", () => fs.vms.create({ snapshotId: image, displayName: verifyName, firewall }));
+=======
+  // Throwaway machines: paused when idle, deleted at a deadline, and tagged
+  // with the CI run so a cancelled run's always() step deletes them.
+  const { vm, vmId } = await fs.vms.create({ snapshotId: image, displayName: verifyName, firewall, ...throwawayVmOptions() });
+>>>>>>> theirs
   console.log(`provisioned ${vmId} in ${((Date.now() - t0) / 1000).toFixed(1)}s`);
   try {
     const exec = execFor(vm);
@@ -512,7 +528,11 @@ if (provider === "freestyle") {
     let cloneIdentityOk = true;
     // A second machine from the same memory snapshot must mint its own
     // identity; a shared one would let every machine impersonate every other.
+<<<<<<< ours
     const second = await retryFreestyleOverload("vm start", () => fs.vms.create({ snapshotId: image, displayName: `${verifyName}-2`, firewall }));
+=======
+    const second = await fs.vms.create({ snapshotId: image, displayName: `${verifyName}-2`, firewall, ...throwawayVmOptions() });
+>>>>>>> theirs
     try {
       const exec2 = execFor(second.vm);
       await waitForBakedDaemon("freestyle", exec2);

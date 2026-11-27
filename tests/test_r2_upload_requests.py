@@ -85,8 +85,13 @@ class R2UploadRequestsTests(unittest.TestCase):
         self.assertIn("content-type", signed)
         self.assertEqual(signed, sorted(signed))
 
+<<<<<<< HEAD
     def start_endpoint(self, existing=False, *, tls=True, redirects=None, put_status=200):
+=======
+    def start_endpoint(self, existing=False, *, tls=True, redirects=None, put_status=None):
+>>>>>>> origin/main
         requests = []
+        written = []
 
         class Handler(http.server.BaseHTTPRequestHandler):
             def record(self):
@@ -99,9 +104,19 @@ class R2UploadRequestsTests(unittest.TestCase):
                     self.send_header("Content-Length", "0")
                     self.end_headers()
                     return
+<<<<<<< HEAD
                 status = 404 if self.command == "HEAD" and not existing else 200
                 if self.command == "PUT":
                     status = put_status
+=======
+                if self.command == "PUT" and put_status:
+                    written.append(True)  # another writer's bytes are there now
+                    self.send_response(put_status)
+                    self.send_header("Content-Length", "0")
+                    self.end_headers()
+                    return
+                status = 404 if self.command == "HEAD" and not (existing or written) else 200
+>>>>>>> origin/main
                 response = BODY if self.command == "GET" else b""
                 self.send_response(status)
                 self.send_header("ETag", '"etag-1"')
@@ -601,6 +616,7 @@ class R2UploadRequestsTests(unittest.TestCase):
             self.assertNotIn("content-type", headers)
             self.assertNotIn("content-type", headers["authorization"])
 
+<<<<<<< HEAD
     def test_write_once_conflict_is_a_named_hard_failure(self):
         # A different immutable object is never retried: the run's retry
         # workflow reads this annotation title and leaves the run red.
@@ -657,6 +673,41 @@ class R2UploadRequestsTests(unittest.TestCase):
 
     def test_replace_and_write_once_are_exclusive(self):
         result = self.upload("appcast-arm64.xml", "--replace-sha256", "0" * 64, "--write-once")
+=======
+    def test_write_once_conflict_409_reads_the_object_like_a_412(self):
+        # R2 answers a concurrent write to the same key with 409; the bytes there decide.
+        endpoint, requests = self.start_endpoint(put_status=409)
+        result = self.upload("manifest.json", "--write-once", endpoint=endpoint)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual([r[0] for r in requests], ["HEAD", "PUT", "HEAD", "GET"])
+
+    def test_keep_existing_never_writes_over_different_published_bytes(self):
+        # A rerun re-signs the attestation bundle, so its bytes differ from the
+        # published ones: --keep-existing keeps the published bytes and sends no PUT.
+        endpoint, requests = self.start_endpoint(existing=True)
+        result = self.upload("manifest.json.sigstore.json", "--write-once", "--keep-existing",
+                             endpoint=endpoint, body=b"re-signed bundle\n")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("Kept the published object", result.stdout)
+        self.assertEqual([r[0] for r in requests], ["HEAD", "GET"])
+
+    def test_keep_existing_after_a_concurrent_write_keeps_the_winner(self):
+        endpoint, requests = self.start_endpoint(put_status=412)
+        result = self.upload("manifest.json.sigstore.json", "--write-once", "--keep-existing",
+                             endpoint=endpoint, body=b"losing bundle\n")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual([r[0] for r in requests], ["HEAD", "PUT", "HEAD", "GET"])
+
+    def test_write_once_without_keep_existing_still_refuses_different_bytes(self):
+        endpoint, requests = self.start_endpoint(existing=True)
+        result = self.upload("manifest.json", "--write-once", endpoint=endpoint, body=b"other\n")
+        self.assertEqual(result.returncode, 1)
+        self.assertIn("different SHA-256", result.stderr)
+        self.assertNotIn("PUT", [r[0] for r in requests])
+
+    def test_keep_existing_needs_write_once(self):
+        result = self.upload("manifest.json", "--keep-existing")
+>>>>>>> origin/main
         self.assertEqual(result.returncode, 2)
 
 

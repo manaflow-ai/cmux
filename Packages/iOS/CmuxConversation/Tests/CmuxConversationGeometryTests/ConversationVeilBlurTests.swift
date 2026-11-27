@@ -1,9 +1,13 @@
 import CmuxConversationGeometry
+<<<<<<< HEAD
 #if canImport(CoreGraphics)
 import CoreGraphics
 #else
 import Foundation
 #endif
+=======
+import CoreGraphics
+>>>>>>> origin/main
 import Testing
 
 /// Messages' details page blurs the transcript with a pure radius-16

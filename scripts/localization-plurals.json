@@ -610,11 +610,16 @@
       1
     ]
   },
+<<<<<<< HEAD
   "home.engine.toolCalls": {
+=======
+  "chief.settings.lastTurn.toolCalls": {
+>>>>>>> origin/main
     "source": "%lld tool calls",
     "arguments": [
       1
     ]
+<<<<<<< HEAD
   },
   "home.engine.toolFailures": {
     "source": "%lld failed",
@@ -759,5 +764,7 @@
     "arguments": [
       1
     ]
+=======
+>>>>>>> origin/main
   }
 }

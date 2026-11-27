@@ -332,6 +332,7 @@ public final class ConversationTranslations {
         }
         guard let store else { return }
         // Edits invalidate translations; the new text translates again.
+<<<<<<< HEAD
         // With nothing translated there is nothing to invalidate: a page
         // landing or an arrival does not walk the window.
         var stale: [String] = []
@@ -343,6 +344,15 @@ public final class ConversationTranslations {
                 entries[message.rowID]?.showsOriginal = false
                 stale.append(message.rowID)
             }
+=======
+        var stale: [String] = []
+        for message in store.messages {
+            guard let entry = entries[message.rowID], entry.sourceText != message.text else { continue }
+            entries[message.rowID]?.sourceText = message.text
+            entries[message.rowID]?.phase = .translating
+            entries[message.rowID]?.showsOriginal = false
+            stale.append(message.rowID)
+>>>>>>> origin/main
         }
         if !stale.isEmpty {
             changed()

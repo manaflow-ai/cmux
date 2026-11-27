@@ -1,0 +1,211 @@
+name: cmux NEXT Computer Use helper publish
+
+# Publishes the unsigned Computer Use helper (com.cmuxterm.cua) that a source-built
+# nightly kept, and a git bundle of the cmux-cua commit it pins, to the private
+# cmux-cef R2 bucket, and gives their pins (scripts/cmux-next/cmux-cua-helper.pin.json,
+# cmux-cua-source.pin.json on feat-cmux-next). The nightly then takes the helper by
+# sha256 from the controller store (cache SSD first) or R2 instead of cloning and
+# compiling cmux-cua (app-assemble-computer-use-helper.sh), and a source build seeds
+# an empty cache from the bundle instead of cloning over the internet (run
+# 44232805509: a full clone on cmux15 timed out after 9.5 minutes). Storage stays
+# unsigned; the nightly signs the helper with the team identity.
+#
+# resolve  checks that the run is a nightly.yml run of this repository on one of
+#          its own branches and that it kept a helper (cmux-cua-helper-unsigned).
+# publish  the cef-publish environment (the cmux-cef-write token); its branch
+#          policy admits main only. Only main code runs; the artifact and the run's source
+#          are data. scripts/ci/check-cmux-cua-helper-run.py checks key.txt (its fields hash to its input key, and each
+#          source field is the sha256 of that file at the run's commit), that the
+#          zip holds one ad-hoc com.cmuxterm.cua app, makes the source bundle (full history: a
+#          shallow bundle has prerequisites a clone lacks), and uploads both write-once with
+#          upload-r2-object.py (read back, sha256 checked). Commit the pins from
+#          the run's summary or its cmux-cua-helper-pins artifact; the run does
+#          not push.
+on:
+  workflow_dispatch:
+    inputs:
+      run_id:
+        description: "A nightly.yml run whose Assemble the Computer Use helper step built from source"
+        required: true
+        type: string
+
+permissions: {}
+
+# No workflow-level concurrency group: an environment wait never times out
+# (cmux-next-cua-driver-sdk-publish.yml explains why); its uploads are
+# content-addressed and write-once.
+
+env:
+  # Temporary REST budget attribution: one gh-call line per GitHub API call (scripts/ci/api_call_log/env.sh, fetched at a fixed commit when the checkout has no copy).
+  BASH_ENV: '$({ w="${GITHUB_WORKSPACE:-/nonexistent}/scripts/ci/api_call_log/env.sh"; t="${RUNNER_TEMP:-/nonexistent}/api-call-log-src"; if [ -f "$w" ]; then echo "$w"; elif [ -n "${RUNNER_TEMP:-}" ]; then if [ ! -f "$t/env.sh" ] && [ ! -e "$t.tried" ] && { [ "${RUNNER_OS:-}" = Linux ] || [ "${RUNNER_OS:-}" = macOS ]; } && [ "$(date -u +%Y%m%d%H)" -lt 2026112300 ]; then : > "$t.tried"; mkdir -p "$t.part" && for x in env.sh gh sitecustomize.py isolated.py; do curl -fsSL --max-time 5 -o "$t.part/$x" "https://raw.githubusercontent.com/manaflow-ai/cmux/27647ffd3ae838c63be28ca3e5883dcd68c34518/scripts/ci/api_call_log/$x" || break; done; [ -s "$t.part/isolated.py" ] && mv "$t.part" "$t"; fi; if [ -f "$t/env.sh" ]; then echo "$t/env.sh"; else echo unset BASH_ENV > "$t.off.sh" && echo "$t.off.sh"; fi; fi; } 2>/dev/null)'
+
+jobs:
+  resolve:
+    name: Resolve the nightly run
+    if: github.ref == 'refs/heads/main'
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.CI_OVERFLOW_LINUX || 'cmux-linux' }}
+    timeout-minutes: 5
+    permissions:
+      contents: read
+      actions: read
+    outputs:
+      head_sha: ${{ steps.resolve.outputs.head_sha }}
+    steps:
+      - name: Check the run
+        id: resolve
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          RUN_ID: ${{ inputs.run_id }}
+        run: |
+          set -euo pipefail
+          [[ "$RUN_ID" =~ ^[0-9]+$ ]] || { echo "::error::run_id must be a number" >&2; exit 1; }
+          read -r path repo sha < <(gh api "repos/$GH_REPO/actions/runs/$RUN_ID" \
+            --jq '[.path, .head_repository.full_name, .head_sha] | @tsv')
+          [[ "$path" == ".github/workflows/nightly.yml" ]] || { echo "::error::run $RUN_ID is $path, not nightly.yml" >&2; exit 1; }
+          [[ "$repo" == "$GH_REPO" ]] || { echo "::error::run $RUN_ID ran code from $repo" >&2; exit 1; }
+          [[ "$sha" =~ ^[0-9a-f]{40}$ ]] || { echo "::error::run $RUN_ID has no head commit" >&2; exit 1; }
+          count="$(gh api "repos/$GH_REPO/actions/runs/$RUN_ID/artifacts?name=cmux-cua-helper-unsigned" --jq '.total_count')"
+          [[ "$count" -ge 1 ]] || { echo "::error::run $RUN_ID kept no cmux-cua-helper-unsigned (it used a prebuilt helper, or its artifact expired)" >&2; exit 1; }
+          echo "head_sha=$sha" >> "$GITHUB_OUTPUT"
+          echo "Nightly run $RUN_ID at $sha" >> "$GITHUB_STEP_SUMMARY"
+
+  publish:
+    name: Publish the helper and the source bundle
+    needs: resolve
+    # Holds no concurrency group: an environment wait never times out.
+    environment: cef-publish
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'blacksmith-4vcpu-ubuntu-2404' }}
+    timeout-minutes: 20
+    permissions:
+      contents: read
+      actions: read
+    steps:
+      # Only whether the token is set reaches this step, never its value.
+      - name: Require the cmux-cef-write token
+        env:
+          HAS_WRITE_KEY: ${{ secrets.CMUX_CEF_R2_WRITE_ACCESS_KEY_ID != '' && secrets.CMUX_CEF_R2_WRITE_SECRET_ACCESS_KEY != '' && secrets.CMUX_CEF_R2_ACCOUNT_ID != '' }}
+        run: |
+          if [[ "$HAS_WRITE_KEY" != true ]]; then
+            echo "::error::the cef-publish environment has no CMUX_CEF_R2_ACCOUNT_ID / CMUX_CEF_R2_WRITE_ACCESS_KEY_ID / CMUX_CEF_R2_WRITE_SECRET_ACCESS_KEY (the cmux-cef-write token)" >&2
+            exit 1
+          fi
+
+      - name: Checkout main's check and R2 upload
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 1
+          persist-credentials: false
+          sparse-checkout: |
+            scripts/ci/upload-r2-object.py
+            scripts/ci/check-cmux-cua-helper-run.py
+          sparse-checkout-cone-mode: false
+
+      # Data only: the files the helper's input key hashes, at the run's commit. Nothing here runs.
+      - name: Checkout the run's helper inputs
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+        with:
+          ref: ${{ needs.resolve.outputs.head_sha }}
+          path: run-source
+          fetch-depth: 1
+          persist-credentials: false
+          sparse-checkout: |
+            scripts/build-cmux-cua.sh
+            scripts/apply-cmux-cua-patch.sh
+            scripts/strip-cmux-cua-rpaths.sh
+            scripts/cmux-cua-*.patch
+            Resources/ComputerUseHelperIcon.icns
+            cmux-tui/rust-toolchain.toml
+          sparse-checkout-cone-mode: false
+
+      - name: Download the helper
+        uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
+        with:
+          name: cmux-cua-helper-unsigned
+          path: ${{ runner.temp }}/helper
+          run-id: ${{ inputs.run_id }}
+          github-token: ${{ github.token }}
+
+      - name: Check the helper and make the source bundle
+        id: check
+        env:
+          RUN_ID: ${{ inputs.run_id }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ inputs.run_id }}
+          SOURCE_SHA: ${{ needs.resolve.outputs.head_sha }}
+        run: |
+          set -euo pipefail
+          out="$RUNNER_TEMP/pins"; mkdir -p "$out"
+          python3 -I scripts/ci/check-cmux-cua-helper-run.py "$RUNNER_TEMP/helper" run-source "$out" "$RUN_URL" "$SOURCE_SHA"
+          pinned="$(cat "$out/pinned_sha")"
+          repo_url=https://github.com/manaflow-ai/cmux-cua.git
+          src="$RUNNER_TEMP/src.git"
+          git init --quiet --bare "$src"
+          for attempt in 1 2 3; do
+            git -C "$src" fetch --quiet "$repo_url" "$pinned" && break
+            [[ "$attempt" -lt 3 ]] || { echo "::error::cannot fetch $pinned from $repo_url" >&2; exit 1; }
+            sleep $((attempt * 10))
+          done
+          git -C "$src" update-ref refs/heads/pinned "$pinned"
+          git -C "$src" symbolic-ref HEAD refs/heads/pinned
+          bundle="$RUNNER_TEMP/cmux-cua-$pinned.bundle"
+          git -C "$src" bundle create --quiet "$bundle" refs/heads/pinned HEAD
+          git clone --quiet --no-checkout "$bundle" "$RUNNER_TEMP/bundle-check"
+          git -C "$RUNNER_TEMP/bundle-check" cat-file -e "$pinned^{commit}"
+          bsha="$(sha256sum "$bundle" | awk '{print $1}')"
+          python3 -I - "$out/cmux-cua-source.pin.json" "$bsha" "$pinned" "$repo_url" <<'PY'
+          import json, sys
+          out, sha, pinned, repo = sys.argv[1:]
+          asset = f"cmux-cua-{pinned}.bundle"
+          json.dump({"asset": asset, "arch": "any", "sha256": sha, "r2_bucket": "cmux-cef",
+                     "r2_key": f"cmux-cua-source/{sha}/{asset}", "cmux_cua_pinned_sha": pinned, "repo": repo},
+                    open(out, "w"), indent=2)
+          open(out, "a").write("\n")
+          PY
+          zip="$(jq -er .asset "$out/cmux-cua-helper.pin.json")"
+          zsha="$(jq -er .sha256 "$out/cmux-cua-helper.pin.json")"
+          {
+            echo "helper_file=$RUNNER_TEMP/helper/$zip"
+            echo "helper_key=cmux-cua-helper/$zsha/$zip"
+            echo "bundle_file=$bundle"
+            echo "bundle_key=cmux-cua-source/$bsha/cmux-cua-$pinned.bundle"
+          } >> "$GITHUB_OUTPUT"
+          for pin in cmux-cua-helper cmux-cua-source; do
+            { echo "\`scripts/cmux-next/$pin.pin.json\`:"; echo '```json'; cat "$out/$pin.pin.json"; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
+          done
+
+      - name: Upload the pins
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: cmux-cua-helper-pins
+          path: |
+            ${{ runner.temp }}/pins/cmux-cua-helper.pin.json
+            ${{ runner.temp }}/pins/cmux-cua-source.pin.json
+          if-no-files-found: error
+          retention-days: 3
+
+      # Content-addressed and write-once; the second call reads the object back
+      # and checks its sha256 (an identical object is accepted, any other refused).
+      - name: Publish to R2
+        env:
+          AWS_ACCESS_KEY_ID: ${{ secrets.CMUX_CEF_R2_WRITE_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.CMUX_CEF_R2_WRITE_SECRET_ACCESS_KEY }}
+          AWS_DEFAULT_REGION: auto
+          R2_ENDPOINT: https://${{ secrets.CMUX_CEF_R2_ACCOUNT_ID }}.r2.cloudflarestorage.com
+          HELPER_FILE: ${{ steps.check.outputs.helper_file }}
+          HELPER_KEY: ${{ steps.check.outputs.helper_key }}
+          BUNDLE_FILE: ${{ steps.check.outputs.bundle_file }}
+          BUNDLE_KEY: ${{ steps.check.outputs.bundle_key }}
+        run: |
+          set -euo pipefail
+          for pair in "$HELPER_FILE|$HELPER_KEY|application/zip" "$BUNDLE_FILE|$BUNDLE_KEY|application/octet-stream"; do
+            IFS='|' read -r file key type <<<"$pair"
+            for attempt in upload read-back; do
+              echo "R2 $attempt $key"
+              python3 scripts/ci/upload-r2-object.py \
+                --file "$file" --endpoint-url "$R2_ENDPOINT" --bucket cmux-cef --key "$key" \
+                --content-type "$type" --cache-control 'private, max-age=31536000, immutable' \
+                --write-once
+            done
+            echo "Published cmux-cef/$key" >> "$GITHUB_STEP_SUMMARY"
+          done

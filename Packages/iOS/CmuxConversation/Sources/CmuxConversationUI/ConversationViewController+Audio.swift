@@ -4,6 +4,7 @@ import CmuxConversationCore
 import CmuxConversationGeometry
 import UIKit
 
+<<<<<<< HEAD
 /// What the composer's audio recorder (``ConversationAudioComposer``) needs from the screen it
 /// records on: the conversation (``ConversationViewController``) or New Message
 /// (``ConversationComposeViewController``), which sends the recording as the first message.
@@ -51,6 +52,8 @@ extension UIViewController {
     }
 }
 
+=======
+>>>>>>> origin/main
 extension ConversationViewController: AudioMessageCellDelegate {
     func keepAudio(messageID: String) {
         store.keepAudio(messageID: messageID)
@@ -79,6 +82,7 @@ extension ConversationViewController: AudioMessageCellDelegate {
         guard next.senderID != store.meID, next.audioAttachment != nil else { return nil }
         return next
     }
+<<<<<<< HEAD
 }
 
 /// Records an audio message in the composer the way Messages does on iOS 26
@@ -95,6 +99,26 @@ extension ConversationViewController: AudioMessageCellDelegate {
 @MainActor
 final class ConversationAudioComposer {
     private weak var controller: (any ConversationAudioHost)?
+=======
+
+    func presentMicrophoneDenied() {
+        let alert = UIAlertController(
+            title: String(localized: "conversation.audio.micDenied.title", defaultValue: "Microphone Access Is Off", bundle: .module),
+            message: String(localized: "conversation.audio.micDenied.message", defaultValue: "To record audio messages, allow microphone access in Settings.", bundle: .module),
+            preferredStyle: .alert
+        )
+        alert.addAction(UIAlertAction(title: String(localized: "conversation.audio.ok", defaultValue: "OK", bundle: .module), style: .default))
+        present(alert, animated: true)
+    }
+}
+
+/// Records an audio message in the composer: the field turns into a live
+/// meter with a stop button, then a review strip (play, waveform, duration,
+/// continue recording, send). "+" becomes a cancel button meanwhile.
+@MainActor
+final class ConversationAudioComposer {
+    private weak var controller: ConversationViewController?
+>>>>>>> origin/main
     private var recorder: ConversationAudioRecorder?
     private let field = AudioRecordingFieldView()
     private var displayLink: CADisplayLink?
@@ -103,6 +127,7 @@ final class ConversationAudioComposer {
     /// Messages shows the Record Audio button in the field once audio was
     /// used in the conversation.
     private(set) var showsRecordButton = false
+<<<<<<< HEAD
     /// Tap, hold, lock, review: Messages' record flow.
     private(set) var flow = ComposerAudioFlow()
     private let noticeLabel = UILabel()
@@ -115,6 +140,15 @@ final class ConversationAudioComposer {
     static let hintDuration: Duration = .seconds(2)
 
     init(controller: any ConversationAudioHost) {
+=======
+    private var holding = false
+    private let noticeLabel = UILabel()
+    private var noticeTask: Task<Void, Never>?
+    /// Paces the "Audio recording not available" notice (injected for tests).
+    var clock: any Clock<Duration> = ContinuousClock()
+
+    init(controller: ConversationViewController) {
+>>>>>>> origin/main
         self.controller = controller
         field.onStop = { [weak self] in self?.stopToReview() }
         field.onSend = { [weak self] in self?.send() }
@@ -122,14 +156,19 @@ final class ConversationAudioComposer {
         field.onContinue = { [weak self] in self?.continueRecording() }
     }
 
+<<<<<<< HEAD
     var isActive: Bool { flow.isActive || recorder != nil || startTask != nil }
     /// The stage the composer shows, nil while typing.
     var stage: ComposerAudioLayout.Stage? { controller?.composer.audioStage }
+=======
+    var isActive: Bool { recorder != nil || startTask != nil }
+>>>>>>> origin/main
 
     func installRecordButton() {
         guard let composer = controller?.composer else { return }
         let button = composer.micButton
         button.accessibilityLabel = String(localized: "conversation.audio.record", defaultValue: "Record Audio", bundle: .module)
+<<<<<<< HEAD
         button.accessibilityHint = Self.holdHint
         button.accessibilityIdentifier = "conversation.composer.record"
         button.addAction(UIAction { [weak self] _ in self?.recordButtonTapped() }, for: .touchUpInside)
@@ -153,12 +192,26 @@ final class ConversationAudioComposer {
         guard !showsRecordButton, let sent = controller?.hasSentAudio else { return }
         // A synthetic or file input (UI tests, demos) stands in for audio already sent.
         let sentAudio = ConversationAudioRecorder.Input.fromEnvironment != .microphone || sent
+=======
+        button.accessibilityIdentifier = "conversation.composer.record"
+        button.addAction(UIAction { [weak self] _ in self?.start(holding: false) }, for: .touchUpInside)
+        let hold = UILongPressGestureRecognizer(target: self, action: #selector(held(_:)))
+        hold.minimumPressDuration = 0.25
+        button.addGestureRecognizer(hold)
+        noteConversationChanged()
+    }
+
+    func noteConversationChanged() {
+        guard !showsRecordButton, let store = controller?.store, let meID = store.meID else { return }
+        let sentAudio = store.messages.contains(where: { $0.senderID == meID && $0.audioAttachment != nil })
+>>>>>>> origin/main
         if ComposerBarGeometry.showsRecordGlyph(iOS27: ConversationComposerView.isIOS27, sentAudio: sentAudio) {
             setShowsRecordButton()
         }
     }
 
     private func setShowsRecordButton() {
+<<<<<<< HEAD
         guard !showsRecordButton, controller?.composer.micButton != nil else { return }
         showsRecordButton = true
         controller?.composer.showRecordGlyph()
@@ -168,14 +221,29 @@ final class ConversationAudioComposer {
     /// VoiceOver cannot hold, so there the activation records (stop ends it).
     func recordButtonTapped() {
         run(.tap(voiceOver: UIAccessibility.isVoiceOverRunning))
+=======
+        guard !showsRecordButton, let button = controller?.composer.micButton else { return }
+        showsRecordButton = true
+        controller?.composer.showRecordGlyph()
+        button.isUserInteractionEnabled = true
+        button.isAccessibilityElement = true
+>>>>>>> origin/main
     }
 
     @objc private func held(_ press: UILongPressGestureRecognizer) {
         switch press.state {
         case .began:
+<<<<<<< HEAD
             run(.holdBegan)
         case .ended, .cancelled, .failed:
             run(.holdEnded)
+=======
+            start(holding: true)
+        case .ended, .cancelled, .failed:
+            guard holding else { return }
+            holding = false
+            stopToReview()
+>>>>>>> origin/main
         default:
             break
         }
@@ -183,6 +251,7 @@ final class ConversationAudioComposer {
 
     // MARK: Flow
 
+<<<<<<< HEAD
     /// Feeds `event` to the flow, carries out its effects, then moves the
     /// row to the flow's stage.
     func run(_ event: ComposerAudioFlow.Event) {
@@ -244,10 +313,27 @@ final class ConversationAudioComposer {
         let recorder = ConversationAudioRecorder()
         recorder.syntheticTranscript = Self.syntheticPhrases.randomElement()
         self.recorder = recorder
+=======
+    func start(holding: Bool = false) {
+        guard !isActive, let controller else { return }
+        controller.dismissPhotoDrawer()
+        // Messages: with no input device the field says so for ~3 s instead.
+        if ConversationAudioRecorder.Input.fromEnvironment == .microphone, !AVAudioSession.sharedInstance().isInputAvailable {
+            showUnavailableNotice()
+            return
+        }
+        self.holding = holding
+        let recorder = ConversationAudioRecorder()
+        recorder.syntheticTranscript = Self.syntheticPhrases.randomElement()
+        self.recorder = recorder
+        show(in: controller)
+        field.mode = .recording
+>>>>>>> origin/main
         field.update(levels: [], time: 0)
         startTask = Task { [weak self] in
             do {
                 try await recorder.start()
+<<<<<<< HEAD
                 guard let self, self.recorder === recorder else {
                     // Discarded while starting: release the microphone and its file.
                     recorder.cancel()
@@ -265,11 +351,28 @@ final class ConversationAudioComposer {
                     self.controller?.presentMicrophoneDenied()
                 } else {
                     self.showNotice(Self.unavailableText, style: .unavailable)
+=======
+                guard let self, self.recorder === recorder else { return }
+                self.startTask = nil
+                self.startDisplayLink()
+                UIImpactFeedbackGenerator(style: .light).impactOccurred()
+                // A hold released while permission was being granted.
+                if holding, !self.holding { self.stopToReview() }
+            } catch {
+                guard let self else { return }
+                self.startTask = nil
+                self.dismiss()
+                if (error as? ConversationBackendError)?.code == -10 {
+                    self.controller?.presentMicrophoneDenied()
+                } else {
+                    self.showUnavailableNotice()
+>>>>>>> origin/main
                 }
             }
         }
     }
 
+<<<<<<< HEAD
     static var unavailableText: String {
         String(localized: "conversation.audio.unavailable", defaultValue: "Audio recording not available", bundle: .module)
     }
@@ -298,18 +401,62 @@ final class ConversationAudioComposer {
         guard let recorded = recorder.finish() else { return dismiss() }
         dismiss()
         guard controller.sendRecordedAudio(data: recorded.data, info: recorded.info) else { return }
+=======
+    func stopToReview() {
+        guard let recorder, recorder.state == .recording else { return }
+        recorder.pause()
+        stopDisplayLink()
+        guard recorder.duration > 0.25 else {
+            cancel()
+            return
+        }
+        field.mode = .review
+        field.update(levels: recorder.levels, time: recorder.duration)
+        field.setReview(playing: false, progress: 0, time: recorder.duration)
+    }
+
+    func continueRecording() {
+        guard let recorder, recorder.state == .paused else { return }
+        stopReviewPlayer()
+        try? recorder.continueRecording()
+        field.mode = .recording
+        startDisplayLink()
+    }
+
+    func send() {
+        guard let recorder, let controller else { return }
+        stopReviewPlayer()
+        guard let recorded = recorder.finish() else {
+            dismiss()
+            return
+        }
+        let replyTo = controller.replyTarget?.id
+        dismiss()
+        guard controller.store.sendAudio(data: recorded.data, info: recorded.info, replyToID: replyTo) != nil else { return }
+        if controller.replyTarget != nil { controller.exitReplyMode() }
+>>>>>>> origin/main
         setShowsRecordButton()
     }
 
     func cancel() {
+<<<<<<< HEAD
         run(.cancel)
+=======
+        stopReviewPlayer()
+        recorder?.cancel()
+        dismiss()
+>>>>>>> origin/main
     }
 
     private func toggleReviewPlayback() {
         guard let recorder else { return }
         if let reviewPlayer, reviewPlayer.isPlaying {
             reviewPlayer.pause()
+<<<<<<< HEAD
             field.setReview(playing: false, progress: CGFloat(reviewPlayer.currentTime / max(0.01, reviewPlayer.duration)), time: reviewPlayer.currentTime, duration: recorder.duration)
+=======
+            field.setReview(playing: false, progress: CGFloat(reviewPlayer.currentTime / max(0.01, reviewPlayer.duration)), time: reviewPlayer.currentTime)
+>>>>>>> origin/main
             stopDisplayLink()
             return
         }
@@ -320,7 +467,10 @@ final class ConversationAudioComposer {
         guard let reviewPlayer else { return }
         try? AVAudioSession.sharedInstance().setCategory(.playAndRecord, mode: .default, options: [.defaultToSpeaker])
         reviewPlayer.play()
+<<<<<<< HEAD
         field.setReview(playing: true, progress: 0, time: 0, duration: recorder.duration)
+=======
+>>>>>>> origin/main
         startDisplayLink()
     }
 
@@ -329,6 +479,7 @@ final class ConversationAudioComposer {
         reviewPlayer = nil
     }
 
+<<<<<<< HEAD
     // MARK: Notices
 
     enum NoticeStyle {
@@ -398,11 +549,48 @@ final class ConversationAudioComposer {
         // motion: allow crossfade, the Reduce Motion form
         UIView.animate(withDuration: 0.2, animations: restore) { _ in
             if self.noticeLabel.alpha == 0 { self.noticeLabel.removeFromSuperview() }
+=======
+    /// Measured on iOS 26.3: 13 pt secondary text centered in the field, the
+    /// placeholder hidden and "+" dimmed, for about 3 s.
+    func showUnavailableNotice() {
+        guard let composer = controller?.composer else { return }
+        noticeTask?.cancel()
+        noticeLabel.text = String(localized: "conversation.audio.unavailable", defaultValue: "Audio recording not available", bundle: .module)
+        noticeLabel.font = .systemFont(ofSize: 13)
+        noticeLabel.textColor = .secondaryLabel
+        noticeLabel.textAlignment = .center
+        noticeLabel.accessibilityIdentifier = "conversation.recording.unavailable"
+        let field = composer.fieldGlass.contentView
+        noticeLabel.frame = CGRect(x: 0, y: field.bounds.height - ConversationTheme.composerMinHeight, width: field.bounds.width, height: ConversationTheme.composerMinHeight)
+        noticeLabel.autoresizingMask = [.flexibleWidth, .flexibleTopMargin]
+        field.addSubview(noticeLabel)
+        noticeLabel.alpha = 0
+        UIView.animate(withDuration: 0.2) {
+            self.noticeLabel.alpha = 1
+            composer.placeholder.alpha = 0
+            composer.textView.alpha = 0
+            composer.plusButton.alpha = 0.3
+        }
+        UIAccessibility.post(notification: .announcement, argument: noticeLabel.text)
+        let clock = clock
+        noticeTask = Task { [weak self] in
+            try? await clock.sleep(for: .seconds(3))
+            guard !Task.isCancelled, let self else { return }
+            UIView.animate(withDuration: 0.2) {
+                self.noticeLabel.alpha = 0
+                composer.placeholder.alpha = 1
+                composer.textView.alpha = 1
+                composer.plusButton.alpha = 1
+            } completion: { _ in
+                self.noticeLabel.removeFromSuperview()
+            }
+>>>>>>> origin/main
         }
     }
 
     // MARK: Field
 
+<<<<<<< HEAD
     private func show(in controller: any ConversationAudioHost, stage: ComposerAudioLayout.Stage) {
         let composer = controller.composer
         composer.textView.resignFirstResponder()
@@ -414,12 +602,22 @@ final class ConversationAudioComposer {
         // The glyph turns into the stop button where it stands.
         field.prepareEntrance(from: composer.micButton.convert(composer.micButton.bounds, to: composer.fieldGlass.contentView))
         setStage(stage) {
+=======
+    private func show(in controller: ConversationViewController) {
+        let composer = controller.composer
+        field.frame = composer.fieldGlass.contentView.bounds
+        field.autoresizingMask = [.flexibleWidth, .flexibleHeight]
+        composer.fieldGlass.contentView.addSubview(field)
+        field.alpha = 0
+        UIView.animate(withDuration: 0.2) {
+>>>>>>> origin/main
             self.field.alpha = 1
             composer.textView.alpha = 0
             composer.placeholder.alpha = 0
             composer.sendButton.isHidden = true
             composer.micButton.alpha = 0
         }
+<<<<<<< HEAD
     }
 
     /// Moves the row to `stage` on Messages' springs: the lift on press is
@@ -454,6 +652,11 @@ final class ConversationAudioComposer {
         } else {
             UIView.animate(withDuration: duration, delay: 0, usingSpringWithDamping: damping, initialSpringVelocity: 0, options: [.beginFromCurrentState, .allowUserInteraction], animations: changes, completion: completion)
         }
+=======
+        composer.textView.resignFirstResponder()
+        setPlusGlyph("xmark", in: composer)
+        composer.plusButton.accessibilityLabel = String(localized: "conversation.audio.cancel", defaultValue: "Cancel Recording", bundle: .module)
+>>>>>>> origin/main
     }
 
     private func dismiss() {
@@ -461,6 +664,7 @@ final class ConversationAudioComposer {
         startTask?.cancel()
         startTask = nil
         recorder = nil
+<<<<<<< HEAD
         flow = ComposerAudioFlow()
         guard let composer = controller?.composer else { return }
         composer.audioStage = nil
@@ -468,10 +672,18 @@ final class ConversationAudioComposer {
         composer.plusButton.accessibilityLabel = String(localized: "conversation.composer.plus", defaultValue: "Apps", bundle: .module)
         animate(duration: 0.38, damping: 0.86, {
             composer.layoutIfNeeded()
+=======
+        holding = false
+        guard let composer = controller?.composer else { return }
+        setPlusGlyph("plus", in: composer)
+        composer.plusButton.accessibilityLabel = String(localized: "conversation.composer.plus", defaultValue: "Apps", bundle: .module)
+        UIView.animate(withDuration: 0.2) {
+>>>>>>> origin/main
             self.field.alpha = 0
             composer.textView.alpha = 1
             composer.placeholder.alpha = 1
             composer.micButton.alpha = composer.hasContent ? 0 : 1
+<<<<<<< HEAD
         }, completion: { _ in
             // A new recording began during this spring: leave its field alone.
             guard composer.audioStage == nil else { return }
@@ -481,12 +693,21 @@ final class ConversationAudioComposer {
                 composer.audioFieldView = nil
             }
         })
+=======
+        } completion: { _ in
+            composer.sendButton.isHidden = false
+            if self.recorder == nil { self.field.removeFromSuperview() }
+        }
+>>>>>>> origin/main
     }
 
     private func setPlusGlyph(_ symbol: String, in composer: ConversationComposerView) {
         let image = UIImage(systemName: symbol, withConfiguration: ConversationComposerView.plusSymbolConfiguration)
+<<<<<<< HEAD
         guard composer.plusButton.image(for: .normal) != image else { return }
         // motion: allow crossfade, the Reduce Motion form
+=======
+>>>>>>> origin/main
         UIView.transition(with: composer.plusButton, duration: 0.2, options: .transitionCrossDissolve) {
             composer.plusButton.setImage(image, for: .normal)
         }
@@ -518,7 +739,11 @@ final class ConversationAudioComposer {
             guard let reviewPlayer else { return }
             let playing = reviewPlayer.isPlaying
             let time = playing ? reviewPlayer.currentTime : recorder.duration
+<<<<<<< HEAD
             field.setReview(playing: playing, progress: playing ? CGFloat(reviewPlayer.currentTime / max(0.01, reviewPlayer.duration)) : 0, time: time, duration: recorder.duration)
+=======
+            field.setReview(playing: playing, progress: playing ? CGFloat(reviewPlayer.currentTime / max(0.01, reviewPlayer.duration)) : 0, time: time)
+>>>>>>> origin/main
             if !playing {
                 stopReviewPlayer()
                 stopDisplayLink()
@@ -537,6 +762,7 @@ final class ConversationAudioComposer {
     ]
 }
 
+<<<<<<< HEAD
 /// Messages' recording reds, read from iOS 26 in dark mode (light mode
 /// uses systemRed's own light values at the same strengths).
 @MainActor
@@ -557,11 +783,20 @@ enum AudioRecordingInk {
 /// stop) and while reviewing (play, waveform, "+ 0:03", send), laid out
 /// by the composer from `ComposerAudioLayout`.
 final class AudioRecordingFieldView: UIView {
+=======
+/// The composer field while recording (live meter, timer, stop) and while
+/// reviewing (play, waveform, duration, continue recording, send).
+final class AudioRecordingFieldView: UIView {
+    enum Mode { case recording, review }
+
+    var mode: Mode = .recording { didSet { applyMode() } }
+>>>>>>> origin/main
     var onStop: (() -> Void)?
     var onSend: (() -> Void)?
     var onPlay: (() -> Void)?
     var onContinue: (() -> Void)?
 
+<<<<<<< HEAD
     private(set) var stage: ComposerAudioLayout.Stage = .holding
     private let timeLabel = UILabel()
     let waveform = ComposerAudioWaveformView()
@@ -574,10 +809,21 @@ final class AudioRecordingFieldView: UIView {
     private var duration: TimeInterval = 0
     private var playing = false
     static let timerFont = UIFont.monospacedDigitSystemFont(ofSize: 14, weight: .regular)
+=======
+    private let timeLabel = UILabel()
+    private let waveform = AudioWaveformView()
+    private let stopButton = UIButton(type: .custom)
+    private let stopSquare = UIView()
+    private let playButton = UIButton(type: .custom)
+    private let continueButton = UIButton(type: .custom)
+    private let sendButton = UIButton(type: .custom)
+    private let sendSize = ComposerBarGeometry.sendSize
+>>>>>>> origin/main
 
     override init(frame: CGRect) {
         super.init(frame: frame)
         accessibilityIdentifier = "conversation.composer.recording"
+<<<<<<< HEAD
         timeLabel.font = Self.timerFont
         timeLabel.textAlignment = .right
         timeLabel.accessibilityIdentifier = "conversation.recording.time"
@@ -589,19 +835,42 @@ final class AudioRecordingFieldView: UIView {
         stopButton.accessibilityIdentifier = "conversation.recording.stop"
         stopSquare.layer.cornerRadius = ComposerAudioLayout.stopSquareCornerRadius
         stopSquare.layer.cornerCurve = .continuous
+=======
+        timeLabel.font = .monospacedDigitSystemFont(ofSize: 17, weight: .regular)
+        timeLabel.textColor = .label
+        timeLabel.accessibilityIdentifier = "conversation.recording.time"
+        addSubview(timeLabel)
+        addSubview(waveform)
+
+        stopButton.backgroundColor = .systemRed
+        stopButton.layer.cornerRadius = 14
+        stopButton.accessibilityLabel = String(localized: "conversation.audio.stop", defaultValue: "Stop Recording", bundle: .module)
+        stopButton.accessibilityIdentifier = "conversation.recording.stop"
+        stopSquare.backgroundColor = .white
+        stopSquare.layer.cornerRadius = 2.5
+>>>>>>> origin/main
         stopSquare.isUserInteractionEnabled = false
         stopButton.addSubview(stopSquare)
         stopButton.addAction(UIAction { [weak self] _ in self?.onStop?() }, for: .touchUpInside)
         addSubview(stopButton)
 
+<<<<<<< HEAD
         playButton.backgroundColor = .tertiarySystemFill
         playButton.tintColor = .label
+=======
+        playButton.tintColor = .systemBlue
+>>>>>>> origin/main
         playButton.accessibilityIdentifier = "conversation.recording.play"
         playButton.addAction(UIAction { [weak self] _ in self?.onPlay?() }, for: .touchUpInside)
         addSubview(playButton)
 
+<<<<<<< HEAD
         continueButton.backgroundColor = .quaternarySystemFill
         continueButton.layer.cornerCurve = .continuous
+=======
+        continueButton.setImage(UIImage(systemName: "record.circle", withConfiguration: UIImage.SymbolConfiguration(pointSize: 20, weight: .regular)), for: .normal)
+        continueButton.tintColor = .systemRed
+>>>>>>> origin/main
         continueButton.accessibilityLabel = String(localized: "conversation.audio.continue", defaultValue: "Continue Recording", bundle: .module)
         continueButton.accessibilityIdentifier = "conversation.recording.continue"
         continueButton.addAction(UIAction { [weak self] _ in self?.onContinue?() }, for: .touchUpInside)
@@ -610,18 +879,27 @@ final class AudioRecordingFieldView: UIView {
         sendButton.backgroundColor = ConversationComposerView.sendBlue
         sendButton.setImage(UIImage(systemName: "arrow.up", withConfiguration: ConversationComposerView.sendSymbolConfiguration), for: .normal)
         sendButton.tintColor = .white
+<<<<<<< HEAD
         sendButton.layer.cornerRadius = ComposerBarGeometry.sendSize.height / 2
+=======
+        sendButton.layer.cornerRadius = sendSize.height / 2
+>>>>>>> origin/main
         sendButton.layer.cornerCurve = .continuous
         sendButton.accessibilityLabel = String(localized: "conversation.composer.send", defaultValue: "Send", bundle: .module)
         sendButton.accessibilityIdentifier = "conversation.recording.send"
         sendButton.addAction(UIAction { [weak self] _ in self?.onSend?() }, for: .touchUpInside)
         addSubview(sendButton)
+<<<<<<< HEAD
         setReview(playing: false, progress: 0, time: 0, duration: 0)
+=======
+        applyMode()
+>>>>>>> origin/main
     }
 
     @available(*, unavailable)
     required init?(coder: NSCoder) { fatalError() }
 
+<<<<<<< HEAD
     /// Starts the stop button on the record glyph, so the first stage's
     /// spring grows it out of the glyph (Messages: the glyph swells red).
     func prepareEntrance(from glyph: CGRect) {
@@ -671,10 +949,51 @@ final class AudioRecordingFieldView: UIView {
         playButton.transform = grow
         sendButton.transform = grow
         refreshTimer()
+=======
+    override func layoutSubviews() {
+        super.layoutSubviews()
+        let rowHeight = ConversationTheme.composerMinHeight
+        let rowY = bounds.height - rowHeight
+        let midY = rowY + rowHeight / 2
+        let trailingCenterX = bounds.width - ComposerBarGeometry.sendTrailingInset - sendSize.width / 2
+        sendButton.bounds = CGRect(origin: .zero, size: sendSize)
+        sendButton.center = CGPoint(x: trailingCenterX, y: midY)
+        stopButton.bounds = CGRect(x: 0, y: 0, width: 28, height: 28)
+        stopButton.center = CGPoint(x: trailingCenterX + 2, y: midY)
+        stopSquare.frame = CGRect(x: 9, y: 9, width: 10, height: 10)
+        let barsHeight = AudioBubbleLayout.maxBarHeight + 4
+        switch mode {
+        case .recording:
+            timeLabel.frame = CGRect(x: 14.5, y: rowY, width: 50, height: rowHeight)
+            let waveX: CGFloat = 64
+            waveform.frame = CGRect(x: waveX, y: midY - barsHeight / 2, width: stopButton.frame.minX - 10 - waveX, height: barsHeight)
+        case .review:
+            playButton.frame = CGRect(x: 6, y: midY - 15, width: 30, height: 30)
+            continueButton.frame = CGRect(x: sendButton.frame.minX - 38, y: midY - 15, width: 32, height: 30)
+            timeLabel.frame = CGRect(x: continueButton.frame.minX - 46, y: rowY, width: 44, height: rowHeight)
+            let waveX = playButton.frame.maxX + 6
+            waveform.frame = CGRect(x: waveX, y: midY - barsHeight / 2, width: max(0, timeLabel.frame.minX - 6 - waveX), height: barsHeight)
+        }
+    }
+
+    private func applyMode() {
+        let recording = mode == .recording
+        stopButton.isHidden = !recording
+        playButton.isHidden = recording
+        continueButton.isHidden = recording
+        sendButton.isHidden = recording
+        waveform.alignsTrailing = recording
+        waveform.playedColor = recording ? .systemRed : .systemBlue
+        waveform.unplayedColor = UIColor.secondaryLabel.withAlphaComponent(0.6)
+        timeLabel.textAlignment = recording ? .left : .right
+        timeLabel.textColor = recording ? .label : .secondaryLabel
+        setNeedsLayout()
+>>>>>>> origin/main
     }
 
     func update(levels: [Float], time: TimeInterval) {
         waveform.levels = levels
+<<<<<<< HEAD
         self.time = time
         refreshTimer()
     }
@@ -756,6 +1075,17 @@ final class ComposerAudioWaveformView: UIView {
             color.setFill()
             UIBezierPath(roundedRect: CGRect(x: x, y: (bounds.height - height) / 2, width: width, height: height), cornerRadius: width / 2).fill()
         }
+=======
+        timeLabel.text = AudioMessageStrings.clock(time)
+    }
+
+    func setReview(playing: Bool, progress: CGFloat, time: TimeInterval) {
+        waveform.progress = progress
+        timeLabel.text = AudioMessageStrings.clock(time)
+        let symbol = playing ? "pause.fill" : "play.fill"
+        playButton.setImage(UIImage(systemName: symbol, withConfiguration: UIImage.SymbolConfiguration(pointSize: 17, weight: .bold)), for: .normal)
+        playButton.accessibilityLabel = playing ? AudioMessageStrings.pause : AudioMessageStrings.play
+>>>>>>> origin/main
     }
 }
 #endif

@@ -1,0 +1,94 @@
+name: Executor journey nightly dispatcher
+
+# Leo 2026-11-22: "we can also look into executor.sh (which doesn't work!?) but austin likes the concept. it's just a
+# bit shitty. well how about we make it work and we make it not shitty and we go above and beyond!?" Once a day this file on main
+# starts feat-cmux-next's executor-journey.yml: a fresh `cmux-test-exec-<tag>` machine on cmux Cloud staging
+# installs executor.sh, adds DeepWiki's MCP server as an app, runs `executor execute` with a job that calls one of
+# its tools, checks the answer, and is deleted. Scheduled workflows run only from the default branch and the
+# journey lives on feat-cmux-next, so this dispatches it and waits for its verdict. A red run opens one issue, or
+# comments on the open one; the next green run closes it. The wait is in scripts/ci/executor_journey_dispatch.mjs
+# (tests/executor_journey_dispatch.test.mjs); its API retries are the Cloud chat proof dispatcher's.
+on:
+  schedule:
+    - cron: "47 14 * * *"
+  workflow_dispatch:
+
+permissions: {}
+
+env:
+  # Temporary REST budget attribution: one gh-call line per GitHub API call (scripts/ci/api_call_log/env.sh, fetched at a fixed commit when the checkout has no copy).
+  BASH_ENV: '$({ w="${GITHUB_WORKSPACE:-/nonexistent}/scripts/ci/api_call_log/env.sh"; t="${RUNNER_TEMP:-/nonexistent}/api-call-log-src"; if [ -f "$w" ]; then echo "$w"; elif [ -n "${RUNNER_TEMP:-}" ]; then if [ ! -f "$t/env.sh" ] && [ ! -e "$t.tried" ] && { [ "${RUNNER_OS:-}" = Linux ] || [ "${RUNNER_OS:-}" = macOS ]; } && [ "$(date -u +%Y%m%d%H)" -lt 2026112300 ]; then : > "$t.tried"; mkdir -p "$t.part" && for x in env.sh gh sitecustomize.py isolated.py; do curl -fsSL --max-time 5 -o "$t.part/$x" "https://raw.githubusercontent.com/manaflow-ai/cmux/27647ffd3ae838c63be28ca3e5883dcd68c34518/scripts/ci/api_call_log/$x" || break; done; [ -s "$t.part/isolated.py" ] && mv "$t.part" "$t"; fi; if [ -f "$t/env.sh" ]; then echo "$t/env.sh"; else echo unset BASH_ENV > "$t.off.sh" && echo "$t.off.sh"; fi; fi; } 2>/dev/null)'
+
+jobs:
+  journey:
+    if: github.repository == 'manaflow-ai/cmux'
+    # It holds the cmux-bot App key, so LINUX_RUNNER may only pick a Blacksmith label from this list.
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'blacksmith-4vcpu-ubuntu-2404' }}
+    permissions:
+      actions: write
+      contents: read
+      issues: write
+    # Finding the run (10 min), the wait (the journey's 20 min job plus 20 of queue) and the API retries.
+    timeout-minutes: 70
+    env:
+      # A scheduled job's GitHub API waits stop here and fail loud (scripts/ci/gh_budget_wait.sh).
+      GH_BUDGET_WAIT_MAX_SECONDS: "900"
+    steps:
+      # This commit's GitHub API wait (scripts/ci/gh_budget_wait.sh): every later gh call, and
+      # each github-script step that installs gh_budget_wait.cjs, waits through a rate limit or a
+      # GitHub 5xx under the job's GH_BUDGET_WAIT_MAX_SECONDS, then fails loud.
+      - name: Checkout the GitHub API wait
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+        with:
+          persist-credentials: false
+          ref: ${{ github.sha }}
+          path: .gh-budget-tooling
+          sparse-checkout: |
+            scripts/ci/gh_budget_wait.sh
+            scripts/ci/gh_budget_wait.cjs
+          sparse-checkout-cone-mode: false
+      - name: Wait through GitHub API rate limits and 5xx in this job
+        working-directory: ${{ github.workspace }}
+        run: bash .gh-budget-tooling/scripts/ci/gh_budget_wait.sh --install
+
+      # The cmux-bot installation has its own hourly quota. github.token's is shared with every other workflow,
+      # and one rate-limited 403 on it while finding the run turned main red (run 43897769538); the retries
+      # here last minutes, not the hour it takes that quota to reset. github.token stays the fallback.
+      - name: Mint the cmux-bot token
+        id: cmux-bot-token
+        if: vars.CMUX_BOT_APP_ID != ''
+        continue-on-error: true
+        timeout-minutes: 1
+        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
+        with:
+          app-id: ${{ vars.CMUX_BOT_APP_ID }}
+          private-key: ${{ secrets.CMUX_BOT_APP_KEY }}
+          permission-actions: write
+          permission-contents: read
+          permission-issues: write
+
+      - name: Checkout the dispatcher script
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 1
+          persist-credentials: false
+          sparse-checkout: |
+            scripts/ci/executor_journey_dispatch.mjs
+            scripts/ci/cloud_chat_proof_dispatch.mjs
+          sparse-checkout-cone-mode: false
+
+      - name: Start the Executor journey on staging and wait for its verdict
+        uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9.0.0
+        with:
+          github-token: ${{ steps.cmux-bot-token.outputs.token || github.token }}
+          script: |
+            if (process.env.GH_BUDGET_WAIT_JS) require(process.env.GH_BUDGET_WAIT_JS).install({ github, core });
+            const { owner, repo } = context.repo;
+            // GITHUB_RUN_ATTEMPT, not context: a rerun must never find the run an earlier attempt started.
+            const requestId = `nightly-${context.runId}-${process.env.GITHUB_RUN_ATTEMPT}`;
+            const journey = await import(`${process.env.GITHUB_WORKSPACE}/scripts/ci/executor_journey_dispatch.mjs`);
+            const result = await journey.prove({ github, owner, repo, requestId, log: core.info });
+            core.notice(`Executor journey on staging: ${result.verdict} ${result.where}`);
+            await journey.report({ github, owner, repo, ...result, log: core.info });
+            if (!result.green) core.setFailed(`Executor journey ${result.verdict}`);

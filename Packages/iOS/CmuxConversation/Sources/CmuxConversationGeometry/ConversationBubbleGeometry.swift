@@ -1,8 +1,12 @@
+<<<<<<< HEAD
 #if canImport(CoreGraphics)
 import CoreGraphics
 #else
 import Foundation
 #endif
+=======
+import CoreGraphics
+>>>>>>> origin/main
 
 /// The Messages bubble outline, shared by the iOS and macOS surfaces. Paths
 /// use top-left-origin coordinates (UIKit, or a flipped AppKit view).
@@ -21,7 +25,10 @@ public enum ConversationBubbleGeometry {
         case macOS
     }
 
+<<<<<<< HEAD
     #if canImport(CoreGraphics)  // CGPath: Apple only (the Linux CI package build skips it)
+=======
+>>>>>>> origin/main
     /// `rect` includes the tail area on `side` whether or not a tail is drawn,
     /// so tailed and tailless bubbles in a run share one body edge. A tailed
     /// bubble also draws `iOSTailDrop(radius:)` below `rect`; `tailDrop` is
@@ -40,7 +47,10 @@ public enum ConversationBubbleGeometry {
         if side == .leading { body.origin.x += tailWidth }
         return iOSPath(in: body, side: side, tail: tail, radius: radius)
     }
+<<<<<<< HEAD
     #endif
+=======
+>>>>>>> origin/main
 
     // MARK: iOS 26 outline
 
@@ -61,7 +71,10 @@ public enum ConversationBubbleGeometry {
         6.8337 * radius / iOSReferenceRadius
     }
 
+<<<<<<< HEAD
     #if canImport(CoreGraphics)  // CGPath: Apple only (the Linux CI package build skips it)
+=======
+>>>>>>> origin/main
     /// The iOS 26 Messages outline for a body of `rect`: ChatKit's continuous
     /// corners (`radius` is half a single-line bubble's height) and, when
     /// `tail` is set, the tail tucked inside the body's bottom corner on
@@ -74,7 +87,10 @@ public enum ConversationBubbleGeometry {
             : CGAffineTransform(translationX: rect.minX, y: rect.minY)
         return local.copy(using: &transform) ?? local
     }
+<<<<<<< HEAD
     #endif
+=======
+>>>>>>> origin/main
 
     /// Distances along one axis of a ChatKit continuous corner, in units of
     /// the radius. A side long enough for the full corner (1.52866 r per
@@ -115,7 +131,10 @@ public enum ConversationBubbleGeometry {
         CGPoint(x: -20.493, y: 0.196), CGPoint(x: -21.122, y: 0.020), CGPoint(x: -22.228, y: 0.013),
     ]
 
+<<<<<<< HEAD
     #if canImport(CoreGraphics)  // CGPath: Apple only (the Linux CI package build skips it)
+=======
+>>>>>>> origin/main
     /// Body spans x in [0, width] and y in [0, height], drawn clockwise in
     /// top-left-origin coordinates. With `tail`, the bottom-trailing corner
     /// is replaced by the tail, which stays inside the body's width.
@@ -148,7 +167,10 @@ public enum ConversationBubbleGeometry {
         p.closeSubpath()
         return p
     }
+<<<<<<< HEAD
     #endif
+=======
+>>>>>>> origin/main
 }
 
 /// Where "Select"'s edit menu points: Messages hangs it under the selected

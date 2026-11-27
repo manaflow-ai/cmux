@@ -210,12 +210,18 @@ pub(super) fn run(mut global: GlobalArgs, plan: ServerPlan) -> i32 {
     }
     let stream = match cmux_tui_core::server::connect_session_socket(&socket, socket_is_derived) {
         Ok(stream) => stream,
+<<<<<<< ours
         Err(error) if restart && is_absent(&error) => {
             return ensure_after_stop(expected_session, None);
         }
         Err(error) if matches!(action, ServerAction::Stop { .. }) && is_absent(&error) => {
             // A start lock an earlier owner left goes too.
             let removed = remove_start_lock(&socket);
+=======
+        Err(error) if matches!(plan.action, ServerAction::Stop { .. }) && is_absent(&error) => {
+            // A start lock an earlier owner left goes too.
+            let removed = remove_start_lock(&socket);
+>>>>>>> theirs
             return print_success(
                 json!({
                     "status":"not_running",
@@ -553,6 +559,7 @@ pub(super) fn run(mut global: GlobalArgs, plan: ServerPlan) -> i32 {
             if let Err(message) = wait_for_close(&mut connection, deadline) {
                 return local_error("server.stop_incomplete", &message, global.output, 3);
             }
+<<<<<<< ours
             if let Some(launch) = launch {
                 // The old owner closes its socket before it exits; the new
                 // owner starts once the old process is gone.
@@ -765,7 +772,16 @@ impl StopWait<'_> {
             OutputMode::Json | OutputMode::JsonLines => writeln!(
                 stderr,
                 "{}",
+=======
+            // A running owner never holds the start lock (only a bind does),
+            // and the owner already closed its socket: remove the lock now.
+            // No pid wait: a parent that has not reaped the owner keeps a
+            // zombie, and kill(pid, 0) succeeds for a zombie.
+            let removed = remove_start_lock(&socket);
+            print_success(
+>>>>>>> theirs
                 json!({
+<<<<<<< ours
                     "progress": "restoring",
                     "session": self.session,
                     "phase": phase.name(),
@@ -792,6 +808,18 @@ impl StopWait<'_> {
         let (force, end_terminals, if_idle) = self.retry_flags;
         if force {
             retry.push_str(" --force");
+=======
+                    "status":"stopped",
+                    "accepted":true,
+                    "session":actual_session,
+                    "pid":pid,
+                    "generation":generation,
+                    "removed":removed,
+                    "message":crate::localization::catalog().local_server.stopped,
+                }),
+                global.output,
+            )
+>>>>>>> theirs
         }
         if end_terminals {
             retry.push_str(" --end-terminals");
@@ -1234,6 +1262,20 @@ fn exchange_io_error(error: std::io::Error) -> ExchangeError {
         ExchangeError::Closed
     } else {
         ExchangeError::Transport
+    }
+}
+
+/// After a stop, removes what only a running owner needs: the socket's
+/// start lock (`<socket>.spawn-lock`, cmux-tui-core
+/// `remove_socket_start_lock`). The session's saved state stays
+/// (`cmux session <name> reset-state` removes it). Returns the removed path,
+/// or none when there is no lock file or a start holds it for 500 ms.
+fn remove_start_lock(socket: &std::path::Path) -> Vec<String> {
+    let lock = cmux_tui_core::server::socket_start_lock_path(socket);
+    let deadline = Instant::now() + Duration::from_millis(500);
+    match cmux_tui_core::server::remove_socket_start_lock(socket, deadline) {
+        Ok(true) => vec![lock.display().to_string()],
+        Ok(false) | Err(_) => Vec::new(),
     }
 }
 

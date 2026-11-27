@@ -59,7 +59,11 @@ final class ConversationPhotoSheetController: UIViewController, PHPickerViewCont
     override func viewDidLoad() {
         super.viewDidLoad()
         // Messages' sheet: the elevated system background (28,28,30 dark).
+<<<<<<< HEAD
         view.backgroundColor = UIColor.resolving { traits in
+=======
+        view.backgroundColor = UIColor { traits in
+>>>>>>> origin/main
             UIColor.systemBackground.resolvedColor(with: traits.modifyingTraits { $0.userInterfaceLevel = .elevated })
         }
         view.accessibilityIdentifier = "conversation.photoDrawer"
@@ -113,14 +117,20 @@ final class ConversationPhotoSheetController: UIViewController, PHPickerViewCont
         view.insertSubview(picker.view, belowSubview: grabberStrip)
         picker.didMove(toParent: self)
         self.picker = picker
+<<<<<<< HEAD
         // motion: allow crossfade, the Reduce Motion form
+=======
+>>>>>>> origin/main
         UIView.animate(withDuration: 0.25) { picker.view.alpha = 1 }
     }
 
     private func hidePicker() {
         guard let picker else { return }
         self.picker = nil
+<<<<<<< HEAD
         // motion: allow crossfade, the Reduce Motion form
+=======
+>>>>>>> origin/main
         UIView.animate(withDuration: 0.25) {
             picker.view.alpha = 0
         } completion: { _ in

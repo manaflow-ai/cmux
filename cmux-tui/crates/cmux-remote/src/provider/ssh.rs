@@ -17,8 +17,12 @@ use crate::provider::{
     ProviderCapabilities, ProviderError, SupportedClientAuthModes, TransportProvider,
     sanitized_route,
 };
+<<<<<<< ours
 use crate::ssh_args::background_ssh_arguments;
 use crate::ssh_control::{SshConnectionShare, SshTarget};
+=======
+use crate::ssh_args::carrier_ssh_arguments;
+>>>>>>> theirs
 
 const SSH_GRACEFUL_CLOSE_TIMEOUT: Duration = Duration::from_secs(2);
 /// ssh's ConnectTimeout for a redial (any open after the first). Short, so a
@@ -322,8 +326,18 @@ impl LinkGroup for SshLinkGroup {
         extra_args.extend(self.connect_timeout_args(request.generation).await);
         extra_args.extend(self.config.extra_args.iter().cloned());
         let mut command = Command::new(&self.config.ssh_binary);
+<<<<<<< ours
+=======
+        // The remote-link run that starts the remote daemon passes its agent
+        // socket and display to the shells, and any carrier may be that run,
+        // so agent and X11 forwarding stay as configured.
+>>>>>>> theirs
         command
+<<<<<<< ours
             .args(background_ssh_arguments(self.port, &extra_args, &self.destination))
+=======
+            .args(carrier_ssh_arguments(self.port, &self.config.extra_args, &self.destination))
+>>>>>>> theirs
             .args(remote_link_command(&self.config));
         // stderr is always read, for the banner timeout; uncaptured, every
         // byte still goes on to this process's stderr as ssh wrote it.
@@ -601,5 +615,201 @@ fn validate_remote_word(value: &str) -> Result<(), ProviderError> {
 }
 
 #[cfg(test)]
+<<<<<<< ours
 #[path = "ssh_tests.rs"]
 mod tests;
+=======
+mod tests {
+    use super::*;
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn close_lets_the_remote_command_observe_eof_before_reaping_ssh() {
+        let directory = tempfile::tempdir().unwrap();
+        let outcome = directory.path().join("outcome");
+        let mut command = Command::new("/bin/sh");
+        command
+            .args(["-c", "cat >/dev/null; printf graceful > \"$CMUX_TEST_OUTCOME\""])
+            .env("CMUX_TEST_OUTCOME", &outcome)
+            .stdin(Stdio::piped())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::null())
+            .kill_on_drop(true);
+        let mut child = command.spawn().unwrap();
+        let stdin = child.stdin.take().unwrap();
+        let stdout = child.stdout.take().unwrap();
+        let link = SshProcessLink {
+            inner: LengthDelimitedLink::new("ssh://test", 1024, stdout, stdin),
+            child: Mutex::new(Some(child)),
+        };
+
+        link.close().await.unwrap();
+
+        assert_eq!(std::fs::read_to_string(outcome).unwrap(), "graceful");
+    }
+
+    /// Runs `open` with a fake `ssh` that records its argv, and returns it.
+    #[cfg(unix)]
+    async fn carrier_argv(extra_args: &[&str]) -> Vec<String> {
+        let directory = tempfile::tempdir().unwrap();
+        let log = directory.path().join("argv");
+        let script = directory.path().join("ssh");
+        cmux_test_exec::write_executable(
+            &script,
+            format!("#!/bin/sh\nprintf '%s\\n' \"$@\" > '{}'\n", log.display()),
+        )
+        .unwrap();
+        let group = SshLinkGroup {
+            description: "ssh://example.com:2222".into(),
+            destination: "alice@example.com".into(),
+            port: Some(2222),
+            config: SshProviderConfig {
+                ssh_binary: script.to_string_lossy().into_owned(),
+                extra_args: extra_args.iter().map(|argument| (*argument).to_owned()).collect(),
+                ..SshProviderConfig::default()
+            },
+            evidence: CarrierEvidence::Ssh { destination: "ssh://example.com:2222".into() },
+            closed: AtomicBool::new(false),
+        };
+
+        let link = group
+            .open(LinkRequest { lane: cmux_remote_protocol::Lane::Interactive, generation: 1 })
+            .await
+            .unwrap();
+        link.close().await.unwrap();
+        std::fs::read_to_string(&log).unwrap().lines().map(str::to_owned).collect()
+    }
+
+    #[cfg(unix)]
+    fn expected_carrier_argv(extra_args: &[&str]) -> Vec<String> {
+        ["-T", "-p", "2222"]
+            .iter()
+            .chain(extra_args)
+            .chain(&[
+                "--",
+                "alice@example.com",
+                "~/.local/bin/cmux-tui",
+                "remote-link",
+                "--stdio",
+                "--session",
+                "main",
+            ])
+            .map(|argument| (*argument).to_owned())
+            .collect()
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn provider_link_uses_hardened_ssh_argv() {
+        let extra = ["-o", "ControlMaster=auto"];
+        assert_eq!(carrier_argv(&extra).await, expected_carrier_argv(&extra));
+    }
+
+    /// The remote-link run that starts the remote daemon passes its
+    /// `SSH_AUTH_SOCK` and `DISPLAY` to the shells, so a carrier keeps agent
+    /// and X11 forwarding as configured even when it can't become the shared
+    /// master. The app passes `ControlPath=none` in place of a ControlPath from
+    /// the user's ssh_config when an agent socket is set, and
+    /// `ControlMaster=no` when the route has no identity
+    /// (https://github.com/manaflow-ai/cmux/issues/24542). Port forwards from
+    /// ssh_config are still cleared then, since every carrier to the host would
+    /// try to bind them, but a carrier's own `-L` stays.
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn provider_link_keeps_agent_forwarding_without_a_shared_master() {
+        for extra in [
+            &["-o", "ControlMaster=auto", "-o", "ControlPersist=yes", "-o", "ControlPath=none"][..],
+            &["-o", "ControlMaster=no", "-o", "ControlPath=none", "-A"],
+        ] {
+            let mut expected = vec!["-o", "ClearAllForwardings=yes"];
+            expected.extend(extra);
+            assert_eq!(carrier_argv(extra).await, expected_carrier_argv(&expected), "{extra:?}");
+        }
+        for extra in [
+            &["-o", "ControlMaster=no", "-A", "-L", "8080:localhost:80"][..],
+            // A caller that turns forwarding off itself, like the managed
+            // machine rail, keeps its options first.
+            &[
+                "-o",
+                "ForwardAgent=no",
+                "-o",
+                "ForwardX11=no",
+                "-o",
+                "ClearAllForwardings=yes",
+                "-o",
+                "ControlMaster=no",
+            ],
+        ] {
+            assert_eq!(carrier_argv(extra).await, expected_carrier_argv(extra), "{extra:?}");
+        }
+    }
+
+    #[test]
+    fn remote_link_command_requests_agent_hooks_only_when_configured() {
+        let mut config = SshProviderConfig::default();
+        assert_eq!(
+            remote_link_command(&config),
+            ["~/.local/bin/cmux-tui", "remote-link", "--stdio", "--session", "main"]
+        );
+        config.remote_state_dir = Some("~/state".into());
+        config.agent_hooks = vec!["claude".into(), "codex".into()];
+        assert_eq!(
+            remote_link_command(&config),
+            [
+                "~/.local/bin/cmux-tui",
+                "remote-link",
+                "--stdio",
+                "--session",
+                "main",
+                "--state-dir",
+                "~/state",
+                "--agent-hooks",
+                "claude,codex",
+            ]
+        );
+    }
+
+    #[test]
+    fn agent_hook_providers_must_be_plain_words() {
+        for provider in ["claude", "codex", "hermes-agent"] {
+            let config = SshProviderConfig {
+                agent_hooks: vec![provider.into()],
+                ..SshProviderConfig::default()
+            };
+            assert!(SshProvider::new(config).is_ok(), "{provider}");
+        }
+        for provider in ["", "a,b", "claude;rm", "$(x)", "a b"] {
+            let config = SshProviderConfig {
+                agent_hooks: vec![provider.into()],
+                ..SshProviderConfig::default()
+            };
+            assert!(SshProvider::new(config).is_err(), "{provider:?}");
+        }
+    }
+
+    #[test]
+    fn destination_preserves_user_for_dial_but_description_redacts_it() {
+        let endpoint = url::Url::parse("ssh://alice@example.com:2222").unwrap();
+        let (destination, description) = ssh_destination(&endpoint).unwrap();
+        assert_eq!(destination, "alice@example.com");
+        assert_eq!(description, "ssh://example.com:2222");
+    }
+
+    #[test]
+    fn ipv6_destination_uses_openssh_form_and_bracketed_url() {
+        let endpoint = url::Url::parse("ssh://[2001:db8::1]:2222").unwrap();
+        let (destination, description) = ssh_destination(&endpoint).unwrap();
+        assert_eq!(destination, "2001:db8::1");
+        assert_eq!(description, "ssh://[2001:db8::1]:2222");
+    }
+
+    #[test]
+    fn option_like_destination_is_rejected_before_group_construction() {
+        let endpoint = url::Url::parse("ssh://-Fvalidation@localhost").unwrap();
+        let error = ssh_destination(&endpoint).unwrap_err();
+        assert!(
+            matches!(error, ProviderError::Configuration(message) if message.contains("destination"))
+        );
+    }
+}
+>>>>>>> theirs

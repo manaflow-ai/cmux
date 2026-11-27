@@ -24493,6 +24493,7 @@
     "Only a view detached by detach-client can be reattached."
    ]
   },
+<<<<<<< HEAD
   "set-terminal-command-history": {
    "authority": "local-admin",
    "since": 12,
@@ -29699,6 +29700,12 @@
    "authority": "control",
    "since": 12,
    "capability": "remote-terminal-tabs-v1",
+=======
+  "ack-tab-notifications": {
+   "authority": "control",
+   "since": 12,
+   "capability": null,
+>>>>>>> origin/main
    "request": {
     "kind": "object",
     "fields": {
@@ -29721,6 +29728,7 @@
    "constraints": [
     "See spec/commands.md for the result object."
    ]
+<<<<<<< HEAD
   },
   "get-host-size-policy": {
    "authority": "control",
@@ -29899,6 +29907,8 @@
     "chief names an existing Chief record; the server resolves its configured brain home and acpmux ownership tags. Peer sessions and other Chiefs are excluded. Tasks cover the harness process registry only (taskSources: [harness]); daemon-owned bg tasks keep their separate person-proof gate.",
     "One on-demand snapshot, no subscription or polling. Reads share a 15-second deadline, at most 200 owned sessions and 500 commands; truncated reports bounds. Failed or malformed reads reject with chief.work_unavailable instead of returning empty or partial success. A machine without this Chief home returns chief.work_not_configured; an unknown Chief returns chief.work_not_found. See spec/commands.md."
    ]
+=======
+>>>>>>> origin/main
   }
  },
  "events": {

@@ -16,8 +16,11 @@ final class ComposerAttachmentShelf: UIView {
 
     /// A preview's remove button was tapped.
     var onRemove: ((UUID) -> Void)?
+<<<<<<< HEAD
     /// A preview was tapped (outside its remove button): open it, from its view.
     var onOpen: ((UUID, UIView) -> Void)?
+=======
+>>>>>>> origin/main
 
     let strip = UIScrollView()
     let divider = UIView()
@@ -38,12 +41,20 @@ final class ComposerAttachmentShelf: UIView {
     }
 
     /// Light: black at 12 % (222 on 254); dark: white at 13 % (63 on 33).
+<<<<<<< HEAD
     static let dividerColor = UIColor.resolving { traits in
+=======
+    static let dividerColor = UIColor { traits in
+>>>>>>> origin/main
         traits.userInterfaceStyle == .dark ? UIColor(white: 1, alpha: 0.13) : UIColor(white: 0, alpha: 0.12)
     }
 
     /// The remove disc: an opaque neutral gray, 83 in light and 97 in dark.
+<<<<<<< HEAD
     static let removeDiscColor = UIColor.resolving { traits in
+=======
+    static let removeDiscColor = UIColor { traits in
+>>>>>>> origin/main
         traits.userInterfaceStyle == .dark
             ? UIColor(red: 97 / 255, green: 97 / 255, blue: 98 / 255, alpha: 1)
             : UIColor(red: 83 / 255, green: 83 / 255, blue: 84 / 255, alpha: 1)
@@ -178,7 +189,11 @@ final class ComposerAttachmentShelf: UIView {
 
     /// Light 156 gray, dark 68 gray: the disc of the clear button Messages
     /// flashes when the shelf opens.
+<<<<<<< HEAD
     static let clearFlashColor = UIColor.resolving { traits in
+=======
+    static let clearFlashColor = UIColor { traits in
+>>>>>>> origin/main
         UIColor(white: traits.userInterfaceStyle == .dark ? 68 / 255 : 156 / 255, alpha: 1)
     }
 
@@ -229,6 +244,7 @@ final class ComposerAttachmentShelf: UIView {
         blurred.alpha = 0
         exit.insertSubview(blurred, belowSubview: sharp)
         let delay = Motion.removalDelay
+<<<<<<< HEAD
         if UIView.reducesMotion {
             // Reduce Motion: no jump to the first slot, no blur or shrink;
             // the preview fades out where it is.
@@ -243,12 +259,20 @@ final class ComposerAttachmentShelf: UIView {
         if frame.origin != current.origin {
             // The last of several jumps to the first slot as its exit starts.
             UIView.animateUnlessReduceMotion(withDuration: 0.001, delay: delay, options: []) {
+=======
+        if frame.origin != current.origin {
+            // The last of several jumps to the first slot as its exit starts.
+            UIView.animate(withDuration: 0.001, delay: delay, options: []) {
+>>>>>>> origin/main
                 exit.center = CGPoint(x: frame.midX, y: frame.midY)
             }
         }
         // Under the fading sharp photo, the blurred one comes up at once, so
         // the preview stays opaque while it blurs; the whole fades on the spring.
+<<<<<<< HEAD
         // motion: allow crossfade, the Reduce Motion form
+=======
+>>>>>>> origin/main
         UIView.animate(withDuration: Motion.exitBlurRamp, delay: delay, options: [.curveLinear]) {
             blurred.alpha = 1
         }
@@ -308,6 +332,7 @@ final class ComposerAttachmentShelf: UIView {
         item.removeButton.accessibilityLabel = String(localized: "conversation.composer.removeAttachment", defaultValue: "Remove attachment", bundle: .module)
         item.removeButton.addAction(UIAction { [weak self] _ in self?.onRemove?(id) }, for: .touchUpInside)
         item.view.addSubview(item.removeButton)
+<<<<<<< HEAD
         // A tap on the preview opens it in Quick Look before it is sent.
         let open = UITapGestureRecognizer(target: self, action: #selector(previewTapped(_:)))
         item.view.addGestureRecognizer(open)
@@ -325,15 +350,26 @@ final class ComposerAttachmentShelf: UIView {
         onOpen?(item.id, item.imageView)
     }
 
+=======
+        return item
+    }
+
+>>>>>>> origin/main
     private func styleCorners(_ item: Item) {
         item.imageView.layer.cornerRadius = previewCornerRadius
         item.imageView.layer.cornerCurve = .continuous
     }
 
+<<<<<<< HEAD
     /// Messages' shelf spring: critically damped, 0.345 s response. Under
     /// Reduce Motion the change lands at once (completion still runs).
     static func animate(delay: TimeInterval = 0, _ animations: @escaping () -> Void, completion: (() -> Void)? = nil) {
         UIView.animateUnlessReduceMotion(
+=======
+    /// Messages' shelf spring: critically damped, 0.345 s response.
+    static func animate(delay: TimeInterval = 0, _ animations: @escaping () -> Void, completion: (() -> Void)? = nil) {
+        UIView.animate(
+>>>>>>> origin/main
             springDuration: Motion.springResponse, bounce: 0, initialSpringVelocity: 0, delay: delay,
             options: [.beginFromCurrentState, .allowUserInteraction],
             animations: animations, completion: { _ in completion?() }

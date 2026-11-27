@@ -112,6 +112,35 @@ class LinuxGuardRoutingTests(unittest.TestCase):
             duplicates = sorted({key for key in keys if keys.count(key) > 1})
             self.assertEqual(duplicates, [], (name, duplicates))
 
+<<<<<<< HEAD
+=======
+    def test_cloud_machine_workflow_skips_macos_for_control_plane_only_prs(self):
+        workflow_path = ROOT / ".github/workflows/cloud-machine-tests.yml"
+        workflow = workflow_path.read_text(encoding="utf-8")
+        changes = workflow_job_block("changes", workflow_path)
+        lifecycle = workflow_job_block("lifecycle", workflow_path)
+
+        self.assertIn("uses: ./.github/workflows/resolve-dispatch-ref.yml", workflow)
+        self.assertIn(
+            "ref: ${{ inputs.ref }}",
+            workflow_job_block("resolve-ref", workflow_path),
+        )
+        # A Linux runner: the persistent pool label same-repository jobs name (#47956), or Blacksmith.
+        self.assertTrue("'cmux-linux'" in changes or "blacksmith-4vcpu-ubuntu-2404" in changes, changes)
+        self.assertIn("Detect cloud-machine package changes", changes)
+        self.assertIn("/pulls/{pr_number}/files?per_page=100&page={page}", changes)
+        self.assertIn('startswith("Packages/macOS/CmuxCloudMachines/")', changes)
+        self.assertNotIn("actions/checkout", changes)
+        self.assertIn("pull-requests: read", workflow)
+        self.assertIn("needs: [changes, resolve-ref]", lifecycle)
+        self.assertIn(
+            "if: ${{ needs.changes.outputs.should_run == 'true' }}",
+            lifecycle,
+        )
+        self.assertIn("ref: ${{ needs.resolve-ref.outputs.sha }}", lifecycle)
+        self.assertNotIn("inputs.ref || github.ref", workflow)
+
+>>>>>>> origin/main
     def test_ios_shell_ui_test_only_change_skips_macos(self):
         actual = module.classify_files([
             "Packages/iOS/CmuxMobileShellUI/Tests/CmuxMobileShellUITests/WorkspaceListScrollUpdateTests.swift"
@@ -165,13 +194,13 @@ class LinuxGuardRoutingTests(unittest.TestCase):
 
     def test_testflight_change_routes_only_observing_test_groups(self):
         outputs, groups = route_decision([
-            ".github/workflows/ios-testflight.yml",
             "ios/scripts/upload-testflight.sh",
             "tests/test_ios_appstore_lane_identity.py",
         ])
         # ci-guards.yml shows workflow-guard-tests running the TestFlight lane
-        # identity test, and PATH_OWNERS declares the other two as its indirect
-        # inputs. No history, CLI, or source-lint step reads any of them.
+        # identity test, and PATH_OWNERS declares the upload script as its
+        # indirect input. No history, CLI, or source-lint step reads either.
+        # (The retired ios-testflight.yml used to add preflight and ci here.)
         self.assertEqual(outputs, {
             "linux_guard_tests": "true", "linux_guard_history": "false",
             "linux_guard_cli": "false", "linux_guard_source": "false",
@@ -180,7 +209,7 @@ class LinuxGuardRoutingTests(unittest.TestCase):
         })
         self.assertEqual(
             groups,
-            ("preflight", "ci", "release-ios", "quality-determinism"),
+            ("release-ios", "quality-determinism"),
         )
 
     def test_unknown_and_policy_inputs_fail_open_to_every_test_group(self):

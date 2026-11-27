@@ -73,7 +73,11 @@ final class FieldChrome: NSView {
             // White on dark glass, black on light glass (light Messages capture, 2026-10-09).
             b.contentTintColor = NSColor(name: nil) { $0.bestMatch(from: [.darkAqua, .aqua]) == .aqua ? .black : .white }
             b.setAccessibilityLabel(label)
+<<<<<<< HEAD
             b.setHomeToolTip(label)  // cmux: the host's themed tooltip (HomeToolTip.swift)
+=======
+            b.toolTip = label
+>>>>>>> origin/main
             b.target = self
             b.action = sel
             g.contentView = b
@@ -95,7 +99,11 @@ final class FieldChrome: NSView {
     /// the text view.
     override func hitTest(_ point: NSPoint) -> NSView? {
         let p = convert(point, from: superview)
+<<<<<<< HEAD
         for g in [plusGlass, emojiGlass] where !g.isHidden && g.frame.contains(p) { return g.contentView }  // cmux: not a hidden button
+=======
+        for g in [plusGlass, emojiGlass] where g.frame.contains(p) { return g.contentView }
+>>>>>>> origin/main
         if pressTarget != nil, field.contentView === pressSensor, field.frame.contains(p) { return pressSensor }
         return nil
     }
@@ -220,12 +228,16 @@ final class FieldChrome: NSView {
         keyFix.emoji.place(snap(emojiGlass.frame.insetBy(dx: -0.5, dy: 0)))
     }
     /// Key state, appearance or scale changed: the correction shows only where it was measured.
+<<<<<<< HEAD
     func updateKeyFix() {
         keyFix.update(window: window)
         // cmux: a hidden button keeps its rim hidden too (a narrow pane, ComposeChromeLayout).
         if plusGlass.isHidden { keyFix.plus.show(false) }
         if emojiGlass.isHidden { keyFix.emoji.show(false) }
     }
+=======
+    func updateKeyFix() { keyFix.update(window: window) }
+>>>>>>> origin/main
     private var keyFixObservers: [NSObjectProtocol] = []
     override func viewDidMoveToWindow() {
         super.viewDidMoveToWindow()
@@ -250,6 +262,7 @@ final class FieldChrome: NSView {
         for l in keyFix.field.layers { l.opacity = hidden ? 0 : 1 }
     }
 
+<<<<<<< HEAD
     /// cmux: a nil button rect hides that button (a narrow pane, ComposeChromeLayout): its glass, its
     /// click and its key-window rim go with it.
     func place(field f: CGRect, plus p: CGRect?, emoji e: CGRect?) {
@@ -261,6 +274,13 @@ final class FieldChrome: NSView {
         }
         placeKeyFix()
         if shownChanged { updateKeyFix() }
+=======
+    func place(field f: CGRect, plus p: CGRect, emoji e: CGRect) {
+        follow(field: f)
+        if plusGlass.frame != p { plusGlass.frame = p }
+        if emojiGlass.frame != e { emojiGlass.frame = e }
+        placeKeyFix()
+>>>>>>> origin/main
     }
 
     /// Model geometry (no animation), unless an animation is moving there.
@@ -497,7 +517,11 @@ final class TapbackPickerView: NSView {
             b.target = self
             b.action = #selector(tapped(_:))
             b.setAccessibilityLabel(label)
+<<<<<<< HEAD
             b.setHomeToolTip(label)  // cmux: the host's themed tooltip (HomeToolTip.swift)
+=======
+            b.toolTip = label
+>>>>>>> origin/main
             b.widthAnchor.constraint(equalToConstant: Self.pitch).isActive = true
             b.heightAnchor.constraint(equalToConstant: Self.size.height).isActive = true
             stack.addArrangedSubview(b)
@@ -620,6 +644,7 @@ final class InlineEditor: NSView {
 extension FieldChrome {
     /// Compose glyphs, fitted to the lossless stills: plus and emoji 15.5 pt medium.
     static let glyphConfig = NSImage.SymbolConfiguration(pointSize: 15.5, weight: .medium)
+<<<<<<< HEAD
     /// cmux: the emoji button glyph: the public SF Symbol `face.smiling.inverse`, the closest public
     /// match to Messages' private `emoji.face.grinning`. Never a CoreGlyphsPrivate image: a
     /// configured variant of a symbol the public catalog lacks aborts AppKit on macOS 27.3
@@ -627,6 +652,15 @@ extension FieldChrome {
     /// `tinted` bakes white in (layer drawing); the button tints it itself.
     static func emojiGlyph(tinted: Bool = true) -> NSImage? {
         let base = NSImage(systemSymbolName: "face.smiling.inverse", accessibilityDescription: nil)
+=======
+    /// Messages' emoji button glyph: the private SF Symbol `emoji.face.grinning`
+    /// (CoreGlyphsPrivate.bundle, a named symbol image; README: Glyphs). Falls back to
+    /// the public `face.smiling.inverse`. `tinted` bakes white in (layer drawing);
+    /// the button tints it itself.
+    static func emojiGlyph(tinted: Bool = true) -> NSImage? {
+        let base = Bundle(path: "/System/Library/CoreServices/CoreGlyphsPrivate.bundle")?.image(forResource: "emoji.face.grinning")
+            ?? NSImage(systemSymbolName: "face.smiling.inverse", accessibilityDescription: nil)
+>>>>>>> origin/main
         guard let img = base?.withSymbolConfiguration(glyphConfig) else { return nil }
         guard tinted else { return img }
         return NSImage(size: img.size, flipped: false) { r in

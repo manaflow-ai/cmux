@@ -105,6 +105,7 @@ public final class HomeStoreBinding {
         await opening?.value
     }
 
+<<<<<<< HEAD
     /// Returns once there is something to draw: the first page is in (`opened()`), or the owner
     /// named the conversation with no messages yet (`lastSeq` 0, a Chief conversation it just
     /// made), whichever comes first. An empty conversation's front page draws from its summary
@@ -136,6 +137,8 @@ public final class HomeStoreBinding {
         }
     }
 
+=======
+>>>>>>> origin/main
     /// Cancels my pending send `key` (an upload, a queued send or a failed
     /// one; `HomeController.cancellableSend` says when it can). The row leaves
     /// the transcript. Returns false when the store could not cancel it.
@@ -229,7 +232,11 @@ public final class HomeStoreBinding {
                 // Refused before it reached the log (a duplicate, or a stopped
                 // store; a send made offline waits for the reconnect instead):
                 // give the text back. A logged refusal stays as "Not Delivered".
+<<<<<<< HEAD
                 guard case .sendMessage(let id, _, _, _) = intent.op else {
+=======
+                guard case .sendMessage(let id, _, _) = intent.op else {
+>>>>>>> origin/main
                     if let self, !self.stopped { self.onRefusal(intent, rejection) }
                     return
                 }
@@ -267,6 +274,7 @@ struct HomeFetchLoader: HomeAttachmentLoader {
         try await fetch(ref, .original)
     }
 }
+<<<<<<< HEAD
 
 /// The one end of `HomeStoreBinding.firstDrawable()`: the first of its two ends to finish wins.
 @MainActor
@@ -286,3 +294,5 @@ private final class HomeFirstDrawable {
         waiter = nil
     }
 }
+=======
+>>>>>>> origin/main

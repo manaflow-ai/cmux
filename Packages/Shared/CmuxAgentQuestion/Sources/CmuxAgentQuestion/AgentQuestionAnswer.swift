@@ -1,5 +1,8 @@
+<<<<<<< HEAD
 public import Foundation
 
+=======
+>>>>>>> origin/main
 /// A person's answer to an `AgentQuestion`, harness-neutral: one selection
 /// per item, plus who answered and from which device.
 public struct AgentQuestionAnswer: Hashable, Sendable, Codable {
@@ -154,6 +157,7 @@ extension AgentQuestion {
 }
 
 extension AgentQuestion {
+<<<<<<< HEAD
     /// The answer an owner recorded for this question, read back from the harness-shaped
     /// `answers` it put into the tool's input (what `reply(_:)` sends) or, for an ACP
     /// question, from the chosen option. The inverse of `reply(_:)`: a client that did not
@@ -215,6 +219,8 @@ extension AgentQuestion {
 }
 
 extension AgentQuestion {
+=======
+>>>>>>> origin/main
     /// The question answered with `answer`, as an owner commits it: the
     /// answer must be valid (`problems`), the respondent and time come from
     /// the owner. Option ids keep the items' order.

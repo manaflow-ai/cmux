@@ -1,6 +1,10 @@
+<<<<<<< HEAD
 #if canImport(AVFoundation)
 import AVFoundation
 #endif
+=======
+import AVFoundation
+>>>>>>> origin/main
 import Foundation
 
 /// 16-bit mono PCM WAV encoding, the format audio messages travel in here
@@ -34,7 +38,10 @@ public enum ConversationWAV {
         return data
     }
 
+<<<<<<< HEAD
     #if canImport(AVFoundation)
+=======
+>>>>>>> origin/main
     /// Decodes any file AVFoundation reads into mono samples at `sampleRate`.
     public static func decode(contentsOf url: URL, sampleRate: Int = sampleRate) throws -> [Float] {
         let file = try AVAudioFile(forReading: url)
@@ -61,7 +68,10 @@ public enum ConversationWAV {
         guard let channel = output.floatChannelData?[0] else { return [] }
         return Array(UnsafeBufferPointer(start: channel, count: Int(output.frameLength)))
     }
+<<<<<<< HEAD
     #endif
+=======
+>>>>>>> origin/main
 
     /// Peak level per `bucket` of samples, normalized so loud speech nears 1.
     public static func levels(_ samples: [Float], bucket: Int) -> [Float] {
@@ -133,7 +143,10 @@ public struct ConversationRecordedAudio: Sendable {
     public var info: ConversationAudioInfo
 }
 
+<<<<<<< HEAD
 #if canImport(AVFoundation)
+=======
+>>>>>>> origin/main
 /// Records an audio message: live levels for the composer's meter, pause
 /// for review, continue recording, then one WAV. The microphone is the
 /// default input; `CMUX_CONVERSATION_AUDIO_INPUT=synthetic` or a file path
@@ -211,8 +224,11 @@ public final class ConversationAudioRecorder: NSObject {
             replay = try ConversationWAV.decode(contentsOf: url)
         }
         replayOffset = 0
+<<<<<<< HEAD
         // Cancelled while the permission prompt was up: never open the microphone.
         try Task.checkCancellation()
+=======
+>>>>>>> origin/main
         try beginSegment()
     }
 
@@ -522,4 +538,7 @@ public final class ConversationAudioPlayer: NSObject, AVAudioPlayerDelegate {
         }
     }
 }
+<<<<<<< HEAD
 #endif  // canImport(AVFoundation)
+=======
+>>>>>>> origin/main

@@ -26,6 +26,7 @@
 # renamed into place, src/Package/Fetch.zig), so another job's archive is never
 # partial under its final name, and a temp file has no archive suffix and stays.
 #
+<<<<<<< HEAD
 # A second stall in a row sets the whole p/ aside (to p.set-aside/, one copy,
 # replaced each time) and the next attempt seeds every package from the mirror
 # again. Every attempt on fsr runners from 2026-11-24 16:19Z stalled with no output
@@ -34,6 +35,8 @@
 # and the same restored key fetched in seconds on other runners (cmux#54715). A
 # stalled attempt also prints what its processes were waiting on, first.
 #
+=======
+>>>>>>> origin/main
 # usage: fetch-ghostty-zig-packages.sh [ghostty source dir]
 # CMUX_ZIG_FETCH_ATTEMPTS (default 4), CMUX_ZIG_FETCH_STALL_TIMEOUT (seconds
 # without progress, default 180), CMUX_ZIG_FETCH_ATTEMPT_TIMEOUT (seconds an
@@ -43,6 +46,7 @@
 # same 504 on 2026-11-08) and CMUX_ZIG_FETCH_SAMPLE (seconds
 # between progress checks, default 5) bound the retries. CMUX_ZIG_SEED=0 skips
 # the curl pre-download (scripts/ci/seed-zig-package-archives.sh).
+<<<<<<< HEAD
 #
 # The seed puts every package of the source from our mirror
 # (scripts/ci/zig-packages.lock) into Zig's cache first. With
@@ -50,6 +54,8 @@
 # runs with no route to any other host (a proxy that refuses), so a package
 # missing from the mirror fails here, named, instead of being fetched from a
 # third-party host: codeberg.org's outage on 2026-11-11 failed every cold build.
+=======
+>>>>>>> origin/main
 set -euo pipefail
 source_dir="${1:-ghostty-next}"
 attempts="${CMUX_ZIG_FETCH_ATTEMPTS:-4}"
@@ -65,6 +71,7 @@ done
 [[ -f "$source_dir/build.zig.zon" ]] || { echo "error: $source_dir/build.zig.zon not found" >&2; exit 2; }
 zig_bin="${CMUX_ZIG:-zig}"
 script_dir="$(cd "$(dirname "$0")" && pwd)"
+<<<<<<< HEAD
 mirror_only="${CMUX_ZIG_MIRROR_ONLY:-}"
 [[ -n "$mirror_only" ]] || { [[ "${CI:-}" == true ]] && mirror_only=1 || mirror_only=0; }
 export CMUX_ZIG_MIRROR_ONLY="$mirror_only"
@@ -77,6 +84,8 @@ if [[ "$mirror_only" == 1 ]]; then
   zig_env=(-u NO_PROXY -u no_proxy)
   for name in http_proxy https_proxy all_proxy HTTP_PROXY HTTPS_PROXY ALL_PROXY; do zig_env+=("$name=http://127.0.0.1:9"); done
 fi
+=======
+>>>>>>> origin/main
 cd "$source_dir"
 
 marker="$(mktemp "${TMPDIR:-/tmp}/zig-fetch-stopped.XXXXXX")"
@@ -107,9 +116,13 @@ progress() {
 # archive, and Zig fails on it every attempt).
 archive_ok() {
   case "$1" in
+<<<<<<< HEAD
     # Through stdin: GNU tar reads a C:\... path (the Zig cache on a Windows
     # runner) as HOST:FILE, and every archive failed this check there.
     *.tar.gz|*.tgz) local entries; entries="$(tar -tzf - < "$1" 2>/dev/null | wc -l)" && (( entries > 0 )) ;;
+=======
+    *.tar.gz|*.tgz) local entries; entries="$(tar -tzf "$1" 2>/dev/null | wc -l)" && (( entries > 0 )) ;;
+>>>>>>> origin/main
     *.tar.xz) ! command -v xz >/dev/null 2>&1 || xz -t "$1" 2>/dev/null ;;
     *.tar.zst) ! command -v zstd >/dev/null 2>&1 || zstd -tq "$1" 2>/dev/null ;;
     *.zip) ! command -v unzip >/dev/null 2>&1 || unzip -tqq "$1" >/dev/null 2>&1 ;;
@@ -117,6 +130,7 @@ archive_ok() {
   esac
 }
 
+<<<<<<< HEAD
 # Whether archive_ok passes a whole .tar.gz written under the cache's own path
 # (tmp/, which Zig never takes a package from).
 checks_work() {
@@ -128,6 +142,8 @@ checks_work() {
   return "$ok"
 }
 
+=======
+>>>>>>> origin/main
 # After a failed attempt: this checkout's unfinished unpacks, and any archive in
 # p/ that is cut short (one a killed download left, here or in another job).
 # The global cache's tmp/ is shared with other jobs on a reused machine, and
@@ -138,6 +154,7 @@ clear_scratch() {
     if [[ -e "$entry" ]]; then rm -rf "$entry"; fi
   done
   [[ -n "$cache" ]] || return 0
+<<<<<<< HEAD
   # Only an archive's own fault removes it: when the check fails on an archive
   # this script just wrote whole, at the cache's own path, the check is broken
   # here (a tool, a path form), and every archive in p/ would go.
@@ -145,6 +162,8 @@ clear_scratch() {
     echo "warning: the archive check fails on a whole archive under $cache; no archive in p/ is removed" >&2
     return 0
   fi
+=======
+>>>>>>> origin/main
   for entry in "$cache"/p/*; do
     if [[ -f "$entry" ]] && ! archive_ok "$entry"; then
       echo "removing a cut-short Zig package archive: $entry" >&2
@@ -153,6 +172,7 @@ clear_scratch() {
   done
 }
 
+<<<<<<< HEAD
 # What a stalled attempt's processes are doing, before they are stopped: each
 # one's state, the kernel wait it sleeps in, and (Linux) the files it holds, so
 # the next stall names its cause in the log. Best effort, bounded, never fails.
@@ -180,6 +200,8 @@ set_aside_cache() {
   fi
 }
 
+=======
+>>>>>>> origin/main
 # Signal the attempt's process group: TERM, up to 5 s to exit, then KILL.
 stop_group() {
   local pgid=$1
@@ -214,7 +236,11 @@ fetch_once() {
   # Job control gives the background fetch a process group of its own, so a
   # deadline reaches zig and every child it started (bash on Linux and macOS).
   set -m
+<<<<<<< HEAD
   env ${zig_env[@]+"${zig_env[@]}"} "$zig_bin" build --fetch=all &
+=======
+  "$zig_bin" build --fetch=all &
+>>>>>>> origin/main
   local pid=$!
   fetch_pid=$pid
   set +m
@@ -233,7 +259,10 @@ fetch_once() {
         echo "ran past its ${attempt_timeout}s limit" > "$marker"
       fi
       if [[ -s "$marker" ]]; then
+<<<<<<< HEAD
         describe_group "$pid"
+=======
+>>>>>>> origin/main
         stop_group "$pid"
         exit 0
       fi
@@ -262,6 +291,7 @@ fetch_once() {
 # Zig's own HTTP read lacks; Zig then unpacks those from the cache offline.
 # In the background with `wait`: Bash runs a trap only after a foreground command
 # ends, so a TERM to this script would otherwise wait for the seed's deadline.
+<<<<<<< HEAD
 # Before every attempt, not only the first: under mirror only, Zig cannot reach
 # an upstream host, so an archive the seed missed fails every later attempt the
 # same way. The seed skips what is already in the cache, so a retry downloads
@@ -270,15 +300,25 @@ fetch_once() {
 # failed with ConnectionRefused after the Zig package cache was evicted).
 seed() {
   [[ -n "$cache" && "${CMUX_ZIG_SEED:-1}" != 0 ]] || return 0
+=======
+if [[ -n "$cache" && "${CMUX_ZIG_SEED:-1}" != 0 ]]; then
+>>>>>>> origin/main
   "$script_dir/seed-zig-package-archives.sh" "$cache" . &
   seed_pid=$!
   wait "$seed_pid" || true
   seed_pid=""
+<<<<<<< HEAD
 }
 
 attempt=1 stalls=0
 while :; do
   seed
+=======
+fi
+
+attempt=1
+while :; do
+>>>>>>> origin/main
   status=0
   fetch_once || status=$?
   if (( status == 0 )); then
@@ -291,6 +331,7 @@ while :; do
     why="failed (exit $status)"
   fi
   clear_scratch
+<<<<<<< HEAD
   if (( status == 124 )); then stalls=$((stalls + 1)); else stalls=0; fi
   if (( stalls == 2 && attempt < attempts )); then set_aside_cache; fi
   if (( attempt >= attempts )); then
@@ -298,6 +339,10 @@ while :; do
     if [[ "$mirror_only" == 1 ]]; then
       echo "next: mirror only: a package above is not in scripts/ci/zig-packages.lock's mirror; run scripts/ci/zig_package_mirror.py check, and mirror it (its docstring)" >&2
     fi
+=======
+  if (( attempt >= attempts )); then
+    echo "error: could not fetch the Zig packages of $source_dir: attempt $attempt of $attempts $why; giving up" >&2
+>>>>>>> origin/main
     exit 1
   fi
   echo "Zig package fetch attempt $attempt of $attempts $why; retrying in $((delay * attempt))s" >&2

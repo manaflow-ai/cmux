@@ -305,6 +305,7 @@ final class ConversationDetailsInfoPage: NSObject, UITableViewDataSource, UITabl
         }
     }
 
+<<<<<<< HEAD
     #if DEBUG
     /// DEBUG lab: taps a setting's switch as a finger does. UISwitch's own
     /// tap runs `setOn(!isOn, animated: true)` and then sends
@@ -324,6 +325,8 @@ final class ConversationDetailsInfoPage: NSObject, UITableViewDataSource, UITabl
     }
     #endif
 
+=======
+>>>>>>> origin/main
     @objc private func alertsToggled(_ sender: UISwitch) {
         store.updateListState(.init(muted: sender.isOn))
     }

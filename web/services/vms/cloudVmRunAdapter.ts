@@ -326,9 +326,12 @@ function preparePersistentTerminal(spec: CloudVmPersistentTerminalSpec): CloudVm
   return { ...spec, terminalName, terminalKey };
 }
 
+<<<<<<< ours
 /** `process wait`'s exit code when its time ran out, as timeout(1) has it. */
 const PROCESS_WAIT_TIMED_OUT = 124;
 
+=======
+>>>>>>> theirs
 function terminalWaitCommand(terminalId: string, timeoutMs: number): string {
   return [
     commandPrefix(), "terminal", shellQuote(terminalId), "process", "wait",
@@ -497,10 +500,14 @@ export class CloudVmRunAdapter {
   async readReceipt(attempt: CloudVmAttemptRef, timeoutMs?: number): Promise<CloudVmTerminalReceipt> {
     const timeout = normalizeTimeout(timeoutMs);
     const result = await this.transport.exec(attempt.vmId, terminalWaitCommand(attempt.terminalId, timeout), this.execOptions(timeout + 5_000));
+<<<<<<< ours
     // cmux-tui exits 124 when the wait's time runs out with the process still
     // running (older builds exit 0); its printed state is then pending.
     const settled = result.exitCode === PROCESS_WAIT_TIMED_OUT ? { ...result, exitCode: 0 } : result;
     const value = unwrap(commandResult(settled, "terminal process wait"));
+=======
+    const value = unwrap(commandResult(result, "terminal process wait"));
+>>>>>>> theirs
     return terminalReceipt(value, attempt.terminalId);
   }
 

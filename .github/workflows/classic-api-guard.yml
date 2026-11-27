@@ -1,5 +1,6 @@
 name: classic API guard
 
+<<<<<<< HEAD
 # Classic cmux.com and its API deploy on their own (Vercel) when a commit lands on main. A pull request into main that changes one of the guarded paths in
 # scripts/ci/classic-auto-deploy.json fails until its description has a line
 # `Classic API change: <reason>`; into feat-cmux-next it is a warning only, since that branch
@@ -59,6 +60,35 @@ permissions: {}
 # re-runs it: the diff it judges moved.
 concurrency:
   group: classic-api-guard-${{ github.event.pull_request.number }}${{ github.event.action == 'edited' && !github.event.changes.base && !(github.event.changes.body && (contains(github.event.pull_request.body, 'Classic API change:') || contains(github.event.changes.body.from, 'Classic API change:'))) && format('-edit-{0}', github.run_id) || '' }}
+=======
+# Classic cmux.com and its API deploy on their own (Vercel) when a commit lands on main. A pull
+# request into main that changes one of the guarded paths in scripts/ci/classic-auto-deploy.json
+# fails until its description has a line `Classic API change: <reason>`.
+# scripts/ci/classic_api_guard.py decides; the head is read only through the API, as the pull
+# request's description and its list of changed paths. Editing the description re-runs it. New
+# NEXT Cloud backend code goes to manaflow-ai/cmux-platform.
+# Leo, 2026-11-04: "apparently the api if we change it it'll auto deploy so we wanna make extra
+# sure we dont change it for clasisc".
+#
+# Trust: this runs on pull_request_target, so GitHub takes this workflow from main and the
+# guard and deploy list are checked out at the pull request's base commit. A pull request can
+# therefore not edit the check into a no-op (a plain pull_request run would use its own copy).
+# NEVER check out the pull request's head or run anything from it here (no head ref, no
+# head sha, no merge ref, no scripts from the head): pull_request_target runs with the base
+# repository's token and runners, so head code here would run trusted. Keep every token
+# read-only. The one secret is the cmux-bot App key, and it reaches only the pinned mint action,
+# never a run step (as in cla-policy-guard.yml). feat-cmux-next keeps its own warn-only
+# pull_request copy.
+on:
+  pull_request_target:
+    branches: [main]
+    types: [opened, edited, synchronize, reopened, ready_for_review]
+
+permissions: {}
+
+concurrency:
+  group: classic-api-guard-${{ github.event.pull_request.number }}
+>>>>>>> origin/main
   cancel-in-progress: true
 
 env:
@@ -67,17 +97,27 @@ env:
 
 jobs:
   classic-api:
+<<<<<<< HEAD
     # A skipped run would read as a pass and replace a failing one, so the edit that skips it
     # publishes another name.
     name: ${{ github.event.action == 'edited' && !github.event.changes.base && !(github.event.changes.body && (contains(github.event.pull_request.body, 'Classic API change:') || contains(github.event.changes.body.from, 'Classic API change:'))) && 'classic-api-guard metadata edit (ignored)' || 'classic-api-guard' }}
     if: ${{ !(github.event.action == 'edited' && !github.event.changes.base && !(github.event.changes.body && (contains(github.event.pull_request.body, 'Classic API change:') || contains(github.event.changes.body.from, 'Classic API change:')))) }}
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || 'cmux-linux' }}
+=======
+    name: classic-api-guard
+    # Every edit re-runs it (a skipped run would read as a pass and replace a failing one).
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'blacksmith-4vcpu-ubuntu-2404' }} # ephemeral-required: pull_request_target runs for forks too
+>>>>>>> origin/main
     timeout-minutes: 5
     permissions:
       contents: read
       pull-requests: read
     steps:
+<<<<<<< HEAD
       - name: Check out the guard from the base commit
+=======
+      - name: Check out the guard from the base commit (never the head)
+>>>>>>> origin/main
         uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           ref: ${{ github.event.pull_request.base.sha }}
@@ -86,19 +126,52 @@ jobs:
           sparse-checkout: |
             scripts/ci/classic_api_guard.py
             scripts/ci/classic-auto-deploy.json
+<<<<<<< HEAD
             .gitmodules
           sparse-checkout-cone-mode: false
 
       - name: Check the changed paths against classic's auto-deploys
         env:
           GH_TOKEN: ${{ github.token }}
+=======
+          sparse-checkout-cone-mode: false
+
+      # The files listing goes on the cmux-bot App's own budget: on github.token, the repository's
+      # pool that every workflow shares, it failed with "API rate limit exceeded for installation"
+      # (run 44033322032), and merge_hold cannot excuse that red, since this never runs on main. The
+      # token is read-only and scoped to this repository; a skipped or failed mint leaves
+      # github.token, and the guard asks a refused read once more on it (GH_FALLBACK_TOKEN).
+      # pull_request_target gives a fork's pull request this base workflow's secrets too, and
+      # runs none of its code.
+      - name: Mint the cmux-bot read token
+        id: read-token
+        if: vars.CMUX_BOT_APP_ID != ''
+        continue-on-error: true
+        timeout-minutes: 1
+        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
+        with:
+          app-id: ${{ vars.CMUX_BOT_APP_ID }}
+          private-key: ${{ secrets.CMUX_BOT_APP_KEY }}
+          owner: ${{ github.repository_owner }}
+          repositories: ${{ github.event.repository.name }}
+          permission-contents: read
+          permission-pull-requests: read
+
+      - name: Check the changed paths against classic's auto-deploys
+        env:
+          GH_TOKEN: ${{ steps.read-token.outputs.token || github.token }}
+          GH_FALLBACK_TOKEN: ${{ github.token }}
+>>>>>>> origin/main
           REPOSITORY: ${{ github.repository }}
           PR: ${{ github.event.pull_request.number }}
           BASE: ${{ github.event.pull_request.base.ref }}
           BODY: ${{ github.event.pull_request.body }}
           CHANGED_FILES: ${{ github.event.pull_request.changed_files }}
+<<<<<<< HEAD
           HEAD_SHA: ${{ github.event.pull_request.head.sha }}
           BASE_SHA: ${{ github.event.pull_request.base.sha }}
+=======
+>>>>>>> origin/main
         run: |
           set -euo pipefail
           if [ ! -f scripts/ci/classic_api_guard.py ]; then
@@ -107,6 +180,7 @@ jobs:
             exit 0
           fi
           printf '%s' "$BODY" > "$RUNNER_TEMP/body.md"
+<<<<<<< HEAD
           # One record per changed file; a rename's old path also counts as changed, but not as a record.
           # From the PR's merge commit, not the files API: this runs on most pull request events (about 180 runs an
           # hour on 2026-11-21), and each REST listing spent the repository's GITHUB_TOKEN hour that every workflow
@@ -153,3 +227,20 @@ jobs:
           python3 scripts/ci/classic_api_guard.py --base "$BASE" \
             --body-file "$RUNNER_TEMP/body.md" --paths-file "$RUNNER_TEMP/paths.txt" \
             --expected-files "$CHANGED_FILES" "${listed[@]}"
+=======
+          if grep -q -- '"--pr"' scripts/ci/classic_api_guard.py; then
+            # The guard lists the files itself: GH_TOKEN first, GH_FALLBACK_TOKEN once on a refusal.
+            python3 scripts/ci/classic_api_guard.py --base "$BASE" --body-file "$RUNNER_TEMP/body.md" \
+              --pr "$PR" --repository "$REPOSITORY" --expected-files "$CHANGED_FILES"
+            exit
+          fi
+          # A base from before the guard listed files: one record per changed file; a rename's old
+          # path also counts as changed, but not as a record.
+          gh api --paginate "repos/$REPOSITORY/pulls/$PR/files?per_page=100" \
+            --jq '.[] | [.filename, (.previous_filename // "")] | @tsv' > "$RUNNER_TEMP/files.tsv"
+          records=$(wc -l < "$RUNNER_TEMP/files.tsv" | tr -d ' ')
+          tr '\t' '\n' < "$RUNNER_TEMP/files.tsv" | sed '/^$/d' > "$RUNNER_TEMP/paths.txt"
+          python3 scripts/ci/classic_api_guard.py --base "$BASE" \
+            --body-file "$RUNNER_TEMP/body.md" --paths-file "$RUNNER_TEMP/paths.txt" \
+            --expected-files "$CHANGED_FILES" --listed-records "$records"
+>>>>>>> origin/main

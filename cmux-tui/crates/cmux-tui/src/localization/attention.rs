@@ -9,6 +9,7 @@ pub(crate) struct AttentionMessages {
     pub list_title: &'static str,
     /// Placeholder of the list's filter field.
     pub filter_placeholder: &'static str,
+<<<<<<< ours
     /// Row detail of a tab an agent marked with `cmux attention request`.
     pub requested: &'static str,
     /// Row detail of a tab whose agent waits on the person.
@@ -19,26 +20,46 @@ pub(crate) struct AttentionMessages {
     pub unread: &'static str,
     /// Toast prefix when a jump lands on a marked tab: `Needs you: <reason>`.
     pub needs_you: &'static str,
+=======
+    /// Row detail of a tab whose agent waits on the person.
+    pub blocked: &'static str,
+    /// Row detail of a tab with an unread notification.
+    pub unread: &'static str,
+    /// Toast when the chosen tab closed after the list opened.
+    pub gone: &'static str,
+>>>>>>> theirs
 }
 
 pub(super) const ENGLISH: AttentionMessages = AttentionMessages {
     nothing: "Nothing needs you",
     list_title: "Needs you",
     filter_placeholder: "type to filter",
+<<<<<<< ours
     requested: "needs you",
     blocked: "waiting on you",
     done: "done",
     unread: "unread",
     needs_you: "Needs you",
+=======
+    blocked: "waiting on you",
+    unread: "unread",
+    gone: "That tab is closed",
+>>>>>>> theirs
 };
 
 pub(super) const JAPANESE: AttentionMessages = AttentionMessages {
     nothing: "対応が必要なタブはありません",
     list_title: "対応が必要",
     filter_placeholder: "入力して絞り込む",
+<<<<<<< ours
     requested: "対応が必要",
     blocked: "あなたの応答待ち",
     done: "完了",
     unread: "未読",
     needs_you: "対応が必要",
+=======
+    blocked: "あなたの応答待ち",
+    unread: "未読",
+    gone: "そのタブは閉じられています",
+>>>>>>> theirs
 };

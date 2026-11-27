@@ -81,7 +81,7 @@ Installs supported agent hooks whose binaries are on `PATH`. See [Agent hook int
 | OpenCode     | `~/.config/opencode/plugins/cmux-feed.js` | plugin event bus         |
 | Cursor CLI   | `~/.cursor/hooks.json`                    | beforeShellExecution     |
 | Gemini       | `~/.gemini/settings.json`                 | PreToolUse               |
-| Kiro CLI     | `~/.kiro/agents/cmux.json` or `$KIRO_HOME/agents/cmux.json` | preToolUse / postToolUse |
+| Kiro CLI     | `~/.kiro/agents/cmux.json` or `$KIRO_HOME/agents/cmux.json`, active when you run `kiro-cli --agent cmux`. `cmux hooks setup kiro --global` adds lifecycle and agent-message hooks for Kiro CLI V3 and no Feed trigger. | preToolUse / postToolUse |
 | Copilot      | `~/.copilot/hooks/cmux.json` or `$COPILOT_HOME/hooks/cmux.json` | preToolUse               |
 | CodeBuddy    | `~/.codebuddy/settings.json`              | PreToolUse               |
 | Factory      | `~/.factory/settings.json`                | PreToolUse               |

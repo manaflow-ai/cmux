@@ -2,12 +2,22 @@
 //! runs it, so it never names a command this build does not have.
 //!
 //! The recipes are data ([`RECIPES`]); the tests run each one through the
+<<<<<<< ours
 //! real parser. The scope table comes from the curated scope list and the
 //! root help, and the usage blocks from each scope's own help text. Run in a
 //! cmux terminal, the guide starts with the caller's live ids.
 
 use std::fmt::Write as _;
 use std::io::Write as _;
+=======
+//! real parser. The scope table comes from the public scope list and the
+//! root help, and the usage blocks from each scope's own help text. Run in a
+//! cmux-tui terminal, the guide starts with the caller's live ids.
+
+use std::fmt::Write as _;
+use std::io::Write as _;
+use std::path::Path;
+>>>>>>> theirs
 
 use serde_json::{Value, json};
 
@@ -17,8 +27,14 @@ use super::{GlobalArgs, OutputMode};
 pub(super) struct Recipe {
     /// The request in the person's words.
     pub ask: &'static str,
+<<<<<<< ours
     /// Commands, in order. `<term>`, `<pane>`, `<tab>` and `<ws>` stand for
     /// ids an earlier command printed.
+=======
+    /// Commands, in order. `<ws>`, `<pane>`, `<new-pane>`, `<tab>` and
+    /// `<term>` stand for ids `cmux --json identify` or an earlier command
+    /// printed.
+>>>>>>> theirs
     pub commands: &'static [&'static str],
     /// What to read from the output, and what it means.
     pub read: &'static str,
@@ -30,13 +46,19 @@ pub(super) const RECIPES: &[Recipe] = &[
         commands: &["cmux --json identify"],
         read: "`caller.workspace`, `caller.screen`, `caller.pane`, `caller.tab`, \
                `caller.terminal_id` are your own ids; `session.name` is the session \
+<<<<<<< ours
                (`--session` takes it); `caller.found: false` means this terminal is not \
                placed (yet).",
+=======
+               (`--session` takes it); `caller.found: false` means this process does not \
+               run in a placed cmux-tui terminal.",
+>>>>>>> theirs
     },
     Recipe {
         ask: "Show me everything that is open / the layout.",
         commands: &["cmux --json session current snapshot"],
         read: "One JSON document: `workspaces`, `screens` (each with its `layout` tree), \
+<<<<<<< ours
                `panes`, `tabs`, `terminals`, `agents`, `clients`, `notifications`.",
     },
     Recipe {
@@ -59,10 +81,14 @@ pub(super) const RECIPES: &[Recipe] = &[
                when the time passed, 125 when the shell reported no status). The words after \
                `--` reach the shell as the same words (`run -- sh -c 'exit 7'` exits 7); one \
                quoted word is a shell line (`run -- 'make && make test'`).",
+=======
+               `panes`, `tabs`, `terminals`, `agents`, `notifications`.",
+>>>>>>> theirs
     },
     Recipe {
         ask: "Run this command and give me its exit code.",
         commands: &[
+<<<<<<< ours
             "cmux --json pane current run --on-exit keep -- sh -c 'npm test'",
             "cmux --json terminal <term> process wait --timeout-ms 600000",
             "cmux --json terminal <term> history read --limit 200",
@@ -85,23 +111,62 @@ pub(super) const RECIPES: &[Recipe] = &[
                (exit 124) when the time passed. For a command already running, `screen wait \
                --pattern RE --new` waits in the daemon for output printed after the wait \
                starts (`timed_out: true`, exit 124, when it never shows).",
+=======
+            "cmux --json pane <pane> split --right",
+            "cmux --json pane <new-pane> run --on-exit keep -- sh -c 'npm test'",
+            "cmux --json terminal <term> process wait --timeout-ms 600000",
+            "cmux --json terminal <term> history read --limit 200",
+        ],
+        read: "Split beside you first (`value.pane_id`): run opens a new tab in the pane it \
+               names and shows that tab there, so never run in your own pane. The tab runs \
+               the command as its own process (`value.terminal_id`). process wait prints \
+               `state: exited` and \
+               `outcome.code` (`outcome.kind`: exit or signal) once it ends, or \
+               `state: pending` when the time passed. `--on-exit keep` keeps the output \
+               readable after the exit.",
+    },
+    Recipe {
+        ask: "Start the dev server beside you and wait until it is ready.",
+        commands: &[
+            "cmux --json pane <pane> split --right",
+            "cmux terminal <term> write --text 'npm run dev'",
+            "cmux terminal <term> keys enter",
+            "cmux --json terminal <term> screen wait --pattern 'ready|listening' --timeout-ms 60000",
+        ],
+        read: "split prints the new `value.pane_id` and `value.terminal_id` and keeps the \
+               person's focus. write types text without Enter; `keys enter` presses it. \
+               screen wait waits in the daemon (no polling) until the regex matches the \
+               screen: `matched: true` and the screen `text`; exit 1 when the time passes \
+               without a match.",
+>>>>>>> theirs
     },
     Recipe {
         ask: "What does the pane on the right show?",
         commands: &[
+<<<<<<< ours
             "cmux --json pane current neighbor right",
             "cmux --json tab list --pane <pane>",
+=======
+            "cmux --json pane <pane> neighbor right",
+            "cmux --json pane <pane> tab list",
+>>>>>>> theirs
             "cmux --json terminal <term> screen read",
         ],
         read: "neighbor prints `pane.id` (`pane: null` when there is none); each tab's \
                `content_id` is its terminal. screen read prints the visible `text`; \
+<<<<<<< ours
                `--unwrap` joins the lines the pane wrapped and `--lines N` reads the last N \
                lines of scrollback and screen; `history read` has the rows that scrolled off, \
                `output read --after <offset>` the raw output since an offset.",
+=======
+               `history read` has the rows that scrolled off, `output read --after <offset>` \
+               the raw output since an offset.",
+>>>>>>> theirs
     },
     Recipe {
         ask: "Start Claude (or Codex) in a new pane and give it a task.",
         commands: &[
+<<<<<<< ours
             "cmux --json agent start alpha --cmd 'sr2 claude' --no-focus",
             "cmux --json terminal alpha send --text 'Fix the failing test' --wait idle --timeout 15m",
         ],
@@ -136,6 +201,34 @@ pub(super) const RECIPES: &[Recipe] = &[
                ended; `state` is a deprecated alias), `tab_id`, `pane_id` and `last_reply` \
                (the agent's last answer, one line, at most 200 characters). screen read prints the screen as text \
                (--details or --json for the whole record).",
+=======
+            "cmux --json agent start alpha --no-focus",
+            "cmux terminal alpha write --text 'Fix the failing test'",
+            "cmux terminal alpha keys enter",
+            "cmux --json agent list",
+        ],
+        read: "agent start splits your pane, runs claude (or the launcher --cmd names, such \
+               as codex) in a \
+               tab named alpha and returns once the agent can take a message: `state` \
+               `ready` (exit 0) with `terminal_id`, `tab_id`, `pane_id`, or `blocked` \
+               (exit 4) with `dialog` (`folder_trust`, `login`, ...) and `reason` when a \
+               startup dialog waits on the person; never answer it yourself. The name works \
+               wherever a terminal, tab or pane selector goes. cmux adds its hooks to \
+               `claude` and `codex` started in a cmux-tui terminal, so `agent list` shows \
+               their `status` (working, blocked, done, idle); nothing is written to ~/.claude \
+               or ~/.codex. Read the screen before you type into an agent that is \
+               `blocked`: typed text answers its dialog.",
+    },
+    Recipe {
+        ask: "Is agent alpha ready? What does it show?",
+        commands: &[
+            "cmux --json terminal alpha wait --until ready --timeout 60s",
+            "cmux terminal alpha screen read",
+        ],
+        read: "wait --until ready: `state` `ready` (exit 0), or `blocked` with `dialog` and \
+               `reason` (exit 4). screen read prints the screen as text (--details or --json \
+               for the whole record).",
+>>>>>>> theirs
     },
     Recipe {
         ask: "Bring back an agent that exited (same conversation).",
@@ -151,6 +244,7 @@ pub(super) const RECIPES: &[Recipe] = &[
     },
     Recipe {
         ask: "Is an agent waiting for me? Which agents run here?",
+<<<<<<< ours
         commands: &[
             "cmux --json terminal list --agents",
             "cmux --json agent list --needs-me",
@@ -173,6 +267,13 @@ pub(super) const RECIPES: &[Recipe] = &[
                --match PATH=VALUE checks its fields. It prints only that event and exits 0, \
                or `timed_out: true` and exits 124. Start it before the action, or pass \
                --after so events already past count; always pass --timeout.",
+=======
+        commands: &["cmux --json agent list", "cmux --json agent list --state blocked"],
+        read: "One record per agent terminal of this session (`terminal_id`, `name`, \
+               `tab_id`, `pane_id`, `status`, `state`, `source`). `status` is the word the TUI shows: `done` is a finished \
+               turn nobody has viewed, `null` a session that ended. `--state blocked` lists \
+               the agents that wait on the person; `--state ended` the ended sessions.",
+>>>>>>> theirs
     },
     Recipe {
         ask: "Stop it. / Press Ctrl-C. / Answer the dialog with Escape.",
@@ -181,6 +282,7 @@ pub(super) const RECIPES: &[Recipe] = &[
                text without Enter: `cmux terminal <term> write --text '...'`.",
     },
     Recipe {
+<<<<<<< ours
         ask: "Find the workspace called api. / Which workspaces are in ~/src/app?",
         commands: &[
             "cmux --json workspace list --name api",
@@ -192,15 +294,25 @@ pub(super) const RECIPES: &[Recipe] = &[
                that folder or below it. No match is `[]`, exit 0. pane list takes both flags.",
     },
     Recipe {
+=======
+>>>>>>> theirs
         ask: "Zoom that pane. / Rename this workspace. / Open a new screen called api.",
         commands: &[
             "cmux pane <pane> zoom",
             "cmux pane <pane> zoom --enabled false",
+<<<<<<< ours
             "cmux workspace current rename api-work",
             "cmux --json screen create --name api",
         ],
         read: "A screen is a tmux window: a full layout of panes in a workspace. A new \
                screen does not move the person's view.",
+=======
+            "cmux workspace <ws> rename --name api-work",
+            "cmux --json workspace <ws> screen create --name api",
+        ],
+        read: "A screen is a tmux window: a full layout of panes in a workspace. A new \
+               screen does not move the person's view unless --focus.",
+>>>>>>> theirs
     },
     Recipe {
         ask: "Move that pane to its own screen. / Put it next to my editor pane.",
@@ -209,6 +321,7 @@ pub(super) const RECIPES: &[Recipe] = &[
             "cmux --json pane <pane> move --to-pane <other-pane> --split right",
             "cmux --json pane <pane> move --to-workspace <ws>",
         ],
+<<<<<<< ours
         read: "move is one change. Beside a pane or to a new screen the pane keeps its id \
                (`pane_kept`); --to-pane <pane> without --split or --to-tab <tab> merges the tabs \
                into that pane and the moved pane closes. `pane_id` is where the tabs are now, \
@@ -235,6 +348,18 @@ pub(super) const RECIPES: &[Recipe] = &[
                `worktree.root` (its folder). close removes that worktree and its branch, \
                then closes the workspace; it refuses (closing nothing) while the worktree has \
                uncommitted or unpushed work, unless `--discard`.",
+=======
+        read: "move takes every tab of the pane, in order, and the emptied pane closes: \
+               `moved_tabs`, `destination.pane` (where they are now), `created` (the new \
+               screen or pane, else null). --to-tab <tab> puts them after that tab. The \
+               focus stays unless --focus.",
+    },
+    Recipe {
+        ask: "Tell me when you need me.",
+        commands: &["cmux notify --title 'Tests passed' --body '42 passed'"],
+        read: "notify posts a notification for your terminal: an unread mark on its tab and \
+               workspace in every cmux client, without moving focus.",
+>>>>>>> theirs
     },
     Recipe {
         ask: "Clean up what you opened.",
@@ -244,6 +369,7 @@ pub(super) const RECIPES: &[Recipe] = &[
     },
 ];
 
+<<<<<<< ours
 /// `Some(exit code)` for `skill [show]`; `None` for any other command.
 pub(super) fn run_if_requested(args: &[String]) -> Option<i32> {
     let (global, words) = super::parse_globals(args).ok()?;
@@ -275,6 +401,13 @@ pub(super) fn run_if_requested(args: &[String]) -> Option<i32> {
 
 fn show(global: &GlobalArgs) -> i32 {
     let markdown = render(&location());
+=======
+/// `skill show` without its help (`cli.rs` routes `--help` to the help
+/// topic).
+pub(super) fn run(global: &GlobalArgs) -> i32 {
+    let cli = std::env::current_exe().ok().map(|path| path.canonicalize().unwrap_or(path));
+    let markdown = render(&location(global), cli.as_deref());
+>>>>>>> theirs
     match global.output {
         OutputMode::Human => {
             let mut stdout = std::io::stdout().lock();
@@ -283,12 +416,17 @@ fn show(global: &GlobalArgs) -> i32 {
             0
         }
         output => super::wire::print_local_success(
+<<<<<<< ours
             &json!({"name": "cmux", "version": version(), "markdown": markdown}),
+=======
+            &json!({"name": "cmux", "version": crate::version_string(), "markdown": markdown}),
+>>>>>>> theirs
             output,
         ),
     }
 }
 
+<<<<<<< ours
 /// This build, as `cmux --version` prints it (release, commit, Ghostty).
 fn version() -> String {
     crate::version_string()
@@ -317,16 +455,48 @@ pub(super) fn render(location: &Option<Value>) -> String {
 
 /// [`render`] with `pane_cli`, the `CMUX_TUI_CLI` the pane sets.
 pub(super) fn render_with(location: &Option<Value>, pane_cli: Option<&str>) -> String {
+=======
+/// The caller's place, as `cmux identify` prints it, when this process runs
+/// in a placed cmux-tui terminal.
+fn location(global: &GlobalArgs) -> Option<Value> {
+    let terminal = super::pane_identify::caller_terminal(|key| std::env::var(key).ok())?;
+    super::pane_identify::read_identity(global, Some(&terminal))
+        .ok()
+        .filter(|identity| identity.pointer("/caller/found") == Some(&Value::Bool(true)))
+}
+
+/// The guide, for the caller at `location` (`None`: outside a cmux-tui
+/// terminal, or one the session does not place). `cli` is the executable
+/// that prints it, which every `cmux` in the guide means.
+pub(super) fn render(location: &Option<Value>, cli: Option<&Path>) -> String {
+>>>>>>> theirs
     let mut out = String::new();
     let _ = writeln!(out, "# cmux: agent guide\n");
     let _ = writeln!(
         out,
+<<<<<<< ours
         "Generated by `cmux skill show` from cmux {}. The installed `cmux` is the authority: \
          `cmux <scope> --help` prints every path and flag. How cmux fits together (the app, \
          its daemons, agents, machines, Cloud, the vault) and how to use it: `cmux docs guide`.\n",
         version()
     );
     write_location(&mut out, location, pane_cli);
+=======
+        "Generated by `cmux skill show` from cmux {}. This CLI is the authority: \
+         `cmux <scope> --help` prints every path, and `--help` after an action its flags.\n",
+        crate::version_string()
+    );
+    if let Some(cli) = cli {
+        let _ = writeln!(
+            out,
+            "`cmux` in this guide means this build's CLI, `{}`. A `cmux` elsewhere on PATH \
+             (such as the cmux app's) can be another program: run this path when \
+             `cmux --json identify` does not answer with `kind: \"cmux-tui\"`.\n",
+            cli.display()
+        );
+    }
+    write_location(&mut out, location);
+>>>>>>> theirs
     out.push_str(RULES);
     out.push_str("\n## Recipes\n\nIDs in angle brackets come from an earlier command's JSON.\n");
     for recipe in RECIPES {
@@ -346,6 +516,7 @@ pub(super) fn render_with(location: &Option<Value>, pane_cli: Option<&str>) -> S
     out
 }
 
+<<<<<<< ours
 fn write_location(out: &mut String, location: &Option<Value>, pane_cli: Option<&str>) {
     out.push_str("## Where you are\n\n");
     let Some(identity) = location else {
@@ -353,11 +524,21 @@ fn write_location(out: &mut String, location: &Option<Value>, pane_cli: Option<&
             "This process does not run in a cmux terminal (`CMUX_TUI_TERMINAL_ID` is not \
              set). `cmux identify` reports what this CLI reaches; `cmux --session NAME ...` \
              names a session.\n\n",
+=======
+fn write_location(out: &mut String, location: &Option<Value>) {
+    out.push_str("## Where you are\n\n");
+    let Some(identity) = location else {
+        out.push_str(
+            "This process does not run in a cmux-tui terminal (`CMUX_TUI_TERMINAL_ID` is not \
+             set, or the session does not place it). `cmux identify` reports what this CLI \
+             reaches; `cmux --session NAME ...` names a session.\n\n",
+>>>>>>> theirs
         );
         return;
     };
     let text =
         |pointer: &str| identity.pointer(pointer).and_then(Value::as_str).unwrap_or("-").to_owned();
+<<<<<<< ours
     // `"$CMUX_TUI_CLI"` only when the pane set it to an absolute path (a
     // pane of an older daemon has none): else it runs `""`.
     if pane_cli.is_some_and(|path| std::path::Path::new(path).is_absolute()) {
@@ -374,6 +555,13 @@ fn write_location(out: &mut String, location: &Option<Value>, pane_cli: Option<&
             "You run in a cmux terminal. `cmux` here talks to this session by default.\n\n",
         );
     }
+=======
+    let _ = writeln!(
+        out,
+        "You run in a cmux-tui terminal. This CLI talks to this session by default \
+         (`CMUX_TUI_SOCKET`).\n"
+    );
+>>>>>>> theirs
     let _ = writeln!(out, "| object | id |\n| --- | --- |");
     let _ =
         writeln!(out, "| session | `{}` (name `{}`) |", text("/session/id"), text("/session/name"));
@@ -395,6 +583,7 @@ fn write_location(out: &mut String, location: &Option<Value>, pane_cli: Option<&
 const RULES: &str = "\
 ## Rules
 
+<<<<<<< ours
 - **Check first.** `cmux --json identify` prints where you run. In a cmux-tui pane it \
 answers from the pane's session (`kind: \"cmux-tui\"`), even when that cmux-tui runs inside \
 the cmux app; `cmux app identify` asks the app around it (`outer_app`).
@@ -405,16 +594,34 @@ hex digits (for a terminal also the host `terminal_id` that `run` prints), `curr
 person looks at. For the person's focused pane, name the session: \
 `cmux --session <session.name> pane current show` (an explicit route makes `current` the \
 focused object).
+=======
+- **Check first.** `cmux --json identify` prints where you run (`kind: \"cmux-tui\"`): \
+your session and your own workspace, screen, pane, tab and terminal (`caller`).
+- **Targets.** A selector is an id (`ws_…`, `screen_…`, `pane_…`, `tab_…`, `term_…`), \
+`current`, or an exact name (`name:` forces a name); an agent name (`cmux agent start \
+NAME`) or a unique tab name also selects that tab's terminal, tab or pane. `current` is the session's focused \
+object, the one the person looks at, not your own pane: pass your own ids from \
+`cmux --json identify` to act beside yourself.
+>>>>>>> theirs
 - **Use ids from JSON.** Pass `--json` and read the ids each command prints. Do not \
 guess them from names, order or examples.
 - **Words.** The person's \"window\" (tmux window, a TUI tab) is a **screen**; a split is a \
 **pane**; a pane holds **tabs**; a tab shows one **terminal** (`term_…`). A **workspace** is a \
 sidebar row (a project); a **session** is one cmux-tui daemon with its workspaces.
+<<<<<<< ours
 - **Focus.** Never move the person's focus unless they ask: split, run, create and send keep \
 it. Pass `--focus` (or run `cmux pane <pane> focus`) only when they ask to go there.
 - **Your own pane.** Do not type into your own terminal and do not close your own pane.
 - **Cleanup.** Close only what you created. Never stop the session (`cmux session current \
 stop`, `cmux daemon stop`) or restart it unless the person asks: stop ends every terminal.
+=======
+- **Focus.** Never move the person's focus unless they ask: split, run, create and write keep \
+it. `run` shows its new tab in the pane it names, so run in a pane you split, never in your \
+own. Run `cmux pane <pane> focus` only when they ask to go there.
+- **Your own pane.** Do not type into your own terminal and do not close your own pane.
+- **Cleanup.** Close only what you created. Never stop the session (`cmux server stop`, \
+`cmux session current shutdown`) unless the person asks: stop ends every terminal.
+>>>>>>> theirs
 ";
 
 const WAITS_AND_ERRORS: &str = "
@@ -422,6 +629,7 @@ const WAITS_AND_ERRORS: &str = "
 
 | wait | returns when | timeout |
 | --- | --- | --- |
+<<<<<<< ours
 | `terminal <term> send --text T --wait prompt` | the shell shows its next prompt | `--timeout 5m`, exit 124 |
 | `terminal <term> send --text T --wait idle` | the agent or program is idle (screen still for `--settle`) | `--timeout`, exit 124 |
 | `terminal <term> send --text T --wait none` | at once, after typing T and Enter | - |
@@ -437,19 +645,34 @@ const WAITS_AND_ERRORS: &str = "
 Every wait whose time ran out prints `timed_out: true` and exits 124; exit 0 means the wait \
 ended for its own reason. A timeout does not stop the command; read the screen before you \
 send more.
+=======
+| `terminal <term> screen wait --pattern RE` | RE matches the screen | `--timeout-ms N`, exit 1 |
+| `terminal <term> process wait` | the terminal's process exits (`outcome.code`) | `--timeout-ms N`, `state: pending` |
+| `terminal <term> wait --until ready` | its agent can take a message (`blocked`: a startup dialog, exit 4) | `--timeout D`, exit 124 |
+
+A timeout does not stop the command; read the screen before you send more.
+>>>>>>> theirs
 A `--pattern` RE is matched line by line: `^` and `$` match at the start and end of each line \
 (`--pattern '^BENCH_OK$'`), as in grep. Start it with `(?-m)` to match the whole text.
 
 ## Errors and exit codes
 
 Errors are one JSON object on stderr with `--json`: `{\"code\", \"message\", \"details\", \
+<<<<<<< ours
 \"retryable\"}`. Exit codes: 0 done, 1 the operation failed, 2 usage error (fix the \
 command), 3 cannot reach the session, 124 a wait timed out (`timed_out: true`).
 A change that failed with `retryable: true` prints an idempotency key: run it again with \
+=======
+\"retryable\"}`. Exit codes: 0 done, 1 the operation failed (or `screen wait` found no \
+match), 2 usage error (fix the command), 3 cannot reach the session, 4 an agent waits on \
+a startup dialog (`agent start`, `wait --until ready`), 124 a wait's `--timeout` passed.
+A change that failed with `retryable: true` can run again with the same \
+>>>>>>> theirs
 `--idempotency-key <key>`, which never applies it twice. Before you retry a timed-out \
 create, list first: it may have run.
 ";
 
+<<<<<<< ours
 /// The curated scopes with the root help's one-line description of each.
 fn write_scopes(out: &mut String) {
     let help = crate::localization::catalog_for_locale("en_US.UTF-8").local_server.cmux_root_help;
@@ -459,6 +682,18 @@ fn write_scopes(out: &mut String) {
         let _ = writeln!(out, "| `{scope}` | {description} |");
     }
     out.push_str("\nThe app scopes (`app`, `window`, `chat`, `chief`, ...) need the cmux app.\n");
+=======
+/// The public scopes with the English root help's one-line description of
+/// each (the scope list after its `RESOURCE SCOPES` heading).
+fn write_scopes(out: &mut String) {
+    out.push_str("\n## Scopes\n\n| scope | what |\n| --- | --- |\n");
+    let help = super::root_help(crate::localization::catalog_for_locale("en_US.UTF-8"));
+    let scopes = help.split_once("RESOURCE SCOPES\n").map_or(help.as_str(), |(_, scopes)| scopes);
+    for scope in super::PUBLIC_SCOPES {
+        let description = scope_description(scopes, scope).unwrap_or_default();
+        let _ = writeln!(out, "| `{scope}` | {description} |");
+    }
+>>>>>>> theirs
 }
 
 /// The description on `scope`'s line of the root help (`  scope   text`).

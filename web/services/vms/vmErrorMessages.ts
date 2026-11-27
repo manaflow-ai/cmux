@@ -159,7 +159,34 @@ export async function vmStateConflictCopy(locale: Locale): Promise<VmRequiresPro
   return vmErrorsCopy("stateConflict", locale);
 }
 
-async function vmErrorsCopy(key: "providerCapacity" | "stateConflict", locale: Locale): Promise<VmRequiresProCopy> {
+/** Localized copy for a machine whose host is being recovered (routeHelpers vmHostRecoveryResponse). */
+export async function vmHostRecoveryCopy(locale: Locale): Promise<VmRequiresProCopy> {
+  return vmErrorsCopy("hostRecovery", locale);
+}
+
+async function vmErrorsCopy(key: "providerCapacity" | "stateConflict" | "hostRecovery", locale: Locale): Promise<VmRequiresProCopy> {
+  const translator = createTranslator({
+    locale,
+    messages: await loadMessages(locale),
+    namespace: `vmErrors.${key}`,
+  }) as unknown as (key: string) => string;
+  return {
+    title: translator("title"),
+    message: translator("message"),
+    action: translator("action"),
+  };
+}
+
+/** Localized copy for admission and snapshot guards added before provider work. */
+export async function vmMutationGuardCopy(
+  key:
+    | "allocationUnavailable"
+    | "snapshotIdempotencyRequired"
+    | "snapshotInProgress"
+    | "snapshotIdempotencyConflict"
+    | "snapshotQuota",
+  locale: Locale,
+): Promise<VmRequiresProCopy> {
   const translator = createTranslator({
     locale,
     messages: await loadMessages(locale),

@@ -96,15 +96,24 @@ import Testing
         backend.hold = true
         let store = ConversationStore(backend: backend)
         store.apply(.connected(info: backend.info, meID: "me", lagged: false))
+<<<<<<< HEAD
         store.updateListState(.init(markedUnread: true))
+=======
+        var rejection: ConversationBackendError?
+        store.updateListState(.init(markedUnread: true)) { rejection = $0 }
+>>>>>>> origin/main
         // Another device deletes the conversation before the reply lands.
         var pushed = backend.info
         pushed.listState = ConversationListState(deleted: true)
         store.apply(.conversationChanged(pushed))
         backend.fail = true
         backend.release()
+<<<<<<< HEAD
         try await waitUntil { backend.replied }
         try await Task.sleep(for: .milliseconds(20))
+=======
+        try await waitUntil { rejection != nil }
+>>>>>>> origin/main
         #expect(store.listState == ConversationListState(deleted: true))
     }
 
@@ -113,7 +122,10 @@ import Testing
         let store = ConversationStore(backend: backend)
         store.apply(.connected(info: backend.info, meID: "me", lagged: false))
         store.updateListState(.init(pinned: false, muted: false))
+<<<<<<< HEAD
         try await Task.sleep(for: .milliseconds(20))
+=======
+>>>>>>> origin/main
         #expect(backend.received.isEmpty)
     }
 
@@ -135,14 +147,20 @@ final class ListStateBackend: ConversationBackend, @unchecked Sendable {
     private var _hold = false
     private var _fail = false
     private var _received: [ConversationListStateChange] = []
+<<<<<<< HEAD
     private var _replied = false
+=======
+>>>>>>> origin/main
     private var _waiters: [CheckedContinuation<Void, Never>] = []
 
     var server: ConversationListState { get { lock.withLock { _server } } set { lock.withLock { _server = newValue } } }
     var hold: Bool { get { lock.withLock { _hold } } set { lock.withLock { _hold = newValue } } }
     var fail: Bool { get { lock.withLock { _fail } } set { lock.withLock { _fail = newValue } } }
     var received: [ConversationListStateChange] { lock.withLock { _received } }
+<<<<<<< HEAD
     var replied: Bool { lock.withLock { _replied } }
+=======
+>>>>>>> origin/main
 
     func release() {
         let waiters = lock.withLock { () -> [CheckedContinuation<Void, Never>] in
@@ -168,7 +186,10 @@ final class ListStateBackend: ConversationBackend, @unchecked Sendable {
                 if resumeNow { waiter.resume() }
             }
         }
+<<<<<<< HEAD
         defer { lock.withLock { _replied = true } }
+=======
+>>>>>>> origin/main
         if fail { throw ConversationBackendError(code: -32004, message: "pin limit") }
         var result = info
         let state = lock.withLock { () -> ConversationListState in

@@ -1,9 +1,13 @@
 import CmuxConversationGeometry
+<<<<<<< HEAD
 #if canImport(CoreGraphics)
 import CoreGraphics
 #else
 import Foundation
 #endif
+=======
+import CoreGraphics
+>>>>>>> origin/main
 import Testing
 
 /// UIKit on iOS 26 starts a fling's deceleration a frame late: the frame

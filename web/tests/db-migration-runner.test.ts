@@ -68,12 +68,15 @@ async function freshDatabase(): Promise<PgPool> {
   url.pathname = `/${name}`;
   // max 1, as production's operator pool: the runner must never need a second connection.
   const pool = new Pool({ connectionString: url.href, max: 1 });
+<<<<<<< ours
   // pool.end() in afterAll resolves once its idle client is told to close, before the server session
   // exits, so the drop with (force) right after can end that session first. The pool then emits the
   // session's 57P01 (admin shutdown), which with no listener is an unhandled error that fails the file.
   pool.on("error", (error: { code?: string }) => {
     if (error.code !== "57P01") throw error;
   });
+=======
+>>>>>>> theirs
   databasePools.push({ name, pool });
   return pool;
 }

@@ -1,8 +1,9 @@
 #!/usr/bin/env bash
 # tooling-steps runs: scripts/git-hooks/* (its other variable commands are the chosen python3 and git)
 # Point this clone's git at scripts/git-hooks/ for tracked, reviewed hooks.
-# Installs tracked pre-commit checks and the post-merge merge-driver refresh
-# without hiding custom hooks.
+# Installs tracked pre-commit checks, the post-merge merge-driver refresh and a
+# prepare-commit-msg that runs the contributor's global one, without hiding
+# custom hooks.
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd -P)"
@@ -165,6 +166,7 @@ fi
 unset CMUX_HOOKS_INSTALL_LOCK_HELD
 install -m 0755 scripts/git-hooks/pre-commit "$TRUSTED_HOOK_DIR/pre-commit"
 install -m 0755 scripts/git-hooks/post-merge "$TRUSTED_HOOK_DIR/post-merge"
+<<<<<<< HEAD
 # pre-push always runs the web lint and the cmux-next checks gate; its namespace autofix part runs only when
 # the --namespace-fix helpers below are installed.
 # Its per-host Python picker first, so a push that starts mid-install never finds the new hook without it.
@@ -228,6 +230,10 @@ if (( NAMESPACE_FIX )); then
     install -m 0755 scripts/lint_swift_namespaces.py "$TRUSTED_HOOK_DIR/lint_swift_namespaces.py"
     install -m 0644 scripts/swift_source_mask.py "$TRUSTED_HOOK_DIR/swift_source_mask.py"
 fi
+=======
+install -m 0755 scripts/git-hooks/prepare-commit-msg "$TRUSTED_HOOK_DIR/prepare-commit-msg"
+install -m 0755 scripts/git-hooks/check-git-remotes.sh "$TRUSTED_HOOK_DIR/check-git-remotes.sh"
+>>>>>>> origin/main
 install -m 0644 scripts/ci/validate_test_execution_registry.py "$TRUSTED_HOOK_DIR/validate_test_execution_registry.py"
 install -m 0644 scripts/ci/test_execution_registry.py "$TRUSTED_HOOK_DIR/test_execution_registry.py"
 install -m 0644 scripts/ci/workload_entrypoints.py "$TRUSTED_HOOK_DIR/workload_entrypoints.py"
@@ -353,6 +359,7 @@ git config merge.pbxproj-v1.driver "$PBXPROJ_DRIVER"
 git config merge.pbxproj.name "Xcode project file (trusted compatibility driver)"
 git config merge.pbxproj.driver "$PBXPROJ_DRIVER"
 echo "==> project.pbxproj merge driver installed (merge.pbxproj-v1.driver)."
+<<<<<<< HEAD
 git config merge.cmux-baseline-v1.name "Ratchet baseline (trusted entry-wise three-way merge)"
 git config merge.cmux-baseline-v1.driver "$BASELINE_DRIVER"
 echo "==> ratchet baseline merge driver installed (merge.cmux-baseline-v1.driver)."
@@ -469,3 +476,8 @@ for name in sorted(os.listdir(hook_dir)):
             os.close(lock)
 '
 "$PYTHON3_BIN" -I -c "$CLEANUP" "$TRUSTED_HOOK_DIR" "$PREVIOUS_CHECKS"
+=======
+
+# Warn now, too, if a remote fetches from a local mirror but pushes to GitHub.
+bash scripts/git-hooks/check-git-remotes.sh || true
+>>>>>>> origin/main

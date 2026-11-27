@@ -415,7 +415,15 @@ class Workflow(unittest.TestCase):
                 self.assertNotIn("late-placement", spec["if"])
                 requested = [step["env"]["REQUESTED_RUNNER"] for step in spec["steps"]
                              if "REQUESTED_RUNNER" in (step.get("env") or {})]
+<<<<<<< HEAD
                 self.assertEqual(requested, cells)
+=======
+                # The Mac grant term (cmuxterm-hq#16502) mirrors as the JSON string: an env value
+                # cannot hold the array runs-on takes from fromJSON.
+                grant = "github.event_name == 'pull_request' && inputs.pr_grant != '' && %s || "
+                self.assertEqual(requested, [spec["runs-on"].replace(
+                    grant % "fromJSON(inputs.pr_grant)", grant % "inputs.pr_grant")])
+>>>>>>> origin/main
 
     def test_late_placement_runs_only_where_the_picker_may_use_owned_runners(self):
         spec = self.jobs["late-placement"]

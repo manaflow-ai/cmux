@@ -83,6 +83,7 @@ import Testing
         #expect(plan.entries[1].isFirstInRun)
     }
 
+<<<<<<< HEAD
     @Test func theMessageAfterAReplyStartsANewRun() {
         // Messages (iPhone 17 Pro Max, iOS 27): "Ask your agents how to do it
         // safely" under Austin's own inline reply starts a run, 32 pt down.
@@ -93,6 +94,8 @@ import Testing
         #expect(plan.entries[2].isFirstInRun)
     }
 
+=======
+>>>>>>> origin/main
     @Test func aTapbackMakesItsMessageARunOfItsOwn() {
         // Messages (iOS 26.5 and 27.0): a heart on the middle of three sent
         // messages puts tails on all three and 10 pt between runs.

@@ -349,6 +349,7 @@ value, including a no-op outcome when an operation receipt needs to explain why
 no state changed.
 
 Terminal output is a high-volume content stream, and it never enters the
+<<<<<<< HEAD
 journal, in any mode. Each PTY read used to become a `terminal.output` record
 (about 1.2 KB of metadata, six index rows and a synced commit): an idle agent
 TUI that redraws its cursor at 40 Hz made the daemon write about 25 MB/s, and
@@ -358,10 +359,23 @@ one registry grew to 41.6 GB. The daemon's output store
 - The daemon's Ghostty terminal of each terminal is the hot copy (screen and
   scrollback, bounded by Ghostty's `scrollback-limit`); attach, screen,
   history and copy reads come from it.
+=======
+journal. Each PTY read used to become a `terminal.output` record (about 1.2 KB
+of metadata, index rows and a synced commit): an idle agent TUI that redraws
+its cursor at 40 Hz made the daemon write about 25 MB/s. Output that never
+stops also moved the journal head during every checkpoint capture, and one
+flooding terminal filled the shared terminal lane, so other terminals lost
+output. The daemon's output store (`cmux-tui-core/src/output_store.rs`) owns
+output now:
+
+- The daemon's Ghostty terminal of each terminal is the hot copy (screen and
+  scrollback); attach, screen, history and copy reads come from it.
+>>>>>>> origin/main
 - The store keeps each terminal's stream position (generation-local byte
   offsets) and a 64 KiB raw tail in memory for `terminal.output_read`. The
   PTY reader only copies bytes into memory; one background writer does all
   disk work.
+<<<<<<< HEAD
 - `terminal.persistence.mode` in `cmux-next.json` (`CMUX_TUI_TERMINAL_PERSISTENCE`
   overrides it) sets what reaches the disk, in `terminal-output/` beside the
   registry: `memory` writes nothing (exit replays and close archives keep no
@@ -402,6 +416,36 @@ below still understand them. A subscription with `kinds: ["terminal.output"]` or
 `terminal_output` regex field matches only those older records; a new hook
 with the `terminal_output` regex field is refused (it could never fire). Wait
 for terminal text with `terminal.wait` and read it with `terminal.output_read`.
+=======
+- `CMUX_TUI_TERMINAL_PERSISTENCE` sets what reaches the disk, in
+  `terminal-output/` beside the registry: `memory` writes nothing (exit
+  snapshots keep no screen either); `snapshot` (default) writes one gzip VT
+  replay per terminal (screen plus about 2,000 recent lines, at most 4 MiB),
+  replaced atomically, only when the terminal's text, size, screen or history
+  changed, at most every 30 s, at a journal checkpoint and at quit (those two
+  also record a stream end that moved without a content change). The files
+  share a 50 MB cap; the oldest go first. The snapshot capture holds the
+  terminal's parser lock for one digest of the visible text and, when it
+  changed, one bounded replay. A daemon that re-adopts a live terminal host
+  continues the terminal's stream offsets from its snapshot (or, for a
+  terminal without one, from the output records an older daemon journaled);
+  a terminal whose snapshot the cap evicted starts again at offset 0.
+  Clearing a terminal's history drops its stored output and rewrites its
+  snapshot at once.
+- A terminal that leaves the daemon (an exit under the close policy, a
+  close) keeps its tail readable in memory, for the 64 most recent such
+  terminals. With no stream in this daemon and no exit snapshot,
+  `terminal.output_read` serves the output records an older daemon journaled,
+  with the same raw byte windows.
+
+Accepted geometry changes and the small `terminal.output.gap` markers
+(`host_reconnect`; no bytes) still use the FIFO terminal lane. Registries
+written before this change keep their output records. A subscription with
+`kinds: ["terminal.output"]` or the `terminal_output` regex field matches only
+those older records; a new hook with the `terminal_output` regex field is
+refused (it could never fire). Wait for terminal text with `terminal.wait` and
+read it with `terminal.output_read`.
+>>>>>>> origin/main
 
 External producers and durable frontend observations use a second bounded
 lane. One coalesced wake signal drives both lanes; each batch reserves capacity
@@ -411,6 +455,14 @@ occupy the terminal lane or block the PTY reader. Byte order is strict within
 the terminal lane, durable producer order is strict within the producer lane,
 and the writer assigns commit order when independent lanes race.
 
+<<<<<<< HEAD
+=======
+The hosted reader never waits for the journal: it records geometry changes
+and gap markers without waiting. When a stalled writer leaves the terminal
+lane full, that record is not journaled and the terminal is marked for the
+coalesced checkpoint of `terminal-host.md` ("Durability boundary").
+
+>>>>>>> origin/main
 A checkpoint names its terminals but keeps no VT replay blob (terminal
 screens stay out of the journal); it asks the output store to write its
 snapshots at once instead. Checkpoints of older registries keep their blobs.
@@ -486,13 +538,6 @@ session socket, waits for the durable receipt with a bounded timeout, and
 exits. It does not initialize the TUI frontend. The main terminal process owns
 only the bounded socket handler and single-writer journal actor; provider hook
 execution remains in the provider's external process.
-
-If a terminal output write exhausts that wait, the capture lane waits for
-bounded durable admission of a `terminal.output.gap` marker and disables
-further capture for that terminal. If journal admission has already failed, the
-daemon reports that the marker could not be stored. The daemon and PTY host
-continue running; a stored gap makes the missing byte range explicit for
-restoration and diagnostics.
 
 The helper allows four seconds for the complete journal receipt. Installed
 command providers allow at least five seconds, so their outer timeout cannot
@@ -699,11 +744,16 @@ stops and before the terminal ingress barrier. The record names the terminal
 runtime generation and uses `cmux.terminal-output-gap.v1` with reason
 `detach_fence_failed` or `active_update_timeout`. A live daemon appends the
 same record with reason `host_reconnect` when it reconnects to a terminal host
+<<<<<<< HEAD
 after its tap was lost or the host asked it to resync (see `terminal-host.md`,
 "Durability boundary"), and with reason `journal_queue_full` when the full
 terminal lane refused a geometry change (see "Accepted geometry changes"
 above). A restore preview treats this
 required kind as unsupported, so it cannot report a fully reducible tail that
+=======
+after its tap was lost (see `terminal-host.md`, "Durability boundary"). A
+restore preview treats this required kind as unsupported, so it cannot report a fully reducible tail that
+>>>>>>> origin/main
 can contain missing source bytes. The daemon always attempts the final terminal
 barrier, closes both journal admission lanes, drains accepted records, and joins
 the journal writer through a fixed shutdown deadline. If an already admitted

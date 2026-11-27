@@ -2,7 +2,10 @@
 import AppKit
 import AVFoundation
 import CmuxConversationCore
+<<<<<<< HEAD
 import CmuxSpinner
+=======
+>>>>>>> origin/main
 
 enum MacAudioStrings {
     static var audioMessage: String { String(localized: "conversation.audio.message", defaultValue: "Audio Message", bundle: .module) }
@@ -145,7 +148,11 @@ final class MacAudioMessageView: MacFlippedView {
     let playButton = NSButton()
     let waveform = MacAudioWaveformView()
     let durationLabel = makeMacLabel()
+<<<<<<< HEAD
     private let spinner = CmuxSpinnerView(side: 16)
+=======
+    private let spinner = NSProgressIndicator()
+>>>>>>> origin/main
     private var displayLink: CADisplayLink?
     private var observer: UUID?
     private weak var player: ConversationAudioPlayer?
@@ -164,6 +171,12 @@ final class MacAudioMessageView: MacFlippedView {
         durationLabel.font = MacAudioBubbleLayout.durationFont
         durationLabel.maximumNumberOfLines = 1
         addSubview(durationLabel)
+<<<<<<< HEAD
+=======
+        spinner.style = .spinning
+        spinner.controlSize = .small
+        spinner.isDisplayedWhenStopped = false
+>>>>>>> origin/main
         addSubview(spinner)
         waveform.onScrub = { [weak self] fraction, finished in self?.scrub(to: fraction, finished: finished) }
     }

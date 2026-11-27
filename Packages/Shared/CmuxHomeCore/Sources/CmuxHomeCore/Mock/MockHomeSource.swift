@@ -1,8 +1,12 @@
 import CmuxAgentQuestion
 public import Foundation
+<<<<<<< HEAD
 #if canImport(UniformTypeIdentifiers)
 import UniformTypeIdentifiers
 #endif
+=======
+import UniformTypeIdentifiers
+>>>>>>> origin/main
 
 /// An in-memory owner for Home, used until the messaging backend lands and in
 /// tests, previews and demos. It behaves like a real owner: it assigns seqs and
@@ -17,22 +21,32 @@ public actor MockHomeSource: HomeSource {
         /// Delay before a Chief starts typing and before it answers.
         public var replyDelay: Duration
         public var startsOnline: Bool
+<<<<<<< HEAD
         /// The Hosted Chief's brain at start: on, off, or nil for none (``HomeChiefBrainControlling``).
         public var hostedChiefBrain: Bool?
 
         public init(chiefHistory: Int = 2_000, latency: Duration = .milliseconds(120),
                     replyDelay: Duration = .milliseconds(900), startsOnline: Bool = true, hostedChiefBrain: Bool? = nil) {
+=======
+
+        public init(chiefHistory: Int = 2_000, latency: Duration = .milliseconds(120),
+                    replyDelay: Duration = .milliseconds(900), startsOnline: Bool = true) {
+>>>>>>> origin/main
             self.chiefHistory = chiefHistory
             self.latency = latency
             self.replyDelay = replyDelay
             self.startsOnline = startsOnline
+<<<<<<< HEAD
             self.hostedChiefBrain = hostedChiefBrain
+=======
+>>>>>>> origin/main
         }
 
         /// No delays: for tests.
         public static let immediate = Options(chiefHistory: 300, latency: .zero, replyDelay: .zero)
     }
 
+<<<<<<< HEAD
     /// The Hosted Chief's brain (``setHostedChiefBrain(enabled:failingTurnOns:)``): nil is no Hosted Chief brain.
     var hostedChiefBrain: Bool?
     /// Turn Ons that fail before one succeeds.
@@ -44,6 +58,8 @@ public actor MockHomeSource: HomeSource {
     private var startedAgentPeers = HomeAgentStarts()
     private var agentStartReaders: [UUID: AsyncStream<HomeAgentStarts>.Continuation] = [:]
 
+=======
+>>>>>>> origin/main
     private let options: Options
     private let clock: any Clock<Duration>
     private var online: Bool
@@ -91,9 +107,12 @@ public actor MockHomeSource: HomeSource {
     /// `withheldEvents` until `releaseWithheldEvents`.
     private var holdingEvents = false
     private var withheldEvents: [HomeEvent] = []
+<<<<<<< HEAD
     /// True while `holdSubmits` holds every submit before the owner looks at it.
     private var holdingSubmits = false
     private var heldSubmits: [CheckedContinuation<Void, Never>] = []
+=======
+>>>>>>> origin/main
     /// The progress callback of every upload call, in call order (tests
     /// replay late callbacks with `replayProgress`).
     private var progressCallbacks: [@Sendable (Double) -> Void] = []
@@ -114,7 +133,10 @@ public actor MockHomeSource: HomeSource {
         self.options = options
         self.clock = clock
         self.online = options.startsOnline
+<<<<<<< HEAD
         self.hostedChiefBrain = options.hostedChiefBrain
+=======
+>>>>>>> origin/main
         self.epoch = now
         let seed = MockHomeSeed.make(now: now, chiefHistory: options.chiefHistory)
         self.me = seed.me
@@ -167,7 +189,10 @@ public actor MockHomeSource: HomeSource {
 
     public func submit(_ intent: HomeIntent) async throws -> HomeOpResult {
         if options.latency > .zero { try? await clock.sleep(for: options.latency) }
+<<<<<<< HEAD
         if holdingSubmits { await withCheckedContinuation { heldSubmits.append($0) } }
+=======
+>>>>>>> origin/main
         guard online else { throw HomeRejection.ownerUnreachable }
         if let failing = failingSubmits[intent.key] {
             failingSubmits[intent.key] = failing.times > 1 ? (failing.times - 1, failing.error) : nil
@@ -188,7 +213,11 @@ public actor MockHomeSource: HomeSource {
             replay.replayed = true
             return replay
         }
+<<<<<<< HEAD
         if case .sendMessage(_, let parts, _, _) = intent.op {
+=======
+        if case .sendMessage(_, let parts, _) = intent.op {
+>>>>>>> origin/main
             for case .attachment(let ref) in parts {
                 guard let left = forgetOnSubmit[ref.hash] else { continue }
                 blobs[ref.hash] = nil
@@ -203,9 +232,13 @@ public actor MockHomeSource: HomeSource {
             throw rejection
         }
         ledger[intent.key] = (intent.op, .success(result))
+<<<<<<< HEAD
         if case .sendMessage(let conversation, let parts, let threadRoot, let parent) = intent.op {
             scheduleReplies(in: conversation, parts: parts, answering: parent ?? threadRoot)
         }
+=======
+        if case .sendMessage(let conversation, _, _) = intent.op { scheduleReplies(in: conversation) }
+>>>>>>> origin/main
         return result
     }
 
@@ -462,6 +495,7 @@ public actor MockHomeSource: HomeSource {
         }
     }
 
+<<<<<<< HEAD
     /// Holds every later submit before the owner looks at it, until `releaseSubmits` (a send
     /// stays pending in the client while other traffic commits).
     public func holdSubmits() { holdingSubmits = true }
@@ -537,11 +571,14 @@ public actor MockHomeSource: HomeSource {
         publish(.conversationChanged(summary, stream: .conversation(conversation), rev: summary.rev))
     }
 
+=======
+>>>>>>> origin/main
     /// Posts a message as someone else (incoming traffic for demos).
     public func receive(_ text: String, from author: ParticipantID, in conversation: ConversationID) {
         _ = try? commitMessage(in: conversation, author: author, parts: [.text(text)], key: .make())
     }
 
+<<<<<<< HEAD
     /// Publishes one draft item of an agent's running reply, as an owner streams a Chief turn (demos and the
     /// DEBUG Home fixture's width sweep). Nothing is stored: the reply posts only through ``receive(_:from:in:)``.
     public func streamDraft(_ update: HomeDraftUpdate) {
@@ -587,11 +624,17 @@ public actor MockHomeSource: HomeSource {
 
     private func dropAgentStartReader(_ id: UUID) { agentStartReaders[id] = nil }
 
+=======
+>>>>>>> origin/main
     // MARK: Owner logic
 
     private func apply(_ intent: HomeIntent) throws -> HomeOpResult {
         switch intent.op {
+<<<<<<< HEAD
         case .sendMessage(let conversation, let parts, let threadRoot, let parent):
+=======
+        case .sendMessage(let conversation, let parts, let threadRoot):
+>>>>>>> origin/main
             let text = parts.map(\.plainText).joined()
             guard !text.isEmpty, text.utf8.count <= 65_536 else { throw HomeRejection.invalid("invalid_parts") }
             // The owner's checkAttachments: a recorded hash, and the part's
@@ -612,6 +655,7 @@ public actor MockHomeSource: HomeSource {
                     throw HomeRejection.invalid("attachment_mismatch")
                 }
             }
+<<<<<<< HEAD
             // The root, and a parent of the thread at any depth, must be stored messages of the conversation.
             if let threadRoot, [threadRoot, parent ?? threadRoot].contains(where: { id in stored[conversation]?.contains { $0.id == id } != true }) {
                 throw HomeRejection.invalid("unknown_reply_target")
@@ -622,6 +666,12 @@ public actor MockHomeSource: HomeSource {
                 throw HomeRejection.invalid("invalid_thread_root")
             }
             let rev = try commitMessage(in: conversation, author: me.id, parts: parts, key: intent.key, threadRoot: threadRoot, parent: parent)
+=======
+            if let threadRoot, stored[conversation]?.contains(where: { $0.id == threadRoot }) != true {
+                throw HomeRejection.invalid("unknown_reply_target")
+            }
+            let rev = try commitMessage(in: conversation, author: me.id, parts: parts, key: intent.key, threadRoot: threadRoot)
+>>>>>>> origin/main
             return HomeOpResult(rev: rev, conversation: conversation)
         case .editMessage(let messageID, let conversation, let parts):
             return try updateOwnMessage(messageID, in: conversation) {
@@ -666,8 +716,13 @@ public actor MockHomeSource: HomeSource {
             let id = createConversation(title: "", participants: [me, agent])
             _ = try? commitMessage(in: id, author: agent.id, parts: [.text(MockHomeSeed.chiefGreeting(trimmed))], key: .make())
             return HomeOpResult(rev: inboxRev, conversation: id)
+<<<<<<< HEAD
         case .createGroup(let title, let ids, let invites):
             let participants = [me] + ids.compactMap { people[$0] } + invites.map { personFor($0).0 }
+=======
+        case .createGroup(let title, let ids):
+            let participants = [me] + ids.compactMap { people[$0] }
+>>>>>>> origin/main
             guard participants.count >= 3 else { throw HomeRejection.invalid("group_needs_three") }
             let id = createConversation(title: title, participants: participants)
             return HomeOpResult(rev: inboxRev, conversation: id)
@@ -693,6 +748,7 @@ public actor MockHomeSource: HomeSource {
             // An invite changes no inbox entry, so the current revision settles it.
             let (_, receipt) = personFor(contact)
             return HomeOpResult(rev: inboxRev, invite: receipt ?? InviteReceipt(contact: contact, channel: contact.isEmail ? .email : .sms, alreadyMember: true))
+<<<<<<< HEAD
         case .updateThread(let conversation, let root, let title, let status, let owner):
             guard var list = stored[conversation], let index = list.firstIndex(where: { $0.id == root }),
                   var summary = conversations[conversation] else { throw HomeRejection.invalid("unknown_message") }
@@ -740,6 +796,8 @@ public actor MockHomeSource: HomeSource {
             inboxRev += 1
             publish(.conversationRemoved(conversation, inboxRev: inboxRev))
             return HomeOpResult(rev: inboxRev)
+=======
+>>>>>>> origin/main
         case .setTyping(let conversation, let on):
             // Ephemeral: broadcast, never stored, no revision.
             guard let summary = conversations[conversation] else { throw HomeRejection.invalid("unknown_conversation") }
@@ -778,6 +836,7 @@ public actor MockHomeSource: HomeSource {
         }
     }
 
+<<<<<<< HEAD
     /// A change to a conversation's head (title, members): its own stream's next revision.
     private func updateHead(_ conversation: ConversationID, _ change: (inout ConversationSummary) -> Void) throws -> HomeOpResult {
         guard var summary = conversations[conversation] else { throw HomeRejection.invalid("unknown_conversation") }
@@ -788,6 +847,8 @@ public actor MockHomeSource: HomeSource {
         return HomeOpResult(rev: summary.rev, conversation: conversation)
     }
 
+=======
+>>>>>>> origin/main
     private func updateInbox(_ conversation: ConversationID, _ change: (inout ConversationSummary) -> Void) throws -> HomeOpResult {
         guard var summary = conversations[conversation] else { throw HomeRejection.invalid("unknown_conversation") }
         change(&summary)
@@ -815,12 +876,20 @@ public actor MockHomeSource: HomeSource {
     }
 
     private func commitMessage(in conversation: ConversationID, author: ParticipantID, parts: [MessagePart], key: IdempotencyKey,
+<<<<<<< HEAD
                                threadRoot: MessageID? = nil, parent: MessageID? = nil) throws -> Revision {
+=======
+                               threadRoot: MessageID? = nil) throws -> Revision {
+>>>>>>> origin/main
         guard var summary = conversations[conversation] else { throw HomeRejection.invalid("unknown_conversation") }
         guard summary.participants.contains(where: { $0.id == author }) else { throw HomeRejection.notAuthorized }
         let message = Message(id: MessageID("msg_\(mintID())"), conversation: conversation, seq: summary.lastSeq + 1,
                               clientMessageID: key, author: author, parts: parts, createdAt: Date(),
+<<<<<<< HEAD
                               replyTo: threadRoot.map { PartRef(message: parent ?? $0) }, threadRoot: threadRoot)
+=======
+                              replyTo: threadRoot.map { PartRef(message: $0) }, threadRoot: threadRoot)
+>>>>>>> origin/main
         stored[conversation, default: []].append(message)
         summary.lastSeq = message.seq
         summary.lastMessage = message
@@ -835,8 +904,12 @@ public actor MockHomeSource: HomeSource {
     private func createConversation(title: String, participants: [Participant]) -> ConversationID {
         let id = ConversationID("conv_\(mintID())")
         let now = Date()
+<<<<<<< HEAD
         let summary = ConversationSummary(id: id, title: title, participants: participants, createdAt: now, updatedAt: now,
                                           declaredKind: participants.count > 2 ? .group : nil)
+=======
+        let summary = ConversationSummary(id: id, title: title, participants: participants, createdAt: now, updatedAt: now)
+>>>>>>> origin/main
         conversations[id] = summary
         inboxRev += 1
         publish(.conversationChanged(summary, stream: .inbox, rev: inboxRev))
@@ -858,6 +931,7 @@ public actor MockHomeSource: HomeSource {
         return (person, InviteReceipt(contact: contact, channel: contact.isEmail ? .email : .sms, alreadyMember: false))
     }
 
+<<<<<<< HEAD
     /// The Chiefs the owner's rule wakes for my message (``ChiefReplyPolicy``) answer it, one after another.
     private func scheduleReplies(in conversation: ConversationID, parts: [MessagePart], answering: MessageID?) {
         guard let summary = conversations[conversation] else { return }
@@ -896,6 +970,27 @@ public actor MockHomeSource: HomeSource {
         typing(who, in: conversation, on: on)
     }
 
+=======
+    private func scheduleReplies(in conversation: ConversationID) {
+        guard let summary = conversations[conversation] else { return }
+        let chiefs = summary.participants.filter(\.isChief)
+        // In groups a Chief answers only when mentioned (multi-party rule); the mock answers with the first Chief.
+        guard let responder = chiefs.first else { return }
+        let delay = options.replyDelay
+        let clock = self.clock
+        Task {
+            if delay > .zero { try? await clock.sleep(for: delay) }
+            self.typing(responder.id, in: conversation, on: true)
+            if delay > .zero { try? await clock.sleep(for: delay) }
+            self.reply(as: responder, in: conversation)
+        }
+    }
+
+    private func typing(_ who: ParticipantID, in conversation: ConversationID, on: Bool) {
+        publish(.typing(conversation, who, on: on))
+    }
+
+>>>>>>> origin/main
     private func reply(as responder: Participant, in conversation: ConversationID) {
         publish(.typing(conversation, responder.id, on: false))
         let count = stored[conversation]?.count ?? 0
@@ -920,6 +1015,7 @@ public actor MockHomeSource: HomeSource {
         return result
     }
 
+<<<<<<< HEAD
     /// The inbox as the real owner lists it (`WireHomeSource.inboxSnapshot`): most recently updated first. Ties go
     /// by id, so every mock over one seed lists it in one order (a dictionary's order is seeded per dictionary).
     private func inboxSnapshot() -> InboxSnapshot {
@@ -927,6 +1023,10 @@ public actor MockHomeSource: HomeSource {
             $0.updatedAt != $1.updatedAt ? $0.updatedAt > $1.updatedAt : $0.id.rawValue < $1.id.rawValue
         }
         return InboxSnapshot(me: me, conversations: ordered, rev: inboxRev)
+=======
+    private func inboxSnapshot() -> InboxSnapshot {
+        InboxSnapshot(me: me, conversations: Array(conversations.values), rev: inboxRev)
+>>>>>>> origin/main
     }
 
     private func publish(_ event: HomeEvent) {

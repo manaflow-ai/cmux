@@ -1,10 +1,18 @@
 // Operator Pro grants.
 //
-// A grant writes `clientReadOnlyMetadata.cmuxVmPlan`, the manual override that
-// `resolveProPlanStatus` and Cloud VM entitlements already honor and that
-// Stripe reconciliation never touches. Removing the grant deletes the key so
-// the account falls back to its real Stripe state. Who granted what is kept in
-// `serverMetadata.cmuxAdminPlanGrant`, which end users cannot read.
+// An account holds up to two operator grants, one per slot:
+// - classic: `clientReadOnlyMetadata.cmuxVmPlan`, the manual override that
+//   `resolveProPlanStatus` and Cloud VM entitlements already honor and that
+//   Stripe reconciliation never touches;
+// - cmux NEXT: `clientReadOnlyMetadata.cmuxNextVmPlan` (`next_plus`,
+//   `next_pro` or `next_max`), which the classic app never reads.
+// A write to one slot never changes the other. Grants made before the NEXT
+// slot existed hold the NEXT id in `cmuxVmPlan`; they read as the NEXT grant
+// and move to `cmuxNextVmPlan` in the next admin write to either slot.
+// Removing a grant deletes its key so the account falls back to its real
+// Stripe state. Who granted what is kept per slot in
+// `serverMetadata.cmuxAdminPlanGrant` (classic) and
+// `serverMetadata.cmuxAdminNextPlanGrant` (NEXT), which end users cannot read.
 
 import { and, desc, eq, ilike, inArray, isNotNull, isNull, lt, or } from "drizzle-orm";
 
@@ -16,9 +24,9 @@ import { isPlainEmailLocalPart } from "./access";
 import {
   AccountDeletionMutationBlockedError,
   AccountDeletionUserMutationInProgressError,
-  withAccountDeletionUserMutation,
   type AccountDeletionUserMutationLease,
 } from "../account/deletionLock";
+import { withTeamMetadataMutation } from "../teams/mutationLease";
 import {
   AccountMetadataUserUnavailableError,
   type AccountMetadataUserLoader,
@@ -29,9 +37,9 @@ import {
   MAX_PLAN_ID,
   PRO_PLAN_ID,
   TEAM_PLAN_ID,
+  classicManualVmPlanOverride,
   hasActiveTeamSubscriptionForTeam,
   isPaidPlanId,
-  manualVmPlanOverride,
   metadataPlanId,
   resolveProPlanStatus,
   stripeBillingStatusForTeam,
@@ -39,12 +47,60 @@ import {
   type ProMetadataJson,
   type StripeBillingStatus,
 } from "../billing/pro";
+import {
+  NEXT_GRANT_METADATA_KEY,
+  NEXT_MAX_PLAN_ID,
+  NEXT_PLAN_IDS,
+  NEXT_PLUS_PLAN_ID,
+  NEXT_PRO_PLAN_ID,
+  isNextPlanId,
+  nextGrantPlanIdFromMetadata,
+  nextPlanId,
+  type NextPlanId,
+} from "../billing/nextPlans";
 
-export const ADMIN_GRANTABLE_PLAN_IDS = [PRO_PLAN_ID, MAX_PLAN_ID, FOUNDERS_PLAN_ID] as const;
+// `next_plus` / `next_pro` / `next_max` grant a cmux NEXT Cloud plan (see
+// services/billing/nextPlans.ts); the classic app reads them as no plan.
+export const ADMIN_GRANTABLE_PLAN_IDS = [
+  PRO_PLAN_ID,
+  MAX_PLAN_ID,
+  FOUNDERS_PLAN_ID,
+  NEXT_PLUS_PLAN_ID,
+  NEXT_PRO_PLAN_ID,
+  NEXT_MAX_PLAN_ID,
+] as const;
 export type AdminGrantablePlanId = (typeof ADMIN_GRANTABLE_PLAN_IDS)[number];
+
+/** Which operator grant a write targets: the classic plan or the cmux NEXT plan. */
+export type AdminGrantSlot = "classic" | "next";
+export const ADMIN_GRANT_SLOTS: readonly AdminGrantSlot[] = ["classic", "next"];
+
+/** Server metadata key of the audit record for the cmux NEXT slot. */
+export const NEXT_GRANT_AUDIT_KEY = "cmuxAdminNextPlanGrant";
+const CLASSIC_GRANT_AUDIT_KEY = "cmuxAdminPlanGrant";
 
 export const ADMIN_USER_SEARCH_LIMIT = 25;
 export const ADMIN_USER_SEARCH_MIN_QUERY_LENGTH = 2;
+/** Stack teams read per call while skipping test teams. */
+export const ADMIN_TEAM_SEARCH_PAGE_SIZE = 100;
+/** Stack pages one team search reads before it hands back a cursor. */
+export const ADMIN_TEAM_SEARCH_MAX_PAGES = 5;
+const ADMIN_TEAM_MEMBER_COUNT_CONCURRENCY = 8;
+
+/**
+ * The personal team Stack gives each probe account at sign-up is named after
+ * the account: `cmux <env> smoke` (web/scripts/cloud-vm/smoke-vm-api.mjs),
+ * `cmux <env> stress <n>` (stress-vm-api.mjs), `cmux <env> startup bench`
+ * (bench-vm-startup.mjs), `cmux dogfood` (dogfood-journey.mjs), `cmux Iroh
+ * production gate` (scripts/lib/temporary-stack-user.mjs), and the retired
+ * `team check` and `freestyle rpc smoke` probes.
+ */
+const PROBE_TEAM_NAME =
+  /^cmux (?:(?:prod|production|staging|dev) (?:smoke|team check|freestyle rpc smoke|stress \d+|startup bench)|dogfood|Iroh production gate)'s Team$/;
+
+export function isProbeTeamName(displayName: string): boolean {
+  return PROBE_TEAM_NAME.test(displayName);
+}
 
 export type AdminStackUser = {
   readonly id: string;
@@ -83,7 +139,11 @@ export type AdminStackApp = {
     includeRestricted?: boolean;
   }): Promise<readonly AdminStackUser[]>;
   getTeam(teamId: string): Promise<AdminStackTeam | null>;
-  listTeams(options: { query?: string; limit?: number }): Promise<readonly AdminStackTeam[]>;
+  listTeams(options: {
+    query?: string;
+    limit?: number;
+    cursor?: string;
+  }): Promise<readonly AdminStackTeam[] & { readonly nextCursor?: string | null }>;
 };
 
 export type AdminTeamRow = {
@@ -92,16 +152,24 @@ export type AdminTeamRow = {
   readonly createdAt: string | null;
   /** Null when member listing failed. */
   readonly memberCount: number | null;
+  /** An empty personal team left by a probe account (isProbeTeamName). */
+  readonly isTestTeam: boolean;
   /** Effective Team access: Stripe team subscription or a paid manual grant. */
   readonly isTeam: boolean;
+  /** The classic grant (`cmuxVmPlan`); never a cmux NEXT id. */
   readonly manualPlanId: string | null;
+  /** The cmux NEXT grant (`cmuxNextVmPlan`, else a legacy NEXT id in `cmuxVmPlan`). */
+  readonly nextManualPlanId: NextPlanId | null;
   readonly metadataPlanId: string | null;
   readonly stripe: {
     readonly subscriptionStatus: string | null;
     readonly cancelAtPeriodEnd: boolean;
     readonly hasActiveSubscription: boolean;
   };
+  /** Audit record of the classic slot. */
   readonly lastGrant: AdminPlanGrantRecord | null;
+  /** Audit record of the cmux NEXT slot. */
+  readonly lastNextGrant: AdminPlanGrantRecord | null;
 };
 
 export type AdminPendingGrantRow = {
@@ -129,8 +197,10 @@ export type AdminUserRow = {
   readonly signedUpAt: string;
   /** Effective Pro access: Stripe subscription or a paid manual grant. */
   readonly isPro: boolean;
-  /** Current `cmuxVmPlan` override, when set. */
+  /** The classic grant (`cmuxVmPlan` override), when set; never a cmux NEXT id. */
   readonly manualPlanId: string | null;
+  /** The cmux NEXT grant (`cmuxNextVmPlan`, else a legacy NEXT id in `cmuxVmPlan`). */
+  readonly nextManualPlanId: NextPlanId | null;
   /** `cmuxPlan` mirror written from Stripe state. */
   readonly metadataPlanId: string | null;
   readonly stripe: {
@@ -138,7 +208,10 @@ export type AdminUserRow = {
     readonly cancelAtPeriodEnd: boolean;
     readonly hasActiveSubscription: boolean;
   };
+  /** Audit record of the classic slot. */
   readonly lastGrant: AdminPlanGrantRecord | null;
+  /** Audit record of the cmux NEXT slot. */
+  readonly lastNextGrant: AdminPlanGrantRecord | null;
 };
 
 export class AdminUserNotFoundError extends Error {
@@ -153,6 +226,38 @@ export class AdminGrantConflictError extends Error {
     super("Another account mutation is in progress");
     this.name = "AdminGrantConflictError";
   }
+}
+
+/** `slot: "next"` was sent with a classic plan id. */
+export class AdminGrantSlotMismatchError extends Error {
+  constructor(readonly plan: string) {
+    super("A classic plan cannot be written to the cmux NEXT slot");
+    this.name = "AdminGrantSlotMismatchError";
+  }
+}
+
+const CLASSIC_GRANT_PLAN_IDS = [PRO_PLAN_ID, MAX_PLAN_ID, FOUNDERS_PLAN_ID] as const;
+
+export function isAdminGrantSlot(value: unknown): value is AdminGrantSlot {
+  return value === "classic" || value === "next";
+}
+
+/** The slot a plan id lives in. */
+export function grantSlotForPlan(plan: string): AdminGrantSlot {
+  return isNextPlanId(plan) ? "next" : "classic";
+}
+
+/**
+ * The slot a write targets. A NEXT plan always goes to the NEXT slot, whatever
+ * `requested` says; a removal (`plan: null`) goes to `requested`, else the
+ * classic slot (the behaviour before slots existed). `slot: "next"` with a
+ * classic plan is refused.
+ */
+export function resolveGrantSlot(plan: string | null, requested?: AdminGrantSlot): AdminGrantSlot {
+  if (plan === null) return requested ?? "classic";
+  const slot = grantSlotForPlan(plan);
+  if (requested === "next" && slot === "classic") throw new AdminGrantSlotMismatchError(plan);
+  return slot;
 }
 
 export function isAdminGrantablePlanId(value: unknown): value is AdminGrantablePlanId {
@@ -202,7 +307,7 @@ export function adminUserRow(
   user: AdminStackUser,
   stripe: StripeBillingStatus,
 ): AdminUserRow {
-  const manualPlanId = manualVmPlanOverride(user.clientReadOnlyMetadata);
+  const manualPlanId = classicManualVmPlanOverride(user.clientReadOnlyMetadata);
   return {
     id: user.id,
     email: user.primaryEmail ?? null,
@@ -211,6 +316,7 @@ export function adminUserRow(
     signedUpAt: user.signedUpAt.toISOString(),
     isPro: stripe.hasActiveSubscription || isPaidPlanId(manualPlanId),
     manualPlanId,
+    nextManualPlanId: nextGrantPlanIdFromMetadata(user.clientReadOnlyMetadata),
     metadataPlanId: metadataPlanId(user.clientReadOnlyMetadata),
     stripe: {
       subscriptionStatus: stripe.subscriptionStatus,
@@ -218,13 +324,20 @@ export function adminUserRow(
       hasActiveSubscription: stripe.hasActiveSubscription,
     },
     lastGrant: grantRecordFromServerMetadata(user.serverMetadata),
+    lastNextGrant: nextGrantRecordFromServerMetadata(user.serverMetadata),
   };
 }
 
 export type SetManualPlanGrantInput = {
   readonly targetUserId: string;
-  /** A grantable plan id, or null to remove the manual grant. */
+  /** A grantable plan id, or null to remove the manual grant of `slot`. */
   readonly plan: AdminGrantablePlanId | null;
+  /**
+   * The slot to write. A NEXT plan always writes the NEXT slot; a removal
+   * defaults to the classic slot, or to the slot of `onlyIfCurrent.plan`.
+   * `"next"` with a classic plan throws AdminGrantSlotMismatchError.
+   */
+  readonly slot?: AdminGrantSlot;
   readonly admin: { readonly id: string; readonly primaryEmail?: string | null };
   /**
    * Only write when the user's current override and audit record match this
@@ -269,8 +382,9 @@ export type FreshAdminUserMutation = <Result>(
 ) => Promise<Result>;
 
 /**
- * Writes or clears the manual Pro grant under the account-mutation lease so
- * a concurrent billing or TestFlight metadata write cannot be clobbered, then
+ * Writes or clears one slot's manual grant under the account-mutation lease,
+ * on a fresh read of the user, so a concurrent billing, TestFlight or admin
+ * metadata write (including one to the other slot) cannot be clobbered. Then
  * re-reads the user so `cmuxPlan` is reconciled against Stripe when the grant
  * was removed.
  */
@@ -280,6 +394,10 @@ export async function setManualPlanGrant(
   const app = input.app ?? defaultAdminStackApp();
   const withFreshUser = input.withFreshUser ?? defaultWithFreshUser(app);
   const now = input.now ?? (() => new Date());
+  const slot = resolveGrantSlot(
+    input.plan,
+    input.slot ?? (input.onlyIfCurrent ? grantSlotForPlan(input.onlyIfCurrent.plan) : undefined),
+  );
 
   let mutated: AdminStackUser;
   let wrote = false;
@@ -287,8 +405,8 @@ export async function setManualPlanGrant(
     mutated = await withFreshUser(input.targetUserId, async (user, lease) => {
       if (user.isAnonymous) throw new AdminUserNotFoundError(input.targetUserId);
       if (input.onlyIfCurrent) {
-        const currentPlan = manualVmPlanOverride(user.clientReadOnlyMetadata);
-        const audit = grantRecordFromServerMetadata(user.serverMetadata);
+        const currentPlan = slotPlanId(user.clientReadOnlyMetadata, slot);
+        const audit = slotGrantRecord(user.serverMetadata, slot);
         if (
           currentPlan !== input.onlyIfCurrent.plan.toLowerCase() ||
           audit?.byUserId !== input.onlyIfCurrent.byUserId ||
@@ -298,7 +416,7 @@ export async function setManualPlanGrant(
         }
       }
       if (input.unlessAuditNewerThan) {
-        const audit = grantRecordFromServerMetadata(user.serverMetadata);
+        const audit = slotGrantRecord(user.serverMetadata, slot);
         const auditAt = audit ? Date.parse(audit.at) : Number.NaN;
         if (!Number.isNaN(auditAt) && auditAt > input.unlessAuditNewerThan.getTime()) {
           return user;
@@ -306,20 +424,14 @@ export async function setManualPlanGrant(
       }
       await lease.refresh();
       const client = metadataRecord(user.clientReadOnlyMetadata);
-      if (input.plan === null) {
-        delete client.cmuxVmPlan;
-      } else {
-        client.cmuxVmPlan = input.plan;
-      }
       const server = metadataRecord(user.serverMetadata);
-      const grant: AdminPlanGrantRecord = {
+      writeGrantSlot(client, server, slot, input.plan, {
         plan: input.plan,
         byUserId: input.admin.id,
         byEmail: input.admin.primaryEmail ?? null,
         at: now().toISOString(),
         pendingGrantId: input.pendingGrantId ?? null,
-      };
-      server.cmuxAdminPlanGrant = grant;
+      });
       await user.update({
         clientReadOnlyMetadata: client as ProMetadataJson,
         serverMetadata: server as ProMetadataJson,
@@ -344,7 +456,7 @@ export async function setManualPlanGrant(
   // pending grant addressed to that mailbox; otherwise the pending grant would
   // re-apply at the next sign-in and silently undo this write.
   if (wrote && input.supersedePending !== false && mutated.primaryEmailVerified && mutated.primaryEmail) {
-    await supersedeOpenGrantsForEmail(mutated.primaryEmail, mutated.id, input.grantsDb);
+    await supersedeOpenGrantsForEmail(mutated.primaryEmail, mutated.id, slot, input.grantsDb);
   }
 
   // Outside the lease: the resolver takes its own lease when it needs to
@@ -360,8 +472,104 @@ export async function setManualPlanGrant(
   return adminUserRow(reloaded, await billing(reloaded.id));
 }
 
+/**
+ * The classic slot's audit record. A record naming a cmux NEXT plan predates
+ * the NEXT slot and belongs to it, so it is not reported here.
+ */
 export function grantRecordFromServerMetadata(raw: unknown): AdminPlanGrantRecord | null {
-  const record = metadataRecord(raw).cmuxAdminPlanGrant;
+  const record = parseGrantRecord(metadataRecord(raw)[CLASSIC_GRANT_AUDIT_KEY]);
+  return record && isNextPlanId(record.plan) ? null : record;
+}
+
+/**
+ * The cmux NEXT slot's audit record: `cmuxAdminNextPlanGrant`, else a legacy
+ * classic-key record that names a NEXT plan.
+ */
+export function nextGrantRecordFromServerMetadata(raw: unknown): AdminPlanGrantRecord | null {
+  const metadata = metadataRecord(raw);
+  const own = parseGrantRecord(metadata[NEXT_GRANT_AUDIT_KEY]);
+  if (own) return own;
+  const legacy = parseGrantRecord(metadata[CLASSIC_GRANT_AUDIT_KEY]);
+  return legacy && isNextPlanId(legacy.plan) ? legacy : null;
+}
+
+/** The grant a slot holds: the classic plan, or the cmux NEXT plan. */
+function slotPlanId(clientMetadata: unknown, slot: AdminGrantSlot): string | null {
+  return slot === "next"
+    ? nextGrantPlanIdFromMetadata(clientMetadata)
+    : classicManualVmPlanOverride(clientMetadata);
+}
+
+function slotGrantRecord(serverMetadata: unknown, slot: AdminGrantSlot): AdminPlanGrantRecord | null {
+  return slot === "next"
+    ? nextGrantRecordFromServerMetadata(serverMetadata)
+    : grantRecordFromServerMetadata(serverMetadata);
+}
+
+/**
+ * Applies one slot's write to copies of the account's metadata. The other
+ * slot's grant and audit record are kept.
+ *
+ * Mirror, so the write is safe while an older reader that only knows
+ * `cmuxVmPlan` is live: whenever the classic slot holds no classic value
+ * (absent, or a NEXT id), the NEXT grant is also written to `cmuxVmPlan` as
+ * the NEXT id (the legacy shape; classic code reads it as no classic plan).
+ * When the classic slot holds a classic grant or restriction, a NEXT write
+ * touches only `cmuxNextVmPlan`. A legacy NEXT id in `cmuxVmPlan` is copied to
+ * `cmuxNextVmPlan` (with its audit record) before a classic write, and a
+ * classic removal restores the mirror, so a classic change never drops a
+ * NEXT grant.
+ */
+export function writeGrantSlot(
+  client: Record<string, unknown>,
+  server: Record<string, unknown>,
+  slot: AdminGrantSlot,
+  plan: string | null,
+  grant: AdminPlanGrantRecord,
+): void {
+  const legacyNext = nextPlanId(client.cmuxVmPlan);
+  if (slot === "next") {
+    if (plan === null) {
+      delete client[NEXT_GRANT_METADATA_KEY];
+      if (legacyNext) delete client.cmuxVmPlan;
+    } else {
+      client[NEXT_GRANT_METADATA_KEY] = plan;
+      if (!holdsClassicValue(client)) client.cmuxVmPlan = plan;
+    }
+    server[NEXT_GRANT_AUDIT_KEY] = grant;
+    return;
+  }
+  if (legacyNext && !nextPlanId(client[NEXT_GRANT_METADATA_KEY])) {
+    client[NEXT_GRANT_METADATA_KEY] = legacyNext;
+    if (!parseGrantRecord(server[NEXT_GRANT_AUDIT_KEY])) {
+      const legacyAudit = nextGrantRecordFromServerMetadata(server);
+      if (legacyAudit) server[NEXT_GRANT_AUDIT_KEY] = server[CLASSIC_GRANT_AUDIT_KEY];
+    }
+  }
+  if (plan === null) {
+    const next = nextPlanId(client[NEXT_GRANT_METADATA_KEY]);
+    if (next) client.cmuxVmPlan = next;
+    else delete client.cmuxVmPlan;
+  } else {
+    client.cmuxVmPlan = plan;
+  }
+  server[CLASSIC_GRANT_AUDIT_KEY] = grant;
+}
+
+/**
+ * Whether `cmuxVmPlan` holds anything a classic reader acts on: any value
+ * that is present and is not a NEXT id. That includes an empty, whitespace or
+ * non-string value: the classic readers disagree on those (the override
+ * reader calls them unset, the billing plan reader keeps them as a
+ * restriction that hides the subscription), so the NEXT mirror never
+ * overwrites one. Such an account's NEXT grant is read from `cmuxNextVmPlan`.
+ */
+function holdsClassicValue(client: Record<string, unknown>): boolean {
+  const value = client.cmuxVmPlan;
+  return value !== undefined && value !== null && nextPlanId(value) === null;
+}
+
+function parseGrantRecord(record: unknown): AdminPlanGrantRecord | null {
   if (!record || typeof record !== "object" || Array.isArray(record)) return null;
   const value = record as Record<string, unknown>;
   if (typeof value.byUserId !== "string" || typeof value.at !== "string") return null;
@@ -380,7 +588,7 @@ function metadataRecord(raw: unknown): Record<string, unknown> {
     : {};
 }
 
-function defaultAdminStackApp(): AdminStackApp {
+export function defaultAdminStackApp(): AdminStackApp {
   const app = getStackServerApp();
   return {
     getUser: (userId) => app.getUser(userId),
@@ -407,21 +615,81 @@ function defaultWithFreshUser(app: AdminStackApp): FreshAdminUserMutation {
 // ---------------------------------------------------------------------------
 // Teams
 
+export type AdminTeamSearchPage = {
+  readonly teams: AdminTeamRow[];
+  /** Pass back as `cursor` for the next page; null when Stack has no more. */
+  readonly nextCursor: string | null;
+  /** Empty probe teams skipped on this page (0 with includeTestTeams). */
+  readonly hiddenTestTeams: number;
+};
+
+/**
+ * One page of teams matching `query` (display name, or an exact Stack id).
+ * Stack lists oldest first, so a common word like "cmux" can fill a page
+ * with empty probe teams. By default those are skipped and the search keeps
+ * reading Stack pages until it has a full page of other teams, reaching the
+ * end, or ADMIN_TEAM_SEARCH_MAX_PAGES; `nextCursor` resumes from there.
+ */
 export async function searchAdminTeams(
   query: string,
   options: {
     readonly app?: AdminStackApp;
     readonly stripeBillingStatus?: (teamId: string) => Promise<StripeBillingStatus>;
+    readonly cursor?: string | null;
+    readonly includeTestTeams?: boolean;
   } = {},
-): Promise<AdminTeamRow[]> {
+): Promise<AdminTeamSearchPage> {
   const trimmed = query.trim();
-  if (trimmed.length < ADMIN_USER_SEARCH_MIN_QUERY_LENGTH) return [];
+  if (trimmed.length < ADMIN_USER_SEARCH_MIN_QUERY_LENGTH) return { teams: [], nextCursor: null, hiddenTestTeams: 0 };
   const app = options.app ?? defaultAdminStackApp();
-  const teams = await app.listTeams({ query: trimmed, limit: ADMIN_USER_SEARCH_LIMIT });
   const billing = options.stripeBillingStatus ?? stripeBillingStatusForTeam;
-  return await Promise.all(
-    teams.map(async (team) => adminTeamRow(team, await billing(team.id), await memberCount(team))),
+  const includeTestTeams = options.includeTestTeams === true;
+  const kept: Array<{ team: AdminStackTeam; members: number | null }> = [];
+  let hiddenTestTeams = 0;
+  let cursor = options.cursor ?? null;
+  for (let page = 0; page < (includeTestTeams ? 1 : ADMIN_TEAM_SEARCH_MAX_PAGES); page += 1) {
+    const teams = await app.listTeams({
+      query: trimmed,
+      limit: includeTestTeams ? ADMIN_USER_SEARCH_LIMIT : ADMIN_TEAM_SEARCH_PAGE_SIZE,
+      ...(cursor ? { cursor } : {}),
+    });
+    const counted = await mapLimited(teams, ADMIN_TEAM_MEMBER_COUNT_CONCURRENCY, async (team) => ({
+      team,
+      members: await memberCount(team),
+    }));
+    for (const row of counted) {
+      if (!includeTestTeams && isTestTeam(row.team, row.members)) hiddenTestTeams += 1;
+      else kept.push(row);
+    }
+    cursor = teams.nextCursor ?? null;
+    if (!cursor || kept.length >= ADMIN_USER_SEARCH_LIMIT) break;
+  }
+  const rows = await Promise.all(
+    kept.map(async ({ team, members }) => adminTeamRow(team, await billing(team.id), members)),
   );
+  return { teams: rows, nextCursor: cursor, hiddenTestTeams };
+}
+
+function isTestTeam(team: AdminStackTeam, members: number | null): boolean {
+  return members === 0 && isProbeTeamName(team.displayName);
+}
+
+async function mapLimited<Item, Result>(
+  items: readonly Item[],
+  limit: number,
+  work: (item: Item) => Promise<Result>,
+): Promise<Result[]> {
+  const results = new Array<Result>(items.length);
+  let next = 0;
+  const workers = Array.from({ length: Math.max(1, Math.min(limit, items.length)) }, async () => {
+    while (next < items.length) {
+      const index = next;
+      next += 1;
+      results[index] = await work(items[index]!);
+    }
+  });
+  await Promise.all(workers);
+  return results;
 }
 
 /** Null when the provider could not list members; the UI then blocks a Team grant. */
@@ -438,14 +706,16 @@ export function adminTeamRow(
   stripe: StripeBillingStatus,
   members: number | null,
 ): AdminTeamRow {
-  const manualPlanId = manualVmPlanOverride(team.clientReadOnlyMetadata);
+  const manualPlanId = classicManualVmPlanOverride(team.clientReadOnlyMetadata);
   return {
     id: team.id,
     displayName: team.displayName,
     createdAt: team.createdAt ? team.createdAt.toISOString() : null,
     memberCount: members,
+    isTestTeam: isTestTeam(team, members),
     isTeam: stripe.hasActiveSubscription || isPaidPlanId(manualPlanId),
     manualPlanId,
+    nextManualPlanId: nextGrantPlanIdFromMetadata(team.clientReadOnlyMetadata),
     metadataPlanId: metadataPlanId(team.clientReadOnlyMetadata),
     stripe: {
       subscriptionStatus: stripe.subscriptionStatus,
@@ -453,6 +723,7 @@ export function adminTeamRow(
       hasActiveSubscription: stripe.hasActiveSubscription,
     },
     lastGrant: grantRecordFromServerMetadata(team.serverMetadata),
+    lastNextGrant: nextGrantRecordFromServerMetadata(team.serverMetadata),
   };
 }
 
@@ -473,7 +744,9 @@ export type FreshAdminTeamMutation = <Result>(
 ) => Promise<Result>;
 
 /**
- * Writes or clears the team's `cmuxVmPlan` override. A paid team override
+ * Writes or clears the team's classic `cmuxVmPlan` override; a cmux NEXT
+ * grant on the team (including a legacy one, which moves to its own key) is
+ * kept. A paid team override
  * gives every member the Team plan through billing team resolution, the same
  * way a Stripe Team subscription writes `cmuxPlan: "team"`.
  *
@@ -503,11 +776,13 @@ export async function setTeamManualPlanGrant(input: {
       const stripeActive = await hasStripeTeam(team.id);
       await lease.refresh();
       const client = metadataRecord(team.clientReadOnlyMetadata);
-      if (input.plan === null) {
-        delete client.cmuxVmPlan;
-      } else {
-        client.cmuxVmPlan = input.plan;
-      }
+      const server = metadataRecord(team.serverMetadata);
+      writeGrantSlot(client, server, "classic", input.plan, {
+        plan: input.plan,
+        byUserId: input.admin.id,
+        byEmail: input.admin.primaryEmail ?? null,
+        at: now().toISOString(),
+      });
       // Mirror reconciliation, like syncTeamPlanMetadata but clearing any
       // stale paid value: entitlements treat pro, team, and founders alike.
       if (stripeActive) {
@@ -515,14 +790,6 @@ export async function setTeamManualPlanGrant(input: {
       } else if (isPaidPlanId(typeof client.cmuxPlan === "string" ? client.cmuxPlan : null)) {
         delete client.cmuxPlan;
       }
-      const server = metadataRecord(team.serverMetadata);
-      const grant: AdminPlanGrantRecord = {
-        plan: input.plan,
-        byUserId: input.admin.id,
-        byEmail: input.admin.primaryEmail ?? null,
-        at: now().toISOString(),
-      };
-      server.cmuxAdminPlanGrant = grant;
       await team.update({
         clientReadOnlyMetadata: client as ProMetadataJson,
         serverMetadata: server as ProMetadataJson,
@@ -545,14 +812,9 @@ export async function setTeamManualPlanGrant(input: {
   return adminTeamRow(reloaded, await billing(reloaded.id), await memberCount(reloaded));
 }
 
-/** Team lease key. Teams share the account-mutation lease table under a prefixed id. */
-function teamMutationKey(teamId: string): string {
-  return `team:${teamId}`;
-}
-
-function defaultWithFreshTeam(app: AdminStackApp): FreshAdminTeamMutation {
+export function defaultWithFreshTeam(app: AdminStackApp): FreshAdminTeamMutation {
   return async (teamId, operation) =>
-    await withAccountDeletionUserMutation(cloudDb(), teamMutationKey(teamId), async (lease) => {
+    await withTeamMetadataMutation(cloudDb(), teamId, async (lease) => {
       const team = await app.getTeam(teamId);
       if (!team || team.id !== teamId) throw new AdminTeamNotFoundError(teamId);
       return await operation(team, lease);
@@ -639,6 +901,9 @@ export async function createPendingEmailGrant(input: {
   const email = canonicalizeEmailForMatching(input.email);
   // One open grant per email: a new grant supersedes any earlier open one, so
   // sign-in never has more than one row to apply and the newest plan wins.
+  // This holds across slots too (the open-email unique index allows one row),
+  // so a pending cmux NEXT grant replaces a pending classic one for the same
+  // email and the reverse; applying the row writes only its own slot.
   // Supersede and insert commit together, and the partial unique index on
   // open emails makes a concurrent second grant fail instead of leaving two
   // open rows. A superseded row that a sign-in had claimed may already have
@@ -743,13 +1008,16 @@ export class AdminInvalidEmailError extends Error {
 }
 
 /**
- * Revokes open pending grants for an email that are unclaimed or claimed by
- * the given user. Rows claimed by another user are left for that sign-in.
- * Tolerates a missing database or table.
+ * Revokes open pending grants of `slot` for an email that are unclaimed or
+ * claimed by the given user. Rows claimed by another user are left for that
+ * sign-in, and a pending grant of the other slot is left alone: it writes a
+ * different key, so it cannot undo this decision. Tolerates a missing
+ * database or table.
  */
 async function supersedeOpenGrantsForEmail(
   rawEmail: string,
   userId: string,
+  slot: AdminGrantSlot,
   grantsDb?: AdminGrantsDb,
 ): Promise<void> {
   const email = canonicalizeEmailForMatching(rawEmail);
@@ -763,6 +1031,7 @@ async function supersedeOpenGrantsForEmail(
           eq(adminPlanGrants.email, email),
           isNull(adminPlanGrants.appliedAt),
           isNull(adminPlanGrants.revokedAt),
+          inArray(adminPlanGrants.plan, slot === "next" ? NEXT_PLAN_IDS : CLASSIC_GRANT_PLAN_IDS),
           or(isNull(adminPlanGrants.appliedUserId), eq(adminPlanGrants.appliedUserId, userId)),
         ),
       );
@@ -858,6 +1127,34 @@ export async function revokePendingEmailGrant(input: {
  * same user's next sign-in, or anyone after the TTL, picks up again. The
  * metadata write is idempotent, so a retry after a crash is safe.
  */
+/**
+ * Writes the newest claimed pending grant into its own slot (a cmux NEXT plan
+ * into the NEXT slot), leaving the other slot's grant alone. A failure
+ * releases the claims and is rethrown.
+ */
+async function applyNewestPendingGrant(
+  grant: (input: SetManualPlanGrantInput) => Promise<unknown>,
+  userId: string,
+  plan: AdminGrantablePlanId,
+  newest: { readonly id: string; readonly grantedByUserId: string; readonly grantedByEmail: string | null; readonly createdAt: Date },
+  releaseClaims: () => Promise<void>,
+): Promise<void> {
+  try {
+    await grant({
+      targetUserId: userId,
+      plan,
+      admin: { id: newest.grantedByUserId, primaryEmail: newest.grantedByEmail },
+      // A direct admin decision made after this grant was created wins.
+      unlessAuditNewerThan: newest.createdAt,
+      supersedePending: false,
+      pendingGrantId: newest.id,
+    });
+  } catch (error) {
+    await releaseClaims();
+    throw error;
+  }
+}
+
 export async function applyPendingEmailGrants(
   user: { readonly id: string; readonly primaryEmail?: string | null },
   options: {
@@ -927,22 +1224,7 @@ export async function applyPendingEmailGrants(
 
   const newest = [...claimed].sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime())[0]!;
   const plan = isAdminGrantablePlanId(newest.plan) ? newest.plan : null;
-  if (plan !== null) {
-    try {
-      await grant({
-        targetUserId: user.id,
-        plan,
-        admin: { id: newest.grantedByUserId, primaryEmail: newest.grantedByEmail },
-        // A direct admin decision made after this grant was created wins.
-        unlessAuditNewerThan: newest.createdAt,
-        supersedePending: false,
-        pendingGrantId: newest.id,
-      });
-    } catch (error) {
-      await releaseClaims();
-      throw error;
-    }
-  }
+  if (plan !== null) await applyNewestPendingGrant(grant, user.id, plan, newest, releaseClaims);
 
   // Finalize only rows this sign-in still owns: a claim stolen after the TTL
   // belongs to that later sign-in, which finalizes (or compensates) itself.

@@ -142,6 +142,7 @@ struct SpringElement {
         e.components = components.map { var c = $0; c.delay += s; return c }
         return e
     }
+<<<<<<< HEAD
     /// The same element on a clock `k` times slower, `shift` seconds later: progress(t) becomes
     /// progress((t - shift) / k). Each spring's duration and each curve's duration scale by `k` (a
     /// spring keeps its bounce: the same shape in time), each delay becomes `shift + k x delay`, an
@@ -169,11 +170,14 @@ struct TravelLaw {
         let x = log(min(max(travel, minPt), maxPt) / refPt)
         return e.timeScaled(k0 * exp(q * x), shift: d0 + d1 * x)
     }
+=======
+>>>>>>> origin/main
 }
 
 /// springs.json, bundled. Every animated element of the app takes its timing
 /// from here; nothing else defines a curve.
 enum Springs {
+<<<<<<< HEAD
     private final class Token {}
     private static let lock = NSLock()
     private static var current: Bundle?
@@ -200,6 +204,13 @@ enum Springs {
     }()
     static let all: [String: SpringElement] = {
         let obj = json
+=======
+    static let all: [String: SpringElement] = {
+        // cmux: a package resource (the app's main bundle does not hold it).
+        guard let url = Bundle.module.url(forResource: "springs", withExtension: "json"),
+              let data = try? Data(contentsOf: url),
+              let obj = try? JSONSerialization.jsonObject(with: data) as? [String: [String: Any]] else { return [:] }
+>>>>>>> origin/main
         var out: [String: SpringElement] = [:]
         for (name, e) in obj {
             let comps = (e["components"] as? [[String: Any]] ?? []).map { c in
@@ -215,6 +226,7 @@ enum Springs {
         }
         return out
     }()
+<<<<<<< HEAD
     /// The `travelLaw` objects of springs.json, by element name.
     static let travelLaws: [String: TravelLaw] = {
         let obj = json
@@ -226,6 +238,8 @@ enum Springs {
         }
         return out
     }()
+=======
+>>>>>>> origin/main
     static func element(_ name: String) -> SpringElement {
         all[name] ?? SpringElement(name: name, from: 0, to: 1, components: [.init(delay: 0, spring: Spring(duration: 0.3, bounce: 0), delta: 1)])
     }
@@ -265,6 +279,7 @@ enum Springs {
     /// `.fieldShrink` fits (refit3, cx-3cb.6); after a 1-line draft, on macOS and Mac Catalyst the
     /// `.oneLineMac` fits (right, width, centerY, scale: fit7, cx-3cb bubble-refit), on iOS the `.oneLine`
     /// fits where they exist (`bubble.width`, `bubble.right`: refit4, ANIMATIONS.md section 1); else the elements above.
+<<<<<<< HEAD
     /// macOS 26: the elements above. gpui and rawmath mirror this struct with the macOS 27 fits only (they have no macOS 26 path).
     struct Bubble {
         /// `height`: the body's height (and the tail's place) — the variant's width element; `width` can differ
@@ -274,6 +289,12 @@ enum Springs {
         /// `lines`: the sent balloon's text lines (TextLayout.lines.count); 0 = not known (the scale-only callers).
         /// `travel`: the width change of the send, field width minus balloon width (pt); 0 = not known.
         init(fieldShrinks: Bool, lines: Int = 0, travel: Double = 0) {
+=======
+    /// macOS 26: the elements above. (gpui and rawmath read the base elements for every send.)
+    struct Bubble {
+        var right, width, centerY, scale, opacity: SpringElement
+        init(fieldShrinks: Bool) {
+>>>>>>> origin/main
             func e(_ n: String, _ base: SpringElement) -> SpringElement {
                 guard !ComposeMetrics.macOS26 else { return base }
                 // macOS 27, 1-line draft: the `.oneLineMac` fit (four elements, fit7 on the four 1-line
@@ -286,6 +307,7 @@ enum Springs {
             right = e("bubble.right", Springs.bubbleRight); width = e("bubble.width", Springs.bubbleWidth)
             centerY = e("bubble.centerY", Springs.bubbleCenterY); scale = e("bubble.scale", Springs.bubbleScale)
             opacity = e("bubble.opacity", Springs.bubbleOpacity)
+<<<<<<< HEAD
             height = width
             // macOS 27, a draft that shrinks the field with 3+ text lines: ONE width spring whose duration depends
             // on the line count (cmux, no bounce: 3 / 4+: 0.149 / 0.1651 s, start +50 ms, damping ratio 1). An empirical fit with
@@ -305,6 +327,8 @@ enum Springs {
                 width = law.apply(w, travel: travel)
             }
             #endif
+=======
+>>>>>>> origin/main
         }
     }
     static func osElement(_ name: String) -> SpringElement {

@@ -279,6 +279,9 @@ describe("localized pricing page", () => {
     expect(html).toContain("/mo");
     expect(html).toContain("/user/mo");
     expect(html).toContain("$60/user/mo");
+    expect(html).toMatch(/>\$50</);
+    expect(html).not.toMatch(/>\$40</);
+    expect(html).not.toMatch(/plan%253Dpro[^"]*interval%253Dyear/);
     expect(html).toContain('href="/handler/sign-in?after_auth_return_to=');
     expect(html).toContain("plan%253Dpro");
     expect(html).toContain("plan%253Dteam");
@@ -317,12 +320,21 @@ describe("localized pricing page", () => {
     expect(html).toContain("$200");
     expect(html).toContain("$160");
     expect(html).toContain("Yearly");
+<<<<<<< ours
     expect(html).toContain("Cloud VMs with no count cap, metered beyond the included usage; Max unlocks");
     expect(html).toContain("Get Plus");
     expect(html).toContain("$15");
     expect(html).toContain("No monthly hour cap");
     expect(html).toContain("1 saved VM total, including paused machines");
     expect(html).toContain("2–8 vCPU · 4–16 GiB RAM · 16–128 GiB disk");
+=======
+    expect(html).toContain("Up to 5 Cloud VMs sharing 80 vCPUs and 160 GB RAM");
+    expect(html).toContain("Get Plus");
+    expect(html).toContain("$15");
+    expect(html).toContain("No monthly hour cap");
+    expect(html).toContain("1 saved VM total, including paused machines");
+    expect(html).toContain("2–8 vCPU · 4–16 GiB RAM · 16–128 GiB disk");
+>>>>>>> theirs
     expect(html).toContain("For individuals");
     expect(html).toContain("For teams and businesses");
     expect(html).toContain("Largest Cloud VM");

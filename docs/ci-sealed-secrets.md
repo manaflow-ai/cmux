@@ -9,11 +9,15 @@ that made it.
 
 - `scripts/ci/sealed_secrets.py`: `seal_bundle(repo, environment, key_id, key, {NAME: value})`
   seals with libsodium's `crypto_box_seal` (the encryption GitHub's secrets API takes) and returns a
+<<<<<<< HEAD
   bundle (JSON: target repo, environment, `key_id`, `key`, ciphertexts). `put BUNDLE` stores it;
   `put DIRECTORY` stores every `bundle-*.json` in a multi-destination output directory.
 - A bundle whose environment is `None` goes to the repository's own Actions secrets, for a job with no
   `environment:` (cmux-platform's `ci.yml`: targets `platform-staging` and `platform-production`). Pin
   `gh api repos/OWNER/REPO/actions/secrets/public-key` for it; `put` needs write access to that repository's secrets.
+=======
+  bundle (JSON: target repo, environment, `key_id`, `key`, ciphertexts). `put BUNDLE` stores it.
+>>>>>>> origin/main
 - Pin the target environment's `key_id` and `key` in the producing script. To read them, run
   `gh api repos/OWNER/REPO/environments/ENV/secrets/public-key`.
 - `put` reads the live public key first. If its `key_id` or bytes differ from the bundle's, it writes
@@ -24,6 +28,7 @@ that made it.
 
 ## Cloud capture account
 
+<<<<<<< HEAD
 `.github/workflows/cloud-capture-provision.yml` takes no inputs and runs only from `feat-cmux-next`,
 in the `cloud-vm-staging` environment. It finds or creates the staging test account
 (`cloud_capture_provision.py`), sets a new random password and the `pro` operator plan, checks that
@@ -51,10 +56,22 @@ three. To run it and store the result:
 
 ```sh
 gh workflow run internal-token-staging.yml -R manaflow-ai/cmux --ref feat-cmux-next
+=======
+`.github/workflows/cloud-capture-provision.yml` takes no inputs and runs only from `main` (the
+`cloud-vm-staging` environment deploys only to protected branches). It finds or creates the staging test account
+(`cloud_capture_provision.py`), sets a new random password and the `pro` operator plan, checks that
+the account signs in, and uploads the `sealed-secrets` artifact. That artifact holds
+`CLOUD_CAPTURE_STACK_EMAIL` and `CLOUD_CAPTURE_STACK_PASSWORD`, sealed to the team's `cloud-capture`
+capture environment. To run it and store the result:
+
+```sh
+gh workflow run cloud-capture-provision.yml -R manaflow-ai/cmux --ref main
+>>>>>>> origin/main
 gh run download RUN_ID -R manaflow-ai/cmux -n sealed-secrets -D "$(mktemp -d)"
 python3 scripts/ci/sealed_secrets.py put DIR/sealed-secrets.json
 ```
 
+<<<<<<< HEAD
 ## cmux VM Worker secrets to cmux-platform
 
 `.github/workflows/cmux-vm-secrets-seal.yml` is cutover step 1 of cmux-platform's `workers/cmux-vm/MOVED.md`. It runs
@@ -87,3 +104,13 @@ gh workflow run cmux-vm-secrets-seal.yml -R manaflow-ai/cmux --ref feat-cmux-nex
 ```
 
 Rerun it whenever cmux's values change before the cutover; each `put` overwrites the copies.
+=======
+Rerun it to rotate the password.
+
+With `-f target=journey`, the same run provisions the Cloud journey's own staging account
+(`cmux-cloud-capture-journey@manaflow.dev`) and seals `CMUX_DOGFOOD_STACK_EMAIL` and
+`CMUX_DOGFOOD_STACK_PASSWORD` to this repository's `cmux-next-vm-image-dev` environment, where
+backend.yml's `journey-staging` and cloud-chat-proof.yml read them. Those environment secrets take
+precedence over the repository's own pair (the production test account) in that environment only. The capture job reads only the two secrets. It never sees the
+staging server key and never creates users.
+>>>>>>> origin/main

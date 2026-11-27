@@ -57,12 +57,20 @@ class IOSWorkflowDispatchRefTests(unittest.TestCase):
     def test_requested_family_matrix_is_selected_on_linux(self) -> None:
         jobs = yaml.safe_load(WORKFLOW.read_text())["jobs"]
         detect = jobs["detect-ios-changes"]
+<<<<<<< HEAD
         cells = workflow_jobs.runs_on_cells(detect)
         self.assertTrue(cells, "detect-ios-changes: runs-on reads a matrix value nothing resolves, or is missing")
         for runs_on in cells:
             # A Linux label by literal (#56554 dropped vars.CI_FORK_LINUX_RUNNER): the pool, or hosted for forks.
             self.assertIn("cmux-linux", runs_on)
             self.assertNotIn("macos", runs_on)
+=======
+        # A Linux runner: the runner variable, or the persistent Linux pool label (PR #47956).
+        self.assertTrue(
+            "LINUX_RUNNER" in detect["runs-on"] or "'cmux-linux'" in detect["runs-on"],
+            detect["runs-on"],
+        )
+>>>>>>> origin/main
         selector = next(step for step in detect["steps"] if step.get("id") == "families")
         self.assertEqual(selector["env"]["DEVICE_FAMILY"], "${{ inputs.device_family }}")
         self.assertEqual(

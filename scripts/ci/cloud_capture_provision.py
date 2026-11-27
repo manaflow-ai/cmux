@@ -9,8 +9,13 @@ account without anyone holding its password:
 2. Set a fresh random password and the operator plan grant `cmuxVmPlan: "pro"` (the key Cloud's
    entitlements read; other metadata on the account is kept).
 3. Check the password signs in (client API) and the grant reads back.
+<<<<<<< HEAD
 4. Seal the email and the password to every destination environment's GitHub public key (pinned below,
    sealed_secrets.py) and write only ciphertext bundles.
+=======
+4. Seal the email and the password to the capture environment's GitHub public key (pinned below,
+   sealed_secrets.py) and write only that ciphertext bundle.
+>>>>>>> origin/main
 
 The password is generated here, masked in the job log the moment it exists, sent only to Stack over
 TLS, sealed, and dropped. It is never printed, written to disk, put in an environment variable or an
@@ -26,6 +31,7 @@ teams/received.ts answers email_mismatch), so HQ's team invite readback could ne
 made above is created verified; this does the same for one made some other way.
 
 `--target journey` does the same for the Cloud journey's own staging account, sealed to this repository's
+<<<<<<< HEAD
 cmux-next-vm-image-dev environment as CMUX_DOGFOOD_STACK_EMAIL and _PASSWORD and to the
 cmux-next-cloud-journey environment as CMUX_STAGING_STACK_EMAIL and _PASSWORD (TARGETS below). The latter names
 are staging-only and do not overwrite the production CMUX_DOGFOOD_STACK_* pair.
@@ -84,6 +90,12 @@ none) as CMUX_DOGFOOD_STACK_* and CMUX_JOURNEY_PROD_STACK_*, which its deploy jo
 
 Runs in .github/workflows/cloud-capture-provision.yml (environment cloud-vm-staging). Bundles are
 stored with `python3 scripts/ci/sealed_secrets.py put BUNDLE_OR_DIRECTORY`; docs/ci-sealed-secrets.md.
+=======
+cmux-next-vm-image-dev environment as CMUX_DOGFOOD_STACK_EMAIL and _PASSWORD (TARGETS below).
+
+Runs in .github/workflows/cloud-capture-provision.yml (environment cloud-vm-staging). The bundle is
+stored with `python3 scripts/ci/sealed_secrets.py put BUNDLE`; docs/ci-sealed-secrets.md.
+>>>>>>> origin/main
 Standard library only, plus the system libsodium.
 """
 from __future__ import annotations
@@ -94,7 +106,10 @@ import os
 import re
 import secrets
 import sys
+<<<<<<< HEAD
 from pathlib import Path
+=======
+>>>>>>> origin/main
 import urllib.error
 import urllib.parse
 import urllib.request
@@ -106,6 +121,7 @@ import sealed_secrets  # noqa: E402
 # The staging Stack project every DEV build signs in to (public: it ships in DEV builds). The server
 # key must belong to this project; any other project id refuses before a request is made.
 STAGING_PROJECT_ID = "454ecd03-1db2-4050-845e-4ce5b0cd9895"
+<<<<<<< HEAD
 # The production Stack project the shipped app (cmux NIGHTLY and release) signs in to (public: it ships in every
 # release build; cmux environment cloud-vm-production's NEXT_PUBLIC_STACK_PROJECT_ID).
 PRODUCTION_PROJECT_ID = "9790718f-14cd-4f7e-824d-eaf527a82b82"
@@ -125,6 +141,10 @@ class Destination:
         self.key = key
         self.email_secret = email_secret
         self.password_secret = password_secret
+=======
+STACK_API = "https://api.stack-auth.com/api/v1"
+PLAN_KEY, PLAN = "cmuxVmPlan", "pro"
+>>>>>>> origin/main
 
 
 class Target:
@@ -133,6 +153,7 @@ class Target:
     key_id with different key bytes (read from `.../environments/ENV/secrets/public-key` on 2026-11-04);
     `put` checks both against the live key."""
 
+<<<<<<< HEAD
     def __init__(self, email, display_name, repo, environment, key_id, key, email_secret, password_secret,
                  project=STAGING_PROJECT_ID, profile_image_url=None, team_id=None, destinations=None):
         self.email, self.display_name, self.project = email, display_name, project
@@ -147,6 +168,12 @@ class Target:
         self.destinations = tuple(destinations or (
             Destination(repo, environment, key_id, key, email_secret, password_secret),
         ))
+=======
+    def __init__(self, email, display_name, repo, environment, key_id, key, email_secret, password_secret):
+        self.email, self.display_name = email, display_name
+        self.repo, self.environment, self.key_id, self.key = repo, environment, key_id, key
+        self.email_secret, self.password_secret = email_secret, password_secret
+>>>>>>> origin/main
 
 
 TARGETS = {
@@ -160,6 +187,7 @@ TARGETS = {
     # jobs in that environment see this one.
     "journey": Target("cmux-cloud-capture-journey@manaflow.dev", "cmux cloud journey", "manaflow-ai/cmux",
                       "cmux-next-vm-image-dev", "3380204578043523366", "wOq7reXDAHystKwvJikDgeR+KKcU8k+s8gV/E0CHzVk=",
+<<<<<<< HEAD
                       "CMUX_DOGFOOD_STACK_EMAIL", "CMUX_DOGFOOD_STACK_PASSWORD",
                       destinations=(
                           Destination("manaflow-ai/cmux", "cmux-next-vm-image-dev", "3380204578043523366",
@@ -227,6 +255,11 @@ PROBE_TEAM_TARGET = "capture"
 
 def probe_team_name(slot):
     return f"cmux probe team {slot} (test accounts only)"
+=======
+                      "CMUX_DOGFOOD_STACK_EMAIL", "CMUX_DOGFOOD_STACK_PASSWORD"),
+}
+CAPTURE = TARGETS["capture"]
+>>>>>>> origin/main
 EMAIL = CAPTURE.email
 REQUEST_SECONDS = 30
 # The only accounts --grant-only touches: the staging capture test accounts, never a person's.
@@ -268,24 +301,37 @@ def http(method, url, headers, body, timeout=REQUEST_SECONDS):
 
 
 class Stack:
+<<<<<<< HEAD
     def __init__(self, project_id, server_key, client_key, transport=http, expected_project=STAGING_PROJECT_ID):
         if project_id != expected_project:
             raise ProvisionError("the Stack project is not the target's project; refusing to touch it")
+=======
+    def __init__(self, project_id, server_key, client_key, transport=http):
+        if project_id != STAGING_PROJECT_ID:
+            raise ProvisionError("the Stack project is not the staging project; refusing to touch it")
+>>>>>>> origin/main
         if not server_key:
             raise ProvisionError("STACK_SECRET_SERVER_KEY is empty")
         if not client_key:
             raise ProvisionError("NEXT_PUBLIC_STACK_PUBLISHABLE_CLIENT_KEY is empty")
         self.project_id, self.server_key, self.client_key, self.transport = project_id, server_key, client_key, transport
 
+<<<<<<< HEAD
     def server(self, method, path, body=None, ok=(200, 201), ok_known=()):
         """OK_KNOWN: Stack known-error codes that count as success (answered with an empty body)."""
+=======
+    def server(self, method, path, body=None, ok=(200, 201)):
+>>>>>>> origin/main
         headers = {"content-type": "application/json", "x-stack-access-type": "server",
                    "x-stack-project-id": self.project_id, "x-stack-secret-server-key": self.server_key}
         status, reply_headers, parsed = self.transport(method, STACK_API + path, headers, body)
         if status not in ok:
             known = reply_headers.get("x-stack-known-error", "")
+<<<<<<< HEAD
             if known and known in ok_known:
                 return {}
+=======
+>>>>>>> origin/main
             raise ProvisionError(f"Stack {method} {path.split('?')[0]} answered HTTP {status}"
                                  + (f" ({known})" if known else ""))
         return parsed or {}
@@ -302,16 +348,25 @@ class Stack:
             raise ProvisionError(f"{len(matches)} staging users have that email; refusing to pick one")
         return matches[0] if matches else None
 
+<<<<<<< HEAD
     def create(self, email, password, display_name=CAPTURE.display_name, profile_image_url=None):
         body = {"primary_email": email, "primary_email_verified": True, "primary_email_auth_enabled": True,
                 "password": password, "display_name": display_name, "client_read_only_metadata": {PLAN_KEY: PLAN}}
         if profile_image_url:
             body["profile_image_url"] = profile_image_url
         user = self.server("POST", "/users", body)
+=======
+    def create(self, email, password, display_name=CAPTURE.display_name):
+        user = self.server("POST", "/users", {
+            "primary_email": email, "primary_email_verified": True, "primary_email_auth_enabled": True,
+            "password": password, "display_name": display_name,
+            "client_read_only_metadata": {PLAN_KEY: PLAN}})
+>>>>>>> origin/main
         if not user.get("id"):
             raise ProvisionError("Stack created the user but returned no id")
         return user
 
+<<<<<<< HEAD
     def rotate(self, user, password, profile=None):
         """New password, the plan grant and a verified email; PROFILE (display_name, profile_image_url) when given."""
         metadata = user.get("client_read_only_metadata")
@@ -321,6 +376,15 @@ class Stack:
                 "client_read_only_metadata": metadata}
         body.update(profile or {})
         self.server("PATCH", f"/users/{urllib.parse.quote(user['id'])}", body)
+=======
+    def rotate(self, user, password):
+        metadata = user.get("client_read_only_metadata")
+        metadata = dict(metadata) if isinstance(metadata, dict) else {}
+        metadata[PLAN_KEY] = PLAN
+        self.server("PATCH", f"/users/{urllib.parse.quote(user['id'])}", {
+            "password": password, "primary_email_verified": True, "primary_email_auth_enabled": True,
+            "client_read_only_metadata": metadata})
+>>>>>>> origin/main
 
     def grant(self, user):
         """Sets the operator plan grant and marks the primary email verified, keeping the account's other metadata
@@ -338,6 +402,7 @@ class Stack:
         metadata = self.read(user_id).get("client_read_only_metadata")
         return metadata.get(PLAN_KEY) if isinstance(metadata, dict) else None
 
+<<<<<<< HEAD
     def user_teams(self, user_id):
         """The Stack teams USER_ID is a member of now, as Stack's server API answers them (metadata included)."""
         items = self.server("GET", f"/teams?user_id={urllib.parse.quote(user_id)}").get("items")
@@ -387,6 +452,8 @@ class Stack:
         self.server("POST", f"/team-memberships/{urllib.parse.quote(team_id)}/{urllib.parse.quote(user_id)}", {},
                     ok_known=("TEAM_MEMBERSHIP_ALREADY_EXISTS",))
 
+=======
+>>>>>>> origin/main
     def signs_in(self, email, password):
         headers = {"content-type": "application/json", "x-stack-access-type": "client",
                    "x-stack-project-id": self.project_id, "x-stack-publishable-client-key": self.client_key}
@@ -404,6 +471,7 @@ def new_password():
     return password
 
 
+<<<<<<< HEAD
 def join_team(stack, user_id, team_id, log=print):
     """Makes USER_ID a member of TEAM_ID unless it already is, then reads the membership back; fails without it."""
     if team_id in stack.teams(user_id):
@@ -434,22 +502,37 @@ def provision(stack, out, log=print, lib=None, key_id=None, key=None, make_passw
     Returns "created" or "rotated"."""
     if stack.project_id != target.project:
         raise ProvisionError("the Stack project is not the target's project; refusing to touch it")
+=======
+def provision(stack, out, log=print, lib=None, key_id=None, key=None, make_password=new_password, target=CAPTURE):
+    """Find or create TARGET's account, rotate its password, check it, write the sealed bundle to OUT.
+    Returns "created" or "rotated"."""
+    key_id = target.key_id if key_id is None else key_id
+    key = target.key if key is None else key
+>>>>>>> origin/main
     email = target.email
     password = make_password()
     try:
         user = stack.find(email)
         if user is None:
+<<<<<<< HEAD
             user = stack.create(email, password, target.display_name, target.profile_image_url)
             action = "created"
         else:
             profile = ({"display_name": target.display_name, "profile_image_url": target.profile_image_url}
                        if target.profile_image_url else None)
             stack.rotate(user, password, profile)
+=======
+            user = stack.create(email, password, target.display_name)
+            action = "created"
+        else:
+            stack.rotate(user, password)
+>>>>>>> origin/main
             action = "rotated"
         if stack.plan(user["id"]) != PLAN:
             raise ProvisionError(f"the account's {PLAN_KEY} did not read back as {PLAN!r}")
         if not stack.signs_in(email, password):
             raise ProvisionError("the new password did not sign in")
+<<<<<<< HEAD
         if target.team_id:
             join_team(stack, user["id"], target.team_id, log)
         bundles = []
@@ -470,6 +553,16 @@ def provision(stack, out, log=print, lib=None, key_id=None, key=None, make_passw
     )
     log(f"{action} the {where} test account {email}, Stack user id {user['id']} (plan {PLAN}); sealed "
         f"{len(bundles)} destination bundle(s): {destinations} (plaintext is never logged)")
+=======
+        bundle = sealed_secrets.seal_bundle(target.repo, target.environment, key_id, key,
+                                            {target.email_secret: email, target.password_secret: password}, lib)
+    finally:
+        # Python cannot wipe a str; dropping the only reference is what is possible. The process ends next.
+        password = None  # noqa: F841
+    sealed_secrets.write_bundle(out, bundle)
+    log(f"{action} the staging test account {email} (plan {PLAN}); sealed {target.email_secret} and "
+        f"{target.password_secret} to {target.repo} environment {target.environment} (key_id {key_id})")
+>>>>>>> origin/main
     return action
 
 
@@ -491,6 +584,7 @@ def grant_only(stack, email, log=print):
         "metadata are unchanged")
 
 
+<<<<<<< HEAD
 def team_only(stack, target, log=print):
     """Makes TARGET's existing account a member of its company team; no rotation, nothing sealed, never a create."""
     if not target.team_id:
@@ -581,11 +675,14 @@ def probe_teams(stack, count=PROBE_TEAMS_DEFAULT, log=print, target=CAPTURE):
     return ids
 
 
+=======
+>>>>>>> origin/main
 def main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
     mode = parser.add_mutually_exclusive_group(required=True)
     mode.add_argument("--out", help="where to write the sealed bundle (ciphertext only)")
     mode.add_argument("--grant-only", metavar="EMAIL", help="only grant the operator plan to this existing capture account")
+<<<<<<< HEAD
     mode.add_argument("--team-only", action="store_true",
                       help="only make the target's existing account a member of its company team")
     mode.add_argument("--probe-teams", type=int, metavar="N",
@@ -617,6 +714,21 @@ def main(argv=None):
         # A transport error (URLError, a timeout) carries no response body, so naming it echoes no account data.
         print(f"::error::cloud capture provision: {type(error).__name__}: {error}", flush=True)
         return 1
+=======
+    parser.add_argument("--target", choices=sorted(TARGETS), default="capture",
+                        help="which staging test account to provision and where its credential is sealed")
+    args = parser.parse_args(argv)
+    try:
+        stack = Stack(os.environ.get("NEXT_PUBLIC_STACK_PROJECT_ID", ""), os.environ.get("STACK_SECRET_SERVER_KEY", ""),
+                      os.environ.get("NEXT_PUBLIC_STACK_PUBLISHABLE_CLIENT_KEY", ""))
+        if args.grant_only is not None:
+            grant_only(stack, args.grant_only.strip().lower())
+        else:
+            provision(stack, args.out, target=TARGETS[args.target])
+    except (ProvisionError, sealed_secrets.SealError) as error:
+        print(f"::error::cloud capture provision: {error}", flush=True)
+        return 1
+>>>>>>> origin/main
     return 0
 
 

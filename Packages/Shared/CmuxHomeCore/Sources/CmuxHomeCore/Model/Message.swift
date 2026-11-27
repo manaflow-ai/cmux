@@ -22,7 +22,11 @@ public enum MessagePart: Hashable, Sendable, Codable {
     public var plainText: String {
         switch self {
         case .text(let text, _): text
+<<<<<<< HEAD
         case .work(let work): work.shownText ?? ""
+=======
+        case .work(let work): work.preview ?? work.title
+>>>>>>> origin/main
         case .approval(let approval): approval.prompt
         case .question(let question): question.transcriptText
         case .attachment(let file): file.name
@@ -69,6 +73,7 @@ public struct WorkRef: Hashable, Sendable, Codable {
         self.status = status
         self.preview = preview
     }
+<<<<<<< HEAD
 
     /// What a person reads for this work: its preview, else its title when that is a name of its
     /// own. Nil when it has neither: the session id (`optchat-<home>-<line>`, a Chief turn's
@@ -79,6 +84,8 @@ public struct WorkRef: Hashable, Sendable, Codable {
         let title = title.trimmingCharacters(in: .whitespacesAndNewlines)
         return title.isEmpty || title == session ? nil : title
     }
+=======
+>>>>>>> origin/main
 }
 
 public struct ApprovalRef: Hashable, Sendable, Codable {
@@ -276,8 +283,11 @@ public struct Message: Hashable, Sendable, Codable, Identifiable {
     public var replyTo: PartRef?
     /// The first message of the thread this message belongs to.
     public var threadRoot: MessageID?
+<<<<<<< HEAD
     /// A thread root's object (title, owner, resolution); nil for other messages.
     public var thread: ThreadInfo?
+=======
+>>>>>>> origin/main
 
     public init(
         id: MessageID,

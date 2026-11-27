@@ -1,0 +1,11 @@
+{
+  "_doc": "Commits that make a nightly certain to fail. A nightly run whose head contains bad_since and lacks fixed_by (null: not fixed yet) may be cancelled by the agents' cancel guard (scripts/ci/delivery_workflows.py known_bad). Full 40-hex SHAs; reason and filed_by are required.",
+  "entries": [
+    {
+      "bad_since": "4b5c86ed0aefeb897c46f44957b232c864243383",
+      "fixed_by": "1daea6030cb126fca4ada7e9687d2d9cc96d45f9",
+      "reason": "Home first-run NSStackView crash at launch",
+      "filed_by": "teamleaderleo"
+    }
+  ]
+}

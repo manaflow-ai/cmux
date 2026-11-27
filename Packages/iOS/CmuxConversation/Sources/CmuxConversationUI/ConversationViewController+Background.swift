@@ -23,6 +23,7 @@ extension ConversationViewController {
         return false
     }
 
+<<<<<<< HEAD
     var wantsSystemTopPocket: Bool {
         if #available(iOS 26.0, *), options.header.scrollEdge == .system { return true }
         return Self.usesSystemTopPocket
@@ -33,6 +34,8 @@ extension ConversationViewController {
         return Self.blursTopEdge
     }
 
+=======
+>>>>>>> origin/main
     func installBackground() {
         backdropView.frame = view.bounds
         backdropView.autoresizingMask = [.flexibleWidth, .flexibleHeight]
@@ -59,11 +62,19 @@ extension ConversationViewController {
         // conversation background Messages uses the system pocket (ChatKit
         // sets its color to nil); where that pocket falls short of the
         // header's bottom the transcript is masked with the same ramp too.
+<<<<<<< HEAD
         topEdgeFade.isHidden = background != nil || wantsTopEdgeBlur
         if #available(iOS 26.0, *) {
             collectionView.topEdgeEffect.isHidden = background == nil && !wantsTopEdgeBlur
         }
         collectionView.topFadeHeaderBottom = background == nil || wantsSystemTopPocket
+=======
+        topEdgeFade.isHidden = background != nil || Self.blursTopEdge
+        if #available(iOS 26.0, *) {
+            collectionView.topEdgeEffect.isHidden = background == nil && !Self.blursTopEdge
+        }
+        collectionView.topFadeHeaderBottom = background == nil || Self.usesSystemTopPocket
+>>>>>>> origin/main
             ? nil : header.frame.maxY - collectionView.frame.minY
         detailsController?.background = background
     }
@@ -96,7 +107,11 @@ extension ConversationViewController {
 
     func applyBackgroundChoice(_ choice: ConversationBackgroundChoice) {
         let rejected: @MainActor (ConversationBackendError) -> Void = { [weak self] _ in
+<<<<<<< HEAD
             ConversationHaptics.notify(.error)
+=======
+            UINotificationFeedbackGenerator().notificationOccurred(.error)
+>>>>>>> origin/main
             self?.applyBackground(animated: true)
         }
         switch choice {

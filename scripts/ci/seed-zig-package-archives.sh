@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 # Pre-downloads the hashed packages a Zig source's build.zig.zon files name,
 # with curl, into Zig's global cache as p/<hash>.tar.gz, so `zig build
+<<<<<<< HEAD
 # --fetch=all` unpacks them with no network.
 #
 # First, from our mirror: every package scripts/ci/zig-packages.lock tags with
@@ -11,6 +12,9 @@
 # stops there, and Zig, given no route out by its caller, fails by name on a
 # package the mirror lacks. Otherwise the upstream rounds below fill the rest.
 # Zig's own HTTP read has no retry,
+=======
+# --fetch=all` unpacks them with no network. Zig's own HTTP read has no retry,
+>>>>>>> origin/main
 # resume or speed floor: a mid-stream "ReadFailed" from deps.files.ghostty.org
 # failed every attempt of a job (cmux-tui publisher run 40651931144, freetype).
 # Zig 0.16 unpacks a cached p/<hash>.tar.gz before it fetches the URL and checks
@@ -19,6 +23,7 @@
 # re-compressed to gzip, the one format Zig reads from p/.
 #
 # Best effort: a package that cannot be seeded is left for Zig to fetch, and
+<<<<<<< HEAD
 # this script exits 0.
 #
 # Packages a package names: after each round, the build.zig.zon of every package
@@ -36,10 +41,18 @@
 # usage: seed-zig-package-archives.sh CACHE_DIR [SOURCE_DIR]
 # CMUX_ZIG_SEED_MIRRORS: more "FROM=TO" URL prefix rewrites, space-separated,
 # tried after ZIG_SEED_MIRRORS's (a test serves its own).
+=======
+# this script exits 0. Packages that only a dependency's own build.zig.zon
+# names (inside zig-pkg/) are not known before the first fetch and are left to
+# Zig too.
+#
+# usage: seed-zig-package-archives.sh CACHE_DIR [SOURCE_DIR]
+>>>>>>> origin/main
 # CMUX_ZIG_SEED_PARALLEL (default 16) downloads run at once, and the whole seed
 # stops after CMUX_ZIG_SEED_TIMEOUT seconds (default 300), leaving the rest to Zig.
 set -euo pipefail
 
+<<<<<<< HEAD
 # The sha256 of a file, read through stdin: given a file name with a backslash (the
 # Zig cache on a Windows runner, C:\Users\...), sha256sum and shasum put a "\" before
 # the hash, and every mirror copy failed its check (cmux-tui job 130915587979).
@@ -48,19 +61,26 @@ sha256_of() {
   else shasum -a 256 < "$1" | cut -d' ' -f1; fi
 }
 
+=======
+>>>>>>> origin/main
 if [[ "${1:-}" == --one ]]; then
   # One package: --one CACHE HASH URL. Written under a name with no archive
   # suffix, checked, then renamed into place, so a cut-short download never
   # takes the final name.
+<<<<<<< HEAD
   # URLS is one URL or several joined by |, tried in order (a mirror after its origin).
   # SHA256, when given (a copy from our mirror), must match the downloaded bytes.
   cache="$2" hash="$3" urls="$4" want="${5:-}"
   here="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+=======
+  cache="$2" hash="$3" url="$4"
+>>>>>>> origin/main
   final="$cache/p/$hash.tar.gz"
   [[ -e "$final" ]] && exit 0
   part="$cache/p/.seed-$hash-$$"
   trap 'rm -f "$part" "$part.raw"' EXIT
   trap 'exit 143' TERM
+<<<<<<< HEAD
   IFS='|' read -r -a candidates <<<"$urls"
   for url in "${candidates[@]}"; do
     rm -f "$part" "$part.raw"
@@ -93,10 +113,30 @@ if [[ "${1:-}" == --one ]]; then
     exit 0
   done
   exit 1
+=======
+  # --retry-max-time caps a server's Retry-After too (it can ask for an hour).
+  curl -fsSL --proto '=http,https' --retry 3 --retry-delay 3 --retry-all-errors --retry-max-time 60 \
+    --connect-timeout 20 --speed-limit 51200 --speed-time 20 --max-time 120 \
+    -o "$part.raw" "$url" 2>/dev/null || { echo "seed: could not download $url" >&2; exit 1; }
+  case "$url" in
+    *.tar.gz|*.tgz) mv "$part.raw" "$part" ;;
+    *.tar.xz) xz -dc "$part.raw" | gzip -n > "$part" ;;
+    *.tar.zst) zstd -dcq "$part.raw" | gzip -n > "$part" ;;
+    *) exit 1 ;;
+  esac
+  # A whole tar with entries, not only whole gzip: a host can answer 200 with a
+  # gzipped error page (GNU tar lists a short non-tar as an empty archive, exit 0).
+  # Counted, not kept: a listing can be long. pipefail keeps tar's own status.
+  entries="$(tar -tzf "$part" 2>/dev/null | wc -l)" && (( entries > 0 )) \
+    || { echo "seed: $url is not a whole tar archive" >&2; exit 1; }
+  mv -f "$part" "$final"
+  exit 0
+>>>>>>> origin/main
 fi
 
 cache="${1:?usage: seed-zig-package-archives.sh CACHE_DIR [SOURCE_DIR]}"
 source_dir="${2:-.}"
+<<<<<<< HEAD
 lock="${CMUX_ZIG_LOCK:-$(cd "$(dirname "$0")" && pwd)/zig-packages.lock}"
 lock_tag="${CMUX_ZIG_LOCK_TAG:-$(basename "$(cd "$source_dir" && pwd)")}"
 mirror_only="${CMUX_ZIG_MIRROR_ONLY:-}"
@@ -106,6 +146,12 @@ seed_timeout="${CMUX_ZIG_SEED_TIMEOUT:-300}"
 depth="${CMUX_ZIG_SEED_DEPTH:-4}"
 for value in "$parallel" "$seed_timeout" "$depth"; do
   [[ "$value" =~ ^[1-9][0-9]*$ ]] || { echo "error: CMUX_ZIG_SEED_PARALLEL, CMUX_ZIG_SEED_TIMEOUT and CMUX_ZIG_SEED_DEPTH must be positive whole numbers" >&2; exit 2; }
+=======
+parallel="${CMUX_ZIG_SEED_PARALLEL:-16}"
+seed_timeout="${CMUX_ZIG_SEED_TIMEOUT:-300}"
+for value in "$parallel" "$seed_timeout"; do
+  [[ "$value" =~ ^[1-9][0-9]*$ ]] || { echo "error: CMUX_ZIG_SEED_PARALLEL and CMUX_ZIG_SEED_TIMEOUT must be positive whole numbers" >&2; exit 2; }
+>>>>>>> origin/main
 done
 command -v curl >/dev/null 2>&1 || { echo "seed: no curl; Zig fetches every package"; exit 0; }
 mkdir -p "$cache/p"
@@ -113,6 +159,7 @@ mkdir -p "$cache/p"
 # Every `.url = "..."` followed by its `.hash = "..."` in the source's own
 # build.zig.zon files, one "hash url" line each. A line that starts with //
 # is a comment (a URL's own // is not).
+<<<<<<< HEAD
 
 # Every `.url = "..."` followed by its `.hash = "..."` in the build.zig.zon text
 # on stdin, one "hash url" line each. A line that starts with // is a comment
@@ -207,6 +254,55 @@ plan_round() {
   return 0
 }
 
+=======
+pairs="$(find "$source_dir" -name build.zig.zon -not -path '*/zig-pkg/*' -not -path '*/.zig-cache/*' -print \
+  | while IFS= read -r zon; do
+      awk '
+        # The line with any // comment outside a quoted string removed.
+        function code(line,    out, i, c, quoted) {
+          out = ""; quoted = 0
+          for (i = 1; i <= length(line); i++) {
+            c = substr(line, i, 1)
+            if (c == "\\" && quoted) { out = out c substr(line, i + 1, 1); i++; continue }
+            if (c == "\"") quoted = !quoted
+            if (!quoted && c == "/" && substr(line, i + 1, 1) == "/") break
+            out = out c
+          }
+          return out
+        }
+        # Every .url or .hash value on the line, in order, as "name value" lines.
+        {
+          line = code($0)
+          while (match(line, "\\.(url|hash)[[:space:]]*=[[:space:]]*\"[^\"]*\"")) {
+            item = substr(line, RSTART, RLENGTH); line = substr(line, RSTART + RLENGTH)
+            name = item; sub(/[[:space:]]*=.*/, "", name); sub(/^\./, "", name)
+            value = item; sub(/^[^"]*"/, "", value); sub(/"$/, "", value)
+            if (name == "url") u = value
+            else if (u != "") { print value, u; u = "" }
+          }
+          if (line ~ /^[[:space:]]*\}/ || code($0) ~ /^[[:space:]]*\}/) u = ""
+        }
+      ' "$zon"
+    done | sort -u)"
+
+todo="" total=0 present=0
+while read -r hash url; do
+  [[ -n "$hash" ]] || continue
+  total=$((total + 1))
+  if [[ -e "$source_dir/zig-pkg/$hash" || -e "$cache/p/$hash.tar.gz" || -e "$cache/p/$hash" ]]; then
+    present=$((present + 1)); continue
+  fi
+  case "$url" in
+    http://*.tar.gz|https://*.tar.gz|http://*.tgz|https://*.tgz) ;;
+    http://*.tar.xz|https://*.tar.xz) command -v xz >/dev/null 2>&1 || continue ;;
+    http://*.tar.zst|https://*.tar.zst) command -v zstd >/dev/null 2>&1 || continue ;;
+    *) continue ;;
+  esac
+  todo="$todo$hash $url"$'\n'
+done <<<"$pairs"
+
+wanted="$(printf '%s' "$todo" | grep -c . || true)"
+>>>>>>> origin/main
 pool="" watchdog="" list=""
 # Cancelled (the fetch, or the job, was stopped): stop the downloads too. They
 # run in a process group of their own that a signal to ours does not reach.
@@ -237,15 +333,20 @@ stop_seed() {
 trap stop_seed EXIT
 trap 'exit 143' TERM
 trap 'exit 130' INT
+<<<<<<< HEAD
 # Downloads TODO, deadlined at DEADLINE (SECONDS), in a process group of its own.
 run_round() {
   local list_left=$((deadline - SECONDS))
   (( list_left > 0 )) || { echo "seed: stopped after ${seed_timeout}s; Zig fetches the rest" >&2; return 0; }
+=======
+if (( wanted > 0 )); then
+>>>>>>> origin/main
   # In a process group of its own, so the deadline stops every download.
   set -m
   list="$(mktemp "${TMPDIR:-/tmp}/zig-seed.XXXXXX")"
   printf '%s' "$todo" > "$list"
   # One process (not a pipeline), so its pid is the group's id.
+<<<<<<< HEAD
   # One package per line: -L 1 keeps a mirror copy's sha256 with its package.
   xargs -L 1 -P "$parallel" "$0" --one "$cache" < "$list" &
   pool=$!
@@ -256,6 +357,15 @@ run_round() {
         # any more would otherwise end this watchdog (SIGPIPE, or set -e on the failed write) before its kills
         # (cmux#41832 review F1; tests/test_guard_logs_survive_closed_pipe.py).
         ( trap '' PIPE; echo "seed: stopped after ${seed_timeout}s; Zig fetches the rest" >&2 ) || true
+=======
+  xargs -n 2 -P "$parallel" "$0" --one "$cache" < "$list" &
+  pool=$!
+  set +m
+  ( deadline=$((SECONDS + seed_timeout))
+    while kill -0 "$pool" 2>/dev/null; do
+      if (( SECONDS >= deadline )); then
+        echo "seed: stopped after ${seed_timeout}s; Zig fetches the rest" >&2
+>>>>>>> origin/main
         kill -TERM -- "-$pool" 2>/dev/null; sleep 2; kill -KILL -- "-$pool" 2>/dev/null; exit 0
       fi
       sleep 1
@@ -267,6 +377,7 @@ run_round() {
   watchdog=""
   drain_pool "$pool"
   pool=""
+<<<<<<< HEAD
   rm -f "$list"; list=""
 }
 
@@ -339,4 +450,12 @@ while :; do
 done
 echo "Seeded $seeded of $wanted Zig package archives with curl ($top_present of $top_total already here)."
 (( deep_wanted == 0 )) || echo "Seeded $deep_seeded of $deep_wanted Zig package archives that other packages name (git dependencies as archives)."
+=======
+fi
+seeded=0
+while read -r hash _url; do
+  [[ -n "$hash" && -e "$cache/p/$hash.tar.gz" ]] && seeded=$((seeded + 1))
+done <<<"$todo"
+echo "Seeded $seeded of $wanted Zig package archives with curl ($present of $total already here)."
+>>>>>>> origin/main
 exit 0

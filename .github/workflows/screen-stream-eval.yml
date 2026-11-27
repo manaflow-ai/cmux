@@ -1,5 +1,6 @@
 name: screen stream eval
 
+<<<<<<< HEAD
 # The screen stream eval (HQ#7146 G0; scripts/measure/screen-stream-eval/README.md): cmux.rd/1 and
 # WebRTC through the same fixed scenarios (key and pointer glass-to-glass, kbps idle, typing and
 # scrolling, 13 pt code OCR error, encode/network/decode split) on one console Mac, every day at the
@@ -23,12 +24,24 @@ name: screen stream eval
 # wait for each other only on the fleet (each step is exclusive), never in a concurrency group whose
 # newer pending run would cancel the other.
 run-name: ${{ (inputs.targets && inputs.targets != 'rd,webrtc') && format('screen stream eval ({0})', inputs.targets) || 'screen stream eval' }}
+=======
+# Registration only. The screen stream eval lives on feat-cmux-next (its screen-stream-eval.yml, HQ#7146
+# G0), and screen-stream-eval-dispatch.yml starts it there every day. GitHub dispatches a workflow by
+# file name only when the repository knows that name, which needs the file on the default branch: this
+# copy is that name. A dispatch with ref feat-cmux-next runs feat-cmux-next's file, not this one; run
+# here on main, it does nothing.
+>>>>>>> origin/main
 on:
   workflow_dispatch:
     inputs:
       targets:
+<<<<<<< HEAD
         description: "targets (scripts/measure/screen-stream-eval/targets/NAME.sh)"
         default: "rd,webrtc,iphone-sim"
+=======
+        description: "targets (feat-cmux-next's scripts/measure/screen-stream-eval/targets/NAME.sh)"
+        default: "rd,webrtc"
+>>>>>>> origin/main
       samples:
         description: "inputs per latency row"
         default: "200"
@@ -36,6 +49,7 @@ on:
         description: "window and OCR repeats (each number is their median)"
         default: "3"
       worker:
+<<<<<<< HEAD
         description: "fleet worker (empty: vars.SCREEN_STREAM_EVAL_WORKER, else any idle console measure worker)"
         default: ""
       budget:
@@ -49,6 +63,12 @@ permissions:
 concurrency:
   group: screen-stream-eval-${{ inputs.targets || 'rd,webrtc' }}
   cancel-in-progress: false
+=======
+        description: "fleet worker (empty: vars.SCREEN_STREAM_EVAL_WORKER)"
+        default: ""
+
+permissions: {}
+>>>>>>> origin/main
 
 env:
   # Temporary REST budget attribution: one gh-call line per GitHub API call (scripts/ci/api_call_log/env.sh, fetched at a fixed commit when the checkout has no copy).
@@ -56,6 +76,7 @@ env:
 
 jobs:
   eval:
+<<<<<<< HEAD
     if: github.repository_owner == 'manaflow-ai' && vars.CI_EVAL_STEP_GATEWAY != ''
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'glaeda-gateway-xcode-26.6' }} # frozen-label: CI_EVAL_STEP_GATEWAY (cmux#54437)
     # The job's clock includes the wait for the pinned worker's exclusive lease, which ran 2.5 h on
@@ -181,3 +202,10 @@ jobs:
             artifacts/screen-stream-eval/gate.json
           if-no-files-found: ignore
           retention-days: 3
+=======
+    if: false
+    # Never runs; the runner guards still read it: the declared 2 vCPU Linux pool, a fork's hosted label.
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.CI_OVERFLOW_LINUX || 'cmux-linux' }}
+    steps:
+      - run: echo "The screen stream eval runs from feat-cmux-next."
+>>>>>>> origin/main

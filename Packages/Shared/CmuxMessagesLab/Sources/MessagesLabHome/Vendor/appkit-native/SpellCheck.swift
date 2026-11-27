@@ -27,6 +27,7 @@ final class DeferredSpellChecker {
     static let windowRadius = 4_000
 
     private weak var view: NSTextView?
+<<<<<<< HEAD
     var enabled = true {
         didSet {
             guard enabled != oldValue else { return }
@@ -38,6 +39,9 @@ final class DeferredSpellChecker {
             }
         }
     }
+=======
+    var enabled = true { didSet { if enabled != oldValue { enabled ? schedule() : clear() } } }
+>>>>>>> origin/main
     private var changeCount = 0
     private var scheduled = false
     /// Caret location right after the last edit (the word being typed ends there).
@@ -86,7 +90,11 @@ final class DeferredSpellChecker {
             let found = results.filter { $0.resultType == .spelling }.map(\.range)
             DispatchQueue.main.async { [weak self] in
                 // A newer change has its own check pending.
+<<<<<<< HEAD
                 guard let self, self.enabled, self.changeCount == count else { return }
+=======
+                guard let self, self.changeCount == count else { return }
+>>>>>>> origin/main
                 self.apply(found.filter { !(end >= 0 && NSMaxRange($0) == end && self.typingEnd == end) }, range: range)
             }
         }

@@ -37,8 +37,13 @@ machine. Personal machine and account names come from ``PR_MEDIA_PRIVATE_TERMS``
 no output ever echoes what they matched.
 
 Who owns a file: a numeric top folder ``<N>/`` is pull request N, an agent's
+<<<<<<< HEAD
 when its author is listed in ``PR_MEDIA_AGENT_AUTHORS``; ``nightly-next/``,
 ``fuzz/`` and ``whats-new/`` (whats-new-clips.py) are bots' own output. With ``--apply`` the scan removes agent-owned
+=======
+when its author is listed in ``PR_MEDIA_AGENT_AUTHORS``; ``nightly-next/`` and
+``fuzz/`` are bots' own output. With ``--apply`` the scan removes agent-owned
+>>>>>>> origin/main
 hits in one ordinary commit on top of the tip (never a history rewrite). A
 teammate's file, any other folder, or an author that cannot be looked up is
 reported and kept (before the push every hit refuses, as above). Private terms shorter
@@ -75,7 +80,11 @@ import unicodedata
 BRANCH = "pr-media"
 REPOSITORY = "manaflow-ai/cmux"
 # Bots' own output; a hit there is always enforced.
+<<<<<<< HEAD
 BOT_FOLDERS = frozenset({"nightly-next", "fuzz", "whats-new"})
+=======
+BOT_FOLDERS = frozenset({"nightly-next", "fuzz"})
+>>>>>>> origin/main
 PR_FOLDER = re.compile(r"[1-9][0-9]{0,6}")
 MEDIA_SUFFIXES = frozenset({".png", ".jpg", ".jpeg", ".webp", ".gif", ".mp4", ".mov"})
 TEXT_SUFFIXES = frozenset({".html", ".json", ".md", ".txt"})

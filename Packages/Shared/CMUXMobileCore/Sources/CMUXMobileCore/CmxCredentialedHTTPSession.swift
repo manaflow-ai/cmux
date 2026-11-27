@@ -2,7 +2,10 @@ import Foundation
 #if canImport(FoundationNetworking)
 import FoundationNetworking
 #endif
+<<<<<<< HEAD
 import CmuxEgress
+=======
+>>>>>>> origin/main
 
 public enum CmxCredentialedHTTPSessionError: Error, Equatable, Sendable {
     case responseTooLarge
@@ -41,10 +44,19 @@ public final class CmxCredentialedHTTPSession: @unchecked Sendable {
 
     public func data(for request: URLRequest) async throws -> (Data, URLResponse) {
         #if canImport(FoundationNetworking)
+<<<<<<< HEAD
         // FoundationNetworking has no streaming `bytes(for:)`; the cap applies to the buffered body.
         let (data, response) = try await session.data(for: request, delegate: redirectDelegate)
         guard response.expectedContentLength <= maximumResponseByteCount,
               data.count <= max(maximumResponseByteCount, 0) else {
+=======
+        // swift-corelibs-foundation has no `URLSession.bytes(for:)`; the body
+        // arrives whole, and the cap still refuses an oversized one.
+        let (data, response) = try await session.data(for: request)
+        guard response.expectedContentLength <= maximumResponseByteCount,
+              data.count <= maximumResponseByteCount
+        else {
+>>>>>>> origin/main
             throw CmxCredentialedHTTPSessionError.responseTooLarge
         }
         return (data, response)

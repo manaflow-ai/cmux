@@ -1,3 +1,4 @@
+<<<<<<< ours
 //! P0 TERMINAL-HOST LEAK (restore fuzz row h, fgh-h-hog-2044 on cmux22,
 //! 2026-10-31): 14 `kill -9`s of the daemon left 477 terminal hosts for
 //! about 85 live terminals, and new terminals then failed with "PTY capacity
@@ -39,6 +40,18 @@ fn daemon_pid(harness: &RecoveryHarness) -> u32 {
     harness.child.as_ref().unwrap().id()
 }
 
+=======
+//! P0 TERMINAL-HOST LEAK (feat-cmux-next #29476; restore fuzz row h,
+//! 2026-10-31): a closed workspace's terminals live until the reap grace
+//! ends, and each daemon start counted that grace again from zero, so under
+//! restarts faster than the grace none was ever reaped and the closed
+//! terminals' hosts held the machine's PTYs. The rule: closed terminals end
+//! within the grace counted from their close, whatever the restarts, the
+//! placed terminal keeps running, and a new terminal opens.
+
+use super::*;
+
+>>>>>>> theirs
 /// Hosts with a discovery record, by pid, with their terminal ids.
 fn recorded_hosts(harness: &RecoveryHarness) -> std::collections::BTreeMap<u32, String> {
     load_terminal_host_records(&harness.host_root())
@@ -48,6 +61,7 @@ fn recorded_hosts(harness: &RecoveryHarness) -> std::collections::BTreeMap<u32, 
         .collect()
 }
 
+<<<<<<< ours
 /// Creates a `/bin/cat` terminal; `None` when the daemon did not answer ok
 /// (killed mid-request).
 fn try_run_cat(socket: &Path, id: u64, name: &str) -> Option<String> {
@@ -148,14 +162,45 @@ impl Drop for EndHosts {
 #[test]
 fn daemon_restarts_faster_than_the_reap_grace_still_reap_closed_terminals() {
     let _exclusive = exclusive_process_test();
+=======
+/// Creates a `/bin/cat` terminal in a new workspace; returns its host id.
+fn run_cat_workspace(socket: &Path, id: u64, name: &str) -> String {
+    let created = request(
+        socket,
+        serde_json::json!({
+            "id": id,
+            "cmd": "run",
+            "argv": ["/bin/cat"],
+            "new_workspace": true,
+            "name": name,
+        }),
+    );
+    created["terminal_id"].as_str().expect("run omitted terminal id").to_string()
+}
+
+/// The leak: a plain workspace close keeps its terminals until the reap
+/// grace ends, and each daemon start used to count that grace again from
+/// zero. With restarts faster than the grace (a crash loop) no closed
+/// terminal was ever reaped, and their PTYs ran out. The grace runs across
+/// restarts: closed terminals end, the placed one keeps running, and a new
+/// terminal opens.
+#[test]
+fn terminal_reap_survives_daemon_restarts_faster_than_the_grace() {
+>>>>>>> theirs
     let mut harness = RecoveryHarness::start_with_args(
         "restart-reap-grace",
         &["--terminal-reap-grace-seconds", "4"],
     );
+<<<<<<< ours
     let mut daemons = EndHosts(vec![daemon_pid(&harness)]);
     let (placed, _) = run_cat_workspace(&harness.socket, 1, "placed");
     let closed: Vec<String> = (0..3)
         .map(|index| run_cat_workspace(&harness.socket, 10 + index, &format!("closed-{index}")).0)
+=======
+    let placed = run_cat_workspace(&harness.socket, 1, "placed");
+    let closed: Vec<String> = (0..3)
+        .map(|index| run_cat_workspace(&harness.socket, 10 + index, &format!("closed-{index}")))
+>>>>>>> theirs
         .collect();
     wait_for_host_records(&harness.host_root(), 4);
     let tree = request(&harness.socket, serde_json::json!({"id": 20, "cmd": "list-workspaces"}));
@@ -172,7 +217,10 @@ fn daemon_restarts_faster_than_the_reap_grace_still_reap_closed_terminals() {
         std::thread::sleep(Duration::from_secs(2));
         harness.sigkill();
         harness.restart();
+<<<<<<< ours
         daemons.0.push(daemon_pid(&harness));
+=======
+>>>>>>> theirs
     }
     // Checked within a quarter of the grace after the last start: a grace
     // counted from that start is not over yet.
@@ -193,6 +241,7 @@ fn daemon_restarts_faster_than_the_reap_grace_still_reap_closed_terminals() {
         );
         std::thread::sleep(Duration::from_millis(50));
     }
+<<<<<<< ours
     wait_until_adopted(&harness);
     assert_no_unrecorded_hosts(&harness, &daemons.0, "after the restarts");
     try_run_cat(&harness.socket, 900, "after-restarts").expect("a new terminal opens");
@@ -229,4 +278,49 @@ fn daemon_kills_during_creates_leave_only_the_hosts_the_session_serves() {
     wait_until_adopted(&harness);
     assert_no_unrecorded_hosts(&harness, &daemons.0, "after 8 kills during creates");
     try_run_cat(&harness.socket, 9_000, "after-kills").expect("a new terminal opens");
+=======
+    let identify = request(&harness.socket, serde_json::json!({"id": 30, "cmd": "identify"}));
+    assert!(
+        identify["capabilities"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|capability| capability == "terminal-reaper-active-v1"),
+        "an owner started with --terminal-reap-grace-seconds does not advertise its reaper: \
+         {identify}"
+    );
+    let after = run_cat_workspace(&harness.socket, 900, "after-restarts");
+    assert!(!after.is_empty(), "a new terminal opens");
+}
+
+/// The socket answers `identify` from its bind, while the owner still starts
+/// (`lifecycle_ready` false): an owner started with the reap option lists
+/// `terminal-reaper-active-v1` in that first answer. A change that starts or
+/// announces the reaper only after the bind fails here. It needs the
+/// debug-only `CMUX_TUI_TEST_STARTUP_DELAY_AFTER_BIND_MS` hook.
+#[test]
+#[cfg_attr(not(debug_assertions), ignore = "needs a debug-only startup hook")]
+fn terminal_reap_identify_during_owner_startup_lists_the_reaper() {
+    let mut harness = RecoveryHarness::start_unstarted("reaper-identify-startup");
+    harness.extra_args =
+        ["--terminal-reap-grace-seconds", "30"].iter().map(|arg| (*arg).to_string()).collect();
+    let mut command = harness.daemon_command();
+    command.env("CMUX_TUI_TEST_STARTUP_DELAY_AFTER_BIND_MS", "3000");
+    harness.child = Some(command.spawn().unwrap());
+    wait_for_socket(&harness.socket);
+    let identify = request(&harness.socket, serde_json::json!({"id": 1, "cmd": "identify"}));
+    assert_eq!(
+        identify["lifecycle_ready"], false,
+        "identify was not answered during the owner's startup: {identify}"
+    );
+    assert!(
+        identify["capabilities"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|capability| capability == "terminal-reaper-active-v1"),
+        "an owner started with --terminal-reap-grace-seconds answered identify during its \
+         startup without terminal-reaper-active-v1: {identify}"
+    );
+>>>>>>> theirs
 }

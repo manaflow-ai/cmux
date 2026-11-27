@@ -124,8 +124,12 @@ final class MacSendLaterClockView: MacFlippedView {
             CATransaction.setDisableActions(true)
             hand.setValue(angle, forKeyPath: "transform.rotation.z")
             CATransaction.commit()
+<<<<<<< HEAD
             // Reduce Motion: the hands jump to the new time (the model value above).
             guard animated, !NSView.reducesMotion, previous != nil, abs(angle - from) > 0.001 else { continue }
+=======
+            guard animated, previous != nil, abs(angle - from) > 0.001 else { continue }
+>>>>>>> origin/main
             let sweep = CABasicAnimation(keyPath: "transform.rotation.z")
             sweep.fromValue = from
             sweep.toValue = angle
@@ -358,7 +362,10 @@ extension MacConversationViewController {
     func sendLaterMenu(rowID: String, anchor: NSView, cancelTitle: Bool = false) -> NSMenu {
         let menu = NSMenu()
         if store.message(rowID: rowID)?.delivery?.isFailed == true {
+<<<<<<< HEAD
             // retry-prompt-ok: re-sends a scheduled message
+=======
+>>>>>>> origin/main
             menu.addItem(MacClosureMenuItem(title: String(localized: "conversation.sendLater.tryAgain", defaultValue: "Try Again", bundle: .module)) { [weak self] in
                 self?.store.retryScheduled(rowID: rowID)
             })

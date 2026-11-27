@@ -72,6 +72,7 @@ final class ReplySwipeIndicator: UIView {
         let drift = isOutgoing ? -ConversationReplyMotion.outgoingIndicatorDrift : 0
         let start = layer.presentation()?.affineTransform() ?? transform
         setTransform(scale: ConversationReplyMotion.indicatorFinalScale, drift: drift)
+<<<<<<< HEAD
         // Under Reduce Motion no pulse: the indicator is already at its final scale.
         if !UIView.reducesMotion {
             addPulse(from: start, drift: drift)
@@ -84,6 +85,8 @@ final class ReplySwipeIndicator: UIView {
     }
 
     private func addPulse(from start: CGAffineTransform, drift: CGFloat) {
+=======
+>>>>>>> origin/main
         let animation = CAKeyframeAnimation(keyPath: "transform")
         animation.values = [
             CATransform3DMakeAffineTransform(start),
@@ -94,6 +97,13 @@ final class ReplySwipeIndicator: UIView {
         animation.duration = ConversationReplyMotion.pulseDuration
         animation.timingFunction = CAMediaTimingFunction(name: .easeInEaseOut)
         layer.add(animation, forKey: "replyPulse")
+<<<<<<< HEAD
+=======
+        let timer = UIViewPropertyAnimator(duration: ConversationReplyMotion.pulseDuration / 4, curve: .linear)
+        timer.addAnimations {}
+        timer.addCompletion { _ in haptic() }
+        timer.startAnimation()
+>>>>>>> origin/main
     }
 
     /// Release without replying: back to 0.4 and transparent over 0.4 s,
@@ -101,7 +111,11 @@ final class ReplySwipeIndicator: UIView {
     /// row hides behind the thread's copy on the very next frame.
     func settle() {
         let drift = self.drift
+<<<<<<< HEAD
         UIView.animateUnlessReduceMotion(withDuration: ConversationReplyMotion.indicatorResetDuration, delay: 0, options: [.curveEaseInOut, .beginFromCurrentState, .allowUserInteraction]) {
+=======
+        UIView.animate(withDuration: ConversationReplyMotion.indicatorResetDuration, delay: 0, options: [.curveEaseInOut, .beginFromCurrentState, .allowUserInteraction]) {
+>>>>>>> origin/main
             self.setTransform(scale: ConversationReplyMotion.indicatorInitialScale, drift: drift)
             self.alpha = 0
         }

@@ -15045,7 +15045,9 @@ const FakeCancelDelivery = enum {
     malformed_known_item,
 };
 
-const fake_delayed_stream_wait_ms: u64 = 15;
+// Well above the stream test's request timeout so a loaded CI host (the
+// persistent cmux-linux pool) cannot reorder the two.
+const fake_delayed_stream_wait_ms: u64 = 200;
 
 const fake_layout_json =
     "{\"version\":1," ++
@@ -16937,6 +16939,7 @@ test "close racing fresh request admission is synchronized" {
     );
 }
 
+<<<<<<< HEAD
 const CatalogErrorDetailTag = std.meta.Tag(ResourceErrorDetails);
 const CatalogErrorFixture = struct {
     code: []const u8,
@@ -17083,6 +17086,3339 @@ const catalog_error_fixtures = [_]CatalogErrorFixture{
         .tag = .validation_invalid,
     },
 };
+=======
+test "wait cancel false drains the raced response before reuse" {
+    var shared = FakeShared{
+        .allocator = std.testing.allocator,
+        .mode = .abandoned_wait_cancel_false,
+    };
+    defer shared.deinit();
+    const connection = try fakeConnection(std.testing.allocator, &shared);
+    var client = Client.init(std.testing.allocator, connection, .{
+        // The cancel and the raced reply must finish inside this budget too;
+        // 2 ms failed on a loaded persistent CI host.
+        .timeout_ms = 50,
+    });
+    defer client.deinit();
+    const session_id = try SessionId.parse(
+        "session_0123456789abcdef0123456789abcdef",
+    );
+    const terminal_id = try TerminalId.parse(
+        "term_0123456789abcdef0123456789abcdef",
+    );
+
+    try std.testing.expectError(
+        error.Timeout,
+        client
+            .session(session_id)
+            .terminal(terminal_id)
+            .waitFor("never", null),
+    );
+    try std.testing.expect(!client.isClosed());
+    try std.testing.expect(shared.request_cancel_route_ok);
+    try std.testing.expectEqual(
+        @as(usize, 1),
+        shared.request_cancel_count,
+    );
+    try std.testing.expectEqual(
+        @as(usize, 0),
+        client.inbound.items.len,
+    );
+
+    var ping = try client.session(session_id).ping();
+    defer ping.deinit();
+    try std.testing.expect(ping.value.alive);
+}
+
+test "wait cancel false rejects a malformed raced result" {
+    var shared = FakeShared{
+        .allocator = std.testing.allocator,
+        .mode = .abandoned_wait_malformed_target,
+    };
+    defer shared.deinit();
+    const connection = try fakeConnection(std.testing.allocator, &shared);
+    var client = Client.init(std.testing.allocator, connection, .{
+        .timeout_ms = 2,
+    });
+    defer client.deinit();
+    const terminal_id = try TerminalId.parse(
+        "term_0123456789abcdef0123456789abcdef",
+    );
+
+    try std.testing.expectError(
+        error.Timeout,
+        client
+            .session(.current)
+            .terminal(terminal_id)
+            .waitFor("never", null),
+    );
+    try std.testing.expect(client.isClosed());
+    try std.testing.expectEqual(
+        @as(usize, 1),
+        shared.request_cancel_count,
+    );
+}
+
+test "malformed wait cleanup preserves timeout and fail closes once" {
+    var shared = FakeShared{
+        .allocator = std.testing.allocator,
+        .mode = .abandoned_wait_malformed_cancel,
+    };
+    defer shared.deinit();
+    const connection = try fakeConnection(std.testing.allocator, &shared);
+    var client = Client.init(std.testing.allocator, connection, .{
+        .timeout_ms = 2,
+    });
+    defer client.deinit();
+    const terminal_id = try TerminalId.parse(
+        "term_0123456789abcdef0123456789abcdef",
+    );
+
+    try std.testing.expectError(
+        error.Timeout,
+        client
+            .session(.current)
+            .terminal(terminal_id)
+            .waitFor("never", null),
+    );
+    try std.testing.expect(client.isClosed());
+    try std.testing.expect(shared.request_cancel_route_ok);
+    try std.testing.expectEqual(
+        @as(usize, 1),
+        shared.request_cancel_count,
+    );
+    try std.testing.expectError(
+        error.ConnectionClosed,
+        client
+            .session(.current)
+            .terminal(terminal_id)
+            .waitFor("again", null),
+    );
+    try std.testing.expectEqual(
+        @as(usize, 1),
+        shared.request_cancel_count,
+    );
+}
+
+test "wait timeout before dispatch sends no cancellation" {
+    var shared = FakeShared{
+        .allocator = std.testing.allocator,
+        .mode = .abandoned_wait_cancel_true,
+    };
+    defer shared.deinit();
+    const connection = try fakeConnection(std.testing.allocator, &shared);
+    var client = Client.init(std.testing.allocator, connection, .{
+        .timeout_ms = 0,
+    });
+    defer client.deinit();
+    const terminal_id = try TerminalId.parse(
+        "term_0123456789abcdef0123456789abcdef",
+    );
+
+    try std.testing.expectError(
+        error.Timeout,
+        client
+            .session(.current)
+            .terminal(terminal_id)
+            .waitForExit(null),
+    );
+    try std.testing.expectEqual(
+        @as(usize, 0),
+        shared.output.items.len,
+    );
+    try std.testing.expectEqual(
+        @as(usize, 0),
+        shared.request_cancel_count,
+    );
+}
+
+test "typed catalogs preserve duplicate names and own response storage" {
+    var shared = FakeShared{
+        .allocator = std.testing.allocator,
+        .mode = .typed_catalog,
+    };
+    defer shared.deinit();
+
+    var catalog = blk: {
+        const connection = try fakeConnection(
+            std.testing.allocator,
+            &shared,
+        );
+        var client = Client.init(
+            std.testing.allocator,
+            connection,
+            .{},
+        );
+        defer client.deinit();
+
+        var machines = try client.listMachines();
+        errdefer machines.deinit();
+        const machine_id = machines.items[0].id;
+        var sessions = try client.machine(machine_id).listSessions();
+        errdefer sessions.deinit();
+        const session_id = sessions.items[0].id;
+        var workspaces = try client
+            .machine(machine_id)
+            .session(session_id)
+            .listWorkspaces();
+        errdefer workspaces.deinit();
+        var ping_result = try client
+            .machine(machine_id)
+            .session(session_id)
+            .ping();
+        errdefer ping_result.deinit();
+
+        var refreshed_machine = try client
+            .machine(machine_id)
+            .refresh();
+        defer refreshed_machine.deinit();
+        try std.testing.expectEqualStrings(
+            "local",
+            refreshed_machine.value.name,
+        );
+        var refreshed_session = try client
+            .machine(machine_id)
+            .session(session_id)
+            .refresh();
+        defer refreshed_session.deinit();
+        try std.testing.expectEqual(@as(u64, 9), refreshed_session.value.revision);
+        var refreshed_workspace = try client
+            .machine(machine_id)
+            .session(session_id)
+            .workspace(workspaces.items[0].id)
+            .refresh();
+        defer refreshed_workspace.deinit();
+        try std.testing.expectEqual(@as(u32, 1), refreshed_workspace.value.index);
+
+        var renamed = try client
+            .machine(machine_id)
+            .session(session_id)
+            .workspace(workspaces.items[0].id)
+            .rename(
+            "duplicate",
+            try MutationOptions.withKey("typed-rename"),
+        );
+        defer renamed.deinit();
+        try std.testing.expectEqualStrings("duplicate", renamed.value.name);
+        var created = try client
+            .machine(machine_id)
+            .session(session_id)
+            .createWorkspace(
+            .{ .name = "created", .initial_content = .empty },
+            try MutationOptions.withKey("typed-create"),
+        );
+        defer created.deinit();
+        switch (created.value) {
+            .workspace => |path| try std.testing.expectEqualStrings(
+                "ws_33333333333333333333333333333333",
+                path.workspace_id.slice(),
+            ),
+            else => return error.ExpectedWorkspacePath,
+        }
+        var closed = try client
+            .machine(machine_id)
+            .session(session_id)
+            .workspace(workspaces.items[0].id)
+            .close(try MutationOptions.withKey("typed-close"));
+        defer closed.deinit();
+
+        break :blk .{
+            .machines = machines,
+            .sessions = sessions,
+            .workspaces = workspaces,
+            .ping = ping_result,
+        };
+    };
+    defer catalog.machines.deinit();
+    defer catalog.sessions.deinit();
+    defer catalog.workspaces.deinit();
+    defer catalog.ping.deinit();
+
+    try std.testing.expectEqual(@as(usize, 1), catalog.machines.items.len);
+    try std.testing.expectEqual(@as(usize, 1), catalog.sessions.items.len);
+    try std.testing.expectEqual(@as(usize, 2), catalog.workspaces.items.len);
+    try std.testing.expectEqualStrings(
+        "duplicate",
+        catalog.workspaces.items[0].name,
+    );
+    try std.testing.expectEqualStrings(
+        "duplicate",
+        catalog.workspaces.items[1].name,
+    );
+    try std.testing.expect(
+        !std.mem.eql(
+            u8,
+            catalog.workspaces.items[0].id.slice(),
+            catalog.workspaces.items[1].id.slice(),
+        ),
+    );
+    try std.testing.expect(catalog.ping.value.alive);
+    try std.testing.expectEqual(
+        @as(u64, 9),
+        catalog.ping.value.cursor.revision,
+    );
+}
+
+test "remaining catalog controls and rename aliases are typed" {
+    var shared = FakeShared{
+        .allocator = std.testing.allocator,
+        .mode = .typed_catalog,
+    };
+    defer shared.deinit();
+    const connection = try fakeConnection(std.testing.allocator, &shared);
+    var client = Client.init(std.testing.allocator, connection, .{});
+    defer client.deinit();
+
+    const client_id = try ConnectedClientId.parse(
+        "client_99999999999999999999999999999999",
+    );
+    const connected_client = client.connectedClient(client_id);
+    var metadata = try connected_client.updateMetadata(.{
+        .name = .{ .set = "sdk-client" },
+    });
+    defer metadata.deinit();
+    try std.testing.expectEqualStrings(
+        "sdk-client",
+        metadata.value.name.?,
+    );
+    try std.testing.expectEqualStrings(
+        "unix",
+        metadata.value.transport.wireName(),
+    );
+    try std.testing.expectEqual(
+        @as(usize, 1),
+        metadata.value.attached_terminal_ids.len,
+    );
+    try std.testing.expectEqual(
+        @as(?u16, 120),
+        metadata.value.sizes[0].cols,
+    );
+
+    var cell_pixels = try connected_client.setCellPixels(9, 18);
+    defer cell_pixels.deinit();
+    try std.testing.expectEqual(
+        @as(u32, 9),
+        cell_pixels.value.width_px,
+    );
+    try std.testing.expectEqual(
+        @as(usize, 1),
+        cell_pixels.value.resized_terminals.len,
+    );
+    try std.testing.expectEqualStrings(
+        "not attached",
+        cell_pixels.value.failures[0].reason,
+    );
+
+    const browser_id = try BrowserId.parse(
+        "browser_88888888888888888888888888888888",
+    );
+    const browser = client.browser(browser_id);
+    var navigated = try browser.navigate(
+        "https://cmux.dev/sdk",
+        try MutationOptions.withKey("typed-browser-navigate"),
+    );
+    defer navigated.deinit();
+    try std.testing.expectEqualStrings(
+        "https://cmux.dev/sdk",
+        navigated.value.url,
+    );
+    try std.testing.expectEqualStrings(
+        "live",
+        navigated.value.status.wireName(),
+    );
+    const screen_id = try ScreenId.parse(
+        "screen_55555555555555555555555555555555",
+    );
+    const screen = client.screen(screen_id);
+    var renamed_screen = try screen.rename(
+        "screen-name",
+        try MutationOptions.withKey("typed-screen-rename"),
+    );
+    defer renamed_screen.deinit();
+    try std.testing.expectEqualStrings(
+        "screen-name",
+        renamed_screen.value.name.?,
+    );
+    switch (renamed_screen.value.layout.root.*) {
+        .leaf => |leaf| try std.testing.expectEqual(
+            @as(usize, 1),
+            leaf.tab_ids.len,
+        ),
+        else => return error.ExpectedLayoutLeaf,
+    }
+    var cleared_screen = try screen.clearName(
+        try MutationOptions.withKey("typed-screen-clear"),
+    );
+    defer cleared_screen.deinit();
+
+    const pane_id = try PaneId.parse(
+        "pane_66666666666666666666666666666666",
+    );
+    const pane = client.pane(pane_id);
+    var renamed_pane = try pane.rename(
+        "pane-name",
+        try MutationOptions.withKey("typed-pane-rename"),
+    );
+    defer renamed_pane.deinit();
+    try std.testing.expect(!renamed_pane.value.zoomed);
+    var cleared_pane = try pane.clearName(
+        try MutationOptions.withKey("typed-pane-clear"),
+    );
+    defer cleared_pane.deinit();
+
+    const tab_id = try TabId.parse(
+        "tab_77777777777777777777777777777777",
+    );
+    const tab = client.tab(tab_id);
+    var renamed_tab = try tab.rename(
+        "tab-name",
+        try MutationOptions.withKey("typed-tab-rename"),
+    );
+    defer renamed_tab.deinit();
+    try std.testing.expectEqualStrings(
+        "terminal",
+        renamed_tab.value.content_kind.wireName(),
+    );
+    try std.testing.expectEqualStrings(
+        "term_0123456789abcdef0123456789abcdef",
+        renamed_tab.value.content_id.slice(),
+    );
+    var cleared_tab = try tab.clearName(
+        try MutationOptions.withKey("typed-tab-clear"),
+    );
+    defer cleared_tab.deinit();
+
+    try std.testing.expectEqual(
+        @as(usize, 3),
+        std.mem.count(u8, shared.output.items, "\"name\":null"),
+    );
+}
+
+test "typed terminal reads controls and empty mutation receipts decode" {
+    var shared = FakeShared{
+        .allocator = std.testing.allocator,
+        .mode = .typed_catalog,
+    };
+    defer shared.deinit();
+    const connection = try fakeConnection(std.testing.allocator, &shared);
+    var client = Client.init(std.testing.allocator, connection, .{});
+    defer client.deinit();
+    const terminal_id = try TerminalId.parse(
+        "term_0123456789abcdef0123456789abcdef",
+    );
+    const terminal = client.terminal(terminal_id);
+
+    var screen = try terminal.readScreen();
+    defer screen.deinit();
+    try std.testing.expectEqualStrings("prompt$ ", screen.value.text);
+    try std.testing.expectEqual(@as(u16, 120), screen.value.cols);
+    try std.testing.expect(screen.value.cursor_visible);
+    const future = screen.value.extra.?.get("future").?;
+    try std.testing.expectEqualStrings("kept", future.string);
+
+    var state = try terminal.readState();
+    defer state.deinit();
+    try std.testing.expectEqualStrings("aGVsbG8=", state.value.state_base64);
+    try std.testing.expectEqualStrings("hello", state.value.state);
+
+    var history = try terminal.readHistory(.{
+        .before = 50,
+        .limit = 2,
+        .styled = true,
+    });
+    defer history.deinit();
+    try std.testing.expectEqual(@as(u64, 41), history.value.start);
+    try std.testing.expectEqual(@as(?u64, 43), history.value.next);
+    try std.testing.expectEqual(@as(usize, 1), history.value.rows.len);
+    const run = history.value.rows[0].runs[0];
+    try std.testing.expectEqualStrings("hello", run.text);
+    try std.testing.expectEqualStrings("#112233", run.fg.?);
+    try std.testing.expectEqual(@as(u32, 5), run.attrs);
+    try std.testing.expectEqualStrings(
+        "curly",
+        run.underline.?.wireName(),
+    );
+
+    var waited = try terminal.waitFor("ready", 2_000);
+    defer waited.deinit();
+    try std.testing.expect(waited.value.matched);
+    try std.testing.expectEqualStrings("ready", waited.value.text);
+
+    var copied = try terminal.copy(.selection);
+    defer copied.deinit();
+    try std.testing.expectEqualStrings(
+        "selection",
+        copied.value.mode.wireName(),
+    );
+    try std.testing.expectEqualStrings("copied", copied.value.text);
+
+    var process = try terminal.processInfo();
+    defer process.deinit();
+    try std.testing.expectEqual(@as(u32, 123), process.value.pid);
+    try std.testing.expectEqualStrings("/bin/zsh", process.value.executable.?);
+    try std.testing.expectEqualStrings("zsh", process.value.argv[0]);
+    try std.testing.expectEqualStrings(
+        "/tmp/subshell",
+        process.value.foreground_cwd.?,
+    );
+    try std.testing.expectEqual(@as(u32, 125), process.value.children[1]);
+
+    var cleared = try terminal.clearHistory(
+        try MutationOptions.withKey("typed-history-clear"),
+    );
+    defer cleared.deinit();
+    try std.testing.expectEqual(@as(u64, 10), cleared.revision);
+
+    try std.testing.expect(
+        std.mem.indexOf(
+            u8,
+            shared.output.items,
+            "\"before\":\"50\"",
+        ) != null,
+    );
+    try std.testing.expect(
+        std.mem.indexOf(
+            u8,
+            shared.output.items,
+            "\"limit\":2",
+        ) != null,
+    );
+    try std.testing.expect(
+        std.mem.indexOf(
+            u8,
+            shared.output.items,
+            "\"styled\":true",
+        ) != null,
+    );
+    try std.testing.expect(
+        std.mem.indexOf(
+            u8,
+            shared.output.items,
+            "\"timeout_ms\":\"2000\"",
+        ) != null,
+    );
+}
+
+test "typed terminal decoders reject malformed and retain future enums" {
+    var malformed = try raw.wire.parse(
+        std.testing.allocator,
+        "{\"text\":\"bad\",\"cols\":0,\"rows\":1," ++
+            "\"cursor_row\":0,\"cursor_col\":0," ++
+            "\"cursor_visible\":true}",
+        .{},
+    );
+    const malformed_value = malformed.value;
+    const malformed_result = OwnedResult{
+        .owned = malformed,
+        .value = malformed_value,
+    };
+    malformed = undefined;
+    try std.testing.expectError(
+        error.IntegerOutOfRange,
+        decodeOwnedSimpleResult(
+            TerminalScreenResult,
+            malformed_result,
+        ),
+    );
+
+    var future = try raw.wire.parse(
+        std.testing.allocator,
+        "{\"mode\":\"future-copy\",\"text\":\"owned\"}",
+        .{},
+    );
+    const future_value = future.value;
+    const future_result = OwnedResult{
+        .owned = future,
+        .value = future_value,
+    };
+    future = undefined;
+    var decoded = try decodeOwnedSimpleResult(
+        TerminalCopyResult,
+        future_result,
+    );
+    defer decoded.deinit();
+    switch (decoded.value.mode) {
+        .unknown => |value| try std.testing.expectEqualStrings(
+            "future-copy",
+            value,
+        ),
+        else => return error.ExpectedUnknownCopyMode,
+    }
+}
+
+test "generic journal producer values preserve the userland wire contract" {
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    var schema = try raw.wire.parse(
+        std.testing.allocator,
+        "{\"type\":\"object\"}",
+        .{},
+    );
+    defer schema.deinit();
+    const manifest = JournalProducerManifest{
+        .producer_id = "screen-detector",
+        .namespace_ = "plugin.screen-detector",
+        .manifest_version = 1,
+        .max_sensitivity = .sensitive,
+        .permissions = &.{"journal.append.plugin.screen-detector"},
+        .events = &.{.{
+            .kind = "plugin.screen-detector.state.changed",
+            .schema_version = 1,
+            .journal_class = .state,
+            .replay = .required,
+            .sensitivity = .sensitive,
+            .payload_schema = schema.value,
+        }},
+    };
+    try manifest.validate();
+    const invalid_ingress = JournalIngress{
+        .producer_id = "screen-detector",
+        .manifest_version = 1,
+        .kind = "agent.state.changed",
+        .schema_version = 1,
+        .payload = schema.value,
+    };
+    try std.testing.expectError(
+        error.InvalidJournalIngress,
+        invalid_ingress.validate(),
+    );
+    const encoded_manifest = try manifest.toValue(arena.allocator());
+    const manifest_object = try detailObject(encoded_manifest);
+    try std.testing.expectEqualStrings(
+        "plugin.screen-detector",
+        try objectString(manifest_object, "namespace"),
+    );
+    try std.testing.expect(manifest_object.get("namespace_") == null);
+    const encoded_event = switch (manifest_object.get("events") orelse return error.MissingField) {
+        .array => |items| items.items[0],
+        else => return error.ExpectedArray,
+    };
+    try std.testing.expectEqualStrings(
+        "state",
+        try objectString(
+            try detailObject(encoded_event),
+            "class",
+        ),
+    );
+
+    var list = try raw.wire.parse(
+        std.testing.allocator,
+        "{\"producers\":[{\"producer_id\":\"screen-detector\",\"namespace\":\"plugin.screen-detector\",\"manifest_version\":1,\"max_sensitivity\":\"sensitive\",\"permissions\":[\"journal.append.plugin.screen-detector\"],\"events\":[{\"kind\":\"plugin.screen-detector.state.changed\",\"schema_version\":1,\"class\":\"state\",\"replay\":\"required\",\"sensitivity\":\"sensitive\",\"payload_schema\":{\"type\":\"object\"}}]}]}",
+        .{},
+    );
+    defer list.deinit();
+    const decoded_list = try decodeJournalProducerListResult(
+        arena.allocator(),
+        list.value,
+    );
+    try std.testing.expectEqual(@as(usize, 1), decoded_list.producers.len);
+    try std.testing.expectEqualStrings(
+        "plugin.screen-detector.state.changed",
+        decoded_list.producers[0].events[0].kind,
+    );
+
+    var malformed_put = try raw.wire.parse(
+        std.testing.allocator,
+        "{\"producer_id\":\"screen-detector\",\"manifest_version\":1," ++
+            "\"namespace\":\"plugin.other\",\"sequence\":\"1\",\"event_id\":\"event-1\"}",
+        .{},
+    );
+    defer malformed_put.deinit();
+    try std.testing.expectError(
+        error.InvalidJournalProducerNamespace,
+        decodeJournalProducerPutResult(malformed_put.value),
+    );
+
+    var agent = try raw.wire.parse(
+        std.testing.allocator,
+        "{\"id\":\"agent_11111111111111111111111111111111\",\"session_id\":\"session_22222222222222222222222222222222\",\"terminal_id\":\"term_33333333333333333333333333333333\",\"state\":\"working\",\"source\":\"plugin\",\"updated_at_ms\":\"9\",\"source_session\":null}",
+        .{},
+    );
+    defer agent.deinit();
+    try std.testing.expectEqual(
+        AgentSource.plugin,
+        (try decodeAgentSnapshot(agent.value)).source,
+    );
+
+    var screen = try raw.wire.parse(
+        std.testing.allocator,
+        "{\"text\":\"ready\",\"revision\":\"12\",\"osc_progress\":\"4;1;50\",\"cols\":80,\"rows\":24,\"cursor_row\":1,\"cursor_col\":2,\"cursor_visible\":true}",
+        .{},
+    );
+    defer screen.deinit();
+    const decoded_screen = try decodeTerminalScreenResult(screen.value);
+    try std.testing.expectEqual(@as(?u64, 12), decoded_screen.revision);
+    try std.testing.expectEqualStrings(
+        "4;1;50",
+        decoded_screen.osc_progress orelse return error.MissingField,
+    );
+
+    var invalid = manifest;
+    invalid.events = &.{.{
+        .kind = "plugin.screen-detector.state.changed",
+        .schema_version = 1,
+        .journal_class = .state,
+        .replay = .required,
+        .sensitivity = .secret,
+        .payload_schema = schema.value,
+    }};
+    try std.testing.expectError(
+        error.InvalidJournalEventSensitivity,
+        invalid.validate(),
+    );
+
+    const legacy_screen = TerminalScreenResult{
+        .text = "legacy",
+        .cols = 80,
+        .rows = 24,
+        .cursor_row = 0,
+        .cursor_col = 0,
+        .cursor_visible = true,
+        .extra = null,
+    };
+    try std.testing.expect(legacy_screen.revision == null);
+}
+
+test "terminal lifecycle and durable exit constraints are strict" {
+    var decoded_arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer decoded_arena.deinit();
+    var running = try raw.wire.parse(
+        std.testing.allocator,
+        "{\"id\":\"term_0123456789abcdef0123456789abcdef\"," ++
+            "\"tab_ids\":[\"tab_77777777777777777777777777777777\"]," ++
+            "\"title\":\"shell\",\"cols\":120,\"rows\":40," ++
+            "\"running\":true,\"lifecycle\":\"running\"," ++
+            "\"extra\":{\"future\":true}}",
+        .{},
+    );
+    defer running.deinit();
+    const running_snapshot = try decodeTerminalSnapshot(
+        decoded_arena.allocator(),
+        running.value,
+    );
+    try std.testing.expect(running_snapshot.running);
+    try std.testing.expectEqual(
+        TerminalLifecycle.running,
+        running_snapshot.lifecycle,
+    );
+    try std.testing.expect(running_snapshot.exit == null);
+
+    var legacy_attached = try raw.wire.parse(
+        std.testing.allocator,
+        "{\"id\":\"term_0123456789abcdef0123456789abcdef\"," ++
+            "\"tab_id\":\"tab_77777777777777777777777777777777\"," ++
+            "\"title\":\"legacy\",\"cols\":80,\"rows\":24," ++
+            "\"running\":true,\"lifecycle\":\"running\"}",
+        .{},
+    );
+    defer legacy_attached.deinit();
+    const legacy_attached_snapshot = try decodeTerminalSnapshot(
+        decoded_arena.allocator(),
+        legacy_attached.value,
+    );
+    try std.testing.expectEqual(@as(usize, 1), legacy_attached_snapshot.tab_ids.len);
+
+    var legacy_detached = try raw.wire.parse(
+        std.testing.allocator,
+        "{\"id\":\"term_0123456789abcdef0123456789abcdef\",\"tab_id\":null," ++
+            "\"title\":\"legacy\",\"cols\":80,\"rows\":24," ++
+            "\"running\":true,\"lifecycle\":\"running\"}",
+        .{},
+    );
+    defer legacy_detached.deinit();
+    const legacy_detached_snapshot = try decodeTerminalSnapshot(
+        decoded_arena.allocator(),
+        legacy_detached.value,
+    );
+    try std.testing.expectEqual(@as(usize, 0), legacy_detached_snapshot.tab_ids.len);
+
+    var consistent_alias = try raw.wire.parse(
+        std.testing.allocator,
+        "{\"id\":\"term_0123456789abcdef0123456789abcdef\"," ++
+            "\"tab_id\":\"tab_77777777777777777777777777777777\"," ++
+            "\"tab_ids\":[\"tab_77777777777777777777777777777777\"]," ++
+            "\"title\":\"legacy\",\"cols\":80,\"rows\":24," ++
+            "\"running\":true,\"lifecycle\":\"running\"}",
+        .{},
+    );
+    defer consistent_alias.deinit();
+    const consistent_alias_snapshot = try decodeTerminalSnapshot(
+        decoded_arena.allocator(),
+        consistent_alias.value,
+    );
+    try std.testing.expectEqual(@as(usize, 1), consistent_alias_snapshot.tab_ids.len);
+
+    var inconsistent_alias = try raw.wire.parse(
+        std.testing.allocator,
+        "{\"id\":\"term_0123456789abcdef0123456789abcdef\"," ++
+            "\"tab_id\":\"tab_77777777777777777777777777777777\",\"tab_ids\":[]," ++
+            "\"title\":\"legacy\",\"cols\":80,\"rows\":24," ++
+            "\"running\":true,\"lifecycle\":\"running\"}",
+        .{},
+    );
+    defer inconsistent_alias.deinit();
+    try std.testing.expectError(
+        error.InvalidTerminalPlacement,
+        decodeTerminalSnapshot(
+            decoded_arena.allocator(),
+            inconsistent_alias.value,
+        ),
+    );
+
+    var exited = try raw.wire.parse(
+        std.testing.allocator,
+        "{\"id\":\"term_0123456789abcdef0123456789abcdef\"," ++
+            "\"tab_ids\":[]," ++
+            "\"title\":\"done\",\"cols\":80,\"rows\":24," ++
+            "\"running\":false,\"lifecycle\":\"exited\",\"exit\":{" ++
+            "\"outcome\":{\"kind\":\"exit\",\"code\":-7}," ++
+            "\"exited_at\":\"18446744073709551615\"," ++
+            "\"revision\":\"18446744073709551614\"}}",
+        .{},
+    );
+    defer exited.deinit();
+    const exited_snapshot = try decodeTerminalSnapshot(
+        decoded_arena.allocator(),
+        exited.value,
+    );
+    try std.testing.expectEqual(@as(usize, 0), exited_snapshot.tab_ids.len);
+    try std.testing.expectEqual(
+        std.math.maxInt(u64),
+        exited_snapshot.exit.?.exited_at,
+    );
+    try std.testing.expectEqual(
+        std.math.maxInt(u64) - 1,
+        exited_snapshot.exit.?.revision,
+    );
+    switch (exited_snapshot.exit.?.outcome) {
+        .exit => |code| try std.testing.expectEqual(
+            @as(i32, -7),
+            code,
+        ),
+        else => return error.ExpectedTerminalExitCode,
+    }
+
+    var future = try raw.wire.parse(
+        std.testing.allocator,
+        "{\"id\":\"term_0123456789abcdef0123456789abcdef\"," ++
+            "\"tab_ids\":[\"tab_77777777777777777777777777777777\"]," ++
+            "\"title\":\"future\",\"cols\":80,\"rows\":24," ++
+            "\"running\":false,\"lifecycle\":\"suspended\"}",
+        .{},
+    );
+    defer future.deinit();
+    const future_snapshot = try decodeTerminalSnapshot(
+        decoded_arena.allocator(),
+        future.value,
+    );
+    switch (future_snapshot.lifecycle) {
+        .unknown => |value| try std.testing.expectEqualStrings(
+            "suspended",
+            value,
+        ),
+        else => return error.ExpectedUnknownTerminalLifecycle,
+    }
+
+    var inconsistent = try raw.wire.parse(
+        std.testing.allocator,
+        "{\"id\":\"term_0123456789abcdef0123456789abcdef\"," ++
+            "\"tab_ids\":[\"tab_77777777777777777777777777777777\"]," ++
+            "\"title\":\"bad\",\"cols\":80,\"rows\":24," ++
+            "\"running\":false,\"lifecycle\":\"running\"}",
+        .{},
+    );
+    defer inconsistent.deinit();
+    try std.testing.expectError(
+        error.InvalidTerminalState,
+        decodeTerminalSnapshot(decoded_arena.allocator(), inconsistent.value),
+    );
+}
+
+test "typed catalogs reject malformed snapshots without leaking ownership" {
+    var parsed = try raw.wire.parse(
+        std.testing.allocator,
+        "[{\"id\":\"machine_11111111111111111111111111111111\"," ++
+            "\"name\":7,\"origin\":\"local\",\"status\":\"running\"," ++
+            "\"connectable\":true,\"deleted\":false," ++
+            "\"recoverable\":false}]",
+        .{},
+    );
+    const value = parsed.value;
+    const result = OwnedResult{
+        .owned = parsed,
+        .value = value,
+    };
+    parsed = undefined;
+    try std.testing.expectError(
+        error.ExpectedString,
+        decodeTypedList(
+            MachineSnapshot,
+            std.testing.allocator,
+            result,
+            "machines",
+        ),
+    );
+}
+
+test "dropped mutation response retains supplied key without retry" {
+    var shared = FakeShared{
+        .allocator = std.testing.allocator,
+        .mode = .dropped_mutation_disconnect,
+    };
+    defer shared.deinit();
+
+    var uncertain = blk: {
+        const connection = try fakeConnection(
+            std.testing.allocator,
+            &shared,
+        );
+        var client = Client.init(
+            std.testing.allocator,
+            connection,
+            .{},
+        );
+        defer client.deinit();
+        const workspace_id = try WorkspaceId.parse(
+            "ws_0123456789abcdef0123456789abcdef",
+        );
+        try std.testing.expectError(
+            error.MutationTransportUncertain,
+            client.workspace(workspace_id).rename(
+                "possibly-committed",
+                try MutationOptions.withKey("supplied-uncertain-key"),
+            ),
+        );
+        try std.testing.expect(client.lastResourceError() == null);
+        const borrowed = client.lastMutationTransportUncertain().?;
+        try std.testing.expectEqual(
+            Operation.workspace_rename,
+            borrowed.operation,
+        );
+        try std.testing.expectEqual(
+            MutationTransportCause.connection_closed,
+            borrowed.cause,
+        );
+        try std.testing.expectEqualStrings(
+            "supplied-uncertain-key",
+            borrowed.idempotency_key,
+        );
+        try std.testing.expectEqualStrings(
+            "inspect_state_then_retry_with_new_key",
+            borrowed.recovery.wireName(),
+        );
+        try std.testing.expect(client.isClosed());
+        try std.testing.expect(shared.closed);
+        break :blk client.takeMutationTransportUncertain() orelse
+            return error.MissingMutationTransportUncertain;
+    };
+    defer uncertain.deinit();
+
+    try std.testing.expectEqualStrings(
+        "supplied-uncertain-key",
+        uncertain.value.idempotency_key,
+    );
+    try std.testing.expectEqual(
+        @as(usize, 1),
+        std.mem.count(
+            u8,
+            shared.output.items,
+            "\"operation\":\"workspace.rename\"",
+        ),
+    );
+    try std.testing.expectEqual(
+        @as(usize, 1),
+        std.mem.count(
+            u8,
+            shared.output.items,
+            "\"idempotency_key\":\"supplied-uncertain-key\"",
+        ),
+    );
+}
+
+test "dropped mutation timeout retains exact generated key" {
+    var shared = FakeShared{
+        .allocator = std.testing.allocator,
+        .mode = .dropped_mutation_timeout,
+    };
+    defer shared.deinit();
+    const connection = try fakeConnection(std.testing.allocator, &shared);
+    var client = Client.init(std.testing.allocator, connection, .{});
+    defer client.deinit();
+    const workspace_id = try WorkspaceId.parse(
+        "ws_0123456789abcdef0123456789abcdef",
+    );
+    const options = MutationOptions.random();
+    try std.testing.expectError(
+        error.MutationTransportUncertain,
+        client.workspace(workspace_id).rename(
+            "possibly-committed",
+            options,
+        ),
+    );
+    const borrowed = client.lastMutationTransportUncertain().?;
+    try std.testing.expectEqual(
+        MutationTransportCause.timeout,
+        borrowed.cause,
+    );
+    try std.testing.expectEqualStrings(
+        options.key(),
+        borrowed.idempotency_key,
+    );
+    try std.testing.expectEqual(
+        @as(usize, 1),
+        std.mem.count(
+            u8,
+            shared.output.items,
+            "\"operation\":\"workspace.rename\"",
+        ),
+    );
+    try std.testing.expectEqual(
+        @as(usize, 1),
+        std.mem.count(
+            u8,
+            shared.output.items,
+            options.key(),
+        ),
+    );
+}
+
+test "indeterminate mutations retain fields and never retry" {
+    var shared = FakeShared{
+        .allocator = std.testing.allocator,
+        .mode = .remote_error,
+    };
+    defer shared.deinit();
+    const connection = try fakeConnection(std.testing.allocator, &shared);
+    var client = Client.init(std.testing.allocator, connection, .{});
+    defer client.deinit();
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    const params = raw.wire.Value{
+        .object = raw.wire.Object.init(arena.allocator()),
+    };
+    try std.testing.expectError(
+        error.RemoteError,
+        client.mutate(
+            .workspace_rename,
+            params,
+            try MutationOptions.withKey("indeterminate-test-key"),
+        ),
+    );
+    const failure = client.lastResourceError().?;
+    try std.testing.expectEqualStrings(
+        "mutation.indeterminate",
+        failure.code,
+    );
+    try std.testing.expectEqualStrings(
+        "external effect may have committed",
+        failure.message,
+    );
+    const details = switch (failure.details) {
+        .mutation_indeterminate => |value| value,
+        else => return error.ExpectedMutationIndeterminateDetails,
+    };
+    try std.testing.expectEqualStrings(
+        "indeterminate-test-key",
+        details.idempotency_key,
+    );
+    try std.testing.expectEqualStrings(
+        "workspace.rename",
+        details.operation,
+    );
+    try std.testing.expectEqualStrings(
+        "inspect_state_then_retry_with_new_key",
+        details.recovery.wireName(),
+    );
+    try std.testing.expectEqual(
+        @as(usize, 1),
+        std.mem.count(u8, shared.output.items, "idempotency_key"),
+    );
+}
+
+test "catalog error details decode every declared shape" {
+    const DetailTag = std.meta.Tag(ResourceErrorDetails);
+    const Fixture = struct {
+        code: []const u8,
+        details: []const u8,
+        tag: DetailTag,
+    };
+    const fixtures = [_]Fixture{
+        .{
+            .code = "confirmation.required",
+            .details = "{\"revision\":\"3\",\"closes_panes\":[" ++
+                "\"pane_11111111111111111111111111111111\"]," ++
+                "\"confirmation_token\":\"confirm-3\"}",
+            .tag = .confirmation_required,
+        },
+        .{
+            .code = "creation.conflict",
+            .details = "{\"correlation_key\":\"create-1\"," ++
+                "\"existing_operation\":\"workspace.create\"," ++
+                "\"requested_operation\":\"terminal.create\"," ++
+                "\"existing_fingerprint\":\"sha256:old\"," ++
+                "\"requested_fingerprint\":\"sha256:new\"}",
+            .tag = .creation_conflict,
+        },
+        .{
+            .code = "cursor.gap",
+            .details = "{\"requested\":{\"generation\":\"g\"," ++
+                "\"revision\":\"1\"},\"current\":{\"generation\":\"g\"," ++
+                "\"revision\":\"3\"},\"oldest_revision\":\"2\"}",
+            .tag = .cursor_gap,
+        },
+        .{
+            .code = "cursor.invalid",
+            .details = "{\"requested\":{\"generation\":\"old\"," ++
+                "\"revision\":\"1\"},\"current\":{\"generation\":\"new\"," ++
+                "\"revision\":\"1\"},\"reason\":\"generation changed\"}",
+            .tag = .cursor_invalid,
+        },
+        .{
+            .code = "idempotency.conflict",
+            .details = "{\"idempotency_key\":\"key\"," ++
+                "\"committed_operation\":\"workspace.rename\"}",
+            .tag = .idempotency_conflict,
+        },
+        .{
+            .code = "local.io",
+            .details = "{\"path\":\"/tmp/socket\",\"reason\":\"closed\"}",
+            .tag = .local_io,
+        },
+        .{
+            .code = "mutation.indeterminate",
+            .details = "{\"idempotency_key\":\"key\"," ++
+                "\"operation\":\"workspace.rename\",\"recovery\":" ++
+                "\"inspect_state_then_retry_with_new_key\"}",
+            .tag = .mutation_indeterminate,
+        },
+        .{
+            .code = "operation.failed",
+            .details = "{\"operation\":\"workspace.run\"," ++
+                "\"reason\":\"failed\",\"extra\":{\"exit_code\":2}}",
+            .tag = .operation_failed,
+        },
+        .{
+            .code = "resource.not_found",
+            .details = "{\"scope\":\"workspace\",\"id\":" ++
+                "\"ws_11111111111111111111111111111111\"}",
+            .tag = .resource_not_found,
+        },
+        .{
+            .code = "revision.conflict",
+            .details = "{\"expected\":\"4\",\"actual\":\"5\"}",
+            .tag = .revision_conflict,
+        },
+        .{
+            .code = "selector.ambiguous",
+            .details = "{\"scope\":\"workspace\"," ++
+                "\"selector\":\"name:duplicate\",\"candidates\":[" ++
+                "\"ws_11111111111111111111111111111111\"," ++
+                "\"ws_22222222222222222222222222222222\"]}",
+            .tag = .selector_ambiguous,
+        },
+        .{
+            .code = "selector.invalid",
+            .details = "{\"scope\":\"workspace\"," ++
+                "\"selector\":\"invalid\",\"reason\":\"bad syntax\"}",
+            .tag = .selector_invalid,
+        },
+        .{
+            .code = "selector.not_found",
+            .details = "{\"scope\":\"workspace\"," ++
+                "\"selector\":\"name:missing\"}",
+            .tag = .selector_not_found,
+        },
+        .{
+            .code = "selector.wrong_parent",
+            .details = "{\"scope\":\"pane\",\"selector\":" ++
+                "\"pane_11111111111111111111111111111111\"," ++
+                "\"parent_scope\":\"screen\",\"expected_parent\":" ++
+                "\"screen_11111111111111111111111111111111\"," ++
+                "\"actual_parent\":" ++
+                "\"screen_22222222222222222222222222222222\"}",
+            .tag = .selector_wrong_parent,
+        },
+        .{
+            .code = "transport.closed",
+            .details = "{\"reason\":\"peer closed\"}",
+            .tag = .transport_closed,
+        },
+        .{
+            .code = "validation.invalid",
+            .details = "{\"field\":\"name\",\"reason\":\"too long\"}",
+            .tag = .validation_invalid,
+        },
+    };
+    try std.testing.expectEqual(@as(usize, 16), fixtures.len);
+
+    var shared = FakeShared{
+        .allocator = std.testing.allocator,
+        .mode = .success,
+    };
+    defer shared.deinit();
+    const connection = try fakeConnection(std.testing.allocator, &shared);
+    var client = Client.init(std.testing.allocator, connection, .{});
+    defer client.deinit();
+
+    for (fixtures) |fixture| {
+        const encoded = try std.fmt.allocPrint(
+            std.testing.allocator,
+            "{{\"code\":\"{s}\",\"message\":\"fixture\"," ++
+                "\"details\":{s},\"retryable\":false}}",
+            .{ fixture.code, fixture.details },
+        );
+        defer std.testing.allocator.free(encoded);
+        var parsed = try raw.wire.parse(
+            std.testing.allocator,
+            encoded,
+            .{},
+        );
+        try client.setError(parsed.value);
+        parsed.deinit();
+        var owned = client.takeResourceError() orelse
+            return error.MissingResourceError;
+        defer owned.deinit();
+        try std.testing.expectEqual(
+            fixture.tag,
+            std.meta.activeTag(owned.value.details),
+        );
+        if (std.mem.eql(u8, fixture.code, "confirmation.required")) {
+            const details = switch (owned.value.details) {
+                .confirmation_required => |value| value,
+                else => unreachable,
+            };
+            try std.testing.expectEqualStrings(
+                "confirm-3",
+                details.confirmation_token,
+            );
+            try std.testing.expectEqual(@as(u64, 3), details.revision);
+        }
+    }
+}
+
+test "malformed known and future error details remain owned and explicit" {
+    var shared = FakeShared{
+        .allocator = std.testing.allocator,
+        .mode = .success,
+    };
+    defer shared.deinit();
+    const connection = try fakeConnection(std.testing.allocator, &shared);
+    var client = Client.init(std.testing.allocator, connection, .{});
+    errdefer client.deinit();
+
+    var malformed_source = try raw.wire.parse(
+        std.testing.allocator,
+        "{\"code\":\"selector.ambiguous\",\"message\":\"bad\"," ++
+            "\"details\":{\"candidates\":[" ++
+            "\"ws_11111111111111111111111111111111\"]}," ++
+            "\"retryable\":false}",
+        .{},
+    );
+    try client.setError(malformed_source.value);
+    malformed_source.deinit();
+    var malformed = client.takeResourceError() orelse
+        return error.MissingResourceError;
+    defer malformed.deinit();
+    switch (malformed.value.details) {
+        .malformed => {},
+        else => return error.ExpectedMalformedResourceErrorDetails,
+    }
+
+    var future_source = try raw.wire.parse(
+        std.testing.allocator,
+        "{\"code\":\"future.quota\",\"message\":\"future\"," ++
+            "\"details\":{\"limit\":\"9\",\"auth\":{\"token\":" ++
+            "\"future-secret\"}},\"retryable\":true}",
+        .{},
+    );
+    try client.setError(future_source.value);
+    future_source.deinit();
+    var future = client.takeResourceError() orelse
+        return error.MissingResourceError;
+    client.deinit();
+    defer future.deinit();
+
+    const unknown = switch (future.value.details) {
+        .unknown => |value| value.raw,
+        else => return error.ExpectedUnknownResourceErrorDetails,
+    };
+    const details = try detailObject(unknown);
+    const auth = try detailObject(
+        details.get("auth") orelse return error.MissingField,
+    );
+    try std.testing.expectEqualStrings(
+        "[REDACTED]",
+        try objectString(auth, "token"),
+    );
+}
+
+test "session events decode strict snapshot delta and unknown changes" {
+    const workspace_id = "ws_0123456789abcdef0123456789abcdef";
+    const input =
+        "{\"kind\":\"delta\",\"cursor\":{" ++
+        "\"generation\":\"g\",\"revision\":\"3\"}," ++
+        "\"previous_revision\":\"2\",\"revision\":\"3\",\"changes\":[" ++
+        "{\"kind\":\"upsert\",\"sequence\":0,\"resource\":\"workspace\"," ++
+        "\"id\":\"" ++ workspace_id ++ "\",\"value\":{" ++
+        "\"id\":\"" ++ workspace_id ++ "\"," ++
+        "\"session_id\":\"session_0123456789abcdef0123456789abcdef\"," ++
+        "\"name\":\"sdk\",\"index\":0,\"focused\":true}}," ++
+        "{\"kind\":\"delete\",\"sequence\":1,\"resource\":\"workspace\"," ++
+        "\"id\":\"" ++ workspace_id ++ "\"}," ++
+        "{\"kind\":\"future.change\",\"sequence\":2,\"future\":true}" ++
+        "]}";
+    var parsed = try raw.wire.parse(std.testing.allocator, input, .{});
+    defer parsed.deinit();
+    var decoded = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer decoded.deinit();
+    const event = try decodeSessionEvent(
+        decoded.allocator(),
+        parsed.value,
+        .{ .generation = "g", .revision = 3 },
+    );
+    switch (event) {
+        .delta => |delta| {
+            try std.testing.expectEqual(@as(u64, 2), delta.previous_revision);
+            try std.testing.expectEqual(@as(u64, 3), delta.revision);
+            try std.testing.expectEqual(@as(usize, 3), delta.changes.len);
+            switch (delta.changes[0]) {
+                .upsert => |upsert| {
+                    try std.testing.expectEqual(
+                        ResourceKind.workspace,
+                        upsert.resource,
+                    );
+                    try std.testing.expectEqualStrings(
+                        workspace_id,
+                        upsert.id.slice(),
+                    );
+                },
+                else => return error.ExpectedResourceUpsert,
+            }
+            switch (delta.changes[1]) {
+                .delete => |deleted| try std.testing.expectEqual(
+                    @as(u32, 1),
+                    deleted.sequence,
+                ),
+                else => return error.ExpectedResourceDelete,
+            }
+            switch (delta.changes[2]) {
+                .unknown => |unknown| {
+                    try std.testing.expectEqualStrings(
+                        "future.change",
+                        unknown.discriminator,
+                    );
+                    try std.testing.expect(
+                        unknown.raw_object.object.get("future").?.bool,
+                    );
+                },
+                else => return error.ExpectedUnknownResourceChange,
+            }
+        },
+        else => return error.ExpectedSessionDelta,
+    }
+
+    const snapshot_input =
+        "{\"kind\":\"snapshot\",\"cursor\":{" ++
+        "\"generation\":\"g\",\"revision\":\"3\"}," ++
+        "\"reset_reason\":\"initial\",\"snapshot\":{" ++
+        "\"machine\":{\"id\":\"machine_0123456789abcdef0123456789abcdef\"," ++
+        "\"name\":\"local\",\"origin\":\"local\",\"status\":\"running\"," ++
+        "\"connectable\":true," ++
+        "\"deleted\":false,\"recoverable\":false}," ++
+        "\"session\":{\"id\":\"session_0123456789abcdef0123456789abcdef\"," ++
+        "\"machine_id\":\"machine_0123456789abcdef0123456789abcdef\"," ++
+        "\"name\":\"main\",\"generation\":\"g\",\"revision\":\"3\"," ++
+        "\"connected\":true}," ++
+        "\"workspaces\":[],\"screens\":[],\"panes\":[],\"tabs\":[]," ++
+        "\"terminals\":[],\"browsers\":[],\"clients\":[]," ++
+        "\"notifications\":[],\"agents\":[],\"frontend_projections\":[]," ++
+        "\"sidebar_views\":[],\"cursor\":{\"generation\":\"g\"," ++
+        "\"revision\":\"3\"}}}";
+    var parsed_snapshot = try raw.wire.parse(
+        std.testing.allocator,
+        snapshot_input,
+        .{},
+    );
+    defer parsed_snapshot.deinit();
+    const snapshot = try decodeSessionEvent(
+        decoded.allocator(),
+        parsed_snapshot.value,
+        .{ .generation = "g", .revision = 3 },
+    );
+    switch (snapshot) {
+        .snapshot => |item| try std.testing.expectEqual(
+            ResetReason.initial,
+            item.reset_reason.?,
+        ),
+        else => return error.ExpectedSessionSnapshot,
+    }
+}
+
+test "recognized session and change variants reject malformed payloads" {
+    const wrong_id =
+        "{\"kind\":\"delta\",\"cursor\":{" ++
+        "\"generation\":\"g\",\"revision\":\"3\"}," ++
+        "\"previous_revision\":\"2\",\"revision\":\"3\",\"changes\":[" ++
+        "{\"kind\":\"upsert\",\"sequence\":0,\"resource\":\"workspace\"," ++
+        "\"id\":\"term_0123456789abcdef0123456789abcdef\"," ++
+        "\"value\":{\"id\":" ++
+        "\"term_0123456789abcdef0123456789abcdef\"}}]}";
+    var parsed = try raw.wire.parse(
+        std.testing.allocator,
+        wrong_id,
+        .{},
+    );
+    defer parsed.deinit();
+    var decoded = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer decoded.deinit();
+    try std.testing.expectError(
+        error.InvalidResourceId,
+        decodeSessionEvent(
+            decoded.allocator(),
+            parsed.value,
+            .{ .generation = "g", .revision = 3 },
+        ),
+    );
+
+    const malformed_snapshot =
+        "{\"kind\":\"snapshot\",\"cursor\":{" ++
+        "\"generation\":\"g\",\"revision\":\"3\"}," ++
+        "\"reset_reason\":\"future\",\"snapshot\":{}}";
+    var parsed_snapshot = try raw.wire.parse(
+        std.testing.allocator,
+        malformed_snapshot,
+        .{},
+    );
+    defer parsed_snapshot.deinit();
+    try std.testing.expectError(
+        error.InvalidResetReason,
+        decodeSessionEvent(
+            decoded.allocator(),
+            parsed_snapshot.value,
+            .{ .generation = "g", .revision = 3 },
+        ),
+    );
+}
+
+test "typed attachment decoders preserve unknown discriminators" {
+    var decoded = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer decoded.deinit();
+
+    var terminal = try raw.wire.parse(
+        std.testing.allocator,
+        "{\"kind\":\"future.terminal\",\"future\":true}",
+        .{},
+    );
+    defer terminal.deinit();
+    switch (try decodeTerminalAttachmentItem(
+        decoded.allocator(),
+        terminal.value,
+    )) {
+        .unknown => |unknown| {
+            try std.testing.expectEqualStrings(
+                "future.terminal",
+                unknown.discriminator,
+            );
+            try std.testing.expect(
+                unknown.raw_object.object.get("future").?.bool,
+            );
+        },
+        else => return error.ExpectedUnknownTerminalAttachment,
+    }
+
+    var browser = try raw.wire.parse(
+        std.testing.allocator,
+        "{\"kind\":\"future.browser\",\"future\":true}",
+        .{},
+    );
+    defer browser.deinit();
+    switch (try decodeBrowserAttachmentItem(
+        decoded.allocator(),
+        browser.value,
+    )) {
+        .unknown => |unknown| try std.testing.expectEqualStrings(
+            "future.browser",
+            unknown.discriminator,
+        ),
+        else => return error.ExpectedUnknownBrowserAttachment,
+    }
+
+    var sidebar = try raw.wire.parse(
+        std.testing.allocator,
+        "{\"kind\":\"future.sidebar\",\"future\":true}",
+        .{},
+    );
+    defer sidebar.deinit();
+    switch (try decodeSidebarViewItem(
+        decoded.allocator(),
+        sidebar.value,
+    )) {
+        .unknown => |unknown| try std.testing.expectEqualStrings(
+            "future.sidebar",
+            unknown.discriminator,
+        ),
+        else => return error.ExpectedUnknownSidebarAttachment,
+    }
+
+    var malformed = try raw.wire.parse(
+        std.testing.allocator,
+        "{\"kind\":\"scroll\"}",
+        .{},
+    );
+    defer malformed.deinit();
+    try std.testing.expectError(
+        error.MissingField,
+        decodeTerminalAttachmentItem(
+            decoded.allocator(),
+            malformed.value,
+        ),
+    );
+}
+
+test "browser frames require a nullable canonical pointer token" {
+    var decoded = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer decoded.deinit();
+
+    var maximum = try raw.wire.parse(
+        std.testing.allocator,
+        "{\"kind\":\"frame\",\"mime_type\":\"image/png\"," ++
+            "\"data_base64\":\"AA==\",\"width_px\":1," ++
+            "\"height_px\":1,\"pointer_frame_seq\":" ++
+            "\"18446744073709551615\"}",
+        .{},
+    );
+    defer maximum.deinit();
+    switch (try decodeBrowserAttachmentItem(
+        decoded.allocator(),
+        maximum.value,
+    )) {
+        .frame => |frame| {
+            try std.testing.expectEqual(
+                @as(?u64, std.math.maxInt(u64)),
+                frame.pointer_frame_seq,
+            );
+            try std.testing.expectEqualSlices(
+                u8,
+                &.{0},
+                frame.data,
+            );
+        },
+        else => return error.ExpectedBrowserFrame,
+    }
+
+    var unavailable = try raw.wire.parse(
+        std.testing.allocator,
+        "{\"kind\":\"frame\",\"mime_type\":\"image/png\"," ++
+            "\"data_base64\":\"AA==\",\"width_px\":1," ++
+            "\"height_px\":1,\"pointer_frame_seq\":null}",
+        .{},
+    );
+    defer unavailable.deinit();
+    switch (try decodeBrowserAttachmentItem(
+        decoded.allocator(),
+        unavailable.value,
+    )) {
+        .frame => |frame| try std.testing.expect(
+            frame.pointer_frame_seq == null,
+        ),
+        else => return error.ExpectedBrowserFrame,
+    }
+
+    const invalid_cases = [_]struct {
+        json: []const u8,
+        expected: anyerror,
+    }{
+        .{
+            .json = "{\"kind\":\"frame\",\"mime_type\":\"image/png\"," ++
+                "\"data_base64\":\"AA==\",\"width_px\":1," ++
+                "\"height_px\":1}",
+            .expected = error.MissingField,
+        },
+        .{
+            .json = "{\"kind\":\"frame\",\"mime_type\":\"image/png\"," ++
+                "\"data_base64\":\"AA==\",\"width_px\":1," ++
+                "\"height_px\":1,\"pointer_frame_seq\":7}",
+            .expected = error.ExpectedDecimalString,
+        },
+        .{
+            .json = "{\"kind\":\"frame\",\"mime_type\":\"image/png\"," ++
+                "\"data_base64\":\"AA==\",\"width_px\":1," ++
+                "\"height_px\":1,\"pointer_frame_seq\":\"07\"}",
+            .expected = error.InvalidDecimalString,
+        },
+        .{
+            .json = "{\"kind\":\"frame\",\"mime_type\":\"image/gif\"," ++
+                "\"data_base64\":\"AA==\",\"width_px\":1," ++
+                "\"height_px\":1,\"pointer_frame_seq\":null}",
+            .expected = error.InvalidBrowserFrameMime,
+        },
+    };
+    for (invalid_cases) |case| {
+        var parsed = try raw.wire.parse(
+            std.testing.allocator,
+            case.json,
+            .{},
+        );
+        defer parsed.deinit();
+        try std.testing.expectError(
+            case.expected,
+            decodeBrowserAttachmentItem(
+                decoded.allocator(),
+                parsed.value,
+            ),
+        );
+    }
+}
+
+test "resource client closes after either framing write fails" {
+    for ([_]usize{ 1, 2 }) |fail_write_call| {
+        var shared = FakeShared{
+            .allocator = std.testing.allocator,
+            .mode = .success,
+            .fail_write_call = fail_write_call,
+        };
+        defer shared.deinit();
+        const connection = try fakeConnection(
+            std.testing.allocator,
+            &shared,
+        );
+        var client = Client.init(
+            std.testing.allocator,
+            connection,
+            .{},
+        );
+        defer client.deinit();
+        var params = raw.wire.Object.init(std.testing.allocator);
+        defer params.deinit();
+
+        try std.testing.expectError(
+            error.InjectedWriteFailure,
+            client.sendRequest(
+                "zig-write-failure",
+                .machine_list,
+                .{ .object = params },
+                null,
+            ),
+        );
+        try std.testing.expect(client.isClosed());
+        try std.testing.expect(shared.closed);
+        const bytes_after_failure = shared.output.items.len;
+        try std.testing.expectError(
+            error.ConnectionClosed,
+            client.sendRequest(
+                "zig-after-write-failure",
+                .machine_list,
+                .{ .object = params },
+                null,
+            ),
+        );
+        try std.testing.expectEqual(
+            bytes_after_failure,
+            shared.output.items.len,
+        );
+    }
+}
+
+test "stream open requires an exact result and valid optional cursor" {
+    const cases = [_]struct {
+        ack: FakeStreamOpenAck,
+        expected: anyerror,
+    }{
+        .{
+            .ack = .missing_result,
+            .expected = error.MissingResponseResult,
+        },
+        .{
+            .ack = .missing_stream_id,
+            .expected = error.MissingField,
+        },
+        .{
+            .ack = .mismatched_stream_id,
+            .expected = error.StreamIdMismatch,
+        },
+        .{
+            .ack = .non_object,
+            .expected = error.ExpectedObject,
+        },
+        .{
+            .ack = .unknown_field,
+            .expected = error.UnexpectedField,
+        },
+        .{
+            .ack = .null_cursor,
+            .expected = error.ExpectedObject,
+        },
+        .{
+            .ack = .malformed_cursor,
+            .expected = error.ExpectedDecimalString,
+        },
+        .{
+            .ack = .cursor_unknown_field,
+            .expected = error.UnexpectedField,
+        },
+        .{
+            .ack = .empty_cursor_generation,
+            .expected = error.InvalidCursorGeneration,
+        },
+        .{
+            .ack = .oversized_cursor_generation,
+            .expected = error.InvalidCursorGeneration,
+        },
+    };
+    for (cases) |case| {
+        var control_shared = FakeShared{
+            .allocator = std.testing.allocator,
+            .mode = .success,
+        };
+        defer control_shared.deinit();
+        var stream_shared = FakeShared{
+            .allocator = std.testing.allocator,
+            .mode = .success,
+            .stream_open_ack = case.ack,
+        };
+        defer stream_shared.deinit();
+        var factory_state = StreamFactoryState{
+            .shared = &stream_shared,
+        };
+        const connection = try fakeConnection(
+            std.testing.allocator,
+            &control_shared,
+        );
+        var client = Client.init(std.testing.allocator, connection, .{
+            .stream_factory = .{
+                .context = &factory_state,
+                .openFn = StreamFactoryState.open,
+            },
+        });
+        defer client.deinit();
+        const session_id = try SessionId.parse(
+            "session_0123456789abcdef0123456789abcdef",
+        );
+
+        try std.testing.expectError(
+            case.expected,
+            client.session(session_id).events(),
+        );
+        try std.testing.expect(stream_shared.closed);
+        try std.testing.expect(!control_shared.closed);
+        try std.testing.expectEqual(
+            @as(usize, 0),
+            std.mem.count(
+                u8,
+                stream_shared.output.items,
+                "\"operation\":\"stream.cancel\"",
+            ),
+        );
+    }
+}
+
+test "stream connection setup consumes the open deadline" {
+    var control_shared = FakeShared{
+        .allocator = std.testing.allocator,
+        .mode = .success,
+    };
+    defer control_shared.deinit();
+    var stream_shared = FakeShared{
+        .allocator = std.testing.allocator,
+        .mode = .success,
+    };
+    defer stream_shared.deinit();
+    var factory_state = StreamFactoryState{
+        .shared = &stream_shared,
+        .open_delay_ms = 25,
+    };
+    const connection = try fakeConnection(
+        std.testing.allocator,
+        &control_shared,
+    );
+    var client = Client.init(std.testing.allocator, connection, .{
+        .timeout_ms = 10,
+        .stream_factory = .{
+            .context = &factory_state,
+            .openFn = StreamFactoryState.open,
+        },
+    });
+    defer client.deinit();
+    const session_id = try SessionId.parse(
+        "session_0123456789abcdef0123456789abcdef",
+    );
+
+    const failure = blk: {
+        var stream = client.session(session_id).events() catch |err| {
+            break :blk err;
+        };
+        stream.deinit();
+        return error.ExpectedTimeout;
+    };
+    try std.testing.expectEqual(error.Timeout, failure);
+    try std.testing.expectEqual(@as(usize, 1), factory_state.open_calls);
+    try std.testing.expect(
+        factory_state.open_timeout_ms != null and
+            factory_state.open_timeout_ms.? <= 10,
+    );
+    try std.testing.expectEqual(@as(usize, 0), stream_shared.write_calls);
+    try std.testing.expect(stream_shared.closed);
+    try std.testing.expect(!control_shared.closed);
+}
+
+test "stream open accepts a valid optional cursor" {
+    var control_shared = FakeShared{
+        .allocator = std.testing.allocator,
+        .mode = .success,
+    };
+    defer control_shared.deinit();
+    var stream_shared = FakeShared{
+        .allocator = std.testing.allocator,
+        .mode = .success,
+        .stream_open_ack = .matching_with_cursor,
+    };
+    defer stream_shared.deinit();
+    var factory_state = StreamFactoryState{ .shared = &stream_shared };
+    const connection = try fakeConnection(
+        std.testing.allocator,
+        &control_shared,
+    );
+    var client = Client.init(std.testing.allocator, connection, .{
+        .stream_factory = .{
+            .context = &factory_state,
+            .openFn = StreamFactoryState.open,
+        },
+    });
+    defer client.deinit();
+    const session_id = try SessionId.parse(
+        "session_0123456789abcdef0123456789abcdef",
+    );
+
+    var stream = try client.session(session_id).events();
+    defer stream.deinit();
+    try std.testing.expect(!stream_shared.closed);
+}
+
+test "stream open buffers pre-ack items in wire order" {
+    var control_shared = FakeShared{
+        .allocator = std.testing.allocator,
+        .mode = .success,
+    };
+    defer control_shared.deinit();
+    var stream_shared = FakeShared{
+        .allocator = std.testing.allocator,
+        .mode = .success,
+        .stream_open_preamble = .item_before_ack,
+    };
+    defer stream_shared.deinit();
+    var factory_state = StreamFactoryState{ .shared = &stream_shared };
+    const connection = try fakeConnection(
+        std.testing.allocator,
+        &control_shared,
+    );
+    var client = Client.init(std.testing.allocator, connection, .{
+        .stream_factory = .{
+            .context = &factory_state,
+            .openFn = StreamFactoryState.open,
+        },
+    });
+    defer client.deinit();
+    const session_id = try SessionId.parse(
+        "session_0123456789abcdef0123456789abcdef",
+    );
+
+    var stream = try client.session(session_id).events();
+    defer stream.deinit();
+    try std.testing.expectEqual(
+        @as(usize, 1),
+        stream.raw_stream.pending.items.len,
+    );
+    var first = (try stream.next()) orelse
+        return error.MissingPreAckStreamItem;
+    defer first.deinit();
+    var second = (try stream.next()) orelse
+        return error.MissingPostAckStreamItem;
+    defer second.deinit();
+    try std.testing.expectEqual(@as(u64, 1), first.sequence);
+    try std.testing.expectEqual(@as(u64, 2), second.sequence);
+    try std.testing.expect(!stream_shared.closed);
+    try std.testing.expect(!control_shared.closed);
+}
+
+test "stream open drains pre-ack items before a pre-ack end" {
+    var control_shared = FakeShared{
+        .allocator = std.testing.allocator,
+        .mode = .success,
+    };
+    defer control_shared.deinit();
+    var stream_shared = FakeShared{
+        .allocator = std.testing.allocator,
+        .mode = .success,
+        .stream_open_preamble = .item_then_end_before_ack,
+    };
+    defer stream_shared.deinit();
+    var factory_state = StreamFactoryState{ .shared = &stream_shared };
+    const connection = try fakeConnection(
+        std.testing.allocator,
+        &control_shared,
+    );
+    var client = Client.init(std.testing.allocator, connection, .{
+        .stream_factory = .{
+            .context = &factory_state,
+            .openFn = StreamFactoryState.open,
+        },
+    });
+    defer client.deinit();
+    const session_id = try SessionId.parse(
+        "session_0123456789abcdef0123456789abcdef",
+    );
+
+    var stream = try client.session(session_id).events();
+    defer stream.deinit();
+    var first = (try stream.next()) orelse
+        return error.MissingPreAckStreamItem;
+    defer first.deinit();
+    try std.testing.expectEqual(@as(u64, 1), first.sequence);
+    try std.testing.expect((try stream.next()) == null);
+    const end = stream.end() orelse return error.MissingStreamEnd;
+    try std.testing.expectEqual(StreamEndReason.completed, end.reason);
+    try std.testing.expectEqual(@as(u64, 1), end.cursor.?.revision);
+    try std.testing.expect(!stream_shared.closed);
+    try std.testing.expect(!control_shared.closed);
+}
+
+test "stream open rejects invalid and overflowing pre-ack envelopes" {
+    const cases = [_]struct {
+        preamble: FakeStreamOpenPreamble,
+        expected: anyerror,
+    }{
+        .{
+            .preamble = .count_overflow,
+            .expected = error.StreamBufferFull,
+        },
+        .{
+            .preamble = .malformed_item,
+            .expected = error.ExpectedDecimalString,
+        },
+        .{
+            .preamble = .wrong_item,
+            .expected = error.StreamIdMismatch,
+        },
+        .{
+            .preamble = .wrong_end,
+            .expected = error.StreamIdMismatch,
+        },
+        .{
+            .preamble = .item_after_end,
+            .expected = error.UnexpectedStreamEnvelope,
+        },
+    };
+    for (cases) |case| {
+        var control_shared = FakeShared{
+            .allocator = std.testing.allocator,
+            .mode = .success,
+        };
+        defer control_shared.deinit();
+        var stream_shared = FakeShared{
+            .allocator = std.testing.allocator,
+            .mode = .success,
+            .stream_open_preamble = case.preamble,
+        };
+        defer stream_shared.deinit();
+        var factory_state = StreamFactoryState{
+            .shared = &stream_shared,
+        };
+        const connection = try fakeConnection(
+            std.testing.allocator,
+            &control_shared,
+        );
+        var client = Client.init(std.testing.allocator, connection, .{
+            .stream_factory = .{
+                .context = &factory_state,
+                .openFn = StreamFactoryState.open,
+            },
+        });
+        defer client.deinit();
+        const session_id = try SessionId.parse(
+            "session_0123456789abcdef0123456789abcdef",
+        );
+
+        try std.testing.expectError(
+            case.expected,
+            client.session(session_id).events(),
+        );
+        try std.testing.expect(stream_shared.closed);
+        try std.testing.expect(!control_shared.closed);
+        try std.testing.expectEqual(
+            @as(usize, 0),
+            std.mem.count(
+                u8,
+                stream_shared.output.items,
+                "\"operation\":\"stream.cancel\"",
+            ),
+        );
+    }
+}
+
+test "stream items require exact canonical envelopes and known payloads" {
+    const Case = enum {
+        unknown_field,
+        invalid_protocol,
+        wrong_type,
+        wrong_stream_id,
+        numeric_sequence,
+        non_canonical_sequence,
+        null_cursor,
+        cursor_unknown_field,
+        malformed_known_item,
+    };
+    const cases = [_]struct {
+        case: Case,
+        expected: anyerror,
+    }{
+        .{ .case = .unknown_field, .expected = error.UnexpectedField },
+        .{
+            .case = .invalid_protocol,
+            .expected = error.InvalidProtocolEnvelope,
+        },
+        .{ .case = .wrong_type, .expected = error.UnexpectedStreamEnvelope },
+        .{ .case = .wrong_stream_id, .expected = error.StreamIdMismatch },
+        .{
+            .case = .numeric_sequence,
+            .expected = error.ExpectedDecimalString,
+        },
+        .{
+            .case = .non_canonical_sequence,
+            .expected = error.InvalidDecimalString,
+        },
+        .{ .case = .null_cursor, .expected = error.ExpectedObject },
+        .{
+            .case = .cursor_unknown_field,
+            .expected = error.UnexpectedField,
+        },
+        .{
+            .case = .malformed_known_item,
+            .expected = error.UnexpectedField,
+        },
+    };
+    for (cases) |case| {
+        var control_shared = FakeShared{
+            .allocator = std.testing.allocator,
+            .mode = .success,
+        };
+        defer control_shared.deinit();
+        var stream_shared = FakeShared{
+            .allocator = std.testing.allocator,
+            .mode = .success,
+        };
+        defer stream_shared.deinit();
+        var factory_state = StreamFactoryState{
+            .shared = &stream_shared,
+        };
+        const connection = try fakeConnection(
+            std.testing.allocator,
+            &control_shared,
+        );
+        var client = Client.init(std.testing.allocator, connection, .{
+            .stream_factory = .{
+                .context = &factory_state,
+                .openFn = StreamFactoryState.open,
+            },
+        });
+        defer client.deinit();
+        const session_id = try SessionId.parse(
+            "session_0123456789abcdef0123456789abcdef",
+        );
+        var stream = try client.session(session_id).events();
+        defer stream.deinit();
+        var initial = (try stream.next()) orelse
+            return error.MissingInitialStreamItem;
+        initial.deinit();
+        const stream_id = stream.raw_stream.stream_id.slice();
+        const encoded = switch (case.case) {
+            .unknown_field => try std.fmt.allocPrint(
+                std.testing.allocator,
+                "{{\"protocol\":\"cmux.protocol/2\",\"type\":" ++
+                    "\"stream_item\",\"stream_id\":\"{s}\"," ++
+                    "\"sequence\":\"2\",\"item\":{{\"kind\":" ++
+                    "\"future.event\"}},\"future\":true}}",
+                .{stream_id},
+            ),
+            .invalid_protocol => try std.fmt.allocPrint(
+                std.testing.allocator,
+                "{{\"protocol\":\"cmux.protocol/999\",\"type\":" ++
+                    "\"stream_item\",\"stream_id\":\"{s}\"," ++
+                    "\"sequence\":\"2\",\"item\":{{\"kind\":" ++
+                    "\"future.event\"}}}}",
+                .{stream_id},
+            ),
+            .wrong_type => try std.fmt.allocPrint(
+                std.testing.allocator,
+                "{{\"protocol\":\"cmux.protocol/2\",\"type\":" ++
+                    "\"future_item\",\"stream_id\":\"{s}\"," ++
+                    "\"sequence\":\"2\",\"item\":{{\"kind\":" ++
+                    "\"future.event\"}}}}",
+                .{stream_id},
+            ),
+            .wrong_stream_id => try std.testing.allocator.dupe(
+                u8,
+                "{\"protocol\":\"cmux.protocol/2\",\"type\":" ++
+                    "\"stream_item\",\"stream_id\":" ++
+                    "\"stream_ffffffffffffffffffffffffffffffff\"," ++
+                    "\"sequence\":\"2\",\"item\":{\"kind\":" ++
+                    "\"future.event\"}}",
+            ),
+            .numeric_sequence => try std.fmt.allocPrint(
+                std.testing.allocator,
+                "{{\"protocol\":\"cmux.protocol/2\",\"type\":" ++
+                    "\"stream_item\",\"stream_id\":\"{s}\"," ++
+                    "\"sequence\":2,\"item\":{{\"kind\":" ++
+                    "\"future.event\"}}}}",
+                .{stream_id},
+            ),
+            .non_canonical_sequence => try std.fmt.allocPrint(
+                std.testing.allocator,
+                "{{\"protocol\":\"cmux.protocol/2\",\"type\":" ++
+                    "\"stream_item\",\"stream_id\":\"{s}\"," ++
+                    "\"sequence\":\"02\",\"item\":{{\"kind\":" ++
+                    "\"future.event\"}}}}",
+                .{stream_id},
+            ),
+            .null_cursor => try std.fmt.allocPrint(
+                std.testing.allocator,
+                "{{\"protocol\":\"cmux.protocol/2\",\"type\":" ++
+                    "\"stream_item\",\"stream_id\":\"{s}\"," ++
+                    "\"sequence\":\"2\",\"cursor\":null," ++
+                    "\"item\":{{\"kind\":\"future.event\"}}}}",
+                .{stream_id},
+            ),
+            .cursor_unknown_field => try std.fmt.allocPrint(
+                std.testing.allocator,
+                "{{\"protocol\":\"cmux.protocol/2\",\"type\":" ++
+                    "\"stream_item\",\"stream_id\":\"{s}\"," ++
+                    "\"sequence\":\"2\",\"cursor\":{{" ++
+                    "\"generation\":\"g\",\"revision\":\"2\"," ++
+                    "\"future\":true}},\"item\":{{\"kind\":" ++
+                    "\"future.event\"}}}}",
+                .{stream_id},
+            ),
+            .malformed_known_item => try std.fmt.allocPrint(
+                std.testing.allocator,
+                "{{\"protocol\":\"cmux.protocol/2\",\"type\":" ++
+                    "\"stream_item\",\"stream_id\":\"{s}\"," ++
+                    "\"sequence\":\"2\",\"item\":{{\"kind\":" ++
+                    "\"snapshot\",\"future\":true}}}}",
+                .{stream_id},
+            ),
+        };
+        defer std.testing.allocator.free(encoded);
+        try stream_shared.appendInput(encoded);
+
+        try std.testing.expectError(case.expected, stream.next());
+        try std.testing.expect(stream_shared.closed);
+        try std.testing.expect(!control_shared.closed);
+    }
+}
+
+test "stream read transport failure closes its dedicated client" {
+    var control_shared = FakeShared{
+        .allocator = std.testing.allocator,
+        .mode = .success,
+    };
+    defer control_shared.deinit();
+    var stream_shared = FakeShared{
+        .allocator = std.testing.allocator,
+        .mode = .success,
+    };
+    defer stream_shared.deinit();
+    var factory_state = StreamFactoryState{ .shared = &stream_shared };
+    const connection = try fakeConnection(
+        std.testing.allocator,
+        &control_shared,
+    );
+    var client = Client.init(std.testing.allocator, connection, .{
+        .stream_factory = .{
+            .context = &factory_state,
+            .openFn = StreamFactoryState.open,
+        },
+    });
+    defer client.deinit();
+    const session_id = try SessionId.parse(
+        "session_0123456789abcdef0123456789abcdef",
+    );
+    var stream = try client.session(session_id).events();
+    defer stream.deinit();
+    var initial = (try stream.next()) orelse
+        return error.MissingInitialStreamItem;
+    initial.deinit();
+    stream_shared.read_failure = error.InjectedTransportFailure;
+
+    try std.testing.expectError(
+        error.InjectedTransportFailure,
+        stream.next(),
+    );
+    try std.testing.expect(stream_shared.closed);
+    try std.testing.expect(!control_shared.closed);
+    stream_shared.read_failure = null;
+    try std.testing.expectError(error.ConnectionClosed, stream.next());
+}
+
+test "stream control transport failure closes its dedicated client" {
+    var control_shared = FakeShared{
+        .allocator = std.testing.allocator,
+        .mode = .success,
+    };
+    defer control_shared.deinit();
+    var stream_shared = FakeShared{
+        .allocator = std.testing.allocator,
+        .mode = .success,
+    };
+    defer stream_shared.deinit();
+    var factory_state = StreamFactoryState{ .shared = &stream_shared };
+    const connection = try fakeConnection(
+        std.testing.allocator,
+        &control_shared,
+    );
+    var client = Client.init(std.testing.allocator, connection, .{
+        .stream_factory = .{
+            .context = &factory_state,
+            .openFn = StreamFactoryState.open,
+        },
+    });
+    defer client.deinit();
+    const session_id = try SessionId.parse(
+        "session_0123456789abcdef0123456789abcdef",
+    );
+    var stream = try client.session(session_id).events();
+    defer stream.deinit();
+    var initial = (try stream.next()) orelse
+        return error.MissingInitialStreamItem;
+    initial.deinit();
+    stream_shared.read_failure = error.InjectedTransportFailure;
+    var params = raw.wire.Object.init(std.testing.allocator);
+    defer params.deinit();
+
+    try std.testing.expectError(
+        error.InjectedTransportFailure,
+        stream.raw_stream.control(
+            .terminal_viewer_release,
+            .{ .object = params },
+        ),
+    );
+    try std.testing.expect(stream_shared.closed);
+    try std.testing.expect(!control_shared.closed);
+    const writes_after_failure = stream_shared.write_calls;
+    stream_shared.read_failure = null;
+    try std.testing.expectError(
+        error.ConnectionClosed,
+        stream.raw_stream.control(
+            .terminal_viewer_release,
+            .{ .object = params },
+        ),
+    );
+    try std.testing.expectEqual(
+        writes_after_failure,
+        stream_shared.write_calls,
+    );
+}
+
+test "valid stream control rejection preserves its dedicated client" {
+    var control_shared = FakeShared{
+        .allocator = std.testing.allocator,
+        .mode = .success,
+    };
+    defer control_shared.deinit();
+    var stream_shared = FakeShared{
+        .allocator = std.testing.allocator,
+        .mode = .success,
+    };
+    defer stream_shared.deinit();
+    var factory_state = StreamFactoryState{ .shared = &stream_shared };
+    const connection = try fakeConnection(
+        std.testing.allocator,
+        &control_shared,
+    );
+    var client = Client.init(std.testing.allocator, connection, .{
+        .stream_factory = .{
+            .context = &factory_state,
+            .openFn = StreamFactoryState.open,
+        },
+    });
+    defer client.deinit();
+    const session_id = try SessionId.parse(
+        "session_0123456789abcdef0123456789abcdef",
+    );
+    var stream = try client.session(session_id).events();
+    defer stream.deinit();
+    var params = raw.wire.Object.init(std.testing.allocator);
+    defer params.deinit();
+    stream_shared.mode = .remote_error;
+
+    try std.testing.expectError(
+        error.RemoteError,
+        stream.raw_stream.control(
+            .terminal_viewer_release,
+            .{ .object = params },
+        ),
+    );
+    try std.testing.expect(!stream_shared.closed);
+    try std.testing.expect(!control_shared.closed);
+    stream_shared.mode = .typed_catalog;
+    var result = try stream.raw_stream.control(
+        .terminal_viewer_release,
+        .{ .object = params },
+    );
+    result.deinit();
+    try std.testing.expect(!stream_shared.closed);
+}
+
+test "known stream ends require exact canonical envelopes" {
+    const cases = [_]struct {
+        fields: []const u8,
+        expected: anyerror,
+    }{
+        .{
+            .fields = "\"reason\":\"completed\",\"future\":true",
+            .expected = error.UnexpectedField,
+        },
+        .{
+            .fields = "\"reason\":\"completed\",\"cursor\":null",
+            .expected = error.ExpectedObject,
+        },
+        .{
+            .fields = "\"reason\":\"completed\",\"recovery\":null",
+            .expected = error.ExpectedString,
+        },
+        .{
+            .fields = "\"reason\":\"completed\",\"error\":{" ++
+                "\"code\":\"failed\",\"message\":\"bad\"," ++
+                "\"details\":{},\"retryable\":false}",
+            .expected = error.InvalidStreamEndErrorPresence,
+        },
+        .{
+            .fields = "\"reason\":\"error\"",
+            .expected = error.InvalidStreamEndErrorPresence,
+        },
+        .{
+            .fields = "\"reason\":\"error\",\"error\":{" ++
+                "\"code\":\"failed\",\"message\":\"bad\"," ++
+                "\"details\":{},\"retryable\":false," ++
+                "\"future\":true}",
+            .expected = error.UnexpectedField,
+        },
+        .{
+            .fields = "\"reason\":\"error\",\"error\":{" ++
+                "\"code\":\"failed\",\"message\":\"bad\"," ++
+                "\"details\":{},\"retryable\":\"no\"}",
+            .expected = error.ExpectedBool,
+        },
+    };
+    for (cases) |case| {
+        var control_shared = FakeShared{
+            .allocator = std.testing.allocator,
+            .mode = .success,
+        };
+        defer control_shared.deinit();
+        var stream_shared = FakeShared{
+            .allocator = std.testing.allocator,
+            .mode = .success,
+        };
+        defer stream_shared.deinit();
+        var factory_state = StreamFactoryState{
+            .shared = &stream_shared,
+        };
+        const connection = try fakeConnection(
+            std.testing.allocator,
+            &control_shared,
+        );
+        var client = Client.init(std.testing.allocator, connection, .{
+            .stream_factory = .{
+                .context = &factory_state,
+                .openFn = StreamFactoryState.open,
+            },
+        });
+        defer client.deinit();
+        const session_id = try SessionId.parse(
+            "session_0123456789abcdef0123456789abcdef",
+        );
+        var stream = try client.session(session_id).events();
+        defer stream.deinit();
+        var initial = (try stream.next()) orelse
+            return error.MissingInitialStreamItem;
+        initial.deinit();
+        const encoded = try std.fmt.allocPrint(
+            std.testing.allocator,
+            "{{\"protocol\":\"cmux.protocol/2\",\"type\":" ++
+                "\"stream_end\",\"stream_id\":\"{s}\",{s}}}",
+            .{ stream.raw_stream.stream_id.slice(), case.fields },
+        );
+        defer std.testing.allocator.free(encoded);
+        try stream_shared.appendInput(encoded);
+
+        try std.testing.expectError(case.expected, stream.next());
+    }
+}
+
+test "known stream end accepts an exact embedded error" {
+    var control_shared = FakeShared{
+        .allocator = std.testing.allocator,
+        .mode = .success,
+    };
+    defer control_shared.deinit();
+    var stream_shared = FakeShared{
+        .allocator = std.testing.allocator,
+        .mode = .success,
+    };
+    defer stream_shared.deinit();
+    var factory_state = StreamFactoryState{ .shared = &stream_shared };
+    const connection = try fakeConnection(
+        std.testing.allocator,
+        &control_shared,
+    );
+    var client = Client.init(std.testing.allocator, connection, .{
+        .stream_factory = .{
+            .context = &factory_state,
+            .openFn = StreamFactoryState.open,
+        },
+    });
+    defer client.deinit();
+    const session_id = try SessionId.parse(
+        "session_0123456789abcdef0123456789abcdef",
+    );
+    var stream = try client.session(session_id).events();
+    defer stream.deinit();
+    var initial = (try stream.next()) orelse
+        return error.MissingInitialStreamItem;
+    initial.deinit();
+    const encoded = try std.fmt.allocPrint(
+        std.testing.allocator,
+        "{{\"protocol\":\"cmux.protocol/2\",\"type\":" ++
+            "\"stream_end\",\"stream_id\":\"{s}\"," ++
+            "\"reason\":\"error\",\"cursor\":{{\"generation\":" ++
+            "\"g\",\"revision\":\"4\"}},\"recovery\":" ++
+            "\"open a fresh stream\",\"error\":{{\"code\":" ++
+            "\"stream.failed\",\"message\":\"bad\"," ++
+            "\"details\":{{}},\"retryable\":true}}}}",
+        .{stream.raw_stream.stream_id.slice()},
+    );
+    defer std.testing.allocator.free(encoded);
+    try stream_shared.appendInput(encoded);
+
+    try std.testing.expect((try stream.next()) == null);
+    const end = stream.end() orelse return error.MissingStreamEnd;
+    try std.testing.expectEqual(StreamEndReason.@"error", end.reason);
+    try std.testing.expectEqualStrings(
+        "stream.failed",
+        end.resource_error.?.code,
+    );
+    try std.testing.expectEqualStrings(
+        "open a fresh stream",
+        end.recovery.?,
+    );
+}
+
+test "valid stream open rejection closes without cancellation" {
+    var control_shared = FakeShared{
+        .allocator = std.testing.allocator,
+        .mode = .success,
+    };
+    defer control_shared.deinit();
+    var stream_shared = FakeShared{
+        .allocator = std.testing.allocator,
+        .mode = .remote_error,
+    };
+    defer stream_shared.deinit();
+    var factory_state = StreamFactoryState{ .shared = &stream_shared };
+    const connection = try fakeConnection(
+        std.testing.allocator,
+        &control_shared,
+    );
+    var client = Client.init(std.testing.allocator, connection, .{
+        .stream_factory = .{
+            .context = &factory_state,
+            .openFn = StreamFactoryState.open,
+        },
+    });
+    defer client.deinit();
+    const session_id = try SessionId.parse(
+        "session_0123456789abcdef0123456789abcdef",
+    );
+
+    try std.testing.expectError(
+        error.RemoteError,
+        client.session(session_id).events(),
+    );
+    try std.testing.expect(stream_shared.closed);
+    try std.testing.expect(!control_shared.closed);
+    try std.testing.expectEqual(
+        @as(usize, 0),
+        std.mem.count(
+            u8,
+            stream_shared.output.items,
+            "\"operation\":\"stream.cancel\"",
+        ),
+    );
+}
+
+test "acknowledged public stream survives beyond request timeout" {
+    var control_shared = FakeShared{
+        .allocator = std.testing.allocator,
+        .mode = .success,
+    };
+    defer control_shared.deinit();
+    var stream_shared = FakeShared{
+        .allocator = std.testing.allocator,
+        .mode = .delayed_stream_item,
+    };
+    defer stream_shared.deinit();
+    var factory_state = StreamFactoryState{ .shared = &stream_shared };
+    const connection = try fakeConnection(
+        std.testing.allocator,
+        &control_shared,
+    );
+    const request_timeout_ms: u32 = 50;
+    var client = Client.init(std.testing.allocator, connection, .{
+        .timeout_ms = request_timeout_ms,
+        .stream_factory = .{
+            .context = &factory_state,
+            .openFn = StreamFactoryState.open,
+        },
+    });
+    defer client.deinit();
+    const session_id = try SessionId.parse(
+        "session_0123456789abcdef0123456789abcdef",
+    );
+    var stream = try client.session(session_id).events();
+    defer stream.deinit();
+
+    const started_at = std.time.nanoTimestamp();
+    var item = (try stream.next()) orelse
+        return error.MissingDelayedStreamItem;
+    defer item.deinit();
+    const elapsed_ns = std.time.nanoTimestamp() - started_at;
+
+    try std.testing.expect(
+        stream_shared.delayed_stream_open_read_observed,
+    );
+    const open_timeout_ms = stream_shared.delayed_stream_open_timeout_ms orelse
+        return error.MissingDelayedStreamOpenTimeout;
+    try std.testing.expect(open_timeout_ms > 0);
+    try std.testing.expect(open_timeout_ms <= request_timeout_ms);
+    try std.testing.expect(stream_shared.delayed_stream_read_started);
+    try std.testing.expect(
+        !stream_shared.delayed_stream_read_had_deadline,
+    );
+    try std.testing.expect(
+        elapsed_ns >= fake_delayed_stream_wait_ms * std.time.ns_per_ms,
+    );
+    try std.testing.expect(
+        fake_delayed_stream_wait_ms > request_timeout_ms,
+    );
+    try std.testing.expectEqual(@as(u64, 1), item.sequence);
+    switch (item.value) {
+        .unknown => |unknown| try std.testing.expectEqualStrings(
+            "future.event",
+            unknown.discriminator,
+        ),
+        else => return error.ExpectedUnknownSessionEvent,
+    }
+}
+
+test "typed session stream preserves unknown payload and cancel end order" {
+    var control_shared = FakeShared{
+        .allocator = std.testing.allocator,
+        .mode = .success,
+    };
+    defer control_shared.deinit();
+    var stream_shared = FakeShared{
+        .allocator = std.testing.allocator,
+        .mode = .success,
+    };
+    defer stream_shared.deinit();
+    var factory_state = StreamFactoryState{ .shared = &stream_shared };
+    const connection = try fakeConnection(
+        std.testing.allocator,
+        &control_shared,
+    );
+    var client = Client.init(std.testing.allocator, connection, .{
+        .stream_factory = .{
+            .context = &factory_state,
+            .openFn = StreamFactoryState.open,
+        },
+    });
+    defer client.deinit();
+    const session_id = try SessionId.parse(
+        "session_0123456789abcdef0123456789abcdef",
+    );
+    var stream = try client.session(session_id).events();
+    defer stream.deinit();
+    var item = (try stream.next()).?;
+    defer item.deinit();
+    try std.testing.expectEqual(@as(u64, 1), item.sequence);
+    switch (item.value) {
+        .unknown => |unknown| {
+            try std.testing.expectEqualStrings(
+                "future.event",
+                unknown.discriminator,
+            );
+            try std.testing.expect(
+                unknown.raw_object.object.get("future") != null,
+            );
+        },
+        else => return error.ExpectedUnknownSessionEvent,
+    }
+    const stream_end = try stream.cancel();
+    try std.testing.expectEqual(
+        StreamEndReason.canceled,
+        stream_end.reason,
+    );
+    try std.testing.expectEqual(@as(u64, 3), stream_end.cursor.?.revision);
+    var requests = std.mem.splitScalar(u8, stream_shared.output.items, '\n');
+    _ = requests.next();
+    const cancel_line = requests.next() orelse
+        return error.MissingCancelRequest;
+    var cancel_request = try raw.wire.parse(
+        std.testing.allocator,
+        cancel_line,
+        .{},
+    );
+    defer cancel_request.deinit();
+    const cancel_object = switch (cancel_request.value) {
+        .object => |value| value,
+        else => return error.ExpectedObject,
+    };
+    const cancel_params = switch (cancel_object.get("params") orelse
+        return error.MissingField) {
+        .object => |value| value,
+        else => return error.ExpectedObject,
+    };
+    try std.testing.expectEqualStrings(
+        "current",
+        try objectString(cancel_params, "machine"),
+    );
+    try std.testing.expectEqualStrings(
+        session_id.slice(),
+        try objectString(cancel_params, "session"),
+    );
+    try std.testing.expectEqualStrings(
+        stream.raw_stream.stream_id.slice(),
+        try objectString(cancel_params, "stream"),
+    );
+    try std.testing.expect(cancel_params.get("stream_id") == null);
+    const repeated_end = try stream.cancel();
+    try std.testing.expectEqual(
+        StreamEndReason.canceled,
+        repeated_end.reason,
+    );
+    try std.testing.expectEqual(
+        @as(usize, 1),
+        std.mem.count(
+            u8,
+            stream_shared.output.items,
+            "\"operation\":\"stream.cancel\"",
+        ),
+    );
+    try std.testing.expect(stream_shared.closed);
+}
+
+test "session journal encodes filters and decodes typed records" {
+    var control_shared = FakeShared{
+        .allocator = std.testing.allocator,
+        .mode = .success,
+    };
+    defer control_shared.deinit();
+    var stream_shared = FakeShared{
+        .allocator = std.testing.allocator,
+        .mode = .success,
+    };
+    defer stream_shared.deinit();
+    var factory_state = StreamFactoryState{ .shared = &stream_shared };
+    const connection = try fakeConnection(
+        std.testing.allocator,
+        &control_shared,
+    );
+    var client = Client.init(std.testing.allocator, connection, .{
+        .stream_factory = .{
+            .context = &factory_state,
+            .openFn = StreamFactoryState.open,
+        },
+    });
+    defer client.deinit();
+    const session_id = try SessionId.parse(
+        "session_0123456789abcdef0123456789abcdef",
+    );
+    var stream = try client.session(session_id).journal(.{
+        .start = .beginning,
+        .follow = false,
+        .filter = .{
+            .kinds = &.{ "workspace.*", "tab.focus" },
+            .classes = &.{.state},
+            .subjects = &.{.{ .kind = "workspace", .id = "ws_1" }},
+            .max_sensitivity = .metadata,
+            .regex = .{
+                .pattern = "error|failed",
+                .field = .terminal_output,
+                .case_sensitive = false,
+            },
+        },
+    });
+    defer stream.deinit();
+    var item = (try stream.next()).?;
+    defer item.deinit();
+    try std.testing.expectEqual(@as(u64, 1), item.value.sequence);
+    try std.testing.expectEqualStrings(
+        "workspace.focus",
+        item.value.kind,
+    );
+    try std.testing.expectEqual(
+        JournalClass.state,
+        item.value.journal_class,
+    );
+    try std.testing.expectEqual(@as(usize, 1), item.value.subjects.len);
+    try std.testing.expectEqualStrings(
+        "ws_1",
+        item.value.subjects[0].id,
+    );
+
+    const request_line = std.mem.sliceTo(stream_shared.output.items, '\n');
+    var request = try raw.wire.parse(
+        std.testing.allocator,
+        request_line,
+        .{},
+    );
+    defer request.deinit();
+    const request_object = try detailObject(request.value);
+    try std.testing.expectEqualStrings(
+        "session.journal.subscribe",
+        try objectString(request_object, "operation"),
+    );
+    const params = try detailObject(
+        request_object.get("params") orelse return error.MissingField,
+    );
+    try std.testing.expectEqualStrings(
+        "beginning",
+        try objectString(params, "start"),
+    );
+    try std.testing.expectEqual(false, try objectBool(params, "follow"));
+    const filter = try detailObject(
+        params.get("filter") orelse return error.MissingField,
+    );
+    try std.testing.expectEqualStrings(
+        "metadata",
+        try objectString(filter, "max_sensitivity"),
+    );
+    const regex = try detailObject(
+        filter.get("regex") orelse return error.MissingField,
+    );
+    try std.testing.expectEqualStrings(
+        "terminal_output",
+        try objectString(regex, "field"),
+    );
+    try std.testing.expectEqual(false, try objectBool(regex, "case_sensitive"));
+}
+
+test "cancel failures preserve their error fail closed and never resend" {
+    const cases = [_]struct {
+        response: FakeCancelResponse,
+        expected: anyerror,
+    }{
+        .{
+            .response = .non_empty,
+            .expected = error.UnexpectedField,
+        },
+        .{
+            .response = .invalid_protocol,
+            .expected = error.InvalidProtocolEnvelope,
+        },
+        .{
+            .response = .rejected,
+            .expected = error.RemoteError,
+        },
+        .{
+            .response = .extra_field,
+            .expected = error.UnexpectedField,
+        },
+        .{
+            .response = .success_with_error,
+            .expected = error.UnexpectedField,
+        },
+        .{
+            .response = .failure_with_result,
+            .expected = error.UnexpectedField,
+        },
+        .{
+            .response = .malformed_error,
+            .expected = error.UnexpectedField,
+        },
+    };
+    for (cases) |case| {
+        var control_shared = FakeShared{
+            .allocator = std.testing.allocator,
+            .mode = .success,
+        };
+        defer control_shared.deinit();
+        var stream_shared = FakeShared{
+            .allocator = std.testing.allocator,
+            .mode = .success,
+            .cancel_response = case.response,
+        };
+        defer stream_shared.deinit();
+        var factory_state = StreamFactoryState{
+            .shared = &stream_shared,
+        };
+        const connection = try fakeConnection(
+            std.testing.allocator,
+            &control_shared,
+        );
+        var client = Client.init(std.testing.allocator, connection, .{
+            .stream_factory = .{
+                .context = &factory_state,
+                .openFn = StreamFactoryState.open,
+            },
+        });
+        defer client.deinit();
+        const session_id = try SessionId.parse(
+            "session_0123456789abcdef0123456789abcdef",
+        );
+        var stream = try client.session(session_id).events();
+        defer stream.deinit();
+
+        try std.testing.expectError(case.expected, stream.cancel());
+        try std.testing.expect(stream_shared.closed);
+        try std.testing.expect(!control_shared.closed);
+        try std.testing.expectEqual(
+            @as(usize, 1),
+            std.mem.count(
+                u8,
+                stream_shared.output.items,
+                "\"operation\":\"stream.cancel\"",
+            ),
+        );
+        if (case.response == .rejected) {
+            try std.testing.expectEqualStrings(
+                "stream.cancel_rejected",
+                stream.raw_stream.client.lastResourceError().?.code,
+            );
+        }
+        try std.testing.expectError(
+            case.expected,
+            stream.cancel(),
+        );
+        try std.testing.expectEqual(
+            @as(usize, 1),
+            std.mem.count(
+                u8,
+                stream_shared.output.items,
+                "\"operation\":\"stream.cancel\"",
+            ),
+        );
+    }
+}
+
+test "cancel rejects malformed terminal ends fail closed and never resend" {
+    const cases = [_]struct {
+        end: FakeCancelEnd,
+        expected: anyerror,
+    }{
+        .{
+            .end = .invalid_protocol,
+            .expected = error.InvalidProtocolEnvelope,
+        },
+        .{
+            .end = .missing_reason,
+            .expected = error.MissingField,
+        },
+        .{
+            .end = .wrong_stream_id,
+            .expected = error.StreamIdMismatch,
+        },
+        .{
+            .end = .wrong_reason,
+            .expected = error.UnexpectedStreamEndReason,
+        },
+        .{
+            .end = .unknown_field,
+            .expected = error.UnexpectedField,
+        },
+        .{
+            .end = .null_cursor,
+            .expected = error.ExpectedObject,
+        },
+        .{
+            .end = .malformed_cursor,
+            .expected = error.ExpectedDecimalString,
+        },
+        .{
+            .end = .null_recovery,
+            .expected = error.ExpectedString,
+        },
+        .{
+            .end = .unexpected_error,
+            .expected = error.InvalidStreamEndErrorPresence,
+        },
+    };
+    for (cases) |case| {
+        var control_shared = FakeShared{
+            .allocator = std.testing.allocator,
+            .mode = .success,
+        };
+        defer control_shared.deinit();
+        var stream_shared = FakeShared{
+            .allocator = std.testing.allocator,
+            .mode = .success,
+            .cancel_end = case.end,
+        };
+        defer stream_shared.deinit();
+        var factory_state = StreamFactoryState{
+            .shared = &stream_shared,
+        };
+        const connection = try fakeConnection(
+            std.testing.allocator,
+            &control_shared,
+        );
+        var client = Client.init(std.testing.allocator, connection, .{
+            .stream_factory = .{
+                .context = &factory_state,
+                .openFn = StreamFactoryState.open,
+            },
+        });
+        defer client.deinit();
+        const session_id = try SessionId.parse(
+            "session_0123456789abcdef0123456789abcdef",
+        );
+        var stream = try client.session(session_id).events();
+        defer stream.deinit();
+
+        try std.testing.expectError(case.expected, stream.cancel());
+        try std.testing.expect(stream_shared.closed);
+        try std.testing.expect(!control_shared.closed);
+        try std.testing.expectEqual(
+            @as(usize, 1),
+            std.mem.count(
+                u8,
+                stream_shared.output.items,
+                "\"operation\":\"stream.cancel\"",
+            ),
+        );
+        try std.testing.expectError(
+            case.expected,
+            stream.cancel(),
+        );
+        try std.testing.expectEqual(
+            @as(usize, 1),
+            std.mem.count(
+                u8,
+                stream_shared.output.items,
+                "\"operation\":\"stream.cancel\"",
+            ),
+        );
+    }
+}
+
+test "cancel missing terminal end expires once and fails closed" {
+    var control_shared = FakeShared{
+        .allocator = std.testing.allocator,
+        .mode = .success,
+    };
+    defer control_shared.deinit();
+    var stream_shared = FakeShared{
+        .allocator = std.testing.allocator,
+        .mode = .success,
+        .cancel_end = .missing,
+    };
+    defer stream_shared.deinit();
+    var factory_state = StreamFactoryState{ .shared = &stream_shared };
+    const connection = try fakeConnection(
+        std.testing.allocator,
+        &control_shared,
+    );
+    var client = Client.init(std.testing.allocator, connection, .{
+        .timeout_ms = 20,
+        .stream_factory = .{
+            .context = &factory_state,
+            .openFn = StreamFactoryState.open,
+        },
+    });
+    defer client.deinit();
+    const session_id = try SessionId.parse(
+        "session_0123456789abcdef0123456789abcdef",
+    );
+    var stream = try client.session(session_id).events();
+    defer stream.deinit();
+
+    try std.testing.expectError(error.Timeout, stream.cancel());
+    try std.testing.expect(stream_shared.closed);
+    try std.testing.expect(!control_shared.closed);
+    try std.testing.expect(stream_shared.cancel_read_calls >= 2);
+    try std.testing.expectError(error.Timeout, stream.cancel());
+    try std.testing.expectEqual(
+        @as(usize, 1),
+        std.mem.count(
+            u8,
+            stream_shared.output.items,
+            "\"operation\":\"stream.cancel\"",
+        ),
+    );
+}
+
+test "cancel has one total deadline across stale and fragmented reads" {
+    for ([_]FakeCancelDelivery{ .stale_items, .fragmented }) |delivery| {
+        var control_shared = FakeShared{
+            .allocator = std.testing.allocator,
+            .mode = .success,
+        };
+        defer control_shared.deinit();
+        var stream_shared = FakeShared{
+            .allocator = std.testing.allocator,
+            .mode = .success,
+            .cancel_delivery = delivery,
+            .cancel_read_delay_ms = 12,
+        };
+        defer stream_shared.deinit();
+        var factory_state = StreamFactoryState{
+            .shared = &stream_shared,
+        };
+        const connection = try fakeConnection(
+            std.testing.allocator,
+            &control_shared,
+        );
+        var client = Client.init(std.testing.allocator, connection, .{
+            .timeout_ms = 40,
+            .stream_factory = .{
+                .context = &factory_state,
+                .openFn = StreamFactoryState.open,
+            },
+        });
+        defer client.deinit();
+        const session_id = try SessionId.parse(
+            "session_0123456789abcdef0123456789abcdef",
+        );
+        var stream = try client.session(session_id).events();
+        defer stream.deinit();
+
+        try std.testing.expectError(error.Timeout, stream.cancel());
+        try std.testing.expect(stream_shared.closed);
+        try std.testing.expect(!control_shared.closed);
+        try std.testing.expect(stream_shared.cancel_read_calls >= 2);
+        const first_timeout = stream_shared.cancel_first_read_timeout_ms orelse
+            return error.MissingFirstCancelReadTimeout;
+        const last_timeout = stream_shared.cancel_last_read_timeout_ms orelse
+            return error.MissingLastCancelReadTimeout;
+        try std.testing.expect(first_timeout > last_timeout);
+        try std.testing.expect(
+            stream_shared.read_cursor < stream_shared.input.items.len,
+        );
+        try std.testing.expectError(
+            error.Timeout,
+            stream.cancel(),
+        );
+        try std.testing.expectEqual(
+            @as(usize, 1),
+            std.mem.count(
+                u8,
+                stream_shared.output.items,
+                "\"operation\":\"stream.cancel\"",
+            ),
+        );
+    }
+}
+
+test "cancel rejects valid and malformed known items after end before response" {
+    for ([_]FakeCancelDelivery{
+        .valid_known_item_after_end,
+        .malformed_known_item,
+    }) |delivery| {
+        var control_shared = FakeShared{
+            .allocator = std.testing.allocator,
+            .mode = .success,
+        };
+        defer control_shared.deinit();
+        var stream_shared = FakeShared{
+            .allocator = std.testing.allocator,
+            .mode = .success,
+            .cancel_delivery = delivery,
+        };
+        defer stream_shared.deinit();
+        var factory_state = StreamFactoryState{ .shared = &stream_shared };
+        const connection = try fakeConnection(
+            std.testing.allocator,
+            &control_shared,
+        );
+        var client = Client.init(std.testing.allocator, connection, .{
+            .stream_factory = .{
+                .context = &factory_state,
+                .openFn = StreamFactoryState.open,
+            },
+        });
+        defer client.deinit();
+        const session_id = try SessionId.parse(
+            "session_0123456789abcdef0123456789abcdef",
+        );
+        var stream = try client.session(session_id).events();
+        defer stream.deinit();
+
+        try std.testing.expectError(
+            error.UnexpectedStreamEnvelope,
+            stream.cancel(),
+        );
+        const received_end = stream.end() orelse
+            return error.MissingCanceledEndBeforePostEndItem;
+        try std.testing.expectEqual(
+            StreamEndReason.canceled,
+            received_end.reason,
+        );
+        try std.testing.expect(stream.raw_stream.cleanup_started);
+        try std.testing.expect(!stream.raw_stream.cleanup_finished);
+        try std.testing.expect(stream_shared.closed);
+        try std.testing.expect(!control_shared.closed);
+        try std.testing.expectEqual(
+            @as(usize, 1),
+            std.mem.count(
+                u8,
+                stream_shared.output.items,
+                "\"operation\":\"stream.cancel\"",
+            ),
+        );
+        try std.testing.expectError(
+            error.UnexpectedStreamEnvelope,
+            stream.cancel(),
+        );
+        try std.testing.expectEqual(
+            @as(usize, 1),
+            std.mem.count(
+                u8,
+                stream_shared.output.items,
+                "\"operation\":\"stream.cancel\"",
+            ),
+        );
+    }
+}
+
+test "cancel preserves unknown stale typed items" {
+    var control_shared = FakeShared{
+        .allocator = std.testing.allocator,
+        .mode = .success,
+    };
+    defer control_shared.deinit();
+    var stream_shared = FakeShared{
+        .allocator = std.testing.allocator,
+        .mode = .success,
+    };
+    defer stream_shared.deinit();
+    var factory_state = StreamFactoryState{ .shared = &stream_shared };
+    const connection = try fakeConnection(
+        std.testing.allocator,
+        &control_shared,
+    );
+    var client = Client.init(std.testing.allocator, connection, .{
+        .stream_factory = .{
+            .context = &factory_state,
+            .openFn = StreamFactoryState.open,
+        },
+    });
+    defer client.deinit();
+    const session_id = try SessionId.parse(
+        "session_0123456789abcdef0123456789abcdef",
+    );
+    var stream = try client.session(session_id).events();
+    defer stream.deinit();
+
+    const end = try stream.cancel();
+    try std.testing.expectEqual(StreamEndReason.canceled, end.reason);
+    try std.testing.expect(stream_shared.closed);
+    try std.testing.expect(!control_shared.closed);
+    try std.testing.expectEqual(
+        @as(usize, 1),
+        std.mem.count(
+            u8,
+            stream_shared.output.items,
+            "\"operation\":\"stream.cancel\"",
+        ),
+    );
+}
+
+test "cancel framing failure closes once and preserves the send error" {
+    var control_shared = FakeShared{
+        .allocator = std.testing.allocator,
+        .mode = .success,
+    };
+    defer control_shared.deinit();
+    var stream_shared = FakeShared{
+        .allocator = std.testing.allocator,
+        .mode = .success,
+        .fail_write_call = 4,
+    };
+    defer stream_shared.deinit();
+    var factory_state = StreamFactoryState{ .shared = &stream_shared };
+    const connection = try fakeConnection(
+        std.testing.allocator,
+        &control_shared,
+    );
+    var client = Client.init(std.testing.allocator, connection, .{
+        .stream_factory = .{
+            .context = &factory_state,
+            .openFn = StreamFactoryState.open,
+        },
+    });
+    defer client.deinit();
+    const session_id = try SessionId.parse(
+        "session_0123456789abcdef0123456789abcdef",
+    );
+    var stream = try client.session(session_id).events();
+    defer stream.deinit();
+
+    try std.testing.expectError(
+        error.InjectedWriteFailure,
+        stream.cancel(),
+    );
+    try std.testing.expect(stream_shared.closed);
+    try std.testing.expect(!control_shared.closed);
+    try std.testing.expectEqual(
+        @as(usize, 1),
+        std.mem.count(
+            u8,
+            stream_shared.output.items,
+            "\"operation\":\"stream.cancel\"",
+        ),
+    );
+    const bytes_after_failure = stream_shared.output.items.len;
+    try std.testing.expectError(
+        error.InjectedWriteFailure,
+        stream.cancel(),
+    );
+    try std.testing.expectEqual(
+        bytes_after_failure,
+        stream_shared.output.items.len,
+    );
+}
+
+test "auxiliary resource facades are typed and fully routed" {
+    var shared = FakeShared{
+        .allocator = std.testing.allocator,
+        .mode = .success,
+    };
+    defer shared.deinit();
+    const connection = try fakeConnection(std.testing.allocator, &shared);
+    var client = Client.init(std.testing.allocator, connection, .{});
+    defer client.deinit();
+    const session_id = try SessionId.parse(
+        "session_22222222222222222222222222222222",
+    );
+    const terminal_id = try TerminalId.parse(
+        "term_0123456789abcdef0123456789abcdef",
+    );
+    const session = client.session(session_id);
+
+    var notification = try session.createNotification(.{
+        .title = "Build complete",
+        .body = "All tests passed",
+        .terminal_id = terminal_id,
+    }, try MutationOptions.withKey("notification-create"));
+    defer notification.deinit();
+    try std.testing.expectEqual(
+        std.math.maxInt(u64),
+        notification.value.created_at_ms,
+    );
+    try std.testing.expect(notification.value.unread);
+
+    var agent = try session.reportAgent(.{
+        .terminal_id = terminal_id,
+        .state = .working,
+        .source = .hook,
+    }, try MutationOptions.withKey("agent-report"));
+    defer agent.deinit();
+    try std.testing.expectEqual(
+        std.math.maxInt(u64) - 1,
+        agent.value.updated_at_ms,
+    );
+
+    const pairing_id = try PairingRequestId.parse(
+        "pairing_cccccccccccccccccccccccccccccccc",
+    );
+    var pairing = try session
+        .pairingRequest(pairing_id)
+        .resolvePairing(
+        .accept,
+        try MutationOptions.withKey("pairing-resolve"),
+    );
+    defer pairing.deinit();
+    try std.testing.expectEqual(
+        PairingStatus.accepted,
+        pairing.value.pairing_request.status,
+    );
+
+    const projection_id = try FrontendProjectionId.parse(
+        "projection_dddddddddddddddddddddddddddddddd",
+    );
+    var projection_arena = std.heap.ArenaAllocator.init(
+        std.testing.allocator,
+    );
+    defer projection_arena.deinit();
+    var projection_object = raw.wire.Object.init(
+        projection_arena.allocator(),
+    );
+    try projection_object.put(
+        "sidebar",
+        .{ .string = "compact" },
+    );
+    var projection = try session
+        .frontendProjection(projection_id)
+        .putProjection(
+        .{
+            .frontend_id = "swift-frontend",
+            .window_id = "window-1",
+            .generation = "window-generation-1",
+            .projection = .{ .object = projection_object },
+        },
+        try MutationOptions.withKey("projection-put"),
+    );
+    defer projection.deinit();
+    try std.testing.expectEqualStrings(
+        "compact",
+        projection.value.projection.object.get("sidebar").?.string,
+    );
+
+    var ensured = try session.ensureSidebarView(.{
+        .cols = 40,
+        .rows = 30,
+        .relaunch = true,
+    }, try MutationOptions.withKey("sidebar-ensure"));
+    defer ensured.deinit();
+    const sidebar = session.sidebarView(ensured.value.id);
+    var input = try sidebar.sendSidebarInput(
+        "q\n",
+        try MutationOptions.withKey("sidebar-input"),
+    );
+    defer input.deinit();
+    var resized = try sidebar.resizeSidebar(
+        40,
+        30,
+        try MutationOptions.withKey("sidebar-resize"),
+    );
+    defer resized.deinit();
+    var reloaded = try sidebar.reloadSidebar(
+        try MutationOptions.withKey("sidebar-reload"),
+    );
+    defer reloaded.deinit();
+    try std.testing.expect(reloaded.value.running);
+    try std.testing.expect(
+        std.mem.indexOf(
+            u8,
+            shared.output.items,
+            "\"data_base64\":\"cQo=\"",
+        ) != null,
+    );
+    inline for (.{
+        "notification.create",
+        "agent.report",
+        "pairing_request.resolve",
+        "frontend_projection.put",
+        "sidebar_view.ensure",
+        "sidebar_view.input",
+        "sidebar_view.resize",
+        "sidebar_view.reload",
+    }) |wire_name| {
+        try std.testing.expect(
+            std.mem.indexOf(u8, shared.output.items, wire_name) != null,
+        );
+    }
+}
+>>>>>>> origin/main
 
 fn fakePendingStreamItem(
     allocator: std.mem.Allocator,

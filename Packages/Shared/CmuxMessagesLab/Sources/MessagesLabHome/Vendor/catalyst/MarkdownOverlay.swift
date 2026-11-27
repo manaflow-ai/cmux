@@ -139,6 +139,7 @@ final class MarkdownOverlay {
         let gen = generation
         let idx = r.index
         let sc = scale
+<<<<<<< HEAD
         let box = PaletteScope.current // cmux: the cell's palette goes with the job
         MarkdownOverlay.queue.async { [weak self, weak r] in
             let img = PaletteScope.with(box) { Fixture.withRenderScale(sc) {
@@ -146,6 +147,14 @@ final class MarkdownOverlay {
                     MarkdownDraw.draw(ctx, md, body: CGRect(origin: .zero, size: md.size), outgoing: outgoing, mode: .region(idx))
                 }
             } }
+=======
+        MarkdownOverlay.queue.async { [weak self, weak r] in
+            let img = Fixture.withRenderScale(sc) {
+                WideBitmap.make(size: size, scale: sc, opaque: false) { ctx in
+                    MarkdownDraw.draw(ctx, md, body: CGRect(origin: .zero, size: md.size), outgoing: outgoing, mode: .region(idx))
+                }
+            }
+>>>>>>> origin/main
             DispatchQueue.main.async {
                 guard let self, let r, self.generation == gen else { return }
                 CATransaction.begin(); CATransaction.setDisableActions(true)

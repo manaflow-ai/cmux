@@ -13,11 +13,14 @@ then stores the values with `put`; the plaintext never leaves the job that made 
 
     # later, as an account that can write the target repository's environment secrets:
     python3 scripts/ci/sealed_secrets.py put BUNDLE.json
+<<<<<<< HEAD
     # or, for a provision target with multiple destinations:
     python3 scripts/ci/sealed_secrets.py put BUNDLE_DIRECTORY
 
 An environment of None seals to the repository's own Actions secrets instead (a job with no `environment:`
 reads those, such as cmux-platform's ci.yml): `put` then needs write access to that repository's secrets.
+=======
+>>>>>>> origin/main
 
 `put` reads the environment's live public key first and refuses when its key_id or bytes differ from
 the bundle's (GitHub rotated the key, or the bundle was sealed to another key): nothing is written.
@@ -94,7 +97,11 @@ def seal_bundle(repo, environment, key_id, key_b64, values, lib=None):
     """The bundle `put` reads: where the values go, the key they were sealed to, and the ciphertexts."""
     if not REPO.fullmatch(repo or ""):
         raise SealError("repo must be OWNER/NAME")
+<<<<<<< HEAD
     if environment is not None and not ENVIRONMENT.fullmatch(environment):
+=======
+    if not ENVIRONMENT.fullmatch(environment or ""):
+>>>>>>> origin/main
         raise SealError("environment name is not valid")
     if not KEY_ID.fullmatch(str(key_id)):
         raise SealError("key_id must be GitHub's numeric key id")
@@ -123,8 +130,11 @@ def read_bundle(path):
     if not isinstance(bundle, dict) or bundle.get("version") != BUNDLE_VERSION:
         raise SealError("not a sealed-secrets bundle (version 1)")
     for field, pattern in (("repo", REPO), ("environment", ENVIRONMENT), ("key_id", KEY_ID)):
+<<<<<<< HEAD
         if field == "environment" and bundle.get(field) is None:
             continue  # the repository's own secrets
+=======
+>>>>>>> origin/main
         if not isinstance(bundle.get(field), str) or not pattern.fullmatch(bundle[field]):
             raise SealError(f"the bundle's {field} is not valid")
     public_key(bundle.get("key"))
@@ -152,6 +162,7 @@ def gh(args, run=subprocess.run):
     return json.loads(done.stdout) if done.stdout.strip() else None
 
 
+<<<<<<< HEAD
 def where(bundle):
     """The secrets API path the bundle goes to, and how a log names it."""
     if bundle.get("environment") is None:
@@ -160,30 +171,48 @@ def where(bundle):
             f"{bundle['repo']} environment {bundle['environment']}")
 
 
+=======
+>>>>>>> origin/main
 def put(bundle, run=subprocess.run, log=print):
     """Store every sealed value in the bundle's environment, after checking the live public key. Each secret is
     its own PUT, so a failure part way leaves the earlier ones stored; rerunning `put` with the same bundle (or
     the producer, for a fresh one) finishes the set."""
+<<<<<<< HEAD
     base, name_of = where(bundle)
     live = gh([f"{base}/public-key"], run) or {}
     if str(live.get("key_id")) != bundle["key_id"] or live.get("key") != bundle["key"]:
         raise SealError(f"{name_of}' public key is not the one the "
+=======
+    base = f"repos/{bundle['repo']}/environments/{bundle['environment']}/secrets"
+    live = gh([f"{base}/public-key"], run) or {}
+    if str(live.get("key_id")) != bundle["key_id"] or live.get("key") != bundle["key"]:
+        raise SealError(f"{bundle['repo']} environment {bundle['environment']}'s public key is not the one the "
+>>>>>>> origin/main
                         f"bundle was sealed to (live key_id {live.get('key_id')}, bundle {bundle['key_id']}): "
                         "nothing was written; reseal to the live key")
     for name in sorted(bundle["secrets"]):
         gh(["-X", "PUT", f"{base}/{name}", "-f", f"encrypted_value={bundle['secrets'][name]}",
             "-f", f"key_id={bundle['key_id']}"], run)
+<<<<<<< HEAD
         log(f"stored {name} in {name_of}")
+=======
+        log(f"stored {name} in {bundle['repo']} environment {bundle['environment']}")
+>>>>>>> origin/main
 
 
 def main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
     commands = parser.add_subparsers(dest="command", required=True)
+<<<<<<< HEAD
     put_command = commands.add_parser("put", help="store one bundle or every bundle in a directory")
+=======
+    put_command = commands.add_parser("put", help="store a bundle's sealed values in its target environment")
+>>>>>>> origin/main
     put_command.add_argument("bundle")
     args = parser.parse_args(argv)
     try:
         if args.command == "put":
+<<<<<<< HEAD
             path = Path(args.bundle)
             if path.is_dir():
                 bundles = sorted(path.glob("bundle-*.json"))
@@ -193,6 +222,9 @@ def main(argv=None):
                     put(read_bundle(bundle))
             else:
                 put(read_bundle(path))
+=======
+            put(read_bundle(args.bundle))
+>>>>>>> origin/main
     except SealError as error:
         print(f"sealed_secrets: {error}", file=sys.stderr)
         return 1

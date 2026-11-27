@@ -1,5 +1,8 @@
 import CmuxHomeCore
+<<<<<<< HEAD
 import CmuxHomeRender
+=======
+>>>>>>> origin/main
 import Foundation
 
 /// CmuxHomeCore values as MessagesLab model values (catalyst Model.swift).
@@ -10,9 +13,12 @@ import Foundation
 /// its committed echo share it, TranscriptItem.key), or, for a send this
 /// view started, the local id the reducer gave it (`aliases`).
 enum HomeMapping {
+<<<<<<< HEAD
     static func isChief(_ author: ParticipantID, _ summary: ConversationSummary?) -> Bool {
         summary?.participants.contains { $0.id == author && $0.kind == .agent && $0.agentClass == .chief } == true
     }
+=======
+>>>>>>> origin/main
     static func id(_ item: TranscriptItem, aliases: [IdempotencyKey: ID]) -> ID {
         aliases[item.key] ?? rowSafe(item.key.rawValue)
     }
@@ -26,8 +32,12 @@ enum HomeMapping {
         return key.replacingOccurrences(of: "%", with: "%25").replacingOccurrences(of: ":", with: "%3A")
     }
 
+<<<<<<< HEAD
     /// A hash's bubble picture (`HomeMedia.asset`), or a table picture source's thumbnail
     /// (`HomeTablePictures.asset`: a local path, `file:` or `https` URL), nil until it is ready.
+=======
+    /// A hash's bubble picture (`HomeMedia.asset`), nil until it is ready.
+>>>>>>> origin/main
     typealias Media = (String) -> String?
 
     /// A link card's fetched preview (`LinkPreviews.cached`), nil: the domain card.
@@ -41,13 +51,18 @@ enum HomeMapping {
     /// parts mapped only when a reply asks for it.
     static func roots(in items: [TranscriptItem], aliases: [IdempotencyKey: ID], summary: ConversationSummary?,
                       media: @escaping Media = { _ in nil }, links: @escaping Links = { _ in nil }) -> Roots {
+<<<<<<< HEAD
         let wanted = indexed(items)
+=======
+        let wanted = Set(items.compactMap(\.threadRoot))
+>>>>>>> origin/main
         guard !wanted.isEmpty else { return { _ in nil } }
         var byID: [MessageID: TranscriptItem] = [:]
         for item in items {
             if let mid = item.messageID, wanted.contains(mid), !item.isRetracted { byID.updateValue(item, forKey: mid) }
         }
         let found = byID
+<<<<<<< HEAD
         // A root with many replies is asked once per reply, per diff: map its parts once.
         let mapped = RootCache()
         return { root in
@@ -96,10 +111,39 @@ enum HomeMapping {
         let item = agent?.unlabelled(item) ?? item
         let (parts, owners) = projectedParts(item, summary: summary, media: media, links: links)
         let messageID = id(item, aliases: aliases)
+=======
+        return { root in
+            found.value(for: root).map { (id($0, aliases: aliases), projectedParts($0, summary: summary, media: media, links: links).owners) }
+        }
+    }
+
+    /// A thread reply's root as MessagesLab's `replyTo` (HomeStore `threadRoot`; the part from
+    /// `replyTo` when it names the root, else the root's first part): MessagesLab lays it out and
+    /// animates its arrival as a thread reply (connector, the root's 32 pt thread gap). nil for a
+    /// message that is no thread reply, or whose root is not among the mapped items or retracted.
+    static func replyTo(_ item: TranscriptItem, roots: Roots) -> PartRef? {
+        guard let root = item.threadRoot, root != item.messageID, let r = roots(root), !r.owners.isEmpty else { return nil }
+        let homePart = item.replyTo?.message == root ? (item.replyTo?.partIndex ?? 0) : 0
+        // Only a part the root shows: an index from the wire that no shown part owns is the first part.
+        return PartRef(messageId: r.id, partIndex: r.owners.firstIndex(of: homePart) ?? 0)
+    }
+
+    /// `role`: the item's place in a run of tool calls (`ChiefRows.roles` over the shown items);
+    /// nil maps a tool message on its own (one row for its calls).
+    static func message(_ item: TranscriptItem, aliases: [IdempotencyKey: ID], me: ParticipantID,
+                        summary: ConversationSummary?, media: Media = { _ in nil }, links: Links = { _ in nil },
+                        roots: Roots = { _ in nil }, role: ChiefRows.ToolRole? = nil) -> Message {
+        let (parts, owners) = projectedParts(item, summary: summary, media: media, links: links, role: role)
+        let messageID = id(item, aliases: aliases)
+        // cmux-classic: a tool row is drawn as another sender, so it ends the bubble group above it
+        // and the next bubble starts a new one (as a sender change does; ChiefRows).
+        let sender = ChiefRows.drawsAsToolSender(item) ? ChiefRows.toolSender(item.author) : item.author.rawValue
+>>>>>>> origin/main
         // A person's text shows as typed, and so does a part with mentions (their offsets index
         // the text as written): only an agent's text is Markdown (MessagesLab's opt-in
         // `Message.format`; plain by default, so a local send is plain before HomeStore has it).
         let mentions = item.parts.contains { if case let .text(_, m) = $0 { return !m.isEmpty } else { return false } }
+<<<<<<< HEAD
         let format: MessageFormat = (isAgent(item.author, summary) || agent != nil) && !mentions ? .markdown : .plain
         var message = Message(id: messageID, senderId: agent?.participantID ?? item.author.rawValue, sentAt: Instant.format(item.createdAt),
                 parts: parts, replyTo: replyTo(item, roots: roots), status: agent == nil ? status(item, me: me, summary: summary) : nil, edits: edits(item),
@@ -136,6 +180,14 @@ enum HomeMapping {
         guard let at = item.editedAt, !item.isRetracted else { return nil }
         let text = item.parts.compactMap { if case .text(let t, _) = $0 { t } else { nil } }.joined(separator: "\n")
         return [Message.Edit(text: text, at: Instant.format(at))]
+=======
+        let format: MessageFormat = isAgent(item.author, summary) && !mentions ? .markdown : .plain
+        return Message(id: messageID, senderId: sender, sentAt: Instant.format(item.createdAt),
+                parts: parts, replyTo: replyTo(item, roots: roots), status: status(item, me: me, summary: summary), edits: nil,
+                retractedAt: item.isRetracted ? Instant.format(item.editedAt ?? item.createdAt) : nil,
+                reactions: parts.isEmpty ? [] : item.reactions.map { reaction($0, partIndex: projectedIndex($0.partIndex, owners)) },
+                format: format)
+>>>>>>> origin/main
     }
 
     /// The item's parts as MessagesLab shows them, and for each one the
@@ -144,6 +196,7 @@ enum HomeMapping {
     /// line that is only a URL is a link card in its place, the other lines
     /// stay one text bubble, a URL in a sentence gets no card. So the local
     /// send and the message HomeStore stores show the same bubbles.
+<<<<<<< HEAD
     static func projectedParts(_ item: TranscriptItem, summary: ConversationSummary?, media: Media = { _ in nil },
                                links: Links = { _ in nil }) -> (parts: [Part], owners: [Int]) {
         guard !item.isRetracted else { return ([], []) }
@@ -176,12 +229,73 @@ enum HomeMapping {
                 shown = lead + [card]
             }
             else { shown = self.parts(p, media: media, progress: item.attachmentProgress, markdown: markdown, links: links) }
+=======
+    ///
+    /// cmux-classic: a tool-only message is one tool row for its calls, or for its whole run when it
+    /// heads one; a later message of a run shows nothing (`ChiefRows.ToolRole`).
+    static func projectedParts(_ item: TranscriptItem, summary: ConversationSummary?, media: Media = { _ in nil },
+                               links: Links = { _ in nil }, role: ChiefRows.ToolRole? = nil) -> (parts: [Part], owners: [Int]) {
+        guard !item.isRetracted else { return ([], []) }
+        let calls = item.parts.compactMap { p -> ChiefRows.ToolCall? in
+            if case .work(let w) = p { return ChiefRows.ToolCall(w) }
+            return nil
+        }
+        let toolRole: ChiefRows.ToolRole = role ?? (ChiefRows.isToolOnly(item) ? .head(calls, allowed: false) : .other)
+        var retry = false
+        var machineName: String?
+        switch toolRole {
+        case .folded: return ([], [])
+        case let .head(calls, allowed):
+            return ([.custom(ChiefRows.toolPart(calls, group: rowSafe(item.key.rawValue), allowed: allowed))], [0])
+        case .failure(let r): retry = r
+        case .cloudResult(let name): machineName = name
+        case .other: break
+        }
+        let markdown = isAgent(item.author, summary)
+        var parts: [Part] = [], owners: [Int] = []
+        for (i, p) in item.parts.enumerated() {
+            // cmux-classic: the Chief's question card and its Cloud rows (QuestionCardRow, ChiefCloudRows).
+            if case .question(let question) = p {
+                parts.append(.custom(QuestionCardRow.part(question)))
+                owners.append(i)
+                continue
+            }
+            // A completed memory write is acknowledged by the dedicated memory
+            // receipt (`ChiefNoticeRows`), even when the brain put the command
+            // next to prose in one stored message. Keeping the work part here
+            // would add a duplicate “Ran cmux chief memory add …” row beside
+            // the assistant's acknowledgement; tool-only messages take the
+            // same path in `ChiefRows.roles`.
+            if case .work(let work) = p, work.status == .done, ChiefRows.savesMemory(work) {
+                continue
+            }
+            // cmux-classic: the owner's system rows (a failed turn, a saved note; ChiefNoticeRows.swift).
+            if case .work(let work) = p, let row = ChiefRows.noticePart(work, retry: retry) {
+                parts.append(.custom(row))
+                owners.append(i)
+                continue
+            }
+            if case .work(let work) = p, let row = ChiefCloudRows.part(work, createdAt: item.createdAt, machineName: machineName) {
+                parts.append(.custom(row))
+                owners.append(i)
+                continue
+            }
+            if case .approval(let ref) = p {
+                // cmux-classic: the card names the asking agent ("Chief wants to run").
+                let agent = summary?.participants.first { $0.id == item.author }?.displayName
+                parts.append(.custom(ChiefRows.approvalPart(ref, agent: agent)))
+                owners.append(i)
+                continue
+            }
+            let shown = self.parts(p, media: media, progress: item.attachmentProgress, markdown: markdown, links: links)
+>>>>>>> origin/main
             parts += shown
             owners += Array(repeating: i, count: shown.count)
         }
         return (parts, owners)
     }
 
+<<<<<<< HEAD
     /// What an agent-message row says, as Markdown. An agents row is one muted (italic) line with no
     /// link, a click anywhere on the row opens or closes it ("▸ Agent messages (6) · a938, a917"). A message is its bold
     /// "from → to" line over the whole message; a status note is the agent's chip and its words, muted.
@@ -210,6 +324,8 @@ enum HomeMapping {
         return out
     }
 
+=======
+>>>>>>> origin/main
     /// A HomeStore part index as the first MessagesLab part it shows as
     /// (a reaction on a split text sits on its first bubble).
     static func projectedIndex(_ homeIndex: Int, _ owners: [Int]) -> Int {
@@ -226,6 +342,7 @@ enum HomeMapping {
     /// Markdown per bubble); every other part is one part. Text with
     /// mentions stays one bubble (the mention offsets index the whole text),
     /// and so does an agent's text with a fenced block (a split would cut it).
+<<<<<<< HEAD
     ///
     /// A closed ```` ```mermaid ```` fence whose source the installed diagram renderer draws
     /// (`HomeDiagramRowProvider`) is a diagram bubble of its own, between the text before and
@@ -442,10 +559,15 @@ enum HomeMapping {
 
     /// One HomeStore part as MessagesLab parts, without diagrams (`parts`).
     private static func textParts(_ p: MessagePart, media: Media, progress: [String: Double], markdown: Bool, links: Links) -> [Part] {
+=======
+    static func parts(_ p: MessagePart, media: Media = { _ in nil }, progress: [String: Double] = [:], markdown: Bool = false,
+                      links: Links = { _ in nil }) -> [Part] {
+>>>>>>> origin/main
         guard case .text(let text, let mentions) = p, mentions.isEmpty,
               !(markdown && (text.contains("```") || text.contains("~~~"))) else {
             return [part(p, media: media, progress: progress, markdown: markdown, links: links)]
         }
+<<<<<<< HEAD
         // A person's reply that starts with a quote (Reply to Selection, ReplyQuote): the quote shows
         // quietly at the top of the first text bubble, the reply below it.
         if !markdown, let (quote, body) = ReplyQuote.split(text) {
@@ -463,6 +585,12 @@ enum HomeMapping {
             switch shown {
             case let .text(t, _) where markdown:
                 let (rendered, runs) = HomeMarkdown.render(t, chips: HomeLinkChip.showsInTranscript)
+=======
+        return TextParts.parts(for: text).map { shown in
+            switch shown {
+            case let .text(t, _) where markdown:
+                let (rendered, runs) = HomeMarkdown.render(t)
+>>>>>>> origin/main
                 return .text(rendered, runs: runs)
             case let .link(url, title, site, image, theme):
                 // A preview fetched before (this Mac's sends, taps) fills the card, as `.linkMetadata` did;
@@ -509,7 +637,11 @@ enum HomeMapping {
                      links: Links = { _ in nil }) -> Part {
         switch p {
         case .text(let text, let mentions) where markdown && mentions.isEmpty:
+<<<<<<< HEAD
             let (shown, runs) = HomeMarkdown.render(text, chips: HomeLinkChip.showsInTranscript)
+=======
+            let (shown, runs) = HomeMarkdown.render(text)
+>>>>>>> origin/main
             return .text(shown, runs: runs)
         case .text(let text, let mentions):
             return .text(text, runs: mentions.map {
@@ -526,9 +658,21 @@ enum HomeMapping {
             return .attachment(attachment(ref, picture: media(ref.hash), progress: progress.value(for: ref.hash))) // // crash program: dictionary read
         case .location(let place):
             return .location(latitude: place.latitude, longitude: place.longitude, title: place.label, subtitle: nil)
+<<<<<<< HEAD
         case .work, .approval, .question:
             // Agent session, approval and question cards are not MessagesLab rows
             // yet: their text. The question card moves to the custom-row seam.
+=======
+        case .work(let work):
+            // cmux-classic: a system row (ChiefNoticeRows.swift), or a tool call in a message with other parts: its own tool row.
+            if let row = ChiefRows.noticePart(work, retry: false) { return .custom(row) }
+            return .custom(ChiefRows.toolPart([ChiefRows.ToolCall(work)], group: rowSafe(work.session)))
+        case .approval(let ref):
+            // cmux-classic: the approval card (ChiefApprovalRowProvider).
+            return .custom(ChiefRows.approvalPart(ref))
+        case .question:
+            // The question card is not a MessagesLab row yet: its text.
+>>>>>>> origin/main
             return .text(p.plainText, runs: [])
         }
     }
@@ -553,6 +697,7 @@ enum HomeMapping {
     /// hash; an image's picture is its asset, a video's its poster (the row
     /// drawing reads `poster ?? asset`, so a video never loads the movie);
     /// an upload in flight is MessagesLab's `.uploading` transfer.
+<<<<<<< HEAD
     /// cmux: a picture HomeMedia cannot get (`HomeMedia.unavailableAsset`) shows the part as a file card
     /// (its type's icon, name and size), not the empty gray box it was (user 2026-11-16).
     static func attachment(_ ref: AttachmentRef, picture: String?, progress: Double?) -> Attachment {
@@ -562,6 +707,10 @@ enum HomeMapping {
             if kind == "image" || kind == "video" { kind = "file" }
             picture = nil
         }
+=======
+    static func attachment(_ ref: AttachmentRef, picture: String?, progress: Double?) -> Attachment {
+        let kind = kind(of: ref)
+>>>>>>> origin/main
         return Attachment(id: ref.hash, kind: kind, fileName: ref.name, mimeType: ref.mimeType, byteSize: ref.byteCount,
                           asset: kind == "image" ? picture : nil, poster: kind == "video" ? picture : nil,
                           width: ref.width, height: ref.height, durationSeconds: ref.durationMs.map { Double($0) / 1000 },
@@ -586,6 +735,7 @@ enum HomeMapping {
         }
     }
 
+<<<<<<< HEAD
     /// `avatars`: a chosen avatar by participant id (the host's Chief avatars); anyone else draws their initials.
     /// `items`: the shown messages; each agent that sent one through my CLI is a participant too (HomeAgentSender).
     static func participants(_ summary: ConversationSummary?, me: ParticipantID,
@@ -611,10 +761,38 @@ enum HomeMapping {
         summary?.showsSenderNames(me: me) == true || items.contains { HomeAgentSender($0, me: me) != nil }
     }
 
+=======
+    static func participants(_ summary: ConversationSummary?, me: ParticipantID) -> [Participant] {
+        var out = (summary?.participants ?? []).map {
+            Participant(id: $0.id.rawValue, displayName: $0.displayName, isMe: $0.id == me, avatar: .monogram($0.initials))
+        }
+        if !out.contains(where: \.isMe) { out.append(Participant(id: me.rawValue, displayName: "", isMe: true, avatar: nil)) }
+        // cmux-classic: each agent's tool rows are drawn as their own sender (ChiefRows.toolSender); the
+        // same name, so VoiceOver and the menus say who ran them. Last: the engine's "other
+        // participant" is the first one that is not me.
+        for p in summary?.participants ?? [] where p.kind == .agent && p.id != me {
+            out.append(Participant(id: ChiefRows.toolSender(p.id), displayName: p.displayName, isMe: false, avatar: .monogram(p.initials)))
+        }
+        return out
+    }
+
+>>>>>>> origin/main
     static func title(_ summary: ConversationSummary?, me: ParticipantID) -> String {
         summary?.displayTitle(me: me) ?? ""
     }
 
+<<<<<<< HEAD
+=======
+    /// The other participant's initials (the header avatar); a group shows
+    /// the title's.
+    static func initials(_ summary: ConversationSummary?, me: ParticipantID) -> String {
+        let others = (summary?.participants ?? []).filter { $0.id != me }
+        if others.count == 1, let other = others.first { return other.initials }
+        let words = title(summary, me: me).split(separator: " ").prefix(2).compactMap(\.first)
+        return String(words).uppercased()
+    }
+
+>>>>>>> origin/main
     /// The loaded window's place in the history: (messages before it, total).
     /// HomeStore's window always ends at the newest message it has (Home has
     /// no pager), so the total is the window's end, never the summary's

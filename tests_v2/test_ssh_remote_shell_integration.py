@@ -641,6 +641,7 @@ def main() -> int:
                 f"ssh-env should propagate TERM_PROGRAM=ghostty when AcceptEnv allows it, got: {term_program!r}",
             )
 
+<<<<<<< HEAD
             # No cmux-tui terminal child gets TERM_PROGRAM_VERSION (cmux#22585:
             # a child that reads a Ghostty version turns its own copy-on-select
             # drag fallback off), so ssh-env has nothing to forward either.
@@ -653,6 +654,11 @@ def main() -> int:
                 term_program_version == "cmux-unset",
                 f"ssh-env must not propagate TERM_PROGRAM_VERSION, got: {term_program_version!r}",
             )
+=======
+            # TERM_PROGRAM_VERSION is not asserted: cmux terminals blank it so
+            # Codex keeps copy-on-select, so the remote may receive it empty
+            # (https://github.com/manaflow-ai/cmux/issues/22585).
+>>>>>>> origin/main
 
             tty_retry_token = f"CMUX_TTY_RETRY_{secrets.token_hex(6)}"
             client.send_surface(surface_id, f"echo {tty_retry_token}\n")

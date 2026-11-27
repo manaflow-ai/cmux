@@ -10,7 +10,11 @@
 // scripts/cmux-next/regenerate-settings-exports.sh with a .patch OUT, which regenerates
 // the schema but not the action catalog).
 // A pull request carries no copy; web/tests/next-docs.test.ts builds the data at the head.
+<<<<<<< ours
 import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
+=======
+import { readFileSync, writeFileSync } from "node:fs";
+>>>>>>> theirs
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -182,6 +186,7 @@ if (process.argv[1] === fileURLToPath(import.meta.url)) {
   }
   writeFileSync(join(dir, "settings-reference.generated.json"), JSON.stringify(buildSettingsReference(schema), null, 2) + "\n");
   console.log(`wrote ${dir}`);
+<<<<<<< ours
   if (!process.argv.slice(2).includes("--settings")) {
     // The local guide: the hand-written pages as Markdown, which the cmux CLI embeds
     // (`cmux docs guide`). Outside web/ because it ships in the cmux binary.
@@ -191,4 +196,6 @@ if (process.argv[1] === fileURLToPath(import.meta.url)) {
     for (const [name, text] of Object.entries(buildLocalGuide())) writeFileSync(join(guide, name), text);
     console.log(`wrote ${guide}`);
   }
+=======
+>>>>>>> theirs
 }

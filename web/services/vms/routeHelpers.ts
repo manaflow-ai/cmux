@@ -88,6 +88,7 @@ import {
   vmResourcePoolCopy,
   vmUnsupportedCopy,
   vmUnsupportedOperationKey,
+  vmHostRecoveryCopy,
 } from "./vmErrorMessages";
 import { DISPLAY_NAME_MAX_LENGTH } from "./displayName";
 import { ProviderArtifactUnavailableError, ProviderGuestUnresponsiveError, ProviderMachineRecreateRequiredError, ProviderNetworkFullError, ProviderReadDeadlineError, ProviderTlsRuleLimitError, providerConflictKind } from "./drivers/types";
@@ -705,9 +706,13 @@ export async function vmActiveLimitExceededResponse(input: {
     return vmErrorResponse({
       error: "vm_active_limit_exceeded",
       status: 402,
+<<<<<<< ours
       // A paid plan has no machine allowance: this is the abuse guard (PAID_MACHINE_GUARD), so the
       // message names a safety limit, not the plan, and its number stays in `details.limit`.
       message: `This team keeps too many Cloud VMs at once (a safety limit, not your plan), including paused machines.${counted}`,
+=======
+      message: `This plan allows ${input.limit} Cloud VM${plural} in total, including paused machines.${counted}`,
+>>>>>>> theirs
       action: input.retryAction,
       extra: { limit: input.limit },
       details: { limit: input.limit, ...countedDetails },
@@ -996,6 +1001,11 @@ export const vmWorkflowErrorResponders = {
     if (nested && isVmOperationUnsupportedError(nested)) {
       return vmUnsupportedOperationResponse(nested, context.locale);
     }
+    // Unconfirmed cleanup wraps the create's own failure; the machine it left
+    // is what the caller must hear about, ahead of whatever caused it.
+    if (isProviderCreateCleanupError(error.cause)) {
+      return vmCreateCleanupPendingResponse(context.locale);
+    }
     if (providerArtifactUnavailable(error.cause)) {
       return vmArtifactUnavailableResponse(error, context.locale);
     }
@@ -1014,9 +1024,6 @@ export const vmWorkflowErrorResponders = {
     if (providerCauseIs(error.cause, ProviderTlsRuleLimitError)) {
       return vmNetworkRuleCapacityResponse(error, context.locale);
     }
-    if (isProviderCreateCleanupError(error.cause)) {
-      return vmCreateCleanupPendingResponse(context.locale);
-    }
     const guestInstall = guestCliInstallFailure(error.cause);
     if (guestInstall) {
       return vmGuestInstallFailureResponse(error, context.locale, guestInstall);
@@ -1025,6 +1032,7 @@ export const vmWorkflowErrorResponders = {
     // the machine, an unresponsive guest, or a machine in the wrong state.
     switch (providerConflictKind(error.cause)) {
       case "capacity": return vmProviderCapacityResponse(error, context.locale);
+      case "host_recovery": return vmHostRecoveryResponse(error, context.locale);
       case "unresponsive": return vmGuestUnresponsiveResponse(error, context.locale);
       case "state": return vmStateConflictResponse(error, context.locale);
       default: return vmProviderOperationErrorResponse(error);
@@ -1534,6 +1542,36 @@ async function vmStateConflictResponse(error: VmProviderOperationError, locale: 
   });
 }
 
+/**
+ * The machine's retained disk is held by a provider host that is down, so the
+ * provider refuses to start it anywhere until that host is recovered. The
+ * disk and its files are kept. This is a provider incident, not the caller's
+ * fault and not a transient blip: a retry right away meets the same refusal,
+ * so the answer names the recovery, says the files are kept, tells the user
+ * not to delete or recreate the machine, and spaces retries out with a long
+ * Retry-After. It stays an operator fault so the incident pages: only the
+ * provider can recover the host (https://github.com/manaflow-ai/cmux/issues/44783).
+ */
+async function vmHostRecoveryResponse(error: VmProviderOperationError, locale: Locale): Promise<Response> {
+  const copy = await vmHostRecoveryCopy(locale);
+  return vmErrorResponse({
+    error: "vm_host_recovery_pending",
+    status: 503,
+    message: copy.message,
+    action: copy.action,
+    phase: vmPhaseForOperation(error.operation),
+    retryable: true,
+    retryAfterSeconds: VM_HOST_RECOVERY_RETRY_AFTER_SECONDS,
+    displayTitle: copy.title,
+    displayMessage: copy.message,
+    details: { operation: error.operation, retryable: true, providerCode: "provider_host_recovery" },
+    diagnostics: { provider: error.provider },
+  });
+}
+
+/** Seconds a client waits before retrying a machine whose host is being recovered. */
+const VM_HOST_RECOVERY_RETRY_AFTER_SECONDS = 300;
+
 /** Seconds a client waits before retrying a capacity refusal. */
 const VM_PROVIDER_CAPACITY_RETRY_AFTER_SECONDS = 30;
 
@@ -1892,9 +1930,10 @@ function sanitizedProviderMessage(message: string): string {
   if (/timeout|timed out|aborted/i.test(normalized)) return "request timed out";
   if (/rate[_\s-]*limit|too many requests/i.test(normalized)) return "rate limited";
   if (/not found|deleted/i.test(normalized)) return "VM not found";
-  return normalized
-    .replace(/freestyle/gi, "Cloud VM")
-    .slice(0, 240);
+  // Unknown provider text may contain URLs, tenant identifiers, request
+  // metadata, or credentials. Keep it out of the API response; the original
+  // error remains available to server-side telemetry.
+  return "";
 }
 
 function sanitizedProviderCode(code: string): string {
@@ -1904,7 +1943,7 @@ function sanitizedProviderCode(code: string): string {
   if (normalized.includes("timeout") || normalized.includes("aborted")) return "provider_timeout";
   if (normalized.includes("rate")) return "provider_rate_limited";
   if (normalized.includes("not_found") || normalized.includes("deleted")) return "provider_not_found";
-  return normalized.slice(0, 80);
+  return "provider_error";
 }
 
 function inferredProviderCode(message: string | null): string | null {

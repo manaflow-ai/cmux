@@ -32,7 +32,11 @@ env:
 jobs:
   version:
     name: derive relay version and dist-tag
+<<<<<<< HEAD
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || 'cmux-linux' }}
+=======
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.CI_OVERFLOW_LINUX || 'cmux-linux' }}
+>>>>>>> origin/main
     timeout-minutes: 5
     permissions:
       contents: read
@@ -91,6 +95,7 @@ jobs:
     with:
       retention_days: 7  # tui-publish-npm/pypi download these by run id
       version: ${{ needs.version.outputs.version }}
+      retention_days: 30
       package_npm: true
       package_pypi: false
       # The Rust machine relay is Unix-only until a tested Windows PTY backend
@@ -399,9 +404,15 @@ jobs:
       fail-fast: false
       matrix:
         include:
+<<<<<<< HEAD
           - os: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || 'cmux-linux' }}
             package: cmux-relay-linux-x64
           - os: ${{ fromJSON(vars.RUNNER_POOLS).macos_15 }}
+=======
+          - os: ${{ contains(fromJSON('["blacksmith-4vcpu-ubuntu-2404","blacksmith-16vcpu-ubuntu-2404"]'), fromJSON(vars.RUNNER_POOLS || '{}').linux_4) && fromJSON(vars.RUNNER_POOLS || '{}').linux_4 || 'blacksmith-4vcpu-ubuntu-2404' }}
+            package: cmux-relay-linux-x64
+          - os: ${{ contains(fromJSON('["blacksmith-6vcpu-macos-15"]'), fromJSON(vars.RUNNER_POOLS || '{}').macos_15) && fromJSON(vars.RUNNER_POOLS || '{}').macos_15 || 'blacksmith-6vcpu-macos-15' }}
+>>>>>>> origin/main
             package: cmux-relay-darwin-arm64
     runs-on: ${{ matrix.os }}
     timeout-minutes: 15

@@ -1,5 +1,6 @@
 #!/bin/sh
 # The whole script is one `{ ... }` group: sh reads it to the closing brace
+<<<<<<< HEAD
 # before it runs any line, so a download cut short (curl | sh, or ssh's
 # stdin) is a syntax error that runs nothing, never half an install.
 {
@@ -25,6 +26,18 @@ set -eu
 # service (systemd user unit with linger on Linux, a LaunchAgent on macOS), so
 # your cmux reaches it over SSH after logouts and reboots: the pinned command
 # in the repository's README.md, with `sh "$d/install.sh" --server`.
+=======
+# before it runs any line, so a download cut short (curl | sh) is a syntax
+# error that runs nothing, never half an install.
+{
+set -eu
+
+# cmux server (https://cmux.com/docs/next/server): `--server` also runs
+# `cmux server install`, which keeps this machine's cmux session running as a
+# service (systemd user unit with linger on Linux, a LaunchAgent on macOS), so
+# your cmux reaches it over SSH after logouts and reboots:
+#   curl -fsSL https://cmux.com/tui/install.sh | sh -s -- --server
+>>>>>>> origin/main
 # `--server` installs the current cmux NIGHTLY build unless `--commit <sha>` (a
 # published cmux build) or CMUX_DOWNLOAD_BASE_URL picks another. `--nightly`
 # picks that build without the service; `--channel nightly` is the same, and
@@ -32,17 +45,21 @@ set -eu
 # `cmux server install --user`: the service starts at login and stops at
 # logout, and linger is left as it is. `--dry-run` prints what would happen
 # and changes nothing.
+<<<<<<< HEAD
 #
 # `--system` (Linux) installs the build's .deb with `apt-get install`, or its
 # .rpm with `dnf install`, through sudo: /usr/bin/cmux and the other cmux
 # binaries, owned by the package manager. The package is the one the signed
 # release file names, checked against its signed size and sha256 first; a
 # build whose release file names none is refused.
+=======
+>>>>>>> origin/main
 want_server=""
 want_nightly=""
 want_stable=""
 server_user=""
 dry_run=""
+<<<<<<< HEAD
 want_system=""
 pinned_commit=""
 join_ticket="${CMUX_JOIN_TICKET:-}"
@@ -70,6 +87,11 @@ while [ "$#" -gt 0 ]; do
       shift 2
       ;;
     --join=*) join_ticket="${1#--join=}"; join_ticket_in_argv=1; shift ;;
+=======
+pinned_commit=""
+while [ "$#" -gt 0 ]; do
+  case "$1" in
+>>>>>>> origin/main
     --server) want_server=1; shift ;;
     --nightly) want_nightly=1; shift ;;
     --user) want_server=1; server_user=1; shift ;;
@@ -95,7 +117,10 @@ while [ "$#" -gt 0 ]; do
       esac
       ;;
     --dry-run) dry_run=1; shift ;;
+<<<<<<< HEAD
     --system) want_system=1; shift ;;
+=======
+>>>>>>> origin/main
     --commit)
       if [ "$#" -lt 2 ]; then
         echo "cmux: --commit needs a 40-character commit" >&2
@@ -105,20 +130,32 @@ while [ "$#" -gt 0 ]; do
       shift 2
       ;;
     --commit=*) pinned_commit="${1#--commit=}"; shift ;;
+<<<<<<< HEAD
     cmxt1.*) join_ticket="$1"; join_ticket_in_argv=1; shift ;;
     *)
       echo "cmux: unknown argument $1 (pass --server, --user, --system, --channel stable|nightly, --nightly, --commit <sha>, --dry-run or a pairing ticket, cmxt1.…)" >&2
+=======
+    *)
+      echo "cmux: unknown argument $1 (pass --server, --user, --channel stable|nightly, --nightly, --commit <sha> or --dry-run)" >&2
+>>>>>>> origin/main
       exit 2
       ;;
   esac
 done
+<<<<<<< HEAD
+=======
+
+>>>>>>> origin/main
 if [ -n "$want_stable" ] && { [ -n "$want_nightly" ] || [ -n "$pinned_commit" ]; }; then
   echo "cmux: --channel stable does not go with --nightly or --commit" >&2
   exit 2
 fi
+<<<<<<< HEAD
 if [ -n "$join_ticket_in_argv" ]; then
   echo "cmux: a ticket on the command line is readable by other users of this machine (ps); next time paste the line \`cmux host ticket new\` prints, which passes it on stdin" >&2
 fi
+=======
+>>>>>>> origin/main
 
 case "$pinned_commit" in
   "") ;;
@@ -134,6 +171,7 @@ fi
 
 if ! command -v curl >/dev/null 2>&1; then
   echo "cmux: curl is required" >&2
+<<<<<<< HEAD
   echo "next: install curl, then run this again" >&2
   exit 1
 fi
@@ -504,6 +542,33 @@ clr_keys() { # The trusted release keys: id, then the PEM body of the Ed25519 pu
 # END linux-release-verify
 clr_who=cmux
 
+=======
+  exit 1
+fi
+
+files_base="https://files.cmux.com/cmux-tui"
+if [ -n "${CMUX_DOWNLOAD_BASE_URL:-}" ]; then
+  base_url="$CMUX_DOWNLOAD_BASE_URL"
+elif [ -n "$pinned_commit" ]; then
+  base_url="$files_base/$pinned_commit"
+elif [ -z "$want_stable" ] && { [ -n "$want_server" ] || [ -n "$want_nightly" ]; }; then
+  # The cmux server verbs ship in cmux NIGHTLY builds: install the build the
+  # current NIGHTLY app runs (the first cmux:sourceCommit of its update feed).
+  feed_url="${CMUX_NIGHTLY_FEED_URL:-https://files-next.cmux.com/nightly-next/appcast-arm64.xml}"
+  nightly_commit="$(
+    curl --proto '=https' --proto-redir '=https' --tlsv1.2 -fsSL "$feed_url" |
+      sed -n 's/.*<cmux:sourceCommit[^>]*>\([0-9a-f]\{40\}\)<.*/\1/p' | head -n 1
+  )" || nightly_commit=""
+  if [ "${#nightly_commit}" -ne 40 ]; then
+    echo "cmux: could not read the current cmux NIGHTLY build from $feed_url; pass --commit <sha>" >&2
+    exit 1
+  fi
+  base_url="$files_base/$nightly_commit"
+else
+  base_url="https://files.cmux.com/cmux-tui/latest"
+fi
+base_url="${base_url%/}"
+>>>>>>> origin/main
 install_root="${CMUX_INSTALL:-$HOME/.cmux}"
 bin_dir="$install_root/bin"
 os="$(uname -s)"
@@ -526,6 +591,7 @@ case "$os-$arch" in
     ;;
 esac
 
+<<<<<<< HEAD
 # --system: the package this machine's package manager installs.
 if [ -n "$want_system" ]; then
   if [ "$os" != Linux ]; then
@@ -553,6 +619,19 @@ if [ -n "$want_system" ]; then
     echo "next: run this again as root, or without --system" >&2
     exit 1
   fi
+=======
+if [ -n "$server_user" ]; then
+  set -- --user
+else
+  set --
+fi
+if [ -n "$dry_run" ]; then
+  echo "Would download $base_url/manifest.json and $artifact, check its SHA-256, and install it to $bin_dir/cmux"
+  if [ -n "$want_server" ]; then
+    echo "Would run: $bin_dir/cmux server install $*"
+  fi
+  exit 0
+>>>>>>> origin/main
 fi
 
 files_base="https://files.cmux.com/cmux-tui"
@@ -635,6 +714,7 @@ trap 'rm -rf "$tmp_dir"' EXIT HUP INT TERM
 clr_dir="$tmp_dir"
 clr_state="$install_root/installed.json"
 
+<<<<<<< HEAD
 # The signed release file; while the nightly channel is not published yet, the
 # NIGHTLY app's build by its own signed release file (the same checks; a refusal
 # there is reported).
@@ -679,6 +759,40 @@ elif [ "$os" = Linux ]; then
     clr_report
     exit 1
   fi
+=======
+curl --proto '=https' --proto-redir '=https' --tlsv1.2 -fsSL "$base_url/manifest.json" \
+  -o "$tmp_dir/manifest.json"
+checksum="$(
+  sed -n "s/.*\"$artifact\"[[:space:]]*:[[:space:]]*\"\\([0-9a-f][0-9a-f]*\\)\".*/\\1/p" \
+    "$tmp_dir/manifest.json"
+)"
+if [ "${#checksum}" -ne 64 ]; then
+  echo "cmux: $artifact is unavailable for this release" >&2
+  exit 1
+fi
+
+commit="$(
+  sed -n 's/.*"commit"[[:space:]]*:[[:space:]]*"\([0-9a-f]\{40\}\)".*/\1/p' \
+    "$tmp_dir/manifest.json"
+)"
+if [ "${#commit}" -ne 40 ]; then
+  echo "cmux: manifest has no commit" >&2
+  exit 1
+fi
+
+artifact_base_url="$base_url"
+case "$artifact_base_url" in
+  */latest) artifact_base_url="${artifact_base_url%/latest}/$commit" ;;
+esac
+
+curl --proto '=https' --proto-redir '=https' --tlsv1.2 -fsSL "$artifact_base_url/$artifact" \
+  -o "$tmp_dir/cmux"
+
+if command -v shasum >/dev/null 2>&1; then
+  actual="$(shasum -a 256 "$tmp_dir/cmux" | awk '{print $1}')"
+elif command -v sha256sum >/dev/null 2>&1; then
+  actual="$(sha256sum "$tmp_dir/cmux" | awk '{print $1}')"
+>>>>>>> origin/main
 else
   # macOS: outside the Linux release file (no darwin target yet).
   curl --proto '=https' --proto-redir '=https' --tlsv1.2 -fsSL "$base_url/manifest.json" \
@@ -800,6 +914,19 @@ if [ -n "$join_ticket" ]; then
   fi
 fi
 
+<<<<<<< HEAD
+=======
+echo "Installed cmux to $bin_dir/cmux"
+
+# cmux server: keep this machine's cmux session running as a service.
+if [ -n "$want_server" ]; then
+  if ! "$bin_dir/cmux" server install "$@"; then
+    echo "cmux: installed, but the cmux server service is not set up; fix the error above, then run: $bin_dir/cmux server install $*" >&2
+    exit 1
+  fi
+fi
+
+>>>>>>> origin/main
 curl --proto '=https' --proto-redir '=https' --tlsv1.2 -fsS --max-time 2 \
   -H 'content-type: application/json' \
   -d "{\"product\":\"tui\",\"platform\":\"$os-$arch\",\"method\":\"curl\"}" \

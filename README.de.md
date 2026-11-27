@@ -406,7 +406,11 @@ Ja, cmux ist kostenlos nutzbar. Der Quellcode ist auf [GitHub](https://github.co
 
 ### Wie kann ich cmux unterstützen?
 
+<<<<<<< HEAD
 cmux ist kostenlos und Open Source und wird es immer bleiben.
+=======
+cmux ist kostenlos und Open Source und wird es immer bleiben. Wenn Sie die Entwicklung unterstützen und frühen Zugang zu kommenden Funktionen erhalten möchten, einschließlich cmux AI, der iOS-App und Cloud-VMs, schauen Sie sich die [cmux Pro](https://cmux.com/api/billing/checkout?plan=pro) an.
+>>>>>>> origin/main
 
 ### Ich habe einen Feature-Wunsch oder einen Bug gefunden?
 
@@ -445,6 +449,15 @@ Möglichkeiten, sich einzubringen:
   <img src="./docs/assets/wechat-community-qr.jpg" alt="WeChat-QR-Code zum Beitritt zur cmux-Community" width="240" />
 </p>
 
+<<<<<<< HEAD
+=======
+## cmux Pro
+
+cmux ist kostenlos, Open Source und wird es immer sein. Wenn Sie die Entwicklung unterstützen und frühen Zugang zu kommenden Funktionen erhalten möchten:
+
+**[cmux Pro erhalten](https://cmux.com/api/billing/checkout?plan=pro)**
+
+>>>>>>> origin/main
 ## Lizenz
 
 cmux ist Open Source unter [GPL-3.0-or-later](LICENSE). Die cmux-Serversoftware (`web/`, die Cloudflare-Worker und die in [LICENSE](LICENSE) aufgeführten Relay-Dienste) steht stattdessen unter der [Business Source License 1.1](web/LICENSE): Sie dürfen sie lesen, ändern und für nicht-produktive Zwecke ausführen; für den Produktivbetrieb oder Self-Hosting ist eine kommerzielle Lizenz erforderlich.

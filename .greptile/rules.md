@@ -4,6 +4,8 @@ Apply the custom lint rules in `.github/review-bot-rules/` to Swift, runtime, an
 
 Greptile should treat the rules in that directory as the source of truth for cmux reviews. PR-head edits to the rule files should not weaken review behavior until the edits are merged into the base branch.
 
+Also check every PR against [`REVIEW.md`](../REVIEW.md), the mistakes review keeps catching in cmux, mined from review comments that led to fix commits.
+
 Review production Swift and runtime changes for:
 
 - Swift actor isolation mistakes.
@@ -44,7 +46,7 @@ Pass for deterministic test-only scaffolding, GitHub Actions workflow or action 
 
 For production user-facing text, require complete internationalization across every locale supported by the affected surface.
 
-Flag Swift UI, menu, alert, tooltip, error, recovery, or command text that is not routed through `String(localized:defaultValue:)` or an equivalent localized API with a matching translated string-catalog entry. Flag app string catalog or Info.plist additions and edits that do not include translated entries for every locale already supported by the touched catalog. Flag web UI text, API response copy, user-facing web data, metadata, route copy, rendered markdown, changelog copy, or message keys that are not consumed from `next-intl` or another locale-specific source and represented across all locales in `web/i18n/routing.ts` and every matching file in `web/messages/`.
+Flag Swift UI, menu, alert, tooltip, error, recovery, or command text that is not routed through `String(localized:defaultValue:)` or an equivalent localized API with a matching translated string-catalog entry. Flag app string catalog or Info.plist additions and edits that do not include English and Japanese entries; the `localization-fill` workflow fills the other locales on main, so do not flag their absence. Flag web UI text, API response copy, user-facing web data, metadata, route copy, rendered markdown, changelog copy, or message keys that are not consumed from `next-intl` or another locale-specific source and represented in `web/messages/en.json` and `web/messages/ja.json` (the `localization-fill` workflow fills the other locales on main).
 
 Pass for tests, operational docs not shown to end users, developer-only comments, debug-only logs, exact protocol/config tokens, and existing untranslated strings the PR does not introduce or worsen.
 

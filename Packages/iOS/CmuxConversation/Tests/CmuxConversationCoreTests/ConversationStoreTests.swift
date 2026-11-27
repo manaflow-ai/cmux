@@ -88,8 +88,12 @@ import Testing
         echo.delivery = .delivered
         store.apply(.message(echo, eventSeq: 900))
         backend.releaseSend()
+<<<<<<< HEAD
         try await waitUntil { backend.sendCount == 1 }
         try await Task.sleep(for: .milliseconds(20))
+=======
+        try await waitUntil { store.message(rowID: rowID)?.delivery == .delivered && backend.sendCount == 1 }
+>>>>>>> origin/main
         #expect(store.messages.filter { $0.rowID == rowID }.count == 1)
         #expect(store.messages.count == 6)
         #expect(store.messages.last?.delivery == .delivered)
@@ -135,10 +139,14 @@ import Testing
         store.send(text: "one")
         store.send(text: "two")
         store.send(text: "three")
+<<<<<<< HEAD
         // Wait for the first dispatch (a loaded runner can take longer than a fixed sleep), then give
         // a wrong second dispatch time to show.
         try await waitUntil { !backend.sentClientIDs.isEmpty }
         try await Task.sleep(for: .milliseconds(50))
+=======
+        try await waitUntil { backend.sentClientIDs == ["rapid-1"] }
+>>>>>>> origin/main
         // The server numbers messages in arrival order, so a later send must not
         // be dispatched while an earlier one is still in flight.
         #expect(backend.sentClientIDs == ["rapid-1"])
@@ -185,7 +193,11 @@ import Testing
         #expect(backend.sentClientIDs == ["client-2", "client-2"])
     }
 
+<<<<<<< HEAD
     @Test func laggedReconnectMergesMissingPagesAndKeepsPendingSends() async throws {
+=======
+    @Test func laggedReconnectRebasesOnNewestAndKeepsPendingSends() async throws {
+>>>>>>> origin/main
         let backend = ScriptedBackend(total: 50)
         let store = ConversationStore(backend: backend, pageSize: 20, makeClientMessageID: { "client-3" })
         store.apply(.connected(info: backend.info, meID: "me", lagged: false))
@@ -194,12 +206,18 @@ import Testing
         store.send(text: "in flight")
         backend.total = 80
         store.apply(.connected(info: backend.info, meID: "me", lagged: true))
+<<<<<<< HEAD
         try await waitUntil { store.message(id: "m80") != nil }
         #expect(store.messages.compactMap(\.seq) == Array(31...80))
+=======
+        try await waitUntil { store.messages.first?.seq == 61 }
+        #expect(store.messages.compactMap(\.seq) == Array(61...80))
+>>>>>>> origin/main
         #expect(store.messages.last?.clientMessageID == "client-3")
         backend.releaseSend()
     }
 
+<<<<<<< HEAD
     /// A restarted backend's history no longer holds the kept window: the
     /// client holds 81-100 and the server now has 1-50. Recovery rebuilds from
     /// the fetched page (keeping an unsent local send), and new live messages
@@ -795,6 +813,8 @@ import Testing
         if unsent { #expect(result.reactions.isEmpty) }
     }
 
+=======
+>>>>>>> origin/main
     @Test func typingClearsWhenThatParticipantsMessageArrives() async throws {
         let backend = ScriptedBackend(total: 5)
         let store = ConversationStore(backend: backend, pageSize: 30)
@@ -872,7 +892,11 @@ import Testing
         try await waitUntil { asked }
         store.stop()
         gate.open()
+<<<<<<< HEAD
         try await Task.sleep(for: .milliseconds(50))
+=======
+        await Task.yield()
+>>>>>>> origin/main
         #expect(store.message(id: "m6") == nil)
     }
 
@@ -962,10 +986,13 @@ final class ScriptedBackend: ConversationBackend, @unchecked Sendable {
     private let lock = NSLock()
     private var _total: Int
     private var _failNextHistory = 0
+<<<<<<< HEAD
     private var _nextHistoryGate: PreparationGate?
     private var _historyCount = 0
     private var _historyMessages: [String: ConversationMessage] = [:]
     private var _localActionGate: PreparationGate?
+=======
+>>>>>>> origin/main
     private var _failNextSend = false
     private var _holdSend = false
     private var _sendWaiters: [CheckedContinuation<Void, Never>] = []
@@ -979,6 +1006,7 @@ final class ScriptedBackend: ConversationBackend, @unchecked Sendable {
 
     var total: Int { get { lock.withLock { _total } } set { lock.withLock { _total = newValue } } }
     var failNextHistory: Int { get { lock.withLock { _failNextHistory } } set { lock.withLock { _failNextHistory = newValue } } }
+<<<<<<< HEAD
     var nextHistoryGate: PreparationGate? { get { lock.withLock { _nextHistoryGate } } set { lock.withLock { _nextHistoryGate = newValue } } }
     /// When set, a reaction, poll vote or choice, edit or unsend is held
     /// until it opens and then refused.
@@ -1000,6 +1028,8 @@ final class ScriptedBackend: ConversationBackend, @unchecked Sendable {
     func setHistoryMessage(_ message: ConversationMessage) {
         lock.withLock { _historyMessages[message.id] = message }
     }
+=======
+>>>>>>> origin/main
     var failNextSend: Bool { get { lock.withLock { _failNextSend } } set { lock.withLock { _failNextSend = newValue } } }
     var holdSend: Bool { get { lock.withLock { _holdSend } } set { lock.withLock { _holdSend = newValue } } }
     var sentClientIDs: [String] { lock.withLock { _sentClientIDs } }
@@ -1035,11 +1065,14 @@ final class ScriptedBackend: ConversationBackend, @unchecked Sendable {
     }
 
     func history(beforeSeq: Int?, limit: Int) async throws -> ConversationHistoryPage {
+<<<<<<< HEAD
         let (gate, historyMessages) = lock.withLock { () -> (PreparationGate?, [String: ConversationMessage]) in
             _historyCount += 1
             defer { _nextHistoryGate = nil }
             return (_nextHistoryGate, _historyMessages)
         }
+=======
+>>>>>>> origin/main
         let shouldFail = lock.withLock { () -> Bool in
             guard _failNextHistory > 0 else { return false }
             _failNextHistory -= 1
@@ -1049,12 +1082,19 @@ final class ScriptedBackend: ConversationBackend, @unchecked Sendable {
         let upper = (beforeSeq ?? (total + 1)) - 1
         let lower = max(1, upper - limit + 1)
         guard upper >= 1 else { return ConversationHistoryPage(messages: [], hasMore: false) }
+<<<<<<< HEAD
         let page = ConversationHistoryPage(
             messages: (lower...upper).map { historyMessages["m\($0)"] ?? makeMessage(seq: $0, sender: $0 % 3 == 0 ? "me" : "lc") },
             hasMore: lower > 1
         )
         if let gate { await gate.wait() }
         return page
+=======
+        return ConversationHistoryPage(
+            messages: (lower...upper).map { makeMessage(seq: $0, sender: $0 % 3 == 0 ? "me" : "lc") },
+            hasMore: lower > 1
+        )
+>>>>>>> origin/main
     }
 
     func send(_ draft: ConversationOutgoingDraft) async throws -> ConversationMessage {
@@ -1090,12 +1130,18 @@ final class ScriptedBackend: ConversationBackend, @unchecked Sendable {
     }
 
     func react(messageID: String, reaction: ConversationReaction?) async throws -> ConversationMessage {
+<<<<<<< HEAD
         try await refuseHeldLocalAction()
+=======
+>>>>>>> origin/main
         throw ConversationBackendError(code: -1, message: "unsupported")
     }
 
     func edit(messageID: String, text: String) async throws -> ConversationMessage {
+<<<<<<< HEAD
         try await refuseHeldLocalAction()
+=======
+>>>>>>> origin/main
         var message = makeMessage(seq: Int(messageID.dropFirst()) ?? 0, sender: "me")
         message.text = text
         message.editedAt = Date()
@@ -1108,7 +1154,10 @@ final class ScriptedBackend: ConversationBackend, @unchecked Sendable {
     var failNextUnsend: Bool { get { lock.withLock { _failNextUnsend } } set { lock.withLock { _failNextUnsend = newValue } } }
 
     func unsend(messageID: String) async throws -> ConversationMessage {
+<<<<<<< HEAD
         try await refuseHeldLocalAction()
+=======
+>>>>>>> origin/main
         let fail = lock.withLock { () -> Bool in
             defer { _failNextUnsend = false }
             return _failNextUnsend
@@ -1357,7 +1406,11 @@ extension ConversationStoreWindowTests {
 
         store.retryUnsend(messageID: "m7")
         #expect(store.message(id: "m7")?.unsendFailed == false)
+<<<<<<< HEAD
         try await Task.sleep(for: .milliseconds(30))
+=======
+        await Task.yield()
+>>>>>>> origin/main
         #expect(store.message(id: "m7")?.unsendFailed == false)
         #expect(store.message(id: "m7")?.isUnsent == true)
         #expect(!store.canRetryUnsend(try #require(store.message(id: "m7"))))
@@ -1377,7 +1430,10 @@ extension ConversationStoreWindowTests {
         #expect(store.message(id: "m5") == nil)
         store.apply(.connected(info: backend.info, meID: "me", lagged: true))
         try await waitUntil { store.messages.count == 8 }
+<<<<<<< HEAD
         try await Task.sleep(for: .milliseconds(30))
+=======
+>>>>>>> origin/main
         #expect(store.message(id: "m4") == nil && store.message(id: "m5") == nil)
     }
 

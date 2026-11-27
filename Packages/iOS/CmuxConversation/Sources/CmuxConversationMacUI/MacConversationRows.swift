@@ -165,7 +165,10 @@ enum MacConversationRowBuilder {
                 message.text = translation.text
                 message.mentions = []
                 message.textRuns = []
+<<<<<<< HEAD
                 message.links = []
+=======
+>>>>>>> origin/main
             }
             if entry.showsTimestamp {
                 rows.append(.timestamp(id: "ts:\(message.rowID)", date: message.sentAt))
@@ -327,7 +330,11 @@ struct MacMessageLayout {
 @MainActor
 final class MacMessageLayoutCache {
     private var layouts: [String: (MacMessageRowModel, CGFloat, MacMessageLayout)] = [:]
+<<<<<<< HEAD
     private var texts: [String: (ConversationBubbleInputs, NSAttributedString)] = [:]
+=======
+    private var texts: [String: (String, Bool, [ConversationMention], [ConversationTextRun], NSAttributedString)] = [:]
+>>>>>>> origin/main
 
     func layout(_ model: MacMessageRowModel, width: CGFloat) -> MacMessageLayout {
         if let (cachedModel, cachedWidth, layout) = layouts[model.rowID], cachedModel == model, cachedWidth == width {
@@ -340,6 +347,7 @@ final class MacMessageLayoutCache {
 
     func text(_ model: MacMessageRowModel) -> NSAttributedString {
         // Audio bubbles show the transcript; a link card takes its URL out of
+<<<<<<< HEAD
         // the text bubble, so mentions, formatting and links (ranges over the
         // whole `text`) are re-based onto what the bubble shows.
         let inputs = model.message.audioAttachment != nil
@@ -350,6 +358,20 @@ final class MacMessageLayoutCache {
         }
         let value = MacMessageLayout.attributedBody(inputs.text, outgoing: inputs.outgoing, mentions: inputs.mentions, meID: inputs.meID, runs: inputs.runs, links: inputs.links)
         texts[model.rowID] = (inputs, value)
+=======
+        // the text bubble, so mentions and formatting (ranges over the whole
+        // `text`) are re-based onto what the bubble shows.
+        let isAudio = model.message.audioAttachment != nil
+        let body = isAudio ? model.message.macBodyText : model.bodyText
+        let mentions = isAudio ? [] : model.linkSplit.map { $0.bodyMentions(model.message.mentions) } ?? model.message.mentions
+        let runs = isAudio ? [] : model.linkSplit.map { $0.bodyRuns(model.message.textRuns) } ?? model.message.textRuns
+        if let (text, outgoing, cachedMentions, cachedRuns, value) = texts[model.rowID], text == body, outgoing == model.isOutgoing,
+           cachedMentions == mentions, cachedRuns == runs {
+            return value
+        }
+        let value = MacMessageLayout.attributedBody(body, outgoing: model.isOutgoing, mentions: mentions, meID: model.meID, runs: runs)
+        texts[model.rowID] = (body, model.isOutgoing, mentions, runs, value)
+>>>>>>> origin/main
         return value
     }
 
@@ -373,13 +395,22 @@ extension NSAttributedString.Key {
 }
 
 extension MacMessageLayout {
+<<<<<<< HEAD
+=======
+    nonisolated(unsafe) static let linkDetector = try? NSDataDetector(types: ConversationDataDetection.types)
+
+>>>>>>> origin/main
     static func attributedBody(
         _ text: String,
         outgoing: Bool,
         mentions: [ConversationMention] = [],
         meID: String? = nil,
+<<<<<<< HEAD
         runs: [ConversationTextRun] = [],
         links: [ConversationTextLink] = []
+=======
+        runs: [ConversationTextRun] = []
+>>>>>>> origin/main
     ) -> NSAttributedString {
         let t = MacConversationTheme.self
         let result = NSMutableAttributedString(string: text, attributes: [
@@ -391,6 +422,7 @@ extension MacMessageLayout {
             ConversationRichText.apply(runs, to: result)
             ConversationRichTextStyler.applyDisplayAttributes(to: result, baseFont: t.bodyFont, lineHeight: t.lineHeight)
         }
+<<<<<<< HEAD
         for item in ConversationDataDetection.items(in: text) {
             result.addAttribute(.underlineStyle, value: NSUnderlineStyle.single.rawValue, range: item.range)
             if let url = item.url { result.addAttribute(.macConversationLink, value: url, range: item.range) }
@@ -399,6 +431,12 @@ extension MacMessageLayout {
         for link in links where NSMaxRange(link.range) <= result.length {
             result.addAttribute(.underlineStyle, value: NSUnderlineStyle.single.rawValue, range: link.range)
             result.addAttribute(.macConversationLink, value: link.url, range: link.range)
+=======
+        linkDetector?.enumerateMatches(in: text, range: NSRange(text.startIndex..., in: text)) { match, _, _ in
+            guard let match else { return }
+            result.addAttribute(.underlineStyle, value: NSUnderlineStyle.single.rawValue, range: match.range)
+            if let url = ConversationDataDetection.actionURL(for: match) { result.addAttribute(.macConversationLink, value: url, range: match.range) }
+>>>>>>> origin/main
         }
         MacMentionStyle.apply(to: result, mentions: mentions, meID: meID, outgoing: outgoing, font: t.bodyFont)
         return result

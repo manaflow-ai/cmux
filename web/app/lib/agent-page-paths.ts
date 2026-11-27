@@ -15,6 +15,7 @@ import {
   managedPoliciesDocsLocales,
   cloudSecurityDocsLocales,
   remoteTmuxDocsLocales,
+  mainThreadDocsLocales,
 } from "../../i18n/locale-availability";
 import { genericCodingAgents } from "../../i18n/coding-agents";
 import { nextDocPages, nextDocPublicPath } from "../../data/next-docs/pages";
@@ -240,6 +241,11 @@ export const agentReadablePages = [
     locales: managedPoliciesDocsLocales,
   },
   {
+    path: "/docs/main-thread",
+    title: "How cmux Stays Responsive",
+    locales: mainThreadDocsLocales,
+  },
+  {
     path: "/docs/cloud-security",
     title: "Cloud Security",
     locales: cloudSecurityDocsLocales,
@@ -276,6 +282,7 @@ export const agentReadablePages = [
   { path: "/community", title: "Community" },
   { path: "/wall-of-love", title: "Wall of Love" },
   { path: "/nightly", title: "Nightly" },
+  { path: "/next", title: "cmux NEXT NIGHTLY" },
   { path: "/assets", title: "Brand Assets" },
   { path: "/art", title: "Art" },
   { path: "/guides", title: "Guides" },

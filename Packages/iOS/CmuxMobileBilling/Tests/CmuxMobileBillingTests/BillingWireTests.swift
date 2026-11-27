@@ -27,6 +27,7 @@ import Testing
         #expect(account.products.map(\.planID) == [.pro, .max])
     }
 
+<<<<<<< HEAD
     /// The production answer to a TestFlight or dev build (msg: "i cant see
     /// plans in the plan section"): no products, so the screen must still
     /// describe the paid plans.
@@ -62,6 +63,29 @@ import Testing
             current: .free,
             products: [BillingProductReference(productID: "com.cmux.app.go.monthly", planID: .go)]
         ).catalogPlanIDs == [.go, .pro, .max])
+=======
+    @Test func decodesNextProductsAsNextPlans() throws {
+        let json = Data("""
+        {
+          "appAccountToken": "6f9619ff-8b86-d011-b42d-00c04fc964ff",
+          "eligible": true,
+          "reason": null,
+          "currentPlan": { "planId": "next_pro", "source": "apple" },
+          "products": [
+            { "productId": "com.cmux.app.next_plus.monthly", "planId": "next_plus", "billingPeriod": "monthly" },
+            { "productId": "com.cmux.app.next_pro.monthly", "planId": "next_pro", "billingPeriod": "monthly" },
+            { "productId": "com.cmux.app.next_max.monthly", "planId": "next_max", "billingPeriod": "monthly" }
+          ]
+        }
+        """.utf8)
+        let account = try JSONDecoder().decode(BillingAccount.self, from: json)
+        #expect(account.currentPlan == BillingCurrentPlan(planID: .nextPro, source: .apple))
+        #expect(account.products.map(\.planID) == [.nextPlus, .nextPro, .nextMax])
+        let allNext = account.products.allSatisfy { $0.planID.isNext }
+        #expect(allNext)
+        #expect(!BillingPlanID.pro.isNext)
+        #expect(BillingPlanID.nextPlus < .nextPro && BillingPlanID.nextPro < .nextMax)
+>>>>>>> origin/main
     }
 
     @Test func decodesIneligibleResponseWithoutProducts() throws {

@@ -35,10 +35,17 @@ extension ConversationViewController {
         if offset > threshold, velocity > 0, !replyHapticFired {
             replyHapticFired = true
             cell.replyIndicator.pulse(isOutgoing: model.isOutgoing) {
+<<<<<<< HEAD
                 ConversationHaptics.impact(.soft)
             }
         } else if replyHapticFired, offset < threshold, velocity < 0 {
             ConversationHaptics.impact(.soft)
+=======
+                UIImpactFeedbackGenerator(style: .soft).impactOccurred()
+            }
+        } else if replyHapticFired, offset < threshold, velocity < 0 {
+            UIImpactFeedbackGenerator(style: .soft).impactOccurred()
+>>>>>>> origin/main
             replyHapticFired = false
         }
     }
@@ -58,7 +65,11 @@ extension ConversationViewController {
         if commit, case let .message(model)? = row(for: rowID) {
             enterReplyMode(for: model.message, dragOffset: releasedAt)
         }
+<<<<<<< HEAD
         UIView.animateUnlessReduceMotion(withDuration: ConversationReplyMotion.bubbleResetDuration, delay: 0, options: [.curveEaseOut, .beginFromCurrentState, .allowUserInteraction]) {
+=======
+        UIView.animate(withDuration: ConversationReplyMotion.bubbleResetDuration, delay: 0, options: [.curveEaseOut, .beginFromCurrentState, .allowUserInteraction]) {
+>>>>>>> origin/main
             cell?.replyDrag = 0
         }
     }

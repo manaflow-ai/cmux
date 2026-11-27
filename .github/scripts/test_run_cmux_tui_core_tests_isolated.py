@@ -5,6 +5,10 @@ from __future__ import annotations
 
 import importlib.util
 import json
+<<<<<<< HEAD
+=======
+import os
+>>>>>>> origin/main
 from pathlib import Path
 import subprocess
 import sys
@@ -61,18 +65,31 @@ class InventoryTests(unittest.TestCase):
             self.assertEqual(MODULE.tests_in(Path("empty"), ignored=True), [])
 
 
+<<<<<<< HEAD
 def write_fake_core(root: Path, red: set[str], a_exit: str = "exit 101") -> tuple[Path, Path]:
     """A fake cmux-tui-core library test binary and the cargo messages that name it.
 
     The binary lists `a_red_test` and `b_green_test`, ends each name in RED with A_EXIT
     (a shell command, `exit 101` by default), and records every test it runs in
     `ran.log`. Returns (messages, core_root).
+=======
+
+def write_fake_core(root: Path, red: set[str]) -> tuple[Path, Path]:
+    """A fake cmux-tui-core library test binary and the cargo messages that name it.
+
+    The binary lists `a_red_test` and `b_green_test`, exits 101 for each name in RED,
+    and records every test it runs in `ran.log`. Returns (messages, core_root).
+>>>>>>> origin/main
     """
     core_root = root / "crates" / "cmux-tui-core"
     (core_root / "src").mkdir(parents=True)
     ran = root / "ran.log"
     binary = root / "cmux_tui_core-fake"
+<<<<<<< HEAD
     red_cases = "".join(f"  {name}) echo \"test {name} ... FAILED\"; {a_exit} ;;\n" for name in sorted(red))
+=======
+    red_cases = "".join(f"  {name}) echo \"test {name} ... FAILED\"; exit 101 ;;\n" for name in sorted(red))
+>>>>>>> origin/main
     binary.write_text(
         "#!/usr/bin/env bash\n"
         'if [ "$1" = --list ]; then\n'
@@ -101,6 +118,7 @@ def write_fake_core(root: Path, red: set[str], a_exit: str = "exit 101") -> tupl
     return messages, core_root
 
 
+<<<<<<< HEAD
 def die_by(signal_name: str) -> str:
     """A fake-test shell command that ends the test process by SIG<SIGNAL_NAME>.
 
@@ -116,11 +134,22 @@ class RunAllTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
             messages, core_root = write_fake_core(root, red, a_exit)
+=======
+class RunAllTests(unittest.TestCase):
+    def run_runner(self, red: set[str]) -> tuple[int, str, list[str]]:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            messages, core_root = write_fake_core(root, red)
+>>>>>>> origin/main
             result = subprocess.run(
                 [sys.executable, str(SCRIPT), str(messages), str(core_root)],
                 check=False,
                 capture_output=True,
                 text=True,
+<<<<<<< HEAD
+=======
+                env={**os.environ, "CMUX_TEST_DEADLINE_SECONDS": "60"},
+>>>>>>> origin/main
             )
             ran_log = root / "ran.log"
             ran = ran_log.read_text(encoding="utf-8").split() if ran_log.exists() else []
@@ -133,6 +162,7 @@ class RunAllTests(unittest.TestCase):
         self.assertNotEqual(code, 0, output)
         self.assertIn("a_red_test", output)
 
+<<<<<<< HEAD
     def test_a_cancelled_core_test_stops_the_run(self) -> None:
         # Exit 129, 130 or 143 is a hangup, an interrupt or a terminate (a cancelled job):
         # the next test must not start, and the runner must still fail.
@@ -157,11 +187,16 @@ class RunAllTests(unittest.TestCase):
         self.assertEqual(ran, ["a_red_test", "b_green_test"], output)
         self.assertEqual(code, 134, output)
 
+=======
+>>>>>>> origin/main
     def test_a_green_core_passes(self) -> None:
         code, output, ran = self.run_runner(set())
         self.assertEqual(ran, ["a_red_test", "b_green_test"], output)
         self.assertEqual(code, 0, output)
 
+<<<<<<< HEAD
 
+=======
+>>>>>>> origin/main
 if __name__ == "__main__":
     unittest.main()

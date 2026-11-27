@@ -6,14 +6,22 @@ A mini's glaeda runner slots run as one user, so every `swift build` there share
 second fails with "failed downloading '<url>' ... already exists in file system" (cmux#43892's daemon test,
 2026-11-15). scripts/ci/swiftpm_prefetch_binary_artifacts.py seeds the cache first, under one host lock,
 with atomic renames. This checks the seed (macOS cache path, one download for jobs seeding together, a good
+<<<<<<< HEAD
 cache entry left in place) and that every owned-Mac step that keeps SwiftPM builds also seeds.
+=======
+cache entry left in place). On main the one owned-Mac SwiftPM caller is fast-checks.yml's checks-mac job,
+which tests/test_ci_fast_checks_swiftpm_artifacts.py checks.
+>>>>>>> origin/main
 """
 from __future__ import annotations
 
 import hashlib
 import importlib.util
 import os
+<<<<<<< HEAD
 import re
+=======
+>>>>>>> origin/main
 import sys
 import tempfile
 import threading
@@ -32,8 +40,11 @@ URL = "https://github.com/getsentry/sentry-cocoa/releases/download/9.28.0/Sentry
 BODY = b"zip bytes" * 1000
 CHECKSUM = hashlib.sha256(BODY).hexdigest()
 # Workflows whose owned-Mac (glaeda) jobs build Swift packages with binary targets.
+<<<<<<< HEAD
 SEEDING_WORKFLOWS = (".github/workflows/cmux-next.yml", ".github/workflows/test-ios.yml")
 KEEP_STEP = re.compile(r"owned_spm_scratch\.py (link|lease) ")
+=======
+>>>>>>> origin/main
 
 
 class SeedsTheSharedCache(unittest.TestCase):
@@ -128,6 +139,7 @@ class SeedsTheSharedCache(unittest.TestCase):
             self.assertEqual(passed_at, [1, 1, 1], "it retried each second for the whole wait, then went on without")
 
 
+<<<<<<< HEAD
 class EveryOwnedMacKeepStepSeeds(unittest.TestCase):
     def test_keep_steps_seed_the_artifact_cache(self) -> None:
         found = 0
@@ -215,5 +227,7 @@ class ReloadSeedsBeforeXcodebuild(unittest.TestCase):
         self.assertLess(seed, text.index("XCODEBUILD_STARTED=1"))
 
 
+=======
+>>>>>>> origin/main
 if __name__ == "__main__":
     unittest.main()

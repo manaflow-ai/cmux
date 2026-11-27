@@ -75,17 +75,28 @@ def emit(record: dict) -> None:
             pass
 
 
+<<<<<<< HEAD
 ACTORS = {"infra": "retry", "mechanical": "fixer", "real": "agent", "soft": "softfail", "teammate": "teammate"}  # class (or fallthrough) -> act_<name>.py
 
 
 def load_actor(cls: str, actors_dir: Path = HERE, attr: str = "act"):
+=======
+ACTORS = {"infra": "retry", "mechanical": "fixer", "real": "agent", "soft": "softfail"}  # class -> act_<name>.py
+
+
+def load_actor(cls: str, actors_dir: Path = HERE):
+>>>>>>> origin/main
     path = Path(actors_dir) / f"act_{ACTORS.get(cls, cls)}.py"
     if not path.is_file():
         return None
     spec = importlib.util.spec_from_file_location(f"ci_oops_act_{cls}", path)
     mod = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(mod)
+<<<<<<< HEAD
     return getattr(mod, attr, None)
+=======
+    return getattr(mod, "act", None)
+>>>>>>> origin/main
 
 
 def act(verdict: dict, ctx: dict, dry_run: bool, actors_dir: Path = HERE) -> dict:
@@ -149,6 +160,7 @@ def load_authors():
     return None
 
 
+<<<<<<< HEAD
 BASE_RED_STATE = os.environ.get("CI_OOPS_BASE_RED_STATE")  # a pulled reconciler-state/base-red-watch folder
 
 
@@ -177,6 +189,8 @@ def base_red_of(ctx: dict, base: dict | None) -> tuple[bool | None, str]:
     return True, f"{key} red on base {str(hit.get('sha') or '')[:10]} {hit.get('url') or ''}".strip()
 
 
+=======
+>>>>>>> origin/main
 def run_contexts(repo: str, run_id: int, attempt: int | None = None, get_json=gh_json, get_text=gh_text) -> tuple[dict, list[dict]]:
     """The run and one ctx per failed job of ATTEMPT (default the run's latest), each with its log's tail."""
     run = get_json(f"repos/{repo}/actions/runs/{run_id}")
@@ -185,7 +199,10 @@ def run_contexts(repo: str, run_id: int, attempt: int | None = None, get_json=gh
     prs = run.get("pull_requests") or []
     pr = prs[0] if prs else {}
     authors = load_authors()
+<<<<<<< HEAD
     base = base_reds()
+=======
+>>>>>>> origin/main
     author = (run.get("actor") or {}).get("login")
     out = []
     for job in jobs:
@@ -212,7 +229,10 @@ def run_contexts(repo: str, run_id: int, attempt: int | None = None, get_json=gh
                "steps": [{"name": s.get("name"), "conclusion": s.get("conclusion"), "number": s.get("number")}
                          for s in job.get("steps") or []],
                "red_at": job.get("completed_at"), "log_tail": "\n".join(log.splitlines()[-core.LOG_TAIL_LINES:])}
+<<<<<<< HEAD
         ctx["base_red"], ctx["base_red_why"] = base_red_of(ctx, base)
+=======
+>>>>>>> origin/main
         out.append(ctx)
     return run, out
 
@@ -251,6 +271,7 @@ def act_on_run(repo: str, run_id: int, attempt: int | None, dry_run: bool, rules
             rec["jobs"] = ctx["class_job_names"]
             emit(rec)
             records.append(rec)
+<<<<<<< HEAD
         elif outcome.get("fallthrough") == "teammate":
             # A fix for a teammate's PR (core-team.json) is never pushed: act_teammate (part 2) hands it over as
             # suggestions or a PR onto their branch. The fixer's outcome carries the unified diff as "patch".
@@ -267,6 +288,8 @@ def act_on_run(repo: str, run_id: int, attempt: int | None, dry_run: bool, rules
             rec["jobs"] = ctx["class_job_names"]
             emit(rec)
             records.append(rec)
+=======
+>>>>>>> origin/main
     if not ctxs:
         emit({"v": core.CI_OOPS_VERSION, "repo": repo, "run_id": run_id, "outcome": "skipped",
               "note": "no failed job in this attempt", "at": now_iso()})
@@ -338,6 +361,7 @@ def soft_sweep(repo: str, seen: dict, since: str, max_runs: int, dry_run: bool, 
     return done
 
 
+<<<<<<< HEAD
 def settle_sweep(repo: str, seen: dict, since: str, max_runs: int, dry_run: bool, get_json=gh_json, now=None,
                  actors_dir: Path = HERE) -> int:
     """Green PR runs on lane branches since SINCE go to act_agent.settle (1c): a green at the fix agent's commit is
@@ -370,6 +394,8 @@ def settle_sweep(repo: str, seen: dict, since: str, max_runs: int, dry_run: bool
     return done
 
 
+=======
+>>>>>>> origin/main
 SWEEP_SEEN_KEEP_H = 48
 OUTBOX_SOURCE = "ci-oops"  # tools/fleet-reconcilers/outbox_relay.py SOURCES delivers its tells
 
@@ -407,7 +433,11 @@ def requeue_lands(repo: str, retried: dict, state_dir, get_json=gh_json, now=Non
 
 def sweep(repo: str, state_dir: Path | None, since_min: int, settle_min: int, max_runs: int, dry_run: bool,
           skip_workflows=(), get_json=gh_json, get_text=gh_text, now=None, actors_dir: Path = HERE,
+<<<<<<< HEAD
           soft_runs: int = 0, settle_runs: int = 0) -> dict:
+=======
+          soft_runs: int = 0) -> dict:
+>>>>>>> origin/main
     """The reconciler's pass: every failed run of REPO created in the last SINCE_MIN minutes, finished at least
     SETTLE_MIN ago (its jobs' logs are whole by then; act_retry caps the attempts itself), whose
     workflow is not in SKIP_WORKFLOWS, and whose run_id:attempt is not in STATE_DIR/seen.json, is run through
@@ -475,19 +505,26 @@ def sweep(repo: str, state_dir: Path | None, since_min: int, settle_min: int, ma
             soft = soft_sweep(repo, seen, since, soft_runs, dry_run, get_json, now, actors_dir)
         except Exception as err:  # noqa: BLE001  the listing failed: the next pass reads it again
             print(f"::warning::ci-oops soft sweep {repo}: {err.__class__.__name__}: {err}"[:300], flush=True)
+<<<<<<< HEAD
     settled = 0
     if settle_runs:
         try:
             settled = settle_sweep(repo, seen, since, settle_runs, dry_run, get_json, now, actors_dir)
         except Exception as err:  # noqa: BLE001  the listing failed: the next pass reads it again
             print(f"::warning::ci-oops settle sweep {repo}: {err.__class__.__name__}: {err}"[:300], flush=True)
+=======
+>>>>>>> origin/main
     if seen_path:
         seen_path.parent.mkdir(parents=True, exist_ok=True)
         seen_path.write_text(json.dumps(seen, indent=1, sort_keys=True) + "\n")
         retried_path.write_text(json.dumps(retried, indent=1, sort_keys=True) + "\n")
     summary = {"repo": repo, "listed": len(runs), "picked": len(picked), "acted": len(acted),
+<<<<<<< HEAD
                "deferred": max(0, len(picked) - max_runs), "left": why_not, "lands_requeued": landed, "soft_runs": soft,
                "settled_runs": settled}
+=======
+               "deferred": max(0, len(picked) - max_runs), "left": why_not, "lands_requeued": landed, "soft_runs": soft}
+>>>>>>> origin/main
     print("CI_OOPS_SWEEP=" + json.dumps(summary, sort_keys=True), flush=True)
     return summary
 
@@ -518,7 +555,10 @@ def main(argv=None) -> int:
     p.add_argument("--max-runs", type=int, default=12)
     p.add_argument("--skip-workflow", action="append", default=[])
     p.add_argument("--soft-runs", type=int, default=0, help="green PR runs a pass reads for soft warnings (0b)")
+<<<<<<< HEAD
     p.add_argument("--settle-runs", type=int, default=0, help="green lane PR runs a pass settles for act_agent (1c)")
+=======
+>>>>>>> origin/main
     p.add_argument("--dry-run", action="store_true")
     sub.add_parser("check-rules")
     a = ap.parse_args(argv)
@@ -527,8 +567,12 @@ def main(argv=None) -> int:
         for repo in a.repo:
             try:
                 sweep(repo, Path(a.state) / repo.replace("/", "__") if a.state else None, a.since_min, a.settle_min,
+<<<<<<< HEAD
                       a.max_runs, a.dry_run, a.skip_workflow, soft_runs=a.soft_runs,
                       settle_runs=a.settle_runs)
+=======
+                      a.max_runs, a.dry_run, a.skip_workflow, soft_runs=a.soft_runs)
+>>>>>>> origin/main
             except Exception as err:  # an unreadable listing: logged, never red; the next pass reads it again
                 print(f"::warning::ci-oops sweep {repo}: {err.__class__.__name__}: {err}"[:400], flush=True)
         return 0

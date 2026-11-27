@@ -35,7 +35,9 @@ name: nightly-next rollback
 # keeps a drill run inside that folder and every other run out of it.
 #
 # GitHub registers a dispatch workflow only from the default branch, so this
-# file is on main too; a run there does nothing.
+# file is on main too; a run there does nothing. Its workflow_call trigger is
+# here only so main's copy of nightly-next-rollback-drill.yml, which calls it,
+# is a valid workflow; nightly-next's copy has the drill folder's paths.
 on:
   workflow_call:
     inputs:
@@ -55,8 +57,12 @@ on:
         required: false
         default: false
         type: boolean
+<<<<<<< HEAD
     # Named, never inherited: the caller passes only the feed's R2 token, and every job here
     # that reads it names environment release-next, whose branch policy still bounds it.
+=======
+    # Named, never inherited, as on nightly-next: the caller passes only the feed's R2 token.
+>>>>>>> origin/main
     secrets:
       NIGHTLY_NEXT_R2_ACCESS_KEY_ID:
         required: false
@@ -93,11 +99,20 @@ on:
 
 permissions: {}
 
+<<<<<<< HEAD
 # A drill has a group of its own, so a queued drill never takes the place of a
 # queued real rollback. It differs from the calling drill run's own group, which
 # shares github.run_id, so the call never waits on its caller.
 concurrency:
   group: ${{ inputs.drill && format('nightly-next-rollback-drill-call-{0}', github.run_id) || 'nightly-next-rollback' }}
+=======
+# One group per run: a shared group let a newer request replace a waiting one,
+# so a pulled build could stay on the feed. Two rollbacks never overwrite each
+# other: the feed write is a compare-and-swap on the bytes the plan read
+# (--replace-sha256), and the loser writes nothing and says to run again.
+concurrency:
+  group: nightly-next-rollback-${{ github.run_id }}
+>>>>>>> origin/main
   cancel-in-progress: false
 
 env:
@@ -123,7 +138,11 @@ jobs:
     permissions:
       contents: read
     # A literal ephemeral label: this job holds the feed's write token.
+<<<<<<< HEAD
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name != 'pull_request' && github.event_name != 'pull_request_target' && github.event_name != 'merge_group' && github.run_attempt == 1 && 'cmux-gcp-nightly-jit-x64' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || 'cmux-linux' }}
+=======
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.run_attempt == 1 && 'cmux-gcp-nightly-jit-x64' || 'blacksmith-4vcpu-ubuntu-2404' }}
+>>>>>>> origin/main
     timeout-minutes: 10
     outputs:
       changed: ${{ steps.plan.outputs.changed }}

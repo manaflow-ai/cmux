@@ -188,13 +188,21 @@ async function afterSignInMessages(request: NextRequest): Promise<LocalizedAfter
   };
 }
 
+/**
+ * The "Signed in to cmux" page with a button that hands `href` to the app.
+ * `autoOpen` (a verified handoff only) also opens it without a click. The
+ * page stays either way, so a browser that refuses or quietly takes the
+ * launch never leaves the person on a spinner with nothing to click.
+ */
 function nativeReturnResponse(
   request: NextRequest,
   href: string,
   localized: LocalizedAfterSignInMessages,
-  switchAccountHref: string | null
+  switchAccountHref: string | null,
+  { autoOpen = false }: { autoOpen?: boolean } = {}
 ): NextResponse {
   const { locale, messages } = localized;
+<<<<<<< ours
   // The one "signed in, back to cmux" page (app/connected), in cmux's own look. It never
   // opens `href` by itself: that link carries the session and waits for the person's click.
   const html = renderConnectedPage({
@@ -218,11 +226,108 @@ function nativeReturnResponse(
       "Cache-Control": "no-store",
     },
   });
+=======
+  const escapedHref = escapeHtml(href);
+  const autoOpenTag = autoOpen
+    ? `  <meta http-equiv="refresh" content="0;url=${escapedHref}">\n`
+    : "";
+  const switchAccountAction = switchAccountHref
+    ? `      <a class="secondary" href="${escapeHtml(switchAccountHref)}">${escapeHtml(messages.switchAccountButton)}</a>\n`
+    : "";
+  const escapedTitle = escapeHtml(messages.title);
+  const escapedBody = escapeHtml(messages.body);
+  const escapedButton = escapeHtml(messages.button);
+  const response = new NextResponse(
+    `<!doctype html>
+<html lang="${escapeHtml(locale)}">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>${escapedTitle}</title>
+${autoOpenTag}  <style>
+    body {
+      align-items: center;
+      background: #fff;
+      color: #111;
+      display: flex;
+      font-family: system-ui, -apple-system, BlinkMacSystemFont, sans-serif;
+      justify-content: center;
+      margin: 0;
+      min-height: 100vh;
+      padding: 24px;
+    }
+    main {
+      max-width: 440px;
+      text-align: center;
+    }
+    h1 {
+      font-size: 24px;
+      font-weight: 600;
+      margin: 0 0 12px;
+    }
+    p {
+      color: #555;
+      line-height: 1.5;
+      margin: 0 0 24px;
+    }
+    .actions {
+      align-items: center;
+      display: flex;
+      flex-direction: column;
+      gap: 12px;
+    }
+    a {
+      border-radius: 8px;
+      display: inline-block;
+      font-size: 14px;
+      font-weight: 500;
+      padding: 10px 18px;
+      text-decoration: none;
+    }
+    a.primary {
+      background: #111;
+      color: #fff;
+    }
+    a.secondary {
+      color: #555;
+    }
+  </style>
+</head>
+<body>
+  <main>
+    <h1>${escapedTitle}</h1>
+    <p>${escapedBody}</p>
+    <div class="actions">
+      <a class="primary" href="${escapedHref}">${escapedButton}</a>
+${switchAccountAction}    </div>
+  </main>
+</body>
+</html>`,
+    {
+      headers: {
+        "Content-Type": "text/html; charset=utf-8",
+        "Cache-Control": "no-store",
+      },
+    }
+  );
+  return response;
+>>>>>>> theirs
 }
 
-function nativeRedirectResponse(request: NextRequest, href: string): NextResponse {
-  const response = NextResponse.redirect(href);
-  response.headers.set("Cache-Control", "no-store");
+/**
+ * A verified handoff: the page that opens the app at once. Not a bare
+ * redirect to the app's scheme: the browser stays on the page that started a
+ * redirect like that, so the sign-in page kept spinning when the launch was
+ * refused (Chrome refuses one with no fresh user gesture, as after an OAuth
+ * return) or went to the app quietly
+ * (https://github.com/manaflow-ai/cmux/issues/49412).
+ */
+function verifiedNativeReturnResponse(
+  request: NextRequest,
+  href: string,
+  localizedMessages: LocalizedAfterSignInMessages,
+): NextResponse {
+  const response = nativeReturnResponse(href, localizedMessages, switchAccountHref(request), { autoOpen: true });
   clearNativeHandoffCookie(response, request);
   return response;
 }
@@ -440,12 +545,12 @@ function nativeReturnFlow(
   const trustedPurchaseReturnTo = verifiedAppPricingNativeReturnTo(request.nextUrl);
   if (
     trustedPurchaseReturnTo === nativeReturnTo ||
-    isAllowedNativeReturnTo(nativeReturnTo, request)
+    isAllowedNativeReturnTo(nativeReturnTo)
   ) {
     const href = buildNativeHref(nativeReturnTo, refreshToken, accessCookie);
     if (href) {
       if (verifiedNativeHandoff(request, stackCookies, nativeReturnTo)) {
-        return nativeRedirectResponse(request, href);
+        return verifiedNativeReturnResponse(request, href, localizedMessages);
       }
       return nativeReturnResponse(request, href, localizedMessages, switchAccountHref(request));
     }
@@ -490,11 +595,18 @@ export function makeAfterSignInHandler(dependencies: AfterSignInHandlerDependenc
       return NextResponse.redirect(new URL(afterAuth, requestOrigin(request)));
     }
 
+<<<<<<< ours
     if (refreshToken && accessCookie) {
       const fallback = buildNativeHref(null, refreshToken, accessCookie);
       if (fallback) return nativeReturnResponse(request, fallback, localizedMessages, switchAccountHref(request));
     }
 
+=======
+    // No app asked for this sign-in (every app passes native_app_return_to):
+    // it was a website sign-in, so stay on the website. Handing the browser's
+    // session to whatever app owns cmux:// signed that app in to this
+    // browser's account without anyone asking.
+>>>>>>> theirs
     return NextResponse.redirect(new URL("/", requestOrigin(request)));
   };
 }

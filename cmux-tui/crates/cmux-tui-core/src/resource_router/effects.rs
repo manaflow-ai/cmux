@@ -108,7 +108,31 @@ fn resolve_preparation(
             let intent = mux
                 .mark_resource_effect_executing(idempotency_key, &operation, &fingerprint)
                 .map_err(resource_operation_error)?;
+<<<<<<< ours
             start_execution(mux, idempotency_key, operation, fingerprint, request_fields, intent)
+=======
+            if sensitive_input_operation(&operation)
+                && restore_runtime_fields(&mut intent, &operation, request_fields).is_err()
+            {
+                report_indeterminate_cause(
+                    mux,
+                    idempotency_key,
+                    &operation,
+                    "the stored input could not be restored",
+                );
+                let _ = mux.mark_resource_effect_indeterminate(idempotency_key);
+                return Ok(EffectPreparation::Complete(Err(indeterminate_error(
+                    idempotency_key,
+                    &operation,
+                ))));
+            }
+            Ok(EffectPreparation::Execute(PreparedEffect {
+                idempotency_key: idempotency_key.to_string(),
+                operation,
+                fingerprint,
+                intent,
+            }))
+>>>>>>> theirs
         }
     }
 }

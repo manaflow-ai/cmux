@@ -647,6 +647,7 @@ replacement, and the exit sidecar preserves the final process outcome, but the
 host does not currently retain an acknowledged raw-output spool. Bytes emitted
 while no daemon tap exists can therefore be recovered visually from a snapshot
 but cannot be reconstructed as exact historical `terminal.output` records.
+<<<<<<< HEAD
 After the mux applies such a reconnect snapshot (also after a live host's
 `ResyncRequired`), and before it accepts output from the new live boundary, it
 appends a required `terminal.output.gap` record with reason `host_reconnect` to
@@ -664,6 +665,18 @@ was lost with its host and that the owner respawns under the same terminal id
 the start of its new generation, because output the lost host had read but
 not delivered is not in the journal. Consumers must not claim byte-exact output history
 across an unplanned no-tap interval until a durable host spool exists.
+=======
+After the mux applies such a reconnect snapshot, and before it accepts output
+from the new live boundary, it appends a required `terminal.output.gap` record
+with reason `host_reconnect` to that terminal's journal lane. This is O(1) per
+reconnect, so the mux reads the new stream at once. A journal retention worker
+then commits one checkpoint that covers every terminal that reconnected since
+the last one: at most one per 30 s interval, after a reconnect wave settles for
+one second (terminals that ended are skipped). A restore from an older
+checkpoint reports the gap as unsupported until that checkpoint exists.
+Consumers must not claim byte-exact output history across an unplanned no-tap
+interval until a durable host spool exists.
+>>>>>>> origin/main
 
 ## Version compatibility
 

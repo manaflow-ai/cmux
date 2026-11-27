@@ -9,6 +9,7 @@ import {
   featureWorkflowContentLocales,
   managedPoliciesDocsLocales,
   remoteTmuxDocsLocales,
+  mainThreadDocsLocales,
 } from "../../../i18n/locale-availability";
 
 /**
@@ -192,6 +193,7 @@ export const navItems: NavEntry[] = [
       },
     ],
   },
+<<<<<<< ours
   {
     sectionKey: "nextSection",
     children: [
@@ -224,5 +226,45 @@ export const navItems: NavEntry[] = [
       { titleKey: "nextNetwork", href: "/docs/next/network-requirements", locales: baseDocsLocales },
     ],
   },
+=======
+  {
+    sectionKey: "nextSection",
+    children: [
+      { titleKey: "nextGettingStarted", href: "/docs/next", locales: baseDocsLocales },
+      { titleKey: "nextStart", href: "/docs/next/start", locales: baseDocsLocales },
+      { titleKey: "nextUpdates", href: "/docs/next/updates", locales: baseDocsLocales },
+      { titleKey: "nextHome", href: "/docs/next/home-and-chief", locales: baseDocsLocales },
+      { titleKey: "nextAgents", href: "/docs/next/agents", locales: baseDocsLocales },
+      { titleKey: "nextOwnKeys", href: "/docs/next/own-keys", locales: baseDocsLocales },
+      { titleKey: "nextAgentSpend", href: "/docs/next/agent-spend", locales: baseDocsLocales },
+      { titleKey: "nextOpenModels", href: "/docs/next/open-models", locales: baseDocsLocales },
+      { titleKey: "nextWorkspaces", href: "/docs/next/workspaces", locales: baseDocsLocales },
+      { titleKey: "nextSpaces", href: "/docs/next/spaces", locales: baseDocsLocales },
+      { titleKey: "nextPalette", href: "/docs/next/command-palette", locales: baseDocsLocales },
+      { titleKey: "nextBrowser", href: "/docs/next/browser", locales: baseDocsLocales },
+      { titleKey: "nextMarkdown", href: "/docs/next/markdown", locales: baseDocsLocales },
+      { titleKey: "nextRemote", href: "/docs/next/remote", locales: baseDocsLocales },
+      { titleKey: "nextServer", href: "/docs/next/server", locales: baseDocsLocales },
+      { titleKey: "nextCloud", href: "/docs/next/cloud", locales: baseDocsLocales },
+      { titleKey: "nextPlans", href: "/docs/next/plans", locales: baseDocsLocales },
+      { titleKey: "nextShortcuts", href: "/docs/next/keyboard-shortcuts", locales: baseDocsLocales },
+      { titleKey: "nextCli", href: "/docs/next/cli", locales: baseDocsLocales },
+      { titleKey: "nextMcp", href: "/docs/next/mcp", locales: baseDocsLocales },
+      { titleKey: "nextSettings", href: "/docs/next/settings", locales: baseDocsLocales },
+      { titleKey: "nextArchitecture", href: "/docs/next/architecture", locales: baseDocsLocales },
+    ],
+  },
+  {
+    sectionKey: "engineeringSection",
+    children: [
+      {
+        titleKey: "mainThread",
+        href: "/docs/main-thread",
+        locales: mainThreadDocsLocales,
+        contentLocales: mainThreadDocsLocales,
+      },
+    ],
+  },
+>>>>>>> theirs
   { titleKey: "changelog", href: "/docs/changelog" },
 ];

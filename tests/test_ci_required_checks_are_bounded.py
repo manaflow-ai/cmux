@@ -106,6 +106,34 @@ def context_of(job_id: str, job: dict, path: Path, workflow: dict) -> str:
                     return str(resolve(name, pr_context(workflow, event, 101, 1)))
         except (ExpressionError, KeyError, IndexError, TypeError, ValueError):
             return name
+<<<<<<< HEAD
+=======
+        return REQUIRED_CHECK
+    if path.name == "cla-policy-guard.yml" and job_id == "validate":
+        from test_cla_guard_metadata_routing import (
+            REQUIRED_CHECK as CLA_REQUIRED_CHECK,
+            validate_metadata_routing as validate_cla_metadata_routing,
+        )
+        try:
+            validate_cla_metadata_routing(workflow)
+        except (AssertionError, KeyError, TypeError) as error:
+            if "${{" in str(name) or "if" in job:
+                raise ValueError("CLA metadata route violates its condition/name contract") from error
+        else:
+            return CLA_REQUIRED_CHECK
+    if isinstance(name, str) and "${{" in name:
+        # A name that differs only on an ignored edit or label (backend-migrations' gate) is the check's
+        # name on a push, as on feat-cmux-next. Unknown expressions stay unmatched rather than silently
+        # drop coverage.
+        from test_ci_pr_runs_cancel_superseded import ExpressionError, pr_context, resolve
+
+        try:
+            for event in ("pull_request_target", "pull_request"):
+                if event in (workflow.get("on", workflow.get(True)) or {}):
+                    return str(resolve(name, pr_context(workflow, event, 101, 1)))
+        except (ExpressionError, KeyError, IndexError, TypeError, ValueError):
+            return name
+>>>>>>> origin/main
     return name
 
 

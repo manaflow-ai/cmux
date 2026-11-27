@@ -50,7 +50,10 @@ extension HomeStore {
         }
         uploads[key]?.waitingForReconnect = false
         leaveSendQueue(key)
+<<<<<<< HEAD
         holdSendChain(after: key)
+=======
+>>>>>>> origin/main
         afterLogChange(entry.intent.op)
         if case .sendMessage = entry.intent.op {} else { reportUnanswered(entry.intent) }
     }

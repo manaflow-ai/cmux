@@ -1,10 +1,14 @@
 // Hand-written cmux-next docs pages (plans/cmux-next/docs-DESIGN.md). The CLI
 // and settings reference pages are generated; see scripts/export-next-docs.ts.
 // Keep these short and plain. Every command named here must exist in the
+<<<<<<< ours
 // action catalog, and every repository path a `files` block names must exist;
 // tests/next-docs.test.ts checks both.
 
 import { pinnedInstallCommand } from "../../app/lib/install-static-pin";
+=======
+// action catalog; tests/next-docs.test.ts checks that.
+>>>>>>> theirs
 
 export type DocBlock =
   | { h2: string }
@@ -14,8 +18,11 @@ export type DocBlock =
   | { ol: string[] }
   | { code: string; lang?: string }
   | { note: string }
+<<<<<<< ours
   /** A drawn figure; `caption` is its text for readers, search, and the .md variant. */
   | { diagram: "architecture"; caption: string }
+=======
+>>>>>>> theirs
   /** Places in the repository, each linked to its source; a test checks each path exists and is that kind. */
   | { files: { path: string; kind: "file" | "folder"; what: string }[] };
 
@@ -68,7 +75,11 @@ export const nextDocPages: NextDocPage[] = [
       ] },
       { h2: "Next" },
     ],
+<<<<<<< ours
     links: ["start", "home-and-chief", "workspaces", "command-palette", "cli", "architecture"],
+=======
+    links: ["start", "home-and-chief", "workspaces", "command-palette", "cli"],
+>>>>>>> theirs
   },
   {
     slug: "start",
@@ -79,8 +90,13 @@ export const nextDocPages: NextDocPage[] = [
       { p: "This page takes you from nothing to an agent that works for you on a cmux Cloud machine. Pick the way in that fits you. Each one ends at the same place: a chat that replies, on a machine that keeps going after you close the lid." },
       { note: "cmux-next is in preview. The app needs a Mac today. A Cloud machine costs money while it runs and stops costing when you pause or delete it; Plans and credits says how billing works." },
       { h2: "Point an agent at this page" },
+<<<<<<< ours
       { p: "The shortest way in. Paste this one line into Claude Code, Codex or any coding agent on your Mac, opened on the folder you want to work on. The link is this page as plain Markdown, in the cmux repository, so any agent can read it without signing in. The agent reads it and does the rest. It stops only for what you must do yourself: the browser sign-ins and the card that allows a paid machine." },
       { code: "Set me up with cmux Cloud: https://raw.githubusercontent.com/manaflow-ai/cmux/feat-cmux-next/docs/cmux-next/start.md (follow its \"If you are an agent\" steps on this Mac, and tell me only what I must do myself)", lang: "text" },
+=======
+      { p: "The shortest way in. Paste this one line into Claude Code, Codex or any coding agent on your Mac, opened on the folder you want to work on. The agent reads this page and does the rest. It stops only for what you must do yourself: the browser sign-ins and the card that allows a paid machine." },
+      { code: "Read https://cmux.com/docs/nightly/next/start.md and follow its \"If you are an agent\" steps to set up cmux on this Mac and get me a working agent on cmux Cloud. Tell me only what I must do myself.", lang: "text" },
+>>>>>>> theirs
       { h2: "If you are an agent" },
       { p: "A person asked you to set up cmux and cmux Cloud for them. Do these steps in order, on their Mac, in the folder they started you in." },
       { ol: [
@@ -113,7 +129,11 @@ export const nextDocPages: NextDocPage[] = [
       { code: "Start me a chat on cmux Cloud and show me it works: run `cmux whoami`; if I am signed out, run `cmux login` and wait while I finish it in the browser. Then run `cmux chat --on vm --harness HARNESS --prompt 'Say hello in one sentence.' --wait --json` (HARNESS is claude or codex) and show me its reply, then `cmux chat send SESSION_ID 'Say it once more, shorter.' --wait` with the answer's session_id. If a start is refused for a model connection, run `cmux cloud connections`: when none of them serves Cloud, open `cmux://settings/cloud/claude` (Settings > Cloud; `/cloud/chatgpt` or `/cloud/api-key` for those), or connect from here with `cmux cloud connect claude` (I open its link and paste the code back) or `cmux cloud connect chatgpt` (I open its link in a browser on this Mac); not `cmux accounts`, which is CodeRouter. Then start again. If it is refused for a Cloud plan or GitHub, tell me the one card or Settings page that fixes it and run it again once I have. Tell me how long each step took, and that `cmux vm pause NAME` or `cmux vm rm NAME --yes` stops the machine.", lang: "text" },
       { h2: "From your phone" },
       { p: "Open the chats on your Mac from an iPhone, Cloud chats included, and keep them going: read the history, send a message, stop a turn. The phone reaches them through your Mac, so the Mac stays on and signed in. The iPhone app is in beta. Paste this into Chief or any agent chat in cmux on your Mac." },
+<<<<<<< ours
       { code: "Set up the cmux iPhone app with this Mac and get me to a working agent on it: run `cmux settings get mobile.allowIPhoneConnections` and `cmux cloud open-mobile-pairing` (it opens Settings > Accounts > iPhone). iPhone connections are on by default; if they are off, tell me to turn them on there (only I can). Then tell me to install cmux on my iPhone and sign in there with the same cmux account: this Mac shows up on the phone by itself, and I allow the phone on this Mac when it asks. When I say the phone is paired, run `cmux chat --on vm --harness claude --prompt 'Say hello in one sentence.' --wait --json`, show me its reply, and tell me to open that chat on the phone and send it one message. Then read the chat and show me the agent's answer to what I sent.", lang: "text" },
+=======
+      { code: "Set up the cmux iPhone app with this Mac and get me to a working agent on it: run `cmux settings get mobile.allowIPhoneConnections` and `cmux cloud open-mobile-pairing`. If iPhone connections are off, tell me to turn them on there (only I can). Then tell me to install cmux on my iPhone, sign in there with the same cmux account, and allow the phone on this Mac when it asks. When I say the phone is paired, run `cmux chat --on vm --harness claude --prompt 'Say hello in one sentence.' --wait --json`, show me its reply, and tell me to open that chat on the phone and send it one message. Then read the chat and show me the agent's answer to what I sent.", lang: "text" },
+>>>>>>> theirs
       { p: "The phone is working when the message you sent from it gets an answer in that chat." },
       { h2: "Keep going" },
       { ul: [
@@ -125,6 +145,7 @@ export const nextDocPages: NextDocPage[] = [
     links: ["getting-started", "cloud", "home-and-chief", "plans"],
   },
   {
+<<<<<<< ours
     slug: "architecture",
     navKey: "nextArchitecture",
     title: "How cmux NEXT fits together",
@@ -174,6 +195,8 @@ export const nextDocPages: NextDocPage[] = [
     links: ["acpmux", "agents", "machines", "remote", "cloud", "vault", "mcp", "updates"],
   },
   {
+=======
+>>>>>>> theirs
     slug: "updates",
     navKey: "nextUpdates",
     title: "Install, update, and nightly",
@@ -226,6 +249,7 @@ export const nextDocPages: NextDocPage[] = [
       { h2: "Subagents" },
       { p: "A subagent is an agent another agent started. It gets its own workspace and chat, so you can open it, read it, and stop it like any other." },
     ],
+<<<<<<< ours
     links: ["acpmux", "own-keys", "open-models", "agent-spend"],
   },
   {
@@ -251,6 +275,9 @@ export const nextDocPages: NextDocPage[] = [
       { files: [{ path: "cmux-tui/crates/acpmux", kind: "folder", what: "The agent daemon and its CLI" }, { path: "cmux-tui/crates/acpmux/docs/cli-sessions.md", kind: "file", what: "Every session command" }, { path: "cmux-tui/crates/acpmux/docs/cli-harnesses.md", kind: "file", what: "Harness profiles and how to add one" }, { path: "cmux-tui/crates/acpmux/docs/cli-hosts.md", kind: "file", what: "Machine commands" }, { path: "cmux-tui/crates/acpmux/harnesses", kind: "folder", what: "The harness profiles cmux ships" }, { path: "cmux-tui/crates/acpmux/src/mesh.rs", kind: "file", what: "Messages between sessions through the team hub" }] },
     ],
     links: ["architecture", "agents", "agent-spend", "own-keys", "machines"],
+=======
+    links: ["own-keys", "open-models", "agent-spend"],
+>>>>>>> theirs
   },
   {
     slug: "own-keys",
@@ -472,6 +499,7 @@ export const nextDocPages: NextDocPage[] = [
       { code: "cmux cloud open-browser --target machine:<id> --port 3000\ncmux cloud machine-link --target machine:<id> --port 3000\ncmux cloud port-forward --target machine:<id> --port 3000\ncmux cloud port-list --target machine:<id>\ncmux cloud port-close --target machine:<id> --port 3000", lang: "bash" },
       { note: "Running machines do not update themselves. New software reaches new machines first." },
     ],
+<<<<<<< ours
     links: ["machines", "remote", "vault", "plans"],
   },
   {
@@ -526,6 +554,9 @@ export const nextDocPages: NextDocPage[] = [
       { files: [{ path: "cmux-tui/crates/cmux-tui/src/cli/machine_join.rs", kind: "file", what: "cmux machine add: join with a pasted line" }, { path: "cmux-tui/crates/cmux-tui/src/cli/machine_doctor.rs", kind: "file", what: "cmux machine doctor" }, { path: "cmux-tui/crates/cmux-tui/src/devices", kind: "folder", what: "cmux device: every device that can reach yours" }, { path: "cmux-tui/crates/acpmux/src/cli/host_enroll.rs", kind: "file", what: "Add Machine over SSH: reach, install, start, link" }, { path: "cmux-tui/crates/cmux-cloud-start-core/src/machine_config.rs", kind: "file", what: "The .cmux/machine.toml format" }, { path: "cmux-tui/crates/cmux-cloud-machine", kind: "folder", what: "A Cloud machine's record and its pause and resume rules" }] },
     ],
     links: ["remote", "cloud", "vault", "acpmux", "architecture"],
+=======
+    links: ["remote", "plans"],
+>>>>>>> theirs
   },
   {
     slug: "remote",
@@ -575,8 +606,13 @@ export const nextDocPages: NextDocPage[] = [
       ] },
       { p: "The machine must accept your SSH key, and its host key must already be in your known_hosts. A new host key or a password prompt goes to your terminal, as ssh always does. cmux never accepts a host key for you, and it turns off agent, X11 and port forwarding for these commands. Without a terminal (with --yes in a script), ssh never prompts: an unknown host key stops the install." },
       { h2: "Install on this machine" },
+<<<<<<< ours
       { p: "On the Linux box or Mac itself, one line installs cmux and starts the service. It saves the installer in a new private folder, checks it against the SHA-256 the line carries, and runs it only when it matches:" },
       { code: pinnedInstallCommand(" --server"), lang: "bash" },
+=======
+      { p: "On the Linux box or Mac itself, one line installs cmux and starts the service:" },
+      { code: "curl -fsSL https://cmux.com/tui/install.sh | sh -s -- --server", lang: "bash" },
+>>>>>>> theirs
       { p: "To see what it would do first, add --dry-run. To install one exact build, add --commit SHA; --channel stable or --channel nightly picks the latest build of that channel. With cmux already installed, run cmux server install." },
       { p: "The installer checks the download against the SHA-256 in the build's manifest, over HTTPS only. The script is one block that the shell reads to its end before it runs, so a download cut short runs nothing." },
       { h2: "What the service is" },
@@ -691,6 +727,7 @@ export const nextDocPages: NextDocPage[] = [
     links: ["cli"],
   },
   {
+<<<<<<< ours
     slug: "api-versions",
     navKey: "nextApiVersions",
     title: "API versions and the compatibility promise",
@@ -725,6 +762,8 @@ export const nextDocPages: NextDocPage[] = [
     links: ["cli", "mcp", "cloud"],
   },
   {
+=======
+>>>>>>> theirs
     slug: "settings",
     navKey: "nextSettings",
     title: "Settings reference",
@@ -737,6 +776,7 @@ export const nextDocPages: NextDocPage[] = [
     ],
   },
   {
+<<<<<<< ours
     slug: "network-requirements",
     navKey: "nextNetwork",
     title: "Network requirements for the iPhone app",
@@ -777,6 +817,67 @@ export const nextDocPages: NextDocPage[] = [
       { code: "Required:   TCP 443  mobile-api.cmux.dev, api.stack-auth.com, cmux.com\nRecommended: UDP 3478 stun.cloudflare.com\n            UDP 3478, TCP 443  turn.cloudflare.com\n            UDP, any port, between the phone and the Mac", lang: "text" },
     ],
     links: ["remote", "settings"],
+=======
+    slug: "architecture",
+    navKey: "nextArchitecture",
+    title: "Architecture",
+    description: "How cmux-next fits together, and where each part lives in the code.",
+    body: [
+      { p: "cmux-next has three layers: a Swift app for macOS, a Rust core, and web views. The Rust core runs as daemons, so terminals and agents keep running when the app quits, updates, or crashes. Each section below links to the code and to the longer docs next to it." },
+      { h2: "The app" },
+      { p: "The macOS app is a Swift package with one module per feature: terminal, browser, Home, Settings, and so on. It draws windows, panes, and tabs, and draws terminals with libghostty from the ghostty-next fork. Rust code that runs inside the app is linked in as one static library." },
+      { files: [
+        { path: "Packages/macOS/CmuxNext", kind: "folder", what: "The app, one module per feature" },
+        { path: "Packages/macOS/CmuxNext/Sources/CmuxNextTerminal", kind: "folder", what: "Terminal views on libghostty" },
+        { path: "cmux-tui/crates/cmux-app-ffi", kind: "folder", what: "The Rust library inside the app" },
+        { path: "ghostty-next", kind: "folder", what: "The Ghostty fork that renders terminals" },
+        { path: "skills/cmux-architecture/SKILL.md", kind: "file", what: "Layering and package rules for Swift code" },
+      ] },
+      { h2: "The core: cmux-tui" },
+      { p: "cmux-tui is the Rust core and the cmux command. Its daemon keeps the tree of machines, workspaces, panes, tabs, terminals, and browsers, and owns every shell. The app, the CLI, the terminal UI, and remote clients all talk to it over the same socket protocol. A new app build takes over the running daemon, which is why an update keeps your shells and scrollback." },
+      { files: [
+        { path: "cmux-tui", kind: "folder", what: "The Rust workspace: core, CLI, and daemons" },
+        { path: "cmux-tui/crates/cmux-tui", kind: "folder", what: "The cmux command and its daemon" },
+        { path: "cmux-tui/crates/cmux-tui-core", kind: "folder", what: "The workspace tree and the resources in it" },
+        { path: "cmux-tui/spec/resource-api-v2.md", kind: "file", what: "The socket protocol (cmux.protocol/2)" },
+        { path: "cmux-tui/docs", kind: "folder", what: "cmux-tui docs: concepts, remote, protocol" },
+      ] },
+      { h2: "Agents: acpmux" },
+      { p: "acpmux is a daemon that keeps coding agents alive as named sessions: Claude Code, Codex, OpenCode, Pi, and any agent that speaks the Agent Client Protocol (ACP). It records every message, so any number of clients can attach to a session, and it adds up what each turn cost. A chat tab in the app is one of those clients." },
+      { files: [
+        { path: "cmux-tui/crates/acpmux", kind: "folder", what: "The agent daemon and its CLI" },
+        { path: "webviews/src/agent-session/acpmux", kind: "folder", what: "The chat pane, a client of acpmux" },
+      ] },
+      { h2: "Web views" },
+      { p: "Chat, diffs, Markdown, Settings, Home, and the other pages are React, built from one source tree. The app serves each page from its own cmux-page:// origin, and the page talks to the app only over a small bridge. A dev server can feed them to a running app with hot reload." },
+      { files: [
+        { path: "webviews", kind: "folder", what: "The React source and its dev server" },
+        { path: "webviews/src/pages", kind: "folder", what: "Pages the app hosts: Settings, Home, history, and more" },
+      ] },
+      { h2: "One catalog for every action" },
+      { p: "Every action is declared once in a Rust catalog: its title, shortcut, arguments, and where it shows up. The command palette, the menus, the cmux command, and the MCP tools are all built from it, and so are the CLI, palette, and keyboard shortcut pages of these docs. Settings work the same way, from one schema." },
+      { files: [
+        { path: "cmux-tui/crates/cmux-action-catalog", kind: "folder", what: "The action catalog" },
+        { path: "plans/cmux-next/action-surfaces.json", kind: "file", what: "The catalog exported as JSON" },
+        { path: "schemas/settings/settings-schema.json", kind: "file", what: "The settings schema" },
+        { path: "cmux-tui/crates/cmux-tui/src/cli/mcp", kind: "folder", what: "The MCP server (cmux mcp serve)" },
+      ] },
+      { h2: "Other machines" },
+      { p: "A remote machine runs the same cmux-tui and acpmux, so its workspaces and agents work like local ones. Cloud machines are remote machines that cmux sets up for you." },
+      { files: [
+        { path: "cmux-tui/crates/cmux-remote", kind: "folder", what: "The remote runtime: daemon, client, and connection" },
+        { path: "cmux-tui/docs/remote.md", kind: "file", what: "How the remote daemon and clients connect" },
+      ] },
+      { h2: "Design docs" },
+      { p: "Longer docs live next to the code. Design notes for each feature are in plans/cmux-next, and how-to guides for running and building cmux-next are in docs/cmux-next." },
+      { files: [
+        { path: "plans/cmux-next", kind: "folder", what: "Design notes, one per feature" },
+        { path: "docs/cmux-next", kind: "folder", what: "Guides: install, dev builds, hot reload, dotfiles" },
+        { path: "plans/cmux-next/docs-DESIGN.md", kind: "file", what: "How these docs are built" },
+      ] },
+    ],
+    links: ["cli", "mcp", "settings"],
+>>>>>>> theirs
   },
 ];
 

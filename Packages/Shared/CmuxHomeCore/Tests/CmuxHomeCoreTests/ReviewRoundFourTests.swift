@@ -1,3 +1,4 @@
+<<<<<<< HEAD
 #if canImport(CoreGraphics)
 import CoreGraphics
 #endif
@@ -10,6 +11,14 @@ import CmuxHomeCoreTestSupport
 #if canImport(UniformTypeIdentifiers)
 import UniformTypeIdentifiers
 #endif
+=======
+import CoreGraphics
+import Foundation
+import ImageIO
+import Testing
+import CmuxHomeCoreTestSupport
+import UniformTypeIdentifiers
+>>>>>>> origin/main
 @testable import CmuxHomeCore
 
 // Regression tests for the fourth attachment review (minor findings 1, 2, 3 and 6).
@@ -52,11 +61,17 @@ private func makeAnimatedWebPWithLocation() throws -> Data {
     return riff(webPChunk("VP8X", vp8x) + webPChunk("ANIM", anim) + frame + frame + webPChunk("EXIF", exif))
 }
 
+<<<<<<< HEAD
 #if canImport(ImageIO) && canImport(AVFoundation)
 private func frameCount(_ data: Data) -> Int {
     CGImageSourceCreateWithData(data as CFData, nil).map(CGImageSourceGetCount) ?? 0
 }
 #endif
+=======
+private func frameCount(_ data: Data) -> Int {
+    CGImageSourceCreateWithData(data as CFData, nil).map(CGImageSourceGetCount) ?? 0
+}
+>>>>>>> origin/main
 
 @Suite(.timeLimit(.minutes(3))) struct WebPStripTests {
     /// Minor 2: 1 to 7 bytes after the RIFF data are dropped, not refused,
@@ -102,10 +117,15 @@ private func frameCount(_ data: Data) -> Int {
         #expect(webPChunkPayload("ANIM", in: stripped) == webPChunkPayload("ANIM", in: webp))
         #expect(webPChunkPayload("ANMF", in: stripped) == webPChunkPayload("ANMF", in: webp))
         #expect(webPChunkPayload("EXIF", in: stripped) == nil)
+<<<<<<< HEAD
         #if canImport(ImageIO) && canImport(AVFoundation)
         try #require(frameCount(webp) == 2, "ImageIO must read the fixture's two frames")
         #expect(frameCount(stripped) == 2)
         #endif
+=======
+        try #require(frameCount(webp) == 2, "ImageIO must read the fixture's two frames")
+        #expect(frameCount(stripped) == 2)
+>>>>>>> origin/main
     }
 
     /// Minor 3: truncated or malformed input gives nil, never a crash.
@@ -127,7 +147,10 @@ private func frameCount(_ data: Data) -> Int {
         #expect(AttachmentMedia.webPWithoutMetadataChunks(Data(notWebP)) == nil)
     }
 
+<<<<<<< HEAD
 #if canImport(ImageIO) && canImport(AVFoundation)
+=======
+>>>>>>> origin/main
     /// Minor 2 end to end: an animated WebP with location and 3 trailing
     /// bytes is still sent as an animated WebP, without its location.
     @MainActor @Test func anAnimatedWebPWithTrailingBytesStaysAnimated() async throws {
@@ -144,6 +167,7 @@ private func frameCount(_ data: Data) -> Int {
         #expect(try !imageHasLocation(bytes))
         #expect(frameCount(bytes) == 2)
     }
+<<<<<<< HEAD
 #endif
 
 #if canImport(ImageIO) && canImport(AVFoundation)
@@ -171,6 +195,9 @@ private func frameCount(_ data: Data) -> Int {
 #endif
 
 #if canImport(ImageIO) && canImport(AVFoundation)
+=======
+
+>>>>>>> origin/main
     /// Minor 3 end to end: a truncated WebP with location is never sent
     /// with its location (refused, or converted without it).
     @MainActor @Test func aTruncatedWebPNeverSendsItsLocation() async throws {
@@ -184,7 +211,10 @@ private func frameCount(_ data: Data) -> Int {
             #expect(try !imageHasLocation(try Data(contentsOf: prepared.fileURL)))
         }
     }
+<<<<<<< HEAD
 #endif
+=======
+>>>>>>> origin/main
 }
 
 @MainActor

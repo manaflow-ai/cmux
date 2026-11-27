@@ -1,6 +1,9 @@
 #if canImport(UIKit)
 import CmuxConversationCore
+<<<<<<< HEAD
 import CmuxSpinner
+=======
+>>>>>>> origin/main
 import UIKit
 
 /// Rich link balloon, drawn like Messages' RichLinkView: page image on top
@@ -21,7 +24,11 @@ final class ConversationLinkPreviewView: UIView {
     private let thumbnailView = UIImageView()
     private let glyphView = UIImageView(image: UIImage(systemName: "safari.fill"))
     private let chevronView = UIImageView(image: UIImage(systemName: "chevron.right"))
+<<<<<<< HEAD
     private let spinner = CmuxSpinnerView(side: 37)
+=======
+    private let spinner = UIActivityIndicatorView(style: .large)
+>>>>>>> origin/main
 
     private(set) var preview: ConversationLinkPreview?
     private var cardLayout: ConversationLinkCardLayout?
@@ -69,7 +76,11 @@ final class ConversationLinkPreviewView: UIView {
     static let promptText = String(localized: "conversation.link.tapToLoad", defaultValue: "Tap to Load Preview", bundle: .module)
 
     /// The darker top of a Tap to Load card (measured 219/219/222 in light mode).
+<<<<<<< HEAD
     static let promptFill = UIColor.resolving { traits in
+=======
+    static let promptFill = UIColor { traits in
+>>>>>>> origin/main
         traits.userInterfaceStyle == .dark
             ? UIColor(red: 46 / 255, green: 45 / 255, blue: 50 / 255, alpha: 1)
             : UIColor(red: 219 / 255, green: 219 / 255, blue: 222 / 255, alpha: 1)
@@ -194,7 +205,10 @@ final class ConversationLinkPreviewView: UIView {
         let color = UIColor(red: caption.r, green: caption.g, blue: caption.b, alpha: 1)
         Self.tintCache[url] = color
         tint = color
+<<<<<<< HEAD
         // motion: allow crossfade, the Reduce Motion form
+=======
+>>>>>>> origin/main
         UIView.transition(with: self, duration: 0.2, options: [.transitionCrossDissolve, .allowUserInteraction]) {
             self.applyColors()
         }

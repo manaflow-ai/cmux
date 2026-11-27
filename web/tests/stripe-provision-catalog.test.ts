@@ -108,6 +108,7 @@ describe("Stripe catalog provisioning", () => {
 
     expect(result.exitCode).toBe(0);
     const description = (productId: string) => result.calls
+<<<<<<< ours
       .filter((call) => call.args.includes(`https://api.stripe.com/v1/products/${productId}`) && call.args.includes("POST"))
       .flatMap((call) => call.args)
       .find((argument) => argument.startsWith("description="));
@@ -115,6 +116,36 @@ describe("Stripe catalog provisioning", () => {
     expect(description("prod_pro")).toBe("description=Cloud VMs with no count cap, each up to 16 GB RAM and 8 vCPUs, metered beyond the included usage, plus the cmux iOS app.");
     expect(description("prod_max")).toBe("description=Everything in Pro, with Cloud VMs up to 64 GB RAM and 32 vCPUs each, metered beyond the included usage.");
     expect(description("prod_team")).toBe("description=Cloud VMs with no count cap for everyone on the team, metered beyond the included usage, with the team's spending cap as the stop, plus the cmux iOS app and priority support.");
+  });
+
+  test("renames the legacy Starter product to cmux Plus in place", async () => {
+    const result = await runProvision("test", "valid");
+
+    expect(result.exitCode).toBe(0);
+    const renames = result.calls.filter(
+      (call) =>
+        call.args.includes("https://api.stripe.com/v1/products/prod_starter") &&
+        call.args.includes("POST") &&
+        call.args.includes("name=cmux Plus"),
+    );
+    expect(renames).toHaveLength(1);
+    expect(result.calls.some((call) => call.args.includes("POST") && call.args.includes("https://api.stripe.com/v1/products"))).toBe(false);
+  });
+
+  test("leaves an already renamed cmux Plus product alone", async () => {
+    const result = await runProvision("test", "plus-renamed");
+
+    expect(result.exitCode).toBe(0);
+    expect(result.calls.some((call) => call.args.some((argument) => argument.startsWith("name=")))).toBe(false);
+=======
+      .filter((call) => call.args.includes(`https://api.stripe.com/v1/products/${productId}`) && call.args.includes("POST"))
+      .flatMap((call) => call.args)
+      .find((argument) => argument.startsWith("description="));
+    expect(description("prod_starter")).toContain("1 Cloud VM total, including paused machines. Choose 2, 4, or 8 vCPUs with 4, 8, or 16 GiB RAM. Disk up to 128 GiB. No monthly hour cap.");
+    expect(description("prod_pro")).toBe("description=Up to 5 Cloud VMs sharing 20 vCPUs and 40 GB RAM, plus the cmux iOS app.");
+    expect(description("prod_max")).toBe("description=Everything in Pro, with up to 5 Cloud VMs sharing 80 vCPUs and 160 GB RAM.");
+    expect(description("prod_team")).toBe("description=Up to 5 Cloud VMs per paid seat, sharing 20 vCPUs and 40 GB RAM per paid seat across the team, plus the cmux iOS app and priority support.");
+>>>>>>> theirs
   });
 
   test("renames the legacy Starter product to cmux Plus in place", async () => {

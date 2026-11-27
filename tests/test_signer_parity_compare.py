@@ -1,6 +1,7 @@
 """Tests for scripts/ci/signer_parity_compare.py (the codesign/rcodesign payload compare)."""
 from __future__ import annotations
 
+<<<<<<< HEAD
 import base64
 import hashlib
 import importlib.util
@@ -8,6 +9,12 @@ import json
 import plistlib
 import os
 import shutil
+=======
+import hashlib
+import json
+import plistlib
+import os
+>>>>>>> origin/main
 import struct
 import subprocess
 import sys
@@ -16,6 +23,7 @@ import unittest
 from pathlib import Path
 
 SCRIPT = Path(__file__).resolve().parents[1] / "scripts" / "ci" / "signer_parity_compare.py"
+<<<<<<< HEAD
 SPEC = importlib.util.spec_from_file_location("signer_parity_compare", SCRIPT)
 spc = importlib.util.module_from_spec(SPEC)
 SPEC.loader.exec_module(spc)
@@ -42,6 +50,25 @@ def macho(text: bytes, cms, page_shift: int = 12, pad: int = 0, resources_hash: 
     cd = code_directory(b"com.example.tool", page_shift, hashlib.sha256(text).digest(), resources_hash)
     cms = cms(cd) if callable(cms) else cms
     blobs = [(0, cd), (0x10000, struct.pack(">II", 0xFADE0B01, 8 + len(cms)) + cms)] + list(extra_blobs)
+=======
+
+
+def code_directory(identifier: bytes, page_shift: int, code_hash: bytes) -> bytes:
+    ident_off = 44
+    hash_off = ident_off + len(identifier) + 1
+    body = identifier + b"\0" + code_hash
+    header = struct.pack(">IIIIIIIIIBBBBI", 0xFADE0C02, 44 + len(body), 0x20001, 0x10000,
+                         hash_off, ident_off, 0, 1, 64, 32, 2, 0, page_shift, 0)
+    return header + body
+
+
+def macho(text: bytes, cms: bytes, page_shift: int = 12, pad: int = 0) -> bytes:
+    """A thin arm64 Mach-O: __LINKEDIT, LC_CODE_SIGNATURE, `text`, then a superblob."""
+    sizeofcmds = 72 + 16
+    dataoff = 32 + sizeofcmds + len(text)
+    cd = code_directory(b"com.example.tool", page_shift, hashlib.sha256(text).digest())
+    blobs = [(0, cd), (0x10000, struct.pack(">II", 0xFADE0B01, 8 + len(cms)) + cms)]
+>>>>>>> origin/main
     index_len = 12 + 8 * len(blobs)
     index, payload, off = b"", b"", index_len
     for typ, blob in blobs:
@@ -49,7 +76,10 @@ def macho(text: bytes, cms, page_shift: int = 12, pad: int = 0, resources_hash: 
         payload += blob
         off += len(blob)
     # As codesign writes it: the superblob, then zero padding up to datasize.
+<<<<<<< HEAD
     pad = max(pad, reserve - index_len - len(payload))
+=======
+>>>>>>> origin/main
     superblob = struct.pack(">III", 0xFADE0CC0, index_len + len(payload), len(blobs)) + index + payload + bytes(pad)
     header = struct.pack("<IiiIIIII", 0xFEEDFACF, 0x0100000C, 0, 2, 2, sizeofcmds, 0, 0)
     linkedit = struct.pack("<II16sQQQQiiII", 0x19, 72, b"__LINKEDIT", 0x4000, 0x1000 + len(superblob),
@@ -58,6 +88,7 @@ def macho(text: bytes, cms, page_shift: int = 12, pad: int = 0, resources_hash: 
     return header + linkedit + signature + text + superblob
 
 
+<<<<<<< HEAD
 def make_app(root: Path, *, tool, resources: dict | None = None, link: str = "Versions/A",
              manifest_extra: str = "", mode: int = 0o755, nested: bytes | None = None) -> Path:
     """tool is the main executable's bytes, or a function from the CodeResources bytes to them."""
@@ -68,6 +99,14 @@ def make_app(root: Path, *, tool, resources: dict | None = None, link: str = "Ve
     (app / "_CodeSignature" / "CodeResources").write_bytes(resources_bytes)
     tool = tool(resources_bytes) if callable(tool) else tool
     nested = nested if nested is not None else tool
+=======
+def make_app(root: Path, *, tool: bytes, resources: dict | None = None, link: str = "Versions/A",
+             manifest_extra: str = "", mode: int = 0o755) -> Path:
+    app = root / "Demo.app" / "Contents"
+    (app / "MacOS").mkdir(parents=True)
+    (app / "_CodeSignature").mkdir()
+    (app / "_CodeSignature" / "CodeResources").write_bytes(plistlib.dumps(resources or {"files": {}}))
+>>>>>>> origin/main
     (app / "Info.plist").write_text("<plist>info</plist>")
     exe = app / "MacOS" / "Demo"
     exe.write_bytes(tool)
@@ -75,8 +114,13 @@ def make_app(root: Path, *, tool, resources: dict | None = None, link: str = "Ve
     os.symlink(link, app / "Current")
     ssh = app / "Resources" / "bin" / "cmux-tui-ssh"
     ssh.mkdir(parents=True)
+<<<<<<< HEAD
     (ssh / "cmux-tui-darwin-arm64").write_bytes(nested)
     digest = hashlib.sha256(nested).hexdigest()
+=======
+    (ssh / "cmux-tui-darwin-arm64").write_bytes(tool)
+    digest = hashlib.sha256(tool).hexdigest()
+>>>>>>> origin/main
     (ssh / "manifest.json").write_text(json.dumps({"version": "1" + manifest_extra,
                                                    "binaries": {"cmux-tui-darwin-arm64": digest}}))
     return root / "Demo.app"
@@ -338,6 +382,7 @@ class ReviewFindingTests(unittest.TestCase):
         self.assertTrue(any("Contents/MacOS/Demo: payload differs (mode)" in f for f in failures), failures)
 
 
+<<<<<<< HEAD
 # --strict: a small DER writer builds real CMS signatures, signed with openssl.
 
 def tlv(tag: int, body: bytes) -> bytes:
@@ -1061,5 +1106,7 @@ class StrictEighthReviewTests(unittest.TestCase):
             spc.code_signature_command(bytes(good))
 
 
+=======
+>>>>>>> origin/main
 if __name__ == "__main__":
     unittest.main()

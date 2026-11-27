@@ -34,10 +34,13 @@ jobs starting together download each artifact once, the later ones waiting and t
 copy. The cache stays the host's own and warm; nothing is per runner. The Mac store defaults to MAC_STORE,
 on the cache's volume, so a cache entry is a hard link to it.
 
+<<<<<<< HEAD
 GitHub 403 (11-26): GitHub answers anonymous github.com downloads and git from the office Macs' shared address
 with 403. With GH_TOKEN (or GITHUB_TOKEN) set, a github.com release asset is downloaded through the API with
 the token, and the pin manifest fetches send it too (github_fetch_auth.py); without one, nothing changes.
 
+=======
+>>>>>>> origin/main
 Fails soft: a manifest that does not evaluate, or an artifact that does not download, is reported with a
 ::warning:: and left for SwiftPM to fetch itself. A checksum that does not match the manifest is never cached.
 
@@ -45,6 +48,15 @@ Fails soft: a manifest that does not evaluate, or an artifact that does not down
 
 --store is required on Linux; on macOS it defaults to MAC_STORE.
 
+<<<<<<< HEAD
+=======
+--resolve (fast-checks.yml's checks-mac) then runs `swift package resolve` for each package. An owned Mac's
+anonymous github.com requests get HTTP 403 (git and curl alike, 2026-11-26), so a cold `swift test` of
+CmuxNext failed fetching Sparkle; the workflow step resolves with the job's read token in git's environment
+(GIT_CONFIG_*) and in GITHUB_TOKEN_ENV for curl, and the command itself, which never sees the token, finds
+every checkout and artifact in place.
+
+>>>>>>> origin/main
 --command takes the shell command fast checks runs: it seeds only for `swift build|test` (or swift-build,
 swift-test), at its --package-path (else --directory), and does nothing for any other command.
 """
@@ -56,7 +68,10 @@ import concurrent.futures
 import contextlib
 import fcntl
 import hashlib
+<<<<<<< HEAD
 import importlib.util
+=======
+>>>>>>> origin/main
 import json
 import os
 import pwd
@@ -67,8 +82,13 @@ import subprocess
 import sys
 import tempfile
 import time
+<<<<<<< HEAD
 from pathlib import Path
 from urllib.parse import unquote
+=======
+import urllib.parse
+from pathlib import Path
+>>>>>>> origin/main
 
 SWIFTPM_VERBS = ("build", "test")
 SWIFTPM_TOOLS = ("swift-build", "swift-test")
@@ -85,11 +105,19 @@ SEED_LOCK_WAIT_SECONDS = 900
 # A slow GitHub response must end and be retried instead of holding a worker for the full transfer timeout.
 # Keep these aligned with the nightly network helpers: a healthy release asset can be large, but a transfer
 # below 1 KB/s for two minutes is a stalled upstream, not useful progress.
+<<<<<<< HEAD
 DOWNLOAD_LOW_SPEED_BYTES = "1000"
 GIT_HTTP_LOW_SPEED_TIME = "120"
 # A git fetch ends only on no byte at all: while GitHub builds a pack it sends only keepalives, and a 1 KB/s floor
 # kills a fetch that is working (hq#29032).
 GIT_HTTP_LOW_SPEED_LIMIT = "1"
+=======
+GIT_HTTP_LOW_SPEED_LIMIT = "1000"
+GIT_HTTP_LOW_SPEED_TIME = "120"
+# A token curl sends to github.com (only there) for a release download: the owned Macs' anonymous
+# github.com requests get HTTP 403 (setup kernel-free runs, 2026-11-26), authenticated ones do not.
+GITHUB_TOKEN_ENV = "CMUX_SWIFTPM_GITHUB_TOKEN"
+>>>>>>> origin/main
 
 
 def warn(message: str) -> None:
@@ -100,6 +128,7 @@ def say(message: str) -> None:
     print(f"swiftpm prefetch: {message}", flush=True)
 
 
+<<<<<<< HEAD
 def command_env(command: str) -> dict[str, str]:
     """The NAME=VALUE assignments before the SwiftPM word of `command` (after an optional `env`): a manifest
     that reads one (CMUX_TERMINAL_CLIENT_MODEL_ONLY) is evaluated as the command will evaluate it."""
@@ -109,6 +138,101 @@ def command_env(command: str) -> dict[str, str]:
         return {}
     found = {}
     for word in words:
+=======
+SHELLS = ("bash", "sh", "zsh", "dash")
+# `bash -c 'cd A && bash -c "swift test"'` is as deep as a real command goes; deeper is not followed.
+SHELL_DEPTH = 3
+
+
+def _segments(command: str) -> list[list[str]] | None:
+    """`command`'s simple commands, split at `;`, `&&`, `||`, `|`, `&` and parentheses; None if shlex cannot read it."""
+    lexer = shlex.shlex(command, posix=True, punctuation_chars=";&|()")
+    lexer.whitespace_split = True
+    try:
+        tokens = list(lexer)
+    except ValueError:
+        return None
+    segments: list[list[str]] = [[]]
+    for token in tokens:
+        if token and set(token) <= set(";&|()"):
+            segments.append([])
+        else:
+            segments[-1].append(token)
+    return [segment for segment in segments if segment]
+
+
+def _shell_script(rest: list[str]) -> str | None:
+    """The script of `bash|sh|zsh [options] -c SCRIPT ...`, or None when the shell is not given -c."""
+    given_c, skip = False, False
+    for word in rest:
+        if skip:
+            skip = False
+        elif word in ("-o", "+o"):
+            skip = True
+        elif word.startswith("-") and not word.startswith("--") and len(word) > 1:
+            given_c = given_c or "c" in word[1:]
+        elif word.startswith("--"):
+            continue
+        else:
+            return word if given_c else None
+    return None
+
+
+def swiftpm_invocations(command: str, directory: str = ".", depth: int = 0) -> list[tuple[list[str], str]]:
+    """Each `swift build|test` (or swift-build|swift-test) `command` runs, as (its words from any leading
+    NAME=VALUE or wrapper word on, the directory it runs in). Follows the simple commands of a `;`/`&&`/`|`
+    chain, a `cd DIR` before one, and a `bash|sh|zsh -c SCRIPT` (how `cmux-ci test -- bash -c '...'` passes
+    a command): `bash -c 'set -o pipefail; cd Packages/macOS/CmuxNext && swift test'` names that package."""
+    segments = _segments(command)
+    if segments is None:
+        return []
+    cwd = directory or "."
+    found: list[tuple[list[str], str]] = []
+    for words in segments:
+        i = 0
+        while i < len(words) and (words[i] in COMMAND_PREFIXES or re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*=.*", words[i])):
+            i += 1
+        if i >= len(words):
+            continue
+        name, rest = os.path.basename(words[i]), words[i + 1:]
+        if name == "cd" and i == 0:
+            if rest and rest[0] != "-":
+                cwd = os.path.normpath(os.path.join(cwd, os.path.expanduser(rest[0])))
+            continue
+        if name in SHELLS and depth < SHELL_DEPTH:
+            script = _shell_script(rest)
+            if script is not None:
+                found += swiftpm_invocations(script, cwd, depth + 1)
+            continue
+        if (name == "swift" and rest and rest[0] in SWIFTPM_VERBS) or name in SWIFTPM_TOOLS:
+            found.append((words, cwd))
+    return found
+
+
+def _swiftpm_options(words: list[str]) -> list[str] | None:
+    """The SwiftPM options of one invocation's words (before `--`), or None for an info-only command."""
+    i = 0
+    while i < len(words) and (words[i] in COMMAND_PREFIXES or re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*=.*", words[i])):
+        i += 1
+    rest = words[i + 1:]
+    if os.path.basename(words[i]) == "swift":
+        rest = rest[1:]
+    options = rest[: rest.index("--")] if "--" in rest else rest
+    if any(option in SWIFTPM_INFO or option.startswith("--help") for option in options):
+        return None
+    return options
+
+
+def command_env(command: str) -> dict[str, str]:
+    """The NAME=VALUE assignments before the SwiftPM word of `command`'s first `swift build|test` (after an
+    optional `env`): a manifest that reads one (CMUX_TERMINAL_CLIENT_MODEL_ONLY) is evaluated as the command
+    will evaluate it."""
+    invocations = swiftpm_invocations(command)
+    if not invocations:
+        return {}
+    found = {}
+    for word in invocations[0][0]:
+>>>>>>> origin/main
         if word in COMMAND_PREFIXES:
             continue
         match = re.fullmatch(r"([A-Za-z_][A-Za-z0-9_]*)=(.*)", word)
@@ -119,6 +243,7 @@ def command_env(command: str) -> dict[str, str]:
 
 
 def command_cache_path(command: str, directory: str = ".") -> str | None:
+<<<<<<< HEAD
     """The --cache-path a `swift build|test` command passes, resolved against `directory`, or None."""
     try:
         words = shlex.split(command)
@@ -130,11 +255,24 @@ def command_cache_path(command: str, directory: str = ".") -> str | None:
     for j, word in enumerate(words):
         if word == "--cache-path" and j + 1 < len(words):
             found = words[j + 1]
+=======
+    """The --cache-path `command`'s first `swift build|test` passes, resolved against where it runs, or None."""
+    invocations = swiftpm_invocations(command, directory)
+    if not invocations:
+        return None
+    words, cwd = invocations[0]
+    options = _swiftpm_options(words) or []
+    found = None
+    for j, word in enumerate(options):
+        if word == "--cache-path" and j + 1 < len(options):
+            found = options[j + 1]
+>>>>>>> origin/main
         elif word.startswith("--cache-path="):
             found = word.split("=", 1)[1]
     if found is None:
         return None
     found = os.path.expanduser(found)
+<<<<<<< HEAD
     return found if os.path.isabs(found) else os.path.abspath(os.path.join(directory or ".", found))
 
 
@@ -170,6 +308,30 @@ def package_paths(command: str, directory: str = ".") -> list[str]:
         elif option.startswith("--package-path="):
             package = option.split("=", 1)[1]
     return [os.path.normpath(os.path.join(directory or ".", package))]
+=======
+    return found if os.path.isabs(found) else os.path.abspath(os.path.join(cwd, found))
+
+
+def package_paths(command: str, directory: str = ".") -> list[str]:
+    """The package directories `command` builds: every `swift build|test` (or swift-build|swift-test) it
+    runs (swiftpm_invocations), at its --package-path or else the directory it runs in; [] for anything
+    else, an info-only SwiftPM command, or a command shlex cannot read."""
+    paths: list[str] = []
+    for words, cwd in swiftpm_invocations(command, directory):
+        options = _swiftpm_options(words)
+        if options is None:
+            continue
+        package = "."
+        for j, option in enumerate(options):
+            if option == "--package-path" and j + 1 < len(options):
+                package = options[j + 1]
+            elif option.startswith("--package-path="):
+                package = option.split("=", 1)[1]
+        path = os.path.normpath(os.path.join(cwd, package))
+        if path not in paths:
+            paths.append(path)
+    return paths
+>>>>>>> origin/main
 
 
 def swiftpm_cache_key(url: str) -> str:
@@ -331,6 +493,7 @@ def sha256(path: Path) -> str:
     return digest.hexdigest()
 
 
+<<<<<<< HEAD
 GITHUB_RELEASE_URL = re.compile(r"^https://github\.com/([^/]+/[^/]+)/releases/download/([^/]+/[^/]+)$")
 
 
@@ -412,6 +575,44 @@ def curl_download(url: str, destination: Path, environ=os.environ, run=subproces
         except (subprocess.CalledProcessError, subprocess.TimeoutExpired, OSError) as error:
             warn(f"the controller's release proxy failed for {url} ({error}); trying GitHub")
     fetch(url, destination, environ, run)
+=======
+def curl_auth_config(url: str, env=os.environ) -> str | None:
+    """A curl config sending GITHUB_TOKEN_ENV to github.com itself, or None. curl never forwards a custom
+    Authorization header to the host a redirect goes to (objects.githubusercontent.com), and the token goes
+    over stdin, never argv."""
+    token = env.get(GITHUB_TOKEN_ENV, "")
+    if not token or urllib.parse.urlsplit(url).hostname != "github.com" or re.search(r'[\s"\\]', token):
+        return None
+    return f'header = "Authorization: Bearer {token}"\n'
+
+
+def curl_download(url: str, destination: Path) -> None:
+    config = curl_auth_config(url)
+    subprocess.run(["curl", "--fail", "--location", "--silent", "--show-error", "--retry", "4",
+                    "--retry-all-errors", "--connect-timeout", "30", "--max-time", "1800",
+                    "--speed-limit", GIT_HTTP_LOW_SPEED_LIMIT, "--speed-time", GIT_HTTP_LOW_SPEED_TIME,
+                    *(["--config", "-"] if config else []), "--output", str(destination), url],
+                   input=config, text=True, check=True, timeout=1800)
+
+
+def resolve(packages: list[Path], swift: str = "swift", env: dict[str, str] | None = None, run=subprocess.run) -> int:
+    """`swift package resolve` each package (--resolve), so the command finds every pinned checkout in place
+    and fetches nothing; returns how many did not resolve (warned, not fatal: the command resolves again)."""
+    failed = 0
+    for package in packages:
+        if not (package / "Package.swift").is_file():
+            continue
+        try:
+            done = run([swift, "package", "resolve", "--package-path", str(package)],
+                       env={**os.environ, **(env or {})}, timeout=1200)
+            if done.returncode != 0:
+                raise RuntimeError(f"exited {done.returncode}")
+            say(f"resolved {package}")
+        except Exception as error:  # noqa: BLE001 - the command resolves what is missing itself
+            failed += 1
+            warn(f"could not resolve {package}: {error}")
+    return failed
+>>>>>>> origin/main
 
 
 def stored_artifact(url: str, checksum: str, store: Path, download=curl_download) -> Path:
@@ -498,6 +699,7 @@ def seed(packages: list[Path], store: Path, cache: Path, swift: str = "swift", d
     return missed
 
 
+<<<<<<< HEAD
 def authenticate_pin_fetches(environ, packages: list[Path]) -> None:
     """Give this process's pin fetches the job token (github_fetch_auth.py's per-repository extraheaders), so
     reading a pin's manifests does not meet the anonymous 403 either. No token, nothing changes."""
@@ -515,6 +717,8 @@ def authenticate_pin_fetches(environ, packages: list[Path]) -> None:
         warn(f"pin fetches stay anonymous: {error}")
 
 
+=======
+>>>>>>> origin/main
 def main(argv=None) -> int:
     parser = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
     darwin = sys.platform == "darwin"
@@ -525,6 +729,11 @@ def main(argv=None) -> int:
     parser.add_argument("--directory", default=".", help="the directory --command runs in")
     parser.add_argument("--cache", type=Path, help="SwiftPM artifact cache (default: SwiftPM's own)")
     parser.add_argument("--swift", default=os.environ.get("SWIFT", "swift"))
+<<<<<<< HEAD
+=======
+    parser.add_argument("--resolve", action="store_true",
+                        help="then `swift package resolve` each package, so the command fetches no dependency")
+>>>>>>> origin/main
     args = parser.parse_args(argv)
     paths = list(args.package_path)
     env: dict[str, str] = {}
@@ -535,7 +744,10 @@ def main(argv=None) -> int:
         cache_path = command_cache_path(args.command, args.directory)
     if not paths:
         return 0
+<<<<<<< HEAD
     authenticate_pin_fetches(os.environ, [Path(path) for path in paths])
+=======
+>>>>>>> origin/main
     if shutil.which(args.swift) is None:
         warn(f"{args.swift} is not on PATH; nothing seeded")
         return 0
@@ -543,6 +755,11 @@ def main(argv=None) -> int:
         # The cache SwiftPM will read: the command's own HOME/XDG_CACHE_HOME assignments and --cache-path win.
         cache = args.cache or swiftpm_artifact_cache({**os.environ, **env}, cache_path)
         seed([Path(path) for path in paths], args.store, cache, args.swift, env=env)
+<<<<<<< HEAD
+=======
+        if args.resolve:
+            resolve([Path(path) for path in paths], args.swift, env)
+>>>>>>> origin/main
     except Exception as error:  # noqa: BLE001 - never fail the run: SwiftPM downloads what is missing
         warn(f"stopped early: {error}")
     return 0

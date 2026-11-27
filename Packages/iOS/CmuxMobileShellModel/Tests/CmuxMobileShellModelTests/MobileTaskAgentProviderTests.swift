@@ -8,6 +8,8 @@ import Testing
             ("codex -- \"$CMUX_TASK_PROMPT\"", MobileTaskAgentProvider.codex),
             ("opencode --prompt \"$CMUX_TASK_PROMPT\"", MobileTaskAgentProvider.openCode),
             ("/usr/local/bin/claude -- \"$CMUX_TASK_PROMPT\"", MobileTaskAgentProvider.claude),
+            ("sr codex -- \"$CMUX_TASK_PROMPT\"", MobileTaskAgentProvider.codex),
+            ("/opt/homebrew/bin/sr codex -- \"$CMUX_TASK_PROMPT\"", MobileTaskAgentProvider.codex),
         ]
     )
     func detectsProvider(command: String, expected: MobileTaskAgentProvider) {
@@ -19,6 +21,14 @@ import Testing
             "cd x && claude -- \"$CMUX_TASK_PROMPT\"",
             "FOO=1 claude -- \"$CMUX_TASK_PROMPT\"",
             "claudex -- \"$CMUX_TASK_PROMPT\"",
+            "sr",
+            "sr foo -- \"$CMUX_TASK_PROMPT\"",
+            "foo codex -- \"$CMUX_TASK_PROMPT\"",
+            "FOO=1 sr codex -- \"$CMUX_TASK_PROMPT\"",
+            "sr claude proxy -- \"$CMUX_TASK_PROMPT\"",
+            "sr opencode --prompt \"$CMUX_TASK_PROMPT\"",
+            "sr /usr/local/bin/codex -- \"$CMUX_TASK_PROMPT\"",
+            "sr\ncodex -- \"$CMUX_TASK_PROMPT\"",
             "",
             " \n\t ",
         ]
@@ -43,6 +53,16 @@ import Testing
                 "opencode --prompt \"$CMUX_TASK_PROMPT\"",
                 "anthropic/claude-sonnet-5",
                 "opencode --model 'anthropic/claude-sonnet-5' --prompt \"$CMUX_TASK_PROMPT\""
+            ),
+            (
+                "sr codex -- \"$CMUX_TASK_PROMPT\"",
+                "gpt-5.5",
+                "sr codex -m 'gpt-5.5' -- \"$CMUX_TASK_PROMPT\""
+            ),
+            (
+                "/opt/homebrew/bin/sr codex -- \"$CMUX_TASK_PROMPT\"",
+                "gpt-5.5",
+                "/opt/homebrew/bin/sr codex -m 'gpt-5.5' -- \"$CMUX_TASK_PROMPT\""
             ),
         ]
     )
@@ -90,6 +110,11 @@ import Testing
                 "claude-opus-4-8",
                 "claude --model='claude-opus-4-8' -- \"$CMUX_TASK_PROMPT\""
             ),
+            (
+                "sr codex -m old-model -- \"$CMUX_TASK_PROMPT\"",
+                "gpt-5.6-sol",
+                "sr codex -m 'gpt-5.6-sol' -- \"$CMUX_TASK_PROMPT\""
+            ),
         ]
     )
     func replacesExistingModelFlagValue(command: String, modelID: String, expected: String) {
@@ -125,6 +150,44 @@ import Testing
         #expect(
             MobileTaskAgentProvider.claude.command(applying: "claude-opus-4-8", to: command)
                 == "claude --model 'claude-opus-4-8' --append-system-prompt \"Never pass --model manually\" -- \"$CMUX_TASK_PROMPT\""
+        )
+    }
+
+    @Test(
+        arguments: [
+            (
+                "sr codex \"use -m sparingly\"",
+                "sr codex -m 'gpt-5.5' \"use -m sparingly\""
+            ),
+            (
+                "sr codex -- -m literal-arg",
+                "sr codex -m 'gpt-5.5' -- -m literal-arg"
+            ),
+        ]
+    )
+    func wrappedModelFlagScanKeepsQuotingAndEndOfOptions(command: String, expected: String) {
+        #expect(
+            MobileTaskAgentProvider.codex.command(applying: "gpt-5.5", to: command)
+                == expected
+        )
+    }
+
+    @Test(
+        arguments: [
+            (
+                "sr codex -- \"$CMUX_TASK_PROMPT\"",
+                "sr codex -c model_reasoning_effort='high' -- \"$CMUX_TASK_PROMPT\""
+            ),
+            (
+                "sr codex -c model_reasoning_effort=low -- \"$CMUX_TASK_PROMPT\"",
+                "sr codex -c model_reasoning_effort='high' -- \"$CMUX_TASK_PROMPT\""
+            ),
+        ]
+    )
+    func appliesCodexEffortAfterWrappedAgent(command: String, expected: String) {
+        #expect(
+            MobileTaskAgentProvider.codex.command(applyingEffort: "high", to: command)
+                == expected
         )
     }
 

@@ -52,8 +52,13 @@ These defaults come from `Keys::default`.
 | `Ctrl-b g` | Append a two-thirds-width terminal to the right |
 | `Ctrl-b U` | Undo the latest structural layout action on the focused screen |
 | `Ctrl-b ?` | Open the keyboard shortcut modal |
+<<<<<<< HEAD
 | `Ctrl-b a` | Go to the next tab that needs you (see below) |
 | `Ctrl-b A` | List the tabs that need you; Enter goes to the selected one |
+=======
+| `Ctrl-b a` | Go to the next tab that needs you: a blocked agent, then an unread error or warning, then another unread tab |
+| `Ctrl-b A` | Open a searchable list of the tabs that need you; Enter goes to the selected tab |
+>>>>>>> origin/main
 | `Ctrl-b h` or `Ctrl-b Left` | Focus left |
 | `Alt-h` or `Alt-Left` | Focus left |
 | `Ctrl-b l` or `Ctrl-b Right` | Focus right |
@@ -72,6 +77,8 @@ These defaults come from `Keys::default`.
 | `Ctrl-b d` | Quit a local TUI or detach an attached TUI |
 
 Press `Ctrl-b`, release it, then press the suffix. `N` is uppercase and `+` is the plus character (Shift-Equal on a US keyboard). Lowercase `Ctrl-b n` still selects the next screen. Every default Alt action also has a prefix binding, including when `keys.alt_shortcuts` is `false`.
+
+`Ctrl-b a` visits the tabs in the order `cmux attention next` answers: tabs whose agent waits on you (`blocked`) first, then tabs with an unread `error` or `warning` notification, then other unread tabs, each oldest first. A blocked tab stays in the queue after you look at it, so repeated presses cycle through all of them. An unread tab stays in the queue until its notification is cleared. When nothing needs you, a toast says so. See [Notifications](configuration.md#notifications).
 
 Directional focus follows Zellij's pane memory: when several panes share the requested edge, cmux-tui returns to the pane focused most recently.
 
@@ -119,6 +126,11 @@ Motions treat a wide character as one cell. A copy joins soft-wrapped rows into 
 
 Search is smart-case: a needle with no uppercase letter matches any case, and a needle with an uppercase letter matches case exactly. Search covers all retained scrollback, highlights every match in the view, marks the current match, and shows its position as `3/17`. `n` and `N` wrap around at the ends of history. Pressing `Enter` on an empty prompt repeats the previous search in the prompt's direction. A count ends in `+` when more than 10,000 matches exist; only the newest 10,000 are kept.
 
+<<<<<<< HEAD
+=======
+Search matches the text as it shows on the screen. When a search ignores case, only ASCII letters fold; other characters match exactly. A match can continue across a soft-wrapped row, but never across a hard line break. Each search reads the retained screen once when you press `Enter`, `n`, or `N`; it does not run while you type in the prompt or while the terminal draws. This build reads the screen text in Rust because its libghostty-vt has no search API. The `feat-cmux-next` builds use libghostty-vt's own search; the keys, highlights, and counts are the same.
+
+>>>>>>> origin/main
 Remap copy-mode commands with the `keys.copy_mode` object. Each command accepts a string, an array of strings, or `"none"`, and replaces that command's default keys. A chord given to one command is removed from every other copy-mode command. A copy-mode chord equal to the prefix is ignored.
 
 ```json

@@ -140,6 +140,7 @@ private func compactIrohQRHostPortRoute() throws -> CmxAttachRoute {
         .replacingOccurrences(of: "=", with: "")
     let beforeURL =
         "\(compactIrohQRTarget.rawValue)://attach?v=1&payload=\(compactBase64)"
+    #if canImport(CoreImage)
     let beforeImage = try #require(CmxPairingQRBitmap().makeImage(payload: beforeURL))
     let afterImage = try #require(CmxPairingQRBitmap().makeImage(payload: pairingURL))
     let quietZone = CmxPairingQRBitmap.quietZoneModules * 2

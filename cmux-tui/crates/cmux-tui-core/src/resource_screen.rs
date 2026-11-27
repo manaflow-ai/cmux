@@ -1,3 +1,4 @@
+<<<<<<< ours
 //! One public screen representation for snapshots, event deltas and journal
 //! restatements.
 //!
@@ -6,6 +7,14 @@
 //! repair) all build screen values here from durable registry rows, so an
 //! event-feed client that applies a screen upsert holds exactly what a fresh
 //! snapshot would show (projection convergence).
+=======
+//! One public screen representation for snapshots and journal restatements.
+//!
+//! The session snapshot and registry-side journal batches (such as the
+//! startup repair restatement) build screen values here from durable registry
+//! rows, so an event-feed client that applies a screen upsert holds what a
+//! fresh snapshot at the same revision shows.
+>>>>>>> theirs
 use std::collections::HashMap;
 
 use serde_json::{Value, json};
@@ -15,7 +24,10 @@ use crate::workspace_registry::{
     RegistryLayoutNode, RegistryPane, RegistryScreen, RegistryTab, RegistryViewport,
     ResourceTopologySnapshot,
 };
+<<<<<<< ours
 use cmux_json::JsonSet as _;
+=======
+>>>>>>> theirs
 
 /// The public value of one live screen: identity, order, focus and layout.
 pub(crate) fn public_screen_value(
@@ -28,6 +40,7 @@ pub(crate) fn public_screen_value(
         && topology.active_screens.iter().any(|(workspace, active)| {
             workspace == &screen.workspace_id && active.as_ref() == Some(&screen.public_id)
         });
+<<<<<<< ours
     screen_value(screen, focused, tabs_by_pane, panes_by_id)
 }
 
@@ -40,6 +53,8 @@ pub(crate) fn screen_value(
     tabs_by_pane: &HashMap<&PanePublicId, Vec<&RegistryTab>>,
     panes_by_id: &HashMap<&PanePublicId, &RegistryPane>,
 ) -> anyhow::Result<Value> {
+=======
+>>>>>>> theirs
     let index = u32::try_from(screen.position)
         .map_err(|_| anyhow::anyhow!("resource index exceeds uint32"))?;
     Ok(json!({
@@ -99,6 +114,7 @@ fn public_viewport_node(
         .iter()
         .map(|column| {
             anyhow::ensure!(column.width.is_finite(), "viewport column width is not finite");
+<<<<<<< ours
             let mut value = json!({
                 "column_id": column.id,
                 "width": f64::from(column.width),
@@ -121,6 +137,13 @@ fn public_viewport_node(
                 );
             }
             Ok(value)
+=======
+            Ok(json!({
+                "column_id": column.id,
+                "width": f64::from(column.width),
+                "root": public_layout_node(&column.layout, tabs_by_pane, panes_by_id)?,
+            }))
+>>>>>>> theirs
         })
         .collect::<anyhow::Result<Vec<_>>>()?;
     Ok(json!({
@@ -147,11 +170,19 @@ fn public_layout_node(
                 "tab_ids": tabs.iter().map(|tab| &tab.public_id).collect::<Vec<_>>(),
             });
             if let Some(active_tab) = &pane_record.active_tab {
+<<<<<<< ours
                 leaf.set("active_tab_id", json!(active_tab));
             }
             Ok(leaf)
         }
         RegistryLayoutNode::Split { split, direction, ratio, first, second, .. } => {
+=======
+                leaf["active_tab_id"] = json!(active_tab);
+            }
+            Ok(leaf)
+        }
+        RegistryLayoutNode::Split { split, direction, ratio, first, second } => {
+>>>>>>> theirs
             anyhow::ensure!(ratio.is_finite(), "layout split ratio is not finite");
             let direction = match direction.as_str() {
                 "right" | "horizontal" => "horizontal",

@@ -1,8 +1,12 @@
+<<<<<<< HEAD
 #if canImport(CoreGraphics)
 import CoreGraphics
 #else
 import Foundation
 #endif
+=======
+import CoreGraphics
+>>>>>>> origin/main
 import Foundation
 
 /// A scripted transcript scroll for the DEBUG lab
@@ -34,6 +38,7 @@ public struct ConversationAutoScrollScript: Equatable, Sendable {
             }
         }
 
+<<<<<<< HEAD
         /// The step in script syntax, for its signpost interval. Written
         /// out rather than `String(describing:)`, whose first use scans
         /// protocol conformances on the main thread mid-scroll.
@@ -45,6 +50,8 @@ public struct ConversationAutoScrollScript: Equatable, Sendable {
             }
         }
 
+=======
+>>>>>>> origin/main
         /// UIScrollView's normal deceleration, per millisecond.
         public static let decelerationRate: Double = 0.998
         /// A flick ends once it is slower than this (points per second).
@@ -129,6 +136,7 @@ public struct ConversationAutoScrollScript: Equatable, Sendable {
         self.steps = Array(repeating: steps, count: repeats).flatMap { $0 }
     }
 }
+<<<<<<< HEAD
 
 /// Moves the transcript for one scripted step, frame by frame. A finger and
 /// UIScrollView's deceleration move the content by a delta from wherever it
@@ -163,3 +171,5 @@ public struct ConversationAutoScrollMotion: Equatable, Sendable {
         return Frame(offsetY: y, reachedEdge: delta != 0 && (y == top || y == bottom))
     }
 }
+=======
+>>>>>>> origin/main

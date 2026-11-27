@@ -1,4 +1,7 @@
+<<<<<<< HEAD
 import AppKit
+=======
+>>>>>>> origin/main
 import AVFoundation
 import CmuxHomeCore
 import CmuxHomeRender
@@ -19,10 +22,13 @@ final class HomeVideo {
     weak var controller: ChatController?
     private var badges: [String: CALayer] = [:]
     private var masks: [String: CAShapeLayer] = [:]
+<<<<<<< HEAD
     /// cmux: the expand button at a played video's top right (opens the large viewer).
     private var expands: [String: CALayer] = [:]
     /// cmux: the open large viewer (one per pane).
     private(set) weak var viewer: HomeVideoViewer?
+=======
+>>>>>>> origin/main
 
     init() {
         playback.onChange = { [weak self] _ in self?.place() }
@@ -38,6 +44,7 @@ final class HomeVideo {
         place()
     }
 
+<<<<<<< HEAD
     /// cmux: the expand button's frame in a video bubble of `body` (row coordinates): 26 pt at
     /// the top right, 7 pt in. It shows once the video played (the poster shows the play disc).
     nonisolated static func expandRect(body: CGRect) -> CGRect {
@@ -68,6 +75,8 @@ final class HomeVideo {
         }
     }
 
+=======
+>>>>>>> origin/main
     func badgeVisible(_ ref: PartRef) -> Bool {
         guard let badge = badges[Self.key(ref)] else { return false }
         return badge.superlayer != nil && !badge.isHidden
@@ -86,14 +95,20 @@ final class HomeVideo {
         for key in Set(playback.activeKeys).union(badges.keys) {
             guard let layer = playback.layer(key) else {
                 badges[key]?.removeFromSuperlayer()
+<<<<<<< HEAD
                 expands[key]?.removeFromSuperlayer()
+=======
+>>>>>>> origin/main
                 continue
             }
             guard let cell = cells[key], let spec = cell.spec, case let .part(p) = spec.kind else {
                 playback.rowLeft(key)
                 layer.removeFromSuperlayer()
                 badges[key]?.removeFromSuperlayer()
+<<<<<<< HEAD
                 expands[key]?.removeFromSuperlayer()
+=======
+>>>>>>> origin/main
                 continue
             }
             // On the row's content, which RowCell.snapRow moves onto the window's device pixels (MessagesLab c1457e5).
@@ -102,7 +117,11 @@ final class HomeVideo {
             layer.frame = body
             let mask = masks[key] ?? CAShapeLayer()
             masks[key] = mask
+<<<<<<< HEAD
             mask.path = BubblePath.balloon(frame: CGRect(origin: .zero, size: body.size), row: p).cgPath  // cmux: the shared bubble outline
+=======
+            mask.path = BubblePath.cached(size: body.size, outgoing: p.outgoing, tail: p.tail)
+>>>>>>> origin/main
             mask.frame = CGRect(origin: .zero, size: body.size)
             layer.mask = mask
             let badge = badges[key] ?? Self.makeBadge()
@@ -115,6 +134,7 @@ final class HomeVideo {
             let state = playback.state(key)
             badge.isHidden = state == .playing
             badge.opacity = state == .loading ? 0.5 : 1
+<<<<<<< HEAD
             let expand = expands[key] ?? Self.makeExpand()
             expands.updateValue(expand, forKey: key) // crash program: dictionary write
             if expand.superlayer !== cell.layer { cell.layer.addSublayer(expand) }
@@ -148,6 +168,11 @@ final class HomeVideo {
         return box
     }
 
+=======
+        }
+    }
+
+>>>>>>> origin/main
     /// RowDrawing's video disc: black at 50% under a white triangle at 85%.
     private static func makeBadge() -> CALayer {
         let badge = CALayer()

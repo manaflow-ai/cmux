@@ -27,6 +27,7 @@ issues: read. When the read fails, auto stays in report and says so.
 Prints `mode=...` and `why=...` lines for $GITHUB_OUTPUT. Exit 0 always for a
 valid input; 2 for a value it does not know (a typo must not silently enforce
 or silently skip).
+<<<<<<< HEAD
 
 Other report-then-enforce gates on the nightly reuse this resolver with their
 own names (docs/ci/nightly-next-visual-gate.md):
@@ -69,6 +70,8 @@ wait a day. The advisory verdict job reads the gate for a bounded time:
       it. A --mode other than `enforce` can never hold the build, so it
       waits for nothing and gives `verdict=report`. Prints `verdict=` and
       `blocks=` lines for $GITHUB_OUTPUT.
+=======
+>>>>>>> origin/main
 """
 
 from __future__ import annotations
@@ -78,10 +81,16 @@ import datetime as dt
 import json
 import os
 import sys
+<<<<<<< HEAD
 import time
 import urllib.parse
 import urllib.request
 from typing import Any, Callable, Iterable, Mapping
+=======
+import urllib.parse
+import urllib.request
+from typing import Callable, Iterable
+>>>>>>> origin/main
 
 # One week after the canary went live in report mode on main (#21900,
 # 2026-10-19) and the train design (leo-workspace#624, 2026-10-20).
@@ -90,41 +99,67 @@ REPORT_WEEK = dt.timedelta(days=7)
 ISSUE_TITLE = "nightly-next canary failed"
 # Every entry the canary writes starts with this (nightly-next-canary.yml).
 FAILURE_PREFIX = "cmux NEXT build "
+<<<<<<< HEAD
 WRITER = "github-actions[bot]"  # the workflows' GITHUB_TOKEN writes every record entry
 EXPLICIT = ("report", "enforce", "off")
 VARIABLE = "NIGHTLY_NEXT_CANARY"
+=======
+EXPLICIT = ("report", "enforce", "off")
+>>>>>>> origin/main
 
 
 class BadValue(Exception):
     pass
 
 
+<<<<<<< HEAD
 def parse_when(text: str, default: str = DEFAULT_ENFORCE_AFTER, variable: str = VARIABLE) -> dt.datetime | None:
     """None for `never`; a UTC datetime otherwise (`default` when empty)."""
+=======
+def parse_when(text: str) -> dt.datetime | None:
+    """None for `never`; a UTC datetime otherwise."""
+>>>>>>> origin/main
     text = text.strip()
     if text.lower() == "never":
         return None
     if not text:
+<<<<<<< HEAD
         text = default
     try:
         when = dt.datetime.fromisoformat(text.replace("Z", "+00:00"))
     except ValueError as err:
         raise BadValue(f"{variable}_ENFORCE_AFTER {text!r} is not an ISO date or `never`") from err
+=======
+        text = DEFAULT_ENFORCE_AFTER
+    try:
+        when = dt.datetime.fromisoformat(text.replace("Z", "+00:00"))
+    except ValueError as err:
+        raise BadValue(f"NIGHTLY_NEXT_CANARY_ENFORCE_AFTER {text!r} is not an ISO date or `never`") from err
+>>>>>>> origin/main
     if when.tzinfo is None:
         when = when.replace(tzinfo=dt.timezone.utc)
     return when.astimezone(dt.timezone.utc)
 
 
+<<<<<<< HEAD
 def failures_in(entries: Iterable[tuple[dt.datetime, str]], start: dt.datetime, end: dt.datetime,
                 prefix: str = FAILURE_PREFIX) -> list[str]:
     """The failure entries (issue body or comment) written in [start, end)."""
     found = []
     for at, body in entries:
         if start <= at < end and body.lstrip().startswith(prefix):
+=======
+def failures_in(entries: Iterable[tuple[dt.datetime, str]], start: dt.datetime, end: dt.datetime) -> list[str]:
+    """The failure entries (issue body or comment) written in [start, end)."""
+    found = []
+    for at, body in entries:
+        if start <= at < end and body.lstrip().startswith(FAILURE_PREFIX):
+>>>>>>> origin/main
             found.append(f"{at.strftime('%Y-%m-%dT%H:%MZ')} {body.strip().splitlines()[0][:120]}")
     return sorted(found)
 
 
+<<<<<<< HEAD
 def build_verdicts(entries: Iterable[tuple[dt.datetime, str]], pass_prefix: str,
                    failure_prefix: str) -> dict[str, str]:
     """{build sha: "pass" | "fail"} from entries `<prefix><sha>: ...`; the newest entry per build wins."""
@@ -168,6 +203,18 @@ def resolve(value: str, enforce_after: str, now: dt.datetime,
     when = parse_when(enforce_after, default_enforce_after, variable)
     if when is None:
         return "report", f"auto: {variable}_ENFORCE_AFTER=never"
+=======
+def resolve(value: str, enforce_after: str, now: dt.datetime,
+            read_entries: Callable[[dt.datetime], list[tuple[dt.datetime, str]]]) -> tuple[str, str]:
+    value = value.strip().lower()
+    if value in EXPLICIT:
+        return value, f"NIGHTLY_NEXT_CANARY={value}"
+    if value not in ("", "auto"):
+        raise BadValue(f"NIGHTLY_NEXT_CANARY={value!r}: use report, enforce, off, auto or leave it unset")
+    when = parse_when(enforce_after)
+    if when is None:
+        return "report", "auto: NIGHTLY_NEXT_CANARY_ENFORCE_AFTER=never"
+>>>>>>> origin/main
     stamp = when.strftime("%Y-%m-%dT%H:%MZ")
     if now < when:
         return "report", f"auto: report until {stamp}, then enforce"
@@ -176,6 +223,7 @@ def resolve(value: str, enforce_after: str, now: dt.datetime,
         entries = read_entries(start)
     except Exception as err:  # noqa: BLE001 - any read failure keeps report
         return "report", f"auto: could not read the report week ({err}); staying in report"
+<<<<<<< HEAD
     failed = failures_in(entries, start, when, failure_prefix)
     if failed:
         return "report", (f"auto: the {gate} failed {len(failed)} build(s) in the report week before {stamp} "
@@ -203,6 +251,17 @@ def github_entries(repo: str, token: str, issue_title: str = ISSUE_TITLE, author
     The repository is public, so anyone can comment on the record or open an
     issue with its title; only the workflow's own token writes a verdict.
     """
+=======
+    failed = failures_in(entries, start, when)
+    if failed:
+        return "report", (f"auto: the canary failed {len(failed)} build(s) in the report week before {stamp} "
+                          f"(first: {failed[0]}); triage, then set NIGHTLY_NEXT_CANARY=enforce or move "
+                          "NIGHTLY_NEXT_CANARY_ENFORCE_AFTER")
+    return "enforce", f"auto: enforce since {stamp} (no canary failure in the report week)"
+
+
+def github_entries(repo: str, token: str) -> Callable[[dt.datetime], list[tuple[dt.datetime, str]]]:
+>>>>>>> origin/main
     def get(path: str, query: dict[str, str]) -> object:
         url = f"https://api.github.com/{path}?{urllib.parse.urlencode(query)}"
         req = urllib.request.Request(url, headers={
@@ -220,20 +279,34 @@ def github_entries(repo: str, token: str, issue_title: str = ISSUE_TITLE, author
     def read(since: dt.datetime) -> list[tuple[dt.datetime, str]]:
         if not token:
             raise RuntimeError("no GH_TOKEN")
+<<<<<<< HEAD
         read_json = fetch or get
         result = read_json("search/issues", {
             "q": f'repo:{repo} is:issue in:title "{issue_title}"', "per_page": "20"})
         entries: list[tuple[dt.datetime, str]] = []
         for issue in result.get("items", []):  # type: ignore[union-attr]
             if issue.get("title") != issue_title or (issue.get("user") or {}).get("login") != author:
+=======
+        result = get("search/issues", {
+            "q": f'repo:{repo} is:issue in:title "{ISSUE_TITLE}"', "per_page": "20"})
+        entries: list[tuple[dt.datetime, str]] = []
+        for issue in result.get("items", []):  # type: ignore[union-attr]
+            if issue.get("title") != ISSUE_TITLE:
+>>>>>>> origin/main
                 continue
             entries.append((stamp(issue["created_at"]), issue.get("body") or ""))
             page = 1
             while page <= 10:
+<<<<<<< HEAD
                 comments = read_json(f"repos/{repo}/issues/{issue['number']}/comments", {
                     "since": since.strftime("%Y-%m-%dT%H:%M:%SZ"), "per_page": "100", "page": str(page)})
                 entries.extend((stamp(c["created_at"]), c.get("body") or "") for c in comments  # type: ignore[union-attr]
                                if (c.get("user") or {}).get("login") == author)
+=======
+                comments = get(f"repos/{repo}/issues/{issue['number']}/comments", {
+                    "since": since.strftime("%Y-%m-%dT%H:%M:%SZ"), "per_page": "100", "page": str(page)})
+                entries.extend((stamp(c["created_at"]), c.get("body") or "") for c in comments)  # type: ignore[union-attr]
+>>>>>>> origin/main
                 if len(comments) < 100:  # type: ignore[arg-type]
                     break
                 page += 1
@@ -242,6 +315,7 @@ def github_entries(repo: str, token: str, issue_title: str = ISSUE_TITLE, author
     return read
 
 
+<<<<<<< HEAD
 # The step of visual-gate-nightly that marks an enforce-mode failing verdict;
 # its conclusion is what await-gate reads for advisory reporting.
 GATE_MARKER = "Hold publication"
@@ -393,10 +467,13 @@ def github_jobs(repo: str, token: str, run_id: str, attempt: str,
     return jobs
 
 
+=======
+>>>>>>> origin/main
 def main(argv: list[str]) -> int:
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     sub = parser.add_subparsers(dest="command", required=True)
     r = sub.add_parser("resolve")
+<<<<<<< HEAD
     r.add_argument("--variable", default=VARIABLE, help="the toggle's repository variable name")
     r.add_argument("--value", default=None, help="default: $VARIABLE")
     r.add_argument("--enforce-after", default=None, help="default: $VARIABLE_ENFORCE_AFTER")
@@ -492,6 +569,20 @@ def main(argv: list[str]) -> int:
                             pass_prefix=args.pass_prefix, min_passes=args.min_passes)
     except BadValue as err:
         print(f"::error title=nightly-next {args.gate} mode::{err}", file=sys.stderr)
+=======
+    r.add_argument("--value", default=os.environ.get("NIGHTLY_NEXT_CANARY", ""))
+    r.add_argument("--enforce-after", default=os.environ.get("NIGHTLY_NEXT_CANARY_ENFORCE_AFTER", ""))
+    r.add_argument("--now", default="")
+    r.add_argument("--repo", default=os.environ.get("GITHUB_REPOSITORY", "manaflow-ai/cmux"))
+    args = parser.parse_args(argv)
+    now = parse_when(args.now) if args.now else dt.datetime.now(dt.timezone.utc)
+    assert now is not None
+    try:
+        mode, why = resolve(args.value, args.enforce_after, now,
+                            github_entries(args.repo, os.environ.get("GH_TOKEN", "")))
+    except BadValue as err:
+        print(f"::error title=nightly-next canary mode::{err}", file=sys.stderr)
+>>>>>>> origin/main
         return 2
     print(f"mode={mode}")
     print(f"why={why}")

@@ -86,7 +86,11 @@ Tabs are numbered by default. A recognized agent program can appear after the nu
 
 The built-in sidebar defaults to the workspace list. Set `"sidebar": {"view": "files"}` for the yazi-style file browser. `Tab` toggles the built-in view while the sidebar is focused, and the configurable `toggle-sidebar-view` action toggles it from anywhere. A configured `sidebar.plugin` still replaces either built-in view.
 
+<<<<<<< HEAD
 The workspace list shows agent state with no configuration. Each workspace row starts with the rolled-up status of its agents and shows the git branch of the active tab on its second line (`branch · title`). Below the workspaces, an **agents** section lists every agent across all workspaces as an attention queue: `blocked` first, then `done`, `working`, `idle` and `unknown`, the most recent change first inside each status. Click a row, or select it with the arrow keys in the focused sidebar and press `Enter`, to focus that agent's tab. Tab chips show the same status glyph. The section takes at most half the rail and appears only when an agent runs; set `"sidebar": {"agents": false}` to hide it.
+=======
+The workspace list shows agent state with no configuration. Each workspace row starts with the rolled-up status of its agents and shows the active pane's title on its second line. Below the workspaces, an **agents** section lists every agent across all workspaces as an attention queue: `blocked` first, then `done`, `working`, `idle` and `unknown`, the most recent change first inside each status. Click a row, or select it with the arrow keys in the focused sidebar and press `Enter`, to focus that agent's tab. Tab chips show the same status glyph. The section takes at most half the rail and appears only when an agent runs; set `"sidebar": {"agents": false}` to hide it.
+>>>>>>> origin/main
 
 | Status | Glyph | Meaning |
 | --- | --- | --- |
@@ -96,7 +100,11 @@ The workspace list shows agent state with no configuration. Each workspace row s
 | `idle` | `○` | The agent waits at its prompt and you saw its last turn |
 | `unknown` | `·` | The state is not known |
 
+<<<<<<< HEAD
 A workspace or tab with several agents shows the most urgent status, in the order above. `done` stays until a client shows you the agent's tab: you focus it, type in it, or it finishes while it is the tab you are looking at in a focused terminal window. Then it is `idle`. Reading agent state from the CLI or the socket (`cmux terminal list --agents`, `list-agents`) never clears it, and it survives a daemon restart.
+=======
+A workspace or tab with several agents shows the most urgent status, in the order above. `done` stays until a client shows you the agent's tab: you focus it, type in it, or it finishes while it is the tab you are looking at in a focused terminal window. Then it is `idle`. Reading agent state from the socket (`list-agents`, whose rows carry the same word as `status`) never clears it. Viewing the tab sends `ack-tab-notifications`. The daemon keeps that clear in memory, so a daemon restart shows a turn that is still unread in the journal as `done` again.
+>>>>>>> origin/main
 
 `sidebar.views` is an ordered list of native resource projections, with no fixed column count. Each view has a stable `id`, a `levels` path, and optional native `actions`. A one-level path renders a list. Multi-level paths such as `workspaces → agents` and `workspaces → panes → tabs` render collapsible trees in one column. Nesting is optional. Valid resources are `machines`, `workspaces`, `panes`, `tabs`, and `agents`. Flat pane, tab, and agent views follow the highlighted workspace. Omit a resource to hide it.
 
@@ -216,6 +224,7 @@ cmux agent plugin update <name-or-id>
 cmux agent plugin remove <name-or-id>
 ```
 
+<<<<<<< HEAD
 The cmux-next app ships a screen detector beside the daemon. Without an
 `agents.plugin` entry the daemon runs it as producer `cmux_screen_detection`
 (see `agents.screen_detection` above; that ID is reserved). Return to it from
@@ -231,6 +240,10 @@ cmux daemon reload-config
 `cmux agent plugin list` shows installed packages only. It runs in the CLI
 process, which may talk to a remote daemon with a different bundle, so it does
 not report the bundled detector; the daemon's agent roster shows its rows.
+=======
+With no plugin installed, `list` says how to install one; `--json` prints
+`[]`.
+>>>>>>> origin/main
 
 The reference screen detector keeps 21 herdr-derived manifests in its own
 package. `cmux-agent-screen-detection update` checks an HTTPS catalog only when
@@ -435,6 +448,28 @@ A tab needs you when an agent marked it (`cmux attention request`), when its age
 
 The TUI passes a notification (OSC 9, 777, or 99 from a program, `cmux notify`, an agent hook, a bell) on to its host terminal only when you cannot see the tab: the tab is not drawn, or the host terminal window does not have focus. `auto` writes only to a host it knows by its environment: OSC 777 to Ghostty, WezTerm, and cmux, OSC 9 to iTerm2, and OSC 99 to kitty. `auto` writes nothing inside tmux or screen, or to an unknown terminal. `always` writes OSC 9 to an unknown terminal too. Nothing is written after the TUI detaches or in `cmux terminal attach` mode. At most one notification goes out each second, and at most one each 5 seconds for the same tab. When the host is a cmux terminal of the same session (a TUI that shows its own session), nothing is written, because that session's own clients already show it.
 
+## Notifications
+
+A notification about a tab (`cmux notify --surface <term_…>`, or an agent hook that posts one) marks that tab unread. OSC 9 from a program in a tab is terminal progress metadata, not a notification. When the TUI is attached as a full client, it can also pass the notification to the terminal that hosts it, so the host shows a desktop banner for a tab you cannot see.
+
+| Key | Type | Default | Effect |
+| --- | --- | --- | --- |
+| `notifications.desktop` | `"off"`, `"auto"` or `"always"` | `"auto"` | `auto` passes notifications to a host terminal known to show them: OSC 777 for Ghostty (and the cmux app) and WezTerm, OSC 9 for iTerm2, OSC 99 for kitty. `always` also sends OSC 9 to an unknown host. `off` never passes them. A TUI inside a cmux-tui tab passes nothing, because that daemon shows no OSC notifications |
+| `notifications.bell` | boolean | `false` | Also ring the host bell (BEL) for a bell in a tab you cannot see |
+
+A notification goes to the host only when the tab is not drawn or the host window does not have focus. It never goes to the host for the tab that shows the TUI's own host terminal, or when the TUI's session already shows that host terminal (its clients show the notification). At most one passes per second, and one per tab every five seconds. Inside tmux or screen, `auto` passes nothing, because the multiplexer swallows the sequence; `always` still sends it.
+
+The tabs that need you form one queue: tabs whose agent is `blocked` first, then tabs with an unread `error` or `warning` notification, then other unread tabs, each oldest first. `Ctrl-b a` (`keys.next-attention`) goes to the next one, `Ctrl-b A` (`keys.attention-list`) lists them, and `cmux attention next` and `cmux attention list` answer the same queue as JSON.
+
+```json
+{
+  "notifications": {
+    "desktop": "auto",
+    "bell": false
+  }
+}
+```
+
 ## Commands
 
 `commands` is an ordered list of user commands, the cmux-tui equivalent of tmux `bind-key ... command`. Each command names an argv program and optionally binds key chords to it. Pressing a bound chord runs the argv as a new PTY tab in the active pane, exactly like `cmux run`. The child inherits `CMUX_TUI_SOCKET`, so a command script can immediately drive the public CLI against its own session: create workspaces, apply splits, rename tabs, then close its own tab. The working directory defaults to the active pane's current directory; `cwd` values pass through without shell expansion, so use absolute paths or a shell argv for `~`.
@@ -521,8 +556,13 @@ Try the tracked example with `CMUX_TUI_CONFIG=examples/user-commands.json cargo 
 | `keys.browser-reload` | chord string or array or `"none"` | `"r"` | Browser reload |
 | `keys.browser-edit-url` | chord string or array or `"none"` | `"u"` | Browser URL prompt |
 | `keys.show-shortcuts` | chord string or array or `"none"` | `"?"` | Open the resolved keyboard shortcut modal |
+<<<<<<< HEAD
 | `keys.next-attention` | chord string or array or `"none"` | `"a"` | Go to the next tab that needs you ([Notifications](#notifications)) |
 | `keys.attention-list` | chord string or array or `"none"` | `"A"` | List the tabs that need you; Enter goes to the selected one |
+=======
+| `keys.next-attention` | chord string or array or `"none"` | `"a"` | Go to the next tab that needs you (see [Notifications](#notifications)) |
+| `keys.attention-list` | chord string or array or `"none"` | `"A"` | Open the searchable list of tabs that need you |
+>>>>>>> origin/main
 | `keys.provider-menu` | chord string or array or `"none"` | `"m"` | Open the machine provider menu when the machine rail is focused |
 | `keys.detach` | chord string or array or `"none"` | `"d"` | Quit local TUI or detach attached TUI |
 | `keys.dock-workspace-left` | chord string or array or `"none"` | unbound | Dock the active workspace on the left edge |

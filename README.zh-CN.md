@@ -383,7 +383,11 @@ tmux 是一个在任意终端内运行的终端复用器。cmux 是一个带 GUI
 
 ### 我如何支持 cmux？
 
+<<<<<<< HEAD
 cmux 免费且开源，并将一直如此。
+=======
+cmux 免费且开源，并将一直如此。如果您想支持开发并提前体验接下来的功能，包括 cmux AI、iOS 应用和 Cloud VMs，请查看 [cmux Pro](https://cmux.com/api/billing/checkout?plan=pro)。
+>>>>>>> origin/main
 
 ### 我有功能请求或发现了 bug？
 
@@ -422,6 +426,15 @@ cmux 免费且开源，并将一直如此。
   <img src="./docs/assets/wechat-community-qr.jpg" alt="用于加入 cmux 社区的 WeChat 二维码" width="240" />
 </p>
 
+<<<<<<< HEAD
+=======
+## cmux Pro
+
+cmux 免费、开源，并将一直如此。如果您想支持开发并提前体验即将推出的功能：
+
+**[获取 cmux Pro](https://cmux.com/api/billing/checkout?plan=pro)**
+
+>>>>>>> origin/main
 ## 许可证
 
 cmux 以 [GPL-3.0-or-later](LICENSE) 开源。cmux 服务器软件（`web/`、Cloudflare Worker 以及 [LICENSE](LICENSE) 中列出的中继服务）改用 [Business Source License 1.1](web/LICENSE)：您可以出于非生产目的阅读、修改和运行它，生产使用或自托管需要商业许可证。

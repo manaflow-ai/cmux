@@ -1,5 +1,8 @@
 public import CMUXMobileCore
 public import Foundation
+#if canImport(CmuxLinuxCompat)
+import CmuxLinuxCompat
+#endif
 import SQLite3
 #if canImport(os)
 import os

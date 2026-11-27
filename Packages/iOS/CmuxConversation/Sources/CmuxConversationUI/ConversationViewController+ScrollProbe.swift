@@ -1,5 +1,8 @@
 #if canImport(UIKit) && DEBUG
+<<<<<<< HEAD
 import CmuxConversationCore
+=======
+>>>>>>> origin/main
 import UIKit
 import UIKit.UIGestureRecognizerSubclass
 
@@ -16,6 +19,7 @@ import UIKit.UIGestureRecognizerSubclass
 /// message row's place on screen, from which the motion's pacing (frame
 /// intervals), rigidity (rows moving by anything but the offset) and finger
 /// tracking are computed offline.
+<<<<<<< HEAD
 ///
 /// To attribute every hitch, each row also carries what our own code did
 /// since the previous row: the store changes received, the time spent in
@@ -26,6 +30,8 @@ import UIKit.UIGestureRecognizerSubclass
 /// shows there even when no update records it). The glass column counts
 /// trait changes the header's and composer's views received (the system
 /// glass re-evaluating the backdrop under them).
+=======
+>>>>>>> origin/main
 @MainActor
 final class ConversationScrollProbe {
     static let environmentKey = "CMUX_UITEST_CONVERSATION_SCROLL_PROBE"
@@ -84,15 +90,22 @@ final class ConversationScrollProbe {
         }
         link.isEnabled = true
         self.link = link
+<<<<<<< HEAD
         observeRunLoop()
         observeGlass(in: [controller.header, controller.composerContainer])
+=======
+>>>>>>> origin/main
         let screen = scrollView.window?.screen ?? UIScreen.main
         let environment = ProcessInfo.processInfo.environment
         let toggles = ["CMUX_UITEST_CONVERSATION_DYNAMICS", "CMUX_UITEST_CONVERSATION_SCROLL_RATE", "CMUX_UITEST_CONVERSATION_FILL", ConversationAutoScrollDriver.environmentKey]
             .compactMap { key in environment[key].map { "\(key)=\($0)" } }.joined(separator: " ")
         let header = "# label=\(label) maxFPS=\(screen.maximumFramesPerSecond) scale=\(screen.scale) os=\(UIDevice.current.systemVersion) \(toggles)\n"
+<<<<<<< HEAD
             + "frame,model,present,deadline,t0,t1,t2,t3,t4,t5,offset,content,tracking,decel,dragging,vel,touchT,touchY,touchN,newCells,"
             + "changes,secs,restore,newKinds,insetTop,toTop,pan,panTouches,busy,glass,cells\n"
+=======
+            + "frame,model,present,deadline,t0,t1,t2,t3,t4,t5,offset,content,tracking,decel,dragging,vel,touchT,touchY,touchN,newCells,cells\n"
+>>>>>>> origin/main
         let url = output
         writer.async {
             // A conversation shown again keeps appending to the same run.
@@ -111,6 +124,7 @@ final class ConversationScrollProbe {
         if #available(iOS 18.0, *), let link = link as? UIUpdateLink { link.isEnabled = false }
         link = nil
         touches.view?.removeGestureRecognizer(touches)
+<<<<<<< HEAD
         if let observer = runLoopObserver {
             CFRunLoopRemoveObserver(CFRunLoopGetMain(), observer, .commonModes)
             runLoopObserver = nil
@@ -245,6 +259,11 @@ final class ConversationScrollProbe {
         }
     }
 
+=======
+        flush()
+    }
+
+>>>>>>> origin/main
     /// Row state as it is committed in this update.
     private var pending: String?
     /// The transcript was neither dragged nor decelerating in that update.
@@ -299,12 +318,15 @@ final class ConversationScrollProbe {
             String(format: "%.3f", touch.y),
             "\(touches.take())",
             "\(fresh)",
+<<<<<<< HEAD
             "%ATTR%",
             String(format: "%.1f", scrollView.adjustedContentInset.top),
             controller.isScrollingToTop ? "1" : "0",
             "\(scrollView.panGestureRecognizer.state.rawValue)",
             "\(scrollView.panGestureRecognizer.numberOfTouches)",
             "%TAIL%",
+=======
+>>>>>>> origin/main
             cells.joined(separator: "|"),
         ].joined(separator: ",")
     }
@@ -314,6 +336,7 @@ final class ConversationScrollProbe {
         guard let pending else { return }
         self.pending = nil
         frame += 1
+<<<<<<< HEAD
         // What our code did up to this commit's end (its layout and new
         // cells included), placed before the update's scroll state columns.
         let attribution = [
@@ -333,6 +356,9 @@ final class ConversationScrollProbe {
             .replacingOccurrences(of: "%T5%", with: String(format: "%.6f", phases[5]))
             .replacingOccurrences(of: "%ATTR%", with: attribution)
             .replacingOccurrences(of: "%TAIL%", with: tail))
+=======
+        rows.append("\(frame)," + pending.replacingOccurrences(of: "%T5%", with: String(format: "%.6f", phases[5])))
+>>>>>>> origin/main
         // Written every 2 s of updates and whenever the scroll comes to
         // rest, so a run copied off the device right after ends complete.
         if rows.count >= 240 || (settled && wasMoving) { flush() }

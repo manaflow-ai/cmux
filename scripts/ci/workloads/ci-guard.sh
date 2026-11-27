@@ -21,6 +21,7 @@ stage start setup
 stage end setup
 
 stage start test
+<<<<<<< HEAD
 check ./tests/test_ci_self_hosted_guard.sh
 check python3 tests/test_ci_change_areas.py
 check python3 tests/test_ci_linux_guard_routing.py
@@ -32,4 +33,23 @@ check python3 tests/test_app_symbol_map.py
 check python3 tests/test_cmux_tui_release_profile.py
 check python3 tests/test_dead_code_stripping.py
 [[ "$failed" -eq 0 ]] || exit 1
+=======
+./tests/test_ci_self_hosted_guard.sh
+python3 tests/test_ci_change_areas.py
+python3 tests/test_ci_linux_guard_routing.py
+python3 tests/test_ci_dispatch_targets_on_main.py
+python3 tests/test_ci_blacksmith_macos_switch.py
+python3 tests/test_ci_merge_queue_required_checks.py
+python3 tests/test_ci_reusable_workflow_permissions.py
+./scripts/lint-pbxproj-test-wiring.sh
+./scripts/lint-pbxproj-test-wiring.sh --target cmuxCLITests --tests-dir cmuxCLITests
+./scripts/lint-pbxproj-test-wiring.sh --target cmuxCLITests --tests-dir cmuxCLITestSupport
+./scripts/lint-pbxproj-test-wiring.sh --target cmuxTests --tests-dir cmuxCLITestSupport
+./scripts/lint-pbxproj-test-wiring.sh --target cmuxUITests --tests-dir cmuxUITests
+./tests/test_ci_pbxproj_app_sources_wiring.sh
+python3 tests/test_strings_output_encoding.py
+python3 tests/test_cmux_tui_release_profile.py
+python3 tests/test_dead_code_stripping.py
+python3 tests/test_computer_use_helper_icon_depth.py
+>>>>>>> origin/main
 stage end test

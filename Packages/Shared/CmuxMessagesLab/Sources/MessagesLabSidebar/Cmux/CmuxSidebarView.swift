@@ -47,6 +47,7 @@ public struct CmuxSidebarEntry: Hashable, Sendable {
     public var spam: Bool
     /// Sidebar v1.2: deleted at this time (only Recently Deleted shows it).
     public var deletedAt: Date?
+<<<<<<< HEAD
     /// A short tag after the name (the engine a Home Chief runs on, "UniiChat"); nil shows none.
     /// The vendored row draws only the name, so the tag is part of the name it is given.
     public var badge: String?
@@ -56,6 +57,13 @@ public struct CmuxSidebarEntry: Hashable, Sendable {
                 knownSender: Bool = true, spam: Bool = false, deletedAt: Date? = nil, avatar: Avatar? = nil, badge: String? = nil) {
         self.avatar = avatar
         self.badge = badge
+=======
+
+    public init(id: String, title: String, people: [Person], preview: String, previewSender: String?, lastAt: Date,
+                unreadCount: Int, pinned: Bool, muted: Bool = false, typing: Bool = false,
+                knownSender: Bool = true, spam: Bool = false, deletedAt: Date? = nil, avatar: Avatar? = nil) {
+        self.avatar = avatar
+>>>>>>> origin/main
         self.knownSender = knownSender
         self.spam = spam
         self.deletedAt = deletedAt
@@ -71,12 +79,15 @@ public struct CmuxSidebarEntry: Hashable, Sendable {
         self.typing = typing
     }
 
+<<<<<<< HEAD
     /// The name the row draws: the title, then the badge after a middle dot.
     var shownTitle: String {
         guard let badge, !badge.isEmpty else { return title }
         return title + " \u{00B7} " + badge
     }
 
+=======
+>>>>>>> origin/main
     /// MessagesLab's summary. `version` comes from the content, so a changed
     /// conversation gets a new bitmap and an unchanged one keeps its own.
     var summary: ConversationSummary {
@@ -89,7 +100,11 @@ public struct CmuxSidebarEntry: Hashable, Sendable {
         }
         let avatar: AvatarSpec = own ?? (members.count > 1 ? .group(members.prefix(4).map(\.avatar))
             : members.first?.avatar ?? .monogram(String(title.prefix(1)).uppercased()))
+<<<<<<< HEAD
         var s = ConversationSummary(id: id, title: shownTitle, participants: members, avatar: avatar, preview: preview,
+=======
+        var s = ConversationSummary(id: id, title: title, participants: members, avatar: avatar, preview: preview,
+>>>>>>> origin/main
                                     previewSender: previewSender, lastAt: lastAt, unreadCount: unreadCount, pinned: pinned,
                                     muted: muted, typing: typing, lastReaction: nil, version: hashValue)
         s.knownSender = knownSender
@@ -106,15 +121,19 @@ public struct CmuxSidebarEntry: Hashable, Sendable {
 @MainActor
 public final class CmuxSidebarView: NSView {
     public var onSelect: (String?) -> Void = { _ in }
+<<<<<<< HEAD
     /// The person opened a conversation (its id): a plain click on its row or tile, the selected
     /// one too, or Return on the highlighted one. Called after ``onSelect``; Up/Down and Command-,
     /// Shift- or Control-clicks only select. The host moves the keyboard into the conversation.
     public var onOpen: (String) -> Void = { _ in }
+=======
+>>>>>>> origin/main
     public var onSetPinned: (Bool, String) -> Void = { _, _ in }
     /// A drag put a conversation at an index of the pinned grid (a new place, or a row pinned
     /// there). The host changes its order and calls `show` before returning, so the tiles land
     /// from where they were drawn. A tile dragged onto the list goes to `onSetPinned(false, _)`.
     public var onPlacePinned: (String, Int) -> Void = { _, _ in }
+<<<<<<< HEAD
     /// A row or tile drag left the list sideways (the conversation's id, the pointer on screen): true takes
     /// it over (cmux: the Chief dragged into the app's sidebar); the list puts the drag back and stops.
     public var onDragOut: (String, CGPoint) -> Bool = { _, _ in false }
@@ -126,6 +145,20 @@ public final class CmuxSidebarView: NSView {
     /// Delete Conversation… (the row's menu, after the host's items) and a left swipe's Delete;
     /// nil: neither is offered. The host asks first and decides what a delete does.
     public var onDelete: ((String) -> Void)?
+=======
+    /// Mark as Read (true) on an unread conversation, Mark as Unread (false) on a read one.
+    public var onSetRead: (Bool, String) -> Void = { _, _ in }
+    /// Removes a conversation from the host's list. The host owns the policy
+    /// (archive, hide, or delete) and calls ``show`` after changing it.
+    public var onDelete: (String) -> Void = { _ in }
+    /// Whether the host can remove a conversation. Hosts can keep a required
+    /// default thread (such as Chief) visible while still exposing delete for
+    /// ordinary rows.
+    public var canDelete: (String) -> Bool = { _ in true }
+    /// Host items for a conversation's context menu after the built-in actions (MessagesLab
+    /// v1.1 `menuItemsFor`).
+    public var menuItems: (String) -> [NSMenuItem] = { _ in [] }
+>>>>>>> origin/main
     /// An extra search section under the conversations for a query (nil: none), asked once
     /// per keystroke; a later keystroke cancels the answer.
     public var searchSection: (String) -> CmuxSidebarSearchSection? = { _ in nil }
@@ -141,6 +174,7 @@ public final class CmuxSidebarView: NSView {
         set { controller.selectionColor = newValue }
     }
 
+<<<<<<< HEAD
     /// Draws the selected row or pinned tile in a neutral grey in every window state, with the
     /// normal text colours and grey pinned names, instead of the system's blue selection
     /// (Messages' pinned grid look). Off by default (MessagesLab's look).
@@ -183,6 +217,10 @@ public final class CmuxSidebarView: NSView {
             rowClose.button.setAccessibilityLabel(newValue)
         }
     }
+=======
+    let controller = SidebarController()
+    private let link = SidebarLink()
+>>>>>>> origin/main
     /// The list's scroll view, for the host's scroller style (cmux's scrollers are thin overlays).
     public var scrollView: NSScrollView { controller.scrollView }
     public private(set) var entries: [CmuxSidebarEntry] = []
@@ -201,6 +239,7 @@ public final class CmuxSidebarView: NSView {
         controller.view.autoresizingMask = [.width, .height]
         addSubview(controller.view)
         setAccessibilityIdentifier("cmux.home.sidebar")
+<<<<<<< HEAD
         // Reduce Motion changes (the system setting or the host's pin) still or restart the typing
         // bubbles already pulsing (CmuxSidebarView+Motion.swift).
         motionObservers = observeReduceMotion()
@@ -216,6 +255,10 @@ public final class CmuxSidebarView: NSView {
     /// The Reduce Motion observers (weak: a closed view's turn is a no-op).
     private var motionObservers: [any NSObjectProtocol] = []
 
+=======
+    }
+
+>>>>>>> origin/main
     @available(*, unavailable)
     required init?(coder: NSCoder) { nil }
 
@@ -231,7 +274,11 @@ public final class CmuxSidebarView: NSView {
         public static let recentlyDeleted = FilterSources(rawValue: 1 << 2)
     }
     public var filterSources: FilterSources = [] {
+<<<<<<< HEAD
         didSet { if layoutHeader == nil { controller.availableFilters = Self.filters(filterSources) } }
+=======
+        didSet { controller.availableFilters = Self.filters(filterSources) }
+>>>>>>> origin/main
     }
     static func filters(_ s: FilterSources) -> [SidebarFilter] {
         SidebarFilter.allCases.filter {
@@ -247,8 +294,11 @@ public final class CmuxSidebarView: NSView {
     /// The compact (avatar-only) list's width and the width the list is designed for.
     public var minimumWidth: CGFloat { controller.minimumWidth }
     public var preferredWidth: CGFloat { controller.preferredWidth ?? 320 }
+<<<<<<< HEAD
     /// Below this width the list shows avatars only (no names, previews or section headers).
     public static var compactBelow: CGFloat { SidebarMetrics.compactBelow }
+=======
+>>>>>>> origin/main
     public var selectedID: String? { controller.selectedID }
 
     /// Shows `entries` (newest first, pinned included) with `pinned` in tile order.
@@ -256,6 +306,7 @@ public final class CmuxSidebarView: NSView {
         guard entries != self.entries || pinned != pinnedOrder else { return }
         self.entries = entries
         pinnedOrder = pinned
+<<<<<<< HEAD
         // The list's own reload motion (rows sliding to new places, a pin's fade) follows the
         // same gate as the pin drag: under Reduce Motion or the host's gate it shows at once.
         let listMotion = SidebarMotion.enabled
@@ -263,11 +314,29 @@ public final class CmuxSidebarView: NSView {
         defer { SidebarMotion.enabled = listMotion }
         controller.reloadData()
         rowClose.refresh()
+=======
+        controller.reloadData()
+    }
+
+    /// In the compact (avatar-only) list the search field is hidden rather
+    /// than clipped to a few letters, and a search in progress ends, so no
+    /// hidden filter stays on the rows. (Upstream ask: Messages' compact search.)
+    public override func layout() {
+        super.layout()
+        let compact = bounds.width < SidebarMetrics.compactBelow
+        guard controller.searchField.isHidden != compact else { return }
+        controller.searchField.isHidden = compact
+        if compact, !controller.searchField.stringValue.isEmpty {
+            controller.searchField.stringValue = ""
+            controller.setQuery("")
+        }
+>>>>>>> origin/main
     }
 
     /// The search field's text.
     public var searchQuery: String { controller.searchField.stringValue }
 
+<<<<<<< HEAD
     /// The search field, for a host that draws the header itself (`layoutHeader`): its frame,
     /// look and focus are the host's; its text and search stay the list's.
     public var searchField: CmuxSidebarSearchField { controller.searchField }
@@ -324,6 +393,10 @@ public final class CmuxSidebarView: NSView {
     /// The list's own strings, for a host's header buttons: Search, and the Unread Messages filter.
     public static var searchTitle: String { SidebarStrings.search }
     public static var unreadTitle: String { SidebarStrings.filterName(.unread) }
+=======
+    /// True while the list is too narrow for the search field.
+    public var searchHidden: Bool { controller.searchField.isHidden }
+>>>>>>> origin/main
 
     /// Selects `id` without reporting it (the page already shows it).
     public func select(_ id: String?) {
@@ -382,7 +455,11 @@ public struct CmuxSidebarSearchSection: Hashable, Sendable {
 /// The controller's data source, delegate and search provider (it holds them weakly).
 @MainActor
 private final class SidebarLink: @preconcurrency SidebarDataSource, @preconcurrency SidebarDelegate, @preconcurrency SidebarSearchProvider,
+<<<<<<< HEAD
     @preconcurrency SidebarPinPlacing, @preconcurrency SidebarDragOutHandling {
+=======
+    @preconcurrency SidebarPinPlacing {
+>>>>>>> origin/main
     weak var owner: CmuxSidebarView?
 
     func sidebarSnapshot(_ sidebar: SidebarController) -> ConversationListSnapshot {
@@ -390,6 +467,7 @@ private final class SidebarLink: @preconcurrency SidebarDataSource, @preconcurre
     }
 
     func sidebar(_ sidebar: SidebarController, didSelect id: ConversationID?) { owner?.onSelect(id) }
+<<<<<<< HEAD
     func sidebar(_ sidebar: SidebarController, didOpen id: ConversationID) { owner?.onOpen(id) }
     func sidebar(_ sidebar: SidebarController, setPinned pinned: Bool, for id: ConversationID) { owner?.onSetPinned(pinned, id) }
     func sidebar(_ sidebar: SidebarController, setRead read: Bool, for id: ConversationID) { owner?.onSetRead(read, id) }
@@ -407,6 +485,21 @@ private final class SidebarLink: @preconcurrency SidebarDataSource, @preconcurre
         return owner.onDelete == nil ? [.pin, .markRead] : [.pin, .markRead, .delete]
     }
     func sidebar(_ sidebar: SidebarController, delete id: ConversationID) { owner?.onDelete?(id) }
+=======
+    func sidebar(_ sidebar: SidebarController, setPinned pinned: Bool, for id: ConversationID) { owner?.onSetPinned(pinned, id) }
+    func sidebar(_ sidebar: SidebarController, setRead read: Bool, for id: ConversationID) { owner?.onSetRead(read, id) }
+    func sidebar(_ sidebar: SidebarController, delete id: ConversationID) { owner?.onDelete(id) }
+    func sidebar(_ sidebar: SidebarController, place id: ConversationID, at index: Int) { owner?.onPlacePinned(id, index) }
+    // v1.2: MessagesLab's own tile reorder reports its drop here; the same placement as a pin drag.
+    func sidebar(_ sidebar: SidebarController, movePinned id: ConversationID, to index: Int) { owner?.onPlacePinned(id, index) }
+    // Pin, Mark as Read on an unread conversation or Mark as Unread on a read one (the
+    // controller picks the title from the entry's unread count; the host keeps the mark), and
+    // Delete, which the host handles as archive/hide.
+    func sidebar(_ sidebar: SidebarController, actionsFor id: ConversationID) -> SidebarActions {
+        guard owner?.entries.contains(where: { $0.id == id }) == true else { return [.pin] }
+        return owner?.canDelete(id) == true ? [.pin, .markRead, .delete] : [.pin, .markRead]
+    }
+>>>>>>> origin/main
     func sidebar(_ sidebar: SidebarController, menuItemsFor id: ConversationID) -> [NSMenuItem] { owner?.menuItems(id) ?? [] }
 
     func sidebar(_ sidebar: SidebarController, search request: SidebarSearchRequest) {

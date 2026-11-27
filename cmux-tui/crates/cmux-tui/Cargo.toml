@@ -340,6 +340,7 @@ cmux-app-host = { workspace = true, features = ["engine"] }
 cmux-rd-proto = { path = "../cmux-rd-proto", features = ["serde"] }
 # tests/carrier_dial.rs: a real relay for `cmux carrier dial`.
 axum.workspace = true
+cmux-test-exec.workspace = true
 cmux-pty.workspace = true
 cmux-relay = { path = "../cmux-relay" }
 # Paused-clock tests of the Cloud dial's handshake wait.

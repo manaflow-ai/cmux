@@ -111,6 +111,10 @@ private let hank = ConversationContact(id: "hank", name: "Hank M. Zakroff", init
 final class FakeDirectory: ConversationDirectory, @unchecked Sendable {
     let lock = NSLock()
     var searches: [(query: String, excluding: [String])] = []
+<<<<<<< HEAD
+=======
+    var completedQueries: [String] = []
+>>>>>>> origin/main
     var searchDelay: [String: Duration] = [:]
     var created: [[ConversationRecipientRef]] = []
     let contacts = [kate, hank]
@@ -118,6 +122,10 @@ final class FakeDirectory: ConversationDirectory, @unchecked Sendable {
     func searchContacts(_ query: String, limit: Int, excluding: [String]) async throws -> [ConversationContact] {
         lock.withLock { searches.append((query, excluding)) }
         if let delay = searchDelay[query] { try await Task.sleep(for: delay) }
+<<<<<<< HEAD
+=======
+        lock.withLock { completedQueries.append(query) }
+>>>>>>> origin/main
         return contacts.filter { !excluding.contains($0.id) && $0.name.lowercased().hasPrefix(query.lowercased()) }
     }
 
@@ -141,7 +149,11 @@ final class FakeDirectory: ConversationDirectory, @unchecked Sendable {
         session.setText("k")
         session.setText("h")
         try await waitUntil { session.suggestions.map(\.id) == ["hank"] }
+<<<<<<< HEAD
         try await Task.sleep(for: .milliseconds(300))
+=======
+        try await waitUntil { directory.lock.withLock { directory.completedQueries.contains("k") } }
+>>>>>>> origin/main
         #expect(session.suggestions.map(\.id) == ["hank"], "the slow 'k' result never replaces the newer 'h' result")
     }
 
@@ -182,6 +194,7 @@ final class FakeDirectory: ConversationDirectory, @unchecked Sendable {
         await #expect(throws: ConversationBackendError.self) { try await session.openConversation() }
     }
 }
+<<<<<<< HEAD
 
 /// cmux Home's list under To: (``ConversationComposeListing``): sections before
 /// anything is typed, the listing's rows for typed text, nothing once someone is chosen.
@@ -276,3 +289,5 @@ final class FakeDirectory: ConversationDirectory, @unchecked Sendable {
         #expect(!store.hasLivePrimaryOwner, "a screen that left no longer holds the store")
     }
 }
+=======
+>>>>>>> origin/main

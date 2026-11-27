@@ -51,11 +51,19 @@ GROUPS = (
 # imports, a working-directory, a submodule). Paths a step runs directly are
 # derived from ci-guards.yml by direct_path_owners() and need no entry here.
 PATH_OWNERS = {
+<<<<<<< HEAD
     # The What's New and release-notes tests in release-notary import or run these.
     "scripts/whats-new/digest.py": frozenset(("release-notary",)),
     "scripts/whats-new/validate.py": frozenset(("release-notary",)),
     "scripts/whats-new/community.py": frozenset(("release-notary",)),
     "scripts/cmux-next/release-notes.py": frozenset(("release-notary",)),
+=======
+    "scripts/ci/signing-runner-claim.sh": frozenset(("ci",)),
+    ".github/workflows/ci-main-full-suite.yml": frozenset(("ci",)),
+    # tests/test_ci_gate_absent_signal.py imports the gate verdict.
+    "scripts/ci/gate_verdict.py": frozenset(("ci",)),
+
+>>>>>>> origin/main
     # test_ci_runner_capability_resolver.py reads the capability map, the
     # resolver it imports, the reusable workflow that publishes the map, and
     # the one workflow wired to consume it.
@@ -86,7 +94,11 @@ PATH_OWNERS = {
     ".github/review-fabric-policy.json": frozenset(("preflight",)),
     ".github/review-fabric.md": frozenset(("preflight",)),
     ".github/scripts/review_fabric.py": frozenset(("preflight",)),
+<<<<<<< HEAD
     ".github/workflows/ios-testflight.yml": frozenset(("preflight", "ci", "release-ios")),
+=======
+    "agent-chat/test/claude-environment.test.ts": frozenset(("preflight-agent-chat",)),
+>>>>>>> origin/main
     "ghostty": frozenset(("release-tooling",)),
     "ios/scripts/fetch-testflight-notes-history.sh": frozenset(("release-ios",)),
     "ios/scripts/upload-testflight.sh": frozenset(("release-ios",)),
@@ -150,9 +162,24 @@ PATH_OWNERS = {
     "scripts/ci/nightly_sign_admit.py": frozenset(("ci", "release-notary")),
     "scripts/ci/drop-previous-nightlies-with-other-sparkle-key.sh": frozenset(("release-notary",)),
     "scripts/ci/nightly-sparkle-key.sh": frozenset(("release-notary",)),
+    # tests/test_download_run_artifact.py imports it; nightly.yml runs it.
+    "scripts/ci/download-run-artifact.py": frozenset(("release-notary",)),
     "scripts/ci/product_input_identity.py": frozenset(("preflight",)),
     "scripts/ci/ci_health_report.py": frozenset(("ci",)),
     "scripts/ci/queue_janitor.py": frozenset(("ci",)),
+<<<<<<< HEAD
+=======
+    # The delivery workflow list: test_nightly_delivery_concurrency.py (release-notary) and
+    # queue_janitor.py (ci) both import it.
+    "scripts/ci/delivery_workflows.py": frozenset(("ci", "release-notary")),
+    # The shared-group check test_nightly_delivery_concurrency.py (release-notary) and
+    # cron_concurrency.py (test_ci_cron_concurrency.py, ci) import.
+    "scripts/ci/delivery_concurrency.py": frozenset(("ci", "release-notary")),
+    # The cron/delivery concurrency rule test_ci_cron_concurrency.py (ci) imports; the backlog replay
+    # reads it too.
+    "scripts/ci/cron_concurrency.py": frozenset(("ci",)),
+    "scripts/ci/backlog_drain_replay.py": frozenset(("ci",)),
+>>>>>>> origin/main
     # test_ci_starved_labels.py (ci) loads it by path; queue_janitor.py imports it.
     "scripts/ci/starved_labels.py": frozenset(("ci",)),
     "scripts/ci/required_status_checks.py": frozenset(("ci",)),
@@ -187,6 +214,39 @@ PATH_OWNERS = {
     # The swift-package-tests lane; detect_ci_change_areas.py reads its package list.
     "scripts/ci/package-test-lane.sh": frozenset(("app-host-execution", "ci")),
     "scripts/ci/sanitize-xcode-source-packages-cache.py": frozenset(("preflight",)),
+<<<<<<< HEAD
+=======
+    # tests/test_ci_owned_pool_sources.py imports the detector, which reads the
+    # pool picker's and the runner label policy's constants.
+    "scripts/ci/owned_pool_sources.py": frozenset(("ci",)),
+    # tests/test_ci_ui_tests_dispatch.py imports the script and reads the
+    # workflow; owned_pool_rescue.py and classify_failures.py import it too.
+    "scripts/ci/ui_tests_dispatch.py": frozenset(("app-host-execution", "ci")),
+    ".github/workflows/ci-ui-tests.yml": frozenset(("app-host-execution", "ci")),
+    # tests/test_ci_pr_media.py imports the script and reads the workflow;
+    # tests/test_ci_pr_media_privacy.py (ci) reads the workflow too.
+    "scripts/ci/pr_media.py": frozenset(("app-host-execution",)),
+    ".github/workflows/pr-media.yml": frozenset(("app-host-execution", "ci")),
+    # tests/test_pr_media.py (preflight) and tests/test_ci_pr_media_privacy.py
+    # (ci) both load the uploader and its publishing-gate check.
+    "scripts/pr-media.py": frozenset(("ci", "preflight")),
+    # tests/test_ci_pr_media_privacy.py imports the gate and reads its workflow;
+    # scripts/pr-media.py (tests/test_pr_media.py) runs it before every upload.
+    "scripts/ci/pr_media_privacy.py": frozenset(("ci", "preflight")),
+    # tests/test_ci_pr_media_privacy.py (ci) runs the publishing action's
+    # preflight and tesseract tool, and reads the action and its fixtures.
+    "scripts/ci/pr_media_gate.py": frozenset(("ci",)),
+    "scripts/ci/pr_media_ocr_tesseract.py": frozenset(("ci",)),
+    # tests/test_ci_pr_media_lint.py (ci) loads the warn-only lint by path.
+    "scripts/ci/pr_media_lint.py": frozenset(("ci",)),
+    ".github/actions/pr-media-publish/action.yml": frozenset(("ci",)),
+    ".github/actions/pr-media-publish/canary.png": frozenset(("ci",)),
+    "tests/fixtures/pr_media_gate/clean.png": frozenset(("ci",)),
+    "tests/fixtures/pr_media_gate/seeded-private-term.png": frozenset(("ci",)),
+    # tests/test_ci_pr_media_privacy.py runs its upload() through the gate.
+    "dogfood/fuzz/cmuxfuzz/triage.py": frozenset(("ci",)),
+    ".github/workflows/pr-media-privacy.yml": frozenset(("ci",)),
+>>>>>>> origin/main
     # detect_ci_change_areas.py imports this to decide the swift-package-tests
     # route, so the ci group's router tests observe an edit to it even though
     # no guard step names it in a `run:`.
@@ -515,6 +575,7 @@ def groups_for_path(path: str) -> tuple[str, ...] | None:
     if _determinism_scan(path):
         owners.add("quality-determinism")
 
+<<<<<<< HEAD
     if path == ".github/workflows/ios-testflight.yml":
         owners.update(("preflight", "ci"))
     # The ci group's routing-table check (tests/test_runner_routing_table.py)
@@ -523,6 +584,8 @@ def groups_for_path(path: str) -> tuple[str, ...] | None:
     if owners and path.startswith(".github/workflows/") and path.endswith((".yml", ".yaml")):
         owners.add("ci")
 
+=======
+>>>>>>> origin/main
     if not owners:
         return None
     return tuple(group for group in GROUPS if group in owners)

@@ -1,5 +1,6 @@
 name: Cloud desktop UDP link readback (staging, Mac behind NAT)
 
+<<<<<<< HEAD
 # One manual readback of the Cloud desktop's UDP link (cmux-rd-link, cmuxterm-hq#7976) from a Mac behind
 # NAT: an ephemeral macOS VM builds cmux-tui from the dispatched commit, signs in to staging as the agent test
 # account and runs the Cloud journey with --desktop-link (scripts/cmux-next/cloud-journey.ts): it makes a
@@ -14,6 +15,15 @@ name: Cloud desktop UDP link readback (staging, Mac behind NAT)
 # Secrets: the staging agent test account, CMUX_DOGFOOD_STACK_EMAIL and _PASSWORD in cmux-next-vm-image-dev (the
 # pair cloud-chat-proof.yml's staging job reads; cmux-next-cloud-journey holds the production account and no
 # CMUX_JOURNEY_DEV_STACK_* pair, cmuxterm-hq#8702). Manual dispatch on feat-cmux-next only.
+=======
+# The implementation lives on feat-cmux-next (#39461). GitHub dispatches only a
+# workflow the default branch registers, so this inert copy lets lanes run:
+#
+#   gh workflow run cloud-rd-link-readback.yml -R manaflow-ai/cmux --ref feat-cmux-next
+#
+# A dispatch runs the file at --ref, so feat-cmux-next's inputs and jobs win;
+# these inputs only mirror them for the Actions form.
+>>>>>>> origin/main
 on:
   workflow_dispatch:
     inputs:
@@ -23,18 +33,23 @@ on:
         default: ""
         type: string
 
+<<<<<<< HEAD
 permissions:
   contents: read
 
 concurrency:
   group: cloud-rd-link-readback-${{ github.run_id }}
   cancel-in-progress: false
+=======
+permissions: {}
+>>>>>>> origin/main
 
 env:
   # Temporary REST budget attribution: one gh-call line per GitHub API call (scripts/ci/api_call_log/env.sh, fetched at a fixed commit when the checkout has no copy).
   BASH_ENV: '$({ w="${GITHUB_WORKSPACE:-/nonexistent}/scripts/ci/api_call_log/env.sh"; t="${RUNNER_TEMP:-/nonexistent}/api-call-log-src"; if [ -f "$w" ]; then echo "$w"; elif [ -n "${RUNNER_TEMP:-}" ]; then if [ ! -f "$t/env.sh" ] && [ ! -e "$t.tried" ] && { [ "${RUNNER_OS:-}" = Linux ] || [ "${RUNNER_OS:-}" = macOS ]; } && [ "$(date -u +%Y%m%d%H)" -lt 2026112300 ]; then : > "$t.tried"; mkdir -p "$t.part" && for x in env.sh gh sitecustomize.py isolated.py; do curl -fsSL --max-time 5 -o "$t.part/$x" "https://raw.githubusercontent.com/manaflow-ai/cmux/27647ffd3ae838c63be28ca3e5883dcd68c34518/scripts/ci/api_call_log/$x" || break; done; [ -s "$t.part/isolated.py" ] && mv "$t.part" "$t"; fi; if [ -f "$t/env.sh" ]; then echo "$t/env.sh"; else echo unset BASH_ENV > "$t.off.sh" && echo "$t.off.sh"; fi; fi; } 2>/dev/null)'
 
 jobs:
+<<<<<<< HEAD
   readback:
     if: github.ref == 'refs/heads/feat-cmux-next'
     # Holds the stack pair, and runs only from feat-cmux-next (this if: and the environment's branch policy), never
@@ -185,3 +200,9 @@ jobs:
           args=(--backend staging --cleanup-tag "$tag")
           if [ -n "$TEAM" ]; then args+=(--team "$TEAM"); fi
           bun scripts/cmux-next/cloud-journey.ts "${args[@]}"
+=======
+  registration:
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.CI_OVERFLOW_LINUX || 'cmux-linux' }}
+    steps:
+      - run: echo "The desktop link readback is implemented on feat-cmux-next; dispatch it with --ref feat-cmux-next"
+>>>>>>> origin/main

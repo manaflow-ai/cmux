@@ -383,7 +383,11 @@ tmux는 어떤 터미널 안에서든 실행되는 터미널 멀티플렉서예�
 
 ### cmux를 어떻게 지원할 수 있나요?
 
+<<<<<<< HEAD
 cmux는 무료이고 오픈 소스이며, 앞으로도 그럴 거예요.
+=======
+cmux는 무료이고 오픈 소스이며, 앞으로도 그럴 거예요. 개발을 후원하고 cmux AI, iOS 앱, Cloud VMs를 포함해 다음에 나올 것들에 먼저 접근하고 싶다면, [cmux Pro](https://cmux.com/api/billing/checkout?plan=pro)을 확인해주세요.
+>>>>>>> origin/main
 
 ### 기능 요청이 있거나 버그를 발견했어요?
 
@@ -422,6 +426,15 @@ cmux는 무료이고 오픈 소스이며, 앞으로도 그럴 거예요.
   <img src="./docs/assets/wechat-community-qr.jpg" alt="cmux 커뮤니티에 참여하기 위한 WeChat QR 코드" width="240" />
 </p>
 
+<<<<<<< HEAD
+=======
+## cmux Pro
+
+cmux는 무료이고 오픈 소스이며, 앞으로도 그럴 거예요. 개발을 지원하고 다음에 나올 기능에 먼저 접근하고 싶다면:
+
+**[cmux Pro 구매하기](https://cmux.com/api/billing/checkout?plan=pro)**
+
+>>>>>>> origin/main
 ## 라이선스
 
 cmux는 [GPL-3.0-or-later](LICENSE) 하에 오픈 소스예요. cmux 서버 소프트웨어(`web/`, Cloudflare 워커, [LICENSE](LICENSE)에 나열된 릴레이 서비스)는 대신 [Business Source License 1.1](web/LICENSE)을 따라요. 비프로덕션 용도로 읽고, 수정하고, 실행할 수 있지만 프로덕션 사용이나 셀프 호스팅에는 상용 라이선스가 필요해요.

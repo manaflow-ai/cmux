@@ -88,16 +88,27 @@ export type JsonObjectResult =
   | { readonly ok: false; readonly error: "invalid_json" | "request_too_large" };
 
 const DEV_TAGGED_BUNDLE_ID = /^dev\.cmux\.ios\.[a-z0-9](?:[a-z0-9-]{0,62}[a-z0-9])?$/;
-// Every TestFlight lane (beta AND internal) uses the production APNs
-// environment; the internal lane's bundle id is set in
-// .github/workflows/ios-testflight.yml (IOS_BETA_BUNDLE_ID).
+// Every TestFlight app uses the production APNs environment: cmux BETA,
+// cmux INTERNAL (cmux-next's TestFlight build) and cmux CLASSIC
+// (dev.cmux.app.classic, the classic app's internal TestFlight home, uploaded
+// by .github/workflows/ios-appstore-upload.yml). cmux DEMO is retired.
 const PROD_BUNDLE_IDS = new Set([
   "com.cmux.app",
   "com.cmuxterm.app",
   "dev.cmux.app.beta",
   "dev.cmux.app.internal",
-  "dev.cmux.app.demo",
+  "dev.cmux.app.classic",
 ]);
+
+// Bundles that no longer ship. They can't register or receive pushes, but a
+// leftover install may still unregister, so its device_tokens row (which
+// counts toward the per-account ceiling) can be removed.
+const RETIRED_BUNDLE_IDS = new Set(["dev.cmux.app.demo"]);
+
+/** Whether this bundle id belonged to a retired TestFlight app (cmux DEMO). */
+export function isRetiredApnsBundle(bundleId: string): boolean {
+  return RETIRED_BUNDLE_IDS.has(bundleId.trim());
+}
 
 function stringValue(value: unknown): string {
   return typeof value === "string" ? value.trim() : "";

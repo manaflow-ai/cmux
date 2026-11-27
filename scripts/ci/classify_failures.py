@@ -60,7 +60,9 @@ failures; system and cache `error:` noise dropped), and each gets an owner:
 The comment's first line is the verdict in those words. A pull request that
 merged before its CI finished still gets the comment (fix forward on main).
 A green run whose macOS jobs never ran, on a pull request that changes the
-app, says so instead of "passes". The comment records the head it speaks for:
+app, says so instead of "passes". A green CI run says "passes" only when every other
+check run and commit status on the head is green too (head_checks): #50275's comment said
+"CI passes on 800f012d13" while cmux-next/compile was red on that head six times. The comment records the head it speaks for:
 when CI starts on a newer head (workflow_run `requested`) or an older head's
 run completes, a comment about another head is rewritten to "pending".
 """
@@ -556,16 +558,76 @@ def macos_ran(jobs: Iterable[Mapping]) -> bool:
 # because of change routing (nothing for macOS, or an admitted compile reused), which is not a
 # gap: tests/test_ci_classify_failures.py pins the names to ci.yml.
 MACOS_PREREQUISITES = ("changes", "Fast static checks")
+STATIC_CHECKS_JOB = "Fast static checks"
+# Pull requests into this base run CI from its ci.yml, which skips `Fast static checks` (and so
+# `macos`) by design: cmux-next.yml owns their app checks. That skip is routing, not a gap, and a
+# green run there never needs its jobs read (tests/test_ci_classify_failures.py pins this to
+# feat-cmux-next's ci.yml when the branch is fetched).
+NEXT_BASE = "feat-cmux-next"
 
 
-def macos_blocked(jobs: Iterable[Mapping]) -> str:
+def run_base(run: Mapping, repo: str) -> str:
+    """The base branch of this repository's pull request in the workflow_run event, or ""."""
+    for pull in run.get("pull_requests") or []:
+        base = pull.get("base") or {}
+        if str((base.get("repo") or {}).get("url", "")).lower().endswith(f"/repos/{repo.lower()}"):
+            return str(base.get("ref") or "")
+    return ""
+
+
+def macos_blocked(jobs: Iterable[Mapping], base: str = "") -> str:
     """Why the macOS jobs could not run, or "" when they ran or routing skipped them."""
     jobs = list(jobs)
     if macos_ran(jobs):
         return ""
     found = {str(j.get("name")): str(j.get("conclusion") or j.get("status") or "missing") for j in jobs}
+    if base == NEXT_BASE and found.get(STATIC_CHECKS_JOB) == "skipped":
+        found[STATIC_CHECKS_JOB] = "success"
     return ", ".join(f"`{name}` {found.get(name, 'missing')}" for name in MACOS_PREREQUISITES
                      if found.get(name) != "success")
+
+
+# Check run conclusions and commit status states that are red; anything else completed is green.
+RED_CHECKS = frozenset({"failure", "timed_out", "startup_failure", "action_required", "cancelled", "stale"})
+RED_STATUSES = frozenset({"failure", "error"})
+# This workflow's own job: it is running while it reads the head's checks.
+OWN_CHECKS = frozenset({"Attribute"})
+MAX_CHECK_PAGES = 5
+
+
+def head_checks(gh: GitHub, sha: str) -> dict[str, list[str]]:
+    """The head's other checks that are not green: {"red": names, "running": names}. CI (ci.yml) is one
+    workflow of many; a green ci.yml run said nothing about cmux-next/compile, the macOS app build or
+    any other check on the same head (#50275: "CI passes on 800f012d13" over six red compiles).
+    Check runs (the latest per name) and commit statuses (the latest per context) both count."""
+    red: set[str] = set()
+    running: set[str] = set()
+    seen: set[str] = set()
+    for page in range(1, MAX_CHECK_PAGES + 1):
+        body = gh.get(f"repos/{gh.repo}/commits/{sha}/check-runs?filter=latest&per_page=100&page={page}") or {}
+        runs = list(body.get("check_runs") or [])  # type: ignore[union-attr]
+        for check in runs:
+            name = str(check.get("name") or "")
+            if not name or name in OWN_CHECKS or name in seen:
+                continue
+            seen.add(name)
+            if check.get("status") != "completed":
+                running.add(name)
+            elif check.get("conclusion") in RED_CHECKS:
+                red.add(name)
+        if len(runs) < 100:
+            break
+    combined = gh.get(f"repos/{gh.repo}/commits/{sha}/status?per_page=100") or {}
+    for status in combined.get("statuses") or []:  # type: ignore[union-attr]
+        context = str(status.get("context") or "")
+        if not context or context in seen:
+            continue
+        seen.add(context)
+        if status.get("state") in RED_STATUSES:
+            red.add(context)
+        elif status.get("state") == "pending":
+            running.add(context)
+    return {"red": sorted(red), "running": sorted(running)}
 
 
 def classify_run(gh: GitHub, run: Mapping) -> dict:
@@ -576,7 +638,18 @@ def classify_run(gh: GitHub, run: Mapping) -> dict:
     return {"run_id": int(run["id"]), "attempt": attempt,
             "run_url": run.get("html_url"), "head_sha": run.get("head_sha"),
             "conclusion": run.get("conclusion"), "jobs": classify_jobs(jobs, texts),
-            "macos_ran": macos_ran(jobs), "macos_blocked": macos_blocked(jobs)}
+            "macos_ran": macos_ran(jobs), "macos_blocked": macos_blocked(jobs, run_base(run, gh.repo))}
+
+
+def green_next_report(gh: GitHub, run: Mapping) -> dict | None:
+    """The report of a green run on a pull request into NEXT_BASE, without reading its jobs: no
+    failed job to show and the macOS jobs are skipped by routing there, so the jobs change
+    nothing. act() then reads only the comments, and stops there unless this bot reported before."""
+    if run.get("conclusion") != "success" or run_base(run, gh.repo) != NEXT_BASE:
+        return None
+    return {"run_id": int(run["id"]), "attempt": int(run.get("run_attempt") or 1),
+            "run_url": run.get("html_url"), "head_sha": run.get("head_sha"),
+            "conclusion": "success", "jobs": [], "macos_ran": False, "macos_blocked": ""}
 
 
 def run_pull(gh: GitHub, run: Mapping, pr: int | None = ...) -> tuple[int | None, dict]:  # type: ignore[assignment]
@@ -927,12 +1000,30 @@ def listed(items: list[Mapping], why: bool = True) -> str:
     return ", ".join(texts) + (f" and {rest} more" if rest > 0 else "")
 
 
+def names(items: list[str], limit: int = 5) -> str:
+    shown = ", ".join(code(item, 80) for item in items[:limit])
+    return shown + (f" and {len(items) - limit} more" if len(items) > limit else "")
+
+
+def success_state(report: Mapping) -> str:
+    """A green CI run's state: passes only when the macOS jobs ran and every other check is green."""
+    others = report.get("other_checks") or {}
+    if others.get("red"):
+        return "failed"
+    return "unverified" if report.get("macos_skipped") or others.get("running") else "passes"
+
+
 def verdict_line(report: Mapping, rerun: bool, rerun_line: str) -> str:
     """The comment's first line: whose failure it is, in plain words."""
     sha = (report.get("head_sha") or "")[:10]
     if report.get("conclusion") == "success":
         if report.get("macos_skipped"):
             return f"**Not verified:** {MACOS_SKIPPED} on `{sha}`; ci-status is green without them."
+        others = report.get("other_checks") or {}
+        if others.get("red"):
+            return f"**Other checks red:** CI (ci.yml) is green on `{sha}`, but {names(others['red'])} failed."
+        if others.get("running"):
+            return f"**Not verified:** CI (ci.yml) is green on `{sha}`; {names(others['running'])} still running."
         return f"**Passes:** CI passes on `{sha}`."
     jobs = report["jobs"]
     failures = [f for job in jobs if job["verdict"] != MACHINE for f in job.get("failures") or []]
@@ -1024,11 +1115,17 @@ def render_comment(report: Mapping, rerun: str, reran: bool = False) -> str:
     sha = (report.get("head_sha") or "")[:10]
     run = f"[run {report['run_id']} attempt {report['attempt']}]({report.get('run_url')})"
     jobs = report["jobs"]
-    state = ("unverified" if report.get("macos_skipped") else "passes") if report.get("conclusion") == "success" \
+    state = success_state(report) if report.get("conclusion") == "success" \
         else "stopped" if report.get("conclusion") == "cancelled" else "failed"
     out = [MARKER, head_marker(str(report.get("head_sha") or ""), state), verdict_line(report, reran, rerun), ""]
     if report.get("conclusion") == "success":
-        out.append(f"CI passes on `{sha}` ({run}).")
+        others = report.get("other_checks") or {}
+        out.append(f"CI (ci.yml) is green on `{sha}` ({run})." if others.get("red") or others.get("running")
+                   else f"CI passes on `{sha}` ({run}).")
+        if others.get("red"):
+            out.append(f"Red on the same head: {names(others['red'], 20)}. Fix or re-run those before merging.")
+        if others.get("running"):
+            out.append(f"Still running on the same head: {names(others['running'], 20)}.")
         if report.get("macos_skipped"):
             out.append(f"{MACOS_SKIPPED}: {report.get('macos_blocked')} (the `macos` job needs both to succeed). "
                        "Re-run CI once they pass, before merging.")
@@ -1218,6 +1315,13 @@ def act(gh: GitHub, writer: Writer, run: Mapping, report: dict) -> dict:
             print(f"::warning::could not record failures in issue {SEEN_ISSUE}: {code(error)}", flush=True)
     if report.get("macos_blocked"):
         report["macos_skipped"] = touches_app(files or safe_pr_files(gh, pr))
+    if report.get("conclusion") == "success":
+        try:
+            report["other_checks"] = head_checks(gh, str(report.get("head_sha") or ""))
+        except RuntimeError as error:
+            # Unread is not green: say so rather than "passes".
+            print(f"::warning::the head's other checks unreadable: {code(error)}", file=sys.stderr)
+            report["other_checks"] = {"red": [], "running": ["(the head's other checks could not be read)"]}
     rerun, line = False, ""
     if report.get("conclusion") != "success":
         rerun, line = rerun_decision(report, lambda: gh.run(int(report["run_id"])))
@@ -1234,10 +1338,31 @@ def act(gh: GitHub, writer: Writer, run: Mapping, report: dict) -> dict:
     # A green run says so only where a failure was reported before; a green run whose macOS jobs
     # never ran says that even where nothing was reported, since it looks green. A machine-only
     # failure that is being re-run asks nothing of the author, so it posts no new comment either.
-    quiet = report.get("conclusion") == "success" and not report.get("macos_skipped") or rerun
+    quiet = report.get("conclusion") == "success" and not report.get("macos_skipped") \
+        and not (report.get("other_checks") or {}).get("red") or rerun
     if current is not None or not quiet:
         upsert_comment(writer, gh.repo, pr, MARKER, body, existing, section="attribution")
     return {"pr": pr, "rerun": rerun, "line": line}
+
+
+def moved_past(run: Mapping, pulled: tuple[int | None, dict]) -> bool:
+    """Whether act() could only skip this run or mark the comment pending: no open (or merged) pull
+    request, or one whose head moved past the run. main() then reads no jobs, logs or annotations
+    for it: a red run on an older head cost 5 to 7 calls on 2026-10-27, on the cmux-bot
+    installation's 5000 an hour, which ran out five hours in a row that night. act() still reads
+    the pull request again after classifying a run that was current: it may move or close while
+    the logs are read, and the re-run is decided on that later read."""
+    pr, pull = pulled
+    if not pr or (pull.get("state") != "open" and not pull.get("merged_at")):
+        return True
+    return str((pull.get("head") or {}).get("sha") or "") != str(run.get("head_sha") or "")
+
+
+def bare_report(run: Mapping) -> dict:
+    """The report of a run whose jobs were not read (moved_past()): act() only skips or marks pending."""
+    return {"run_id": int(run["id"]), "attempt": int(run.get("run_attempt") or 1),
+            "run_url": run.get("html_url"), "head_sha": run.get("head_sha"),
+            "conclusion": run.get("conclusion"), "jobs": [], "macos_ran": False, "macos_blocked": ""}
 
 
 def act_requested(gh: GitHub, writer: Writer, run: Mapping) -> dict:
@@ -1291,7 +1416,9 @@ def main(argv: list[str]) -> int:
             print(json.dumps({"log": path, **classify_text(Path(path).read_text(errors="replace"))}))
         return 0
     token = os.environ.get("GH_TOKEN") or os.environ.get("GITHUB_TOKEN")
-    gh = GitHub(args.repo, token) if token else None
+    # READ_TOKEN (an App's, with its own budget) makes the reads; writes, the re-run above all,
+    # stay on GH_TOKEN (guard_attribution.GitHub).
+    gh = GitHub(args.repo, token, read_token=os.environ.get("READ_TOKEN") or "") if token else None
     run = load_run(gh, args.run_id)
     if gh is None:
         raise SystemExit("set GH_TOKEN")
@@ -1302,13 +1429,20 @@ def main(argv: list[str]) -> int:
         for entry in writer.log:
             print(entry)
         print(json.dumps(result))
-        print(f"api calls: {gh.calls}")
+        print(f"api calls: {gh.calls} (read token: {gh.read_calls})")
         return 0
     if run.get("conclusion") not in ("success", "failure", "cancelled"):
         print(f"run {run.get('id')} concluded {run.get('conclusion')}; nothing to attribute")
         return 0
-    # A green run's jobs are read too (no logs): its macOS jobs may never have run.
-    report = classify_run(gh, run)
+    # A green run's jobs are read too (no logs): its macOS jobs may never have run. Into
+    # feat-cmux-next they never do, by design, so there the comments are read first instead.
+    # A red or cancelled run whose pull request has moved on or closed: its jobs and logs change
+    # nothing (moved_past()). Green runs read only the comments already (act()).
+    if (args.command == "act" and run.get("conclusion") != "success"
+            and moved_past(run, run_pull(gh, run))):
+        report = bare_report(run)
+    else:
+        report = (green_next_report(gh, run) if args.command == "act" else None) or classify_run(gh, run)
     if args.command == "classify":
         print(json.dumps(report, indent=2))
         return 0
@@ -1317,7 +1451,7 @@ def main(argv: list[str]) -> int:
     for entry in writer.log:
         print(entry)
     print(json.dumps({**result, "jobs": [(j["name"], j["verdict"], j["signature"]) for j in report["jobs"]]}))
-    print(f"api calls: {gh.calls}")
+    print(f"api calls: {gh.calls} (read token: {gh.read_calls})")
     return 0
 
 

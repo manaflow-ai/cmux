@@ -237,6 +237,7 @@ ensure_parent() {
   local depth=()
   [ "$(git rev-parse --is-shallow-repository)" = true ] && depth=(--depth=2)
   git fetch --no-tags --no-write-fetch-head ${depth[@]+"${depth[@]}"} "$remote" "$(git rev-parse HEAD)" || true
+<<<<<<< HEAD
 }
 
 # A package whose manifest names GhosttyKit.xcframework has a binaryTarget on
@@ -246,6 +247,8 @@ references_ghosttykit() {
   local dir
   dir="$(find Packages -mindepth 2 -maxdepth 2 -type d -name "$1" -print -quit)"
   [ -n "$dir" ] && grep -q 'GhosttyKit\.xcframework' "$dir/Package.swift" 2>/dev/null
+=======
+>>>>>>> origin/main
 }
 
 # A same-repository pull request run (the workflow sets CMUX_PACKAGE_REUSE=1)
@@ -299,6 +302,29 @@ PY
 # compile only on Apple platforms run in auth-refresh-tests.yml on a Mac.
 select_packages() {
   PACKAGES=(
+<<<<<<< HEAD
+=======
+    CMUXAuthCore
+    CmuxBrowser
+    CmuxCanvasUI
+    CmuxCloud
+    CmuxCloudMachines
+    CmuxCloudTui
+    CmuxComputerUse
+    CmuxCore
+    CmuxRemoteDaemon
+    CmuxRemoteWorkspace
+    CmuxRemoteSession
+    CmuxAgentChat
+    CmuxAgentQuestion
+    CmuxChief
+    CmuxHomeCore
+    CmuxHomeRender
+    CmuxMessagesLab
+    CmuxAgentSessionStore
+    CmuxAuthRuntime
+    CmuxWorkspacePresence
+>>>>>>> origin/main
     CmuxIrohTransport
     CmuxIrxTransport
     CmuxUpdater
@@ -473,12 +499,24 @@ package_args() {
     echo "package '$pkg' not found: give a name under Packages/*/ or a Packages/<group>/<name> path with a Package.swift"
     return 1
   fi
+<<<<<<< HEAD
   swift_test_args=(--package-path "$pkgdir" ${swift_test_debug_info_args[@]+"${swift_test_debug_info_args[@]}"})
   if [ -n "${CMUX_SWIFT_SANITIZE:-}" ]; then
     swift_test_args+=(--sanitize="$CMUX_SWIFT_SANITIZE" --scratch-path "$pkgdir/.build-sanitize-$CMUX_SWIFT_SANITIZE"
       "${sanitize_link_flags[@]}")
   fi
   swiftpm_binary_module_guard "$pkgdir" "$pkgdir/.build${CMUX_SWIFT_SANITIZE:+-sanitize-$CMUX_SWIFT_SANITIZE}"
+=======
+  swift_test_args=(--package-path "$pkgdir")
+  # Preserve the notification workflow's warning gate without a
+  # second package build or changing the existing startup retry.
+  case "$pkg" in
+    CMUXAgentLaunch|CmuxAgentJournal)
+      # A pull request keeps warnings soft (CI_WARNINGS=soft, scripts/ci/warnings_policy.py; Leo, 2026-11-19).
+      [[ "${CI_WARNINGS:-deny}" == soft ]] || swift_test_args+=(-Xswiftc -warnings-as-errors)
+      ;;
+  esac
+>>>>>>> origin/main
 }
 
 # record_built_ref PKGDIR: after a complete build of PKGDIR, name the commit in
@@ -602,6 +640,10 @@ run_package_tests() {
   # these packages takes under a minute. The total limit is a backstop
   # for a run that keeps making slow progress.
   log="$(mktemp -t swift-package-test.XXXXXX)"
+  # A test process that crashes (CmuxHomeCore's "Exited with unexpected
+  # signal code 11") printed no stack: Swift's backtracer is on only for a
+  # terminal on macOS by default, and CI has none. Turn it on, non-interactive.
+  export SWIFT_BACKTRACE="enable=yes,interactive=no,timeout=0s,symbolicate=fast,color=no"
   run_swift_test() {
     test_status=0
     python3 scripts/ci/hung_test_watchdog.py \

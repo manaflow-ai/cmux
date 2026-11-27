@@ -202,13 +202,21 @@ class UIView: NSObject, CALayerDelegate {
         // Static drawing code reads Fixture.renderScale: the layer's own scale here (its window view's, cx-3cb
         // view-scale; two views can draw at two scales).
         guard DisplayTiming.commitOpen else {
+<<<<<<< HEAD
             // cmux: and its window view's palette (a chat's Chat Colors, PaletteScope).
             ContextScope.run(ctx) { PaletteScope.with(PaletteScope.palette(of: self)) { Fixture.withRenderScale(layer.contentsScale) { draw(bounds) } } }
+=======
+            ContextScope.run(ctx) { Fixture.withRenderScale(layer.contentsScale) { draw(bounds) } }
+>>>>>>> origin/main
             return
         }
         // The commit after a display change (cx-3cb display-budget evidence): each class's drawing time.
         let t0 = CACurrentMediaTime()
+<<<<<<< HEAD
         ContextScope.run(ctx) { PaletteScope.with(PaletteScope.palette(of: self)) { Fixture.withRenderScale(layer.contentsScale) { draw(bounds) } } }
+=======
+        ContextScope.run(ctx) { Fixture.withRenderScale(layer.contentsScale) { draw(bounds) } }
+>>>>>>> origin/main
         DisplayTiming.noteCommit("draw.\(type(of: self))", (CACurrentMediaTime() - t0) * 1000)
     }
 

@@ -32,6 +32,7 @@ impl Mux {
             current.commit_published_directory(None);
             return Ok(true);
         }
+<<<<<<< ours
         // A shell can report its first directory before the terminal's
         // resource row commits or its launch settles. Keep the report pending
         // until then; the reader, adoption, a reconnect and every topology
@@ -43,6 +44,18 @@ impl Mux {
             TerminalLifecycle::Running => {}
             TerminalLifecycle::Launching | TerminalLifecycle::Adopting => return Ok(false),
             TerminalLifecycle::Exited | TerminalLifecycle::Tombstoned => return Ok(true),
+=======
+        // A shell can report its first directory before the terminal's
+        // resource row commits or its launch settles. Keep the report pending
+        // until then; the reader, the public snapshot, and every topology
+        // commit retry it. Only an ended terminal settles without publishing.
+        let Some(host_id) = registry.live_terminal_host_id(id)? else { return Ok(false) };
+        let Some(durable) = registry.terminal_record(&host_id)? else { return Ok(false) };
+        match durable.lifecycle {
+            TerminalLifecycle::Running => {}
+            TerminalLifecycle::Launching | TerminalLifecycle::Adopting => return Ok(false),
+            TerminalLifecycle::Exited | TerminalLifecycle::Tombstoned => return Ok(true),
+>>>>>>> theirs
         }
         // Only this terminal's tab rows: a full topology read here made each
         // cwd report O(session) under the registry lock.
@@ -109,6 +122,7 @@ impl Mux {
         crate::walk_counters::terminals_cloned(pending.len());
         for surface in pending {
             surface.publish_pending_directory();
+            surface.publish_pending_last_command();
         }
     }
 }

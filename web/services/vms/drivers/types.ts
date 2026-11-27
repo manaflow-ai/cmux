@@ -96,8 +96,20 @@ export type VMHandle = {
   providerMetadata?: Record<string, unknown>;
 };
 
+/**
+ * The cmux account a machine belongs to, for providers that record a customer
+ * per machine (Freestyle uses it to tell its customers' accounts apart). Only
+ * the stable account id: never a secret, a token, or contact details.
+ */
+export type ProviderCustomer = {
+  /** The owning user's Stack Auth id, the same value as the row's `userId`. */
+  readonly customerId: string;
+};
+
 export type CreateOptions = {
   image: string; // provider-specific template/snapshot identifier
+  /** Who the machine belongs to; providers without customer records ignore it. */
+  customer?: ProviderCustomer;
   /** The image is a live machine snapshot (fork or checkpoint restore); create waits for this machine's own daemon. */
   forked?: boolean;
   /** Provider-enforced lifetime runtime allowance for this allocation. */
@@ -220,9 +232,22 @@ export type VmEdgeRule = {
 };
 
 /** Create-time inputs a restore-from-snapshot shares with a fresh create. */
+<<<<<<< ours
 export type RestoreOptions = Pick<CreateOptions, "edgeRules" | "providerMetadata" | "networkRules" | "customerId"> & {
+=======
+export type RestoreOptions = Pick<CreateOptions, "customer" | "edgeRules" | "providerMetadata" | "networkRules"> & {
+>>>>>>> theirs
   /** The owner's private network; see {@link CreateOptions.network}. */
   network?: ProviderNetworkRef;
+};
+
+export type ResumeOptions = {
+  /**
+   * The machine's owner. `null`: it belongs to no account (a deleted account's
+   * retained shared-team machine), so any customer it still carries is cleared.
+   * Absent: leave the customer alone.
+   */
+  readonly customer?: ProviderCustomer | null;
 };
 
 /** Private guest SSH, with the host key read through the authenticated provider API.
@@ -423,6 +448,7 @@ export type ExecOptions = {
   readonly asRoot?: boolean;
   /** Server-side metadata persisted with the VM row, used for durable-home routing. */
   readonly providerMetadata?: Record<string, unknown>;
+<<<<<<< ours
   /**
    * Standard input of the command (cx-psxg: the acpmux person key). A driver
    * sends it only in the provider call itself, never in a backgrounded call
@@ -437,6 +463,16 @@ export type ExecOptions = {
    * interrupted exec's request runs on to its own end.
    */
   readonly cancelOnInterrupt?: boolean;
+=======
+  /** Ends the provider request: the driver passes it to every request it makes. */
+  readonly signal?: AbortSignal;
+  /**
+   * Gateway only: abort the provider request (through `signal`) when the
+   * calling fiber is interrupted, a timeout included. Without it an
+   * interrupted exec's request runs on to its own end.
+   */
+  readonly cancelOnInterrupt?: boolean;
+>>>>>>> theirs
 };
 
 const REDACTED = "[redacted]";
@@ -738,8 +774,23 @@ export interface VMProvider {
   /** Converge a live machine's outbound rules on `plan`. Must not restart or wake it. */
   applyNetworkPolicy?(vmId: string, plan: NetworkRulePlan): Promise<void>;
 
+<<<<<<< ours
   pause(vmId: string, credential?: ProviderCredential): Promise<void>;
   resume(vmId: string, credential?: ProviderCredential): Promise<VMHandle>;
+=======
+  pause(vmId: string): Promise<void>;
+  /**
+   * Wake the machine. With `customer`, a provider that records one also tags a
+   * machine that does not carry it yet (machines created before the tag), or
+   * clears it for `null`, best effort: the wake never fails over the tag.
+   */
+  resume(vmId: string, options?: ResumeOptions): Promise<VMHandle>;
+  /**
+   * Clear the customer a machine carries, when its owning account is deleted
+   * but a shared team keeps the machine. A machine already gone counts as done.
+   */
+  detachCustomer?(vmId: string): Promise<void>;
+>>>>>>> theirs
   setRuntimeBudget?(vmId: string, remainingSeconds: number | null): Promise<void>;
 
   exec(vmId: string, command: string, opts?: ExecOptions): Promise<ExecResult>;
@@ -873,15 +924,21 @@ export class ProviderStateConflictError extends ProviderError {
   }
 }
 
-/** How a provider's 409 answer reads: no room for the machine, a machine-state conflict, or an unresponsive guest. */
-export type ProviderConflictKind = "capacity" | "state" | "unresponsive";
+/**
+ * How a provider's 409 answer reads: no room for the machine, a machine-state
+ * conflict, an unresponsive guest, or a machine whose retained disk is held by
+ * a provider host that is down and being recovered.
+ */
+export type ProviderConflictKind = "capacity" | "state" | "unresponsive" | "host_recovery";
 
 /**
  * Classifies a provider failure that is a 409 refusal. The first error in the
  * cause chain that carries an HTTP status decides; it must be 409. Freestyle
  * answers capacity as `CONFLICT` "no manager has enough capacity" or
- * `PLACEMENT_REJECTED`, an unresponsive guest as `VM_NON_RESPONSIVE`, and a
- * machine in the wrong state (still starting, not running) as `CONFLICT`.
+ * `PLACEMENT_REJECTED`, an unresponsive guest as `VM_NON_RESPONSIVE`, a
+ * machine in the wrong state (still starting, not running) as `CONFLICT`, and
+ * a machine whose disk is pinned to an unreachable host as `CONFLICT` naming
+ * the disk head or a recovery hold.
  * Every other status, any other 409, and a 409 that never reached the
  * provider is null.
  */
@@ -890,6 +947,17 @@ const PROVIDER_CAPACITY_MESSAGE = /\bno manager has enough capacity\b/i;
 
 /** Freestyle 409 messages about the machine's lifecycle state. */
 const PROVIDER_STATE_CONFLICT_MESSAGE = /\b(?:is )?still (?:starting|stopping|pausing|resuming|suspending|booting)\b|\bis not running\b|\bis (?:paused|pausing|suspended|suspending|stopped|stopping|starting|resuming)\b|\bresuming state\b/i;
+
+/**
+ * Freestyle 409 messages for a machine whose retained disk head lives on a
+ * host that is down: "cannot start vm …: its retained disk head must be
+ * recovered on <host>", "cannot start vm …: disk head owner <host> is not
+ * reachable", and the admission hold the provider places while it repairs
+ * the machine ("VM has recovery hold …"). The disk is intact; the machine can
+ * start again only after the provider recovers that host, so an immediate
+ * retry cannot help (production 2026-11-16, https://github.com/manaflow-ai/cmux/issues/44783).
+ */
+const PROVIDER_HOST_RECOVERY_MESSAGE = /\bdisk head (?:must be recovered|owner\b.*\bis not reachable)|\bretained disk head\b|\bhas recovery hold\b/i;
 
 export function providerConflictKind(err: unknown): ProviderConflictKind | null {
   let current = err;
@@ -903,6 +971,7 @@ export function providerConflictKind(err: unknown): ProviderConflictKind | null 
       const message = typeof record.message === "string" ? record.message : typeof record.body?.message === "string" ? record.body.message : "";
       if (code === "PLACEMENT_REJECTED" || PROVIDER_CAPACITY_MESSAGE.test(message)) return "capacity";
       if (code === "VM_NON_RESPONSIVE") return "unresponsive";
+      if (PROVIDER_HOST_RECOVERY_MESSAGE.test(message)) return "host_recovery";
       // Only a message that names the machine's state is a state conflict.
       // Every other 409 (network policy, slug, tunnel, port, snapshot in use,
       // quota) is a real resource conflict and keeps the generic answer.

@@ -98,6 +98,7 @@ jobs:
   route:
     # Cheap Linux layer so every PR gets a routed conclusion once the trigger
     # is promoted. The classifier integration remains intentionally explicit.
+<<<<<<< HEAD
     # While the repo variable IOS_E2E_PR_TAILNET is not 'true', a pull_request
     # run could only ever route run_e2e=false, so neither this job nor
     # ios-e2e-status starts a runner (a job-level `if:` is judged server-side;
@@ -108,6 +109,9 @@ jobs:
     needs: full-carry
     if: ${{ (!cancelled() && ((github.event_name != 'pull_request' || contains(github.event.pull_request.labels.*.name, 'full-ci') || (github.event.pull_request.draft == true && (vars.CI_DRAFT_CHEAP_TIER || '1') == '0') || (github.event.pull_request.draft != true && ((contains(github.event.pull_request.labels.*.name, 'ready-to-land') && vars.CI_LAND_FULL_PER_PR == '1') || github.event.pull_request.base.ref != 'feat-cmux-next' || github.event.pull_request.head.repo.full_name != github.repository || (vars.CI_LAND_TIER || '1') == '0'))) && (github.event_name != 'pull_request' || vars.IOS_E2E_PR_TAILNET == 'true'))) && !(github.event_name == 'pull_request' && github.event.pull_request.base.ref == 'feat-cmux-next' && (github.event.action == 'labeled' && !contains(fromJSON('["full-ci","ready-to-land"]'), github.event.label.name) || github.event.action == 'unlabeled')) }}
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || 'cmux-linux' }}
+=======
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.CI_OVERFLOW_LINUX || 'cmux-linux' }}
+>>>>>>> origin/main
     timeout-minutes: 5
     outputs:
       run_e2e: ${{ needs.full-carry.outputs.tier == 'none' && 'false' || steps.decide.outputs.run_e2e }}
@@ -195,8 +199,16 @@ jobs:
     # macOS job touches its done-file; the macOS job therefore does not
     # `needs:` it and waits on its health endpoints instead.
     needs: route
+<<<<<<< HEAD
     if: ${{ (github.event_name != 'pull_request' || contains(github.event.pull_request.labels.*.name, 'full-ci') || (github.event.pull_request.draft == true && (vars.CI_DRAFT_CHEAP_TIER || '1') == '0') || (github.event.pull_request.draft != true && ((contains(github.event.pull_request.labels.*.name, 'ready-to-land') && vars.CI_LAND_FULL_PER_PR == '1') || github.event.pull_request.base.ref != 'feat-cmux-next' || github.event.pull_request.head.repo.full_name != github.repository || (vars.CI_LAND_TIER || '1') == '0'))) && ( success() && needs.route.outputs.run_e2e == 'true' && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) ) && !(github.event_name == 'pull_request' && github.event.pull_request.base.ref == 'feat-cmux-next' && (github.event.action == 'labeled' && !contains(fromJSON('["full-ci","ready-to-land"]'), github.event.label.name) || github.event.action == 'unlabeled')) }}
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || 'cmux-linux' }}
+=======
+    if: >-
+      success()
+      && needs.route.outputs.run_e2e == 'true'
+      && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository)
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || 'blacksmith-4vcpu-ubuntu-2404' }}
+>>>>>>> origin/main
     timeout-minutes: 150
     environment: ios-e2e
     permissions:
@@ -368,8 +380,19 @@ jobs:
     # Deliberately not `needs: backend`: the backend holds until this job
     # releases it, so waiting for its completion would deadlock.
     needs: route
+<<<<<<< HEAD
     if: ${{ (github.event_name != 'pull_request' || contains(github.event.pull_request.labels.*.name, 'full-ci') || (github.event.pull_request.draft == true && (vars.CI_DRAFT_CHEAP_TIER || '1') == '0') || (github.event.pull_request.draft != true && ((contains(github.event.pull_request.labels.*.name, 'ready-to-land') && vars.CI_LAND_FULL_PER_PR == '1') || github.event.pull_request.base.ref != 'feat-cmux-next' || github.event.pull_request.head.repo.full_name != github.repository || (vars.CI_LAND_TIER || '1') == '0'))) && ( success() && needs.route.outputs.run_clients == 'true' && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) ) && !(github.event_name == 'pull_request' && github.event.pull_request.base.ref == 'feat-cmux-next' && (github.event.action == 'labeled' && !contains(fromJSON('["full-ci","ready-to-land"]'), github.event.label.name) || github.event.action == 'unlabeled')) }}
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || vars.MACOS_RUNNER_IOS || vars.MACOS_RUNNER_PR || fromJSON(vars.RUNNER_POOLS).macos_26 }}
+=======
+    if: >-
+      success()
+      && needs.route.outputs.run_clients == 'true'
+      && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository)
+    # It holds the dogfood Stack login: a literal ephemeral label, never the
+    # MACOS_RUNNER_IOS/PR pools a variable (or the overflow switch) can point at
+    # a reused owned Mac (tests/test_ci_fork_runner_routing.py).
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || contains(fromJSON('["blacksmith-6vcpu-macos-26","blacksmith-12vcpu-macos-26"]'), fromJSON(vars.RUNNER_POOLS || '{}').macos_26) && fromJSON(vars.RUNNER_POOLS || '{}').macos_26 || 'blacksmith-6vcpu-macos-26' }}
+>>>>>>> origin/main
     timeout-minutes: 120
     environment: ios-e2e
     permissions:
@@ -404,8 +427,17 @@ jobs:
           export PATH="$brew_bin:$PATH"
           echo "$brew_bin" >> "$GITHUB_PATH"
           # Not the Homebrew tap: its formula's install DSL fails on the
+<<<<<<< HEAD
           # runners' Homebrew (job 132861077367).
           ./scripts/install-axe-ci.sh || {
+=======
+          # runners' Homebrew (job 132861077367). The installer puts axe on
+          # GITHUB_PATH for later steps; this step reads it from its output.
+          if axe_home="$(./scripts/install-axe-ci.sh)"; then
+            export PATH="$axe_home:$PATH"
+          fi
+          command -v axe >/dev/null 2>&1 || {
+>>>>>>> origin/main
             echo "::error::[infra-preflight] axe is missing from the simulator runner"
             exit 1
           }
@@ -618,10 +650,15 @@ jobs:
     # and the Mac job failed. Fork PRs are a neutral skip because secret-fenced
     # jobs cannot run there.
     needs: [route, backend, mac-ios-e2e]
+<<<<<<< HEAD
     # Same tailnet gate as `route` (RFD 0023 "one router per push"): with it
     # off, a pull_request run starts no runner here either.
     if: ${{ (github.event_name != 'pull_request' || contains(github.event.pull_request.labels.*.name, 'full-ci') || (github.event.pull_request.draft == true && (vars.CI_DRAFT_CHEAP_TIER || '1') == '0') || (github.event.pull_request.draft != true && ((contains(github.event.pull_request.labels.*.name, 'ready-to-land') && vars.CI_LAND_FULL_PER_PR == '1') || github.event.pull_request.base.ref != 'feat-cmux-next' || github.event.pull_request.head.repo.full_name != github.repository || (vars.CI_LAND_TIER || '1') == '0'))) && (!cancelled() && (github.event_name != 'pull_request' || vars.IOS_E2E_PR_TAILNET == 'true')) && !(github.event_name == 'pull_request' && github.event.pull_request.base.ref == 'feat-cmux-next' && (github.event.action == 'labeled' && !contains(fromJSON('["full-ci","ready-to-land"]'), github.event.label.name) || github.event.action == 'unlabeled')) }}
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || 'cmux-linux' }}
+=======
+    if: always()
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.CI_OVERFLOW_LINUX || 'cmux-linux' }}
+>>>>>>> origin/main
     timeout-minutes: 5
     steps:
       - name: Aggregate

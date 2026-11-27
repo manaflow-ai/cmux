@@ -100,7 +100,11 @@ final class ConversationPhotoGridView: UIView, UICollectionViewDataSource, UICol
         } else if selection.count < PhotoDrawerGeometry.selectionLimit(iOS27: ConversationComposerView.isIOS27) {
             selection.append(asset.localIdentifier)
         }
+<<<<<<< HEAD
         ConversationHaptics.selectionChanged()
+=======
+        UISelectionFeedbackGenerator().selectionChanged()
+>>>>>>> origin/main
         refreshBadges()
         onSelection?(selection)
     }
@@ -177,7 +181,11 @@ final class ConversationPhotoGridView: UIView, UICollectionViewDataSource, UICol
             }
             badge.isHidden = false
             badge.transform = show ? CGAffineTransform(scaleX: 0.3, y: 0.3) : .identity
+<<<<<<< HEAD
             UIView.animateUnlessReduceMotion(withDuration: 0.3, delay: 0, usingSpringWithDamping: 0.6, initialSpringVelocity: 0) {
+=======
+            UIView.animate(withDuration: 0.3, delay: 0, usingSpringWithDamping: 0.6, initialSpringVelocity: 0) {
+>>>>>>> origin/main
                 self.badge.transform = show ? .identity : CGAffineTransform(scaleX: 0.3, y: 0.3)
                 self.imageView.alpha = show ? 0.75 : 1
             } completion: { _ in

@@ -1,0 +1,194 @@
+import CmuxFoundation
+import SwiftUI
+
+struct NotificationPopoverRow: View, Equatable {
+    // Closures excluded from ==; equality is the rendered snapshot only (#2586).
+    nonisolated static func == (lhs: NotificationPopoverRow, rhs: NotificationPopoverRow) -> Bool {
+        lhs.notification == rhs.notification && lhs.workspaceTitle == rhs.workspaceTitle
+            && lhs.shortcut == rhs.shortcut && lhs.showsShortcutHint == rhs.showsShortcutHint
+    }
+
+    let notification: TerminalNotification
+    let workspaceTitle: String?
+    /// The shortcut that opens this row while the popover is up (e.g. "⌘3"), or nil for a row
+    /// no digit reaches. VoiceOver reads it as the row's value.
+    var shortcut: String? = nil
+    /// Whether the hint pill shows ``shortcut``, which it does while the modifier is held.
+    var showsShortcutHint = false
+    let onOpen: () -> Void
+    let onClear: () -> Void
+    let onToggleRead: () -> Void
+
+    @State private var isHovering: Bool = false
+    @Environment(\.cmuxAccentColor) private var cmuxAccent
+
+    private static let rowHeight: CGFloat = 56
+
+    private var shortcutHint: String? { showsShortcutHint ? shortcut : nil }
+    private var showsClearButton: Bool { isHovering && shortcutHint == nil }
+
+    var body: some View {
+        // Row uses a ZStack so the hover-only clear button is a *sibling* of the row's
+        // primary-action Button, not nested in its label. Nested SwiftUI buttons don't
+        // produce reliable independent hit targets on macOS — clicks on a nested button
+        // can be consumed by the outer button's tap area.
+        ZStack(alignment: .trailing) {
+            // Primary row action wrapped as a Button so the row participates in the
+            // key-view loop: keyboard users can tab to a row and activate it with
+            // space/return. Visual styling is owned by rowContent; the button background
+            // lets the NSTrackingArea-driven hover tint shine through.
+            Button(action: onOpen) {
+                rowContent
+                    .background(
+                        Color.primary.opacity(isHovering ? 0.11 : 0)
+                    )
+            }
+            .buttonStyle(.plain)
+            // Identifier/action live on the Button itself so XCUITest's
+            // `app.buttons["NotificationPopoverRow.<id>"]` query keeps matching. A previous
+            // pass put them on the combined outer ZStack, which exposed the row as a
+            // container rather than a button to accessibility clients.
+            .accessibilityIdentifier("NotificationPopoverRow.\(notification.id.uuidString)")
+            // The pill is hidden from accessibility and shows only while the modifier is held,
+            // so the shortcut is the row's value, as Jump to Latest gives its own.
+            .accessibilityValue(shortcut ?? "")
+            // XCUITest's `.click()` isn't always reliable for SwiftUI buttons hosted in an
+            // `NSPopover`. Provide an explicit accessibility action so AXPress always routes to onOpen.
+            .accessibilityAction { onOpen() }
+            // The clear button is hover-only for pointer users; expose dismiss as a row-level
+            // accessibility action so VoiceOver / keyboard / assistive tech can dismiss too.
+            .accessibilityAction(
+                named: Text(String(localized: "notifications.row.clear", defaultValue: "Clear notification"))
+            ) {
+                onClear()
+            }
+
+            clearButton
+                .padding(.trailing, 10)
+                .opacity(showsClearButton ? 1 : 0)
+                // No fade: hit testing flips the moment the modifier changes, so the button
+                // must be visible exactly while it takes clicks.
+                .animation(nil, value: showsClearButton)
+                .allowsHitTesting(showsClearButton)
+                // Dismissal is exposed through the row Button's accessibility action and the
+                // context menu, so hide this hover-only affordance from keyboard focus /
+                // VoiceOver when not visible — otherwise Full Keyboard Access can tab to an
+                // invisible button.
+                .accessibilityHidden(!showsClearButton)
+        }
+        .shortcutHintVisibilityAnimation(value: shortcutHint != nil)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        // Hover detection runs through an AppKit NSTrackingArea (HoverTrackingRepresentable)
+        // because SwiftUI's `.onHover` / `.onContinuousHover` arbitrate with the row's
+        // primary action and miss enter/exit events right after the popover opens and when
+        // the pointer crosses between LazyVStack rows.
+        .background(
+            HoverTrackingRepresentable { hovering in
+                if isHovering != hovering { isHovering = hovering }
+            }
+        )
+        .contextMenu {
+                Button(String(localized: "notifications.open", defaultValue: "Open")) {
+                    onOpen()
+                }
+                Button(String(localized: "notifications.copy", defaultValue: "Copy")) {
+                    TerminalNotificationClipboard.copy(notification, workspaceTitle: workspaceTitle)
+                }
+                if notification.isRead {
+                    Button(String(localized: "notifications.markAsUnread", defaultValue: "Mark as Unread")) {
+                        onToggleRead()
+                    }
+                } else {
+                    Button(String(localized: "notifications.markAsRead", defaultValue: "Mark as Read")) {
+                        onToggleRead()
+                    }
+                }
+                Divider()
+                Button(String(localized: "notifications.dismiss", defaultValue: "Dismiss"), role: .destructive) {
+                    onClear()
+                }
+            }
+    }
+
+    private var rowContent: some View {
+        HStack(spacing: 0) {
+            Rectangle()
+                .fill(notification.isRead ? Color.clear : cmuxAccent.color)
+                .frame(width: 2.5)
+                .padding(.vertical, 6)
+
+            VStack(alignment: .leading, spacing: 2) {
+                HStack(alignment: .firstTextBaseline, spacing: 6) {
+                    if let workspaceTitle, !workspaceTitle.isEmpty {
+                        Text(workspaceTitle)
+                            .cmuxFont(size: 12.5, weight: .semibold)
+                            .foregroundColor(.primary)
+                            .lineLimit(1)
+                            .layoutPriority(1)
+                            .accessibilityIdentifier(
+                                "NotificationPopoverRow.\(notification.id.uuidString).workspaceTitle"
+                            )
+                    } else {
+                        Text(notification.title)
+                            .cmuxFont(size: 12.5, weight: .semibold)
+                            .foregroundColor(.primary)
+                            .lineLimit(1)
+                    }
+                    Spacer(minLength: 0)
+                    Text(notification.createdAt.formatted(date: .omitted, time: .shortened))
+                        .cmuxFont(size: 10.5)
+                        .foregroundColor(.secondary)
+                        // Room for the hover clear button, which the hint replaces.
+                        .padding(.trailing, shortcutHint == nil ? 34 : 0)
+                        .layoutPriority(2)
+                    // In the header, after the time, so it can never cover it.
+                    if let shortcutHint {
+                        ShortcutHintPill(text: shortcutHint, fontSize: 10, emphasis: 1.05)
+                            // The pill is taller than this line's text; lay it out at the text's
+                            // height so holding the modifier doesn't grow the row and jump the list.
+                            .padding(.vertical, -2)
+                            .padding(.trailing, 10)
+                            .shortcutHintTransition()
+                            // Decorative: a click on the hint must reach the row's Button underneath.
+                            .allowsHitTesting(false)
+                            .accessibilityHidden(true)
+                            .layoutPriority(3)
+                    }
+                }
+
+                if let workspaceTitle, !workspaceTitle.isEmpty {
+                    Text(notification.title)
+                        .cmuxFont(size: 10.5, weight: .medium)
+                        .foregroundColor(.secondary)
+                        .lineLimit(1)
+                }
+
+                if !notification.body.isEmpty {
+                    Text(notification.body)
+                        .cmuxFont(size: 11.5)
+                        .foregroundColor(.secondary)
+                        .lineLimit(2)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+            }
+            .padding(.leading, 10)
+            .padding(.vertical, 8)
+
+            Spacer(minLength: 0)
+        }
+        .frame(minHeight: Self.rowHeight)
+        .padding(.leading, 4)
+    }
+
+    private var clearButton: some View {
+        Button(action: onClear) {
+            ZStack {
+                Circle()
+                    .fill(Color.primary.opacity(0.1))
+                CmuxSystemSymbolImage(systemName: "xmark", pointSize: 9, weight: .bold, tint: .primary.opacity(0.7))
+            }
+            .frame(width: 20, height: 20)
+        }
+        .buttonStyle(.plain)
+    }
+}

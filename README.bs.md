@@ -383,7 +383,11 @@ Da, cmux je besplatan za korištenje. Izvorni kod je dostupan na [GitHub-u](http
 
 ### Kako mogu podržati cmux?
 
+<<<<<<< HEAD
 cmux je besplatan i otvorenog koda, i uvijek će biti.
+=======
+cmux je besplatan i otvorenog koda, i uvijek će biti. Ako želite podržati razvoj i dobiti rani pristup onome što slijedi, uključujući cmux AI, iOS aplikaciju i Cloud VMs, pogledajte [cmux Pro](https://cmux.com/api/billing/checkout?plan=pro).
+>>>>>>> origin/main
 
 ### Imam zahtjev za funkciju ili sam pronašao grešku?
 
@@ -422,6 +426,15 @@ Načini da se uključite:
   <img src="./docs/assets/wechat-community-qr.jpg" alt="WeChat QR kod za pridruživanje cmux zajednici" width="240" />
 </p>
 
+<<<<<<< HEAD
+=======
+## cmux Pro
+
+cmux je besplatan, otvorenog koda i uvijek će biti. Ako želite podržati razvoj i dobiti rani pristup onome što dolazi:
+
+**[Nabavite cmux Pro](https://cmux.com/api/billing/checkout?plan=pro)**
+
+>>>>>>> origin/main
 ## Licenca
 
 cmux je otvorenog koda pod [GPL-3.0-or-later](LICENSE) licencom. Serverski softver cmux (`web/`, Cloudflare workeri i relej servisi navedeni u [LICENSE](LICENSE)) umjesto toga koristi [Business Source License 1.1](web/LICENSE): možete ga čitati, mijenjati i pokretati za neprodukcijsku upotrebu, a produkcijska upotreba ili samostalno hostovanje zahtijevaju komercijalnu licencu.

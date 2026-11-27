@@ -19,6 +19,7 @@ public struct InboxRow: Hashable, Sendable, Identifiable {
     public var isSending: Bool
     public var hasFailedSend: Bool
     public var isTyping: Bool
+<<<<<<< HEAD
     /// A Chief's running turn there is in a tool, not the model (``HomeLiveActivity/isTool``).
     public var isRunningTool = false
 
@@ -36,6 +37,10 @@ public struct InboxRow: Hashable, Sendable, Identifiable {
             }
         }
     }
+=======
+
+    public var id: ConversationID { summary.id }
+>>>>>>> origin/main
 }
 
 extension Array where Element == InboxRow {
@@ -59,7 +64,11 @@ extension Array where Element == InboxRow {
 extension HomeMirror {
     /// The conversation list: the mirror overlaid with the intent log
     /// (pending sends, pin/mute and read-cursor intents), in inbox order.
+<<<<<<< HEAD
     public func inboxRows(log: IntentLog, typing: Set<ConversationID> = [], tools: Set<ConversationID> = []) -> [InboxRow] {
+=======
+    public func inboxRows(log: IntentLog, typing: Set<ConversationID> = []) -> [InboxRow] {
+>>>>>>> origin/main
         let mirror = self
         guard let me = mirror.me?.id else { return [] }
         var summaries = mirror.conversations
@@ -74,6 +83,7 @@ extension HomeMirror {
             case .setReadCursor(let id, let seq):
                 if let current = summaries[id]?.readCursors[me], current >= seq { break }
                 summaries[id]?.readCursors[me] = seq
+<<<<<<< HEAD
             case .sendMessage(let id, _, _, _):
                 if case .failed = entry.state { failed.insert(id) }
                 pendingSend[id] = entry
@@ -84,6 +94,11 @@ extension HomeMirror {
                     summaries[id]?.lastMessage?.parts = []
                     summaries[id]?.lastMessage?.retractedAt = entry.intent.issuedAt
                 }
+=======
+            case .sendMessage(let id, _, _):
+                if case .failed = entry.state { failed.insert(id) }
+                pendingSend[id] = entry
+>>>>>>> origin/main
             default:
                 break
             }
@@ -103,7 +118,11 @@ extension HomeMirror {
                 summary.participants.first { $0.id == message.author }?.displayName
             }
             var timestamp = summary.lastMessage?.createdAt ?? summary.updatedAt
+<<<<<<< HEAD
             if let pending, case .sendMessage(_, let parts, _, _) = pending.intent.op {
+=======
+            if let pending, case .sendMessage(_, let parts, _) = pending.intent.op {
+>>>>>>> origin/main
                 preview = Self.previewText(parts)
                 attachments = AttachmentPreview.of(parts)
                 author = mirror.me?.displayName
@@ -122,8 +141,12 @@ extension HomeMirror {
                 isPinned: summary.pinRank != nil,
                 isSending: pending.map { if case .failed = $0.state { false } else { true } } ?? false,
                 hasFailedSend: failed.contains(summary.id),
+<<<<<<< HEAD
                 isTyping: typing.contains(summary.id),
                 isRunningTool: tools.contains(summary.id)
+=======
+                isTyping: typing.contains(summary.id)
+>>>>>>> origin/main
             )
         }
         return rows.orderedForInbox()

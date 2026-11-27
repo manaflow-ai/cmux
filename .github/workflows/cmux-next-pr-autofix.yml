@@ -1,3 +1,4 @@
+<<<<<<< HEAD
 name: cmux-next PR autofix (advisory)
 # Named "(advisory)": autoland (next_autoland.counts_red) and NOW's pr_verdict read every job of a
 # workflow whose name ends so as advisory, so a repair run that ends after the waited checks or gives up never
@@ -122,11 +123,24 @@ concurrency:
   group: cmux-next-pr-autofix-${{ github.event.pull_request.number }}${{ github.event_name == 'pull_request' && github.event.pull_request.base.ref == 'feat-cmux-next' && (github.event.action == 'labeled' && !contains(fromJSON('["full-ci","ready-to-land"]'), github.event.label.name) || github.event.action == 'unlabeled') && format('-label-{0}', github.run_id) || '' }}
   cancel-in-progress: true
 
+=======
+name: cmux-next PR autofix
+
+# The PR autofix lives on feat-cmux-next (its pull_request runs take that branch's copy). This inert
+# registration on the default branch carries the name cmux-next-pr-autofix-push.yml's workflow_run
+# trigger waits for (tests/test_ci_workflow_run_sources.py), as main's cmux-next.yml does for cmux-next.
+on:
+  workflow_dispatch:
+
+permissions: {}
+
+>>>>>>> origin/main
 env:
   # Temporary REST budget attribution: one gh-call line per GitHub API call (scripts/ci/api_call_log/env.sh, fetched at a fixed commit when the checkout has no copy).
   BASH_ENV: '$({ w="${GITHUB_WORKSPACE:-/nonexistent}/scripts/ci/api_call_log/env.sh"; t="${RUNNER_TEMP:-/nonexistent}/api-call-log-src"; if [ -f "$w" ]; then echo "$w"; elif [ -n "${RUNNER_TEMP:-}" ]; then if [ ! -f "$t/env.sh" ] && [ ! -e "$t.tried" ] && { [ "${RUNNER_OS:-}" = Linux ] || [ "${RUNNER_OS:-}" = macOS ]; } && [ "$(date -u +%Y%m%d%H)" -lt 2026112300 ]; then : > "$t.tried"; mkdir -p "$t.part" && for x in env.sh gh sitecustomize.py isolated.py; do curl -fsSL --max-time 5 -o "$t.part/$x" "https://raw.githubusercontent.com/manaflow-ai/cmux/27647ffd3ae838c63be28ca3e5883dcd68c34518/scripts/ci/api_call_log/$x" || break; done; [ -s "$t.part/isolated.py" ] && mv "$t.part" "$t"; fi; if [ -f "$t/env.sh" ]; then echo "$t/env.sh"; else echo unset BASH_ENV > "$t.off.sh" && echo "$t.off.sh"; fi; fi; } 2>/dev/null)'
 
 jobs:
+<<<<<<< HEAD
   # Whether the Mac action-exports job runs: decided on Linux, so a pull
   # request that changes neither the catalog nor the settings never takes a Mac.
   action-areas:
@@ -1723,3 +1737,10 @@ jobs:
             exit 0
           fi
           echo "Pushed $(git rev-parse --short HEAD) to $HEAD_REF." | tee -a "$GITHUB_STEP_SUMMARY"
+=======
+  registration:
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.CI_OVERFLOW_LINUX || 'cmux-linux' }}
+    timeout-minutes: 5
+    steps:
+      - run: echo "cmux-next PR autofix is implemented on feat-cmux-next"
+>>>>>>> origin/main

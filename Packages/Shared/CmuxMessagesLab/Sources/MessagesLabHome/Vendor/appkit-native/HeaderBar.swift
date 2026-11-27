@@ -184,7 +184,11 @@ final class HeaderBar: NSObject, NSToolbarDelegate {
             pill.title = self.title
         }
         pill.setAccessibilityLabel(String(format: NativeStrings.contactFormat, title))
+<<<<<<< HEAD
         pill.setHomeToolTip(pill.accessibilityLabel())  // cmux: the host's themed tooltip (HomeToolTip.swift)
+=======
+        pill.toolTip = pill.accessibilityLabel()
+>>>>>>> origin/main
     }
 
     func install(in window: NSWindow) {
@@ -230,7 +234,11 @@ final class HeaderBar: NSObject, NSToolbarDelegate {
             let item = NSToolbarItem(itemIdentifier: id)
             item.image = NSImage(systemSymbolName: "video", accessibilityDescription: NativeStrings.video)
             item.label = NativeStrings.video
+<<<<<<< HEAD
             item.toolTip = NativeStrings.video  // cmux: tooltip-native-allow: a toolbar item, and cmux never installs HeaderBar's toolbar (PaneHeaderView)
+=======
+            item.toolTip = NativeStrings.video
+>>>>>>> origin/main
             item.isBordered = true
             item.target = self
             item.action = #selector(videoClicked)

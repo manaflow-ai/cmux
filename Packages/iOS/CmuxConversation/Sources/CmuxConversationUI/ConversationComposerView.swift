@@ -2,7 +2,10 @@
 import CmuxConversationCore
 import CmuxConversationGeometry
 import UIKit
+<<<<<<< HEAD
 import UniformTypeIdentifiers
+=======
+>>>>>>> origin/main
 
 /// A picked image (or, with `file`, a document) waiting in the composer.
 struct ComposerAttachment {
@@ -28,6 +31,7 @@ struct ComposerAttachment {
     }
 }
 
+<<<<<<< HEAD
 /// A queued attachment's bytes as a local file Quick Look can open before
 /// it is sent: a document keeps its name, a photo is "Photo.<ext>".
 struct ComposerAttachmentFile: Sendable {
@@ -59,6 +63,8 @@ struct ComposerAttachmentFile: Sendable {
     }
 }
 
+=======
+>>>>>>> origin/main
 @MainActor
 protocol ConversationComposerViewDelegate: AnyObject {
     func composerDidChangeText(_ composer: ConversationComposerView)
@@ -77,6 +83,21 @@ final class ConversationComposerView: UIView, UITextViewDelegate {
 
     let plusButton = ComposerPlusButton(type: .system)
     private let plusGlass = makeGlassView(cornerRadius: ConversationTheme.plusButtonSize / 2, interactive: true, clipsContent: false)
+<<<<<<< HEAD
+=======
+    /// Hosts such as Chief can accept text while rejecting every media
+    /// attachment. Hide the whole media affordance in that case, rather than
+    /// letting a send fail after the user picked a photo or file.
+    var showsMediaActions = true {
+        didSet {
+            guard oldValue != showsMediaActions else { return }
+            plusGlass.isHidden = !showsMediaActions
+            plusButton.isHidden = !showsMediaActions
+            updateSendButton(animated: false)
+            setNeedsLayout()
+        }
+    }
+>>>>>>> origin/main
     let fieldGlass = makeGlassView(cornerRadius: ConversationTheme.composerFieldCornerRadius, interactive: false, clipsContent: false)
     /// TextKit 1, so the effect overlay can read glyph geometry.
     /// (Built on an explicit stack: the `usingTextLayoutManager:` factory
@@ -104,8 +125,11 @@ final class ConversationComposerView: UIView, UITextViewDelegate {
     private(set) var attachments: [ComposerAttachment] = []
     /// A preview's remove button was tapped (after the attachment is dropped).
     var onRemoveAttachment: ((UUID) -> Void)?
+<<<<<<< HEAD
     /// A queued attachment was tapped: preview it (the view it zooms from).
     var onOpenAttachment: ((UUID, UIView) -> Void)?
+=======
+>>>>>>> origin/main
     /// Mention ranges, the gray candidate and suggestions for the draft.
     private(set) lazy var mentionController = ComposerMentionController(textView: textView)
     /// Pending rich link card for a URL that opens or ends the draft.
@@ -117,17 +141,22 @@ final class ConversationComposerView: UIView, UITextViewDelegate {
         didSet { updatePlaceholder() }
     }
     var replyPlaceholderText = String(localized: "conversation.composer.reply", defaultValue: "Reply", bundle: .module)
+<<<<<<< HEAD
     var isReplyMode = false {
         didSet {
             updatePlaceholder()
             updateSendLabel()
         }
     }
+=======
+    var isReplyMode = false { didSet { updatePlaceholder() } }
+>>>>>>> origin/main
     /// Editing one of my messages: the send button becomes a checkmark.
     var isEditMode = false {
         didSet {
             let symbol = isEditMode ? "checkmark" : "arrow.up"
             sendButton.setImage(UIImage(systemName: symbol, withConfiguration: Self.sendSymbolConfiguration), for: .normal)
+<<<<<<< HEAD
             updateSendLabel()
         }
     }
@@ -150,6 +179,14 @@ final class ConversationComposerView: UIView, UITextViewDelegate {
     /// The recording / review content inside the field while `audioStage` is set.
     weak var audioFieldView: AudioRecordingFieldView?
 
+=======
+            sendButton.accessibilityLabel = isEditMode
+                ? String(localized: "conversation.composer.saveEdit", defaultValue: "Save Edit", bundle: .module)
+                : String(localized: "conversation.composer.send", defaultValue: "Send", bundle: .module)
+        }
+    }
+
+>>>>>>> origin/main
     /// Edge inset of the + button and field with no keyboard: Messages'
     /// 28 pt concentric padding, or the keyboard inset while the Photos
     /// drawer stands in for the keyboard.
@@ -187,7 +224,11 @@ final class ConversationComposerView: UIView, UITextViewDelegate {
     /// alone (0,145,255 dark, 0,136,255 light). The composer's scroll edge
     /// element container adapts other traits for legibility, under which
     /// plain system blue drew 16,138,255 in dark mode.
+<<<<<<< HEAD
     static let sendBlue = UIColor.resolving { traits in
+=======
+    static let sendBlue = UIColor { traits in
+>>>>>>> origin/main
         UIColor.systemBlue.resolvedColor(with: UITraitCollection(traitsFrom: [
             UITraitCollection(userInterfaceStyle: traits.userInterfaceStyle),
             UITraitCollection(accessibilityContrast: traits.accessibilityContrast),
@@ -234,7 +275,11 @@ final class ConversationComposerView: UIView, UITextViewDelegate {
         // Disabled (New Message before a recipient) Messages draws the plus
         // lighter than UIKit's own dimming (137 on the light glass).
         let disabledInk: UIColor = switch ComposerBarGeometry.disabledPlusInk(iOS27: Self.isIOS27) {
+<<<<<<< HEAD
         case .tertiaryHue(let lightAlpha, let darkAlpha): UIColor.resolving { traits in
+=======
+        case .tertiaryHue(let lightAlpha, let darkAlpha): UIColor { traits in
+>>>>>>> origin/main
             traits.userInterfaceStyle == .dark
                 ? UIColor(red: 235 / 255, green: 235 / 255, blue: 245 / 255, alpha: darkAlpha)
                 : UIColor(red: 60 / 255, green: 60 / 255, blue: 67 / 255, alpha: lightAlpha)
@@ -267,7 +312,10 @@ final class ConversationComposerView: UIView, UITextViewDelegate {
             self?.removeAttachment(id: id)
             self?.onRemoveAttachment?(id)
         }
+<<<<<<< HEAD
         attachmentShelf.onOpen = { [weak self] id, view in self?.onOpenAttachment?(id, view) }
+=======
+>>>>>>> origin/main
 
         textView.font = ConversationTheme.bodyFont
         textView.baseTypingAttributes = [
@@ -283,6 +331,7 @@ final class ConversationComposerView: UIView, UITextViewDelegate {
         textView.textContainer.lineFragmentPadding = 0
         textView.isScrollEnabled = false
         textView.delegate = self
+<<<<<<< HEAD
         // The keyboard's Return starts a new line (as in Messages); a hardware
         // keyboard's Return sends and Shift- or Option-Return starts a new line.
         textView.returnKeyType = .default
@@ -295,6 +344,9 @@ final class ConversationComposerView: UIView, UITextViewDelegate {
         // "+" takes attachments (Chief turns it off until it takes sends).
         textView.acceptsAttachments = { [weak self] in self?.plusButton.isEnabled == true }
         textView.onPasteAttachments = { [weak self] in self?.pasteAttachments() }
+=======
+        textView.returnKeyType = .default
+>>>>>>> origin/main
         textView.accessibilityIdentifier = "conversation.composer.text"
         // Messages: a text field labeled "Message" whose value is the placeholder while empty.
         textView.accessibilityLabel = String(localized: "conversation.ax.composerField", defaultValue: "Message", bundle: .module)
@@ -384,7 +436,11 @@ final class ConversationComposerView: UIView, UITextViewDelegate {
         if animated, date != nil {
             sendLaterChip.alpha = 0
             sendLaterChip.transform = CGAffineTransform(scaleX: 0.85, y: 0.85)
+<<<<<<< HEAD
             UIView.animateUnlessReduceMotion(withDuration: 0.35, delay: 0, usingSpringWithDamping: 0.8, initialSpringVelocity: 0) {
+=======
+            UIView.animate(withDuration: 0.35, delay: 0, usingSpringWithDamping: 0.8, initialSpringVelocity: 0) {
+>>>>>>> origin/main
                 self.sendLaterChip.alpha = 1
                 self.sendLaterChip.transform = .identity
             }
@@ -400,11 +456,18 @@ final class ConversationComposerView: UIView, UITextViewDelegate {
         let sideInset = ComposerBarGeometry.sideInset(keyboardProgress: keyboardProgress, restInset: self.sideInset, keyboardInset: keyboardSideInset)
         let row = ComposerBarGeometry.layout(
             width: bounds.width, fieldBottom: bounds.height - 4, fieldHeight: fieldHeight,
+<<<<<<< HEAD
             oneLineHeight: t.composerMinHeight, sideInset: sideInset, scale: traitCollection.displayScale
         )
         // Bounds and center: the audio stage scales the "+" (a frame under a transform is undefined).
         plusGlass.bounds = CGRect(origin: .zero, size: row.plus.size)
         plusGlass.center = CGPoint(x: row.plus.midX, y: row.plus.midY)
+=======
+            oneLineHeight: t.composerMinHeight, sideInset: sideInset, scale: traitCollection.displayScale,
+            showsPlus: showsMediaActions
+        )
+        plusGlass.frame = row.plus
+>>>>>>> origin/main
         plusButton.frame = plusGlass.bounds
         fieldGlass.frame = row.field
         let field = fieldGlass.bounds
@@ -449,17 +512,22 @@ final class ConversationComposerView: UIView, UITextViewDelegate {
         micButton.frame = glyph.insetBy(dx: -6, dy: -9)
         // A fixed 20 pt continuous corner, not a capsule: the field keeps it
         // when larger text makes it 68 pt tall (Messages, iOS 26.5 at AX3).
+<<<<<<< HEAD
         // (The audio stage sets its own capsule radius below; setting this first
         // would restart that spring's radius from 20.)
         if audioStage == nil {
             fieldGlass.layer.cornerRadius = min(fieldHeight / 2, ConversationTheme.composerFieldCornerRadius)
         }
+=======
+        fieldGlass.layer.cornerRadius = min(fieldHeight / 2, ConversationTheme.composerFieldCornerRadius)
+>>>>>>> origin/main
         // A draft measured at another width (keyboard insets, reply mode,
         // the Photos drawer, rotation, a first pass before layout) wraps
         // differently here: measure it again.
         if field.width > 0, measurement.needsRemeasure(textWidth: textWidth(forFieldWidth: field.width)) {
             updateHeight()
         }
+<<<<<<< HEAD
         layoutAudioStage(resting: row, sideInset: sideInset)
     }
 
@@ -492,6 +560,8 @@ final class ConversationComposerView: UIView, UITextViewDelegate {
     override func point(inside point: CGPoint, with event: UIEvent?) -> Bool {
         if audioStage != nil, fieldGlass.frame.contains(point) || plusGlass.frame.contains(point) { return true }
         return super.point(inside: point, with: event)
+=======
+>>>>>>> origin/main
     }
 
     override func traitCollectionDidChange(_ previousTraitCollection: UITraitCollection?) {
@@ -512,7 +582,11 @@ final class ConversationComposerView: UIView, UITextViewDelegate {
     }
 
     /// The field's text and placeholder follow Dynamic Type; the field grows with them.
+<<<<<<< HEAD
     func applyScaledFonts() {
+=======
+    private func applyScaledFonts() {
+>>>>>>> origin/main
         textView.font = ConversationTheme.bodyFont
         textView.typingAttributes = [
             .font: ConversationTheme.bodyFont,
@@ -615,10 +689,17 @@ final class ConversationComposerView: UIView, UITextViewDelegate {
         let apply = {
             self.sendButton.alpha = show ? 1 : 0
             self.sendButton.transform = show ? .identity : CGAffineTransform(scaleX: 0.4, y: 0.4)
+<<<<<<< HEAD
             self.micButton.alpha = show ? 0 : 1
         }
         guard animated, (sendButton.alpha == 1) != show else { apply(); return }
         UIView.animateUnlessReduceMotion(withDuration: 0.32, delay: 0, usingSpringWithDamping: 0.72, initialSpringVelocity: 0, options: [.beginFromCurrentState, .allowUserInteraction], animations: apply)
+=======
+            self.micButton.alpha = show || !self.showsMediaActions ? 0 : 1
+        }
+        guard animated, (sendButton.alpha == 1) != show else { apply(); return }
+        UIView.animate(withDuration: 0.32, delay: 0, usingSpringWithDamping: 0.72, initialSpringVelocity: 0, options: [.beginFromCurrentState, .allowUserInteraction], animations: apply)
+>>>>>>> origin/main
     }
 
     /// Point size of an emoji-only draft, or nil for body text. Messages
@@ -702,6 +783,7 @@ final class ConversationComposerView: UIView, UITextViewDelegate {
 
     // MARK: Attachments
 
+<<<<<<< HEAD
     /// The pasteboard's images (each item's PNG or JPEG bytes as the copying
     /// app gave them, else re-encoded as PNG), or its copied files.
     private func pasteAttachments() {
@@ -770,6 +852,8 @@ final class ConversationComposerView: UIView, UITextViewDelegate {
         }
     }
 
+=======
+>>>>>>> origin/main
     func addAttachment(_ attachment: ComposerAttachment) {
         attachments.append(attachment)
         let opening = attachments.count == 1
@@ -835,7 +919,11 @@ final class ConversationComposerView: UIView, UITextViewDelegate {
         // Collapse on ChatKit's entry-view spring, logged on iOS 26.5 and
         // 27.0 (mass 2, stiffness 447, damping 49: response 0.4203 s,
         // bounce 0.1806).
+<<<<<<< HEAD
         UIView.animateUnlessReduceMotion(springDuration: 0.4203, bounce: 0.1806, options: [.beginFromCurrentState]) {
+=======
+        UIView.animate(springDuration: 0.4203, bounce: 0.1806, options: [.beginFromCurrentState]) {
+>>>>>>> origin/main
             self.layoutSubviews()
             self.delegate?.composerDidChangeHeight(self)
         }
@@ -899,6 +987,7 @@ final class ComposerTextView: UITextView {
     var decorateStorage: ((NSTextStorage) -> Void)?
     let effectLayer = ConversationTextEffectLayer()
 
+<<<<<<< HEAD
     /// A hardware keyboard's Return (no modifier): send. Shift- and Option-Return
     /// insert a line break; while text is being composed (marked text) Return
     /// belongs to the input method.
@@ -906,10 +995,15 @@ final class ComposerTextView: UITextView {
 
     override var keyCommands: [UIKeyCommand]? {
         var commands: [UIKeyCommand] = [
+=======
+    override var keyCommands: [UIKeyCommand]? {
+        let format: [UIKeyCommand] = [
+>>>>>>> origin/main
             UIKeyCommand(input: "b", modifierFlags: .command, action: #selector(toggleBoldface(_:))),
             UIKeyCommand(input: "i", modifierFlags: .command, action: #selector(toggleItalics(_:))),
             UIKeyCommand(input: "u", modifierFlags: .command, action: #selector(toggleUnderline(_:))),
         ]
+<<<<<<< HEAD
         if onHardwareReturn != nil {
             commands += [
                 UIKeyCommand(input: "\r", modifierFlags: [], action: #selector(hardwareReturn)),
@@ -938,6 +1032,16 @@ final class ComposerTextView: UITextView {
         if action == #selector(paste(_:)), pastesAttachments {
             return isEditable
         }
+=======
+        format.forEach { $0.wantsPriorityOverSystemBehavior = true }
+        return (super.keyCommands ?? []) + format
+    }
+
+    override func canPerformAction(_ action: Selector, withSender sender: Any?) -> Bool {
+        if action == #selector(toggleBoldface(_:)) || action == #selector(toggleItalics(_:)) || action == #selector(toggleUnderline(_:)) {
+            return isEditable
+        }
+>>>>>>> origin/main
         return super.canPerformAction(action, withSender: sender)
     }
 
@@ -958,6 +1062,7 @@ final class ComposerTextView: UITextView {
         set { super.accessibilityValue = newValue }
     }
 
+<<<<<<< HEAD
     /// Takes a pasted image or copied file. A plain text view offers no Paste
     /// for an image; this one does while `acceptsAttachments`. The paste is
     /// the person's own action, so reading the pasteboard asks nothing.
@@ -1003,6 +1108,9 @@ final class ComposerTextView: UITextView {
             onPasteAttachments()
             return
         }
+=======
+    override func paste(_ sender: Any?) {
+>>>>>>> origin/main
         super.paste(sender)
         delegate?.textViewDidChange?(self)
     }
@@ -1019,6 +1127,7 @@ final class ComposerPlusButton: UIButton {
     }
 }
 #endif
+<<<<<<< HEAD
 
 #if canImport(UIKit)
 /// Holds the composer row. The recording field rises above the row (Messages'
@@ -1031,3 +1140,5 @@ final class ComposerHostView: UIView {
     }
 }
 #endif
+=======
+>>>>>>> origin/main

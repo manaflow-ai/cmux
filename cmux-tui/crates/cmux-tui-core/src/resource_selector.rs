@@ -11,6 +11,8 @@ use crate::{PaneId, ScreenId, SurfaceId, WorkspaceId};
 mod id_forms;
 mod name_scope;
 
+mod tab_scope;
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum ResourceTarget {
@@ -337,6 +339,7 @@ fn resolve_path(
         supplied_pane = Some(pane);
     }
     if let Some(raw) = selectors.tab.as_deref() {
+<<<<<<< ours
         let tab = match resolve_tab(state, raw, supplied_pane) {
             Err(error)
                 if error.code == "selector.not_found"
@@ -351,6 +354,30 @@ fn resolve_path(
             resolved => resolved?,
         };
         supplied_tab = Some(tab);
+=======
+        let tab = match resolve_tab(state, raw, supplied_pane) {
+            Err(error) if error.code == "selector.not_found" => {
+                let beyond = tab_scope::tab_beyond_current_pane(
+                    state,
+                    selectors,
+                    raw,
+                    supplied_screen,
+                    supplied_workspace,
+                )?;
+                let tab = beyond.ok_or(error)?;
+                // The tab's own pane, screen and workspace scope what follows.
+                supplied_pane = state.resource_indexes.tab_pane.get(&tab).copied();
+                supplied_screen = supplied_pane
+                    .and_then(|pane| state.resource_indexes.pane_screen.get(&pane).copied());
+                supplied_workspace = supplied_screen.and_then(|screen| {
+                    state.resource_indexes.screen_workspace.get(&screen).copied()
+                });
+                tab
+            }
+            resolved => resolved?,
+        };
+        supplied_tab = Some(tab);
+>>>>>>> theirs
     }
 
     let mut target_terminal = None;

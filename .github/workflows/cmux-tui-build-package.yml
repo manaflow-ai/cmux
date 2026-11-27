@@ -4,11 +4,17 @@ on:
   workflow_call:
     inputs:
       retention_days:
+<<<<<<< HEAD
         # 1, not 3: these were the org's largest Actions artifacts (about 2,450 per target in 3 days, 120-190 MB
         # each, 2026-11-14), and the binaries that outlive the run are in R2 (cmux-tui-artifacts.yml's publish).
         description: Days the uploaded build artifacts are kept. Every in-run consumer reads them within the run; release callers pass more for tui-publish-npm/pypi, which download by run id.
         required: false
         default: 1
+=======
+        description: Days the uploaded build artifacts are kept. Every in-run consumer reads them within the run; release callers pass more for tui-publish-npm/pypi, which download by run id.
+        required: false
+        default: 3
+>>>>>>> origin/main
         type: number
       version:
         description: "npm package version, or the shared stable X.Y.Z version"
@@ -165,6 +171,7 @@ on:
 permissions: {}
 
 env:
+<<<<<<< HEAD
   # libghostty-vt always builds from the ghostty-next gitlink: an empty
   # value overrides any runner-level CMUX_GHOSTTY_SRC (build.rs treats it
   # as unset).
@@ -174,13 +181,19 @@ env:
   # tests in cmux-tui-artifacts.yml (cmuxterm-hq#1279 item 1).
   CARGO_NET_RETRY: "10"
   CARGO_HTTP_TIMEOUT: "120"
+=======
+>>>>>>> origin/main
   # Temporary REST budget attribution: one gh-call line per GitHub API call (scripts/ci/api_call_log/env.sh, fetched at a fixed commit when the checkout has no copy).
   BASH_ENV: '$({ w="${GITHUB_WORKSPACE:-/nonexistent}/scripts/ci/api_call_log/env.sh"; t="${RUNNER_TEMP:-/nonexistent}/api-call-log-src"; if [ -f "$w" ]; then echo "$w"; elif [ -n "${RUNNER_TEMP:-}" ]; then if [ ! -f "$t/env.sh" ] && [ ! -e "$t.tried" ] && { [ "${RUNNER_OS:-}" = Linux ] || [ "${RUNNER_OS:-}" = macOS ]; } && [ "$(date -u +%Y%m%d%H)" -lt 2026112300 ]; then : > "$t.tried"; mkdir -p "$t.part" && for x in env.sh gh sitecustomize.py isolated.py; do curl -fsSL --max-time 5 -o "$t.part/$x" "https://raw.githubusercontent.com/manaflow-ai/cmux/27647ffd3ae838c63be28ca3e5883dcd68c34518/scripts/ci/api_call_log/$x" || break; done; [ -s "$t.part/isolated.py" ] && mv "$t.part" "$t"; fi; if [ -f "$t/env.sh" ]; then echo "$t/env.sh"; else echo unset BASH_ENV > "$t.off.sh" && echo "$t.off.sh"; fi; fi; } 2>/dev/null)'
 
 jobs:
   plan-build:
     name: select binary targets
+<<<<<<< HEAD
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || inputs.nightly_runner && github.run_attempt == 1 && 'cmux-gcp-nightly-x64' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || 'cmux-linux' }}
+=======
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || (inputs.linux_runner != '' && inputs.linux_runner || vars.CI_OVERFLOW_LINUX || 'cmux-linux') }}
+>>>>>>> origin/main
     timeout-minutes: 15
     outputs:
       matrix: ${{ steps.targets.outputs.matrix }}
@@ -364,8 +377,11 @@ jobs:
       matrix: ${{ fromJSON(needs.plan-build.outputs.matrix) }}
     steps:
       - name: Checkout caller or requested ref
+<<<<<<< HEAD
         id: checkout
         continue-on-error: true
+=======
+>>>>>>> origin/main
         uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           ref: ${{ inputs.checkout_ref }}
@@ -468,6 +484,7 @@ jobs:
       - name: Install zig
         uses: mlugg/setup-zig@8d6198c65fb0feaa111df26e6b467fea8345e46f # v2.0.5
         with:
+          use-cache: ${{ (github.event_name != 'pull_request' && github.event_name != 'pull_request_target' && github.event_name != 'merge_group' && contains(fromJSON('["refs/heads/main","refs/heads/feat-cmux-next","refs/heads/nightly-next"]'), github.ref)) }}
           version: ${{ steps.ghostty-zig-version.outputs.version }}
           # Its own cache saves a new entry per run; zig-global-cache keys it stably.
           use-cache: false
@@ -505,6 +522,16 @@ jobs:
           pane="$RUNNER_TEMP/acpmux-agent-pane"
           scripts/cmux-next/build-agent-pane-web.sh --out "$pane"
           echo "ACPMUX_BUNDLED_APP_ASSETS_DIR=$pane" >> "$GITHUB_ENV"
+
+      # A 502/504 from the package host while build.rs fetches the Ghostty packages
+      # failed every cmux-tui job on 2026-11-08: fetch them first, cached and retried.
+      # On a cmux-tui.yml dispatch, save only on an owned mini (GitHub store): a Blacksmith
+      # save was not restored by later dispatch runs.
+      - name: Fetch the Ghostty Zig packages (cached, deadlined, retried)
+        uses: ./.github/actions/ghostty-zig-packages
+        with:
+          source: ghostty
+          save-on-dispatch: ${{ contains(runner.name, '-glaeda') }}
 
       - name: Set up pinned Rust
         uses: ./.github/actions/setup-cmux-tui-rust
@@ -1325,6 +1352,7 @@ jobs:
         shell: bash
         run: cmux-tui/scripts/smoke-remote-release.sh "dist/cmux-tui-${{ matrix.target }}"
 
+<<<<<<< HEAD
       # Debug symbols only, never shipped: cmux-tui-artifacts.yml uploads them to Sentry.
       - name: Upload macOS debug symbols artifact
         if: runner.os == 'macOS'
@@ -1334,12 +1362,28 @@ jobs:
           name: ${{ inputs.artifact_prefix }}cmux-tui-dsyms-${{ matrix.target }}
           path: cmux-tui/target/${{ matrix.target }}/release/*.dSYM
           if-no-files-found: warn
+=======
+      - name: Test release remote sequence rollback
+        if: matrix.target == 'x86_64-unknown-linux-musl'
+        working-directory: cmux-tui
+        shell: bash
+        # --lib: the test lives in src/session.rs. Without it cargo builds every cmux-remote
+        # integration test with fat LTO; on 2026-11-25 (run 45615836920) that filled the pool
+        # runner's disk at tests/interactive_latency_e2e.rs and main published no cmux-tui.
+        run: >-
+          ../scripts/ci/cargo-test-deadline.sh --release --locked --target ${{ matrix.target }}
+          -p cmux-remote --lib queue_admission_failure_rolls_back_sequence_and_replay
+>>>>>>> origin/main
 
       - name: Upload binary artifact
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
           retention-days: ${{ inputs.retention_days }}
+<<<<<<< HEAD
           name: ${{ inputs.artifact_prefix }}cmux-tui-${{ matrix.target }}
+=======
+          name: cmux-tui-${{ matrix.target }}
+>>>>>>> origin/main
           path: dist/cmux-tui-*${{ matrix.ext }}
           if-no-files-found: error
 
@@ -1347,7 +1391,11 @@ jobs:
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
           retention-days: ${{ inputs.retention_days }}
+<<<<<<< HEAD
           name: ${{ inputs.artifact_prefix }}cmux-relay-${{ matrix.target }}
+=======
+          name: cmux-relay-${{ matrix.target }}
+>>>>>>> origin/main
           path: dist/cmux-relay-*${{ matrix.ext }}
           if-no-files-found: error
 
@@ -1355,7 +1403,11 @@ jobs:
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
           retention-days: ${{ inputs.retention_days }}
+<<<<<<< HEAD
           name: ${{ inputs.artifact_prefix }}chatmux-relay-${{ matrix.target }}
+=======
+          name: chatmux-relay-${{ matrix.target }}
+>>>>>>> origin/main
           path: dist/chatmux-relay-*${{ matrix.ext }}
           if-no-files-found: error
 
@@ -1364,7 +1416,11 @@ jobs:
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
           retention-days: ${{ inputs.retention_days }}
+<<<<<<< HEAD
           name: ${{ inputs.artifact_prefix }}cmux-agent-screen-detection-${{ matrix.target }}
+=======
+          name: cmux-agent-screen-detection-${{ matrix.target }}
+>>>>>>> origin/main
           path: dist/cmux-agent-screen-detection-*${{ matrix.ext }}
           if-no-files-found: error
 
@@ -1767,8 +1823,11 @@ jobs:
       contents: read
     steps:
       - name: Checkout caller or requested ref
+<<<<<<< HEAD
         id: checkout
         continue-on-error: true
+=======
+>>>>>>> origin/main
         uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           ref: ${{ inputs.checkout_ref }}
@@ -1788,8 +1847,23 @@ jobs:
         if: steps.checkout.outcome == 'failure'
         uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
+<<<<<<< HEAD
           ref: ${{ inputs.checkout_ref }}
           persist-credentials: false
+=======
+          use-cache: ${{ (github.event_name != 'pull_request' && github.event_name != 'pull_request_target' && github.event_name != 'merge_group' && contains(fromJSON('["refs/heads/main","refs/heads/feat-cmux-next","refs/heads/nightly-next"]'), github.ref)) }}
+          version: ${{ steps.ghostty-zig-version.outputs.version }}
+>>>>>>> origin/main
+
+      # A 502/504 from the package host while build.rs fetches the Ghostty packages
+      # failed every cmux-tui job on 2026-11-08: fetch them first, cached and retried.
+      # On a cmux-tui.yml dispatch, save only on an owned mini (GitHub store): a Blacksmith
+      # save was not restored by later dispatch runs.
+      - name: Fetch the Ghostty Zig packages (cached, deadlined, retried)
+        uses: ./.github/actions/ghostty-zig-packages
+        with:
+          source: ghostty
+          save-on-dispatch: ${{ contains(runner.name, '-glaeda') }}
 
       - name: Set up pinned Rust
         uses: ./.github/actions/setup-cmux-tui-rust
@@ -1812,7 +1886,17 @@ jobs:
       - name: Build acpmux (Windows GNU)
         working-directory: cmux-tui
         shell: bash
+<<<<<<< HEAD
         run: cargo build -p acpmux --bin acpmux --release --locked --target x86_64-pc-windows-gnu
+=======
+        run: |
+          ../scripts/ci/cargo-test-deadline.sh --release --locked --target x86_64-pc-windows-gnu \
+            -p cmux-tui-core --lib normalize_long_windows
+          ../scripts/ci/cargo-test-deadline.sh --release --locked --target x86_64-pc-windows-gnu \
+            -p cmux-tui-core --lib registry_opens_and_persists_under_a_long_windows_state_root
+          ../scripts/ci/cargo-test-deadline.sh --release --locked --target x86_64-pc-windows-gnu \
+            -p cmux-tui-core --lib socket_start_lock_acquires_a_new_lock_file
+>>>>>>> origin/main
 
       - name: Verify acpmux starts
         shell: bash
@@ -1829,8 +1913,17 @@ jobs:
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
           retention-days: ${{ inputs.retention_days }}
+<<<<<<< HEAD
           name: cmux-tui-acpmux-x86_64-pc-windows-gnu
           path: dist/cmux-tui-acpmux-x86_64-pc-windows-gnu.exe
+=======
+          name: cmux-tui-x86_64-pc-windows-gnu
+          path: |
+            dist/cmux-tui-x86_64-pc-windows-gnu.exe
+            dist/cmux-tui-hook-x86_64-pc-windows-gnu.exe
+            dist/cmux-relay-x86_64-pc-windows-gnu.exe
+            dist/chatmux-relay-x86_64-pc-windows-gnu.exe
+>>>>>>> origin/main
           if-no-files-found: error
 
   package:
@@ -1845,7 +1938,11 @@ jobs:
         needs.build.result == 'success' &&
         (!inputs.include_windows || needs.build-windows.result == 'success')
       }}
+<<<<<<< HEAD
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || inputs.nightly_runner && github.run_attempt == 1 && 'cmux-gcp-nightly-x64' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || 'cmux-linux' }}
+=======
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || (inputs.linux_runner != '' && inputs.linux_runner || vars.CI_OVERFLOW_LINUX || 'cmux-linux') }}
+>>>>>>> origin/main
     timeout-minutes: 30
     permissions:
       contents: read
@@ -1854,8 +1951,11 @@ jobs:
       PYPI_VERSION: ${{ inputs.pypi_version != '' && inputs.pypi_version || inputs.version }}
     steps:
       - name: Checkout caller or requested ref
+<<<<<<< HEAD
         id: checkout
         continue-on-error: true
+=======
+>>>>>>> origin/main
         uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           ref: ${{ inputs.checkout_ref }}

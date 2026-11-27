@@ -1,3 +1,4 @@
+<<<<<<< HEAD
 #if canImport(AVFoundation)
 import AVFoundation
 #endif
@@ -16,6 +17,14 @@ import ImageIO
 #if canImport(UniformTypeIdentifiers)
 import UniformTypeIdentifiers
 #endif
+=======
+import AVFoundation
+import CoreGraphics
+import CryptoKit
+import Foundation
+import ImageIO
+import UniformTypeIdentifiers
+>>>>>>> origin/main
 
 /// Hashing, the blob cache layout and media inspection for attachments.
 /// Every function here is nonisolated and async, so callers on the main
@@ -49,9 +58,17 @@ enum AttachmentMedia {
         return root.appendingPathComponent(hash, isDirectory: true).appendingPathComponent(name)
     }
 
+<<<<<<< HEAD
     /// Hashes and copies a file into the cache in one streamed pass. The
     /// original is never rejected for its size.
     static func ingest(fileURL: URL, root: URL) throws -> (hash: String, url: URL, byteCount: Int) {
+=======
+    /// Hashes and copies a file into the cache in one streamed pass. Stops
+    /// one byte past `maxBytes` (the file grew after its size was read) and
+    /// throws `tooLarge`, leaving nothing in the cache.
+    static func ingest(fileURL: URL, root: URL,
+                       maxBytes: Int = HomeAttachmentPolicy.maxBytes) throws -> (hash: String, url: URL, byteCount: Int) {
+>>>>>>> origin/main
         let fm = FileManager.default
         try fm.createDirectory(at: root, withIntermediateDirectories: true)
         let temp = root.appendingPathComponent(".incoming-\(UUID().uuidString)")
@@ -64,11 +81,19 @@ enum AttachmentMedia {
         var hasher = SHA256()
         var count = 0
         do {
+<<<<<<< HEAD
             while let chunk = try input.read(upToCount: chunkSize), !chunk.isEmpty {
+=======
+            while let chunk = try input.read(upToCount: min(chunkSize, maxBytes + 1 - count)), !chunk.isEmpty {
+>>>>>>> origin/main
                 try Task.checkCancellation()
                 hasher.update(data: chunk)
                 try output.write(contentsOf: chunk)
                 count += chunk.count
+<<<<<<< HEAD
+=======
+                if count > maxBytes { throw HomeAttachmentError.tooLarge(byteCount: count, limit: maxBytes) }
+>>>>>>> origin/main
             }
             try output.close()
         } catch {
@@ -133,8 +158,11 @@ enum AttachmentMedia {
 
     // MARK: Images
 
+<<<<<<< HEAD
 #if canImport(ImageIO)
 
+=======
+>>>>>>> origin/main
     /// Display size: orientations 5 through 8 rotate by 90 degrees.
     static func imageDisplaySize(_ url: URL) -> (width: Int, height: Int)? {
         guard let source = CGImageSourceCreateWithURL(url as CFURL, nil),
@@ -213,12 +241,21 @@ enum AttachmentMedia {
     /// opaque image with an alpha channel gets a preview.
     static func previewJPEG(of url: URL, mimeType: String, byteCount: Int, displaySize: (width: Int, height: Int)) -> Data? {
         let maxPixel = HomeAttachmentPolicy.previewMaxPixel
+<<<<<<< HEAD
         let previewLimitBytes = HomeAttachmentPolicy.previewMaxBytes
         if mimeType != "image/heic", max(displaySize.width, displaySize.height) <= maxPixel, byteCount <= previewLimitBytes { return nil }
         guard let sample = try? thumbnailImage(of: url, maxPixel: 512),
               !isTransparent(sample.source, sample: sample.image) else { return nil }
         for (pixels, quality) in [(maxPixel, 0.8), (maxPixel, 0.6), (maxPixel * 3 / 4, 0.6), (maxPixel / 2, 0.6)] {
             if let data = try? thumbnailJPEG(of: url, maxPixel: pixels, quality: quality), data.count <= previewLimitBytes { return data }
+=======
+        let maxBytes = HomeAttachmentPolicy.previewMaxBytes
+        if mimeType != "image/heic", max(displaySize.width, displaySize.height) <= maxPixel, byteCount <= maxBytes { return nil }
+        guard let sample = try? thumbnailImage(of: url, maxPixel: 512),
+              !isTransparent(sample.source, sample: sample.image) else { return nil }
+        for (pixels, quality) in [(maxPixel, 0.8), (maxPixel, 0.6), (maxPixel * 3 / 4, 0.6), (maxPixel / 2, 0.6)] {
+            if let data = try? thumbnailJPEG(of: url, maxPixel: pixels, quality: quality), data.count <= maxBytes { return data }
+>>>>>>> origin/main
         }
         return nil
     }
@@ -262,6 +299,7 @@ enum AttachmentMedia {
         return (data as Data, target, hasAlpha ? "png" : "jpg")
     }
 
+<<<<<<< HEAD
     /// The file-backed form of ``convertedImage``.  ImageIO writes directly to
     /// the cache instead of materialising an arbitrarily large source image in
     /// a `Data` value.  The data form remains for pasted/in-memory attachments,
@@ -326,6 +364,10 @@ enum AttachmentMedia {
 
 #if canImport(AVFoundation)
 
+=======
+    // MARK: Video and audio
+
+>>>>>>> origin/main
     struct Movie {
         var width: Int?
         var height: Int?
@@ -357,6 +399,7 @@ enum AttachmentMedia {
         return movie
     }
 
+<<<<<<< HEAD
 #else
     struct Movie {
         var width: Int?
@@ -371,6 +414,8 @@ enum AttachmentMedia {
     }
 #endif
 
+=======
+>>>>>>> origin/main
     // MARK: Prepare
 
     /// The owner's mime type for a file extension: the allow list's own
@@ -381,6 +426,7 @@ enum AttachmentMedia {
         return HomeAttachmentPolicy.canonicalMimeType(mimeType(for: UTType(filenameExtension: ext)))
     }
 
+<<<<<<< HEAD
     /// `text/plain` or the generic type for a file with no listed type, from
     /// its first ``HomeAttachmentPolicy/sniffBytes`` bytes.
     static func sniffedMimeType(ofFile url: URL) throws -> String {
@@ -396,6 +442,8 @@ enum AttachmentMedia {
         return HomeAttachmentPolicy.sniffedMimeType(prefix, complete: complete)
     }
 
+=======
+>>>>>>> origin/main
     /// Checks the policy, then copies the bytes into the cache and fills the
     /// ref. Opens a security-scoped URL (the iOS file importer's) for the
     /// copy. Removes location metadata unless `keepLocation`. `name`
@@ -403,17 +451,24 @@ enum AttachmentMedia {
     /// runs on the caller's actor.
     @concurrent
     static func prepare(fileURL: URL, root: URL, name: String? = nil, keepLocation: Bool = false) async throws -> LocalAttachment {
+<<<<<<< HEAD
         #if canImport(Darwin)
         let scoped = fileURL.startAccessingSecurityScopedResource()
         defer { if scoped { fileURL.stopAccessingSecurityScopedResource() } }
         #endif
         let name = HomeAttachmentPolicy.sendableName(name ?? fileURL.lastPathComponent)
         if HomeAttachmentPolicy.isFolder(fileURL) { throw HomeAttachmentError.folder(name: name) }
+=======
+        let scoped = fileURL.startAccessingSecurityScopedResource()
+        defer { if scoped { fileURL.stopAccessingSecurityScopedResource() } }
+        let name = HomeAttachmentPolicy.sendableName(name ?? fileURL.lastPathComponent)
+>>>>>>> origin/main
         let mime: String
         switch HomeAttachmentPolicy.decision(forFileExtension: fileURL.pathExtension) {
         case .send(let owned):
             mime = owned
         case .convert:
+<<<<<<< HEAD
             // An image ImageIO cannot read goes as its bytes (text or a generic file).
             guard let converted = try convertedImageFile(at: fileURL, root: root) else {
                 mime = try sniffedMimeType(ofFile: fileURL)
@@ -425,13 +480,29 @@ enum AttachmentMedia {
                                      name: "\(base).\(converted.fileExtension)", keepLocation: keepLocation)
         case .sniff:
             mime = try sniffedMimeType(ofFile: fileURL)
+=======
+            guard let converted = try convertedImage({ CGImageSourceCreateWithURL(fileURL as CFURL, nil) }) else {
+                throw HomeAttachmentError.typeRefused(mimeType: mimeType(forExtension: fileURL.pathExtension), name: name)
+            }
+            let base = (name as NSString).deletingPathExtension
+            return try await prepare(data: converted.data, typeIdentifier: converted.type.identifier, root: root,
+                                     name: "\(base).\(converted.fileExtension)", keepLocation: keepLocation)
+        case .refuse:
+            mime = mimeType(forExtension: fileURL.pathExtension)
+>>>>>>> origin/main
         }
         let size = try fileURL.resourceValues(forKeys: [.fileSizeKey]).fileSize ?? 0
         try HomeAttachmentPolicy.check(mimeType: mime, byteCount: size, name: name)
         if !keepLocation {
+<<<<<<< HEAD
             if mime.hasPrefix("image/"), let clean = try imageWithoutLocationFile(at: fileURL, name: name, root: root) {
                 defer { try? FileManager.default.removeItem(at: clean.url) }
                 return try await prepare(fileURL: clean.url, root: root,
+=======
+            if mime.hasPrefix("image/"), let source = CGImageSourceCreateWithURL(fileURL as CFURL, nil),
+               let clean = try imageWithoutLocation(source, name: name, bytes: { try Data(contentsOf: fileURL) }) {
+                return try await prepare(data: clean.data, typeIdentifier: clean.type.identifier, root: root,
+>>>>>>> origin/main
                                          name: renamed(name, mimeType: mime, as: clean.type), keepLocation: true)
             }
             if hasMovieMetadata(mime), let clean = try await movieWithoutLocation(fileURL, mimeType: mime, name: name, root: root) {
@@ -465,6 +536,7 @@ enum AttachmentMedia {
         let type = UTType(typeIdentifier)
         let fileExtension = type?.preferredFilenameExtension ?? ""
         let mime: String
+<<<<<<< HEAD
         switch type.map(HomeAttachmentPolicy.decision(for:)) ?? .sniff {
         case .send(let owned):
             mime = owned
@@ -477,11 +549,29 @@ enum AttachmentMedia {
         case .sniff:
             let prefix = data.prefix(HomeAttachmentPolicy.sniffBytes)
             mime = HomeAttachmentPolicy.sniffedMimeType(prefix, complete: prefix.count == data.count)
+=======
+        switch type.map(HomeAttachmentPolicy.decision(for:)) ?? .refuse {
+        case .send(let owned):
+            mime = owned
+        case .convert:
+            if let converted = try convertedImage({ CGImageSourceCreateWithData(data as CFData, nil) }) {
+                return try await prepare(data: converted.data, typeIdentifier: converted.type.identifier, root: root,
+                                         name: name ?? "attachment.\(converted.fileExtension)", keepLocation: keepLocation)
+            }
+            mime = HomeAttachmentPolicy.canonicalMimeType(mimeType(for: type)) // unreadable bytes: refused below
+        case .refuse:
+            mime = HomeAttachmentPolicy.canonicalMimeType(mimeType(for: type))
+>>>>>>> origin/main
         }
         let name = HomeAttachmentPolicy.sendableName(name ?? (fileExtension.isEmpty ? "attachment" : "attachment.\(fileExtension)"))
         try HomeAttachmentPolicy.check(mimeType: mime, byteCount: data.count, name: name)
         if !keepLocation {
+<<<<<<< HEAD
             if mime.hasPrefix("image/"), let clean = try imageWithoutLocation(data: data, name: name) {
+=======
+            if mime.hasPrefix("image/"), let source = CGImageSourceCreateWithData(data as CFData, nil),
+               let clean = try imageWithoutLocation(source, name: name, bytes: { data }) {
+>>>>>>> origin/main
                 let typeIdentifier = clean.type.identifier == UTType(mimeType: mime)?.identifier ? typeIdentifier : clean.type.identifier
                 return try await prepare(data: clean.data, typeIdentifier: typeIdentifier, root: root,
                                          name: renamed(name, mimeType: mime, as: clean.type), keepLocation: true)
@@ -507,6 +597,7 @@ enum AttachmentMedia {
 
     // MARK: Location
 
+<<<<<<< HEAD
     /// `prepare`'s location removal for an image file; nil when it has no
     /// location (or, without ImageIO, is not read).
     private static func imageWithoutLocationFile(at fileURL: URL, name: String, root: URL) throws -> (url: URL, type: UTType)? {
@@ -530,6 +621,8 @@ enum AttachmentMedia {
 
 #if canImport(ImageIO)
 
+=======
+>>>>>>> origin/main
     /// IPTC keys that hold a place as text.
     static var iptcLocationKeys: [CFString] {
         [kCGImagePropertyIPTCCity, kCGImagePropertyIPTCSubLocation, kCGImagePropertyIPTCProvinceState,
@@ -638,6 +731,7 @@ enum AttachmentMedia {
         throw HomeAttachmentError.locationNotRemoved(name: name)
     }
 
+<<<<<<< HEAD
     /// File-backed metadata removal. ImageIO's URL source and destination keep
     /// the encoded bytes out of memory; WebP is copied chunk-by-chunk because
     /// ImageIO cannot write it. The result is a temporary file owned by the
@@ -773,6 +867,8 @@ enum AttachmentMedia {
         return true
     }
 
+=======
+>>>>>>> origin/main
     /// A WebP without its `EXIF` and `XMP ` chunks, the VP8X flags for them
     /// cleared and every other chunk (frames, animation, ICC profile) kept
     /// byte for byte. Only the bytes the RIFF size covers are read: bytes
@@ -807,7 +903,10 @@ enum AttachmentMedia {
         return Data(Array("RIFF".utf8) + le32Bytes(body.count) + body)
     }
 
+<<<<<<< HEAD
 #if canImport(ImageIO)
+=======
+>>>>>>> origin/main
     /// The first `frames` images encoded as `type` with their metadata
     /// minus location; nil when encoding or verification fails.
     private static func reencoded(_ source: CGImageSource, as type: CFString, frames: Int,
@@ -827,9 +926,12 @@ enum AttachmentMedia {
         return verified(encoded, frames)
     }
 
+<<<<<<< HEAD
 #endif
 
 #if canImport(AVFoundation)
+=======
+>>>>>>> origin/main
     /// A position or place in movie metadata: ISO 6709 (QuickTime metadata
     /// or user data), the common location key, every
     /// `com.apple.quicktime.location.*` key (name, body, note, role, date)
@@ -885,6 +987,23 @@ enum AttachmentMedia {
         return false
     }
 
+<<<<<<< HEAD
+=======
+    /// True on macOS 26 and iOS 26, the only systems that call
+    /// `AVAssetExportSession.export(to:as:)`. On macOS 15 (and, we expect,
+    /// iOS 18), awaiting it from this `@concurrent` code in a build against
+    /// the SDK 26 interface never returns, or ends the process with signal
+    /// 11 or the task allocator's "freed pointer was not the last
+    /// allocation" abort. CmuxHomeCore's tests on the macOS 15 CI runners
+    /// did all three, while the completion-handler export (`outputURL`,
+    /// `outputFileType`, `export()`) worked in the same process. Older
+    /// systems use the completion-handler export.
+    static var usesTypedExport: Bool {
+        if #available(macOS 26, iOS 26, *) { return true }
+        return false
+    }
+
+>>>>>>> origin/main
     /// A copy of the movie (or M4A) without location, written to a temp
     /// file under `root` by a passthrough export (no re-encode), with each
     /// track's transform and the asset metadata that is not location (as
@@ -896,8 +1015,16 @@ enum AttachmentMedia {
     /// message would lose its content. Nil when the file has no location.
     /// The caller deletes it. Throws `HomeAttachmentError.locationNotRemoved`
     /// when the export fails or its result still holds a location.
+<<<<<<< HEAD
     @concurrent
     static func movieWithoutLocation(_ url: URL, mimeType: String, name: String, root: URL) async throws -> URL? {
+=======
+    /// `typedExport` picks the export call (`usesTypedExport`); tests pass
+    /// false to run the macOS 15 and iOS 18 path on any system.
+    @concurrent
+    static func movieWithoutLocation(_ url: URL, mimeType: String, name: String, root: URL,
+                                     typedExport: Bool = AttachmentMedia.usesTypedExport) async throws -> URL? {
+>>>>>>> origin/main
         let asset = AVURLAsset(url: url)
         guard await movieHasLocation(asset) else { return nil }
         let refused = HomeAttachmentError.locationNotRemoved(name: name)
@@ -934,7 +1061,11 @@ enum AttachmentMedia {
         try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
         let output = root.appendingPathComponent(".incoming-\(UUID().uuidString).\(fileExtension)")
         do {
+<<<<<<< HEAD
             if #available(macOS 15, iOS 18, *) {
+=======
+            if typedExport, #available(macOS 15, iOS 18, *) {
+>>>>>>> origin/main
                 try await session.export(to: output, as: fileType)
             } else {
                 session.outputURL = output
@@ -950,11 +1081,14 @@ enum AttachmentMedia {
         return output
     }
 
+<<<<<<< HEAD
 #else
     /// No AVFoundation (the Linux package lane): movie metadata is not read.
     static func movieWithoutLocation(_ url: URL, mimeType: String, name: String, root: URL) async throws -> URL? { nil }
 #endif
 
+=======
+>>>>>>> origin/main
     /// Media facts are best effort: a file whose media cannot be read still
     /// sends, without a size, duration or poster.
     private static func describe(cached: URL, hash: String, byteCount: Int, name: String, mimeType: String,
@@ -974,7 +1108,10 @@ enum AttachmentMedia {
             ref.width = movie.width
             ref.height = movie.height
             ref.durationMs = movie.durationMs
+<<<<<<< HEAD
             #if canImport(AVFoundation) && canImport(ImageIO)
+=======
+>>>>>>> origin/main
             // A poster over the owner's cap is dropped: the video still sends.
             if mimeType.hasPrefix("video/"), let poster = movie.poster, let posterData = try? jpeg(poster),
                posterData.count <= HomeAttachmentPolicy.posterMaxBytes {
@@ -982,7 +1119,10 @@ enum AttachmentMedia {
                 ref.poster = AttachmentPoster(hash: posterHash, mimeType: "image/jpeg", byteCount: posterData.count)
                 posterURL = url
             }
+<<<<<<< HEAD
             #endif
+=======
+>>>>>>> origin/main
         }
         return LocalAttachment(ref: HomeAttachmentPolicy.normalized(ref), fileURL: cached, posterURL: posterURL,
                                previewURL: previewURL)

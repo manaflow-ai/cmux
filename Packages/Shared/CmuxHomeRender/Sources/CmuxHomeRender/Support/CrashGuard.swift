@@ -68,6 +68,7 @@ extension Collection {
         return index
     }
 }
+<<<<<<< HEAD
 
 extension Collection {
     /// The elements in lower..<upper, clamped to the collection: a bound outside it or an
@@ -87,3 +88,5 @@ extension Collection {
         slice(lower, endIndex, fileID: fileID, line: line)
     }
 }
+=======
+>>>>>>> origin/main

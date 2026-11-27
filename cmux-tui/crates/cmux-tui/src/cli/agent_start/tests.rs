@@ -4,9 +4,14 @@ use std::time::{Duration, Instant};
 use serde_json::{Value, json};
 
 use super::super::command::RequestPlan;
+<<<<<<< ours
 use super::super::mcp::{CallFailure, FailureKind};
 use super::super::terminal_talk::send::Daemon;
 use super::super::wire::request_value;
+=======
+use super::super::wire::request_value;
+use super::daemon::{self, CallFailure, Daemon};
+>>>>>>> theirs
 use super::launch::{self, Launch};
 use super::readiness::{self, Gate, Look, Readiness, Reads, WaitOptions};
 use super::{Clock, Command, Env, Options, ResumeTarget, parse, resume, resume_launch, start};
@@ -170,8 +175,11 @@ fn w3h_launch_argv_keeps_each_argument_out_of_the_shell_and_resumes_per_harness(
     assert_eq!(launch::resume_args("codex", "s1"), Some(strings(&["resume", "s1"])));
     assert_eq!(launch::resume_args("opencode", "s1"), Some(strings(&["--session", "s1"])));
     assert_eq!(launch::resume_args("amp", "t1"), Some(strings(&["threads", "continue", "t1"])));
+<<<<<<< ours
     assert_eq!(launch::resume_args("agy", "c1"), Some(strings(&["--conversation", "c1"])));
     assert_eq!(launch::harness_of("/opt/bin/agy --sandbox").as_deref(), Some("antigravity"));
+=======
+>>>>>>> theirs
     assert_eq!(launch::resume_args("muse", "s1"), None);
     assert!(launch::valid_session_id(SESSION));
     assert!(!launch::valid_session_id("--dangerously-skip-permissions"));
@@ -238,6 +246,32 @@ fn w3h_agent_start_and_resume_parse_names_launchers_and_placement() {
     assert!(parse(&strings(&["terminal", OLD, "send", "--text", "x"])).is_none());
 }
 
+<<<<<<< ours
+=======
+/// `terminal <t> wait --until ready [--timeout D]`: main has no other
+/// `terminal wait` condition, so any other `--until` is a usage error.
+#[test]
+fn w3h_terminal_wait_parses_until_ready_and_a_timeout() {
+    let wait = parse(&strings(&["terminal", "alpha", "wait", "--until", "ready", "--timeout=30s"]));
+    let Some(Ok(Command::WaitReady { selector, timeout })) = wait else { panic!("{wait:?}") };
+    assert_eq!(selector, "alpha");
+    assert_eq!(timeout, Some(Duration::from_secs(30)));
+    assert!(matches!(
+        parse(&strings(&["terminal", "alpha", "wait", "--until", "ready"])),
+        Some(Ok(Command::WaitReady { timeout: None, .. }))
+    ));
+    for bad in [
+        &["terminal", "alpha", "wait"][..],
+        &["terminal", "alpha", "wait", "--until", "idle"][..],
+        &["terminal", "alpha", "wait", "--until", "ready", "--timeout", "soon"][..],
+        &["terminal", "alpha", "wait", "--until", "ready", "--pattern", "x"][..],
+    ] {
+        assert!(matches!(parse(&strings(bad)), Some(Err(_))), "{bad:?}");
+    }
+    assert!(parse(&strings(&["terminal", "alpha", "screen", "wait"])).is_none());
+}
+
+>>>>>>> theirs
 /// A daemon that answers by operation and records every request.
 struct Fake<F: Fn(&str, &Value, usize) -> Value> {
     answer: F,
@@ -367,6 +401,7 @@ fn w3h_resume_reruns_the_recorded_launcher_with_the_harness_session_and_takes_th
     assert_eq!(closed[0]["tab"], "tab_a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0");
 }
 
+<<<<<<< ours
 /// W3-H review (main #39226): a resume runs the recorded launcher, not the
 /// recorded extra arguments: `agent start alpha -- 'Fix the test'` must not
 /// send the first prompt again (and `codex '<prompt>' resume <id>` would not
@@ -400,6 +435,8 @@ fn w3h_antigravity_resume_falls_back_to_agy() {
     assert_eq!(launch.args, strings(&["--conversation", SESSION]));
 }
 
+=======
+>>>>>>> theirs
 /// An agent that quit (its hooks reported the session's end) has no agent
 /// record left; resume reads the session id the daemon kept on the terminal.
 #[test]
@@ -408,12 +445,18 @@ fn w3h_resume_reads_the_session_id_kept_on_the_terminal_after_the_session_ended(
     if let Some(old) = snapshot.pointer_mut("/terminals/1") {
         old["extra"] = json!({"agent": "claude-code", "agent_session_id": SESSION});
     }
+<<<<<<< ours
     let daemon = Fake::new(|operation, params, _count| match operation {
         "session.snapshot" => snapshot.clone(),
         "agent.list" if params["terminal_id"] == OLD || params["terminal"] == OLD => json!([]),
         // The resumed Claude Code reports its session start (W5-R: a resume
         // of a hooked harness is ready on that report, not on its input box).
         "agent.list" => json!([{"terminal_id": NEW, "state": "idle", "updated_at_ms": "1500"}]),
+=======
+    let daemon = Fake::new(|operation, _params, _count| match operation {
+        "session.snapshot" => snapshot.clone(),
+        "agent.list" => json!([]),
+>>>>>>> theirs
         "terminal.process.get" => json!({"argv": snapshot["terminals"][1]["argv_for_test"]}),
         "pane.run" => created(
             "pane_22222222222222222222222222222222",
@@ -480,14 +523,23 @@ fn w3h_start_splits_the_callers_pane_runs_a_named_tab_and_reports_the_trust_dial
     assert_eq!(run["pane"], "pane_33333333333333333333333333333333");
     assert_eq!(run["name"], "beta");
     assert_eq!(run["argv"], json!(["/bin/zsh", "-lc", "sr2 claude \"$@\"", "cmux-agent"]));
+<<<<<<< ours
     // The split's shell ends (its terminal closes, taking its tab; a tab
     // close alone left the shell running with no tab, W5-O); the agent's tab
     // is focused.
+=======
+    // The split's placeholder shell ends with its terminal (no tabless
+    // shell stays); the agent's tab is focused.
+>>>>>>> theirs
     assert_eq!(
         daemon.sent("terminal.close")[0]["terminal"],
         "term_5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e"
     );
+<<<<<<< ours
     assert!(daemon.sent("tab.close").is_empty());
+=======
+    assert!(daemon.sent("tab.close").is_empty(), "{:?}", daemon.sent("tab.close"));
+>>>>>>> theirs
     assert_eq!(daemon.sent("tab.focus")[0]["tab"], "tab_b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0");
     // Nothing answered the dialog.
     assert!(daemon.sent("terminal.input.write").is_empty());
@@ -539,16 +591,27 @@ fn w3h_start_in_a_session_with_no_pane_opens_a_workspace_for_the_agent() {
     assert_eq!(workspace["name"], "alpha");
     assert!(daemon.sent("pane.split").is_empty());
     assert_eq!(daemon.sent("pane.run")[0]["pane"], "pane_44444444444444444444444444444444");
+<<<<<<< ours
     // The workspace's shell (its tab's terminal) ends with its tab.
     assert_eq!(daemon.sent("terminal.close")[0]["terminal"], CALLER);
     assert!(daemon.sent("tab.close").is_empty());
+=======
+    assert_eq!(daemon.sent("terminal.close")[0]["terminal"], CALLER);
+    assert!(daemon.sent("tab.close").is_empty(), "{:?}", daemon.sent("tab.close"));
+>>>>>>> theirs
 }
 
 /// Review (lead's reviewer, #38436): two `agent start` runs at once on a
 /// daemon with no client. The snapshot read after `workspace create` already
+<<<<<<< ours
 /// holds alpha's workspace too, focused. beta's pane and the shell tab to close
 /// come from the create receipt (its ids, else the pane of its workspace),
 /// never from focus, so beta never closes alpha's tab.
+=======
+/// holds alpha's workspace too, focused. beta's pane and the shell to end
+/// come from the create receipt (its ids, else the pane of its workspace),
+/// never from focus, so beta never ends alpha's terminal.
+>>>>>>> theirs
 #[test]
 fn w3h_start_in_an_empty_session_uses_the_workspace_it_created_not_the_focused_one() {
     const WS_A: &str = "ws_a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0";
@@ -671,6 +734,7 @@ fn w3h_the_wait_times_out_while_the_agent_still_starts() {
     assert_eq!(report["waited_ms"], "5000");
 }
 
+<<<<<<< ours
 /// Claude's folder-trust dialog with the cursor on "No, exit".
 const TRUST_NO_SELECTED: &str = "\
  Accessing workspace:
@@ -1416,4 +1480,38 @@ fn w5r_start_is_not_ready_on_a_screen_detection_record_alone() {
         let own_look = Look { screen: LAUNCHER_BANNER, exited: false, hook_state };
         assert_eq!(readiness::assess(&own_look), Readiness::Ready, "{source}");
     }
+=======
+/// W3-H review: a resume runs the recorded launcher, not the recorded extra
+/// arguments: `agent start alpha -- 'Fix the test'` must not send the first
+/// prompt again (and `codex '<prompt>' resume <id>` would not resume).
+#[test]
+fn w3h_resume_does_not_send_the_first_prompt_again() {
+    let recorded = Launch {
+        shell: "/bin/zsh".into(),
+        launcher: "codex --model o3".into(),
+        args: strings(&["Fix the failing test", "resume", "older"]),
+    };
+    let launch = resume_launch(Some(recorded), &env(), &Options::default(), "codex", SESSION)
+        .expect("resume launch");
+    assert_eq!(launch.launcher, "codex --model o3");
+    assert_eq!(launch.args, strings(&["resume", SESSION]));
+    let options = Options { args: strings(&["--yolo"]), ..Options::default() };
+    let recorded =
+        Launch { shell: "/bin/zsh".into(), launcher: "claude".into(), args: strings(&["hello"]) };
+    let launch = resume_launch(Some(recorded), &env(), &options, "claude", SESSION).unwrap();
+    assert_eq!(launch.args, strings(&["--yolo", "--resume", SESSION]));
+}
+
+/// W3-H review: `current` and `focused` are the daemon's to resolve (on main
+/// `current` is the focused object, not the caller); other selectors pass.
+#[test]
+fn w3h_current_and_focused_terminals_come_from_the_daemon() {
+    let daemon = Fake::new(|operation, params, _count| match operation {
+        "terminal.get" => json!({"id": NEW, "asked": params}),
+        _ => json!({}),
+    });
+    assert_eq!(daemon::terminal_keyword(&daemon, "current").unwrap(), NEW);
+    assert_eq!(daemon::terminal_keyword(&daemon, "alpha").unwrap(), "alpha");
+    assert_eq!(daemon.sent("terminal.get").len(), 1);
+>>>>>>> theirs
 }

@@ -6,6 +6,7 @@ set -euo pipefail
 REPO_ROOT="$(git rev-parse --show-toplevel)"
 HEAD_SHA="$(git rev-parse HEAD)"
 
+<<<<<<< HEAD
 canonical_url() {
     case "$1" in
         git@github.com:manaflow-ai/cmux.git|ssh://git@github.com/manaflow-ai/cmux.git|https://github.com/manaflow-ai/cmux.git|https://github.com/manaflow-ai/cmux) return 0 ;;
@@ -57,6 +58,14 @@ regenerate_after_base_merge() {
     fi
 }
 regenerate_after_base_merge
+=======
+# Warn (never fail) when a remote fetches from a local mirror but pushes to GitHub:
+# this pull may then have read a stale copy.
+HOOK_DIR="$(cd "${BASH_SOURCE[0]%/*}" && pwd -P)"
+if [[ -x "$HOOK_DIR/check-git-remotes.sh" ]]; then
+    "$HOOK_DIR/check-git-remotes.sh" || true
+fi
+>>>>>>> origin/main
 
 # This hook is tracked, so never run its installer merely because an arbitrary
 # checked-out branch asks. The current commit must exactly equal main or
@@ -66,6 +75,7 @@ while IFS= read -r remote; do
     url="$(git remote get-url "$remote" 2>/dev/null || true)"
     case "$url" in
         git@github.com:manaflow-ai/cmux.git|ssh://git@github.com/manaflow-ai/cmux.git|https://github.com/manaflow-ai/cmux.git|https://github.com/manaflow-ai/cmux)
+<<<<<<< HEAD
             for trusted_branch in main feat-cmux-next; do
                 trusted_ref="refs/remotes/$remote/$trusted_branch"
                 trusted_sha="$(git rev-parse --verify "$trusted_ref" 2>/dev/null || true)"
@@ -128,6 +138,28 @@ while IFS= read -r remote; do
                         exit 0
                     fi
                     exec /bin/bash "$REPO_ROOT/scripts/install-git-hooks.sh"
+=======
+            trusted_ref="refs/remotes/$remote/main"
+            trusted_sha="$(git rev-parse --verify "$trusted_ref" 2>/dev/null || true)"
+            if [[ -n "$trusted_sha" && "$HEAD_SHA" == "$trusted_sha" ]]; then
+                trusted_inputs=(
+                    scripts/install-git-hooks.sh
+                    scripts/git-hooks/pre-commit
+                    scripts/git-hooks/post-merge
+                    scripts/git-hooks/prepare-commit-msg
+                    scripts/git-hooks/check-git-remotes.sh
+                    scripts/merge-xcstrings.py
+                    scripts/merge-pbxproj.py
+                    scripts/ci/merge_main_resolver.py
+                    scripts/ci/validate_test_execution_registry.py
+                    scripts/ci/test_execution_registry.py
+                    scripts/ci/workload_entrypoints.py
+                    scripts/normalize-pbxproj.py
+                )
+                if ! git diff --quiet "$trusted_sha" -- "${trusted_inputs[@]}"; then
+                    echo "warning: cmux merge-driver installer inputs differ from trusted main; rerun from a clean checkout." >&2
+                    exit 0
+>>>>>>> origin/main
                 fi
             done
             ;;

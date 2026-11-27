@@ -44,6 +44,7 @@
       "fixture": "runner_refused_billing.log"
     },
     {
+<<<<<<< HEAD
       "id": "infra.stale_checkout",
       "class": "infra",
       "when": [
@@ -57,6 +58,8 @@
       "fixture": "stale_checkout.log"
     },
     {
+=======
+>>>>>>> origin/main
       "id": "infra.no_step_ran",
       "class": "infra",
       "when": [

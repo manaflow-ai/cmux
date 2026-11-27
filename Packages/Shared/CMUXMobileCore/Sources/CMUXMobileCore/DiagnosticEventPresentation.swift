@@ -1452,7 +1452,7 @@ public struct DiagnosticEventPresentation: Sendable {
 
     private func localized(
         _ key: StaticString,
-        defaultValue: String.LocalizationValue
+        defaultValue: DiagnosticLocalization.DefaultValue
     ) -> String {
         localization.string(key, defaultValue: defaultValue)
     }

@@ -19,6 +19,7 @@ belongs in OWN_REPOSITORY with the reason.
 Limit: the check is per file. A file that already checks for a shallow
 repository can still add a second, unguarded fetch further down.
 
+<<<<<<< HEAD
 Tests get the same rule for the checkout they run in, and one more. Under car
 guards every test shares the job's checkout: full history, blob-less
 (actions/checkout's filter: blob:none). test_ci_owned_pool_sources.py's
@@ -33,6 +34,8 @@ repository root with --shared, --reference, --local or -s: it clones over
 file:// (depth 1, blob-less: see the notices-pair test) or builds a fixture.
 A file the first scan misreads goes in TESTS_NOT_IN_THE_CHECKOUT with the reason.
 
+=======
+>>>>>>> origin/main
 Usage: python3 tests/test_ci_no_shallow_dev_fetch.py
 """
 from __future__ import annotations
@@ -42,6 +45,7 @@ import subprocess
 import tempfile
 import unittest
 from pathlib import Path
+<<<<<<< HEAD
 # tests/git_fixture_env.py, loaded by path: `python3 -I` puts no script folder on sys.path.
 import importlib.util as _git_fixture_importlib  # noqa: E402
 from os import path as _git_fixture_path  # noqa: E402
@@ -49,6 +53,8 @@ _git_fixture_spec = _git_fixture_importlib.spec_from_file_location(
     "git_fixture_env", _git_fixture_path.join(_git_fixture_path.dirname(_git_fixture_path.abspath(__file__)), "git_fixture_env.py"))
 git_fixture_env = _git_fixture_importlib.module_from_spec(_git_fixture_spec)
 _git_fixture_spec.loader.exec_module(git_fixture_env)
+=======
+>>>>>>> origin/main
 
 ROOT = Path(__file__).resolve().parents[1]
 
@@ -62,6 +68,7 @@ SHALLOW_CHECK = re.compile(r"is-shallow-repository|is_shallow|isShallow|shallow_
 # Scripts whose depth-limited fetches target a repository the script created
 # itself (git init into a temp or cache directory), never the caller's clone.
 OWN_REPOSITORY = {
+<<<<<<< HEAD
     "cmux-tui/build-support/notices/fetch_crates.py": "fetches into a fresh `git init` cache directory",
     "scripts/ci/macos-cross.sh": "fetches into a directory it just ran `git init` in",
     "images/cmux-vm/image-roll-record.sh": "fetches only into its own `git init` temp directory of the record branch",
@@ -129,6 +136,14 @@ def borrowing_root_clones(text: str) -> list[int]:
             and not line.lstrip().startswith(("#", "//", "*"))]
 
 
+=======
+    "web/services/runs/legacy/sourceVerification.ts": "builds a command that fetches into a fresh `git init` workspace",
+    "scripts/ci/swiftpm_prefetch_binary_artifacts.py": "reads a dependency's manifests at one pinned revision "
+    "with a one-commit fetch into a fresh `git init` temp directory",
+}
+
+
+>>>>>>> origin/main
 def tracked_scripts() -> list[str]:
     names = subprocess.run(["git", "-C", str(ROOT), "ls-files", "-z"], check=True, capture_output=True,
                            text=True).stdout.split("\0")
@@ -233,6 +248,7 @@ class NoShallowDevFetchTests(unittest.TestCase):
             self.assertEqual(git("rev-list", "--count", side, cwd=full), "4")
 
 
+<<<<<<< HEAD
 class TestsLeaveTheJobCheckoutAlone(unittest.TestCase):
     """cmux#40871: one test made car guards' checkout shallow, and another's --shared clone of it died."""
 
@@ -284,5 +300,7 @@ class TestsLeaveTheJobCheckoutAlone(unittest.TestCase):
         self.assertEqual(borrowing_root_clones('git clone -q --shared app mid\n'), [])
 
 
+=======
+>>>>>>> origin/main
 if __name__ == "__main__":
     unittest.main()

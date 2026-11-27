@@ -1,8 +1,13 @@
 //! The roster's record of what the screen-detection plugin last saw on each
+<<<<<<< ours
 //! terminal, and the rules that let the screen end a hook-owned `blocked`
 //! row ([`AgentRoster::screen_clears_hook_blocker`]), a `working` row whose
 //! turn ended without a hook, or a row whose agent exited
 //! ([`AgentRoster::screen_ends_hook_row`]).
+=======
+//! terminal, and the rule that lets the screen end a hook-owned `blocked`
+//! row ([`AgentRoster::screen_clears_hook_blocker`]).
+>>>>>>> theirs
 
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
@@ -11,7 +16,11 @@ use super::{
     AGENT_HOOK_PRODUCER_ID, AgentRoster, RosterEntry, RosterEvent, agent_state_from_str,
     valid_component,
 };
+<<<<<<< ours
 use crate::{AgentSource, AgentState};
+=======
+use crate::AgentState;
+>>>>>>> theirs
 
 /// The last state a userland plugin child saw on a terminal's screen, kept
 /// whether or not that observation won source arbitration. The record names
@@ -28,6 +37,7 @@ pub(super) struct ScreenEvidence {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     generation: Option<u64>,
     state: String,
+<<<<<<< ours
     /// When the plugin saw it (`observed_at_ms`), so a late append never
     /// replaces a newer observation and a turn's end is judged only by what
     /// the screen showed during that turn.
@@ -58,6 +68,11 @@ impl ScreenEvidence {
         (self.state == AgentState::Working.as_str()).then_some(self.observed_at_ms)
     }
 
+=======
+}
+
+impl ScreenEvidence {
+>>>>>>> theirs
     /// A restored record names a valid plugin and a live state.
     pub(super) fn valid(&self) -> bool {
         self.producer != AGENT_HOOK_PRODUCER_ID
@@ -67,6 +82,7 @@ impl ScreenEvidence {
     }
 }
 
+<<<<<<< ours
 /// What one plugin observation proves next to the same plugin's previous
 /// one on the terminal ([`AgentRoster::note_screen_evidence`]).
 #[derive(Debug, Clone, Copy, Default)]
@@ -80,6 +96,8 @@ pub(super) struct ScreenNote {
     pub(super) saw_exit: bool,
 }
 
+=======
+>>>>>>> theirs
 impl RosterEvent<'_> {
     /// The plugin saw the agent's own idle prompt (`native.visible.idle`,
     /// the screen detector's prompt-box rules): positive evidence that no
@@ -91,6 +109,7 @@ impl RosterEvent<'_> {
 
 impl AgentRoster {
     /// Record the observation of `terminal_id` by `producer`'s child
+<<<<<<< ours
     /// `generation`, seen at `observed_at_ms`, and say what it proves next to
     /// the same child's previous one ([`ScreenNote`]). A new child's first
     /// report proves nothing, whatever an earlier child of the same plugin
@@ -100,11 +119,20 @@ impl AgentRoster {
     /// an observation older than the recorded one) is neither recorded nor
     /// proves anything.
     #[allow(clippy::too_many_arguments)]
+=======
+    /// `generation` and return whether it ends a blocker the same child saw:
+    /// its previous observation was `blocked` and this one is `working` or
+    /// `idle`. A new child's first report never does, whatever an earlier
+    /// child of the same plugin saw. Repeated reports of the
+    /// same state change nothing, so the plugin's stable-blocker refreshes
+    /// keep the record at `blocked`.
+>>>>>>> theirs
     pub(super) fn note_screen_evidence(
         &mut self,
         terminal_id: &str,
         producer: &str,
         generation: Option<u64>,
+<<<<<<< ours
         source_session: Option<&str>,
         state: AgentState,
         visible_idle: bool,
@@ -186,6 +214,37 @@ impl AgentRoster {
             _ => false,
         };
         ends && observed_at_ms > existing.updated_at_ms
+=======
+        state: AgentState,
+    ) -> bool {
+        // A late report of an older child (one whose exit never reached the
+        // journal) must not replace what a newer child saw.
+        let older = |stored: &ScreenEvidence| {
+            stored.producer == producer
+                && matches!((stored.generation, generation), (Some(stored), Some(new)) if new < stored)
+        };
+        if self.screen_evidence.get(terminal_id).is_some_and(older) {
+            return false;
+        }
+        if state == AgentState::Done {
+            self.screen_evidence.remove(terminal_id);
+            return false;
+        }
+        let previous = self.screen_evidence.insert(
+            terminal_id.to_string(),
+            ScreenEvidence {
+                producer: producer.to_string(),
+                generation,
+                state: state.as_str().to_string(),
+            },
+        );
+        matches!(state, AgentState::Working | AgentState::Idle)
+            && previous.is_some_and(|previous| {
+                previous.producer == producer
+                    && previous.generation == generation
+                    && previous.state == AgentState::Blocked.as_str()
+            })
+>>>>>>> theirs
     }
 
     /// Drop the screen records of `producer`'s exited child, as the exit
@@ -226,6 +285,7 @@ impl AgentRoster {
             && observed_at_ms > existing.updated_at_ms
     }
 }
+<<<<<<< ours
 
 impl AgentRoster {
     /// Whether `event`, a plugin's `state.changed` that is not in the journal
@@ -277,3 +337,5 @@ impl AgentRoster {
             })
     }
 }
+=======
+>>>>>>> theirs

@@ -63,6 +63,7 @@ struct MuxEventSubscriber {
 enum MuxEventFilter {
     All,
     ConfigReload,
+<<<<<<< ours
     /// Events that can change which terminals have zero placements.
     TerminalTopology,
     /// Events that change the launch snapshot's layout or projections. Title
@@ -78,6 +79,10 @@ enum MuxEventFilter {
     /// page's event names, server/cmd_subscribe.rs). The rest never reach
     /// its mailbox, so its writer thread neither wakes nor renders them.
     Where(Box<dyn Fn(&MuxEvent) -> bool + Send>),
+=======
+    /// What can change the unplaced-terminal reaper's reapable set.
+    TerminalTopology,
+>>>>>>> theirs
     AttachedSurface(SurfaceId),
     SurfaceSession(SurfaceSessionScope),
 }
@@ -130,6 +135,7 @@ impl MuxEventBroadcaster {
         self.subscribe_with_filter(MuxEventFilter::ConfigReload)
     }
 
+<<<<<<< ours
     pub(crate) fn subscribe_terminal_topology(&self) -> MuxEventReceiver {
         self.subscribe_with_filter(MuxEventFilter::TerminalTopology)
     }
@@ -156,6 +162,13 @@ impl MuxEventBroadcaster {
         self.subscribe_with_filter(MuxEventFilter::Where(Box::new(accepts)))
     }
 
+=======
+    /// The unplaced-terminal reaper's events (`mux/terminal_reap.rs`).
+    pub(crate) fn subscribe_terminal_topology(&self) -> MuxEventReceiver {
+        self.subscribe_with_filter(MuxEventFilter::TerminalTopology)
+    }
+
+>>>>>>> theirs
     pub fn subscribe_attached_surface(&self, surface: SurfaceId) -> MuxEventReceiver {
         self.subscribe_with_filter(MuxEventFilter::AttachedSurface(surface))
     }
@@ -236,6 +249,7 @@ impl MuxEventFilter {
         match self {
             Self::All => true,
             Self::ConfigReload => matches!(event, MuxEvent::ConfigReloadRequested),
+<<<<<<< ours
             Self::TerminalTopology => matches!(
                 event,
                 MuxEvent::TreeChanged
@@ -258,6 +272,16 @@ impl MuxEventFilter {
             Self::Conversations => matches!(event, MuxEvent::Conversation(_) | MuxEvent::Empty),
             Self::Matching(accepts) => accepts(event),
             Self::Where(accepts) => accepts(event),
+=======
+            Self::TerminalTopology => matches!(
+                event,
+                MuxEvent::TreeChanged
+                    | MuxEvent::TreeDelta(_)
+                    | MuxEvent::TerminalRegistryChanged { .. }
+                    | MuxEvent::SurfaceExited(..)
+                    | MuxEvent::Empty
+            ),
+>>>>>>> theirs
             Self::AttachedSurface(surface) => match event {
                 MuxEvent::Notification(notification) => notification.surface == Some(*surface),
                 MuxEvent::ScrollChanged { surface: event_surface, .. } => {
@@ -527,10 +551,16 @@ impl MuxEventMailboxState {
 }
 
 impl MuxEventReceiver {
+    /// Whether `self` and `other` read the same mailbox.
+    pub(crate) fn same_mailbox(&self, other: &Self) -> bool {
+        Arc::ptr_eq(&self.mailbox, &other.mailbox)
+    }
+
     pub fn close(&self) {
         self.mailbox.close();
     }
 
+<<<<<<< ours
     /// Wake this receiver alone with a `TreeChanged` token. Owner-internal
     /// consumers use it for state changes that no broadcast event carries.
     pub(crate) fn wake(&self) {
@@ -547,6 +577,14 @@ impl MuxEventReceiver {
         }
     }
 
+=======
+    /// Wake this receiver alone with a `TreeChanged` token. Owner-internal
+    /// consumers use it for state changes that no broadcast event carries.
+    pub(crate) fn wake(&self) {
+        self.mailbox.push(MuxEvent::TreeChanged);
+    }
+
+>>>>>>> theirs
     pub fn overflowed(&self) -> bool {
         self.mailbox.state.lock().recover_poison().overflowed
     }

@@ -31,7 +31,10 @@ import Testing
         var sum = H.summary(lastSeq: 80)
         var core = ProjectionCore(me: H.me)
         let (conv, w) = core.install(H.id, items: items, summary: sum)
+<<<<<<< HEAD
         HomeMarkdownPolicy.installSprings()  // springs.json from the package (f79bdbe Springs.bundle)
+=======
+>>>>>>> origin/main
         let store = Store(conversation: conv, baseDate: Replay.base, windowStart: w.start, total: w.total)
         store.responder = nil
         var vt = 0.0

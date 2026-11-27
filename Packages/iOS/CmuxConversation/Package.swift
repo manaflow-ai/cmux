@@ -1,6 +1,9 @@
 // swift-tools-version: 6.0
 
+<<<<<<< HEAD
 import Foundation
+=======
+>>>>>>> origin/main
 import PackageDescription
 
 let swiftSettings: [SwiftSetting] = [
@@ -18,6 +21,7 @@ let package = Package(
     products: [
         .library(name: "CmuxConversationCore", targets: ["CmuxConversationCore"]),
         .library(name: "CmuxConversationUI", targets: ["CmuxConversationUI"]),
+<<<<<<< HEAD
         // The bubble outline alone (CoreGraphics), for surfaces that draw a
         // transcript without the chat UI (the notification content extension).
         .library(name: "CmuxConversationGeometry", targets: ["CmuxConversationGeometry"]),
@@ -29,6 +33,10 @@ let package = Package(
         // The spinner every cmux surface draws, on the shared spinner period.
         .package(path: "../../Shared/CmuxSpinner"),
     ],
+=======
+        .library(name: "CmuxConversationMacUI", targets: ["CmuxConversationMacUI"]),
+    ],
+>>>>>>> origin/main
     targets: [
         .target(
             name: "CmuxConversationCore",
@@ -43,16 +51,24 @@ let package = Package(
         ),
         .target(
             name: "CmuxConversationUI",
+<<<<<<< HEAD
             dependencies: [
                 "CmuxConversationCore", "CmuxConversationGeometry", "CmuxConversationTranslation", .product(name: "CmuxSpinner", package: "CmuxSpinner"),
                 .product(name: "CmuxMobileSupport", package: "CmuxMobileSupport", condition: .when(platforms: [.iOS])),
             ],
+=======
+            dependencies: ["CmuxConversationCore", "CmuxConversationGeometry", "CmuxConversationTranslation"],
+>>>>>>> origin/main
             resources: [.process("Resources")],
             swiftSettings: swiftSettings
         ),
         .target(
             name: "CmuxConversationMacUI",
+<<<<<<< HEAD
             dependencies: ["CmuxConversationCore", "CmuxConversationGeometry", "CmuxConversationTranslation", .product(name: "CmuxSpinner", package: "CmuxSpinner")],
+=======
+            dependencies: ["CmuxConversationCore", "CmuxConversationGeometry", "CmuxConversationTranslation"],
+>>>>>>> origin/main
             resources: [.process("Resources")],
             swiftSettings: swiftSettings
         ),
@@ -78,6 +94,7 @@ let package = Package(
         ),
     ]
 )
+<<<<<<< HEAD
 
 #if os(Linux)
 // Apple SDKs ship the SQLite3 module; a build for Linux takes it from the system library. Only the Linux
@@ -108,3 +125,5 @@ if ProcessInfo.processInfo.environment["CMUX_SWIFTPM_TARGET_LINUX"] == "1" {
     ])
 }
 #endif
+=======
+>>>>>>> origin/main

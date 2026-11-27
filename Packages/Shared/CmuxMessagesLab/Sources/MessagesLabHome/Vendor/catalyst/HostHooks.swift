@@ -13,6 +13,7 @@ import AppKit
 //
 // Ask 9 (the status line under the transcript) is engine state, not a hook: the host dispatches `.setNotice(text)`
 // on the view's store (nil or "": no line); RowBuilder draws it as the last row.
+<<<<<<< HEAD
 //
 // Ask 11 (a streaming bubble) is engine state too (Engine.swift, StreamBubble; no stream: nothing changes). The host
 // dispatches, per stream (its own id, StreamID; cmux: the reply's turn key):
@@ -36,6 +37,8 @@ import AppKit
 //   earlier one is received after the loaded messages, above the streams still running, so the bubbles below it move.
 // The bubble is drawn as the message `StreamBubble.message` (id "%stream-<id>", the last change's time) after the newest
 // loaded message, only while the window shows the newest messages; it takes no click, menu or selection (`hit`).
+=======
+>>>>>>> origin/main
 
 /// What the user is on in one transcript (ask 10): the host reads it to hand the selection to another view.
 struct HostSelection: Equatable {
@@ -65,6 +68,7 @@ struct HostHooks {
     /// Whether the host decides Edit and Undo Send (either hook set): then MessagesLab's own rule (15 and 2 minutes
     /// after sending, appkit-native Host.menu) is off and each item exists only through its hook.
     var ownsEditing: Bool { edit != nil || undoSend != nil }
+<<<<<<< HEAD
 
     // Thread slots and sheets (host-hooks-b, asks 6 and 7; ThreadHost.swift has the `ThreadMode` option).
     /// Ask 6, `ThreadMode.tree` thread view: the header for the open thread (its root) and branch (the drill path,
@@ -79,6 +83,8 @@ struct HostHooks {
     var layoutSheet: ((CGRect) -> Void)?
     /// Ask 7: the sheet went away (`dismissSheet`, Esc, or a click outside it): the host removes its view.
     var sheetDidDismiss: (() -> Void)?
+=======
+>>>>>>> origin/main
 }
 
 /// A host action on one message, with its per-message availability (HostHooks.undoSend).
@@ -152,7 +158,11 @@ extension MessagesWindowView {
         }
         guard let i = model.rows.firstIndex(where: { !$0.ghost && $0.spec.key.hasPrefix("part:") && RowBuilder.key($0.spec.key, belongsTo: id) })
         else { return false }
+<<<<<<< HEAD
         let y = layout.contentTop(i) - (rowsTopInset - MessagesWindowView.cvTop) - 8
+=======
+        let y = layout.contentTop(i) - (Fixture.headerHeight + 8 - MessagesWindowView.cvTop) - 8
+>>>>>>> origin/main
         setOffset(min(max(minOffset, y), pinnedOffset))
         collection.setNeedsLayout(); collection.layoutIfNeeded()
         userScrolled()
@@ -168,9 +178,17 @@ extension MessagesWindowView {
 
     /// One bubble's flash in `container` (`body`: the bubble's frame there).
     private func flashReveal(in container: CALayer, body: CGRect, row: PartRow) {
+<<<<<<< HEAD
         let l = CAShapeLayer()
         l.actions = ["path": NSNull(), "position": NSNull(), "bounds": NSNull(), "opacity": NSNull()]
         l.path = BubblePath.balloon(frame: body, row: row, scale: renderScale).cgPath  // cmux: shared outline
+=======
+        let outline = RowDraw.balloon(body, row: row, scale: renderScale)
+        let l = CAShapeLayer()
+        l.actions = ["path": NSNull(), "position": NSNull(), "bounds": NSNull(), "opacity": NSNull()]
+        l.path = BubblePath.make(body: outline, outgoing: row.outgoing, tail: row.tail, cornersOf: body.size,
+                                 circularEnds: RowDraw.circularEnds(row)).cgPath
+>>>>>>> origin/main
         // TranscriptSelection's fills: a normal-blended fill that gives Messages' selected-bubble colours.
         l.fillColor = row.outgoing ? UIColor(red: 0, green: 0, blue: 102 / 255, alpha: 0.38).cgColor : UIColor(white: 1, alpha: 0.2).cgColor
         // Above every row: a cell's layer takes its row index as its zPosition (ChatLayout zIndex, RowRecycler).
@@ -190,6 +208,7 @@ extension MessagesWindowView {
         CATransaction.commit()
     }
 }
+<<<<<<< HEAD
 
 // MARK: Thread header slot (ask 6; host-hooks-b)
 
@@ -218,3 +237,5 @@ enum ThreadHeaderAction: Equatable {
     /// The owner.
     case assign
 }
+=======
+>>>>>>> origin/main

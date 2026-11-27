@@ -11,9 +11,13 @@
 use super::super::agent_vocabulary::harness_name;
 
 /// `$0` of the launcher script; marks an argv this module built.
+<<<<<<< ours
 pub(super) const ARG0: &str = cmux_tui_core::agent_start_launch::ARG0;
 /// The launch's shell flag, shared with the daemon's mark.
 const SHELL_FLAG: &str = cmux_tui_core::agent_start_launch::SHELL_FLAG;
+=======
+pub(super) const ARG0: &str = "cmux-agent";
+>>>>>>> theirs
 /// What follows the launcher in the script.
 const SCRIPT_TAIL: &str = " \"$@\"";
 /// The environment variable that names the default launcher.
@@ -23,7 +27,11 @@ pub(super) const DEFAULT_LAUNCHER: &str = "claude";
 /// Shells whose `-c SCRIPT NAME ARGS…` sets `$0` and `$@` the POSIX way.
 const POSIX_SHELLS: &[&str] = &["sh", "bash", "zsh", "dash", "ksh", "mksh"];
 /// The harnesses `resume` knows, in the order a launcher is searched.
+<<<<<<< ours
 const HARNESSES: &[&str] = &["claude", "codex", "opencode", "gemini", "amp", "antigravity"];
+=======
+const HARNESSES: &[&str] = &["claude", "codex", "opencode", "gemini", "amp"];
+>>>>>>> theirs
 
 /// One agent launch: the shell, the launcher line and its extra arguments.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -38,7 +46,11 @@ impl Launch {
     pub(in crate::cli) fn argv(&self) -> Vec<String> {
         let mut argv = vec![
             self.shell.clone(),
+<<<<<<< ours
             SHELL_FLAG.to_owned(),
+=======
+            "-lc".to_owned(),
+>>>>>>> theirs
             format!("{}{SCRIPT_TAIL}", self.launcher),
             ARG0.to_owned(),
         ];
@@ -50,7 +62,11 @@ impl Launch {
     /// other argv (an agent typed into a shell, a `pane run -- claude`).
     pub(in crate::cli) fn from_argv(argv: &[String]) -> Option<Self> {
         let [shell, flag, script, arg0, args @ ..] = argv else { return None };
+<<<<<<< ours
         if flag != SHELL_FLAG || arg0 != ARG0 {
+=======
+        if flag != "-lc" || arg0 != ARG0 {
+>>>>>>> theirs
             return None;
         }
         let launcher = script.strip_suffix(SCRIPT_TAIL)?.trim();
@@ -94,6 +110,7 @@ pub(in crate::cli) fn harness_of(launcher: &str) -> Option<String> {
     })
 }
 
+<<<<<<< ours
 /// The program that runs `harness` when nothing names a launcher: its own
 /// name, except Antigravity, whose CLI is `agy`.
 pub(in crate::cli) fn default_program(harness: &str) -> &str {
@@ -103,6 +120,8 @@ pub(in crate::cli) fn default_program(harness: &str) -> &str {
     }
 }
 
+=======
+>>>>>>> theirs
 /// The arguments that resume harness session `id`, in the harness's own
 /// grammar; `None` for a harness `resume` does not know.
 pub(in crate::cli) fn resume_args(harness: &str, id: &str) -> Option<Vec<String>> {
@@ -111,7 +130,10 @@ pub(in crate::cli) fn resume_args(harness: &str, id: &str) -> Option<Vec<String>
         "codex" => &["resume"],
         "opencode" => &["--session"],
         "amp" => &["threads", "continue"],
+<<<<<<< ours
         "antigravity" => &["--conversation"],
+=======
+>>>>>>> theirs
         _ => return None,
     };
     let mut args: Vec<String> = words.iter().map(|word| (*word).to_owned()).collect();

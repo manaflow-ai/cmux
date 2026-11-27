@@ -11,6 +11,28 @@ import unittest
 
 
 ROOT = Path(__file__).resolve().parents[1]
+<<<<<<< HEAD
+=======
+SUITES = [
+    "AgentNotificationRegressionTests",
+    "AgentJournalLifecycleCenterTests",
+    "FeedWaiterRegistryTests",
+    "ClaudeBackgroundWorkNotifyTests",
+    "OpenCodeHookRegressionTests",
+]
+
+
+# The package lane runs every selected package through the same build and test
+# steps, so a few real packages cover it: the two whose warning gate is checked,
+# the first in sort order (CMUXAgentLaunch), and two that sort after it. All 113
+# packages made each lane run take about 25 s of the guard suite.
+PACKAGES = ("CMUXAgentLaunch", "CmuxAgentJournal", "CmuxNotifications", "CmuxTerminal", "CmuxUpdater")
+
+
+def step_script(job, name):
+    workflow = yaml.safe_load((ROOT / ".github/workflows/ci-macos.yml").read_text())
+    return next(s["run"] for s in workflow["jobs"][job]["steps"] if s.get("name") == name)
+>>>>>>> origin/main
 
 
 class NotificationSemanticsTests(unittest.TestCase):
@@ -18,7 +40,9 @@ class NotificationSemanticsTests(unittest.TestCase):
         script = f"bash '{ROOT / 'scripts/ci/package-test-lane.sh'}' packages\n"
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
-            for package in (ROOT / "Packages").glob("*/*"):
+            packages = [p for name in PACKAGES for p in (ROOT / "Packages").glob(f"*/{name}") if p.is_dir()]
+            self.assertEqual(sorted(p.name for p in packages), sorted(PACKAGES), "a package moved or was renamed")
+            for package in packages:
                 if package.is_dir():
                     fake = root / package.relative_to(ROOT)
                     fake.mkdir(parents=True)
@@ -34,11 +58,7 @@ class NotificationSemanticsTests(unittest.TestCase):
             runner_temp = root / "runner-temp"
             runner_temp.mkdir()
             selected = runner_temp / "selected-packages.txt"
-            package_names = sorted(
-                package.name
-                for package in (ROOT / "Packages").glob("*/*")
-                if package.is_dir()
-            )
+            package_names = sorted(package.name for package in packages)
             selected.write_text("\n".join(package_names) + "\n", encoding="utf-8")
             isolated = helpers / "run-swift-testing-suites.sh"
             isolated.write_text('#!/bin/bash\nexec swift test --package-path "$1"\n')
@@ -67,15 +87,17 @@ if args[0] == 'build':
     # Rendezvous: mark this build running, then wait briefly for a second one.
     # The mark goes away when the build ends, so two marks at once prove two
     # prebuilds ran at the same time; serial builds never see each other.
+    # Once one overlap is proven, later builds need not wait.
     running = Path(os.environ['CALLS'] + '.running')
+    overlap = Path(os.environ['CALLS'] + '.overlap')
     running.mkdir(exist_ok=True)
     mark = running / package
     mark.touch()
     try:
         deadline = time.monotonic() + 10
-        while time.monotonic() < deadline:
+        while time.monotonic() < deadline and not overlap.exists():
             if len(list(running.iterdir())) >= 2:
-                Path(os.environ['CALLS'] + '.overlap').touch()
+                overlap.touch()
                 break
             time.sleep(0.05)
     finally:

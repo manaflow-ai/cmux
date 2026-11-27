@@ -29,7 +29,12 @@ env:
 jobs:
   full-text:
     if: ${{ inputs.full_text_only }}
+<<<<<<< HEAD
     # Package tests with no secrets: cmux-mac, the one own-branch Mac label (vars.CI_OVERFLOW_MAC switches it).
+=======
+    # swift test only: an owned mini's side label on attempt 1 (main's rescue moves a stuck or
+    # refused job), Blacksmith macOS last. verify launches the app, so it stays on Blacksmith.
+>>>>>>> origin/main
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || vars.CI_OVERFLOW_MAC || 'cmux-mac' }}
     timeout-minutes: 30
     steps:
@@ -50,7 +55,11 @@ jobs:
           swift test --package-path Packages/iOS/CmuxMobileShellModel --filter MobileAgentFeedItemTests
   verify:
     if: ${{ !inputs.full_text_only }}
+<<<<<<< HEAD
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || (vars.CI_BLACKSMITH_MACOS != 'on' && (vars.CI_SIDE_LANE_LABELS != '' && fromJSON(vars.CI_SIDE_LANE_LABELS) || vars.CI_SIDE_LANE_RUNNER) || 'blacksmith-6vcpu-macos-26') }}
+=======
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || contains(fromJSON('["blacksmith-6vcpu-macos-26","blacksmith-12vcpu-macos-26"]'), fromJSON(vars.RUNNER_POOLS || '{}').macos_26) && fromJSON(vars.RUNNER_POOLS || '{}').macos_26 || 'blacksmith-6vcpu-macos-26' }}
+>>>>>>> origin/main
     timeout-minutes: 30
     env:
       BUILD_TAG: ${{ inputs.tag }}
@@ -79,7 +88,10 @@ jobs:
       - name: Wait for the requested build
         env:
           GH_TOKEN: ${{ github.token }}
-        run: gh run watch "$BUILD_RUN" --repo "$GITHUB_REPOSITORY" --interval 15 --exit-status
+        # The build is normally finished when this is dispatched, and gh run
+        # watch returns at once for a completed run. One check per five
+        # minutes otherwise keeps the repository's API budget for real work.
+        run: gh run watch "$BUILD_RUN" --repo "$GITHUB_REPOSITORY" --interval 300 --exit-status
 
       - uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
         with:

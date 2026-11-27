@@ -18,12 +18,15 @@ sources it starts warm from, or an exemption with its reason. This test fails wh
       job's steps and from the repository scripts and composite actions those steps call);
   (d) an entry names a workflow or job that no longer exists.
 
+<<<<<<< HEAD
 The usual red is (a): a pull request adds or renames a compile job in a workflow and leaves this
 table alone, and the nightly guards (release-notary's workflow-guard-tests) go red on the base
 branch for every run after it. Each (a) error prints the exact line to add to
 .github/warm-sources.json, with a class guessed from the workflow's other entries or the job's
 runner and compiler; the pull request that changes the workflow carries that line.
 
+=======
+>>>>>>> origin/main
 `python3 tests/test_ci_warm_sources.py --suggest` prints the entry each compile job would get
 from its steps (sources found wired, or a stub exemption to fill in), so a new job is one paste.
 """
@@ -40,9 +43,12 @@ from pathlib import Path
 
 import yaml
 
+<<<<<<< HEAD
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import workflow_jobs as job_fields  # noqa: E402  (this file's own workflow_jobs() lists every job)
 
+=======
+>>>>>>> origin/main
 ROOT = Path(__file__).resolve().parents[1]
 WORKFLOWS = ROOT / ".github" / "workflows"
 TABLE = ROOT / ".github" / "warm-sources.json"
@@ -103,6 +109,7 @@ def step_text(step: dict) -> str:
 
 def job_steps_text(job: dict) -> str:
     texts = [step_text(step) for step in job.get("steps") or [] if isinstance(step, dict)]
+<<<<<<< HEAD
     texts.extend(f"{key}={value}" for key, value in job_fields.effective_env(None, job).items())
     return "\n".join(texts)
 
@@ -120,12 +127,29 @@ def runs_on_text(job: dict, key: str = "") -> str | None:
 def compile_reasons(job: dict, key: str = "") -> list[str]:
     """Why a job counts as a compile, build or test job; empty when it does not. A runs-on matrix nothing resolves
     may name a Mac, so it counts as one."""
+=======
+    if isinstance(job.get("env"), dict):
+        texts.extend(f"{key}={value}" for key, value in job["env"].items())
+    return "\n".join(texts)
+
+
+def runs_on_text(job: dict) -> str:
+    return json.dumps(job.get("runs-on"), sort_keys=True) if "runs-on" in job else ""
+
+
+def compile_reasons(job: dict) -> list[str]:
+    """Why a job counts as a compile, build or test job; empty when it does not."""
+>>>>>>> origin/main
     if not isinstance(job, dict) or "uses" in job:  # a reusable-workflow call: its callee's jobs count
         return []
     text = uncommented(job_steps_text(job))  # a comment about xcodebuild is not a compile
     reasons = [name for name, pattern in COMPILE_COMMANDS.items() if pattern.search(text)]
+<<<<<<< HEAD
     runs_on = runs_on_text(job, key)
     if runs_on is None or MAC_RUNS_ON.search(runs_on) or XCODE_STEP.search(text):
+=======
+    if MAC_RUNS_ON.search(runs_on_text(job)) or XCODE_STEP.search(text):
+>>>>>>> origin/main
         reasons.append("mac-runner")
     return reasons
 
@@ -137,12 +161,18 @@ def compile_reasons(job: dict, key: str = "") -> list[str]:
 # ---------------------------------------------------------------------------------------------
 WIRING: dict[str, re.Pattern] = {
     # Kept DerivedData: the owned Mac's admission state, the nightly seed, the e2e warm copy, the
+<<<<<<< HEAD
     # scheme and Release compiles' worker-local tree, cmux-tui's macOS per-runner Cargo target, a Linux pool runner's kept Cargo target, or a build handed to the controller's warm slots.
     "deriveddata-reuse": re.compile(
         _names(
             "owned_build_state.py", "seed_derived_data.py", "e2e_warm_derived_data.py", "release-derived-data-path.sh",
             "cmux-tui-warm-target.sh", "cmux-tui-mac-warm-target.sh", "pool-warm-target.sh",
         )
+=======
+    # scheme and Release compiles' worker-local tree, or a build handed to the controller's warm slots.
+    "deriveddata-reuse": re.compile(
+        _names("owned_build_state.py", "seed_derived_data.py", "e2e_warm_derived_data.py", "release-derived-data-path.sh")
+>>>>>>> origin/main
         + r"|\bCMUX_COMPILE_ADMISSION_DERIVED_DATA\b|\bcmux_next_cas_fresh_tree\b"
         # A tour or visual-gate build in its claimed warm slot's DerivedData, and the Chief's per-runner target.
         + r"|" + _names("media_tag_lock.py", "prune_media_derived_data.py") + r"|\bCMUX_NEXT_OPTCHAT_CHIEF_TARGET_DIR=\"?\$HOME/"
@@ -293,7 +323,11 @@ def workflow_jobs(root: Path) -> dict[str, dict]:
 
 
 def compile_jobs(root: Path) -> dict[str, list[str]]:
+<<<<<<< HEAD
     return {key: reasons for key, job in workflow_jobs(root).items() if (reasons := compile_reasons(job, key))}
+=======
+    return {key: reasons for key, job in workflow_jobs(root).items() if (reasons := compile_reasons(job))}
+>>>>>>> origin/main
 
 
 def load_table(path: Path) -> dict:
@@ -310,18 +344,30 @@ def problems(root: Path, table: dict) -> list[str]:
             errors.append(f"source {source_id}: needs a 'what' and a 'runbook'")
     entries = table.get("jobs") or {}
     jobs = workflow_jobs(root)
+<<<<<<< HEAD
     detected = {key: reasons for key, job in jobs.items() if (reasons := compile_reasons(job, key))}
     for key in sorted(set(detected) - set(entries)):
         line = json.dumps({key: suggestion(root, jobs[key], key, entries, detected[key])})[1:-1]
         errors.append(f"(a) {key} compiles, builds or tests ({', '.join(detected[key])}) but is not in .github/warm-sources.json;"
                       f" add this line under \"jobs\" in .github/warm-sources.json, in the change that added the job: {line},"
                       f" then fill in any <...> (`python3 tests/test_ci_warm_sources.py --suggest` prints every missing line)")
+=======
+    detected = {key: reasons for key, job in jobs.items() if (reasons := compile_reasons(job))}
+    for key in sorted(set(detected) - set(entries)):
+        errors.append(f"(a) {key} compiles, builds or tests ({', '.join(detected[key])}) but is not in .github/warm-sources.json;"
+                      f" add {json.dumps({key: suggestion(root, jobs[key])})}")
+>>>>>>> origin/main
     for key, entry in sorted(entries.items()):
         if key not in jobs:
             errors.append(f"(d) {key} is in .github/warm-sources.json but no workflow has that job")
             continue
+<<<<<<< HEAD
         if not isinstance(entry, dict) or not str(entry.get("class") or "").strip() or PLACEHOLDER.search(str(entry.get("class"))):
             errors.append(f"{key}: entry needs a 'class' (one the table already uses: {', '.join(known_classes(entries)) or 'linux-rust'})")
+=======
+        if not isinstance(entry, dict) or not str(entry.get("class") or "").strip():
+            errors.append(f"{key}: entry needs a 'class'")
+>>>>>>> origin/main
             continue
         warm = entry.get("warm")
         if not isinstance(warm, list):
@@ -329,9 +375,14 @@ def problems(root: Path, table: dict) -> list[str]:
             continue
         exempt = entry.get("exempt")
         if not warm:
+<<<<<<< HEAD
             if exempt is None or EMPTY_REASON.match(str(exempt)) or len(str(exempt).strip()) < MIN_REASON or "<" in str(exempt):
                 errors.append(f"(b) {key} lists no warm source and no exemption with a reason;"
                               f" list the sources its steps wire under 'warm', or replace the <...> in 'exempt' with the reason")
+=======
+            if exempt is None or EMPTY_REASON.match(str(exempt)) or len(str(exempt).strip()) < MIN_REASON:
+                errors.append(f"(b) {key} lists no warm source and no exemption with a reason")
+>>>>>>> origin/main
         elif exempt is not None:
             errors.append(f"{key}: an exemption is only for a job with no warm source; drop 'exempt' or 'warm'")
         wired = wired_sources(root, jobs[key])
@@ -351,6 +402,7 @@ def cold_jobs(table: dict) -> list[str]:
                   if isinstance(entry, dict) and str(entry.get("exempt") or "").startswith(COLD))
 
 
+<<<<<<< HEAD
 # A class still to be filled in: the stub's "?" or a <...> placeholder.
 PLACEHOLDER = re.compile(r"^\s*\?*\s*$|<[^>]*>")
 
@@ -391,6 +443,13 @@ def suggestion(root: Path, job: dict, key: str = "", entries: dict | None = None
     if wired:
         return {"class": cls, "warm": wired}
     return {"class": cls, "warm": [], "exempt": "<why it needs no warm state, or cold: <what compiles cold>>"}
+=======
+def suggestion(root: Path, job: dict) -> dict:
+    wired = wired_sources(root, job)
+    if wired:
+        return {"class": "?", "warm": wired}
+    return {"class": "?", "warm": [], "exempt": "<why it needs no warm state, or cold: <what compiles cold>>"}
+>>>>>>> origin/main
 
 
 # ---------------------------------------------------------------------------------------------
@@ -466,7 +525,10 @@ class Wiring(unittest.TestCase):
         self.assertEqual(wired_sources(ROOT, job("python3 scripts/ci/media_tag_lock.py claim")), ["deriveddata-reuse"])
         kept = 'export CMUX_NEXT_OPTCHAT_CHIEF_TARGET_DIR="$HOME/Library/Caches/x"'
         self.assertEqual(wired_sources(ROOT, job(kept)), ["deriveddata-reuse"])
+<<<<<<< HEAD
         self.assertEqual(wired_sources(ROOT, job('echo "CARGO_TARGET_DIR=$(./scripts/ci/cmux-tui-warm-target.sh)"')), ["deriveddata-reuse"])
+=======
+>>>>>>> origin/main
         self.assertEqual(wired_sources(ROOT, job('echo "${CMUX_NEXT_OPTCHAT_CHIEF_TARGET_DIR:-target}"')), [])
         # A comment naming a source does not wire it.
         self.assertEqual(wired_sources(ROOT, job("# restore with actions/cache@v5 later\ncargo build")), [])
@@ -532,6 +594,7 @@ class Table(unittest.TestCase):
                                             "w.yml:cached": {"class": "linux", "warm": [], "exempt": "cold: cargo from an empty target"}}))
         self.assertEqual(errors, ["(b) w.yml:cached is exempt but its steps wire ['actions-cache']; list them under 'warm' instead"])
 
+<<<<<<< HEAD
     def test_a_missing_job_prints_the_line_to_add(self) -> None:
         root = self.fake_root({"w.yml": {
             "cached": job("cargo build", uses=["Swatinem/rust-cache@v2"]),
@@ -561,6 +624,8 @@ class Table(unittest.TestCase):
         self.assertEqual(guess_class("m.yml:protocol", entries, ["cargo"]), "linux-rust")
         self.assertEqual(guess_class("m.yml:sim", entries, ["xcodebuild", "mac-runner"]), "ios")
 
+=======
+>>>>>>> origin/main
     def test_without_the_table_this_tree_fails(self) -> None:
         errors = problems(ROOT, {"schema": SCHEMA, "sources": {}, "jobs": {}})
         self.assertTrue(any(e.startswith("(a) ") for e in errors))
@@ -570,8 +635,12 @@ class ThisTree(unittest.TestCase):
     def test_every_compile_job_names_its_warm_sources(self) -> None:
         table = load_table(TABLE)
         errors = problems(ROOT, table)
+<<<<<<< HEAD
         self.assertEqual(errors, [], "\n.github/warm-sources.json is out of date with .github/workflows; fix each line below:\n"
                          + "\n".join(errors))
+=======
+        self.assertEqual(errors, [], "\n" + "\n".join(errors))
+>>>>>>> origin/main
         cold = cold_jobs(table)
         if cold:
             note = f"{len(cold)} compile jobs still start cold (.github/warm-sources.json 'cold:' entries): {', '.join(cold)}"
@@ -586,7 +655,11 @@ def main() -> None:
     if "--suggest" in sys.argv:
         jobs = workflow_jobs(ROOT)
         table = load_table(TABLE) if TABLE.exists() else {"jobs": {}}
+<<<<<<< HEAD
         out = {key: suggestion(ROOT, jobs[key], key, table["jobs"]) for key in sorted(compile_jobs(ROOT)) if key not in table["jobs"]}
+=======
+        out = {key: suggestion(ROOT, jobs[key]) for key in sorted(compile_jobs(ROOT)) if key not in table["jobs"]}
+>>>>>>> origin/main
         print(json.dumps(out, indent=2))
         return
     unittest.main()

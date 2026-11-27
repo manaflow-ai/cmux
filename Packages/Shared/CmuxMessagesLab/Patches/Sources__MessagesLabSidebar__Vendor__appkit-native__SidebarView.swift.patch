@@ -1,5 +1,6 @@
 --- a/Sources/MessagesLabSidebar/Vendor/appkit-native/SidebarView.swift
 +++ b/Sources/MessagesLabSidebar/Vendor/appkit-native/SidebarView.swift
+<<<<<<< HEAD
 @@ -12,6 +12,10 @@
      weak var delegate: SidebarDelegate?
      /// "No Results" in 15 pt semibold, made once (a font made per call can race its release; cx-qpqs).
@@ -67,11 +68,15 @@
 +    private(set) var palette = SidebarPalette.resolve(NSAppearance(named: .darkAqua) ?? NSAppearance.currentDrawing()) // no force unwrap
      private var generation = 0
      /// The palette, scale and color-space generation (tests).
+=======
+@@ -88,7 +88,7 @@
+>>>>>>> origin/main
      var renderGeneration: Int { generation }
      private var scale: CGFloat { document.window?.backingScaleFactor ?? 2 }
      private let cache = SidebarBitmapCache()
 -    private let avatars = SidebarAvatarCache()
 +    let avatars = SidebarAvatarCache() // cmux: internal, the pin drag draws its tile
+<<<<<<< HEAD
 +    /// cmux (the user, 2026-11-03, msg 20105): nothing in the list animates unless the host turns this on: rows
 +    /// moving or appearing, the typing bubble's pop, fade and pulse, the swipe, the tile and pin drags.
 +    var animates = false
@@ -82,6 +87,14 @@
      private var pending: Set<SidebarBitmapKey> = []
 -    private var rowLayers: [Int: SidebarRowLayer] = [:]
 +    private(set) var rowLayers: [Int: SidebarRowLayer] = [:] // cmux: readable (tests read the rows on screen)
+=======
+     private let textCache = SidebarTextCache()
+     private let timeFormatter = ConversationTimeFormatter(yesterday: SidebarStrings.yesterday)
+     private var bellSecondary: CGImage?, bellSelected: CGImage?, failedGlyph: CGImage?, failedSelected: CGImage?
+@@ -96,7 +96,10 @@
+     private var pending: Set<SidebarBitmapKey> = []
+     private var rowLayers: [Int: SidebarRowLayer] = [:]
+>>>>>>> origin/main
      private var pool: [SidebarRowLayer] = []
 -    private var tileLayers: [SidebarRowLayer] = []
 +    // cmux: readable by the pin drag (Cmux/SidebarPinDragging.swift).
@@ -91,6 +104,7 @@
      private let menuRing = CALayer()
      private var lastVisible: Range<Int> = 0..<0
      private var lastTop: CGFloat = 0
+<<<<<<< HEAD
      let noResults = NSTextField(labelWithString: "")
 +    /// cmux: under the empty list while a filter is on and nothing is typed: the filter goes off.
 +    let showAll = NSButton(title: "", target: nil, action: nil)
@@ -244,6 +258,9 @@
          for (_, l) in rowLayers { recycle(l) }
          rowLayers.removeAll()
 @@ -677,21 +753,22 @@
+=======
+@@ -677,6 +680,7 @@
+>>>>>>> origin/main
          layoutDocument()
          tile(force: true)
          updateAccessibility()
@@ -251,6 +268,7 @@
      }
  
      // MARK: Geometry
+<<<<<<< HEAD
  
      var pinnedHeight: CGFloat { metrics.pinnedHeight(count: pinnedItems.count) }
      func rowRect(_ r: Int) -> CGRect {
@@ -410,6 +428,9 @@
          let h = rowTop(rowItems.count) + 8
          let f = CGRect(x: 0, y: 0, width: metrics.width, height: max(h, scrollView.contentSize.height))
 @@ -797,7 +941,7 @@
+=======
+@@ -797,7 +801,7 @@
+>>>>>>> origin/main
  
      private func clipMoved() { tile(force: false) }  // no selector
  
@@ -418,6 +439,7 @@
          SidebarRenderContext(metrics: metrics, palette: palette, scale: scale,
                               space: document.window?.screen?.colorSpace?.cgColorSpace ?? SidebarDraw.p3, generation: generation,
                               bellSecondary: bellSecondary, bellSelected: bellSelected,
+<<<<<<< HEAD
 @@ -955,41 +1099,60 @@
          l.conversationID = c.id
          // The text column (show() sets the same frame; it is skipped when the bitmap is unchanged).
@@ -729,12 +751,16 @@
      }
      func contentsScaleAll(_ s: CGFloat) {
 @@ -1734,7 +1936,13 @@
+=======
+@@ -1734,7 +1738,9 @@
+>>>>>>> origin/main
          if let c = controller, c.swipeClick(at: point(event)) { return }
          guard let c = controller, let h = c.hit(point(event)), let s = c.summary(h) else { return } // a stale hit selects nothing
          c.highlight(s.id, reveal: false)
 -        if case let .tile(t) = h { c.tileDragBegan(t, at: point(event)) }
 +        // cmux: press and drag a tile or row (Cmux/SidebarPinDragging.swift: reorder, pin and unpin
 +        // by drag, Escape cancels), a superset of MessagesLab's tile reorder (tileDragBegan).
+<<<<<<< HEAD
 +        let dragged = c.trackPinDrag(from: event, in: self)
 +        // cmux: a plain click that did not drag opens the conversation (the selected one too), so
 +        // its message field takes the keyboard (Lawrence 2026-10-19, u2611). Command-, Shift- and
@@ -744,12 +770,22 @@
      override func mouseDragged(with event: NSEvent) { controller?.tileDragMoved(to: point(event)) }
      override func mouseUp(with event: NSEvent) { controller?.tileDragEnded(at: point(event)) }
 @@ -1746,6 +1954,9 @@
+=======
++        c.trackPinDrag(from: event, in: self)
+     }
+     override func mouseDragged(with event: NSEvent) { controller?.tileDragMoved(to: point(event)) }
+     override func mouseUp(with event: NSEvent) { controller?.tileDragEnded(at: point(event)) }
+@@ -1746,6 +1752,7 @@
+>>>>>>> origin/main
          default: interpretKeyEvents([event])
          }
      }
 +    override func cancelOperation(_ sender: Any?) { controller?.cancelPinDrag() } // cmux: Escape reaching the list ends a pin drag
+<<<<<<< HEAD
 +    /// cmux: Return opens the highlighted conversation (its message field takes the keyboard).
 +    override func insertNewline(_ sender: Any?) { controller?.openHighlighted() }
+=======
+>>>>>>> origin/main
      override func moveDown(_ sender: Any?) { controller?.moveSelection(1) }
      override func moveUp(_ sender: Any?) { controller?.moveSelection(-1) }
      /// Typing a letter in the list starts a search (as a source list's type-select would).

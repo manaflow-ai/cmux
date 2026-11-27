@@ -11,7 +11,10 @@ compares failing test names with the base's, even beside other failing tests in 
 a red check the base does not have is never excused.
 """
 import importlib.util
+<<<<<<< HEAD
 import os
+=======
+>>>>>>> origin/main
 from pathlib import Path
 import re
 import subprocess
@@ -23,6 +26,7 @@ RUNNER_GUARD = ROOT / "tests/test_ci_self_hosted_guard.sh"
 STEP = "Validate macOS runner guards"
 JOB = "workflow-guard-tests / preflight"
 
+<<<<<<< HEAD
 # Imported by name, never loaded by path: one module object per file, so a test that patches it
 # patches what every other test reads (tests/test_script_module_loads.py).
 import sys  # noqa: E402
@@ -47,6 +51,11 @@ def fixture_env() -> dict[str, str]:
     CMUX_GUARD_CHECK_RESULTS and the GITHUB_* step files at the running step's own, so the fixtures get
     guard_child_env's (none of the caller's)."""
     return guard_child_env.guard_child_env(_FIXTURE_TEMP)
+=======
+spec = importlib.util.spec_from_file_location("base_red_excuse", ROOT / "scripts/ci/base_red_excuse.py")
+excuse = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(excuse)
+>>>>>>> origin/main
 
 
 def guard_script(failing: set[str]) -> str:
@@ -70,13 +79,18 @@ def run_guard(failing: set[str]) -> subprocess.CompletedProcess:
     with tempfile.TemporaryDirectory() as tmp:
         script = Path(tmp) / "guard.sh"
         script.write_text(guard_script(failing), encoding="utf-8")
+<<<<<<< HEAD
         return subprocess.run(["bash", str(script)], capture_output=True, text=True, env=fixture_env())
+=======
+        return subprocess.run(["bash", str(script)], capture_output=True, text=True)
+>>>>>>> origin/main
 
 
 def job_and_log(failing: set[str], other_test: bool = False) -> tuple[dict, str]:
     """The failed CI job and its `gh run view --log` text, as base_red_excuse.py reads them; with
     `other_test`, an unrelated failing unittest in the same job, red on the base too."""
     done = run_guard(failing)
+<<<<<<< HEAD
     # Framed as the runner logs a job, so base_red_excuse.step_owners places each line in its step (a log it does
     # not place has no signature): "Set up job", one `Run` header per step, "Complete job".
     def step(number, name, conclusion, start, end):
@@ -93,6 +107,15 @@ def job_and_log(failing: set[str], other_test: bool = False) -> tuple[dict, str]
                ("Checkout", 3, "##[group]Run actions/checkout@v6"), (STEP, 10, "##[group]Run tests/run-guards.sh"),
                (STEP, 10, "##[endgroup]")] + [(STEP, 37, line) for line in lines])
     log = "\n".join(f"{JOB}\t{name}\t2026-10-27T02:10:{at:02d}.8032610Z {line}" for name, at, line in framed)
+=======
+    job = {"id": 1, "run_id": 1, "name": JOB, "status": "completed", "conclusion": "failure",
+           "steps": [{"name": "Checkout", "status": "completed", "conclusion": "success"},
+                     {"name": STEP, "status": "completed", "conclusion": "failure"}]}
+    lines = done.stdout.splitlines() + ["##[error]Process completed with exit code 1."]
+    if other_test:
+        lines = ["FAIL: test_unrelated (test_other.Other.test_unrelated)"] + lines
+    log = "\n".join(f"{JOB}\t{STEP}\t2026-10-27T02:10:37.8032610Z {line}" for line in lines)
+>>>>>>> origin/main
     return job, log
 
 
@@ -112,7 +135,11 @@ class EveryCheckRuns(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             script = Path(tmp) / "guard.sh"
             script.write_text(source, encoding="utf-8")
+<<<<<<< HEAD
             out = subprocess.run(["bash", str(script)], capture_output=True, text=True, env=fixture_env()).stdout
+=======
+            out = subprocess.run(["bash", str(script)], capture_output=True, text=True).stdout
+>>>>>>> origin/main
         self.assertIn("test runner-guard/check_hosted_ci.yml_job ... FAILED\n", out)
 
     def test_each_failed_check_and_finding_is_an_error_line(self):
@@ -136,10 +163,15 @@ class ABaseRedCannotExcuseAnother(unittest.TestCase):
     def missing(self, head_failing: set[str], base_failing: set[str], *, other_test: bool = False) -> set[str]:
         """What base_red_excuse.py finds on the head and not the base: failing test names, always compared,
         or error lines when no test name failed."""
+<<<<<<< HEAD
         head_steps, head_tests, head_errors = excuse.signature(excuse.failed_view(
             *job_and_log(head_failing, other_test), step_names=excuse.STEP_NAMES_UNKNOWN, base=False))
         base_steps, base_tests, base_errors = excuse.signature(excuse.failed_view(
             *job_and_log(base_failing, other_test), step_names=excuse.STEP_NAMES_UNKNOWN, base=True))
+=======
+        head_steps, head_tests, head_errors = excuse.signature(*job_and_log(head_failing, other_test))
+        base_steps, base_tests, base_errors = excuse.signature(*job_and_log(base_failing, other_test))
+>>>>>>> origin/main
         self.assertEqual(head_steps, base_steps)
         if head_tests:
             return head_tests - base_tests

@@ -12,10 +12,15 @@ extension SidebarController {
     private var tileSize: CGSize { CGSize(width: metrics.tileWidth, height: metrics.tileHeight) }
 
     /// The mouse-down tracking loop (SidebarDocumentView.mouseDown): a drag starts after 4 pt.
+<<<<<<< HEAD
     /// - Returns: True when the press became a drag (a lifted tile or row), false for a click.
     @discardableResult
     func trackPinDrag(from down: NSEvent, in view: NSView) -> Bool {
         guard let window = view.window, placer != nil, query.isEmpty else { return false }
+=======
+    func trackPinDrag(from down: NSEvent, in view: NSView) {
+        guard let window = view.window, placer != nil, query.isEmpty else { return }
+>>>>>>> origin/main
         let start = view.convert(down.locationInWindow, from: nil)
         var dragging = false
         while let e = window.nextEvent(matching: [.leftMouseDragged, .leftMouseUp, .keyDown]) {
@@ -24,6 +29,7 @@ extension SidebarController {
                 let p = view.convert(e.locationInWindow, from: nil)
                 if !dragging {
                     guard hypot(p.x - start.x, p.y - start.y) >= 4 else { continue }
+<<<<<<< HEAD
                     guard beginPinDrag(at: start) else { return false }
                     dragging = true
                 }
@@ -31,18 +37,31 @@ extension SidebarController {
                     cancelPinDrag()
                     return true
                 }
+=======
+                    guard beginPinDrag(at: start) else { return }
+                    dragging = true
+                }
+>>>>>>> origin/main
                 _ = view.autoscroll(with: e)
                 movePinDrag(to: view.convert(e.locationInWindow, from: nil))
             case .leftMouseUp:
                 if dragging { endPinDrag() }
+<<<<<<< HEAD
                 return dragging
             case .keyDown where e.keyCode == 53:
                 if dragging { cancelPinDrag() }
                 return true
+=======
+                return
+            case .keyDown where e.keyCode == 53:
+                if dragging { cancelPinDrag() }
+                return
+>>>>>>> origin/main
             default:
                 continue
             }
         }
+<<<<<<< HEAD
         return dragging
     }
 
@@ -55,6 +74,8 @@ extension SidebarController {
         let slack: CGFloat = 8
         guard event.locationInWindow.x > frame.maxX + slack || event.locationInWindow.x < frame.minX - slack else { return false }
         return host.sidebar(self, dragOut: id, at: window.convertPoint(toScreen: event.locationInWindow))
+=======
+>>>>>>> origin/main
     }
 
     /// Lifts the tile or row under `p` (document coordinates). False: nothing to drag there.
@@ -64,6 +85,7 @@ extension SidebarController {
         guard let i = item(h), let c = Self.element(snapshot.items, i) else { return false }
         guard !Self.isExtra(c.id), delegate?.sidebar(self, actionsFor: c.id).contains(.pin) == true else { return false }
         let state = pinDragState
+<<<<<<< HEAD
         state.animates = animates && CmuxSidebarView.animatesMovement
         let frame: CGRect
         // Where the lifted avatar starts (ghost center and scale): a tile lifts in place; a row's
@@ -71,10 +93,14 @@ extension SidebarController {
         var start: (position: CGPoint, scale: CGFloat)?
         let ar = SidebarDraw.tileAvatar(metrics)
         let toAvatar = CGPoint(x: ar.midX - tileSize.width / 2, y: ar.midY - tileSize.height / 2)
+=======
+        let frame: CGRect
+>>>>>>> origin/main
         switch h {
         case let .tile(t):
             frame = tileRect(t)
             state.drag = SidebarPinDrag(id: c.id, source: .tile, pinned: pinnedIDs)
+<<<<<<< HEAD
         case let .row(r):
             // The pointer holds the avatar's center.
             frame = CGRect(x: p.x - toAvatar.x - tileSize.width / 2, y: p.y - toAvatar.y - tileSize.height / 2,
@@ -84,6 +110,11 @@ extension SidebarController {
             let scale = own.width / max(1, ar.width)
             let rowAvatar = CGPoint(x: own.midX, y: row.minY + own.midY)
             start = (CGPoint(x: rowAvatar.x - toAvatar.x * scale, y: rowAvatar.y - toAvatar.y * scale), scale)
+=======
+        case .row:
+            frame = CGRect(x: p.x - tileSize.width / 2, y: p.y - tileSize.height / 2, width: tileSize.width, height: tileSize.height)
+            state.drag = SidebarPinDrag(id: c.id, source: .row, pinned: pinnedIDs)
+>>>>>>> origin/main
         }
         state.grab = CGSize(width: p.x - frame.midX, height: p.y - frame.midY)
         // No hover to clear: MessagesLab f6fa7f5 removed the sidebar hover.
@@ -97,11 +128,15 @@ extension SidebarController {
         ghost.shadowRadius = 10
         ghost.shadowOffset = CGSize(width: 0, height: 4)
         ghost.opacity = 0.96
+<<<<<<< HEAD
         ghost.transform = CATransform3DMakeScale(SidebarPinDragState.lift, SidebarPinDragState.lift, 1)
+=======
+>>>>>>> origin/main
         document.layer?.addSublayer(ghost)
         state.ghost = ghost
         if case let .tile(t) = h { Self.element(tileLayers, t)?.isHidden = true }
         CATransaction.commit()
+<<<<<<< HEAD
         layoutPinPreview(animated: state.animates)
         guard state.animates else { return true }
         // The ghost's model follows the pointer on every move; the lift is an additive offset
@@ -124,6 +159,14 @@ extension SidebarController {
                 name.add(fade, forKey: "cmux.pinDrag.nameIn")
             }
         }
+=======
+        let lift = CABasicAnimation(keyPath: "transform.scale")
+        lift.fromValue = 1
+        lift.toValue = SidebarPinDragState.lift
+        lift.duration = 0.15
+        ghost.transform = CATransform3DMakeScale(SidebarPinDragState.lift, SidebarPinDragState.lift, 1)
+        ghost.add(lift, forKey: "cmux.pinDrag.lift")
+>>>>>>> origin/main
         return true
     }
 
@@ -146,19 +189,28 @@ extension SidebarController {
         return ghost
     }
 
+<<<<<<< HEAD
     /// A row lifted toward the grid, drawn as the tile it would become: its avatar at the
     /// tile's avatar place and its name below (no name in the compact list, as its tiles).
+=======
+    /// A row lifted toward the grid: its avatar at the tile's avatar place.
+>>>>>>> origin/main
     private func avatarGhost(_ c: ConversationSummary) -> CALayer {
         let ghost = CALayer()
         ghost.bounds = CGRect(origin: .zero, size: tileSize)
         let avatar = CALayer()
+<<<<<<< HEAD
         let ar = SidebarDraw.tileAvatar(metrics)
         avatar.frame = ar
+=======
+        avatar.frame = SidebarDraw.tileAvatar(metrics)
+>>>>>>> origin/main
         avatar.contents = avatars.image(c.avatar, diameter: SidebarMetrics.pinMaxAvatar, ctx: renderContext)
         avatar.contentsGravity = .resize
         avatar.contentsScale = renderContext.scale
         avatar.minificationFilter = .trilinear
         ghost.addSublayer(avatar)
+<<<<<<< HEAD
         if !metrics.compact, let name = SidebarDraw.tileNameImage(c, emphasized: false, keyWidth: SidebarDraw.tileNameKeyWidth(
             natural: SidebarDraw.tileNatural(c).name, tileWidth: metrics.tileNameWidth), ctx: renderContext) {
             let label = CALayer()
@@ -169,6 +221,8 @@ extension SidebarController {
             label.contentsScale = renderContext.scale
             ghost.addSublayer(label)
         }
+=======
+>>>>>>> origin/main
         return ghost
     }
 
@@ -195,7 +249,11 @@ extension SidebarController {
         drag.target = gridSlot(p, count: drag.source == .tile ? drag.pinned.count : drag.pinned.count + 1)
         let changed = drag.target != state.drag?.target
         state.drag = drag
+<<<<<<< HEAD
         if changed { layoutPinPreview(animated: state.animates) }
+=======
+        layoutPinPreview(animated: changed)
+>>>>>>> origin/main
     }
 
     func endPinDrag() { finishPinDrag(cancelled: false) }
@@ -204,17 +262,29 @@ extension SidebarController {
     /// The grid slot under `p` for a grid of `count` tiles; nil below the grid.
     private func gridSlot(_ p: CGPoint, count: Int) -> Int? {
         guard count > 0, p.y < metrics.pinnedHeight(count: count) else { return nil }
+<<<<<<< HEAD
         return metrics.tileSlot(at: p, count: count)
     }
 
     /// Tiles to their slots in the drawn order; the rows below follow the grid's drawn height.
     /// A lifted row dims in its place over the list; over the grid its place closes (the rows
     /// below move up), as the drop would leave the list.
+=======
+        let cols = metrics.columns
+        let rows = (count + cols - 1) / cols
+        let col = min(cols - 1, max(0, Int(exactly: ((p.x - metrics.tileRect(0).minX) / metrics.tileWidth).rounded(.down)) ?? 0))
+        let row = min(rows - 1, max(0, Int(exactly: (max(0, p.y) / metrics.tileHeight).rounded(.down)) ?? 0))
+        return min(row * cols + col, count - 1)
+    }
+
+    /// Tiles to their slots in the drawn order; the rows below follow the grid's drawn height.
+>>>>>>> origin/main
     private func layoutPinPreview(animated: Bool) {
         guard let drag = pinDragState.drag else { return }
         let order = drag.order
         for (id, l) in shownTiles {
             guard let id, id != drag.id, let slot = order.firstIndex(of: id) else { continue }
+<<<<<<< HEAD
             slide(l, to: metrics.tileRect(slot, count: order.count), animated: animated)
         }
         let dy = metrics.pinnedHeight(count: order.count) - pinnedHeight
@@ -235,6 +305,12 @@ extension SidebarController {
         if pinnedItems.isEmpty { layoutPinDivider(forPreview: !order.isEmpty) }
         shift(pinDivider, by: dy, animated: animated)
         pinDivider.opacity = order.isEmpty ? 0 : 1
+=======
+            slide(l, to: tileRect(slot), animated: animated)
+        }
+        let dy = metrics.pinnedHeight(count: order.count) - pinnedHeight
+        for l in listRowLayers() { shift(l, by: dy, animated: animated) }
+>>>>>>> origin/main
     }
 
     private func finishPinDrag(cancelled: Bool) {
@@ -249,11 +325,14 @@ extension SidebarController {
             drawn.updateValue(CGRect(x: at.x - tileSize.width / 2, y: at.y - tileSize.height / 2, width: tileSize.width, height: tileSize.height), forKey: drag.id)
         }
         state.drawnGridBottom = pinnedHeight + (listRowLayers().first.map { ($0.presentation() ?? $0).transform.m42 } ?? 0)
+<<<<<<< HEAD
         state.drawnRows = [:]
         for l in listRowLayers() {
             guard let id = l.conversationID, id != drag.id || drag.source != .row || drag.target == nil else { continue }
             state.drawnRows.updateValue(top(l) + (l.presentation() ?? l).transform.m42, forKey: id)
         }
+=======
+>>>>>>> origin/main
         state.drag = nil
         state.landing = drawn
         state.landingID = drag.id
@@ -266,6 +345,7 @@ extension SidebarController {
         }
         for l in listRowLayers(includeHidden: true) {
             l.removeAnimation(forKey: "cmux.pinDrag.shift")
+<<<<<<< HEAD
             l.removeAnimation(forKey: "cmux.pinDrag.fade")
             l.transform = CATransform3DIdentity
             l.opacity = 1
@@ -274,6 +354,10 @@ extension SidebarController {
         pinDivider.transform = CATransform3DIdentity
         pinDivider.opacity = 1
         layoutPinDivider()
+=======
+            l.transform = CATransform3DIdentity
+        }
+>>>>>>> origin/main
         switch drag.outcome {
         case .none: break
         case let .place(id, index): placer?.sidebar(self, place: id, at: index)
@@ -303,6 +387,7 @@ extension SidebarController {
         guard let drawn = state.landing else { return }
         state.landing = nil
         let landingID = state.landingID
+<<<<<<< HEAD
         let drawnRows = state.drawnRows
         state.drawnRows = [:]
         var landedAsTile = false
@@ -312,6 +397,9 @@ extension SidebarController {
             state.ghost = nil
             return
         }
+=======
+        var landedAsTile = false
+>>>>>>> origin/main
         for (id, l) in shownTiles {
             l.zPosition = id == landingID ? 1 : 0
             guard let id, let from = drawn.first(where: { $0.key == id })?.value else { continue }
@@ -325,6 +413,7 @@ extension SidebarController {
             }
             if from.origin != l.frame.origin { animatePosition(l, from: CGPoint(x: from.midX, y: from.midY)) }
         }
+<<<<<<< HEAD
         // The rows: each from where it was drawn to its new place (a row scrolled in since:
         // from the grid bottom it was drawn under); an unpinned row fades in under its avatar.
         let residual = state.drawnGridBottom - pinnedHeight
@@ -345,12 +434,24 @@ extension SidebarController {
             a.fromValue = from
             a.toValue = 0
             l.add(a, forKey: "cmux.pinDrag.shift")
+=======
+        // The rows: from the grid bottom they were drawn under to the new one.
+        let residual = state.drawnGridBottom - pinnedHeight
+        if residual != 0 {
+            for l in listRowLayers() {
+                let a = spring("transform.translation.y")
+                a.fromValue = residual
+                a.toValue = 0
+                l.add(a, forKey: "cmux.pinDrag.shift")
+            }
+>>>>>>> origin/main
         }
         guard let ghost = state.ghost else { return }
         state.ghost = nil
         if landedAsTile { ghost.removeFromSuperlayer(); return }
         // Unpinned, or a row that stayed a row: the ghost's avatar shrinks onto the row's avatar and fades.
         let ar = SidebarDraw.tileAvatar(metrics)
+<<<<<<< HEAD
         var scale = (metrics.compact ? metrics.compactAvatar : SidebarMetrics.avatar) / max(1, ar.width)
         var to = ghost.position
         if let id = landingID, case let .row(r)? = position(of: id) {
@@ -358,6 +459,13 @@ extension SidebarController {
             scale = own.width / max(1, ar.width)
             let offset = CGPoint(x: ar.midX - tileSize.width / 2, y: ar.midY - tileSize.height / 2)
             to = CGPoint(x: own.midX - offset.x * scale, y: row.minY + own.midY - offset.y * scale)
+=======
+        let scale = SidebarMetrics.avatar / max(1, ar.width)
+        var to = ghost.position
+        if let id = landingID, case let .row(r)? = position(of: id) {
+            let offset = CGPoint(x: ar.midX - tileSize.width / 2, y: ar.midY - tileSize.height / 2)
+            to = CGPoint(x: metrics.rowAvatarX + SidebarMetrics.avatar / 2 - offset.x * scale, y: rowRect(r).midY - offset.y * scale)
+>>>>>>> origin/main
         }
         CATransaction.begin()
         CATransaction.setAnimationDuration(0.22)
@@ -377,6 +485,7 @@ extension SidebarController {
             .filter { !tiles.contains(ObjectIdentifier($0)) && (includeHidden || !$0.isHidden) }
     }
 
+<<<<<<< HEAD
     /// A layer's top without its transform (document coordinates).
     private func top(_ l: CALayer) -> CGFloat { l.position.y - l.bounds.height * l.anchorPoint.y }
 
@@ -404,12 +513,23 @@ extension SidebarController {
         // target): stiffness = (4.744 / 0.2019 s)^2.
         a.stiffness = 552
         a.damping = 2 * a.stiffness.squareRoot()
+=======
+    private func spring(_ keyPath: String) -> CASpringAnimation {
+        let a = CASpringAnimation(keyPath: keyPath)
+        a.mass = 1
+        a.stiffness = 320
+        a.damping = 30
+>>>>>>> origin/main
         a.duration = a.settlingDuration
         return a
     }
 
     private func animatePosition(_ l: CALayer, from: CGPoint) {
+<<<<<<< HEAD
         let a = Self.pinDragSpring("position")
+=======
+        let a = spring("position")
+>>>>>>> origin/main
         a.fromValue = NSValue(point: from)
         a.toValue = NSValue(point: l.position)
         l.add(a, forKey: "cmux.pinDrag.position")
@@ -431,7 +551,11 @@ extension SidebarController {
         l.transform = CATransform3DMakeTranslation(0, dy, 0)
         CATransaction.commit()
         guard animated else { return }
+<<<<<<< HEAD
         let a = Self.pinDragSpring("transform.translation.y")
+=======
+        let a = spring("transform.translation.y")
+>>>>>>> origin/main
         a.fromValue = from
         a.toValue = dy
         l.add(a, forKey: "cmux.pinDrag.shift")

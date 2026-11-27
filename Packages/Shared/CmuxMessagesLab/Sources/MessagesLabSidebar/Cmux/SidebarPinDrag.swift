@@ -9,6 +9,7 @@ protocol SidebarPinPlacing: AnyObject {
     func sidebar(_ sidebar: SidebarController, place id: ConversationID, at index: Int)
 }
 
+<<<<<<< HEAD
 /// cmux: a host that takes a pin drag out of the list (cmux: the Chief dragged into the app's own sidebar).
 /// Asked on each move while the pointer is beside the list; true takes the drag over: the list puts
 /// everything back and stops tracking, and the host tracks the mouse from there.
@@ -16,6 +17,8 @@ protocol SidebarDragOutHandling: AnyObject {
     func sidebar(_ sidebar: SidebarController, dragOut id: ConversationID, at screenPoint: CGPoint) -> Bool
 }
 
+=======
+>>>>>>> origin/main
 /// cmux: one drag over the pinned grid, as a value (the list keeps one while the button is
 /// down). `target` is where the dragged conversation would land; nil is outside the grid.
 struct SidebarPinDrag: Equatable {
@@ -71,6 +74,7 @@ final class SidebarPinDragState {
     var landingID: ConversationID?
     /// The grid's drawn bottom at the drop (the rows below were shifted to it).
     var drawnGridBottom: CGFloat = 0
+<<<<<<< HEAD
     /// Where each list row's top was drawn at the drop, for the landing after the reload.
     var drawnRows: [ConversationID: CGFloat] = [:]
     /// The drag's movement animates (`CmuxSidebarView.animatesMovement`, read when it begins).
@@ -78,4 +82,7 @@ final class SidebarPinDragState {
     static let lift: CGFloat = 1.08
     /// A lifted row dims to this while it is over the list (its place closes over the grid).
     static let liftedRowOpacity: Float = 0.35
+=======
+    static let lift: CGFloat = 1.08
+>>>>>>> origin/main
 }

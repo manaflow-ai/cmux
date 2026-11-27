@@ -13,6 +13,11 @@ PRODUCT_BUNDLE_IDENTIFIER = $(CMUX_APP_BUNDLE_IDENTIFIER)
 // The app whose extensions these are. Extension targets derive their ids from it.
 CMUX_HOST_BUNDLE_IDENTIFIER = $(CMUX_APP_BUNDLE_IDENTIFIER)
 CMUX_NOTIFICATION_SERVICE_BUNDLE_IDENTIFIER = $(CMUX_HOST_BUNDLE_IDENTIFIER).NotificationService
+<<<<<<< HEAD
+=======
+CMUX_CLOUD_VPN_BUNDLE_IDENTIFIER = $(CMUX_HOST_BUNDLE_IDENTIFIER).CloudVPN
+CMUX_CLOUD_VPN_PROVIDER_BUNDLE_IDENTIFIER = $(CMUX_CLOUD_VPN_BUNDLE_IDENTIFIER)
+>>>>>>> origin/main
 // User-visible versions (CFBundleShortVersionString). Keep beta and production
 // independent: TestFlight can stay on the already-approved beta version while
 // the first production App Store upload starts from its own release version.
@@ -20,6 +25,9 @@ CMUX_NOTIFICATION_SERVICE_BUNDLE_IDENTIFIER = $(CMUX_HOST_BUNDLE_IDENTIFIER).Not
 // id stamped by ios/scripts/upload-testflight.sh on upload.
 CMUX_IOS_BETA_MARKETING_VERSION = 1.0.6
 CMUX_IOS_APPSTORE_MARKETING_VERSION = 1.0.0
+// cmux CLASSIC (dev.cmux.app.classic) is the classic app's internal TestFlight
+// home since com.cmux.app moved to cmux-next. It stays on the 1.0.x line.
+CMUX_IOS_CLASSIC_MARKETING_VERSION = 1.0.0
 MARKETING_VERSION = $(CMUX_IOS_BETA_MARKETING_VERSION)
 CURRENT_PROJECT_VERSION = 1
 
@@ -30,6 +38,9 @@ CURRENT_PROJECT_VERSION = 1
 // CMUXGitSHA / CMUXDevTag Info.plist keys that AppVersionInfo reads.
 CMUX_GIT_SHA =
 CMUX_DEV_TAG =
+// App Store archives set this marker on the host Info.plist. Reused archives
+// must carry the marker before the VPN-free lane will strip and export them.
+CMUX_APPSTORE_BUILD =
 
 // Per-developer presence/paired-Mac-backup worker override, baked into the
 // CMUXPresenceBaseURL Info.plist key so a normally-tapped dev device build (which

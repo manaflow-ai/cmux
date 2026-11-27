@@ -19,7 +19,10 @@ import { baseDocsLocales } from "@/app/[locale]/components/docs-nav-items";
 import { docsChannel } from "@/app/lib/docs-channel";
 import { buildAlternates } from "@/i18n/seo";
 import { DocsSchema } from "../docs-schema";
+<<<<<<< ours
 import { ArchitectureDiagram } from "./architecture-diagram";
+=======
+>>>>>>> theirs
 
 /** Where this docs channel serves a cmux-next page: the nightly zone's public path, else /docs/next. */
 function nextDocChannelPath(slug: string): string {
@@ -46,7 +49,10 @@ function Block({ block }: { block: DocBlock }) {
   if ("ul" in block) return <ul>{block.ul.map((item) => <li key={item}>{item}</li>)}</ul>;
   if ("ol" in block) return <ol>{block.ol.map((item) => <li key={item}>{item}</li>)}</ol>;
   if ("code" in block) return <CodeBlock lang={block.lang ?? "bash"}>{block.code}</CodeBlock>;
+<<<<<<< ours
   if ("diagram" in block) return <ArchitectureDiagram caption={block.caption} />;
+=======
+>>>>>>> theirs
   if ("files" in block) {
     return (
       <table>

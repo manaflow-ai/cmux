@@ -195,6 +195,7 @@ import Testing
         let r4 = gate.hold(.typing)
         #expect(!r4)
     }
+<<<<<<< HEAD
 
     @Test func aHeldPageHoldsArrivalsUntilItLands() {
         var gate = ConversationLiveChangeGate()
@@ -216,4 +217,6 @@ import Testing
         let released = gate.release()
         #expect(released == .live(insertedRowIDs: ["a"], sentByMe: false))
     }
+=======
+>>>>>>> origin/main
 }

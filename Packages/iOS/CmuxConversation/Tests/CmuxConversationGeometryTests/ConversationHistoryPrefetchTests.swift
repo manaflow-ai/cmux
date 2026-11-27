@@ -1,9 +1,13 @@
 import CmuxConversationGeometry
+<<<<<<< HEAD
 #if canImport(CoreGraphics)
 import CoreGraphics
 #else
 import Foundation
 #endif
+=======
+import CoreGraphics
+>>>>>>> origin/main
 import Testing
 
 /// Older history is asked for well before the reader reaches it: a page

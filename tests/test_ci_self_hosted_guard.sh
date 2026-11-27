@@ -47,6 +47,8 @@ run_check() {
     done < "$out"
     name="${label//[^A-Za-z0-9_.-]/_}"
     echo "test runner-guard/$name ... FAILED"
+<<<<<<< HEAD
+=======
   fi
   rm -f "$out"
   if [ -n "${CMUX_GUARD_CHECK_RESULTS:-}" ]; then
@@ -54,9 +56,53 @@ run_check() {
   fi
 }
 
+check_cla_guard_runner() {
+  # The guard parses attacker-controlled YAML with a trusted token, so only an
+  # ephemeral runner may take it: GitHub-hosted ubuntu-24.04, or a one-job
+  # Blacksmith VM through the CI_TRUSTED_RUNNER selector. The selector cannot
+  # name a persistent machine (its allowlist lives in this base-branch file,
+  # and anything else falls back to Blacksmith). validate-cla-policy.rb holds
+  # the same exact allowlist and is the authority; this keeps it visible.
+  local hosted selector runs_on
+  hosted="    runs-on: ubuntu-24.04"
+  selector="    runs-on: \${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || contains(fromJSON('[\"ubuntu-24.04\",\"blacksmith-2vcpu-ubuntu-2404\",\"blacksmith-4vcpu-ubuntu-2404\"]'), vars.CI_TRUSTED_RUNNER) && vars.CI_TRUSTED_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}"
+  runs_on="$(grep -E '^    runs-on:' "$CLA_GUARD_FILE" || true)"
+  if [[ "$runs_on" != "$hosted" && "$runs_on" != "$selector" ]]; then
+    echo "FAIL: cla-policy-guard.yml must use ubuntu-24.04 or the CI_TRUSTED_RUNNER ephemeral selector"
+    exit 1
+>>>>>>> origin/main
+  fi
+  rm -f "$out"
+  if [ -n "${CMUX_GUARD_CHECK_RESULTS:-}" ]; then
+    printf '%s\t%s\n' "$([ "$rc" -eq 0 ] && echo 1 || echo 0)" "$label" >> "$CMUX_GUARD_CHECK_RESULTS"
+  fi
+}
+
+without_mac_grant_clause() {
+  # A same-repository pull request may take the controller's per-run grant
+  # (inputs.pr_grant, scripts/ci/mac_grants.py) before any pool label. Print
+  # the workflow with exactly that clause removed, and only where it follows an
+  # earlier `||` arm (behind the fork and owner branches), so the exact-shape
+  # checks below still pin every other arm and fallback.
+  python3 -I - "$1" <<'PYTHON'
+import sys
+from pathlib import Path
+
+GRANT = "inputs.pr_grant != '' && fromJSON(inputs.pr_grant) || "
+CLAUSES = (
+    " || github.event_name == 'pull_request' && !(inputs.full_suite == 'true' && inputs.release_build == 'true') && " + GRANT,
+    " || github.event_name == 'pull_request' && " + GRANT,
+)
+text = Path(sys.argv[1]).read_text()
+for clause in CLAUSES:
+    text = text.replace(clause, " || ")
+sys.stdout.write(text)
+PYTHON
+}
+
 check_macos_runner() {
   local file="$1" job="$2"
-  if ! awk -v job="$job" '
+  if ! without_mac_grant_clause "$file" | awk -v job="$job" '
     $0 ~ "^  "job":" { in_job=1; next }
     in_job && /^  [^[:space:]#][^:]*:[[:space:]]*(#.*)?$/ { in_job=0 }
     in_job && /runs-on:.*(vars\.MACOS_RUNNER|blacksmith-[0-9]+vcpu-macos-|fromJSON\(vars\.RUNNER_POOLS\)\.macos_|warp-macos-[0-9]+-arm64|depot-macos-)/ { saw=1 }
@@ -71,7 +117,7 @@ check_macos_runner() {
     in_job && /runs-on:[[:space:]]*\$\{\{ (needs\.late-placement\.outputs\.attempt == github\.run_attempt && fromJSON\(needs\.late-placement\.outputs\.runners \|\| .\{\}.\)\[format\(.shard-\{0\}., matrix\.shard\)\] \|\| )?(\(github\.run_attempt > 2 && \(contains\(fromJSON\(.\[.github-actions\[bot\].,.cmux-bot\[bot\].\].\), github\.triggering_actor\) \|\| github\.event_name != .pull_request.\) \|\| !contains\(inputs\.pr_owned_jobs, format\(. shard-\{0\} ., matrix\.shard\)\)\) && inputs\.pr_retry_runner \|\| )?(inputs\.pr_shard_runner \|\| )?(inputs\.pr_gui_runner \|\| )?needs\.macos-compile-admission\.outputs\.runner \}\}/ { saw=1 }
     in_job && /os:.*(vars\.MACOS_RUNNER|blacksmith-[0-9]+vcpu-macos-|warp-macos-[0-9]+-arm64|depot-macos-)/ { saw=1 }
     END { exit !(saw) }
-  ' "$file"; then
+  '; then
     echo "FAIL: $job in $(basename "$file") must run on a paid macOS runner (vars.MACOS_RUNNER_* or a Blacksmith/Warp/Depot label), not a GitHub-hosted runner"
     exit 1
   fi
@@ -91,19 +137,29 @@ check_release_build_runner_disk_capacity() {
   # paid-overflow gate appearing here, which does not belong: MACOS_RUNNER_26
   # is the free macOS 26 pool and is read ungated everywhere. See
   # docs/ci-runners.md for why the gate must not grow to cover it.
+<<<<<<< HEAD
   if ! awk -v release_runner="runs-on: \${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && !contains(fromJSON(inputs.owned_head_repos), github.event.pull_request.head.repo.full_name) && 'blacksmith-6vcpu-macos-26' || (github.event_name == 'pull_request' && contains(fromJSON(inputs.owned_head_repos), github.event.pull_request.head.repo.full_name) && (github.run_attempt <= 2 || !contains(fromJSON('[\"github-actions[bot]\",\"cmux-bot[bot]\"]'), github.triggering_actor)) || github.event_name == 'workflow_dispatch' && github.run_attempt <= 2) && contains(inputs.pr_owned_jobs, ' release-build ') && (inputs.pr_side_runner || inputs.pr_runner) || (vars.CI_BLACKSMITH_MACOS != 'on' && vars.CI_SIDE_LANE_RUNNER || vars.MACOS_RUNNER_26 || fromJSON(vars.RUNNER_POOLS).macos_26)) }}" '
+=======
+  if ! without_mac_grant_clause "$CI_MACOS_FILE" | awk -v release_runner="runs-on: \${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && !contains(fromJSON(inputs.owned_head_repos), github.event.pull_request.head.repo.full_name) && 'blacksmith-6vcpu-macos-26' || (github.event_name == 'pull_request' && contains(fromJSON(inputs.owned_head_repos), github.event.pull_request.head.repo.full_name) && (github.run_attempt <= 2 || github.triggering_actor != 'github-actions[bot]') || github.event_name == 'workflow_dispatch' && github.run_attempt <= 2) && contains(inputs.pr_owned_jobs, ' release-build ') && (inputs.pr_side_runner || inputs.pr_runner) || contains(fromJSON('[\"pull_request\",\"workflow_dispatch\"]'), github.event_name) && vars.CI_BLACKSMITH_MACOS != 'on' && (github.run_attempt <= 2 || github.triggering_actor != 'github-actions[bot]') && vars.CI_SIDE_LANE_RUNNER || vars.MACOS_RUNNER_26 || 'blacksmith-6vcpu-macos-26') }}" '
+>>>>>>> origin/main
     /^  release-build:/ { in_job=1; next }
     in_job && /^  [^[:space:]#][^:]*:[[:space:]]*(#.*)?$/ { in_job=0 }
     in_job && index($0, release_runner) { saw_release_runner=1 }
     END { exit !saw_release_runner }
+<<<<<<< HEAD
   ' "$CI_MACOS_FILE"; then
     echo "FAIL: release-build must run the disk-heavy universal build on the macOS 26 runner variable with the macos_26 pool (blacksmith-6vcpu-macos-26) as its fallback"
+=======
+  '; then
+    echo "FAIL: release-build must run the disk-heavy universal build on the macOS 26 runner variable with the exact blacksmith-6vcpu-macos-26 fallback"
+>>>>>>> origin/main
     exit 1
   fi
 
   echo "PASS: release-build uses the macOS 26 runner variable and its exact Blacksmith fallback"
 }
 
+<<<<<<< HEAD
 check_ios_runner_routing() {
   # The runner job (scripts/ci/ios_runner_pool.py) resolves the dispatch
   # override, MACOS_RUNNER_TESTS, then MACOS_RUNNER_IOS, and the owned pool;
@@ -115,6 +171,146 @@ check_ios_runner_routing() {
   # idle), falling back to runs_on.
   if [[ "$(grep -Fc "runs-on: \${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || fromJSON(github.run_attempt > 1 && contains(fromJSON('[\"github-actions[bot]\",\"cmux-bot[bot]\"]'), github.triggering_actor) && needs.runner.outputs.bot_retry_runs_on || github.run_attempt > 1 && needs.runner.outputs.retry_runs_on || needs.runner.outputs.build_runs_on || needs.runner.outputs.runs_on) }}" "$IOS_FILE")" -ne 1 ]] ||
      grep -Fq "needs.runner.outputs.package_runs_on" "$IOS_FILE"; then
+=======
+check_build_lag_deriveddata_cache_path() {
+  # A fresh checkout resets every file time, so a restored DerivedData never
+  # spares a rebuild. The job builds into a stable path and caches none of it.
+  if ! awk '
+    /^  tests-build-and-lag:/ { in_job=1; next }
+    in_job && /^  [^[:space:]#][^:]*:[[:space:]]*(#.*)?$/ { in_job=0 }
+
+    in_job && /- name: Prepare isolated DerivedData/ { in_prepare=1; next }
+    in_prepare && /^[[:space:]]*- name:/ { in_prepare=0 }
+    in_prepare && /DERIVED_DATA_PATH="\$RUNNER_TEMP\/cmux-deriveddata-tests-build-and-lag"/ { saw_prepare_path=1 }
+    in_prepare && /GITHUB_RUN_ID|GITHUB_RUN_ATTEMPT/ { saw_dynamic_prepare_path=1 }
+
+    in_job && /key:[[:space:]]*deriveddata-/ { saw_deriveddata_cache=1 }
+
+    END {
+      exit !(saw_prepare_path && !saw_dynamic_prepare_path && !saw_deriveddata_cache)
+    }
+  ' "$CI_MACOS_FILE"; then
+    echo "FAIL: tests-build-and-lag must build into the stable RUNNER_TEMP DerivedData path and must not cache DerivedData"
+    exit 1
+  fi
+
+  echo "PASS: tests-build-and-lag builds into a stable DerivedData path and caches none of it"
+}
+
+check_e2e_runner_fallbacks() {
+  if ! awk '
+    /^on:$/ { in_on=1; next }
+    in_on && /^[^[:space:]]/ { in_on=0 }
+    in_on && /^  workflow_dispatch:$/ { saw_dispatch=1; next }
+    in_on && /^  [A-Za-z0-9_-]+:/ { saw_other_trigger=1 }
+    END { exit !(saw_dispatch && !saw_other_trigger) }
+  ' "$E2E_FILE"; then
+    echo "FAIL: test-e2e.yml must remain workflow_dispatch-only"
+    exit 1
+  fi
+
+  if ! awk '
+    /^run-name:/ {
+      saw_run_name=1
+      if ($0 ~ /inputs\.test_filter/ && ($0 ~ /inputs\.runner/ || $0 ~ /depot-macos-latest/) && ($0 ~ /inputs\.ref/ || $0 ~ /github\.ref_name/)) {
+        saw_run_name_dynamic=1
+      }
+    }
+    /^concurrency:/ { in_concurrency=1; next }
+    in_concurrency && /^jobs:/ { in_concurrency=0 }
+    in_concurrency && /cancel-in-progress:[[:space:]]*true/ { saw_cancel=1 }
+    in_concurrency && (/inputs\.runner/ || /depot-macos-latest/) { saw_runner=1 }
+    in_concurrency && /inputs\.test_filter/ { saw_test_filter=1 }
+    in_concurrency && /github\.ref_name/ { saw_ref_name=1 }
+    END { exit !(saw_run_name && saw_run_name_dynamic && saw_cancel && saw_runner && saw_test_filter && saw_ref_name) }
+  ' "$E2E_FILE"; then
+    echo "FAIL: test-e2e.yml must dynamically name runs and cancel duplicate queued E2E jobs by runner, normalized ref, and test filter"
+    exit 1
+  fi
+
+  # Compilation caching is an optional optimization. Its failure must not
+  # suppress setup/test failures or make successful tests depend on the cache
+  # service. Keep the exception confined to these cache operations.
+  python3 - "$E2E_FILE" "${E2E_TEST_ACTION_FILE:-}" <<'PYTHON'
+import sys
+import yaml
+
+document = yaml.safe_load(open(sys.argv[1]))
+# The tests run in this composite action, from the build job or the fallback
+# test job, so its steps answer to the same rule. None may mask a failure.
+if len(sys.argv) > 2 and sys.argv[2]:
+    action = yaml.safe_load(open(sys.argv[2]))
+    document["jobs"]["e2e-run-tests action"] = {"steps": action["runs"]["steps"]}
+# Compilation caching, adopted DerivedData and the fast artifact transport are optimizations with
+# canonical fallbacks. Everything else must fail the job it runs in.
+allowed = {
+    ("build", "compilation-cache-restore", "Restore E2E compilation cache", "actions/cache/restore"),
+    ("build", None, "Save E2E compilation cache", "actions/cache/save"),
+    ("build", "compilation-cache-bound", "Bound E2E compilation cache", ""),
+    ("build", "revision-on-main", "Check the selected revision against main", ""),
+    ("build", "reuse", "Reuse a compiled product instead of building one", ""),
+    ("build", None, "Start the DerivedData seed download", ""),
+    ("build", "seed", "Adopt the DerivedData seed", ""),
+    ("build", None, "Forget the adopted-build inode override", ""),
+    # An owned Mac's kept build state, read only: any failure leaves the
+    # cache and seed downloads to run as they would anywhere else.
+    ("build", "owned-state", "Reuse this owned Mac's build state", ""),
+    ("build", "prefer-seed", "Prefer a near seed over this owned Mac's DerivedData", ""),
+    ("build", "owned-adopt", "Adopt this owned Mac's DerivedData", ""),
+    ("test", "parallel-product", "Read the compiled test product over parallel range requests", ""),
+    # The git object seed: a miss leaves checkout to fetch everything, and a
+    # checkout the seed breaks is retried without it by the next steps.
+    ("build", None, "Restore git object seed", ""),
+    ("build", "checkout", "Checkout", "actions/checkout"),
+    ("test", None, "Restore git object seed", ""),
+    ("test", "checkout", "Checkout", "actions/checkout"),
+    # The owned-pool rescue marker: without it the run is only not watched.
+    ("runner", "marker", "Mark a run on a persistent macOS pool", ""),
+    ("runner", None, "Upload the persistent pool marker", "actions/upload-artifact"),
+    # The sweeper's fixed-name marker: without it the run is only not watched.
+    ("runner", None, "Upload the owned-pool watch marker", "actions/upload-artifact"),
+    # The routing token (minted on both Apps, the fuller one spent): without it the pool
+    # choice reads the janitor snapshot.
+    ("runner", "route-token", "Mint the owned-pool routing token", "./.github/actions/app-token-spread"),
+    ("runner", "route-token-repo", "Mint the routing token without the org permission",
+     "./.github/actions/app-token-spread"),
+}
+for job_id, job in document["jobs"].items():
+    if "continue-on-error" in job:
+        raise SystemExit(f"FAIL: {job_id} must not mask E2E job failures")
+    for step in job.get("steps", []):
+        if "continue-on-error" not in step:
+            continue
+        identity = (job_id, step.get("id"), step.get("name"), step.get("uses", "").split("@", 1)[0])
+        if identity not in allowed or step["continue-on-error"] is not True:
+            raise SystemExit(f"FAIL: {step.get('name')} must not mask E2E setup or test failures")
+PYTHON
+
+  # The run name and the SwiftPM cache key both decide things about "the
+  # runner this job uses". If either reads a different repository variable
+  # than runs-on, it describes a runner the job does not use.
+  runner_vars="$(grep -oE "vars\.MACOS_RUNNER_[A-Z0-9_]+" "$E2E_FILE" | sort -u)"
+  if [ "$(printf '%s\n' "$runner_vars" | grep -c .)" -ne 1 ]; then
+    echo "FAIL: test-e2e.yml must select its runner from one variable, found:"
+    printf '  %s\n' $runner_vars
+    exit 1
+  fi
+
+  echo "PASS: test-e2e.yml is dispatch-only, cancels duplicate queued runs, and reads one runner variable"
+}
+
+check_ios_runner_routing() {
+  # The runner job (scripts/ci/ios_runner_pool.py) resolves the dispatch
+  # override, MACOS_RUNNER_TESTS, then MACOS_RUNNER_IOS, and the owned pool;
+  # every macOS job reads its answer, and a re-run attempt its retry answer.
+  # mobile-core-package needs no simulator, so it reads package_runs_on; the
+  # ios-simulator matrix reads sim_runs_on (glaeda's sim-first label when the
+  # picker chose it), falling back to runs_on; ios-simulator-build reads
+  # build_runs_on (the sim-first label when one is idle), falling back to runs_on.
+  if [[ "$(grep -Fc "runs-on: \${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || fromJSON(github.run_attempt > 1 && needs.runner.outputs.retry_runs_on || needs.runner.outputs.build_runs_on || needs.runner.outputs.runs_on) }}" "$IOS_FILE")" -ne 1 ]] ||
+     [[ "$(grep -Fc "runs-on: \${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || fromJSON(github.run_attempt > 1 && needs.runner.outputs.retry_runs_on || needs.runner.outputs.sim_runs_on || needs.runner.outputs.runs_on) }}" "$IOS_FILE")" -ne 1 ]] ||
+     [[ "$(grep -Fc "runs-on: \${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || fromJSON(github.run_attempt > 1 && needs.runner.outputs.retry_runs_on || needs.runner.outputs.package_runs_on) }}" "$IOS_FILE")" -ne 1 ]]; then
+>>>>>>> origin/main
     echo "FAIL: all macOS iOS test jobs must take the runner job's pool, which honors the dispatch runner override"
     exit 1
   fi
@@ -175,7 +371,11 @@ check_release_helper_artifact_from_package_lane() {
   # label, only when the picker placed ' swift-package ' in pr_owned_jobs,
   # which it does only for a run that skips the SDK 15 helper steps (pr_runner_pool.package_lane_owned()).
   # The opt-in build-fleet gateway (hq#794) likewise takes only a run without the helper.
+<<<<<<< HEAD
   if ! awk -v dual_runner="runs-on: \${{ github.repository_owner != 'manaflow-ai' && 'macos-15' || (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && !contains(fromJSON(inputs.owned_head_repos), github.event.pull_request.head.repo.full_name) && 'blacksmith-6vcpu-macos-15' || github.event_name == 'pull_request' && !(inputs.full_suite == 'true' && inputs.release_build == 'true') && vars.CI_SWIFT_PACKAGE_TESTS_STEP_GATEWAY || (github.event_name == 'pull_request' && contains(fromJSON(inputs.owned_head_repos), github.event.pull_request.head.repo.full_name) && (github.run_attempt <= 2 || !contains(fromJSON('[\"github-actions[bot]\",\"cmux-bot[bot]\"]'), github.triggering_actor)) || github.event_name == 'workflow_dispatch' && github.run_attempt <= 2) && contains(inputs.pr_owned_jobs, ' swift-package ') && (inputs.pr_side_runner || inputs.pr_runner) || vars.CI_PAID_MACOS_OVERFLOW == '1' && vars.MACOS_RUNNER_DUAL_XCODE || fromJSON(vars.RUNNER_POOLS).macos_15) }}" '
+=======
+  if ! without_mac_grant_clause "$CI_MACOS_FILE" | awk -v dual_runner="runs-on: \${{ github.repository_owner != 'manaflow-ai' && 'macos-15' || (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && !contains(fromJSON(inputs.owned_head_repos), github.event.pull_request.head.repo.full_name) && 'blacksmith-6vcpu-macos-15' || github.event_name == 'pull_request' && !(inputs.full_suite == 'true' && inputs.release_build == 'true') && vars.CI_SWIFT_PACKAGE_TESTS_STEP_GATEWAY || (github.event_name == 'pull_request' && contains(fromJSON(inputs.owned_head_repos), github.event.pull_request.head.repo.full_name) && (github.run_attempt <= 2 || github.triggering_actor != 'github-actions[bot]') || github.event_name == 'workflow_dispatch' && github.run_attempt <= 2) && contains(inputs.pr_owned_jobs, ' swift-package ') && (inputs.pr_side_runner || inputs.pr_runner) || vars.CI_PAID_MACOS_OVERFLOW == '1' && vars.MACOS_RUNNER_DUAL_XCODE || 'blacksmith-6vcpu-macos-15') }}" '
+>>>>>>> origin/main
     /^  swift-package-tests:/ { in_job=1; next }
     in_job && /^  [^[:space:]#][^:]*:[[:space:]]*(#.*)?$/ { in_job=0 }
 
@@ -209,7 +409,7 @@ check_release_helper_artifact_from_package_lane() {
     END {
       exit !(saw_dual_runner && !saw_pr_lane && saw_timeout && saw_helper_xcode_env && saw_helper_select && saw_helper_sdk_pin && saw_build_step && saw_build && saw_arch_validation && saw_helper_sdk_validation && saw_upload_step && saw_upload && saw_artifact_name && saw_select && !saw_build_after_select && !saw_upload_after_select)
     }
-  ' "$CI_MACOS_FILE"; then
+  '; then
     echo "FAIL: swift-package-tests must use the dual-Xcode runner on every event, then pin and validate the macOS 15 Ghostty helper before selecting Xcode 26"
     echo "      It builds the Release Ghostty CLI helper against an SDK 15 Xcode, which only the"
     echo "      macos-15 image carries, so it must not resolve through MACOS_RUNNER_PR."
@@ -986,6 +1186,7 @@ EOF
   echo "PASS: shared web test runner sorts recursive discovery and fails closed when empty"
 }
 
+<<<<<<< HEAD
 check_no_github_hosted_runners() {
   # Nightly workflows (*nightly*.yml, *notarization*.yml) may still name the
   # GitHub-hosted Windows image (the cmux-tui nightly's Windows package leg, retired).
@@ -995,6 +1196,99 @@ check_no_github_hosted_runners() {
   # 2026-10-28 macos-15/26 were stripped here, so nightly-next-train.yml's
   # `vars.NIGHTLY_NEXT_TRAIN_RUNNER || 'macos-26'` passed this guard. Hosted
   # Ubuntu is allowed only for centrally declared light jobs (Leo, 2026-11-01).
+=======
+check_tmux_terminal_nightly_isolation() {
+  check_macos_runner "$TMUX_CORPUS_FILE" "terminal-nightly"
+
+  if ! awk '
+    /^  terminal-nightly:/ { in_job=1; next }
+    in_job && /^  [^[:space:]#][^:]*:[[:space:]]*(#.*)?$/ { in_job=0 }
+    in_job && /CMUX_DERIVED_DATA_PATH/ { saw_env=1 }
+    in_job && /-derivedDataPath "\$CMUX_DERIVED_DATA_PATH"/ { saw_flag=1 }
+    in_job && /scripts\/ci\/xcodebuild_noninteractive\.py/ { saw_noninteractive=1 }
+    in_job && /SWIFT_BACKTRACE: "interactive=no,timeout=0s,symbolicate=off,color=no"/ { saw_backtrace=1 }
+    in_job && /All failures are expected, treating as pass/ { saw_expected_failure_handling=1 }
+    END { exit !(saw_env && saw_flag && saw_noninteractive && saw_backtrace && saw_expected_failure_handling) }
+  ' "$TMUX_CORPUS_FILE"; then
+    echo "FAIL: tmux corpus terminal-nightly must use isolated DerivedData, the noninteractive xcodebuild wrapper, and expected-failure handling"
+    exit 1
+  fi
+
+  echo "PASS: tmux corpus terminal-nightly uses isolated DerivedData, noninteractive xcodebuild, and expected-failure handling"
+}
+
+check_queue_janitor_runs_off_the_pools_it_judges() {
+  # A repair path must not run on a pool it repairs (hq
+  # docs/handbook/repair-path-on-the-pool-it-repairs.md). The queue janitor's
+  # sweep judges the owned labels (starved_labels.py: every FLEET_PREFIX label
+  # and FLEET_LINUX) and moves the Blacksmith pools (runner_pools.py), so a
+  # busy pool would hold back the sweep that relieves it: on 2026-11-20 a
+  # sweep waited 77 minutes to start. Its runs-on names no
+  # Blacksmith label, and in manaflow-ai with no repository variable set it
+  # takes a label the janitor does not judge. The variable-set fallback may
+  # name a judged label: an operator picks it while that pool is not busy.
+  python3 - "$ROOT_DIR" <<'PY'
+import pathlib, re, sys
+root = pathlib.Path(sys.argv[1])
+def fail(message):
+    print(f"FAIL: ci-queue-janitor.yml sweep: {message}")
+    sys.exit(1)
+starved = (root / "scripts/ci/starved_labels.py").read_text(encoding="utf-8")
+prefix = re.search(r'^FLEET_PREFIX = "([^"]+)"$', starved, re.M)
+fleet = re.search(r'^FLEET_LINUX = "([^"]+)"$', starved, re.M)
+if not prefix or not fleet:
+    fail("scripts/ci/starved_labels.py no longer names FLEET_PREFIX and FLEET_LINUX; update this check")
+def judged(label):
+    return label.startswith(prefix.group(1)) or label == fleet.group(1) or label.lower().startswith("blacksmith-")
+text = (root / ".github/workflows/ci-queue-janitor.yml").read_text(encoding="utf-8")
+block = re.search(r"(?ms)^  sweep:\n(.*?)(?=^  \S|\Z)", text)
+lines = [line for line in (block.group(1) if block else "").splitlines() if line.startswith("    runs-on:")]
+if len(lines) != 1:
+    fail(f"expected one runs-on line, found {len(lines)}")
+runs_on = lines[0].split("runs-on:", 1)[1].strip()
+if re.search(r"blacksmith", runs_on, re.I):
+    fail(f"names a Blacksmith label, a pool the janitor moves: {runs_on}")
+expression = re.fullmatch(r"\$\{\{(.*)\}\}", runs_on)
+operands = [part.strip() for part in (expression.group(1) if expression else repr(runs_on)).split("||")]
+# Evaluate in manaflow-ai with no repository variable set. Only the forms below
+# are understood; any other form fails, so a new route updates this check.
+default = None
+for operand in operands:
+    *conditions, result = [part.strip() for part in operand.split("&&")]
+    label = re.fullmatch(r"'([A-Za-z0-9._-]+)'", result)
+    if not label:
+        fail(f"operand {operand!r} does not end with a literal label")
+    holds = True
+    for condition in conditions:
+        owner = re.fullmatch(r"github\.repository_owner != 'manaflow-ai'", condition)
+        var = re.fullmatch(r"vars\.[A-Z0-9_]+ (==|!=) '[^']+'", condition)
+        if owner:
+            holds = False
+        elif var:
+            holds = holds and var.group(1) == "!="
+        else:
+            fail(f"condition {condition!r} is not a form this check understands")
+    if holds:
+        default = label.group(1)
+        break
+if default is None:
+    fail(f"yields no label by default: {runs_on}")
+if judged(default):
+    fail(f"takes {default} first, a label the janitor judges; lead with one it does not judge (ubuntu-24.04)")
+print(f"PASS: the queue janitor takes {default} by default, a label it does not judge, and names no Blacksmith label")
+PY
+}
+
+check_no_github_hosted_runners() {
+  # Nightly workflows (*nightly*.yml, *notarization*.yml) may still name the
+  # GitHub-hosted Windows image (cmux-tui-nightly.yml's Windows package leg).
+  # Hosted macOS is not exempt there any more: nightly Mac jobs take an owned
+  # Mac, then Blacksmith (tests/test_ci_nightly_off_blacksmith.py; Leo,
+  # 2026-10-27: "THE GITHUB HOSTED MACS / ARE THE SLOWEST THINGS"). Until
+  # 2026-10-28 macos-15/26 were stripped here, so nightly-next-train.yml's
+  # `vars.NIGHTLY_NEXT_TRAIN_RUNNER || 'macos-26'` passed this guard. Hosted
+  # Ubuntu is not exempt either (Leo, 2026-10-27: "just put it on blacksmith").
+>>>>>>> origin/main
   local nightly_hosted="(^|[^A-Za-z0-9_-])'?(windows-2025)'?([^A-Za-z0-9_.-]|$)"
   # A GitHub billing block or a GitHub-hosted outage must never stop CI, so no
   # job in manaflow-ai may select a GitHub-hosted runner (ubuntu-*, macos-*,
@@ -1007,14 +1301,31 @@ check_no_github_hosted_runners() {
   # Allowed GitHub-hosted forms:
   #   - the fork branch `github.repository_owner != 'manaflow-ai' && '<label>'`
   #     (and `&& matrix.hosted_runner`), which never evaluates in manaflow-ai;
+<<<<<<< HEAD
   #   - the label list inside the exact CI_TRUSTED_RUNNER selector, which names
   #     ephemeral sizes only: until 2026-11-18 it also accepted ubuntu-24.04,
   #     and while a variable named it the hosted pool held jobs for hours;
+=======
+  #   - the fork pull-request branch `github.event_name == 'pull_request' &&
+  #     github.event.pull_request.head.repo.full_name != github.repository &&
+  #     'ubuntu-24.04'` (optionally with the owned_head_repos exclusion), Linux only:
+  #     the persistent Linux pool registers cmux-linux, cmux-fleet-linux-x64 and every
+  #     blacksmith-{2,4,8,16,32}vcpu-ubuntu-2404 label (cmuxterm-hq linux-runner-pool
+  #     pool.sh, hq#15393), so a fork's code takes the one ephemeral label outside that
+  #     set (#47956 review; tests/test_ci_fork_runner_routing.py POOL_REGISTERED_LABELS);
+  #   - the same 'ubuntu-24.04' for a dispatch that runs a caller-chosen commit, which may be
+  #     a fork's: `needs.resolve-ref.outputs.trusted_ref != 'true' && 'ubuntu-24.04'` (the
+  #     ref is not a branch head of this repository) or `github.event_name ==
+  #     'workflow_dispatch' && inputs.ref != '' && 'ubuntu-24.04'` (#47956 review);
+  #   - the label list inside the exact CI_TRUSTED_RUNNER selector, where
+  #     GitHub-hosted is an operator choice and Blacksmith is the default;
+>>>>>>> origin/main
   #   - the exact lines in `exceptions` below, each with the reason it cannot move.
   # Runner-selection positions: runs-on, labels/group, matrix os/runner keys,
   # scalar list items, dispatch defaults, and every *RUNNER* key (env mirrors
   # and inputs feed runs-on too).
   local hosted='(^|[^A-Za-z0-9_-])(ubuntu-(latest|slim|[0-9]{2}[.][0-9]{2}(-arm)?)|macos-(latest|[0-9]+(-intel|-large|-xlarge|-arm64)?)|windows-(latest|[0-9]{4}(-arm)?|11-arm))([^A-Za-z0-9_.-]|$)'
+<<<<<<< HEAD
   # A fork pull request's branch of the one Linux label (scripts/ci/one_linux_label.py) is fork-only too:
   # a fork takes hosted Ubuntu, never an owned host (check_no_hosted_runs_on.py agrees).
   local fork_branch="github[.]repository_owner != 'manaflow-ai' [&][&] ('[A-Za-z0-9._-]+'|matrix[.]hosted_runner)|(github[.]event_name == 'pull_request' [&][&] )?github[.]event[.]pull_request[.]head[.]repo[.]full_name != github[.]repository [&][&] 'ubuntu-24[.]04' [|][|] "
@@ -1023,14 +1334,119 @@ check_no_github_hosted_runners() {
   # notarization polls, the tag permission probe) take the one-job cmux-gcp-nightly-jit-x64 label on every
   # attempt: ephemeral for the signing secrets (rule 7), never Blacksmith, and never GitHub-hosted, which starts
   # nothing in manaflow-ai (Leo, 2026-11-21: "the ci must flow"). They need no exception.
+=======
+  local fork_branch="(github[.]repository_owner != 'manaflow-ai' [&][&] ('[A-Za-z0-9._-]+'|matrix[.]hosted_runner)|github[.]event_name == 'pull_request' [&][&] github[.]event[.]pull_request[.]head[.]repo[.]full_name != github[.]repository( [&][&] !contains[(]fromJSON[(]inputs[.]owned_head_repos[)], github[.]event[.]pull_request[.]head[.]repo[.]full_name[)])? [&][&] 'ubuntu-24[.]04'|needs[.]resolve-ref[.]outputs[.]trusted_ref != 'true' [&][&] 'ubuntu-24[.]04'|github[.]event_name == 'workflow_dispatch' [&][&] inputs[.]ref != '' [&][&] 'ubuntu-24[.]04')"
+  local trusted_list='fromJSON[(]'"'"'[[]"ubuntu-24[.]04","blacksmith-2vcpu-ubuntu-2404","blacksmith-4vcpu-ubuntu-2404"(,"blacksmith-8vcpu-ubuntu-2404")?(,"cmux-gcp-secret-jit-x64")?[]]'"'"'[)], vars[.]CI_TRUSTED_RUNNER'
+>>>>>>> origin/main
   # "<workflow>:<line content>" -> why it stays GitHub-hosted. Exact lines only.
   # This is the whole allowlist: every other Linux job takes a Blacksmith label
   # sized to the job (Leo, 2026-10-27: "just put it on blacksmith / 16vcpu
   # blacksmiths do exist"), with LINUX_RUNNER or the overflow switch behind it.
+<<<<<<< HEAD
+=======
+  # Leo's 2026-11-01 exception permits hosted Ubuntu for declared light jobs: each
+  # `workflow.yml:job` in .github/runners.json `hosted_light_jobs` may name its
+  # declared hosted Ubuntu label on its own runs-on line, and nothing else may.
+  # A declaration never admits hosted macOS or Windows, a job holding an
+  # environment or a write permission, or a job that builds, signs, notarizes,
+  # publishes or releases, so declaring a build or release job cannot exempt it.
+  # Each declared job's runs-on line must appear once in its file, so copying it
+  # onto another job is still a hosted label. The validator prints the exact
+  # exception lines the scan below admits.
+  local light_out
+  if ! light_out="$(python3 - "$ROOT_DIR" <<'PY_LIGHT'
+import json, pathlib, re, sys, yaml
+root = pathlib.Path(sys.argv[1])
+declared = json.loads((root / ".github/runners.json").read_text()).get("hosted_light_jobs", {})
+UBUNTU = re.compile(r"^ubuntu-(latest|[0-9]{2}[.][0-9]{2})$")
+ANY_HOSTED = re.compile(r"(^|[^A-Za-z0-9_-])(ubuntu-(latest|slim|[0-9]{2}[.][0-9]{2}(-arm)?)|macos-[A-Za-z0-9.-]+|windows-[A-Za-z0-9.-]+)([^A-Za-z0-9_.-]|$)")
+NAME = re.compile(r"build|release|sign|notar|publish|deploy|upload|staple", re.IGNORECASE)
+WORK = re.compile(
+    r"\bxcodebuild\b|\bswift\s+(build|test)\b|\bcargo\s+(build|publish)\b|\bcodesign\b|\bnotarytool\b|\bstapler\b"
+    r"|\bnpm\s+publish\b|\bgh\s+release\b|\btwine\b|\bdocker\s+push\b|scripts/\S*(release|sign|notar|publish)\S*",
+    re.IGNORECASE)
+# Actions whose job is to build, sign, push, publish or release (owner/name, before the @ref).
+ACTION = re.compile(
+    r"(^|/)[^/]*(build|push|publish|release|sign|notar|deploy|upload-release|attest)[^/]*$"
+    r"|^docker/|^softprops/action-gh-release$|^ncipollo/release-action$|^pypa/gh-action-pypi-publish$",
+    re.IGNORECASE)
+def fail(message):
+    print(f"FAIL: hosted light job {message}")
+    raise SystemExit(1)
+def read_only(permissions):
+    """An explicit block that grants nothing above read: {} or every scope `read`/`none`. A missing block
+    inherits the repository's default token, which may write, so it never counts."""
+    if permissions == "read-all":
+        return True
+    return isinstance(permissions, dict) and all(str(v) in ("read", "none") for v in permissions.values())
+for key, entry in declared.items():
+    if key.startswith("$"):
+        continue
+    workflow_name, _, job_name = key.partition(":")
+    if not job_name or not isinstance(entry, dict):
+        fail(f"{key}: declare it as \"workflow.yml:job\" with runner and why")
+    runner, why = entry.get("runner"), entry.get("why")
+    if not isinstance(runner, str) or not UBUNTU.match(runner):
+        fail(f"{key}: only a hosted Ubuntu label may be declared, not {runner!r}")
+    if not isinstance(why, str) or not why.strip():
+        fail(f"{key}: say why it is light (a nonempty string)")
+    if NAME.search(job_name):
+        fail(f"{key}: a build, signing or release job never runs on a hosted runner")
+    path = root / ".github/workflows" / workflow_name
+    if not path.is_file():
+        fail(f"{key}: no such workflow")
+    source = path.read_text()
+    workflow = yaml.safe_load(source) or {}
+    job = (workflow.get("jobs") or {}).get(job_name)
+    if not isinstance(job, dict):
+        fail(f"{key}: no such job")
+    runs_on = job.get("runs-on")
+    if not isinstance(runs_on, str):
+        fail(f"{key}: its runs-on must be one line")
+    labels = {m.group(2) for m in ANY_HOSTED.finditer(runs_on)}
+    if labels != {runner}:
+        fail(f"{key}: runs-on may name only its declared {runner}, found {sorted(labels)}")
+    # Every value runs-on can take must be known now: the declared label itself, or the one reviewed
+    # selector that picks an allowlisted Blacksmith label or falls back to it. An input or variable
+    # anywhere else could name hosted macOS at run time.
+    blacksmith = r"blacksmith-[0-9]+vcpu-ubuntu-[0-9]{4}"
+    selector = (r"^\$\{\{ contains\(fromJSON\('\[\"" + blacksmith + r"\"(,\"" + blacksmith + r"\")*\]'\), inputs\.([A-Za-z0-9_]+)\) "
+                r"&& inputs\.\2 \|\| '" + re.escape(runner) + r"' \}\}$")
+    if runs_on.strip() != runner and not re.match(selector, runs_on.strip()):
+        fail(f"{key}: runs-on must be {runner} itself or pick only allowlisted Blacksmith labels, never an open input or variable")
+    if job.get("environment") is not None:
+        fail(f"{key}: a job with an environment never runs on a hosted runner")
+    if not read_only(job["permissions"] if "permissions" in job else workflow.get("permissions")):
+        fail(f"{key}: a hosted light job declares read-only permissions (job or workflow level)")
+    if job.get("uses"):
+        fail(f"{key}: a reusable-workflow call picks its own runners; declare the called job instead")
+    for step in job.get("steps") or []:
+        if not isinstance(step, dict):
+            fail(f"{key}: a step must be a mapping")
+        # An action works through its inputs too (docker/build-push-action's push: true), so its with and env
+        # count, and an action whose own name says it builds, signs or publishes never runs here.
+        uses = str(step.get("uses", ""))
+        if ACTION.search(uses.split("@", 1)[0]):
+            fail(f"{key}: the action {uses.split('@', 1)[0]} builds, signs, publishes or releases")
+        text = " ".join([str(step.get(field, "")) for field in ("name", "run", "uses")]
+                        + [f"{k} {v}" for field in ("with", "env") for k, v in (step.get(field) or {}).items()])
+        if WORK.search(text):
+            fail(f"{key}: it builds, signs, notarizes, publishes or releases ({WORK.search(text).group(0)})")
+    exact = [line for line in source.splitlines() if line.strip().startswith("runs-on:") and runs_on in line]
+    if len(exact) != 1:
+        fail(f"{key}: its runs-on line must appear once in {workflow_name}, found {len(exact)}")
+    print(f"{workflow_name}:{exact[0]}")
+PY_LIGHT
+)"; then
+    printf '%s\n' "$light_out" | grep '^FAIL:' | cut -c1-260
+    exit 1
+  fi
+>>>>>>> origin/main
   local -a exceptions=(
     # npm trusted publishing and --provenance accept only GitHub-hosted runners.
     "tui-publish-npm.yml:    runs-on: ubuntu-latest # github-hosted-required: npm provenance needs a github-hosted runner"
     "relay-publish-npm.yml:    runs-on: ubuntu-latest # github-hosted-required: npm provenance needs a github-hosted runner"
+<<<<<<< HEAD
     # The packages' attestations are verified with --deny-self-hosted-runners,
     # so they must be signed on a GitHub-hosted runner.
     "cmux-tui-build-package.yml:    runs-on: ubuntu-latest # github-hosted-required: artifact attestations need GitHub OIDC"
@@ -1067,11 +1483,40 @@ check_no_github_hosted_runners() {
     "nightly.yml:    runs-on: \${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.CI_NIGHTLY_MINI_PUBLISHER == 'ubuntu-24.04' && 'cmux-gcp-nightly-jit-x64' || vars.CI_NIGHTLY_MINI != '' && 'glaeda-trusted-next-signing' || needs.pick-nightly-sign-runner.outputs.attempt == github.run_attempt && needs.pick-nightly-sign-runner.outputs.sign_owned_pool || 'glaeda-trusted-next-signing' }}"
     # The operator's hosted signing switch on nightly.yml's six signing and publishing jobs (Leo, 2026-11-10:
     # "It's fine to sign on GitHub hosted tonight"). Unset, they keep the trusted signer.
+=======
+    "coderouter-publish-npm.yml:    runs-on: ubuntu-latest # github-hosted-required: npm provenance needs a GitHub-hosted runner"
+    # PyPI trusted publishing accepts only GitHub-hosted runners too.
+    "coderouter-publish-pypi.yml:    runs-on: ubuntu-latest # github-hosted-required: PyPI trusted publishing needs a GitHub-hosted runner"
+    "sdk-bootstrap-pypi.yml:    runs-on: ubuntu-latest # github-hosted-required: PyPI trusted publishing needs a GitHub-hosted runner"
+    "sdk-release-cut.yml:    runs-on: ubuntu-latest # github-hosted-required: PyPI trusted publishing needs a GitHub-hosted runner"
+    "tui-publish-pypi.yml:    runs-on: ubuntu-latest # github-hosted-required: PyPI trusted publishing needs a GitHub-hosted runner"
+    # crates.io trusted publishing (id-token: write) takes GitHub's OIDC on a GitHub-hosted runner.
+    "sdk-release-cut.yml:    runs-on: ubuntu-latest # github-hosted-required: crates.io trusted publishing needs a GitHub-hosted runner"
+    # The packages' attestations are verified with --deny-self-hosted-runners,
+    # so they must be signed on a GitHub-hosted runner.
+    "cmux-tui-build-package.yml:    runs-on: ubuntu-latest # github-hosted-required: artifact attestations need GitHub OIDC"
+>>>>>>> origin/main
   )
+  # The declared hosted light jobs' exact runs-on lines (validated above).
+  local light_line
+  while IFS= read -r light_line; do
+    [[ -n "$light_line" ]] && exceptions+=("$light_line")
+  done <<< "$light_out"
+  # An exception that names no workflow line is stale: it would quietly allow
+  # the line if it came back. Each one must match a line exactly.
+  local stale_exception
+  for stale_exception in "${exceptions[@]}"; do
+    if ! grep -qxF -- "${stale_exception#*:}" "$ROOT_DIR/.github/workflows/${stale_exception%%:*}" 2>/dev/null; then
+      echo "FAIL: GitHub-hosted runner exception matches no workflow line; remove it: $stale_exception" | cut -c1-260
+      exit 1
+    fi
+  done
   local probe
   for probe in 'runs-on: ubuntu-24.04' 'runs-on: ubuntu-latest # github-hosted-required: x' \
                "runs-on: \${{ vars.X || 'ubuntu-24.04' }}" '- os: macos-15' '          - windows-latest' \
                "runs-on: \${{ github.event_name == 'pull_request' && 'ubuntu-latest' || 'blacksmith-4vcpu-ubuntu-2404' }}" \
+               "runs-on: \${{ github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'macos-26' || 'blacksmith-6vcpu-macos-26' }}" \
+               "runs-on: \${{ github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && 'ubuntu-24.04' || 'cmux-linux' }}" \
                "LINUX_ARM64_RUNNER: \${{ vars.LINUX_ARM64_RUNNER || 'ubuntu-24.04-arm' }}" \
                "runs-on: \${{ vars.MACOS_RUNNER_BACKGROUND || 'macos-15' }}" 'runs-on: macos-15-intel' 'runs-on: windows-2025' \
                "runs-on: \${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || contains(fromJSON('[\"ubuntu-24.04\",\"blacksmith-2vcpu-ubuntu-2404\",\"blacksmith-4vcpu-ubuntu-2404\"]'), vars.CI_TRUSTED_RUNNER) && vars.CI_TRUSTED_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}" \
@@ -1083,7 +1528,18 @@ check_no_github_hosted_runners() {
   done
   for probe in "runs-on: \${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}" \
                "runs-on: \${{ github.repository_owner != 'manaflow-ai' && 'windows-2025' || 'blacksmith-4vcpu-windows-2025' }}" \
+<<<<<<< HEAD
                "runs-on: \${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || contains(fromJSON('[\"blacksmith-2vcpu-ubuntu-2404\",\"blacksmith-4vcpu-ubuntu-2404\"]'), vars.CI_TRUSTED_RUNNER) && vars.CI_TRUSTED_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}" \
+=======
+               "runs-on: \${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || contains(fromJSON('[\"ubuntu-24.04\",\"blacksmith-2vcpu-ubuntu-2404\",\"blacksmith-4vcpu-ubuntu-2404\"]'), vars.CI_TRUSTED_RUNNER) && vars.CI_TRUSTED_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}" \
+               "runs-on: \${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || contains(fromJSON('[\"ubuntu-24.04\",\"blacksmith-2vcpu-ubuntu-2404\",\"blacksmith-4vcpu-ubuntu-2404\",\"blacksmith-8vcpu-ubuntu-2404\"]'), vars.CI_TRUSTED_RUNNER) && vars.CI_TRUSTED_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}" \
+               "runs-on: \${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || vars.CI_OVERFLOW_LINUX || 'cmux-linux' }}" \
+               "runs-on: \${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && !contains(fromJSON(inputs.owned_head_repos), github.event.pull_request.head.repo.full_name) && 'ubuntu-24.04' || vars.CI_OVERFLOW_LINUX || 'cmux-linux' }}" \
+               "runs-on: \${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || contains(fromJSON('[\"ubuntu-24.04\",\"blacksmith-2vcpu-ubuntu-2404\",\"blacksmith-4vcpu-ubuntu-2404\",\"blacksmith-8vcpu-ubuntu-2404\",\"cmux-gcp-secret-jit-x64\"]'), vars.CI_TRUSTED_RUNNER) && vars.CI_TRUSTED_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}" \
+               "runs-on: \${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || contains(fromJSON('[\"ubuntu-24.04\",\"blacksmith-2vcpu-ubuntu-2404\",\"blacksmith-4vcpu-ubuntu-2404\",\"cmux-gcp-secret-jit-x64\"]'), vars.CI_TRUSTED_RUNNER) && vars.CI_TRUSTED_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}" \
+               "runs-on: \${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || 'cmux-linux' }}" \
+               "runs-on: \${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && !contains(fromJSON(inputs.owned_head_repos), github.event.pull_request.head.repo.full_name) && 'ubuntu-24.04' || 'cmux-linux' }}" \
+>>>>>>> origin/main
                '- blacksmith-6vcpu-macos-15' 'runs-on: blacksmith-4vcpu-ubuntu-2404-arm' '- warp-macos-15-arm64-6x'; do
     if printf '%s\n' "$probe" | sed -E "s/$fork_branch//g; s/$trusted_list//g" | grep -Eq "$hosted"; then
       echo "FAIL: GitHub-hosted runner guard self-test flagged an allowed runner: $probe"
@@ -1091,6 +1547,7 @@ check_no_github_hosted_runners() {
     fi
   done
 
+<<<<<<< HEAD
   # Leo permits declared lightweight jobs to use hosted Ubuntu after live fleet.
   # Resolve exact YAML job locations from the central table; an identical route
   # copied into an undeclared or signing job gets no exception.
@@ -1100,10 +1557,13 @@ check_no_github_hosted_runners() {
     return 1
   fi
 
+=======
+>>>>>>> origin/main
   # The scan over one workflow directory: prints a FAIL line per hosted label
   # in a runner-selection position that is not an exact exception. It is run
   # on fixtures first, so a narrowed key pattern cannot pass vacuously.
   hosted_scan() {
+<<<<<<< HEAD
     local dir="$1" line file content stripped exception allowed line_number
     # A runner selection spread over several lines (a block scalar, or a
     # plain or quoted scalar that wraps) is invisible to the line scan below.
@@ -1117,29 +1577,64 @@ hosted, fork, trusted, nightly = (re.compile(p) for p in sys.argv[3:7])
 key = re.compile(r"^(runs-on|runs_on|os|labels|group|[A-Za-z0-9_-]*runner[A-Za-z0-9_-]*|[A-Za-z0-9_-]*_label|fleet_linux)$", re.IGNORECASE)
 def spans(node):
     """A scalar under a runner key that starts and ends on different lines."""
+=======
+    local dir="$1" line file content stripped exception allowed
+    # YAML parses each workflow, so no spelling of a runner selection hides
+    # from the line scan below: every scalar under runs-on, os, labels, group
+    # or any key naming a runner (quoted keys, list items and values that
+    # span lines included) fails when it names a hosted label, with the same
+    # fork-branch, trusted-list and nightly rules. A one-line value may match
+    # an exact exception; a multi-line one never can. Both scans print the
+    # same line for a one-line hit, and duplicates are dropped.
+    {
+    EXCEPTIONS="$(printf '%s\n' "${exceptions[@]}")" python3 -W ignore::FutureWarning - "$dir" "$ROOT_DIR" "$hosted" "$fork_branch" "$trusted_list" "$nightly_hosted" <<'PY'
+import os, pathlib, re, sys, yaml
+root, repo = pathlib.Path(sys.argv[1]), sys.argv[2]
+exceptions = set(filter(None, os.environ.get("EXCEPTIONS", "").split("\n")))
+hosted, fork, trusted, nightly = (re.compile(p) for p in sys.argv[3:7])
+key = re.compile(r"^(runs-on|runs_on|os|labels|group|[A-Za-z0-9_-]*runner[A-Za-z0-9_-]*)$", re.IGNORECASE)
+def spans(node):
+    """Every scalar under a runner key, with whether it spans lines."""
+>>>>>>> origin/main
     if isinstance(node, yaml.MappingNode):
         for k, v in node.value:
             if isinstance(k, yaml.ScalarNode) and key.match(str(k.value)):
                 for leaf in ([v] if isinstance(v, yaml.ScalarNode) else
                              [x for x in v.value if isinstance(x, yaml.ScalarNode)] if isinstance(v, yaml.SequenceNode) else []):
+<<<<<<< HEAD
                     if leaf.end_mark.line > leaf.start_mark.line and (leaf.end_mark.column > 0 or leaf.end_mark.line > leaf.start_mark.line + 1):
                         yield k.value, leaf.start_mark.line + 1, str(leaf.value)
+=======
+                    multi = leaf.end_mark.line > leaf.start_mark.line and (leaf.end_mark.column > 0 or leaf.end_mark.line > leaf.start_mark.line + 1)
+                    yield k.value, leaf.start_mark.line + 1, str(leaf.value), multi
+>>>>>>> origin/main
             yield from spans(v)
     elif isinstance(node, yaml.SequenceNode):
         for v in node.value:
             yield from spans(v)
 for f in sorted(root.rglob("*.y*ml")):
     try:
+<<<<<<< HEAD
         doc = yaml.compose(f.read_text(encoding="utf-8"))
     except yaml.YAMLError:
         continue
     is_nightly = re.search(r"(nightly|notarization)[^/]*[.]yml$", f.name) is not None
     for name, line, text in spans(doc):
+=======
+        source = f.read_text(encoding="utf-8")
+        doc = yaml.compose(source)
+    except yaml.YAMLError:
+        continue
+    rows = source.split("\n")
+    is_nightly = re.search(r"(nightly|notarization)[^/]*[.]yml$", f.name) is not None
+    for name, line, text, multi in spans(doc):
+>>>>>>> origin/main
         text = " ".join(text.split())
         if is_nightly:
             text = nightly.sub("", text)
         if not hosted.search(trusted.sub("", fork.sub("", text))):
             continue
+<<<<<<< HEAD
         print(f"FAIL: multi-line runner selection (write it on one line so this guard can read it): "
               f"{str(f).removeprefix(repo + '/')}:{line}: {name}"[:260])
 PY
@@ -1147,6 +1642,17 @@ PY
       file="${line%%:*}"
       line_number="${line#*:}"
       line_number="${line_number%%:*}"
+=======
+        where = str(f).removeprefix(repo + "/")
+        if multi:
+            print(f"FAIL: multi-line runner selection (write it on one line so this guard can read it): "
+                  f"{where}:{line}: {name}"[:260])
+        elif f"{f.name}:{rows[line - 1]}" not in exceptions:
+            print(f"FAIL: GitHub-hosted runner label: {where}:{line}:{rows[line - 1]}"[:260])
+PY
+    while IFS= read -r line; do
+      file="${line%%:*}"
+>>>>>>> origin/main
       content="${line#*:*:}"
       [[ "$content" =~ ^[[:space:]]*# ]] && continue
       # Nightly workflows may name the hosted Windows image (above); their
@@ -1156,14 +1662,22 @@ PY
       fi
       stripped="$(printf '%s\n' "$content" | sed -E "s/$fork_branch//g; s/$trusted_list//g")"
       printf '%s\n' "$stripped" | grep -Eq "$hosted" || continue
+<<<<<<< HEAD
       if grep -Fxq "$file:$line_number" <<<"$light_locations"; then continue; fi
+=======
+>>>>>>> origin/main
       allowed=0
       for exception in "${exceptions[@]}"; do
         if [[ "$(basename "$file"):$content" == "$exception" ]]; then allowed=1; break; fi
       done
       [[ "$allowed" -eq 1 ]] && continue
       echo "FAIL: GitHub-hosted runner label: ${line#"$ROOT_DIR"/}" | cut -c1-260
+<<<<<<< HEAD
     done < <(grep -rnE "(runs-on:|^[[:space:]]+(labels|group):|[[:space:]\"](os|runs_on|runs-on|[A-Za-z0-9_-]*[Rr]unner)\"?:[[:space:]]|[A-Za-z0-9_-]*RUNNER[A-Za-z0-9_-]*:[[:space:]]|[A-Za-z0-9_-]*_LABEL:[[:space:]]|FLEET_LINUX:[[:space:]]|^[[:space:]]*-[[:space:]]+[A-Za-z0-9._-]+[[:space:]]*$|^[[:space:]]+default:[[:space:]])" "$dir")
+=======
+    done < <(grep -rnE "(runs-on:|^[[:space:]]+(labels|group):|[[:space:]\"](os|runs_on|runs-on|[A-Za-z0-9_-]*[Rr]unner)\"?:[[:space:]]|\"?[A-Za-z0-9_-]*RUNNER[A-Za-z0-9_-]*\"?:[[:space:]]|^[[:space:]]*-[[:space:]]+[A-Za-z0-9._-]+[[:space:]]*$|^[[:space:]]+default:[[:space:]])" "$dir")
+    } | awk '!seen[$0]++'
+>>>>>>> origin/main
   }
   local fixture scan_out failed=0
   fixture="$(mktemp -d)"
@@ -1179,6 +1693,16 @@ jobs:
       linux-arm64-runner: ubuntu-24.04-arm
       linux_runner: ubuntu-latest
       LINUX_BUILD_RUNNER: ubuntu-22.04
+<<<<<<< HEAD
+=======
+    env:
+      "LINUX_RUNNER": ubuntu-latest
+      'MACOS_RUNNER': macos-15
+      runner_label: ubuntu-latest
+  h:
+    runs-on:
+      - 'ubuntu-latest'
+>>>>>>> origin/main
   g:
     strategy:
       matrix:
@@ -1193,12 +1717,15 @@ jobs:
     with:
       linux_runner: >-
         ${{ vars.X || 'ubuntu-24.04' }}
+<<<<<<< HEAD
   h:
     # A placement script's label inputs become runs-on: a hosted ubuntu-24.04
     # hid here until 2026-11-19 (Leo: "Fuck GitHub"). A fork's literal is the fork branch, not this.
     env:
       SIDE_LABEL: ${{ github.event_name == 'push' && 'ubuntu-24.04' || vars.X }}
       FLEET_LINUX: ${{ github.event_name == 'push' && 'ubuntu-24.04' || vars.X }}
+=======
+>>>>>>> origin/main
 YAML
   cat > "$fixture/clean-nightly.yml" <<'YAML'
 jobs:
@@ -1209,8 +1736,11 @@ jobs:
   c:
     runs-on: >-
       ${{ vars.X || 'blacksmith-4vcpu-ubuntu-2404' }}
+<<<<<<< HEAD
   e:
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || 'cmux-linux' }}
+=======
+>>>>>>> origin/main
   d:
     env:
       CMUX_CI_RUNNER_VARIABLES: |
@@ -1219,8 +1749,13 @@ jobs:
 YAML
   scan_out="$(hosted_scan "$fixture")"
   rm -rf "$fixture"
+<<<<<<< HEAD
   if [[ "$(grep -c '^FAIL:' <<<"$scan_out")" -ne 10 ]] || grep -q 'clean-nightly.yml' <<<"$scan_out"; then
     echo "FAIL: GitHub-hosted runner guard self-test: the scan must flag exactly the ten hosted selections in its fixture and nothing in the clean one:"
+=======
+  if [[ "$(grep -c '^FAIL:' <<<"$scan_out")" -ne 12 ]] || grep -q 'clean-nightly.yml' <<<"$scan_out"; then
+    echo "FAIL: GitHub-hosted runner guard self-test: the scan must flag exactly the twelve hosted selections in its fixture and nothing in the clean one:"
+>>>>>>> origin/main
     echo "$scan_out"
     exit 1
   fi
@@ -1249,9 +1784,15 @@ YAML
 
 check_no_self_hosted_fleet_runners() {
   # Nightly workflows (*nightly*.yml, *notarization*.yml) may name the hosted
+<<<<<<< HEAD
   # Windows image. The 2026-10-19 exemption of hosted Ubuntu and macOS here is
   # gone: nightlies take an owned Mac (or, for secret-holding Linux jobs, the
   # listed hosted Ubuntu route), never Blacksmith (tests/test_nightly_never_blacksmith.py).
+=======
+  # Windows image. The 2026-10-19 "nightlies never route to Blacksmith" rule
+  # that exempted hosted Ubuntu and macOS here is gone: nightlies take an owned
+  # Mac, then Blacksmith (tests/test_ci_nightly_off_blacksmith.py).
+>>>>>>> origin/main
   local nightly_hosted="(^|[^A-Za-z0-9_-])'?(windows-2025)'?([^A-Za-z0-9_.-]|$)"
   # Required jobs route through repository variables. Forbid hardcoded fleet
   # labels so paid-provider fallback remains a configuration change and a
@@ -1482,6 +2023,7 @@ PYTHON
   # the bare capability, generic fleet labels and main selector stay guarded.
   local next_trusted_selector="fromJSON(format('[\"{0}\", \"{1}\", \"glaeda-trusted-next-nightly\"]', vars.CI_NIGHTLY_NEXT_TRUSTED_POOL, vars.CI_NIGHTLY_NEXT_TRUSTED_RUNNER))"
   local next_repository_guard="github.repository == 'manaflow-ai/cmux' && "
+<<<<<<< HEAD
   # Explicit all-nightly reservation, enabled only after managed enrollment.
   # Never exempt a bare label, another track, or an unguarded variable.
   local nightly_only_selector="github.repository == 'manaflow-ai/cmux' && needs.decide.outputs.track == 'nightly-next' && github.run_attempt == 1 && vars.CI_NIGHTLY_ONLY_RUNNER == 'glaeda-nightly-only-m4pro' && vars.CI_NIGHTLY_ONLY_RUNNER"
@@ -1498,6 +2040,90 @@ PYTHON
   # exact per-workflow selector strings drifted with every routing change
   # (#27853, #28605, #29814) and turned the guard red on base.
   local hits="" line content content_without_allowed pr_trigger
+=======
+  # The scheduled nightly-next canary and launch smoke (main's copies, which glaeda's hook admits on the
+  # nightly slot only from their schedule) may name the slot through this exact bounded read, in those two
+  # files alone. runner_label_policy.nightly_slot_reason holds the variable to glaeda-nightly-<class> labels,
+  # and test_ci_fork_runner_routing keeps secrets off any job a variable can move.
+  local nightly_slot_selector="github.event_name == 'schedule' && startsWith(vars.CI_NIGHTLY_NEXT_BUILD_RUNNER, 'glaeda-nightly-') && vars.CI_NIGHTLY_NEXT_BUILD_RUNNER"
+  # The main metadata bootstrap has no preceding picker. Accept its complete
+  # main-only selector in this job alone, without exempting other fleet labels
+  # or allowing secrets onto the shared nightly pool. RC and forks keep their
+  # existing cloud routes; untrusted workflow triggers cannot use this exception.
+  local nightly_bootstrap_line
+  nightly_bootstrap_line="$(python3 - "$ROOT_DIR/.github/workflows/nightly.yml" <<'PYTHON'
+import json
+import re
+import sys
+from pathlib import Path
+
+import yaml
+
+path = Path(sys.argv[1])
+if not path.exists():
+    sys.exit(0)
+text = path.read_text()
+# An alias can give decide another job's source position. Do not grant a
+# line exemption through aliases or merges.
+if any(isinstance(token, yaml.AliasToken) for token in yaml.scan(text)):
+    sys.exit(0)
+document = yaml.load(text, Loader=yaml.BaseLoader) or {}
+events = document.get("on", {})
+if isinstance(events, str):
+    events = [events]
+if not events or not set(events) <= {"push", "schedule", "workflow_dispatch"}:
+    sys.exit(0)
+job = (document.get("jobs") or {}).get("decide") or {}
+selector = ("${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || "
+            "github.ref == 'refs/heads/main' && "
+            "(startsWith(vars.CI_NIGHTLY_NEXT_BUILD_RUNNER, 'glaeda-nightly-') && "
+            "vars.CI_NIGHTLY_NEXT_BUILD_RUNNER || 'glaeda-nightly-std-xcode-26.6') || "
+            "github.ref == 'refs/heads/nightly-next' && github.event_name == 'push' && github.run_attempt == 1 && "
+            "(startsWith(vars.CI_NIGHTLY_NEXT_BUILD_RUNNER, 'glaeda-nightly-') && "
+            "vars.CI_NIGHTLY_NEXT_BUILD_RUNNER || 'glaeda-nightly-std-xcode-26.6') || "
+            "'blacksmith-2vcpu-ubuntu-2404' }}")
+# The classic one-mini switch (tests/test_classic_nightly_one_mini.py) may lead the same selector: a main push or
+# schedule then takes vars.CI_CLASSIC_NIGHTLY_MINI, which runner_label_policy.py holds to cmux15's nightly label.
+classic_mini = selector.replace(
+    "'ubuntu-24.04' || ",
+    "'ubuntu-24.04' || vars.CI_CLASSIC_NIGHTLY_MINI != '' && github.ref == 'refs/heads/main' && "
+    "vars.CI_CLASSIC_NIGHTLY_MINI || ", 1)
+# The nightly's reserved one-job label may take attempt 1 ahead of the vendor fallback (Leo, 2026-11-19,
+# ask-b3e8183722: "why isn't nightly getting priority then? on the linux things"). cmux-gcp-nightly-jit-x64 is an
+# ephemeral GCE runner, not a Mac fleet label; re-runs keep the Blacksmith fallback.
+jit_arm = "github.run_attempt == 1 && 'cmux-gcp-nightly-jit-x64' || 'blacksmith-2vcpu-ubuntu-2404' }}"
+accepted = [selector, classic_mini]
+accepted += [s.replace("'blacksmith-2vcpu-ubuntu-2404' }}", jit_arm) for s in accepted]
+# Main's decide runs on the same ephemeral JIT label on every attempt (the hourly :17 tick decides there, so it
+# never waits behind a Mac): the main arm names cmux-gcp-nightly-jit-x64 instead of the nightly slot.
+main_slot = ("github.ref == 'refs/heads/main' && "
+             "(startsWith(vars.CI_NIGHTLY_NEXT_BUILD_RUNNER, 'glaeda-nightly-') && "
+             "vars.CI_NIGHTLY_NEXT_BUILD_RUNNER || 'glaeda-nightly-std-xcode-26.6') || ")
+accepted += [s.replace(main_slot, "github.ref == 'refs/heads/main' && 'cmux-gcp-nightly-jit-x64' || ", 1)
+             for s in accepted if main_slot in s]
+if job.get("runs-on") not in accepted or "environment" in job:
+    sys.exit(0)
+if re.search(r"\bsecrets\b|create-github-app-token|\bprivate-key\b",
+             json.dumps([document.get("env"), job]), re.IGNORECASE):
+    sys.exit(0)
+# Source positions bind the exemption to this job's runs-on, not another
+# job that happens to spell the same selector. Duplicate keys fail closed.
+def mapping(node):
+    if not isinstance(node, yaml.MappingNode):
+        raise ValueError("expected a YAML mapping")
+    values = {key.value: value for key, value in node.value}
+    if len(values) != len(node.value):
+        raise ValueError("duplicate YAML keys")
+    return values
+
+root = mapping(yaml.compose(text, Loader=yaml.BaseLoader))
+node = mapping(mapping(root["jobs"])["decide"])["runs-on"]
+if node.start_mark.line == node.end_mark.line:
+    print(f"{path}:{node.start_mark.line + 1}:")
+PYTHON
+)" || return 1
+  local hits="" line content content_without_allowed
+>>>>>>> origin/main
   # Inspect runner-selection lines only: runs-on:, matrix `os:`, and scalar list
   # items (`  - <label>`, which covers dispatch runner dropdowns and multi-line
   # `runs-on:` arrays). `- name:` / `- uses:` step entries have a colon and are
@@ -1505,9 +2131,21 @@ PYTHON
   # before matching the value so the checkout path (which contains "cmux") can
   # never match the bare `cmux` label.
   while IFS= read -r line; do
+    [[ -n "$nightly_bootstrap_line" && "$line" == "$nightly_bootstrap_line"* ]] && continue
     content="${line#*:*:}"
     if [[ "$(basename "${line%%:*}")" == *nightly*.yml || "$(basename "${line%%:*}")" == *notarization*.yml ]]; then
       content="$(printf '%s\n' "$content" | sed -E "s/$nightly_hosted//g")"
+<<<<<<< HEAD
+=======
+    fi
+    if [[ "${line%%:*}" == "$ROOT_DIR/.github/workflows/nightly-next-canary.yml" ||
+          "${line%%:*}" == "$ROOT_DIR/.github/workflows/nightly-next-launch-smoke.yml" ]]; then
+      content="${content/"$nightly_slot_selector"/}"
+    fi
+    if [[ "${line%%:*}" == "$ROOT_DIR/.github/workflows/nightly.yml" ]]; then
+      content="${content/"$next_trusted_selector"/}"
+      content="${content/"$next_repository_guard"/}"
+>>>>>>> origin/main
     fi
     content="$(strip_nightly_only_tail "${line%%:*}" "$content")"
     if [[ "${line%%:*}" == "$ROOT_DIR/.github/workflows/nightly.yml" ]]; then
@@ -1609,7 +2247,8 @@ GUARDED = (
     " || 'blacksmith-6vcpu-macos-15')",
     # A side lane: the side label of the pool first, when the picker named one.
     "github.event_name == 'pull_request' && ((" + lane_side("claude-wrapper") + ")"
-    " || needs.changes.outputs.macos_pr_runner || vars.MACOS_RUNNER_PR || 'blacksmith-6vcpu-macos-15')",
+    " || needs.changes.outputs.macos_pr_runner || vars.CI_BLACKSMITH_MACOS != 'on' && (github.run_attempt <= 2 || github.triggering_actor != 'github-actions[bot]') && (vars.CI_SIDE_LANE_LABELS != '' && fromJSON(vars.CI_SIDE_LANE_LABELS) || vars.CI_SIDE_LANE_RUNNER)"
+    " || vars.MACOS_RUNNER_PR || 'blacksmith-6vcpu-macos-15')",
     # The bot's re-run past attempt 2 on an owned-pool run, or a job the picker did not
     # place on the owned pool: the Blacksmith pool the picker named for it.
     "github.event_name == 'pull_request' && (github.run_attempt > 2 && contains(fromJSON('[\"github-actions[bot]\",\"cmux-bot[bot]\"]'), github.triggering_actor) || !contains(needs.changes.outputs.macos_pr_owned_jobs,"
@@ -1702,6 +2341,7 @@ PYTHON
   echo "PASS: owned pool labels reach jobs only through the pull request pool picker"
 }
 
+<<<<<<< HEAD
 # ci-macos.yml jobs
 run_check check_no_github_hosted_runners
 run_check check_no_self_hosted_fleet_runners
@@ -1715,10 +2355,42 @@ run_check check_macos_runner "$GHOSTTYKIT_FILE" "build-ghosttykit"
 
 run_check check_ios_runner_routing
 
+=======
+run_check check_cla_guard_runner
+
+# ci-macos.yml jobs
+run_check check_no_github_hosted_runners
+run_check check_queue_janitor_runs_off_the_pools_it_judges
+run_check check_no_self_hosted_fleet_runners
+run_check check_owned_pools_route_through_picker
+run_check check_macos_runner "$CI_MACOS_FILE" "app-host-unit-tests"
+run_check check_macos_runner "$CI_MACOS_FILE" "macos-compile-admission"
+run_check check_macos_runner "$CI_MACOS_FILE" "tests-build-and-lag"
+run_check check_macos_runner "$CI_MACOS_FILE" "release-build"
+run_check check_release_build_runner_disk_capacity
+run_check check_display_runner_identity_guard "$CI_MACOS_FILE" "tests-build-and-lag"
+run_check check_build_lag_deriveddata_cache_path
+
+# build-ghosttykit.yml (a literal Blacksmith label: it holds GHOSTTY_RELEASE_TOKEN)
+run_check check_macos_runner "$GHOSTTYKIT_FILE" "build-ghosttykit"
+
+# ci-macos-compat.yml (matrix.os routed through the MACOS_RUNNER_* repo vars)
+run_check check_macos_runner "$COMPAT_FILE" "compat-tests"
+
+# test-e2e.yml is manual, so keep the supported GUI runner choices but cancel
+# duplicate queued runs for the same ref/filter/runner.
+run_check check_e2e_runner_fallbacks
+run_check check_ios_runner_routing
+
+>>>>>>> origin/main
 run_check check_xcode_selection
 run_check check_release_build_signal
 run_check check_release_build_disk_cleanup
 run_check check_release_helper_artifact_from_package_lane
+<<<<<<< HEAD
+=======
+run_check check_runtime_regressions_collapsed
+>>>>>>> origin/main
 run_check check_signing_intermediate_imports
 run_check check_signing_intermediate_helper_behavior
 run_check check_sentry_cli_install_portability
@@ -2015,13 +2687,21 @@ import yaml
 # Compile admission may take the pinned labels of admission-placement (this
 # attempt's) or pr_admission_runner (attempt 1's), a JSON array; the env
 # restates the first, the root label.
-WARM_RUNS_ON = ("fromJSON(needs.admission-placement.outputs.runner)", "fromJSON(inputs.pr_admission_runner)")
+# The controller's per-run grant (inputs.pr_grant) is a JSON array too: runs-on
+# takes fromJSON(inputs.pr_grant), and the env restates its root label as
+# fromJSON(inputs.pr_grant)[0] or its raw JSON as inputs.pr_grant.
+WARM_RUNS_ON = (
+    "fromJSON(needs.admission-placement.outputs.runner)",
+    "fromJSON(inputs.pr_admission_runner)",
+    "fromJSON(inputs.pr_grant)",
+)
+RAW_GRANT = ("inputs.pr_grant != '' && inputs.pr_grant || ", "inputs.pr_grant != '' && fromJSON(inputs.pr_grant) || ")
 
 
 def restated(value):
     for pinned in WARM_RUNS_ON:
         value = value.replace(pinned + "[0]", pinned)
-    return value
+    return value.replace(*RAW_GRANT)
 
 
 def mismatched_identities(document):
@@ -2054,6 +2734,19 @@ fixture["jobs"]["example"]["runs-on"] = "${{ vars.MACOS_RUNNER_PR }}"
 assert len(list(mismatched_identities(fixture))) == 2
 fixture["jobs"]["example"].pop("runs-on")
 assert len(list(mismatched_identities(fixture))) == 2
+# The grant clause's env forms restate its runs-on form; a grant only in the env still fails.
+grant = "github.event_name == 'pull_request' && inputs.pr_grant != '' && "
+grant_fixture = yaml.safe_load(f"""
+jobs:
+  example:
+    runs-on: "${{{{ {grant}fromJSON(inputs.pr_grant) || vars.MACOS_RUNNER }}}}"
+    env:
+      ROOT_RUNNER: "${{{{ {grant}fromJSON(inputs.pr_grant)[0] || vars.MACOS_RUNNER }}}}"
+      REQUESTED_RUNNER: "${{{{ {grant}inputs.pr_grant || vars.MACOS_RUNNER }}}}"
+""")
+assert not list(mismatched_identities(grant_fixture))
+grant_fixture["jobs"]["example"]["runs-on"] = "${{ vars.MACOS_RUNNER }}"
+assert len(list(mismatched_identities(grant_fixture))) == 2
 
 print("\n".join(mismatched_identities(yaml.safe_load(Path(sys.argv[1]).read_text()))))
 PYTHON
@@ -2130,6 +2823,7 @@ check_background_macos_lane() {
   # branch and the exact compatibility-leg exceptions below.
   local lane_expr="vars.MACOS_RUNNER_BACKGROUND || 'blacksmith-6vcpu-macos-15'"
   local hosted_mac='(^|[^A-Za-z0-9_-])macos-(latest|[0-9]+)(-(intel|large|xlarge|arm64))?([^A-Za-z0-9_-]|$)'
+<<<<<<< HEAD
   # The x86_64 run-time checks run under Rosetta on Blacksmith
   # (tests/test_ci_no_github_hosted_macos.py).
   # Leo, 2026-11-10: "It's fine to sign on GitHub hosted tonight". The operator switch
@@ -2137,6 +2831,11 @@ check_background_macos_lane() {
   # GitHub-hosted macOS VM while the only owned signer is off; unset, they keep the trusted signer.
   local -a hosted_exceptions=(
   )
+=======
+  # No exceptions: no job runs on a GitHub-hosted Mac
+  # (tests/test_ci_no_github_hosted_macos.py). Exact lines only if one returns.
+  local -a hosted_exceptions=()
+>>>>>>> origin/main
   local failed=0 probe
 
   # Self-test: bare or other-variable hosted labels are caught; the lane
@@ -2167,8 +2866,14 @@ check_background_macos_lane() {
     content="${line#*:*:}"
     rel="$(basename "$file")"
     # Nightly workflows are checked like every other: their Mac jobs take an
+<<<<<<< HEAD
     # owned Mac, never Blacksmith (tests/test_nightly_never_blacksmith.py). They
     # were skipped here until 2026-10-28.
+=======
+    # owned Mac, then Blacksmith (tests/test_ci_nightly_off_blacksmith.py). They
+    # were skipped here until 2026-10-28, under the retired "nightlies never run
+    # on Blacksmith" rule.
+>>>>>>> origin/main
     printf '%s\n' "$content" | strip_background_lane_expr | grep -Eq "$hosted_mac" || continue
     allowed=0
     for exception in ${hosted_exceptions[@]+"${hosted_exceptions[@]}"}; do
@@ -2216,6 +2921,10 @@ run_check check_no_ci_xctest_skips
 run_check check_no_ci_swift_package_skips
 run_check check_web_db_behavior_tests
 run_check check_web_test_runner_behavior
+<<<<<<< HEAD
+=======
+run_check check_tmux_terminal_nightly_isolation
+>>>>>>> origin/main
 run_check check_pr_macos_workflows_cancel_superseded_runs
 run_check check_ios_only_tests_stay_under_ios
 run_check check_no_paid_overflow_fallbacks

@@ -1,15 +1,24 @@
+<<<<<<< HEAD
 #if canImport(CoreGraphics)
 import CoreGraphics
 #else
 import Foundation
 #endif
+=======
+import CoreGraphics
+>>>>>>> origin/main
 import Foundation
 
 /// Rich link metadata for a URL in a message, as Messages shows it: a card
 /// with the page image, title and domain. The sender's side fetches it once
 /// and every recipient renders the same payload.
+<<<<<<< HEAD
 public struct ConversationLinkPreview: Sendable, Hashable, Codable {
     public struct Image: Sendable, Hashable, Codable {
+=======
+public struct ConversationLinkPreview: Sendable, Hashable {
+    public struct Image: Sendable, Hashable {
+>>>>>>> origin/main
         public var url: URL
         /// Pixel size, used for layout before the bytes arrive.
         public var width: Int
@@ -27,7 +36,11 @@ public struct ConversationLinkPreview: Sendable, Hashable, Codable {
         }
     }
 
+<<<<<<< HEAD
     public enum State: Sendable, Hashable, Codable {
+=======
+    public enum State: Sendable, Hashable {
+>>>>>>> origin/main
         /// Metadata is final (it may still be minimal: a bare domain).
         case loaded
         /// Metadata is still being fetched; the card shows a spinner.
@@ -156,6 +169,7 @@ public struct ConversationLinkSplit: Sendable, Hashable {
         return ConversationRichText.normalized(shifted, utf16Count: bodyText.utf16.count)
     }
 
+<<<<<<< HEAD
     #if canImport(Darwin)
     nonisolated(unsafe) private static let detector = try? NSDataDetector(types: NSTextCheckingResult.CheckingType.link.rawValue)
     #endif
@@ -173,6 +187,11 @@ public struct ConversationLinkSplit: Sendable, Hashable {
         }
         return nil
         #else
+=======
+    nonisolated(unsafe) private static let detector = try? NSDataDetector(types: NSTextCheckingResult.CheckingType.link.rawValue)
+
+    private static func urlRange(in text: String, matching url: URL) -> Range<String.Index>? {
+>>>>>>> origin/main
         var found: Range<String.Index>?
         detector?.enumerateMatches(in: text, range: NSRange(text.startIndex..., in: text)) { match, _, stop in
             guard let match, let matchURL = match.url, let range = Range(match.range, in: text) else { return }
@@ -182,7 +201,10 @@ public struct ConversationLinkSplit: Sendable, Hashable {
             }
         }
         return found
+<<<<<<< HEAD
         #endif
+=======
+>>>>>>> origin/main
     }
 
     private static func normalized(_ url: URL) -> String {
@@ -403,13 +425,19 @@ public enum ConversationLinkTint {
 /// addresses and dates, each underlined and tappable.
 // lint:allow namespace-type -- vendored CmuxConversation snapshot
 public enum ConversationDataDetection {
+<<<<<<< HEAD
     #if canImport(Darwin)
+=======
+>>>>>>> origin/main
     public static let types: NSTextCheckingTypes =
         NSTextCheckingResult.CheckingType.link.rawValue
         | NSTextCheckingResult.CheckingType.phoneNumber.rawValue
         | NSTextCheckingResult.CheckingType.address.rawValue
         | NSTextCheckingResult.CheckingType.date.rawValue
+<<<<<<< HEAD
     #endif
+=======
+>>>>>>> origin/main
 
     /// The opacity of a detected item's underline over its text color, as
     /// DataDetectorsUI lightens it (`lightUnderlineColorFromTextColor:`):
@@ -420,6 +448,7 @@ public enum ConversationDataDetection {
         saturation < 0.02 && brightness > 0.98 ? 0.46 : 0.26
     }
 
+<<<<<<< HEAD
     #if canImport(Darwin)
     // NSDataDetector is documented thread-safe for matching; it is created once.
     nonisolated(unsafe) private static let detector = try? NSDataDetector(types: types)
@@ -456,6 +485,8 @@ public enum ConversationDataDetection {
 
     #if canImport(Darwin)
 
+=======
+>>>>>>> origin/main
     /// What a tap opens: the link, a call, Maps, or Calendar at that date.
     public static func actionURL(for match: NSTextCheckingResult) -> URL? {
         switch match.resultType {
@@ -477,5 +508,8 @@ public enum ConversationDataDetection {
             return nil
         }
     }
+<<<<<<< HEAD
     #endif
+=======
+>>>>>>> origin/main
 }

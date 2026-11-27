@@ -58,7 +58,11 @@ fi
 STUB
 chmod +x "$TMP/bin/zig"
 run() { # <hangs> <failures> -> status in $status, seconds in $elapsed
+<<<<<<< HEAD
   rm -rf "$TMP/count" "$TMP/children" "$TMP/cache/tmp"/* "$TMP/cache/p"/* "$TMP/cache/p.set-aside" "$TMP/src/zig-pkg"
+=======
+  rm -rf "$TMP/count" "$TMP/children" "$TMP/cache/tmp"/* "$TMP/cache/p"/* "$TMP/src/zig-pkg"
+>>>>>>> origin/main
   : > "$TMP/children"
   # Packages an earlier run finished, which a stopped attempt must not touch.
   mkdir -p "$TMP/src/zig-pkg/N-old"
@@ -113,6 +117,7 @@ PRE_PAGE=1 run 0 0
 [ ! -e "$TMP/cache/p/N-bad.tar.gz" ] || fail "the cached gzipped page was left in the cache"
 [ -e "$TMP/cache/p/N-old.tar.gz" ] || fail "clearing a gzipped page removed a whole archive"
 
+<<<<<<< HEAD
 # A failed attempt that is not an archive's fault keeps every whole archive,
 # also when the cache path has a drive letter (C:/..., a Windows runner's
 # `zig env`), which GNU tar reads as HOST:FILE: each check failed there, and
@@ -148,6 +153,8 @@ env -u ZIG_GLOBAL_CACHE_DIR -u CMUX_ZIG CMUX_ZIG_SEED=0 PATH="$TMP/badtar:$TMP/b
 grep -q "no archive in p/ is removed" "$TMP/out" || fail "a broken archive check was not reported"
 rm -f "$TMP/cache/p/N-short.tar.gz"
 
+=======
+>>>>>>> origin/main
 # A hung first attempt is stopped once it makes no progress, with its child,
 # and the second attempt succeeds.
 run 1 0
@@ -162,6 +169,7 @@ children_gone || fail "the hung attempt's child process outlived its deadline"
 [ -d "$TMP/src/zig-pkg/N-old" ] && [ -e "$TMP/cache/p/N-old.tar.gz" ] || fail "clearing a hung attempt removed a finished package"
 [ -d "$TMP/cache/p/N-done" ] || fail "the second attempt did not fetch"
 (( elapsed < 20 )) || fail "one 2 s stall took ${elapsed}s"
+<<<<<<< HEAD
 [ ! -e "$TMP/cache/p.set-aside" ] || fail "one stall set the package cache aside"
 grep -q "the stalled attempt's processes" "$TMP/out" || fail "a stall did not print what its processes were doing"
 
@@ -175,6 +183,8 @@ grep -q "set .*/p aside to .*/p.set-aside" "$TMP/out" || fail "two stalls did no
 [ ! -e "$TMP/cache/p/N-old.tar.gz" ] || fail "the attempt after two stalls still had the old archives"
 [ -d "$TMP/cache/p/N-done" ] || fail "the attempt after two stalls did not fetch into a fresh p/"
 children_gone || fail "a hung attempt's child process outlived its deadline"
+=======
+>>>>>>> origin/main
 
 # A slow fetch that keeps progressing runs past the stall timeout and passes.
 FAKE_ZIG_SLOW=6 run 0 0
@@ -226,6 +236,7 @@ default_limit="$(sed -n 's/^attempt_timeout="${CMUX_ZIG_FETCH_ATTEMPT_TIMEOUT:-\
 
 # Workflows fetch through the action, which skips the download when the
 # packages are on the machine or in the cache store, and runs this script.
+<<<<<<< HEAD
 # The seed runs before every attempt, not only the first: under mirror only Zig
 # cannot reach an upstream host, so an archive the first seed missed failed all
 # 4 attempts alike (cmux_next_ daemon tests job 137478621868, 2026-11-23).
@@ -250,6 +261,9 @@ env -u ZIG_GLOBAL_CACHE_DIR -u CMUX_ZIG -u CMUX_ZIG_SEED PATH="$TMP/bin:$PATH" F
 direct="$(grep -lE '^[^#]*fetch-ghostty-zig-packages\.sh' "$ROOT"/.github/workflows/*.yml | while read -r f; do
   grep -vE "^[[:space:]]*-[[:space:]]*[\"']?scripts/ci/fetch-ghostty-zig-packages\.sh[\"']?[[:space:]]*$" "$f" | grep -qE '^[^#]*fetch-ghostty-zig-packages\.sh' && echo "$f"
 done || true)"
+=======
+direct="$(grep -ln 'fetch-ghostty-zig-packages\.sh' "$ROOT"/.github/workflows/*.yml || true)"
+>>>>>>> origin/main
 [ -z "$direct" ] || { echo "FAIL: these workflows run the fetch script directly instead of .github/actions/ghostty-zig-packages: $direct" >&2; exit 1; }
 grep -q 'scripts/ci/fetch-ghostty-zig-packages.sh' "$ROOT/.github/actions/ghostty-zig-packages/action.yml" \
   || { echo "FAIL: the ghostty-zig-packages action no longer runs the deadlined fetch" >&2; exit 1; }
@@ -258,9 +272,12 @@ grep -q 'scripts/ci/fetch-ghostty-zig-packages.sh' "$ROOT/.github/actions/ghostt
 save_if="$(grep -A1 'name: Save the Zig packages' "$ROOT/.github/actions/ghostty-zig-packages/action.yml" | sed -n 's/.*if: //p')"
 [[ "$save_if" == *"github.event_name == 'push'"* ]] \
   || { echo "FAIL: the Zig package cache is saved on more than push events: $save_if" >&2; exit 1; }
+<<<<<<< HEAD
 # And only a feat-cmux-next push: an entry belongs to the ref that saved it, so a lane branch's
 # copy is read by that branch alone (2026-11-18: 18 lane copies of one 110 MB key).
 [[ "$save_if" == *"github.event_name == 'push' && github.ref == 'refs/heads/feat-cmux-next'"* ]] \
   || { echo "FAIL: the Zig package cache is saved from pushes to other branches: $save_if" >&2; exit 1; }
+=======
+>>>>>>> origin/main
 
 echo "PASS: Ghostty Zig packages are fetched with bounded, progress-deadlined retries"

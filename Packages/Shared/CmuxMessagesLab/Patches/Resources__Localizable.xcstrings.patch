@@ -1,6 +1,10 @@
 --- a/Sources/MessagesLabHome/Resources/Localizable.xcstrings
 +++ b/Sources/MessagesLabHome/Resources/Localizable.xcstrings
+<<<<<<< HEAD
 @@ -4,1210 +4,9304 @@
+=======
+@@ -4,1125 +4,8649 @@
+>>>>>>> origin/main
      "compose.placeholder.reply": {
        "extractionState": "manual",
        "localizations": {
@@ -1500,6 +1504,7 @@
 -          }
 -        }
 -      }
+<<<<<<< HEAD
 -    },
 -    "label.replies.one": {
 -      "extractionState": "manual",
@@ -1585,6 +1590,8 @@
 -          }
 -        }
 -      }
+=======
+>>>>>>> origin/main
 -    }
 -  },
 -  "version": "1.0"
@@ -9134,6 +9141,7 @@
 +        }
 +      }
 +    },
+<<<<<<< HEAD
 +    "label.replies.one": {
 +      "extractionState": "manual",
 +      "localizations": {
@@ -9265,6 +9273,8 @@
 +        }
 +      }
 +    },
+=======
+>>>>>>> origin/main
 +    "markdown.image.placeholder": {
 +      "extractionState": "manual",
 +      "localizations": {
@@ -9657,6 +9667,7 @@
 +          }
 +        }
 +      }
+<<<<<<< HEAD
 +    },
 +    "thread.back": {
 +      "extractionState": "manual",
@@ -10181,6 +10192,8 @@
 +          }
 +        }
 +      }
+=======
+>>>>>>> origin/main
 +    }
 +  },
 +  "version": "1.0"

@@ -5,6 +5,7 @@ use cmux_remote::ssh_bootstrap::{BootstrapOutcome, SshBootstrapConfig, SshBootst
 use cmux_remote_protocol::REMOTE_PROTOCOL_VERSION;
 use sha2::{Digest, Sha256};
 use std::fs;
+<<<<<<< ours
 use std::io::Write as _;
 use std::path::Path;
 use std::process::{Command, Stdio};
@@ -33,6 +34,10 @@ fn write_executable(path: impl AsRef<Path>, contents: impl AsRef<[u8]>) {
     assert!(child.wait().unwrap().success(), "could not write {}", path.as_ref().display());
 }
 
+=======
+use std::os::unix::fs::PermissionsExt;
+
+>>>>>>> theirs
 struct Fixture {
     _directory: tempfile::TempDir,
     config: SshBootstrapConfig,
@@ -73,7 +78,11 @@ impl Fixture {
             "remote_protocol": REMOTE_PROTOCOL_VERSION, "os": os, "arch": "aarch64",
         });
         let script = directory.path().join("ssh");
+<<<<<<< ours
         write_executable(
+=======
+        cmux_test_exec::write_executable(
+>>>>>>> theirs
             &script,
             format!(
                 r#"#!/bin/sh
@@ -92,9 +101,15 @@ esac
                 staged = staged.display(),
                 installed = installed.display()
             ),
+<<<<<<< ours
         );
         let mut config =
             SshBootstrapConfig::defaults("host", BUILD_IDENTITY, DISTRIBUTION_VERSION, None);
+=======
+        )
+        .unwrap();
+        let mut config = SshBootstrapConfig::defaults("host");
+>>>>>>> theirs
         config.ssh_binary = script.to_string_lossy().into_owned();
         config.package_installable = false;
         config.local_binary = Some(source);
@@ -206,7 +221,11 @@ impl OnDemandFixture {
             "remote_protocol": REMOTE_PROTOCOL_VERSION, "os": self.os, "arch": "aarch64",
         });
         let script = root.join("ssh");
+<<<<<<< ours
         write_executable(
+=======
+        cmux_test_exec::write_executable(
+>>>>>>> theirs
             &script,
             format!(
                 r#"#!/bin/sh
@@ -227,9 +246,15 @@ esac
                 staged = staged.display(),
                 installed = installed.display()
             ),
+<<<<<<< ours
         );
         let mut config =
             SshBootstrapConfig::defaults(host, BUILD_IDENTITY, DISTRIBUTION_VERSION, None);
+=======
+        )
+        .unwrap();
+        let mut config = SshBootstrapConfig::defaults(host);
+>>>>>>> theirs
         config.ssh_binary = script.to_string_lossy().into_owned();
         config.package_installable = false;
         config.local_binary = Some(self.directory.path().join("app/cmux-tui"));
@@ -544,7 +569,11 @@ impl NpmFixture {
             "remote_protocol": REMOTE_PROTOCOL_VERSION, "os": "linux", "arch": "aarch64",
         });
         let script = directory.path().join("ssh");
+<<<<<<< ours
         write_executable(
+=======
+        cmux_test_exec::write_executable(
+>>>>>>> theirs
             &script,
             format!(
                 r#"#!/bin/sh
@@ -566,9 +595,15 @@ esac
                 staged = staged.display(),
                 installed = installed.display(),
             ),
+<<<<<<< ours
         );
         let mut config =
             SshBootstrapConfig::defaults("host", BUILD_IDENTITY, DISTRIBUTION_VERSION, None);
+=======
+        )
+        .unwrap();
+        let mut config = SshBootstrapConfig::defaults("host");
+>>>>>>> theirs
         config.ssh_binary = script.to_string_lossy().into_owned();
         config.package_version = "9.9.9".into();
         config.package_installable = true;
@@ -684,8 +719,13 @@ impl NonPosixLoginShellFixture {
         fs::write(registry.join("package/bin/cmux-tui"), &binary).unwrap();
         let fake_bin = root.join("fake-bin");
         fs::create_dir(&fake_bin).unwrap();
+<<<<<<< ours
         write_executable(
             fake_bin.join("npm"),
+=======
+        cmux_test_exec::write_executable(
+            &fake_bin.join("npm"),
+>>>>>>> theirs
             format!(
                 r#"#!/bin/sh
 [ "$1 $2 $3 $4" = 'pack --ignore-scripts --silent {npm_package}@9.9.9' ] || exit 9
@@ -695,11 +735,20 @@ tar -czf '{npm_package}-9.9.9.tgz' -C '{registry}' package
                 registry = registry.display(),
                 notice = if notice { NPM_NOTICE } else { "" },
             ),
+<<<<<<< ours
         );
+=======
+        )
+        .unwrap();
+>>>>>>> theirs
 
         let rejected = root.join("rejected");
         let script = root.join("ssh");
+<<<<<<< ours
         write_executable(
+=======
+        cmux_test_exec::write_executable(
+>>>>>>> theirs
             &script,
             format!(
                 r#"#!/bin/sh
@@ -729,7 +778,12 @@ exit 127
                 rejected = rejected.display(),
                 notice = if notice { NPM_NOTICE } else { ":" },
             ),
+<<<<<<< ours
         );
+=======
+        )
+        .unwrap();
+>>>>>>> theirs
 
         let mut config =
             SshBootstrapConfig::defaults("host", BUILD_IDENTITY, DISTRIBUTION_VERSION, None);

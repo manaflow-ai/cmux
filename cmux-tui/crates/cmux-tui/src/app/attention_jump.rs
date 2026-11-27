@@ -6,12 +6,17 @@
 //! reports client focus and acknowledges the tab like any user focus change.
 
 use cmux_tui_core::SurfaceId;
+<<<<<<< ours
 use ghostty_vt::ProgramStatusState;
 
 use crate::app::layout::SidebarTabTarget;
 use crate::app::menu::MenuItem;
 use crate::app::menu::context_menu::ContextMenu;
 use crate::app::{App, MenuAction};
+=======
+
+use super::{App, ContextMenu, MenuAction, MenuItem, SidebarTabTarget};
+>>>>>>> theirs
 use crate::attention::{
     AttentionCandidate, AttentionKind, AttentionLevel, attention_queue, next_attention,
 };
@@ -23,8 +28,11 @@ pub(crate) struct AttentionEntry {
     pub candidate: AttentionCandidate<SurfaceId>,
     pub workspace: String,
     pub tab: String,
+<<<<<<< ours
     /// The agent's reason for a requested tab.
     pub reason: Option<String>,
+=======
+>>>>>>> theirs
 }
 
 /// The tabs of `tree` that need the person, in queue order. `agents` is the
@@ -38,6 +46,7 @@ pub(crate) fn tree_attention_entries(tree: &TreeView, agents: &[AgentInfo]) -> V
             for pane in &screen.panes {
                 for tab in &pane.tabs {
                     position = position.saturating_add(1);
+<<<<<<< ours
                     let mut push = |kind, level, age| {
                         candidates.push(AttentionCandidate {
                             key: tab.surface,
@@ -72,24 +81,42 @@ pub(crate) fn tree_attention_entries(tree: &TreeView, agents: &[AgentInfo]) -> V
                             AttentionLevel::parse(notification.level),
                             notification.sequence,
                         );
+=======
+                    if let Some(notification) = tab.notification.filter(|marker| marker.unread) {
+                        candidates.push(AttentionCandidate {
+                            key: tab.surface,
+                            kind: AttentionKind::Unread,
+                            level: AttentionLevel::parse(notification.level),
+                            age: notification.sequence,
+                            position,
+                        });
+>>>>>>> theirs
                     }
                     let name = tab.name.as_deref().filter(|name| !name.is_empty());
                     let title = if tab.title.is_empty() { "shell" } else { tab.title.as_str() };
                     labels.insert(
                         tab.surface,
+<<<<<<< ours
                         (
                             workspace.name.clone(),
                             name.unwrap_or(title).to_string(),
                             tab.attention.as_ref().map(|mark| mark.reason.to_string()),
                             position,
                         ),
+=======
+                        (workspace.name.clone(), name.unwrap_or(title).to_string(), position),
+>>>>>>> theirs
                     );
                 }
             }
         }
     }
     for agent in agents.iter().filter(|agent| agent.state == "blocked") {
+<<<<<<< ours
         if let Some((_, _, _, position)) = labels.get(&agent.surface) {
+=======
+        if let Some((_, _, position)) = labels.get(&agent.surface) {
+>>>>>>> theirs
             candidates.push(AttentionCandidate {
                 key: agent.surface,
                 kind: AttentionKind::Blocked,
@@ -102,8 +129,13 @@ pub(crate) fn tree_attention_entries(tree: &TreeView, agents: &[AgentInfo]) -> V
     attention_queue(candidates)
         .into_iter()
         .filter_map(|candidate| {
+<<<<<<< ours
             let (workspace, tab, reason, _) = labels.get(&candidate.key)?.clone();
             Some(AttentionEntry { candidate, workspace, tab, reason })
+=======
+            let (workspace, tab, _) = labels.get(&candidate.key)?.clone();
+            Some(AttentionEntry { candidate, workspace, tab })
+>>>>>>> theirs
         })
         .collect()
 }
@@ -114,16 +146,24 @@ impl App {
     }
 
     /// `next-attention`: focus the tab after the focused one in the queue,
+<<<<<<< ours
     /// or the first. A toast says so when nothing needs the person, and
     /// shows the agent's reason when the jump lands on a requested tab.
     pub(super) fn jump_to_next_attention(&mut self) -> anyhow::Result<()> {
         let entries = self.attention_entries();
         let queue: Vec<_> = entries.iter().map(|entry| entry.candidate.clone()).collect();
+=======
+    /// or the first. A toast says so when nothing needs the person.
+    pub(super) fn jump_to_next_attention(&mut self) -> anyhow::Result<()> {
+        let queue: Vec<_> =
+            self.attention_entries().into_iter().map(|entry| entry.candidate).collect();
+>>>>>>> theirs
         let current = self.active_surface();
         let Some(target) = next_attention(&queue, current.as_ref()).map(|entry| entry.key) else {
             self.show_toast(localization::catalog().attention.nothing.to_string());
             return Ok(());
         };
+<<<<<<< ours
         let reason = entries
             .iter()
             .find(|entry| entry.candidate.key == target)
@@ -133,6 +173,9 @@ impl App {
             self.show_toast(format!("{}: {reason}", localization::catalog().attention.needs_you));
         }
         Ok(())
+=======
+        self.focus_attention_surface(target)
+>>>>>>> theirs
     }
 
     /// `attention-list`: a searchable list of the queue; Enter focuses the
@@ -166,7 +209,11 @@ impl App {
     }
 
     /// Focus `surface` the way a sidebar tab click does. A tab that left
+<<<<<<< ours
     /// the tree since the queue was read is skipped.
+=======
+    /// the tree since the queue was read gets a toast instead.
+>>>>>>> theirs
     pub(super) fn focus_attention_surface(&mut self, surface: SurfaceId) -> anyhow::Result<()> {
         let location = self.tree.workspaces().iter().enumerate().find_map(|(w, workspace)| {
             workspace.screens.iter().enumerate().find_map(|(s, screen)| {
@@ -176,7 +223,14 @@ impl App {
                 })
             })
         });
+<<<<<<< ours
         let Some((workspace, screen, pane, index)) = location else { return Ok(()) };
+=======
+        let Some((workspace, screen, pane, index)) = location else {
+            self.show_toast(localization::catalog().attention.gone.to_string());
+            return Ok(());
+        };
+>>>>>>> theirs
         self.activate_sidebar_tab(&SidebarTabTarget {
             workspace,
             screen,
@@ -190,6 +244,7 @@ impl App {
     }
 }
 
+<<<<<<< ours
 /// `! work › claude · needs you: approve deploy`: the marker (`!` the person
 /// must act, `•` done or unread), the workspace, the tab, and why.
 fn attention_row_label(entry: &AttentionEntry) -> String {
@@ -205,6 +260,15 @@ fn attention_row_label(entry: &AttentionEntry) -> String {
         AttentionKind::Blocked => ("!", messages.blocked.to_string()),
         AttentionKind::Done => ("•", messages.done.to_string()),
         AttentionKind::Unread => ("•", messages.unread.to_string()),
+=======
+/// `! work › claude · waiting on you`: the marker (`!` the person must act,
+/// `•` unread), the workspace, the tab, and why.
+fn attention_row_label(entry: &AttentionEntry) -> String {
+    let messages = &localization::catalog().attention;
+    let (marker, detail) = match entry.candidate.kind {
+        AttentionKind::Blocked => ("!", messages.blocked),
+        AttentionKind::Unread => ("•", messages.unread),
+>>>>>>> theirs
     };
     let label = format!("{marker} {} › {} · {detail}", entry.workspace, entry.tab);
     crate::ui::truncate(&label, 72)

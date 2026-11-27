@@ -19,6 +19,10 @@ final class ConversationHeaderView: UIView {
     private let unreadLabel = UILabel()
     private let unreadPill = UIView()
     private var avatars: [ConversationAvatarView] = []
+<<<<<<< HEAD
+=======
+    private var avatarImage: UIImage?
+>>>>>>> origin/main
     /// The avatar or group cluster: the details zoom out of (and back into) it.
     let avatarContainer = UIView()
     /// Group chats seat their avatar cluster on a 60 pt glass disc.
@@ -51,6 +55,7 @@ final class ConversationHeaderView: UIView {
     var onInfo: (() -> Void)?
     var onTrailing: (() -> Void)?
     var trailingSymbol = "video"
+<<<<<<< HEAD
     var presentation = ConversationHeaderPresentation() {
         didSet {
             if let label = presentation.avatarAccessibilityLabel { avatarTapButton.accessibilityLabel = label }
@@ -74,6 +79,10 @@ final class ConversationHeaderView: UIView {
         trailingButton.menu = menu
         trailingButton.showsMenuAsPrimaryAction = menu != nil
     }
+=======
+    var trailingAccessibilityLabel: String?
+    private(set) var trailingMode: TrailingMode = .action
+>>>>>>> origin/main
 
     static let contentHeight: CGFloat = 92
     /// Above the name capsule (z 0), so the avatar occludes it.
@@ -88,9 +97,15 @@ final class ConversationHeaderView: UIView {
         backButton.accessibilityLabel = String(localized: "conversation.header.back", defaultValue: "Back", bundle: .module)
         backButton.addAction(UIAction { [weak self] _ in self?.onBack?() }, for: .touchUpInside)
         // Dark: a near-white pill (243) under the count; light keeps the inverse.
+<<<<<<< HEAD
         unreadPill.backgroundColor = UIColor.resolving { $0.userInterfaceStyle == .dark ? UIColor(white: 243.0 / 255, alpha: 1) : UIColor(white: 0.25, alpha: 1) }
         unreadLabel.font = .systemFont(ofSize: ConversationHeaderGeometry.unreadFontSize, weight: .medium)
         unreadLabel.textColor = UIColor.resolving { $0.userInterfaceStyle == .dark ? .black : .white }
+=======
+        unreadPill.backgroundColor = UIColor { $0.userInterfaceStyle == .dark ? UIColor(white: 243.0 / 255, alpha: 1) : UIColor(white: 0.25, alpha: 1) }
+        unreadLabel.font = .systemFont(ofSize: ConversationHeaderGeometry.unreadFontSize, weight: .medium)
+        unreadLabel.textColor = UIColor { $0.userInterfaceStyle == .dark ? .black : .white }
+>>>>>>> origin/main
         unreadLabel.textAlignment = .center
         backGlass.contentView.addSubview(unreadPill)
         unreadPill.addSubview(unreadLabel)
@@ -158,7 +173,12 @@ final class ConversationHeaderView: UIView {
     @available(*, unavailable)
     required init?(coder: NSCoder) { fatalError() }
 
+<<<<<<< HEAD
     func configure(info: ConversationInfo, meID: String?, unreadCount: Int) {
+=======
+    func configure(info: ConversationInfo, meID: String?, unreadCount: Int, avatarImage: UIImage? = nil) {
+        self.avatarImage = avatarImage
+>>>>>>> origin/main
         nameLabel.text = info.title
         nameButton.accessibilityLabel = info.title
         let others = info.participants.filter { $0.id != meID }
@@ -166,7 +186,11 @@ final class ConversationHeaderView: UIView {
         avatars.forEach { $0.removeFromSuperview() }
         avatars = shown.map { participant in
             let view = ConversationAvatarView()
+<<<<<<< HEAD
             view.configure(initials: participant.initials, colorHex: nil)
+=======
+            view.configure(initials: participant.initials, colorHex: nil, image: avatarImage)
+>>>>>>> origin/main
             view.layer.borderWidth = info.kind == .group ? ConversationHeaderGeometry.groupClusterRingWidth : 0
             avatarContainer.addSubview(view)
             return view
@@ -182,13 +206,19 @@ final class ConversationHeaderView: UIView {
 
     func setConnectionStatus(_ text: String?) {
         statusLabel.text = text
+<<<<<<< HEAD
         // motion: allow crossfade, the Reduce Motion form
+=======
+>>>>>>> origin/main
         UIView.animate(withDuration: 0.25) { self.statusLabel.alpha = text == nil ? 0 : 1 }
     }
 
     func setTrailingMode(_ mode: TrailingMode, animated: Bool, delay: TimeInterval = 0, duration: TimeInterval = 0.2) {
         trailingMode = mode
+<<<<<<< HEAD
         applyTrailingMenu()
+=======
+>>>>>>> origin/main
         let isX = mode != .action
         let symbol = isX ? "xmark" : trailingSymbol
         let apply = {
@@ -199,6 +229,7 @@ final class ConversationHeaderView: UIView {
                 ? String(localized: "conversation.select.cancel", defaultValue: "Cancel", bundle: .module)
                 : mode == .close
                 ? String(localized: "conversation.header.close", defaultValue: "Close", bundle: .module)
+<<<<<<< HEAD
                 : self.presentation.actionAccessibilityLabel ?? (self.trailingSymbol.hasPrefix("video")
                     ? String(localized: "conversation.ax.facetime", defaultValue: "FaceTime", bundle: .module)
                     : String(localized: "conversation.header.action", defaultValue: "Call", bundle: .module))
@@ -206,17 +237,32 @@ final class ConversationHeaderView: UIView {
         guard animated else { apply(); return }
         guard delay > 0 else {
             // motion: allow crossfade, the Reduce Motion form
+=======
+                : (self.trailingAccessibilityLabel
+                    ?? (self.trailingSymbol.hasPrefix("video")
+                    ? String(localized: "conversation.ax.facetime", defaultValue: "FaceTime", bundle: .module)
+                    : String(localized: "conversation.header.action", defaultValue: "Call", bundle: .module)))
+        }
+        guard animated else { apply(); return }
+        guard delay > 0 else {
+>>>>>>> origin/main
             UIView.transition(with: trailingButton, duration: duration, options: .transitionCrossDissolve, animations: apply)
             return
         }
         // A delayed change fades the old glyph out and the new one in.
+<<<<<<< HEAD
         // motion: allow crossfade, the Reduce Motion form
+=======
+>>>>>>> origin/main
         UIView.animate(withDuration: 0.05, delay: delay, options: [.beginFromCurrentState]) {
             self.trailingButton.alpha = 0
         } completion: { _ in
             guard self.trailingMode == mode else { return }
             apply()
+<<<<<<< HEAD
             // motion: allow crossfade, the Reduce Motion form
+=======
+>>>>>>> origin/main
             UIView.animate(withDuration: duration) { self.trailingButton.alpha = 1 }
         }
     }
@@ -232,6 +278,7 @@ final class ConversationHeaderView: UIView {
 
     override func traitCollectionDidChange(_ previousTraitCollection: UITraitCollection?) {
         super.traitCollectionDidChange(previousTraitCollection)
+<<<<<<< HEAD
         if traitCollection.changesTextMetrics(from: previousTraitCollection) { applyScaledFonts() }
         if traitCollection.verticalSizeClass != previousTraitCollection?.verticalSizeClass { setNeedsLayout() }
     }
@@ -241,6 +288,15 @@ final class ConversationHeaderView: UIView {
         setNeedsLayout()
     }
 
+=======
+        if traitCollection.changesTextMetrics(from: previousTraitCollection) {
+            nameLabel.font = Self.nameFont
+            setNeedsLayout()
+        }
+        if traitCollection.verticalSizeClass != previousTraitCollection?.verticalSizeClass { setNeedsLayout() }
+    }
+
+>>>>>>> origin/main
     override func layoutSubviews() {
         super.layoutSubviews()
         let top = safeAreaInsets.top
@@ -372,7 +428,10 @@ final class ConversationHeaderView: UIView {
         backGlass.isUserInteractionEnabled = !hidden
         backGlass.accessibilityElementsHidden = hidden
         guard animated else { apply(); return }
+<<<<<<< HEAD
         // motion: allow crossfade, the Reduce Motion form
+=======
+>>>>>>> origin/main
         UIView.animate(withDuration: duration, delay: delay, options: [.beginFromCurrentState], animations: apply)
     }
 

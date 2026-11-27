@@ -10,6 +10,7 @@
 
 mod agent_hook_question;
 mod agent_hooks;
+<<<<<<< ours
 pub mod agent_launch;
 pub mod agent_message_prompt;
 pub mod agent_start_launch;
@@ -20,6 +21,10 @@ pub mod packed_catalogs;
 pub mod route_table;
 /// Daemon primitives; the cmux-tui-util crate, re-exported at the old paths.
 pub use cmux_tui_util::backoff;
+=======
+mod agent_status;
+pub mod backoff;
+>>>>>>> theirs
 mod browser;
 pub mod browser_host;
 mod browser_host_history;
@@ -81,6 +86,7 @@ pub mod launch_credential;
 use cmux_tui_util::machine_name;
 mod model;
 mod mux;
+<<<<<<< ours
 /// Remote access state; the cmux-tui-remote-access crate, re-exported at the old paths.
 use cmux_tui_remote_access::pairing;
 mod output_store;
@@ -89,6 +95,10 @@ mod panic_free;
 mod paste_pacing;
 mod program_status;
 mod prompt_mode_reset;
+=======
+mod output_store;
+mod pairing;
+>>>>>>> theirs
 pub mod provider_management;
 mod pty_input_room;
 #[cfg(unix)]
@@ -142,6 +152,7 @@ mod terminal_end;
 mod terminal_loss_cause;
 #[cfg(any(unix, windows))]
 mod terminal_loss_log;
+mod terminal_command;
 mod terminal_metadata;
 mod terminal_tail;
 pub use cmux_tui_util::terminal_respawn_text;
@@ -168,15 +179,25 @@ pub mod terminal_host_runtime;
 #[cfg(any(target_vendor = "apple", target_os = "linux"))]
 pub mod test_owner;
 #[cfg(unix)]
+<<<<<<< ours
 pub use cmux_tui_platform::unix_process_scope;
 pub use cmux_tui_util::user_settings;
+=======
+pub mod unix_process_scope;
+pub mod wait_pattern;
+>>>>>>> theirs
 
 pub use agent_hook_question::agent_hook_live_question;
 pub use agent_hooks::{
+<<<<<<< ours
     AGENT_HOOK_MANIFEST_VERSION, AGENT_HOOK_PRODUCER_ID, LIVE_MESSAGE_CHARS, LIVE_PROMPT_CHARS,
     agent_hook_event_starts_session, agent_hook_event_starts_turn, agent_hook_journal_ingress,
     agent_hook_live_fields, agent_hook_live_prompt, agent_hook_live_reply,
     stamp_agent_hook_observed_now,
+=======
+    AGENT_HOOK_MANIFEST_VERSION, AGENT_HOOK_PRODUCER_ID, agent_hook_journal_ingress,
+    hook_monotonic_now, stamp_agent_hook_monotonic, stamp_agent_hook_observed_at,
+>>>>>>> theirs
 };
 pub use agent_status::AgentStatus;
 pub use browser::{BrowserFailure, TRANSPORT_SAFE_CAPTURE_MEGAPIXELS, normalize_url};
@@ -216,12 +237,20 @@ pub use mux::{
     TreeDelta, TreeDeltaKind, ViewportWidthError, WorkspaceGroupChange, WorkspaceMutationResult,
     WorkspacePlacement, ZoomMode, ZoomState,
 };
+<<<<<<< ours
 pub use mux::{
     DEFAULT_TERMINAL_REAP_GRACE, IDLE_CLOSE_REAP_INTERVAL, IdleTerminalReaper,
     MAX_TERMINAL_REAP_GRACE, TerminalReaper, start_idle_terminal_reaper, start_terminal_reaper,
     validate_terminal_reap_grace,
 };
 pub use mux::{JournalFollowerSnapshot, JournalFollowersSnapshot};
+=======
+pub use mux::{
+    DEFAULT_TERMINAL_REAP_GRACE, HeldTerminalReaper, MAX_TERMINAL_REAP_GRACE, TerminalReaper,
+    prepare_terminal_reaper, start_terminal_reaper, validate_terminal_reap_grace,
+};
+pub use mux::{IDLE_CLOSE_REAP_INTERVAL, IdleTerminalReaper, start_idle_terminal_reaper};
+>>>>>>> theirs
 pub use pairing::{PairingChallenge, PairingDecision, PairingError};
 pub use program_status::ShownProgramStatus;
 pub use remote_relay_state::{
@@ -245,6 +274,7 @@ pub use surface::{
 pub use surface::{apply_terminal_color_overrides, default_child_term};
 pub use terminal_title::{TabTitle, TitleActivity};
 pub use workspace_registry::{
+<<<<<<< ours
     Actor, EndedTerminalState, FrontendProjection, JournalAppendCommit, JournalAuthority,
     JournalCheckpoint, JournalClass, JournalContentRef, JournalEventSchema,
     JournalHookDeliveryPolicy, JournalHookExec, JournalHookFilter, JournalHookManifest,
@@ -255,6 +285,19 @@ pub use workspace_registry::{
     RegistryCompactError, RegistryCompaction, RegistryEvent, RegistryQuarantined, RegistrySnapshot,
     RegistryWorkspace, SessionJournalPage, SessionJournalRecord, TabAttentionRecord,
     UnsupportedWorkspaceRegistrySchema, WorkspaceMutation, WorkspaceRegistry, compact_registry,
+=======
+    FrontendProjection, JournalAppendCommit, JournalAuthority, JournalCheckpoint, JournalClass,
+    JournalContentRef, JournalEventSchema, JournalHookDeliveryPolicy, JournalHookExec,
+    JournalHookFilter, JournalHookManifest, JournalHookRegex, JournalHookRetry, JournalIngress,
+    JournalProducer, JournalProducerManifest, JournalReplayPolicy, JournalSegment,
+    JournalSensitivity, JournalSubject, PersistentSessionStateReset,
+    PersistentSessionStateResetPreview, PersistentSessionStateResetter, ProjectionCommit,
+    RegistryCommit, RegistryEvent, RegistryIntegrityFailure, RegistryRecovery, RegistrySnapshot,
+    RegistryStartupDamage, RegistryWorkspace, SessionJournalPage, SessionJournalRecord,
+    UnrecoverableInterruptedCreations, UnsupportedWorkspaceRegistrySchema, WorkspaceMutation,
+    WorkspaceRegistry, quarantine_session_registry, recover_registry_after_failed_open,
+    registry_startup_damage,
+>>>>>>> theirs
 };
 
 pub use cmux_remote_protocol::{REMOTE_CLIENT_MESSAGE_MAX_BYTES, REMOTE_SESSION_MESSAGE_MAX_BYTES};

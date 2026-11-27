@@ -3072,7 +3072,11 @@
               "name": "JsonValue"
             }
           },
+<<<<<<< HEAD
           "description": "Explicit forward-compatible data. progress is the terminal's OSC 9;4 progress ({state: normal|error|indeterminate|paused, value: 0-100 or null}) while one is shown; activity ({state: running|in_use, since_ms: decimal}) is a shell command running between OSC 133 C and D (terminal-activity-v1): running for a plain command, in_use once the command took the terminal for interaction (alternate screen, mouse or focus reporting, bracketed paste), for the rest of that command; neither is work in progress, which only a program's own program_status or progress report says. busy ({since_ms: decimal}) is the older field, present only while activity is running. prompt ({since_ms: decimal}) is the shell sitting at its prompt, from OSC 133 A until the next C; a shell without shell integration never shows it. last_output ({at_ms: decimal}) is when the terminal last printed anything, with or without shell integration (absent until its first output after a daemon starts or adopts the terminal); a read gives the exact time, while output alone pushes a terminal upsert at most once every 5 s, plus once when the system clock is set. last_input ({at_ms: decimal}) is when a client last wrote input through terminal.input.write or terminal.input.keys; a read gives it, and it pushes no upsert by itself (wait --until idle uses it as the input's sequence point). last_command ({exit_code?: int32, started_at_ms?: decimal, finished_at_ms: decimal}) is the last command the shell finished, from OSC 133 C and D (terminal-exit-status-v1): exit_code is the status D reported and is absent when the shell reported none or the next prompt came without D; the field is absent until a shell with shell integration finishes a command, so its absence never means success. All are absent once the terminal exits. Unknown sibling fields remain forbidden."
+=======
+          "description": "Explicit forward-compatible data. last_command ({exit_code?: int32, started_at_ms?: decimal, finished_at_ms: decimal}) is the last command the shell finished, from OSC 133 C and D (terminal-exit-status-v1): exit_code is the status D reported and is absent when the shell reported none or the next prompt came without D; the field is absent until a shell with shell integration finishes a command, so its absence never means success. It is present only while the terminal runs, and a change publishes a terminal upsert. Unknown sibling fields remain forbidden."
+>>>>>>> origin/main
         }
       },
       "extra": false,
@@ -36532,6 +36536,7 @@
             },
             "description": "When present, exact name bytes are preserved, including empty, whitespace, and Unicode."
           },
+<<<<<<< HEAD
           "argv": {
             "required": false,
             "type": {
@@ -36553,6 +36558,8 @@
             },
             "description": "Script the new screen's first terminal runs with the server platform default shell and -lc. Clients never expand $SHELL."
           },
+=======
+>>>>>>> origin/main
           "focus": {
             "required": false,
             "type": {
@@ -43357,7 +43364,7 @@
               "kind": "primitive",
               "name": "decimal"
             },
-            "description": "Resume cursor: the terminal.output stream byte offset a previous read returned as next_offset. Absent reads from the earliest still-retained byte."
+            "description": "Resume cursor: the terminal output stream byte offset a previous read returned as next_offset. Absent reads from the earliest still-retained byte."
           },
           "max_bytes": {
             "required": false,
@@ -43368,6 +43375,7 @@
               "maximum": 4194304
             },
             "default": 262144,
+<<<<<<< HEAD
             "description": "Bound on raw stream bytes rendered into one window. A window never splits a journal record, so the first record of a window is always included whole even when it alone exceeds this bound."
           },
           "recovery": {
@@ -43377,6 +43385,9 @@
               "name": "string"
             },
             "description": "Opt in to reconnect recovery with an empty string initially, then echo the returned token after applying the read. An unknown token returns one retained screen snapshot; matching tokens resume raw output at next_offset. Tokens are per terminal and become invalid on adoption, reconnect, generation change or history clear."
+=======
+            "description": "Bound on raw stream bytes rendered into one window (at least one byte when any is retained). The window is a raw byte range: it may start or end inside a UTF-8 sequence or an escape sequence."
+>>>>>>> origin/main
           }
         },
         "extra": false
@@ -43397,10 +43408,18 @@
       "constraints": [
         "Text is the plain-text projection of the selected stream window replayed through a fresh terminal emulator; escape sequences never appear in it.",
         "Works on live terminals and on exited ones, including exited terminals whose views were detached: the selector resolves the durable exit receipt exactly like terminal.wait_exit.",
+<<<<<<< HEAD
         "start_offset may exceed the requested cursor when earlier bytes are no longer retained, and a cursor that lands mid-record starts the window at that record's boundary (start_offset below the cursor).",
         "A cursor before the terminal's exit-snapshot coverage returns the snapshot's screen projection instead of raw records: start_offset is 0 and next_offset is the snapshot coverage end.",
         "A window rendered from mid-stream records may carry escape-state artifacts at its leading edge; a snapshot window cannot.",
         "Recovery snapshots cover retained screen and scrollback, not byte-exact historical output beyond terminal retention. The immutable cut is shared by retries and independent readers; its plain text is bounded by max_bytes and 4 MiB. Capture or budget failure returns operation.failed; it never falls back to a complete raw read."
+=======
+        "start_offset may exceed the requested cursor when earlier bytes are no longer retained. The daemon keeps a bounded recent tail of each terminal's output; a terminal re-adopted after a daemon restart continues its stream at the offset the daemon last recorded (each journal checkpoint and quit records it in the terminal's snapshot file). The offset is lost, and the stream restarts at 0, when that file is gone: memory persistence mode, or the snapshot storage cap evicted it.",
+        "A cursor past the end of the stream (from a daemon that stopped without recording its end, or from before the terminal restarted) starts the window at the oldest retained byte: start_offset below the cursor tells the client to reset its cursor and screen. Offsets of a re-adopted terminal can also restart below cursors served before an unclean daemon stop.",
+        "Output an older daemon journaled (served while the terminal has no newer stream and no exit snapshot) follows the same window rules.",
+        "A cursor before the terminal's exit-snapshot coverage returns the snapshot's screen projection instead of raw output: start_offset is 0 and next_offset is the snapshot coverage end.",
+        "Each window is rendered on its own through a fresh terminal, so a window that starts or ends mid-sequence may show replacement characters or lose styling at that edge; a snapshot window cannot."
+>>>>>>> origin/main
       ]
     },
     "terminal.process.get": {
@@ -43631,7 +43650,11 @@
               "minimum": 1,
               "maximum": 10000
             },
+<<<<<<< HEAD
             "description": "Read the last N lines of scrollback and screen together instead of the screen, oldest first, without the blank rows below the last printed line. With unwrap, N logical lines. The cursor fields still describe the screen. Capability terminal-read-unwrap-v1."
+=======
+            "description": "Read the last N lines of scrollback and screen together instead of the viewport, oldest first, without the blank rows below the last printed line. With unwrap, N logical lines. The cursor fields still describe the screen. Capability terminal-read-unwrap-v1."
+>>>>>>> origin/main
           }
         },
         "extra": false
@@ -43919,7 +43942,11 @@
               "name": "boolean"
             },
             "default": false,
+<<<<<<< HEAD
             "description": "Match only text printed below the line the cursor is on when the wait starts (soft wraps joined); text is then that new text. The echo of a command typed on that line and older output never match. Output printed before the wait starts is not new: to wait on a command's output, start the wait first or use the CLI's terminal send --pattern. Capability terminal-wait-new-v1."
+=======
+            "description": "Match only text printed below the line the cursor is on when the wait starts (soft wraps joined); text is then that new text. The echo of a command typed on that line and older output never match. Output printed before the wait starts is not new: to wait on a command's output, start the wait before the command prints. Capability terminal-wait-new-v1."
+>>>>>>> origin/main
           }
         },
         "extra": false

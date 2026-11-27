@@ -1,5 +1,8 @@
+<<<<<<< HEAD
 public import Foundation
 
+=======
+>>>>>>> origin/main
 /// The interaction state of one question card: which item is shown, which
 /// row is highlighted, what is chosen and the Other drafts. Pure: every
 /// renderer (the Mac card, the agent tab, tests) drives the same reducer, so

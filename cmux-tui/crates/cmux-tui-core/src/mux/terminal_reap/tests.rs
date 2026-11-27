@@ -1,4 +1,10 @@
+<<<<<<< ours
 //! Unit tests for `terminal_reap`.
+=======
+//! Unit tests for `terminal_reap` (ported from feat-cmux-next
+//! `mux/terminal_reap/tests.rs`; the keep, archive and PTY-reclaim cases
+//! come with those features).
+>>>>>>> theirs
 
 use super::*;
 
@@ -66,14 +72,35 @@ fn terminal_reap_schedule_postpone_and_forget() {
     assert_eq!(schedule.next_deadline(), None);
 }
 
+<<<<<<< ours
+=======
+/// An attached terminal is tried again a full grace later, not on the next
+/// wake: its detach emits no topology event.
+#[test]
+fn terminal_reap_schedule_retries_an_attached_terminal_a_grace_later() {
+    let start = Instant::now();
+    let mut schedule = ReapSchedule::default();
+    schedule.observe(start, GRACE, &set(&["watched"]));
+    assert_eq!(schedule.due(start + GRACE), vec!["watched".to_string()]);
+    schedule.tried("watched", Some(ReapOutcome::Attached), start + GRACE, GRACE);
+    assert!(schedule.due(start + 2 * GRACE - Duration::from_millis(1)).is_empty());
+    assert_eq!(schedule.due(start + 2 * GRACE), vec!["watched".to_string()]);
+}
+
+>>>>>>> theirs
 /// A terminal unplaced for longer than the grace (its time is durable across
 /// restarts) that a reap attempt leaves running, because the close guard
 /// still sees it placed or it stayed listed after its close, is still
 /// reapable at the next scan. That scan must not find it due again: it was
 /// re-added at its durable unplaced time, due at once, so every wake (and the
+<<<<<<< ours
 /// zero wait to its own deadline) ran another attempt (a registry prune and
 /// write, a screen capture and a guarded close), and the app's headless owner
 /// sat at 150% CPU.
+=======
+/// zero wait to its own deadline) ran another attempt (feat #33173: a
+/// headless owner at 150% CPU).
+>>>>>>> theirs
 #[test]
 fn terminal_reap_schedule_waits_after_an_attempt_that_left_the_terminal_reapable() {
     for outcome in [ReapOutcome::Retained, ReapOutcome::Reaped] {
@@ -102,7 +129,11 @@ fn terminal_reap_schedule_waits_after_an_attempt_that_left_the_terminal_reapable
 }
 
 /// The deadline an attempt leaves is dropped as soon as a scan no longer
+<<<<<<< ours
 /// lists the terminal (closed, placed again or kept), as a forget did.
+=======
+/// lists the terminal (closed or placed again), as a forget did.
+>>>>>>> theirs
 #[test]
 fn terminal_reap_schedule_drops_a_settled_terminal_once_it_is_no_longer_reapable() {
     let start = Instant::now();
@@ -129,6 +160,18 @@ fn terminal_reap_schedule_gives_a_terminal_closed_again_after_a_retained_attempt
     assert_eq!(schedule.deadline("undo"), Some(closed_again + GRACE));
 }
 
+<<<<<<< ours
+=======
+#[test]
+fn terminal_reap_grace_is_bounded() {
+    assert!(validate_terminal_reap_grace(Duration::ZERO).is_ok());
+    assert!(validate_terminal_reap_grace(MAX_TERMINAL_REAP_GRACE).is_ok());
+    assert!(
+        validate_terminal_reap_grace(MAX_TERMINAL_REAP_GRACE + Duration::from_secs(1)).is_err()
+    );
+}
+
+>>>>>>> theirs
 fn host_id(mux: &Arc<Mux>, surface: &Arc<Surface>) -> String {
     mux.resource_terminal_host_identity(surface).expect("test terminal is hosted").terminal_id
 }
@@ -142,6 +185,7 @@ fn close_workspace_of(mux: &Arc<Mux>, surface: &Arc<Surface>) {
     assert!(mux.close_workspace_at_revision(workspace, None).unwrap().is_some());
 }
 
+<<<<<<< ours
 #[test]
 fn a_tabless_terminal_keeps_its_lifecycle_when_the_tree_is_republished() {
     let mux = Mux::new_for_test("terminal-tabless-lifecycle", SurfaceOptions::default());
@@ -177,16 +221,26 @@ fn a_tabless_terminal_keeps_its_lifecycle_when_the_tree_is_republished() {
 
 #[test]
 fn terminal_reap_ends_unplaced_terminals_after_grace_but_not_kept_ones() {
+=======
+/// A closed workspace's terminal (no tab shows it) ends once the grace
+/// passed; a placed terminal keeps running.
+#[test]
+fn terminal_reap_ends_an_unplaced_terminal_after_the_grace() {
+>>>>>>> theirs
     let mux = Mux::new_for_test("terminal-reap", SurfaceOptions::default());
     let grace = mux.terminal_reap_grace();
     assert_eq!(grace, DEFAULT_TERMINAL_REAP_GRACE);
     let scratch = mux.new_workspace(Some("scratch".into()), Some((80, 24))).unwrap();
     let doomed = mux.new_workspace(Some("doomed".into()), Some((80, 24))).unwrap();
+<<<<<<< ours
     let kept = mux.new_workspace(Some("kept".into()), Some((80, 24))).unwrap();
     let doomed_id = host_id(&mux, &doomed);
     let kept_id = host_id(&mux, &kept);
     mux.set_terminal_keep(&kept_id, true).unwrap();
     assert!(mux.terminal_keep(&kept_id).unwrap());
+=======
+    let doomed_id = host_id(&mux, &doomed);
+>>>>>>> theirs
 
     let mut schedule = ReapSchedule::default();
     let start = Instant::now();
@@ -194,16 +248,23 @@ fn terminal_reap_ends_unplaced_terminals_after_grace_but_not_kept_ones() {
     assert_eq!(schedule.next_deadline(), None, "placed terminals have no deadline");
 
     close_workspace_of(&mux, &doomed);
+<<<<<<< ours
     close_workspace_of(&mux, &kept);
     let (reapable, retained) = mux.reapable_and_retained_terminals().unwrap();
     assert!(reapable.contains(&doomed_id));
     assert!(!reapable.contains(&kept_id));
     assert!(retained.contains(&kept_id), "a kept terminal is retained");
+=======
+    let (reapable, retained) = mux.reapable_and_retained_terminals().unwrap();
+    assert!(reapable.contains(&doomed_id), "a closed workspace's terminal is reapable");
+    assert!(retained.contains(&host_id(&mux, &scratch)), "a placed terminal is retained");
+>>>>>>> theirs
     assert!(mux.reap_unplaced_terminals(&mut schedule, start).is_empty());
     let almost = start + grace - Duration::from_millis(1);
     assert!(mux.reap_unplaced_terminals(&mut schedule, almost).is_empty());
     assert_eq!(lifecycle(&mux, &doomed_id), TerminalLifecycle::Running);
 
+<<<<<<< ours
     let events = mux.subscribe();
     assert_eq!(mux.reap_unplaced_terminals(&mut schedule, start + grace), vec![doomed_id.clone()]);
     assert_eq!(lifecycle(&mux, &doomed_id), TerminalLifecycle::Tombstoned);
@@ -220,14 +281,30 @@ fn terminal_reap_ends_unplaced_terminals_after_grace_but_not_kept_ones() {
     let unkept = start + 101 * grace;
     assert!(mux.reap_unplaced_terminals(&mut schedule, unkept).is_empty());
     assert_eq!(mux.reap_unplaced_terminals(&mut schedule, unkept + grace), vec![kept_id]);
+=======
+    assert_eq!(
+        mux.reap_unplaced_terminals(&mut schedule, start + grace),
+        vec![doomed_id.clone()],
+        "the closed workspace's terminal was not ended after the reap grace"
+    );
+    assert_eq!(lifecycle(&mux, &doomed_id), TerminalLifecycle::Tombstoned);
+    assert!(mux.reap_unplaced_terminals(&mut schedule, start + 100 * grace).is_empty());
+>>>>>>> theirs
     assert_eq!(lifecycle(&mux, &host_id(&mux, &scratch)), TerminalLifecycle::Running);
     mux.close_surface(scratch.id).unwrap();
 }
 
+<<<<<<< ours
 /// P0 TERMINAL-HOST LEAK: the grace runs across an owner restart. The
 /// restarted owner's schedule starts empty, but the registry keeps when the
 /// terminal was closed: closed a full grace ago, it is reaped on the first
 /// pass, and the placed terminal is not.
+=======
+/// P0 TERMINAL-HOST LEAK (feat #29476): the grace runs across an owner
+/// restart. The restarted owner's schedule starts empty, but the registry
+/// keeps when the terminal was closed: closed a full grace ago, it is reaped
+/// on the first pass, and the placed terminal is not.
+>>>>>>> theirs
 #[test]
 fn terminal_reap_grace_runs_across_an_owner_restart() {
     let mux = Mux::new_for_test("terminal-reap-restart", SurfaceOptions::default());
@@ -238,6 +315,7 @@ fn terminal_reap_grace_runs_across_an_owner_restart() {
     close_workspace_of(&mux, &closed);
     let mut schedule = ReapSchedule::default();
     assert!(mux.reap_unplaced_terminals(&mut schedule, Instant::now()).is_empty());
+<<<<<<< ours
     // A restart: a new schedule; the terminal was closed a grace ago. The new owner holds it
     // once for the app to attach again (cold adoption), and ends it when that hold is over.
     mux.workspace_registry.lock().unwrap().backdate_terminal_unplaced(&closed_id, grace).unwrap();
@@ -259,6 +337,15 @@ fn terminal_reap_grace_runs_across_an_owner_restart() {
         mux.reap_unplaced_terminals(&mut restarted_again, Instant::now()),
         vec![closed_id.clone()],
         "a restart must not count the grace, or the adoption hold, again from zero"
+=======
+    // A restart: a new schedule; the terminal was closed a grace ago.
+    mux.workspace_registry.lock().unwrap().backdate_terminal_unplaced(&closed_id, grace).unwrap();
+    let mut restarted = ReapSchedule::default();
+    assert_eq!(
+        mux.reap_unplaced_terminals(&mut restarted, Instant::now()),
+        vec![closed_id.clone()],
+        "a restart must not count the grace again from zero"
+>>>>>>> theirs
     );
     assert_eq!(lifecycle(&mux, &closed_id), TerminalLifecycle::Tombstoned);
     assert_eq!(lifecycle(&mux, &host_id(&mux, &placed)), TerminalLifecycle::Running);
@@ -278,7 +365,15 @@ fn terminal_reap_is_cancelled_when_a_placement_returns_within_grace() {
     let mut schedule = ReapSchedule::default();
     let start = Instant::now();
     assert!(mux.reap_unplaced_terminals(&mut schedule, start).is_empty());
+<<<<<<< ours
     assert_eq!(schedule.next_deadline(), Some(start + grace));
+=======
+    assert_eq!(
+        schedule.next_deadline(),
+        Some(start + grace),
+        "a closed workspace's terminal gets a reap deadline one grace away"
+    );
+>>>>>>> theirs
 
     // Project the detached terminal into the scratch pane before the
     // grace period ends, as a layout undo or reattach would.
@@ -292,7 +387,11 @@ fn terminal_reap_is_cancelled_when_a_placement_returns_within_grace() {
         usize::MAX,
         None,
         None,
+<<<<<<< ours
         &WorkspaceMutation::daemon_local("test-terminal-reap-projection"),
+=======
+        &WorkspaceMutation::local("test-terminal-reap-projection"),
+>>>>>>> theirs
     )
     .unwrap();
     assert!(mux.reap_unplaced_terminals(&mut schedule, start + grace).is_empty());
@@ -307,7 +406,11 @@ fn terminal_reap_is_cancelled_when_a_placement_returns_within_grace() {
         None,
         None,
         None,
+<<<<<<< ours
         &WorkspaceMutation::daemon_local("test-cleanup"),
+=======
+        &WorkspaceMutation::local("test-cleanup"),
+>>>>>>> theirs
     )
     .unwrap();
     mux.close_surface(scratch.id).unwrap();
@@ -318,6 +421,10 @@ fn terminal_reap_with_zero_grace_ends_a_detached_terminal_through_the_thread() {
     let mux = Mux::new_for_test("terminal-reap-thread", SurfaceOptions::default());
     mux.set_terminal_reap_grace(Duration::ZERO).unwrap();
     let reaper = start_terminal_reaper(&mux).unwrap();
+<<<<<<< ours
+=======
+    assert!(mux.terminal_reaper_running(), "the started reaper is not reported as running");
+>>>>>>> theirs
     let scratch = mux.new_workspace(Some("scratch".into()), Some((80, 24))).unwrap();
     let detached = mux.new_workspace(Some("detached".into()), Some((80, 24))).unwrap();
     let detached_id = host_id(&mux, &detached);
@@ -329,6 +436,7 @@ fn terminal_reap_with_zero_grace_ends_a_detached_terminal_through_the_thread() {
     }
     assert_eq!(lifecycle(&mux, &host_id(&mux, &scratch)), TerminalLifecycle::Running);
     reaper.stop();
+<<<<<<< ours
     mux.close_surface(scratch.id).unwrap();
 }
 
@@ -422,6 +530,21 @@ fn closed_terminals_past_the_grace_cap_end_at_once() {
     let extra = 2;
     // Every workspace first: a create after a reap trips the scoped-projection cross-check on the
     // base as well (a separate defect, see the PR), so this test closes and reaps only.
+=======
+    assert!(!mux.terminal_reaper_running(), "a stopped reaper is still reported as running");
+    mux.close_surface(scratch.id).unwrap();
+}
+
+/// PTY HOLD (feat STATUS 7998): every closed tab's terminal lived out the
+/// whole reap grace with its PTY. A script closing about 5 tabs a second
+/// piled up closed-but-held PTYs and reached the machine's limit (511) in
+/// 48 s. Past [`MAX_TERMINALS_IN_REAP_GRACE`] closed terminals, the reaper
+/// ends the longest-closed at once.
+#[test]
+fn terminal_reap_ends_closed_terminals_past_the_grace_cap_at_once() {
+    let mux = Mux::new_for_test("terminal-reap-cap", SurfaceOptions::default());
+    let extra = 2;
+>>>>>>> theirs
     let placed = mux.new_workspace(Some("placed".into()), Some((80, 24))).unwrap();
     let surfaces: Vec<_> = (0..MAX_TERMINALS_IN_REAP_GRACE + extra)
         .map(|index| mux.new_workspace(Some(format!("closed-{index}")), Some((80, 24))).unwrap())
@@ -461,6 +584,7 @@ fn closed_terminals_past_the_grace_cap_end_at_once() {
     mux.close_surface(placed.id).unwrap();
 }
 
+<<<<<<< ours
 /// `workspaces.freeing.runningCommands: relaunch`: a parked terminal whose
 /// command still runs keeps that command line, not the one it finished
 /// before, so the freed shell types it again (without Return) when shown.
@@ -481,6 +605,8 @@ fn a_parked_running_command_is_kept_as_its_last_command() {
     mux.shutdown();
 }
 
+=======
+>>>>>>> theirs
 /// The terminal runtime view of the hosted terminal `terminal_id`.
 fn runtime_view(mux: &Arc<Mux>, terminal_id: &str) -> SurfaceId {
     let state = mux.state.lock().unwrap();
@@ -520,6 +646,7 @@ fn terminal_reap_attached_terminals_do_not_count_toward_the_grace_cap() {
     );
 }
 
+<<<<<<< ours
 /// Restart to Update left more than 16 terminals unplaced for a moment while the new window
 /// restored its tabs, and the grace cap ended the extras at once: agents running in them exited
 /// 143 (Leo, 2026-11-24: "mochi is still deadge"). The cap stands down while the app is gone and
@@ -553,6 +680,8 @@ fn terminal_reap_grace_cap_stands_down_across_an_app_relaunch() {
     assert!(!schedule.relaunch_hold(again + grace, grace, true, true), "and ends one grace later");
 }
 
+=======
+>>>>>>> theirs
 /// The reaper checked attach streams before its close, outside the close's locks (the screen
 /// archive capture sits in between): a client that attached in that gap lost the terminal it had
 /// just attached to. The reap close checks attach streams under the same locks as the close.
@@ -569,8 +698,13 @@ fn terminal_reap_attached_terminal_survives_the_guarded_reap_close() {
         None,
         None,
         None,
+<<<<<<< ours
         &WorkspaceMutation::daemon_local(TERMINAL_REAP_MUTATION_ORIGIN),
         TerminalCloseGuard::UnplacedNotKeptAndDetached,
+=======
+        &WorkspaceMutation::local(TERMINAL_REAP_MUTATION_ORIGIN),
+        TerminalCloseGuard::UnplacedAndDetached,
+>>>>>>> theirs
     );
     assert_eq!(
         lifecycle(&mux, &terminal_id),
@@ -585,12 +719,17 @@ fn terminal_reap_attached_terminal_survives_the_guarded_reap_close() {
         None,
         None,
         None,
+<<<<<<< ours
         &WorkspaceMutation::daemon_local("test-cleanup"),
+=======
+        &WorkspaceMutation::local("test-cleanup"),
+>>>>>>> theirs
     )
     .unwrap();
     mux.close_surface(placed.id).unwrap();
 }
 
+<<<<<<< ours
 /// Idle-only park: `park-tabs` ends a shell only when it can tell the shell runs nothing. A test
 /// terminal's process either has a child (the shell under it, where the runner spawns one) or cannot be
 /// read: either way it keeps running, and the reply names it with a child reason. The freeing timer with no
@@ -746,4 +885,255 @@ fn frontend_away_holds_each_terminals_grace_until_it_is_back_or_gone_for_good() 
     schedule.observe(start, grace, &reapable);
     assert!(!schedule.relaunch_hold(start + grace, grace, false, false));
     assert_eq!(schedule.due(start + grace).len(), 2);
+=======
+/// The owner binds its socket after it starts the reaper thread, so a second
+/// owner that loses the bind must not reap: a held reaper runs no pass, even
+/// with a zero grace and a detached terminal, until the owner releases it.
+#[test]
+fn terminal_reap_a_held_reaper_does_not_reap_until_released() {
+    let mux = Mux::new_for_test("terminal-reap-held", SurfaceOptions::default());
+    mux.set_terminal_reap_grace(Duration::ZERO).unwrap();
+    let scratch = mux.new_workspace(Some("scratch".into()), Some((80, 24))).unwrap();
+    let detached = mux.new_workspace(Some("detached".into()), Some((80, 24))).unwrap();
+    let detached_id = host_id(&mux, &detached);
+    close_workspace_of(&mux, &detached);
+    let held = prepare_terminal_reaper(&mux).unwrap();
+    assert!(mux.terminal_reaper_advertised(), "identify does not list a held reaper");
+    // A running reaper with a zero grace ends the detached terminal on its
+    // first pass, at once; a held one never does.
+    let watch_until = Instant::now() + Duration::from_millis(500);
+    while Instant::now() < watch_until {
+        assert_eq!(
+            lifecycle(&mux, &detached_id),
+            TerminalLifecycle::Running,
+            "the held reaper ended a terminal before the owner released it"
+        );
+        std::thread::sleep(Duration::from_millis(10));
+    }
+    let reaper = held.release();
+    let deadline = Instant::now() + Duration::from_secs(10);
+    while lifecycle(&mux, &detached_id) != TerminalLifecycle::Tombstoned {
+        assert!(Instant::now() < deadline, "the released reaper did not end the detached terminal");
+        std::thread::sleep(Duration::from_millis(10));
+    }
+    reaper.stop();
+    mux.close_surface(scratch.id).unwrap();
+}
+
+/// A cancelled held reaper ends its thread, and `identify` no longer lists
+/// the reaper when `cancel` returns.
+#[test]
+fn terminal_reap_a_cancelled_held_reaper_is_no_longer_advertised() {
+    let mux = Mux::new_for_test("terminal-reap-held-cancel", SurfaceOptions::default());
+    let held = prepare_terminal_reaper(&mux).unwrap();
+    assert!(mux.terminal_reaper_advertised());
+    held.cancel();
+    assert!(!mux.terminal_reaper_advertised(), "a cancelled held reaper is still advertised");
+}
+
+/// A bind or a later startup step that fails drops the held reaper without a
+/// join: the thread still ends, and `identify` stops listing the reaper.
+#[test]
+fn terminal_reap_a_dropped_held_reaper_is_no_longer_advertised() {
+    let mux = Mux::new_for_test("terminal-reap-held-drop", SurfaceOptions::default());
+    let held = prepare_terminal_reaper(&mux).unwrap();
+    assert!(mux.terminal_reaper_advertised());
+    drop(held);
+    let deadline = Instant::now() + Duration::from_secs(10);
+    while mux.terminal_reaper_advertised() && Instant::now() < deadline {
+        std::thread::sleep(Duration::from_millis(10));
+    }
+    assert!(!mux.terminal_reaper_advertised(), "a dropped held reaper is still advertised");
+}
+
+/// A reaper that ends late clears only its own subscription, never that of a
+/// reaper started after it.
+#[test]
+fn terminal_reap_an_ended_reaper_does_not_clear_a_newer_reapers_advertisement() {
+    let mux = Mux::new_for_test("terminal-reap-held-newer", SurfaceOptions::default());
+    let older = prepare_terminal_reaper(&mux).unwrap();
+    let newer = start_terminal_reaper(&mux).unwrap();
+    older.cancel();
+    assert!(mux.terminal_reaper_advertised(), "an ended older reaper cleared the newer one");
+    newer.stop();
+    assert!(!mux.terminal_reaper_advertised());
+}
+
+/// A daemon in a shutdown handoff gives its terminals to the next owner: the
+/// reaper must not end one on the way out, neither in a pass nor through the
+/// guarded close. (The handoff also flushes its acknowledgement under the
+/// client registry's lock, so a reap close that waited for that lock under
+/// the mux locks stalled the whole mux for up to 5 s.)
+#[test]
+fn terminal_reap_ends_no_terminal_during_a_daemon_handoff() {
+    let mux = Mux::new_for_test("terminal-reap-handoff", SurfaceOptions::default());
+    mux.set_terminal_reap_grace(Duration::ZERO).unwrap();
+    let placed = mux.new_workspace(Some("placed".into()), Some((80, 24))).unwrap();
+    let closed = mux.new_workspace(Some("closed".into()), Some((80, 24))).unwrap();
+    let terminal_id = host_id(&mux, &closed);
+    close_workspace_of(&mux, &closed);
+    let requester = mux.control_clients.attach_test_stream(placed.id);
+    mux.begin_daemon_handoff(requester, DaemonHandoffRequest::unfenced(true)).unwrap();
+    let mut schedule = ReapSchedule::default();
+    let reaped = mux.reap_unplaced_terminals(&mut schedule, Instant::now());
+    assert!(reaped.is_empty(), "a daemon in a handoff reaped {reaped:?}");
+    let guarded = mux.close_terminal_guarded(
+        &terminal_id,
+        None,
+        None,
+        None,
+        &WorkspaceMutation::local(TERMINAL_REAP_MUTATION_ORIGIN),
+        TerminalCloseGuard::UnplacedAndDetached,
+    );
+    assert_eq!(
+        lifecycle(&mux, &terminal_id),
+        TerminalLifecycle::Running,
+        "the guarded reap close ended a terminal during a daemon handoff: {guarded:?}"
+    );
+    let failure = guarded
+        .as_ref()
+        .err()
+        .and_then(|error| error.downcast_ref::<TerminalCloseGuardFailed>().copied());
+    assert_eq!(failure, Some(TerminalCloseGuardFailed::HandingOff), "the guard names the handoff");
+    // A cancelled handoff reaps again, one grace (at least a second) later.
+    mux.cancel_daemon_handoff(requester);
+    let later = Instant::now() + MIN_RETRY;
+    assert_eq!(mux.reap_unplaced_terminals(&mut schedule, later), vec![terminal_id.clone()]);
+    assert_eq!(lifecycle(&mux, &terminal_id), TerminalLifecycle::Tombstoned);
+    mux.close_surface(placed.id).unwrap();
+}
+
+/// The cap's attach read (`attached_reap_candidates`) runs in a real pass:
+/// with 17 closed terminals and one of them attached, the 16 detached ones
+/// are within the cap, so no terminal ends before its grace.
+#[test]
+fn terminal_reap_pass_past_the_cap_skips_an_attached_terminal() {
+    let mux = Mux::new_for_test("terminal-reap-cap-attach-pass", SurfaceOptions::default());
+    let placed = mux.new_workspace(Some("placed".into()), Some((80, 24))).unwrap();
+    let closed: Vec<String> = (0..=MAX_TERMINALS_IN_REAP_GRACE)
+        .map(|index| {
+            let surface =
+                mux.new_workspace(Some(format!("closed-{index}")), Some((80, 24))).unwrap();
+            let terminal_id = host_id(&mux, &surface);
+            close_workspace_of(&mux, &surface);
+            terminal_id
+        })
+        .collect();
+    mux.control_clients.attach_test_stream(runtime_view(&mux, &closed[0]));
+    let mut schedule = ReapSchedule::default();
+    let reaped = mux.reap_unplaced_terminals(&mut schedule, Instant::now());
+    assert!(reaped.is_empty(), "an attached terminal counted toward the cap: {reaped:?}");
+    for terminal_id in &closed {
+        assert_eq!(lifecycle(&mux, terminal_id), TerminalLifecycle::Running);
+        mux.close_terminal_with_mutation(
+            terminal_id,
+            None,
+            None,
+            None,
+            &WorkspaceMutation::local("test-cleanup"),
+        )
+        .unwrap();
+    }
+    mux.close_surface(placed.id).unwrap();
+}
+
+/// A terminal without a resource id closes through the legacy path in
+/// `close_terminal_guarded`; its guard also keeps an attached terminal.
+#[test]
+fn terminal_reap_legacy_close_keeps_an_attached_terminal() {
+    let mux = Mux::new_for_test("terminal-reap-legacy-attach", SurfaceOptions::default());
+    let placed = mux.new_workspace(Some("placed".into()), Some((80, 24))).unwrap();
+    let closed = mux.new_workspace(Some("closed".into()), Some((80, 24))).unwrap();
+    let terminal_id = host_id(&mux, &closed);
+    close_workspace_of(&mux, &closed);
+    mux.control_clients.attach_test_stream(runtime_view(&mux, &terminal_id));
+    mux.workspace_registry
+        .lock()
+        .unwrap()
+        .set_terminal_resource_hidden_for_test(&terminal_id, true)
+        .unwrap();
+    let result = mux.close_terminal_guarded(
+        &terminal_id,
+        None,
+        None,
+        None,
+        &WorkspaceMutation::local(TERMINAL_REAP_MUTATION_ORIGIN),
+        TerminalCloseGuard::UnplacedAndDetached,
+    );
+    mux.workspace_registry
+        .lock()
+        .unwrap()
+        .set_terminal_resource_hidden_for_test(&terminal_id, false)
+        .unwrap();
+    let failure = result
+        .as_ref()
+        .err()
+        .and_then(|error| error.downcast_ref::<TerminalCloseGuardFailed>().copied());
+    assert_eq!(
+        failure,
+        Some(TerminalCloseGuardFailed::Attached),
+        "the legacy guarded close did not keep an attached terminal: {result:?}"
+    );
+    assert_eq!(lifecycle(&mux, &terminal_id), TerminalLifecycle::Running);
+    mux.close_terminal_with_mutation(
+        &terminal_id,
+        None,
+        None,
+        None,
+        &WorkspaceMutation::local("test-cleanup"),
+    )
+    .unwrap();
+    mux.close_surface(placed.id).unwrap();
+}
+
+/// The legacy close path (a terminal without a resource id) also keeps every
+/// terminal during a daemon handoff.
+#[test]
+fn terminal_reap_legacy_close_ends_no_terminal_during_a_daemon_handoff() {
+    let mux = Mux::new_for_test("terminal-reap-legacy-handoff", SurfaceOptions::default());
+    let placed = mux.new_workspace(Some("placed".into()), Some((80, 24))).unwrap();
+    let closed = mux.new_workspace(Some("closed".into()), Some((80, 24))).unwrap();
+    let terminal_id = host_id(&mux, &closed);
+    close_workspace_of(&mux, &closed);
+    let requester = mux.control_clients.attach_test_stream(placed.id);
+    mux.begin_daemon_handoff(requester, DaemonHandoffRequest::unfenced(true)).unwrap();
+    mux.workspace_registry
+        .lock()
+        .unwrap()
+        .set_terminal_resource_hidden_for_test(&terminal_id, true)
+        .unwrap();
+    let result = mux.close_terminal_guarded(
+        &terminal_id,
+        None,
+        None,
+        None,
+        &WorkspaceMutation::local(TERMINAL_REAP_MUTATION_ORIGIN),
+        TerminalCloseGuard::UnplacedAndDetached,
+    );
+    mux.workspace_registry
+        .lock()
+        .unwrap()
+        .set_terminal_resource_hidden_for_test(&terminal_id, false)
+        .unwrap();
+    let failure = result
+        .as_ref()
+        .err()
+        .and_then(|error| error.downcast_ref::<TerminalCloseGuardFailed>().copied());
+    assert_eq!(
+        failure,
+        Some(TerminalCloseGuardFailed::HandingOff),
+        "the legacy guarded close did not keep a terminal during a handoff: {result:?}"
+    );
+    assert_eq!(lifecycle(&mux, &terminal_id), TerminalLifecycle::Running);
+    mux.cancel_daemon_handoff(requester);
+    mux.close_terminal_with_mutation(
+        &terminal_id,
+        None,
+        None,
+        None,
+        &WorkspaceMutation::local("test-cleanup"),
+    )
+    .unwrap();
+    mux.close_surface(placed.id).unwrap();
+>>>>>>> theirs
 }

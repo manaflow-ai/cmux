@@ -1,3 +1,4 @@
+<<<<<<< HEAD
 // Vision OCR for the pr-media privacy gate (scripts/ci/pr_media_privacy.py)
 // and the journeys' frame checks (scripts/journeys/driver.py): prints the
 // text recognized in one image, every distinct GIF frame, or one video frame
@@ -8,6 +9,14 @@
 // shares. An image in which Vision finds no text at all is read again in
 // horizontal bands (`recognize`). Tests: scripts/ci/pr-media-ocr-tests (a
 // fleet step: see its Package.swift).
+=======
+// Vision OCR for the pr-media privacy gate (scripts/ci/pr_media_privacy.py):
+// prints the text recognized in one image, every distinct GIF frame, or one
+// video frame per second plus the last. Multi-frame input prints an
+// `@@frame N` line before each frame's text. Compiled ad hoc with `swiftc -O`
+// by .github/workflows/pr-media-privacy.yml; dependency-free like
+// scripts/e2e/ocr.swift, whose recognition settings it shares.
+>>>>>>> origin/main
 import AVFoundation
 import CryptoKit
 import Foundation
@@ -19,13 +28,18 @@ func fail(_ message: String) -> Never {
     exit(2)
 }
 
+<<<<<<< HEAD
 /// What Vision recognizes in `image`: accurate, US English, no language correction.
 func observations(_ image: CGImage) throws -> [VNRecognizedTextObservation] {
+=======
+func recognize(_ image: CGImage) throws -> [String] {
+>>>>>>> origin/main
     let request = VNRecognizeTextRequest()
     request.recognitionLevel = .accurate
     request.recognitionLanguages = ["en-US"]
     request.usesLanguageCorrection = false
     try VNImageRequestHandler(cgImage: image).perform([request])
+<<<<<<< HEAD
     return request.results ?? []
 }
 
@@ -170,6 +184,9 @@ func mostlyCovers(_ a: CGRect, _ b: CGRect) -> Bool {
     guard !overlap.isNull else { return false }
     let smaller = min(a.width * a.height, b.width * b.height)
     return smaller > 0 && overlap.width * overlap.height > smaller / 2
+=======
+    return (request.results ?? []).compactMap { $0.topCandidates(1).first?.string }
+>>>>>>> origin/main
 }
 
 /// Identical frames (a GIF holding still) are recognized once.
@@ -219,12 +236,17 @@ func printVideo(_ url: URL) async throws {
     if read == 0 { fail("no readable frames in \(url.lastPathComponent)") }
 }
 
+<<<<<<< HEAD
 let arguments = Array(CommandLine.arguments.dropFirst())
 let bandsOnly = arguments.first == "--bands-only"
 guard arguments.count == (bandsOnly ? 2 : 1), let path = arguments.last else {
     fail("usage: pr-media-ocr [--bands-only] <file>")
 }
 let url = URL(fileURLWithPath: path)
+=======
+guard CommandLine.arguments.count == 2 else { fail("usage: pr-media-ocr <file>") }
+let url = URL(fileURLWithPath: CommandLine.arguments[1])
+>>>>>>> origin/main
 switch url.pathExtension.lowercased() {
 case "mp4", "mov":
     try await printVideo(url)
@@ -234,7 +256,11 @@ default:
     let count = CGImageSourceGetCount(source)
     if count == 1 {
         guard let image = CGImageSourceCreateImageAtIndex(source, 0, nil) else { fail("unreadable image \(url.path)") }
+<<<<<<< HEAD
         for line in try recognize(image, bandsOnly: bandsOnly) { print(line) }
+=======
+        for line in try recognize(image) { print(line) }
+>>>>>>> origin/main
     } else {
         // GIF and animated WebP: decode one frame at a time.
         var printer = FramePrinter()

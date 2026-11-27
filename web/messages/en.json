@@ -240,6 +240,11 @@
       "message": "This machine is starting, pausing, or not running, so it can't do this right now.",
       "action": "Wait a moment and try again. Check the machine's status with cmux cloud list-machines, and resume it first if it is paused."
     },
+    "hostRecovery": {
+      "title": "Machine's host is being recovered",
+      "message": "This machine's disk is on a Cloud host that is being recovered, so it can't start yet. Its files are kept.",
+      "action": "Try again in a few minutes. Don't delete or recreate the machine: its disk is kept and comes back with it. If it still won't start after an hour, contact support with the trace ID."
+    },
     "networkRuleCapacity": {
       "title": "Network rules at capacity",
       "message": "Your network policy is saved but was not applied: cmux Cloud has reached its network rule capacity.",
@@ -299,6 +304,7 @@
     },
     "goLimit": {
       "savedMessage": "Plus: 1 saved VM total, including paused machines",
+<<<<<<< HEAD
       "savedAction": "cmux cloud list-machines\ncmux cloud kill-machine --target machine:<id> --confirm\nhttps://cmux.com/pricing",
       "activeMessage": "Plus: 1 Cloud VM",
       "activeAction": "cmux cloud pause-machine --target machine:<id>\nhttps://cmux.com/pricing",
@@ -306,6 +312,15 @@
       "hoursAction": "https://cmux.com/pricing",
       "shapeMessage": "Plus: 2–8 vCPU · 4–16 GiB RAM · 16–128 GiB disk",
       "shapeAction": "cmux cloud new-machine\nhttps://cmux.com/pricing"
+=======
+      "savedAction": "cmux vm ls\ncmux vm rm <id>\ncmux billing checkout --plan pro",
+      "activeMessage": "Plus: 1 Cloud VM",
+      "activeAction": "cmux vm pause <id>\ncmux billing checkout --plan pro",
+      "hoursMessage": "Plus: No monthly hour cap",
+      "hoursAction": "cmux billing checkout --plan pro",
+      "shapeMessage": "Plus: 2–8 vCPU · 4–16 GiB RAM · 16–128 GiB disk",
+      "shapeAction": "cmux vm new --size 8g\ncmux billing checkout --plan max"
+>>>>>>> origin/main
     },
     "planBudget": {
       "computeTitle": "{plan} compute allowance used",
@@ -518,7 +533,10 @@
           "failed": "Failed",
           "paused": "Paused",
           "destroyed": "Deleted"
-        }
+        },
+        "wake": "Wake",
+        "waking": "Waking…",
+        "wakeError": "Could not wake this machine. Try again."
       },
       "network": {
         "open": "Network",
@@ -758,7 +776,8 @@
         "team_admin_required": "Only team admins can manage this team's billing.",
         "team_not_found": "That team is not available. You may have left it, or it was deleted.",
         "authorization_unavailable": "Team permissions could not be checked. Try again shortly.",
-        "personal_team_not_upgradable_to_team": "Your personal account uses Pro or Max. Create a team to buy Team."
+        "personal_team_not_upgradable_to_team": "Your personal account uses Pro or Max. Create a team to buy Team.",
+        "plan_unavailable": "That plan is not available yet."
       },
       "free": {
         "name": "Free",
@@ -836,7 +855,18 @@
         "grantedBody": "Team access was granted to {team} by the cmux team. There is no subscription to manage.",
         "seatsUsed": "{members} of {seats} used",
         "overSeat": "{team} has {members} members and {seats} paid seats. Seats follow the member count, so the subscription updates on its own.",
-        "addSeats": "Add seats"
+        "addSeats": "Add seats",
+        "enterprise": {
+          "current": "Current plan",
+          "body": "{team} is on a custom plan arranged with the cmux team. Contact the cmux team to change it.",
+          "price": "Price",
+          "perMonth": "{amount}/month",
+          "machines": "Cloud machines",
+          "pool": "Shared vCPUs / memory",
+          "largest": "Largest machine",
+          "size": "{vcpus} vCPU / {gb} GB",
+          "noLimit": "No limit"
+        }
       },
       "teamList": {
         "heading": "Billing scopes",
@@ -955,6 +985,32 @@
         "title": "Billed through the App Store",
         "body": "Your plan was purchased in the cmux iPhone app and is billed by Apple. Change or cancel it in your App Store subscriptions.",
         "manage": "Manage in the App Store"
+      },
+      "nextCloud": {
+        "heading": "cmux NEXT Cloud",
+        "currentPlan": "Current cmux NEXT plan: {plan}",
+        "granted": "(granted by cmux)",
+        "none": "None",
+        "current": "Current plan",
+        "perMonth": "per month",
+        "names": {
+          "next_plus": "cmux NEXT Plus",
+          "next_pro": "cmux NEXT Pro",
+          "next_max": "cmux NEXT Max"
+        },
+        "features": {
+          "includedMinutes": "{minutes, number} machine minutes included each month",
+          "running": "Up to {count} machines running at once",
+          "kept": "Up to {count} machines kept, running or paused",
+          "snapshots": "Up to {count} saved snapshots",
+          "largest": "Machines up to {vcpus} vCPU and {memory} GiB RAM",
+          "disk": "Disks up to {disk} GiB per machine"
+        },
+        "subscribe": "Subscribe to {plan}",
+        "upgrade": "Upgrade to {plan}",
+        "comingSoon": "Coming soon",
+        "usageNote": "Included machine minutes reset each month and do not roll over. Machines pause when they run out; a paused machine costs only its disk.",
+        "machineMinuteNote": "A machine minute is one vCPU for one minute while a machine is awake: a 2 vCPU machine uses 2 a minute, an 8 vCPU machine 8. A paused machine uses none."
       }
     },
     "testflight": {
@@ -1323,7 +1379,12 @@
         "deleteConfirmBody": "This is irreversible and deletes all data associated with your account.",
         "deleteAcknowledge": "I understand my account and its data will be deleted permanently.",
         "deleteConfirm": "Delete account",
-        "deleteError": "Could not delete the account. Try again."
+        "deleteError": "Could not delete the account. Try again.",
+        "deleteErrorPending": "Your account is already being deleted. Try again in a moment.",
+        "deleteErrorRetryable": "Account deletion couldn't finish. Check your connection and try again.",
+        "deleteAppStoreTitle": "Your App Store subscription will keep renewing",
+        "deleteAppStoreBody": "Deleting your cmux account doesn't cancel your App Store subscription. Apple keeps charging you until you cancel it in the App Store.",
+        "deleteAppStoreManage": "Manage subscription in the App Store"
       }
     },
     "teams": {
@@ -2162,6 +2223,7 @@
     "typingProgrammability": "programmability",
     "taglineStatic": "The terminal built for multitasking, organization, and programmability.",
     "subtitle": "Free and open source native macOS terminal built on Ghostty. Vertical tabs, notification rings when agents need attention, split panes, and a <cliLink>CLI</cliLink> for programmability.",
+    "nextCallout": "New: try <link>cmux NEXT</link>, a preview of the next cmux.",
     "features": "Features",
     "faq": "FAQ",
     "communitySection": "Community",
@@ -2216,9 +2278,15 @@
     "faqFeatureQ": "I have a feature request or found a bug",
     "faqFeatureA": "We want to hear it. Open an <issuesLink>issue</issuesLink> or <prLink>pull request</prLink> on GitHub, or <mailLink>email us</mailLink>.",
     "faqIosQ": "Is there an iOS app?",
+<<<<<<< HEAD
     "faqIosA": "Yes, in beta. Pair your iPhone with your Mac from the Mobile Connect window and attach to your terminals from your phone, with optional forwarding of terminal notifications. It ships on TestFlight as cmux BETA.",
     "faqSupportQ": "How can I support cmux?",
     "faqSupportA": "cmux is free and open source, and always will be.",
+=======
+    "faqIosA": "Yes, in beta. Pair your iPhone with your Mac from the Mobile Connect window and attach to your terminals from your phone, with optional forwarding of terminal notifications. It ships on TestFlight as cmux BETA. Early access is included with <proLink>cmux Pro</proLink>.",
+    "faqSupportQ": "How can I support cmux?",
+    "faqSupportA": "cmux is free and open source, and always will be. If you want to back development and get early access to what's next, including cmux AI, the iOS app, and Cloud VMs, check out <proLink>cmux Pro</proLink>.",
+>>>>>>> origin/main
     "faqBrowserQ": "What can the built-in browser do?",
     "faqBrowserA": "cmux can split a real browser pane next to your terminal, and it is fully programmable: navigate, snapshot the DOM, click, type, evaluate JavaScript, and read console and network activity over the same socket API. Agents use it to verify their own web changes without leaving cmux. See <link>browser automation</link>."
   },
@@ -3467,6 +3535,7 @@
           "tabBarVisibility": "Decide when a pane draws its tab bar. \"always\" draws it even for a pane holding one tab; \"multiple-tabs\" hides it while a pane holds one tab and draws it once a second tab opens. Minimal mode (app.minimalMode) always draws it, because there the top pane's tab bar doubles as the window titlebar.",
           "forkConversationDefaultDestination": "Default destination for the tab context menu's primary Fork Conversation action. The submenu still exposes every destination.",
           "globalFontMagnification": "Percentage zoom for everything cmux draws itself: terminal text, tab titles, sidebars, Settings, overlays, and window chrome. Web pages inside browser surfaces keep their own size.",
+          "equalizeSplitsOnDividerDoubleClick": "When true, double-clicking a split divider makes the panes in its row or column equal in size. Other rows and columns keep their sizes.",
           "paneResizeStepPixels": "Pixels moved per keypress when using pane-resize shortcuts. Accepts 1–200; defaults to 20. Changes apply immediately."
         },
         "terminal": {
@@ -3567,6 +3636,13 @@
               "enabled": "With a remote tmux workspace selected, New Workspace starts a tmux session on that workspace’s host."
             }
           }
+        },
+        "chief": {
+          "description": "Chief, the Home agent: whether it is shown and which harness, model, and effort it uses.",
+          "enabled": "Show the Home row and Chief entry points. When false, the Home row, the Open Chief shortcut, menu item, and command palette entries are hidden.",
+          "harness": "Agent harness Chief runs on: claude (Claude Code) or codex (Codex).",
+          "model": "Model passed to the harness. Leave empty to use the harness default.",
+          "effort": "Reasoning effort passed to the harness, such as low, medium, or high. Leave empty to use the harness default."
         }
       },
       "exampleMarkdownFontSize": "Default body font size (points) for newly opened markdown viewers.",
@@ -4298,7 +4374,38 @@
       "envTmuxPane": "Fake tmux pane identifier mapped to the current cmux pane",
       "envSocket": "Path to the cmux control socket for the shim to connect to"
     },
+    "mainThread": {
+      "title": "How cmux stays responsive",
+      "metaTitle": "How cmux stays responsive: the top fixes and Chrome's main-thread model",
+      "metaDescription": "The four main-thread fixes that keep cmux responsive while Claude Code and Codex run in it, the Chrome threading model they follow, and the checks that keep them fixed.",
+      "intro": "cmux runs many Claude Code and Codex sessions side by side, and the window has to keep up with all of them. A hang, a spinning cursor, or a row that stutters as it opens almost always has one cause: something ran on the main thread and had to wait. These are the fixes that mattered most.",
+      "fixesTitle": "The top fixes",
+      "fixStdin": "A pipe write can block for minutes. Sending a prompt to a Claude Code or Codex process waits when the agent stops reading its input. Done on the main thread, that froze a Nightly for 391 seconds. The write now runs off the main thread (#39998).",
+      "fixHibernation": "Small loops grow. Putting idle workspaces to sleep walked every listed chat once for every tab, a 3 to 4.6 second hang with many Claude Code and Codex chats open. One index built per pass fixed it (#40031).",
+      "fixSpawn": "Starting a process is a blocking call too. Spawning one while closing a screen stalled the main thread for 807 ms. Process launches now go through the same checked seams as file and socket reads.",
+      "fixWrites": "Saving state wrote files on the main thread. Every store now writes through one background writer that keeps only the newest bytes for each file, writes once per window, and flushes at quit (#54456).",
+      "chromeTitle": "What we borrowed from Chrome",
+      "chromeUiThread": "The UI thread never blocks. Chrome's browser UI thread handles input and paints. Disk, network, waits on other processes and long computation run elsewhere, because time the UI thread spends busy is time the person sees.",
+      "chromeTasks": "Work is posted, and the answer comes back as a task. Chrome posts work to sequences that run one task at a time on whichever pool thread is free. PostTaskAndReply runs the work there and posts the reply back to the thread that asked. Messages take the place of shared memory and locks.",
+      "chromeEnforced": "The rule is checked in code. ScopedBlockingCall marks every call that may block, ThreadRestrictions asserts in debug builds when one runs on a thread that must not block, and HangWatcher reports hangs with their stacks.",
+      "chromeProcesses": "A slow process can't freeze the browser. Renderer, GPU and utility processes run on their own, and the browser process never waits on one synchronously.",
+      "ruleTitle": "The rule behind them",
+      "ruleIntro": "The main thread dispatches input, makes the smallest change to visible state, and commits the frame. Disk, network, child processes, waits and long work run on named lanes off the main thread, and their results come back to it as a message, the way Chrome's PostTaskAndReply does:",
+      "ruleCodeNote": "Each lane has an owner, a priority and a bound, so a slow disk or a busy agent queues work instead of freezing the window.",
+      "keepTitle": "How they stay fixed",
+      "keepDesc": "Blocking calls go through checked seams that record any call made on the main thread, a watchdog reports stalls and hangs, and a pre-push check refuses new blocking calls in main-thread code. Nightly builds keep the seam checks on, so a hang someone hits points at the line that caused it.",
+      "debugTitle": "Seeing a hang in a cmux NEXT Nightly?",
+      "debugDesc": "Stream the blocking log while you reproduce it, then attach the lines to your report:",
+      "readMoreTitle": "Further reading",
+      "readThreading": "Threading and Tasks in Chrome",
+      "readFaq": "Threading and Tasks in Chrome: FAQ",
+      "readScopedBlocking": "scoped_blocking_call.h",
+      "readHangWatcher": "hang_watcher.h",
+      "readRepoDoc": "The main thread: borrowing Chrome's model (contributor notes in the cmux repository)"
+    },
     "navItems": {
+      "mainThread": "How cmux Stays Responsive",
+      "engineeringSection": "Engineering",
       "computerUse": "Computer Use",
       "gettingStarted": "Getting Started",
       "tui": "cmux TUI",
@@ -4310,10 +4417,13 @@
       "nextUpdates": "Install and update",
       "nextHome": "Home and Chief",
       "nextAgents": "Agents and subagents",
+<<<<<<< HEAD
       "nextArchitecture": "How it fits together",
       "nextAcpmux": "acpmux, the agent daemon",
       "nextMachines": "Machines",
       "nextVault": "Secrets and the vault",
+=======
+>>>>>>> origin/main
       "nextOwnKeys": "Your own API keys",
       "nextAgentSpend": "Agent spend",
       "nextOpenModels": "Open-weight models",
@@ -4324,14 +4434,21 @@
       "nextShortcuts": "Keyboard shortcuts",
       "nextCli": "CLI and MCP reference",
       "nextMcp": "MCP server",
+<<<<<<< HEAD
       "nextApiVersions": "API versions",
+=======
+>>>>>>> origin/main
       "nextSpaces": "Spaces and columns",
       "nextPalette": "Command palette",
       "nextRemote": "Remote machines and Tailscale",
       "nextServer": "cmux server",
       "nextPlans": "Plans and credits",
       "nextSettings": "Settings reference",
+<<<<<<< HEAD
       "nextNetwork": "Network requirements",
+=======
+      "nextArchitecture": "Architecture",
+>>>>>>> origin/main
       "workspaceGroups": "Workspace Groups",
       "configuration": "Configuration",
       "sessionRestore": "Session Restore",
@@ -4431,7 +4548,11 @@
       "intro": "The cmux iOS app is a companion for your Mac. Pair your iPhone or iPad with a Mac running cmux and attach to your terminals from your phone, with optional forwarding of terminal notifications.",
       "betaNote": "The iOS app is in beta. It ships on TestFlight as cmux BETA.",
       "accessTitle": "Getting access",
+<<<<<<< HEAD
       "accessDesc": "The app is distributed through TestFlight. Beta access is included with cmux Pro; join from the TestFlight page in your dashboard.",
+=======
+      "accessDesc": "The app is distributed through TestFlight. Early access is included with <proLink>cmux Pro</proLink>, alongside other early features.",
+>>>>>>> origin/main
       "prereqTitle": "Prerequisites",
       "prereqIntro": "Before you start, you need:",
       "prereq1": "A Mac running cmux and signed in.",
@@ -4505,10 +4626,10 @@
       "blogCta": "Read the <link>Task Manager feature story</link> for the workflow and launch context."
     },
     "cloudOverview": {
-      "title": "cmux Cloud",
-      "metaTitle": "cmux Cloud",
-      "metaDescription": "Run persistent Linux cloud machines from cmux and keep coding agents working after you close your Mac.",
-      "intro": "cmux Cloud gives you persistent Linux machines in the cloud that open as normal cmux workspaces. Terminals keep running when you close a pane, lose the network, or shut your laptop, so coding agents can keep working and you can reattach from any signed-in Mac.",
+      "title": "cmux Cloud quickstart",
+      "metaTitle": "cmux Cloud quickstart",
+      "metaDescription": "Start with cmux NEXT Cloud: sign in, create a Linux machine, open a terminal and desktop, pause or resume, and delete it.",
+      "intro": "Run your tools on a Linux Cloud machine and keep your Mac for the app. This guide uses cmux NEXT commands, verified on 2026-10-29. Older releases use a different CLI.",
       "betaNote": "cmux Cloud is in early access and available unless your organization disables it. To use it, turn on Settings › Beta Features › Cloud Machines.",
       "whatTitle": "What a machine is",
       "whatDesc": "A machine is a persistent cloud computer that belongs to you or to your team. It keeps its files, installed tools, and running terminals. Treat it like a pet, not like cattle: you install what you need once and come back to it later.",
@@ -4534,12 +4655,27 @@
       "cliIntroDesc": "cmux vm and cmux cloud are the same command. Run cmux vm with no verb to list your machines. Every verb has a --help page that works without the app, and cmux vm guide prints a full Markdown guide. Add --json to any verb for machine-readable output.",
       "baseTitle": "Your base machine",
       "baseDesc": "Each account has one pinned base machine. cmux vm base opens it and creates it the first time. cmux vm base reset creates a new base machine and keeps the old one, so you do not lose files by accident.",
-      "nextTitle": "Next steps",
+      "nextTitle": "cmux Cloud quickstart",
       "nextMachines": "Machines: sizes, plans, resize, pause, snapshots, and delete.",
       "nextWorkspaces": "Workspaces and Agents: durable terminals, agents, notifications, and what is installed.",
       "nextNetworking": "Files and Networking: upload files, environment variables, ports, desktop, and public URLs.",
-      "nextCli": "Cloud CLI Reference: every cmux vm verb.",
-      "nextTroubleshooting": "Security and Troubleshooting: how access works and how to fix common errors."
+      "nextCli": "Cloud CLI reference: offered NEXT actions, secrets and hand-off commands.",
+      "nextTroubleshooting": "Cloud troubleshooting",
+      "nextIntro": "Run your tools on a Linux Cloud machine and keep your Mac for the app. This guide uses cmux NEXT commands, verified on 2026-10-29. Older releases use a different CLI.",
+      "nextSignIn": "1. Sign in",
+      "nextSignInBody": "Keep cmux NEXT open on your Mac. Run this command, complete sign-in in the browser, then check the machine list.",
+      "nextCreate": "2. Create a machine",
+      "nextCreateBody": "A medium machine has 4 CPUs, 8 GB of memory and a 32 GB disk. It includes claude, codex, gh, git, node, bun and python3. Tool sign-in is separate from cmux sign-in.",
+      "nextPending": "Creation may return pending: true after 30 seconds and continue in the background. Check list-machines before creating another. Copy the returned target ({machineTarget}) into the commands below; most machine commands require it even when you have only one machine.",
+      "nextTerminal": "3. Open a terminal",
+      "nextTerminalBody": "Use --focus to show the terminal in your window. Without it, the workspace opens in the background. Run gh auth login, clone your repository and launch claude or codex in this terminal. Native agent chat tabs are not yet available on machines from the image checked on 2026-10-29.",
+      "nextDesktop": "4. Open the desktop",
+      "nextDesktopBody": "This opens the machine's desktop in a noVNC browser tab. The command returns before the page finishes loading.",
+      "nextPause": "5. Pause and resume",
+      "nextPauseBody": "Pause the machine yourself when you finish; its disk is kept. Automatic idle pause is not yet available. Resume it when you need it again.",
+      "nextDelete": "6. Delete when finished",
+      "nextDeleteBody": "Deletion removes the machine and everything on it. Save work you need elsewhere first. The command returns before deletion finishes; check list-machines afterward.",
+      "nextReference": "Cloud CLI reference"
     },
     "cloudMachines": {
       "title": "Cloud Machines",
@@ -4563,10 +4699,17 @@
       "limitsTitle": "Plan limits",
       "limitsDesc": "Pro, Team, and Max have no cap on how many machines you have; Plus keeps one machine. Beyond the included usage, running machines are metered per vCPU-hour and GB-hour, and saved and paused machines per GB-month of disk. The team's spending cap is the only stop: at the cap new starts are refused, and running machines pause after a warning, with nothing lost.",
       "limitsFree": "Free accounts cannot create machines.",
+<<<<<<< HEAD
       "limitsPaid": "Pro accounts can have any number of machines, each up to 16 GB and 8 vCPUs.",
       "limitsTeam": "Team is optional: it puts everyone on one shared bill and one spending cap. Seats do not change how many machines anyone can have.",
       "limitsMax": "Max accounts can have any number of machines. One Max machine can use up to 64 GB and 32 vCPUs, including the 24 GB / 12 vCPU and 32 GB / 16 vCPU sizes; Pro and Team stop at 16 GB and 8 vCPUs.",
       "limitsPoolFull": "At the spending cap, cmux refuses a new or resumed machine and says the team reached its cap. Raise the cap to start machines again; nothing is deleted.",
+=======
+      "limitsPaid": "Pro and Founder's Edition accounts can have up to 5 machines, including paused machines that share 20 vCPUs and 40 GB of memory.",
+      "limitsTeam": "Team accounts can have up to 5 machines, including paused machines for each paid seat. Each paid seat adds 20 vCPUs and 40 GB of memory to the team's pool.",
+      "limitsMax": "Max accounts can have up to 5 machines, including paused machines that share 80 vCPUs and 160 GB of memory. One Max machine can use up to 64 GB and 32 vCPUs, including the 24 GB / 12 vCPU and 32 GB / 16 vCPU sizes; Pro and Team stop at 16 GB and 8 vCPUs.",
+      "limitsPoolFull": "If a new, resumed, resized, or forked machine would go over the pool, cmux refuses the request and shows how much of the pool is in use. Pause or delete a machine to free resources, or upgrade to Max.",
+>>>>>>> origin/main
       "limitsOversize": "A machine larger than your plan allows is locked. You can list and delete it, but you cannot open it, run commands on it, resume it, or resize it until you upgrade.",
       "limitsPricing": "See the pricing page for current prices. Use beyond the included amount is metered.",
       "agentUpdatesTitle": "Keep coding agents up to date",
@@ -4576,7 +4719,11 @@
       "agentUpdatesToggle": "The New Machine sheet turns this on by default. To change it for an existing machine, right-click the machine and choose Keep Agents Up to Date, or run cmux vm agent-updates. cmux vm new keeps the image's versions unless you pass --agent-updates latest. Turning updates off keeps the versions already installed.",
       "agentUpdatesNetwork": "Updates use only github.com, api.github.com, objects.githubusercontent.com, and release-assets.githubusercontent.com. cmux allows these hosts in every network mode, including Allowlist and No internet, so a network policy never blocks updates.",
       "resizeTitle": "Resize",
+<<<<<<< HEAD
       "resizeDesc": "resize-machine changes the targeted machine to a named size. The provider and your plan enforce growth and resource limits. Check machine-status after the operation; if the response says pending: true, the resize is still running.",
+=======
+      "resizeDesc": "You can make a machine larger without data loss. Right-click the machine and choose Resize machine, or use cmux vm resize. Resize can only grow a machine. Disk grows in 4 GB steps up to 128 GB on Pro and Team, or 256 GB on Max (Plus is limited to 128 GB). Memory grows up to 16 GB and CPU up to 8 vCPU on Pro, Team, and Founder's Edition, or up to 64 GB and 32 vCPU on Max. A larger machine uses more of your pool. Your plan sets the real maximum.",
+>>>>>>> origin/main
       "pauseTitle": "Pause and resume",
       "pauseDesc": "pause-machine pauses compute; resume-machine starts it again. Use set-idle-pause to choose off, 15, 30, 60, or 120 minutes of idle time. Idle means nothing is attached, running, or forwarded. New machines created with --persistent have idle auto-pause off.",
       "pauseIdle": "Machines do not pause by themselves when they are idle. A machine keeps running until you pause it or delete it.",
@@ -4672,10 +4819,17 @@
       "customDomainDesc": "cmux cloud domains verify prints the DNS records to add: a TXT record for ownership, the routing records, and the certificate delegation. Add them, then run verify again. After verification you can publish on the domain or on a subdomain one level below it."
     },
     "cloudCli": {
+<<<<<<< HEAD
       "title": "Cloud CLI Reference",
       "metaTitle": "cmux Cloud CLI Reference",
       "metaDescription": "Current cmux cloud commands for machines, snapshots, workspaces, files, and diagnostics.",
       "intro": "Run these commands on a Mac with cmux open and signed in. Use cmux cloud list-machines to find a machine_id, then replace <id> in --target machine:<id> with it. A target names the machine explicitly. Results can include pending: true while work continues; inspect the machine before repeating a create or snapshot.",
+=======
+      "title": "Cloud CLI reference (NEXT)",
+      "metaTitle": "Cloud CLI reference (NEXT)",
+      "metaDescription": "The offered cmux NEXT Cloud action snapshot, plus secret storage and hand-off commands, explicit machine targets and current image limitations.",
+      "intro": "These are the Cloud actions offered by the cmux NEXT CLI. An offered command can still be unavailable on a particular machine image. The image checked on 2026-10-29 does not yet support native agent chat tabs, opening dev-server browser tabs, local port forwarding, forks or automatic idle pause.",
+>>>>>>> origin/main
       "exitCodes": "Exit codes: 0 on success, 1 on error, and 2 for an unknown command. cmux vm run returns the remote exit code.",
       "authTitle": "Sign in",
       "authDesc": "Sign in, check your account, and choose a team.",
@@ -4699,7 +4853,19 @@
       "accountsDesc": "Upload agent accounts for your team and check model routing.",
       "preflightTitle": "Scripting checklist",
       "preflightDesc": "Before a script creates or uses machines, run these read-only checks. They confirm that you are signed in, show your machines and plan limits, and show which machine a directory uses.",
-      "coderouterLink": "Full CodeRouter command reference"
+      "coderouterLink": "Full CodeRouter command reference",
+      "nextTitle": "Cloud CLI reference (NEXT)",
+      "nextIntro": "These are the Cloud actions offered by the cmux NEXT CLI. An offered command can still be unavailable on a particular machine image. The image checked on 2026-10-29 does not yet support native agent chat tabs, opening dev-server browser tabs, local port forwarding, forks or automatic idle pause.",
+      "nextTargets": "Copy the {machineTarget} target from list-machines and pass --target explicitly for machine commands, even with one machine. Use --help for command syntax and cmux action describe with the action ID for arguments and return fields.",
+      "nextCatalog": "Offered actions",
+      "nextCatalogBody": "This list is generated from the NEXT action catalog and excludes GUI-only actions. It lists available command names, not a guarantee that every machine supports them.",
+      "nextCommand": "Command",
+      "nextAction": "Action ID",
+      "nextSecrets": "Secrets on this Mac",
+      "nextSecretsBody": "secret set reads the value from a hidden prompt or stdin and stores it in this Mac's Keychain. Never put a secret value in command arguments. set and rm accept --repo OWNER/NAME; ls lists stored names and scopes. Delivery requires a finished machine config that declares the secret names. Applying a config and delivering secrets have not yet been verified end to end on the image checked on 2026-10-29.",
+      "nextHandoff": "Hand-off and chat moves",
+      "nextHandoffBody": "hand-off-machine returns text about a machine; it does not move a chat. move and bring-back move chat tabs between this Mac and a Cloud machine. They require compatible chat support; do not use them as the workaround for an image without agent chat tabs. Run the agent in a remote terminal instead.",
+      "nextHelp": "Quickstart and current limitations"
     },
     "cloudTroubleshooting": {
       "title": "Cloud Security and Troubleshooting",
@@ -4757,7 +4923,26 @@
       "errTransferDisabled": "File transfer is disabled by your organization",
       "fixTransferDisabled": "A managed policy turns off file transfer. Ask your administrator.",
       "supportTitle": "Get help",
-      "supportDesc": "If a create fails, use Copy Error in the notification and include it, with the trace ID if there is one, when you contact support."
+      "supportDesc": "If a create fails, use Copy Error in the notification and include it, with the trace ID if there is one, when you contact support.",
+      "nextTitle": "Cloud troubleshooting (NEXT)",
+      "nextIntro": "These messages were checked on 2026-10-29. Features marked not yet available are not supported on machines from that day's image. An update to the Mac app alone does not update software already installed on a Cloud machine.",
+      "nextSymptom": "Message or symptom",
+      "nextFix": "What to do",
+      "nextPendingFix": "Creation continues in the background. Check list-machines before creating another machine. A list with loaded: false is still unknown, not an empty account.",
+      "nextTargetFix": "Copy target from list-machines and pass --target {machineTarget}, even if you have only one machine.",
+      "nextOpenFix": "open-machine is a GUI-only action. To open and show a terminal from the CLI, use new-terminal-on-machine with the machine target and --focus.",
+      "nextAgentFix": "Native agent chat tabs are not yet available. Open a terminal on the machine and run claude or codex there. Changing the agent selection does not fix the missing chat support.",
+      "nextBrowserFix": "Opening a dev-server browser tab is not yet available. machine-link --port returns a link, but browser access through that link was not verified. A returned link alone does not prove the port is reachable.",
+      "nextPortFix": "Local port listing and forwarding are not yet available through this machine link. machine-link can return a port link; it does not create a localhost forward, and browser reachability was not verified.",
+      "nextForkFix": "Forking is not yet available on machines from this image. Create a new machine and clone your repository there; a new machine does not copy the original machine's files.",
+      "nextIdleFix": "Automatic idle pause is not yet available. Pause the machine yourself when finished and resume it when needed. Off is the only accepted idle pause setting.",
+      "nextSecretsFix": "Declare secret names in .cmux/machine.toml, apply the config with apply-machine-config and wait for setup to finish before deliver-secrets. Store values with secret set NAME using its prompt or stdin. This delivery flow has not yet been verified end to end on this image.",
+      "nextGithubFix": "Run gh auth login in the machine's terminal and configure your Git identity there. setup-github needs a Git identity on the Mac; it returned this failure without a reason during verification.",
+      "nextExecFix": "exec is for short commands and stops after 25 seconds. Use a terminal on the machine for builds, agents and long-running servers.",
+      "nextSupport": "Collect diagnostics",
+      "nextSupportBody": "Run diagnostics and include the error message and what you were trying to do when reporting a problem. Review the output before sharing it publicly; remove account details, machine addresses and any other private information.",
+      "legacyTitle": "Earlier releases: security and common problems",
+      "legacyIntro": "The following guidance is retained for earlier cmux releases. Its cmux vm and cmux auth examples are not NEXT commands. For NEXT machine-image refusals and workarounds, use the section above."
     },
     "ui": {
       "onThisPage": "On this page",
@@ -4992,6 +5177,7 @@
     "unsupportedParams": "This link includes unsupported parameters cmux will reject: {params}",
     "conflictingParams": "This link includes parameters that cannot be used together: {params}",
     "invalidParams": "This link includes invalid parameter values: {params}",
+    "ignoredParams": "cmux ignores parameters it does not use: {params}. The session still opens.",
     "fixParams": "Fix the URL parameters, then reload this page.",
     "examplePrefix": "See an",
     "exampleLink": "example link",
@@ -5015,6 +5201,24 @@
       "title": "Open Rules in cmux",
       "intro": "This page opens rules in the current cmux workspace.",
       "fallback": "cmux shows the rules first and asks before pasting them into the current workspace. If cmux does not open, install cmux and click Open in cmux again."
+    },
+    "agent": {
+      "metaTitle": "Open agent session in cmux",
+      "metaDescription": "Open a cmux agent session deeplink from the web, with install fallback when cmux is not available.",
+      "title": "Open agent session",
+      "intro": "This link opens the agent's session in cmux if this Mac can already reach it. The link itself grants no access.",
+      "fallback": "If cmux does not open, install cmux and click Open in cmux again. cmux opens the session only if this Mac can already reach it.",
+      "nameLabel": "Name: {value}",
+      "hostLabel": "Host: {value}",
+      "harnessLabel": "Harness: {value}"
+    },
+    "screen": {
+      "metaTitle": "Open Mac screen in cmux",
+      "metaDescription": "Open a Mac's screen in cmux, view-only, from the web, with install fallback when cmux is not available.",
+      "title": "Open Mac screen",
+      "intro": "This link shows a Mac's screen in cmux, view-only. cmux opens it only if this device can already reach that Mac. The link itself grants no access.",
+      "fallback": "If cmux does not open, install cmux and click Open in cmux again. cmux shows the screen only if you are signed in to the account that owns that Mac.",
+      "ignoredParams": "cmux ignores parameters it does not use: {params}. The screen still opens."
     }
   },
   "download": {
@@ -5094,6 +5298,102 @@
     "description": "cmux NIGHTLY is built automatically from the latest commit on main. It has its own bundle ID, so it runs alongside the stable version without conflicts. Use it to test new features before they ship.",
     "download": "Download NIGHTLY for Mac",
     "warning": "Nightly builds may contain bugs or incomplete features. If something breaks, report it on <githubLink>GitHub</githubLink> or in <discordLink>#nightly-bugs on Discord</discordLink>, and switch back to the stable release."
+  },
+  "next": {
+    "title": "cmux NEXT NIGHTLY",
+    "subtitle": "Preview builds of the next cmux app",
+    "metaTitle": "cmux NEXT — Chief and your coding agents, in one Mac app",
+    "metaDescription": "cmux NEXT is the next cmux for Mac. Tell Chief what you want done, and it starts coding agents in their own workspaces and reports back.",
+    "description": "cmux NEXT NIGHTLY is a preview of the next version of cmux, built automatically from its latest commit. It installs as cmux NIGHTLY (bundle ID com.cmuxterm.app.nightly), so it replaces cmux NIGHTLY and runs alongside cmux. It requires a Mac with Apple silicon.",
+    "download": "Download NEXT NIGHTLY for Mac",
+    "warning": "NEXT NIGHTLY builds may contain bugs or incomplete features. If something breaks, report it on <githubLink>GitHub</githubLink> or in <discordLink>#nightly-bugs on Discord</discordLink>, and switch back to the stable release.",
+    "landing": {
+      "tagline": "Tell Chief what you want done. It runs the agents.",
+      "subtitle": "cmux NEXT is the next version of cmux: a native Mac app built on Ghostty. Chief, its built-in assistant, starts coding agents in their own workspaces, watches them, and tells you when one needs you. A terminal, a real browser and diffs sit beside every agent.",
+      "requirements": "Apple silicon · macOS 14 or later · Runs alongside cmux",
+      "featuresTitle": "Features",
+      "features": {
+        "chief": {
+          "title": "Chief",
+          "body": "Tell it what you want done. It starts agents, hands big jobs to subagents, and reports back."
+        },
+        "home": {
+          "title": "Home",
+          "body": "One chat list for Chief and every agent, with unread dots when one needs you."
+        },
+        "agents": {
+          "title": "Any coding agent",
+          "body": "Claude Code, Codex, Gemini CLI, OpenCode, Pi and more, as real chats with their edits and diffs in view."
+        },
+        "floating": {
+          "title": "Floating Chief",
+          "body": "⌘I brings Chief over the workspace you're in. ⌥⇧Space brings it up from any app."
+        },
+        "search": {
+          "title": "Search everything",
+          "body": "⌘⇧A finds workspaces, tabs, agent chats, browser history and past commands."
+        },
+        "spaces": {
+          "title": "Spaces",
+          "body": "Separate sets of windows for separate work. ⌃⌥⌘← and → to switch."
+        },
+        "browser": {
+          "title": "A real browser",
+          "body": "Chromium in a tab, with extensions, DevTools and profiles, next to your agents."
+        },
+        "machines": {
+          "title": "Your machines",
+          "body": "Run workspaces over SSH, or on cmux Cloud machines that pause when idle (cmux Pro)."
+        },
+        "history": {
+          "title": "Bring your history",
+          "body": "Import Claude Code and Codex history as searchable chats, and pick up where you left off."
+        },
+        "terminal": {
+          "title": "Ghostty terminal",
+          "body": "GPU-rendered, and it reads your Ghostty config."
+        },
+        "sidebar": {
+          "title": "Your own sidebar",
+          "body": "Add sidebar sections as lists or grids, built as small JavaScript apps."
+        },
+        "phone": {
+          "title": "iPhone (beta)",
+          "body": "Answer an agent's permission prompt from your phone."
+        }
+      },
+      "heroAlt": "cmux NEXT: Home with Chief on the left, a Claude Code agent and the files it edited on the right",
+      "demosTitle": "See it",
+      "demos": {
+        "docked": {
+          "caption": "Chief docked beside a workspace.",
+          "alt": "Chief docked to the right of a terminal workspace"
+        },
+        "floating": {
+          "caption": "⌘I floats Chief over whatever you're doing.",
+          "alt": "Chief floating over a terminal workspace"
+        },
+        "agents": {
+          "caption": "An agent's chat next to Chief's.",
+          "alt": "An agent conversation next to a chat with Chief"
+        },
+        "palette": {
+          "caption": "⌘⇧P runs any action by name.",
+          "alt": "The Command Palette open over a conversation"
+        },
+        "history": {
+          "caption": "Bring over Claude Code and Codex history.",
+          "alt": "The import screen listing Claude Code, Codex and other sources"
+        },
+        "machines": {
+          "caption": "Pick the machine a workspace group runs on.",
+          "alt": "Choosing which machine a workspace group runs on"
+        }
+      },
+      "nightlyTitle": "About NEXT NIGHTLY",
+      "nightlyBody": "A new build lands every night from the latest commit, and the app updates itself.",
+      "iconAlt": "cmux NEXT NIGHTLY icon"
+    }
   },
   "languageSwitcher": {
     "label": "Language"
@@ -7229,6 +7529,11 @@
       "sessionsTitle": "Headless sessions and attach",
       "sessionsIntro": "Headless mode keeps the mux backend and its terminals running without a local interface. Attach from another terminal when you need the UI.",
       "sessionsBody": "The default session is main. Named sessions use separate Unix sockets. Detaching leaves a headless server running, so a later attach restores the same tree and terminal state.",
+      "serverTitle": "Keep a session running as a service",
+      "serverIntro": "cmux server install keeps the main session running as a service, so it starts again after a reboot, with no one logged in. On Linux it writes a systemd user unit and turns on lingering; on macOS it writes a LaunchAgent. It needs no sudo, and the session listens only on a Unix socket that only your account can open.",
+      "serverSsh": "To set up another machine that you reach with SSH, give it as ssh://[user@]host[:port]. cmux installs itself there with the install script, starts the service, checks that the session answers, and adds the machine to the cmux app here. It shows each command and asks before it runs it; --yes runs every step without asking. Host-key checking stays as your SSH config has it, and agent, X11 and port forwarding are off.",
+      "serverOptions": "--user starts the service when you log in and stops it when you log out, and leaves lingering as it is. --channel stable or --channel nightly picks the build that goes on the other machine. On a machine where you already are, the install script does the same with --server:",
+      "serverNote": "The service commands ship in cmux NIGHTLY builds. install stops when a cmux-server unit or LaunchAgent that cmux did not write is in the way, and uninstall leaves such a unit as it is.",
       "remoteTitle": "Remote machines",
       "remoteIntro": "Enable the machine rail to switch between the current session and configured Unix-socket or SSH targets.",
       "remoteBody": "The remote machine must already run a headless cmux session, and noninteractive SSH must find the cmux binary. cmux uses strict host-key checking and disables agent forwarding and port forwarding.",
@@ -7411,6 +7716,8 @@
     "errorInvalidCode": "That code isn't valid. Check your email and try again.",
     "errorInvalidTotp": "That two-factor code isn't valid.",
     "errorSignUpNotAllowed": "New accounts can't be created right now.",
+    "errorEmailUnverified": "This email already has an account, but the address isn't verified yet. Sign in the way you signed up, then verify your email to use sign-in codes.",
+    "useEmailPasswordInstead": "Sign in with email & password",
     "errorPasskey": "Passkey sign-in didn't finish. Try again or use another method.",
     "errorGeneric": "Something went wrong. Try again.",
     "errorRedirectNotAllowed": "This build's sign-in address isn't allowed on {backend}.",
@@ -7500,6 +7807,7 @@
     "noOwner": "No cmux owner",
     "none": "None."
   },
+<<<<<<< HEAD
   "nextPricing": {
     "metaTitle": "cmux-next pricing: Chief, tokens and sandboxes",
     "metaDescription": "Chief runs your agents, starts cloud sandboxes and ships the work. Every plan includes Chief credits on open models; pay as you go above that.",
@@ -7799,5 +8107,91 @@
     "errorBody": "Go back to cmux and try again.",
     "button": "Back to cmux",
     "closeHint": "You can close this tab."
+=======
+  "extensions": {
+    "section": "Extensions",
+    "setupsSection": "Setups",
+    "metaTitle": "cmux extensions: plugins, themes and snippets for cmux",
+    "metaDescription": "Browse community plugins, themes, snippets and setups for cmux, the macOS app for AI coding agents. Each lives in its creator's git repo and installs in one click.",
+    "setupsMetaTitle": "cmux setups: whole cmux customizations from git",
+    "setupsMetaDescription": "Browse cmux setups: a theme, sidebar, keymap, widgets and extensions from one git repo, reviewed and installed into the cmux Mac app in one step.",
+    "title": "Extensions",
+    "intro": "Plugins, themes, snippets and whole setups for cmux, built in the open. Each one lives in its creator's git repo, is listed by a reviewed pull request, and installs at a pinned release.",
+    "setupsTitle": "Setups",
+    "setupsIntro": "A whole cmux customization in one git repo: theme, sidebar, keymap, widgets and extensions. Reviewed, pinned to a release, and installed in one step.",
+    "tierAll": "All",
+    "tierPlugin": "Plugins",
+    "tierTheme": "Themes",
+    "tierSnippet": "Snippets",
+    "tierSetup": "Setups",
+    "tierPluginOne": "Plugin",
+    "tierThemeOne": "Theme",
+    "tierSnippetOne": "Snippet",
+    "tierSetupOne": "Setup",
+    "searchPlaceholder": "Search",
+    "sortLabel": "Sort",
+    "sortPopular": "Most downloaded",
+    "sortUpdated": "Recently updated",
+    "sortName": "Name",
+    "noMatches": "Nothing matches that search.",
+    "emptyTitle": "No listings yet",
+    "emptyBody": "Be the first: list your repo below.",
+    "unavailableTitle": "The listings could not be loaded right now",
+    "unavailableBody": "Try again in a minute. You can still list your own repo below.",
+    "listTitle": "List your extension",
+    "listSetupTitle": "List your setup",
+    "listStep1": "Put <code>cmux-app.v2.json</code> (a plugin), a theme file or a snippet in a public git repo, with a README.",
+    "listSetupStep1": "Put <code>cmux-setup.json</code> at the root of a public git repo, with a README.",
+    "scaffoldHint": "Start one with <code>{command}</code>.",
+    "listStep2": "Publish a release: <code>cmux ext publish</code> prints the command that attaches the package.",
+    "listStep3": "Open a pull request adding an entry to <code>{file}</code> in <code>{repo}</code>. Once it is merged, the listing shows here and in the app.",
+    "listOpenPr": "Add to {file}",
+    "by": "by {publisher}",
+    "install": "Install",
+    "downloads": "{count, plural, one {# download} other {{display} downloads}}",
+    "stars": "{count, plural, one {# star} other {{display} stars}}",
+    "updatedOn": "updated {date}",
+    "requires": "Requires cmux {version} or later",
+    "viewSourceOn": "View source on {host}",
+    "forkAndCustomize": "Fork and customize",
+    "license": "License",
+    "publisher": "Publisher",
+    "categories": "Categories",
+    "type": "Type",
+    "latestRelease": "Latest release",
+    "downloadsLabel": "Downloads",
+    "version": "Commit",
+    "updated": "Last updated",
+    "readme": "README",
+    "details": "Details",
+    "setupContents": "What this setup installs",
+    "badgeTitle": "Get the badge",
+    "badgeBody": "Add this to your README so people can find and install it from cmux.com.",
+    "copy": "Copy",
+    "copied": "Copied",
+    "moreBy": "More by {owner}",
+    "authorTitle": "{owner} on cmux",
+    "authorIntro": "Plugins, themes, snippets and setups by {owner}, installable in one click.",
+    "installTitle": "Install {name}",
+    "installIntro": "Opening cmux to install {name}. cmux shows what it can access before anything runs.",
+    "installOpen": "Open in cmux",
+    "installNoCmux": "Don't have cmux yet?",
+    "installDownload": "Download cmux",
+    "installDownloadBody": "Download cmux for macOS and open it, then come back to this page: it hands {name} to cmux, which asks before installing.",
+    "installBack": "Back to {name}",
+    "installCommand": "Or install it from the command line:",
+    "pinned": "Pinned to the reviewed release.",
+    "remixTitle": "Fork and customize {name}",
+    "remixIntro": "Opening cmux with an agent ready to copy {name} into a repo of your own and change it the way you want.",
+    "notListed": "{name} is not listed on cmux.com, so the cmux team has not reviewed it. cmux shows what it can access before you install it."
+  },
+  "analyticsConsent": {
+    "label": "Analytics",
+    "message": "May we use analytics to see how the site is used? Nothing is collected and no analytics cookie is set unless you allow it.",
+    "privacy": "Privacy policy",
+    "accept": "Allow",
+    "decline": "No thanks",
+    "settings": "Analytics settings"
+>>>>>>> origin/main
   }
 }

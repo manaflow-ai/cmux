@@ -381,7 +381,11 @@ Có, cmux miễn phí để dùng. Mã nguồn có sẵn trên [GitHub](https://
 
 ### Tôi có thể hỗ trợ cmux như thế nào?
 
+<<<<<<< HEAD
 cmux miễn phí và mã nguồn mở, và sẽ luôn như vậy.
+=======
+cmux miễn phí và mã nguồn mở, và sẽ luôn như vậy. Nếu bạn muốn ủng hộ việc phát triển và có quyền truy cập sớm vào những thứ sắp tới, gồm cmux AI, app iOS, và Cloud VMs, hãy xem [cmux Pro](https://cmux.com/api/billing/checkout?plan=pro).
+>>>>>>> origin/main
 
 ### Tôi có yêu cầu tính năng hoặc tìm thấy lỗi?
 
@@ -420,6 +424,15 @@ Cách tham gia:
   <img src="./docs/assets/wechat-community-qr.jpg" alt="Mã QR WeChat để tham gia cộng đồng cmux" width="240" />
 </p>
 
+<<<<<<< HEAD
+=======
+## cmux Pro
+
+cmux miễn phí, mã nguồn mở, và sẽ luôn như vậy. Nếu bạn muốn hỗ trợ phát triển và có quyền truy cập sớm vào những thứ sắp tới:
+
+**[Lấy cmux Pro](https://cmux.com/api/billing/checkout?plan=pro)**
+
+>>>>>>> origin/main
 ## Giấy phép
 
 cmux là mã nguồn mở theo [GPL-3.0-or-later](LICENSE). Phần mềm máy chủ của cmux (`web/`, các Cloudflare worker và các dịch vụ relay liệt kê trong [LICENSE](LICENSE)) thay vào đó dùng [Business Source License 1.1](web/LICENSE): bạn có thể đọc, sửa đổi và chạy cho mục đích không phải production; sử dụng production hoặc tự host cần giấy phép thương mại.

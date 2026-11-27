@@ -383,7 +383,11 @@ tmux เป็น terminal multiplexer ที่รันอยู่ภาย�
 
 ### ผมจะสนับสนุน cmux ได้อย่างไร?
 
+<<<<<<< HEAD
 cmux ฟรีและโอเพนซอร์ส และจะเป็นเช่นนั้นเสมอ
+=======
+cmux ฟรีและโอเพนซอร์ส และจะเป็นเช่นนั้นเสมอ หากคุณต้องการสนับสนุนการพัฒนาและรับการเข้าถึงสิ่งที่กำลังจะมาก่อนใคร รวมถึง cmux AI, แอป iOS และ Cloud VMs ลองดู [cmux Pro](https://cmux.com/api/billing/checkout?plan=pro)
+>>>>>>> origin/main
 
 ### ผมมีคำขอฟีเจอร์หรือพบบั๊ก?
 
@@ -422,6 +426,15 @@ cmux ฟรีและโอเพนซอร์ส และจะเป็�
   <img src="./docs/assets/wechat-community-qr.jpg" alt="คิวอาร์โค้ด WeChat สำหรับเข้าร่วมชุมชน cmux" width="240" />
 </p>
 
+<<<<<<< HEAD
+=======
+## cmux Pro
+
+cmux ฟรี โอเพนซอร์ส และจะเป็นเช่นนั้นเสมอ หากคุณต้องการสนับสนุนการพัฒนาและรับการเข้าถึงสิ่งที่กำลังจะมาก่อนใคร:
+
+**[รับ cmux Pro](https://cmux.com/api/billing/checkout?plan=pro)**
+
+>>>>>>> origin/main
 ## สัญญาอนุญาต
 
 cmux เป็นโอเพนซอร์สภายใต้ [GPL-3.0-or-later](LICENSE) ซอฟต์แวร์เซิร์ฟเวอร์ของ cmux (`web/`, Cloudflare workers และบริการ relay ที่ระบุใน [LICENSE](LICENSE)) ใช้ [Business Source License 1.1](web/LICENSE) แทน คุณสามารถอ่าน แก้ไข และรันเพื่อการใช้งานที่ไม่ใช่โปรดักชันได้ ส่วนการใช้งานโปรดักชันหรือการโฮสต์เองต้องมีสัญญาอนุญาตเชิงพาณิชย์

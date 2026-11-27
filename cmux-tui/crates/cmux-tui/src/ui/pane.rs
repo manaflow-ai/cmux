@@ -9,8 +9,13 @@
 use std::collections::{HashMap, HashSet};
 use std::time::Instant;
 
+<<<<<<< ours
 use cmux_tui_core::{AgentStatus, BrowserStatus, Rect, ShownProgramStatus, SurfaceKind};
 use ghostty_vt::{ProgramStatusState, RenderState};
+=======
+use cmux_tui_core::{AgentStatus, BrowserStatus, Rect, SurfaceKind};
+use ghostty_vt::RenderState;
+>>>>>>> theirs
 use ratatui::Frame;
 use ratatui::style::{Color, Modifier, Style};
 use unicode_width::UnicodeWidthStr;
@@ -278,7 +283,11 @@ fn draw_tab_bar(app: &mut App, frame: &mut Frame, area: &PaneArea, focused: bool
     // A docked workspace's panes draw beside the active screen's.
     let Some(pane) = app.tree.pane(area.pane) else { return };
     let tab_cfg = app.config.tabs.clone();
+<<<<<<< ours
     let tabs: Vec<(String, Option<String>, Option<AgentStatus>)> = pane
+=======
+    let tabs: Vec<(String, Option<AgentStatus>)> = pane
+>>>>>>> theirs
         .tabs
         .iter()
         .enumerate()
@@ -291,6 +300,7 @@ fn draw_tab_bar(app: &mut App, frame: &mut Frame, area: &PaneArea, focused: bool
             {
                 label.push_str(" •");
             }
+<<<<<<< ours
             // An agent's `cmux attention request` mark reads like a program
             // that waits on the user.
             let mark = t.program_status.and_then(program_status_mark);
@@ -300,6 +310,9 @@ fn draw_tab_bar(app: &mut App, frame: &mut Frame, area: &PaneArea, focused: bool
                 mark
             };
             (label, mark, agent)
+=======
+            (label, agent)
+>>>>>>> theirs
         })
         .collect();
     let active_tab = pane.active_tab;
@@ -395,6 +408,7 @@ fn draw_tab_bar(app: &mut App, frame: &mut Frame, area: &PaneArea, focused: bool
     // Each label, and the cell offset of its agent status glyph.
     let (labels, agent_glyphs): (Vec<String>, Vec<Option<(u16, AgentStatus)>>) = tabs
         .iter()
+<<<<<<< ours
         .map(|(t, mark, agent)| {
             // The agent's status leads; the program status mark follows the
             // truncated title so both always show.
@@ -405,6 +419,14 @@ fn draw_tab_bar(app: &mut App, frame: &mut Frame, area: &PaneArea, focused: bool
                 (None, Some(mark)) => format!(" {} {mark} ", truncate(t, 16)),
                 (None, None) => format!(" {} ", truncate(t, 16)),
             };
+=======
+        .map(|(t, agent)| {
+            // The agent's status glyph leads the truncated title.
+            let label = match agent.map(crate::sidebar_status::status_glyph) {
+                Some(glyph) => format!(" {glyph} {} ", truncate(t, 16)),
+                None => format!(" {} ", truncate(t, 16)),
+            };
+>>>>>>> theirs
             // Pad to the configured minimum width, keeping the text centered-ish.
             let short = min_w.saturating_sub(label.width());
             let glyph_offset = agent.map(|agent| ((short / 2 + 1) as u16, agent));

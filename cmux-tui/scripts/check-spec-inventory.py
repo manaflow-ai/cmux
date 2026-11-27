@@ -973,9 +973,15 @@ MENU_ONLY_METADATA: dict[str, dict[str, str]] = {
         "classification": "presentation-only",
         "route": "tree snapshot + frontend clipboard",
     },
+<<<<<<< HEAD
     "PinWorkspace": {
         "classification": "direct",
         "route": "sidebar.pin or sidebar.unpin (sidebar-doc-v1)",
+=======
+    "FocusAttention": {
+        "classification": "presentation-only",
+        "route": "frontend attention list + client focus",
+>>>>>>> origin/main
     },
     "DeleteManagedWorkspace": {
         "classification": "external-protocol",

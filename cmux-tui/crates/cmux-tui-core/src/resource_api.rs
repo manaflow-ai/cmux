@@ -32,6 +32,7 @@ use crate::resource::{
     ResourceOperation, ScreenPublicId, Selector, SessionPublicId, TabPublicId, TerminalPublicId,
     WorkspacePublicId,
 };
+use crate::resource_screen::{panes_by_id, public_screen_value, tabs_by_pane};
 use crate::sidebar_resource::{sidebar_snapshot, sidebar_view_id};
 use crate::workspace_registry::{
     FrontendProjection, RegistryBrowser, RegistryBrowserLaunch, RegistryBrowserSource,
@@ -556,6 +557,16 @@ pub(crate) fn public_terminal_snapshot(
     if !extra.is_empty() {
         terminal.set("extra", Value::Object(extra));
     }
+    // `terminal-exit-status-v1`: the last command the shell finished (OSC
+    // 133 D), with its exit code when the shell sent one. Absent without
+    // shell integration, so a missing field never reads as success.
+    if durable.lifecycle == TerminalLifecycle::Running
+        && let Some(last) = surface.and_then(crate::Surface::terminal_last_command)
+    {
+        terminal["extra"] = json!({
+            "last_command": crate::terminal_command::last_command_json(last),
+        });
+    }
     if durable.lifecycle == TerminalLifecycle::Exited {
         terminal.set(
             "exit",
@@ -617,6 +628,8 @@ fn session_snapshot_with_journal_head(
     } else {
         (HashMap::new(), HashMap::new())
     };
+    // Taken before the projection lock, like the sidebar status (memory only).
+    let last_sessions = mux.agent_last_sessions();
     #[cfg(test)]
     run_snapshot_before_projection_hook();
     // No registry lock and no state lock across this walk: the durable rows are one committed revision
@@ -653,6 +666,7 @@ fn session_snapshot_with_journal_head(
             Vec::new()
         };
 
+<<<<<<< ours
         // One builder for the snapshot and `terminal.list` (`public_terminal_values`). The live surface of a
         // terminal is its routed runtime, from the published table, read with no lock. The identity of an
         // in-process runtime is in a table of the mux, which a close purges after it releases the state
@@ -665,9 +679,131 @@ fn session_snapshot_with_journal_head(
         let live_terminal = |terminal_id: &TerminalPublicId| {
             let routed = routes.catalog_terminal(terminal_id)?;
             let Some(host) = mux.resource_terminal_host_identity(routed) else {
+=======
+        let tabs_by_pane = tabs_by_pane(&topology.tabs);
+        let panes_by_id = panes_by_id(&topology.panes);
+        let screens_by_id = topology
+            .screens
+            .iter()
+            .map(|screen| (&screen.public_id, screen))
+            .collect::<HashMap<_, _>>();
+        let active_screens = topology.active_screens.iter().cloned().collect::<HashMap<_, _>>();
+        let terminals_by_id = terminal_registry
+            .terminals
+            .iter()
+            .map(|terminal| (terminal.terminal_id.as_str(), terminal))
+            .collect::<HashMap<_, _>>();
+        let terminal_resources_by_host =
+            terminal_resource_ids.iter().cloned().collect::<HashMap<_, _>>();
+        let terminal_hosts_by_resource = terminal_resource_ids
+            .into_iter()
+            .map(|(host_id, terminal_id)| (terminal_id, host_id))
+            .collect::<HashMap<_, _>>();
+
+        let workspaces = registry_snapshot
+            .workspaces
+            .iter()
+            .enumerate()
+            .map(|(index, workspace)| {
+                Ok(json!({
+                    "id": workspace.public_id,
+                    "session_id": topology.session_id,
+                    "name": workspace.name,
+                    "index": checked_index(index)?,
+                    "focused": topology.active_workspace.as_ref() == Some(&workspace.public_id),
+                }))
+            })
+            .collect::<anyhow::Result<Vec<_>>>()?;
+
+        let screens = topology
+            .screens
+            .iter()
+            .map(|screen| public_screen_value(&topology, screen, &tabs_by_pane, &panes_by_id))
+            .collect::<anyhow::Result<Vec<_>>>()?;
+
+        let panes = topology
+            .panes
+            .iter()
+            .map(|pane| {
+                let screen = screens_by_id
+                    .get(&pane.screen_id)
+                    .ok_or_else(|| anyhow::anyhow!("pane references a missing screen"))?;
+                let screen_focused = topology.active_workspace.as_ref()
+                    == Some(&screen.workspace_id)
+                    && active_screens.get(&screen.workspace_id).and_then(Option::as_ref)
+                        == Some(&screen.public_id);
+                Ok(json!({
+                    "id": pane.public_id,
+                    "screen_id": pane.screen_id,
+                    "name": pane.name,
+                    "focused": screen_focused && screen.active_pane == pane.public_id,
+                    "zoomed": screen.zoomed_pane.as_ref() == Some(&pane.public_id),
+                }))
+            })
+            .collect::<anyhow::Result<Vec<_>>>()?;
+
+        let tabs = topology
+            .tabs
+            .iter()
+            .map(|tab| {
+                let pane = panes_by_id
+                    .get(&tab.pane_id)
+                    .ok_or_else(|| anyhow::anyhow!("tab references a missing pane"))?;
+                checked_index(tab.position)?;
+                Ok(tab.public_value(pane.active_tab.as_ref() == Some(&tab.public_id)))
+            })
+            .collect::<anyhow::Result<Vec<_>>>()?;
+
+        let mut terminal_order = Vec::new();
+        let mut seen_terminals = HashSet::new();
+        for tab in &topology.tabs {
+            if let ContentPublicId::Terminal(terminal_id) = &tab.content_id {
+                if seen_terminals.insert(terminal_id.clone()) {
+                    terminal_order.push(terminal_id.clone());
+                }
+                let host_id = terminal_hosts_by_resource.get(terminal_id).with_context(|| {
+                    format!("terminal {terminal_id} omitted its durable identity")
+                })?;
+                if let Some(tab_host_id) = &tab.terminal_id {
+                    anyhow::ensure!(
+                        tab_host_id == host_id,
+                        "terminal {terminal_id} references a mismatched durable host"
+                    );
+                }
+            }
+        }
+        let mut tab_ids_by_terminal =
+            terminal_tab_ids_in_canonical_order(topology.tabs.iter().filter_map(|tab| {
+                match &tab.content_id {
+                    ContentPublicId::Terminal(terminal_id) => Some((
+                        terminal_id.clone(),
+                        tab.pane_id.clone(),
+                        tab.position,
+                        tab.public_id.clone(),
+                    )),
+                    ContentPublicId::Browser(_) => None,
+                }
+            }));
+        for durable in &terminal_registry.terminals {
+            if let Some(terminal_id) = terminal_resources_by_host.get(&durable.terminal_id)
+                && seen_terminals.insert(terminal_id.clone())
+            {
+                terminal_order.push(terminal_id.clone());
+            }
+        }
+        for (host_id, terminal_id) in &terminal_resources_by_host {
+            if !terminals_by_id.contains_key(host_id.as_str()) {
+                // A resource row whose durable host vanished (a close that
+                // tombstoned the registry but not the resource row, or a crash
+                // between the two writes) must not fail the whole snapshot:
+                // every client renders a failed snapshot as "machine
+                // unreachable". Skip the dangling row; the close path owns the
+                // repair.
+>>>>>>> theirs
                 eprintln!(
                     "cmux-tui: snapshot shows terminal {terminal_id} with no live values: its runtime has no durable identity"
                 );
+<<<<<<< ours
                 return None;
             };
             Some(LiveTerminal { surface: routed.clone(), host: Some(host) })
@@ -679,6 +815,36 @@ fn session_snapshot_with_journal_head(
             live_terminal,
             &last_sessions,
         )?;
+=======
+            }
+        }
+
+        let terminals = terminal_order
+            .into_iter()
+            .map(|terminal_id| {
+                let surface = state.terminal_catalog.get(&terminal_id);
+                let host_id = terminal_hosts_by_resource.get(&terminal_id).with_context(|| {
+                    format!("terminal {terminal_id} omitted its durable identity")
+                })?;
+                if let Some(surface) = surface {
+                    let runtime_host =
+                        mux.resource_terminal_host_identity(surface).with_context(|| {
+                            format!("terminal {terminal_id} runtime omitted its durable identity")
+                        })?;
+                    anyhow::ensure!(
+                        runtime_host.terminal_id == *host_id,
+                        "terminal {terminal_id} runtime references a mismatched durable host"
+                    );
+                }
+                let durable = terminals_by_id.get(host_id.as_str()).with_context(|| {
+                    format!("terminal {terminal_id} references missing {host_id}")
+                })?;
+                let tab_ids = tab_ids_by_terminal.remove(&terminal_id).unwrap_or_default();
+                public_terminal_snapshot(&terminal_id, durable, surface.map(Arc::as_ref), tab_ids)
+                    .map(|terminal| crate::mux::with_agent_session(terminal, &last_sessions))
+            })
+            .collect::<anyhow::Result<Vec<_>>>()?;
+>>>>>>> theirs
 
         let browsers_by_id = topology
             .browsers
@@ -831,6 +997,7 @@ fn public_workspace_values(
         .collect()
 }
 
+<<<<<<< ours
 /// The session snapshot's `terminals`, in its order: each terminal that a
 /// tab shows, in the tabs' order, then each other live terminal in creation
 /// order. `tabs` are the session's tabs in the full load's order (a tab of
@@ -1264,6 +1431,8 @@ fn checked_index(index: usize) -> anyhow::Result<u32> {
     u32::try_from(index).map_err(|_| anyhow::anyhow!("resource index exceeds uint32"))
 }
 
+=======
+>>>>>>> theirs
 fn public_browser_snapshot(
     tab: &RegistryTab,
     durable: &RegistryBrowser,
@@ -1313,5 +1482,586 @@ fn public_browser_snapshot(
 }
 
 #[cfg(test)]
+<<<<<<< ours
 #[path = "resource_api_tests.rs"]
 mod tests;
+=======
+mod tests {
+    use super::*;
+    use crate::SurfaceOptions;
+    use crate::resource::{ScreenPublicId, SplitPublicId, TabPublicId, WorkspacePublicId};
+    use crate::resource_screen::public_layout_document;
+    use crate::workspace_registry::{
+        RegistryLayoutNode, RegistryPane, RegistryScreen, RegistryViewport, RegistryViewportColumn,
+    };
+
+    fn resource_request(
+        mux: &Arc<Mux>,
+        id: &str,
+        operation: &str,
+        params: Value,
+        idempotency_key: Option<&str>,
+    ) -> Value {
+        let mut request = json!({
+            "protocol":"cmux.protocol/2",
+            "type":"request",
+            "id":id,
+            "operation":operation,
+            "params":params,
+        });
+        if let Some(idempotency_key) = idempotency_key {
+            request["idempotency_key"] = Value::String(idempotency_key.to_string());
+        }
+        crate::resource_router::handle_resource_message(mux, &request.to_string()).unwrap()
+    }
+
+    #[test]
+    fn local_machine_service_exposes_only_public_opaque_ids() {
+        let mux = Mux::new_for_test("dev", SurfaceOptions::default());
+        let service = LocalResourceMachineService::new(Arc::downgrade(&mux));
+        let result = service
+            .dispatch(&ResourceMachineRequest {
+                operation: ResourceOperation::MachineList,
+                selectors: ResourceSelectors::default(),
+                fields: Map::new(),
+                idempotency_key: None,
+            })
+            .unwrap();
+        let machine = &result.as_array().unwrap()[0];
+        assert!(machine["id"].as_str().unwrap().starts_with("machine_"));
+        assert!(machine.get("key").is_none());
+        assert!(machine.get("socket").is_none());
+    }
+
+    #[test]
+    fn injected_machine_service_is_the_router_boundary() {
+        struct Fake;
+
+        impl ResourceMachineService for Fake {
+            fn dispatch(&self, request: &ResourceMachineRequest) -> Result<Value, ResourceError> {
+                Ok(json!({"operation":request.operation}))
+            }
+        }
+
+        let mux = Mux::new_for_test("dev", SurfaceOptions::default());
+        mux.install_resource_machine_service(Arc::new(Fake)).unwrap();
+        let result = mux
+            .resource_machine_service()
+            .dispatch(&ResourceMachineRequest {
+                operation: ResourceOperation::MachineList,
+                selectors: ResourceSelectors::default(),
+                fields: Map::new(),
+                idempotency_key: None,
+            })
+            .unwrap();
+        assert_eq!(result, json!({"operation":"machine.list"}));
+        assert!(mux.install_resource_machine_service(Arc::new(Fake)).is_err());
+    }
+
+    #[test]
+    fn empty_session_snapshot_contains_only_public_identity_shapes() {
+        let mux = Mux::new_for_test("dev", SurfaceOptions::default());
+        let snapshot = public_session_snapshot(&mux).unwrap();
+        assert!(snapshot["machine"]["id"].as_str().unwrap().starts_with("machine_"));
+        assert!(snapshot["session"]["id"].as_str().unwrap().starts_with("session_"));
+        assert_eq!(snapshot["workspaces"], json!([]));
+        assert_eq!(snapshot["cursor"]["revision"], "0");
+        assert!(snapshot.get("surface").is_none());
+        assert!(snapshot.get("workspace_key").is_none());
+    }
+
+    #[test]
+    fn cloud_cwd_snapshot_presents_the_launch_directory_until_the_shell_reports() {
+        // https://github.com/manaflow-ai/cmux/issues/10756: the daemon spawned
+        // the shell in a known directory, and a shell that has not reported
+        // (or never will, without shell integration) still presents it.
+        let mux = Mux::new_for_test(
+            "cloud-cwd-launch",
+            SurfaceOptions { cwd: Some("/tmp".into()), ..SurfaceOptions::default() },
+        );
+        let surface = mux.new_workspace(Some("cwd".into()), None).unwrap();
+        let terminal_id = surface.terminal_public_id().unwrap();
+        let cwd = |mux: &Mux| {
+            public_session_snapshot(mux).unwrap()["terminals"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .find(|terminal| terminal["id"] == terminal_id.as_str())
+                .unwrap()["cwd"]
+                .clone()
+        };
+        assert_eq!(cwd(&mux), "/tmp");
+        // A report replaces the launch directory; an explicit clear removes the
+        // directory instead of resurrecting the launch directory.
+        surface.set_test_pwd(Some("file://localhost/srv/live".into()));
+        assert_eq!(cwd(&mux), "/srv/live");
+        surface.set_test_pwd(None);
+        assert!(cwd(&mux).is_null());
+        mux.shutdown();
+    }
+
+    #[test]
+    fn cloud_cwd_snapshot_follows_reported_directory_instead_of_launch_directory() {
+        let mux = Mux::new_for_test(
+            "cloud-cwd",
+            SurfaceOptions { cwd: Some("/tmp".into()), ..SurfaceOptions::default() },
+        );
+        let surface = mux.new_workspace(Some("cwd".into()), None).unwrap();
+        let terminal_id = surface.terminal_public_id().unwrap();
+        for directory in ["/srv/first", "/srv/second"] {
+            surface.set_test_pwd(Some(format!("file://localhost{directory}")));
+            let snapshot = public_session_snapshot(&mux).unwrap();
+            let terminal = snapshot["terminals"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .find(|terminal| terminal["id"] == terminal_id.as_str())
+                .unwrap();
+            assert_eq!(terminal["cwd"], directory);
+        }
+        mux.shutdown();
+    }
+
+    #[test]
+    fn cloud_cwd_changes_publish_ordered_terminal_deltas_and_clear_untrusted_reports() {
+        let mux = Mux::new_for_test("cloud-cwd-events", SurfaceOptions::default());
+        let surface = mux.new_workspace(Some("cwd".into()), None).unwrap();
+        let initial = public_session_snapshot(&mux).unwrap();
+        let mut revision = initial["cursor"]["revision"].as_str().unwrap().parse::<u64>().unwrap();
+        for raw in [
+            Some("file://localhost/srv/one"),
+            Some("file://localhost/srv/two"),
+            Some("file://unrelated.invalid/Users/local"),
+        ] {
+            surface.set_test_pwd(raw.map(str::to_string));
+            let snapshot = public_session_snapshot(&mux).unwrap();
+            let page = mux.resource_events_after(revision).unwrap();
+            assert_eq!(page.batches.len(), 1);
+            let batch = &page.batches[0];
+            assert_eq!(batch.previous_revision, revision);
+            assert_eq!(batch.revision, revision + 1);
+            assert_eq!(batch.changes[0]["resource"], "terminal");
+            assert_eq!(batch.changes[0]["value"]["cwd"], snapshot["terminals"][0]["cwd"]);
+            assert_eq!(batch.changes[0]["value"], snapshot["terminals"][0]);
+            assert_eq!(snapshot["tabs"], initial["tabs"]);
+            revision = batch.revision;
+            let _ = public_session_snapshot(&mux).unwrap();
+            assert!(mux.resource_events_after(revision).unwrap().batches.is_empty());
+        }
+        assert!(public_session_snapshot(&mux).unwrap()["terminals"][0]["cwd"].is_null());
+        mux.shutdown();
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn cloud_cwd_live_osc7_reaches_snapshot_and_event_feed() {
+        // `Mux::new_for_test` surfaces never run their command, so these OSC 7
+        // tests need the real local PTY runtime.
+        let mux = Mux::new(
+            "cloud-cwd-osc",
+            SurfaceOptions {
+                command: Some(vec![
+                    "/bin/sh".into(),
+                    "-c".into(),
+                    "printf '\\033]7;file://localhost/srv/live\\007'; read value".into(),
+                ]),
+                ..SurfaceOptions::default()
+            },
+        );
+        let _surface = mux.new_workspace(Some("osc".into()), None).unwrap();
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(5);
+        loop {
+            let epoch = mux.resource_event_epoch();
+            let snapshot = public_session_snapshot(&mux).unwrap();
+            if snapshot["terminals"][0]["cwd"] == "/srv/live" {
+                break;
+            }
+            let remaining = deadline.saturating_duration_since(std::time::Instant::now());
+            assert!(!remaining.is_zero(), "OSC 7 cwd never reached the public graph");
+            mux.wait_for_resource_event(epoch, remaining);
+        }
+        assert!(mux.resource_events_after(0).unwrap().batches.iter().any(|batch| {
+            batch.changes.as_array().unwrap().iter().any(|change| {
+                change["resource"] == "terminal" && change["value"]["cwd"] == "/srv/live"
+            })
+        }));
+        mux.shutdown();
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn cloud_cwd_live_osc7_clear_reaches_snapshot() {
+        // A shell that reports a directory and later reports none (an empty
+        // OSC 7, as when it leaves the host it described) must clear the
+        // published cwd through the same incremental parser path.
+        let mux = Mux::new(
+            "cloud-cwd-osc-clear",
+            SurfaceOptions {
+                command: Some(vec![
+                    "/bin/sh".into(),
+                    "-c".into(),
+                    "printf '\\033]7;file://localhost/srv/live\\007'; read value; printf '\\033]7;\\007'; read value"
+                        .into(),
+                ]),
+                ..SurfaceOptions::default()
+            },
+        );
+        let surface = mux.new_workspace(Some("osc-clear".into()), None).unwrap();
+        let wait_for_cwd = |expected: Option<&str>, message: &str| {
+            let deadline = std::time::Instant::now() + std::time::Duration::from_secs(5);
+            loop {
+                let epoch = mux.resource_event_epoch();
+                let cwd = &public_session_snapshot(&mux).unwrap()["terminals"][0]["cwd"];
+                let reached = match expected {
+                    Some(directory) => cwd == directory,
+                    None => cwd.is_null(),
+                };
+                if reached {
+                    break;
+                }
+                let remaining = deadline.saturating_duration_since(std::time::Instant::now());
+                assert!(!remaining.is_zero(), "{message}");
+                mux.wait_for_resource_event(epoch, remaining);
+            }
+        };
+        wait_for_cwd(Some("/srv/live"), "OSC 7 cwd never reached the public graph");
+        surface.write_bytes(b"\n").unwrap();
+        wait_for_cwd(None, "an empty OSC 7 report never cleared the published cwd");
+        mux.shutdown();
+    }
+
+    #[test]
+    fn snapshot_uses_durable_terminal_state_before_runtime_adoption() {
+        let mux = Mux::new_for_test("snapshot-before-adoption", SurfaceOptions::default());
+        let surface = mux.new_workspace(Some("restoring".into()), None).unwrap();
+        let terminal_id = surface.terminal_public_id().cloned().unwrap();
+
+        mux.remove_surface_runtime_for_test(surface.id).unwrap();
+        mux.remove_terminal_catalog_for_test(&terminal_id).unwrap();
+
+        let snapshot = public_session_snapshot(&mux).unwrap();
+        let terminal = snapshot["terminals"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|terminal| terminal["id"] == terminal_id.as_str())
+            .expect("durable terminal remains visible while its runtime is not adopted");
+        assert_eq!(terminal["cols"], 80);
+        assert_eq!(terminal["rows"], 24);
+        assert_eq!(terminal["lifecycle"], "running");
+
+        // The daemon owns terminal lifecycle. A renderer snapshot must expose
+        // each durable terminal exactly once even when its runtime is absent.
+        let terminal_ids = snapshot["terminals"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|terminal| terminal["id"].as_str().expect("terminal id"))
+            .collect::<HashSet<_>>();
+        assert_eq!(terminal_ids.len(), snapshot["terminals"].as_array().unwrap().len());
+    }
+
+    #[test]
+    fn snapshot_keeps_exited_terminal_receipt_after_its_last_view_detaches() {
+        let mux = Mux::new_for_test("snapshot-exited-receipt", SurfaceOptions::default());
+        let surface = mux.new_workspace(Some("exiting".into()), None).unwrap();
+        let terminal_id = surface.terminal_public_id().cloned().unwrap();
+
+        mux.surface_exited(surface.id);
+
+        let snapshot = public_session_snapshot(&mux).unwrap();
+        let terminal = snapshot["terminals"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|terminal| terminal["id"] == terminal_id.as_str())
+            .expect("durable exit receipt remains publicly addressable until terminal.close");
+        assert_eq!(terminal["lifecycle"], "exited");
+        assert_eq!(terminal["tab_id"], Value::Null);
+        assert_eq!(terminal["tab_ids"], json!([]));
+        assert!(terminal["exit"].is_object());
+        mux.shutdown();
+    }
+
+    #[test]
+    fn snapshot_cursor_and_auxiliary_values_share_one_durable_cut() {
+        let mux = Mux::new_for_test("snapshot-cut", SurfaceOptions::default());
+        let created = resource_request(
+            &mux,
+            "create",
+            "workspace.create",
+            json!({
+                "machine":"current",
+                "session":"current",
+                "name":"snapshot cut",
+                "initial_content":"terminal",
+            }),
+            Some("snapshot-cut-create"),
+        );
+        let terminal_id = created["result"]["value"]["terminal_id"].as_str().unwrap().to_string();
+        resource_request(
+            &mux,
+            "agent-old",
+            "agent.report",
+            json!({
+                "machine":"current",
+                "session":"current",
+                "terminal_id":terminal_id,
+                "state":"working",
+                "source":"hook",
+                "source_session":"before",
+            }),
+            Some("snapshot-cut-agent-old"),
+        );
+
+        let (entered_tx, entered_rx) = std::sync::mpsc::sync_channel(0);
+        let (release_tx, release_rx) = std::sync::mpsc::sync_channel(0);
+        let snapshot_mux = mux.clone();
+        let snapshot_thread = std::thread::spawn(move || {
+            set_snapshot_before_projection_hook(move || {
+                entered_tx.send(()).unwrap();
+                release_rx.recv().unwrap();
+            });
+            public_session_snapshot(&snapshot_mux)
+        });
+        entered_rx.recv().unwrap();
+
+        let agent = resource_request(
+            &mux,
+            "agent-new",
+            "agent.report",
+            json!({
+                "machine":"current",
+                "session":"current",
+                "terminal_id":terminal_id,
+                "state":"blocked",
+                "source":"hook",
+                "source_session":"after",
+            }),
+            Some("snapshot-cut-agent-new"),
+        );
+        let notification = resource_request(
+            &mux,
+            "notification",
+            "notification.create",
+            json!({
+                "machine":"current",
+                "session":"current",
+                "title":"new durable notification",
+                "body":"after snapshot entered",
+                "level":"info",
+                "terminal_id":terminal_id,
+            }),
+            Some("snapshot-cut-notification"),
+        );
+        resource_request(
+            &mux,
+            "defaults",
+            "session.terminal_defaults.update",
+            json!({
+                "machine":"current",
+                "session":"current",
+                "foreground":"#123456",
+                "complete":true,
+            }),
+            Some("snapshot-cut-defaults"),
+        );
+        let projection = resource_request(
+            &mux,
+            "projection",
+            "frontend_projection.put",
+            json!({
+                "machine":"current",
+                "session":"current",
+                "frontend_projection":"projection_00000000000000000000000000000001",
+                "frontend_id":"cmux-test",
+                "window_id":"window-snapshot-cut",
+                "generation":"launch-snapshot-cut",
+                "projection":{"cut":"after"},
+            }),
+            Some("snapshot-cut-projection"),
+        );
+        let expected_revision = projection["result"]["revision"].clone();
+
+        release_tx.send(()).unwrap();
+        let snapshot = snapshot_thread.join().unwrap().unwrap();
+        assert_eq!(snapshot["cursor"]["revision"], expected_revision);
+        assert_eq!(snapshot["session"]["revision"], expected_revision);
+        assert!(snapshot["agents"].as_array().unwrap().contains(&agent["result"]["value"]));
+        assert!(
+            snapshot["notifications"]
+                .as_array()
+                .unwrap()
+                .contains(&notification["result"]["value"])
+        );
+        assert!(
+            snapshot["frontend_projections"]
+                .as_array()
+                .unwrap()
+                .contains(&projection["result"]["value"])
+        );
+    }
+
+    #[test]
+    fn layout_projection_preserves_nested_splits_stacks_and_viewport_columns() {
+        let workspace_id = public_id::<WorkspacePublicId>("ws", 1);
+        let screen_id = public_id::<ScreenPublicId>("screen", 2);
+        let pane_a = public_id::<PanePublicId>("pane", 3);
+        let pane_b = public_id::<PanePublicId>("pane", 4);
+        let pane_c = public_id::<PanePublicId>("pane", 5);
+        let tab_a = public_id::<TabPublicId>("tab", 6);
+        let split_a = public_id::<SplitPublicId>("split", 7);
+        let split_b = public_id::<SplitPublicId>("split", 8);
+        let column_a = public_id::<SplitPublicId>("split", 9);
+        let column_b = public_id::<SplitPublicId>("split", 10);
+        let nested = RegistryLayoutNode::Split {
+            split: split_a,
+            direction: "right".into(),
+            ratio: 0.4,
+            first: Box::new(RegistryLayoutNode::Leaf { pane: pane_a.clone() }),
+            second: Box::new(RegistryLayoutNode::Split {
+                split: split_b,
+                direction: "right".into(),
+                ratio: 0.6,
+                first: Box::new(RegistryLayoutNode::Leaf { pane: pane_b.clone() }),
+                second: Box::new(RegistryLayoutNode::Stack {
+                    panes: vec![pane_c.clone()],
+                    expanded: pane_c.clone(),
+                }),
+            }),
+        };
+        let screen = RegistryScreen {
+            public_id: screen_id.clone(),
+            workspace_id,
+            position: 0,
+            name: Some("layout".into()),
+            layout: nested.clone(),
+            active_pane: pane_b.clone(),
+            zoomed_pane: Some(pane_c.clone()),
+            auto_layout: None,
+            viewport: RegistryViewport {
+                base_width: Some(0.4),
+                columns: vec![
+                    RegistryViewportColumn {
+                        id: column_a.clone(),
+                        width: 0.4,
+                        layout: nested,
+                        auto_layout: None,
+                    },
+                    RegistryViewportColumn {
+                        id: column_b.clone(),
+                        width: 0.6,
+                        layout: RegistryLayoutNode::Stack {
+                            panes: vec![pane_c.clone()],
+                            expanded: pane_c.clone(),
+                        },
+                        auto_layout: None,
+                    },
+                ],
+            },
+        };
+        let panes = [
+            RegistryPane {
+                public_id: pane_a.clone(),
+                screen_id: screen_id.clone(),
+                name: None,
+                active_tab: Some(tab_a.clone()),
+                creation_ordinal: 0,
+            },
+            RegistryPane {
+                public_id: pane_b,
+                screen_id: screen_id.clone(),
+                name: None,
+                active_tab: None,
+                creation_ordinal: 1,
+            },
+            RegistryPane {
+                public_id: pane_c.clone(),
+                screen_id,
+                name: None,
+                active_tab: None,
+                creation_ordinal: 2,
+            },
+        ];
+        let tabs = vec![RegistryTab {
+            name_source: Default::default(),
+            name_revision: 0,
+            public_id: tab_a.clone(),
+            pane_id: pane_a,
+            position: 0,
+            content_id: ContentPublicId::Terminal(TerminalPublicId::random().unwrap()),
+            name: None,
+            browser_url: None,
+            terminal_id: Some("hosted".into()),
+        }];
+        let tabs_by_pane = tabs_by_pane(&tabs);
+        let panes_by_id =
+            panes.iter().map(|pane| (&pane.public_id, pane)).collect::<HashMap<_, _>>();
+        let layout = public_layout_document(&screen, &tabs_by_pane, &panes_by_id).unwrap();
+
+        assert_eq!(layout["active_pane_id"], json!(screen.active_pane));
+        assert_eq!(layout["zoomed_pane_id"], json!(pane_c));
+        assert_eq!(layout["root"]["kind"], "viewport");
+        assert_eq!(layout["root"]["columns"][0]["column_id"], json!(column_a));
+        assert_eq!(layout["root"]["columns"][1]["column_id"], json!(column_b));
+        assert_eq!(layout["root"]["columns"][0]["root"]["second"]["kind"], "split");
+        assert_eq!(layout["root"]["columns"][0]["root"]["first"]["tab_ids"], json!([tab_a]));
+        assert_eq!(layout["root"]["columns"][1]["root"]["kind"], "stack");
+    }
+
+    fn public_id<T>(prefix: &str, value: u128) -> T
+    where
+        T: serde::de::DeserializeOwned,
+    {
+        serde_json::from_value(json!(format!("{prefix}_{value:032x}"))).unwrap()
+    }
+
+    #[test]
+    fn an_indeterminate_session_open_reports_its_cause_to_the_daemon_log() {
+        let mux = Mux::new_for_test("dev", SurfaceOptions::default());
+        let diagnostics = Arc::new(std::sync::Mutex::new(Vec::<String>::new()));
+        let sink = diagnostics.clone();
+        assert!(mux.set_diagnostic_reporter(Arc::new(move |message| {
+            sink.lock().unwrap().push(message.to_string());
+        })));
+        let context = mux.local_resource_context().unwrap();
+        let service = LocalResourceMachineService::new(Arc::downgrade(&mux));
+        let request = ResourceMachineRequest {
+            operation: ResourceOperation::SessionOpen,
+            selectors: ResourceSelectors {
+                machine: Some(context.machine_id.to_string()),
+                session: Some(context.session_id.to_string()),
+                ..Default::default()
+            },
+            fields: Map::new(),
+            idempotency_key: Some("session-open-cause".to_string()),
+        };
+        mux.reject_resource_effect_commits_for_test();
+
+        assert_eq!(service.dispatch(&request).unwrap_err().code, "mutation.indeterminate");
+        assert_eq!(service.dispatch(&request).unwrap_err().code, "mutation.indeterminate");
+
+        let diagnostics = diagnostics.lock().unwrap().clone();
+        let reports = |cause: &str| {
+            diagnostics
+                .iter()
+                .filter(|message| {
+                    message.contains("session.open")
+                        && message.contains("session-open-cause")
+                        && message.contains(cause)
+                })
+                .count()
+        };
+        assert_eq!(
+            reports("injected outcome commit failure"),
+            1,
+            "the daemon log has no cause for the indeterminate open: {diagnostics:?}"
+        );
+        assert_eq!(
+            reports("an earlier attempt"),
+            1,
+            "the daemon log has no cause for the indeterminate replay: {diagnostics:?}"
+        );
+    }
+}
+>>>>>>> theirs

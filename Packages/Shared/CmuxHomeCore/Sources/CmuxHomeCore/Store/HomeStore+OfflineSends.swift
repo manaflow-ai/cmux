@@ -29,6 +29,7 @@ extension HomeStore {
     /// goes after every earlier send of its conversation. Always throws
     /// `pendingResend`.
     func queueUploadWhileOffline(_ key: IdempotencyKey) throws -> Never {
+<<<<<<< HEAD
         waitForReconnect(key)
         throw HomeSendState.pendingResend
     }
@@ -39,6 +40,12 @@ extension HomeStore {
         uploads[key]?.waitingForReconnect = true
         offlineQueued.insert(key)
         scheduleOfflineDeadline(key)
+=======
+        uploads[key]?.waitingForReconnect = true
+        offlineQueued.insert(key)
+        scheduleOfflineDeadline(key)
+        throw HomeSendState.pendingResend
+>>>>>>> origin/main
     }
 
     /// A send its owner never got (`HomeOwnerOffline`: the owner is down

@@ -11,8 +11,11 @@ TMP="$(mktemp -d)"
 server_pid=""
 trap '[[ -n "$server_pid" ]] && kill "$server_pid" 2>/dev/null; rm -rf "$TMP"' EXIT
 fail() { echo "FAIL: $*" >&2; [[ -f "$TMP/out" ]] && cat "$TMP/out" >&2; exit 1; }
+<<<<<<< HEAD
 # The upstream pass: no mirror lock, and not mirror only (CI=true turns it on).
 export CMUX_ZIG_MIRROR_ONLY=0 CMUX_ZIG_LOCK="$TMP/no.lock"
+=======
+>>>>>>> origin/main
 
 mkdir -p "$TMP/www" "$TMP/src/pkg/a" "$TMP/src/zig-pkg/N-dep" "$TMP/cache/p"
 mkdir -p "$TMP/tree/pkg-1.0" && echo hello > "$TMP/tree/pkg-1.0/file"
@@ -73,7 +76,11 @@ cat > "$TMP/src/pkg/a/build.zig.zon" <<EOF
     .hash = "N-three",
 } } }
 EOF
+<<<<<<< HEAD
 # A package already in zig-pkg/ names its own dependencies: they are seeded in the next round.
+=======
+# A dependency's own build.zig.zon is not the source's: it is left to Zig.
+>>>>>>> origin/main
 echo ".{ .dependencies = .{ .inner = .{ .url = \"$base/one.tar.gz\", .hash = \"N-inner\" } } }" > "$TMP/src/zig-pkg/N-dep/build.zig.zon"
 
 status=0
@@ -89,8 +96,12 @@ cmp -s "$TMP/cache/p/N-four.tar.gz" "$TMP/www/one.tar.gz" && cmp -s "$TMP/cache/
 [[ ! -e "$TMP/cache/p/N-page.tar.gz" ]] || fail "a gzipped page that is no tar took the final name"
 [[ ! -e "$TMP/cache/p/N-dep.tar.gz" ]] || fail "a package already in zig-pkg/ was downloaded again"
 [[ ! -e "$TMP/cache/p/N-git.tar.gz" ]] || fail "a git dependency was seeded"
+<<<<<<< HEAD
 cmp -s "$TMP/cache/p/N-inner.tar.gz" "$TMP/www/one.tar.gz" || fail "a package in zig-pkg/ named a dependency that was not seeded"
 grep -q "Seeded 1 of 1 Zig package archives that other packages name" "$TMP/out" || fail "the second round's summary miscounts"
+=======
+[[ ! -e "$TMP/cache/p/N-inner.tar.gz" ]] || fail "a dependency's own build.zig.zon was read"
+>>>>>>> origin/main
 [[ -z "$(ls -A "$TMP/cache/p" | grep '^\.seed-' || true)" ]] || fail "a partial download was left in p/"
 if [[ "$have_xz" == true ]]; then
   gzip -t "$TMP/cache/p/N-three.tar.gz" 2>/dev/null || fail "a .tar.xz package was not re-compressed to gzip"
@@ -100,6 +111,7 @@ else
   grep -q "Seeded 4 of 7 Zig package archives" "$TMP/out" || fail "the summary miscounts"
 fi
 
+<<<<<<< HEAD
 # The mirror pass: the lock's packages tagged with the source's name, each
 # checked against its sha256; mirror only, nothing comes from an upstream URL.
 mkdir -p "$TMP/www/m" "$TMP/mirror-src" "$TMP/mirror-cache"
@@ -169,6 +181,8 @@ cmp -s "$TMP/drive/C:/zig/p/N-drive.tar.gz" "$TMP/www/named.tar.gz" || fail "a p
 cmp -s "$TMP/drive/C:/zig/p/N-drive-inner.tar.gz" "$TMP/www/one.tar.gz" \
   || fail "the package a seeded archive names was not read when the cache path has a drive letter"
 
+=======
+>>>>>>> origin/main
 # A second run downloads nothing: everything seeded is already there.
 kill "$server_pid"; wait "$server_pid" 2>/dev/null || true; server_pid=""
 "$SEED" "$TMP/cache" "$TMP/src" > "$TMP/out" 2>&1 || fail "a second run failed"
@@ -220,15 +234,20 @@ for _ in $(seq 1 100); do [[ -e "$TMP/started" ]] && break; sleep 0.1; done
 [[ -e "$TMP/started" ]] || fail "no seed download reached the server"
 kill -TERM "$seed_pid"
 wait "$seed_pid" 2>/dev/null || true
+<<<<<<< HEAD
 # Until its downloads have stopped too, 10 s at most.
 for _ in $(seq 1 100); do
   pgrep -f "seed-zig-package-archives.sh --one $TMP/slow-cache" >/dev/null || break
   sleep 0.1
 done
+=======
+sleep 2
+>>>>>>> origin/main
 left="$(pgrep -f "seed-zig-package-archives.sh --one $TMP/slow-cache" || true)"
 [[ -z "$left" ]] || { kill $left 2>/dev/null; fail "cancelling the seed left downloads running: $left"; }
 kill "$server_pid" 2>/dev/null; wait "$server_pid" 2>/dev/null || true; server_pid=""
 
+<<<<<<< HEAD
 # Packages a seeded archive names, git+ ones as the commit's archive (cmux#41132:
 # translate_c's git+https://codeberg.org/ziglang/arocc failed every Zig fetch while
 # codeberg's git server was down), from a mirror when the origin does not answer.
@@ -271,6 +290,8 @@ kill "$server_pid" 2>/dev/null; wait "$server_pid" 2>/dev/null || true; server_p
 # The built-in mirror for codeberg's arocc names a GitHub repository holding the same commits.
 grep -q 'https://codeberg.org/ziglang/arocc/=https://github.com/Vexu/arocc/' "$SEED" || fail "the arocc mirror is gone"
 
+=======
+>>>>>>> origin/main
 # The fetch seeds before Zig runs, unless CMUX_ZIG_SEED=0.
 grep -q 'seed-zig-package-archives.sh" "$cache"' "$ROOT/scripts/ci/fetch-ghostty-zig-packages.sh" \
   || fail "fetch-ghostty-zig-packages.sh no longer seeds the archives with curl"

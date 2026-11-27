@@ -1,9 +1,13 @@
 import CmuxConversationGeometry
+<<<<<<< HEAD
 #if canImport(CoreGraphics)
 import CoreGraphics
 #else
 import Foundation
 #endif
+=======
+import CoreGraphics
+>>>>>>> origin/main
 import Testing
 
 /// The DEBUG lab's scripted scroll (`CMUX_UITEST_CONVERSATION_AUTOSCROLL`):
@@ -65,6 +69,7 @@ import Testing
         #expect(step.progress(at: 0.2).distance > early.distance)
     }
 
+<<<<<<< HEAD
     /// A step names itself in script syntax (its signpost label), which
     /// parses back to the same step.
     @Test func stepsNameThemselvesInScriptSyntax() throws {
@@ -76,12 +81,15 @@ import Testing
         }
     }
 
+=======
+>>>>>>> origin/main
     @Test func holdsDoNotMove() {
         let step = ConversationAutoScrollScript.Step.hold(seconds: 2)
         #expect(step.progress(at: 1) == .init(distance: 0, finished: false))
         #expect(step.progress(at: 2).finished)
     }
 }
+<<<<<<< HEAD
 
 /// The driver moves the transcript as a finger or a deceleration does: by
 /// each frame's delta from where the content is now.
@@ -132,3 +140,5 @@ import Testing
         #expect(frame == .init(offsetY: 2000, reachedEdge: false))
     }
 }
+=======
+>>>>>>> origin/main

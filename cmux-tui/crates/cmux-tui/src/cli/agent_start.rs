@@ -8,6 +8,10 @@
 //!                       [--timeout 90s] [--no-wait] [-- ARGS...]
 //! cmux agent resume NAME [--cmd …] [--pane SEL] [--split DIR] [--cwd DIR] …
 //! cmux terminal <t> resume [the same options]
+<<<<<<< ours
+=======
+//! cmux terminal <t> wait --until ready [--timeout D]
+>>>>>>> theirs
 //! ```
 //!
 //! - The launcher is a shell command line: `--cmd`, else
@@ -31,8 +35,18 @@
 //! waited_ms}` (plus `resumed` for a resume). `state` is `ready` (exit 0),
 //! `blocked` with `dialog` and `reason` (exit 4), `timeout` (exit 124),
 //! `exited` (exit 1), or `started` under `--no-wait` (exit 0).
+<<<<<<< ours
 
 mod dialog_options;
+=======
+//!
+//! On main these commands are client flows over the daemon requests that
+//! main already has (`pane run --on-exit keep`, `pane split`, `workspace
+//! create`, `session.snapshot`, `terminal.screen.read`, `agent.list`,
+//! `terminal.process.get`); daemon.rs sends them.
+
+pub(in crate::cli) mod daemon;
+>>>>>>> theirs
 pub(in crate::cli) mod launch;
 pub(in crate::cli) mod placement;
 pub(in crate::cli) mod readiness;
@@ -41,15 +55,23 @@ mod tests;
 
 use std::time::{Duration, Instant};
 
+<<<<<<< ours
 use cmux_json::JsonSet as _;
+=======
+>>>>>>> theirs
 use serde_json::{Value, json};
 
 use super::agent_names::{self, Found, valid_agent_name};
 use super::agent_vocabulary::harness_name;
 use super::command::{self, CommandPlan, RequestPlan};
+<<<<<<< ours
 use super::mcp::CallFailure;
 use super::terminal_talk::send::{self, Daemon};
 use super::{GlobalArgs, OutputMode, Surface, UsageError, wire};
+=======
+use super::{GlobalArgs, OutputMode, UsageError, wire};
+use daemon::{CallFailure, CliDaemon, Daemon};
+>>>>>>> theirs
 use launch::Launch;
 use placement::{Created, Placement};
 use readiness::{Outcome, Readiness, Reads, WaitOptions};
@@ -95,6 +117,7 @@ impl From<CallFailure> for Failure {
     }
 }
 
+<<<<<<< ours
 impl From<send::SendFailure> for Failure {
     fn from(failure: send::SendFailure) -> Self {
         Self { error: failure.failure.error, exit: failure.exit }
@@ -106,6 +129,15 @@ pub(in crate::cli) fn plan(words: &[&str]) -> Result<RequestPlan, Failure> {
     let words: Vec<String> = words.iter().map(|word| (*word).to_owned()).collect();
     match command::parse(&words, Surface::CmuxTui) {
         Ok(CommandPlan::Protocol(plan)) => Ok(*plan),
+=======
+/// A daemon request from CLI words with plain ids.
+pub(in crate::cli) fn plan(words: &[&str]) -> Result<RequestPlan, Failure> {
+    let words: Vec<String> = words.iter().map(|word| (*word).to_owned()).collect();
+    match command::parse(&words) {
+        Ok(CommandPlan::Protocol(plan)) => Ok(plan),
+        // `agent list` is a client command over `agent.list`; the flows read the rows.
+        Ok(CommandPlan::AgentList(list)) => Ok(list.request),
+>>>>>>> theirs
         Ok(_) => Err(Failure::usage(format!("`{}` is not a daemon request", words.join(" ")))),
         Err(error) => Err(Failure::usage(error.0)),
     }
@@ -165,12 +197,33 @@ pub(in crate::cli) enum ResumeTarget {
 /// One parsed command.
 #[derive(Clone, Debug, PartialEq)]
 pub(in crate::cli) enum Command {
+<<<<<<< ours
     Start { name: String, options: Options },
     Resume { target: ResumeTarget, options: Options },
 }
 
 /// `Some` for `agent start|resume …` and `terminal <t> resume …` (`words`
 /// follow the global options); `None` for any other command.
+=======
+    Start {
+        name: String,
+        options: Options,
+    },
+    Resume {
+        target: ResumeTarget,
+        options: Options,
+    },
+    /// `terminal <t> wait --until ready [--timeout D]`.
+    WaitReady {
+        selector: String,
+        timeout: Option<Duration>,
+    },
+}
+
+/// `Some` for `agent start|resume …`, `terminal <t> resume …` and
+/// `terminal <t> wait …` (`words` follow the global options); `None` for any
+/// other command.
+>>>>>>> theirs
 pub(in crate::cli) fn parse(words: &[String]) -> Option<Result<Command, UsageError>> {
     let strs: Vec<&str> = words.iter().map(String::as_str).collect();
     let (scope, rest) = strs.split_first()?;
@@ -191,10 +244,72 @@ pub(in crate::cli) fn parse(words: &[String]) -> Option<Result<Command, UsageErr
                 options,
             }))
         }
+<<<<<<< ours
+=======
+        ("terminal", [selector, "wait", tail @ ..]) if !selector.starts_with('-') => Some(
+            parse_wait(tail)
+                .map(|timeout| Command::WaitReady { selector: (*selector).to_owned(), timeout }),
+        ),
+>>>>>>> theirs
         _ => None,
     }
 }
 
+<<<<<<< ours
+=======
+/// `terminal <t> wait`'s options: `--until ready` (the only condition main
+/// has) and an optional `--timeout`.
+fn parse_wait(words: &[&str]) -> Result<Option<Duration>, UsageError> {
+    let mut until = None;
+    let mut timeout = None;
+    let mut words = words.iter();
+    while let Some(word) = words.next() {
+        let (name, inline) = match word.split_once('=') {
+            Some((name, value)) if name.starts_with("--") => (name, Some((*value).to_owned())),
+            _ => (*word, None),
+        };
+        let mut value = || {
+            inline
+                .clone()
+                .or_else(|| words.next().map(|value| (*value).to_owned()))
+                .ok_or_else(|| UsageError(format!("{name} needs a value")))
+        };
+        match name {
+            "--until" => until = Some(value()?),
+            "--timeout" => timeout = Some(duration(&value()?)?),
+            other => {
+                return Err(UsageError(format!(
+                    "terminal wait takes --until ready and --timeout, not {other}"
+                )));
+            }
+        }
+    }
+    match until.as_deref() {
+        Some("ready") => Ok(timeout),
+        Some(other) => Err(UsageError(format!("terminal wait --until takes ready, not {other:?}"))),
+        None => Err(UsageError("terminal wait needs --until ready".into())),
+    }
+}
+
+/// A `--timeout` duration: `500ms`, `30s` (or `30`), `5m` or `1h`.
+fn duration(text: &str) -> Result<Duration, UsageError> {
+    let invalid = || {
+        UsageError(format!("--timeout takes a duration such as 500ms, 30s, 5m or 1h, not {text:?}"))
+    };
+    let digits = text.find(|character: char| !character.is_ascii_digit()).unwrap_or(text.len());
+    let (number, unit) = text.split_at(digits);
+    let number = number.parse::<u64>().map_err(|_| invalid())?;
+    let millis = match unit {
+        "ms" => Some(number),
+        "" | "s" => number.checked_mul(1_000),
+        "m" => number.checked_mul(60_000),
+        "h" => number.checked_mul(3_600_000),
+        _ => None,
+    };
+    millis.map(Duration::from_millis).ok_or_else(invalid)
+}
+
+>>>>>>> theirs
 fn parse_named(words: &[&str], command: &str) -> Result<(String, Options), UsageError> {
     let Some((name, tail)) = words.split_first().filter(|(name, _)| !name.starts_with('-')) else {
         return Err(UsageError(format!("{command} needs an agent name, like {command} alpha")));
@@ -247,7 +362,11 @@ pub(in crate::cli) fn parse_options(words: &[&str], command: &str) -> Result<Opt
                         )));
                     }
                     "--cwd" => options.cwd = Some(value),
+<<<<<<< ours
                     _ => options.timeout = super::status::duration(&value)?,
+=======
+                    _ => options.timeout = duration(&value)?,
+>>>>>>> theirs
                 }
             }
             other => {
@@ -275,9 +394,17 @@ pub(in crate::cli) struct Env {
 impl Env {
     fn of_process(global: &GlobalArgs) -> Self {
         let var = |name: &str| std::env::var(name).ok().filter(|value| !value.is_empty());
+<<<<<<< ours
         Self {
             caller_terminal: var("CMUX_TUI_TERMINAL_ID")
                 .filter(|_| wire::routes_to_caller_session(global)),
+=======
+        // The caller's terminal is in the session that its environment names;
+        // an explicit `--socket` or `--session` routes elsewhere.
+        let caller_route = global.socket.is_none() && global.session.is_none();
+        Self {
+            caller_terminal: var("CMUX_TUI_TERMINAL_ID").filter(|_| caller_route),
+>>>>>>> theirs
             cwd: std::env::current_dir().ok().map(|dir| dir.display().to_string()),
             shell: launch::shell_from(var("SHELL").as_deref()),
             default_launcher: var(launch::DEFAULT_LAUNCHER_ENV),
@@ -293,6 +420,7 @@ pub(in crate::cli) struct Clock<'a> {
     pub now_ms: u64,
 }
 
+<<<<<<< ours
 /// `Some(exit code)` for the commands [`parse`] knows.
 pub(in crate::cli) fn run_if_requested(args: &[String]) -> Option<i32> {
     let (global, words) = super::parse_globals(args).ok()?;
@@ -318,6 +446,18 @@ fn run(global: &GlobalArgs, command: &Command) -> i32 {
     let result = match command {
         Command::Start { name, options } => start(&backend, &env, &mut clock, name, options),
         Command::Resume { target, options } => resume(&backend, &env, &mut clock, target, options),
+=======
+/// Runs a parsed command; the exit code.
+pub(in crate::cli) fn run(global: &GlobalArgs, command: &Command) -> i32 {
+    let backend = CliDaemon { global: global.clone() };
+    let env = Env::of_process(global);
+    let mut sleep = std::thread::sleep;
+    let mut clock = Clock { now: &Instant::now, sleep: &mut sleep, now_ms: now_ms() };
+    let result = match command {
+        Command::Start { name, options } => start(&backend, &env, &mut clock, name, options),
+        Command::Resume { target, options } => resume(&backend, &env, &mut clock, target, options),
+        Command::WaitReady { selector, timeout } => wait_ready(&backend, selector, *timeout),
+>>>>>>> theirs
     };
     match result {
         Ok((report, exit)) => print_report(global.output, &report, exit),
@@ -325,6 +465,7 @@ fn run(global: &GlobalArgs, command: &Command) -> i32 {
     }
 }
 
+<<<<<<< ours
 fn print_report(output: OutputMode, report: &Value, exit: i32) -> i32 {
     match output {
         OutputMode::Quiet => {}
@@ -334,6 +475,39 @@ fn print_report(output: OutputMode, report: &Value, exit: i32) -> i32 {
         OutputMode::Human => println!("{}", human(report)),
     }
     exit
+=======
+/// Unix ms now: agent records older than the start do not count.
+fn now_ms() -> u64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map_or(0, |elapsed| u64::try_from(elapsed.as_millis()).unwrap_or(u64::MAX))
+}
+
+/// Sets `key` of the report object.
+fn set(report: &mut Value, key: &str, value: Value) {
+    if let Some(object) = report.as_object_mut() {
+        object.insert(key.to_owned(), value);
+    }
+}
+
+fn print_report(output: OutputMode, report: &Value, exit: i32) -> i32 {
+    use std::io::Write as _;
+    let line = match output {
+        OutputMode::Quiet => return exit,
+        OutputMode::Json | OutputMode::JsonLines => {
+            serde_json::to_string(report).unwrap_or_default()
+        }
+        OutputMode::Human => human(report),
+    };
+    let mut stdout = std::io::stdout().lock();
+    match writeln!(stdout, "{line}").and_then(|()| stdout.flush()) {
+        Ok(()) => exit,
+        Err(error) => {
+            eprintln!("stdout error: {error}");
+            3
+        }
+    }
+>>>>>>> theirs
 }
 
 /// One line for a person: `alpha ready: term_… (tab_…, pane_…)`, and the
@@ -382,6 +556,7 @@ pub(in crate::cli) fn apply_outcome(report: &mut Value, outcome: &Outcome, who: 
                  cmux terminal {who} resume brings it back"
             )),
         ),
+<<<<<<< ours
         Some(Readiness::Starting) | None if outcome.report_required => (
             "timeout",
             TIMEOUT_EXIT,
@@ -394,6 +569,8 @@ pub(in crate::cli) fn apply_outcome(report: &mut Value, outcome: &Outcome, who: 
                     .replace("{who}", who),
             ),
         ),
+=======
+>>>>>>> theirs
         Some(Readiness::Starting) | None => (
             "timeout",
             TIMEOUT_EXIT,
@@ -404,6 +581,7 @@ pub(in crate::cli) fn apply_outcome(report: &mut Value, outcome: &Outcome, who: 
             )),
         ),
     };
+<<<<<<< ours
     report.set("state", json!(state));
     report.set("dialog", json!(dialog));
     report.set("reason", json!(reason));
@@ -446,6 +624,27 @@ fn humantime(duration: Duration) -> String {
 
 /// Waits (unless `--no-wait`) and records the end in `report`. A resume
 /// (`report_required`) is ready only once the agent itself reports idle.
+=======
+    set(report, "state", json!(state));
+    set(report, "dialog", json!(dialog));
+    set(report, "reason", json!(reason));
+    set(report, "waited_ms", json!(outcome.waited.as_millis().to_string()));
+    exit
+}
+
+/// A short age: `12s`, `3m`, `2h`, `1d`.
+fn humantime(duration: Duration) -> String {
+    let seconds = duration.as_secs();
+    match seconds {
+        0..60 => format!("{seconds}s"),
+        60..3_600 => format!("{}m", seconds / 60),
+        3_600..86_400 => format!("{}h", seconds / 3_600),
+        _ => format!("{}d", seconds / 86_400),
+    }
+}
+
+/// Waits (unless `--no-wait`) and records the end in `report`.
+>>>>>>> theirs
 fn finish<D: Daemon + ?Sized>(
     daemon: &D,
     clock: &mut Clock<'_>,
@@ -453,7 +652,10 @@ fn finish<D: Daemon + ?Sized>(
     created: &Created,
     who: &str,
     report: &mut Value,
+<<<<<<< ours
     report_required: bool,
+=======
+>>>>>>> theirs
 ) -> Result<i32, Failure> {
     if options.focus
         && let Ok(focus) = plan(&["tab", created.tab.as_str(), "focus"])
@@ -462,11 +664,19 @@ fn finish<D: Daemon + ?Sized>(
         let _ = daemon.request(None, focus);
     }
     if !options.wait {
+<<<<<<< ours
         report.set("state", json!("started"));
         return Ok(0);
     }
     let reads = terminal_reads(&created.terminal)?;
     let wait = WaitOptions { report_required, ..WaitOptions::new(options.timeout, clock.now_ms) };
+=======
+        set(report, "state", json!("started"));
+        return Ok(0);
+    }
+    let reads = terminal_reads(&created.terminal)?;
+    let wait = WaitOptions::new(options.timeout, clock.now_ms);
+>>>>>>> theirs
     let outcome = readiness::wait(daemon, &reads, wait, clock.now, clock.sleep)?;
     Ok(apply_outcome(report, &outcome, who))
 }
@@ -507,13 +717,22 @@ pub(in crate::cli) fn start<D: Daemon + ?Sized>(
     options: &Options,
 ) -> Result<(Value, i32), Failure> {
     valid_agent_name(name).map_err(Failure::usage)?;
+<<<<<<< ours
     let snapshot = send::snapshot(daemon, None)?;
+=======
+    let snapshot = daemon::snapshot(daemon)?;
+>>>>>>> theirs
     if let Some(taken) = agent_names::places_named(&snapshot, name).into_iter().find(|p| p.live) {
         return Err(Failure::local(
             "agent.name_taken",
             format!(
+<<<<<<< ours
                 "{name} already names a running tab ({}); choose another name, or talk to it \
                  with cmux terminal {name} send --text …",
+=======
+                "{name} already names a running tab ({}); choose another name, or write to it \
+                 with cmux terminal {name} write --text …",
+>>>>>>> theirs
                 taken.terminal
             ),
             json!({"name": name, "terminal_id": taken.terminal, "tab_id": taken.tab}),
@@ -525,7 +744,11 @@ pub(in crate::cli) fn start<D: Daemon + ?Sized>(
     let launch = Launch { shell: env.shell.clone(), launcher, args: options.args.clone() };
     let cwd = options.cwd.clone().or_else(|| env.cwd.clone());
     let fresh = match options.pane {
+<<<<<<< ours
         None => placement::empty_session_pane(daemon, &snapshot, name, cwd.as_deref())?,
+=======
+        None => placement::empty_session_pane(daemon, &snapshot, name)?,
+>>>>>>> theirs
         Some(_) => None,
     };
     let (pane, placement) = match &fresh {
@@ -546,7 +769,11 @@ pub(in crate::cli) fn start<D: Daemon + ?Sized>(
     }
     let mut report =
         report(Some(name), &launch, harness.as_deref(), cwd.as_deref(), &placement, &created);
+<<<<<<< ours
     let exit = finish(daemon, clock, options, &created, name, &mut report, false)?;
+=======
+    let exit = finish(daemon, clock, options, &created, name, &mut report)?;
+>>>>>>> theirs
     Ok((report, exit))
 }
 
@@ -609,11 +836,16 @@ fn exited_target(snapshot: &Value, target: &ResumeTarget) -> Result<Exited, Fail
         .ok_or_else(|| {
             Failure::local(
                 "selector.not_found",
+<<<<<<< ours
                 format!("no agent is named {name}; cmux terminal list --agents lists them"),
+=======
+                format!("no agent is named {name}; cmux agent list lists them"),
+>>>>>>> theirs
                 json!({"name": name}),
                 1,
             )
         })?,
+<<<<<<< ours
         ResumeTarget::Terminal(selector) => send::find_terminal(snapshot, selector)?,
     };
     let id = terminal["id"].as_str().unwrap_or_default().to_owned();
@@ -621,11 +853,21 @@ fn exited_target(snapshot: &Value, target: &ResumeTarget) -> Result<Exited, Fail
     // CLI does not know, or none, must never let resume act on a terminal
     // whose program may still run.
     if !super::terminal_lifecycle::is_exited(terminal) {
+=======
+        ResumeTarget::Terminal(selector) => daemon::find_terminal(snapshot, selector)?,
+    };
+    let id = terminal["id"].as_str().unwrap_or_default().to_owned();
+    if terminal["lifecycle"] != "exited" {
+>>>>>>> theirs
         return Err(Failure::local(
             "agent.running",
             format!(
                 "the agent in {id} still runs; resume brings back an agent that exited (quit it \
+<<<<<<< ours
                  first, or talk to it with cmux terminal {id} send)"
+=======
+                 first, or write to it with cmux terminal {id} write)"
+>>>>>>> theirs
             ),
             json!({"terminal_id": id}),
             1,
@@ -680,7 +922,11 @@ pub(in crate::cli) fn resume_launch(
                 .default_launcher
                 .clone()
                 .filter(|launcher| launch::harness_of(launcher).as_deref() == Some(harness))
+<<<<<<< ours
                 .unwrap_or_else(|| launch::default_program(harness).to_owned());
+=======
+                .unwrap_or_else(|| harness.to_owned());
+>>>>>>> theirs
             Launch { shell: env.shell.clone(), launcher, args: options.args.clone() }
         }
     };
@@ -696,8 +942,19 @@ pub(in crate::cli) fn resume<D: Daemon + ?Sized>(
     target: &ResumeTarget,
     options: &Options,
 ) -> Result<(Value, i32), Failure> {
+<<<<<<< ours
     let snapshot = send::snapshot(daemon, None)?;
     let exited = exited_target(&snapshot, target)?;
+=======
+    let target = match target {
+        ResumeTarget::Terminal(selector) => {
+            ResumeTarget::Terminal(daemon::terminal_keyword(daemon, selector)?)
+        }
+        ResumeTarget::Agent(_) => target.clone(),
+    };
+    let snapshot = daemon::snapshot(daemon)?;
+    let exited = exited_target(&snapshot, &target)?;
+>>>>>>> theirs
     let records =
         daemon.request(None, plan(&["agent", "list", "--terminal", &exited.terminal])?)?;
     // An agent that quit has no record left; the terminal keeps its last session id.
@@ -773,7 +1030,12 @@ pub(in crate::cli) fn resume<D: Daemon + ?Sized>(
     });
     let mut report =
         report(name, &launch, Some(harness.as_str()), cwd.as_deref(), &placement, &created);
+<<<<<<< ours
     report.set(
+=======
+    set(
+        &mut report,
+>>>>>>> theirs
         "resumed",
         json!({
             "terminal_id": exited.terminal,
@@ -783,6 +1045,7 @@ pub(in crate::cli) fn resume<D: Daemon + ?Sized>(
         }),
     );
     let who = name.unwrap_or(created.terminal.as_str()).to_owned();
+<<<<<<< ours
     // The session id came from the agent's hooks in this pane. When those
     // hooks report a session start, ready waits for that report: a resumed
     // Claude Code draws its input box before it takes a message. A harness
@@ -800,11 +1063,15 @@ pub(in crate::cli) fn resume<D: Daemon + ?Sized>(
             cmux_tui_core::agent_hook_event_starts_session,
         );
     let exit = finish(daemon, clock, options, &created, &who, &mut report, report_required)?;
+=======
+    let exit = finish(daemon, clock, options, &created, &who, &mut report)?;
+>>>>>>> theirs
     Ok((report, exit))
 }
 
 /// `terminal <t> wait --until ready [--timeout D]`: waits as `agent start`
 /// does; exits 0 ready, 4 blocked, 1 exited, 124 timeout.
+<<<<<<< ours
 pub(in crate::cli) fn wait_ready_command(
     global: &GlobalArgs,
     selector: &str,
@@ -819,10 +1086,13 @@ pub(in crate::cli) fn wait_ready_command(
     }
 }
 
+=======
+>>>>>>> theirs
 fn wait_ready<D: Daemon + ?Sized>(
     daemon: &D,
     selector: &str,
     timeout: Option<Duration>,
+<<<<<<< ours
     sleep: &mut dyn FnMut(Duration),
 ) -> Result<(Value, i32), Failure> {
     let snapshot = send::snapshot(daemon, None)?;
@@ -831,6 +1101,16 @@ fn wait_ready<D: Daemon + ?Sized>(
     let reads = terminal_reads(&id)?;
     let options = WaitOptions::new(timeout.unwrap_or(UNBOUNDED_WAIT), 0);
     let outcome = readiness::wait(daemon, &reads, options, &Instant::now, sleep)?;
+=======
+) -> Result<(Value, i32), Failure> {
+    let selector = daemon::terminal_keyword(daemon, selector)?;
+    let snapshot = daemon::snapshot(daemon)?;
+    let terminal = daemon::find_terminal(&snapshot, &selector)?;
+    let id = terminal["id"].as_str().unwrap_or_default().to_owned();
+    let reads = terminal_reads(&id)?;
+    let options = WaitOptions::new(timeout.unwrap_or(UNBOUNDED_WAIT), 0);
+    let outcome = readiness::wait(daemon, &reads, options, &Instant::now, &mut std::thread::sleep)?;
+>>>>>>> theirs
     let mut report = json!({"terminal_id": id, "until": "ready"});
     let exit = apply_outcome(&mut report, &outcome, &id);
     match outcome.readiness {
@@ -850,8 +1130,11 @@ fn wait_ready<D: Daemon + ?Sized>(
                     "details": {
                         "until": "ready",
                         "timeout_ms": millis.to_string(),
+<<<<<<< ours
                         "timed_out": true,
                         "waited_ms": millis.to_string(),
+=======
+>>>>>>> theirs
                         "state": outcome.last.as_str(),
                     },
                     "retryable": true,

@@ -97,7 +97,11 @@ extension MacConversationSplitController: MacConversationCommandValidating, NSMe
     @objc func filterSendLater(_ sender: Any?) { toggleFilter(.sendLater) }
 
     private func toggleFilter(_ filter: MacConversationListFilter) {
+<<<<<<< HEAD
         if let item = splitViewItems.first, item.isCollapsed { item.animatorUnlessReduceMotion().isCollapsed = false }
+=======
+        if let item = splitViewItems.first, item.isCollapsed { item.animator().isCollapsed = false }
+>>>>>>> origin/main
         sidebar.setFilter(sidebar.filter == filter ? .all : filter)
     }
 

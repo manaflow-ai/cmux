@@ -1,6 +1,9 @@
 #if canImport(UIKit)
 import CmuxConversationCore
+<<<<<<< HEAD
 import CmuxSpinner
+=======
+>>>>>>> origin/main
 import UIKit
 
 enum AudioMessageStrings {
@@ -165,7 +168,11 @@ final class AudioMessageView: UIView {
     let playButton = UIButton(type: .custom)
     let waveform = AudioWaveformView()
     let durationLabel = UILabel()
+<<<<<<< HEAD
     private let spinner = CmuxSpinnerView(side: 20)
+=======
+    private let spinner = UIActivityIndicatorView(style: .medium)
+>>>>>>> origin/main
     private var displayLink: CADisplayLink?
     private var observer: UUID?
     private weak var player: ConversationAudioPlayer?
@@ -205,6 +212,7 @@ final class AudioMessageView: UIView {
         if !sameMessage || waveform.levels != audio?.waveform ?? [] {
             waveform.levels = audio?.waveform ?? []
         }
+<<<<<<< HEAD
         let primary: UIColor = isOutgoing ? ConversationTheme.sentTextColor : ConversationTheme.receivedTextColor
         waveform.playedColor = primary
         // On a chosen fill the faint parts follow its text colour (white on Messages' blue).
@@ -215,6 +223,16 @@ final class AudioMessageView: UIView {
         playButton.tintColor = primary
         spinner.color = primary
         durationLabel.textColor = isOutgoing ? sentInk.withAlphaComponent(0.9) : ConversationTheme.secondaryText
+=======
+        let primary: UIColor = isOutgoing ? ConversationTheme.outgoingText : ConversationTheme.incomingText
+        waveform.playedColor = primary
+        waveform.unplayedColor = isOutgoing
+            ? UIColor.white.withAlphaComponent(0.45)
+            : UIColor { $0.userInterfaceStyle == .dark ? UIColor(white: 1, alpha: 0.32) : UIColor(white: 0, alpha: 0.28) }
+        playButton.tintColor = primary
+        spinner.color = primary
+        durationLabel.textColor = isOutgoing ? UIColor.white.withAlphaComponent(0.9) : ConversationTheme.secondaryText
+>>>>>>> origin/main
         refresh()
         setNeedsLayout()
     }

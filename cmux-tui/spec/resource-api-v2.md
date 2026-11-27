@@ -764,12 +764,21 @@ metadata at the same level as terminal IDs; remote clients receive it like the
 rest of the agent value. An ended hook session still publishes a `delete`
 change for the agent.
 
+<<<<<<< HEAD
 The snapshot and `agent.list` values of a hook agent may also carry
 `extra.last_reply`: the agent's last answer (Claude's `last_assistant_message`
 from its `Stop` hook), with whitespace folded to single spaces and cut to 200
 characters. It lives in the daemon's memory only: it is not journaled, not
 persisted, absent after a daemon restart until the next answer, and not part
 of the `agent` change event. Clients treat it as optional display text.
+=======
+An ended hook session leaves the roster, so its agent value is gone. The
+terminal value in `session.snapshot` then keeps the last hook session of its
+terminal as `extra.agent_session_id` (with `extra.agent`, the adapter, when
+known), so a client can still resume it (`cmux agent resume`). The daemon keeps
+this in memory only: it is not journaled, a daemon restart forgets it, and a
+closed terminal drops it. Terminal values without one have no such fields.
+>>>>>>> origin/main
 
 ```json
 {

@@ -177,6 +177,7 @@ runs:
         PY
         cargo --version
         rustc --version
+<<<<<<< HEAD
     # cargo nextest is cmux-tui's test runner: cmux-tui/.config/nextest.toml's `ci` profile,
     # scripts/ci/cmux-tui-rust-check.sh's test mode and cmux-tui-testbox-warmup.yml all run it. So
     # `cmux-ci test --setup rust -- '... cargo nextest run ...'` is the call an agent reaches for --
@@ -216,6 +217,8 @@ runs:
         fi
         echo "$dir" >> "$GITHUB_PATH"
         PATH="$dir:$PATH" cargo nextest --version
+=======
+>>>>>>> origin/main
     # Last, so rustup installs with the host's CARGO_HOME. Every later step
     # (rust-cache restore and its post-step cleanup among them) then uses a
     # CARGO_HOME that no other runner instance on the host can delete from.

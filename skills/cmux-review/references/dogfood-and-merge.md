@@ -61,6 +61,7 @@ python3 scripts/media/media_polish.py sbs before.mp4 after.mp4 --out diff.mp4   
 
 **Merge fast, not blind.** `main` is our nightly: stack fixes, do not revert.
 Look at the checks that judge the change (macOS compile admission plus the
+<<<<<<< HEAD
 package and CLI tests CI selected for it) and skip slow unrelated lanes. Only a
 red the PR causes holds the merge; base reds, flakes and pending checks don't. If
 you merge before the judging checks finish, say on the PR what was not verified;
@@ -68,6 +69,18 @@ the merge receipt (`merge_receipt.py`) records it and labels the PR `merged-unve
 On `main`, `gh-merge-green` still waits for the checks it requires; never get
 around it with `--override` or the API merge path. A
 main-regression comment on your PR is a fix-forward ask.
+=======
+app-host suites CI selected for it) and skip slow unrelated lanes. Only a red the
+PR causes holds the merge; base reds, flakes and pending checks don't. If you
+merge before the judging checks finish, say on the PR what was not verified; the
+merge receipt (`merge_receipt.py`) records it and labels the PR `merged-unverified`.
+`gh-merge-green` waits for the checks it requires. Do not stop on a stuck,
+irrelevant or known red one: waive it with `--override "<reason>"`, which posts
+the reason on the PR. It never waives a missing or running check (except a pending
+preview-deploy status the reason names), a freeze or the review receipt ([exact-head merging](../../../docs/ci-runners.md#exact-head-merging)). A
+main-regression comment on your PR (`main_regression_attribution.py`) is a
+fix-forward ask.
+>>>>>>> origin/main
 
 **When to merge.** The main agent owns dogfood, mergeability, the merge and
 every pushed fix. On either branch, a PR merges when an independent review
@@ -79,6 +92,15 @@ the review with a squash pinned to the reviewed head; `ready-to-land` is only a
 fallback hand-off. The `risk:high` tier, a `HOLD:` line or hold label, and merge
 freezes still hold.
 
+<<<<<<< HEAD
+=======
+**When to merge.** The main agent owns dogfood, mergeability, the merge and
+every pushed fix. A PR merges when an independent review subagent passes it and
+it causes no red of its own. Don't wait for a person, for app, runtime and UI
+changes too. Ship risky user-visible behavior behind a setting or Debug toggle,
+and fix a bad default in the next nightly. Merge freezes still hold.
+
+>>>>>>> origin/main
 **Red base.** A base that doesn't compile, or CI that's red on every PR, is
 priority zero. Fix it directly in its own PR instead of noting it and leaving it
 for an owner.
@@ -88,9 +110,15 @@ state, menus, and release-note rendering without a shared Cloud backend. Require
 live authentication or transport only when the assertion depends on it. Record
 the exact head, tag/artifact and exercised states; a build or an empty capture is
 not an interaction result. Agents perform this verification; report an agent
+<<<<<<< HEAD
 verdict as such, never as a human's. A coordinator
 acknowledgement is required only for an actual shared landing resource or freeze,
 not simply for a reviewed fork branch.
+=======
+verdict as such, never as a human's. A coordinator acknowledgement is required
+only for an actual shared landing resource or freeze, not simply for a reviewed
+fork branch.
+>>>>>>> origin/main
 
 **Re-dogfood.** If a fix changes runtime behavior mid-dogfood, rebuild the tag
 and re-notify, since the earlier verdict covers only the build that was tested.

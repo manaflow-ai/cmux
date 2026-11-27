@@ -24,6 +24,7 @@ variable never falls through.
 
 Single-host values are a runner's own name label (glaeda-runner-<runner name>,
 the label only the runner registered under that name carries) or a mini's host
+<<<<<<< HEAD
 name. The pull request half stops there: it has no token to list runners.
 
 The live half also counts hosts. Main's ci-repo-variables.yml runs this file from
@@ -41,6 +42,10 @@ counted. A runner's host is its glaeda member (`<member>-glaeda`,
 scripts/glaeda-cmux-runner), else the longest leading host name, else the runner's
 own name. An unreadable or empty runner list fails the run: it never passes
 uncounted.
+=======
+name. A pool label is never single-host here, however few runners serve it today:
+counting runners needs an admin token this check does not hold.
+>>>>>>> origin/main
 
 Every variable a scanned runs-on reads must also be among the values handed in,
 so a new routing variable cannot go unchecked.
@@ -60,6 +65,7 @@ from __future__ import annotations
 
 import json
 import re
+<<<<<<< HEAD
 import sys
 from collections.abc import Callable, Iterable, Mapping, Sequence
 from pathlib import Path
@@ -68,6 +74,12 @@ import sys
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import gh_expressions  # noqa: E402  (finds each ${{ }}: a regex cuts at a }} in a string)
 
+=======
+from collections.abc import Iterable, Mapping
+from pathlib import Path
+
+import yaml
+>>>>>>> origin/main
 
 # glaeda-cmux-runner's runner_label(): the static label only the runner registered under that name carries.
 RUNNER_NAME_LABEL = re.compile(r"glaeda-runner-[a-z0-9][a-z0-9._-]*")
@@ -81,7 +93,11 @@ VARIABLE = re.compile(r"\bvars\.([A-Za-z0-9_]+)\b")
 # `needs.p.outputs.attempt == format('{0}', github.run_attempt)`). A negation (`!needs...`), an `||` group or an
 # output mentioned anywhere else is no pick.
 PICK = re.compile(r"needs\.[\w-]+\.outputs\.[\w-]+(?:\s*(?:==|!=)\s*(?:'[^']*'|format\([^|&]*\)))?")
+<<<<<<< HEAD
 EXPRESSION = gh_expressions.EXPRESSION  # a tokenizer: a `}}` in a string literal does not end it
+=======
+EXPRESSION = re.compile(r"\$\{\{(.*?)\}\}", re.DOTALL)
+>>>>>>> origin/main
 
 
 def single_host(value: str | None) -> bool:
@@ -180,6 +196,7 @@ def unguarded(expression: str, values: Mapping[str, str], falls_through: bool = 
     return found
 
 
+<<<<<<< HEAD
 # glaeda's scripts/glaeda-cmux-runner names a runner <member>-glaeda, <member>-glaeda-<n> (an instance) or
 # <member>-glaeda-<entry> (a runner.dedicated entry); the member is the host.
 GLAEDA_RUNNER_NAME = re.compile(r"(.+?)-glaeda(?:-.+)?")
@@ -317,6 +334,16 @@ def runs_on_text(job: Mapping) -> str:
     import workflow_jobs  # noqa: PLC0415
 
     return " ".join(str(item) for item in workflow_jobs.runs_on_items(job))
+=======
+def runs_on_text(job: Mapping) -> str:
+    value = job.get("runs-on")
+    if isinstance(value, dict):
+        labels = value.get("labels") or []
+        value = [value.get("group", ""), *([labels] if isinstance(labels, str) else labels)]
+    if isinstance(value, list):
+        return " ".join(str(item) for item in value)
+    return str(value or "")
+>>>>>>> origin/main
 
 
 def runs_on_expressions(text: str) -> list[str]:
@@ -326,9 +353,12 @@ def runs_on_expressions(text: str) -> list[str]:
 
 def jobs(trees: Iterable[tuple[str, Path]]) -> list[tuple[str, str, str]]:
     """(branch/file, job id, runs-on text) for every job of every workflow in each (branch, directory)."""
+<<<<<<< HEAD
     # Imported here, not at the top: the runners job runs `--list-runners` on a bare Python with no PyYAML.
     import yaml  # noqa: PLC0415
 
+=======
+>>>>>>> origin/main
     found = []
     for branch, directory in trees:
         for path in sorted([*directory.glob("*.yml"), *directory.glob("*.yaml")]):
@@ -345,12 +375,17 @@ def read_variables(trees: Iterable[tuple[str, Path]]) -> set[str]:
     return {name for _, _, text in jobs(trees) for name in VARIABLE.findall(text)}
 
 
+<<<<<<< HEAD
 def problems(trees: Iterable[tuple[str, Path]], values: Mapping[str, str],
              runners: Sequence[Mapping[str, Any]] | None = None) -> list[str]:
     """A line per runs-on that waits on one machine, and per variable a runs-on reads that `values` lacks.
 
     With `runners` (the live half), also a line per variable-derived label set only one host serves.
     """
+=======
+def problems(trees: Iterable[tuple[str, Path]], values: Mapping[str, str]) -> list[str]:
+    """A line per runs-on that waits on one machine, and per variable a runs-on reads that `values` lacks."""
+>>>>>>> origin/main
     trees = list(trees)
     found = []
     for where, job_id, text in jobs(trees):
@@ -363,12 +398,34 @@ def problems(trees: Iterable[tuple[str, Path]], values: Mapping[str, str],
     for name in sorted(read_variables(trees) - set(values)):
         found.append(f"a runs-on reads vars.{name}, which ci-repo-variables.yml does not pass to this check. "
                      "Fix: add it to CMUX_CI_RUNS_ON_VARIABLES there")
+<<<<<<< HEAD
     if runners is not None:
         found += single_host_sets(trees, values, runners)
+=======
+>>>>>>> origin/main
     return found
 
 
 RUNS_ON_VARIABLES_ENV = "CMUX_CI_RUNS_ON_VARIABLES"
+<<<<<<< HEAD
+=======
+# Every repository variable at once (`${{ toJSON(vars) }}`), so a runs-on variable a branch adds needs no edit to
+# the NAME=value list above: that list fell behind three times in two days (cmux#48436, #50841, and 1,337 red
+# scheduled runs on CI_FORK_LINUX_RUNNER, CI_OVERFLOW_MAC, CI_REACT_SHARD_RUNNER until 11-24). A name absent from
+# it is unset, so `vars.X` reads empty and falls through, as the workflow itself would.
+ALL_VARIABLES_ENV = "CMUX_CI_RUNS_ON_ALL_VARIABLES"
+
+
+def parse_all(raw: str) -> dict[str, str] | None:
+    """toJSON(vars) as a name -> value map; None when it is not handed in or not a JSON object."""
+    if not raw.strip():
+        return None
+    try:
+        doc = json.loads(raw)
+    except ValueError:
+        return None
+    return {str(k): "" if v is None else str(v) for k, v in doc.items()} if isinstance(doc, dict) else None
+>>>>>>> origin/main
 
 
 def parse_values(raw: str) -> dict[str, str]:
@@ -398,6 +455,7 @@ def parse_trees(argv: Iterable[str]) -> list[tuple[str, Path]]:
     return trees
 
 
+<<<<<<< HEAD
 COUNT_HOSTS_ENV = "CMUX_CI_COUNT_RUNNER_HOSTS"
 RUNNER_LIST_ENV = "CMUX_CI_RUNNER_LIST"
 
@@ -468,15 +526,34 @@ def main(argv: list[str], env: Mapping[str, str],
         return list_runners(env, read_runners)
     raw = env.get(RUNS_ON_VARIABLES_ENV, "")
     runners, why = runner_list(env) if env.get(COUNT_HOSTS_ENV) == "1" else (None, "")
+=======
+def main(argv: list[str], env: Mapping[str, str]) -> int:
+    """runs_on_values.py BRANCH=DIR... : each DIR a branch's .github/workflows, read with the live values."""
+    raw = env.get(RUNS_ON_VARIABLES_ENV, "")
+>>>>>>> origin/main
     if not raw.strip():
         found = [f"{RUNS_ON_VARIABLES_ENV} is empty: the workflow passed no variable values to check"]
     else:
         try:
+<<<<<<< HEAD
             found = problems(parse_trees(argv), parse_values(raw), runners)
         except ValueError as error:
             found = [str(error)]
     if why:
         found.append(why)
+=======
+            trees = parse_trees(argv)
+            values = parse_values(raw)
+            everything = parse_all(env.get(ALL_VARIABLES_ENV, ""))
+            if everything is not None:
+                # GitHub matches variable names in any case: vars.new_one reads NEW_ONE. An explicit value wins.
+                given = {name.upper(): value for name, value in (everything | values).items()}
+                values = everything | values | {name: values[name] if name in values else given.get(name.upper(), "")
+                                                for name in read_variables(trees)}
+            found = problems(trees, values)
+        except ValueError as error:
+            found = [str(error)]
+>>>>>>> origin/main
     if not argv:
         found.append("no workflow directories to read")
     summary = env.get("GITHUB_STEP_SUMMARY")

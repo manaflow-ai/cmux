@@ -151,9 +151,15 @@ pub(crate) struct SessionJournalSubjectPage {
     pub(crate) records: Vec<SessionJournalRecord>,
 }
 
+<<<<<<< ours
 /// One retained `terminal.output` record's content and stream coverage
 /// (test-only: shipped builds read output from output_store.rs).
 #[cfg(test)]
+=======
+/// One retained `terminal.output` record's content and stream coverage.
+/// Output is no longer journaled (output_store.rs); these are records an
+/// older daemon wrote, read until retention removes them.
+>>>>>>> theirs
 #[derive(Debug, Clone, PartialEq)]
 pub(crate) struct TerminalOutputChunk {
     pub(crate) stream_offset_start: u64,
@@ -1055,6 +1061,30 @@ impl WorkspaceRegistry {
         snapshot: &str,
     ) -> anyhow::Result<()> {
         self.connection.put_journal_reducer_state(reducer_id, version, cursor, snapshot)
+    }
+
+    /// The most recently started journal output stream of every terminal
+    /// that has one (written by daemons that journaled output), by public
+    /// terminal id: (generation, exclusive end offset).
+    pub(crate) fn terminal_stream_ends_latest(
+        &self,
+    ) -> anyhow::Result<std::collections::HashMap<String, (String, u64)>> {
+        let mut statement = self.connection.prepare(
+            "SELECT terminal_id, generation, next_offset FROM journal_terminal_streams
+             ORDER BY rowid ASC",
+        )?;
+        let rows = statement.query_map([], |row| {
+            Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?, row.get::<_, i64>(2)?))
+        })?;
+        let mut ends = std::collections::HashMap::new();
+        for row in rows {
+            let (terminal_id, generation, next_offset) = row?;
+            let next_offset =
+                u64::try_from(next_offset).context("terminal journal offset is negative")?;
+            // Later rows started later: the latest stream wins.
+            ends.insert(terminal_id, (generation, next_offset));
+        }
+        Ok(ends)
     }
 
     /// The most recently started journal output stream for one terminal:
@@ -2175,6 +2205,7 @@ pub(crate) fn unix_epoch_ms() -> anyhow::Result<u64> {
 #[cfg(test)]
 pub(crate) mod tests;
 
+<<<<<<< ours
 mod actors;
 mod digest_reader;
 #[cfg(test)]
@@ -2189,6 +2220,135 @@ use digest_reader::DigestReader;
 pub(crate) use resource_record::{append_resource_journal_record, journal_resource_record};
 #[cfg(test)]
 mod actor_tests;
+=======
+    #[test]
+    fn archived_non_output_replay_rejects_compacted_gaps_before_kind_filtering() {
+        let registry = WorkspaceRegistry::in_memory("archive-gap-validation").unwrap();
+        // `journal_segments.sha256` is UNIQUE, so each fixture segment needs its own digest.
+        for (id, start, end, digest) in
+            [("gap-first", 1_i64, 1_i64, 1_u8), ("gap-second", 3_i64, 3_i64, 2_u8)]
+        {
+            registry
+                .connection
+                .execute(
+                    "INSERT INTO journal_segments(
+                       segment_id, start_sequence, end_sequence, record_count, codec,
+                       content, uncompressed_bytes, sha256, sealed_at_ms
+                     ) VALUES(?1, ?2, ?3, 1, 'gzip-json-v1', X'00', 1, ?4, 1)",
+                    params![id, start, end, vec![digest; 32]],
+                )
+                .unwrap();
+            registry
+                .connection
+                .execute(
+                    "INSERT INTO journal_segment_kinds(segment_id, kind)
+                     VALUES(?1, 'terminal.output')",
+                    [id],
+                )
+                .unwrap();
+        }
+
+        let error = registry.session_journal_without_output_after(0, 3, 512).unwrap_err();
+        assert!(error.to_string().contains("gap"), "{error:#}");
+    }
+
+    #[test]
+    fn persistent_reader_observes_commits_on_an_independent_connection() {
+        let root = std::env::temp_dir().join(format!("cmux-journal-reader-{}", new_uuid_v4()));
+        let mut registry = WorkspaceRegistry::open(&root, "reader").unwrap();
+        let database_path = registry.session_journal_database_path().unwrap();
+        let reader = SessionJournalReader::open(&database_path).unwrap();
+        assert_eq!(reader.after(0, 1).unwrap().head_sequence, 0);
+
+        let workspace_id = format!("ws_{}", "1".repeat(32));
+        let result = serde_json::json!({"workspace_id":workspace_id});
+        let tx = registry.connection.transaction().unwrap();
+        tx.execute("UPDATE meta SET value = '1' WHERE key = 'resource_revision'", []).unwrap();
+        append_resource_journal_record(
+            &tx,
+            1,
+            0,
+            "reader-test",
+            "reader-commit",
+            "workspace.focus",
+            None,
+            &result,
+            &serde_json::json!([]),
+        )
+        .unwrap();
+        tx.commit().unwrap();
+
+        assert_eq!(registry.session_journal_head().unwrap(), 1);
+        let page = reader.after(0, 1).unwrap();
+        assert_eq!(page.head_sequence, 1);
+        assert_eq!(page.records[0].kind, "workspace.focus");
+        let matching = reader
+            .after_subjects(0, 1, &[JournalSubject { kind: "workspace".into(), id: workspace_id }])
+            .unwrap();
+        assert_eq!(matching.scanned_through, 1);
+        assert_eq!(matching.records.len(), 1);
+        let absent = reader
+            .after_subjects(
+                0,
+                1,
+                &[JournalSubject { kind: "agent_tree".into(), id: "agenttree_absent".into() }],
+            )
+            .unwrap();
+        assert_eq!(absent.scanned_through, 1);
+        assert!(absent.records.is_empty());
+        drop(reader);
+        drop(registry);
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn archived_segment_metadata_is_verified_before_replay() {
+        let mut registry = WorkspaceRegistry::in_memory("segment-integrity").unwrap();
+        let result = serde_json::json!({"focused":true});
+        let tx = registry.connection.transaction().unwrap();
+        tx.execute("UPDATE meta SET value = '1' WHERE key = 'resource_revision'", []).unwrap();
+        append_resource_journal_record(
+            &tx,
+            1,
+            0,
+            "segment-test",
+            "segment-record-1",
+            "pane.focus",
+            None,
+            &result,
+            &serde_json::json!([]),
+        )
+        .unwrap();
+        tx.commit().unwrap();
+
+        let records = registry.session_journal_after(0, 10).unwrap().records;
+        let uncompressed = serde_json::to_vec(&records).unwrap();
+        let digest = Sha256::digest(&uncompressed);
+        let mut encoder =
+            flate2::GzBuilder::new().mtime(0).write(Vec::new(), flate2::Compression::fast());
+        encoder.write_all(&uncompressed).unwrap();
+        let compressed = encoder.finish().unwrap();
+        registry
+            .connection
+            .execute(
+                "INSERT INTO journal_segments(
+                   segment_id, start_sequence, end_sequence, record_count, codec, content,
+                   uncompressed_bytes, sha256, sealed_at_ms
+                 ) VALUES('segment_bad_metadata', 1, 1, 2, 'gzip-json-v1', ?1, ?2, ?3, 1)",
+                params![compressed, i64::try_from(uncompressed.len()).unwrap(), digest.as_slice()],
+            )
+            .unwrap();
+        registry
+            .connection
+            .execute_batch(
+                "DROP TRIGGER session_journal_reject_delete;
+                 DELETE FROM session_journal;
+                 CREATE TRIGGER session_journal_reject_delete
+                   BEFORE DELETE ON session_journal
+                 BEGIN SELECT RAISE(ABORT, 'session journal is append-only'); END;",
+            )
+            .unwrap();
+>>>>>>> theirs
 
 #[cfg(test)]
 pub(crate) use actors::journal_actor;

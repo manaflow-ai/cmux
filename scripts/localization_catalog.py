@@ -17,6 +17,12 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
 LOCALES = ("en", "de", "fr", "ar", "es", "zh-Hant", "zh-Hans", "ko", "ja")
+# Pull requests write the source locales. The other locales are filled on main by
+# .github/workflows/localization-fill.yml (scripts/localization_fill.py); until it
+# runs, a missing entry falls back to the English defaultValue at runtime.
+SOURCE_LOCALES = ("en", "ja")
+BOT_LOCALES = tuple(locale for locale in LOCALES if locale not in SOURCE_LOCALES)
+PENDING_STATE = re.compile(r": state is '(?:new|needs_review)'$")
 CATEGORIES = {
     "ar": {"zero", "one", "two", "few", "many", "other"},
     "fr": {"one", "many", "other"},
@@ -368,11 +374,15 @@ def validate_localization(english: str, localization: dict, locale: str, allow_i
     return list(dict.fromkeys(errors))
 
 
-def check_entry(entry: Member, locale: str, omissions: dict, counts: dict) -> list[str]:
+def check_entry(entry: Member, locale: str, omissions: dict, counts: dict, deferred: tuple[str, ...] = ()) -> list[str]:
+    """Return parity errors. A locale in ``deferred`` may be absent or awaiting review;
+    present values are still validated (placeholders, markers, plurals)."""
     english = source(entry.value)
     allowed = omission(entry.key, english, omissions)
     localization = entry.value.get("localizations", {}).get(locale)
     if localization is None:
+        if locale in deferred:
+            return []
         return [] if allowed and locale not in {"en", "ja"} else ["missing locale entry"]
     errors = validate_localization(english, localization, locale, identity_allowed(entry.key, english, locale, omissions),
                                    entry.value.get("localizations", {}).get("en"),
@@ -385,6 +395,8 @@ def check_entry(entry: Member, locale: str, omissions: dict, counts: dict) -> li
         for argument in count["arguments"]:
             if argument not in present:
                 errors.append(f"count argument {argument} has no plural variation")
+    if locale in deferred:
+        errors = [error for error in errors if not PENDING_STATE.search(error)]
     return errors
 
 
@@ -603,6 +615,7 @@ def main() -> int:
     parser.add_argument("--batch-size", type=int, default=100)
     parser.add_argument("--batch", type=int, default=0)
     parser.add_argument("--limit", type=int, default=40, help="maximum printed diagnostics; 0 prints all")
+<<<<<<< HEAD
     parser.add_argument("--baseline", type=Path, help=f"debt baseline (default: scripts/{DEBT_BASELINE} under --root)")
     parser.add_argument("--write-baseline", action="store_true",
                         help="check: rewrite the debt baseline to the current counts; refuses to raise any")
@@ -610,6 +623,10 @@ def main() -> int:
                         help="check: also fail when the baseline is above this one (the base branch's copy)")
     parser.add_argument("--base-root", type=Path,
                         help="check: the base tree's catalogs; debt the base already has warns instead of failing")
+=======
+    parser.add_argument("--strict", action="store_true",
+                        help="check also requires the bot-filled locales (extract is always strict)")
+>>>>>>> origin/main
     args = parser.parse_args()
     if args.batch_size < 1 or args.batch < 0 or args.limit < 0:
         parser.error("batch size must be positive; batch and limit must be nonnegative")
@@ -628,12 +645,13 @@ def main() -> int:
         parser.error("extract requires --locale")
     rows, diagnostics, findings = [], [], []
     locales = [args.locale] if args.locale else LOCALES
+    deferred = () if args.strict or args.command == "extract" else BOT_LOCALES
     for path in paths:
         entries = catalog_entries(path.read_text(encoding="utf-8"))
         catalog = catalog_name(path, args.root)
         for entry in entries:
             for locale in locales:
-                errors = check_entry(entry, locale, omissions, counts)
+                errors = check_entry(entry, locale, omissions, counts, deferred)
                 diagnostics.extend(f"{path}:{entry.key}:{locale}: {error}" for error in errors)
                 findings.extend((catalog, error) for error in errors)
                 if errors and args.command == "extract":
@@ -648,6 +666,7 @@ def main() -> int:
         else:
             print(output, end="")
         return 0
+<<<<<<< HEAD
     baseline_path = args.baseline or args.root / "scripts" / DEBT_BASELINE
     baseline = load_debt_baseline(baseline_path)
     if args.base_root and not args.base_baseline:
@@ -735,6 +754,13 @@ def main() -> int:
     print(f"{len(paths)} catalogs, {len(locales)} locales: {len(diagnostics)} parity errors, "
           f"{'over' if raised else 'within'} the debt baseline")
     return int(failed)
+=======
+    for diagnostic in diagnostics[:args.limit or None]:
+        print(diagnostic, file=sys.stderr)
+    scope = "" if not deferred else f" ({', '.join(deferred)} filled on main by localization-fill)"
+    print(f"{len(paths)} catalogs, {len(locales)} locales: {len(diagnostics)} parity errors{scope}")
+    return int(bool(diagnostics))
+>>>>>>> origin/main
 
 
 if __name__ == "__main__":

@@ -2,7 +2,10 @@
 import AppKit
 import CmuxConversationCore
 import CmuxConversationGeometry
+<<<<<<< HEAD
 import CmuxSpinner
+=======
+>>>>>>> origin/main
 
 /// A flipped, layer-backed view so layouts share UIKit's top-left origin.
 class MacFlippedView: NSView {
@@ -456,7 +459,10 @@ final class MacMessageRowView: MacFlippedView {
         }
         // A status landing on this row fades in.
         if sameRow, hadFooter == .none, model.footer != .none {
+<<<<<<< HEAD
             // motion: allow crossfade, the Reduce Motion form
+=======
+>>>>>>> origin/main
             let fade = CABasicAnimation(keyPath: "opacity")
             fade.fromValue = 0
             fade.toValue = 1
@@ -687,9 +693,14 @@ final class MacMessageRowView: MacFlippedView {
 
     /// The send flight: the bubble starts at the composer field's frame and
     /// width and springs to its slot; the text glides from the field's text.
+<<<<<<< HEAD
     /// Reduce Motion: no flight; the bubble is already in its slot.
     func flyIn(fromField field: CGRect, text: CGRect) {
         guard let rowLayout, !NSView.reducesMotion else { return }
+=======
+    func flyIn(fromField field: CGRect, text: CGRect) {
+        guard let rowLayout else { return }
+>>>>>>> origin/main
         let identity = NSValue(caTransform3D: CATransform3DIdentity)
         if let frame = rowLayout.bubbleFrame, frame.width > 0, frame.height > 0 {
             var start = CATransform3DMakeTranslation(-frame.minX, -frame.minY, 0)
@@ -713,12 +724,18 @@ final class MacMessageRowView: MacFlippedView {
 
     /// A send failing or being retried: the bubble glides sideways to make
     /// (or give back) room for the red badge, which pops in or fades out.
+<<<<<<< HEAD
     /// Reduce Motion: the bubble is at its new place at once and the badge
     /// only fades in.
     func animateFailedChange(fromContentMinX oldMinX: CGFloat, failed: Bool) {
         guard let layer, let rowLayout else { return }
         let reduceMotion = NSView.reducesMotion
         let dx = reduceMotion ? 0 : oldMinX - rowLayout.contentFrame.minX
+=======
+    func animateFailedChange(fromContentMinX oldMinX: CGFloat, failed: Bool) {
+        guard let layer, let rowLayout else { return }
+        let dx = oldMinX - rowLayout.contentFrame.minX
+>>>>>>> origin/main
         if abs(dx) > 0.5 {
             let slide = CASpringAnimation(keyPath: "transform.translation.x")
             slide.fromValue = dx
@@ -734,12 +751,19 @@ final class MacMessageRowView: MacFlippedView {
             let pop = CABasicAnimation(keyPath: "transform.scale")
             pop.fromValue = 0.3
             pop.toValue = 1
+<<<<<<< HEAD
             // motion: allow crossfade, the Reduce Motion form
+=======
+>>>>>>> origin/main
             let fade = CABasicAnimation(keyPath: "opacity")
             fade.fromValue = 0
             fade.toValue = 1
             let group = CAAnimationGroup()
+<<<<<<< HEAD
             group.animations = reduceMotion ? [fade] : [pop, fade]
+=======
+            group.animations = [pop, fade]
+>>>>>>> origin/main
             group.duration = 0.25
             group.timingFunction = CAMediaTimingFunction(name: .easeOut)
             badge.add(group, forKey: "failedPop")
@@ -760,7 +784,10 @@ final class MacMessageRowView: MacFlippedView {
             if let layer = view.layer { targets.append(layer) }
         }
         for layer in targets {
+<<<<<<< HEAD
             // motion: allow crossfade, the Reduce Motion form
+=======
+>>>>>>> origin/main
             let fade = CABasicAnimation(keyPath: "opacity")
             fade.fromValue = 0
             fade.toValue = 1
@@ -804,7 +831,10 @@ extension MacMessageRowView {
             bubble.strokeColor = nil
             bubble.lineDashPattern = nil
             if wasScheduled {
+<<<<<<< HEAD
                 // motion: allow crossfade, the Reduce Motion form (a fill color fade, nothing moves)
+=======
+>>>>>>> origin/main
                 let fade = CABasicAnimation(keyPath: "fillColor")
                 fade.fromValue = NSColor.clear.cgColor
                 fade.toValue = bubble.fillColor
@@ -905,13 +935,23 @@ final class MacTimestampRowView: MacFlippedView {
 }
 
 final class MacSpinnerRowView: MacFlippedView {
+<<<<<<< HEAD
     let spinner = CmuxSpinnerView(side: 16)
+=======
+    let spinner = NSProgressIndicator()
+>>>>>>> origin/main
     /// ChatKit's load-more row on the Mac too (CKTranscriptHeaderCell
     /// defaultCellHeight 20, under CKUIBehaviorMac).
     static let height: CGFloat = 20
 
     override init(frame: NSRect) {
         super.init(frame: frame)
+<<<<<<< HEAD
+=======
+        spinner.style = .spinning
+        spinner.controlSize = .small
+        spinner.isDisplayedWhenStopped = false
+>>>>>>> origin/main
         addSubview(spinner)
         spinner.startAnimation(nil)
         setAccessibilityIdentifier("conversation.loadingOlder")
@@ -1054,7 +1094,10 @@ final class MacTypingRowView: MacFlippedView {
 
     private func startAnimating() {
         if dot.animation(forKey: "dot") == nil {
+<<<<<<< HEAD
             // motion: allow opacity pulse, the typing indicator's gentle "working" form under Reduce Motion
+=======
+>>>>>>> origin/main
             let fade = CABasicAnimation(keyPath: "opacity")
             fade.fromValue = 0.2
             fade.toValue = 0.45
@@ -1073,9 +1116,13 @@ final class MacTypingRowView: MacFlippedView {
 
     /// ChatKit's pulse (`kCKAnimationKeyPulse`): each part breathes from its
     /// own start, `delay` after now.
+<<<<<<< HEAD
     /// Reduce Motion: no breathing; the parts hold still at full size.
     private func addPulses(after delay: CFTimeInterval) {
         guard !NSView.reducesMotion else { return }
+=======
+    private func addPulses(after delay: CFTimeInterval) {
+>>>>>>> origin/main
         let now = CACurrentMediaTime()
         for part in parts where part.layer.animation(forKey: "pulse") == nil {
             let pulse = CAKeyframeAnimation(keyPath: "transform.scale.xy")
@@ -1098,6 +1145,7 @@ final class MacTypingRowView: MacFlippedView {
     /// swinging out and back (0.4 s). Every part carries ChatKit's 0.25 s
     /// `hidden` animation from the start, so the first visible frame shows the
     /// grow under way; each pulse begins as its part's scale-up ends.
+<<<<<<< HEAD
     /// Reduce Motion: the parts are simply there, no scale-up or swing.
     func grow() {
         layoutSubtreeIfNeeded()
@@ -1105,6 +1153,10 @@ final class MacTypingRowView: MacFlippedView {
             for part in parts { part.layer.removeAnimation(forKey: "pulse") }
             return
         }
+=======
+    func grow() {
+        layoutSubtreeIfNeeded()
+>>>>>>> origin/main
         let now = CACurrentMediaTime()
         let ease = CAMediaTimingFunction(controlPoints: 0.25, 0.1, 0.25, 1)
         for part in parts {

@@ -47,6 +47,7 @@ public struct HomeColor: Hashable, Sendable {
         return 0.2126 * lin(red) + 0.7152 * lin(green) + 0.0722 * lin(blue)
     }
 
+<<<<<<< HEAD
     /// WCAG contrast ratio against `other` (both treated as opaque).
     func contrast(with other: HomeColor) -> Double {
         let a = relativeLuminance, b = other.relativeLuminance
@@ -113,6 +114,12 @@ public struct HomeColor: Hashable, Sendable {
     /// its blue is 3.7:1; saturated blues read better white than WCAG's
     /// black pick), else white or black, whichever has the higher contrast.
     public var readableText: HomeColor {
+=======
+    /// Text on this colour: white while it keeps 3:1 (Messages' white on
+    /// its blue is 3.7:1; saturated blues read better white than WCAG's
+    /// black pick), else white or black, whichever has the higher contrast.
+    var readableText: HomeColor {
+>>>>>>> origin/main
         let l = relativeLuminance
         let onWhite = 1.05 / (l + 0.05), onBlack = (l + 0.05) / 0.05
         return onWhite >= 3 || onWhite >= onBlack ? .gray255(255) : .gray255(0)
@@ -138,6 +145,7 @@ public struct HomePalette: Hashable, Sendable {
     public var outgoingGradient: [GradientStop]
     public var caret: HomeColor
     public var caretAfterSend: HomeColor
+<<<<<<< HEAD
     /// The field's fill: the page itself or lighter on a light theme
     /// (Messages' white field), a small lift of the page on a dark one.
     public var composeGlass: HomeColor
@@ -156,6 +164,14 @@ public struct HomePalette: Hashable, Sendable {
     /// chose received colours (``applying(_:)``), which keep this the theme's.
     public var composeText: HomeColor { composeTextOverride ?? incomingText }
     var composeTextOverride: HomeColor? = nil
+=======
+    public var composeGlass: HomeColor
+    public var placeholder: HomeColor
+    /// The grey under the flying bubble while it is translucent (the field's glass).
+    public var morphUnderlay: HomeColor
+    public var typingDot: HomeColor
+    public var typingDotHighlight: HomeColor
+>>>>>>> origin/main
 
     public struct GradientStop: Hashable, Sendable {
         public var location: CGFloat
@@ -192,6 +208,7 @@ public struct HomePalette: Hashable, Sendable {
         (0.768, 0.917), (0.865, 0.896), (0.913, 0.885), (0.941, 0.879), (1, 0.879),
     ]
 
+<<<<<<< HEAD
     /// The least WCAG contrast of any text the renderer draws on its surface
     /// (AA body text): typed text and the placeholder on the field, names,
     /// receipts and captions on the page, the Chief's text on its bubble.
@@ -207,6 +224,8 @@ public struct HomePalette: Hashable, Sendable {
     /// field's white fill is otherwise as pale as the page.
     public static let minimumEdgeContrast: Double = 3
 
+=======
+>>>>>>> origin/main
     /// The palette for `theme`. `active` false is the palette of a window
     /// that is not key: lighter neutrals and an accent mixed toward grey.
     public static func themed(_ theme: Theme, active: Bool = true) -> HomePalette {
@@ -214,8 +233,12 @@ public struct HomePalette: Hashable, Sendable {
         func n(_ t: CGFloat) -> HomeColor { bg.mixed(with: fg, t) }
         let accent = active ? theme.accent : theme.accent.mixed(with: n(0.5), 0.35)
         let gradient = shading.map { GradientStop(location: $0.0, color: accent.scaled($0.1)) }
+<<<<<<< HEAD
         let light = bg.luminance > 0.5
         let palette = HomePalette(
+=======
+        return HomePalette(
+>>>>>>> origin/main
             background: active ? bg : n(0.022),
             incomingBubble: n(active ? 0.104 : 0.148),
             incomingText: n(0.848),
@@ -226,13 +249,18 @@ public struct HomePalette: Hashable, Sendable {
             outgoingGradient: gradient,
             caret: theme.accent,
             caretAfterSend: n(0.443),
+<<<<<<< HEAD
             composeGlass: light ? bg.mixed(with: .gray255(255), 0.7) : n(0.13),
             composeStroke: light ? fg.edge(on: active ? bg : n(0.022)) : .gray255(0, alpha: 0.6),
+=======
+            composeGlass: n(0.104),
+>>>>>>> origin/main
             placeholder: n(0.37),
             morphUnderlay: n(0.113),
             typingDot: n(0.248),
             typingDotHighlight: n(0.426)
         )
+<<<<<<< HEAD
         return palette.withReadableText()
     }
 
@@ -349,6 +377,8 @@ public struct HomePalette: Hashable, Sendable {
         // glass tint, composerStates.css), so the native field takes the same fill.
         p.composeFillOverGlass = fill.alpha < 1 ? fieldFillOverGlass : nil
         return p
+=======
+>>>>>>> origin/main
     }
 
     /// The outgoing colour at a fraction of the viewport height.

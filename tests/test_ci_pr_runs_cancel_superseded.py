@@ -21,14 +21,19 @@ labeled-only tour) gets no run from a push, so it is not judged either.
 
 Push, schedule and dispatch runs are not judged: workflows that also run on a
 push to feat-cmux-next or main keep their own policy there, usually
+<<<<<<< HEAD
 `cancel-in-progress: ${{ github.event_name == 'pull_request' }}`. But a pull
 request run that cancels must never share a group with one of them (a push to
 main or feat-cmux-next, a schedule, a dispatch), or the pull request run would
 cancel it: that is checked here too.
+=======
+`cancel-in-progress: ${{ github.event_name == 'pull_request' }}`.
+>>>>>>> origin/main
 
 A workflow that must not cancel a superseded pull request run goes in ALLOWED
 with the reason. Entries that stop being needed fail the test.
 
+<<<<<<< HEAD
 The same fan-out comes from a title or description edit and from a comment
 (pattern pr-edit-fans-out-ci in cmuxterm-hq docs/handbook: 130 HOLD-line body
 edits queued about a dozen Blacksmith jobs each; Leo, 2026-11-17: "why is there
@@ -45,6 +50,8 @@ so much stuck in blacksmith queue?"). So, with the same evaluator:
   comment: every job's `if:` admits only the comment it serves, before a
   runner is taken.
 
+=======
+>>>>>>> origin/main
 A merged or closed pull request's run is the same waste, and a push never
 replaces it. A closed-cancel twin (CLOSED_TWINS) ends it: a workflow on
 `pull_request: types: [closed]` whose concurrency group, on that closed event,
@@ -75,6 +82,7 @@ PR_EVENTS = ("pull_request", "pull_request_target")
 
 # Workflows whose superseded pull request runs are deliberately not cancelled.
 ALLOWED = {
+<<<<<<< HEAD
     # Only the `changed` job (a few seconds, one compare call) runs without a group: it decides whether this push
     # measures by the files changed since the previous head, so cancelling the previous head's `changed` would lose
     # that head's chat-pane change. The measuring `report` job cancels a superseded head's run.
@@ -90,17 +98,36 @@ ALLOWED = {
     # Its 3 min `changed` gate has no group on purpose: a push that measures nothing must not cancel the head still
     # being measured. The measuring `report` job cancels per pull request (its job concurrency).
     "chat-open-perf-report.yml": "the push gate has no group so a no-measure push never cancels a running report",
+=======
+    # Serialised per pull request so two signature events never write the CLA
+    # ledger from different snapshots (comment on the CLAAssistant job).
+    "cla.yml": "one ledger writer at a time per pull request",
+    # A required check that also runs on metadata edits; a cancelled run would
+    # leave a cancelled required verdict (test_cla_guard_metadata_routing.py
+    # asserts it has no concurrency).
+    "cla-policy-guard.yml": "metadata events must not cancel required verdicts",
+    # The apply jobs migrate the staging and production databases; a cancel
+    # could stop one between applying a migration and recording it.
+    "backend-migrations.yml": "applies database migrations; never cancelled mid-apply",
+    # Writes to the nightly R2 bucket; serialising is the safe answer there.
+    "repair-nightly-appcast-content-types.yml": "writes nightly R2 objects; serialised",
+>>>>>>> origin/main
 }
 
 
 # Closed-cancel twins: each ends its target's run for a pull request when that
 # pull request closes, by joining the target's per-pull-request group.
+<<<<<<< HEAD
 CLOSED_TWINS = {
     "cmux-next-pr-closed-cancel.yml": "cmux-next.yml",
     "cmux-next-pr-autofix-closed-cancel.yml": "cmux-next-pr-autofix.yml",
     # The CI run of a merged PR held 15 Linux jobs after the merge (run 44326505154).
     "ci-pr-closed-cancel.yml": "ci.yml",
 }
+=======
+# main has none yet; feat-cmux-next's copy of this test lists its own.
+CLOSED_TWINS: dict[str, str] = {}
+>>>>>>> origin/main
 
 
 # --- A small evaluator for GitHub Actions expressions -----------------------
@@ -342,7 +369,11 @@ def triggers(workflow: dict) -> dict[str, Any]:
 
 def pr_context(workflow: dict, event: str, number: int, run: int) -> dict[str, Any]:
     """The contexts of a `synchronize` run of pull request `number`."""
+<<<<<<< HEAD
     base = "feat-cmux-next"
+=======
+    base = "main"
+>>>>>>> origin/main
     ref = f"refs/pull/{number}/merge" if event == "pull_request" else f"refs/heads/{base}"
     sha = f"{number:04d}{run:036d}"
     pull_request = {
@@ -441,6 +472,7 @@ def push_starts_a_run(trigger: Any) -> bool:
     return bool(PUSH_TYPES & set(types))
 
 
+<<<<<<< HEAD
 # Runs a pull request run must never cancel: (event, ref) of each.
 NON_PR_RUNS = (
     ("push", "refs/heads/feat-cmux-next"),
@@ -475,6 +507,8 @@ def collision_problem(concurrency: Any, workflow: dict, event: str) -> str | Non
     return None
 
 
+=======
+>>>>>>> origin/main
 def workflow_problem(workflow: dict) -> str | None:
     for event in PR_EVENTS:
         if event not in triggers(workflow):
@@ -483,9 +517,12 @@ def workflow_problem(workflow: dict) -> str | None:
             continue
         reason = problem(workflow.get("concurrency"), workflow, event)
         if reason is None:
+<<<<<<< HEAD
             collision = collision_problem(workflow.get("concurrency"), workflow, event)
             if collision:
                 return f"{event}: {collision}"
+=======
+>>>>>>> origin/main
             continue
         jobs = jobs_on(workflow, event)
         job_reasons = {job_id: problem(job.get("concurrency"), workflow, event) for job_id, job in jobs.items()}
@@ -496,6 +533,7 @@ def workflow_problem(workflow: dict) -> str | None:
     return None
 
 
+<<<<<<< HEAD
 # --- Title, body and comment events (pattern pr-edit-fans-out-ci) -------------
 
 # Text that shows a workflow reads the description in its own expressions.
@@ -655,6 +693,8 @@ def comment_problems(workflow: dict) -> list[str]:
     return []
 
 
+=======
+>>>>>>> origin/main
 def closed_context(workflow: dict, number: int, labels: list[str]) -> dict[str, Any]:
     """The contexts of the `closed` run of pull request `number`."""
     context = pr_context(workflow, "pull_request", number, 1)
@@ -706,6 +746,7 @@ def self_check() -> list[str]:
         verdict = problem(concurrency, on, "pull_request") is None
         if verdict != ok:
             failures.append(f"self-check {name!r}: expected {'pass' if ok else 'fail'}")
+<<<<<<< HEAD
     # A pull request into feat-cmux-next and a push to it both get `w-feat-cmux-next` (#47604's first fixture,
     # `number || 'deploy'`, gave w-101 and w-deploy: no shared group, so it never failed).
     shared = {"on": {"pull_request": None, "push": None},
@@ -717,6 +758,8 @@ def self_check() -> list[str]:
                                        "cancel-in-progress": "${{ github.event_name == 'pull_request' }}"}}
     if workflow_problem(split) is not None:
         failures.append(f"self-check: a per-PR group with a ref fallback must pass: {workflow_problem(split)}")
+=======
+>>>>>>> origin/main
     if workflow_problem({"on": {"pull_request": {"types": ["labeled"]}}, "concurrency": {"group": "w-${{ github.run_id }}"}}) is not None:
         failures.append("self-check: a labeled-only workflow gets no push run to cancel")
     if workflow_problem({"on": {"pull_request": {"types": ["labeled", "synchronize"]}}, "concurrency": {"group": "w-${{ github.run_id }}"}}) is None:
@@ -724,6 +767,7 @@ def self_check() -> list[str]:
     # pull_request_target runs carry the base branch in github.ref.
     if problem({"group": "w-${{ github.ref }}", "cancel-in-progress": True}, on, "pull_request_target") is None:
         failures.append("self-check: a github.ref group must not count as per-PR for pull_request_target")
+<<<<<<< HEAD
     # Title and body edits (pattern pr-edit-fans-out-ci).
     meta = "github.event.action == 'edited' && !github.event.changes.base"
     listens = {"pull_request_target": {"types": ["synchronize", "edited"]}}
@@ -757,6 +801,8 @@ def self_check() -> list[str]:
         failures.append("self-check: a comment workflow gated on its command must pass")
 
 
+=======
+>>>>>>> origin/main
     target = {"name": "W", "concurrency": {"group": "${{ github.workflow }}-${{ github.ref }}"}}
     twin = {"on": {"pull_request": {"types": ["closed"]}}, "concurrency": {
         "group": "${{ contains(github.event.pull_request.labels.*.name, 'no-janitor') && 'kept' || format('W-refs/pull/{0}/merge', github.event.pull_request.number) }}",
@@ -773,6 +819,7 @@ def main() -> int:
     checked = 0
     for path in sorted(WORKFLOWS.glob("*.y*ml")):
         workflow = load(path)
+<<<<<<< HEAD
         text = path.read_text(encoding="utf-8")
         edits = edit_problems(workflow, text, path.name)
         if path.name in EDIT_SKIP_PENDING:
@@ -781,6 +828,8 @@ def main() -> int:
             edits = []
         for reason in edits + comment_problems(workflow):
             failures.append(f"{path.relative_to(ROOT)}: {reason}")
+=======
+>>>>>>> origin/main
         if not any(event in triggers(workflow) for event in PR_EVENTS):
             continue
         checked += 1
@@ -801,12 +850,15 @@ def main() -> int:
     for name, why in sorted(ALLOWED.items()):
         if not why.strip() or not (WORKFLOWS / name).exists():
             failures.append(f"ALLOWED names {name}, which no longer exists or has no reason")
+<<<<<<< HEAD
     for name, why in sorted(READS_DESCRIPTION.items()):
         if not why.strip() or not (WORKFLOWS / name).exists():
             failures.append(f"READS_DESCRIPTION names {name}, which no longer exists or has no reason")
     for name, why in sorted(EDIT_SKIP_PENDING.items()):
         if not why.strip() or not (WORKFLOWS / name).exists():
             failures.append(f"EDIT_SKIP_PENDING names {name}, which no longer exists or has no reason")
+=======
+>>>>>>> origin/main
     if failures:
         print("superseded pull request runs that keep running:", file=sys.stderr)
         for failure in failures:

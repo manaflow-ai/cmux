@@ -17,9 +17,13 @@
 #
 # --dir takes assets already on disk (for example the fork's
 # binary_distrib output); without it the assets are fetched with
+<<<<<<< HEAD
 # `gh release download` and each must match its line in the release's
 # SHA256SUMS (a release without one, or an archive it does not list, is
 # refused).
+=======
+# `gh release download` and checked against the release's SHA256SUMS.
+>>>>>>> origin/main
 #
 # Credentials (environment first, then CMUX_CEF_R2_ENV_FILE, default
 # ~/.secrets/cmux-cef.env; values are never printed):
@@ -29,7 +33,11 @@
 #   CMUX_CEF_R2_BUCKET (default cmux-cef), CMUX_CEF_R2_ENDPOINT (optional)
 set -euo pipefail
 
+<<<<<<< HEAD
 usage() { sed -n '2,29p' "$0" | sed 's/^# \{0,1\}//'; exit "${1:-2}"; }
+=======
+usage() { sed -n '2,27p' "$0" | sed 's/^# \{0,1\}//'; exit "${1:-2}"; }
+>>>>>>> origin/main
 
 tag=""; repo="manaflow-ai/cef"; dir=""; manifest=""
 while (( $# )); do
@@ -91,6 +99,7 @@ if [[ -z "$dir" ]]; then
   mkdir -p "$dir"
   echo "==> downloading $repo $tag assets" >&2
   gh release download "$tag" --repo "$repo" --pattern '*.tar.xz' --dir "$dir" >&2
+<<<<<<< HEAD
   # Fail closed: a release with no SHA256SUMS, or a .tar.xz it does not list or
   # that does not match its line, publishes nothing.
   gh release download "$tag" --repo "$repo" --pattern SHA256SUMS --dir "$work" >/dev/null 2>&1 ||
@@ -114,6 +123,12 @@ if [[ -z "$dir" ]]; then
     got="$(shasum -a 256 "$path" | awk '{print $1}')"
     [[ "$got" == "$want" ]] || { echo "error: $name does not match the release SHA256SUMS" >&2; exit 1; }
   done
+=======
+  if gh release download "$tag" --repo "$repo" --pattern SHA256SUMS --dir "$dir" >/dev/null 2>&1; then
+    (cd "$dir" && grep '\.tar\.xz$' SHA256SUMS | shasum -a 256 -c - >&2) ||
+      { echo "error: assets do not match the release SHA256SUMS" >&2; exit 1; }
+  fi
+>>>>>>> origin/main
 fi
 
 shopt -s nullglob

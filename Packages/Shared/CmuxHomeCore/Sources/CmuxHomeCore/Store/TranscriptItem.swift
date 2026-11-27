@@ -22,12 +22,16 @@ public struct TranscriptItem: Hashable, Sendable, Identifiable {
     public var editedAt: Date?
     public var replyTo: PartRef?
     public var threadRoot: MessageID?
+<<<<<<< HEAD
     /// A thread root's object (Message.thread).
     public var thread: ThreadInfo?
+=======
+>>>>>>> origin/main
     /// The owner's message id of a committed message (nil for a pending
     /// send). Opaque to renderers: hosts pass it back in ops that name a
     /// message (`addReaction`). Filled by the data side (HomeStore).
     public var messageID: MessageID?
+<<<<<<< HEAD
     /// A persisted run message is readable and copyable, but is not a mutable conversation message.
     public var isReadOnly = false
     /// For a row `HomeAgentMessages` inserted: the fold or the agent message it shows (the
@@ -36,6 +40,8 @@ public struct TranscriptItem: Hashable, Sendable, Identifiable {
     /// For a row of the Feed in the main Chief's transcript (``HomeFeedRow``); nil for every
     /// conversation message.
     public var feedRow: HomeFeedRow?
+=======
+>>>>>>> origin/main
     /// Local files for this row's attachment parts, by content hash, when
     /// this client has them (my sends, before and after the echo). Empty
     /// otherwise: fetch the bytes with `HomeStore.fetchAttachment`.
@@ -105,11 +111,19 @@ extension TranscriptWindow {
                 replyTo: message.replyTo,
                 threadRoot: message.threadRoot,
                 messageID: message.id
+<<<<<<< HEAD
             ).withThread(message.thread)
         }
         let committedKeys = Set(items.map(\.key))
         for entry in pending where !committedKeys.contains(entry.intent.key) {
             guard case .sendMessage(_, let parts, let threadRoot, let parent) = entry.intent.op else { continue }
+=======
+            )
+        }
+        let committedKeys = Set(items.map(\.key))
+        for entry in pending where !committedKeys.contains(entry.intent.key) {
+            guard case .sendMessage(_, let parts, let threadRoot) = entry.intent.op else { continue }
+>>>>>>> origin/main
             let delivery: TranscriptItem.Delivery = if case .failed(let rejection) = entry.state {
                 .notDelivered(rejection)
             } else {
@@ -124,8 +138,11 @@ extension TranscriptWindow {
                 delivery: delivery,
                 reactions: [],
                 isRetracted: false,
+<<<<<<< HEAD
                 // The parent it answers (the root without one), as the owner will store `reply_to`.
                 replyTo: threadRoot.map { PartRef(message: parent ?? $0) },
+=======
+>>>>>>> origin/main
                 threadRoot: threadRoot
             )
             item.mayHaveBeenDelivered = delivery != .sending && entry.mayHaveBeenDelivered
@@ -134,6 +151,7 @@ extension TranscriptWindow {
         return items
     }
 }
+<<<<<<< HEAD
 
 extension TranscriptItem {
     /// The item with a thread root's object (Message.thread).
@@ -143,3 +161,5 @@ extension TranscriptItem {
         return item
     }
 }
+=======
+>>>>>>> origin/main

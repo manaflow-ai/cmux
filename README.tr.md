@@ -383,7 +383,11 @@ Evet, cmux ücretsiz kullanılır. Kaynak kodu [GitHub](https://github.com/manaf
 
 ### cmux'u nasıl destekleyebilirim?
 
+<<<<<<< HEAD
 cmux ücretsiz ve açık kaynaktır ve her zaman öyle kalacaktır.
+=======
+cmux ücretsiz ve açık kaynaktır ve her zaman öyle kalacaktır. Geliştirmeyi desteklemek ve cmux AI, iOS uygulaması ve Cloud VMs dahil olmak üzere sırada ne olduğuna erken erişim almak isterseniz, [cmux Pro](https://cmux.com/api/billing/checkout?plan=pro)'a göz atın.
+>>>>>>> origin/main
 
 ### Bir özellik isteğim var veya bir hata buldum?
 
@@ -422,6 +426,15 @@ Katılım yolları:
   <img src="./docs/assets/wechat-community-qr.jpg" alt="cmux topluluğuna katılmak için WeChat QR kodu" width="240" />
 </p>
 
+<<<<<<< HEAD
+=======
+## cmux Pro
+
+cmux ücretsiz, açık kaynak ve her zaman öyle olacak. Geliştirmeyi desteklemek ve sırada ne olduğuna erken erişim almak isterseniz:
+
+**[cmux Pro'ı Edinin](https://cmux.com/api/billing/checkout?plan=pro)**
+
+>>>>>>> origin/main
 ## Lisans
 
 cmux, [GPL-3.0-or-later](LICENSE) kapsamında açık kaynaklıdır. cmux sunucu yazılımı (`web/`, Cloudflare worker'ları ve [LICENSE](LICENSE) içinde listelenen relay servisleri) bunun yerine [Business Source License 1.1](web/LICENSE) kullanır: üretim dışı kullanım için okuyabilir, değiştirebilir ve çalıştırabilirsiniz; üretim kullanımı veya kendi sunucunuzda barındırma ticari lisans gerektirir.

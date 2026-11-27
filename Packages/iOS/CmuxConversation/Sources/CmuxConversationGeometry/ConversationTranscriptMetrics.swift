@@ -1,8 +1,12 @@
+<<<<<<< HEAD
 #if canImport(CoreGraphics)
 import CoreGraphics
 #else
 import Foundation
 #endif
+=======
+import CoreGraphics
+>>>>>>> origin/main
 
 /// Transcript sizing rules read from ChatKit on iOS 26.5 and 27.0 (iPhone 17
 /// Pro and Pro Max simulators, Large text), shared by every surface that
@@ -63,6 +67,7 @@ public enum ConversationTranscriptMetrics {
     public static let nonContiguousSpace: CGFloat = 10
     public static let smallSpace: CGFloat = 6
     public static let mediumSpace: CGFloat = 10
+<<<<<<< HEAD
     /// Around a thread block, on top of `nonContiguousSpace`: above its quote
     /// and under its last reply. ChatKit's `selfReplyTranscriptSpace` is 24;
     /// simulator Messages 27.0 (Large text) draws 31.33 pt from the bubble
@@ -70,6 +75,8 @@ public enum ConversationTranscriptMetrics {
     /// to the next one.
     public static let replyBlockSpaceAbove: CGFloat = 22
     public static let replyBlockSpaceBelow: CGFloat = 67.0 / 3
+=======
+>>>>>>> origin/main
     public static let mediumLargeSpace: CGFloat = 16
 
     /// The caption 2 line spacing (line height plus leading) at Large, 13 pt

@@ -18,8 +18,11 @@ use std::path::{Path, PathBuf};
 use std::process::{Child, Command, Stdio};
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
+<<<<<<< ours
 use crate::private_state;
 
+=======
+>>>>>>> theirs
 fn unique_root() -> PathBuf {
     static NEXT: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
     let n = NEXT.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
@@ -30,6 +33,7 @@ fn unique_root() -> PathBuf {
     root.canonicalize().unwrap()
 }
 
+<<<<<<< ours
 /// Writes `contents` as an executable file through a short-lived `sh`, so no
 /// fork of this test process holds a write descriptor to it (ETXTBSY).
 fn write_executable(path: &Path, contents: &str) {
@@ -43,12 +47,15 @@ fn write_executable(path: &Path, contents: &str) {
     assert!(child.wait().unwrap().success(), "write {}", path.display());
 }
 
+=======
+>>>>>>> theirs
 /// A copy of this build under `dir`, as a second install would place it.
 fn install_build(dir: &Path, name: &str, hook_log: &Path) -> PathBuf {
     fs::create_dir_all(dir).unwrap();
     let exe = dir.join("cmux-tui");
     let source = env!("CARGO_BIN_EXE_cmux-tui");
     if fs::hard_link(source, &exe).is_err() {
+<<<<<<< ours
         fs::copy(source, &exe).unwrap();
     }
     fs::set_permissions(&exe, fs::Permissions::from_mode(0o755)).unwrap();
@@ -56,6 +63,16 @@ fn install_build(dir: &Path, name: &str, hook_log: &Path) -> PathBuf {
         &dir.join("cmux-tui-hook"),
         &format!("#!/bin/sh\nprintf '%s %s\\n' '{name}' \"$*\" >> '{}'\n", hook_log.display()),
     );
+=======
+        cmux_test_exec::copy_executable(Path::new(source), &exe).unwrap();
+    }
+    fs::set_permissions(&exe, fs::Permissions::from_mode(0o755)).unwrap();
+    cmux_test_exec::write_executable(
+        &dir.join("cmux-tui-hook"),
+        format!("#!/bin/sh\nprintf '%s %s\\n' '{name}' \"$*\" >> '{}'\n", hook_log.display()),
+    )
+    .unwrap();
+>>>>>>> theirs
     exe
 }
 
@@ -86,7 +103,10 @@ impl Daemon {
             .env("SHELL", "/bin/sh")
             .env("CMUX_TUI_SHELL_INTEGRATION", "none")
             .env("CMUX_TUI_CONFIG", &config)
+<<<<<<< ours
             .env("CMUX_TUI_HOST_EXE_DIR", dir.join("host-exe"))
+=======
+>>>>>>> theirs
             .env_remove("CMUX_TUI_HOOK")
             .env_remove("CMUX_TUI_SOCKET")
             .env_remove("CMUX_MUX_SOCKET")
@@ -97,7 +117,10 @@ impl Daemon {
             .env_remove("CMUX_BUNDLED_CLI_PATH")
             .stdout(Stdio::null())
             .stderr(Stdio::null());
+<<<<<<< ours
         private_state::use_private_state(&mut command, &dir);
+=======
+>>>>>>> theirs
         let child = command.spawn().unwrap();
         let deadline = Instant::now() + Duration::from_secs(30);
         while UnixStream::connect(&socket).is_err() {
@@ -118,6 +141,7 @@ impl Daemon {
         response["data"].clone()
     }
 
+<<<<<<< ours
     /// Waits until the server answers lifecycle commands (`server status`):
     /// its socket accepts before that, and status then says "still starting".
     /// The server's own `lifecycle_ready` flag is the signal, as in cli.rs.
@@ -135,6 +159,8 @@ impl Daemon {
         }
     }
 
+=======
+>>>>>>> theirs
     /// Runs `script` (sh) in a new terminal named `name`, with `OB_TAG` set
     /// to `name` for the fake `claude`; returns `name`.
     fn run(&mut self, name: &str, script: &str) -> String {
@@ -231,6 +257,7 @@ fn own_build_wrapper_and_hook_serve_each_daemons_panes() {
     // execs its own bundled CLI): no pane of these builds may run it.
     let shared_helper = data.join("cmux-tui/bin/cmux-tui-hook");
     fs::create_dir_all(shared_helper.parent().unwrap()).unwrap();
+<<<<<<< ours
     write_executable(
         &shared_helper,
         &format!("#!/bin/sh\nprintf 'shared %s\\n' \"$*\" >> '{}'\n", hook_log.display()),
@@ -240,6 +267,18 @@ fn own_build_wrapper_and_hook_serve_each_daemons_panes() {
     write_executable(
         &fakebin.join("claude"),
         &format!(
+=======
+    cmux_test_exec::write_executable(
+        &shared_helper,
+        format!("#!/bin/sh\nprintf 'shared %s\\n' \"$*\" >> '{}'\n", hook_log.display()),
+    )
+    .unwrap();
+    // The real `claude`: records what the wrapper gave it, then runs the
+    // hook helper the way Claude Code runs a hook command.
+    cmux_test_exec::write_executable(
+        &fakebin.join("claude"),
+        format!(
+>>>>>>> theirs
             "#!/bin/sh\nsettings=\nwhile [ $# -gt 0 ]; do [ \"$1\" = --settings ] && settings=$2; shift; done\n\
              \"$CMUX_TUI_HOOK\" claude SessionStart < /dev/null\n\
              out='{}/claude-'\"$OB_TAG\".txt\n\
@@ -247,12 +286,22 @@ fn own_build_wrapper_and_hook_serve_each_daemons_panes() {
              mv \"$out.tmp\" \"$out\"\n",
             root.display()
         ),
+<<<<<<< ours
     );
     let user_helper = root.join("user-hook");
     write_executable(
         &user_helper,
         &format!("#!/bin/sh\nprintf 'user %s\\n' \"$*\" >> '{}'\n", hook_log.display()),
     );
+=======
+    ).unwrap();
+    let user_helper = root.join("user-hook");
+    cmux_test_exec::write_executable(
+        &user_helper,
+        format!("#!/bin/sh\nprintf 'user %s\\n' \"$*\" >> '{}'\n", hook_log.display()),
+    )
+    .unwrap();
+>>>>>>> theirs
     let path = format!("{}:/usr/bin:/bin", fakebin.display());
     let exe_a = install_build(&root.join("build-a"), "build-a", &hook_log);
     let exe_b = install_build(&root.join("build-b"), "build-b", &hook_log);
@@ -298,6 +347,7 @@ fn own_build_wrapper_and_hook_serve_each_daemons_panes() {
     drop(b);
     let _ = fs::remove_dir_all(&root);
 }
+<<<<<<< ours
 
 #[test]
 fn own_build_status_says_where_it_looked_for_screen_detection() {
@@ -630,3 +680,5 @@ fn shared_shims_follow_the_terminals_own_cmux() {
     assert_eq!(run("claude", &both), "tui|agent claude-wrapper hi\n");
     let _ = fs::remove_dir_all(&root);
 }
+=======
+>>>>>>> theirs

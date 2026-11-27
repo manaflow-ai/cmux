@@ -12,14 +12,19 @@ The gate is a job condition, `vars.CI_QUOTA_HOLD != '1'`, so an unset or any
 other value runs everything as before. This test keeps it in place:
 
   - every workflow in HOLD_GATED gates each job that does not wait on another
+<<<<<<< HEAD
     job of the same workflow (a job that `needs` a gated job is skipped with it),
     or, where HOLD_GATED names its jobs, each of those jobs;
+=======
+    job of the same workflow (a job that `needs` a gated job is skipped with it);
+>>>>>>> origin/main
   - no workflow that produces a required check reads the variable, so the hold
     can never make a pull request unmergeable or let one merge unchecked;
   - no nightly, dev or promote delivery workflow reads it.
 
 A workflow that reads CI_QUOTA_HOLD must be listed in HOLD_GATED, so a partial
 gate (one job held, its siblings still spending) cannot slip in unnoticed.
+<<<<<<< HEAD
 
 pull_request and pull_request_target runs into feat-cmux-next read this
 branch's workflow files; workflow_run runs read main's, so main carries its own
@@ -33,11 +38,16 @@ that does not wait on another. pr-checks.yml runs its checks as steps of one job
 (CI v2 step 6): the job's pick step (STEP_GATED) drops the held steps and a
 draft's, and keeps split-plan, which reads only git (tests/test_pr_checks_base_only.py
 runs that step on every combination).
+=======
+>>>>>>> origin/main
 """
 
 from __future__ import annotations
 
+<<<<<<< HEAD
 import json
+=======
+>>>>>>> origin/main
 import re
 import sys
 import unittest
@@ -55,6 +65,7 @@ GATE = "vars.CI_QUOTA_HOLD != '1'"
 
 # Optional workflows that spend GITHUB_TOKEN calls on every pull request
 # completion and that the nightly must not compete with during the hold.
+<<<<<<< HEAD
 HOLD_GATED: dict[str, tuple[str, ...]] = {
     "gallery-advisory.yml": (),
     "cmux-next-hot-verify.yml": ("plan",),
@@ -90,6 +101,13 @@ NEVER_DRAFT_SKIPPED = (
 DRAFT = "!github.event.pull_request.draft"
 PR_EVENTS = ("pull_request", "pull_request_target")
 ROUTED: dict[str, dict] = json.loads((ROOT / "scripts/ci/pr_router.json").read_text(encoding="utf-8"))["callees"]
+=======
+HOLD_GATED = (
+    "ci-failure-attribution.yml",
+    "dogfood-artifact-publish.yml",
+    "pr-media.yml",
+)
+>>>>>>> origin/main
 
 DELIVERY = re.compile(r"^(nightly.*|cmux-next-dev-daily.*|.*promote.*|release)\.ya?ml$")
 
@@ -116,6 +134,7 @@ def required_owners(workflows: dict[Path, dict]) -> set[Path]:
     return owners
 
 
+<<<<<<< HEAD
 def covered_jobs(workflow: dict, listed: tuple[str, ...] = ()) -> dict[str, dict]:
     """The listed jobs, or, for an empty tuple, every job that waits on no other."""
     jobs = {job_id: job for job_id, job in (workflow.get("jobs") or {}).items() if isinstance(job, dict)}
@@ -192,6 +211,20 @@ def draft_violations(paths: list[Path] | None = None, listed: dict[str, tuple[st
 
 
 def violations(paths: list[Path] | None = None, gated: dict[str, tuple[str, ...]] = HOLD_GATED) -> list[str]:
+=======
+def ungated_jobs(workflow: dict) -> list[str]:
+    missing = []
+    for job_id, job in (workflow.get("jobs") or {}).items():
+        if not isinstance(job, dict) or job.get("needs"):
+            continue
+        condition = str(job.get("if", ""))
+        if GATE not in condition:
+            missing.append(job_id)
+    return missing
+
+
+def violations(paths: list[Path] | None = None, gated: tuple[str, ...] = HOLD_GATED) -> list[str]:
+>>>>>>> origin/main
     paths = workflow_files() if paths is None else paths
     texts = {path: path.read_text(encoding="utf-8") for path in paths}
     workflows = {path: load(path) for path in paths}
@@ -203,13 +236,18 @@ def violations(paths: list[Path] | None = None, gated: dict[str, tuple[str, ...]
         if path is None:
             failures.append(f"{name} is listed in HOLD_GATED but does not exist")
             continue
+<<<<<<< HEAD
         for job_id in ungated_jobs(workflows[path], gated[name], name):
+=======
+        for job_id in ungated_jobs(workflows[path]):
+>>>>>>> origin/main
             failures.append(f"{name} job {job_id!r} does not gate on `{GATE}`")
 
     owners = required_owners(workflows)
     for path, text in texts.items():
         if VARIABLE not in text:
             continue
+<<<<<<< HEAD
         held = gated.get(path.name)
         if held:
             # A folded workflow: only the named jobs may read it, and none of them owns a required check.
@@ -219,6 +257,9 @@ def violations(paths: list[Path] | None = None, gated: dict[str, tuple[str, ...]
             if required_owners({path: {**workflows[path], "jobs": covered_jobs(workflows[path], held)}}):
                 failures.append(f"{path.name} holds a job that produces a required check on {VARIABLE}")
         elif path in owners:
+=======
+        if path in owners:
+>>>>>>> origin/main
             failures.append(f"{path.name} produces a required check and must not read {VARIABLE}")
         if DELIVERY.match(path.name):
             failures.append(f"{path.name} is a delivery workflow and must not read {VARIABLE}")
@@ -234,6 +275,7 @@ class QuotaHoldGateTests(unittest.TestCase):
     def test_the_gated_workflows_produce_no_required_check(self) -> None:
         owners = {path.name for path in required_owners({p: load(p) for p in workflow_files()})}
         self.assertTrue(owners, "no workflow owns a required check; the mirror is unreadable")
+<<<<<<< HEAD
         self.assertFalse(owners & {name for name, jobs in HOLD_GATED.items() if not jobs})
 
     def test_draft_skipping_workflows_run_when_marked_ready(self) -> None:
@@ -255,6 +297,32 @@ class QuotaHoldGateTests(unittest.TestCase):
             with self.subTest(workflow=name):
                 self.assertNotIn("pull_request.draft", (WORKFLOWS / name).read_text(encoding="utf-8"))
                 self.assertNotIn(name, DRAFT_SKIPPED)
+=======
+        self.assertFalse(owners & set(HOLD_GATED))
+
+    def test_dogfood_publish_skips_mismatched_bases_without_a_call(self) -> None:
+        # The job condition pairs each source workflow with the base the script
+        # accepts for it, so it skips only runs the script would skip anyway.
+        document = load(WORKFLOWS / "dogfood-artifact-publish.yml")
+        condition = document["jobs"]["publish"]["if"]
+        run = next(step["run"] for step in document["jobs"]["publish"]["steps"]
+                   if step.get("name") == "Find the trusted org-member dogfood artifact")
+        event = "github.event.workflow_run"
+        ci = f"{event}.name == 'CI' && {event}.pull_requests[0].base.ref != 'feat-cmux-next'"
+        next_ = f"{event}.name == 'cmux-next' && {event}.pull_requests[0].base.ref == 'feat-cmux-next'"
+        self.assertIn(f"({ci} || {next_})", condition)
+        self.assertIn('(workflow_name == "CI" and pr.get("base", {}).get("ref") != "feat-cmux-next")', run)
+        self.assertIn('(workflow_name == "cmux-next" and pr.get("base", {}).get("ref") == "feat-cmux-next")', run)
+        # Swapped pairs would skip every run that should publish.
+        self.assertNotIn(f"{event}.name == 'CI' && {event}.pull_requests[0].base.ref == 'feat-cmux-next'", condition)
+        self.assertNotIn(f"{event}.name == 'cmux-next' && {event}.pull_requests[0].base.ref != 'feat-cmux-next'", condition)
+
+    def test_dogfood_publish_has_no_cancelling_group(self) -> None:
+        # A later CI completion on the same branch (a label event) can carry no
+        # artifact; a cancelling group would drop the earlier head's publish.
+        self.assertNotIn("cancel-in-progress: true",
+                         (WORKFLOWS / "dogfood-artifact-publish.yml").read_text(encoding="utf-8"))
+>>>>>>> origin/main
 
     def write(self, directory: Path, name: str, text: str) -> Path:
         path = directory / name
@@ -266,6 +334,7 @@ class QuotaHoldGateTests(unittest.TestCase):
 
         with tempfile.TemporaryDirectory() as temporary:
             directory = Path(temporary)
+<<<<<<< HEAD
             original = (WORKFLOWS / "pr-checks.yml").read_text(encoding="utf-8")
             self.assertIn(f"HOLD: {STEP_GATE_ENV}", original)
             dropped = self.write(directory, "pr-checks.yml", original.replace(f"HOLD: {STEP_GATE_ENV}", "HOLD: ''", 1))
@@ -297,6 +366,13 @@ class QuotaHoldGateTests(unittest.TestCase):
             others = [p for p in workflow_files() if p.name != dropped.name]
             failures = violations(others + [dropped])
         self.assertTrue(any("gallery-advisory.yml job" in f and "does not gate" in f for f in failures), failures)
+=======
+            original = (WORKFLOWS / "dogfood-artifact-publish.yml").read_text(encoding="utf-8")
+            dropped = self.write(directory, "dogfood-artifact-publish.yml", original.replace(f"{GATE} && ", ""))
+            others = [p for p in workflow_files() if p.name != dropped.name]
+            failures = violations(others + [dropped])
+        self.assertTrue(any("'publish' does not gate" in f for f in failures), failures)
+>>>>>>> origin/main
 
     def test_a_required_workflow_reading_the_variable_is_reported(self) -> None:
         import tempfile
@@ -319,10 +395,28 @@ class QuotaHoldGateTests(unittest.TestCase):
             failures = violations(workflow_files() + [stray])
         self.assertTrue(any("stray.yml reads" in f for f in failures), failures)
 
+<<<<<<< HEAD
     def test_delivery_names_are_recognised(self) -> None:
         for name in ("nightly.yml", "nightly-next-tick.yml", "cmux-next-dev-daily.yml", "release.yml"):
             self.assertTrue(DELIVERY.match(name), name)
         self.assertFalse(DELIVERY.match("pr-checks.yml"))
+=======
+    def test_merge_freeze_skips_drafts_but_is_never_held(self) -> None:
+        # Mergers read the freezes again at merge time, so a skipped draft run
+        # passes nothing; a held run on a ready pull request could, so the
+        # freeze check never reads CI_QUOTA_HOLD.
+        text = (WORKFLOWS / "merge-freeze.yml").read_text(encoding="utf-8")
+        self.assertNotIn(VARIABLE, text)
+        document = load(WORKFLOWS / "merge-freeze.yml")
+        self.assertIn("!github.event.pull_request.draft", document["jobs"]["check"]["if"])
+        on = document.get("on", document.get(True))
+        self.assertIn("ready_for_review", on["pull_request_target"]["types"])
+
+    def test_delivery_names_are_recognised(self) -> None:
+        for name in ("nightly.yml", "nightly-next-tick.yml", "cmux-next-dev-daily.yml", "release.yml"):
+            self.assertTrue(DELIVERY.match(name), name)
+        self.assertFalse(DELIVERY.match("dogfood-artifact-publish.yml"))
+>>>>>>> origin/main
 
 
 if __name__ == "__main__":

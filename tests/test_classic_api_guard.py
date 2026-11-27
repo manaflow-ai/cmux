@@ -73,6 +73,19 @@ class ClassicApiGuardTests(unittest.TestCase):
             code, _ = guard.check(CFG, "main", "", [path])
             self.assertEqual(code, 1, path)
 
+<<<<<<< HEAD
+=======
+    def test_renames_do_not_hide_a_truncated_listing(self) -> None:
+        paths = [f"Sources/F{i}.swift" for i in range(3000)] + ["Sources/Old.swift"]
+        code, _ = guard.check(CFG, "main", "", paths, expected_files=3001, listed_records=3000)
+        self.assertEqual(code, 1)
+
+    def test_build_inputs_the_ignore_script_names_are_guarded(self) -> None:
+        for path in ("workers/presence/src/generated/managedRelayCatalog.ts", "web/data/model-catalog/snapshot.json"):
+            code, _ = guard.check(CFG, "main", "", [path])
+            self.assertEqual(code, 1, path)
+
+>>>>>>> origin/main
     def test_truncated_listing_fails_into_main(self) -> None:
         code, _ = guard.check(CFG, "main", "", ["Sources/A.swift"], expected_files=3500)
         self.assertEqual(code, 1)
@@ -108,6 +121,7 @@ class ClassicApiGuardTests(unittest.TestCase):
                 self.assertIn(key, deploy, deploy.get("id"))
         self.assertTrue(any(d["guarded"] for d in data["deploys"]))
 
+<<<<<<< HEAD
     def test_renames_do_not_hide_a_truncated_listing(self) -> None:
         paths = [f"Sources/F{i}.swift" for i in range(3000)] + ["Sources/Old.swift"]
         code, _ = guard.check(CFG, "main", "", paths, expected_files=3001, listed_records=3000)
@@ -162,6 +176,28 @@ class ClassicApiGuardTests(unittest.TestCase):
                 sample = pattern.replace("**", "x/y").replace("*", "x")
                 self.assertTrue(filters.admits("paths", affects, sample),
                                 f"{pattern} ({deploy['id']}) is guarded but pr_router.json's affects misses {sample}")
+=======
+    def test_workflow_runs_the_base_copy_on_pull_request_target(self) -> None:
+        text = WORKFLOW.read_text()
+        self.assertIn("pull_request_target:", text)
+        self.assertNotIn("\n  pull_request:", text)
+        self.assertIn("branches: [main]", text)
+        self.assertIn("edited", text)
+        self.assertNotIn("changes.body", text)
+        self.assertIn("--expected-files", text)
+        self.assertIn("--listed-records", text)
+        self.assertIn("ref: ${{ github.event.pull_request.base.sha }}", text)
+        self.assertIn("scripts/ci/classic_api_guard.py", text)
+        for head_ref in ("head.sha", "head.ref", "refs/pull", "merge_commit_sha"):
+            self.assertNotIn(head_ref, text)
+        # The one secret is the cmux-bot App key, and only the pinned mint action reads it.
+        self.assertEqual(text.count("${{ secrets"), 1)
+        mint = text.split("- name: Mint the cmux-bot read token", 1)[1].split("\n\n", 1)[0]
+        self.assertIn("private-key: ${{ secrets.CMUX_BOT_APP_KEY }}", mint)
+        self.assertIn("uses: actions/create-github-app-token@", mint)
+        self.assertNotIn("permission-", mint.replace("permission-contents: read", "").replace(
+            "permission-pull-requests: read", ""))
+>>>>>>> origin/main
 
 
 if __name__ == "__main__":

@@ -101,7 +101,11 @@ final class AppsMenuOverlay: UIView {
         let lightWhite = G.labelWhite(iOS27: SendMenuIcons.isIOS27)
         // Dark: ChatKit draws 70% white composited plus-lighter, which reads
         // 209 on the 30 gray panel (MobileSMS 26.5); a plain blend needs 80%.
+<<<<<<< HEAD
         label.textColor = UIColor.resolving { $0.userInterfaceStyle == .dark ? UIColor(white: 1, alpha: 0.8) : UIColor(white: lightWhite, alpha: 1) }
+=======
+        label.textColor = UIColor { $0.userInterfaceStyle == .dark ? UIColor(white: 1, alpha: 0.8) : UIColor(white: lightWhite, alpha: 1) }
+>>>>>>> origin/main
         // Messages truncates a long title ("Apple C..." at AX3).
         label.lineBreakMode = .byTruncatingTail
         row.addSubview(label)
@@ -131,7 +135,10 @@ final class AppsMenuOverlay: UIView {
             state = .open
             apply(State.open, frame: openFrame)
             panel.alpha = 0
+<<<<<<< HEAD
             // motion: allow crossfade, the Reduce Motion form
+=======
+>>>>>>> origin/main
             UIView.animate(withDuration: 0.25) { self.panel.alpha = 1 }
             return
         }
@@ -149,7 +156,10 @@ final class AppsMenuOverlay: UIView {
         // An item opens its own UI as the menu closes, as in Messages.
         completion?()
         if UIAccessibility.isReduceMotionEnabled {
+<<<<<<< HEAD
             // motion: allow crossfade, the Reduce Motion form
+=======
+>>>>>>> origin/main
             UIView.animate(withDuration: 0.2) { self.panel.alpha = 0 } completion: { _ in self.finish() }
             return
         }
@@ -353,7 +363,11 @@ extension ConversationViewController {
         // (and any input view) above every app window, so the menu stays
         // above it instead.
         if keyboardProgress > 0 {
+<<<<<<< HEAD
             overlay.keyboardTop = keyboardDock.guide.layoutFrame.minY
+=======
+            overlay.keyboardTop = view.keyboardLayoutGuide.layoutFrame.minY
+>>>>>>> origin/main
         }
         overlay.onDismissed = { [weak self] in self?.composer.isPlusGlassHidden = false }
         view.addSubview(overlay)
@@ -379,9 +393,13 @@ extension ConversationViewController {
     /// photo viewer; anything else opens in Quick Look.
     func openFile(_ attachment: ConversationAttachment, from fileView: ConversationFileBubbleView, model: MessageRowModel) {
         guard attachment.file?.isImage == true else {
+<<<<<<< HEAD
             // Every document of the message opens, to swipe between (Messages).
             let documents = model.message.fileAttachments.filter { $0.file?.isImage != true }
             presentAttachments(documents.isEmpty ? [attachment] : documents, opening: attachment, from: fileView.thumbnailView)
+=======
+            presentAttachment(attachment, from: fileView.thumbnailView)
+>>>>>>> origin/main
             return
         }
         let tailed = model.showsTail && model.message.text.isEmpty && fileView === fileViews(of: model.rowID).last
@@ -446,6 +464,7 @@ extension ConversationViewController {
     /// Quick Look for any attachment: photos open titled "Photo", documents
     /// by their file name. `sourceView` is the bubble it zooms from.
     func presentAttachment(_ attachment: ConversationAttachment, from sourceView: UIView) {
+<<<<<<< HEAD
         presentAttachments([attachment], opening: attachment, from: sourceView)
     }
 
@@ -522,6 +541,28 @@ extension ConversationViewController {
         present(presenter.makeController(), animated: true)
     }
 
+=======
+        guard quickLookPresenter == nil else { return }
+        dismissPhotoDrawer()
+        let title = attachment.file?.name ?? String(localized: "conversation.quote.photo", defaultValue: "Photo", bundle: .module)
+        let placeholder = ConversationQuickLookPresenter(item: ConversationQuickLookItem(url: URL(fileURLWithPath: "/"), title: title), sourceView: nil)
+        quickLookPresenter = placeholder
+        Task { @MainActor [weak self, weak sourceView] in
+            let url = await ConversationImageLoader.shared.fileURL(for: attachment)
+            guard let self else { return }
+            guard let url, let sourceView, sourceView.window != nil else {
+                self.quickLookPresenter = nil
+                return
+            }
+            self.view.endEditing(true)
+            let presenter = ConversationQuickLookPresenter(item: ConversationQuickLookItem(url: url, title: title), sourceView: sourceView)
+            presenter.onDismiss = { [weak self] in self?.quickLookPresenter = nil }
+            self.quickLookPresenter = presenter
+            self.present(presenter.makeController(), animated: true)
+        }
+    }
+
+>>>>>>> origin/main
     func presentPhotoDrawer() {
         guard photoDrawer == nil, presentedViewController == nil else { return }
         view.endEditing(true)
@@ -632,6 +673,7 @@ extension ConversationViewController {
     /// 0.2667 s), read from the animations UIKit adds for a keyboard
     /// notification (curve 7, 0.383 s). Inside a keyboard notification the
     /// block inherits UIKit's own animation instead.
+<<<<<<< HEAD
     /// Reduce Motion: our own spring lands at once. Inside a keyboard
     /// animation the block still rides it: the system moves the keyboard
     /// either way, and landing early would part the composer from it.
@@ -647,6 +689,11 @@ extension ConversationViewController {
         }
         UIView.animateUnlessReduceMotion(
             springDuration: 0.2667, bounce: 0, options: [.beginFromCurrentState, .allowUserInteraction],
+=======
+    func animateAlongsideKeyboard(_ animations: @escaping () -> Void, completion: ((Bool) -> Void)? = nil) {
+        UIView.animate(
+            springDuration: 0.2667, bounce: 0, options: [.beginFromCurrentState],
+>>>>>>> origin/main
             animations: animations, completion: completion
         )
     }
@@ -687,10 +734,14 @@ final class ConversationMediaDelegate: NSObject, UIImagePickerControllerDelegate
     /// A picked file: a photo becomes a photo attachment (as from Photos);
     /// anything else (or an image UIKit cannot decode) is sent as a file.
     static func composerAttachment(for url: URL, traits: UITraitCollection) async -> ComposerAttachment? {
+<<<<<<< HEAD
         // Mapped, and read off the main thread: a 100 MB video is not copied into memory (its
         // pages load as the upload reads them) and picking it never freezes the composer.
         let read = Task.detached(priority: .userInitiated) { try? Data(contentsOf: url, options: .alwaysMapped) }
         guard let data = await read.value, !data.isEmpty else { return nil }
+=======
+        guard let data = try? Data(contentsOf: url), !data.isEmpty else { return nil }
+>>>>>>> origin/main
         let file = ConversationPendingFile(data: data, name: url.lastPathComponent)
         if file.info.isImage, let image = UIImage(data: data) {
             return ComposerAttachment(image: image, data: data, mimeType: file.info.mimeType)

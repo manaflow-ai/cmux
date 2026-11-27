@@ -405,7 +405,11 @@ Ja, cmux er gratis at bruge. Kildekoden er tilgængelig på [GitHub](https://git
 
 ### Hvordan kan jeg støtte cmux?
 
+<<<<<<< HEAD
 cmux er gratis og open source og vil altid være det.
+=======
+cmux er gratis og open source og vil altid være det. Hvis du vil støtte udviklingen og få tidlig adgang til det, der kommer, herunder cmux AI, iOS-appen og Cloud VM'er, så tjek [cmux Pro](https://cmux.com/api/billing/checkout?plan=pro).
+>>>>>>> origin/main
 
 ### Jeg har et funktionsønske eller har fundet en fejl?
 
@@ -444,6 +448,15 @@ Måder at deltage:
   <img src="./docs/assets/wechat-community-qr.jpg" alt="WeChat-QR-kode til at blive en del af cmux-fællesskabet" width="240" />
 </p>
 
+<<<<<<< HEAD
+=======
+## cmux Pro
+
+cmux er gratis, open source og vil altid være det. Hvis du gerne vil støtte udviklingen og få tidlig adgang til det, der kommer:
+
+**[Få cmux Pro](https://cmux.com/api/billing/checkout?plan=pro)**
+
+>>>>>>> origin/main
 ## Licens
 
 cmux er open source under [GPL-3.0-or-later](LICENSE). cmux-serversoftwaren (`web/`, Cloudflare-workerne og relætjenesterne i [LICENSE](LICENSE)) bruger i stedet [Business Source License 1.1](web/LICENSE): du må læse, ændre og køre den til ikke-produktionsbrug, mens produktionsbrug eller selvhosting kræver en kommerciel licens.
