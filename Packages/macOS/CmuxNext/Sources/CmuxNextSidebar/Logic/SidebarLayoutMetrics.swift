@@ -160,7 +160,11 @@ public nonisolated struct SidebarLayoutOptions: Hashable, Sendable {
     public var colorIndicator: WorkspaceColorIndicatorStyle = .leftRail
     /// The start of today: the last-activity element shows a time for today,
     /// else a date. A day, not the current time, so options stay equal.
+    /// With `relativeTimes`, the current minute instead.
     public var now = Date(timeIntervalSince1970: 0)
+    /// `sidebar.relativeTimestamps` (with `showsTimestamps`): a change today reads as its age
+    /// (`5m`, `2h`) counted from `now`, not its time.
+    public var relativeTimes = false
     /// Age labels this pass made, shared by its rows (a label per row was most of a 10k group's layout).
     var ages = AgeTextCache()
     /// The workspace list is hidden (`sidebar.showProjects` off): no rows.
@@ -262,7 +266,7 @@ nonisolated extension SidebarLayoutOptions {
     private func baseRowContent(_ ws: SidebarWorkspace, machine: String?) -> WorkspaceRowContent {
         // Workspaces as tabs: one line at any density; attention states (the needs-you mark) still show.
         if workspacesAsTabs {
-            var content = WorkspaceRowContent(ws, preferences: Self.tabRow, now: now, ages: ages)
+            var content = WorkspaceRowContent(ws, preferences: Self.tabRow, now: now, ages: ages, relative: relativeTimes)
             (content.detail, content.status, content.trailingStatus, content.badgeTime) = (nil, nil, nil, nil)
             return content
         }
@@ -272,9 +276,9 @@ nonisolated extension SidebarLayoutOptions {
         if expanded {
             let shown = workspaceRow.resolved(for: ws.rowKind)
             return WorkspaceRowContent(expanded: ws, now: now, machine: machine, showsNotification: shown.shows(.notification),
-                                       showsPullRequest: shown.shows(.pullRequest), ages: ages)
+                                       showsPullRequest: shown.shows(.pullRequest), ages: ages, relative: relativeTimes)
         }
-        return WorkspaceRowContent(ws, preferences: workspaceRow, now: now, machine: machine, ages: ages)
+        return WorkspaceRowContent(ws, preferences: workspaceRow, now: now, machine: machine, ages: ages, relative: relativeTimes)
     }
 }
 

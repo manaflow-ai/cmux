@@ -16,15 +16,17 @@ import { afterAll, beforeAll, describe, expect, setDefaultTimeout, test } from "
 import { mkdirSync } from "node:fs";
 import path from "node:path";
 import { chromium, type Browser } from "playwright";
-import { ROW_METRIC } from "../src/agent-session/acpmux/rowMetric";
+import { ROW_METRIC, ROW_METRIC_VARIANTS, type RowMetric } from "../src/agent-session/acpmux/rowMetric";
 import { galleryFrame, warmGalleryFrame } from "./support/galleryFrame";
 import { requireBrowserLane } from "./support/requireBrowserLane";
+
+/** The prose size "Worked for" keeps (chatDisplay.ts DEFAULT_CHAT_DISPLAY.fontSize). */
+const PROSE = 14;
 
 await requireBrowserLane("transcript-activity-row-density.test.ts", async () => {
   setDefaultTimeout(300_000);
   const ENTRY = "agent-pane.activity-row-density";
   const MEASURED = ["expanded", "folded", "runs-open"];
-  const SHOTS = ["density-roomy", "density-compact", "density-dense"];
   const OUT = process.env.FAST_CHECKS_OUT;
   const LOG = process.env.CMUX_ROW_DENSITY_LOG === "1";
   try {
@@ -57,6 +59,7 @@ await requireBrowserLane("transcript-activity-row-density.test.ts", async () => 
     rows: Row[];
     /** The words of each one-line row's line: their computed size, by the element's class. */
     words: { cls: string; size: number }[];
+    toolLineHeights: number[];
     chips: number[];
     glyphs: number[];
     worked: number[];
@@ -100,9 +103,8 @@ await requireBrowserLane("transcript-activity-row-density.test.ts", async () => 
           ".cv-bgtask__state",
           ".cv-message-group__count",
           ".cv-thought__preview",
-          ".cv-worked__label",
         ];
-        const words = LABELS.flatMap((selector) =>
+        const words = [...LABELS, ".cv-worked__label"].flatMap((selector) =>
           [...document.querySelectorAll<HTMLElement>(`.acpmux-row ${selector}`)]
             .filter((element) => element.getBoundingClientRect().height > 0)
             .map((element) => ({ cls: selector, size: parseFloat(getComputedStyle(element).fontSize) })),
@@ -114,6 +116,13 @@ await requireBrowserLane("transcript-activity-row-density.test.ts", async () => 
         return {
           rows,
           words,
+          toolLineHeights: Array.from(
+            document.querySelectorAll<HTMLElement>(
+              ".acpmux-row :is(.cv-tool__summary, .cv-worked__label, .cv-thought__preview)",
+            ),
+          )
+            .filter((element) => element.getBoundingClientRect().height > 0)
+            .map((element) => parseFloat(getComputedStyle(element).lineHeight)),
           chips: heightOf(".acpmux-row button.cv-agent-tag.is-open"),
           glyphs: heightOf(".acpmux-row .cv-tool__icon > svg"),
           worked: heightOf(".acpmux-row .cv-worked.is-toggle"),
@@ -138,6 +147,19 @@ await requireBrowserLane("transcript-activity-row-density.test.ts", async () => 
   /** An opened run draws a row per call, flush (`.cv-tools` gap 0): how many rows tall. */
   const callsIn = (height: number) => Math.round(height / ROW_METRIC.height);
   const runHeight = (calls: number) => calls * ROW_METRIC.height;
+
+  const expectWorkedGeometry = ({ rows, worked }: Measured, metric: RowMetric) => {
+    const headers = rows.filter((row) => row.id.startsWith("worked-"));
+    // The reply-only first turn retains its header so the reply stays in place when the turn ends.
+    expect(headers.map((row) => row.id)).toEqual([
+      "worked-density-first",
+      "worked-density-remote",
+      "worked-density-notice",
+    ]);
+    expect(worked).toHaveLength(headers.length);
+    for (const height of worked) expect(height).toBeCloseTo(metric.height + metric.ruleAbove, 1);
+    for (const row of headers) expect(row.height).toBeCloseTo(metric.height + metric.ruleAbove + metric.ruleBelow, 1);
+  };
 
   for (const variant of MEASURED) {
     test(`each shut one-line row is one row of the metric, ${ROW_METRIC.height}px (${variant})`, async () => {
@@ -169,25 +191,26 @@ await requireBrowserLane("transcript-activity-row-density.test.ts", async () => 
       }
     });
     test(`each row's words are ${ROW_METRIC.font}px, its chips ${ROW_METRIC.chip}px, its glyphs ${ROW_METRIC.glyph}px (${variant})`, async () => {
-      const { words, chips, glyphs } = await of(variant);
+      const { words, toolLineHeights, chips, glyphs } = await of(variant);
       expect(words.length).toBeGreaterThan(0);
-      for (const word of words) expect(word).toEqual({ cls: word.cls, size: ROW_METRIC.font });
+      // "Worked for" keeps the prose size (--cv-worked-font-size), not the row metric's.
+      for (const word of words) expect(word).toEqual({ cls: word.cls, size: word.cls === ".cv-worked__label" ? PROSE : ROW_METRIC.font });
+      expect(new Set(toolLineHeights)).toEqual(new Set([20]));
       for (const chip of chips) expect(chip).toBeCloseTo(ROW_METRIC.chip, 1);
       for (const glyph of glyphs) expect(glyph).toBeCloseTo(ROW_METRIC.glyph, 1);
     });
     test(`"Worked for" is one row and its rule's room (${variant})`, async () => {
-      const { rows, worked } = await of(variant);
-      expect(worked.length).toBe(2);
-      for (const height of worked) expect(height).toBeCloseTo(ROW_METRIC.height + ROW_METRIC.ruleAbove, 1);
-      for (const row of rows.filter((each) => each.id.startsWith("worked-")))
-        expect(row.height).toBeCloseTo(ROW_METRIC.height + ROW_METRIC.ruleAbove + ROW_METRIC.ruleBelow, 1);
+      expectWorkedGeometry(await of(variant), ROW_METRIC);
     });
   }
 
-  // The density candidates the gallery compares, drawn for the PR (no assertion past drawing).
-  if (OUT)
-    for (const variant of SHOTS)
-      test(`draws ${variant}`, async () => {
-        expect((await of(variant)).rows.length).toBeGreaterThan(0);
-      });
+  for (const [name, metric] of Object.entries(ROW_METRIC_VARIANTS)) {
+    test(`density-${name} draws the candidate's row and divider geometry`, async () => {
+      const measured = await of(`density-${name}`);
+      expectWorkedGeometry(measured, metric);
+      expect(new Set(measured.words.map((word) => word.size))).toEqual(new Set([metric.font]));
+      expect(new Set(measured.chips)).toEqual(new Set([metric.chip]));
+      expect(new Set(measured.glyphs)).toEqual(new Set([metric.glyph]));
+    });
+  }
 });

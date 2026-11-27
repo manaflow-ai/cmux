@@ -20,7 +20,7 @@ EOF
 chmod +x "$tmp/bin/gh"
 export PATH="$tmp/bin:$PATH" GH_STUB_LOG="$tmp/gh.log" GH_STUB_ROWS="$tmp/rows"
 export GITHUB_REPOSITORY=o/r GITHUB_EVENT_NAME=push GITHUB_RUN_ATTEMPT=1 BASE_AUTOFIX_WINDOW_NOW=1800000000
-unset NEXT_BASE_AUTOFIX_WINDOW_MINUTES GH_STUB_FAIL GH_STUB_FAIL_TOKENS BASE_AUTOFIX_POOL_TOKENS
+unset NEXT_BASE_AUTOFIX_WINDOW_MINUTES BASE_AUTOFIX_CARGO_CHANGED GH_STUB_FAIL GH_STUB_FAIL_TOKENS BASE_AUTOFIX_POOL_TOKENS
 export GH_TOKEN=job
 
 rows() { printf '%s\n' "$@" | tr '|' '\037' > "$tmp/rows"; }
@@ -76,5 +76,13 @@ GITHUB_RUN_ATTEMPT=2 expect true "re-run"
 rows
 NEXT_BASE_AUTOFIX_WINDOW_MINUTES=30 expect true "within the last 30 min"
 grep -q 'created=%3E%3D2027-01-15T07:30:00Z' "$tmp/gh.log" || fail "30-minute window read: $(cat "$tmp/gh.log")"
+
+# 6. A push that changes a Cargo file repairs now, whatever repaired within the window (cmux#57132: one lock of five
+#    updated, every --locked build red until the window let a repair run). Anything but "true" is held as before.
+rows "499|completed|success|fix: a" "498|in_progress||fix: b"
+BASE_AUTOFIX_CARGO_CHANGED=true expect true "changes a Cargo.toml or Cargo.lock"
+[[ ! -s "$tmp/gh.log" ]] || fail "a Cargo push read GitHub: $(cat "$tmp/gh.log")"
+BASE_AUTOFIX_CARGO_CHANGED=false expect false "run 499 ended success"
+BASE_AUTOFIX_CARGO_CHANGED="" expect false "run 499 ended success"
 
 echo "base-autofix-window: ok"

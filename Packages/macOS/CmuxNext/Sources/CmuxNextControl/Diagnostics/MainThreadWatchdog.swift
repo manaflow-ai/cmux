@@ -44,7 +44,7 @@ public final class MainThreadWatchdog: Sendable {
         /// How often a watchdog timer checks the host load; while it is above the core count, each
         /// check sends the main queue one block and times its answer, so an idle main thread the
         /// Mac starves of CPU (which the heartbeat reads as asleep) still gets a `starved` record
-        /// (``MainThreadWatchdog/noteProbeAnswered(sentAt:delayNanos:cpuNanos:observedAt:host:)``). Nil (the
+        /// (``MainThreadWatchdog/noteProbeAnswered(sentAt:delayNanos:cpuNanos:memoryAt:observedAt:host:)``). Nil (the
         /// default): no probe. The app sets 5 s; an unloaded Mac never wakes the main thread for it.
         public var starvationProbeInterval: Duration?
 
@@ -121,9 +121,10 @@ public final class MainThreadWatchdog: Sendable {
     let episodeSink = Mutex<HangEpisodeRecorder?>(nil) // ``episodes``
     /// Finished stalls of a hang's length by beat, the newest few, until their file takes one (+Episodes).
     let hangEnds = Mutex<[(beat: UInt64, nanos: UInt64, cpuNanos: UInt64)]>([])
-    /// The process's fault counters when the watchdog first sampled the stall of `beat`: the
-    /// base of its hang file's page-ins (+Episodes). Watchdog thread only (uncontended).
-    let stallEvents = Mutex<(beat: UInt64, counts: TaskEventCounts?)?>(nil)
+    /// The process's fault counters and the host's memory when the watchdog first sampled the
+    /// stall of `beat`: the base of its hang file's page-ins and memory line (+Episodes).
+    /// Watchdog thread only (uncontended).
+    let stallEvents = Mutex<(beat: UInt64, counts: TaskEventCounts?, memory: HostMemory?)?>(nil)
     let hangNanos: UInt64
     let hangIntervalNanos: UInt64
     private let hangAssertNanos: UInt64?
@@ -471,8 +472,8 @@ public final class MainThreadWatchdog: Sendable {
             // The heartbeat is old enough that the main thread may be stalling.
             if beat == beatSequence.load(ordering: .acquiring), !mainAsleep.load(ordering: .acquiring), beat != sampledBeat {
                 sampledBeat = beat
-                // One syscall per sampled stall: the base of a hang's page-in count.
-                stallEvents.withLock { $0 = (beat, TaskEventCounts.current()) }
+                // A few syscalls per sampled stall: the base of a hang's page-in count and memory line.
+                stallEvents.withLock { $0 = (beat, TaskEventCounts.current(), HostMemory.current()) }
                 if let sampler {
                     let board = boardSink.withLock { $0 }
                     // Raw addresses only: symbolicating here can outlast a short stall.

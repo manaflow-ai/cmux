@@ -66,11 +66,11 @@ static PACKING: std::sync::LazyLock<(
 )> = std::sync::LazyLock::new(Default::default);
 
 /// A chat's turn at its pack store ([`PACKING`]), held until dropped.
-struct PackTurn(String);
+pub(in crate::hub) struct PackTurn(String);
 
 impl PackTurn {
     /// Waits for chat `id`'s turn.
-    fn take(id: &str) -> Self {
+    pub(in crate::hub) fn take(id: &str) -> Self {
         let (packing, freed) = &*PACKING;
         let mut packing = packing.lock().unwrap_or_else(|e| e.into_inner());
         while packing.contains(id) {
@@ -109,7 +109,7 @@ struct Prepacked {
 /// The calling thread at the lowest CPU priority, and the threads it starts after: nice 19 on
 /// Linux (a thread's own, inherited by the threads it starts), the background band on macOS.
 /// Best effort: a refusal leaves it as it was.
-fn lower_this_thread() {
+pub(in crate::hub) fn lower_this_thread() {
     #[cfg(target_os = "linux")]
     unsafe {
         let tid = libc::syscall(libc::SYS_gettid) as libc::id_t;
@@ -156,7 +156,7 @@ fn token_digest(token: &Value) -> &str {
     token.as_str().and_then(|t| t.rsplit(':').next()).unwrap_or_default()
 }
 
-fn pack_error(e: pack::Error) -> anyhow::Error {
+pub(in crate::hub) fn pack_error(e: pack::Error) -> anyhow::Error {
     anyhow::anyhow!("session pack: {e}")
 }
 
@@ -176,7 +176,7 @@ impl Hub {
     /// Chat `id`'s pack store, in its folder here (it goes when the chat does): its packed
     /// history, content-addressed, so a chat packed again keeps what it had and a chat that
     /// comes back is sent only what is new.
-    fn pack_store(&self, id: &str) -> anyhow::Result<pack::Store> {
+    pub(in crate::hub) fn pack_store(&self, id: &str) -> anyhow::Result<pack::Store> {
         let chat = self.store.session_dir(id);
         let dir = chat.ok_or_else(|| anyhow::anyhow!("this store keeps no packs"))?.join(PACK_DIR);
         // In the chat's folder, which the store made owner-only; made through the held home.
@@ -426,7 +426,7 @@ impl Hub {
     /// Packs chat `session`'s log through seq `through` into `store` as the chat, from its lines
     /// as an export writes them (written in `work` and removed after). Returns the manifest,
     /// what the pack did, and the digest of the record at `through`.
-    fn pack_through(
+    pub(in crate::hub) fn pack_through(
         &self,
         session: &Session,
         through: u64,
@@ -656,35 +656,5 @@ impl Hub {
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn a_chats_second_pack_waits_for_its_first_and_another_chats_does_not() {
-        let first = PackTurn::take("turn-chat-a");
-        let _other = PackTurn::take("turn-chat-b");
-        let (sent, got) = std::sync::mpsc::channel();
-        let second = std::thread::spawn(move || {
-            let _turn = PackTurn::take("turn-chat-a");
-            sent.send(()).unwrap();
-        });
-        assert!(
-            got.recv_timeout(std::time::Duration::from_millis(200)).is_err(),
-            "the second pack ran beside the first"
-        );
-        drop(first);
-        got.recv_timeout(std::time::Duration::from_secs(10)).expect("the second pack never ran");
-        second.join().unwrap();
-        assert!(!PACKING.0.lock().unwrap().contains("turn-chat-a"));
-    }
-
-    #[test]
-    fn a_prepack_that_ended_without_a_pack_does_not_hold_its_export() {
-        let slot = Arc::new(Prepack::default());
-        PREPACKS.lock().unwrap().insert("ended-chat".into(), (7, slot.clone()));
-        // What a thread that never started leaves: the slot ended as failed.
-        drop(PrepackDone { slot: &slot, packed: None });
-        assert!(Hub::prepack_waited("ended-chat", 7).is_none());
-        assert!(!PREPACKS.lock().unwrap().contains_key("ended-chat"));
-    }
-}
+#[path = "transfer_history_tests.rs"]
+mod tests;

@@ -698,6 +698,8 @@ struct ShellView: View {
         .modifier(BillingDemoSheet(billing: billing))
         #endif
         .cmuxMobileToast($shell.toast)
+        // Shake anywhere: copy this launch's log and open the bug report form (ShakeToReport).
+        .shakeToReportBug()
         .modifier(LiveCallHost(shell: shell))
         #if canImport(CmuxMobileLinkFFI)
         // Another device waiting for a linked Mac's Allow: answered here (ask-45c37458ea).
@@ -1038,7 +1040,7 @@ struct ShellTabs: View {
             }
             Tab("Workspaces", systemImage: "square.stack.3d.up", value: RootTab.workspaces) {
                 WorkspacesScreen(shell: shell)
-                    .newTaskButton(creator: shell.creator, store: shell.store, atRoot: shell.workspacesPath.isEmpty,
+                    .newTaskButton(creator: shell.creator, store: shell.store, atRoot: shell.atRoot(.workspaces),
                                    started: { shell.startedTask($0) })
                     .modifier(TabBarVisibility(shell: shell, tab: .workspaces))
                     .modifier(TabRetapScroll(shell: shell, tab: .workspaces))
@@ -1047,7 +1049,7 @@ struct ShellTabs: View {
             .badge(shell.store.attentionCount)
             Tab("Feed", systemImage: "bubble.left.and.text.bubble.right", value: RootTab.feed) {
                 FeedTabContent(shell: shell)
-                    .newTaskButton(creator: shell.creator, store: shell.store, atRoot: shell.feedPath.isEmpty,
+                    .newTaskButton(creator: shell.creator, store: shell.store, atRoot: shell.atRoot(.feed),
                                    started: { shell.startedTask($0) })
                     .modifier(TabBarVisibility(shell: shell, tab: .feed))
                     .modifier(TabBarProbeHost())

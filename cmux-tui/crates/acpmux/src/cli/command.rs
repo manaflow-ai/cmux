@@ -227,6 +227,7 @@ pub(super) mod aliases {
 }
 
 #[derive(Subcommand)]
+#[allow(clippy::large_enum_variant)] // parsed once per process and matched at once; boxing buys nothing
 pub enum Command {
     /// Run a task on several models in separate worktrees and compare the reviewer's winner.
     #[command(subcommand)]
@@ -427,6 +428,14 @@ pub enum Command {
     #[command(name = "run-vm", hide = true)]
     RunVm {
         /// The shell command, after `--`.
+        #[arg(trailing_var_arg = true, allow_hyphen_values = true, required = true)]
+        command: Vec<String>,
+    },
+    /// A `gh run view` log, served from or kept in this machine's shared cache of finished CI
+    /// logs (harness magic `sharedCache`, `ci_log_cache.rs`); the Bash hook puts it before `gh`.
+    #[command(name = "ci-log-cache", hide = true)]
+    CiLogCache {
+        /// The `gh` command, after `--`.
         #[arg(trailing_var_arg = true, allow_hyphen_values = true, required = true)]
         command: Vec<String>,
     },
@@ -634,6 +643,13 @@ pub enum Command {
         #[arg(required = true)]
         sessions: Vec<String>,
     },
+    /// Bring a chat the lifecycle pass (or anyone) archived back in one step: unarchived,
+    /// undeleted when deleted, and its log back on this disk, fetched from cloud history when it
+    /// was offloaded there.
+    Restore {
+        /// The chat's id or name.
+        session: String,
+    },
     /// Open the TUI on a session, or on the session list.
     #[command(aliases = aliases::ATTACH)]
     Attach {
@@ -797,6 +813,10 @@ pub enum Command {
     /// archives.
     #[command(subcommand, aliases = aliases::WORKTREE)]
     Worktree(crate::cli::worktree::WorktreeCmd),
+    /// Keep this machine's disk under budget: status, clean, why, tick (the headless pass a
+    /// timer runs), install-timer. `cmux care ...` is the same.
+    #[command(subcommand)]
+    Care(crate::cli::care::CareCmd),
     /// Download one large file over parallel range requests (16 by default), for a path where
     /// one stream is slow (a Cloud VM's IPv4 from GitHub). Follows redirects; checks the length
     /// and, with --sha256, the hash before the file appears at -o.
@@ -965,12 +985,21 @@ pub enum Command {
         session: String,
         #[arg(long)]
         purge: bool,
+        /// With `--purge`: delete now, with no grace to restore it.
+        #[arg(long, requires = "purge")]
+        now: bool,
         /// Set from `session stop --if-idle`; the hidden spelling takes no condition.
         #[arg(skip)]
         condition: StopIf,
         #[command(flatten)]
         close: CloseArgs,
     },
+    /// `session undelete`.
+    #[command(hide = true)]
+    Undelete { session: String },
+    /// `session deleted`.
+    #[command(hide = true)]
+    Deleted,
     #[command(hide = true)]
     RestartAgent { session: String },
     #[command(hide = true)]
@@ -1026,6 +1055,17 @@ pub enum Command {
         after_help = "Examples:\n  acpmux icon @ 🥭\n  acpmux icon @ sf:leaf.fill\n  acpmux icon @ ./mark.svg\n  acpmux icon @ https://github.com\n  acpmux rename @ Mango --handle --icon 🥭\n  acpmux icon @ none"
     )]
     Icon { session: String, icon: Option<String> },
+    /// A frame of the chat's page now, kept in its running turn's frames strip (cmuxterm-hq RFD
+    /// 0152): `--built SOURCE` says a `cmux live` loop's build is in place (`rust`, `swift`,
+    /// `chromium`, `web`), so the frame shows the swapped build, not the save before it. `@` is the
+    /// chat this shell runs in. No running turn: nothing is taken.
+    #[command(hide = true, after_help = "Example:\n  acpmux frame @ --built rust")]
+    Frame {
+        #[arg(default_value = "@")]
+        session: String,
+        #[arg(long, value_name = "SOURCE")]
+        built: String,
+    },
     /// Make a session the successor of sessions that died or moved (a rotation, a restart under a
     /// new name, a move): a message to one of them reaches it, here and through the mesh hub.
     /// Each name it takes over keeps the names that one answered to.
@@ -1169,6 +1209,8 @@ pub enum Command {
     HistoryDelete(HistoryDeleteArgs),
     #[command(hide = true)]
     HistoryOffload(HistoryOffloadArgs),
+    #[command(hide = true)]
+    Lifecycle(LifecycleArgs),
     #[command(hide = true)]
     TranscriptOffload(TranscriptOffloadArgs),
     #[command(hide = true)]
@@ -1500,6 +1542,10 @@ pub enum DaemonCmd {
     /// Move old cold-archived chats to cloud history (`agents.chats.cloudOffload`), keeping a stub
     /// that fetches them back on open. --dry-run lists them.
     HistoryOffload(HistoryOffloadArgs),
+    /// Run one lifecycle pass now (`agents.chats.lifecycle`): done chats (closed, or idle past
+    /// `agents.chats.lifecycleIdleHours`) archived, cold, and offloaded when cloud history is set
+    /// up. --dry-run lists them; prints totals and skips by reason.
+    Lifecycle(LifecycleArgs),
     /// Copy Claude's and Codex's transcripts to cloud history, read-only (setting
     /// `agents.chats.transcriptOffload`, off by default).
     TranscriptOffload(TranscriptOffloadArgs),
@@ -1571,6 +1617,13 @@ pub struct HistoryDeleteArgs {
 }
 
 #[derive(Args, Clone, Debug)]
+pub struct LifecycleArgs {
+    /// Only list the chats a pass would take, and why the rest stay.
+    #[arg(long)]
+    pub dry_run: bool,
+}
+
+#[derive(Args, Clone, Debug)]
 pub struct HistoryOffloadArgs {
     /// Only list the chats a pass would offload.
     #[arg(long)]
@@ -1614,9 +1667,11 @@ pub fn flatten(c: Command) -> Command {
         Command::Session(sc) => match sc {
             SessionCmd::Info { session, fields } => Command::Info { session, fields },
             SessionCmd::Cancel { session } => Command::Cancel { session },
-            SessionCmd::Stop { session, purge, mesh, condition, close } if !mesh.mesh => {
-                Command::Kill { session, purge, condition, close }
+            SessionCmd::Stop { session, purge, now, mesh, condition, close } if !mesh.mesh => {
+                Command::Kill { session, purge, now, condition, close }
             }
+            SessionCmd::Undelete { session } => Command::Undelete { session },
+            SessionCmd::Deleted => Command::Deleted,
             SessionCmd::Restart { session } => Command::RestartAgent { session },
             SessionCmd::Route { facts } => Command::RouteDeath { facts },
             SessionCmd::Pause { session } => Command::PauseAgent { session },
@@ -1783,6 +1838,7 @@ pub fn flatten(c: Command) -> Command {
             DaemonCmd::Retention(args) => Command::Retention(args),
             DaemonCmd::HistoryDelete(args) => Command::HistoryDelete(args),
             DaemonCmd::HistoryOffload(args) => Command::HistoryOffload(args),
+            DaemonCmd::Lifecycle(args) => Command::Lifecycle(args),
             DaemonCmd::TranscriptOffload(args) => Command::TranscriptOffload(args),
             DaemonCmd::Schema => Command::Schema,
             DaemonCmd::Models { refresh } => Command::Models { refresh },

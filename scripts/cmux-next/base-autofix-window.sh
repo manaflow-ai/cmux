@@ -9,11 +9,15 @@
 # skipped ones (held runs among them) and the push of this workflow's own repair commit, which repairs nothing.
 #
 # Every other case runs, as before the window: a window of 0, a dispatch, a re-run (someone asked for it),
-# and any GitHub read that fails (fail open).
+# and any GitHub read that fails (fail open). A push that changes a Cargo.toml or Cargo.lock also always runs
+# (BASE_AUTOFIX_CARGO_CHANGED=true, set by the workflow from the push's head commit): a manifest change can leave
+# another workspace's lock stale, and a stale lock fails every --locked cargo build on the base until cargo-locks.py
+# fix commits it. 2026-11-27: #57132 added url to cmux-config and updated one lock of five; the window held every
+# repair, so app-ffi-release.yml failed on each push for 65 min and the app FFI pin stopped (deploy lag 176 min).
 #
 #   base-autofix-window.sh RUN_ID [BRANCH]
 # Env: GH_TOKEN (actions: read), GITHUB_REPOSITORY, GITHUB_EVENT_NAME, GITHUB_RUN_ATTEMPT,
-#      NEXT_BASE_AUTOFIX_WINDOW_MINUTES; BASE_AUTOFIX_WINDOW_NOW (epoch seconds, tests only).
+#      NEXT_BASE_AUTOFIX_WINDOW_MINUTES, BASE_AUTOFIX_CARGO_CHANGED; BASE_AUTOFIX_WINDOW_NOW (epoch seconds, tests only).
 set -uo pipefail
 
 run_id="${1:?usage: base-autofix-window.sh RUN_ID [BRANCH]}"
@@ -34,6 +38,10 @@ if [[ "${GITHUB_EVENT_NAME:-push}" != push ]]; then
 fi
 if [[ "${GITHUB_RUN_ATTEMPT:-1}" != 1 ]]; then
   say true "re-run (attempt ${GITHUB_RUN_ATTEMPT})"
+  exit 0
+fi
+if [[ "${BASE_AUTOFIX_CARGO_CHANGED:-}" == true ]]; then
+  say true "the push changes a Cargo.toml or Cargo.lock: a stale lock fails every --locked build, so it repairs now"
   exit 0
 fi
 

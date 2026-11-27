@@ -6730,6 +6730,10 @@
         "ty": "boolean",
         "nullable": true
       },
+      "/hold": {
+        "ty": "boolean",
+        "nullable": true
+      },
       "/kinds": {
         "ty": "untagged_union|string|array",
         "nullable": true
@@ -13050,6 +13054,9 @@
       }
     },
     "request:_acpmux/here": {
+      "/includeSync": {
+        "ty": "boolean"
+      },
       "/scope": {
         "ty": "string",
         "nullable": true
@@ -22378,6 +22385,12 @@
       }
     },
     "request:_acpmux/scorecard": {
+      "/*untyped*": {
+        "ty": "json",
+        "nullable": true
+      }
+    },
+    "request:_acpmux/scorecard_replay": {
       "/*untyped*": {
         "ty": "json",
         "nullable": true
@@ -33989,6 +34002,29 @@
       "/data/here/*/working": {
         "ty": "boolean",
         "required": true
+      },
+      "/data/sync": {
+        "ty": "array",
+        "nullable": true
+      },
+      "/data/sync/*": {
+        "ty": "object"
+      },
+      "/data/sync/*/acknowledged": {
+        "ty": "boolean",
+        "required": true
+      },
+      "/data/sync/*/connected": {
+        "ty": "boolean",
+        "required": true
+      },
+      "/data/sync/*/peer": {
+        "ty": "string",
+        "required": true
+      },
+      "/data/sync/*/unacknowledgedEdits": {
+        "ty": "uint64",
+        "required": true
       }
     },
     "response:_acpmux/here/beat": {
@@ -36536,6 +36572,12 @@
       }
     },
     "response:_acpmux/scorecard": {
+      "/data/*untyped*": {
+        "ty": "json",
+        "nullable": true
+      }
+    },
+    "response:_acpmux/scorecard_replay": {
       "/data/*untyped*": {
         "ty": "json",
         "nullable": true

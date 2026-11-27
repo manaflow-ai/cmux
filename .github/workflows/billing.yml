@@ -534,7 +534,7 @@ jobs:
     env:
       CMUX_CI_XCODE_APP: ${{ vars.CMUX_CI_XCODE_APP_MACOS_26 }}
       STOREKIT_ITERATIONS: ${{ inputs.storekit_iterations || '1' }}
-      CMUX_CI_REQUIRED_MACOS_SDK_MAJOR: "26"
+      CMUX_CI_REQUIRED_MACOS_SDK_MAJOR: ${{ contains(vars.CMUX_CI_XCODE_APP_MACOS_26, 'Xcode_27') && '27' || '26' }}
       IOS: ${{ needs.billing.outputs.ios }}
       STOREKIT_KIND: ${{ needs.billing.outputs.storekit_kind }}
       STOREKIT_PATH: ${{ needs.billing.outputs.storekit_path }}

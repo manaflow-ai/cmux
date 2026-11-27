@@ -41,9 +41,11 @@ import Testing
         return try body()
     }
 
-    /// The flush corner on for `body` (a Debug Settings pick of the default, goo, at Default density), so the
-    /// tests of its frame always assert instead of returning early when the run's chrome left it off.
-    func withFlushCorner<T>(_ body: () throws -> T) rethrows -> T {
+    /// The flush corner on for `body` (a Debug Settings pick, at Default density), so the tests of its frame always
+    /// assert instead of returning early when the run's chrome left it off. Plain `flush` by default: `flush-goo`
+    /// tones the frame under One Color too (#46780, `Metrics.titleAreaShadeScale`), which
+    /// ``oneColorStillTonesTheGooFrame()`` pins on its own.
+    func withFlushCorner<T>(_ corner: CornerFlush = .flush, _ body: () throws -> T) rethrows -> T {
         // Compact density keeps the pill before any override is read (`CornerFlush.current`): pin Default's.
         let density = DesignSettings.shared.densityTokens
         DesignSettings.shared.densityTokens = DensityPreset.cozy.tokens
@@ -51,10 +53,24 @@ import Testing
         let store = TunableStore.shared
         store.register([CornerFlush.tunable.descriptor])
         if !store.isActive { store.activate(file: nil) }
-        let saved = store.set(CornerFlush.tunable.key, .choice(CornerFlush.goo.rawValue))
+        let saved = store.set(CornerFlush.tunable.key, .choice(corner.rawValue))
         defer { _ = store.set(CornerFlush.tunable.key, saved) }
         #expect(CornerFlush.current.isOn, "the pinned flush corner is off (compact density?)")
         return try body()
+    }
+
+    /// `flush-goo` is two tones (Leo, 2026-11-18: "the two tone thing"): the goo needs the frame's shade to show, so
+    /// One Color still tones its frame at Subtle Tone's share of the contrast.
+    @Test(arguments: [true, false]) func oneColorStillTonesTheGooFrame(isDark: Bool) {
+        withFlushCorner(.goo) {
+            let saved = DesignSettings.shared.titleAreaTone
+            defer { DesignSettings.shared.titleAreaTone = saved }
+            withContrast(0.5) {
+                DesignSettings.shared.titleAreaTone = .oneColor
+                let base = Metrics.mainPaneChromeShadeBase(isDark: isDark), scale = TitleAreaTone.subtleShare * 0.5
+                #expect(abs(Metrics.mainPaneChromeShade(isDark: isDark) - base * scale) < 1e-9)
+            }
+        }
     }
 
     @Test func aMissingKeyIsTheDefaultAndTheDefaultIsOne() {

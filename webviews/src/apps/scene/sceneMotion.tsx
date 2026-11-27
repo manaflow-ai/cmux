@@ -5,7 +5,7 @@
 // last props, until it has left. CSS draws every movement (scene.css) behind the motion gate:
 // WebTheme's `data-cmux-motion` off draws the end state at once; reduced (Reduce Motion, calm
 // motion) turns each movement into a crossfade.
-import { createContext, useEffect, useState, type ReactNode } from "react";
+import { createContext, useEffect, useMemo, useState, type ReactNode } from "react";
 import { MOTION_MS } from "../../motion/scale.generated";
 import { sceneMotionEnv, sceneTransitionKind, sceneTransitionLeaveMs, type SceneMotionEnv } from "./motionProps";
 import type { SceneNode, SceneStore } from "./store";
@@ -76,9 +76,12 @@ export function SceneAppeared({
   return <>{children}</>;
 }
 
-/** Whether the node animates in: it has a transition and came after the first frame. */
-export function useSceneEntering(store: SceneStore, node: SceneNode | undefined): boolean {
-  const [entering] = useState(() => store.hasDrawn() && sceneTransitionKind(node?.props.transition) !== undefined);
+/** Whether the node animates in: it has a transition and came after the first frame. `added` false: this
+ * mount did not come from a render adding the node (a windowed LazyVStack scrolled it in), so it does not. */
+export function useSceneEntering(store: SceneStore, node: SceneNode | undefined, added = true): boolean {
+  const [entering] = useState(
+    () => added && store.hasDrawn() && sceneTransitionKind(node?.props.transition) !== undefined,
+  );
   return entering;
 }
 
@@ -128,12 +131,16 @@ export function useSceneChildren(store: SceneStore, ids: readonly string[]): Sce
     return () => clearTimeout(timer);
   }, [leavingNow, store]);
 
-  const out: SceneChild[] = ids.map((id) => ({ id, leaving: false }));
-  if (!leavingNow.size) return out;
-  for (const [id, at] of [...leavingNow].sort((a, b) => a[1] - b[1])) {
-    out.splice(Math.min(at, out.length), 0, { id, leaving: true });
-  }
-  return out;
+  // One array per change of the children or the leaving set, so a windowed LazyVStack (which draws again per
+  // scroll step) does no pass over all its children per step.
+  return useMemo(() => {
+    const out: SceneChild[] = ids.map((id) => ({ id, leaving: false }));
+    if (!leavingNow.size) return out;
+    for (const [id, at] of [...leavingNow].sort((a, b) => a[1] - b[1])) {
+      out.splice(Math.min(at, out.length), 0, { id, leaving: true });
+    }
+    return out;
+  }, [ids, leavingNow]);
 }
 
 /** `text`'s user-perceived characters (an emoji or accented letter stays whole). */

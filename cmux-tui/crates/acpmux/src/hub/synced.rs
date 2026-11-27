@@ -198,7 +198,7 @@ impl Synced {
         self.peers.lock().unwrap_or_else(|e| e.into_inner()).insert(name.to_owned(), vv);
     }
 
-    /// Status costs O(peers × replica actors), independent of the number of stored chat keys.
+    /// Status reads only peer vectors, never stored chat keys, then sorts the peers by name.
     /// Read peer vectors before the local vector so a concurrent local edit can only make a
     /// peer look behind; it cannot make an unacknowledged edit look delivered.
     pub fn peer_status(
@@ -373,6 +373,13 @@ impl Hub {
             .with_data(serde_json::json!({"reason": "sync.too_large"})));
         }
         let (changed, gap, vv) = self.synced_merge(&delta).await;
+        // A winner a client (or a peer) pushed here goes on to the other peer daemons too: before,
+        // only an edit made here (`synced_record`) was told, so a phone's offline edit pushed to
+        // this daemon reached the daemon holding the chat only at the next reconnect. An entry
+        // sent back to where it came from changes nothing there, so the relay ends.
+        if !changed.is_empty() {
+            self.synced_tell_peers();
+        }
         Ok(SyncPushDone { changed, gap, vv: serde_json::to_value(vv).unwrap_or_default() })
     }
 
@@ -437,7 +444,8 @@ impl Hub {
             std::mem::replace(&mut meta.pinned, pinned)
         };
         if was != pinned {
-            self.events.row_changed(session);
+            // Told now: a peer following this list hears the pin at once (`row_changed_told`).
+            self.events.row_changed_told(session);
             self.save_meta_answered(session)?;
         }
         self.synced_record(pin_key(&session.id), Value::Bool(pinned));

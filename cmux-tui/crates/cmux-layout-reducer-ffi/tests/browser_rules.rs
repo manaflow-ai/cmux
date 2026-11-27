@@ -1,5 +1,6 @@
 //! `browser_rules_*` through the C ABI: the app sends a Chromium window request and gets back where
-//! it goes, and a WebKit link click's modifiers and gets back what it does.
+//! it goes, a WebKit link click's modifiers and gets back what it does, and a tab state machine
+//! with an engine's events and gets back the tab's state.
 
 use cmux_layout_reducer_ffi::{ERR_INVALID, OK, cmux_layout_reducer_json};
 use serde_json::{Value, json};
@@ -48,6 +49,28 @@ fn browser_rules_webkit_link_click_opens_cmd_click_where_links_go() {
         call("browser_rules_webkit_link_click", &serde_json::to_vec(&request).unwrap());
     assert_eq!(code, OK);
     assert_eq!(body, json!({"open": {"_0": "linkPlacement"}}));
+}
+
+#[test]
+fn browser_rules_tab_state_apply_ignores_a_superseded_loads_late_failure() {
+    let (code, machine) = call("browser_rules_tab_state_new", b"{}");
+    assert_eq!(code, OK);
+    let request = json!({"machine": machine, "events": [
+        {"started": {"_0": {"rawValue": 1}, "url": "https://a.example/"}},
+        {"started": {"_0": {"rawValue": 2}, "url": "https://b.example/"}},
+        {"failed": {"_0": {"rawValue": 1}, "_1": {"domain": "NSURLErrorDomain", "code": -1009,
+                    "message": "offline", "failingURL": "https://a.example/"}}},
+        {"committed": {"_0": {"rawValue": 2}}},
+    ]});
+    let (code, body) =
+        call("browser_rules_tab_state_apply", &serde_json::to_vec(&request).unwrap());
+    assert_eq!(code, OK);
+    assert_eq!(body["changed"], true);
+    let state = &body["machine"]["state"];
+    assert_eq!(state["phase"], json!({"committed": {}}));
+    assert_eq!(state["url"], "https://b.example/");
+    assert_eq!(state["security"], json!({"secure": {}}));
+    assert_eq!(state["activeNavigation"], json!({"rawValue": 2}));
 }
 
 #[test]

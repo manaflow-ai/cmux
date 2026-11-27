@@ -124,7 +124,6 @@ pub struct HereMember {
 
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "camelCase")]
-#[schemars(transform = require_all)]
 pub struct HereResult {
     /// Active first, then idle, then away; people before agents; then by name.
     pub here: Vec<HereMember>,
