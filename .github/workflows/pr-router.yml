@@ -134,6 +134,10 @@ jobs:
           # A base merge onto a red head reruns only what was not green there (head_tier.py's red-head base merge
           # rule); 0 turns that off.
           CI_RED_BASE_MERGE_RERUN: ${{ vars.CI_RED_BASE_MERGE_RERUN || '1' }}
+          # A full-ci or ready-to-land label on a head that only merges the base onto a head whose full run passed
+          # carries that run; one with reds reruns only what was not green (head_tier.py's full-ci base merge carry
+          # rule); 0 turns that off.
+          CI_FULL_CI_BASE_MERGE_CARRY: ${{ vars.CI_FULL_CI_BASE_MERGE_CARRY || '1' }}
           # 0 turns the ios fast verdict off (pr-pipeline.yml ios-fast-runner); cmux/ios-fast then posts success.
           CI_IOS_FAST_VERDICT: ${{ vars.CI_IOS_FAST_VERDICT }}
           # The previous head's Actions runs (actions: read), for that rule.
@@ -363,6 +367,18 @@ jobs:
     needs: [route, fast-gates]
     if: ${{ !cancelled() && needs.route.result == 'success' && (needs.fast-gates.result != 'failure' || github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name != github.repository || contains(github.event.pull_request.labels.*.name, 'full-ci') || format('{0}', vars.CI_HEAD_FAIL_FAST) == '0') && contains(fromJSON(needs.route.outputs.start || '[]'), 'ios-link-ffi-linux.yml') }}
     uses: ./.github/workflows/ios-link-ffi-linux.yml
+    permissions:
+      contents: read
+
+  compile-preflight:
+    # The build a change can break, on every tier (Leo, 2026-11-27: "surely we can just have legit build fail
+    # preflight checks"). No tier rule and no `start` gate: the land tier's cheap and none tiers skip every other
+    # build, and cmux#57269 landed a web bundle build break through them. The callee's first step skips the build
+    # for a change that reaches no web bundle, so its check always reports a verdict, never "skipped".
+    name: compile preflight
+    needs: route
+    if: ${{ !cancelled() && needs.route.result == 'success' }}
+    uses: ./.github/workflows/cmux-next-compile-preflight.yml
     permissions:
       contents: read
 

@@ -77,7 +77,7 @@ let package = Package(
         .target(name: "CmuxMobileNotifications"),
         // CMUXAuthCore: CMUXBuildSpace, the dev build's X-Cmux-Build-Space header.
         // CmuxMobileLinkFFI: New Task's terminal line, image type and agent pick rules (TaskComposer) are Rust's task_composer.
-        // CmuxMobileLinkFFI: the workspace group rules (applyGroups, PendingGroupEdits) are Rust's workspace_groups; the arrangement and move rules are workspace_arrangement and workspace_moves.
+        // CmuxMobileLinkFFI: the workspace group rules (applyGroups, PendingGroupEdits) are Rust's workspace_groups; the arrangement and move rules are workspace_arrangement and workspace_moves; the workspace row menu's rules are workspace_row_actions.
         // CmuxMobileLinkFFI (iOS only): Mac reachability and Retry steps (MacReachability) are Rust's mac_reachability.
         // CmuxMobileLinkFFI: the terminal sizing view's rules (TerminalSizingPresentation) are Rust's terminal_sizing_view.
         .target(name: "CmuxMobileModel", dependencies: ["CmuxMobileDesignCore", .product(name: "CmuxEgress", package: "CmuxEgress"), .product(name: "CMUXAuthCore", package: "CMUXAuthCore"), .target(name: "CmuxMobileLinkFFI", condition: .when(platforms: [.iOS]))], resources: [.process("Resources")]),
@@ -338,7 +338,7 @@ let package = Package(
 if ProcessInfo.processInfo.environment["CMUX_SWIFTPM_TARGET_LINUX"] == "1" {
     let linuxModules: Set<String> = [
         "CmuxMobileAuth", "CmuxMobileDesignCore", "CmuxMobileModel", "CmuxMobileNotifications", "CmuxMobileRealtime",
-        "CmuxMobileTransport",
+        "CmuxMobileTransport", "CmuxMobileLive", "CmuxMobileWorkspaces",
     ]
     let linuxTests = Set(linuxModules.map { $0 + "Tests" })
     package.products.removeAll { !linuxModules.contains($0.name) }
@@ -361,8 +361,45 @@ if ProcessInfo.processInfo.environment["CMUX_SWIFTPM_TARGET_LINUX"] == "1" {
     if let authTests = package.targets.first(where: { $0.name == "CmuxMobileAuthTests" }) {
         authTests.dependencies = ["CmuxMobileAuth", "CmuxMobileModel"]
     }
+    // The main-thread hang watchdog (Hangs/: Darwin thread suspension, os_unfair_lock, MetricKit) is the
+    // app's alone; nothing else in the model uses it, so Linux leaves it and its suite out.
+    if let model = package.targets.first(where: { $0.name == "CmuxMobileModel" }) {
+        model.exclude += ["Hangs"]
+    }
+    if let modelTests = package.targets.first(where: { $0.name == "CmuxMobileModelTests" }) {
+        modelTests.exclude += ["MainThreadHangWatchdogTests.swift"]
+    }
+    // Keep the production connection controller and launch state, without their UI clients.
+    // Resolve paths from the manifest, independent of the caller's working directory.
+    let packageRoot = URL(fileURLWithPath: #filePath).deletingLastPathComponent()
+    func project(_ name: String, directory: String, sources: [String], dependencies: [Target.Dependency]) throws {
+        guard let target = package.targets.first(where: { $0.name == name }) else { return }
+        let entries = try FileManager.default.contentsOfDirectory(atPath: packageRoot.appendingPathComponent(directory).path)
+        target.exclude = entries.filter { !sources.contains($0) }.sorted()
+        target.sources = sources
+        target.dependencies = dependencies
+    }
+    try project("CmuxMobileLive", directory: "Sources/CmuxMobileLive", sources: [
+        "ClockInstants.swift", "LinkConnectivityEvents.swift", "LinkController.swift", "LinkMachine.swift",
+        "LinkPairingRetry.swift", "LinkServiceFailure.swift", "PresenceTiming.swift", "ReliabilityLinuxShims.swift",
+        "RetryBounds.swift",
+    ], dependencies: [
+        "CmuxMobileModel", "CmuxMobileTransport",
+        .product(name: "CmuxConnectivityTelemetry", package: "CmuxConnectivityTelemetry"),
+    ])
+    try project("CmuxMobileWorkspaces", directory: "Sources/CmuxMobileWorkspaces", sources: [
+        "WorkspacesLaunchState.swift",
+    ], dependencies: ["CmuxMobileModel"])
+    try project("CmuxMobileLiveTests", directory: "Tests/CmuxMobileLiveTests", sources: [
+        "AwakeDeadline.swift", "ConnectivityMatrixTests.swift", "LinkRecoveryTests.swift",
+        "LinkClockDriver.swift", "LinkTestClock.swift", "PairingRetryTests.swift", "TickRandom.swift",
+    ], dependencies: ["CmuxMobileLive", "CmuxMobileModel", "CmuxMobileTransport"])
+    try project("CmuxMobileWorkspacesTests", directory: "Tests/CmuxMobileWorkspacesTests", sources: [
+        "WorkspacesLaunchStateTests.swift",
+    ], dependencies: ["CmuxMobileWorkspaces", "CmuxMobileModel"])
     package.dependencies = [
         .package(path: "../../Packages/Shared/CMUXAuthCore"),
+        .package(path: "../../Packages/Shared/CmuxConnectivityTelemetry"),
         .package(path: "../../Packages/Shared/CmuxEgress"),
         .package(path: "../../vendor/stack-auth-swift-sdk-prerelease"),
         // CryptoKit's API for CmuxMobileNotifications (`import Crypto` where CryptoKit is absent).

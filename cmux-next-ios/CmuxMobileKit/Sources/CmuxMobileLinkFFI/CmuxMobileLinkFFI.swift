@@ -16091,6 +16091,101 @@ public func FfiConverterTypeWorkspaceGroupSlot_lower(_ value: WorkspaceGroupSlot
 
 
 /**
+ * What the rules read of one workspace row.
+ */
+public struct WorkspaceRowFacts: Equatable, Hashable {
+    public var id: String
+    public var macId: String
+    /**
+     * Its place in the Mac's sidebar; nil sorts last, in list order.
+     */
+    public var sidebarIndex: Int64?
+    public var pinned: Bool
+    public var home: Bool
+    /**
+     * In a workspace group.
+     */
+    public var grouped: Bool
+    /**
+     * A create or close this phone sent is still on its way.
+     */
+    public var pending: Bool
+
+    // Default memberwise initializers are never public by default, so we
+    // declare one manually.
+    public init(id: String, macId: String, 
+        /**
+         * Its place in the Mac's sidebar; nil sorts last, in list order.
+         */sidebarIndex: Int64?, pinned: Bool, home: Bool, 
+        /**
+         * In a workspace group.
+         */grouped: Bool, 
+        /**
+         * A create or close this phone sent is still on its way.
+         */pending: Bool) {
+        self.id = id
+        self.macId = macId
+        self.sidebarIndex = sidebarIndex
+        self.pinned = pinned
+        self.home = home
+        self.grouped = grouped
+        self.pending = pending
+    }
+
+    
+
+    
+}
+
+#if compiler(>=6)
+extension WorkspaceRowFacts: Sendable {}
+#endif
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeWorkspaceRowFacts: FfiConverterRustBuffer {
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> WorkspaceRowFacts {
+        return
+            try WorkspaceRowFacts(
+                id: FfiConverterString.read(from: &buf), 
+                macId: FfiConverterString.read(from: &buf), 
+                sidebarIndex: FfiConverterOptionInt64.read(from: &buf), 
+                pinned: FfiConverterBool.read(from: &buf), 
+                home: FfiConverterBool.read(from: &buf), 
+                grouped: FfiConverterBool.read(from: &buf), 
+                pending: FfiConverterBool.read(from: &buf)
+        )
+    }
+
+    public static func write(_ value: WorkspaceRowFacts, into buf: inout [UInt8]) {
+        FfiConverterString.write(value.id, into: &buf)
+        FfiConverterString.write(value.macId, into: &buf)
+        FfiConverterOptionInt64.write(value.sidebarIndex, into: &buf)
+        FfiConverterBool.write(value.pinned, into: &buf)
+        FfiConverterBool.write(value.home, into: &buf)
+        FfiConverterBool.write(value.grouped, into: &buf)
+        FfiConverterBool.write(value.pending, into: &buf)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeWorkspaceRowFacts_lift(_ buf: RustBuffer) throws -> WorkspaceRowFacts {
+    return try FfiConverterTypeWorkspaceRowFacts.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeWorkspaceRowFacts_lower(_ value: WorkspaceRowFacts) -> RustBuffer {
+    return FfiConverterTypeWorkspaceRowFacts.lower(value)
+}
+
+
+/**
  * What sorting needs to know of one row.
  */
 public struct WorkspaceSortRow: Equatable, Hashable {
@@ -21314,6 +21409,90 @@ public func FfiConverterTypeWorkspaceEdgeSide_lower(_ value: WorkspaceEdgeSide) 
 // Note that we don't yet support `indirect` for enums.
 // See https://github.com/mozilla/uniffi-rs/issues/396 for further discussion.
 /**
+ * A place New Workspace offers beside a row.
+ */
+
+public enum WorkspaceRowPlacement: Equatable, Hashable {
+    
+    case above
+    case below
+    case top
+    case bottom
+
+
+
+
+
+}
+
+#if compiler(>=6)
+extension WorkspaceRowPlacement: Sendable {}
+#endif
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeWorkspaceRowPlacement: FfiConverterRustBuffer {
+    typealias SwiftType = WorkspaceRowPlacement
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> WorkspaceRowPlacement {
+        let variant: Int32 = try readInt(&buf)
+        switch variant {
+        
+        case 1: return .above
+        
+        case 2: return .below
+        
+        case 3: return .top
+        
+        case 4: return .bottom
+        
+        default: throw UniffiInternalError.unexpectedEnumCase
+        }
+    }
+
+    public static func write(_ value: WorkspaceRowPlacement, into buf: inout [UInt8]) {
+        switch value {
+        
+        
+        case .above:
+            writeInt(&buf, Int32(1))
+        
+        
+        case .below:
+            writeInt(&buf, Int32(2))
+        
+        
+        case .top:
+            writeInt(&buf, Int32(3))
+        
+        
+        case .bottom:
+            writeInt(&buf, Int32(4))
+        
+        }
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeWorkspaceRowPlacement_lift(_ buf: RustBuffer) throws -> WorkspaceRowPlacement {
+    return try FfiConverterTypeWorkspaceRowPlacement.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeWorkspaceRowPlacement_lower(_ value: WorkspaceRowPlacement) -> RustBuffer {
+    return FfiConverterTypeWorkspaceRowPlacement.lower(value)
+}
+
+
+// Note that we don't yet support `indirect` for enums.
+// See https://github.com/mozilla/uniffi-rs/issues/396 for further discussion.
+/**
  * Sort Workspaces by Name / Last Used / Directory (the Mac's `WorkspaceSortKey`).
  */
 
@@ -23599,6 +23778,31 @@ fileprivate struct FfiConverterSequenceTypeWorkspaceGroupSlot: FfiConverterRustB
 #if swift(>=5.8)
 @_documentation(visibility: private)
 #endif
+fileprivate struct FfiConverterSequenceTypeWorkspaceRowFacts: FfiConverterRustBuffer {
+    typealias SwiftType = [WorkspaceRowFacts]
+
+    public static func write(_ value: [WorkspaceRowFacts], into buf: inout [UInt8]) {
+        let len = Int32(value.count)
+        writeInt(&buf, len)
+        for item in value {
+            FfiConverterTypeWorkspaceRowFacts.write(item, into: &buf)
+        }
+    }
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> [WorkspaceRowFacts] {
+        let len: Int32 = try readInt(&buf)
+        var seq = [WorkspaceRowFacts]()
+        seq.reserveCapacity(Int(len))
+        for _ in 0 ..< len {
+            seq.append(try FfiConverterTypeWorkspaceRowFacts.read(from: &buf))
+        }
+        return seq
+    }
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
 fileprivate struct FfiConverterSequenceTypeWorkspaceSortRow: FfiConverterRustBuffer {
     typealias SwiftType = [WorkspaceSortRow]
 
@@ -23766,6 +23970,31 @@ fileprivate struct FfiConverterSequenceTypeTabsEvent: FfiConverterRustBuffer {
         seq.reserveCapacity(Int(len))
         for _ in 0 ..< len {
             seq.append(try FfiConverterTypeTabsEvent.read(from: &buf))
+        }
+        return seq
+    }
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+fileprivate struct FfiConverterSequenceTypeWorkspaceRowPlacement: FfiConverterRustBuffer {
+    typealias SwiftType = [WorkspaceRowPlacement]
+
+    public static func write(_ value: [WorkspaceRowPlacement], into buf: inout [UInt8]) {
+        let len = Int32(value.count)
+        writeInt(&buf, len)
+        for item in value {
+            FfiConverterTypeWorkspaceRowPlacement.write(item, into: &buf)
+        }
+    }
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> [WorkspaceRowPlacement] {
+        let len: Int32 = try readInt(&buf)
+        var seq = [WorkspaceRowPlacement]()
+        seq.reserveCapacity(Int(len))
+        for _ in 0 ..< len {
+            seq.append(try FfiConverterTypeWorkspaceRowPlacement.read(from: &buf))
         }
         return seq
     }
@@ -25498,6 +25727,48 @@ public func workspaceSortSteps(order: [String], sorted: [String]) -> [WorkspaceS
     )
 })
 }
+/**
+ * The ids of the workspaces a row can merge into: its Mac's others, never Home (the Mac's
+ * `WorkspaceMerge.staysPut`) nor one still pending, in sidebar order.
+ */
+public func workspaceMergeTargets(workspaceId: String, macId: String, rows: [WorkspaceRowFacts]) -> [String]  {
+    return try!  FfiConverterSequenceString.lift(try! rustCall() {
+    uniffi_cmux_mobile_link_ffi_fn_func_workspace_merge_targets(
+        FfiConverterString.lower(workspaceId),
+        FfiConverterString.lower(macId),
+        FfiConverterSequenceTypeWorkspaceRowFacts.lower(rows),$0
+    )
+})
+}
+/**
+ * The id of the row a new workspace goes before (top) or after (bottom): the first or last of
+ * its Mac's unpinned rows other than Home and itself, in sidebar order. Nil when it is alone.
+ */
+public func workspaceNewRowAnchor(top: Bool, workspaceId: String, macId: String, rows: [WorkspaceRowFacts]) -> String?  {
+    return try!  FfiConverterOptionString.lift(try! rustCall() {
+    uniffi_cmux_mobile_link_ffi_fn_func_workspace_new_row_anchor(
+        FfiConverterBool.lower(top),
+        FfiConverterString.lower(workspaceId),
+        FfiConverterString.lower(macId),
+        FfiConverterSequenceTypeWorkspaceRowFacts.lower(rows),$0
+    )
+})
+}
+/**
+ * The places New Workspace offers beside a row: Above and Below a row this phone can
+ * arrange, at Top and at Bottom of its Mac's sidebar. None for Home, a row the phone may not
+ * arrange or a Mac it can't create on; only Top and Bottom for a pinned row (the Mac orders
+ * its pinned tiles with a layout move a phone may not send).
+ */
+public func workspaceRowPlacements(row: WorkspaceRowFacts, canArrange: Bool, canCreate: Bool) -> [WorkspaceRowPlacement]  {
+    return try!  FfiConverterSequenceTypeWorkspaceRowPlacement.lift(try! rustCall() {
+    uniffi_cmux_mobile_link_ffi_fn_func_workspace_row_placements(
+        FfiConverterTypeWorkspaceRowFacts_lower(row),
+        FfiConverterBool.lower(canArrange),
+        FfiConverterBool.lower(canCreate),$0
+    )
+})
+}
 
 private enum InitializationResult {
     case ok
@@ -25887,6 +26158,15 @@ private let initializationResult: InitializationResult = {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_cmux_mobile_link_ffi_checksum_func_workspace_sort_steps() != 4292) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_cmux_mobile_link_ffi_checksum_func_workspace_merge_targets() != 44564) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_cmux_mobile_link_ffi_checksum_func_workspace_new_row_anchor() != 60987) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_cmux_mobile_link_ffi_checksum_func_workspace_row_placements() != 36676) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_cmux_mobile_link_ffi_checksum_method_channelhandle_close() != 40361) {
