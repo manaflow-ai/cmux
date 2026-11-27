@@ -85,9 +85,18 @@ public struct CMUXAuthUser: Codable, Equatable, Sendable {
         fromClientReadOnlyMetadata metadata: [String: Any]?
     ) -> Bool {
         guard let value = metadata?[demonstrationContentMetadataKey] else { return false }
+        #if canImport(Darwin)
         guard let number = value as? NSNumber else { return false }
         // Reject non-boolean numbers (1, 2.5) so only a JSON `true` counts.
         guard CFGetTypeID(number) == CFBooleanGetTypeID() else { return false }
         return number.boolValue
+        #else
+        // swift-corelibs-foundation has no CFBoolean type ID. A Swift Bool
+        // stays a Bool, and JSONSerialization's booleans are NSNumbers whose
+        // objCType is "c" (integers decode as "q", doubles as "d").
+        if let bool = value as? Bool, !(value is NSNumber) { return bool }
+        guard let number = value as? NSNumber, String(cString: number.objCType) == "c" else { return false }
+        return number.boolValue
+        #endif
     }
 }

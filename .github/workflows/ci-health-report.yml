@@ -57,8 +57,9 @@ jobs:
       contents: read
     name: Report CI health
     # The read-token mint holds App keys, so the job runs where no variable can
-    # move it: the owned one-job Linux fleet label (tests/test_ci_fork_runner_routing.py).
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'cmux-fleet-linux-x64' }}
+    # move it: the one-job secret JIT label (tests/test_ci_fork_runner_routing.py,
+    # tests/test_ci_secret_jobs_secret_jit.py).
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'cmux-gcp-secret-jit-x64' }}
     # Measured against this repo: a window's run listings plus ~160 job
     # listings is a few hundred calls, and the Actions API answers each one
     # in seconds on a repo this size. 15 minutes was not enough headroom.
@@ -138,6 +139,7 @@ jobs:
             CI_NIGHTLY_NEXT_TRUSTED_POOL=${{ vars.CI_NIGHTLY_NEXT_TRUSTED_POOL }}
             CI_NIGHTLY_NEXT_TRUSTED_RUNNER=${{ vars.CI_NIGHTLY_NEXT_TRUSTED_RUNNER }}
             CI_PR_POOL_ORDER=${{ vars.CI_PR_POOL_ORDER }}
+            CI_SECRET_SKIP_FLEET=${{ vars.CI_SECRET_SKIP_FLEET }}
             CI_SEED_TRUSTED_POOL=${{ vars.CI_SEED_TRUSTED_POOL }}
             CI_SIDE_LANE_RUNNER=${{ vars.CI_SIDE_LANE_RUNNER }}
             CI_SIDE_LANE_LABELS=${{ vars.CI_SIDE_LANE_LABELS }}
@@ -145,6 +147,7 @@ jobs:
             CMUX_CI_RUNNER_FLEET=${{ vars.CMUX_CI_RUNNER_FLEET }}
             CMUX_CI_RUNNER_OVERRIDES=${{ vars.CMUX_CI_RUNNER_OVERRIDES }}
             CMUX_IOS_SIM_LINUX_BUILD_RUNNER=${{ vars.CMUX_IOS_SIM_LINUX_BUILD_RUNNER }}
+            CMUX_NEXT_PERF_CRON_LINUX_RUNNER=${{ vars.CMUX_NEXT_PERF_CRON_LINUX_RUNNER }}
             LINUX_ARM64_RUNNER=${{ vars.LINUX_ARM64_RUNNER }}
             LINUX_BUILD_RUNNER=${{ vars.LINUX_BUILD_RUNNER }}
             LINUX_RUNNER=${{ vars.LINUX_RUNNER }}

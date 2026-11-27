@@ -280,7 +280,7 @@ jobs:
       - preflight
       - decisions
     if: needs.decisions.outputs.sdk_need_publish == 'true'
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'blacksmith-4vcpu-ubuntu-2404' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'cmux-gcp-secret-jit-x64' }}
     timeout-minutes: 10
     permissions: {}
     environment:
@@ -430,7 +430,7 @@ jobs:
       needs.preflight.result == 'success' &&
       needs.decisions.result == 'success' &&
       needs.decisions.outputs.sidebar_need_publish == 'true'
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'blacksmith-4vcpu-ubuntu-2404' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'cmux-gcp-secret-jit-x64' }}
     timeout-minutes: 10
     permissions: {}
     environment:

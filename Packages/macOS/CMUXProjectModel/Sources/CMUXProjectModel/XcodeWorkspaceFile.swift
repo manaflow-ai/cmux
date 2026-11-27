@@ -1,4 +1,7 @@
 import Foundation
+#if canImport(FoundationXML)
+import FoundationXML
+#endif
 
 /// The project references listed in a workspace's `contents.xcworkspacedata`.
 struct XcodeWorkspaceFile {

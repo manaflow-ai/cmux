@@ -43,6 +43,10 @@ on:
     # 37 h). The six-hourly tick above stays the canary that finds the login's quota again after a reset.
     - cron: "47 1-5,7-11,13-17,19-23 * * *"
     - cron: "7,22,37,52 * * * *"
+    # Codex real on its own minute, not the Claude canary's :47: the two claimed one warm spare at once, so one of
+    # them created cold every six hours (2026-11-27 06:51Z: codex claimed in 4983 ms, claude made one in 17165 ms).
+    # :29 is the widest gap between the other claims (:22 and :37 Codex stub), so the pool has refilled before it.
+    - cron: "29 */6 * * *"
   workflow_dispatch:
     inputs:
       model:
@@ -101,13 +105,13 @@ jobs:
             crons: ["47 */6 * * *", "47 1-5,7-11,13-17,19-23 * * *"]
           - agent: codex
             model: real
-            crons: ["47 */6 * * *"]
+            crons: ["29 */6 * * *"]
           # Codex on the stub every 15 minutes: a fresh machine's Codex must have its code-mode host and make the
           # stub's tool call (2026-11-25: every Cloud Codex tool call failed to spawn the host).
           - agent: codex
             model: stub
             crons: ["7,22,37,52 * * * *"]
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'blacksmith-4vcpu-ubuntu-2404' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'cmux-gcp-secret-jit-x64' }}
     # The cmux-tui build (warm from the rust cache) comes before the journey's own 25 minutes.
     timeout-minutes: 75
     environment: cmux-next-cloud-journey
@@ -301,9 +305,38 @@ jobs:
           retention-days: 3
       # One issue per row (agent and model): opened on the first red, its body rewritten on later reds (no comment per hour), closed
       # by the next green. A timed-out or cancelled journey counts as red. Only main's own runs touch it.
+      # Its report outlives an exhausted GITHUB_TOKEN: spare App tokens, then the reset (runs 45548650589 and
+      # 45551813915 failed, and their report died on "API rate limit exceeded for installation"). Optional: a
+      # ref without these files reports with the job token alone.
+      - name: Check out the failure report tools
+        if: always() && env.SELECTED == 'true' && steps.gate.outputs.skip != 'true' && (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch')
+        continue-on-error: true
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+          ref: ${{ github.sha }}
+          fetch-depth: 1
+          path: .incident-report
+          sparse-checkout: |
+            /.github/actions/spare-issue-tokens/
+            /scripts/ci/gh-spare
+            /scripts/ci/incident_report.cjs
+          sparse-checkout-cone-mode: false
+      - name: Mint spare issue tokens
+        id: spare
+        if: always() && env.SELECTED == 'true' && steps.gate.outputs.skip != 'true' && (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch')
+        continue-on-error: true
+        uses: ./.incident-report/.github/actions/spare-issue-tokens
+        with:
+          bot-app-id: ${{ vars.CMUX_BOT_APP_ID }}
+          bot-key: ${{ secrets.CMUX_BOT_APP_KEY }}
+          route-app-id: ${{ vars.GLAEDA_ROUTE_APP_ID }}
+          route-key: ${{ secrets.GLAEDA_ROUTE_APP_KEY }}
       - name: Open, update or close the red-journey issue
         if: always() && env.SELECTED == 'true' && (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch')
         env:
+          GH_SPARE_TOKENS: ${{ steps.spare.outputs.cmux-bot }} ${{ steps.spare.outputs.glaeda-route }}
+          GH_SPARE_WAIT_SECONDS: "600"  # after the journey, inside the job's 75 min
           GH_TOKEN: ${{ github.token }}
           GH_REPO: ${{ github.repository }}
           OUTCOME: ${{ steps.journey.outcome }}
@@ -312,6 +345,8 @@ jobs:
           MODEL: ${{ matrix.agent == 'claude' && format('{0} model', matrix.model) || format('{0}, {1} model', matrix.agent, matrix.model) }}
           RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
         run: |
+          # gh through gh-spare: spare tokens, then the reset, when GitHub refuses one for its rate limit.
+          gh() { if [ -x "$GITHUB_WORKSPACE/.incident-report/scripts/ci/gh-spare" ]; then "$GITHUB_WORKSPACE/.incident-report/scripts/ci/gh-spare" "$@"; else command gh "$@"; fi; }
           set -euo pipefail
           title="Cloud journey (production, $MODEL) is red"
           open="$(gh issue list --state open --search "\"$title\" in:title" --json number,title \
@@ -370,7 +405,7 @@ jobs:
   # (EMAIL_PASSWORD_MISMATCH), so the job stays out of it. It never targets the production API or checks out a PR head.
   preclaim:
     if: github.repository_owner == 'manaflow-ai' && github.event_name == 'workflow_dispatch' && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/feat-cmux-next') && inputs.preclaim
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'blacksmith-4vcpu-ubuntu-2404' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'cmux-gcp-secret-jit-x64' }}
     timeout-minutes: 60
     environment: cmux-next-vm-image-dev
     permissions:

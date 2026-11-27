@@ -1,6 +1,10 @@
 import CmuxTerminalSharing
 import CmuxTerminalSizing
+#if canImport(CoreGraphics)
 import CoreGraphics
+#else
+import Foundation
+#endif
 import Testing
 
 @Suite struct TerminalSizeBoundsGeometryTests {
