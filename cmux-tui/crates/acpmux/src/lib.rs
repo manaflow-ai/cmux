@@ -58,6 +58,7 @@ pub mod chat_place;
 pub mod chat_size_fixture;
 pub mod chatgpt;
 pub mod chats;
+pub mod ci_log_cache;
 pub mod claude_auth;
 mod claude_cloud_auth;
 pub mod claude_inbox_relay;
@@ -76,6 +77,8 @@ pub mod cloud_model_plane;
 pub mod cloud_readme;
 pub mod cloud_repo_mcp;
 pub mod cloud_rewind;
+/// The pinned cmux-rd a joined Linux machine installs, and its `linux-host enable` (`cmux_rd.rs`).
+pub mod cmux_rd;
 /// The cmux-tui remote daemon this machine serves to its other machines (`cmux_tui_service.rs`).
 #[cfg(feature = "hub-carrier")]
 pub mod cmux_tui_service;
@@ -132,6 +135,7 @@ pub mod github_budget;
 pub mod github_lane_mint;
 #[cfg(unix)]
 pub mod github_mcp;
+pub mod github_pool;
 pub mod github_rest_op;
 #[cfg(unix)]
 pub mod github_session_env;
@@ -189,6 +193,9 @@ pub mod hub;
 /// The live stream to one's own machines through the platform's relay (`hub_carrier.rs`).
 #[cfg(feature = "hub-carrier")]
 pub mod hub_carrier;
+/// The process that holds the far end of each held pipe past a daemon restart (`hub_carrier_pipe_host.rs`).
+#[cfg(all(unix, feature = "hub-carrier"))]
+pub mod hub_carrier_pipe_host;
 pub mod hunk_summary;
 pub mod idempotency;
 #[cfg(windows)]
@@ -199,6 +206,7 @@ pub mod terminal_autocompact;
 #[cfg(unix)]
 pub use joined_model_plane::install_github_source;
 pub mod chat_secrets;
+pub mod exit_record;
 /// Hot paths for the instruction-count bench (`benches/icount.rs`); not an API.
 #[doc(hidden)]
 pub mod icount;
@@ -276,6 +284,8 @@ pub mod peer;
 pub mod peer_kept_tokens;
 pub mod peer_last_good;
 pub mod peer_link;
+// How good a peer's link is (`quality` in `_acpmux/peers`), and RTT-scaled liveness waits.
+pub mod peer_link_quality;
 pub mod perf_trace;
 // One host-wide gate for peer links' dials, so many dropped links do not redial in one instant.
 pub mod peer_dial_gate;
@@ -398,6 +408,7 @@ pub(crate) mod slow_notice;
 // The scanner is `test_support`'s, a unix module; the scan reads the same sources anywhere.
 pub mod perf_watch;
 pub mod scorecard;
+pub mod scorecard_replay;
 #[cfg(all(test, unix))]
 mod single_shot_list_tests;
 #[cfg(test)]
@@ -454,6 +465,7 @@ pub mod turn_attestation;
 pub(crate) mod turn_errors;
 pub(crate) mod uniichat_endpoint;
 pub(crate) mod unread_records;
+pub mod update_inventory;
 pub mod usage_insights;
 pub mod usage_stats;
 pub mod user_settings;

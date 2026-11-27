@@ -20,9 +20,9 @@
 // mounted now (the view's window), never the whole chat.
 import { declareMove } from "../../../layout/motionContract";
 import {
+  MOTION_MS,
   MOTION_SETTLE,
   MOTION_SETTLE_MS,
-  MOTION_MS,
   MOTION_SPRING,
   MOTION_SPRING_STEP,
   MOTION_EASE_OUT,
@@ -33,10 +33,10 @@ import { EXIT_EASING, exitLeadMs } from "./exitLead";
 import { cssTimeMs, foldMs } from "./fold";
 import { ARRIVAL_FRAME_LINES } from "./followChase";
 import { boxOf, clippedBottom, clippedBottomOf, coverClip, ghostOf, type CoverPath, isLiveClockNode } from "./turnFold";
-import { LIVE_THINKING, WORKED, WORKING, NEXT_STEP } from "./turns";
+import { LIVE_THINKING, WORKED, NEXT_STEP, WORKING } from "./turns";
 import { isLineRow, type AcpmuxRow, type AcpmuxSnapshot } from "../model";
 import { experimentArm } from "../../../experiments/experiment";
-import { turnEndCrossLook, turnEndFoldLook, turnEndRecapLook, turnEndSubagentLook } from "./turnEndFoldLook.experiment";
+import { turnEndFoldLook, turnEndRecapLook, turnEndSubagentLook, turnEndCrossLook } from "./turnEndFoldLook.experiment";
 
 /// How the rows the fold takes away go. `fade` (shipped): each copy fades out where it was while the
 /// rows that stay slide over it. `tuck`: the copies slide up under the folded line as they fade, as
@@ -1706,17 +1706,20 @@ export function playTurnEnd(
       return before && !arrives(node, index) ? startTop(node, before.top) - tops[index]! : 0;
     });
     const progressAt = curveProgress(easing);
+    // Heights from the pass's reads (`heights`), never the rows' offsetHeight: this runs after the
+    // pass's first animation started, where each read forced a style pass (R2; cmux#48689 read
+    // 46,640 of them in one turn's end, turn-end-fold-restyle.browser.test.ts).
     const clearFraction = (index: number) => {
       if (!progressAt) return 1;
       const top = tops[index]!;
-      const bottom = top + nodes[index]!.offsetHeight;
+      const bottom = top + heights[index]!;
       let last = -1;
       for (let step = 0; step <= 200; step++) {
         const progress = progressAt(step / 200);
         const overlaps = nodes.some((other, k) => {
           if (k === index || drift[k] === 0 || arrives(other, k)) return false;
           const drawn = tops[k]! + drift[k]! * (1 - progress);
-          return Math.min(bottom, drawn + other.offsetHeight) - Math.max(top, drawn) > 0.5;
+          return Math.min(bottom, drawn + heights[k]!) - Math.max(top, drawn) > 0.5;
         });
         if (overlaps) last = step;
       }
