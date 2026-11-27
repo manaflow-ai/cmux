@@ -2207,6 +2207,20 @@
     },
     "CloudConversations": {
       "requests": {
+        "cloud-conversation-typing": {
+          "name": "CloudConversationTypingRequest",
+          "response": "EmptyResponse",
+          "order": [
+            "conversation",
+            "on"
+          ],
+          "doc": [
+            "`cloud-conversation-typing {conversation, on}` (`cloud-conversation-typing-v1`): the person is",
+            "typing (`on`) or stopped in a subscribed Cloud conversation. The daemon sends the owner's",
+            "ephemeral typing frame on the conversation's shared socket; nothing is stored. A conversation",
+            "no client subscribes is refused `not_subscribed`."
+          ]
+        },
         "cloud-selfhost-info": {
           "name": "CloudSelfHostInfoRequest",
           "response": "CloudSelfHostInfo",
