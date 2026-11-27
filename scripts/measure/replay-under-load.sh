@@ -8,7 +8,7 @@
 # pass, with the [his Mac's] reading as a second series."
 #
 #   scripts/measure/replay-under-load.sh [--out FILE] [--cores N] [--seconds 60] [--rate 40] [--log FILE] [--profile] [--trace FILE]
-#     [--painter react|dom-floor|worker|native]   (bench-only viewport painter A/B: webviews/bench/support/viewportPainter.ts; native = Experiments nativeTranscript)
+#     [--painter react|dom-floor|worker|native] [--history-rows N]   (bench-only viewport painter A/B: webviews/bench/support/viewportPainter.ts; native = Experiments nativeTranscript)
 #     [--load-qos default|utility|background]
 #
 # --load-qos runs the load (and only the load: never the app, Chromium or the bench) in a lower scheduling class, to
@@ -39,10 +39,10 @@ while [ $# -gt 0 ]; do
     --out) out="$2"; shift 2 ;;
     --cores) cores="$2"; shift 2 ;;
     --load-qos) load_qos="$2"; shift 2 ;;
-    --seconds|--rate|--log|--warm|--painter) bench_args+=("$1" "$2"); shift 2 ;;
+    --seconds|--rate|--log|--warm|--painter|--history-rows) bench_args+=("$1" "$2"); shift 2 ;;
     --trace) trace="$(realpath -m "$2")"; bench_args+=("$1" "$trace"); shift 2 ;;
     --profile) bench_args+=("$1"); profile=1; shift ;;
-    *) echo "usage: replay-under-load.sh [--out FILE] [--cores N] [--seconds 60] [--rate 40] [--log FILE] [--profile] [--trace FILE] [--painter ARM] [--load-qos CLASS]" >&2; exit 2 ;;
+    *) echo "usage: replay-under-load.sh [--out FILE] [--cores N] [--seconds 60] [--rate 40] [--log FILE] [--profile] [--trace FILE] [--painter ARM] [--history-rows N] [--load-qos CLASS]" >&2; exit 2 ;;
   esac
 done
 case "$load_qos" in
