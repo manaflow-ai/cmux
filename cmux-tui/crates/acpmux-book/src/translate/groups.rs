@@ -55,13 +55,13 @@ pub(crate) enum Group {
     /// Calls to one MCP tool.
     Mcp(Vec<usize>),
     /// Two or more adjacent sub-session starts.
-    SubsessionGroup(Vec<usize>),
+    Subsessions(Vec<usize>),
     /// A card, or a lone sub-session start.
     Card(usize),
     /// One sent message; a call that sent several is one of these per message.
     Sent(usize),
     /// Two or more sent messages in a row: the calls, each once.
-    SentGroup(Vec<usize>),
+    SentRun(Vec<usize>),
 }
 
 impl Group {
@@ -70,8 +70,8 @@ impl Group {
         match self {
             Group::Run { items, .. }
             | Group::Mcp(items)
-            | Group::SubsessionGroup(items)
-            | Group::SentGroup(items) => items,
+            | Group::Subsessions(items)
+            | Group::SentRun(items) => items,
             Group::Item(at) | Group::Card(at) | Group::Sent(at) => std::slice::from_ref(at),
         }
     }
@@ -115,7 +115,7 @@ impl Grouper {
         match self.starts.len() {
             0 => {}
             1 => self.groups.push(Group::Card(self.starts[0])),
-            _ => self.groups.push(Group::SubsessionGroup(std::mem::take(&mut self.starts))),
+            _ => self.groups.push(Group::Subsessions(std::mem::take(&mut self.starts))),
         }
         self.starts.clear();
         if let Some((_, items)) = self.mcp.take() {
@@ -215,14 +215,14 @@ pub(crate) fn display_groups(classes: &[Class]) -> Vec<Group> {
     with_sent_groups(g.groups)
 }
 
-/// `groups` with each run of two or more sent messages as one [`Group::SentGroup`].
+/// `groups` with each run of two or more sent messages as one [`Group::SentRun`].
 fn with_sent_groups(groups: Vec<Group>) -> Vec<Group> {
     let mut out = Vec::with_capacity(groups.len());
     let mut sent: Vec<usize> = Vec::new();
     let mut count = 0usize;
     let flush = |out: &mut Vec<Group>, sent: &mut Vec<usize>, count: &mut usize| {
         if *count >= 2 {
-            out.push(Group::SentGroup(std::mem::take(sent)));
+            out.push(Group::SentRun(std::mem::take(sent)));
         } else if let Some(&at) = sent.first() {
             out.push(Group::Sent(at));
         }

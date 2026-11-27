@@ -42,10 +42,10 @@ fn drawn(group: &Group, ids: &[&str]) -> Vec<String> {
         Group::Run { kind, .. } => format!("run:{}", format!("{kind:?}").to_lowercase()),
         Group::Item(_) => "item".into(),
         Group::Mcp(_) => "mcp".into(),
-        Group::SubsessionGroup(_) => "subsessionGroup".into(),
+        Group::Subsessions(_) => "subsessionGroup".into(),
         Group::Card(_) => "card".into(),
         Group::Sent(_) => "sent".into(),
-        Group::SentGroup(_) => "sentGroup".into(),
+        Group::SentRun(_) => "sentGroup".into(),
     };
     std::iter::once(kind).chain(group.items().iter().map(|&at| ids[at].to_owned())).collect()
 }
@@ -74,7 +74,7 @@ fn the_shared_display_group_cases_are_the_daemons_rule() {
 #[test]
 fn a_call_that_sent_a_batch_is_a_sent_group_of_one_call() {
     let groups = display_groups(&[Class::Sent { parts: 3 }, Class::Plain]);
-    assert_eq!(groups, vec![Group::SentGroup(vec![0]), Group::Item(1)]);
+    assert_eq!(groups, vec![Group::SentRun(vec![0]), Group::Item(1)]);
 }
 
 #[test]
