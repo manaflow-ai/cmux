@@ -5,7 +5,7 @@
 // through. The terminal theme is a light/dark pair, so each appearance gets its own tones.
 {
   "name": "Gel",
-  "description": "Sea-glass tonal surfaces, light and dark, with glass where layers float and no hairlines.",
+  "description": "Soft sea-green glass.",
 
   // One theme per appearance; each one's colors are appearance.themeEdits of that theme.
   "appearance.theme": "light:Builtin Light,dark:Builtin Dark",

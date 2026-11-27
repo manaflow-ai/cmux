@@ -1,7 +1,7 @@
 {
   "cmuxProfile": 1,
   "name": "ide",
-  "description": "An editor's shape: vertical tabs beside the panes, every new terminal a split, links and files beside the code, projects grouped by folder, an Explorer section for the workspace you are in, and chats that show their tool output.",
+  "description": "Shaped like a code editor.",
   "created_ms": 0,
   "settings": {
     "tabs.verticalTabs": true,

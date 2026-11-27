@@ -4,7 +4,15 @@
 // CLI does: an install goes on top, `order` takes every id top first, remove takes it out.
 import type { Look, LookConsentCard, LookLayer, LookPreview, LooksGallery, LooksRun } from "./ops";
 
-type Seed = { id: string; name: string; tagline: string; repo: string; tags: string[]; colors: Palette };
+type Seed = {
+  id: string;
+  name: string;
+  tagline: string;
+  traits: string[];
+  repo: string;
+  tags: string[];
+  colors: Palette;
+};
 type Palette = { dark: [string, string, string, string]; light: [string, string, string, string] };
 
 /** The reviewed catalog's looks (cmux-customize `setup/looks.json`), with the colors their mock
@@ -13,7 +21,8 @@ const SEEDS: Seed[] = [
   {
     id: "manaflow-ai/studio-look",
     name: "Studio",
-    tagline: "Quiet dark chat with a warm accent and roomy turns.",
+    tagline: "Near-black and compact, for chats.",
+    traits: ["Dark", "Compact"],
     repo: "github.com/manaflow-ai/cmux-studio-look",
     tags: ["chat", "dark"],
     colors: { dark: ["#16161a", "#1f1f25", "#2a2a33", "#f0a35e"], light: ["#f6f4f0", "#ece8e1", "#ffffff", "#c8743a"] },
@@ -21,7 +30,8 @@ const SEEDS: Seed[] = [
   {
     id: "manaflow-ai/paper-look",
     name: "Paper",
-    tagline: "Ink on paper: serif turns, no chrome you don't need.",
+    tagline: "Warm, roomy, serif replies.",
+    traits: ["Light", "Roomy"],
     repo: "github.com/manaflow-ai/cmux-paper-look",
     tags: ["chat", "light"],
     colors: { dark: ["#1c1b19", "#252421", "#2f2d29", "#d9cdb4"], light: ["#fbf8f1", "#f1ece0", "#ffffff", "#3a352c"] },
@@ -29,7 +39,8 @@ const SEEDS: Seed[] = [
   {
     id: "manaflow-ai/newtab-cards-look",
     name: "New Tab Cards",
-    tagline: "The new tab as a board of recent chats and projects.",
+    tagline: "New Tab with recent chats as cards.",
+    traits: ["New Tab", "Cards"],
     repo: "github.com/manaflow-ai/cmux-newtab-cards-look",
     tags: ["new tab"],
     colors: { dark: ["#111418", "#1a1f26", "#232a33", "#d98ad9"], light: ["#f3f6fa", "#e6ecf3", "#ffffff", "#a0479f"] },
@@ -37,12 +48,55 @@ const SEEDS: Seed[] = [
   {
     id: "manaflow-ai/newtab-threads-look",
     name: "New Tab Threads",
-    tagline: "The new tab as one list of threads, newest first.",
+    tagline: "New Tab with every chat listed.",
+    traits: ["New Tab", "List"],
     repo: "github.com/manaflow-ai/cmux-newtab-threads-look",
     tags: ["new tab"],
     colors: { dark: ["#131313", "#1b1b1b", "#262626", "#8bd17c"], light: ["#f7f7f7", "#ededed", "#ffffff", "#3f8f33"] },
   },
 ];
+
+/** The gallery's four looks as `setup/looks.json` lists them (Leo, 2026-11-27: "well i thought we
+ * wanted to have the chatgpt/codex ones as our options", "we need to have the t3 code one", "we need
+ * to have at least SOMETHING you root for"), with their themes' colors. */
+const SHIPPED: Seed[] = [
+  {
+    id: "manaflow-ai/codex-profile",
+    name: "Codex",
+    tagline: "Like the Codex app.",
+    traits: ["Light", "Round corners"],
+    repo: "github.com/manaflow-ai/cmux/examples/looks/codex/profile@feat-cmux-next",
+    tags: ["chat", "sidebar", "new-tab"],
+    colors: { dark: ["#ffffff", "#f9f9f9", "#ececec", "#777777"], light: ["#ffffff", "#f9f9f9", "#ececec", "#777777"] },
+  },
+  {
+    id: "manaflow-ai/claude-code-profile",
+    name: "Claude Code",
+    tagline: "Like Claude Code.",
+    traits: ["Dark", "Warm"],
+    repo: "github.com/manaflow-ai/cmux/examples/looks/claude-code/profile@feat-cmux-next",
+    tags: ["chat", "sidebar", "new-tab"],
+    colors: { dark: ["#191919", "#282524", "#302d2b", "#d97757"], light: ["#191919", "#282524", "#302d2b", "#d97757"] },
+  },
+  {
+    id: "manaflow-ai/t3code-profile",
+    name: "T3 Code",
+    tagline: "Like T3 Code.",
+    traits: ["Black", "Compact"],
+    repo: "github.com/manaflow-ai/cmux/examples/looks/t3code/profile@feat-cmux-next",
+    tags: ["chat", "dark", "sidebar"],
+    colors: { dark: ["#000000", "#0a0a0a", "#1a1a1a", "#c4b5fd"], light: ["#000000", "#0a0a0a", "#1a1a1a", "#c4b5fd"] },
+  },
+  SEEDS[1]!,
+];
+
+/** The gallery as the shipped catalog answers it, nothing installed. */
+export function mockShippedLooks(): LooksGallery {
+  return {
+    looks: SHIPPED.map(({ colors: _colors, ...seed }): Look => ({ ...seed, installed: null })),
+    stack: [],
+  };
+}
 
 const COMMITS: Record<string, string> = {
   "manaflow-ai/studio-look": "4c1d7e09a2b35f6e8d90c1a2b3c4d5e6f7a8b9c0",
@@ -51,7 +105,7 @@ const COMMITS: Record<string, string> = {
   "manaflow-ai/newtab-threads-look": "b5d7f9a1c3e5b7d9f1a3c5e7b9d1f3a5c7e9b1d3",
 };
 
-const seedOf = (id: string) => SEEDS.find((seed) => seed.id === id);
+const seedOf = (id: string) => [...SEEDS, ...SHIPPED].find((seed) => seed.id === id);
 
 /** A mock golden sample: a small chat window in the look's colors (an SVG, so no binary fixture). */
 export function mockPreviewUrl(id: string, scheme: "light" | "dark"): string {

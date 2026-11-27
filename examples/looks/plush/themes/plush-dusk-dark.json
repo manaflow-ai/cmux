@@ -7,7 +7,7 @@
 // until you pick it.
 {
   "name": "Plush Dusk Dark",
-  "description": "Dark: one soft lavender surface, soft raised panes on even gaps, no borders, no glass, one saturated accent.",
+  "description": "Dark lavender, raised panels.",
   "appearance.theme": "Builtin Dark",
   "appearance.appTheme": "followTerminal",
   "colors": {

@@ -5,7 +5,7 @@
 // Every value was sampled or measured from the pixels of the references in the README.
 {
   "name": "Linen",
-  "description": "A soft consumer chat: white page, #fcfcfc history sidebar, gray prompt pills, a black Send.",
+  "description": "White chat, black button.",
 
   "appearance.theme": "Builtin Light",
   // The window, sidebar and pages take this file's colors, over an App Theme of your own.

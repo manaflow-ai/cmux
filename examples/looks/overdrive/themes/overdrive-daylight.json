@@ -2,7 +2,7 @@
 // as text on white, a deep cyan for work in progress, the same floating round panes.
 {
   "name": "Overdrive Daylight",
-  "description": "Cool white, deep magenta and cyan, floating round panes, fast motion.",
+  "description": "White with magenta and cyan.",
 
   "appearance.theme": "Builtin Light",
   "appearance.appTheme": "followTerminal",

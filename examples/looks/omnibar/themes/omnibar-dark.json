@@ -4,7 +4,7 @@
 // The colours are Hush's (graphite), flattened to one tone. Its twin is Omnibar (Light).
 {
   "name": "Omnibar Dark",
-  "description": "Dark: one chrome colour, a neutral highlight on the selected tab, hairline dividers, 8 pt root corner.",
+  "description": "Dark, one solid color.",
 
   "appearance.theme": "Builtin Dark",
   "appearance.appTheme": "followTerminal",

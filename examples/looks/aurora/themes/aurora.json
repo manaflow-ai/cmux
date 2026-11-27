@@ -5,7 +5,7 @@
 // `appearance.themeEdits` gives each its own colors, so the look follows the Mac's appearance.
 {
   "name": "Aurora",
-  "description": "Clear glass chrome over your desktop, snow and polar-night colors, a teal-to-violet accent.",
+  "description": "Clear glass with a teal glow.",
 
   // Light and dark: one terminal theme for each, with Aurora's own colors.
   "appearance.theme": "light:Builtin Light,dark:Builtin Dark",

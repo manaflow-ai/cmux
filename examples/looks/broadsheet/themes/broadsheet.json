@@ -5,7 +5,7 @@
 // pull. Color is kept for two things: links and focus (a blue-black ink, 7.7:1) and status.
 {
   "name": "Broadsheet",
-  "description": "A reading instrument, Light: paper and ink, a margin-toned sidebar, hairline rules, blue-black links.",
+  "description": "Paper and ink, easy reading.",
 
   // The terminal follows the page; the window, sidebar and pages take this theme.
   "appearance.theme": "Builtin Light",

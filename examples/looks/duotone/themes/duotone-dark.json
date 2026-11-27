@@ -4,7 +4,7 @@
 // one for light ink.
 {
   "name": "Duotone Dark",
-  "description": "Two tones of one gray, Dark: the work #202020, the chrome #191919, one lightness step apart; the selected row is neutral.",
+  "description": "Two dark grays, no color.",
 
   "appearance.theme": "Builtin Dark",
   "appearance.appTheme": "followTerminal",

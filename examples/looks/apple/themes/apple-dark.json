@@ -5,7 +5,7 @@
 // Colors terminal theme, and spring motion at the standard speed.
 {
   "name": "Apple Dark",
-  "description": "macOS Tahoe, Dark: a vibrant source-list sidebar, a #1E1E1E content card, systemBlue.",
+  "description": "Dark Mac style, blue accent.",
 
   // The terminal theme Apple ships with Terminal.app, and the window, sidebar and pages follow it.
   "appearance.theme": "Apple System Colors",

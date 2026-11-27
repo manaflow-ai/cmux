@@ -2,7 +2,7 @@
 // warm near-black ink (#2b2722) and a terracotta accent (#b0532f) for focus and links.
 {
   "name": "Hearth",
-  "description": "Warm cream paper, warm ink, a deeper cream sidebar and a terracotta accent.",
+  "description": "Warm cream, terracotta accent.",
 
   "appearance.theme": "Builtin Light",
   // The window, sidebar and pages take that theme too, over an App Theme of your own.

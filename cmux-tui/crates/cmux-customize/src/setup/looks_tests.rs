@@ -35,29 +35,32 @@ fn repo(text: &str) -> SetupSource {
 fn the_compiled_catalog_reads_and_lists_the_looks() {
     let catalog = catalog().unwrap();
     let ids: Vec<&str> = catalog.looks.iter().map(|look| look.id.as_str()).collect();
-    let packs = [
-        "tachyon", "kerf", "prism", "hush", "basalt", "linen", "docket", "ember", "folio", "tandem",
-    ];
-    let mut want = vec![
-        "manaflow-ai/studio-look".to_owned(),
-        "manaflow-ai/paper-look".to_owned(),
-        "manaflow-ai/newtab-cards-look".to_owned(),
-        "manaflow-ai/newtab-threads-look".to_owned(),
-    ];
-    want.extend(packs.iter().map(|pack| format!("manaflow-ai/{pack}-look")));
+    // Leo, 2026-11-27: "well i thought we wanted to have the chatgpt/codex
+    // ones as our options", "we need to have the t3 code one which is indeed
+    // \"studio\"" and "we need to have at least SOMETHING you root for". The
+    // other looks stay installable by name; the gallery lists these four.
+    let profiles = ["codex", "claude-code", "t3code"];
+    let mut want: Vec<String> =
+        profiles.iter().map(|app| format!("manaflow-ai/{app}-profile")).collect();
+    want.push("manaflow-ai/paper-look".to_owned());
     assert_eq!(ids, want);
     assert!(catalog.looks.iter().all(|look| !look.tagline.is_empty()));
-    assert_eq!(catalog.looks[0].repo, "github.com/manaflow-ai/cmux-studio-look");
-    // The look packs are folders of cmux itself, on the branch that carries
-    // them, each pictured by its own screenshots.
-    for (look, pack) in catalog.looks[4..].iter().zip(packs) {
+    // Leo, 2026-11-27: "im not a fan of the descriptions on our themes and
+    // whatnot". A tagline is one short plain phrase; the traits are the
+    // tag line's two or three words.
+    for look in &catalog.looks {
+        assert!(super::plain_phrase(&look.tagline), "{}: {:?}", look.id, look.tagline);
+        assert!((2..=3).contains(&look.traits.len()), "{}: traits {:?}", look.id, look.traits);
+    }
+    assert_eq!(catalog.looks[3].repo, "github.com/manaflow-ai/cmux-paper-look");
+    // The app looks are folders of cmux itself, on the branch that carries them.
+    for (look, app) in catalog.looks.iter().zip(profiles) {
         let reference = look.reference().unwrap();
-        assert_eq!(reference.key(), format!("github.com/manaflow-ai/cmux/examples/looks/{pack}"));
-        assert_eq!(reference.git_ref.as_deref(), Some("feat-cmux-next"));
         assert_eq!(
-            look.previews.dark.as_deref(),
-            Some(format!("screenshots/{pack}-dark.png").as_str())
+            reference.key(),
+            format!("github.com/manaflow-ai/cmux/examples/looks/{app}/profile")
         );
+        assert_eq!(reference.git_ref.as_deref(), Some("feat-cmux-next"));
     }
 }
 
@@ -124,7 +127,7 @@ fn an_empty_machine_lists_every_look_not_installed_and_no_stack() {
     assert!(gallery.stack.is_empty());
     let value = serde_json::to_value(&gallery).unwrap();
     assert_eq!(value["looks"][0]["installed"], json!(null));
-    assert_eq!(value["looks"][0]["id"], "manaflow-ai/studio-look");
+    assert_eq!(value["looks"][0]["id"], "manaflow-ai/codex-profile");
     assert_eq!(value["looks"][0]["tags"][0], "chat");
     assert_eq!(value["stack"], json!([]));
 }
@@ -132,14 +135,18 @@ fn an_empty_machine_lists_every_look_not_installed_and_no_stack() {
 #[test]
 fn the_gallery_merges_the_receipts_in_order_with_off_and_other_setups() {
     let catalog = catalog().unwrap();
-    // Top first: someone's own setup, Paper (off), Studio installed from its repo
-    // under another id is still Studio.
+    // Top first: someone's own setup, Paper (off), Codex installed from its repo
+    // under another id is still Codex.
     let receipts = [
         receipt("leo/night", repo("github.com/leo/cmux-night"), true),
         receipt("manaflow-ai/paper-look", repo("github.com/manaflow-ai/cmux-paper-look"), false),
-        receipt("leo/studio-dev", repo("github.com/manaflow-ai/cmux-studio-look@main"), true),
         receipt(
-            "manaflow-ai/newtab-cards-look",
+            "leo/codex-dev",
+            repo("github.com/manaflow-ai/cmux/examples/looks/codex/profile@main"),
+            true,
+        ),
+        receipt(
+            "manaflow-ai/claude-code-profile",
             SetupSource::Folder { path: PathBuf::from("/tmp/cards") },
             true,
         ),
@@ -155,8 +162,8 @@ fn the_gallery_merges_the_receipts_in_order_with_off_and_other_setups() {
         [
             ("leo/night", 1, true, false),
             ("manaflow-ai/paper-look", 2, false, true),
-            ("leo/studio-dev", 3, true, true),
-            ("manaflow-ai/newtab-cards-look", 4, true, true),
+            ("leo/codex-dev", 3, true, true),
+            ("manaflow-ai/claude-code-profile", 4, true, true),
         ]
     );
     assert_eq!(gallery.stack[1].source, "github.com/manaflow-ai/cmux-paper-look");
@@ -165,12 +172,12 @@ fn the_gallery_merges_the_receipts_in_order_with_off_and_other_setups() {
         |id: &str| gallery.looks.iter().find(|look| look.look.id == id).unwrap().installed.clone();
     // A catalog look's row is the same object as its stack row.
     assert_eq!(installed("manaflow-ai/paper-look").as_ref(), Some(&gallery.stack[1]));
-    assert_eq!(installed("manaflow-ai/studio-look").as_ref(), Some(&gallery.stack[2]));
-    assert_eq!(installed("manaflow-ai/newtab-cards-look").as_ref(), Some(&gallery.stack[3]));
-    assert_eq!(installed("manaflow-ai/newtab-threads-look"), None);
+    assert_eq!(installed("manaflow-ai/codex-profile").as_ref(), Some(&gallery.stack[2]));
+    assert_eq!(installed("manaflow-ai/claude-code-profile").as_ref(), Some(&gallery.stack[3]));
+    assert_eq!(installed("manaflow-ai/t3code-profile"), None);
     let value = serde_json::to_value(&gallery).unwrap();
-    assert_eq!(value["looks"][1]["installed"]["on"], json!(false));
-    assert_eq!(value["looks"][1]["installed"]["position"], json!(2));
+    assert_eq!(value["looks"][3]["installed"]["on"], json!(false));
+    assert_eq!(value["looks"][3]["installed"]["position"], json!(2));
 }
 
 #[test]
@@ -190,16 +197,17 @@ fn a_preview_resolves_through_the_receipts_then_the_catalog_then_any_repo() {
     let folder = resolve_preview(&catalog, &receipts, "leo/try").unwrap();
     assert_eq!(folder.source, PreviewSource::Folder { path: PathBuf::from("/tmp/try") });
     // Listed only: its default branch.
-    for which in ["manaflow-ai/studio-look", "github.com/manaflow-ai/cmux-studio-look"] {
-        let target = resolve_preview(&catalog, &receipts, which).unwrap();
-        assert_eq!(target.id, "manaflow-ai/studio-look");
+    for which in ["manaflow-ai/paper-look", "github.com/manaflow-ai/cmux-paper-look"] {
+        let target = resolve_preview(&catalog, &[], which).unwrap();
+        assert_eq!(target.id, "manaflow-ai/paper-look");
         assert!(matches!(target.source, PreviewSource::Repo { git_ref: None, .. }));
     }
     // Listed at a branch: that branch, and the reference itself names none.
-    for which in ["manaflow-ai/tachyon-look", "github.com/manaflow-ai/cmux/examples/looks/tachyon"]
+    for which in
+        ["manaflow-ai/codex-profile", "github.com/manaflow-ai/cmux/examples/looks/codex/profile"]
     {
         let target = resolve_preview(&catalog, &receipts, which).unwrap();
-        assert_eq!(target.id, "manaflow-ai/tachyon-look");
+        assert_eq!(target.id, "manaflow-ai/codex-profile");
         let PreviewSource::Repo { reference, git_ref } = target.source else { panic!() };
         assert_eq!((reference.git_ref, git_ref.as_deref()), (None, Some("feat-cmux-next")));
     }
@@ -248,7 +256,15 @@ fn preview_files_urls_and_cache_paths() {
 
 #[test]
 fn a_look_s_own_pictures_are_tried_before_the_golden_sample() {
-    let catalog = catalog().unwrap();
+    let catalog = parse_catalog(
+        &json!({"cmuxLooks": 1, "looks": [
+            {"id": "manaflow-ai/newtab-cards-look", "name": "Cards", "repo": "github.com/manaflow-ai/cmux-newtab-cards-look",
+             "previews": {"light": "screenshots/after-few-light.png", "dark": "screenshots/after-few-dark.png"}},
+            {"id": "manaflow-ai/studio-look", "name": "Studio", "repo": "github.com/manaflow-ai/cmux-studio-look"},
+        ]})
+        .to_string(),
+    )
+    .unwrap();
     assert_eq!(
         look_preview_files(&catalog, "manaflow-ai/newtab-cards-look", Scheme::Light),
         [
@@ -269,6 +285,6 @@ fn a_look_s_own_pictures_are_tried_before_the_golden_sample() {
         preview_files(Scheme::Dark)
     );
     // The catalog's own pictures are not written into the gallery's answer.
-    let value = serde_json::to_value(gallery(&catalog, &[])).unwrap();
+    let value = serde_json::to_value(gallery(&super::catalog().unwrap(), &[])).unwrap();
     assert!(value["looks"][0].get("previews").is_none());
 }

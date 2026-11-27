@@ -2,7 +2,7 @@
 // wallpaper, chrome that is that glass, the work on a calm near-solid plane.
 {
   "name": "Lumen Light",
-  "description": "Light: neutral window glass over your wallpaper, a calm 0.96 content plane, one deep blue.",
+  "description": "Light glass, deep blue accent.",
 
   "appearance.theme": "Builtin Light",
   "appearance.appTheme": "followTerminal",
