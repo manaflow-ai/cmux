@@ -66,7 +66,7 @@ function Footer({
           className="ui-button ui-btn"
           data-variant="subtle"
           data-size="md"
-          onClick={() => store.call(OPS.skip)}
+          onClick={() => store.call(OPS.skip, walk != null ? { screen: walk.screen } : {})}
         >
           <StableLabel label={skipLabel(strings, footer.skip)} alternatives={skipLabels(strings, step)} />
         </DialogButton>
@@ -77,7 +77,9 @@ function Footer({
           data-size="md"
           data-primary={footer.primary}
           disabled={!footer.primaryEnabled}
-          onClick={() => (walkNext ? walk.go(walk.screen + 1) : store.call(OPS.next))}
+          onClick={() =>
+            walkNext ? walk.go(walk.screen + 1) : store.call(OPS.next, walk != null ? { screen: walk.screen } : {})
+          }
         >
           <StableLabel label={primaryLabel(strings, footer.primary)} alternatives={primaryLabels(strings, step)} />
         </DialogButton>
@@ -237,7 +239,9 @@ export function OnboardingPage({
         setScreen(screenRef.current + 1);
         return;
       }
-      store.call(intent === "skip" ? OPS.skip : OPS.next);
+      // The walk's screen goes with its end, for the walk's record (IntroWalkSplit).
+      const params = current.step === "makeItYours" ? { screen: screenRef.current } : {};
+      store.call(intent === "skip" ? OPS.skip : OPS.next, params);
     };
     window.addEventListener("keydown", press);
     return () => window.removeEventListener("keydown", press);
