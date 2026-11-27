@@ -38,14 +38,14 @@ pub fn row_unreachable(row: &Value, now: u64) -> Option<String> {
     {
         let ago = now.saturating_sub(failed) / 1000;
         return Some(format!(
-            "unreachable: its last health read failed {ago}s ago (`acpmux machine status` asks it again)"
+            "unreachable: its last health read failed {ago}s ago (`acpmux machine pick` refreshes hub readings as they come due)"
         ));
     }
     let at = at?;
     let age = now.saturating_sub(at);
     (age > STALE_MS).then(|| {
         format!(
-            "unreachable: its last health reading is {} min old, past the {} min a live link keeps (`acpmux machine status` asks it again)",
+            "unreachable: its last health reading is {} min old, past the {} min a live link keeps (`acpmux machine pick` refreshes hub readings as they come due)",
             age / 60_000,
             STALE_MS / 60_000
         )
