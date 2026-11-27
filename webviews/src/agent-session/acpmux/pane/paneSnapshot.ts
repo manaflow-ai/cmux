@@ -5,6 +5,7 @@ import React from "react";
 import { restoreForkSource } from "../handoff/restoreForkSource";
 import type { QueryClient } from "@tanstack/react-query";
 import type { AcpmuxRow, AcpmuxSnapshot, QueueEdit } from "../model";
+import type { RowsStore } from "./rowsStore";
 import {
   AcpmuxDirectClient,
   type AcpmuxHostConfig,
@@ -68,9 +69,9 @@ import { frameTally } from "../conversation/frameTally";
 import { reconciledProject } from "../newtab/startHint";
 import { streamingRow, streamingRowBlocked } from "../streamingRow";
 import { liveToolOutput, sameButRows, toolOutputOnly } from "../liveToolOutput";
-import { liveThought, thoughtOnly } from "../liveThought";
+import { liveThought, thoughtMiss, thoughtOnly } from "../liveThought";
 import { changeHidden } from "../drawnRows";
-import { callOnly, liveCallLine, setLiveLine } from "../liveCallLine";
+import { callMiss, callOnly, callOnlyMiss, liveCallLine, setLiveLine } from "../liveCallLine";
 import { liveSummary, usageOnly } from "../liveSummary";
 import { pageLanes } from "../schedule/lanes";
 import type { ComposerHandle, ComposerWake } from "../Composer";
@@ -383,7 +384,7 @@ export type PaneSnapshotArgs = {
   }>;
   opensSideSessionsRef: React.RefObject<boolean>;
   promptLanded: React.RefObject<() => void>;
-  rowsRef: React.RefObject<readonly AcpmuxRow[]>;
+  rowsRef: RowsStore;
   drawnSnapshot: React.RefObject<AcpmuxSnapshot | undefined>;
   receivedSnapshot: React.RefObject<AcpmuxSnapshot | undefined>;
   toolOutputEpoch: React.RefObject<number>;
@@ -1408,7 +1409,7 @@ export function paneSnapshotEffect({
           // reads it (liveCallLine.ts); the pane, the transcript and the composer keep what they drew.
           const line =
             drawn && received && !streamingRowBlocked() && !pendingPaneDraw.pending
-              ? callOnly(received, next)
+              ? callOnly(received, next, rowsRef.readersFollow)
               : undefined;
           if (line) {
             setLiveLine(line.line);
@@ -1431,7 +1432,15 @@ export function paneSnapshotEffect({
             return;
           }
           if (hiddenChange) acpmuxPerf.render("pane:row-hidden");
-          if (acpmuxPerf.enabled && received) acpmuxPerf.render(`redraw:${redrawCause(received, next)}`);
+          if (acpmuxPerf.enabled && received) {
+            const cause = redrawCause(received, next);
+            acpmuxPerf.render(`redraw:${cause}`);
+            if (cause.includes("rows(+0,1:activity)")) {
+              const miss = `${callMiss(received, next)}|follow=${rowsRef.readersFollow}|${streamingRowBlocked() ? "blocked" : pendingPaneDraw.pending ? "pending" : callOnlyMiss()}`;
+              acpmuxPerf.render(`miss:${miss}`);
+              if (miss.includes("thought/")) acpmuxPerf.render(`thought:${thoughtMiss(received, next)}`);
+            }
+          }
           redrawPane(next, false);
         },
         () => {

@@ -203,3 +203,27 @@ test("a hidden call that leaves the line's look as it is tells the line nothing 
     stop();
   }
 });
+
+test("once the pane's readers follow the rows store, a hidden shell's start moves only the line; an edit still redraws", () => {
+  const first = snapshot([prompt, reply, work(1, [read("r1", "completed")])]);
+  paneDraws(first);
+  const shell = after(
+    first,
+    [prompt, reply, work(2, [read("r1", "completed"), read("s1", "in_progress", "execute")])],
+    2,
+  );
+  const start = callOnly(first, shell, true);
+  expect(start).toBeDefined();
+  expect(start!.line.doing).toBe(line(turnView(shell.rows as AcpmuxRow[], new Set(), options))!.doing);
+  paneDraws(first);
+  const edit = after(first, [prompt, reply, work(2, [read("r1", "completed"), read("e1", "in_progress", "edit")])], 2);
+  expect(callOnly(first, edit, true)).toBeUndefined();
+});
+
+test("with followed readers, a call the turn's open fold draws still redraws the pane", () => {
+  const expanded = new Set([`${WORKED}-${prompt.id}`]);
+  const first = snapshot([prompt, reply, work(1, [read("r1", "completed")])]);
+  paneDraws(first, expanded);
+  const ended = after(first, [prompt, reply, work(2, [read("r1", "completed"), read("r2", "completed")])], 2);
+  expect(callOnly(first, ended, true)).toBeUndefined();
+});

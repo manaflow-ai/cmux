@@ -275,7 +275,7 @@ import {
 } from "./startingSends";
 import { FILE_SEARCH_LIMIT, type FileSearchSource } from "./fileSearchModel";
 import { SummaryCard } from "./summary/SummaryCard";
-import { transcriptBackground } from "./summary/sessionSummary";
+import { transcriptBackground, type TranscriptBackground } from "./summary/sessionSummary";
 import { openSourceFile } from "./session-info/sourcesSectionModel";
 import { useSessionInfo } from "./session-info/useSessionInfo";
 import { toggleRemoteControl, useRemoteControl } from "./remoteControl";
@@ -748,7 +748,7 @@ import { newestTurnSummary, useFinishMoments } from "./finish/useFinishMoments";
 import { useDraftWaitOver } from "./draftSettleHold";
 import { focusRoute } from "../../ui/focusRoute";
 import { paneSnapshotEffect } from "./pane/paneSnapshot";
-import { createRowsStore, TranscriptRowsContext } from "./pane/rowsStore";
+import { createRowsStore, sameList, sameShallowList, TranscriptRowsContext, useRowsValue } from "./pane/rowsStore";
 export { VirtualTranscript } from "./VirtualTranscript";
 export type { ScrollAnchor } from "./VirtualTranscript";
 import "./pane/bridgeGlobals";
@@ -840,6 +840,13 @@ setSessionRefResolver((query) => callNative<unknown>("chat.session.resolve", { q
 const NO_STARTED: readonly StartedSession[] = [];
 const NO_SESSION_IDS: ReadonlySet<string> = new Set();
 const NO_EXPANDED: ReadonlySet<string> = new Set();
+const NO_CALLS: readonly string[] = [];
+/// The same background shells and wakeups (summary/sessionSummary.ts `transcriptBackground`), each
+/// task the same in every value: a call's record makes new task objects, and only a change in one
+/// draws the pane again.
+function sameTranscriptBackground(a: TranscriptBackground, b: TranscriptBackground): boolean {
+  return a.scheduled === b.scheduled && sameShallowList(a.tasks, b.tasks);
+}
 const NO_SPAWNED: readonly AcpmuxSessionEntry[] = [];
 const NO_SILENT: readonly SilentTurn[] = [];
 const NO_HAT_QUESTIONS: readonly HatQuestion[] = [];
@@ -1251,6 +1258,9 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
   /// What the direct client (or the host) last reported; `snapshot` draws a pending harness or
   /// model switch over it (harnessSwitch.ts).
   const [clientSnapshot, setSnapshot] = useState<AcpmuxSnapshot>(() => initialChat?.snapshot ?? cachedSnapshot());
+  // The rows as a store (pane/rowsStore.ts): every `rowsRef.current =` publishes to the transcript
+  // and to the pane's readers of the rows (`useRowsValue`), which follow a record the pane skips.
+  const [rowsRef] = useState(() => createRowsStore(initialChat?.snapshot.rows ?? []));
   const [harnessSwitch] = useState(() => new HarnessSwitch());
   const switchView = useSyncExternalStore(harnessSwitch.subscribe, harnessSwitch.view, harnessSwitch.view);
   const switchViewRef = useRef(switchView);
@@ -1582,7 +1592,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
   }, [artifact]);
   const liveArtifact = liveDocument?.artifact ?? artifact;
   // Render cards by id (cx-ncc.94): a render that names an earlier one's id shows in that card.
-  const pages = useMemo(() => renderPages(snapshot.rows), [snapshot.rows]);
+  const pages = useRowsValue(rowsRef, renderPages, Object.is, snapshot.rows, clientSnapshot.rows);
   const artifactVersionList = useMemo(() => {
     if (!artifact) return undefined;
     // A pinned preview from another chat must not use this chat's rows: two unrelated documents
@@ -2574,11 +2584,17 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
   ]);
   // The session's edit rows for the edited-files card, the same array while they are the same rows.
   const lastEditRows = useRef<SessionEdits | undefined>(undefined);
-  const editRows = useMemo(() => {
-    const edits = sessionEdits(snapshot.rows, lastEditRows.current);
-    lastEditRows.current = edits;
-    return edits.edits;
-  }, [snapshot.rows]);
+  const editRows = useRowsValue(
+    rowsRef,
+    useCallback((rows: readonly AcpmuxRow[]) => {
+      const edits = sessionEdits(rows, lastEditRows.current);
+      lastEditRows.current = edits;
+      return edits.edits;
+    }, []),
+    Object.is,
+    snapshot.rows,
+    clientSnapshot.rows,
+  );
   // The changes card names the branch under the Transcript Work Log (turnChanges/sessionRows.ts).
   useEffect(() => setSessionBranch(snapshot.summary?.branch), [snapshot.summary?.branch]);
   // Transcript Work Log (Settings > Advanced > Experiments): its recolors key off the root attribute
@@ -2588,11 +2604,17 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
   // The names this chat's start calls gave its sub-sessions, for a "Sent to" row whose chat left
   // the session list (conversation/startedNames.ts); the same map while no start was added.
   const lastStartedNames = useRef<StartedNames | undefined>(undefined);
-  const subsessionNames = useMemo(() => {
-    const started = startedNames(snapshot.rows, lastStartedNames.current);
-    lastStartedNames.current = started;
-    return started.names;
-  }, [snapshot.rows]);
+  const subsessionNames = useRowsValue(
+    rowsRef,
+    useCallback((rows: readonly AcpmuxRow[]) => {
+      const started = startedNames(rows, lastStartedNames.current);
+      lastStartedNames.current = started;
+      return started.names;
+    }, []),
+    Object.is,
+    snapshot.rows,
+    clientSnapshot.rows,
+  );
   // The same set while it holds the same calls: it is read by memoized parts (Session Info, the
   // summary card), and the rows it is read from are new on every snapshot the pane draws.
   const askedToolCalls = useSameValue(
@@ -3061,10 +3083,10 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
     return summary === cardSnapshot.summary ? cardSnapshot : { ...cardSnapshot, summary };
   }, [cardSnapshot, cloudMachineID]);
   const cloudRouteHostKind = cloudMachineID ? "cloud" : snapshot.summary?.hostKind;
-  const summaryHasContent = useMemo(
-    () => chatHasSummaryContent(cardRows) || chatSubsessions.rows.length > 0 || workflows.length > 0,
-    [cardRows, chatSubsessions, workflows],
-  );
+  // The card's content follows the newest rows too, so a record the pane skips (a call under the
+  // closed fold) that gives the card something to show draws the pane (paneSnapshot.ts `callOnly`).
+  const rowsHaveSummary = useRowsValue(rowsRef, chatHasSummaryContent, Object.is, cardRows, clientSnapshot.rows);
+  const summaryHasContent = rowsHaveSummary || chatSubsessions.rows.length > 0 || workflows.length > 0;
   const [shell, setShell] = useState<HTMLElement | null>(null);
   /// The chat's bottom stack (bottomStack.css): the transcript runs under it and keeps its end above it.
   const [dock, setDock] = useState<HTMLElement | null>(null);
@@ -3418,7 +3440,13 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
   // chat sends one `_acpmux/process/list` as it opens (so a command still running from an earlier
   // turn is in the hat before the next send) and none after, unless that read finds one running.
   // The same pass finds what Session Info's Background tasks lists (the palette's Show Background Tasks).
-  const transcriptWork = useMemo(() => transcriptBackground(snapshot.rows), [snapshot.rows]);
+  const transcriptWork = useRowsValue(
+    rowsRef,
+    transcriptBackground,
+    sameTranscriptBackground,
+    snapshot.rows,
+    clientSnapshot.rows,
+  );
   const transcriptTasks = transcriptWork.tasks;
   const transcriptRunning = useMemo(
     () => transcriptTasks.filter((task) => task.state === "running"),
@@ -4175,28 +4203,33 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
   // streaming rescans the live turn alone, and that reads only the texts that are new
   // (previewUrl.ts `turnPreviewUrl`).
   const previewTurns = useRef(new Map<string, { rows: readonly AcpmuxRow[]; url: string | undefined }>());
-  const previewUrl = useMemo(() => {
-    const rows = snapshot.rows;
-    const seen = new Map<string, { rows: readonly AcpmuxRow[]; url: string | undefined }>();
-    let found: string | undefined;
-    let end = rows.length;
-    for (let index = rows.length - 1, turns = 0; index >= 0 && turns < PREVIEW_TURNS && !found; index -= 1) {
-      const user = rows[index];
-      if (user.kind !== "user") continue;
-      const turn = rows.slice(index, end);
-      const cached = previewTurns.current.get(user.id);
-      const entry =
-        cached && cached.rows.length === turn.length && cached.rows.every((row, at) => row === turn[at])
-          ? cached
-          : { rows: turn, url: turnPreviewUrl(user, turn.slice(1)) };
-      seen.set(user.id, entry);
-      found = entry.url;
-      end = index;
-      turns += 1;
-    }
-    previewTurns.current = seen;
-    return found;
-  }, [snapshot.rows]);
+  const previewUrl = useRowsValue(
+    rowsRef,
+    useCallback((rows: readonly AcpmuxRow[]) => {
+      const seen = new Map<string, { rows: readonly AcpmuxRow[]; url: string | undefined }>();
+      let found: string | undefined;
+      let end = rows.length;
+      for (let index = rows.length - 1, turns = 0; index >= 0 && turns < PREVIEW_TURNS && !found; index -= 1) {
+        const user = rows[index];
+        if (user.kind !== "user") continue;
+        const turn = rows.slice(index, end);
+        const cached = previewTurns.current.get(user.id);
+        const entry =
+          cached && cached.rows.length === turn.length && cached.rows.every((row, at) => row === turn[at])
+            ? cached
+            : { rows: turn, url: turnPreviewUrl(user, turn.slice(1)) };
+        seen.set(user.id, entry);
+        found = entry.url;
+        end = index;
+        turns += 1;
+      }
+      previewTurns.current = seen;
+      return found;
+    }, []),
+    Object.is,
+    snapshot.rows,
+    clientSnapshot.rows,
+  );
   // The summary's Changes: the turn's diff, toggled; a file of it opens the diff at that file.
   const toggleLastChanges = (path?: string) => {
     const turn = cardEdit.turn;
@@ -5395,9 +5428,15 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
     },
     [trackBackground],
   );
-  const foreground = useMemo(
-    () => (canBackground && snapshot.isWorking ? foregroundCalls(snapshot.rows) : []),
-    [canBackground, snapshot.isWorking, snapshot.rows],
+  const foreground = useRowsValue(
+    rowsRef,
+    useCallback(
+      (rows: readonly AcpmuxRow[]) => (canBackground && snapshot.isWorking ? foregroundCalls(rows) : NO_CALLS),
+      [canBackground, snapshot.isWorking],
+    ),
+    sameList,
+    snapshot.rows,
+    clientSnapshot.rows,
   );
   foregroundNow.current = foreground;
   const [autoOpenSubagents, setAutoOpenSubagents] = useAutoOpenSubagents();
@@ -5885,6 +5924,13 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
     // A handoff review's form is wider than the transcript's column: the chat's shift is measured against it.
     wide: reviewing,
   });
+  // A record that changes only a command's or a thought's row may skip this render once each reader of
+  // those rows follows the rows store (pane/rowsStore.ts `readersFollow`): the pane draws the client's
+  // rows as they are, and Session Info, which reads every call while open, is closed.
+  const readersFollow = snapshot.rows === clientSnapshot.rows && !sessionInfo.shown;
+  useLayoutEffect(() => {
+    rowsRef.readersFollow = readersFollow;
+  }, [rowsRef, readersFollow]);
   // The summary card is the fallback surface while the Session Info feature is disabled in the
   // header state. Its open-in-pane row enables that same panel before revealing the requested list.
   const revealSessionInfo = sessionInfo.reveal;
@@ -6432,8 +6478,6 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
     cancelOpenInWindow();
     void callNative(QUICK_MESSAGES.dismiss).catch(() => undefined);
   });
-  // The rows as a store (pane/rowsStore.ts): every `rowsRef.current =` publishes to the transcript.
-  const [rowsRef] = useState(() => createRowsStore(initialChat?.snapshot.rows ?? []));
   /// The direct client's snapshot the pane last drew; a newer one that only grows the streaming
   /// reply's text goes to that row instead (streamingRow.ts).
   const drawnSnapshot = useRef<AcpmuxSnapshot | undefined>(undefined);

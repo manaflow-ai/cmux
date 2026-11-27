@@ -22,6 +22,7 @@ import { LIVE_THINKING, THINKING, liveTurnShapes, sameShape, type LiveTurnShape 
 import { oneRowChangeFrom } from "./rowChanges";
 import { sameButRows } from "./liveToolOutput";
 import { drewUnderClosedFold, hiddenUnderFold } from "./drawnRows";
+import { isThought } from "./conversation/thoughts";
 
 /// The line the transcript drew (`from`) and the line as the calls since have it (`to`).
 type Entry = { readonly from: AcpmuxRow; readonly to: AcpmuxRow; readonly seq: number };
@@ -187,52 +188,130 @@ function sameExcept(previous: object, next: object, except: ReadonlySet<string>)
   return count === 0;
 }
 
+/// Debug (replay bench RENDERS=1): the check the last `callOnly` failed on.
+let lastMiss = "";
+function missed(at: string): undefined {
+  lastMiss = at;
+  return undefined;
+}
+export const callOnlyMiss = (): string => lastMiss;
+const closedNow = (): boolean => drewUnderClosedFold();
+
 /// A call whose start or end draws only on the live line.
 function quietCall(item: AcpmuxActivity | undefined): boolean {
   const tool = item?.tool;
   return tool !== undefined && tool.kind !== undefined && QUIET_KINDS.has(tool.kind) && tool.background === undefined;
 }
 
+/// Calls the pane reads only through readers that follow the rows store (pane/rowsStore.ts
+/// `useRowsValue`: Run in background, background shells, the Summary card's content): a command or
+/// a think call, never an edit (the header's Changes), a subagent or a call with diffs.
+const FOLLOWED_KINDS = new Set([...QUIET_KINDS, "execute", "think"]);
+
+/// An item whose change the transcript draws as the reshaped turn says and the pane's readers follow
+/// on their own: a followed call, or a thought (it draws in the run only once it is not quiet, and the
+/// reshape below tells when it would).
+function followedItem(item: AcpmuxActivity | undefined): boolean {
+  if (!item) return true;
+  const tool = item.tool;
+  if (!tool) return isThought(item);
+  return tool.kind !== undefined && FOLLOWED_KINDS.has(tool.kind) && !tool.diffs?.length;
+}
+
+function sameItem(from: AcpmuxActivity | undefined, to: AcpmuxActivity): boolean {
+  if (!from) return true;
+  if (from.tool || to.tool) return from.tool?.id === to.tool?.id;
+  return from.kind === to.kind;
+}
+
 /// The running turn's line after the client's newest snapshot `next`, when it differs from the one
 /// before it (`previous`) only in one hidden activity row's quiet calls (one more, or one moved on)
 /// and the turn shaped again draws every other row the same, else undefined.
-export function callOnly(previous: AcpmuxSnapshot, next: AcpmuxSnapshot): { line: AcpmuxRow } | undefined {
-  if (!drawn || drawn.basis !== previous) return undefined;
+///
+/// `followed` (pane/rowsStore.ts `readersFollow`): every pane reader of a command's or thought's row
+/// follows the rows store, so the row need not be hidden and its change may be a command, a think
+/// call or a thought too; the reshape still says the transcript draws every other row the same. Before,
+/// each such record redrew the whole pane: 516 of 1,124 pane renders a replay window under load (bench
+/// replay-under-load RENDERS=1, `redraw:rows(+0,1:activity)`, most a thought still quiet or a running
+/// command the run leaves to the live line; goal renderer-main-busy).
+export function callOnly(
+  previous: AcpmuxSnapshot,
+  next: AcpmuxSnapshot,
+  followed = false,
+): { line: AcpmuxRow } | undefined {
+  if (!drawn) return missed(`nodrawn(${closedNow() ? "closed" : "open"})`);
+  if (drawn.basis !== previous) return missed("basis");
   const index = oneRowChangeFrom(next.rows, previous.rows);
-  if (index === undefined || !sameButRows(previous, next)) return undefined;
+  if (index === undefined || !sameButRows(previous, next)) return missed("notrows");
   const was = previous.rows[index];
   const now = next.rows[index];
-  if (!was || !now || was.id !== now.id || now.kind !== "activity" || was.kind !== "activity") return undefined;
-  if (!hiddenUnderFold(next.rows, index) || !sameExcept(was, now, ROW_KEYS)) return undefined;
+  if (!was || !now || was.id !== now.id || now.kind !== "activity" || was.kind !== "activity") return missed("notact");
+  if ((!followed && !hiddenUnderFold(next.rows, index)) || !sameExcept(was, now, ROW_KEYS))
+    return missed("hidden/keys");
   const before = was.items ?? [];
   const after = now.items ?? [];
-  if (after.length < before.length || after.length > before.length + 1) return undefined;
+  if (after.length < before.length || after.length > before.length + 1) return missed("len");
   let changed = 0;
   for (let at = 0; at < after.length; at += 1) {
     const from = before[at];
     const to = after[at]!;
     if (from === to) continue;
     changed += 1;
-    if (!quietCall(to) || (from && (!quietCall(from) || from.tool!.id !== to.tool!.id))) return undefined;
+    if (followed) {
+      if (!followedItem(to) || !followedItem(from) || !sameItem(from, to)) return missed("kind");
+    } else if (!quietCall(to) || (from && (!quietCall(from) || from.tool!.id !== to.tool!.id))) return missed("quiet");
   }
-  if (changed === 0) return undefined;
+  if (changed === 0) return missed("none");
   const { shape } = drawn;
   const at = shape.turn.lastIndexOf(was);
-  if (at < 0) return undefined;
+  if (at < 0) return missed("notinturn");
   const turn = shape.turn.slice();
   turn[at] = now;
   const shaped = liveTurnShapes.reshape(shape, turn);
   const old = drawn.moved ? liveTurnShapes.reshape(shape, shape.turn) : shape.shaped;
-  if (shaped.length !== old.length) return undefined;
+  if (shaped.length !== old.length) return missed("shapedlen");
   const last = shaped.length - 1;
   // Every other row the same in each value, as `steadyRows` keeps a drawn row: a renderer may draw
   // from fields its version does not cover (transcript/RowFrame.tsx `RowContent`), so the same
   // version is not enough.
-  for (let row = 0; row < last; row += 1) if (!sameShape(old[row], shaped[row], COMPARE_DEPTH)) return undefined;
+  for (let row = 0; row < last; row += 1)
+    if (!sameShape(old[row], shaped[row], COMPARE_DEPTH)) return missed(`row${row}/${last}:${shaped[row]!.kind}`);
   const line = shaped[last]!;
-  if (line.id !== LIVE_THINKING || line.kind !== THINKING) return undefined;
+  if (line.id !== LIVE_THINKING || line.kind !== THINKING) return missed("noline");
   drawn = { shape: { ...shape, turn, shaped }, line: drawn.line, basis: next };
   return { line };
+}
+
+/// Debug (replay bench RENDERS=1): why a one-activity-row record is not a `callOnly` one.
+export function callMiss(previous: AcpmuxSnapshot, next: AcpmuxSnapshot): string {
+  const index = oneRowChangeFrom(next.rows, previous.rows);
+  if (index === undefined) return "multi";
+  const was = previous.rows[index];
+  const now = next.rows[index];
+  if (!was || !now || now.kind !== "activity") return "notact";
+  const hidden = hiddenUnderFold(next.rows, index) ? "hidden" : "shown";
+  const keys = Object.keys(now).filter((k) => !ROW_KEYS.has(k) && !Object.is((was as any)[k], (now as any)[k]));
+  const before = was.items ?? [];
+  const after = now.items ?? [];
+  const items: string[] = [];
+  for (let at = 0; at < after.length; at += 1) {
+    const from = before[at];
+    const to = after[at]!;
+    if (from === to) continue;
+    const t = to.tool;
+    const f = from?.tool as Record<string, unknown> | undefined;
+    const fields =
+      t && f
+        ? Object.keys(t)
+            .filter((k) => !Object.is(f[k], (t as any)[k]))
+            .sort()
+            .join("+")
+        : from
+          ? "item"
+          : "new";
+    items.push(`${to.kind}/${t?.kind ?? "-"}${t?.background ? "/bg" : ""}:${fields}`);
+  }
+  return `${hidden}|keys=${keys.join("+") || "-"}|${items.slice(0, 2).join(",")}${items.length > 2 ? ",+" : ""}`;
 }
 
 /// The pane kept its snapshot for a hidden call: the line the transcript drew is `line` now.

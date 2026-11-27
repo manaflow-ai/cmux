@@ -149,6 +149,41 @@ export function thoughtOnly(
   return { id: now.id, before, after };
 }
 
+/// Debug (replay bench RENDERS=1): the check `thoughtOnly` failed on, for a record that moved a thought.
+export function thoughtMiss(previous: AcpmuxSnapshot, next: AcpmuxSnapshot): string {
+  const index = oneRowChangeFrom(next.rows, previous.rows);
+  if (index === undefined) return "multi";
+  if (!sameButRows(previous, next)) return "notrows";
+  const row = previous.rows[index];
+  const now = next.rows[index];
+  if (!row || !now || row.id !== now.id || now.kind !== "activity") return "row";
+  if (now.streaming !== true) return `streaming=${String(now.streaming)}`;
+  if (!sameExcept(row, now, ROW_KEYS)) {
+    const keys = Object.keys(now).filter((k) => !ROW_KEYS.has(k) && !Object.is((row as any)[k], (now as any)[k]));
+    return `rowkeys=${keys.join("+")}`;
+  }
+  const was = row.items ?? [];
+  const items = now.items ?? [];
+  if (was.length !== items.length) return `len${was.length}->${items.length}`;
+  const last = items.length - 1;
+  for (let at = 0; at < last; at += 1) if (was[at] !== items[at]) return `notlast(${at}/${last})`;
+  const before = was[last]!;
+  const after = items[last]!;
+  if (!isThought(before) || !isThought(after) || before.tool || after.tool) return "lastnotthought";
+  if (!sameExcept(before, after, ITEM_KEYS)) {
+    const keys = Object.keys(after).filter(
+      (k) => !ITEM_KEYS.has(k) && !Object.is((before as any)[k], (after as any)[k]),
+    );
+    return `itemkeys=${keys.join("+")}`;
+  }
+  if (!after.text.startsWith(before.text)) return "notprefix";
+  const drawnNow = drawnThought(now.id);
+  if (drawnNow === undefined) return hiddenUnderFold(next.rows, index) ? "hit-hidden" : "notdrawn";
+  if (drawnNow.text !== before.text) return `drawntext(${drawnNow.text.length}/${before.text.length})`;
+  if (drawnNow.endedAt !== before.endedAt) return "drawnend";
+  return sameThought(drawnNow, before) ? "hit" : "drawnkeys";
+}
+
 /// The thought the transcript drew for row `id`: the one in its rows, or the newer one this store
 /// gave that row since (a chunk after a chunk).
 function drawnThought(id: string): AcpmuxActivity | undefined {
