@@ -1,3 +1,4 @@
+#if os(iOS)
 import CmuxAgentBrands
 import CmuxMobileDesign
 import SwiftUI
@@ -10,7 +11,25 @@ import UIKit
 ///
 /// The marks are painted in the `.brand` style, so each owner's color rules hold (the Codex mark
 /// is black or white only, and so is its circle's tint).
+///
+/// Where the agent runs sets the outline (`AgentAvatarHost`): a GUI agent chat (the native chat pane)
+/// sits in a circle, a terminal agent (Claude Code, Codex in a terminal tab) in a continuous rounded
+/// square, so the same mark tells the two apart with no extra part on it (Leo 2026-11-24, "a small
+/// subscript symbol? but wouldn't that look kinda dingleberry-esque?"; the variants it was picked
+/// from: `AgentAvatarHostGallery`).
 public enum AgentAvatarMark {
+    /// A terminal avatar's corner radius as a share of its side (the continuous curve of an app icon).
+    public static let tileCornerShare = AgentBrandCatalog.terminalTileCornerShare
+
+    /// `experiments.terminalAgentMark` (off by default, as on the Mac): whether a terminal agent's avatar takes the rounded
+    /// square. Off, every avatar keeps its circle; the gallery (`AgentAvatarHostGallery`) passes its host directly.
+    public static var terminalShapeEnabled: Bool { UserDefaults.standard.bool(forKey: "experiments.terminalAgentMark") }
+
+    /// The corner radius of an avatar `side` points across: a circle's for a chat, a tile's for a terminal.
+    public static func cornerRadius(side: CGFloat, host: AgentAvatarHost) -> CGFloat {
+        host == .terminal ? side * tileCornerShare : side / 2
+    }
+
     /// The mark's side as a share of the circle's diameter.
     public static let markShare: CGFloat = 0.5
     /// A fallback symbol's point size as a share of the circle's diameter.
@@ -103,11 +122,17 @@ public enum AgentAvatarMark {
 public struct AgentAvatar: View {
     private let harness: String
     private let side: CGFloat
+    private let host: AgentAvatarHost
     @Environment(\.colorScheme) private var colorScheme
 
-    public init(harness: String, side: CGFloat = 32) {
+    public init(harness: String, side: CGFloat = 32, host: AgentAvatarHost = .chat) {
         self.harness = harness
         self.side = side
+        self.host = host
+    }
+
+    private var shape: RoundedRectangle {
+        RoundedRectangle(cornerRadius: AgentAvatarMark.cornerRadius(side: side, host: host), style: .continuous)
     }
 
     public var body: some View {
@@ -117,14 +142,22 @@ public struct AgentAvatar: View {
                 AgentBrandMark(agent: AgentSenderIcon.family(harness), size: (side * AgentAvatarMark.markShare).rounded(), style: .brand)
                     .frame(width: side, height: side)
                     .background(Color(red: Double((tint.rgb >> 16) & 0xFF) / 255, green: Double((tint.rgb >> 8) & 0xFF) / 255,
-                                      blue: Double(tint.rgb & 0xFF) / 255).opacity(tint.opacity), in: .circle)
+                                      blue: Double(tint.rgb & 0xFF) / 255).opacity(tint.opacity), in: shape)
             } else {
                 Image(systemName: AgentAvatarMark.fallbackSymbol(harness))
                     .font(.system(size: side * AgentAvatarMark.symbolShare, weight: .medium))
                     .frame(width: side, height: side)
-                    .background(Color.cmuxMobileSurfaceRaised, in: .circle)
+                    .background(Color.cmuxMobileSurfaceRaised, in: shape)
             }
         }
         .accessibilityHidden(true)
     }
 }
+
+/// Where an agent runs, which sets its avatar's outline (`AgentAvatarMark`): `chat`, the native agent
+/// chat pane (a circle); `terminal`, a CLI agent in a terminal tab (a rounded square).
+public enum AgentAvatarHost: Hashable, Sendable {
+    case chat
+    case terminal
+}
+#endif

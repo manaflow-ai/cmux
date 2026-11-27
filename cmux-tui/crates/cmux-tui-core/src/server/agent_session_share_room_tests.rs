@@ -873,6 +873,7 @@ fn restart_resumes_roomless_pending_deletes_at_expiry_and_frees_capacity() {
                 pending_room_ops: vec![json!({"op": "delete"})],
                 guests: Vec::new(),
                 invitees: Vec::new(),
+                requests: Vec::new(),
                 role: None,
                 signed_in_role: None,
             }));
@@ -1263,6 +1264,7 @@ fn a_restart_reopens_the_host_socket_of_an_active_bridged_share() {
                 pending_room_ops: Vec::new(),
                 guests: Vec::new(),
                 invitees: Vec::new(),
+                requests: Vec::new(),
                 role: None,
                 signed_in_role: None,
             });
@@ -1304,6 +1306,7 @@ fn a_kick_of_an_ended_share_holds_no_capacity_and_goes_with_its_delete() {
                 pending_room_ops: vec![json!({"op": "kick", "guest_id": "g"})],
                 guests: Vec::new(),
                 invitees: Vec::new(),
+                requests: Vec::new(),
                 role: None,
                 signed_in_role: None,
             }));
@@ -1983,6 +1986,40 @@ fn state_of(room: &FakeRoom, conn: u64, client_id: &str) -> Value {
     }
 }
 
+/// A Drive guest's accepted prompts take no held slots. The same bound guest can stop the turn.
+#[test]
+fn the_room_reports_drive_prompts_sent_and_forwards_the_drivers_cancel() {
+    let room = FakeRoom::start(&[]);
+    let (fake, _mux, surface, mut owner) = bridged("relay-drive", &room);
+    let share = create(&mut owner, surface);
+    let id = share.pointer("/data/share_id").unwrap();
+    let (conn, _) = room.host();
+    room.next(conn, "guests");
+    let invite = owner.request(json!({"cmd":"agent-session-share-invite",
+        "share_id":id, "account":"ann@example.com", "role":"drive"}));
+    assert_eq!(invite.get("ok"), Some(&json!(true)), "{invite}");
+    let guest = owner.request(json!({"cmd":"agent-session-share-redeem",
+        "share_id":id, "account":"ann@example.com", "name":"Ann", "attempt_id":"a1"}));
+    assert_eq!(guest.pointer("/data/role"), Some(&json!("drive")), "{guest}");
+    let ann = guest.pointer("/data/guest_id").unwrap();
+    room.send(json!({"v":1, "t":"guest_joined", "guest_id":ann}));
+    assert_eq!(room.next(conn, "snapshot").get("to"), Some(ann));
+    for n in 0..17 {
+        let client_id = format!("c{n}");
+        room.send(json!({"v":1, "t":"guest_prompt", "guest_id":ann,
+            "client_id":client_id, "text":"hello"}));
+        assert_eq!(state_of(&room, conn, &client_id).get("state"), Some(&json!("sent")));
+    }
+    room.send(json!({"v":1, "t":"guest_cancel", "guest_id":ann}));
+    loop {
+        let frame = fake.frame();
+        if frame.get("method") == Some(&json!("session/cancel")) {
+            assert_eq!(frame.pointer("/params/sessionId"), Some(&json!(SESSION)));
+            break;
+        }
+    }
+}
+
 /// acpmux's record that the owner approved `prompt`.
 fn approved(seq: u64, prompt: &str) -> Value {
     json!({"sessionId": SESSION, "seq": seq, "dir": "mux", "kind": "queue_approved",
@@ -2267,6 +2304,77 @@ fn a_host_token_or_room_the_shares_file_cannot_keep_is_refused() {
     }
     assert!(origin("https://room.example.com").is_some());
     assert!(origin(&format!("https://{}.com", "a".repeat(MAX_ROOM_URL_BYTES))).is_none());
+}
+
+/// An access request, end to end: the room's own `request` frame with the account it signed in
+/// records a pending request the owner lists, and answers `requested`; an anonymous one, an invited
+/// one and a removed one are refused with the codes a guest page may show; the owner's approval
+/// then lets the account redeem. ask-2a1105b933.
+#[test]
+fn the_rooms_request_frame_records_an_access_request_the_owner_approves() {
+    let room = FakeRoom::start(&[]);
+    let (_fake, _mux, surface, mut owner) = bridged("room-access-request", &room);
+    let share = create(&mut owner, surface)["data"].clone();
+    let share_id = share["share_id"].clone();
+    let (conn, _) = room.host();
+    assert_eq!(room.frame(conn)["t"], "guests");
+    let request = |id: &str, account: Option<&str>| {
+        let mut frame = json!({"v": 1, "t": "request", "request_id": id, "attempt_id": id,
+            "name": "Sam Park", "avatar_url": "https://lh3.example.com/a/sam.png"});
+        if let Some(account) = account {
+            frame["account"] = json!(account);
+        }
+        frame
+    };
+    // An anonymous visitor cannot ask.
+    room.send(request("r0", None));
+    assert_eq!(
+        room.frame(conn),
+        json!({"v": 1, "t": "requested", "request_id": "r0", "attempt_id": "r0",
+            "error": "share.needs_sign_in"})
+    );
+    room.send(request("r1", Some("Sam@example.com")));
+    assert_eq!(
+        room.frame(conn),
+        json!({"v": 1, "t": "requested", "request_id": "r1", "attempt_id": "r1",
+            "state": "requested"})
+    );
+    let shown = state(&mut owner);
+    assert_eq!(shown["requests"].as_array().unwrap().len(), 1, "{shown}");
+    assert_eq!(shown["requests"][0]["account"], "sam@example.com");
+    // Not yet: the account holds no access.
+    room.send(json!({"v": 1, "t": "redeem", "request_id": "d1", "attempt_id": "a1",
+        "name": "Sam", "account": "sam@example.com"}));
+    assert_eq!(room.frame(conn)["error"], "share.not_invited");
+    let approved = owner.request(json!({"cmd": "agent-session-share-request-approve",
+        "share_id": share_id, "account": "sam@example.com"}));
+    assert_eq!(approved["ok"], true, "{approved}");
+    assert_eq!(approved["data"]["role"], "view");
+    assert_eq!(state(&mut owner)["requests"], json!([]));
+    room.send(json!({"v": 1, "t": "redeem", "request_id": "d2", "attempt_id": "a2",
+        "name": "Sam", "account": "sam@example.com"}));
+    let redeemed = room.frame(conn);
+    assert!(redeemed["guest_id"].is_string(), "{redeemed}");
+    assert_eq!(redeemed["role"], "view");
+    // Now invited: a further ask is told so.
+    room.send(request("r2", Some("sam@example.com")));
+    assert_eq!(room.frame(conn)["error"], "share.invited");
+    // A decline: kept silently, and the owner's list stays empty.
+    room.send(request("r3", Some("eve@example.com")));
+    assert_eq!(room.frame(conn)["state"], "requested");
+    let declined = owner.request(json!({"cmd": "agent-session-share-request-decline",
+        "share_id": share_id, "account": "eve@example.com"}));
+    assert_eq!(declined["data"]["state"], "declined", "{declined}");
+    room.send(request("r4", Some("eve@example.com")));
+    assert_eq!(room.frame(conn)["state"], "requested", "a declined account is not told");
+    assert_eq!(state(&mut owner)["requests"], json!([]));
+}
+
+#[test]
+fn the_access_request_refusals_a_guest_may_see_are_listed() {
+    for code in ["share.needs_sign_in", "share.invited", "share.limit", "share.kicked"] {
+        assert!(GUEST_REFUSALS.contains(&code), "{code}");
+    }
 }
 
 #[path = "agent_session_share_latency_tests.rs"]

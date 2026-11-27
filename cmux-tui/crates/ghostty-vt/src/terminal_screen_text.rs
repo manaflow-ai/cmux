@@ -43,13 +43,11 @@ impl Terminal {
     /// row), whether each cell carries an OSC 8 hyperlink, and the row's
     /// soft-wrap flag; `None` past the last retained row. The projection
     /// parity harness reads the Mac's grid with it.
-    pub fn styled_screen_row(&self, row: u64) -> Option<(Vec<crate::Cell>, Vec<bool>, bool)> {
+    pub fn styled_screen_row(&self, row: u64) -> Option<(Vec<Cell>, Vec<bool>, bool)> {
         let cols = self.cols();
         let tag = sys::GHOSTTY_POINT_TAG_SCREEN;
         let first = self.grid_ref(tag, 0, row)?;
-        let palette =
-            crate::render::terminal_palette(self.raw, sys::GHOSTTY_TERMINAL_DATA_COLOR_PALETTE)
-                .ok()?;
+        let palette = terminal_palette(self.raw, sys::GHOSTTY_TERMINAL_DATA_COLOR_PALETTE).ok()?;
         // One page-list walk for the row when both ends land on the same
         // page row (see `styled_history_rows`).
         let whole_row = cols == 1
@@ -65,9 +63,7 @@ impl Terminal {
             } else {
                 self.grid_ref(tag, x, row)?
             };
-            cells.push(
-                crate::render::read_grid_ref_cell(&grid_ref, &palette, &mut grapheme_buf).ok()?,
-            );
+            cells.push(read_grid_ref_cell(&grid_ref, &palette, &mut grapheme_buf).ok()?);
             let mut raw = sys::GhosttyCell::default();
             check(unsafe { sys::ghostty_grid_ref_cell(&grid_ref, &mut raw) }).ok()?;
             let mut link = false;
@@ -95,7 +91,6 @@ impl Terminal {
         let (top, bottom) = (start.1.min(end.1), start.1.max(end.1));
         let tag = sys::GHOSTTY_POINT_TAG_SCREEN;
         let selection = sys::GhosttySelection {
-            size: size_of::<sys::GhosttySelection>(),
             start: self.grid_ref(tag, left, top)?,
             end: self.grid_ref(tag, right, bottom)?,
             rectangle: true,
@@ -179,8 +174,7 @@ fn search_matches(search: &SearchHandle) -> Result<Vec<sys::GhosttySelection>> {
             return Ok(Vec::new());
         }
     };
-    let empty =
-        sys::GhosttySelection { size: size_of::<sys::GhosttySelection>(), ..Default::default() };
+    let empty = sys::GhosttySelection::default();
     let mut selections = vec![empty; needed];
     let mut buffer =
         sys::GhosttySelectionBuffer { ptr: selections.as_mut_ptr(), cap: selections.len(), len: 0 };
@@ -199,16 +193,12 @@ fn plain_selection_options(
     selection: &sys::GhosttySelection,
     unwrap: bool,
     trim: bool,
-) -> sys::GhosttyFormatterTerminalOptions {
-    sys::GhosttyFormatterTerminalOptions {
-        size: size_of::<sys::GhosttyFormatterTerminalOptions>(),
+) -> FormatterTerminalOptions {
+    FormatterTerminalOptions {
         emit: sys::GHOSTTY_FORMATTER_FORMAT_PLAIN,
         unwrap,
         trim,
-        extra: sys::GhosttyFormatterTerminalExtra {
-            size: size_of::<sys::GhosttyFormatterTerminalExtra>(),
-            ..Default::default()
-        },
+        extra: FormatterTerminalExtra { ..Default::default() },
         selection,
     }
 }

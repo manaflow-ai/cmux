@@ -11,8 +11,9 @@ import { memo, useState } from "react";
 import { useT } from "../i18n";
 import { CopyButton } from "./CopyButton";
 import { copyTextResult } from "./clipboard";
-import { Close } from "./icons";
+import { ChevronDown, Close } from "./icons";
 import type { PromptCoach } from "./promptCoach";
+import "./cardFit.css";
 import "./PromptCoachCard.css";
 
 /// How the card is drawn. `card` (shipped): the recap's and memory card's hairline box, its label
@@ -45,43 +46,53 @@ export const PromptCoachCard = memo(function PromptCoachCard({
   const [open, setOpen] = useState(false);
   const shown = look !== "compact" || open;
   return (
-    <section className="cv-coach" data-look={look} data-enter={enter || undefined} aria-label={t("promptCoach.label")}>
-      <div className="cv-coach__head">
-        <p className="cv-coach__title">
+    <section
+      className="cv-coach cv-fit"
+      data-look={look}
+      data-enter={enter || undefined}
+      aria-label={t("promptCoach.label")}
+    >
+      <div className="cv-coach__head cv-fit-row">
+        <p className="cv-coach__title cv-fit-text">
           <span className="cv-coach__label">{t("promptCoach.label")}</span>
           {coach.corrections > 0 && (
             <span className="cv-coach__meta">{t("promptCoach.corrections", { n: coach.corrections })}</span>
           )}
         </p>
-        {look === "compact" && (
-          <button
-            type="button"
-            className="cv-coach__toggle"
-            aria-expanded={open}
-            onClick={() => setOpen((value) => !value)}
-          >
-            {t(open ? "message.less" : "message.more")}
-          </button>
-        )}
-        <CopyButton
-          text={coach.rewrite}
-          label={t("promptCoach.copy")}
-          className="cv-coach__action cv-coach__copy"
-          copy={copy}
-          size={14}
-          copiedWord
-        />
-        {onDismiss && (
-          <button
-            type="button"
-            className="cv-coach__action cv-coach__close"
-            aria-label={t("promptCoach.dismiss")}
-            title={t("promptCoach.dismiss")}
-            onClick={onDismiss}
-          >
-            <Close />
-          </button>
-        )}
+        {/* Under the title in a narrow card; the toggle's words shrink away (cardFit.css), Copy and × are icons. */}
+        <div className="cv-fit-actions">
+          {look === "compact" && (
+            <button
+              type="button"
+              className="cv-coach__toggle"
+              aria-expanded={open}
+              title={t(open ? "message.less" : "message.more")}
+              onClick={() => setOpen((value) => !value)}
+            >
+              <ChevronDown size={14} className={`cv-rotor${open ? " is-open" : ""}`} />
+              <span className="cv-fit-label">{t(open ? "message.less" : "message.more")}</span>
+            </button>
+          )}
+          <CopyButton
+            text={coach.rewrite}
+            label={t("promptCoach.copy")}
+            className="cv-coach__action cv-coach__copy"
+            copy={copy}
+            size={14}
+            copiedWord
+          />
+          {onDismiss && (
+            <button
+              type="button"
+              className="cv-coach__action cv-coach__close"
+              aria-label={t("promptCoach.dismiss")}
+              title={t("promptCoach.dismiss")}
+              onClick={onDismiss}
+            >
+              <Close />
+            </button>
+          )}
+        </div>
       </div>
       {shown && (
         // Its own scroll past eight lines: a stop on the Tab path so the keys can scroll it too.

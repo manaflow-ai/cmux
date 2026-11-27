@@ -308,6 +308,16 @@ fn device_id_shaped(text: &str) -> bool {
             .all(|(g, n)| g.len() == n && g.bytes().all(|b| b.is_ascii_hexdigit()))
 }
 
+/// A failed link's end reason, with why the hub sent no relay when billing could not be read.
+fn with_relay_note(reason: String, relay_note: Option<&str>) -> String {
+    match relay_note {
+        Some(note) if reason.starts_with("the link failed") => {
+            format!("{reason}; no relay: {note}")
+        }
+        _ => reason,
+    }
+}
+
 /// Reads the user socket until the viewer ticket for `session_id` (or the request's end).
 fn wait_for_ticket(user: &mut WebSocket, session_id: &str) -> Res<Ticket> {
     let deadline = Instant::now() + APPROVAL_WITHIN;
@@ -400,7 +410,7 @@ fn view_session(
     let peer = unhex32(&answer.key).ok_or("the host's session key is malformed")?;
     let (stun, turn) = rd_doc::servers(&ticket.ice);
     let (stun, stun_later) = crate::carrier::stun_servers(&stun, false);
-    let turn: Vec<crate::carrier::TurnSetup> = turn
+    let turn: Vec<crate::carrier::TurnSetup> = rd_doc::udp_only(&turn)
         .into_iter()
         .map(|t| crate::carrier::TurnSetup {
             addr: t.addr,
@@ -455,7 +465,10 @@ fn view_session(
         drop(to_hub);
         let _ = signals.join();
         let ended = ended?;
-        Ok(Outcome { reason: ended.reason, connected: ended.connected })
+        Ok(Outcome {
+            reason: with_relay_note(ended.reason, ticket.relay_note.as_deref()),
+            connected: ended.connected,
+        })
     })
 }
 
@@ -637,6 +650,17 @@ fn unhex32(text: &str) -> Option<[u8; 32]> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_failed_link_says_when_billing_could_not_be_read() {
+        let note = Some("could not read your plan");
+        assert_eq!(
+            with_relay_note("the link failed: the secure handshake timed out".into(), note),
+            "the link failed: the secure handshake timed out; no relay: could not read your plan"
+        );
+        assert_eq!(with_relay_note("the link failed: x".into(), None), "the link failed: x");
+        assert_eq!(with_relay_note("the window was closed".into(), note), "the window was closed");
+    }
 
     fn devices() -> Value {
         json!({"devices": [

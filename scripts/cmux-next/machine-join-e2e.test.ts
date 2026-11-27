@@ -1198,12 +1198,49 @@ describe("cancellation, the sweep, masking and the scan", () => {
     assertNoSecretEscaped(w)
   })
 
-  test("a home entry tar skips with a warning (a socket) fails the scan", async () => {
+  test("a socket tar skips, named with a credential, fails the run", async () => {
     const w = world({ tarWarning: `tar: ./.acpmux/${CREDENTIAL}: socket ignored\n` })
+    const e = await runE2E(opts, env, w.deps)
+    expect(e.result).toBe("fail")
+    expect(e.secretScan.home.cmm).toBe(1)
+    expect(e.reason).toContain("the home holds a credential outside the credential file")
+    assertNoSecretEscaped(w)
+  })
+
+  test("a socket where the credential file must be fails the scan", async () => {
+    const w = world({ tarWarning: "tar: ./.acpmux/machine-credential.json: socket ignored\n" })
     const e = await runE2E(opts, env, w.deps)
     expect(e.result).toBe("fail")
     expect(e.reason).toContain("could not scan the whole disposable home")
     expect(e.secretScan.home.cmm).toBeNull()
+    assertNoSecretEscaped(w)
+  })
+
+  test("a socket elsewhere in the home (the share host's, left when its unit is killed) is not an unscanned entry", async () => {
+    const w = world({ tarWarning: "tar: ./.local/state/cmux-rd/host.sock: socket ignored\n" })
+    const e = await runE2E(opts, env, w.deps)
+    expect(e.reason).not.toContain("could not scan the whole disposable home")
+    expect(e.secretScan.home.cmm).toBe(0)
+    expect(e.secretScan.home.credentialFileCmm).toBe(1)
+    expect(e.result).toBe("pass")
+    assertNoSecretEscaped(w)
+  })
+
+  test("a skipped socket's name is scanned like every other name", async () => {
+    const w = world({ tarWarning: "tar: ./.cache/cmj_abc123.sock: socket ignored\n" })
+    const e = await runE2E(opts, env, w.deps)
+    expect(e.result).toBe("fail")
+    expect(e.secretScan.home.cmj).toBe(1)
+    expect(e.reason).toContain("the home holds a join token")
+  })
+
+  test("any other tar warning fails the scan and names it, with no counts taken as found", async () => {
+    const w = world({ tarWarning: "tar: ./.local/state/cmux-rd/host.log: file changed as we read it\n" })
+    const e = await runE2E(opts, env, w.deps)
+    expect(e.result).toBe("fail")
+    expect(e.reason).toContain("could not scan the whole disposable home (tar skipped an entry: tar: ./.local/state/cmux-rd/host.log: file changed as we read it)")
+    expect(e.reason).not.toContain("the home holds a join token")
+    expect(e.reason).not.toContain("the credential file does not hold exactly one credential")
     assertNoSecretEscaped(w)
   })
 

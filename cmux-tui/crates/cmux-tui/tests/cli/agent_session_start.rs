@@ -97,9 +97,9 @@ impl Daemon {
         if let Some(config) = acpmux_config {
             fs::write(dir.join("acpmux/config.json"), config.to_string()).unwrap();
             // acpmux refuses a config another user can write; a 002 umask (Ubuntu's default) gives 664.
-            std::fs::set_permissions(
+            fs::set_permissions(
                 dir.join("acpmux/config.json"),
-                <std::fs::Permissions as std::os::unix::fs::PermissionsExt>::from_mode(0o600),
+                <fs::Permissions as PermissionsExt>::from_mode(0o600),
             )
             .unwrap();
         }
@@ -561,6 +561,41 @@ fn a_first_chat_on_the_callers_own_cloud_vm_starts_in_its_own_trusted_chat_folde
     let surface = plain.own_agent_tab();
     let reply = start_at_home(&plain, surface);
     assert_eq!(reply["error_code"], "agent_session.home_unconfirmed", "{reply}");
+}
+
+/// The machine's acpmux reserves a warm first home-chat folder (`~/chats/r<32 hex>` and the
+/// ticket `~/chats/.reserved`, `acpmux` `hub/pool/reserved.rs`): the first chat with no folder
+/// starts in it, trusted as any chat folder is, and the next chat gets `~/chats/<chat id>`.
+#[test]
+fn the_first_home_chat_of_an_own_cloud_vm_starts_in_the_reserved_folder() {
+    let vm = Daemon::start_cloud("ownreserved", "owner");
+    let home = vm.dir.join("home");
+    let name = "r0123456789abcdef0123456789abcdef";
+    let reserved = home.join("chats").join(name);
+    fs::create_dir_all(&reserved).unwrap();
+    for folder in [reserved.parent().unwrap(), reserved.as_path()] {
+        fs::set_permissions(folder, fs::Permissions::from_mode(0o700)).unwrap();
+    }
+    fs::write(home.join("chats/.reserved"), name).unwrap();
+    let start_at_home = |surface: u64| {
+        vm.rpc(json!({"id": 50, "cmd": "agent-session-start", "surface": surface,
+                      "cwd": home.to_str().unwrap(), "vm_kind": "owner"}))
+    };
+    let first = vm.own_agent_tab();
+    let started = start_at_home(first);
+    assert_eq!(started["ok"], true, "{started}");
+    assert!(!home.join(format!("chats/{first}")).exists(), "the first chat made its own folder");
+    assert!(!home.join("chats/.reserved").exists(), "the ticket was not taken");
+    // Its folder reads trusted with no question.
+    let read = vm.rpc(json!({"id": 51, "cmd": "agent-session-trust", "surface": first,
+                             "cwd": reserved.to_str().unwrap(), "vm_kind": "owner"}));
+    assert_eq!(read["data"]["level"], "trusted", "{read}");
+    assert_eq!(read["data"]["auto"], "cloud_chat", "{read}");
+    // The second chat gets a folder of its own.
+    let second = vm.own_agent_tab();
+    let started = start_at_home(second);
+    assert_eq!(started["ok"], true, "{started}");
+    assert!(home.join(format!("chats/{second}")).is_dir(), "the second chat has no folder");
 }
 
 #[test]

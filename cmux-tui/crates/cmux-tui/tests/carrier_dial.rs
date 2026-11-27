@@ -5,7 +5,7 @@
 //! dial's stdio and the daemon's mux socket. Every key is generated here.
 #![cfg(target_os = "linux")]
 
-mod carrier_support;
+use crate::carrier_support;
 
 use std::io::{BufReader, Write};
 use std::process::{Child, Command, Stdio};

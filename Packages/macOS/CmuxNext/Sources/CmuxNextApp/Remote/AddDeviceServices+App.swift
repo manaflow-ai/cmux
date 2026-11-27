@@ -61,7 +61,7 @@ extension AddDeviceServices {
 
 extension DeviceDirectory {
     static func app(_ services: AppServices) -> DeviceDirectory {
-        let cli = SSHService.bundledCLI
+        let cli = SSHService.bundledCLI?.onPlatform(of: services.environment.terminalEnvironment)
         return DeviceDirectory(run: { await cli?.json($0, label: "device") },
                                removePhone: { [weak services] in await services?.iphone.removePhone(id: $0) },
                                setFullAccess: { [weak services] id, on in
@@ -83,7 +83,7 @@ extension DeviceDirectory {
 /// words for a failure, never the CLI's stderr.
 extension MachineJoinService {
     static func app(_ services: AppServices) -> MachineJoinService {
-        let cli = SSHService.bundledCLI
+        let cli = SSHService.bundledCLI?.onPlatform(of: services.environment.terminalEnvironment)
         let auth = services.cloud.auth
         let identity = services.cloud.installIdentity
         // A cmux access token for the active team: the platform's machine routes refuse the session's.

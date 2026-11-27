@@ -57,7 +57,6 @@ export function UpdatedCardPreview({
         <div className="wn-preview-head">
           <button type="button" className="wn-preview-whatsnew" tabIndex={tab} onClick={() => onOpen()}>
             {strings.t("changelog.page.title")}
-            <span aria-hidden="true"> ↗</span>
           </button>
         </div>
         <ul

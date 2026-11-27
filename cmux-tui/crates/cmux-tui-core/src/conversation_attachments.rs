@@ -44,6 +44,8 @@ pub(crate) const ATTACHMENTS_DIRECTORY: &str = "attachments";
 /// 5.6 MiB of base64, well inside a 16 MiB request line.
 pub(crate) const MAX_CHUNK_BYTES: usize = 4 * 1024 * 1024;
 /// Uploads open at once across every connection.
+/// Measured: open file descriptors; each upload holds one partial file per piece (original,
+/// poster, preview), so 32 uploads hold at most 96 fds.
 const MAX_UPLOADS: usize = 32;
 /// An upload not committed within this time is dropped.
 const UPLOAD_TTL: Duration = Duration::from_secs(15 * 60);

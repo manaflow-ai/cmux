@@ -75,6 +75,14 @@ class TreeAuditTests(unittest.TestCase):
         self.assertEqual(attributes["Packages/macOS/CmuxNext/Sources/CmuxNextAgentPane/AcpmuxPaneMethods+Params.swift"],
                          "cmux-insertions-v1")
 
+    def test_daemon_abi_baseline_preserves_comparison_evidence(self):
+        path = "cmux-tui/spec/api-compat.surface.json"
+        self.assertEqual(generated_merge.Catalog(ROOT).family(path), path)
+        self.assertEqual(generated_merge.merge_attributes(ROOT, [path])[path], "unspecified")
+        commands, notes = generated_merge.plan([path])
+        self.assertEqual(commands, [])
+        self.assertTrue(any("refuses uncovered breaks" in note for note in notes))
+
     def test_every_here_command_names_a_tracked_script(self):
         tracked = set(generated_merge.tracked(ROOT))
         for family, entry in generated_merge.REGENERATE.items():
@@ -259,6 +267,29 @@ class MergeRegeneratesTests(unittest.TestCase):
         self.run_gen()
         self.git("add", "-A")
         self.git("commit", "-q", "-m", f"add {name}")
+
+    def test_conflicting_daemon_baselines_keep_both_sides_visible(self):
+        path = "cmux-tui/spec/api-compat.surface.json"
+        baseline = self.repo / path
+        baseline.parent.mkdir(parents=True)
+        baseline.write_text('{"operation": "original"}\n')
+        with (self.repo / ".gitattributes").open("a") as attrs:
+            attrs.write(f"{path} !merge\n")
+        self.git("add", "-A")
+        self.git("commit", "-q", "-m", "baseline")
+        self.git("checkout", "-q", "-b", "lane")
+        baseline.write_text('{"operation": "lane"}\n')
+        self.git("commit", "-qam", "lane baseline")
+        self.git("checkout", "-q", "main")
+        baseline.write_text('{"operation": "newer-base"}\n')
+        self.git("commit", "-qam", "newer baseline")
+        self.git("checkout", "-q", "lane")
+        merged = self.git("merge", "--no-edit", "main", check=False)
+        self.assertEqual(merged.returncode, 1, merged.stdout + merged.stderr)
+        self.assertIn(path, self.git("diff", "--name-only", "--diff-filter=U").stdout)
+        self.assertIn('"lane"', baseline.read_text())
+        self.assertIn('"newer-base"', baseline.read_text())
+        self.assertEqual(generated_merge.plan([path])[0], [])
 
     def test_a_generated_only_conflict_merges_and_regenerates_with_no_person(self):
         self.git("checkout", "-q", "-b", "lane")
@@ -483,6 +514,148 @@ class InsertionsOnTheHandWrittenRegistriesTests(unittest.TestCase):
         merged = git("merge", "--no-edit", "main", check=False)
         self.assertEqual(merged.returncode, 0, merged.stdout + merged.stderr)
         self.assertEqual(json.loads(path.read_text())["requests"], ["a", "lane", "base", "z"])
+
+
+class AMergeThatDoesNotParseIsMarkedTests(unittest.TestCase):
+    """cmux#50003, 2026-11-25: feat-cmux-next held `cmux-deadline` twice in cmux-tui/crates/acpmux/Cargo.toml
+    (cmux#55199 and cmux#54487 each added it, at two places, and the line merge of the two was clean). A lane
+    that only added its own dependency merged that base and got the file as a conflict with no markers and no
+    reason, and cargo could not load the workspace. The three files are that merge's blobs, trimmed."""
+
+    BASE = (
+        "[dependencies]\n"
+        "cmux-agent-wire.workspace = true\n"
+        "cmux-netwatch.workspace = true\n"
+        "cmux-build-space.workspace = true\n"
+        "cmux-stats-live.workspace = true\n"
+        "serde.workspace = true\n"
+    )
+    LANE = BASE.replace(
+        "cmux-build-space.workspace = true\n",
+        "cmux-build-space.workspace = true\n"
+        "# The team's hosted forum (`hub/forum_hosted.rs`): cmux-forum's post, reply and search.\n"
+        'cmux-forum-hosted = { path = "../cmux-forum-hosted", features = ["http"] }\n',
+    )
+    TWICE = BASE.replace(
+        "cmux-netwatch.workspace = true\n",
+        "# Deadlines on silence since the last progress, not a wall clock (peer frame writes, mesh reads).\n"
+        'cmux-deadline = { workspace = true, features = ["tokio"] }\n'
+        "cmux-netwatch.workspace = true\n",
+    ).replace(
+        "serde.workspace = true\n",
+        "# One deadline per wait (daemon/watchdog.rs: a hello waits until systemd's own limit).\n"
+        "cmux-deadline.workspace = true\n"
+        "serde.workspace = true\n",
+    )
+    ONCE = TWICE.replace(
+        "# One deadline per wait (daemon/watchdog.rs: a hello waits until systemd's own limit).\n"
+        "cmux-deadline.workspace = true\n", "")
+    PATH = "cmux-tui/crates/acpmux/Cargo.toml"
+
+    def drive(self, base, ours, theirs, path=PATH):
+        tmp = Path(tempfile.mkdtemp(prefix="generated-merge-unparsed-"))
+        self.addCleanup(shutil.rmtree, tmp, True)
+        for name, text in (("base", base), ("ours", ours), ("theirs", theirs)):
+            (tmp / name).write_text(text)
+        run = subprocess.run(
+            [sys.executable, "-I", str(ROOT / "scripts/merge-insertions.py"),
+             str(tmp / "base"), str(tmp / "ours"), str(tmp / "theirs"), path, "7"],
+            capture_output=True, text=True, cwd=tmp)
+        return run, (tmp / "ours").read_text()
+
+    @unittest.skipIf(sys.version_info < (3, 11), "the driver checks TOML with tomllib")
+    def test_a_base_that_names_a_key_twice_is_a_marked_conflict_that_says_why(self):
+        run, merged = self.drive(self.BASE, self.LANE, self.TWICE)
+        self.assertEqual(run.returncode, 1, run.stderr)
+        self.assertIn(
+            "<<<<<<< ours\n=======\ncmux-deadline.workspace = true\n>>>>>>> theirs\n", merged)
+        self.assertEqual(merged.count("<<<<<<<"), 1)
+        self.assertIn("cmux-forum-hosted", merged)  # the rest is still the merge of both sides
+        self.assertIn(self.PATH, run.stderr)
+        self.assertIn("the copy being merged in already did not parse", run.stderr)
+        self.assertNotIn("this branch's copy", run.stderr)
+
+    @unittest.skipIf(sys.version_info < (3, 11), "the driver checks TOML with tomllib")
+    def test_a_line_one_side_deleted_stays_deleted(self):
+        # The lane branched while the base held the key twice; the base then dropped the second.
+        lane = self.TWICE.replace("cmux-build-space.workspace = true\n",
+                                  'cmux-build-space.workspace = true\ncmux-forum-hosted = { path = "x" }\n')
+        run, merged = self.drive(self.TWICE, lane, self.ONCE)
+        self.assertEqual(run.returncode, 0, run.stderr)
+        self.assertEqual(merged.count("cmux-deadline"), 1)
+        self.assertIn("cmux-forum-hosted", merged)
+        self.assertNotIn("<<<<<<<", merged)
+
+    def test_a_key_each_side_added_at_its_own_place_is_marked_with_both_copies(self):
+        base = '{\n  "a": 1,\n  "b": 2,\n  "c": 3,\n  "d": 4,\n  "e": 5,\n  "f": 6,\n  "g": 7\n}\n'
+        ours = base.replace('  "a": 1,\n', '  "a": 1,\n  "new": 1,\n')
+        theirs = base.replace('  "f": 6,\n', '  "f": 6,\n  "new": 2,\n')
+        run, merged = self.drive(base, ours, theirs, "config/thing.json")
+        self.assertEqual(run.returncode, 1, run.stderr)
+        self.assertEqual(merged, f"<<<<<<< ours\n{ours}=======\n{theirs}>>>>>>> theirs\n")
+        self.assertIn("config/thing.json: the merged file does not parse (duplicate key)", run.stderr)
+
+
+
+class RustModListsMergeSortedTests(unittest.TestCase):
+    """cmux#56459: acpmux `hub/mod.rs` keeps its `mod` list sorted by name. A branch made before the sort
+    adds one `mod` among the old order; merged with the sorted base, every line around it moved, and the line
+    merge stops although only the one line is new. The driver merges the three again with each list sorted."""
+
+    BASE = ("//! hub\n\nmod zeta;\n// Alpha's note.\nmod alpha;\n#[cfg(test)]\nmod mid_tests;\nmod beta;\n"
+            "pub use alpha::A;\n\nfn f() {}\nmod gamma;\n")
+    SORTED = ("//! hub\n\n// Alpha's note.\nmod alpha;\nmod beta;\nmod gamma;\n#[cfg(test)]\nmod mid_tests;\n"
+              "mod zeta;\npub use alpha::A;\n\nfn f() {}\n")
+    PATH = "cmux-tui/crates/acpmux/src/hub/mod.rs"
+
+    def drive(self, base, ours, theirs, path=PATH):
+        tmp = Path(tempfile.mkdtemp(prefix="rust-mods-merge-"))
+        self.addCleanup(shutil.rmtree, tmp, True)
+        for name, text in (("base", base), ("ours", ours), ("theirs", theirs)):
+            (tmp / name).write_text(text)
+        run = subprocess.run(
+            [sys.executable, "-I", str(ROOT / "scripts/merge-insertions.py"),
+             str(tmp / "base"), str(tmp / "ours"), str(tmp / "theirs"), path, "7"],
+            capture_output=True, text=True, cwd=tmp)
+        return run, (tmp / "ours").read_text()
+
+    def test_a_branch_from_before_the_sort_merges_its_new_mod_into_place(self):
+        lane = self.BASE.replace("mod zeta;\n", "mod zeta;\n// Delta's note.\nmod delta;\n")
+        run, merged = self.drive(self.BASE, lane, self.SORTED)
+        self.assertEqual(run.returncode, 0, run.stderr)
+        self.assertEqual(merged, self.SORTED.replace("mod gamma;\n", "// Delta's note.\nmod delta;\nmod gamma;\n"
+                                                     ).replace("mod beta;\n// Delta", "mod beta;\n// Delta"))
+        self.assertLess(merged.index("mod beta;"), merged.index("mod delta;"))
+        self.assertLess(merged.index("mod delta;"), merged.index("mod gamma;"))
+
+    def test_the_sorted_base_merged_into_the_old_branch_the_other_way_round(self):
+        lane = self.BASE.replace("mod beta;\n", "mod beta;\nmod epsilon;\n")
+        run, merged = self.drive(self.BASE, self.SORTED, lane)
+        self.assertEqual(run.returncode, 0, run.stderr)
+        self.assertIn("mod beta;\nmod epsilon;\nmod gamma;\n", merged)
+
+    def test_a_real_conflict_stays_a_conflict(self):
+        lane = self.BASE.replace("fn f() {}", "fn f() { 1 }")
+        sorted_edit = self.SORTED.replace("fn f() {}", "fn f() { 2 }")
+        run, merged = self.drive(self.BASE, lane, sorted_edit)
+        self.assertEqual(run.returncode, 1)
+        self.assertIn("<<<<<<<", merged)
+
+    def test_a_file_with_macros_is_never_reordered(self):
+        base = "macro_rules! m { () => {} }\n" + self.BASE
+        lane = base.replace("mod zeta;\n", "mod zeta;\nmod delta;\n")
+        theirs = "macro_rules! m { () => {} }\n" + self.SORTED
+        run, merged = self.drive(base, lane, theirs)
+        self.assertEqual(run.returncode, 1)
+        self.assertIn("<<<<<<<", merged)
+
+    def test_two_unsorted_sides_are_left_in_their_order(self):
+        ours = self.BASE.replace("mod beta;\n", "mod beta;\nmod omega;\n")
+        theirs = self.BASE.replace("mod beta;\n", "mod beta;\nmod kappa;\n")
+        run, merged = self.drive(self.BASE, ours, theirs)
+        self.assertEqual(run.returncode, 0, run.stderr)
+        self.assertIn("mod zeta;\n// Alpha's note.\nmod alpha;", merged)
+        self.assertIn("mod beta;\nmod omega;\nmod kappa;\n", merged)
 
 
 if __name__ == "__main__":
