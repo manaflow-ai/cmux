@@ -124,6 +124,11 @@ nonisolated public struct UpdateFlow: Equatable, Sendable {
 }
 
 extension UpdateIndicatorPhase {
+    /// Downloading or unpacking.
+    nonisolated var isDownloading: Bool {
+        if case .downloading = self { true } else { false }
+    }
+
     /// The phase's kind, as the Rust gate names it.
     nonisolated var kind: String {
         switch self {
