@@ -1,29 +1,38 @@
 #include "CmuxMobileLaunchClock.h"
 
 #if defined(__APPLE__)
-#include <libproc.h>
-#include <mach/mach_time.h>
+// Public in the iOS SDK (libproc.h is not): the start time from sysctl, CPU from getrusage,
+// page-ins from the task's event counters.
+#include <mach/mach.h>
 #include <sys/resource.h>
+#include <sys/sysctl.h>
+#include <sys/time.h>
 #include <unistd.h>
 
 static CmuxLaunchClock clock_at_init;
 
-static double abs_to_ms(uint64_t t) {
-    mach_timebase_info_data_t tb;
-    mach_timebase_info(&tb);
-    return (double)t * tb.numer / tb.denom / 1e6;
-}
+static double tv_ms(struct timeval t) { return (double)t.tv_sec * 1000.0 + (double)t.tv_usec / 1000.0; }
 
 // Runs once, before main: dyld has loaded and bound every image and run their initializers.
 __attribute__((constructor)) static void cmux_launch_clock_read(void) {
-    struct rusage_info_v4 ri;
-    if (proc_pid_rusage(getpid(), RUSAGE_INFO_V4, (rusage_info_t *)&ri) != 0) return;
-    uint64_t now = mach_absolute_time();
-    if (ri.ri_proc_start_abstime == 0 || now < ri.ri_proc_start_abstime) return;
-    clock_at_init.wall_ms = abs_to_ms(now - ri.ri_proc_start_abstime);
-    // ri_user_time and ri_system_time are mach absolute time units.
-    clock_at_init.cpu_ms = abs_to_ms(ri.ri_user_time + ri.ri_system_time);
-    clock_at_init.pageins = ri.ri_pageins;
+    struct timeval now;
+    gettimeofday(&now, NULL);
+    int mib[4] = {CTL_KERN, KERN_PROC, KERN_PROC_PID, getpid()};
+    struct kinfo_proc kp;
+    size_t n = sizeof kp;
+    if (sysctl(mib, 4, &kp, &n, NULL, 0) != 0 || n == 0) return;
+    // p_starttime is wall clock, as LaunchMarks.processStart reads it.
+    double wall = tv_ms(now) - tv_ms(kp.kp_proc.p_starttime);
+    if (wall < 0) return;
+    struct rusage ru;
+    if (getrusage(RUSAGE_SELF, &ru) != 0) return;
+    clock_at_init.wall_ms = wall;
+    clock_at_init.cpu_ms = tv_ms(ru.ru_utime) + tv_ms(ru.ru_stime);
+    task_events_info_data_t ev;
+    mach_msg_type_number_t count = TASK_EVENTS_INFO_COUNT;
+    if (task_info(mach_task_self(), TASK_EVENTS_INFO, (task_info_t)&ev, &count) == KERN_SUCCESS) {
+        clock_at_init.pageins = (unsigned long long)ev.pageins;
+    }
     clock_at_init.valid = 1;
 }
 

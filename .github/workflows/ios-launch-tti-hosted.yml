@@ -7,7 +7,8 @@
 # (cmux#58989's fix for the cold-cache SwiftPM race that left a leg with no test run), so only the app
 # under test differs between the legs. The warm suite runs each of its two flows (chat, terminal) 10 times: 20 samples of
 # list_ms (process start to the workspaces list usable) per leg, the probe's first_connect samples.
-# On a pull request the after leg is the PR's head. Each leg also launches a minimal SwiftUI app
+# On a pull request the after leg is the PR's head and the before leg #60852's head (d7c99b32; the base
+# feat-cmux-next does not compile on iOS until #60852 lands). Each leg also launches a minimal SwiftUI app
 # (scripts/ci/ios-launch-floor.sh, from this workflow's commit) 20 times warm on the same iPhone type,
 # with the same process-start clock: the runner's and the simulator's floor under list_ms. The app's
 # pre_main_init / pre_main_cpu / pre_main_pageins marks (a head that takes them) split its share.
@@ -45,7 +46,7 @@ jobs:
       matrix:
         include:
           - leg: before
-            ref: ${{ github.event_name == 'workflow_dispatch' && inputs.before || 'feat-cmux-next' }}
+            ref: ${{ github.event_name == 'workflow_dispatch' && inputs.before || 'd7c99b32fe5929526e8b3895418297d765c83e9e' }}
           - leg: after
             ref: ${{ github.event_name == 'workflow_dispatch' && inputs.after || github.event.pull_request.head.sha }}
     steps:
