@@ -52,6 +52,7 @@ pub mod pairing;
 pub mod path_probe;
 pub mod peer;
 pub mod phone_frames;
+pub mod phone_page;
 pub mod policy;
 pub mod portmap;
 pub mod presence;
