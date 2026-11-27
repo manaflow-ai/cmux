@@ -81,8 +81,9 @@ public final class MachineStoragePopover {
         }
         readVolume(source.volume)
         state.phase = .measuring
-        work = run(source.report, refusal: source.refusal, decode: { try WorktreeCareReportReply.decoded(from: $0) }) {
-            $0.measured($1)
+        work = run(source.report, refusal: source.refusal) { state, data in
+            // main-actor-ok: the worktree care report, one row per worktree (tens)
+            state.measured(try JSONDecoder().decode(WorktreeCareReportReply.self, from: data))
         }
     }
 
@@ -102,24 +103,22 @@ public final class MachineStoragePopover {
         state.phase = .cleaning
         state.freed = nil
         draw()
-        work = run(source.clean, refusal: source.refusal, decode: { try WorktreeCareReport.decoded(from: $0) }) {
-            $0.cleaned($1)
+        work = run(source.clean, refusal: source.refusal) { state, data in
+            // main-actor-ok: the worktree care cleanup report, one row per worktree (tens)
+            state.cleaned(try JSONDecoder().decode(WorktreeCareReport.self, from: data))
         }
     }
 
-    /// Runs one pass and applies its answer, decoded off the main thread (a report lists every
-    /// worktree), else its refusal in the daemon's words; a cleanup measures again after it.
-    private func run<Answer: Sendable>(_ call: @escaping @MainActor () async throws -> Data,
-                                       refusal: @escaping @MainActor (any Error) -> String?,
-                                       decode: @escaping @Sendable (Data) throws -> Answer,
-                                       apply: @escaping @MainActor (inout MachineStorageState, Answer) -> Void) -> Task<Void, Never> {
+    /// Runs one pass and applies its answer, else its refusal in the daemon's words; a cleanup
+    /// measures again after it.
+    private func run(_ call: @escaping @MainActor () async throws -> Data, refusal: @escaping @MainActor (any Error) -> String?,
+                     apply: @escaping @MainActor (inout MachineStorageState, Data) throws -> Void) -> Task<Void, Never> {
         // task-owner: one pass; the card keeps it until it answers (the daemon cannot cancel a pass).
         Task { [weak self] in
             do {
                 let data = try await call()
-                let answer = try await Task.detached(priority: .utility) { try decode(data) }.value
                 guard let self else { return }
-                apply(&self.state, answer)
+                try apply(&self.state, data)
             } catch {
                 self?.state.failed(refusal(error) ?? MachineStorageStrings.unreachable)
             }

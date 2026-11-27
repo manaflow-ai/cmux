@@ -75,9 +75,10 @@ public struct MoveToAutoCloudImport {
             guard let binary = await bundled.resolve() else { throw MoveToAutoCloudFailure.noCLI }
             let result = try await ProcessRunner.run(executable: binary, arguments: arguments, environment: nil, timeout: timeout,
                                                      clock: ContinuousClock())
-            let stderr = result.stderr
-            let last = await Task.detached(priority: .utility) { Self.lastLine(of: stderr) }.value
-            return Ran(status: result.status, output: result.stdout, reason: last ?? "exit \(result.status)")
+            let stderr = String(decoding: result.stderr, as: UTF8.self)
+            return Ran(status: result.status, output: result.stdout,
+                       // main-actor-ok: splits a failed run's short stderr for its last line
+                       reason: stderr.split(separator: "\n").last.map(String.init) ?? "exit \(result.status)")
         }, confirm: { await Self.showPreview($0) })
     }
 
@@ -105,11 +106,6 @@ public struct MoveToAutoCloudImport {
         }
     }
 
-    /// A run's last stderr line, its reason; read off the main thread (stderr has no bound).
-    nonisolated static func lastLine(of stderr: Data) -> String? {
-        String(decoding: stderr, as: UTF8.self).split(separator: "\n").last.map(String.init)
-    }
-
     /// The plan file goes once the move is done or failed, off the main thread.
     private static func remove(_ file: URL) async {
         await Task.detached(priority: .utility) { try? FileManager.checked.removeItem(at: file) }.value
@@ -118,8 +114,8 @@ public struct MoveToAutoCloudImport {
     private func moving(_ file: URL, progress: (@MainActor (Double) -> Void)?) async throws -> Int? {
         let planned = try await cli(["migrate", "plan", "laptop", "--out", file.path, "--preview", "--json"], Self.planTimeout)
         guard planned.status == 0 else { throw MoveToAutoCloudFailure.plan(planned.reason) }
-        let output = planned.output
-        let preview = try await Task.detached(priority: .utility) { try JSONDecoder().decode(Preview.self, from: output) }.value
+        // main-actor-ok: the planner's one preview reply, a few small fields
+        let preview = try JSONDecoder().decode(Preview.self, from: planned.output)
         guard preview.moving > 0 else {
             Self.toast(MoveToAutoCloudStrings.nothing)
             return nil

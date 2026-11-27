@@ -365,7 +365,7 @@ public nonisolated enum BackdropArt: String, CaseIterable, Sendable {
         case .hiroshigeAsukayama: String(localized: "backdrop.hiroshige-asukayama.title", defaultValue: "Cherry-Blossom Viewing at Asukayama", bundle: .localizedModule)
         case .hokusaiYoshino: String(localized: "backdrop.hokusai-yoshino.title", defaultValue: "Cherry Blossoms at Yoshino", bundle: .localizedModule)
         case .sesshuWinterLandscape: String(localized: "backdrop.sesshu-winter-landscape.title", defaultValue: "Winter Landscape", bundle: .localizedModule)
-        case .maYuanSpringPath: String(localized: "backdrop.ma-yuan-spring-path.title", defaultValue: "Mountain Path in Spring", bundle: .localizedModule)
+        case .maYuanSpringPath: String(localized: "backdrop.ma-yuan-spring-path.title", defaultValue: "Spring Walk on a Mountain Path", bundle: .localizedModule)
         case .kimHongDoChuseongbu: String(localized: "backdrop.kim-hong-do-chuseongbu.title", defaultValue: "The Sound of Autumn", bundle: .localizedModule)
         case .sinYunBokMoonlitLovers: String(localized: "backdrop.sin-yun-bok-moonlit-lovers.title", defaultValue: "Lovers under the Moon", bundle: .localizedModule)
         }
