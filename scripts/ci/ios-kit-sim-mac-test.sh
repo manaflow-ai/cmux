@@ -33,8 +33,17 @@ bound="${KIT_SIM_BOUND_S:-1500}"
 # Mac fallback after a pool run with no verdict); scripts/ci/ios_sim_bundles.py reads vars.CMUX_IOS_SIM_LINUX and
 # scripts/ci/ios-sim-mac-bundles.txt. In shadow both are every bundle, as before.
 here="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-mapfile -t filters < <(python3 -I "$here/ios_sim_bundles.py" "${KIT_SIM_PART:-mac}")
-if [[ ${#filters[@]} -eq 0 ]]; then
+# macOS /bin/bash is 3.2 (no mapfile). Read the producer's exit before its lines:
+# a bad bundle selection must fail, not look like an empty successful Mac run.
+filter_lines="$(python3 -I "$here/ios_sim_bundles.py" "${KIT_SIM_PART:-mac}")"
+filters=()
+filter_count=0
+while IFS= read -r filter; do
+  [[ -n "$filter" ]] || continue
+  filters+=("$filter")
+  filter_count=$((filter_count + 1))
+done <<< "$filter_lines"
+if [[ "$filter_count" -eq 0 ]]; then
   echo "no simulator test bundle runs on this Mac (${KIT_SIM_PART:-mac}, CMUX_IOS_SIM_LINUX=${CMUX_IOS_SIM_LINUX:-shadow}): the fleet pool runs them all"
   echo "### iOS simulator tests on this Mac: none (every bundle is on the fleet pool)" >> "${GITHUB_STEP_SUMMARY:-/dev/null}"
   exit 0

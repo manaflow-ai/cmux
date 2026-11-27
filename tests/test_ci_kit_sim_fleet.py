@@ -72,7 +72,7 @@ class Fake:
                 "RUNNER_TEMP": str(self.dir / "temp"), "RETRY_SLEEP": "0", "POLL": "0",
                 "RUN": "repos/o/r/actions/runs/1", "ATTEMPT": "1", "JOB": "kit fleet build",
                 "ARTIFACT": "kit-sim-fleet-products-1-1", **env}
-        done = subprocess.run(["bash", "-e", str(SCRIPT), command], env=full, capture_output=True, text=True,
+        done = subprocess.run([os.environ.get("CMUX_TEST_BASH", "bash"), "-e", str(SCRIPT), command], env=full, capture_output=True, text=True,
                               timeout=60)
         outputs = dict(line.split("=", 1) for line in self.output.read_text().splitlines() if "=" in line)
         return done, outputs

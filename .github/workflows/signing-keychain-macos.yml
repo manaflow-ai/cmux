@@ -170,3 +170,9 @@ jobs:
         run: |
           "$CMUX_PARSE_BASH" tests/test_bash32_parse_guard.sh | tee "$RUNNER_TEMP/guard.out"
           ! grep -q '^SKIP' "$RUNNER_TEMP/guard.out"
+
+      # mapfile parses under Bash 3.2 but fails at runtime (kit job 140716304394).
+      - name: Simulator entrypoints execute under bash 3.2
+        run: |
+          CMUX_TEST_BASH="$CMUX_PARSE_BASH" python3 tests/test_ios_sim_bundles.py
+          CMUX_TEST_BASH="$CMUX_PARSE_BASH" python3 tests/test_ci_kit_sim_fleet.py

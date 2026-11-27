@@ -466,6 +466,10 @@ path = "tests/test_ci_killpg_tolerates_eperm.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_ci_kit_sim_fleet.py"
+lane = "linux-guard"
+
+[[test]]
 path = "tests/test_ci_label_events_skip_full_ci.py"
 lane = "linux-guard"
 

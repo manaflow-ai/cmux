@@ -5,6 +5,8 @@ fallback runs the pool's share; the pool part works on the scripts/ci-only check
 from __future__ import annotations
 
 import os
+import json
+import signal
 import subprocess
 import sys
 import tempfile
@@ -115,6 +117,81 @@ class Wiring(unittest.TestCase):
         self.assertIn("KIT_SIM_PART: mac", text)
         self.assertIn("KIT_SIM_PART: fallback", text)
         self.assertGreaterEqual(text.count("CMUX_IOS_SIM_LINUX: ${{ vars.CMUX_IOS_SIM_LINUX || 'shadow' }}"), 4)
+
+
+class MacRunner(unittest.TestCase):
+    """Run the Mac entrypoint with the runtime that failed job 140716304394."""
+
+    def run_mac(self, mode, stays, *, part="mac", status=0):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            (root / "Package.swift").write_text(PACKAGE)
+            (root / "stays").write_text("\n".join(stays))
+            xcrun = root / "xcrun"
+            xcrun.write_text("#!/bin/sh\ncase $1 in\nsimctl) echo "
+                             "'{\"devices\":{\"com.apple.CoreSimulator.SimRuntime.iOS-26-0\":"
+                             "[{\"name\":\"iPhone\",\"udid\":\"fake-phone\"}]}}';;\n"
+                             "*) echo '{\"testNodes\":[]}' ;;\nesac\n")
+            xcrun.chmod(0o755)
+            xcodebuild = root / "xcodebuild"
+            xcodebuild.write_text("#!/usr/bin/env python3\nimport json, os, sys\n"
+                                 "from pathlib import Path\n"
+                                 "Path(os.environ['ARGS']).write_text(json.dumps(sys.argv[1:]))\n"
+                                 "sys.exit(int(os.environ['TEST_STATUS']))\n")
+            xcodebuild.chmod(0o755)
+            env = dict(os.environ, PATH=f"{root}:{os.environ['PATH']}",
+                       CMUX_IOS_SIM_LINUX=mode, KIT_SIM_PART=part,
+                       CMUX_IOS_SIM_MAC_BUNDLES=str(root / "stays"),
+                       CMUX_IOS_SIM_BUNDLES=str(root / "Package.swift"),
+                       GITHUB_OUTPUT=str(root / "output"), RUNNER_TEMP=str(root),
+                       ARGS=str(root / "args"), TEST_STATUS=str(status))
+            command = [os.environ.get("CMUX_TEST_BASH", "bash"),
+                       str(ROOT / "scripts/ci/ios-kit-sim-mac-test.sh")]
+            # The script's watchdog can leave its sleep alive when interrupted.
+            # Capture to files and reap only this test's process group afterward.
+            with tempfile.TemporaryFile(mode="w+") as stdout, tempfile.TemporaryFile(mode="w+") as stderr:
+                with subprocess.Popen(command, env=env, stdout=stdout, stderr=stderr,
+                                      start_new_session=True, text=True) as proc:
+                    try:
+                        status = proc.wait(timeout=30)
+                    finally:
+                        try:
+                            os.killpg(proc.pid, signal.SIGTERM)
+                        except ProcessLookupError:
+                            pass
+                    stdout.seek(0)
+                    stderr.seek(0)
+                    done = subprocess.CompletedProcess(command, status, stdout.read(), stderr.read())
+            args = json.loads((root / "args").read_text()) if (root / "args").exists() else None
+            return done, args
+
+    def test_shadow_forwards_each_skip_as_one_argument(self):
+        done, args = self.run_mac("shadow", [])
+        self.assertEqual(done.returncode, 0, done.stderr)
+        self.assertEqual([arg for arg in args if arg.startswith("-skip-testing:")],
+                         [f"-skip-testing:{name}" for name in SKIPS])
+
+    def test_mac_and_fallback_forward_their_selected_bundles(self):
+        for part, expected in (("mac", ["CmuxMobileAuthTests"]),
+                               ("fallback", ["CmuxMobileLiveTests", "CmuxMobileShellTests"])):
+            done, args = self.run_mac("on", ["CmuxMobileAuthTests"], part=part)
+            self.assertEqual(done.returncode, 0, done.stderr)
+            self.assertEqual([arg for arg in args if arg.startswith("-only-testing:")],
+                             [f"-only-testing:{name}" for name in expected])
+
+    def test_empty_mac_selection_does_not_run_xcodebuild(self):
+        done, args = self.run_mac("on", [])
+        self.assertEqual(done.returncode, 0, done.stderr)
+        self.assertIsNone(args)
+
+    def test_invalid_bundle_selection_fails_before_xcodebuild(self):
+        done, args = self.run_mac("on", ["MissingBundle"])
+        self.assertEqual(done.returncode, 2, done.stderr)
+        self.assertIsNone(args)
+
+    def test_xcodebuild_failure_remains_a_failure(self):
+        done, _ = self.run_mac("shadow", [], status=65)
+        self.assertEqual(done.returncode, 65, done.stderr)
 
 
 if __name__ == "__main__":
