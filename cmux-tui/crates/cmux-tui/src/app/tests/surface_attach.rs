@@ -1298,7 +1298,7 @@ fn background_tree_snapshot_sets_input_routing_barrier() {
 }
 
 #[test]
-fn background_tree_refresh_stops_after_retry_budget() {
+fn background_tree_refresh_slows_down_after_retry_budget() {
     let mux = Mux::new("background-refresh-budget-test", SurfaceOptions::default());
     let mut app = test_app(Session::Local(mux));
 
@@ -1311,12 +1311,15 @@ fn background_tree_refresh_stops_after_retry_budget() {
         .unwrap();
     }
 
+    // Past the fast budget the refresh keeps going every 30 s instead of
+    // waiting for the person to reconnect.
     assert_eq!(app.background_refresh_attempts, BACKGROUND_REFRESH_RETRIES);
-    assert!(app.background_refresh_retry_at.is_none());
+    let retry_at = app.background_refresh_retry_at.expect("a slow refresh is scheduled");
+    assert!(retry_at.duration_since(Instant::now()) > Duration::from_secs(25));
     assert!(
         app.status_message
             .as_deref()
-            .is_some_and(|message| message.contains("automatic retries stopped, reconnect"))
+            .is_some_and(|message| message.contains("refreshing it again every 30 s"))
     );
 }
 
