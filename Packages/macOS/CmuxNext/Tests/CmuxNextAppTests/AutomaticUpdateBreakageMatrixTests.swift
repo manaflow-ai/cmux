@@ -137,16 +137,29 @@ import Testing
             for track in UpdateTrack.allCases {
                 #expect(track.downloadsAutomaticallyByDefault, "\(track) lost the automatic-download default")
             }
+            let updater = Self.updater(identity: Self.identity())
+            updater.configure(checkAutomatically: true, checkInterval: 900, downloadAutomatically: true)
+            updater.networkPending = false
+            updater.network = (constrained: false, expensive: false)
+            updater.applyDownloadPolicy()
+            #expect(updater.status.automaticDownloads,
+                    "the classic app-owned download policy did not enable background downloads")
 
         case .nextAppOwnedPolicy:
             let (defaults, suite) = Self.freshDefaults()
             defer { defaults.removePersistentDomain(forName: suite) }
-            defaults.set(false, forKey: UpdateSettings.automaticallyUpdateKey)
+            defaults.set(true, forKey: UpdateSettings.automaticallyUpdateKey)
             let updater = Self.updater(identity: Self.identity(bundleID: "com.cmuxterm.app.nightly.cmux-next",
                                                                feed: Self.nextFeed), defaults: defaults)
             updater.configure(checkAutomatically: true, checkInterval: 900, downloadAutomatically: true)
+            updater.networkPending = false
+            updater.network = (constrained: false, expensive: false)
+            updater.applyDownloadPolicy()
             #expect(updater.automaticUpdates)
-            #expect(!updater.downloadsFoundUpdates)
+            #expect(updater.downloadsFoundUpdates)
+            #expect(updater.status.automaticDownloads)
+            #expect(defaults.bool(forKey: UpdateSettings.automaticallyUpdateKey),
+                    "cmux NEXT changed the shared Sparkle preference while enabling its own policy")
 
         case .corruptDownloadRecovery:
             let error = NSError(domain: SUSparkleErrorDomain, code: 2001)

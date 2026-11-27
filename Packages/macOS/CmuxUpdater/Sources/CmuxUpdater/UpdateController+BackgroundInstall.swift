@@ -2,7 +2,8 @@
 
 /// Opt-in background installs for hosts that never prompt (cmux-next): found updates download
 /// silently, and the ready update waits for ``installStagedUpdate()``. Off by default, which
-/// keeps the prompt-driven flow and its defaults unchanged. Nothing here writes to defaults.
+/// keeps the prompt-driven flow and its defaults unchanged. Hosts that share Sparkle's defaults
+/// domain can leave its silent-install preference intact because the driver intercepts that path.
 extension UpdateController {
     /// Whether found updates download without a prompt and wait staged for the user.
     public var installsUpdatesInBackground: Bool {
