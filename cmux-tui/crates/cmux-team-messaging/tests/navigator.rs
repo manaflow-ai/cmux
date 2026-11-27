@@ -128,3 +128,136 @@ fn sidebar_lists_teams_readable_spaces_unread_and_live() {
     assert!(search(&principals[0], "slack", &cx).is_empty());
     assert!(navigator(&principals[3], &cx).is_none());
 }
+
+/// The duress number, at the acpmux surfaces scale: a 1000-person, 1000-agent team, 200 spaces of
+/// ~300 members with a third of each live, 5000 threads (a quarter unread) and 1000 sessions.
+/// Times one sidebar: `navigator` plus `search`, as the `_acpmux/team/navigator` RPC answers.
+/// Prints a digest of every answer so a change can show the output is the same. Run with
+/// `--release -- --ignored --nocapture`; the assertion is a loose ceiling.
+#[test]
+#[ignore = "measurement"]
+fn navigator_at_team_scale() {
+    use std::collections::hash_map::DefaultHasher;
+    use std::hash::{Hash, Hasher};
+    use std::time::Instant;
+
+    use cmux_team_messaging::{RootKind, Thread, ThreadState};
+
+    let mut principals = vec![person("viewer", Grants::all())];
+    for i in 0..1000 {
+        let mut p = person(&format!("p{i}"), Grants::all());
+        p.display_name = format!("Person {i}");
+        principals.push(p);
+    }
+    for i in 0..1000 {
+        let mut a = agent(&format!("a{i}"), &format!("p{i}"), Grants::all());
+        a.display_name = format!("Agent {i}");
+        principals.push(a);
+    }
+    let ids: Vec<String> = principals.iter().map(|p| p.id.clone()).collect();
+    let spaces: Vec<Space> = (0..200)
+        .map(|s| {
+            let mut members: Vec<String> =
+                (0..300).map(|k| ids[(s * 37 + k * 7) % ids.len()].clone()).collect();
+            members.push("viewer".into());
+            members.sort();
+            members.dedup();
+            Space {
+                id: format!("space{s}"),
+                kind: if s % 10 == 0 { SpaceKind::Pair } else { SpaceKind::Project },
+                title: format!("Space {s}"),
+                members,
+                ..space(&[])
+            }
+        })
+        .collect();
+    let mut t = team(Grants::all());
+    t.spaces = (0..200).rev().step_by(3).map(|s| format!("space{s}")).collect();
+    let teams = vec![t];
+    let threads: Vec<Thread> = (0..5000)
+        .map(|n| Thread {
+            id: format!("thread{n}"),
+            space_id: format!("space{}", n % 200),
+            root_kind: RootKind::Message,
+            subject: format!("Subject {n}"),
+            participants: vec!["viewer".into(), ids[(n * 13) % ids.len()].clone()],
+            linked_rfd_ids: Vec::new(),
+            linked_session_ids: vec![format!("sa{}", n % 1000)],
+            revision: n as u64,
+            state: if n % 5 == 0 { ThreadState::Closed } else { ThreadState::Open },
+        })
+        .collect();
+    let unread: BTreeMap<String, u32> =
+        threads.iter().step_by(4).map(|t| (t.id.clone(), 1)).collect();
+    let here: BTreeMap<String, Vec<cmux_team_messaging::presence::Participant>> = spaces
+        .iter()
+        .map(|s| {
+            let live = s
+                .members
+                .iter()
+                .enumerate()
+                .filter(|(i, _)| i % 3 == 0)
+                .map(|(_, id)| {
+                    let kind = if id.starts_with('a') {
+                        PrincipalKind::Agent
+                    } else {
+                        PrincipalKind::Person
+                    };
+                    let mut p = live(id, kind);
+                    p.name = format!("Name {id}");
+                    p
+                })
+                .collect();
+            (s.id.clone(), live)
+        })
+        .collect();
+    let sessions: Vec<SessionEntry> = (0..1000)
+        .map(|i| SessionEntry {
+            id: format!("sa{i}"),
+            title: format!("Session {i}"),
+            space_id: format!("space{}", i % 200),
+        })
+        .collect();
+    let rfds: Vec<(RefKey, String)> = (0..200)
+        .map(|i| {
+            let key = RefKey::new(RefKind::Rfd, RefSource::Hq, &format!("{i:04}")).unwrap();
+            (key, format!("Design {i}"))
+        })
+        .collect();
+    let cx = NavContext {
+        teams: &teams,
+        current_team_id: TEAM,
+        spaces: &spaces,
+        principals: &principals,
+        threads: &threads,
+        unread: &unread,
+        here: &here,
+        sessions: &sessions,
+        rfds: &rfds,
+    };
+
+    let mut samples = Vec::new();
+    let mut digest = DefaultHasher::new();
+    for q in ["", "p", "name 99", "@a12", "subject 4", "space 1", "0170"] {
+        let mut per = Vec::new();
+        for i in 0..20 {
+            let start = Instant::now();
+            let nav = navigator(&principals[0], &cx).unwrap();
+            let hits = search(&principals[0], q, &cx);
+            per.push(start.elapsed());
+            if i == 0 {
+                assert_eq!(nav.spaces.len(), 200);
+                serde_json::to_string(&(&nav, &hits)).unwrap().hash(&mut digest);
+            }
+        }
+        per.sort();
+        println!("navigator+search {q:?}: median {:?}", per[per.len() / 2]);
+        samples.extend(per);
+    }
+    samples.sort();
+    let p50 = samples[samples.len() / 2];
+    let p95 = samples[samples.len() * 95 / 100];
+    println!("navigator+search p50 {p50:?} p95 {p95:?} over {} samples", samples.len());
+    println!("navigator+search output digest {:016x}", digest.finish());
+    assert!(p95.as_millis() < 5000);
+}
