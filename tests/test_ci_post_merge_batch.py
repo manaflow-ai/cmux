@@ -228,17 +228,37 @@ class PlanAndJudgeTest(unittest.TestCase):
 
     def test_a_stuck_red_waits_for_its_running_bisect_and_stops_after_rebisects(self) -> None:
         verdicts, runs, older = self.stuck_setup()
+        start = lambda good, bad: "c" * 40
         probe = run(4, "c" * 40, "2026-11-21T08:30:00Z", status="in_progress", title=f"probe rust test at {'c' * 40}")
-        self.assertEqual(pmb.stuck_reds("a" * 40, verdicts, [probe] + runs, lambda rid: older[rid], self.suites), [])
+        older[4] = ({}, True)
+        self.assertEqual(pmb.stuck_reds("a" * 40, verdicts, [probe] + runs, lambda rid: older[rid], self.suites, start), [])
         probe["status"] = "completed"
-        self.assertEqual(len(pmb.stuck_reds("a" * 40, verdicts, [probe] + runs, lambda rid: older[rid], self.suites)), 1)
-        red = older[3][0]
-        more = [run(10 + i, f"{i:x}" * 40, f"2026-11-21T0{i}:30:00Z") for i in range(5, 5 + pmb.MAX_REBISECTS)]
+        self.assertEqual(len(pmb.stuck_reds("a" * 40, verdicts, [probe] + runs, lambda rid: older[rid], self.suites, start)), 1)
+        # MAX_REBISECTS judged bisects started at the chain's first sha: named only.
+        again = [run(5 + i, "c" * 40, f"2026-11-21T09:{i:02d}:00Z", title=f"probe rust test at {'c' * 40}")
+                 for i in range(pmb.MAX_REBISECTS - 1)]
+        for r in again:
+            older[r["id"]] = ({}, True)
+        self.assertEqual(pmb.stuck_reds("a" * 40, verdicts, again + [probe] + runs, lambda rid: older[rid], self.suites, start), [])
+
+    def test_a_bisect_whose_judge_died_is_not_a_rebisect(self) -> None:
+        # 2026-11-27: web-typecheck and five more reds were capped after chains whose judge hit the rate limit
+        # (cmux#60709); red batch runs were counted, not finished bisects.
+        verdicts, runs, older = self.stuck_setup()
+        start = lambda good, bad: "c" * 40
+        dead = [run(4 + i, "c" * 40, f"2026-11-21T08:3{i}:00Z", title=f"probe rust test at {'c' * 40}")
+                for i in range(pmb.MAX_REBISECTS + 1)]
+        for r in dead:
+            older[r["id"]] = ({}, False)
+        more = [run(20 + i, f"{i:x}" * 40, f"2026-11-21T09:{i:02d}:30Z") for i in range(5)]
         for r in more:
-            older[r["id"]] = (red, True)
-        # More red batch runs since the first red one than MAX_REBISECTS, with a bisect done: named only.
-        runs2 = [run(3, "b" * 40, "2026-11-21T10:00:00Z")] + more[::-1] + runs[1:]
-        self.assertEqual(pmb.stuck_reds("a" * 40, verdicts, [probe] + runs2, lambda rid: older[rid], self.suites), [])
+            older[r["id"]] = (older[3][0], True)
+        runs2 = more[::-1] + runs
+        # A probe at another sha (a later step of a chain) is not a chain start either.
+        step = run(30, "e" * 40, "2026-11-21T08:50:00Z", title=f"probe rust test at {'e' * 40}")
+        older[30] = ({}, True)
+        got = pmb.stuck_reds("a" * 40, verdicts, [step] + dead + runs2, lambda rid: older[rid], self.suites, start)
+        self.assertEqual(len(got), 1)
 
     def test_a_stuck_red_needs_a_green_in_reach(self) -> None:
         verdicts, runs, older = self.stuck_setup()
