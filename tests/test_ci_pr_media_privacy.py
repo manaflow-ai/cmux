@@ -525,7 +525,7 @@ class WriterInventoryTests(unittest.TestCase):
                            ".github/workflows/pr-media.yml", ".github/actions/pr-media-publish/action.yml"}
     # Remove files or rewrite the retention index; they add no capture.
     REMOVES_ONLY = {"scripts/ci/pr_media_privacy.py", ".github/workflows/pr-media-privacy.yml",
-                    "scripts/ci/prune_pr_media.py", ".github/workflows/pr-media-prune.yml"}
+                    "scripts/ci/prune_pr_media.py"}
     # Names the files for CI routing; writes nothing.
     NOT_WRITERS = {"scripts/ci/workflow_guard_groups.py"}
     SKIP_SUFFIXES = (".md", ".json", ".xcstrings", ".txt", ".png", ".gif", ".mp4", ".webp", ".jpg", ".svg")
@@ -908,8 +908,13 @@ class PublishWorkflowTests(unittest.TestCase):
 
     # workflow -> job id -> the script its publishing step runs
     WRITER_JOBS = {".github/workflows/pr-media.yml": {"publish": "scripts/ci/pr_media.py"}}
-    # Remove files or rewrite the retention index; they add no capture.
-    REMOVES_ONLY = {".github/workflows/pr-media-prune.yml", ".github/workflows/pr-media-privacy.yml"}
+    # Removal jobs rewrite the branch but do not capture media. Keep this exception
+    # job-scoped so another writer added to the shared maintenance workflow cannot
+    # bypass the publishing action checks.
+    REMOVES_ONLY_JOBS = {
+        (".github/workflows/storage-maintenance.yml", "pr-media"),
+        (".github/workflows/pr-media-privacy.yml", "scan"),
+    }
     # The 10-minute Vision rescan reads the repository's copy of the terms secret.
     RESCAN = (".github/workflows/pr-media-privacy.yml", "scan")
     ACTION_USE = "./.github/actions/pr-media-publish"
@@ -1000,9 +1005,9 @@ class PublishWorkflowTests(unittest.TestCase):
     def test_every_job_that_writes_pr_media_publishes_through_the_action(self) -> None:
         found = {}
         for workflow, loaded in self.workflows():
-            if workflow in self.REMOVES_ONLY:
-                continue
             for job_id, job in (loaded.get("jobs") or {}).items():
+                if (workflow, job_id) in self.REMOVES_ONLY_JOBS:
+                    continue
                 if not self.writes_pr_media(job):
                     continue
                 found.setdefault(workflow, set()).add(job_id)

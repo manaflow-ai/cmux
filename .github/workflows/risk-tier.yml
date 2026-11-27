@@ -58,7 +58,12 @@ jobs:
     concurrency:
       group: risk-evidence-${{ github.event.pull_request.number }}${{ (((github.event.action == 'labeled' || github.event.action == 'unlabeled') && github.event.label.name != 'risk:human-ok' && github.event.label.name != 'risk:waived' && (github.event.label.name != 'freeze-ok' || vars.MERGE_FREEZE_OWN_RUNNER == '1')) || (github.event.action == 'edited' && !github.event.changes.body && !github.event.changes.base) || (github.event.action == 'edited' && !github.event.changes.base && (github.event.sender.login == 'cubic-dev-ai[bot]' || github.event.sender.login == 'blacksmith-sh[bot]'))) && format('-ignored-{0}', github.run_id) || '' }}
       cancel-in-progress: true
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'cmux-gcp-secret-jit-x64' }} # ephemeral-required: trusted pull-request-write token
+    # The PR control one-job JIT label, not the secret one: this is a PR verdict hop (one-job ephemeral, so App keys
+    # stay safe), and cmuxterm-hq runner_pool.py serves PR_CONTROL_JIT_LABEL at CONTROL_PRIORITY
+    # with a verdict quota share (VERDICT_QUOTA_LABELS names risk evidence). On cmux-gcp-secret-jit-x64 it queued
+    # behind ci-failure-attribution's bulk: 2026-11-27 12:46Z, 133 queued there (42 Attribute, 32 risk evidence),
+    # p90 wait 539 s, while the PR control label had nothing queued; #61609's 26 s job waited 11.6 min.
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'cmux-gcp-pr-control-jit-x64' }} # ephemeral-required: trusted pull-request-write token
     timeout-minutes: 10  # the grade, plus the grade step's RATE_LIMIT_WAIT_S (420 s) wait for a refused budget; at most cron_concurrency's TRIVIAL_TIMEOUT_MINUTES
     permissions:
       contents: read
