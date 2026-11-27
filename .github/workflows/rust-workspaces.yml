@@ -117,6 +117,7 @@ on:
       - "schemas/theme/slots.json"
       - "schemas/theme/theme-ink-vectors.json"
       - "schemas/transcript-look/transcript-look.json"
+      - "schemas/window-registry/vectors.json"
       - "schemas/window-rules-swift-out/vectors.json"
       - "schemas/workspace-auto-namer/vectors.json"
       - "scripts/ci/**"
