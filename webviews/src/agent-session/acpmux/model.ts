@@ -1919,7 +1919,9 @@ export const isLiveStep = (row: AcpmuxRow, prev: AcpmuxRow | undefined) =>
 /// `above`, the drawn row over `prev`, tells a received line under its own turn's "Working for" apart
 /// from one that opens its turn over that line (`headsIncomingTurn`).
 export const gridMark = (row: AcpmuxRow, prev: AcpmuxRow | undefined, above?: AcpmuxRow): number =>
-  (wokenUnderFooter(row, prev) && wokenGapLook() === "tail" ? MARK_STATUS : rowGridMark(row, prev)) |
+  ((wokenUnderFooter(row, prev) && wokenGapLook() === "tail") || noticeUnderFooter(row, prev)
+    ? MARK_STATUS
+    : rowGridMark(row, prev)) |
   (opensBackgroundTurn(row, prev) ? MARK_OPENS_TURN : 0) |
   (headsIncomingTurn(row, prev, above) ? MARK_HEADS_TURN : 0) |
   (topsIncomingTurn(row, prev) ? MARK_TOPS_TURN : 0);
@@ -1967,6 +1969,16 @@ const headsIncomingTurn = (row: AcpmuxRow, prev: AcpmuxRow | undefined, above?: 
 /// Whether `line` is the "Working for" / "Worked for" line of the turn `user` opened. O(1).
 const isOwnTurnLine = (line: AcpmuxRow | undefined, user: AcpmuxRow): boolean =>
   line !== undefined && isWorkedLine(line) && line.id === `${WORKED}-${user.id}`;
+/// Whether `row` is a notice line ("Background command finished", a task's end that woke the agent)
+/// right under the footer row of the turn before: it opens the turn it woke as a status line does,
+/// flush under the footer (transcriptGrid.ts), not a step row's run gap away. Another agent's
+/// message keeps its own gap (footer-to-received). O(1).
+const noticeUnderFooter = (row: AcpmuxRow, prev: AcpmuxRow | undefined): boolean =>
+  row.kind === "user" &&
+  !row.received &&
+  row.incoming?.kind === "notice" &&
+  prev !== undefined &&
+  rowMark(prev) === MARK_FOOTER_ROW;
 /// Whether `row` is the first tool row of a turn the agent ran on its own, right under the footer
 /// row of the turn before it: a background task's end woke the agent after that turn ended, and the
 /// task's line between them draws nothing (backgroundTurns.ts `drawsBackgroundLine`). O(1).
@@ -1978,7 +1990,7 @@ const wokenUnderFooter = (row: AcpmuxRow, prev: AcpmuxRow | undefined): boolean 
   rowMark(prev) === MARK_FOOTER_ROW;
 /// How that row stands under the footer (gallery `agent-pane.woken-turn-gap`, `<html data-woken-gap>`):
 /// `block`, shipped, the block gap any row under a footer stands; `turn`, the turn gap it stood
-/// before; `tail`, the 8 a status line under a footer stands, in the hidden line's place. Read only
+/// before; `tail`, flush, as a status line under a footer stands, in the hidden line's place. Read only
 /// for such a row, so a layout pass pays nothing for it.
 export function wokenGapLook(): "block" | "turn" | "tail" {
   const set = typeof document === "undefined" ? undefined : document.documentElement.dataset.wokenGap;
