@@ -47,19 +47,31 @@ fn publish_lock(session_id: &str) -> Arc<StdMutex<()>> {
 }
 
 impl Hub {
-    /// Logs task `record`'s row of chat `session` as its folder says now, when it changed.
-    pub(super) fn bg_publish(&self, session: &Session, dir: &Path, record: &Record) {
-        if session.purged.load(Ordering::SeqCst) || is_workflow_task(dir, &record.id) {
-            return;
-        }
+    /// Logs task `record`'s row of chat `session` as its folder says now, when it changed; false
+    /// when the log refused it.
+    pub(super) fn bg_publish(&self, session: &Session, dir: &Path, record: &Record) -> bool {
         let folder = self.bg_records(dir);
-        let view = fresh_view(dir, record, folder.segments(&record.id));
-        self.bg_publish_view(session, &view);
+        self.bg_publish_in(session, dir, &folder, record)
     }
 
-    fn bg_publish_view(&self, session: &Session, view: &Value) {
-        let Some(process) = daemon_process(session, view) else { return };
-        self.bg_log(session, |table| table.daemon_change(process));
+    /// [`Self::bg_publish`] with the folder's look already taken.
+    fn bg_publish_in(
+        &self,
+        session: &Session,
+        dir: &Path,
+        folder: &super::bg_folder::BgFolder,
+        record: &Record,
+    ) -> bool {
+        if session.purged.load(Ordering::SeqCst) || is_workflow_task(dir, &record.id) {
+            return true;
+        }
+        let view = fresh_view(dir, record, folder.segments(&record.id));
+        self.bg_publish_view(session, &view)
+    }
+
+    fn bg_publish_view(&self, session: &Session, view: &Value) -> bool {
+        let Some(process) = daemon_process(session, view) else { return true };
+        self.bg_log(session, |table| table.daemon_change(process))
     }
 
     /// Logs the daemon row change `change` decides from chat `session`'s table, and puts it in the
@@ -67,29 +79,53 @@ impl Hub {
     /// reaches no client, so the table must not say it either, or the next look would find nothing
     /// to change and the row would stay as no client heard it. The table is read in before the
     /// chat's publish lock, so a first read of a long log never holds a publish.
-    fn bg_log(&self, session: &Session, change: impl FnOnce(&ProcessTable) -> Option<Process>) {
+    /// False when the log refused the change (nothing changed is no refusal).
+    fn bg_log(
+        &self,
+        session: &Session,
+        change: impl FnOnce(&ProcessTable) -> Option<Process>,
+    ) -> bool {
         drop(self.process_table(session));
         let lock = publish_lock(&session.id);
         let _one = lock.lock().unwrap_or_else(|e| e.into_inner());
-        let Some(process) = change(&self.process_table(session)) else { return };
+        let Some(process) = change(&self.process_table(session)) else { return true };
         let msg = json!({"process": process});
         let (_, stored) = self.append_logged(session, "mux", "process_update", msg, None);
         if stored {
             self.process_table(session).daemon_apply(process);
         }
+        stored
     }
 
-    /// Task `id` of folder `dir` ended (its watch fired): its row says how.
-    pub(super) fn bg_ended(&self, dir: &Path, session_id: &str, id: &str) {
+    /// Task `id` of folder `dir` ended (its watch fired): its row says how. False when the log
+    /// refused the end.
+    pub(super) fn bg_ended(&self, dir: &Path, session_id: &str, id: &str) -> bool {
         if self.stopping.load(Ordering::SeqCst) {
-            return;
+            return true;
         }
-        let Some(session) = self.session_get(session_id) else { return };
-        let Some(record) = bg_run::read_record(dir, id) else { return };
+        let Some(session) = self.session_get(session_id) else { return true };
+        let Some(record) = bg_run::read_record(dir, id) else { return true };
         // A runner that outlived a purge writes into no later chat of this id.
         let generation = super::bg_tasks::bg_generation(dir, false).ok();
-        if generation.as_deref() == Some(record.generation.as_str()) {
-            self.bg_publish(&session, dir, &record);
+        if generation.as_deref() != Some(record.generation.as_str()) {
+            return true;
+        }
+        self.bg_publish(&session, dir, &record)
+    }
+
+    /// [`Self::bg_ended`], tried again while the log refuses the end (its backlog full, a failed
+    /// write), with a growing pause, for about a minute: the watch is the end's only messenger to
+    /// a client that holds the row as running, and lists nothing until it ends. A thread of the
+    /// blocking pool waits, never a runtime worker.
+    pub(super) fn bg_ended_until_logged(&self, dir: &Path, session_id: &str, id: &str) {
+        for pause in [1, 2, 4, 8, 15, 30] {
+            if self.bg_ended(dir, session_id, id) || self.stopping.load(Ordering::SeqCst) {
+                return;
+            }
+            std::thread::sleep(std::time::Duration::from_secs(pause));
+        }
+        if !self.bg_ended(dir, session_id, id) {
+            tracing::warn!(task = %id, "a background task's end was not logged; a listing logs it");
         }
     }
 
@@ -104,6 +140,9 @@ impl Hub {
     /// and a record read per live row.
     pub(super) fn bg_reconcile(&self, session: &Session) {
         let dir = self.bg_dir(session);
+        // One look at the folder for the whole check: a folder that changed just now is listed
+        // again by each look, and a chat may hold thousands of tasks.
+        let folder = self.bg_records(&dir);
         let running = self.bg_running_tasks(session);
         if !running.is_empty() {
             let missing: Vec<String> = {
@@ -116,7 +155,7 @@ impl Hub {
             };
             for id in missing {
                 if let Some(record) = bg_run::read_record(&dir, &id) {
-                    self.bg_publish(session, &dir, &record);
+                    self.bg_publish_in(session, &dir, &folder, &record);
                 }
             }
         }
@@ -124,7 +163,6 @@ impl Hub {
         if live.is_empty() {
             return;
         }
-        let folder = self.bg_records(&dir);
         for (row, task) in live {
             // The record itself, not the folder's look: a look that failed to list (too many open
             // files) holds no task, and that is no proof the task is gone.
@@ -163,7 +201,17 @@ impl Hub {
                     )));
                 }
             }
-            Err(e) if e.code == RpcError::not_found("").code => self.bg_reconcile(session),
+            Err(e) if e.code == RpcError::not_found("").code => {
+                self.bg_reconcile(session);
+                // A record that could not be read now proves no end: a row still running is a
+                // task this stop never reached.
+                let live = self.process_table(session).daemon_live();
+                if live.iter().any(|(_, t)| t == task) {
+                    return Err(RpcError::internal(format!(
+                        "background task {task} could not be read, so it was not stopped; it may still run"
+                    )));
+                }
+            }
             Err(e) => return Err(e),
         }
         Ok(json!({}))
