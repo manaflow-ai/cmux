@@ -1,0 +1,8 @@
+/* A cut label while its hover marquee scrolls (hoverMarquee.ts): no ellipsis, so the words run to
+   its edge as they move. At rest it keeps its own ellipsis. Each selector outranks the label's own
+   `text-overflow: ellipsis` (ui/motion/motion.css, composerLocation.css). */
+.ui-text-roll > span[data-marquee],
+.acpmux-location-label[data-marquee],
+[data-marquee] {
+  text-overflow: clip;
+}

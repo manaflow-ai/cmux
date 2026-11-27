@@ -3,7 +3,8 @@
 // 2026-11-20: "ui for opening subagents is very confusing". Leo: "we need to be able to like thumb
 // through them like a Rolodex or whatever at the top ... you mouse over it, and then you can just go and
 // go and go ... where would the hide button be?". Every arm over one, three and eight running lines
-// (long tasks, Claude and Codex and the chat's own harness, a background command), folded, and thumbed;
+// (long tasks, Claude and Codex and the chat's own harness, a background command), folded, and pointed at
+// (the words stay: Leo, 2026-11-27, "tdont think we should have this hover anymore it's really bad");
 // the hide arms with the pointer on the hat. Light and dark: the gallery's color scheme switch.
 import { agentPaneEntry } from "../../../gallery/format";
 import { activity, assistant, chat, row, summary, tool, user } from "../../../gallery/fixtures/acpmux";
@@ -73,13 +74,14 @@ const MARK = (n: number) => `.acpmux-hat-deck__mark:nth-child(${n})`;
 const folded = async (ctx: PlayContext) => {
   await ctx.waitFor(() => ctx.document.querySelector(".acpmux-running-tray__head"));
 };
-/// The pointer on the first mark, then thumbed along to the `n`th: the header names that line.
-const thumbedTo = (n: number) => async (ctx: PlayContext) => {
+/// The pointer on the first mark, then run along to the `n`th: the words stay as they were (Leo,
+/// 2026-11-27, on the hover that swapped them for that line's name: "tdont think we should have this
+/// hover anymore it's really bad").
+const pointedAt = (n: number) => async (ctx: PlayContext) => {
   await folded(ctx);
   await ctx.waitFor(() => ctx.document.querySelector(MARK(n)));
   await ctx.hover({ selector: MARK(1) });
   await ctx.hover({ selector: MARK(n) });
-  await ctx.waitFor(() => ctx.document.querySelector(`${MARK(n)}[data-peeked]`));
 };
 /// The pointer on the hat's words: the hide control's hover state.
 const hatHovered = async (ctx: PlayContext) => {
@@ -127,35 +129,35 @@ export default agentPaneEntry({
     definition: hatHeaderLook,
     script: [
       { name: "folded", run: folded },
-      { name: "the pointer on the second line's mark", run: thumbedTo(2) },
-      { name: "thumbed to the fourth", run: thumbedTo(4) },
+      { name: "the pointer on the second line's mark", run: pointedAt(2) },
+      { name: "the pointer on the fourth: the words stay", run: pointedAt(4) },
     ],
   },
   variants: {
     ...rest("today", "Today: the stacked marks and the leading names"),
     ...rest("strip", "Icon strip at rest: one harness icon per running line"),
-    "strip-thumb-three": {
-      note: "Icon strip, the pointer run from the first icon to the second: it pops, the others step back, and the header reads that line's name and latest step.",
-      play: thumbedTo(2),
+    "strip-pointer-three": {
+      note: "Icon strip, the pointer run from the first icon to the second: the header's words stay the summary (Leo, 2026-11-27: no hover swap); a click opens that line.",
+      play: pointedAt(2),
       snapshot: THREE,
       experiments: pins("strip"),
     },
-    "strip-thumb-eight": {
-      note: "Icon strip over eight (the command's terminal mark second), thumbed to the last: the header reads that line; the time and chevron hold their columns.",
-      play: thumbedTo(8),
+    "strip-pointer-eight": {
+      note: "Icon strip over eight (the command's terminal mark second), the pointer on the last: the words stay; the time and chevron hold their columns.",
+      play: pointedAt(8),
       snapshot: EIGHT,
       experiments: pins("strip"),
     },
     ...rest("cards", "Rolodex cards at rest: the running lines as a fanned deck"),
-    "cards-thumb-three": {
-      note: "Rolodex cards, the pointer on the second card: it flips to the front, the cards behind fan away, the header names it.",
-      play: thumbedTo(2),
+    "cards-pointer-three": {
+      note: "Rolodex cards, the pointer on the second card: nothing flips and the words stay; a click opens it.",
+      play: pointedAt(2),
       snapshot: THREE,
       experiments: pins("cards"),
     },
-    "cards-thumb-eight": {
-      note: "Rolodex cards over eight, the pointer on the fifth card (the wheel thumbs the same way).",
-      play: thumbedTo(5),
+    "cards-pointer-eight": {
+      note: "Rolodex cards over eight, the pointer on the fifth card: the words stay.",
+      play: pointedAt(5),
       snapshot: EIGHT,
       experiments: pins("cards"),
     },

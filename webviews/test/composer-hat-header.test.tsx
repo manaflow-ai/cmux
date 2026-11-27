@@ -2,8 +2,9 @@
 // The composer hat's top bar (hatHeader.experiment.ts, HatHeadDeck.tsx; Leo, 2026-11-20: "thumb through
 // them like a Rolodex or whatever at the top ... you can click into them and be able to open up that
 // sub-agent ... where would the hide button be?"). The `strip` and `cards` arms draw one mark per running
-// line: pointing at one names its line in the header, leaving gives the summary back, a click opens it
-// and never folds or unfolds the hat. The `cards` deck thumbs on the wheel. The `eye`, `pill` and `bar`
+// line: a click opens it and never folds or unfolds the hat; pointing at one, or the wheel over the
+// cards, changes nothing in the header's words (Leo, 2026-11-27: "tdont think we should have this hover
+// anymore it's really bad"). The `eye`, `pill` and `bar`
 // arms move the hide control and drop today's top-edge tab. `today` keeps today's header.
 import { afterAll, describe, expect, test } from "bun:test";
 import { JSDOM, VirtualConsole } from "jsdom";
@@ -134,22 +135,20 @@ describe("the composer hat's top bar", () => {
     }
   });
 
-  test("the strip names a pointed-at line, thumbs on to the next, and gives the summary back", async () => {
+  test("pointing along the strip changes nothing in the header's words", async () => {
     const { host, title, marks, enter, leave, done } = await mount("strip");
     try {
       expect(marks().length).toBe(3);
       const summary = title();
+      const latest = host.querySelector(".acpmux-running-tray__latest")?.textContent ?? "";
       await enter(marks()[0]!);
-      expect(marks()[0]!.hasAttribute("data-peeked")).toBe(true);
-      expect(title()).toContain("Review the fold motion");
-      // Straight on to the next mark: no gap where the summary comes back.
+      expect(title()).toBe(summary);
       await enter(marks()[2]!, marks()[0]!);
-      expect(marks()[0]!.hasAttribute("data-peeked")).toBe(false);
-      expect(title()).toContain("Port the history page");
-      expect(host.querySelector(".acpmux-running-tray__latest")?.textContent).toContain("Read HistoryPage.tsx");
+      expect(title()).toBe(summary);
+      expect(host.querySelector(".acpmux-running-tray__latest")?.textContent ?? "").toBe(latest);
+      expect(marks().some((mark) => mark.hasAttribute("data-peeked"))).toBe(false);
       await leave(marks()[2]!, host.querySelector(".acpmux-running-tray__head")!);
       await leave(host.querySelector(".acpmux-hat-deck")!, dom.window.document.body);
-      expect(marks().some((mark) => mark.hasAttribute("data-peeked"))).toBe(false);
       expect(title()).toBe(summary);
     } finally {
       await done();
@@ -182,26 +181,18 @@ describe("the composer hat's top bar", () => {
     }
   });
 
-  test("the cards deck thumbs card to card on the wheel", async () => {
+  test("the cards deck draws, and the wheel over it changes nothing in the header's words", async () => {
     const { host, title, marks, done } = await mount("cards");
     try {
       expect(host.querySelector(".acpmux-hat-deck")?.getAttribute("data-look")).toBe("cards");
+      const summary = title();
       const deck = host.querySelector(".acpmux-hat-deck")!;
-      const wheel = async (deltaY: number) =>
-        act(async () => {
+      for (const deltaY of [10, 20, 30, 30])
+        await act(async () => {
           deck.dispatchEvent(new dom.window.WheelEvent("wheel", { bubbles: true, deltaY }));
         });
-      // A small delta is not a card yet; enough of them is one.
-      await wheel(10);
       expect(marks().some((mark) => mark.hasAttribute("data-peeked"))).toBe(false);
-      await wheel(20);
-      expect(marks()[1]!.hasAttribute("data-peeked")).toBe(true);
-      await wheel(30);
-      expect(marks()[2]!.hasAttribute("data-peeked")).toBe(true);
-      expect(title()).toContain("Port the history page");
-      // It wraps back to the front card.
-      await wheel(30);
-      expect(marks()[0]!.hasAttribute("data-peeked")).toBe(true);
+      expect(title()).toBe(summary);
     } finally {
       await done();
     }
