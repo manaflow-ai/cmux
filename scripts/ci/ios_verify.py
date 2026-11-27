@@ -112,7 +112,7 @@ def delegated(selection: dict) -> list[dict]:
 
 def run_step(step: dict, head: str, pr: int, strict: bool) -> dict:
     cmd = ["cmux-ci", "run", "--class", "simulator", "--script", SIM_SCRIPT, "--ref", head,
-           "--key", f"ios-verify-{pr}-{step['mode']}-{step['worker']}", "--target-worker", step["worker"],
+           "--key", f"ios-verify-{pr}-{head[:12]}-{step['mode']}-{step['worker']}-{int(time.time())}", "--target-worker", step["worker"],
            "--sim-features", "none", "--artifact", ARTIFACT, "--priority", "agent",
            "--reason", f"cmux ios verify #{pr}"]
     if strict:
