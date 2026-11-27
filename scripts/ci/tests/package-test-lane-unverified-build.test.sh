@@ -16,9 +16,11 @@ tmp=$(mktemp -d)
 git_fixture_trap_exit 'rm -rf "$tmp"'
 repo="$tmp/repo"
 pkg="$repo/Packages/macOS/Fake"
-mkdir -p "$repo/scripts/ci" "$repo/scripts/cmux-next" "$pkg" "$tmp/bin"
+mkdir -p "$repo/scripts/ci/package-test-lane" "$repo/scripts/cmux-next" "$pkg" "$tmp/bin"
 cp "$ROOT/scripts/ci/package-test-lane.sh" "$ROOT"/scripts/ci/*.py \
-  "$ROOT/scripts/ci/swift-test-debug-info.sh" "$ROOT/scripts/ci/swiftpm-binary-module-guard.sh" "$repo/scripts/ci/"
+  "$ROOT/scripts/ci/swift-test-debug-info.sh" "$ROOT/scripts/ci/swiftpm-binary-module-guard.sh" \
+  "$ROOT/scripts/ci/github-egress-direct.sh" "$repo/scripts/ci/"
+cp "$ROOT/scripts/ci/package-test-lane/swift_suite_outcomes.py" "$repo/scripts/ci/package-test-lane/"
 cp "$ROOT/scripts/cmux-next/stale-pcm-retry-needed.sh" "$repo/scripts/cmux-next/"
 printf '// swift-tools-version:5.9\nimport PackageDescription\nlet package = Package(name: "Fake")\n' > "$pkg/Package.swift"
 git_fixture_init "$repo" && git -C "$repo" -c user.email=t@t -c user.name=t commit -q --allow-empty -m init
@@ -40,7 +42,13 @@ case "$1" in
       echo "error: undefined symbols"; exit 1
     fi
     echo "Build complete!"; exit 0 ;;
-  test) echo "✔ Test run with 3 tests in 1 suite passed after 0.1 seconds."; exit 0 ;;
+  test)
+    if [ "${2:-}" = list ]; then
+      echo "FakeTests.FakeTests/example()"
+    else
+      echo "✔ Test run with 1 test in 1 suite passed after 0.1 seconds."
+    fi
+    exit 0 ;;
 esac
 exit 0
 SH
