@@ -117,8 +117,7 @@ pub fn decode_chunk(file: &[u8]) -> Result<(u8, Vec<u8>)> {
     let len = u32::from_le_bytes([a, b, c, d]) as usize;
     if len > MAX_CHUNK_BYTES {
         return Err(format!(
-            "a chunk expands to {len} bytes, over the {} byte chunk limit",
-            MAX_CHUNK_BYTES
+            "a chunk expands to {len} bytes, over the {MAX_CHUNK_BYTES} byte chunk limit"
         )
         .into());
     }
