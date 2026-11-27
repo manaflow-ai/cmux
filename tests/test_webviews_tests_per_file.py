@@ -430,7 +430,7 @@ class PerFileRunner(unittest.TestCase):
         self.assertEqual(len(calls), len(files) + 2, output)
         self.assertEqual(output.count("(CMUX_WEB_TEST_RETRY_BREAKER); react-apps-base-check judges it"), 3, output)
         self.assertIn("5 failed or timed out (2 retried alone, 0 passed alone)", output)
-        line = ("alone retries skipped: 3, since the first 2 alone retries all failed again (not contention; "
+        line = ("alone retries skipped: 3, since the last 2 alone retries in a row all failed again (not contention; "
                 "react-apps-base-check judges them; CMUX_WEB_TEST_RETRY_BREAKER=0 retries every red file)")
         self.assertIn(line, output)
         self.assertIn(line, step_summary.read_text(encoding="utf-8"))
@@ -460,6 +460,19 @@ class PerFileRunner(unittest.TestCase):
                                                       "CMUX_WEB_TEST_RETRY_BREAKER": "0"})
         self.assertEqual(len(calls), 8, result.stdout + result.stderr)
 
+    def test_the_retry_breaker_counts_a_streak_of_failed_alone_retries_that_a_pass_resets(self):
+        """A pass among the first retries used to keep the breaker off for the whole shard (11-26 long shard logs: 13
+        alone retries ran after the last pass, 1 in 13 passed). Now K failed alone retries in a row stop the rest, and
+        a pass starts the count again."""
+        files = ["test/0-fail.test.ts", "test/1-timed-out-once.test.ts"] + [f"test/{i}-fail.test.ts" for i in range(2, 6)]
+        result, _, calls = self.run_runner(
+            files, extra_env={"CMUX_WEB_TEST_RETRIES": "60", "CMUX_WEB_TEST_RETRY_BUDGET": "60",
+                              "CMUX_WEB_TEST_RETRY_BREAKER": "2"})
+        output = result.stdout + result.stderr
+        retried = [file for file in files if calls.count(f"./{file}") > 1]
+        self.assertEqual(len(retried), 4, output)
+        self.assertEqual(output.count("alone retries all failed again (CMUX_WEB_TEST_RETRY_BREAKER)"), 2, output)
+
     def test_the_retry_pool_runs_inside_the_retry_breaker(self):
         """Both on (a pull request shard): the pool settles what it can first; a file red again on the same tests is
         not an alone retry, so it does not move the breaker. The files the pool leaves unsettled go alone until the
@@ -475,17 +488,17 @@ class PerFileRunner(unittest.TestCase):
         self.assertEqual(calls.count("./test/x-fail.test.ts"), 2, output)
         # The first unsettled file to finish its first run goes alone and fails again; the breaker stops the other.
         self.assertEqual(sorted(calls.count(f"./{file}") for file in unsettled), [2, 3], output)
-        self.assertRegex(output, r"NO RETRY TIMEOUT test/[ab]-timed-out-then-fail\.test\.ts: the first 1 alone "
+        self.assertRegex(output, r"NO RETRY TIMEOUT test/[ab]-timed-out-then-fail\.test\.ts: the last 1 alone "
                                  r"retries all failed again")
-        self.assertIn("alone retries skipped: 1, since the first 1 alone retries all failed again", output)
-        # A pooled pass (contention) keeps every unsettled file's alone retry.
+        self.assertIn("alone retries skipped: 1, since the last 1 alone retries in a row all failed again", output)
+        # A pooled pass is not an alone retry: it no longer keeps the breaker off (11-26 logs: 13 alone retries ran after
+        # the last pass, 1 of 13 passed). The streak of failed alone retries is what trips it.
         result, _, calls = self.run_runner(["test/x-fail.test.ts", "test/y-contended.test.ts"] + unsettled,
                                            extra_env=env)
         output = result.stdout + result.stderr
         self.assertIn("  test/y-contended.test.ts (first run: TIMEOUT; passed beside other retries)", output)
-        for file in unsettled:
-            self.assertEqual(calls.count(f"./{file}"), 3, output)
-        self.assertNotIn("alone retries skipped", output)
+        self.assertEqual(sorted(calls.count(f"./{file}") for file in unsettled), [2, 3], output)
+        self.assertIn("alone retries skipped: 1, since the last 1 alone retries in a row all failed again", output)
 
     def test_ci_turns_the_retry_breaker_on_for_pull_request_shards_only(self):
         text = WORKFLOW.read_text(encoding="utf-8")
