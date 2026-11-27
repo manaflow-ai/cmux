@@ -3,10 +3,11 @@
 //!
 //! The agent runs under `sandbox-exec`, but the daemon does not: whatever the daemon executes on
 //! the agent's behalf (a background task, a workflow's task) would run with the daemon's full
-//! authority, and the profile lets the agent reach the daemon's unix socket. So the daemon
-//! derives a chat's boundary itself, from the launch it would make for that chat now (the same
-//! builder, `agent::harness_command_ready`, with the final env the other lane hardened), never
-//! from anything the agent sends, and runs what it executes for the chat inside that boundary.
+//! authority. The profile deliberately does not grant the agent direct access to the daemon's
+//! unix socket. The daemon instead derives a chat's boundary itself, from the launch it would
+//! make for that chat now (the same builder, `agent::harness_command_ready`, with the final env
+//! the other lane hardened), never from anything the agent sends, and runs what it executes for
+//! the chat inside that boundary.
 //!
 //! Only the person (`hub/person.rs`: a connection that proved the app's per-launch key) starts a
 //! task outside it; the chat's own agent, its subagents and the workflows it starts never do.
@@ -53,14 +54,13 @@ pub(crate) fn wrap_shell(
     shell: &str,
     command: &str,
 ) -> (String, Vec<String>) {
-    let inner = [shell.to_owned(), "-c".to_owned(), command.to_owned()];
     match sandbox {
         Some(prefix) => {
             let mut args = prefix.to_vec();
-            args.extend(inner);
+            args.extend([shell.to_owned(), "-c".to_owned(), command.to_owned()]);
             (crate::local_sandbox::SANDBOX_EXEC.to_owned(), args)
         }
-        None => (inner[0].clone(), inner[1..].to_vec()),
+        None => (shell.to_owned(), vec!["-c".to_owned(), command.to_owned()]),
     }
 }
 
