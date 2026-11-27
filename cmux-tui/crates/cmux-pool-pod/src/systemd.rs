@@ -247,10 +247,13 @@ impl<X: CommandRunner> PodRuntime for SystemdPodRuntime<X> {
     async fn stop(&self, pod: &PodSpec) -> Result<(), String> {
         let cmds = self.stop_argv(pod);
         // Thaw and stop fail harmlessly when the slice is already gone.
-        for cmd in &cmds[..2] {
+        for cmd in cmds.iter().take(2) {
             let _ = self.runner.run(&pod.host, cmd, &[]).await?;
         }
-        self.ok(pod, &cmds[2], &[]).await.map(drop)
+        let Some(stop_cmd) = cmds.get(2) else {
+            return Err("systemd stop command is missing".to_owned());
+        };
+        self.ok(pod, stop_cmd, &[]).await.map(drop)
     }
 
     async fn read_file(&self, pod: &PodSpec, path: &PodPath) -> Result<Vec<u8>, String> {

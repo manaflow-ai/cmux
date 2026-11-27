@@ -51,15 +51,18 @@ impl Request {
     /// The request as the app sends it: its id, method and params, and its kind's fields.
     pub fn to_json(&self) -> Value {
         let mut value = json!({"id": self.id, "method": self.method(), "params": self.params()});
+        let Some(object) = value.as_object_mut() else { return value };
         match &self.kind {
-            Kind::List => value["kind"] = json!("list"),
+            Kind::List => {
+                object.insert("kind".to_owned(), json!("list"));
+            }
             Kind::Issue { phone } => {
-                value["kind"] = json!("issue");
-                value["phone"] = json!(phone);
+                object.insert("kind".to_owned(), json!("issue"));
+                object.insert("phone".to_owned(), json!(phone));
             }
             Kind::Revoke { record } => {
-                value["kind"] = json!("revoke");
-                value["record"] = json!(record);
+                object.insert("kind".to_owned(), json!("revoke"));
+                object.insert("record".to_owned(), json!(record));
             }
         }
         value
