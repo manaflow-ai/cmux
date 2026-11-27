@@ -141,7 +141,7 @@ struct AgentPaneDisplaySettingTests {
         let key = "agentPane.display.streaming"
         let themed: JSONValue = ["agentPane": ["display": ["streaming": .string("instant")]]]
         #expect(AgentPaneDisplaySetting(fileRoot: ["agentPane": ["display": ["width": .number(900)]]], lookRoot: themed).values[key] == .string("instant"))
-        #expect(ThemeFileOverlay.lookKeys.contains(key))
+        #expect(SettingsSchema.descriptor(for: ["agentPane", "display", "streaming"]).map(ThemeFileOverlay.isLook) == true)
         let lines: JSONValue = ["agentPane": ["display": ["streaming": .string("lines")]]]
         #expect(AgentPaneDisplaySetting(fileRoot: lines).values[key] == .string("lines"))
         let bad: JSONValue = ["agentPane": ["display": ["streaming": .string("typewriter")]]]
