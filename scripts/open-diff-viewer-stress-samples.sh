@@ -157,7 +157,7 @@ open_sample() {
 
   echo "fetching $name in $repo_dir"
   # shellcheck disable=SC2086
-  git -C "$repo_dir" fetch --filter=blob:none origin $fetch_args
+  git -C "$repo_dir" fetch --no-recurse-submodules --filter=blob:none origin $fetch_args
   git -C "$repo_dir" checkout -B "$branch" "$head_ref"
 
   local args=(diff --branch --base "$base_ref" --title "$title" --layout split --no-focus)

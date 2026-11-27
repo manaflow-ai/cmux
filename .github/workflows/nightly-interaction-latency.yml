@@ -43,7 +43,7 @@ jobs:
       - name: Fetch recent history
         continue-on-error: true
         timeout-minutes: 5
-        run: git fetch -q --no-tags --filter=blob:none --shallow-since="14 days ago" origin "+refs/heads/feat-cmux-next:refs/remotes/origin/feat-cmux-next"
+        run: git fetch --no-recurse-submodules -q --no-tags --filter=blob:none --shallow-since="14 days ago" origin "+refs/heads/feat-cmux-next:refs/remotes/origin/feat-cmux-next"
 
       - name: Test the planner
         run: python3 -I tests/test_ci_nightly_interaction_latency.py

@@ -549,7 +549,7 @@ jobs:
             # turning old debt in untouched crates into this PR's red. Retry first.
             fetched=""
             for attempt in 1 2 3; do
-              if timeout 240 git -c http.lowSpeedLimit=1 -c http.lowSpeedTime=60 fetch --no-tags --depth=1 origin "$BASE_SHA"; then fetched=1; break; fi
+              if timeout 240 git -c http.lowSpeedLimit=1 -c http.lowSpeedTime=60 fetch --no-recurse-submodules --no-tags --depth=1 origin "$BASE_SHA"; then fetched=1; break; fi
               sleep $((attempt * 5))
             done
             [[ -n "$fetched" ]] || echo "::warning::could not fetch $BASE_SHA; planning every workspace after 3 tries"

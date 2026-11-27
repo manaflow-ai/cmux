@@ -107,7 +107,7 @@ jobs:
           [ -z "${FORCED_BASE:-}" ] || base="$FORCED_BASE"
           ancestor "$base" || base="${BEFORE:-}"
           ancestor "$base" || base="$(git rev-parse HEAD^1)"
-          git fetch --no-tags --depth=1 origin "$base"
+          git fetch --no-recurse-submodules --no-tags --depth=1 origin "$base"
           git diff --no-renames --name-only "$base" HEAD > "$RUNNER_TEMP/changed.txt"
           python3 scripts/ci/compile_test_plan.py --changed-files "$RUNNER_TEMP/changed.txt" > "$RUNNER_TEMP/plan.txt"
           {

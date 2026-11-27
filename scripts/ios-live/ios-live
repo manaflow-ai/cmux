@@ -178,7 +178,7 @@ if ! test -s \$f; then
   { git -C \$m show \$p 2>/dev/null || git -C $R/src show \$p 2>/dev/null || {
       { test -d \$c || { git init -q --bare \$c && git -C \$c remote add origin $repo_url && git -C \$c config remote.origin.promisor true \\
           && git -C \$c config remote.origin.partialclonefilter blob:none && { ! test -d \$m/objects || echo \$m/objects >\$c/objects/info/alternates; }; }; } \\
-      && git -C \$c fetch -q --depth 1 --filter=blob:none origin $s && git -C \$c show \$p; }; } >\$f.tmp \\
+      && git -C \$c fetch --no-recurse-submodules -q --depth 1 --filter=blob:none origin $s && git -C \$c show \$p; }; } >\$f.tmp \\
     && mv \$f.tmp \$f || { rm -f \$f.tmp; echo "ios-live: the host has no host.sh at $s (push it, or fetch origin)" >&2; echo; echo __ios_live_rc=69; exit 0; }
   find $R/bin -mindepth 1 -maxdepth 1 -type d -mtime +14 -exec rm -rf {} + 2>/dev/null || true
 fi

@@ -479,7 +479,7 @@ jobs:
             # then fails, so the batch's bisect hunts the merge that made a new red, not an old one.
             [[ "$BATCH_BASE" =~ ^[0-9a-f]{40}$ ]] || { echo "::error::inputs.base is not a commit sha: $BATCH_BASE"; exit 1; }
             git cat-file -e "$BATCH_BASE^{commit}" 2>/dev/null \
-              || timeout 120 git fetch --quiet --no-tags --depth=1 --filter=blob:none origin "$BATCH_BASE" \
+              || timeout 120 git fetch --no-recurse-submodules --quiet --no-tags --depth=1 --filter=blob:none origin "$BATCH_BASE" \
               || { echo "::error::could not fetch the batch base $BATCH_BASE"; exit 1; }
             head=$merge
             base=$BATCH_BASE

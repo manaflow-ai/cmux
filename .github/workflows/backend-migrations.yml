@@ -78,7 +78,7 @@ jobs:
           set -uo pipefail
           git init -q probe && cd probe || exit 0
           git remote add origin "https://github.com/$REPO.git"
-          if ! GIT_TERMINAL_PROMPT=0 timeout 60 git -c protocol.version=2 fetch -q --no-tags --depth=1 --filter=tree:0 origin "$BASE_SHA" "$HEAD_SHA"; then
+          if ! GIT_TERMINAL_PROMPT=0 timeout 60 git -c protocol.version=2 fetch --no-recurse-submodules -q --no-tags --depth=1 --filter=tree:0 origin "$BASE_SHA" "$HEAD_SHA"; then
             echo "treeless fetch failed: full plan"; exit 0
           fi
           base_tree=$(GIT_TERMINAL_PROMPT=0 timeout 60 git rev-parse --verify --quiet "$BASE_SHA:backend/db/migrations") || base_tree=""
@@ -187,7 +187,7 @@ jobs:
             # installation's API quota ran out under load and failed the plan on UI PRs (#17602).
             # The same backend/db/migrations tree as the base means no migration change; a
             # different one (the PR's change, or a base move it has not merged) is listed below.
-            git -C trusted fetch --quiet --no-tags --depth=1 origin "$HEAD_SHA"
+            git -C trusted fetch --no-recurse-submodules --quiet --no-tags --depth=1 origin "$HEAD_SHA"
             base_tree=$(git -C trusted rev-parse --verify --quiet "$BASE_SHA:backend/db/migrations" || echo none)
             head_tree=$(git -C trusted rev-parse --verify --quiet "$HEAD_SHA:backend/db/migrations" || echo none)
             if [ "$base_tree" = "$head_tree" ]; then
@@ -207,7 +207,7 @@ jobs:
           fi
           # Head migration files only: fetched as blobs, never checked out or executed.
           mkdir -p head-migrations
-          git -C trusted fetch --no-tags --depth=1 origin "$HEAD_SHA"
+          git -C trusted fetch --no-recurse-submodules --no-tags --depth=1 origin "$HEAD_SHA"
           git -C trusted archive "$HEAD_SHA" backend/db/migrations | tar -x -C head-migrations --strip-components=3
           # Data only: flat regular files with migration names. No symlinks, devices or subdirectories,
           # so no later job can be made to read anything outside these SQL texts.

@@ -1814,7 +1814,7 @@ jobs:
           EVENT_NAME: ${{ steps.prev.outputs.event || github.event_name }}
         run: |
           if [[ "$EVENT_NAME" == pull_request ]]; then
-            git fetch --no-tags --quiet --depth=200 origin "$GITHUB_SHA" || true
+            git fetch --no-recurse-submodules --no-tags --quiet --depth=200 origin "$GITHUB_SHA" || true
             python3 -I scripts/cmux-next/check-ui-font.py --rev HEAD --base HEAD^1
           else
             python3 -I scripts/cmux-next/check-ui-font.py --rev HEAD
@@ -5936,7 +5936,7 @@ jobs:
         run: |
           set -uo pipefail
           git init -q --bare "$GAP_REPO"
-          timeout 60 git -C "$GAP_REPO" fetch -q --no-tags --filter=tree:0 --depth=300 \
+          timeout 60 git -C "$GAP_REPO" fetch --no-recurse-submodules -q --no-tags --filter=tree:0 --depth=300 \
             "$GAP_REMOTE" "$SHA" || echo "::warning::no history for the cache distances"
           python3 -I scripts/ci/dev_landing_place.py >> "$GITHUB_OUTPUT"
 
@@ -7057,7 +7057,7 @@ jobs:
         timeout-minutes: 2
         env:
           SHA: ${{ inputs.same_tree_sha || github.sha }}
-        run: git fetch --quiet --no-tags --filter=tree:0 --depth=400 origin "$SHA"
+        run: git fetch --no-recurse-submodules --quiet --no-tags --filter=tree:0 --depth=400 origin "$SHA"
 
       # Why: note-343
       - name: Mint the cmux-bot read token

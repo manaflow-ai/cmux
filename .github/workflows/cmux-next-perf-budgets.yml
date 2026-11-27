@@ -206,7 +206,7 @@ jobs:
           [ "$actual" = "$TIP_SHA" ] || { echo "checkout SHA $actual differs from requested $TIP_SHA" >&2; exit 2; }
           # Deep enough that a tip measured again an hour or two later (the warm-cache case) is still found:
           # feat-cmux-next lands about 50 commits an hour.
-          git fetch --no-tags --depth=500 origin feat-cmux-next
+          git fetch --no-recurse-submodules --no-tags --depth=500 origin feat-cmux-next
           branch_tip="$(git rev-parse FETCH_HEAD)"
           git merge-base --is-ancestor "$actual" "$branch_tip" || { echo "requested SHA is not an ancestor of feat-cmux-next" >&2; exit 2; }
           started="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
@@ -622,7 +622,7 @@ jobs:
 
       # The measured commit's own benches; the perf cron script from the branch tip judges them.
       - name: Fetch the perf cron script of the branch tip
-        run: git fetch --no-tags --depth=1 origin feat-cmux-next && git show FETCH_HEAD:scripts/cmux-next/perf-cron.py > "$RUNNER_TEMP/perf-cron.py"
+        run: git fetch --no-recurse-submodules --no-tags --depth=1 origin feat-cmux-next && git show FETCH_HEAD:scripts/cmux-next/perf-cron.py > "$RUNNER_TEMP/perf-cron.py"
 
       - name: The part's benches
         continue-on-error: true

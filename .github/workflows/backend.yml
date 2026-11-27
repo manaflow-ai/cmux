@@ -953,7 +953,7 @@ jobs:
           if [ -z "$VITESS_STAGING_URL" ]; then
             # The fetch goes through the repository's git retry layer (transport failures tried again, refusals not).
             if [ -n "$BEFORE" ] && python3 "$GITHUB_WORKSPACE/scripts/ci/git_fetch_retry.py" --stop-on-refusal --tries 3 --timeout 120 \
-                -- git fetch --no-tags --depth=1 origin "$BEFORE" 2>/dev/null && git diff --quiet "$BEFORE" HEAD -- drizzle-mysql; then
+                -- git fetch --no-recurse-submodules --no-tags --depth=1 origin "$BEFORE" 2>/dev/null && git diff --quiet "$BEFORE" HEAD -- drizzle-mysql; then
               echo "::notice title=Vitess staging migrations not checked::cmux-next-staging has no CMUX_NEXT_VITESS_STAGING_ADMIN_URL; this push does not change drizzle-mysql"
               exit 0
             fi

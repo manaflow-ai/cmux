@@ -81,7 +81,7 @@ jobs:
           export GIT_CONFIG_COUNT=1 GIT_CONFIG_KEY_0=http.extraheader
           GIT_CONFIG_VALUE_0="AUTHORIZATION: basic $(printf 'x-access-token:%s' "$GH_TOKEN" | base64 -w0)"
           export GIT_CONFIG_VALUE_0
-          if git fetch --no-tags --filter=blob:none --depth=2 \
+          if git fetch --no-recurse-submodules --no-tags --filter=blob:none --depth=2 \
                origin "+refs/pull/$PR/merge:refs/guard/merge" \
              && git rev-parse --verify --quiet refs/guard/merge^1 > /dev/null \
              && [ "$(git rev-parse refs/guard/merge^2)" = "$HEAD_SHA" ] \

@@ -182,7 +182,7 @@ same_inputs() { # same_inputs A B: exit 0 when the app FFI inputs of commits A a
 previous="$(remote_head "$branch")"
 # The pin at the re-pin branch's head (fetched, since its signed commit may be newer than this checkout).
 pr_pin="" pr_sum=""
-if [[ -n "$previous" ]] && git fetch --quiet --no-tags origin "$previous" 2>/dev/null; then
+if [[ -n "$previous" ]] && git fetch --no-recurse-submodules --quiet --no-tags origin "$previous" 2>/dev/null; then
   pr_dir="$(mktemp -d)"
   # A head without a canonical pin file (one from before the pin moved to app-ffi-pin.json) pins nothing here.
   if git show "$previous:$manifest" >"$pr_dir/Package.swift" 2>/dev/null &&
@@ -554,7 +554,7 @@ for file in "$pin_file" "$manifest"; do
   if ! git diff --quiet "$tip" -- "$file"; then put_file "$file"; fi
 done
 [[ "$pin_commit" =~ ^[0-9a-f]{40}$ ]] || { echo "::error::no signed pin commit" >&2; exit 1; }
-git fetch --no-tags origin "$pin_commit"
+git fetch --no-recurse-submodules --no-tags origin "$pin_commit"
 # The re-pin PR is a stack blocker: every PR that needs the new FFI, and every app build, waits on it landing. The
 # `stack-blocker` label puts its Mac jobs on the nightly slot (scripts/ci/side_lane_placement.py STACK_SLOT) and ranks
 # them right after nightly in glaeda's runner hook, which reads labels from the event payload, so the label goes on an

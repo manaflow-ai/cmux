@@ -245,7 +245,7 @@ jobs:
           set -uo pipefail
           full() { echo "::notice title=cmux-vm check::full check: $1"; echo "short=false" >> "$GITHUB_OUTPUT"; exit 0; }
           { [ -n "$BEFORE" ] && ! [[ "$BEFORE" =~ ^0+$ ]]; } || full "no previous tip"
-          git fetch --quiet --no-tags --depth=1 origin "$BEFORE" || full "cannot fetch the previous tip $BEFORE"
+          git fetch --no-recurse-submodules --quiet --no-tags --depth=1 origin "$BEFORE" || full "cannot fetch the previous tip $BEFORE"
           pushed="$(git diff --name-only "$BEFORE" HEAD)" || full "cannot diff the push"
           [ -n "$pushed" ] || full "the push changes no file"
           while IFS= read -r f; do
@@ -259,7 +259,7 @@ jobs:
           reads=0
           while read -r id sha; do
             if [ -z "$id" ] || [ "$reads" -ge 5 ]; then break; fi
-            git fetch --quiet --no-tags --depth=1 origin "$sha" || continue
+            git fetch --no-recurse-submodules --quiet --no-tags --depth=1 origin "$sha" || continue
             diff="$(git diff --name-only "$sha" HEAD -- "${checked[@]}")" || continue
             [ -z "$diff" ] || [ "$diff" = workers/cmux-vm/wrangler.jsonc ] || continue
             reads=$((reads + 1))
@@ -297,10 +297,10 @@ jobs:
           bun install --frozen-lockfile
           # A new branch (all-zero BEFORE) lints against origin/feat-cmux-next; a base that cannot be fetched fails.
           if [ -z "$BASE" ] || [[ "$BASE" =~ ^0+$ ]]; then
-            git fetch --quiet --no-tags --depth=1 origin feat-cmux-next || { echo "::error title=Migration lint::cannot fetch origin/feat-cmux-next"; exit 1; }
+            git fetch --no-recurse-submodules --quiet --no-tags --depth=1 origin feat-cmux-next || { echo "::error title=Migration lint::cannot fetch origin/feat-cmux-next"; exit 1; }
             BASE="$(git rev-parse FETCH_HEAD)"
           else
-            git fetch --quiet --no-tags --depth=1 origin "$BASE" || { echo "::error title=Migration lint::cannot fetch the base $BASE; refusing to lint without it"; exit 1; }
+            git fetch --no-recurse-submodules --quiet --no-tags --depth=1 origin "$BASE" || { echo "::error title=Migration lint::cannot fetch the base $BASE; refusing to lint without it"; exit 1; }
           fi
           bun lint.ts --tree cmux-vm --base "$BASE"
       - name: Typecheck (includes compile-time proof misuse cases)
@@ -1234,7 +1234,7 @@ jobs:
           # Written first: if the decision below fails, the record step still runs and is loud (no outcome is never green).
           { echo "run=$run"; echo "image=$image"; echo "kind=$kind"; echo "attempt=$attempt"; } >> "$GITHUB_OUTPUT"
           # What this run deployed (github.sha) and what the tip says now (the checkout).
-          git fetch -q --depth 1 origin "$GITHUB_SHA" || true
+          git fetch --no-recurse-submodules -q --depth 1 origin "$GITHUB_SHA" || true
           git show "${GITHUB_SHA}:workers/cmux-vm/wrangler.jsonc" > "$RUNNER_TEMP/deployed-wrangler.jsonc"
           bun images/cmux-vm/auto-roll.ts settle --kind "$kind" --image "$image" --deploy "$DEPLOY" --product "$PRODUCT" \
             --boot-image "$BOOT" --attempt "$attempt" --deployed-wrangler "$RUNNER_TEMP/deployed-wrangler.jsonc" > "$RUNNER_TEMP/settle.json"

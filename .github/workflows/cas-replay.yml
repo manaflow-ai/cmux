@@ -485,7 +485,7 @@ jobs:
           SHA: ${{ github.event.pull_request.head.sha }}
         run: |
           set -euo pipefail
-          git fetch --no-tags --depth=1 origin "$SHA"
+          git fetch --no-recurse-submodules --no-tags --depth=1 origin "$SHA"
           git checkout "$SHA" -- scripts/cas tests/test_cas_acpmux_update_replay.py cmux-tui/crates/cmux-cas
 
       - name: Test the replay driver

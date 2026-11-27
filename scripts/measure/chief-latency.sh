@@ -115,7 +115,7 @@ build_side() {
   [[ "$(git rev-parse --is-shallow-repository)" == true ]] && depth=(--depth 1)
   # A fleet step's source is a bundle with no origin remote: fetch the public repo by URL then.
   local remote; remote="$(git remote get-url origin 2>/dev/null || echo https://github.com/manaflow-ai/cmux.git)"
-  git cat-file -e "$sha^{commit}" 2>/dev/null || git fetch --quiet ${depth[@]+"${depth[@]}"} "$remote" "$sha"
+  git cat-file -e "$sha^{commit}" 2>/dev/null || git fetch --no-recurse-submodules --quiet ${depth[@]+"${depth[@]}"} "$remote" "$sha"
   git worktree add --quiet --detach "$src" "$sha"
   # acpmux and cmux-tui both link ghostty-vt-sys, which builds libghostty-vt from ghostty-next.
   git -C "$src" submodule update --init --depth 1 ghostty-next

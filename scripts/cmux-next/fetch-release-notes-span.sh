@@ -41,10 +41,10 @@ fi
 # and must stay full: --depth there writes .git/shallow and truncates history
 # for every worktree sharing it. Fetch without a depth and stop.
 if [[ "$(git rev-parse --is-shallow-repository)" != true ]]; then
-  net_retry "fetch the release notes span" git fetch --no-tags --filter=blob:none "$remote" "${refspecs[@]}"
+  net_retry "fetch the release notes span" git fetch --no-recurse-submodules --no-tags --filter=blob:none "$remote" "${refspecs[@]}"
   exit 0
 fi
-net_retry "fetch the release notes span" git fetch --no-tags --filter=blob:none --depth="$depth" "$remote" "${refspecs[@]}"
+net_retry "fetch the release notes span" git fetch --no-recurse-submodules --no-tags --filter=blob:none --depth="$depth" "$remote" "${refspecs[@]}"
 if [[ -n "$since_sha" ]]; then
   since="$since_sha"
 else
@@ -65,8 +65,8 @@ span_complete() {
 }
 for ((i = 0; i < rounds; i++)); do
   span_complete && exit 0
-  net_retry "deepen the release notes span" git fetch --no-tags --filter=blob:none --deepen="$step" "$remote" "${refspecs[@]}"
+  net_retry "deepen the release notes span" git fetch --no-recurse-submodules --no-tags --filter=blob:none --deepen="$step" "$remote" "${refspecs[@]}"
 done
 span_complete && exit 0
 echo "the span from ${tag:-$since_sha} to $head is not whole within the bounded depth; unshallowing the head" >&2
-net_retry "unshallow the release notes head" git fetch --no-tags --filter=blob:none --unshallow "$remote" "${refspecs[@]}"
+net_retry "unshallow the release notes head" git fetch --no-recurse-submodules --no-tags --filter=blob:none --unshallow "$remote" "${refspecs[@]}"

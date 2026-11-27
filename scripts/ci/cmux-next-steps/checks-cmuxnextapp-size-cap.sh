@@ -11,7 +11,7 @@ base=()
 [[ "$EVENT_NAME" == pull_request ]] && base=(--base HEAD^1)
 if [[ "$EVENT_NAME" == push && -n "$BEFORE" && "$BEFORE" != 0000000000000000000000000000000000000000 ]]; then
   git cat-file -e "$BEFORE^{commit}" 2>/dev/null \
-    || git fetch --no-tags --quiet --depth=1 origin "$BEFORE" || true
+    || git fetch --no-recurse-submodules --no-tags --quiet --depth=1 origin "$BEFORE" || true
   base=(--base "$BEFORE")
 fi
 scripts/cmux-next/check-app-size.sh ${base[@]+"${base[@]}"} "$GITHUB_WORKSPACE"
