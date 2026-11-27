@@ -273,7 +273,7 @@
       "file": "cmux-next-ios/CmuxMobileKit/Sources/CmuxMobileChief/VaultScreen.swift",
       "line": 78,
       "bound_ms": 2000,
-      "waits_for": "the vault page's first status response",
+      "waits_for": "the vault's status, its first load (Settings > Cloud > Vault)",
       "root_fix": "1c"
     },
     {

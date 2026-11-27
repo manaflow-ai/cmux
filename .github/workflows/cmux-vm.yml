@@ -193,7 +193,14 @@ on:
 concurrency:
   # A label event for any other label gets a group of its own, so it never
   # cancels the running check; `check` skips on it.
-  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}${{ github.event_name == 'pull_request' && github.event.pull_request.base.ref == 'feat-cmux-next' && (github.event.action == 'labeled' && !contains(fromJSON('["cmux-vm-breaking-change-ok","full-ci","ready-to-land"]'), github.event.label.name) || github.event.action == 'unlabeled' && github.event.label.name != 'cmux-vm-breaking-change-ok') && format('-label-{0}', github.run_id) || '' }}${{ github.event_name == 'workflow_dispatch' && format('-dispatch-{0}', github.run_id) || '' }}
+  # An image roll's push gets a group of its own too. GitHub keeps one pending run per group, so in the shared
+  # push group any later push (even one whose jobs all skip) replaced the roll's waiting run before it deployed:
+  # 8 of the last 20 roll runs were cancelled that way (46011028932, 46001379799, 45982382978, ...), and with
+  # them the settle's pin write. A newer roll still replaces an older waiting one, which is right: its image is
+  # newer. Production deploys still never overlap: deploy-production, migrate-production and smoke-production
+  # serialize through their own job-level groups.
+  group: >-
+    ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}${{ github.event_name == 'pull_request' && github.event.pull_request.base.ref == 'feat-cmux-next' && (github.event.action == 'labeled' && !contains(fromJSON('["cmux-vm-breaking-change-ok","full-ci","ready-to-land"]'), github.event.label.name) || github.event.action == 'unlabeled' && github.event.label.name != 'cmux-vm-breaking-change-ok') && format('-label-{0}', github.run_id) || '' }}${{ github.event_name == 'workflow_dispatch' && format('-dispatch-{0}', github.run_id) || '' }}${{ github.event_name == 'push' && startsWith(github.event.head_commit.message, 'cmux-vm: image roll') && '-image-roll' || '' }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 permissions:
@@ -1299,15 +1306,17 @@ jobs:
       # by 327 min on 2026-11-27; cmuxterm-hq goal fix-running-platform-pin, handbook fallback-pin-trails-the-roll.md).
       # cmux-platform's own scripts/platform-pin-follow.ts decides, from the deployed commit's lists, so there is one
       # writer's logic; the App token's push to cmux-platform main starts its ci.yml, which deploys. A miss only warns:
-      # the hourly follower still moves the pin.
+      # platform-pin-follow.yml (every 15 min, after a 60-minute stand) still moves the pin. The cmux bot App, not
+      # pr-autofix: pr-autofix is not installed on cmux-platform (run 45992429531's mint answered 404, as 44852142963's
+      # did for the read token above).
       - name: Mint the cmux-platform pin token
         id: pin-token
         if: steps.deploy-mode.outputs.enabled == 'true' && steps.roll.outputs.kind == 'roll' && steps.roll.outputs.outcome == 'green'
         continue-on-error: true
         uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
         with:
-          app-id: ${{ secrets.CMUX_PR_AUTOFIX_APP_ID }}
-          private-key: ${{ secrets.CMUX_PR_AUTOFIX_APP_KEY }}
+          app-id: ${{ vars.CMUX_BOT_APP_ID }}
+          private-key: ${{ secrets.CMUX_BOT_APP_KEY }}
           owner: manaflow-ai
           repositories: cmux-platform
           permission-contents: write
