@@ -18,6 +18,12 @@ known-good sites:
    the repository's own value written next to it as a literal. The table below
    is the one hand-maintained part, and it names three variables, not the
    dozens of sites that read them.
+3. A variable compared with the string '0' must be read through
+   `format('{0}', vars.X)` (or given a literal with `||`). An unset variable is
+   null, and Actions compares null with '0' as numbers, 0 == 0, so a bare
+   `vars.X != '0'` is false when nobody set X: the switch documented as "on
+   unless set to 0" is off. #55354's PR scoping (vars.CI_FAST_TIER_PR_SCOPE) was
+   off on every pull request this way, with no repository variable set.
 """
 
 from __future__ import annotations
@@ -102,8 +108,6 @@ PAID_OVERFLOW_GATE_PREFIX = re.compile(
 GATE_EXEMPT_REPORTING_READS = {
     ("ci-health-report.yml", "CMUX_CI_RUNNER_VARIABLES"):
         "reports each runner variable's value; gating would report empty",
-    ("ci-repo-variables.yml", "CMUX_CI_RUNNER_VARIABLES"):
-        "validates each runner variable's value; gating would validate empty",
     ("ci-cloud-overflow-probe.yml", "CMUX_CI_RUNNER_VARIABLES"):
         "the overflow switch records each value to put back; gating would record empty",
 }
@@ -147,13 +151,19 @@ def is_comparison(text: str, end: int) -> bool:
 
 
 def default_chain_reaches_literal(text: str, end: int) -> bool:
-    """True when a chain ends in a literal or declared runner pool."""
+    """True when a chain ends in a literal, a literal label list or a declared runner pool.
+
+    A literal list (`fromJSON('["cmux-mac","xcode-27.0"]')`) is a constant non-empty runs-on, as a quoted label
+    is, and so is a list read that falls back to one inside fromJSON (`fromJSON(needs.X.outputs.fallback != '' &&
+    needs.X.outputs.fallback || '["cmux-mac","xcode-27.0"]')`, ios-internal-nightly's archive fallback).
+    """
     rest = text[end:]
     while True:
         chained = re.match(r"\s*\|\|\s*vars\.[A-Z0-9_]+", rest)
         if chained is None:
             return re.match(
-                r"\s*\|\|\s*(?:'[^']+'|fromJSON\(vars\.RUNNER_POOLS\)\.[A-Za-z0-9_]+)",
+                r"\s*\|\|\s*(?:'[^']+'|fromJSON\('\[\s*\"[^']+\]'\)|fromJSON\(vars\.RUNNER_POOLS\)\.[A-Za-z0-9_]+"
+                r"|fromJSON\([^()]*?\|\|\s*'\[\s*\"[^']+\]'\))",
                 rest,
             ) is not None
         rest = rest[chained.end():]
@@ -212,7 +222,31 @@ def top_level_conjuncts(condition: str) -> list[str]:
         current += char
         index += 1
     parts.append(current.strip())
-    return parts
+    # `a && (b && (c || d))` requires b and (c || d) too: a conjunct that is one parenthesized
+    # conjunction contributes its own conjuncts (#48747's tip test-compile gate is written so).
+    flat = []
+    for part in parts:
+        flat.append(part)
+        if part.startswith("(") and part.endswith(")") and wrapped_whole(part):
+            inner = top_level_conjuncts(part[1:-1])
+            if len(inner) > 1:
+                flat.extend(inner)
+    return flat
+
+
+def wrapped_whole(text: str) -> bool:
+    """`(a) && (b)` starts and ends with a parenthesis but is not one parenthesized group."""
+    depth, quoted = 0, False
+    for index, char in enumerate(text):
+        if char == "'":
+            quoted = not quoted
+        elif not quoted and char == "(":
+            depth += 1
+        elif not quoted and char == ")":
+            depth -= 1
+            if depth == 0 and index != len(text) - 1:
+                return False
+    return True
 
 
 def gated_on_every_read(condition: str, reads: list[re.Match], expression: str = "") -> bool:
@@ -303,8 +337,11 @@ def check_runs_on(path: Path, errors: list[str]) -> None:
         # RUNNER_POOLS is the declarative route source. Its member read is a
         # valid terminal fallback; unlike scalar vars it must not be replaced
         # with a literal label.
+        # A compared read (`vars.X == 'on' && ...`) is a switch: its value is a boolean, never the label,
+        # so an unset one cannot empty the runs-on (billing's Blacksmith retry, the channel heal's skip).
         reads = [read for read in VARS_REFERENCE.finditer(expression)
-                 if read.group(1) != "RUNNER_POOLS"]
+                 if read.group(1) != "RUNNER_POOLS"
+                 and not re.match(r"\s*(?:==|!=)", expression[read.end():])]
         if not reads:
             continue
         if all(pool_read_after_fork_branch(expression, read) for read in reads):
@@ -316,6 +353,10 @@ def check_runs_on(path: Path, errors: list[str]) -> None:
         # A last top-level `|| 'label'` is the fallback of the whole expression
         # (build-nightly-app: trusted tuple || hosted 'macos-26').
         if re.search(r"\|\|\s*'[^']+'\s*\}\}\s*(#.*)?$", line):
+            continue
+        # A last top-level `|| fromJSON('["label", ...]')` is a literal label set, the same fallback
+        # (ios-internal-nightly's archive: cmux-mac AND xcode-27.0 when no picker output applies).
+        if re.search(r"\|\|\s*fromJSON\('\[\s*\"[^\"']+\"(?:\s*,\s*\"[^\"']+\")*\s*\]'\)\s*\}\}\s*(#.*)?$", line):
             continue
         errors.append(
             f"{path.name}:{number}: runs-on reads "
@@ -487,6 +528,48 @@ def self_test_pool_reads(errors: list[str]) -> None:
             errors.append(f"self-test: pool read {'accepted' if not expected else 'refused'} wrongly: {text}")
 
 
+# `vars.X != '0'` / `vars.X == '0'` with no format() around the read (rule 3).
+BARE_ZERO_COMPARE = re.compile(r"(?<![(,]\s)(?<![(,])vars\.([A-Z0-9_]+)\s*[!=]=\s*'0'")
+
+# Sites that read a bare `vars.X != '0'` on feat-cmux-next when rule 3 landed.
+# Each is off today while unset (rule 3); turning one on is its owner's call,
+# so they are named here rather than flipped. Drop a name once its sites read
+# `format('{0}', vars.X)`. Do not add names: fix the new site instead.
+UNSET_READS_AS_ZERO_KNOWN = {
+    "CI_FAST_TIER_CARGO_BOT_READ",
+    "CI_REACT_SHARD_RECEIPT",
+    "CI_IOS_FAST_VERDICT",
+    "CMUX_NEXT_LANGUAGE_PACKS",
+    "CMUX_NEXT_TOOL_PACKS",
+    "FIXIT_HANDOFF",
+    "IOS_BASE_BISECT",
+}
+
+
+def check_unset_zero_reads(path: Path, errors: list[str]) -> None:
+    for number, line in enumerate(path.read_text().splitlines(), 1):
+        if line.lstrip().startswith("#"):
+            continue
+        for match in BARE_ZERO_COMPARE.finditer(line):
+            if match.group(1) not in UNSET_READS_AS_ZERO_KNOWN:
+                errors.append(
+                    f"{path.relative_to(ROOT)}:{number}: vars.{match.group(1)} compared with '0' reads an "
+                    f"unset variable as '0' (null and '0' both coerce to 0); write "
+                    f"format('{{0}}', vars.{match.group(1)})"
+                )
+
+
+def self_test_unset_zero_reads(errors: list[str]) -> None:
+    for text, expected in (
+        ("vars.CI_X != '0'", True),
+        ("vars.CI_X == '0'", True),
+        ("format('{0}', vars.CI_X) != '0'", False),
+        ("(vars.CI_X || '1') != '0'", False),
+    ):
+        if bool(BARE_ZERO_COMPARE.search(text)) != expected:
+            errors.append(f"self-test: unset-as-zero read {'missed' if expected else 'flagged'}: {text}")
+
+
 def main() -> int:
     errors: list[str] = []
     files = workflow_files()
@@ -496,10 +579,12 @@ def main() -> int:
     self_test_gate_matcher(errors)
     self_test_runs_on_gate(errors)
     self_test_pool_reads(errors)
+    self_test_unset_zero_reads(errors)
     for path in files:
         check_runs_on(path, errors)
         check_cheap_defaults(path, errors)
         check_paid_overflow_gate(path, errors)
+        check_unset_zero_reads(path, errors)
 
     if errors:
         print("Repository variables that an unset value makes expensive:", file=sys.stderr)

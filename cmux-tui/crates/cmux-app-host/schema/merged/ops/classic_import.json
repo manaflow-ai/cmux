@@ -4,12 +4,12 @@
     "classic_import.plan": {
       "source": "local",
       "class": "read",
-      "digest": "bfbc92b4827bc94d"
+      "digest": "fbd4a04f0b02334d"
     },
     "classic_import.record": {
       "source": "local",
       "class": "mutation",
-      "digest": "a7530c316ebe6b7d"
+      "digest": "6e84f9caecc518c9"
     }
   }
 }

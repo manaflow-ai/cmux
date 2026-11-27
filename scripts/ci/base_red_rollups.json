@@ -45,6 +45,10 @@
   "run": {
     "ci-status": {
       "job": "ci-status",
+      "reports": [
+        "Check platform workflow routing",
+        "Check routed CI jobs"
+      ],
       "under": {
         "browser": {
           "exact": [],
@@ -117,10 +121,19 @@
     },
     "ios-e2e-status": {
       "job": "ios-e2e-status",
+      "reports": [
+        "Aggregate"
+      ],
       "under": {
         "backend": {
           "exact": [
             "backend"
+          ],
+          "prefixes": []
+        },
+        "full-carry": {
+          "exact": [
+            "full-ci base merge carry"
           ],
           "prefixes": []
         },
@@ -141,6 +154,9 @@
     },
     "web / Web status": {
       "job": "web-status",
+      "reports": [
+        "Check routed web jobs"
+      ],
       "under": {
         "agent-pane-real-acpmux": {
           "exact": [
@@ -170,18 +186,6 @@
           "exact": [],
           "prefixes": [
             "web / react-apps-check ("
-          ]
-        },
-        "react-doctor": {
-          "exact": [
-            "web / react-doctor"
-          ],
-          "prefixes": []
-        },
-        "runners": {
-          "exact": [],
-          "prefixes": [
-            "web / runners / "
           ]
         },
         "web-db-migrations": {

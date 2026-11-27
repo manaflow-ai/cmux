@@ -81,6 +81,16 @@ public final class CmuxToastView: NSView {
     public var isHovered: Bool { pointerHover?.isHovering ?? false }
 
     let reduceTransparency: ReduceTransparency
+    /// The shared hover surface this toast draws (``HoverSurfaceLook``), or nil: a style that picks its own
+    /// glass, solid or flat fill, or the setting's glass.
+    let hoverLook: HoverSurfaceLook?
+
+    /// The hover look a toast with `look` draws: the setting's solid look when the toast follows the tuned glass.
+    @MainActor static func hoverLook(for look: CmuxToastLook) -> HoverSurfaceLook? {
+        let current = HoverSurfaceLook.current
+        guard current.isSolid, look.glass == nil, !look.solid, !look.flat else { return nil }
+        return current
+    }
     /// The look this toast was built with (Debug Settings > Toasts, else the defaults).
     public let tuning: CmuxToastTuning
 
@@ -104,8 +114,12 @@ public final class CmuxToastView: NSView {
         if let placement = toast.placement { look.placement = placement }
         self.look = look
         // A solid toast draws on the opaque surface, as under Reduce Transparency, and fits its text to it.
-        // glass-opaque-allow: the Solid style is a look the person picks in the Toast Playground on purpose.
-        self.reduceTransparency = style.look.solid ? .alwaysOpaque : reduceTransparency
+        // A toast on the tuned glass (the standard hint toast: the terminal's selection hint, the closed-tab
+        // undo) draws the shared hover surface (``HoverSurfaceLook``), solid by default, and fits its text to it.
+        let hover = Self.hoverLook(for: look)
+        hoverLook = hover
+        // glass-opaque-allow: the Solid style is a look the person picks in the Toast Playground on purpose, and the hover surface's solid looks are the default Leo named (2026-11-24 "wack ass glass").
+        self.reduceTransparency = style.look.solid || hover != nil ? .alwaysOpaque : reduceTransparency
         self.tuning = tuning
         geometry = Self.geometry(look: look, tuning: tuning)
         super.init(frame: .zero)
@@ -126,6 +140,27 @@ public final class CmuxToastView: NSView {
 
     @available(*, unavailable)
     required init?(coder: NSCoder) { fatalError("init(coder:) is not supported") }
+
+    /// The glass a toast in `look` draws on with `tuning`: the toast role's tone and the toasts' glass
+    /// (the look's, else Debug Settings > Toasts), opaque under Reduce Transparency. Every toast draws on it,
+    /// and so does a toast-shaped card the center does not draw (the Import from Chrome card,
+    /// ``Glass/makeSurface(toastOf:cornerRadius:reduceTransparency:)``), so the two never show two kinds of glass (Leo
+    /// 2026-11-24: "oh yeah the import from chrome popup/toast is there too...with yet another kind of
+    /// \"glass\"").
+    public static func makeSurface(look: CmuxToastLook, tuning: CmuxToastTuning, cornerRadius: CGFloat,
+                                   reduceTransparency: ReduceTransparency = .shared,
+                                   hover: HoverSurfaceLook? = nil) -> OverlaySurfaceView {
+        // `hover`: the shared hover surface's arm, when the toast draws it (opaque, its edge width).
+        let surface = OverlaySurfaceView(material: look.solid || hover != nil ? .opaque : nil, interactive: true, cornerRadius: cornerRadius, // concentric-allow: the caller's corner (a toast's concentric outerRadius; the card's toast role corner)
+                                         reduceTransparency: reduceTransparency, tone: SurfaceRole.toast.tone,
+                                         glassVariant: (look.glass ?? tuning.glass).variant)
+        if let hover { surface.edgeWidth = hover.edgeWidth }
+        // The overlay panel is a clear window of its own: before macOS 26 the blur samples what is
+        // behind it (the window's content). Liquid Glass and the opaque surface ignore this.
+        surface.samplesBehindWindow = true
+        surface.translatesAutoresizingMaskIntoConstraints = false
+        return surface
+    }
 
     /// The concentric geometry of a toast in `look` built with `tuning`.
     static func geometry(look: CmuxToastLook, tuning: CmuxToastTuning) -> ConcentricContainer {
@@ -256,14 +291,8 @@ public final class CmuxToastView: NSView {
         let content = NSView()
         content.addSubview(row)
         if toast.action?.revealsDetails == true, let detail = toast.detail { addDetailLabel(detail, in: content, below: row) }
-        // The toast role's glass; the material follows this Mac (opaque under Reduce Transparency).
-        let surface = OverlaySurfaceView(material: look.solid ? .opaque : nil, interactive: true, cornerRadius: geometry.outerRadius,
-                                         reduceTransparency: reduceTransparency, tone: SurfaceRole.toast.tone,
-                                         glassVariant: (look.glass ?? tuning.glass).variant)
-        // The overlay panel is a clear window of its own: before macOS 26 the blur samples what is
-        // behind it (the window's content). Liquid Glass and the opaque surface ignore this.
-        surface.samplesBehindWindow = true
-        surface.translatesAutoresizingMaskIntoConstraints = false
+        let surface = Self.makeSurface(look: look, tuning: tuning, cornerRadius: geometry.outerRadius,
+                                       reduceTransparency: reduceTransparency, hover: hoverLook)
         self.surface = surface
         content.translatesAutoresizingMaskIntoConstraints = true
         content.autoresizingMask = [.width, .height]

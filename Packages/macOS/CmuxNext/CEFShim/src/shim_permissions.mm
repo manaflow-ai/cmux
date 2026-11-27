@@ -1,7 +1,7 @@
 // Permission prompts (CefPermissionHandler). Chromium's own bubble anchors to
 // a toolbar cmux never shows, so a request it would ask about waits until it
 // times out. The kinds the host asks about in its prompt bar
-// (kHostPermissions, and notifications alone) go to the host as PERMISSION_PROMPT, answered
+// (kHostPermissions, clipboard alone, or notifications alone) go to the host as PERMISSION_PROMPT, answered
 // with cmux_shim_permission_continue; every other kind keeps Chromium's default
 // (permission_prompt_policy.h).
 // Chromium persists Accept and Deny in its own content settings.
@@ -18,6 +18,7 @@ namespace cmux_shim {
 namespace {
 
 // permission_prompt_policy.h names CEF's bits without CEF's headers.
+static_assert(kPermissionClipboard == CEF_PERMISSION_TYPE_CLIPBOARD, "clipboard bit");
 static_assert(kPermissionGeolocation == CEF_PERMISSION_TYPE_GEOLOCATION, "geolocation bit");
 static_assert(kPermissionNotifications == CEF_PERMISSION_TYPE_NOTIFICATIONS, "notifications bit");
 static_assert(kPermissionCamera == CEF_PERMISSION_TYPE_CAMERA_STREAM, "camera bit");
@@ -113,7 +114,41 @@ CefRefPtr<CefPermissionHandler> PermissionHandler() {
   return handler;
 }
 
+namespace {
+// Waiting HTTP sign-ins by token, UI thread (never destroyed at exit, like prompts()).
+std::map<int, CefRefPtr<CefAuthCallback>>& authPrompts() {
+  static auto* table = new std::map<int, CefRefPtr<CefAuthCallback>>();
+  return *table;
+}
+int nextAuthToken = 0;
+}  // namespace
+
+int AddAuthPrompt(CefRefPtr<CefAuthCallback> callback) {
+  const int token = ++nextAuthToken;
+  authPrompts()[token] = callback;
+  return token;
+}
+
+int ContinueAuthPrompt(int token, const char* user, const char* password) {
+  auto it = authPrompts().find(token);
+  if (it == authPrompts().end()) return 0;
+  CefRefPtr<CefAuthCallback> callback = it->second;
+  authPrompts().erase(it);
+  if (user) {
+    callback->Continue(user, password ? password : "");
+  } else {
+    callback->Cancel();  // the server's 401 page loads
+  }
+  return 1;
+}
+
+void ForgetAuthPrompts() {
+  for (auto& entry : authPrompts()) entry.second->Cancel();
+  authPrompts().clear();
+}
+
 void ForgetPermissionPrompts() {
+  ForgetAuthPrompts();
   prompts().clear();
   for (auto& entry : displayCaptures()) entry.second.callback->Cancel();
   displayCaptures().clear();
@@ -124,6 +159,10 @@ void ForgetPermissionPrompts() {
 using namespace cmux_shim;
 
 extern "C" {
+
+int cmux_shim_auth_continue(int token, const char* user, const char* password) {
+  return cmux_shim::ContinueAuthPrompt(token, user, password);
+}
 
 int cmux_shim_permission_continue(int prompt_token, int result) {
   auto capture = displayCaptures().find(prompt_token);

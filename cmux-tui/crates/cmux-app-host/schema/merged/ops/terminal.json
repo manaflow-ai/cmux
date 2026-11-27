@@ -9,7 +9,7 @@
     "terminal.close": {
       "source": "local",
       "class": "mutation",
-      "digest": "e727bd9bed0b6e28"
+      "digest": "be52576b8b8486d6"
     },
     "terminal.copy": {
       "source": "local",

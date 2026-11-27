@@ -6,9 +6,14 @@ cmux-4f ...)" for a month after cmux-4f was gone and reached no one (cmux#50549,
 whoever holds it now, read from the live sessions at push time, in this order:
 
 1. a live session tagged `owns=` with the row's workstream (`acpmux session tag SESSION owns=PL-acpmux`; a comma list holds
-   several): a holder takes a workstream by tagging itself, and gives it up by ending;
+   several), or with the area's name or its start (`owns=package-layering`, `owns=Chromium hosting`; owns_area): a
+   holder takes a workstream by tagging itself, and gives it up by ending;
 2. a live lane the row's role names: `lanes tabs-refine,tab-strip-*` (fnmatch globs on the session's short name, commas
-   between them; `|` would split the OWNERS.md table cell), the most recently active one. A role outlives every session that fills it, so a row written
+   between them; `|` would split the OWNERS.md table cell), the most recently active one (never a PR finisher, `finish-REPO-N-...`, which holds one PR).
+   A glob is anchored at the name's start (`role_glob`): `*sidebar*` holds `sidebar-owner`, never `rex-sidebar-look`,
+   a lane on one sidebar PR that the bare glob made holder of every sidebar push (about 12 notices in two days,
+   2026-11-25). A lane whose name only mentions the area is not its lane; with none, the push goes the unheld way
+   (steps 5-6). A role outlives every session that fills it, so a row written
    `lanes ...` does not go dead when one lane ends (2026-11-23: seven rows named ended sessions, cmux-b6, cmux-4f,
    a590, and their pushes went to the coordinator);
 3. the session the cell names (`session cmux-4f`), if it is live;
@@ -24,7 +29,7 @@ The pre-push hook prints the holder on the owner line and sends it one `acpmux s
 and pushed head (a stand-in, the Performance Lead or the coordinator, one per area a UTC day, asking for a holder) (deduplicated in ~/.cache/cmux/owner-notices.json), so a push into an area reaches a live session
 without the pusher looking anyone up. Never on CI (`CI` set), never when acpmux is missing, never longer than
 LIST_TIMEOUT_S plus SEND_TIMEOUT_S, and never a refusal: a failed listing or send is one line in the report.
-`CMUX_OWNER_NOTIFY=0` prints the holder and sends nothing.
+`CMUX_OWNER_NOTIFY=0` prints the holder and sends nothing, as does a push outside an acpmux session (no sender).
 """
 from __future__ import annotations
 
@@ -46,6 +51,12 @@ DEAD = {"closed", "stopped", "failed", "dead", "disconnected", "retired"}
 WORKSTREAM = re.compile(r"\bPL-[A-Za-z0-9][\w-]*")
 SESSION = re.compile(r"\bsessions? ([A-Za-z0-9][\w./-]*[A-Za-z0-9])")
 LANES = re.compile(r"\blanes ([A-Za-z0-9*?\[\]][\w*?\[\]./,-]*)")
+# A PR finisher the stall dispatcher starts (`finish-cmux-52161-sidebar`) holds one pull request, not an area: its
+# name carries the PR's area word, so a role glob like `*sidebar*` matched it and every sidebar push went to it
+# (2026-11-23: ~25 notices to finish-cmux-52161-sidebar). Role globs skip it; an `owns=` tag still counts.
+FINISHER = re.compile(r"^finish-[\w.-]*?-\d+(?:-|$)")
+# A role glob's leading wildcards and separators: `*sidebar*` and `*-ghostty*` match from the name's start.
+UNANCHORED = "*?-_."
 LEAD = "PL-lead"
 COORDINATOR = "coordinator"
 
@@ -58,6 +69,17 @@ def cell_names(cell: str) -> tuple[list[str], list[str]]:
 def cell_lanes(cell: str) -> list[str]:
     """The lane-name globs a role cell names: `tabs-refine` and `tab-strip-*` from "lanes tabs-refine,tab-strip-*"."""
     return [g for m in LANES.findall(cell or "") for g in m.split(",") if g]
+
+
+def role_glob(glob: str) -> str:
+    """GLOB anchored at the session name's start: `*sidebar*` -> `sidebar*`. A name holds the role when it begins with
+    the area word, not when the word turns up inside it (`rex-sidebar-look`, `finish-cmux-52161-sidebar`)."""
+    return glob.lstrip(UNANCHORED) or glob
+
+
+def fills_role(name: str, globs: list[str]) -> bool:
+    """Whether the session short NAME is a lane of the role GLOBS: anchored (role_glob), never a PR finisher."""
+    return not FINISHER.match(name) and any(fnmatch.fnmatchcase(name, role_glob(g)) for g in globs)
 
 
 def _tags(row: dict) -> dict:
@@ -78,8 +100,33 @@ def is_live(row: dict) -> bool:
     return str(row.get("status") or "").casefold() not in DEAD and row.get("stale") is not True and bool(_name(row))
 
 
+def _owns_list(row: dict) -> list[str]:
+    return [w.strip() for w in str(_tags(row).get("owns") or "").split(",") if w.strip()]
+
+
 def owns(row: dict, workstream: str) -> bool:
-    return workstream in [w.strip() for w in str(_tags(row).get("owns") or "").split(",")]
+    return workstream in _owns_list(row)
+
+
+def _slug(text: str) -> str:
+    return re.sub(r"[^a-z0-9]+", "-", str(text or "").casefold()).strip("-")
+
+
+def owns_area(row: dict, area: str) -> str | None:
+    """The `owns=` value of ROW that names the OWNERS.md AREA, or None. A coordinator tags a holder with the area it
+    reads, not the row's PL- token: on 2026-11-27 `owns=package-layering` (gcp-agent-lane-13), `owns=Chromium hosting`
+    and `owns=Guardrails, pre-push gate, codebase health` were live tags and those areas still read "no live holder",
+    their pushes going to the coordinator. A value names the area when it is the area's name or its start, compared
+    case- and punctuation-blind and ending at a word ("package-layering" and "Package layering" name "Package
+    layering, signpost catalog (...)"; "pack" names nothing)."""
+    target = _slug(area)
+    if not target:
+        return None
+    for value in _owns_list(row):
+        key = _slug(value)
+        if key and (target == key or target.startswith(key + "-")):
+            return value
+    return None
 
 
 def _named(rows: list[dict], name: str) -> list[dict]:
@@ -129,17 +176,22 @@ def registry_coordinator(path: Path | None = None) -> str | None:
     return current if isinstance(current, str) and current else None
 
 
-def holder(cell: str, rows: list[dict], coordinator: str | None = None) -> tuple[str | None, str]:
-    """(live session, how) for the owner CELL, or (None, why none)."""
+def holder(cell: str, rows: list[dict], coordinator: str | None = None,
+           area: str | None = None) -> tuple[str | None, str]:
+    """(live session, how) for the owner CELL of AREA, or (None, why none)."""
     workstreams, sessions = cell_names(cell)
     live = [r for r in rows if is_live(r)]
     for w in workstreams:
         tagged = sorted((r for r in live if owns(r, w)), key=lambda r: -(r.get("updatedAt") or 0))
         if tagged:
             return _name(tagged[0]), f"holds owns={w}"
+    if area:
+        tagged = sorted((r for r in live if owns_area(r, area)), key=lambda r: -(r.get("updatedAt") or 0))
+        if tagged:
+            return _name(tagged[0]), f"holds owns={owns_area(tagged[0], area)}"
     globs = cell_lanes(cell)
     if globs:
-        lanes = sorted((r for r in live if any(fnmatch.fnmatchcase(_short(_name(r)), g) for g in globs)),
+        lanes = sorted((r for r in live if fills_role(_short(_name(r)), globs)),
                        key=lambda r: -(r.get("updatedAt") or 0))
         if lanes:
             return _name(lanes[0]), f"a lane of {','.join(globs)}"
@@ -174,6 +226,9 @@ def list_sessions(timeout: float = LIST_TIMEOUT_S) -> tuple[list[dict] | None, s
     """(acpmux's session records, None) or (None, why not): every host's, closed ones included (successor chains)."""
     if os.environ.get("CI") or not shutil.which("acpmux"):
         return None, None
+    cached = _cache_read()
+    if cached is not None:
+        return cached, None
     try:
         out = subprocess.run(["acpmux", "ls", "--json"], capture_output=True, text=True, timeout=timeout)
         doc = json.loads(out.stdout or "null")
@@ -183,7 +238,36 @@ def list_sessions(timeout: float = LIST_TIMEOUT_S) -> tuple[list[dict] | None, s
     if not isinstance(rows, list):
         return None, None
     rows = [r for r in rows if isinstance(r, dict)]
-    return merge_tagged(rows, _tagged(TAG_KEYS, timeout)), None
+    merged = merge_tagged(rows, _tagged(TAG_KEYS, timeout))
+    _cache_write(merged)
+    return merged, None
+
+
+# Each `ls --tag KEY` asks every peer host over ssh (3 keys, about 40 hosts, 4 processes a host: ~500 processes a
+# push; 2026-11-24 cosmic-gray load 65 on 15 cores, 5 pushes a minute). A listing is shared by every push for
+# CACHE_S, so a burst of pushes reads the fleet once.
+CACHE_S = 90
+CACHE_FILE = Path(os.environ.get("CMUX_OWNER_LIVE_CACHE") or Path.home() / ".cache" / "cmux" / "owner-live-sessions.json")
+
+
+def _cache_read() -> list[dict] | None:
+    try:
+        if time.time() - CACHE_FILE.stat().st_mtime > CACHE_S:
+            return None
+        rows = json.loads(CACHE_FILE.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return None
+    return rows if isinstance(rows, list) else None
+
+
+def _cache_write(rows: list[dict]) -> None:
+    try:
+        CACHE_FILE.parent.mkdir(parents=True, exist_ok=True)
+        tmp = CACHE_FILE.with_suffix(f".{os.getpid()}.tmp")
+        tmp.write_text(json.dumps(rows, separators=(",", ":")), encoding="utf-8")
+        os.replace(tmp, CACHE_FILE)
+    except OSError:
+        pass
 
 
 TAG_KEYS = ("owns", "succeeds", "failover")
@@ -225,10 +309,58 @@ def _notices_path() -> Path:
     return Path(os.environ.get("CMUX_OWNER_NOTICES") or Path.home() / ".cache/cmux/owner-notices.json")
 
 
+# A notice goes out as the pushing session or not at all. On 2026-11-25 a push run outside any acpmux session sent
+# one from the bare host (thread from:gcp-agent-lane-8, no Sent-by, "no live or closed session named
+# 'gcp-agent-lane-8'"), so its reader could neither answer nor tell who pushed. acpmux names the sender from
+# ACPMUX_SESSION_ID (or a session token); with neither set the push prints the holder and sends nothing.
+SENDER_ENV = ("ACPMUX_SESSION_ID", "ACPMUX_SESSION_TOKEN")
+NO_SENDER = "no acpmux session to send as (ACPMUX_SESSION_ID unset); tell the holder yourself"
+
+
+def sender() -> str | None:
+    """The pushing session's id or token, or None outside an acpmux session."""
+    return next((os.environ[name] for name in SENDER_ENV if os.environ.get(name, "").strip()), None)
+
+
+# A notice names its pusher as HOST/NAME, the address `lane-gh send` and inbox_reply take. On 2026-11-26 three notices
+# reached a coordinator labelled with a bare host ("gcp-agent-lane-5", "fs-agent-lane-7", "gcp-codex-lane-12") and
+# inbox_reply failed with "no live or closed session named 'gcp-agent-lane-5' on any machine": the holder could not
+# answer the pusher. The notice now carries the address it was sent from, and a session acpmux cannot name sends none.
+NO_SENDER_NAME = "the pushing session has no HOST/NAME acpmux can resolve; tell the holder yourself"
+
+
+def sender_name(timeout: float = LIST_TIMEOUT_S) -> str | None:
+    """The pushing session as HOST/NAME (from `acpmux session info`), or None when acpmux cannot name it."""
+    ident = (os.environ.get("ACPMUX_SESSION_ID") or os.environ.get("ACPMUX_SESSION_NAME") or "").strip()
+    if not ident:
+        return None
+    try:
+        out = subprocess.run(["acpmux", "session", "info", ident, "--fields", "machine,name"],
+                             capture_output=True, text=True, timeout=timeout)
+    except (OSError, subprocess.TimeoutExpired):
+        return None
+    if out.returncode != 0:
+        return None
+    fields = dict(line.split("\t", 1) for line in out.stdout.splitlines() if "\t" in line)
+    host, name = fields.get("machine", "").strip(), _short(fields.get("name", "").strip())
+    return f"{host}/{name}" if host and name else None
+
+
+def signed(text: str, me: str) -> str:
+    """TEXT with a line naming the pusher, so the holder can answer it."""
+    return f"{text}\n\nFrom {me}; answer with `lane-gh send {me} -` or `acpmux send {me} -`."
+
+
 def notify(to: str, area: str, head: str, text: str) -> str | None:
     """Send TEXT to TO once per (TO, AREA, HEAD); None when sent or already sent, else why it was not."""
     if os.environ.get("CMUX_OWNER_NOTIFY") == "0":
         return "CMUX_OWNER_NOTIFY=0"
+    if not sender():
+        return NO_SENDER
+    me = sender_name()
+    if not me:
+        return NO_SENDER_NAME
+    text = signed(text, me)
     key = hashlib.sha1(f"{to}\n{area}\n{head}".encode()).hexdigest()[:16]
     path = _notices_path()
     try:
@@ -255,6 +387,15 @@ def notify(to: str, area: str, head: str, text: str) -> str | None:
     return None
 
 
+def tag_hint(area: str, cell: str) -> str:
+    """The `owns=` value that makes a session the holder of AREA: the row's first PL- workstream, else the area's name
+    up to its first comma or parenthesis, as a slug (owns_area reads either)."""
+    workstreams, _ = cell_names(cell)
+    if workstreams:
+        return workstreams[0]
+    return _slug(re.split(r"[,(;]", area or "", maxsplit=1)[0]) or _slug(area) or "AREA"
+
+
 def is_fallback(how: str) -> bool:
     """A holder() answer that is the Performance Lead or the coordinator standing in, not the area's own holder."""
     return "; the " in how
@@ -263,7 +404,7 @@ def is_fallback(how: str) -> bool:
 def unheld_notice(area: str, cell: str, files: list[str], head: str, branch: str | None, doc: str) -> str:
     return (f"OWNERS.md area {area} has no live holder ({cell}), so its pushes come to you; this one: {branch or 'a branch'} "
             f"at {head[:12]} ({len(files)} file(s), {files[0]}). Give it a live holder: tag one "
-            f"(`acpmux session tag SESSION owns=WORKSTREAM`) or rewrite the OWNERS.md row. You hear of it once a day "
+            f"(`acpmux session tag SESSION owns={tag_hint(area, cell)}`) or rewrite the OWNERS.md row. You hear of it once a day "
             f"while it stays unheld.")
 
 
@@ -271,4 +412,4 @@ def notice(area: str, cell: str, files: list[str], head: str, branch: str | None
     shown = ", ".join(files[:6]) + (f" and {len(files) - 6} more" if len(files) > 6 else "")
     return (f"A push to {branch or 'a branch'} at {head[:12]} changes {area}, which OWNERS.md gives to {cell}; you hold "
             f"it now. Files: {shown}. Read {doc}; `git show {head[:12]}` for the change. If it is not yours, tag the "
-            f"holder (`acpmux session tag SESSION owns=WORKSTREAM`) or fix the OWNERS.md row.")
+            f"holder (`acpmux session tag SESSION owns={tag_hint(area, cell)}`) or fix the OWNERS.md row.")

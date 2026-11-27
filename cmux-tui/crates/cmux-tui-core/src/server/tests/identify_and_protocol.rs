@@ -66,7 +66,7 @@ fn receipted_workspace_create_keeps_legacy_workspace_cas_consistent() {
     let before = handle_command(
         &mux,
         client,
-        Command::ListWorkspaces { known: None, limit: None, after: None },
+        Command::ListWorkspaces { known: None, limit: None, after: None, since: None },
         &writer,
     )
     .unwrap();
@@ -89,7 +89,7 @@ fn receipted_workspace_create_keeps_legacy_workspace_cas_consistent() {
     let listed = handle_command(
         &mux,
         client,
-        Command::ListWorkspaces { known: None, limit: None, after: None },
+        Command::ListWorkspaces { known: None, limit: None, after: None, since: None },
         &writer,
     )
     .unwrap();
@@ -104,6 +104,7 @@ fn receipted_workspace_create_keeps_legacy_workspace_cas_consistent() {
             name: Some("alt-n".into()),
             key: Some("018f6e21-7b70-7e70-8000-0000000000aa".into()),
             first_tab: None,
+            name_source: None,
             mutation: MutationRequest {
                 origin: Some("chrome-gui".into()),
                 mutation_id: Some("alt-n-create".into()),
@@ -118,7 +119,7 @@ fn receipted_workspace_create_keeps_legacy_workspace_cas_consistent() {
     let after = handle_command(
         &mux,
         client,
-        Command::ListWorkspaces { known: None, limit: None, after: None },
+        Command::ListWorkspaces { known: None, limit: None, after: None, since: None },
         &writer,
     )
     .unwrap();
@@ -158,7 +159,7 @@ fn resource_rename_and_move_keep_legacy_workspace_cas_consistent() {
     let listed = handle_command(
         &mux,
         client,
-        Command::ListWorkspaces { known: None, limit: None, after: None },
+        Command::ListWorkspaces { known: None, limit: None, after: None, since: None },
         &writer,
     )
     .unwrap();
@@ -192,7 +193,7 @@ fn resource_rename_and_move_keep_legacy_workspace_cas_consistent() {
     let listed = handle_command(
         &mux,
         client,
-        Command::ListWorkspaces { known: None, limit: None, after: None },
+        Command::ListWorkspaces { known: None, limit: None, after: None, since: None },
         &writer,
     )
     .unwrap();
@@ -409,7 +410,7 @@ fn identify_advertises_additive_capabilities() {
     let identity = handle_command(
         &mux,
         mux.local_test_client(0),
-        Command::Identify { machine_metadata: false, revisions: false },
+        Command::Identify { machine_metadata: false, revisions: false, restore_progress: false },
         &test_writer(),
     )
     .unwrap();
@@ -445,6 +446,7 @@ fn identify_advertises_additive_capabilities() {
         crate::git_ops::DIFF_COMMENTS_CAPABILITY,
         crate::git_ops::REVIEW_CAPABILITY,
         crate::git_ops::DIFF_COMMENTS_SEND_CAPABILITY,
+        crate::git_ops::DIFF_COMMENTS_THREADS_CAPABILITY,
     ] {
         assert!(capabilities.iter().any(|value| value.as_str() == Some(expected)));
     }

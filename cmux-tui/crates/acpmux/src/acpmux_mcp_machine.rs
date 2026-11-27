@@ -19,7 +19,7 @@ pub(super) fn tools() -> Vec<Value> {
     vec![
         json!({
             "name": "machine_read",
-            "description": "Read on another of the person's signed-in machines (their Mac, from an agent on a VM): a file's text, a folder's entries, files matching a glob, or lines matching a regex. Use it for what lives on that machine; for this machine use your own tools. Paths are absolute, inside that machine's home or temp folders. That machine must allow control from the person's other machines (Settings > Devices there); a refusal says what is missing.",
+            "description": "Read on another of the person's signed-in machines (their Mac, from an agent on a VM): a file's text, a folder's entries, files matching a glob, or lines matching a regex. For this machine use your own tools. Paths are absolute, in that machine's home or temp folders. That machine must allow control (Settings > Devices); a refusal says what is missing.",
             "inputSchema": {
                 "type": "object",
                 "properties": {
@@ -37,7 +37,7 @@ pub(super) fn tools() -> Vec<Value> {
         }),
         json!({
             "name": "machine_edit",
-            "description": "Change a file on another of the person's signed-in machines: write its whole text, replace exact strings in it, or apply a unified diff. An edit names the sha256 machine_read gave, so a file changed since is not overwritten. That machine's own cmux files, system paths, credentials and startup files are refused.",
+            "description": "Change a file on another of the person's signed-in machines: write its whole text, replace exact strings in it, or apply a unified diff. An edit names the sha256 machine_read gave, so a file changed since is not overwritten. Its cmux files, system paths, credentials and startup files are refused.",
             "inputSchema": {
                 "type": "object",
                 "properties": {
@@ -54,14 +54,14 @@ pub(super) fn tools() -> Vec<Value> {
         }),
         json!({
             "name": "machine_exec",
-            "description": "Run one command on another of the person's signed-in machines and return its exit code, stdout and stderr (each up to 256 KB). Use it for what only that machine can do (open an app, run a tool installed there); build and test on this machine. Default timeout two minutes, at most ten. Destructive commands and ones that touch credentials are refused there.",
+            "description": "Run one command on another of the person's signed-in machines and return its exit code, stdout and stderr (each up to 256 KB). Only for what that machine alone can do; build and test here. Timeout two minutes by default, at most ten. Destructive commands and ones that touch credentials are refused there.",
             "inputSchema": {
                 "type": "object",
                 "properties": {
                     "machine": machine,
                     "command": {"type": "string", "description": "A shell command line, run by /bin/sh -c."},
                     "argv": {"type": "array", "items": {"type": "string"}, "minItems": 1, "description": "Instead of command: the program and its arguments, run with no shell."},
-                    "cwd": {"type": "string", "description": "Its folder, absolute: a folder inside that machine's home folder or a temp folder. The home folder itself is refused, and with no cwd the command runs in that machine's work folder, which is the home folder on a machine that has none set."},
+                    "cwd": {"type": "string", "description": "Its folder, absolute, inside that machine's home or a temp folder (not home itself). Default: that machine's work folder."},
                     "timeout_ms": {"type": "integer", "minimum": 1}
                 },
                 "required": ["machine"]
@@ -165,64 +165,5 @@ pub(super) async fn call(daemon: &Arc<Client>, name: &str, args: &Value) -> Valu
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn machine_tools_name_one_action_each() {
-        let r = request("machine_read", &json!({"machine": "mac", "path": "/tmp/a"})).unwrap();
-        assert_eq!(r, json!({"machine": "mac", "action": "fs.read", "params": {"path": "/tmp/a"}}));
-        let r = request(
-            "machine_read",
-            &json!({"machine": "mac", "op": "grep", "path": "/tmp", "pattern": "x", "limit": 5}),
-        )
-        .unwrap();
-        assert_eq!(r["action"], "fs.grep");
-        assert_eq!(r["params"], json!({"root": "/tmp", "pattern": "x", "limit": 5}));
-        let r = request(
-            "machine_edit",
-            &json!({"machine": "mac", "path": "/tmp/a", "edits": [{"old": "a", "new": "b"}], "expect_sha256": "s"}),
-        )
-        .unwrap();
-        assert_eq!(r["action"], "fs.edit");
-        let r = request("machine_exec", &json!({"machine": "mac", "command": "uname -a"})).unwrap();
-        assert_eq!(r["params"]["argv"], json!(["/bin/sh", "-c", "uname -a"]));
-        let r = request("machine_exec", &json!({"machine": "mac", "argv": ["uname"]})).unwrap();
-        assert_eq!(r["params"], json!({"argv": ["uname"]}));
-        // A read tool never names a write or a command, whatever its arguments say.
-        let r = request(
-            "machine_read",
-            &json!({"machine": "mac", "path": "/tmp/a", "text": "x", "argv": ["rm"], "_level": "full"}),
-        )
-        .unwrap();
-        assert_eq!(r["action"], "fs.read");
-        assert_eq!(r["params"], json!({"path": "/tmp/a"}));
-        for (name, args) in [
-            ("machine_read", json!({"path": "/tmp/a"})),
-            ("machine_read", json!({"machine": "mac"})),
-            ("machine_read", json!({"machine": "mac", "path": "/tmp", "op": "glob"})),
-            ("machine_read", json!({"machine": "mac", "path": "/tmp", "op": "exec"})),
-            ("machine_edit", json!({"machine": "mac", "path": "/tmp/a"})),
-            (
-                "machine_edit",
-                json!({"machine": "mac", "path": "/tmp/a", "text": "x", "patch": "y"}),
-            ),
-            ("machine_edit", json!({"machine": "mac", "text": "x"})),
-            ("machine_exec", json!({"machine": "mac"})),
-            ("machine_exec", json!({"machine": "mac", "command": "ls", "argv": ["ls"]})),
-        ] {
-            assert!(request(name, &args).is_err(), "{name} {args}");
-        }
-    }
-
-    #[test]
-    fn machine_tools_show_a_file_and_a_command_as_text() {
-        assert_eq!(text("fs.read", &json!({"text": "hi", "sha256": "abc"})), "hi\n[sha256 abc]");
-        let out = text(
-            "exec",
-            &json!({"exit": 1, "stdout": "a\n", "stderr": "b\n", "truncated": false, "timed_out": false}),
-        );
-        assert_eq!(out, "exit 1\n--- stdout\na\n--- stderr\nb");
-        assert!(text("exec", &json!({"exit": null, "timed_out": true})).starts_with("timed out"));
-    }
-}
+#[path = "acpmux_mcp_machine_tests.rs"]
+mod tests;

@@ -37,7 +37,7 @@ public struct LaunchIdentity: Sendable, Equatable {
     /// (``terminalEnvironment``), so both resolve one build.
     public var build: BuildIdentity
     /// The settings file this launch reads and writes when it is not the
-    /// shared `~/.config/cmux/cmux-next.json`: ``configFileKey`` from the
+    /// shared `~/.config/cmux-next/cmux-next.json`: ``configFileKey`` from the
     /// process (the bundle's `LSEnvironment`, a launch's `--env`, or the DEBUG
     /// `--config-file`), as an absolute path. Its terminals, its daemon and
     /// the acpmux daemon its agents run under get the same value
@@ -45,19 +45,25 @@ public struct LaunchIdentity: Sendable, Equatable {
     /// shims and the `cmux mcp serve` an agent starts read the file the app
     /// wrote, not the shared one. Nil on the shared file.
     public var configFile: String?
+    /// This launch's egress mode (``egressModeKey``): the value the launch passed, else
+    /// ``childEgressMode(_:)`` for the build. Its terminals get it over any remembered login
+    /// environment's `CMUX_EGRESS` (``terminalEnvironment``), so a shell or the bundled CLI in a
+    /// NIGHTLY or DEV terminal enforces as the app does.
+    public var egressMode: String?
 
     /// The settings-file override (`CmuxConfigFile.overrideKey`; cmux-tui
     /// `user_settings::CONFIG_OVERRIDE`).
     public static let configFileKey = "CMUX_NEXT_CONFIG_FILE"
 
     public init(bundleID: String?, tag: String?, socketPath: String, compatibilityLink: String? = nil,
-                build: BuildIdentity? = nil, configFile: String? = nil) {
+                build: BuildIdentity? = nil, configFile: String? = nil, egressMode: String? = nil) {
         self.bundleID = bundleID
         self.tag = tag
         self.socketPath = socketPath
         self.compatibilityLink = compatibilityLink
         self.build = build ?? BuildIdentity(bundleID: bundleID, bundledTag: tag)
         self.configFile = configFile
+        self.egressMode = egressMode ?? Self.childEgressMode(self.build)
     }
 
     /// Variables every terminal of this app gets, so the `cmux` CLI inside
@@ -73,6 +79,7 @@ public struct LaunchIdentity: Sendable, Equatable {
         // what the app wrote (`TerminalEnvironment` forwards no `CMUX_NEXT_*`
         // knob from the app's environment on its own).
         if let configFile { environment[Self.configFileKey] = configFile }
+        if let egressMode { environment[Self.egressModeKey] = egressMode }
         return environment
     }
 
@@ -83,6 +90,14 @@ public struct LaunchIdentity: Sendable, Equatable {
     /// This build's `CMUX_BUILD_SPACE` for its children (``CMUXBuildSpaceState/childEnvironmentValue``): its space
     /// for a tagged dev build, nil for nightly and stable, and a refusing value for a dev build with no usable tag.
     public var buildSpaceValue: String? { Self.childBuildSpace(build) }
+
+    /// ``egressModeKey``'s value for `build` when the launch passed none.
+    static func childEgressMode(_ build: BuildIdentity) -> String? {
+        switch build.kind {
+        case .nightly, .dev, .staging: "enforce"
+        case .release, .rc, .unbundled: nil
+        }
+    }
 
     static func childBuildSpace(_ build: BuildIdentity) -> String? {
         CMUXBuildSpaceState(devBuild: build.needsBuildSpace, devTag: build.devTag).childEnvironmentValue
@@ -99,7 +114,7 @@ public struct LaunchIdentity: Sendable, Equatable {
 
     /// Pure resolution. `bundledEnvironment` is the bundle's own
     /// `Info.plist` `LSEnvironment`; `processEnvironment` is consulted only
-    /// for ``socketOverrideKey`` and ``configFileKey``.
+    /// for ``socketOverrideKey``, ``configFileKey`` and ``egressModeKey``.
     public static func resolve(
         bundleID: String?,
         bundledEnvironment: [String: String],
@@ -116,8 +131,10 @@ public struct LaunchIdentity: Sendable, Equatable {
         let tag = ControlSocketPath.shared.bundleTag(bundle) ?? shipped
         let build = BuildIdentity(bundleID: bundle, bundledTag: shipped)
         let configFile = configFile(processEnvironment: processEnvironment, home: home)
+        let egressMode = processEnvironment[egressModeKey].flatMap { $0.isEmpty ? nil : $0 }
         if let explicit = processEnvironment[socketOverrideKey]?.trimmingCharacters(in: .whitespaces), !explicit.isEmpty {
-            return LaunchIdentity(bundleID: bundle, tag: tag, socketPath: explicit, build: build, configFile: configFile)
+            return LaunchIdentity(bundleID: bundle, tag: tag, socketPath: explicit, build: build, configFile: configFile,
+                                  egressMode: egressMode)
         }
         let paths = ControlSocketPath.shared
         // The build's own socket name (per-build isolation S3), in the state
@@ -128,7 +145,7 @@ public struct LaunchIdentity: Sendable, Equatable {
             ?? (path: paths.resolve(bundleID: nil, tag: nil, isDebugBuild: isDebugBuild, home: home),
                 link: paths.compatibilityLink(bundleID: nil, tag: nil, isDebugBuild: isDebugBuild, home: home))
         return LaunchIdentity(bundleID: bundle, tag: tag, socketPath: socket.path, compatibilityLink: socket.link, build: build,
-                              configFile: configFile)
+                              configFile: configFile, egressMode: egressMode)
     }
 
     /// A fleet artifact is sometimes launched directly from its staged
@@ -174,6 +191,13 @@ public struct LaunchIdentity: Sendable, Equatable {
     /// `LSEnvironment`, and a harness passes it in its environment instead (the live code proof,
     /// scripts/measure/live-code-app.py). Only a debug, bench or live code build reads it.
     public static let liveCodeDirKey = "CMUX_LIVE_CODE_DIR"
+    /// The daemon's Chrome trace file (acpmux perf_trace.rs, cmux#55505): a launch that sets it keeps it, so the
+    /// acpmux daemon this app starts writes the user actions' spans there (scripts/measure/action-trace.sh).
+    public static let traceFileKey = "CMUX_TRACE_FILE"
+    /// The egress gate's mode (`enforce`, `log`, `off`) for this app and every Rust child
+    /// (docs/privacy.md, cmux-egress): a value the launch passed wins; else NIGHTLY, DEV and
+    /// staging builds enforce, and a release or rc build keeps the gate's own default (log).
+    public static let egressModeKey = "CMUX_EGRESS"
 
     /// A launch that ignores every customization layer for this run, editing no file: the way back
     /// when the UI itself is broken (`open -a "cmux NIGHTLY" --args --no-customizations`, or
@@ -194,7 +218,7 @@ public struct LaunchIdentity: Sendable, Equatable {
 
     /// Keys of cmux variables this process inherited rather than received
     /// from its own bundle: every `CMUX*` but the `CMUX_NEXT_*` launch knobs,
-    /// ``liveCodeDirKey``, ``noCustomizationsKey`` (and, in a DEBUG build, ``captureShellHomeKey``).
+    /// ``liveCodeDirKey``, ``noCustomizationsKey``, ``egressModeKey``, ``traceFileKey`` (and, in a DEBUG build, ``captureShellHomeKey``).
     /// When another cmux started this process (``otherCmuxMarkers``), also
     /// the ``stateRootKnobs`` and that build's files (``BuildStatePaths/environmentKeys``), every `MUX_*` but `MUX_HARNESS`, and every
     /// `OPTCHAT_*`: that build's Chief, brain and acpmux roots. Its
@@ -209,7 +233,7 @@ public struct LaunchIdentity: Sendable, Equatable {
         return processEnvironment.keys.filter { key in
             guard inherited(key) else { return false }
             if key == captureShellHomeKey, isDebugBuild, !fromOtherCmux { return false }
-            if key == liveCodeDirKey || key == noCustomizationsKey, !fromOtherCmux { return false }
+            if key == liveCodeDirKey || key == noCustomizationsKey || key == egressModeKey || key == traceFileKey, !fromOtherCmux { return false }
             if cloudSelectionKnobs.contains(key) { return fromOtherCmux && !namesThisApp }
             if key.hasPrefix("CMUX_NEXT_") { return fromOtherCmux && stateRootKnobs.contains(key) }
             if key.hasPrefix("CMUX") { return true }
@@ -257,7 +281,9 @@ public struct LaunchIdentity: Sendable, Equatable {
         let keys = inheritedKeys(processEnvironment: process, bundledEnvironment: bundled, bundleID: bundle.bundleIdentifier)
         // This build's own space replaces any inherited one, so every Rust child that inherits
         // this environment (the `cmux` CLI runs, `cmux link`, the Codex holder, acpmux) sends it.
-        let space = childBuildSpace(BuildIdentity(bundle: bundle))
+        let build = BuildIdentity(bundle: bundle)
+        let space = childBuildSpace(build)
+        let egress = childEgressMode(build)
         let defaults = settingsBuildDefaults.childEnvironmentValue
         // A build without settings defaults never passes on another build's.
         let unset = defaults == nil && process[BuildStatePaths.settingsBuildDefaultsKey] != nil
@@ -269,6 +295,9 @@ public struct LaunchIdentity: Sendable, Equatable {
             // explicit override the launch passed (a harness's CMUX_NEXT_CONFIG_FILE) still wins.
             var values: [String: String] = statePaths.launchEnvironment(over: ProcessInfo.processInfo.environment)
             if let space { values[buildSpaceKey] = space }
+            if let egress, values[egressModeKey] == nil, ProcessInfo.processInfo.environment[egressModeKey] == nil {
+                values[egressModeKey] = egress
+            }
             if let defaults { values[BuildStatePaths.settingsBuildDefaultsKey] = defaults }
             for (key, value) in values { setenv(key, value, 1) }
         }
