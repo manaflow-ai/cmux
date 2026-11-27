@@ -497,6 +497,8 @@ pub mod method {
     pub const MUX_SEEN: &str = "_acpmux/seen";
     /// The person pins or unpins a chat (`hub/synced.rs`): one synced `pin/<id>` edit.
     pub const MUX_PIN: &str = "_acpmux/pin";
+    /// The owner opts in to sharing presence with peer daemons.
+    pub const MUX_LIVE: &str = "_acpmux/live";
     /// A person in an attached chat starts or stops typing (`hub/presence.rs`).
     pub const MUX_TYPING: &str = "_acpmux/typing";
     /// Who has a chat open and who types in it, to its attached connections.

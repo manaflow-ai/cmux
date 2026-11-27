@@ -486,6 +486,18 @@ async fn shared_presence_over_peer(peer_auth: bool) {
         .await
         .unwrap();
     let author = json!({"id": "tailnet:ana@example.com", "name": "Ana"});
+    // Off by default on the sender: even a listening peer must receive no authored entry.
+    assert_eq!(ca.call("_acpmux/live", json!({})).await.unwrap()["live"], false);
+    let refused = ca
+        .call(
+            "_acpmux/view",
+            json!({"sessionId": key, "visible": true, "_meta": {"acpmux": {"author": author}}}),
+        )
+        .await;
+    assert!(refused.is_err());
+    assert_eq!(b.presence.snapshot(&remote_id)["participants"], json!([]));
+    ca.call("_acpmux/live", json!({"live": true})).await.unwrap();
+    cb.call("_acpmux/live", json!({"live": true})).await.unwrap();
     ca.call(
         "_acpmux/view",
         json!({"sessionId": key, "visible": true, "_meta": {"acpmux": {"author": author}}}),

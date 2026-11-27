@@ -259,6 +259,7 @@ pub fn registry() -> Vec<MethodDecl> {
         request::<events::AttachParams, events::AttachResult>(method::MUX_ATTACH),
         request::<events::SessionRef, events::Done>(method::MUX_DETACH),
         request::<events::ViewParams, events::ViewDone>(method::MUX_VIEW),
+        request::<presence::LiveParams, presence::LiveResult>(method::MUX_LIVE),
         request::<presence::TypingParams, events::Done>(method::MUX_TYPING),
         request::<presence::RoomsParams, presence::RoomsResult>(method::MUX_ROOMS),
         request::<presence::FollowParams, presence::FollowResult>(method::MUX_FOLLOW),

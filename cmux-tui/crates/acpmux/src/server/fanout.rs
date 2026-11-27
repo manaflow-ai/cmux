@@ -152,7 +152,7 @@ pub(super) fn start(
                 // Never to a peer daemon's connection: its handshake watches, and this host's
                 // peers, their states and their errors are this machine's, not that peer's.
                 note = peer_states.recv() => {
-                    let hears = conn.origin != super::Origin::Peer
+                    let hears = !super::view::a_link(conn)
                         && conn.watch_all.load(Ordering::SeqCst);
                     match note {
                         Ok(note) if hears => harness_admin::watch_note(&conn, note),
@@ -181,11 +181,11 @@ pub(super) fn start(
                 // Who has a chat open (`hub/presence.rs`), to the connections attached to it.
                 note = presence.recv() => {
                     match note {
-                        Ok(note) => send_presence(&conn, &note),
+                        Ok(note) => send_presence(&hub, &conn, &note),
                         // Fell behind: the chats it holds, as they are now.
                         Err(broadcast::error::RecvError::Lagged(_)) => {
                             for chat in conn.local_attached_ids() {
-                                send_presence(&conn, &hub.presence.snapshot(&chat));
+                                send_presence(&hub, &conn, &hub.presence.snapshot(&chat));
                             }
                         }
                         Err(broadcast::error::RecvError::Closed) => break,
@@ -209,10 +209,10 @@ pub(super) fn start(
 
 /// `_acpmux/presence` for a chat `conn` is attached to. Local notes cross peer links; notes that
 /// already came from a peer stay on this daemon so they cannot loop.
-fn send_presence(conn: &Conn, note: &serde_json::Value) {
+fn send_presence(hub: &Hub, conn: &Conn, note: &serde_json::Value) {
     let remote = note.get(crate::hub::presence::REMOTE_MARKER).is_some();
-    if (conn.origin == super::Origin::Peer && remote)
-        || (conn.origin != super::Origin::Peer
+    if (super::view::a_link(conn) && remote)
+        || (!super::view::a_link(conn)
             && !conn.client_features.hears_any(&[crate::capabilities::CHAT_PRESENCE]))
     {
         return;
@@ -222,7 +222,11 @@ fn send_presence(conn: &Conn, note: &serde_json::Value) {
         .and_then(serde_json::Value::as_str)
         .is_some_and(|chat| conn.sub_opts(chat).is_some_and(|opts| opts.remote == remote));
     if attached {
-        let mut note = note.clone();
+        let mut note = if super::view::a_link(conn) {
+            hub.presence.shared_snapshot(note["sessionId"].as_str().unwrap_or_default())
+        } else {
+            note.clone()
+        };
         if remote {
             note.as_object_mut().map(|object| object.remove(crate::hub::presence::REMOTE_MARKER));
         }

@@ -138,3 +138,17 @@ pub struct PresenceNote {
     /// One per person, by id; at most 32 besides the owner.
     pub participants: Vec<Participant>,
 }
+
+/// The Phase 1 Live toggle, shared by peer presence (RFD 0141).
+#[derive(Debug, Clone, Default, Serialize, Deserialize, JsonSchema)]
+#[schemars(deny_unknown_fields)]
+pub struct LiveParams {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub live: Option<bool>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
+#[schemars(transform = require_all)]
+pub struct LiveResult {
+    pub live: bool,
+}

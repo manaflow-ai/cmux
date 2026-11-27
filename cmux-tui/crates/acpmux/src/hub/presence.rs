@@ -47,6 +47,7 @@
 //! closing ends it; moving your own view ends it in the client, which sends `null`.
 
 use std::collections::{BTreeMap, HashMap, HashSet, VecDeque};
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex, OnceLock};
 use std::time::Duration;
 
@@ -265,6 +266,8 @@ impl State {
 
 struct Inner {
     state: Mutex<State>,
+    live: AtomicBool,
+    live_changes: tokio::sync::watch::Sender<bool>,
     changes: broadcast::Sender<Arc<Value>>,
 }
 
@@ -278,6 +281,8 @@ impl Default for Presence {
         Presence {
             inner: Arc::new(Inner {
                 state: Mutex::new(State::default()),
+                live: AtomicBool::new(false),
+                live_changes: tokio::sync::watch::Sender::new(false),
                 changes: broadcast::channel(CHANGES_BUFFER).0,
             }),
         }
@@ -304,6 +309,34 @@ impl Presence {
             object.insert(REMOTE_MARKER.into(), Value::String(peer.to_owned()));
             let _ = self.inner.changes.send(Arc::new(note));
         }
+    }
+
+    /// The Phase 1 Live opt-in; local presence stays available while sharing is off.
+    pub fn is_live(&self) -> bool {
+        self.inner.live.load(Ordering::Acquire)
+    }
+
+    /// Watch the opt-in so a sharing client withdraws its remote entries when it turns off.
+    pub fn subscribe_live(&self) -> tokio::sync::watch::Receiver<bool> {
+        self.inner.live_changes.subscribe()
+    }
+
+    /// Change Live and publish fresh snapshots, including an empty shared snapshot on off.
+    pub fn set_live(&self, live: bool) -> bool {
+        let state = self.inner.state.lock_or_recover();
+        let previous = self.inner.live.swap(live, Ordering::AcqRel);
+        if previous != live {
+            self.inner.live_changes.send_replace(live);
+            for chat in state.chats.keys() {
+                let _ = self.inner.changes.send(Arc::new(note(chat, &state.participants(chat))));
+            }
+        }
+        previous
+    }
+
+    /// A peer never sees local entries until Live is enabled.
+    pub fn shared_snapshot(&self, chat: &str) -> Value {
+        if self.is_live() { self.snapshot(chat) } else { none(chat) }
     }
 
     /// Local projection for a subscriber to this chat. The owner id is daemon-local.
@@ -727,6 +760,24 @@ mod tests {
 
     fn ana() -> Who {
         Who { id: "tailnet:ana".to_owned(), name: "Ana".to_owned() }
+    }
+
+    #[test]
+    fn live_opt_in_only_changes_shared_snapshots() {
+        let presence = Presence::default();
+        presence.view("chat", "client", &Who::of(None), true).unwrap();
+        let local = presence.snapshot("chat");
+        assert!(!presence.is_live());
+        assert_eq!(presence.shared_snapshot("chat"), none("chat"));
+        let mut changes = presence.subscribe_live();
+        assert!(!presence.set_live(true));
+        assert!(changes.has_changed().unwrap());
+        assert!(*changes.borrow_and_update());
+        assert_eq!(presence.shared_snapshot("chat"), local);
+        assert!(presence.set_live(false));
+        assert!(changes.has_changed().unwrap());
+        assert_eq!(presence.shared_snapshot("chat"), none("chat"));
+        assert_eq!(presence.snapshot("chat"), local);
     }
 
     fn typing(presence: &Presence) -> Option<bool> {
