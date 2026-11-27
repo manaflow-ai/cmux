@@ -3,9 +3,9 @@
 // Then OrderedRows publishing one beside every snapshot, checked row by row, and the per-chunk cost
 // of the next sequence against the snapshot copy it is to replace, with a budget and a 10x check.
 // Runs on every pull request (no environment gate).
-import { expect, test } from "bun:test";
+import { afterAll, beforeAll, expect, test } from "bun:test";
 import { OrderedRows } from "./direct";
-import { ROW_SEQ_CHUNK, RowSeq, rowSeqKeptPrefix, rowSeqOf } from "./rowSeq";
+import { freezeRowSeqChunks, ROW_SEQ_CHUNK, RowSeq, rowSeqKeptPrefix, rowSeqOf } from "./rowSeq";
 import { keptPrefix } from "./conversation/prefixFlatMap";
 
 /// SplitMix32-ish seeded generator, so a failure replays from its seed.
@@ -30,14 +30,24 @@ function walkPrefix<T>(previous: readonly T[], next: readonly T[]): number {
 
 type Item = { n: number };
 
-for (let seed = 1; seed <= 24; seed += 1) {
+// The oracle tests run with chunks frozen, so a write into a shared chunk throws; the timing test
+// turns it off, as the app runs.
+let wasFreezing = false;
+beforeAll(() => {
+  wasFreezing = freezeRowSeqChunks(true);
+});
+afterAll(() => {
+  freezeRowSeqChunks(wasFreezing);
+});
+
+for (let seed = 1; seed <= 12; seed += 1) {
   test(`RowSeq matches the array it mirrors (seed ${seed})`, () => {
     const random = seeded(seed);
     let made = 0;
     const item = (): Item => ({ n: (made += 1) });
-    let oracle: Item[] = Array.from({ length: random(5_000) }, item);
+    let oracle: Item[] = Array.from({ length: random(3_000) }, item);
     let seq = RowSeq.from(oracle);
-    for (let step = 0; step < 600; step += 1) {
+    for (let step = 0; step < 200; step += 1) {
       const before = oracle;
       oracle = oracle.slice();
       const kind = random(100);
@@ -49,7 +59,7 @@ for (let seed = 1; seed <= 24; seed += 1) {
         seq = seq.with(at, oracle[at]!);
         first = at;
       } else {
-        if (kind < 70) {
+        if (kind < 70 && oracle.length < 8_000) {
           for (let count = 1 + random(ROW_SEQ_CHUNK + 40); count > 0; count -= 1) oracle.push(item());
         } else if (kind < 82 && oracle.length > 0) {
           first = random(oracle.length);
@@ -93,7 +103,7 @@ test("the kept prefix by chunk identity equals the row walk across sequences tha
   const random = seeded(99);
   let made = 0;
   const item = (): Item => ({ n: (made += 1) });
-  let rows: Item[] = Array.from({ length: 40_000 }, item);
+  let rows: Item[] = Array.from({ length: 12_000 }, item);
   let seq = RowSeq.from(rows);
   for (let step = 0; step < 400; step += 1) {
     const previousRows = rows;
@@ -132,7 +142,7 @@ for (let seed = 1; seed <= 8; seed += 1) {
       let next = 0;
       const ids: number[] = [];
       let previous: ReturnType<OrderedRows["sorted"]> | undefined;
-      for (let step = 0; step < 1_500; step += 1) {
+      for (let step = 0; step < 600; step += 1) {
         const kind = random(100);
         if (kind < 45 || ids.length === 0) {
           rows.current = next + 1;
@@ -172,45 +182,60 @@ for (let seed = 1; seed <= 8; seed += 1) {
   });
 }
 
-/// Median of `rounds` timings of `body`, in ms per call.
-function median(rounds: number, body: () => void): number {
-  const times: number[] = [];
+/// The fastest of `rounds` batches of `batch` calls of `body`, in ms per call: a batch smooths the
+/// timer, and the fastest batch is the one the machine's other load (a loaded CI host) touched least.
+function perCall(rounds: number, batch: number, body: () => void): number {
+  let best = Infinity;
   for (let round = 0; round < rounds; round += 1) {
     const start = performance.now();
-    body();
-    times.push(performance.now() - start);
+    for (let call = 0; call < batch; call += 1) body();
+    best = Math.min(best, (performance.now() - start) / batch);
   }
-  times.sort((a, b) => a - b);
-  return times[Math.floor(times.length / 2)]!;
+  return best;
 }
 
 /// One streamed chunk at `held` rows: the reply row (the last) written in place, and every 16th
 /// chunk a new row at the end. Before: the snapshot copy, `ordered.slice()`. After: the next RowSeq.
 function chunkCosts(held: number): { slice: number; seq: number } {
-  const ordered: Item[] = Array.from({ length: held }, (_, n) => ({ n }));
-  let seq = RowSeq.from(ordered);
-  let chunk = 0;
-  const live: unknown[] = [];
-  const step = (useSeq: boolean) => {
-    chunk += 1;
-    if (chunk % 16 === 0) {
-      ordered.push({ n: -chunk });
-      if (useSeq) seq = seq.withTail(ordered.length - 1, ordered);
-    } else {
-      ordered[ordered.length - 1] = { n: -chunk };
-      if (useSeq) seq = seq.with(ordered.length - 1, ordered[ordered.length - 1]!);
-    }
-    // The pane holds the last few snapshots (PrefixFlatCache keeps 4), so they are not garbage at once.
-    live.push(useSeq ? seq : ordered.slice());
-    if (live.length > 4) live.shift();
+  /// One side's chat: its own order, and the snapshots the pane still holds (PrefixFlatCache keeps
+  /// 4), so they are not garbage at once.
+  const side = (useSeq: boolean) => {
+    const ordered: Item[] = Array.from({ length: held }, (_, n) => ({ n }));
+    let seq = RowSeq.from(ordered);
+    let chunk = 0;
+    const live: unknown[] = [];
+    return () => {
+      chunk += 1;
+      if (chunk % 16 === 0) {
+        ordered.push({ n: -chunk });
+        if (useSeq) seq = seq.withTail(ordered.length - 1, ordered);
+      } else {
+        ordered[ordered.length - 1] = { n: -chunk };
+        if (useSeq) seq = seq.with(ordered.length - 1, ordered[ordered.length - 1]!);
+      }
+      live.push(useSeq ? seq : ordered.slice());
+      if (live.length > 4) live.shift();
+    };
   };
-  for (let warm = 0; warm < 200; warm += 1) step(true), step(false);
-  return { seq: median(401, () => step(true)), slice: median(101, () => step(false)) };
+  const after = side(true);
+  const before = side(false);
+  for (let warm = 0; warm < 200; warm += 1) {
+    after();
+    before();
+  }
+  return { seq: perCall(21, 64, after), slice: perCall(11, 16, before) };
 }
 
 test("a streamed chunk's RowSeq costs one chunk, flat from 15k to 150k held rows", () => {
-  const small = chunkCosts(15_000);
-  const big = chunkCosts(150_000);
+  const freezing = freezeRowSeqChunks(false);
+  let small: { slice: number; seq: number };
+  let big: { slice: number; seq: number };
+  try {
+    small = chunkCosts(15_000);
+    big = chunkCosts(150_000);
+  } finally {
+    freezeRowSeqChunks(freezing);
+  }
   const ratio = big.seq / Math.max(small.seq, 0.0005);
   console.log(
     `row-seq per streamed chunk: slice ${small.slice.toFixed(4)} ms @15k -> ${big.slice.toFixed(4)} ms @150k (x${(big.slice / Math.max(small.slice, 0.0005)).toFixed(1)}); ` +

@@ -39,7 +39,7 @@ export class OrderedRows extends Map<string, AcpmuxRow> {
   /// How many times any chat's rows were sorted whole (longChatCost.test.ts counts them per update).
   static sorts = 0;
   /// How many snapshot arrays (`sorted()`'s copy of every held row) were made: the streaming bench
-  /// reads it per chunk (bench/row-seq.bench.ts), the count the RowSeq readers ratchet down.
+  /// reads it per chunk (rowSeq.test.ts), the count the RowSeq readers ratchet down.
   static arraysBuilt = 0;
   /// Tests: check each published RowSeq against its snapshot array, row by row (O(n) a snapshot).
   static verifyRowSeq = typeof process !== "undefined" && process.env?.CMUX_VERIFY_ROW_SEQ === "1";

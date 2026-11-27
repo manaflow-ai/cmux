@@ -10,14 +10,31 @@
 /// Rows per chunk.
 export const ROW_SEQ_CHUNK = 1024;
 
+/// Chunks are typed readonly and never written once made. Object.freeze would also enforce that at
+/// run time, but in JavaScriptCore a frozen array leaves the fast element path: a one-chunk write cost
+/// 0.084 ms frozen against 0.0006 ms not, and a read of every row 20x more (bun, 150k rows). So only
+/// tests freeze (`freezeRowSeqChunks`), where a stray write throws.
+let freezing = false;
+
+/// Tests: freeze every chunk and spine made from now on (returns the old setting).
+export function freezeRowSeqChunks(on: boolean): boolean {
+  const was = freezing;
+  freezing = on;
+  return was;
+}
+
+function sealed<T>(items: T[]): readonly T[] {
+  return freezing ? Object.freeze(items) : items;
+}
+
 export class RowSeq<T> implements Iterable<T> {
   private constructor(
-    /// Every chunk is full but the last, frozen once made, and shared with the sequences it came from.
+    /// Every chunk is full but the last, never written once made, and shared with the sequences it came from.
     readonly chunks: readonly (readonly T[])[],
     readonly length: number,
   ) {}
 
-  static readonly EMPTY: RowSeq<never> = new RowSeq<never>(Object.freeze([]), 0);
+  static readonly EMPTY: RowSeq<never> = new RowSeq<never>([], 0);
 
   /// A sequence of `items` (copied: O(n), once).
   static from<T>(items: readonly T[]): RowSeq<T> {
@@ -37,8 +54,8 @@ export class RowSeq<T> implements Iterable<T> {
     const chunk = this.chunks[at]!.slice();
     chunk[index % ROW_SEQ_CHUNK] = row;
     const chunks = this.chunks.slice();
-    chunks[at] = Object.freeze(chunk);
-    return new RowSeq(Object.freeze(chunks), this.length);
+    chunks[at] = sealed(chunk);
+    return new RowSeq(sealed(chunks), this.length);
   }
 
   /// The sequence `source` (the whole new order), given that its rows before `from` are this one's,
@@ -49,8 +66,8 @@ export class RowSeq<T> implements Iterable<T> {
     const keep = Math.floor(Math.max(0, Math.min(from, this.length, source.length)) / ROW_SEQ_CHUNK);
     const chunks = this.chunks.slice(0, keep);
     for (let start = keep * ROW_SEQ_CHUNK; start < source.length; start += ROW_SEQ_CHUNK)
-      chunks.push(Object.freeze(source.slice(start, start + ROW_SEQ_CHUNK)));
-    return new RowSeq(Object.freeze(chunks), source.length);
+      chunks.push(sealed(source.slice(start, start + ROW_SEQ_CHUNK)));
+    return new RowSeq(sealed(chunks), source.length);
   }
 
   *[Symbol.iterator](): Iterator<T> {
