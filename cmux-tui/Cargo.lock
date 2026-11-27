@@ -1970,6 +1970,13 @@ dependencies = [
 ]
 
 [[package]]
+name = "cmux-critpath"
+version = "0.1.0"
+dependencies = [
+ "serde_json",
+]
+
+[[package]]
 name = "cmux-customize"
 version = "0.1.0"
 dependencies = [
@@ -4024,11 +4031,13 @@ dependencies = [
 name = "cmux-worktree-care"
 version = "0.1.0"
 dependencies = [
+ "cmux-cas",
  "cmux-file-lock",
  "cmux-git",
  "libc",
  "serde",
  "serde_json",
+ "tempfile",
 ]
 
 [[package]]

@@ -106,6 +106,7 @@ members = [
     "crates/cmux-holder",
     "crates/cmux-launch-preread",
     "crates/cmux-flow-trace",
+    "crates/cmux-critpath",
     "crates/cmux-holder-v3",
     "crates/cmux-process",
     "crates/cmux-hub-host",
