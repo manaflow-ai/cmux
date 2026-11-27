@@ -250,12 +250,10 @@ public struct CloudStartRunKey: Hashable, Sendable {
     public var fromFolder: String?
     /// The run's `--model`; nil for none. Runs that differ in it are different runs.
     public var model: String?
-    /// The local model connection selected for the launch; nil for the automatic route.
-    public var connection: String?
 
-    public init(machine: String, agent: String, cwd: String?, caller: String?, account: [String?], fromFolder: String? = nil, model: String? = nil, connection: String? = nil) {
+    public init(machine: String, agent: String, cwd: String?, caller: String?, account: [String?], fromFolder: String? = nil, model: String? = nil) {
         (self.machine, self.agent, self.cwd, self.caller, self.account) = (machine, agent, cwd, caller, account)
-        (self.fromFolder, self.model, self.connection) = (fromFolder, model, connection)
+        (self.fromFolder, self.model) = (fromFolder, model)
     }
 }
 

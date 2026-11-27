@@ -103,31 +103,15 @@ extension CloudStartCore {
     public func launchRun(agent: String?, cwd: String?, name: String?, model: String?, machineId: String?, connection: String?) -> Result<LaunchRun, LaunchRun.Invalid> {
         struct Request: Encodable { var agent, cwd, name, model, machineId, connection: String? }
         struct Reply: Decodable { var request: LaunchRun?, invalid: String? }
-        let requestedConnection = connection?.trimmingCharacters(in: .whitespaces)
-        if let requestedConnection,
-           !(1...128).contains(requestedConnection.utf8.count)
-            || requestedConnection.utf8.contains(where: {
-                !((48...57).contains($0) || (65...90).contains($0) || (97...122).contains($0)
-                    || [46, 45, 95, 58, 64].contains($0))
-            }) {
-            return .failure(.connection)
-        }
-        let reply = call("cloud_launch_session_request", Request(agent: agent, cwd: cwd, name: name, model: model, machineId: machineId, connection: requestedConnection), as: Reply.self)
-        if var run = reply?.request {
-            // The shipped app FFI predates the JSON connection field and silently drops unknown
-            // keys. Preserve a validated explicit route until the next FFI re-pin carries it.
-            if run.connection == nil { run.connection = requestedConnection }
-            return .success(run)
-        }
+        let reply = call("cloud_launch_session_request", Request(agent: agent, cwd: cwd, name: name, model: model, machineId: machineId, connection: connection), as: Reply.self)
+        if let run = reply?.request { return .success(run) }
         return .failure(reply?.invalid == "cwd_invalid" ? .cwd : reply?.invalid == "connection_invalid" ? .connection : .agent)
     }
 
     /// The command that asks for `run` again, every word as the shell reads it back.
     public func launchCommand(_ run: LaunchRun) -> String {
         struct Reply: Decodable { var command: String }
-        let command = call("cloud_launch_session_command", run, as: Reply.self)?.command ?? "cmux cloud start-session"
-        guard let connection = run.connection, !command.contains(" --connection ") else { return command }
-        return command + " --connection " + CloudStartCore.shellQuoted(connection)
+        return call("cloud_launch_session_command", run, as: Reply.self)?.command ?? "cmux cloud start-session"
     }
 
     /// How a start's refusal reads: the session needs a folder, a refusal `code` with its own sentence, or the agent failed for `reason`.
