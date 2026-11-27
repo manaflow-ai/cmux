@@ -3180,6 +3180,8 @@ function TranscriptView({
   const sendRiseUntil = useRef(Number.NEGATIVE_INFINITY);
   // A sent prompt sweeps only once; user input, a resize or a fold cancels without replay.
   const sweptPrompt = useRef<string | undefined>(undefined);
+  // Reader input also cancels a send whose echoed prompt has not arrived yet.
+  const sweepCanceledThrough = useRef(Number.NEGATIVE_INFINITY);
   /// Until when rows that come join the send's own rise on the bubble's clock (`followChase` `sent`):
   /// the send motion's length. A row landing later in `sendRiseUntil` (a delayed thinking or tool
   /// row) arrives on the arrival step instead of starting the send curve over after the bubble rested.
@@ -4879,6 +4881,7 @@ function TranscriptView({
       if (sentPromptIds.size !== 0) setSentPromptIds(new Set());
       sentBeforeOpen.current = false;
       sweptPrompt.current = undefined;
+      sweepCanceledThrough.current = Number.NEGATIVE_INFINITY;
       sendRiseUntil.current = Number.NEGATIVE_INFINITY;
       sendClockUntil.current = Number.NEGATIVE_INFINITY;
       previousLayout.current = null;
@@ -5204,6 +5207,7 @@ function TranscriptView({
         const wantsSweep = freshSweep || Boolean(followGlide.current?.sweeping());
         const sweepSafe =
           sendTopPrompt !== undefined &&
+          sends > sweepCanceledThrough.current &&
           !caughtUp &&
           !jumping &&
           !dockMoved &&
@@ -5549,7 +5553,8 @@ function TranscriptView({
         // On a 0 send clock (the product's) the thread is in place at once, whichever commit the
         // prompt came in (review of #41550): no glide and no chase.
         const sentHere = sentBeforeOpen.current || sends !== seenSends.current;
-        const sweepOpen = sentHere && at < 0 && sendTopPrompt !== undefined && !switched;
+        const sweepOpen =
+          sentHere && at < 0 && sendTopPrompt !== undefined && !switched && sends > sweepCanceledThrough.current;
         if (sweepOpen) {
           stopFollowMotion(true);
           if (thread.current && transactionOn(thread.current)) threadTransaction(thread.current).cancel();
@@ -6384,6 +6389,7 @@ function TranscriptView({
       // home over 10 frames after the rows had landed (motion contract (c), `latest send`).
       const sweepSend =
         fromLatest &&
+        sends > sweepCanceledThrough.current &&
         sendTopPrompt !== undefined &&
         (sweptPrompt.current !== sendTopPrompt || followGlide.current?.sweeping());
       if (sweepSend) {
@@ -6994,6 +7000,7 @@ function TranscriptView({
       if (event?.type === "touchstart") touchY = (event as TouchEvent).touches[0]?.clientY;
       else if (touch) touchY = touch.clientY;
       readerAt.current = performance.now();
+      sweepCanceledThrough.current = seenSends.current;
       frameBudget.current?.poke();
       // The reader moved: where they are now is their place, not the one a reconnect held.
       heldPlace.current = undefined;
