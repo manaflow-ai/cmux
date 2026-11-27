@@ -149,7 +149,9 @@ export function ImageViewer({
   const onKeyDown = (event: KeyboardEvent) => {
     if (event.metaKey || event.ctrlKey || event.altKey) return;
     const key = event.key;
-    if (key === "ArrowLeft") step(-1);
+    // Space closes, as Quick Look does; on a bar button it presses that button instead.
+    if (key === " " && !(event.target as Element).closest?.("button")) onClose();
+    else if (key === "ArrowLeft") step(-1);
     else if (key === "ArrowRight") step(1);
     else if (key === "+" || key === "=") setView((current) => zoomAbout(current, current.scale * STEP, { x: 0, y: 0 }));
     else if (key === "-") setView((current) => zoomAbout(current, current.scale / STEP, { x: 0, y: 0 }));
@@ -192,7 +194,11 @@ export function ImageViewer({
   // A browser tab never opens an SVG copy (the host refuses: it could run script).
   const opensInTab = !/^data:image\/svg\+xml/i.test(image.src);
   // The shared dialog (ui/Dialog) traps focus, makes the pane behind inert, closes on Escape and
-  // gives focus back to the image that opened it.
+  // gives focus back to the image that opened it. A lightbox, as Quick Look is (Leo, 2026-11-27: "ok the
+  // screenshots thing needs to not opaque out everything else. just have what normal standards are for
+  // this. some lowered opaity?"): the popup itself draws no glass (a `.ui-glass` dialog is the App's
+  // full-pane sheet veil), the backdrop dims the chat, the image sits at its own size, and only the
+  // small bar of name and actions is glass.
   return (
     <Dialog
       open
@@ -200,7 +206,7 @@ export function ImageViewer({
         if (!open) onClose();
       }}
       label={image.alt || t("image.viewer")}
-      className="acpmux-image-viewer ui-glass"
+      className="acpmux-image-viewer"
       backdropClassName="acpmux-image-viewer-backdrop"
       style={below}
       initialFocus={close}
@@ -208,7 +214,7 @@ export function ImageViewer({
       onKeyDown={onKeyDown}
     >
       <div className="acpmux-image-viewer-body">
-        <div className="acpmux-image-viewer-bar">
+        <div className="acpmux-image-viewer-bar ui-glass" data-glass-level="popover">
           <span className="acpmux-image-viewer-title">{image.alt}</span>
           {count > 1 && (
             <span className="acpmux-image-viewer-count">{t("image.position", { index: index + 1, count })}</span>

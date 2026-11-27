@@ -7555,23 +7555,21 @@ a.cv-sha:focus-visible {
   outline-offset: 2px;
 }
 
-/* The image viewer: one image over the pane below its tab row (ImageViewer.tsx), a bar with its name,
-   position, copy and close, and arrows through the chat's images at the sides. */
+/* The image viewer: a lightbox over the pane below its tab row (ImageViewer.tsx), as Quick Look is (Leo,
+   2026-11-27: "ok the screenshots thing needs to not opaque out everything else. just have what normal
+   standards are for this. some lowered opaity?"). The backdrop dims the chat, which stays in view; the
+   popup is clear; the image sits centered at its own size, shrunk only to fit; a small glass bar floats
+   at the top with its name, position and actions; arrows through the chat's images at the sides. */
 .acpmux-image-viewer {
   position: fixed;
   inset: var(--acpmux-image-viewer-top, 0px) 0 0;
   z-index: var(--layer-modal);
   width: auto;
-  margin-inline: 0;
-  display: flex;
-  flex-direction: column;
-  /* .ui-glass with the popover level's tint and blur (ImageViewer.tsx; the Dialog takes no data-glass-level): light enough that the pane reads behind it as a
-     backdrop under the blur (Leo, 2026-11-05: "this screenshot preview has too much opacity"). The page
-     color is clear in a translucent window, so Reduce Transparency's solid fill is the opaque surface. */
-  /* glass-opaque-allow: Reduce Transparency's fill only (glass.css applies it under that setting) */
-  --glass-opaque: var(--cmux-surface-solid, var(--agent-page-bg));
-  --glass-tint: color-mix(in srgb, var(--cmux-surface-solid, var(--agent-page-bg)) var(--ds-glass-popover-tint), transparent);
-  --glass-backdrop: var(--ds-glass-popover-blur);
+  margin: 0;
+  padding: 0;
+  border-radius: 0;
+  background: none;
+  box-shadow: none;
   color: var(--agent-text);
   outline: none;
   /* Image viewing is a direct response to a click: show the already decoded image in its final
@@ -7583,8 +7581,13 @@ a.cv-sha:focus-visible {
   position: fixed;
   inset: 0;
   z-index: var(--layer-overlay);
+  /* The standard lightbox dim: the chat reads behind it (Quick Look, a browser's image lightbox). */
+  background: rgb(0 0 0 / 45%);
   --ui-popup-open: 0s;
   --ui-dialog-open: 0s;
+}
+:root[data-reduce-transparency] .acpmux-image-viewer-backdrop {
+  background: rgb(0 0 0 / 70%);
 }
 .acpmux-image-viewer[data-starting-style] {
   opacity: 1;
@@ -7594,25 +7597,30 @@ a.cv-sha:focus-visible {
   opacity: 1;
 }
 .acpmux-image-viewer-body {
-  position: relative;
-  flex: 1;
-  min-height: 0;
-  display: flex;
-  flex-direction: column;
+  position: absolute;
+  inset: 0;
 }
-.acpmux-image-viewer-bar {
-  flex: none;
+/* A small floating glass bar, not a full-width header (the popover level's tint and blur). */
+.acpmux-image-viewer-bar.ui-glass {
+  position: absolute;
+  z-index: 1;
+  top: var(--ds-space-3);
+  left: 50%;
+  transform: translateX(-50%);
   display: flex;
-  flex-wrap: wrap;
   align-items: center;
   gap: var(--ds-space-1);
-  min-height: calc(var(--cv-font-size) * 44 / 14);
-  padding: 0 calc(var(--ds-space-4) - var(--cv-action-overhang)) 0 var(--ds-space-4);
+  max-width: calc(100% - 2 * var(--ds-space-4));
+  box-sizing: border-box;
+  padding: 4px 4px 4px var(--ds-space-3);
+  border-radius: calc(var(--ds-radius-control) + 4px);
   font-size: calc(var(--cv-font-size) * 13 / 14);
+  box-shadow: var(--ui-popup-drop, 0 4px 16px rgb(0 0 0 / 25%));
 }
 .acpmux-image-viewer-title {
-  flex: 1 1 10ch;
+  flex: 0 1 auto;
   min-width: 0;
+  margin-right: 8px;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -7645,13 +7653,17 @@ a.cv-sha:focus-visible {
   outline: 2px solid var(--agent-accent-soft);
 }
 .acpmux-image-viewer-stage {
-  flex: 1;
-  min-height: 0;
+  /* The whole popup, so its center is the fitted image's center (zoomAbout in ImageViewer.tsx), a click
+     anywhere beside the image closes, and the image's percentages resolve against a definite box (the
+     blank body Leo saw on 2026-11-27 was the image with no box of its own to fit). */
+  position: absolute;
+  inset: 0;
   display: flex;
   align-items: center;
   justify-content: center;
-  /* Symmetric, so the stage's center is the fitted image's center (zoomAbout in ImageViewer.tsx). */
-  padding: 16px 56px;
+  /* Room for the floating bar above and the arrows at the sides. */
+  padding: 56px 56px 24px;
+  box-sizing: border-box;
   overflow: hidden;
   touch-action: none;
 }
@@ -7662,10 +7674,13 @@ a.cv-sha:focus-visible {
   cursor: grabbing;
 }
 .acpmux-image-viewer-image {
+  /* Its own size, scaled down only when it is larger than the stage. */
+  flex: none;
   max-width: 100%;
   max-height: 100%;
   object-fit: contain;
-  border-radius: 8px;
+  border-radius: 6px;
+  box-shadow: 0 8px 32px rgb(0 0 0 / 35%);
   transform-origin: center;
   user-select: none;
   -webkit-user-select: none;
