@@ -169,6 +169,51 @@ pub async fn accept_with_authorization(stream: TcpStream) -> (WebSocketStream<Tc
     (socket, authorization)
 }
 
+/// What a relay that predates Standby answers one: `unexpected-control`, not retryable, which the
+/// daemon reads as `StandbyEnd::Unsupported`.
+async fn refuse_standby(socket: &mut WebSocketStream<TcpStream>) {
+    send_test_control(
+        socket,
+        &RelayControl::Error {
+            code: "unexpected-control".into(),
+            message: "relay control message is not valid here".into(),
+            retryable: false,
+        },
+    )
+    .await;
+}
+
+/// The next socket that is not a Standby: upgraded, with its authorization and first control. A
+/// registered daemon also opens `STANDBY_SOCKETS` Standby sockets on every relay route; each is
+/// refused as a relay older than Standby would ([`refuse_standby`]), so a mock relay that is not
+/// about Standby behaves like one that predates it.
+async fn accept_skipping_standbys(
+    listener: &TcpListener,
+) -> (WebSocketStream<TcpStream>, String, RelayControl) {
+    loop {
+        let (stream, _) = listener.accept().await.unwrap();
+        let (mut socket, authorization) = accept_with_authorization(stream).await;
+        let control = receive_test_control(&mut socket).await;
+        if matches!(control, RelayControl::Standby { .. }) {
+            refuse_standby(&mut socket).await;
+            continue;
+        }
+        return (socket, authorization, control);
+    }
+}
+
+/// Accept and refuse the `STANDBY_SOCKETS` Standbys a daemon opens once it is registered, as a
+/// relay that predates Standby would: the daemon asks again only after 600 s, so every later
+/// socket is the test's own.
+async fn refuse_standbys(listener: &TcpListener) {
+    for _ in 0..standby::STANDBY_SOCKETS {
+        let (stream, _) = listener.accept().await.unwrap();
+        let (mut socket, _) = accept_with_authorization(stream).await;
+        assert!(matches!(receive_test_control(&mut socket).await, RelayControl::Standby { .. }));
+        refuse_standby(&mut socket).await;
+    }
+}
+
 /// A relay that takes the TCP connection and never answers the upgrade (a
 /// socket that died silently mid-open): the open fails within
 /// [`RELAY_CONNECT_TIMEOUT`] as a retryable carrier failure, so a daemon's
@@ -816,19 +861,18 @@ async fn daemon_registers_again_when_the_relay_stops_answering_pings() {
     let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
     let address = listener.local_addr().unwrap();
     let server = tokio::spawn(async move {
-        let (stream, _) = listener.accept().await.unwrap();
-        let (mut silent, authorization) = accept_with_authorization(stream).await;
+        let (mut silent, authorization, register) = accept_skipping_standbys(&listener).await;
         assert_eq!(authorization, "Bearer ticket-1");
-        assert!(matches!(receive_test_control(&mut silent).await, RelayControl::Register { .. }));
+        assert!(matches!(register, RelayControl::Register { .. }));
         // A 3 s lease pings every second; this relay never answers.
         send_test_control(&mut silent, &RelayControl::Registered { lease_seconds: 3 }).await;
-        let (stream, _) = tokio::time::timeout(Duration::from_secs(8), listener.accept())
-            .await
-            .expect("the daemon did not register again after its pings went unanswered")
-            .unwrap();
-        let (mut second, authorization) = accept_with_authorization(stream).await;
+        // The registration's Standbys are refused on the way (this relay predates them).
+        let (mut second, authorization, register) =
+            tokio::time::timeout(Duration::from_secs(8), accept_skipping_standbys(&listener))
+                .await
+                .expect("the daemon did not register again after its pings went unanswered");
         assert_eq!(authorization, "Bearer ticket-2");
-        assert!(matches!(receive_test_control(&mut second).await, RelayControl::Register { .. }));
+        assert!(matches!(register, RelayControl::Register { .. }));
         send_test_control(&mut second, &RelayControl::Registered { lease_seconds: 30 }).await;
         drop(silent);
         while second.next().await.is_some() {}
@@ -1890,22 +1934,35 @@ fn standby_ticket() -> standby::StandbyTicket {
     }
 }
 
-/// A Standby sends `Standby` with the registration's ticket, answers pings while it waits, and
-/// becomes the daemon's end of a circuit when the relay pairs it (`Ready`).
+/// A registration keeps `STANDBY_SOCKETS` Standbys on every relay route, the single-framed one
+/// included (`cmux-relay` pairs them too). Each sends `Standby` with the registration's ticket,
+/// answers pings while it waits, and becomes the daemon's end of a circuit when the relay pairs it
+/// (`Ready`).
 #[tokio::test]
 async fn a_standby_waits_registered_and_becomes_the_circuit_the_relay_pairs() {
     let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
     let address = listener.local_addr().unwrap();
     let server = tokio::spawn(async move {
-        let (stream, _) = listener.accept().await.unwrap();
-        let (mut socket, authorization) = accept_with_authorization(stream).await;
-        assert_eq!(authorization, "Bearer registration-ticket");
-        let RelayControl::Standby { slot, ticket, .. } = receive_test_control(&mut socket).await
-        else {
-            panic!("expected standby");
-        };
-        assert_eq!((slot.as_str(), ticket.as_str()), ("standby-slot", "registration-ticket"));
-        send_test_control(&mut socket, &RelayControl::Registered { lease_seconds: 30 }).await;
+        let mut waiting = Vec::new();
+        for _ in 0..standby::STANDBY_SOCKETS {
+            let (stream, _) = listener.accept().await.unwrap();
+            let (mut socket, authorization) = accept_with_authorization(stream).await;
+            assert_eq!(authorization, "Bearer registration-ticket");
+            let RelayControl::Standby { slot, ticket, .. } =
+                receive_test_control(&mut socket).await
+            else {
+                panic!("expected standby");
+            };
+            assert_eq!((slot.as_str(), ticket.as_str()), ("standby-slot", "registration-ticket"));
+            send_test_control(&mut socket, &RelayControl::Registered { lease_seconds: 30 }).await;
+            waiting.push(socket);
+        }
+        assert!(
+            tokio::time::timeout(Duration::from_millis(300), listener.accept()).await.is_err(),
+            "more than STANDBY_SOCKETS Standbys were opened"
+        );
+        // Pair one; the others stay registered and unpaired.
+        let mut socket = waiting.remove(0);
         send_test_control(&mut socket, &RelayControl::Ping { nonce: 9 }).await;
         assert!(matches!(receive_test_control(&mut socket).await, RelayControl::Pong { nonce: 9 }));
         send_test_control(
@@ -1925,9 +1982,7 @@ async fn a_standby_waits_registered_and_becomes_the_circuit_the_relay_pairs() {
     let tls = RelayTls::default();
     let mut standbys =
         standby::Standbys::new(&config, RelayCircuitFraming::Single, &tls, &standby_ticket());
-    // A self-hosted relay's framing keeps none.
-    assert!(standbys.is_empty());
-    standbys.replace(&standby::StandbyEnd::Lapsed, standby_ticket());
+    assert!(!standbys.is_empty(), "a single-framed relay route keeps Standbys too");
     let end = tokio::time::timeout(Duration::from_secs(5), standbys.next()).await.unwrap();
     let Some(standby::StandbyEnd::Paired(circuit, link)) = end else {
         panic!("the standby was not paired");
@@ -1938,36 +1993,30 @@ async fn a_standby_waits_registered_and_becomes_the_circuit_the_relay_pairs() {
     tokio::time::timeout(Duration::from_secs(5), server).await.unwrap().unwrap();
 }
 
-/// A relay older than Standby refuses it (`unexpected-control`, not retryable): the daemon keeps
-/// the circuit-DO route and does not ask again soon.
+/// A relay older than Standby refuses it (`unexpected-control`, not retryable): each of the
+/// registration's `STANDBY_SOCKETS` ends `Unsupported`, the daemon keeps the circuit-DO route, and
+/// it does not ask again soon (`STANDBY_UNSUPPORTED_WAIT`).
 #[tokio::test]
 async fn a_relay_that_refuses_standby_leaves_the_circuit_route() {
     let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
     let address = listener.local_addr().unwrap();
     let server = tokio::spawn(async move {
-        let (stream, _) = listener.accept().await.unwrap();
-        let (mut socket, _) = accept_with_authorization(stream).await;
-        assert!(matches!(receive_test_control(&mut socket).await, RelayControl::Standby { .. }));
-        send_test_control(
-            &mut socket,
-            &RelayControl::Error {
-                code: "unexpected-control".into(),
-                message: "relay control message is not valid here".into(),
-                retryable: false,
-            },
-        )
-        .await;
+        refuse_standbys(&listener).await;
         // Not asked again within the test.
-        assert!(tokio::time::timeout(Duration::from_millis(500), listener.accept()).await.is_err());
+        assert!(
+            tokio::time::timeout(Duration::from_millis(500), listener.accept()).await.is_err(),
+            "a refused Standby was asked again"
+        );
     });
     let config = standby_config(address);
     let tls = RelayTls::default();
     let mut standbys =
         standby::Standbys::new(&config, RelayCircuitFraming::Single, &tls, &standby_ticket());
-    standbys.replace(&standby::StandbyEnd::Lapsed, standby_ticket());
-    let end = tokio::time::timeout(Duration::from_secs(5), standbys.next()).await.unwrap();
-    assert!(matches!(end, Some(standby::StandbyEnd::Unsupported)));
-    standbys.replace(&standby::StandbyEnd::Unsupported, standby_ticket());
+    for _ in 0..standby::STANDBY_SOCKETS {
+        let end = tokio::time::timeout(Duration::from_secs(5), standbys.next()).await.unwrap();
+        assert!(matches!(end, Some(standby::StandbyEnd::Unsupported)));
+        standbys.replace(&standby::StandbyEnd::Unsupported, standby_ticket());
+    }
     assert!(tokio::time::timeout(Duration::from_millis(600), standbys.next()).await.is_err());
     server.await.unwrap();
 }
@@ -2139,6 +2188,9 @@ async fn a_daemon_joins_an_incoming_circuit_on_a_second_socket_when_the_first_ha
         let (mut control, _) = accept_with_authorization(stream).await;
         assert!(matches!(receive_test_control(&mut control).await, RelayControl::Register { .. }));
         send_test_control(&mut control, &RelayControl::Registered { lease_seconds: 30 }).await;
+        // This relay predates Standby: the registration's Standbys are refused before the
+        // Incoming, so the next sockets are the circuit's.
+        refuse_standbys(&listener).await;
         let circuit = CircuitId("first-circuit".into());
         let lane = LaneToken("lane-0".into());
         send_test_control(

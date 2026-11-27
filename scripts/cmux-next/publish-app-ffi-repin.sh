@@ -394,11 +394,18 @@ hold_min="${REPIN_HOLD_MIN:-90}"
 # has none of these, and a failed read would quietly turn the hold off.
 read_api() { GH_TOKEN="${READ_TOKEN:?READ_TOKEN reads the checks at the head}" gh_retry gh api "$@"; }
 held_pr() {
-  local number state head age failed status
+  local number state head mergeable age failed status
   number="$(gh_retry gh api "repos/$GITHUB_REPOSITORY/pulls?state=open&base=feat-cmux-next&head=${GITHUB_REPOSITORY%/*}:$branch" --jq '.[0].number // empty')" || return 2
   [[ "$number" =~ ^[0-9]+$ ]] || return 1
-  read -r state head < <(gh_retry gh api "repos/$GITHUB_REPOSITORY/pulls/$number" --jq '"\(.state) \(.head.sha)"') || return 2
+  read -r state head mergeable < <(gh_retry gh api "repos/$GITHUB_REPOSITORY/pulls/$number" --jq '"\(.state) \(.head.sha) \(.mergeable)"') || return 2
   [[ "$state" == open && "$head" == "$previous" ]] || return 1
+  # A head that conflicts with feat-cmux-next never lands, so holding it only waits out the hold. 2026-11-27: #60275's
+  # head c175a22a conflicted (next-autoland: "GitHub says conflicting") with no failed check, so each re-pin kept it
+  # for its 90 min hold while the app FFI pin sat 182 min behind. GitHub answers null while it computes: that holds.
+  if [[ "$mergeable" == false ]]; then
+    echo "#$number's head ${previous:0:12} conflicts with feat-cmux-next: moving it" >&2
+    return 1
+  fi
   age="$(read_api "repos/$GITHUB_REPOSITORY/commits/$previous" --jq '(now - (.commit.committer.date | fromdateiso8601)) / 60 | floor')" || return 2
   [[ "$age" =~ ^[0-9]+$ ]] || return 2
   if (( age >= hold_min )); then
