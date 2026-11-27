@@ -221,8 +221,10 @@ final class HostView: NSView {
         placeTopFadeView()
         updateTopFadeScrollEdge()
         controller?.placeSendButton(animated: false)
-        fieldChrome.place(field: demo.compose.fieldRect, plus: demo.compose.plusRect,
-                          emoji: CGRect(x: bounds.width - Fixture.windowWidth + 586.5, y: demo.compose.plusRect.minY, width: 31, height: 30))
+        // A narrow pane drops the emoji button, then the "+" button, so the draft keeps its line (ComposeChromeLayout).
+        let chrome = ComposeChromeLayout(width: demo.compose.bounds.width)
+        fieldChrome.place(field: demo.compose.fieldRect, plus: chrome.showsPlus ? demo.compose.plusRect : nil,
+                          emoji: chrome.showsEmoji ? CGRect(x: chrome.emojiX, y: demo.compose.plusRect.minY, width: 31, height: 30) : nil)
         placeQuoteCard(above: demo.compose.fieldRect)
         placeSlashMenu(above: demo.compose.fieldRect)
     }
@@ -294,7 +296,7 @@ final class HostView: NSView {
     private func point(_ e: NSEvent) -> CGPoint { convert(e.locationInWindow, from: nil) }
     override func mouseDown(with event: NSEvent) { controller?.mouseDown(at: point(event), event) }
     override func mouseUp(with event: NSEvent) { controller?.mouseUp(at: point(event), event) }
-    override func menu(for event: NSEvent) -> NSMenu? { controller?.menu(at: point(event)) }
+    override func menu(for event: NSEvent) -> NSMenu? { NSMenu.systemFree(controller?.menu(at: point(event))) }
 
     // Hover (MessagesLab 2a0805d): an attachment in the field shows its remove
     // button. The tracking area exists only while the field holds attachments,
@@ -326,7 +328,10 @@ extension FieldChrome {
     ///
     /// A light theme's glass is as pale as the page, so the field gets a hairline edge of
     /// `edge` (the palette's `composeStroke`: 3:1 on the page, WCAG 1.4.11); dark glass keeps its own rim.
-    func applyTheme(light: Bool, symbol: NSColor, edge: NSColor? = nil) {
+    /// `fill`: the field's tint over a see-through window (the web composer's surface there), so the
+    /// placeholder reads on it as on the web field; nil keeps the clear system glass.
+    func applyTheme(light: Bool, symbol: NSColor, edge: NSColor? = nil, fill: NSColor? = nil) {
+        if field.tintColor != fill { field.tintColor = fill }
         field.wantsLayer = true
         if let layer = field.layer {
             // NSGlassEffectView rounds its glass internally, independently of its backing
@@ -359,6 +364,8 @@ extension FieldChrome {
 final class ChatController: NSObject, NSTextViewDelegate {
     var window: NSWindow? { host.window }
     let host: HostView
+    /// cmux: the rows' scroll position changed (``MessagesLabHomeView/onScrolled``).
+    var onScrolled: (() -> Void)?
     /// The projection, nil until `install` (crash program: no longer an IUO that trapped
     /// when read early).
     private(set) var store: Store?
@@ -490,6 +497,8 @@ final class ChatController: NSObject, NSTextViewDelegate {
     /// (PaneHost+DropFocus.swift); tests stub it so no window comes forward.
     /// cmux: the picture viewer open over the pane, nil once it starts closing (``ChatController/keyboardTarget``).
     weak var shownPictureViewer: NSView?
+    /// cmux: a click on a picture in the message box waits out the double-click interval (DraftPictureClick.swift).
+    let draftPictureClick = DraftPictureClick()
     var bringWindowForward: (NSWindow) -> Void = { window in
         NSApp.activate()
         window.makeKeyAndOrderFront(nil)
@@ -556,7 +565,11 @@ final class ChatController: NSObject, NSTextViewDelegate {
         followKeyState()  // its own window's key state (cx-95476)
         // A window on a display of another scale than the one the view was made at (MessagesLab 258b385).
         followWindowScale()
-        host.fieldChrome.onPlus = { [weak self] in self?.intents?.pickAttachments() }
+        // cmux: the "+" opens the host's + menu above the button (Files, the recent clipboard).
+        host.fieldChrome.onPlus = { [weak self] in
+            guard let self else { return }
+            self.intents?.plusClicked(anchor: self.host.fieldChrome.plus)
+        }
         host.fieldChrome.onEmoji = { [weak self] in self?.roundButtonClicked() }
         demo.compose.onFieldResize = { [weak self] old, new, el, begin in
             self?.host.fieldChrome.animateField(from: old, to: new, el, begin: begin)
@@ -603,6 +616,16 @@ final class ChatController: NSObject, NSTextViewDelegate {
         tv.view.acceptsPastePasteboard = { [weak self] pb in self?.intents?.acceptsAttachments(from: pb) ?? false }
         tv.view.pasteTextBesideAttachments = { [weak self] pb in self?.intents?.attachmentPasteText(from: pb) }
         tv.view.draftAttachmentFile = { [weak self] id in self?.intents?.draftAttachmentFile(id) }
+        // cmux: a click on a picture schedules its open; the field's next press (a double click's second) cancels it.
+        tv.view.onOpenDraftPicture = { [weak self, weak field = tv.view] id, rect, image in
+            guard let self else { return false }
+            self.draftPictureClick.schedule { [weak self, weak field] in
+                guard let self else { return }
+                let from = field.flatMap { f in image.map { (rect: f.convert(rect, to: self.host), image: $0) } }
+                self.openDraftPicture(id, from: from)
+            }
+            return true
+        }
         tv.view.onDropPasteboard = { [weak self] pb in self?.takeDrop(pb) ?? false }
         tv.view.acceptsDropPasteboard = { [weak self] pb in self?.intents?.acceptsDroppedAttachments(from: pb) ?? false }
         tv.view.onDropTargetChange = { [weak self] targeted in self?.intents?.attachmentDropTargeted(targeted) }
@@ -616,6 +639,7 @@ final class ChatController: NSObject, NSTextViewDelegate {
             self?.host.updateTopFadeScrollEdge()
             self?.scrolledForSaveHover()
             self?.intents?.scrolled()
+            self?.onScrolled?()
         }
         if Self.args.contains("--inactive") { demo.setInactive(true) }
         scheduleWake()
@@ -664,6 +688,7 @@ final class ChatController: NSObject, NSTextViewDelegate {
     func dispatch(_ a: Action) {
         guard let store else { return }
         if case .reply(let ref) = a, intents?.canInteract(with: ref.messageId) == false { return }
+        let field = demo.map { ($0.compose.fieldRect, $0.fieldTop) }
         thread.note(a)
         forgetQuote(for: a)
         // MessagesLab bd65bbf (Host.dispatch): a keystroke goes first. Engine jobs due now
@@ -698,12 +723,16 @@ final class ChatController: NSObject, NSTextViewDelegate {
             inKeystrokeFrame = true
             nextFrame { [weak self] in self?.inKeystrokeFrame = false }
         }
-        afterEngine()
+        // A key that kept the field's frame changed only the compose layers (no engine job ran with it: a due one waits
+        // for the next frame, `ahead`), so the scale walk covers the compose tree alone.
+        let keyInField: Bool = { if case .setDraft = a, let demo, let field { return field == (demo.compose.fieldRect, demo.fieldTop) }; return false }()
+        afterEngine(composeOnly: keyInField)
     }
 
-    /// After any engine change: the native views follow the shared geometry.
-    func afterEngine() {
-        ScaleKeeper.shared.setNeedsApply()
+    /// After any engine change: the native views follow the shared geometry. `composeOnly`: only the compose layers
+    /// could have changed (ScaleKeeper walks that tree alone).
+    func afterEngine(composeOnly: Bool = false) {
+        if composeOnly { ScaleKeeper.shared.setNeedsComposeApply(host) } else { ScaleKeeper.shared.setNeedsApply() }
         host.scrollView.syncFromModel()
         if !selection.isEmpty { selection.refresh() }
         if let demo { host.fieldChrome.follow(field: demo.compose.fieldRect) }
@@ -763,22 +792,65 @@ final class ChatController: NSObject, NSTextViewDelegate {
         let draft = store?.state.ui.draft.attachments ?? []
         // An edit can move the pictures: the remove button waits for the pointer to move again.
         demo.compose.inlineHover.hide()
-        // cmux: attachments are in the text (Draft+InlineMarks.swift). An attachment character that
-        // stands for no draft attachment (a pasted U+FFFC, an undo of a removal) leaves the text.
-        if let storage = tv.textStorage {
-            let orphans = ComposeInlineText.orphanRanges(in: storage, keeping: Set(draft.map(\.id)))
-            for r in orphans { storage.replaceCharacters(in: r, with: "") }
+        // cmux: attachments are in the text (Draft+InlineMarks.swift); the field leads and the draft
+        // follows it (ComposeFieldUndo.swift).
+        let text = followField(tv, draft: draft, compose: demo.compose)
+        composerHistory.textChanged(to: text)
+        intents?.draftChanged()
+        updateSlashMenu()  // cmux: the `/` menu follows the command
+    }
+
+    /// cmux: the draft takes the field's text and its attachments, in the field's order, and
+    /// returns the text. A picture the field shows that the draft does not have came back (Edit >
+    /// Undo of its deletion, Redo of its paste): the draft takes it in again when the host can
+    /// (`canRestoreDraftAttachment`). An attachment character that stands for no attachment that
+    /// can come back (a plain U+FFFC pasted as text) leaves the text, and with it the field's undo
+    /// entries, whose ranges no longer fit (cmux #48500).
+    private func followField(_ tv: FieldTextView, draft: [Attachment], compose: ComposeView) -> String {
+        let had = Set(draft.map(\.id))
+        var marks = tv.textStorage.map(ComposeInlineText.marks(in:)) ?? []
+        let orphans = marks.filter { m in
+            guard let a = m.attachment else { return true }
+            return !had.contains(a.attachmentID) && intents?.canRestoreDraftAttachment(a.attachmentID) == false
+        }
+        if !orphans.isEmpty, let storage = tv.textStorage {
+            for m in orphans.reversed() { storage.replaceCharacters(in: NSRange(location: m.offset, length: 1), with: "") }
+            tv.forgetUndo()
+            marks = ComposeInlineText.marks(in: storage)
         }
         // The draft is a native copy of the field's text (a bridged NSString): each key compares it.
         let text = String(nativeCopyOf: tv.string)
-        composerHistory.textChanged(to: text)
-        dispatch(.setDraft(text))
-        // An attachment whose character the person deleted (Delete, a cut, the remove button) leaves the draft.
-        let shown = Set(tv.textStorage.map(ComposeInlineText.ids(in:)) ?? [])
-        let gone = draft.filter { !shown.contains($0.id) }
-        for a in gone { dispatch(.removeDraftAttachment(a.id)) }
-        intents?.draftChanged()
-        updateSlashMenu()  // cmux: the `/` menu follows the command
+        let shown = marks.compactMap(\.attachment)
+        let shownIDs = shown.map(\.attachmentID)
+        // Every key: the same attachments, or some deleted (Delete, a cut, the remove button), in order.
+        if shownIDs.count <= draft.count, Self.isInOrder(shownIDs, in: draft.map(\.id)) {
+            dispatch(.setDraft(text))
+            let kept = Set(shownIDs)
+            for a in draft where !kept.contains(a.id) { dispatch(.removeDraftAttachment(a.id)) }
+            return text
+        }
+        // A picture came back, or the pictures moved: the draft's attachments again, in the field's
+        // order, each at its mark. The field already shows them, so the draft's render leaves it be.
+        compose.draftFollowsField = true
+        defer { compose.draftFollowsField = false }
+        dispatch(.setDraft(Draft.stripMarks(text)))
+        for a in draft { dispatch(.removeDraftAttachment(a.id)) }
+        for m in marks {
+            guard let inline = m.attachment else { continue }
+            let model = draft.first { $0.id == inline.attachmentID } ?? inline.model
+            dispatch(.attachAt(model, m.offset))
+        }
+        tv.typingAttributes = ComposeInlineText.attributes(inline: !shown.isEmpty)
+        return text
+    }
+
+    /// Whether IDS are PARENT's in its order, some left out.
+    private static func isInOrder(_ ids: [ID], in parent: [ID]) -> Bool {
+        var it = parent.makeIterator()
+        return ids.allSatisfy { id in
+            while let next = it.next() { if next == id { return true } }
+            return false
+        }
     }
 
     func escape() {

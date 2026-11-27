@@ -1,0 +1,120 @@
+{
+  "family": "session",
+  "ops": {
+    "session.creation.resolve": {
+      "source": "local",
+      "class": "read",
+      "digest": "fdfde6a1ebc16389"
+    },
+    "session.events": {
+      "source": "local",
+      "class": "stream_open",
+      "digest": "c9228f7aae7e370c"
+    },
+    "session.get": {
+      "source": "local",
+      "class": "read",
+      "digest": "a16c137b69d8b8fc"
+    },
+    "session.journal.append": {
+      "source": "local",
+      "class": "mutation",
+      "digest": "b2fd240b97cb618c"
+    },
+    "session.journal.checkpoint.create": {
+      "source": "local",
+      "class": "mutation",
+      "digest": "3c2b79ffc3c7383e"
+    },
+    "session.journal.checkpoint.list": {
+      "source": "local",
+      "class": "read",
+      "digest": "200eda263dbd3f9b"
+    },
+    "session.journal.hook.list": {
+      "source": "local",
+      "class": "read",
+      "digest": "e01499a80a474dff"
+    },
+    "session.journal.hook.put": {
+      "source": "local",
+      "class": "mutation",
+      "digest": "5dcfa5adf95c7aa9"
+    },
+    "session.journal.producer.list": {
+      "source": "local",
+      "class": "read",
+      "digest": "0437624f3e57923a"
+    },
+    "session.journal.producer.put": {
+      "source": "local",
+      "class": "mutation",
+      "digest": "39a285df166b4cd8"
+    },
+    "session.journal.restore.preview": {
+      "source": "local",
+      "class": "read",
+      "digest": "57b4a3c3e597e01f"
+    },
+    "session.journal.segment.list": {
+      "source": "local",
+      "class": "read",
+      "digest": "0ea1d9225deffdcf"
+    },
+    "session.journal.segment.seal": {
+      "source": "local",
+      "class": "mutation",
+      "digest": "0bf90ebfc6745a2f"
+    },
+    "session.journal.subscribe": {
+      "source": "local",
+      "class": "stream_open",
+      "digest": "6b135c6d56316462"
+    },
+    "session.list": {
+      "source": "local",
+      "class": "read",
+      "digest": "fdc902085a564a82"
+    },
+    "session.open": {
+      "source": "local",
+      "class": "mutation",
+      "digest": "a88a546dd35bb7ba"
+    },
+    "session.ping": {
+      "source": "local",
+      "class": "read",
+      "digest": "494854fd17579338"
+    },
+    "session.reload_config": {
+      "source": "local",
+      "class": "mutation",
+      "digest": "304ec2fa967e30b6"
+    },
+    "session.shutdown": {
+      "source": "local",
+      "class": "mutation",
+      "digest": "e18909c95b4f3ae2"
+    },
+    "session.snapshot": {
+      "source": "local",
+      "class": "read",
+      "digest": "5547f188c8a9ab43"
+    },
+    "session.terminal_defaults.update": {
+      "source": "local",
+      "class": "mutation",
+      "digest": "9ac852ac6f2cd10b"
+    },
+    "session.window.title.clear": {
+      "source": "local",
+      "class": "mutation",
+      "digest": "1a3989454faf29d2"
+    },
+    "session.window.title.set": {
+      "source": "local",
+      "class": "mutation",
+      "digest": "fd1635ecbf780f2d"
+    }
+  }
+}

@@ -1,0 +1,24 @@
+{
+  // The closed directories (RFD 0040, the closed kit): raw values do not compile here. Each file opens
+  // with `/** @jsxImportSource <path to src/kit/closed> */`, so its JSX has no intrinsic elements and no
+  // `style` or `className` (src/kit/closed/jsx-runtime.ts); test/closed-kit/door-shut.tsx fails the
+  // check if either door reopens. `bun run check:closed-kit` checks just these directories, in seconds
+  // (it runs in `check:pieces` and `typecheck`); the whole-app type check (tsconfig.json) also reads the
+  // pragma, so it holds them closed too. scripts/check-closed-kit.ts fails first if a product .tsx in a
+  // listed directory lacks the pragma. A directory joins this list once every file composes kit
+  // pieces, and its rows leave scripts/design-tokens-baseline.jsonl.
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "incremental": true,
+    "tsBuildInfoFile": "node_modules/.cache/tsconfig.closed.tsbuildinfo"
+  },
+  "include": [
+    "src/global.d.ts",
+    "src/agent-session/acpmux/pane/bridgeGlobals.ts",
+    "src/kit/closed",
+    "src/kit/presets",
+    "src/agent-session/acpmux/session-info/native",
+    "src/slots/receiveTransition",
+    "test/closed-kit"
+  ]
+}

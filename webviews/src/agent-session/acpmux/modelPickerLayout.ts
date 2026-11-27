@@ -59,6 +59,7 @@ export type ModelPickerProps = {
     offLabel: string;
     lastOnValue?: string;
     values?: readonly string[];
+    choices?: readonly { value: string; name?: string }[];
     onPick(value: string): void;
   };
   /** Refreshes the host-backed model catalog; the host owns transport and live events. */
@@ -76,6 +77,9 @@ export type ModelPickerProps = {
   onHarnessEnable?(folder: string, id: string): void;
   /// Add harness…, the menu's last row: the pane's Harnesses page, in place (cx-uj5g8).
   onAddAgent?(): void;
+  /// That row's text when it is not Add harness…: with Cloud picked it opens Settings > Cloud
+  /// (cloudPickerEntries.ts), "Set up more for Cloud…".
+  addAgentLabel?: string;
   /// A pick of a model whose harness needs setting up here (not installed, or signed out): the
   /// composer installs it in place, signs it in and then starts the chat on the model
   /// (harnessSetup.ts). With it, the search finds those harnesses' models too; without it their
@@ -124,6 +128,8 @@ export type ModelPickerProps = {
   /// on its own) the chip opens the full picker at once. With it the chip draws `detail` (the
   /// effort) after the model and no chevron.
   quick?: QuickMenuExtras;
+  /** A manifest contributes presentation only. All choices and picks still come from this session. */
+  reasoningMenu?: "column" | "separate";
   /// The effort's short name ("Med") the compact chip shows in a narrow row (composerRowFit.ts).
   detailShort?: string;
   /// The room, in px, left of the open menu for its submenus (`menuRoom`). Tests pass a

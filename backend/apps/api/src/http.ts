@@ -26,6 +26,7 @@ import { HttpApiBuilder } from "effect/http-api"
 import { mintAccessToken, publicJwks, authenticateOrUnreachable } from "./auth.ts";
 import type { Env } from "./env.ts"
 import { requestEnv } from "./request-env.ts"
+import { withGitHubNext } from "./integrations/github-next.ts"
 import { isDevSpace } from "./build-space.ts"
 import type { DomainReply } from "./team-domain-external.ts"
 import type { ExternalReply } from "./connection-do.ts"
@@ -33,7 +34,7 @@ import { automationHookPath, automationHookSecret } from "./ingress/automation-h
 import { codeRefOf } from "./code-check.ts"
 import { chiefJobGate, isChiefJobCreate } from "./chief-job-gate.ts"
 import type { CodeStorageError } from "./code-storage.ts"
-import { isProvider, providers, scopesToRequest } from "./integrations/providers.ts"
+import { isProvider, ProviderError, providers, scopesToRequest } from "./integrations/providers.ts"
 import { integrationCallbackUrl, signState, verifyState, type ConnectState } from "./integrations/state.ts"
 import { configureAfterLink, githubConnectUrl, type GithubConnectTarget } from "./integrations/github-connect.ts"
 import type { ReadResult, SubmitResult } from "./owner-do.ts"
@@ -44,9 +45,10 @@ import { avatarGetRoute, avatarSetRoute, conversationMutate, conversationRead } 
 import { linkVerifiedAddress } from "./home-requests.ts"
 import { homeSearch, type SearchParams } from "./home-search.ts"
 import { gateUnreachable, signInRules, ssoGate, versionRefusal, withAnySsoSession } from "./policy-gate.ts"
-import { CLOUD_UNBOUND, platformCloud } from "./platform-cloud.ts"
+import { platformCloud } from "./platform-cloud.ts"
 import { forwardIntegrationPolicy, type PolicyFields } from "./integration-policy-forward.ts"
 import { answerPrincipal, approvalRoute } from "./integrations/approval-route.ts"
+import { approveInOneCall, liveApproveDeps, type ApproveOutcome, type ApproveParams } from "./integrations/approve-one-call.ts"
 import { isMachineInstallKind, machineRefused } from "./machine-installs.ts"
 import { listUserTeams, personalPrincipal, principalForOwner, selectTeam, TEAM_HEADER } from "./team-select.ts"
 
@@ -105,6 +107,9 @@ const ownerRoute = (owner: string, p: Principal): { stub: OwnerStub; entity: str
       return { stub: requestEnv().USAGE_METER_DO.get(requestEnv().USAGE_METER_DO.idFromName(p.team!)), entity: p.team!, stream: `usage:${p.team}` }
     case "cloud:TeamVmDO":
       return { stub: requestEnv().TEAM_VM_DO.get(requestEnv().TEAM_VM_DO.idFromName(p.team!)), entity: p.team!, stream: `team_vm:${p.team}` }
+    // Only integration.approval.get reaches CloudDO here: a Cloud approval's catalog owner is ConnectionDO, so the
+    // forwarder keeps it local, and approvalRoute picks the team's CloudDO that posted it. Every cloud.* op answers
+    // cloudNotHere before any route.
     case "cloud:CloudDO":
       return { stub: platformCloud(requestEnv().CLOUD_DO, p.team!) as unknown as OwnerStub, entity: p.team!, stream: `cloud:${p.team}` }
     case "cloud:ConnectionDO":
@@ -116,18 +121,15 @@ const ownerRoute = (owner: string, p: Principal): { stub: OwnerStub; entity: str
 
 /** The stream a read answers from (Home conversations are keyed by params, inbox reads by the user). */
 const readStream = (owner: string, op: string, p: Principal, params: unknown) =>
-  op.startsWith("inbox.") ? `inbox:${p.user}` : op === "home.requests.list" ? `requests:${p.user}` : owner === "cloud:ConversationDO" ? `conv:${String((params as { conversation?: unknown } | null)?.conversation ?? "")}` : owner === "cloud:UserDO" ? `user:${p.user}` : ownerRoute(owner, p).stream
+  op.startsWith("appkv.") ? `appkv:${p.user}` : op.startsWith("inbox.") ? `inbox:${p.user}` : op === "home.requests.list" ? `requests:${p.user}` : owner === "cloud:ConversationDO" ? `conv:${String((params as { conversation?: unknown } | null)?.conversation ?? "")}` : owner === "cloud:UserDO" ? `user:${p.user}` : ownerRoute(owner, p).stream
 
-/** The CloudDO ops that answer today (skeleton); every other cloud:CloudDO op answers owner.unreachable until it lands. */
-const CLOUD_LIVE_OPS: ReadonlySet<string> = new Set(["cloud.machine.list", "cloud.machine.get", "cloud.machine.create", "cloud.machine.rename", "cloud.machine.delete", "cloud.machine.idle_policy.set", "cloud.plan.get", "cloud.machine.connect_info", "cloud.machine.link_token", "cloud.machine.pause", "cloud.machine.start", "cloud.machine.resize", "cloud.snapshot.list", "cloud.snapshot.create", "cloud.snapshot.delete", "cloud.snapshot.restore", "cloud.vm.self.get", "cloud.vm.status.report", "cloud.vm.event.emit"])
-const cloudNotLive = (owner: string, op: string) =>
-  owner !== "cloud:CloudDO"
-    ? undefined
-    : !CLOUD_LIVE_OPS.has(op)
-      ? new OwnerUnreachable({ code: "owner.unreachable", message: `${op} is not available yet`, retryable: true })
-      : !requestEnv().CLOUD_DO
-        ? new OwnerUnreachable({ code: "owner.unreachable", message: CLOUD_UNBOUND, retryable: true })
-        : undefined
+/**
+ * NEXT Cloud's ops (owner cloud:CloudDO) are cmux-platform's: platformForward (platform-forward.ts) sends every one of
+ * them on /v1/ops and /v1/read to the platform's own POST /v1/ops and /v1/read before this handler runs. One that
+ * reaches here (no PLATFORM_SURFACES or no PLATFORM binding, the local env) answers a retryable owner.unreachable.
+ */
+const cloudNotHere = (owner: string) =>
+  owner === "cloud:CloudDO" ? new OwnerUnreachable({ code: "owner.unreachable", message: "NEXT Cloud is served by cmux-platform", retryable: true }) : undefined
 
 const unreachable = (e: unknown) => new OwnerUnreachable({ code: "owner.unreachable", message: String(e), retryable: true })
 
@@ -188,6 +190,27 @@ const externalOp = (principalIn: Principal, frameIn: { op: string; params: unkno
     const configureUrl = configureAfterLink(linked.resources?.repos, verified?.repo, verified?.configure_url)
     return returnTo || configureUrl ? { ...reply, value: { ...linked, ...(returnTo ? { return_to: returnTo } : {}), ...(configureUrl ? { configure_url: configureUrl } : {}) } } : reply
   })
+
+/**
+ * integration.complete's refusal with the next step (github-next.ts): GitHub's completions only (a GitHub state, or one
+ * that would not verify, whose step is to start again). An install request (`setup_action=request`) is pending approval.
+ */
+const withGitHubNextForComplete = <R extends { ok: boolean; error?: { code: string; message: string; details?: unknown } }>(reply: R, params: unknown): R => {
+  const p = (params ?? {}) as { state?: unknown; setup_action?: unknown; installation_id?: unknown }
+  const provider = typeof p.state === "string" ? stateProviderHint(p.state) : undefined
+  if (provider !== undefined && provider !== "github") return reply
+  return withGitHubNext(reply, p.setup_action === "request" && p.installation_id === undefined)
+}
+
+/** The `provider` claim of an unverified state JWT, only to pick the words of a refusal (the state is verified before any use). */
+const stateProviderHint = (state: string): string | undefined => {
+  try {
+    const claims = JSON.parse(atob((state.split(".")[1] ?? "").replace(/-/g, "+").replace(/_/g, "/"))) as { provider?: unknown }
+    return typeof claims.provider === "string" ? claims.provider : undefined
+  } catch {
+    return undefined
+  }
+}
 
 /** integration.connect's optional repo and return link (the op's schema already checked their shape). */
 const connectAsk = (params: unknown): { repo?: string; return_to?: string } => {
@@ -282,20 +305,8 @@ const OpsLive = HttpApiBuilder.group(CloudApi, "ops", (handlers) =>
         if (vmRefused(principal, payload.op)) return yield* new Forbidden({ code: "auth.forbidden", message: "a machine install may call only its own machine's ops" })
         const def = cloudOpByName.get(payload.op)
         if (!def || def.class !== "mutation") return yield* new BadRequest({ code: "validation.invalid", message: `unknown mutation ${payload.op}` })
-        const notLive = cloudNotLive(def.owner, payload.op)
+        const notLive = cloudNotHere(def.owner)
         if (notLive) return yield* notLive
-        // LINK-TOKEN-OP: no client key and no replay; a fresh internal key names the request in the audit only.
-        if (def.idempotency === "none") {
-          if (payload.idempotency_key) return yield* new BadRequest({ code: "validation.invalid", message: `${payload.op} takes no idempotency_key` })
-          const p = yield* principalFor(def.owner, principal)
-          const request = crypto.randomUUID()
-          const stub = platformCloud(requestEnv().CLOUD_DO, p.team!)
-          // The VM daemon's own-machine ops (cloud-vm.ts) share this no-key path with link_token.
-          const call = () => (payload.op.startsWith("cloud.vm.") ? stub.vmOp(p.team!, p, payload.op, payload.params ?? {}) : stub.mintLinkToken(p.team!, p, payload.params ?? {}, request))
-          const r = yield* Effect.tryPromise({ try: call, catch: unreachable })
-          const outcome = r.ok ? { value: r.value } : { error: { code: r.code ?? "owner.unreachable", message: r.message ?? "", retryable: r.code === "owner.unreachable", ...(r.details === undefined ? {} : { details: r.details }) } }
-          return { ok: r.ok, op: payload.op, ...outcome, transaction: request, idempotency_key: "", replayed: false, stream: "", sequence: 0 }
-        }
         if (!payload.idempotency_key) return yield* new BadRequest({ code: "validation.invalid", message: "mutations require idempotency_key" })
         const frame = {
           op: payload.op,
@@ -304,9 +315,18 @@ const OpsLive = HttpApiBuilder.group(CloudApi, "ops", (handlers) =>
           origin: payload.origin ?? "cli",
           ...(payload.expected_revision ? { expected_revision: payload.expected_revision } : {})
         }
+        // G8 in one call (approve-one-call.ts): the checks, the feed answer and the approved run's reply; staging flag.
+        if (payload.op === "integration.approval.approve") {
+          const reply = (r: ApproveOutcome) => ({ ok: r.ok, op: payload.op, ...(r.ok ? { value: r.value } : { error: { code: r.code, message: r.message, retryable: r.retryable, ...(r.details === undefined ? {} : { details: r.details }) } }), transaction: "", idempotency_key: frame.idempotency_key, replayed: false, stream: `feed:${principal.user ?? ""}`, sequence: 0 })
+          if (requestEnv().CLOUD_APPROVE_ONE_CALL !== "1") return reply({ ok: false, code: "approval.one_call_off", message: "answer through feed.answer on this deployment", retryable: false })
+          const resolved = yield* principalFor("cloud:ConnectionDO", principal)
+          const p = (payload.params ?? {}) as ApproveParams
+          return reply(yield* Effect.tryPromise({ try: () => approveInOneCall(liveApproveDeps(requestEnv(), resolved), principal, p, frame.idempotency_key), catch: unreachable }))
+        }
         if (payload.op === "participant.avatar.set") return yield* Effect.tryPromise({ try: () => avatarSetRoute(requestEnv(), principal, frame), catch: unreachable }) // Participant avatars (home-avatar-routes.ts).
         // Integration ops with external effects run in the ConnectionDO's own ledger (connection-do.ts).
-        if (payload.op === "integration.complete" || providerOpNames.has(payload.op) || googleProviderOpNames.has(payload.op)) return yield* externalOp(principal, frame)
+        if (payload.op === "integration.complete") return withGitHubNextForComplete(yield* externalOp(principal, frame), payload.params)
+        if (providerOpNames.has(payload.op) || googleProviderOpNames.has(payload.op)) return yield* externalOp(principal, frame)
         // DNS checks and the domain's DomainDO run in TeamDO, outside its reducer (team-domain-external.ts).
         if (payload.op === "server.network.confirm") {
           const p = yield* principalFor("cloud:TeamDO", principal)
@@ -442,6 +462,12 @@ const OpsLive = HttpApiBuilder.group(CloudApi, "ops", (handlers) =>
           const mux = yield* Effect.tryPromise({ try: () => rpc<SubmitResult>(stub.submit(agent, p, { t: "op", ...frame })), catch: unreachable })
           return toResponse(payload.op, mux.frames)
         }
+        // Synced app storage (storage:synced) runs on UserDO's `appkv:` stream (user-appkv.ts).
+        if (payload.op.startsWith("appkv.")) {
+          const p = yield* principalFor(def.owner, principal)
+          const r = yield* Effect.tryPromise({ try: () => rpc<SubmitResult>(userStub(p.user!).submitAppKv(p.user!, p, { t: "op", ...frame })), catch: unreachable })
+          return toResponse(payload.op, r.frames)
+        }
         if (def.owner === "cloud:ConversationDO" || payload.op.startsWith("inbox.")) {
           const p = yield* principalFor(def.owner, principal)
           const home = yield* Effect.tryPromise({
@@ -455,6 +481,7 @@ const OpsLive = HttpApiBuilder.group(CloudApi, "ops", (handlers) =>
         }
         const { frames } = yield* submitTo(def.owner, payload.op === "user.ensure" ? personalPrincipal(submitter) : submitter, frame)
         const response = toResponse(payload.op, frames)
+        if (payload.op === "integration.connect" && !response.ok && (payload.params as { provider?: unknown } | null)?.provider === "github") return withGitHubNext(response)
         if (payload.op === "integration.connect" && response.ok) {
           const c = response.value as Connection
           const impl = providers[c.provider]
@@ -466,7 +493,9 @@ const OpsLive = HttpApiBuilder.group(CloudApi, "ops", (handlers) =>
             : undefined
           const state = yield* Effect.promise(() => signState(requestEnv(), { conn: c.id, team: c.owner, user: c.created_by, provider: c.provider, ...(asked.return_to ? { return_to: asked.return_to } : {}), ...(target?.kind === "installed" ? { installation: target.installation, repo: asked.repo!, configure_url: target.configure_url } : {}) }))
           const scopes = scopesToRequest(requestEnv(), impl, c.scopes_requested)
-          const authorizeUrl = target ? githubConnectUrl(requestEnv(), target, state, callbackUrl()) : yield* Effect.promise(() => Promise.resolve(impl.authorizeUrl(requestEnv(), state, scopes, callbackUrl(), c.id)))
+          // GitHub's install URL names the App's slug as GitHub answers it now (providers.ts githubAppSlug), so it is async.
+          const authorizeUrl = yield* Effect.promise(() => Promise.resolve(target ? githubConnectUrl(requestEnv(), target, state, callbackUrl()) : impl.authorizeUrl(requestEnv(), state, scopes, callbackUrl(), c.id)).catch((e: unknown) => e instanceof ProviderError ? e : Promise.reject(e)))
+          if (authorizeUrl instanceof ProviderError) return { ok: false, op: payload.op, error: { code: authorizeUrl.code, message: authorizeUrl.message, retryable: true }, transaction: "", idempotency_key: frame.idempotency_key, replayed: false, stream: `connections:${principal.team}`, sequence: 0 }
           return { ...response, value: { connection: c, authorize_url: authorizeUrl } }
         }
         // A revoked server also loses its install key: TeamDO pushes the revocation to the owner's UserDO now and retries until it lands.
@@ -474,6 +503,8 @@ const OpsLive = HttpApiBuilder.group(CloudApi, "ops", (handlers) =>
           const v = response.value as { host: string; install: string }
           const team = principal.team!
           const flushed = yield* Effect.tryPromise({ try: () => rpc<{ revoked: Array<string> }>(requestEnv().TEAM_DO.get(requestEnv().TEAM_DO.idFromName(team)).flushServerRevocations(team)), catch: unreachable })
+          // Its pairing code and invite are spent by TeamDO after the commit (flushPairingSpends); wait for it here too.
+          yield* Effect.tryPromise({ try: () => rpc<void>(requestEnv().TEAM_DO.get(requestEnv().TEAM_DO.idFromName(team)).flushPairingSpends(team)), catch: unreachable })
           return { ...response, value: payload.op === "server.revoke" ? { host: v.host, install_revoked: flushed.revoked.includes(v.install) } : { host: v.host } }
         }
         // The personal team exists once the user exists (a team of one, identity spec section 2).
@@ -499,7 +530,7 @@ const OpsLive = HttpApiBuilder.group(CloudApi, "ops", (handlers) =>
         if (vmRefused(principal, payload.op)) return yield* new Forbidden({ code: "auth.forbidden", message: "a machine install may call only its own machine's ops" })
         const def = cloudOpByName.get(payload.op)
         if (!def || def.class !== "read") return yield* new BadRequest({ code: "validation.invalid", message: `unknown read ${payload.op}` })
-        const notLive = cloudNotLive(def.owner, payload.op)
+        const notLive = cloudNotHere(def.owner)
         if (notLive) return yield* notLive
         // Reads honor the op's principal kinds too (automation.webhook.get is session-only: its secret starts runs).
         if (!def.principals.includes(principal.kind === "session" ? "session" : "install")) return yield* new Forbidden({ code: "auth.forbidden", message: `${payload.op} is not allowed for ${principal.kind} principals` })
@@ -537,6 +568,7 @@ const OpsLive = HttpApiBuilder.group(CloudApi, "ops", (handlers) =>
         const r = yield* Effect.tryPromise({
           try: (): Promise<ReadResult> => {
             if (def.owner === "cloud:ConversationDO") return conversationRead(requestEnv(), reader, payload.op, payload.params) as Promise<ReadResult>
+            if (payload.op.startsWith("appkv.")) return rpc<ReadResult>(userStub(reader.user!).readAppKv(reader.user!, reader, payload.op, (payload.params ?? {}) as Record<string, unknown>))
             if (payload.op.startsWith("inbox.")) return rpc<ReadResult>(userStub(reader.user!).readInbox(reader.user!, reader, payload.op, (payload.params ?? {}) as Record<string, unknown>))
             if (payload.op === "user.teams.list") return listUserTeams(requestEnv(), shape.stack_session ? { ...reader, stack_session: shape.stack_session } : reader) // user-teams.ts; the session id answers each team's SSO rule
             const route = ownerRoute(owner, reader)

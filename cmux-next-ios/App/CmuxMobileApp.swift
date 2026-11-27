@@ -1,3 +1,4 @@
+import CmuxConversationUI
 import CmuxMobileAuth
 import CmuxMobileDesign
 import CmuxMobileLive
@@ -5,7 +6,9 @@ import CmuxMobileModel
 import CmuxMobileShell
 import CmuxMobileVoice
 #if DEBUG
+import CmuxLiveCode
 import CmuxMobileTerminal
+import os
 #endif
 import SwiftUI
 
@@ -15,21 +18,50 @@ struct CmuxMobileApp: App {
     @UIApplicationDelegateAdaptor(CmuxMobileAppDelegate.self) private var appDelegate
     @State private var auth: CmuxMobileAuthModel
     @Environment(\.scenePhase) private var scenePhase
+    #if DEBUG
+    /// Swift live code in the simulator (scripts/live-code/ios-sim.sh).
+    @State private var liveCode: LiveCodeRedraw
+    #endif
 
     init() {
         // Launch to first interaction (LaunchMarks): dyld, static initializers and UIKit's start end here.
         LaunchMarks.shared.mark("app_init")
+        // Main-thread hangs: sampled stacks, hang files in Library/hangs, MetricKit (HangWatch).
+        HangWatch.start()
+        #if DEBUG
+        // Offline duress (`CmuxMobileDuress` = a `cmux-duress gen` folder; unset: nothing runs). First,
+        // so the list rig reads the folder's workspace count (cmux-next-ios/design/duress-sim.md).
+        MobileDuress.startIfRequested()
+        // `CMUX_MOBILE_LAUNCH_MARKS=1`: resume-after-switch marks for ResumeFromSwitchUITests.
+        ResumeMarks.startIfRequested()
+        #endif
         // An update from the classic app (the same bundle id) left its Keychain items and
         // settings here: they are deleted once, before anything reads either, so this app
         // starts signed out instead of half-reading a classic session.
         ClassicLeftovers.cleanUpIfDue()
         // Settings and account saved under the pre-rename (cnx) names move first.
         LegacyStorage.migrate()
+        // Agent Chats restores the last page from the phone's read-first store before refreshing.
+        PhoneReadFirst.installAgentChats()
+        #if !CMUX_MOBILE_PRODUCTION
+        // Messages' own + menu and tapback art (ConversationSystemArt). Every shipping
+        // build (Production, TestFlight/cmux INTERNAL, AppStore) carries no
+        // PrivateFrameworks path (App Review 2.5.1) and draws them.
+        var chatKitPath = "/System/Library/PrivateFrameworks/ChatKit.framework"
+        #if targetEnvironment(simulator)
+        if let root = ProcessInfo.processInfo.environment["IPHONE_SIMULATOR_ROOT"] { chatKitPath = root + chatKitPath }
+        #endif
+        ConversationSystemArt.bundle = Bundle(path: chatKitPath)
+        #endif
         #if !DEBUG
         // Release and Production have no Developer page: remove any developer
         // setting (mock data, a scripted demo, relay only) an earlier Debug
         // or Demo install left in this container, before anything reads them.
         DeveloperOptions.removeStoredValues()
+        #else
+        // A UI test's `-cmuxMobile.setupComplete NO` starts setup; setup's
+        // own last page must still be able to finish it.
+        DeveloperOptions.seedLaunchArguments()
         #endif
         // The build's dev tag (Info.plist CmuxMobileDevTag, Debug configuration only): its cloud
         // requests carry `X-Cmux-Build-Space: dev:<slug>` so dev builds never share cloud data. A
@@ -50,8 +82,24 @@ struct CmuxMobileApp: App {
         // A notification reply on a cold background launch signs in with it (no scene runs then).
         PushReplies.shared.auth = auth
         #if DEBUG
+        // The fleet simulator step's reducemotion=1 proof (scripts/ci/cmux-next-ios-sim.sh reads
+        // this line back from the simulator's log): what UIKit tells this process at launch.
+        Logger(subsystem: "dev.cmux.mobile", category: "accessibility")
+            .notice("launch: isReduceMotionEnabled=\(UIAccessibility.isReduceMotionEnabled, privacy: .public)")
         // Screenshot rig: CMUX_MOBILE_FEED_LIVE_FIXTURE=1 fills the Feed from a fixed Mac.
         LiveFeedFixture.shared.startIfRequested()
+        // Input responsiveness: main-thread hitches with stacks, keyboard windows, key and send latency.
+        InputLatencyTrace.startIfRequested()
+        if let trace = InputLatencyTrace.shared {
+            ComposerDraftStore.mainThreadWrite = { trace.note("draft_file_write_main") }
+        }
+        // Swift live code in the simulator (scripts/live-code/ios-sim.sh): watches the folder
+        // CMUX_LIVE_CODE_DIR names and applies each patch without a rebuild or relaunch.
+        let liveCode = LiveCodeRedraw()
+        liveCode.startFromEnvironment()
+        _liveCode = State(initialValue: liveCode)
+        // CMUX_MOBILE_FEED_TERMINAL_FIXTURE=1 (or =before): terminal agents' events from a fixed Mac.
+        TerminalFeedFixture.shared.startIfRequested()
         #endif
     }
 
@@ -61,18 +109,27 @@ struct CmuxMobileApp: App {
             #if DEBUG
             if BrowserEventsDemoRoot.isRequested {
                 BrowserEventsDemoRoot()
+            } else if BrowserPlacementDemoRoot.isRequested {
+                BrowserPlacementDemoRoot()
             } else if RecoveryGalleryRoot.isRequested {
                 RecoveryGalleryRoot()
             } else if ShellScreenSharingDemo.isRequested {
                 ShellScreenSharingDemo()
+            } else if ShellScreenSharingLink.isRequested {
+                ShellScreenSharingLink()
             } else if TerminalFloodBenchRoot.isRequested {
                 TerminalFloodBenchRoot()
+            } else if TerminalHistoryWindowDemoRoot.isRequested {
+                TerminalHistoryWindowDemoRoot()
             } else if TerminalResizeDemoRoot.isRequested {
                 TerminalResizeDemoRoot()
             } else if AgentCLIHybridBenchRoot.isRequested {
                 AgentCLIHybridBenchRoot()
             } else if TerminalDemoRoot.isRequested || DeveloperOptions.launchDemo == "terminal" {
                 TerminalDemoRoot()
+            } else if FoldSimulatorFrame<RootView>.isRequested {
+                // A live fold and unfold inside one simulator window (UITests/FoldResizeUITests).
+                FoldSimulatorFrame { RootView(auth: auth, store: .mock()) }
             } else {
                 RootView(auth: auth, store: .mock())
             }
@@ -82,8 +139,17 @@ struct CmuxMobileApp: App {
             #endif
             }
             #if DEBUG
+            // Rebuilt with the new code after each live code patch (LiveCodeRedraw).
+            .liveCodeRedraw(liveCode)
             // `CMUX_MOBILE_LAUNCH_MARKS=1`: the launch marks for LaunchTTIUITests.
             .overlay(alignment: .topLeading) { LaunchMarksProbe() }
+            .overlay(alignment: .topTrailing) { InputLatencyProbe() }
+            .overlay(alignment: .bottomLeading) { ResumeMarksProbe() }
+            // `-cmux-placeholder-markers`: the layout-shift count for PlaceholderBoundUITests.
+            .overlay(alignment: .bottomTrailing) { LayoutShiftProbeLabel() }
+            .overlay(alignment: .bottomTrailing) { OpenMarksProbe() }
+            // `CMUX_MOBILE_LOAD_PROBE=1`: placeholder and layout-shift frames for LoadShiftsUITests.
+            .overlay(alignment: .bottomTrailing) { LoadFrameProbeLabel() }
             #endif
             .modifier(ChiefCallCover(
                 controller: ChiefVoice.controller,
@@ -95,6 +161,9 @@ struct CmuxMobileApp: App {
             // App Shortcut's own perform() at launch, as the system would on a tap (a headless
             // simulator's Spotlight opens the app without running an app's intents).
             .task { await NewAgentChatIntent.runFromLaunchArguments() }
+            // `-cmux-mobile-kbd-pin-trace` for every root, not only RootView's (TerminalDemoRoot's
+            // terminal for the keyboard motion bench); it starts once.
+            .task { KeyboardPinTrace.startIfRequested() }
             #endif
         }
     }

@@ -1,0 +1,1793 @@
+{
+  "$comment": "Gallery states with layout moves the layout-motion contract does not declare yet (schemas/layout-motion/contract.json), each with its count and the cmuxterm-hq issue that tracks the fix. undeclared-baseline.ts: a state over its row fails gallery health, and a state with no row fails on its first undeclared move. Rows only go down.",
+  "states": {
+    "agent-pane.agent-start#failed-start": {
+      "count": 4,
+      "issue": "https://github.com/manaflow-ai/cmuxterm-hq/issues/25939"
+    },
+    "agent-pane.all-chats-list#operators-typed": {
+      "count": 1,
+      "issue": "https://github.com/manaflow-ai/cmuxterm-hq/issues/25939"
+    },
+    "agent-pane.all-chats-list#when-past-week": {
+      "count": 1,
+      "issue": "https://github.com/manaflow-ai/cmuxterm-hq/issues/25939"
+    },
+    "agent-pane.artifact-panel#claude-write": {
+      "count": 5,
+      "issue": "https://github.com/manaflow-ai/cmuxterm-hq/issues/13423"
+    },
+    "agent-pane.artifact-panel#codex-write": {
+      "count": 5,
+      "issue": "https://github.com/manaflow-ai/cmuxterm-hq/issues/13423"
+    },
+    "agent-pane.artifact-panel#edge-alt-grip": {
+      "count": 4,
+      "issue": "https://github.com/manaflow-ai/cmuxterm-hq/issues/13423"
+    },
+    "agent-pane.artifact-panel#edge-alt-no-line": {
+      "count": 4,
+      "issue": "https://github.com/manaflow-ai/cmuxterm-hq/issues/13423"
+    },
+    "agent-pane.artifact-panel#edge-dragging": {
+      "count": 6,
+      "issue": "https://github.com/manaflow-ai/cmuxterm-hq/issues/13423"
+    },
+    "agent-pane.artifact-panel#edge-hover": {
+      "count": 4,
+      "issue": "https://github.com/manaflow-ai/cmuxterm-hq/issues/13423"
+    },
+    "agent-pane.artifact-panel#edge-rest": {
+      "count": 4,
+      "issue": "https://github.com/manaflow-ai/cmuxterm-hq/issues/13423"
+    },
+    "agent-pane.artifact-panel#edge-saved": {
+      "count": 4,
+      "issue": "https://github.com/manaflow-ai/cmuxterm-hq/issues/13423"
+    },
+    "agent-pane.artifact-panel#edit-complete-open": {
+      "count": 5,
+      "issue": "https://github.com/manaflow-ai/cmuxterm-hq/issues/13423"
+    },
+    "agent-pane.artifact-panel#gemini-write": {
+      "count": 5,
+      "issue": "https://github.com/manaflow-ai/cmuxterm-hq/issues/13423"
+    },
+    "agent-pane.artifact-panel#html": {
+      "count": 6,
+      "issue": "https://github.com/manaflow-ai/cmuxterm-hq/issues/13423"
+    },
+    "agent-pane.artifact-panel#interactive-v1": {
+      "count": 8,
+      "issue": "https://github.com/manaflow-ai/cmuxterm-hq/issues/13423"
+    },
+    "agent-pane.artifact-panel#interactive-v2": {
+      "count": 8,
+      "issue": "https://github.com/manaflow-ai/cmuxterm-hq/issues/13423"
+    },
+    "agent-pane.artifact-panel#interactive-v3": {
+      "count": 8,
+      "issue": "https://github.com/manaflow-ai/cmuxterm-hq/issues/13423"
+    },
+    "agent-pane.artifact-panel#jsx": {
+      "count": 4,
+      "issue": "https://github.com/manaflow-ai/cmuxterm-hq/issues/13423"
+    },
+    "agent-pane.artifact-panel#jsx-fragment": {
+      "count": 4,
+      "issue": "https://github.com/manaflow-ai/cmuxterm-hq/issues/13423"
+    },
+    "agent-pane.artifact-panel#live-finished": {
+      "count": 4,
+      "issue": "https://github.com/manaflow-ai/cmuxterm-hq/issues/13423"
+    },
+    "agent-pane.artifact-panel#live-history": {
+      "count": 4,
+      "issue": "https://github.com/manaflow-ai/cmuxterm-hq/issues/13423"
+    },
+    "agent-pane.artifact-panel#live-stream": {
+      "count": 4,
+      "issue": "https://github.com/manaflow-ai/cmuxterm-hq/issues/13423"
+    },
+    "agent-pane.artifact-panel#markdown": {
+      "count": 4,
+      "issue": "https://github.com/manaflow-ai/cmuxterm-hq/issues/13423"
+    },
+    "agent-pane.artifact-panel#pi-write": {
+      "count": 5,
+      "issue": "https://github.com/manaflow-ai/cmuxterm-hq/issues/13423"
+    },
+    "agent-pane.artifact-panel#pinned": {
+      "count": 4,
+      "issue": "https://github.com/manaflow-ai/cmuxterm-hq/issues/13423"
+    },
+    "agent-pane.artifact-panel#svg": {
+      "count": 4,
+      "issue": "https://github.com/manaflow-ai/cmuxterm-hq/issues/13423"
+    },
+    "agent-pane.artifact-panel#versions": {
+      "count": 6,
+      "issue": "https://github.com/manaflow-ai/cmuxterm-hq/issues/13423"
+    },
+    "agent-pane.attachment-chip#collapse-chevron": {
+      "count": 2,
+      "issue": "https://github.com/manaflow-ai/cmuxterm-hq/issues/13423"
+    },
+    "agent-pane.attachment-chip#collapse-chevron-opening": {
+      "count": 1,
+      "issue": "https://github.com/manaflow-ai/cmuxterm-hq/issues/13423"
+    },
+    "agent-pane.attachment-chip#collapse-corner": {
+      "count": 2,
+      "issue": "https://github.com/manaflow-ai/cmuxterm-hq/issues/13423"
+    },
+    "agent-pane.attachment-chip#collapse-corner-opening": {
+      "count": 1,
+      "issue": "https://github.com/manaflow-ai/cmuxterm-hq/issues/13423"
+    },
+    "agent-pane.attachment-chip#collapse-footer": {
+      "count": 2,
+      "issue": "https://github.com/manaflow-ai/cmuxterm-hq/issues/13423"
+    },
+    "agent-pane.attachment-chip#collapse-footer-opening": {
+      "count": 1,
+      "issue": "https://github.com/manaflow-ai/cmuxterm-hq/issues/13423"
+    },
+    "agent-pane.attachment-chip#paste-expand": {
+      "count": 2,
+      "issue": "https://github.com/manaflow-ai/cmuxterm-hq/issues/13423"
+    },
+    "agent-pane.blank-load-fade#stagger": {
+      "count": 4,
+      "issue": "https://github.com/manaflow-ai/cmuxterm-hq/issues/13423"
+    },
+    "agent-pane.chat-motion-pass#mid-turn-send": {
+      "count": 17,
+      "issue": "https://github.com/manaflow-ai/cmuxterm-hq/issues/13423"
+    },
+    "agent-pane.chat-motion-pass#mid-turn-send-before": {
+      "count": 20,
+      "issue": "https://github.com/manaflow-ai/cmuxterm-hq/issues/13423"
+    },
+    "agent-pane.chat-motion-pass#minimal-motion": {
+      "count": 17,
+      "issue": "https://github.com/manaflow-ai/cmuxterm-hq/issues/13423"
+    },
+    "agent-pane.chat-ui-font#cmux-sans": {
+      "count": 2,
+      "issue": "https://github.com/manaflow-ai/cmuxterm-hq/issues/13423"
+    },
+    "agent-pane.chat-ui-font#cmux-sans-candy": {
+      "count": 2,
+      "issue": "https://github.com/manaflow-ai/cmuxterm-hq/issues/25939"
+    },
+    "agent-pane.chat-ui-font#cmux-sans-open": {
+      "count": 2,
+      "issue": "https://github.com/manaflow-ai/cmuxterm-hq/issues/25939"
+    },
+    "agent-pane.chat-ui-font#cmux-sans-squat": {
+      "count": 2,
+      "issue": "https://github.com/manaflow-ai/cmuxterm-hq/issues/25939"
+    },
+    "agent-pane.chat-ui-font#inter": {
+      "count": 2,
+      "issue": "https://github.com/manaflow-ai/cmuxterm-hq/issues/25939"
+    },
+    "agent-pane.chat-ui-font#inter-tuned": {
+      "count": 2,
+      "issue": "https://github.com/manaflow-ai/cmuxterm-hq/issues/25939"
+    },
+    "agent-pane.chat-ui-font#plex": {
+      "count": 2,
+      "issue": "https://github.com/manaflow-ai/cmuxterm-hq/issues/13423"
+    },
+    "agent-pane.chat-ui-font#roboto": {
+      "count": 2,
+      "issue": "https://github.com/manaflow-ai/cmuxterm-hq/issues/13423"
+    },
+    "agent-pane.chat-ui-font#source-sans": {
+      "count": 2,
+      "issue": "https://github.com/manaflow-ai/cmuxterm-hq/issues/13423"
+    },
+    "agent-pane.cloud-composer-chips#personal-default": {
+      "count": 3,
+      "issue": "https://github.com/manaflow-ai/cmuxterm-hq/issues/25939"
+    },
+    "agent-pane.cloud-composer-chips#personal-default-400": {
+      "count": 3,
+      "issue": "https://github.com/manaflow-ai/cmuxterm-hq/issues/25939"
+    },
+    "agent-pane.cloud-composer-chips#personal-default-760": {
+      "count": 3,
+      "issue": "https://github.com/manaflow-ai/cmuxterm-hq/issues/25939"
+    },
+    "agent-pane.cloud-composer-chips#personal-default-full": {
+      "count": 3,
+      "issue": "https://github.com/manaflow-ai/cmuxterm-hq/issues/25939"
+    },
+    "agent-pane.cloud-composer-chips#removed-team": {
+      "count": 3,
+      "issue": "https://github.com/manaflow-ai/cmuxterm-hq/issues/13423"
+    },
+    "agent-pane.cloud-composer-chips#removed-team-400": {
+      "count": 3,
+      "issue": "https://github.com/manaflow-ai/cmuxterm-hq/issues/25939"
+    },
+    "agent-pane.cloud-composer-chips#removed-team-760": {
+      "count": 3,
+      "issue": "https://github.com/manaflow-ai/cmuxterm-hq/issues/25939"
+    },
+    "agent-pane.cloud-composer-chips#removed-team-full": {
+      "count": 3,
+      "issue": "https://github.com/manaflow-ai/cmuxterm-hq/issues/25939"
+    },
+    "agent-pane.cloud-composer-chips#team-bypass": {
+      "count": 3,
+      "issue": "https://github.com/manaflow-ai/cmuxterm-hq/issues/13423"
+    },
+    "agent-pane.cloud-composer-chips#team-bypass-400": {
+      "count": 3,
+      "issue": "https://github.com/manaflow-ai/cmuxterm-hq/issues/25939"
+    },
+    "agent-pane.cloud-composer-chips#team-bypass-760": {
+      "count": 3,
+      "issue": "https://github.com/manaflow-ai/cmuxterm-hq/issues/25939"
+    },
+    "agent-pane.cloud-composer-chips#team-bypass-full": {
+      "count": 3,
+      "issue": "https://github.com/manaflow-ai/cmuxterm-hq/issues/25939"
+    },
+    "agent-pane.cloud-start-composer#dimmed": {
+      "count": 2,
+      "issue": "https://github.com/manaflow-ai/cmuxterm-hq/issues/25939"
+    },
+    "agent-pane.cloud-start-composer#failed": {
+      "count": 3,
+      "issue": "https://github.com/manaflow-ai/cmuxterm-hq/issues/25939"
+    },
+    "agent-pane.cloud-start-composer#placeholder": {
+      "count": 2,
+      "issue": "https://github.com/manaflow-ai/cmuxterm-hq/issues/25939"
+    },
+    "agent-pane.cloud-start-composer#placeholder-typed": {
+      "count": 2,
+      "issue": "https://github.com/manaflow-ai/cmuxterm-hq/issues/25939"
+    },
+    "agent-pane.cloud-start-composer#status": {
+      "count": 2,
+      "issue": "https://github.com/manaflow-ai/cmuxterm-hq/issues/25939"
+    },
+    "agent-pane.cloud-start-composer#status-typed": {
+      "count": 2,
+      "issue": "https://github.com/manaflow-ai/cmuxterm-hq/issues/25939"
+    },
+    "agent-pane.cmux-link-chips#pushed-after-mount": {
+      "count": 3,
+      "issue": "https://github.com/manaflow-ai/cmuxterm-hq/issues/13423"
+    },
+    "agent-pane.composer-attachments-cap#chips-one-line": {
+      "count": 1,
+      "issue": "https://github.com/manaflow-ai/cmuxterm-hq/issues/25939"
+    },
+    "agent-pane.composer-attachments-cap#compact-one-line": {
+      "count": 1,
+      "issue": "https://github.com/manaflow-ai/cmuxterm-hq/issues/25939"
+    },
+    "agent-pane.composer-attachments-cap#tiles-one-line": {
+      "count": 1,
+      "issue": "https://github.com/manaflow-ai/cmuxterm-hq/issues/25939"
+    },
+    "agent-pane.composer-controls-anchor#one-attachment": {
+      "count": 1,
+      "issue": "https://github.com/manaflow-ai/cmuxterm-hq/issues/25939"
+    },
+    "agent-pane.composer-dictation#codex-listening-empty": {
+      "count": 2,
+      "issue": "https://github.com/manaflow-ai/cmuxterm-hq/issues/13423"
+    },
+    "agent-pane.composer-dictation#codex-listening-words": {
+      "count": 1,
+      "issue": "https://github.com/manaflow-ai/cmuxterm-hq/issues/13423"
+    },
+    "agent-pane.composer-dictation#finalizing": {
+      "count": 1,
+      "issue": "https://github.com/manaflow-ai/cmuxterm-hq/issues/13423"
+    },
+    "agent-pane.composer-dictation#listening-empty": {
+      "count": 1,
+      "issue": "https://github.com/manaflow-ai/cmuxterm-hq/issues/13423"
+    },
+    "agent-pane.composer-dictation#listening-words": {
+      "count": 1,
+      "issue": "https://github.com/manaflow-ai/cmuxterm-hq/issues/13423"
+    },
+    "agent-pane.composer-dock-motion#sent-overlay": {
+      "count": 9,
+      "issue": "https://github.com/manaflow-ai/cmuxterm-hq/issues/25939"
+    },
+    "agent-pane.composer-goal#editing": {
+      "count": 3,
+      "issue": "https://github.com/manaflow-ai/cmuxterm-hq/issues/13423"
+    },
+    "agent-pane.composer-goal#rapid-toggle": {
+      "count": 45,
+      "issue": "https://github.com/manaflow-ai/cmuxterm-hq/issues/13423"
+    },
+    "agent-pane.composer-growth#paste-forty-lines": {
+      "count": 9,
+      "issue": "https://github.com/manaflow-ai/cmuxterm-hq/issues/13423"
+    },
+    "agent-pane.composer-hat-linger#ttl-look": {
+      "count": 1,
+      "issue": "https://github.com/manaflow-ai/cmuxterm-hq/issues/13423"
+    },
+    "agent-pane.composer-hat-linger#ttl-only": {
+      "count": 1,
+      "issue": "https://github.com/manaflow-ai/cmuxterm-hq/issues/13423"
+    },
+    "agent-pane.composer-look#claude-loop-steps": {
+      "count": 2,
+      "issue": "https://github.com/manaflow-ai/cmuxterm-hq/issues/13423"
+    },
+    "agent-pane.composer-paste-chip#expand-open": {
+      "count": 2,
+      "issue": "https://github.com/manaflow-ai/cmuxterm-hq/issues/13423"
+    },
+    "agent-pane.composer-paste-chip#expand-opening": {
+      "count": 1,
+      "issue": "https://github.com/manaflow-ai/cmuxterm-hq/issues/13423"
+    },
+    "agent-pane.composer-quote#after-paragraph": {
+      "count": 2,
+      "issue": "https://github.com/manaflow-ai/cmuxterm-hq/issues/25939"
+    },
+    "agent-pane.composer-quote#empty": {
+      "count": 2,
+      "issue": "https://github.com/manaflow-ai/cmuxterm-hq/issues/25939"
+    },
+    "agent-pane.composer-quote#text": {
+      "count": 2,
+      "issue": "https://github.com/manaflow-ai/cmuxterm-hq/issues/25939"
+    },
+    "agent-pane.composer-send-one-motion#1-lines-busy-latest": {
+      "count": 3,
+      "issue": "https://github.com/manaflow-ai/cmuxterm-hq/issues/25939"
+    },
+    "agent-pane.composer-send-one-motion#1-lines-busy-scrolled-up": {
+      "count": 3,
+      "issue": "https://github.com/manaflow-ai/cmuxterm-hq/issues/25939"
+    },
+    "agent-pane.composer-send-one-motion#1-lines-idle-latest": {
+      "count": 3,
+      "issue": "https://github.com/manaflow-ai/cmuxterm-hq/issues/25939"
+    },
+    "agent-pane.composer-send-one-motion#1-lines-idle-scrolled-up": {
+      "count": 3,
+      "issue": "https://github.com/manaflow-ai/cmuxterm-hq/issues/25939"
+    },
+    "agent-pane.composer-send-one-motion#5-lines-busy-scrolled-up": {
+      "count": 3,
+      "issue": "https://github.com/manaflow-ai/cmuxterm-hq/issues/25939"
+    },
+    "agent-pane.composer-send-one-motion#5-lines-idle-latest": {
+      "count": 3,
+      "issue": "https://github.com/manaflow-ai/cmuxterm-hq/issues/25939"
+    },
+    "agent-pane.composer-send-one-motion#5-lines-idle-scrolled-up": {
+      "count": 3,
+      "issue": "https://github.com/manaflow-ai/cmuxterm-hq/issues/25939"
+    },
+    "agent-pane.composer-studio#studio-new-chat": {
+      "count": 2,
+      "issue": "https://github.com/manaflow-ai/cmuxterm-hq/issues/25939"
+    },
+    "agent-pane.composer-trailing-glyphs#current-claude": {
+      "count": 3,
+      "issue": "https://github.com/manaflow-ai/cmuxterm-hq/issues/13423"
+    },
+    "agent-pane.composer-trailing-glyphs#current-stop": {
+      "count": 1,
+      "issue": "https://github.com/manaflow-ai/cmuxterm-hq/issues/13423"
+    },
+    "agent-pane.composer-trailing-glyphs#matched-claude": {
+      "count": 3,
+      "issue": "https://github.com/manaflow-ai/cmuxterm-hq/issues/13423"
+    },
+    "agent-pane.composer-trailing-glyphs#nicer-send-claude": {
+      "count": 3,
+      "issue": "https://github.com/manaflow-ai/cmuxterm-hq/issues/13423"
+    },
+    "agent-pane.composer-trailing-glyphs#nicer-send-codex": {
+      "count": 3,
+      "issue": "https://github.com/manaflow-ai/cmuxterm-hq/issues/25939"
+    },
+    "agent-pane.composer-trailing-glyphs#nicer-send-stop": {
+      "count": 1,
+      "issue": "https://github.com/manaflow-ai/cmuxterm-hq/issues/13423"
+    },
+    "agent-pane.composer-unpop#fly": {
+      "count": 1,
+      "issue": "https://github.com/manaflow-ai/cmuxterm-hq/issues/25939"
+    },
+    "agent-pane.composer-unpop#instant": {
+      "count": 1,
+      "issue": "https://github.com/manaflow-ai/cmuxterm-hq/issues/25939"
+    },
+    "agent-pane.composer-unpop#pop": {
+      "count": 1,
+      "issue": "https://github.com/manaflow-ai/cmuxterm-hq/issues/25939"
+    },
+    "agent-pane.composer-unpop#slide": {
+      "count": 1,
+      "issue": "https://github.com/manaflow-ai/cmuxterm-hq/issues/25939"
+    },
+    "agent-pane.composer#agent-home": {
+      "count": 2,
+      "issue": "https://github.com/manaflow-ai/cmuxterm-hq/issues/25939"
+    },
+    "agent-pane.composer#attach-screenshot": {
+      "count": 1,
+      "issue": "https://github.com/manaflow-ai/cmuxterm-hq/issues/13423"
+    },
+    "agent-pane.composer#attach-screenshot-oversized": {
+      "count": 1,
+      "issue": "https://github.com/manaflow-ai/cmuxterm-hq/issues/13423"
+    },
+    "agent-pane.composer#attachment-failed": {
+      "count": 4,
+      "issue": "https://github.com/manaflow-ai/cmuxterm-hq/issues/13423"
+    },
+    "agent-pane.composer#attachment-inline-arrow": {
+      "count": 1,
+      "issue": "https://github.com/manaflow-ai/cmuxterm-hq/issues/13423"
+    },
+    "agent-pane.composer#attachment-inline-caret": {
+      "count": 1,
+      "issue": "https://github.com/manaflow-ai/cmuxterm-hq/issues/13423"
+    },
+    "agent-pane.composer#attachment-inline-caret-even-2": {
+      "count": 4,
+      "issue": "https://github.com/manaflow-ai/cmuxterm-hq/issues/13423"
+    },
+    "agent-pane.composer#attachment-inline-caret-even-3": {
+      "count": 4,
+      "issue": "https://github.com/manaflow-ai/cmuxterm-hq/issues/13423"
+    },
+    "agent-pane.composer#attachment-inline-caret-even-4": {
+      "count": 4,
+      "issue": "https://github.com/manaflow-ai/cmuxterm-hq/issues/13423"
+    },
+    "agent-pane.composer#attachment-inline-caret-trailing-8": {
+      "count": 4,
+      "issue": "https://github.com/manaflow-ai/cmuxterm-hq/issues/13423"
+    },
+    "agent-pane.composer#attachment-inline-image-and-file": {
+      "count": 1,
+      "issue": "https://github.com/manaflow-ai/cmuxterm-hq/issues/13423"
+    },
+    "agent-pane.composer#attachment-inline-image-failed": {
+      "count": 3,
+      "issue": "https://github.com/manaflow-ai/cmuxterm-hq/issues/25939"
+    },
+    "agent-pane.composer#attachment-inline-reorder": {
+      "count": 4,
+      "issue": "https://github.com/manaflow-ai/cmuxterm-hq/issues/13423"
+    },
+    "agent-pane.composer#attachment-inline-reorder-hover": {
+      "count": 4,
+      "issue": "https://github.com/manaflow-ai/cmuxterm-hq/issues/13423"
+    },
+    "agent-pane.composer#attachment-inline-video": {
+      "count": 1,
+      "issue": "https://github.com/manaflow-ai/cmuxterm-hq/issues/13423"
+    },
+    "agent-pane.composer#attachment-loading": {
+      "count": 1,
+      "issue": "https://github.com/manaflow-ai/cmuxterm-hq/issues/13423"
+    },
+    "agent-pane.composer#attachment-reorder": {
+      "count": 4,
+      "issue": "https://github.com/manaflow-ai/cmuxterm-hq/issues/13423"
+    },
+    "agent-pane.composer#attachments-inline-mixed": {
+      "count": 1,
+      "issue": "https://github.com/manaflow-ai/cmuxterm-hq/issues/13423"
+    },
+    "agent-pane.composer#attachments-inline-mixed-mid-text": {
+      "count": 1,
+      "issue": "https://github.com/manaflow-ai/cmuxterm-hq/issues/13423"
+    },
+    "agent-pane.composer#attachments-top-mixed": {
+      "count": 4,
+      "issue": "https://github.com/manaflow-ai/cmuxterm-hq/issues/13423"
+    },
+    "agent-pane.composer#attachments-view-menu": {
+      "count": 1,
+      "issue": "https://github.com/manaflow-ai/cmuxterm-hq/issues/13423"
+    },
+    "agent-pane.composer#discovery-hint-line": {
+      "count": 1,
+      "issue": "https://github.com/manaflow-ai/cmuxterm-hq/issues/25939"
+    },
+    "agent-pane.composer#file-not-attached": {
+      "count": 1,
+      "issue": "https://github.com/manaflow-ai/cmuxterm-hq/issues/13423"
+    },
+    "agent-pane.composer#file-saved-as-path": {
+      "count": 1,
+      "issue": "https://github.com/manaflow-ai/cmuxterm-hq/issues/13423"
+    },
+    "agent-pane.composer#folder-dropped-as-link": {
+      "count": 1,
+      "issue": "https://github.com/manaflow-ai/cmuxterm-hq/issues/13423"
+    },
+    "agent-pane.composer#footer-harness-unpicked": {
+      "count": 3,
+      "issue": "https://github.com/manaflow-ai/cmuxterm-hq/issues/25939"
+    },
+    "agent-pane.composer#image-attached": {
+      "count": 1,
+      "issue": "https://github.com/manaflow-ai/cmuxterm-hq/issues/13423"
+    },
+    "agent-pane.composer#image-original-failed": {
+      "count": 1,
+      "issue": "https://github.com/manaflow-ai/cmuxterm-hq/issues/13423"
+    },
+    "agent-pane.composer#image-pasted-unnamed": {
+      "count": 1,
+      "issue": "https://github.com/manaflow-ai/cmuxterm-hq/issues/13423"
+    },
+    "agent-pane.composer#image-sent-as-path": {
+      "count": 1,
+      "issue": "https://github.com/manaflow-ai/cmuxterm-hq/issues/13423"
+    },
+    "agent-pane.composer#quick-image-attached": {
+      "count": 2,
+      "issue": "https://github.com/manaflow-ai/cmuxterm-hq/issues/13423"
+    },
+    "agent-pane.composer#record-screen": {
+      "count": 1,
+      "issue": "https://github.com/manaflow-ai/cmuxterm-hq/issues/13423"
+    },
+    "agent-pane.composer#record-screen-still": {
+      "count": 1,
+      "issue": "https://github.com/manaflow-ai/cmuxterm-hq/issues/13423"
+    },
+    "agent-pane.composer#text-pasted": {
+      "count": 4,
+      "issue": "https://github.com/manaflow-ai/cmuxterm-hq/issues/13423"
+    },
+    "agent-pane.composer#text-pasted-again": {
+      "count": 3,
+      "issue": "https://github.com/manaflow-ai/cmuxterm-hq/issues/13423"
+    },
+    "agent-pane.composer#text-pasted-inline": {
+      "count": 1,
+      "issue": "https://github.com/manaflow-ai/cmuxterm-hq/issues/13423"
+    },
+    "agent-pane.composer#text-pasted-inline-menu": {
+      "count": 1,
+      "issue": "https://github.com/manaflow-ai/cmuxterm-hq/issues/13423"
+    },
+    "agent-pane.composer#text-pasted-paragraph": {
+      "count": 1,
+      "issue": "https://github.com/manaflow-ai/cmuxterm-hq/issues/13423"
+    },
+    "agent-pane.composer#text-pasted-paragraph-strip": {
+      "count": 4,
+      "issue": "https://github.com/manaflow-ai/cmuxterm-hq/issues/13423"
+    },
+    "agent-pane.composer#video-dropped": {
+      "count": 1,
+      "issue": "https://github.com/manaflow-ai/cmuxterm-hq/issues/13423"
+    },
+    "agent-pane.composer#video-playing": {
+      "count": 1,
+      "issue": "https://github.com/manaflow-ai/cmuxterm-hq/issues/13423"
+    },
+    "agent-pane.composer#video-reading": {
+      "count": 1,
+      "issue": "https://github.com/manaflow-ai/cmuxterm-hq/issues/13423"
+    },
+    "agent-pane.composer#video-unplayable": {
+      "count": 1,
+      "issue": "https://github.com/manaflow-ai/cmuxterm-hq/issues/13423"
+    },
+    "agent-pane.compound-motion#fold-stream-after": {
+      "count": 15,
+      "issue": "https://github.com/manaflow-ai/cmuxterm-hq/issues/25939"
+    },
+    "agent-pane.compound-motion#fold-stream-before": {
+      "count": 15,
+      "issue": "https://github.com/manaflow-ai/cmuxterm-hq/issues/25939"
+    },
+    "agent-pane.compound-motion#growth-stream-after": {
+      "count": 14,
+      "issue": "https://github.com/manaflow-ai/cmuxterm-hq/issues/25939"
+    },
+    "agent-pane.compound-motion#growth-stream-before": {
+      "count": 14,
+      "issue": "https://github.com/manaflow-ai/cmuxterm-hq/issues/25939"
+    },
+    "agent-pane.compound-motion#queue-scrolled-after": {
+      "count": 9,
+      "issue": "https://github.com/manaflow-ai/cmuxterm-hq/issues/25939"
+    },
+    "agent-pane.compound-motion#queue-scrolled-before": {
+      "count": 10,
+      "issue": "https://github.com/manaflow-ai/cmuxterm-hq/issues/25939"
+    },
+    "agent-pane.compound-motion#recap-end-after": {
+      "count": 15,
+      "issue": "https://github.com/manaflow-ai/cmuxterm-hq/issues/25939"
+    },
+    "agent-pane.compound-motion#recap-end-before": {
+      "count": 15,
+      "issue": "https://github.com/manaflow-ai/cmuxterm-hq/issues/25939"
+    },
+    "agent-pane.compound-motion#resize-fold-after": {
+      "count": 15,
+      "issue": "https://github.com/manaflow-ai/cmuxterm-hq/issues/25939"
+    },
+    "agent-pane.compound-motion#resize-fold-before": {
+      "count": 15,
+      "issue": "https://github.com/manaflow-ai/cmuxterm-hq/issues/25939"
+    },
+    "agent-pane.compound-motion#send-1-after": {
+      "count": 5,
+      "issue": "https://github.com/manaflow-ai/cmuxterm-hq/issues/25939"
+    },
+    "agent-pane.compound-motion#send-1-before": {
+      "count": 5,
+      "issue": "https://github.com/manaflow-ai/cmuxterm-hq/issues/25939"
+    },
+    "agent-pane.compound-motion#send-15-after": {
+      "count": 7,
+      "issue": "https://github.com/manaflow-ai/cmuxterm-hq/issues/25939"
+    },
+    "agent-pane.compound-motion#send-15-before": {
+      "count": 6,
+      "issue": "https://github.com/manaflow-ai/cmuxterm-hq/issues/25939"
+    },
+    "agent-pane.compound-motion#send-5-after": {
+      "count": 13,
+      "issue": "https://github.com/manaflow-ai/cmuxterm-hq/issues/25939"
+    },
+    "agent-pane.compound-motion#send-5-before": {
+      "count": 8,
+      "issue": "https://github.com/manaflow-ai/cmuxterm-hq/issues/25939"
+    },
+    "agent-pane.compound-motion#send-5-one-commit-after": {
+      "count": 8,
+      "issue": "https://github.com/manaflow-ai/cmuxterm-hq/issues/25939"
+    },
+    "agent-pane.compound-motion#send-5-one-commit-before": {
+      "count": 7,
+      "issue": "https://github.com/manaflow-ai/cmuxterm-hq/issues/25939"
+    },
+    "agent-pane.compound-motion#stack-stream-after": {
+      "count": 13,
+      "issue": "https://github.com/manaflow-ai/cmuxterm-hq/issues/25939"
+    },
+    "agent-pane.compound-motion#stack-stream-before": {
+      "count": 13,
+      "issue": "https://github.com/manaflow-ai/cmuxterm-hq/issues/25939"
+    },
+    "agent-pane.compound-motion#steer-after": {
+      "count": 18,
+      "issue": "https://github.com/manaflow-ai/cmuxterm-hq/issues/25939"
+    },
+    "agent-pane.compound-motion#steer-before": {
+      "count": 18,
+      "issue": "https://github.com/manaflow-ai/cmuxterm-hq/issues/25939"
+    },
+    "agent-pane.compound-motion#subagent-land-after": {
+      "count": 13,
+      "issue": "https://github.com/manaflow-ai/cmuxterm-hq/issues/25939"
+    },
+    "agent-pane.compound-motion#subagent-land-before": {
+      "count": 13,
+      "issue": "https://github.com/manaflow-ai/cmuxterm-hq/issues/25939"
+    },
+    "agent-pane.customize-entry#a-chat-dock": {
+      "count": 2,
+      "issue": "https://github.com/manaflow-ai/cmuxterm-hq/issues/25939"
+    },
+    "agent-pane.customize-entry#a-chat-dock-wish": {
+      "count": 2,
+      "issue": "https://github.com/manaflow-ai/cmuxterm-hq/issues/25939"
+    },
+    "agent-pane.edited-files#earlier-hovered": {
+      "count": 7,
+      "issue": "https://github.com/manaflow-ai/cmuxterm-hq/issues/13423"
+    },
+    "agent-pane.empty-state#entrance-bloom": {
+      "count": 1,
+      "issue": "https://github.com/manaflow-ai/cmuxterm-hq/issues/25939"
+    },
+    "agent-pane.empty-state#entrance-focus": {
+      "count": 1,
+      "issue": "https://github.com/manaflow-ai/cmuxterm-hq/issues/25939"
+    },
+    "agent-pane.empty-state#entrance-rise": {
+      "count": 1,
+      "issue": "https://github.com/manaflow-ai/cmuxterm-hq/issues/25939"
+    },
+    "agent-pane.expand-at-bottom#collapse-at-bottom": {
+      "count": 12,
+      "issue": "https://github.com/manaflow-ai/cmuxterm-hq/issues/13423"
+    },
+    "agent-pane.expand-at-bottom#collapse-tall-group": {
+      "count": 12,
+      "issue": "https://github.com/manaflow-ai/cmuxterm-hq/issues/13423"
+    },
+    "agent-pane.expand-at-bottom#expand-at-bottom": {
+      "count": 5,
+      "issue": "https://github.com/manaflow-ai/cmuxterm-hq/issues/13423"
+    },
+    "agent-pane.expand-at-bottom#expand-away": {
+      "count": 9,
+      "issue": "https://github.com/manaflow-ai/cmuxterm-hq/issues/13423"
+    },
+    "agent-pane.expand-at-bottom#shipped": {
+      "count": 2,
+      "issue": "https://github.com/manaflow-ai/cmuxterm-hq/issues/13423"
+    },
+    "agent-pane.expand-at-bottom#slow-render-away": {
+      "count": 9,
+      "issue": "https://github.com/manaflow-ai/cmuxterm-hq/issues/13423"
+    },
+    "agent-pane.file-result-cards#cards": {
+      "count": 3,
+      "issue": "https://github.com/manaflow-ai/cmuxterm-hq/issues/13423"
+    },
+    "agent-pane.file-result-cards#search-in-card": {
+      "count": 3,
+      "issue": "https://github.com/manaflow-ai/cmuxterm-hq/issues/13423"
+    },
+    "agent-pane.guest-approval#declined": {
+      "count": 1,
+      "issue": "https://github.com/manaflow-ai/cmuxterm-hq/issues/13423"
+    },
+    "agent-pane.harness-health-notice#dismissed": {
+      "count": 2,
+      "issue": "https://github.com/manaflow-ai/cmuxterm-hq/issues/13423"
+    },
+    "agent-pane.harness-health-notice#restart-after-turn": {
+      "count": 1,
+      "issue": "https://github.com/manaflow-ai/cmuxterm-hq/issues/13423"
+    },
+    "agent-pane.harness-health-notice#update-failed": {
+      "count": 1,
+      "issue": "https://github.com/manaflow-ai/cmuxterm-hq/issues/13423"
+    },
+    "agent-pane.harness-health-notice#updated": {
+      "count": 1,
+      "issue": "https://github.com/manaflow-ai/cmuxterm-hq/issues/13423"
+    },
+    "agent-pane.harness-health-notice#updating": {
+      "count": 1,
+      "issue": "https://github.com/manaflow-ai/cmuxterm-hq/issues/13423"
+    },
+    "agent-pane.home-lists#ages-11": {
+      "count": 2,
+      "issue": "https://github.com/manaflow-ai/cmuxterm-hq/issues/25939"
+    },
+    "agent-pane.home-lists#ages-58": {
+      "count": 2,
+      "issue": "https://github.com/manaflow-ai/cmuxterm-hq/issues/25939"
+    },
+    "agent-pane.home-lists#answer": {
+      "count": 2,
+      "issue": "https://github.com/manaflow-ai/cmuxterm-hq/issues/25939"
+    },
+    "agent-pane.home-lists#baseline": {
+      "count": 2,
+      "issue": "https://github.com/manaflow-ai/cmuxterm-hq/issues/25939"
+    },
+    "agent-pane.home-lists#cap-filter": {
+      "count": 2,
+      "issue": "https://github.com/manaflow-ai/cmuxterm-hq/issues/25939"
+    },
+    "agent-pane.home-lists#click": {
+      "count": 2,
+      "issue": "https://github.com/manaflow-ai/cmuxterm-hq/issues/25939"
+    },
+    "agent-pane.home-lists#compact": {
+      "count": 2,
+      "issue": "https://github.com/manaflow-ai/cmuxterm-hq/issues/25939"
+    },
+    "agent-pane.home-lists#deny-shortcut": {
+      "count": 2,
+      "issue": "https://github.com/manaflow-ai/cmuxterm-hq/issues/25939"
+    },
+    "agent-pane.home-lists#empty": {
+      "count": 2,
+      "issue": "https://github.com/manaflow-ai/cmuxterm-hq/issues/25939"
+    },
+    "agent-pane.home-lists#grouped": {
+      "count": 2,
+      "issue": "https://github.com/manaflow-ai/cmuxterm-hq/issues/25939"
+    },
+    "agent-pane.home-lists#keyboard": {
+      "count": 2,
+      "issue": "https://github.com/manaflow-ai/cmuxterm-hq/issues/25939"
+    },
+    "agent-pane.home-lists#long-commands": {
+      "count": 2,
+      "issue": "https://github.com/manaflow-ai/cmuxterm-hq/issues/25939"
+    },
+    "agent-pane.home-lists#long-values": {
+      "count": 2,
+      "issue": "https://github.com/manaflow-ai/cmuxterm-hq/issues/25939"
+    },
+    "agent-pane.home-lists#refused": {
+      "count": 2,
+      "issue": "https://github.com/manaflow-ai/cmuxterm-hq/issues/25939"
+    },
+    "agent-pane.home-newtab-grid#before": {
+      "count": 2,
+      "issue": "https://github.com/manaflow-ai/cmuxterm-hq/issues/25939"
+    },
+    "agent-pane.home-newtab-grid#home-40": {
+      "count": 2,
+      "issue": "https://github.com/manaflow-ai/cmuxterm-hq/issues/25939"
+    },
+    "agent-pane.home-newtab-grid#radius-4": {
+      "count": 2,
+      "issue": "https://github.com/manaflow-ai/cmuxterm-hq/issues/25939"
+    },
+    "agent-pane.home-newtab-grid#radius-8": {
+      "count": 2,
+      "issue": "https://github.com/manaflow-ai/cmuxterm-hq/issues/25939"
+    },
+    "agent-pane.home-newtab-grid#shipped": {
+      "count": 2,
+      "issue": "https://github.com/manaflow-ai/cmuxterm-hq/issues/25939"
+    },
+    "agent-pane.image-viewer#pasted-screenshot-under-tab-row": {
+      "count": 2,
+      "issue": "https://github.com/manaflow-ai/cmuxterm-hq/issues/13423"
+    },
+    "agent-pane.inbox-notice#one-open": {
+      "count": 1,
+      "issue": "https://github.com/manaflow-ai/cmuxterm-hq/issues/13423"
+    },
+    "agent-pane.inbox-notice#six-open": {
+      "count": 3,
+      "issue": "https://github.com/manaflow-ai/cmuxterm-hq/issues/13423"
+    },
+    "agent-pane.inbox-notice#three-open": {
+      "count": 6,
+      "issue": "https://github.com/manaflow-ai/cmuxterm-hq/issues/13423"
+    },
+    "agent-pane.incoming-message#files": {
+      "count": 3,
+      "issue": "https://github.com/manaflow-ai/cmuxterm-hq/issues/13423"
+    },
+    "agent-pane.incoming-message#files-elsewhere": {
+      "count": 6,
+      "issue": "https://github.com/manaflow-ai/cmuxterm-hq/issues/13423"
+    },
+    "agent-pane.incoming-message#lane-verdict": {
+      "count": 2,
+      "issue": "https://github.com/manaflow-ai/cmuxterm-hq/issues/13423"
+    },
+    "agent-pane.inline-media#video-hover-intent": {
+      "count": 3,
+      "issue": "https://github.com/manaflow-ai/cmuxterm-hq/issues/13423"
+    },
+    "agent-pane.inline-media#video-hovered": {
+      "count": 3,
+      "issue": "https://github.com/manaflow-ai/cmuxterm-hq/issues/13423"
+    },
+    "agent-pane.inline-media#video-playing": {
+      "count": 3,
+      "issue": "https://github.com/manaflow-ai/cmuxterm-hq/issues/13423"
+    },
+    "agent-pane.inline-media#video-short-playing": {
+      "count": 7,
+      "issue": "https://github.com/manaflow-ai/cmuxterm-hq/issues/13423"
+    },
+    "agent-pane.inline-media#video-thumbnail": {
+      "count": 3,
+      "issue": "https://github.com/manaflow-ai/cmuxterm-hq/issues/13423"
+    },
+    "agent-pane.inline-media#web-video-thumbnail": {
+      "count": 3,
+      "issue": "https://github.com/manaflow-ai/cmuxterm-hq/issues/13423"
+    },
+    "agent-pane.inline-preview#code": {
+      "count": 3,
+      "issue": "https://github.com/manaflow-ai/cmuxterm-hq/issues/13423"
+    },
+    "agent-pane.inline-preview#html-table-chart": {
+      "count": 2,
+      "issue": "https://github.com/manaflow-ai/cmuxterm-hq/issues/13423"
+    },
+    "agent-pane.inline-preview#svg-bar-chart": {
+      "count": 3,
+      "issue": "https://github.com/manaflow-ai/cmuxterm-hq/issues/13423"
+    },
+    "agent-pane.local-commands#new-chat-info-closed": {
+      "count": 2,
+      "issue": "https://github.com/manaflow-ai/cmuxterm-hq/issues/25939"
+    },
+    "agent-pane.missing-folder#deleted": {
+      "count": 2,
+      "issue": "https://github.com/manaflow-ai/cmuxterm-hq/issues/25939"
+    },
+    "agent-pane.missing-folder#no-folder": {
+      "count": 2,
+      "issue": "https://github.com/manaflow-ai/cmuxterm-hq/issues/25939"
+    },
+    "agent-pane.new-chat-composer#alt-bump": {
+      "count": 2,
+      "issue": "https://github.com/manaflow-ai/cmuxterm-hq/issues/25939"
+    },
+    "agent-pane.new-chat-composer#alt-tray": {
+      "count": 2,
+      "issue": "https://github.com/manaflow-ai/cmuxterm-hq/issues/25939"
+    },
+    "agent-pane.new-chat-composer#centered": {
+      "count": 4,
+      "issue": "https://github.com/manaflow-ai/cmuxterm-hq/issues/25939"
+    },
+    "agent-pane.new-chat-composer#centered-codex": {
+      "count": 4,
+      "issue": "https://github.com/manaflow-ai/cmuxterm-hq/issues/25939"
+    },
+    "agent-pane.new-chat-composer#choose-folder": {
+      "count": 4,
+      "issue": "https://github.com/manaflow-ai/cmuxterm-hq/issues/25939"
+    },
+    "agent-pane.new-chat-composer#claude": {
+      "count": 2,
+      "issue": "https://github.com/manaflow-ai/cmuxterm-hq/issues/25939"
+    },
+    "agent-pane.new-chat-composer#codex": {
+      "count": 2,
+      "issue": "https://github.com/manaflow-ai/cmuxterm-hq/issues/25939"
+    },
+    "agent-pane.new-chat-composer#first-send": {
+      "count": 3,
+      "issue": "https://github.com/manaflow-ai/cmuxterm-hq/issues/13423"
+    },
+    "agent-pane.new-chat-composer#folder-menu": {
+      "count": 4,
+      "issue": "https://github.com/manaflow-ai/cmuxterm-hq/issues/25939"
+    },
+    "agent-pane.new-chat-composer#project": {
+      "count": 2,
+      "issue": "https://github.com/manaflow-ai/cmuxterm-hq/issues/25939"
+    },
+    "agent-pane.new-chat-composer#remote": {
+      "count": 2,
+      "issue": "https://github.com/manaflow-ai/cmuxterm-hq/issues/25939"
+    },
+    "agent-pane.new-chat-no-shift#send-to-streaming": {
+      "count": 4,
+      "issue": "https://github.com/manaflow-ai/cmuxterm-hq/issues/25939"
+    },
+    "agent-pane.new-tab-attachments-cap#classic-one-line": {
+      "count": 3,
+      "issue": "https://github.com/manaflow-ai/cmuxterm-hq/issues/25939"
+    },
+    "agent-pane.new-tab-attachments-cap#minimal-one-line": {
+      "count": 4,
+      "issue": "https://github.com/manaflow-ai/cmuxterm-hq/issues/25939"
+    },
+    "agent-pane.new-tab-start-cancel#not-now-keeps-draft": {
+      "count": 1,
+      "issue": "https://github.com/manaflow-ai/cmuxterm-hq/issues/13423"
+    },
+    "agent-pane.new-tab-start-cancel#stale-folder-reply-ready": {
+      "count": 6,
+      "issue": "https://github.com/manaflow-ai/cmuxterm-hq/issues/13423"
+    },
+    "agent-pane.new-tab#composer-holds-its-place": {
+      "count": 4,
+      "issue": "https://github.com/manaflow-ai/cmuxterm-hq/issues/13423"
+    },
+    "agent-pane.new-tab#composer-template-holds-its-place": {
+      "count": 4,
+      "issue": "https://github.com/manaflow-ai/cmuxterm-hq/issues/13423"
+    },
+    "agent-pane.new-tab#fix-from-link-error": {
+      "count": 1,
+      "issue": "https://github.com/manaflow-ai/cmuxterm-hq/issues/13423"
+    },
+    "agent-pane.new-tab#style-switch": {
+      "count": 1,
+      "issue": "https://github.com/manaflow-ai/cmuxterm-hq/issues/13423"
+    },
+    "agent-pane.notice-row#background-digest-open": {
+      "count": 3,
+      "issue": "https://github.com/manaflow-ai/cmuxterm-hq/issues/13423"
+    },
+    "agent-pane.notice-row#chips-open": {
+      "count": 13,
+      "issue": "https://github.com/manaflow-ai/cmuxterm-hq/issues/13423"
+    },
+    "agent-pane.notice-row#orphan-before-open": {
+      "count": 7,
+      "issue": "https://github.com/manaflow-ai/cmuxterm-hq/issues/13423"
+    },
+    "agent-pane.notice-row#orphan-open": {
+      "count": 7,
+      "issue": "https://github.com/manaflow-ai/cmuxterm-hq/issues/13423"
+    },
+    "agent-pane.notice-row#sender-open": {
+      "count": 10,
+      "issue": "https://github.com/manaflow-ai/cmuxterm-hq/issues/13423"
+    },
+    "agent-pane.notice-row#sender-open-title-body": {
+      "count": 10,
+      "issue": "https://github.com/manaflow-ai/cmuxterm-hq/issues/13423"
+    },
+    "agent-pane.notice-row#sender-open-wrap": {
+      "count": 10,
+      "issue": "https://github.com/manaflow-ai/cmuxterm-hq/issues/13423"
+    },
+    "agent-pane.outcome-ask#empty": {
+      "count": 2,
+      "issue": "https://github.com/manaflow-ai/cmuxterm-hq/issues/25939"
+    },
+    "agent-pane.outcome-ask#filled": {
+      "count": 2,
+      "issue": "https://github.com/manaflow-ai/cmuxterm-hq/issues/25939"
+    },
+    "agent-pane.outcome-ask#off": {
+      "count": 2,
+      "issue": "https://github.com/manaflow-ai/cmuxterm-hq/issues/25939"
+    },
+    "agent-pane.paragraph-spacing-token#before": {
+      "count": 1,
+      "issue": "https://github.com/manaflow-ai/cmuxterm-hq/issues/13423"
+    },
+    "agent-pane.quote-reply#append": {
+      "count": 2,
+      "issue": "https://github.com/manaflow-ai/cmuxterm-hq/issues/25939"
+    },
+    "agent-pane.quote-reply#draft": {
+      "count": 2,
+      "issue": "https://github.com/manaflow-ai/cmuxterm-hq/issues/25939"
+    },
+    "agent-pane.quote-reply#focused": {
+      "count": 2,
+      "issue": "https://github.com/manaflow-ai/cmuxterm-hq/issues/25939"
+    },
+    "agent-pane.quote-reply#multiple": {
+      "count": 2,
+      "issue": "https://github.com/manaflow-ai/cmuxterm-hq/issues/25939"
+    },
+    "agent-pane.received-sent-activity#every-kind-opened": {
+      "count": 2,
+      "issue": "https://github.com/manaflow-ai/cmuxterm-hq/issues/25939"
+    },
+    "agent-pane.received-sent-activity#leos-1159-opened": {
+      "count": 2,
+      "issue": "https://github.com/manaflow-ai/cmuxterm-hq/issues/25939"
+    },
+    "agent-pane.reconvene-scroll-settle#no-chase-near-bottom": {
+      "count": 2,
+      "issue": "https://github.com/manaflow-ai/cmuxterm-hq/issues/25939"
+    },
+    "agent-pane.reconvene-tool-toggle#clip": {
+      "count": 2,
+      "issue": "https://github.com/manaflow-ai/cmuxterm-hq/issues/13423"
+    },
+    "agent-pane.reconvene-tool-toggle#instant": {
+      "count": 2,
+      "issue": "https://github.com/manaflow-ai/cmuxterm-hq/issues/13423"
+    },
+    "agent-pane.reconvene-tool-toggle#now": {
+      "count": 2,
+      "issue": "https://github.com/manaflow-ai/cmuxterm-hq/issues/13423"
+    },
+    "agent-pane.reconvene-tool-toggle#quick": {
+      "count": 2,
+      "issue": "https://github.com/manaflow-ai/cmuxterm-hq/issues/13423"
+    },
+    "agent-pane.reconvene-tool-toggle#under-load": {
+      "count": 2,
+      "issue": "https://github.com/manaflow-ai/cmuxterm-hq/issues/13423"
+    },
+    "agent-pane.remix-entry#a-chat-dock": {
+      "count": 2,
+      "issue": "https://github.com/manaflow-ai/cmuxterm-hq/issues/25939"
+    },
+    "agent-pane.remix-entry#a-chat-dock-change": {
+      "count": 2,
+      "issue": "https://github.com/manaflow-ai/cmuxterm-hq/issues/25939"
+    },
+    "agent-pane.send-stream-motion#send-stream": {
+      "count": 13,
+      "issue": "https://github.com/manaflow-ai/cmuxterm-hq/issues/13423"
+    },
+    "agent-pane.send-stream-motion#steer-mid-stream": {
+      "count": 14,
+      "issue": "https://github.com/manaflow-ai/cmuxterm-hq/issues/13423"
+    },
+    "agent-pane.send-stream-motion#tools-turn": {
+      "count": 17,
+      "issue": "https://github.com/manaflow-ai/cmuxterm-hq/issues/13423"
+    },
+    "agent-pane.sent-images#narrow": {
+      "count": 1,
+      "issue": "https://github.com/manaflow-ai/cmuxterm-hq/issues/13423"
+    },
+    "agent-pane.sent-video#video-expanded": {
+      "count": 1,
+      "issue": "https://github.com/manaflow-ai/cmuxterm-hq/issues/13423"
+    },
+    "agent-pane.sent-video#video-playing": {
+      "count": 1,
+      "issue": "https://github.com/manaflow-ai/cmuxterm-hq/issues/13423"
+    },
+    "agent-pane.sent-video#video-without-frames-and-screenshot": {
+      "count": 1,
+      "issue": "https://github.com/manaflow-ai/cmuxterm-hq/issues/13423"
+    },
+    "agent-pane.session-info-resize#new-chat-resized": {
+      "count": 2,
+      "issue": "https://github.com/manaflow-ai/cmuxterm-hq/issues/25939"
+    },
+    "agent-pane.session-info-resize#new-workspace": {
+      "count": 2,
+      "issue": "https://github.com/manaflow-ai/cmuxterm-hq/issues/25939"
+    },
+    "agent-pane.shift-scenarios#older-history": {
+      "count": 4,
+      "issue": "https://github.com/manaflow-ai/cmuxterm-hq/issues/25939"
+    },
+    "agent-pane.start-folder#new-worktree": {
+      "count": 4,
+      "issue": "https://github.com/manaflow-ai/cmuxterm-hq/issues/25939"
+    },
+    "agent-pane.start-folder#worktree-creating": {
+      "count": 4,
+      "issue": "https://github.com/manaflow-ai/cmuxterm-hq/issues/25939"
+    },
+    "agent-pane.start-folder#worktree-refused": {
+      "count": 2,
+      "issue": "https://github.com/manaflow-ai/cmuxterm-hq/issues/25939"
+    },
+    "agent-pane.start-folder#worktree-setup-runs": {
+      "count": 4,
+      "issue": "https://github.com/manaflow-ai/cmuxterm-hq/issues/25939"
+    },
+    "agent-pane.stream-follow-fold#blocks": {
+      "count": 14,
+      "issue": "https://github.com/manaflow-ai/cmuxterm-hq/issues/25939"
+    },
+    "agent-pane.stream-follow-fold#blocks-runs": {
+      "count": 13,
+      "issue": "https://github.com/manaflow-ai/cmuxterm-hq/issues/25939"
+    },
+    "agent-pane.stream-follow-fold#linear": {
+      "count": 13,
+      "issue": "https://github.com/manaflow-ai/cmuxterm-hq/issues/25939"
+    },
+    "agent-pane.stream-follow-fold#linear-runs": {
+      "count": 13,
+      "issue": "https://github.com/manaflow-ai/cmuxterm-hq/issues/25939"
+    },
+    "agent-pane.stream-follow-fold#send": {
+      "count": 13,
+      "issue": "https://github.com/manaflow-ai/cmuxterm-hq/issues/25939"
+    },
+    "agent-pane.stream-follow-fold#send-runs": {
+      "count": 14,
+      "issue": "https://github.com/manaflow-ai/cmuxterm-hq/issues/25939"
+    },
+    "agent-pane.stream-follow-fold#steady": {
+      "count": 13,
+      "issue": "https://github.com/manaflow-ai/cmuxterm-hq/issues/25939"
+    },
+    "agent-pane.stream-follow-fold#steady-runs": {
+      "count": 14,
+      "issue": "https://github.com/manaflow-ai/cmuxterm-hq/issues/25939"
+    },
+    "agent-pane.streaming-follow-motion#eased-follow": {
+      "count": 16,
+      "issue": "https://github.com/manaflow-ai/cmuxterm-hq/issues/13423"
+    },
+    "agent-pane.streaming-follow-motion#smooth-follow": {
+      "count": 26,
+      "issue": "https://github.com/manaflow-ai/cmuxterm-hq/issues/13423"
+    },
+    "agent-pane.streaming-follow-motion#steady-reveal": {
+      "count": 16,
+      "issue": "https://github.com/manaflow-ai/cmuxterm-hq/issues/13423"
+    },
+    "agent-pane.streaming-follow-motion#stream-scrolled-up": {
+      "count": 8,
+      "issue": "https://github.com/manaflow-ai/cmuxterm-hq/issues/13423"
+    },
+    "agent-pane.streaming-follow-motion#subtle-fade": {
+      "count": 16,
+      "issue": "https://github.com/manaflow-ai/cmuxterm-hq/issues/13423"
+    },
+    "agent-pane.streaming-text#claude": {
+      "count": 14,
+      "issue": "https://github.com/manaflow-ai/cmuxterm-hq/issues/13423"
+    },
+    "agent-pane.streaming-text#codex": {
+      "count": 15,
+      "issue": "https://github.com/manaflow-ai/cmuxterm-hq/issues/13423"
+    },
+    "agent-pane.streaming-text#jump-during-stream": {
+      "count": 17,
+      "issue": "https://github.com/manaflow-ai/cmuxterm-hq/issues/13423"
+    },
+    "agent-pane.subagent-tray-open#opens-panel": {
+      "count": 7,
+      "issue": "https://github.com/manaflow-ai/cmuxterm-hq/issues/13423"
+    },
+    "agent-pane.subsession-cards#result-reopened": {
+      "count": 3,
+      "issue": "https://github.com/manaflow-ai/cmuxterm-hq/issues/13423"
+    },
+    "agent-pane.superseded-turn-footer#answered-after-message": {
+      "count": 5,
+      "issue": "https://github.com/manaflow-ai/cmuxterm-hq/issues/25939"
+    },
+    "agent-pane.thread-minimap-foot#solo-tab-hovered": {
+      "count": 1,
+      "issue": "https://github.com/manaflow-ai/cmuxterm-hq/issues/13423"
+    },
+    "agent-pane.tool-detail#flat-fields": {
+      "count": 2,
+      "issue": "https://github.com/manaflow-ai/cmuxterm-hq/issues/13423"
+    },
+    "agent-pane.tool-detail#generic": {
+      "count": 2,
+      "issue": "https://github.com/manaflow-ai/cmuxterm-hq/issues/13423"
+    },
+    "agent-pane.tool-detail#mcp": {
+      "count": 2,
+      "issue": "https://github.com/manaflow-ai/cmuxterm-hq/issues/13423"
+    },
+    "agent-pane.tool-detail#side-keys": {
+      "count": 2,
+      "issue": "https://github.com/manaflow-ai/cmuxterm-hq/issues/13423"
+    },
+    "agent-pane.tool-fold-bottom#idle": {
+      "count": 3,
+      "issue": "https://github.com/manaflow-ai/cmuxterm-hq/issues/13423"
+    },
+    "agent-pane.tool-group-size#mixed-commands": {
+      "count": 2,
+      "issue": "https://github.com/manaflow-ai/cmuxterm-hq/issues/13423"
+    },
+    "agent-pane.tool-group-size#n100": {
+      "count": 2,
+      "issue": "https://github.com/manaflow-ai/cmuxterm-hq/issues/13423"
+    },
+    "agent-pane.tool-group-size#n20": {
+      "count": 2,
+      "issue": "https://github.com/manaflow-ai/cmuxterm-hq/issues/13423"
+    },
+    "agent-pane.tool-group-size#n5": {
+      "count": 2,
+      "issue": "https://github.com/manaflow-ai/cmuxterm-hq/issues/13423"
+    },
+    "agent-pane.tool-toggle-motion#jump": {
+      "count": 15,
+      "issue": "https://github.com/manaflow-ai/cmuxterm-hq/issues/13423"
+    },
+    "agent-pane.tool-toggle-motion#quick": {
+      "count": 15,
+      "issue": "https://github.com/manaflow-ai/cmuxterm-hq/issues/13423"
+    },
+    "agent-pane.tool-toggle-motion#settle": {
+      "count": 15,
+      "issue": "https://github.com/manaflow-ai/cmuxterm-hq/issues/13423"
+    },
+    "agent-pane.tool-toggle-motion#stack": {
+      "count": 15,
+      "issue": "https://github.com/manaflow-ai/cmuxterm-hq/issues/13423"
+    },
+    "agent-pane.transcript-view#thinking": {
+      "count": 2,
+      "issue": "https://github.com/manaflow-ai/cmuxterm-hq/issues/13423"
+    },
+    "agent-pane.transcript-view#verbose": {
+      "count": 2,
+      "issue": "https://github.com/manaflow-ai/cmuxterm-hq/issues/13423"
+    },
+    "agent-pane.transcript#chart-fence-bar": {
+      "count": 1,
+      "issue": "https://github.com/manaflow-ai/cmuxterm-hq/issues/13423"
+    },
+    "agent-pane.transcript#chart-fence-line": {
+      "count": 1,
+      "issue": "https://github.com/manaflow-ai/cmuxterm-hq/issues/13423"
+    },
+    "agent-pane.transcript#chart-fence-pie": {
+      "count": 1,
+      "issue": "https://github.com/manaflow-ai/cmuxterm-hq/issues/13423"
+    },
+    "agent-pane.transcript#chart-fence-scatter": {
+      "count": 1,
+      "issue": "https://github.com/manaflow-ai/cmuxterm-hq/issues/13423"
+    },
+    "agent-pane.transcript#codex-turn-run-open": {
+      "count": 3,
+      "issue": "https://github.com/manaflow-ai/cmuxterm-hq/issues/13423"
+    },
+    "agent-pane.transcript#edit-long-line-code": {
+      "count": 4,
+      "issue": "https://github.com/manaflow-ai/cmuxterm-hq/issues/13423"
+    },
+    "agent-pane.transcript#edit-long-line-code-cut": {
+      "count": 4,
+      "issue": "https://github.com/manaflow-ai/cmuxterm-hq/issues/13423"
+    },
+    "agent-pane.transcript#edit-long-line-prose": {
+      "count": 4,
+      "issue": "https://github.com/manaflow-ai/cmuxterm-hq/issues/13423"
+    },
+    "agent-pane.transcript#edit-preview-scrolled": {
+      "count": 4,
+      "issue": "https://github.com/manaflow-ai/cmuxterm-hq/issues/13423"
+    },
+    "agent-pane.transcript#math-delimiters": {
+      "count": 2,
+      "issue": "https://github.com/manaflow-ai/cmuxterm-hq/issues/13423"
+    },
+    "agent-pane.transcript#output-unwrapped-long-line": {
+      "count": 2,
+      "issue": "https://github.com/manaflow-ai/cmuxterm-hq/issues/13423"
+    },
+    "agent-pane.transcript#shell-unwrapped-long-line": {
+      "count": 2,
+      "issue": "https://github.com/manaflow-ai/cmuxterm-hq/issues/13423"
+    },
+    "agent-pane.transcript#vega-lite-chart": {
+      "count": 1,
+      "issue": "https://github.com/manaflow-ai/cmuxterm-hq/issues/13423"
+    },
+    "agent-pane.transcript#web-video-loaded": {
+      "count": 3,
+      "issue": "https://github.com/manaflow-ai/cmuxterm-hq/issues/13423"
+    },
+    "agent-pane.transcript#worked-for-closing": {
+      "count": 5,
+      "issue": "https://github.com/manaflow-ai/cmuxterm-hq/issues/13423"
+    },
+    "agent-pane.transcript#worked-for-opening": {
+      "count": 5,
+      "issue": "https://github.com/manaflow-ai/cmuxterm-hq/issues/13423"
+    },
+    "agent-pane.turn-end-fold#anchored": {
+      "count": 19,
+      "issue": "https://github.com/manaflow-ai/cmuxterm-hq/issues/25939"
+    },
+    "agent-pane.turn-end-fold#anchored-long": {
+      "count": 7,
+      "issue": "https://github.com/manaflow-ai/cmuxterm-hq/issues/25939"
+    },
+    "agent-pane.turn-end-fold#capped": {
+      "count": 19,
+      "issue": "https://github.com/manaflow-ai/cmuxterm-hq/issues/25939"
+    },
+    "agent-pane.turn-end-fold#capped-long": {
+      "count": 7,
+      "issue": "https://github.com/manaflow-ai/cmuxterm-hq/issues/25939"
+    },
+    "agent-pane.turn-end-fold#cascade": {
+      "count": 19,
+      "issue": "https://github.com/manaflow-ai/cmuxterm-hq/issues/25939"
+    },
+    "agent-pane.turn-end-fold#cascade-long": {
+      "count": 7,
+      "issue": "https://github.com/manaflow-ai/cmuxterm-hq/issues/25939"
+    },
+    "agent-pane.turn-end-fold#crossfade": {
+      "count": 19,
+      "issue": "https://github.com/manaflow-ai/cmuxterm-hq/issues/25939"
+    },
+    "agent-pane.turn-end-fold#crossfade-long": {
+      "count": 7,
+      "issue": "https://github.com/manaflow-ai/cmuxterm-hq/issues/25939"
+    },
+    "agent-pane.turn-end-fold#dissolve": {
+      "count": 19,
+      "issue": "https://github.com/manaflow-ai/cmuxterm-hq/issues/25939"
+    },
+    "agent-pane.turn-end-fold#dissolve-long": {
+      "count": 7,
+      "issue": "https://github.com/manaflow-ai/cmuxterm-hq/issues/25939"
+    },
+    "agent-pane.turn-end-fold#edge": {
+      "count": 19,
+      "issue": "https://github.com/manaflow-ai/cmuxterm-hq/issues/25939"
+    },
+    "agent-pane.turn-end-fold#edge-long": {
+      "count": 7,
+      "issue": "https://github.com/manaflow-ai/cmuxterm-hq/issues/25939"
+    },
+    "agent-pane.turn-end-fold#fade": {
+      "count": 22,
+      "issue": "https://github.com/manaflow-ai/cmuxterm-hq/issues/13423"
+    },
+    "agent-pane.turn-end-fold#fade-long": {
+      "count": 18,
+      "issue": "https://github.com/manaflow-ai/cmuxterm-hq/issues/13423"
+    },
+    "agent-pane.turn-end-fold#glide": {
+      "count": 19,
+      "issue": "https://github.com/manaflow-ai/cmuxterm-hq/issues/25939"
+    },
+    "agent-pane.turn-end-fold#glide-long": {
+      "count": 7,
+      "issue": "https://github.com/manaflow-ai/cmuxterm-hq/issues/25939"
+    },
+    "agent-pane.turn-end-fold#lead-none": {
+      "count": 19,
+      "issue": "https://github.com/manaflow-ai/cmuxterm-hq/issues/25939"
+    },
+    "agent-pane.turn-end-fold#lead-none-long": {
+      "count": 7,
+      "issue": "https://github.com/manaflow-ai/cmuxterm-hq/issues/25939"
+    },
+    "agent-pane.turn-end-fold#lead-quick": {
+      "count": 19,
+      "issue": "https://github.com/manaflow-ai/cmuxterm-hq/issues/25939"
+    },
+    "agent-pane.turn-end-fold#live": {
+      "count": 20,
+      "issue": "https://github.com/manaflow-ai/cmuxterm-hq/issues/13423"
+    },
+    "agent-pane.turn-end-fold#morph": {
+      "count": 19,
+      "issue": "https://github.com/manaflow-ai/cmuxterm-hq/issues/25939"
+    },
+    "agent-pane.turn-end-fold#morph-long": {
+      "count": 7,
+      "issue": "https://github.com/manaflow-ai/cmuxterm-hq/issues/25939"
+    },
+    "agent-pane.turn-end-fold#sheet": {
+      "count": 19,
+      "issue": "https://github.com/manaflow-ai/cmuxterm-hq/issues/25939"
+    },
+    "agent-pane.turn-end-fold#sheet-long": {
+      "count": 7,
+      "issue": "https://github.com/manaflow-ai/cmuxterm-hq/issues/25939"
+    },
+    "agent-pane.turn-end-fold#snapshot": {
+      "count": 19,
+      "issue": "https://github.com/manaflow-ai/cmuxterm-hq/issues/25939"
+    },
+    "agent-pane.turn-end-fold#snapshot-long": {
+      "count": 7,
+      "issue": "https://github.com/manaflow-ai/cmuxterm-hq/issues/25939"
+    },
+    "agent-pane.turn-end-fold#spring": {
+      "count": 19,
+      "issue": "https://github.com/manaflow-ai/cmuxterm-hq/issues/25939"
+    },
+    "agent-pane.turn-end-fold#spring-long": {
+      "count": 7,
+      "issue": "https://github.com/manaflow-ai/cmuxterm-hq/issues/25939"
+    },
+    "agent-pane.turn-end-fold#stagger": {
+      "count": 21,
+      "issue": "https://github.com/manaflow-ai/cmuxterm-hq/issues/13423"
+    },
+    "agent-pane.turn-end-fold#stagger-long": {
+      "count": 21,
+      "issue": "https://github.com/manaflow-ai/cmuxterm-hq/issues/13423"
+    },
+    "agent-pane.turn-end-fold#tuck": {
+      "count": 19,
+      "issue": "https://github.com/manaflow-ai/cmuxterm-hq/issues/13423"
+    },
+    "agent-pane.turn-end-fold#tuck-long": {
+      "count": 14,
+      "issue": "https://github.com/manaflow-ai/cmuxterm-hq/issues/13423"
+    },
+    "agent-pane.turn-end-fold#viscous": {
+      "count": 19,
+      "issue": "https://github.com/manaflow-ai/cmuxterm-hq/issues/25939"
+    },
+    "agent-pane.turn-end-fold#viscous-long": {
+      "count": 7,
+      "issue": "https://github.com/manaflow-ai/cmuxterm-hq/issues/25939"
+    },
+    "agent-pane.turn-end-fold#wait": {
+      "count": 19,
+      "issue": "https://github.com/manaflow-ai/cmuxterm-hq/issues/25939"
+    },
+    "agent-pane.turn-end-fold#wait-long": {
+      "count": 7,
+      "issue": "https://github.com/manaflow-ai/cmuxterm-hq/issues/25939"
+    },
+    "agent-pane.turn-end-fold#water": {
+      "count": 19,
+      "issue": "https://github.com/manaflow-ai/cmuxterm-hq/issues/25939"
+    },
+    "agent-pane.turn-end-fold#water-long": {
+      "count": 7,
+      "issue": "https://github.com/manaflow-ai/cmuxterm-hq/issues/25939"
+    },
+    "agent-pane.turn-end-fold#wipe": {
+      "count": 19,
+      "issue": "https://github.com/manaflow-ai/cmuxterm-hq/issues/25939"
+    },
+    "agent-pane.turn-end-fold#wipe-long": {
+      "count": 7,
+      "issue": "https://github.com/manaflow-ai/cmuxterm-hq/issues/25939"
+    },
+    "agent-pane.turn-transitions#arrive-group-arrive": {
+      "count": 13,
+      "issue": "https://github.com/manaflow-ai/cmuxterm-hq/issues/13423"
+    },
+    "agent-pane.turn-transitions#arrive-group-glide": {
+      "count": 13,
+      "issue": "https://github.com/manaflow-ai/cmuxterm-hq/issues/13423"
+    },
+    "agent-pane.turn-transitions#arrive-group-quick": {
+      "count": 15,
+      "issue": "https://github.com/manaflow-ai/cmuxterm-hq/issues/13423"
+    },
+    "agent-pane.turn-transitions#arrive-subagent-arrive": {
+      "count": 13,
+      "issue": "https://github.com/manaflow-ai/cmuxterm-hq/issues/13423"
+    },
+    "agent-pane.turn-transitions#arrive-subagent-glide": {
+      "count": 13,
+      "issue": "https://github.com/manaflow-ai/cmuxterm-hq/issues/13423"
+    },
+    "agent-pane.turn-transitions#arrive-subagent-quick": {
+      "count": 13,
+      "issue": "https://github.com/manaflow-ai/cmuxterm-hq/issues/13423"
+    },
+    "agent-pane.turn-transitions#arrive-thinking-arrive": {
+      "count": 12,
+      "issue": "https://github.com/manaflow-ai/cmuxterm-hq/issues/13423"
+    },
+    "agent-pane.turn-transitions#arrive-thinking-glide": {
+      "count": 12,
+      "issue": "https://github.com/manaflow-ai/cmuxterm-hq/issues/13423"
+    },
+    "agent-pane.turn-transitions#arrive-thinking-quick": {
+      "count": 12,
+      "issue": "https://github.com/manaflow-ai/cmuxterm-hq/issues/13423"
+    },
+    "agent-pane.turn-transitions#arrive-tool-arrive": {
+      "count": 13,
+      "issue": "https://github.com/manaflow-ai/cmuxterm-hq/issues/13423"
+    },
+    "agent-pane.turn-transitions#arrive-tool-glide": {
+      "count": 13,
+      "issue": "https://github.com/manaflow-ai/cmuxterm-hq/issues/13423"
+    },
+    "agent-pane.turn-transitions#arrive-tool-quick": {
+      "count": 13,
+      "issue": "https://github.com/manaflow-ai/cmuxterm-hq/issues/13423"
+    },
+    "agent-pane.turn-transitions#arrive-tool-swap-before": {
+      "count": 11,
+      "issue": "https://github.com/manaflow-ai/cmuxterm-hq/issues/25939"
+    },
+    "agent-pane.turn-transitions#arrive-tool-swap-cross": {
+      "count": 11,
+      "issue": "https://github.com/manaflow-ai/cmuxterm-hq/issues/25939"
+    },
+    "agent-pane.turn-transitions#arrive-tool-swap-exit": {
+      "count": 10,
+      "issue": "https://github.com/manaflow-ai/cmuxterm-hq/issues/25939"
+    },
+    "agent-pane.turn-transitions#arrive-tool-swap-quick": {
+      "count": 10,
+      "issue": "https://github.com/manaflow-ai/cmuxterm-hq/issues/25939"
+    },
+    "agent-pane.turn-transitions#arrive-tool-swap-shipped": {
+      "count": 10,
+      "issue": "https://github.com/manaflow-ai/cmuxterm-hq/issues/25939"
+    },
+    "agent-pane.turn-transitions#arrive-tool-swap-slide": {
+      "count": 12,
+      "issue": "https://github.com/manaflow-ai/cmuxterm-hq/issues/25939"
+    },
+    "agent-pane.turn-transitions#arrive-tool-swap-wait": {
+      "count": 11,
+      "issue": "https://github.com/manaflow-ai/cmuxterm-hq/issues/25939"
+    },
+    "agent-pane.turn-transitions#burst-thought-arrive": {
+      "count": 12,
+      "issue": "https://github.com/manaflow-ai/cmuxterm-hq/issues/13423"
+    },
+    "agent-pane.turn-transitions#burst-thought-glide": {
+      "count": 12,
+      "issue": "https://github.com/manaflow-ai/cmuxterm-hq/issues/13423"
+    },
+    "agent-pane.turn-transitions#burst-thought-jump": {
+      "count": 12,
+      "issue": "https://github.com/manaflow-ai/cmuxterm-hq/issues/13423"
+    },
+    "agent-pane.turn-transitions#burst-thought-quick": {
+      "count": 13,
+      "issue": "https://github.com/manaflow-ai/cmuxterm-hq/issues/13423"
+    },
+    "agent-pane.turn-transitions#steer-tools-arrive": {
+      "count": 18,
+      "issue": "https://github.com/manaflow-ai/cmuxterm-hq/issues/13423"
+    },
+    "agent-pane.turn-transitions#steer-tools-glide": {
+      "count": 17,
+      "issue": "https://github.com/manaflow-ai/cmuxterm-hq/issues/13423"
+    },
+    "agent-pane.turn-transitions#steer-tools-jump": {
+      "count": 17,
+      "issue": "https://github.com/manaflow-ai/cmuxterm-hq/issues/13423"
+    },
+    "agent-pane.turn-transitions#steer-tools-quick": {
+      "count": 17,
+      "issue": "https://github.com/manaflow-ai/cmuxterm-hq/issues/13423"
+    },
+    "agent-pane.turn-transitions#text-tool-arrive": {
+      "count": 16,
+      "issue": "https://github.com/manaflow-ai/cmuxterm-hq/issues/13423"
+    },
+    "agent-pane.turn-transitions#text-tool-glide": {
+      "count": 15,
+      "issue": "https://github.com/manaflow-ai/cmuxterm-hq/issues/13423"
+    },
+    "agent-pane.turn-transitions#text-tool-jump": {
+      "count": 15,
+      "issue": "https://github.com/manaflow-ai/cmuxterm-hq/issues/13423"
+    },
+    "agent-pane.turn-transitions#text-tool-quick": {
+      "count": 15,
+      "issue": "https://github.com/manaflow-ai/cmuxterm-hq/issues/13423"
+    },
+    "agent-pane.turn-transitions#thought-text-arrive": {
+      "count": 14,
+      "issue": "https://github.com/manaflow-ai/cmuxterm-hq/issues/13423"
+    },
+    "agent-pane.turn-transitions#thought-text-glide": {
+      "count": 16,
+      "issue": "https://github.com/manaflow-ai/cmuxterm-hq/issues/13423"
+    },
+    "agent-pane.turn-transitions#thought-text-jump": {
+      "count": 14,
+      "issue": "https://github.com/manaflow-ai/cmuxterm-hq/issues/13423"
+    },
+    "agent-pane.turn-transitions#thought-text-quick": {
+      "count": 14,
+      "issue": "https://github.com/manaflow-ai/cmuxterm-hq/issues/13423"
+    },
+    "agent-pane.turn-transitions#tool-group-arrive": {
+      "count": 15,
+      "issue": "https://github.com/manaflow-ai/cmuxterm-hq/issues/13423"
+    },
+    "agent-pane.turn-transitions#tool-group-glide": {
+      "count": 15,
+      "issue": "https://github.com/manaflow-ai/cmuxterm-hq/issues/13423"
+    },
+    "agent-pane.turn-transitions#tool-group-jump": {
+      "count": 15,
+      "issue": "https://github.com/manaflow-ai/cmuxterm-hq/issues/13423"
+    },
+    "agent-pane.turn-transitions#tool-group-quick": {
+      "count": 15,
+      "issue": "https://github.com/manaflow-ai/cmuxterm-hq/issues/13423"
+    },
+    "agent-pane.unread-marker#jump-back": {
+      "count": 8,
+      "issue": "https://github.com/manaflow-ai/cmuxterm-hq/issues/13423"
+    },
+    "agent-pane.user-bubble#editing": {
+      "count": 4,
+      "issue": "https://github.com/manaflow-ai/cmuxterm-hq/issues/13423"
+    },
+    "agent-pane.web-result-cards#rows": {
+      "count": 3,
+      "issue": "https://github.com/manaflow-ai/cmuxterm-hq/issues/13423"
+    },
+    "agent-pane.web-result-cards#two-line-rows": {
+      "count": 3,
+      "issue": "https://github.com/manaflow-ai/cmuxterm-hq/issues/13423"
+    },
+    "layout.motion-scenarios#new-workspace": {
+      "count": 2,
+      "issue": "https://github.com/manaflow-ai/cmuxterm-hq/issues/25939"
+    },
+    "layout.motion-scenarios#workspace-switch": {
+      "count": 4,
+      "issue": "https://github.com/manaflow-ai/cmuxterm-hq/issues/25939"
+    },
+    "pages.cloud#creating-at-limit-idle": {
+      "count": 1,
+      "issue": "https://github.com/manaflow-ai/cmuxterm-hq/issues/13423"
+    },
+    "pages.cloud#member-budget-refused": {
+      "count": 5,
+      "issue": "https://github.com/manaflow-ai/cmuxterm-hq/issues/13423"
+    },
+    "pages.cloud#spend-cap-refused": {
+      "count": 5,
+      "issue": "https://github.com/manaflow-ai/cmuxterm-hq/issues/13423"
+    },
+    "pages.history#closed-remove-clear": {
+      "count": 2,
+      "issue": "https://github.com/manaflow-ai/cmuxterm-hq/issues/13423"
+    },
+    "pages.history#filtered-selected": {
+      "count": 1,
+      "issue": "https://github.com/manaflow-ai/cmuxterm-hq/issues/13423"
+    },
+    "pages.settings-automations#edit-webhook": {
+      "count": 1,
+      "issue": "https://github.com/manaflow-ai/cmuxterm-hq/issues/25939"
+    },
+    "pages.settings-automations#save-refused": {
+      "count": 1,
+      "issue": "https://github.com/manaflow-ai/cmuxterm-hq/issues/25939"
+    },
+    "pages.settings-automations#template-form": {
+      "count": 1,
+      "issue": "https://github.com/manaflow-ai/cmuxterm-hq/issues/25939"
+    },
+    "pages.settings-automations#webhook-created": {
+      "count": 1,
+      "issue": "https://github.com/manaflow-ai/cmuxterm-hq/issues/25939"
+    },
+    "pages.settings-channels-switch#refused": {
+      "count": 1,
+      "issue": "https://github.com/manaflow-ai/cmuxterm-hq/issues/13423"
+    },
+    "pages.settings-customize-library#entry-off": {
+      "count": 1,
+      "issue": "https://github.com/manaflow-ai/cmuxterm-hq/issues/13423"
+    },
+    "pages.settings-customize-library#fifty-remove": {
+      "count": 1,
+      "issue": "https://github.com/manaflow-ai/cmuxterm-hq/issues/13423"
+    },
+    "pages.settings-customize-library#refused": {
+      "count": 1,
+      "issue": "https://github.com/manaflow-ai/cmuxterm-hq/issues/13423"
+    },
+    "pages.settings-customize-library#remove": {
+      "count": 1,
+      "issue": "https://github.com/manaflow-ai/cmuxterm-hq/issues/13423"
+    },
+    "pages.settings-keys#revoke-confirm": {
+      "count": 1,
+      "issue": "https://github.com/manaflow-ai/cmuxterm-hq/issues/13423"
+    },
+    "pages.settings-menus#move-customized": {
+      "count": 1,
+      "issue": "https://github.com/manaflow-ai/cmuxterm-hq/issues/13423"
+    },
+    "pages.settings-menus#move-submenu": {
+      "count": 1,
+      "issue": "https://github.com/manaflow-ai/cmuxterm-hq/issues/13423"
+    },
+    "pages.settings-menus#move-top-level": {
+      "count": 1,
+      "issue": "https://github.com/manaflow-ai/cmuxterm-hq/issues/13423"
+    },
+    "pages.settings-row-layout#refused": {
+      "count": 3,
+      "issue": "https://github.com/manaflow-ai/cmuxterm-hq/issues/25939"
+    },
+    "pages.settings-row-layout#refused-comfortable": {
+      "count": 3,
+      "issue": "https://github.com/manaflow-ai/cmuxterm-hq/issues/25939"
+    },
+    "pages.settings-row-layout#refused-compact": {
+      "count": 3,
+      "issue": "https://github.com/manaflow-ai/cmuxterm-hq/issues/25939"
+    },
+    "pages.settings-shared-links#revoke-all": {
+      "count": 1,
+      "issue": "https://github.com/manaflow-ai/cmuxterm-hq/issues/13423"
+    }
+  }
+}

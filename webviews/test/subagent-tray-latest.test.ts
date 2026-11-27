@@ -36,7 +36,7 @@ test("an interim end leaves the agent waiting on its own work, until a final rep
   expect(awaitsOwnWork({ ...waiting, reaction: { turn: "bg-2", weight: "result" } })).toBe(false);
   expect(awaitsOwnWork({ ...waiting, state: "failed" })).toBe(false);
   expect(subagentStatus(waiting, new Set())).toBe("idle");
-  expect(subagentStateText(t, waiting, new Set())).toBe("Waiting on its background work");
+  expect(subagentStateText(t, waiting, new Set(), () => true)).toBe("Waiting on its background work");
   // Its clock keeps going.
   expect(elapsed(waiting, 65_000)).toBe(64_000);
   expect(elapsed({ ...waiting, reaction: undefined }, 65_000)).toBe(4_000);
@@ -68,10 +68,9 @@ test("a line's latest words: its step while it runs, its last words while it wai
   expect(lastSaidLine("   \n---\n")).toBeUndefined();
   const running = agent("r", { action: "Read warm-sources.json", lastMessage: "Earlier words" });
   expect(latestLine(t, running, false)).toBe("Read warm-sources.json");
-  // A shell step reads in words ("Running git …"), never the raw command line.
+  // A shell step reads as its command, with no "Running" before it (Leo, 2026-11-23: ""running" doesn't need text").
   const shell = latestLine(t, { ...running, action: "git log --oneline", actionShell: true }, false);
-  expect(shell).not.toBe("git log --oneline");
-  expect(shell).toContain("git");
+  expect(shell).toBe("git log --oneline");
   expect(latestLine(t, agent("q", { lastMessage: "Started the run." }), false)).toBe("Started the run.");
   expect(latestLine(t, { ...running, lastMessage: "Started the notarization run." }, true)).toBe(
     "Started the notarization run.",

@@ -44,7 +44,11 @@ pub(super) async fn retention(
     m: &str,
     params: &Value,
 ) -> Option<Result<Value, RpcError>> {
-    if m != method::MUX_RETENTION {
+    if m != method::MUX_RETENTION
+        && m != method::MUX_HISTORY_DELETE
+        && m != method::MUX_HISTORY_OFFLOAD
+        && m != method::MUX_TRANSCRIPT_OFFLOAD
+    {
         return None;
     }
     if conn.origin.web_class() {
@@ -63,15 +67,37 @@ pub(super) async fn retention(
             }
         },
     };
+    let dry_run = params.get("dryRun").and_then(Value::as_bool).unwrap_or(false);
+    if m == method::MUX_HISTORY_OFFLOAD {
+        let req = crate::hub::HistoryOffloadRequest { dry_run, older_than_days: days };
+        return Some(hub.history_offload_now(req).await);
+    }
+    if m == method::MUX_HISTORY_DELETE {
+        let export = str_param(params, "export").map(PathBuf::from);
+        if export.as_ref().is_some_and(|a| !a.is_absolute()) {
+            return Some(Err(RpcError::invalid_params("export must be an absolute folder")));
+        }
+        let req = crate::hub::HistoryDeleteRequest { dry_run, older_than_days: days, export };
+        return Some(hub.history_delete_now(req).await);
+    }
+    if m == method::MUX_TRANSCRIPT_OFFLOAD {
+        let req = crate::hub::TranscriptOffloadRequest {
+            dry_run,
+            older_than_days: days,
+            restore_all: params.get("restoreAll").and_then(Value::as_bool).unwrap_or(false),
+        };
+        return Some(hub.transcript_offload_now(req).await);
+    }
     let archive = str_param(params, "archive").map(PathBuf::from);
     if archive.as_ref().is_some_and(|a| !a.is_absolute()) {
         return Some(Err(RpcError::invalid_params("archive must be an absolute folder")));
     }
     let req = crate::hub::RetentionRequest {
-        dry_run: params.get("dryRun").and_then(Value::as_bool).unwrap_or(false),
+        dry_run,
         archive,
         older_than_days: days,
         only: str_param(params, "only").map(str::to_owned),
+        unread_only: params.get("unreadOnly").and_then(Value::as_bool).unwrap_or(false),
     };
     Some(hub.retention_pass(req).await)
 }

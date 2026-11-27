@@ -21,13 +21,21 @@ for feed in nightly-deltas/appcast*.xml; do
   # The tail's deltas (the ~1 and ~3 day bases) join the live item, whose nearest deltas the publication
   # shipped (hq#13299): the live bytes stay, only enclosures for new bases are added.
   live="$(mktemp)"
-  curl -fsSL --retry 3 --retry-all-errors -A "cmux-delta-publisher/1" -H "Cache-Control: no-cache" \
+  curl -fsSL --max-time 60 --retry 3 --retry-all-errors -A "cmux-delta-publisher/1" -H "Cache-Control: no-cache" \
     -o "$live" "${CHANNEL_FEED_BASE%/}/$(basename "$feed")"
   python3 "$check" merge "$live" "$feed" --build "$NIGHTLY_BUILD" --out "$feed"
   rm -f "$live"
   python3 "$r2" rewrite --feed "$feed" --if-public
   python3 "$check" prune "$feed" --base "$CHANNEL_FEED_BASE/"
   python3 .publish-tooling/scripts/ci/nightly-next-guard.py appcast "$feed"
+  # The post-feed part of nightly-next-one (DELTAS_ONLY_WHILE_NEWEST=1): only while this build is still the newest
+  # item of the feed it writes. merge keeps the live feed's newest item, so a newer build that went live after the
+  # build step's check would make this write carry its item as read here (review of d3ecf2031a7). The tail keeps
+  # adding an older build's deltas, as before.
+  if [ "${DELTAS_ONLY_WHILE_NEWEST:-}" = 1 ] && ! python3 "$check" newest --feed-file "$feed" --build "$NIGHTLY_BUILD"; then
+    echo "::notice::A newer build is live; its own publication owns its deltas, so $(basename "$feed") is left as is"
+    continue
+  fi
   # Only while the live feed still serves this build (If-Match on the bytes read).
   python3 "$r2" write-feed --feed "$feed" --same-build
 done

@@ -75,25 +75,21 @@ PR_EVENTS = ("pull_request", "pull_request_target")
 
 # Workflows whose superseded pull request runs are deliberately not cancelled.
 ALLOWED = {
+    # Only the `changed` job (a few seconds, one compare call) runs without a group: it decides whether this push
+    # measures by the files changed since the previous head, so cancelling the previous head's `changed` would lose
+    # that head's chat-pane change. The measuring `report` job cancels a superseded head's run.
+    "chat-open-perf-report.yml": "its seconds-long changed job diffs against the previous head; report cancels",
     # Debounce runs supersede themselves and exit 0 (next_batch.py
     # `superseded`); a cancel would read as a red run. The batch job is never
     # cancelled. See OWN_SUPERSESSION in test_ci_required_checks_are_bounded.py.
     "cmux-next-batch.yml": "debounce runs supersede themselves; the batch is never cancelled",
-    # Serialised per pull request so two signature events never write the CLA
-    # ledger from different snapshots (comment on the CLAAssistant job).
-    "cla.yml": "one ledger writer at a time per pull request",
-    # A required check that also runs on metadata edits; a cancelled run would
-    # leave a cancelled required verdict (test_cla_guard_metadata_routing.py
-    # asserts it has no concurrency).
-    "cla-policy-guard.yml": "metadata events must not cancel required verdicts",
-    # The apply jobs migrate the staging and production databases; a cancel
-    # could stop one between applying a migration and recording it.
-    "backend-migrations.yml": "applies database migrations; never cancelled mid-apply",
-    # Deploys preview, staging and production backends; deploy workflows
-    # serialise instead of cancelling. A pull request run also applies its
-    # migrations to the shared development database (migrations-development)
-    # before its preview deploy, so a cancel could stop one mid-apply.
-    "backend.yml": "deploy workflow; PR runs apply migrations to the shared development database",
+    # Opt-in measurements (a marker line in the body): a new head runs beside the one running, never cancelled
+    # (cloud-resume-matrix.yml's header), so an hour of samples on staging machines is not thrown away mid-cell.
+    "cloud-resume-matrix.yml": "opt-in resume measurement; a new head runs beside the running one, never cancelled",
+    "cloud-wake-echo.yml": "opt-in wake measurement, as cloud-resume-matrix.yml: a new head runs beside the running one",
+    # Its 3 min `changed` gate has no group on purpose: a push that measures nothing must not cancel the head still
+    # being measured. The measuring `report` job cancels per pull request (its job concurrency).
+    "chat-open-perf-report.yml": "the push gate has no group so a no-measure push never cancels a running report",
 }
 
 
@@ -506,10 +502,9 @@ def workflow_problem(workflow: dict) -> str | None:
 DESCRIPTION_READS = ("pull_request.body", "pull_request.title", "changes.body", "changes.title")
 
 # Workflows that run on every title or body edit although their own text never reads it, and why.
-READS_DESCRIPTION = {
-    "risk-tier.yml": "scripts/ci/risk_tier.py reads the body's author footer and `Takes back #N` lines over the API",
-    "cla-policy-guard.yml": "`CLA policy guard` is required on main: it publishes a verdict on every edit (#13871); "
-    "pull_request_target into main only, so it runs main's copy",
+READS_DESCRIPTION: dict[str, str] = {
+    "private-names.yml": "its checker (fetched from the private ops repository) reads the title and body over the API; "
+                         "an edit run re-checks the whole pull request at its head, so cancelling the push run loses nothing",
 }
 
 
@@ -537,6 +532,28 @@ METADATA_EDITS = {
 STATUS_FUNCTION = re.compile(r"\b(always|cancelled|failure)\(\)")
 
 
+class _AnyOutput(dict):
+    """Every output name reads as one value."""
+
+    def __init__(self, value: str):
+        super().__init__()
+        self.value = value
+
+    def __missing__(self, key: str) -> str:
+        return self.value
+
+    def get(self, key: str, default: Any = None) -> str:
+        return self.value
+
+    def __contains__(self, key: object) -> bool:
+        return True
+
+
+def needs_guesses(needs: list[str]) -> list[dict[str, Any]]:
+    return [{parent: {"result": result, "outputs": _AnyOutput(output)} for parent in needs}
+            for result in ("success", "failure", "cancelled", "skipped") for output in ("true", "false", "")]
+
+
 def started_jobs(workflow: dict, context: dict[str, Any]) -> list[str]:
     """Jobs that take a runner for this event: an `if` that holds, and needs that ran (or a status function)."""
     jobs = {job_id: job for job_id, job in (workflow.get("jobs") or {}).items() if isinstance(job, dict)}
@@ -550,8 +567,10 @@ def started_jobs(workflow: dict, context: dict[str, Any]) -> list[str]:
         needs = [needs] if isinstance(needs, str) else list(needs)
         text = str(job.get("if", ""))
         try:
-            # needs.* outputs are unknown here; a job gated on them counts as starting.
-            holds = "needs." in text or condition(job.get("if"), context)
+            # needs.* results and outputs are unknown here: a job gated on them counts as starting when any
+            # plausible value (each result, each output true, false or empty) makes its `if` hold.
+            holds = any(condition(job.get("if"), {**context, "needs": guess}) for guess in needs_guesses(needs)) \
+                if "needs." in text else condition(job.get("if"), context)
         except (ExpressionError, KeyError, IndexError, TypeError, ValueError):
             holds = True
         if holds and needs and not STATUS_FUNCTION.search(text) and job_id not in seen:

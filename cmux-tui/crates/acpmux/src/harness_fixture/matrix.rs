@@ -231,6 +231,7 @@ pub fn fixture(cell: &str) -> Result<Fixture, String> {
             latest: Some("1.0.0".into()),
             latest_checked_at: Some(1),
             outdated: false,
+            new_codex_models: None,
             auth,
             auth_detail: Some(detail.into()),
             login: Some(agent.login.to_owned()),
@@ -239,6 +240,7 @@ pub fn fixture(cell: &str) -> Result<Fixture, String> {
             checked_at: 1,
             auto_update: false,
             last_auto_update: None,
+            codex_bundle: None,
         });
     }
     Ok(fixture)

@@ -11,7 +11,7 @@ fn args(words: &[&str]) -> Vec<String> {
 
 /// A line exactly as the app's `LaunchTimesFile.append` writes it (sorted keys, CmuxNextControl's
 /// LaunchTimesFileTests write the same record).
-const LINE: &str = r#"{"build":"200","commit":"31583607abcdef","first_launch_of_build":true,"first_window_frame_ms":512,"home_first_page_ms":830.7,"home_revealed_by":"mark","main_ms":470.8,"pre_main_ms":41.3,"prewarmed":true,"started_at":"2027-01-15T08:00:00Z","version":"1.0.0"}"#;
+const LINE: &str = r#"{"build":"200","commit":"31583607abcdef","first_launch_of_build":true,"first_window_frame_ms":512,"home_first_page_ms":830.7,"home_revealed_by":"mark","main_ms":470.8,"pre_main_ms":41.3,"prewarm_reason":"main","prewarmed":true,"started_at":"2027-01-15T08:00:00Z","version":"1.0.0"}"#;
 
 #[test]
 fn launch_times_parses_its_options() {
@@ -100,12 +100,14 @@ fn launch_times_reads_the_apps_record_back() {
     assert_eq!(record["home_first_page_ms"], json!(830.7));
     assert_eq!(record["home_revealed_by"], "mark");
     assert_eq!(record["prewarmed"], true);
+    assert_eq!(record["prewarm_reason"], "main");
     assert_eq!(record["first_launch_of_build"], true);
     let text = table(&records, false);
     let lines: Vec<&str> = text.lines().collect();
     assert_eq!(lines.len(), 2);
     assert!(lines[0].starts_with("started_at"), "{text}");
-    for cell in ["1.0.0 (200)", "31583607 ", "41.3", "470.8", "512", "830.7", "mark", "yes"] {
+    for cell in ["1.0.0 (200)", "31583607 ", "41.3", "470.8", "512", "830.7", "mark", "yes", "main"]
+    {
         assert!(lines[1].contains(cell), "{cell} missing from {text}");
     }
     assert!(!lines[1].contains("31583607a"), "the commit is shortened: {text}");
@@ -128,8 +130,15 @@ fn launch_times_shows_the_bare_launch_fields() {
     for cell in ["231", "512.9", "yes"] {
         assert!(lines[2].contains(cell), "{cell} missing from {text}");
     }
-    let old: Vec<&str> = lines[1].split_whitespace().collect();
-    assert_eq!(old.iter().filter(|cell| **cell == "-").count(), 3, "{text}");
+    // The older record shows `-` in the three bare-launch columns (other columns it lacks, such as
+    // prior_chat_*, show `-` too, so count by column, not across the row).
+    // The table is aligned and a cell may hold a space ("1.0.0 (200)"): read each cell at its
+    // header's offset.
+    for column in ["window_usable_ms", "first_shell_live_ms", "no_snapshot"] {
+        let at = lines[0].find(column).expect(column);
+        let cell = lines[1].get(at..).and_then(|rest| rest.split_whitespace().next());
+        assert_eq!(cell, Some("-"), "{column} of the older record: {text}");
+    }
 }
 
 /// A relaunch into a chat (CMUX-119) prints the prior chat's columns; a launch with another tab in

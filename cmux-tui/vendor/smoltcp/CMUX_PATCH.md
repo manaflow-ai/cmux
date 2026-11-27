@@ -56,6 +56,23 @@ flowing while holes are repaired. A retransmission timeout drops the scoreboard
 (RFC 2018 section 8), and resending the head restarts the RTO, as the
 duplicate-ACK fast retransmit does. Blocks count only when both edges fall
 inside the flight. A peer that did not permit SACK gets the plain behavior.
+RACK time-based loss detection (RFC 8985) rides on the same scoreboard: the socket
+remembers when each run of new data was first sent (32 records), and a hole is
+lost once it was sent more than srtt + a reorder window ago while data sent
+LATER was SACKed, without waiting for three duplicate ACKs or three segments'
+worth of SACKed bytes (which tiny keystroke segments never reach in time). The
+reorder window is srtt/4, times a multiplier (up to 4) that grows each time a
+DSACK block shows a retransmission was spurious. Send order is (send time, end
+sequence), so segments sent in the same poll are ordered by sequence (RFC 8985's
+RACK.end_seq). Only the expired records' bytes are lost, not the whole hole they
+sit in. A timer in `poll_at` and `dispatch` re-evaluates at the earliest expiry.
+A retransmission restarts the clock of the records it overlaps (splitting one
+it only partly covers) and makes them in flight again; when RACK declares that
+retransmission lost too, its bytes are due again even below `sack_high_rxt`. A
+retransmission pause (tunnel hold) also stops SACK and RACK resends. An RTO
+forgets the records. Upstreaming: this
+is RACK without min-RTT filtering (srtt stands in) and without RACK's own
+reorder-window decay; smoltcp's tail-loss probe is the TLP half already.
 As a receiver, an ACK now carries up to three SACK blocks, not one: the block of
 the segment that triggered it, then the lowest others. cmux-wg turns recovery
 on, and builds smoltcp with a 32-range assembler
@@ -67,8 +84,17 @@ changed (cmux-wg calls it when its multipath underlay leaves the path that
 carried the session, or the peer roams). With data unacknowledged, the socket
 resends from the oldest unacknowledged byte at its next poll, as an RTO would,
 slow start included, but its RTO returns to the RTT estimate's value instead of
-doubling: the losses were the old route's. With nothing in flight it does
+doubling: the losses were the old route's. With nothing in flight it resends
 nothing.
+
+`Socket::set_retransmit_paused(true)` is for a peer that went silent on purpose
+(cmux-wg's `WgNet::hold`, a phone the OS suspended in the background). Data in
+flight is not resent while paused: no RTO, tail-loss probe or zero-window probe,
+and `poll_at` waits for ingress instead of their deadlines. New data is still
+sent once, and arriving segments are answered. `set_retransmit_paused(false)`
+with data in flight resends at the next poll as `path_changed()` does. The
+detector is `test_retransmit_paused_resends_nothing_until_resumed`, and in
+cmux-wg `a_held_tunnel_does_not_retransmit_unacknowledged_output`.
 
 `Socket::link_repairs_losses()` is for a tunnel that starts repairing its own
 losses below TCP (cmux-wg's ultra mode, which "Auto" turns on at the first
@@ -82,8 +108,99 @@ trip cut the window of a stream that needed it, and the stream ran seconds
 behind for the rest of the session; a tunnel that had repair on from the start
 never saw the loss at all. The controllers derive `Clone` for the saved copy.
 
-The changes are in `src/socket/tcp/congestion/cubic.rs` and `src/socket/tcp.rs`,
-each marked `cmux patch`, with tests next to them. Reno's own start is unchanged;
+`Socket::unsent_queue()` returns the octets in the transmit buffer that were
+never sent (`send_queue()` also counts those in flight), and
+`Socket::smoothed_rtt()` the RFC 6298 SRTT. cmux-wg reads both to keep at most
+about one bandwidth-delay product of unsent bytes in a socket, as Linux's
+`TCP_NOTSENT_LOWAT` does: bytes in a socket can no longer be reordered, so a
+latency-bound frame queued behind them waits for all of them. The detector is
+`test_unsent_queue_and_smoothed_rtt`.
+
+A pure ACK carries the highest sequence number sent (SND.MAX), as Linux's do,
+not the send point a retransmission timeout rewound. After an RTO smoltcp
+resends from the oldest unacknowledged byte, and it numbered its ACKs from
+there too; a peer that already held data past that point (its ACK was lost)
+saw those ACKs as old segments and dropped them with the acknowledgment they
+carried (RFC 9293 3.10.7.4). With data flowing both ways through loss, both
+ends rewound, each dropped the other's ACKs, and the connection stalled until
+its user timeout. The tunnel TCP model test found it once a gate held writes
+back (seed 13 of `tunnel_tcp_delivers_every_byte_once_in_order_over_a_lossy_link`,
+12% loss). The detector is `test_pure_ack_after_rto_carries_send_max`.
+
+The patch also adds black-hole fallback (RFC 4821 section 7.7, Linux's
+`tcp_mtu_probing=1`), off by default: `Socket::set_black_hole_fallback(true)`.
+smoltcp sends with DF clear and does no path MTU discovery, so an underlay path
+smaller than the tunnel MTU that drops oversized packets silently carries the
+handshake, ACKs and keystrokes and loses every full segment: a bulk transfer
+stalls for good. With fallback on, after two retransmission timeouts in a row of
+a head segment larger than a 1280 byte IP packet's (an MSS of 1240 over IPv4,
+1220 over IPv6), with no ACK of new data between them, the connection sends
+segments that size from then on, starting with the resend at hand.
+`path_changed()` lifts the limit, also with nothing in flight, since a new
+route may carry full segments. Nothing changes on the wire but the segment
+size, so any peer works. cmux-wg turns it on; its detector is
+`cmux-wg/tests/path_mtu.rs`, a 4 MiB transfer at tunnel MTU 1420 over a
+1400 byte IPv6 path that drops longer packets.
+
+The patch adds a BBR-style controller, `CongestionControl::Bbr`, behind the
+`socket-tcp-bbr` feature (RFD 0142 O1), and cmux-wg makes it the tunnel default
+(`CMUX_WG_ULTRA_CC=cubic` goes back). Its window is twice the bandwidth-delay
+product: the highest delivery rate of the last 10 rounds that were not
+app-limited, times the minimum RTT of the last 10 s. Startup grows the window
+by every acknowledged byte, up to 2.885 times the BDP measured so far, until
+the rate grows under 25 % for 3 rounds or a loss comes. A loss episode bounds
+the window to 0.7 of the flight at the loss but never under the BDP, so a random
+loss costs no throughput, and the bound grows one segment a round (BBRv2's
+inflight_hi): a queue shallower than the BDP is not overfilled every few rounds.
+A round counts at most the window it began with as delivered, so a repaired
+hole, whose cumulative ACK covers data SACKed rounds ago, does not read as a
+burst of bandwidth. An RTO saves the window and resends one segment
+(packet conservation); the next ACK of new data brings the window back. Two RTOs
+in a row, with nothing acknowledged between them, restart the model. cmux-wg paces its
+datagrams itself, so the controller has no pacing gain cycle and no PROBE_RTT.
+`RttEstimator` keeps its latest raw sample for the controller's minimum. Its
+tests are in `congestion/bbr.rs`.
+
+A SACK resend of the head that is lost too goes again once the peer SACKed three
+segments of data sent after it (Linux's `tcp_mark_lost_retrans`). Before, it
+waited for the RTO, which Karn's backoff stretched past the user timeout under
+heavy loss; with a window that loss does not shrink, that failed 2 of the first 48
+seeds of cmux-wg's tunnel TCP model at 12% loss. The detector is
+`test_sack_lost_resend_of_the_head_goes_again_once_later_data_is_sacked`.
+
+A keep-alive probe from the remote (one octet or none, just below the receive
+window) counts as hearing from it for the user timeout. On the passive side
+(the socket listened) it also pushes the socket's own next probe to 1.25
+keep-alive intervals out. Upstream answered the probe but refreshed neither the
+timeout nor the idle timer, so both ends of an idle connection probed on their
+own clocks: two probes and two ACKs per interval. Now the active end keeps
+probing, the passive end only answers, and its timeout is fed by those probes
+as it was by the ACKs of its own. When the remote goes quiet the deferred probe
+goes out as before. Only one side defers: probes that crossed would defer both
+alike, and both would still fire together. The idle refresh that any segment
+triggers never moves a deferred probe earlier: the ACK to a probe of ours that
+crossed the remote's would undo the deferral. Nothing changes on the wire, so
+any peer works. The detectors are
+`test_remote_keep_alive_defers_ours_and_counts_as_heard`,
+`test_remote_keep_alive_deferral_survives_a_crossing_ack` and
+`test_remote_keep_alive_leaves_the_active_sides_beat`.
+
+An ACK that arrives while our receive window is closed counts for the user
+timeout. Upstream dropped every segment past a zero window whole: a data
+segment got an ACK back, a pure ACK off the window edge got a challenge ACK,
+and neither refreshed `remote_last_ts`, so a peer that kept acknowledging our
+data while we could not take its data was reset at the user timeout with
+bytes still being acknowledged. Now such a segment (in a synchronized state,
+with an ACK, not a SYN, FIN or RST) is processed for its ACK and window with
+its payload trimmed, as RFC 9293 3.10.7.4 asks ("special allowance should be
+made to accept valid ACKs"), and gets the same reply as before. The timeout
+itself stays an idle timer: 60 s with nothing heard is still 60 s. The
+detectors are `test_timeout_is_not_a_cap_on_an_acked_transfer` and
+`test_timeout_counts_acks_past_a_zero_window`.
+
+The changes are in `src/socket/tcp/congestion/cubic.rs`,
+`src/socket/tcp/congestion/bbr.rs` and `src/socket/tcp.rs`, each marked
+`cmux patch`, with tests next to them. Reno's own start is unchanged;
 cmux does not enable it.
 
 ## Taken from upstream main

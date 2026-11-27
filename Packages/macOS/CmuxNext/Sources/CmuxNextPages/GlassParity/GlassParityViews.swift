@@ -102,11 +102,19 @@ func glassParityTree(_ view: NSView, depth: Int = 0) -> JSONValue {
         node["filters"] = .number(Double((layer.filters?.count ?? 0) + (layer.backgroundFilters?.count ?? 0)))
         node["masks"] = .bool(layer.masksToBounds)
     }
-    if view.responds(to: NSSelectorFromString("tintColor")), let tinted = view.value(forKey: "tintColor") as? NSColor {
+    if let tinted = glassParityTint(view) {
         node["tint"] = .string(String(describing: tinted.usingColorSpace(.sRGB) ?? tinted))
     }
     if depth < 4 { node["children"] = .array(view.subviews.map { glassParityTree($0, depth: depth + 1) }) }
     return .object(node)
+}
+
+/// The glass tint of VIEW, read through the typed glass APIs (no selector or key lookup that could raise).
+@MainActor
+private func glassParityTint(_ view: NSView) -> NSColor? {
+    if let panel = view as? GlassPanelView { return panel.tintColor }
+    if #available(macOS 26.0, *), let glass = view as? NSGlassEffectView { return glass.tintColor }
+    return nil
 }
 
 final class GlassParityFlippedView: NSView {

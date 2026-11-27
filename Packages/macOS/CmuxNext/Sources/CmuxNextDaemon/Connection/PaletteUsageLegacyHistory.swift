@@ -3,7 +3,7 @@ public import Foundation
 /// The palette's former per-build histories (before `palette-usage-v1`, each
 /// dogfood tag kept its own in its UserDefaults domain under
 /// `cmuxNext.palette.frecency.v1`), as `palette_usage.import` rows. Read
-/// once per connection, off the main actor, never written.
+/// during an explicitly accepted Classic import, off the main actor, never written.
 public struct PaletteUsageLegacyHistory: Sendable, Equatable {
     /// The defaults domain the history came from (the import source).
     public let source: String
@@ -22,18 +22,25 @@ public struct PaletteUsageLegacyHistory: Sendable, Equatable {
     }
 
     /// Every cmux defaults domain under `preferences` with a former history.
-    @concurrent public static func read(preferences: URL, key: String = "cmuxNext.palette.frecency.v1") async -> [PaletteUsageLegacyHistory] {
+    @concurrent public static func read(preferences: URL, excluding imported: Set<String>,
+                                        key: String = "cmuxNext.palette.frecency.v1") async -> [PaletteUsageLegacyHistory] {
         let files = (try? FileManager.default.contentsOfDirectory(at: preferences, includingPropertiesForKeys: nil)) ?? []
         return files
-            .filter { $0.lastPathComponent.hasPrefix("com.cmuxterm.app") && $0.pathExtension == "plist" }
+            .filter { file in
+                let domain = file.deletingPathExtension().lastPathComponent
+                return file.pathExtension == "plist" && domain.hasPrefix("com.cmuxterm.app")
+                    && !imported.contains(domain)
+            }
             .sorted { $0.lastPathComponent < $1.lastPathComponent }
             .compactMap { file in
-                guard let data = try? Data(contentsOf: file),
-                      let plist = try? PropertyListSerialization.propertyList(from: data, format: nil) as? [String: Any],
-                      let stored = plist.first(where: { $0.key == key })?.value as? Data,
-                      let former = try? JSONDecoder().decode(Former.self, from: stored) else { return nil }
-                let rows = importRows(former)
-                return rows.isEmpty ? nil : PaletteUsageLegacyHistory(source: file.deletingPathExtension().lastPathComponent, rows: rows)
+                guard let data = try? Data(contentsOf: file) else { return nil }
+                let plist = try? PropertyListSerialization.propertyList(from: data, format: nil) as? [String: Any]
+                let stored = plist?[key] as? Data
+                let former = stored.flatMap { try? JSONDecoder().decode(Former.self, from: $0) }
+                // A domain without ranking data is also finished. The daemon records
+                // its source with zero rows so a later import never reopens that plist.
+                return PaletteUsageLegacyHistory(source: file.deletingPathExtension().lastPathComponent,
+                                                 rows: former.map(importRows) ?? [])
             }
     }
 

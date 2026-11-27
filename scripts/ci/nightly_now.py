@@ -7,7 +7,7 @@
    commit skips the rolling rule's wait: the tick asks main's promote job to move nightly-next to the newest
    buildable commit at or before SHA, and that push starts the build.
 2. Dispatches nightly-next-supersede.yml on nightly-next, which drops an older nightly-next run that holds the
-   push or sign group with none of its build, sign or publish jobs started
+   push group with none of its build, sign or publish jobs started
    (scripts/ci/nightly_next_supersede.py). The promotion's own push starts that workflow again, and it waits
    out a holder's last minutes (--settle) so the new run never sits behind a stale holder.
 Nothing here cancels anything, and the build request goes first: a failed or missing cleanup only warns.

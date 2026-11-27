@@ -8,11 +8,20 @@
 // so the reading is strict: a card only where the agent really asked one tagged question with
 // answers to click, and never for ordinary prose.
 
+import type { CustomizeRun } from "./customizeRun";
 import { quoteMarkdown } from "./selectionReplyModel";
 
 /// One answer button: what it sends as the person's reply, and the pane's own words for it when the
 /// card made the answer up (Yes and Not now for a yes-or-no question), which it draws instead.
-export type NextStepOption = { label: string; key?: "recap.yes" | "recap.notNow" };
+/// An answer the agent's wrap-up gave as `{label, run}` carries its `run`: a click runs
+/// `cmux customize` (customizeRun.ts) instead of sending the label.
+export type NextStepOption = {
+  label: string;
+  key?: "recap.yes" | "recap.notNow";
+  run?: CustomizeRun;
+  /// A line the button copies instead of answering (Share, after Try it on: customizeRun.ts `shareLine`).
+  share?: string;
+};
 
 export type NextStepAsk = {
   /// The tag the line carried, lowercased ("outward"), or `wrap_up` for the agent's own wrap-up
@@ -176,4 +185,18 @@ export function answerOf(question: string, reply: string): string {
   const asked = question.trim();
   if (quoted !== asked && !quoted.endsWith(`: ${asked}`)) return reply;
   return lines.slice(end).join("\n").trim();
+}
+
+/// The pinned copy's ask: the question without its recap (the recap stays with the turn it sums up).
+/// One object per ask, so NextStepCard's memo holds while the stack re-renders; a new spread each
+/// render drew every pinned card again on any change to the stack.
+const pinned = new WeakMap<NextStepAsk, NextStepAsk>();
+export function pinnedAsk(ask: NextStepAsk): NextStepAsk {
+  let shown = pinned.get(ask);
+  if (!shown) {
+    const { recap: _recap, ...rest } = ask;
+    shown = rest;
+    pinned.set(ask, shown);
+  }
+  return shown;
 }

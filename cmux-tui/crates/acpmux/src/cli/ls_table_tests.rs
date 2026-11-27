@@ -75,6 +75,27 @@ fn stuck_says_why_in_a_few_words() {
         (json!({"state": "stuck", "stuckReason": "capacity"}), "stuck", "capacity"),
         (json!({"state": "stuck", "stuckReason": "harness_unavailable"}), "stuck", "harness down"),
         (json!({"state": "idle", "lane": {"state": "failed"}}), "idle", "failed turn"),
+        // Paused: acpmux continues it by itself, and says when (`hub/pause_state.rs`).
+        (
+            json!({"state": "idle", "lane": {"state": "failed"},
+                   "lastTurn": {"status": "failed", "errorText": "API Error: Repeated 529 Overloaded errors"},
+                   "retry": {"attempt": 2, "of": 4, "reason": "capacity", "nextAt": 1_795_560_060_000_u64,
+                             "promptId": "p", "turnId": "t"}}),
+            "idle",
+            "paused: capacity, resumes 22:41Z",
+        ),
+        (
+            json!({"rateLimitedUntil": 1_795_560_060_000_u64}),
+            "running",
+            "paused: rate limit, resumes 22:41Z",
+        ),
+        // Stranded: failed, and nothing will continue it.
+        (
+            json!({"state": "idle", "status": "idle", "lane": {"state": "failed"},
+                   "lastTurn": {"status": "failed", "errorText": "No space left on device (os error 28)"}}),
+            "idle",
+            "stranded: disk",
+        ),
         (
             json!({"harnessSandboxFailed": NOW - 60_000, "harnessSandboxFailing": true}),
             "running",
@@ -162,6 +183,24 @@ fn host_shows_only_when_a_row_is_on_a_peer() {
     assert!(out.contains("a     -"), "{out}");
 }
 
+/// A row from the send relay's kept listing (`ls_far.rs`) has a peer, its `asOfMs` and no link
+/// state: it shows its own state, never `peer down` (cmuxterm-hq
+/// `docs/findings/2026-11-23-acpmux-ls-peer-down-rows.md`: 2,000 of 2,000 such rows read so).
+#[test]
+fn a_relay_row_from_the_kept_listing_shows_its_state_not_peer_down() {
+    let kept = |state: &str| {
+        with(
+            lane(&format!("gcp-agent-lane-2/{state}")),
+            json!({"peer": "gcp-agent-lane-2", "asOfMs": NOW - 30_000, "state": state, "status": state}),
+        )
+    };
+    let out = compact(&[kept("running"), kept("ready")]);
+    assert!(!out.contains("peer down") && !out.contains("unknown"), "{out}");
+    let line = |n: &str| out.lines().find(|l| l.starts_with(n)).unwrap().to_owned();
+    assert!(line("gcp-agent-lane-2/running").contains(" running"), "{out}");
+    assert!(line("gcp-agent-lane-2/ready").contains(" ready"), "{out}");
+}
+
 #[test]
 fn an_unreachable_peer_reads_unknown_and_is_never_dropped() {
     let stale = with(
@@ -194,10 +233,9 @@ fn warn_is_one_word_and_shows_only_while_a_row_has_one() {
     // Warnings as the daemon decides them (`hub/usage_warnings.rs`), for a row named `big`.
     let stats = json!({"autocompact": "none", "contextTokens": 955_000, "subagents1h": 90});
     let summary = json!({"name": "big", "status": "idle", "family": "claude", "usageStats": stats});
-    let warnings = crate::hub::usage_warnings::usage_warnings(
-        &summary,
-        &crate::config::UsageLimits::default(),
-    );
+    // The no-cap rule is opt-in (`usageWarnings.autocompactCap`); turned on here to draw all three.
+    let limits = crate::config::UsageLimits { autocompact_cap: true, ..Default::default() };
+    let warnings = crate::hub::usage_warnings::usage_warnings(&summary, &limits);
     let warned = with(lane("big"), json!({"usageWarnings": warnings}));
     let out = compact(&[lane("a"), warned.clone()]);
     assert!(out.lines().next().unwrap().ends_with("WARN"), "{out}");
@@ -391,4 +429,26 @@ fn spoken_handles_show_alongside_the_task_host_and_harness() {
     let output = compact(&[row]);
     let columns: Vec<_> = output.lines().nth(1).unwrap().split_whitespace().collect();
     assert_eq!(&columns[..5], &["Mango", "·", "ci-fleet", "hb", "claude"], "{output}");
+}
+
+/// Leo, 2026-11-21: "ruby dot startup-speedups" -- the alias is the name `cmux agent ls` shows.
+#[test]
+fn an_alias_is_the_name_ls_shows() {
+    let tagged = |alias: &str| {
+        with(
+            lane("hb/startup-speedups"),
+            json!({"handle": "Mango", "sessionId": "one", "peer": "hb", "tags": {"session.alias": alias}}),
+        )
+    };
+    let first = |row| compact(&[row]).lines().nth(1).unwrap().to_owned();
+    // an alias that says the task stands alone
+    assert!(first(tagged("Ruby dot startup-speedups")).starts_with("Ruby dot startup-speedups "));
+    // the broker's `+` spelling reads with spaces
+    assert!(first(tagged("Ruby+dot+startup-speedups")).starts_with("Ruby dot startup-speedups "));
+    // a bare call name keeps the task beside it
+    assert!(
+        first(tagged("Mochi")).starts_with("Mochi · startup-speedups "),
+        "{}",
+        first(tagged("Mochi"))
+    );
 }

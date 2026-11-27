@@ -26,6 +26,7 @@ after that.
 | Bring fonts, colors and terminal behavior over from another terminal | Not supported: `cmux import` was removed with the Swift CLI. Copy the values into Ghostty config by hand. |
 | Workspace names, descriptions, colors, read state | cmux CLI app actions (`cmux workspace set-color --target ws_… --color blue`), see [../cmux/references/windows-workspaces.md](../cmux/references/windows-workspaces.md) |
 | Agent hooks (agent state in the sidebar) | `cmux agent hook install [provider…]`; `cmux agent hook status` to check |
+| What Chief or any agent chat is told at the start or end of a turn, on a condition | `agents.turnRules` in `cmux-next.json`, or `~/.config/cmux/turn-rules.json` beside it (see [Turn rules](#turn-rules)) |
 
 Not yet supported in cmux-next, even though classic cmux read them:
 `text`, `workspaceCommand` and `workspace` action types (reported and skipped by
@@ -38,6 +39,20 @@ project-local `.cmux/cmux.json`. Say so instead of writing them. The recipes in
 If a request can be handled by Ghostty config, say so and use Ghostty config instead of inventing cmux UI settings.
 
 Key surface: `actions`, named entries with `type: "command"` (`command`) or `type: "agent"` (`agent`, optional `args`), plus optional `title`, `tooltip`, `icon` and `target` (`newTabInCurrentPane` or `currentTerminal`). Each registers as `cmuxConfig.<name>` for the Command Palette, shortcuts and `cmux action run`.
+
+## Yolo path: a speculative chat UI change is a pack, never a core edit
+
+An opinionated or speculative change to how the chat looks does not edit the default UI (Leo, 2026-11-25, in
+short: keep speculative extras out of the default UI). It ships as a pack he can try on, keep or revert. Design: cmuxterm-hq
+`docs/design/yolo-path.md`.
+
+1. Write the CSS (no `@import`, no `url()` but `data:`) to a scratch file; a component variant instead reads a
+   default-off setting and the pack sets it with `--set`.
+2. `cmux customize pack NAME --css /tmp/NAME.css [--set KEY=VALUE ...] "what it does"`. It writes the pack and
+   changes nothing live; its last line is the `wrap_up` actions.
+3. End the turn with those actions: Try it on (live now, back by itself in 10 minutes), Keep, Revert.
+4. A PR that only adds or changes such a pack or default-off setting carries the `yolo-path` label and lands on
+   green CI. Only Leo's ask flips a default.
 
 ## Workflow
 
@@ -93,6 +108,13 @@ Before choosing a preset, template, starter config, or known workflow pattern, r
 - Keep valid JSONC, no duplicate keys.
 - `cmux settings reload-configuration` when the app is running.
 - Confirm the exact user-facing result: action title, shortcut, or palette entry.
+- Lengths, corners, type sizes and durations in a stylesheet or view: `cmux customize tokens test 14 --as spacing`
+  (MCP `customize_tokens`) names the scale step to use, and `tokens list` every design token. Before using a web
+  kit component, `cmux customize components show NAME` (MCP `customize_components`) gives its real props;
+  `components test NAME '{"prop":1}'` names a prop that does not exist.
+- `cmux customize doctor` (MCP `customize_doctor`) before and after: a file that does not load, a key no setting
+  has, a theme that overrides a setting, a file in the wrong folder, or a `pr-N` layer left on. The app shows the
+  same findings as a notice; a fix (`doctor fix ID off|remove`) is the person's to choose.
 
 ## Rules
 
@@ -128,6 +150,8 @@ top, so a block copies between the two:
   "ui.animationSpeed": "fast",
   // The terminal theme's own colors, as appearance.themeEdits of the theme above.
   "colors": { "background": "#16161e", "foreground": "#c0caf5", "accent": "#bb9af7" },
+  // One look for both appearances: name a pair ("light:Rose Pine Dawn,dark:Rose Pine") and add
+  // "light": {...} and "dark": {...} inside "colors"; each paints only its side, over the plain colors.
   // Or a Ghostty theme block:
   // "ghostty": ["background = #16161e", "foreground = #c0caf5", "palette = 4=#7aa2f7"]
 }
@@ -136,8 +160,11 @@ top, so a block copies between the two:
 - cmux ships examples (`Resources/theme-files/` in the app), each in the Theme File
   list by name: `harbor` (the sidebar's own glass, the terminal font, a painting
   behind the window and the pane background), `classic-desktop` (gray chrome, hard
-  edges, no motion), `phosphor` (green on black), `claude-desktop` (cream and clay)
-  and `charcoal` (a dark chat app). To ask for a look, start from the closest one:
+  edges, no motion), `phosphor` (green on black), `claude-desktop` (cream and clay),
+  `charcoal` (a dark chat app), and three nature looks on the Blocks chrome: `moss`
+  (deep forest green), `meadow` (sage and cream) and `lily-pond` (teal glass blocks
+  over Monet's water lilies), and `minimal-sessions` (only the sidebar: one line per
+  session, its status mark first, then its name). To ask for a look, start from the closest one:
   copy it to `~/.config/cmux/themes/<name>.json` to edit it (your file of the same
   name wins over the shipped one). Steps and the undo path for people:
   [theme-recipes.md](../../docs/cmux-next/theme-recipes.md).
@@ -167,10 +194,13 @@ top, so a block copies between the two:
   `browser.omnibar.glass*`, `app.uiScale`, `terminal.fontFamily`,
   `terminal.fontSize`; the sidebar's shape, text and buttons: `sidebar.style`, `sidebar.border`,
   `sidebar.borderWidth`, `sidebar.sectionLook`, `sidebar.density`, `sidebar.textSize`,
-  `sidebar.groupHeader.background`, `sidebar.groupPalette`, `sidebar.groupGradient`,
   `sidebar.showSearchButton`, `sidebar.showProfileControl`, `sidebar.showNewWorkspaceChooser`,
-  `sidebar.controlsOnHover`, `sidebar.detailedStatusIcons`, `sidebar.showColors`,
-  `sidebar.spacesVisibility`; the top right buttons and tabs: `tabs.toolbarButtons`,
+  `sidebar.controlsOnHover`, `sidebar.spacesVisibility`; how its rows draw:
+  `sidebar.detailedStatusIcons`, `sidebar.showTimestamps`, `sidebar.showColors`,
+  `workspaceColors.indicatorStyle`, and every `sidebar.workspaceRow.<name>`, such as
+  `statusPlacement` and `lines`, but not the per-kind `sidebar.workspaceRow.<kind>.*`; its
+  grouping: `sidebar.groupBy`, `sidebar.groupHeader.*`, `sidebar.groupPalette`,
+  `sidebar.groupGradient`; the top right buttons and tabs: `tabs.toolbarButtons`,
   `tabs.plusButton`, `window.titlebarButtons`, `focus.inactiveTabStyle`; pane corners:
   `layout.paneCornerRadius`, `layout.cornerPadding`, `layout.paneBorderWidth`; the agent
   chat's text sizes and Session Info: `agentPane.display.font.*`, `agentPane.display.code.scale`,
@@ -223,8 +253,9 @@ The other verbs:
   in manaflow-ai/cmux-extensions: [theme-recipes.md](../../docs/cmux-next/theme-recipes.md#share-a-theme-so-people-find-it).
 - `cmux theme schema --install` writes `themes/.schema.json` for editor completion.
   The exported file's `$schema` already points at it.
-- A base16, iTerm2, Windows Terminal or Ghostty color scheme is a terminal theme, not
-  a look. Install it with `cmux theme import scheme.yaml`, then
+- A base16, iTerm2, Windows Terminal, VS Code color theme (`.json`, comments allowed) or
+  Ghostty color scheme is a terminal theme, not a look. Install it with
+  `cmux theme import scheme.yaml` (or `theme.json`), then
   `cmux theme set appearance.theme "<its name>"`.
 - Add `--json` to any of these for output a script can read.
 
@@ -294,6 +325,14 @@ install click.
 
 - A new view of its own (a sidebar section or a Session Info section): run `cmux ext new NAME --kind sidebar|session-info --json` in a folder, read its `DESIGN.md` (the look each kind should keep: rows with symbols, tones not colors, every state drawn, and a lead line where its DESIGN.md asks for one; a Session Info section has none, since its header leads), edit its `src/main.ts` keeping that shape, then `cmux ext dev --once --json` until ok.
   To share it from GitHub: `cmux ext new NAME --repo OWNER/REPO`, then `cmux ext publish --json` says what is left (push, `cmux ext pack` and a release, the registry PR) ([extensions.md](references/extensions.md)).
+- An extension you built (`cmux ext new`) or remixed (`cmux ext remix REF`) ends published, by
+  default: say it goes to a new public GitHub repository of theirs, then run `cmux ext share DIR --json`
+  unless they asked to keep it local (`--private` for a private one). It makes the manifest and
+  README badge theirs, adds the topic `cmux-extension` and prints the cmux.com page; give them that
+  link. Exit 7 means GitHub is not connected: the folder stays, tell them the one step it prints.
+- "Fork and customize" on a cmux.com extension page opens a chat with `cmux ext remix REF` asked:
+  run it, do what it prints (ask what to change, change it, publish as above).
+  Before any widget, section or pane is done, `cmux ext shot --json` must report `design: []`: build it from the type roles, `SPACE` and components in [extension-design.md](references/extension-design.md), which also has the loop and every check's fix.
 - `implements["cmux.section/1"]` is its one sidebar section; `options.defaultRegion`
   `top`, `middle` or `bottom` (the band under the workspace list). cmux places it
   there the first time it sees it, and the person's later move or removal wins.
@@ -328,6 +367,29 @@ copy-paste focus timer template are in
 The worked example, as copy-paste files, and the recipe for adding a view:
 [references/local-app-views.md](references/local-app-views.md).
 
+### Turn rules
+
+A turn rule says one line into an agent's prompt when its conditions hold: a start rule
+on the prompt it matches, an end rule (matched on the turn's final message and tool calls)
+at the session's next prompt, never by sending the session back. Same path for Chief and
+every chat acpmux runs. Rules are read at every prompt, so an edit takes effect on the next turn.
+
+```json
+{"rules": [
+  {"id": "chief-asks-first", "at": "start", "if": {"chief": true, "prompt_any": ["\\b(delete|remove)\\b"]},
+   "say": "Before deleting anything, list what it is and who made it."},
+  {"id": "say-the-cause", "at": "end", "if": {"chief": false, "draft_any": ["\\bfixed\\b"], "draft_none": ["cause"]},
+   "say": "You said something is fixed: name its cause in one line."}
+]}
+```
+
+Conditions (all must hold; regexes, case-insensitive): `prompt_any`, `prompt_none`, `draft_any`,
+`draft_none`, `tools_any`, `tools_none`, `min_tools`, `min_prompt_chars`, `session_any`,
+`host_any`, `chief` (`true` only Chief, `false` every other chat). One rule per boundary;
+`cooldown` (turns, default 6). Cost: a firing adds about 0.4 input tokens per character of its
+line; each turn's `turn_result` counts them in `harnessMagic.turnRules.saidChars`. Off:
+`agents.harnessMagic.turnRules.enabled: false`. Reference: `cmux-tui/crates/acpmux/src/hub/turn_rules.rs`.
+
 ### Change what cmux does
 
 To make a button run the person's own command, read the current workspace,
@@ -336,7 +398,10 @@ follow changes or open a pane of their own, start from a folder in
 `pane`, `threads`: the agent chats as a thread list, from `agent_chat.list`;
 `clock-weather`, `my-prs` and `design-links`: a time and weather widget, your PRs
 in the order you keep, Figma and other links opened in a cmux tab; `media-player`: a
-radio player with the song on now; `start-page`: a start page of your own as a pane). For "what could I
+radio player with the song on now; `start-page`: a start page of your own as a pane;
+`newtab-cards`, `newtab-calm`, `newtab-threads` and `newtab-console`: whole New Tab pages,
+the Cards, Default, Threads and Console layouts cmux no longer ships, picked with
+`cmux settings set tabs.newTabApp local/customize`). For "what could I
 make?", start from [references/ideas.md](references/ideas.md). A button runs a `cmux-next.json` action with
 `cmux.actions.run("cmuxConfig.<name>")` from a click, once the person turns on
 `actions:run`. What an extension can call, what is missing, and how to install

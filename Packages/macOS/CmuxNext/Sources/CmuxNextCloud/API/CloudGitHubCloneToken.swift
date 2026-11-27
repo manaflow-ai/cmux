@@ -10,26 +10,11 @@ public nonisolated struct CloudGitHubCloneToken: Equatable, Sendable {
 
     public init(token: String) { self.token = token }
 
-    /// The ledger label Cloud shows for these tokens.
-    static let label = "cmux-local-clone"
-    /// What a clone needs: the repository's contents, read only.
-    static let permissions: [String: String] = ["contents": "read", "metadata": "read"]
-
-    /// The route's body for `repo` in `team`.
-    static func body(team: String, repo: String) -> Data? {
-        try? JSONSerialization.data(withJSONObject: ["team": team, "repo": repo, "permissions": permissions, "label": label])
-    }
-
-    /// The route's answer `{token, repo, permissions}`: an installation token for `repo` with no more than
-    /// ``permissions``; nil for anything else, so no other text reaches git.
-    static func parse(status: Int, body: Data, repo: String) -> CloudGitHubCloneToken? {
-        guard (200..<300).contains(status),
-              let object = (try? JSONSerialization.jsonObject(with: body)) as? [String: Any],
-              let token = object["token"] as? String, isInstallationToken(token),
-              let named = object["repo"] as? String, named.caseInsensitiveCompare(repo) == .orderedSame else { return nil }
-        if let granted = object["permissions"] as? [String: Any] {
-            for (name, level) in granted where !(permissions[name] == "read" && level as? String == "read") { return nil }
-        }
+    /// The daemon's `owner.github_clone_token` answer `{token}` (cmux-cloud-api checked the route's answer: a token for
+    /// that repository with read permissions alone); nil for anything else, so no other text reaches git.
+    static func parse(_ answer: Data) -> CloudGitHubCloneToken? {
+        guard let object = (try? JSONSerialization.jsonObject(with: answer)) as? [String: Any],
+              let token = object["token"] as? String, isInstallationToken(token) else { return nil }
         return CloudGitHubCloneToken(token: token)
     }
 
@@ -47,19 +32,15 @@ extension CloudGitHubPicker {
     public func cloneToken(repo: String) async -> CloudGitHubCloneToken? {
         guard CloudGitHubRepos.isFullName(repo), auth.isSignedIn,
               let install = try? await identity.installToken(awaitingBind: Self.bindWait),
-              let team = MacInstallIdentity.team(ofToken: install),
-              let body = CloudGitHubCloneToken.body(team: team, repo: repo) else { return nil }
-        let base = auth.configuration.ownerAPIBaseURL().absoluteString.trimmingCharacters(in: CharacterSet(charactersIn: "/"))
-        guard let url = URL(string: base + "/v1/integrations/github/token") else { return nil }
-        var request = URLRequest(url: url, timeoutInterval: 20)
-        request.httpMethod = "POST"
-        request.httpBody = body
-        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        request.setValue("Bearer \(install)", forHTTPHeaderField: "Authorization")
-        let prepared = request
-        guard let answer = try? await withDeadline(.seconds(20), label: "POST /v1/integrations/github/token", {
-            try await URLSession.shared.data(for: prepared)
-        }), let http = answer.1 as? HTTPURLResponse else { return nil }
-        return CloudGitHubCloneToken.parse(status: http.statusCode, body: answer.0, repo: repo)
+              let team = MacInstallIdentity.team(ofToken: install) else { return nil }
+        // The daemon's `owner.github_clone_token` with the install token as its credential (stdin, never argv) and no
+        // team header: the request, its 20 s and the answer's checks are cmux-cloud-api's. The answer stays in this call.
+        let client = CloudAPIClient.workerMachines(baseURL: auth.configuration.ownerAPIBaseURL(), accessToken: { install }, teamID: { nil },
+                                                   machineIO: auth.machineIO, buildSpace: auth.configuration.buildSpace)
+        let args: [String: any Sendable] = ["team": team, "repo": repo]
+        // A misconfigured dev build refuses before anything runs.
+        guard (try? auth.configuration.buildSpace.check()) != nil,
+              let answer = try? await client.daemon.daemon("owner.github_clone_token", args, timeout: CloudOwnerAPIClient.bound(.seconds(20))) else { return nil }
+        return CloudGitHubCloneToken.parse(answer)
     }
 }

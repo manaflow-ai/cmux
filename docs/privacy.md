@@ -6,17 +6,23 @@ when code names a host that has no row here, and when a row's host is gone from 
 
 ## Telemetry
 
-Crash and error reports go to the crash reporting host below, only while anonymous telemetry is on. It is on until
-you turn it off, and the `DisableTelemetry` managed policy turns it off for everyone on a managed Mac.
+Crash and error reports go to the crash reporting host below, only while anonymous telemetry is on. It is off until
+you turn it on (Settings > Privacy and Security > Send Crash Reports and Analytics, `app.sendAnonymousTelemetry`;
+the page asks before it turns it on), and the `DisableTelemetry` managed policy keeps it off for everyone on a
+managed Mac. A fresh install starts no crash reporter and no analytics (`FreshInstallSendsNothingTests`).
+Team usage sharing (`diagnostics.usageSharing`) is off until your team's admin enables it, you have seen its notice and
+acknowledged it (`diagnostics.usageSharingNoticeAck`), and you turned it on.
 
-- The Mac and iPhone apps keep the choice in their own preferences (`sendAnonymousTelemetry`). Before a report
+- The Mac and iPhone apps keep the choice in their own preferences (`sendAnonymousTelemetry`); unset means off.
+  On the Mac, the person's own write of the setting sets that preference, and crash reporting reads it at the next
+  launch. Reports carry no request URLs: network breadcrumbs and network tracking are off. Before a report
   leaves the device, the scrubber (`Packages/Shared/CmuxSentryTelemetry`, `SentryScrubber` and
   `SentryEventScrubber`) removes API keys and tokens, passwords, cookies and session ids, credentials in URLs,
   email addresses and your user name in file paths, from every field of the report: message, exception, stack
   frames, breadcrumbs, context, tags, request and user. `SeededSecretTests` puts known secrets in every field and
   checks that none of them is left in the report as it is sent.
 - A `cmux` CLI installed on its own (Linux, npm or PyPI; the copy inside the app sends nothing) sends its daemon's
-  panic and memory reports. It reads `app.sendAnonymousTelemetry: false` from `~/.config/cmux/cmux-next.json` (or the
+  panic and memory reports. It sends only when `app.sendAnonymousTelemetry: true` is set (unset is off); it reads it from `~/.config/cmux/cmux-next.json` (or the
   file `CMUX_NEXT_CONFIG_FILE` names), and also stays off with `DO_NOT_TRACK=1`, `CMUX_TUI_TELEMETRY=off` or `CI` set.
   Before sending, `crash_scrub` runs the same rules as the scrubber above on the panic message, location and
   backtrace, and `seeded_secrets_never_leave_in_a_panic_event` seeds them the same way.
@@ -26,8 +32,9 @@ you turn it off, and the `DisableTelemetry` managed policy turns it off for ever
   closed tokens and numbers. It never sends message, reply, task or report text, tool arguments, error messages,
   paths, URLs or names, and IP geolocation is off. A Chief on this Mac is known only by a random install id; a Cloud
   Chief, which runs on cmux's servers for a signed-in account, sends as that account's user id and team id, like
-  the server's own Cloud events. The same switches turn it off: `sendAnonymousTelemetry` in the app (the running
-  Chief re-reads it every few minutes), `app.sendAnonymousTelemetry: false` in `cmux-next.json`, the
+  the server's own Cloud events. It is off until the person turns it on: `sendAnonymousTelemetry` in the app (the
+  running Chief re-reads it every few minutes) or, with no app choice, `app.sendAnonymousTelemetry: true` in
+  `cmux-next.json`. These keep it off whatever the setting says: the
   `DisableTelemetry` policy, `DO_NOT_TRACK=1` or `CMUX_CHIEF_ANALYTICS=off`; turning it off deletes the events still
   waiting. Its panics go to the crash reporting host through the app with the location and backtrace only, never
   the panic message. The event list: [chief-product-analytics.md](posthog/chief-product-analytics.md).
@@ -45,6 +52,27 @@ key filter (`clean_key`) refuses anything with a space, quote, `@`, `?`, `=`, `~
 `/`, so no prompt, terminal text, URL, file path or title becomes a key. Each family keeps at most 200 keys and the
 per-day rollup 90 days. `cmux usage-patterns` and the Agent Stats page show them; `cmux usage-patterns reset`
 deletes them.
+
+## Egress gate
+
+For firewalls that allow only listed hosts: [network-requirements.md](network-requirements.md) lists the hosts,
+ports and address ranges a client needs for relay and connectivity.
+
+The host list below is checked in CI (`tests/test_outbound_hosts.py`) and at run time. The daemon's Rust makes its
+HTTP clients through one egress gate (`cmux-tui/crates/cmux-egress`), whose resolver checks each host before it is
+looked up; the Mac and iPhone apps' Swift makes its sessions, WebSockets and network connections through the same
+gate's Swift side (`Packages/Shared/CmuxEgress`): in dev and nightly builds a host with no `connects` row is refused and logged (`egress.unlisted host=...
+site=...`); a release build logs it. `CMUX_EGRESS=enforce|log|off` overrides the mode. Hosts you configure yourself
+(a self-hosted server, an API endpoint, an SSH or git host) pass because you named them; loopback, IP addresses and
+reserved names, single-label names and private-network names (`.ts.net`, `.internal`, `.lan`) pass. The gate's
+allowlist, `cmux-tui/crates/cmux-egress/hosts.txt`, is the one source: it records each host with what the app sends
+there, the Rust gate compiles it in, the Swift gate's list is checked equal to it, and the "The app connects to"
+table below is generated from it (`python3 scripts/privacy_hosts_from_gate.py`). CI fails when the table and the
+allowlist differ, so this page cannot drift from what the gate lets through.
+
+Not every client goes through the gate yet. `tests/test_egress_gate.py` finds every client the code makes by hand
+(Rust and Swift); `tests/egress_ungated.json` lists the ones not moved yet, and that list may only shrink. The web
+pages' Content Security Policy comes next.
 
 ## Hosts
 
@@ -68,100 +96,116 @@ each part it fills in. Reserved names (`.example`, `.test`, `.invalid`, `localho
 
 ### The app connects to
 
+<!-- egress-hosts:begin: generated from cmux-tui/crates/cmux-egress/hosts.txt by python3 scripts/privacy_hosts_from_gate.py; edit hosts.txt, not this table -->
+
 | Host | Kind | What for |
 |---|---|---|
-| `claude.ai` | connects | Claude sign-in and the Claude Code installer, when you install or sign in Claude Code |
-| `opencode.ai` | connects | OpenCode's config schema and installer, when you install OpenCode |
-| `linear.app` | connects | the Linear integration, only when an agent uses it in your signed-in browser |
-| `client-api.linear.app` | connects | the Linear integration, only when an agent uses it in your signed-in browser |
-| `cmux-staging.vercel.app` | connects | classic cmux Cloud's staging sign-in, only when staging is chosen |
-| `cdn.agentclientprotocol.com` | connects | the public registry of ACP coding agents, read by the daemon |
-| `api.anthropic.com` | connects | the Anthropic API, when you use an Anthropic key or sign in a Cloud machine's Claude |
-| `home.atlassian.com` | connects | the Jira integration, only when an agent uses it in your signed-in browser |
+| `*.*.wdev.cmux.dev` | connects | a cmux developer's preview stack, only when the iPhone app's backend override names one |
 | `*.atlassian.net` | connects | the Jira integration: your company's Jira site, only when an agent uses it in your signed-in browser |
+| `*.r2.cloudflarestorage.com` | connects | a large chat attachment you upload or open in cmux Cloud: the file's bytes go to cmux's storage bucket through a presigned URL the cmux API made |
+| `index.crates.io` | connects | crates.io's package index, from a Cloud machine's crates cache, only for an index file no peer has fresh; it sends the file's name and its ETag, no code |
+| `static.crates.io` | connects | crates.io's package downloads, from a Cloud machine's crates cache, only for a `.crate` neither the machine nor a peer has; it sends the package name and version |
+| `accounts.google.com` | connects | the Google integration, only when an agent uses it in your signed-in browser |
+| `api-staging.chatmux.dev` | connects | cmux's chat relay API on staging, only when chosen |
+| `api.*.wdev.cmux.dev` | connects | the API of a cmux developer's preview stack, only when the iPhone app's backend override names one |
+| `api.anthropic.com` | connects | the Anthropic API, when you use an Anthropic key or sign in a Cloud machine's Claude |
+| `api.artic.edu` | connects | museum art for backgrounds, when you search for art |
 | `api.bing.com` | connects | search suggestions as you type, when Bing is your search engine |
-| `chatgpt.com` | connects | OpenAI's Codex backend, when you use Codex with a ChatGPT sign-in; install script |
+| `api.chatmux.dev` | connects | cmux's chat relay API, for chatmux sessions |
 | `api.cloudflare.com` | connects | the Cloudflare API, only when you run `cmux keys connect cloudflare` or `cmux keys mint` |
-| `cdnjs.cloudflare.com` | connects | scripts and styles an agent's rendered page may load |
-| `cmux.com` | connects | cmux's website and API: sign-in callback, hang reports (when telemetry is on), billing, docs and deep links |
-| `files.cmux.com` | connects | downloads: updates, release notes, art, the cmux CLI |
-| `files-next.cmux.com` | connects | downloads for the nightly NEXT channel: appcast and release notes |
-| `www.cmux.com` | connects | the same site as cmux.com; deep links and sign-in |
-| `html.duckduckgo.com` | connects | web search for an agent's search tool, when an agent searches |
-| `github.com` | connects | git, the GitHub CLI and the GitHub API for repos, PRs and Cloud machines; release media |
+| `api.freestyle.sh` | connects | only `cmux vm pool` (the CI runner pool tool, run by cmux's own CI with its own Freestyle key): lists, starts and pauses the pool's VMs; never run by the app |
 | `api.github.com` | connects | the GitHub API, through the GitHub CLI or the app, for repos and PRs you open |
 | `api.githubcopilot.com` | connects | GitHub's hosted MCP server, for the GitHub tools an agent on a Cloud machine calls |
-| `uploads.github.com` | connects | GitHub uploads, through the GitHub CLI |
-| `avatars.githubusercontent.com` | connects | images in GitHub pages and agent replies |
-| `camo.githubusercontent.com` | connects | images in GitHub pages and agent replies |
-| `private-user-images.githubusercontent.com` | connects | images in GitHub pages and agent replies |
-| `raw.githubusercontent.com` | connects | release media reels and raw files linked in agent replies |
-| `user-images.githubusercontent.com` | connects | images in GitHub pages and agent replies |
-| `gitlab.com` | connects | repositories you add from GitLab |
-| `accounts.google.com` | connects | the Google integration, only when an agent uses it in your signed-in browser |
-| `calendar.google.com` | connects | the Google integration, only when an agent uses it in your signed-in browser |
-| `docs.google.com` | connects | the Google integration, only when an agent uses it in your signed-in browser |
-| `drive.google.com` | connects | the Google integration, only when an agent uses it in your signed-in browser |
-| `mail.google.com` | connects | the Google integration, only when an agent uses it in your signed-in browser |
-| `suggestqueries.google.com` | connects | search suggestions as you type, when Google is your search engine |
-| `drive.usercontent.google.com` | connects | the Google integration, only when an agent uses it in your signed-in browser |
-| `fonts.googleapis.com` | connects | fonts an agent's rendered page may load |
-| `generativelanguage.googleapis.com` | connects | the Google AI API, when you give an agent a Google AI API key |
-| `lh3.googleusercontent.com` | connects | images in agent replies |
-| `fonts.gstatic.com` | connects | fonts an agent's rendered page may load |
-| `www.linkedin.com` | connects | the LinkedIn integration, only when an agent uses it in your signed-in browser |
-| `app.notion.com` | connects | the Notion integration, only when an agent uses it in your signed-in browser |
 | `api.open-meteo.com` | connects | the clock and weather widget's forecast, only when you install it (a customize template) |
-| `geocoding-api.open-meteo.com` | connects | the clock and weather widget's city search, only when you install it (a customize template) |
-| `somafm.com` | connects | the radio player's station list and the song each station plays, only when you install it (a customize template) |
-| `ice2.somafm.com` | connects | the radio player's stream, in a browser tab you start with Play, only when you install it (a customize template) |
 | `api.openai.com` | connects | the OpenAI API: voice calls on iPhone, and when you use an OpenAI key |
-| `api.x.ai` | connects | the xAI API, when you give an agent an xAI API key |
-| `app.slack.com` | connects | the Slack integration, only when an agent uses it in your signed-in browser |
 | `api.stack-auth.com` | connects | the sign-in service |
-| `uniichat.com` | connects | the hosted UniiChat agent, only when you start it |
-| `unpkg.com` | connects | scripts and styles an agent's rendered page may load |
+| `api.tailscale.com` | connects | the Tailscale API, only when you add a Cloud machine to your tailnet with an OAuth client: the Mac trades the client secret for a single-use key there, so the secret never reaches the machine |
+| `api.x.ai` | connects | the xAI API, when you give an agent an xAI API key |
+| `app.notion.com` | connects | the Notion integration, only when an agent uses it in your signed-in browser |
+| `app.slack.com` | connects | the Slack integration, only when an agent uses it in your signed-in browser |
+| `avatars.githubusercontent.com` | connects | images in GitHub pages and agent replies |
+| `calendar.google.com` | connects | the Google integration, only when an agent uses it in your signed-in browser |
+| `camo.githubusercontent.com` | connects | images in GitHub pages and agent replies |
+| `captive.apple.com` | connects | only for a cmux team account, after a Mac stayed unreachable for 30 s: the iPhone app checks Apple's captive portal page (as iOS does) to tell its own outage from a cmux one |
+| `cdn.agentclientprotocol.com` | connects | the public registry of ACP coding agents, read by the daemon |
+| `cdn.jsdelivr.net` | connects | scripts and styles an agent's rendered page may load |
+| `cdnjs.cloudflare.com` | connects | scripts and styles an agent's rendered page may load |
+| `chatgpt.com` | connects | OpenAI's Codex backend, when you use Codex with a ChatGPT sign-in; install script |
 | `chatmux.dev` | connects | cmux's chat relay API, for chatmux sessions |
-| `api.chatmux.dev` | connects | cmux's chat relay API, for chatmux sessions |
-| `api-staging.chatmux.dev` | connects | cmux's chat relay API on staging, only when chosen |
-| `preview.chatmux.dev` | connects | preview pages of a chatmux session |
-| `cmux.dev` | connects | cmux Cloud host name check; machine and preview URLs under it |
-| `cloud-api.cmux.dev` | connects | cmux Cloud API: machines, accounts, sign-in (production) |
+| `ciscobinary.openh264.org` | connects | the OpenH264 video codec, downloaded once on Linux for screen sharing |
+| `claude.ai` | connects | Claude sign-in and the Claude Code installer, when you install or sign in Claude Code |
+| `client-api.linear.app` | connects | the Linear integration, only when an agent uses it in your signed-in browser |
 | `cloud-api-staging.cmux.dev` | connects | cmux Cloud API on staging, only in development builds or when chosen |
-| `mobile-api.cmux.dev` | connects | the iPhone pairing API (production) |
-| `presence.cmux.dev` | connects | update channel push: tells the app a new build is out |
-| `share.cmux.dev` | connects | shared workspace links (production) |
-| `share-dev.cmux.dev` | connects | shared workspace links in development builds |
-| `share-staging.cmux.dev` | connects | shared workspace links on staging, only when chosen |
-| `vm.cmux.dev` | connects | cmux Cloud machine API (production) |
-| `vm-staging.cmux.dev` | connects | cmux Cloud machine API on staging, only when chosen |
-| `herdr.dev` | connects | the agent-detection catalog, read by the daemon |
-| `models.dev` | connects | the public model list the daemon's live model catalog reads (new models in the model picker) |
+| `cloud-api.cmux.dev` | connects | cmux Cloud API: machines, accounts, sign-in (production) |
 | `cmux-api-development.debussy.workers.dev` | connects | cmux API in development builds |
-| `cmux-api-staging.debussy.workers.dev` | connects | cmux API on staging, only when chosen |
 | `cmux-api-preview-*.debussy.workers.dev` | connects | cmux API of one pull request's preview, only when chosen |
-| `cmux-device-hub.debussy.workers.dev` | connects | the device hub: pairing and screen sharing between your devices (production) |
+| `cmux-api-staging.debussy.workers.dev` | connects | cmux API on staging, only when chosen |
 | `cmux-device-hub-dev.debussy.workers.dev` | connects | the device hub in development builds |
+| `cmux-device-hub.debussy.workers.dev` | connects | the device hub: pairing and screen sharing between your devices (production) |
 | `cmux-mobile-api-dev.debussy.workers.dev` | connects | the iPhone pairing API in development builds |
 | `cmux-platform-development.debussy.workers.dev` | connects | cmux Cloud platform API in development builds |
 | `cmux-platform-production.debussy.workers.dev` | connects | cmux Cloud services on our hosting provider (production): platform API |
 | `cmux-platform-staging.debussy.workers.dev` | connects | cmux Cloud platform API on staging, only when chosen |
+| `cmux-staging.vercel.app` | connects | classic cmux Cloud's staging sign-in, only when staging is chosen |
 | `cmux-vnc-signal.debussy.workers.dev` | connects | screen sharing signaling between your devices |
-| `api.artic.edu` | connects | museum art for backgrounds, when you search for art |
-| `www.artic.edu` | connects | museum art for backgrounds, when you search for art |
+| `cmux.com` | connects | cmux's website and API: sign-in callback, hang reports (when telemetry is on), billing, docs and deep links |
+| `cmux.dev` | connects | cmux Cloud host name check; machine and preview URLs under it |
+| `codeload.github.com` | connects | a GitHub repository's archive at one commit, when you install an extension from it |
+| `commons.wikimedia.org` | connects | museum art for backgrounds, when you search for art |
+| `compute.googleapis.com` | connects | only `cmux vm pool` (the CI runner pool tool, run by cmux's own CI with its own Google Cloud credential): lists, resumes and suspends the pool's instances by name; never run by the app |
+| `docs.google.com` | connects | the Google integration, only when an agent uses it in your signed-in browser |
+| `drive.google.com` | connects | the Google integration, only when an agent uses it in your signed-in browser |
+| `drive.usercontent.google.com` | connects | the Google integration, only when an agent uses it in your signed-in browser |
+| `files-next.cmux.com` | connects | downloads for the nightly NEXT channel: appcast, release notes and the in-app browser's Chromium runtime |
+| `files.cmux.com` | connects | downloads: updates, release notes, art, the cmux CLI |
+| `fonts.googleapis.com` | connects | fonts an agent's rendered page may load |
+| `fonts.gstatic.com` | connects | fonts an agent's rendered page may load |
+| `formulae.brew.sh` | connects | checks for a newer cmux CLI when installed with Homebrew |
+| `generativelanguage.googleapis.com` | connects | the Google AI API, when you give an agent a Google AI API key |
+| `geocoding-api.open-meteo.com` | connects | the clock and weather widget's city search, only when you install it (a customize template) |
+| `github.com` | connects | git, the GitHub CLI and the GitHub API for repos, PRs and Cloud machines; release media |
+| `gitlab.com` | connects | repositories you add from GitLab |
+| `herdr.dev` | connects | the agent-detection catalog, read by the daemon |
+| `home.atlassian.com` | connects | the Jira integration, only when an agent uses it in your signed-in browser |
+| `html.duckduckgo.com` | connects | web search for an agent's search tool, when an agent searches |
+| `ice2.somafm.com` | connects | the radio player's stream, in a browser tab you start with Play, only when you install it (a customize template) |
+| `lh3.googleusercontent.com` | connects | images in agent replies |
+| `linear.app` | connects | the Linear integration, only when an agent uses it in your signed-in browser |
+| `mail.google.com` | connects | the Google integration, only when an agent uses it in your signed-in browser |
+| `mobile-api.cmux.dev` | connects | the iPhone pairing API (production) |
+| `models.dev` | connects | the public model list the daemon's live model catalog reads (new models in the model picker) |
+| `monitoring.googleapis.com` | connects | only `cmux vm pool` (the CI runner pool tool, run by cmux's own CI with its own Google Cloud credential): reads the pool instances' CPU use; never run by the app |
 | `o4507547940749312.ingest.us.sentry.io` | connects | crash and error reports, scrubbed (below), only when telemetry is on |
-| `cdn.jsdelivr.net` | connects | scripts and styles an agent's rendered page may load |
-| `cmux-lawrences-mac-mini.tail137216.ts.net` | connects | a team machine's model router, only on a cmux team member's tailnet; nobody else can reach it |
 | `openaccess-api.clevelandart.org` | connects | museum art for backgrounds, when you search for art |
 | `openaccess-cdn.clevelandart.org` | connects | museum art for backgrounds, when you search for art |
-| `registry.npmjs.org` | connects | checks for a newer cmux CLI when installed with npm; npm packages agents install |
-| `ciscobinary.openh264.org` | connects | the OpenH264 video codec, downloaded once on Linux for screen sharing |
+| `opencode.ai` | connects | OpenCode's config schema and installer, when you install OpenCode |
+| `presence.cmux.dev` | connects | update channel push: tells the app a new build is out |
+| `preview.chatmux.dev` | connects | preview pages of a chatmux session |
+| `private-user-images.githubusercontent.com` | connects | images in GitHub pages and agent replies |
 | `pypi.org` | connects | checks for a newer cmux CLI when installed with pip |
-| `commons.wikimedia.org` | connects | museum art for backgrounds, when you search for art |
+| `raw.githubusercontent.com` | connects | release media reels and raw files linked in agent replies |
+| `registry.npmjs.org` | connects | checks for a newer cmux CLI when installed with npm; npm packages agents install |
+| `share-dev.cmux.dev` | connects | shared workspace links in development builds |
+| `share-staging.cmux.dev` | connects | shared workspace links on staging, only when chosen |
+| `share.cmux.dev` | connects | shared workspace links (production) |
+| `somafm.com` | connects | the radio player's station list and the song each station plays, only when you install it (a customize template) |
+| `stun.cloudflare.com` | connects | a STUN server for the phone and remote-desktop links when the link names none: it learns only the device's public address, no session traffic |
+| `stun.l.google.com` | connects | the second fallback STUN server for the remote-desktop link: it learns only the public address, no session traffic |
+| `suggestqueries.google.com` | connects | search suggestions as you type, when Google is your search engine |
 | `thumb.wikimedia.org` | connects | museum art for backgrounds, when you search for art |
+| `uniichat.com` | connects | the hosted UniiChat agent, only when you start it |
+| `unpkg.com` | connects | scripts and styles an agent's rendered page may load |
 | `upload.wikimedia.org` | connects | museum art for backgrounds, when you search for art |
-| `formulae.brew.sh` | connects | checks for a newer cmux CLI when installed with Homebrew |
+| `uploads.github.com` | connects | GitHub uploads, through the GitHub CLI |
+| `user-images.githubusercontent.com` | connects | images in GitHub pages and agent replies |
+| `vm-staging.cmux.dev` | connects | cmux Cloud machine API on staging, only when chosen |
+| `vm.cmux.dev` | connects | cmux Cloud machine API (production) |
+| `www.artic.edu` | connects | museum art for backgrounds, when you search for art |
+| `www.cmux.com` | connects | the same site as cmux.com; deep links and sign-in |
+| `www.linkedin.com` | connects | the LinkedIn integration, only when an agent uses it in your signed-in browser |
 | `www.notion.so` | connects | the Notion integration, only when an agent uses it in your signed-in browser |
+
+<!-- egress-hosts:end -->
 
 ### Pages the app opens when you ask
 
@@ -232,6 +276,7 @@ each part it fills in. Reserved names (`.example`, `.test`, `.invalid`, `localho
 | `substack.com` | opens | a site the address bar suggests before it is in your history |
 | `tailscale.com` | opens | a Tailscale page, opened when you add a device |
 | `login.tailscale.com` | opens | a Tailscale page, opened when you add a device |
+| `controlplane.tailscale.com` | identifier | Tailscale's default control server, compared with the one a machine is already signed in to before cmux adds it to your tailnet; the machine's own `tailscale` connects to it, never the app |
 | `twitter.com` | opens | a site the address bar suggests before it is in your history |
 | `vercel.com` | opens | a site the address bar suggests; also a docs host an agent catalog entry may link to |
 | `x.com` | opens | cmux on X, a link in Settings |
@@ -275,7 +320,6 @@ each part it fills in. Reserved names (`.example`, `.test`, `.invalid`, `localho
 | `repl.co` | identifier | a shared hosting domain, so sites under it are told apart |
 | `manaflow.ai` | identifier | an email domain of the cmux team: an account under it gets the team's verbose connectivity diagnostics, and the iPhone app reports its major connectivity incidents to the cmux mobile service for the team's Slack; nothing is sent to the domain itself |
 | `manaflow.com` | identifier | an email domain of the cmux team, as `manaflow.ai` |
-| `captive.apple.com` | connects | only for a cmux team account, after a Mac stayed unreachable for 30 s: the iPhone app checks Apple's captive portal page (as iOS does) to tell its own outage from a cmux one |
 | `amazonaws.com` | identifier | a shared hosting domain, so sites under it are told apart |
 | `s3.amazonaws.com` | identifier | a shared hosting domain, so sites under it are told apart |
 | `www.apple.com` | identifier | an XML or SVG namespace, never fetched |
@@ -297,6 +341,9 @@ each part it fills in. Reserved names (`.example`, `.test`, `.invalid`, `localho
 | `trycloudflare.com` | identifier | a shared hosting domain, so sites under it are told apart |
 | `vs-ssh.visualstudio.com` | identifier | a git host name, so it is not shown as one of your computers |
 | `m.youtube.com` | identifier | YouTube host names, to find captions in a page you have open |
+| `meet.google.com` | identifier | the Google Meet host name, so an agent finds the call you have open in a cmux browser tab to read its captions; never fetched by the app |
+| `youtu.be` | identifier | a YouTube host name, so a pasted video address can be a background (read as its video id); never fetched |
+| `youtube-nocookie.com` | identifier | a YouTube host name, so a pasted video address can be a background (read as its video id); never fetched |
 | `fly.dev` | identifier | a shared hosting domain, so sites under it are told apart |
 | `pages.dev` | identifier | a shared hosting domain, so sites under it are told apart |
 | `workers.dev` | identifier | a shared hosting domain, so sites under it are told apart |
@@ -323,11 +370,32 @@ each part it fills in. Reserved names (`.example`, `.test`, `.invalid`, `localho
 | `ltd.uk` | identifier | a public suffix, so sites under it are told apart |
 | `me.uk` | identifier | a public suffix, so sites under it are told apart |
 | `plc.uk` | identifier | a public suffix, so sites under it are told apart |
+| `turn.cloudflare.com` | identifier | the TURN relay host the iPhone's blocked-network message asks IT to allow; the code never dials this name (the link's ICE servers come from the relay; config/network/allowlist.json lists it) |
+| `get.docker.com` | identifier | the Docker installer URL written into a migrated project's Cloud machine setup line; the machine runs it when it lacks Docker, the app never fetches it |
+| `mise.run` | identifier | the mise installer URL written into a migrated project's Cloud machine setup line; the machine runs it when it lacks mise, the app never fetches it |
+| `install.determinate.systems` | identifier | the Nix installer URL written into a migrated Nix project's Cloud machine setup line; the machine runs it when it lacks Nix, the app never fetches it |
+| `get.jetify.com` | identifier | the devbox installer URL written into a migrated devbox project's Cloud machine setup line; the app never fetches it |
+| `dot.net` | identifier | the .NET installer URL written into a Cloud machine setup line when a migrated devcontainer names the dotnet feature; the app never fetches it |
+| `aka.ms` | identifier | the Azure CLI installer URL written into a Cloud machine setup line when a migrated devcontainer names the azure-cli feature; the app never fetches it |
+| `git-lfs.github.com` | identifier | the version line of a Git LFS pointer file, matched when seeding a project, never fetched |
+| `1password.com` | identifier | a sign-in site the iPhone app compares a page's host with, to stream that page from the Mac instead of loading it on the phone; never fetched for this |
+| `appstoreconnect.apple.com` | identifier | a sign-in site the iPhone app compares a page's host with, to stream that page from the Mac instead of loading it on the phone; never fetched for this |
+| `atlassian.net` | identifier | a sign-in site the iPhone app compares a page's host with, to stream that page from the Mac instead of loading it on the phone; never fetched for this |
+| `cloudflare.com` | identifier | a sign-in site the iPhone app compares a page's host with, to stream that page from the Mac instead of loading it on the phone; never fetched for this |
+| `dash.cloudflare.com` | identifier | a sign-in site the iPhone app compares a page's host with, to stream that page from the Mac instead of loading it on the phone; never fetched for this |
+| `dashboard.stripe.com` | identifier | a sign-in site the iPhone app compares a page's host with, to stream that page from the Mac instead of loading it on the phone; never fetched for this |
+| `netlify.com` | identifier | a sign-in site the iPhone app compares a page's host with, to stream that page from the Mac instead of loading it on the phone; never fetched for this |
+| `portal.azure.com` | identifier | a sign-in site the iPhone app compares a page's host with, to stream that page from the Mac instead of loading it on the phone; never fetched for this |
+| `sentry.io` | identifier | a sign-in site the iPhone app compares a page's host with, to stream that page from the Mac instead of loading it on the phone; never fetched for this |
 
 ### Samples and placeholders
 
 | Host | Kind | What for |
 |---|---|---|
+| `api.datadoghq.com` | example | a sample secret's host in the env-secrets playground |
+| `hooks.stripe.com` | example | a sample secret's host in the env-secrets playground |
+| `http-intake.logs.datadoghq.com` | example | a sample secret's host in the env-secrets playground |
+| `maps.googleapis.com` | example | a sample secret's host in the env-secrets playground |
 | `docs.github.com` | example | a sample error text |
 | `api.stripe.com` | example | an example in a tool description |
 | `github.com.evil` | example | a value in a self-check |
@@ -336,16 +404,30 @@ each part it fills in. Reserved names (`.example`, `.test`, `.invalid`, `localho
 | `mini.tail1234.ts.net` | example | a placeholder in a settings field |
 | `*.example.ts.net` | example | a device address in the Debug menu's sample device list |
 | `r.org` | example | a value in a self-check |
+| `www.bbc.co.uk` | example | a sample site in the iPhone site-monogram gallery |
+| `developers.cloudflare.com` | example | a link in a sample agent reply in the iPhone Feed's preview data |
 
 ### Text that looks like a host name
 
 | Host | Kind | What for |
 |---|---|---|
+| `command.io` | not-a-host | an error code for a custom command's file error |
+| `acpmux.io` | not-a-host | an error code for a failed write to the local acpmux socket in the SSH benchmark |
+| `cmux.app` | not-a-host | the app bundle name `cmux app try` builds and copies |
+| `failed.app` | not-a-host | the app bundle `cmux app try` sets aside when a swap fails |
+| `prior.app` | not-a-host | the app bundle `cmux app try` sets aside |
+| `replaced.app` | not-a-host | the app bundle `cmux app try` sets aside when it replaces a copy |
+| `undone.app` | not-a-host | the app bundle `cmux app try undo` sets aside |
+| `runner-fork-guard.sh` | not-a-host | a script file name in the VM pool runner |
+| `runner-guest.sh` | not-a-host | a script file name in the VM pool runner |
 | `task.ai` | not-a-host | a symbol or icon name |
 | `argument.app` | not-a-host | a localized string key |
 | `toast.detail.io` | not-a-host | a localized string key |
 | `projection.io` | not-a-host | an error code of projected folders |
 | `cmux-ios-com.cmux.app` | not-a-host | a URL scheme or bundle id |
+| `red.sh` | not-a-host | a script file name in a Cloud journey repro capsule |
+| `green.sh` | not-a-host | a script file name in a Cloud journey repro capsule |
+| `run.sh` | not-a-host | the runner script file name `cmux-repro` writes |
 | `debug.crash.app` | not-a-host | a method, area or resource kind name |
 | `arrow.down.app` | not-a-host | a symbol or icon name |
 | `arrow.up.forward.app` | not-a-host | a symbol or icon name |
