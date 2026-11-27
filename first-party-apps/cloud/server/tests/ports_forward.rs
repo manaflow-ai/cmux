@@ -17,7 +17,15 @@ use std::time::Duration;
 const FIXTURES: &[&str] = &["vm-get"];
 
 fn forward(port: u16, key: &str) -> Request {
-    Request::new("cloud.port.forward", json!({"machine": "vm-alpha01", "port": port})).key(key)
+    Request::new("cloud.port.forward", json!({"machine": "vm_alpha01", "port": port})).key(key)
+}
+
+fn https_forward(port: u16, key: &str) -> Request {
+    Request::new(
+        "cloud.port.forward",
+        json!({"machine": "vm_alpha01", "port": port, "scheme": "https"}),
+    )
+    .key(key)
 }
 
 fn local(answer: &Value) -> SocketAddr {
@@ -39,6 +47,8 @@ fn a_forward_binds_127_0_0_1_only_and_carries_bytes_through_the_link() {
     let mut rig = rig(FIXTURES);
     let answer = rig.server.handle(&forward(3000, "f-1")).unwrap();
     assert_eq!(answer["host"], "127.0.0.1");
+    assert_eq!(answer["scheme"], "http");
+    assert!(answer["url"].as_str().unwrap().starts_with("http://127.0.0.1:"));
     assert_eq!(answer["state"], "up");
     let addr = local(&answer);
     assert_ne!(addr.port(), 3000, "a random local port, not the machine's");
@@ -46,7 +56,7 @@ fn a_forward_binds_127_0_0_1_only_and_carries_bytes_through_the_link() {
     let opened = rig.tunnel.log().opened.clone();
     assert_eq!(opened.len(), 1);
     assert_eq!((opened[0].host.as_str(), opened[0].port), ("localhost", 3000));
-    assert_eq!(opened[0].carrier, "cloud-vm/vm-alpha01#1");
+    assert_eq!(opened[0].carrier, "cloud-vm/vm_alpha01#1");
     // Not on any other address of this machine.
     for other in non_loopback_addresses() {
         let target = SocketAddr::new(other, addr.port());
@@ -55,6 +65,19 @@ fn a_forward_binds_127_0_0_1_only_and_carries_bytes_through_the_link() {
             "the forward must not answer on {target}"
         );
     }
+}
+
+#[test]
+fn an_https_forward_exposes_the_selected_loopback_preview_url() {
+    let mut rig = rig(FIXTURES);
+    let answer = rig.server.handle(&https_forward(8443, "https-1")).unwrap();
+    let local = answer["localPort"].as_u64().unwrap();
+    assert_eq!(answer["scheme"], "https");
+    assert_eq!(answer["url"], format!("https://127.0.0.1:{local}/"));
+    assert_eq!(rig.server.handle(&https_forward(8443, "https-2")).unwrap()["url"], answer["url"]);
+    let reused = rig.server.handle(&forward(8443, "http-reuse")).unwrap();
+    assert_eq!(reused["scheme"], "https", "a live forward retains its original scheme");
+    assert_eq!(reused["url"], answer["url"]);
 }
 
 /// This host's non-loopback IPv4 addresses (from the routing choice for an
@@ -92,7 +115,7 @@ fn link_down_marks_forwards_down_and_a_later_connect_does_not_resurrect_bytes() 
     let mut one = [0u8; 1];
     open.read_exact(&mut one).unwrap();
 
-    rig.spawner.exit("vm-alpha01", 1);
+    rig.spawner.exit("vm_alpha01", 1);
     let list = rig.server.handle(&Request::new("cloud.port.list", json!({}))).unwrap();
     assert_eq!(list["forwards"][0]["state"], "down");
     assert!(list["forwards"][0]["reason"].as_str().unwrap().contains("down"));
@@ -116,22 +139,28 @@ fn close_ends_the_listener_and_forward_needs_a_key_and_a_valid_port() {
     let mut rig = rig(FIXTURES);
     let answer = rig.server.handle(&forward(3000, "f-1")).unwrap();
     let addr = local(&answer);
-    let close = Request::new("cloud.port.close", json!({"machine": "vm-alpha01", "port": 3000}));
+    let close = Request::new("cloud.port.close", json!({"machine": "vm_alpha01", "port": 3000}));
     let closed = rig.server.handle(&close.clone().key("c-1")).unwrap();
     assert_eq!(closed["closed"], true);
     assert!(TcpStream::connect(addr).is_err());
     assert_eq!(rig.server.handle(&close.key("c-2")).unwrap()["closed"], false);
     let unkeyed =
-        Request::new("cloud.port.forward", json!({"machine": "vm-alpha01", "port": 3000}));
+        Request::new("cloud.port.forward", json!({"machine": "vm_alpha01", "port": 3000}));
     assert_eq!(
         rig.server.handle(&unkeyed).unwrap_err().code,
         "cmux.cloud.idempotency_key_required"
     );
     for bad in [json!(0), json!(65_536), json!("3000"), json!(-1)] {
-        let req = Request::new("cloud.port.forward", json!({"machine": "vm-alpha01", "port": bad}))
+        let req = Request::new("cloud.port.forward", json!({"machine": "vm_alpha01", "port": bad}))
             .key("f-bad");
         assert_eq!(rig.server.handle(&req).unwrap_err().code, "cmux.cloud.invalid_args");
     }
+    let invalid_scheme = Request::new(
+        "cloud.port.forward",
+        json!({"machine": "vm_alpha01", "port": 3000, "scheme": "ftp"}),
+    )
+    .key("f-scheme");
+    assert_eq!(rig.server.handle(&invalid_scheme).unwrap_err().code, "cmux.cloud.invalid_args");
 }
 
 #[test]
@@ -159,8 +188,8 @@ fn a_replaced_link_socket_is_not_the_same_link() {
     let socket = dir.join("link.sock");
     std::fs::write(&socket, b"").unwrap();
     let carrier = Carrier {
-        id: "cloud-vm/vm-alpha01#1".into(),
-        target: "vm-alpha01".into(),
+        id: "cloud-vm/vm_alpha01#1".into(),
+        target: "vm_alpha01".into(),
         generation: 1,
         socket: socket.clone(),
     };

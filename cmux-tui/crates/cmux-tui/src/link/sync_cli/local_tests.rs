@@ -410,3 +410,87 @@ fn a_git_copy_leaves_untracked_heavy_folders_here() {
     let shared = collect(&top, Rules::Share, None).unwrap();
     assert!(shared.files.contains_key("node_modules/left-pad/index.js"));
 }
+
+/// RFD 0066: a git copy names what git ignores as skipped (`node_modules/` once, as the folder),
+/// so the person is told what stayed on this Mac; a secret that is also ignored keeps its secret
+/// reason; the names are capped, the count is not.
+#[test]
+fn a_git_copy_names_ignored_paths_it_leaves() {
+    let dir = tempfile::tempdir().unwrap();
+    let top = std::fs::canonicalize(dir.path()).unwrap();
+    git(&top, &["init", "-q"]);
+    write(&top, ".gitignore");
+    std::fs::write(top.join(".gitignore"), "/out/\n*.log\n.env\nmany/\n").unwrap();
+    for path in ["src/main.rs", "out/a.bin", "out/b.bin", "debug.log", ".env", "keep.txt"] {
+        write(&top, path);
+    }
+    let set = collect(&top, Rules::Copy, None).unwrap();
+    assert!(set.files.contains_key("keep.txt") && set.files.contains_key("src/main.rs"));
+    assert!(!set.files.contains_key("out/a.bin") && !set.files.contains_key("debug.log"));
+    let (listed, counts) = set.skips.json();
+    let listed = listed.to_string();
+    assert!(listed.contains("\"out/\""), "{listed}");
+    assert!(!listed.contains("out/a.bin"), "{listed}");
+    assert!(listed.contains("\"debug.log\""), "{listed}");
+    assert_eq!(counts["ignored"], serde_json::json!(2), "{counts}");
+    assert_eq!(counts["secret"], serde_json::json!(1), "{counts}");
+
+    // A share of files names none.
+    let shared = collect(&top, Rules::Share, None).unwrap();
+    assert!(shared.skips.json().1.get("ignored").is_none());
+}
+
+#[test]
+fn ignored_names_are_capped_and_counted() {
+    let dir = tempfile::tempdir().unwrap();
+    let top = std::fs::canonicalize(dir.path()).unwrap();
+    git(&top, &["init", "-q"]);
+    std::fs::write(top.join(".gitignore"), "ign*/\n").unwrap();
+    for n in 0..60 {
+        write(&top, &format!("ign{n}/f"));
+    }
+    let set = collect(&top, Rules::Copy, None).unwrap();
+    let (listed, counts) = set.skips.json();
+    assert_eq!(counts["ignored"], serde_json::json!(60), "{counts}");
+    assert_eq!(listed.as_array().unwrap().len(), super::skips::IGNORED_LISTED);
+}
+
+/// RFD 0066: outside git a `.gitignore` in the folder (or below it) is honoured by a chat's copy,
+/// and what it names is skipped by name; a negation brings a path back; a share ignores it.
+#[test]
+fn a_plain_copy_honours_a_gitignore_and_names_what_it_leaves() {
+    let dir = tempfile::tempdir().unwrap();
+    let top = std::fs::canonicalize(dir.path()).unwrap();
+    std::fs::write(top.join(".gitignore"), "/out/\n*.log\n!keep.log\n").unwrap();
+    write(&top, "sub/.gitignore");
+    std::fs::write(top.join("sub/.gitignore"), "local.txt\n").unwrap();
+    for path in [
+        "src/main.rs",
+        "out/a.bin",
+        "debug.log",
+        "keep.log",
+        "deep/out/c.bin",
+        "sub/local.txt",
+        "sub/other.txt",
+        "local.txt",
+    ] {
+        write(&top, path);
+    }
+    let set = collect(&top, Rules::Copy, None).unwrap();
+    let gone = ["out/a.bin", "debug.log", "sub/local.txt"];
+    for path in gone {
+        assert!(!set.files.contains_key(path), "{path} went");
+    }
+    for path in ["src/main.rs", "keep.log", "deep/out/c.bin", "sub/other.txt", "local.txt"] {
+        assert!(set.files.contains_key(path), "{path} stayed: {:?}", set.files.keys());
+    }
+    let (listed, counts) = set.skips.json();
+    let listed = listed.to_string();
+    for name in ["out/", "debug.log", "sub/local.txt"] {
+        assert!(listed.contains(&format!("\"{name}\"")), "{name} not named: {listed}");
+    }
+    assert_eq!(counts["ignored"], serde_json::json!(3), "{counts}");
+
+    let shared = collect(&top, Rules::Share, None).unwrap();
+    assert!(shared.files.contains_key("out/a.bin"));
+}

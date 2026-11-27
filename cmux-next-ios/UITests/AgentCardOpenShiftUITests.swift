@@ -13,7 +13,7 @@ final class AgentCardOpenShiftUITests: XCTestCase {
     }
 
     @MainActor
-    func testOpeningAnAgentCardFromTheGrid() {
+    func testOpeningAnAgentCardFromTheGrid() throws {
         XCUIDevice.shared.orientation = .portrait
         let app = XCUIApplication()
         app.launchEnvironment["CMUX_MOBILE_MOCK_AUTH"] = "1"
@@ -38,29 +38,62 @@ final class AgentCardOpenShiftUITests: XCTestCase {
             XCTAssertTrue(card.waitForExistence(timeout: 10), "the agent tab's card (Refactor transport layer)\n\(app.debugDescription)")
             card.tap()
             // The zoom and the first frames of the page, then at rest. A message's place in each
-            // frame: it must not move once the card opens. During the zoom the page is drawn
-            // a little scaled (about 0.99 by the first frame read), so a frame may differ from
-            // the rest by that scale (under 12 pt); the bug this guards drew it 150 pt low.
+            // frame, in page coordinates: the card itself scales and translates during the
+            // zoom. That motion must not count as the transcript moving within the page;
+            // the bug this guards drew the transcript 150 pt low before the composer appeared.
             let message = app.staticTexts.matching(NSPredicate(format: "label BEGINSWITH 'Both test suites pass'")).firstMatch
-            var tops: [(seconds: Double, top: CGFloat)] = []
+            var tops: [(seconds: Double, position: MessagePosition)] = []
             let opened = Date()
             for index in 0 ..< 8 {
                 attach(app, "\(round)-b-open-\(index)")
-                if message.exists { tops.append((Date().timeIntervalSince(opened), message.frame.minY)) }
+                if let position = try messagePosition(in: app.snapshot()) {
+                    tops.append((Date().timeIntervalSince(opened), position))
+                }
                 pause(0.12)
             }
             pause(1.5)
             attach(app, "\(round)-c-rest")
             XCTAssertTrue(app.buttons.matching(NSPredicate(format: "label BEGINSWITH 'Reply to'")).firstMatch.waitForExistence(timeout: 10), "the agent page's composer")
             XCTAssertTrue(message.exists, "the message on the page at rest")
-            let rest = message.frame.minY
-            let line = tops.map { String(format: "%.2fs %.1f", $0.seconds, $0.top) }.joined(separator: ", ") + String(format: "; rest %.1f", rest)
+            let rest = try XCTUnwrap(messagePosition(in: app.snapshot()), "the message has a transcript coordinate space at rest")
+            let line = tops.map {
+                String(format: "%.2fs page=%.1f screen=%.1f scale=%.3f", $0.seconds,
+                       $0.position.pageTop, $0.position.screenTop, $0.position.scale)
+            }.joined(separator: ", ") + String(format: "; rest page=%.1f screen=%.1f", rest.pageTop, rest.screenTop)
             note("\(round)-message-tops", line)
             XCTAssertFalse(tops.isEmpty, "the message was on the page while it opened")
             for frame in tops {
-                XCTAssertLessThanOrEqual(abs(frame.top - rest), 12, "round \(round): the message moved as the card opened: \(line)")
+                XCTAssertLessThanOrEqual(abs(frame.position.pageTop - rest.pageTop), 12, "round \(round): the message moved as the card opened: \(line)")
             }
         }
+    }
+
+    private struct MessagePosition {
+        let screenTop: CGFloat
+        let pageTop: CGFloat
+        let scale: CGFloat
+    }
+
+    /// The collection view fills the page before TabsKit transforms it. Read it and the
+    /// message in one snapshot, so advancing the zoom between two AX queries cannot look
+    /// like a layout shift. No samples are discarded just because the card is still moving.
+    @MainActor
+    private func messagePosition(in root: XCUIElementSnapshot) -> MessagePosition? {
+        func find(_ element: XCUIElementSnapshot, windowWidth: CGFloat?, transcript: CGRect?) -> MessagePosition? {
+            let width = element.elementType == .window ? element.frame.width : windowWidth
+            let page = element.elementType == .collectionView ? element.frame : transcript
+            if element.elementType == .staticText, element.label.hasPrefix("Both test suites pass"),
+               let width, width > 0, let page, page.width > 0 {
+                let scale = page.width / width
+                return MessagePosition(screenTop: element.frame.minY,
+                                       pageTop: (element.frame.minY - page.minY) / scale, scale: scale)
+            }
+            for child in element.children {
+                if let position = find(child, windowWidth: width, transcript: page) { return position }
+            }
+            return nil
+        }
+        return find(root, windowWidth: nil, transcript: nil)
     }
 
     @MainActor

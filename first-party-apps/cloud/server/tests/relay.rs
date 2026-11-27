@@ -12,11 +12,32 @@ fn call() -> WireCall {
         params: json!({ "size": { "cpu": 2 } }),
         idempotency_key: Some("k-1".into()),
         origin: Some("user"),
+        expected_backend: None,
+        expected_team: None,
+        expected_revision: None,
     }
 }
 
 fn first_line(out: &[u8]) -> Value {
     serde_json::from_slice(out.split(|b| *b == b'\n').next().expect("line")).expect("JSON")
+}
+
+#[test]
+fn a_fenced_wire_call_preserves_scope_and_revision_without_credentials() {
+    let mut request = call();
+    request.expected_backend = Some("https://cloud-api.cmux.dev".into());
+    request.expected_team = Some("team_a".into());
+    request.expected_revision = Some("7".into());
+    let input = "{\"type\":\"relay.result\",\"id\":\"r1\",\"ok\":true,\"value\":{\"deleted\":true},\"revision\":\"8\"}\n";
+    let mut output = vec![];
+    let mut relay = HostRelay::new(Cursor::new(input.as_bytes()), &mut output);
+    relay.call(&request).unwrap();
+    let line = first_line(&output);
+    assert_eq!(line["expected_backend"], "https://cloud-api.cmux.dev");
+    assert_eq!(line["expected_team"], "team_a");
+    assert_eq!(line["expected_revision"], "7");
+    assert_eq!(line["origin"], "user");
+    assert!(line.get("token").is_none());
 }
 
 #[test]

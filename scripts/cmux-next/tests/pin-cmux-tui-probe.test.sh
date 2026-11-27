@@ -157,8 +157,26 @@ set_runs "$active"
 expect "push, publisher active" push deferred
 set_head "$newer"; set_runs "$cancelled"
 expect "push, superseded" push superseded "$newer"
+# A tip daemon suite (CMUX_TUI_TREE_TIP_SUITE): no newer run tests this exact commit, so a cancelled
+# publisher defers to the tree's next publish instead of skipping daemon-test (2026-11-27).
+CMUX_TUI_TREE_TIP_SUITE=daemon expect "tip suite, publisher cancelled by a newer push" workflow_dispatch deferred "tip suite tests this exact commit"
 set_head "$sha"; set_runs "$failed_run"
 expect "push, publish failed" push failed "failure: u3"
+# A coalesced push (base-coalesce.yml: the window's build ran on an earlier push) ends success with
+# its tree preflight skipped: deferred to the tree's next publish, not a red (run 44988509777).
+coalesced_run='{"total_count":1,"workflow_runs":[{"id":4,"status":"completed","conclusion":"success","html_url":"u4","pull_requests":[]}]}'
+mkdir -p "$TMP/api/repos/o/r/actions/runs/4"
+printf '%s\n' '{"jobs":[{"name":"coalesce / coalesce","conclusion":"success"},{"name":"cmux-tui tree preflight","conclusion":"skipped"}]}' \
+  > "$TMP/api/repos/o/r/actions/runs/4/jobs"
+set_runs "$coalesced_run"
+expect "push, coalesced" push deferred "was coalesced"
+# A success whose preflight ran and still published nothing stays a red.
+printf '%s\n' '{"jobs":[{"name":"coalesce / coalesce","conclusion":"success"},{"name":"cmux-tui tree preflight","conclusion":"success"}]}' \
+  > "$TMP/api/repos/o/r/actions/runs/4/jobs"
+expect "push, success without a tree" push failed "success: u4"
+# Unreadable jobs: not proven coalesced, so a red as before.
+rm -f "$TMP/api/repos/o/r/actions/runs/4/jobs"
+expect "push, coalesced run's jobs unreadable" push failed "success: u4"
 set_runs "$none"
 expect "push, no artifacts run" push failed "no cmux-tui artifacts run"
 rm -f "$runs_dir/runs"

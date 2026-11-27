@@ -18,6 +18,8 @@ use super::{Brain, Source};
 use crate::acpmux::AgentEvent;
 use crate::state::{ChildRecord, ChildStatus};
 
+pub(super) const NO_REPLY_TEXT: &str = "(no reply text)";
+
 fn busy(status: SessionStatus) -> bool {
     matches!(status, SessionStatus::Running | SessionStatus::Waiting)
 }
@@ -86,6 +88,7 @@ impl Brain {
                 }
                 self.ensure_chief_inbox(&sessions_listed);
                 self.adopt_orphans(false);
+                self.catch_up_background();
                 self.reconcile_children();
                 self.maybe_start_turn();
                 self.prewarm_next_turn();
@@ -99,6 +102,9 @@ impl Brain {
                     Some("the acpmux daemon ended (sessions were ended); the host stops".into());
             }
             AgentEvent::SessionChanged(session) => self.on_session(session),
+            AgentEvent::BackgroundTurn { session_id, state } => {
+                self.on_background_turn(&session_id, &state)
+            }
             AgentEvent::Permission {
                 session_id,
                 permission_id,
@@ -442,7 +448,7 @@ impl Brain {
             Ok(events) => {
                 let (mut replies, last_end, _) = ended_replies(&events);
                 if replies.is_empty() {
-                    replies.push("(no reply text)".to_owned());
+                    replies.push(NO_REPLY_TEXT.to_owned());
                 }
                 let text = replies
                     .iter()
@@ -594,6 +600,12 @@ pub(super) fn notice_only(events: &[AcpmuxEvent]) -> bool {
         .filter(|e| e.dir == "mux" && e.kind == "user_message")
         .peekable();
     prompts.peek().is_some() && prompts.all(|e| is_notice(&e.msg))
+}
+
+pub(super) fn has_task_prompt(events: &[AcpmuxEvent]) -> bool {
+    events
+        .iter()
+        .any(|event| event.dir == "mux" && event.kind == "user_message" && !is_notice(&event.msg))
 }
 
 fn is_notice(msg: &serde_json::Map<String, Value>) -> bool {
@@ -827,7 +839,7 @@ pub(super) fn report_of(replies: &[String], cancelled: bool) -> String {
     let last = replies.last().map_or("", |r| r.as_str());
     if !cancelled {
         return if last.is_empty() {
-            "(no reply text)".to_owned()
+            NO_REPLY_TEXT.to_owned()
         } else {
             last.to_owned()
         };

@@ -14,6 +14,14 @@ A save is a minimal-change write (`sourceMap.ts`). The editor keeps each top-lev
 
 Every markdown file opens editable, whoever opened it (Open File..., `cmux open`, an agent, a link) and in any workspace, Home included. The host sends `readOnly` with a `readOnlyReason` only for a real reason, and the page names it: `encoding` (not UTF-8), `binary`, `permission` (the file is not writable) or `transcript` (a chat transcript the host opens read only). A change on disk reloads the page when it has no unsaved edits and raises the conflict banner when it has.
 
+## Front matter, outline and printing
+
+In rich text, YAML front matter shows as a key and value table at the top (`frontmatter.ts`): a list as its items, a nested map or a block scalar on one row. It is a view only: the label's chevron or a click opens the source, which is what a save writes, byte for byte. TOML front matter and front matter with no `key: value` line keep the folded source alone.
+
+A file with two headings or more has the **outline rail** at the left (`OutlineRail.tsx`, `outline.ts`): a dash per heading, shorter and further in a level down, the current section's dash darker as the page scrolls. Pointing at the rail opens the contents beside it (a click pins them open; Escape closes); a heading there scrolls to it through the `#heading` path, so Back returns.
+
+**Print** in the toolbar (rich text) calls `window.print()`: the system print panel, where Save as PDF is. `@media print` leaves out the toolbar, the rail, banners and overlays. On WebKit the page host's UI delegate (`PageOpenPanel`) answers the page's print. No app action or page command (Cmd-P) prints this page yet.
+
 ## Text size
 
 Cmd-= (also Cmd-Shift-=, Cmd-+) and Cmd-- are the app key dispatcher's `zoomIn` and `zoomOut` page commands: one pixel per step, 8 to 40, in rich and source mode. Cmd-0 (`zoomReset`) goes back to the default, `markdown.font.size` (Settings > Appearance > Markdown Viewer > Default Font Size, 16 when unset). The page applies the size as `--cmux-md-zoom` (size over the default) on the body and code sizes (`fontZoom.ts`); a viewer keeps its size across a page reload, and a viewer at the default follows a new default.

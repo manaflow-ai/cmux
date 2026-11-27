@@ -8,7 +8,8 @@ texts), `gzip -9 -n`.
 The manaflow-ai/cef fork release (cef-manifest.json) does not ship a
 `CREDITS.html` up to cmux.17. Until it does (cmux.18), `install-cef-credits.sh`
 puts this stock file, with an INTERIM header comment, at
-`Contents/Frameworks/Chromium Embedded Framework.framework/Resources/CREDITS.html`.
+`Contents/Frameworks/Chromium Embedded Framework.framework/Resources/CREDITS.html.gz`
+(gzip-compressed, like the artifact's own file).
 When the artifact carries its own `CREDITS.html`, that file is used and this
 copy is not. `check-cef-credits.sh` is the release-bundle gate.
 

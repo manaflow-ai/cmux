@@ -1,0 +1,13 @@
+/* Glass: tinted, in the agent pane: links and the caret in the cyan accent, and the chat's glass
+   (composer, popovers, menus) kept vivid behind its frost so the indigo stain reads through it.
+   Colors come from the theme file. */
+:root {
+  --agent-link: var(--agent-accent);
+  --glass-material-saturate: 2.1;
+  --ds-glass-popover-tint: 72%;
+}
+
+textarea,
+[contenteditable="true"] {
+  caret-color: var(--agent-accent);
+}

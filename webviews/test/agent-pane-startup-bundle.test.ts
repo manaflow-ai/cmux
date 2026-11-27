@@ -43,4 +43,24 @@ describe.skipIf(!built)("agent pane startup bundle", () => {
       expect(chunks.includes(value)).toBe(true);
     }
   });
+
+  test("screens opened on demand ship only in lazy chunks (acpmux/lazyScreens.tsx)", () => {
+    const eager = eagerSources().join("\n");
+    const chunks = readdirSync(resolve(bundle, "chunks"))
+      .filter((name) => name.endsWith(".js"))
+      .map((name) => readFileSync(resolve(bundle, "chunks", name), "utf8"))
+      .join("\n");
+    // A class name or data attribute only that screen draws: strings a minifier keeps.
+    for (const marker of [
+      "nt-history-title", // History
+      "acpmux-context-screen-head", // the context page
+      "acpmux-harnesses-head", // the harnesses page
+      "acpmux-inspector-state", // the inspector
+      "acpmux-sandbox-running", // a sandboxed run
+      "acpmux-bg__empty", // the background tasks panel
+    ]) {
+      expect(`${marker} eager: ${eager.includes(marker)}`).toBe(`${marker} eager: false`);
+      expect(`${marker} lazy: ${chunks.includes(marker)}`).toBe(`${marker} lazy: true`);
+    }
+  });
 });

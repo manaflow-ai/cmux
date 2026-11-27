@@ -17,7 +17,7 @@ pub(in crate::cli) fn print(args: &[String]) -> Option<i32> {
     Some(0)
 }
 
-/// `help acp|mcp|coderouter|billing|auth|link` runs that command's own `--help`, so the
+/// `help acp|mcp|billing|auth|link` runs that command's own `--help`, so the
 /// two spellings print the same text.
 fn process_help(args: &[String]) -> Option<i32> {
     let [help, scope] = args else { return None };
@@ -29,7 +29,6 @@ fn process_help(args: &[String]) -> Option<i32> {
         "acp" => Some(crate::acp::run(vec!["--help".into()])),
         "link" => Some(crate::link::run(&["--help".to_owned()])),
         "mcp" => super::super::mcp::run_if_requested(&flag()),
-        "coderouter" => super::super::coderouter::run_if_requested(&flag()),
         "billing" => super::super::billing::run_if_requested(&flag()),
         "auth" => super::super::auth_token::run_if_requested(&flag()),
         _ => None,
@@ -91,10 +90,21 @@ fn scope_text(args: &[String]) -> Option<String> {
         ["identify" | "ping" | "capabilities"] => {
             return Some(format!("{APP_HELP}\n\n{}", APP_FOOTER.replace("{scope}", "app")));
         }
+        ["settings" | "config", "change-background", ..] => {
+            return Some(format!("{}\n", super::super::change_background::USAGE));
+        }
         ["settings" | "config", ..] => return Some(format!("{}\n", messages.settings_usage)),
         ["live", ..] => return Some(format!("{}\n", messages.live.usage)),
         ["nightly", ..] => return Some(format!("{}\n", messages.nightly.usage)),
         ["app", "try", ..] => return Some(format!("{}\n", messages.app_try.usage)),
+        ["app", "versions" | "use", ..] => return Some(format!("{}\n", messages.nightly.usage)),
+        ["app", "web-pieces", ..] => {
+            return Some(format!("{}\n", super::super::app::WEB_PIECES_USAGE));
+        }
+        ["app", "web-cas", ..] => {
+            return Some(format!("{}\n", super::super::app::WEB_CAS_USAGE));
+        }
+        ["app", "share", ..] => return Some(format!("{}\n", messages.app_share.usage)),
         [scope, ..] if super::super::app::APP_SCOPES.contains(scope) => app_usage(scope, messages)?,
         _ => return None,
     };
@@ -136,19 +146,32 @@ const APP_HELP: &str = "\
 usage: cmux app ping | identify | capabilities
        cmux identify | ping | capabilities      (the classic spelling, same answer)
        cmux app renderers [--interval-ms <n>]   (Chromium renderer pids, their pages and tabs)
+       cmux app renderers profile --browser <id> [--seconds <n>]  (one cmux page's heap and CPU profile; needs defaults key CMUXPageProfiler)
        cmux app chat perf --tab <tab> [--seconds <1-60>]  (a chat's frames and record-to-paint times)
        cmux app remote-views [--tab <tab>]      (Cloud desktop tabs: viewer, connected, who has control)
-       cmux app mac-screens [--tab <tab>]       (Mac Screen tabs: phase, first frame ms, fps, round trip, drops)
+       cmux app mac-screens [--tab <tab>]       (Mac Screen tabs: state, error, frame size, first frame ms, fps, round trip, drops; --tab takes a tab id)
+       cmux app clicks [--limit <n>]            (your last clicks: the window each reached, what took it, the page's focus)
        cmux app machines [--no-refresh]         (the Machines section's machines and their link state)
        cmux app try . [--from APP] | . --extract | . --stop  (your working tree in a copy of your NIGHTLY: no dev build)
        cmux app try <PR|branch|sha> [--dry-run] | undo | status  (another commit's cmux in this app, live when it can)
+       cmux app versions [--limit N]            (the recent builds: * this one, kept, pulled)
+       cmux app use previous|next|latest|<build>  (go back or forward to that build, every session kept)
+       cmux app try <share link> [--dry-run]    (a build someone shared, beside your cmux)
+       cmux app share [--app APP] [--bundle] [--dry-run]  (the build you run, as one `cmux app try` line: a SHA when it can)
        cmux app join-line [--mint] [--name <name>] [--no-open]  (Add Device's join line)
        cmux app launch-times [--limit <n>] [--file <path>] [--phases]  (the last launches' times and phases, from a file; no app needed)
+       cmux app health [--since-ms <ms>] [--open-chat] [--json]  (chat, model picker, relay refusals, terminal echo; exit 1 on a failure)
+       cmux app web-pieces check --state <dir> --channel <channel> [--offline] | status --state <dir>  (what each web piece of a web update serves; no app needed)
+       cmux app publish [NAME] [--port P] [--cmd CMD] [--dir DIR] [--ref REF] [--include-dirty] [--share team]
+                                                (this Cloud machine's preview as a new app version; no app needed)
+       cmux app versions NAME | rollback NAME [--to N] | ls  (published apps on this machine)
        cmux app call <method> [<json-object>]   (debug builds only)
        cmux app <verb...> [--<argument> <value>]...";
 
 const WINDOW_HELP: &str = "\
 usage: cmux window list
+       cmux window record [--target <id>] [--seconds <1-60>] [--fps <1-60>] [--out <file.mp4|folder>]
+                                        (a clip of the window, no Screen Recording permission)
        cmux window <verb...> [--target <id>]   (an app action)";
 
 const ACTION_LIST_USAGE: &str =
@@ -194,10 +217,13 @@ usage: cmux open <path|url>... [--workspace <ws_…>] [--focus [true|false]] [--
        cmux open --as-text <file>... [--focus [true|false]] [--no-focus]
        cmux open - [--workspace <ws_…>] [--focus [true|false]] [--no-focus]
        cmux open --link [--caller <names>] [--target <target>] (<url>... | -)
-URLs open as a browser tab in the caller's pane (or the --workspace pane),
-folders in a new workspace, files in the app. `open -` reads one http(s) URL
-per stdin line, so a URL with a token never appears in argv; it checks every
-line first and stops at the first URL the app refuses.
+URLs open as a browser tab where the caller is: in the column right of an
+agent's chat, in a terminal's own pane. With --workspace the tab goes to that
+workspace's pane, or, when that pane holds an agent chat, to the column right
+of the chat (made when there is none), never among the chat's own tabs. Folders
+open in a new workspace, files in the app. `open -` reads one http(s) URL per
+stdin line, so a URL with a token never appears in argv; it checks every line
+first and stops at the first URL the app refuses.
 --as-text (or --source) opens HTML, SVG and Markdown files as their source in
 the code editor instead of rendered; Edit Source and Open as Page on a tab
 switch between the two (cmux browser edit-source, cmux file open-as-page).

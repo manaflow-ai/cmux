@@ -3,6 +3,7 @@
 // person. Records never carry a value. Older records lack the newer fields (label, hosts, uses), so
 // every field is read defensively here and the card only draws.
 import type { KeyRecordWire, KeyRequestWire, KeysState } from "./ops";
+import { intl } from "../../ui/intl";
 
 export type KeyState = "live" | "expired" | "revoked";
 
@@ -116,6 +117,35 @@ export function keyRows(state: KeysState | null | undefined, now: number): KeyRo
     );
 }
 
+/** `next` with each row equal to the one `previous` had for its id replaced by that one, so a memo
+ * row whose key did not change skips a new read of the list. */
+export function keepUnchangedKeys(previous: readonly KeyRow[], next: KeyRow[]): KeyRow[] {
+  const held = new Map(previous.map((row) => [row.id, row]));
+  return next.map((row) => {
+    const old = held.get(row.id);
+    return old && sameKey(old, row) ? old : row;
+  });
+}
+
+const sameList = (a: readonly string[], b: readonly string[]) =>
+  a.length === b.length && a.every((item, index) => item === b[index]);
+
+function sameKey(a: KeyRow, b: KeyRow): boolean {
+  return (
+    a.label === b.label &&
+    a.name === b.name &&
+    a.provider === b.provider &&
+    a.purpose === b.purpose &&
+    sameList(a.hosts, b.hosts) &&
+    sameList(a.places, b.places) &&
+    a.by === b.by &&
+    a.askedBy === b.askedBy &&
+    a.createdAt === b.createdAt &&
+    a.expiresAt === b.expiresAt &&
+    a.state === b.state
+  );
+}
+
 /** The waiting requests, oldest first (the one asked first is answered first). */
 export function keyRequestRows(state: KeysState | null | undefined): KeyRequestRow[] {
   return (state?.requests ?? [])
@@ -136,7 +166,7 @@ export function keyDate(at: number, now: number, locale: string): string {
   const date = new Date(at);
   const sameDay = new Date(now).toDateString() === date.toDateString();
   const format = sameDay
-    ? new Intl.DateTimeFormat(locale, { hour: "numeric", minute: "2-digit" })
-    : new Intl.DateTimeFormat(locale, { month: "short", day: "numeric" });
+    ? intl.DateTimeFormat(locale, { hour: "numeric", minute: "2-digit" })
+    : intl.DateTimeFormat(locale, { month: "short", day: "numeric" });
   return format.format(date);
 }

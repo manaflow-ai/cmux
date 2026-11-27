@@ -162,3 +162,51 @@
   color: var(--page-text-3);
   font-variant-numeric: tabular-nums;
 }
+.hc-chief-work__plan {
+  margin: 6px 0 0;
+  color: var(--page-text-2);
+  font-size: var(--text-detail);
+  overflow-wrap: anywhere;
+}
+.hc-chief-work__plan[data-look="inline"] {
+  display: flex;
+  gap: 6px;
+  min-width: 0;
+}
+.hc-chief-work__plan-count {
+  color: var(--page-text-3);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+.hc-chief-work__plan-step {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.hc-chief-work__plan progress {
+  display: block;
+  width: 100%;
+  height: 3px;
+  margin: 0 0 6px;
+  border: 0;
+  border-radius: 2px;
+  appearance: none;
+  background: var(--lg-line);
+  overflow: hidden;
+}
+.hc-chief-work__plan progress::-webkit-progress-bar {
+  background: var(--lg-line);
+}
+.hc-chief-work__plan progress::-webkit-progress-value {
+  background: var(--page-text-2);
+}
+.hc-chief-work__plan p {
+  margin: var(--grid-half-step) 0 0;
+}
+.hc-chief-work__plan-label {
+  color: var(--page-text-3);
+}
+.hc-chief-work__plan-next {
+  color: var(--page-text-3);
+}

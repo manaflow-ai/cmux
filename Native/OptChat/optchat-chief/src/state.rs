@@ -91,6 +91,17 @@ pub struct HostState {
     /// outcome no Chief post has told the person yet.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub untold: Vec<Untold>,
+    /// The loop guard refuses the Chief's messages in its conversation
+    /// (`agent_budget`, brain/budget_hold.rs): set by a refusal, cleared by
+    /// the person's next message or a Chief message the owner takes. While
+    /// set, `stop`/`sleep` are not refused for untold work and the
+    /// `[untold]`/`[no text]` notes wait for the person's next turn.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub budget_hold: bool,
+    /// Subagents a turn started with no words while the guard held: the
+    /// person's next turn names them (brain/budget_hold.rs).
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub held_spawns: Vec<String>,
     /// E22: ids a posted reply named in `answers_pending`: the turn that
     /// ends their work answers them even when it says nothing (a done
     /// marker), so a waiting `cmux chief -p` ends.
@@ -164,6 +175,17 @@ pub struct HostState {
     /// first. At most [`WAKES_KEPT`].
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub wakes: Vec<Wake>,
+    /// The automations the person asked for (automations.rs), oldest
+    /// first. At most [`crate::automations::AUTOMATIONS_MAX`].
+    #[serde(
+        default,
+        skip_serializing_if = "Vec::is_empty",
+        deserialize_with = "crate::automations::deserialize_kept"
+    )]
+    pub automations: Vec<crate::automations::Automation>,
+    /// The number of the next automation id (`au<N>`), unique for this home.
+    #[serde(default)]
+    pub next_automation: u64,
     /// Watches the Chief started with `watch` (brain/watches.rs), oldest
     /// first. At most `WATCHES_KEPT`.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
@@ -177,6 +199,11 @@ pub struct HostState {
     #[serde(default, skip_serializing_if = "std::collections::BTreeSet::is_empty")]
     pub cloud_paused: std::collections::BTreeSet<String>,
 }
+
+/// How many completed subagent spawn records stay in the live host state.
+/// Their reports remain in the conversation log; this is only the routing and
+/// workspace metadata needed for recent replies and `agents`.
+pub const SPAWNS_KEPT: usize = 256;
 
 /// One watch the Chief started with `watch`: the host runs `command` off
 /// the turn until a line of its output matches `until` (or, without
@@ -224,6 +251,15 @@ pub struct Wake {
     /// first drops this wake.
     #[serde(default)]
     pub until_event: bool,
+    /// A `follow_up` (check_in.rs): its id (`fu_...`); None for a sleep wake.
+    #[serde(default)]
+    pub id: Option<String>,
+    /// The loops/<task>.md the follow-up belongs to.
+    #[serde(default)]
+    pub loop_path: Option<String>,
+    /// The person asked for this exact time: quiet hours never move it.
+    #[serde(default)]
+    pub for_person: bool,
 }
 
 /// How many thread roots `HostState::message_roots` keeps.
@@ -309,6 +345,10 @@ pub struct SpawnRecord {
     /// The turn that spawned it (its reply key), for the trace.
     #[serde(default)]
     pub turn: Option<String>,
+    /// A turn an automation's note started made it: its subagents never
+    /// fire an `agent_done` automation (automations.rs).
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub by_automation: bool,
     /// The originating conversation; reports must not follow the Chief into another chat.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub conversation: Option<String>,
@@ -581,6 +621,17 @@ pub struct SubRecord {
     /// (`bg-…` from `bg_start`, until their notice).
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub background: Vec<String>,
+    /// Its last report's first words, kept after the report is logged, for
+    /// `<open-items>`.
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub last_report: String,
+    /// When its last report came (ms since the epoch), for `<open-items>`.
+    #[serde(default, skip_serializing_if = "is_zero_u64")]
+    pub reported_ms: u64,
+    /// When a Chief post last named it (ms since the epoch): its last report
+    /// was told when this is not before `reported_ms`.
+    #[serde(default, skip_serializing_if = "is_zero_u64")]
+    pub told_ms: u64,
 }
 
 /// How many tell keys a subagent keeps for dedupe.
@@ -606,6 +657,11 @@ pub struct PendingPermission {
     /// A disabled rollout retired this card; the same request must not reopen it.
     #[serde(default)]
     pub home_closed: bool,
+    /// The asking subagent's task as it read when the request came (its
+    /// title): the Home card says who asked. Kept with the request, so a
+    /// later rename never changes the card the owner acknowledged.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub asked_by: Option<String>,
 }
 
 fn is_zero(n: &u32) -> bool {
@@ -849,10 +905,38 @@ impl HostState {
                     sub.report = None;
                     sub.report_run = None;
                     sub.stopped = false;
-                    sub.floor = *floor;
+                    sub.floor = sub.floor.max(*floor);
                 }
             }
         }
+        self.prune_spawns();
+    }
+
+    /// Drops the oldest finished spawn metadata while retaining active work
+    /// and a bounded recent window for report-thread routing.
+    pub fn prune_spawns(&mut self) -> usize {
+        let excess = self.spawns.len().saturating_sub(SPAWNS_KEPT);
+        if excess == 0 {
+            return 0;
+        }
+        let mut finished: Vec<(String, u64)> = self
+            .spawns
+            .iter()
+            .filter(|(_, record)| {
+                record.subs.iter().all(|sub| {
+                    sub.cancelled
+                        || sub.status == SubStatus::Reported
+                        || (sub.status == SubStatus::Done && sub.stopped)
+                })
+            })
+            .map(|(id, record)| (id.clone(), record.started_ms))
+            .collect();
+        finished.sort_by(|left, right| left.1.cmp(&right.1).then_with(|| left.0.cmp(&right.0)));
+        let remove = excess.min(finished.len());
+        for (id, _) in finished.into_iter().take(remove) {
+            self.spawns.remove(&id);
+        }
+        remove
     }
 
     /// Subagents whose automatic continue (auto_resume.rs) was planned but
@@ -1295,6 +1379,61 @@ mod auto_resume_tests {
 }
 
 #[cfg(test)]
+mod spawn_retention_tests {
+    use super::{HostState, SpawnRecord, SpawnRef, SubRecord, SubStatus};
+    const EXPECTED_SPAWNS: usize = 256;
+
+    fn finished(id: &str, started_ms: u64) -> (String, SpawnRecord) {
+        (
+            id.to_owned(),
+            SpawnRecord {
+                started_ms,
+                delivered: true,
+                subs: vec![SubRecord {
+                    id: id.to_owned(),
+                    status: SubStatus::Reported,
+                    ..SubRecord::default()
+                }],
+                ..SpawnRecord::default()
+            },
+        )
+    }
+
+    #[test]
+    fn logging_a_report_bounds_finished_spawn_metadata_but_keeps_active_work() {
+        let mut state = HostState::default();
+        for n in 0..(EXPECTED_SPAWNS as u64 + 2) {
+            let (id, record) = finished(&format!("s{n}"), n);
+            state.spawns.insert(id, record);
+        }
+        state.spawns.insert(
+            "active".to_owned(),
+            SpawnRecord {
+                subs: vec![SubRecord {
+                    id: "a-active".to_owned(),
+                    status: SubStatus::Running,
+                    ..SubRecord::default()
+                }],
+                ..SpawnRecord::default()
+            },
+        );
+        let newest = format!("s{}", EXPECTED_SPAWNS as u64 + 1);
+
+        state.spawn_logged(&SpawnRef {
+            spawn: newest.clone(),
+            subs: vec![("s256".to_owned(), 1)],
+            requires_approval: false,
+            quiet: false,
+        });
+
+        assert_eq!(state.spawns.len(), EXPECTED_SPAWNS);
+        assert!(!state.spawns.contains_key("s0"));
+        assert!(state.spawns.contains_key(&newest));
+        assert!(state.spawns.contains_key("active"));
+    }
+}
+
+#[cfg(test)]
 mod security_tests {
     use super::{Item, PendingTurn, Resume, SpawnRef};
 
@@ -1360,6 +1499,15 @@ pub struct Untold {
     /// that saw its report has ended.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub due_ms: Option<u64>,
+    /// The host post waiting for the conversation owner to take it. Keeping
+    /// the key prevents a reconnect from posting the same report twice.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub posted_key: Option<String>,
+    /// This report needs Chief judgment instead of a host-only post. This is
+    /// true for ask-floor work, failures, and reports that leave an open
+    /// question or decision.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub requires_chief: bool,
 }
 
 /// A person message of the Chief conversation that waits for a reply

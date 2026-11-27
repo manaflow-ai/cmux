@@ -36,7 +36,8 @@ struct VaultRowView: View {
         .onTapGesture(count: 2) { actions.perform("vaultOpenSession", row.id) }
         .onTapGesture { actions.select(row.id) }
         .contextMenu { menu }
-        .themedHelp(row.session.cwd ?? row.title)
+        // No tooltip on a row that shows its title (a1315's cuts 2 and 3); VoiceOver hears where it runs.
+        .accessibilityHint(Text(verbatim: row.session.cwd ?? ""))
     }
 
     @ViewBuilder private var menu: some View {

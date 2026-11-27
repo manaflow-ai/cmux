@@ -41,7 +41,7 @@ done
 [[ ${#arms[@]} -gt 0 ]] || { echo "hover-card-press: pass --arm=NAME@SHA at least once" >&2; exit 2; }
 
 names=() apps=()
-for arm in "${arms[@]}"; do
+for arm in ${arms[@]+"${arms[@]}"}; do
   name="${arm%%@*}" sha="${arm#*@}"
   app="$(measure_app_at_commit "$sha" "hcp-$name" "$out/at-$name")" || { echo "HCP-FAIL $name build at $sha"; exit 1; }
   names+=("$name") apps+=("$app")
@@ -64,7 +64,18 @@ if [[ -n "$vdisplay_hz" ]]; then
       sleep 1  # bounded wait for the helper's own ready line
     done
     echo "HCP-DISPLAY $(grep -m1 '^ready\|^error' "$vd/out" 2>/dev/null || echo 'the virtual display never reported')"
-    sleep 2  # WindowServer settles the new main display before the app opens on it
+    # Until a new process sees the virtual display as its main display (what the app opens on), 15 s.
+    # Only when the helper's ready line says it made the display main (main=ID).
+    vd_id="$(sed -n 's/^ready \([0-9]*\) [0-9.]* main=\1 .*/\1/p' "$vd/out" 2>/dev/null | head -1 || true)"
+    if [[ -n "$vd_id" ]]; then
+      vd_main="" vd_deadline=$((SECONDS + 15))
+      while (( SECONDS < vd_deadline )); do
+        vd_main="$("$vd/VDisplay.app/Contents/MacOS/VDisplay" probe 2>/dev/null | awk '$1 == "main" {print $2}' || true)"
+        [[ "$vd_main" == "$vd_id" ]] && break
+        sleep 0.2
+      done
+      [[ "$vd_main" == "$vd_id" ]] || echo "warning: a new process still sees display ${vd_main:-?} as main, not the virtual display $vd_id, after 15 s" >&2
+    fi
   else
     echo "HCP-DISPLAY the virtual display helper did not compile: $(head -c 300 "$vd/clang.err")"
   fi
@@ -93,7 +104,7 @@ for ((round = 1; round <= rounds; round++)); do
   done
   reversed=()
   for ((k = ${#order[@]} - 1; k >= 0; k--)); do reversed+=("${order[$k]}"); done
-  order=("${reversed[@]}")
+  order=(${reversed[@]+"${reversed[@]}"})
 done
 
 [[ -n "$trace" ]] || exit 0

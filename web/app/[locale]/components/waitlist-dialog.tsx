@@ -11,6 +11,7 @@ import {
   type WaitlistPlatform,
   type WaitlistTarget,
 } from "../../lib/download";
+import { Spinner } from "../../components/spinner";
 import { Modal } from "./modal";
 
 // Pragmatic email check: requires something@something.tld without whitespace.
@@ -392,7 +393,7 @@ function WaitlistBody({
                 submitting ? "opacity-100" : "opacity-0"
               }`}
             >
-              <Spinner />
+              <Spinner className="h-4 w-4 shrink-0" />
               {t("joining")}
             </span>
           </button>
@@ -441,22 +442,3 @@ function WaitlistBody({
   );
 }
 
-/**
- * A smooth conic-gradient ring spinner that tapers from transparent to the
- * button's text color (`currentColor`), masked to a thin ring.
- */
-function Spinner() {
-  return (
-    <span
-      className="h-4 w-4 shrink-0 animate-spin rounded-full"
-      style={{
-        background:
-          "conic-gradient(from 90deg at 50% 50%, transparent 0deg, currentColor 300deg)",
-        WebkitMask:
-          "radial-gradient(farthest-side, transparent calc(100% - 2px), #000 calc(100% - 2px))",
-        mask: "radial-gradient(farthest-side, transparent calc(100% - 2px), #000 calc(100% - 2px))",
-      }}
-      aria-hidden="true"
-    />
-  );
-}

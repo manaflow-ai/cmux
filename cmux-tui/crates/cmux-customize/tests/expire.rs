@@ -9,8 +9,8 @@ use std::collections::BTreeMap;
 use std::fs;
 use std::path::PathBuf;
 
-use cmux_customize::library::CodeLayer;
 use cmux_customize::library::expire::{Expiry, MAX_AGE_MS, WEB_DEV_OVERLAY};
+use cmux_customize::library::{CodeKind, CodeLayer};
 use cmux_customize::{Customize, Roots};
 use serde_json::{Value, json};
 
@@ -141,6 +141,67 @@ fn a_pr_layer_on_past_its_bound_turns_off_and_says_so() {
     assert!(customize.layers_at(None, now + 9 * 24 * HOUR).expired.is_empty());
 }
 
+/// `cmux customize try pr:N --minutes 5` (experiments-shelf.md: "`cmux
+/// customize try pr:N --minutes 5` should take a PR the same way"): the
+/// entry is on for its minutes, then off by itself with web-dev.json exactly
+/// as it was, and `library on` keeps it (no time left on it).
+#[test]
+fn a_code_try_turns_off_when_its_minutes_are_up_and_on_keeps_it() {
+    const MINUTE: u64 = 60_000;
+    let home = Home::new();
+    let before = r#"{"server": "http://127.0.0.1:4200/", "token": "t"}"#;
+    home.write("web-dev.json", before);
+    let customize = home.customize();
+    install(&customize, 2);
+    customize.library_use_code(layer(43496, 2), vec![], "cli", 1_000).unwrap();
+    customize.library_try_until("pr-43496", 1_000 + 5 * MINUTE, "cli", 1_000).unwrap();
+    assert_eq!(customize.next_try_end().unwrap(), Some(1_000 + 5 * MINUTE));
+    let listing = customize.library().unwrap();
+    assert_eq!(listing.entries[0].until_ms, Some(1_000 + 5 * MINUTE));
+    assert_eq!(home.web_dev()["overlay"], json!(customize.layer_dir(&key(2)).to_string_lossy()));
+
+    // Before its time: it stays.
+    assert!(customize.expire_stale(&at(1_000 + 4 * MINUTE), "cli").expired.is_empty());
+    assert!(on(&customize, "pr-43496"));
+
+    let out = customize.expire_stale(&at(1_000 + 5 * MINUTE), "cli");
+    assert!(out.problems.is_empty(), "{:?}", out.problems);
+    assert_eq!(out.expired.len(), 1);
+    assert_eq!(out.expired[0].why, "tried on for 5 minutes, time up");
+    assert_eq!(out.expired[0].back, "cmux customize library on pr-43496");
+    assert!(!on(&customize, "pr-43496"));
+    assert_eq!(home.web_dev(), serde_json::from_str::<Value>(before).unwrap());
+    assert_eq!(customize.next_try_end().unwrap(), None);
+
+    // Its way back keeps it: no time left on it, only the 24-hour bound.
+    customize.library_set_on("pr-43496", true, "cli", 1_000 + 6 * MINUTE).unwrap();
+    assert_eq!(customize.next_try_end().unwrap(), None);
+    assert_eq!(customize.library().unwrap().entries[0].until_ms, None);
+    assert!(customize.expire_stale(&at(1_000 + 60 * MINUTE), "cli").expired.is_empty());
+    assert!(on(&customize, "pr-43496"));
+}
+
+/// The waiter `try` leaves running returns at once when nothing is being
+/// tried, and turns a try whose time is up off without waiting.
+#[test]
+fn the_code_try_waiter_ends_when_no_try_is_on() {
+    let home = Home::new();
+    let customize = home.customize();
+    assert!(customize.run_code_try_timer(None, "cmux").is_empty());
+
+    install(&customize, 3);
+    customize.library_use_code(layer(43497, 3), vec![], "cli", 1_000).unwrap();
+    // Already past its end (a laptop that slept through it).
+    customize.library_try_until("pr-43497", 2_000, "cli", 1_000).unwrap();
+    let expired = customize.run_code_try_timer(None, "cmux");
+    assert_eq!(expired.len(), 1);
+    assert_eq!(expired[0].name, "pr-43497");
+    assert!(!on(&customize, "pr-43497"));
+
+    // A try only stamps a code entry.
+    assert!(customize.library_try_until("nope", 5_000, "cli", 1_000).is_err());
+}
+
 /// A PR that merged or closed turns its layer off at once, whatever its age.
 #[test]
 fn a_pr_layer_whose_pr_merged_or_closed_turns_off() {
@@ -152,7 +213,13 @@ fn a_pr_layer_whose_pr_merged_or_closed_turns_off() {
     customize.library_use_code(layer(10, 1), vec![], "cli", 1).unwrap();
     customize.library_use_code(layer(20, 2), vec![], "cli", 2).unwrap();
     customize.library_use_code(layer(30, 3), vec![], "cli", 3).unwrap();
-    let ended = BTreeMap::from([(10, "merged".to_owned()), (20, "closed".to_owned())]);
+    let cmux = || "manaflow-ai/cmux".to_owned();
+    let ended = BTreeMap::from([
+        ((cmux(), 10), "merged".to_owned()),
+        ((cmux(), 20), "closed".to_owned()),
+        // A fork's PR 30 merged; this entry is manaflow-ai/cmux's open PR 30.
+        (("someone/cmux".to_owned(), 30), "merged".to_owned()),
+    ]);
     let out = customize.expire_stale(&Expiry { now_ms: 4, ended, ..Expiry::default() }, "app");
     let why: Vec<(String, String)> =
         out.expired.iter().map(|expired| (expired.name.clone(), expired.why.clone())).collect();
@@ -194,6 +261,27 @@ fn a_hand_installed_overlay_past_its_bound_turns_off_and_comes_back() {
     assert!(customize.layers_at(Some(7), now + HOUR).expired.is_empty());
     assert!(customize.expire_stale(&at(now + 10 * HOUR), "cli").expired.is_empty());
     assert_eq!(customize.expire_stale(&at(now + 26 * HOUR), "cli").expired.len(), 1);
+}
+
+/// A folder layer a watch keeps rebuilding is in use: each rebuild starts its
+/// 24 hours again, so it stays on while someone edits it.
+#[test]
+fn a_watched_folder_layer_stays_on_while_it_rebuilds() {
+    let home = Home::new();
+    let customize = home.customize();
+    install(&customize, 1);
+    install(&customize, 2);
+    let dir = |n| CodeLayer { kind: CodeKind::Dir, source: "/src/cmux".to_owned(), ..layer(0, n) };
+    customize.library_use_code(dir(1), vec![], "cli", 1_000).unwrap();
+    let name = customize.library().unwrap().entries[0].name.clone();
+
+    // Rebuilt by the watch a day and a half later.
+    let rebuilt = 1_000 + 36 * HOUR;
+    customize.library_update_code(dir(2), "watch", rebuilt).unwrap();
+    assert!(customize.expire_stale(&at(rebuilt + HOUR), "cli").expired.is_empty());
+    assert!(on(&customize, &name));
+    // Left alone past its bound after the last rebuild, it expires.
+    assert_eq!(customize.expire_stale(&at(rebuilt + 25 * HOUR), "cli").expired.len(), 1);
 }
 
 /// An overlay the app refuses for another web ABI is stale however new.

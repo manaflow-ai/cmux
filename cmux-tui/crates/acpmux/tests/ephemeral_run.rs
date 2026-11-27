@@ -154,6 +154,39 @@ fn ephemeral_run_leaves_no_session_after_its_reply() {
     daemon.assert_no_session_within(Duration::from_secs(10), "after the reply");
 }
 
+/// `run` and `exec` detach, and a prompt file makes a detached start a launch that only
+/// queues its prompt: `--ephemeral` was dropped there, and the chat stayed after its reply.
+/// The condition-trigger evaluator's `acpmux run --ephemeral ... --prompt-file -` (stdin,
+/// no `--wait`) left 138 decision chats on a lane VM (2026-11-26).
+#[test]
+fn ephemeral_run_from_a_prompt_file_leaves_no_session_after_its_reply() {
+    let daemon = Daemon::start("file");
+    for args in [
+        vec!["run", "--ephemeral", "--timeout", "60", "--prompt-file", "-"],
+        vec!["run", "--ephemeral", "--timeout", "60", "--wait", "--prompt-file", "-"],
+        vec!["exec", "--timeout", "60", "--prompt-file", "-"],
+    ] {
+        let mut cli = daemon
+            .cmd()
+            .args(&args)
+            .stdin(Stdio::piped())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped())
+            .spawn()
+            .expect("start acpmux run");
+        use std::io::Write;
+        cli.stdin.take().unwrap().write_all(b"Reply with only: OK").unwrap();
+        let out = cli.wait_with_output().expect("acpmux run");
+        assert!(out.status.success(), "{args:?} failed: {}", text(&out));
+        assert!(
+            String::from_utf8_lossy(&out.stdout).contains("Reply with only: OK"),
+            "{args:?} printed no reply: {}",
+            text(&out)
+        );
+        daemon.assert_no_session_within(Duration::from_secs(10), &format!("{args:?}"));
+    }
+}
+
 #[test]
 fn ephemeral_run_killed_during_its_turn_leaves_no_session() {
     let daemon = Daemon::start("kill");

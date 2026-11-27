@@ -98,5 +98,5 @@ extension PaneController {
 
 /// The toggle's title while the pane shows its tab bar (Handlers.xcstrings).
 enum PaneTabBarStrings {
-    static var hide: String { String(localized: "paneTabBar.hide", defaultValue: "Hide Tab Bar", table: "Handlers", bundle: .module) }
+    static var hide: String { String(localized: "paneTabBar.hide", defaultValue: "Hide Tab Bar", table: "Handlers", bundle: .module.inAppLanguage) }
 }

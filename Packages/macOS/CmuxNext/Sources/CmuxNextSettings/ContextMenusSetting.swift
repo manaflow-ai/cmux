@@ -151,9 +151,10 @@ extension SettingsController {
         try await set(ContextMenusSetting.value(layout), at: path)
     }
 
-    /// Whether whole right-click menus end with Customize Menu…; true (the default) removes the key.
+    /// Whether whole right-click menus end with Customize Menu…; the default (off, Lawrence
+    /// 2026-11-20: "drastically simplify all parts of the UI") removes the key.
     public func setShowsCustomizeMenuItem(_ show: Bool) async throws {
-        if show { return try await removePruning(ContextMenusSetting.showCustomizeItemPath) }
-        try await set(.bool(false), at: ContextMenusSetting.showCustomizeItemPath)
+        if show == ContextMenusSetting.showCustomizeItemDefault { return try await removePruning(ContextMenusSetting.showCustomizeItemPath) }
+        try await set(.bool(show), at: ContextMenusSetting.showCustomizeItemPath)
     }
 }

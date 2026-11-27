@@ -8,6 +8,7 @@ import os
 import subprocess
 import sys
 import tempfile
+import textwrap
 import unittest
 
 
@@ -174,6 +175,45 @@ class BuildMetricsTests(unittest.TestCase):
         )
         self.assertIn("steps.build-metrics.outcome == 'success'", workflow)
         self.assertIn("continue-on-error: true", workflow)
+
+    def test_release_reports_the_final_attempt_or_missing_log(self):
+        workflow = (ROOT / ".github/workflows/ci-macos.yml").read_text()
+        build_step = workflow.split("      - name: Build app (Release)\n", 1)[1].split("      - name:", 1)[0]
+        report_step = workflow.split("      - name: Report Release compilation cache hits\n", 1)[1].split("      - name:", 1)[0]
+        self.assertIn("BUILD_LOG: ${{ steps.build-release.outputs.build_log }}", report_step)
+        report = textwrap.dedent(report_step.split("        run: |\n", 1)[1])
+        # Use the producer's actual log path and GitHub output, with a stand-in
+        # for the Mac compiler. The fallback helper appends .retry on a retry.
+        producer = textwrap.dedent(build_step.split("        run: |\n", 1)[1])
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            (root / "scripts").symlink_to(ROOT / "scripts", target_is_directory=True)
+            (root / "xcodebuild").write_text("#!/bin/sh\necho 'note: 7 hits / 10 cacheable tasks'\n")
+            (root / "xcodebuild").chmod(0o755)
+            output = root / "output"
+            summary = root / "summary"
+            env = dict(os.environ, RUNNER_TEMP=directory, RELEASE_ARCHS="arm64",
+                       CMUX_CI_FLEET_CACHE_OFF="1", PATH=f"{root}:{os.environ['PATH']}",
+                       GITHUB_OUTPUT=str(output), GITHUB_STEP_SUMMARY=str(summary))
+            subprocess.run(["bash", "-c", producer], cwd=root, env=env, check=True, capture_output=True)
+            outputs = dict(line.split("=", 1) for line in output.read_text().splitlines())
+            env.update(BUILD_LOG=outputs["build_log"], COMPILE_SECONDS=outputs["compile_seconds"],
+                       COMPILE_OUTCOME="success")
+
+            def summarize():
+                summary.write_text("")
+                subprocess.run(["bash", "-c", report], cwd=root, env=env, check=True, capture_output=True)
+                return summary.read_text()
+
+            self.assertIn("cache hits: `7`", summarize())
+            retry = Path(outputs["build_log"] + ".retry")
+            retry.write_text("note: 2 hits / 5 cacheable tasks\n")
+            result = summarize()
+            self.assertIn("cache hits: `2`", result)
+            self.assertIn("cache misses: `3`", result)
+            retry.unlink()
+            Path(outputs["build_log"]).unlink()
+            self.assertIn("unavailable", summarize())
 
     def test_receipt_discovers_logs_and_activity_metadata(self):
         with tempfile.TemporaryDirectory() as directory:

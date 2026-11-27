@@ -110,7 +110,7 @@ fn quiet(sub: &SubRecord, now: u64) -> bool {
     since > 0 && now.saturating_sub(since) >= QUIET_AFTER.as_millis() as u64
 }
 
-fn minutes(ms: u64) -> String {
+pub(super) fn minutes(ms: u64) -> String {
     crate::sub_watch::minutes(ms)
 }
 
@@ -120,7 +120,7 @@ fn busy(status: cmux_chief::acp::SessionStatus) -> bool {
 }
 
 /// `text` on one line, at most `n` characters.
-fn one_line(text: &str, n: usize) -> String {
+pub(super) fn one_line(text: &str, n: usize) -> String {
     let line: String = text.split_whitespace().collect::<Vec<_>>().join(" ");
     if line.chars().count() <= n {
         line
@@ -909,6 +909,7 @@ impl Brain {
             s.cancelled = true;
             s.inbox.clear();
             s.after_stop = None;
+            s.told_ms = now_ms();
         }
         self.sign_ins.abandoned(id);
         self.save();
@@ -1426,24 +1427,44 @@ impl Brain {
     }
 }
 
-/// How often the host checks its cloud VMs for idle ones: a VM pauses at
-/// most this long after `cloud.autoPauseIdleSeconds`.
+/// The least time between two runs of the cloud checks: a VM pauses at most
+/// this long after `cloud.autoPauseIdleSeconds`.
 pub(super) const CLOUD_TICK: Duration = Duration::from_secs(5);
 
-/// Sends `CloudTick` to the brain every [`CLOUD_TICK`] until it is gone.
-pub(super) fn start_cloud_ticker(tx: std::sync::mpsc::Sender<super::Input>) {
-    let _ = std::thread::Builder::new()
-        .name("cloud-tick".into())
-        .spawn(move || {
-            loop {
-                // A fixed, intended interval (idle VM check), not a poll for
-                // a result.
-                std::thread::sleep(CLOUD_TICK);
-                if tx.send(super::Input::CloudTick).is_err() {
-                    return;
-                }
-            }
-        });
+impl super::Brain {
+    /// When the brain next runs its cloud checks (VM pause, VM delete, key
+    /// revoke, fleet polls): the earliest deadline one of them waits for, at
+    /// least [`CLOUD_TICK`] after the last run, so a check that finds nothing
+    /// to do cannot spin. `None` while none of them waits for anything: an
+    /// idle host gets no cloud wakeup (perf-lead.md row 9; a ticker thread
+    /// used to wake it every 5 s while cloud VMs or keys were set up).
+    pub fn next_cloud_tick(&self) -> Option<std::time::Instant> {
+        let due_ms = self.cloud_due_ms()?;
+        let at = std::time::Instant::now() + Duration::from_millis(due_ms.saturating_sub(now_ms()));
+        Some(match self.cloud_ticked_at {
+            Some(last) => at.max(last + CLOUD_TICK),
+            None => at,
+        })
+    }
+
+    /// Runs the cloud checks now.
+    pub(super) fn run_cloud_checks(&mut self) {
+        self.cloud_ticked_at = Some(std::time::Instant::now());
+        self.cloud_tick();
+        self.agent_key_tick();
+        self.cloud_reap_tick();
+        self.fleet_tick();
+    }
+
+    /// Runs the cloud checks when their deadline came.
+    pub(super) fn fire_cloud_checks_if_due(&mut self) {
+        if self
+            .next_cloud_tick()
+            .is_some_and(|at| at <= std::time::Instant::now())
+        {
+            self.run_cloud_checks();
+        }
+    }
 }
 
 /// Sends `SubTick` to the brain every [`TICK`] until the brain is gone.

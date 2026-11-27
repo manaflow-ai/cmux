@@ -1,0 +1,30 @@
+// Studio Light: an off-white chat beside a pale gray sidebar, zinc hairlines, near-black text and a
+// deep blue for the send button and links.
+{
+  "name": "Studio Light",
+  "description": "Off-white chat, pale gray sidebar, zinc hairlines, a deep blue.",
+
+  "appearance.theme": "Builtin Light",
+  // The window, sidebar and pages take that theme too, over an App Theme of your own.
+  "appearance.appTheme": "followTerminal",
+  "colors": { "background": "#fcfcfc", "foreground": "#18181b", "selection": "#e4e4e7", "accent": "#1b4ed8" },
+  "appearance.accent": "neutral",
+  // Pending cmux#46516: the selected sidebar row is a gray card, as in the reference; Send and links
+  // keep the accent.
+  // "appearance.selection": "neutral",
+
+  "appearance.background": "none",
+  "appearance.backgroundBlur": "none",
+  "appearance.chromeStyle": "flat-sidebar-line",
+  "appearance.borders": "default",
+
+  "appearance.sidebarSurface": "separate",
+  "appearance.surfaces.sidebar.color": "#fbfbfc",
+  "appearance.surfaces.sidebar.opacity": 1,
+  "appearance.surfaces.agentPane.color": "#fcfcfc",
+  "appearance.surfaces.agentPane.opacity": 1,
+  "sidebar.sectionLook": "quiet",
+  "appearance.statusIndicator.style": "dot",
+
+  "appearance.density": "comfortable"
+}

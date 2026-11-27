@@ -54,6 +54,17 @@ fn main() -> std::process::ExitCode {
         .duration_since(UNIX_EPOCH)
         .map_or(0, |d| d.as_millis() as u64);
     let mut args: Vec<String> = std::env::args().skip(1).collect();
+    // `--version`: the crate version and, in a published build, the commit it
+    // was built from (the Cloud machine's updater smoke-runs a download with it).
+    if matches!(args.as_slice(), [a] if a == "--version" || a == "-V" || a == "version") {
+        match option_env!("OPTCHAT_CHIEF_BUILD_COMMIT") {
+            Some(commit) if !commit.is_empty() => {
+                println!("optchat-chief {} ({commit})", env!("CARGO_PKG_VERSION"));
+            }
+            _ => println!("optchat-chief {}", env!("CARGO_PKG_VERSION")),
+        }
+        return std::process::ExitCode::SUCCESS;
+    }
     // Agent memory parses its own arguments: note text keeps every word,
     // including the Chief's own flags below.
     if args.first().is_some_and(|a| a == "agent-memory") {
@@ -197,10 +208,12 @@ fn main() -> std::process::ExitCode {
             }
         }
         Some(
-            tool @ ("zoom" | "date" | "recall" | "memory_read" | "memory_write" | "memory_forget"
+            tool @ ("zoom" | "date" | "recall" | "follow_up" | "follow_ups" | "check_ins"
+            | "nothing" | "ask" | "memory_read" | "memory_write" | "memory_forget"
             | "spawn" | "tell" | "peers" | "react" | "reply" | "send" | "stop" | "sleep"
-            | "watch" | "remember" | "transcript" | "control" | "profile" | "chiefs"
-            | "escalate-auth" | "escalate_auth" | "cloud-workspace" | "cloud_workspace"),
+            | "watch" | "remember" | "transcript" | "control" | "automation" | "profile"
+            | "chiefs" | "escalate-auth" | "escalate_auth" | "cloud-workspace"
+            | "cloud_workspace"),
         ) => {
             let socket = flags
                 .value("socket")

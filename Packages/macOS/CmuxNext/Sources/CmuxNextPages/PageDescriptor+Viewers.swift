@@ -20,15 +20,22 @@ public nonisolated struct DiffPageCommand {
     public static let collapseFile = "collapseFile"
     /// Expands the file under the viewport.
     public static let expandFile = "expandFile"
+    /// Makes the diff's text one step bigger (Cmd-=, Cmd-Shift-=; user 2026-11-19).
+    public static let zoomIn = "zoomIn"
+    /// Makes the diff's text one step smaller (Cmd--).
+    public static let zoomOut = "zoomOut"
+    /// Puts the diff's text back at its default size (Cmd-0).
+    public static let zoomReset = "zoomReset"
 
     /// Every diff command; the diff page also takes the shared ``PageNativeOp/commands``.
     public static let all: Set<String> = [
         nextLine, previousLine, halfPageDown, halfPageUp, nextHunk, previousHunk, goToTop, goToBottom,
-        nextFile, previousFile, toggleViewed, collapseFile, expandFile,
+        nextFile, previousFile, toggleViewed, collapseFile, expandFile, zoomIn, zoomOut, zoomReset,
     ]
 
-    /// The page command each of the 11 `diffViewer*` registry actions sends (CmuxNextActions,
-    /// BrowserActionCatalog). `diffViewerSearch` (`/`) is the shared `find` command.
+    /// The page command each of the 14 `diffViewer*` registry actions sends (CmuxNextActions,
+    /// BrowserActionCatalog). `diffViewerSearch` (`/`) is the shared `find` command; the three
+    /// zoom actions are Cmd-=, Cmd-- and Cmd-0, as in the Markdown viewer and the code editor.
     public static let forAction: [String: String] = [
         "diffViewerNextLine": nextLine, "diffViewerPreviousLine": previousLine,
         "diffViewerHalfPageDown": halfPageDown, "diffViewerHalfPageUp": halfPageUp,
@@ -36,6 +43,7 @@ public nonisolated struct DiffPageCommand {
         "diffViewerGoToTop": goToTop, "diffViewerGoToBottom": goToBottom,
         "diffViewerSearch": "find",
         "diffViewerNextFile": nextFile, "diffViewerPreviousFile": previousFile,
+        "diffViewerZoomIn": zoomIn, "diffViewerZoomOut": zoomOut, "diffViewerZoomReset": zoomReset,
     ]
 }
 

@@ -90,6 +90,7 @@ pub fn run<R: Channel, W: Write>(read: R, mut write: W, limits: Limits) -> i32 {
                     strings,
                     main,
                     main_name,
+                    state,
                 },
             ) => {
                 let mut created = match AppVm::new(limits) {
@@ -99,17 +100,20 @@ pub fn run<R: Channel, W: Write>(read: R, mut write: W, limits: Limits) -> i32 {
                         return exit::FATAL;
                     }
                 };
-                let outcome = created.init(InitParams {
-                    app,
-                    settings,
-                    api_version,
-                    ops,
-                    known_ops,
-                    locale,
-                    strings,
-                    main,
-                    main_name,
-                });
+                let outcome = created.init_with_state(
+                    InitParams {
+                        app,
+                        settings,
+                        api_version,
+                        ops,
+                        known_ops,
+                        locale,
+                        strings,
+                        main,
+                        main_name,
+                    },
+                    state,
+                );
                 let ready = match &outcome {
                     Ok(()) => Some(FromHost::Ready { runtime: runtime_version(&mut created) }),
                     Err(VmError::Init(error)) => {
@@ -168,6 +172,7 @@ fn handle<W: Write>(vm: &mut AppVm, message: ToHost, write: &mut W) -> Result<()
         ToHost::Tick { mount, now_ms } => vm.tick(&mount, now_ms),
         ToHost::Resolve { cb, ok, body } => vm.resolve(cb, ok, &body),
         ToHost::Event { sub, body } => vm.event(sub, &body),
+        ToHost::Watch { watch, state } => vm.watch_state(watch, &state),
         ToHost::Settings { values } => vm.set_settings(&values),
         ToHost::Run { cb, export, args, gesture } => {
             vm.run_command(cb, &export, &args, gesture.as_deref())

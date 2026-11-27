@@ -44,3 +44,45 @@ describe("spacedAfterDeeplink, a paste into a link already in the draft", () => 
     expect(spacedAfterDeeplink(`see ${WORKSPACE}`, "", "see ".length)).toBe(`see ${WORKSPACE} `);
   });
 });
+
+describe("spacedAfterDeeplink, every link the draft draws as a chip", () => {
+  // Every kind `deeplinks` finds (replyHref.ts `appHref`, and the web deeplink), in every build's
+  // scheme: the space keys off the same finder the chips do, so a new kind is covered with it.
+  const CHIP_LINKS = [
+    "cmux://workspace/ws_81e941825bd898c341c7809813e9c17f",
+    "cmux-nightly://workspace/ws_81e941825bd898c341c7809813e9c17f",
+    "cmux-dev://workspace/ws_1",
+    "cmux-dev-my-tag://workspace/ws_1",
+    "cmux-nightly://pane/p_1",
+    "cmux-nightly://tab/t_1",
+    "cmux-nightly://session/s_1",
+    "cmux-nightly://chief/c_1",
+    "cmux-nightly://group/g_1",
+    "cmux-nightly://workspace/ws_1?pane=p_2#focus",
+    "cmux-nightly://agent/claude/0198a7b2-1c3d-7e4f-8a9b-0c1d2e3f4a5b",
+    "cmux://agent/codex/sess_42?turn=3",
+    "https://cmux.com/deeplink/workspace?id=ws_1",
+    "https://www.cmux.com/ja/deeplink/agent?session=s1",
+  ];
+
+  for (const link of CHIP_LINKS) {
+    test(`${link}: a space after it, none when one follows, none mid-paste`, () => {
+      expect(spacedAfterDeeplink(link, "")).toBe(`${link} `);
+      expect(spacedAfterDeeplink(link, "a")).toBe(`${link} `);
+      expect(spacedAfterDeeplink(link, " ")).toBe(link);
+      expect(spacedAfterDeeplink(`${link} `, "")).toBe(`${link} `);
+      expect(spacedAfterDeeplink(`see ${link} and more`, "")).toBe(`see ${link} and more`);
+    });
+  }
+
+  test("URLs that never become a chip are pasted as copied", () => {
+    for (const plain of [
+      "https://example.com/workspace/ws_1",
+      "http://cmux.com/deeplink/workspace?id=ws_1",
+      "https://cmux.com/docs",
+      "cmux-nightly://unknown/thing",
+      "file:///Users/you/notes.md",
+    ])
+      expect(spacedAfterDeeplink(plain, "")).toBe(plain);
+  });
+});

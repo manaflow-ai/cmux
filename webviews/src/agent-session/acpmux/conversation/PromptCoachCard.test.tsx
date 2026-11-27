@@ -78,9 +78,7 @@ test("the rewrite block's estimate counts its lines and stops at the cap", () =>
 
 test("the card draws its label, the correction count and the rewrite with its line breaks", async () => {
   const container = await render(<PromptCoachCard coach={COACH} onDismiss={() => {}} />);
-  expect(container.querySelector(".cv-coach__label")?.textContent).toBe(
-    "Here's how this could have landed in one shot",
-  );
+  expect(container.querySelector(".cv-coach__label")?.textContent).toBe("A one-shot version of this");
   expect(container.querySelector(".cv-coach__meta")?.textContent).toBe("after 3 corrections");
   expect(container.querySelector(".cv-coach__prompt")?.textContent).toBe(REWRITE);
   // It never takes focus by itself: the composer keeps it.

@@ -1,0 +1,11 @@
+{
+  "date": "2026-11-20",
+  "row": "app_lines",
+  "allow": 25,
+  "why": "https://github.com/manaflow-ai/cmux/pull/48486 review findings: Spaces off keeps each window's view on Merge All, a hidden pick and a move, and selects a moved workspace once its pin lands; the gates sit in the App's window model until the Windows row of the architecture refactor moves it",
+  "author": "claude (Opus 5.5) for Austin",
+  "owner": "sidebar-owner agent (a590)",
+  "receipt": "Review (claude general-purpose subagent): SHIP at 6c06c7abba4efeb247a11e9ce845ed2e773387a5",
+  "expiry": "2027-02-20",
+  "applied_sha": "542d7b9af81b685c4e8d1a8d9dd4e9dfa26dbc20"
+}

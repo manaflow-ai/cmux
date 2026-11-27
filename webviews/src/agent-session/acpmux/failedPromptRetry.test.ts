@@ -290,3 +290,64 @@ test("a failed prompt removed or edited after a switch cleared it stays gone aft
     pane.client.close?.();
   }
 });
+
+// CMUX-682: Computer Use can stop being ready while a send's files upload, after the composer's check.
+// The client asks `sendHold` again at dispatch: a held prompt never reaches acpmux and fails with the
+// reason, its Retry intact; with nothing held it goes.
+test("a prompt held at dispatch never reaches acpmux and says why", async () => {
+  const pane = await paneWith(() => undefined);
+  try {
+    pane.client.sendHold = (text) => (text.includes("@computer-use") ? "Computer Use is not set up" : undefined);
+    await pane.client.send("open Notes with @computer-use").catch(() => undefined);
+    expect(pane.prompts).toEqual([]);
+    const bubble = pane.rows().find((row) => row.kind === "user" && row.text === "open Notes with @computer-use");
+    expect(bubble?.failed).toBe(true);
+    expect(bubble?.error).toContain("Computer Use is not set up");
+    await pane.client.send("plain words").catch(() => undefined);
+    expect(pane.prompts).toEqual(["plain words"]);
+  } finally {
+    pane.client.close?.();
+  }
+});
+
+// Leo, 2026-11-24, on a failed send's "Not sent" line and its Retry, Edit, Remove and Details: "i
+// dont ever want to see these, it should just fix itself automtically. recovery for this stuff is
+// wack". A send that did not get there for a reason that passes (no answer in time) goes again by
+// itself, under its own prompt id, with no click; a refusal that would come back the same does not.
+test("a send that got no answer in time goes again by itself and lands, with no click", async () => {
+  const timedOut = Object.assign(new Error("no answer from acpmux"), { code: "timeout" });
+  let resent!: () => void;
+  const secondTry = new Promise<void>((resolve) => (resent = resolve));
+  const pane = await paneWith((attempt) => {
+    if (attempt === 2) resent();
+    return attempt === 1 ? timedOut : undefined;
+  });
+  try {
+    await pane.client.send("deploy after the timeout").catch(() => undefined);
+    const users = () => pane.rows().filter((row) => row.kind === "user" && row.text === "deploy after the timeout");
+    expect(users()[0]?.failed).toBe(true);
+    // The pane's own backoff sends it again; nothing here clicks.
+    await secondTry;
+    expect(pane.prompts).toEqual(["deploy after the timeout", "deploy after the timeout"]);
+    // fixed-wait: the row clears when the second send's answer comes back, an await inside the pane with no event out.
+    for (let turn = 0; turn < 40 && users()[0]?.failed; turn++) await new Promise((resolve) => setTimeout(resolve, 25));
+    expect(users()).toHaveLength(1);
+    expect(users()[0]!.failed).toBeFalsy();
+  } finally {
+    pane.client.close?.();
+  }
+});
+
+test("a refusal that would come back the same is not sent again by itself", async () => {
+  const refusal = await gestureRefusal();
+  const pane = await paneWith(() => refusal);
+  try {
+    await pane.client.send("refused for good").catch(() => undefined);
+    const { SELF_RESEND_FIRST_MS } = await import("./sendWhenReady");
+    // fixed-wait: proves a send does not happen, so it waits past the first self-resend's delay.
+    await new Promise((resolve) => setTimeout(resolve, SELF_RESEND_FIRST_MS + 300));
+    expect(pane.prompts).toEqual(["refused for good"]);
+  } finally {
+    pane.client.close?.();
+  }
+});

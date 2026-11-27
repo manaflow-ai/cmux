@@ -1,3 +1,4 @@
+import AppKit
 import CmuxNextAgentPane
 @testable import CmuxNextApps
 import CmuxNextPages
@@ -32,6 +33,26 @@ import Testing
         #expect(command?["name"]?.stringValue == "standup")
         #expect(command?["insert"]?.stringValue == "Write my standup notes.")
         #expect(command?["extension"]?.stringValue == "Standup")
+    }
+
+    /// An `@` word asks the daemon for the extension items that match it; the page gets them as they are.
+    @Test func forwardsTheComposerMentionsQueryAndAnswer() async throws {
+        let transport = FakePanelsTransport()
+        let client = AppsClient(transport: transport)
+        client.start()
+        for _ in 0..<100 where !client.hasList { await Task.yield() }
+        let provider = AppsPanelsPageProvider(client: client)
+        #expect(PageDescriptor.agent.admits("cmux.apps.panels.mentions"))
+        let found = try await provider.call("cmux.apps.panels.mentions",
+                                            params: .object(["query": "441", "prefix": "pr"]), context: Self.page)
+        #expect(transport.mentionQueries.first?["query"]?.stringValue == "441")
+        #expect(transport.mentionQueries.first?["prefix"]?.stringValue == "pr")
+        let mention = found["mentions"]?.arrayValue?.first
+        #expect(mention?["label"]?.stringValue == "#44139 Screen sharing")
+        #expect(mention?["insert"]?.stringValue == "PR #44139")
+        await #expect(throws: PageError.self) {
+            try await provider.call("cmux.apps.panels.mentions", params: .object([:]), context: Self.page)
+        }
     }
 
     @Test func forwardsListMountSceneDispatchAndUnmountsOnClose() async throws {
@@ -88,6 +109,133 @@ import Testing
         #expect(transport.unmounts == [mountID])
     }
 
+    /// Each mount's scene batches carry its own revision, one more per batch from 1, resets and the first
+    /// subscriber's replay included, statuses not; a mount's visible slice (surface = mount id) echoes it.
+    @Test func sceneBatchesCountARevisionPerMountAndTheSliceEchoesIt() async throws {
+        let transport = FakePanelsTransport()
+        let client = try await Self.listedClient(transport)
+        let provider = AppsPanelsPageProvider(client: client)
+        let a = try #require(try await Self.mount(provider, surface: "sessionInfoSection", section: "prs")["mount_id"]?.stringValue)
+        let b = try #require(try await Self.mount(provider, surface: "sessionInfoSection", section: "prs")["mount_id"]?.stringValue)
+        #expect(provider.sceneRevision(mountID: a) == 0)
+
+        // Two batches before the page subscribes reach it as one reset: revision 1.
+        transport.onEvent?(.scene(mountID: a, ops: [.root(id: "n1")]))
+        transport.onEvent?(.scene(mountID: a, ops: [.remove(id: "n1")]))
+        let heard = Heard()
+        let subscription = try await provider.subscribe("cmux.apps.panels.scene", filter: .object(["mount_id": .string(a)]),
+                                                        context: Self.page) { heard.events.append($0) }
+        defer { subscription.cancel() }
+        let batches = { heard.events.filter { $0["ops"] != nil } }
+        #expect(batches().map { $0["revision"]?.intValue } == [1])
+        #expect(heard.events.filter { $0["status"] != nil }.allSatisfy { $0["revision"] == nil }, "a status carries no revision")
+
+        transport.onEvent?(.scene(mountID: a, ops: [.root(id: "n2")]))
+        transport.onEvent?(.scene(mountID: a, ops: [.root(id: "n3")], reset: true))
+        #expect(batches().map { $0["revision"]?.intValue } == [1, 2, 3])
+        #expect(provider.sceneRevision(mountID: a) == 3)
+        // Another mount counts its own.
+        let other = try await provider.subscribe("cmux.apps.panels.scene", filter: .object(["mount_id": .string(b)]),
+                                                 context: Self.page) { _ in }
+        defer { other.cancel() }
+        transport.onEvent?(.scene(mountID: b, ops: [.root(id: "m1")]))
+        #expect(provider.sceneRevision(mountID: b) == 1)
+        #expect(provider.sceneRevision(mountID: a) == 3)
+
+        // The mount's slice is measured against its scene's revision.
+        let slices = PageVisibleSlices()
+        let tracker = PageVisibleSliceTracker(surface: a, slices: slices, view: { nil },
+                                              measure: { (CGRect(x: 0, y: 40, width: 300, height: 120.4), 600) },
+                                              revision: { provider.sceneRevision(mountID: a) ?? 0 })
+        var sliced: [JSONValue] = []
+        let sliceSubscription = try await slices.subscribe(PageVisibleSlices.stream, filter: .object(["surface": .string(a)]),
+                                                           context: Self.page) { sliced.append($0) }
+        defer { sliceSubscription.cancel() }
+        #expect(tracker.sendNow())
+        #expect(!tracker.sendNow(), "nothing changed")
+        #expect(sliced.last?["surface"]?.stringValue == a)
+        #expect(sliced.last?["revision"]?.intValue == 3)
+        #expect(sliced.last?["top"]?.intValue == 40)
+        #expect(sliced.last?["height"]?.intValue == 120)
+        transport.onEvent?(.scene(mountID: a, ops: [.root(id: "n4")]))
+        #expect(tracker.sendNow())
+        #expect(sliced.last?["revision"]?.intValue == 4)
+        #expect(sliced.count == 2)
+        // A surface hears only its own slices; a subscription names its surface.
+        #expect(slices.push(.init(surface: b, revision: 1, top: 0, height: 10)))
+        #expect(sliced.count == 2)
+        await #expect(throws: PageError.self) {
+            _ = try await slices.subscribe(PageVisibleSlices.stream, filter: .object([:]), context: Self.page) { _ in }
+        }
+    }
+
+    /// Each mount has its own slice tracker (surface = mount id, revision = its scene revision) from mount to
+    /// unmount: two mounts drawn by two views in one scrolling list each hear only their own part in sight.
+    @Test func eachMountHearsOnlyItsOwnSlice() async throws {
+        let transport = FakePanelsTransport()
+        let client = try await Self.listedClient(transport)
+        let provider = AppsPanelsPageProvider(client: client)
+        #expect(PageDescriptor.agent.admits(PageVisibleSlices.stream))
+        #expect(provider.routes.contains { $0.prefix == PageVisibleSlices.stream })
+        let a = try #require(try await Self.mount(provider, surface: "sessionInfoSection", section: "prs")["mount_id"]?.stringValue)
+        let b = try #require(try await Self.mount(provider, surface: "sessionInfoSection", section: "prs")["mount_id"]?.stringValue)
+        // No view draws a mount yet (the page scrolls it itself): nothing is sent.
+        #expect(!provider.sendSliceNow(mountID: a))
+
+        // Two 600 pt mount views stacked in a 400 pt scrolling list.
+        final class Flipped: NSView { override var isFlipped: Bool { true } }
+        let scroll = NSScrollView(frame: NSRect(x: 0, y: 0, width: 300, height: 400))
+        let document = Flipped(frame: NSRect(x: 0, y: 0, width: 300, height: 1_200))
+        scroll.documentView = document
+        let views = [a: Flipped(frame: NSRect(x: 0, y: 0, width: 300, height: 600)),
+                     b: Flipped(frame: NSRect(x: 0, y: 600, width: 300, height: 600))]
+        for view in views.values { document.addSubview(view) }
+        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 300, height: 400), styleMask: [.borderless], backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
+        window.contentView = scroll
+        window.orderFrontRegardless()
+        defer { window.close() }
+        provider.mountView = { views[$0] }
+
+        var heard: [String: [JSONValue]] = [a: [], b: []]
+        var subscriptions: [PageSubscription] = []
+        for id in [a, b] {
+            subscriptions.append(try await provider.slices.subscribe(PageVisibleSlices.stream, filter: .object(["surface": .string(id)]),
+                                                                     context: Self.page) { heard[id, default: []].append($0) })
+        }
+        defer { for subscription in subscriptions { subscription.cancel() } }
+        transport.onEvent?(.scene(mountID: a, ops: [.root(id: "n1")]))
+        #expect(provider.sendSliceNow(mountID: a))
+        #expect(provider.sendSliceNow(mountID: b))
+        #expect(heard[a]?.count == 1)
+        #expect(heard[b]?.count == 1)
+        #expect(heard[a]?.last?["surface"]?.stringValue == a)
+        #expect(heard[a]?.last?["revision"]?.intValue == provider.sceneRevision(mountID: a))
+        #expect(heard[a]?.last?["top"]?.intValue == 0)
+        #expect(heard[a]?.last?["height"]?.intValue == 400)
+        #expect(heard[b]?.last?["surface"]?.stringValue == b)
+        #expect(heard[b]?.last?["height"]?.intValue == 0, "b is below the list's bottom")
+
+        // Scrolling 300 pt shows a's last 300 and b's first 100; each hears its own once more.
+        scroll.contentView.scroll(to: NSPoint(x: 0, y: 300))
+        scroll.reflectScrolledClipView(scroll.contentView)
+        #expect(provider.sendSliceNow(mountID: a))
+        #expect(provider.sendSliceNow(mountID: b))
+        #expect(!provider.sendSliceNow(mountID: a), "nothing changed")
+        #expect(heard[a]?.count == 2)
+        #expect(heard[b]?.count == 2)
+        #expect(heard[a]?.last?["top"]?.intValue == 300)
+        #expect(heard[a]?.last?["height"]?.intValue == 300)
+        #expect(heard[b]?.last?["top"]?.intValue == 0)
+        #expect(heard[b]?.last?["height"]?.intValue == 100)
+        #expect(heard[b]?.allSatisfy { $0["surface"]?.stringValue == b } == true)
+
+        // Unmounted, a mount sends no more.
+        _ = try await provider.call("cmux.apps.panels.unmount", params: .object(["mount_id": .string(b)]), context: Self.page)
+        #expect(!provider.sendSliceNow(mountID: b))
+        #expect(provider.slices.slice(b) == nil)
+    }
+
     /// A started client over `transport`, its list landed.
     private static func listedClient(_ transport: FakePanelsTransport) async throws -> AppsClient {
         let client = AppsClient(transport: transport)
@@ -116,6 +264,7 @@ import Testing
             ("sidebarSection", "other", "cmux.section/1"),
             ("hoverCard", nil, "cmux.hovercard/1"),
             ("sessionInfoSection", "cmux.session.info.section/1", "cmux.session.info.section/1"),
+            ("chatWidget", nil, "cmux.chat.widget/1"),
             // The whole New Tab page (tabs.newTabApp names the app; the page asks for no section).
             ("newTab", nil, "cmux.newtab/1"),
             // One New Tab widget tile (`cmux.widget/1`); the daemon checks its place, size and instance.
@@ -137,6 +286,27 @@ import Testing
         await #expect(throws: PageError.self) { try await Self.mount(provider, surface: "pane", app: "local/missing") }
     }
 
+    /// The page asks the daemon which extension draws under a tool call (`route`), gets its answer
+    /// as the daemon sent it, and mounts it on the chatWidget surface.
+    @Test func routesAChatWidgetThroughTheDaemonAndMountsIt() async throws {
+        let transport = FakePanelsTransport(manifest: FakePanelsTransport.everySurface())
+        let client = try await Self.listedClient(transport)
+        let provider = AppsPanelsPageProvider(client: client)
+        let ask: JSONValue = .object(["key": .string("tool:t1"), "tool": .object(["name": .string("mcp__github__get_pull_request")])])
+        let answer = try await provider.call("cmux.apps.panels.route", params: ask, context: Self.page)
+        #expect(transport.routes.last?["tool"]?["name"]?.stringValue == "mcp__github__get_pull_request")
+        #expect(answer["widget"]?["app"]?.stringValue == "local/customize")
+        let context = try #require(answer["widget"]?["context"])
+        let reply = try await provider.call(
+            "cmux.apps.panels.mount",
+            params: .object(["surface": .string("chatWidget"), "app": .string("local/customize"), "context": context]),
+            context: Self.page)
+        #expect(reply["mount_id"]?.stringValue != nil)
+        await client.tail?.value
+        #expect(transport.mounts.last?.interface == "cmux.chat.widget/1")
+        #expect(transport.mounts.last?.context["widget"]?["key"]?.stringValue == "tool:t1")
+    }
+
     /// `tabs.newTabApp` names an app: the New Tab page mounts its `cmux.newtab/1` only while it is
     /// installed, enabled and shown, and is refused otherwise, so the page draws cmux's own instead.
     @Test func newTabMountsOnlyAVisibleAppThatImplementsIt() async throws {
@@ -154,6 +324,24 @@ import Testing
         #expect(try await Self.mount(shown, surface: "newTab")["mount_id"] != nil)
         await client.tail?.value
         #expect(transport.mounts.last?.interface == "cmux.newtab/1")
+    }
+
+    /// `cmux customize use` loads the app in the daemon, then a New Tab opens at once: the page's mount
+    /// can arrive before the `apps-changed` list lands. It lists again and mounts instead of refusing,
+    /// since a refused New Tab page draws cmux's own page for the rest of its life.
+    @Test func newTabMountsAnAppTheDaemonLoadedBeforeTheMirrorHeard() async throws {
+        let transport = FakePanelsTransport(manifest: FakePanelsTransport.everySurface())
+        transport.listed = false
+        let client = try await Self.listedClient(transport)
+        #expect(client.app("local/customize") == nil)
+        transport.listed = true
+        let provider = AppsPanelsPageProvider(client: client)
+        #expect(try await Self.mount(provider, surface: "newTab")["mount_id"] != nil)
+        await client.tail?.value
+        #expect(transport.mounts.last?.interface == "cmux.newtab/1")
+
+        // An app the daemon still does not list is refused after that one list.
+        await #expect(throws: PageError.self) { try await Self.mount(provider, surface: "newTab", app: "local/missing") }
     }
 
     /// A widget tile mounts only for a visible app that implements `cmux.widget/1`, with the page's
@@ -401,6 +589,9 @@ private final class FakePanelsTransport: AppsTransport {
 
     /// The listed app is hidden (Settings > Apps > Hide): it shows on no surface.
     var hidden = false
+    /// The daemon lists the app; false: it has not loaded it yet.
+    var listed = true
+    private var listRevision: UInt64 = 0
 
     init(manifest: AppJSON = FakePanelsTransport.sessionInfo, bundleDirectory: String? = nil) {
         self.manifest = manifest
@@ -422,6 +613,7 @@ private final class FakePanelsTransport: AppsTransport {
             "cmux.section/1": ["export": "renderSection"],
             "cmux.hovercard/1": ["export": "renderCard"],
             "cmux.session.info.section/1": ["export": "renderInfo"],
+            "cmux.chat.widget/1": ["export": "renderWidget"],
             "cmux.newtab/1": ["export": "renderNewTab"],
             "cmux.widget/1": ["export": "renderWidget", "options": ["sizes": ["small", "medium"]]],
         ],
@@ -436,7 +628,8 @@ private final class FakePanelsTransport: AppsTransport {
     func list() async throws(AppsTransportError) -> AppsListReply {
         var record: [String: AppJSON] = ["id": manifest["id"] ?? "local/customize", "installed": true, "hidden": .bool(hidden), "manifest": manifest]
         if let bundleDirectory { record["bundle_dir"] = .string(bundleDirectory) }
-        return AppsListReply(revision: 1, apps: [AppRecord(json: .object(record))].compactMap { $0 })
+        listRevision += 1
+        return AppsListReply(revision: listRevision, apps: listed ? [AppRecord(json: .object(record))].compactMap { $0 } : [])
     }
     func sessionInfoPanels() async throws(AppsTransportError) -> [AppSessionInfoPanel] {
         [AppSessionInfoPanel(json: ["app": "local/customize", "section": "prs", "title": "PRs"])].compactMap { $0 }
@@ -445,6 +638,12 @@ private final class FakePanelsTransport: AppsTransport {
         ["commands": [["app": "local/standup", "extension": "Standup", "name": "standup",
                        "description": "Ask for today's standup", "insert": "Write my standup notes."]],
          "mentions": []]
+    }
+    var mentionQueries: [AppJSON] = []
+    func composerMentions(_ args: AppJSON) async throws(AppsTransportError) -> AppJSON {
+        mentionQueries.append(args)
+        return ["mentions": [["app": "local/team-flow", "extension": "Team flow", "prefix": "pr", "id": "44139",
+                              "label": "#44139 Screen sharing", "insert": "PR #44139"]]]
     }
     func set(app: String, change: AppChange, origin: AppOrigin, idempotencyKey: String) async throws(AppsTransportError) -> AppRecord {
         throw AppsTransportError(message: "unused")
@@ -460,6 +659,12 @@ private final class FakePanelsTransport: AppsTransport {
         .null
     }
     func logs(app: String, follow: Bool) async throws(AppsTransportError) -> [AppLogLine] { [] }
+    var routes: [AppJSON] = []
+    func chatWidgetRoute(_ args: AppJSON) async throws(AppsTransportError) -> AppJSON {
+        routes.append(args)
+        return ["widget": ["app": "local/customize", "interface": "cmux.chat.widget/1", "title": "Card",
+                           "context": ["surface": "chatWidget", "widget": ["key": "tool:t1"]]]]
+    }
     func storeCall(_ op: String, args: AppJSON, origin: AppOrigin) async throws(AppsTransportError) -> AppJSON {
         storeCalls.append((op, args, origin))
         switch op {

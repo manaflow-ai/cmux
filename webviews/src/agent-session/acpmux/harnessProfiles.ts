@@ -17,6 +17,9 @@ export type HarnessProfile = {
   /// The model the harness's last attached session ran.
   model?: string;
   modes?: Summary["modes"];
+  /// Its last session reported its options and no permission modes (Pi): a new chat on it draws no
+  /// Mode chip. Unset while unknown.
+  modeless?: true;
   configOptions?: Summary["configOptions"];
   promptCapabilities?: Summary["promptCapabilities"];
 };
@@ -38,11 +41,16 @@ export class HarnessProfiles {
     if (!summary?.harness || !summary.sessionId) return;
     const profiles = this.load();
     const before = profiles.get(summary.harness);
+    // A session that reported its config options answered `session/new`, whose answer carries its
+    // modes too: none there (the published summary drops copied ones, permissionModes.ts) is none.
+    const reportsOptions = (summary.configOptions?.length ?? 0) > 0;
+    const modeless = summary.modes === undefined && (reportsOptions || before?.modeless === true);
     const next: HarnessProfile = {
       harness: summary.harness,
       startModel: started && summary.model ? summary.model : before?.startModel,
       model: summary.model ?? before?.model,
-      modes: summary.modes ?? before?.modes,
+      modes: summary.modes ?? (reportsOptions ? undefined : before?.modes),
+      ...(modeless ? { modeless: true as const } : {}),
       configOptions: summary.configOptions?.length ? summary.configOptions : before?.configOptions,
       promptCapabilities: summary.promptCapabilities ?? before?.promptCapabilities,
     };

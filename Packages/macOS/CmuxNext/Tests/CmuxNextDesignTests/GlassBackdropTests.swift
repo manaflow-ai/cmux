@@ -77,7 +77,7 @@ import CmuxNextDesignTokens
     }
 
     @Test func theTintIsACSSColorOrTransparent() {
-        #expect(GlassBackdropPayload.css(CGColor(srgbRed: 1, green: 0, blue: 0, alpha: 0.5)) == "rgba(255, 0, 0, 0.5)")
+        #expect(GlassBackdropPayload.css(CGColor(srgbRed: 1, green: 0, blue: 0, alpha: 0.5)) == "rgba(255, 0, 0, 0.502)") // 0.5 draws as 128/255
         #expect(GlassBackdropPayload.css(CGColor(srgbRed: 1, green: 0, blue: 0, alpha: 0)) == "transparent")
         #expect(GlassBackdropPayload.css(nil) == "transparent")
     }

@@ -1,0 +1,35 @@
+// Studio: graphite chrome, a hairline between the sidebar and the chat, a rose
+// accent, an arc while work runs, small radii and a tight strip.
+// Edit and save, the window repaints at once.
+{
+  "name": "Studio",
+  "description": "Graphite chrome, a hairline sidebar edge, a rose accent, small radii, compact density.",
+
+  "appearance.theme": "Builtin Dark",
+  "colors": { "background": "#111113", "foreground": "#e6e6e9", "selection": "#74747a", "cursor": "#e6e6e9", "accent": "#e0679a" },
+  "appearance.accent": "theme",
+
+  "appearance.background": "none",
+  "appearance.backgroundBlur": "none",
+  "appearance.chromeStyle": "flat-sidebar-line",
+  "appearance.borders": "default",
+
+  "appearance.sidebarSurface": "separate",
+  "appearance.surfaces.sidebar.color": "#0d0d0f",
+  "appearance.surfaces.sidebar.opacity": 1,
+  "appearance.surfaces.agentPane.color": "#111113",
+  "appearance.surfaces.agentPane.opacity": 1,
+  "sidebar.sectionLook": "quiet",
+  "appearance.statusIndicator.style": "arc",
+
+
+  "appearance.density": "compact",
+  "ui.animationSpeed": "fast",
+
+  // Shape, not only color (Leo: "customizing the tabs/sidebars a lot deeper"): a tool's blocks: 3 pt corners on every tab and row, a 232 pt sidebar of 24 pt rows with no gaps, a tight strip, small toolbar glyphs, studio's sidebar look, tight flush corners, the top right buttons always shown.
+  "density": { "basedOn": "compact", "tokens": {"tabCornerRadius": 3, "tabCloseCornerRadius": 2, "verticalTabCornerRadius": 3, "sidebarCornerRadius": 3, "itemCornerRadius": 3, "panelCornerRadius": 6, "sidebarWidth": 232, "sidebarRowHeight": 24, "sidebarRowGap": 0, "sidebarRowInset": 4, "tabGap": 1, "browserRowHeight": 24, "toolbarGlyphSize": 13 } },
+  "sidebar.look": "studio",
+  "appearance.cornerFlush": "flush-tight",
+  "window.titlebarButtons": "always",
+  "agentPane.display.sessionInfo.placement": "overlay"
+}

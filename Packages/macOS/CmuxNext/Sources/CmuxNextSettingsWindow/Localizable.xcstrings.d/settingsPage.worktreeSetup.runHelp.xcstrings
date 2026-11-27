@@ -1,0 +1,138 @@
+{
+  "sourceLanguage" : "en",
+  "strings" : {
+    "settingsPage.worktreeSetup.runHelp" : {
+      "comment" : "Settings > Agents > Worktree Setup: under the run script field; keep $CMUX_PORT as it is",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Starts the project, e.g. a dev server on $CMUX_PORT."
+          }
+        },
+        "ar" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "يشغّل المشروع، مثل خادم تطوير على $CMUX_PORT."
+          }
+        },
+        "bs" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Pokreće projekat, npr. dev server na $CMUX_PORT."
+          }
+        },
+        "da" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Starter projektet, fx en dev-server på $CMUX_PORT."
+          }
+        },
+        "de" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Startet das Projekt, z. B. einen Dev-Server auf $CMUX_PORT."
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Inicia el proyecto, p. ej. un servidor en $CMUX_PORT."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Lance le projet, par ex. un serveur sur $CMUX_PORT."
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Avvia il progetto, es. un server di sviluppo su $CMUX_PORT."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "プロジェクトを起動します（例: $CMUX_PORT の開発サーバー）。"
+          }
+        },
+        "km" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "ចាប់ផ្ដើមគម្រោង ដូចជា dev server នៅ $CMUX_PORT។"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "프로젝트를 시작합니다(예: $CMUX_PORT의 개발 서버)."
+          }
+        },
+        "nb" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Starter prosjektet, f.eks. en dev-server på $CMUX_PORT."
+          }
+        },
+        "pl" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Uruchamia projekt, np. serwer deweloperski na $CMUX_PORT."
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Inicia o projeto, ex.: um servidor em $CMUX_PORT."
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Запускает проект, например dev-сервер на $CMUX_PORT."
+          }
+        },
+        "th" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "เริ่มโปรเจกต์ เช่น dev server ที่ $CMUX_PORT"
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Projeyi başlatır, ör. $CMUX_PORT üzerinde bir sunucu."
+          }
+        },
+        "uk" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Запускає проєкт, наприклад dev-сервер на $CMUX_PORT."
+          }
+        },
+        "vi" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Khởi chạy dự án, vd. máy chủ dev trên $CMUX_PORT."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "启动项目，例如 $CMUX_PORT 上的开发服务器。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "啟動專案，例如 $CMUX_PORT 上的開發伺服器。"
+          }
+        }
+      }
+    }
+  },
+  "version" : "1.0"
+}
