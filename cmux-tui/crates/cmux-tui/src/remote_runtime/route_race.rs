@@ -69,17 +69,25 @@ impl RouteRace {
 pub(crate) struct RouteOrder {
     pub(crate) first: Option<usize>,
     pub(crate) race: Option<RouteRace>,
+    /// The routes broken on this network (a bit per index): dialed after every other route,
+    /// never skipped ([`super::route_last_good::LastGoodRoute::late`]).
+    pub(crate) late: u64,
 }
 
 impl RouteOrder {
     /// One route at a time, `first` before the rest.
     pub(crate) fn serial(first: Option<usize>) -> Self {
-        Self { first, race: None }
+        Self { first, race: None, late: 0 }
     }
 
     /// Raced, `first` leading.
     pub(crate) fn raced(first: Option<usize>, race: RouteRace) -> Self {
-        Self { first, race: Some(race) }
+        Self { first, race: Some(race), late: 0 }
+    }
+
+    /// The same order with the routes in `late` dialed last.
+    pub(crate) fn with_late(self, late: u64) -> Self {
+        Self { late, ..self }
     }
 }
 
@@ -208,8 +216,14 @@ fn tallied<E>(tally: &Mutex<Tally<E>>, position: usize, failure: String) -> io::
 }
 
 /// The order of a pass's dials: `first`, then the rest by index.
-fn pass_sequence(routes: usize, first: Option<usize>) -> Vec<usize> {
-    first.into_iter().chain((0..routes).filter(|&index| Some(index) != first)).collect()
+fn pass_sequence(routes: usize, first: Option<usize>, late: u64) -> Vec<usize> {
+    let is_late = |index: usize| index < 64 && late & (1 << index) != 0;
+    let rest = (0..routes).filter(|&index| Some(index) != first);
+    first
+        .into_iter()
+        .chain(rest.clone().filter(|&index| !is_late(index)))
+        .chain(rest.filter(|&index| is_late(index)))
+        .collect()
 }
 
 /// [`select_routes`] on Braid's racer.
@@ -234,7 +248,7 @@ async fn select_routes_braid<T: Send, E: RouteFailure>(
     }
     let first = order.first.filter(|&first| !upgrade && first < routes.len());
     let race = order.race.filter(|_| !upgrade);
-    let sequence = pass_sequence(routes.len(), first);
+    let sequence = pass_sequence(routes.len(), first, if upgrade { 0 } else { order.late });
     let positions: Vec<usize> = (0..sequence.len()).collect();
     let tally = Tally::new(sequence.len());
     let tally = &tally;
@@ -344,7 +358,7 @@ async fn select_routes_own<T: Send, E: RouteFailure>(
     }
     let first = order.first.filter(|&first| !upgrade && first < routes.len());
     let race = order.race.filter(|_| !upgrade);
-    let sequence = pass_sequence(routes.len(), first);
+    let sequence = pass_sequence(routes.len(), first, if upgrade { 0 } else { order.late });
     // Each route's failure at its place in the order, so the error lists them as dialed.
     let mut failures: Vec<Option<String>> = vec![None; sequence.len()];
     let mut last: Option<(usize, E)> = None;

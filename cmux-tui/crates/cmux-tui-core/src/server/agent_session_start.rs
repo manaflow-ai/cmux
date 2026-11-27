@@ -332,6 +332,10 @@ pub(crate) struct StartTimings {
     settle: Option<u64>,
     bind: Option<u64>,
     total: Option<u64>,
+    /// The phase the start was in last ([`StartTimings::at`]): a bare `refused` names it in
+    /// `data.step`, so its reader knows which call acpmux refused (the 2026-11-27T20:12Z
+    /// notify-banner-click row said only "acpmux refused the request").
+    step: Option<&'static str>,
 }
 
 /// Milliseconds since `since`, saturating.
@@ -340,6 +344,26 @@ fn ms_since(since: Instant) -> u64 {
 }
 
 impl StartTimings {
+    /// The start entered phase `step`.
+    fn at(&mut self, step: &'static str) {
+        self.step = Some(step);
+    }
+
+    /// `data` of a refusal with the phase it came from: a bare `refused` only (every other
+    /// refusal names its own cause), and never over a `step` already there.
+    fn refusal_data(&self, refusal: Refusal, data: Option<Value>) -> Option<Value> {
+        let (Refusal::Refused, Some(step)) = (refusal, self.step) else {
+            return data;
+        };
+        let mut data = match data {
+            Some(Value::Object(map)) => map,
+            Some(other) => return Some(other),
+            None => serde_json::Map::new(),
+        };
+        data.entry("step").or_insert_with(|| json!(step));
+        Some(Value::Object(data))
+    }
+
     /// The answer's `timings_ms`: each phase reached, and `acpmux_started`.
     pub(crate) fn wire(&self) -> Value {
         let mut out = serde_json::Map::new();
@@ -554,10 +578,10 @@ pub(super) fn start(
                     worker_mux.control_clients.remember_started_tab(client, surface);
                     ok(&worker_writer, worker_id, data)
                 }
-                Err((refusal, None)) => refuse(&worker_writer, worker_id, refusal),
-                Err((refusal, Some(data))) => {
-                    super::refuse_with_data(&worker_writer, worker_id, refusal, data)
-                }
+                Err((refusal, data)) => match timings.refusal_data(refusal, data) {
+                    None => refuse(&worker_writer, worker_id, refusal),
+                    Some(data) => super::refuse_with_data(&worker_writer, worker_id, refusal, data),
+                },
             };
         });
     // A failed spawn drops the closure and with it the slot.
@@ -680,13 +704,16 @@ fn run(
     timings: &mut StartTimings,
 ) -> Result<Value, (Refusal, Option<Value>)> {
     let began = Instant::now();
+    timings.at("acpmux_connect");
     let (link, started) = connect_noting(mux, &socket).map_err(|r| (r, None))?;
     (timings.acpmux_connect, timings.acpmux_started) = (Some(ms_since(began)), started);
     let checks = Instant::now();
     let until = checks + START_PATIENCE.ceiling;
     let cwd = params.cwd.as_deref().ok_or((Refusal::BadRequest, None))?;
+    timings.at("catalog");
     let (link, catalog) = ready_catalog(&socket, link, cwd, params.harness.as_deref(), until)
         .map_err(|r| (r, None))?;
+    timings.at("keyed");
     let result = still_keyed(&link, &params).and_then(|()| {
         start_and_bind(mux, client, &link, &catalog, &params, phone, checks, until, timings)
             .map_err(|StartRefused(refusal, data)| (refusal, data))
@@ -907,6 +934,7 @@ fn start_and_bind(
     // A phone's start gets the phone's floor, also on the caller's own Cloud VM: an acpmux that
     // holds Cloud mobile prompts to it, a family the floor has a mode for, and that mode before
     // the start answers.
+    timings.at("web_modes");
     let table = ask(link, until, "_acpmux/web_modes", json!({})).map_err(Refusal::of)?;
     if phone && table.get("cloudMobileStrictFloor").and_then(Value::as_u64) != Some(1) {
         return Err(Refusal::NotAsking.into());
@@ -914,6 +942,7 @@ fn start_and_bind(
     // The family the start resolves to, from acpmux's own catalog, before
     // any agent process exists: a Codex alias or a default harness of a
     // refused family never starts (but on the caller's own Cloud VM).
+    timings.at("family");
     let family = start_family(catalog, params.harness.as_deref())?;
     // A phone's family is held to its own floor instead: acpmux refuses Codex as a Web family,
     // but a Codex bridge session holds to the phone floor in `ask`, which only the session's
@@ -928,6 +957,7 @@ fn start_and_bind(
     // run the folder's own hooks and settings at start); this daemon reaches
     // acpmux over its unix socket, which acpmux's trust gate does not hold;
     // only the person answers it (`agent-session-trust`, from the app).
+    timings.at("trust");
     let trust = ask(link, until, "acp.trust.get", json!({"cwd": cwd})).map_err(Refusal::of)?;
     // The caller's own Cloud VM's work folder reads trusted (no question).
     let trust = super::agent_session_trust::owner_cloud_trust(
@@ -971,6 +1001,7 @@ fn start_and_bind(
     let new = json!({"cwd": cwd, "mcpServers": [], "_meta": {"acpmux": meta}});
     timings.checks = Some(ms_since(checks));
     let spawn = Instant::now();
+    timings.at("session_new");
     // acpmux goes on spawning the agent after a start stops waiting: a session it makes later is
     // bound to no tab, so it ends as soon as its answer comes.
     let created = link
@@ -991,6 +1022,7 @@ fn start_and_bind(
     timings.session_new = Some(ms_since(spawn));
     let created = created?;
     let settle = Instant::now();
+    timings.at("settle");
     let session = created
         .get("sessionId")
         .and_then(Value::as_str)
@@ -1031,6 +1063,7 @@ fn start_and_bind(
             .find(|harness| validate_harness(harness).is_ok());
     timings.settle = Some(ms_since(settle));
     let bind = Instant::now();
+    timings.at("bind");
     // The tab may have closed, or another start bound it, meanwhile.
     let actor = super::super::origin_gate::connection_actor(mux, client);
     let _rebinding = mux.control_clients.agent_sessions.rebinding();
