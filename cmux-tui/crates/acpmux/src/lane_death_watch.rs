@@ -27,6 +27,11 @@ use std::collections::HashMap;
 /// How long a stuck or unreachable row waits before it reads dead (`lane-deaths.json`
 /// `unreachable_minutes`).
 pub const GRACE_MS: u64 = 10 * 60 * 1000;
+/// How long a machine that does not answer gets to come back before recovery routes its
+/// sessions elsewhere (`death_route::Facts::host_grace_seconds`). Longer than [`GRACE_MS`]: a
+/// row reads dead at 10 min, and its notice then asks for the machine to be started, not moved
+/// off, until this has passed.
+pub const HOST_GRACE_MS: u64 = 20 * 60 * 1000;
 /// Restarts and successors recovery allows (`lane-deaths.json` `max_restarts`,
 /// `max_failovers`).
 pub const MAX_RESTARTS: u32 = 2;
@@ -162,8 +167,14 @@ pub fn step_line(route: &Route, at: &str) -> String {
 }
 
 /// What recovery does next for a dead row, from what the row says (`death_route::Facts`; what
-/// the row cannot say, such as which hosts have room, stays at its default).
-pub fn route_of(key: &str, host: &str, dead: &Dead, now_ms: u64, grace_ms: u64) -> Route {
+/// the row cannot say, such as which hosts have room, stays at its default). `host_grace_ms` is
+/// how long a machine that does not answer gets to come back ([`HOST_GRACE_MS`]).
+///
+/// A row cannot say whether its machine can be started, so a machine that does not answer reads
+/// as one: within the grace the starter is told to start it (`Route::StartHost`), the one step
+/// that brings the lane back in place. With `host_startable` left false, `death_route` answered
+/// `Route::None` there, and the notice said "nothing to do" for a machine that was down.
+pub fn route_of(key: &str, host: &str, dead: &Dead, now_ms: u64, host_grace_ms: u64) -> Route {
     let dead_seconds =
         if dead.since_ms == 0 { 0.0 } else { now_ms.saturating_sub(dead.since_ms) as f64 / 1000.0 };
     crate::death_route::route(&Facts {
@@ -172,7 +183,8 @@ pub fn route_of(key: &str, host: &str, dead: &Dead, now_ms: u64, grace_ms: u64) 
         has_row: true,
         host_down: dead.host_down,
         dead_seconds,
-        host_grace_seconds: grace_ms as f64 / 1000.0,
+        host_grace_seconds: host_grace_ms as f64 / 1000.0,
+        host_startable: dead.host_down,
         max_restarts: MAX_RESTARTS,
         max_failovers: MAX_FAILOVERS,
         ..Facts::default()
@@ -212,7 +224,7 @@ impl Watch {
                 continue;
             }
             let name = row["name"].as_str().unwrap_or(key).to_owned();
-            let route = route_of(key, host, &dead, now_ms, grace_ms);
+            let route = route_of(key, host, &dead, now_ms, HOST_GRACE_MS);
             out.push(Notice { key: key.into(), name, host: host.into(), parent, dead, route });
         }
         // What is still dead keeps its mark; a notice not yet sent is marked by `told`.
