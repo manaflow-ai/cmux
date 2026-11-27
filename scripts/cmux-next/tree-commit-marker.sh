@@ -28,6 +28,9 @@
 #   from the branch tip: a run that publishes a tree late (a takeover after the
 #   owner's publish failed) marks the newer commits that share it, whose own
 #   runs found it unpublished and ended (the 2026-10-28 promote waited on them).
+#   publish-tree also writes its own commit's marker (--window 1) on a
+#   feat-cmux-next or nightly-next push or dispatch: a batch promotion's
+#   nightly-next push may be the only run of its commit.
 #   Backfill: gh workflow run cmux-tui-artifacts.yml -R manaflow-ai/cmux --ref feat-cmux-next
 #
 # Usage:

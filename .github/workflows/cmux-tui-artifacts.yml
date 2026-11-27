@@ -5059,8 +5059,13 @@ jobs:
       # 40 from here and from the tip, and the markers are write-once, so a
       # second write of the same marker is a no-op. A failure here only
       # leaves the marker to that job.
+      # A nightly-next push too (batch promotion pushes the build commit there, and
+      # its feat-cmux-next run may be coalesced away): run 45987983838's nightly
+      # waited 1072 s in "Wait for the build commit's tree-commit marker" after its
+      # nightly-next run published the tree at 11:46Z, until a later feat-cmux-next
+      # run's mark-tree-commits marked it. tree-ready still gates the write.
       - name: Mark this commit's tree as ready for nightly-next
-        if: env.CMUX_TUI_PUBLISH_PASS == 'unix' && github.repository == 'manaflow-ai/cmux' && github.ref == 'refs/heads/feat-cmux-next' && (github.event_name == 'push' || github.event_name == 'workflow_dispatch')
+        if: env.CMUX_TUI_PUBLISH_PASS == 'unix' && github.repository == 'manaflow-ai/cmux' && (github.ref == 'refs/heads/feat-cmux-next' || github.ref == 'refs/heads/nightly-next') && (github.event_name == 'push' || github.event_name == 'workflow_dispatch')
         continue-on-error: true
         env:
           AWS_ACCESS_KEY_ID: ${{ secrets.CF_R2_ACCESS_KEY_ID }}
