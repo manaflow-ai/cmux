@@ -232,6 +232,18 @@ test("an image-only prompt still hides retry while its send is pending", async (
   expect(container.querySelector(`button[aria-label="${translate("turn.retry")}"]`)).toBeNull();
 });
 
+// Leo, 2026-11-24: "yeah we prev had it for both my sent messages and the agent". A sent prompt's
+// footer keeps its time, shown on hover, its full date in its title.
+test("a sent prompt's footer keeps its hover time with the full date in its title", async () => {
+  const at = Date.UTC(2026, 10, 24, 6, 15);
+  const container = await render({ ...baseRow(), images: undefined, text: "ship it", at }, {}, "transcript");
+  const time = container.querySelector<HTMLTimeElement>(".cv-user__actions time.cv-user__time");
+  expect(time).not.toBeNull();
+  expect(time!.dateTime).toBe(new Date(at).toISOString());
+  expect(time!.title).toContain("2026");
+  expect(time!.title).toMatch(/Nov 24, 2026/);
+});
+
 for (const kind of ["image", "document", "audio", "text", "pasted", "link"] as const) {
   test(`a retained ${kind} attachment keeps its footer and remains resendable without inline Retry`, async () => {
     const attachment: ComposerAttachment = {
