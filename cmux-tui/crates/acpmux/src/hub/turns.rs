@@ -767,9 +767,9 @@ impl Hub {
             let quiet_restart = {
                 let hub = Arc::clone(self);
                 let session = Arc::clone(session);
-                tokio::spawn(
-                    async move { hub.end_quiet_stale(&session, "prompt-restart", None).await },
-                )
+                self.scope.spawn_named("quiet-restart-teardown", async move {
+                    hub.end_quiet_stale(&session, "prompt-restart", None).await
+                })
             };
             match tokio::time::timeout(super::prompt_admission::ADMISSION_BOUND, quiet_restart)
                 .await
