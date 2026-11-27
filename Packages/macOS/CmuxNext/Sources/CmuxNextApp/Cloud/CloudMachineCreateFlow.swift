@@ -109,18 +109,10 @@ struct CloudMachineCreateFlow {
         // A person's own gesture is the confirmation, so the backend's hold gets no second prompt.
         if !startedByPerson, asksFirst { guard await confirm(.agentRequest(machine)) else { throw Failure.declined } }
         let sized: (cpu: Int, memoryMb: Int, diskMb: Int) = request?.atLeast(cpu: machine.cpu, memoryMb: request?.memoryMb ?? machine.memoryMB, diskMb: machine.diskMB) ?? (cpu: machine.cpu, memoryMb: machine.memoryMB, diskMb: machine.diskMB) // a chat's folder size raises each axis
-        guard let (op, createArgs, options) = CloudStartCore().createParams(name: machine.name, environment: environment, cpu: sized.cpu, memoryMb: sized.memoryMb,
-                                                                             diskMb: sized.diskMb, request: request) else { throw Self.rulesUnavailable }
-        let args: JSONValue
-        if let provider = request?.provider {
-            var fields = createArgs.objectValue ?? [:]
-            fields["provider"] = .string(provider)
-            args = .object(fields)
-        } else {
-            args = createArgs
-        }
+        guard let (op, args, options) = CloudStartCore().createParams(name: machine.name, environment: environment, cpu: sized.cpu, memoryMb: sized.memoryMb,
+                                                                       diskMb: sized.diskMb, request: request) else { throw Self.rulesUnavailable }
         try await validateOptions(options)
-        let answer = try await approvalLoop(op, args: args, key: key ?? newKey(), confirmed: true,
+        let answer = try await approvalLoop(op, args: request?.argsWithProvider(args) ?? args, key: key ?? newKey(), confirmed: true,
                                             approved: key == nil ? nil : approved, onApproved: onApproved,
                                             answering: key == nil ? nil : answering, onAnswering: onAnswering) { _ in true }
         if let room = CloudMachineCap.madeRoom(answer) { madeRoom(room) }

@@ -131,6 +131,15 @@ public struct CloudMachineRequest: Equatable, Sendable {
     /// ``environment`` never does: that path would make the machine without it.
     public var takesPlainPath: Bool { isDefault && environment == nil }
 
+    /// Adds an explicit provider to the create payload while leaving the backend-generated
+    /// payload unchanged when no provider was selected.
+    public func argsWithProvider(_ args: JSONValue) -> JSONValue {
+        guard let provider else { return args }
+        var fields = args.objectValue ?? [:]
+        fields["provider"] = .string(provider)
+        return .object(fields)
+    }
+
     /// Where a named create in a Cloud environment (`cloud new-machine --name N --environment E`, which
     /// `cloud start-chat --environment` runs) stands against the machines this app knows.
     public enum NamedCreate: Equatable, Sendable {
