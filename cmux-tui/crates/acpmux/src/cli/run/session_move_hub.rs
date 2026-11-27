@@ -226,7 +226,9 @@ async fn steps(
     if info.get("peer").is_some_and(|p| !p.is_null()) {
         bail!("it runs on {}, not here: move it from there", field(&info, "peer"));
     }
-    if let Some(why) = plan::refusal(&info, args.interrupt || args.after_turn) {
+    // A running turn moves with the chat, as over ssh (`session_move.rs` `begin_waiting`): the
+    // begin stops it between tool calls and its continuation runs on the target.
+    if let Some(why) = plan::refusal(&info, hub_running_ok(args)) {
         bail!("{why}");
     }
     let cwd = PathBuf::from(info.get("cwd").and_then(Value::as_str).unwrap_or_default());
@@ -321,6 +323,8 @@ struct Timing {
     started: std::time::Instant,
     begin_ms: u64,
     answer_ms: u64,
+    /// The begin cut a running turn whose continuation moved with the chat (`continues`).
+    carried: bool,
     target: Value,
 }
 
@@ -331,6 +335,7 @@ impl Timing {
             "answerMs": self.answer_ms,
             "commitMs": commit_ms,
             "freezeMs": commit_ms.saturating_sub(self.begin_ms),
+            "carriedRunningTurn": self.carried,
         });
         if let (Some(out), Some(target)) = (value.as_object_mut(), self.target.as_object()) {
             for key in ["dialMs", "pages", "pageBytes", "pagesMs", "finishMs", "via"] {
@@ -382,7 +387,12 @@ impl Moving<'_> {
         // (`begin_staged`).
         let turn_bound = args.after_turn.then_some(args.turn_timeout);
         let src_end = &mut MoveEnd::new("source", src, None);
-        let begun = t::begin_staged(src_end, &id, Some(to), running, staged, turn_bound).await?;
+        let begun = if args.interrupt || args.after_turn {
+            t::begin_staged(src_end, &id, Some(to), running, staged, turn_bound).await?
+        } else {
+            t::begin_move_live(src_end, &id, Some(to), t::TOOL_WAIT, staged).await?
+        };
+        let carried = begun.begin.get("continues").is_some_and(|c| !c.is_null());
         let made = async {
             // Read again now that the chat is frozen: it may have changed before the freeze.
             let checkout = checkout_unless_named(cwd, args, &Source::Here).await?;
@@ -439,7 +449,11 @@ impl Moving<'_> {
                     // beginning is the only honest lower bound in that case. Do not report the
                     // target answer as the freeze boundary.
                     .unwrap_or(0);
-                Ok((sent, answer, Timing { started, begin_ms, answer_ms, target: target_timings }))
+                Ok((
+                    sent,
+                    answer,
+                    Timing { started, begin_ms, answer_ms, carried, target: target_timings },
+                ))
             }
             Err(e) => {
                 let data =
@@ -456,6 +470,13 @@ impl Moving<'_> {
     }
 }
 
+/// Whether a hub move takes a running turn along: always for a real move (the begin stops it
+/// between tool calls, `--after-turn` waits for it, `--interrupt` stops it now), as the ssh
+/// route does; a dry run only reports it.
+fn hub_running_ok(args: &MoveArgs) -> bool {
+    args.interrupt || args.after_turn || !args.dry_run
+}
+
 /// `v[k]` without the indexing lint: Null when absent.
 fn field<'a>(v: &'a Value, k: &str) -> &'a Value {
     v.get(k).unwrap_or(&Value::Null)
@@ -464,6 +485,54 @@ fn field<'a>(v: &'a Value, k: &str) -> &'a Value {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn args(interrupt: bool, after_turn: bool, dry_run: bool) -> MoveArgs {
+        MoveArgs {
+            sessions: vec![],
+            host: "gcp-agent-lane-19".into(),
+            all_idle: false,
+            interrupt,
+            after_turn,
+            turn_timeout: std::time::Duration::from_secs(60),
+            leave_dirty: false,
+            carry_changes: false,
+            cwd: None,
+            dry_run,
+            resume_there: false,
+            from: None,
+            slow_ok: false,
+            from_snapshot: false,
+            as_harness: None,
+        }
+    }
+
+    /// Leo: "any chat moves Mac↔Cloud and back in one action, keeping its live state". A hub move
+    /// of a chat mid-turn takes the turn along, as an ssh move does, instead of refusing it.
+    #[test]
+    fn a_hub_move_takes_a_running_turn_along() {
+        let running = json!({"status": "running", "turn": {"id": "t1"}});
+        assert_eq!(plan::refusal(&running, hub_running_ok(&args(false, false, false))), None);
+        assert_eq!(plan::refusal(&running, hub_running_ok(&args(true, false, false))), None);
+        assert_eq!(plan::refusal(&running, hub_running_ok(&args(false, true, false))), None);
+        // A dry run only reports the running turn, as over ssh.
+        assert!(plan::refusal(&running, hub_running_ok(&args(false, false, true))).is_some());
+    }
+
+    #[test]
+    fn a_hub_move_says_whether_it_carried_the_running_turn() {
+        let timing = |carried| Timing {
+            started: std::time::Instant::now(),
+            begin_ms: 10,
+            answer_ms: 50,
+            carried,
+            target: json!({"via": "circuit"}),
+        };
+        let carried = timing(true).value(80);
+        assert_eq!(carried["carriedRunningTurn"], true);
+        assert_eq!(carried["freezeMs"], 70);
+        assert_eq!(carried["via"], "circuit");
+        assert_eq!(timing(false).value(80)["carriedRunningTurn"], false);
+    }
 
     #[test]
     fn a_hub_move_names_its_folder_as_the_target_can_make_it() {
