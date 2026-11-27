@@ -81,7 +81,11 @@ impl Hub {
             let Ok(Some(meta)) = hub.store.load_startup(&id) else {
                 return false;
             };
-            if meta.id != id || (meta.permission_policy.is_some() && meta.policy_source.is_none()) {
+            // A deleted chat stays out of the map: the whole read holds it (`soft_delete.rs`).
+            if meta.id != id
+                || super::soft_delete::deleted_until(&meta).is_some()
+                || (meta.permission_policy.is_some() && meta.policy_source.is_none())
+            {
                 return false;
             }
             // Unknown liveness is kept for adoption; it never turns a possibly running turn

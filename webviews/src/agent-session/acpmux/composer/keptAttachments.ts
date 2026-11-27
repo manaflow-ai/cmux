@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import type { ComposerAttachment } from "../attachments";
 import { appendAttachments } from "./attachmentIntakeModel";
 import { holdWebSwap } from "../../../pages/shared/webSwap";
+import { holdSwapReveal } from "../../../pages/shared/swapHandoff";
 
 /// Where the host keeps each chat's unsent chips (AgentPaneDraftAttachments.swift), so reopening
 /// the chat, restoring it from the archive or relaunching after a crash brings them back with the
@@ -217,6 +218,18 @@ export function useKeptAttachments(
         // does not hold the update for good. (A host that keeps fewer bytes than shown holds it.)
         if (kept.ids === "\u0000refused") sendNow.current(sessionId, chips);
         return "composer.attachments-unsaved";
+      }),
+    [],
+  );
+
+  // GRACEFUL-SWAP: a swapped-in page stays under the host's still until the chat's kept chips are
+  // read back: the host's read can answer after the DOM went quiet, and a chip row arriving then
+  // pushed the composer up after the page showed (Leo 2026-11-22: "no shift, no anything").
+  useEffect(
+    () =>
+      holdSwapReveal(() => {
+        const { sessionId, readFor, store } = shown.current;
+        return sessionId && store && readFor !== sessionId ? "composer.chips-unread" : null;
       }),
     [],
   );
