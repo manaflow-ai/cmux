@@ -1300,6 +1300,50 @@ class ClockOverPeerTcp(unittest.TestCase):
         me = self.orchestrator(types.SimpleNamespace(), types.SimpleNamespace(via="reach"))
         self.assertFalse(me.clock_over_peer())
 
+class RigMarkerWait(unittest.TestCase):
+    """The rig's `marker` reply (wait_marker): an empty marker.log says how the marker ended."""
+
+    class Proc:
+        def __init__(self, code):
+            self.code = code
+
+        def poll(self):
+            return self.code
+
+    def log_with(self, text):
+        d = tempfile.mkdtemp()
+        path = os.path.join(d, "marker.log")
+        with open(path, "w") as f:
+            f.write(text)
+        return path
+
+    def test_origin_click_point_and_geometry(self):
+        log = self.log_with("marker: starting pid 7\nmarker-origin 0,50 click-at 704,66\n"
+                            "marker: stream width 3840.0 px, cell 32.0 pt, display (1920.0, 1080.0)\n")
+        reply = vs.wait_marker(self.Proc(None), log, seconds=1)
+        self.assertEqual(reply["origin"], [0, 50])
+        self.assertEqual(reply["at"], [704, 66])
+        self.assertIn("stream width", reply["geometry"])
+
+    def test_a_silent_trap_reads_as_the_signal_not_nothing(self):
+        log = self.log_with("")
+        start = vs.time.time()
+        reply = vs.wait_marker(self.Proc(-5), log, seconds=10)
+        self.assertLess(vs.time.time() - start, 1, "a dead marker is not waited out")
+        self.assertFalse(reply["ok"])
+        self.assertIn("killed by SIGTRAP", reply["error"])
+        self.assertEqual(reply["exit"], -5)
+
+    def test_a_refusal_keeps_its_last_line(self):
+        log = self.log_with("marker: no display (NSScreen.screens is empty: ...)\n")
+        reply = vs.wait_marker(self.Proc(3), log, seconds=10)
+        self.assertIn("exit 3", reply["error"])
+        self.assertIn("no display", reply["log"])
+
+    def test_a_hang_says_still_running(self):
+        log = self.log_with("marker: starting pid 7\n")
+        reply = vs.wait_marker(self.Proc(None), log, seconds=0.1, step=0.02)
+        self.assertIn("still running after 0.1 s", reply["error"])
 
 class LocalnetProbe(unittest.TestCase):
     """macOS Local Network privacy refuses a launchd step's UDP to the LAN at once (Errno 65); the
@@ -1366,6 +1410,34 @@ class LocalnetProbe(unittest.TestCase):
         me_viewer_err = "not json"
         logged = self.check(me_viewer_err, {"localnet": "ok"})
         self.assertEqual(logged[0]["localnet"]["viewer"]["localnet"], "unknown")
+
+
+class ClipboardLeg(unittest.TestCase):
+    def test_clip_echo_answers_each_probe_once_and_never_its_own_echo(self):
+        board, writes = ["cmux-vs-clip-41-abc-0"], []
+
+        def write(text):
+            writes.append(text)
+            board[0] = text
+
+        last = vs.clip_echo_step(lambda: board[0], write, None)
+        self.assertEqual(writes, ["ack:cmux-vs-clip-41-abc-0"])
+        # The echo itself, then the same text again: nothing more.
+        last = vs.clip_echo_step(lambda: board[0], write, last)
+        last = vs.clip_echo_step(lambda: board[0], write, last)
+        self.assertEqual(len(writes), 1)
+        # A person's own copy is left alone; the next probe is answered.
+        board[0] = "hello"
+        last = vs.clip_echo_step(lambda: board[0], write, last)
+        board[0] = "cmux-vs-clip-41-abc-1"
+        vs.clip_echo_step(lambda: board[0], write, last)
+        self.assertEqual(writes[-1], "ack:cmux-vs-clip-41-abc-1")
+        self.assertEqual(len(writes), 2)
+        # An unreadable pasteboard does nothing.
+        self.assertIsNone(vs.clip_echo_step(lambda: None, write, "x"))
+
+    def test_bench_input_clipboard_takes_no_aim(self):
+        self.assertEqual(vs.bench_input("clipboard", 30, (10, 20)), "--input clipboard --samples 30")
 
 
 if __name__ == "__main__":
