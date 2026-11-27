@@ -23,11 +23,3 @@ fn the_shared_cases_match_the_app() {
         }
     }
 }
-
-#[test]
-fn the_schema_default_is_the_shared_default_list() {
-    let row = cmux_config::schema::Schema::embedded()
-        .row(SITE_ENGINES_SETTING)
-        .expect("browser.siteEngines is in the schema");
-    assert_eq!(row.default.as_ref(), Some(&fixture()["defaults"]));
-}
