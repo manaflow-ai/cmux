@@ -35,6 +35,15 @@ export function selectGalleryFiles(
   sourceRoot = SRC,
 ): string[] {
   if (wanted.length === 0) return [...files];
+  const matchedWanted = new Set<string>();
+  for (const id of Object.keys(index)) {
+    for (const prefix of wanted) {
+      if (matches(id, [prefix])) matchedWanted.add(prefix);
+    }
+  }
+  // Computed entry IDs are absent from the source index. Keep the old all-files behavior when any
+  // requested ID is unknown so callers still discover those entries through their imports.
+  if (matchedWanted.size !== new Set(wanted).size) return [...files];
   const selected = new Set(
     Object.entries(index)
       .filter(([id]) => matches(id, wanted))
