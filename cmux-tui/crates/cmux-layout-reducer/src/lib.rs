@@ -966,7 +966,6 @@ mod sidebar_face_tests;
 pub mod auto_archive;
 pub mod auto_archive_ledger;
 pub mod chief_panel;
-pub mod closing_panes;
 pub mod divider_insert;
 pub mod dock_model;
 pub mod drop_rules;
@@ -1004,4 +1003,7 @@ pub mod sidebar_row;
 pub mod sidebar_row_layout;
 pub mod sidebar_sections;
 pub mod sidebar_session_tree;
+pub mod window_registry;
+#[cfg(test)]
+mod window_registry_tests;
 pub mod workspace_port_links;

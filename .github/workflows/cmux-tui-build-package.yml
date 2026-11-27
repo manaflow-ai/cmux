@@ -2321,7 +2321,7 @@ jobs:
       }}
     # GitHub-hosted OIDC is required for artifact attestations; this job is
     # intentionally exempt from the self-hosted runner routing guard.
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-latest' || fromJSON(vars.RUNNER_POOLS).provenance }} # github-hosted-required: artifact attestations need GitHub OIDC
+    runs-on: ubuntu-latest # github-hosted-required: artifact attestations need GitHub OIDC
     timeout-minutes: 15
     permissions:
       contents: read
