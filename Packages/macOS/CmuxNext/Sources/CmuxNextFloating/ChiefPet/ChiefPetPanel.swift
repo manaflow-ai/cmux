@@ -19,6 +19,8 @@ public final class ChiefPetPanel: NSPanel, NSWindowDelegate {
 
     /// A click on the character, or the rail's compose.
     public var onClick: (() -> Void)?
+    /// The pointer came onto the pet (true) or left it (false).
+    var onHover: ((Bool) -> Void)?
     /// The rail's chevron.
     public var onExpand: (() -> Void)?
     /// The right-click menu's Chief Pet Settings… item.
@@ -69,6 +71,7 @@ public final class ChiefPetPanel: NSPanel, NSWindowDelegate {
         pet.frame = NSRect(origin: .zero, size: Self.petSize)
         pet.autoresizingMask = [.width, .height]
         pet.onClick = { [weak self] in self?.onClick?() }
+        pet.onHover = { [weak self] inside in self?.onHover?(inside) }
         pet.rail.addTool(.actionEdit, label: ChiefPetStrings.compose) { [weak self] in self?.onClick?() }
         expandTool = pet.rail.addTool(.disclosureCollapsed, label: ChiefPetStrings.expand, turned: 90) { [weak self] in self?.onExpand?() }
         pet.onDragEnded = { [weak self] in self?.saveOrigin() }
@@ -182,6 +185,8 @@ final class ChiefPetView: NSView, StatusIndicatorConfigClient {
     var onDragEnded: (() -> Void)?
     /// The right-click menu (the panel's `contextMenu()`).
     var contextMenu: (() -> NSMenu?)?
+    /// The pointer came onto the pet (true) or left it (false): the hover dock (`ChiefPetHoverDock`).
+    var onHover: ((Bool) -> Void)?
     /// The pointer in screen points; tests drive their own.
     var pointer: () -> CGPoint = { NSEvent.mouseLocation }
     let rail = ChiefPetRail()
@@ -313,6 +318,24 @@ final class ChiefPetView: NSView, StatusIndicatorConfigClient {
     }
 
     override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
+
+    /// Hover reaches the pet over any app: it never activates cmux, so the area tracks always.
+    override func updateTrackingAreas() {
+        super.updateTrackingAreas()
+        for area in trackingAreas where area.owner === self { removeTrackingArea(area) }
+        addTrackingArea(NSTrackingArea(rect: .zero, options: [.mouseEnteredAndExited, .activeAlways, .inVisibleRect], owner: self))
+    }
+
+    override func mouseEntered(with event: NSEvent) {
+        // A drag carries the pet under the pointer: no hover then.
+        guard !dragging else { return }
+        onHover?(true)
+    }
+
+    override func mouseExited(with event: NSEvent) {
+        guard !dragging else { return }
+        onHover?(false)
+    }
 
     /// A tool takes its own press; anywhere else the pet takes it (a drag, or a click on the character).
     override func hitTest(_ point: NSPoint) -> NSView? {

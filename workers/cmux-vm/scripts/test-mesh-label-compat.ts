@@ -1,25 +1,14 @@
 /** Execute the previous mesh engine against labelled intents during a rolling update. */
 import assert from "node:assert/strict";
 import { writeFileSync, unlinkSync } from "node:fs";
-import { fileURLToPath } from "node:url";
 import { newMeshId } from "../src/lib/ids.ts";
 import { memoryLedgerStorage, TenantLedger } from "../src/limits/ledger.ts";
+import { readBaseline } from "./compat-baseline.ts";
 
 const baseline = "59035d21391f05151380e3d0447735998bd1b34f";
-const root = fileURLToPath(new URL("../../../", import.meta.url));
-const git = (...args: string[]) => Bun.spawnSync(["git", "-C", root, ...args], { stdout: "pipe", stderr: "pipe" });
-let source = git("show", `${baseline}:workers/cmux-vm/src/limits/mesh-creation.ts`);
-if (source.exitCode !== 0) {
-  // --depth only on an already-shallow checkout: in a full clone it would truncate history for
-  // every worktree sharing it (tests/test_ci_no_shallow_dev_fetch.py).
-  const isShallow = new TextDecoder().decode(git("rev-parse", "--is-shallow-repository").stdout).trim() === "true";
-  const depth = isShallow ? ["--depth=1"] : [];
-  assert.equal(git("fetch", "--no-tags", ...depth, "origin", baseline).exitCode, 0);
-  source = git("show", `${baseline}:workers/cmux-vm/src/limits/mesh-creation.ts`);
-}
-assert.equal(source.exitCode, 0);
+const source = readBaseline(baseline, "mesh-creation.ts");
 const path = new URL(`../src/limits/.mesh-label-compat-${crypto.randomUUID()}.ts`, import.meta.url);
-writeFileSync(path, new TextDecoder().decode(source.stdout));
+writeFileSync(path, source);
 try {
   const previous = await import(path.href);
   const storage = memoryLedgerStorage(), current = new TenantLedger(storage), meshId = newMeshId();

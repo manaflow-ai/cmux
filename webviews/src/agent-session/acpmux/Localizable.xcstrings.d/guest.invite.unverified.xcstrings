@@ -1,0 +1,138 @@
+{
+  "sourceLanguage" : "en",
+  "strings" : {
+    "guest.invite.unverified" : {
+      "comment" : "Guest page, account invite: the signed-in account's email is not verified, so it cannot match an invite",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Verify your cmux account's email to join."
+          }
+        },
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Bestätige die E-Mail-Adresse deines cmux-Kontos, um beizutreten."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Vérifiez l’e-mail de votre compte cmux pour rejoindre."
+          }
+        },
+        "ar" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "تحقق من البريد الإلكتروني لحسابك في cmux للانضمام."
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Verifica el correo de tu cuenta de cmux para unirte."
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "請先驗證你的 cmux 帳號電子郵件再加入。"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "请先验证你的 cmux 账号邮箱再加入。"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "참여하려면 cmux 계정의 이메일을 인증하세요."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "参加するには cmux アカウントのメールアドレスを確認してください。"
+          }
+        },
+        "bs" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Potvrdi e-poštu svog cmux računa da se pridružiš."
+          }
+        },
+        "da" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Bekræft din cmux-kontos e-mail for at deltage."
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Verifica l’email del tuo account cmux per partecipare."
+          }
+        },
+        "km" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "ផ្ទៀងផ្ទាត់អ៊ីមែលគណនី cmux របស់អ្នក ដើម្បីចូលរួម។"
+          }
+        },
+        "nb" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Bekreft e-posten til cmux-kontoen din for å bli med."
+          }
+        },
+        "pl" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Potwierdź adres e-mail konta cmux, aby dołączyć."
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Confirme o e-mail da sua conta do cmux para entrar."
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Подтвердите адрес почты аккаунта cmux, чтобы присоединиться."
+          }
+        },
+        "th" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "ยืนยันอีเมลของบัญชี cmux ของคุณเพื่อเข้าร่วม"
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Katılmak için cmux hesabının e-postasını doğrula."
+          }
+        },
+        "uk" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Підтвердьте адресу пошти облікового запису cmux, щоб приєднатися."
+          }
+        },
+        "vi" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Xác minh email tài khoản cmux của bạn để tham gia."
+          }
+        }
+      }
+    }
+  },
+  "version" : "1.0"
+}

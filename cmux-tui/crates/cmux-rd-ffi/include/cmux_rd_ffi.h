@@ -26,7 +26,7 @@ extern "C" {
 #endif
 
 /* Version of this ABI; bumped on every incompatible change. */
-#define CMUX_RD_FFI_ABI_VERSION 8u
+#define CMUX_RD_FFI_ABI_VERSION 9u
 
 /* Carriers. */
 #define CMUX_RD_CARRIER_DATAGRAM 0u
@@ -105,6 +105,7 @@ typedef struct CmuxRdStats {
     uint64_t frames_lost;
     uint32_t acked_frame;
     bool need_recovery;
+    uint64_t frames_skipped; /* frames a newer keyframe replaced on the ready queue (ABI 9) */
 } CmuxRdStats;
 
 /* One viewer input event. Fields the kind does not use are ignored. */
@@ -125,8 +126,11 @@ typedef struct CmuxRdInputEvent {
 
 uint32_t cmux_rd_ffi_abi_version(void);
 
-/* Returns NULL for an unknown carrier. deadline_us: how long a frame may wait
-   for missing shards; nack_after_us: how long before its gaps are NACKed. */
+/* Returns NULL for an unknown carrier. deadline_us: the longest a frame may
+   wait for missing shards (each is NACKed and retried every RTT + 10 ms, at most 50 ms,
+   and the frame waits two RTT + 10 ms windows after the request, the RTT measured by the
+   receiver; deadline_us caps that wait);
+   nack_after_us: how long before its gaps are NACKed. */
 CmuxRdReceiver *cmux_rd_receiver_new(uint32_t carrier, uint64_t deadline_us, uint64_t nack_after_us);
 void cmux_rd_receiver_free(CmuxRdReceiver *receiver);
 
@@ -142,8 +146,11 @@ int32_t cmux_rd_receiver_pop_frame(CmuxRdReceiver *receiver, CmuxRdFrame *out);
 /* Returns 1 and fills *out with the oldest queued message, or 0 when none is queued. */
 int32_t cmux_rd_receiver_pop_message(CmuxRdReceiver *receiver, CmuxRdMessage *out);
 
-/* Records one decode time for the feedback. */
+/* Records one decode time for the feedback; acknowledges no LTR token. */
 int32_t cmux_rd_receiver_note_decode(CmuxRdReceiver *receiver, uint32_t decode_us);
+/* Records one decode time of popped frame `frame`, the frame that decoded:
+   its LTR token is acknowledged to the host. */
+int32_t cmux_rd_receiver_note_frame_decode(CmuxRdReceiver *receiver, uint32_t frame, uint32_t decode_us);
 /* Asks the host for a keyframe in every feedback until one is released. */
 int32_t cmux_rd_receiver_request_keyframe(CmuxRdReceiver *receiver);
 
@@ -211,6 +218,9 @@ int32_t cmux_rd_session_tick(CmuxRdSession *session, uint64_t now_us);
 int32_t cmux_rd_session_pop_frame(CmuxRdSession *session, CmuxRdFrame *out, uint16_t *out_stream);
 int32_t cmux_rd_session_pop_message(CmuxRdSession *session, CmuxRdMessage *out);
 int32_t cmux_rd_session_note_decode(CmuxRdSession *session, uint16_t stream, uint32_t decode_us);
+/* Records one decode time of frame `frame` of `stream`, acknowledging its LTR
+   token to the host. */
+int32_t cmux_rd_session_note_frame_decode(CmuxRdSession *session, uint16_t stream, uint32_t frame, uint32_t decode_us);
 int32_t cmux_rd_session_request_keyframe(CmuxRdSession *session, uint16_t stream);
 /* Writes the next due feedback datagram of any stream (its header names the
    stream). Returns 1 when written, 0 when none is due; call again until 0.
@@ -242,6 +252,15 @@ int32_t cmux_rd_session_note_frame_presented(CmuxRdSession *session, uint16_t st
 /* Writes the stage ledger so far as one UTF-8 JSON object. CMUX_RD_ERR_BUFFER
    when cap is too small; *out_len then holds the size needed. */
 int32_t cmux_rd_session_stage_ledger(CmuxRdSession *session, uint8_t *out, size_t cap, size_t *out_len);
+/* Session report (cmux.rd-session-report/1). The viewer began connecting at
+   at_us (the clock passed to push_*): the report's first frame counts from
+   the first call. */
+int32_t cmux_rd_session_note_connect_started(CmuxRdSession *session, uint64_t at_us);
+/* Writes this session's report so far (connect to first frame on glass,
+   display-to-glass and Present p50/p95 over every presented frame) as one
+   UTF-8 JSON object. CMUX_RD_ERR_BUFFER when cap is too small; *out_len then
+   holds the size needed. */
+int32_t cmux_rd_session_report(CmuxRdSession *session, uint8_t *out, size_t cap, size_t *out_len);
 /* The offset of the host's clock from this viewer's (host = viewer +
    *offset_us) and the round trip of the best sample: 1 when an estimate
    exists, 0 before the first answer. */
@@ -530,8 +549,41 @@ int32_t cmux_rd_line_reader_push(CmuxRdLineReader *reader, const uint8_t *bytes,
    when none is ready. */
 int32_t cmux_rd_line_reader_next(CmuxRdLineReader *reader, CmuxRdLine *out);
 
+/* ---- Mac Screen and cmux Remote UI rules (stateless JSON calls) ----
+   A request is {"op": "<area>.<name>", "args": {...}}; the answer is
+   {"ok": <value>} or {"err": "<why>"} (src/ui/mod.rs lists the ops). No I/O,
+   no threads, no clock: a rule that needs the time takes now_ms. */
+/* CMUX_RD_OK with *out and *out_len set to the answer JSON, which the caller
+   frees with cmux_rd_ui_free; CMUX_RD_ERR_NULL / CMUX_RD_ERR_PANIC otherwise. */
+int32_t cmux_rd_ui_call(const uint8_t *json, size_t json_len, uint8_t **out, size_t *out_len);
+/* Frees one answer of cmux_rd_ui_call; NULL is ignored. */
+void cmux_rd_ui_free(uint8_t *ptr, size_t len);
+
+/* ---- Viewer rules (CmuxNextRemoteView) ----
+   The remote desktop viewer's rules and state (cmux_rd_ffi::view): keyboard
+   routing, held keys and HID usages, the system shortcut tap, scroll
+   accumulation, text chunking, the pane state reducer and the latency hold,
+   and the remote-view tab record (URL) and open policy. A request is JSON
+   {"op": "...", ...camelCase fields}; ops are keyboard.*, hid.*, keys.*,
+   mouse.button, shortcuts.*, scroll.add, text.events, pane.reduce, pane.view,
+   latency.sample and tab.*. Every op is pure: state in, next state out.
+   Modifiers are NSEvent.ModifierFlags raw bits, phases NSEvent.Phase bits,
+   instants nanoseconds (int64). The result bytes stay valid until the next
+   call on the same handle. No I/O, no threads; a panic poisons the handle. */
+typedef struct CmuxRdView CmuxRdView;
+
+/* NULL only when allocation fails. */
+CmuxRdView *cmux_rd_view_new(void);
+/* NULL is ignored. */
+void cmux_rd_view_free(CmuxRdView *view);
+/* Runs one request. CMUX_RD_OK with *result and *result_len set (JSON);
+   CMUX_RD_ERR_INVALID when json is not a request. */
+int32_t cmux_rd_view_call(CmuxRdView *view, const uint8_t *json, size_t json_len,
+                          const uint8_t **result, size_t *result_len);
+
 #ifdef __cplusplus
 }
 #endif
+
 
 #endif /* CMUX_RD_FFI_H */

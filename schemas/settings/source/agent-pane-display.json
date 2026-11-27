@@ -121,33 +121,141 @@
           ]
         },
         {
-          "key": "agentPane.display.pinnedPlan",
-          "note": "The running turn's task list pinned under its latest message (webviews conversation/turns.ts). Off by default: the composer's hat shows it (subagents/SubagentTray.tsx plan; Leo, 2026-11-03).",
+          "key": "agentPane.display.headerBreadcrumb",
+          "note": "Taste prototype: the chat header's title as one monospace slash path, repo / branch / chat title (webviews header/ThreadTitle.tsx). Off by default; off, the header shows the plain title as before.",
           "title": {
-            "key": "settings.agentPane.display.pinnedPlan",
-            "text": "Pin Task List in Chat"
+            "key": "settings.agentPane.display.headerBreadcrumb",
+            "text": "Header Path"
           },
           "help": {
-            "key": "settings.agentPane.display.pinnedPlan.help",
-            "text": "Keeps the agent's task list under the latest message, not over the composer."
+            "key": "settings.agentPane.display.headerBreadcrumb.help",
+            "text": "Show the chat's repository and branch before its title in the header, as a path."
           },
           "kind": "toggle",
           "default": false,
           "keywords": [
             "agent",
             "chat",
-            "acp",
             "display",
-            "reading",
-            "plan",
-            "task",
-            "tasks",
-            "todo",
-            "checklist",
-            "pin",
-            "pinned",
+            "header",
+            "title",
+            "breadcrumb",
+            "path",
+            "slash",
+            "monospace",
+            "repo",
+            "branch",
+            "toggle"
+          ]
+        },
+        {
+          "key": "agentPane.display.chatListStatusPills",
+          "note": "A taste prototype (Taste Board #19, winner and finalist list rows): a small status pill (Running, Needs you, Done, Failed) at the end of each live chat's row in All Chats (webviews newtab/AllChatsList.tsx ChatStatusPill), from the state the row already has; idle and indexed rows show none. Off by default: the rows are as before.",
+          "title": {
+            "key": "settings.agentPane.display.chatListStatusPills",
+            "text": "Status Pills in All Chats"
+          },
+          "help": {
+            "key": "settings.agentPane.display.chatListStatusPills.help",
+            "text": "Shows Running, Needs you, Done or Failed as a small pill on each live chat in All Chats."
+          },
+          "kind": "toggle",
+          "default": false,
+          "keywords": [
+            "agent",
+            "chat",
+            "all chats",
             "list",
-            "progress"
+            "status",
+            "pill",
+            "badge",
+            "running",
+            "needs you",
+            "done",
+            "failed",
+            "toggle"
+          ]
+        },
+        {
+          "key": "agentPane.display.subagentOf",
+          "note": "A subagent's own pane says whose it is, \"Subagent of <chat>\" muted beside its name on the header's one line (webviews subagents/subagentPanes.ts paneHeading; Leo, 2026-11-22). Off by default; off, the header names the subagent alone, as before.",
+          "title": {
+            "key": "settings.agentPane.display.subagentOf",
+            "text": "Subagent Of in Header"
+          },
+          "help": {
+            "key": "settings.agentPane.display.subagentOf.help",
+            "text": "In a subagent's own pane, show which chat it belongs to beside its name in the header."
+          },
+          "kind": "toggle",
+          "default": false,
+          "keywords": [
+            "agent",
+            "chat",
+            "display",
+            "header",
+            "subagent",
+            "parent",
+            "of",
+            "provenance",
+            "toggle"
+          ]
+        },
+        {
+          "key": "agentPane.display.environmentCard",
+          "note": "A floating card at the chat's top right (webviews session-info/EnvironmentCard.tsx), after the Codex app's Environment panel: the chat folder's changes (Session Info's Changes row, changeCounts.ts), its branch or worktree, Commit or push (the diff tab's Commit form and Push, as the palette's Commit opens it) and Create PR (git.pullRequest). Off by default: today's chat draws no card. A look turns it on (chameleon-codex).",
+          "title": {
+            "key": "settings.agentPane.display.environmentCard",
+            "text": "Environment Card"
+          },
+          "help": {
+            "key": "settings.agentPane.display.environmentCard.help",
+            "text": "A card at the chat's top right with its changes, branch, commit and pull request."
+          },
+          "kind": "toggle",
+          "default": false,
+          "keywords": [
+            "agent",
+            "chat",
+            "display",
+            "environment",
+            "card",
+            "panel",
+            "changes",
+            "branch",
+            "worktree",
+            "commit",
+            "push",
+            "pull",
+            "request",
+            "git",
+            "codex"
+          ]
+        },
+        {
+          "key": "agentPane.display.changesPill",
+          "note": "A pill centered over the composer naming how many files the chat folder changed and their lines (webviews session-info/EnvironmentCard.tsx ChangesPill), after the Codex app's \"1 file changed +2 -2\"; a click opens the diff beside the chat. Off by default: today's chat draws no pill.",
+          "title": {
+            "key": "settings.agentPane.display.changesPill",
+            "text": "Changes Pill"
+          },
+          "help": {
+            "key": "settings.agentPane.display.changesPill.help",
+            "text": "A pill over the composer with how many files the chat changed."
+          },
+          "kind": "toggle",
+          "default": false,
+          "keywords": [
+            "agent",
+            "chat",
+            "display",
+            "changes",
+            "pill",
+            "files",
+            "changed",
+            "diff",
+            "composer",
+            "codex"
           ]
         },
         {
@@ -179,6 +287,33 @@
           ]
         },
         {
+          "key": "agentPane.display.compactShortTurns",
+          "note": "A turn with little to hide (under three tool calls and five seconds) draws flat, its work in a one-line summary such as \"4s \u00b7 Ran 2 commands\", instead of folding under \"Worked for 4s\". Off unless switched on: Leo, 2026-11-25: \"why isn't there a toggle? there should be one.\" (webviews conversation/turns.ts foldsTurn, chatDisplay.ts COMPACT_SHORT_TURNS_KEY).",
+          "title": {
+            "key": "settings.agentPane.display.compactShortTurns",
+            "text": "Compact Summary for Short Turns"
+          },
+          "help": {
+            "key": "settings.agentPane.display.compactShortTurns.help",
+            "text": "A short turn shows a one-line summary of what it did, instead of folding under Worked for."
+          },
+          "kind": "toggle",
+          "default": false,
+          "keywords": [
+            "agent",
+            "chat",
+            "acp",
+            "display",
+            "short",
+            "turn",
+            "worked",
+            "summary",
+            "compact",
+            "fold",
+            "toggle"
+          ]
+        },
+        {
           "key": "agentPane.display.sendPop",
           "note": "A sent prompt pops in and settles where it lands, Claude's own user-message entrance (conversation.css SEND-POP; Leo, 2026-11-22: \"it does a little pop and settle\"). Off unless switched on: Leo, 2026-11-22: \"hm im not necessarily sure if people will be wanting to do the send pop by default\". The page sets data-send-pop on its root when on (chatDisplay.ts).",
           "title": {
@@ -204,6 +339,35 @@
             "motion",
             "entrance",
             "bubble",
+            "toggle"
+          ]
+        },
+        {
+          "key": "agentPane.display.sendScrollsToTop",
+          "note": "A sent prompt scrolls to the top of the transcript with room below it for the reply, which fills in under it (cmux#56827, Leo: \"sent message scrolls to top\"). Off unless switched on: off, the view follows the bottom as before. The room is one term of conversation/roomUnder.ts (sendTop), read from chatDisplay.ts.",
+          "title": {
+            "key": "settings.agentPane.display.sendScrollsToTop",
+            "text": "Scroll Sent Prompts to Top"
+          },
+          "help": {
+            "key": "settings.agentPane.display.sendScrollsToTop.help",
+            "text": "A prompt you send moves to the top of the chat, with room below it for the reply."
+          },
+          "kind": "toggle",
+          "default": false,
+          "keywords": [
+            "agent",
+            "chat",
+            "acp",
+            "display",
+            "send",
+            "sent",
+            "prompt",
+            "scroll",
+            "top",
+            "pin",
+            "pinned",
+            "reply",
             "toggle"
           ]
         },
@@ -917,7 +1081,7 @@
           },
           "help": {
             "key": "settings.agentPane.display.inspector.help",
-            "text": "Push narrows the chat; Overlay covers it."
+            "text": "Push narrows the chat; Overlay covers it; Inline puts it atop the chat."
           },
           "kind": "choice",
           "choices": [
@@ -933,6 +1097,13 @@
               "title": {
                 "key": "settings.choice.agentChatInspectorOverlay",
                 "text": "Overlay"
+              }
+            },
+            {
+              "value": "inline",
+              "title": {
+                "key": "settings.choice.agentChatInspectorInline",
+                "text": "Inline"
               }
             }
           ],
@@ -952,6 +1123,320 @@
             "overlay",
             "push",
             "details"
+          ]
+        },
+        {
+          "key": "agentPane.display.sessionInfo.sections.environment",
+          "name": "sessionInfoShowsEnvironment",
+          "note": "Whether Session Info (the chat's thread details) shows its Environment section (webviews/src/agent-session/acpmux/session-info/shownSections.ts). On by default: off, the section is not drawn at all.",
+          "title": {
+            "key": "settings.agentPane.display.sessionInfo.sections.environment",
+            "text": "Session Info: Environment"
+          },
+          "help": {
+            "key": "settings.agentPane.display.sessionInfo.sections.environment.help",
+            "text": "Where the chat runs: this Mac or Cloud, its folder and branch."
+          },
+          "kind": "toggle",
+          "default": true,
+          "keywords": [
+            "agent",
+            "chat",
+            "acp",
+            "display",
+            "session",
+            "info",
+            "thread",
+            "details",
+            "section",
+            "show",
+            "hide",
+            "machine",
+            "folder",
+            "branch",
+            "cloud"
+          ]
+        },
+        {
+          "key": "agentPane.display.sessionInfo.sections.context",
+          "name": "sessionInfoShowsContext",
+          "note": "Whether Session Info (the chat's thread details) shows its Context section (webviews/src/agent-session/acpmux/session-info/shownSections.ts). On by default: off, the section is not drawn at all.",
+          "title": {
+            "key": "settings.agentPane.display.sessionInfo.sections.context",
+            "text": "Session Info: Context"
+          },
+          "help": {
+            "key": "settings.agentPane.display.sessionInfo.sections.context.help",
+            "text": "How full the context window is, and what fills it."
+          },
+          "kind": "toggle",
+          "default": true,
+          "keywords": [
+            "agent",
+            "chat",
+            "acp",
+            "display",
+            "session",
+            "info",
+            "thread",
+            "details",
+            "section",
+            "show",
+            "hide",
+            "context",
+            "tokens",
+            "window"
+          ]
+        },
+        {
+          "key": "agentPane.display.sessionInfo.sections.subagents",
+          "name": "sessionInfoShowsSubagents",
+          "note": "Whether Session Info (the chat's thread details) shows its Subagents section (webviews/src/agent-session/acpmux/session-info/shownSections.ts). On by default: off, the section is not drawn at all.",
+          "title": {
+            "key": "settings.agentPane.display.sessionInfo.sections.subagents",
+            "text": "Session Info: Subagents"
+          },
+          "help": {
+            "key": "settings.agentPane.display.sessionInfo.sections.subagents.help",
+            "text": "The subagents and chats this chat started."
+          },
+          "kind": "toggle",
+          "default": true,
+          "keywords": [
+            "agent",
+            "chat",
+            "acp",
+            "display",
+            "session",
+            "info",
+            "thread",
+            "details",
+            "section",
+            "show",
+            "hide",
+            "subagents",
+            "agents",
+            "children"
+          ]
+        },
+        {
+          "key": "agentPane.display.sessionInfo.sections.tasks",
+          "name": "sessionInfoShowsTasks",
+          "note": "Whether Session Info (the chat's thread details) shows its Background Tasks section (webviews/src/agent-session/acpmux/session-info/shownSections.ts). On by default: off, the section is not drawn at all.",
+          "title": {
+            "key": "settings.agentPane.display.sessionInfo.sections.tasks",
+            "text": "Session Info: Background Tasks"
+          },
+          "help": {
+            "key": "settings.agentPane.display.sessionInfo.sections.tasks.help",
+            "text": "The commands, servers and scheduled jobs the chat runs."
+          },
+          "kind": "toggle",
+          "default": true,
+          "keywords": [
+            "agent",
+            "chat",
+            "acp",
+            "display",
+            "session",
+            "info",
+            "thread",
+            "details",
+            "section",
+            "show",
+            "hide",
+            "tasks",
+            "background",
+            "commands",
+            "servers"
+          ]
+        },
+        {
+          "key": "agentPane.display.sessionInfo.sections.sources",
+          "name": "sessionInfoShowsSources",
+          "note": "Whether Session Info (the chat's thread details) shows its Sources section (webviews/src/agent-session/acpmux/session-info/shownSections.ts). On by default: off, the section is not drawn at all.",
+          "title": {
+            "key": "settings.agentPane.display.sessionInfo.sections.sources",
+            "text": "Session Info: Sources"
+          },
+          "help": {
+            "key": "settings.agentPane.display.sessionInfo.sections.sources.help",
+            "text": "The files and pages the agent read."
+          },
+          "kind": "toggle",
+          "default": true,
+          "keywords": [
+            "agent",
+            "chat",
+            "acp",
+            "display",
+            "session",
+            "info",
+            "thread",
+            "details",
+            "section",
+            "show",
+            "hide",
+            "sources",
+            "files",
+            "read"
+          ]
+        },
+        {
+          "key": "agentPane.display.sessionInfo.sections.outputs",
+          "name": "sessionInfoShowsOutputs",
+          "note": "Whether Session Info (the chat's thread details) shows its Outputs section (webviews/src/agent-session/acpmux/session-info/shownSections.ts). On by default: off, the section is not drawn at all.",
+          "title": {
+            "key": "settings.agentPane.display.sessionInfo.sections.outputs",
+            "text": "Session Info: Outputs"
+          },
+          "help": {
+            "key": "settings.agentPane.display.sessionInfo.sections.outputs.help",
+            "text": "The documents and files the chat made for you."
+          },
+          "kind": "toggle",
+          "default": true,
+          "keywords": [
+            "agent",
+            "chat",
+            "acp",
+            "display",
+            "session",
+            "info",
+            "thread",
+            "details",
+            "section",
+            "show",
+            "hide",
+            "outputs",
+            "files",
+            "documents"
+          ]
+        },
+        {
+          "key": "agentPane.display.sessionInfo.sections.changes",
+          "name": "sessionInfoShowsChanges",
+          "note": "Whether Session Info (the chat's thread details) shows its Pull Requests section (webviews/src/agent-session/acpmux/session-info/shownSections.ts). On by default: off, the section is not drawn at all.",
+          "title": {
+            "key": "settings.agentPane.display.sessionInfo.sections.changes",
+            "text": "Session Info: Pull Requests"
+          },
+          "help": {
+            "key": "settings.agentPane.display.sessionInfo.sections.changes.help",
+            "text": "The chat's pull requests and their checks."
+          },
+          "kind": "toggle",
+          "default": true,
+          "keywords": [
+            "agent",
+            "chat",
+            "acp",
+            "display",
+            "session",
+            "info",
+            "thread",
+            "details",
+            "section",
+            "show",
+            "hide",
+            "changes",
+            "pull request",
+            "pr",
+            "checks"
+          ]
+        },
+        {
+          "key": "agentPane.display.sessionInfo.sections.usage",
+          "name": "sessionInfoShowsUsage",
+          "note": "Whether Session Info (the chat's thread details) shows its Usage section (webviews/src/agent-session/acpmux/session-info/shownSections.ts). On by default: off, the section is not drawn at all.",
+          "title": {
+            "key": "settings.agentPane.display.sessionInfo.sections.usage",
+            "text": "Session Info: Usage"
+          },
+          "help": {
+            "key": "settings.agentPane.display.sessionInfo.sections.usage.help",
+            "text": "Tokens, cost and time this chat used."
+          },
+          "kind": "toggle",
+          "default": true,
+          "keywords": [
+            "agent",
+            "chat",
+            "acp",
+            "display",
+            "session",
+            "info",
+            "thread",
+            "details",
+            "section",
+            "show",
+            "hide",
+            "usage",
+            "tokens",
+            "cost",
+            "time"
+          ]
+        },
+        {
+          "key": "agentPane.display.sessionInfo.sections.connectors",
+          "name": "sessionInfoShowsConnectors",
+          "note": "Whether Session Info (the chat's thread details) shows its Connectors section (webviews/src/agent-session/acpmux/session-info/shownSections.ts). On by default: off, the section is not drawn at all.",
+          "title": {
+            "key": "settings.agentPane.display.sessionInfo.sections.connectors",
+            "text": "Session Info: Connectors"
+          },
+          "help": {
+            "key": "settings.agentPane.display.sessionInfo.sections.connectors.help",
+            "text": "The MCP servers and connectors the chat has."
+          },
+          "kind": "toggle",
+          "default": true,
+          "keywords": [
+            "agent",
+            "chat",
+            "acp",
+            "display",
+            "session",
+            "info",
+            "thread",
+            "details",
+            "section",
+            "show",
+            "hide",
+            "connectors",
+            "mcp",
+            "servers"
+          ]
+        },
+        {
+          "key": "agentPane.display.sessionInfo.sections.carried",
+          "name": "sessionInfoShowsCarried",
+          "note": "Whether Session Info (the chat's thread details) shows its Carried memory section (webviews/src/agent-session/acpmux/session-info/shownSections.ts). On by default: off, the section is not drawn at all.",
+          "title": {
+            "key": "settings.agentPane.display.sessionInfo.sections.carried",
+            "text": "Session Info: Carried memory"
+          },
+          "help": {
+            "key": "settings.agentPane.display.sessionInfo.sections.carried.help",
+            "text": "The MCP servers and carried the chat has."
+          },
+          "kind": "toggle",
+          "default": true,
+          "keywords": [
+            "agent",
+            "chat",
+            "acp",
+            "display",
+            "session",
+            "info",
+            "thread",
+            "details",
+            "section",
+            "show",
+            "hide",
+            "carried",
+            "memory",
+            "instructions"
           ]
         },
         {
@@ -1067,7 +1552,71 @@
           ]
         },
         {
+          "key": "agentPane.display.detail",
+          "note": "The chat detail ladder (webviews agent-session/acpmux/chatDetail.ts), one for the agent chat and Home Channels: a chat's ... menu changes its own level, and its \"Make ... the default\" writes this row. It replaces agentPane.display.presentation and agentPane.display.transcriptView, which still read: presentation messages is Messages, else the old transcript view carries over.",
+          "title": {
+            "key": "settings.agentPane.display.detail",
+            "text": "Chat Detail"
+          },
+          "help": {
+            "key": "settings.agentPane.display.detail.help",
+            "text": "How much a chat shows: messages only, tool rows, thoughts, or every tool's output. A chat's ··· menu sets its own."
+          },
+          "kind": "choice",
+          "choices": [
+            {
+              "value": "messages",
+              "title": {
+                "key": "settings.choice.agentChatPresentationMessages",
+                "text": "Messages"
+              }
+            },
+            {
+              "value": "normal",
+              "title": {
+                "key": "settings.choice.transcriptViewNormal",
+                "text": "Normal"
+              }
+            },
+            {
+              "value": "thinking",
+              "title": {
+                "key": "settings.choice.transcriptViewThinking",
+                "text": "Thinking"
+              }
+            },
+            {
+              "value": "verbose",
+              "title": {
+                "key": "settings.choice.transcriptViewVerbose",
+                "text": "Verbose"
+              }
+            }
+          ],
+          "default": "normal",
+          "keywords": [
+            "agent",
+            "chat",
+            "acp",
+            "display",
+            "reading",
+            "detail",
+            "transcript",
+            "view",
+            "presentation",
+            "messages",
+            "bubbles",
+            "verbose",
+            "thinking",
+            "thoughts",
+            "reasoning",
+            "tool output",
+            "tools"
+          ]
+        },
+        {
           "key": "agentPane.display.transcriptView",
+          "page_hidden": "legacy: agentPane.display.detail (Chat Detail) replaces it; the key still reads",
           "note": "How much of each turn a chat shows (webviews conversation/transcriptView.ts), Claude Code desktop's Transcript view: a chat's ... menu changes its own, and its \"Make ... the default\" writes this row.",
           "title": {
             "key": "settings.agentPane.display.transcriptView",
@@ -1123,6 +1672,7 @@
         },
         {
           "key": "agentPane.display.presentation",
+          "page_hidden": "legacy: agentPane.display.detail (Chat Detail) replaces it; the key still reads",
           "title": {
             "key": "settings.agentPane.display.presentation",
             "text": "Chat Presentation"
@@ -1353,6 +1903,57 @@
           ]
         },
         {
+          "key": "agentPane.display.streaming",
+          "note": "How an agent reply's text shows while it streams (webviews conversation/streamingStyle.ts). Words is today's whole-word reveal with its newest words fading in; Lines ends the reveal at a whole line; Instant shows text as it arrives with no fade, as Reduce Motion does. A theme or profile file may set it.",
+          "title": {
+            "key": "settings.agentPane.display.streaming",
+            "text": "Reply Streaming"
+          },
+          "help": {
+            "key": "settings.agentPane.display.streaming.help",
+            "text": "How an agent's reply text appears as it arrives."
+          },
+          "kind": "choice",
+          "choices": [
+            {
+              "value": "words",
+              "title": {
+                "key": "settings.choice.streamingWords",
+                "text": "Word by Word"
+              }
+            },
+            {
+              "value": "lines",
+              "title": {
+                "key": "settings.choice.streamingLines",
+                "text": "Line by Line"
+              }
+            },
+            {
+              "value": "instant",
+              "title": {
+                "key": "settings.choice.streamingInstant",
+                "text": "Instant"
+              }
+            }
+          ],
+          "default": "words",
+          "keywords": [
+            "agent",
+            "chat",
+            "acp",
+            "display",
+            "streaming",
+            "reveal",
+            "fade",
+            "words",
+            "lines",
+            "instant",
+            "animation",
+            "typing"
+          ]
+        },
+        {
           "key": "agentPane.display.thinking.shimmer",
           "name": "thinkingShimmer",
           "note": "How the live line's light band moves while the agent works (webviews agent chat). Cadenced is today's one-second sweep every four seconds; Continuous sweeps back to back, eased in and out, over shimmerPeriod.",
@@ -1491,6 +2092,13 @@
                 "key": "settings.choice.dots",
                 "text": "Dots"
               }
+            },
+            {
+              "value": "glyph",
+              "title": {
+                "key": "settings.choice.thinkingJumpGlyph",
+                "text": "Thinking Glyph"
+              }
             }
           ],
           "default": "arrow",
@@ -1506,6 +2114,70 @@
             "button",
             "arrow",
             "dots",
+            "claude"
+          ]
+        },
+        {
+          "key": "agentPane.display.thinking.glyph",
+          "name": "thinkingGlyph",
+          "note": "A look's thinking dots: a cmux.particles/1 document (cmux-app-host js/ABI.md \"Particles choreography\", checked by the one Rust validator, cmux-app-host particles.rs, through cmux-config's domain:particles_document). The chat plays it before the live status line and, with jumpButton glyph, in Jump to latest, each choosing the document's trigger from the agent's current activity kind; a sidebar row plays it for cmux.sidebar.rows/1 indicator \"glyph\". A look may keep it in a file of its folder: {\"$file\": \"thinking-glyph.json\"} (cmux-customize setup::inline_files). Unset draws nothing new.",
+          "title": {
+            "key": "settings.agentPane.display.thinking.glyph",
+            "text": "Thinking Glyph"
+          },
+          "help": {
+            "key": "settings.agentPane.display.thinking.glyph.help",
+            "text": "Dots a look plays while the agent works, as a cmux.particles/1 document."
+          },
+          "kind": "text",
+          "default": null,
+          "keywords": [
+            "agent",
+            "chat",
+            "acp",
+            "display",
+            "thinking",
+            "glyph",
+            "particles",
+            "dots",
+            "choreography",
+            "animation",
+            "claude"
+          ],
+          "page_hidden": "a cmux.particles/1 document a look or cmux settings set writes, edited in cmux-next.json"
+        },
+        {
+          "key": "agentPane.display.thinking.glyphSize",
+          "name": "thinkingGlyphSize",
+          "note": "The dot size in points Jump to latest draws the thinking glyph at, over the document's particle.size (the button is smaller than the status line); 0 keeps the document's size. The status line and sidebar rows always use the document's size.",
+          "title": {
+            "key": "settings.agentPane.display.thinking.glyphSize",
+            "text": "Jump Button Glyph Size"
+          },
+          "help": {
+            "key": "settings.agentPane.display.thinking.glyphSize.help",
+            "text": "The dot size of the thinking glyph in Jump to latest. 0 uses the glyph's own size."
+          },
+          "kind": "number",
+          "range": {
+            "min": 0,
+            "max": 16,
+            "step": 0.1,
+            "unit": "points",
+            "placeholder": 0
+          },
+          "default": 0,
+          "keywords": [
+            "agent",
+            "chat",
+            "acp",
+            "display",
+            "thinking",
+            "glyph",
+            "particles",
+            "dots",
+            "size",
+            "jump",
             "claude"
           ]
         },
@@ -1587,6 +2259,73 @@
             "icon",
             "provider",
             "picker"
+          ]
+        },
+        {
+          "key": "agentPane.display.modelPickerOrder",
+          "note": "The order of the model picker's harness tabs, as tab keys, first to last (webviews modelPickerOrder.ts). A drag of a tab on the picker's rail writes it; Starred always stays first, and a tab it does not name keeps its default place after the named ones. Empty: the default order. The agent pages' storage ends with the launch, so the order lives here.",
+          "title": {
+            "key": "settings.agentPane.display.modelPickerOrder",
+            "text": "Model Picker Harness Order"
+          },
+          "help": {
+            "key": "settings.agentPane.display.modelPickerOrder.help",
+            "text": "The order of the harnesses in the model picker. Drag a harness in the picker to move it."
+          },
+          "kind": "string_list",
+          "default": [],
+          "keywords": [
+            "agent",
+            "chat",
+            "model",
+            "picker",
+            "harness",
+            "order",
+            "rearrange",
+            "drag"
+          ],
+          "page_hidden": "tab keys, set by dragging a harness in the model picker"
+        },
+        {
+          "key": "agentPane.display.modelPickerStyle",
+          "note": "What a click on the composer's model chip opens (webviews ModelPicker.tsx, QuickModelColumns.tsx; customize-app-profiles, the Claude Code app's model menu). list, the default: on a New Tab or a chat that can switch harness, the harness rail and its model columns with search. menu: the compact menu a started chat already opens (QuickModelMenu.tsx): the harness's numbered models, an Effort submenu and Fast mode where the harness has one, and More models for the full picker. A look turns it on.",
+          "title": {
+            "key": "settings.agentPane.display.modelPickerStyle",
+            "text": "Model Picker Style"
+          },
+          "help": {
+            "key": "settings.agentPane.display.modelPickerStyle.help",
+            "text": "List shows every harness and its models. Menu is a compact menu with the models, an Effort submenu and Fast mode."
+          },
+          "kind": "choice",
+          "choices": [
+            {
+              "value": "list",
+              "title": {
+                "key": "settings.choice.list",
+                "text": "List"
+              }
+            },
+            {
+              "value": "menu",
+              "title": {
+                "key": "settings.choice.menu",
+                "text": "Menu"
+              }
+            }
+          ],
+          "default": "list",
+          "keywords": [
+            "agent",
+            "chat",
+            "model",
+            "picker",
+            "menu",
+            "list",
+            "effort",
+            "fast",
+            "compact",
+            "claude"
           ]
         },
         {

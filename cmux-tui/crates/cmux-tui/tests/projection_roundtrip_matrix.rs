@@ -62,7 +62,10 @@ struct Side {
 
 impl Side {
     fn make(at: &Path) -> Self {
-        let side = Self { home: at.join("home"), state: at.join("state") };
+        // The state folder under HOME, where cmux-tui keeps it by default (`~/.local/state`): the
+        // machine's fs-v1 is rooted at HOME, and a git swap links `.git` into this folder.
+        let home = at.join("home");
+        let side = Self { state: home.join(".local/state/cmux-tui"), home };
         fs::create_dir_all(side.home.join("work")).unwrap();
         fs::create_dir_all(&side.state).unwrap();
         side
@@ -632,9 +635,13 @@ fn symlinks_inside_come_back_and_ones_leaving_the_folder_stay() {
     // The Mac's inside link is there, as a link; the one leaving the folder is not projected.
     assert_eq!(fs::read_link(t.at("to-a")).unwrap(), Path::new("src/a.txt"));
     assert_eq!(read(&t.at("to-a")), "alpha\n");
-    t.on_machine("ln -s src/b.txt to-b && ln -s ../../../../outside out");
+    assert!(fs::symlink_metadata(t.at("leaves")).is_err());
+    t.on_machine("ln -s src/b.txt to-b && ln -s missing dangling && ln -s ../../../../outside out");
     let answer = t.brought_back();
     assert_eq!(fs::read_link(t.mac("to-b")).unwrap(), Path::new("src/b.txt"), "{answer}");
+    assert_eq!(fs::read_link(t.mac("dangling")).unwrap(), Path::new("missing"), "{answer}");
+    assert!(!t.mac("missing").exists());
+    assert_eq!(fs::read_link(t.mac("leaves")).unwrap(), Path::new("/etc/hostname"));
     assert!(fs::symlink_metadata(t.mac("out")).is_err(), "a link out of the folder came back");
     assert_eq!(fs::read_link(t.mac("to-a")).unwrap(), Path::new("src/a.txt"));
     let skipped = answer["skipped_files"].to_string();
@@ -655,8 +662,8 @@ fn an_edit_on_both_sides_is_a_conflict_file_never_an_overwrite() {
     assert_eq!(answer["conflicts"], serde_json::json!(["src/a.txt"]), "{answer}");
     assert_eq!(read(&t.mac("src/a.txt")), "alpha, edited on the mac\n");
     assert_eq!(read(&t.mac("src/a.txt.cmux-sync-conflict")), "alpha, edited on the machine\n");
-    // On a conflict nothing else of the Mac's changes.
-    assert_eq!(read(&t.mac("src/b.txt")), "bravo\n");
+    // A conflict holds back only its own file: the rest still comes back (RFD 0066 piece 8).
+    assert_eq!(read(&t.mac("src/b.txt")), "bravo, edited on the machine\n", "{answer}");
 }
 
 #[test]
@@ -740,6 +747,35 @@ fn a_new_name_that_folds_to_a_mac_name_is_a_conflict() {
     assert!(!t.mac("Readme.md").exists());
     assert!(!t.mac("SRC").exists());
     assert_eq!(read(&t.mac("README.md")), "# app\n");
+}
+
+#[test]
+fn a_case_only_rename_preserves_a_concurrent_mac_edit_and_names_the_conflict() {
+    let t = trip_or_skip!("case-rename", plain);
+    fs::rename(t.at("README.md"), t.at("Readme.md")).unwrap();
+    write(&t.at("Readme.md"), "machine version\n");
+    write(&t.mac("README.md"), "the Mac edited the original\n");
+    let output = t
+        .mac
+        .cmux()
+        .args(["link", "project", "back", "--socket"])
+        .arg(&t.machine.dial)
+        .arg("--at")
+        .arg(&t.folder)
+        .arg(&t.local)
+        .output()
+        .unwrap();
+    assert!(output.status.success(), "{}", String::from_utf8_lossy(&output.stderr));
+    let answer: Value = serde_json::from_slice(&output.stdout).unwrap();
+    assert_eq!(answer["ok"], true, "{answer}");
+    assert!(
+        answer["conflicts"].as_array().unwrap().iter().any(|conflict| {
+            conflict["path"] == "Readme.md" && conflict["beside"] == "Readme.md.cmux-sync-conflict"
+        }),
+        "{answer}"
+    );
+    assert_eq!(read(&t.mac("README.md")), "the Mac edited the original\n");
+    assert_eq!(read(&t.mac("Readme.md.cmux-sync-conflict")), "machine version\n");
 }
 
 /// A file the Mac changed after the manifest and before the machine read it: the machine reads the
@@ -859,10 +895,10 @@ fn parent_edits_come_back(t: &Trip) {
     assert_eq!(again["deleted"], 0, "{again}");
 }
 
-/// A conflict in one repository of a parent folder: nothing of any repository or of the parent
-/// changes on the Mac, and the answer names the repository.
+/// A conflict in one repository of a parent folder holds back only that file: the other
+/// repository's edit and the parent's come back (RFD 0066 piece 8).
 #[test]
-fn a_conflict_in_one_repository_leaves_every_repository_unapplied() {
+fn a_conflict_in_one_repository_still_brings_back_the_rest() {
     let t = trip_or_skip!("parent-conflict", parent_of_repositories);
     write(&t.at("api/src/a.txt"), "alpha of api, edited on the machine\n");
     write(&t.at("notes.md"), "notes, edited on the machine\n");
@@ -872,17 +908,22 @@ fn a_conflict_in_one_repository_leaves_every_repository_unapplied() {
     let answer = t.bring_back();
     assert_eq!(answer["error_code"], "sync_conflict", "{answer}");
     assert_eq!(answer["conflicts"], serde_json::json!(["web/src/a.txt"]), "{answer}");
-    assert!(answer["error"].as_str().unwrap().contains("web: this repository"), "{answer}");
     assert_eq!(read(&t.mac("web/src/a.txt")), "alpha of web, edited on the mac\n");
-    assert_eq!(read(&t.mac("api/src/a.txt")), "alpha\n", "{answer}");
-    assert_eq!(read(&t.mac("notes.md")), "notes\n", "{answer}");
-    assert_eq!(t.mac.status(&t.mac("api")), "", "{answer}");
+    assert_eq!(
+        read(&t.mac("web/src/a.txt.cmux-sync-conflict")),
+        "alpha of web, edited on the machine\n",
+        "{answer}"
+    );
+    assert_eq!(read(&t.mac("api/src/a.txt")), "alpha of api, edited on the machine\n", "{answer}");
+    assert_eq!(read(&t.mac("notes.md")), "notes, edited on the machine\n", "{answer}");
+    assert_eq!(t.mac.status(&t.mac("api")), t.machine.side.status(&t.at("api")), "{answer}");
 }
 
 /// Both sides committed in one repository of a parent folder: its branch is the conflict
-/// (`web/.git/HEAD`), and the other repository's edit stays on the machine with it.
+/// (`web/.git/HEAD`): the Mac's branch stays, and the files that merge, in it and in the other
+/// repository, come back (RFD 0066 piece 8).
 #[test]
-fn a_branch_moved_on_both_sides_in_one_repository_leaves_every_repository_unapplied() {
+fn a_branch_moved_on_both_sides_in_one_repository_keeps_the_branch_and_brings_back_the_rest() {
     let t = trip_or_skip!("parent-branch", parent_of_repositories);
     write(&t.at("api/src/a.txt"), "alpha of api, edited on the machine\n");
     write(&t.at("web/src/a.txt"), "alpha of web, committed on the machine\n");
@@ -895,8 +936,13 @@ fn a_branch_moved_on_both_sides_in_one_repository_leaves_every_repository_unappl
     let conflicts = answer["conflicts"].to_string();
     assert!(conflicts.contains("web/.git/HEAD"), "{answer}");
     assert_eq!(t.mac.git(&t.mac("web"), &["rev-parse", "HEAD"]), mac_head);
-    assert_eq!(read(&t.mac("web/src/a.txt")), "alpha\n", "{answer}");
-    assert_eq!(read(&t.mac("api/src/a.txt")), "alpha\n", "{answer}");
+    assert_eq!(read(&t.mac("web/src/b.txt")), "bravo of web, committed on the mac\n", "{answer}");
+    assert_eq!(
+        read(&t.mac("web/src/a.txt")),
+        "alpha of web, committed on the machine\n",
+        "{answer}"
+    );
+    assert_eq!(read(&t.mac("api/src/a.txt")), "alpha of api, edited on the machine\n", "{answer}");
 }
 
 /// A commit on the machine in one repository of a parent folder fast-forwards that repository's
@@ -1097,8 +1143,20 @@ mod randomized {
                 .collect();
             let want: BTreeSet<String> = both.iter().map(|path| (*path).clone()).collect();
             assert_eq!(conflicts, want, "{context}");
+            // A conflict holds back only its own paths: every other machine change comes back
+            // (RFD 0066 piece 8), and a conflicted path keeps the Mac's version.
+            let mut want = mac_now.clone();
+            for (path, text) in &machine {
+                if both.contains(path) {
+                    continue;
+                }
+                match text {
+                    Some(text) => want.insert(path.clone(), text.clone()),
+                    None => want.remove(path),
+                };
+            }
             for (path, text) in &after {
-                match mac_now.get(path) {
+                match want.get(path) {
                     Some(mine) => assert_eq!(text, mine, "{context}: {path}"),
                     None => {
                         let edited = path
@@ -1116,7 +1174,7 @@ mod randomized {
                     }
                 }
             }
-            for path in mac_now.keys() {
+            for path in want.keys() {
                 assert!(after.contains_key(path), "{context}: {path} went");
             }
             // Against a projected base (the first pull) the machine's version always goes

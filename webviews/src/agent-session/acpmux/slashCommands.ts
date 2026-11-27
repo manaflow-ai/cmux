@@ -25,6 +25,8 @@ export type SlashCommand = {
   extension?: string;
   /** A row's icon (the cmux pack's name): cmux's built-in tools (toolMentions.ts). */
   icon?: string;
+  /** A full-color picture drawn in place of `icon` (toolMentions.ts `image`). */
+  image?: string;
   /** The row's name in place of `/name` and its source: cmux's built-in tools ("Computer Use"). */
   label?: string;
 };
@@ -476,6 +478,16 @@ export function useSlashNames(commands: readonly SlashCommand[] | undefined): Sl
   const kept = useRef<{ key: string; names: SlashNames }>(undefined);
   if (kept.current?.key !== key) kept.current = { key, names: slashNames(commands) };
   return kept.current.names;
+}
+
+/// Whether `text` uses a command where the field draws one blue (`slashTokens`): its first word by
+/// any command's name, a skill or saved prompt anywhere outside code.
+export function usesCommand(text: string, names: SlashNames): boolean {
+  if (!names.leading.size) return false;
+  const lead = promptStart(text);
+  return commandWords(text).some(
+    ({ start, word }) => names.anywhere.has(word) || (start === lead && names.leading.has(word)),
+  );
 }
 
 /// The command words in `text`, one text block: each `/name` that starts the block or follows a

@@ -109,6 +109,30 @@ import Testing
         #expect(sizing.keyboardPlacement(gridRows: 37, visibleHeight: 6 * 16, cursorRow: 36) == Placement(lift: 0, headerRows: 2))
     }
 
+    @Test func aShorterHostGridKeepsItsPlaceWhenTheKeyboardClipsTheArea() {
+        let sizing = TerminalGridSizing(cellHeight: 16)
+        // A 12-row Mac grid at the top of a 45-row area, the keyboard leaving 25 rows:
+        // the 20 clipped rows are the blank ones under the grid, so the grid stays in view.
+        #expect(sizing.keyboardPlacement(gridRows: 12, visibleHeight: 25 * 16, cursorRow: 5, areaRows: 45)
+                == .init(lift: 20 * 16, headerRows: 0))
+        // Only 8 rows left: the 33 blank rows go, then the grid's own clip as it was.
+        let tight = sizing.keyboardPlacement(gridRows: 12, visibleHeight: 8 * 16, cursorRow: 11, areaRows: 45)
+        let own = sizing.keyboardPlacement(gridRows: 12, visibleHeight: 8 * 16, cursorRow: 11)
+        #expect(tight == .init(lift: 33 * 16 + own.lift, headerRows: own.headerRows))
+        // A grid as tall as the area or taller is placed as before.
+        #expect(sizing.keyboardPlacement(gridRows: 40, visibleHeight: 37 * 16, cursorRow: 36, areaRows: 37)
+                == .init(lift: 0, headerRows: 3))
+    }
+
+    @Test func aHostGridKeepsItsHeaderWhenThePhoneAreaIsShorter() {
+        let sizing = TerminalGridSizing(cellHeight: 16)
+        // The 40-row host is shifted up three rows to keep its last cursor row
+        // visible in the phone's 37-row area. Placement must still measure the
+        // host grid, so its first three rows can be pinned back above the body.
+        #expect(sizing.keyboardPlacement(gridRows: 40, visibleHeight: 37 * 16, cursorRow: 36)
+                == .init(lift: 0, headerRows: 3))
+    }
+
     @Test func aCursorUnderTheToolbarLiftsTheGridByWholeRows() {
         let sizing = TerminalGridSizing(cellHeight: 16)
         // vim on line 1 with the keyboard up: 17 rows clipped at the top.

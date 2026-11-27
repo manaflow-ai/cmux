@@ -3,7 +3,9 @@
 # one-line edits to cmux-tui-core (a field in `identify`), each timed from the save to the swapped
 # daemon answering with the edit, with every shell checked to be the same process, with its
 # screen, still echoing. The edit is always taken back. Report: OUT/result.json (p50/p95).
-#   scripts/measure/rust-live-swap.sh OUT [--runs N] [--build-host HOST]
+#   scripts/measure/rust-live-swap.sh OUT [--runs N] [--build-host HOST] [--app] [--load N]
+# --app runs the daemon from an app bundle's bin/cmux, so each swap is the app handoff (a thread plays
+# the app's reconnect); --load N runs N busy processes beside it.
 set -euo pipefail
 out="${1:?usage: rust-live-swap.sh OUT [rust-live.py measure flags]}"
 shift

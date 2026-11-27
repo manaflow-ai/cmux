@@ -26,7 +26,7 @@
 //! memory only, so a restart's first repeat pages again).
 
 use super::*;
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
 /// How long a program's repeated text stays folded after it was last seen.
 pub(super) const FOLD_MS: u64 = 6 * 60 * 60 * 1000;
@@ -86,16 +86,113 @@ impl Folds {
     }
 }
 
-/// Whether chat `name` is on the coordinator list.
-pub(super) fn listed(cfg: &crate::config::Config, name: &str) -> bool {
-    let name = name.trim();
-    let Some(rule) = cfg.page_rule.as_ref() else { return false };
-    !name.is_empty()
-        && rule
-            .sessions
-            .iter()
-            .map(|s| s.trim())
-            .any(|s| s == name || s.rsplit_once('/').is_some_and(|(_, session)| session == name))
+/// Both forms accepted by the config: an entry by itself and the session part of HOST/NAME.
+pub(in crate::hub) fn session_names(
+    rule: Option<&crate::config::PageRuleConfig>,
+) -> HashSet<String> {
+    let mut names = HashSet::new();
+    if let Some(rule) = rule {
+        for entry in &rule.sessions {
+            let entry = entry.trim();
+            if !entry.is_empty() {
+                names.insert(entry.to_owned());
+            }
+            if let Some((_, name)) = entry.rsplit_once('/')
+                && !name.is_empty()
+            {
+                names.insert(name.to_owned());
+            }
+        }
+    }
+    names
+}
+
+impl Hub {
+    pub(in crate::hub) fn page_rule_lists(&self, name: &str) -> bool {
+        self.page_rule_sessions.lock().unwrap_or_else(|e| e.into_inner()).contains(name.trim())
+    }
+
+    /// Leaves a background task's end that went well (`bg_notify.rs`) in the inbox of chat
+    /// `session`, held as the page rule holds a result: it wakes no one, goes with the next
+    /// notice, and the flush brings it by itself in time. RFD 0041 card rc-b18ea2ea: a
+    /// coordinator's own exit-0 task ends were 13.6 turns an hour. Quiet: its sender waits for
+    /// nothing. False when this chat's inbox cannot carry it (a review box, an agent that cannot
+    /// read it, a chat closing): the caller sends it as a prompt, as before.
+    ///
+    /// Idempotent by `prompt_id`: one the inbox holds, carries or let go of is left as it is, so
+    /// a restart between this and the caller's `.notified` mark adds it no second time (the log
+    /// restores the first, `restore_inbox`; a restored item has no verdict and wakes as before
+    /// the rule).
+    pub(in crate::hub) fn inbox_hold_end(
+        self: &Arc<Self>,
+        session: &Arc<Session>,
+        prompt_id: &str,
+        text: &str,
+        provenance: &Value,
+    ) -> bool {
+        if super::queue::closing(session) || review_box(session) || !reads_inbox(session) {
+            return false;
+        }
+        let from = provenance.get("fromName").and_then(Value::as_str).unwrap_or("acpmux");
+        let thread = thread_key(None, &thread_sender(Some(provenance), from), text);
+        let sender = crate::prompt_provenance::sender_record(Some(provenance), None, None);
+        let fresh = {
+            let mut inbox = session.inbox();
+            if session.meta().status == SessionStatus::Closed {
+                return false;
+            }
+            let known = inbox.items.iter().any(|i| i.prompt_id == prompt_id)
+                || inbox.trimmed.contains(prompt_id)
+                || inbox.removed.contains(prompt_id)
+                || inbox.carrying.iter().any(|c| c.ids.iter().any(|id| id == prompt_id));
+            if !known {
+                inbox.items.push(Item {
+                    surge_held: false,
+                    verdict: Some(Verdict::Hold),
+                    prompt_id: prompt_id.to_owned(),
+                    notice: None,
+                    answered: None,
+                    thread: thread.clone(),
+                    from: from.to_owned(),
+                    from_session: None,
+                    asker: None,
+                    sender: sender.clone(),
+                    class: PromptClass::Result,
+                    report: false,
+                    waited: false,
+                    at: now_ms(),
+                    // A plain chat's own exit-0 end waits a short while (`bg_notify.rs`
+                    // `OWN_END_HOLD_MS`); a coordinator's its class's deadline.
+                    within: crate::prompt_provenance::within(Some(provenance)),
+                    text: text.to_owned(),
+                    details: None,
+                    fire: false,
+                    tool_notice: notice_of(Some(provenance), text),
+                    noticed: false,
+                    read: false,
+                    answer: None,
+                    reader: None,
+                });
+                trim(&mut inbox);
+            }
+            !known
+        };
+        if fresh {
+            let msg = json!({
+                "promptId": prompt_id, "threadId": thread, "from": from, "class": PromptClass::Result,
+                "kind": kind_of(PromptClass::Result), "client": "acpmux", "text": text,
+                "prompt": [{"type": "text", "text": text}], "sender": sender,
+            });
+            self.append(
+                session,
+                "mux",
+                "inbox",
+                crate::prompt_provenance::marked(msg, Some(provenance)),
+            );
+        }
+        self.inbox_review(session);
+        true
+    }
 }
 
 /// Whether `text`'s first line says FIRE.
@@ -115,8 +212,16 @@ fn foldable(m: &Message<'_>) -> bool {
     !m.has_session && (m.fire || m.class.urgent())
 }
 
+/// A notice folds by its condition (`notice_read::condition_key`): a repeat whose counts moved
+/// ("9 queued", then "12 queued") is the same alarm, so it starts no new turn. A message with no
+/// notice folds only when repeated word for word.
 fn fold_key(m: &Message<'_>) -> String {
-    format!("{}\n{}\n{}", m.from.trim(), m.title.unwrap_or("").trim(), m.text.trim())
+    match m.title.map(str::trim).filter(|t| !t.is_empty()) {
+        Some(title) => {
+            format!("{}\n{}", m.from.trim(), crate::notice_read::condition_key("", title))
+        }
+        None => format!("{}\n\n{}", m.from.trim(), m.text.trim()),
+    }
 }
 
 /// The verdict on `m` at `now` (Unix ms); `None` when it cannot be read: it wakes as before.

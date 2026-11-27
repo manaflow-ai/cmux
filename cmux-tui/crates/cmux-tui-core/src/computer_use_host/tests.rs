@@ -225,6 +225,38 @@ fn a_new_policy_reaches_the_running_worker() {
     assert_eq!(f.host.status()["config_source"], "app");
 }
 
+/// `cmux agent restart-computer-use-helper` on a Mac with no cmux Remote (NIGHTLY, 2026-11-22):
+/// the restart reached no worker, and the old one kept its stale grant answers until someone
+/// killed it. Now the daemon's own worker stops, is waited for, and a new one serves.
+#[test]
+fn restart_replaces_the_running_worker() {
+    let f = fixture("restart", Mode::FullAccess, InProcess::default());
+    let first = f.host.endpoint(ENDPOINT_WAIT);
+    assert_eq!(first["state"], "ready", "{first}");
+    let old = lock(&f.host.inner.link).clone().unwrap();
+    let answer = f.host.restart(ENDPOINT_WAIT);
+    assert_eq!(answer["restarted"], true, "{answer}");
+    assert_eq!(answer["state"], "ready", "{answer}");
+    assert_eq!(answer["previous"]["exited"], true, "{answer}");
+    assert_eq!(answer["previous"]["killed"], false, "{answer}");
+    assert!(answer.get("secret").is_none(), "{answer}");
+    assert!(*lock(&old.exited));
+    assert_eq!(f.launcher.launches.load(Ordering::SeqCst), 2);
+    // The new worker serves with a new secret.
+    let second = f.host.endpoint(ENDPOINT_WAIT);
+    assert_ne!(second["secret"], first["secret"]);
+    agent(&second);
+}
+
+#[test]
+fn restart_with_computer_use_off_starts_nothing() {
+    let f = fixture("restartoff", Mode::Off, InProcess::default());
+    let answer = f.host.restart(ENDPOINT_WAIT);
+    assert_eq!(answer["restarted"], false, "{answer}");
+    assert_eq!(answer["state"], "off", "{answer}");
+    assert_eq!(f.launcher.launches.load(Ordering::SeqCst), 0);
+}
+
 #[test]
 fn an_updated_helper_takes_the_next_call_with_no_relaunch() {
     let exe = PathBuf::from(format!("/tmp/cuhexe{}", std::process::id()));

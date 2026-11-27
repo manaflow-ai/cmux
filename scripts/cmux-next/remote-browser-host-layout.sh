@@ -68,11 +68,12 @@ rbh_write_bundle() { # <binary> <app> [helper binary]
 # Signs the helper apps, then <app>, with <identity> by the rules of
 # sign-cef.sh: "-" signs ad hoc without the hardened runtime; a real identity
 # adds the hardened runtime and a secure timestamp (CMUX_TIMESTAMP=none skips
-# it), and the plain, GPU and Renderer helpers get com.apple.security.cs.allow-jit.
+# it), and the plain, GPU and Renderer helpers get com.apple.security.cs.allow-jit
+# (the plain one also disable-library-validation, for the Widevine CDM).
 # The CEF framework inside <app> is signed by its owner first (a copy by the
 # caller, the embedded app's own framework by sign-cef.sh).
 rbh_sign() { # <app> <identity>
-  local app="$1" identity="$2" flags jit helper sign_tool
+  local app="$1" identity="$2" flags jit cdm helper sign_tool
   # codesign-retry.sh: Apple's timestamp service fails for a moment now and then.
   sign_tool="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)/codesign-retry.sh"
   flags=(--force --sign "$identity")
@@ -90,15 +91,29 @@ rbh_sign() { # <app> <identity>
 </dict>
 </plist>
 ENT
+  # The plain helper runs the Widevine CDM, which Google's team signs (sign-cef.sh).
+  cdm="$(mktemp "${TMPDIR:-/tmp}/cmux-rbh-cdm.XXXXXX")"
+  cat >"$cdm" <<'ENT'
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>com.apple.security.cs.allow-jit</key><true/>
+  <key>com.apple.security.cs.disable-library-validation</key><true/>
+</dict>
+</plist>
+ENT
   for helper in "$app/Contents/Frameworks/$RBH_NAME Helper"*.app; do
     [[ -d "$helper" ]] || continue
     case "$helper" in
-      *" Helper.app"|*" Helper (GPU).app"|*" Helper (Renderer).app")
-        "$sign_tool" "${flags[@]}" --entitlements "$jit" "$helper" || { rm -f "$jit"; return 1; } ;;
+      *" Helper.app")
+        "$sign_tool" "${flags[@]}" --entitlements "$cdm" "$helper" || { rm -f "$jit" "$cdm"; return 1; } ;;
+      *" Helper (GPU).app"|*" Helper (Renderer).app")
+        "$sign_tool" "${flags[@]}" --entitlements "$jit" "$helper" || { rm -f "$jit" "$cdm"; return 1; } ;;
       *)
-        "$sign_tool" "${flags[@]}" "$helper" || { rm -f "$jit"; return 1; } ;;
+        "$sign_tool" "${flags[@]}" "$helper" || { rm -f "$jit" "$cdm"; return 1; } ;;
     esac
   done
-  rm -f "$jit"
+  rm -f "$jit" "$cdm"
   "$sign_tool" "${flags[@]}" "$app"
 }

@@ -1,0 +1,138 @@
+{
+  "sourceLanguage" : "en",
+  "strings" : {
+    "needsYou.contextPartial" : {
+      "comment" : "Agent pane Needs you: note under another chat's context, which shows only its latest message",
+      "extractionState" : "manual",
+      "localizations" : {
+        "ar" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "تظهر هنا آخر رسالة من هذه المحادثة فقط. افتح المحادثة لرؤيتها كاملة."
+          }
+        },
+        "bs" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Ovdje se prikazuje samo posljednja poruka ovog chata. Otvorite chat za cijeli razgovor."
+          }
+        },
+        "da" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Kun chattens seneste besked vises her. Åbn chatten for hele samtalen."
+          }
+        },
+        "de" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Hier steht nur die letzte Nachricht dieses Chats. Öffne den Chat für das ganze Gespräch."
+          }
+        },
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Only this chat's latest message shows here. Open the chat for the whole conversation."
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Aquí solo se muestra el último mensaje de este chat. Abre el chat para ver la conversación completa."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Seul le dernier message de ce chat s’affiche ici. Ouvrez le chat pour toute la conversation."
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Qui appare solo l’ultimo messaggio di questa chat. Apri la chat per l’intera conversazione."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "ここにはこのチャットの最新メッセージだけが表示されます。会話全体はチャットを開いて確認してください。"
+          }
+        },
+        "km" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "មានតែសារចុងក្រោយនៃការជជែកនេះប៉ុណ្ណោះដែលបង្ហាញនៅទីនេះ។ បើកការជជែកដើម្បីមើលការសន្ទនាទាំងមូល។"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "여기에는 이 채팅의 최신 메시지만 표시됩니다. 전체 대화는 채팅을 열어 확인하세요."
+          }
+        },
+        "nb" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Bare chattens siste melding vises her. Åpne chatten for hele samtalen."
+          }
+        },
+        "pl" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Tutaj widać tylko ostatnią wiadomość z tego czatu. Otwórz czat, aby zobaczyć całą rozmowę."
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Aqui aparece só a última mensagem deste chat. Abra o chat para ver a conversa inteira."
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Здесь показано только последнее сообщение этого чата. Откройте чат, чтобы увидеть весь разговор."
+          }
+        },
+        "th" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "แสดงเฉพาะข้อความล่าสุดของแชตนี้ เปิดแชตเพื่อดูบทสนทนาทั้งหมด"
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Burada yalnızca bu sohbetin son mesajı görünür. Konuşmanın tamamı için sohbeti açın."
+          }
+        },
+        "uk" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Тут показано лише останнє повідомлення цього чату. Відкрийте чат, щоб побачити всю розмову."
+          }
+        },
+        "vi" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Ở đây chỉ hiện tin nhắn mới nhất của cuộc trò chuyện này. Mở cuộc trò chuyện để xem toàn bộ."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "此处仅显示该聊天的最新消息。打开聊天查看完整对话。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "此處僅顯示該聊天的最新訊息。開啟聊天查看完整對話。"
+          }
+        }
+      }
+    }
+  },
+  "version" : "1.0"
+}

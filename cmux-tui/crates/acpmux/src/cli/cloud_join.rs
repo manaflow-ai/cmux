@@ -164,7 +164,10 @@ fn origin(value: Option<String>) -> Result<String> {
             && parsed.fragment().is_none(),
         "hub origin must contain only scheme, host and port"
     );
-    Ok(parsed.origin().ascii_serialization())
+    let origin = parsed.origin().ascii_serialization();
+    // A hub the person or the app named (a preview or self-hosted platform): a host they name.
+    cmux_egress::allow_named(&origin);
+    Ok(origin)
 }
 
 fn local_name(name: Option<String>) -> String {
@@ -434,16 +437,22 @@ fn configure_mesh_relay_at(config_path: &std::path::Path, hub: &str) -> Result<(
     config.save_with_writer(|path, bytes| recovery::write_durable(path, bytes, true))
 }
 
-/// Adds the `sameUser` entry to a joined `meshRelay` that has none. True when it changed
-/// config.json. A relay that is not the join's, or none, is left alone.
+/// Adds the `sameUser` entry to a joined `meshRelay` that has none, or marks the one an older
+/// join wrote with its `maxPolicy` ([`crate::mesh_relay_config::upgrade_join_entries`]). True when it changed config.json.
+/// A relay that is not the join's, or none, is left alone.
 fn add_same_user_control() -> Result<bool> {
     let _lock = join_lock()?;
     let mut config = crate::config::Config::load()?;
     let Some(relay) = config.mesh_relay.as_mut() else { return Ok(false) };
-    if relay.credential.as_deref() != Some("join")
-        || relay.control_from.iter().any(|entry| entry.same_user)
-    {
+    if relay.credential.as_deref() != Some("join") {
         return Ok(false);
+    }
+    let upgraded = crate::mesh_relay_config::upgrade_join_entries(&mut relay.control_from);
+    if relay.control_from.iter().any(|entry| entry.same_user) {
+        if upgraded {
+            config.save_with_writer(|path, bytes| recovery::write_durable(path, bytes, true))?;
+        }
+        return Ok(upgraded);
     }
     // Only the entry is added; every other relay setting stays as the owner left it.
     relay.control_from.push(crate::mesh_http::MeshControlFrom::same_user());
@@ -457,6 +466,7 @@ fn joined_control_from(
     previous: Option<crate::mesh_http::MeshRelayConfig>,
 ) -> Vec<crate::mesh_http::MeshControlFrom> {
     let mut control_from = previous.map(|relay| relay.control_from).unwrap_or_default();
+    crate::mesh_relay_config::upgrade_join_entries(&mut control_from);
     if !control_from.iter().any(|entry| entry.same_user) {
         control_from.push(crate::mesh_http::MeshControlFrom::same_user());
     }
@@ -641,20 +651,61 @@ pub(crate) fn join_incomplete() -> Result<bool> {
 /// Update only the credential that made the request. A late response from an old
 /// replaced credential must never revoke or timestamp the replacement.
 pub(crate) fn record_auth_result(token: &str, revoked: bool, heartbeat: bool) -> Result<()> {
-    let _lock = join_lock()?;
-    if let Some(mut record) = load()? {
+    record_auth_result_at(&state_dir(), token, revoked, heartbeat, crate::store::now_ms())
+}
+
+/// [`record_auth_result`] in acpmux home `home` at `now` (epoch ms).
+fn record_auth_result_at(
+    home: &std::path::Path,
+    token: &str,
+    revoked: bool,
+    heartbeat: bool,
+    now: u64,
+) -> Result<()> {
+    // A heartbeat lands every few seconds; the stored one only has to stay inside the doctor's
+    // `HEARTBEAT_WITHIN_MS`. A fresh one already on disk is no change: no lock, no fsync'd
+    // rewrite of the credential file (it ran every 10 s on every joined machine).
+    if heartbeat
+        && !revoked
+        && load_at(home)?.is_some_and(|record| {
+            record.credential == token && !record.revoked && heartbeat_fresh(&record, now)
+        })
+    {
+        return Ok(());
+    }
+    crate::config::private_state_dir(home)?;
+    let _lock = join_lock_in(home)?;
+    if let Some(mut record) = load_at(home)? {
         if record.credential != token {
             return Ok(());
         }
-        if revoked {
+        let mut changed = false;
+        if revoked && !record.revoked {
             record.revoked = true;
+            changed = true;
         }
-        if heartbeat {
-            record.last_heartbeat = Some(crate::store::now_ms().to_string());
+        if heartbeat && !heartbeat_fresh(&record, now) {
+            record.last_heartbeat = Some(now.to_string());
+            changed = true;
         }
-        save(&record)?;
+        if changed {
+            save_at(home, &record)?;
+        }
     }
     Ok(())
+}
+
+/// How old a stored heartbeat may be before a new one is written: a third of the doctor's
+/// `HEARTBEAT_WITHIN_MS`, so `host join --status` never reads a live machine as stale.
+const HEARTBEAT_PERSIST_MS: u64 = crate::cli::host_join_doctor::HEARTBEAT_WITHIN_MS / 3;
+
+fn heartbeat_fresh(record: &MachineCredential, now_ms: u64) -> bool {
+    record
+        .last_heartbeat
+        .as_deref()
+        .and_then(|at| at.parse::<u64>().ok())
+        .and_then(|at| now_ms.checked_sub(at))
+        .is_some_and(|age| age < HEARTBEAT_PERSIST_MS)
 }
 
 /// Records the WireGuard public key the hub now holds for `machine_id` (a rekey,
@@ -759,6 +810,32 @@ pub(crate) fn set_consent_for_person(surface: &str, granted: bool) -> Result<Con
     authority()?.set(surface, granted)
 }
 
+/// Grants "control for my other signed-in machines" for `account`, the account a control
+/// approval was admitted for (`share_host/approval.rs`: the owner's tap on their own device,
+/// signed by its device key). It holds only for the account this machine is joined as, so an
+/// approval for any other account, or a machine with no join, grants nothing.
+pub(crate) fn grant_signed_in_machines_for(account: &str) -> std::result::Result<(), String> {
+    grant_signed_in_machines_as(account, machine_user_id().as_deref(), |user| {
+        authority()?.set_as(SIGNED_IN_MACHINES, true, Some(user))?;
+        Ok(())
+    })
+}
+
+/// [`grant_signed_in_machines_for`], given the account this machine is joined as and the writer.
+pub(crate) fn grant_signed_in_machines_as(
+    account: &str,
+    joined_as: Option<&str>,
+    write: impl FnOnce(String) -> Result<()>,
+) -> std::result::Result<(), String> {
+    match joined_as {
+        None => Err("this Mac is not joined to an account".into()),
+        Some(joined) if joined != account => {
+            Err("this Mac is joined as another account than the one that allowed it".into())
+        }
+        Some(joined) => write(joined.to_owned()).map_err(|e| e.to_string()),
+    }
+}
+
 /// This machine's consent and the account it is joined as, read now (blocking file reads).
 pub fn signed_in_machines_granted_here() -> (bool, Option<String>) {
     let account = machine_user_id();
@@ -809,7 +886,7 @@ pub(crate) fn hub_client(hub: &str, bearer: Option<&str>) -> Result<cmux_cloud_c
 
 pub(crate) fn http_client() -> Result<reqwest::Client> {
     let _ = rustls::crypto::ring::default_provider().install_default();
-    reqwest::Client::builder()
+    crate::happy_dial::http_client()
         .default_headers(cmux_build_space::headers()?)
         .redirect(reqwest::redirect::Policy::none())
         .timeout(std::time::Duration::from_secs(10))
@@ -829,6 +906,25 @@ mod tests {
     }
 
     use super::{MachineCredential, MachineIdentity, origin, parse_token_text};
+
+    /// A control approval's grant is written only for the account this machine is joined as.
+    #[test]
+    fn a_carried_control_grant_is_only_for_the_joined_account() {
+        let written = std::cell::RefCell::new(Vec::new());
+        let write = |user: String| {
+            written.borrow_mut().push(user);
+            Ok(())
+        };
+        assert!(super::grant_signed_in_machines_as("user-1", None, write).is_err());
+        assert!(super::grant_signed_in_machines_as("user-1", Some("user-2"), write).is_err());
+        assert!(written.borrow().is_empty(), "nothing written for another account or no join");
+        assert_eq!(super::grant_signed_in_machines_as("user-1", Some("user-1"), write), Ok(()));
+        assert_eq!(*written.borrow(), ["user-1"]);
+        let failed = super::grant_signed_in_machines_as("user-1", Some("user-1"), |_| {
+            Err(anyhow::anyhow!("consent store unavailable"))
+        });
+        assert_eq!(failed.unwrap_err(), "consent store unavailable");
+    }
 
     #[test]
     fn join_token_is_shell_safe_after_shared_line_reader() {
@@ -1425,6 +1521,76 @@ mod tests {
         let previous =
             MeshRelayConfig { control_from: vec![narrowed.clone()], ..Default::default() };
         assert_eq!(super::joined_control_from(Some(previous)), vec![narrowed]);
+        // The entry an older join wrote (no `maxPolicy`) becomes today's; one with a cap the
+        // owner chose keeps it.
+        let unmarked = MeshControlFrom { max_policy: None, ..MeshControlFrom::same_user() };
+        let previous = MeshRelayConfig { control_from: vec![unmarked], ..Default::default() };
+        assert_eq!(super::joined_control_from(Some(previous)), vec![MeshControlFrom::same_user()]);
+        let capped = MeshControlFrom {
+            max_policy: Some(crate::config::PermissionPolicy::Ask),
+            ..MeshControlFrom::same_user()
+        };
+        let previous = MeshRelayConfig { control_from: vec![capped.clone()], ..Default::default() };
+        assert_eq!(super::joined_control_from(Some(previous)), vec![capped]);
+    }
+
+    /// Harness for the write loop: an idle joined daemon heartbeats every 10 s; count the
+    /// rewrites of `machine-credential.json` (a new inode per atomic replace) over 10 minutes.
+    #[test]
+    #[cfg(unix)] // counts inodes
+    #[cfg(unix)]
+    fn ten_idle_minutes_of_heartbeats_rewrite_the_credential_twenty_times_not_sixty() {
+        use std::os::unix::fs::MetadataExt as _;
+        let dir = tempfile::tempdir().unwrap();
+        let home = dir.path();
+        let record = super::MachineCredential {
+            credential: "cmm_live".into(),
+            machine_id: "m".into(),
+            ..Default::default()
+        };
+        super::save_at(home, &record).unwrap();
+        let ino = || std::fs::metadata(home.join(super::CREDENTIAL_FILE)).unwrap().ino();
+        let start = 1_800_000_000_000u64;
+        let (mut last, mut writes) = (ino(), 0);
+        for beat in 0..60u64 {
+            super::record_auth_result_at(home, "cmm_live", false, true, start + beat * 10_000)
+                .unwrap();
+            let now = ino();
+            if now != last {
+                writes += 1;
+                last = now;
+            }
+        }
+        eprintln!("credential rewrites in 60 heartbeats (10 min): {writes}");
+        assert_eq!(writes, 20);
+        // Another credential's answer and a repeated revoke write nothing; the first revoke does.
+        super::record_auth_result_at(home, "cmm_old", true, true, start + 700_000).unwrap();
+        assert_eq!(ino(), last);
+        super::record_auth_result_at(home, "cmm_live", true, false, start + 700_000).unwrap();
+        let revoked = ino();
+        assert_ne!(revoked, last);
+        super::record_auth_result_at(home, "cmm_live", true, false, start + 710_000).unwrap();
+        assert_eq!(ino(), revoked);
+        assert!(super::load_at(home).unwrap().unwrap().revoked);
+    }
+
+    #[test]
+    fn a_heartbeat_rewrites_the_credential_only_once_the_stored_one_ages() {
+        let at = |ms: Option<u64>| super::MachineCredential {
+            last_heartbeat: ms.map(|ms| ms.to_string()),
+            ..Default::default()
+        };
+        let now = 10_000_000;
+        assert!(!super::heartbeat_fresh(&at(None), now));
+        assert!(super::heartbeat_fresh(&at(Some(now - 10_000)), now));
+        assert!(!super::heartbeat_fresh(&at(Some(now - super::HEARTBEAT_PERSIST_MS)), now));
+        // A clock that stepped back never pins an old heartbeat as fresh.
+        assert!(!super::heartbeat_fresh(&at(Some(now + 5_000)), now));
+        const {
+            assert!(
+                super::HEARTBEAT_PERSIST_MS * 2 < crate::cli::host_join_doctor::HEARTBEAT_WITHIN_MS
+            );
+        }
     }
 
     #[test]

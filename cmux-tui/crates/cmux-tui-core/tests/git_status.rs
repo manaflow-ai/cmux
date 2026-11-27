@@ -248,6 +248,9 @@ fn reference(directory: &Path) -> Value {
     if let Some(main) = repository.main_checkout() {
         value["worktree"] = json!({"main_root": main.to_string_lossy()});
     }
+    if let Some(state) = repository.git_folders().and_then(|(_, own)| cmux_git::in_progress(&own)) {
+        value["in_progress"] = json!(state);
+    }
     value
 }
 
@@ -683,7 +686,13 @@ fn git_status_with_github_names_the_repository_of_the_upstreams_remote() {
     forget_children(&repo);
     let plain = client.status(&repo);
     assert!(plain["result"].get("github_repo").is_none(), "{plain}");
-    assert!(with_word(&children(&repo), "config").is_empty(), "no config run unless asked");
+    // The base read runs `config --get branch.<b>.cmuxBase`; the remote URL read is the asked one.
+    let children = children(&repo);
+    let remote_reads = with_word(&children, "config");
+    assert!(
+        !remote_reads.iter().any(|line| line.contains(" remote.")),
+        "no remote URL read unless asked: {remote_reads:?}"
+    );
 
     // A local origin is no GitHub repository.
     let local = client.status_with_github(&repo);
@@ -706,4 +715,44 @@ fn git_status_with_github_names_the_repository_of_the_upstreams_remote() {
     git(&repo, &["switch", "--quiet", "-c", "topic"]);
     let alone = client.status_with_github(&repo);
     assert_eq!(alone["result"]["github_repo"], json!("manaflow-ai/cmux"), "{alone}");
+}
+
+/// A merge, rebase, cherry-pick or revert that stopped partway names itself in `in_progress`,
+/// read from the checkout's own git directory with no child: a view then offers no Commit
+/// (git.commit refuses merge_in_progress) and no Apply (git.worktree.apply refuses unmerged).
+#[test]
+fn git_status_names_the_operation_in_progress_in_its_own_checkout() {
+    let world = World::new();
+    let mut client = Client::of_a_new_daemon();
+
+    let repo = world.fresh_clone();
+    let linked = world.dir.join(unique("c"));
+    git(&repo, &["worktree", "add", "--quiet", "-b", "linked", &linked.to_string_lossy(), "main"]);
+    let clean = client.status(&repo);
+    assert_eq!(clean["ok"], true, "{clean}");
+    assert!(clean["result"].get("in_progress").is_none(), "{clean}");
+
+    git(&repo, &["switch", "--quiet", "-c", "topic"]);
+    commit(&repo, "a.txt", "topic\n");
+    git(&repo, &["switch", "--quiet", "main"]);
+    commit(&repo, "a.txt", "main\n");
+    assert!(!git_ended(&repo, &["merge", "--quiet", "topic"]), "the merge conflicts");
+    forget_children(&repo);
+    let merging = client.status(&repo);
+    assert_eq!(merging["result"]["in_progress"], json!("merge"), "{merging}");
+    assert_eq!(merging["result"], reference(&repo), "{merging}");
+    assert!(with_word(&children(&repo), "ls-files").is_empty(), "no read of the index");
+    let other = client.status(&linked);
+    assert!(other["result"].get("in_progress").is_none(), "another worktree's merge: {other}");
+    git(&repo, &["merge", "--abort"]);
+    let aborted = client.status(&repo);
+    assert!(aborted["result"].get("in_progress").is_none(), "{aborted}");
+
+    commit(&linked, "a.txt", "linked\n");
+    assert!(!git_ended(&linked, &["rebase", "--quiet", "topic"]), "the rebase conflicts");
+    let rebasing = client.status(&linked);
+    assert_eq!(rebasing["result"]["in_progress"], json!("rebase"), "{rebasing}");
+    assert_eq!(rebasing["result"], reference(&linked), "{rebasing}");
+    let main = client.status(&repo);
+    assert!(main["result"].get("in_progress").is_none(), "the main checkout: {main}");
 }

@@ -573,6 +573,37 @@
           }
         },
         {
+          "key": "app.captureScreenshotGlobalHotKey",
+          "note": "Off when unset or invalid.",
+          "title": {
+            "key": "settings.app.captureScreenshotGlobalHotKey",
+            "text": "Capture Screenshot to Chat from Any App"
+          },
+          "help": {
+            "key": "settings.app.captureScreenshotGlobalHotKey.help",
+            "text": "Capture Screenshot to Chat (⌃⌥⌘S) works while another app is in front. Change its key in Keyboard Shortcuts."
+          },
+          "kind": "toggle",
+          "default": false,
+          "keywords": [
+            "global",
+            "hotkey",
+            "hot key",
+            "screenshot",
+            "capture",
+            "screen",
+            "region",
+            "image",
+            "agent",
+            "chat",
+            "system-wide"
+          ],
+          "swift_owner": {
+            "type": "CmuxConfigSnapshot",
+            "prefixed": true
+          }
+        },
+        {
           "key": "app.hideDockIconWithoutWindows",
           "note": "Off when unset or invalid.",
           "title": {
@@ -1222,6 +1253,38 @@
             "follows mouse",
             "hover",
             "pointer"
+          ],
+          "swift_owner": {
+            "type": "ColumnLayoutSettings",
+            "prefixed": true
+          }
+        },
+        {
+          "key": "layout.fadeInactivePanes",
+          "note": "Off: panes keep full strength whatever has focus. On: each pane without the focus fades under the pane fill (panes.inactiveDimming) and fades back when it takes focus (Leo, 2026-11-12, ask-cb90cb267d). A Ghostty unfocused-split-opacity, when it dims, still wins.",
+          "title": {
+            "key": "settings.layout.fadeInactivePanes",
+            "text": "Fade Inactive Panes"
+          },
+          "help": {
+            "key": "settings.layout.fadeInactivePanes.help",
+            "text": "Panes without the focus fade, and come back when you focus them."
+          },
+          "summary": {
+            "key": "settings.layout.fadeInactivePanes.summary",
+            "text": "Unfocused panes fade until you focus them"
+          },
+          "kind": "toggle",
+          "default": false,
+          "keywords": [
+            "fade",
+            "dim",
+            "inactive",
+            "unfocused",
+            "pane",
+            "split",
+            "focus",
+            "opacity"
           ],
           "swift_owner": {
             "type": "ColumnLayoutSettings",

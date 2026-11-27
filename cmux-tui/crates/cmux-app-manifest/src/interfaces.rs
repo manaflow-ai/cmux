@@ -37,6 +37,7 @@ interfaces! {
     "cmux.search.provider/1" => "cmux.search.provider",
     "cmux.section/1" => "cmux.section",
     "cmux.session.info.section/1" => "cmux.session.info.section",
+    "cmux.sidebar/1" => "cmux.sidebar",
     "cmux.sidebar.rows/1" => "cmux.sidebar.rows",
     "cmux.signal.source/1" => "cmux.signal.source",
     "cmux.status/1" => "cmux.status",

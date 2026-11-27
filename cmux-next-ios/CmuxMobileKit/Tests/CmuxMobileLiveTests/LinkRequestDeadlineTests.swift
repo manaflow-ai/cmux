@@ -51,6 +51,74 @@ import Testing
         } catch let error as LinkError { #expect(error.code == "closed") }
     }
 
+    @Test func aPromptWriteContinuesAcrossMultipleWindowsWhileItsOwnChunksMove() async throws {
+        let windows = AsyncStream<Void>.makeStream()
+        let complete = AsyncStream<Void>.makeStream()
+        let channel = DeadlineChannel(observed: LinkWrite(send: {
+            for await _ in complete.stream { break }
+        }, takeProgress: {
+            windows.continuation.yield(())
+            return true
+        }))
+        let connection = AcpmuxConnection(channel: channel)
+        let prompt = Task { try await connection.submit("session/prompt", .null, timeout: .milliseconds(25)) }
+        var checks = windows.stream.makeAsyncIterator()
+        _ = await checks.next()
+        _ = await checks.next()
+        #expect(await connection.isSending)
+        complete.continuation.yield(())
+        #expect(try await prompt.value == 1)
+        #expect(await !connection.isSending)
+        await connection.close()
+    }
+
+    @Test func unrelatedEventsDoNotExtendAStalledPromptWrite() async throws {
+        let cancel = AsyncStream<Void>.makeStream()
+        let channel = DeadlineChannel(observed: LinkWrite(send: {
+            try await Task.sleep(for: .seconds(5))
+        }, takeProgress: { false }, cancel: { cancel.continuation.yield(()) }))
+        let connection = AcpmuxConnection(channel: channel)
+        let traffic = Task {
+            while !Task.isCancelled {
+                channel.push(Data(#"{"jsonrpc":"2.0","method":"session/update","params":{}}"#.utf8))
+                try await Task.sleep(for: .milliseconds(5))
+            }
+        }
+        defer { traffic.cancel() }
+        do {
+            _ = try await connection.submit("session/prompt", .null, timeout: .milliseconds(50))
+            Issue.record("A prompt with no outgoing progress succeeded")
+        } catch let error as LinkError { #expect(error.code == "timeout") }
+        var cancelled = cancel.stream.makeAsyncIterator()
+        _ = await cancelled.next()
+        #expect(await !connection.isSending)
+        #expect(await !connection.hasWritesInFlight)
+        await connection.close()
+    }
+
+    @Test func cancellingASubmittedWriteReleasesItsObservationAndRequest() async throws {
+        let began = AsyncStream<Void>.makeStream()
+        let stopped = AsyncStream<Void>.makeStream()
+        let channel = DeadlineChannel(observed: LinkWrite(send: {
+            began.continuation.yield(())
+            try await Task.sleep(for: .seconds(5))
+        }, takeProgress: { true }, cancel: { stopped.continuation.yield(()) }))
+        let connection = AcpmuxConnection(channel: channel)
+        let prompt = Task { try await connection.submit("session/prompt", .null, timeout: .seconds(5)) }
+        var started = began.stream.makeAsyncIterator()
+        _ = await started.next()
+        prompt.cancel()
+        do {
+            _ = try await prompt.value
+            Issue.record("A cancelled prompt write succeeded")
+        } catch is CancellationError {}
+        var cancelled = stopped.stream.makeAsyncIterator()
+        _ = await cancelled.next()
+        #expect(await !connection.isSending)
+        #expect(await !connection.hasWritesInFlight)
+        await connection.close()
+    }
+
     @Test func aMissingPairingChallengeTimesOutAndClosesItsChannel() async throws {
         var pairing = Self.pairing()
         pairing.handshakeTimeout = .milliseconds(20)
@@ -127,7 +195,7 @@ import Testing
         }
         channel.push(replies)
         let results = await prepared.replies.value
-        #expect(results.count == 5)
+        #expect(results.count == 7, "six setup requests and the sidebar layout (#51114)")
         for result in results { _ = try result.get() }
         await prepared.client.close()
         #expect(await writes.next() == nil)
@@ -138,7 +206,7 @@ import Testing
         let prepared = await WorkspaceSync.prepare(channel, deviceID: "phone", deviceName: "iPhone",
                                                    authorizationTimeout: .milliseconds(10), replyTimeout: .milliseconds(10))
         let results = await prepared.replies.value
-        #expect(results.count == 5)
+        #expect(results.count == 7, "six setup requests and the sidebar layout (#51114)")
         for result in results {
             guard case .failure(let error) = result else { Issue.record("Unanswered setup succeeded"); continue }
             #expect((error as? LinkError)?.code == "reply_timeout")
@@ -165,6 +233,14 @@ private final class DeadlineChannel: LinkChannel, @unchecked Sendable {
     var reads: AsyncStream<Void> { readEvents.stream }
     var closes: AsyncStream<Void> { closeEvents.stream }
     var closed: Bool { lock.withLock { ended } }
+
+    private let observed: LinkWrite?
+
+    init(observed: LinkWrite? = nil) { self.observed = observed }
+
+    func observedWrite(_ data: Data) -> LinkWrite {
+        observed ?? LinkWrite(send: { try await self.send(data) })
+    }
 
     func send(_ data: Data) async throws {
         sendEvents.continuation.yield(data)

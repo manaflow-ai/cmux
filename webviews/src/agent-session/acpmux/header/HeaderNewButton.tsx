@@ -14,6 +14,7 @@ import { tooltipProps, useShortcut } from "../shortcuts";
 import { ShortcutKeycaps, useShortcutKeycapsOn } from "../ButtonKeycaps";
 import { ariaKeyshortcuts } from "../shortcutKeycaps";
 import { Menu, MenuButton, MenuItem, MenuPopup } from "../../../ui/Menu";
+import { KeyHint } from "../../../ui/KeyHint";
 
 const KIND_LABELS: Record<NewKind, StringKey> = {
   terminal: "chatMenu.newTerminal",
@@ -111,7 +112,7 @@ export function HeaderNewButton({
             >
               <Icon name={KIND_ICONS[kind]} size={14} />
               <span className="acpmux-chat-menu-label">{label(kind)}</span>
-              {keys[kind] && <kbd className="acpmux-chat-menu-key">{keys[kind]}</kbd>}
+              {keys[kind] && <KeyHint keys={keys[kind]!} className="acpmux-chat-menu-key" />}
             </MenuItem>
           ))}
         </MenuPopup>
@@ -136,7 +137,7 @@ function NewPreview({ kind, label, keycap }: { kind: NewKind; label: string; key
       </div>
       <div className="acpmux-header-new-preview-text">
         <span className="acpmux-header-new-preview-name">{label}</span>
-        {keycap && <kbd className="acpmux-chat-menu-key">{keycap}</kbd>}
+        {keycap && <KeyHint keys={keycap} className="acpmux-chat-menu-key" />}
       </div>
       {/* Both texts share one cell, the other one hidden, so the preview keeps the taller one's height and
           the rows under it never move as the pointer goes from row to row. */}

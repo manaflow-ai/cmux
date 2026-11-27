@@ -197,19 +197,7 @@ extension UpdateController {
     }
 
     func describeLifecycleState(_ state: UpdateState) -> String {
-        switch state {
-        case .idle: return "idle"
-        case .permissionRequest: return "permissionRequest"
-        case .preparingCheck: return "preparingCheck"
-        case .checking: return "checking"
-        case .updateAvailable: return "updateAvailable"
-        case .notFound: return "notFound"
-        case .error: return "error"
-        case .startingDownload: return "startingDownload"
-        case .downloading: return "downloading"
-        case .extracting: return "extracting"
-        case .installing: return "installing"
-        }
+        state.lifecyclePhase.rawValue
     }
 }
 

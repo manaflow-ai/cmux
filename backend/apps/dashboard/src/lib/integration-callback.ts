@@ -207,6 +207,16 @@ export const integrationAuthorizeBounce = (url: string, at: { readonly api: () =
   return new Response(null, { status: 302, headers: { Location: `${api}${GITHUB_AUTHORIZE_PATH}?${query}`, "Cache-Control": "no-store", "Referrer-Policy": "no-referrer" } })
 }
 
+/**
+ * GitHub's redirect after a person saved an existing installation's settings page directly (its Setup URL):
+ * `installation_id`, `setup_action=update`, and no `state`, because no connect started it. (A fresh install from the
+ * App's public page, `setup_action=install` with no state, is linked to no team yet, so it keeps the page's own answer.) Nothing is left to finish here, and nobody needs to
+ * sign in to this page: the API hears the change from GitHub itself, and the cmux app reads GitHub again (#55104). The
+ * page says so instead of asking for a sign-in that could not help.
+ */
+export const integrationSavedOnGitHub = (search: { state?: string; installation_id?: string; setup_action?: string; error?: string }): boolean =>
+  !search.state && !search.error && !!search.installation_id && /^[0-9]{1,20}$/.test(search.installation_id) && search.setup_action === "update"
+
 export const integrationCompletionRequest = (state: string, extra: { code?: string; installation_id?: string; setup_action?: string } = {}) => ({
   params: {
     state,
@@ -215,8 +225,23 @@ export const integrationCompletionRequest = (state: string, extra: { code?: stri
     ...(extra.setup_action ? { setup_action: extra.setup_action } : {}),
   },
   team: integrationTeamHint(state),
-  idempotency_key: `complete:${state.slice(-40)}`,
+  idempotency_key: integrationCompletionKey(state, extra),
 })
+
+/**
+ * A completion's idempotency key: the state and the exact params GitHub gave (the app's CloudGitHubCompletion.idempotencyKey
+ * derives the same one). A reload of the same redirect replays; another redirect of the same state (a code-less update
+ * redirect, then the one with a code; a new installation id) is its own completion. Keyed on the state alone, the second
+ * one was refused for good as `idempotency.conflict` ("idempotency key reused with different params", cmux#55104).
+ * FNV-1a 64 of the params, so the one-time code never appears in a key.
+ */
+export const integrationCompletionKey = (state: string, extra: { code?: string; installation_id?: string; setup_action?: string } = {}) => {
+  let hash = 0xcbf29ce484222325n
+  for (const byte of new TextEncoder().encode(`${extra.code ?? ""}\n${extra.installation_id ?? ""}\n${extra.setup_action ?? ""}`)) {
+    hash = ((hash ^ BigInt(byte)) * 0x100000001b3n) & 0xffffffffffffffffn
+  }
+  return `complete:${state.slice(-40)}:${hash.toString(16).padStart(16, "0")}`
+}
 
 const RETURN_HEX = "[0-9a-f]{32}"
 const RETURN_SESSION = "[A-Za-z0-9._-]{1,200}"
@@ -226,7 +251,7 @@ const RETURN_HINT = "(?:host|name|message)=[A-Za-z0-9._:%-]{1,128}"
  * @cmux/protocol (a test pins them equal). Checked again here, before the browser leaves the dashboard.
  */
 export const RETURN_TO_PATTERN = new RegExp(
-  `^(?:cmux|cmux-nightly|cmux-rc|cmux-dev(?:-[a-z0-9-]{1,40})?)://(?:` +
+  `^(?:cmux|cmux-nightly|cmux-rc|cmux-next|cmux-dev(?:-[a-z0-9-]{1,40})?)://(?:` +
     `(?:workspace/ws_|pane/pane_|tab/tab_)${RETURN_HEX}(?:\\?machine=machine_${RETURN_HEX})?` +
     `|session/${RETURN_SESSION}(?:\\?machine=machine_${RETURN_HEX})?(?:#turn-${RETURN_SESSION})?` +
     `|agent/[a-z0-9-]{1,64}/[A-Za-z0-9._:-]{1,256}(?:\\?${RETURN_HINT}(?:&${RETURN_HINT}){0,2})?` +
