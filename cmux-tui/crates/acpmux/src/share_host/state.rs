@@ -325,7 +325,9 @@ pub(crate) fn status_now() -> Value {
     // The helper's own grant reading holds whether or not this machine joined yet, so `cmux
     // remote-host grants` reads the helper's grants, not the app's, before the host runs.
     if let Some(fields) = status.as_object_mut() {
-        fields.entry("helper").or_insert_with(|| super::helper::status_json(&crate::config::home()));
+        fields
+            .entry("helper")
+            .or_insert_with(|| super::helper::status_json(&crate::config::home()));
     }
     status
 }
