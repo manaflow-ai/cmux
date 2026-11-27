@@ -2026,6 +2026,17 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
             ],
             swiftSettings: uiSwiftSettings
         ),
+        .testTarget(
+            // CmuxScreenKit's rules are Rust (cmux-rd-core screen_kit); its
+            // Swift is thin wrappers over the C ABI, so its tests link
+            // CCmuxAppFFI here instead of running in their own package.
+            name: "CmuxScreenKitTests",
+            dependencies: [ // sorted: scripts/cmux-next/check-package-dependency-lists.py
+                "CCmuxAppFFI",
+                .product(name: "CmuxScreenKit", package: "CmuxScreenKit"),
+            ],
+            swiftSettings: [.swiftLanguageMode(.v6)]
+        ),
         // Remote tab client (remote-tab.md r2): the page of a browser tab
         // whose runtime is on another machine. Decode and present come from
         // CmuxNextRemoteView; session state is the Rust client reducer.
