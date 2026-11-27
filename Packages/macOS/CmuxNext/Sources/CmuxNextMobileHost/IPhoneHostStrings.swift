@@ -40,7 +40,7 @@ enum IPhoneHostStrings {
     /// The service says another account owns this Mac's device id, and registering a new one did not help.
     static var deviceIDTaken: String {
         String(localized: "iphone.status.deviceIDTaken",
-               defaultValue: "Another account already registered this Mac's iPhone connection, and a new one could not be set up. Turn iPhone connections off and on to try again.",
+               defaultValue: "Another account claimed this Mac's iPhone link. Toggle iPhone connections to retry.",
                table: "IPhone", bundle: .localizedModule)
     }
     /// A refused Keychain read of this Mac's iPhone key: the host waits and tries again.
@@ -60,7 +60,7 @@ enum IPhoneHostStrings {
     static var howTitle: String { String(localized: "iphone.how.title", defaultValue: "How to Connect", table: "IPhone", bundle: .localizedModule) }
     static var how: String {
         String(localized: "iphone.how.body",
-               defaultValue: "Install cmux on your iPhone and sign in with the same account as this Mac. This Mac then appears under Workspaces. No cmux on your iPhone yet? It’s in beta: get it through TestFlight.",
+               defaultValue: "Install cmux on your iPhone and sign in with this Mac's account; this Mac appears under Workspaces. It's in beta on TestFlight.",
                table: "IPhone", bundle: .localizedModule)
     }
     static var phonesTitle: String { String(localized: "iphone.phones.title", defaultValue: "Phones", table: "IPhone", bundle: .localizedModule) }

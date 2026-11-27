@@ -75,12 +75,12 @@ pub(crate) mod clone_boot;
 mod closed_rows;
 #[cfg(unix)]
 mod closed_tmp;
+pub(crate) mod cloud_offload;
 pub mod cmux_tools_answer;
 mod cold_archive;
 mod cold_segments;
 mod live_rows;
 // A wake onto a cold, large chat: one batch on an interval, compacted first.
-pub(crate) mod cloud_offload;
 pub(crate) mod cold_wake;
 mod complete;
 pub mod composers;
@@ -563,6 +563,10 @@ pub(crate) fn prompt_attribution_mark(
 ) {
     prompt_attribution::mark(params, sender, provenance);
 }
+/// A failed turn's error as auto-resume reads it, for a client that waits on the chat (`cmux cloud
+/// start-chat`): why it is continued by itself (`capacity`, `transport`), and the wait its own
+/// `retry after` names.
+pub use auto_resume::reset_hint::retry_after_ms;
 pub use digest::{MAX_FROM_AGENT_CHARS, declared_sender, on_peer_host};
 pub use key_store::{CliKeyStore, KeepAsk, KeyStore};
 pub use pool::{
@@ -576,6 +580,7 @@ pub(crate) use seen::{Look, reader_of};
 pub use session::{Session, live_tags};
 pub(crate) use transfer_out::TOOL_IN_FLIGHT;
 pub(crate) use turn_errors::is_limit_error;
+pub use turn_errors::transient_cause;
 
 /// [`Hub::withdraws`]: each withdraw's answer once its notice is accepted or refused.
 type WithdrawsInFlight =
