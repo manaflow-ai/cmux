@@ -32,6 +32,10 @@ WORKFLOW = ROOT / ".github/workflows/pr-router.yml"
 
 FAKE_GH = """#!/bin/sh
 echo "$GH_TOKEN $*" >> "$CALLS"
+if [ "$2" = rate_limit ]; then [ -n "$RATE" ] && echo "$RATE"; exit 0; fi
+case " $DENY_TOKENS " in *" $GH_TOKEN "*)
+  echo "gh: Resource not accessible by integration (HTTP 403)" >&2; exit 1;;
+esac
 case " $FAIL_TOKENS " in *" $GH_TOKEN "*)
   echo "gh: API rate limit exceeded for installation." >&2; exit 1;;
 esac
@@ -51,7 +55,8 @@ def step(name: str) -> dict:
 
 class LandTierStatusPost(unittest.TestCase):
     def run_post(self, app_token: str, fail: str, state: str = "success", rounds: str = "",
-                 script: str = "", pools: str = "") -> tuple[int, list[str], str]:
+                 script: str = "", pools: str = "", deny: str = "", rate: str = "",
+                 wait_max: str = "") -> tuple[int, list[str], str]:
         script = script or step("Post the land tier status")["run"]
         with tempfile.TemporaryDirectory() as tmp:
             gh = Path(tmp, "gh")
@@ -61,11 +66,16 @@ class LandTierStatusPost(unittest.TestCase):
             env = {"PATH": f"{tmp}:{os.environ['PATH']}", "CALLS": str(calls), "FAIL_TOKENS": fail,
                    "APP_TOKEN": app_token, "JOB_TOKEN": "job", "REPO": "manaflow-ai/cmux", "SHA": "a" * 40,
                    "STATE": state, "RUN_URL": "https://example.invalid/run", "LAND_STATUS_RETRY_S": "0",
-                   "GITHUB_RUN_ID": "123", "GITHUB_OUTPUT": str(Path(tmp, "output")), "POOL_TOKENS": pools}
+                   "GITHUB_RUN_ID": "123", "GITHUB_OUTPUT": str(Path(tmp, "output")), "POOL_TOKENS": pools,
+                   "DENY_TOKENS": deny, "RATE": rate}
+            if wait_max:
+                env["LAND_STATUS_WAIT_MAX_S"] = wait_max
             if rounds:
                 env["LAND_STATUS_ROUNDS"] = rounds
             done = subprocess.run(["bash", "-e", "-c", script], env=env, capture_output=True, text=True, timeout=30)
-            lines = calls.read_text().splitlines() if calls.exists() else []
+            every = calls.read_text().splitlines() if calls.exists() else []
+            self.rate_reads = [c for c in every if " api rate_limit" in c]
+            lines = [c for c in every if " api rate_limit" not in c]
             output = Path(tmp, "output")
             self.output = output.read_text() if output.exists() else ""
         return done.returncode, lines, done.stdout + done.stderr
@@ -157,6 +167,43 @@ class LandTierStatusPost(unittest.TestCase):
         code, calls, _ = self.run_post("app", fail="app job pool1", pools="pool1 pool2")
         self.assertEqual(code, 0)
         self.assertEqual([c.split()[0] for c in calls], ["app", "pool1", "pool2"])
+
+    def test_a_token_refused_for_its_permission_is_not_asked_again(self) -> None:
+        # the regression: job 140277453358 (2026-11-27) asked two 403 tokens six rounds each while it slept 913 s
+        code, calls, said = self.run_post("app", fail="app", deny="job", rounds="4")
+        self.assertEqual(code, 1, said)
+        self.assertEqual([c.split()[0] for c in calls], ["app", "job", "app", "app", "app"])
+
+    def test_every_token_refused_for_its_permission_ends_at_once(self) -> None:
+        code, calls, said = self.run_post("app", fail="", deny="app job", rounds="6")
+        self.assertEqual(code, 1, said)
+        self.assertEqual(len(calls), 2)
+        self.assertEqual(self.rate_reads, [])
+        self.assertEqual(self.output.strip(), "unposted=true")
+
+    def test_a_budget_back_past_the_wait_ends_now_instead_of_sleeping(self) -> None:
+        # the regression: the retry job slept its whole 15 min ladder for installations whose hour reset later
+        import time
+        far = int(time.time()) + 3600
+        started = time.monotonic()
+        code, calls, said = self.run_post("app", fail="app job", rounds="6", rate=f"0 {far}", wait_max="900")
+        self.assertEqual(code, 1, said)
+        self.assertLess(time.monotonic() - started, 10)
+        self.assertEqual(len(calls), 2, "one round, then no sleep for a budget an hour away")
+        self.assertIn("not sleeping for it", said)
+        self.assertIn("after 1 of 6 rounds", said)
+
+    def test_a_budget_back_within_the_wait_is_slept_for_not_the_ladder(self) -> None:
+        import time
+        soon = int(time.time()) + 1
+        started = time.monotonic()
+        code, calls, said = self.run_post("app", fail="app job", rounds="2", rate=f"0 {soon}", wait_max="30")
+        self.assertEqual(code, 1, said)
+        self.assertLess(time.monotonic() - started, 8, "slept until the reset, about 3 s")
+        self.assertEqual(len(calls), 4, "two rounds: it waited for the budget and asked again")
+
+    def test_the_route_job_waits_at_most_30_s(self) -> None:
+        self.assertEqual(step("Post the land tier status")["env"]["LAND_STATUS_WAIT_MAX_S"], "30")
 
     def test_the_post_reads_the_pool_tokens(self) -> None:
         env = step("Post the land tier status")["env"]

@@ -218,6 +218,9 @@ jobs:
           STATE: ${{ steps.route.outputs.land_status }}
           RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
           LAND_STATUS_RETRY_S: '20'
+          # The route job waits for a budget only when it comes back within 30 s; past that the land tier status post
+          # job below waits for it (the router run is every PR's first check).
+          LAND_STATUS_WAIT_MAX_S: '30'
         run: &land-tier-post |
           if [ "$STATE" = success ]; then
             # GitHub refuses a status description over 140 characters ("Validation failed: Description is too long"),
@@ -227,23 +230,58 @@ jobs:
             desc="Cheap tier: the full tier runs when ready-to-land or full-ci is added"
           fi
           # Each token in turn, LAND_STATUS_ROUNDS rounds: a spent budget or a 5xx on one is retried on the next, then again.
+          # A runner asleep is runner-minutes for nothing, so a wait is read, not guessed: a token GitHub refuses for
+          # its permission ("Resource not accessible by integration") is never asked again, and between rounds each
+          # other token's /rate_limit (free: it spends no budget) says when the soonest spent budget comes back. The
+          # step sleeps until then, or ends now when that is past LAND_STATUS_WAIT_MAX_S (default: the rounds' own
+          # schedule). 2026-11-27 00:00-03:10Z: 202 land tier status post jobs, p50 376 s, p90 914 s, about 11k
+          # runner-min/day, nearly all asleep; job 140277453358 slept 913 s on two 403 tokens and two installations
+          # whose hour reset later, and failed. Leo, 2026-11-21: "de facto, im asking for 99% fewer minutes of ci
+          # time, period."
           rounds="${LAND_STATUS_ROUNDS:-3}"
+          step="${LAND_STATUS_RETRY_S:-20}"
+          wait_max="${LAND_STATUS_WAIT_MAX_S:-$((step * rounds * (rounds - 1) / 2))}"
+          slept=0
           err="$(mktemp)"
+          # shellcheck disable=SC2086 # POOL_TOKENS is a space-separated list
+          set -- "$APP_TOKEN" ${POOL_TOKENS:-} "$JOB_TOKEN"
+          live=()
+          for token in "$@"; do [ -n "$token" ] && live+=("$token"); done
           for round in $(seq 1 "$rounds"); do
-            # shellcheck disable=SC2086 # POOL_TOKENS is a space-separated list
-            for token in "$APP_TOKEN" ${POOL_TOKENS:-} "$JOB_TOKEN"; do
-              [ -n "$token" ] || continue
+            kept=()
+            for token in "${live[@]}"; do
               if GH_TOKEN="$token" gh api "repos/$REPO/statuses/$SHA" -f state="$STATE" -f context=cmux/land-tier \
                   -f description="${desc:0:140}" -f target_url="$RUN_URL" >/dev/null 2>"$err"; then
                 exit 0
               fi
               cat "$err" >&2
+              grep -q 'Resource not accessible by integration' "$err" || kept+=("$token")
             done
-            [ "$round" = "$rounds" ] || sleep "$((LAND_STATUS_RETRY_S * round))"
+            live=("${kept[@]}")
+            [ "${#live[@]}" -gt 0 ] || break
+            [ "$round" = "$rounds" ] && break
+            wait="$((step * round))" soonest="" now="$(date +%s)"
+            for token in "${live[@]}"; do
+              read -r left reset < <(GH_TOKEN="$token" gh api rate_limit \
+                --jq '"\(.resources.core.remaining) \(.resources.core.reset)"' 2>/dev/null) || continue
+              [[ "$left" =~ ^[0-9]+$ && "$reset" =~ ^[0-9]+$ ]] || continue
+              if [ "$left" -gt 0 ]; then soonest=0; break; fi
+              d=$((reset - now + 2)); [ "$d" -gt 0 ] || d=0
+              if [ -z "$soonest" ] || [ "$d" -lt "$soonest" ]; then soonest="$d"; fi
+            done
+            # A token with budget left now: a short pause for a 5xx, no more.
+            if [ "$soonest" = 0 ]; then [ "$wait" -le 5 ] || wait=5
+            elif [ -n "$soonest" ]; then wait="$soonest"; fi
+            if [ $((slept + wait)) -gt "$wait_max" ]; then
+              echo "the soonest budget comes back in ${wait} s, past this step's ${wait_max} s wait (${slept} s spent): not sleeping for it" >&2
+              break
+            fi
+            sleep "$wait"
+            slept=$((slept + wait))
           done
           last="$(tail -n 1 "$err" | cut -c1-200)"
           echo "unposted=true" >> "${GITHUB_OUTPUT:-/dev/null}"
-          echo "::error::cmux/land-tier ($STATE) was not posted at $SHA after $rounds rounds (last: $last): its land waits on the last state posted there until a post gets through (rerun: gh run rerun $GITHUB_RUN_ID --failed)"
+          echo "::error::cmux/land-tier ($STATE) was not posted at $SHA after ${round:-$rounds} of $rounds rounds (last: $last): its land waits on the last state posted there until a post gets through (rerun: gh run rerun $GITHUB_RUN_ID --failed)"
           exit 1
       # `cmux/ios-fast` (pr_router.py ios_status): success at once on a head that touches nothing iOS builds, so a
       # ruleset can require it; pending on an iOS-affecting head until ios-fast-status posts its verdict. Leo,
