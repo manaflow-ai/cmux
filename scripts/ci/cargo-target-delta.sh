@@ -24,13 +24,14 @@
 # delta. With an empty OVERLAY it only touches STAMP (cold workspace build, as before).
 #
 # pack (after "Stage binary" and the uploads, before the dependency strip): OUT gets hard links of every
-# file under TARGET written after STAMP plus every file apply copied (a crate Cargo found fresh is not
+# file under TARGET written after STAMP (or, under incremental/, linked after it) plus every file apply copied (a crate Cargo found fresh is not
 # rewritten, and the next leg needs it too), the source mtimes of this checkout and the commit. OUT is
 # then saved to R2 under a per-commit key; its archive is the delta against the dependency entry, never
 # a delta of a delta.
 #
 # The CPU fingerprint is pinned to TRIPLE as machine-channel-warm-target.sh pins it: the build output is
-# for an explicit zig -Dtarget, so it is valid on every pool host. scripts/ci/tests/cargo-target-delta.test.sh.
+# for an explicit zig -Dtarget, so it is valid on every pool host; TRIPLE host keeps the real CPU.
+# scripts/ci/tests/cargo-target-delta.test.sh.
 set -euo pipefail
 
 usage() {
@@ -44,7 +45,7 @@ case "$command" in
   pack) target=$2 stamp=$3 out=$4 triple=$5 ;;
   *) usage ;;
 esac
-[[ "$triple" =~ ^[a-z0-9_]+-[a-z0-9_-]+$ ]] || { echo "invalid triple: $triple" >&2; exit 2; }
+[[ "$triple" == host || "$triple" =~ ^[a-z0-9_]+-[a-z0-9_-]+$ ]] || { echo "invalid triple: $triple" >&2; exit 2; }
 
 repo="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 mtimes="$repo/scripts/blacksmith-testbox-source-mtimes.py"
@@ -52,9 +53,14 @@ manifest_name=.cmux-testbox-source-mtimes.tsv
 source_name=.cargo-target-delta-source
 list="$stamp.list"
 
-cpuinfo="${RUNNER_TEMP:-/tmp}/cargo-target-delta-cpu-$triple"
-printf 'model name\t: zig -Dtarget=%s\nflags\t: %s\n' "$triple" "$triple" > "$cpuinfo"
-export CMUX_TESTBOX_CPUINFO="$cpuinfo"
+# TRIPLE host (the cmux-next fast tier builds for the machine it runs on) keeps this machine's CPU: apply
+# then drops the native-CPU build output another CPU made (blacksmith-testbox-source-mtimes.py), as the
+# pool warm target does.
+if [[ "$triple" != host ]]; then
+  cpuinfo="${RUNNER_TEMP:-/tmp}/cargo-target-delta-cpu-$triple"
+  printf 'model name\t: zig -Dtarget=%s\nflags\t: %s\n' "$triple" "$triple" > "$cpuinfo"
+  export CMUX_TESTBOX_CPUINFO="$cpuinfo"
+fi
 
 # Hard links where TARGET and the other tree share a filesystem (both under the workspace), else copies.
 copy_tree() { # <from> <to>: every entry, mtimes kept
@@ -79,15 +85,23 @@ apply() {
 }
 
 pack() {
-  if [[ ! -d "$target" || ! -f "$stamp" ]]; then
-    echo "cargo delta: no $target or no stamp $stamp (apply did not run); nothing packed"
+  if [[ ! -f "$stamp" ]]; then
+    echo "cargo delta: no stamp $stamp (apply did not run); nothing packed"
+    return 0
+  fi
+  if [[ ! -d "$target" ]]; then
+    echo "cargo delta: no $target$([[ ! -L "$target" ]] || echo " (a link to the missing $(readlink "$target"))"); nothing packed"
     return 0
   fi
   rm -rf -- "$out"
   mkdir -p "$out"
   local files="$out.files"
   {
-    (cd "$target" && find . \( -type f -o -type l \) -newer "$stamp" -printf '%P\n')
+    # rustc's incremental cache hard-links every codegen unit it reuses into a new session directory
+    # (target/<triple>/release/incremental/<crate>/s-*), keeping the old mtime: -cnewer (the link
+    # changed its ctime) keeps them, or the next leg would find the session missing them and
+    # recompile those units. acpmux 2026-11-27: 16 of the session's 20 files were linked, 4 written.
+    (cd "$target" && find . \( -type f -o -type l \) \( -newer "$stamp" -o \( -path '*/incremental/*' -cnewer "$stamp" \) \) -printf '%P\n')
     [[ ! -f "$list" ]] || while IFS= read -r path; do
       [[ -n "$path" && ( -f "$target/$path" || -L "$target/$path" ) ]] && printf '%s\n' "$path"
     done < "$list"
@@ -98,7 +112,7 @@ pack() {
   fi
   python3 -I "$mtimes" record "$repo" "$out/$manifest_name"
   git -C "$repo" rev-parse HEAD > "$out/$source_name" 2>/dev/null || true
-  echo "cargo delta: packed $(wc -l < "$files") files, $(du -sxh "$out" | cut -f1) (target $(du -sxh "$target" | cut -f1))"
+  echo "cargo delta: packed $(wc -l < "$files") files, $(du -sxh "$out" | cut -f1) (target $(du -sxh "$target/" | cut -f1))"
   rm -f -- "$files"
 }
 

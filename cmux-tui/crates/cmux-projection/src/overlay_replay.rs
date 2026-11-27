@@ -244,7 +244,7 @@ impl Overlay {
 
     /// Fetches `batch` (the files no other thread fetches now) and caches what lands; false when
     /// the Mac was away.
-    fn replay_batch(&self, mut batch: Vec<u32>, report: &mut ReplayReport) -> bool {
+    pub(super) fn replay_batch(&self, mut batch: Vec<u32>, report: &mut ReplayReport) -> bool {
         let mut claim = Claim { overlay: self, keys: Vec::new() };
         {
             let mut inflight = self.inflight.lock().unwrap_or_else(PoisonError::into_inner);
@@ -259,15 +259,16 @@ impl Overlay {
         batch.sort_unstable();
         report.batches += 1;
         report.asked += batch.len() as u64;
+        let generations: Vec<u64> = batch.iter().map(|index| self.generation_of(*index)).collect();
         let answers = self.fetch.batch(&batch);
         let mut away = !answers.is_empty();
-        for (index, answer) in batch.iter().zip(answers) {
-            let expected = self.manifest.entry(*index).map_or(0, |entry| entry.size);
+        for ((index, answer), generation) in batch.iter().zip(answers).zip(generations) {
+            let expected = self.stat_of(*index).map_or(0, |(stat, _)| stat.size);
             match answer {
                 Ok(bytes) if bytes.len() as u64 == expected => {
                     away = false;
                     self.count(expected);
-                    self.store((*index, WHOLE), &bytes);
+                    self.store((*index, WHOLE), &bytes, generation);
                     report.fetched += 1;
                     report.bytes += expected;
                 }

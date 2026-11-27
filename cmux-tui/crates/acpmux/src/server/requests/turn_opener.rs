@@ -5,8 +5,9 @@
 
 use super::*;
 
-/// The user messages read back before the page: steers into the turn are user messages too, and
-/// the opener is the newest that is not one. The pane's own read asks the same.
+/// The most user messages read back before the page: steers into the turn are user messages too,
+/// and the opener is the newest that is not one. The pane's own read asks the same. The read stops
+/// at the opener, so an attach reads one turn back, not this many.
 const PROMPTS_READ: usize = 16;
 
 /// The opener as an `_acpmux/event` value, `None` when the page needs none (it starts a turn, or
@@ -23,19 +24,10 @@ pub(super) fn turn_opener(
     if first.seq <= 1 || starts_turn(first) {
         return None;
     }
-    let filter = crate::hub::EventFilter::parse(Some(&json!(["user_message"]))).ok()?;
-    let prompts = hub
-        .events_page(
-            session_id,
-            0,
-            Some(first.seq),
-            PROMPTS_READ,
-            Some(crate::hub::page_bytes(&Value::Null)),
-            true,
-            &filter,
-        )
-        .ok()?;
-    let opener = prompts.events.into_iter().rev().find(starts_turn)?;
+    // The newest prompt that opens a turn, read back no further than it: a page of all 16 read
+    // 16 turns on every attach (`Hub::newest_prompt_where`).
+    let opener =
+        hub.newest_prompt_where(session_id, first.seq, PROMPTS_READ, &starts_turn).ok()??;
     Some(into_event_value(session_id, opener))
 }
 

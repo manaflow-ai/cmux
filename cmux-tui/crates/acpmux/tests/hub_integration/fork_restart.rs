@@ -26,6 +26,11 @@ impl Daemon {
         let env = BTreeMap::from([
             ("CLAUDE_CONFIG_DIR".to_owned(), claude.to_string_lossy().into_owned()),
             ("FAKE_CLAUDE_HOLD_FORK_IF".to_owned(), hold.to_string_lossy().into_owned()),
+            // system/init only once a turn starts, as Claude Code sends it. Sent right after
+            // initialize instead, it raced the fork's start: read in time, the fork knew its id
+            // and skipped its priming turn; read late (a loaded runner), the priming prompt was in
+            // the fork's conversation. Now a fork always primes, as it does with Claude Code.
+            ("FAKE_CLAUDE_INIT_ON_TURN".to_owned(), "1".to_owned()),
         ]);
         let profile = HarnessProfile {
             kind: acpmux::config::HarnessKind::ClaudeStdio,
@@ -169,7 +174,7 @@ async fn a_fork_whose_agent_a_restart_cut_off_resumes_its_chat_and_a_retry_finds
     assert_eq!(
         held,
         json!(["Remember this codeword: PERIWINKLE-4471", "say BANANA 2"]),
-        "the fork's agent holds the chat's conversation"
+        "the fork's agent holds the chat's conversation after filtering its priming turn"
     );
     // Nothing pending is left in its meta once its agent took the conversation.
     let meta = hub.resolve(&fid).unwrap().meta();
