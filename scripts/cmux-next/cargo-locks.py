@@ -275,7 +275,9 @@ def judge(repo: Path, root: str, env: dict[str, str], passes: tuple[list[str], .
 # features its run turns on, so an optional dependency (cmux-mobile-tailnet's `tsnet` = cmux-tailnet and its clap;
 # cmux-tui's wasmtime and dhat) is missing from it though the lock rightly lists it: cmux#57506 refused every push
 # into those two workspaces. An orphan is a lock entry the lock's own dependency lists (every feature's) do not
-# reach from what cargo resolves.
+# reach from what cargo resolves. A path package (no `source`) cargo did not resolve and no tracked Cargo.toml names
+# is gone, and the walk does not pass through it: the lock from before cmux#57348's fix still had acpmux list
+# cmux-coderouter, so a walk through that stale edge called the deleted crate reachable.
 ORPHANED = "lists packages its manifests no longer resolve: "
 LOCK_PACKAGE = re.compile(r'^\[\[package\]\]\s*\nname = "([^"]+)"\s*\nversion = "([^"]+)"', re.M)
 
@@ -314,13 +316,48 @@ def lock_graph(text: str) -> dict[tuple[str, str], set[tuple[str, str]]]:
     return resolved
 
 
-def unreached(text: str, roots: set[tuple[str, str]]) -> set[tuple[str, str]]:
-    """The lock's packages its dependency lists do not reach from ROOTS."""
+def sourceless(text: str) -> set[tuple[str, str]]:
+    """The lock's path packages: entries with no `source` line (workspace members and path dependencies)."""
+    found = set()
+    for block in text.split("[[package]]")[1:]:
+        head = LOCK_PACKAGE.match("[[package]]" + block)
+        if head and not re.search(r'^source = ', block, re.M):
+            found.add((head.group(1), head.group(2)))
+    return found
+
+
+def manifest_names(repo: Path) -> set[str] | None:
+    """The [package] name of every Cargo.toml in REPO's index; None when git cannot say."""
+    try:
+        done = subprocess.run(["git", "-C", str(repo), "grep", "--cached", "-h", "-A12", "-e", r"^\[package\]",
+                               "--", "*Cargo.toml"], capture_output=True, text=True, timeout=30)
+    except (OSError, subprocess.SubprocessError):
+        return None
+    if done.returncode not in (0, 1):
+        return None
+    names, inside = set(), False
+    for line in done.stdout.splitlines():
+        stripped = line.strip()
+        if stripped == "[package]":
+            inside = True
+        elif stripped.startswith("[") or stripped == "--":
+            inside = False
+        elif inside:
+            named = re.match(r'name\s*=\s*"([^"]+)"', stripped)
+            if named:
+                names.add(named.group(1))
+                inside = False
+    return names
+
+
+def unreached(text: str, roots: set[tuple[str, str]],
+              gone: set[tuple[str, str]] = frozenset()) -> set[tuple[str, str]]:
+    """The lock's packages its dependency lists do not reach from ROOTS, never walking through GONE."""
     graph = lock_graph(text)
-    seen, todo = set(), [root for root in roots if root in graph]
+    seen, todo = set(), [root for root in roots if root in graph and root not in gone]
     while todo:
         key = todo.pop()
-        if key in seen:
+        if key in seen or key in gone:
             continue
         seen.add(key)
         todo.extend(graph.get(key, ()))
@@ -351,7 +388,9 @@ def orphans(repo: Path, root: str, env: dict[str, str], timeout: float) -> list[
     if not resolved:
         return []
     # cargo's resolve is the roots, not the whole answer: an optional dependency is reached through the lock.
-    return sorted(f"{name} {version}" for name, version in unreached(text, resolved & lock_packages(text)))
+    names = manifest_names(repo)
+    gone = set() if names is None else {key for key in sourceless(text) - resolved if key[0] not in names}
+    return sorted(f"{name} {version}" for name, version in unreached(text, resolved & lock_packages(text), gone))
 
 
 def label(root: str) -> str:

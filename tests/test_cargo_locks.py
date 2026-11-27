@@ -146,6 +146,23 @@ class CargoLocksTests(unittest.TestCase):
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
         self.assertNotIn("stale", result.stdout)
 
+    def test_a_deleted_crate_a_stale_lock_edge_still_lists_is_an_orphan(self):
+        """The lock from before cmux#57348's fix still had acpmux list cmux-coderouter; a walk through that edge
+        called the deleted crate reachable. b is gone from every manifest, a's lock entry still names it."""
+        self.drop_crate_b()
+        lock = self.repo / "core/Cargo.lock"
+        text = lock.read_text()
+        lock.write_text(text.replace('name = "a"\nversion = "0.1.0"\n', 'name = "a"\nversion = "0.1.0"\n'
+                                     'dependencies = [\n "b",\n]\n'))
+        self.assertIn('dependencies = [\n "b",', lock.read_text())
+        self.git("add", "-A")
+        self.git("commit", "-qm", "a's lock entry still names b")
+
+        result = self.locks("check")
+
+        self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
+        self.assertIn("lists packages its manifests no longer resolve: b 0.1.0", result.stdout)
+
     def test_fix_with_nothing_stale_changes_nothing(self):
         fixed = self.locks("fix")
 
