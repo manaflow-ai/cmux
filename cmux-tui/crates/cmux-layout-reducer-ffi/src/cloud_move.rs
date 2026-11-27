@@ -629,6 +629,10 @@ pub(crate) fn respond(operation: &[u8], request: &[u8]) -> Result<Vec<u8>, i32> 
             let failure: wait::StartFailure = read(request)?;
             json!({ "dropped": wait::link_dropped(&failure) })
         }
+        b"cloud_move_link_stale" => {
+            let failure: wait::StartFailure = read(request)?;
+            json!({ "stale": wait::link_stale(&failure) })
+        }
         b"cloud_move_outdated_refusal" => {
             #[derive(Deserialize)]
             #[serde(rename_all = "camelCase")]

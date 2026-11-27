@@ -398,6 +398,22 @@ final class CloudMachineSession {
     /// The link a wait brought up holds: a live daemon and no failed resume (``linkUp(within:)`` also ends on one).
     func linkHeld() -> Bool { resumeFailure == nil && daemon.connection != nil }
 
+    /// A start's relink after its failure (``CloudWait/retriedOnce(_:closed:relinkAfter:)``). A stale link (a fresh
+    /// connection's first request got no reply, ``CloudWait/linkStale(_:)``) is still held as connected, so
+    /// ``linkUp(within:)`` answered at once and the one more try dialed the same dead link (cosmic-gray 2026-11-27,
+    /// 2 AutoCloud starts: "started but its agent didn't (timed out: identify (no progress for 10.0 s))"). That link
+    /// goes, as after an update that restarted the daemon (``reconnectAfterUpdate(restarted:)``), and this waits, up to
+    /// ``CloudWait/relinkWait``, for the connection that replaces it before the usual wait. Any other failure: the usual wait.
+    func relinked(after error: any Error, within limit: Duration) async -> Bool {
+        if CloudWait.linkStale(error), let stale = daemon.connection {
+            reconnectAfterUpdate(restarted: true)
+            _ = await CloudWait.holds(within: CloudWait.relinkWait) { [daemon] in
+                self.resumeFailure != nil || self.linkRefusal.refused || (daemon.connection != nil && daemon.connection !== stale)
+            }
+        }
+        return await linkUp(within: limit) && linkHeld()
+    }
+
     /// Retry on the record as it stands (the caller just read it): connect the link again, or resume a paused app-link machine first (``attach(origin:)``; the platform refuses its link).
     func retryNow() {
         if case .failed = linkPhase { linkPhase = .starting }
