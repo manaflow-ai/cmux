@@ -315,10 +315,9 @@ pub(super) fn helper(body: &Value, marker: &dyn Fn(&str) -> Marker) -> Check {
     if exe.rsplit('/').next() != Some(MAC_HELPER_EXE) {
         return pass("helper", exe.to_owned());
     }
-    let staged = exe.find(STAGED_SEGMENT).map(|at| {
-        let rest = &exe[at + STAGED_SEGMENT.len()..];
-        rest.split('/').next().unwrap_or("").to_owned()
-    });
+    let staged = exe
+        .split_once(STAGED_SEGMENT)
+        .map(|(_, rest)| rest.split('/').next().unwrap_or("").to_owned());
     match (staged, marker(exe)) {
         (Some(bundle), Marker::Matches | Marker::Unread) if !bundle.is_empty() => {
             pass("helper", format!("{exe} (staged, verified copy for {bundle})"))
