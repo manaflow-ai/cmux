@@ -7991,6 +7991,39 @@
           }
         }
       }
+    },
+    "agentShare.team.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Share “%1$@” with %2$@?"
+          }
+        }
+      }
+    },
+    "agentShare.team.detail": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Members of team %1$@ can sign in to see this chat, including command output and the agent’s reasoning."
+          }
+        }
+      }
+    },
+    "agentShare.team.unavailable": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The account, team, or chat changed. Open Share again to confirm who gets access."
+          }
+        }
+      }
     }
   },
   "version": "1.0"

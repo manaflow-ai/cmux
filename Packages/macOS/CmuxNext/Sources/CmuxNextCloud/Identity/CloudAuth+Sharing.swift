@@ -1,4 +1,5 @@
 public import Foundation
+import os
 
 extension CloudAuth {
     /// Team names and backend scopes from the existing Rust identity rules.
@@ -14,7 +15,15 @@ extension CloudAuth {
 
     /// Bind the room's install to the restored account before minting its scoped token.
     /// A changed account or membership never hands a token back to an old consent.
-    public func shareOwnerToken(installs: ShareInstalls, api: URL?, team: String?, accountScope: String?) async throws -> String? {
+    public func shareOwnerToken(installs: ShareInstalls, api: URL?, team: String?, accountScope: String?) async -> String? {
+        do { return try await mintShareOwnerToken(installs: installs, api: api, team: team, accountScope: accountScope) }
+        catch {
+            Logger(subsystem: "com.cmuxterm.app.next", category: "auth").error("share owner token failed: \(String(describing: error), privacy: .public)")
+            return nil
+        }
+    }
+
+    private func mintShareOwnerToken(installs: ShareInstalls, api: URL?, team: String?, accountScope: String?) async throws -> String? {
         guard let stackUser = await restoredUserID(), managedTeamID == nil || teamID != nil else { return nil }
         if let accountScope, accountKey != accountScope { return nil }
         let scope = accountKey

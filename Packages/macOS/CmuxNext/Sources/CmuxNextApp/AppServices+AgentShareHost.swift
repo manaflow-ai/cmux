@@ -26,7 +26,6 @@ extension AppServices: AgentShareHost {
         return cloud.auth.shareTeams.map { AgentShareTeam(id: $0.id, name: $0.name) }
     }
     func shareTeamOwnerToken(api: URL?, team: String, accountScope: String) async -> String? {
-        guard shareAccountScope == accountScope, shareTeams.contains(where: { $0.id == team }) else { return nil }
         return await cloud.shareOwnerToken(api: api, team: team, accountScope: accountScope)
     }
     func shareLinkOpener() async -> (connection: DaemonConnection?, token: String?) { (await machines.local.connectionOnceStarted(), await cloud.auth.restoredAccessToken()) }

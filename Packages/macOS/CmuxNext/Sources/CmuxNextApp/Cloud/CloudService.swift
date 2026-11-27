@@ -866,10 +866,6 @@ final class CloudService {
     /// sign-in did not (a DEV build on the local backend never calls the Cloud API). Nil signed out, switched, or with Cloud off or no team.
     func shareOwnerToken(api: URL?, team: String? = nil, accountScope: String? = nil) async -> String? {
         guard !policyDisabled else { return nil }
-        do { return try await auth.shareOwnerToken(installs: shareInstalls, api: api, team: team, accountScope: accountScope) }
-        catch {
-            logger.error("share owner token failed: \(String(describing: error), privacy: .public)")
-            return nil
-        }
+        return await auth.shareOwnerToken(installs: shareInstalls, api: api, team: team, accountScope: accountScope)
     }
 }
