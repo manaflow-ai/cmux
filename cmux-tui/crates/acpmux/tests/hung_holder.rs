@@ -212,3 +212,31 @@ async fn slow_but_alive_holder_is_not_replaced_under_load() {
     assert!(holder.try_wait().unwrap().is_none(), "a beating holder was killed");
     assert!(waiter.try_wait().unwrap().is_none(), "the waiter gave up on a live holder");
 }
+
+// A holder that writes no beat (an older build) and serves this home at another socket is not
+// hung: a waiter dialing its own socket never reaches it, and must still never replace it.
+#[tokio::test(flavor = "multi_thread")]
+async fn holder_without_beat_serving_another_socket_is_not_replaced() {
+    let dir = scratch("e");
+    let _ = socket(&dir);
+    let mut holder = daemon(&dir, STALL_MS)
+        .env("ACPMUX_SOCKET", dir.join("a.sock"))
+        .env("ACPMUX_TEST_NO_BEAT", "1")
+        .spawn()
+        .unwrap();
+    let ready = line(&mut holder, None, Duration::from_secs(60)).await;
+    assert_eq!(ready["ready"], true, "{ready}");
+    assert!(!dir.join("daemon.beat").exists(), "the holder wrote a beat");
+    let mut waiter =
+        daemon(&dir, STALL_MS).env("ACPMUX_SOCKET", dir.join("b.sock")).spawn().unwrap();
+    // Four stall bounds: the waiter's dials of b.sock never answer and there is no beat.
+    tokio::time::sleep(Duration::from_millis(4 * 1500 + 2000)).await;
+    assert!(holder.try_wait().unwrap().is_none(), "a serving holder without a beat was killed");
+    let _ = waiter.start_kill();
+    let mut cmd = daemon_env::acpmux(&dir);
+    cmd.args(["daemon", "shutdown"])
+        .env("ACPMUX_HOME", dir.path())
+        .env("ACPMUX_SOCKET", dir.join("a.sock"))
+        .env("ACPMUX_LOGIN_ENV", "0");
+    let _ = cmd.output();
+}

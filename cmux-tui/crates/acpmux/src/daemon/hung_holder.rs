@@ -136,6 +136,11 @@ pub(crate) fn step(name: &str) {
 /// Writes this daemon's beat; nothing in a process that holds no home ([`arm`]).
 pub(crate) fn beat(phase: Phase) {
     let Some(path) = BEAT_FILE.get() else { return };
+    // Debug builds only: a holder as an older build, which writes no beat.
+    #[cfg(debug_assertions)]
+    if std::env::var_os("ACPMUX_TEST_NO_BEAT").is_some() {
+        return;
+    }
     let line = json!({"pid": std::process::id(), "phase": phase.name(), "atMs": now_ms()});
     if let Err(e) = crate::config::write_atomic_unsynced(path, line.to_string().as_bytes()) {
         tracing::debug!("daemon beat: {e}");
@@ -197,6 +202,9 @@ pub(crate) enum Refusal {
     NotAcpmux(u32, Option<PathBuf>),
     /// It runs in another folder than this home (or one unreadable): another home's daemon.
     OtherHome(u32, Option<PathBuf>),
+    /// It answers at a socket of its own (another `ACPMUX_SOCKET`, or an older build that writes
+    /// no beat): it is not hung, only not at the socket the waiter dials.
+    AnswersAt(u32, PathBuf),
 }
 
 impl std::fmt::Display for Refusal {
@@ -213,6 +221,9 @@ impl std::fmt::Display for Refusal {
             }
             Refusal::NotAcpmux(pid, exe) => write!(f, "pid {pid} runs {exe:?}, not acpmux"),
             Refusal::OtherHome(pid, cwd) => write!(f, "pid {pid} runs in {cwd:?}, not this home"),
+            Refusal::AnswersAt(pid, socket) => {
+                write!(f, "pid {pid} answers at {}; it is not hung", socket.display())
+            }
         }
     }
 }
@@ -269,6 +280,9 @@ fn signal(pid: u32, sig: libc::c_int) -> bool {
 pub(crate) async fn replace(home: &Path, why: &str) -> Result<u32, Refusal> {
     let lock = home.join("daemon.lock");
     let pid = verify(home)?;
+    if let Some(socket) = answers_somewhere(home, pid).await {
+        return Err(Refusal::AnswersAt(pid, socket));
+    }
     tracing::warn!(
         pid,
         "{why}: replacing the lock holder (SIGTERM, SIGKILL after {}s)",
@@ -299,6 +313,40 @@ pub(crate) async fn replace(home: &Path, why: &str) -> Result<u32, Refusal> {
     }
     super::lock::wait_for_lock_release_with_budget(lock, Some(KILL_WAIT)).await;
     Ok(pid)
+}
+
+/// The socket at which `pid` answers as `home`'s daemon, if any: the socket its lock records,
+/// this home's own and this process's `ACPMUX_SOCKET`, each probed within the probe bound. A
+/// waiter dials only its own socket, so a holder serving another one (an older build with no
+/// beat, or a start with another `ACPMUX_SOCKET`) would look hung to it; this is the check that
+/// it is not.
+pub(crate) async fn answers_somewhere(home: &Path, pid: u32) -> Option<PathBuf> {
+    let mut candidates: Vec<PathBuf> = Vec::new();
+    for socket in super::lock::holder_socket(&home.join("daemon.lock"))
+        .into_iter()
+        .chain([crate::config::socket_path_for(home, None), crate::config::socket_path()])
+    {
+        if !candidates.contains(&socket) {
+            candidates.push(socket);
+        }
+    }
+    let probe = Bounds::current().probe;
+    for socket in candidates {
+        let status = async {
+            let client = crate::client::Client::connect(&socket).await.ok()?;
+            client.request(crate::rpc::method::MUX_STATUS, json!({})).await.ok()
+        };
+        let Ok(Some(status)) = tokio::time::timeout(probe, status).await else { continue };
+        let ours = status.get("pid").and_then(Value::as_u64) == Some(u64::from(pid))
+            || status
+                .get("home")
+                .and_then(Value::as_str)
+                .is_some_and(|h| super::lock::same_path(Path::new(h), home));
+        if ours {
+            return Some(socket);
+        }
+    }
+    None
 }
 
 fn wait_lock_path(home: &Path) -> PathBuf {

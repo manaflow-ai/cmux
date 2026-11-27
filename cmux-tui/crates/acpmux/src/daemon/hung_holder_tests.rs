@@ -128,3 +128,13 @@ fn one_waiter_stands_a_home() {
     assert!(says_waiter_stands(r#"{"ready":false,"lockHeld":true,"waiterStands":true}"#));
     assert!(!says_waiter_stands(r#"{"ready":false,"lockHeld":true}"#));
 }
+
+// A pid that answers at the socket its lock records is never replaced, beat or none.
+#[test]
+fn a_holder_answering_at_its_own_socket_is_not_hung() {
+    let rt = tokio::runtime::Builder::new_current_thread().enable_all().build().unwrap();
+    let home = tempfile::tempdir().unwrap();
+    // Nothing listens anywhere: no answer.
+    std::fs::write(home.path().join("daemon.lock"), "4242\n/nonexistent/acpmux.sock\n").unwrap();
+    assert_eq!(rt.block_on(answers_somewhere(home.path(), 4242)), None);
+}
