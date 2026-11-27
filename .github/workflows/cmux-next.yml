@@ -1803,6 +1803,15 @@ jobs:
         continue-on-error: true
         run: scripts/cmux-next/check-motion.sh "$GITHUB_WORKSPACE/Packages/macOS/CmuxNext"
 
+      # Why: goal a11y-baseline (every animation honors Reduce Motion, macOS, webviews and iOS); 6 came back
+      # between 2026-11-16 and 11-26 with no check to stop them.
+      - name: Reduce Motion audit
+        id: reduce-motion
+        continue-on-error: true
+        run: |
+          python3 -I scripts/cmux-next/test_reduce_motion_audit.py
+          python3 -I scripts/cmux-next/reduce-motion-audit.py --root "$GITHUB_WORKSPACE" --check
+
       # Why: note-144
       - name: Overlays are glass, never solid
         id: overlay-glass
@@ -2189,6 +2198,7 @@ jobs:
             ${{ steps.concentric-containers.outcome }}|Containers concentric with their buttons
             ${{ steps.pressed-state.outcome }}|Buttons change only their fill when pressed
             ${{ steps.motion.outcome }}|Motion tokens
+            ${{ steps.reduce-motion.outcome }}|Reduce Motion audit
             ${{ steps.overlay-glass.outcome }}|Overlays are glass, never solid
             ${{ steps.conn-notices.outcome }}|Connection notices
             ${{ steps.retry-prompts.outcome }}|Retry prompts (the app retries by itself)
@@ -3519,6 +3529,27 @@ jobs:
 
       - name: Install zig
         run: ./scripts/install-zig-ci.sh
+
+      # Why: 2026-11-27-fast-tier-zig-cache.md
+      - name: Keep the libghostty-vt zig build in Zig's global cache
+        id: zig-local
+        continue-on-error: true
+        run: |
+          set -euo pipefail
+          env_out="$("${CMUX_ZIG:-zig}" env)"
+          if [[ "${env_out:0:1}" == "{" ]]; then
+            dir="$(python3 -I -c 'import json,sys; print(json.load(sys.stdin)["global_cache_dir"])' <<<"$env_out")"
+          else
+            dir="$(sed -n 's/^[[:space:]]*\.global_cache_dir = "\(.*\)",$/\1/p' <<<"$env_out")"
+          fi
+          [[ -n "$dir" ]]
+          echo "ZIG_LOCAL_CACHE_DIR=$dir" >> "$GITHUB_ENV"
+          echo "libghostty-vt's zig build caches in $dir"
+
+      - name: Restore the Zig global cache (feat-cmux-next pushes save it)
+        if: ${{ steps.zig-local.outcome == 'success' }}
+        continue-on-error: true
+        uses: ./.github/actions/zig-global-cache
 
       - name: Set up pinned cmux-tui Rust
         uses: ./.github/actions/setup-cmux-tui-rust
@@ -5640,7 +5671,7 @@ jobs:
     environment: ${{ github.event_name != 'pull_request' && 'ci-build-cache-reader' || '' }}
     # Why: note-cheap-gate (a PR head's Release compile starts only after Linux cargo is not red, as macos-placement)
     needs: [path_route, macos-placement, push-head-preflight, app-compile-fleet, release-compile-fast, pure-checks-coalesce, fast-tier-cargo]
-    if: ${{ (always() && !cancelled() && (github.event_name != 'pull_request' || needs.fast-tier-cargo.result == 'success' || needs.fast-tier-cargo.result == 'skipped') && needs.pure-checks-coalesce.outputs.run != 'false' && needs.path_route.outputs.native == 'true' && needs.push-head-preflight.outputs.current == 'true' && (needs.release-compile-fast.result == 'skipped' || needs.release-compile-fast.outputs.verdict == 'unavailable' || (needs.release-compile-fast.result == 'failure' || needs.release-compile-fast.result == 'success') && needs.release-compile-fast.outputs.verdict == '') && (github.event_name != 'pull_request' || github.event.pull_request.base.ref != 'feat-cmux-next' && contains(needs.path_route.outputs.labels, ',full-ci,') || github.event.pull_request.head.repo.full_name != github.repository && needs.path_route.outputs.cmuxnext_swift == 'true' || github.event.pull_request.head.repo.full_name == github.repository && needs.path_route.outputs.mac_release == 'true' && needs.app-compile-fleet.outputs.verdict != 'pass' && needs.app-compile-fleet.outputs.verdict != 'fail')) && !(github.event_name == 'pull_request' && github.event.pull_request.base.ref == 'feat-cmux-next' && (github.event.action == 'labeled' && !contains(fromJSON('["full-ci","ready-to-land"]'), github.event.label.name) || github.event.action == 'unlabeled')) }}
+    if: ${{ (always() && !cancelled() && (github.event_name != 'pull_request' || needs.fast-tier-cargo.result == 'success' || needs.fast-tier-cargo.result == 'skipped') && needs.pure-checks-coalesce.outputs.run != 'false' && needs.path_route.outputs.native == 'true' && needs.push-head-preflight.outputs.current == 'true' && (needs.release-compile-fast.result == 'skipped' || needs.release-compile-fast.outputs.verdict == 'unavailable' || (needs.release-compile-fast.result == 'failure' || needs.release-compile-fast.result == 'success') && needs.release-compile-fast.outputs.verdict == '') && (github.event_name != 'pull_request' || github.event.pull_request.base.ref != 'feat-cmux-next' && contains(needs.path_route.outputs.labels, ',full-ci,') || github.event.pull_request.head.repo.full_name != github.repository && needs.path_route.outputs.cmuxnext_swift == 'true' || github.event.pull_request.head.repo.full_name == github.repository && needs.path_route.outputs.mac_release == 'true' && needs.app-compile-fleet.outputs.verdict != 'pass' && needs.app-compile-fleet.outputs.verdict != 'fail' && needs.app-compile-fleet.outputs.verdict != 'awaiting_land')) && !(github.event_name == 'pull_request' && github.event.pull_request.base.ref == 'feat-cmux-next' && (github.event.action == 'labeled' && !contains(fromJSON('["full-ci","ready-to-land"]'), github.event.label.name) || github.event.action == 'unlabeled')) }}
     name: cmux-next Release compile (Xcode 26)
     # Why: note-6
     continue-on-error: false
