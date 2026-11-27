@@ -328,6 +328,9 @@ impl Hub {
             .filter(|_| profile.kind == crate::config::HarnessKind::ClaudeStdio)
             .filter(|e| crate::claude_stdio::takes_effort_at_spawn(e));
         meta.workspace_id = workspace_id;
+        // Its Sources, then the folders every new chat gets (`agents.additionalDirectories`).
+        let additional_directories =
+            super::additional_dirs::with_settings(additional_directories, remote);
         meta.additional_directories =
             super::additional_dirs::without_cwd(additional_directories, &meta.cwd);
         // Claude Code (stdio) takes it as a Stop hook, Codex (codex-acp) as its goal
@@ -727,7 +730,7 @@ impl Hub {
         }
         Err(super::subsession_guard::refusal(
             "start.starter_changing",
-            "session/new refused: the session that started this one kept changing its permissions while it started; start it again".into(),
+            "session/new refused: the session that started this one kept changing its permissions while it started, so this one did not start".into(),
             json!({"starter": starter}),
         ))
     }
@@ -797,6 +800,11 @@ impl Hub {
         // A transcript a cloud offload removed comes back before the agent resumes from it
         // (`transcript_offload.rs`): one `stat` when none ever was.
         self.restore_transcripts(session).await;
+        // A wake on a lane host past its cap or held: where placement would start it instead,
+        // logged as `wake-place` (`wake_place.rs`, RFD 0181 B6); it still starts here.
+        if self.waking(session) {
+            let _ = Box::pin(self.wake_place(session)).await;
+        }
         // Boxed: a start is a deep future, and the stack a caller polls it on is not.
         let wake = self.wake_began(session);
         let child = match Box::pin(self.reach_or_start(session, profile, stops, &off)).await {

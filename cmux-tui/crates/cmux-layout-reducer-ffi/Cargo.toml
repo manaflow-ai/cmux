@@ -23,6 +23,7 @@ cmux-cloud-handlers = { path = "../cmux-cloud-handlers" }
 cmux-cloud-machine = { path = "../cmux-cloud-machine" }
 cmux-cloud-start-core = { path = "../cmux-cloud-start-core" }
 cmux-cloud-tasks = { path = "../cmux-cloud-tasks" }
+cmux-error-journal = { path = "../cmux-error-journal" }
 cmux-focus-core = { path = "../cmux-focus-core" }
 cmux-imessage = { path = "../cmux-imessage" }
 cmux-layout-reducer = { path = "../cmux-layout-reducer" }
@@ -32,10 +33,10 @@ cmux-rd-core = { path = "../cmux-rd-core", features = ["app"] }
 cmux-rd-screen = { path = "../cmux-rd-screen" }
 cmux-tab-discard = { path = "../cmux-tab-discard" }
 cmux-tasks-core = { path = "../cmux-tasks-core" }
-cmux-workspace-naming = { path = "../cmux-workspace-naming" }
 # The VNC client's rules (src/vnc.rs: `vnc_*`).
 cmux-vnc = { path = "../cmux-vnc" }
 cmux-window-rules = { path = "../cmux-window-rules" }
+cmux-workspace-naming = { path = "../cmux-workspace-naming" }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 
