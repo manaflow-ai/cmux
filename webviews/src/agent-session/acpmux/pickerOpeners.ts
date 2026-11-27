@@ -23,3 +23,18 @@ export function openPicker(label: string): boolean {
 export function pickerLabels(): string[] {
   return [...openers.keys()];
 }
+
+type ModelCommand = (query: string) => true | string | undefined;
+let modelCommand: ModelCommand | undefined;
+
+/// The mounted model picker handles a typed combo using this pane's catalog and session.
+export function registerModelCommand(run: ModelCommand): () => void {
+  modelCommand = run;
+  return () => {
+    if (modelCommand === run) modelCommand = undefined;
+  };
+}
+
+export function runModelCommand(query: string): ReturnType<ModelCommand> {
+  return modelCommand?.(query);
+}

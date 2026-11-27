@@ -15,6 +15,6 @@ extension SidebarSectionsPreferences {
             || previous?.groupHeaderMemberCount != groupHeaderMemberCount || previous?.groupHeaderUnreadCount != groupHeaderUnreadCount
             || previous?.groupHeaderBackground != groupHeaderBackground || previous?.groupPalette != groupPalette
             || previous?.groupGradient != groupGradient || previous?.settleFinished != settleFinished
-            || previous?.showAutomaticSessions != showAutomaticSessions || previous?.showAgentSessions != showAgentSessions
+            || previous?.showAgentSessions != showAgentSessions
     }
 }

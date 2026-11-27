@@ -49,7 +49,7 @@ import Testing
     func flow(_ backend: Backend) -> CloudMachineCreateFlow {
         CloudMachineCreateFlow(run: { _, _, key, _ in try await MainActor.run { try backend.call(key) } },
                                confirm: { _ in true },
-                               approve: { _, _, _ in },
+                               approve: { _, _, _ in nil },
                                pause: { _ in })
     }
 
@@ -155,7 +155,7 @@ import Testing
         backend.running = { true }
         var create = timed(flow(backend), time)
         // The hold answered was req_1; the backend now holds the key for another request.
-        create.approve = { _, _, _ in backend.request = "req_2" }
+        create.approve = { _, _, _ in backend.request = "req_2"; return nil }
         let held = create
         await #expect(throws: CloudMachineCreateFlow.Failure.stillPending(request: "req_2")) {
             _ = try await held.create(name: nil, startedByPerson: true, key: "k1")
@@ -238,7 +238,7 @@ import Testing
         CloudMachineCreateFlow(run: CloudService.pinnedRun(team: "team_a", currentTeam: { await MainActor.run { backend.team } },
                                                            sent: { sends.count += 1 },
                                                            ops: { _, _, key, _ in try await MainActor.run { try backend.call(key) } }),
-                               confirm: { _ in true }, approve: { _, _, _ in }, pause: { _ in })
+                               confirm: { _ in true }, approve: { _, _, _ in nil }, pause: { _ in })
     }
 
     @MainActor final class Sends { var count = 0 }
@@ -247,7 +247,7 @@ import Testing
         let backend = Backend()
         let flow = CloudMachineCreateFlow(run: CloudService.pinnedRun(team: "team_a", currentTeam: { "team_a" },
             sent: { throw CancellationError() }, ops: { _, _, key, _ in try await MainActor.run { try backend.call(key) } }),
-            confirm: { _ in true }, approve: { _, _, _ in }, pause: { _ in })
+            confirm: { _ in true }, approve: { _, _, _ in nil }, pause: { _ in })
         await #expect(throws: CancellationError.self) {
             _ = try await flow.create(name: "cloud-chats", startedByPerson: true, key: "lost-answer")
         }
@@ -259,7 +259,7 @@ import Testing
         let backend = Backend()
         let flow = CloudMachineCreateFlow(run: CloudService.pinnedRun(team: "team_a", currentTeam: { await MainActor.run { backend.team } },
             sent: { backend.team = "team_b" }, ops: { _, _, key, _ in try await MainActor.run { try backend.call(key) } }),
-            confirm: { _ in true }, approve: { _, _, _ in }, pause: { _ in })
+            confirm: { _ in true }, approve: { _, _, _ in nil }, pause: { _ in })
         await #expect(throws: ActionFailure.self) {
             _ = try await flow.create(name: "cloud-chats", startedByPerson: true, key: "lost-answer")
         }
@@ -282,7 +282,7 @@ import Testing
         let flow = CloudMachineCreateFlow(run: CloudService.pinnedRun(team: "team_a", currentTeam: { await MainActor.run { backend.team } },
                                                                       sent: { sends.count += 1 },
                                                                       ops: { _, _, key, _ in try await MainActor.run { try backend.call(key) } }),
-                                          confirm: { _ in true }, approve: { _, _, _ in },
+                                          confirm: { _ in true }, approve: { _, _, _ in nil },
                                           // The install switches teams during the first retry's backoff.
                                           pause: { _ in await MainActor.run { backend.team = "team_b" } })
         await #expect(throws: ActionFailure(message: CloudStrings.createRetryOtherTeam)) {
@@ -318,6 +318,7 @@ import Testing
                                            throw CloudAppOpFailure(code: "cmux.cloud.approval_mismatch", message: "")
                                        }
                                        approvals.answered.append(request)
+                                       return nil
                                    },
                                    pause: { _ in })
         }
