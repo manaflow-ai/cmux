@@ -526,6 +526,12 @@ final class ShellWindow: NSWindow, FocusRouting, OverlayPlaneHosting, BrowserWin
         windowControlsAvoiders.batching(in: self) { super.setFrame(frameRect, display: flag) }
         ResizeStepTimes.recordLive("set_frame", since: start, detail: " x=\(Int(frame.minX)) w=\(Int(frame.width)) h=\(Int(frame.height))")
     }
+    /// Once per event loop turn, outside every layout pass and frame change: a batch of the avoiders' re-checks an
+    /// exception left open ends here (``WindowControlsAvoiders/endBatchesLeftOpen(in:)``).
+    override func update() {
+        super.update()
+        windowControlsAvoiders.endBatchesLeftOpen(in: self)
+    }
     override func constrainFrameRect(_ frameRect: NSRect, to screen: NSScreen?) -> NSRect { WindowPlacement.constrainsToScreen ? super.constrainFrameRect(frameRect, to: screen) : frameRect }
 
     /// The traffic lights, found once (`StandardWindowButtons`, cx-8w027.25).

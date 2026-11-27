@@ -426,8 +426,13 @@ public final class HomeSidebarView: NSView, WindowControlsAvoiding {
     /// header (the window's sidebar opened or closed beside the Home page); relays out the header
     /// only when what lies over it changed. `HomeSidebarSplitView` calls it on every layout.
     public func updateWindowControlsAvoidance() {
-        // The panel's top follows the lights' line, which a density change moves with no resize.
-        if abs((bounds.height - panel.frame.maxY) - panelTopInset) > 0.25 { needsLayout = true }
+        // The panel's top follows the lights' line, which a density change moves with no resize. Laid out now, as the
+        // header below: the window re-checks after its layout pass (`WindowControlsAvoiders.batching`), and a mark
+        // alone waited for the next pass, a frame late.
+        if abs((bounds.height - panel.frame.maxY) - panelTopInset) > 0.25 {
+            needsLayout = true
+            layoutSubtreeIfNeeded()
+        }
         guard list.headerView.homeLightsRow(band: HomeSidebarHeaderLayout.band) != windowControls else { return }
         // The header's layout also places the list under it (its height may change). Laid out
         // now, not at the next display pass: an occluded window gets none until it shows, and
