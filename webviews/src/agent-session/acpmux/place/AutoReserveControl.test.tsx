@@ -3,13 +3,14 @@
 // limits/heuristics/have a setting toggling/slider?)". The verdict is Rust's; the page draws the setting,
 // the last move with its reason, Bring Back and Cancel, and the pool at 80%.
 import { afterEach, expect, test } from "bun:test";
-import { act } from "react";
+import { act, useState } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { JSDOM } from "jsdom";
 import { UiProvider } from "../../../ui/UiProvider";
 import { settleReact } from "../../../../test/support/domTeardown";
 import { translate } from "../i18n";
 import { AutoReserveControl, MovedChip, lastMoveText, movedChipText } from "./AutoReserveControl";
+import { AutoReserveGallery } from "./AutoReserveControl.gallery";
 import { poolLevel, snapReserve, type AutoReserveState } from "./autoReserveModel";
 
 let dom: JSDOM | undefined;
@@ -65,21 +66,59 @@ test("a keep snaps down to one of four stops, and the pool shows from 80%", () =
   expect(poolLevel(1)).toBe("ceiling");
 });
 
-test("the slider and the switch each report the whole setting; off dims the slider and hides the line", async () => {
-  const changes: { on: boolean; keep: number }[] = [];
-  const view = await draw(<AutoReserveControl reserve={on()} onChange={(next) => changes.push(next)} />);
+async function setStop(view: HTMLElement, stop: number) {
   const slider = view.querySelector<HTMLInputElement>('[data-testid="reserve-slider"]')!;
+  await act(async () => {
+    const setter = Object.getOwnPropertyDescriptor(dom!.window.HTMLInputElement.prototype, "value")!.set!;
+    setter.call(slider, String(stop));
+    slider.dispatchEvent(new dom!.window.Event("input", { bubbles: true }));
+  });
+}
+
+test("the slider and switch emit and redraw the whole normalized setting", async () => {
+  const changes: { on: boolean; keep: number }[] = [];
+  function Host() {
+    const [reserve, setReserve] = useState(on({ keep: 0.49 }));
+    return (
+      <AutoReserveControl
+        reserve={reserve}
+        onChange={(next) => {
+          changes.push(next);
+          setReserve(next);
+        }}
+      />
+    );
+  }
+  const view = await draw(<Host />);
+  const slider = view.querySelector<HTMLInputElement>('[data-testid="reserve-slider"]')!;
+  const toggle = view.querySelector<HTMLButtonElement>('[data-testid="reserve-on"]')!;
   expect(slider.max).toBe("3");
-  expect(slider.value).toBe("2");
-  expect(slider.getAttribute("aria-valuetext")).toBe("50%");
-  expect(view.querySelector('[data-testid="reserve-last-move"]')!.textContent).toBe(translate("autoReserve.noMove"));
-  await act(async () => root!.render(<AutoReserveControl reserve={on({ keep: 0.75 })} onChange={() => undefined} />));
-  expect(view.querySelector<HTMLInputElement>('[data-testid="reserve-slider"]')!.value).toBe("3");
-  await act(async () =>
-    root!.render(<AutoReserveControl reserve={{ on: false, keep: 0.5 }} onChange={(next) => changes.push(next)} />),
-  );
-  expect(view.querySelector<HTMLInputElement>('[data-testid="reserve-slider"]')!.disabled).toBe(true);
+  expect(slider.value).toBe("1");
+  expect(slider.getAttribute("aria-valuetext")).toBe("25%");
+  expect(view.querySelector('.acpmux-reserve-ticks [data-on="true"]')!.textContent).toBe("25%");
+  await act(async () => toggle.click());
+  expect(changes).toEqual([{ on: false, keep: 0.25 }]);
+  expect(toggle.getAttribute("aria-checked")).toBe("false");
+  expect(slider.disabled).toBe(true);
   expect(view.querySelector('[data-testid="reserve-last-move"]')).toBeNull();
+  await act(async () => toggle.click());
+  expect(slider.disabled).toBe(false);
+  for (const [index, keep] of [0, 0.25, 0.5, 0.75].entries()) {
+    await setStop(view, index);
+    expect(changes.at(-1)).toEqual({ on: true, keep });
+    expect(slider.value).toBe(String(index));
+    expect(slider.getAttribute("aria-valuetext")).toBe(`${keep * 100}%`);
+  }
+});
+
+test("gallery controls update their displayed state and clear the simulated move", async () => {
+  const view = await draw(<AutoReserveGallery reserve={on({ lastMove: MOVED })} />);
+  await setStop(view, 3);
+  expect(view.querySelector('[data-testid="reserve-slider"]')!.getAttribute("aria-valuetext")).toBe("75%");
+  await act(async () => view.querySelector<HTMLButtonElement>('[data-testid="reserve-bring-back"]')!.click());
+  expect(view.querySelector('[data-testid="reserve-last-move"]')!.textContent).toBe(translate("autoReserve.noMove"));
+  await act(async () => view.querySelector<HTMLButtonElement>('[data-testid="reserve-on"]')!.click());
+  expect(view.querySelector<HTMLInputElement>('[data-testid="reserve-slider"]')!.disabled).toBe(true);
 });
 
 test("the line names the last move and its reason; Bring Back and Cancel are one click", async () => {

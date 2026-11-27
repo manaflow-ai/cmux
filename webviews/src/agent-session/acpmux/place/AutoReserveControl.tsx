@@ -2,7 +2,14 @@ import { intl } from "../../../ui/intl";
 import { Button } from "../../../ui/Button";
 import { Switch } from "../../../ui/Switch";
 import { currentLanguage, useT, type StringKey, type Translate } from "../i18n";
-import { RESERVE_STOPS, poolLevel, type AutoReserveState, type LastMove, type MoveReason } from "./autoReserveModel";
+import {
+  RESERVE_STOPS,
+  poolLevel,
+  snapReserve,
+  type AutoReserveState,
+  type LastMove,
+  type MoveReason,
+} from "./autoReserveModel";
 import "./autoReserve.css";
 
 const percent = (share: number) => intl.NumberFormat(currentLanguage(), { style: "percent" }).format(share);
@@ -41,7 +48,7 @@ export function lastMoveText(move: LastMove | undefined, t: Translate): string {
 
 /// Auto: the switch (`cloud.auto`), the share kept for the person (`cloud.autoReserve`, four stops), the
 /// last move with its reason and one click to undo it, and the pool when it nears its ceiling. No dialog.
-/// It is standalone: any menu or settings row can mount it (PlaceControl is not on this branch yet).
+/// Standalone gallery prototype; a settings/action adapter must connect it to the daemon.
 export function AutoReserveControl({
   reserve,
   onChange,
@@ -59,14 +66,15 @@ export function AutoReserveControl({
   const keepLabel = t("autoReserve.keep");
   const level = poolLevel(reserve.pool);
   const move = reserve.lastMove;
-  const stopIndex = Math.max(0, RESERVE_STOPS.indexOf(reserve.keep as (typeof RESERVE_STOPS)[number]));
+  const keep = snapReserve(reserve.keep);
+  const stopIndex = RESERVE_STOPS.indexOf(keep as (typeof RESERVE_STOPS)[number]);
   return (
     <div className="acpmux-reserve" data-on={reserve.on ? "true" : undefined}>
       <label className="acpmux-reserve-toggle">
         <Switch
           size="sm"
           checked={reserve.on}
-          onCheckedChange={(on) => onChange({ on, keep: reserve.keep })}
+          onCheckedChange={(on) => onChange({ on, keep })}
           data-testid="reserve-on"
         />
         <span>{t("autoReserve.toggle")}</span>
@@ -80,16 +88,16 @@ export function AutoReserveControl({
             max={RESERVE_STOPS.length - 1}
             step={1}
             aria-label={keepLabel}
-            aria-valuetext={percent(reserve.keep)}
+            aria-valuetext={percent(keep)}
             value={stopIndex}
             disabled={!reserve.on}
             data-testid="reserve-slider"
             onChange={(event) => onChange({ on: reserve.on, keep: RESERVE_STOPS[Number(event.target.value)] ?? 0.5 })}
           />
           <div className="acpmux-reserve-ticks" aria-hidden="true">
-            {RESERVE_STOPS.map((keep) => (
-              <span key={keep} data-on={reserve.keep === keep ? "true" : undefined}>
-                {percent(keep)}
+            {RESERVE_STOPS.map((stop) => (
+              <span key={stop} data-on={keep === stop ? "true" : undefined}>
+                {percent(stop)}
               </span>
             ))}
           </div>

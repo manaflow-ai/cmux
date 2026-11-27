@@ -1,20 +1,28 @@
 // l10n-allow-file: gallery fixtures, not shipped UI.
+import { useState } from "react";
 import { componentEntry } from "../../../gallery/format";
-import type { AutoReserveControl } from "./AutoReserveControl";
+import { AutoReserveControl } from "./AutoReserveControl";
 import type { AutoReserveState } from "./autoReserveModel";
 
-type Props = Parameters<typeof AutoReserveControl>[0];
+type Props = { reserve: AutoReserveState };
 
-const noop = () => undefined;
 const AT = Date.UTC(2026, 10, 24, 11, 2, 0);
 const MOVED = { title: "Port the settings page", reason: "cpu", atMs: AT, state: "moved" } as const;
 
-const reserve = (state: AutoReserveState): Props => ({
-  reserve: state,
-  onChange: noop,
-  onBringBack: noop,
-  onCancel: noop,
-});
+const reserve = (state: AutoReserveState): Props => ({ reserve: state });
+
+export function AutoReserveGallery({ reserve: initial }: Props) {
+  const [state, setState] = useState(initial);
+  const clearMove = () => setState((current) => ({ ...current, lastMove: undefined }));
+  return (
+    <AutoReserveControl
+      reserve={state}
+      onChange={(next) => setState((current) => ({ ...current, ...next }))}
+      onBringBack={clearMove}
+      onCancel={clearMove}
+    />
+  );
+}
 
 export default componentEntry<Props>({
   id: "agent-pane.auto-reserve",
@@ -22,7 +30,7 @@ export default componentEntry<Props>({
   area: "Agent pane",
   covers: ["agent-session/acpmux/place/AutoReserveControl.tsx#AutoReserveControl"],
   pane: true,
-  load: () => import("./AutoReserveControl").then((module) => module.AutoReserveControl),
+  load: async () => AutoReserveGallery,
   widths: { narrow: 360, normal: 640, wide: 900 },
   height: 180,
   variants: {
