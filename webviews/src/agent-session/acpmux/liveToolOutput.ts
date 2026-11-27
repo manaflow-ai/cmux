@@ -387,8 +387,13 @@ export function redrawWhy(
   next: AcpmuxSnapshot,
   pending: boolean,
   blocked: boolean,
+  drawn?: AcpmuxSnapshot,
+  asIs?: (row: AcpmuxRow) => boolean,
 ): string {
-  const kind = `@${String(next.connection)}`;
+  // Whether the pane's drawn snapshot is behind the received one (a bypass drew a record without it):
+  // `same`, `drift-rows` (a row moved on through a row's store) or `drift-fields` (Session Info's).
+  const drift = !drawn || drawn === received ? "same" : drawn.rows === received?.rows ? "drift-fields" : "drift-rows";
+  const kind = `@${String(next.connection)}~${drift}`;
   if (!received) return "first";
   if (pending) return `pending${kind}`;
   if (blocked) return `blocked${kind}`;
@@ -411,7 +416,16 @@ export function redrawWhy(
     .filter((key) => key !== "version" && !Object.is(was[key], now[key]))
     .sort()
     .join(",");
-  return `row${kind}:${String(now.kind)}:${moved}`;
+  // An activity row: how many items it gained, and the kinds of its last item before and now. A reply:
+  // whether the transcript drew it as the pane holds it (streamingRow.ts `drawsAsIs`).
+  const items = (row: Record<string, unknown>) => (Array.isArray(row.items) ? (row.items as { kind?: unknown }[]) : []);
+  const detail =
+    now.kind === "activity"
+      ? `:${items(now).length - items(was).length}:${String(items(was).at(-1)?.kind)}>${String(items(now).at(-1)?.kind)}`
+      : now.kind === "assistant" && drawn && asIs
+        ? `:asIs=${String(drawn.rows[index] !== undefined && asIs(drawn.rows[index]!))}`
+        : "";
+  return `row${kind}:${String(now.kind)}:${moved}${detail}`;
 }
 
 function sameSettled(before: unknown, after: unknown): boolean {

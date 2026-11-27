@@ -66,7 +66,7 @@ import { actionTrace } from "../actionTrace";
 import { perfReporter } from "../perfReporter";
 import { frameTally } from "../conversation/frameTally";
 import { reconciledProject } from "../newtab/startHint";
-import { streamingRow, streamingRowBlocked } from "../streamingRow";
+import { drawsAsIs, streamingRow, streamingRowBlocked } from "../streamingRow";
 import { liveToolOutput, toolOutputOnly, redrawWhy } from "../liveToolOutput";
 import { liveThought, thoughtOnly } from "../liveThought";
 import { changeHidden } from "../drawnRows";
@@ -1423,7 +1423,9 @@ export function paneSnapshotEffect({
           }
           if (hiddenChange) acpmuxPerf.render("pane:row-hidden");
           if (acpmuxPerf.enabled)
-            acpmuxPerf.render(`redraw:${redrawWhy(received, next, pendingPaneDraw.pending, streamingRowBlocked())}`);
+            acpmuxPerf.render(
+              `redraw:${redrawWhy(received, next, pendingPaneDraw.pending, streamingRowBlocked(), drawn, drawsAsIs)}`,
+            );
           redrawPane(next, false);
         },
         () => {
