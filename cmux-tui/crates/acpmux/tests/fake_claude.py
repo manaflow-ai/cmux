@@ -1285,6 +1285,53 @@ while True:
             except OSError:
                 result["cwd"] = "denied"
             text = json.dumps(result)
+        # "local-security-probe CONFIG GH_HOSTS LINK_SOURCE LINK_TARGET OUTSIDE": the local
+        # profile's enforcement cases. The effective last --settings value is disabled above,
+        # so the outer Seatbelt must still deny each operation here.
+        if asked.startswith("local-security-probe "):
+            import os
+            config, gh_hosts, link_source, link_target, outside = json.loads(
+                asked[len("local-security-probe "):].rstrip()
+            )
+            result = {}
+            try:
+                with open(config, "w") as f:
+                    f.write("{\"sessions.sandbox\":false}")
+                result["config_write"] = "allowed"
+            except PermissionError:
+                result["config_write"] = "denied"
+            except OSError as e:
+                result["config_write"] = "error: " + type(e).__name__
+            try:
+                with open(gh_hosts) as f:
+                    f.read()
+                result["gh_hosts"] = "allowed"
+            except PermissionError:
+                result["gh_hosts"] = "denied"
+            except OSError as e:
+                result["gh_hosts"] = "error: " + type(e).__name__
+            try:
+                os.link(link_source, link_target)
+                result["hard_link"] = "allowed"
+            except PermissionError:
+                result["hard_link"] = "denied"
+            except OSError as e:
+                result["hard_link"] = "error: " + type(e).__name__
+            try:
+                with open(outside, "w") as f:
+                    f.write("x")
+                result["outside"] = "allowed"
+            except PermissionError:
+                result["outside"] = "denied"
+            except OSError as e:
+                result["outside"] = "error: " + type(e).__name__
+            try:
+                with open(os.path.join(os.getcwd(), "local-security-probe.txt"), "w") as f:
+                    f.write("x")
+                result["cwd"] = "allowed"
+            except OSError:
+                result["cwd"] = "denied"
+            text = json.dumps(result)
         # G2: exercise the actual child boundary, including its HTTP proxy.
         if asked.startswith("linux-sandbox-probe "):
             import socket

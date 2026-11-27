@@ -59,6 +59,13 @@ fn hub_with(d: &Path, vm_host: Option<bool>) -> Arc<Hub> {
                 "kind": "claude-stdio",
                 "env": {"HOME": d.join("agent-home")}
             },
+            "fakeclaudelastsettings": {
+                "argv": ["python3", FAKE_CLAUDE,
+                         "--settings", "{\"sandbox\":{\"enabled\":true}}",
+                         "--settings", "{\"sandbox\":{\"enabled\":false}}"],
+                "kind": "claude-stdio",
+                "env": {"HOME": d.join("agent-home")}
+            },
             "fakeacp": {
                 "argv": ["python3", FAKE_AGENT],
                 "family": "sample",
@@ -729,6 +736,51 @@ async fn a_local_chat_cannot_read_credentials_write_outside_or_send_on_other_por
                "send": "denied", "cwd": "allowed"})
     );
     assert!(d.join("work/secret-probe.txt").exists());
+    let _ = std::fs::remove_dir_all(&d);
+}
+
+/// The local Seatbelt keeps the sandbox on when Claude receives two settings flags, because the
+/// final flag disables Claude's own sandbox. It also protects the cmux setting, gh credentials,
+/// and hard-link escape path that a prompt-injected child could otherwise use for persistence.
+#[cfg(target_os = "macos")]
+#[tokio::test]
+async fn a_local_chat_enforces_settings_credentials_and_hard_link_boundaries() {
+    let d = dir("local-enforcement");
+    let agent_home = d.join("agent-home");
+    let config = agent_home.join(".config/cmux-next/cmux-next.json");
+    let gh_hosts = agent_home.join(".config/gh/hosts.yml");
+    let link_source = agent_home.join("notes.txt");
+    let link_target = d.join("work/hard-link");
+    for path in [config.as_path(), gh_hosts.as_path(), link_source.as_path()] {
+        std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+        std::fs::write(path, "synthetic").unwrap();
+    }
+    let home = std::fs::canonicalize(dirs_home()).unwrap();
+    let outside = home.join(format!(".acpmux local enforcement-{}", std::process::id()));
+    let _ = std::fs::remove_file(&outside);
+    let probe = format!(
+        "local-security-probe {}",
+        serde_json::to_string(&[
+            config.display().to_string(),
+            gh_hosts.display().to_string(),
+            link_source.display().to_string(),
+            link_target.display().to_string(),
+            outside.display().to_string(),
+        ])
+        .unwrap()
+    );
+    let hub = hub(&d);
+    let mut local = Client::new(&hub, Origin::Local);
+    let seen = local.run_harness(&d, Some("fakeclaudelastsettings"), &probe).await;
+    let _ = std::fs::remove_file(&outside);
+    let _ = std::fs::remove_file(&link_target);
+    let seen: Value = serde_json::from_str(&seen.unwrap_or_else(|e| panic!("{e}"))).unwrap();
+    assert_eq!(
+        seen,
+        json!({"config_write": "denied", "gh_hosts": "denied", "hard_link": "denied",
+               "outside": "denied", "cwd": "allowed"})
+    );
+    assert_eq!(std::fs::read_to_string(&config).unwrap(), "synthetic");
     let _ = std::fs::remove_dir_all(&d);
 }
 

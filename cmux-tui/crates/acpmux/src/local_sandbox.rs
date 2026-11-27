@@ -78,6 +78,14 @@ pub(crate) struct Bound {
     pub(crate) agent_home: PathBuf,
     pub(crate) acpmux_home: PathBuf,
     pub(crate) session_tmp: PathBuf,
+    /// The cmux settings files that decide whether later chats are sandboxed.
+    pub(crate) cmux_config: PathBuf,
+    pub(crate) cmux_legacy_config: PathBuf,
+    pub(crate) cmux_agent_config: PathBuf,
+    pub(crate) cmux_agent_legacy_config: PathBuf,
+    pub(crate) cmux_config_real: PathBuf,
+    pub(crate) gh_config_dir: PathBuf,
+    pub(crate) xdg_gh_config_dir: PathBuf,
     /// The chat's other folders (`--add-dir`) and the git folders its folders commit into.
     pub(crate) folders: Vec<PathBuf>,
     /// Claude Code's own API port when it is not one the profile already opens.
@@ -87,6 +95,12 @@ pub(crate) struct Bound {
 /// A path as Seatbelt matches it: canonical (macOS's `/tmp` is `/private/tmp`), else as given.
 fn canonical(path: &Path) -> PathBuf {
     std::fs::canonicalize(path).unwrap_or_else(|_| path.to_path_buf())
+}
+
+/// Make a settings override absolute before passing it to Seatbelt. An override can name a
+/// missing file, so canonicalization alone is insufficient for the policy to protect it.
+fn absolute(path: PathBuf) -> PathBuf {
+    if path.is_absolute() { path } else { std::env::current_dir().unwrap_or_default().join(path) }
 }
 
 /// A literal path as a regex: Seatbelt's regex is POSIX extended.
@@ -124,6 +138,13 @@ impl Bound {
         param("AGENT_HOME_RE".into(), regex_escape(&self.agent_home));
         param("ACPMUX_HOME".into(), show(&self.acpmux_home));
         param("SESSION_TMP".into(), show(&self.session_tmp));
+        param("CMUX_CONFIG".into(), show(&self.cmux_config));
+        param("CMUX_CONFIG_REAL".into(), show(&self.cmux_config_real));
+        param("CMUX_LEGACY_CONFIG".into(), show(&self.cmux_legacy_config));
+        param("CMUX_AGENT_CONFIG".into(), show(&self.cmux_agent_config));
+        param("CMUX_AGENT_LEGACY_CONFIG".into(), show(&self.cmux_agent_legacy_config));
+        param("GH_CONFIG_DIR".into(), show(&self.gh_config_dir));
+        param("XDG_GH_CONFIG_DIR".into(), show(&self.xdg_gh_config_dir));
         for (i, dir) in self.folders.iter().enumerate() {
             param(format!("DIR{i}"), show(dir));
         }
@@ -198,39 +219,51 @@ pub(crate) fn git_dirs(folder: &Path) -> Vec<PathBuf> {
 }
 
 /// Whether Claude Code's own Bash sandbox is on for this launch. Claude applies the highest
-/// precedence setting for this one key: managed settings, the last `--settings` value, project
-/// local settings, project settings, then the configured Claude home (or `~/.claude`). The
-/// `--setting-sources` flag removes sources from this list just as Claude Code does.
+/// precedence setting for this key. Managed settings, the last `--settings` value, project-local
+/// settings, project settings, then user settings are checked in that order. `--setting-sources`
+/// removes file sources in the same way Claude Code does.
 pub(crate) fn claude_sandbox_on(
     args: &[String],
     cwd: &Path,
-    agent_home: &Path,
-    claude_config_dir: Option<&Path>,
+    env: &BTreeMap<String, String>,
 ) -> bool {
-    let value = |text: &str| {
-        serde_json::from_str::<Value>(text)
-            .ok()
-            .and_then(|v| v.pointer("/sandbox/enabled").and_then(Value::as_bool))
-    };
-    let file = |path: &Path| std::fs::read_to_string(path).ok().and_then(|text| value(&text));
-    let settings_value = |setting: &str| {
-        if setting.trim_start().starts_with('{') {
-            value(setting)
-        } else {
-            file(&cwd.join(setting))
+    let enabled = |value: &Value| value.pointer("/sandbox/enabled") == Some(&Value::Bool(true));
+    let from_bytes = |bytes: &[u8]| {
+        if let Ok(value) = serde_json::from_slice::<Value>(bytes) {
+            return value.pointer("/sandbox/enabled").and_then(Value::as_bool);
         }
+        let Ok(value) = plist::Value::from_reader(std::io::Cursor::new(bytes)) else {
+            return None;
+        };
+        value
+            .as_dictionary()
+            .and_then(|dict| dict.get("sandbox.enabled").or_else(|| dict.get("sandbox")))
+            .and_then(|value| {
+                value.as_boolean().or_else(|| {
+                    value
+                        .as_dictionary()
+                        .and_then(|dict| dict.get("enabled"))
+                        .and_then(plist::Value::as_boolean)
+                })
+            })
     };
+    let file = |path: &Path| std::fs::read(path).ok().and_then(|bytes| from_bytes(&bytes));
+    let has_settings_flag = args
+        .iter()
+        .take_while(|arg| arg.as_str() != "--")
+        .any(|arg| arg == "--settings" || arg.starts_with("--settings="));
+    if has_settings_flag {
+        return match crate::claude_cloud_auth::flag_settings(args, cwd) {
+            Ok(Some(settings)) => enabled(&Value::Object(settings)),
+            Ok(None) | Err(_) => false,
+        };
+    }
 
-    let mut last_settings = None;
     let mut setting_sources = None;
     let mut words = args.iter();
     while let Some(word) = words.next() {
-        if word == "--settings" {
-            last_settings = words.next().map(String::as_str).map(str::to_owned);
-        } else if word == "--setting-sources" {
-            setting_sources = words.next().map(|value| value.to_owned());
-        } else if let Some(setting) = word.strip_prefix("--settings=") {
-            last_settings = Some(setting.to_owned());
+        if word == "--setting-sources" {
+            setting_sources = words.next().cloned();
         } else if let Some(sources) = word.strip_prefix("--setting-sources=") {
             setting_sources = Some(sources.to_owned());
         }
@@ -241,37 +274,39 @@ pub(crate) fn claude_sandbox_on(
             .map_or(true, |sources| sources.split(',').any(|candidate| candidate.trim() == source))
     };
 
-    source_enabled("enterprise")
-        .then(|| {
-            [
-                "/Library/Application Support/ClaudeCode/managed-settings.json",
-                "/etc/claude-code/managed-settings.json",
-            ]
+    let claude = crate::agent_tools::project_mcp::Claude::of(env, cwd);
+    if source_enabled("enterprise") {
+        if let Some(value) = claude.managed.iter().find_map(|path| file(path)) {
+            return value;
+        }
+    }
+    let project = cwd.join(".claude/settings.json");
+    let local = cwd.join(".claude/settings.local.json");
+    if source_enabled("local") {
+        if let Some(value) = file(&local) {
+            return value;
+        }
+    }
+    if source_enabled("project") {
+        if let Some(value) = file(&project) {
+            return value;
+        }
+    }
+    if source_enabled("user") {
+        if let Some(value) = claude
+            .settings
             .iter()
-            .map(Path::new)
-            .find_map(file)
-        })
-        .flatten()
-        .or_else(|| last_settings.as_deref().and_then(settings_value))
-        .or_else(|| {
-            source_enabled("local")
-                .then(|| file(&cwd.join(".claude/settings.local.json")))
-                .flatten()
-        })
-        .or_else(|| {
-            source_enabled("project").then(|| file(&cwd.join(".claude/settings.json"))).flatten()
-        })
-        .or_else(|| {
-            source_enabled("user")
-                .then(|| {
-                    let config_dir = claude_config_dir
-                        .map(Path::to_path_buf)
-                        .unwrap_or_else(|| agent_home.join(".claude"));
-                    file(&config_dir.join("settings.json"))
-                })
-                .flatten()
-        })
-        .unwrap_or(false)
+            .filter(|path| {
+                !claude.managed.iter().any(|managed| managed == *path)
+                    && *path != &project
+                    && *path != &local
+            })
+            .find_map(|path| file(path))
+        {
+            return value;
+        }
+    }
+    false
 }
 
 /// The port of an `ANTHROPIC_BASE_URL` that the profile does not already open (443, 80, 22 or
@@ -314,9 +349,7 @@ pub(crate) fn prefix(
         return None;
     }
     let bound = bound(args, cwd, env)?;
-    let claude_config_dir =
-        env.get("CLAUDE_CONFIG_DIR").filter(|dir| !dir.is_empty()).map(Path::new);
-    if claude_sandbox_on(args, &bound.cwd, &bound.agent_home, claude_config_dir) {
+    if claude_sandbox_on(args, &bound.cwd, env) {
         if !CLAUDE_OWN_LOGGED.swap(true, Ordering::Relaxed) {
             tracing::info!(
                 "Claude Code's own sandbox is on: its chats keep it (Seatbelt does not nest)"
@@ -353,12 +386,34 @@ pub(crate) fn bound(args: &[String], cwd: &Path, env: &BTreeMap<String, String>)
         .cloned()
         .or_else(|| std::env::var("ANTHROPIC_BASE_URL").ok())
         .or_else(|| crate::hub::remote_sandbox::user_settings_endpoint(&agent_home));
+    let cmux_legacy_config = home.join(".config/cmux/cmux-next.json");
+    let cmux_agent_config = agent_home.join(".config/cmux-next/cmux-next.json");
+    let cmux_agent_legacy_config = agent_home.join(".config/cmux/cmux-next.json");
+    let cmux_config = absolute(crate::user_settings::resolved_path());
+    let cmux_config_real = canonical(&cmux_config);
+    let gh_config_dir = env
+        .get("GH_CONFIG_DIR")
+        .filter(|p| !p.is_empty())
+        .map(|p| canonical(&absolute(PathBuf::from(p))))
+        .unwrap_or_else(|| agent_home.join(".config/gh"));
+    let xdg_gh_config_dir = env
+        .get("XDG_CONFIG_HOME")
+        .filter(|p| !p.is_empty())
+        .map(|p| canonical(&absolute(PathBuf::from(p).join("gh"))))
+        .unwrap_or_else(|| agent_home.join(".config/gh"));
     Some(Bound {
         cwd,
         home,
         agent_home,
         acpmux_home: canonical(&crate::config::home()),
         session_tmp: canonical(&crate::agent::session_tmp::per_user_base()),
+        cmux_config,
+        cmux_legacy_config,
+        cmux_agent_config,
+        cmux_agent_legacy_config,
+        cmux_config_real,
+        gh_config_dir,
+        xdg_gh_config_dir,
         folders,
         api_port: url.as_deref().and_then(extra_api_port),
     })
