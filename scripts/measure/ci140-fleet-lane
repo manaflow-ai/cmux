@@ -1,0 +1,137 @@
+#!/usr/bin/env python3
+"""Where the fleet `lane` class goes (cmux-ci submissions from lanes and people before a push), in machine-minutes per
+merged PR, and which of it is repeat, wasted or slow for a reason that is not the job.
+
+Usage: ci140-fleet-lane JOBS.json --meter-dir HQ/build-fleet/data --merged N --since ISO --until ISO [--controller URL]
+
+JOBS.json is the controller's `GET /v1/jobs?all=1&limit=60000` (a JSON array). --meter-dir is the directory with the
+official meter, ci_per_pr.py (cmuxterm-hq build-fleet/data): its fleet_class() decides what is `lane`, so the total
+here equals the meter's `lane` row. --merged is the meter's merged PR count for the same window. With --controller the
+tool also reads the head of each ci-step full log (GET /v1/artifacts/DIGEST) and counts `source download: unexpected
+EOF` resumes: a step source is a 300-700 MB bundle that the worker fetches from the controller before the job starts.
+
+11-26T22Z..11-27T05Z, 783 merged PRs: 1,317 lane jobs, 15,397 machine-min = 19.7 per merged PR.
+  by outcome: 60% of the minutes are jobs that failed (11.8/PR), 2% cancelled; 7.4/PR passed.
+  by script: package-test-lane.sh 3.6, cmux-ios-sim 2.6, cmux-next-swift-check 3.9, cmux-tui-rust-check 1.1,
+             run-swift-testing-suites 1.1, release-compile 0.65; the rest is measure/ scripts (about 3).
+  repeats: the same kind, script, args and commit run again: 66 jobs, 2.7/PR (small; no result cache pays here).
+  duplicates of PR checks on the same head: 142 jobs ran the same script on a ref the controller also ran for
+  GitHub: 1.0/PR.
+  long: 58 jobs of 60 min or more are 4,850 min = 6.2/PR.
+  cause: 69 ci-step jobs on aws-m4pro hosts (4,645 min = 5.9/PR) read `source download: unexpected EOF` 3 to 20 times in
+  the first lines of the log (a 300-700 MB bundle, fetched from the controller over a DERP-only route, resumed each
+  time it is cut). They average 67 min; the 354 ci-step jobs on minis and pool VMs with under 3 cuts average 13.6.
+  Most of those 69 end red (47 failed, 6 cancelled) or on `web bundles did not build` (a network step with no route
+  either). That is 30% of the lane class, and the largest single cause.
+"""
+import argparse
+import collections
+import concurrent.futures
+import gzip
+import json
+import re
+import sys
+import urllib.request
+from datetime import datetime
+
+HEX = re.compile(r"sha256:[0-9a-f]{64}")
+
+
+def stamp(text):
+    try:
+        return datetime.fromisoformat(text.replace("Z", "+00:00")).timestamp()
+    except ValueError:
+        return 0.0
+
+
+def table(title, groups, merged, top=14):
+    print(f"\n{title}\n  {'min':>7} {'per PR':>7} {'jobs':>5}  key")
+    for key, (jobs, minutes) in sorted(groups.items(), key=lambda kv: -kv[1][1])[:top]:
+        print(f"  {minutes:7.0f} {minutes / merged:7.2f} {jobs:5d}  {key}")
+
+
+def group(rows, key):
+    out = collections.defaultdict(lambda: [0, 0.0])
+    for job in rows:
+        out[key(job)][0] += 1
+        out[key(job)][1] += job["_min"]
+    return out
+
+
+def source_resumes(job, controller):
+    try:
+        body = urllib.request.urlopen(f"{controller}/v1/artifacts/{job['full_log']}", timeout=120).read()
+        try:
+            body = gzip.decompress(body)
+        except OSError:
+            pass
+        head = body.decode("utf8", "replace").split("\n")[:600]
+        return job["id"], sum(1 for line in head if "source download" in line and "unexpected EOF" in line)
+    except OSError:
+        return job["id"], None
+
+
+def main():
+    arg = argparse.ArgumentParser()
+    arg.add_argument("jobs")
+    arg.add_argument("--meter-dir", required=True)
+    arg.add_argument("--merged", type=int, required=True)
+    arg.add_argument("--since", required=True)
+    arg.add_argument("--until", required=True)
+    arg.add_argument("--controller")
+    opt = arg.parse_args()
+    sys.path.insert(0, opt.meter_dir)
+    import ci_per_pr as meter
+
+    since, until = stamp(opt.since + ("Z" if not opt.since.endswith("Z") else "")), stamp(opt.until + ("Z" if not opt.until.endswith("Z") else ""))
+    rows = []
+    for job in json.load(open(opt.jobs)):
+        if job.get("state") not in meter.FLEET_TERMINAL or not since <= stamp(job["updated_at"]) < until:
+            continue
+        if meter.fleet_class(job) != "lane":
+            continue
+        start = stamp(job["started_at"])
+        job["_min"] = (stamp(job["updated_at"]) - start) / 60 if start > 86400 else 0.0
+        job["_script"] = (job.get("script") or job.get("command") or "")
+        rows.append(job)
+    total, merged = sum(j["_min"] for j in rows), opt.merged
+    print(f"lane jobs {len(rows)}, {total:.0f} machine-min, {total / merged:.2f} per merged PR ({merged} merged)")
+    table("by kind and state", group(rows, lambda j: (j["kind"], j["state"])), merged)
+    table("by script", group(rows, lambda j: j["_script"].split("\n")[0][:70]), merged)
+    table("by submitter", group(rows, lambda j: meter.fleet_submitter(j) if hasattr(meter, "fleet_submitter") else j["submitter"]), merged)
+    table("by priority class", group(rows, lambda j: j["priority_class"]), merged, 6)
+
+    seen, repeat = {}, [0, 0.0]
+    for job in sorted(rows, key=lambda j: j["created_at"]):
+        key = (job["kind"], job["_script"], tuple(job.get("args") or []), job.get("ref") or job.get("commit"), job.get("repo"))
+        if key in seen:
+            repeat[0] += 1
+            repeat[1] += job["_min"]
+        seen[key] = True
+    print(f"\nrepeats (same kind, script, args, ref): {repeat[0]} jobs, {repeat[1]:.0f} min, {repeat[1] / merged:.2f}/PR")
+    long = [j for j in rows if j["_min"] >= 60]
+    print(f"jobs of 60 min or more: {len(long)}, {sum(j['_min'] for j in long):.0f} min, {sum(j['_min'] for j in long) / merged:.2f}/PR")
+    cancelled = [j for j in rows if j["state"] == "cancelled"]
+    print(f"cancelled: {len(cancelled)} jobs, {sum(j['_min'] for j in cancelled):.0f} min")
+
+    if opt.controller:
+        steps = [j for j in rows if j["kind"] == "ci-step" and HEX.fullmatch(j.get("full_log") or "") and j["_min"] > 0]
+        with concurrent.futures.ThreadPoolExecutor(6) as pool:
+            eof = dict(pool.map(lambda j: source_resumes(j, opt.controller), steps))
+        buckets = collections.defaultdict(lambda: [0, 0.0])
+        for job in steps:
+            n = eof.get(job["id"])
+            if n is None:
+                continue
+            worker = job.get("worker", "")
+            host = "aws-m4pro" if worker.startswith("aws-m4pro") else "mini/other"
+            key = (host, "3+ source EOF resumes" if n >= 3 else "under 3")
+            buckets[key][0] += 1
+            buckets[key][1] += job["_min"]
+        print("\nsource download cuts (first 600 log lines) by host class")
+        for key, (n, minutes) in sorted(buckets.items()):
+            print(f"  {key[0]:10} {key[1]:22} {n:4d} jobs {minutes:7.0f} min {minutes / merged:6.2f}/PR  mean {minutes / n:5.1f} min")
+
+
+if __name__ == "__main__":
+    main()
