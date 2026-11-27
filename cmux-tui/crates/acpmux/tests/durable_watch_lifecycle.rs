@@ -5,7 +5,7 @@ mod daemon_env;
 const HERMETIC: daemon_env::Process = daemon_env::Process::stand_in();
 #[path = "durable_watch_lifecycle/daemon.rs"]
 mod daemon;
-use daemon::{Daemon, next_wake, observe, quiet};
+use daemon::{Daemon, Wakes, next_wake, observe, quiet};
 use serde_json::{Value, json};
 #[path = "durable_watch_lifecycle/peer.rs"]
 mod peer;
@@ -280,16 +280,15 @@ async fn a_match_watch_ignores_the_turn_that_ended_before_it_was_armed() {
     let plain_sink = a.chat("plain-coordinator").await;
     let helper = a.chat("helper").await;
     a.prompt(&helper, "Final. an earlier report").await;
-    let mut notes = observe(&a, &sink).await;
-    let mut plain = observe(&a, &plain_sink).await;
+    let mut wakes = Wakes::observe(&a, &[&sink, &plain_sink]).await;
     a.watch(&sink, vec![helper.clone()], "ready", true, Some("Final.")).await;
     a.watch(&plain_sink, vec![helper.clone()], "ready", true, None).await;
-    assert!(next_wake(&mut plain).await.contains("is ready"), "a ready source wakes at once");
-    quiet(&mut notes).await;
+    assert!(wakes.next(&plain_sink).await.contains("is ready"), "a ready source wakes at once");
+    wakes.quiet(&sink).await;
     a.prompt(&helper, "Final. the real report").await;
-    let wake = next_wake(&mut notes).await;
+    let wake = wakes.next(&sink).await;
     assert!(wake.contains("the real report"), "{wake}");
-    quiet(&mut notes).await;
+    wakes.quiet(&sink).await;
     a.stop().await;
 }
 
@@ -304,9 +303,7 @@ async fn match_in_reply_waits_for_the_final_reply_not_interim_text() {
     let reply_sink = a.chat("reply-coordinator").await;
     let start_sink = a.chat("start-coordinator").await;
     let helper = a.chat("helper").await;
-    let mut turn = observe(&a, &turn_sink).await;
-    let mut reply = observe(&a, &reply_sink).await;
-    let mut start = observe(&a, &start_sink).await;
+    let mut wakes = Wakes::observe(&a, &[&turn_sink, &reply_sink, &start_sink]).await;
     a.watch(&turn_sink, vec![helper.clone()], "ready", true, Some("Final.")).await;
     a.watch_in(&reply_sink, &helper, "Final.", "reply").await;
     let listed = a.watch_in(&start_sink, &helper, "Final.", "replyStart").await;
@@ -314,16 +311,16 @@ async fn match_in_reply_waits_for_the_final_reply_not_interim_text() {
 
     a.prompt(&helper, "interim-then-final: Final. comes after the merge | still waiting on CI")
         .await;
-    assert!(next_wake(&mut turn).await.contains("still waiting on CI"), "turn keeps its meaning");
-    quiet(&mut reply).await;
-    quiet(&mut start).await;
+    assert!(wakes.next(&turn_sink).await.contains("still waiting on CI"), "turn keeps its meaning");
+    wakes.quiet(&reply_sink).await;
+    wakes.quiet(&start_sink).await;
 
     a.prompt(&helper, "interim-then-final: checking | I will send Final. after the merge").await;
-    assert!(next_wake(&mut reply).await.contains("I will send Final."));
-    quiet(&mut start).await;
+    assert!(wakes.next(&reply_sink).await.contains("I will send Final."));
+    wakes.quiet(&start_sink).await;
 
     a.prompt(&helper, "interim-then-final: checking | Final. merged").await;
-    let wake = next_wake(&mut start).await;
+    let wake = wakes.next(&start_sink).await;
     assert!(wake.contains("Final. merged"), "{wake}");
     a.stop().await;
 }
