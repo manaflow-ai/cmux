@@ -103,9 +103,14 @@ impl Drop for Daemon {
 }
 
 fn spawn_daemon(binary: &Path, dir: &Path, env: &[(&str, &str)]) -> Daemon {
+    spawn_daemon_logging(binary, dir, env, "warn")
+}
+
+/// [`spawn_daemon`] at log level `log`.
+fn spawn_daemon_logging(binary: &Path, dir: &Path, env: &[(&str, &str)], log: &str) -> Daemon {
     let mut cmd =
         with_home(daemon_env::command_at(binary, dir, daemon_env::Agents::StandIn, &[]), dir);
-    cmd.args(["daemon", "run", "--ready-fd", "1", "--log", "warn"]);
+    cmd.args(["daemon", "run", "--ready-fd", "1", "--log", log]);
     for (k, v) in env {
         cmd.env(k, v);
     }
@@ -608,8 +613,8 @@ fn update_handoff_a_swapped_daemon_follows_the_relaunched_app() {
     let _shutdown = Shutdown(&dir);
     let installed = install(&dir);
     let mut old_app = fake_app(None);
-    let old =
-        spawn_daemon(&installed, &dir, &[("ACPMUX_OWNER_APP_PID", &old_app.id().to_string())]);
+    let owner = old_app.id().to_string();
+    let old = spawn_daemon_logging(&installed, &dir, &[("ACPMUX_OWNER_APP_PID", &owner)], "info");
     let old_pid = old.ready(Duration::from_secs(60))["pid"].as_u64().unwrap();
     let socket = PathBuf::from(status(&dir).unwrap()["socket"].as_str().unwrap());
     // The app quits with Keep Sessions while a client is connected; the new app connects.
