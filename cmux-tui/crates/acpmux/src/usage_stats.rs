@@ -235,18 +235,31 @@ pub struct Tracker {
     /// None when one was not. A count whose window starts before it is lower than the truth,
     /// so it reads as unknown; the previous UTC hour needs only that hour covered, not the day.
     covered_since: Option<u64>,
+    /// When the chat's transcript was last written, while only its compressed copy is found
+    /// (`FILE.jsonl.zst`): leo-workspace `tools/transcript_hygiene.py` compresses a transcript in
+    /// place, keeping its mtime, only once its session is closed and the file is a day old or more.
+    /// No call was made since, so the counts are known, and zero, from then on. Before this, such
+    /// a closed chat had no stats at all and its machine's spend read as unmetered (2026-11-27).
+    archived_since: Option<u64>,
     /// The most a first read takes and the most one refresh reads, per file (tests set them).
     limits: Option<(u64, u64)>,
 }
 
 impl Tracker {
     /// Reads what the chat's harness appended since the last refresh and returns the stats as
-    /// of `now`; None while its transcript is not found.
+    /// of `now`; None while its transcript is not found, plain or compressed.
     pub fn refresh(&mut self, source: &Source, now: u64, models: &Models) -> Option<UsageStats> {
         if self.main.is_none() && now >= self.look_again_at {
-            match locate(source) {
-                Some(path) => self.main = Some(Tail { path, ..Tail::default() }),
-                None => self.look_again_at = now.saturating_add(LOOK_AGAIN_MS),
+            match locate(source, ".jsonl") {
+                Some(path) => {
+                    self.main = Some(Tail { path, ..Tail::default() });
+                    self.archived_since = None;
+                }
+                None => {
+                    self.look_again_at = now.saturating_add(LOOK_AGAIN_MS);
+                    self.archived_since =
+                        locate(source, ".jsonl.zst").and_then(|p| modified_ms(&p));
+                }
             }
         }
         let codex = source.family == "codex";
@@ -272,7 +285,9 @@ impl Tracker {
         self.minutes = self.minutes.split_off(&cutoff.saturating_sub(cutoff % MINUTE_MS));
         let window =
             self.context_window.or_else(|| self.model.as_deref().and_then(|m| models.window(m)));
-        self.main.as_ref()?;
+        if self.main.is_none() {
+            self.covered_since = Some(self.archived_since?);
+        }
         Some(self.stats(source, now, window))
     }
 
@@ -830,8 +845,8 @@ fn read_new(
 
 /// The chat's transcript: Claude's under its project folder (else any project
 /// folder, for a chat whose cwd moved), Codex's rollout under its creation day
-/// (else any day).
-fn locate(source: &Source) -> Option<PathBuf> {
+/// (else any day). Its file name ends in `ext`: `.jsonl`, or `.jsonl.zst` once compressed.
+fn locate(source: &Source, ext: &str) -> Option<PathBuf> {
     let sid = source.agent_session_id.as_str();
     if sid.is_empty() || sid.contains(['/', '\\']) {
         return None;
@@ -840,7 +855,7 @@ fn locate(source: &Source) -> Option<PathBuf> {
     match source.family.as_str() {
         "claude" => {
             let projects = home.join("projects");
-            let name = format!("{sid}.jsonl");
+            let name = format!("{sid}{ext}");
             let direct = projects.join(claude_project_dir(&source.cwd)).join(&name);
             if direct.is_file() {
                 return Some(direct);
@@ -850,7 +865,7 @@ fn locate(source: &Source) -> Option<PathBuf> {
         }
         "codex" => {
             let sessions = home.join("sessions");
-            let suffix = format!("-{sid}.jsonl");
+            let suffix = format!("-{sid}{ext}");
             let day = source.created_at / DAY_MS;
             let near = [day.saturating_sub(1), day, day.saturating_add(1)].map(|d| {
                 let (y, m, d) = civil_from_days(d);

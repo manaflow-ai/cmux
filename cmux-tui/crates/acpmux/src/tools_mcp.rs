@@ -156,12 +156,19 @@ pub(crate) struct Daemon {
     held: tokio::sync::Mutex<Option<Arc<Client>>>,
     /// The socket it dials; none: this process's daemon (`daemon::connect`).
     socket: Option<std::path::PathBuf>,
+    /// A daemon answered this process before: a dial that fails now is that daemon updating or
+    /// restarting, so the call waits for the next one ([`DAEMON_RETURN_WAIT`]) rather than fail.
+    reached: std::sync::atomic::AtomicBool,
 }
+
+/// How long a call waits for the daemon to come back once this process has reached it before
+/// (an update or restart: RFD 0082), inside every harness's tool timeout.
+const DAEMON_RETURN_WAIT: std::time::Duration = std::time::Duration::from_secs(20);
 
 impl Daemon {
     /// The daemon at `socket`, dialed as is: the gateway's own (`mcp_gateway.rs`).
     pub(crate) fn at(socket: std::path::PathBuf) -> Self {
-        Self { held: Default::default(), socket: Some(socket) }
+        Self { held: Default::default(), socket: Some(socket), reached: Default::default() }
     }
 
     /// The connection, made now if there is none. It names its caller by the session and
@@ -171,10 +178,19 @@ impl Daemon {
         if let Some(client) = held.as_ref().filter(|client| !client.is_closed()) {
             return Ok(client.clone());
         }
-        let client = match &self.socket {
-            Some(socket) => Client::connect(socket).await?,
-            None => crate::daemon::connect(false).await?,
+        let dial = || async {
+            match &self.socket {
+                Some(socket) => Client::connect(socket).await,
+                None => crate::daemon::connect(false).await,
+            }
         };
+        let client = if self.reached.load(std::sync::atomic::Ordering::Relaxed) {
+            let deadline = tokio::time::Instant::now() + DAEMON_RETURN_WAIT;
+            crate::cli::output::until_daemon_answers(deadline, dial).await?
+        } else {
+            dial().await?
+        };
+        self.reached.store(true, std::sync::atomic::Ordering::Relaxed);
         *held = Some(client.clone());
         Ok(client)
     }

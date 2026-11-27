@@ -58,3 +58,13 @@ fn ctrl_c_wakes_the_session_loop_and_marks_it_interrupted() {
     assert_eq!(unsafe { libc::read(w.fd(), buf.as_mut_ptr().cast(), 4) }, 1);
     INTERRUPT_FD.store(-1, Ordering::SeqCst);
 }
+
+#[test]
+fn luma_variance_is_zero_for_a_flat_picture() {
+    assert_eq!(luma_variance(&[16, 16, 16]), 0.0);
+}
+
+#[test]
+fn luma_variance_measures_the_y_plane() {
+    assert_eq!(luma_variance(&[0, 2, 4, 6]), 5.0);
+}

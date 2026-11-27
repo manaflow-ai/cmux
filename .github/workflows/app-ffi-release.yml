@@ -111,6 +111,10 @@ on:
       - "cmux-tui/crates/cmux-url-input/**"
       - "cmux-tui/crates/cmux-unix-socket/**"
       - "cmux-tui/crates/cmux-window-rules/**"
+      - "cmux-tui/crates/cmux-message-preview/**"
+      - "cmux-tui/crates/cmux-mobile-host-core/**"
+      - "cmux-tui/crates/cmux-share-approval/**"
+      - "cmux-tui/crates/cmux-vnc/**"
       # Reached through cmux-tui workspace dependencies (`name.workspace = true`), as check-app-ffi-pin.sh derives.
       - "cmux-tui/crates/cmux-app-host/**"
       - "cmux-tui/crates/cmux-egress/**"
@@ -306,7 +310,8 @@ jobs:
           workspaces: |
             cmux-tui -> target
             cmux-tui/crates/cmux-app-ffi -> target
-          key: app-ffi-unit-tests
+          # The toolchain and both workspaces' lockfiles: a fixed key restores its first entry forever.
+          key: app-ffi-unit-tests-${{ hashFiles('cmux-tui/rust-toolchain.toml', 'cmux-tui/Cargo.lock', 'cmux-tui/crates/cmux-app-ffi/Cargo.lock', '.cargo/config.toml') }}
 
       - name: Test the reducer
         working-directory: cmux-tui

@@ -201,7 +201,8 @@ pub fn carry_copy(copy: &Path, segment: &Path, to: &Path) -> Result<bool> {
     let mut bytes = Vec::new();
     crate::config::private_state_file(copy)?.read_to_end(&mut bytes)?;
     let Some(end) = bytes.iter().position(|b| *b == b'\n') else { return Ok(false) };
-    let Ok(header) = serde_json::from_slice::<Header>(&bytes[..end]) else { return Ok(false) };
+    let Some(head) = bytes.get(..end) else { return Ok(false) };
+    let Ok(header) = serde_json::from_slice::<Header>(head) else { return Ok(false) };
     let mut lines = bytes.split_off(end.saturating_add(1));
     lines.truncate(usize::try_from(header.lines_len)?);
     let file = (header.dev, header.ino, header.born_ns);
@@ -366,7 +367,32 @@ impl Stamp {
         let meta = file.metadata()?;
         Ok(Self { id: file_id(file, &meta), len: meta.len() })
     }
+
+    /// An open segment's, local or cold ([`Self::cold`]).
+    pub(super) fn of_segment(file: &super::cold_segments::SegmentFile) -> std::io::Result<Self> {
+        match file {
+            super::cold_segments::SegmentFile::Local(local) => Self::of(local),
+            super::cold_segments::SegmentFile::Cold(cold) => Ok(Self::cold(cold.index())),
+        }
+    }
+
+    /// A cold segment's, named by its bytes: the SHA-256 and raw length its index holds, which no
+    /// file's device, inode and birth time can be ([`COLD_DEV`]). A cold segment is never written
+    /// again (`store/cold_segments.rs`), so a copy of it stays good as long as the archive does.
+    /// A cold segment had no copy: each read back over a chat's history (a log load's catch-up,
+    /// rate hold and resume, back to a completed turn) decoded and read its every cold segment,
+    /// about 1 GB of allocations on the first start after a 1 GB chat went cold, and its
+    /// `restartPeakRss` 1.41x the 1 MB chat's (goal infinite-chats, 2026-11-26).
+    pub(super) fn cold(index: &super::cold_segments::Index) -> Self {
+        let word = |at: usize| {
+            index.sha256.get(at..at + 16).and_then(|h| u64::from_str_radix(h, 16).ok()).unwrap_or(0)
+        };
+        Self { id: (COLD_DEV, word(0), word(16) | 1), len: index.raw_len }
+    }
 }
+
+/// The device a cold segment's [`Stamp`] names: no file system's.
+const COLD_DEV: u64 = u64::MAX;
 
 /// The file's device, inode and birth time (ns since the epoch; 0 where the system does not say).
 fn file_id(file: &std::fs::File, meta: &std::fs::Metadata) -> (u64, u64, u64) {
@@ -502,10 +528,8 @@ impl LocalStore {
                 continue;
             }
             let mut file = super::cold_segments::open_segment(path)?;
-            let copy = match file.local() {
-                Some(local) if indexed => self.copy_for_read_back(id, index, path, local)?,
-                _ => None,
-            };
+            let copy =
+                if indexed { self.copy_for_read_back(id, index, path, &file)? } else { None };
             match copy {
                 // A copy covers the segment's first `from` bytes, whole lines: what was written
                 // after them (none in a segment a log load sealed and copied, at most the segment
@@ -560,12 +584,12 @@ impl LocalStore {
         id: &str,
         index: u32,
         path: &Path,
-        file: &std::fs::File,
+        file: &super::cold_segments::SegmentFile,
     ) -> Result<Option<(Vec<u8>, u64, bool)>> {
         let read = |stamp: &Stamp| {
             self.read_kind_index(id, index, stamp).map(|c| (c.lines, c.len, c.parsed))
         };
-        let stamp = Stamp::of(file)?;
+        let stamp = Stamp::of_segment(file)?;
         let copy = read(&stamp);
         let behind =
             copy.as_ref().map_or(stamp.len, |(_, from, _)| stamp.len.saturating_sub(*from));
@@ -577,7 +601,7 @@ impl LocalStore {
             tracing::debug!(session = %id, segment = index, "copying a segment for a read back failed: {e}");
             return Ok(copy);
         }
-        Ok(read(&Stamp::of(file)?).or(copy))
+        Ok(read(&Stamp::of_segment(file)?).or(copy))
     }
 
     pub(super) fn kind_index_path(&self, id: &str, index: u32) -> PathBuf {
@@ -651,10 +675,7 @@ impl LocalStore {
     ) -> Result<bool> {
         let mut file = super::cold_segments::open_segment(path)?;
         // What a copy is of: the file this reads, however its path changes meanwhile.
-        let stamp = match file.local() {
-            Some(local) if scan.copied => Some(Stamp::of(local)?),
-            _ => None,
-        };
+        let stamp = if scan.copied { Some(Stamp::of_segment(&file)?) } else { None };
         let (mut copy, from, mut parsed, copy_hash) =
             match stamp.as_ref().and_then(|s| self.read_kind_index(id, index, s)) {
                 Some(c) if c.parsed || !scan.strict => (Some(c.lines), c.len, c.parsed, c.hash),
@@ -737,8 +758,13 @@ impl LocalStore {
     /// [`INDEXED_KINDS`], no longer than it, and whole. A system that names no birth time keeps no
     /// copy: an inode a later file reuses would pass for the same. Of a copy read before, only the
     /// lines added since are hashed ([`Checked`]).
+    ///
+    /// The header is read first and the lines only for a copy of this segment, into one buffer of
+    /// their length: a whole-file `read_to_end` grew its buffer by doubling and the header's split
+    /// copied the lines again, 2.3 GB of transient blocks over a 1 GB chat's restart (dhat,
+    /// `chat_size_sweep`), churn the allocator kept resident as restart RSS.
     pub(super) fn read_kind_index(&self, id: &str, index: u32, segment: &Stamp) -> Option<Copied> {
-        let mut bytes = Vec::new();
+        use std::io::Read as _;
         let mut file = crate::config::private_state_file(&self.kind_index_path(id, index)).ok()?;
         // The copy file as it was before its bytes were read: an addition meanwhile only grows it.
         let meta = file.metadata().ok()?;
@@ -749,24 +775,34 @@ impl LocalStore {
             lines_len: 0,
             lines_hash: 0,
         };
-        file.read_to_end(&mut bytes).ok()?;
-        #[cfg(test)]
-        COPY_BYTES.with(|n| n.set(n.get() + bytes.len() as u64));
-        let end = bytes.iter().position(|b| *b == b'\n')?;
-        let header: Header = serde_json::from_slice(&bytes[..end]).ok()?;
-        let file = (header.dev, header.ino, header.born_ns);
+        let mut head = Vec::with_capacity(HEADER_WIDTH);
+        (&mut file).take(HEADER_WIDTH as u64).read_to_end(&mut head).ok()?;
+        let end = head.iter().position(|b| *b == b'\n')?;
+        let header: Header = serde_json::from_slice(head.get(..end)?).ok()?;
+        let file_of = (header.dev, header.ino, header.born_ns);
         let same = header.schema == SCHEMA
             && header.kinds == kinds()
             && segment.id.2 != 0
-            && file == segment.id
+            && file_of == segment.id
             && segment.len >= header.len;
-        let mut lines = bytes.split_off(end.saturating_add(1));
+        if !same {
+            #[cfg(test)]
+            COPY_BYTES.with(|n| n.set(n.get() + head.len() as u64));
+            return None;
+        }
         // Bytes past the lines the header covers are an addition a crash cut before its header.
-        lines.truncate(usize::try_from(header.lines_len).ok()?);
+        let want = header.lines_len.min(now.len.saturating_sub(end as u64 + 1));
+        let mut lines = Vec::with_capacity(usize::try_from(want).ok()?);
+        lines.extend_from_slice(head.get(end.saturating_add(1)..).unwrap_or_default());
+        lines.truncate(usize::try_from(want).ok()?);
+        let rest = want.saturating_sub(lines.len() as u64);
+        (&mut file).take(rest).read_to_end(&mut lines).ok()?;
+        #[cfg(test)]
+        COPY_BYTES.with(|n| n.set(n.get() + (end + 1 + lines.len()) as u64));
         let whole = same
             && lines.len() as u64 == header.lines_len
             && seal(
-                file,
+                file_of,
                 header.len,
                 header.kinds,
                 header.parsed,
