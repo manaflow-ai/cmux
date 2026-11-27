@@ -16,7 +16,14 @@ export type NotYet = {
   covers?: readonly string[];
 };
 
-export const NOT_YET: readonly NotYet[] = [];
+export const NOT_YET: readonly NotYet[] = [
+  {
+    field: "turnSummary.turnStartedAtMs",
+    home: "b",
+    builder: "2c",
+    note: "the group row's start, in ms (decision 231)",
+  },
+];
 /// The fields FIELDS.md has under "Not yet" that no corpus row shows, so the parity test cannot
 /// see them differ (decision 259). Each leaves this list for `NOT_YET` when a corpus line shows it;
 /// the parity test fails while the corpus shows one still here. A key is `<kind>.<field>` for a
