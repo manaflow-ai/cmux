@@ -24,6 +24,10 @@ impl Hub {
             // mistake the initially empty in-memory session map for an empty store.
             #[cfg(unix)]
             hub.sweep_session_tmp();
+            // The moves and scratch a daemon before this one left in `transfers/`: its scratch
+            // goes now (`transfer_out.rs` `scratch_dir`), not at the next move.
+            super::transfer_out::note_started();
+            hub.sweep();
         })
         .await;
         if let Err(error) = result {

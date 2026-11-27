@@ -49,12 +49,17 @@ else, and never waits:
    wins, a slot first at equal distance;
 3. otherwise the shared DEV slot label when a slot is idle, at once; never the side label, whose queue GitHub hands
    out oldest first, so an idle side runner in the listing is no place in line (run 44941204257, 2026-11-21);
-4. with nothing owned idle, the Blacksmith macOS label whose queue moves (blacksmith_overflow(): the nightly
+4. an owned class pool with room (owned_room()): its label (the side label's class, glaeda-std-xcode-26.6) while
+   a pool snapshot under ROOM_SNAPSHOT_MINUTES old counts fewer jobs queued on the whole family (root, side, gui
+   and class labels share its Macs) than the class label has idle runners, so the compile starts at once and
+   joins no queue. 2026-11-27 19:29Z-19:54Z: five DEV daily compiles took blacksmith-12vcpu-macos-26, which had
+   started nothing for 93 minutes, while glaeda-std-xcode-26.6's p90 wait was 54 s;
+5. with nothing owned idle, the Blacksmith macOS label whose queue moves (blacksmith_overflow(): the nightly
    signer's pick, nightly_sign_runner.pick(), from the queue janitor's pool snapshot), the routing order's last
    resort, as nightly-next's app build overflows (nightly_build_runner.blacksmith_route()). The DEV slot label
    is one or two runners (glaeda-dev-std-xcode-26.6: one busy with feed work and one offline from 10:12Z
    on 2026-11-02, when 15 DEV daily compiles queued there for up to 1.5 h), so a busy slot is no fallback;
-5. only while a fresh snapshot sees every Blacksmith macOS label stalled, the shared DEV slot label while a DEV
+6. only while a fresh snapshot sees every Blacksmith macOS label stalled, the shared DEV slot label while a DEV
    slot is online: it waits there behind feed work only (the slots admit nothing else), never at the back of the
    side label's queue, which GitHub hands out oldest first (2026-10-30: five DEV daily compiles queued there
    from 13:55Z behind about 184 PR and side jobs); with no DEV slot online, or the runners unreadable, it prints
@@ -87,6 +92,9 @@ FETCH_SECONDS = 45
 # In-flight landings older than this are not read (a compile takes minutes).
 IN_FLIGHT_MINUTES = 60
 IN_FLIGHT_RUNS = 10
+# owned_room() trusts a family's queued count from a pool snapshot this young at most (the cascade's freshness bound):
+# an older one may miss the jobs that took the idle runners since.
+ROOM_SNAPSHOT_MINUTES = 15
 
 
 def host_of(runner_name: str) -> str:
@@ -228,7 +236,8 @@ def place(env: Mapping[str, str], read_runners: Callable[[], Sequence[Mapping[st
           read_holders: Callable[[str], Sequence[Mapping[str, Any]]],
           read_in_flight: Callable[[], tuple[set[str], set[str]]] = lambda: (set(), set()),
           sleep: Callable[[float], None] = time.sleep, clock: Callable[[], float] = time.monotonic,
-          overflow: Callable[[], tuple[str, str, bool]] | None = None) -> dict[str, str]:
+          overflow: Callable[[], tuple[str, str, bool]] | None = None,
+          room: Callable[[str, Sequence[Mapping[str, Any]]], tuple[str, str]] | None = None) -> dict[str, str]:
     side_label = env.get("SIDE_LABEL", "")
     def skipped(reason: str) -> dict[str, str]:
         return {"runs_on": "", "runner_label": "", "pool": "none", "host": "", "holder_sha": "", "gap": "",
@@ -256,7 +265,7 @@ def place(env: Mapping[str, str], read_runners: Callable[[], Sequence[Mapping[st
 
     if fresh_label:
         return place_daily(side_label, fresh_label, read_runners, distance_of, overflow,
-                           nightly_label=(env.get("NIGHTLY_LABEL") or "").strip())
+                           nightly_label=(env.get("NIGHTLY_LABEL") or "").strip(), room=room)
     try:
         taken, busy_hosts = read_in_flight()
     except Exception as error:  # noqa: BLE001 - unknown in-flight landings: place on the live state
@@ -280,12 +289,14 @@ def place(env: Mapping[str, str], read_runners: Callable[[], Sequence[Mapping[st
 
 def place_daily(side_label: str, fresh_label: str, read_runners: Callable[[], Sequence[Mapping[str, Any]]],
                 distance_of: Callable[[str], tuple[str, int | None]],
-                overflow: Callable[[], tuple[str, str, bool]] | None = None, nightly_label: str = "") -> dict[str, str]:
+                overflow: Callable[[], tuple[str, str, bool]] | None = None, nightly_label: str = "",
+                room: Callable[[str, Sequence[Mapping[str, Any]]], tuple[str, str]] | None = None) -> dict[str, str]:
     """A DEV daily's compile: the idle runner nearest its cache, from one runner listing (see the module doc).
 
     The order: an idle owned runner on the nearest cache, then an idle nightly slot (NIGHTLY_LABEL; the runner hook
     ranks the DEV daily compile nightly-tier, so the slot admits it), then an idle DEV slot, then a moving
-    Blacksmith overflow, then a busy DEV slot. Never the shared side label."""
+    owned class pool with room (`room`, owned_room()), then a moving Blacksmith overflow, then a busy DEV slot.
+    Never the shared side label."""
     root_label = side_label.replace("glaeda-side-", "glaeda-root-", 1)
     try:
         runners = list(read_runners())
@@ -331,6 +342,15 @@ def place_daily(side_label: str, fresh_label: str, read_runners: Callable[[], Se
     # out oldest first, so the compile joins the tail behind every PR job queued there (run 44941204257, 2026-11-21:
     # queued 76 min on glaeda-side-std-xcode-26.6 behind about 130 jobs, then refused for capacity). Leo's rule:
     # "Nightlies come first on the fleet".
+    # An owned class pool with more idle runners than its family has jobs queued starts the compile now, before any
+    # Blacksmith label (CI routing is minis first; Blacksmith takes overflow only).
+    if room is not None:
+        class_label = side_label.replace("glaeda-side-", "glaeda-", 1)
+        label, why = room(class_label, online)
+        if label:
+            return {**DAILY_KEEP, "runs_on": json.dumps(label), "runner_label": label, "pool": "owned",
+                    "reason": f"no idle runner on a free host with a cache record and no idle DEV slot; owned pool "
+                              f"with room: {why}"}
     label, why, stalled_everywhere = overflow() if overflow is not None else ("", "no Blacksmith pick", True)
     if label and not stalled_everywhere:
         return {**DAILY_KEEP, "runs_on": json.dumps(label), "runner_label": label, "pool": "blacksmith",
@@ -365,6 +385,41 @@ def blacksmith_overflow(variable: str, snapshot: Mapping[str, Any] | None, now: 
             return "", f"every Blacksmith macOS label is queued at its slot count ({', '.join(sorted(full))})", True
         label, why = other, f"`{other}`, past `{label}` queued at its slot count"
     return label, why, bool(stuck) and all(candidate in stuck for candidate in labels)
+
+
+def owned_room(class_label: str, online: Sequence[Mapping[str, Any]], snapshot: Mapping[str, Any] | None,
+               now: dt.datetime) -> tuple[str, str]:
+    """(class_label, why) when it has more idle online runners than its family has jobs queued, by a snapshot under
+    ROOM_SNAPSHOT_MINUTES old; ("", why) otherwise. With no fresh snapshot the family's queue is unknown, so no room
+    is claimed and the placement goes on as before (the queue janitor's sweep is the only queue source)."""
+    import simple_pool_picker as picker  # noqa: PLC0415 - the checked-out base's family rule
+
+    family = picker.owned_family(class_label)
+    if not family or not picker.OWNED.fullmatch(class_label):
+        return "", f"`{class_label}` is no owned class pool"
+    try:
+        generated = dt.datetime.fromisoformat(str((snapshot or {}).get("generated_at") or "").replace("Z", "+00:00"))
+    except ValueError:
+        generated = None
+    if generated is None or generated.tzinfo is None:
+        return "", "no pool snapshot to count the owned queue"
+    age = (now - generated).total_seconds() / 60
+    if age > ROOM_SNAPSHOT_MINUTES:
+        return "", f"the pool snapshot is {age:.0f} min old (over {ROOM_SNAPSHOT_MINUTES}) to count the owned queue"
+    pools = (snapshot or {}).get("pools") or {}
+    queued = 0
+    for name, entry in (pools.items() if isinstance(pools, Mapping) else ()):
+        if isinstance(entry, Mapping) and picker.owned_family(str(name)) == family:
+            try:
+                queued += max(0, int(entry.get("queued") or 0))
+            except (TypeError, ValueError):
+                continue
+    idle = sum(1 for runner in online if not runner.get("busy") and any(
+        isinstance(item, Mapping) and item.get("name") == class_label for item in runner.get("labels") or []))
+    if idle > queued:
+        return class_label, (f"`{class_label}` has {idle} idle runners and its family {queued} jobs queued "
+                             f"(snapshot {age:.0f} min old)")
+    return "", f"`{class_label}` has {idle} idle runners for {queued} jobs queued on its family"
 
 
 def gap_main(source: str, head: str) -> int:
@@ -414,17 +469,30 @@ def main(argv: Sequence[str]) -> int:
         return in_flight(runs, lambda run_id: api.get(f"/actions/runs/{run_id}/jobs?filter=latest&per_page=100")
                          .get("jobs") or [], env.get("GITHUB_RUN_ID", ""), dt.datetime.now(dt.timezone.utc))
 
+    snapshots: list[Mapping[str, Any] | None] = []
+
+    def snapshot_now(now: dt.datetime) -> Mapping[str, Any] | None:
+        # One read for the owned room and the Blacksmith overflow both.
+        if not snapshots:
+            snapshot = None
+            if api is not None:
+                try:
+                    snapshot = api.snapshot(now=now)
+                except Exception as error:  # noqa: BLE001 - an unread snapshot is an unverified pick
+                    print(f"dev_landing_place: pool snapshot unreadable: {error}", file=sys.stderr)
+            snapshots.append(snapshot)
+        return snapshots[0]
+
     def overflow() -> tuple[str, str, bool]:
         now = dt.datetime.now(dt.timezone.utc)
-        snapshot = None
-        if api is not None:
-            try:
-                snapshot = api.snapshot(now=now)
-            except Exception as error:  # noqa: BLE001 - an unread snapshot is an unverified pick
-                print(f"dev_landing_place: pool snapshot unreadable: {error}", file=sys.stderr)
-        return blacksmith_overflow(env.get("BLACKSMITH_CANDIDATE", ""), snapshot, now)
+        return blacksmith_overflow(env.get("BLACKSMITH_CANDIDATE", ""), snapshot_now(now), now)
 
-    outputs = place(env, read_runners, read_holders, read_in_flight, overflow=overflow)
+    def room(class_label: str, online: Sequence[Mapping[str, Any]]) -> tuple[str, str]:
+        now = dt.datetime.now(dt.timezone.utc)
+        return owned_room(class_label, online, snapshot_now(now), now)
+
+    outputs = place(env, read_runners, read_holders, read_in_flight, overflow=overflow,
+                    room=None if (env.get("CI_DEV_COMPILE_OWNED_ROOM") or "").strip() == "0" else room)
     print(f"::notice title=DEV landing placement::{outputs['reason']}", file=sys.stderr)
     for key in ("runs_on", "runner_label", "pool", "host", "holder_sha", "gap", "reason"):
         print(f"{key}={' '.join(str(outputs.get(key, '')).split())}")
