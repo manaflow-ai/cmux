@@ -548,10 +548,23 @@ fn delivered(kind: &str, value: String) -> String {
 
 /// The secret a reference names; the error says why it did not resolve, never a value.
 fn resolve(id: &str, reference: &str) -> Result<String, RpcError> {
-    routes::resolve_reference(reference).map_err(|why| {
-        RpcError::invalid_params(format!("{id}'s secret did not resolve: {why}"))
-            .with_data(json!({"reason": "connections.secret_unresolved", "id": id}))
-    })
+    routes::resolve_reference(reference).map_err(|why| unresolved(id, &why))
+}
+
+/// The value a connection of KIND sends for `reference` ([`delivered`]). A Claude token kept in a
+/// `file:` is read with its line breaks too: the plain file read refuses a wrapped token as no
+/// single-line secret before [`delivered`] could take them out.
+fn resolve_delivered(kind: &str, id: &str, reference: &str) -> Result<String, RpcError> {
+    if let (true, Some(path)) = (kind == "claude-token", reference.strip_prefix("file:")) {
+        return crate::config::profiles::file_secret_unwrapped(path)
+            .map_err(|why| unresolved(id, &why));
+    }
+    resolve(id, reference).map(|value| delivered(kind, value))
+}
+
+fn unresolved(id: &str, why: &str) -> RpcError {
+    RpcError::invalid_params(format!("{id}'s secret did not resolve: {why}"))
+        .with_data(json!({"reason": "connections.secret_unresolved", "id": id}))
 }
 
 fn failure(f: chatgpt::Failure) -> RpcError {
@@ -880,7 +893,7 @@ pub(super) async fn handle(
                 }
                 // The keychain may ask: off the runtime's threads.
                 Some(reference) => {
-                    (delivered(kind, blocking(move || resolve(&id, &reference)).await??), None)
+                    (blocking(move || resolve_delivered(kind, &id, &reference)).await??, None)
                 }
             };
             Ok(
@@ -1152,7 +1165,7 @@ mod tests {
         add_claude_token(Some(&d.routes), &d.home, &reference, None).unwrap();
         let (_, kind, _, secret) =
             credential_plan(Some(&d.routes), &d.home, "claude-token").unwrap();
-        let value = delivered(kind, resolve("claude-token", &secret.unwrap()).unwrap());
+        let value = resolve_delivered(kind, "claude-token", &secret.unwrap()).unwrap();
         assert_eq!(value, "sk-ant-oat01-abcdef");
         let env = json!({"env": {"CLAUDE_CODE_OAUTH_TOKEN": value}});
         assert!(crate::agent_credentials::AgentCredential::parse(&env).is_ok());
