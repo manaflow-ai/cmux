@@ -415,7 +415,10 @@ impl Repo {
             return Err(failed("reading the repository", format!("rev-parse answered {answer:?}")));
         };
         let mut path = |at: usize| {
-            paths[at].take().ok_or_else(|| failed("finding the git dir", answer.clone()))
+            paths
+                .get_mut(at)
+                .and_then(Option::take)
+                .ok_or_else(|| failed("finding the git dir", answer.clone()))
         };
         let paths = GitPaths {
             objects: path(0)?,
@@ -1174,9 +1177,9 @@ fn sparse_patterns(repo: &Repo) -> Option<String> {
 fn attribute_files<'a>(staged: &'a [u8], untracked: &'a [u8]) -> impl Iterator<Item = &'a [u8]> {
     let untracked = untracked.split(|byte| *byte == 0);
     // `MODE OID STAGE\tPATH`.
-    let staged = staged.split(|byte| *byte == 0).filter_map(|entry| {
-        entry.iter().position(|byte| *byte == b'\t').map(|tab| &entry[tab + 1..])
-    });
+    let staged = staged
+        .split(|byte| *byte == 0)
+        .filter_map(|entry| entry.splitn(2, |byte| *byte == b'\t').nth(1));
     untracked
         .chain(staged)
         .filter(|path| *path == b".gitattributes".as_slice() || path.ends_with(b"/.gitattributes"))
