@@ -1350,10 +1350,10 @@ impl Progress {
 pub(super) fn run(runner: &mut dyn Runner, request: &Request) -> Outcome {
     let began = runner.now();
     let outcome = run_once(runner, request);
-    // A new machine this run made that never came up is deleted and the start runs on a fresh one (fresh.rs).
-    let outcome = fresh::replace_stuck(runner, request, began, outcome);
-    let outcome =
-        if request.make_room { make_room(runner, request, began, outcome) } else { outcome };
+    // Every failure goes through the one recovery table (recover.rs): a new machine this run made that never came
+    // up starts on a fresh one (fresh.rs), a machine still starting is started on again within the deadline, and
+    // `--make-room` frees a machine at a cap. A class with no action is the person's, unchanged.
+    let outcome = recover::recover(runner, request, began, outcome);
     explain_account_limit(outcome, &request.agent)
 }
 
@@ -1436,12 +1436,12 @@ fn make_room(
             1,
         );
     }
-    // The rerun makes a new machine too: one that never comes up is replaced the same way (fresh.rs).
-    // The rerun keeps the run's one deadline: `--timeout` counts from the command's start, not from here.
+    // The rerun makes a new machine too: one that never comes up is replaced the same way, by the recovery table
+    // that called this (recover.rs). The rerun keeps the run's one deadline: `--timeout` counts from the command's
+    // start, not from here.
     let until = request.until.or(Deadline::of(request, began).0);
     let again = Request { make_room: false, until, ..request.clone() };
-    let outcome = run_once(runner, &again);
-    fresh::replace_stuck(runner, &again, began, outcome)
+    run_once(runner, &again)
 }
 
 fn run_once(runner: &mut dyn Runner, request: &Request) -> Outcome {
@@ -3676,6 +3676,7 @@ mod fault;
 mod folder;
 mod fresh;
 mod internal;
+mod recover;
 use folder::local_folder;
 use internal::link_wait;
 mod support;
