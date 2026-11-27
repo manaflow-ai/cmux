@@ -153,6 +153,7 @@ bash scripts/cmux-next/tests/base-autofix-land.test.sh
 bash scripts/cmux-next/tests/base-autofix-action-exports.test.sh
 bash scripts/cmux-next/tests/base-autofix-changed.test.sh
 bash scripts/cmux-next/tests/base-autofix-window.test.sh
+bash scripts/cmux-next/tests/base-autofix-push-preflight.test.sh
 bash scripts/cmux-next/tests/generated-autofixable.test.sh
 bash scripts/cmux-next/tests/base-autofix-settings-landed.test.sh
 bash scripts/cmux-next/tests/judge-action-exports.test.sh
