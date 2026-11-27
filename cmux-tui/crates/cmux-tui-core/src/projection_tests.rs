@@ -514,6 +514,101 @@ fn control_line(name: &str, mark: Option<&str>, why: Option<&str>) -> WayBackLin
     }
 }
 
+/// A serve replacing a mount while detach drains an admitted write must remain attached.
+#[cfg(target_os = "linux")]
+#[test]
+fn detach_draining_a_write_does_not_seal_a_replacement() {
+    use cmux_projection::manifest::{Item, Kind, Manifest};
+    use cmux_projection::{Fetch, FetchError};
+    use std::sync::mpsc;
+    use std::time::{Duration, Instant};
+
+    struct HeldFetch {
+        entered: mpsc::Sender<()>,
+        resume: Mutex<mpsc::Receiver<()>>,
+    }
+    impl Fetch for HeldFetch {
+        fn read(&self, _: u32, offset: u64, len: u32) -> Result<Vec<u8>, FetchError> {
+            self.entered.send(()).map_err(|_| FetchError::Failed)?;
+            self.resume
+                .lock()
+                .unwrap()
+                .recv_timeout(Duration::from_secs(10))
+                .map_err(|_| FetchError::Failed)?;
+            Ok(b"old".iter().copied().skip(offset as usize).take(len as usize).collect())
+        }
+        fn batch(&self, entries: &[u32]) -> Vec<Result<Vec<u8>, FetchError>> {
+            entries.iter().map(|&entry| self.read(entry, 0, 3)).collect()
+        }
+    }
+    let home = cmux_unix_socket::short_test_dir("proj");
+    let name = "detach-replacement-test";
+    let (state, at) = projected_state(home.path(), name);
+    let manifest = Arc::new(
+        Manifest::build(
+            1,
+            vec![Item {
+                path: "file".into(),
+                kind: Kind::File,
+                mode: 0o644,
+                size: 3,
+                mtime_ns: 1,
+                link: None,
+            }],
+        )
+        .unwrap(),
+    );
+    let make = |dir: &Path, fetch: Arc<dyn Fetch>| {
+        Arc::new(Projected {
+            link: Arc::new(cmux_projection::link::Link::default()),
+            digest: AtomicU64::new(0),
+            at: at.clone(),
+            mounted: Mutex::new(None),
+            overlay: Arc::new(
+                cmux_projection::overlay::Overlay::open(manifest.clone(), dir, fetch, (0, 0))
+                    .unwrap(),
+            ),
+            ext: Mutex::new(None),
+            barrier: Mutex::new(None),
+            away: cmux_projection::away::Away::new(|_| {}),
+        })
+    };
+    let (entered_tx, entered_rx) = mpsc::channel();
+    let (resume_tx, resume_rx) = mpsc::channel();
+    let old =
+        make(&state, Arc::new(HeldFetch { entered: entered_tx, resume: Mutex::new(resume_rx) }));
+    let replacement_state = home.path().join("replacement");
+    std::fs::create_dir_all(replacement_state.join("upper")).unwrap();
+    std::fs::write(replacement_state.join("upper/file"), b"new").unwrap();
+    let replacement = make(&replacement_state, Arc::new(cmux_projection::link::Link::default()));
+    projections().lock().unwrap().insert(name.into(), old.clone());
+    let writing = old.clone();
+    let write = std::thread::spawn(move || {
+        writing.overlay.write(writing.overlay.lookup(1, "file").unwrap().ino, 0, b"kept")
+    });
+    entered_rx.recv_timeout(Duration::from_secs(10)).unwrap();
+    let detaching_state = state.clone();
+    let detaching =
+        std::thread::spawn(move || detach(&control_line(name, None, None), &detaching_state));
+    let deadline = Instant::now() + Duration::from_secs(10);
+    while !old.overlay.is_sealed() && Instant::now() < deadline {
+        std::thread::yield_now();
+    }
+    assert!(old.overlay.is_sealed(), "detach must reach its drain before replacement");
+    projections().lock().unwrap().insert(name.into(), replacement.clone());
+    resume_tx.send(()).unwrap();
+    assert_eq!(write.join().unwrap(), Ok(4));
+    assert_eq!(detaching.join().unwrap().unwrap_err().0, "projection.busy");
+    let current = projections().lock().unwrap().remove(name).unwrap();
+    assert!(Arc::ptr_eq(&current, &replacement));
+    assert!(!replacement.overlay.is_sealed());
+    assert!(cmux_projection::state::read(&state).unwrap().detached.is_none());
+    assert_eq!(std::fs::read(state.join("upper/file")).unwrap(), b"kept");
+    let ino = replacement.overlay.lookup(1, "file").unwrap().ino;
+    assert_eq!(replacement.overlay.write(ino, 0, b"live"), Ok(4));
+    assert_eq!(replacement.overlay.read(ino, 0, 4).unwrap(), b"live");
+}
+
 #[cfg(target_os = "linux")]
 #[test]
 fn a_detached_projection_rejects_redial() {

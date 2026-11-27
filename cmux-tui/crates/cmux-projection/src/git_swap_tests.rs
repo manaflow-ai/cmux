@@ -461,6 +461,33 @@ fn a_sealed_projection_does_not_swap_its_git_folder() {
 }
 
 #[test]
+fn bring_back_sync_record_survives_git_swap_and_moving_it_refuses_the_swap() {
+    let repo = repo(3, 64);
+    let Some(p) = mount(&repo.mac) else { return };
+    let projected = p.at.path().join(".git");
+    let baseline = br#"{"files":{"a":{"hash":"first"}}}"#;
+    std::fs::write(projected.join(SYNC_RECORD), baseline).unwrap();
+    let local = p.state.path().join(LOCAL_DIR);
+    let base = std::fs::read_to_string(projected.join(CARRY_BASE)).unwrap();
+    let ready =
+        prepare_carry(&projected, &local, &projected.join(CARRY_PACK), base.trim()).unwrap();
+    assert_eq!(std::fs::read(local.join(SYNC_RECORD)).unwrap(), baseline);
+
+    let later = br#"{"files":{"a":{"hash":"later"}}}"#;
+    std::fs::write(projected.join(SYNC_RECORD), later).unwrap();
+    assert!(swap(&p.overlay, &p.forget(), &projected, &local, &ready).is_err());
+    assert!(std::fs::symlink_metadata(&projected).unwrap().is_dir());
+    assert_eq!(std::fs::read(projected.join(SYNC_RECORD)).unwrap(), later);
+
+    assert_eq!(
+        run(&p.overlay, &p.forget(), p.at.path(), p.state.path()).unwrap(),
+        Outcome::Swapped(local.clone())
+    );
+    assert_eq!(std::fs::read(projected.join(SYNC_RECORD)).unwrap(), later);
+    assert_eq!(std::fs::read(local.join(SYNC_RECORD)).unwrap(), later);
+}
+
+#[test]
 fn a_git_reading_through_the_swap_sees_one_repository() {
     readers_through_swap(false);
 }

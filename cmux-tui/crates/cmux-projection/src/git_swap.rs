@@ -53,6 +53,15 @@ pub const CARRY_PACK: &str = "cmux-carry.pack";
 pub const CARRY_BASE: &str = "cmux-carry.base";
 /// How many times a moving Mac state is copied again before the swap gives up for now.
 const ATTEMPTS: usize = 3;
+const SYNC_RECORD: &str = "cmux-sync.json";
+
+fn sync_record(git_dir: &Path) -> std::io::Result<Option<Vec<u8>>> {
+    match std::fs::read(git_dir.join(SYNC_RECORD)) {
+        Ok(bytes) => Ok(Some(bytes)),
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(None),
+        Err(error) => Err(error),
+    }
+}
 
 /// Whether projected git carry is enabled. Carry is on by default so projection starts can use
 /// the sender's local objects. Set `CMUX_PROJECTION_GIT_SWAP=off` to disable it for a diagnosis.
@@ -161,7 +170,8 @@ pub fn seed_remote(git_dir: &Path) -> Option<(String, String)> {
 }
 
 /// What must match between the copy and the swap: HEAD, every ref, and the index's size and
-/// modification time. `None` while git is mid-operation there (a lock file, a merge).
+/// modification time, and Bring Back's sync record. `None` while git is mid-operation there
+/// (a lock file, a merge).
 pub fn fingerprint(git_dir: &Path) -> anyhow::Result<Option<String>> {
     for name in UNSWAPPABLE {
         if std::fs::symlink_metadata(git_dir.join(name)).is_ok() {
@@ -184,7 +194,9 @@ pub fn fingerprint(git_dir: &Path) -> anyhow::Result<Option<String>> {
         }
         Err(_) => "none".to_owned(),
     };
-    Ok(Some(format!("{head}\n{index}\n{refs}")))
+    use sha2::{Digest as _, Sha256};
+    let sync = sync_record(git_dir)?.map(|bytes| format!("{:x}", Sha256::digest(bytes)));
+    Ok(Some(format!("{head}\n{index}\n{refs}\n{sync:?}")))
 }
 
 /// The machine's repository at `local`, made from `projected` (the `.git` as the mount serves
@@ -454,6 +466,17 @@ fn copy_mac_state(projected: &Path, local: &Path, seed_url: Option<&str>) -> any
         Err(error) => return Err(error.into()),
     }
     write_atomic(&local.join("HEAD"), &std::fs::read(projected.join("HEAD"))?)?;
+    // Bring Back may have advanced its base while this repository was still projected.
+    // The replacement must carry that record as well as Git's own state. fingerprint
+    // detects a change during preparation or before the final swap.
+    match sync_record(projected)? {
+        Some(bytes) => write_atomic(&local.join(SYNC_RECORD), &bytes)?,
+        None => match std::fs::remove_file(local.join(SYNC_RECORD)) {
+            Ok(()) => {}
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
+            Err(error) => return Err(error.into()),
+        },
+    }
     Ok(())
 }
 
