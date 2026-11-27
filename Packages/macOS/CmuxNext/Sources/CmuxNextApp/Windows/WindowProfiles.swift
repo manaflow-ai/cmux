@@ -35,9 +35,9 @@ enum WindowProfiles {
         return members.filter { shows($0, profile: profile, machines: machines, membership: membership) }
     }
 
-    /// `visible` without the workspaces whose close is under way (`ClosingWorkspaces`), unless none would be left.
-    static func shown(_ members: [String], profile: ProfileID, machines: MachineRegistry) -> [String] {
-        ClosingWorkspaces.shared.survivors(visible(members, profile: profile, machines: machines))
+    /// `visible` plus `pick` (a member picked here whose pin is in flight) without the workspaces whose close is under way (`ClosingWorkspaces`), unless none would be left.
+    static func shown(_ members: [String], profile: ProfileID, machines: MachineRegistry, pick: String? = nil) -> [String] {
+        let shown = visible(members, profile: profile, machines: machines); return ClosingWorkspaces.shared.survivors(shown + [pick].compactMap { $0 }.filter { members.contains($0) && !shown.contains($0) })
     }
 
     /// The room a workspace is in for "select it and switch the window":
