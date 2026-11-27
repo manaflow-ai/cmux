@@ -101,7 +101,8 @@ profile() {
   local AS=""
   sudo -n true 2>/dev/null && AS="sudo -n"
   # perf exits non-zero when the controller ends first: what it wrote is the profile either way.
-  $AS "$PERF" record -F 299 --call-graph fp -p "$pid" -o "$OUT/perf.data" -- sleep $((WINDOW + 30)) >"$OUT/perf.record.log" 2>&1
+  # cpu-clock, not the default cycles: a cloud VM with no PMU records nothing on cycles.
+  $AS "$PERF" record -e cpu-clock -F 299 --call-graph fp -p "$pid" -o "$OUT/perf.data" -- sleep $((WINDOW + 30)) >"$OUT/perf.record.log" 2>&1
   if [ -n "$off" ]; then
     wait "$off"
     sudo -n "$PERF" script -i "$OUT/offcpu.data" -F tid,time,ip,sym 2>/dev/null | gzip >"$OUT/offcpu.stacks.gz"
