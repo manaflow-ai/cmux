@@ -10,12 +10,14 @@ final class DraftPictureClick {
     var delay: TimeInterval?
     /// The queued callback checks this generation before opening. Keeping only the generation here lets replacing
     /// or cancelling a click drop the previous callback without retaining a dispatch work item in the owner.
+    private var nextGeneration: UInt = 0
     private var pendingGeneration: UInt?
 
     /// Opens with `open` on the main queue once the interval passes with no press in between (replacing an open
     /// still pending).
     func schedule(_ open: @escaping () -> Void) {
-        let generation = (pendingGeneration ?? 0) &+ 1
+        nextGeneration &+= 1
+        let generation = nextGeneration
         pendingGeneration = generation
         DispatchQueue.main.asyncAfter(deadline: .now() + (delay ?? NSEvent.doubleClickInterval)) { [weak self] in
             guard let self, self.pendingGeneration == generation else { return }
