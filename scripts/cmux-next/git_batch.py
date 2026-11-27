@@ -22,7 +22,7 @@ OBJECT_HEADER = re.compile(rb"^[0-9a-f]{40,64} (blob|tree|commit|tag) (\d+)$")
 # The longest the one prefetch of a partial clone's missing blobs may take before cat_file goes on without it.
 PREFETCH_TIMEOUT = 300
 # From this many `<rev>:<path>` specs of one rev, cat_file reads them by blob id from one `ls-tree -r` of the rev
-# (resolve_specs): git resolves each `<rev>:<path>` from the root tree again, about 4 ms a spec on big-red's cmux mirror
+# (resolve_specs): git resolves each `<rev>:<path>` from the root tree again, about 4 ms a spec on a Linux workstation's cmux mirror
 # (13,462 specs: 57.7 s by path, 0.7 s ls-tree + 1.3 s by id). Below it the listing (0.35 s) costs more than it saves.
 RESOLVE_MIN_SPECS = 64
 _git_version: tuple[int, int] | None = None
@@ -158,7 +158,7 @@ def cat_file(repo: Path, specs: list[str], env: dict[str, str] | None = None, id
     In a partial clone (the blobless clones agents push from), a plain `cat-file --batch` fetches each blob the
     clone lacks with its own round trip to the promisor remote: the pre-push gate builds trees of about 9,000 files
     at base and head, and on 2026-11-21 a merge push spent the gate's whole 600 s limit in here, three times in a
-    row (0.49 s a blob on big-red; a cold clone's 9,000 now take 14 s). So the read there runs with
+    row (0.49 s a blob on a Linux workstation; a cold clone's 9,000 now take 14 s). So the read there runs with
     GIT_NO_LAZY_FETCH first, which answers `missing` instead of fetching; the specs it misses get their blobs in
     one fetch (fetch_blobs) and are read again the plain way, which still fetches whatever the one fetch did not
     bring. A warm clone pays nothing extra: the first read is the whole read. A git before 2.44 asks rev-list which
@@ -200,7 +200,7 @@ def resolve_specs(repo: Path, specs: list[str], env: dict[str, str] | None = Non
     from one `ls-tree -r` of that rev (trees only: local in a blobless clone, read with GIT_NO_LAZY_FETCH).
 
     `cat-file --batch` resolves every `<rev>:<path>` from the rev's root tree again: on 2026-11-21 the pre-push gate's
-    trees of a merge push (about 13,000 files at each of four revs) spent 26-33 s a side in it on big-red, about 350 s
+    trees of a merge push (about 13,000 files at each of four revs) spent 26-33 s a side in it on a Linux workstation, about 350 s
     of the 798 s gate. A spec this leaves out (a path the rev lacks, a tree, a submodule, a rev ls-tree cannot read)
     is asked by its own text as before, so its answer is unchanged."""
     by_rev: dict[str, set[str]] = {}

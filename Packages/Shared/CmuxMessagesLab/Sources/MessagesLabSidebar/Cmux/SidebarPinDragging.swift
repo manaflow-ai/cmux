@@ -204,11 +204,7 @@ extension SidebarController {
     /// The grid slot under `p` for a grid of `count` tiles; nil below the grid.
     private func gridSlot(_ p: CGPoint, count: Int) -> Int? {
         guard count > 0, p.y < metrics.pinnedHeight(count: count) else { return nil }
-        let cols = metrics.columns
-        let rows = (count + cols - 1) / cols
-        let col = min(cols - 1, max(0, Int(exactly: ((p.x - metrics.tileRect(0).minX) / metrics.tileWidth).rounded(.down)) ?? 0))
-        let row = min(rows - 1, max(0, Int(exactly: (max(0, p.y) / metrics.tileHeight).rounded(.down)) ?? 0))
-        return min(row * cols + col, count - 1)
+        return metrics.tileSlot(at: p, count: count)
     }
 
     /// Tiles to their slots in the drawn order; the rows below follow the grid's drawn height.
@@ -219,7 +215,7 @@ extension SidebarController {
         let order = drag.order
         for (id, l) in shownTiles {
             guard let id, id != drag.id, let slot = order.firstIndex(of: id) else { continue }
-            slide(l, to: tileRect(slot), animated: animated)
+            slide(l, to: metrics.tileRect(slot, count: order.count), animated: animated)
         }
         let dy = metrics.pinnedHeight(count: order.count) - pinnedHeight
         let rows = listRowLayers()

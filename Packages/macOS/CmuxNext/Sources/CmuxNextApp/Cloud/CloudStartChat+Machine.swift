@@ -14,8 +14,8 @@ import Foundation
 /// Each send is kept under the account it began in (``CloudStartCore/accountText(_:)``), and takes a machine only
 /// of the list the server answered for that account (``checkAccount(_:now:listCurrent:)``).
 extension CloudStartChat {
-    /// The plan's request: the send's key, account and Mac workspace, who is signed in, the machines the account's list named (as the pick
-    /// reads them), the store's others (`stored`: kept for a pin, never picked), and the chat's folder, environment and token flag (`access`).
+    /// The plan's request: the send's key, account and Mac workspace, who is signed in (`user`: the platform `user_…` id a machine's `created_by` names, not the Stack id,
+    /// or no machine is the person's to reuse), the account's listed machines, the store's others (`stored`), and the chat's folder, environment and token flag (`access`).
     static func planRequest(key: String, account: [String?], workspace: String?, user: String?, machines: [CloudMachineSession],
                             local: String? = nil, stored: [String], environment: String? = nil, access: Bool = false, reservationKey: String? = nil,
                             platform: String? = nil, ensureProject: Bool? = nil, size: CloudChatSize? = nil, bytes: Int64? = nil, planMax: CloudChatSize? = nil) -> String {
@@ -48,7 +48,7 @@ extension CloudStartChat {
     /// never be copied to one of them.
     static func checkAccount(_ asked: [String?], now: [String?], listCurrent: Bool) throws { // the rule: cmux-cloud-start-core `start`
         guard let check = CloudStartCore().checkAccount(asked, now: now, listCurrent: listCurrent) else { return }
-        throw CloudMove.Failure(message: check == .accountChanged ? CloudMoveStrings.startChatAccountChanged : CloudMoveStrings.startChatListUnread)
+        throw CloudMove.Failure(message: check == .accountChanged ? CloudMoveStrings.startChatAccountChanged : CloudMoveStrings.startChatListUnread, sendAgain: check != .accountChanged) // a list not read yet may pass later (recover ListUnread: rerun)
     }
 
     /// The machine for the send `start`, connected, and the plan's keys. Only a machine of the list
@@ -65,10 +65,10 @@ extension CloudStartChat {
         let ensureProject = CloudStartCore().ensuresProject(account: account, platform: cloud.configuration.artifactsAPIBaseURL(), production: cloud.auth.configuration.isProductionAuth)
         // The install token and the session's access token are two reads of their own: together, not one after the other (cmux#45953).
         let reserved = start.reservationKey != nil
-        async let installRead = { @MainActor in reserved ? try await cloud.installIdentity.installToken() : nil }()
+        async let installRead = { @MainActor in ensureProject || reserved ? try await cloud.installIdentity.installToken() : nil }() // the ensure's credential too
         async let accessRead = { @MainActor in ensureProject || reserved ? try await cloud.auth.tokens().access : nil }()
         let access = try? await accessRead, install = try await installRead
-        let request = Self.planRequest(key: start.key, account: account, workspace: workspace, user: cloud.auth.user?.id,
+        let request = Self.planRequest(key: start.key, account: account, workspace: workspace, user: cloud.auth.platformUserID,
                                        machines: machines.cloud.filter { listed.contains($0.machineID) }, local: start.home ? nil : start.uploadRoot ?? start.cwd,
                                        stored: machines.cloud.map(\.machine).keptForPin(listed: listed), environment: start.environment, access: access != nil,
                                        reservationKey: start.reservationKey, platform: cloud.configuration.artifactsAPIBaseURL()?.absoluteString, ensureProject: ensureProject, size: start.size, bytes: start.folderBytes, planMax: start.planMax)

@@ -192,9 +192,7 @@ public nonisolated final class DaemonHomeSource: HomeSource {
         let page = try await Self.mapped {
             try await ConversationClient(self.requireConnection()).snapshot(conversation.rawValue, tail: min(max(tail, 1), 500))
         }
-        return ConversationPage(conversation: HomeCoreMapping.summary(page.conversation),
-                                messages: page.messages.map(HomeCoreMapping.message),
-                                threads: page.threads.map { HomeCoreMapping.thread($0) })
+        return HomeCoreMapping.conversationPage(page)
     }
 
     public func historyPage(of conversation: ConversationID, before beforeSeq: Seq, limit: Int) async throws -> HistoryPage {
@@ -202,7 +200,7 @@ public nonisolated final class DaemonHomeSource: HomeSource {
             try await ConversationClient(self.requireConnection())
                 .historyPage(conversation.rawValue, before: beforeSeq, limit: min(max(limit, 1), 500))
         }
-        return HistoryPage(messages: page.messages.map(HomeCoreMapping.message), threads: page.threads.map { HomeCoreMapping.thread($0) })
+        return HomeCoreMapping.historyPage(messages: page.messages, threads: page.threads)
     }
 
     /// The owner's thread read; a daemon from before `conversation-thread-v1` scans history.
@@ -214,14 +212,14 @@ public nonisolated final class DaemonHomeSource: HomeSource {
         let page = try await Self.mapped {
             try await ConversationClient(connection).thread(conversation.rawValue, root: root.rawValue, after: afterSeq, limit: limit)
         }
-        return HomeCoreMapping.threadPage(page, message: HomeCoreMapping.message)
+        return HomeCoreMapping.threadPage(page)
     }
 
     public func history(of conversation: ConversationID, before beforeSeq: Seq, limit: Int) async throws -> [Message] {
         try await Self.mapped {
             try await ConversationClient(self.requireConnection())
                 .history(conversation.rawValue, before: beforeSeq, limit: min(max(limit, 1), 500))
-        }.map(HomeCoreMapping.message)
+        }.map { HomeCoreMapping.message($0) }
     }
 
     /// `conversation-link-resolve` (conversation-tree-v1): the daemon's seq, thread root and path for a message link.

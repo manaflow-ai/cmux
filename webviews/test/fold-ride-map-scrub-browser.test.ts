@@ -1,7 +1,7 @@
 // l10n-allow-file: the gallery fixture supplies the transcript's messages.
-// A fold ride lands on input (conversation/foldRide.ts `land`): the full-height thread map aims a
-// click by the transcript's layout (ScrollMap.tsx `seek`, from `layout.totalHeight`), which mid-ride
-// is still the one placed before the fold. Real Chromium opens "Ran 100 commands"
+// The full-height thread map aims a click by the transcript's layout (ScrollMap.tsx `seek`, from
+// `layout.totalHeight`); a fold's body takes its height in one frame, so that layout is already the
+// opened one (it was the one placed before the fold while a fold ride played, since removed). Real Chromium opens "Ran 100 commands"
 // (ToolGroupSize.gallery.ts) and, while it still opens, clicks the map's track: the view goes where
 // the rows as shown put that point, not short by the fold's growth (review of #39917 at e357b4a0:
 // "lands 800px short of the new bottom").

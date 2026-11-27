@@ -17,6 +17,7 @@ struct AgentPaneAttachExternalTests {
 
     private static func model() -> AgentPaneModel {
         let model = AgentPaneModel(host: NoHost())
+        model.hasHandshake = true
         model.onLocalPaths = { true }
         return model
     }
@@ -214,6 +215,19 @@ struct AgentPaneAttachExternalTests {
         let refused = AgentPaneExternalAttach()
         refused.attach([URL(fileURLWithPath: "/tmp/a.png")], claimed: nil, target: nil, openChat: { _ in false }, show: { _ in })
         #expect(!refused.waitsForChat)
+    }
+
+    @Test func aCaptureHasNoStaleSessionButComposerHistoryRemains() throws {
+        let old = try #require(AgentPaneView(model: AgentPaneModel(host: NoHost(), sessionId: "old-session"),
+                                             source: .bundled(URL(filePath: "/dev/null"))))
+        let route = AgentPaneExternalAttach()
+        route.attach([URL(fileURLWithPath: "/tmp/old.png")], claimed: nil, target: old, openChat: { _ in false }, show: { _ in })
+
+        let newFile = URL(fileURLWithPath: "/tmp/new.png")
+        route.attach([newFile], claimed: nil, target: nil, openChat: { _ in false }, show: { _ in })
+        #expect(route.waitingFiles == [newFile])
+        #expect(route.session(for: newFile) == nil)
+        #expect(route.session(for: URL(fileURLWithPath: "/tmp/old.png")) == "old-session")
     }
 
     /// Files whose chat never came, or was not made, are not lost: they go with the next files (the

@@ -121,7 +121,7 @@ import UniformTypeIdentifiers
         let part = try Self.card(text, media: { pictures.asset($0) })
         let table = try #require(HomeTableRowProvider.payload(part)).table
         let grid = HomeTableGrid(table, available: 700)
-        let rects = grid.pictureRects(at: .zero)
+        let rects = grid.pictureRects(at: grid.cardOrigin(.zero))
         #expect(rects.count == 4)
         let darkAfter = try #require(rects.first { $0.source.hasSuffix("ad.png") })
         let hit = HomeTableRowProvider.picture(part, at: CGPoint(x: darkAfter.rect.midX, y: darkAfter.rect.midY), width: 700)

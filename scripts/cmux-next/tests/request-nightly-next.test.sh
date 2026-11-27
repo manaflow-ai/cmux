@@ -1,9 +1,9 @@
 #!/usr/bin/env bash
 # request-nightly-next.sh: feat-cmux-next asks main to promote a commit to
 # nightly-next only when that commit's cmux-tui tree is published and
-# verified. Its daemon tests are not awaited (2026-10-28) and neither is its
-# Release compile (2026-10-26): the nightly
-# build compiles the commit itself and publishes nothing when that fails.
+# verified. Its daemon tests are not awaited (2026-10-28). The build fleet's
+# existing Release verdict is prechecked before the nightly starts its Mac
+# build, signing and notarization.
 # cmux-next.yml still asks after its Release compile, and cmux-tui-artifacts.yml
 # and nightly-next-tick after the publication, so nightly-next always points at
 # a commit the nightly can build with its own workflow and its own daemon.
@@ -29,7 +29,7 @@ mkdir -p "$src/cmux-tui" "$src/scripts/cmux-next" "$src/scripts/ci"
 cp "$ROOT/scripts/cmux-next/pin-cmux-tui.sh" "$ROOT/scripts/cmux-next/tree-commit-marker.sh" "$src/scripts/cmux-next/"
 [[ -f "$ROOT/scripts/cmux-next/request-nightly-next.sh" ]] \
   && cp "$ROOT/scripts/cmux-next/request-nightly-next.sh" "$src/scripts/cmux-next/"
-cp "$ROOT/scripts/ci/cmux_tui_tree_key.py" "$ROOT/scripts/ci/nightly_build_inputs.py" "$src/scripts/ci/"
+cp "$ROOT/scripts/ci/cmux_tui_tree_key.py" "$src/scripts/ci/"
 cp "$ROOT/scripts/cmux-next/nightly_quarantine.py" "$src/scripts/cmux-next/"
 cp "$ROOT/scripts/cmux-next/cmux-tui-tree-inputs.txt" "$src/scripts/cmux-next/"
 echo reducer > "$src/scripts/cmux-next/build-layout-reducer-ffi.sh"
@@ -58,21 +58,21 @@ publish() { # <commit>: publish its tree, built by that commit
   printf '{"commit": "%s", "binaries": {"%s": "%s"}}\n' "$1" "$bin" "$(sha "$cdn/tree/$k/$bin")" > "$cdn/$1/manifest.json"
 }
 
-mkdir -p "$TMP/bin"
+mkdir -p "$TMP/bin" "$TMP/precheck"
 # The CDN. With -w (tree-commit-marker.sh) it prints the HTTP status: 404 for a
 # missing object, 500 for a path listed in $cdn/FAIL (or, for -w reads only, $cdn/FAILW). A tree-commit marker is
 # served for every commit whose tree is published (the writer marks every ready
 # commit), unless $cdn/unmarked lists the commit or $cdn/NOAUTO exists (the writer's own test).
 cat > "$TMP/bin/curl" <<STUB
 #!/usr/bin/env bash
-raw="\$*"; out="" url="" fmt="" ua="" fail_http=0
+out="" url="" fmt="" ua="" failflag=0
 while [[ \$# -gt 0 ]]; do
   case "\$1" in
     -o) out="\$2"; shift 2 ;;
     -w) fmt="\$2"; shift 2 ;;
     -A|--user-agent) ua="\$2"; shift 2 ;;
+    -f*|--fail|--fail-with-body) failflag=1; shift ;;
     --proto|--retry|--retry-delay|--connect-timeout|--max-time) shift 2 ;;
-    --fail|--fail-with-body|-f*) fail_http=1; shift ;;
     -*) shift ;;
     *) url="\$1"; shift ;;
   esac
@@ -81,8 +81,7 @@ done
 # $TMP/precheck/<sha> names another state, 404 (no record) or down (no answer).
 if [[ "\$url" == https://gh-events.cmux.com/compile-checks/v1/* ]]; then
   echo "\$url" >> "$TMP/precheck.log"
-  printf '%s\n' "\$raw" >> "$TMP/precheck-args.log"
-  printf '%s\n' "\$ua" >> "$TMP/precheck-user-agents.log"
+  echo "\$ua" >> "$TMP/precheck-user-agents.log"
   [[ "\$ua" == cmux-ci-fleet-compile-result/1 ]] || { printf 403; exit 0; }
   c="\${url#https://gh-events.cmux.com/compile-checks/v1/}"; c="\${c%%\?*}"
   st=pass; [[ ! -f "$TMP/precheck/\$c" ]] || st="\$(cat "$TMP/precheck/\$c")"
@@ -102,7 +101,7 @@ if [[ "\$path" != "\$url" && -n "\$fmt" ]] && grep -qxF "\$path" "$cdn/TRUNC" 2>
   exit 18
 fi
 if [[ "\$path" != "\$url" ]] && { grep -qxF "\$path" "$cdn/FAIL" 2>/dev/null || { [[ -n "\$fmt" ]] && grep -qxF "\$path" "$cdn/FAILW" 2>/dev/null; }; }; then
-  [[ -n "\$fmt" ]] && { printf 500; (( fail_http )) && exit 22 || exit 0; }
+  [[ -n "\$fmt" ]] && { printf 500; exit 0; }
   exit 22
 fi
 if [[ "\$path" == tree-commits/*.json && ! -f "$cdn/\$path" && ! -f "$cdn/NOAUTO" ]]; then
@@ -115,7 +114,13 @@ if [[ "\$path" == tree-commits/*.json && ! -f "$cdn/\$path" && ! -f "$cdn/NOAUTO
   fi
 fi
 if [[ "\$path" == "\$url" || ! -f "$cdn/\$path" ]]; then
-  [[ -n "\$fmt" ]] && { printf 404; (( fail_http )) && exit 22 || exit 0; }
+  # curl --fail reports a 404 in -w output and exits 22. The downloader uses
+  # that combination to distinguish a missing object from a transport error.
+  if [[ -n "\$fmt" ]]; then
+    printf 404
+    (( failflag )) && exit 22
+    exit 0
+  fi
   exit 22
 fi
 if [[ -n "\$out" ]]; then cp "$cdn/\$path" "\$out"; else cat "$cdn/\$path"; fi
@@ -137,6 +142,11 @@ if [[ "\$1 \$2" == "run list" ]]; then
   fi
   [[ -f "$TMP/gh-runs" ]] || exit 1
   cat "$TMP/gh-runs"; exit 0
+fi
+# The backfill's last-dispatch read: $TMP/gh-last-dispatch (a created_at), else no dispatch yet.
+if [[ "\$1" == api && "\$2" == repos/*/actions/workflows/cmux-tui-artifacts.yml/runs\?branch=feat-cmux-next\&event=workflow_dispatch\&per_page=1 ]]; then
+  [[ -f "$TMP/gh-last-dispatch" ]] && cat "$TMP/gh-last-dispatch"
+  exit 0
 fi
 # The starved-run read (queued runs of one event for one commit): the ids of the
 # "<id> <head_sha> <event>" lines of $TMP/gh-starved that match, else none. A
@@ -195,11 +205,9 @@ request() { # <args...> -> output in $out, exit in $status
   : > "$TMP/gh.log"
   out=$(cd "$src" && env -u GITHUB_STEP_SUMMARY -u GITHUB_OUTPUT -u CMUX_TUI_TREE_DISPATCH PATH="$TMP/bin:$PATH" \
     RUNNER_TEMP="$TMP/runner" GITHUB_RUN_ID="${RUN_ID:-1}" NIGHTLY_NEXT_PROMOTE="${PROMOTE-1}" \
-    NIGHTLY_NEXT_PRECHECK="${PRECHECK-1}" \
     bash scripts/cmux-next/request-nightly-next.sh --repo o/r "$@" 2>&1) || status=$?
 }
 mkdir -p "$TMP/runner"
-mkdir -p "$TMP/precheck"
 dispatched() { grep -qx "workflow run nightly.yml --repo o/r --ref main -f promote_nightly_next_sha=$1" "$TMP/gh.log"; }
 backfilled() { grep -qx "workflow run cmux-tui-artifacts.yml --repo o/r --ref feat-cmux-next" "$TMP/gh.log"; }
 
@@ -227,97 +235,99 @@ PROMOTE=0 request --sha "$head" --release-compile-green
 request --sha "$head" --release-compile-green
 [[ "$status" == 0 ]] && dispatched "$head" || fail "a green commit with a published tree must be promoted (exit $status):" "$out" "$(cat "$TMP/gh.log")"
 [[ "$(grep -c "workflow run nightly.yml" "$TMP/gh.log")" == 1 ]] || fail "the tick requests one promotion:" "$(cat "$TMP/gh.log")"
-
-# The nightly-next precheck reads the build fleet's existing Release verdict before
-# doing the strings and promotion work. Its result-service request carries an
-# explicit user agent so the service can attribute and rate-limit this read.
 grep -q '^cmux-ci-fleet-compile-result/1$' "$TMP/precheck-user-agents.log" \
-  || fail "the precheck result read must identify its caller:" "$(cat "$TMP/precheck-args.log")"
-precheck_commit() { # <ignored marker> <name> -> app-identical commit sha
-  git_q -C "$src" commit --allow-empty -m "$2"
-  git -C "$src" rev-parse HEAD
-}
-empty_commit() { # <name> -> commit sha with no app-input diff
-  git_q -C "$src" commit --allow-empty -m "$1"
-  git -C "$src" rev-parse HEAD
-}
-precheck_green=$(precheck_commit green "precheck ancestor green")
+  || fail "the precheck must identify its fleet compile client:" "$(cat "$TMP/precheck-user-agents.log")"
 
-# A failed verdict on the requested commit refuses promotion before the costly
-# nightly build. It is a candidate refusal, not a job error.
-red=$(precheck_commit red "precheck red")
-echo fail > "$TMP/precheck/$red"
-request --sha "$red" --release-compile-green
-[[ "$status" == 0 ]] && ! dispatched "$red" \
-  || fail "a red Release verdict must refuse promotion (exit $status):" "$out" "$(cat "$TMP/gh.log")"
-grep -q "precheck red" <<<"$out" || fail "the red precheck refusal must be reported:" "$out"
-
-# A queued or running verdict is also refused, so the next tick can retry it
-# after the fleet finishes instead of starting a known-unready nightly.
-git_q -C "$src" checkout -q --detach "$precheck_green"
-pending=$(precheck_commit pending "precheck pending")
-echo pending > "$TMP/precheck/$pending"
-request --sha "$pending" --release-compile-green
-[[ "$status" == 0 ]] && ! dispatched "$pending" \
-  || fail "a pending Release verdict must defer promotion (exit $status):" "$out" "$(cat "$TMP/gh.log")"
-grep -q "not prechecked yet" <<<"$out" || fail "the pending precheck refusal must be reported:" "$out"
-
-# HTTP 429 and 503 mean the results service is busy. They defer this candidate
-# just like a queued verdict, instead of being treated as an outage.
-git_q -C "$src" checkout -q --detach "$precheck_green"
-busy=$(precheck_commit busy "precheck busy")
-for code in 429 503; do
-  echo "$code" > "$TMP/precheck/$busy"
-  RUN_ID="busy-$code" request --sha "$busy" --release-compile-green
-  [[ "$status" == 0 ]] && ! dispatched "$busy" \
-    || fail "HTTP $code must defer promotion (exit $status):" "$out" "$(cat "$TMP/gh.log")"
-  grep -q "not prechecked yet" <<<"$out" \
-    || fail "HTTP $code must be reported as pending:" "$out"
+# A red Release verdict refuses the candidate before the strings, tree marker
+# and promotion dispatch. Busy service answers are also deferred to a later
+# tick, while a confirmed outage keeps the cache from blocking promotion.
+echo fail > "$TMP/precheck/$head"
+RUN_ID=2 request --sha "$head" --release-compile-green
+[[ "$status" == 0 ]] && ! dispatched "$head" || fail "a red fleet verdict must refuse promotion:" "$out" "$(cat "$TMP/gh.log")"
+grep -q "precheck red" <<<"$out" || fail "the refusal must identify a red precheck:" "$out"
+run_id=3
+for busy in 429 503; do
+  echo "$busy" > "$TMP/precheck/$head"
+  RUN_ID=$run_id request --sha "$head" --release-compile-green
+  [[ "$status" == 0 ]] && ! dispatched "$head" || fail "HTTP $busy must defer promotion:" "$out" "$(cat "$TMP/gh.log")"
+  grep -q "not prechecked yet" <<<"$out" || fail "HTTP $busy must be reported as pending:" "$out"
+  run_id=$((run_id + 1))
 done
+rm -f "$TMP/precheck/$head"
 
-# A missing verdict can reuse the nearest first-parent ancestor when the app
-# inputs are unchanged. The candidate itself has no result, but its ancestor's
-# pass proves the exact app that nightly will build.
-git_q -C "$src" checkout -q --detach "$precheck_green"
-ancestor=$(empty_commit "precheck ancestor reuse")
-echo 404 > "$TMP/precheck/$ancestor"
-request --sha "$ancestor" --release-compile-green
-[[ "$status" == 0 ]] && dispatched "$ancestor" \
-  || fail "a same-app ancestor pass must allow promotion (exit $status):" "$out" "$(cat "$TMP/gh.log")"
-grep -q "nothing that reaches the app changed since" <<<"$out" \
-  || fail "ancestor reuse must be visible in the promotion report:" "$out"
+# A notes-only child with no own record can reuse the nearest passing ancestor
+# because the nightly app and bundled cmux-tui tree are unchanged. An app
+# change cannot reuse that verdict, even though it has the same cmux-tui key.
+cat > "$src/scripts/ci/nightly_build_inputs.py" <<'PY'
+import json
+import sys
 
-# A failed ancestor verdict remains red when the candidate has no own verdict.
-git_q -C "$src" checkout -q --detach "$precheck_green"
-ancestor_red_base=$(precheck_commit "ancestor red base" "precheck ancestor red")
-echo fail > "$TMP/precheck/$ancestor_red_base"
-ancestor_red=$(empty_commit "precheck ancestor red candidate")
-echo 404 > "$TMP/precheck/$ancestor_red"
-request --sha "$ancestor_red" --release-compile-green
-[[ "$status" == 0 ]] && ! dispatched "$ancestor_red" \
-  || fail "a same-app ancestor red must refuse promotion (exit $status):" "$out" "$(cat "$TMP/gh.log")"
-grep -q "precheck red" <<<"$out" || fail "ancestor red must be reported as a precheck refusal:" "$out"
+paths = [line.strip() for line in sys.stdin if line.strip()]
+hit = [path for path in paths if path == "App.swift"]
+print(json.dumps({"build_inputs_changed": bool(hit),
+                  "reason": f"{hit[0]} reaches the app" if hit else "no app input changed"}))
+PY
+echo notes > "$src/NOTES.md"
+git_q -C "$src" add -A
+git_q -C "$src" commit -m "notes-only precheck child"
+child=$(git -C "$src" rev-parse HEAD)
+publish "$child"
+echo 404 > "$TMP/precheck/$child"
+RUN_ID=5 request --sha "$child" --release-compile-green
+[[ "$status" == 0 ]] && dispatched "$child" || fail "a same-app ancestor pass must be reusable:" "$out" "$(cat "$TMP/gh.log")"
+grep -q "nothing that reaches the app changed since" <<<"$out" && grep -q "compiled .* in Release" <<<"$out" \
+  || fail "the reused ancestor must be named in the precheck reason:" "$out"
 
-# An unavailable result service is advisory. The existing promotion path stays
-# available, with a warning, when the cache cannot be read.
-git_q -C "$src" checkout -q --detach "$precheck_green"
-down=$(precheck_commit down "precheck service down")
-echo down > "$TMP/precheck/$down"
-request --sha "$down" --release-compile-green
-[[ "$status" == 0 ]] && dispatched "$down" \
-  || fail "a down result service must preserve promotion (exit $status):" "$out" "$(cat "$TMP/gh.log")"
-grep -q "results service did not answer" <<<"$out" \
-  || fail "a down result service must emit a warning:" "$out"
+echo app-change > "$src/App.swift"
+git_q -C "$src" add -A
+git_q -C "$src" commit -m "app change without own precheck"
+changed=$(git -C "$src" rev-parse HEAD)
+publish "$changed"
+echo 404 > "$TMP/precheck/$changed"
+RUN_ID=6 request --sha "$changed" --release-compile-green
+[[ "$status" == 0 ]] && ! dispatched "$changed" || fail "an app change must not reuse an ancestor verdict:" "$out" "$(cat "$TMP/gh.log")"
+grep -q "not prechecked yet" <<<"$out" || fail "the changed app must remain pending:" "$out"
 
-# Operators can turn this advisory precheck off without changing the rest of
-# the promotion contract. A red result is ignored only with the explicit opt-out.
-git_q -C "$src" checkout -q --detach "$precheck_green"
-off=$(precheck_commit off "precheck opt out")
-echo fail > "$TMP/precheck/$off"
-PRECHECK=0 request --sha "$off" --release-compile-green
-[[ "$status" == 0 ]] && dispatched "$off" \
-  || fail "the explicit precheck opt-out must preserve promotion (exit $status):" "$out" "$(cat "$TMP/gh.log")"
-grep -q "precheck is off" <<<"$out" || fail "the opt-out must be visible in the promotion report:" "$out"
+echo down > "$TMP/precheck/$changed"
+RUN_ID=7 NIGHTLY_NEXT_PRECHECK_DEPTH=0 request --sha "$changed" --release-compile-green
+[[ "$status" == 0 ]] && dispatched "$changed" || fail "a confirmed results outage must not block promotion:" "$out" "$(cat "$TMP/gh.log")"
+grep -q "results service did not answer" <<<"$out" || fail "the outage warning must be visible:" "$out"
+grep -q "answered HTTP 000 (curl exit 7)" <<<"$out" || fail "the outage warning must name the HTTP code and curl exit:" "$out"
+
+echo fail > "$TMP/precheck/$changed"
+RUN_ID=8 NIGHTLY_NEXT_PRECHECK=0 request --sha "$changed" --release-compile-green
+[[ "$status" == 0 ]] && dispatched "$changed" || fail "the explicit precheck opt-out must preserve promotion:" "$out" "$(cat "$TMP/gh.log")"
+grep -q "precheck is off" <<<"$out" || fail "the opt-out reason must be visible:" "$out"
+
+# A superseded record (the controller checked a newer push tip instead, and that check covers this
+# push's commits) is covered by the first checked tip after it on feat-cmux-next when that tip passed.
+# Most feat-cmux-next commits are superseded and the tree publisher keeps one push per window, so
+# requiring both on one commit left the dedicated Macs idle for hours (11-25). Here the covering tip's
+# own tree is not published, so only the superseded commit can be promoted.
+echo superseded-app > "$src/App.swift"
+git_q -C "$src" add -A
+git_q -C "$src" commit -m "app change superseded by a later push tip"
+covered=$(git -C "$src" rev-parse HEAD)
+publish "$covered"
+echo superseded > "$TMP/precheck/$covered"
+echo three > "$src/cmux-tui/a"
+git_q -C "$src" add -A
+git_q -C "$src" commit -m "the push tip the controller checked"
+checked=$(git -C "$src" rev-parse HEAD)
+git_q -C "$src" update-ref refs/heads/feat-cmux-next "$checked"
+git_q -C "$src" checkout -q --detach "$covered"
+RUN_ID=9 request --sha "$covered" --release-compile-green
+[[ "$status" == 0 ]] && dispatched "$covered" || fail "a superseded commit whose covering tip passed must be promoted:" "$out" "$(cat "$TMP/gh.log")"
+grep -q "superseded by ${checked:0:12}" <<<"$out" || fail "the covering tip must be named in the precheck reason:" "$out"
+run_id=10
+for word in fail running; do
+  echo "$word" > "$TMP/precheck/$checked"
+  RUN_ID=$run_id request --sha "$covered" --release-compile-green
+  [[ "$status" == 0 ]] && ! dispatched "$covered" || fail "a superseded commit whose covering tip is $word must wait:" "$out" "$(cat "$TMP/gh.log")"
+  grep -q "${covered:0:12}: not prechecked yet" <<<"$out" || fail "the $word covering tip must leave it pending:" "$out"
+  run_id=$((run_id + 1))
+done
+git_q -C "$src" update-ref -d refs/heads/feat-cmux-next
 git_q -C "$src" checkout -q --detach "$head"
 
 # A direct push red on feat-cmux-next's push runs quarantines its commit (the status cmuxterm-hq's base-red-watch
@@ -621,6 +631,17 @@ RUN_ID=11 request --sha "$other" --release-compile-green
 RUN_ID=11 request --sha "$other" --release-compile-green
 ! backfilled && grep -q "already dispatched in this job" <<<"$out" \
   || fail "the backfill must dispatch at most once per job:" "$out" "$(cat "$TMP/gh.log")"
+# At most one backfill per gap (25 min since #59970; an hour before): every tick and Release compile calls
+# it from its own job, so the per-job stamp alone let 51 dispatches through in 31 h (ci-min-per-pr-14).
+date -u -d '-10 minutes' +%Y-%m-%dT%H:%M:%SZ > "$TMP/gh-last-dispatch"
+RUN_ID=13 request --sha "$other" --release-compile-green
+[[ "$status" == 0 ]] && ! backfilled && grep -q "min ago (gap 25 min)" <<<"$out" \
+  || fail "no backfill within the gap of the last dispatch:" "$out" "$(cat "$TMP/gh.log")"
+date -u -d '-61 minutes' +%Y-%m-%dT%H:%M:%SZ > "$TMP/gh-last-dispatch"
+RUN_ID=14 request --sha "$other" --release-compile-green
+[[ "$status" == 0 ]] && backfilled \
+  || fail "a backfill an hour after the last dispatch must dispatch:" "$out" "$(cat "$TMP/gh.log")"
+rm -f "$TMP/gh-last-dispatch"
 echo 2 > "$TMP/gh-runs"
 RUN_ID=12 request --sha "$other" --release-compile-green
 ! backfilled && grep -q "queued or running" <<<"$out" \
@@ -956,6 +977,45 @@ git_q -C "$src" checkout -q --detach "$pending"
 request --tree-ready "$pending"
 ! dispatched "$pending" || fail "only the feat-cmux-next tip is requested before its tree:" "$out"
 rm -f "$TMP/gh-runs"
+
+# An older tree (Leo, 2026-11-26: "cant we just accept the nightly using an older tui version"): a commit whose
+# tree is a confirmed 404 and that no run builds is promoted when the newest published tree within 24 h has its
+# daemon-capabilities.json (scripts/cmux-next/older-tree-for-tip.sh, the nightly's resolver asks the same), and
+# its own nightly.yml has the line and the script. No backfill: the request is the answer.
+git_q -C "$src" checkout -q -b older-tree "$pending"
+cp "$ROOT/scripts/cmux-next/older-tree-for-tip.sh" "$src/scripts/cmux-next/"
+mkdir -p "$src/plans/cmux-next"; echo '{"capabilities": ["a"]}' > "$src/plans/cmux-next/daemon-capabilities.json"
+echo six > "$src/cmux-tui/a"; git_q -C "$src" add -A; git_q -C "$src" commit -m "tui six, published"
+olderbase=$(git -C "$src" rev-parse HEAD)
+publish "$olderbase"
+echo seven > "$src/cmux-tui/a"; git_q -C "$src" add -A; git_q -C "$src" commit -m "tui seven, never published"
+older=$(git -C "$src" rev-parse HEAD)
+branch "$older"
+olderkey=$(key "$olderbase")
+RUN_ID=140 request --tree-ready "$older"
+[[ "$status" == 0 ]] && dispatched "$older" && ! backfilled \
+  || fail "a commit with an older matching published tree must be promoted:" "$out" "$(cat "$TMP/gh.log")"
+grep -q "older published tree ${olderkey:0:12} of ${olderbase:0:12}, same daemon-capabilities.json" <<<"$out" \
+  || fail "the request must name the older tree and its commit:" "$out"
+# The helper answers the nightly's resolver the same way: the tip is the build commit, the tree is the older one.
+helper=$(cd "$src" && PATH="$TMP/bin:$PATH" bash scripts/cmux-next/older-tree-for-tip.sh 2>/dev/null)
+grep -qx "source_commit=$older" <<<"$helper" && grep -qx "key=$olderkey" <<<"$helper" && grep -qx "commit=$olderbase" <<<"$helper" \
+  && grep -qx "tree_from=$olderbase 1 0" <<<"$helper" || fail "older-tree-for-tip.sh must print the tip and the older tree:" "$helper"
+# The tip's own tree published: exit 3, the resolver takes it as before.
+git_q -C "$src" checkout -q --detach "$olderbase"
+rc=0; (cd "$src" && PATH="$TMP/bin:$PATH" bash scripts/cmux-next/older-tree-for-tip.sh >/dev/null 2>&1) || rc=$?
+[[ "$rc" == 3 ]] || fail "a published own tree must exit 3, got $rc"
+git_q -C "$src" checkout -q older-tree
+# Another daemon-capabilities.json: no older tree serves this app, so it waits as before.
+echo '{"capabilities": ["a", "b"]}' > "$src/plans/cmux-next/daemon-capabilities.json"
+echo eight > "$src/cmux-tui/a"; git_q -C "$src" add -A; git_q -C "$src" commit -m "tui eight, new capability"
+newcaps=$(git -C "$src" rev-parse HEAD)
+branch "$newcaps"
+RUN_ID=141 request --tree-ready "$newcaps"
+[[ "$status" == 0 ]] && ! dispatched "$newcaps" \
+  || fail "a commit whose capabilities no published tree matches must not be promoted:" "$out" "$(cat "$TMP/gh.log")"
+grep -q "not promoting ${newcaps:0:12}: the nightly cannot resolve" <<<"$out" || fail "the skip must say why:" "$out"
+git_q -C "$src" checkout -q --detach "$head"
 git_q -C "$src" checkout -q --detach "$head"
 
 # A commit whose app is the one the feed already publishes is not requested: nothing that
@@ -1036,5 +1096,109 @@ request --sha nothex --release-compile-green
 [[ "$status" == 2 ]] || fail "a malformed --sha must exit 2, got $status:" "$out"
 request --sha "$head"
 [[ "$status" == 2 ]] || fail "--sha without --release-compile-green must exit 2, got $status:" "$out"
+
+# The tick's walk over many commits whose trees are not published reads origin once, not once a commit.
+# Regression: tick 45696501186 (2026-11-25) refused 35 such commits in 29 minutes, each call
+# making three anonymous ls-remotes of github.com that GitHub held 50-107 s before answering.
+real_git="$(command -v git)"
+mkdir -p "$TMP/gitlog"
+# A wrapper that is itself named git (a lane VM's ~/.local/bin/git guard) takes the first other git
+# on PATH as the real one, which is this stub again: log a call once, on its first pass only.
+cat > "$TMP/gitlog/git" <<STUB
+#!/usr/bin/env bash
+if [[ -z "\${GITLOG_SEEN:-}" ]]; then
+  for a in "\$@"; do
+    case "\$a" in ls-remote|fetch) printf '%s\n' "\$a" >> "$TMP/git-network.log"; break ;; esac
+  done
+fi
+export GITLOG_SEEN=1
+exec "$real_git" "\$@"
+STUB
+chmod +x "$TMP/gitlog/git"
+git_q -C "$src" checkout -q --detach "$head"
+git_q -C "$src" update-ref refs/heads/nightly-next "$head"
+for i in $(seq 1 12); do
+  echo "unpublished $i" > "$src/cmux-tui/a"; git_q -C "$src" add -A; git_q -C "$src" commit -m "unpublished tree $i"
+done
+walk_tip=$(git -C "$src" rev-parse HEAD)
+branch "$walk_tip"
+rm -f "$TMP/gh-runs" "$TMP/gh-runs-json"
+walk() { # <tick cache>: the tick's loop, newest first; stops at a request
+  local c
+  : > "$TMP/git-network.log"; : > "$TMP/gh.log"; walked=0
+  for c in $(git -C "$src" rev-list --first-parent -n 12 "$walk_tip"); do
+    git_q -C "$src" checkout -q --detach "$c"
+    PATH="$TMP/gitlog:$PATH" GH_TICK_CACHE="$1" request --tree-ready "$c"
+    walked=$((walked + 1))
+    [[ "$status" == 0 ]] || fail "a walked commit must not fail (exit $status):" "$out"
+    ! grep -q '^requested nightly-next promotion' <<<"$out" || break
+  done
+}
+walk "$TMP/walk-tick-1"
+(( walked == 12 )) || fail "the walk must pass over every unpublished commit, walked $walked"
+grep -q "cannot resolve a published cmux-tui tree" <<<"$out" || fail "an unpublished commit must be refused:" "$out"
+! grep -q 'workflow run nightly.yml' "$TMP/gh.log" || fail "no unpublished commit may be promoted:" "$(cat "$TMP/gh.log")"
+[[ "$(grep -c . "$TMP/git-network.log")" == 1 ]] \
+  || fail "a walk over 12 unpublished commits must read origin once, got:" "$(cat "$TMP/git-network.log")"
+# Once an older commit's tree is published the walk requests it, still reading and fetching origin once each.
+publish "$(git -C "$src" rev-parse "$walk_tip~5")"
+walk "$TMP/walk-tick-2"
+dispatched "$(git -C "$src" rev-parse "$walk_tip~5")" || fail "the walk must request the published commit:" "$out" "$(cat "$TMP/gh.log")"
+(( $(grep -c '^ls-remote$' "$TMP/git-network.log") == 1 && $(grep -c '^fetch$' "$TMP/git-network.log") <= 1 )) \
+  || fail "the walk must read origin once and fetch at most once, got:" "$(cat "$TMP/git-network.log")"
+# Without GH_TICK_CACHE (a landing's single call) every call reads origin for itself.
+: > "$TMP/git-network.log"
+git_q -C "$src" checkout -q --detach "$walk_tip"
+PATH="$TMP/gitlog:$PATH" request --tree-ready "$walk_tip"
+PATH="$TMP/gitlog:$PATH" request --tree-ready "$walk_tip"
+(( $(grep -c '^ls-remote$' "$TMP/git-network.log") == 2 )) || fail "without a tick cache each call reads origin:" "$(cat "$TMP/git-network.log")"
+git_q -C "$src" update-ref -d refs/heads/nightly-next
+
+# The tick's precheck reads do not grow with the commits it walks. Regression: tick 45858069814
+# (2026-11-26) took 14 minutes over 39 commits, each call reading the compile results service for
+# its candidates and the same ancestors again, or waiting out its own 20 s timeout while it was down.
+git_q -C "$src" checkout -q --detach "$walk_tip~5"
+for i in $(seq 1 12); do
+  echo "batch $i" > "$src/NOTES.md"; git_q -C "$src" add -A; git_q -C "$src" commit -m "same tree $i"
+done
+batch_tip=$(git -C "$src" rev-parse HEAD)
+branch "$batch_tip"
+[[ "$(key "$batch_tip")" == "$(key "$walk_tip~5")" ]] || fail "fixture: the batch commits must share the published tree"
+batch_walk() { # <commits> <tick cache> <run id>: the tick's loop over the newest <commits>; prints the precheck reads
+  local c
+  : > "$TMP/precheck.log"
+  for c in $(git -C "$src" rev-list --first-parent -n "$1" "$batch_tip"); do
+    git_q -C "$src" checkout -q --detach "$c"
+    PROMOTE="" RUN_ID="$3" GH_TICK_CACHE="$2" request --tree-ready "$c"
+    [[ "$status" == 0 ]] || fail "a walked commit must not fail (exit $status):" "$out"
+    printf '%s\n' "$out" > "$TMP/batch-out"
+  done
+  grep -c . "$TMP/precheck.log" || true
+}
+# No verdict anywhere: every candidate searches its ancestors and finds none.
+for c in $(git -C "$src" rev-list "$batch_tip"); do echo 404 > "$TMP/precheck/$c"; done
+reads4=$(batch_walk 4 "$TMP/batch-tick-4" 41)
+reads12=$(batch_walk 12 "$TMP/batch-tick-12" 42)
+grep -q "not prechecked yet" "$TMP/batch-out" || fail "a commit with no verdict must be refused as not prechecked:" "$(cat "$TMP/batch-out")"
+distinct=$(sort -u "$TMP/precheck.log" | grep -c .)
+(( reads12 == distinct )) || fail "a walk must read each commit's verdict once, read $reads12 for $distinct commits:" "$(sort "$TMP/precheck.log" | uniq -c | sort -rn | head)"
+(( reads12 - reads4 <= 8 )) || fail "8 more commits walked may cost at most 8 more reads, got $reads4 then $reads12"
+# A long walk does not re-read: by default an answer holds for the whole tick, an hour old or not.
+for f in "$TMP/batch-tick-12/precheck/"*; do read -r _ w < "$f"; echo "$(( $(date +%s) - 3600 )) $w" > "$f"; done
+reads_again=$(batch_walk 12 "$TMP/batch-tick-12" 42)
+(( reads_again == 0 )) || fail "within one tick a commit's answer must not be read again, got $reads_again"
+# Without the tick cache the same walk reads the same ancestors again (what the cache saves).
+reads_uncached=$(batch_walk 12 "" 43)
+(( reads_uncached > 3 * reads12 )) || fail "fixture: without the tick cache the walk must read far more, got $reads_uncached vs $reads12"
+# The service down: one read for the whole walk, every commit still promotable unprechecked.
+for c in $(git -C "$src" rev-list "$batch_tip"); do echo down > "$TMP/precheck/$c"; done
+reads_down=$(batch_walk 12 "$TMP/batch-tick-down" 44)
+(( reads_down == 1 )) || fail "a walk while the results service is down must read it once, got $reads_down"
+grep -q "^promotable " "$TMP/batch-out" || fail "an outage must not block a commit:" "$(cat "$TMP/batch-out")"
+# A window later the service is read again.
+reads_down0=$(CMUX_NIGHTLY_NEXT_PRECHECK_TICK_TTL=0 batch_walk 3 "$TMP/batch-tick-down" 45)
+(( reads_down0 == 3 )) || fail "past its window an outage must be read again, got $reads_down0"
+for c in $(git -C "$src" rev-list "$batch_tip"); do rm -f "$TMP/precheck/$c"; done
+git_q -C "$src" checkout -q --detach "$head"
 : "$other"
-echo "PASS: nightly-next promotion waits for the published tree, not its daemon tests or the Release compile"
+echo "PASS: nightly-next promotion waits for a published tree and a usable fleet Release precheck, not daemon tests"

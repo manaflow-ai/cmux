@@ -215,6 +215,7 @@ fn work(
         .filter(|s| s.get_nonempty_str("sessionId").is_some_and(|id| children.contains(id)))
         .map(|s| agent(s))
         .collect();
+    let plans = chief_plans(&sessions, children);
     let mut tasks = Vec::new();
     let mut sessions = sessions.into_iter().peekable();
     while let Some(session) = sessions.next() {
@@ -253,7 +254,7 @@ fn work(
         }
     }
     Ok(
-        json!({"agents": agents, "tasks": tasks, "truncated": truncated, "taskSources": ["harness"]}),
+        json!({"agents": agents, "plans": plans, "tasks": tasks, "truncated": truncated, "taskSources": ["harness"]}),
     )
 }
 
@@ -466,7 +467,45 @@ fn agent(raw: &Value) -> Value {
     };
     json!({"id": raw.get("sessionId"), "name": raw.get_nonempty_str("name").or_else(|| raw.get_nonempty_str("title")).unwrap_or("Agent"),
         "state": state, "task": raw.get_nonempty_str("title").or_else(|| raw.get_nonempty_str("lastPrompt")),
-        "startedAt": raw.get("createdAt"), "updatedAt": raw.get("updatedAt")})
+        "startedAt": raw.get("createdAt"), "updatedAt": raw.get("updatedAt"), "plan": plan(raw)})
+}
+
+/// The chat's kept task list (acpmux `taskList`, task_list.rs) as its list row carries it: the
+/// counts, the step in progress and the next one. Null when the chat keeps none, or an empty one.
+/// The rows already hold it, so the plans cost no read of their own.
+fn plan(raw: &Value) -> Value {
+    let Some(list) = raw.get("taskList").filter(|list| list.is_object()) else {
+        return Value::Null;
+    };
+    let count = |key: &str| list.get(key).and_then(Value::as_u64).unwrap_or(0);
+    let (done, total) = (count("done"), count("total"));
+    if total == 0 {
+        return Value::Null;
+    }
+    let source = match list.get_nonempty_str("source") {
+        Some(source @ ("agent" | "chief")) => source,
+        _ => "harness",
+    };
+    json!({"source": source, "done": done.min(total), "total": total,
+        "current": list.get_nonempty_str("current"), "next": list.get_nonempty_str("next"),
+        "updatedAt": list.get("updatedAt")})
+}
+
+/// The Chief's own chats (owned, not subagents) that keep a plan: what the person asked the Chief
+/// to do, as the Chief planned it.
+fn chief_plans(sessions: &[&Value], children: &HashSet<String>) -> Vec<Value> {
+    sessions
+        .iter()
+        .filter(|s| s.get_nonempty_str("sessionId").is_some_and(|id| !children.contains(id)))
+        .filter_map(|s| {
+            let plan = plan(s);
+            (!plan.is_null()).then(|| {
+                let mut row = agent(s);
+                row["plan"] = plan;
+                row
+            })
+        })
+        .collect()
 }
 
 fn task(raw: &Value) -> Value {

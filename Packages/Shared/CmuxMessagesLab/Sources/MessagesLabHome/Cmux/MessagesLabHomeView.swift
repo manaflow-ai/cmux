@@ -889,7 +889,8 @@ public final class MessagesLabHomeView: NSView {
                 guard case let .custom(custom) = part, custom.kind == HomeTableRowProvider.kind,
                       let payload = HomeTableRowProvider.payload(custom) else { continue }
                 let width: CGFloat = 700
-                let loaded = HomeTableGrid(payload.table, available: width).pictureRects(at: .zero).filter { !$0.loading }
+                let grid = HomeTableGrid(payload.table, available: width)
+                let loaded = grid.pictureRects(at: grid.cardOrigin(.zero)).filter { !$0.loading }
                 guard let target = loaded[checked: min(max(0, index), loaded.count - 1)],
                       controller.openTablePicture(custom, at: CGPoint(x: target.rect.midX, y: target.rect.midY), width: width),
                       let viewer = controller.pictureViewer else { continue }

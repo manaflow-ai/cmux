@@ -1,5 +1,5 @@
 /* This file is generated. Do not edit by hand. */
-/* cmux-tui mux protocol 12, IR fc2a45ab451fc169d7c13d56a214bf35f62c0427554c79c4d46b75a6891ddef1. */
+/* cmux-tui mux protocol 12; the IR SHA-256 is SDK_IR_SHA256 in metadata.ts. */
 
 
 /** JSON accepted by the wire codec. bigint is serialized as an exact JSON integer. */
@@ -622,6 +622,14 @@ export type IdMapping = {
   "short_id": string;
 };
 
+export type IdentifyRestore = {
+  "done": (bigint) | null;
+  "elapsed_ms": bigint;
+  "last_advance_ms": bigint;
+  "phase": string;
+  "total": (bigint) | null;
+};
+
 export type IdentifyResult = {
   "api_revision"?: (number) | null;
   "api_version"?: (string) | null;
@@ -649,6 +657,7 @@ export type IdentifyResult = {
   "pid": number;
   "protocol": number;
   "registry_id": string;
+  "restore"?: IdentifyRestore;
   "screen_device_id"?: (string) | null;
   "session": string;
   "session_id"?: string;
@@ -697,6 +706,22 @@ export type Layout = ({ "type": "leaf" } & {
   "panes": Array<Id>;
   "type": "stack";
 });
+
+export type LayoutColumnNode = {
+  /** dock-columns-v1: the viewport edge the column is pinned to. */
+  "dock"?: JsonValue;
+  "id": Id;
+  "layout": Layout;
+  /** rows-v1: only for a column with two or more rows. */
+  "rows"?: Array<LayoutRowNode>;
+  "width": number;
+};
+
+export type LayoutRowNode = {
+  "height": bigint;
+  "id": Id;
+  "layout": Layout;
+};
 
 export type LayoutSizePaneWidth = {
   "pane": Id;
@@ -757,7 +782,11 @@ export type LivePane = {
   "focused_at"?: bigint;
   "id": Id;
   "name": (string) | null;
+  /** The pane's public id. */
+  "resource_id"?: (string) | null;
   "short_id"?: string;
+  /** The pane's tab group runs. */
+  "tab_groups"?: Array<TabGroupRun>;
   "tabs": Array<Tab>;
 };
 
@@ -872,6 +901,10 @@ export type PaneSurfaceResult = {
   "terminal_incarnation"?: (string) | null;
   "terminal_resource_id"?: string;
   "workspace_id"?: string;
+};
+
+export type PhoneLinkOfferResult = {
+  "offered": boolean;
 };
 
 export type PingResult = {
@@ -1117,12 +1150,47 @@ export type SavedTabGroupRecord = {
 export type Screen = {
   "active": boolean;
   "active_pane": Id;
+  /** The screen color. */
+  "color"?: (string) | null;
+  /** The screen's layout columns. */
+  "columns"?: Array<LayoutColumnNode>;
+  /** floating-panes-v1: panes above the tiled layout, back to front. */
+  "floating"?: JsonValue;
+  /** The screen group the screen is in. */
+  "group"?: (string) | null;
+  /** split-divider-visibility-v1: splits whose divider is hidden. */
+  "hidden_dividers"?: Array<Id>;
+  /** The screen icon. */
+  "icon"?: (string) | null;
   "id": Id;
   "layout": Layout;
   "name": (string) | null;
   "panes": Array<Pane>;
+  /** The screen is pinned. */
+  "pinned"?: boolean;
+  /** quick-terminal-v1: the screen's quick terminal. */
+  "quick_terminal"?: JsonValue;
+  /** The screen's public id. */
+  "resource_id"?: (string) | null;
   "short_id"?: string;
+  /** The viewport width the split widths are relative to. */
+  "viewport_base_width"?: number;
+  /** Viewport widths of splits. */
+  "viewport_splits"?: Array<ViewportSplitWidth>;
   "zoomed_pane": (Id) | null;
+};
+
+export type ScreenGroupRun = {
+  "collapsed": boolean;
+  "color": string;
+  "count": bigint;
+  "icon"?: (string) | null;
+  "id": string;
+  "name": string;
+  "saved_id": (string) | null;
+  "screens": Array<Id>;
+  /** The index of the run's first screen. */
+  "start": bigint;
 };
 
 export type SelectionPane = {
@@ -1174,6 +1242,7 @@ export type ServerStatsConnections = {
 };
 
 export type ServerStatsDisk = {
+  "checkpoints"?: (ServerStatsDiskCheckpoints) | null;
   "error": (string) | null;
   "files": Array<ServerStatsDiskFile>;
   "files_truncated": boolean;
@@ -1186,6 +1255,14 @@ export type ServerStatsDisk = {
   "segments": (ServerStatsDiskSegments) | null;
   "shm_bytes": bigint;
   "wal_bytes": bigint;
+};
+
+export type ServerStatsDiskCheckpoints = {
+  "budget_bytes": bigint;
+  "bytes": bigint;
+  "checkpoints": bigint;
+  "largest_bytes": bigint;
+  "over_budget": boolean;
 };
 
 export type ServerStatsDiskFile = {
@@ -1548,27 +1625,78 @@ export type SurfaceResult = {
 };
 
 export type Tab = {
+  /** app-screens-v1: the app (and route) an app tab shows. */
+  "app"?: JsonValue;
+  /** tab-attention-v1: an agent needs the person in this tab. */
+  "attention"?: (TabAttention) | null;
+  /** A frontend browser's engine. */
+  "browser_engine"?: (string) | null;
   "browser_error"?: (string) | null;
   "browser_frames_stalled"?: (boolean) | null;
+  /** The frontend that owns the browser. */
+  "browser_owner"?: (string) | null;
+  /** A frontend browser's profile. */
+  "browser_profile_id"?: (string) | null;
+  /** Who renders a browser tab. */
+  "browser_renderer"?: ("daemon" | "frontend") | null;
   "browser_source": ("external" | "launched") | null;
   "browser_status"?: ("starting" | "live" | "failed") | null;
+  /** The public id of what the tab shows. */
+  "content_resource_id"?: (string) | null;
+  /** What a conversation tab shows. */
+  "conversation"?: (ConversationTabRecord) | null;
+  /** The terminal's working directory. */
+  "cwd"?: (string) | null;
   "dead": boolean;
-  "kind": "pty" | "browser" | "conversation";
+  /** terminal-state-v1: why a dead terminal ended. */
+  "end"?: (JsonValue) | null;
+  /** A frontend browser's favicon. */
+  "favicon_url"?: (string) | null;
+  /** The git branch of cwd. */
+  "git_branch"?: (string) | null;
+  /** cwd's checkout has a detached HEAD. */
+  "git_detached"?: boolean;
+  /** The tab group the tab is in. */
+  "group"?: (string) | null;
+  /** The record version of a terminal its host has but cannot adopt. */
+  "host_record_version"?: (bigint) | null;
+  "kind": "pty" | "browser" | "conversation" | "remote-terminal";
   "name": (string) | null;
   "notification"?: (NotificationMarker) | null;
+  /** The tab is pinned. */
+  "pinned"?: boolean;
+  /** A pinned browser tab's home URL. */
+  "pinned_url"?: (string) | null;
   "program_status"?: (ShownProgramStatus) | null;
+  /** How the tab relaunches after a restart. */
+  "relaunch"?: (JsonValue) | null;
+  /** A remote terminal tab's record. */
+  "remote"?: JsonValue;
   "short_id"?: string;
   "size": (Size) | null;
   "supports_clear_history_key_fallback"?: boolean;
   "surface": Id;
+  /** The tab's public id. */
+  "tab_resource_id"?: (string) | null;
   /** Why a terminal will end with something other than its shell although terminal hosts are on: `breakaway_denied` (Windows: the host runs inside the daemon's kill-on-close Job Object and ends when that job closes) or `host_start_failed` (no host; the daemon runs the terminal and it ends with the daemon). Null otherwise and for browser tabs. A string, not an enum: clients read an unknown value as a notice for another reason. */
   "terminal_host_fallback"?: (string) | null;
   "terminal_id"?: (string) | null;
   "terminal_incarnation"?: (string) | null;
   "terminal_resource_id"?: (string) | null;
+  /** running, reconnecting, failed or exited, for a terminal tab. */
+  "terminal_state"?: (string) | null;
   "title": string;
   "title_activity"?: (string) | null;
   "title_text"?: string;
+  /** A browser tab's URL. */
+  "url"?: (string) | null;
+};
+
+export type TabAttention = {
+  /** When it was marked, in Unix milliseconds. */
+  "at_ms": bigint;
+  /** Why the tab needs the person. */
+  "reason": string;
 };
 
 export type TabGroupEndedTerminal = {
@@ -1605,6 +1733,8 @@ export type TabGroupRun = {
   /** Known values: grey, blue, red, yellow, green, pink, purple, cyan, orange, or a custom #RRGGBB. Other values are future colors. */
   "color": string;
   "count": bigint;
+  /** tab-group-icon-v1: the group's icon string. */
+  "icon"?: (string) | null;
   "id": string;
   "name": string;
   "pane"?: Id;
@@ -1891,6 +2021,10 @@ export type Tree = {
   "delta"?: boolean;
   "epoch"?: string;
   "generation"?: string;
+  /** The sidebar workspace groups. */
+  "groups"?: Array<WorkspaceGroup>;
+  /** How many lines the connection had written when the tree was read: a later line may carry a change the tree lacks. */
+  "lines_written_before_read"?: bigint;
   "next"?: bigint;
   "order"?: Array<Id>;
   "pane_revision"?: bigint;
@@ -1911,6 +2045,11 @@ export type ViewportPaneWidthResult = {
   "width": number;
 };
 
+export type ViewportSplitWidth = {
+  "split": Id;
+  "width": number;
+};
+
 export type VtStateResult = {
   "cols": number;
   "data": Base64;
@@ -1927,13 +2066,39 @@ export type WaitForResult = {
 
 export type Workspace = {
   "active": boolean;
+  /** The app an app workspace shows. */
+  "app"?: (string) | null;
+  /** The workspace color. */
+  "color"?: (string) | null;
+  /** The sidebar group the workspace is in. */
+  "group"?: (string) | null;
+  /** The workspace icon. */
+  "icon"?: (string) | null;
   "id": Id;
+  /** workspace-keep-awake-v1: the freeing timer never ends this workspace's shells. */
+  "keep_awake"?: boolean;
   "key"?: string;
+  /** What the workspace is. */
+  "kind"?: "normal" | "home" | "app";
+  /** The person marked the workspace unread. */
+  "marked_unread"?: boolean;
   "name": string;
   "name_revision"?: string;
   "name_source"?: NameSource;
+  /** The workspace is pinned. */
+  "pinned"?: boolean;
+  /** workspace-recovered-v1: every tab is a recovered terminal. */
+  "recovered"?: boolean;
+  /** The workspace's public id. */
+  "resource_id"?: (string) | null;
+  /** The workspace's screen group runs. */
+  "screen_groups"?: Array<ScreenGroupRun>;
   "screens": Array<Screen>;
   "short_id"?: string;
+  /** The workspace title. */
+  "title"?: (string) | null;
+  /** Tabs with an unread notification. */
+  "unread_count"?: bigint;
 };
 
 export type WorkspaceFirstTab = ({ "kind": "browser" } & {
@@ -1949,6 +2114,14 @@ export type WorkspaceFirstTab = ({ "kind": "browser" } & {
   "title"?: (string) | null;
   "url": string;
 });
+
+export type WorkspaceGroup = {
+  "collapsed": boolean;
+  "color": (string) | null;
+  "id": string;
+  "index": bigint;
+  "name": string;
+};
 
 export type WorkspaceMutationResult = {
   "changed"?: boolean;

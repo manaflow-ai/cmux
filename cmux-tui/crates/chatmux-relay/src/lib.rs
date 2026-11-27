@@ -28,3 +28,6 @@ pub mod tunnel_terminal;
 pub mod watch;
 pub mod wire;
 pub mod workspace;
+
+#[cfg(test)]
+mod seeded_tests;
