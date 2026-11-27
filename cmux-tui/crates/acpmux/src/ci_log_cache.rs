@@ -103,9 +103,10 @@ pub(crate) fn rewrite(command: &str, prefix: &str) -> Option<String> {
             }
             b';' | b'&' | b'|' | b'(' | b'{' | b'\n' => at_start = true,
             b' ' | b'\t' => {}
-            _ if at_start && command[i..].starts_with("gh run view ") => {
-                if asks_for_log(&command[i..]) {
-                    out.push_str(&command[last..i]);
+            _ if at_start && command.get(i..).is_some_and(|r| r.starts_with("gh run view ")) => {
+                if asks_for_log(command.get(i..).unwrap_or("")) {
+                    // `i` starts a match, so it and `last` (an earlier match, or 0) are char boundaries.
+                    out.push_str(command.get(last..i).unwrap_or(""));
                     out.push_str(prefix);
                     out.push(' ');
                     last = i;
@@ -113,13 +114,19 @@ pub(crate) fn rewrite(command: &str, prefix: &str) -> Option<String> {
                 }
                 at_start = false;
             }
-            _ if at_start && command[i..].starts_with("timeout ") => {
+            _ if at_start && command.get(i..).is_some_and(|r| r.starts_with("timeout ")) => {
                 // `timeout DURATION gh run view ...`: the command starts after the duration.
-                let rest = &command[i + "timeout ".len()..];
+                let rest = command.get(i + "timeout ".len()..).unwrap_or("");
                 let dur = rest.trim_start();
                 let skip = rest.len() - dur.len();
                 let word = dur.find([' ', '\t']).unwrap_or(dur.len());
-                if dur[..word].bytes().all(|b| b.is_ascii_alphanumeric() || b == b'.') && word > 0 {
+                if dur
+                    .get(..word)
+                    .unwrap_or("")
+                    .bytes()
+                    .all(|b| b.is_ascii_alphanumeric() || b == b'.')
+                    && word > 0
+                {
                     i += "timeout ".len() + skip + word;
                     continue;
                 }
@@ -132,14 +139,14 @@ pub(crate) fn rewrite(command: &str, prefix: &str) -> Option<String> {
     if !changed {
         return None;
     }
-    out.push_str(&command[last..]);
+    out.push_str(command.get(last..).unwrap_or(""));
     Some(out)
 }
 
 /// Whether the simple command at the start of `rest` has a `--log` or `--log-failed` word.
 fn asks_for_log(rest: &str) -> bool {
     let end = rest.find([';', '&', '|', '\n', ')', '>', '<']).unwrap_or(rest.len());
-    rest[..end].split_whitespace().any(|w| w == "--log" || w == "--log-failed")
+    rest.get(..end).unwrap_or(rest).split_whitespace().any(|w| w == "--log" || w == "--log-failed")
 }
 
 /// Whose log an [`Ask`] reads: a job (one attempt's already) wins over its run.
