@@ -1139,13 +1139,20 @@ async function runAxis(axis: "chats" | "tabs", mix?: Mix): Promise<Scene | undef
 async function runProfile() {
   const chats = Math.max(1, fromProfile("agent_total", "agent_pages") ?? 1);
   const visible = Math.min(chats, Math.max(1, fromProfile("agent_visible") ?? 1));
-  // The app's events spread over its running chats; a shown chat streams its share: a delta every running/events s.
+  // A shown chat streams at the rate the app's measured chat took records in over its capture (perf_sensor.py
+  // `shown_chat_events_per_s`, records.all.count over the window): a delta every 1/rate s, none when it was idle.
+  // Without that read, the app's events spread over its running chats: a delta every running/events s.
+  const shownRate = fromProfile("shown_chat_events_per_s");
   const events = fromProfile("events_per_s");
   const running = fromProfile("running_sessions", "running");
   const streamMs =
-    events !== null && events > 0
-      ? Math.min(1000, Math.max(4, Math.round((1000 * Math.max(1, running ?? 1)) / events)))
-      : null;
+    shownRate !== null
+      ? shownRate > 0
+        ? Math.min(1000, Math.max(4, Math.round(1000 / shownRate)))
+        : null
+      : events !== null && events > 0
+        ? Math.min(1000, Math.max(4, Math.round((1000 * Math.max(1, running ?? 1)) / events)))
+        : null;
   const tabs = fromProfile("browser_tabs") ?? 0;
   const load = fromProfile("load_1m", "load1");
   const appCores = fromProfile("cores", "ncpu");
