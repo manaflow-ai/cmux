@@ -334,8 +334,8 @@ python3 tests/test_ci_cdn_user_agent.py
 [step.ci-group-guards]
 job = "linux"
 timeout = 300
-title = "CI tooling guards (timing readout, repo variables, iOS fast verdict, routed jobs)"
-about = "the ci guard group's quick unit tests: the CI timing readout, the repository variable check, the iOS fast verdict and that routed jobs check the results of what they need"
+title = "CI tooling guards (timing readout, repo variables, iOS fast verdict, routed jobs, pair scope)"
+about = "the ci guard group's quick unit tests: the CI timing readout, the repository variable check, the iOS fast verdict, routed job dependencies and pair-run attachment selection"
 inputs = [
   ".github/workflows/**",
   "scripts/ci/ci_timing_readout.py",
@@ -345,6 +345,8 @@ inputs = [
   "tests/test_ci_check_repo_variables.py",
   "tests/test_ci_ios_fast_verdict.py",
   "tests/test_ci_routed_jobs_check_needs.py",
+  "scripts/ci/cmux_next_pair_e2e.py",
+  "tests/test_cmux_next_pair_e2e_guards.py",
 ]
 run = '''
 status=0
@@ -352,6 +354,7 @@ python3 tests/test_ci_timing_readout.py || status=1
 python3 tests/test_ci_check_repo_variables.py || status=1
 python3 tests/test_ci_ios_fast_verdict.py || status=1
 python3 tests/test_ci_routed_jobs_check_needs.py || status=1
+python3 tests/test_cmux_next_pair_e2e_guards.py || status=1
 exit "$status"
 '''
 

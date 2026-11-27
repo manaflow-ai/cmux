@@ -246,8 +246,7 @@ reason = "No workflow step runs it (lane derived by --write). Run it yourself: p
 
 [[test]]
 path = "tests/test_cmux_next_pair_e2e_guards.py"
-lane = "manual"
-reason = "No workflow step runs it (lane derived by --write). Run it yourself: python3 tests/test_cmux_next_pair_e2e_guards.py"
+lane = "linux-guard"
 
 [[test]]
 path = "tests/test_cmux_next_perf_budgets.py"
