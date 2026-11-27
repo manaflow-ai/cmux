@@ -3916,6 +3916,18 @@ class PipelineLinuxBaseVerdict(unittest.TestCase):
         self.assertIn(f"excused '{PIPELINE_WEB_BROWSER}'", text)
         self.assertIn("run 40", text)
 
+    def test_split_web_caller_preserves_base_red_comparison(self):
+        name = "pr web pipeline / web-browser"
+        gh = PipelineLinuxBaseGitHub(head=(COMPACTION_STEER,), base=(COMPACTION_STEER,),
+                                     names=(name, BASE_WEB_BROWSER), step=WEB_BROWSER_STEP,
+                                     make_log=web_browser_log)
+        self.assertIn(f"excused '{name}'", self.judge(gh))
+        gh = PipelineLinuxBaseGitHub(head=(COMPACTION_STEER, WEBKIT_SEND), base=(COMPACTION_STEER,),
+                                     names=(name, BASE_WEB_BROWSER), step=WEB_BROWSER_STEP,
+                                     make_log=web_browser_log)
+        with self.assertRaisesRegex(excuse.Refused, "pass or do not run on feat-cmux-next run 40: .*webkit > send"):
+            self.judge(gh)
+
     def test_a_web_browser_test_the_base_leg_passes_blocks(self):
         gh = PipelineLinuxBaseGitHub(head=(COMPACTION_STEER, WEBKIT_SEND), base=(COMPACTION_STEER,),
                                      names=(PIPELINE_WEB_BROWSER, BASE_WEB_BROWSER), step=WEB_BROWSER_STEP,
@@ -18667,7 +18679,7 @@ class GuardJobsFollowTheWorkflows(unittest.TestCase):
         "bots, labels, receipts, comments and policy reads of the pull request or GitHub, not of the tree": (
             "classic-frozen-guard.yml", "labels-sync.yml",
             "merge-freeze.yml", "pr-body-checks.yml", "cmux-next-pr-autofix-closed-cancel.yml", "cmux-next-pr-autofix.yml",
-            "cmux-next-pr-closed-cancel.yml", "ci-pr-closed-cancel.yml", "language-boundaries.yml",
+            "cmux-next-pr-closed-cancel.yml", "language-boundaries.yml",
             "required-checks-drift.yml",
             "cmux-next-chromium-currency.yml",
             # Private names (#57782): the ops repo's checker reads the pull request's title, body and diff via the
