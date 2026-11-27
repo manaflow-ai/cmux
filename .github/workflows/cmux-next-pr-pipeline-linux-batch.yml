@@ -37,6 +37,9 @@ concurrency:
 jobs:
   linux:
     name: linux
+    # The batch is this commit's only run of the `alone` steps (nothing re-runs it): they run on a red job too.
+    env:
+      CI_RUN_ALONE_ON_RED: "1"
     if: ${{ (inputs.only == '' || inputs.only == 'linux') && github.repository == 'manaflow-ai/cmux' }}
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.CI_OVERFLOW_LINUX || 'cmux-linux' }}
     # pr-pipeline.yml's bound for the same job: every linux step runs here.

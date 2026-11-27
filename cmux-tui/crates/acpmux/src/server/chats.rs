@@ -111,14 +111,6 @@ use crate::rpc::{Message, RpcError};
 
 const PREFIX: &str = "_acpmux/chat";
 
-/// `_acpmux/chat*` methods `requests.rs` answers; any other name under [`PREFIX`] is the index's.
-const NOT_THE_INDEX: &[&str] = &[
-    crate::rpc::method::MUX_CHAT_ROUTE_SET,
-    crate::rpc::method::MUX_CHAT_MOVE,
-    "_acpmux/chat_place",
-    "_acpmux/chat_place_set",
-];
-
 /// Answers the chat methods; every other method goes to `requests.rs`.
 pub(super) async fn route(
     hub: &Arc<Hub>,
@@ -302,9 +294,16 @@ pub(super) async fn route(
     if m == crate::rpc::method::MUX_TEAM_AUDIT {
         return team_audit::handle(conn.origin, &params).await;
     }
-    // Methods under the chat prefix that are not the chat index: a chat's route (`routes.rs`) and a
-    // new chat's place mode (`chat_place.rs`) answer in `requests.rs`.
-    if !m.starts_with(PREFIX) || NOT_THE_INDEX.contains(&m) {
+    // Routing, moving and placing a chat belong to the request dispatcher, which checks the
+    // caller's origin for each operation before running its handler.
+    let of_a_session = matches!(
+        m,
+        crate::rpc::method::MUX_CHAT_ROUTE_SET
+            | crate::rpc::method::MUX_CHAT_MOVE
+            | "_acpmux/chat_place"
+            | "_acpmux/chat_place_set"
+    );
+    if !m.starts_with(PREFIX) || of_a_session {
         return heap(|| super::requests::handle_request(hub, conn, m, params, sender_token)).await;
     }
     if conn.origin != Origin::Local {

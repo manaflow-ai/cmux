@@ -233,8 +233,8 @@ KERNEL_MAPPINGS = {"[vdso]", "[vvar]", "[vsyscall]", "[uprobes]"}
 
 def smaps_kinds(pid):
     """One process's PSS in kB by mapping kind (its binary, heap, stacks, other files, anonymous), Linux only:
-    where a role's per-process memory sits. Anonymous memory is split three ways: a thread's stack (the mapping
-    above a guard page), a malloc arena (glibc maps each at a 64 MB boundary) and the rest."""
+    where a role's per-process memory sits. Anonymous memory is split three ways: a malloc arena (glibc maps each at a 64 MB boundary), a
+    thread's stack (another mapping above a guard page) and the rest."""
     kinds, name = {}, None
     prev_end, prev_guard = None, False
     try:
@@ -245,8 +245,10 @@ def smaps_kinds(pid):
                 if head and "-" in head[0] and not head[0].endswith(":"):
                     path = head[5] if len(head) > 5 else ""
                     start, end = (int(x, 16) for x in head[0].split("-"))
-                    anon = ("thread-stack" if prev_guard and prev_end == start else
-                            "arena" if start % (64 << 20) == 0 else "anon")
+                    # The arena test first: glibc maps arenas side by side, each one's writable start on a 64 MB
+                    # boundary right after the previous arena's PROT_NONE tail, which reads as a guard page too.
+                    anon = ("arena" if start % (64 << 20) == 0 else
+                            "thread-stack" if prev_guard and prev_end == start else "anon")
                     name = ("binary" if path == exe else "heap" if path == "[heap]" else
                             "stack" if path.startswith("[stack") else anon if not path else
                             "vdso" if path in KERNEL_MAPPINGS or path.startswith("[vvar") else

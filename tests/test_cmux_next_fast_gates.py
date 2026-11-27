@@ -2406,6 +2406,17 @@ class WebviewsChecksGate(unittest.TestCase):
         self.assertEqual(self.module.added(dump(1276995), dump(1180412)), [])
         self.assertEqual(self.module.added(dump(1276995) + "Error: new crash\n", dump(1180412)), ["Error: new crash"])
 
+    def test_a_mktemp_log_dir_keys_without_its_random_suffix(self):
+        # cmux#54186's fast gates (run 46043766720): the base's bundle red, charged as one new `log:` line.
+        def red(suffix: str, tmp: str = "/tmp") -> str:
+            return ("web bundle matrix: RED in 47s: bundle:pages\n"
+                    f"  log: {tmp}/web-bundle-matrix.{suffix}/logs/bundle-pages.log\n")
+        self.assertEqual(self.module.added(red("QNX9SC"), red("a1B2c3")), [])
+        mac = "/var/folders/xy/abc123/T"
+        self.assertEqual(self.module.added(red("QNX9SC", mac), red("Zz9Yy8", mac)), [])
+        self.assertEqual(self.module.added(red("QNX9SC") + "  log: /tmp/other.QNX9SC/x.log\n", red("a1B2c3")),
+                         ["  log: /tmp/other.QNX9SC/x.log"])
+
     def test_a_wrapped_message_compares_whole(self):
         def wrapped(detail: str) -> str:
             return (f"  x typescript(TS2322): Type '{{ a: number; }}' is not assignable to type 'Props'.\n"
@@ -2530,6 +2541,39 @@ class FetchesSkipSubmodules(unittest.TestCase):
         self.assertTrue(calls)
         for call in calls:
             self.assertIn('"--no-recurse-submodules"', call)
+
+
+class BunTmpdir(unittest.TestCase):
+    """Every gate gets a writable BUN_TMPDIR (cmux#59800: web lint failed `EACCES accessing temporary directory`)."""
+
+    @staticmethod
+    def module():
+        spec = importlib.util.spec_from_file_location("cmux_next_fast_gates_under_test", SCRIPT)
+        module = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(module)
+        return module
+
+    def test_one_is_made_under_the_runner_temp_and_exported(self):
+        with tempfile.TemporaryDirectory() as runner:
+            env = {"RUNNER_TEMP": runner}
+            made = self.module().ensure_bun_tmpdir(env)
+            self.assertEqual(env["BUN_TMPDIR"], str(made))
+            self.assertEqual(made.parent, Path(runner))
+            self.assertTrue(os.access(made, os.W_OK))
+
+    def test_a_caller_set_one_is_kept(self):
+        env = {"BUN_TMPDIR": "/somewhere", "RUNNER_TEMP": "/nonexistent"}
+        self.assertIsNone(self.module().ensure_bun_tmpdir(env))
+        self.assertEqual(env["BUN_TMPDIR"], "/somewhere")
+
+    def test_an_unusable_runner_temp_falls_back_to_the_system_temp(self):
+        env = {"RUNNER_TEMP": "/nonexistent/runner-temp"}
+        made = self.module().ensure_bun_tmpdir(env)
+        try:
+            self.assertEqual(env["BUN_TMPDIR"], str(made))
+        finally:
+            if made:
+                made.rmdir()
 
 
 if __name__ == "__main__":
