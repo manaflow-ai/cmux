@@ -659,6 +659,18 @@ the Mac.
   tab stays on the phone (it remembers the last tab per workspace). The phone
   never sends `select-tab` or `report-focus` for its own navigation, because
   both move the Mac's view for the person sitting at it.
+- **Close Tab in one round trip** (trace-ios; Leo, 2026-11-25: "are we also doing more work on
+  perf while we're here? for the app especially?"): `close-tabs {surfaces, end_terminals}` is on
+  the allowlist (hostd's `ALLOWED_COMMANDS` and the Swift mirror, its fields generated from the
+  daemon schema). It is the same authority as `close-surface` followed by `close-terminal` of each
+  terminal whose views all close, which the phone already had, done in one daemon commit
+  (`batch-close-v1`). It names no program, folder or environment; `end_terminals` ends only
+  terminals no other view keeps. A Mac that refuses it gets the old two commands.
+- **Trace id (`_meta`)**: any line command may carry `_meta: {"traceId": ID}`, the W3C trace id
+  that ties the phone's spans to the Mac's (cmux#55505's format). The ID is 1 to 128 ASCII letters,
+  digits or `-`; any other `_meta` member or shape is refused (`trace_meta_refusal` in hostd,
+  `traceMetaRefusal` in the Swift mirror). The daemon ignores it. It grants and reads nothing.
+  Tests: `close_tabs_takes_a_trace_id_only` (policy), `DaemonLanePolicyCloseTabsTests`.
 - **Agent chat tabs:** `new-conversation-tab` is new on the allowlist, and
   `DaemonPolicy::agent_tab_verdict` narrows it to one shape. Rule 2 answers:
 
@@ -1380,6 +1392,19 @@ Release build compiles none of it and ignores the variable, so it is no path
 for anyone but a developer who launches their own DEBUG build with it. The e2e
 rig sets it in the rig app's `LSEnvironment` (`e2e/mac.py`) and names its
 simulator; it never clicks Allow and never writes `paired-devices.json`.
+
+## A delivered session in simulator builds (`CMUX_MOBILE_STACK_REFRESH_TOKEN`)
+
+A fleet step's own session (hq build-fleet `sign_in`, `scripts/lib/fleet-signin-session.sh`) reaches
+the app as `CMUX_MOBILE_STACK_REFRESH_TOKEN` in one `simctl launch` environment.
+`CmuxMobileAuthModel.launchTokenStore` adopts it, while the app's own store holds no session, in DEBUG
+builds and in a simulator build of any configuration, so a probe can sign in a Production simulator
+build. The gate is compile time (`#if DEBUG || targetEnvironment(simulator)`): no device binary
+(TestFlight, App Store, a signed development install) contains the read. The build's Stack project
+is unchanged, so a Production build takes only a production session. The token goes only to the
+app's keychain store, is never logged and never in argv, and becomes the app's own session, which
+a sign-out revokes. Whoever can set a simulator app's launch environment already owns its container
+and keychain, so this gives them nothing new.
 
 ## Dev auto-approve (DEBUG tagged dev builds)
 

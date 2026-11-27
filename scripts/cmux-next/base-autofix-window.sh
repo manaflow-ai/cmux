@@ -43,12 +43,27 @@ since="$(date -u -d "@$((now - window * 60))" +%Y-%m-%dT%H:%M:%SZ 2>/dev/null)" 
   exit 0
 }
 
-# One read: this workflow's push runs on BRANCH created within the window, newest first.
-rows="$(gh api "repos/$repo/actions/workflows/cmux-next-base-autofix.yml/runs?branch=$branch&event=push&created=%3E%3D$since&per_page=100" \
-  --jq '.workflow_runs[] | [.id, .status, (.conclusion // ""), .display_title] | map(tostring) | join("\u001f")' 2>/dev/null)" || {
-  say true "runs unreadable (fail open)"
+# One read: this workflow's push runs on BRANCH created within the window, newest first. Each token in turn: the
+# job token, then the CI pool Apps' (BASE_AUTOFIX_POOL_TOKENS, space-separated, each its own installation hour).
+# 2026-11-26 20:00-23:30Z every window read but a few failed open with the job token's hour spent, so 37 repairs
+# ran in 3 h instead of about 2 (about 8.7k runner-min/day of autofix, all red on base reds; run 45910636692).
+url="repos/$repo/actions/workflows/cmux-next-base-autofix.yml/runs?branch=$branch&event=push&created=%3E%3D$since&per_page=100"
+jq_rows='.workflow_runs[] | [.id, .status, (.conclusion // ""), .display_title] | map(tostring) | join("\u001f")'
+read_ok="" read_err="" errf="$(mktemp)"
+# shellcheck disable=SC2086 # BASE_AUTOFIX_POOL_TOKENS is a space-separated list
+for token in "${GH_TOKEN:-}" ${BASE_AUTOFIX_POOL_TOKENS:-}; do
+  [[ -n "$token" ]] || continue
+  if rows="$(GH_TOKEN="$token" gh api "$url" --jq "$jq_rows" 2>"$errf")"; then
+    read_ok=1
+    break
+  fi
+  read_err="$(head -n1 "$errf" | tr -d '\r' | cut -c1-120)"
+done
+rm -f "$errf"
+if [[ -z "$read_ok" ]]; then
+  say true "runs unreadable (fail open; the workflow's concurrency group still keeps one run in flight): ${read_err:-no token}"
   exit 0
-}
+fi
 
 # Fields split on the unit separator: a tab is whitespace to read, so an empty conclusion would vanish.
 while IFS=$'\x1f' read -r id status conclusion title; do

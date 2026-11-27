@@ -193,6 +193,10 @@ export type PaneComposerDeps = {
     healthSignIn: CloudSignIn | undefined;
   };
   switchLoginCommand: string | undefined;
+  /// A failed start that starts again on its own (startFailure.ts): no card until it lasts.
+  switchFailedByItself: boolean;
+  /// That start has kept failing past the hold (useAutoRetry): its card says it is still trying.
+  switchStillTrying: boolean;
   composerHandle: React.RefObject<ComposerHandle | null>;
   healthStale: React.RefObject<boolean>;
   connectMachine: (kind: ConnectKind) => undefined;
@@ -220,6 +224,8 @@ export type PaneComposerDeps = {
   /// A started chat's Local, Cloud, Auto chips (undefined in the floating chat or before a session): one element per
   /// chat and toast sink, so a pane render that changes neither hands the composer the same one.
   placeControl: React.ReactNode | undefined;
+  /// The New Tab page's Hybrid control (hybrid/newTabHybrid.ts), before a chat exists; undefined with AutoCloud off.
+  newTabPlaceControl?: React.ReactNode;
   worktreeCreatingHere: boolean;
   worktreeSetupHere: boolean;
   worktreeSetupFolder: string | undefined;
@@ -459,8 +465,11 @@ export function drawPaneComposer({
   startsElsewhere,
   chatSignIns,
   switchLoginCommand,
+  switchFailedByItself,
+  switchStillTrying,
   composerHandle,
   placeControl,
+  newTabPlaceControl,
   healthStale,
   connectMachine,
   chooseWorkspaceFolder,
@@ -741,9 +750,14 @@ export function drawPaneComposer({
                 {harnessCard}
               </Notice>
             ) : (
-              <Notice id="switch" tier="error" when={snapshot.switching?.phase === "failed"}>
+              <Notice
+                id="switch"
+                tier="error"
+                when={snapshot.switching?.phase === "failed" && (!switchFailedByItself || switchStillTrying)}
+              >
                 <SwitchNotice
                   switching={snapshot.switching}
+                  stillTrying={switchFailedByItself}
                   // Install runs the installer in a terminal tab of this Mac: never for a chat elsewhere.
                   installs={!startsElsewhere}
                   // An agent not signed in: on another machine its sign-in runs there, in the card; on
@@ -1616,6 +1630,7 @@ export function drawPaneComposer({
             // Built once per chat by the pane (App.tsx `placeControl`): an inline element here was a new prop on
             // every pane render, so each streamed chunk drew the composer and its box again while keys waited.
             {...(placeControl ? { placeControl } : {})}
+            {...(newTabPlaceControl ? { newTabPlaceControl } : {})}
             // The floating chat has no tab to move.
             {...(quick
               ? {}

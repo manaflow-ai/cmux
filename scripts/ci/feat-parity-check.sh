@@ -378,7 +378,31 @@ if [[ "$mode" == clippy-changed ]]; then
   # cmux-tui-spec.yml `clippy (changed cmux-tui packages)`.
   base="$(required_base "$workspace")"
   echo "base: $base"
+  # A change that reaches none of this check's inputs passes before any setup. cmux-tui-clippy-changed.py reads only
+  # paths under cmux-tui/ and its ratchet inputs (WHOLE_WORKSPACE), so for such a change it lints nothing and its
+  # ratchet judges nothing; the host identity tests read only cmux-tui/crates/cmux-host. Before, every such head
+  # still initialized ghostty-next, zig, the pinned cargo with clippy and the pinned Go first: on 2026-11-24, 1,816
+  # of 5,411 clippy-changed steps touched no input and took 8,066 fleet min (2.5 min median cold, 5.2 on Blacksmith
+  # overflow). The check's own scripts are inputs too, so a change to them still runs everything.
+  clippy_inputs=(cmux-tui scripts/cmux-next/rust_panic_ratchet.py scripts/cmux-next/rust-panic-baseline.json
+    plans/cmux-next/rust-panic-free.md .github/scripts/cmux-tui-clippy-changed.py
+    .github/scripts/cmux-tui-fmt-changed.py .github/scripts/test_cmux_tui_clippy_changed.py
+    scripts/ci/cargo_test_verdict.py scripts/ci/feat-parity-check.sh)
+  if changed_inputs="$(git -C "$root" diff --no-renames --name-only "$base" HEAD -- "${clippy_inputs[@]}")" \
+      && [[ -z "$changed_inputs" ]]; then
+    echo "No clippy-changed input changed since $base (${clippy_inputs[*]}); nothing to lint."
+    step_rows+=("clippy-changed inputs"$'\t'"pass (none changed)"$'\t'"0")
+    finish
+  fi
   export GHOSTTY_ZIG_SOURCE=ghostty-next CMUX_GHOSTTY_SRC="" CMUX_GHOSTTY_VT_ZIG_CPU=baseline
+  # No incremental compile, as cmux-tui-rust-check.sh's channel roll (#56014). sccache 0.17 refuses every
+  # incremental unit, so each workspace crate was checked from nothing in both clippy runs: on 2026-11-26 the step
+  # logged "680 hits, 2 misses, 916 not cacheable (incremental workspace crates, ...)", and of 38 sampled pool steps
+  # 25 began with a just-created slot (2.1 GiB kept: a fresh worker has no warm target to be incremental against),
+  # 5.3 min mean in clippy and 3.1 in the ratchet of a 15 min step. Without it a workspace crate this change does not
+  # reach comes from the shared cache, as the registry crates already do; the lint flags, targets and verdict are the
+  # same. head-check sets it too: the two share this target, and a different setting would recheck it all.
+  export CARGO_INCREMENTAL=0
   step "clippy-changed self-test" python3 .github/scripts/test_cmux_tui_clippy_changed.py
   tools="$(mktemp -d)"
   cp .github/scripts/cmux-tui-clippy-changed.py .github/scripts/cmux-tui-fmt-changed.py "$tools/"
@@ -428,7 +452,8 @@ if [[ "$mode" == head-check ]]; then
   # cmux-app-ffi Cargo.lock, each green on its own base). Setup failures are no verdict (3), never a red head.
   base="$(required_base "$workspace")" || exit 3
   echo "base: $base"
-  export GHOSTTY_ZIG_SOURCE=ghostty-next CMUX_GHOSTTY_SRC="" CMUX_GHOSTTY_VT_ZIG_CPU=baseline
+  # Not incremental, as clippy-changed (whose warm target this shares): sccache serves the unchanged crates.
+  export GHOSTTY_ZIG_SOURCE=ghostty-next CMUX_GHOSTTY_SRC="" CMUX_GHOSTTY_VT_ZIG_CPU=baseline CARGO_INCREMENTAL=0
   ghostty_next || exit 3
   if ! command -v zig >/dev/null 2>&1; then ./scripts/install-zig-ci.sh || exit 3; fi
   use_pinned_cargo "$root/cmux-tui" || exit 3
