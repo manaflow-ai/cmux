@@ -214,15 +214,14 @@ test("the header's clock has one start and one formula, running and ended, and n
   // Running: it ticks from the stretch's start.
   expect(running!.at).toBe(20_000);
   expect(running!.durationMs).toBeUndefined();
-  // The answer has come but the turn has not ended: the clock still ticks from the same start, as
-  // calls may run on past the answer (Leo, 2026-11-27: "but shouldn't the worked for count the
-  // timelines of the tool calls").
+  // The answer has come: the running clock holds there, from the same start.
   const answered = header(live(continuedAnswered, 32_000), "cu");
-  expect(answered!.at).toBe(20_000);
-  expect(answered!.durationMs).toBeUndefined();
-  // Ended: the same start, to the turn's last event (its end), never just the answer.
+  expect(answered!.durationMs).toBe(30_000 - 20_000);
+  // Ended: the same start, to the turn's last event (its end), never less than the running line read
+  // (Leo, 2026-11-27: "but shouldn't the worked for count the timelines of the tool calls").
   const done = header(ended(continuedEnded), "cu");
   expect(done!.durationMs).toBe(31_000 - 20_000);
+  expect(done!.durationMs!).toBeGreaterThanOrEqual(answered!.durationMs!);
 });
 
 test("the header's clock never decreases, tick by tick, across the answer and the turn's end", () => {

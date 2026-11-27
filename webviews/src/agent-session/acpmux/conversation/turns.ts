@@ -3695,8 +3695,9 @@ function shapeLiveRows(
   const line = shaped.at(-1);
   if (line?.kind === THINKING) line.untimed = true;
   // The turn's header, in its running phase: the row its end draws "Worked for" in (one id, kind and
-  // element from the turn's start to its end; only its phase and words change). Its clock ticks
-  // until the turn ends, where the ended line reads the same span (`turnClock`).
+  // element from the turn's start to its end; only its phase and words change). Once the answer
+  // came, its clock holds where the answer landed; the ended line reads that or more (calls that ran
+  // on past it), so it never runs backwards at the end.
   // Under `folded` it toggles the work under its own id, the key its "Worked for" opens with, so the
   // reader's open or closed state carries through the end and the line only changes its words (#50987).
   const header: AcpmuxRow = {
@@ -3705,6 +3706,7 @@ function shapeLiveRows(
     at,
     kind: WORKED,
     turnPhase: "running",
+    ...(clock.durationMs !== undefined && clock.answered && { durationMs: clock.durationMs }),
   };
   if (folds) header.foldOpen = workOpen;
   // A /compact the person steered into: the stretch before the steer is the compaction alone, which
@@ -3787,7 +3789,7 @@ const isRunningHeader = (user: AcpmuxRow) => (row: AcpmuxRow) =>
 /// `wallSpan`, the one span both read; Leo, 2026-11-27: "but shouldn't the worked for count the
 /// timelines of the tool calls"). It no longer stops at the first final answer (#42247 ended it
 /// there, so a call that outlasted the answer read longer in the Timeline than the whole turn).
-/// Running, the clock ticks until the turn ends. `work` is the turn's `turnWork(rows)` when the
+/// Running, the clock ticks until the answer, then holds there until the turn ends. `work` is the turn's `turnWork(rows)` when the
 /// caller already has it.
 export function turnClock(
   user: AcpmuxRow,
@@ -3795,7 +3797,7 @@ export function turnClock(
   liveStart?: number,
   summary?: AcpmuxRow,
   work: readonly AcpmuxActivity[] | undefined = summary ? turnWork(rows) : undefined,
-): { start: number; durationMs?: number } {
+): { start: number; durationMs?: number; answered: boolean } {
   let recorded = summary?.turnStartedAtMs ?? liveStart;
   for (let index = rows.length - 1; recorded === undefined && index >= 0; index -= 1)
     recorded = rows[index]!.turnStartedAtMs;
@@ -3804,12 +3806,17 @@ export function turnClock(
     rows,
     !sentByPerson(user) && hasTimestamp(user.at) && user.at > opened ? user.at : opened,
   );
-  if (!summary) return { start };
+  // Running, the clock holds at the answer once it came, so it never runs backwards at the end:
+  // the ended clock reads at least as much (its end is the turn's last event).
+  if (!summary) {
+    const answer = rows.find((row) => isFinalAnswer(row) && row.at >= start);
+    return answer ? { start, durationMs: Math.max(0, answer.at - start), answered: true } : { start, answered: false };
+  }
   const timed = summary.durationMs !== undefined;
   // Unknown stays unknown: a turn whose prompt is in an older page, with no record of its start and
   // no answer to end on, starts at a row inside it, and the time since that row is too short.
   if (!(start === opened && timed) && user.kind !== "user" && recorded === undefined)
-    if (!rows.some((row) => isFinalAnswer(row) && row.at >= start)) return { start };
+    if (!rows.some((row) => isFinalAnswer(row) && row.at >= start)) return { start, answered: false };
   const ended = summary.workEndedAt ?? summary.at;
   // The footer's Timeline axis (waterfallSpans.ts `waterfall`): the harness's own measure of the
   // turn, widened to every timed span.
@@ -3822,7 +3829,9 @@ export function turnClock(
   // turn's last event.
   const own =
     start === opened && timed ? summary.durationMs! : Math.max(0, wallSpan(undefined, summary.at, work).end - start);
-  return { start, durationMs: Math.max(own, panelMs) };
+  // The Timeline's axis is the harness's whole turn: it bounds the line only when the line counts
+  // that same turn. A stretch a notice started (`continuationStart`) counts from the notice.
+  return { start, durationMs: start === opened ? Math.max(own, panelMs) : own, answered: false };
 }
 
 /// When the live turn's current stretch began: `start`, or the latest notice (a prompt the person did
