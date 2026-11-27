@@ -794,28 +794,33 @@ impl WorkspaceRegistry {
     }
 
     /// Rewrites `terminal_id`'s stored agent projection, as a write that
-    /// went missing or a clock that stepped would leave it.
+    /// went missing or a clock that stepped would leave it. A failed read,
+    /// parse or write is the caller's (a test's) to unwrap.
     #[cfg(test)]
     pub(crate) fn edit_agent_projection_for_test(
         &self,
         terminal_id: &TerminalPublicId,
         edit: impl FnOnce(&mut Value),
-    ) {
+    ) -> rusqlite::Result<()> {
         let db = self.connection.get();
-        let stored: String = db
-            .query_row(
-                "SELECT result_json FROM resource_agent_projections WHERE terminal_id = ?1",
-                [terminal_id.as_str()],
-                |row| row.get(0),
+        let stored: String = db.query_row(
+            "SELECT result_json FROM resource_agent_projections WHERE terminal_id = ?1",
+            [terminal_id.as_str()],
+            |row| row.get(0),
+        )?;
+        let mut value: Value = serde_json::from_str(&stored).map_err(|error| {
+            rusqlite::Error::FromSqlConversionFailure(
+                0,
+                rusqlite::types::Type::Text,
+                Box::new(error),
             )
-            .unwrap();
-        let mut value: Value = serde_json::from_str(&stored).unwrap();
+        })?;
         edit(&mut value);
         db.execute(
             "UPDATE resource_agent_projections SET result_json = ?2 WHERE terminal_id = ?1",
             params![terminal_id.as_str(), value.to_string()],
-        )
-        .unwrap();
+        )?;
+        Ok(())
     }
 
     /// Deletes `terminal_id`'s stored agent projection, as a stop between a
