@@ -374,10 +374,10 @@ struct TerminalPage: View {
             Section {
                 Toggle(isOn: $settings.terminalFitToPhone) { SettingsLabel("Fit to Phone", symbol: "iphone") }
                     .accessibilityIdentifier("settings.terminalFitToPhone")
-                Toggle(isOn: $settings.terminalPhoneProjection) { SettingsLabel("Re-wrap on Phone", symbol: "text.alignleft") }
+                Toggle(isOn: $settings.terminalPhoneProjection) { SettingsLabel(verbatim: String(localized: "mobile.terminal.phoneProjection.title", defaultValue: "Re-wrap on Phone", bundle: .module), symbol: "text.alignleft") }
                     .accessibilityIdentifier("settings.terminalPhoneProjection")
             } footer: {
-                Text("By default, terminals keep the Mac's columns. Re-wrap on Phone adapts text to the phone without resizing the Mac. Fit to Phone resizes the Mac instead. Applies to terminals opened next.")
+                Text(String(localized: "mobile.terminal.phoneProjection.help", defaultValue: "Terminals keep the Mac's columns by default. Re-wrap on Phone adapts text without resizing the Mac. Fit to Phone resizes the Mac. Applies to terminals opened next.", bundle: .module))
             }
             Section {
                 Toggle(isOn: $settings.predictiveEcho) { SettingsLabel("Predictive echo", symbol: "bolt.horizontal") }

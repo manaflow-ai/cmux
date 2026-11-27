@@ -271,6 +271,7 @@ public protocol TerminalSession: AnyObject {
     /// Sessions without a Mac ignore it.
     func setProjectsLocally(_ projects: Bool)
     /// Render the host grid unchanged, without claiming the phone's dimensions.
+    var preservesHostGrid: Bool { get }
     func setPreservesHostGrid(_ preserves: Bool)
     /// Where the reader is, in the page's rows: from the document's end to
     /// the top of the screen they read (the screen's height at the bottom).
@@ -389,6 +390,7 @@ extension TerminalSession {
     public func loadHistory(aroundDaemonRow daemonRow: Int, rowsFromBottom: Int) -> Bool { false }
 
     public func setProjectsLocally(_ projects: Bool) {}
+    public var preservesHostGrid: Bool { false }
     public func setPreservesHostGrid(_ preserves: Bool) {}
 
     public func noteReaderRowsFromEnd(_ rows: Int) {}

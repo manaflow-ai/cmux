@@ -1,3 +1,4 @@
+import CmuxMobileDesign
 import Foundation
 import Testing
 @testable import CmuxMobileTerminal
@@ -7,6 +8,8 @@ import Testing
 private final class LiveStub: TerminalSession {
     let programName = "zsh"
     let isAlternateScreen = false
+    var preservesHostGrid = false
+    func setPreservesHostGrid(_ preserves: Bool) { preservesHostGrid = preserves }
     func start(_ handler: @escaping @MainActor (TerminalSessionEvent) -> Void) {}
     func send(_ bytes: Data) {}
     func resize(columns: Int, rows: Int) {}
@@ -17,11 +20,34 @@ private final class LiveStub: TerminalSession {
 /// content (DEBUG mock mode, or the server-flagged App Review demo account).
 @MainActor
 @Suite struct TerminalSessionChoiceTests {
+    #if os(iOS)
+    @Test func macGridIsDefaultAndProjectionAndFitRemainExplicitChoices() {
+        let defaults = UserDefaults(suiteName: UUID().uuidString)!
+        let live = LiveStub()
+        func choose() -> any TerminalSession {
+            TerminalSessionChoice.session(live: live, mockDataEnabled: false, macName: "Mac", programName: "zsh", defaults: defaults)
+        }
+        #expect(choose() === live)
+        #expect(live.preservesHostGrid)
+        defaults.set(true, forKey: CmuxMobilePreferences.Key.terminalPhoneProjection)
+        #expect(choose() is TerminalProjectingSession)
+        #expect(!live.preservesHostGrid)
+        defaults.set(true, forKey: CmuxMobilePreferences.Key.terminalFitToPhone)
+        #expect(choose() === live)
+        #expect(!live.preservesHostGrid, "Fit to Phone still explicitly resizes the Mac")
+        TerminalFitToPhoneMemory(defaults: defaults).set(false, for: "zsh")
+        #expect(choose() is TerminalProjectingSession, "the per-program choice wins over global Fit to Phone")
+        defaults.set(false, forKey: CmuxMobilePreferences.Key.terminalPhoneProjection)
+        #expect(choose() === live)
+        #expect(live.preservesHostGrid)
+    }
+    #endif
+
     @Test func liveSessionAlwaysWins() {
         let live = LiveStub()
         for mock in [false, true] {
             let chosen = TerminalSessionChoice.session(live: live, mockDataEnabled: mock, macName: "Studio", programName: "zsh")
-            // The live session itself, or (projection, the default on iOS)
+            // The live session itself, or opt-in projection on iOS
             // the phone's projection of it: never the mock.
             #expect(chosen.underlyingSession === live)
             #if os(iOS)

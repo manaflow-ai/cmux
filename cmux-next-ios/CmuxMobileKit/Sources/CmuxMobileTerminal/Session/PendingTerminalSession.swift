@@ -1,4 +1,5 @@
 import CmuxMobileArtifacts
+import CmuxMobileDesign
 import CmuxMobileTransport
 import Foundation
 
@@ -55,13 +56,16 @@ public enum TerminalSessionChoice {
         mockDataEnabled: Bool,
         reviewDemo: Bool = false,
         macName: String?,
-        programName: String
+        programName: String,
+        defaults: UserDefaults = .standard
     ) -> any TerminalSession {
         if let live {
             #if os(iOS)
             // Both phone re-wrap and a Mac resize require an explicit setting.
-            live.setPreservesHostGrid(!TerminalFitToPhoneMemory().fitToPhone(for: live.programName))
-            if TerminalProjectingSession.isEnabled(for: live.programName) { return TerminalProjectingSession(inner: live) }
+            let projects = TerminalProjectingSession.isEnabled(for: live.programName, defaults: defaults)
+            let fits = TerminalFitToPhoneMemory(defaults: defaults).fitToPhone(for: live.programName)
+            live.setPreservesHostGrid(!fits && !projects)
+            if projects { return TerminalProjectingSession(inner: live) }
             #endif
             return live
         }

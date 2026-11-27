@@ -817,7 +817,7 @@ public final class DaemonTerminalSession: TerminalSession {
 
     /// The phone projects this terminal (``TerminalProjectingSession``).
     private var projectsLocally = false
-    private var preservesHostGrid = false
+    public private(set) var preservesHostGrid = false
 
     public func setPreservesHostGrid(_ preserves: Bool) {
         preservesHostGrid = preserves

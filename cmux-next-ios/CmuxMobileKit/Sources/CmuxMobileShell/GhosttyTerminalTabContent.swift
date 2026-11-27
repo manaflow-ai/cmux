@@ -881,7 +881,7 @@ final class GhosttyTerminalTabContent: TerminalTabContent {
             actions.append(TerminalTabAction(title: "Connected Devices…", systemImage: "laptopcomputer.and.iphone") { show(live, macID) })
         }
         // Fit to Phone, one tap away and remembered for this program (Leo, 2026-11-21): on,
-        // the Mac's terminal resizes to the phone; off, the phone projects it.
+        // the Mac's terminal resizes to the phone; off, the Mac keeps its columns.
         if liveTabs.contains(tab.id) {
             let program = model.session.programName
             let fits = fitToPhoneMemory.fitToPhone(for: program)

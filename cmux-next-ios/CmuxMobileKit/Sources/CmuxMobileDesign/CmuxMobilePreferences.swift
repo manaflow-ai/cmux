@@ -15,7 +15,7 @@ public enum CmuxMobilePreferences {
         /// in its cell. Read by the terminal (`TerminalSurfacePrediction`).
         public static let predictiveEchoFullScreen = "cmuxMobile.settings.predictiveEchoFullScreen"
         /// Settings → Terminal → Fit to Phone: on resizes the Mac's terminal to
-        /// the phone (as before); off, the phone re-wraps it at its own width.
+        /// the phone; off keeps the Mac's grid unless phone-side re-wrap is enabled.
         public static let terminalFitToPhone = "cmuxMobile.settings.terminalFitToPhone"
         public static let terminalPhoneProjection = "cmuxMobile.settings.terminalPhoneProjection"
         /// Settings → Terminal → Jump to Bottom Button (CMUX-10): off removes the
