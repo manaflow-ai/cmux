@@ -92,7 +92,7 @@ public final class AgentPageTerminations {
             "reason": termination.reason.rawValue, "pid": Int(termination.pid), "page": page?.page ?? "-",
             "engine": page?.engine ?? "-", "ended_with_it": event.pages.count, "retries": retries,
         ])
-        terminationLogger.error("agent page web content ended reason=\(termination.reason.rawValue, privacy: .public) pid=\(termination.pid) page=\(page?.page ?? "-", privacy: .public) session=\(page?.session ?? "none", privacy: .public) engine=\(page?.engine ?? "-", privacy: .public) ended_with_it=\(event.pages.count) event=\(event.serial); \(retries ? "loads again by itself" : "kept ending: the crash notice offers Reload", privacy: .public)")
+        terminationLogger.error("agent page web content ended reason=\(termination.reason.rawValue, privacy: .public) pid=\(termination.pid) page=\(page?.page ?? "-", privacy: .public) session=\(page?.session ?? "none", privacy: .public) engine=\(page?.engine ?? "-", privacy: .public) ended_with_it=\(event.pages.count) event=\(event.serial); \(retries ? "loads again by itself" : "kept ending: the crash notice shows and it retries slowly", privacy: .public)")
         if !turn.contains(where: { $0 === event }) {
             if turn.isEmpty { afterTurn { [weak self] in self?.endTurn() } }
             turn.append(event)
