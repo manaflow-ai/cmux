@@ -143,10 +143,10 @@
 //! the session weakly.
 
 use super::*;
-#[path = "inbox_fold.rs"]
-mod fold;
 #[path = "inbox_deadline.rs"]
 pub(super) mod deadline;
+#[path = "inbox_fold.rs"]
+mod fold;
 #[path = "inbox_page_rule.rs"]
 pub(super) mod page_rule;
 #[path = "inbox_reader.rs"]
