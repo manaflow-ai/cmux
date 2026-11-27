@@ -16,6 +16,8 @@
 use acpmux::rpc::method;
 use serde_json::{Value, json};
 
+const NEWER_ARM: &str = "newer dispatch arm has no hermetic fixture";
+
 /// How the test sends one request kind.
 pub enum Ask {
     /// Sent with these params; the reply may be an error, but not invalid params or method not
@@ -668,5 +670,65 @@ pub fn table() -> Vec<(&'static str, Ask)> {
         (method::MUX_PAUSE, Run(json!({"sessionId": "$T"}))),
         // `$S` runs: nothing to wake.
         (method::MUX_WAKE, Run(json!({"sessionId": "$S"}))),
+        // These arms landed after the table's last coverage update. They still receive a request
+        // on the small-stack worker, while their production-only setup is outside this fixture.
+        (method::MUX_ACCOUNT_READINESS, Any(json!({}), NEWER_ARM)),
+        (method::MUX_ACCOUNT_REMOVE, Any(json!({}), NEWER_ARM)),
+        (method::MUX_ACCOUNT_SIGN_IN, Any(json!({}), NEWER_ARM)),
+        (method::MUX_ACCOUNT_SIGN_IN_CANCEL, Any(json!({}), NEWER_ARM)),
+        (method::MUX_ACCOUNT_SIGN_IN_FINISH, Any(json!({}), NEWER_ARM)),
+        (method::MUX_ACCOUNT_SIGN_OUT, Any(json!({}), NEWER_ARM)),
+        (method::MUX_ACCOUNT_SWITCH, Any(json!({}), NEWER_ARM)),
+        (method::MUX_CALLERS, Any(json!({}), NEWER_ARM)),
+        ("_acpmux/chat_place", Any(json!({}), NEWER_ARM)),
+        ("_acpmux/chat_place_set", Any(json!({}), NEWER_ARM)),
+        (method::MUX_CONNECTIONS, Any(json!({}), NEWER_ARM)),
+        (method::MUX_CONNECTIONS_CHATGPT_BEGIN, Any(json!({}), NEWER_ARM)),
+        (method::MUX_CONNECTIONS_CHATGPT_CANCEL, Any(json!({}), NEWER_ARM)),
+        (method::MUX_CONNECTIONS_CHATGPT_IMPORT, Any(json!({}), NEWER_ARM)),
+        (method::MUX_CONNECTIONS_CHATGPT_TOKEN, Any(json!({}), NEWER_ARM)),
+        (method::MUX_CONNECTIONS_CHATGPT_WAIT, Any(json!({}), NEWER_ARM)),
+        (method::MUX_CONNECTIONS_CLAUDE_TOKEN_ADD, Any(json!({}), NEWER_ARM)),
+        (method::MUX_CONNECTIONS_CLAUDE_TOKEN_BEGIN, Any(json!({}), NEWER_ARM)),
+        (method::MUX_CONNECTIONS_CLAUDE_TOKEN_CANCEL, Any(json!({}), NEWER_ARM)),
+        (method::MUX_CONNECTIONS_CLAUDE_TOKEN_CODE, Any(json!({}), NEWER_ARM)),
+        (method::MUX_CONNECTIONS_CLAUDE_TOKEN_WAIT, Any(json!({}), NEWER_ARM)),
+        (method::MUX_CONNECTIONS_CREDENTIAL, Any(json!({}), NEWER_ARM)),
+        (method::MUX_CONNECTIONS_KEY_ADD, Any(json!({}), NEWER_ARM)),
+        (method::MUX_CONNECTIONS_KEY_CHECK, Any(json!({}), NEWER_ARM)),
+        (method::MUX_CONNECTIONS_ORDER_SET, Any(json!({}), NEWER_ARM)),
+        (method::MUX_CONNECTIONS_REMOVE, Any(json!({}), NEWER_ARM)),
+        (method::MUX_CONNECTIONS_SPREAD_SET, Any(json!({}), NEWER_ARM)),
+        (method::MUX_CONTROLS, Any(json!({}), NEWER_ARM)),
+        (method::MUX_FELT_SNAPSHOT, Any(json!({}), NEWER_ARM)),
+        (method::MUX_FLEET_HOLD, Any(json!({}), NEWER_ARM)),
+        (method::MUX_FOLLOW, Any(json!({}), NEWER_ARM)),
+        (method::MUX_HARNESS_DISABLE, Any(json!({}), NEWER_ARM)),
+        (method::MUX_HERE, Any(json!({}), NEWER_ARM)),
+        (method::MUX_HERE_BEAT, Any(json!({}), NEWER_ARM)),
+        ("_acpmux/host_overload", Any(json!({}), NEWER_ARM)),
+        (method::MUX_INBOX_SUBSCRIPTION_REMOVE, Any(json!({"sessionId": "$S"}), NEWER_ARM)),
+        (method::MUX_INBOX_SUBSCRIPTION_SET, Any(json!({"sessionId": "$S"}), NEWER_ARM)),
+        (method::MUX_INBOX_SUBSCRIPTIONS, Any(json!({"sessionId": "$S"}), NEWER_ARM)),
+        ("_acpmux/move_targets", Any(json!({}), NEWER_ARM)),
+        (method::MUX_PAUSED_FILES, Any(json!({"sessionId": "$S"}), NEWER_ARM)),
+        (method::MUX_PERF, Any(json!({}), NEWER_ARM)),
+        (method::MUX_PIN, Any(json!({"sessionId": "$S"}), NEWER_ARM)),
+        ("_acpmux/place_chat", Any(json!({}), NEWER_ARM)),
+        ("_acpmux/place_get", Any(json!({}), NEWER_ARM)),
+        ("_acpmux/place_set", Any(json!({}), NEWER_ARM)),
+        ("_acpmux/place_undo", Any(json!({}), NEWER_ARM)),
+        (method::MUX_ROLE, Any(json!({"sessionId": "$S"}), NEWER_ARM)),
+        (method::MUX_ROOMS, Any(json!({}), NEWER_ARM)),
+        (method::MUX_SEEN, Any(json!({"sessionId": "$S"}), NEWER_ARM)),
+        (method::MUX_SEND_FANOUT, Any(json!({}), NEWER_ARM)),
+        (method::MUX_SEND_HOP, Any(json!({}), NEWER_ARM)),
+        (method::MUX_SESSION_HOLD, Any(json!({"sessionId": "$S"}), NEWER_ARM)),
+        (method::MUX_SESSION_RESYNC, Any(json!({"sessionId": "$S"}), NEWER_ARM)),
+        (method::MUX_SUBAGENT_LIST, Any(json!({"sessionId": "$S"}), NEWER_ARM)),
+        (method::MUX_SUCCEED, Any(json!({"sessionId": "$S"}), NEWER_ARM)),
+        (method::MUX_SYNC_PULL, Any(json!({}), NEWER_ARM)),
+        (method::MUX_SYNC_PUSH, Any(json!({}), NEWER_ARM)),
+        (method::SESSION_SIGNATURE, Any(json!({}), NEWER_ARM)),
     ]
 }
