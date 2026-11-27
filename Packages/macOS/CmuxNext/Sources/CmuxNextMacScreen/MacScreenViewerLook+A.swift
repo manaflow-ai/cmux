@@ -8,36 +8,21 @@ import Observation
 /// look slike ass"): the picture takes the whole pane, letterboxed on the window's material; one 28 pt glass toolbar floats
 /// over its top and fades out while live and idle; View | Control is a segmented control; control shows as a focus edge
 /// and a corner pill; transient states are a small mark and one line, lasting ones a raised label with one primary button.
-extension MacScreenViewerStyle {
-    static var lookA: MacScreenViewerStyle {
-        var style = MacScreenViewerStyle.current
-        style.toolbarPlacement = .floating
-        style.toolbarInset = Metrics.space4
-        style.toolbarFilled = false
-        style.toolbarRowHeight = MacScreenLookA.toolbarHeight
-        style.toolbarCornerRadius = MacScreenLookA.toolbarHeight / 2 // radius-allow: the floating toolbar is a capsule
-        style.toolbarSurface = { MacScreenLookA.glass(cornerRadius: $0) }
-        style.toolbarScopeSegments = true
-        style.toolbarAutoHide = true
-        style.backdrop = .page
-        style.pictureMarks = true
-        style.outageKeepsPicture = true
-        style.cardQuietTransient = true
-        style.cardCornerRadius = Metrics.surfaceCornerRadius
-        return style
-    }
-}
-
+///
 /// Look A's sizes and its glass.
 @MainActor
 enum MacScreenLookA {
     static let toolbarHeight: CGFloat = 28
     /// How long a live, idle toolbar stays before it fades out.
     static let idleDelay = Duration.milliseconds(2500)
-    /// How long a stall lasts before the quiet Reconnecting pill shows (a short blip shows nothing).
-    static let outageMarkDelay = Duration.milliseconds(1000)
+    /// How long a stall lasts before the quiet Reconnecting pill shows (a short blip shows nothing): the pill's own
+    /// hold, ``MacScreenPictureMark/reconnectingDelay``.
+    static let outageMarkDelay = MacScreenPictureMark.reconnectingDelay
     /// The pane's top band that brings the toolbar back, at least.
     static let revealHeight: CGFloat = 40
+    /// While this Mac controls the picture, only the pane's top edge brings the toolbar back (as a full-screen Mac's
+    /// menu bar comes back), so the remote menu bar under the toolbar takes the pointer and its clicks.
+    static let controlRevealHeight: CGFloat = 4
     static let edgeWidth: CGFloat = 2
 
     /// The chrome glass behind a floating toolbar or a pill: transient neutral glass, not interactive.
@@ -55,12 +40,7 @@ extension MacScreenCard {
     static let quietMarkAlpha: CGFloat = 0.4
 
     /// A state that passes on its own (connecting, waiting): no action is asked of the person.
-    var isTransient: Bool {
-        switch self {
-        case .connecting, .waitingForPicture, .hubRequesting, .hubWaiting: true
-        default: false
-        }
-    }
+    var isTransient: Bool { RdUI.call("card.isTransient", ["card": rd]) as? Bool ?? false }
 }
 
 extension MacScreenColors {
@@ -70,7 +50,17 @@ extension MacScreenColors {
 
 extension MacScreenPaneModel {
     /// A live session stalled with its last picture still up: an outage, not an error.
-    var outageOverPicture: Bool { isLive && hasFrame && session?.isStalled == true }
+    var outageOverPicture: Bool { RdUI.call("viewerLook.outageOverPicture", rdState()) as? Bool ?? false }
+
+    /// The live state as Rust's `viewerLook.*` ops take it; `extra` adds the overlay's own (the pointer, a due mark).
+    func rdState(_ extra: [String: Any] = [:]) -> [String: Any] {
+        var state: [String: Any] = [
+            "look": viewerLook.rawValue, "isLive": isLive, "hasFrame": hasFrame, "card": card?.rd ?? NSNull(),
+            "stalled": session?.isStalled == true, "viewOnly": viewOnly, "capturesKeyboard": capturesKeyboard,
+        ]
+        state.merge(extra) { $1 }
+        return state
+    }
 }
 
 /// The layer over the picture, a sibling of the video view (never inside it): fades a floating toolbar out while live and
@@ -78,25 +68,29 @@ extension MacScreenPaneModel {
 /// (``MacScreenViewerStyle/pictureMarks``). It takes no clicks; the input surface's mapping is untouched.
 @MainActor
 final class MacScreenViewerOverlay: MacScreenThemedView {
-    private enum Mark { case none, controlling, viewOnly, reconnecting }
+    private enum Mark: String { case none, controlling, viewOnly, reconnecting }
 
     private let model: MacScreenPaneModel
     /// Follows the model (``ObservationStream``); ends once the view is gone.
     private var watch: Task<Void, Never>?
-    private let toolbar: NSView
+    private let toolbar: MacScreenToolbarView
     private let edge = CALayer()
     private let pill = MacScreenPictureMark()
+    /// The stats panel (``MacScreenQualityReadout/hud``), in the picture's bottom-left corner.
+    private let statsPanel = MacScreenStatsPanel()
     private let hideTimer = DemandTimer(owner: "mac-screen.toolbar-hide")
     private let outageTimer = DemandTimer(owner: "mac-screen.outage-mark")
     private var tracking: NSTrackingArea?
-    private var revealZone = CGRect.zero
+    private(set) var revealZone = CGRect.zero
+    private var toolbarRect = CGRect.zero
+    private var paneBounds = CGRect.zero
     private var picture = CGRect.zero
     private var pointerAtTop = false
     private var toolbarShown = true
     private var outageMarkDue = false
     private var mark = Mark.none
 
-    init(model: MacScreenPaneModel, toolbar: NSView) {
+    init(model: MacScreenPaneModel, toolbar: MacScreenToolbarView) {
         self.model = model
         self.toolbar = toolbar
         super.init(frame: .zero)
@@ -107,6 +101,8 @@ final class MacScreenViewerOverlay: MacScreenThemedView {
         layer?.addSublayer(edge)
         pill.isHidden = true
         addSubview(pill)
+        statsPanel.isHidden = true
+        addSubview(statsPanel)
         track()
     }
 
@@ -116,12 +112,25 @@ final class MacScreenViewerOverlay: MacScreenThemedView {
     /// The pane lays the overlay over itself: the picture's rect (for the marks) and the toolbar's (for its reveal band).
     func place(picture: CGRect, toolbar: CGRect, in bounds: CGRect) {
         if frame != bounds { frame = bounds }
-        let zone = CGRect(x: 0, y: 0, width: bounds.width, height: max(MacScreenLookA.revealHeight, toolbar.maxY + Metrics.space4))
-        guard picture != self.picture || zone != revealZone else { return }
+        toolbarRect = toolbar
+        paneBounds = bounds
+        let zoneChanged = syncRevealZone()
+        guard picture != self.picture || zoneChanged else { return }
         self.picture = picture
+        needsLayout = true
+    }
+
+    /// The band that brings the toolbar back: the toolbar's rows and a margin, or only the top edge while this Mac
+    /// controls a live picture (the remote Mac's menu bar is under the toolbar). True when it changed.
+    @discardableResult
+    private func syncRevealZone() -> Bool {
+        let controlling = model.isLive && model.hasFrame && !model.viewOnly
+        let height = controlling ? MacScreenLookA.controlRevealHeight : max(MacScreenLookA.revealHeight, toolbarRect.maxY + Metrics.space4)
+        let zone = CGRect(x: 0, y: 0, width: paneBounds.width, height: height)
+        guard zone != revealZone else { return false }
         revealZone = zone
         updateTrackingAreas()
-        needsLayout = true
+        return true
     }
 
     override func colorsChanged() {
@@ -175,10 +184,14 @@ final class MacScreenViewerOverlay: MacScreenThemedView {
                 _ = model.session?.isStalled
                 _ = model.viewOnly
                 _ = model.capturesKeyboard
+                _ = model.qualityReadout
+                _ = model.session?.stats
+                _ = model.session?.preferences.showStats
+                _ = model.session?.frameSize
             }) {
                 guard let self else { return }
-                // The look may have turned auto-hide on or off.
-                updateTrackingAreas()
+                // The look may have turned auto-hide on or off; taking or giving up control moves the reveal band.
+                if !syncRevealZone() { updateTrackingAreas() }
                 sync()
             }
         }
@@ -189,8 +202,8 @@ final class MacScreenViewerOverlay: MacScreenThemedView {
     private func sync() {
         let style = model.viewerLook.style
         let outage = model.outageOverPicture
-        let pinned = !style.toolbarAutoHide || !model.isLive || (model.card != nil && !outage) || pointerAtTop
-        if pinned {
+        let pinned = RdUI.call("viewerLook.toolbarPinned", model.rdState(["outage": outage, "pointerAtTop": pointerAtTop])) as? Bool
+        if pinned ?? true {
             hideTimer.cancel()
             showToolbar(true)
         } else if toolbarShown, !hideTimer.isScheduled, window?.isKeyWindow == true {
@@ -207,19 +220,28 @@ final class MacScreenViewerOverlay: MacScreenThemedView {
             outageTimer.cancel()
             outageMarkDue = false
         }
-        let next = nextMark(style, outage: outage)
+        syncStatsPanel()
+        let next = Mark(rawValue: RdUI.call("viewerLook.pictureMark", model.rdState([
+            "outage": outage, "outageMarkDue": outageMarkDue,
+        ])) as? String ?? "") ?? .none
         if next != mark {
             mark = next
             needsLayout = true
         }
     }
 
-    private func nextMark(_ style: MacScreenViewerStyle, outage: Bool) -> Mark {
-        guard style.pictureMarks, model.isLive, model.hasFrame else { return .none }
-        if outage { return outageMarkDue ? .reconnecting : .none }
-        if model.card != nil { return .none }
-        if model.viewOnly { return .viewOnly }
-        return model.capturesKeyboard ? .controlling : .none
+    /// The stats panel shows over a live picture while Show Stats is on, in the stats panel readout.
+    private func syncStatsPanel() {
+        guard model.qualityReadout == .hud, model.isLive, model.hasFrame, let session = model.session,
+              session.preferences.showStats else {
+            if !statsPanel.isHidden { statsPanel.isHidden = true }
+            return
+        }
+        // The route is the toolbar's; the panel keeps to the numbers.
+        let rows = MacScreenQualityReadout.rows(session.stats, frameSize: session.frameSize, path: "-")
+        statsPanel.show(rows, strained: MacScreenQualityReadout.isStrained(session.stats))
+        if statsPanel.isHidden { statsPanel.isHidden = false }
+        needsLayout = true
     }
 
     private func scheduleHide() {
@@ -234,9 +256,11 @@ final class MacScreenViewerOverlay: MacScreenThemedView {
         }
     }
 
+    /// The pointer is in the reveal band, or on the shown toolbar (the control band is only the top edge).
     private var pointerInZone: Bool {
         guard let window else { return false }
-        return revealZone.contains(convert(window.mouseLocationOutsideOfEventStream, from: nil))
+        let point = convert(window.mouseLocationOutsideOfEventStream, from: nil)
+        return revealZone.contains(point) || (toolbarShown && toolbarRect.contains(point))
     }
 
     /// Fades the toolbar (alpha only, no layout change); a faded one is hidden so clicks reach the picture.
@@ -245,12 +269,12 @@ final class MacScreenViewerOverlay: MacScreenThemedView {
         toolbarShown = shown
         let toolbar = toolbar
         if shown {
-            toolbar.isHidden = false
+            toolbar.autoHidden = false
             Motion.overlays.animate(.fadeIn, in: toolbar, { toolbar.animator().alphaValue = 1 })
         } else {
             Motion.overlays.animate(.fadeOut, in: toolbar, { toolbar.animator().alphaValue = 0 }, completion: { [weak self] in
                 guard let self, !toolbarShown else { return }
-                self.toolbar.isHidden = true
+                self.toolbar.autoHidden = true
             })
         }
     }
@@ -267,6 +291,12 @@ final class MacScreenViewerOverlay: MacScreenThemedView {
         edge.cornerCurve = .continuous
         edge.isHidden = mark != .controlling || picture.isEmpty
         CATransaction.commit()
+        if !statsPanel.isHidden, !picture.isEmpty {
+            let size = statsPanel.fittingSize
+            let inset = Metrics.space4
+            statsPanel.frame = CGRect(x: picture.minX + inset, y: picture.maxY - inset - size.height,
+                                      width: size.width, height: size.height).integral
+        }
         switch mark {
         case .none: pill.isHidden = true
         case .controlling: pill.show(.controlling)

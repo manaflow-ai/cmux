@@ -11,6 +11,8 @@ final class WebAuthSessionWindow: NSObject, WebAuthSessionSurface, BrowserTabDel
     let id: UUID
     private let url: URL
     private let callback: WebAuthCallback
+    /// The app's front window when the request is the app's own flow (``WebAuthSessionRequest/opensOverAppWindow``).
+    private weak var appWindow: NSWindow?
     private let ephemeralProfile: BrowserProfileID?
     private weak var broker: WebAuthSessionBroker?
     /// The app's services: the Chromium page and links out.
@@ -44,6 +46,7 @@ final class WebAuthSessionWindow: NSObject, WebAuthSessionSurface, BrowserTabDel
         id = request.id
         url = request.url
         callback = request.callback
+        appWindow = request.opensOverAppWindow ? (NSApp.keyWindow ?? NSApp.mainWindow) : nil
         ephemeralProfile = request.isEphemeral ? profiles.begin() : nil
         self.broker = broker
         self.host = host
@@ -81,7 +84,7 @@ final class WebAuthSessionWindow: NSObject, WebAuthSessionSurface, BrowserTabDel
         if let cef = page as? CEFTab {
             signInCallbacks.set(Self.shimCallback(callback), on: cef) { [weak self] url in self?.shimStopped(url) }
         }
-        let panel = BrowserPopupWindow(page: page, frame: Self.frame(), readOnlyAddress: true, activeLook: activeLook)
+        let panel = BrowserPopupWindow(page: page, frame: Self.frame(over: appWindow?.frame, screen: appWindow?.screen?.visibleFrame), readOnlyAddress: true, activeLook: activeLook)
         panel.onEscape = { [weak self] in self?.close() }
         panel.onClose = { [weak self] in self?.end() }
         self.panel = panel
@@ -101,11 +104,14 @@ final class WebAuthSessionWindow: NSObject, WebAuthSessionSurface, BrowserTabDel
         }
     }
 
-    /// A centered panel the size of a sign-in page.
-    static func frame() -> CGRect {
-        let visible = NSScreen.main?.visibleFrame ?? CGRect(x: 0, y: 0, width: 1280, height: 800)
+    /// A panel the size of a sign-in page: centered over `window` (the app's own flow, kept on its screen), else on screen.
+    static func frame(over window: CGRect? = nil, screen: CGRect? = nil) -> CGRect {
+        let visible = screen ?? NSScreen.main?.visibleFrame ?? CGRect(x: 0, y: 0, width: 1280, height: 800)
         let size = CGSize(width: min(520, visible.width - 40), height: min(700, visible.height - 40))
-        return CGRect(x: visible.midX - size.width / 2, y: visible.midY - size.height / 2, width: size.width, height: size.height)
+        let center = window.map { CGPoint(x: $0.midX, y: $0.midY) } ?? CGPoint(x: visible.midX, y: visible.midY)
+        let x = min(max(center.x - size.width / 2, visible.minX), visible.maxX - size.width)
+        let y = min(max(center.y - size.height / 2, visible.minY), visible.maxY - size.height)
+        return CGRect(x: x, y: y, width: size.width, height: size.height)
     }
 
     /// The shim stopped a navigation that looked like the callback. The
@@ -113,6 +119,8 @@ final class WebAuthSessionWindow: NSObject, WebAuthSessionSurface, BrowserTabDel
     /// have gone (a page loads, another app's link opens in that app).
     private func shimStopped(_ url: URL) {
         guard !ended, broker?.navigated(id, to: url) != true else { return }
+        // The app's own flow names the next page itself; the shim stays on for the return that follows it.
+        if let next = broker?.redirect(id, for: url) { page?.load(next); return }
         logger.notice("sign-in window: the system did not take a stopped callback")
         // An https page loads after all: the shim stops nothing more (or it
         // would stop this load again), and the page URL check stays. Another
@@ -169,6 +177,10 @@ final class WebAuthSessionWindow: NSObject, WebAuthSessionSurface, BrowserTabDel
             child.close()
         case .contextMenu(let request):
             contextMenus.present(request, in: tab.contentView, leading: [])
+        case .devTools(let command):
+            if let placement = command.placement { (tab as? any BrowserDevToolsHosting)?.performDevTools(placement) }
+        case .goToHistoryEntry(let offset):
+            (tab as? any BrowserBackForwardListing)?.goToEntry(offset: offset)
         default:
             break
         }

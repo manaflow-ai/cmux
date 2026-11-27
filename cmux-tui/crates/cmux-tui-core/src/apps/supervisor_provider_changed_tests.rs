@@ -67,3 +67,32 @@ fn cmux_next_provider_changed_needs_the_verified_holder_of_the_family() {
     // agent_cli keeps its demand-sequenced invalidation (`apps-agent-inventory-changed`).
     assert_eq!(code(PROVIDER, APP, "agent_cli"), "bad-request");
 }
+
+/// What plays changed: the Mac app's `media` provider tells `media.changed` subscribers (an app
+/// holding `media:read`), so a player extension redraws without polling.
+#[test]
+fn cmux_next_media_changed_reaches_a_media_reader() {
+    let root = temp_dir();
+    write_app(
+        &root.0.join("bundled"),
+        "demo",
+        "cmux/demo",
+        json!({"media:read":"show what plays"}),
+    );
+    let f = fixture_with(&[], Duration::from_secs(60), root);
+    f.install("cmux/demo");
+    f.mount("live", "cmux/demo", "cmux.section/1", json!({}));
+    f.supervisor.logs(CLIENT, "cmux/demo", true);
+    let (tx, _rx) = channel();
+    let tx = Mutex::new(tx);
+    f.supervisor.register_client(
+        PROVIDER,
+        Arc::new(move |v: &Value| tx.lock().unwrap().send(v.clone()).is_ok()),
+    );
+    f.supervisor.register_provider(PROVIDER, APP, vec!["media".into()]).unwrap();
+    subscribe(&f, 42, "media.changed");
+    assert_eq!(f.supervisor.provider_changed(PROVIDER, APP, "media").unwrap(), json!({}));
+    f.wait("media.changed invalidation", |e| {
+        e["event"] == "apps-log" && e["message"] == "event-body 42 {}"
+    });
+}

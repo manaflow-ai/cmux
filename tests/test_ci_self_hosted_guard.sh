@@ -109,13 +109,12 @@ check_ios_runner_routing() {
   # override, MACOS_RUNNER_TESTS, then MACOS_RUNNER_IOS, and the owned pool;
   # every macOS job reads its answer, and a re-run attempt its retry answer
   # (a bot's re-run the picker's own Blacksmith retry, bot_retry_runs_on).
-  # mobile-core-package needs no simulator, so it reads package_runs_on. The
-  # dispatch input comes first; the cmux-next lane then asks for owned
-  # (tests/test_ci_pr_runner_pool.py pins the whole expression).
+  # The mobile-core packages test on Linux (mobile-core-linux), so no macOS
+  # job reads package_runs_on.
   # ios-simulator-build reads build_runs_on (the sim-first label when one is
   # idle), falling back to runs_on.
   if [[ "$(grep -Fc "runs-on: \${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || fromJSON(github.run_attempt > 1 && contains(fromJSON('[\"github-actions[bot]\",\"cmux-bot[bot]\"]'), github.triggering_actor) && needs.runner.outputs.bot_retry_runs_on || github.run_attempt > 1 && needs.runner.outputs.retry_runs_on || needs.runner.outputs.build_runs_on || needs.runner.outputs.runs_on) }}" "$IOS_FILE")" -ne 1 ]] ||
-     [[ "$(grep -Fc "runs-on: \${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || fromJSON(github.run_attempt > 1 && contains(fromJSON('[\"github-actions[bot]\",\"cmux-bot[bot]\"]'), github.triggering_actor) && needs.runner.outputs.bot_retry_runs_on || github.run_attempt > 1 && needs.runner.outputs.retry_runs_on || needs.runner.outputs.package_runs_on) }}" "$IOS_FILE")" -ne 1 ]]; then
+     grep -Fq "needs.runner.outputs.package_runs_on" "$IOS_FILE"; then
     echo "FAIL: all macOS iOS test jobs must take the runner job's pool, which honors the dispatch runner override"
     exit 1
   fi
@@ -629,7 +628,11 @@ check_dmg_signing_uses_build_keychain() {
 }
 
 check_create_dmg_uses_run_local_npm_prefix() {
-  for file in "$ROOT_DIR/.github/workflows/nightly.yml" "$ROOT_DIR/.github/workflows/release.yml"; do
+  # nightly.yml runs the step as scripts/ci/nightly-steps/install-create-dmg.sh; read it inline.
+  local nightly_text
+  nightly_text="$(mktemp)"
+  python3 "$ROOT_DIR/tests/nightly_workflow_text.py" > "$nightly_text"
+  for file in "$nightly_text" "$ROOT_DIR/.github/workflows/release.yml"; do
     if ! awk '
       /^[[:space:]]*(- )?name: Install build deps/ { in_step=1; next }
       in_step && /^[[:space:]]*- (name:|&)/ { in_step=0 }
@@ -642,7 +645,7 @@ check_create_dmg_uses_run_local_npm_prefix() {
       in_step && /echo "\$wrapper_dir" >> "\$GITHUB_PATH"/ { saw_path=1 }
       END { exit !(saw_node && saw_prefix && saw_mkdir && saw_install && saw_wrapper && saw_exec && saw_path) }
     ' "$file"; then
-      echo "FAIL: $(basename "$file") must run create-dmg from a setup-node-bound wrapper in a run-local npm prefix"
+      echo "FAIL: $([ "$file" = "$nightly_text" ] && echo nightly.yml || basename "$file") must run create-dmg from a setup-node-bound wrapper in a run-local npm prefix"
       exit 1
     fi
   done
@@ -985,7 +988,7 @@ EOF
 
 check_no_github_hosted_runners() {
   # Nightly workflows (*nightly*.yml, *notarization*.yml) may still name the
-  # GitHub-hosted Windows image (cmux-tui-nightly.yml's Windows package leg).
+  # GitHub-hosted Windows image (the cmux-tui nightly's Windows package leg, retired).
   # Hosted macOS is not exempt there any more: nightly Mac jobs take an owned
   # Mac, never Blacksmith (tests/test_nightly_never_blacksmith.py; Leo,
   # 2026-10-27: "THE GITHUB HOSTED MACS / ARE THE SLOWEST THINGS"). Until
@@ -1012,7 +1015,9 @@ check_no_github_hosted_runners() {
   # scalar list items, dispatch defaults, and every *RUNNER* key (env mirrors
   # and inputs feed runs-on too).
   local hosted='(^|[^A-Za-z0-9_-])(ubuntu-(latest|slim|[0-9]{2}[.][0-9]{2}(-arm)?)|macos-(latest|[0-9]+(-intel|-large|-xlarge|-arm64)?)|windows-(latest|[0-9]{4}(-arm)?|11-arm))([^A-Za-z0-9_.-]|$)'
-  local fork_branch="github[.]repository_owner != 'manaflow-ai' [&][&] ('[A-Za-z0-9._-]+'|matrix[.]hosted_runner)"
+  # A fork pull request's branch of the one Linux label (scripts/ci/one_linux_label.py) is fork-only too:
+  # a fork takes hosted Ubuntu, never an owned host (check_no_hosted_runs_on.py agrees).
+  local fork_branch="github[.]repository_owner != 'manaflow-ai' [&][&] ('[A-Za-z0-9._-]+'|matrix[.]hosted_runner)|(github[.]event_name == 'pull_request' [&][&] )?github[.]event[.]pull_request[.]head[.]repo[.]full_name != github[.]repository [&][&] 'ubuntu-24[.]04' [|][|] "
   local trusted_list='fromJSON[(]'"'"'[[]"blacksmith-2vcpu-ubuntu-2404","blacksmith-4vcpu-ubuntu-2404"[]]'"'"'[)], vars[.]CI_TRUSTED_RUNNER'
   # The nightly's secret-holding Linux jobs (signer, publication, promotion, release notes, dSYMs, deltas,
   # notarization polls, the tag permission probe) take the one-job cmux-gcp-nightly-jit-x64 label on every
@@ -1024,15 +1029,8 @@ check_no_github_hosted_runners() {
   # blacksmiths do exist"), with LINUX_RUNNER or the overflow switch behind it.
   local -a exceptions=(
     # npm trusted publishing and --provenance accept only GitHub-hosted runners.
-    "sdk-bootstrap-npm.yml:    runs-on: ubuntu-latest # github-hosted-required: npm provenance publishing"
-    "sdk-release-cut.yml:    runs-on: ubuntu-latest # github-hosted-required: npm provenance needs a github-hosted runner"
-    "sdk-release-cut.yml:    runs-on: ubuntu-latest # github-hosted-required: npm provenance verification"
     "tui-publish-npm.yml:    runs-on: ubuntu-latest # github-hosted-required: npm provenance needs a github-hosted runner"
-    "cmux-tui-nightly.yml:    runs-on: ubuntu-latest # github-hosted-required: npm provenance needs a github-hosted runner"
     "relay-publish-npm.yml:    runs-on: ubuntu-latest # github-hosted-required: npm provenance needs a github-hosted runner"
-    "coderouter-publish-npm.yml:    runs-on: ubuntu-latest # github-hosted-required: npm provenance needs a GitHub-hosted runner"
-    # PyPI trusted publishing accepts only GitHub-hosted runners too.
-    "coderouter-publish-pypi.yml:    runs-on: ubuntu-latest # github-hosted-required: PyPI trusted publishing needs a GitHub-hosted runner"
     # The packages' attestations are verified with --deny-self-hosted-runners,
     # so they must be signed on a GitHub-hosted runner.
     "cmux-tui-build-package.yml:    runs-on: ubuntu-latest # github-hosted-required: artifact attestations need GitHub OIDC"
@@ -1116,7 +1114,7 @@ check_no_github_hosted_runners() {
 import pathlib, re, sys, yaml
 root, repo = pathlib.Path(sys.argv[1]), sys.argv[2]
 hosted, fork, trusted, nightly = (re.compile(p) for p in sys.argv[3:7])
-key = re.compile(r"^(runs-on|runs_on|os|labels|group|[A-Za-z0-9_-]*runner[A-Za-z0-9_-]*)$", re.IGNORECASE)
+key = re.compile(r"^(runs-on|runs_on|os|labels|group|[A-Za-z0-9_-]*runner[A-Za-z0-9_-]*|[A-Za-z0-9_-]*_label|fleet_linux)$", re.IGNORECASE)
 def spans(node):
     """A scalar under a runner key that starts and ends on different lines."""
     if isinstance(node, yaml.MappingNode):
@@ -1165,7 +1163,7 @@ PY
       done
       [[ "$allowed" -eq 1 ]] && continue
       echo "FAIL: GitHub-hosted runner label: ${line#"$ROOT_DIR"/}" | cut -c1-260
-    done < <(grep -rnE "(runs-on:|^[[:space:]]+(labels|group):|[[:space:]\"](os|runs_on|runs-on|[A-Za-z0-9_-]*[Rr]unner)\"?:[[:space:]]|[A-Za-z0-9_-]*RUNNER[A-Za-z0-9_-]*:[[:space:]]|^[[:space:]]*-[[:space:]]+[A-Za-z0-9._-]+[[:space:]]*$|^[[:space:]]+default:[[:space:]])" "$dir")
+    done < <(grep -rnE "(runs-on:|^[[:space:]]+(labels|group):|[[:space:]\"](os|runs_on|runs-on|[A-Za-z0-9_-]*[Rr]unner)\"?:[[:space:]]|[A-Za-z0-9_-]*RUNNER[A-Za-z0-9_-]*:[[:space:]]|[A-Za-z0-9_-]*_LABEL:[[:space:]]|FLEET_LINUX:[[:space:]]|^[[:space:]]*-[[:space:]]+[A-Za-z0-9._-]+[[:space:]]*$|^[[:space:]]+default:[[:space:]])" "$dir")
   }
   local fixture scan_out failed=0
   fixture="$(mktemp -d)"
@@ -1195,6 +1193,12 @@ jobs:
     with:
       linux_runner: >-
         ${{ vars.X || 'ubuntu-24.04' }}
+  h:
+    # A placement script's label inputs become runs-on: a hosted ubuntu-24.04
+    # hid here until 2026-11-19 (Leo: "Fuck GitHub"). A fork's literal is the fork branch, not this.
+    env:
+      SIDE_LABEL: ${{ github.event_name == 'push' && 'ubuntu-24.04' || vars.X }}
+      FLEET_LINUX: ${{ github.event_name == 'push' && 'ubuntu-24.04' || vars.X }}
 YAML
   cat > "$fixture/clean-nightly.yml" <<'YAML'
 jobs:
@@ -1205,6 +1209,8 @@ jobs:
   c:
     runs-on: >-
       ${{ vars.X || 'blacksmith-4vcpu-ubuntu-2404' }}
+  e:
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || 'cmux-linux' }}
   d:
     env:
       CMUX_CI_RUNNER_VARIABLES: |
@@ -1213,8 +1219,8 @@ jobs:
 YAML
   scan_out="$(hosted_scan "$fixture")"
   rm -rf "$fixture"
-  if [[ "$(grep -c '^FAIL:' <<<"$scan_out")" -ne 8 ]] || grep -q 'clean-nightly.yml' <<<"$scan_out"; then
-    echo "FAIL: GitHub-hosted runner guard self-test: the scan must flag exactly the eight hosted selections in its fixture and nothing in the clean one:"
+  if [[ "$(grep -c '^FAIL:' <<<"$scan_out")" -ne 10 ]] || grep -q 'clean-nightly.yml' <<<"$scan_out"; then
+    echo "FAIL: GitHub-hosted runner guard self-test: the scan must flag exactly the ten hosted selections in its fixture and nothing in the clean one:"
     echo "$scan_out"
     exit 1
   fi

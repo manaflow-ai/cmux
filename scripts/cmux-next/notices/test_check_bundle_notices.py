@@ -507,16 +507,19 @@ class CheckBundleNoticesTest(unittest.TestCase):
     REMOTE = "Contents/Library/cmux Remote (dev).app"
     # The cmux Computer Use engine, built from cmux-tui with the workspace's own toolchain.
     REMOTE_ENGINE = f"{REMOTE}/Contents/Frameworks/libcmux_computer_use.dylib"
+    # The screen stream's rules (cmux-rd-screen-ffi), the Screen Sharing worker's.
+    REMOTE_SCREEN_RULES = f"{REMOTE}/Contents/Frameworks/libcmux_rd_screen.dylib"
 
     def test_the_map_covers_every_binary_of_the_embedded_cmux_remote(self) -> None:
         bundle_map = json.loads((HERE / "bundle-map.json").read_text())
         for rel in (f"{self.REMOTE}/Contents/MacOS/cmux-remote", f"{self.REMOTE}/Contents/Frameworks/libWebRTC.dylib",
-                    self.REMOTE_ENGINE):
+                    self.REMOTE_ENGINE, self.REMOTE_SCREEN_RULES):
             entries = [e for e in bundle_map["entries"] if fnmatch.fnmatchcase(rel, e["path"])]
             self.assertTrue(entries, f"{rel}: no bundle-map entry")
-        sdk = [e for e in bundle_map["entries"] if fnmatch.fnmatchcase(self.REMOTE_ENGINE, e["path"])][0]
-        self.assertIn("rust-std", sdk["notices"])
-        self.assertIn(self.STD_SECTION, sdk["notices"])
+        for rust in (self.REMOTE_ENGINE, self.REMOTE_SCREEN_RULES):
+            sdk = [e for e in bundle_map["entries"] if fnmatch.fnmatchcase(rust, e["path"])][0]
+            self.assertIn("rust-std", sdk["notices"])
+            self.assertIn(self.STD_SECTION, sdk["notices"])
 
 
 if __name__ == "__main__":

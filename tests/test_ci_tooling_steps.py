@@ -2,7 +2,7 @@
 """tooling-tests runs a step only when the pull request's diff reaches a test it runs, and fails open otherwise.
 
 Leo, 2026-11-19: "only meaningful tests ... not just there for ticky tack". scripts/ci/tooling_steps.py, run by
-cmux-next guards / portable-placement's hot-only route on the merge commit's diff, picks the tooling-tests steps whose tests read a changed
+cmux-next guards / tooling-tests' own setup-tooling-route step on the merge commit's diff, picks the tooling-tests steps whose tests read a changed
 file (workflow_paths_cover_inputs.Walker's closure). These check, on a fixture repository, that a change to one
 step's test input selects that step only, that a step with an input nobody can resolve always runs, and that a
 change to the workflow or the router, or a non-pull-request event, runs every step. Against the real
@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import importlib.util
 import os
+import shutil
 import subprocess
 import sys
 import tempfile
@@ -72,6 +73,9 @@ jobs:
       - name: H checks every tracked file
         id: tt-h
         run: python3 tests/test_h.py
+      - name: I lists source folders under a root it is handed
+        id: tt-i
+        run: python3 tests/test_i.py
 """
 FILES = {
     WORKFLOW: FIXTURE_WORKFLOW,
@@ -104,6 +108,29 @@ FILES = {
         import subprocess
         tracked = subprocess.run(["git", "ls-files", "-z"], capture_output=True).stdout
         """),
+    # ios_placeholder_bounds.py's shape: the root is a parameter (`--root`), the folders a tuple it loops over;
+    # the listing of a scratch folder names no repository directory and adds nothing.
+    "tests/test_i.py": textwrap.dedent("""\
+        import sys
+        from pathlib import Path
+        sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "scripts"))
+        import check_i
+        """),
+    "scripts/check_i.py": textwrap.dedent("""\
+        import tempfile
+        from pathlib import Path
+        SOURCE_DIRS = ("app/Sources", "kit/Sources")
+        def sources(root: Path):
+            for rel in SOURCE_DIRS:
+                base = root / rel
+                yield from base.rglob("*.swift")
+        def scratch():
+            tmp = Path(tempfile.mkdtemp())
+            return list((tmp / "out").glob("*.json"))
+        """),
+    "app/Sources/Feature/View.swift": "struct V {}\n",
+    "kit/Sources/Kit.swift": "struct K {}\n",
+    "app/Other/Readme.swift": "struct R {}\n",
 }
 
 
@@ -122,8 +149,8 @@ class FixtureRepo(unittest.TestCase):
     def tearDown(self):
         self.scratch.cleanup()
 
-    def route(self, changed, event="pull_request"):
-        return tooling_steps.route(self.root, WORKFLOW, "tooling-tests", changed, event)
+    def route(self, changed, event="pull_request", added_deleted=None):
+        return tooling_steps.route(self.root, WORKFLOW, "tooling-tests", changed, event, added_deleted)
 
     def verdicts(self, decision):
         return {s.key: s for s in decision.steps}
@@ -148,7 +175,7 @@ class FixtureRepo(unittest.TestCase):
         decision = self.route(["webviews/src/pane.tsx"])
         self.assertFalse(decision.all)
         steps = self.verdicts(decision)
-        self.assertEqual({k for k, s in steps.items() if not s.run}, {"tt-a", "tt-b", "tt-g"})
+        self.assertEqual({k for k, s in steps.items() if not s.run}, {"tt-a", "tt-b", "tt-f", "tt-g", "tt-i"})
         # Setup steps are never selectable: they always run.
         self.assertNotIn("setup-python", steps)
 
@@ -171,13 +198,67 @@ class FixtureRepo(unittest.TestCase):
         self.assertIn("mystery_module_nowhere", steps["tt-c"].reason)
 
     def test_a_step_naming_no_test_or_hiding_its_script_runs(self):
-        steps = self.verdicts(self.route(["webviews/src/pane.tsx"]))
+        steps = self.verdicts(self.route(["docs/notes.md"]))
         self.assertTrue(steps["tt-d"].run)
         self.assertIn("no test", steps["tt-d"].reason)
         self.assertTrue(steps["tt-e"].run)
         self.assertIn("${{ }}", steps["tt-e"].reason)
+
+    def stage(self):
+        subprocess.run(["git", "-C", str(self.root), "add", "-A"], check=True, env=git_fixture_env.fixture_env())
+
+    def test_a_shell_script_running_a_variable_reaches_its_own_directory(self):
+        # tests/run-all.test.sh runs "$t": a file of its own directory, as run-all scripts do, so a change there runs it.
+        self.assertFalse(self.verdicts(self.route(["webviews/src/pane.tsx"]))["tt-f"].run)
+        steps = self.verdicts(self.route(["tests/shell/new.test.sh"]))
+        self.assertTrue(steps["tt-f"].run, steps["tt-f"].reason)
+        # One that declares what it runs reaches that and nothing else of its directory.
+        (self.root / "tests/run-all.test.sh").write_text(
+            "#!/bin/bash\n# tooling-steps runs: tests/shell/*.test.sh\nfor t in $(ls tests/shell); do bash \"$t\"; done\n")
+        (self.root / "tests/shell").mkdir()
+        (self.root / "tests/shell/one.test.sh").write_text("true\n")
+        self.stage()
+        self.assertFalse(self.verdicts(self.route(["tests/other.txt"]))["tt-f"].run)
+        steps = self.verdicts(self.route(["tests/shell/one.test.sh"]))
+        self.assertTrue(steps["tt-f"].run, steps["tt-f"].reason)
+
+    def test_a_variable_run_outside_a_shell_script_stays_unresolved(self):
+        path = self.root / WORKFLOW
+        path.write_text(path.read_text().replace("run: bash tests/run-all.test.sh", 'run: bash "$RUNNER"'))
+        steps = self.verdicts(self.route(["webviews/src/pane.tsx"]))
         self.assertTrue(steps["tt-f"].run)
-        self.assertIn('runs $t', steps["tt-f"].reason)
+
+    def test_heredoc_bodies_and_test_brackets_are_not_commands(self):
+        (self.root / "tests/run-all.test.sh").write_text(textwrap.dedent("""\
+            #!/bin/bash
+            if [[ -n "${A:-}" && -z "${B:-}" ]]; then args+=("$A"); fi
+            cat > out.txt <<'EOF'
+            $mystery --not-a-command
+            EOF
+            python3 - <<'PY'
+            print("inline")
+            PY
+            """))
+        self.stage()
+        steps = self.verdicts(self.route(["webviews/src/pane.tsx"]))
+        self.assertFalse(steps["tt-f"].run, steps["tt-f"].reason)
+
+    def test_the_whole_tree_rule_needs_an_added_or_deleted_file(self):
+        steps = self.verdicts(tooling_steps.route(self.root, WORKFLOW, "tooling-tests", ["webviews/src/pane.tsx"],
+                                                  "pull_request", []))
+        self.assertFalse(steps["tt-h"].run, steps["tt-h"].reason)
+        steps = self.verdicts(tooling_steps.route(self.root, WORKFLOW, "tooling-tests", ["webviews/src/new.tsx"],
+                                                  "pull_request", ["webviews/src/new.tsx"]))
+        self.assertTrue(steps["tt-h"].run, steps["tt-h"].reason)
+
+    def test_a_command_run_from_a_variable_is_judged_only_for_a_non_product_diff(self):
+        # tt-f's script runs `bash "$t"`: any file of tests/shell may run, so a tooling change runs it, but a diff of
+        # product source alone (which no tooling test reads) skips it.
+        steps = self.verdicts(self.route(["webviews/src/pane.tsx"]))
+        self.assertFalse(steps["tt-f"].run, steps["tt-f"].reason)
+        # With a file of its own directory in the diff, it runs.
+        steps = self.verdicts(self.route(["webviews/src/pane.tsx", "tests/shell/new.test.sh"]))
+        self.assertTrue(steps["tt-f"].run, steps["tt-f"].reason)
 
     def test_a_workflow_or_router_change_runs_every_step(self):
         for changed in (WORKFLOW, "scripts/ci/tooling_steps.py", "scripts/ci/workflow_paths_cover_inputs.py",
@@ -185,6 +266,16 @@ class FixtureRepo(unittest.TestCase):
             decision = self.route(["webviews/src/pane.tsx", changed])
             self.assertTrue(decision.all, changed)
             self.assertTrue(all(s.run for s in decision.steps), changed)
+
+    def test_a_bash_env_command_substitution_still_names_its_file(self):
+        # The API call log's BASH_ENV is one $( ) that echoes the checkout's file or a fetched copy (2026-11-21).
+        path = self.root / WORKFLOW
+        path.write_text(path.read_text().replace(
+            "BASH_ENV: ${GITHUB_WORKSPACE:-/nonexistent}/scripts/env.sh",
+            "BASH_ENV: '$({ w=\"${GITHUB_WORKSPACE:-/nonexistent}/scripts/env.sh\"; [ -f \"$w\" ] && echo \"$w\"; } 2>/dev/null)'"))
+        decision = self.route(["webviews/src/pane.tsx", "scripts/env.sh"])
+        self.assertTrue(decision.all)
+        self.assertFalse(self.route(["webviews/src/pane.tsx"]).all)
 
     def test_a_non_pull_request_event_or_no_list_runs_every_step(self):
         self.assertTrue(self.route(["webviews/src/pane.tsx"], event="push").all)
@@ -198,12 +289,379 @@ class FixtureRepo(unittest.TestCase):
             tooling_steps.write_outputs(decision, output, summary, "tooling-tests")
             values = dict(line.split("=", 1) for line in output.read_text(encoding="utf-8").splitlines())
             self.assertEqual(values["tooling_all"], "false")
-            self.assertEqual(values["tooling_steps"], " tt-a tt-c tt-d tt-e tt-f tt-h ")
+            self.assertEqual(values["tooling_steps"], " tt-a tt-c tt-d tt-e tt-h ")
             self.assertIn("`tt-b` B:", summary.read_text(encoding="utf-8"))
+
+    # A listing under a root the script is handed (`root / rel`, `--root`) is read as one under the repository: the
+    # walker used to drop it, so a change under those folders skipped the step and turned the base red after merge
+    # (tests/test_ios_placeholder_bounds.py, RecoveryGalleryRoot.swift, fixed on base by #55212).
+    def test_a_change_under_a_computed_root_listing_runs_the_step(self):
+        for changed in ("app/Sources/Feature/View.swift", "kit/Sources/Kit.swift"):
+            steps = self.verdicts(self.route([changed]))
+            self.assertTrue(steps["tt-i"].run, f"{changed}: {steps['tt-i'].reason}")
+            self.assertIn("lists", steps["tt-i"].reason)
+
+    def test_a_change_beside_a_computed_root_listing_skips_it(self):
+        steps = self.verdicts(self.route(["app/Other/Readme.swift"]))
+        self.assertFalse(steps["tt-i"].run, steps["tt-i"].reason)
+        self.assertFalse(steps["tt-a"].run, steps["tt-a"].reason)
+
+
+DECLARED_FIXTURE = """\
+{"%s": {"tooling-tests": {
+  "tt-f": {"inputs": ["tests/shell/**", "tests/run-all.test.sh"], "why": "runs every tests/shell/*.test.sh by a loop variable"},
+  "tt-d": {"inputs": ["scripts/check_d.py"], "why": "a script, not a test"}
+}}}
+""" % WORKFLOW
+
+
+GATE_WORKFLOW = ".github/workflows/gates.yml"
+GATE_FILES = {
+    GATE_WORKFLOW: textwrap.dedent("""\
+        on: [pull_request]
+        jobs:
+          tooling-tests:
+            runs-on: ubuntu-24.04
+            steps:
+              - name: The gate's own test
+                id: tt-gate
+                run: python3 tests/test_gate.py
+              - name: A test that only lists the tests folder
+                id: tt-registry
+                run: python3 tests/test_registry.py
+        """),
+    # tests/test_ci_package_lane_prebuild.py's shape: copy the scripts folder into a scratch repo and run the gate
+    # by its path there. The walker sees a directory read, not an import, so before this the reason was "reads
+    # directory", which --pr-scope defers to the post-merge batch.
+    "tests/test_gate.py": textwrap.dedent("""\
+        import shutil, subprocess, tempfile
+        from pathlib import Path
+        ROOT = Path(__file__).resolve().parents[1]
+        scratch = Path(tempfile.mkdtemp())
+        shutil.copytree(ROOT / "scripts/gates", scratch / "scripts/gates")
+        subprocess.run(["python3", "scripts/gates/check_gate.py"], cwd=scratch, check=True)
+        """),
+    "scripts/gates/check_gate.py": "ALLOWED = ['a']\n",
+    "scripts/gates/other_gate.py": "print('other')\n",
+    "tests/test_registry.py": textwrap.dedent("""\
+        from pathlib import Path
+        ROOT = Path(__file__).resolve().parents[1]
+        NAMES = sorted(p.name for p in (ROOT / "tests").glob("test_*.py"))  # tests/test_gate.py among them
+        """),
+}
+
+
+class GateScriptRunsItsTest(unittest.TestCase):
+    """A pull request that changes a gate script runs the tooling-tests step whose own test runs that script by its
+    path, even under --pr-scope. cmux#57119 edited scripts/cmux-next/check_app_crate_licenses.py and its pinned test
+    went red on feat-cmux-next; a gate whose test runs it as a subprocess (not an import) was deferred to the
+    post-merge batch, so its pull request could not see that red at all."""
+
+    def setUp(self):
+        self.scratch = tempfile.TemporaryDirectory()
+        self.root = Path(self.scratch.name)
+        git_fixture_env.init_repo(self.root)
+        for rel, text in GATE_FILES.items():
+            path = self.root / rel
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_text(text, encoding="utf-8")
+        subprocess.run(["git", "-C", str(self.root), "add", "-A"], check=True, env=git_fixture_env.fixture_env())
+
+    def tearDown(self):
+        self.scratch.cleanup()
+
+    def steps(self, changed):
+        decision = tooling_steps.route(self.root, GATE_WORKFLOW, "tooling-tests", changed, "pull_request",
+                                       added_deleted=[], pr_scope=True)
+        return {s.key: s for s in decision.steps}
+
+    def test_a_changed_gate_script_runs_the_test_that_runs_it_by_path(self):
+        step = self.steps(["scripts/gates/check_gate.py"])["tt-gate"]
+        self.assertTrue(step.run, step.reason)
+        self.assertIn("scripts/gates/check_gate.py", step.reason)
+
+    def test_a_sibling_the_test_never_names_stays_deferred(self):
+        step = self.steps(["scripts/gates/other_gate.py"])["tt-gate"]
+        self.assertFalse(step.run, step.reason)
+        self.assertTrue(step.reason.startswith(tooling_steps.DEFERRED), step.reason)
+
+    def test_a_test_naming_another_test_is_not_a_gate_under_test(self):
+        step = self.steps(["tests/test_gate.py"])["tt-registry"]
+        self.assertFalse(step.run, step.reason)
+
+
+class DeclaredInputs(unittest.TestCase):
+    """scripts/ci/tooling-step-inputs.json: a step the walker cannot read whole runs only when a changed path matches
+    its declared globs or its resolved inputs; a bad or missing file declares nothing (every such step runs)."""
+
+    setUp_fixture, tearDown, route, verdicts = FixtureRepo.setUp, FixtureRepo.tearDown, FixtureRepo.route, \
+        FixtureRepo.verdicts
+
+    def setUp(self):
+        self.setUp_fixture()
+        self.declare(DECLARED_FIXTURE)
+        (self.root / "tests/shell").mkdir(parents=True, exist_ok=True)
+        (self.root / "tests/shell/one.test.sh").write_text("cat data/listed.txt >/dev/null\n", encoding="utf-8")
+        subprocess.run(["git", "-C", str(self.root), "add", "-A"], check=True, env=git_fixture_env.fixture_env())
+
+    def declare(self, text):
+        path = self.root / tooling_steps.DECLARED
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(text, encoding="utf-8")
+
+    def test_a_declared_step_is_skipped_with_its_reason(self):
+        steps = self.verdicts(self.route(["webviews/src/pane.tsx"]))
+        # tt-f's loop the walker resolves since #53873, so only tt-d leans on its declaration here.
+        self.assertFalse(steps["tt-f"].run, steps["tt-f"].reason)
+        for key in ("tt-d",):
+            self.assertFalse(steps[key].run, steps[key].reason)
+            self.assertIn("none of its declared inputs", steps[key].reason)
+            self.assertIn(tooling_steps.DECLARED, steps[key].reason)
+        # Undeclared steps the walker cannot read still run.
+        self.assertTrue(steps["tt-c"].run)
+        self.assertTrue(steps["tt-e"].run)
+
+    def test_a_change_a_declared_glob_matches_runs_the_step(self):
+        steps = self.verdicts(self.route(["tests/shell/two.test.sh"]))
+        self.assertTrue(steps["tt-f"].run, steps["tt-f"].reason)
+        self.assertIn("matches its declared input tests/shell/**", steps["tt-f"].reason)
+        self.assertFalse(steps["tt-d"].run, steps["tt-d"].reason)
+        steps = self.verdicts(self.route(["scripts/check_d.py"]))
+        self.assertTrue(steps["tt-d"].run, steps["tt-d"].reason)
+
+    def test_a_change_to_the_declarations_runs_every_step(self):
+        decision = self.route(["webviews/src/pane.tsx", tooling_steps.DECLARED])
+        self.assertTrue(decision.all)
+
+    def test_a_missing_or_malformed_file_declares_nothing(self):
+        for text in (None, "{", "[]", '{"%s": {"tooling-tests": {"tt-f": {"inputs": []}}}}' % WORKFLOW,
+                     '{"%s": {"tooling-tests": {"tt-f": {"inputs": ["tests/shell/**"]}}}}' % WORKFLOW):
+            if text is None:
+                (self.root / tooling_steps.DECLARED).unlink()
+            else:
+                self.declare(text)
+            steps = self.verdicts(self.route(["webviews/src/pane.tsx"]))
+            self.assertTrue(steps["tt-d"].run, text)
+
+    def test_a_traced_declaration_alone_decides_its_step(self):
+        # 2026-11-23T18..11-24T18: tt-measure-tests ran on 3,637 of 4,398 tooling-tests jobs (6.9k runner-min/day): the
+        # walker's folder and whole-tree guesses (a script naming Packages/macOS/CmuxNext, a `git ls-files`) matched
+        # nearly every diff its declared globs did not. With "traced": true, its globs and resolved files decide it.
+        added = ["webviews/src/new.tsx"]
+        steps = self.verdicts(self.route(added, added_deleted=added))
+        self.assertTrue(steps["tt-h"].run, steps["tt-h"].reason)  # undeclared: the whole-tree guess holds
+        self.declare('{"%s": {"tooling-tests": {"tt-h": {"inputs": ["tests/test_h.py", "data/**"], '
+                     '"why": "traced: reads only its test and data/", "traced": true}}}}' % WORKFLOW)
+        steps = self.verdicts(self.route(added, added_deleted=added))
+        self.assertFalse(steps["tt-h"].run, steps["tt-h"].reason)
+        self.assertIn("traced", steps["tt-h"].reason)
+        for path in ("data/new.txt", "tests/test_h.py"):
+            steps = self.verdicts(self.route([path], added_deleted=[path]))
+            self.assertTrue(steps["tt-h"].run, (path, steps["tt-h"].reason))
+        # "traced" counts only as the literal true, on an entry load_declared accepts.
+        self.declare('{"%s": {"tooling-tests": {"tt-h": {"inputs": ["tests/test_h.py"], "why": "x", '
+                     '"traced": "yes"}}}}' % WORKFLOW)
+        steps = self.verdicts(self.route(added, added_deleted=added))
+        self.assertTrue(steps["tt-h"].run, steps["tt-h"].reason)
+
+    def test_the_real_traced_steps_are_declared_steps(self):
+        workflow = ".github/workflows/cmux-next-guards.yml"
+        traced = tooling_steps.load_traced(ROOT, workflow, "tooling-tests")
+        self.assertIn("tt-measure-tests", traced)
+        self.assertLessEqual(traced, set(tooling_steps.load_declared(ROOT, workflow, "tooling-tests")))
+
+    def test_parse_trace_reads_the_checkout_only(self):
+        repo = tooling_steps.Repo.load(self.root)
+        root = str(self.root)
+        log = [
+            f'100 execve("/bin/bash", ["bash", "-c", "x"], 0x0 /* 1 var */) = 0',
+            f'100 openat(AT_FDCWD</x>, "tests/run-all.test.sh", O_RDONLY) = 3',
+            f'100 clone(child_stack=NULL, flags=SIGCHLD) = 101',
+            f'101 chdir("tests") = 0',
+            f'101 openat(AT_FDCWD, "shell", O_RDONLY|O_NONBLOCK|O_CLOEXEC|O_DIRECTORY) = 3',
+            f'101 newfstatat(AT_FDCWD, "missing/thing.py", 0x0, 0) = -1 ENOENT (No such file or directory)',
+            f'100 openat(7</tmp/elsewhere>, "liba", O_RDONLY|O_DIRECTORY) = 4',
+            f'100 openat(7, "libb", O_RDONLY|O_DIRECTORY) = 4',
+            f'100 openat(8<{root}/data>, "listed.txt", O_RDONLY) = 5',
+            f'100 newfstatat(5<{root}/data/listed.txt>, "", {{st_mode=S_IFREG}}, AT_EMPTY_PATH) = 0',
+            f'100 openat(AT_FDCWD, "{root}/.git/HEAD", O_RDONLY) = 6',
+            f'100 newfstatat(AT_FDCWD, "nosuchtool", 0x0, 0) = -1 ENOENT (No such file or directory)',
+            f'102 execve("/usr/bin/git", ["git", "ls-files", "--", "tests/"], 0x0 /* 1 var */) = 0',
+        ]
+        trace = tooling_steps.parse_trace(repo, log)
+        self.assertEqual(trace.files, {"tests/run-all.test.sh", "data/listed.txt"})
+        self.assertEqual(trace.dirs, {"tests/shell"})
+        self.assertEqual(trace.probes, {"tests/missing/thing.py"})
+        self.assertEqual(trace.git, ["ls-files tests/"])
+
+    @unittest.skipUnless(shutil.which("strace"), "strace is not installed")
+    def test_verify_names_a_read_the_declared_inputs_miss(self):
+        problems = tooling_steps.verify(self.root, WORKFLOW, "tooling-tests", ["tt-f"])
+        self.assertEqual(problems, ["tt-f: read data/listed.txt, outside its declared inputs and its resolved inputs"])
+        self.declare(DECLARED_FIXTURE.replace('"tests/run-all.test.sh"', '"tests/run-all.test.sh", "data/**"'))
+        self.assertEqual(tooling_steps.verify(self.root, WORKFLOW, "tooling-tests", ["tt-f"]), [])
+
+
+class GreenReuse(FixtureRepo):
+    """scripts/ci/tooling_reuse.py: a later head reuses an earlier run's pass for a step only when route, asked about the
+    diff between the two merge trees, would not select that step."""
+
+    def setUp(self):
+        super().setUp()
+        sys.path.insert(0, str(ROOT / "scripts" / "ci"))
+        import tooling_reuse
+        self.reuse = tooling_reuse
+        self.commit("fixture")
+        self.before = tooling_reuse.tree_of(self.root)
+
+    def commit(self, message):
+        env = git_fixture_env.fixture_env()
+        subprocess.run(["git", "-C", str(self.root), "add", "-A"], check=True, env=env)
+        subprocess.run(["git", "-C", str(self.root), "-c", "user.name=t", "-c", "user.email=t@example.com",
+                        "commit", "-q", "--allow-empty", "-m", message], check=True, env=env)
+
+    def edit(self, rel, text):
+        path = self.root / rel
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(text, encoding="utf-8")
+        self.commit(f"edit {rel}")
+
+    def found(self, selected, passed=("tt-a", "tt-b", "tt-g")):
+        record = self.reuse.Record("run 1", self.before, set(passed))
+        return self.reuse.reusable(self.root, WORKFLOW, "tooling-tests", list(selected),
+                                   self.reuse.tree_of(self.root), [record])
+
+    def test_the_same_tree_reuses_every_step_that_passed(self):
+        found = self.found(["tt-a", "tt-b", "tt-c"])
+        self.assertEqual(set(found), {"tt-a", "tt-b"})  # tt-c never passed in run 1
+
+    def test_a_change_one_step_reads_reruns_that_step_only(self):
+        self.edit("liba/lib_a.py", "VALUE = 2\n")
+        found = self.found(["tt-a", "tt-b"])
+        self.assertEqual(set(found), {"tt-b"})
+        self.assertIn("run 1", found["tt-b"][0])
+
+    def test_a_change_to_the_workflow_or_reuse_logic_reuses_nothing(self):
+        for rel in (WORKFLOW, "scripts/ci/tooling_reuse.py"):
+            with self.subTest(rel=rel):
+                path = self.root / rel
+                old = path.read_text(encoding="utf-8") if path.exists() else ""
+                self.edit(rel, old + "\n# changed\n")
+                self.assertEqual(self.found(["tt-a", "tt-b"]), {})
+
+    def test_a_deleted_file_a_listed_data_file_names_reruns_its_step(self):
+        (self.root / "tools/listed_tool.py").unlink()
+        self.commit("delete")
+        self.assertNotIn("tt-g", self.found(["tt-a", "tt-g"]))
+
+    def test_apply_rewrites_the_route_output_and_fails_open(self):
+        self.edit("webviews/src/pane.tsx", "export const x = 1\n")
+        out = self.root / "tooling.out"
+        out.write_text("tooling_steps= tt-a tt-b tt-c \ntooling_all=false\n", encoding="utf-8")
+        record = self.reuse.Record("run 1", self.before, {"tt-a", "tt-c"})
+        found = self.reuse.apply(out, self.root, WORKFLOW, "tooling-tests", lambda: [record])
+        self.assertEqual(set(found), {"tt-a"})  # tt-c reads an unknown module, so route still selects it
+        self.assertEqual(out.read_text(encoding="utf-8"), "tooling_steps= tt-b tt-c \ntooling_all=false\n")
+
+        def broken():
+            raise TimeoutError("api down")
+        out.write_text("tooling_steps= tt-a \ntooling_all=false\n", encoding="utf-8")
+        self.assertEqual(self.reuse.apply(out, self.root, WORKFLOW, "tooling-tests", broken), {})
+        self.assertEqual(out.read_text(encoding="utf-8"), "tooling_steps= tt-a \ntooling_all=false\n")
+
+    def test_record_keeps_only_steps_that_ran_and_passed(self):
+        import json
+        steps = {"setup-python": {"outcome": "success"}, "tt-a": {"outcome": "success"},
+                 "tt-b": {"outcome": "skipped"}, "tt-c": {"outcome": "failure"}}
+        out = self.root / "out" / "tooling-passed.json"
+        passed = self.reuse.record(WORKFLOW, "tooling-tests", self.root, json.dumps(steps), out, "1")
+        self.assertEqual(passed, ["tt-a"])
+        data = json.loads(out.read_text(encoding="utf-8"))
+        self.assertEqual(data["tree"], self.before)
+
+    def test_record_keeps_the_steps_the_side_by_side_runner_passed(self):
+        import json
+        steps = {"setup-tooling-run": {"outcome": "failure", "outputs": {"ran": "true", "passed": " tt-b "}},
+                 "tt-a": {"outcome": "skipped"}, "tt-b": {"outcome": "skipped"}, "tt-c": {"outcome": "skipped"}}
+        out = self.root / "out" / "tooling-passed.json"
+        self.assertEqual(self.reuse.record(WORKFLOW, "tooling-tests", self.root, json.dumps(steps), out, "1"), ["tt-b"])
+
+    def test_audit_is_stable_per_run_and_near_its_percent(self):
+        self.assertEqual(self.reuse.audited("123", 10), self.reuse.audited("123", 10))
+        hits = sum(self.reuse.audited(str(n), 10) for n in range(2000))
+        self.assertTrue(120 < hits < 280, hits)
+        self.assertFalse(any(self.reuse.audited(str(n), 0) for n in range(200)))
+
+
+class RealDeclarations(unittest.TestCase):
+    """Every step scripts/ci/tooling-step-inputs.json names is a tooling-tests run step, and the file loads (a
+    malformed file would silently declare nothing)."""
+
+    def test_the_declarations_load_and_name_real_steps(self):
+        workflow = ".github/workflows/cmux-next-guards.yml"
+        declared = tooling_steps.load_declared(ROOT, workflow, "tooling-tests")
+        self.assertTrue(declared, f"{tooling_steps.DECLARED} declares nothing: malformed?")
+        import yaml
+        job = yaml.safe_load((ROOT / workflow).read_text(encoding="utf-8"))["jobs"]["tooling-tests"]
+        ids = {s.get("id") for s in job["steps"] if "run" in s}
+        self.assertLessEqual(set(declared), ids)
+
+    def test_the_checkers_run_for_their_inputs_and_skip_product_code(self):
+        # tt-test-registry and tt-swift-test-coverage name a checker, not a test: their declared inputs (read off a
+        # traced run) decide them. A tests/ or a CmuxNext test change runs each; a web or Rust change runs neither.
+        workflow = ".github/workflows/cmux-next-guards.yml"
+        declared = tooling_steps.load_declared(ROOT, workflow, "tooling-tests")
+        registry, coverage = declared["tt-test-registry"], declared["tt-swift-test-coverage"]
+        self.assertTrue(tooling_steps.declared_hit(registry, {"tests/test_new.py"}))
+        self.assertTrue(tooling_steps.declared_hit(registry, {"tests/test-execution.d/ci.toml"}))
+        self.assertTrue(tooling_steps.declared_hit(coverage, {"Packages/macOS/CmuxNext/Package.swift"}))
+        self.assertTrue(tooling_steps.declared_hit(coverage, {"Packages/macOS/CmuxNext/Tests/ATests/A.swift"}))
+        for path in ("webviews/src/App.tsx", "cmux-tui/crates/cmux-core/src/lib.rs"):
+            self.assertIsNone(tooling_steps.declared_hit(registry, {path}))
+            self.assertIsNone(tooling_steps.declared_hit(coverage, {path}))
+
+
+class SpelledOutNames(unittest.TestCase):
+    """The last rule of judge_step: an input that spells a changed file's path or name. A path word counts only when
+    the changed path ends with it; a bare file name counts per the input's kind (tooling_steps.names_path)."""
+
+    def names(self, text, input_path, changed):
+        return tooling_steps.names_path(text, input_path, changed)
+
+    def test_a_path_that_ends_another_files_path_names_nothing(self):
+        crate = "cmux-tui/crates/cmux-core/src/lib.rs"
+        self.assertEqual(self.names("  - cmux-tui/crates/cmux-launch-record/src/lib.rs\n", "w.yml", crate), "")
+        self.assertEqual(self.names("path = $(SRCROOT)/Native/DiffSidecar/src/lib.rs;", "p.pbxproj", crate), "")
+        self.assertEqual(self.names("see plans/next/README.md", "w.yml", "docs/README.md"), "")
+        self.assertEqual(self.names("see docs/README.md", "w.yml", "README.md"), "")
+
+    def test_a_path_the_changed_path_ends_with_names_it(self):
+        crate = "cmux-tui/crates/cmux-core/src/lib.rs"
+        self.assertTrue(self.names(f"  - {crate}\n", "w.yml", crate))
+        self.assertTrue(self.names('p = f"{root}/src/lib.rs"', "a.py", crate))
+        self.assertTrue(self.names("cat **/lib.rs", "w.yml", crate))
+        self.assertTrue(self.names('include_str!("../README.md")', "docs/x/a.rs", "docs/README.md"))
+
+    def test_a_longer_name_is_another_file(self):
+        self.assertEqual(self.names("glib.rs README.md.tmpl lib.rs/", "a.sh", "x/lib.rs"), "")
+        self.assertEqual(self.names("x README.md.tmpl", "a.sh", "docs/README.md"), "")
+
+    def test_a_bare_name_counts_by_the_inputs_kind(self):
+        crate = "cmux-tui/crates/cmux-core/src/lib.rs"
+        # Code: only a string literal, never its prose.
+        self.assertTrue(self.names('COMMON = {"lib.rs", "main.rs"}', "a.py", crate))
+        self.assertEqual(self.names("# a mod.rs, lib.rs or main.rs owns its modules", "a.py", crate), "")
+        # Data: a file in its folder or below, or a top-level one.
+        self.assertEqual(self.names('readme = "README.md"', "crates/a/Cargo.toml", "docs/README.md"), "")
+        self.assertTrue(self.names('readme = "README.md"', "crates/a/Cargo.toml", "crates/a/README.md"))
+        self.assertTrue(self.names('readme = "README.md"', "crates/a/Cargo.toml", "README.md"))
+        # Shell, a workflow or a file of no known kind: any folder may hold it.
+        self.assertTrue(self.names("cat lib.rs", "a.sh", crate))
+        self.assertTrue(self.names("run: cat README.md", "w.yml", "docs/README.md"))
 
 
 class RealWorkflow(unittest.TestCase):
-    """cmux-next-guards.yml as it is: every tooling-tests run step carries its selection, and portable-placement's hot-only route feeds it."""
+    """cmux-next-guards.yml as it is: every tooling-tests run step carries its selection, and the job's own setup-tooling-route step feeds it."""
 
     @classmethod
     def setUpClass(cls):
@@ -223,8 +681,9 @@ class RealWorkflow(unittest.TestCase):
                 self.assertNotIn("outputs.tooling_", str(step.get("if", "")), name)
                 continue
             self.assertTrue(key.startswith("tt-"), f"{name}: give it `id: tt-<slug>` and the selection `if:`")
-            selection = (f"(needs.portable-placement.outputs.tooling_all != 'false' || "
-                         f"contains(needs.portable-placement.outputs.tooling_steps, ' {key} '))")
+            selection = (f"steps.setup-tooling-run.outputs.ran != 'true' && "
+                         f"(steps.setup-tooling-route.outputs.tooling_all != 'false' || "
+                         f"contains(steps.setup-tooling-route.outputs.tooling_steps, ' {key} '))")
             self.assertIn(step.get("if"), (f"${{{{ success() && {selection} }}}}",
                                            f"${{{{ !cancelled() && {selection} }}}}"), name)
         self.assertEqual(len(ids), len(set(ids)), "step ids repeat")
@@ -237,17 +696,175 @@ class RealWorkflow(unittest.TestCase):
         expected = [s["id"] for s in self.job["steps"] if "run" in s and not s["id"].startswith("setup-")]
         self.assertEqual([s.key for s in decision.steps], expected)
 
-    def test_hot_route_runs_the_router_and_exports_its_outputs(self):
-        route = self.document["jobs"]["portable-placement"]
-        self.assertEqual(route["outputs"]["tooling_all"], "${{ steps.hot-route.outputs.tooling_all }}")
-        self.assertEqual(route["outputs"]["tooling_steps"], "${{ steps.hot-route.outputs.tooling_steps }}")
-        step = next(s for s in route["steps"] if s.get("id") == "hot-route")
+    def test_an_iphone_swift_change_runs_the_placeholder_bounds_step(self):
+        decision = tooling_steps.route(ROOT, ".github/workflows/cmux-next-guards.yml", "tooling-tests",
+            ["cmux-next-ios/CmuxMobileKit/Sources/CmuxMobileShell/RecoveryGalleryRoot.swift"], "pull_request")
+        step = next(s for s in decision.steps if s.key == "tt-ios-placeholder-bounds")
+        self.assertTrue(step.run, step.reason)
+
+    def test_cmux_57119s_files_run_the_license_gate_test_in_both_jobs(self):
+        # cmux#57119's diff (merge 19a767c7c0b1): it changed the license gate's allowlist and not the test that pins
+        # it, and feat-cmux-next went red on tt-app-crate-licenses. The pull request's own tooling-tests must run it.
+        changed = [".github/workflows/app-ffi-release.yml", "cmux-tui/crates/cmux-app-ffi/Cargo.lock",
+                   "cmux-tui/crates/cmux-app-ffi/Cargo.toml", "cmux-tui/crates/cmux-app-ffi/src/lib.rs",
+                   "scripts/cmux-next/build-app-ffi.sh", "scripts/cmux-next/check_app_crate_licenses.py"]
+        for workflow in (".github/workflows/cmux-next-guards.yml", ".github/workflows/cmux-next-tooling-tests-batch.yml"):
+            for pr_scope in (False, True):
+                decision = tooling_steps.route(ROOT, workflow, "tooling-tests", changed, "pull_request",
+                                               added_deleted=[], pr_scope=pr_scope)
+                step = next(s for s in decision.steps if s.key == "tt-app-crate-licenses")
+                self.assertTrue(step.run, f"{workflow} pr_scope={pr_scope}: {step.reason}")
+
+    def test_a_gate_script_its_test_runs_by_path_runs_that_test(self):
+        # Gate scripts whose tests run them as a subprocess by path: --pr-scope deferred these steps to the
+        # post-merge batch before gate_under_test.
+        for changed, key in (("scripts/ci/package-test-lane.sh", "tt-package-lane-prebuild"),
+                             ("scripts/cmux-next/generate-third-party-notices.sh", "tt-origin-net")):
+            decision = tooling_steps.route(ROOT, ".github/workflows/cmux-next-guards.yml", "tooling-tests", [changed],
+                                           "pull_request", added_deleted=[], pr_scope=True)
+            step = next(s for s in decision.steps if s.key == key)
+            self.assertTrue(step.run, f"{changed} -> {key}: {step.reason}")
+
+    def test_the_runner_step_runs_after_every_setup_and_before_every_step_it_runs(self):
+        steps = self.job["steps"]
+        index = next(i for i, s in enumerate(steps) if s.get("id") == "setup-tooling-run")
+        step = steps[index]
+        self.assertIn("scripts/ci/tooling_steps.py run --workflow .github/workflows/cmux-next-guards.yml", step["run"])
+        self.assertIn('--selection "$RUNNER_TEMP/tooling.out"', step["run"])
+        self.assertIn('--github-output "$GITHUB_OUTPUT"', step["run"])
+        tt = [i for i, s in enumerate(steps) if str(s.get("id") or "").startswith("tt-")]
+        self.assertLess(index, min(tt))
+        last_tt = max(tt)  # after the steps, only post-run actions (tooling_reuse's upload) may be actions
+        self.assertTrue(all("run" in s for s in steps[index:last_tt + 1]), "every setup action comes before the runner")
+        for other in (steps[i] for i in tt):  # an expression env reaches the runner as the same expression
+            for key, value in (other.get("env") or {}).items():
+                if "${{" in str(value):
+                    self.assertEqual((step.get("env") or {}).get(key), value, f"{other['id']}: mirror {key} on the runner step")
+        # It plans the real job: every tt- step's env, shell and timeout this runner can give it.
+        environ = {k: str(v) for k, v in (step.get("env") or {}).items()}
+        planned = tooling_steps.plan_run(ROOT, ".github/workflows/cmux-next-guards.yml", "tooling-tests", None, environ)
+        self.assertEqual([s.key for s in planned], [steps[i]["id"] for i in tt])
+
+    def test_the_route_step_runs_the_router_before_every_selected_step(self):
+        steps = self.job["steps"]
+        index = next(i for i, s in enumerate(steps) if s.get("id") == "setup-tooling-route")
+        step = steps[index]
         self.assertIn("scripts/ci/tooling_steps.py route --workflow .github/workflows/cmux-next-guards.yml",
                       step["run"])
         self.assertIn("--job tooling-tests", step["run"])
         self.assertIn("tooling_all=true", step["run"])  # a router failure runs every step
-        self.assertIn("portable-placement", self.job["needs"])
-        self.assertTrue(self.job["if"].startswith("${{ !cancelled()"))  # a skipped or failed route still runs it
+        self.assertIs(step.get("continue-on-error"), True)  # a failed route never fails the job
+        self.assertEqual(step["if"], "${{ github.event_name == 'pull_request' }}")  # any other event runs every step
+        # The router reads workflows with PyYAML, which the venv step puts on PATH first.
+        setup_python = next(i for i, s in enumerate(steps) if s.get("id") == "setup-python")
+        self.assertLess(setup_python, index)
+        self.assertTrue(all(not str(s.get("id") or "").startswith("tt-") for s in steps[:index]))
+        # No routing job of its own: tooling-tests waits on coalesce, on the base-red check (#52891) and on the
+        # full-ci base merge carry (scripts/ci/head_tier.py full_carry), which only a labeled event runs.
+        self.assertEqual(self.job["needs"], ["coalesce", "tooling-tests-base-red", "full-carry"])
+        self.assertNotIn("portable-placement", self.document["jobs"])
+        self.assertIn("(!cancelled() && needs.coalesce.outputs.run != 'false')", self.job["if"])  # after the draft tier
+
+
+class SideBySide(unittest.TestCase):
+    """tooling_steps.py run: the selected tt- steps at once, each with its own env, shell and timeout."""
+
+    WORKFLOW = textwrap.dedent("""\
+        on: push
+        jobs:
+          t:
+            timeout-minutes: 5
+            steps:
+              - uses: actions/checkout@v4
+              - id: setup-x
+                run: exit 3
+              - id: tt-slow-a
+                if: ${{ success() }}
+                env:
+                  WHO: a
+                  EVENT_NAME: ${{ github.event_name }}
+                run: |
+                  sleep 1
+                  echo "$WHO $EVENT_NAME"
+              - id: tt-slow-b
+                run: sleep 1; echo b
+              - id: tt-fails
+                name: The failing one
+                run: echo broken; exit 7
+              - id: tt-slow-py
+                shell: python
+                timeout-minutes: 0.02
+                run: |
+                  import time
+                  time.sleep(30)
+        """)
+
+    def setUp(self):
+        self.root = Path(tempfile.mkdtemp())
+        self.addCleanup(shutil.rmtree, self.root, True)
+        (self.root / "w.yml").write_text(self.WORKFLOW, encoding="utf-8")
+
+    def plan(self, selection=None, environ=None):
+        return tooling_steps.plan_run(self.root, "w.yml", "t", selection, environ or {"EVENT_NAME": "pull_request"})
+
+    def test_plan_keeps_the_tt_steps_the_selection_keeps(self):
+        self.assertEqual([s.key for s in self.plan()], ["tt-slow-a", "tt-slow-b", "tt-fails", "tt-slow-py"])
+        self.assertEqual([s.key for s in self.plan({"tt-slow-b"})], ["tt-slow-b"])
+        steps = self.plan()
+        self.assertEqual(steps[0].env, {"WHO": "a", "EVENT_NAME": "pull_request"})
+        self.assertEqual(steps[3].shell[0], "python3")
+        self.assertAlmostEqual(steps[3].timeout, 1.2)
+        self.assertEqual(steps[1].timeout, 300)
+
+    def test_an_expression_env_the_runner_step_lacks_falls_back(self):
+        with self.assertRaisesRegex(ValueError, "EVENT_NAME"):
+            tooling_steps.plan_run(self.root, "w.yml", "t", None, {})
+
+    def test_the_selection_file(self):
+        out = self.root / "tooling.out"
+        self.assertIsNone(tooling_steps.read_selection(out))
+        out.write_text("tooling_steps= tt-a tt-b \ntooling_all=false\n", encoding="utf-8")
+        self.assertEqual(tooling_steps.read_selection(out), {"tt-a", "tt-b"})
+        out.write_text("tooling_all=true\ntooling_steps=\n", encoding="utf-8")
+        self.assertIsNone(tooling_steps.read_selection(out))
+
+    def test_steps_run_at_once_and_every_failure_is_named(self):
+        import io
+        import time
+        buf = io.StringIO()
+        started = time.monotonic()
+        results = tooling_steps.run_steps(self.plan(), 4, dict(os.environ, EVENT_NAME="push"), buf)
+        wall = time.monotonic() - started
+        self.assertLess(wall, 1.9, "the two 1 s steps ran side by side")
+        self.assertEqual([r.step.key for r in results], ["tt-slow-a", "tt-slow-b", "tt-fails", "tt-slow-py"])
+        codes = {r.step.key: r.code for r in results}
+        self.assertEqual(codes, {"tt-slow-a": 0, "tt-slow-b": 0, "tt-fails": 7, "tt-slow-py": 124})
+        text = buf.getvalue()
+        self.assertIn("a pull_request", text)  # the step's own env, not the runner's EVENT_NAME
+        self.assertIn("::group::The failing one (", text)
+        self.assertIn("::error title=tooling-tests tt-fails::The failing one failed (exit 7)", text)
+        self.assertIn("tt-slow-py: timed out after 1 s", text)
+        summary = io.StringIO()
+        tooling_steps.write_run_summary(results, wall, None, summary)
+        self.assertIn("2 failed", summary.getvalue())
+        self.assertIn("FAILED tt-fails", summary.getvalue())
+
+    def test_main_marks_ran_and_fails_on_a_red_step(self):
+        out = self.root / "out"
+        sel = self.root / "sel"
+        args = ["run", "--root", str(self.root), "--workflow", "w.yml", "--job", "t", "--selection", str(sel)]
+        sel.write_text("tooling_steps= tt-slow-b \ntooling_all=false\n", encoding="utf-8")
+        self.assertEqual(tooling_steps.main([*args, "--github-output", str(out)]), 0)
+        self.assertEqual(out.read_text(encoding="utf-8"), "ran=true\npassed= tt-slow-b \n")
+        sel.write_text("tooling_steps= tt-fails \ntooling_all=false\n", encoding="utf-8")
+        self.assertEqual(tooling_steps.main(args), 1)
+
+    def test_main_leaves_the_steps_one_by_one_when_it_cannot_plan(self):
+        out = self.root / "out"
+        code = tooling_steps.main(["run", "--root", str(self.root), "--workflow", "w.yml", "--job", "missing",
+                                   "--github-output", str(out)])
+        self.assertEqual(code, 0)
+        self.assertFalse(out.exists(), "no ran=true: each step's own if: runs it")
 
 
 if __name__ == "__main__":

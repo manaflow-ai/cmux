@@ -14,7 +14,7 @@ import QuartzCore
 extension TabCell {
     /// The trailing cluster, right to left (the order above, reversed).
     enum TrailingMark: CaseIterable {
-        case state, audio, loading, theme, machine, profile, presence
+        case state, count, audio, loading, theme, machine, profile, presence
     }
 
     /// Lays the trailing cluster out from `titleEnd` leftward; returns where the title must end.
@@ -54,6 +54,7 @@ extension TabCell {
         for mark in TrailingMark.allCases {
             switch mark {
             case .state: if statusSlot == nil, combined == nil { end = layoutTrailingStateMark(end: end, midY: midY, onPath: onPath) }
+            case .count: end = layoutCountPill(titleX: titleX, titleEnd: countPillEnd(end, statusSlot: statusSlot, midY: midY), midY: midY)
             case .audio: end = layoutAudioBadge(titleX: titleX, titleEnd: end, midY: midY)
             case .loading: if !spinnerInSlot { end = layoutTrailingSpinner(end: end, midY: midY) }
             case .theme: end = layoutThemeBadge(titleX: titleX, titleEnd: end, midY: midY)
@@ -69,6 +70,14 @@ extension TabCell {
             setStatusMark(layer, shown: shown, was: before[ObjectIdentifier(layer)] ?? (shown ? 1 : 0), animated: animated)
         }
         return end
+    }
+
+    /// Where the count pill's slot ends: left of the x's slot even while that slot is empty, so neither the hovered
+    /// x nor a status arriving there moves the pill or the title (`experiments.agentBadges`). A tab whose x shows
+    /// beside its status at rest, or that cannot close, keeps the cluster's own end.
+    private func countPillEnd(_ end: CGFloat, statusSlot: CGRect?, midY: CGFloat) -> CGFloat {
+        guard showsCountPill, statusSlot == nil, !hasStatusMark, item.isClosable, metrics.hoverCloseSwap != .beside else { return end }
+        return min(end, statusSlotRect(pillWidth: backgroundLayer.frame.width, midY: midY).minX - metrics.titleCloseSpacing)
     }
 
     /// The marks the hovered x stands in for: the status glyph or dot, and the loading indicator unless it is leaving.

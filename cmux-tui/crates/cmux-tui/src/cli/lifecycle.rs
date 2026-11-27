@@ -48,6 +48,11 @@ pub(super) enum ServerAction {
         /// How long to wait for an owner that still restores its session
         /// (`--restore-wait-seconds`, default `local_owner::RESTORE_DEADLINE`).
         restore_wait: Duration,
+        /// `--if-idle`: stop only while no other client is connected and no
+        /// terminal is live (`daemon-stop-if-idle-v1`); else exit 1 and say
+        /// what uses the daemon. An owner without the capability keeps
+        /// running and the stop exits 4.
+        if_idle: bool,
     },
     /// The daemon swap (HQ#7149 R4): stop the owner as an update hands it off
     /// (its terminal hosts live on), wait for it to exit, then ensure an owner
@@ -171,7 +176,7 @@ pub(super) fn run(mut global: GlobalArgs, plan: ServerPlan) -> i32 {
     let restart = matches!(plan.action, ServerAction::Restart { .. });
     let action = match plan.action {
         ServerAction::Restart { force, restore_wait } => {
-            ServerAction::Stop { force, end_terminals: false, restore_wait }
+            ServerAction::Stop { force, end_terminals: false, restore_wait, if_idle: false }
         }
         action => action,
     };
@@ -189,13 +194,13 @@ pub(super) fn run(mut global: GlobalArgs, plan: ServerPlan) -> i32 {
             global.output,
         )
     };
-    if let ServerAction::Stop { force, end_terminals, restore_wait } = action {
+    if let ServerAction::Stop { force, end_terminals, restore_wait, if_idle } = action {
         let stop = StopWait {
             socket: &socket,
             socket_is_derived,
             session: expected_session.as_deref(),
             limit: restore_wait,
-            retry_flags: (force, end_terminals),
+            retry_flags: (force, end_terminals, if_idle),
             restart,
             output: global.output,
         };
@@ -408,7 +413,7 @@ pub(super) fn run(mut global: GlobalArgs, plan: ServerPlan) -> i32 {
                         );
                     }
                 };
-            if result["reloaded"].as_bool() != Some(true) {
+            if result.get("reloaded").and_then(Value::as_bool) != Some(true) {
                 return local_error(
                     "server.invalid_response",
                     crate::localization::catalog().local_server.invalid_response,
@@ -420,13 +425,31 @@ pub(super) fn run(mut global: GlobalArgs, plan: ServerPlan) -> i32 {
                 json!({
                     "reloaded":true,
                     "session":actual_session,
-                    "warnings":result["warnings"].as_array().cloned().unwrap_or_default(),
+                    "warnings":result.get("warnings").and_then(Value::as_array).cloned().unwrap_or_default(),
                     "message":crate::localization::catalog().local_server.reloaded,
                 }),
                 global.output,
             )
         }
-        ServerAction::Stop { force, end_terminals, .. } => {
+        ServerAction::Stop { force, end_terminals, if_idle, .. } => {
+            // An owner without `if_idle` ignores the field and stops however
+            // busy it is: it keeps running instead (the Rex docs' exit 4).
+            if if_idle
+                && !identity.get("capabilities").and_then(Value::as_array).is_some_and(|values| {
+                    values.iter().any(|value| value == "daemon-stop-if-idle-v1")
+                })
+            {
+                return local_error(
+                    "server.if_idle_unsupported",
+                    &super::fix_command::refused_with_fix(
+                        crate::localization::catalog().local_server.if_idle_unsupported,
+                        &super::fix_command::this_cli(),
+                        std::path::Path::new(&socket_output),
+                    ),
+                    global.output,
+                    4,
+                );
+            }
             if end_terminals
                 && !identity["capabilities"]
                     .as_array()
@@ -447,7 +470,7 @@ pub(super) fn run(mut global: GlobalArgs, plan: ServerPlan) -> i32 {
             let deadline =
                 if end_terminals { Instant::now() + Duration::from_secs(120) } else { deadline };
             if force
-                && !identity["capabilities"].as_array().is_some_and(|values| {
+                && !identity.get("capabilities").and_then(Value::as_array).is_some_and(|values| {
                     values.iter().any(|value| value == "daemon-handoff-force-v1")
                 })
             {
@@ -464,21 +487,43 @@ pub(super) fn run(mut global: GlobalArgs, plan: ServerPlan) -> i32 {
             }
             // Read while the old owner still runs: the new one repeats it.
             let launch = restart.then(|| CarriedLaunch::of_owner(pid));
-            let result = match exchange(
-                &mut connection,
-                json!({
-                    "id":2,
-                    "cmd":"shutdown-daemon",
-                    "pid":pid,
-                    "generation":generation,
-                    "force":force,
-                    "end_terminals":end_terminals,
-                    // An attached TUI reconnects after a restart and exits
-                    // after a stop (the daemon repeats it on its notice).
-                    "restart":restart,
-                }),
-                deadline,
-            ) {
+            let mut request = json!({
+                "id":2,
+                "cmd":"shutdown-daemon",
+                "pid":pid,
+                "generation":generation,
+                "force":force,
+                "end_terminals":end_terminals,
+                // An attached TUI reconnects after a restart and exits
+                // after a stop (the daemon repeats it on its notice).
+                "restart":restart,
+            });
+            if if_idle {
+                request.set("if_idle", json!(true));
+            }
+            let reply = match exchange_reply(&mut connection, request, deadline) {
+                // A busy daemon refused the stop and keeps serving: say
+                // what uses it (exit 1, as the Rex docs' `--if-idle`).
+                Ok(reply)
+                    if reply.get("ok") != Some(&Value::Bool(true))
+                        && reply.get("error_code").and_then(Value::as_str)
+                            == Some("daemon_busy") =>
+                {
+                    return local_error_with_details(
+                        "server.in_use",
+                        reply
+                            .get("error")
+                            .and_then(Value::as_str)
+                            .unwrap_or("the daemon is in use"),
+                        reply.get("error_details").cloned().unwrap_or(Value::Null),
+                        global.output,
+                        1,
+                    );
+                }
+                Ok(reply) => reply_result(reply),
+                Err(error) => Err(error),
+            };
+            let result = match reply {
                 Ok(result) => result,
                 Err(ExchangeError::Rejected(_)) => {
                     return local_error(
@@ -604,8 +649,9 @@ struct StopWait<'a> {
     socket_is_derived: bool,
     session: Option<&'a str>,
     limit: Duration,
-    /// `--force` and `--end-terminals`, repeated in the retry command.
-    retry_flags: (bool, bool),
+    /// `--force`, `--end-terminals` and `--if-idle`, repeated in the retry
+    /// command.
+    retry_flags: (bool, bool, bool),
     /// A `server restart`'s stop: the retry command restarts, never only stops.
     restart: bool,
     output: OutputMode,
@@ -743,12 +789,15 @@ impl StopWait<'_> {
         } else {
             super::fix_command::stop_daemon(&cli, self.socket)
         };
-        let (force, end_terminals) = self.retry_flags;
+        let (force, end_terminals, if_idle) = self.retry_flags;
         if force {
             retry.push_str(" --force");
         }
         if end_terminals {
             retry.push_str(" --end-terminals");
+        }
+        if if_idle {
+            retry.push_str(" --if-idle");
         }
         retry.push_str(&format!(" --restore-wait-seconds {}", longer.as_secs().min(3600)));
         let message = crate::localization::catalog().local_server.stop_gave_up(
@@ -1086,6 +1135,17 @@ fn exchange(
     request: Value,
     deadline: Instant,
 ) -> Result<Value, ExchangeError> {
+    exchange_reply(connection, request, deadline).and_then(reply_result)
+}
+
+/// The whole reply to `request` (`ok`, `data`, `error`, `error_code`,
+/// `error_details`), a refusal included: for a caller that tells refusals
+/// apart by their `error_code`.
+fn exchange_reply(
+    connection: &mut BufReader<Box<dyn transport::Stream>>,
+    request: Value,
+    deadline: Instant,
+) -> Result<Value, ExchangeError> {
     require_time_remaining(connection, deadline)?;
     writeln!(connection.get_mut(), "{request}")
         .and_then(|()| connection.get_mut().flush())
@@ -1094,16 +1154,24 @@ fn exchange(
         let Some(response) = read_response(connection, deadline)? else {
             return Err(ExchangeError::Closed);
         };
-        if response.get("event").is_some() || response["id"] != request["id"] {
+        if response.get("event").is_some()
+            || response.get("id").unwrap_or(&Value::Null)
+                != request.get("id").unwrap_or(&Value::Null)
+        {
             continue;
         }
-        if response["ok"] == true {
-            return Ok(response.get("data").cloned().unwrap_or(Value::Null));
-        }
-        let error =
-            response.get("error").and_then(Value::as_str).unwrap_or("request rejected").to_string();
-        return Err(ExchangeError::Rejected(error));
+        return Ok(response);
     }
+}
+
+/// A reply's `data`, or its refusal as [`ExchangeError::Rejected`].
+fn reply_result(response: Value) -> Result<Value, ExchangeError> {
+    if response.get("ok") == Some(&Value::Bool(true)) {
+        return Ok(response.get("data").cloned().unwrap_or(Value::Null));
+    }
+    let error =
+        response.get("error").and_then(Value::as_str).unwrap_or("request rejected").to_string();
+    Err(ExchangeError::Rejected(error))
 }
 
 fn read_response(

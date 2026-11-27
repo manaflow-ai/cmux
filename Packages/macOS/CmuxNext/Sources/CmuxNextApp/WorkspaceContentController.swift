@@ -105,7 +105,7 @@ final class WorkspaceContentController: LayoutPaneContentProvider {
     /// (`PaneController.resume`), and the attention rings are read now and followed again.
     func unpark() {
         isParked = false
-        AfterFrameCommit().run { [weak self] in self?.refillPaneSpare() } // after the switch's frame
+        layoutModel.holdsAttentionUntilShown = true; AfterFrameCommit().run { [weak self] in self?.refillPaneSpare(); self?.layoutModel.holdsAttentionUntilShown = false; self?.layoutView.syncWithModel() } // after the switch's frame; its rings draw (and a read one blinks) then, in this pass (cmux#46908)
         comeOnScreen()
         setDrawsNothing(false)
         observeAttention()
@@ -174,9 +174,6 @@ final class WorkspaceContentController: LayoutPaneContentProvider {
             }
             return try await fallbackCreate(key)
         }
-        emptyView = EmptyWorkspaceView(
-            onNew: { [weak self] in self?.newFromEmptyState() }
-        )
         themeScope.root(contentView)
         contentView.backgroundMenu = { [weak services, weak self] in
             self.flatMap { services?.registry.makeContextMenu(for: .windowBackground, target: ActionTargetRef(kind: .workspace, id: $0.workspace.id)).themeRows(in: $0.themeScope.fullStrength) }
@@ -184,6 +181,7 @@ final class WorkspaceContentController: LayoutPaneContentProvider {
         layoutView.dividerMenu = { [weak services, weak self] split in // the catalog's divider rows (DividerActions), on the split
             self.flatMap { services?.registry.makeContextMenu(for: .divider, target: ActionTargetRef(kind: .workspace, id: $0.workspace.id), arguments: ["split": .string(split.rawValue)], machineID: $0.daemon.machineID).themeRows(in: $0.themeScope.fullStrength) }
         }
+        layoutView.frameTiming = services.frameTiming
         contentView.showsBar = screenBar.isVisible
         screenBar.onVisibilityChange = { [weak self] visible in self?.contentView.showsBar = visible }
         // Observation applies the first snapshot synchronously, including the empty-state view.
@@ -248,20 +246,20 @@ final class WorkspaceContentController: LayoutPaneContentProvider {
     /// Panes whose shown tab reads unread (a notification or Mark as Unread) draw the attention
     /// ring; this window's tab selection decides which tab a pane shows.
     private func observeAttention() {
-        let notifications = services.notifications, workspace = workspace
-        let shownTab: @MainActor @Sendable (PaneModel) -> String? = { [weak self] pane in self?.panes[LayoutPaneID(pane.id)]?.stripModel.selectedID?.rawValue }
-        layoutModel.readsAttentionOnEntry = { [weak self] pane, click in self.map { notifications.readOnEntry(pane, click: click, in: $0) } ?? false }
-        layoutModel.setAttention(notifications.attentionMarks(for: workspace, shownTab: shownTab), readByEntry: [])
-        attentionObservation?.cancel()
-        attentionObservation = Task { [weak self] in
-            for await marks in ObservationStream({ notifications.attentionMarks(for: workspace, shownTab: shownTab) }) {
-                guard let self else { return }
-                guard self.layoutModel.attentionMarks != marks else { continue }
-                // A ring read by going into its pane blinks out (classic's dismiss flash); one cleared any other way fades.
-                let removed = Set(self.layoutModel.attention.keys).subtracting(marks.keys)
-                self.layoutModel.setAttention(marks, readByEntry: notifications.takeEntryReads(removed: removed, in: workspace))
-            }
+        layoutModel.readsAttentionOnEntry = { [weak self] pane, click in self.map { $0.services.notifications.readOnEntry(pane, click: click, in: $0) } ?? false }
+        layoutModel.setAttention(currentAttention(), readByEntry: [])
+        attentionObservation?.cancel(); attentionObservation = Task { [weak self] in
+            for await marks in ObservationStream({ [weak self] in self?.currentAttention() ?? [:] }) { guard let self else { return }; self.applyAttention(marks) }
         }
+    }
+    /// A tab click's mouse-up: the rings catch up with its press's selection now, not on the observation's next turn, so going in blinks one out (cmux#46908).
+    func refreshAttention() { if attentionObservation?.isCancelled == false { applyAttention(currentAttention()) } }
+    private func currentAttention() -> [LayoutPaneID: AttentionMark] { // a pane shows the tab this window's strip selects
+        services.notifications.attentionMarks(for: workspace) { [weak self] pane in self?.panes[LayoutPaneID(pane.id)]?.stripModel.selectedID?.rawValue }
+    }
+    private func applyAttention(_ marks: [LayoutPaneID: AttentionMark]) {
+        guard layoutModel.attentionMarks != marks else { return } // a ring read by going into its pane blinks out (classic's dismiss flash); one cleared any other way fades
+        layoutModel.setAttention(marks, readByEntry: services.notifications.takeEntryReads(removed: Set(layoutModel.attention.keys).subtracting(marks.keys), in: workspace))
     }
 
     /// Re-applies the current store state (after a command response that
@@ -295,8 +293,8 @@ final class WorkspaceContentController: LayoutPaneContentProvider {
             }
             return
         }
+        DebugLayoutCounters.workspaceApplies &+= 1 // counted in every build (one add): `perf.layout_counters` reads it in Release
         #if DEBUG
-        DebugLayoutCounters.workspaceApplies &+= 1
         debugApplies &+= 1
         DebugLayoutCounters.note(force ? "apply(force)" : "apply", file, line)
         #endif
@@ -352,9 +350,10 @@ final class WorkspaceContentController: LayoutPaneContentProvider {
     /// before the workspace closes.
     private func updateEmptyState() {
         let isEmpty = layoutModel.screens.allSatisfy { $0.panes.isEmpty }
-        let settling = workspace.key.map { emptyWorkspaceRepair.isSettling($0) } ?? false
+        let shows = isEmpty && !(workspace.key.map { emptyWorkspaceRepair.isSettling($0) } ?? false)
+        if shows, emptyView == nil { emptyView = EmptyWorkspaceView(onNew: { [weak self] in self?.newFromEmptyState() }) } // made the first time it shows
         emptyView?.failure = workspace.key.flatMap { emptyWorkspaceRepair.failure($0) }
-        contentView.showEmpty(isEmpty && !settling ? emptyView : nil)
+        contentView.showEmpty(shows ? emptyView : nil)
     }
 
     private func newFromEmptyState() {

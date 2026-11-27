@@ -5,7 +5,7 @@ set -u
 d=$(cd "$(dirname "$0")" && pwd)
 url='@URL@'; ref='@REF@'; dir="$HOME/@DIRECTORY@"; github=@GITHUB@
 host='@HOST@'; key="credential.https://$host"
-cred=none; helper=""; status=failed; sha=""; why=""; fresh=""; tip=""; warm=""; fill=none
+cred=none; helper=""; rewrite=""; status=failed; sha=""; why=""; fresh=""; tip=""; warm=""; fill=none
 result() {
   printf '{"status":"%s","url":"%s","ref":"%s","dir":"%s","credential":"%s","sha":"%s","fill":"%s"}\n' \
     "$status" "$url" "$ref" "$dir" "$cred" "$sha" "$fill" >"$d/repo-status.json.tmp" && mv -f "$d/repo-status.json.tmp" "$d/repo-status.json"
@@ -27,6 +27,11 @@ fi
 # The machine's cmux: the PATH's, else the store's (the path the image's git config names). The
 # bootstrap runner's PATH is systemd's default, which has no store folder in it.
 cm=$(command -v cmux) || { [ -x /opt/cmux/current/bin/cmux ] && cm=/opt/cmux/current/bin/cmux; } || cm=""
+# The platform edge (cmux-platform GitHubEgress.ts): where the machine's platform name resolves
+# (its edge rule writes the hosts entry), git reaches github.com through the platform, which adds
+# the repository token on the way out. No helper runs and no token ever reaches this machine.
+edge="https://platform.cmux.internal/v1/cloud/git/github.com/"
+if [ "$github" = 1 ] && getent hosts platform.cmux.internal >/dev/null 2>&1; then creds="$creds edge"; fi
 if [ "$github" = 1 ] && [ -S /run/cmux-vm-agent/agent.sock ] && [ -n "$cm" ]; then creds="$creds cmux-github"; fi
 # Off GitHub: the person's token for this host, sealed to the machine (`cmux gitlab credential`).
 if [ "$github" = 0 ] && [ -f "$HOME/.config/cmux/git-hosts/$host" ] && [ -n "$cm" ]; then creds="cmux-gitlab"; fi
@@ -42,6 +47,10 @@ use() {
     cmux-gitlab) helper="!'$cm' gitlab credential" ;;
     *) helper="" ;;
   esac
+  case "$1" in
+    edge) rewrite="url.$edge.insteadOf=https://github.com/" ;;
+    *) rewrite="" ;;
+  esac
 }
 # An empty credential.helper on the command line drops every helper git read before it (a
 # checkout's own config may hold one); the chosen one comes after it, so only it is asked.
@@ -50,6 +59,7 @@ g() {
   if [ -n "$helper" ]; then
     set -- -c "$key.helper=$helper" -c "$key.useHttpPath=true" "$@"
   fi
+  if [ -n "$rewrite" ]; then set -- -c "$rewrite" "$@"; fi
   git -c credential.helper= -c core.askPass= -c credential.username= -c "$key.username=" "$@"
 }
 # A clone or fetch with each path until one works; the checkout after it keeps that path.
@@ -87,7 +97,7 @@ root() { if [ "$(id -u)" = 0 ]; then "$@"; else sudo -n "$@"; fi; }
 # or no systemd-run, clones the whole repository as before. So does a start with a bootstrap
 # script (anything but machine_bootstrap.rs `NO_SCRIPT`): the runner runs it right after this
 # step, and nothing holds it at the barrier.
-head_dirs=".claude .codex .cursor .gemini .github .vscode .devcontainer"
+head_dirs=".agents .claude .codex .cursor .gemini .github .vscode .devcontainer"
 # The start runs no bootstrap script of its own (machine_bootstrap.rs `NO_SCRIPT`).
 no_script() { printf '#!/bin/sh\nexit 0\n' | cmp -s - "$d/script"; }
 holder() {
@@ -183,6 +193,12 @@ keep_helper() {
       git -C "$dir" config --local "$key.useHttpPath" true ||
       echo "cmux repo: cannot keep the $host path in $dir, so a push there needs credentials" >&2
   fi
+  # Through the edge: the checkout keeps the rewrite (a URL, no secret), so its push and pull go
+  # the same way, unless it rewrites github.com itself.
+  if [ "$cred" = edge ] && ! git -C "$dir" config --local --get-regexp '^url\..*\.insteadof$' >/dev/null; then
+    git -C "$dir" config --local "url.$edge.insteadOf" https://github.com/ ||
+      echo "cmux repo: cannot keep the platform edge path in $dir, so a push there needs credentials" >&2
+  fi
 }
 # A warm start's update inline, when no hold can run it behind the chat: the update a start
 # on an existing checkout has always made (fetch, then fast-forward one with no local changes).
@@ -206,12 +222,33 @@ if [ "${1:-}" = refresh ]; then
     if g -C "$dir" fetch --quiet --tags origin; then
       keep_helper
       changes=$(g -C "$dir" status --porcelain) && { [ -n "$changes" ] || forward || echo "cmux repo: $why; $dir is kept as it was" >&2; }
+      # A checkout from the repo archive holds one commit: its history comes after the barrier
+      # opens, under the lock this run hands it (fd 9), as a fill's does.
+      if [ "$(g -C "$dir" rev-parse --is-shallow-repository)" = true ]; then
+        setsid "$d/repo" unshallow "$c" </dev/null >>"$d/bootstrap.log" 2>&1 &
+      fi
       exit 0
     fi
   done
   echo "cmux repo: cannot fetch $url; $dir is kept as it was" >&2
   exit 0
 fi
+# A new checkout from the machine's repo archive store (hq RFD 0065 piece 2, `cmux repo
+# from-archive`): the `.git`-only archive, its increment bundle and a checkout with 16 workers,
+# in place of a clone from the host. Only when the machine names a store (CMUX_REPO_ARCHIVE_STORE
+# or /etc/cmux/repo-archive.json; none by default, and then nothing here runs) and its cmux has
+# the verb. A store without this repo or ref (a tag, a commit) answers 3 and leaves nothing, so
+# the clone below runs as before, with its credential paths.
+from_archive() {
+  { [ -n "${CMUX_REPO_ARCHIVE_STORE:-}" ] || [ -f /etc/cmux/repo-archive.json ]; } || return 1
+  [ -n "$wx" ] && "$wx" repo from-archive --help >/dev/null 2>&1 || return 1
+  "$wx" repo from-archive --archive-only --url "$url" --at "$dir" --branch "$ref" >/dev/null || {
+    rm -rf "$dir"
+    return 1
+  }
+  # The store keys the repo by its name: the checkout's origin is this start's URL, as a clone's is.
+  g -C "$dir" remote set-url origin "$url" || { rm -rf "$dir"; return 1; }
+}
 sparse() { [ "$(git -C "$dir" config --bool core.sparseCheckout 2>/dev/null)" = true ] && [ -f "$dir/.git/info/sparse-checkout" ]; }
 if [ -d "$dir/.git" ]; then
   [ "$(git -C "$dir" remote get-url origin 2>/dev/null)" = "$url" ] || die "$dir holds another repository"
@@ -268,7 +305,18 @@ elif [ -e "$dir" ]; then
 else
   mkdir -p "$(dirname "$dir")"
   fresh=1
-  if [ -z "$ref" ] && holder; then
+  if from_archive; then
+    # The archive is a few minutes behind the host: the chat starts on it and the fetch and
+    # fast-forward run behind it under the hold (`refresh`, which then fetches the history the
+    # depth-1 archive lacks), as a warm start's do. With no hold, both happen now.
+    echo "cmux repo: $dir is checked out from the repo archive store" >&2
+    if holder; then warm=1; else
+      net -C "$dir" fetch --quiet --tags origin
+      forward || { rm -rf "$dir"; die "$why"; }
+      g -C "$dir" fetch --quiet --unshallow --filter=blob:none origin ||
+        echo "cmux repo: cannot fetch the history of $url; $dir keeps one commit of it" >&2
+    fi
+  elif [ -z "$ref" ] && holder; then
     net clone --quiet --depth 1 --filter=blob:none --sparse "$url" "$dir"
     # A depth-1 clone fetches only the default branch from then on; every branch, as a whole
     # clone has, so the history fill and a later start's `@branch` see them all.

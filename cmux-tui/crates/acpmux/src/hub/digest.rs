@@ -60,6 +60,10 @@ use std::sync::atomic::Ordering;
 #[path = "inbox_digest.rs"]
 pub(super) mod inbox_digest;
 
+// Which queued prompts go in with a turn, by send mode: one state machine (`queue_fold.rs`).
+#[path = "queue_fold.rs"]
+pub(super) mod queue_fold;
+
 // An idle chat's agent message waits for the ones right behind it (`agent_gather.rs`).
 #[path = "agent_gather.rs"]
 mod agent_gather;
@@ -370,14 +374,33 @@ impl Hub {
             return Vec::new();
         }
         // A review box runs each agent message as its own prompt behind the review (`inbox.rs`).
-        if head.agent.is_none()
-            || crate::prompt_provenance::is_trigger(head.provenance.as_ref())
-            || super::forum::slash_command(&head.blocks).is_some()
-            || crate::prompt_uploads::any(&head.blocks)
-            || super::inbox::review_box(session)
-        {
+        // The person's prompt joins none, but the one a held chat held: the person's prompts
+        // queued behind it join it (`person_hold.rs`).
+        // Who this turn's batch is for (`queue_fold.rs` `lead`). The hold is read only for the
+        // person's prompt: reading it ends it.
+        let from_agent = head.agent.is_some();
+        let alone_of = |blocks: &[Value], provenance: Option<&Value>| {
+            if crate::prompt_provenance::is_trigger(provenance) {
+                Some(queue_fold::Alone::Trigger)
+            } else if super::forum::slash_command(blocks).is_some() {
+                Some(queue_fold::Alone::SlashCommand)
+            } else if crate::prompt_uploads::any(blocks) {
+                Some(queue_fold::Alone::Uploads)
+            } else {
+                None
+            }
+        };
+        let lead = queue_fold::lead(queue_fold::Head {
+            from_agent,
+            notice: super::inbox::is_notice(head.provenance.as_ref()),
+            person_fold: !from_agent && super::person_hold::folds(session, turn_id),
+            cold_batch: session.cold_batch_turn.load(Ordering::SeqCst),
+            alone: alone_of(&head.blocks, head.provenance.as_ref()),
+            review_box: super::inbox::review_box(session),
+        });
+        let Ok(lead) = lead else {
             return Vec::new();
-        }
+        };
         let mut bytes = blocks_bytes(&head.blocks);
         let taken: Vec<QueuedPrompt> = {
             let mut queue = session.queue.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
@@ -388,28 +411,41 @@ impl Hub {
             let mut i = 0;
             while i < queue.len() {
                 let q = &queue[i];
-                // Held, or waiting for the owner (`queue_approve.rs`): never sent with this turn.
-                if q.aside() {
-                    i += 1;
-                    continue;
-                }
-                let joins = q.run.agent.is_some()
-                    && !crate::prompt_provenance::is_trigger(q.run.provenance.as_ref())
-                    && super::forum::slash_command(&q.run.blocks).is_none()
-                    && !crate::prompt_uploads::any(&q.run.blocks)
-                    && !unclaimed.iter().any(|(id, _)| *id == q.prompt_id)
-                    && !q.steer
-                    && !q.sent_now
-                    && q.run.control == head.control
-                    && q.run.trust_gate == head.trust_gate
-                    && q.run.cloud_mobile == head.cloud_mobile
-                    && !super::subsession_guard::is_family_prompt(q.run.provenance.as_ref())
-                    && !inbox_digest::is_digest(q.run.provenance.as_ref())
-                    // A goal's continuation runs alone, checked against its goal (`goal_tools.rs`).
-                    && !super::goal_tools::is_continuation(q.run.provenance.as_ref());
                 let size = blocks_bytes(&q.run.blocks);
-                if !joins || bytes + size > DIGEST_MAX_BYTES {
-                    break;
+                let provenance = q.run.provenance.as_ref();
+                let next = queue_fold::Next {
+                    mode: queue_fold::Mode::of(queue_fold::Flags {
+                        held: q.held,
+                        awaiting_owner: q.awaiting_owner,
+                        unclaimed: unclaimed.iter().any(|(id, _)| *id == q.prompt_id),
+                        steer: q.steer,
+                        sent_now: q.sent_now,
+                        steer_on_start: q.steer_on_start,
+                    }),
+                    from_agent: q.run.agent.is_some(),
+                    alone: alone_of(&q.run.blocks, provenance).or_else(|| {
+                        if super::subsession_guard::is_family_prompt(provenance) {
+                            Some(queue_fold::Alone::Family)
+                        } else if inbox_digest::is_digest(provenance) {
+                            Some(queue_fold::Alone::Digest)
+                        } else if super::goal_tools::is_continuation(provenance) {
+                            Some(queue_fold::Alone::Continuation)
+                        } else {
+                            None
+                        }
+                    }),
+                    same_rules: q.run.control == head.control
+                        && q.run.trust_gate == head.trust_gate
+                        && q.run.cloud_mobile == head.cloud_mobile,
+                    fits: bytes + size <= DIGEST_MAX_BYTES,
+                };
+                match queue_fold::step(lead, next) {
+                    queue_fold::Step::Skip => {
+                        i += 1;
+                        continue;
+                    }
+                    queue_fold::Step::End(_) => break,
+                    queue_fold::Step::Join => {}
                 }
                 bytes += size;
                 let q = queue.remove(i);

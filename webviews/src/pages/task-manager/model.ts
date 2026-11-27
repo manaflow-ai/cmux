@@ -1,8 +1,9 @@
 // The Task Manager page's pure rules: a column's order, the selection across samples, the PID
 // column's text and whether Kill Process is on. No DOM, no host.
 import type { SortKey, SortOrder, TaskManagerRow } from "./types";
+import { intl } from "../../ui/intl";
 
-const collator = new Intl.Collator(undefined, { numeric: true, sensitivity: "base" });
+const collator = intl.Collator(undefined, { numeric: true, sensitivity: "base" });
 
 function compare(key: SortKey, a: TaskManagerRow, b: TaskManagerRow): number {
   switch (key) {
@@ -36,16 +37,22 @@ export function nextOrder(current: SortOrder | null, key: SortKey): SortOrder {
   return current?.key === key ? { key, ascending: !current.ascending } : { key, ascending: true };
 }
 
-const sameRow = (a: TaskManagerRow, b: TaskManagerRow) =>
-  a.host === b.host &&
-  a.pid === b.pid &&
-  a.task === b.task &&
-  a.name === b.name &&
-  a.cpu === b.cpu &&
-  a.cpuText === b.cpuText &&
-  a.memoryBytes === b.memoryBytes &&
-  a.memoryText === b.memoryText &&
-  a.refusal === b.refusal;
+// Every field of a row, each drawn or used to sort it: a new field fails to compile here until it is
+// listed, so a sample can never keep a row whose text changed.
+const ROW_FIELDS: Record<keyof TaskManagerRow, true> = {
+  id: true,
+  host: true,
+  pid: true,
+  task: true,
+  name: true,
+  cpu: true,
+  cpuText: true,
+  memoryBytes: true,
+  memoryText: true,
+  refusal: true,
+};
+const FIELDS = Object.keys(ROW_FIELDS) as (keyof TaskManagerRow)[];
+const sameRow = (a: TaskManagerRow, b: TaskManagerRow) => FIELDS.every((key) => Object.is(a[key], b[key]));
 
 /** A new sample's rows, each one the previous sample's object when nothing in it changed, so only
  * the rows whose numbers moved draw again (a sample comes about once a second). */

@@ -101,3 +101,62 @@ fn a_manifest_accepts_one_point_five_million_files() {
         eprintln!("1.5M files flat={flat}: {:?}, {} wire bytes", started.elapsed(), encoded.len());
     }
 }
+
+/// RFD 0007, "Tracked files the skip rules keep home": a kept file is listed with its stat and
+/// why, and the mark crosses the wire both ways between builds.
+#[test]
+fn a_file_kept_on_the_mac_keeps_its_stat_and_reason_across_the_wire_and_builds() {
+    let mut manifest =
+        Manifest::build(1, vec![file("k8s/test/key.pem", 1704), file("k8s/a", 2)]).unwrap();
+    let key = manifest.resolve("k8s/test/key.pem").unwrap();
+    manifest.keep_home(key, "secret: key files are shared only on purpose").unwrap();
+    assert!(manifest.keep_home(manifest.resolve("k8s").unwrap(), "x").is_err(), "a folder");
+    assert!(manifest.keep_home(key, "").is_err(), "no reason");
+    assert_eq!(manifest.entry(key).unwrap().size, 1704);
+
+    let decoded = Manifest::decode(&manifest.encode().unwrap()).unwrap();
+    assert_eq!(decoded, manifest);
+    assert_eq!(decoded.kept(key), Some("secret: key files are shared only on purpose"));
+    assert_eq!(decoded.kept(manifest.resolve("k8s/a").unwrap()), None);
+    assert_eq!(decoded.kept_count(), 1);
+
+    // An older Mac sends the entries alone: they decode, nothing kept.
+    #[derive(Serialize, Deserialize)]
+    struct Older {
+        entries: Vec<Entry>,
+    }
+    let older = Older { entries: manifest.entries.clone() };
+    let raw = bincode::serialize(&older).unwrap();
+    let decoded = Manifest::decode(&zstd::encode_all(raw.as_slice(), 3).unwrap()).unwrap();
+    assert_eq!(decoded.entries, manifest.entries);
+    assert_eq!(decoded.kept_count(), 0);
+    // An older machine reads a newer manifest's entries and leaves the rest.
+    let raw = bincode::serialize(&manifest).unwrap();
+    let older: Older = bincode::deserialize(&raw).unwrap();
+    assert_eq!(older.entries, manifest.entries);
+
+    // A kept mark on a folder is refused at decode.
+    let mut bad = manifest;
+    bad.kept.insert(ROOT, "x".into());
+    assert!(Manifest::decode(&bad.encode().unwrap()).is_err());
+}
+
+#[test]
+fn case_collisions_follow_the_source_filesystem() {
+    let mac = Manifest::build_with(
+        1,
+        vec![file("Foo", 1), file("foo", 2), file("Dir/a", 3), file("dir/a", 4)],
+        Case::Insensitive,
+    );
+    assert!(mac.is_err());
+    let linux = Manifest::build_with(
+        1,
+        vec![file("Foo", 1), file("foo", 2), file("Dir/a", 3), file("dir/a", 4)],
+        Case::Sensitive,
+    )
+    .unwrap();
+    for (path, size) in [("Foo", 1), ("foo", 2), ("Dir/a", 3), ("dir/a", 4)] {
+        let entry = linux.entry(linux.resolve(path).unwrap()).unwrap();
+        assert_eq!(entry.size, size, "{path}");
+    }
+}

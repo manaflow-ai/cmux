@@ -5,8 +5,8 @@
 // leaves on the same settle, folding its height away as it fades. A line that
 // joins or leaves the open hat moves its height and opacity on the shared fold, a Web Animation
 // (SubagentTray.tsx `TrayRow`; Leo, 2026-11-07: "they shouldn't just, like, pop in, burst in"), so
-// its stylesheet adds no animation of its own; the gallery's `fade` and `slide` row arms do. This
-// loads the real stylesheets in Chromium and reads those keyframes, under Reduce Motion too.
+// its stylesheet adds no animation of its own. This loads the real stylesheets in Chromium and reads
+// those keyframes, under Reduce Motion too.
 import { readFileSync } from "node:fs";
 import { afterAll, beforeAll, describe, expect, setDefaultTimeout, test } from "bun:test";
 import path from "node:path";
@@ -33,9 +33,9 @@ await requireBrowserLane("subagent-tray-line-motion.test.ts", async () => {
     css("agent-session/acpmux/subagents/subagents.css"),
     css("gallery/fixtures/trayMotionArms.css"),
   ].join("\n");
-  // A line that joined (`data-arrived`) in the hat's row-motion arm (hatParts.experiment.ts).
-  const tray = (rows = "height") =>
-    `<section class="acpmux-running-tray" data-tray-enter data-row-motion="${rows}">` +
+  // A line that joined (`data-arrived`) the open hat.
+  const tray = () =>
+    `<section class="acpmux-running-tray" data-tray-enter>` +
     `<ul class="acpmux-running-tray__list"><li data-arrived><div class="acpmux-running-tray__row">Review the diff</div></li></ul></section>`;
   let browser: Browser | undefined;
 
@@ -84,17 +84,6 @@ await requireBrowserLane("subagent-tray-line-motion.test.ts", async () => {
     // Its height and opacity move on the shared fold (SubagentTray.tsx `TrayRow`), a Web Animation.
     expect(line.split(" ")[0]).toBe("none");
     expect(body.split(" ")[0]).toBe("none");
-  });
-
-  test("the gallery's row arms: fade is the opacity-only arrival; slide rises on the fold's clock", async () => {
-    const fade = await page(tray("fade"), "no-preference");
-    const faded = await motionOf(fade, ".acpmux-running-tray__list > li");
-    await fade.close();
-    expect(faded).toBe(`cv-enter-fade ${MOTION_MS.micro / 1000}s ${MOTION_EASE_OUT}`);
-    const slide = await page(tray("slide"), "no-preference");
-    const rise = await motionOf(slide, ".acpmux-running-tray__row");
-    await slide.close();
-    expect(rise.split(" ")[0]).toBe("acpmux-hat-row-rise");
   });
 
   test("under Reduce Motion a tray line has no CSS motion of its own (the tray marks no arrival then)", async () => {

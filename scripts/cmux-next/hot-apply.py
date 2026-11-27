@@ -81,7 +81,8 @@ what to fetch), sorted by the same rules as the diff below. When both the app's 
 them, `plan` compares the keys and nothing else (`via: published keys`): no fetch of SHA, no diff,
 no tree or web key computed here, and no checkout needed past resolving a short CMUXCommit. Equal
 `shell` and `ffi` digests mean the two commits differ only in what a hot apply swaps, in either
-direction, so an older SHA with the app's shell takes too. Otherwise (a commit from before the
+direction, so an older SHA with the app's shell takes too. The record names the rules that sorted it
+(`rules`, live_apply.py's sha256): keys sorted by other rules do not compare, so that pair is diffed. Otherwise (a commit from before the
 keys, a branch) `plan` diffs the two commits as it always has.
 
 --branch takes a branch head instead (try-pr.sh passes a pull request's): one branched before the
@@ -120,16 +121,36 @@ another pauses it), so they add up to the run:
 
   plan      reading the app's commit and sorting the diff (live_apply.py)
   key       SHA's cmux-tui tree key and web source key (the web key checks SHA out sparsely)
-  fetch     downloads from files.cmux.com (the web bundle's own sha256 check is inside it)
+  fetch     downloads from files.cmux.com (a build's files download at once, each hashed as it
+            streams in; the web bundle's own sha256 check is inside it)
   verify    the sha256 checks of what was fetched and of what was put in place
   backup    the copies of what the app had, kept for `rollback`
   find      the daemons running from the app (ps, lsof, `server status`)
   swap      the files renamed into place; the web overlay installed
-  reload    the daemon handoff until a new owner answers; the acpmux daemons restarted. The app's
-            own reload of its pages (on the overlay's manifest.json) is not seen from here.
+  handoff   the daemon handoff until a new owner answers (terminals kept). The app's own reload of
+            its pages (on the overlay's manifest.json) is not seen from here.
+  sessions  --restart-sessions: every other session's daemon handed to the new build (`server restart`)
+  acpmux    `acpmux daemon restart` in each home until a new daemon answers (sessions resume)
   quit      ffi: `cmux app quit --keep-sessions` until the app's pid is gone
   launch    ffi: `open APP` until a new pid answers on the app's control socket, then the stay-up check
   rollback  putting back what was there after a failed check
+
+A receipt of an apply that went in also carries `layers`, the swap time of each layer it moved, the
+part of the run the person waits on (RFD 0174, "time every layer"):
+
+  daemon    {ms, state_kept}: the app's daemon's handoff phase (terminals and the app pid kept); other
+            sessions' daemons (--restart-sessions) are their own phase, not in it
+  acpmux    {ms, state_kept, homes}: the acpmux phase; state_kept when every home answered from a new
+            daemon (its sessions resume)
+  ffi       {ms, state_kept: false, kept: "sessions"}: quit plus launch (the window layout and the app
+            process are lost, sessions kept); absent when the app was not running
+
+`layers [--history FILE]...` reads history.jsonl (this host's, else each FILE: receipts gathered from
+other hosts) and prints, per platform and layer, the count, p50 and p95 in ms and the NOW row names
+(`hot_swap_mac_daemon_handoff_p95_ms`, `hot_swap_mac_acpmux_restart_p95_ms`,
+`hot_swap_mac_ffi_warm_swap_p95_ms`). A receipt from before `layers` gives what its phases still say:
+`reload` was the daemon handoff when no acpmux or other session's daemon restarted in it; `quit` and `launch` are the ffi
+part's.
 
 `apply --dry-run` plans, fetches and verifies every part and stops before `backup`: nothing in the
 app changes, and the receipt (action `dry-run`) goes only to history.jsonl, never to last.json
@@ -143,7 +164,8 @@ them from there, checks each against the sha256 it was fetched with, and only sw
 has published SHA (`glaeda-gh wait run` on the publish run, then `prefetch`); try-pr.sh and an agent
 that merges can run it right away. A part the app already runs is skipped: a `bin/cmux` (and its
 companions) that already hash to SHA's build, and an overlay whose commit has SHA's web key. The
-receipt names it under `unchanged`. An apply that changed nothing leaves last.json, and so
+receipt names it under `unchanged`. A build file the cache lacks but the app's bin/ already has (same
+sha256) is copied from there, not downloaded. An apply that changed nothing leaves last.json, and so
 `rollback`, to the apply before it. The web cache keeps the newest WEB_KEEP keys.
 
 Exit 0: applied and checked (or nothing to apply). 1: a check failed (rolled back). 2: usage.
@@ -153,10 +175,12 @@ from __future__ import annotations
 
 import argparse
 import base64
+import concurrent.futures
 import contextlib
 import hashlib
 import importlib.util
 import json
+import math
 import os
 import platform
 import plistlib
@@ -189,7 +213,7 @@ COMPANIONS = (("app-host", "cmux-app-host"), ("cloud-server", "cmux-cloud"), ("b
 WEB_BASE = os.environ.get("CMUX_WEB_BUNDLES_BASE") or "https://files.cmux.com/cmux-next-web"
 # Each feat-cmux-next commit's hot keys (`keys`), published write-once by cmux-next-hot-keys.yml.
 HOT_KEYS_BASE = os.environ.get("CMUX_HOT_KEYS_BASE") or "https://files.cmux.com/cmux-next/hot-keys"
-HOT_KEYS_SCHEMA = 1
+HOT_KEYS_SCHEMA = 2  # 2: `web` also digests the catalogs gen-strings.mjs reads, `shell` no longer does
 # Beside each tree, its darwin build signed by the NEXT nightly's team (cmux-tui-team-signed.yml,
 # scripts/ci/cmux_tui_team_sign.py): what a Team-signed app takes.
 TEAM_SIGNED = "team-signed"
@@ -295,7 +319,7 @@ def have_commit(repo: Path, sha: str) -> bool:
                               capture_output=True).returncode == 0
     if present():
         return True
-    subprocess.run(["git", "-C", str(repo), "fetch", "-q", "origin", sha], capture_output=True)
+    git_fetch(repo, "origin", sha)
     return present()
 
 
@@ -450,26 +474,90 @@ def unverifiable(team: str | None, have: str | None, what: str) -> str | None:
             "--unsigned-daemon takes it anyway")
 
 
-def app_commit(app: Path, repo: Path = ROOT) -> str:
-    """The app's commit as a full sha. A nightly stamps CMUXCommit with the short one (nightly.yml)."""
+FETCH_SECONDS = 120  # a Mac fleet worker reaches GitHub only through a slow proxy, or not at all (hq#27830)
+# Bundle files that record a full commit as `commit=SHA`: a nightly's cmux-tui is the build commit's tree
+# (write-cmux-tui-version.sh), or an older commit's, so only one that extends the short stamp counts.
+BUNDLE_COMMIT_FILES = ("cmux-tui.version", "acpmux.version")
+
+
+def git_fetch(repo: Path, *args: str) -> bool:
+    """`git fetch -q ARGS` in REPO, bounded by FETCH_SECONDS: False when it failed or hung. Not `fetch`: that name is
+    the HTTP read fetch_kept uses, and a second def of it replaced the first (tests/test_hot_apply_fetch_names.py)."""
+    try:
+        return subprocess.run(["git", "-C", str(repo), "fetch", "-q", *args], capture_output=True,
+                              timeout=FETCH_SECONDS).returncode == 0
+    except subprocess.TimeoutExpired:
+        return False
+
+
+def bundle_commit(app: Path, short: str) -> str | None:
+    """A full sha the bundle itself records that extends SHORT, else None."""
+    for name in BUNDLE_COMMIT_FILES:
+        try:
+            lines = (app / BIN / name).read_text(errors="replace").splitlines()
+        except OSError:
+            continue
+        for line in lines:
+            key, _, value = line.partition("=")
+            if key.strip() == "commit" and SHA.fullmatch(value.strip()) and value.strip().startswith(short):
+                return value.strip()
+    return None
+
+
+def resolve_app_commit(app: Path, repo: Path = ROOT, may_fetch: bool = True) -> dict:
+    """APP's commit: {commit, resolved, via[, why]}. A nightly stamps CMUXCommit with the short sha (nightly.yml).
+
+    The full sha comes from REPO's history, else a full one the bundle records, else a bounded fetch of
+    feat-cmux-next. A fleet Mac's step source is a shallow bundle with no history and often no reachable
+    origin (hq#27830/#27935), so all three can miss: then commit is the short stamp, resolved False, and why
+    says so. Raises only when the app has no CMUXCommit at all (a DEV build)."""
     with open(app / "Contents/Info.plist", "rb") as handle:
         commit = str(plistlib.load(handle).get("CMUXCommit") or "")
     if not re.fullmatch(r"[0-9a-f]{7,40}", commit):
         raise RuntimeError(f"{app} has no CMUXCommit (a DEV build): nothing to compare SHA with")
-    if not SHA.fullmatch(commit):
-        def resolve() -> str:
-            return git(repo, "rev-parse", "--verify", "--quiet", f"{commit}^{{commit}}", check=False)
-        full = resolve()
-        if not SHA.fullmatch(full):
-            # A short sha cannot be fetched by itself: the branch the nightly was cut from can.
-            shallow = git(repo, "rev-parse", "--is-shallow-repository", check=False) == "true"
-            subprocess.run(["git", "-C", str(repo), "fetch", "-q", *(["--unshallow"] if shallow else []),
-                            "origin", "feat-cmux-next"], capture_output=True)
-            full = resolve()
-        if not SHA.fullmatch(full):
-            raise RuntimeError(f"{app}'s CMUXCommit {commit} is not one commit in {repo} (fetch feat-cmux-next)")
-        commit = full
-    return commit
+    if SHA.fullmatch(commit):
+        return {"commit": commit, "resolved": True, "via": "Info.plist"}
+
+    def resolve() -> str:
+        return git(repo, "rev-parse", "--verify", "--quiet", f"{commit}^{{commit}}", check=False)
+    full = resolve()
+    if SHA.fullmatch(full):
+        return {"commit": full, "resolved": True, "via": "checkout"}
+    recorded = bundle_commit(app, commit)
+    if recorded:
+        return {"commit": recorded, "resolved": True, "via": "bundle"}
+    # A short sha cannot be fetched by itself: the branch the nightly was cut from can. A nightly is at most a
+    # day of merges behind it (LIVE_FROM_MAX), so a shallow checkout deepens by that much, not --unshallow.
+    shallow = git(repo, "rev-parse", "--is-shallow-repository", check=False) == "true"
+    fetched = may_fetch and git_fetch(repo, *([f"--depth={LIVE_FROM_MAX}"] if shallow else []), "origin", "feat-cmux-next")
+    full = resolve()
+    if SHA.fullmatch(full):
+        return {"commit": full, "resolved": True, "via": "fetch"}
+    where = "a shallow checkout" if shallow else "this checkout"
+    tried = ("the fetch of feat-cmux-next brought no such commit" if fetched else
+             f"feat-cmux-next could not be fetched within {FETCH_SECONDS} s" if may_fetch else "no fetch was asked")
+    return {"commit": commit, "resolved": False, "via": "Info.plist",
+            "why": f"CMUXCommit {commit} is not one commit in {where} ({repo}), the bundle records no full sha "
+                   f"for it, and {tried}"}
+
+
+def app_commit(app: Path, repo: Path = ROOT) -> str:
+    """The app's commit as a full sha, for what diffs or compares it (plan, hot-verify): raises when only the
+    short stamp is known. A receipt that only names the commit takes app_commit_receipt instead."""
+    found = resolve_app_commit(app, repo)
+    if not found["resolved"]:
+        raise RuntimeError(f"{app}'s {found['why']} (fetch feat-cmux-next)")
+    return found["commit"]
+
+
+def app_commit_receipt(app: Path, repo: Path = ROOT) -> dict:
+    """The receipt fields for APP's commit: {app_commit, app_commit_resolved[, app_commit_unresolved]}. On a
+    shallow step source the short stamp is recorded as given, never faked as a full sha; nothing is compared."""
+    found = resolve_app_commit(app, repo)
+    out = {"app_commit": found["commit"], "app_commit_resolved": found["resolved"]}
+    if not found["resolved"]:
+        out["app_commit_unresolved"] = found["why"]
+    return out
 
 
 def app_abi(app: Path) -> int | None:
@@ -609,6 +697,24 @@ def ffi_digest(repo: Path, sha: str, blobs: dict[str, str], daemon: list[str]) -
     return hashlib.sha256("".join(f"{p}\0{blob}\n" for p, blob in sorted(set(entries))).encode()).hexdigest()
 
 
+def web_catalogs(repo: Path, sha: str, strings: list[str]) -> tuple[list[str], list[str]]:
+    """Split STRINGS (SHA's .xcstrings files) into the catalogs the web pages read and the rest. gen-strings.mjs
+    builds every page's strings table from its catalogs at web-build time, and the web source key hashes them
+    (web-bundle-key.py), so the bundle published for SHA carries those catalogs' words: they ride the web part.
+    The rest (Swift-only catalogs) stay with the Swift build. gen-strings.mjs is read from SHA, not the working tree."""
+    if not strings:
+        return [], []
+    try:
+        named = load("web_bundle_key", "web-bundle-key.py").gen_strings_catalogs_in(
+            git(repo, "show", f"{sha}:webviews/scripts/pages/gen-strings.mjs")) or []
+    except (RuntimeError, OSError):
+        named = []  # unreadable: every catalog stays with the Swift build, as before
+    # A one-file-per-key table (`<Table>.xcstrings.d`, scripts/cmux-next/string_catalogs.py) is named as its directory.
+    def read(p):
+        return p in named or any(p.startswith(d.rstrip("/") + "/") for d in named if d.endswith(".xcstrings.d"))
+    return [p for p in strings if read(p)], [p for p in strings if not read(p)]
+
+
 def hot_keys(repo: Path, sha: str, web: str | None = None) -> dict:
     """SHA's hot keys: what `plan` compares instead of diffing two commits. Each key covers one bucket's files
     (live_apply.py's rules applied to every path of SHA's tree, as _plan applies them to a diff), so two commits
@@ -622,16 +728,25 @@ def hot_keys(repo: Path, sha: str, web: str | None = None) -> dict:
         blobs[path] = meta.split()[2]
     files = live_apply.classify([("M", p) for p in blobs], {})["files"]
     # cmux-tui's own native sources (a shim, the Zig binding) are daemon in live_apply.py: the tree build compiles them.
-    shell = files.get("rebuild", []) + files.get("swift-live", []) + files.get("strings", [])
+    web_strings, swift_strings = web_catalogs(repo, sha, files.get("strings", []))
+    shell = files.get("rebuild", []) + files.get("swift-live", []) + swift_strings
     daemon = files.get("daemon", [])
     abi = json.loads(git(repo, "show", f"{sha}:webviews/src/web-abi.json"))["abi"]
     return {"schema": HOT_KEYS_SCHEMA, "commit": sha, "tree_key": _tree_key(repo, sha),
             # `web` decides, `web_key` fetches: the source key also covers files no bundle ships (tests).
-            "web": set_digest(blobs, files.get("web-live", [])),
+            "web": set_digest(blobs, files.get("web-live", []) + web_strings),
             "web_key": web or _web_key(repo, sha), "web_abi": abi, "shell": set_digest(blobs, shell),
             # The app links the FFI release named by its pin, not the current FFI sources. Keep source-only
             # FFI edits out of this key; a repin changes the pin source and therefore the linked library.
-            "ffi": ffi_digest(repo, sha, blobs, daemon), "helpers": set_digest(blobs, helper_rust(repo, daemon))}
+            "ffi": ffi_digest(repo, sha, blobs, daemon), "helpers": set_digest(blobs, helper_rust(repo, daemon)),
+            "rules": rules_digest()}
+
+
+def rules_digest() -> str:
+    """live_apply.py's own sha256: the rules that sorted SHA's files into the digests above. Two commits' keys
+    compare only under the same rules; a rule change (design/ became no-app) would otherwise differ every
+    `shell` digest across it and leave a whole NIGHTLY's applies as "Swift, resources and manifests"."""
+    return hashlib.sha256(Path(live_apply.__file__).read_bytes()).hexdigest()
 
 
 def valid_keys(keys, sha: str) -> bool:
@@ -700,6 +815,8 @@ def keys_plan(app: Path, sha: str, base: str, given_base: bool, unsigned: bool =
     have, want = published_keys(base), published_keys(sha)
     if not have or not want:
         return None
+    if have.get("rules") != want.get("rules"):
+        return None  # sorted by different live_apply.py rules: the digests do not compare, so the diff plans this pair
     out = {"sha": sha, "base": base, "app": str(app), "parts": [], "left": {}, "notes": [], "via": "published keys"}
     note_refused(out, app, given_base)
     if want["shell"] != have["shell"]:
@@ -792,13 +909,32 @@ def live_from(repo: Path, sha: str, limit: int = LIVE_FROM_MAX) -> dict:
     compatibility remains separate; it can apply parts and report the other layers as left.
     At most `limit` commits; `floor` is that commit, or None when the walk stopped at the limit. The
     signed Mac live update file names them (scripts/ci/cmux-machine-channel.py --purpose mac-live)."""
-    out: dict = {"sha": sha, "live_from": [], "floor": None, "floor_paths": []}
+    out: dict = {"sha": sha, "live_from": [], "floor": None, "floor_paths": [],
+                 "daemon_from": [], "daemon_floor": None, "daemon_floor_paths": []}
+    # daemon_from: the wider list of app commits that can run SHA's bin files beside their own app (daemon ABI
+    # only: the FFI pin and the Rust the Swift build reads). The nightly-live channel (`cmux app try channel`)
+    # reads it: it swaps only the daemon part and never claims the app is at SHA, so Swift, resources and web
+    # (which comes on its own channel) merged since the app's build wait for the next nightly. live_from stays
+    # the whole-app list, so a CLI that reads only live_from claims nothing new.
+    whole_app = True
     for commit in git(repo, "rev-list", "--first-parent", f"--max-count={limit}", sha).split():
-        out["live_from"].append(commit)
-        if paths := pins_daemon(repo, commit, whole_app=True):
-            out["floor"], out["floor_paths"] = commit, paths[:20]
+        out["daemon_from"].append(commit)
+        if whole_app:
+            out["live_from"].append(commit)
+            if paths := pins_daemon(repo, commit, whole_app=True):
+                out["floor"], out["floor_paths"] = commit, paths[:20]
+                whole_app = False
+        if paths := pins_daemon(repo, commit):
+            out["daemon_floor"], out["daemon_floor_paths"] = commit, paths[:20]
             break
     return out
+
+
+def command_app_commit(args) -> int:
+    """Print APP's commit as JSON ({commit, resolved, via[, why]}); exit 1 when only the short stamp is known."""
+    found = resolve_app_commit(Path(args.app), Path(args.repo), may_fetch=not args.no_fetch)
+    print(json.dumps(found))
+    return 0 if found["resolved"] else 1
 
 
 def command_live_from(args) -> int:
@@ -840,10 +976,15 @@ def _plan(repo: Path, app: Path, sha: str, branch: bool, given_base: str | None,
         out["fork"] = fork
     result = live_apply.classify_range(str(repo), since, sha)
     files = result["files"]
-    for kind in ("swift-live", "rebuild", "strings"):
-        if files.get(kind):
-            out["left"][kind] = files[kind]
-    web = files.get("web-live", [])
+    web_strings, swift_strings = web_catalogs(repo, sha, files.get("strings", []))
+    for kind, paths in (("swift-live", files.get("swift-live")), ("rebuild", files.get("rebuild")), ("strings", swift_strings)):
+        if paths:
+            out["left"][kind] = paths
+    if files.get("strings"):
+        out["notes"].append("strings: " + ("the web pages' words ride the web part (gen-strings.mjs reads "
+                                           + ", ".join(web_strings) + "); " if web_strings else "")
+                            + "Swift's translations wait for the next build")
+    web = files.get("web-live", []) + web_strings
     if web and branch:
         # A branch's web is not published: try-pr.sh serves it from the branch (web-overlay.sh follow).
         out["left"]["web (not published for a branch)"] = web
@@ -924,6 +1065,9 @@ def _plan(repo: Path, app: Path, sha: str, branch: bool, given_base: str | None,
 
 
 def triple() -> str:
+    """This host's build target; CMUX_HOT_APPLY_TRIPLE names another (a Linux measure fetching a Mac's build)."""
+    if os.environ.get("CMUX_HOT_APPLY_TRIPLE"):
+        return os.environ["CMUX_HOT_APPLY_TRIPLE"]
     arch = "aarch64" if platform.machine() in ("arm64", "aarch64") else "x86_64"
     return f"{arch}-apple-darwin" if sys.platform == "darwin" else f"{arch}-unknown-linux-musl"
 
@@ -943,8 +1087,9 @@ def cached(copy: Path, want: str) -> bool:
         return copy.is_file() and sha256_file(copy) == want
 
 
-def fetch_cmux(key: str, state: Path) -> tuple[Path, str]:
-    """SHA's cmux binary for this host, checked against the tree's completion.json and .sha256."""
+def cmux_job(key: str, state: Path) -> tuple[str, str, Path]:
+    """SHA's cmux binary for this host as a build job (URL, its sha256, its copy under state/builds/),
+    the sha256 checked between the tree's completion.json and .sha256."""
     name = f"cmux-tui-{triple()}"
     completion = json.loads(fetch_kept(f"{TUI_BASE}/{key}/completion.json", lists_binary(name)))
     if completion.get("key") != key:
@@ -953,39 +1098,78 @@ def fetch_cmux(key: str, state: Path) -> tuple[Path, str]:
     published = fetch_kept(f"{TUI_BASE}/{key}/{name}.sha256").decode().split()[0]
     if not want or want != published:
         raise RuntimeError(f"{name}: completion.json says {want}, {name}.sha256 says {published}")
-    return fetch_build_file(f"{TUI_BASE}/{key}/{name}", want, state / "builds" / want / "cmux"), want
+    return f"{TUI_BASE}/{key}/{name}", want, state / "builds" / want / "cmux"
 
 
-def fetch_build_file(url: str, want: str, copy: Path) -> Path:
-    """URL into COPY (state/builds/SHA256/FILE), checked against WANT; a COPY that still hashes to it is kept."""
-    if not cached(copy, want):
-        body = fetch(url)
-        with PHASES("verify"):
-            if hashlib.sha256(body).hexdigest() != want:
-                raise RuntimeError(f"{url} does not hash to {want}")
+FETCH_WORKERS = 4  # a build is the daemon and six companions (~160 MB); one connection each, this many at once
+
+
+def fetch_build_files(jobs: list[tuple[str, str, Path]], seeds: Path | None = None) -> None:
+    """Each (URL, WANT, COPY) into COPY (state/builds/SHA256/FILE), checked against WANT. A COPY that still
+    hashes to WANT is kept; else a file of COPY's name in SEEDS (the app's bin/) that hashes to it is copied,
+    not downloaded (an app that already runs that build); the rest download at once, each hashed as it streams
+    to disk and kept only when it is WANT."""
+    missing = [job for job in jobs if not cached(job[2], job[1]) and not seeded(job[1], job[2], seeds)]
+    if not missing:
+        return
+    with PHASES("fetch"), concurrent.futures.ThreadPoolExecutor(min(FETCH_WORKERS, len(missing))) as pool:
+        for done in [pool.submit(download_into, *job) for job in missing]:
+            done.result()  # the first failure raises, after every download has ended
+
+
+def seeded(want: str, copy: Path, seeds: Path | None) -> bool:
+    """COPY made from SEEDS/COPY.name when that file hashes to WANT: no download."""
+    seed = seeds / copy.name if seeds else None
+    if seed is None or not seed.is_file():
+        return False
+    with PHASES("verify"):
         copy.parent.mkdir(parents=True, exist_ok=True)
-        with tempfile.NamedTemporaryFile(dir=copy.parent, delete=False) as part:
-            part.write(body)
+        with tempfile.NamedTemporaryFile(dir=copy.parent, delete=False) as part, open(seed, "rb") as source:
+            digest = hashlib.sha256()
+            while chunk := source.read(1 << 20):
+                digest.update(chunk)
+                part.write(chunk)
+        if digest.hexdigest() != want:
+            os.unlink(part.name)
+            return False
         os.chmod(part.name, 0o755)
         os.replace(part.name, copy)
-    return copy
+        return True
 
 
-def fetch_companions(key: str, state: Path) -> dict[str, tuple[Path, str] | None]:
-    """The companions of tree KEY's build for this host, each checked against the sha256 of the
+def download_into(url: str, want: str, copy: Path, timeout: float = 300) -> None:
+    """URL streamed into COPY, kept only when it hashes to WANT. Runs in a worker thread: no PHASES here."""
+    copy.parent.mkdir(parents=True, exist_ok=True)
+    request = urllib.request.Request(url, headers={"User-Agent": "cmux-hot-apply/1"})
+    with tempfile.NamedTemporaryFile(dir=copy.parent, delete=False) as part:
+        try:
+            digest = hashlib.sha256()
+            with urllib.request.urlopen(request, timeout=timeout) as answer:
+                while chunk := answer.read(1 << 20):
+                    digest.update(chunk)
+                    part.write(chunk)
+            if digest.hexdigest() != want:
+                raise RuntimeError(f"{url} does not hash to {want}")
+        except BaseException:
+            part.close()
+            os.unlink(part.name)
+            raise
+    os.chmod(part.name, 0o755)
+    os.replace(part.name, copy)
+
+
+def companion_jobs(key: str, state: Path) -> dict[str, tuple[str, str, Path] | None]:
+    """The companions of tree KEY's build for this host as build jobs, each with the sha256 of the
     commit-addressed manifest its source.json names; None for one that build published none of."""
     owner = json.loads(fetch_kept(f"{TUI_BASE}/{key}/source.json")).get("commit") or ""
     if not SHA.fullmatch(owner):
         raise RuntimeError(f"{TUI_BASE}/{key}/source.json names no commit, so its companions are unknown")
     binaries = json.loads(fetch_kept(f"{COMMIT_BASE}/{owner}/manifest.json")).get("binaries", {})
-    out: dict[str, tuple[Path, str] | None] = {}
+    out: dict[str, tuple[str, str, Path] | None] = {}
     for artifact, file in COMPANIONS:
         asset = f"cmux-tui-{artifact}-{triple()}"
         want = binaries.get(asset)
-        if not want:
-            out[file] = None
-            continue
-        out[file] = (fetch_build_file(f"{COMMIT_BASE}/{owner}/{asset}", want, state / "builds" / want / file), want)
+        out[file] = (f"{COMMIT_BASE}/{owner}/{asset}", want, state / "builds" / want / file) if want else None
     return out
 
 
@@ -1008,20 +1192,24 @@ def team_signed(key: str, team: str | None) -> dict | None:
     return signed if files["cmux"] else None
 
 
-def fetch_build(key: str, state: Path, team: str | None) -> tuple[Path, str, dict[str, tuple[Path, str] | None], str]:
+def fetch_build(key: str, state: Path, team: str | None,
+                seeds: Path | None = None) -> tuple[Path, str, dict[str, tuple[Path, str] | None], str]:
     """Tree KEY's cmux and companions for this host: (cmux, its sha256, companions, which build). An app
-    signed by TEAM takes the Team-signed set when there is one, else (and an ad-hoc app always) the tree."""
+    signed by TEAM takes the Team-signed set when there is one, else (and an ad-hoc app always) the tree.
+    SEEDS (the app's bin/) gives the files it already has with the same sha256, so they are not downloaded."""
     signed = team_signed(key, team)
     if not signed:
-        new, want = fetch_cmux(key, state)
-        return new, want, fetch_companions(key, state), "ad-hoc"
-    out: dict[str, tuple[Path, str] | None] = {}
-    for file, entry in signed["files"].items():
-        want = entry["sha256"] if entry else None
-        out[file] = want and (fetch_build_file(f"{TUI_BASE}/{key}/{TEAM_SIGNED}/{want}/{file}", want,
-                                               state / "builds" / want / file), want)
+        jobs = {"cmux": cmux_job(key, state), **companion_jobs(key, state)}
+        build = "ad-hoc"
+    else:
+        jobs = {file: (f"{TUI_BASE}/{key}/{TEAM_SIGNED}/{entry['sha256']}/{file}", entry["sha256"],
+                       state / "builds" / entry["sha256"] / file) if entry else None
+                for file, entry in signed["files"].items()}
+        build = f"team-signed ({team})"
+    fetch_build_files([job for job in jobs.values() if job], seeds)
+    out = {file: (job[2], job[1]) if job else None for file, job in jobs.items()}
     new, want = out.pop("cmux")
-    return new, want, out, f"team-signed ({team})"
+    return new, want, out, build
 
 
 def local_companions(binary: Path, state: Path) -> dict[str, tuple[Path, str] | None]:
@@ -1262,7 +1450,7 @@ def restart_sessions(target: Path, sockets: list[str], state: Path) -> list[dict
         t0 = time.monotonic()
         with PHASES("find"):
             before = swapper.owner(target, timeout=10)
-        with PHASES("reload"):
+        with PHASES("sessions"):
             # The cmux-tui surface keeps `server` for the daemon's lifecycle in every build (the nightly's too, for
             # the rollback); on `cmux`, `server` is the machine server and refuses --socket (cmux 7a6e6fb, a Chief's).
             surface = target.with_name("cmux-tui") if target.with_name("cmux-tui").exists() else target
@@ -1351,7 +1539,7 @@ def swap_cmux(app: Path, new: Path, want: str, socket: str | None, state: Path, 
             raise RuntimeError(f"no daemon answers on {socket}")
         if swapper.app_file(owner[1]) != target:
             raise RuntimeError(f"the daemon on {socket} runs {owner[1]}, not {target}: not this app's")
-        with PHASES("reload"):  # the rename over target, SIGTERM, until the app's next owner answers
+        with PHASES("handoff"):  # the rename over target, SIGTERM, until the app's next owner answers
             swapper.app_handoff(new, owner[0], target)
             now = swapper.owner(target, timeout=10)
         step.update(old_pid=owner[0], new_pid=now[0] if now else None, daemon="app handoff")
@@ -1472,7 +1660,7 @@ def outside_login_session() -> bool:
 
 def restart_acpmux(app: Path, homes: list[str], before: dict[str, int] | None = None,
                    sockets: dict[str, str] | None = None) -> list[dict]:
-    with PHASES("reload"):
+    with PHASES("acpmux"):
         return _restart_acpmux(app, homes, before, sockets)
 
 
@@ -1761,9 +1949,13 @@ def apply_web(key: str, sha: str, live) -> dict:
 
 
 def record(state: Path, receipt: dict, last: bool = True) -> None:
-    """Writes the receipt, with the run's phases, to history.jsonl (and last.json unless LAST is false, as for a
-    dry run), prints it as the last line on stdout and the phases on stderr."""
+    """Writes the receipt, with the run's phases (and the layers it swapped), to history.jsonl (and last.json
+    unless LAST is false, as for a dry run), prints it as the last line on stdout and the phases on stderr."""
     receipt["phases"] = PHASES.rounded()
+    receipt.setdefault("platform", PLATFORM)
+    layers = swap_layers(receipt)
+    if layers:
+        receipt["layers"] = layers
     state.mkdir(parents=True, exist_ok=True)
     line = json.dumps(receipt)
     if last:
@@ -1772,6 +1964,81 @@ def record(state: Path, receipt: dict, last: bool = True) -> None:
         handle.write(line + "\n")
     log(timings(receipt))
     print(line)
+
+
+PLATFORM = {"darwin": "mac", "linux": "linux"}.get(sys.platform, sys.platform)
+# The NOW row each layer's p95 publishes as, per platform (hot_swap_<platform>_<row>_p95_ms).
+LAYER_ROWS = {"daemon": "daemon_handoff", "acpmux": "acpmux_restart", "ffi": "ffi_warm_swap"}
+
+
+def swap_layers(receipt: dict) -> dict:
+    """What each layer an apply moved cost the person, from its phases: {} for a dry run, a failed apply, or
+    one that moved nothing. A receipt from before the handoff and acpmux phases (one `reload` for all)
+    gives the daemon's only when no acpmux daemon and no other session's daemon restarted in it."""
+    if receipt.get("action") != "apply" or receipt.get("error") or not receipt.get("applied"):
+        return {}
+    phases, steps, out = receipt.get("phases") or {}, receipt.get("steps") or {}, {}
+    rust = steps.get("rust") or {}
+    handoff = phases.get("handoff")
+    if handoff is None and "reload" in phases and not steps.get("acpmux") and not rust.get("sessions"):
+        handoff = phases["reload"]
+    if handoff is not None and rust.get("daemon") == "app handoff":
+        out["daemon"] = {"ms": round(handoff * 1000), "state_kept": True}
+    acpmux = steps.get("acpmux") or []
+    if "acpmux" in phases and acpmux:
+        out["acpmux"] = {"ms": round(phases["acpmux"] * 1000), "homes": len(acpmux),
+                         "state_kept": all(s.get("new_pid") and s.get("new_pid") != s.get("old_pid") for s in acpmux)}
+    ffi = steps.get("ffi") or {}
+    if ffi.get("launch") and "quit" in phases and "launch" in phases:
+        out["ffi"] = {"ms": round((phases["quit"] + phases["launch"]) * 1000), "state_kept": False,
+                      "kept": "sessions"}
+    return out
+
+
+def quantile(values: list[float], q: float) -> float | None:
+    """Nearest-rank quantile (p95 of 20 samples is the 19th), None for no samples."""
+    if not values:
+        return None
+    ordered = sorted(values)
+    return ordered[min(len(ordered), max(1, math.ceil(len(ordered) * q))) - 1]
+
+
+def layer_summary(lines) -> dict:
+    """Per platform and layer: count, p50 and p95 ms, state kept count, and the NOW rows, from receipt lines."""
+    samples: dict[tuple[str, str], list[dict]] = {}
+    for line in lines:
+        try:
+            receipt = json.loads(line)
+        except ValueError:
+            continue
+        if not isinstance(receipt, dict):
+            continue
+        platform = receipt.get("platform") or "mac"  # every receipt before `platform` was a Mac's
+        for layer, row in (receipt.get("layers") or swap_layers(receipt)).items():
+            if layer in LAYER_ROWS and isinstance(row.get("ms"), (int, float)):
+                samples.setdefault((platform, layer), []).append(row)
+    layers, rows = {}, {}
+    for (platform, layer), got in sorted(samples.items()):
+        ms = [r["ms"] for r in got]
+        entry = {"n": len(ms), "p50_ms": quantile(ms, 0.5), "p95_ms": quantile(ms, 0.95), "max_ms": max(ms),
+                 "state_kept": sum(1 for r in got if r.get("state_kept"))}
+        layers.setdefault(platform, {})[layer] = entry
+        rows[f"hot_swap_{platform}_{LAYER_ROWS[layer]}_p95_ms"] = entry["p95_ms"]
+    return {"layers": layers, "rows": rows}
+
+
+def command_layers(args) -> int:
+    paths = [Path(p) for p in args.history] or [state_dir() / "history.jsonl"]
+    lines, read = [], []
+    for path in paths:
+        try:
+            lines.extend(path.read_text().splitlines())
+            read.append(str(path))
+        except OSError as error:
+            print(f"hot-apply: {path}: {error.strerror or error}", file=sys.stderr)
+    out = {"read": read, **layer_summary(lines)}
+    print(json.dumps(out, indent=None if args.json else 2))
+    return 0 if read else 1
 
 
 def timings(receipt: dict) -> str:
@@ -1843,7 +2110,7 @@ def command_apply(args) -> int:
                 new, want = keep(state, Path(args.binary))
                 companions = local_companions(Path(args.binary), state)
             else:
-                new, want, companions, build = fetch_build(planned["tree_key"], state, app_team(app))
+                new, want, companions, build = fetch_build(planned["tree_key"], state, app_team(app), app / BIN)
                 receipt["steps"]["build"] = build
             # The file itself, whatever plan read: a --binary, or a build plan could not read.
             why = unverifiable(file_team(new), app_team(app), "SHA's cmux" if not args.binary else args.binary)
@@ -1935,9 +2202,11 @@ def command_apply(args) -> int:
 
 def dry_run(repo: Path, args, planned: dict, parts: list[str], receipt: dict, state: Path, t0: float) -> int:
     """What `apply` would fetch and verify, fetched and verified; nothing in the app changes."""
+    app = Path(args.app)
     try:
         if "rust" in parts and not args.binary:
-            new, want, companions, build = fetch_build(planned["tree_key"], state, planned.get("app_team"))
+            new, want, companions, build = fetch_build(planned["tree_key"], state, planned.get("app_team"),
+                                                       None if args.base else app / BIN)
             receipt["steps"]["rust"] = {"to": want, "copy": str(new), "build": build}
             receipt["steps"]["companions"] = {f: (c[1] if c else None) for f, c in companions.items()}
         if "web" in parts:
@@ -2101,10 +2370,17 @@ def main(argv=None) -> int:
     p.add_argument("sha")
     p.add_argument("--repo", default=str(ROOT))
     p.add_argument("--max", type=int, default=LIVE_FROM_MAX)
+    p = sub.add_parser("app-commit", help="APP's commit, its short CMUXCommit resolved to a full sha (JSON)")
+    p.add_argument("app")
+    p.add_argument("--repo", default=str(ROOT))
+    p.add_argument("--no-fetch", action="store_true", help="the checkout and the bundle only: no fetch of feat-cmux-next")
     p = sub.add_parser("rollback")
     p.add_argument("--app")
     p.add_argument("--socket")
     sub.add_parser("status")
+    p = sub.add_parser("layers", help="count, p50 and p95 ms of each layer's swap over the receipts (JSON)")
+    p.add_argument("--history", action="append", default=[], help="a history.jsonl to read (repeat); else this host's")
+    p.add_argument("--json", action="store_true", help="one line")
     p = sub.add_parser("drop-refused-overlay",
                        help="drop web-dev.json's pointer at an overlay the app refuses (it serves its bundled pages)")
     p.add_argument("--app", default=DEFAULT_APP)
@@ -2117,6 +2393,7 @@ def main(argv=None) -> int:
     try:
         return {"plan": command_plan, "apply": command_apply, "prefetch": command_prefetch, "keys": command_keys,
                 "rollback": command_rollback, "status": command_status, "live-from": command_live_from,
+                "app-commit": command_app_commit, "layers": command_layers,
                 "drop-refused-overlay": command_drop_refused_overlay}[args.command](args)
     except RuntimeError as error:
         print(f"hot-apply: {error}", file=sys.stderr)

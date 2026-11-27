@@ -31,6 +31,12 @@
 #   clippy-changed BASE  cmux-tui-spec.yml `clippy (changed cmux-tui packages)`, required on
 #                        feat-cmux-next: changed-package clippy, Cloud host identity tests and the
 #                        panic ratchet against BASE (a 40-hex commit).
+#   head-check BASE      cmux-next-head-compile.yml's Linux leg (scripts/ci/head_compile.py): every
+#                        tracked Cargo.lock matches its manifests (cargo-locks.py check --strict,
+#                        BASE for which workspaces a timeout may fail), then `cargo check
+#                        --workspace --all-targets --locked --keep-going` of cmux-tui (its tests). It
+#                        shares clippy-changed's warm target. Exit 1 for a compile or lock red, 3
+#                        when the tools could not be set up (no verdict).
 #   react-doctor BASE    cmux-next-react-doctor.yml `React Doctor (changed React projects)`, required
 #                        on feat-cmux-next: the gate on the projects BASE..HEAD touches.
 #   notices              cmux-next-guards.yml rust-notices-tree's "Generate the Rust notices from
@@ -46,7 +52,7 @@
 # step: outside one (CMUX_CI_STEP_KEY) the script refuses.
 set -euo pipefail
 usage() {
-  echo "usage: feat-parity-check.sh rust-workspace ROOT | swift-portable PKG | clippy-changed BASE | react-doctor BASE | sdk-rust | sdk-msrv | cef-shim-cpp | web | notices" >&2
+  echo "usage: feat-parity-check.sh rust-workspace ROOT | swift-portable PKG | clippy-changed BASE | head-check BASE | react-doctor BASE | sdk-rust | sdk-msrv | cef-shim-cpp | web | notices" >&2
   exit 2
 }
 if [[ -z "${CMUX_CI_STEP_KEY:-}" ]]; then
@@ -59,14 +65,14 @@ fi
 mode="${1:-}"
 workspace="${2:-}"
 case "$mode" in
-  rust-workspace | swift-portable | clippy-changed | react-doctor)
+  rust-workspace | swift-portable | clippy-changed | head-check | react-doctor)
     [[ $# -eq 2 && "$workspace" =~ ^[A-Za-z0-9._-]+(/[A-Za-z0-9._-]+)*$ && "/$workspace/" != *"/../"* && "/$workspace/" != *"/./"* ]] || usage
     ;;
   sdk-rust | sdk-msrv | cef-shim-cpp | web | notices) [[ $# -eq 1 ]] || usage ;;
   *) usage ;;
 esac
 case "$mode" in
-  clippy-changed | react-doctor) [[ "$workspace" =~ ^[0-9a-f]{40}$ ]] || usage ;;
+  clippy-changed | head-check | react-doctor) [[ "$workspace" =~ ^[0-9a-f]{40}$ ]] || usage ;;
   *) ;;
 esac
 umask 022
@@ -74,6 +80,7 @@ root="$(pwd -P)"
 msrv=1.88.0
 
 first_rc=0
+last_rc=0
 step_rows=()
 step() { # NAME CMD...: runs CMD, records pass or fail and seconds
   local name="$1" t0 rc=0
@@ -81,6 +88,7 @@ step() { # NAME CMD...: runs CMD, records pass or fail and seconds
   echo "=== step $name: $*"
   t0=$SECONDS
   "$@" || rc=$?
+  last_rc=$rc
   if [[ "$rc" -eq 0 ]]; then
     step_rows+=("$name"$'\t'"pass"$'\t'"$((SECONDS - t0))")
   else
@@ -314,10 +322,26 @@ required_base() { # BASE: fetch it when the checkout lacks it, then print the me
     git -C "$root" fetch --quiet --no-tags --unshallow "$remote" || true
   fi
   if ! have_base; then
+    # No verdict (exit 3, setup): the pool poster requeues a setup fault on the same head, where exit 1 is the
+    # change's red. The callers' `base="$(required_base ...)"` ends the step with this code (set -e).
     echo "base: cannot fetch $base (tried the commit, $requiredChecksBranch and the full history)" >&2
-    return 1
+    return 3
   fi
-  git -C "$root" merge-base "$base" HEAD 2>/dev/null || echo "$base"
+  # The merge base, never BASE itself when HEAD is not on it: a pool checkout holds HEAD at depth 1, so `merge-base`
+  # found nothing and BASE (the base tip) stood in. Every file the base changed since the branch was cut then read as
+  # the branch's own (2026-11-24: cmux#53262's panic ratchet counted its old cli/hub.rs, 890 indexing_slicing hits,
+  # against a base where #51720 had rewritten it; the merge base was 20 commits back). Deepen HEAD until they meet.
+  local head merged
+  head="$(git -C "$root" rev-parse HEAD)"
+  merged="$(git -C "$root" merge-base "$base" HEAD 2>/dev/null)" && { echo "$merged"; return 0; }
+  if [[ "$(git -C "$root" rev-parse --is-shallow-repository)" == true ]]; then
+    git -C "$root" fetch --quiet --no-tags --deepen=200 "$remote" "$head" || true
+    merged="$(git -C "$root" merge-base "$base" HEAD 2>/dev/null)" && { echo "$merged"; return 0; }
+    git -C "$root" fetch --quiet --no-tags --unshallow "$remote" "$head" || true
+    merged="$(git -C "$root" merge-base "$base" HEAD 2>/dev/null)" && { echo "$merged"; return 0; }
+  fi
+  echo "base: HEAD and $base share no history here; comparing with $base itself" >&2
+  echo "$base"
 }
 requiredChecksBranch=feat-cmux-next
 # Go at cmux-tailnet's pin (crates/cmux-tailnet/go-version) first on PATH: its build.rs builds libtailscale with
@@ -354,7 +378,31 @@ if [[ "$mode" == clippy-changed ]]; then
   # cmux-tui-spec.yml `clippy (changed cmux-tui packages)`.
   base="$(required_base "$workspace")"
   echo "base: $base"
+  # A change that reaches none of this check's inputs passes before any setup. cmux-tui-clippy-changed.py reads only
+  # paths under cmux-tui/ and its ratchet inputs (WHOLE_WORKSPACE), so for such a change it lints nothing and its
+  # ratchet judges nothing; the host identity tests read only cmux-tui/crates/cmux-host. Before, every such head
+  # still initialized ghostty-next, zig, the pinned cargo with clippy and the pinned Go first: on 2026-11-24, 1,816
+  # of 5,411 clippy-changed steps touched no input and took 8,066 fleet min (2.5 min median cold, 5.2 on Blacksmith
+  # overflow). The check's own scripts are inputs too, so a change to them still runs everything.
+  clippy_inputs=(cmux-tui scripts/cmux-next/rust_panic_ratchet.py scripts/cmux-next/rust-panic-baseline.json
+    plans/cmux-next/rust-panic-free.md .github/scripts/cmux-tui-clippy-changed.py
+    .github/scripts/cmux-tui-fmt-changed.py .github/scripts/test_cmux_tui_clippy_changed.py
+    scripts/ci/cargo_test_verdict.py scripts/ci/feat-parity-check.sh)
+  if changed_inputs="$(git -C "$root" diff --no-renames --name-only "$base" HEAD -- "${clippy_inputs[@]}")" \
+      && [[ -z "$changed_inputs" ]]; then
+    echo "No clippy-changed input changed since $base (${clippy_inputs[*]}); nothing to lint."
+    step_rows+=("clippy-changed inputs"$'\t'"pass (none changed)"$'\t'"0")
+    finish
+  fi
   export GHOSTTY_ZIG_SOURCE=ghostty-next CMUX_GHOSTTY_SRC="" CMUX_GHOSTTY_VT_ZIG_CPU=baseline
+  # No incremental compile, as cmux-tui-rust-check.sh's channel roll (#56014). sccache 0.17 refuses every
+  # incremental unit, so each workspace crate was checked from nothing in both clippy runs: on 2026-11-26 the step
+  # logged "680 hits, 2 misses, 916 not cacheable (incremental workspace crates, ...)", and of 38 sampled pool steps
+  # 25 began with a just-created slot (2.1 GiB kept: a fresh worker has no warm target to be incremental against),
+  # 5.3 min mean in clippy and 3.1 in the ratchet of a 15 min step. Without it a workspace crate this change does not
+  # reach comes from the shared cache, as the registry crates already do; the lint flags, targets and verdict are the
+  # same. head-check sets it too: the two share this target, and a different setting would recheck it all.
+  export CARGO_INCREMENTAL=0
   step "clippy-changed self-test" python3 .github/scripts/test_cmux_tui_clippy_changed.py
   tools="$(mktemp -d)"
   cp .github/scripts/cmux-tui-clippy-changed.py .github/scripts/cmux-tui-fmt-changed.py "$tools/"
@@ -364,7 +412,15 @@ if [[ "$mode" == clippy-changed ]]; then
   fi
   step "pinned cargo" use_pinned_cargo "$root/cmux-tui"
   step "pinned go" use_pinned_go "$root"
+  # The target lives in the checkout's .build, which a fleet worker's warm cargo slot keeps between steps at one
+  # path (HQ build-fleet step_warm.go; the worker measures the slot, counts it against its disk floor and wipes it
+  # over its cap), so the next step rechecks only what changed. Before, it was cmux-tui/target in a fresh checkout:
+  # every step checked about 1,067 crates from nothing, three times when the panic ratchet linted the base too.
+  # A cold step (no free slot) builds it in its own checkout as before, and the worker removes it with the checkout.
+  [[ -n "${CARGO_TARGET_DIR:-}" ]] || export CARGO_TARGET_DIR="$root/.build/cmux-tui-clippy-target"
+  echo "cargo target: $CARGO_TARGET_DIR"
   step "cargo clippy --all-targets on changed cmux-tui packages" python3 "$tools/cmux-tui-clippy-changed.py" --repo "$root" --base "$base"
+  clippy_rc=$last_rc
   host_identity() {
     local changed log rc=0
     if changed="$(git diff --no-renames --name-only "$base" HEAD)" \
@@ -378,7 +434,41 @@ if [[ "$mode" == clippy-changed ]]; then
     grep -qE 'test result: ok\. [1-9][0-9]* passed' "$log" || { echo "error: identity selected no test" >&2; return 1; }
   }
   step "Cloud host identity tests" host_identity
-  step "Rust panic ratchet on changed cmux-tui packages" python3 "$tools/cmux-tui-clippy-changed.py" --repo "$root" --base "$base" --panic-ratchet "$root/.build/panic-clippy.jsonl" --compare-base
+  # A red clippy step is a compile or manifest red (lints never fail it), so the check is already red. The ratchet
+  # would lint HEAD and then the base again (a red HEAD lints both) for no verdict: 2026-11-24, in 38 sampled red
+  # clippy-changed steps the ratchet after a red clippy step took 12,393 of 28,504 s (43%), and 17 of them ended
+  # "the clippy run did not finish successfully" anyway (goal ci-runner-min-per-day-250k). It runs once the
+  # change compiles.
+  if [[ "$clippy_rc" -ne 0 ]]; then
+    echo "=== step Rust panic ratchet on changed cmux-tui packages: not run (the clippy step is red, exit $clippy_rc: fix its errors first)"
+    step_rows+=("Rust panic ratchet on changed cmux-tui packages"$'\t'"skip (clippy red)"$'\t'"0")
+  else
+    step "Rust panic ratchet on changed cmux-tui packages" python3 "$tools/cmux-tui-clippy-changed.py" --repo "$root" --base "$base" --panic-ratchet "$root/.build/panic-clippy.jsonl" --compare-base
+  fi
+  finish
+fi
+if [[ "$mode" == head-check ]]; then
+  # The head compiles on Linux (2026-11-22: a second Supervisor::signal_due from two merges, and a stale
+  # cmux-app-ffi Cargo.lock, each green on its own base). Setup failures are no verdict (3), never a red head.
+  base="$(required_base "$workspace")" || exit 3
+  echo "base: $base"
+  # Not incremental, as clippy-changed (whose warm target this shares): sccache serves the unchanged crates.
+  export GHOSTTY_ZIG_SOURCE=ghostty-next CMUX_GHOSTTY_SRC="" CMUX_GHOSTTY_VT_ZIG_CPU=baseline CARGO_INCREMENTAL=0
+  ghostty_next || exit 3
+  if ! command -v zig >/dev/null 2>&1; then ./scripts/install-zig-ci.sh || exit 3; fi
+  use_pinned_cargo "$root/cmux-tui" || exit 3
+  use_pinned_go "$root" || exit 3
+  # clippy-changed's warm target: the dependencies are the same check metadata, so a warm slot rechecks only what
+  # changed (HQ build-fleet step_warm.go keeps the checkout's .build between steps).
+  [[ -n "${CARGO_TARGET_DIR:-}" ]] || export CARGO_TARGET_DIR="$root/.build/cmux-tui-clippy-target"
+  echo "cargo target: $CARGO_TARGET_DIR"
+  step "every Cargo.lock matches its manifests" python3 scripts/cmux-next/cargo-locks.py check --strict --base "$base"
+  # cmux-tui.yml's Linux clippy set (cmux-holder-v3 is a frozen fixture); --keep-going: one round finds every red crate.
+  step "cargo check --workspace --all-targets --locked (cmux-tui)" \
+    bash -c 'cd cmux-tui && cargo check --workspace --exclude cmux-holder-v3 --all-targets --locked --keep-going --message-format=short'
+  if [[ "$first_rc" -ne 0 ]]; then
+    first_rc=1  # a compile or lock red, whatever code cargo gave
+  fi
   finish
 fi
 if [[ "$mode" == react-doctor ]]; then

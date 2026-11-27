@@ -38,8 +38,11 @@
           ],
           "inputs": [
             "scripts/cmux-next/run-v2-gates.sh", "scripts/cmux-next/v2-gates.d/",
-            "scripts/ci/cargo_test_verdict.py", "scripts/ci/git_tree.py", "scripts/ci/test_reds.py",
-            "tests/test_cargo_test_verdict.py", ".github/actions/cache-restore/", ".github/actions/cache-save/"
+            "scripts/ci/apt-ensure.sh", "scripts/ci/cargo_test_verdict.py", "scripts/ci/git_tree.py", "scripts/ci/test_reds.py",
+            "tests/test_cargo_test_verdict.py", ".github/actions/cache-restore/", ".github/actions/cache-save/",
+            "scripts/ci/cargo-lib-tests-at-once.sh", "scripts/ci/tests/cargo-lib-tests-at-once.test.sh",
+            "scripts/ci/acpmux-tests-pr-deferred.txt",
+            "scripts/ci/cargo_target_strip.py"
           ]
         },
         "acpmux-sim": {
@@ -52,13 +55,13 @@
           "crates": ["cmux-tui/crates/cmux-remote", "cmux-tui/crates/cmux-link", "cmux-tui/crates/cmux-relay"],
           "inputs": [
             "cmux-tui/crates/cmux-tui/src/carrier/", "ghostty-next", "scripts/install-zig-ci.sh",
-            "scripts/ci/init-submodule.sh"
+            "scripts/ci/init-submodule.sh", "scripts/ci/apt-ensure.sh"
           ]
         },
         "acpmux-protocol-ir": {
           "name": "acpmux protocol IR is current",
           "crates": ["cmux-tui/crates/acpmux"],
-          "inputs": ["scripts/cmux-next/cargo-locks.py"]
+          "inputs": ["scripts/cmux-next/cargo-locks.py", ".github/actions/cache-restore/"]
         }
       }
     },
@@ -68,7 +71,10 @@
         "windows-gnu-check": {
           "name": "cargo check (x86_64-pc-windows-gnu)",
           "compile_only": true,
-          "crates": ["cmux-tui/crates/cmux-tui-core", "cmux-tui/crates/cmux-tui", "cmux-tui/crates/acpmux"],
+          "crates": [
+            "cmux-tui/crates/cmux-tui-core", "cmux-tui/crates/cmux-tui", "cmux-tui/crates/acpmux",
+            "cmux-tui/crates/cmux-host", "cmux-tui/crates/cmux-browser-host"
+          ],
           "inputs": [
             "ghostty-next", "scripts/install-zig-ci.sh", ".github/actions/ghostty-zig-packages/",
             "scripts/cmux-next/cargo-locks.py"
@@ -106,8 +112,15 @@
           ],
           "features": ["tailnet", "hub-carrier"],
           "inputs": [
+            "scripts/ci/job_input_fingerprint.py",
+            "scripts/ci/job_reuse.py",
+            "scripts/ci/github_fetch_auth.py",
             "ghostty-next", "workers/cmux-vm/cli/",
             "scripts/cmux-next/cmux-tui-tree-inputs.txt", "scripts/ci/cmux_tui_tree_key.py",
+            "Packages/macOS/CmuxNext/Sources/CmuxNextSettingsWindow/Localizable.xcstrings.d/",
+            "webviews/", "schemas/", "web/data/model-catalog/", "scripts/cmux-next/build-agent-pane-web.sh",
+            "scripts/cmux-next/private-bun.sh", "scripts/check-webviews-bun-version.sh",
+            "scripts/webviews_bun_version.py",
             "scripts/cmux-next/build-layout-reducer-ffi.sh", "scripts/ci/acpmux-build-features.sh",
             "scripts/ci/tailnet-go.sh", "scripts/cmux-next/build-acpmux.sh", "scripts/ci/cargo-groups.sh",
             "scripts/ci/cmux-tui-darwin-builder", "scripts/ci/macos-cross.sh", "scripts/ci/macos_stubs.py",
@@ -116,7 +129,8 @@
             "scripts/ci/stage-agent-detector.sh", "scripts/ci/cmux-tui-mac-cargo-builds.sh",
             "scripts/select-ci-xcode.sh",
             "plans/cmux-next/daemon-capabilities.json", "scripts/cmux-next/pin-cmux-tui.sh",
-            "scripts/cmux-next/check-daemon-capabilities.sh", "scripts/cmux-next/cmux-tui.pin",
+            "scripts/cmux-next/check-daemon-capabilities.sh", "scripts/cmux-next/generated-autofixable.sh", "scripts/ci/cmux-next-steps/generated-files-linux.sh",
+            "scripts/cmux-next/autofix-areas.sh", "scripts/cmux-next/cmux-tui.pin",
             "Packages/macOS/CmuxNext/Tests/CmuxNextAppTests/FirstLaunchTests.swift",
             "Packages/macOS/CmuxNext/Tests/CmuxNextAppTests/MarkdownPageFindTests.swift",
             "Packages/macOS/CmuxNext/Tests/CmuxNextAppTests/FileSourceSwitchTests.swift",
@@ -153,21 +167,28 @@
       "that hid a few (the value names them), fixed forward on the push. All are in workflows a feat-cmux-next push runs.",
       "A pull request skips them unless it carries the full-ci label; the push that lands it runs them, and a red there",
       "names the pull requests in its range. affected_jobs.py check: the job's if: carries PR_SKIP_IF, a push starts its",
-      "workflow on every path a pull request does, and nothing that needs it is skipped with it."
+      "workflow on every path a pull request does, and nothing that needs it is skipped with it.",
+      "cmux-next-guards.yml tooling-tests is not listed (2026-11-23). It was Tier A: 27 runs on 52 merged pull requests, 17",
+      "with a red, 0 of them the pull request's own; 300 job-minutes; every red was the base's tests/test_ci_macos_stubs.py",
+      "and scripts/measure tests. That no longer held: the job was red on feat-cmux-next from 2026-11-22 11:32Z for over a",
+      "day and stops at its first red step, so these merged pull requests each broke a step with their own change while it",
+      "was skipped on them: #49946 (test_web_validation), #48644, #51100, #50061 (tests/test_cmux_next_fast_gates.py),",
+      "#51339 (swift-test-targets.json), #42999 (test_ios_sim_create), #51672 (test_ios_chief_benchmark_route), #48300",
+      "(rust-daemon-miss-builds fixture), #51590 (scripts/measure tests). Since 2026-11-19 its setup-tooling-route step",
+      "(scripts/ci/tooling_steps.py) runs on a pull request only the steps its changed files can fail."
     ],
     "workflows": {
       ".github/workflows/cmux-next-guards.yml": {
-        "tooling-tests": "27 runs on 52 merged pull requests, 17 with a red, 0 of them the pull request's own; 300 job-minutes; every red was the base's tests/test_ci_macos_stubs.py and scripts/measure tests, on unrelated PRs",
         "static-checks": "45 runs on 52 merged pull requests, 0 with a red, 0 of them the pull request's own; 95 job-minutes",
         "rust-notices-tree": "47 runs on 52 merged pull requests, 0 with a red, 0 of them the pull request's own; 79 job-minutes",
         "ci-guard-group": "33 runs on 52 merged pull requests, 12 with a red, 1 of them the pull request's own (#46253): Tier B, fixed forward on the push; 814 job-minutes",
+        "fast-check-route": "80 runs on 40 merged pull requests (11-25 timing feed), 11 red and 3 cancelled, 0 of them read by a job: it feeds only ci-guard-group and own-change-checks, both skipped on a pull request into feat-cmux-next without full-ci, so it skips with them; 1,115 runs in 5.1 h of 11-25 (timing feed 19:00Z..00:08Z, about 1,974 runner-min), each a runner start that decided nothing a job read",
         "own-change-checks": "46 runs on 52 merged pull requests, 1 with a red, 1 of them the pull request's own (#46652): Tier B, fixed forward on the push; 253 job-minutes; the miss is #46652: 28 untranslated strings it added",
-        "pinned-asset-store": "45 runs on 52 merged pull requests, 0 with a red, 0 of them the pull request's own; 43 job-minutes",
-        "signing-runner-variables": "43 runs on 52 merged pull requests, 2 with a red, 0 of them the pull request's own; 3 job-minutes"
+        "pinned-asset-store": "45 runs on 52 merged pull requests, 0 with a red, 0 of them the pull request's own; 43 job-minutes"
       },
       ".github/workflows/cmux-tui-spec.yml": {
+        "acpmux-tests": "9 runs on 28 merged pull requests (their check runs, 11-15 to 11-23; the router skipped it on 20 more), 0 with a red, 0 of them the pull request's own; the timing feed for 11-13Z on 2026-11-23 has 111 runs on 96 open pull requests, 2,611 job-minutes (1,288 success, 554 failure, 769 cancelled, many at the 40 min cap), and of 14 reds sampled about 3 were the pull request's own (#52025, #52008, #47706): Tier B, fixed forward on the push; the post-merge batch (suite cmux-tui-spec) runs it. Off: repository variable ACPMUX_TESTS_ON_PULL_REQUESTS=on",
         "acpmux-sim": "9 runs on 52 merged pull requests, 0 with a red, 0 of them the pull request's own; 98 job-minutes",
-        "acpmux-protocol-ir": "8 runs on 52 merged pull requests, 0 with a red, 0 of them the pull request's own; 63 job-minutes",
         "clippy": "19 runs on 52 merged pull requests, 3 with a red, 3 of them the pull request's own (#45801, #46459, #46676): Tier B, fixed forward on the push; 414 job-minutes",
         "inventory": "18 runs on 52 merged pull requests, 0 with a red, 0 of them the pull request's own; 62 job-minutes",
         "api-compat": "16 runs on 52 merged pull requests, 0 with a red, 0 of them the pull request's own; 28 job-minutes",
@@ -180,12 +201,6 @@
         "rust-msrv": "1 run on 52 merged pull requests, 0 with a red, 0 of them the pull request's own; 14 job-minutes",
         "code-mode": "15 runs on 52 merged pull requests, 0 with a red, 0 of them the pull request's own; 26 job-minutes",
         "conformance": "154 runs on 36 merged pull requests (11-21 14:29-17:00Z, live feed), 148 of them with contract skipped; 5 of 282 merged commits touched its inputs; 0.05% of heads it alone caught (CI 10x, cmux#48480); 2,303 job-minutes"
-      },
-      ".github/workflows/swift-linux-packages.yml": {
-        "swift-linux-packages": "10 runs on 52 merged pull requests, 0 with a red, 0 of them the pull request's own; 178 job-minutes"
-      },
-      ".github/workflows/cmux-next-ios-kit.yml": {
-        "kit-tests": "4 runs on 52 merged pull requests, 3 with a red, 1 of them the pull request's own (#43289): Tier B, fixed forward on the push; 140 job-minutes"
       },
       ".github/workflows/cmux-next-react-doctor.yml": {
         "react-doctor": "48 runs on 52 merged pull requests, 1 with a red, 1 of them the pull request's own (#46860): Tier B, fixed forward on the push; 90 job-minutes; the miss is #46860: an eslint complexity red in web/ it changed"
@@ -205,6 +220,17 @@
       },
       ".github/workflows/cmux-next.yml": {
         "checks": "34 runs on 52 merged pull requests, 30 with a red, 0 of them the pull request's own; 692 job-minutes"
+      }
+    },
+    "follows": {
+      "//": [
+        "A step gate that runs a repair exactly when a pull_request_skip job runs: GATE (an env name) follows WORKFLOW JOB.",
+        "affected_jobs.py check: the job is in pull_request_skip, and every GATE line of the workflow is its skip clause,",
+        "PR_SKIP_IF, verbatim. 11-21 10:00-17:00Z: 108 of 160 PR autofix repair runs of 6+ min (1036 of 1515",
+        "runner-min) were on a push the clippy check did not run on."
+      ],
+      ".github/workflows/cmux-next-pr-autofix.yml": {
+        "AUTOFIX_GATE_CLIPPY": ".github/workflows/cmux-tui-spec.yml clippy"
       }
     }
   }
