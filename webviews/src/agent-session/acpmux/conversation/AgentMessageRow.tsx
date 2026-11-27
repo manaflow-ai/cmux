@@ -162,7 +162,8 @@ export function AgentMessageRow({
         goneAt = null;
         preview.removeAttribute("data-squeezed");
       }
-      const room = preview.clientWidth;
+      // Its laid-out width, fractions kept: clientWidth rounds 23.6px up to 24 and kept a sliver.
+      const room = preview.getBoundingClientRect().width;
       if (room < MIN_PREVIEW_PX && preview.textContent?.trim()) {
         goneAt = { line: line.clientWidth, room };
         preview.setAttribute("data-squeezed", "");
