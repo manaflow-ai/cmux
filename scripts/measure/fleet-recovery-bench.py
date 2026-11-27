@@ -357,6 +357,10 @@ def main() -> int:
         result["truth_turns_min"] = min(c["truth_turns"] for c in chats)
         result["copy_records_min"] = min(c["copy_records"] for c in chats)
 
+        # A survivor whose link to the host was never up holds no copy (a lazily dialed peer,
+        # cmux#61550): say so, instead of reading as a 0 s detection.
+        result["link_up_at_kill"] = peer_up(owner, "host")
+
         # Kill: freeze every process of the host's home.
         frozen = host.signal_all(signal.SIGSTOP)
         t_kill = time.monotonic()
@@ -395,7 +399,14 @@ def main() -> int:
             out["restore_ms"] = ms(time.monotonic() - t)
             out["move_s"] = round(time.monotonic() - t_kill, 2)
             if r.returncode != 0:
-                out["error"] = f"move: {(r.stderr or r.stdout).strip()[-400:]}"
+                # The row's own reason is on stdout (`--json`); stderr only says how many failed.
+                why = ""
+                try:
+                    why = "; ".join(str(x.get("error")) for x in json.loads(r.stdout).get("moves") or []
+                                    if x.get("error"))
+                except (json.JSONDecodeError, AttributeError):
+                    pass
+                out["error"] = f"move: {(why or r.stderr or r.stdout).strip()[-400:]}"
                 return out
             try:
                 moved = json.loads(r.stdout)

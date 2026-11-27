@@ -20,7 +20,7 @@ RECORD = {
     "kind": "cmux-proof-record", "version": 1, "suite": "ios-flows", "repo": "manaflow-ai/cmux", "pr": 7,
     "head_sha": HEAD, "base_ref": "feat-cmux-next", "base_sha": OTHER,
     "selection": {"flows": ["smoke-launch-sign-in", "terminal-first-attach"]},
-    "runs": [{"name": "sim 1/1", "result": "pass", "worker": "cmux23", "step": "abc12345", "seconds": 140}],
+    "runs": [{"name": "sim 1/1", "result": "pass", "step": "abc12345", "seconds": 140}],
     "captures": [{"name": "a.png", "sha256": "0" * 64, "verdict": "same"}],
     "verdict": "pass", "timing": {"push_to_proof_s": 212}, "tool": "scripts/ci/ios_verify.py@x",
 }
@@ -134,6 +134,14 @@ class Plan(unittest.TestCase):
         base.update(kw)
         return base
 
+    def test_step_keys_name_the_head_and_the_shard(self):
+        steps = ios_verify.plan(self.selection(), [], ["cmux22"], "always")
+        keys = [ios_verify.step_key(s, HEAD, 7) for s in steps]
+        self.assertEqual(len(keys), len(set(keys)))
+        moved = [ios_verify.step_key(s, OTHER, 7) for s in steps]
+        self.assertFalse(set(keys) & set(moved))
+        self.assertTrue(all(HEAD[:12] in k for k in keys))
+
     def test_shards_across_workers_with_video(self):
         steps = ios_verify.plan(self.selection(), [], ["cmux22", "cmux23"], "auto")
         self.assertEqual([s["worker"] for s in steps], ["cmux22", "cmux23"])
@@ -171,6 +179,18 @@ class Plan(unittest.TestCase):
         self.assertFalse(ios_verify.visual(caps, None, None)["diffed"])
         self.assertEqual(ios_verify.visual(caps, {"source": "nightly"}, None)["baseline_source"], "nightly")
         self.assertEqual(ios_verify.visual(caps, None, None)["baseline_source"], "none")
+
+    def test_posted_proof_names_no_worker(self):
+        # cmux#61688: public-body-guard refused the proof comment for naming the fleet hosts its shards ran on.
+        runs = [{"name": "sim 1/2", "mode": "test", "worker": "cmux22", "step": "abc12345", "result": "pass",
+                 "seconds": 140, "tail": "ran on cmux22"},
+                {"name": "script: x", "mode": "script", "worker": "gcp-agent-lane-2", "result": "pass"}]
+        rec = dict(RECORD, runs=ios_verify.public_runs(runs), timing={"push_to_proof_s": 212})
+        body = pr.render(rec, ios_verify.summary_md(rec))
+        for host in ("cmux22", "gcp-agent-lane-2"):
+            self.assertNotIn(host, body)
+        self.assertEqual(rec["runs"][0]["step"], "abc12345")
+        self.assertEqual(pr.problems(rec), [])
 
     def test_baseline_prefers_a_proof_in_the_nightly(self):
         rec = dict(RECORD, runs=[dict(RECORD["runs"][0], mode="test")])
