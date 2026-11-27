@@ -130,11 +130,14 @@ enum AgentShareStrings {
     }
 
     static var badRole: String {
-        String(localized: "agentShare.invite.badRole", defaultValue: "--role takes view or talk.", table: "AgentShare", bundle: .localizedModule)
+        String(localized: "agentShare.invite.badRole", defaultValue: "--role takes view, talk or drive.", table: "AgentShare", bundle: .localizedModule)
     }
 
     /// A person's own invite run, said in place.
     static func invited(_ account: String, role: String) -> String {
+        if role == "drive" {
+            return String(format: String(localized: "agentShare.invite.invitedDrive", defaultValue: "Invited %@. They can run the agent as you, on your plan and your machine.", table: "AgentShare", bundle: .localizedModule), account)
+        }
         if role == "view" {
             return String(format: String(localized: "agentShare.invite.invitedView", defaultValue: "Invited %@. They can watch this chat once they sign in.", table: "AgentShare", bundle: .localizedModule), account)
         }
@@ -160,6 +163,9 @@ enum AgentShareStrings {
 
     /// What the invited account may do, in the sheet's words.
     static func inviteRoleLine(_ role: String) -> String {
+        if role == "drive" {
+            return String(localized: "agentShare.invite.consent.drive", defaultValue: "They can run the agent as you, on your plan and your machine.", table: "AgentShare", bundle: .localizedModule)
+        }
         if role == "view" {
             return String(localized: "agentShare.invite.consent.view", defaultValue: "They can watch, but not send messages.", table: "AgentShare", bundle: .localizedModule)
         }
@@ -246,6 +252,9 @@ public extension AgentShareInviteSheetModel {
 
     /// The role's name in the picker and on a row.
     func roleTitle(_ role: String) -> String {
+        if role == "drive" {
+            return String(localized: "agentShare.sheet.canDrive", defaultValue: "Can drive", table: "AgentShare", bundle: .localizedModule)
+        }
         if role == "view" {
             return String(localized: "agentShare.sheet.canView", defaultValue: "Can view", table: "AgentShare", bundle: .localizedModule)
         }

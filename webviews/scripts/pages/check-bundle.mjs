@@ -45,7 +45,6 @@ const expectedPages = new Set([
   "home-channels",
   "icon-picker",
   "keybindings",
-  "machines",
   "onboarding",
   "passwords",
   "server-cards",

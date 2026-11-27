@@ -76,6 +76,7 @@ mod client_request;
 mod compressed_link_tests;
 pub(crate) mod computer_use_relay;
 pub mod conn_auth;
+pub(crate) mod conn_handover;
 mod connection_loop;
 #[cfg(test)]
 #[path = "connection_token_tests.rs"]
@@ -106,6 +107,7 @@ mod goal;
 mod harness_admin;
 mod harness_enable;
 mod held_rows;
+mod history;
 pub(crate) mod host_notice;
 pub(crate) mod host_power;
 mod http_refusal;
@@ -233,6 +235,9 @@ mod stream_cursor;
 #[cfg(test)]
 #[path = "stream_cursor_tests.rs"]
 mod stream_cursor_tests;
+#[cfg(test)]
+#[path = "stream_prev_tests.rs"]
+mod stream_prev_tests;
 mod subsessions;
 mod surgery;
 /// The stable tailnet node's front on the embedded node (`tailnet.stableNode.enabled`).
@@ -248,6 +253,7 @@ pub mod tailnet_ingress;
 #[path = "../tailnet/embedded_service.rs"]
 pub(crate) mod tailnet_service;
 mod team;
+mod team_directory;
 mod trigger_authority;
 mod trigger_chat;
 pub(crate) mod trust_gate;
@@ -257,6 +263,10 @@ mod unix_bind;
 #[cfg(test)]
 #[path = "update_cost_bench.rs"]
 mod update_cost_bench;
+// What a streamed reply costs at 32 attached event streams (manual).
+#[cfg(test)]
+#[path = "chunk_fanout_bench.rs"]
+mod chunk_fanout_bench;
 pub mod upload_frames;
 mod vault;
 mod view;
@@ -312,6 +322,11 @@ pub struct SubOpts {
     /// as `afterSeq`, since the turn ends and status records that still went out moved the client's
     /// own cursor past the chunks it never got (`view.rs`).
     pub left_from: u64,
+    /// The seq of the last record this event stream sent the client for this chat (0: none yet):
+    /// the next one carries it as `prev`, so a client whose newest record is older knows records
+    /// were lost on the way (a bridge, a relay, a dropped frame) and reads them from its cursor,
+    /// instead of drawing a hole a reload alone repaired (`stream_prev`).
+    pub stream_sent: u64,
 }
 
 /// Whether `conn` attached `session_id` asking for no `timeBreakdown` (`SubOpts`).
@@ -1192,6 +1207,23 @@ impl Conn {
         Ok(())
     }
 
+    /// The `prev` of an event-stream record of `session_id` with `seq` going out now: the seq of
+    /// the record this stream sent before it (0 when none since the attach, or `seq` is not past
+    /// it), and `seq` becomes the stream's last. A client that holds less than `prev` missed
+    /// records the stream sent: it reads them from its cursor (`_acpmux/events {afterSeq}`), the
+    /// read a reload did (Leo, 2026-11-22: "we need to make sure any solutions that reloading
+    /// would help with, we never encounter those classes of bugs in the first place.").
+    fn stream_prev(&self, session_id: &str, seq: u64) -> u64 {
+        let mut subs = self.subs.lock_or_recover();
+        let Some(sub) = subs.get_mut(session_id) else { return 0 };
+        let prev = sub.stream_sent;
+        if seq <= prev {
+            return 0;
+        }
+        sub.stream_sent = seq;
+        prev
+    }
+
     fn sub_opts(&self, session_id: &str) -> Option<SubOpts> {
         self.subs.lock_or_recover().get(session_id).cloned()
     }
@@ -1327,35 +1359,42 @@ pub async fn serve_unix_with_v2(
                 continue;
             }
         };
-        // The socket's mode admits this user only; the peer's uid says so again (one
-        // getsockopt, its pid read from the same answer below).
-        let cred = stream.peer_cred().ok();
-        // SAFETY: geteuid has no preconditions and cannot fail.
-        let own = unsafe { libc::geteuid() };
-        if !peer_uid_allowed(cred.map(|c| c.uid()), own) {
-            tracing::warn!(
-                uid = ?cred.map(|c| c.uid()),
-                "refused a socket peer that is not this user"
-            );
-            continue;
-        }
-        let hub = hub.clone();
-        let v2 = v2.clone();
-        tokio::spawn(async move {
-            // Named by its audit token, read once here, never by pid.
-            let peer = {
-                use std::os::fd::AsRawFd;
-                cmux_link::app_caller::peer_token(stream.as_raw_fd())
-            };
-            // A root peer of a Cloud machine's daemon may carry the person key (`daemon/provision.rs`).
-            let provisioner = crate::daemon::provision::accept_provisioner(&stream);
-            let socket_peer = cred
-                .and_then(|c| c.pid())
-                .and_then(|p| u32::try_from(p).ok())
-                .map_or(SocketPeer::Unknown, SocketPeer::Pid);
-            stream::serve_stream(hub, stream, peer, provisioner, socket_peer, v2).await;
-        });
+        serve_accepted(hub.clone(), stream, v2.clone());
     }
+}
+
+/// Serve one connection of the daemon socket: one the listener accepted, or one the previous
+/// daemon accepted and handed over at a take-over (`conn_handover.rs`). Its peer is read from
+/// the socket either way, so it is the client's, and either way it must be this user.
+#[cfg(unix)]
+pub(crate) fn serve_accepted(
+    hub: Arc<Hub>,
+    stream: tokio::net::UnixStream,
+    v2: Option<Arc<acpmux_core::life::V2>>,
+) {
+    // The socket's mode admits this user only; the peer's uid says so again (one
+    // getsockopt, its pid read from the same answer below).
+    let cred = stream.peer_cred().ok();
+    // SAFETY: geteuid has no preconditions and cannot fail.
+    let own = unsafe { libc::geteuid() };
+    if !peer_uid_allowed(cred.map(|c| c.uid()), own) {
+        tracing::warn!(uid = ?cred.map(|c| c.uid()), "refused a socket peer that is not this user");
+        return;
+    }
+    tokio::spawn(async move {
+        // Named by its audit token, read once here, never by pid.
+        let peer = {
+            use std::os::fd::AsRawFd;
+            cmux_link::app_caller::peer_token(stream.as_raw_fd())
+        };
+        // A root peer of a Cloud machine's daemon may carry the person key (`daemon/provision.rs`).
+        let provisioner = crate::daemon::provision::accept_provisioner(&stream);
+        let socket_peer = cred
+            .and_then(|c| c.pid())
+            .and_then(|p| u32::try_from(p).ok())
+            .map_or(SocketPeer::Unknown, SocketPeer::Pid);
+        stream::serve_stream(hub, stream, peer, provisioner, socket_peer, v2).await;
+    });
 }
 
 static INDEX_HTML: cmux_embed::PackedStr =
@@ -1877,7 +1916,7 @@ pub async fn serve_ws_gated(
                     () = read_shutdown.closing() => {},
                     () = async {
                         // Pings are answered while a frame waits to be taken (`ws_read_ahead.rs`).
-                        let ended = ws_read_ahead::read_ahead(source, |frame| {
+                        let ended = ws_read_ahead::read_ahead(ws_read_ahead::idle_bound(source, ws_read_ahead::IDLE_BOUND), |frame| {
                             let (frames, in_tx) = (frames.clone(), in_tx.clone());
                             async move {
                                 match frame {

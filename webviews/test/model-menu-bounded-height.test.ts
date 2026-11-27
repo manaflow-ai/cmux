@@ -6,7 +6,7 @@
 // The account avatar opens a card: its active account heads it, and its other accounts scroll
 // to the real last row without running past the window or reserving an empty spacer.
 // Real Chromium and WebKit (the app's engine) on the gallery stage at a short window. CI fails the
-// file when it cannot launch them (requireBrowserLane). Locally:
+// file when it cannot launch them (probeEngineOrSkip); elsewhere an engine that cannot launch skips. Locally:
 // CMUX_BROWSER_TESTS=1 bun test test/model-menu-bounded-height.test.ts
 // CMUX_MODEL_MENU_SHOTS=DIR also saves each case's PNG there.
 import { afterAll, beforeAll, expect, setDefaultTimeout, test } from "bun:test";
@@ -15,7 +15,7 @@ import path from "node:path";
 import { chromium, webkit, type Browser, type BrowserType, type Page } from "playwright";
 import { galleryFrame, warmGalleryFrame } from "./support/galleryFrame";
 import { installPaintedFrames } from "./support/paintedFrames";
-import { requireBrowserLane } from "./support/requireBrowserLane";
+import { probeEngineOrSkip, requireBrowserLane } from "./support/requireBrowserLane";
 
 await requireBrowserLane("model-menu-bounded-height.test.ts", async () => {
   setDefaultTimeout(240_000);
@@ -23,19 +23,9 @@ await requireBrowserLane("model-menu-bounded-height.test.ts", async () => {
   for (const engine of [
     ["chromium", chromium],
     ["webkit", webkit],
-  ] as [string, BrowserType][]) {
-    try {
-      await (await engine[1].launch({ headless: true })).close();
-      engines.push(engine);
-    } catch {
-      console.warn(`model menu bounded height: ${engine[0]} cannot launch here`);
-    }
-  }
-  if (engines.length !== 2) {
-    throw new Error(
-      `model menu bounded height requires Chromium and WebKit; launched ${engines.map(([name]) => name).join(", ") || "none"}`,
-    );
-  }
+  ] as [string, BrowserType][])
+    if (await probeEngineOrSkip("model-menu-bounded-height.test.ts", engine[0], engine[1])) engines.push(engine);
+  if (engines.length === 0) return;
 
   const ENTRY = "agent-pane.model-picker";
   const MANY = "quick-menu-many-profiles";
