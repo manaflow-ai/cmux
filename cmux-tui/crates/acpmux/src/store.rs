@@ -1525,11 +1525,14 @@ impl Store for LocalStore {
     /// in place (`store/compact.rs`), which a fold of them would read differently. The file's
     /// first line is the digest of the compaction marker it was saved under.
     fn adoption_checkpoint(&self, id: &str) -> Option<Vec<u8>> {
-        let bytes = held_file_bytes(&self.dir(id).join(ADOPTION_CHECKPOINT))?;
+        let mut bytes = held_file_bytes(&self.dir(id).join(ADOPTION_CHECKPOINT))?;
         let nl = bytes.iter().position(|&b| b == b'\n')?;
-        let (head, body) = bytes.split_at(nl);
-        (head == self.compaction_digest(id).as_bytes())
-            .then(|| body.get(1..).unwrap_or_default().to_vec())
+        if bytes[..nl] != *self.compaction_digest(id).as_bytes() {
+            return None;
+        }
+        // In place: a long chat's checkpoint is tens of MB, which a copy held twice.
+        bytes.drain(..=nl);
+        Some(bytes)
     }
 
     fn save_adoption_checkpoint(&self, id: &str, bytes: &[u8]) -> Result<()> {
