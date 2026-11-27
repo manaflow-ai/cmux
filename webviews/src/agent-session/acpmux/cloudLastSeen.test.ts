@@ -6,6 +6,7 @@ import {
   followCloudTeamChange,
   freshCloudMachine,
   refreshCloudMachines,
+  retryCloudMachines,
   setCloudMachinesForTest,
 } from "./cloudMachines";
 
@@ -67,18 +68,37 @@ describe("the kept list's age", () => {
 });
 
 describe("a pick of a kept Cloud row", () => {
-  test("acts on the machine as the fresh read lists it", async () => {
+  test("asks for a fresh read and acts on the machine as it lists it", async () => {
     await refreshCloudMachines(async () => kept);
-    const picked = await freshCloudMachine(machine, async () => ({
-      ...fresh,
-      machines: [{ ...machine, stage: "ready" }],
-    }));
-    expect(picked).toEqual({ ...machine, stage: "ready" });
+    const asked: unknown[] = [];
+    const picked = await freshCloudMachine(machine, async (_method, params) => {
+      asked.push(params);
+      return { ...fresh, machines: [{ ...machine, stage: "ready" }] };
+    });
+    expect(asked).toEqual([{ fresh: true }]);
+    expect(picked).toEqual({ state: "fresh", machine: { ...machine, stage: "ready" } });
   });
 
-  test("does nothing while the list is still the kept one, or once it no longer lists the machine", async () => {
+  test("says unreachable while the list is still the kept one, gone once it no longer lists the machine", async () => {
     await refreshCloudMachines(async () => kept);
-    expect(await freshCloudMachine(machine, async () => kept)).toBeUndefined();
-    expect(await freshCloudMachine(machine, async () => ({ ...fresh, machines: [] }))).toBeUndefined();
+    expect(await freshCloudMachine(machine, async () => kept)).toEqual({ state: "unreachable" });
+    expect(await freshCloudMachine(machine, async () => ({ ...fresh, machines: [] }))).toEqual({ state: "gone" });
+  });
+});
+
+describe("Retry over the kept list", () => {
+  test("waits for a fresh read, not the kept answer of a plain one", async () => {
+    await refreshCloudMachines(async () => kept);
+    const asked: unknown[] = [];
+    let release: (value: unknown) => void = () => {};
+    const retry = retryCloudMachines((_method, params) => {
+      asked.push(params);
+      return new Promise((resolve) => (release = resolve));
+    });
+    expect(asked).toEqual([{ fresh: true }]);
+    expect(currentCloudLastSeenAt()).toBe(AT);
+    release(fresh);
+    await retry;
+    expect(currentCloudLastSeenAt()).toBeUndefined();
   });
 });
