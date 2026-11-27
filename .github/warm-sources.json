@@ -10,6 +10,7 @@
     "product-reuse": {"what": "A green compile receipt or built product for the same tree, reused instead of compiled again (scripts/ci/reuse_app_host_products.py, nightly_release_product_reuse.py, dev_release_product_reuse.py, reuse_release_product.py, job_reuse.py)", "runbook": "https://github.com/manaflow-ai/cmuxterm-hq/blob/main/build-fleet/WARM-RESOURCES.md#product-reuse"}
   },
   "jobs": {
+    "accounts-nightly-probe.yml:probe": {"class": "mac-run-product", "warm": [], "exempt": "downloads and exercises the published signed NIGHTLY app; compiles no app or package"},
     "agent-pane-acpmux-cache.yml:save": {"class": "linux-rust", "warm": ["actions-cache"]},
     "cas-replay.yml:b1": {"class": "linux-rust", "warm": ["actions-cache"]},
     "cas-replay.yml:u2": {"class": "linux-rust", "warm": ["actions-cache"]},
@@ -35,6 +36,7 @@
     "cloud-fork-placement.yml:measure": {"class": "linux-js", "warm": [], "exempt": "cold: bun runs one TypeScript test and the placement probe straight from source; nothing compiles to keep"},
     "cloud-journey-pr.yml:seed": {"class": "linux-rust", "warm": ["actions-cache"]},
     "cloud-resume-matrix.yml:build": {"class": "linux-rust", "warm": ["actions-cache"]},
+    "nightly-pr-build.yml:swift-fleet": {"class": "fleet-dispatch", "warm": ["deriveddata-reuse", "actions-cache"]},
     "cmux-next.yml:fast-tier-fleet-mac": {"class": "mac-test", "warm": ["deriveddata-reuse"]},
     "fleet-test-compile.yml:mac-fallback": {"class": "linux-swift", "warm": [], "exempt": "cold: the hosted-Mac fallback when no fleet Mac answers; it has no kept workspace, so the test compile runs from an empty build directory"},
     "migrate-journey-pr.yml:migrate": {"class": "linux-rust", "warm": ["actions-cache"]},
@@ -105,6 +107,7 @@
     "cloud-journey-prod.yml:journey": {"class": "linux-rust", "warm": ["actions-cache"]},
     "cloud-journey-prod.yml:preclaim": {"class": "linux-rust", "warm": [], "exempt": "cold: cargo build of cmux-tui from an empty target directory for the staging preclaim login burst (manual dispatch only); no warm source wired yet"},
     "auto-journey.yml:journey": {"class": "mac-build", "warm": [], "exempt": "cold: cargo build of cmux-tui from an empty target directory on an ephemeral Mac that holds the dev stack pair; manual dispatch only, and no shared cache is read in a secret-bearing job"},
+    "cloud-mvp-nightly-readback.yml:readback": {"class": "mac-build", "warm": [], "exempt": "no build: downloads a published NIGHTLY DMG on an ephemeral Mac that holds the production agent pair; manual dispatch only, and no shared cache is read in a secret-bearing job"},
     "cloud-rd-link-readback.yml:readback": {"class": "mac-build", "warm": [], "exempt": "cold: cargo build of cmux-tui from an empty target directory on an ephemeral Mac that holds the dev stack pair; manual dispatch only, and no shared cache is read in a secret-bearing job"},
     "cloud-vm-dogfood.yml:journey": {"class": "linux-rust", "warm": [], "exempt": "cold: cargo build --release of the headless cmux-vm CLI (workers/cmux-vm/cli) from an empty target directory, only on a manual lifecycle dispatch; no warm source wired yet"},
     "cloud-vm-guest-install.yml:guest-install": {"class": "linux-js", "warm": [], "exempt": "cold: bun or npm install and TypeScript checks or tests with no dependency cache; no warm source wired yet"},

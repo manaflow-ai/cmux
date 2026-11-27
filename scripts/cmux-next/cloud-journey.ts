@@ -326,17 +326,54 @@ export function readyMs(steps: Step[]): number | null {
   return total;
 }
 
+/**
+ * Whether create took a warm spare, from what the run read: the claim answer's spare_fallback (a create: cold), its
+ * claim object (claimed_behind is set only with one: warm), else the guest timeline's claimed_spare. Null: not known.
+ */
+export function spareTaken(extra: Pick<ProbeExtra, "spare_fallback" | "claimed_behind" | "claimed_spare">): boolean | null {
+  if (extra.spare_fallback) return false;
+  if (extra.claimed_behind != null) return true;
+  return extra.claimed_spare ?? null;
+}
+
+/**
+ * The plan's start numbers (cmuxterm-hq plans/cloud/ARCHITECTURE-2026-11.md), reported and never enforced:
+ * agent_ready_ms is the create call to agent started (readyMs), labeled warm or cold by the spare the claim took;
+ * first_reply_ms is send chat plus reply (the probe row's ms).
+ */
+export function agentReady(steps: Step[], warm: boolean | null): { agent_ready_ms: number | null; agent_ready_path: "warm" | "cold" | null; first_reply_ms: number | null } {
+  const send = steps.find((s) => s.step === "send chat");
+  const reply = steps.find((s) => s.step === "reply");
+  return { agent_ready_ms: readyMs(steps), agent_ready_path: warm === null ? null : warm ? "warm" : "cold", first_reply_ms: send?.status === "pass" && reply?.status === "pass" ? send.ms + reply.ms : null };
+}
+
+/** The M17, G1 warm and M3 lines for the summary: pass, fail, or not judged and why. */
+export function milestoneLines(steps: Step[], warm: boolean | null): string[] {
+  const { agent_ready_ms: ready, agent_ready_path: path, first_reply_ms: reply } = agentReady(steps, warm);
+  const start = steps.find((s) => s.step.startsWith("start agent ("));
+  const judge = (name: string, ms: number | null, limit: number, strict: boolean, why: string | null) =>
+    `- ${name}: ${why ?? (ms === null ? "not judged: not measured" : `${(strict ? ms < limit : ms <= limit) ? "pass" : "fail"} (${ms} ms, ${strict ? "<" : "<="} ${limit} ms)`)}`;
+  const warmOnly = path === "warm" ? null : `not judged: a ${path ?? "warm-or-cold unknown"} start`;
+  return [
+    `agent_ready_ms: ${ready ?? "-"} (${path ?? "warm or cold unknown"}); first_reply_ms: ${reply ?? "-"}`,
+    judge("M17 click to agent ready, warm", ready, 1000, false, warmOnly),
+    judge("G1 first reply, warm", reply, 3000, true, warmOnly),
+    judge("M3 agent started step", start?.status === "pass" ? start.ms : null, 4000, false, null),
+  ];
+}
+
 /** A failed command's output for a step's detail: its start, where a CLI puts the error, and its end. */
 const headTail = (out: string): string => (out.length <= 600 ? out : `${out.slice(0, 300)} ... ${out.slice(-300)}`);
 
-export function summaryMarkdown(backend: Backend, steps: Step[], meta: Record<string, string> = {}): string {
+export function summaryMarkdown(backend: Backend, steps: Step[], meta: Record<string, string> = {}, warm: boolean | null = null): string {
   const failed = steps.filter((s) => s.status === "fail").length;
   const total = steps.reduce((n, s) => n + s.ms, 0);
   const ready = readyMs(steps);
   const head = `${failed ? "FAIL" : "PASS"}: Cloud journey on \`${backend.name}\` (${backend.api}), ${(total / 1000).toFixed(1)} s${ready === null ? "" : `; create machine to agent running ${(ready / 1000).toFixed(1)} s`}`;
   const extra = Object.entries(meta).map(([k, v]) => `${k}: ${v}`).join(", ");
   const rows = steps.map((s) => `| ${s.status === "pass" ? "pass" : s.status === "fail" ? "**FAIL**" : "skip"} | ${s.step} | ${s.ms} | ${s.detail.replace(/\|/g, "\\|").replace(/\n/g, " ").slice(0, 1000)} |`);
-  return [head, extra ? `\n${extra}` : "", "", "| result | step | ms | detail |", "|---|---|---:|---|", ...rows, ""].join("\n");
+  const milestones = steps.some((s) => s.step === "create machine") ? ["", ...milestoneLines(steps, warm)] : [];
+  return [head, extra ? `\n${extra}` : "", ...milestones, "", "| result | step | ms | detail |", "|---|---|---:|---|", ...rows, ""].join("\n");
 }
 
 /** Preclaim artifacts are public: retain only the step outcome, never an API response or identifier. */
@@ -357,6 +394,8 @@ export class Journey {
   preclaimRows: PreclaimClaimRecord[] | null = null;
   preclaimBurst: PreclaimBurstFacts | null = null;
   preclaimFailures: PreclaimFailureRecord[] = [];
+  /** Whether create took a warm spare (spareTaken), for the summary's warm/cold label; null until known. */
+  warm: () => boolean | null = () => null;
   constructor(readonly backend: Backend, private readonly outDir: string | null, readonly meta: Record<string, string>, private readonly publicSafe = false) {}
   async step<T>(name: string, fn: () => Promise<{ value: T; detail: string }>): Promise<T> {
     const t0 = Date.now();
@@ -389,7 +428,7 @@ export class Journey {
     writeFileSync(path.join(this.outDir, "journey.json"), `${JSON.stringify({ backend: this.backend, meta, steps: this.steps }, null, 2)}\n`);
     writeFileSync(path.join(this.outDir, "guest-updater.json"), `${JSON.stringify({ schema: 1, observations: this.guestDiagnostics }, null, 2)}\n`);
     const preclaim = this.preclaimRows === null ? "" : `\n${preclaimSummaryMarkdown(this.preclaimRows, this.preclaimFailures, this.preclaimBurst)}`;
-    writeFileSync(path.join(this.outDir, "summary.md"), summaryMarkdown(this.backend, this.steps, meta) + preclaim);
+    writeFileSync(path.join(this.outDir, "summary.md"), summaryMarkdown(this.backend, this.steps, meta, this.publicSafe ? null : this.warm()) + preclaim);
   }
 }
 
@@ -3205,7 +3244,8 @@ export function probeRow(probe: string, steps: Step[], run?: string, at = new Da
   const ready = readyMs(steps);
   const fields = context ? [...steps].reverse().find((s) => s.fields)?.fields : undefined;
   const { failure_facts, ...spare } = extra;
-  const base = { probe, at: at.toISOString().replace(/\.\d+Z$/, "Z"), runner: "github-actions", ...(run ? { run } : {}), ...(ready === null ? {} : { ready_ms: ready }), ...context, ...fields, ...spare };
+  const warm = spareTaken(extra);
+  const base = { probe, at: at.toISOString().replace(/\.\d+Z$/, "Z"), runner: "github-actions", ...(run ? { run } : {}), ...(ready === null ? {} : { ready_ms: ready, agent_ready_ms: ready, agent_ready_path: warm === null ? null : warm ? "warm" : "cold" }), ...context, ...fields, ...spare };
   if (reply?.status === "pass" && send) return { ...base, outcome: "ok", ms: send.ms + reply.ms };
   return { ...base, outcome: "fail", error: failed ? `${failed.step}: ${failed.detail}`.slice(0, 300) : "no reply step ran", ...(failure_facts ? { failure_facts } : {}) };
 }
@@ -5157,6 +5197,7 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
   // (the page-in, hq#17877's resume-memory-probe.sh measure, now beside the matrix's points).
   // --wake-echo N: right after the machine runs, N platform pause/wake cycles timed to the first echo of a typed
   // character (cloud-wake-echo.ts), then the machine is deleted; nothing else of the journey runs.
+  const cleanupCreatedIdsOnly = argv.includes("--cleanup-created-ids-only");
   const wakeEchoN = Number(argValue("--wake-echo", argv) ?? 0);
   const wakeEchoHoldMs = Number(argValue("--wake-echo-hold", argv) ?? 5) * 1000;
   const wakeEchoDeadline = argValue("--wake-echo-deadline", argv);
@@ -5268,8 +5309,12 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
   };
   // The journey-only checks, once the machine runs: after the reply, or after the failure that cut the chat off.
   let runJourneyOnly: (() => Promise<void>) | null = null;
+  // The Cloud scroll-stress probe (SCROLL_PROBE_STEP), once the machine runs: after the carrier dial, or after the
+  // failure that cut the chat off, so a red chat still measures the Cloud terminal surface.
+  let runScrollProbe: (() => Promise<void>) | null = null;
   // What probe.json adds once create answered: the claim's spare report, claimed_spare and the failure facts.
   const probeExtra: ProbeExtra = {};
+  J.warm = () => spareTaken(probeExtra);
   let factsRead = false;
   // --preclaim-login's warm-spare state dir, removed by the cleanup.
   let preclaimStateDir: string | null = null;
@@ -5381,7 +5426,7 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
     }
     if (deleted) return;
     let id = machine;
-    if (!id) {
+    if (!id && !cleanupCreatedIdsOnly) {
       // Every page: the machine may sit past the first (a shared account's list).
       const rows = await listAllMachines((params) => api.read("cloud.machine.list", params, 30_000)).catch(() => [] as any[]);
       id = rows.find((r) => r?.name === machineName && r.status !== "deleted")?.id ?? null;
@@ -5461,7 +5506,7 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
       const v = await api.op("user.ensure", {}, `${tag}-ensure`);
       return { value: v, detail: `user ${v.id ?? v.user?.id ?? "?"}` };
     });
-    if (!keep) {
+    if (!keep && !cleanupCreatedIdsOnly) {
       // Installs that killed runs left live fill the account's state until install.register is refused
       // (owner.state_full). Revoked ones past 100 are pruned, so revoking frees the space. Never fails the journey.
       const name = "sweep leaked journey installs";
@@ -5600,7 +5645,7 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
         return { value: null, detail: `was ${before}; set before the chat machine is made, so its edge route goes to the gateway` };
       });
     }
-    if (!keep) {
+    if (!keep && !cleanupCreatedIdsOnly) {
       // Machines that killed or timed-out runs left behind hold the account's quota (cloud.quota.exceeded at create).
       // A sweep error never fails the journey: the step is recorded as skipped with the error, and create goes on.
       const name = "sweep leaked journey machines";
@@ -5802,8 +5847,18 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
             await api.op("cloud.machine.pause", { machine: created.id }, `${tag}-we-pause-${k++}`);
             return awaitPaused(async () => String((await row())?.status ?? "unread"), t0, 180_000);
           },
-          wake: () => startWithRetry(
-            (key) => api.raw("POST", "/v1/ops", { op: "cloud.machine.start", params: { machine: created.id }, idempotency_key: key }, 180_000),
+          wake: (recordAttempt) => startWithRetry(
+            async (key) => {
+              const sent = Date.now();
+              const r = await api.raw("POST", "/v1/ops", { op: "cloud.machine.start", params: { machine: created.id }, idempotency_key: key }, 180_000);
+              const answered = Date.now();
+              const timing = parseServerTiming(r.headers?.get("server-timing"));
+              const metrics = Object.fromEntries(Object.entries(timing ?? {}).filter(([name, ms]) =>
+                ["provider", "vmapi", "bind", "pre", "finish", "total"].includes(name) && Number.isFinite(ms)));
+              recordAttempt?.({ sent_at_ms: sent, answered_at_ms: answered, http_status: r.status,
+                machine_status: r.body?.value?.machine?.status ?? null, timing_ms: metrics });
+              return r;
+            },
             () => `${tag}-we-start-${k++}`,
             async () => String((await row())?.status ?? "unread"),
             180_000,
@@ -5835,6 +5890,28 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
         return { value: null, detail: r.stdout.trim() || "clean" };
       });
     }
+    // Report only: a probe that does not run leaves the Cloud surface unmeasured (NOW reads it unknown, never 0)
+    // instead of turning the chat journey red. `--skip scroll` leaves it out. The production journeys pass no --cmux
+    // (the carrier dial stays off there) but do pass the shipped cmux-tui as --preclaim-login, which serves the probe.
+    // Every production run from 11-27 04:16Z to 06:24Z failed at "reply" (no inference gateway online, Codex not
+    // signed in), and the probe sat after it behind --cmux, so the Cloud surface never got a reading.
+    const scrollCmux = cmux ?? preclaimLoginCmux;
+    let scrollProbeStarted = false;
+    const scrollProbe = async () => {
+      if (scrollProbeStarted) return;
+      scrollProbeStarted = true;
+      if (only.has("scroll")) return J.skip(SCROLL_PROBE_STEP, "--skip scroll");
+      if (!scrollCmux) return J.skip(SCROLL_PROBE_STEP, "not measured: no cmux-tui (--cmux or --preclaim-login)");
+      const t0 = Date.now();
+      try {
+        const t = await carrierScrollProbe(scrollCmux, api, created.id);
+        probeExtra.terminal_scroll = t;
+        J.record({ step: SCROLL_PROBE_STEP, status: "pass", ms: Date.now() - t0, detail: scrollDetail(t) });
+      } catch (e) {
+        J.record({ step: SCROLL_PROBE_STEP, status: "skip", ms: Date.now() - t0, detail: `not measured: ${(e as Error).message}`.slice(0, 1000) });
+      }
+    };
+    runScrollProbe = scrollProbe;
     // The checks only the journey makes (JOURNEY_ONLY_STEPS): none is part of what a person's chat waits on, so they
     // run after the reply, outside J.firstText's create-to-first-text window (they cost about 6 s at p50 inside it).
     // A run cut off before the reply runs them after the failure, before cleanup, so each still passes or fails.
@@ -6791,19 +6868,7 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
         const d = await carrierDial(cmux, api, created.id);
         return { value: null, detail: dialDetail(d) };
       });
-      // Report only: a probe that does not run leaves the Cloud surface unmeasured (NOW reads it unknown, never 0)
-      // instead of turning the chat journey red. `--skip scroll` leaves it out.
-      if (only.has("scroll")) J.skip(SCROLL_PROBE_STEP, "--skip scroll");
-      else {
-        const t0 = Date.now();
-        try {
-          const t = await carrierScrollProbe(cmux, api, created.id);
-          probeExtra.terminal_scroll = t;
-          J.record({ step: SCROLL_PROBE_STEP, status: "pass", ms: Date.now() - t0, detail: scrollDetail(t) });
-        } catch (e) {
-          J.record({ step: SCROLL_PROBE_STEP, status: "skip", ms: Date.now() - t0, detail: `not measured: ${(e as Error).message}`.slice(0, 1000) });
-        }
-      }
+      await scrollProbe();
       if (autocloudTui) {
         await J.step("autocloud TUI chat (cmux-autocloud --machine)", async () => ({ value: null, detail: autocloudTuiChat(autocloudTui, cmux, api, created.id, agent, modelStub ? null : "pong") }));
       }
@@ -6817,6 +6882,7 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
         return { value: null, detail: `${r.body.value.relay}, ticket until ${r.body.value.expires_at}, grant and daemon key present` };
       });
       J.skip("connect (carrier dial)", "--cmux is required for a carrier dial");
+      await scrollProbe();
     }
     if (createAnsweredAt !== null) {
       await J.step("guest carrier timeline", async () => {
@@ -7118,6 +7184,7 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
     // A red run is the one whose trace matters most: save it before cleanup deletes the machine.
     await saveSendTraceOnce();
     await runJourneyOnly?.().catch(() => undefined);
+    await runScrollProbe?.().catch(() => undefined);
   } finally {
     await finishJourney(cleanup, firstTextObserver, onSignal);
   }
