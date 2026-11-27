@@ -127,6 +127,7 @@ PLATFORM_MSGS = frozenset({
     "cloud.claim_fence_retry_write_failed",
     "cloud.connect.read",
     "cloud.create.adopted",
+    "cloud.create.approved",
     "cloud.create.attach_after_bind",
     "cloud.create.image_refollowed",
     "cloud.create.submit",
@@ -152,9 +153,12 @@ PLATFORM_MSGS = frozenset({
     "cloud.image.follow.read_failed",
     "cloud.image.follow.seeded",
     "cloud.machine.bind",
+    # A guest still unbound two minutes into its create, read and maybe restarted (cmux-platform CloudCore
+    # nudgeLateBinds): kept with its bind_probe projection and `kicked`.
     "cloud.machine.bind_late",
     # The edge name check after a bind or claim (cmux-platform CloudCore.ts checkEdgeDns): resolved, flushed, kicked,
-    # unresolved, no_answer, failed or no_route, its exit and why (bind or claim); dns_upstream is dropped.
+    # unresolved, no_answer, failed or no_route, its exit and why (bind or claim); dns_upstream is dropped, and an
+    # unresolved line's guest DNS facts keep only counts and flags (edge_dns_guest).
     "cloud.machine.edge_dns",
     "cloud.machine.exec_wake",
     "cloud.machine.ledger_wake",
@@ -201,6 +205,7 @@ PLATFORM_MSGS = frozenset({
     "cloud.spare.claimed",
     "cloud.spare.gateway_read",
     "cloud.spare.hold_refused",
+    "cloud.spare.promotion_failed",
     "cloud.spare.ready_failed",
     "cloud.spare.ready_told",
     "cloud.spare.replay_failed",
@@ -456,20 +461,24 @@ PUBLIC_FIELDS = {"team": ID, "teamId": ID, "machine": ID, "machineId": ID, "vm":
                  "site": TOKEN, "phase": TOKEN, "status": INT, "attempts": INT, "fails": INT, "ms": INT,
                  "spares": INT, "wanted": INT, "live": INT, "total": INT, "failure": TOKEN, "reason": TOKEN,
                  "mode": TOKEN, "attempt": INT, "total_ms": INT, "path": TOKEN, "fallback": TOKEN, "behind": INT,
-                 "paused_for_ms": INT, "why": TOKEN, "exit": INT}
+                 "paused_for_ms": INT, "why": TOKEN, "exit": INT,
+                 # cloud.approval.run's split (cmux-platform#2295): queued, re-admission, delivery and the run itself.
+                 "queued_ms": INT, "admit_ms": INT, "delivery_ms": INT, "run_ms": INT}
 # Booleans a kept line may keep, only as true or false (cloud.spare.gateway_read, cmux-platform#1629: what a spare
 # claim's gateway check read: the shared route, a gateway host here, and whether the team's creates lack a rule;
 # cloud.machine.start_overdue and power_overdue: whether the machine's create or call was still running).
-PUBLIC_BOOLS = ("lacks", "shared", "host", "create_running", "call_running")
+PUBLIC_BOOLS = ("lacks", "shared", "host", "create_running", "call_running", "recycled")
 
 # The step names a create or start trace marks (cmux-platform CloudCore.ts `trace.mark("...")`), each kept with its
 # ms. Any other name is dropped, so a step a newer platform adds prints nothing until it is listed here.
-TRACE_MSGS = frozenset({"cloud.create.submit", "cloud.create.trace", "cloud.start.submit", "cloud.start.trace"})
+# cloud.approval.run (cmux-platform#2295) carries an approved create's value.timings steps the same way.
+TRACE_MSGS = frozenset({"cloud.create.submit", "cloud.create.trace", "cloud.start.submit", "cloud.start.trace",
+                        "cloud.approval.run"})
 TRACE_STEPS = frozenset({
     "adopt", "answer", "attach_network", "bind_committed", "bind_file", "bind_wait", "budget", "carrier", "claim_prep",
     "driver", "edge", "ensure", "entitlements", "images", "needs_rule", "network", "plan_read", "power",
-    "prepare_network", "principal", "rate_limit", "real_state", "resources", "scaler", "setup", "spare_claim",
-    "stale_submit", "submit",
+    "prepare_network", "principal", "provider", "rate_limit", "real_state", "resources", "scaler", "setup", "spare_claim",
+    "stale_submit", "submit", "vm_api",
 })
 
 
@@ -502,6 +511,29 @@ def trace_steps(steps):
     return dict(sorted(out.items(), key=lambda kv: kv[1]))
 
 
+# A start trace's power call split (cmux-platform CloudCore.ts createTrace `power`, GuardedCloudDriver.power): `find`,
+# `call` and `verify` are our VM API calls' wall time, `provider` the provider's own ms when the VM API names it. Without
+# it a slow start reads only `power` (production 2026-11-26 22:42-23:42Z: 121058, 36714 and 32351 ms, all `power`), and
+# whether cmux-vm or the provider held the time cannot be told apart.
+POWER_SPLIT = ("find_ms", "call_ms", "verify_ms", "provider_ms")
+
+
+# A start trace's `kind`, who the start was for (cmux-platform CloudCore.ts startKind: a person's, CLOUD_SPARE_RUNNING_MS's
+# window resume, the channel refresh's, a warm's), and `before`, the VM's state before the call (Driver.ts powerBefore).
+# hq#31259 (2026-11-26): a paused VM's start p50 6.6 s, max 121 s, and the slow ones matched no person's submit or
+# claim; only these say which spare wake they were. Each is kept only as one of its fixed words, any other dropped.
+START_KINDS = frozenset({"person", "window", "refresh", "warm"})
+START_BEFORE = frozenset({"paused", "stopped", "pausing", "starting", "running", "other"})
+
+
+def power_split(power):
+    """{listed key: ms} from a trace's power split; a non-int or unlisted key is dropped. None when nothing is left."""
+    if not isinstance(power, dict):
+        return None
+    out = {k: power[k] for k in POWER_SPLIT if base.typed(INT, power.get(k)) is not None}
+    return out or None
+
+
 # cloud.machine.start_overdue's bind_probe (cmux-platform NeverBoundProbe.ts): the guest's own read of why it never
 # bound. Its `out` holds addresses, hosts and curl's words, so only typed facts leave: whether the bind file is there,
 # an uptime band, whether the API host and the coderouter edge resolved, and each HTTPS try's status or curl error.
@@ -509,6 +541,11 @@ BIND_PROBE_OUTCOMES = frozenset({"ran", "failed", "bound", "no_route"})
 UPTIME_BANDS = ((60, "lt60s"), (300, "60s-300s"), (900, "300s-900s"))
 CURL_ERROR = re.compile(r"curl: \((\d{1,3})\)")
 HTTP_CODE = re.compile(r"(?:^|\s)http=(\d{3})(?:\s|$)")
+# The bind agent's own state (cmux-platform#2182 NeverBoundProbe.ts guestAgentLines): fixed tokens only.
+AGENT_BIND = re.compile(r"^(no_line|none|noise_key_wait|noise_key_gave_up|restart_gate|daemon_info_failed|"
+                        r"retry_http_\d{3}|retry_other|refused_[a-z._]{1,40}|invalid|bound|other)$")
+HOST_SERVICE = frozenset({"active", "activating", "inactive", "failed", "deactivating", "reloading", "unknown"})
+BIND_LATE_KICKED = frozenset({"yes", "no", "failed"})
 
 
 def probe_facts(out):
@@ -544,10 +581,104 @@ def probe_facts(out):
                 https.append("no_answer")
         elif ln == "curl=absent":
             https = ["curl_absent", "curl_absent"]
+        elif ln in ("bound_file=present", "bound_file=missing"):
+            facts["bound_file"] = ln.split("=", 1)[1]
+        elif ln.startswith("host_service="):
+            v = ln.split("=", 1)[1]
+            facts["host_service"] = v if v in HOST_SERVICE else ("none" if not v else "other")
+        elif ln.startswith("noise_identity=") and ln.split("=", 1)[1].isdigit():
+            facts["noise_identity"] = min(999, int(ln.split("=", 1)[1]))
+        elif ln.startswith("agent_bind_lines=") and ln.split("=", 1)[1].isdigit():
+            facts["agent_bind_lines"] = min(999_999, int(ln.split("=", 1)[1]))
+        elif ln.startswith("agent_bind="):
+            v = ln.split("=", 1)[1]
+            facts["agent_bind"] = v if AGENT_BIND.match(v) else "other"
+        elif ln == "journal=absent":
+            facts["journal"] = "absent"
     for name, got in (("dns", dns), ("https", https)):
         for target, v in zip(("api", "edge"), got):
             facts[f"{name}_{target}"] = v
     return facts
+
+
+# "cloud provider call failed" (cmux-platform src/server/cloud/CloudCore.ts) carries the DriverError's message, which
+# the platform builds from its own literals (vmapi/CloudProvider.ts unavailable("...")) or "HTTP <status>" plus
+# cmux-vm's error. Only the class leaves the line: an exact platform phrase (whole, or before ": " or " ("), the
+# leading HTTP status, or "other"; never the text after it. A create that failed final at attempt 1 (live-fork copy,
+# production 2026-11-27 00:09Z) otherwise read only `"error": true`, which said nothing of which check refused it.
+PROVIDER_ERROR_PHRASES = frozenset({
+    "VM discovery page limit", "ambiguous VM name", "ambiguous snapshot name",
+    "an egress allowlist needs publicEgress false", "create VM: HTTP 409 and no VM under the name",
+    "create VM: wrong VM answer", "find VM: invalid answer", "find VM: wrong VM answer", "invalid VM cursor",
+    "invalid VM id", "invalid VM list", "invalid VM name", "invalid VM resources", "invalid restore snapshot",
+    "invalid snapshot cursor", "invalid snapshot list", "invalid snapshot name", "list VMs: invalid answer",
+    "network routing is not configured", "no readable answer", "read VM: unreadable resources",
+    "read VM: wrong VM answer", "read snapshot: wrong answer", "restore snapshot is missing",
+    "snapshot discovery page limit", "snapshot source is missing", "snapshot: no boot disk on the VM",
+    "the VM this machine's first create made is not there yet",
+    "the VM this machine's first create made was deleted; its key cannot make another",
+    "the creation receipt names another VM", "this machine's first create cannot be resolved",
+    "this machine's first create is not confirmed yet",
+    "this machine's first create made another VM than it asks for", "this machine's first create was cancelled",
+    "unconfirmed VM ownership", "unconfirmed VM selector", "unconfirmed create", "unconfirmed growth",
+    "unconfirmed restore", "unconfirmed snapshot selector", "unconfirmed snapshot source",
+    "unreadable HTTPS proxies", "unreadable public egress", "unsupported HTTPS proxy", "wrong Cloud team",
+    "wrong VM answer", "HTTP 404 (the team's mesh is not found)",
+    # vmapi/Network.ts: the team mesh a create prepares alongside the VM (CloudCore preparePinnedNetwork).
+    "invalid report selector", "invalid stored mesh creation", "invalid stored mesh creation body",
+    "invalid stored target", "mesh creation HTTP 404", "mesh creation belongs to another owner route",
+    "no readable mesh ACL answer", "no readable mesh creation answer", "no readable member answer",
+    "no readable attachment answer", "stored target belongs to another owner route",
+    "the Cloud mesh cannot be retargeted", "the Cloud mesh changed", "the creation or owner route is no longer active",
+    "the member owner route changed", "the owner route changed", "unconfirmed VM attachment owner",
+    "unconfirmed attachment identity", "unconfirmed member identity", "unconfirmed member owner",
+    "unconfirmed mesh ACL", "unconfirmed mesh ACL apply", "unconfirmed mesh ACL target", "unconfirmed mesh creation",
+    "unconfirmed proxy replacement", "unconfirmed member answer", "unconfirmed attachment",
+    "unreadable answer", "exec answer has no exit status",
+    # Driver.ts, DriverWiring.ts, OwnerRpc.ts, CoderouterEdge.ts: unprefixed platform phrases.
+    "the VM's internet access could not be read", "write bind file: the VM is not there yet",
+    "the VM's internet access did not change as asked", "the machine network is unavailable",
+    "the personal VM tenant is still being confirmed", "TeamDO's tenant read did not answer; retry",
+    "the team's gateway mode could not be read", "recorded transport is unavailable",
+    "an orphan-report transport is unavailable", "no transport for the census",
+})
+PROVIDER_HTTP = re.compile(r"^HTTP ([1-5][0-9]{2})(?![0-9])")
+# Every provider module prefixes its messages with its name (vmapi/CloudProvider.ts unavailable: "VM API: ...",
+# vmapi/Network.ts "VM API network: ...", gce "GCE: ...", ownhost "own-host: "); the class keeps the prefix.
+PROVIDER_SOURCES = ("VM API network: ", "VM API: ", "GCE: ", "own-host: ")
+# A step's HTTP status: "file write HTTP 500", "mesh ACL apply HTTP 400 ...", gce "<step>: HTTP 503 ...".
+PROVIDER_STEP_HTTP = re.compile(r"^(file write|mesh ACL apply|mesh ACL read|mesh creation):? HTTP ([1-5][0-9]{2})(?![0-9])")
+# CloudCore wraps a thrown non-DriverError as String(e): only its JS error name is kept.
+PROVIDER_JS_ERROR = re.compile(r"^(Error|TypeError|RangeError|SyntaxError|ReferenceError|AbortError|TimeoutError)(?=:|$)")
+
+
+def provider_error_class(message):
+    """A fixed class for a provider call's error message: its source prefix (PROVIDER_SOURCES) and then a
+    PROVIDER_ERROR_PHRASES phrase, "HTTP <status>", "<step> HTTP <status>", "boot image is not listed yet", a JS
+    error name, or other. No text past a known phrase is ever kept."""
+    if not isinstance(message, str):
+        return "other"
+    source = next((p for p in PROVIDER_SOURCES if message.startswith(p)), "")
+    rest = message[len(source):]
+    return source + _provider_phrase_class(rest) if source else _provider_phrase_class(rest)
+
+
+def _provider_phrase_class(message):
+    if message in PROVIDER_ERROR_PHRASES:
+        return message
+    heads = [p for p in PROVIDER_ERROR_PHRASES if message.startswith(p + ": ") or message.startswith(p + " (")]
+    if heads:
+        return max(heads, key=len)
+    if message.startswith("boot image ") and message.endswith(" is not listed yet"):
+        return "boot image is not listed yet"
+    m = PROVIDER_HTTP.match(message)
+    if m:
+        return f"HTTP {m.group(1)}"
+    m = PROVIDER_STEP_HTTP.match(message)
+    if m:
+        return f"{m.group(1)} HTTP {m.group(2)}"
+    m = PROVIDER_JS_ERROR.match(message)
+    return m.group(1) if m else "other"
 
 
 def bind_probe(p):
@@ -578,6 +709,74 @@ CHIEF_UPDATE_TIMERS = frozenset({"systemd:cmux-chief-update.timer", "cmux-chief-
 DAEMON_VERSION = re.compile(r"^[0-9][0-9A-Za-z.+_-]{0,47}$")
 # How long the machine had run since its last power when the line was written: a coarse band, never the number.
 RUNNING_BANDS = ((3600, "lt1h"), (6 * 3600, "1h-6h"), (24 * 3600, "6h-24h"))
+
+
+# cloud.machine.edge_dns's `guest` (cmux-platform#2293 NeverBoundProbe.ts edgeDnsGuestFacts): the guest's own DNS facts
+# when coderouter.cmux.internal stays unresolved after every kick, each one raw text with its lines joined by `|`:
+# hosts (the /etc/hosts lines naming the edge), confd (the resolved.conf.d drop-ins, `path:` before each), status
+# (`resolvectl status`) and journal (systemd-resolved's tail). The journal and status can name hosts a tenant's
+# machine looked up, so no text leaves: only counts, flags, the drop-ins' own file names and the kind of address the
+# hosts line points at.
+EDGE_DNS_JOURNAL = (
+    ("timed_out", re.compile(r"timed out|timeout", re.I)),
+    ("degraded", re.compile(r"degraded feature set", re.I)),
+    ("servfail", re.compile(r"SERVFAIL")),
+    ("refused", re.compile(r"REFUSED|connection refused", re.I)),
+    ("no_servers", re.compile(r"no (appropriate )?(name|dns) servers?", re.I)),
+    ("started", re.compile(r"Started .*Name Resolution|Starting .*Name Resolution", re.I)),
+    ("stopped", re.compile(r"Stopped .*Name Resolution|Stopping .*Name Resolution", re.I)),
+)
+EDGE_DNS_CONFD_FILE = re.compile(r"(?:^|\|)(/(?:etc|run)/systemd/resolved\.conf\.d/([0-9A-Za-z._-]{1,64}\.conf)):")
+EDGE_DNS_IPV4 = re.compile(r"\b(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})\b")
+
+
+def edge_dns_addr_kind(text):
+    """The kind of the first IPv4 address in `text`: loopback, private, link_local, cgnat, public, or none."""
+    m = EDGE_DNS_IPV4.search(text)
+    if not m:
+        return "none"
+    a, b = int(m.group(1)), int(m.group(2))
+    if a == 127:
+        return "loopback"
+    if a == 10 or (a == 172 and 16 <= b <= 31) or (a == 192 and b == 168):
+        return "private"
+    if a == 169 and b == 254:
+        return "link_local"
+    if a == 100 and 64 <= b <= 127:
+        return "cgnat"
+    return "public"
+
+
+def edge_dns_guest(g):
+    """cloud.machine.edge_dns `guest`'s typed projection: counts and flags, never the guest's text."""
+    out = {}
+    hosts = g.get("hosts")
+    if isinstance(hosts, str):
+        lines = [x for x in hosts.split("|") if x.strip()]
+        out["hosts_lines"] = len(lines)
+        out["hosts_addr"] = edge_dns_addr_kind(lines[0]) if lines else "none"
+    confd = g.get("confd")
+    if isinstance(confd, str):
+        out["confd_files"] = sorted({m.group(2) for m in EDGE_DNS_CONFD_FILE.finditer(confd)})[:8]
+        out["confd_internal"] = "cmux.internal" in confd
+        out["confd_dns_lines"] = sum(1 for x in confd.split("|") if x.strip().startswith("DNS="))
+    status = g.get("status")
+    if isinstance(status, str):
+        lines = status.split("|")
+        out["status_links"] = sum(1 for x in lines if re.match(r"\s*Link \d+ \(", x))
+        out["status_internal_scope"] = "~cmux.internal" in status
+        out["status_current_server"] = any("Current DNS Server:" in x for x in lines)
+        out["status_servers"] = len(EDGE_DNS_IPV4.findall(" ".join(x for x in lines if "DNS Servers:" in x)))
+    journal = g.get("journal")
+    if isinstance(journal, str):
+        lines = [x for x in journal.split("|") if x.strip()]
+        counts = {"lines": len(lines)}
+        for name, rx in EDGE_DNS_JOURNAL:
+            n = sum(1 for x in lines if rx.search(x))
+            if n:
+                counts[name] = n
+        out["journal"] = counts
+    return out
 
 
 def idle_kept(j):
@@ -681,6 +880,20 @@ def vm_event_line(e):
     return None
 
 
+# cloud.spare.promotion_failed (cmux-platform#2318 CloudDO.spareFailedPromotion): a spare taken out of its person's pool
+# because its bind's edge name check stayed unresolved, with the image it booted. Only the image's build revision (its
+# first run of 8 lowercase hex, a cmux commit such as 2d3eba54) is kept, so the cold-start tables count bad spares per
+# image; the rest of the image's name is dropped.
+IMAGE_REV = re.compile(r"(?<![0-9a-f])([0-9a-f]{8})(?:[0-9a-f]*)(?![0-9a-z])")
+
+
+def image_rev(image):
+    if not isinstance(image, str) or len(image) > 96:
+        return None
+    m = IMAGE_REV.search(image)
+    return m.group(1) if m else None
+
+
 def public_log(j):
     """(fields, why): fields only for an allowlisted platform msg or cmux-vm event, else None and the drop reason."""
     if any(k in j for k in base.TENANT_KEYS):
@@ -710,12 +923,27 @@ def public_log(j):
         steps = trace_steps(j.get("steps"))
         if steps is not None:
             out["steps"] = steps
+        power = power_split(j.get("power"))
+        if power is not None:
+            out["power"] = power
+    if msg == "cloud.start.trace":
+        out.pop("kind", None)
+        if j.get("kind") in START_KINDS:
+            out["kind"] = j["kind"]
+        if j.get("before") in START_BEFORE:
+            out["before"] = j["before"]
+    if msg == "cloud.spare.promotion_failed":
+        rev = image_rev(j.get("image"))
+        if rev is not None:
+            out["image_rev"] = rev
+    if msg == "cloud.machine.bind_late" and j.get("kicked") in BIND_LATE_KICKED:
+        out["kicked"] = j["kicked"]
     if msg in SPARE_COUNT_MSGS:
         for k in ("skipped", "ms"):
             counts = token_counts(j.get(k))
             if counts is not None:
                 out[k] = counts
-    if msg == "cloud.machine.start_overdue" and "bind_probe" in j:
+    if msg in ("cloud.machine.start_overdue", "cloud.machine.bind_late") and "bind_probe" in j:
         probe = bind_probe(j["bind_probe"])
         if probe is not None:
             out["bind_probe"] = probe
@@ -724,8 +952,14 @@ def public_log(j):
             out["exit"] = j["exit"]
         if j.get("why") in ("bind", "claim"):
             out["why"] = j["why"]
+        if out.get("outcome") == "unresolved" and isinstance(j.get("guest"), dict):
+            facts = edge_dns_guest(j["guest"])
+            if facts:
+                out["guest"] = facts
     if "error" in j:
         out["error"] = True
+        if msg == "cloud provider call failed":
+            out["error_class"] = provider_error_class(j["error"])
     return out, None
 
 
