@@ -228,7 +228,7 @@ pub(crate) fn claude_sandbox_on(
         if word == "--settings" {
             last_settings = words.next().map(String::as_str).map(str::to_owned);
         } else if word == "--setting-sources" {
-            setting_sources = words.next().map(str::to_owned);
+            setting_sources = words.next().map(|value| value.to_owned());
         } else if let Some(setting) = word.strip_prefix("--settings=") {
             last_settings = Some(setting.to_owned());
         } else if let Some(sources) = word.strip_prefix("--setting-sources=") {
