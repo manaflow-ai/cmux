@@ -1340,6 +1340,32 @@ export function syftFetchCommand(syft: { url: string; sha256: string; size: numb
  */
 export const INVENTORY_STEP_BUDGET_MS = 600_000;
 
+/**
+ * The scan's memory bounds. The builder is the base size (2 vCPU, 3.9 GB, no swap) and runs the daemon and the file
+ * manifest beside the scan. In roll 46078031124 the builder stopped answering partway through the scan (no status
+ * after the 660 s deadline, then a bare `mkdir` timed out at the 300 s exec cap twice), and the roll failed after
+ * 1547 s of inventory. A guest that thrashes out of memory goes silent like that, where a killed process would not. The
+ * Go runtime's soft limit makes syft collect garbage before it gets that far, and the cgroup cap kills syft, not the
+ * guest, if it still grows: the step then fails with a status, so the roll fails in seconds with the reason.
+ */
+export const SYFT_GOMEMLIMIT = "1800MiB";
+export const SYFT_MEMORY_MAX = "2560M";
+
+/** The detached SBOM scan: syft under its memory bounds (a guest without systemd-run gets only the Go limit). */
+export function sbomScanCommand(out: string, skip: readonly string[]): string {
+  const cap = `systemd-run --scope --quiet -p MemoryMax=${SYFT_MEMORY_MAX} -p MemorySwapMax=0`;
+  return [
+    "t=$(date +%s)",
+    `cap=""; if ${cap} true > /dev/null 2>&1; then cap="${cap}"; fi`,
+    'echo "syft-cap ${cap:+cgroup ' + SYFT_MEMORY_MAX + '} gomemlimit ' + SYFT_GOMEMLIMIT + '"',
+    "s=0",
+    `cd / && $cap env SYFT_CHECK_FOR_APP_UPDATE=false GOMEMLIMIT=${SYFT_GOMEMLIMIT} HOME=${out}-syft ${out}-syft/syft scan dir:/ --select-catalogers +javascript-package-cataloger --exclude './proc/**' --exclude './sys/**' --exclude './dev/**' --exclude './run/**' --exclude './tmp/**' ${skip.map((p) => `--exclude ${sq(`.${p}/**`)}`).join(" ")} -o cyclonedx-json=${out}/sbom.cdx.json -q || s=$?`,
+    `if [ "$s" -ne 0 ]; then [ "$s" -eq 137 ] && echo "syft killed (status 137): its ${SYFT_MEMORY_MAX} memory cap or the step budget" >&2; exit "$s"; fi`,
+    "echo syft-secs $(( $(date +%s) - t ))",
+    `gzip -9f ${out}/sbom.cdx.json`,
+  ].join("\n");
+}
+
 export async function collectInventory(vm: Vm, L: StepLog, options: Pick<BakeOptions, "devTree" | "outDir">, lock: InputsLock, result: Record<string, unknown>, name: string, out = "/tmp/cmux-out"): Promise<void> {
   const syft = lock.tools.syft;
   await L.step(vm, "out-dir", `mkdir -p ${out}`);
@@ -1355,12 +1381,7 @@ export async function collectInventory(vm: Vm, L: StepLog, options: Pick<BakeOpt
   // The scan and the manifest are detached steps (StepLog.detachedStep) with their own budget, not one exec each.
   const scanSbom = async (): Promise<string> => {
     await installStoreProgram(L, vm, "sbom-syft", syftFetchCommand(syft, `${out}-syft`));
-    return L.detachedStep(vm, "sbom", [
-    "t=$(date +%s)",
-    `cd / && SYFT_CHECK_FOR_APP_UPDATE=false HOME=${out}-syft ${out}-syft/syft scan dir:/ --select-catalogers +javascript-package-cataloger --exclude './proc/**' --exclude './sys/**' --exclude './dev/**' --exclude './run/**' --exclude './tmp/**' ${skip.map((p) => `--exclude ${sq(`.${p}/**`)}`).join(" ")} -o cyclonedx-json=${out}/sbom.cdx.json -q`,
-    "echo syft-secs $(( $(date +%s) - t ))",
-    `gzip -9f ${out}/sbom.cdx.json`,
-  ].join(" && "), { dir: `${out}/job-sbom`, budgetMs: INVENTORY_STEP_BUDGET_MS });
+    return L.detachedStep(vm, "sbom", sbomScanCommand(out, skip), { dir: `${out}/job-sbom`, budgetMs: INVENTORY_STEP_BUDGET_MS });
   };
   const fileManifest = () => L.detachedStep(vm, "file-manifest", `python3 ${out}/manifest.py ${out}/manifest.tsv ${skip.map(sq).join(" ")} && gzip -9f ${out}/manifest.tsv`, { dir: `${out}/job-file-manifest`, budgetMs: INVENTORY_STEP_BUDGET_MS });
   const settled = await Promise.allSettled([fileManifest(), scanSbom()]);

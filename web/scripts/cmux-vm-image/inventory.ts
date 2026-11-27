@@ -10,7 +10,7 @@
 import { readdirSync, readFileSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { collectInventory } from "./bake";
-import { argValue, deleteVm, freestyleClient, Ledger, StepLog, type Vm } from "./guest";
+import { argValue, deleteVm, freestyleClient, Ledger, run, StepLog, type Vm } from "./guest";
 import { DEFAULT_LOCK_PATH, readInputsLock } from "./lock";
 
 /** Tries of the whole collect: a connection the provider cut (run 42410303540: ECONNRESET on the file manifest's
@@ -28,6 +28,19 @@ export function retriesInventory(error: unknown, attempt: number): boolean {
   // verdict; the steps are detached (StepLog.detachedStep), so only a short start, poll or download can time out.
   if ((error as { name?: unknown } | null)?.name === "TimeoutError" || /\bTimeoutError\b/.test(text)) return true;
   return /ECONNRESET|socket connection was closed|socket hang up|ETIMEDOUT|EPIPE|ECONNREFUSED|fetch failed|UND_ERR|\b50[234]\b/i.test(text);
+}
+
+/** The probe before a retry. Roll 46078031124 retried a builder that had stopped answering: each try burned the 300 s
+ * exec cap on its first `mkdir`, adding 10 min to a roll that was already lost. */
+export const BUILDER_PROBE_MS = 30_000;
+
+/** Whether the builder still runs a no-op: a cut connection to a live guest is worth a retry, a silent guest is not. */
+export async function builderAnswers(vm: Vm, timeoutMs = BUILDER_PROBE_MS): Promise<boolean> {
+  try {
+    return (await run(vm, "true", timeoutMs)).code === 0;
+  } catch {
+    return false;
+  }
 }
 
 export async function main(argv = process.argv): Promise<number> {
@@ -57,6 +70,10 @@ export async function main(argv = process.argv): Promise<number> {
       } catch (error) {
         inventory.error = String(error);
         if (!retriesInventory(error, attempt)) throw error;
+        if (!(await builderAnswers(vm))) {
+          L.log(`INVENTORY BUILDER SILENT: a ${BUILDER_PROBE_MS / 1000} s no-op went unanswered after ${inventory.error}; a retry on it would only time out`);
+          throw error;
+        }
         L.log(`INVENTORY RETRY ${attempt}/${INVENTORY_TRIES - 1}: ${inventory.error}`);
       }
     }

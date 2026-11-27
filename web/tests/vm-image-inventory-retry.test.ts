@@ -1,10 +1,12 @@
 import { describe, expect, test } from "bun:test";
-import { mkdtempSync, readFileSync } from "node:fs";
+import { spawnSync } from "node:child_process";
+import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
-import { INVENTORY_STEP_BUDGET_MS, inventoryFailure } from "../scripts/cmux-vm-image/bake";
+import { INVENTORY_STEP_BUDGET_MS, inventoryFailure, SYFT_GOMEMLIMIT, SYFT_MEMORY_MAX, sbomScanCommand } from "../scripts/cmux-vm-image/bake";
+import { guestShellProblems } from "../scripts/cmux-vm-image/shell-check";
 import { STEP_TIMEOUT_MS, StepLog, type Vm } from "../scripts/cmux-vm-image/guest";
-import { INVENTORY_TRIES, retriesInventory } from "../scripts/cmux-vm-image/inventory";
+import { BUILDER_PROBE_MS, builderAnswers, INVENTORY_TRIES, retriesInventory } from "../scripts/cmux-vm-image/inventory";
 
 describe("image inventory retries a cut connection, not a failed step", () => {
   test("the provider closing the exec's connection is retried (run 42410303540)", () => {
@@ -116,5 +118,48 @@ describe("image inventory steps run detached and outlast a cut poll (rolls 45779
     const error = await L.detachedStep(guest.vm, "sbom", "true", { dir: "/tmp/x", budgetMs: 60_000, ...clock(10_000) }).catch((e: unknown) => e);
     expect((error as { name?: string }).name).toBe("TimeoutError");
     expect(retriesInventory(error, 1)).toBe(true);
+  });
+});
+
+describe("the SBOM scan cannot wedge its builder, and a silent builder is not retried (roll 46078031124)", () => {
+  test("syft runs under the Go memory limit and the cgroup cap, and the guest's /bin/sh accepts it", () => {
+    const command = sbomScanCommand("/tmp/cmux-out", ["/home/cmux/dev"]);
+    expect(guestShellProblems(command).refused).toEqual([]);
+    expect(command).toContain(`GOMEMLIMIT=${SYFT_GOMEMLIMIT}`);
+    expect(command).toContain(`-p MemoryMax=${SYFT_MEMORY_MAX} -p MemorySwapMax=0`);
+    expect(command).toContain("--exclude './home/cmux/dev/**'");
+  });
+
+  function runScan(syftBody: string): { status: number; stdout: string; stderr: string; gz: boolean } {
+    const out = mkdtempSync(path.join(tmpdir(), "sbom-"));
+    mkdirSync(`${out}-syft`, { recursive: true });
+    writeFileSync(`${out}-syft/syft`, `#!/bin/sh\n${syftBody}\n`);
+    chmodSync(`${out}-syft/syft`, 0o755);
+    // No systemd-run on PATH: the guest without it still gets the Go limit.
+    const r = spawnSync("/bin/sh", ["-c", sbomScanCommand(out, [])], { encoding: "utf8", env: { PATH: "/usr/bin:/bin" } });
+    return { status: r.status ?? -1, stdout: r.stdout, stderr: r.stderr, gz: existsSync(`${out}/sbom.cdx.json.gz`) };
+  }
+
+  test("a scan that finishes is gzipped and timed, with the limit it ran under", () => {
+    const r = runScan('[ "$GOMEMLIMIT" = 1800MiB ] || exit 3; for a; do case "$a" in cyclonedx-json=*) echo "{}" > "${a#cyclonedx-json=}";; esac; done');
+    expect(r.status).toBe(0);
+    expect(r.stdout).toContain("syft-cap  gomemlimit 1800MiB");
+    expect(r.stdout).toMatch(/syft-secs \d+/);
+    expect(r.gz).toBe(true);
+  });
+
+  test("a syft the cap killed fails the step at once with the reason", () => {
+    const r = runScan("kill -9 $$");
+    expect(r.status).toBe(137);
+    expect(r.stderr).toContain(`syft killed (status 137): its ${SYFT_MEMORY_MAX} memory cap`);
+    expect(r.stdout).not.toContain("syft-secs");
+  });
+
+  test("a builder that answers a no-op is retried; one that times out is not", async () => {
+    const live = { exec: async () => ({ statusCode: 0, stdout: "", stderr: "" }) } as unknown as Vm;
+    const silent = { exec: async () => { throw new DOMException("The operation timed out.", "TimeoutError"); } } as unknown as Vm;
+    expect(await builderAnswers(live)).toBe(true);
+    expect(await builderAnswers(silent)).toBe(false);
+    expect(BUILDER_PROBE_MS).toBeLessThan(STEP_TIMEOUT_MS);
   });
 });
