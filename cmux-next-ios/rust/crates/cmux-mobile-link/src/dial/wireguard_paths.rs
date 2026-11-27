@@ -261,14 +261,31 @@ impl Paths {
         self.entries.iter().find(|entry| entry.id == id).map(|entry| entry.route)
     }
 
+    // Keep a proven direct path first. Among relays a live hop leg repairs
+    // losses locally. Use the same choice for traffic and its silence watch.
+    fn current_id(&self) -> Option<PathId> {
+        let current = self.selector.current();
+        if current.and_then(|id| self.selector.path(id)).is_some_and(|p| p.kind.class().is_direct()) {
+            return current;
+        }
+        self.entries
+            .iter()
+            .find(|entry| {
+                entry.route.carrier == Carrier::Hop
+                    && self.selector.path(entry.id).is_some_and(|p| p.state == PathState::Alive)
+            })
+            .map(|entry| entry.id)
+            .or(current)
+    }
+
     /// The route the selector sends on: an alive path.
     pub fn current(&self) -> Option<Route> {
-        self.route_of_id(self.selector.current())
+        self.route_of_id(self.current_id())
     }
 
     /// The chosen path went quiet: datagrams go on every route.
     pub fn suspect(&self) -> bool {
-        self.selector.chosen().is_some() && self.selector.current().is_none()
+        self.selector.chosen().is_some() && self.current_id().is_none()
     }
 
     /// The selector holds a path, alive or suspect: it decides the route,
@@ -403,8 +420,8 @@ impl Paths {
 
     pub fn poll(&mut self, now: Instant) -> DueProbes {
         let upgrade_next = self.upgrade_probes(now);
-        let current = self.selector.current();
-        let chosen = self.selector.chosen();
+        let current = self.current_id();
+        let chosen = current.or(self.selector.chosen());
         let mut due = DueProbes::default();
         let mut lost = Vec::new();
         let mut silent = Vec::new();
@@ -459,7 +476,7 @@ impl Paths {
         // comes before the silence deadline (four round trips and an
         // unanswered probe), so a lost probe is how such a path turns
         // suspect, and the fallback needs the same fresh answers.
-        let left_current = current.is_some() && self.selector.current() != current;
+        let left_current = current.is_some() && self.current_id() != current;
         if chosen_quiet || left_current {
             self.chosen_quiet = self.route_of_id(chosen.or(current));
             // The other paths were last heard up to a 30 s probe ago, and the
@@ -661,6 +678,29 @@ mod tests {
         let (_, probe) = *due.pings.iter().find(|(ping, _)| *ping == id).expect("an upgrade probe at once");
         paths.on_pong(id, probe, now + std::time::Duration::from_millis(3));
         assert_eq!(paths.current(), Some(lan));
+    }
+
+    #[test]
+    fn answered_hop_precedes_turn_and_yields_to_direct() {
+        let mut paths = paths_on(lan_table());
+        let relay = Wanted { route: turn("203.0.113.9:4100"), relayed: true };
+        let hop = Wanted {
+            route: Route { carrier: Carrier::Hop, addr: "203.0.113.10:4100".parse().unwrap() },
+            relayed: true,
+        };
+        let lan = Wanted { route: udp("192.168.1.30:4100"), relayed: false };
+        paths.sync(&[relay, hop]);
+        let now = Instant::now();
+        for (id, probe) in paths.poll(now).pings {
+            let delay = if paths.route_of(id) == Some(hop.route) { 30 } else { 2 };
+            paths.on_pong(id, probe, now + std::time::Duration::from_millis(delay));
+        }
+        assert_eq!(paths.current(), Some(hop.route));
+        paths.sync(&[relay, hop, lan]);
+        answer_all(&mut paths, now + std::time::Duration::from_secs(1), std::time::Duration::from_millis(5));
+        assert_eq!(paths.current(), Some(lan.route));
+        paths.sync(&[relay]);
+        assert_eq!(paths.current(), Some(relay.route));
     }
 
     #[test]
