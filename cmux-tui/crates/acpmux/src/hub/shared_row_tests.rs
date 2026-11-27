@@ -88,7 +88,8 @@ fn n_receivers_trigger_one_build_and_the_last_to_take_it_frees_it() {
 fn held_rows_are_bounded_and_dropped_with_their_event() {
     let single = row_log::row_event("one");
     single.row.fanout.arm(1);
-    let row = single.row.cells[1].get_or_build_for(1, || Some(serde_json::json!({"a": 1}))).unwrap();
+    let row =
+        single.row.cells[1].get_or_build_for(1, || Some(serde_json::json!({"a": 1}))).unwrap();
     let weak = Arc::downgrade(&row);
     drop(row);
     assert!(weak.upgrade().is_none(), "a row owed to one connection is not held");
