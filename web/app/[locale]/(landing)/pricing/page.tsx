@@ -462,6 +462,8 @@ function PricingContent({
           ) : (
             <DisabledButton size="compact">{t("currentPlan")}</DisabledButton>
           )
+        ) : pending ? (
+          <DisabledButton size="compact">{t("go.cta")}</DisabledButton>
         ) : (
           <PricingCheckoutButton
             href={withCheckoutAttribution(GO_CHECKOUT_URL, attribution)}
