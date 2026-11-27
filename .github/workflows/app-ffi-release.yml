@@ -114,6 +114,10 @@ on:
       - "cmux-tui/crates/cmux-url-input/**"
       - "cmux-tui/crates/cmux-unix-socket/**"
       - "cmux-tui/crates/cmux-window-rules/**"
+      - "cmux-tui/crates/cmux-message-preview/**"
+      - "cmux-tui/crates/cmux-mobile-host-core/**"
+      - "cmux-tui/crates/cmux-share-approval/**"
+      - "cmux-tui/crates/cmux-vnc/**"
       # Reached through cmux-tui workspace dependencies (`name.workspace = true`), as check-app-ffi-pin.sh derives.
       - "cmux-tui/crates/cmux-app-host/**"
       - "cmux-tui/crates/cmux-egress/**"
