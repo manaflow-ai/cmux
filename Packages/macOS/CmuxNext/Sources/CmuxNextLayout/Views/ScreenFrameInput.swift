@@ -1,3 +1,5 @@
+import CmuxNextDesign
+
 /// What a screen shows once per display frame (`ScreenContentView.frameInput`): its strip pan's events
 /// (`ScreenContentView.presentPan`) and the presentation the frame tick's input held (`LayoutFrameInput`).
 struct ScreenFrameInput {
@@ -28,8 +30,12 @@ struct ScreenFrameInput {
     /// A layout change reconciled that no pass has begun to show. The pass that shows it brings along what follows the
     /// panes (``ScreenContentView/beginShowingChange()``): the docks' backdrops, the stacking order, the rings and dims.
     var changeIsUnshown = false
-    /// That change adds one pane (a split): the pass that shows it ends a right split's timing (`right_split_open`, live).
+    /// That change adds one pane (a split): the pass that shows it lets a right split's picture go after its slide.
     var showsSplit = false
+    /// That change is a timed transition (a split, a close, a zoom, an unzoom): the pass that shows it is its first
+    /// frame (`ScreenContentView+FrameTiming`). The panes from before it: the ones it adds are the others.
+    var timedChange: TransitionFrameLog.Transition?
+    var timedPanesBefore: Set<PaneID> = []
     /// The rings and dims the model asked for while that change was not shown: applied in the pass that shows it.
     var heldChrome: (@MainActor () -> Void)?
     /// The producers a change resized (``PaneCommitSurface``) that have not all reported ready, by pane: whether each
