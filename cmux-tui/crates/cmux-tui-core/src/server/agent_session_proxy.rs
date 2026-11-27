@@ -71,7 +71,14 @@ pub(super) fn scope(
             (false, _) if is_member(author) => &MEMBER_VERBS,
             (false, _) => &TEAMMATE_VERBS,
         };
-        if !verbs.contains(&cmd.as_str()) {
+        // A tailnet teammate's view and typing (`labs.chatMultiplayer`, design chat-multiplayer
+        // phase 1b): only for a connection whose bind asked for presence (the host proxy does,
+        // with the switch on, and checks the role and the switch again on each frame).
+        let presence = !guest
+            && !is_member(author)
+            && matches!(cmd.as_str(), "agent-session-typing" | "agent-session-view")
+            && mux.control_clients.agent_sessions.proxy_presence(client);
+        if !verbs.contains(&cmd.as_str()) && !presence {
             let refusal = if guest { Refusal::ScopeNotGranted } else { Refusal::NotTrusted };
             return Some(refuse(writer, object.remove("id"), refusal));
         }
@@ -114,6 +121,9 @@ pub(super) fn bind(
     if mux.control_clients.agent_sessions.past_first_line(client) {
         return refuse(writer, id, Refusal::NotTrusted);
     }
+    // The host proxy's `labs.chatMultiplayer` ask (a tailnet teammate only): this connection
+    // then takes and hears presence.
+    let presence = object.remove("presence") == Some(Value::Bool(true));
     let author = match (object.remove("author"), object.remove("link_guest")) {
         (Some(author), None) => {
             let login = author["login"].as_str().unwrap_or_default();
@@ -150,13 +160,18 @@ pub(super) fn bind(
             .remove(&client);
         return refuse(writer, id, Refusal::ShareEnded);
     }
+    let mut capabilities = vec!["agent-session-attach-v1", "agent-session-observe-v1"];
+    if presence && !is_guest(&author) {
+        mux.control_clients.agent_sessions.set_proxy_presence(client);
+        capabilities.push(AGENT_SESSION_PRESENCE_CAPABILITY);
+    }
     // No host paths, session inventory or machine metadata in the handshake.
     ok(
         writer,
         id,
         json!({"app": "cmux-tui", "protocol": super::super::PROTOCOL_VERSION,
         "version": crate::release::distribution_version(), "generation": mux.registry_identity().1,
-        "capabilities": ["agent-session-attach-v1", "agent-session-observe-v1"]}),
+        "capabilities": capabilities}),
     )
 }
 
