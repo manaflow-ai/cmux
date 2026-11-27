@@ -1279,23 +1279,6 @@ jobs:
         with:
           node-version: "24.22.1"
 
-      # Shard 1's independent checks overlap the steps they do not read (scripts/ci/shard1_background.sh): the merge
-      # driver test (80 s in job 137332637156) needs only git and Python, so it starts here and runs beside the source
-      # checks and the bundle build; its own step below waits for it and keeps its id and outcome. Leo, 2026-11-22:
-      # "if it's relaly so big then you guys need to be hurrying up and thining more innovatively".
-      - name: Start the merge driver test
-        id: merge-driver-start
-        if: ${{ matrix.shard == 1 && steps.receipt.outputs.hit != 'true' }}
-        continue-on-error: true
-        run: |
-          # The same skip as its wait step below: a pull request that changes none of its inputs never starts it.
-          if [ "$GITHUB_EVENT_NAME" = pull_request ] && [ -f "$CMUX_PR_CHANGED_FILES" ] &&
-            ! grep -qE '^(scripts/|tests/|\.gitattributes|\.claude/|\.codex/|\.github/workflows/ci-web\.yml|webviews/[^/]+$)' "$CMUX_PR_CHANGED_FILES"; then
-            echo "no input of this check changed: skipped on this pull request"
-            exit 0
-          fi
-          scripts/ci/shard1_background.sh start merge-driver -- python3 tests/test_install_git_hooks.py
-
       # The web bundles are build output (cx-vn5): this builds them into the
       # gitignored resource paths that the budget, React Compiler and webviews
       # tests below read. Typecheck runs once in the dedicated step below.
@@ -1376,6 +1359,23 @@ jobs:
             done > "$RUNNER_TEMP/hook-suites"
           fi
           tee -a "$GITHUB_OUTPUT" < "$RUNNER_TEMP/hook-suites"
+
+      # Shard 1's independent checks overlap the steps they do not read (scripts/ci/shard1_background.sh): the merge
+      # driver test (80 s in job 137332637156) needs only git and Python, so it starts here and runs beside the source
+      # checks and the bundle build; its own step below waits for it and keeps its id and outcome. Leo, 2026-11-22:
+      # "if it's relaly so big then you guys need to be hurrying up and thining more innovatively".
+      - name: Start the merge driver test
+        id: merge-driver-start
+        if: ${{ matrix.shard == 1 && steps.receipt.outputs.hit != 'true' && steps.hook-suites.outputs.merge_driver != 'false' }}
+        continue-on-error: true
+        run: |
+          # The same skip as its wait step below: a pull request that changes none of its inputs never starts it.
+          if [ "$GITHUB_EVENT_NAME" = pull_request ] && [ -f "$CMUX_PR_CHANGED_FILES" ] &&
+            ! grep -qE '^(scripts/|tests/|\.gitattributes|\.claude/|\.codex/|\.github/workflows/ci-web\.yml|webviews/[^/]+$)' "$CMUX_PR_CHANGED_FILES"; then
+            echo "no input of this check changed: skipped on this pull request"
+            exit 0
+          fi
+          scripts/ci/shard1_background.sh start merge-driver -- python3 tests/test_install_git_hooks.py
 
       # ci-guards runs this on main; feat-cmux-next PRs skip ci-guards.
       # The checks from here to the engines do not depend on the shard, so

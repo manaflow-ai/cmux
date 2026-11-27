@@ -10,7 +10,10 @@ feat-cmux-next's web bundle build and NIGHTLY red. This test keeps the gate that
   - both changes reach a web bundle, so the preflight builds them; a change that reaches none builds nothing;
   - the build's bundler errors (the exact lines NIGHTLY run 45907763450 printed) become annotations;
   - the gate has no tier rule: pr-router.yml calls it on every head its route job runs for, with no `start` gate
-    and no label or tier condition, and the callee's job has no job-level `if:`, so its check is never "skipped";
+    and no label or tier condition; the callee's job has one job-level `if:`, `inputs.web != 'false'`, and the route
+    sets web false only when every changed file is one pr_router.json's paths-ignore names (Rust, Swift, Python,
+    workflows, docs) and none is a web bundle input (never-web-check keeps that list sound), so a head that can
+    reach a bundle always builds. Leo, 2026-11-21: "whatever we need to cut, we cut. whatever we can reuse, we reuse.";
   - the build step runs build-web-bundles.sh, the build NIGHTLY runs.
 The build itself (a merged tree with each break, red) is proven on a runner: the PR that added this test.
 """
@@ -173,6 +176,13 @@ class LiveBase(unittest.TestCase):
         self.assertLess(dup, install, "the parse check runs before any install")
         self.assertLess(block.index("name: Fast fail"), block.index("name: Source key"))
 
+    def test_every_module_is_parsed_for_a_twice_bound_name_before_the_build(self) -> None:
+        block = job_block(CALLEE.read_text(), "web")
+        parse = block.index("node scripts/check-duplicate-bindings.mjs")
+        self.assertLess(block.index("name: Setup Node"), parse)
+        self.assertLess(block.index("name: Restore the webviews Bun package cache"), parse)
+        self.assertLess(parse, block.index("compile_preflight.py web-build"), "the parse fails before the build")
+
 
 class NeverSkipped(unittest.TestCase):
     def test_router_calls_it_on_every_tier(self) -> None:
@@ -183,10 +193,15 @@ class NeverSkipped(unittest.TestCase):
         for tier_word in ("start", "ready-to-land", "full-ci", "CI_LAND", "draft", "fast-gates"):
             self.assertNotIn(tier_word, condition)
 
-    def test_the_callee_job_has_no_job_level_if_and_builds_as_nightly(self) -> None:
+    def test_the_callee_job_skips_only_on_the_routes_no_web_verdict_and_builds_as_nightly(self) -> None:
         text = CALLEE.read_text()
         block = job_block(text, "web")
-        self.assertNotRegex(block, r"^    if:", "a job-level if: would report the check skipped")
+        conditions = re.findall(r"^    if: (.*)$", block, re.M)
+        self.assertEqual(conditions, ["${{ inputs.web != 'false' }}"], "only the route's web=false verdict skips it")
+        self.assertIn("compile_preflight.py never-web-check .", block)
+        router = job_block(ROUTER.read_text(), "compile-preflight")
+        self.assertIn("web: ${{ needs.route.outputs.preflight_web || 'true' }}", router)
+        self.assertIn("preflight_web: ${{ steps.route.outputs.preflight_web }}", job_block(ROUTER.read_text(), "route"))
         self.assertIn("name: web bundle build", block)
         self.assertIn("compile_preflight.py web-build", block)
         self.assertIn("compile_preflight.py web-touched . HEAD^1 HEAD", block)
@@ -208,6 +223,58 @@ class NeverSkipped(unittest.TestCase):
         # The build itself never depends on the warm check: a warm runner still builds.
         build_if = re.search(r"name: Build the web bundles.*\n\s+if: (.*)", block).group(1)
         self.assertNotIn("bun-warm", build_if)
+
+
+class NeverWebCheck(unittest.TestCase):
+    """compile_preflight.py never-web-check: no web bundle input is a path the router's paths-ignore skips."""
+
+    def test_the_checkout_passes(self) -> None:
+        if not (ROOT / "webviews").is_dir():
+            self.skipTest("webviews/ is not checked out (sparse checkout)")
+        run = subprocess.run([sys.executable, "-I", str(SCRIPT), "never-web-check", str(ROOT)],
+                             capture_output=True, text=True)
+        self.assertEqual(run.returncode, 0, run.stdout + run.stderr)
+
+    def test_an_ignored_web_input_is_named(self) -> None:
+        ignored = cp.router_ignores(ROOT)
+        self.assertTrue(ignored("cmuxd/src/main.rs"))
+        problems = cp.never_web_problems(ROOT, ["scripts/ci/compile_preflight.py", "webviews"],
+                                         lambda path: path.endswith((".py", ".rs")))
+        self.assertIn("scripts/ci/compile_preflight.py", problems)
+        self.assertIn("webviews/probe.rs", problems)
+
+
+class PreflightWeb(unittest.TestCase):
+    """pr_router.preflight_web: the route's verdict the callee's `web` input carries."""
+
+    @classmethod
+    def setUpClass(cls) -> None:
+        sys.path.insert(0, str(ROOT / "scripts/ci"))
+        import pr_router
+
+        cls.router = pr_router
+        cls.callees = pr_router.load_manifest()
+
+    def web(self, files: list[str] | None, labels: tuple[str, ...] = ()) -> bool:
+        event = {"pull_request": {"labels": [{"name": name} for name in labels]}}
+        return self.router.preflight_web(event, self.callees, files)[0]
+
+    def test_a_rust_swift_python_or_docs_only_change_skips(self) -> None:
+        self.assertFalse(self.web(["cmuxd/src/main.rs", "Cargo.lock", "cmuxd/Cargo.toml"]))
+        self.assertFalse(self.web(["Packages/macOS/CmuxNext/Sources/CmuxNextApp/App.swift", "scripts/foo.py"]))
+        self.assertFalse(self.web(["docs/handbook/x.md", ".github/workflows/rust-tests.yml"]))
+
+    def test_a_change_that_may_reach_a_bundle_builds(self) -> None:
+        for path in ("webviews/src/App.tsx", "webviews/README.md", "webviews/scripts/x.py",
+                     "Packages/macOS/CmuxNext/Sources/CmuxNextPages/PageDescriptor.swift",
+                     "scripts/cmux-next/web-bundle-key.py", ".github/workflows/pr-router.yml",
+                     ".github/workflows/cmux-next-compile-preflight.yml", "schemas/x.json", "README.md"):
+            self.assertTrue(self.web(["cmuxd/src/main.rs", path]), path)
+
+    def test_full_ci_unknown_or_empty_files_build(self) -> None:
+        self.assertTrue(self.web(["cmuxd/src/main.rs"], labels=("full-ci",)))
+        self.assertTrue(self.web(None))
+        self.assertTrue(self.web([]))
 
 
 if __name__ == "__main__":
