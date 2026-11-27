@@ -25,9 +25,15 @@ pub(crate) struct Admission {
     changed: Notify,
 }
 
-pub(crate) struct SendPermit(Arc<Admission>);
+/// Clones transfer a running turn to its carried successor without reopening the drain.
+#[derive(Clone)]
+pub(crate) struct SendPermit {
+    _active: Arc<ActiveSend>,
+}
 
-impl Drop for SendPermit {
+struct ActiveSend(Arc<Admission>);
+
+impl Drop for ActiveSend {
     fn drop(&mut self) {
         self.0.state.lock_or_recover().active -= 1;
         self.0.changed.notify_waiters();
@@ -66,7 +72,21 @@ impl Admission {
             return Err(super::shutdown_drain::restarting_error());
         }
         state.active += 1;
-        Ok(SendPermit(self.clone()))
+        Ok(SendPermit { _active: Arc::new(ActiveSend(self.clone())) })
+    }
+
+    /// Internal queued/recovered work waits behind the update fence. Refusing it would
+    /// settle a restored queue entry as failed and discard its durable prompt.
+    pub(crate) async fn wait_admit(self: &Arc<Self>) -> SendPermit {
+        loop {
+            let changed = self.changed.notified();
+            tokio::pin!(changed);
+            changed.as_mut().enable();
+            if let Ok(permit) = self.admit() {
+                return permit;
+            }
+            changed.await;
+        }
     }
 
     #[cfg(test)]
@@ -173,6 +193,34 @@ pub(super) async fn hold_steered_end(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[tokio::test(start_paused = true)]
+    async fn carried_turn_and_queued_work_survive_a_failed_drain() {
+        let gate = Arc::new(Admission::default());
+        let original = gate.admit().unwrap();
+        let carried = original.clone();
+        drop(original);
+        let drain = gate.drain(Duration::from_secs(1));
+        tokio::pin!(drain);
+        tokio::select! {
+            biased;
+            _ = &mut drain => panic!("carried turn still owns the accepted send"),
+            () = tokio::task::yield_now() => {},
+        }
+        let queued = gate.wait_admit();
+        tokio::pin!(queued);
+        tokio::select! {
+            biased;
+            _ = &mut queued => panic!("new queued work cannot start during drain"),
+            () = tokio::task::yield_now() => {},
+        }
+        assert!(drain.await.is_err(), "live carried work defers, never cuts the turn");
+        let queued = queued.await;
+        drop(carried);
+        assert!(gate.drain(Duration::from_secs(1)).await.is_err());
+        drop(queued);
+        assert!(gate.drain(Duration::from_secs(1)).await.is_ok());
+    }
 
     #[tokio::test]
     async fn only_one_updater_owns_a_handoff_and_its_successor_can_join() {
@@ -300,6 +348,9 @@ mod tests {
             })
         };
         tokio::time::timeout(WAIT, accepted).await.unwrap().unwrap();
+        // No client connection owns this internal prompt: its execution must still keep
+        // the updater from cutting the hosted turn's agent/egress connections.
+        assert!(hub.update_admission.drain(Duration::from_millis(1)).await.is_err());
         let mut client = Client::connect(&hub);
         for id in 1..=20 {
             client
@@ -319,7 +370,7 @@ mod tests {
             assert_eq!(answer["result"]["stopReason"], "steered", "{answer}");
         }
         let turn = session.turn().expect("original turn still runs");
-        assert_eq!(hub.update_admission.state.lock_or_recover().active, 20);
+        assert_eq!(hub.update_admission.state.lock_or_recover().active, 21);
         for attempt in 0..5 {
             // Already acknowledged sends remain protected between each CLI wait RPC.
             let info = client
@@ -338,8 +389,10 @@ mod tests {
                 .await;
             assert!(answer.get("result").is_some(), "wait answers: {answer}");
             assert!(hub.update_admission.drain(Duration::from_millis(1)).await.is_err());
-            assert_eq!(hub.update_admission.state.lock_or_recover().active, 20);
+            assert_eq!(hub.update_admission.state.lock_or_recover().active, 21);
         }
+        drop(client);
+        assert!(hub.update_admission.drain(Duration::from_millis(1)).await.is_err());
         hub.cancel(&session).await.unwrap();
         tokio::time::timeout(WAIT, original).await.unwrap().unwrap().unwrap();
         let drained = hub.update_admission.drain(WAIT).await.expect("turn end releases all sends");
@@ -357,7 +410,6 @@ mod tests {
             );
         }
         drop(drained);
-        drop(client);
         hub.shutdown_all().await;
         hub.close_owned_tasks().await;
     }

@@ -313,14 +313,24 @@ impl Hub {
         steer: bool,
         opts: PromptOptions,
     ) -> Result<Value, RpcError> {
+        // Internal queue/outbox callers have no waiting CLI connection to protect the turn.
+        let update_permit = self.update_admission.wait_admit().await;
         // The agent messages that go in with this one (`digest.rs`) answer with its answer, or
         // wait again when it failed.
         let joined = super::digest::DigestTurn::default();
         // On the heap: a prompt's whole turn is a large future, and a caller that awaits it in
         // place (a test, `steer_queued`'s steer that falls back to a turn) would hold it on its
         // stack; debug builds overflowed a 2 MB test thread with it.
-        let result =
-            Box::pin(self.run_prompt_joined(session, blocks, client, steer, opts, &joined)).await;
+        let result = Box::pin(self.run_prompt_joined(
+            session,
+            blocks,
+            client,
+            steer,
+            opts,
+            &joined,
+            &update_permit,
+        ))
+        .await;
         // `finish_turn` put them back already when the turn itself failed, and a turn that never
         // reached its agent put them back unheld (`fail_unstarted_turn`); this is any other way.
         if result.is_err() {
@@ -373,11 +383,21 @@ impl Hub {
         steer: bool,
         mut opts: PromptOptions,
         joined: &super::digest::DigestTurn,
+        update_permit: &crate::server::update_drain::SendPermit,
     ) -> Result<Value, RpcError> {
         if Self::queue_holds(session, opts.prompt_id.as_deref()) {
             let admission = super::prompt_admission::Admission::none(session);
             return self
-                .run_prompt_admitted(session, blocks, client, steer, opts, joined, &admission)
+                .run_prompt_admitted(
+                    session,
+                    blocks,
+                    client,
+                    steer,
+                    opts,
+                    joined,
+                    &admission,
+                    update_permit,
+                )
                 .await;
         }
         use super::prompt_admission::{Admission, Stage, Unanswered};
@@ -385,7 +405,17 @@ impl Hub {
         let admission = opts.admission.take().unwrap_or_else(|| Admission::new(session));
         let mut setup = Box::pin(async {
             admission.acquire(session, &self.scope).await;
-            self.run_prompt_admitted(session, blocks, client, steer, opts, joined, &admission).await
+            self.run_prompt_admitted(
+                session,
+                blocks,
+                client,
+                steer,
+                opts,
+                joined,
+                &admission,
+                update_permit,
+            )
+            .await
         });
         let Some(unanswered) = unanswered else {
             return setup.await;
@@ -435,6 +465,7 @@ impl Hub {
         mut opts: PromptOptions,
         joined: &super::digest::DigestTurn,
         admission: &super::prompt_admission::Admission,
+        update_permit: &crate::server::update_drain::SendPermit,
     ) -> Result<Value, RpcError> {
         // Each prompt's setup is ordered by its admission (`prompt_admission.rs`): resolving an
         // uploaded block can block in a worker, and a later prompt must not claim the chat while
@@ -1793,7 +1824,15 @@ impl Hub {
             .await;
         Self::finish_cloud_execution(&mut cloud_exec, session, &turn_id).await;
         if let Some(c) = &carried {
-            self.start_carried(session, &child, &turn_id, c, guard.take_slot(), install_turn);
+            self.start_carried(
+                session,
+                &child,
+                &turn_id,
+                c,
+                guard.take_slot(),
+                install_turn,
+                update_permit.clone(),
+            );
         }
         // A rule counts as told once the agent answered the prompt that carried it.
         self.forum_turn_end(session, &told, result.is_ok());

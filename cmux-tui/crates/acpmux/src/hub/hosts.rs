@@ -967,6 +967,9 @@ impl Hub {
         incarnation: &str,
         mut work: OpenWork,
     ) {
+        // A hosted turn survives its CLI. Protect recovery and transfer the lease to its
+        // answer task before allowing an updater to see this daemon as drained.
+        let update_permit = self.update_admission.wait_admit().await;
         Self::recover_floor(session, &work);
         session.compacting.store(work.compacting, Ordering::SeqCst);
         self.recover_processes(session, work.processes.take());
@@ -993,14 +996,14 @@ impl Hub {
                 trigger: work.turn_trigger,
                 ..Default::default()
             };
-            self.recover_carried(session, child, turn, None, continues);
+            self.recover_carried(session, child, turn, None, continues, update_permit.clone());
         } else if work.turn.is_none()
             && let Some((from, record)) = &work.carry_next
             && let Some(next) = super::carried_turn::NextTurn::from_record(record)
         {
             let super::carried_turn::NextTurn { carried, next, continues } = next;
             let begin = Some((from.clone(), carried));
-            self.recover_carried(session, child, next, begin, continues);
+            self.recover_carried(session, child, next, begin, continues, update_permit.clone());
         } else if let Some((turn_seq, turn_id, prompt_id, prompt, client, control)) =
             work.turn.clone()
         {
@@ -1112,6 +1115,7 @@ impl Hub {
                     let s = session.clone();
                     let c = child.clone();
                     let install_turn = self.harness_turn(session).await;
+                    let update_permit = update_permit.clone();
                     tokio::spawn(async move {
                         // New prompts queue behind the recovered turn.
                         let guard = s.turn_lock.lock().await;
@@ -1191,7 +1195,15 @@ impl Hub {
                         hub.schedule_auto_resume(&s, &turn_id, cut);
                         if let Some(carried) = &carried {
                             // Its task takes the turn lock once this one lets it go.
-                            hub.start_carried(&s, &c, &turn_id, carried, None, install_turn);
+                            hub.start_carried(
+                                &s,
+                                &c,
+                                &turn_id,
+                                carried,
+                                None,
+                                install_turn,
+                                update_permit.clone(),
+                            );
                             if raised {
                                 hub.recovered_floor(&s, Control::Web);
                             }

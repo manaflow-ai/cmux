@@ -284,6 +284,7 @@ impl Hub {
         next: &NextTurn,
         slot: Option<RunSlot>,
         install_turn: crate::harness_health::turns::Turn,
+        update_permit: crate::server::update_drain::SendPermit,
     ) {
         // The turn as it is now: a Web steer may have raised its control since it was put in
         // place (`check_steer`).
@@ -300,6 +301,7 @@ impl Hub {
         self.scope.spawn_named(
             "carried-turn",
             Box::pin(async move {
+                let _update_permit = update_permit;
                 let _install_turn = install_turn;
                 hub.run_carried(session, child, turn, continues, slot).await
             }),
@@ -318,6 +320,7 @@ impl Hub {
         mut turn: TurnInfo,
         begin: Option<(String, Carried)>,
         continues: Continues,
+        update_permit: crate::server::update_drain::SendPermit,
     ) {
         self.resume_before_turn();
         {
@@ -353,6 +356,7 @@ impl Hub {
         self.scope.spawn_named(
             "recovered-carried-turn",
             Box::pin(async move {
+                let _update_permit = update_permit;
                 let _install_turn = hub.harness_turn(&session).await;
                 hub.run_carried(session, child, turn, continues, None).await
             }),
