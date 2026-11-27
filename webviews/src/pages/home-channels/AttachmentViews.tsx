@@ -170,7 +170,11 @@ export function MessageAttachments({
 }
 
 /** The box an image or video takes before its pixels arrive (no layout jump). */
-function frame(part: Pick<HomeAttachment, "width" | "height">, maxWidth: number, maxHeight: number): { width: number; height: number } {
+function frame(
+  part: Pick<HomeAttachment, "width" | "height">,
+  maxWidth: number,
+  maxHeight: number,
+): { width: number; height: number } {
   const width = part.width ?? 4;
   const height = part.height ?? 3;
   const scale = Math.min(1, maxWidth / width, maxHeight / height);

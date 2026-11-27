@@ -18,7 +18,8 @@ import { sentImageSize } from "./userBubbleModel";
 import { settleReact } from "../../../../test/support/domTeardown";
 
 /// A 4 x 7 picture: tall, as the report's screenshot, so the shape checks are not of a square.
-const PNG = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAQAAAAHCAIAAACgB3uHAAAAD0lEQVR4nGNoQAIMVOUAAHfEKgFpN9kLAAAAAElFTkSuQmCC";
+const PNG =
+  "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAQAAAAHCAIAAACgB3uHAAAAD0lEQVR4nGNoQAIMVOUAAHfEKgFpN9kLAAAAAElFTkSuQmCC";
 const PATH = "/Users/someone/Library/Caches/cmux/pasted/image.png";
 
 let dom: JSDOM | undefined;
