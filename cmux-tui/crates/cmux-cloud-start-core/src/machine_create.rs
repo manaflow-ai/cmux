@@ -41,6 +41,30 @@ pub fn is_definitive_refusal(code: &str) -> bool {
     DEFINITIVE.iter().any(|suffix| code.ends_with(suffix))
 }
 
+/// How many times a create is asked again, each with a new key, after the machine it made or claimed
+/// was gone before it answered.
+pub const MACHINE_GONE_RETRIES: u32 = 2;
+
+/// Whether a create refused on try `attempt` (from 1) is asked again with a new key because the machine
+/// it made or claimed was gone before it answered: `cloud.machine.not_found {machine}` from the create
+/// itself (cmux-platform's contract: "retry with a new key"; a spare claimed as another create or the
+/// reaper deleted it). The bare refusal ended the start "Couldn't create Cloud machine X (no such machine
+/// in this team)" (cosmic-gray gap ledger, 2026-11-27). Told apart from a snapshot or environment that is
+/// gone (the same `not_found` on the app server's route) by the machine it names (`machine_named`, the
+/// answer's `details.machine`) or its words; never past ``MACHINE_GONE_RETRIES``.
+pub fn create_machine_gone_retries(
+    code: &str,
+    message: &str,
+    machine_named: bool,
+    attempt: u32,
+) -> bool {
+    let gone = code.ends_with("not_found")
+        && !code.contains("snapshot")
+        && !code.contains("environment")
+        && (machine_named || message.to_ascii_lowercase().contains("no such machine"));
+    gone && attempt.max(1) <= MACHINE_GONE_RETRIES
+}
+
 /// The team an app-server create goes to.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
