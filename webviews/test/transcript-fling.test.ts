@@ -126,9 +126,14 @@ await requireBrowserLane("transcript-fling.test.ts", async () => {
         }, version);
         const writes = result.trace.filter((entry) => entry.startsWith("write:"));
         expect(writes.length).toBe(version === 1 ? 12 : 11);
+        // A row may be read in the commit (after every sibling's write) or not at all there: a mounted row
+        // takes its first size from its observer, before the frame paints. Either way it is never read
+        // between writes, and the placed geometry below is what the first paint shows.
         const firstRead = result.trace.findIndex((entry) => entry.startsWith("read:"));
-        expect(firstRead).toBeGreaterThanOrEqual(writes.length);
-        expect(result.trace.slice(0, firstRead).filter((entry) => entry.startsWith("write:"))).toEqual(writes);
+        if (firstRead >= 0) {
+          expect(firstRead).toBeGreaterThanOrEqual(writes.length);
+          expect(result.trace.slice(0, firstRead).filter((entry) => entry.startsWith("write:"))).toEqual(writes);
+        }
         expect(result.trace.some((entry) => entry.startsWith("stale:"))).toBe(false);
         expect(result.rows.length).toBe(writes.length);
         for (const [index, row] of result.rows.entries()) {
