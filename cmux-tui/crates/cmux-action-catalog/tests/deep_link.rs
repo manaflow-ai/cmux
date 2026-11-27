@@ -6,6 +6,7 @@ use cmux_action_catalog::ffi::{ERR_INVALID, OK, cmux_deep_link_call, cmux_deep_l
 use serde_json::{Value, json};
 use std::path::PathBuf;
 
+// affected-reads: schemas/deeplinks/agent-link.json plans/cmux-next/links.json
 fn repo() -> PathBuf {
     PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../..")
 }

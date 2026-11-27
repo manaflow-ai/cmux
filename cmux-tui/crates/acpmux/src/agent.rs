@@ -1318,6 +1318,38 @@ impl ChildAgent {
         });
         let _ = agent.writer_stop.set(WriterStop { abort: writer.abort_handle(), ended, writing });
 
+        // Stdin replies the Claude translator works out off the stdout reader (a repo-sync
+        // hook's answer, `claude_stdio/hook_callback.rs`) go out when they are ready, not
+        // with the next stdout line.
+        if let Some(tr) = agent.translator.as_ref() {
+            let tx = agent.stdin_tx.clone();
+            let tap = tap.clone();
+            let ready = tr.replies_ready();
+            let weak = Arc::downgrade(tr);
+            // Ends when the stdin writer ends (its channel closes) or the translator does.
+            tr.scope().spawn_until_cancelled("claude-replies-write", async move {
+                loop {
+                    tokio::select! {
+                        () = ready.notified() => {}
+                        () = tx.closed() => return,
+                    }
+                    let Some(tr) = weak.upgrade() else { return };
+                    for l in tr.take_stdin_replies().await {
+                        tap(
+                            Direction::Out,
+                            &Message::notification("claude.stdin", l.clone()),
+                            None,
+                        );
+                        let mut s = l.to_string();
+                        s.push('\n');
+                        if tx.send((s, None)).await.is_err() {
+                            return;
+                        }
+                    }
+                }
+            });
+        }
+
         // The app-server's initialize goes out at spawn, before the hub's.
         if let Some(cx) = &agent.codex {
             let first = crate::codex_app_server::split(cx.tr.start());

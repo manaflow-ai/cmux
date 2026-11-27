@@ -274,6 +274,17 @@ class WorkflowShape(unittest.TestCase):
                     with self.subTest(gate=str(path.relative_to(ROOT)), module=name):
                         self.assertIn(f"/tests/{name}.py", patterns, f"{path.relative_to(ROOT)} imports tests/{name}.py")
         self.assertIn("test_egress_gate", seen)
+        # 2026-11-27 (#61088, run 45997666983): test_outbound_hosts.py began importing tests/guard_delta.py and merged
+        # without this test running: it names none of these modules, so focused_tests.py never picked it for a change to
+        # one. Each module this walk reaches selects this test (scripts/ci/focused-tests-extra.json), so a new import
+        # is made in a file that already runs it.
+        extra = json.loads((ROOT / "scripts/ci/focused-tests-extra.json").read_text())["rules"]
+        selects = {rule["prefix"] for rule in extra if "tests/test_cmux_next_fast_gates.py" in rule.get("python", [])}
+        for name in sorted(seen):
+            with self.subTest(selects=name):
+                self.assertIn(f"tests/{name}.py", selects,
+                              f'add {{"prefix": "tests/{name}.py", "python": ["tests/test_cmux_next_fast_gates.py"]}} to '
+                              "scripts/ci/focused-tests-extra.json")
 
     def test_triggers_have_no_paths_filter(self):
         on = triggers(workflow())
@@ -558,7 +569,10 @@ class WorkflowShape(unittest.TestCase):
         self.assertIn(".head.ref] | @tsv", body)
         self.assertIn("headRefName", body)
         self.assertIn('if [[ "$head_ref" == lane/* && "${LANE:-1}" != 0 ]]; then', body)
-        self.assertIn('repos/$GITHUB_REPOSITORY/git/commits/$head" --jq .tree.sha', body)
+        # The head tree is read over git, not REST: the REST budget was spent on every dispatch on 2026-11-27.
+        self.assertNotIn("git/commits/$head", body)
+        self.assertIn('head_tree="$(head_commit_tree "$head")"', body)
+        self.assertIn("--depth=1 --filter=tree:0", body)
         self.assertIn('echo "merge_tree="; echo "lane_dispatch=true"', body)
         self.assertEqual(resolve["env"]["LANE"], "${{ vars.CI_LANE_RECEIPTS }}")
         verify = step_named(steps, "Verify the local test receipt")
@@ -2340,6 +2354,12 @@ class WebviewsChecksGate(unittest.TestCase):
                     ":3176:23)\n")
         self.assertEqual(self.module.added(frames("1795522394672-bd727a4797f8c8"), frames("1795522301234-0a1b2c3d4e5f60")),
                          [])
+
+    def test_a_crash_dump_keys_without_its_process_id(self):
+        def dump(pid: int) -> str:
+            return f"Error: spawnSync tsgo ETIMEDOUT\n{{\n  errno: -110,\n  code: 'ETIMEDOUT',\n  pid: {pid},\n}}\n"
+        self.assertEqual(self.module.added(dump(1276995), dump(1180412)), [])
+        self.assertEqual(self.module.added(dump(1276995) + "Error: new crash\n", dump(1180412)), ["Error: new crash"])
 
     def test_a_wrapped_message_compares_whole(self):
         def wrapped(detail: str) -> str:
