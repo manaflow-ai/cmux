@@ -687,3 +687,16 @@ async fn seeded_secrets_ride_only_where_the_gateway_needs_them() {
     assert!(!places.is_empty(), "{backend_sent:?}");
     assert!(places.iter().all(|p| p.ends_with(": header x-cmux-team")), "{places:?}");
 }
+
+/// The call line splits the provider's wait before its head (time to first token on a pool that holds its head) from
+/// the stream after it, under the 200 characters the Cloud probe keeps, starting `-> STATUS (TOTAL ms` as it reads.
+#[test]
+fn call_line_splits_head_from_stream() {
+    let line = call_line("m-1", "POST", "/v1/messages", 200, 2057, 1900, Some(1902));
+    assert_eq!(line, "m-1 POST /v1/messages -> 200 (2057 ms, head 1900 ms, first data 1902 ms)");
+    let empty = call_line("m-1", "POST", "/v1/messages", 204, 30, 29, None);
+    assert!(empty.ends_with("-> 204 (30 ms, head 29 ms, first data none)"), "{empty}");
+    let longest =
+        call_line(&"m".repeat(64), "POST", "/v1/messages", 200, 600_000, 600_000, Some(600_000));
+    assert!(format!("cmux inference gateway: {longest}").len() <= 200, "{}", longest.len());
+}

@@ -349,7 +349,11 @@ pub(super) fn parse(
         }
     };
     let token = token.unwrap_or_else(|| {
-        if env("CMUX_CLOUD_ACCESS_TOKEN").is_some() { TokenSource::Env } else { TokenSource::App }
+        if super::api_tokens::env_credential(env).is_some() {
+            TokenSource::Env
+        } else {
+            TokenSource::App
+        }
     });
     Ok(Options { api, team, personal, token, upstream, supervised, enable_once })
 }
@@ -486,7 +490,8 @@ pub(super) async fn backend_credential(
     team: Option<&str>,
 ) -> Result<(String, Option<String>), String> {
     let raw = match source {
-        TokenSource::Env => std::env::var("CMUX_CLOUD_ACCESS_TOKEN").unwrap_or_default(),
+        TokenSource::Env => super::api_tokens::env_credential(|key: &str| std::env::var(key).ok())
+            .unwrap_or_default(),
         TokenSource::Stdin => {
             use tokio::io::AsyncReadExt;
             let mut raw = String::new();
@@ -1159,6 +1164,9 @@ async fn answer(upstream: &Provider, id: &str, call: Pending, tx: &mpsc::Sender<
             return send(tx, &error_frame(id, code, &message)).await;
         }
     };
+    // The provider's head: a pool that holds its head until the first content (sr2) makes this the time to first token.
+    let head_ms = started.elapsed().as_millis();
+    let mut first_ms = None;
     let status = response.status().as_u16();
     let mut headers = serde_json::Map::new();
     for name in ANSWER_HEADERS {
@@ -1188,6 +1196,9 @@ async fn answer(upstream: &Provider, id: &str, call: Pending, tx: &mpsc::Sender<
         };
         match chunk {
             Ok(bytes) => {
+                if first_ms.is_none() && !bytes.is_empty() {
+                    first_ms = Some(started.elapsed().as_millis());
+                }
                 for part in bytes.chunks(CHUNK_BYTES) {
                     let data = base64::engine::general_purpose::STANDARD.encode(part);
                     send(tx, &json!({"v": 1, "t": "data", "id": id, "data": data})).await;
@@ -1211,12 +1222,35 @@ async fn answer(upstream: &Provider, id: &str, call: Pending, tx: &mpsc::Sender<
             }
         }
     }
-    log(&format!(
-        "{machine} {} {path} -> {status} ({} ms)",
-        printable(&call.method),
-        started.elapsed().as_millis()
+    log(&call_line(
+        &machine,
+        &call.method,
+        &path,
+        status,
+        started.elapsed().as_millis(),
+        head_ms,
+        first_ms,
     ));
     send(tx, &json!({"v": 1, "t": "end", "id": id})).await;
+}
+
+/// An answered call's log line: the whole call, then when the provider's head and first body bytes came, so a slow
+/// call shows whether the wait was before the first token (the provider, its route, the connection) or in the stream.
+/// The `-> STATUS (TOTAL ms` start is the shape the Cloud probes read (cmuxterm-hq cloud_chat_app_probe.py).
+fn call_line(
+    machine: &str,
+    method: &str,
+    path: &str,
+    status: u16,
+    total_ms: u128,
+    head_ms: u128,
+    first_ms: Option<u128>,
+) -> String {
+    let first = first_ms.map_or_else(|| "none".to_owned(), |ms| format!("{ms} ms"));
+    format!(
+        "{machine} {} {path} -> {status} ({total_ms} ms, head {head_ms} ms, first data {first})",
+        printable(method)
+    )
 }
 
 /// The login this gateway holds, and how a call reaches the provider with it.

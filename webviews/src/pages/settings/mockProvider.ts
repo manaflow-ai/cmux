@@ -9,6 +9,7 @@
 import { runMockAgentKeys } from "./mockAgentKeys";
 import { mockAutocloudState, runMockAutocloud } from "./mockAutocloud";
 import { mockHubState, runMockHub } from "./mockHub";
+import { mockTokensState, runMockTokens } from "./mockTokens";
 import { mockConnectionsState, runMockConnections } from "./mockConnections";
 import { mockModels, runMockModels } from "./mockModels";
 import { mockAllotments, runMockAllotment } from "./mockAllotments";
@@ -24,12 +25,11 @@ import { Session, type EventSourceContext } from "../../protocol/session";
 import {
   settingsPageActions,
   type BrowserProfile,
+  type ComputerUseApproval,
   type HostLists,
   type AccountsCmux,
   type AccountsRow,
   type AccountsRun,
-  type AllotmentSet,
-  type AllotmentView,
   type AgentsRun,
   type AgentsState,
   type ChannelsProgress,
@@ -40,9 +40,10 @@ import {
   type DevicesRelay,
   type CloudEnvironmentsRun,
   type CloudEnvironmentsState,
-  type LibraryListing,
-  type LibraryRun,
+  type LooksGallery,
+  type LooksRun,
   type SharesState,
+  type KeysState,
   type TailnetState,
   type DevicesRun,
   type DevicesRunResult,
@@ -52,7 +53,11 @@ import {
   type HarnessesState,
   type ProviderAccount,
   type IntegrationsRun,
+  type AgentToolsCardRun,
+  type AgentToolsCardState,
   type IntegrationsState,
+  type McpServersRun,
+  type McpServersState,
   type Diagnostic,
   type Domains,
   type ListRow,
@@ -64,32 +69,28 @@ import {
   type ThemeOverride,
   type WorkspaceBackground,
   type CustomizeTryOn,
-  type KeysState,
+  type LibraryListing,
+  type LibraryRun,
   type ModelsRun,
   type ModelsState,
-  type ComputerUseApproval,
-  type AgentToolsCardRun,
-  type AgentToolsCardState,
-  type McpServersRun,
-  type McpServersState,
-  type AgentSkillsRun,
-  type AgentSkillsState,
   type AgentMcpRun,
   type AgentMcpState,
+  type AllotmentSet,
+  type AllotmentView,
+  type AgentSkillsRun,
+  type AgentSkillsState,
   type AgentHooksRun,
   type AgentHooksState,
   type AgentConfigAgent,
   type AgentConfigRun,
   type AgentConfigState,
+  type AccountsRunReply,
+  type AgentSkillRow,
   type HubRun,
   type HubState,
-  type AccountsRunReply,
   type DoctorReport,
   type DoctorRun,
   type LibraryAnswer,
-  type AgentSkillRow,
-  type LooksGallery,
-  type LooksRun,
   type AutocloudAction,
   type AutocloudState,
   type ConnectionsRun,
@@ -98,6 +99,8 @@ import {
   type ArchivedState,
   type ChecklistFact,
   type PreviousBuild,
+  type DeveloperTokensRun,
+  type DeveloperTokensState,
 } from "./ops";
 import { mockLooks, previewLook, runLooks } from "./mockLooks";
 import { rowsByKey, schema, hostRowsByKey } from "./schema";
@@ -255,6 +258,7 @@ export const mockCmuxAccount: Record<"signedIn" | "signedOut" | "signingIn", Acc
     statusKind: "quiet",
     busy: false,
     buttons: [cmuxButton("cmux.signIn", "Sign In to cmux")],
+    signInBackend: "Signs in to cmux.com",
     note: null,
     error: null,
   },
@@ -1065,6 +1069,14 @@ export class MockSettingsProvider {
         this.hub = runMockHub(this.hub, run);
         return {};
       },
+      "cmux.settings.tokens.state": () => this.tokens,
+      "cmux.settings.tokens.run": (params) => {
+        const run = params as DeveloperTokensRun;
+        if (run.action !== "refresh") this.tokensRuns.push(run);
+        const { state, created } = runMockTokens(this.tokens, run);
+        this.tokens = state;
+        return created ? { ok: true, created } : { ok: true };
+      },
       "cmux.settings.connections.state": () => this.connections,
       "cmux.settings.connections.run": (params) => {
         const run = params as ConnectionsRun;
@@ -1199,6 +1211,8 @@ export class MockSettingsProvider {
       "cmux.settings.autocloud.run",
       "cmux.settings.hub.state",
       "cmux.settings.hub.run",
+      "cmux.settings.tokens.state",
+      "cmux.settings.tokens.run",
       "cmux.settings.connections.state",
       "cmux.settings.connections.run",
       "cmux.settings.agentSkills.state",
@@ -1995,6 +2009,11 @@ export class MockSettingsProvider {
   hub: HubState = mockHubState();
   /** Every Integrations gesture but refresh, in order (the key a Link sent included). */
   hubRuns: HubRun[] = [];
+
+  /** Settings > Developer as the app serves it (`SettingsDeveloperTokens.state`). */
+  tokens: DeveloperTokensState = mockTokensState();
+  /** Every Developer gesture but refresh, in order. */
+  tokensRuns: DeveloperTokensRun[] = [];
 
   /** Settings > Connections as the app serves it (`SettingsConnections.state`). */
   connections: ConnectionsState = mockConnectionsState();

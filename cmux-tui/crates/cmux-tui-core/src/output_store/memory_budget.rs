@@ -98,13 +98,20 @@ pub(super) fn measure_due(mux: &Mux, store: &OutputStore, budget: u64) {
     for log in &due {
         let measured = mux
             .terminal_resource_surface(&log.terminal_id)
-            .and_then(|surface| surface.try_with_terminal(measure).ok().flatten());
+            .and_then(|surface| measure_live(&surface));
         let (resident, rows) = measured.unwrap_or((0, None));
         store.set_resident(log, resident, rows);
     }
     if store.resident_over_trigger() {
         enforce(mux, store, budget);
     }
+}
+
+/// [`measure`] of a terminal whose mirror is not parked. A parked mirror
+/// (an ended or idle terminal nobody views) holds no scrollback, and the
+/// budget never rebuilds it: `None`, counted as 0.
+fn measure_live(surface: &crate::Surface) -> Option<(u64, Option<u64>)> {
+    surface.try_with_live_terminal(measure).flatten()
 }
 
 /// A terminal's primary-screen resident bytes (0 when libghostty-vt cannot
@@ -141,12 +148,7 @@ fn shrink_or_restore(mux: &Mux, store: &OutputStore, budget: u64) -> u64 {
             // Cleared before the read: an append after it asks again.
             log.state.lock().unwrap_or_else(PoisonError::into_inner).measure_due = false;
             let measured = mux.terminal_resource_surface(&log.terminal_id).and_then(|surface| {
-                // A parked mirror holds no scrollback; measuring would
-                // rebuild it.
-                if surface.mirror_parked() {
-                    return None;
-                }
-                let measured = surface.try_with_terminal(measure).ok().flatten()?;
+                let measured = measure_live(&surface)?;
                 Some((surface, measured))
             });
             let Some((surface, (resident, rows))) = measured else {
@@ -180,11 +182,10 @@ fn shrink_or_restore(mux: &Mux, store: &OutputStore, budget: u64) -> u64 {
             }
             let after = entry
                 .surface
-                .try_with_terminal(|terminal| {
+                .try_with_live_terminal(|terminal| {
                     terminal.set_scrollback_max_bytes(keep).ok()?;
                     measure(terminal)
                 })
-                .ok()
                 .flatten();
             let Some((after, rows)) = after else { continue };
             total = total.saturating_sub(entry.resident.saturating_sub(after));
@@ -220,7 +221,7 @@ fn shrink_or_restore(mux: &Mux, store: &OutputStore, budget: u64) -> u64 {
             if growth <= room { configured } else { applied + usize::try_from(room).unwrap_or(0) };
         if entry
             .surface
-            .try_with_terminal(|terminal| terminal.set_scrollback_max_bytes(restored).is_ok())
+            .try_with_live_terminal(|terminal| terminal.set_scrollback_max_bytes(restored).is_ok())
             .unwrap_or(false)
         {
             room = room.saturating_sub(
@@ -238,3 +239,7 @@ fn shrink_or_restore(mux: &Mux, store: &OutputStore, budget: u64) -> u64 {
     }
     total
 }
+
+#[cfg(test)]
+#[path = "memory_budget_tests.rs"]
+mod tests;
