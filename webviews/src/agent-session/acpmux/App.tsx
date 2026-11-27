@@ -580,6 +580,7 @@ import {
 import { NewestSteerContext, SteerChatContext } from "./conversation/pendingSteerModel";
 import { CapacityWaitContext } from "./capacityWait";
 import { chatWaitsOn, WaitingOnContext } from "./conversation/waitingOn";
+import { CloudAgentStartContext } from "./conversation/CloudAgentStartLine";
 import type { TranscriptView } from "./conversation/transcriptView";
 import { isWorkedFold, NO_FOLD_TOGGLES, viewFolds, type Folds } from "./conversation/viewFolds";
 import { type PaneFolds } from "./conversation/wakeFolds";
@@ -682,6 +683,7 @@ import {
   startedSessions,
 } from "./started/startedSessions";
 import { experimentArm } from "../../experiments/experiment";
+import { useSessionStatus } from "./sessionStatus";
 import { usePaneView } from "./paneViewStore";
 import { useExperimentSwitch } from "../../experiments/switches";
 import { holdWebSwap } from "../../pages/shared/webSwap";
@@ -737,6 +739,7 @@ import { newestTurnSummary, useFinishMoments } from "./finish/useFinishMoments";
 import { useDraftWaitOver } from "./draftSettleHold";
 import { focusRoute } from "../../ui/focusRoute";
 import { paneSnapshotEffect } from "./pane/paneSnapshot";
+import { createRowsStore, TranscriptRowsContext } from "./pane/rowsStore";
 export { VirtualTranscript } from "./VirtualTranscript";
 export type { ScrollAnchor } from "./VirtualTranscript";
 import "./pane/bridgeGlobals";
@@ -4401,19 +4404,26 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
     return undefined;
   }, [snapshot.rows]);
   const cloudPreviewChat = snapshot.summary?.hostKind === "cloud" || cloudMachineID !== undefined;
+  // A Cloud chat's agent by name: its first prompt's line names it while it starts on the machine
+  // (conversation/CloudAgentStartLine.tsx).
+  const cloudAgentStart = cloudPreviewChat ? (snapshot.switching?.name ?? asker) : undefined;
   const cloudPreviewPortList = useCloudPreviewPorts();
   // Only a Cloud pane with a card to show gets an after-latest footer: an empty one would still
   // take the composer's room below the transcript and shorten it.
   const showOpenAppCard = !quick && cloudPreviewChat && cloudPreviewPortList.length > 0;
   useEffect(() => {
     const machineID = cloudMachineID ?? snapshot.summary?.machine;
-    setCloudPreviewContext({
-      machineID,
-      sessionId: shownSessionId,
-      turnId: cloudPreviewTurnId,
-      active: !quick && snapshot.isWorking && cloudPreviewChat,
-    });
+    setCloudPreviewContext(
+      {
+        machineID,
+        sessionId: shownSessionId,
+        turnId: cloudPreviewTurnId,
+        active: !quick && snapshot.isWorking && cloudPreviewChat,
+      },
+      paneView,
+    );
   }, [
+    paneView,
     cloudPreviewChat,
     cloudMachineID,
     cloudPreviewTurnId,
@@ -6388,7 +6398,8 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
     cancelOpenInWindow();
     void callNative(QUICK_MESSAGES.dismiss).catch(() => undefined);
   });
-  const rowsRef = useRef<readonly AcpmuxRow[]>(initialChat?.snapshot.rows ?? []);
+  // The rows as a store (pane/rowsStore.ts): every `rowsRef.current =` publishes to the transcript.
+  const [rowsRef] = useState(() => createRowsStore(initialChat?.snapshot.rows ?? []));
   /// The direct client's snapshot the pane last drew; a newer one that only grows the streaming
   /// reply's text goes to that row instead (streamingRow.ts).
   const drawnSnapshot = useRef<AcpmuxSnapshot | undefined>(undefined);
@@ -10044,7 +10055,11 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
     <PresentationContext.Provider value={chatPresentation}>
       <ThinkingVerbsContext.Provider value={thinkingVerbs}>
         <SteerChatContext.Provider value={snapshot.sessionId ?? ""}>
-          <CapacityWaitContext.Provider value={snapshot.capacityWait}>{transcriptContent}</CapacityWaitContext.Provider>
+          <CapacityWaitContext.Provider value={snapshot.capacityWait}>
+            <CloudAgentStartContext.Provider value={cloudAgentStart}>
+              {transcriptContent}
+            </CloudAgentStartContext.Provider>
+          </CapacityWaitContext.Provider>
         </SteerChatContext.Provider>
       </ThinkingVerbsContext.Provider>
     </PresentationContext.Provider>
@@ -11398,7 +11413,9 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
             <AgentProgressContext.Provider value={progressStore}>
               <OpenBackgroundTasks.Provider value={quick ? undefined : openBackgroundTask}>
                 <ClaudeConnectContext.Provider value={modelConnect}>
-                  <NoticeSlot>{pane}</NoticeSlot>
+                  <TranscriptRowsContext.Provider value={rowsRef}>
+                    <NoticeSlot>{pane}</NoticeSlot>
+                  </TranscriptRowsContext.Provider>
                 </ClaudeConnectContext.Provider>
               </OpenBackgroundTasks.Provider>
             </AgentProgressContext.Provider>

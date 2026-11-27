@@ -12027,6 +12027,20 @@ preferences and host allowlists, with focus disabled. Local Mac v2 socket method
 and the SSH relay authorization allowlist are unchanged. These operations are
 exposed only in the SDKs' existing private `raw` namespace.
 
+### offer-link-to-phone
+
+A private, Unix-classified request from this Mac's own app with `terminal_id` and `url` strings:
+a program in that terminal asked a browser for the URL (the bundled `cmux-open-url`, the `open` and
+`xdg-open` shims, `browser.open_link`). The result is `{offered:boolean}`. It is `true` when the
+daemon sent the `phone-open-link` event ([events.md](events.md#phone-open-link)) to the phone that
+drives the terminal, which then opens the page; the app opens nothing. It is `false`, and nothing
+happened, unless all of these hold: the terminal's last `send` or `send-key` came from a remote
+device's connection no more than two minutes ago (a later key from the Mac's own view takes the
+terminal back); a connection with the same `device_id` is attached to the terminal, is open and
+declared the client capability `phone-open-link-v1`; and the address is public (a loopback, LAN,
+tailnet or bare host name stays on the Mac, as a tapped link does). A remote device's request is
+refused. Only HTTP(S) URLs up to 16 KiB are accepted. The URL is never logged or journaled.
+
 ## Terminal clipboard reads
 
 Capability `terminal-clipboard-read-v1`. OSC 52 clipboard reads are denied by
