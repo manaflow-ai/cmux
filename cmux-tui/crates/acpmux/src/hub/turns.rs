@@ -394,29 +394,7 @@ impl Hub {
         }
         tokio::select! {
             biased;
-            answer = &mut setup => {
-                if admission.defer_requested() {
-                    admission.release();
-                    return match unanswered {
-                        Unanswered::Defer(deferral) => {
-                            let stage = admission.stage_now();
-                            let outcome = self.queue_unanswered(session, deferral, stage, || {})?;
-                            let mut answer = outcome.subscribe();
-                            self.start_restored(session);
-                            let dropped = || RpcError::internal("the queued run of this prompt was dropped");
-                            let settled = answer.wait_for(Option::is_some).await.map_err(|_| dropped())?.clone();
-                            settled.unwrap_or_else(|| Err(dropped()))
-                        }
-                        Unanswered::Guarded(guard) => {
-                            guard()?;
-                            Err(super::auto_resume::retry_turn::busy())
-                        }
-                        Unanswered::Busy => Err(super::auto_resume::retry_turn::busy()),
-                        Unanswered::SteerUnavailable => Err(super::turn_cap::steer_unavailable(false)),
-                    };
-                }
-                return answer;
-            },
+            answer = &mut setup => return answer,
             () = tokio::time::sleep_until(admission.answer_due()) => {}
         }
         // Past a step it must finish, it finishes: its answer is on its way.
@@ -585,9 +563,7 @@ impl Hub {
             super::inbox::Route::Plain => None,
             super::inbox::Route::Inbox(agent, class) => {
                 admission.enter("inbox");
-                // `inbox_accept` calls `accept` before it waits for the inbox notice's answer.
-                // Keep this prompt unanswered until that callback so any pre-accept work still
-                // reaches the bounded queue fallback instead of being treated as committed.
+                // The inbox's acceptance callback commits this delivery after its journal write.
                 return Box::pin(self.inbox_accept(
                     session,
                     &blocks,
@@ -771,29 +747,29 @@ impl Hub {
                     hub.end_quiet_stale(&session, "prompt-restart", None).await
                 })
             };
-            match tokio::time::timeout(super::prompt_admission::ADMISSION_BOUND, quiet_restart)
-                .await
-            {
-                Ok(Ok(_)) => {}
-                Ok(Err(error)) => {
+            // Acceptance callers defer through the enclosing admission deadline. Restored
+            // prompts have no acceptance waiter, so bound their join separately.
+            let result = if admission.queue_due().is_some() {
+                Some(quiet_restart.await)
+            } else {
+                tokio::time::timeout(super::prompt_admission::ADMISSION_BOUND, quiet_restart)
+                    .await
+                    .ok()
+            };
+            match result {
+                Some(Ok(_)) => {}
+                Some(Err(error)) => {
                     tracing::warn!(
                         session = %session.id,
                         ?error,
                         "prompt quiet-restart census task failed"
                     );
                 }
-                Err(_) => {
+                None => {
                     tracing::warn!(
                         session = %session.id,
                         "prompt quiet-restart census lapsed during admission"
                     );
-                    if admission.listened() {
-                        admission.request_defer();
-                        return Err(RpcError::deadline_exceeded(
-                            "prompt quiet-restart census",
-                            super::prompt_admission::ADMISSION_BOUND,
-                        ));
-                    }
                 }
             }
         }
@@ -801,38 +777,23 @@ impl Hub {
         // admission state after that await so a cold prompt cannot reuse the pre-hibernation
         // liveness result or steer a turn that no longer exists.
         let running = session.turn();
-        // A stale host or a teardown may hold either child mutex. Do not let that await keep
-        // this prompt's admission lease while a caller waits for acceptance. Unknown is treated
-        // as live so the cold-chat refusal never drops a deliverable prompt.
-        let live = if admission.queue_owned() {
+        // Release the child mutex before probing the host. A delivery awaiting acceptance
+        // stays in setup until the enclosing answer deadline queues it durably. Treating a
+        // timed-out probe as live here would publish "started" before dispatch can proceed.
+        // Restored/daemon prompts have no acceptance waiter; bound their probe separately.
+        let probe = async {
             let child = session.child.lock().await.clone();
             match child {
                 Some(child) => child.is_alive().await,
                 None => false,
             }
+        };
+        let live = if admission.queue_due().is_some() {
+            probe.await
         } else {
-            match tokio::time::timeout(super::prompt_admission::ADMISSION_BOUND, async {
-                let child = session.child.lock().await.clone();
-                match child {
-                    Some(child) => child.is_alive().await,
-                    None => false,
-                }
-            })
-            .await
-            {
-                Ok(live) => live,
-                Err(_) => {
-                    tracing::warn!(session = %session.id, "prompt live check lapsed during admission");
-                    if admission.listened() {
-                        admission.request_defer();
-                        return Err(RpcError::deadline_exceeded(
-                            "prompt live check",
-                            super::prompt_admission::ADMISSION_BOUND,
-                        ));
-                    }
-                    true
-                }
-            }
+            tokio::time::timeout(super::prompt_admission::ADMISSION_BOUND, probe)
+                .await
+                .unwrap_or(true)
         };
         if !live {
             admission.enter("cold_check");

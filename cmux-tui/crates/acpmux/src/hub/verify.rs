@@ -269,7 +269,7 @@ pub(crate) fn enabled_by(env: Option<&str>, doc: Option<&Value>) -> bool {
         .unwrap_or(true)
 }
 
-fn enabled() -> bool {
+pub(crate) fn enabled() -> bool {
     let env = std::env::var(ENV_OFF).ok();
     if env.as_deref() == Some("0") {
         return false;
