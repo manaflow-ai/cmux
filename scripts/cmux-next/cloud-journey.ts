@@ -2427,6 +2427,15 @@ export async function finishJourney(cleanup: () => Promise<void>, observer: Prom
   }
 }
 
+/** Why the platform's call to the team's Durable Object threw, when a 503 vm_unavailable says (cmux-platform
+ * RpcReset.ts `RpcFailure`; the CLI prints it too, cloud_client_session.rs `rpc_failure_reason`): only its three fixed
+ * words, never other text. Staging run 45934616897 (11-27 03:44Z and 03:59Z) failed `reply` and `guest carrier
+ * timeline` on `exec: HTTP 503 "vm_unavailable"` and could not say whether the object restarted, was overloaded or was
+ * unreachable. */
+export function rpcFailureReason(reason: unknown): string {
+  return reason === "overloaded" || reason === "restarted" || reason === "unreachable" ? ` (${reason})` : "";
+}
+
 /** The CLI's exec (cloud_client_session.rs): mint a client session, then the provider's exec-await. */
 export function directExec(api: Api, machine: string, journey: Pick<Journey, "secrets">, backgroundPollMs = 2_000): Exec {
   let session: { token: string; vm_id: string; linux_user: string; api_base_url: string; expires_at: number } | null = null;
@@ -2437,7 +2446,7 @@ export function directExec(api: Api, machine: string, journey: Pick<Journey, "se
     const runMs = Math.min(timeoutMs, 300_000);
     const g = await api.raw("POST", `/v1/cloud/machines/${machine}/exec`, { command, timeoutMs: runMs }, runMs + 15_000);
     const v: any = g.body?.value ?? g.body;
-    if (g.status < 200 || g.status >= 300 || v?.ok === false) throw new Error(`exec: HTTP ${g.status} ${short(v?.error?.code ?? v?.error ?? v)}`);
+    if (g.status < 200 || g.status >= 300 || v?.ok === false) throw new Error(`exec: HTTP ${g.status} ${short(v?.error?.code ?? v?.error ?? v)}${rpcFailureReason(v?.error?.reason)}`);
     return { code: Number(v.exitCode ?? v.exit_code ?? 1), stdout: String(v.stdout ?? ""), stderr: String(v.stderr ?? "") };
   };
   return async (command, timeoutMs = 60_000) => {
@@ -3736,6 +3745,36 @@ export async function waitOwnerKind(exec: Exec, budgetMs = 90_000, pauseMs = 3_0
   }
 }
 
+/** The exit of {@link ownerKindGated} when the record does not read owner: the start after it did not run. */
+export const OWNER_KIND_GATE_EXIT = 97;
+
+/**
+ * {@link OWNER_KIND_PROGRAM} ahead of `command` in one exec: `command` runs only once the record reads owner, and the
+ * read prints `@@kind_ms N`. The start must not run before owner (team mode loses its launch credential), so the two
+ * cannot run side by side; one exec still drops the owner read's own trip to the machine and back (1.6 to 2.3 s
+ * before the start on the real leg's last two ok runs, 45563753386 and 45571173365).
+ */
+export function ownerKindGated(command: string): string {
+  return `__cmux_k0=$(date +%s%N)\n${OWNER_KIND_PROGRAM}\necho "@@kind_ms $(( ($(date +%s%N) - __cmux_k0) / 1000000 ))"\n` +
+    `if [ "$k" != owner ]; then exit ${OWNER_KIND_GATE_EXIT}; fi\n${command}`;
+}
+
+/**
+ * A start behind the owner read, both in one exec ({@link ownerKindGated}). A record that reads owner calls `onOwner`
+ * with the read's guest ms and returns the start's answer. Any other answer (not owner yet, or no read) runs `waitKind`,
+ * the journey's own wait, which fails the run as it did before, and then the start on its own.
+ */
+export async function startAfterOwnerKind(exec: Exec, command: string, timeoutMs: number, waitKind: () => Promise<void>, onOwner: (kindMs: number | null) => void): Promise<ExecResult> {
+  const r = await exec(guestTimed(ownerKindGated(command)), timeoutMs);
+  if (/^vm-kind=owner$/m.test(r.stdout)) {
+    const m = /@@kind_ms (\d+)/.exec(r.stdout);
+    onOwner(m ? Number(m[1]) : null);
+    return r;
+  }
+  await waitKind();
+  return exec(guestTimed(command), timeoutMs);
+}
+
 /** What the journey accepts as a login to install, per provider. */
 export function validLogin(provider: "claude" | "codex", value: string): boolean {
   if (Buffer.byteLength(value) > 12_000) return false;
@@ -3916,9 +3955,10 @@ export function loginPathAfterClaim(o: { receipt: boolean; launchCredential: boo
  * `@@prompted`; the turn runs on in the daemon. Without it the journey's send was a second exec and a fresh
  * `cmux-tui acp send` process (2.4 to 3.2 s on the 11-23 stub legs), a path no person's first send takes.
  */
-export function launchCredentialStartProgram(session: string, agent: string, name: string, value: string, prompt?: string, traceId?: string): string {
+export function launchCredentialStartProgram(session: string, agent: string, name: string | null, value: string | null, prompt?: string, traceId?: string): string {
   const slash = agent.indexOf("/");
-  const meta: Record<string, unknown> = { name: session, harness: slash < 0 ? agent : agent.slice(0, slash), credentials: { env: { [name]: value } } };
+  // name null: a start with no launch credential, for a machine that holds its own login (a receipt spare).
+  const meta: Record<string, unknown> = { name: session, harness: slash < 0 ? agent : agent.slice(0, slash), ...(name && value ? { credentials: { env: { [name]: value } } } : {}) };
   if (slash >= 0) meta.model = agent.slice(slash + 1);
   const params = JSON.stringify({ mcpServers: [], _meta: { acpmux: meta } });
   const first = prompt === undefined ? "None" : JSON.stringify(prompt);
@@ -4099,7 +4139,9 @@ export function parseWarmHomeAnswer(stdout: string): WarmHomeAnswer {
   }
   if (answer.accepted === true && answer.state === "ready") return { state: "ready", reason: "reserved home chat is ready" };
   const state = typeof answer.state === "string" ? answer.state : "unknown";
-  return { state: "not_ready", reason: `warm-home answered state=${state}` };
+  // acpmux names why nothing holds the reserved key (`why`, state none): oversize, remote, or another key in its slot.
+  const why = typeof answer.why === "string" && answer.why ? ` (${answer.why.slice(0, 200)})` : "";
+  return { state: "not_ready", reason: `warm-home answered state=${state}${why}` };
 }
 
 /**
@@ -6462,13 +6504,18 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
       }).catch(() => undefined);
       for (const step of ["send chat", "reply"]) J.skip(step, "--start-via app: the cell judges the app's start");
     } else {
-      await ownerKindStep();
+      // The owner read rides the start's own exec (startAfterOwnerKind): one trip to the machine, not two. Its step
+      // is still recorded, with its guest ms; a record that is not owner yet falls back to ownerKindStep's wait.
+      const kindNeeded = Boolean(provider && !team && !gatewayAny);
+      const startExec = (command: string) => kindNeeded
+        ? startAfterOwnerKind(exec, command, 120_000, ownerKindStep, (ms) => J.record({ step: "machine kind owner", status: "pass", ms: ms ?? 0, detail: `/etc/cmux/vm-kind reads owner (read in the start's exec${ms === null ? "" : `, ${ms} ms on the guest`})` }))
+        : exec(guestTimed(command), 120_000);
       J.firstText.mark("session_start");
       let promptedWithStart = false;
       await J.step(`start agent (${agent})`, async () => {
         if (launchCredential) {
           // The first prompt follows session/new on the same acpmux link, as the app's first send does.
-          const r = await exec(guestTimed(`${GUEST}${launchCredentialStartProgram(session, agent, "CLAUDE_CODE_OAUTH_TOKEN", login, prompt, sendTrace.id)}`), 120_000);
+          const r = await startExec(`${GUEST}${launchCredentialStartProgram(session, agent, "CLAUDE_CODE_OAUTH_TOKEN", login, prompt, sendTrace.id)}`);
           const id = /@@session (\S+)/.exec(r.stdout)?.[1];
           if (!id) throw new Error(scrub(r.stdout.slice(-400) || r.stderr.slice(-400), [login]));
           J.firstText.mark("session_ready");
@@ -6479,7 +6526,22 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
           J.firstText.mark("sent");
           return { value: null, detail: `session ${session}, on the person's model connection (its launch credential); its first prompt went with the start${guestDetail(guestMs(r.stdout))}` };
         }
-        const r = await exec(guestTimed(`${GUEST}"$c" acp ensure ${shq(session)} -m ${shq(agent)} --json 2>&1; echo "@@exit $?"`), 120_000);
+        if (probeExtra.login_path === "receipt" && provider === "claude") {
+          // The spare holds the person's login (its receipt says installed): the app's start carries no credential and
+          // sends the first prompt on the link its start opened. Before, the journey ran `acp ensure` and then `acp send`
+          // as two execs and two fresh cmux-tui processes: session_ready -> sent 2,566 and 2,515 ms on the real leg's
+          // last two ok runs (45563753386, 45571173365), a cost no person's first send pays.
+          const r = await startExec(`${GUEST}${launchCredentialStartProgram(session, agent, null, null, prompt, sendTrace.id)}`);
+          const id = /@@session (\S+)/.exec(r.stdout)?.[1];
+          if (!id) throw new Error(r.stdout.slice(-400) || r.stderr.slice(-400));
+          J.firstText.mark("session_ready");
+          if (r.code !== 0 || !/@@prompted/.test(r.stdout)) throw new Error(`session ${session} started, but its first prompt was not taken: ${r.stdout.slice(-400) || r.stderr.slice(-400)}`);
+          promptedWithStart = true;
+          J.firstText.mark("send");
+          J.firstText.mark("sent");
+          return { value: null, detail: `session ${session}, on the login copied on spare.ready; its first prompt went with the start${guestDetail(guestMs(r.stdout))}` };
+        }
+        const r = await startExec(`${GUEST}"$c" acp ensure ${shq(session)} -m ${shq(agent)} --json 2>&1; echo "@@exit $?"`);
         if (!/@@exit 0/.test(r.stdout)) throw new Error(r.stdout.slice(-400) || r.stderr.slice(-400));
         J.firstText.mark("session_ready");
         J.firstText.guest("harness_spawn", guestMs(r.stdout));

@@ -1083,7 +1083,7 @@ WORKFLOW_JOB_TIERS: dict[str, tuple[str, ...]] = {
     "daemon-test": ("daemon", "generated"),
     "generated-files": ("generated",),
     "release-compile": ("native", "mac_release"),
-    "app-compile-fleet": ("native",),
+    "app-compile-fleet": ("native", "mac_release"),
     "cmux-scheme-compile": ("native", "scheme"),
     "cmux-scheme-compile-fleet": ("native", "scheme"),
 }
