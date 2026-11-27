@@ -1,0 +1,72 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/45995129942",
+  "recorded_at": "2026-11-27T12:47:15Z",
+  "reason": "cmux-tui 870585ff2904 changes the image's cmux-tui (pinned 58845c13653b)",
+  "dry_run": false,
+  "cmux_tui": "870585ff2904187b87e5b6690c951229160a1740",
+  "fixes": [
+    {
+      "sha": "5dd08545bd2fb3127f382a8967a4d2ccaf417b7b",
+      "mergedAt": "2026-11-27T10:51:14+00:00",
+      "subject": "RFD 0065 repo archive store: R2 bucket workflow, controller install, quiet-branch refresh (#61239)"
+    },
+    {
+      "sha": "8c757582b4cacdd1fd8b33720328c8b9e591f82f",
+      "mergedAt": "2026-11-27T10:50:34+00:00",
+      "subject": "egress: let hosts the person names through; gate the new CLI clients; ratchet back to green (#55427)"
+    },
+    {
+      "sha": "7dcde4728cddeb125525c8c0c80db990c833a6c5",
+      "mergedAt": "2026-11-27T10:48:56+00:00",
+      "subject": "fix(cmux-cas): keep dedup metadata portable (#61047)"
+    },
+    {
+      "sha": "2d3e7f453e7efabbda3ffafaa8bb58641835f139",
+      "mergedAt": "2026-11-27T10:48:52+00:00",
+      "subject": "cmux-fault: opt-in wire trace, so the pair matrix can split a dial by round trip (#60827)"
+    },
+    {
+      "sha": "43b81fe5a2dfe20255613fa3be95f8151370f47d",
+      "mergedAt": "2026-11-27T10:48:02+00:00",
+      "subject": "acpmux: a turn the store refused on a full disk goes on once it has room (#56580)"
+    },
+    {
+      "sha": "3dde28421212c0c05e5afd2db1150945807c194d",
+      "mergedAt": "2026-11-27T10:47:45+00:00",
+      "subject": "swift-out sidebar: hover card text choice and order in Rust (step A) (#57991)"
+    },
+    {
+      "sha": "5a4cb1541993d207b2f12d09f78059d6f3e72b4f",
+      "mergedAt": "2026-11-27T10:46:42+00:00",
+      "subject": "screen-share-vs: explain a Capture below zero (Frame lead row), Readback to encode start (#61294)"
+    },
+    {
+      "sha": "197e466af86a4dd11e47c2e6c3d7171930ed7351",
+      "mergedAt": "2026-11-27T10:40:41+00:00",
+      "subject": "cloud start-chat: CMUX_CLOUD_FAULT fires each recovery-table class on demand (measurement harness; merge after #58726) (#59282)"
+    },
+    {
+      "sha": "542ad0270d52e12101df269b9d904dc92156be07",
+      "mergedAt": "2026-11-27T10:34:10+00:00",
+      "subject": "CI guard group: list crates hosts in the egress gate, bound a paginate, affected-reads, fleet lint counts (base red fix) (#59244)"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "passed",
+    "bake_job": "success",
+    "done_at": "2026-11-27T12:47:15Z",
+    "snapshot_id": "sh-b35290ebcd634647b6bb7263eba2e8ef",
+    "detail": "smoke.ts --clones 5 --agent-probe --resize-probe (CI run 45995129942): 34 checks passed"
+  },
+  "promotion": {
+    "result": "pushed",
+    "job": "success",
+    "commit": "1dc33ad925a3c008a174a0eb217c8b7af2318ad9",
+    "image": "cloud-native-auto-870585ff-45995129942-1",
+    "revision": "ci-45995129942-1",
+    "at": "2026-11-27T12:47:15Z"
+  },
+  "rolled_back": false
+}
