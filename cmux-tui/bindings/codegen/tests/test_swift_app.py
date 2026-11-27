@@ -435,6 +435,55 @@ class SentWithTests(unittest.TestCase):
                 self.source(**fields)
 
 
+class OneOfTests(unittest.TestCase):
+    """`one_of`: a hand-written enum whose cases each carry one optional field; only the one it holds is sent."""
+
+    def source(self, one_of: Any, order: list[str] | None = None, **fields: Any) -> str:
+        document = layout_document()
+        request = document["commands"]["set-split-ratio"]["request"]["fields"]
+        request["pane"] = _field(ID, required=False, nullable=True)
+        request["column"] = _field(ID, required=False, nullable=True)
+        bindings = layout_bindings()
+        binding = bindings["families"]["Layout"]["requests"]["set-split-ratio"]
+        binding["order"] = order or ["split", "target", "ratio"]
+        binding["one_of"] = one_of
+        binding["fields"] = fields
+        return rendered(document, bindings)["Layout/SetSplitRatioRequest.generated.swift"]
+
+    def test_one_of_sends_the_field_of_the_case_it_holds(self) -> None:
+        source = self.source({"target": {"type": "DropTarget", "cases": ["pane", "column"], "doc": ["Where."]}})
+        self.assertIn("    /// Where.\n    public var target: DropTarget\n", source)
+        self.assertIn("public init(split: SplitID, target: DropTarget, ratio: Double,", source)
+        self.assertIn(
+            "        switch target {\n"
+            "        case .pane(let value): try container.encode(value, forKey: .pane)\n"
+            "        case .column(let value): try container.encode(value, forKey: .column)\n"
+            "        }\n",
+            source,
+        )
+        self.assertIn("        case split\n        case pane\n        case column\n        case ratio\n", source)
+        self.assertNotIn("public var pane", source)
+
+    def test_one_of_is_refused_where_it_cannot_keep_the_wire(self) -> None:
+        cases = {
+            "one case": ({"target": {"type": "T", "cases": ["pane"]}}, None, {}),
+            "no type": ({"target": {"cases": ["pane", "column"]}}, None, {}),
+            "a field the schema lacks": ({"target": {"type": "T", "cases": ["pane", "nope"]}}, None, {}),
+            "a required case": ({"target": {"type": "T", "cases": ["pane", "split"]}}, ["target", "ratio"], {}),
+            "an always encoded case": (
+                {"target": {"type": "T", "cases": ["pane", "column"]}}, None, {"pane": {"encode": "always"}}
+            ),
+            "a case in order": ({"target": {"type": "T", "cases": ["pane", "column"]}}, ["split", "pane"], {}),
+            "a case in two": (
+                {"a": {"type": "T", "cases": ["pane", "column"]}, "b": {"type": "U", "cases": ["pane", "transaction"]}},
+                ["split", "ratio"], {},
+            ),
+        }
+        for name, (one_of, order, fields) in cases.items():
+            with self.subTest(name), self.assertRaises(BindingError):
+                self.source(one_of, order, **fields)
+
+
 class DecimalTests(unittest.TestCase):
     """`encode: decimal`: a UInt64 the wire carries as a decimal string."""
 

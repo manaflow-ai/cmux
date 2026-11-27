@@ -1464,7 +1464,7 @@
       }
     },
     "TabGroups": {
-      "$comment": "move-tab-group-to-column stays hand-written: it encodes its ColumnDropTarget enum as pane or screen.",
+      "$comment": "move-tab-group-to-column's target is the hand-written ColumnDropTarget enum (one_of): it sends pane or screen.",
       "requests": {
         "unsave-tab-group": {
           "name": "UnsaveTabGroupRequest",
@@ -1809,6 +1809,46 @@
             },
             "end_terminals": {
               "encode": "if_true"
+            }
+          },
+          "response": "TabGroupResult"
+        },
+        "move-tab-group-to-column": {
+          "name": "MoveTabGroupToColumnRequest",
+          "doc": [
+            "Drops a whole group between strip columns."
+          ],
+          "order": [
+            "group",
+            "target",
+            "after_column",
+            "width",
+            "transaction"
+          ],
+          "one_of": {
+            "target": {
+              "type": "ColumnDropTarget",
+              "cases": [
+                "screen",
+                "pane"
+              ]
+            }
+          },
+          "fields": {
+            "group": {
+              "type": "TabGroupID"
+            },
+            "pane": {
+              "type": "PaneID"
+            },
+            "after_column": {
+              "type": "ColumnID"
+            },
+            "width": {
+              "type": "Double"
+            },
+            "transaction": {
+              "type": "ClientTransactionID"
             }
           },
           "response": "TabGroupResult"

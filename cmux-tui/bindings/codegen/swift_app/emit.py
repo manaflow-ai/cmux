@@ -91,8 +91,11 @@ _FAMILY_KEYS = frozenset({"$comment", "enums", "requests", "objects"})
 _ENUM_KEYS = frozenset({"doc"})
 _REQUEST_KEYS = frozenset({
     "name", "doc", "order", "fields", "response", "response_order", "response_fields", "protocol", "mutation",
-    "workspace_ref",
+    "workspace_ref", "one_of",
 })
+# A request property of a hand-written Swift enum (`one_of`): each case carries one optional schema field, and
+# the request sends the field of the case it holds, so exactly one of them goes on the wire.
+_ONE_OF_KEYS = frozenset({"type", "cases", "doc"})
 _FIELD_KEYS = frozenset({"name", "type", "doc", "default", "optional", "encode", "update", "with"})
 _ENCODE_MODES = {"always": True, "if_present": False}
 IF_TRUE = "if_true"
@@ -237,6 +240,8 @@ class _Field:
     condition: str | None = None
     # Encoded flat, not under its own key: the encoder expression's encode(to:) writes the wire fields.
     spread: str | None = None
+    # A `one_of` enum: (Swift case, wire key) pairs; the value of the case it holds goes under that key.
+    cases: list[tuple[str, str]] | None = None
 
     @property
     def custom_read(self) -> bool:
@@ -257,6 +262,11 @@ class _Field:
     def encode_line(self) -> str:
         if self.spread is not None:
             return f"        try {self.spread}.encode(to: encoder)"
+        if self.cases is not None:
+            lines = [f"        switch {self.name} {{"]
+            lines += [f"        case .{case}(let value): try container.encode(value, forKey: .{case})"
+                      for case, _ in self.cases]
+            return "\n".join([*lines, "        }"])
         if self.if_true:
             return f"        if {self.name} {{ try container.encode(true, forKey: .{_bare(self.name)}) }}"
         method = "encode" if self.always_encoded or self.update else "encodeIfPresent"
@@ -267,8 +277,10 @@ class _Field:
             return f"        if {self.condition} {{ {line} }}"
         return f"        {line}"
 
-    def coding_key(self) -> str:
-        return f"case {self.name}" + ("" if _bare(self.name) == self.wire else f" = {json.dumps(self.wire)}")
+    def coding_keys(self) -> list[str]:
+        if self.cases is not None:
+            return [f"case {case}" + ("" if _bare(case) == wire else f" = {json.dumps(wire)}") for case, wire in self.cases]
+        return [f"case {self.name}" + ("" if _bare(self.name) == self.wire else f" = {json.dumps(self.wire)}")]
 
 
 class _Renderer:
@@ -566,15 +578,50 @@ class _Renderer:
                 doc=["The exactly-once key (`origin`, `mutation_id`); reuse it on every retry of this write."],
                 mutation=True, spread=f"MutationFields(identity: {MUTATION})",
             )))
-        places = {token: order.index(token) for token, _ in spreads if token in order}
+        one_of = binding.get("one_of", {})
+        if not isinstance(one_of, Mapping):
+            raise BindingError(f"{command}: one_of maps a Swift property to its enum")
+        taken: set[str] = set()
+        for token, spec in one_of.items():
+            spec = _check_keys(f"{command}.one_of.{token}", spec, _ONE_OF_KEYS)
+            cases = spec.get("cases")
+            if (not _IDENTIFIER.fullmatch(token) or not isinstance(spec.get("type"), str)
+                    or not isinstance(cases, list) or len(cases) < 2 or not taken.isdisjoint(cases)
+                    or len(set(cases)) != len(cases)):
+                raise BindingError(
+                    f"{command}.one_of.{token}: give a Swift enum type and two or more schema fields as its cases,"
+                    " each in one one_of"
+                )
+            taken.update(cases)
+            if any(wire in order for wire in cases):
+                raise BindingError(f"{command}.one_of.{token}: order names the property {token}, not its cases")
+        places = {token: order.index(token) for token in [*(token for token, _ in spreads), *one_of] if token in order}
         order = [item for item in order if item not in places]
         fields = self.fields(command, schema_fields, binding.get("fields", {}), order, nested)
+        for token, spec in one_of.items():
+            by_wire = {item.wire: item for item in fields}
+            cases = []
+            for wire in spec["cases"]:
+                case = by_wire.get(wire)
+                if (case is None or not case.optional or case.always_encoded or case.update or case.if_true
+                        or case.decimal or case.condition is not None or case.default is not None):
+                    raise BindingError(
+                        f"{command}.one_of.{token}: case {wire} is an optional schema field sent only when set"
+                    )
+                cases.append((case.name, wire))
+            fields = [item for item in fields if item.wire not in spec["cases"]]
+            spreads.append((token, _Field(
+                wire=token, name=token, swift_type=spec["type"], optional=False, always_encoded=True,
+                doc=list(spec.get("doc", ())), cases=cases,
+            )))
         for token, spread in spreads:
             if token in (_bare(item.name) for item in fields):
                 raise BindingError(f"{command}: a field is already named {token}")
         for token, spread in sorted(spreads, key=lambda pair: places.get(pair[0], len(order) + len(spreads))):
             fields.insert(min(places.get(token, len(fields)), len(fields)), spread)
         keyed = [item for item in fields if item.spread is None]
+        if len({key for item in keyed for key in item.coding_keys()}) != sum(len(item.coding_keys()) for item in keyed):
+            raise BindingError(f"{command}: two fields encode under the same key")
         response = self.response_binding(command, schema["result"], binding)
 
         name = binding["name"]
@@ -597,7 +644,7 @@ class _Renderer:
         out.append("    }")
         if keyed:
             out += ["", "    enum CodingKeys: String, CodingKey {"]
-            out += [f"        {item.coding_key()}" for item in keyed]
+            out += [f"        {key}" for item in keyed for key in item.coding_keys()]
             out.append("    }")
         if fields:
             out += ["", "    public func encode(to encoder: any Encoder) throws {"]
@@ -649,7 +696,7 @@ class _Renderer:
         out.append("        }")
         if fields:
             out += ["", "        enum CodingKeys: String, CodingKey {"]
-            out += [f"            {item.coding_key()}" for item in fields]
+            out += [f"            {key}" for item in fields for key in item.coding_keys()]
             out.append("        }")
         out.append("    }")
         return out
@@ -727,7 +774,7 @@ class _Renderer:
             out.append("    }")
         if wire:
             out += ["", "    enum CodingKeys: String, CodingKey {"]
-            out += [f"        {item.coding_key()}" for item in wire]
+            out += [f"        {key}" for item in wire for key in item.coding_keys()]
             out += [f"        case {key} = {json.dumps(value)}" for key, value in preferred]
             out.append("    }")
         if decodes and any(item.custom_read for item in ordered):
