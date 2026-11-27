@@ -160,9 +160,15 @@ pub(super) async fn handle(origin: Origin, m: &str, params: &Value) -> Result<Va
     match m {
         method::MUX_VOICE_STATE => {
             let mut result = state(resolved).await?;
-            result["settings"] = serde_json::json!({
-                "engine": settings.engine, "url": settings.url, "model": settings.model,
-            });
+            result
+                .as_object_mut()
+                .ok_or_else(|| RpcError::internal("voice state must be an object"))?
+                .insert(
+                    "settings".into(),
+                    serde_json::json!({
+                        "engine": settings.engine, "url": settings.url, "model": settings.model,
+                    }),
+                );
             Ok(result)
         }
         method::MUX_VOICE_TRANSCRIBE => transcribe(resolved, params).await,
