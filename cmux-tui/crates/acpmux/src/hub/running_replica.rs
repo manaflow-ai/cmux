@@ -146,6 +146,15 @@ impl Hub {
         // Validate and place native state strictly. The generic import tolerates divergent
         // existing native files, which is inappropriate for a recovered durable copy.
         let plan = crate::native::guarded_plan(&staged, &meta).map_err(anyhow::Error::msg)?;
+        let listed = manifest["native"].as_array().context("replica native manifest is invalid")?;
+        anyhow::ensure!(plan.len() == listed.len(), "replica native files do not match manifest");
+        for entry in listed {
+            let path = entry["path"].as_str().context("replica native path is invalid")?;
+            anyhow::ensure!(
+                plan.iter().any(|(source, _)| source == &staged.join("native").join(path)),
+                "replica is missing a declared native file"
+            );
+        }
         let native = staged.join("native");
         let kept = scratch.path().join("native");
         if native.exists() {
@@ -154,12 +163,12 @@ impl Hub {
         let plan: Vec<_> = plan
             .into_iter()
             .map(|(src, dst)| {
-                (
-                    kept.join(src.strip_prefix(&native).expect("native plan is inside the bundle")),
+                Ok((
+                    kept.join(src.strip_prefix(&native).context("native plan escaped bundle")?),
                     dst,
-                )
+                ))
             })
-            .collect();
+            .collect::<Result<_>>()?;
         // This refuses even an orphaned same-id file; no source's native store is overwritten.
         crate::qos::off_worker(|| crate::native::restore_guarded(&plan, false))?;
         let imported = self
@@ -338,6 +347,12 @@ fn inert(record: &mut EventRecord) -> bool {
 }
 
 fn project_history(bundle: &Path, meta: &mut SessionMeta) -> Result<u64> {
+    for entry in std::fs::read_dir(bundle.join("events"))? {
+        anyhow::ensure!(
+            entry?.file_name() == "000001.ndjson",
+            "replica contains an unexpected journal file"
+        );
+    }
     let path = bundle.join("events/000001.ndjson");
     let input = std::io::BufReader::new(std::fs::File::open(&path)?);
     let projected = bundle.join("events/projected.part");

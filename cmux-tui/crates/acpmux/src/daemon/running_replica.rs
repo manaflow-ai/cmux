@@ -95,7 +95,6 @@ fn receipts(state: &Path) -> Result<Value> {
 
 /// The RPC caller checks local-only origin before reaching this handler.
 pub(crate) async fn request(hub: Arc<Hub>, params: Value) -> Result<Value> {
-    let _operation = OPERATION.lock().await;
     let state = crate::config::home();
     match required(&params, "action")? {
         "address" => {
@@ -114,6 +113,7 @@ pub(crate) async fn request(hub: Arc<Hub>, params: Value) -> Result<Value> {
             }))
         }).await?,
         "checkpoint" => {
+            let _operation = OPERATION.lock().await;
             let session = hub.resolve(required(&params, "sessionId")?)
                 .map_err(|error| anyhow::anyhow!(error.message))?;
             if hub.auto_record(&session).is_some() {
@@ -135,6 +135,7 @@ pub(crate) async fn request(hub: Arc<Hub>, params: Value) -> Result<Value> {
             }).await?
         }
         "recover" => {
+            let _operation = OPERATION.lock().await;
             let pair = required(&params, "pair")?.to_string();
             let cwd = PathBuf::from(required(&params, "cwd")?);
             if !cwd.is_absolute() || !cwd.is_dir() {

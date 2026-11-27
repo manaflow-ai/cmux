@@ -3527,9 +3527,9 @@ async fn dispatch_request_with_identity(
         method::MUX_RUNNING_REPLICA if conn.origin.web_class() => Err(RpcError::method_not_found(
             "_acpmux/running_replica (not served to a remote WebSocket connection or a peer)",
         )),
-        method::MUX_RUNNING_REPLICA => {
-            crate::daemon::running_replica::request(hub.clone(), params).await
-        }
+        method::MUX_RUNNING_REPLICA => crate::daemon::running_replica::request(hub.clone(), params)
+            .await
+            .map_err(|error| RpcError::internal(error.to_string())),
         // Auto mode (`auto_session/surface.rs`): the chat's own machine switches it and settles
         // its kept changes, and only for the person (`auto_gate.rs`).
         method::MUX_AUTO_SESSION_SET
