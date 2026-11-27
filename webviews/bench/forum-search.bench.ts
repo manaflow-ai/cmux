@@ -1,10 +1,10 @@
 // l10n-allow-file: benchmark output, not shipped UI.
 // What typing into the Forum page's search costs, on Chromium: a production build (React Compiler, minified,
 // React's profiling build) of bench/forum-search/, the real ForumPage over THREADS threads. Each round types
-// QUERY into the search field one character at a time, as a person does, and for each keystroke reads:
-//   frame    from the input event to the next animation frame: how long the keystroke holds the field's
-//            echo (the input-to-next-paint a person feels);
-//   settled  from the input event until the list is drawn for that character and no commit is pending.
+// QUERY into the search field with real key presses, one character at a time, and for each keystroke reads:
+//   inp      the keystroke's Event Timing duration (key down to the next paint, what INP reports; the API
+//            records 16 ms and up, so a faster keystroke counts as 16);
+//   settled  from the key press until the list shows that prefix's matches and two frames pass with no commit.
 // A round's number is the median over its keystrokes; the run prints the median and spread over ROUNDS
 // fresh pages.
 //   bun bench/forum-search.bench.ts [rounds=5] [threads=2000] [query=sidebar]
@@ -42,46 +42,51 @@ const statics = Bun.serve({
 const browser = await chromium.launch({ headless: true });
 const median = (values: number[]) => [...values].sort((a, b) => a - b)[Math.floor(values.length / 2)] ?? 0;
 
-const rounds: { frame: number; settled: number; rows: number }[] = [];
+const rounds: { inp: number; settled: number; rows: number }[] = [];
 for (let round = 0; round < ROUNDS; round++) {
   const page = await browser.newPage();
   await page.goto(`http://127.0.0.1:${statics.port}/#threads=${THREADS}`);
   await page.waitForFunction(() => window.benchReady === true);
-  const result = await page.evaluate(async (query) => {
-    const frame = () => new Promise<void>((resolve) => requestAnimationFrame(() => resolve()));
-    const quiet = async () => {
-      // Settled: two frames in a row with no new commit.
+  const settle = (prefix: string) =>
+    page.evaluate(async (prefix) => {
+      const frame = () => new Promise<void>((resolve) => requestAnimationFrame(() => resolve()));
+      const want = window.benchExpected(prefix);
       let seen = -1;
-      while (seen !== window.benchCommits.length) {
+      while (seen !== window.benchCommits.length || document.querySelectorAll(".forum-thread-item").length !== want) {
         seen = window.benchCommits.length;
         await frame();
         await frame();
       }
-    };
-    const input = document.querySelector<HTMLInputElement>("input.forum-search")!;
-    const setValue = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")!.set!;
-    await quiet();
-    const frames: number[] = [];
-    const settled: number[] = [];
-    for (let i = 1; i <= query.length; i++) {
-      const start = performance.now();
-      setValue.call(input, query.slice(0, i));
-      input.dispatchEvent(new Event("input", { bubbles: true }));
-      await frame();
-      frames.push(performance.now() - start);
-      await quiet();
-      settled.push(performance.now() - start);
-    }
-    return { frames, settled, rows: document.querySelectorAll(".forum-thread-item").length };
-  }, QUERY);
-  rounds.push({ frame: median(result.frames), settled: median(result.settled), rows: result.rows });
+    }, prefix);
+  await page.focus("input.forum-search");
+  await settle("");
+  const inps: number[] = [];
+  const settled: number[] = [];
+  for (let i = 1; i <= QUERY.length; i++) {
+    const from = await page.evaluate(() => window.benchEvents.length);
+    const start = Date.now();
+    await page.keyboard.press(QUERY[i - 1]!);
+    await settle(QUERY.slice(0, i));
+    settled.push(Date.now() - start);
+    // Event Timing entries land after their paint; one more frame lets the observer deliver them.
+    const durations = await page.evaluate(async (from) => {
+      await new Promise((resolve) => requestAnimationFrame(() => setTimeout(resolve, 50)));
+      return window.benchEvents
+        .slice(from)
+        .filter((entry) => entry.interactionId > 0)
+        .map((entry) => entry.duration);
+    }, from);
+    inps.push(Math.max(16, ...durations));
+  }
+  const rows = await page.evaluate(() => document.querySelectorAll(".forum-thread-item").length);
+  rounds.push({ inp: median(inps), settled: median(settled), rows });
   await page.close();
 }
 await browser.close();
 statics.stop();
 fs.rmSync(out, { recursive: true, force: true });
 
-for (const key of ["frame", "settled"] as const) {
+for (const key of ["inp", "settled"] as const) {
   const values = rounds.map((round) => round[key]);
   const sorted = [...values].sort((a, b) => a - b);
   console.log(

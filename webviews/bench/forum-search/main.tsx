@@ -22,9 +22,18 @@ declare global {
     benchReady: boolean;
     /// [commitTime, actualDuration] of each commit under the Profiler.
     benchCommits: [number, number][];
+    /// Event Timing entries (trusted key events: start to the next paint), as INP reads them.
+    benchEvents: { name: string; interactionId: number; duration: number }[];
+    /// How many threads the page should list for `query` (ForumPage's own match: title or body).
+    benchExpected: (query: string) => number;
   }
 }
 window.benchCommits = [];
+window.benchEvents = [];
+new PerformanceObserver((list) => {
+  for (const entry of list.getEntries() as PerformanceEventTiming[])
+    window.benchEvents.push({ name: entry.name, interactionId: entry.interactionId, duration: entry.duration });
+}).observe({ type: "event", durationThreshold: 16, buffered: true } as PerformanceObserverInit);
 
 const WORDS = ["linker", "sidebar", "theme", "settings", "drag", "toolchain", "review", "handbook", "cache", "socket"];
 const KINDS = ["question", "finding", "article", "page"] as const;
@@ -60,6 +69,13 @@ const snapshot: ForumSnapshot = {
   threads,
   comments: {},
 } as ForumSnapshot;
+
+window.benchExpected = (query) => {
+  const q = query.trim().toLowerCase();
+  return threads.filter(
+    (thread) => !q || thread.title.toLowerCase().includes(q) || thread.body.toLowerCase().includes(q),
+  ).length;
+};
 
 const strings: Strings = { language: "en", t: (key) => key, format: (key, ...args) => [key, ...args].join(" ") };
 createRoot(document.getElementById("root")!).render(
