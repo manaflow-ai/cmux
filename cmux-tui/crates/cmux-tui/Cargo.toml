@@ -130,6 +130,8 @@ cmux-customize.workspace = true
 cmux-customize-recipes.workspace = true
 # `cmux app web-pieces` (cli/app/web_pieces.rs): the signed per-piece switch file of web updates.
 cmux-web-pieces.workspace = true
+# `cmux app web-cas fetch` (cli/app/web_cas.rs): a web update by cas/1 Range GETs (RFD 0166).
+cmux-cas.workspace = true
 cmux-usage-patterns.workspace = true
 # `cmux ext dev`: the manifest validator the daemon runs, and the folder watch.
 cmux-app-manifest.workspace = true
