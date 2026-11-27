@@ -208,10 +208,9 @@ pub(super) fn min_tokens(root: &Value, env: impl Fn(&str) -> Option<String>) -> 
     };
     let enabled = env_flag(env(ENV_ENABLED).as_deref())
         .or_else(|| get(SETTING_ENABLED).and_then(|value| value.as_bool()));
-    // Off unless turned on, as for chats (`acpmux/src/hub/cache_compact.rs`; Leo, 2026-11-26:
-    // "we ought to not make jcmux/acpmux so opinionated with compacition. only do it for our
-    // personal fleet situation"). On by default, a `claude` in a terminal got `/compact` typed
-    // into it about 4.5 min after each turn on a 5-minute cache ("compacted after ~5 minutes").
+    // Off unless the person turns it on, as for chats (`hub/cache_compact.rs`, 2026-11-26). On by
+    // default, a `claude` in a terminal got `/compact` typed into it about 4.5 min after each turn
+    // on a 5-minute cache ("compacted after ~5 minutes").
     if enabled != Some(true) {
         return None;
     }
