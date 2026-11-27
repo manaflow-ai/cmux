@@ -148,32 +148,46 @@ package final class DesktopNotifier: NSObject {
                              approval: approval, category: category, incognito: incognito))
         if posted.count > Self.postedLimit { posted.removeFirst(posted.count - Self.postedLimit) }
         guard let center = resolvedCenter() else { return }
-        let content = UNMutableNotificationContent()
-        content.title = title
-        if let subtitle { content.subtitle = subtitle }
-        content.body = body
-        content.sound = defaultSound ? .default : nil
-        content.interruptionLevel = .active
-        if let workspace { content.threadIdentifier = workspace }
-        content.categoryIdentifier = category
-        var info: [String: Any] = ["notification": id]
-        if let surface { info["surface"] = NSNumber(value: surface) }
-        content.userInfo = info
         let logger = logger
+        let banner = Banner(id: id, title: title, subtitle: subtitle, body: body, surface: surface, workspace: workspace,
+                            defaultSound: defaultSound, category: category)
         guard let attachment else {
-            let request = UNNotificationRequest(identifier: id, content: content, trigger: nil)
-            Self.add(request, to: center, attachmentFile: nil, logger: logger)
+            Self.add(banner.request(attachment: nil), to: center, attachmentFile: nil, logger: logger)
             return
         }
         // The attachment file is written and handed to the center off the main thread (a stalled disk would
         // stall main); the banner is added after, with or without the badge.
-        let box = UncheckedBox((center, content))
         Task.detached(priority: .userInitiated) {
             let file = Self.attachmentItem(attachment, id: id)
-            let (center, content) = box.value
-            if let item = file?.item { content.attachments = [item] }
-            let request = UNNotificationRequest(identifier: id, content: content, trigger: nil)
-            Self.add(request, to: center, attachmentFile: file?.url, logger: logger)
+            Self.add(banner.request(attachment: file?.item), to: center, attachmentFile: file?.url, logger: logger)
+        }
+    }
+
+    /// What a banner shows, as plain values a detached task can build its request from.
+    private nonisolated struct Banner: Sendable {
+        var id: String
+        var title: String
+        var subtitle: String?
+        var body: String
+        var surface: UInt64?
+        var workspace: String?
+        var defaultSound: Bool
+        var category: String
+
+        func request(attachment: UNNotificationAttachment?) -> UNNotificationRequest {
+            let content = UNMutableNotificationContent()
+            content.title = title
+            if let subtitle { content.subtitle = subtitle }
+            content.body = body
+            if let attachment { content.attachments = [attachment] }
+            content.sound = defaultSound ? .default : nil
+            content.interruptionLevel = .active
+            if let workspace { content.threadIdentifier = workspace }
+            content.categoryIdentifier = category
+            var info: [String: Any] = ["notification": id]
+            if let surface { info["surface"] = NSNumber(value: surface) }
+            content.userInfo = info
+            return UNNotificationRequest(identifier: id, content: content, trigger: nil)
         }
     }
 
@@ -184,12 +198,6 @@ package final class DesktopNotifier: NSObject {
             logger.error("banner failed: \(String(describing: error), privacy: .public)")
             if let attachmentFile { try? FileManager.default.removeItem(at: attachmentFile) }
         }
-    }
-
-    /// Carries a non-Sendable value to the one detached task that owns it from then on.
-    private nonisolated final class UncheckedBox<T>: @unchecked Sendable {
-        let value: T
-        init(_ value: T) { self.value = value }
     }
 
     /// The badge file and its attachment, or nil (the file deleted) when either step fails.
