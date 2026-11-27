@@ -230,3 +230,32 @@ fn a_run_past_the_apps_wait_is_still_a_move_not_a_refusal() {
     assert!(still_running(&json!({"code": "action.timeout"})));
     assert!(!still_running(&json!({"code": "cloud.signed_out"})));
 }
+
+#[test]
+fn a_join_refusal_is_reported_while_waiting_errors_are_retried() {
+    assert!(!join_keeps_waiting(&json!({
+        "code": "unavailable",
+        "message": "transfer refused"
+    })));
+    assert!(join_keeps_waiting(&json!({"code": "mutation.outcome_unknown"})));
+    assert!(join_keeps_waiting(&json!({"code": "idempotency_unknown"})));
+}
+
+#[test]
+fn an_unknown_join_parameter_from_an_older_app_keeps_the_old_waiter_behavior() {
+    assert!(join_keeps_waiting(&json!({
+        "code": "invalid_params",
+        "message": "action.run does not take params.join_only"
+    })));
+    assert!(!join_keeps_waiting(&json!({
+        "code": "invalid_params",
+        "message": "cloud move refused"
+    })));
+}
+
+#[test]
+fn a_not_run_first_reply_is_not_still_running() {
+    let error = json!({"code": "timeout", "data": {"not_run": true}});
+    assert!(has_not_run(&error));
+    assert!(!still_running(&error));
+}
