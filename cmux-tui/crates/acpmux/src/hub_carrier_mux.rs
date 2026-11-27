@@ -485,6 +485,19 @@ impl Mux {
                 }
                 Err(refusal) => refuse(refusal).await,
             },
+            // This machine's iroh address, one record, then the stream ends.
+            Ok(CircuitService::IrohAddr) => match incoming.carrier.iroh_addr_record() {
+                Some(record) => {
+                    let (mut ours, theirs) = tokio::io::duplex(record.len().max(1));
+                    use tokio::io::AsyncWriteExt;
+                    let _ = ours.write_all(&record).await;
+                    drop(ours);
+                    self.carry_admitted(id, theirs, events, credit).await
+                }
+                None => {
+                    refuse(ServiceRefusal::new("service.off", "iroh is off on this machine")).await
+                }
+            },
             // The acpmux listener, reached as a plain circuit with no hello reaches it: the
             // peer link and its hub probe ride the pair's one kept circuit.
             Ok(CircuitService::Acpmux)
