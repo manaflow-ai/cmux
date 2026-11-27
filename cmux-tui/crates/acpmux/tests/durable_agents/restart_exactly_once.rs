@@ -217,15 +217,26 @@ async fn many_chats_mid_tool_call_survive_repeated_restarts_and_every_call_and_a
 }
 
 /// The coordinator path uses the real CLI as its waiting client.  Keep this larger than the
-/// unit-sized restart test above: twenty sends are admitted concurrently, then the daemon is
-/// handed off five times while every harness is blocked in a turn.  The child CLI processes are
-/// intentionally left attached to the original socket path; a durable send must reconnect after
-/// each replacement and finish the original prompt id exactly once.
+/// unit-sized restart test above: every session is busy in a gated turn before its CLI send is
+/// queued, then the daemon is handed off five times while all twenty harnesses remain active.
+/// The child CLI processes stay attached to the original socket path; a durable send reconnects
+/// after each replacement and finishes the original prompt id exactly once.
 #[tokio::test(flavor = "multi_thread", worker_threads = 8)]
 async fn twenty_cli_sends_survive_five_daemon_restarts_without_loss_or_duplication() {
     const SENDS: usize = 20;
     const RESTARTS: usize = 5;
     let mut daemon = Daemon::new("cli-duress", "approve-all");
+    daemon.sigterm();
+    let log = daemon.home.join("wire.jsonl");
+    let wire_env = format!("FAKE_WIRE_LOG={}", log.display());
+    std::fs::write(
+        daemon.home.join("config.json"),
+        json!({"harnesses": {"fake": {"argv": ["/usr/bin/env", wire_env, "python3", FAKE]}},
+               "defaultHarness": "fake", "permissionPolicy": "approve-all"})
+        .to_string(),
+    )
+    .unwrap();
+    daemon.start();
 
     let mut sessions = Vec::with_capacity(SENDS);
     let mut children = Vec::with_capacity(SENDS);
@@ -244,8 +255,22 @@ async fn twenty_cli_sends_survive_five_daemon_restarts_without_loss_or_duplicati
         assert!(made.status.success(), "new {name}: {}", String::from_utf8_lossy(&made.stderr));
         let value: Value = serde_json::from_slice(&made.stdout).expect("new JSON");
         let session = value["sessionId"].as_str().expect("new session id").to_owned();
-        let gate = daemon.home.join(format!("cli-gate-{i}"));
-        make_fifo(&gate);
+
+        let busy_gate = daemon.home.join(format!("busy-gate-{i}"));
+        make_fifo(&busy_gate);
+        let busy_prompt_id = format!("busy-prompt-{i}");
+        let cli_prompt_id = format!("cli-duress-prompt-{i}");
+
+        // Put the session into a real in-flight turn before starting the coordinator CLI send.
+        let mut rpc = daemon.rpc().await;
+        rpc.send(
+            "session/prompt",
+            json!({"sessionId": session, "prompt": [{"type": "text", "text": format!("gate: {}", busy_gate.display())}],
+                   "_meta": {"acpmux": {"promptId": busy_prompt_id}}}),
+        )
+        .await;
+        daemon.wait_event(&session, "busy turn before-gate", |e| chunk(e, "before-gate"));
+
         let mut send = std::process::Command::new(daemon_env::bin());
         send.args([
             "--json",
@@ -254,8 +279,8 @@ async fn twenty_cli_sends_survive_five_daemon_restarts_without_loss_or_duplicati
             "--timeout",
             "180",
             "--prompt-id",
-            &format!("cli-duress-prompt-{i}"),
-            &format!("gate: {}", gate.display()),
+            &cli_prompt_id,
+            &format!("queued-cli-{i}"),
         ])
         .env_clear()
         .envs(daemon_env::vars(&daemon.home, daemon_env::Agents::StandIn, &[]))
@@ -266,50 +291,109 @@ async fn twenty_cli_sends_survive_five_daemon_restarts_without_loss_or_duplicati
         .stdout(std::process::Stdio::piped())
         .stderr(std::process::Stdio::piped());
         children.push(send.spawn().expect("send CLI"));
-        sessions.push((session, gate));
+        sessions.push((session, busy_gate, busy_prompt_id, cli_prompt_id));
     }
 
-    for (session, _) in &sessions {
-        daemon.wait_event(session, "CLI send before-gate", |e| chunk(e, "before-gate"));
+    // Every send is queued behind its busy turn before the first restart.
+    for (session, _, _, prompt_id) in &sessions {
+        daemon.wait_event(session, "CLI send queued", |e| {
+            e["kind"] == "queued" && e["msg"]["promptId"] == prompt_id
+        });
     }
+
     for _ in 0..RESTARTS {
+        // A count cursor prevents a historical adoption record from satisfying this cycle.
+        let adopted_before: Vec<usize> =
+            sessions.iter().map(|(session, ..)| adoptions(&daemon, session)).collect();
         daemon.sigterm();
         daemon.start();
-        for (session, _) in &sessions {
-            daemon.wait_event(session, "host adopted after CLI restart", |e| {
-                e["kind"] == "host_adopted"
-            });
+        for ((session, ..), before) in sessions.iter().zip(adopted_before) {
+            let deadline = Instant::now() + Duration::from_secs(30);
+            while adoptions(&daemon, session) <= before {
+                assert!(Instant::now() < deadline, "{session} was not adopted after restart");
+                std::thread::sleep(Duration::from_millis(50));
+            }
         }
     }
-    for (_, gate) in &sessions {
-        std::fs::write(gate, b"go").expect("release FIFO");
-    }
 
-    let mut ok = 0;
-    let mut lost = Vec::new();
-    let mut duplicated = Vec::new();
-    for (i, mut child) in children.into_iter().enumerate() {
+    // Finish the busy turns first, then release the queued CLI prompts.
+    for (_, busy_gate, _, _) in &sessions {
+        std::fs::write(busy_gate, b"go").expect("release busy FIFO");
+    }
+    for (session, _, busy_prompt_id, _) in &sessions {
+        daemon.wait_event(session, "busy turn result", |e| {
+            e["kind"] == "turn_result" && e["msg"]["promptId"] == busy_prompt_id
+        });
+    }
+    let mut completed = 0;
+    let mut caller_failures = Vec::new();
+    for (i, child) in children.into_iter().enumerate() {
         let output = child.wait_with_output().expect("wait CLI send");
         let stdout = String::from_utf8_lossy(&output.stdout);
         let stderr = String::from_utf8_lossy(&output.stderr);
         if output.status.success() {
-            ok += 1;
+            completed += 1;
         } else {
-            lost.push(format!("{i}: status={} stdout={stdout} stderr={stderr}", output.status));
+            caller_failures
+                .push(format!("{i}: status={} stdout={stdout} stderr={stderr}", output.status));
         }
-        let events = daemon.events(&sessions[i].0);
-        let starts = events.iter().filter(|e| e["kind"] == "turn_started").count();
-        let results = events.iter().filter(|e| e["kind"] == "turn_result").count();
-        if starts != 1 || results != 1 {
-            duplicated.push(format!("{i}: starts={starts} results={results}"));
+    }
+
+    // A failed baseline caller exits before its durable queued turn finishes. Give those
+    // turns one bounded completion window so caller failures are not mistaken for lost work.
+    let deadline = Instant::now() + Duration::from_secs(15);
+    while sessions.iter().any(|(session, _, _, prompt_id)| {
+        !daemon
+            .events(session)
+            .iter()
+            .any(|e| e["kind"] == "turn_result" && e["msg"]["promptId"] == prompt_id)
+    }) && Instant::now() < deadline
+    {
+        tokio::time::sleep(Duration::from_millis(50)).await;
+    }
+    let read = wire(&log);
+    let mut execution_loss = Vec::new();
+    let mut duplicated = Vec::new();
+    for (i, (session, _, _, prompt_id)) in sessions.iter().enumerate() {
+        let events = daemon.events(session);
+        let marker = format!("queued-cli-{i}");
+        let executions = read
+            .iter()
+            .filter(|line| {
+                line["method"] == "session/prompt"
+                    && (line["promptId"] == prompt_id
+                        || line["text"]
+                            .as_str()
+                            .is_some_and(|text| text.split_whitespace().any(|word| word == marker)))
+            })
+            .count();
+        let starts = events
+            .iter()
+            .filter(|e| e["kind"] == "turn_started" && e["msg"]["promptId"] == prompt_id)
+            .count();
+        let results = events
+            .iter()
+            .filter(|e| e["kind"] == "turn_result" && e["msg"]["promptId"] == prompt_id)
+            .count();
+        if executions == 0 || starts == 0 || results == 0 {
+            execution_loss.push(format!(
+                "{i}: wire_executions={executions} starts={starts} results={results}"
+            ));
+        }
+        if executions > 1 || starts > 1 || results > 1 {
+            duplicated.push(format!(
+                "{i}: wire_executions={executions} starts={starts} results={results}"
+            ));
         }
     }
     eprintln!(
-        "DURESS cli_sends={SENDS} restarts={RESTARTS} completed={ok} lost={} duplicated={}",
-        lost.len(),
-        duplicated.len()
+        "DURESS cli_sends={SENDS} restarts={RESTARTS} completed={completed} lost={} duplicated={} caller_failures={}",
+        execution_loss.len(),
+        duplicated.len(),
+        caller_failures.len()
     );
-    assert!(lost.is_empty(), "lost CLI sends: {lost:?}");
-    assert!(duplicated.is_empty(), "duplicated CLI sends: {duplicated:?}");
-    assert_eq!(ok, SENDS, "not every CLI send completed");
+    assert!(execution_loss.is_empty(), "lost CLI executions: {execution_loss:?}");
+    assert!(duplicated.is_empty(), "duplicated CLI executions: {duplicated:?}");
+    assert!(caller_failures.is_empty(), "CLI caller failures: {caller_failures:?}");
+    assert_eq!(completed, SENDS, "not every CLI send completed");
 }
