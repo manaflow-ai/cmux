@@ -14287,127 +14287,127 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "The agent chat is the main pane, as messages."
+            "value": "Chat is the main pane."
           }
         },
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "محادثة الوكيل هي اللوحة الرئيسية، كرسائل."
+            "value": "الدردشة هي اللوحة الرئيسية."
           }
         },
         "bs": {
           "stringUnit": {
             "state": "translated",
-            "value": "Chat s agentom je glavno okno, kao poruke."
+            "value": "Chat je glavni panel."
           }
         },
         "da": {
           "stringUnit": {
             "state": "translated",
-            "value": "Agentchatten er hovedruden, som beskeder."
+            "value": "Chatten er hovedruden."
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Der Agent-Chat ist der Hauptbereich, als Nachrichten."
+            "value": "Der Chat ist der Hauptbereich."
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "El chat del agente es el panel principal, como mensajes."
+            "value": "El chat es el panel principal."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Le chat de l'agent est le panneau principal, en messages."
+            "value": "Le chat est le volet principal."
           }
         },
         "it": {
           "stringUnit": {
             "state": "translated",
-            "value": "La chat dell'agente è il riquadro principale, come messaggi."
+            "value": "La chat è il riquadro principale."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "エージェントのチャットをメッセージ形式でメインペインに。"
+            "value": "チャットがメインペイン。"
           }
         },
         "km": {
           "stringUnit": {
             "state": "translated",
-            "value": "ការជជែកជាមួយភ្នាក់ងារជាផ្ទាំងមេ ជាសារ។"
+            "value": "ការជជែកជាផ្ទាំងមេ។"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "에이전트 채팅이 메시지 형태로 메인 패널이 됩니다."
+            "value": "채팅이 메인 패널."
           }
         },
         "nb": {
           "stringUnit": {
             "state": "translated",
-            "value": "Agentchatten er hovedruten, som meldinger."
+            "value": "Chatten er hovedruten."
           }
         },
         "pl": {
           "stringUnit": {
             "state": "translated",
-            "value": "Czat z agentem jest głównym panelem, jako wiadomości."
+            "value": "Czat to główny panel."
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "translated",
-            "value": "O chat do agente é o painel principal, como mensagens."
+            "value": "O chat é o painel principal."
           }
         },
         "ru": {
           "stringUnit": {
             "state": "translated",
-            "value": "Чат с агентом — главная панель, в виде сообщений."
+            "value": "Чат — главная панель."
           }
         },
         "th": {
           "stringUnit": {
             "state": "translated",
-            "value": "แชตกับเอเจนต์เป็นแผงหลัก แบบข้อความ"
+            "value": "แชทเป็นแผงหลัก"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Ajan sohbeti, mesajlar olarak ana bölmedir."
+            "value": "Sohbet ana bölmedir."
           }
         },
         "uk": {
           "stringUnit": {
             "state": "translated",
-            "value": "Чат з агентом — головна панель, у вигляді повідомлень."
+            "value": "Чат — головна панель."
           }
         },
         "vi": {
           "stringUnit": {
             "state": "translated",
-            "value": "Trò chuyện với tác tử là khung chính, dạng tin nhắn."
+            "value": "Trò chuyện là khung chính."
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "代理聊天以消息形式作为主窗格。"
+            "value": "聊天是主窗格。"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "代理聊天以訊息形式作為主窗格。"
+            "value": "聊天是主窗格。"
           }
         }
       }
@@ -14551,127 +14551,127 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "No chat main pane; new panes split."
+            "value": "Terminal first, panes split."
           }
         },
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "لا لوحة محادثة رئيسية؛ الألواح الجديدة تنقسم."
+            "value": "الطرفية أولًا، واللوحات تنقسم."
           }
         },
         "bs": {
           "stringUnit": {
             "state": "translated",
-            "value": "Bez glavnog chat okna; nova okna se dijele."
+            "value": "Prvo terminal, paneli se dijele."
           }
         },
         "da": {
           "stringUnit": {
             "state": "translated",
-            "value": "Ingen chat-hovedrude; nye ruder deler sig."
+            "value": "Terminal først, ruder deles."
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Kein Chat-Hauptbereich; neue Bereiche teilen."
+            "value": "Terminal zuerst, Bereiche teilen sich."
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Sin panel principal de chat; los paneles nuevos dividen."
+            "value": "Terminal primero, los paneles se dividen."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Pas de chat principal ; les nouveaux panneaux se divisent."
+            "value": "Terminal d’abord, les volets se divisent."
           }
         },
         "it": {
           "stringUnit": {
             "state": "translated",
-            "value": "Nessuna chat principale; i nuovi riquadri dividono."
+            "value": "Prima il terminale, i riquadri si dividono."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "チャットのメインペインなし。新しいペインは分割。"
+            "value": "ターミナル優先、ペインは分割。"
           }
         },
         "km": {
           "stringUnit": {
             "state": "translated",
-            "value": "គ្មានផ្ទាំងជជែកមេ; ផ្ទាំងថ្មីបំបែក។"
+            "value": "ស្ថានីយមុន ផ្ទាំងបំបែក។"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "채팅 메인 패널 없이, 새 패널은 분할로."
+            "value": "터미널 우선, 패널 분할."
           }
         },
         "nb": {
           "stringUnit": {
             "state": "translated",
-            "value": "Ingen chat-hovedrute; nye ruter deler seg."
+            "value": "Terminal først, ruter deles."
           }
         },
         "pl": {
           "stringUnit": {
             "state": "translated",
-            "value": "Bez głównego czatu; nowe panele dzielą."
+            "value": "Najpierw terminal, panele się dzielą."
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "translated",
-            "value": "Sem painel principal de chat; novos painéis dividem."
+            "value": "Terminal primeiro, painéis divididos."
           }
         },
         "ru": {
           "stringUnit": {
             "state": "translated",
-            "value": "Без главного чата; новые панели делят окно."
+            "value": "Сначала терминал, панели делятся."
           }
         },
         "th": {
           "stringUnit": {
             "state": "translated",
-            "value": "ไม่มีแผงแชตหลัก แผงใหม่จะแบ่ง"
+            "value": "เทอร์มินัลก่อน แบ่งแผง"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Ana sohbet bölmesi yok; yeni bölmeler bölünür."
+            "value": "Önce terminal, bölmeler bölünür."
           }
         },
         "uk": {
           "stringUnit": {
             "state": "translated",
-            "value": "Без головного чату; нові панелі ділять вікно."
+            "value": "Спершу термінал, панелі діляться."
           }
         },
         "vi": {
           "stringUnit": {
             "state": "translated",
-            "value": "Không có khung trò chuyện chính; khung mới tách đôi."
+            "value": "Ưu tiên terminal, chia khung."
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "没有聊天主窗格；新窗格分屏。"
+            "value": "终端优先，窗格分屏。"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "沒有聊天主窗格；新窗格分割。"
+            "value": "終端優先，窗格分割。"
           }
         }
       }
@@ -19556,127 +19556,127 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Clear glass, so your desktop shows through."
+            "value": "Clear glass over your desktop."
           }
         },
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "زجاج شفاف يظهر سطح المكتب من خلاله."
+            "value": "زجاج شفاف فوق سطح المكتب."
           }
         },
         "bs": {
           "stringUnit": {
             "state": "translated",
-            "value": "Prozirno staklo kroz koje se vidi radna površina."
+            "value": "Prozirno staklo preko radne površine."
           }
         },
         "da": {
           "stringUnit": {
             "state": "translated",
-            "value": "Klart glas, så skrivebordet skinner igennem."
+            "value": "Klart glas over dit skrivebord."
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Klarglas, durch das dein Schreibtisch scheint."
+            "value": "Klares Glas über deinem Schreibtisch."
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Vidrio transparente: se ve tu escritorio a través."
+            "value": "Cristal transparente sobre tu escritorio."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Du verre clair, qui laisse voir votre bureau."
+            "value": "Du verre clair sur votre bureau."
           }
         },
         "it": {
           "stringUnit": {
             "state": "translated",
-            "value": "Vetro trasparente: si vede la scrivania attraverso."
+            "value": "Vetro trasparente sulla tua scrivania."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "透明なガラス越しにデスクトップが見えます。"
+            "value": "デスクトップが透けるガラス。"
           }
         },
         "km": {
           "stringUnit": {
             "state": "translated",
-            "value": "កញ្ចក់ថ្លា ដូច្នេះផ្ទៃតុរបស់អ្នកមើលឃើញពីក្រោយ។"
+            "value": "កញ្ចក់ថ្លាលើផ្ទៃតុរបស់អ្នក។"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "투명한 유리 너머로 데스크톱이 보입니다."
+            "value": "데스크톱이 비치는 투명 유리."
           }
         },
         "nb": {
           "stringUnit": {
             "state": "translated",
-            "value": "Klart glass, så skrivebordet synes gjennom."
+            "value": "Klart glass over skrivebordet ditt."
           }
         },
         "pl": {
           "stringUnit": {
             "state": "translated",
-            "value": "Przezroczyste szkło, przez które widać biurko."
+            "value": "Przezroczyste szkło nad pulpitem."
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "translated",
-            "value": "Vidro transparente que deixa a mesa aparecer."
+            "value": "Vidro transparente sobre sua mesa."
           }
         },
         "ru": {
           "stringUnit": {
             "state": "translated",
-            "value": "Прозрачное стекло, сквозь которое виден рабочий стол."
+            "value": "Прозрачное стекло поверх рабочего стола."
           }
         },
         "th": {
           "stringUnit": {
             "state": "translated",
-            "value": "กระจกใส มองเห็นเดสก์ท็อปทะลุผ่าน"
+            "value": "กระจกใสเหนือเดสก์ท็อปของคุณ"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Masaüstünüzün görüneceği şeffaf cam."
+            "value": "Masaüstünün üzerinde şeffaf cam."
           }
         },
         "uk": {
           "stringUnit": {
             "state": "translated",
-            "value": "Прозоре скло, крізь яке видно робочий стіл."
+            "value": "Прозоре скло над робочим столом."
           }
         },
         "vi": {
           "stringUnit": {
             "state": "translated",
-            "value": "Kính trong, nhìn xuyên thấy màn hình nền."
+            "value": "Kính trong suốt trên màn hình nền."
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "透明玻璃，透出你的桌面。"
+            "value": "透出桌面的透明玻璃。"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "透明玻璃，透出你的桌面。"
+            "value": "透出桌面的透明玻璃。"
           }
         }
       }
@@ -19820,127 +19820,127 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Sidebar and tab bar in a second color from your theme."
+            "value": "Sidebar in a second color."
           }
         },
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "الشريط الجانبي وشريط علامات التبويب بلون ثانٍ من سمتك."
+            "value": "شريط جانبي بلون ثانٍ."
           }
         },
         "bs": {
           "stringUnit": {
             "state": "translated",
-            "value": "Bočna traka i traka kartica u drugoj boji iz vaše teme."
+            "value": "Bočna traka u drugoj boji."
           }
         },
         "da": {
           "stringUnit": {
             "state": "translated",
-            "value": "Sidebjælke og fanelinje i en anden farve fra dit tema."
+            "value": "Sidebjælke i en anden farve."
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Seitenleiste und Tableiste in einer zweiten Farbe deines Themes."
+            "value": "Seitenleiste in einer zweiten Farbe."
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Barra lateral y de pestañas en un segundo color de tu tema."
+            "value": "Barra lateral en un segundo color."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Barre latérale et barre d'onglets dans une seconde couleur de votre thème."
+            "value": "Barre latérale d’une seconde couleur."
           }
         },
         "it": {
           "stringUnit": {
             "state": "translated",
-            "value": "Barra laterale e delle schede in un secondo colore del tuo tema."
+            "value": "Barra laterale in un secondo colore."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "サイドバーとタブバーをテーマの2色目で。"
+            "value": "サイドバーを2色目に。"
           }
         },
         "km": {
           "stringUnit": {
             "state": "translated",
-            "value": "របារចំហៀង និងរបារផ្ទាំងក្នុងពណ៌ទីពីរពីស្បែករបស់អ្នក។"
+            "value": "របារចំហៀងពណ៌ទីពីរ។"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "사이드바와 탭 막대를 테마의 두 번째 색으로."
+            "value": "사이드바를 두 번째 색으로."
           }
         },
         "nb": {
           "stringUnit": {
             "state": "translated",
-            "value": "Sidefelt og fanelinje i en annen farge fra temaet ditt."
+            "value": "Sidefelt i en annen farge."
           }
         },
         "pl": {
           "stringUnit": {
             "state": "translated",
-            "value": "Pasek boczny i pasek kart w drugim kolorze motywu."
+            "value": "Pasek boczny w drugim kolorze."
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "translated",
-            "value": "Barra lateral e de abas numa segunda cor do seu tema."
+            "value": "Barra lateral em uma segunda cor."
           }
         },
         "ru": {
           "stringUnit": {
             "state": "translated",
-            "value": "Боковая панель и панель вкладок во втором цвете темы."
+            "value": "Боковая панель во втором цвете."
           }
         },
         "th": {
           "stringUnit": {
             "state": "translated",
-            "value": "แถบด้านข้างและแถบแท็บเป็นสีที่สองจากธีมของคุณ"
+            "value": "แถบด้านข้างเป็นสีที่สอง"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Kenar çubuğu ve sekme çubuğu temanızın ikinci renginde."
+            "value": "Kenar çubuğu ikinci bir renkte."
           }
         },
         "uk": {
           "stringUnit": {
             "state": "translated",
-            "value": "Бічна панель і панель вкладок у другому кольорі теми."
+            "value": "Бічна панель у другому кольорі."
           }
         },
         "vi": {
           "stringUnit": {
             "state": "translated",
-            "value": "Thanh bên và thanh tab mang màu thứ hai từ chủ đề."
+            "value": "Thanh bên màu thứ hai."
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "侧边栏和标签栏使用主题的第二种颜色。"
+            "value": "侧边栏用第二种颜色。"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "側邊欄和標籤列使用主題的第二種顏色。"
+            "value": "側邊欄用第二種顏色。"
           }
         }
       }
@@ -20084,127 +20084,127 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Opaque and calm. Banners only in the background; agents ask first."
+            "value": "Opaque, calm, agents ask first."
           }
         },
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "معتم وهادئ. اللافتات في الخلفية فقط؛ والوكلاء يسألون أولًا."
+            "value": "معتم وهادئ، والوكلاء يسألون أولًا."
           }
         },
         "bs": {
           "stringUnit": {
             "state": "translated",
-            "value": "Neprozirno i mirno. Baneri samo u pozadini; agenti prvo pitaju."
+            "value": "Neprozirno, mirno, agenti prvo pitaju."
           }
         },
         "da": {
           "stringUnit": {
             "state": "translated",
-            "value": "Uigennemsigtig og rolig. Bannere kun i baggrunden; agenter spørger først."
+            "value": "Uigennemsigtig, rolig, agenter spørger først."
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Deckend und ruhig. Banner nur im Hintergrund; Agenten fragen zuerst."
+            "value": "Deckend, ruhig, Agenten fragen zuerst."
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Opaco y tranquilo. Banners solo en segundo plano; los agentes preguntan primero."
+            "value": "Opaco, tranquilo, los agentes preguntan antes."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Opaque et calme. Bannières seulement en arrière-plan ; les agents demandent d’abord."
+            "value": "Opaque, calme, les agents demandent d’abord."
           }
         },
         "it": {
           "stringUnit": {
             "state": "translated",
-            "value": "Opaco e calmo. Banner solo in background; gli agenti chiedono prima."
+            "value": "Opaco, calmo, gli agenti chiedono prima."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "不透明で落ち着いた見た目。通知は背面のときだけ、エージェントはまず確認します。"
+            "value": "不透明で静か、エージェントは先に確認。"
           }
         },
         "km": {
           "stringUnit": {
             "state": "translated",
-            "value": "ស្រអាប់ និងស្ងប់។ បដាតែនៅផ្ទៃខាងក្រោយ; ភ្នាក់ងារសួរជាមុន។"
+            "value": "មិនថ្លា ស្ងប់ ភ្នាក់ងារសួរមុន។"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "불투명하고 차분하게. 배너는 백그라운드에서만, 에이전트는 먼저 묻습니다."
+            "value": "불투명하고 차분하게, 에이전트는 먼저 묻기."
           }
         },
         "nb": {
           "stringUnit": {
             "state": "translated",
-            "value": "Ugjennomsiktig og rolig. Bannere bare i bakgrunnen; agenter spør først."
+            "value": "Ugjennomsiktig, rolig, agenter spør først."
           }
         },
         "pl": {
           "stringUnit": {
             "state": "translated",
-            "value": "Nieprzezroczysty i spokojny. Banery tylko w tle; agenci pytają najpierw."
+            "value": "Nieprzezroczysto, spokojnie, agenci najpierw pytają."
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "translated",
-            "value": "Opaco e calmo. Banners só em segundo plano; agentes perguntam antes."
+            "value": "Opaco, calmo, agentes perguntam antes."
           }
         },
         "ru": {
           "stringUnit": {
             "state": "translated",
-            "value": "Непрозрачно и спокойно. Баннеры только в фоне; агенты сначала спрашивают."
+            "value": "Непрозрачно, спокойно, агенты сначала спрашивают."
           }
         },
         "th": {
           "stringUnit": {
             "state": "translated",
-            "value": "ทึบและสงบ แบนเนอร์เฉพาะตอนอยู่เบื้องหลัง เอเจนต์ถามก่อน"
+            "value": "ทึบ สงบ เอเจนต์ถามก่อน"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Opak ve sakin. Afişler yalnızca arka planda; ajanlar önce sorar."
+            "value": "Opak, sakin, ajanlar önce sorar."
           }
         },
         "uk": {
           "stringUnit": {
             "state": "translated",
-            "value": "Непрозоро й спокійно. Банери лише у фоні; агенти спершу питають."
+            "value": "Непрозоро, спокійно, агенти спершу питають."
           }
         },
         "vi": {
           "stringUnit": {
             "state": "translated",
-            "value": "Đục và yên tĩnh. Biểu ngữ chỉ khi ở nền; tác tử hỏi trước."
+            "value": "Đục, yên tĩnh, tác tử hỏi trước."
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "不透明且安静。仅在后台时显示横幅；智能体先询问。"
+            "value": "不透明、安静，代理先询问。"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "不透明且安靜。僅在背景時顯示橫幅；代理先詢問。"
+            "value": "不透明、安靜，代理先詢問。"
           }
         }
       }
@@ -20348,127 +20348,127 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Terminal first, the most compact rows, no animations or sounds."
+            "value": "Terminal first, compact, no motion."
           }
         },
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "الطرفية أولًا، أكثر الصفوف إحكامًا، بلا حركات أو أصوات."
+            "value": "الطرفية أولًا، مضغوط، بلا حركة."
           }
         },
         "bs": {
           "stringUnit": {
             "state": "translated",
-            "value": "Terminal prvo, najzbijeniji redovi, bez animacija i zvukova."
+            "value": "Prvo terminal, zbijeno, bez animacija."
           }
         },
         "da": {
           "stringUnit": {
             "state": "translated",
-            "value": "Terminal først, de tætteste rækker, ingen animationer eller lyde."
+            "value": "Terminal først, kompakt, ingen animation."
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Terminal zuerst, die kompaktesten Zeilen, keine Animationen oder Töne."
+            "value": "Terminal zuerst, kompakt, ohne Animation."
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Terminal primero, las filas más compactas, sin animaciones ni sonidos."
+            "value": "Terminal primero, compacto, sin animación."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Terminal d'abord, les lignes les plus compactes, sans animations ni sons."
+            "value": "Terminal d’abord, compact, sans animation."
           }
         },
         "it": {
           "stringUnit": {
             "state": "translated",
-            "value": "Prima il terminale, righe compattissime, niente animazioni né suoni."
+            "value": "Prima il terminale, compatto, senza animazioni."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "ターミナル優先、最も詰まった行、アニメーションと音なし。"
+            "value": "ターミナル優先、コンパクト、動きなし。"
           }
         },
         "km": {
           "stringUnit": {
             "state": "translated",
-            "value": "ទែមីណាល់មុន ជួរតឹងបំផុត គ្មានចលនា ឬសំឡេង។"
+            "value": "ស្ថានីយមុន តូចចង្អៀត គ្មានចលនា។"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "터미널 우선, 가장 촘촘한 행, 애니메이션과 소리 없음."
+            "value": "터미널 우선, 촘촘하게, 움직임 없이."
           }
         },
         "nb": {
           "stringUnit": {
             "state": "translated",
-            "value": "Terminal først, de tetteste radene, ingen animasjoner eller lyder."
+            "value": "Terminal først, kompakt, ingen animasjon."
           }
         },
         "pl": {
           "stringUnit": {
             "state": "translated",
-            "value": "Najpierw terminal, najciaśniejsze wiersze, bez animacji i dźwięków."
+            "value": "Najpierw terminal, zwarto, bez animacji."
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "translated",
-            "value": "Terminal primeiro, as linhas mais compactas, sem animações nem sons."
+            "value": "Terminal primeiro, compacto, sem animação."
           }
         },
         "ru": {
           "stringUnit": {
             "state": "translated",
-            "value": "Сначала терминал, самые плотные строки, без анимаций и звуков."
+            "value": "Сначала терминал, компактно, без анимации."
           }
         },
         "th": {
           "stringUnit": {
             "state": "translated",
-            "value": "เทอร์มินัลก่อน แถวกระชับที่สุด ไม่มีแอนิเมชันหรือเสียง"
+            "value": "เทอร์มินัลก่อน กะทัดรัด ไม่มีการเคลื่อนไหว"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Önce terminal, en sıkı satırlar, animasyon ve ses yok."
+            "value": "Önce terminal, sıkı, hareketsiz."
           }
         },
         "uk": {
           "stringUnit": {
             "state": "translated",
-            "value": "Спершу термінал, найщільніші рядки, без анімацій і звуків."
+            "value": "Спершу термінал, компактно, без анімації."
           }
         },
         "vi": {
           "stringUnit": {
             "state": "translated",
-            "value": "Terminal trước, hàng gọn nhất, không hoạt ảnh hay âm thanh."
+            "value": "Ưu tiên terminal, gọn, không chuyển động."
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "终端优先，最紧凑的行，无动画和声音。"
+            "value": "终端优先，紧凑，无动画。"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "終端機優先，最緊湊的列，無動畫和聲音。"
+            "value": "終端優先，緊湊，無動畫。"
           }
         }
       }
