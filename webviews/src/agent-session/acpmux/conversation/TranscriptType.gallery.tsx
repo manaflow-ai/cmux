@@ -16,6 +16,7 @@ import { TurnActionsContext } from "./turnActions";
 import { ToolRow } from "./ToolRow";
 import { CommandRow } from "./CommandRow";
 import { LoginStepError, type CloudSignIn, type LoginAgent, type LoginFailure } from "../cloudAgentLogin";
+import { cloudGitHubSignIn, GITHUB_DEVICE_PAGE, type GitHubSignInClient } from "../cloudGitHubSignIn";
 
 const output = Array.from({ length: 14 }, (_, index) => `step ${index + 1}: completed`).join("\n");
 const file = toolFiles([
@@ -51,11 +52,44 @@ const AGENT_NAMES: Record<LoginAgent, string> = {
   gemini: "Gemini CLI",
   grok: "Grok",
   cursor: "Cursor",
+  opencode: "OpenCode",
 };
 
-function gallerySignIn(agent: LoginAgent, approve: boolean, fail?: LoginFailure): CloudSignIn {
+/// How the gallery's GitHub sign-in on the chat's machine answers: `code` holds on GitHub's device
+/// code, `refused` is a team machine refusing the start, `denied` is the approval declined on
+/// GitHub's page, and `signedIn` finishes at once.
+type GitHubReply = "code" | "refused" | "denied" | "signedIn";
+
+/// The real Cloud GitHub transport (cloudGitHubSignIn.ts) over a synthetic chat connection: a made-up
+/// device code and account, and nothing leaves the gallery.
+function galleryGitHub(reply: GitHubReply) {
+  const client: GitHubSignInClient = {
+    accountSignInStart: async () => {
+      if (reply === "refused") throw { reason: "shared_machine" };
+      return {
+        account: "github-1",
+        loginId: "gallery-github-login",
+        url: GITHUB_DEVICE_PAGE,
+        userCode: "WDJB-MJHT",
+        needsCode: false,
+        expiresAtMs: Date.now() + 15 * 60_000,
+        added: true,
+      };
+    },
+    accountSignInFinish: () => {
+      if (reply === "denied") return Promise.reject({ reason: "access_denied" });
+      if (reply === "signedIn") return Promise.resolve({ signedIn: true, account: "mona" });
+      return new Promise(() => {});
+    },
+    accountSignInCancel: async () => ({}),
+  };
+  return cloudGitHubSignIn({ sessionId: "gallery-session", currentClient: () => client, openURL: () => {} });
+}
+
+function gallerySignIn(agent: LoginAgent, approve: boolean, fail?: LoginFailure, github?: GitHubReply): CloudSignIn {
   return {
     agent,
+    ...(github ? { github: galleryGitHub(github) } : {}),
     start: async () => {
       // A machine that refuses the sign-in (a team machine: `shared_machine`).
       if (fail) throw new LoginStepError(fail);
@@ -71,8 +105,8 @@ function gallerySignIn(agent: LoginAgent, approve: boolean, fail?: LoginFailure)
               }
             : {}),
         };
-      // Gemini has no sign-in page (the card never starts one).
-      if (agent === "gemini") throw new LoginStepError("unsupported");
+      // Gemini and OpenCode have no sign-in page (the card never starts one).
+      if (agent === "gemini" || agent === "opencode") throw new LoginStepError("unsupported");
       return { loginId: "gallery-login", ...DEVICE_PAGES[agent], needsCode: false };
     },
     open: () => {},
@@ -93,18 +127,20 @@ function CloudSignInStates({
   approve,
   fail,
   ownMachine,
+  github,
 }: {
   agent: LoginAgent;
   approve: boolean;
   fail?: LoginFailure;
   ownMachine: boolean;
+  github?: GitHubReply;
 }) {
   return (
     <main className="acpmux-scroll" style={{ padding: 18, overflow: "auto", height: "100%", boxSizing: "border-box" }}>
       <TurnActionsContext.Provider
         value={{
           switchModel: () => {},
-          cloudSignIn: gallerySignIn(agent, approve, fail),
+          cloudSignIn: gallerySignIn(agent, approve, fail, github),
           route: ownMachine
             ? { name: AGENT_NAMES[agent], harness: agent }
             : { name: AGENT_NAMES[agent], harness: agent, hostKind: "cloud" },
@@ -132,13 +168,16 @@ function TranscriptType({
   approve = false,
   fail,
   ownMachine = false,
+  github,
 }: {
   signIn?: LoginAgent;
   approve?: boolean;
   fail?: LoginFailure;
   ownMachine?: boolean;
+  github?: GitHubReply;
 }) {
-  if (signIn) return <CloudSignInStates agent={signIn} approve={approve} fail={fail} ownMachine={ownMachine} />;
+  if (signIn)
+    return <CloudSignInStates agent={signIn} approve={approve} fail={fail} ownMachine={ownMachine} github={github} />;
   const [viewer, setViewer] = useState(false);
   return (
     <main className="acpmux-scroll" style={{ padding: 18, overflow: "auto", height: "100%", boxSizing: "border-box" }}>
@@ -222,7 +261,9 @@ export default componentEntry({
     "agent-session/acpmux/conversation/Markdown.tsx",
     "agent-session/acpmux/conversation/TurnRows.tsx#TurnFooter",
     "agent-session/acpmux/conversation/CloudSignIn.tsx#CloudSignIn",
+    "agent-session/acpmux/conversation/CloudSignIn.tsx#GitHubOnMachine",
     "agent-session/acpmux/cloudAgentLogin.ts",
+    "agent-session/acpmux/cloudGitHubSignIn.ts",
     "agent-session/acpmux/conversation/RenderCard.tsx",
     "agent-session/acpmux/conversation/DiagramBlock.tsx",
     "agent-session/acpmux/conversation/ImageViewer.tsx",
@@ -249,7 +290,7 @@ export default componentEntry({
       note: "After the one Sign in to Claude click: the login runs on the machine and Claude's page is open; the card asks for the code the page shows, with Open sign-in page to open it again.",
       play: async (ctx) => {
         await ctx.click({ selector: ".cv-turn-error__primary" });
-        await ctx.waitFor(() => ctx.document.querySelector(".cv-turn-signin__input"));
+        await ctx.waitFor(() => ctx.document.querySelector(".cv-turn-signin .signin-paste-field"));
       },
     },
     "claude-approve": {
@@ -277,7 +318,7 @@ export default componentEntry({
       note: "Codex on an own machine: one click runs codex login --device-auth there, opens its page and shows the device code, already copied.",
       play: async (ctx) => {
         await ctx.click({ selector: ".cv-turn-error__primary" });
-        await ctx.waitFor(() => ctx.document.querySelector(".cv-turn-signin__code"));
+        await ctx.waitFor(() => ctx.document.querySelector(".cv-turn-signin .signin-code"));
       },
     },
     "cursor-sign-in": {
@@ -297,7 +338,7 @@ export default componentEntry({
       note: "The same one click for Codex: its page open and its device code, large and already copied, while the card waits for the approval.",
       play: async (ctx) => {
         await ctx.click({ selector: ".cv-turn-error__primary" });
-        await ctx.waitFor(() => ctx.document.querySelector(".cv-turn-signin__code"));
+        await ctx.waitFor(() => ctx.document.querySelector(".cv-turn-signin .signin-code"));
       },
     },
     "gemini-sign-in": {
@@ -307,6 +348,18 @@ export default componentEntry({
     "gemini-key-entry": {
       props: { signIn: "gemini" },
       note: "After Use an API key for Gemini: the key field, saved to the machine's .gemini/.env (and settings.json picks the key) where Gemini CLI reads it.",
+      play: async (ctx) => {
+        await ctx.click({ selector: ".cv-turn-error__primary" });
+        await ctx.waitFor(() => ctx.document.querySelector('.cv-turn-signin__input[type="password"]'));
+      },
+    },
+    "opencode-sign-in": {
+      props: { signIn: "opencode" },
+      note: "A Cloud chat whose OpenCode (Zen or Go models) is not signed in on its machine: OpenCode has no sign-in page, only the key from opencode.ai/auth, so Use an API key is the card's one filled button.",
+    },
+    "opencode-key-entry": {
+      props: { signIn: "opencode" },
+      note: "After Use an API key for OpenCode: the key field, Save, and Get an OpenCode API key, which opens opencode.ai/auth on this Mac; the key is saved where opencode auth login saves it, for Zen and Go.",
       play: async (ctx) => {
         await ctx.click({ selector: ".cv-turn-error__primary" });
         await ctx.waitFor(() => ctx.document.querySelector('.cv-turn-signin__input[type="password"]'));
@@ -332,14 +385,50 @@ export default componentEntry({
         await ctx.waitFor(() => ctx.document.querySelector(".cv-turn-signin__error"));
       },
     },
+    "github-sign-in": {
+      props: { signIn: "grok", github: "code" },
+      note: "A Cloud chat elsewhere also offers GitHub's sign-in on its machine: Sign In to GitHub as a quiet link beside the agent's own Sign in (Grok here, which has no other link).",
+    },
+    "github-code": {
+      props: { signIn: "grok", github: "code" },
+      note: "After Sign In to GitHub: gh auth login --web runs on the chat's machine, GitHub's device page opens beside the chat, and the shared card shows the device code, already copied, while it waits for the approval.",
+      play: async (ctx) => {
+        await ctx.click({ selector: ".cv-turn-error__offer-link" });
+        await ctx.waitFor(() => ctx.document.querySelector('.signin[data-state="waiting"] .signin-code'));
+      },
+    },
+    "github-team-machine": {
+      props: { signIn: "grok", github: "refused" },
+      note: "Sign In to GitHub on a team Cloud machine: the machine refuses an own sign-in (every member runs as the same user), and the card says so with Done and no Try Again.",
+      play: async (ctx) => {
+        await ctx.click({ selector: ".cv-turn-error__offer-link" });
+        await ctx.waitFor(() => ctx.document.querySelector('.signin[data-state="failed"]'));
+      },
+    },
+    "github-denied": {
+      props: { signIn: "grok", github: "denied" },
+      note: "The approval declined on GitHub's page: the card says the sign-in was cancelled there, with Try Again.",
+      play: async (ctx) => {
+        await ctx.click({ selector: ".cv-turn-error__offer-link" });
+        await ctx.waitFor(() => ctx.document.querySelector('.signin[data-state="failed"]'));
+      },
+    },
+    "github-signed-in": {
+      props: { signIn: "grok", github: "signedIn" },
+      note: "GitHub approved: the card names the account it signed in (Signed in as mona) for a moment, then goes back to the link.",
+      play: async (ctx) => {
+        await ctx.click({ selector: ".cv-turn-error__offer-link" });
+        await ctx.waitFor(() => ctx.document.querySelector('.signin[data-state="signedIn"]'));
+      },
+    },
     "claude-sign-in-cancel": {
       props: { signIn: "claude" },
       note: "Opening the code form and cancelling resize the card over the shared micro duration; the final card is the original sign-in state.",
       play: async (ctx) => {
         await ctx.click({ selector: ".cv-turn-error__primary" });
-        await ctx.waitFor(() => ctx.document.querySelector(".cv-turn-signin__input"));
-        await ctx.click({ selector: ".cv-turn-signin__row .cv-turn-auth-action:nth-child(2)" });
-        await ctx.waitFor(() => !ctx.document.querySelector(".cv-turn-signin__input"));
+        await ctx.waitFor(() => ctx.document.querySelector(".cv-turn-signin .signin-paste-field"));
+        await ctx.click({ selector: ".cv-turn-signin [data-sign-in-action=cancel]" });
+        await ctx.waitFor(() => !ctx.document.querySelector(".cv-turn-signin .signin-paste-field"));
       },
     },
   },

@@ -112,6 +112,8 @@ async fn retry(hub: &Arc<Hub>, conn: &Arc<Conn>, params: &Value) -> Result<Value
         trust_gate: super::trust_gate::gated(conn.origin, params),
         full_access_device: super::remote_guard::sending_device(conn, params),
         from: None,
+        // As for a prompt (`counts_as_person_prompt`): no agent's connection, no trigger's.
+        person: !conn.agent_side() && !conn.is_trigger(),
     };
     hub.retry(&s, str_param(params, "subagentId"), by).await
 }
@@ -159,14 +161,5 @@ pub(super) fn counts_as_person_prompt(
 }
 
 #[cfg(test)]
-mod person_prompt_tests {
-    use super::counts_as_person_prompt;
-
-    #[test]
-    fn only_a_persons_prompt_counts() {
-        assert!(counts_as_person_prompt(false, false, false), "the person's own prompt");
-        assert!(!counts_as_person_prompt(true, false, false), "another agent's message");
-        assert!(!counts_as_person_prompt(false, true, false), "a trigger's delivery");
-        assert!(!counts_as_person_prompt(false, false, true), "a send from inside a session");
-    }
-}
+#[path = "agent_messages_person_prompt_tests.rs"]
+mod person_prompt_tests;

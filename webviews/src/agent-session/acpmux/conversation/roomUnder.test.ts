@@ -30,6 +30,34 @@ const pass = (more: Partial<RoomUnderInput> = {}): RoomUnderInput => ({
   ...more,
 });
 
+describe("roomUnder: a sent prompt scrolled to the top (agentPane.display.sendScrollsToTop)", () => {
+  test("off (no sendTop): the room is exactly as before", () => {
+    expect(roomUnder(pass({ sendTop: undefined }))).toEqual(roomUnder(pass()));
+  });
+
+  test("on: room enough that the followed view's top is the prompt's; the reply fills it", () => {
+    // The prompt and its reply so far are 100 px; the view is 600: 500 px of room under them.
+    const sent = roomUnder(pass({ sendTop: () => 600 - 100 }));
+    expect(sent.room).toBe(500);
+    // The followed view's top (total - height) is where the prompt starts in the rows.
+    expect(sent.total - 600).toBe(1000 + 32 + 500 - 600);
+    // The reply grew 300 px: the room gives it back, so the content's end (and the prompt) stay put.
+    const grown = roomUnder(pass({ rowsHeight: 1300, sendTop: () => 600 - 400 }));
+    expect(grown.room).toBe(220);
+    // Taller than the view's room: the stack's room as before, the view follows the reply's end.
+    expect(roomUnder(pass({ rowsHeight: 1600, sendTop: () => 600 - 700 })).room).toBe(220);
+  });
+
+  test("on: never while scrolled up, or on another chat's first pass", () => {
+    expect(roomUnder(pass({ following: false, sendTop: () => 500 })).room).toBe(
+      roomUnder(pass({ following: false })).room,
+    );
+    expect(roomUnder(pass({ sessionSwitched: true, sendTop: () => 500 })).room).toBe(
+      roomUnder(pass({ sessionSwitched: true })).room,
+    );
+  });
+});
+
 describe("roomUnder", () => {
   test("nothing held: the room is the stack's, and the content ends under it", () => {
     const under = roomUnder(pass());
@@ -126,7 +154,7 @@ describe("roomUnder", () => {
     expect(roomUnder(pass({ following: false, held: { room: 300, reader: { followed: false } } })).room).toBe(300);
     const back = roomUnder(pass({ held: { room: 300, reader: { followed: false, left: true } } }));
     expect(back.room).toBe(300);
-    expect(back.kept).toEqual({ room: 300, prompt: "u1" });
+    expect(back.kept).toEqual({ room: 300, prompt: "u1", end: 300 });
     // A new prompt gives the kept room up.
     expect(
       roomUnderRows(
@@ -156,22 +184,8 @@ describe("roomUnder", () => {
     expect(roomUnder(pass({ foldRoom: 2000, sessionSwitched: true })).total).toBe(1252);
   });
 
-  test("newerRoom and sendTop: newer history's room is under the rows, and a sent prompt's end holds past them", () => {
+  test("newerRoom: newer history's room is under the rows", () => {
     expect(roomUnder(pass({ newerRoom: 300 })).rowsHeight).toBe(1552);
-    const seen: number[] = [];
-    const held = roomUnder(
-      pass({
-        newerRoom: 300,
-        sendTop: (rowsHeight) => {
-          seen.push(rowsHeight);
-          return 2000;
-        },
-      }),
-    );
-    expect(seen).toEqual([1552]);
-    expect(held.rowsEnd).toBe(2000);
-    expect(held.total).toBe(2000);
-    expect(roomUnder(pass({ sendTop: () => 0 })).total).toBe(1252);
   });
 
   test("a scrollbar drag's height wins while it holds", () => {

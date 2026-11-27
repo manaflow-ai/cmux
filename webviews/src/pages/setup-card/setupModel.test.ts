@@ -45,6 +45,15 @@ describe("setupSteps", () => {
   const savedAt = new Date(2026, 10, 5, 22, 26).getTime();
   const saved = intl.DateTimeFormat("en", { dateStyle: "medium", timeStyle: "short" }).format(savedAt);
 
+  test("signed out, the account row carries the app's backend line under Sign In; signed in, none", () => {
+    const line = "Signs in to Development backend · dev-abc.cmux.dev";
+    const out = setupSteps({ ...fresh, account: { signedIn: false, signInBackend: line } }, strings);
+    expect(out.find((step) => step.id === "account")?.note).toBe(line);
+    expect(setupSteps(fresh, strings).find((step) => step.id === "account")?.note).toBeUndefined();
+    const signedIn = setupSteps({ ...fresh, account: { signedIn: true, signInBackend: line } }, strings);
+    expect(signedIn.find((step) => step.id === "account")?.note).toBeUndefined();
+  });
+
   test("classic's session leads, naming the app and its save, with Import and Skip, until answered", () => {
     const state: SetupState = { ...fresh, classic: { workspaces: 27, app: "cmux NIGHTLY", savedAt } };
     const steps = setupSteps(state, strings);

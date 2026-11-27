@@ -5,7 +5,7 @@ public import CmuxNextOnboarding
 import CmuxNextImportSuggestions
 import Foundation
 
-/// The prompt every classic import shows before anything is restored: what this exact snapshot brings, in
+/// The prompt every classic import shows before anything is restored: what the person is authorizing, in
 /// sentences (``ClassicImportPreviewStrings``), on the app's own dialog card.
 extension ClassicImportPreview {
     public static let importButton = "import"
@@ -14,7 +14,7 @@ extension ClassicImportPreview {
     /// The prompt; `atLaunch`, the launch's own ask: it says where the import waits and its Cancel reads Not Now.
     public func dialogSpec(atLaunch: Bool) -> CmuxDialogSpec {
         CmuxDialogSpec(usesTransientMaterial: true,
-            title: ClassicImportPreviewStrings.title,
+            title: counts == nil ? ClassicImportPreviewStrings.consentTitle : ClassicImportPreviewStrings.title,
             lines: promptLines(atLaunch: atLaunch),
             buttons: [
                 atLaunch ? .cancel(ClassicImportPreviewStrings.notNow) : .cancel(),
@@ -32,7 +32,12 @@ extension ClassicImportPreview {
     }
 
     public func promptLines(atLaunch: Bool) -> [String] {
-        ClassicImportPreviewStrings(workspaces: counts.workspaces, browserTabs: counts.browserTabs, filePages: counts.localFilePages,
+        guard let counts else {
+            var lines = [ClassicImportPreviewStrings.consentData, ClassicImportPreviewStrings.consentEffects]
+            if atLaunch { lines.append(ClassicImportPreviewStrings.later) }
+            return lines
+        }
+        return ClassicImportPreviewStrings(workspaces: counts.workspaces, browserTabs: counts.browserTabs, filePages: counts.localFilePages,
                                     sshWorkspaces: counts.sshWorkspaces, agentChats: counts.agentChats,
                                     skippedCloudVMs: counts.skippedCloudVMs, cleanup: counts.cleanupWorkspaces)
             .lines(app: ClassicImportPreviewStrings.appName(bundleID), savedAt: Date(timeIntervalSince1970: savedAt),
@@ -79,12 +84,13 @@ extension ClassicImportPreview {
 extension CmuxDialogSpec {
     public static var classicImportGallery: [String: CmuxDialogSpec] {
         let leo = ClassicImportPreview.leoGallery, identifier = ClassicImportPreview.dialogIdentifier
+        let consent = ClassicImportPreview(counts: nil, bundleID: leo.bundleID, savedAt: 0, classicRunning: false)
         let importButton = CmuxDialogButton(id: ClassicImportPreview.importButton, title: "Import", role: .default)
         let saved = Date(timeIntervalSince1970: leo.savedAt).formatted(date: .abbreviated, time: .shortened)
         return [
-            // Landed: sentences, zero counts hidden, cautions only when they apply.
-            "classicImport": leo.dialogSpec(atLaunch: true),
-            "classicImportManual": leo.dialogSpec(atLaunch: false),
+            // The shipping prompts can be shown before opening any Classic file.
+            "classicImport": consent.dialogSpec(atLaunch: true),
+            "classicImportManual": consent.dialogSpec(atLaunch: false),
             "classicImportCautions": ClassicImportPreview.cautionsGallery.dialogSpec(atLaunch: true),
             // What Leo saw on 2026-11-15.
             "classicImportBefore": CmuxDialogSpec(

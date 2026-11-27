@@ -262,6 +262,7 @@ extension SettingDescriptor {
         case .theme: return .string("Dracula")
         case .fontFamily: return .string("Menlo")
         case .text: return .string("TextEdit")
+        case .json(let shape): return shape["type"]?.stringValue == "object" ? .object([:]) : .array([])
         }
     }
 
@@ -297,6 +298,10 @@ extension SettingDescriptor {
         case .theme: return [.string("Dracula"), .string("Nord")]
         case .fontFamily: return [.string("Menlo"), .string("Monaco")]
         case .text: return [.string("TextEdit"), .string("Xcode")]
+        case .json(let shape):
+            // A sidebar row layout, and one per kind or agent (`agent` is both a kind and an id).
+            let layout: JSONValue = .array([.array([.string("name"), .string("branch")])])
+            return shape["type"]?.stringValue == "object" ? [.object([:]), .object(["agent": layout])] : [.array([]), layout]
         }
     }
 }

@@ -33,23 +33,24 @@ async function switchTo(code: string | null): Promise<void> {
 test("the page switches language live: ja, then de, then System, on the same route", async () => {
   page = await renderPage();
   const container = page.container;
-  const sidebarTitle = () => container.querySelector(".sidebar-title")?.textContent;
+  // The sidebar has no title of its own (Lawrence 2026-11-23); the search field's label is its first words.
+  const searchLabel = () => container.querySelector<HTMLInputElement>(".sidebar .search-input")?.placeholder;
   const languageTitle = () => rowElement(container, "app.language").querySelector(".row-title")?.textContent;
-  expect(sidebarTitle()).toBe(table.en["settingsPage.title"]);
+  expect(searchLabel()).toBe(table.en["settingsPage.search"]);
   expect(languageTitle()).toBe(table.en["settings.app.language"]);
 
   await switchTo("ja");
-  expect(sidebarTitle()).toBe(table.ja["settingsPage.title"]);
+  expect(searchLabel()).toBe(table.ja["settingsPage.search"]);
   expect(languageTitle()).toBe(table.ja["settings.app.language"]);
   expect(document.documentElement.lang).toBe("ja");
 
   await switchTo("de");
-  expect(sidebarTitle()).toBe(table.de["settingsPage.title"]);
+  expect(searchLabel()).toBe(table.de["settingsPage.search"]);
   expect(languageTitle()).toBe(table.de["settings.app.language"]);
 
   // System: the app's own languages (jsdom's en-US).
   await switchTo(null);
-  expect(sidebarTitle()).toBe(table.en["settingsPage.title"]);
+  expect(searchLabel()).toBe(table.en["settingsPage.search"]);
   expect(languageTitle()).toBe(table.en["settings.app.language"]);
   expect(page.history.location.pathname).toBe("/settings/general");
 });

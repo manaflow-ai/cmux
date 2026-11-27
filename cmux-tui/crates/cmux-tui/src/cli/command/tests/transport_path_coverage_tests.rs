@@ -37,6 +37,12 @@ fn every_safe_transport_operation_has_a_noun_first_path() {
         }
     }
     for (args, expected) in [
+        (vec!["settings", "undo", "--if-revision", "7"], "settings.undo"),
+        (vec!["settings", "restore", "12", "--if-revision", "7"], "settings.restore"),
+        (
+            vec!["settings", "reset", "--group", "editor", "--if-revision", "7"],
+            "settings.reset_group",
+        ),
         (vec!["workspace", WORKSPACE, "run", "shell", "printf ok"], "workspace.run"),
         (vec!["notify", "--workspace", "current", "--desktop", "false"], "notification.create"),
         (vec!["notify", "--workspace", "current", "--reply"], "notification.create"),
@@ -366,6 +372,7 @@ fn every_safe_transport_operation_has_a_noun_first_path() {
                         | "theme.scheme.convert"
                         | "theme.scheme.export"
                         | "theme.scheme.from_image"
+                        | "theme.slots.resolve"
                         // Stash (stash-v1) is the app's native OneTab; the
                         // CLI has no stash verbs yet.
                         | "stash.create"
@@ -394,17 +401,26 @@ fn every_safe_transport_operation_has_a_noun_first_path() {
                         | "cloud.machine.io"
                         | "cloud.machine.share_chat"
                         | "cloud.machine.chief_start"
+                        | "cloud.machine.chief_resize"
+                        | "cloud.machine.setup_desktop"
+                        | "cloud.machine.fork"
                         | "cloud.owner.acpmux_keyed_start"
                         | "cloud.owner.acpmux_person_holds"
                         | "cloud.owner.fork_run"
                         | "cloud.owner.github_app"
+                        | "cloud.owner.github_clone_token"
+                        | "cloud.owner.github_complete"
                         | "cloud.owner.github_connect"
+                        | "cloud.owner.github_list"
                         | "cloud.owner.github_repos"
                         | "cloud.owner.handoff_begin_turn"
                         | "cloud.owner.handoff_open"
                         | "cloud.owner.handoff_wait"
                         | "cloud.owner.handoffs"
                         | "cloud.owner.harness_login_copy"
+                        | "cloud.owner.slack"
+                        | "cloud.owner.slack_awake"
+                        | "cloud.owner.op"
                         | "cloud.owner.turn_checkpoint"
                         | "cloud.owner.turn_rewind"
                         | "cloud.owner.turns"
@@ -517,7 +533,8 @@ fn every_safe_transport_operation_has_a_noun_first_path() {
                         | "credential.verify"
                         | "credential.mint"
                         | "credential.rotate"
-                        // Apart from settings.list, daemon settings ops have no
+                        // Apart from settings.list and the recovery verbs (history,
+                        // undo, restore, reset --group), daemon settings ops have no
                         // noun-first CLI verb yet, as they have no MCP tool
                         // (83285ad2b3bf; cx-9ce.12, cx-ncc.32).
                         | "settings.edit"
@@ -573,6 +590,12 @@ fn every_safe_transport_operation_has_a_noun_first_path() {
         // selection; apps and MCP send anchor and ids.
         ("layout.bulk", "anchor"),
         ("layout.bulk", "ids"),
+        // The settings recovery verbs declare no origin: the daemon CLI has no
+        // fake approval path for user-only settings (cli.rs daemon_settings_scope);
+        // the app and MCP send theirs.
+        ("settings.undo", "origin"),
+        ("settings.restore", "origin"),
+        ("settings.reset_group", "origin"),
         // git.status's github: the Changes sidebar's pull request list asks for github_repo
         // (#44129); `cmux git status` prints the working tree's status and never sends it.
         ("git.status", "github"),

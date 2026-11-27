@@ -119,6 +119,12 @@ value = {"schema": 1, "purpose": "cmux-linux-release", "channel": "feat-cmux-nex
          "targets": {t: files(t) for t in ("x86_64-unknown-linux-gnu", "aarch64-unknown-linux-gnu",
                                            "x86_64-unknown-linux-musl", "aarch64-unknown-linux-musl")}}
 for change in sys.argv[2:]:
+    if change.startswith("@tree="):  # a tree's release file: tree_key and every URL under tree/<key>/
+        value["tree_key"] = change[len("@tree="):]
+        for named in value["targets"].values():
+            for entry in named.values():
+                entry["url"] = entry["url"].replace(f"/cmux-tui/{commit}/", f"/cmux-tui/tree/{value['tree_key']}/")
+        continue
     field, _, raw = change.partition("=")
     node, *path = field.split(".")
     holder = value
@@ -209,8 +215,14 @@ refuses "a version that is not the commit time" "$TMP/badversion.json" "${LR[@]}
 signed resigned published_at=1794209999 expires_at=1796809999
 python3 "$PTR" same-build --pointer "$TMP/rel.json" --current "$TMP/resigned.json" --keys "$TMP/keys-a.json" 2>/dev/null \
   || fail "a re-sign of the same build was not the same build"
+# The .deb and .rpm carry the signing run's version, so a re-sign that built others is the same build.
 python3 "$PTR" same-build --pointer "$TMP/rel.json" --current "$TMP/extra.json" --keys "$TMP/keys-a.json" 2>/dev/null \
-  && fail "a file with other targets was the same build"
+  || fail "a file that only adds packages was not the same build"
+signed otherbin 'targets.x86_64-unknown-linux-gnu.cmux-tui.sha256="'"$(printf 'e%.0s' {1..64})"'"'
+python3 "$PTR" same-build --pointer "$TMP/rel.json" --current "$TMP/otherbin.json" --keys "$TMP/keys-a.json" 2>/dev/null \
+  && fail "a file with another binary was the same build"
+signed notdeb 'targets.x86_64-unknown-linux-gnu.deb={"url":"https://files.cmux.com/cmux-tui/cccccccccccccccccccccccccccccccccccccccc/cmux-tui-x86_64-unknown-linux-gnu","sha256":"'"$(printf 'd%.0s' {1..64})"'","size":9}'
+refuses "a deb entry that is not a .deb" "$TMP/notdeb.json" "${LR[@]}"
 python3 "$PTR" same-build --pointer "$TMP/rel.json" --current "$TMP/machine.json" --keys "$TMP/keys-a.json" 2>/dev/null \
   && fail "a Cloud machine file was the same build as a Linux release file"
 python3 "$PTR" same-build --pointer "$TMP/rel.json" --current "$TMP/tampered.json" --keys "$TMP/keys-a.json" 2>/dev/null \
@@ -305,5 +317,41 @@ for k in keys:
     raw = base64.b64decode(k["ed25519"])
     assert len(raw) == 32 and hashlib.sha256(raw).hexdigest()[:16] == k["id"], k
 PY
+
+# A release file naming a tree_key lists the tree's copies (cmux-tui/tree/<key>/), one without lists
+# the commit's (cmux-tui/<commit>/): the run that published the tree signs it, and commits sharing the
+# tree get an alias with the same targets (cmux-machine-channel.py alias).
+TK=$(printf 'e%.0s' {1..40})
+signed tree "@tree=$TK" sequence=20261122110500 'version="1.0.0+20261122110500.cccccccccccc"'
+accepts "a tree release file" "$TMP/tree.json" "${LR[@]}"
+signed treecommiturl "@tree=$TK" sequence=20261122110500 'version="1.0.0+20261122110500.cccccccccccc"' \
+  'targets.x86_64-unknown-linux-gnu.cmux-tui.url="https://files.cmux.com/cmux-tui/cccccccccccccccccccccccccccccccccccccccc/cmux-tui-x86_64-unknown-linux-gnu"'
+refuses "a tree release file with a commit URL" "$TMP/treecommiturl.json" "${LR[@]}"
+signed committreeurl \
+  "targets.x86_64-unknown-linux-gnu.cmux-tui.url=\"https://files.cmux.com/cmux-tui/tree/$TK/cmux-tui-x86_64-unknown-linux-gnu\""
+refuses "a commit release file with a tree URL" "$TMP/committreeurl.json" "${LR[@]}"
+signed othertree "@tree=$TK" sequence=20261122110500 'version="1.0.0+20261122110500.cccccccccccc"' \
+  "targets.x86_64-unknown-linux-gnu.cmux-tui.url=\"https://files.cmux.com/cmux-tui/tree/$(printf 'f%.0s' {1..40})/cmux-tui-x86_64-unknown-linux-gnu\""
+refuses "a tree release file with another tree's URL" "$TMP/othertree.json" "${LR[@]}"
+for bad in '"EEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEE"' '"eeee"' '"../x"' '40' 'null'; do
+  signed badtree "@tree=$TK" sequence=20261122110500 'version="1.0.0+20261122110500.cccccccccccc"' "tree_key=$bad"
+  refuses "a bad tree_key $bad" "$TMP/badtree.json" "${LR[@]}"
+done
+
+# same-build --same-tree: an alias (another commit, its own commit time) keeps a tree's release file
+# when the targets are the same; plain same-build does not take another commit.
+D=$(printf 'd%.0s' {1..40})
+signed treealias "@tree=$TK" commit="\"$D\"" committed_at=1794207700 sequence=20261122110600 \
+  'version="1.0.0+20261122110600.dddddddddddd"'
+python3 "$PTR" same-build --same-tree --pointer "$TMP/treealias.json" --current "$TMP/tree.json" --keys "$TMP/keys-a.json" 2>/dev/null \
+  || fail "an alias of the same tree did not keep the tree's release file"
+python3 "$PTR" same-build --pointer "$TMP/treealias.json" --current "$TMP/tree.json" --keys "$TMP/keys-a.json" 2>/dev/null \
+  && fail "another commit was the same build without --same-tree"
+signed treeother "@tree=$TK" commit="\"$D\"" committed_at=1794207700 sequence=20261122110600 \
+  'version="1.0.0+20261122110600.dddddddddddd"' 'targets.x86_64-unknown-linux-gnu.cmux-tui.size=8'
+python3 "$PTR" same-build --same-tree --pointer "$TMP/treeother.json" --current "$TMP/tree.json" --keys "$TMP/keys-a.json" 2>/dev/null \
+  && fail "other targets of the same tree were the same build"
+python3 "$PTR" same-build --same-tree --pointer "$TMP/rel.json" --current "$TMP/rel.json" --keys "$TMP/keys-a.json" 2>/dev/null \
+  && fail "--same-tree took a release file without a tree"
 
 echo "web-ota pointer: ok"

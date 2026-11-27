@@ -3,6 +3,8 @@ import CmuxNextActions
 import CmuxNextCompat
 import CmuxNextDaemon
 import CmuxNextRemote
+import CmuxNextRemoteView
+import CmuxNextRemoteViewSessions
 import CmuxNextServer
 import CmuxNextWindowRules
 
@@ -15,7 +17,8 @@ import CmuxNextWindowRules
 enum RemoteHandlers {
     static func bind(into registry: ActionRegistry, context: AppActionContext) {
         // A joined machine's menu rows (machines joined through the hub): Check, Rotate Credential, Revoke….
-        MachineSectionHostView.bindJoinedActions(into: registry, context: context)
+        MachineRowActions.bindJoinedActions(into: registry, context: context)
+        bindQuality(into: registry, context: context)
         let ssh = context.services.ssh
         let available: @MainActor () -> String? = { ssh.unavailableReason }
         // The palette collects a machine, or offers Add Machine when none is
@@ -66,6 +69,8 @@ enum RemoteHandlers {
             }
         })
         bindOpenRemote(into: registry, context: context)
+        bindPortActions(into: registry, context: context, reason: hasMachine)
+        bindSwitchHost(into: registry, context: context)
         CloudHandlers.bind("remote.newWorkspace", registry, reason: hasMachine) { invocation in
             let session = try machine(invocation, context)
             guard session.daemon.connection != nil else { throw ActionFailure(message: RemoteStrings.notConnected(session.host.label)) }
@@ -208,7 +213,7 @@ enum RemoteHandlers {
                     let detail = RemoteStrings.detail(session) ?? ""
                     let spec = SSHConnectRecovery.spec(title: RemoteStrings.connectFailedTitle(session.host.label),
                         detail: detail, cancel: CloudStrings.cancel, copy: RemoteStrings.copyError,
-                        check: RemoteStrings.checkMachine, retry: RemoteStrings.retry)
+                        check: RemoteStrings.checkMachine, retry: RemoteStrings.retry)  // retry-prompt-ok: SSH sign-in: only failures the link does not redial itself (auth, host key, install) open this; another dial repeats a failed sign-in (server lockouts count them), so the person retries once they fixed it
                     recovery.present(spec, error: RemoteStrings.sshError(session) ?? detail, in: window)
                 }
             }
@@ -269,5 +274,27 @@ extension RemoteHandlers {
         case .unsupportedSplit: RemoteStrings.splitRightOrDown
         case .badRatio(let text): RemoteStrings.openRemoteBadRatio(text)
         }
+    }
+}
+
+/// Set Screen Sharing Quality… (`remote.setQuality`): a remote desktop tab's quality preset. The
+/// session toolbar's Quality menu runs this action on its own tab (`RemoteViewPageTab.onPickQuality`),
+/// so the menu and the palette run one handler; the palette offers it while a remote desktop
+/// session is the focused tab.
+extension RemoteHandlers {
+    static func bindQuality(into registry: ActionRegistry, context: AppActionContext) {
+        registry.bindEffect("remote.setQuality", effect: { invocation in
+            guard let page = remoteDesktop(invocation, context) else { return .refused(RemoteDesktopPane.noSessionReason) }
+            guard let preset = invocation["quality"]?.stringValue.flatMap(RemoteQualityPreset.init(rawValue:)) else { return .done }
+            page.selectQuality(preset)
+            return .done
+        })
+        ActionTargetVisibility.gate("remote.setQuality", in: registry) { remoteDesktop($0, context) == nil ? RemoteDesktopPane.noSessionReason : nil }
+    }
+
+    /// The invocation's tab (the toolbar's own), else the focused pane's, when it streams a remote desktop session.
+    static func remoteDesktop(_ invocation: ActionInvocation, _ context: AppActionContext) -> RemoteViewPageTab? {
+        guard let page = (try? context.page(invocation))?.tab as? RemoteViewPageTab, page.streams else { return nil }
+        return page
     }
 }

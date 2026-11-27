@@ -14,13 +14,14 @@
 //!    shows the click or the typing.
 //! 5. Screenshots go through [`crate::frame`]; accessibility frames come back
 //!    in the pixels of the agent's latest screenshot of that window.
-//! 6. An acting call returns the window as it is after acting: a wait of at
-//!    most [`Settle::floor`] (cut short by the app's accessibility signal),
-//!    then one screenshot. Only when the app has no watched signals, or
-//!    signalled a change the pixels do not show yet, do more screenshots
-//!    follow until the pixels differ from what the agent last saw, up to
-//!    [`Settle::ceiling`]. Plus its tree. One round trip per step;
-//!    `observe: false` skips it.
+//! 6. An acting call returns the window as it is at once after acting, plus its
+//!    tree, with no wait for the screen (`settle: "openai"`, the default).
+//!    `settle: "adaptive"` waits at most [`Settle::floor`] (cut short by the
+//!    app's accessibility signal), then one screenshot. Only when the app has
+//!    no watched signals, or signalled a change the pixels do not show yet, do
+//!    more screenshots follow until the pixels differ from what the agent last
+//!    saw, up to [`Settle::ceiling`]. One round trip per step; `observe: false`
+//!    skips it.
 //! 7. One audit line per call.
 
 use std::collections::HashMap;
@@ -886,6 +887,7 @@ impl Engine {
                 }
                 self.authorize(&config, ctx, Access::Discover, None, false)?;
                 let which = need(args, "permission")?;
+                self.wait_for_person(&config, ctx, None)?;
                 self.desktop.request_permission(which).map_err(|e| ToolOutput::desktop(&e))?;
                 Ok((ToolOutput::ok(json!({"requested": which})), None))
             }
@@ -1090,6 +1092,7 @@ impl Engine {
                 let primary = identities.first().cloned().unwrap_or_else(|| id.to_string());
                 let app = TargetApp { id: primary, name: id.to_string() };
                 self.authorize(&config, ctx, Access::Act, Some(&app), false)?;
+                self.wait_for_person(&config, ctx, None)?;
                 let launch = match identities.as_slice() {
                     [only] if by_identity => only.as_str(),
                     _ => id,
@@ -1291,22 +1294,48 @@ impl Engine {
             || window.focused
             || self.desktop.is_frontmost_app(window)
             || (pointer && pointer_in(window));
-        if config.pause_on_takeover && could_collide && !self.takeover.wait_idle(Duration::ZERO) {
+        if could_collide {
+            self.wait_for_person(config, ctx, Some(center(&window.frame)))?;
+        }
+        Ok(app)
+    }
+
+    /// With `pause_on_takeover`, waits up to [`TAKEOVER_WAIT`] for the
+    /// person to stop using the mouse and keyboard (the agent cursor shows
+    /// Paused meanwhile, at `at`), else refuses `person_in_control`. For
+    /// input that meets theirs ([`Self::act_on`]) and for calls that bring
+    /// an app to the front on their own whatever the delivery: `launch_app`
+    /// (most apps activate when they finish launching) and
+    /// `request_permission` (the OS prompt or System Settings opens in
+    /// front). Either one while the person types sends their next keys to
+    /// the app that came forward, which the focus guard can only undo
+    /// afterwards (Leo, 2026-11-22: agents kept interrupting his input and
+    /// foregrounding apps).
+    fn wait_for_person(
+        &self,
+        config: &PolicyConfig,
+        ctx: &CallContext,
+        at: Option<Point>,
+    ) -> Result<(), ToolOutput> {
+        if !config.pause_on_takeover {
+            return Ok(());
+        }
+        if !self.takeover.wait_idle(Duration::ZERO) {
             // The person is using the mouse or keyboard right now: show that the
             // agent waits for them before it waits.
             self.cursor.show(CursorEvent::Paused {
                 session: ctx.session.clone(),
                 label: ctx.label.clone(),
-                at: Some(center(&window.frame)),
+                at,
             });
         }
-        if config.pause_on_takeover && could_collide && !self.takeover.wait_idle(TAKEOVER_WAIT) {
+        if !self.takeover.wait_idle(TAKEOVER_WAIT) {
             return Err(ToolOutput::error(
                 "person_in_control",
                 "The person is using the mouse or keyboard; the agent paused and will not act until they stop. Try again shortly.",
             ));
         }
-        Ok(app)
+        Ok(())
     }
 
     fn geometry_for(&self, ctx: &CallContext, window: &Window) -> Geometry {

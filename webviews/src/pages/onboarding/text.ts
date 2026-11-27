@@ -164,7 +164,9 @@ export function agentDetail(strings: Strings, row: AgentRow): string {
 export function agentsStatus(strings: Strings, agents: OnboardingState["agents"]): string | null {
   if (agents?.signInFailed) return strings.t("onboarding.agents.signIn.failed");
   if (agents == null || !agents.loaded) return strings.t("onboarding.agents.checking");
-  if (agents.rows.length === 0) return strings.t("onboarding.agents.none");
+  // None found: say where to add one, so the person is not left at a dead end.
+  if (agents.rows.length === 0)
+    return `${strings.t("onboarding.agents.none")} ${strings.t("onboarding.agents.none.next")}`;
   if (agents.signingIn != null) return strings.t("onboarding.agents.signIn.running");
   return null;
 }
@@ -253,6 +255,20 @@ export function computerUseLine(strings: Strings, pane: string): string {
   return strings.t(
     pane === "accessibility" ? "onboarding.computerUse.accessibility.line" : "onboarding.computerUse.screenshots.line",
   );
+}
+
+/** The Screenshots row's note after Screen Recording was allowed here (`confirmsCapture`): macOS asks
+ * once more the first time the helper captures. Null for any other row or state. */
+export function computerUseCaptureNote(
+  strings: Strings,
+  pane: string,
+  confirmsCapture: boolean,
+): { confirm: string; detail: string } | null {
+  if (pane !== "screenRecording" || !confirmsCapture) return null;
+  return {
+    confirm: strings.t("onboarding.computerUse.screenshots.confirm"),
+    detail: strings.t("onboarding.computerUse.screenshots.confirmDetail"),
+  };
 }
 
 /** The window's title for the Window menu and VoiceOver. */

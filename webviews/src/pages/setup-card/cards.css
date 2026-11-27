@@ -8,7 +8,7 @@
   max-width: 520px;
   padding: 12px;
   border: 1px solid var(--cmux-separator);
-  border-radius: 12px;
+  border-radius: var(--ds-radius-xl);
   background: var(--cmux-elevated-background);
   color: var(--cmux-text);
   font-size: var(--text-body);
@@ -18,7 +18,7 @@
   padding: 8px 12px;
 }
 .hm-mcp[data-style="bubble"] {
-  border-radius: 16px;
+  border-radius: var(--ds-radius-2xl);
 }
 .hm-mcp[data-style="dangerForward"][data-risky] {
   border-color: color-mix(in srgb, var(--cmux-app-warning) 60%, transparent);
@@ -87,7 +87,7 @@
   display: inline-grid;
   place-items: center;
   flex: none;
-  border-radius: 6px;
+  border-radius: var(--ds-radius-md);
   background: var(--cmux-hover);
   color: var(--cmux-text);
   font-weight: 600;
@@ -95,7 +95,7 @@
 .hm-mcp__mark[data-size="20"] {
   width: 20px;
   height: 20px;
-  border-radius: 4px;
+  border-radius: var(--ds-radius-sm);
   font-size: var(--text-caption);
 }
 .hm-mcp__mark[data-size="28"] {
@@ -106,7 +106,7 @@
 .hm-mcp__mark[data-size="32"] {
   width: 32px;
   height: 32px;
-  border-radius: 8px;
+  border-radius: var(--ds-radius-lg);
   font-size: var(--text-title);
 }
 .hm-mcp__badge {
@@ -212,7 +212,7 @@
   width: 100%;
   padding: 4px 8px;
   border: 1px solid var(--cmux-separator);
-  border-radius: 6px;
+  border-radius: var(--ds-radius-md);
   background: transparent;
   color: var(--cmux-text);
   font-family: var(--cmux-mono-font, ui-monospace, monospace);
@@ -224,14 +224,14 @@
   display: flex;
   flex-direction: column;
   align-items: flex-start;
-  gap: 4px;
-  padding: 4px 0;
+  gap: var(--ds-space-1);
+  padding: var(--ds-space-1) 0;
 }
 .hm-pills[data-shape="chip"] {
   flex-direction: row;
   flex-wrap: wrap;
   /* One row: a chip that wraps is left out, so the row's height never depends on its width. */
-  max-height: calc(26px + 8px);
+  max-height: calc(var(--ds-control-compact) + var(--ds-space-2));
   overflow: hidden;
 }
 .hm-pills__item {
@@ -241,12 +241,12 @@
 .hm-pill {
   display: inline-flex;
   align-items: center;
-  gap: 8px;
+  gap: var(--ds-space-2);
   box-sizing: border-box;
   min-width: 120px;
   max-width: 100%;
-  height: 28px;
-  padding: 0 12px;
+  height: var(--ds-control-row);
+  padding: 0 var(--ds-space-3);
   border: 1px solid color-mix(in srgb, var(--cmux-text-secondary) 32%, transparent);
   border-radius: 999px;
   background: color-mix(in srgb, var(--cmux-hover) 55%, transparent);
@@ -260,15 +260,15 @@
 }
 .hm-pills[data-shape="twoLine"] .hm-pill {
   height: auto;
-  padding: 8px 12px;
+  padding: var(--ds-space-2) var(--ds-space-3);
   border: 0;
-  border-radius: 16px;
+  border-radius: var(--ds-radius-2xl);
   background: var(--cmux-hover);
 }
 .hm-pills[data-shape="chip"] .hm-pill {
-  height: 24px;
+  height: var(--ds-control-compact);
   min-width: 0;
-  padding: 0 8px;
+  padding: 0 var(--ds-space-2);
   border: 0;
   background: var(--cmux-hover);
   font-size: var(--text-detail);
@@ -311,7 +311,7 @@
 .hm-link-preview__body {
   display: flex;
   flex-direction: column;
-  gap: 8px;
+  gap: var(--ds-space-2);
   width: 300px;
 }
 .hm-link-preview__title {
@@ -346,7 +346,7 @@
 .hm-link-preview__thumbnail {
   width: 100%;
   aspect-ratio: 2 / 1;
-  border-radius: 8px;
+  border-radius: var(--ds-radius-lg);
   object-fit: cover;
   background: var(--cmux-hover);
 }
@@ -382,7 +382,7 @@
 .hm-first-run__intro {
   margin-bottom: 16px;
   padding: 12px;
-  border-radius: 12px;
+  border-radius: var(--ds-radius-xl);
   background: var(--cmux-hover);
   font-size: var(--text-detail);
   white-space: pre-line;
@@ -444,7 +444,7 @@
   padding: 0 12px;
   overflow: hidden;
   border: 0;
-  border-radius: 12px;
+  border-radius: var(--ds-radius-xl);
   background: var(--cmux-hover);
   color: var(--cmux-text);
   font: inherit;
@@ -478,7 +478,7 @@
   height: 28px;
   padding: 0 12px;
   border: 1px solid var(--cmux-separator);
-  border-radius: 6px;
+  border-radius: var(--ds-radius-md);
   background: var(--cmux-elevated-background);
   color: var(--cmux-text);
   font: inherit;
@@ -520,7 +520,7 @@
   margin-top: 8px;
   padding: 8px 12px;
   border: 1px solid var(--cmux-separator);
-  border-radius: 6px;
+  border-radius: var(--ds-radius-md);
   background: var(--cmux-elevated-background);
   font-size: var(--text-detail);
 }
@@ -595,7 +595,7 @@
   max-width: 560px;
   padding: 12px;
   border: 1px solid var(--cmux-separator);
-  border-radius: 6px;
+  border-radius: var(--ds-radius-md);
   background: var(--cmux-elevated-background);
   color: var(--cmux-text);
   font-size: var(--text-body);
@@ -729,7 +729,7 @@
 .hm-setup[data-look="window"] .hm-setup__rows {
   padding: 0 12px;
   border: 1px solid var(--cmux-separator);
-  border-radius: 6px;
+  border-radius: var(--ds-radius-md);
   background: var(--cmux-elevated-background);
 }
 .hm-setup__footer {

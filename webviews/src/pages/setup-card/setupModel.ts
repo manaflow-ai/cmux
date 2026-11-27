@@ -17,7 +17,8 @@ export interface SetupAgent {
 
 export interface SetupState {
   agents: readonly SetupAgent[];
-  account: { signedIn: boolean; email?: string };
+  /** `signInBackend`: signed out, what Sign In signs in to ("Signs in to cmux.com"), made by the app. */
+  account: { signedIn: boolean; email?: string; signInBackend?: string };
   /** `missing`: no `cmux` on the login PATH; `other`: another cmux app's CLI (classic, a moved copy), which
    * Replace overwrites; `foreign`: a `cmux` that is no cmux app's, never touched; `fromImage`: cmux runs from
    * its disk image, so nothing installs until it runs from Applications; `installing`: an install runs. */
@@ -80,6 +81,8 @@ export interface SetupStep {
   tertiary?: { label: string; run: SetupAction };
   /** An action is running (an install): the slot shows a spinner. */
   busy?: boolean;
+  /** A quiet line under the detail: the account row's backend while signed out ("Signs in to cmux.com"). */
+  note?: string;
   /** A choice, not a to-do (Text Size and Density): never counted in the progress, never the next step, and its
    * controls sit under its words instead of in the slot. */
   optional?: boolean;
@@ -187,6 +190,7 @@ export function setupSteps(state: SetupState, strings: Strings): SetupStep[] {
     detail: state.account.signedIn ? (state.account.email ?? t("home.setup.signedIn")) : t("home.setup.account.detail"),
     ...(!state.account.signedIn && {
       action: { label: t("home.setup.signIn"), run: { kind: "signInAccount" } as const },
+      ...(state.account.signInBackend ? { note: state.account.signInBackend } : {}),
     }),
   });
   steps.push({

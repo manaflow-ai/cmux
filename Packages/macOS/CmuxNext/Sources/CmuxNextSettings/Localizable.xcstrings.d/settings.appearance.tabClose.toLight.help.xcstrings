@@ -1,0 +1,138 @@
+{
+  "sourceLanguage" : "en",
+  "strings" : {
+    "settings.appearance.tabClose.toLight.help" : {
+      "comment" : "Settings row help for the light close button hover color.",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "The close button's hover color in the light appearance. Unset, the dark color."
+          }
+        },
+        "ar" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "لون زر الإغلاق عند التمرير في المظهر الفاتح. إذا لم يُحدَّد، يُستخدم اللون الداكن."
+          }
+        },
+        "bs" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Boja dugmeta za zatvaranje pri prelasku pokazivačem u svijetlom izgledu. Ako nije postavljeno, tamna boja."
+          }
+        },
+        "da" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Lukkeknappens hover-farve i det lyse udseende. Hvis den ikke er angivet, bruges den mørke farve."
+          }
+        },
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Die Hover-Farbe der Schließtaste im hellen Erscheinungsbild. Nicht gesetzt: die dunkle Farbe."
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "El color al pasar sobre el botón de cerrar en la apariencia clara. Sin definir, el color oscuro."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "La couleur de survol du bouton de fermeture en apparence claire. Non définie : la couleur sombre."
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Il colore al passaggio del pulsante di chiusura nell'aspetto chiaro. Se non impostato, il colore scuro."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "ライト表示での閉じるボタンのホバー色です。未設定ならダークの色を使います。"
+          }
+        },
+        "km" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "ពណ៌ប៊ូតុងបិទពេលដាក់ទស្សន៍ទ្រនិចលើក្នុងរូបរាងភ្លឺ។ ពេលមិនបានកំណត់ ប្រើពណ៌ងងឹត។"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "라이트 모드에서 닫기 버튼의 호버 색상입니다. 설정하지 않으면 다크 색상을 씁니다."
+          }
+        },
+        "nb" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Lukkeknappens hover-farge i det lyse utseendet. Hvis den ikke er angitt, brukes den mørke fargen."
+          }
+        },
+        "pl" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Kolor przycisku zamykania po najechaniu w jasnym wyglądzie. Gdy nie ustawiono, kolor ciemny."
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "A cor do botão de fechar ao passar o ponteiro na aparência clara. Se não definido, a cor escura."
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Цвет кнопки закрытия при наведении в светлом оформлении. Если не задано, тёмный цвет."
+          }
+        },
+        "th" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "สีของปุ่มปิดเมื่อชี้เมาส์ในลักษณะที่ปรากฏแบบสว่าง หากไม่ได้ตั้งค่า จะใช้สีของโหมดมืด"
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Açık görünümde kapatma düğmesinin üzerine gelme rengi. Ayarlanmazsa koyu renk kullanılır."
+          }
+        },
+        "uk" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Колір кнопки закриття при наведенні у світлому вигляді. Якщо не задано, темний колір."
+          }
+        },
+        "vi" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Màu nút đóng khi rê chuột qua trong giao diện sáng. Khi chưa đặt, dùng màu tối."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "浅色外观中关闭按钮的悬停颜色。未设置时使用深色的颜色。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "淺色外觀中關閉按鈕的懸停顏色。未設定時使用深色的顏色。"
+          }
+        }
+      }
+    }
+  },
+  "version" : "1.0"
+}

@@ -1,3 +1,4 @@
+import { SignInBackend } from "../../ui/SignInButton";
 // "Set Up cmux" on Home (goal next-first-run-setup): what this Mac still lacks for a first run,
 // drawn in Home's chat column above Chief's composer, with no window of its own. Three looks the
 // gallery compares (`rows` ships): only the progress and the next row's action (`next`), every row
@@ -68,6 +69,7 @@ export function SetupCard({ strings, state, look = DEFAULT_SETUP_LOOK, onAction,
               <span className="hm-setup__row-title">{next.title}</span>
               <span className="hm-setup__row-detail">{next.detail}</span>
               {next.note && <span className="hm-setup__row-detail">{next.note}</span>}
+              {next.note && <SignInBackend line={next.note} />}
             </span>
             <Trailing step={next} onAction={onAction} wide />
           </div>
@@ -93,6 +95,7 @@ export function SetupCard({ strings, state, look = DEFAULT_SETUP_LOOK, onAction,
               <span className="hm-setup__row-title">{step.title}</span>
               <span className="hm-setup__row-detail">{step.detail}</span>
               {step.note && <span className="hm-setup__row-detail">{step.note}</span>}
+              {step.note && <SignInBackend line={step.note} />}
               {step.id === "look" && state.look && (
                 <TextSizePicker
                   className="hm-setup__look"
