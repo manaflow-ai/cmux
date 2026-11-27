@@ -3,6 +3,9 @@
 //! credentials. Bearer tokens are `user:<id>`. Never expose it publicly.
 //!
 //!   cmux-mobile-fake-backend <listen address>
+//!
+//! `CMUX_FAKE_TURN=1` also runs a local TURN server (`testing::TestTurn`, plain UDP) and
+//! names it in `GET /v1/ice`, so a `--relay-only` dial has a TURN carrier.
 
 #[tokio::main]
 async fn main() {
@@ -15,8 +18,17 @@ async fn main() {
         }],
         _ => Vec::new(),
     };
-    let options = cmux_mobile_link::testing::FakeOptions { hop_servers, ..Default::default() };
+    let turn = match std::env::var("CMUX_FAKE_TURN").as_deref() {
+        Ok("1") => Some(cmux_mobile_link::testing::TestTurn::start().await),
+        _ => None,
+    };
+    let ice_servers = turn.iter().map(|turn| turn.udp_only()).collect();
+    let options = cmux_mobile_link::testing::FakeOptions { hop_servers, ice_servers, ..Default::default() };
     let server = cmux_mobile_link::testing::FakeSignaling::start_on(&address, options).await;
     eprintln!("cmux-mobile-fake-backend on {}", server.base_url);
+    if turn.is_some() {
+        eprintln!("cmux-mobile-fake-backend: TURN on");
+    }
     let _ = tokio::signal::ctrl_c().await;
+    drop(turn);
 }
