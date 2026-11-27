@@ -8,6 +8,10 @@
 //! [`MuxEvent`]s and read surface state; they never own terminal state
 //! themselves, which is what makes the backend attachable.
 
+// `cmux_tui_core::` paths resolve here too: server/identify_reply.rs compiles a
+// file written for the cmux-tui binary crate into this one.
+extern crate self as cmux_tui_core;
+
 mod agent_hook_question;
 mod agent_hooks;
 pub mod agent_launch;
