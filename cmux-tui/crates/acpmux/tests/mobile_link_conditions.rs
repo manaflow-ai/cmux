@@ -3361,8 +3361,8 @@ async fn chat_list_reconnect_and_refresh_whole_vs_follow() {
     let rows_wanted = env_list("NETCOND_LIST_ROWS", &["lte", "lossy-3", "duress"]);
     let trace = Trace::new();
     // (row, changed, phase) -> [(n, bytes_down)]
-    let mut after: std::collections::BTreeMap<(String, usize, &str), Vec<(usize, u64)>> =
-        Default::default();
+    type Samples<'a> = std::collections::BTreeMap<(String, usize, &'a str), Vec<(usize, u64)>>;
+    let mut after: Samples = Default::default();
     let mut bad = Vec::new();
     for &n in &ns {
         let scratch = daemon_env::Scratch::new("netcond-list");

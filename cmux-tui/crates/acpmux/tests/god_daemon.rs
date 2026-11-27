@@ -724,10 +724,10 @@ impl Daemon {
                     .saturating_sub(u64::from_str_radix(lo, 16).unwrap_or(0));
                 let name = words.nth(4).map_or("[anon]".to_owned(), str::to_owned);
                 maps.push((name, 0, size));
-            } else if first == "Rss:" {
-                if let Some(last) = maps.last_mut() {
-                    last.1 = words.next().and_then(|k| k.parse::<u64>().ok()).unwrap_or(0) * 1024;
-                }
+            } else if first == "Rss:"
+                && let Some(last) = maps.last_mut()
+            {
+                last.1 = words.next().and_then(|k| k.parse::<u64>().ok()).unwrap_or(0) * 1024;
             }
         }
         maps.sort_by_key(|m| std::cmp::Reverse(m.1));
@@ -2698,7 +2698,7 @@ fn chat_size_sweep() {
             .flatten()
             .map(|(k, v)| (k, v.as_u64().unwrap_or(0)))
             .collect();
-        fields.sort_by(|a, b| b.1.cmp(&a.1));
+        fields.sort_by_key(|f| std::cmp::Reverse(f.1));
         for (field, bytes) in fields.into_iter().take(16) {
             println!("CHAT-SIZE-FIELD {label} {field} {bytes}");
         }
