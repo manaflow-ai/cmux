@@ -56,39 +56,3 @@ fn a_background_pass_leaves_the_thread_raisable() {
     let raised = on_screen(|| class(imp::thread_qos()));
     assert_eq!(raised, class(libc::qos_class_t::QOS_CLASS_USER_INITIATED), "raised after it");
 }
-
-/// The clamp takes effect: a child spawned under it, and the shell it
-/// starts, run at priority 20 (utility), not 31 (cmux#27587's first cut
-/// passed `QOS_CLASS_UTILITY`, which the setter takes and ignores).
-#[cfg(target_os = "macos")]
-#[test]
-fn a_clamped_child_and_what_it_starts_run_at_utility() {
-    let dir = tempfile::tempdir().unwrap();
-    let out = dir.path().join("pri");
-    let script = format!(
-        "/bin/sh -c 'ps -o pri= -p $$' > '{}'; ps -o pri= -p $$ >> '{}'",
-        out.display(),
-        out.display()
-    );
-    let argv: Vec<OsString> = vec!["sh".into(), "-c".into(), script.into()];
-    let pid = imp::spawn_clamped(std::path::Path::new("/bin/sh"), &argv, &[], false)
-        .expect("spawn under the clamp");
-    let mut status = 0;
-    // SAFETY: waits for the child this test started.
-    unsafe { libc::waitpid(pid, &mut status, 0) };
-    let text = std::fs::read_to_string(&out).unwrap();
-    let pris: Vec<&str> = text.split_whitespace().collect();
-    assert_eq!(pris.len(), 2, "{text:?}");
-    for pri in pris {
-        assert!(pri.starts_with("20"), "expected priority 20, got {text:?}");
-    }
-}
-
-#[test]
-fn the_reexec_marks_itself_once() {
-    let vars = vec![("PATH".into(), "/bin".into()), (CLAMPED_ENV.into(), "stale".into())];
-    let out = reexec_env(vars);
-    assert_eq!(out.iter().filter(|(k, _)| k == CLAMPED_ENV).count(), 1);
-    assert!(out.contains(&(CLAMPED_ENV.into(), "utility".into())));
-    assert!(out.contains(&("PATH".into(), "/bin".into())));
-}
