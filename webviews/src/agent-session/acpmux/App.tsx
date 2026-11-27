@@ -7458,7 +7458,16 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
         preloadNewTabWhenIdle();
       }, 0),
     );
-  }, [showsWhatItIs, heightsSettled, drewKeptTail, settledSession, liveSession, newTab, newTabChunkDrawn, hostErrorSaid]);
+  }, [
+    showsWhatItIs,
+    heightsSettled,
+    drewKeptTail,
+    settledSession,
+    liveSession,
+    newTab,
+    newTabChunkDrawn,
+    hostErrorSaid,
+  ]);
   // While the chat shows, the page keeps its drawn copy for the next launch (chatSnapshot/live.ts):
   // the visible window, written when it goes quiet and when the page hides. Only the shared page host
   // keeps copies (`chat.snapshot.put`); the legacy WebKit host has no such op and would count each
