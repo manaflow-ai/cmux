@@ -237,6 +237,10 @@ jobs:
         if: ${{ !cancelled() && matrix.group == 'ci' }}
         run: python3 tests/test_ci_pr_receipt.py
 
+      - name: Validate the darwin pool leg makes its own room
+        if: ${{ !cancelled() && matrix.group == 'ci' }}
+        run: python3 tests/test_ci_pool_make_room.py
+
       - name: Validate CDN readers name their client
         if: ${{ !cancelled() && matrix.group == 'ci' }}
         run: python3 tests/test_ci_cdn_user_agent.py
