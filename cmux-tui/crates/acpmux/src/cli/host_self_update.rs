@@ -1,6 +1,8 @@
 //! `acpmux host self-update`: a Linux host brings its own daemon to the
 //! newest build of a channel (feat-cmux-next) with no Mac pushing it;
-//! `acpmux-update.timer` (`host_auto_update.rs`) runs it every 15 minutes.
+//! `acpmux-update.timer` (`host_auto_update.rs`) runs it every 15 minutes;
+//! the external channel follower may invoke it every minute. Both share
+//! the automatic restart floor while local sessions exist.
 //! Two places name a channel's build. Our build controller (cmuxterm-hq's
 //! `build-fleet`) runs the channel's daemon tests and builds acpmux itself,
 //! and on a pass serves a marker at `{controller}/v1/channels/<channel>`:
@@ -40,7 +42,7 @@ use super::super::{REMOTE_HOME, Remote, RemoteOut};
 use super::{
     CLOUD_VM_MARK, OWN_UNIT, Outcome, PeerUpdate, RESTART_STAMP, RESTART_WINDOW,
     RESTART_WINDOW_ENV, RESTART_WINDOW_FILE, RESTART_WINDOW_SECS, UpdateOptions, build_commit,
-    embedded_build, is_own_unit, local_target, update_peer,
+    embedded_build, is_own_unit, local_target, update_peer, update_peer_automatic,
 };
 use crate::cli::output::print_json;
 use anyhow::{Context, Result, anyhow, bail};
@@ -890,12 +892,10 @@ pub(super) fn apply(
     };
     let opts = UpdateOptions {
         binary_dir: Some(dir.clone()),
-        // The self-update timer is the high-frequency path (the channel watcher can
-        // observe a new build every 30s). Never restart a daemon while one of its
-        // sessions is running a turn or waiting for permission: the 15-minute
-        // update timer will retry after the busy batch drains. The second probe in
-        // `update_peer` closes the race where a turn starts while copying.
-        if_idle: true,
+        // Native timer: 15 minutes; the external channel follower: 60 seconds.
+        // Defer busy turns; the automatic policy also batches idle gaps between
+        // turns with a 15-minute floor despite shorter per-host windows.
+        if_idle: !now,
         keep_newer: false,
         // Newer wins: a host whose installed build is of a newer commit than
         // the channel's keeps it (`current`, reason `newerInstalled`), as it
@@ -910,7 +910,7 @@ pub(super) fn apply(
         now,
     };
     let fenced = plan.lease.fence(remote);
-    let mut up = update_peer(&fenced, &opts);
+    let mut up = update_peer_automatic(&fenced, &opts);
     if !now && up.outcome == Outcome::Busy && up.reason.as_deref() == Some(RESTART_WINDOW) {
         up = idle_restart(&fenced, &opts, up);
     }

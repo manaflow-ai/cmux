@@ -1307,7 +1307,7 @@ async fn a_window_that_holds_an_idle_daemon_restarts_it_once() {
 }
 
 /// A session mid-turn keeps the self-update timer from restarting the daemon;
-/// the next 15-minute timer run retries after the turn ends.
+/// the next native timer or external follower run retries after the turn ends.
 #[tokio::test]
 #[cfg(unix)]
 async fn a_window_that_holds_a_busy_daemon_changes_nothing_until_it_ends() {
@@ -1646,4 +1646,51 @@ fn this_machine_runs_scripts_under_sh_and_pushes_by_copying() {
     LocalRemote.push(&dir.join("from"), &dir.join("to").to_string_lossy()).unwrap();
     assert_eq!(std::fs::read_to_string(dir.join("to")).unwrap(), "bytes");
     let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// The one-minute channel follower and native timer share the Rust floor,
+/// including idle gaps between turns, even with the follower's 120s window.
+#[tokio::test]
+#[cfg(unix)]
+async fn automatic_updates_batch_idle_gaps_with_a_fifteen_minute_floor() {
+    let peer = FakePeer::new("automatic-floor");
+    peer.write("sessions.json", r#"{"sessions":[{"name":"worker","status":"idle"}]}"#);
+    peer.write(".acpmux/update.restart-window", "120\n");
+    restarted_ago(&peer, 5 * 60);
+    let installed = peer.read(".local/bin/acpmux");
+    let up = windowed_apply(&peer, NEW).await;
+    assert_eq!(
+        (up.outcome, up.reason.as_deref()),
+        (Outcome::Busy, Some("automaticRestartWindow")),
+        "{up:?}"
+    );
+    assert_eq!(peer.read(".local/bin/acpmux"), installed);
+    assert!(peer.read(".acpmux/update.idle-restarted").is_empty());
+
+    // An old, longer host window cannot use the idle-restart shortcut to
+    // evade the floor either.
+    peer.write(".acpmux/update.restart-window", "3600\n");
+    let up = windowed_apply(&peer, NEW).await;
+    assert_eq!(
+        (up.outcome, up.reason.as_deref()),
+        (Outcome::Busy, Some("automaticRestartWindow")),
+        "{up:?}"
+    );
+
+    peer.write(".acpmux/update.restart-window", "120\n");
+    restarted_ago(&peer, 15 * 60);
+    let up = windowed_apply(&peer, NEW).await;
+    assert_eq!((up.outcome, up.build.as_deref()), (Outcome::Updated, Some(NEW)), "{up:?}");
+}
+
+#[tokio::test]
+#[cfg(unix)]
+async fn explicit_now_bypasses_the_automatic_floor_and_busy_check() {
+    let peer = FakePeer::new("automatic-floor-now");
+    peer.write("sessions.json", MID_TURN);
+    restarted_ago(&peer, 60);
+    let files = serving(&fake_acpmux(NEW, Some(NEW)));
+    let plan = ready(&peer, &files).await;
+    let up = apply(&peer, &plan, TARGET, true);
+    assert_eq!((up.outcome, up.build.as_deref()), (Outcome::Updated, Some(NEW)), "{up:?}");
 }
