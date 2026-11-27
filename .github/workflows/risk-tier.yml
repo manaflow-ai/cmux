@@ -47,12 +47,23 @@ jobs:
     # An `edited` event that changed only the title skips the same way (`risk evidence title edit
     # (ignored)`): risk_tier.py reads the body and the base, never the title. freeze-ok grades too,
     # because this job also posts the `merge freeze` result for the pull request (below).
-    if: ${{ !(((github.event.action == 'labeled' || github.event.action == 'unlabeled') && github.event.label.name != 'risk:human-ok' && github.event.label.name != 'risk:waived' && (github.event.label.name != 'freeze-ok' || vars.MERGE_FREEZE_OWN_RUNNER == '1')) || (github.event.action == 'edited' && !github.event.changes.body && !github.event.changes.base)) }}
-    name: ${{ ((github.event.action == 'labeled' || github.event.action == 'unlabeled') && github.event.label.name != 'risk:human-ok' && github.event.label.name != 'risk:waived' && (github.event.label.name != 'freeze-ok' || vars.MERGE_FREEZE_OWN_RUNNER == '1')) && 'risk evidence label (ignored)' || (github.event.action == 'edited' && !github.event.changes.body && !github.event.changes.base) && 'risk evidence title edit (ignored)' || 'risk evidence' }}
+    # A review bot's edit of the description skips the same way (`risk evidence review bot edit (ignored)`):
+    # cubic-dev-ai[bot] and blacksmith-sh[bot] rewrite only their own summary section of the body, never a
+    # `Takes back #N:` line or the `Agent session:` footer, the two things risk_tier.py reads from it, so the
+    # grade of the push before stands. 2026-11-27 14:34-15:07Z they were 33 of 147 graded runs on this job's
+    # secret-jit pool (each a second grade of a head already graded, and each cancelling the push's grade in
+    # flight), while risk evidence waited p50 4.5 min (peak 7-12) in that pool's queue for a 0.3 min grade.
+    if: ${{ !(((github.event.action == 'labeled' || github.event.action == 'unlabeled') && github.event.label.name != 'risk:human-ok' && github.event.label.name != 'risk:waived' && (github.event.label.name != 'freeze-ok' || vars.MERGE_FREEZE_OWN_RUNNER == '1')) || (github.event.action == 'edited' && !github.event.changes.body && !github.event.changes.base) || (github.event.action == 'edited' && !github.event.changes.base && (github.event.sender.login == 'cubic-dev-ai[bot]' || github.event.sender.login == 'blacksmith-sh[bot]'))) }}
+    name: ${{ ((github.event.action == 'labeled' || github.event.action == 'unlabeled') && github.event.label.name != 'risk:human-ok' && github.event.label.name != 'risk:waived' && (github.event.label.name != 'freeze-ok' || vars.MERGE_FREEZE_OWN_RUNNER == '1')) && 'risk evidence label (ignored)' || (github.event.action == 'edited' && !github.event.changes.body && !github.event.changes.base) && 'risk evidence title edit (ignored)' || (github.event.action == 'edited' && !github.event.changes.base && (github.event.sender.login == 'cubic-dev-ai[bot]' || github.event.sender.login == 'blacksmith-sh[bot]')) && 'risk evidence review bot edit (ignored)' || 'risk evidence' }}
     concurrency:
-      group: risk-evidence-${{ github.event.pull_request.number }}${{ (((github.event.action == 'labeled' || github.event.action == 'unlabeled') && github.event.label.name != 'risk:human-ok' && github.event.label.name != 'risk:waived' && (github.event.label.name != 'freeze-ok' || vars.MERGE_FREEZE_OWN_RUNNER == '1')) || (github.event.action == 'edited' && !github.event.changes.body && !github.event.changes.base)) && format('-ignored-{0}', github.run_id) || '' }}
+      group: risk-evidence-${{ github.event.pull_request.number }}${{ (((github.event.action == 'labeled' || github.event.action == 'unlabeled') && github.event.label.name != 'risk:human-ok' && github.event.label.name != 'risk:waived' && (github.event.label.name != 'freeze-ok' || vars.MERGE_FREEZE_OWN_RUNNER == '1')) || (github.event.action == 'edited' && !github.event.changes.body && !github.event.changes.base) || (github.event.action == 'edited' && !github.event.changes.base && (github.event.sender.login == 'cubic-dev-ai[bot]' || github.event.sender.login == 'blacksmith-sh[bot]'))) && format('-ignored-{0}', github.run_id) || '' }}
       cancel-in-progress: true
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'cmux-gcp-secret-jit-x64' }} # ephemeral-required: trusted pull-request-write token
+    # The PR control one-job JIT label, not the secret one: this is a PR verdict hop (one-job ephemeral, so App keys
+    # stay safe), and cmuxterm-hq runner_pool.py serves PR_CONTROL_JIT_LABEL at CONTROL_PRIORITY
+    # with a verdict quota share (VERDICT_QUOTA_LABELS names risk evidence). On cmux-gcp-secret-jit-x64 it queued
+    # behind ci-failure-attribution's bulk: 2026-11-27 12:46Z, 133 queued there (42 Attribute, 32 risk evidence),
+    # p90 wait 539 s, while the PR control label had nothing queued; #61609's 26 s job waited 11.6 min.
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'cmux-gcp-pr-control-jit-x64' }} # ephemeral-required: trusted pull-request-write token
     timeout-minutes: 10  # the grade, plus the grade step's RATE_LIMIT_WAIT_S (420 s) wait for a refused budget; at most cron_concurrency's TRIVIAL_TIMEOUT_MINUTES
     permissions:
       contents: read

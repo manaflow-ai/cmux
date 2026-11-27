@@ -29,12 +29,10 @@ concurrency:
 jobs:
   readback:
     if: github.ref == 'refs/heads/feat-cmux-next'
-    # This copy exists so the workflow can be dispatched; runs take --ref feat-cmux-next, whose copy keeps
-    # `deployment: false` (main's actionlint 1.7.7 does not know that key). The job holds the production agent
-    # Stack pair, so it runs on an ephemeral Mac named by literal (tests/test_ci_paid_queue_pin.py PAID_ONLY_JOBS).
     environment:
       name: cmux-next-cloud-journey
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || 'blacksmith-6vcpu-macos-26' }}
+      deployment: false
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || 'blacksmith-6vcpu-macos-26' }} # ephemeral-required: holds the production agent Stack pair, by literal
     timeout-minutes: 60
     steps:
       - name: Check the build input
