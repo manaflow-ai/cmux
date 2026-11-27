@@ -1155,4 +1155,53 @@ async fn the_offer_before_the_gather_with_an_older_mac_still_rides_the_relay() {
         relay_first_dial_with_a_slow_gather(false, false, Duration::from_millis(400), Duration::ZERO).await;
     eprintln!("older Mac: link up {up:?}, wg-init at {init:?}");
     assert!(init < Duration::from_millis(150), "wg-init went at {init:?}");
+/// Plain UDP for the test below, its own switch.
+static UDP_LOST_LATE: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(true);
+fn udp_lost_late(_: &std::net::SocketAddr) -> bool {
+    UDP_LOST_LATE.load(std::sync::atomic::Ordering::Relaxed)
+}
+
+/// RFD 0142 R1, disco's call-me-maybe: a link riding the relay whose direct
+/// path opens a moment later (a late NAT mapping, a firewall that lets UDP
+/// through again, a candidate learned through the relay) moves to it one
+/// round trip after the peer's first direct datagram arrives
+/// (`Paths::heard`). Before, the probe that went out while the path was
+/// black-holed had to time out first (1 s). Prints the
+/// `relay_then_direct_late` cell: time from UDP opening to both sides on the
+/// direct path (the echo below keeps the link busy, as a live terminal does).
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn a_direct_path_that_opens_just_after_the_relay_takes_over_within_a_spray() {
+    let mac_options = DialOptions { drop_udp_to: Some(udp_lost_late), ..options() };
+    let rig = rig(FakeOptions::default(), mac_options, true).await;
+    let phone = DialOptions {
+        drop_udp_to: Some(udp_lost_late),
+        relay: relay(&rig.server, &rig.phone_id),
+        ..options()
+    };
+    let connected =
+        dial::connect(&rig.phone, &rig.mac_id, TransportKind::WireGuard, &phone, LinkConfig::default())
+            .await
+            .expect("dial through the relay once nothing else answers");
+    echo(&connected.link, 1).await;
+    assert_eq!(*connected.path.borrow(), LinkPath::HttpsRelay);
+    // The direct path opens 1 s after the link rode the relay.
+    tokio::time::sleep(Duration::from_millis(1000)).await;
+    UDP_LOST_LATE.store(false, std::sync::atomic::Ordering::Relaxed);
+    let opened = std::time::Instant::now();
+    let deadline = opened + Duration::from_secs(25);
+    loop {
+        echo(&connected.link, 1).await;
+        if *connected.path.borrow() == LinkPath::Direct && rig.mac_path() == Some(LinkPath::Direct) {
+            break;
+        }
+        assert!(std::time::Instant::now() < deadline, "still on the relay: {:?}", *connected.path.borrow());
+        tokio::time::sleep(Duration::from_millis(20)).await;
+    }
+    let direct_after = opened.elapsed();
+    println!(
+        "MATRIX {{\"cell\": \"relay_then_direct_late\", \"direct_after_ms\": {:.1}}}",
+        direct_after.as_secs_f64() * 1000.0
+    );
+    assert!(direct_after < Duration::from_millis(1500), "direct {direct_after:?} after UDP opened");
+    connected.link.close("done");
 }

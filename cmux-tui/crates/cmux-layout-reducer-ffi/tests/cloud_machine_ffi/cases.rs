@@ -97,6 +97,40 @@ fn the_overlay_round_trips_its_state() {
 }
 
 #[test]
+fn the_read_order_round_trips_its_state() {
+    let (code, list) = call(c"cloud_machine_reads_begin", &json!({}));
+    assert_eq!(code, OK);
+    assert_eq!(list["read"], 1);
+    let (_, status) =
+        call(c"cloud_machine_reads_begin", &json!({"state": list["state"], "machine": "vm_a"}));
+    assert_eq!(status["read"], 2);
+    let (_, omitted) = call(
+        c"cloud_machine_reads_listed",
+        &json!({"state": status["state"], "machines": ["vm_c"], "held": ["vm_a"], "read": 1}),
+    );
+    assert_eq!(omitted["add"], json!(["vm_c"]));
+    assert_eq!(omitted["removals"], json!([]), "a newer read of vm_a holds the removal");
+    assert_eq!(omitted["state"]["deferred"], json!({"vm_a": 1}));
+    let (_, stale) = call(
+        c"cloud_machine_reads_admit",
+        &json!({"state": omitted["state"], "machine": "vm_b", "read": 1}),
+    );
+    assert_eq!(stale["admitted"], true);
+    let (_, finished) =
+        call(c"cloud_machine_reads_finish", &json!({"state": stale["state"], "read": 2}));
+    assert_eq!(finished["removals"], json!(["vm_a"]), "the failed read released it");
+    assert_eq!(finished["idle"], true);
+    let (_, again) = call(
+        c"cloud_machine_reads_admit",
+        &json!({"state": finished["state"], "machine": "vm_a", "read": 1}),
+    );
+    assert_eq!(again["admitted"], false, "the omission's list is vm_a's read now");
+    let (_, removed) =
+        call(c"cloud_machine_reads_removed", &json!({"state": again["state"], "machine": "vm_a"}));
+    assert_eq!(removed["state"]["deferred"], json!({}));
+}
+
+#[test]
 fn a_push_frame_says_what_to_show() {
     let id = "vm_aaaaaaaaaaaaaaaaaaaa";
     let text = json!({"t": "state", "machine": id, "state": {"record": {"id": id, "status": "paused", "revision": "4"}}}).to_string();
