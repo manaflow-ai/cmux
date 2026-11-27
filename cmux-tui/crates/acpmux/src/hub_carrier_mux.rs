@@ -498,6 +498,12 @@ impl Mux {
                     refuse(ServiceRefusal::new("service.off", "iroh is off on this machine")).await
                 }
             },
+            Ok(CircuitService::Consent) => match incoming.consent(from).await {
+                Ok((local, serving)) => {
+                    tokio::join!(serving, self.carry_admitted(id, local, events, credit));
+                }
+                Err(refusal) => refuse(refusal).await,
+            },
             // The acpmux listener, reached as a plain circuit with no hello reaches it: the
             // peer link and its hub probe ride the pair's one kept circuit.
             Ok(CircuitService::Acpmux)
