@@ -280,7 +280,7 @@ final class CEFPaneHost {
             #if DEBUG || CMUX_BENCH_HOOKS
             ChatOpenTrace.shared.mark(.cefWindowCreate, chromiumPane: key.pane.rawValue)
             #endif
-            let initialURL = adoptablePlaceholder && placeholder === tab ? "" : tab.takeInitialURLString()
+            let initialURL = tab.takeInitialURLString()
             let create = {
                 CEFStartSteps.shared.createWindow {
                     shim.createWindow(request, Unmanaged.passUnretained(self.hostView).toOpaque(),

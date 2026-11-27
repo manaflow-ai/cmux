@@ -22,6 +22,7 @@ extension CEFTab {
             restored.dropForwardIfLeftFirstEntry()
             let wasLoading = chromiumLoading
             let wasLoadingStopped = loadingStopped
+            if loading { navigationWillStart() }
             if loading, !chromiumLoading { (paintBeforeCommit, committedThisLoad) = (false, false) } // Chromium's new load: no commit or early paint of it yet
             if loading, !state.isLoading {
                 let id = makeNavigationID()

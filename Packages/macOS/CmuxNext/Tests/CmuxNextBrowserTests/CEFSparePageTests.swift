@@ -99,27 +99,6 @@ extension CEFSparePageSuites {
             #expect(SpareSpy.added.count == 1, "at most one untaken spare page")
         }
 
-        /// A placeholder waits for Chromium's asynchronous loading state before freezing; an attach-time
-        /// end-of-turn callback cannot race the load start.
-        @Test func aPlaceholderWaitsForLoadingStateBeforeFreezing() throws {
-            let (runtime, root) = try Self.runtime()
-            defer { Self.tearDown(runtime, root) }
-            let page = try Self.spareWithPage(runtime, settlePlaceholder: false)
-            let placeholder = try #require(runtime.spareWindow.host?.placeholder)
-            let placeholderBrowser = try #require(placeholder.browserID)
-            var stopped = 0
-            placeholder.onLoadingStopped = { stopped += 1 }
-            SpareSpy.clearRecords()
-
-            runtime.handle(.loadingState(browser: placeholderBrowser, loading: true, canGoBack: false, canGoForward: false))
-            #expect(SpareSpy.log.isEmpty, "a loading placeholder is not frozen")
-            runtime.handle(.loadingState(browser: placeholderBrowser, loading: false, canGoBack: false, canGoForward: false))
-            #expect(stopped == 1, "the loading completion callback fires once")
-            #expect(SpareSpy.log == ["freeze \(placeholderBrowser)"], "the settled event freezes it exactly once")
-            runtime.handle(.loadingState(browser: placeholderBrowser, loading: false, canGoBack: false, canGoForward: false))
-            #expect(SpareSpy.log == ["freeze \(placeholderBrowser)"], "duplicate settled events do not refreeze")
-        }
-
         /// A tab that restores its history needs a browser with no committed entries of its own:
         /// it keeps today's `tab_add`, and the spare page waits for the next tab.
         @Test func aRestoringTabMakesItsOwnBrowserAndLeavesTheSparePage() throws {

@@ -356,12 +356,20 @@ public final class CEFTab: BrowserTab, BrowserOcclusionHosting, BrowserExtension
     func takeInitialURLString() -> String {
         loadAfterAttach = nil
         loadSinceCreation = nil
-        guard pendingRestore == nil else { return "" }
-        if CEFAgentURLGuard.defersCreationLoad(pendingURL, agentDriven: isAgentDriven) {
+        let url: String
+        if pendingRestore != nil {
+            url = ""
+        } else if CEFAgentURLGuard.defersCreationLoad(pendingURL, agentDriven: isAgentDriven) {
             loadAfterAttach = pendingURL
-            return ""
+            url = ""
+        } else if host.freezesPlaceholder, host.placeholder === self, pendingURL == nil {
+            // Both spare windows start without a navigation or history entry.
+            url = ""
+        } else {
+            url = CEFAgentURLGuard.creationURL(pendingURL, agentDriven: isAgentDriven)
         }
-        return CEFAgentURLGuard.creationURL(pendingURL, agentDriven: isAgentDriven)
+        creationWithoutNavigation = url.isEmpty
+        return url
     }
 
     // MARK: Lifetime (called by CEFPaneHost / CEFRuntime)
@@ -402,8 +410,20 @@ public final class CEFTab: BrowserTab, BrowserOcclusionHosting, BrowserExtension
     @ObservationIgnored var committedThisLoad = false
     /// Chromium is loading (its last `.loadingState`).
     @ObservationIgnored var chromiumLoading = false
-    /// True once Chromium has reported a settled load state, including an adoptable blank spare with no navigation.
-    public var isLoadingSettled: Bool { !state.isLoading && !chromiumLoading && (loadingStopped || host.adoptablePlaceholder) }
+    /// The actual creation URL was empty. Consumed by attach; an externally adopted browser is unknown.
+    @ObservationIgnored var creationWithoutNavigation = false
+    /// This attached browser has its initial empty document and no requested or observed navigation.
+    @ObservationIgnored var hasUnnavigatedDocument = false
+    /// A known empty document needs no loading callback; every navigation waits for Chromium's load end.
+    public var isLoadingSettled: Bool {
+        browserID != nil && !isClosed && !state.isLoading && !chromiumLoading && (loadingStopped || hasUnnavigatedDocument)
+    }
+
+    /// Revoke eligibility before sending a navigation to Chromium, whose callbacks arrive later.
+    func navigationWillStart() {
+        hasUnnavigatedDocument = false
+        loadingStopped = false
+    }
     /// Whether the current document painted content, asked of the page (``BrowserFirstPaintScript/query``): it waits
     /// for the first contentful paint, and its observer is buffered, so a paint before it asked still counts. Nil: the
     /// call failed or timed out. A test answers instead.
@@ -455,6 +475,8 @@ public final class CEFTab: BrowserTab, BrowserOcclusionHosting, BrowserExtension
         // A page asked to show something (an address, a saved navigation, an agent's load) waits for that document; a
         // page with nothing to load takes keys now (lead on STATUS 7916: a reopen by address is no saved navigation).
         let navigates = pendingURL != nil || pendingRestore != nil || loadAfterAttach != nil || loadSinceCreation != nil
+        hasUnnavigatedDocument = creationWithoutNavigation && !navigates
+        creationWithoutNavigation = false
         host.lifecycleTrace.record(id, "ready-wait navigates=\(navigates) url=\(pendingURL != nil) restore=\(pendingRestore != nil) agent=\(loadAfterAttach != nil)")
         (hasDocument, documentLoaded, documentPainted, loadingStopped) = (false, false, false, false)
         (paintBeforeCommit, committedThisLoad, chromiumLoading) = (false, false, false)
@@ -489,8 +511,8 @@ public final class CEFTab: BrowserTab, BrowserOcclusionHosting, BrowserExtension
         if pageFilesChosen != nil { runtime.applyFileDialogRoute(self) }
         applyDeviceEmulation()
         agentRelay.browserAttached()
-        // A placeholder normally freezes from its settled loading-state event. Keep a next-turn
-        // fallback for an already-settled about:blank that emitted no loading transition.
+        // Empty-URL placeholders have no navigation and may emit no loading event. Leave Chromium's
+        // creation stack before freezing; recheck identity and navigation state when this runs.
         if host.freezesPlaceholder, host.placeholder === self {
             host.endOfTurn { [weak self] in self?.freezeNeverShownPageIfReady() }
         }
@@ -682,6 +704,7 @@ public final class CEFTab: BrowserTab, BrowserOcclusionHosting, BrowserExtension
     }
 
     func makeNavigationID() -> BrowserNavigationID {
+        navigationWillStart()
         clearTitleBeforeCommit()
         nextNavigation += 1
         return BrowserNavigationID(rawValue: nextNavigation)
@@ -691,6 +714,7 @@ public final class CEFTab: BrowserTab, BrowserOcclusionHosting, BrowserExtension
 
     public func load(_ url: URL) {
         guard !isClosed else { return }
+        navigationWillStart()
         if firstRequestedURL == nil { firstRequestedURL = url }
         automaticDownloads.userGesture()
         refusesDownloadsUntilGesture = false
@@ -721,6 +745,7 @@ public final class CEFTab: BrowserTab, BrowserOcclusionHosting, BrowserExtension
     public func goBack() {
         refusesDownloadsUntilGesture = false
         if !nativeHistory.back, restored.step(by: -1) { return }
+        if nativeHistory.back { navigationWillStart() }
         browserID.map { runtime.shim?.goBack($0) }
     }
 
@@ -729,6 +754,7 @@ public final class CEFTab: BrowserTab, BrowserOcclusionHosting, BrowserExtension
     public func goForward() {
         refusesDownloadsUntilGesture = false
         if !nativeHistory.back, restored.step(by: 1) { return }
+        if nativeHistory.forward { navigationWillStart() }
         browserID.map { runtime.shim?.goForward($0) }
     }
 
@@ -745,6 +771,7 @@ public final class CEFTab: BrowserTab, BrowserOcclusionHosting, BrowserExtension
         }
         switch reloadPlan {
         case .reloadEntry:
+            if !hasUnnavigatedDocument { navigationWillStart() }
             if bypassingCache { runtime.shim?.reloadIgnoreCache(browserID) } else { runtime.shim?.reload(browserID) }
         case .load(let url):
             // The sad tab clears now, not when the new renderer's first
