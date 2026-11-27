@@ -8,7 +8,7 @@
 //! known before send. A space the viewer cannot read is never listed, and a bridge author is never a
 //! recipient. Nothing here does I/O; the host passes the records in.
 
-use std::collections::BTreeMap;
+use std::collections::{HashMap, HashSet};
 
 use serde::{Deserialize, Serialize};
 
@@ -158,10 +158,63 @@ pub fn pick(viewer: &Principal, query: &str, cx: &PickerContext<'_>) -> Picked {
         .map(|s| (s, grants_for(viewer, team, s, cx.principals)))
         .filter(|(_, g)| g.has(Capability::Read))
         .collect();
-    let by_id: BTreeMap<&str, &Principal> =
+    // Every per-principal and per-thread lookup below is a hash probe, built once per call, so a
+    // keystroke costs O(principals + spaces x members + recent) rather than O(principals x spaces x
+    // members).
+    let by_id: HashMap<&str, &Principal> =
         cx.principals.iter().map(|p| (p.id.as_str(), p)).collect();
-    let here: BTreeMap<&str, &Participant> =
+    let here: HashMap<&str, &Participant> =
         cx.here.iter().map(|h| (h.principal_id.as_str(), h)).collect();
+    // Score principals first, so the space index below covers only the agents that matched.
+    let matched: Vec<(&Principal, u8)> = cx
+        .principals
+        .iter()
+        .filter(|p| {
+            p.id != viewer.id
+                && p.team_id == team.id
+                && p.via.is_none()
+                && identity::validate(p).is_ok()
+        })
+        .filter_map(|p| Some((p, score(query, &[&p.handle, &p.display_name])?)))
+        .collect();
+    let agents: HashSet<&str> = matched
+        .iter()
+        .filter(|(p, _)| p.kind == PrincipalKind::Agent)
+        .map(|(p, _)| p.id.as_str())
+        .collect();
+    // The viewer's pair space with each other member (lowest id wins), and each matched agent's
+    // best readable space: a pair first, then session, project, RFD, team; lowest id within a rank.
+    let mut pair_of: HashMap<&str, &(&Space, Grants)> = HashMap::new();
+    let mut best_of: HashMap<&str, &(&Space, Grants)> = HashMap::new();
+    for entry in &readable {
+        let s = entry.0;
+        if s.kind == SpaceKind::Pair && s.members.len() == 2 && s.is_member(&viewer.id) {
+            for m in &s.members {
+                let slot = pair_of.entry(m.as_str()).or_insert(entry);
+                if s.id < slot.0.id {
+                    *slot = entry;
+                }
+            }
+        }
+        if agents.is_empty() {
+            continue;
+        }
+        let rank = space_rank(s.kind);
+        for m in &s.members {
+            if !agents.contains(m.as_str()) {
+                continue;
+            }
+            let slot = best_of.entry(m.as_str()).or_insert(entry);
+            if (rank, &s.id) < (space_rank(slot.0.kind), &slot.0.id) {
+                *slot = entry;
+            }
+        }
+    }
+    let readable_by: HashMap<&str, &(&Space, Grants)> =
+        readable.iter().fold(HashMap::new(), |mut m, e| {
+            m.entry(e.0.id.as_str()).or_insert(e);
+            m
+        });
 
     if query.trim().starts_with('@') {
         out.resolved = match identity::resolve_handle(query, &team.id, cx.principals) {
@@ -171,29 +224,10 @@ pub fn pick(viewer: &Principal, query: &str, cx: &PickerContext<'_>) -> Picked {
         };
     }
 
-    let pair_with = |other: &str| {
-        readable
-            .iter()
-            .filter(|(s, _)| {
-                s.kind == SpaceKind::Pair
-                    && s.members.len() == 2
-                    && s.is_member(&viewer.id)
-                    && s.is_member(other)
-            })
-            .min_by(|a, b| a.0.id.cmp(&b.0.id))
-    };
-
+    let pair_with = |other: &str| pair_of.get(other).copied();
     let mut scored: Vec<(u8, Candidate)> = Vec::new();
-    let mut paired: Vec<&str> = Vec::new();
-    for p in cx.principals {
-        if p.id == viewer.id
-            || p.team_id != team.id
-            || p.via.is_some()
-            || identity::validate(p).is_err()
-        {
-            continue;
-        }
-        let Some(s) = score(query, &[&p.handle, &p.display_name]) else { continue };
+    let mut paired: HashSet<&str> = HashSet::new();
+    for &(p, s) in &matched {
         let h = here.get(p.id.as_str()).copied();
         let base = Candidate {
             kind: CandidateKind::Person,
@@ -214,7 +248,7 @@ pub fn pick(viewer: &Principal, query: &str, cx: &PickerContext<'_>) -> Picked {
             PrincipalKind::Person => {
                 let pair = pair_with(&p.id);
                 if let Some((s, _)) = pair {
-                    paired.push(s.id.as_str());
+                    paired.insert(s.id.as_str());
                 }
                 Candidate {
                     space_id: pair.map(|(s, _)| s.id.clone()),
@@ -224,11 +258,7 @@ pub fn pick(viewer: &Principal, query: &str, cx: &PickerContext<'_>) -> Picked {
             }
             PrincipalKind::Agent => {
                 // The agent's space with the viewer: a pair first, then session, project, RFD, team.
-                let Some((s, g)) = readable
-                    .iter()
-                    .filter(|(s, _)| s.is_member(&p.id))
-                    .min_by_key(|(s, _)| (space_rank(s.kind), s.id.clone()))
-                else {
+                let Some((s, g)) = best_of.get(p.id.as_str()).copied() else {
                     continue;
                 };
                 let wake = wake_allowed(s, p);
@@ -273,7 +303,7 @@ pub fn pick(viewer: &Principal, query: &str, cx: &PickerContext<'_>) -> Picked {
         working: false,
     };
     for (s, g) in &readable {
-        if paired.contains(&s.id.as_str()) {
+        if paired.contains(s.id.as_str()) {
             continue;
         }
         let Some(sc) = score(query, &[&s.title, &s.id]) else { continue };
@@ -286,7 +316,7 @@ pub fn pick(viewer: &Principal, query: &str, cx: &PickerContext<'_>) -> Picked {
     }
 
     for t in cx.recent {
-        let Some((s, g)) = readable.iter().find(|(s, _)| s.id == t.space_id) else { continue };
+        let Some((s, g)) = readable_by.get(t.space_id.as_str()).copied() else { continue };
         let Some(sc) = score(query, &[&t.subject]) else { continue };
         scored.push((
             sc,
@@ -299,24 +329,22 @@ pub fn pick(viewer: &Principal, query: &str, cx: &PickerContext<'_>) -> Picked {
         ));
     }
 
-    // Recent threads keep their recency order within a score; everything else sorts by name.
-    let recency: BTreeMap<&str, usize> =
+    // Recent threads keep their recency order within a score; everything else sorts by name. Keys
+    // are built once per candidate, not per comparison.
+    let recency: HashMap<&str, usize> =
         cx.recent.iter().enumerate().map(|(i, t)| (t.id.as_str(), i)).collect();
-    scored.sort_by(|(sa, a), (sb, b)| {
-        let ra = out.resolved.iter().all(|r| *r != a.id);
-        let rb = out.resolved.iter().all(|r| *r != b.id);
-        let ta = recency.get(a.id.as_str()).filter(|_| a.kind == CandidateKind::Thread);
-        let tb = recency.get(b.id.as_str()).filter(|_| b.kind == CandidateKind::Thread);
-        (ra, a.kind, *sa, ta, a.label.to_lowercase(), &a.id).cmp(&(
-            rb,
-            b.kind,
-            *sb,
-            tb,
-            b.label.to_lowercase(),
-            &b.id,
-        ))
-    });
-    out.candidates = scored.into_iter().map(|(_, c)| c).collect();
+    let resolved: HashSet<&str> = out.resolved.iter().map(String::as_str).collect();
+    let mut keyed: Vec<_> = scored
+        .into_iter()
+        .map(|(sc, c)| {
+            let unresolved = !resolved.contains(c.id.as_str());
+            let at =
+                recency.get(c.id.as_str()).copied().filter(|_| c.kind == CandidateKind::Thread);
+            ((unresolved, c.kind, sc, at, c.label.to_lowercase()), c)
+        })
+        .collect();
+    keyed.sort_by(|(ka, a), (kb, b)| ka.cmp(kb).then_with(|| a.id.cmp(&b.id)));
+    out.candidates = keyed.into_iter().map(|(_, c)| c).collect();
     out
 }
 

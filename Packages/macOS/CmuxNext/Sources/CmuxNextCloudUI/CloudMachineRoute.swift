@@ -46,7 +46,7 @@ public struct CloudMachineRoute: Sendable {
 
     /// The route of Cloud machine `machineID`, whose commands run through the Cloud API's exec. `start` starts or resumes
     /// the machine when the exec finds it not running (``startingWhenStopped(_:start:)``); nil refuses as the route does.
-    public init(api: CloudAPIClient, machineID: String, start: (@Sendable () async throws -> Void)? = nil) {
+    public init(api: CloudDaemon, machineID: String, start: (@Sendable () async throws -> Void)? = nil) {
         self.init(machineID: machineID, exec: { try await api.exec(machineID, command: $0, timeoutMs: $1) }, start: start)
     }
 
