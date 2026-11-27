@@ -1,7 +1,6 @@
 import { flushSync } from "react-dom";
 import { writeScrollTop } from "../conversation/scrollController";
 import { type AcpmuxRow, type PlacedLayout } from "../model";
-import { pressJumpUp, type JumpBack, type IdleTracker, type jumpUpTarget } from "../jumpUp";
 import { isAgentMotionOff } from "../../shared/motion";
 import { MOTION_MS } from "../../../motion/scale.generated";
 import { animateScroll } from "../threadMinimap/scrollMotion";
@@ -9,9 +8,7 @@ import { JUMP_CURVE, jumpDuration, jumpGlideStart } from "../threadMinimap/model
 import { cssTimeMs } from "../conversation/fold";
 import { type FoldAnchor } from "../conversation/foldAnchor";
 import { userScrollIntent } from "../conversation/userScroll";
-import { clearScrollOrigin, layoutScrollTop, physicalScrollTop } from "../conversation/scrollCoordinates";
-import { indexOfRow } from "./rowIndex";
-import { restingAnchor } from "./scrollAnchors";
+import { clearScrollOrigin, physicalScrollTop } from "../conversation/scrollCoordinates";
 
 /// What `jumpToLatestWith` reads of TranscriptView, as of the call.
 export type JumpToLatestDeps = {
@@ -30,8 +27,8 @@ export type JumpToLatestDeps = {
   follow: (next: boolean, path?: string) => void;
   focusComposer: (() => void) | undefined;
   latestLayout: { current: { layout: PlacedLayout; rows: readonly AcpmuxRow[] } };
-  idle: IdleTracker;
-  dropJumpBack: () => void;
+  /// The reader asked for the latest message (jumpControl.ts): what lies above is theirs to have passed.
+  caughtUp: { current: boolean };
   stopJump: () => void;
   rideToLatest: (node: HTMLDivElement, target: number, reduce: boolean, flush: boolean, send?: boolean) => void;
 };
@@ -48,18 +45,6 @@ export type PlaceViewDeps = {
   placing: { current: boolean };
   setScrollAt: (top: number, delta?: number) => void;
   placedTop: { current: number | undefined };
-};
-
-/// What `pressUpWith` reads of TranscriptView, as of the call.
-export type PressUpDeps = {
-  ref: { current: HTMLDivElement | null };
-  jumpBack: { current: JumpBack | undefined };
-  setJumpBackHeld: (held: boolean) => void;
-  followingRef: { current: boolean };
-  jumpToLatest: (focused: boolean, path?: string) => void;
-  placeView: (top: () => number) => void;
-  upTopRef: { current: { top: number | undefined; place: ReturnType<typeof jumpUpTarget> } };
-  latestLayout: { current: { layout: PlacedLayout; rows: readonly AcpmuxRow[] } };
 };
 
 // Jump to latest (the button, ChatGPT and Codex style): a smooth scroll to the latest message, then a
@@ -81,8 +66,7 @@ export function jumpToLatestWith(
     follow,
     focusComposer,
     latestLayout,
-    idle,
-    dropJumpBack,
+    caughtUp,
     stopJump,
     rideToLatest,
   }: JumpToLatestDeps,
@@ -113,29 +97,18 @@ export function jumpToLatestWith(
   // left, as a send's does (its momentum is held too, momentumHold.ts holdMomentum).
   followRequest.current = userScrollIntent(node).request();
   follow(true, path);
+  caughtUp.current = true;
   if (focused) focusComposer?.();
   // cmux's animations off (ui.animations) or the system's Reduce Motion: it lands in one frame, and
   // with no glide in flight nothing aims one again at a moved end.
   const reduce = isAgentMotionOff() || globalThis.matchMedia?.("(prefers-reduced-motion: reduce)").matches;
   // The layout the room just taken committed (flushSync above), not the one this render closed over.
   const target = Math.max(0, latestLayout.current.layout.totalHeight - node.clientHeight);
-  // The reader's own press: Jump up's mark goes and an idle stretch starts at the latest message, so
-  // Jump up never comes up just because they pressed this (Leo, 2026-11-12: "after clicking the
-  // jump to bottom button, this appears... maybe a bit extra?").
-  // Jump up's own way back (Esc after a press) is the press's return, not a new act: the mark stays.
-  if (path !== "jump-back") {
-    const { layout: placed, rows: shown } = latestLayout.current;
-    idle.scrolled(restingAnchor(target + node.clientHeight / 3, false, placed, shown) ?? undefined);
-  }
-  // At the latest message nothing is left to go back to: a way back a Jump up press held goes, or
-  // the button came back at the bottom pointing down at where the reader already is.
-  dropJumpBack();
   stopJump();
   rideToLatest(node, target, reduce, true);
 }
 
-/// Jump up (jumpUp.ts): to where the reader left off, holding where the view is; pressed again
-/// (or Esc), back there. The reader asked for this place, so the view stops following the reply.
+/// Jump up (jumpControl.ts): to the first unseen row, holding the view there. The reader asked for this place, so the view stops following the reply.
 /// It glides on Jump to latest's ride (curve, distance duration, move token): a long way skips at
 /// once to one viewport from the place, with those rows mounted before the frame paints, and eases
 /// the rest, so the view never cuts to a far place in one frame nor draws the rows it crosses.
@@ -194,46 +167,4 @@ export function placeViewWith(
     },
     { explicit: true },
   );
-}
-
-/// Jump up's press: back along the way a press holds, else to where the reader left off (`placeViewWith`).
-export function pressUpWith({
-  ref,
-  jumpBack,
-  setJumpBackHeld,
-  followingRef,
-  jumpToLatest,
-  placeView,
-  upTopRef,
-  latestLayout,
-}: PressUpDeps) {
-  const node = ref.current;
-  if (!node) return;
-  const press = pressJumpUp(jumpBack.current, {
-    top: layoutScrollTop(node),
-    atLatest: followingRef.current,
-  });
-  if (press.kind === "back") {
-    jumpBack.current = undefined;
-    setJumpBackHeld(false);
-    if (press.back.atLatest) jumpToLatest(false, "jump-back");
-    else {
-      const back = press.back.top;
-      placeView(() => back);
-    }
-    return;
-  }
-  const { top, place } = upTopRef.current;
-  if (top === undefined || !place) return;
-  jumpBack.current = press.back;
-  setJumpBackHeld(true);
-  // The place pressed for, a third down the view, where its row measures on the way. Held by its
-  // row: the target can change under the glide (the New line read as it comes into view), and the
-  // view must not turn round to it.
-  const hint = { current: -1 };
-  placeView(() => {
-    const { layout: placed, rows: shown } = latestLayout.current;
-    const index = indexOfRow(shown, place.rowId, hint);
-    return (index >= 0 ? placed.geometry.topAt(index) + place.offset : top) - node.clientHeight / 3;
-  });
 }

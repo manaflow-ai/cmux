@@ -356,6 +356,14 @@ export class OrderedRows extends Map<string, AcpmuxRow> {
       if (row.kind === "assistant") this.lastWrite.set(id, this.current);
       if (!unchanged && this.current > (this.order.get(id) ?? Infinity)) this.noteChange(id, this.current);
     }
+    // Every row an event made carries that event's seq, the record that began it (a producer's own
+    // seq, a turn footer's, stays): the seen cursor counts rows by it (jumpControl.ts). A turn paged
+    // in from the agent's own transcript sorts at a negative seq and is in no log: it keeps none, so
+    // no fork or edit goes through it (agent-pane-native-history.test.ts).
+    if (row.seq === undefined && !this.local.has(id)) {
+      const first = this.order.get(id);
+      if (first !== undefined && Number.isInteger(first) && first >= 0) row = { ...row, seq: first };
+    }
     // A row an event of a background turn made is that turn's, whoever updates it later. A prompt
     // never is: it starts a turn of its own (acpmux ends the background turn before it).
     let turn: string | undefined;
